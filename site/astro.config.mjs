@@ -1,6 +1,7 @@
 import { defineConfig } from 'astro/config'
 import sitemap from '@astrojs/sitemap'
 import tailwindcss from '@tailwindcss/vite'
+import basicSsl from '@vitejs/plugin-basic-ssl'
 import expressiveCode from 'astro-expressive-code'
 import xgisGrammar from './src/lib/xgis-grammar.json' with { type: 'json' }
 
@@ -38,7 +39,7 @@ export default defineConfig({
     sitemap(),
   ],
   vite: {
-    plugins: [tailwindcss()],
+    plugins: [tailwindcss(), basicSsl()],
     // Workspace packages must skip Vite's pre-bundle (it can't crawl
     // their TS exports correctly through symlinks). Same fix the
     // playground uses.

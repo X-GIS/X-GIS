@@ -12,16 +12,22 @@ const examplesPath = `${githubUrl}/blob/main/playground/src/examples`
 // directly. BASE_URL handles the production /X-GIS/ prefix.
 //
 // In `astro dev` the playground isn't merged, so the cards target
-// the playground's own dev server at https://localhost:3000/demo.html
+// the playground's own dev server at https://<host>:3000/demo.html
 // (started independently with `bun run dev` from the playground
 // workspace). The user accepts the cert warning once and from there
 // on dev clicks just work.
+//
+// `__PG_HOST__` is a SSR-emitted placeholder swapped to
+// `location.hostname` by the inline script at the bottom of the page
+// — this keeps dev access from a LAN IP (mobile WiFi) routing the
+// card clicks back to the playground on the same machine, instead of
+// the device's own (non-existent) localhost:3000.
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const playPath = import.meta.env.DEV
-  ? 'https://localhost:3000/demo.html'
+  ? 'https://__PG_HOST__:3000/demo.html'
   : `${base}/play/demo.html`
 const playBase = import.meta.env.DEV
-  ? 'https://localhost:3000'
+  ? 'https://__PG_HOST__:3000'
   : `${base}/play`
 
 /** Pick the right URL for a demo card: standalone HTML when set,
@@ -228,6 +234,20 @@ const visibleFeatured = showDevOnly
 
   <Footer />
 </Base>
+
+<!-- Swap the `__PG_HOST__` SSR placeholder in every dev card href to
+     the current page hostname. localhost-hardcoded cards would 404
+     when the dev server is browsed from a phone over LAN — this lets
+     the LAN IP origin route clicks back to the same machine. Prod
+     builds don't emit the placeholder, so this no-ops there. -->
+<script is:inline>
+  (function () {
+    var h = location.hostname
+    document.querySelectorAll('a[href*="__PG_HOST__"]').forEach(function (a) {
+      a.href = a.href.replace(/__PG_HOST__/g, h)
+    })
+  })()
+</script>
 
 <style>
   /* Apple-signature card hover: combined transform + color easing,

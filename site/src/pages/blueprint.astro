@@ -382,9 +382,13 @@ const playgroundUrl = `${base}/play/demo.html`
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const isDev = !!(import.meta as any).env?.DEV
       if (isDev) {
+        // Playground origin tracks the current page host so dev access
+        // from a LAN IP (mobile WiFi) still resolves the playground
+        // running on the same machine.
+        const pgOrigin = `https://${location.hostname}:3000`
         let running = false
         try {
-          const probe = await fetch('https://localhost:3000/@vite/client', {
+          const probe = await fetch(`${pgOrigin}/@vite/client`, {
             mode: 'no-cors',
             cache: 'no-store',
           })
@@ -394,13 +398,13 @@ const playgroundUrl = `${base}/play/demo.html`
         }
         if (!running) {
           $msg.textContent =
-            'Playground dev server not running on https://localhost:3000. ' +
+            `Playground dev server not running on ${pgOrigin}. ` +
             'Start it with `bun run dev` in playground/ (or `bun run dev:all`).'
           return
         }
         const encoded = btoa(unescape(encodeURIComponent(source)))
         window.location.href =
-          `https://localhost:3000/demo.html?id=__import&label=${encodeURIComponent(
+          `${pgOrigin}/demo.html?id=__import&label=${encodeURIComponent(
             label,
           )}#src=${encoded}`
         return
