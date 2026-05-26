@@ -10,8 +10,8 @@
 
 import { describe, expect, it } from 'vitest'
 import { WGSL_PROJECTION_FNS } from './projection'
-import { POLYGON_SHADER_SOURCE } from '../render/renderer'
 import { emitRasterWgsl, emitLineWgsl } from '../shader-dsl'
+import { emitPolygonWgsl } from '../shader-dsl/shaders/polygon'
 
 // WGSL spec reserved words (the high-value subset that realistically
 // collides with shader-author names; `ref` is the one that bit us).
@@ -44,7 +44,7 @@ function declaredIdentifiers(wgsl: string): string[] {
 describe('shader WGSL never declares an identifier that is a reserved word', () => {
   const sources: [string, string][] = [
     ['WGSL_PROJECTION_FNS', WGSL_PROJECTION_FNS],
-    ['POLYGON_SHADER_SOURCE', POLYGON_SHADER_SOURCE],
+    ['emitPolygonWgsl', emitPolygonWgsl(null, true)],
     ['emitLineWgsl', emitLineWgsl(true)],
     ['emitRasterWgsl', emitRasterWgsl(true)],
   ]

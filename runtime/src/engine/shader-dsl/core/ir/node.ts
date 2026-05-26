@@ -209,6 +209,12 @@ export const sign = genType1('sign')
 export const atan2 = <K extends string>(y: Node<K>, x: ArithArg<K>): Node<K> => call('atan2', y.type, y, x) as Node<K>
 export const min = <K extends string>(a: Node<K>, b: ArithArg<K>): Node<K> => call('min', binResultType(a.type, lift(b).type, 'min'), a, b) as Node<K>
 export const max = <K extends string>(a: Node<K>, b: ArithArg<K>): Node<K> => call('max', binResultType(a.type, lift(b).type, 'max'), a, b) as Node<K>
+/** `pow(a, b)` — same-type binary; second operand promotes via ArithArg so
+ *  `pow(z, 4)` emits `pow(z, 4.0)` for an f32 base. WGSL pow only accepts
+ *  matching scalar/vec floats, so a vec*scalar broadcast is structurally
+ *  rejected by WGSL even when the type system would allow it — we keep
+ *  binResultType for parity with `min` / `max`. */
+export const pow = <K extends string>(a: Node<K>, b: ArithArg<K>): Node<K> => call('pow', binResultType(a.type, lift(b).type, 'pow'), a, b) as Node<K>
 export const clamp = <K extends string>(x: Node<K>, lo: ArithArg<K>, hi: ArithArg<K>): Node<K> => call('clamp', x.type, x, lo, hi) as Node<K>
 export const mix = <K extends string>(a: Node<K>, b: ArithArg<K>, t: Node<ScalarKey> | number): Node<K> => call('mix', a.type, a, b, t) as Node<K>
 export const smoothstep = (e0: Node<ScalarKey> | number, e1: Node<ScalarKey> | number, x: Node<ScalarKey> | number): Node<'f32'> => { const n = lift(x); return call('smoothstep', elemScalarType(n.type), e0, e1, n) as Node<'f32'> }

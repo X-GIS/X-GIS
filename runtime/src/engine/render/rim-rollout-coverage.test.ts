@@ -7,16 +7,22 @@
 // pass on the 2D label canvas, rim plumbed at label-resolver level).
 
 import { describe, expect, it } from 'vitest'
-import {
-  POLYGON_SHADER_SOURCE,
-} from './renderer'
 import { WGSL_PROJECTION_FNS } from '../shaders/projection'
 import { emitRasterWgsl, emitPointWgsl, emitLineWgsl } from '../shader-dsl'
+import { emitPolygonWgsl } from '../shader-dsl/shaders/polygon'
 
 describe('rim_alpha rollout coverage', () => {
   it('polygon shader (fs_fill / fs_stroke / fs_oit_translucent) calls polygon_rim_alpha', () => {
-    // 3 fragment entry points, each multiplies rim into alpha.
-    const occurrences = (POLYGON_SHADER_SOURCE.match(/polygon_rim_alpha/g) ?? []).length
+    // 3 fragment entry points, each multiplies rim into alpha. The polygon
+    // shader is now DSL-emitted (shader-dsl/shaders/polygon.ts) so this
+    // counts call sites in the composed output.
+    const wgsl = emitPolygonWgsl(null, false)
+    const occurrences = (wgsl.match(/polygon_rim_alpha/g) ?? []).length
+    // Counts: 1 definition (fn polygon_rim_alpha) + 4 call sites (fs_fill,
+    // fs_fill_pattern, fs_oit_translucent's `a = ... * polygon_rim_alpha`,
+    // fs_fill_extrude, fs_stroke) — composer emits each callFn unique to
+    // that entry. The floor 3 catches a future shader edit that drops any
+    // one of the discard-then-rim pairs.
     expect(occurrences, 'fs_fill + fs_stroke + fs_oit_translucent should each call polygon_rim_alpha').toBeGreaterThanOrEqual(3)
   })
 
