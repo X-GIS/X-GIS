@@ -952,8 +952,14 @@ const buildPolygonModule = (
   //   buffers feeding the fillExpr / strokeExpr unpack4x8unorm reads).
   const extraBindings: BindingDecl[] = []
   if (variant?.needsFeatureBuffer) {
+    // Matches the renderer's bind-group convention from
+    // renderer-shaders.ts: feat_data is the @group(0) @binding(1)
+    // storage entry alongside the @group(0) @binding(0) Uniforms +
+    // @group(0) @binding(5/6) sprite_atlas/sprite_samp. Group 1 is
+    // reserved for variant-specific palette / scalar atlas + samplers
+    // (per generatePaletteWGSL); group 2 carries compute output buffers.
     extraBindings.push({
-      group: 1, binding: 0, name: 'feat_data',
+      group: 0, binding: 1, name: 'feat_data',
       space: 'storage', access: 'read', type: arrayT(f32T),
     })
   }

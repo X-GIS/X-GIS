@@ -260,7 +260,10 @@ describe('emitPolygonWgsl — skeleton', () => {
       },
       false,
     )
-    expect(wgslOn).toMatch(/@group\(1\)\s*@binding\(0\).*feat_data\s*:\s*array<f32>/)
+    // feat_data lives in @group(0) @binding(1) per the renderer's bind-
+    // group convention (group 0 = per-tile uniforms + texture/sampler +
+    // feat_data storage; group 1 = palette atlas; group 2 = compute out).
+    expect(wgslOn).toMatch(/@group\(0\)\s*@binding\(1\).*feat_data\s*:\s*array<f32>/)
   })
 
   it('AC3 #3 — variant.preamble.consts only → consts appended; fill/stroke unchanged', () => {
@@ -381,7 +384,7 @@ describe('emitPolygonWgsl — skeleton', () => {
     // All three composition axes appear in the output.
     expect(wgsl).toContain('out.pick')               // pick attachment write
     expect(wgsl).toMatch(/out\.color\s*=\s*vec4<f32>\(0\.5,\s*0\.5/)  // variant fillExpr
-    expect(wgsl).toMatch(/@group\(1\)\s*@binding\(0\).*feat_data/)    // feat_data binding
+    expect(wgsl).toMatch(/@group\(0\)\s*@binding\(1\).*feat_data/)    // feat_data binding
   })
 
   it('variant.computeBindings appends storage bindings for each compute output buffer', () => {
