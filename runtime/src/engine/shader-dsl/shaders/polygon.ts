@@ -26,8 +26,8 @@ import {
   abs, fract, max, min, mix, pow, sqrt, dot, textureSample,
   f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   structT,
-  Node, Builder,
-  type StructDecl, type StructField, type ModuleDecl, type Stmt,
+  Node, Builder, arrayT,
+  type StructDecl, type StructField, type ModuleDecl, type Stmt, type BindingDecl,
 } from '../core/ir'
 import { emitModule } from '../core/backends/wgsl'
 import { PROJECTION_WGSL_CONSTS, PROJECTION_WGSL_FNS } from './projections'
@@ -799,6 +799,99 @@ export interface ShaderVariantInfo {
   }[]
 }
 
+// ── Composer ──
+//
+// The composer walks the polygon base module and replaces each placeholder
+// Stmt (tags 'fill-return' / 'stroke-return') with either the variant-
+// injected return path or the default-uniform path. Default paths reference
+// the same `out` + `wall_shade` / `alpha_scale` let-bindings that fs_fill /
+// fs_stroke author above the placeholder.
+
+const defaultFillReturnStmts = (): readonly Stmt[] => {
+  const b = new Builder()
+  const out = new Node({ op: 'varref', type: structT('FragmentOutput'), name: 'out' })
+  const wallShade = new Node<'f32'>({ op: 'varref', type: f32T, name: 'wall_shade' })
+  const fillColor = u.field('fill_color', vec4fT)
+  b.assign(out.field('color', vec4fT), vec4(fillColor.rgb.mul(wallShade), fillColor.a))
+  return b.stmts
+}
+
+const defaultStrokeReturnStmts = (): readonly Stmt[] => {
+  const b = new Builder()
+  const out = new Node({ op: 'varref', type: structT('FragmentOutput'), name: 'out' })
+  const alphaScale = new Node<'f32'>({ op: 'varref', type: f32T, name: 'alpha_scale' })
+  const strokeColor = u.field('stroke_color', vec4fT)
+  b.assign(out.field('color', vec4fT), vec4(strokeColor.rgb, strokeColor.a.mul(alphaScale)))
+  return b.stmts
+}
+
+// Variant fill / stroke return → fillPreamble Stmts (e.g. match if-else
+// chain authoring `_mcSS` var) followed by the assign of out.color to the
+// variant-provided Expr.
+
+const variantReturnStmts = (
+  axis: 'fill' | 'stroke',
+  variant: ShaderVariantInfo,
+): readonly Stmt[] => {
+  const expr = axis === 'fill' ? variant.fillExpr : variant.strokeExpr
+  const preamble = axis === 'fill' ? variant.fillPreamble : variant.strokePreamble
+  if (!expr) {
+    // No expr → keep default path (preamble alone is a no-op per AC3 #9).
+    return axis === 'fill' ? defaultFillReturnStmts() : defaultStrokeReturnStmts()
+  }
+  const b = new Builder()
+  const out = new Node({ op: 'varref', type: structT('FragmentOutput'), name: 'out' })
+  b.assign(out.field('color', vec4fT), expr)
+  return [...(preamble ?? []), ...b.stmts]
+}
+
+// Recursive placeholder-Stmt walker. The polygon base module only places
+// placeholders at top-level in fs_fill / fs_stroke bodies (no current
+// nesting), but the walker descends into if / for / switch bodies anyway
+// so future polygon-DSL additions can place placeholders in nested scopes
+// without re-plumbing the composer.
+
+const swapPlaceholders = (
+  stmts: readonly Stmt[],
+  swaps: Record<string, readonly Stmt[]>,
+): Stmt[] => {
+  const out: Stmt[] = []
+  for (const s of stmts) {
+    if (s.s === 'placeholder') {
+      const replacement = swaps[s.tag]
+      if (replacement) out.push(...replacement)
+      else out.push(s) // bare survival → wgsl emits `// __placeholder: <tag>`
+      continue
+    }
+    if (s.s === 'if') {
+      out.push({
+        s: 'if',
+        arms: s.arms.map((arm) => ({
+          cond: arm.cond,
+          body: swapPlaceholders(arm.body, swaps),
+        })),
+        elseBody: s.elseBody ? swapPlaceholders(s.elseBody, swaps) : undefined,
+      })
+      continue
+    }
+    if (s.s === 'for') {
+      out.push({ ...s, body: swapPlaceholders(s.body, swaps) })
+      continue
+    }
+    if (s.s === 'switch') {
+      out.push({
+        s: 'switch',
+        scrut: s.scrut,
+        cases: s.cases.map((c) => ({ value: c.value, body: swapPlaceholders(c.body, swaps) })),
+        defaultBody: s.defaultBody ? swapPlaceholders(s.defaultBody, swaps) : undefined,
+      })
+      continue
+    }
+    out.push(s)
+  }
+  return out
+}
+
 // ── Module assembly ──
 //
 // PARTIAL — the initial US-007b skeleton lands structs + fixed bindings +
@@ -837,12 +930,47 @@ const buildPolygonModule = (
       fsOverdraw,
     ],
   })
-  if (variant === null) return base
+
+  // Placeholder Stmt swaps — fill / stroke return paths. Even for the
+  // null-variant case the default Stmts substitute the placeholder so the
+  // emitted WGSL is valid renderable output (a bare placeholder would
+  // survive as `// __placeholder: <tag>` and leave out.color unassigned).
+  const swaps: Record<string, readonly Stmt[]> = variant
+    ? {
+        'fill-return': variantReturnStmts('fill', variant),
+        'stroke-return': variantReturnStmts('stroke', variant),
+      }
+    : {
+        'fill-return': defaultFillReturnStmts(),
+        'stroke-return': defaultStrokeReturnStmts(),
+      }
+  const composedFuncs = base.funcs.map((f) => ({ ...f, body: swapPlaceholders(f.body, swaps) }))
+
+  // Variant-driven binding extensions.
+  // - needsFeatureBuffer → feat_data storage binding at @group(1) @binding(0).
+  // - computeBindings → per-axis storage bindings (compute kernel output
+  //   buffers feeding the fillExpr / strokeExpr unpack4x8unorm reads).
+  const extraBindings: BindingDecl[] = []
+  if (variant?.needsFeatureBuffer) {
+    extraBindings.push({
+      group: 1, binding: 0, name: 'feat_data',
+      space: 'storage', access: 'read', type: arrayT(f32T),
+    })
+  }
+  if (variant?.computeBindings) {
+    for (const cb of variant.computeBindings) {
+      extraBindings.push({
+        group: cb.bindGroup, binding: cb.binding, name: cb.bufferName,
+        space: 'storage', access: 'read', type: arrayT(u32T),
+      })
+    }
+  }
+
   return module({
-    consts: [...base.consts, ...(variant.preamble?.consts ?? [])],
+    consts: [...base.consts, ...(variant?.preamble?.consts ?? [])],
     structs: base.structs,
-    bindings: [...base.bindings, ...(variant.preamble?.bindings ?? [])],
-    funcs: [...base.funcs, ...(variant.preamble?.funcs ?? [])],
+    bindings: [...base.bindings, ...extraBindings, ...(variant?.preamble?.bindings ?? [])],
+    funcs: [...composedFuncs, ...(variant?.preamble?.funcs ?? [])],
   })
 }
 

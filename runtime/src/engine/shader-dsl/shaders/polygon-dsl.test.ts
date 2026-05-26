@@ -10,6 +10,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { emitPolygonWgsl } from './polygon'
+import { f32, vec4, vec4fT, Node } from '../core/ir'
 
 describe('emitPolygonWgsl — skeleton', () => {
   it('emits non-empty WGSL for null variant, pickEnabled=false', () => {
@@ -59,10 +60,19 @@ describe('emitPolygonWgsl — skeleton', () => {
     expect(wgsl).toContain('fn fs_overdraw')
   })
 
-  it('emits both placeholder Stmts (fill-return + stroke-return)', () => {
+  it('composer substitutes default fill/stroke-return Stmts on null variant', () => {
     const wgsl = emitPolygonWgsl(null, false)
-    expect(wgsl).toContain('// __placeholder: fill-return')
-    expect(wgsl).toContain('// __placeholder: stroke-return')
+    // No bare placeholder comments leak past the composer in the standard
+    // null-variant emit path (the placeholder Stmts in fs_fill / fs_stroke
+    // bodies are swapped with the default-uniform assigns below).
+    expect(wgsl).not.toContain('// __placeholder:')
+    // Default fill-return: out.color = vec4(u.fill_color.rgb * wall_shade, u.fill_color.a)
+    // Note: DSL `.a` normalizes to `.w` in WGSL emit (the single-component
+    // accessor unifies r/g/b/a -> x/y/z/w; multi-letter swizzles like .rgb
+    // pass through as-authored).
+    expect(wgsl).toMatch(/out\.color\s*=\s*vec4<f32>\(\(u\.fill_color\.rgb\s*\*\s*wall_shade\),\s*u\.fill_color\.w\)/)
+    // Default stroke-return: out.color = vec4(u.stroke_color.rgb, u.stroke_color.a * alpha_scale)
+    expect(wgsl).toMatch(/out\.color\s*=\s*vec4<f32>\(u\.stroke_color\.rgb,\s*\(u\.stroke_color\.w\s*\*\s*alpha_scale\)\)/)
   })
 
   it('fs_fill_pattern samples sprite_atlas with world-anchored UV', () => {
@@ -91,8 +101,10 @@ describe('emitPolygonWgsl — skeleton', () => {
     expect(wgsl).toContain('v_shade')
     expect(wgsl).toContain('wall_shade')
     expect(wgsl).toContain('roof_bonus')
-    // Placeholder Stmt — composer-swap point for variant.fillExpr.
-    expect(wgsl).toContain('// __placeholder: fill-return')
+    // Null-variant composer substitutes the default-uniform fill-return
+    // assign (legacy POLYGON_SHADER_SOURCE:565 line). No bare placeholder
+    // comment leaks past the composer in the standard emit path.
+    expect(wgsl).not.toContain('// __placeholder: fill-return')
     // Per-feature log-depth jitter (xor-shift mix on low 16 bits of feat_id).
     expect(wgsl).toContain('id_lo')
     expect(wgsl).toContain('mixed')
@@ -191,5 +203,83 @@ describe('emitPolygonWgsl — skeleton', () => {
       false,
     )
     expect(wgslEmptyVariant).toBe(wgslNull)
+  })
+
+  it('variant.fillExpr replaces the fill-return placeholder with the variant Expr', () => {
+    // Build a trivial variant whose fillExpr is a vec4 of constants —
+    // emulates a constant-color data-driven path (US-005 idiom #1).
+    const variant: import('./polygon').ShaderVariantInfo = {
+      preamble: null,
+      fillExpr: vec4(f32(0.1), f32(0.2), f32(0.3), f32(0.4)),
+      strokeExpr: null,
+      fillPreamble: null,
+      strokePreamble: null,
+      needsFeatureBuffer: false,
+    }
+    const wgsl = emitPolygonWgsl(variant, false)
+    // Variant expr substituted into the fill-return assign.
+    expect(wgsl).toMatch(/out\.color\s*=\s*vec4<f32>\(0\.1,\s*0\.2,\s*0\.3,\s*0\.4\)/)
+    // Variant assign is fs_fill's only out.color line — the default-uniform
+    // path 'u.fill_color.rgb * wall_shade' still appears in fs_oit_translucent
+    // (whose OIT-path is independent of the variant swap), so we can't blanket-
+    // forbid the substring across the full WGSL.
+  })
+
+  it('variant.fillPreamble Stmts are emitted before the variant fill-return assign', () => {
+    // fillPreamble carries the `var _mcSS = ...; if (...) { _mcSS = ...; }`
+    // shape the categorical-encoder lays down. Smoke test via a tiny
+    // var-declaration Stmt + a varref Expr that the assign references.
+    const variant: import('./polygon').ShaderVariantInfo = {
+      preamble: null,
+      fillExpr: new Node<'vec4<f32>'>({ op: 'varref', type: vec4fT, name: '_mcSS' }),
+      strokeExpr: null,
+      fillPreamble: [
+        { s: 'var', name: '_mcSS', type: vec4fT, init: vec4(f32(0.5), f32(0.5), f32(0.5), f32(1)).expr },
+      ],
+      strokePreamble: null,
+      needsFeatureBuffer: false,
+    }
+    const wgsl = emitPolygonWgsl(variant, false)
+    // Preamble var emitted...
+    expect(wgsl).toContain('var _mcSS: vec4<f32> = vec4<f32>(0.5, 0.5, 0.5, 1.0)')
+    // ...then the variant fill-return assigns _mcSS into out.color.
+    expect(wgsl).toMatch(/out\.color\s*=\s*_mcSS/)
+  })
+
+  it('variant.needsFeatureBuffer appends the feat_data @group(1) @binding(0) storage binding', () => {
+    const wgslOff = emitPolygonWgsl(null, false)
+    expect(wgslOff).not.toContain('feat_data')
+    const wgslOn = emitPolygonWgsl(
+      {
+        preamble: null,
+        fillExpr: null,
+        strokeExpr: null,
+        fillPreamble: null,
+        strokePreamble: null,
+        needsFeatureBuffer: true,
+      },
+      false,
+    )
+    expect(wgslOn).toMatch(/@group\(1\)\s*@binding\(0\).*feat_data\s*:\s*array<f32>/)
+  })
+
+  it('variant.computeBindings appends storage bindings for each compute output buffer', () => {
+    const wgslOn = emitPolygonWgsl(
+      {
+        preamble: null,
+        fillExpr: null,
+        strokeExpr: null,
+        fillPreamble: null,
+        strokePreamble: null,
+        needsFeatureBuffer: false,
+        computeBindings: [
+          { bindGroup: 2, binding: 0, bufferName: 'compute_out_fill', paintAxis: 'fill' },
+          { bindGroup: 2, binding: 1, bufferName: 'compute_out_stroke', paintAxis: 'stroke' },
+        ],
+      },
+      false,
+    )
+    expect(wgslOn).toMatch(/@group\(2\)\s*@binding\(0\).*compute_out_fill\s*:\s*array<u32>/)
+    expect(wgslOn).toMatch(/@group\(2\)\s*@binding\(1\).*compute_out_stroke\s*:\s*array<u32>/)
   })
 })
