@@ -484,11 +484,16 @@ function processOpacity(
     fields.forEach(f => featureFields.add(f))
     const fieldMap = buildFieldMap(featureFields)
     const wgsl = exprToWGSL(value.expr.ast, fieldMap, fnEnv)
+    // Phase 2.5 US-005 idiom (data-driven opacity, simple shapes) —
+    // when the AST is an Identifier / FieldAccess / NumberLiteral,
+    // build the f32 Node via featDataField / f32Lit. Complex AST
+    // (arithmetic, builtins) needs the full DataExpr converter.
     return {
       preamble: [],
       needsUniform: false,
       needsFeatures: true,
       expr: wgsl,
+      nodeExpr: simpleScalarNode(value.expr.ast, fieldMap) ?? undefined,
     }
   }
 
