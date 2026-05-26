@@ -26,6 +26,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { emitPolygonWgsl } from '../shader-dsl/shaders/polygon'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
@@ -42,13 +43,15 @@ const WGSL_TYPES: Record<string, [number, number]> = {
 
 interface Field { name: string; type: string; byteOffset: number }
 
-/** Parse `struct Uniforms { ... }` from renderer.ts, strip comments,
- *  compute WGSL-aligned byte offsets. */
+/** Parse `struct Uniforms { ... }` from the polygon DSL composer's
+ *  emit, strip comments, compute WGSL-aligned byte offsets.
+ *  Phase 2.5 US-008 + US-010 retired renderer-shaders.ts; the
+ *  Uniforms struct is now authored in `shader-dsl/shaders/polygon.ts`
+ *  and emitted via `emitPolygonWgsl`. */
 function parseUniformStruct(): { fields: Field[]; sizeBytes: number } {
-  // WGSL (incl. `struct Uniforms`) was extracted to renderer-shaders.ts.
-  const src = readFileSync(join(HERE, 'renderer-shaders.ts'), 'utf8')
+  const src = emitPolygonWgsl(null, false)
   const m = src.match(/struct Uniforms \{([\s\S]*?)\n\}/)
-  if (!m) throw new Error('struct Uniforms not found in renderer-shaders.ts')
+  if (!m) throw new Error('struct Uniforms not found in polygon DSL emit')
   const body = m[1]!
   const fields: Field[] = []
   let cursor = 0

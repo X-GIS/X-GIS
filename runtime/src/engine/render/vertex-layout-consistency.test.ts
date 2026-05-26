@@ -18,12 +18,14 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { emitPolygonWgsl } from '../shader-dsl/shaders/polygon'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 // GPUVertexBufferLayout consts stay in renderer.ts; the WGSL (with the
-// vs_main* @location signatures) was extracted to renderer-shaders.ts.
+// vs_main* @location signatures) now comes from the polygon DSL
+// composer's emit. Phase 2.5 US-008 + US-010 retired renderer-shaders.ts.
 const SRC = readFileSync(join(HERE, 'renderer.ts'), 'utf8')
-const SHADER_SRC = readFileSync(join(HERE, 'renderer-shaders.ts'), 'utf8')
+const SHADER_SRC = emitPolygonWgsl(null, false)
 
 // GPUVertexFormat → byte width.
 const FORMAT_BYTES: Record<string, number> = {

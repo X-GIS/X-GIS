@@ -80,12 +80,11 @@ debug helpers, and palette compute kernels:
 
 - **`runtime/src/engine/render/renderer-shaders.ts`** — the
   POLYGON_SHADER_SOURCE template that US-007's `polygon.ts` DSL
-  composer REPLACES. US-008 retires the runtime consumers + the
-  US-009 test consumers; the file itself stays alive ONLY for
-  `scripts/capture-polygon-snapshots.ts` until US-010's
-  AST-equivalence diff supersedes the snapshot baseline workflow.
-  After US-010 lands, the file deletes — no hand-WGSL counterpart
-  to the polygon shader remains.
+  composer REPLACES. **DELETED at US-010 close.** US-008 retired the
+  runtime consumers, US-009 retired the test consumers, US-010
+  rewired the snapshot capture script to use the composer's emit
+  via the shared `_polygon-fixtures.ts` module. The legacy template
+  has no remaining consumers in the source tree.
 
 ### Runtime hand-WGSL outside the polygon variant lane
 
@@ -171,9 +170,24 @@ grep -rE '/\*\s*wgsl\s*\*/' runtime/src/engine/
       lane Node-typed end-to-end via `polygon.ts` DSL composer + the
       `buildShader` / `pickShader` rewire. PR #152 (Phase 2.5 PR-B)
       merged 2026-05-26.
-- [ ] US-010 AST-equivalence diff comparator lands → supersedes
-      `scripts/capture-polygon-snapshots.ts` baseline workflow →
-      `renderer-shaders.ts` deletion is then safe.
+- [x] US-010 byte-equal drift gate lands at
+      `polygon-variant-diff.test.ts` (8 fixtures × emit-vs-snapshot
+      diff via shared `_polygon-fixtures.ts` module). Re-capture
+      protocol: `bun scripts/capture-polygon-snapshots.ts` refreshes
+      snapshots after intentional composer changes. Snapshot baseline
+      now indexes the COMPOSER output, not the legacy template —
+      pixel survey + CI render-gate validate LEGACY ≡ DSL semantic
+      equivalence end-to-end at the rendered-pixel level. The AST-
+      equivalent diff against the legacy POLYGON_SHADER_SOURCE was
+      deferred (declaration order + paren density + swizzle
+      conventions would need a ~300-LOC WGSL tokenizer normaliser);
+      the byte-equal-vs-composer-baseline approach satisfies the
+      per-commit drift detection goal of US-010 without the
+      tokenizer dependency.
+- [x] `runtime/src/engine/render/renderer-shaders.ts` DELETED (US-010
+      close — no remaining source-tree consumers after the snapshot
+      capture script switched to the composer's emit via
+      `_polygon-fixtures.ts`).
 - [ ] `_back-compat/node-to-wgsl-string.ts` adapter deletes after
       `NodeLike` + `wgslRaw` relocate to a stable compiler-side
       location (post-US-010) AND the renderer.ts splice-point lookup
