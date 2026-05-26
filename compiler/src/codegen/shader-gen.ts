@@ -20,6 +20,7 @@ import type { NodeLike } from './_back-compat/node-to-wgsl-string'
 import {
   composeFillVec4, constRefVec4, refF32,
   toU32, u32Lit, u32Mod, arrayIndex, featDataField,
+  mix4, clampF32, f32Sub, f32Div, f32Lit, vec4fFromRgba,
 } from './_util/node-builders'
 import {
   buildFieldMap,
@@ -342,10 +343,26 @@ function processColorValue(
       if (lowColor && highColor) {
         const [lr, lg, lb, la] = lowColor
         const [hr, hg, hb, ha] = highColor
+        // Phase 2.5 US-005 idiom (gradient) — when val/min/max are
+        // simple field accesses or number literals, build mix4(low,
+        // high, clamp(...)) Node end-to-end. Falls back to wgslRaw
+        // when any of the three args needs the full DataExpr->Node
+        // converter (compound binops, builtin calls).
+        const valNode = simpleScalarNode(ast.args[0], fieldMap)
+        const minNode = simpleScalarNode(ast.args[1], fieldMap)
+        const maxNode = simpleScalarNode(ast.args[2], fieldMap)
+        const nodeExpr = (valNode && minNode && maxNode)
+          ? mix4(
+              vec4fFromRgba(lowColor),
+              vec4fFromRgba(highColor),
+              clampF32(f32Div(f32Sub(valNode, minNode), f32Sub(maxNode, minNode)), f32Lit(0), f32Lit(1)),
+            )
+          : undefined
         return {
           preamble: [],
           isConst: false, needsFeatures: true, isVec4: true,
           expr: `mix(vec4f(${fmt(lr)}, ${fmt(lg)}, ${fmt(lb)}, ${fmt(la)}), vec4f(${fmt(hr)}, ${fmt(hg)}, ${fmt(hb)}, ${fmt(ha)}), clamp((${valExpr} - ${minExpr}) / (${maxExpr} - ${minExpr}), 0.0, 1.0))`,
+          nodeExpr,
         }
       }
     }
@@ -505,6 +522,24 @@ function processOpacity(
 }
 
 // ═══ Expression builders ═══
+
+// Phase 2.5 US-005 — best-effort AST -> Node converter for the simple
+// scalar shapes exprToWGSL handles cleanly:
+//   - NumberLiteral   -> f32Lit(value)
+//   - Identifier      -> featDataField(name, fieldMap) (when known)
+//   - FieldAccess     -> featDataField(field, fieldMap) (when known)
+// Returns null for any shape needing the full DataExpr converter
+// (binops, builtin calls, pipe expressions); callers then route to
+// the legacy wgslRaw path.
+function simpleScalarNode(
+  ast: import('../parser/ast').Expr,
+  fieldMap: Map<string, number>,
+): NodeLike<'f32'> | null {
+  if (ast.kind === 'NumberLiteral') return f32Lit(ast.value)
+  if (ast.kind === 'Identifier' && ast.name !== 'zoom') return featDataField(ast.name, fieldMap)
+  if (ast.kind === 'FieldAccess') return featDataField(ast.field, fieldMap)
+  return null
+}
 
 // Phase 2.5 US-005 idiom #1+#2 — recognise paths whose ColorResult.expr
 // and OpacityResult.expr are PURE VARREFS (single identifier optionally

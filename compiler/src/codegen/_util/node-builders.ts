@@ -185,3 +185,19 @@ export function featDataField(fieldName: string, fieldMap: Map<string, number>):
   const addr = u32Add(u32Mul(inputFeatIdRef(), u32Lit(stride)), u32Lit(offset))
   return arrayIndex<'f32'>(featDataBindingRef() as NodeLike<string>, addr, 'f32')
 }
+
+// ── mix / clamp builtins (gradient + scale idioms) ──
+
+/** mix(low, high, t) for vec4<f32> args + scalar t. */
+export function mix4(low: NodeLike<'vec4<f32>'>, high: NodeLike<'vec4<f32>'>, t: NodeLike<'f32'>): NodeLike<'vec4<f32>'> {
+  return {
+    expr: { op: 'call', type: VEC4F_T, fn: 'mix', args: [low.expr, high.expr, t.expr] },
+  } as NodeLike<'vec4<f32>'>
+}
+
+/** clamp(x, lo, hi) for f32 scalars. */
+export function clampF32(x: NodeLike<'f32'>, lo: NodeLike<'f32'>, hi: NodeLike<'f32'>): NodeLike<'f32'> {
+  return {
+    expr: { op: 'call', type: F32_T, fn: 'clamp', args: [x.expr, lo.expr, hi.expr] },
+  } as NodeLike<'f32'>
+}
