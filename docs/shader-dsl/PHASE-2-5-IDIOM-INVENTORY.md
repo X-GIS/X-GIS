@@ -26,21 +26,33 @@ compiler-internal compute kernels, debug overlays, palette compute
 helpers. These may keep authoring WGSL strings post-Phase-2.5 — they
 don't feed the polygon variant lane.
 
-## Idiom buckets (11 named + 1 catch-all)
+## Idiom buckets (11 named + 1 catch-all) — migration status
 
-| # | Idiom | Shape | Conversion target (US-005) |
-|---|---|---|---|
-| 1 | scalar const | `const X: f32 = V;` | `ConstDecl[]` entry |
-| 2 | vec literal const | `const C: vec4f = vec4f(r,g,b,a);` | FuncDecl wrapper (≤3 instances) OR `ConstDecl.wgslValue: number\|Expr` extension (≥4) — decision per count |
-| 3 | match chain | `var _mcSS: vec4f = ...; if (field_id == 0u) { _mcSS = ...; }` | `matchExpr(scrut, cases, default)` (US-001) |
-| 4 | feat_data lookup | `feat_data[input.feat_id * N + K]` | `feat_data.at(index, f32T)` |
-| 5 | palette sample | `textureSampleLevel(color_grad_atlas, palette_samp, vec2(t, row), 0.0)` | DSL `textureSample` on palette binding |
-| 6 | zoom-interp cond chain | `mix(A, mix(B, C, clamp(...)), clamp(...))` | nested DSL `select()` |
-| 7 | time-interp cond chain | `mix(stop0, stop1, clamp((t - t0)/(t1-t0), 0, 1))` | nested DSL `select()` |
-| 8 | gradient | helper `palette_color(i)` returning vec4f | DSL `FuncDecl` + `callFn` |
-| 9 | scale | scalar mult by axis factor (`size * u.scale`) | scalar `Node` mul |
-| 10 | computeBindings extension | `@group(N) @binding(M) var<storage, read> out_X: array<...>;` | DSL `BindingDecl` appended to `module.bindings` |
-| 11 | other | everything not above | document each conversion |
+Legend: ✓ = Node-emit landed; ◐ = surface-Node landed, deeper migration deferred to US-007 (preamble field shape); ☐ = wgslRaw fallback still active.
+
+| # | Idiom | Status | Shape | Conversion target |
+|---|---|---|---|---|
+| 1 | scalar const | ◐ | `const X: f32 = V;` (preamble, string field) | `ConstDecl[]` (blocked on preamble field migration in US-007) |
+| 2 | vec literal const | ◐ | `const C: vec4f = vec4f(r,g,b,a);` (preamble, string field) | FuncDecl wrapper (count = 2, FuncDecl path chosen) — blocked on preamble field migration |
+| 3 | match chain | ◐ | `var _mcSS = ...; if (field_id == 0u) { _mcSS = ...; }` | Surface `_mcSS` varref Node-emit landed (commit a095f1b idiom #4); matchPreamble string field stays until US-007 swaps to matchExpr + Stmt.switch hoist |
+| 4 | feat_data lookup | ✓ | `feat_data[input.feat_id * N + K]` | `featDataField(name, fieldMap)` Node — covered by simpleScalarNode (commits cf83417, 42035cd) |
+| 5 | color palette sample | ✓ | `textureSampleLevel(color_grad_atlas, palette_samp, vec2(t, row), 0.0)` | `emitColorGradientSampleNode` (commit af67050) |
+| 6 | scalar palette sample | ✓ | `xgis_scalar_sample(idx, zoom, zMin, zMax)` | `emitScalarGradientSampleNode` (commit 06508d4) |
+| 7 | zoom-interp cond chain (no palette) | ✓ | falls back to `u.fill_color` / `u.stroke_color` | covered by idiom #2 varref-pair pattern (commit ac05668) |
+| 8 | gradient + scale | ✓ | `mix(vec4f(low), vec4f(high), clamp((val-min)/(max-min), 0, 1))` | `mix4 + clampF32 + f32{Sub,Div}` composition via `simpleScalarNode` for val/min/max (commits c965e04, 4f1708a) |
+| 9 | categorical | ✓ | `CAT_PALETTE[u32(field) % 20u]` | `arrayIndex(constRefVec4('CAT_PALETTE'), u32Mod(toU32(featDataField(field)), u32Lit(20)))` (commits 30a558a, bbd0620) |
+| 10 | computeBindings extension | ◐ | `@group/@binding` preamble decls + `unpack4x8unorm(compute_out_X[fid])` | fillExpr / strokeExpr Node-emit via `emitComputeOutputReadExprNode` (commit 4361e6e); preamble decl string stays until US-007 preamble field migration |
+| 11 | other | (varies) | DataExpr arithmetic + builtin calls | `simpleScalarNode` handles BinaryExpr +-*/ + 19 WGSL builtin fn calls (commits 42035cd, 25476a6) |
+
+## Remaining unmigrated shapes (still wgslRaw fallback)
+
+- Comparison / logical BinaryExpr (`==`, `<`, `&&`, etc.) — exprToWGSL wraps these in `select(0.0, 1.0, ...)`, the converter doesn't recognise.
+- UnaryExpr (`-x`, `!x`) — converter rejects.
+- PipeExpr / nested FnCalls beyond the recognised builtin set.
+- Compound conditional `branches[] + fallback` — multi-arm select chain.
+- `time-interpolated` ColorValue (CPU-resolved into uniform; falls back to varref idiom #2 path which already Node-emits).
+- compute-variant.ts internal addendum still produces a string `fillExpr` field (unused by the US-006 merge Node path, kept for back-compat).
+- preamble / fillPreamble / strokePreamble fields stay `string` on `ShaderVariant` — `Partial<ModuleDecl>` migration is part of US-007's polygon DSL composer port.
 
 ## Emit-site map (one row per `ShaderVariant` field assignment)
 
@@ -73,6 +85,16 @@ After walking the 11-file surface, every emit site classifies into one
 of the 10 named idioms. **The "other" bucket count is 0**, well under
 the 8-idiom budget — **the migration proceeds with Option B (full
 Expr-tree retarget); B' fallback is NOT triggered.**
+
+## Migration completeness (commits 28+ on PR #151)
+
+13 idioms landed Node-emit at fillExpr / strokeExpr surface (US-005 #1–#13 + US-006 surface):
+
+- **fully Node-emitted**: constant fill/stroke (#1/#2), time-interpolated (#2 via varref pattern), zoom-interp w/o palette (#2), categorical (#3 + #5 legacy fallback), match() surface (#4), gradient (#6), scale (#7), color-palette textureSampleLevel (#10), scalar-palette xgis_scalar_sample (#12), simple data-driven opacity (#8), arithmetic via BinaryExpr (#9), builtin fn calls (#13), compute-variant unpack4x8unorm read (#11 / US-006).
+- **surface-Node only**: match-chain (fillExpr varref Node, matchPreamble still string), categorical (fillExpr Node, preamble palette decl still string), computeBindings (fillExpr Node, binding decl still string in preamble).
+- **wgslRaw fallback active**: comparison / logical BinaryExpr, UnaryExpr, PipeExpr, non-recognised FnCall identifiers, conditional branches[].
+
+The remaining items (preamble / fillPreamble / strokePreamble field migration + the polygon DSL composer's emitPolygonWgsl entry point) constitute **US-007 / US-008 / US-009 / US-010 / US-011** scope and are tracked in `[[project-shader-dsl-phase2-5-pr-a-2026-05-26]]`.
 
 ## Vec-literal const count
 
