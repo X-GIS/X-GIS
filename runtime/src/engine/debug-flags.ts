@@ -7,6 +7,8 @@
 // because most affect pipeline construction and would require
 // rebuilding every renderer. To change a flag, reload the page.
 
+import { emitOverdrawFsWgsl } from './shader-dsl/shaders/overdraw-fs'
+
 function readDebugFlag(): string | null {
   if (typeof window === 'undefined') return null
   try { return new URL(window.location.href).searchParams.get('debug') }
@@ -39,13 +41,9 @@ export const OVERDRAW_ACCUM_FORMAT: GPUTextureFormat = 'r16float'
 
 /** Constant fragment-shader output for additive accumulation. Every
  *  fragment writes 1.0 to the red channel; the compose pass divides
- *  by an exposure constant before applying the colormap. */
-export const OVERDRAW_FS_SOURCE = /* wgsl */ `
-@fragment
-fn fs_overdraw() -> @location(0) vec4<f32> {
-  return vec4<f32>(1.0, 0.0, 0.0, 0.0);
-}
-`
+ *  by an exposure constant before applying the colormap. WGSL emitted
+ *  from the polygon DSL — see shader-dsl/shaders/overdraw-fs.ts. */
+export const OVERDRAW_FS_SOURCE = emitOverdrawFsWgsl()
 
 /** Blend state — pure additive on the red channel. Alpha is also
  *  summed defensively in case future code reads it. */

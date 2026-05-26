@@ -104,21 +104,29 @@ polygon DSL composer never touches. Phase 4+ migration targets, NOT
 in PR-B/PR-C scope:
 
 - **`runtime/src/engine/render/renderer.ts:587`** — overdraw compose
-  fragment shader (`?debug=overdraw` colormap pass). Single-purpose
-  debug overlay; runtime composes it at pipeline-build time with no
-  variant codegen.
+  fragment shader (`?debug=overdraw` colormap pass). **MIGRATED**
+  via `shader-dsl/shaders/overdraw-compose.ts` (textureLoad +
+  textureDimensions + vec2i DSL primitives added in the same change).
+  renderer.ts now calls `emitOverdrawComposeWgsl()` instead of holding
+  an inline template.
 - **`runtime/src/engine/render/renderer.ts:1125`** — OIT compose
   fragment shader (weighted-blended translucent resolve). Same shape
-  as overdraw: one-shot pipeline, no variant fields.
+  as overdraw: one-shot pipeline, no variant fields. Migration
+  blocked on `texture_multisampled_2d` ShaderType variant (not yet
+  in `core/ir/types.ts`); add when migration starts.
 - **`runtime/src/engine/debug-flags.ts:43`** — `OVERDRAW_FS_SOURCE`
-  helper exported for the overdraw debug stage above. Tightly coupled
-  to the runtime overdraw pipeline; migrates alongside renderer.ts:587
-  when the overdraw stage moves to DSL.
+  helper exported for the overdraw debug stage above. **MIGRATED**
+  via `shader-dsl/shaders/overdraw-fs.ts` (single fs_overdraw entry
+  emit). debug-flags.ts now initialises `OVERDRAW_FS_SOURCE` from
+  `emitOverdrawFsWgsl()`.
 - **`runtime/src/engine/gpu/frame-uniform.ts:42`** — `WGSL_FRAME_UNIFORM`
   shared uniform block (re-used at module-level by every shader that
-  declares the camera/frame uniforms). Cross-cutting concern; DSL
-  migration depends on a ConstDecl/BindingDecl module-level merge
-  helper that doesn't exist yet.
+  declares the camera/frame uniforms). **MIGRATED** via
+  `shader-dsl/shaders/frame-uniform.ts` (FrameUniform StructDecl
+  emit). gpu/frame-uniform.ts now initialises `WGSL_FRAME_UNIFORM`
+  from `emitFrameUniformWgsl()`. The CPU writer at `setFrame()` is
+  the source of truth for byte layout (mvp@0 / proj_params@64 /
+  viewport@80 / _pad@96).
 - **`runtime/src/engine/projection/reprojector.ts:19`** —
   `REPROJECT_SHADER` compute kernel for input-tile reprojection (EPSG
   → WGS84). Compute-kernel lane parallels `compute-gen.ts` on the

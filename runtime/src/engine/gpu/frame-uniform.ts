@@ -38,15 +38,11 @@ export const FRAME_UNIFORM_SIZE_BYTES = 128
 /** WGSL struct + binding declaration. Renderers paste this into their
  *  shader source so the byte layout stays version-locked with the CPU
  *  writer below. Replace `__FRAME_GROUP__` / `__FRAME_BINDING__` with
- *  the renderer's chosen group+binding indices when concatenating. */
-export const WGSL_FRAME_UNIFORM = /* wgsl */`
-struct FrameUniform {
-  mvp: mat4x4<f32>,
-  proj_params: vec4<f32>,   // x=type, y=centerLon, z=centerLat, w=log_depth_fc
-  viewport: vec4<f32>,      // x=w_px, y=h_px, z=meters_per_pixel, w=dpr
-  _pad: vec4<f32>,
-}
-`
+ *  the renderer's chosen group+binding indices when concatenating.
+ *  WGSL emitted from the polygon DSL — see shader-dsl/shaders/frame-
+ *  uniform.ts for the StructDecl + emit helper. */
+import { emitFrameUniformWgsl } from '../shader-dsl/shaders/frame-uniform'
+export const WGSL_FRAME_UNIFORM = emitFrameUniformWgsl()
 
 export class FrameUniform {
   readonly buffer: GPUBuffer

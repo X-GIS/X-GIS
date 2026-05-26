@@ -17,14 +17,14 @@ Shared WGSL string blocks that every renderer concatenates into its inline shade
 
 ### Working In This Directory
 - `projection.ts` (WGSL) is the source of truth for projection math. Any change here must be mirrored in the CPU `engine/projection/projection.ts` AND the shader-DSL graph `engine/shader-dsl/projections.ts` (which regenerates the cpu-f64 lowering `engine/shader-dsl/cpu-projections.ts` — formerly the hand-maintained `projection-wgsl-mirror.ts`, now deleted). The parity tests compare all three. This is a documented recurring divergence point.
-- These are plain template strings (`/* wgsl */`); they get string-concatenated, so keep WGSL identifiers globally unique and avoid reserved words (gated by `wgsl-reserved-words.test.ts`).
+- These are plain template strings tagged with the `wgsl` block-comment marker (the literal sequence `slash-star wgsl star-slash` placed immediately before the backtick); they get string-concatenated, so keep WGSL identifiers globally unique and avoid reserved words (gated by `wgsl-reserved-words.test.ts`). Phase 4+ progressively replaces these with `shader-dsl/shaders/*` ModuleDecl emits — see `docs/shader-dsl/PHASE-3-SCOPE.md`.
 - Log-depth FC must be computed consistently on CPU (`computeLogDepthFc`) and applied in the WGSL block — they pair up.
 
 ### Testing Requirements
 - `wgsl-reserved-words.test.ts` (no WGSL reserved identifiers). Parity is enforced from `engine/projection/projection-wgsl-consistency.test.ts`. Add a parity assertion when adding a projection function.
 
 ### Common Patterns
-- Exported `const WGSL_* = /* wgsl */ \`...\`` blocks, concatenated by renderers at pipeline-build time.
+- Exported `const WGSL_* = <wgsl-tag> \`...\`` blocks (where `<wgsl-tag>` is the block-comment marker described above), concatenated by renderers at pipeline-build time. Phase 4+ targets convert these to `emitFooWgsl()` calls backed by `shader-dsl/shaders/foo.ts` ModuleDecl emits.
 
 ## Dependencies
 
