@@ -322,6 +322,13 @@ function processColorValue(
         expr: `/* match */ ${varName}`,
         matchPreamble: ifElse,
         categoryOrder,
+        // Phase 2.5 US-005 idiom (match-chain surface) — fillExpr at
+        // the marker site is just a varref to the chain's slot var.
+        // The matchPreamble string (Stmt[] migration deferred to
+        // US-007's polygon composer) is injected separately. Comment
+        // prefix '/* match */' is dropped in the Node form — AC6
+        // allows comment-placement differences.
+        nodeExpr: constRefVec4(varName),
       } as ColorResult
     }
 
