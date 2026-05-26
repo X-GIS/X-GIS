@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { emitPolygonWgsl } from './polygon'
-import { f32, vec4, vec4fT, Node } from '../core/ir'
+import { f32, u32, vec4, vec4fT, f32T, matchExpr, Node } from '../core/ir'
 
 describe('emitPolygonWgsl — skeleton', () => {
   it('emits non-empty WGSL for null variant, pickEnabled=false', () => {
@@ -261,6 +261,127 @@ describe('emitPolygonWgsl — skeleton', () => {
       false,
     )
     expect(wgslOn).toMatch(/@group\(1\)\s*@binding\(0\).*feat_data\s*:\s*array<f32>/)
+  })
+
+  it('AC3 #3 — variant.preamble.consts only → consts appended; fill/stroke unchanged', () => {
+    const variant: import('./polygon').ShaderVariantInfo = {
+      preamble: {
+        consts: [{ name: 'CUSTOM_K', type: vec4fT, wgslValue: 0, cpuValue: 0 }],
+      },
+      fillExpr: null, strokeExpr: null,
+      fillPreamble: null, strokePreamble: null,
+      needsFeatureBuffer: false,
+    }
+    const wgsl = emitPolygonWgsl(variant, false)
+    expect(wgsl).toContain('CUSTOM_K')
+    // Default fill/stroke return still in place.
+    expect(wgsl).toMatch(/out\.color\s*=\s*vec4<f32>\(\(u\.fill_color\.rgb/)
+  })
+
+  it('AC3 #4 — variant.preamble.bindings only → binding appended at requested group/binding', () => {
+    const variant: import('./polygon').ShaderVariantInfo = {
+      preamble: {
+        bindings: [{ group: 3, binding: 7, name: 'custom_buf', space: 'storage', access: 'read', type: vec4fT }],
+      },
+      fillExpr: null, strokeExpr: null,
+      fillPreamble: null, strokePreamble: null,
+      needsFeatureBuffer: false,
+    }
+    const wgsl = emitPolygonWgsl(variant, false)
+    expect(wgsl).toMatch(/@group\(3\)\s*@binding\(7\)/)
+    expect(wgsl).toContain('custom_buf')
+  })
+
+  it('AC3 #5 — variant.preamble.funcs only → helper fn appended', () => {
+    const variant: import('./polygon').ShaderVariantInfo = {
+      preamble: {
+        funcs: [{
+          name: 'custom_helper',
+          params: [],
+          ret: f32T,
+          body: [{ s: 'return', expr: f32(42).expr }],
+        }],
+      },
+      fillExpr: null, strokeExpr: null,
+      fillPreamble: null, strokePreamble: null,
+      needsFeatureBuffer: false,
+    }
+    const wgsl = emitPolygonWgsl(variant, false)
+    expect(wgsl).toContain('fn custom_helper')
+  })
+
+  it('AC3 #8 — both fillExpr AND strokeExpr together replace both placeholders', () => {
+    const variant: import('./polygon').ShaderVariantInfo = {
+      preamble: null,
+      fillExpr: vec4(f32(0.1), f32(0.2), f32(0.3), f32(0.4)),
+      strokeExpr: vec4(f32(0.5), f32(0.6), f32(0.7), f32(0.8)),
+      fillPreamble: null, strokePreamble: null,
+      needsFeatureBuffer: false,
+    }
+    const wgsl = emitPolygonWgsl(variant, false)
+    expect(wgsl).toMatch(/out\.color\s*=\s*vec4<f32>\(0\.1,\s*0\.2,\s*0\.3,\s*0\.4\)/)
+    expect(wgsl).toMatch(/out\.color\s*=\s*vec4<f32>\(0\.5,\s*0\.6,\s*0\.7,\s*0\.8\)/)
+  })
+
+  it('AC3 #9 — fillPreamble alone without fillExpr is a no-op (composer falls back to default)', () => {
+    const variant: import('./polygon').ShaderVariantInfo = {
+      preamble: null,
+      fillExpr: null, strokeExpr: null,
+      // Preamble Stmts authored but no fill-return Expr — composer ignores
+      // the preamble and emits the default-uniform fill path. This pins
+      // AC3's "preamble paired with expr" contract.
+      fillPreamble: [{ s: 'var', name: '_mcSS', type: vec4fT, init: vec4(f32(0), f32(0), f32(0), f32(1)).expr }],
+      strokePreamble: null,
+      needsFeatureBuffer: false,
+    }
+    const wgsl = emitPolygonWgsl(variant, false)
+    // Default fill-return still emitted.
+    expect(wgsl).toMatch(/out\.color\s*=\s*vec4<f32>\(\(u\.fill_color\.rgb\s*\*\s*wall_shade\)/)
+    // The orphan preamble does NOT leak into fs_fill.
+    expect(wgsl).not.toContain('var _mcSS')
+  })
+
+  it('AC3 #11 — matchExpr Node as fillExpr → lowerModule hoists slot + Stmt.switch', () => {
+    // Variant carries a matchExpr Node as its fillExpr. The wgsl-lower
+    // pre-emit pass hoists the matchExpr into a `var _mr_N: vec4<f32>` slot
+    // + Stmt.switch BEFORE the placeholder swap's assign (per AC2's
+    // Stmt.switch lowering rule). The fs_fill body emits BOTH the
+    // hoisted var-and-switch AND the final assign.
+    const variant: import('./polygon').ShaderVariantInfo = {
+      preamble: null,
+      fillExpr: matchExpr(
+        u32(0),
+        [[0, vec4(f32(1), f32(0), f32(0), f32(1))], [1, vec4(f32(0), f32(1), f32(0), f32(1))]],
+        vec4(f32(0), f32(0), f32(1), f32(1)),
+      ),
+      strokeExpr: null,
+      fillPreamble: null, strokePreamble: null,
+      needsFeatureBuffer: false,
+    }
+    const wgsl = emitPolygonWgsl(variant, false)
+    // Hoisted slot from wgsl-lower.
+    expect(wgsl).toMatch(/var _mr_\d+\s*:\s*vec4<f32>/)
+    // Stmt.switch on the matchExpr scrutinee (DSL emits `switch <expr> {`
+    // without WGSL's expected parens — naga/tint accept both forms).
+    expect(wgsl).toMatch(/switch\s+/)
+    expect(wgsl).toContain('case 0')
+    // Final assign references the slot.
+    expect(wgsl).toMatch(/out\.color\s*=\s*_mr_\d+/)
+  })
+
+  it('AC3 #13 — pick + fillExpr + feat_data full-stack composition', () => {
+    const variant: import('./polygon').ShaderVariantInfo = {
+      preamble: null,
+      fillExpr: vec4(f32(0.5), f32(0.5), f32(0.5), f32(1)),
+      strokeExpr: null,
+      fillPreamble: null, strokePreamble: null,
+      needsFeatureBuffer: true,
+    }
+    const wgsl = emitPolygonWgsl(variant, true) // pickEnabled
+    // All three composition axes appear in the output.
+    expect(wgsl).toContain('out.pick')               // pick attachment write
+    expect(wgsl).toMatch(/out\.color\s*=\s*vec4<f32>\(0\.5,\s*0\.5/)  // variant fillExpr
+    expect(wgsl).toMatch(/@group\(1\)\s*@binding\(0\).*feat_data/)    // feat_data binding
   })
 
   it('variant.computeBindings appends storage bindings for each compute output buffer', () => {
