@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { emitBgWgsl, buildBgModule } from './background'
-import { compileModule } from './backend-cpu'
+import { compileModule } from '../core/backends/cpu'
 
 // Phase-2: the background shader is DSL-emitted. The pick variant (formerly the
 // __PICK_*__ String.replace markers) is conditional emission — covered here

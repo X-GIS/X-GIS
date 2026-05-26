@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { emitMatchComputeKernel, type MatchEmitSpec } from '@xgis/compiler'
-import { emitModule } from './backend-wgsl'
-import { compileModule } from './backend-cpu'
+import { emitModule } from '../core/backends/wgsl'
+import { compileModule } from '../core/backends/cpu'
 import { matchComputeKernel, type MatchKernelSpec } from './compute-match'
 
 // US-P0-6 (PoC-C): the parameterized thesis. The data-driven compute path

@@ -10,8 +10,8 @@ import {
   entryFn, bindingRef, vec4, f32, max, smoothstep, fwidth, textureSample,
   module, structT, f32T, vec2fT, vec3fT, vec4fT, texture2dfT, samplerT,
   type StructDecl, type ModuleDecl,
-} from './ir'
-import { emitModule } from './backend-wgsl'
+} from '../core/ir'
+import { emitModule } from '../core/backends/wgsl'
 
 const Uniforms: StructDecl = {
   name: 'Uniforms',

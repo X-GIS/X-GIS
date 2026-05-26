@@ -11,8 +11,8 @@ import {
   entryFn, bindingRef, arrayLit, transformMat4, vec2, vec4, vec2u, f32, u32,
   constRef, module, structT, f32T, mat4x4fT, vec2fT, vec4fT, vec2uT, u32T,
   type StructDecl, type ConstDecl, type ModuleDecl,
-} from './ir'
-import { emitModule } from './backend-wgsl'
+} from '../core/ir'
+import { emitModule } from '../core/backends/wgsl'
 
 // iter-196 world-extent quad constants (see background-renderer.ts).
 const BG_CONSTS: ConstDecl[] = [

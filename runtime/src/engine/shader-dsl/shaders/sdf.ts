@@ -13,9 +13,9 @@ import {
   f32T, i32T, u32T, vec2fT, arrayT, bindingRef,
   callFn, clamp, min, length, dot, mix, toF32,
   type FuncDecl, type ModuleDecl,
-} from './ir'
-import { struct } from './schema'
-import { emitFunc, emitStruct } from './backend-wgsl'
+} from '../core/ir'
+import { struct } from '../core/schema'
+import { emitFunc, emitStruct } from '../core/backends/wgsl'
 
 // Storage structs (match sdf-shape.ts byte layout; field types drive access).
 export const ShapeDesc = struct('ShapeDesc', {

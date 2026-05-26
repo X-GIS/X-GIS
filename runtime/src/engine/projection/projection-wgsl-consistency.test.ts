@@ -17,7 +17,7 @@ import {
   projectGeomWgsl,
   unwrapLonNear,
   needsBackfaceCullWgsl,
-} from '../shader-dsl/cpu-projections'
+} from '../shader-dsl'
 import { globeForward } from './globe'
 
 // Phase 2-A: Cross-consistency between CPU canonical (projection.ts) and

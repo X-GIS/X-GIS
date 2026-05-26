@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { compileModule } from './backend-cpu'
-import { emitModule } from './backend-wgsl'
+import { compileModule } from '../core/backends/cpu'
+import { emitModule } from '../core/backends/wgsl'
 import { SDF_MODULE } from './sdf'
 
 // US-P0-5 (PoC-B): the imperative thesis. sdf_shape exercises for-loops,

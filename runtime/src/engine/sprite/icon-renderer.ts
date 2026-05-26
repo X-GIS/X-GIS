@@ -14,7 +14,7 @@
 // stage just converts viewport-px → NDC.
 
 import { SpriteAtlasGPU } from './sprite-atlas-gpu'
-import { emitIconWgsl } from '../shader-dsl/icon'
+import { emitIconWgsl } from '../shader-dsl'
 import type { SpriteInfo } from './sprite-atlas-host'
 
 export interface IconDraw {

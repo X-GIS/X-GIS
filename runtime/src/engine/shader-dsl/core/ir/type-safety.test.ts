@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { f32, vec2, vec3, param } from './ir'
-import { ShapeDesc } from './sdf'
+import { f32, vec2, vec3, param } from './index'
+import { ShapeDesc } from '../../shaders/sdf'
 
 // AC4 — "a WGSL type/layout error surfaces as a TS compile error". The
 // generic Node<K> phantom + the schema builder's keyed field access turn

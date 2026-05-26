@@ -9,8 +9,8 @@ import {
   fn, module, f32, vec4, max, log2,
   f32T, vec4fT,
   type FuncDecl, type ModuleDecl,
-} from './ir'
-import { emitFunc } from './backend-wgsl'
+} from '../core/ir'
+import { emitFunc } from '../core/backends/wgsl'
 
 // apply_log_depth(pos, fc): write z = log2(max(1e-6, w+1)) * fc * w, keeping
 // x/y/w. The *w pre-cancels the later perspective division.

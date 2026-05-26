@@ -6,7 +6,7 @@
 // at the rim of the projection disc.
 
 import { describe, expect, it } from 'vitest'
-import { cosC, needsBackfaceCullWgsl } from '../shader-dsl/cpu-projections'
+import { cosC, needsBackfaceCullWgsl } from '../shader-dsl'
 
 const PROJECTIONS = [
   { name: 'orthographic',         type: 3, threshold: 0 },      // strict hemisphere

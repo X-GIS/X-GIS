@@ -8,7 +8,7 @@
 
 import type {
   ShaderType, Expr, Stmt, ConstDecl, StructDecl, BindingDecl, FuncDecl, ModuleDecl,
-} from './ir'
+} from '../ir'
 
 export function wgslType(t: ShaderType): string {
   switch (t.kind) {

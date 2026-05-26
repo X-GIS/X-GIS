@@ -8,26 +8,43 @@ source instead of kept in sync by hand.
 See `.omc/plans/ralplan-wgsl-tsl-shader-dsl.md` (Phase 0) +
 `.omc/specs/deep-interview-wgsl-tsl-shader-dsl.md`.
 
-## Files
-- `ir.ts` — IR core: `ShaderType`, the `Expr`/`Stmt` node unions, the generic
-  `Node<K>` authoring wrapper (chaining), free builtins, the `Builder`
-  (statement-list control flow), `fn`/`computeFn`/`module`. `ConstDecl` carries
-  BOTH a `wgslValue` and a `cpuValue`.
-- `backend-wgsl.ts` — `emitModule(IR)` → WGSL string for `createShaderModule`.
+## Layout
+Split into `core/` (the reusable IR + backends + struct schema) and `shaders/`
+(the concrete shader graphs). Consumers OUTSIDE this folder import the emitted
+strings + cpu dispatch from the top-level barrel (`from '../shader-dsl'`), never
+the internal modules; `core/` is private.
+
+### core/
+- `ir/` — the IR, split by concern behind `ir/index.ts` (DAG: types ← nodes ←
+  node ← builder):
+  - `types.ts` — `ShaderType` + the `*T` type constants, `KeyOf`/`ElemKey`/`ScalarKey`.
+  - `nodes.ts` — the `Expr`/`Stmt` unions + `ConstDecl`/`Struct*`/`Binding`/`Func`/`Module`/`EntryParam` (data shapes only). `ConstDecl` carries BOTH a `wgslValue` and a `cpuValue`.
+  - `node.ts` — the generic `Node<K>` authoring wrapper (chaining) + free builtins + vec/array/`transformMat4` ctors.
+  - `builder.ts` — the `Builder` (statement-list control flow) + `fn`/`computeFn`/`entryFn`/`module`.
+- `backends/wgsl.ts` — `emitModule(IR)` → WGSL string for `createShaderModule`.
   Fully parenthesised; byte-identity with the old hand string is NOT a goal.
-- `backend-cpu.ts` — `compileModule(IR)` → an f64 tree-walk interpreter. The
+- `backends/cpu.ts` — `compileModule(IR)` → an f64 tree-walk interpreter. The
   generated replacement for the deleted `projection-wgsl-mirror.ts`.
 - `schema.ts` — `struct(name, {field: type})`: a WGSL struct + typed field
   access (`helper.get(node, 'field')`).
+
+### shaders/
 - `projections.ts` — all projection fns authored in the DSL. The int-dispatch
   ladder is generated from `projection/projections-table.ts`; cull thresholds
   are read from the same table (drift-impossible).
 - `cpu-projections.ts` — the generated cpu-f64 dispatch with the legacy mirror
   API names. The CPU consumers (raster tile_rtc, label anchors, tile selection)
-  import from here.
+  reach these through the barrel.
 - `sdf.ts` — `sdf_shape` + helpers (PoC-B: the imperative for/switch/var path).
+- `log-depth.ts` / `background.ts` / `icon.ts` — the log-depth, background-quad,
+  and icon/SDF-text shader graphs.
 - `compute-match.ts` — the per-feature `match()` compute kernel, parameterized
   by arm count (PoC-C).
+
+### index.ts
+The public barrel — re-exports the `shaders/` surface (emitted-WGSL strings +
+cpu dispatch). Tests are co-located with their subject (`core/ir/*.test.ts`,
+`core/backends/*.test.ts`, `shaders/*-dsl.test.ts`).
 
 ## Two-tolerance f32/f64 reality (load-bearing)
 `PI`/`DEG2RAD` are emitted as the truncated shader literals (`3.14159265`,

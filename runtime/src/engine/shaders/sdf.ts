@@ -13,7 +13,7 @@ import {
   SDF_WGSL_WINDING_LINE,
   SDF_WGSL_SHAPE,
   SDF_WGSL_SHAPE_STRUCTS,
-} from '../shader-dsl/sdf'
+} from '../shader-dsl'
 
 /** Distance from point to line segment. */
 export const WGSL_DIST_TO_SEGMENT = SDF_WGSL_DIST_TO_SEGMENT

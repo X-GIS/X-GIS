@@ -3,9 +3,9 @@ import {
   entryFn, bindingRef, arrayLit, transformMat4, vec2, vec4, f32, module,
   structT, mat4x4fT, vec2fT, vec4fT, u32T,
   type StructDecl,
-} from './ir'
-import { emitModule } from './backend-wgsl'
-import { compileModule } from './backend-cpu'
+} from './index'
+import { emitModule } from '../backends/wgsl'
+import { compileModule } from '../backends/cpu'
 
 // Phase-2 render-stage IR proof: author a minimal render shader exercising the
 // new surface (uniform struct, @vertex/@fragment entries, @builtin params +

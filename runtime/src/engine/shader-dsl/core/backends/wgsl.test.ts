@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { emitModule } from './backend-wgsl'
-import { PROJECTION_MODULE } from './projections'
-import { PROJECTIONS } from '../projection/projections-table'
+import { emitModule } from './wgsl'
+import { PROJECTION_MODULE } from '../../shaders/projections'
+import { PROJECTIONS } from '../../../projection/projections-table'
 
 // US-P0-2: the WGSL backend regenerates the projection block. Byte-identity
 // with the hand-written shader is NOT required; this checks the emitted WGSL

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { compileModule } from './backend-cpu'
+import { compileModule } from '../core/backends/cpu'
 import { LOG_DEPTH_MODULE, LOG_DEPTH_WGSL_FNS } from './log-depth'
-import { computeLogDepthFc, simulateLogDepthZ } from '../shaders/log-depth'
+import { computeLogDepthFc, simulateLogDepthZ } from '../../shaders/log-depth'
 
 // Phase-2 first wiring: log-depth WGSL is now emitted from the DSL. The cpu
 // interpreter of the SAME IR must reproduce the canonical CPU helpers

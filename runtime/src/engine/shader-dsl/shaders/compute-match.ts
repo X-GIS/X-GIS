@@ -14,7 +14,7 @@ import {
   computeFn, module, bindingRef, vec4, f32, pack4x8unorm,
   f32T, u32T, vec4fT, vec4uT, arrayT,
   type ModuleDecl,
-} from './ir'
+} from '../core/ir'
 
 export interface MatchArm { pattern: string; colorHex: string }
 export interface MatchKernelSpec {

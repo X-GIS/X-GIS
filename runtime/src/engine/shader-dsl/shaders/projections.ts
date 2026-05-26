@@ -28,9 +28,9 @@ import {
   f32T, vec2fT, vec3fT, vec4fT,
   constRef, callFn, clamp, log, tan, sin, cos, asin, acos, atan, atan2, exp, floor, ceil, smoothstep,
   type ConstDecl, type FuncDecl, type ModuleDecl, type Node, type Builder,
-} from './ir'
-import { PROJECTIONS } from '../projection/projections-table'
-import { emitConst, emitFunc } from './backend-wgsl'
+} from '../core/ir'
+import { PROJECTIONS } from '../../projection/projections-table'
+import { emitConst, emitFunc } from '../core/backends/wgsl'
 
 // ── Constants (WGSL value | CPU value) ──
 export const PROJECTION_CONSTS: ConstDecl[] = [

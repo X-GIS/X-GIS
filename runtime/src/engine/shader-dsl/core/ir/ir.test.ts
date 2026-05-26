@@ -3,9 +3,9 @@ import {
   fn, module, f32, u32, vec2, vec3, vec2fT, f32T, boolT, u32T,
   param, constRef, clamp, log, tan, min, dot,
   type ConstDecl,
-} from './ir'
-import { emitModule, emitFunc } from './backend-wgsl'
-import { compileModule } from './backend-cpu'
+} from './index'
+import { emitModule, emitFunc } from '../backends/wgsl'
+import { compileModule } from '../backends/cpu'
 
 const CONSTS: ConstDecl[] = [
   { name: 'PI', type: f32T, wgslValue: 3.14159265, cpuValue: Math.PI },

@@ -10,7 +10,7 @@
 // has no 2D forward, so a stray caller must fail loudly rather than silently
 // take the oblique-mercator else-arm.
 
-import { compileModule } from './backend-cpu'
+import { compileModule } from '../core/backends/cpu'
 import { PROJECTION_MODULE } from './projections'
 
 const M = compileModule(PROJECTION_MODULE)

@@ -36,7 +36,7 @@ import {
   OVERDRAW_DEPTH_STENCIL,
 } from '../debug-flags'
 import { BundleCache } from './bundle-cache'
-import { emitBgWgsl } from '../shader-dsl/background'
+import { emitBgWgsl } from '../shader-dsl'
 
 // The bg shader (world-extent quad + MVP + style fill colour) is now EMITTED
 // from the shader DSL: shader-dsl/background.ts. The former __PICK_*__ marker

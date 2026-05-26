@@ -27,4 +27,4 @@
 export {
   PROJECTION_WGSL_CONSTS as WGSL_PROJECTION_CONSTS,
   PROJECTION_WGSL_FNS as WGSL_PROJECTION_FNS,
-} from '../shader-dsl/projections'
+} from '../shader-dsl'
