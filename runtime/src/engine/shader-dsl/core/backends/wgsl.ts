@@ -35,7 +35,13 @@ function lit(value: number | boolean, t: ShaderType): string {
   return f32Lit(value)
 }
 
-function emitExpr(e: Expr): string {
+// Phase 2.5 US-003 — exported for the compiler-side
+// `nodeToWgslString` adapter (compiler/src/codegen/_back-compat/) so
+// the in-flight retarget (US-004 → US-008) can convert Node values
+// back to WGSL strings at the runtime boundary while the compiler-
+// side emit sites migrate one at a time. The export is also useful for
+// match-expr.test.ts's defensive-throw probe.
+export function emitExpr(e: Expr): string {
   switch (e.op) {
     case 'lit': return lit(e.value, e.type)
     case 'constref':
