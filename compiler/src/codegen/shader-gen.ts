@@ -353,10 +353,24 @@ function processColorValue(
     // ── Legacy: fill-[name] / fill-[.name] → auto palette (backward compat) ──
     if (ast.kind === 'FieldAccess' || (ast.kind === 'Identifier' && ast.name !== 'zoom')) {
       const wgsl = exprToWGSL(ast, fieldMap, fnEnv)
+      // Phase 2.5 US-005 idiom — same shape as the explicit
+      // categorical() path above; reuses featDataField when the
+      // ast is a simple Identifier / FieldAccess (the only shapes
+      // this fallback accepts).
+      const fieldName = ast.kind === 'Identifier' ? ast.name : ast.field
+      const fieldNode = featDataField(fieldName, fieldMap)
+      const nodeExpr = fieldNode
+        ? arrayIndex<'vec4<f32>'>(
+            constRefVec4('CAT_PALETTE') as NodeLike<string>,
+            u32Mod(toU32(fieldNode), u32Lit(20)),
+            'vec4<f32>',
+          )
+        : undefined
       return {
         preamble: [generatePaletteWGSL()],
         isConst: false, needsFeatures: true, isVec4: true,
         expr: `CAT_PALETTE[u32(${wgsl}) % 20u]`,
+        nodeExpr,
       }
     }
 
