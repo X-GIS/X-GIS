@@ -2,13 +2,22 @@
 
 **Goal of Phase 3:** the compiler emits **zero** WGSL strings into the
 polygon variant lane (`ShaderVariant.{fillExpr, strokeExpr, preamble,
-fillPreamble, strokePreamble}`). The grep gate
+fillPreamble, strokePreamble}`). The canonical AC7 grep gate (PR-C
+close) is the polygon-variant-lane-only variant — see the tightened
+grep snippet under **Tightened AC7 grep for the PR-B/PR-C closeout**
+below; it returns 0 hits.
+
+The unfiltered form
 
 ```
 grep -rE '/\*\s*wgsl\s*\*/' runtime/src/engine/
 ```
 
-returns **0 hits** at PR-C close.
+stays > 0 until Phase 4+ migrates the runtime non-polygon hand-WGSL
+paths (renderer.ts overdraw/OIT compose, debug-flags overdraw,
+frame-uniform, reprojector compute kernel). The unfiltered hits are
+load-bearing documentation now, not a gate. See "Runtime hand-WGSL
+outside the polygon variant lane" for the Phase 4+ migration scope.
 
 This doc enumerates exactly which compiler-internal WGSL paths
 remain after Phase 2.5 lands — these are documented as out-of-scope

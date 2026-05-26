@@ -8,8 +8,12 @@
 // single source; the drift class is closed by construction.
 //
 // `WGSL_PROJECTION_CONSTS` / `WGSL_PROJECTION_FNS` keep their names + role: the
-// polygon (renderer-shaders), line (line-renderer-shaders), point
-// (point-renderer-shaders), and raster (raster-renderer) shaders inline them.
+// polygon (shader-dsl/shaders/polygon.ts via `emitPolygonWgsl`), line
+// (line-renderer-shaders), point (point-renderer-shaders), and raster
+// (raster-renderer) shaders inline them. The polygon side migrated off the
+// legacy `renderer-shaders.ts` template in Phase 2.5 US-008 / US-010; the
+// other three still use their hand-WGSL shader strings + the same projection-
+// const inline pattern.
 //
 // The dispatch type encoding (`proj_params.x`) is the table in
 // `projection/projections-table.ts` (index == projType):
