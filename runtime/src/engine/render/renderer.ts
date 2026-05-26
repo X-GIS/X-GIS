@@ -43,7 +43,7 @@ export {
 // markers live in renderer-shaders.ts and remain there only for the US-000
 // snapshot capture script's baseline emit — no runtime path uses them.
 import { emitPolygonWgsl } from '../shader-dsl/shaders/polygon'
-import { Node, vec4fT } from '../shader-dsl/core/ir'
+import { Node } from '../shader-dsl/core/ir'
 // nodeToWgslString is the compiler-side copy of the runtime
 // wgsl.ts:emitExpr — used for the variant-bearing path's splice-point
 // lookup (the composer emits `out.color = <fillExpr-wgsl>;` using the
@@ -107,7 +107,6 @@ function buildShader(variant?: ShaderVariantInfo | null): string {
   // ShaderVariantInfo.fillExpr expects Node<'vec4<f32>'>; the runtime Node
   // class carries the same {op:'construct'|...} Expr shape that the
   // compiler-side NodeLike captures, so the constructor call is the bridge.
-  void vec4fT
   let wgsl = emitPolygonWgsl(
     {
       preamble: null,

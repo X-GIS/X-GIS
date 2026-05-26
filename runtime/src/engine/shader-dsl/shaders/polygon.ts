@@ -579,8 +579,12 @@ const buildFsFill = (pickEnabled: boolean) =>
       const roofBonus = b.let('roof_bonus', select(wallBlend.ge(f32(0.999)), f32(0.05), f32(0)))
       const wallShade = b.let('wall_shade', min(f32(1), vShade.add(roofBonus)))
       // wall_shade reference kept live for the composer's default-path
-      // assign emit (the variant-injected path uses its own preamble + expr
-      // and ignores wall_shade unless the variant authored it back in).
+      // assign emit (defaultFillReturnStmts constructs a `{op:'varref',
+      // name:'wall_shade'}` Expr that resolves to the let-bound name at
+      // emit time). The variant-injected path uses its own preamble +
+      // expr and ignores wall_shade unless the variant authored it back
+      // in. `void` keeps tsc-noUnusedLocals satisfied without dropping
+      // the b.let() Stmt push.
       void wallShade
       // ▼ Composer-swap point — variant.fillExpr replaces this OR the
       //   composer inserts the base default-uniform path:
@@ -726,6 +730,9 @@ const buildFsStroke = (pickEnabled: boolean) =>
       const input = p.input
       emitPolygonFragmentDiscards(b, input)
       // feat_id > 0 = major grid line (brighter); 0 = minor (dimmer).
+      // `void` keeps tsc satisfied — defaultStrokeReturnStmts builds a
+      // `{op:'varref', name:'alpha_scale'}` Expr that resolves to this
+      // let-bound name at emit time (composer's default-path assign).
       const alphaScale = b.let('alpha_scale', select(input.field('feat_id', u32T).gt(u32(0)), f32(1), f32(0.4)))
       void alphaScale
       const out = b.var('out', structT('FragmentOutput'))
