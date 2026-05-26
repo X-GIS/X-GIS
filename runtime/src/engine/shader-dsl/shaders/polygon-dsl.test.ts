@@ -49,6 +49,32 @@ describe('emitPolygonWgsl — skeleton', () => {
     expect(wgsl).toContain('@fragment')
   })
 
+  it('emits fs_fill fragment with placeholder Stmt + wall_shade + log-depth jitter', () => {
+    const wgsl = emitPolygonWgsl(null, false)
+    expect(wgsl).toContain('fn fs_fill')
+    // Wall-shading (iter 129 final).
+    expect(wgsl).toContain('v_shade')
+    expect(wgsl).toContain('wall_shade')
+    expect(wgsl).toContain('roof_bonus')
+    // Placeholder Stmt — composer-swap point for variant.fillExpr.
+    expect(wgsl).toContain('// __placeholder: fill-return')
+    // Per-feature log-depth jitter (xor-shift mix on low 16 bits of feat_id).
+    expect(wgsl).toContain('id_lo')
+    expect(wgsl).toContain('mixed')
+    expect(wgsl).toContain('jitter')
+    // Mask + shift constants in the WGSL emit.
+    expect(wgsl).toContain('65535u') // 0xFFFF
+    expect(wgsl).toContain('1023u')  // 0x3FF
+  })
+
+  it('fs_fill pick attachment write is conditional on pickEnabled', () => {
+    const wgslOff = emitPolygonWgsl(null, false)
+    const wgslOn = emitPolygonWgsl(null, true)
+    // pick write touches out.pick — only present when pickEnabled.
+    expect(wgslOff).not.toContain('out.pick')
+    expect(wgslOn).toContain('out.pick')
+  })
+
   it('emits vs_main_quantized_extruded vertex entry with iter-194 per-vertex lighting', () => {
     const wgsl = emitPolygonWgsl(null, false)
     expect(wgsl).toContain('fn vs_main_quantized_extruded')

@@ -41,6 +41,12 @@ export class Builder {
   break(): void { this.push({ s: 'break' }) }
   continue(): void { this.push({ s: 'continue' }) }
   discard(): void { this.push({ s: 'discard' }) }
+  /** Lay down a `{ s: 'placeholder', tag }` marker — the polygon DSL
+   *  composer (emitPolygonWgsl) walks the cloned module and swaps each
+   *  tagged placeholder for the variant's return-Stmts. Bare (un-swapped)
+   *  placeholders emit `// __placeholder: ${tag}` per the defensive design
+   *  in placeholder-stmt.test.ts. */
+  placeholder(tag: string): void { this.push({ s: 'placeholder', tag }) }
 
   /** if / else-if / else chain. Returns a chainer so `.elif().else()` reads
    *  top-to-bottom. The If stmt is pushed on the first call and mutated in

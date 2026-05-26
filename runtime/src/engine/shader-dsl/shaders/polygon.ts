@@ -22,11 +22,11 @@
 
 import {
   entryFn, fn, module, bindingRef, constRef, callFn,
-  f32, u32, vec2, vec3, vec4, toF32, toU32, transformMat4, clamp, select,
-  abs, max, mix, sqrt, dot,
+  f32, u32, vec2, vec2u, vec3, vec4, toF32, toU32, transformMat4, clamp, select,
+  abs, max, min, mix, sqrt, dot,
   f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   structT,
-  Node,
+  Node, Builder,
   type StructDecl, type StructField, type ModuleDecl, type Stmt,
 } from '../core/ir'
 import { emitModule } from '../core/backends/wgsl'
@@ -495,8 +495,108 @@ const vsMainQuantizedExtruded = entryFn(
   },
 )
 
+// ── Fragment-entry shared sub-builders ──
+//
+// Five polygon fragment entries (fs_fill / fs_fill_pattern / fs_oit_translucent
+// / fs_fill_extrude / fs_stroke) all open with the same three discards:
+//   1. polygon_cos_c_fragment hemisphere cull (sphere visibility).
+//   2. MERCATOR_LAT_LIMIT abs-lat clamp.
+//   3. clip_bounds parent-fallback mask (sentinel + bbox valid).
+// Inlined into each entry via this builder helper to keep the WGSL emit
+// shape byte-identical to POLYGON_SHADER_SOURCE.
+
+const emitPolygonFragmentDiscards = (b: Builder, input: Node): void => {
+  const cosC = callFn('polygon_cos_c_fragment', f32T, input.field('abs_merc_x', f32T), input.field('abs_merc_y', f32T))
+  b.if(cosC.lt(f32(0)), (c) => { c.discard() })
+  b.if(abs(input.field('abs_lat', f32T)).gt(constRef('MERCATOR_LAT_LIMIT')), (c) => { c.discard() })
+  const clipBounds = u.field('clip_bounds', vec4fT)
+  const clipValid = b.let('_clip_valid',
+    clipBounds.x.gt(f32(-1e29))
+      .and(clipBounds.z.gt(clipBounds.x))
+      .and(clipBounds.w.gt(clipBounds.y)),
+  )
+  b.if(clipValid, (c) => {
+    c.if(input.field('abs_merc_x', f32T).lt(clipBounds.x), (d) => { d.discard() })
+    c.if(input.field('abs_merc_x', f32T).gt(clipBounds.z), (d) => { d.discard() })
+    c.if(input.field('abs_merc_y', f32T).lt(clipBounds.y), (d) => { d.discard() })
+    c.if(input.field('abs_merc_y', f32T).gt(clipBounds.w), (d) => { d.discard() })
+  })
+}
+
+// Per-feature deterministic depth jitter — breaks coplanar z-fights at
+// shared building walls. xor-shift mix on the low 16 bits of feat_id keeps
+// the math strictly in u32-wrap-on-overflow (avoids Apple Metal's multiply-
+// overflow validation reject). Range ≈ ±1.5e-5 NDC z (sub-pixel at any
+// reasonable depth precision). Synthetic background features (feat_id==0)
+// keep the canonical un-jittered depth.
+
+const emitLogDepthJitter = (b: Builder, input: Node, out: Node): void => {
+  const baseDepth = b.let('base_depth',
+    callFn('compute_log_frag_depth', f32T, input.field('view_w', f32T), u.field('log_depth_fc', f32T)),
+  )
+  const idLo = b.let('id_lo', input.field('feat_id', u32T).bitAnd(u32(0xFFFF)))
+  const mixed = b.let('mixed',
+    idLo.bitXor(idLo.shr(u32(7))).bitXor(idLo.shl(u32(3))).bitAnd(u32(0x3FF)),
+  )
+  const jitter = b.let('jitter', select(
+    input.field('feat_id', u32T).ne(u32(0)),
+    toF32(mixed).sub(f32(512)).mul(f32(1.5e-8)),
+    f32(0),
+  ))
+  b.assign(out.field('depth', f32T), baseDepth.add(jitter))
+}
+
+// Pick attachment write — only emits when pickEnabled. low16 = u.pick_id;
+// high16 reserved (always 0 in current renderer; WORLD_COPIES will populate).
+
+const emitPickWrite = (b: Builder, out: Node, pickEnabled: boolean): void => {
+  if (!pickEnabled) return
+  b.assign(out.field('pick', vec2uT), vec2u(u.field('pick_id', u32T), u32(0)))
+}
+
 // ── Fragment entries ──
 //
+// fs_fill — main polygon fill fragment. Three opening discards (cull / lat /
+// clip), then wall_shade for fill-extrusion shading, then the placeholder
+// Stmt 'fill-return' (composer swaps with variant.fillExpr OR the default
+// `u.fill_color.rgb * wall_shade` assign), then rim_alpha multiply, pick
+// write (conditional), and log-depth jitter. The 'fill-return' placeholder
+// is the seam US-007's emitPolygonWgsl composer rewrites.
+
+const buildFsFill = (pickEnabled: boolean) =>
+  entryFn(
+    'fs_fill', 'fragment',
+    [{ name: 'input', type: structT('VertexOutput') }],
+    structT('FragmentOutput'),
+    (b, p) => {
+      const input = p.input
+      emitPolygonFragmentDiscards(b, input)
+      const out = b.var('out', structT('FragmentOutput'))
+      // Fill-extrusion shading via wall_blend varying. Iter 129 final after
+      // the derivative-normal experiment was reverted — see fs_fill comment
+      // in POLYGON_SHADER_SOURCE for the rationale.
+      const wallBlend = input.field('wall_blend', f32T)
+      const vShade = b.let('v_shade', f32(0.6).add(f32(0.4).mul(wallBlend)))
+      const roofBonus = b.let('roof_bonus', select(wallBlend.ge(f32(0.999)), f32(0.05), f32(0)))
+      const wallShade = b.let('wall_shade', min(f32(1), vShade.add(roofBonus)))
+      // wall_shade reference kept live for the composer's default-path
+      // assign emit (the variant-injected path uses its own preamble + expr
+      // and ignores wall_shade unless the variant authored it back in).
+      void wallShade
+      // ▼ Composer-swap point — variant.fillExpr replaces this OR the
+      //   composer inserts the base default-uniform path:
+      //     out.color = vec4<f32>(u.fill_color.rgb * wall_shade, u.fill_color.a);
+      b.placeholder('fill-return')
+      // Rim alpha fade — applied AFTER the marker so variant pipelines
+      // inherit it without per-variant codegen plumbing.
+      const rimA = callFn('polygon_rim_alpha', f32T, input.field('abs_merc_x', f32T), input.field('abs_merc_y', f32T))
+      b.assign(out.field('color', vec4fT).a, out.field('color', vec4fT).a.mul(rimA))
+      emitPickWrite(b, out, pickEnabled)
+      emitLogDepthJitter(b, input, out)
+      b.ret(out)
+    },
+  )
+
 // fs_overdraw — debug=overdraw single constant-output entry shared by every
 // debug-variant pipeline. Vertex shaders still project correctly so the
 // rasterizer produces the SAME fragments as the normal path; FS work
@@ -584,10 +684,11 @@ const buildPolygonModule = (
       vsMain,
       vsMainQuantized,
       vsMainQuantizedExtruded,
+      buildFsFill(pickEnabled),
       fsOverdraw,
-      // The remaining 5 main fragment entries (fs_fill / fs_fill_pattern /
-      // fs_oit_translucent / fs_fill_extrude / fs_stroke) land in subsequent
-      // iters.
+      // The remaining 4 fragment entries (fs_fill_pattern /
+      // fs_oit_translucent / fs_fill_extrude / fs_stroke) land in
+      // subsequent iters.
     ],
   })
   if (variant === null) return base
