@@ -23,7 +23,7 @@
 import {
   entryFn, fn, module, bindingRef, constRef, callFn,
   f32, u32, vec2, vec2u, vec3, vec4, toF32, toU32, transformMat4, clamp, select,
-  abs, max, min, mix, sqrt, dot,
+  abs, fract, max, min, mix, pow, sqrt, dot, textureSample,
   f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   structT,
   Node, Builder,
@@ -108,9 +108,8 @@ const polygonFragmentOutput = (pickEnabled: boolean): StructDecl => {
 // land via the variant's `preamble.bindings` array.
 
 const u = bindingRef('u', structT('Uniforms'))
-// sprite_atlas + sprite_samp Node refs land alongside fs_fill_pattern in
-// a later iter; their BindingDecl entries appear in buildPolygonModule now
-// so the emitted WGSL declarations exactly match renderer-shaders.ts.
+const spriteAtlas = bindingRef('sprite_atlas', texture2dfT)
+const spriteSamp = bindingRef('sprite_samp', samplerT)
 
 // ── Helper fns ──
 //
@@ -597,6 +596,152 @@ const buildFsFill = (pickEnabled: boolean) =>
     },
   )
 
+// fs_fill_pattern — iter-181/182 fill-pattern Stage 2 fragment. World-anchored
+// repeating-tile UV via abs_merc / repeat_m; the local UV is then remapped
+// into the sprite atlas-UV bbox stored in u.fill_color (rgba = u0/v0/u1/v1).
+// fill-translate slots are reused as the repeat metres (Stage 2 trade-off:
+// pattern-fill layers can't also use a solid colour or a translate offset).
+
+const buildFsFillPattern = (pickEnabled: boolean) =>
+  entryFn(
+    'fs_fill_pattern', 'fragment',
+    [{ name: 'input', type: structT('VertexOutput') }],
+    structT('FragmentOutput'),
+    (b, p) => {
+      const input = p.input
+      emitPolygonFragmentDiscards(b, input)
+      const out = b.var('out', structT('FragmentOutput'))
+      const repeatX = b.let('repeat_x', max(u.field('fill_translate_x', f32T), f32(1)))
+      const repeatY = b.let('repeat_y', max(u.field('fill_translate_y', f32T), f32(1)))
+      const uvLocal = b.let('uv_local', vec2(
+        fract(input.field('abs_merc_x', f32T).div(repeatX)),
+        fract(input.field('abs_merc_y', f32T).div(repeatY)),
+      ))
+      const fillColor = u.field('fill_color', vec4fT)
+      const u0 = b.let('u0', fillColor.r)
+      const v0 = b.let('v0', fillColor.g)
+      const u1 = b.let('u1', fillColor.b)
+      const v1 = b.let('v1', fillColor.a)
+      const atlasUv = b.let('atlas_uv', vec2(
+        u0.add(uvLocal.x.mul(u1.sub(u0))),
+        v0.add(uvLocal.y.mul(v1.sub(v0))),
+      ))
+      const sampled = b.let('sampled', textureSample(spriteAtlas, spriteSamp, atlasUv))
+      // Layer opacity multiplies sprite alpha so fill-opacity still works.
+      b.assign(out.field('color', vec4fT), vec4(sampled.rgb, sampled.a.mul(u.field('opacity', f32T))))
+      const rimA = callFn('polygon_rim_alpha', f32T, input.field('abs_merc_x', f32T), input.field('abs_merc_y', f32T))
+      b.assign(out.field('color', vec4fT).a, out.field('color', vec4fT).a.mul(rimA))
+      emitPickWrite(b, out, pickEnabled)
+      emitLogDepthJitter(b, input, out)
+      b.ret(out)
+    },
+  )
+
+// fs_oit_translucent — Weighted Blended OIT (McGuire-Bavoil 2013) output.
+// Writes the dual MRT: @location(0) accum = (rgb·a·w, a·w) [BLEND_ADD]
+// + @location(1) revealage = a [BLEND mul-by-1-src]. Compose pass divides
+// accum.rgb by accum.a to recover the weighted-average colour, then uses
+// (1 - product_of_(1-a)) as the over-blend alpha onto the opaque
+// framebuffer. The McGuire-Bavoil 7.4 weight biases small-z fragments to
+// dominate (matching painter's order for clear front-most geometry);
+// clamps prevent fp16 running-sum overflow.
+
+const fsOitTranslucent = entryFn(
+  'fs_oit_translucent', 'fragment',
+  [{ name: 'input', type: structT('VertexOutput') }],
+  structT('OitFragmentOutput'),
+  (b, p) => {
+    const input = p.input
+    emitPolygonFragmentDiscards(b, input)
+    // Same fill-extrusion shading as fs_fill.
+    const wallBlend = input.field('wall_blend', f32T)
+    const vShade = b.let('v_shade', f32(0.6).add(f32(0.4).mul(wallBlend)))
+    const roofBonus = b.let('roof_bonus', select(wallBlend.ge(f32(0.999)), f32(0.05), f32(0)))
+    const wallShade = b.let('wall_shade', min(f32(1), vShade.add(roofBonus)))
+    const fillColor = u.field('fill_color', vec4fT)
+    const rgb = b.let('rgb', fillColor.rgb.mul(wallShade))
+    // Rim alpha fade (multiplies into alpha so OIT accumulation respects it).
+    const rimA = callFn('polygon_rim_alpha', f32T, input.field('abs_merc_x', f32T), input.field('abs_merc_y', f32T))
+    const a = b.let('a', fillColor.a.mul(rimA))
+    b.if(a.le(f32(0.001)), (c) => { c.discard() })
+    // McGuire-Bavoil weight: large for closer + smaller alpha contributions,
+    // capped to avoid fp16 overflow. iter-192 set weight=1; reverted in
+    // iter-193 alongside the depth-write change.
+    const z = b.let('z', max(input.field('view_w', f32T), f32(1e-3)))
+    const w = b.let('w', clamp(
+      f32(0.03).div(f32(1e-5).add(pow(z.div(f32(200)), f32(4)))),
+      f32(1e-2),
+      f32(3.0e3),
+    ))
+    const out = b.var('out', structT('OitFragmentOutput'))
+    b.assign(out.field('accum', vec4fT), vec4(rgb.mul(a), a).mul(w))
+    b.assign(out.field('revealage', f32T), a)
+    b.ret(out)
+  },
+)
+
+// fs_fill_extrude — iter-194 MapLibre-equivalent fill-extrusion fragment.
+// All lighting was computed per-vertex in vs_main_quantized_extruded and
+// interpolated as v_color; this fragment just passes it through (after the
+// same per-fragment cull + clip discards as fs_fill so hemisphere
+// boundaries + parent-tile clip masks stay correct). v_color is
+// PREMULTIPLIED (rgb*alpha, alpha); the pipeline uses BLEND_ALPHA_PREMULT
+// so the result composites the same way MapLibre's translucent extrude
+// path does.
+
+const buildFsFillExtrude = (pickEnabled: boolean) =>
+  entryFn(
+    'fs_fill_extrude', 'fragment',
+    [{ name: 'input', type: structT('VertexOutput') }],
+    structT('FragmentOutput'),
+    (b, p) => {
+      const input = p.input
+      emitPolygonFragmentDiscards(b, input)
+      const out = b.var('out', structT('FragmentOutput'))
+      // Rim alpha — operates on the premultiplied colour: scales both rgb
+      // and alpha by the rim factor so the building still fades at sphere
+      // edges on globe / azimuthal projections.
+      const rim = b.let('rim', callFn('polygon_rim_alpha', f32T, input.field('abs_merc_x', f32T), input.field('abs_merc_y', f32T)))
+      b.assign(out.field('color', vec4fT), input.field('v_color', vec4fT).mul(rim))
+      emitPickWrite(b, out, pickEnabled)
+      emitLogDepthJitter(b, input, out)
+      b.ret(out)
+    },
+  )
+
+// fs_stroke — main polygon stroke fragment. Same 3 discards as fs_fill,
+// then a minor/major alpha-scale gated on feat_id > 0 (major grid line vs
+// minor — the synthetic-feat encoding upstream), then the composer-swap
+// placeholder Stmt 'stroke-return' (composer swaps with variant.strokeExpr
+// OR the default `u.stroke_color.rgb * alpha_scale` assign), then rim_alpha
+// multiply + pick write (conditional) + log-depth (NO jitter — strokes
+// are thin enough that the coplanar fight class doesn't apply).
+
+const buildFsStroke = (pickEnabled: boolean) =>
+  entryFn(
+    'fs_stroke', 'fragment',
+    [{ name: 'input', type: structT('VertexOutput') }],
+    structT('FragmentOutput'),
+    (b, p) => {
+      const input = p.input
+      emitPolygonFragmentDiscards(b, input)
+      // feat_id > 0 = major grid line (brighter); 0 = minor (dimmer).
+      const alphaScale = b.let('alpha_scale', select(input.field('feat_id', u32T).gt(u32(0)), f32(1), f32(0.4)))
+      void alphaScale
+      const out = b.var('out', structT('FragmentOutput'))
+      // ▼ Composer-swap point — variant.strokeExpr replaces this OR the
+      //   composer inserts the base default-uniform path:
+      //     out.color = vec4<f32>(u.stroke_color.rgb, u.stroke_color.a * alpha_scale);
+      b.placeholder('stroke-return')
+      const rimA = callFn('polygon_rim_alpha', f32T, input.field('abs_merc_x', f32T), input.field('abs_merc_y', f32T))
+      b.assign(out.field('color', vec4fT).a, out.field('color', vec4fT).a.mul(rimA))
+      emitPickWrite(b, out, pickEnabled)
+      // Stroke depth: bare log-depth, no per-feature jitter.
+      b.assign(out.field('depth', f32T), callFn('compute_log_frag_depth', f32T, input.field('view_w', f32T), u.field('log_depth_fc', f32T)))
+      b.ret(out)
+    },
+  )
+
 // fs_overdraw — debug=overdraw single constant-output entry shared by every
 // debug-variant pipeline. Vertex shaders still project correctly so the
 // rasterizer produces the SAME fragments as the normal path; FS work
@@ -685,10 +830,11 @@ const buildPolygonModule = (
       vsMainQuantized,
       vsMainQuantizedExtruded,
       buildFsFill(pickEnabled),
+      buildFsFillPattern(pickEnabled),
+      fsOitTranslucent,
+      buildFsFillExtrude(pickEnabled),
+      buildFsStroke(pickEnabled),
       fsOverdraw,
-      // The remaining 4 fragment entries (fs_fill_pattern /
-      // fs_oit_translucent / fs_fill_extrude / fs_stroke) land in
-      // subsequent iters.
     ],
   })
   if (variant === null) return base

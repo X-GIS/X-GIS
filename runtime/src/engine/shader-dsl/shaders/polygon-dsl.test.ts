@@ -49,6 +49,41 @@ describe('emitPolygonWgsl — skeleton', () => {
     expect(wgsl).toContain('@fragment')
   })
 
+  it('emits all 5 main fragment entries + fs_overdraw', () => {
+    const wgsl = emitPolygonWgsl(null, false)
+    expect(wgsl).toContain('fn fs_fill')
+    expect(wgsl).toContain('fn fs_fill_pattern')
+    expect(wgsl).toContain('fn fs_oit_translucent')
+    expect(wgsl).toContain('fn fs_fill_extrude')
+    expect(wgsl).toContain('fn fs_stroke')
+    expect(wgsl).toContain('fn fs_overdraw')
+  })
+
+  it('emits both placeholder Stmts (fill-return + stroke-return)', () => {
+    const wgsl = emitPolygonWgsl(null, false)
+    expect(wgsl).toContain('// __placeholder: fill-return')
+    expect(wgsl).toContain('// __placeholder: stroke-return')
+  })
+
+  it('fs_fill_pattern samples sprite_atlas with world-anchored UV', () => {
+    const wgsl = emitPolygonWgsl(null, false)
+    expect(wgsl).toContain('textureSample(sprite_atlas')
+    expect(wgsl).toContain('fract(')
+    expect(wgsl).toContain('uv_local')
+    expect(wgsl).toContain('atlas_uv')
+  })
+
+  it('fs_oit_translucent emits dual MRT (accum + revealage) with McGuire-Bavoil weight', () => {
+    const wgsl = emitPolygonWgsl(null, false)
+    expect(wgsl).toContain('struct OitFragmentOutput')
+    expect(wgsl).toContain('accum')
+    expect(wgsl).toContain('revealage')
+    // McGuire-Bavoil 7.4 weight constants.
+    expect(wgsl).toContain('0.03')
+    expect(wgsl).toContain('200')
+    expect(wgsl).toContain('pow(')
+  })
+
   it('emits fs_fill fragment with placeholder Stmt + wall_shade + log-depth jitter', () => {
     const wgsl = emitPolygonWgsl(null, false)
     expect(wgsl).toContain('fn fs_fill')
