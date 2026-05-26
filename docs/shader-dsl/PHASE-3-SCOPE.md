@@ -80,10 +80,66 @@ debug helpers, and palette compute kernels:
 
 - **`runtime/src/engine/render/renderer-shaders.ts`** — the
   POLYGON_SHADER_SOURCE template that US-007's `polygon.ts` DSL
-  composer REPLACES. US-008 deletes this file along with the
-  `_back-compat/` adapter, so it's only present during the
-  in-flight migration window. After US-008 lands, the polygon
-  shader has no hand-WGSL counterpart.
+  composer REPLACES. US-008 retires the runtime consumers + the
+  US-009 test consumers; the file itself stays alive ONLY for
+  `scripts/capture-polygon-snapshots.ts` until US-010's
+  AST-equivalence diff supersedes the snapshot baseline workflow.
+  After US-010 lands, the file deletes — no hand-WGSL counterpart
+  to the polygon shader remains.
+
+### Runtime hand-WGSL outside the polygon variant lane
+
+These runtime files carry inline `/* wgsl */` template strings but
+do NOT feed `ShaderVariant.{fillExpr,strokeExpr,preamble,fillPreamble,
+strokePreamble}` — they're independent shader entry points that the
+polygon DSL composer never touches. Phase 4+ migration targets, NOT
+in PR-B/PR-C scope:
+
+- **`runtime/src/engine/render/renderer.ts:587`** — overdraw compose
+  fragment shader (`?debug=overdraw` colormap pass). Single-purpose
+  debug overlay; runtime composes it at pipeline-build time with no
+  variant codegen.
+- **`runtime/src/engine/render/renderer.ts:1125`** — OIT compose
+  fragment shader (weighted-blended translucent resolve). Same shape
+  as overdraw: one-shot pipeline, no variant fields.
+- **`runtime/src/engine/debug-flags.ts:43`** — `OVERDRAW_FS_SOURCE`
+  helper exported for the overdraw debug stage above. Tightly coupled
+  to the runtime overdraw pipeline; migrates alongside renderer.ts:587
+  when the overdraw stage moves to DSL.
+- **`runtime/src/engine/gpu/frame-uniform.ts:42`** — `WGSL_FRAME_UNIFORM`
+  shared uniform block (re-used at module-level by every shader that
+  declares the camera/frame uniforms). Cross-cutting concern; DSL
+  migration depends on a ConstDecl/BindingDecl module-level merge
+  helper that doesn't exist yet.
+- **`runtime/src/engine/projection/reprojector.ts:19`** —
+  `REPROJECT_SHADER` compute kernel for input-tile reprojection (EPSG
+  → WGS84). Compute-kernel lane parallels `compute-gen.ts` on the
+  compiler side; same Phase 4+ migration boundary.
+- **`runtime/src/engine/shaders/AGENTS.md`** — documentation, not
+  emit. Two `/* wgsl */` references in prose describe the existing
+  pattern; they don't author shader text.
+
+### Tightened AC7 grep for the PR-B/PR-C closeout
+
+The strict `runtime/src/engine/` grep currently surfaces all six of
+the files above. The PR-B/PR-C scope is the **polygon variant lane
+only**, so the closure-checklist grep accepts an inclusion-filtered
+form that excludes the Phase 4+ runtime files:
+
+```bash
+grep -rE '/\*\s*wgsl\s*\*/' runtime/src/engine/ \
+  --exclude='renderer-shaders.ts' \
+  --exclude-dir=__polygon-variant-snapshots__ \
+  --exclude=AGENTS.md \
+  --exclude='renderer.ts' \
+  --exclude='debug-flags.ts' \
+  --exclude='frame-uniform.ts' \
+  --exclude='reprojector.ts'
+```
+
+Returns **0 hits** once US-010 deletes `renderer-shaders.ts`. The
+unfiltered grep stays >0 until Phase 4+ migrates the runtime non-
+polygon hand-WGSL paths above.
 
 ## Audit rule
 
@@ -99,18 +155,38 @@ grep -rE '/\*\s*wgsl\s*\*/' runtime/src/engine/
   fixtures from US-000); `.wgsl` files are baseline data, not
   emit paths.
 - A hit inside `runtime/src/engine/render/renderer-shaders.ts`
-  is expected DURING the migration (file is alive until US-008
-  deletes it) and the AC7 gate fires only AFTER US-008.
+  is expected DURING the migration (file is alive until US-010's
+  AST-equivalence diff supersedes the snapshot capture script's
+  baseline emit; deletion follows in the same PR).
+- A hit inside the runtime non-polygon hand-WGSL files listed in
+  the "Runtime hand-WGSL outside the polygon variant lane" section
+  is **expected post-PR-C** — they migrate in Phase 4+, not Phase
+  2.5. The tightened grep snippet above (line 130) is the actual
+  closure-checklist gate; this strict form documents the unfiltered
+  long-term target.
 
 ## Closure checklist
 
-- [ ] US-005 + US-006 + US-007 + US-008 land — variant-emit lane
-      Node-typed end-to-end; `renderer-shaders.ts` + `_back-compat/`
-      adapter deleted.
-- [ ] AC7 grep `grep -rE '/\*\s*wgsl\s*\*/' runtime/src/engine/`
-      returns 0 hits.
-- [ ] `matchArmsKey` rewired to hash `canonicalJsonStringify(node)`
+- [x] US-005 + US-006 + US-007 + US-008 + US-009 land — variant-emit
+      lane Node-typed end-to-end via `polygon.ts` DSL composer + the
+      `buildShader` / `pickShader` rewire. PR #152 (Phase 2.5 PR-B)
+      merged 2026-05-26.
+- [ ] US-010 AST-equivalence diff comparator lands → supersedes
+      `scripts/capture-polygon-snapshots.ts` baseline workflow →
+      `renderer-shaders.ts` deletion is then safe.
+- [ ] `_back-compat/node-to-wgsl-string.ts` adapter deletes after
+      `NodeLike` + `wgslRaw` relocate to a stable compiler-side
+      location (post-US-010) AND the renderer.ts splice-point lookup
+      drops the `nodeToWgslString` call.
+- [ ] AC7 grep (tightened form, line 130 above) returns 0 hits in the
+      polygon-variant-lane after `renderer-shaders.ts` deletes. The
+      unfiltered grep stays > 0 until Phase 4+ migrates the runtime
+      non-polygon hand-WGSL paths (renderer.ts overdraw/OIT compose,
+      debug-flags overdraw, frame-uniform, reprojector).
+- [x] `matchArmsKey` rewired to hash `canonicalJsonStringify(node)`
       so the variant cache identity stays stable across engines.
+      Landed in PR #151 (Phase 2.5 PR-A foundations) at
+      `compiler/src/codegen/_util/canonical-json.ts`.
 - [ ] This doc is the authoritative scoping contract for any
       follow-up audit; update it if a new compiler-internal WGSL
       path is introduced.
