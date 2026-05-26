@@ -20,7 +20,7 @@ import type { NodeLike } from './_back-compat/node-to-wgsl-string'
 import {
   composeFillVec4, constRefVec4, refF32,
   toU32, u32Lit, u32Mod, arrayIndex, featDataField,
-  mix4, clampF32, f32Sub, f32Div, f32Lit, vec4fFromRgba,
+  mix4, clampF32, f32Add, f32Sub, f32Mul, f32Div, f32Lit, vec4fFromRgba,
 } from './_util/node-builders'
 import {
   buildFieldMap,
@@ -542,14 +542,15 @@ function processOpacity(
 
 // ═══ Expression builders ═══
 
-// Phase 2.5 US-005 — best-effort AST -> Node converter for the simple
-// scalar shapes exprToWGSL handles cleanly:
+// Phase 2.5 US-005 — best-effort AST -> Node converter for the scalar
+// shapes exprToWGSL handles cleanly:
 //   - NumberLiteral   -> f32Lit(value)
 //   - Identifier      -> featDataField(name, fieldMap) (when known)
 //   - FieldAccess     -> featDataField(field, fieldMap) (when known)
-// Returns null for any shape needing the full DataExpr converter
-// (binops, builtin calls, pipe expressions); callers then route to
-// the legacy wgslRaw path.
+//   - BinaryExpr +-*/ -> recursive f32Add/Sub/Mul/Div composition
+// Returns null for shapes needing the full DataExpr converter
+// (comparison / logical binops, builtin calls, pipe expressions);
+// callers then route to the legacy wgslRaw path.
 function simpleScalarNode(
   ast: import('../parser/ast').Expr,
   fieldMap: Map<string, number>,
@@ -557,6 +558,18 @@ function simpleScalarNode(
   if (ast.kind === 'NumberLiteral') return f32Lit(ast.value)
   if (ast.kind === 'Identifier' && ast.name !== 'zoom') return featDataField(ast.name, fieldMap)
   if (ast.kind === 'FieldAccess') return featDataField(ast.field, fieldMap)
+  if (ast.kind === 'BinaryExpr') {
+    const left = simpleScalarNode(ast.left, fieldMap)
+    const right = simpleScalarNode(ast.right, fieldMap)
+    if (!left || !right) return null
+    switch (ast.op) {
+      case '+': return f32Add(left, right)
+      case '-': return f32Sub(left, right)
+      case '*': return f32Mul(left, right)
+      case '/': return f32Div(left, right)
+      default: return null // '%', comparison, logical → not supported here
+    }
+  }
   return null
 }
 
