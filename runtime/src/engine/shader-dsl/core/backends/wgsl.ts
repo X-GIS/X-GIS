@@ -17,7 +17,7 @@ export function wgslType(t: ShaderType): string {
     case 'mat': return `mat${t.n}x${t.n}<${t.elem}>`
     case 'struct': return t.name
     case 'array': return t.size !== undefined ? `array<${wgslType(t.elem)}, ${t.size}>` : `array<${wgslType(t.elem)}>`
-    case 'texture': return `texture_${t.dim}<${t.elem}>`
+    case 'texture': return t.dim === '2d-ms' ? `texture_multisampled_2d<${t.elem}>` : `texture_${t.dim}<${t.elem}>`
     case 'sampler': return 'sampler'
     case 'void': return 'void'
   }

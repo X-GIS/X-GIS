@@ -110,10 +110,13 @@ in PR-B/PR-C scope:
   renderer.ts now calls `emitOverdrawComposeWgsl()` instead of holding
   an inline template.
 - **`runtime/src/engine/render/renderer.ts:1125`** — OIT compose
-  fragment shader (weighted-blended translucent resolve). Same shape
-  as overdraw: one-shot pipeline, no variant fields. Migration
-  blocked on `texture_multisampled_2d` ShaderType variant (not yet
-  in `core/ir/types.ts`); add when migration starts.
+  fragment shader (weighted-blended translucent resolve). **MIGRATED**
+  via `shader-dsl/shaders/oit-compose.ts`. The `texture_2d` /
+  `texture_multisampled_2d` binding swap is driven by the new
+  `texture2dMsfT` ShaderType constant (`dim: '2d-ms'`); emit picks
+  the right type via the `isMsaa` flag. SAMPLE_COUNT is baked in as
+  a loop-bound integer literal at emit time — no module-level const
+  needed.
 - **`runtime/src/engine/debug-flags.ts:43`** — `OVERDRAW_FS_SOURCE`
   helper exported for the overdraw debug stage above. **MIGRATED**
   via `shader-dsl/shaders/overdraw-fs.ts` (single fs_overdraw entry

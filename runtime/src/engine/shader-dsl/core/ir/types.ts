@@ -14,7 +14,7 @@ export type ShaderType =
   | { readonly kind: 'mat'; readonly n: 2 | 3 | 4; readonly elem: 'f32' }
   | { readonly kind: 'struct'; readonly name: string }
   | { readonly kind: 'array'; readonly elem: ShaderType; readonly size?: number }
-  | { readonly kind: 'texture'; readonly dim: '2d'; readonly elem: 'f32' }
+  | { readonly kind: 'texture'; readonly dim: '2d' | '2d-ms'; readonly elem: 'f32' }
   | { readonly kind: 'sampler' }
   | { readonly kind: 'void' }
 
@@ -35,6 +35,7 @@ export const vec2iT = { kind: 'vec', n: 2, elem: 'i32' } as const satisfies Shad
 export const vec4iT = { kind: 'vec', n: 4, elem: 'i32' } as const satisfies ShaderType
 export const mat4x4fT = { kind: 'mat', n: 4, elem: 'f32' } as const satisfies ShaderType
 export const texture2dfT = { kind: 'texture', dim: '2d', elem: 'f32' } as const satisfies ShaderType
+export const texture2dMsfT = { kind: 'texture', dim: '2d-ms', elem: 'f32' } as const satisfies ShaderType
 export const samplerT = { kind: 'sampler' } as const satisfies ShaderType
 export const voidT = { kind: 'void' } as const satisfies ShaderType
 export const structT = (name: string): ShaderType => ({ kind: 'struct', name })
@@ -58,7 +59,7 @@ export function typeKey(t: ShaderType): string {
     case 'mat': return `mat${t.n}x${t.n}<${t.elem}>`
     case 'struct': return `struct:${t.name}`
     case 'array': return t.size !== undefined ? `array<${typeKey(t.elem)},${t.size}>` : `array<${typeKey(t.elem)}>`
-    case 'texture': return `texture_${t.dim}<${t.elem}>`
+    case 'texture': return t.dim === '2d-ms' ? `texture_multisampled_2d<${t.elem}>` : `texture_${t.dim}<${t.elem}>`
     case 'sampler': return 'sampler'
     case 'void': return 'void'
   }

@@ -44,6 +44,7 @@ export {
 // snapshot capture script's baseline emit — no runtime path uses them.
 import { emitPolygonWgsl } from '../shader-dsl/shaders/polygon'
 import { emitOverdrawComposeWgsl } from '../shader-dsl/shaders/overdraw-compose'
+import { emitOitComposeWgsl } from '../shader-dsl/shaders/oit-compose'
 import { Node } from '../shader-dsl/core/ir'
 // nodeToWgslString is the compiler-side copy of the runtime
 // wgsl.ts:emitExpr — used for the variant-bearing path's splice-point
@@ -1082,46 +1083,7 @@ export class MapRenderer {
     // takes the same code path with a 1-sample loop, no branch.
     const sampleCount = getSampleCount()
     const isMsaa = sampleCount > 1
-    const oitComposeShader = /* wgsl */ `
-struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>, };
-@vertex fn vs_full(@builtin(vertex_index) idx: u32) -> VsOut {
-  // Oversized triangle covering NDC [-1, 1]² — vertices at
-  // (-1, -1), (3, -1), (-1, 3). The half outside the viewport is
-  // clipped by the rasterizer; covers the whole framebuffer with
-  // one triangle (3-vertex draw). Avoids the off-by-vertex bug of
-  // the bit-packed 6-vertex quad pattern.
-  var pos: vec2<f32>;
-  if (idx == 0u) { pos = vec2<f32>(-1.0, -1.0); }
-  else if (idx == 1u) { pos = vec2<f32>(3.0, -1.0); }
-  else { pos = vec2<f32>(-1.0, 3.0); }
-  var out: VsOut;
-  out.pos = vec4<f32>(pos, 0.0, 1.0);
-  // Texture coords are sample-load coords (integer pixels) computed
-  // from clip-space NDC: uv = (pos + 1) / 2, y flipped because
-  // texture origin is top-left.
-  out.uv = vec2<f32>((pos.x + 1.0) * 0.5, 1.0 - (pos.y + 1.0) * 0.5);
-  return out;
-}
-@group(0) @binding(0) var accum_tex: ${isMsaa ? 'texture_multisampled_2d<f32>' : 'texture_2d<f32>'};
-@group(0) @binding(1) var revealage_tex: ${isMsaa ? 'texture_multisampled_2d<f32>' : 'texture_2d<f32>'};
-const SAMPLE_COUNT: i32 = ${sampleCount};
-@fragment fn fs_compose(in: VsOut) -> @location(0) vec4<f32> {
-  let dim = vec2<f32>(textureDimensions(accum_tex));
-  let uv = vec2<i32>(in.uv * dim);
-  var accum_sum: vec4<f32> = vec4<f32>(0.0);
-  var rev_sum: f32 = 0.0;
-  for (var s: i32 = 0; s < SAMPLE_COUNT; s = s + 1) {
-    accum_sum = accum_sum + textureLoad(accum_tex, uv, s);
-    rev_sum = rev_sum + textureLoad(revealage_tex, uv, s).r;
-  }
-  let inv = 1.0 / f32(SAMPLE_COUNT);
-  let accum = accum_sum * inv;
-  let revealage = rev_sum * inv;
-  let avg = accum.rgb / max(accum.a, 1e-5);
-  let alpha = 1.0 - revealage;
-  return vec4<f32>(avg, alpha);
-}
-`
+    const oitComposeShader = emitOitComposeWgsl(sampleCount, isMsaa)
     const oitComposeModule = device.createShaderModule({ code: oitComposeShader, label: 'oit-compose' })
     this.oitComposeBindGroupLayout = device.createBindGroupLayout({
       label: 'oit-compose-bgl',
