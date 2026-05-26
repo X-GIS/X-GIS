@@ -43,7 +43,7 @@ import { DEBUG_OVERDRAW } from '../debug-flags'
 import { asyncWriteBuffer, type StagingBufferPool } from '../gpu/staging-buffer-pool'
 import { xlog } from '../log'
 import { BLEND_ALPHA, BLEND_ALPHA_PREMULT, BLEND_MAX, DEPTH_READ_ONLY } from '../gpu/gpu-shared'
-import { COMPOSITE_SHADER, LINE_SHADER_SOURCE } from './line-renderer-shaders'
+import { emitLineWgsl, emitCompositeWgsl } from '../shader-dsl'
 import type { ShapeRegistry } from '../text/sdf-shape'
 import {
   LINE_UNIFORM_SIZE, PATTERN_SLOT_COUNT, PATTERN_SLOT_F32,
@@ -110,11 +110,11 @@ export { LINE_SEGMENT_STRIDE_F32, LINE_SEGMENT_STRIDE_BYTES, buildLineSegments }
 // (meters per pixel at camera center). This keeps the shader simple and
 // avoids per-fragment viewport-size math.
 
-// `LINE_SHADER_SOURCE` (and the internal `COMPOSITE_SHADER`) were moved
-// verbatim to ./line-renderer-shaders.ts. Re-export LINE_SHADER_SOURCE so
-// the public surface is unchanged — test files (renderer-shader-markers,
-// wgsl-reserved-words) keep importing it from this module.
-export { LINE_SHADER_SOURCE }
+// The line + compositor WGSL is now emitted from `shader-dsl/shaders/line.ts`
+// (`emitLineWgsl(pickEnabled)` / `emitCompositeWgsl()`). The pick variant is
+// emitted conditionally — there is no more `__PICK_FIELD__` / `__PICK_WRITE__`
+// regex marker. Consumers that used to scan `LINE_SHADER_SOURCE` now call the
+// emitter directly.
 
 // ═══ Renderer ═══
 
@@ -210,10 +210,7 @@ export class LineRenderer {
     // so writing (0, 0) from the line stroke would OVERWRITE the fill's
     // pick — which is why the `writeMask: 0` on the second target skips
     // pick output entirely for the line pipeline.
-    const linePickShader = LINE_SHADER_SOURCE
-      .replace(/__PICK_FIELD__/g, isPickEnabled() ? '@location(1) @interpolate(flat) pick: vec2<u32>,' : '')
-      .replace(/__PICK_WRITE__/g, isPickEnabled() ? 'out.pick = vec2<u32>(0u, 0u);' : '')
-    const module = this.device.createShaderModule({ code: linePickShader, label: 'line-shader' })
+    const module = this.device.createShaderModule({ code: emitLineWgsl(isPickEnabled()), label: 'line-shader' })
 
     const linePipelineLayout = this.device.createPipelineLayout({
       bindGroupLayouts: [this.tileBindGroupLayout, this.layerBindGroupLayout],
@@ -300,7 +297,7 @@ export class LineRenderer {
         { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
       ],
     })
-    const compositeModule = this.device.createShaderModule({ code: COMPOSITE_SHADER, label: 'line-composite' })
+    const compositeModule = this.device.createShaderModule({ code: emitCompositeWgsl(), label: 'line-composite' })
     this.compositePipeline = this.device.createRenderPipeline({
       label: 'line-composite-pipeline',
       layout: this.device.createPipelineLayout({ bindGroupLayouts: [this.compositeBindGroupLayout] }),
@@ -334,10 +331,7 @@ export class LineRenderer {
    *  has no pick target, so it doesn't need rebuilding. Bind group
    *  layouts, shape buffers, and the uniform ring survive unchanged. */
   rebuildForQuality(): void {
-    const linePickShader = LINE_SHADER_SOURCE
-      .replace(/__PICK_FIELD__/g, isPickEnabled() ? '@location(1) @interpolate(flat) pick: vec2<u32>,' : '')
-      .replace(/__PICK_WRITE__/g, isPickEnabled() ? 'out.pick = vec2<u32>(0u, 0u);' : '')
-    const module = this.device.createShaderModule({ code: linePickShader, label: 'line-shader-rebuilt' })
+    const module = this.device.createShaderModule({ code: emitLineWgsl(isPickEnabled()), label: 'line-shader-rebuilt' })
     const linePipelineLayout = this.device.createPipelineLayout({
       bindGroupLayouts: [this.tileBindGroupLayout, this.layerBindGroupLayout],
     })
@@ -361,7 +355,7 @@ export class LineRenderer {
     })
     // Composite pipeline samples the offscreen RT back into the MSAA main
     // color, so its multisample.count must match.
-    const compositeModule = this.device.createShaderModule({ code: COMPOSITE_SHADER, label: 'line-composite-rebuilt' })
+    const compositeModule = this.device.createShaderModule({ code: emitCompositeWgsl(), label: 'line-composite-rebuilt' })
     this.compositePipeline = this.device.createRenderPipeline({
       label: 'line-composite-pipeline',
       layout: this.device.createPipelineLayout({ bindGroupLayouts: [this.compositeBindGroupLayout] }),

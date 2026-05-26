@@ -11,13 +11,7 @@ import {
   POLYGON_SHADER_SOURCE,
 } from './renderer'
 import { WGSL_PROJECTION_FNS } from '../shaders/projection'
-import { readFileSync } from 'fs'
-import { emitRasterWgsl, emitPointWgsl } from '../shader-dsl'
-import { join } from 'path'
-
-function readShaderSource(relPath: string): string {
-  return readFileSync(join(__dirname, relPath), 'utf8')
-}
+import { emitRasterWgsl, emitPointWgsl, emitLineWgsl } from '../shader-dsl'
 
 describe('rim_alpha rollout coverage', () => {
   it('polygon shader (fs_fill / fs_stroke / fs_oit_translucent) calls polygon_rim_alpha', () => {
@@ -27,10 +21,10 @@ describe('rim_alpha rollout coverage', () => {
   })
 
   it('line shader calls line_rim_alpha in fs_line and fs_line_max', () => {
-    // WGSL moved to line-renderer-shaders.ts (renderer re-exports LINE_SHADER_SOURCE).
-    const src = readShaderSource('line-renderer-shaders.ts')
+    // WGSL is now emitted from shader-dsl/shaders/line.ts.
+    const src = emitLineWgsl(false)
     const occurrences = (src.match(/line_rim_alpha/g) ?? []).length
-    // 1 definition + 2 uses (fs_line + fs_line_max)
+    // 1 definition + 3 uses (fs_line + fs_line_pattern + fs_line_max).
     expect(occurrences).toBeGreaterThanOrEqual(3)
   })
 

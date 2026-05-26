@@ -198,6 +198,8 @@ export const floor = genType1('floor')
 export const ceil = genType1('ceil')
 export const abs = genType1('abs')
 export const sqrt = genType1('sqrt')
+export const fract = genType1('fract')
+export const sign = genType1('sign')
 
 export const atan2 = <K extends string>(y: Node<K>, x: ArithArg<K>): Node<K> => call('atan2', y.type, y, x) as Node<K>
 export const min = <K extends string>(a: Node<K>, b: ArithArg<K>): Node<K> => call('min', binResultType(a.type, lift(b).type, 'min'), a, b) as Node<K>
@@ -209,6 +211,12 @@ export const length = (v: Node<string>): Node<'f32'> => call('length', f32T, v) 
 export const dot = (a: Node<string>, b: Node<string>): Node<'f32'> => call('dot', f32T, a, b) as Node<'f32'>
 /** Pack a vec4<f32> (each component in [0,1]) into a u32 RGBA8. */
 export const pack4x8unorm = (v: Node<'vec4<f32>'>): Node<'u32'> => call('pack4x8unorm', u32T, v) as Node<'u32'>
+/** Unpack a u32 RGBA8 into a vec4<f32> (each component in [0,1]). */
+export const unpack4x8unorm = (v: Node<'u32'>): Node<'vec4<f32>'> => call('unpack4x8unorm', vec4fT, v) as Node<'vec4<f32>'>
+/** Reinterpret an f32's bit pattern as u32 — emits `bitcast<u32>(x)`. The
+ *  `<u32>` is baked into the fn name string so the wgsl backend's call
+ *  emit (`${fn}(${args})`) reproduces it verbatim. */
+export const bitcastU32 = (v: Node<'f32'>): Node<'u32'> => call('bitcast<u32>', u32T, v) as Node<'u32'>
 /** Sample a 2D texture → vec4<f32>. (CPU eval: nearest-texel stub.) */
 export const textureSample = (tex: Node, smp: Node, uv: NodeLike): Node<'vec4<f32>'> =>
   call('textureSample', vec4fT, tex, smp, uv) as Node<'vec4<f32>'>

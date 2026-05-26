@@ -1,0 +1,1043 @@
+// ═══ Shader DSL — SDF line shader (Phase 2) ═══
+//
+// Re-authors render/line-renderer-shaders.ts LINE_SHADER_SOURCE + COMPOSITE_SHADER.
+// The line shader is the biggest hand-written stroke renderer in the codebase
+// (1314 LOC straight WGSL): per-segment quad expansion + miter/round/bevel join
+// + dash + 3-slot pattern stack + line-pattern atlas sample + 3 fragment entry
+// points sharing one compute_line_color helper. No runtime variant codegen —
+// the only build-time variant is the pick attachment (replacing the old
+// __PICK_FIELD__ / __PICK_WRITE__ string markers).
+//
+// Pattern (raster sibling): emitLineWgsl(pickEnabled) PREPENDS the shared
+// DSL-emitted strings (PROJECTION_WGSL_CONSTS / FNS + LOG_DEPTH_WGSL_FNS +
+// the SDF dist/winding helper WGSL) so vs/fs callFn proj_globe / project /
+// project_geom / inv_merc_lat_rad / needs_backface_cull / rim_alpha /
+// apply_log_depth / compute_log_frag_depth / dist_to_segment / dist_to_quadratic
+// / dist_to_cubic / winding_line by name + constRef PI / DEG2RAD / EARTH_R.
+//
+// Bitwise IR ops (& | ^ << >>, added with the point shader) drive cap / join /
+// flag / dash / anchor unpacking. The compositor shader (fullscreen-triangle
+// sampling the offscreen RT) is emitted alongside via emitCompositeWgsl().
+
+import {
+  entryFn, fn, module, bindingRef, constRef, callFn, transformMat4,
+  f32, i32, u32, toF32, vec2, vec4, vec2u, clamp, fract, sign,
+  length, dot, min, max, smoothstep, abs, floor, select, textureSample,
+  bitcastU32, unpack4x8unorm,
+  structT, f32T, u32T, i32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
+  arrayT,
+  type StructDecl, type StructField, type ModuleDecl,
+} from '../core/ir'
+import { emitModule } from '../core/backends/wgsl'
+import { PROJECTION_WGSL_CONSTS, PROJECTION_WGSL_FNS } from './projections'
+import { LOG_DEPTH_WGSL_FNS } from './log-depth'
+import {
+  SDF_WGSL_DIST_TO_SEGMENT,
+  SDF_WGSL_DIST_TO_QUADRATIC,
+  SDF_WGSL_DIST_TO_CUBIC,
+  SDF_WGSL_WINDING_LINE,
+} from './sdf'
+
+// ── Struct declarations ──
+
+const TileUniforms: StructDecl = {
+  name: 'TileUniforms',
+  fields: [
+    { name: 'mvp', type: mat4x4fT },
+    { name: 'fill_color', type: vec4fT },
+    { name: 'stroke_color', type: vec4fT },
+    { name: 'proj_params', type: vec4fT },
+    // DSFUN camera offset in tile-local Mercator meters, split high/low.
+    { name: 'cam_h', type: vec2fT },
+    { name: 'cam_l', type: vec2fT },
+    { name: 'tile_origin_merc', type: vec2fT },
+    { name: 'opacity', type: f32T },
+    // Log-depth factor: 1.0 / log2(cam_far + 1.0). Reuses the old DSFUN _pad0.
+    { name: 'log_depth_fc', type: f32T },
+    // Slots 36-39 mirror the polygon Uniforms tail. The line shader only
+    // reads outline_z_lift_m — the others are padding so the WGSL struct
+    // lines up with the shared 160-byte uniform block.
+    { name: '_pad_pick', type: u32T },
+    { name: '_pad_layer_offset', type: f32T },
+    { name: 'tile_extent_m', type: f32T },
+    { name: 'outline_z_lift_m', type: f32T },
+    // Per-tile clip mask in absolute Mercator meters (west, south, east, north).
+    { name: 'clip_bounds', type: vec4fT },
+  ],
+}
+
+const PatternSlot: StructDecl = {
+  name: 'PatternSlot',
+  fields: [
+    { name: 'id', type: u32T },
+    { name: 'flags', type: u32T },
+    { name: 'spacing', type: f32T },
+    { name: 'size', type: f32T },
+    { name: 'offset', type: f32T },
+    { name: 'start_offset', type: f32T },
+    { name: '_pad0', type: f32T },
+    { name: '_pad1', type: f32T },
+  ],
+}
+
+const LineLayer: StructDecl = {
+  name: 'LineLayer',
+  fields: [
+    { name: 'color', type: vec4fT },
+    { name: 'width_px', type: f32T },
+    { name: 'aa_width_px', type: f32T },
+    { name: 'mpp', type: f32T },
+    { name: 'miter_limit', type: f32T },
+    // cap(0-1) | join(2-3) | dash_enable(4) | has_pattern(6) | has_offset(7)
+    { name: 'flags', type: u32T },
+    { name: 'dash_count', type: u32T },
+    { name: 'dash_cycle_m', type: f32T },
+    { name: 'dash_offset_m', type: f32T },
+    { name: 'dash_array', type: arrayT(vec4fT, 2) },
+    { name: 'patterns', type: arrayT(structT('PatternSlot'), 3) },
+    { name: 'offset_m', type: f32T },
+    { name: 'viewport_height', type: f32T },
+    { name: '_pad_b', type: f32T },
+    { name: '_pad_c', type: f32T },
+  ],
+}
+
+const LineSegment: StructDecl = {
+  name: 'LineSegment',
+  fields: [
+    // DSFUN endpoint pairs in tile-local Mercator meters.
+    { name: 'p0_h', type: vec2fT },
+    { name: 'p1_h', type: vec2fT },
+    { name: 'p0_l', type: vec2fT },
+    { name: 'p1_l', type: vec2fT },
+    { name: 'prev_tangent', type: vec2fT },
+    { name: 'next_tangent', type: vec2fT },
+    { name: 'arc_start', type: f32T },
+    { name: 'line_length', type: f32T },
+    // Per-endpoint quad pad ratios (multiples of half_w).
+    { name: 'pad_ratio_p0', type: f32T },
+    { name: 'pad_ratio_p1', type: f32T },
+    // Per-segment 3D extrude height in metres.
+    { name: 'z_lift_m', type: f32T },
+    // Per-segment stroke width override (px). 0 = use layer.width_px.
+    { name: 'width_px_override', type: f32T },
+    // Per-segment stroke colour override (RGBA8 packed in an f32 slot;
+    // shader bit-casts to u32 + unpack4x8unorm). Alpha=0 → use layer.color.
+    { name: 'color_packed', type: f32T },
+    { name: '_pad19', type: f32T },
+  ],
+}
+
+const ShapeDesc: StructDecl = {
+  name: 'ShapeDesc',
+  fields: [
+    { name: 'seg_start', type: u32T },
+    { name: 'seg_count', type: u32T },
+    { name: 'bbox_min_x', type: f32T },
+    { name: 'bbox_min_y', type: f32T },
+    { name: 'bbox_max_x', type: f32T },
+    { name: 'bbox_max_y', type: f32T },
+    { name: '_pad0', type: f32T },
+    { name: '_pad1', type: f32T },
+  ],
+}
+
+const ShapeSegment: StructDecl = {
+  name: 'ShapeSegment',
+  fields: [
+    { name: 'kind', type: u32T },
+    { name: 'color_idx', type: u32T },
+    { name: 'flags', type: u32T },
+    { name: '_pad', type: u32T },
+    { name: 'p0', type: vec2fT },
+    { name: 'p1', type: vec2fT },
+    { name: 'p2', type: vec2fT },
+    { name: 'p3', type: vec2fT },
+  ],
+}
+
+const LineOut: StructDecl = {
+  name: 'LineOut',
+  fields: [
+    { name: 'position', type: vec4fT, attr: '@builtin(position)' },
+    { name: 'world_local', type: vec2fT, attr: '@location(0)' },
+    { name: 'seg_id', type: u32T, attr: '@location(1) @interpolate(flat)' },
+    { name: 'view_w', type: f32T, attr: '@location(2)' },
+    { name: 'cos_c', type: f32T, attr: '@location(3)' },
+  ],
+}
+
+const lineFragmentOutput = (pickEnabled: boolean): StructDecl => {
+  const fields: StructField[] = [{ name: 'color', type: vec4fT, attr: '@location(0)' }]
+  if (pickEnabled) fields.push({ name: 'pick', type: vec2uT, attr: '@location(1) @interpolate(flat)' })
+  fields.push({ name: 'depth', type: f32T, attr: '@builtin(frag_depth)' })
+  return { name: 'LineFragmentOutput', fields }
+}
+
+// ── Binding refs ──
+
+const tile = bindingRef('tile', structT('TileUniforms'))
+const layer = bindingRef('layer', structT('LineLayer'))
+const segments = bindingRef('segments', arrayT(structT('LineSegment')))
+const shapes = bindingRef('shapes', arrayT(structT('ShapeDesc')))
+const shape_segments = bindingRef('shape_segments', arrayT(structT('ShapeSegment')))
+const sprite_atlas = bindingRef('sprite_atlas', texture2dfT)
+const sprite_samp = bindingRef('sprite_samp', samplerT)
+
+// ── Helper fns ──
+
+const lineEndpoint = fn('line_endpoint', { p_h: vec2fT, p_l: vec2fT }, vec2fT, (b, p) => {
+  const projParams = tile.field('proj_params', vec4fT)
+  b.if(projParams.x.lt(0.5), (c) => {
+    c.ret(p.p_h.sub(tile.field('cam_h', vec2fT)).add(p.p_l.sub(tile.field('cam_l', vec2fT))))
+  })
+  b.ret(p.p_h.add(p.p_l))
+})
+
+const finalizeCorner = fn('finalize_corner', { corner: vec2fT }, vec2fT, (b, p) => {
+  const projParams = tile.field('proj_params', vec4fT)
+  b.if(projParams.x.lt(0.5), (c) => { c.ret(p.corner) })
+  const tileOrigin = tile.field('tile_origin_merc', vec2fT)
+  const absMerc = b.let('abs_merc', p.corner.add(tileOrigin))
+  const absLon = b.let('abs_lon', absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R'))))
+  const latRad = b.let('lat_rad', callFn('inv_merc_lat_rad', f32T, absMerc.y))
+  const absLat = b.let('abs_lat', latRad.div(constRef('DEG2RAD')))
+  const tileRefLon = b.let('tile_ref_lon',
+    tileOrigin.x.add(f32(0.5).mul(tile.field('tile_extent_m', f32T)))
+      .div(constRef('DEG2RAD').mul(constRef('EARTH_R'))),
+  )
+  const projXy = b.let('proj_xy', callFn('project_geom', vec2fT, absLon, absLat, projParams, tileRefLon))
+  const centerXy = b.let('center_xy', callFn('project', vec2fT, projParams.y, projParams.z, projParams))
+  b.ret(projXy.sub(centerXy))
+})
+
+const finalizeCornerGlobe = fn('finalize_corner_globe', { corner: vec2fT }, vec3fT, (b, p) => {
+  const tileOrigin = tile.field('tile_origin_merc', vec2fT)
+  const absMerc = b.let('abs_merc', p.corner.add(tileOrigin))
+  const absLon = b.let('abs_lon', absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R'))))
+  const latRad = b.let('lat_rad', callFn('inv_merc_lat_rad', f32T, absMerc.y))
+  const absLat = b.let('abs_lat', latRad.div(constRef('DEG2RAD')))
+  const projParams = tile.field('proj_params', vec4fT)
+  b.ret(callFn('proj_globe', vec3fT, absLon, absLat).sub(callFn('proj_globe', vec3fT, projParams.y, projParams.z)))
+})
+
+const endpointCosC = fn('endpoint_cos_c', { p_h: vec2fT, p_l: vec2fT }, f32T, (b, p) => {
+  const tileOrigin = tile.field('tile_origin_merc', vec2fT)
+  const absMercX = b.let('abs_merc_x', p.p_h.x.add(p.p_l.x).add(tileOrigin.x))
+  const absMercY = b.let('abs_merc_y', p.p_h.y.add(p.p_l.y).add(tileOrigin.y))
+  const absLon = b.let('abs_lon', absMercX.div(constRef('DEG2RAD').mul(constRef('EARTH_R'))))
+  const latRad = b.let('lat_rad', callFn('inv_merc_lat_rad', f32T, absMercY))
+  const absLat = b.let('abs_lat', latRad.div(constRef('DEG2RAD')))
+  b.ret(callFn('needs_backface_cull', f32T, absLon, absLat, tile.field('proj_params', vec4fT)))
+})
+
+const patternUnitToM = fn('pattern_unit_to_m', { v: f32T, unit: u32T, mpp: f32T }, f32T, (b, p) => {
+  // 0=m, 1=px, 2=km, 3=nm
+  b.if(p.unit.eq(u32(0)), (c) => { c.ret(p.v) })
+    .elif(p.unit.eq(u32(1)), (c) => { c.ret(p.v.mul(p.mpp)) })
+    .elif(p.unit.eq(u32(2)), (c) => { c.ret(p.v.mul(1000)) })
+  b.ret(p.v.mul(1852)) // nautical mile
+})
+
+// Inlined SDF shape sampler — uses our `shape_segments` (binding 3) instead
+// of the shared SDF module's `segments` name (which would collide with the
+// line segment storage buffer on binding 1).
+const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (b, p) => {
+  const uv = b.let('uv', vec2(p.uv_in.x, p.uv_in.y.neg()))
+  const s = b.let('s', shapes.at(p.shape_id, structT('ShapeDesc')))
+  const bMinX = s.field('bbox_min_x', f32T)
+  const bMinY = s.field('bbox_min_y', f32T)
+  const bMaxX = s.field('bbox_max_x', f32T)
+  const bMaxY = s.field('bbox_max_y', f32T)
+  b.if(
+    uv.x.lt(bMinX).or(uv.x.gt(bMaxX)).or(uv.y.lt(bMinY)).or(uv.y.gt(bMaxY)),
+    (c) => { c.ret(f32(2)) },
+  )
+  const minDist = b.var('min_dist', f32T, f32(1e10))
+  const winding = b.var('winding', i32T, i32(0))
+  const segStart = s.field('seg_start', u32T)
+  const segCount = s.field('seg_count', u32T)
+  const end = b.let('end', min(segStart.add(segCount), segStart.add(u32(32))))
+  b.forRange('i', segStart, (i) => i.lt(end), (cb, i) => {
+    const seg = cb.let('seg', shape_segments.at(i, structT('ShapeSegment')))
+    const p0 = seg.field('p0', vec2fT)
+    const p1 = seg.field('p1', vec2fT)
+    const p2 = seg.field('p2', vec2fT)
+    const p3 = seg.field('p3', vec2fT)
+    cb.switch(seg.field('kind', u32T), [
+      [0, (d) => {
+        d.assign(minDist, min(minDist, callFn('dist_to_segment', f32T, uv, p0, p1)))
+        d.assignOp(winding, '+', callFn('winding_line', i32T, uv, p0, p1))
+      }],
+      [1, (d) => {
+        d.assign(minDist, min(minDist, callFn('dist_to_quadratic', f32T, uv, p0, p1, p2)))
+        d.assignOp(winding, '+', callFn('winding_line', i32T, uv, p0, p2))
+      }],
+      [2, (d) => {
+        d.assign(minDist, min(minDist, callFn('dist_to_cubic', f32T, uv, p0, p1, p2, p3)))
+        d.assignOp(winding, '+', callFn('winding_line', i32T, uv, p0, p3))
+      }],
+    ], () => { /* default: empty */ })
+  })
+  b.if(winding.ne(i32(0)), (c) => { c.ret(f32(1).sub(minDist)) })
+  b.ret(f32(1).add(minDist))
+})
+
+// ── compute_line_color: shared body for fs_line / fs_line_max / fs_line_pattern ──
+//
+// Backface cull → clip-bounds → segment-frame distance → bisector clip → bevel
+// edge → endpoint cap/join → dash → 3-slot pattern stack → alpha + per-segment
+// colour override. Faithful port of the WGSL helper (renderer-shaders.ts L661-1234).
+const computeLineColor = fn('compute_line_color', { input: structT('LineOut') }, vec4fT, (b, p) => {
+  const projParams = tile.field('proj_params', vec4fT)
+  const tileOrigin = tile.field('tile_origin_merc', vec2fT)
+  const clipBounds = tile.field('clip_bounds', vec4fT)
+
+  // Backface cull on non-Mercator (helper short-circuits to +1 for flat).
+  b.if(projParams.x.ge(0.5), (c) => {
+    const absMerc = c.let('abs_merc', p.input.field('world_local', vec2fT).add(tileOrigin))
+    const absLon = c.let('abs_lon', absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R'))))
+    const latRad = c.let('lat_rad', callFn('inv_merc_lat_rad', f32T, absMerc.y))
+    const absLat = c.let('abs_lat', latRad.div(constRef('DEG2RAD')))
+    c.if(callFn('needs_backface_cull', f32T, absLon, absLat, projParams).lt(0), (d) => { d.discard() })
+  })
+
+  // Per-tile clip mask (sentinel -1e30 skips). Reconstruct absolute Mercator
+  // depending on projection — Mercator branch is cam-relative, non-Merc is
+  // tile-local source Mercator.
+  const clipValid = b.let('_clip_valid',
+    clipBounds.x.gt(-1e29)
+      .and(clipBounds.z.gt(clipBounds.x))
+      .and(clipBounds.w.gt(clipBounds.y)),
+  )
+  b.if(clipValid, (c) => {
+    const camOffset = c.let('cam_offset',
+      select(
+        projParams.x.lt(0.5),
+        tile.field('cam_h', vec2fT).add(tile.field('cam_l', vec2fT)),
+        vec2(f32(0), f32(0)),
+      ),
+    )
+    const absMercClip = c.let('abs_merc_clip',
+      p.input.field('world_local', vec2fT).add(camOffset).add(tileOrigin),
+    )
+    c.if(absMercClip.x.lt(clipBounds.x), (d) => { d.discard() })
+    c.if(absMercClip.x.gt(clipBounds.z), (d) => { d.discard() })
+    c.if(absMercClip.y.lt(clipBounds.y), (d) => { d.discard() })
+    c.if(absMercClip.y.gt(clipBounds.w), (d) => { d.discard() })
+  })
+
+  const seg = b.let('seg', segments.at(p.input.field('seg_id', u32T), structT('LineSegment')))
+  const segP = b.let('p', p.input.field('world_local', vec2fT))
+  const p0 = b.let('p0', callFn('line_endpoint', vec2fT, seg.field('p0_h', vec2fT), seg.field('p0_l', vec2fT)))
+  const p1 = b.let('p1', callFn('line_endpoint', vec2fT, seg.field('p1_h', vec2fT), seg.field('p1_l', vec2fT)))
+
+  // Segment direction / normal in tile-local meters.
+  const segVec = b.let('seg_vec', p1.sub(p0))
+  const segLen = b.let('seg_len', length(segVec))
+  const dir = b.var('dir', vec2fT)
+  b.if(segLen.lt(1e-6), (c) => { c.assign(dir, vec2(f32(1), f32(0))) })
+    .else((c) => { c.assign(dir, segVec.div(segLen)) })
+
+  // Per-segment width override falls through to layer.width_px when 0.
+  const layerWidthPx = layer.field('width_px', f32T)
+  const layerMpp = layer.field('mpp', f32T)
+  const layerOffsetM = layer.field('offset_m', f32T)
+  const layerFlags = layer.field('flags', u32T)
+  const segWidthOv = seg.field('width_px_override', f32T)
+  const effectiveWidthPx = b.let('effective_width_px',
+    select(segWidthOv.gt(0), segWidthOv, layerWidthPx),
+  )
+  const halfWm = b.let('half_w_m', effectiveWidthPx.mul(0.5).mul(layerMpp))
+
+  // 1. Main body distance.
+  const nrmLine = b.let('nrm_line', vec2(dir.y.neg(), dir.x))
+  const signedPerp = b.let('signed_perp', dot(segP.sub(p0), nrmLine))
+  const perpM = b.let('perp_m', abs(signedPerp.sub(layerOffsetM)))
+  const bodyD = b.let('body_d', perpM.sub(halfWm))
+
+  // Offset-shifted endpoint cap centres + miter-shifted join centres.
+  const p0CapCenter = b.let('p0_cap_center', p0.add(nrmLine.mul(layerOffsetM)))
+  const p1CapCenter = b.let('p1_cap_center', p1.add(nrmLine.mul(layerOffsetM)))
+
+  const prevTan = seg.field('prev_tangent', vec2fT)
+  const nextTan = seg.field('next_tangent', vec2fT)
+
+  const nrmPrevOff = b.let('nrm_prev_off', vec2(prevTan.y.neg(), prevTan.x))
+  const miterVecP0 = b.let('miter_vec_p0', nrmLine.add(nrmPrevOff))
+  const projP0 = b.let('proj_p0', dot(miterVecP0, nrmLine))
+  const p0JoinCenter = b.let('p0_join_center',
+    p0.add(miterVecP0.mul(layerOffsetM.div(max(projP0, f32(1e-4))))),
+  )
+
+  const nrmNextOff = b.let('nrm_next_off', vec2(nextTan.y.neg(), nextTan.x))
+  const miterVecP1 = b.let('miter_vec_p1', nrmLine.add(nrmNextOff))
+  const projP1 = b.let('proj_p1', dot(miterVecP1, nrmLine))
+  const p1JoinCenter = b.let('p1_join_center',
+    p1.add(miterVecP1.mul(layerOffsetM.div(max(projP1, f32(1e-4))))),
+  )
+
+  // Endpoint along-axis distances (negative on the segment interior).
+  const distP0Vs = b.let('dist_p0_vs', dot(segP.sub(p0), dir).neg())
+  const distP1Vs = b.let('dist_p1_vs', dot(segP.sub(p1), dir))
+
+  // Early-discard guard: outside the body AND inside segment range.
+  const patExtentFs = b.var('pat_extent_fs', f32T, f32(0))
+  b.if(layerFlags.bitAnd(u32(64)).ne(u32(0)), (c) => {
+    c.forRange('pk_fs', u32(0), (pk) => pk.lt(u32(3)), (cb, pk) => {
+      const patFs = cb.let('pat_fs', layer.field('patterns', arrayT(structT('PatternSlot'), 3)).at(pk, structT('PatternSlot')))
+      cb.if(patFs.field('id', u32T).eq(u32(0)), (d) => { d.continue() })
+      const szUnit = cb.let('sz_unit_fs', patFs.field('flags', u32T).shr(u32(2)).bitAnd(u32(3)))
+      const ofUnit = cb.let('off_unit_fs', patFs.field('flags', u32T).shr(u32(4)).bitAnd(u32(3)))
+      const sizeM = cb.let('size_m_fs', callFn('pattern_unit_to_m', f32T, patFs.field('size', f32T), szUnit, layerMpp))
+      const offM = cb.let('off_m_fs', abs(callFn('pattern_unit_to_m', f32T, patFs.field('offset', f32T), ofUnit, layerMpp)))
+      cb.assign(patExtentFs, max(patExtentFs, sizeM.mul(0.5).add(offM)))
+    })
+  })
+  const aaMarginM = b.let('aa_margin_m', f32(2).mul(layer.field('aa_width_px', f32T)).mul(layerMpp))
+  const earlyPerpThresh = b.let('early_perp_thresh', max(halfWm, patExtentFs).add(aaMarginM))
+  b.if(perpM.gt(earlyPerpThresh).and(distP0Vs.lt(0)).and(distP1Vs.lt(0)), (c) => { c.discard() })
+
+  // 2. Cap/join feasibility flags + cap-type extraction.
+  const hasPrev = b.let('has_prev', length(prevTan).gt(0.001))
+  const hasNext = b.let('has_next', length(nextTan).gt(0.001))
+  const capType = b.let('cap_type', layerFlags.bitAnd(u32(7)))
+  const arrowL = b.let('arrow_L', halfWm.mul(4))
+
+  // Aliases (the original WGSL re-binds these via `let dist_p0 = dist_p0_vs;`).
+  const distP0 = distP0Vs
+  const distP1 = distP1Vs
+
+  const dM = b.var('d_m', f32T, bodyD)
+
+  const joinFlags = b.let('join_flags', layerFlags.shr(u32(3)).bitAnd(u32(3)))
+  const layerMiterLimit = layer.field('miter_limit', f32T)
+
+  // ── Bisector clip + bevel-edge clip at p0 ──
+  b.if(hasPrev, (c) => {
+    const bisP0 = c.let('bis_p0', prevTan.add(dir))
+    const bisLenP0 = c.let('bis_len_p0', length(bisP0))
+    c.if(bisLenP0.gt(1e-6), (d) => {
+      const bisUnitP0 = d.let('bis_unit_p0', bisP0.div(bisLenP0))
+      const alongP0 = d.let('along_p0', dot(segP.sub(p0JoinCenter), bisUnitP0))
+      d.if(alongP0.lt(0), (e) => {
+        e.assign(dM, max(dM, alongP0.neg().add(layerMpp)))
+      })
+    })
+    // BEVEL / over-limit MITER edge clip at p0.
+    const crossP0Mag = c.let('cross_p0_mag', abs(prevTan.x.mul(dir.y).sub(prevTan.y.mul(dir.x))))
+    const bisMagP0 = c.let('bis_mag_p0', length(prevTan.add(dir)))
+    const miterOverP0 = c.let('miter_over_p0', bisMagP0.gt(layerMiterLimit.mul(crossP0Mag)))
+    const applyBevelP0 = c.let('apply_bevel_p0',
+      joinFlags.eq(u32(2)).or(joinFlags.eq(u32(0)).and(miterOverP0)),
+    )
+    c.if(applyBevelP0, (d) => {
+      const prevNrm = d.let('prev_nrm', vec2(prevTan.y.neg(), prevTan.x))
+      const crossP0 = d.let('cross_p0', prevTan.x.mul(dir.y).sub(prevTan.y.mul(dir.x)))
+      d.if(abs(crossP0).gt(1e-6), (e) => {
+        const s0 = e.let('s0', sign(crossP0).neg())
+        const oc0 = e.let('oc0', p0.add(prevNrm.mul(layerOffsetM.add(halfWm.mul(s0)))))
+        const on0 = e.let('on0', p0.add(nrmLine.mul(layerOffsetM.add(halfWm.mul(s0)))))
+        const be0 = e.let('be0', on0.sub(oc0))
+        const bl0 = e.let('bl0', length(be0))
+        e.if(bl0.gt(1e-6), (f) => {
+          const bd0 = f.let('bd0', be0.div(bl0))
+          const bo0 = f.let('bo0', vec2(bd0.y.neg(), bd0.x).mul(s0))
+          const bclip0 = f.let('bclip0', dot(segP.sub(oc0), bo0))
+          f.if(bclip0.gt(0), (g) => { g.assign(dM, max(dM, bclip0)) })
+        })
+      })
+    })
+  })
+
+  // ── Bisector clip + bevel-edge clip at p1 ──
+  b.if(hasNext, (c) => {
+    const bisP1 = c.let('bis_p1', dir.add(nextTan))
+    const bisLenP1 = c.let('bis_len_p1', length(bisP1))
+    c.if(bisLenP1.gt(1e-6), (d) => {
+      const bisUnitP1 = d.let('bis_unit_p1', bisP1.div(bisLenP1))
+      const alongP1 = d.let('along_p1', dot(segP.sub(p1JoinCenter), bisUnitP1))
+      d.if(alongP1.gt(0), (e) => {
+        e.assign(dM, max(dM, alongP1.add(layerMpp)))
+      })
+    })
+    const crossP1Mag = c.let('cross_p1_mag', abs(dir.x.mul(nextTan.y).sub(dir.y.mul(nextTan.x))))
+    const bisMagP1 = c.let('bis_mag_p1', length(dir.add(nextTan)))
+    const miterOverP1 = c.let('miter_over_p1', bisMagP1.gt(layerMiterLimit.mul(crossP1Mag)))
+    const applyBevelP1 = c.let('apply_bevel_p1',
+      joinFlags.eq(u32(2)).or(joinFlags.eq(u32(0)).and(miterOverP1)),
+    )
+    c.if(applyBevelP1, (d) => {
+      const nextNrmBv = d.let('next_nrm_bv', vec2(nextTan.y.neg(), nextTan.x))
+      const crossP1 = d.let('cross_p1', dir.x.mul(nextTan.y).sub(dir.y.mul(nextTan.x)))
+      d.if(abs(crossP1).gt(1e-6), (e) => {
+        const s1 = e.let('s1', sign(crossP1).neg())
+        const oc1 = e.let('oc1', p1.add(nrmLine.mul(layerOffsetM.add(halfWm.mul(s1)))))
+        const on1 = e.let('on1', p1.add(nextNrmBv.mul(layerOffsetM.add(halfWm.mul(s1)))))
+        const be1 = e.let('be1', on1.sub(oc1))
+        const bl1 = e.let('bl1', length(be1))
+        e.if(bl1.gt(1e-6), (f) => {
+          const bd1 = f.let('bd1', be1.div(bl1))
+          const bo1 = f.let('bo1', vec2(bd1.y.neg(), bd1.x).mul(s1))
+          const bclip1 = f.let('bclip1', dot(segP.sub(oc1), bo1))
+          f.if(bclip1.gt(0), (g) => { g.assign(dM, max(dM, bclip1)) })
+        })
+      })
+    })
+  })
+
+  // ── Handle p0 end (cap or join) ──
+  // The DSL bool API has no `.not`, so the original `!has_prev` / `!has_next`
+  // gates are recomputed positively as `length(tangent) <= eps`.
+  const noPrev = b.let('no_prev', length(prevTan).le(0.001))
+  const noNext = b.let('no_next', length(nextTan).le(0.001))
+
+  b.if(noPrev, (c) => {
+    // CAP_BUTT
+    c.if(capType.eq(u32(0)), (d) => { d.assign(dM, max(dM, distP0)) })
+      .elif(capType.eq(u32(2)), (d) => { d.assign(dM, max(dM, distP0.sub(halfWm))) })
+      .elif(capType.eq(u32(3)), (d) => {
+        // CAP_ARROW: analytical tapered half-width.
+        d.if(distP0.gt(0), (e) => {
+          const t = e.let('t', clamp(distP0.div(arrowL), 0, 1))
+          const newW = e.let('new_w', halfWm.mul(f32(1).sub(t)))
+          e.assign(dM, max(perpM.sub(newW), distP0.sub(arrowL)))
+        })
+      })
+      .else((d) => {
+        // CAP_ROUND
+        const circleD = d.let('circle_d', length(segP.sub(p0CapCenter)).sub(halfWm))
+        d.assign(dM, select(distP0.gt(0), circleD, dM))
+      })
+  }).else((c) => {
+    // JOIN at p0 — round-join overlay; gated by forward bisector.
+    const joinType = c.let('join_type', layerFlags.shr(u32(3)).bitAnd(u32(3)))
+    c.if(joinType.eq(u32(1)).and(distP0.gt(0)), (d) => {
+      const bisP0j = d.let('bis_p0_j', prevTan.add(dir))
+      const bisLenJ = d.let('bis_len_j', length(bisP0j))
+      d.if(bisLenJ.gt(1e-6), (e) => {
+        const bisUnitJ = e.let('bis_unit_j', bisP0j.div(bisLenJ))
+        const alongJ = e.let('along_j', dot(segP.sub(p0JoinCenter), bisUnitJ))
+        e.if(alongJ.ge(0), (f) => {
+          const circleD = f.let('circle_d', length(segP.sub(p0JoinCenter)).sub(halfWm))
+          const alongExtendP0 = f.let('along_extend_p0', abs(layerOffsetM).mul(seg.field('pad_ratio_p0', f32T)))
+
+          const currentD = f.var('current_d', f32T, dM)
+          f.if(distP0.gt(alongExtendP0), (g) => {
+            g.assign(currentD, max(dM, distP0.sub(alongExtendP0)))
+          })
+
+          const prevNrm = f.let('prev_nrm', vec2(prevTan.y.neg(), prevTan.x))
+          const prevSignedPerp = f.let('prev_signed_perp', dot(segP.sub(p0), prevNrm))
+          const prevPerpM = f.let('prev_perp_m', abs(prevSignedPerp.sub(layerOffsetM)))
+          const neighborD = f.var('neighbor_d', f32T, prevPerpM.sub(halfWm))
+          const alongPastPrevEnd = f.let('along_past_prev_end', dot(segP.sub(p0), prevTan))
+          f.if(alongPastPrevEnd.gt(alongExtendP0), (g) => {
+            g.assign(neighborD, max(neighborD, alongPastPrevEnd.sub(alongExtendP0)))
+          })
+
+          f.assign(dM, min(min(currentD, circleD), neighborD))
+        })
+      })
+    })
+  })
+
+  // ── Handle p1 end (cap or join) — symmetric ──
+  b.if(noNext, (c) => {
+    c.if(capType.eq(u32(0)), (d) => { d.assign(dM, max(dM, distP1)) })
+      .elif(capType.eq(u32(2)), (d) => { d.assign(dM, max(dM, distP1.sub(halfWm))) })
+      .elif(capType.eq(u32(3)), (d) => {
+        d.if(distP1.gt(0), (e) => {
+          const t = e.let('t', clamp(distP1.div(arrowL), 0, 1))
+          const newW = e.let('new_w', halfWm.mul(f32(1).sub(t)))
+          e.assign(dM, max(perpM.sub(newW), distP1.sub(arrowL)))
+        })
+      })
+      .else((d) => {
+        const circleD = d.let('circle_d', length(segP.sub(p1CapCenter)).sub(halfWm))
+        d.assign(dM, select(distP1.gt(0), circleD, dM))
+      })
+  }).else((c) => {
+    const joinTypeP1 = c.let('join_type_p1', layerFlags.shr(u32(3)).bitAnd(u32(3)))
+    c.if(joinTypeP1.eq(u32(1)).and(distP1.gt(0)), (d) => {
+      const bisP1j = d.let('bis_p1_j', dir.add(nextTan))
+      const bisLenJ = d.let('bis_len_j', length(bisP1j))
+      d.if(bisLenJ.gt(1e-6), (e) => {
+        const bisUnitJ = e.let('bis_unit_j', bisP1j.div(bisLenJ))
+        const alongJ = e.let('along_j', dot(segP.sub(p1JoinCenter), bisUnitJ))
+        e.if(alongJ.le(0), (f) => {
+          const circleD = f.let('circle_d', length(segP.sub(p1JoinCenter)).sub(halfWm))
+          const alongExtendP1 = f.let('along_extend_p1', abs(layerOffsetM).mul(seg.field('pad_ratio_p1', f32T)))
+
+          const currentD = f.var('current_d', f32T, dM)
+          f.if(distP1.gt(alongExtendP1), (g) => {
+            g.assign(currentD, max(dM, distP1.sub(alongExtendP1)))
+          })
+
+          const nextNrm = f.let('next_nrm', vec2(nextTan.y.neg(), nextTan.x))
+          const nextSignedPerp = f.let('next_signed_perp', dot(segP.sub(p1), nextNrm))
+          const nextPerpM = f.let('next_perp_m', abs(nextSignedPerp.sub(layerOffsetM)))
+          const neighborD = f.var('neighbor_d', f32T, nextPerpM.sub(halfWm))
+          const alongIntoNext = f.let('along_into_next', dot(segP.sub(p1), nextTan))
+          f.if(alongIntoNext.lt(alongExtendP1.neg()), (g) => {
+            g.assign(neighborD, max(neighborD, alongIntoNext.neg().sub(alongExtendP1)))
+          })
+
+          f.assign(dM, min(min(currentD, circleD), neighborD))
+        })
+      })
+    })
+  })
+
+  // Project fragment along segment axis (shared by dash + patterns).
+  const tAlongUnclamped = b.let('t_along_unclamped', dot(segP.sub(p0), dir))
+  const tAlong = b.let('t_along', clamp(tAlongUnclamped, 0, segLen))
+  const arcPos = b.let('arc_pos', seg.field('arc_start', f32T).add(tAlong))
+  const nrmFs = b.let('nrm_fs', vec2(dir.y.neg(), dir.x))
+
+  // ── Dash array ──
+  // notInCap = !(noPrev && distP0>0 || noNext && distP1>0)
+  //         =  (hasPrev || distP0<=0) && (hasNext || distP1<=0)
+  // — boolean DSL has no `.not`, so the original `!in_cap_region` gate is
+  // emitted as the De Morgan-converted positive form.
+  const notInCap = b.let('not_in_cap',
+    hasPrev.or(distP0.le(0)).and(hasNext.or(distP1.le(0))),
+  )
+  const dashCount = layer.field('dash_count', u32T)
+  const dashCycleM = layer.field('dash_cycle_m', f32T)
+  const dashOffsetM = layer.field('dash_offset_m', f32T)
+  const dashEnabled = b.let('dash_enabled',
+    layerFlags.shr(u32(5)).bitAnd(u32(1)).eq(u32(1))
+      .and(dashCount.gt(u32(0)))
+      .and(dashCycleM.gt(1e-6))
+      .and(notInCap),
+  )
+  b.if(dashEnabled, (c) => {
+    const phase0 = c.let('phase0', arcPos.add(dashOffsetM).div(dashCycleM))
+    const phase = c.var('phase', f32T, phase0.sub(floor(phase0)).mul(dashCycleM))
+    const acc = c.var('acc', f32T, f32(0))
+    const visible = c.var('visible', f32T, f32(0)) // 0=hidden, 1=visible — bool via f32
+    c.forRange('i', u32(0), (i) => i.lt(dashCount), (cb, i) => {
+      const idx = cb.let('idx', i.div(u32(4)))
+      const sub = cb.let('sub', i.mod(u32(4)))
+      const segV = cb.let('seg_v', layer.field('dash_array', arrayT(vec4fT, 2)).at(idx, vec4fT))
+      const lenV = cb.var('len', f32T, f32(0))
+      cb.if(sub.eq(u32(0)), (d) => { d.assign(lenV, segV.x) })
+        .elif(sub.eq(u32(1)), (d) => { d.assign(lenV, segV.y) })
+        .elif(sub.eq(u32(2)), (d) => { d.assign(lenV, segV.z) })
+        .else((d) => { d.assign(lenV, segV.w) })
+      cb.if(phase.ge(acc).and(phase.lt(acc.add(lenV))), (d) => {
+        d.assign(visible, select(i.bitAnd(u32(1)).eq(u32(0)), f32(1), f32(0)))
+        d.break()
+      })
+      cb.assign(acc, acc.add(lenV))
+    })
+    c.if(visible.lt(0.5), (d) => { d.discard() })
+  })
+
+  // ── Pattern stack ──
+  const patDm = b.var('pat_d_m', f32T, f32(1e10))
+  b.if(layerFlags.bitAnd(u32(64)).ne(u32(0)), (c) => {
+    c.forRange('k', u32(0), (k) => k.lt(u32(3)), (cb, k) => {
+      const pat = cb.let('pat', layer.field('patterns', arrayT(structT('PatternSlot'), 3)).at(k, structT('PatternSlot')))
+      cb.if(pat.field('id', u32T).eq(u32(0)), (d) => { d.continue() })
+
+      const patF = pat.field('flags', u32T)
+      const spUnit = cb.let('sp_unit', patF.bitAnd(u32(3)))
+      const szUnit = cb.let('sz_unit', patF.shr(u32(2)).bitAnd(u32(3)))
+      const ofUnit = cb.let('of_unit', patF.shr(u32(4)).bitAnd(u32(3)))
+      const anchor = cb.let('anchor', patF.shr(u32(6)).bitAnd(u32(3)))
+      const spacingM = cb.let('spacing_m', max(callFn('pattern_unit_to_m', f32T, pat.field('spacing', f32T), spUnit, layerMpp), f32(1e-3)))
+      const sizeM = cb.let('size_m', max(callFn('pattern_unit_to_m', f32T, pat.field('size', f32T), szUnit, layerMpp), f32(1e-3)))
+      const offM = cb.let('off_m', callFn('pattern_unit_to_m', f32T, pat.field('offset', f32T), ofUnit, layerMpp))
+      const startM = cb.let('start_m', pat.field('start_offset', f32T))
+      const halfS = cb.let('half_s', sizeM.mul(0.5))
+
+      cb.if(anchor.eq(u32(0)), (d) => {
+        // PAT_ANCHOR_REPEAT — sample nearest instance + both neighbours.
+        const kCenter = d.let('k_center', floor(arcPos.sub(startM).div(spacingM).add(0.5)))
+        d.forRange('dk', i32(-1), (idk) => idk.le(i32(1)), (cb2, dk) => {
+          const centerArcK = cb2.let('center_arc_k', kCenter.add(toF32(dk)).mul(spacingM).add(startM))
+          const arcOnSegK = cb2.let('arc_on_seg_k', centerArcK.sub(seg.field('arc_start', f32T)))
+          cb2.if(arcOnSegK.lt(halfS.mul(-2)).or(arcOnSegK.gt(segLen.add(halfS.mul(2)))), (e) => { e.continue() })
+          const centerWorldK = cb2.let('center_world_k', p0.add(dir.mul(arcOnSegK)))
+          const localK = cb2.let('local_k', vec2(
+            dot(segP.sub(centerWorldK), dir).div(halfS),
+            dot(segP.sub(centerWorldK), nrmFs).sub(offM).div(halfS),
+          ))
+          cb2.if(abs(localK.x).gt(1.2).or(abs(localK.y).gt(1.2)), (e) => { e.continue() })
+          const shapeVK = cb2.let('shape_v_k', callFn('sdf_shape', f32T, localK, pat.field('id', u32T).sub(u32(1))))
+          const pdK = cb2.let('pd_k', shapeVK.sub(1).mul(halfS))
+          cb2.assign(patDm, min(patDm, pdK))
+        })
+        cb.continue()
+      })
+
+      // START / END / CENTER — single instance.
+      const lineLength = seg.field('line_length', f32T)
+      const centerArc = cb.var('center_arc', f32T)
+      cb.if(anchor.eq(u32(1)), (d) => { d.assign(centerArc, startM) })
+        .elif(anchor.eq(u32(2)), (d) => { d.assign(centerArc, lineLength.sub(startM)) })
+        .else((d) => { d.assign(centerArc, lineLength.mul(0.5)) })
+
+      const arcOnSeg = cb.let('arc_on_seg', centerArc.sub(seg.field('arc_start', f32T)))
+      cb.if(arcOnSeg.lt(halfS.mul(-2)).or(arcOnSeg.gt(segLen.add(halfS.mul(2)))), (d) => { d.continue() })
+      const centerWorld = cb.let('center_world', p0.add(dir.mul(arcOnSeg)))
+      const localUv = cb.let('local', vec2(
+        dot(segP.sub(centerWorld), dir).div(halfS),
+        dot(segP.sub(centerWorld), nrmFs).sub(offM).div(halfS),
+      ))
+      cb.if(abs(localUv.x).gt(1.2).or(abs(localUv.y).gt(1.2)), (d) => { d.continue() })
+
+      const shapeV = cb.let('shape_v', callFn('sdf_shape', f32T, localUv, pat.field('id', u32T).sub(u32(1))))
+      const pd = cb.let('pd', shapeV.sub(1).mul(halfS))
+      cb.assign(patDm, min(patDm, pd))
+    })
+  })
+  b.if(patDm.lt(1e9), (c) => { c.assign(dM, min(dM, patDm)) })
+
+  // Convert to pixels + line-blur AA.
+  const dPx = b.let('d_px', dM.div(layerMpp))
+  const blurPx = b.let('blur_px', max(f32(0), layer.field('aa_width_px', f32T).sub(1)))
+  const aa = b.let('aa', f32(0.5).add(blurPx))
+  const alpha = b.let('alpha', f32(1).sub(smoothstep(aa.neg(), aa, dPx)))
+  b.if(alpha.lt(0.005), (c) => { c.discard() })
+
+  // Per-segment stroke colour override.
+  const segPacked = b.let('seg_packed', bitcastU32(seg.field('color_packed', f32T)))
+  const segColor = b.let('seg_color', unpack4x8unorm(segPacked))
+  const baseColor = b.let('base_color', select(segColor.a.gt(0), segColor, layer.field('color', vec4fT)))
+  b.ret(vec4(baseColor.rgb, baseColor.a.mul(alpha)))
+})
+
+// ── line_rim_alpha ──
+const lineRimAlpha = fn('line_rim_alpha', { input: structT('LineOut') }, f32T, (b, p) => {
+  const tileOrigin = tile.field('tile_origin_merc', vec2fT)
+  const absMerc = b.let('abs_merc', p.input.field('world_local', vec2fT).add(tileOrigin))
+  const absLon = b.let('abs_lon', absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R'))))
+  const latRad = b.let('lat_rad', callFn('inv_merc_lat_rad', f32T, absMerc.y))
+  const absLat = b.let('abs_lat', latRad.div(constRef('DEG2RAD')))
+  b.ret(callFn('rim_alpha', f32T, absLon, absLat, tile.field('proj_params', vec4fT)))
+})
+
+// ── vs_line ──
+
+const vsLine = entryFn('vs_line', 'vertex', [
+  { name: 'seg_id', type: u32T, builtin: 'instance_index' },
+  { name: 'vi', type: u32T, builtin: 'vertex_index' },
+], structT('LineOut'), (b, p) => {
+  const seg = b.let('seg', segments.at(p.seg_id, structT('LineSegment')))
+  const p0 = b.let('p0', callFn('line_endpoint', vec2fT, seg.field('p0_h', vec2fT), seg.field('p0_l', vec2fT)))
+  const p1 = b.let('p1', callFn('line_endpoint', vec2fT, seg.field('p1_h', vec2fT), seg.field('p1_l', vec2fT)))
+
+  const segVec = b.let('seg_vec', p1.sub(p0))
+  const segLen = b.let('seg_len', length(segVec))
+  const dir = b.var('dir', vec2fT)
+  b.if(segLen.lt(1e-6), (c) => { c.assign(dir, vec2(f32(1), f32(0))) })
+    .else((c) => { c.assign(dir, segVec.div(segLen)) })
+  const nrm = b.let('nrm', vec2(dir.y.neg(), dir.x))
+
+  const layerWidthPx = layer.field('width_px', f32T)
+  const layerMpp = layer.field('mpp', f32T)
+  const layerAaPx = layer.field('aa_width_px', f32T)
+  const layerOffsetM = layer.field('offset_m', f32T)
+  const layerFlags = layer.field('flags', u32T)
+  const layerVpH = layer.field('viewport_height', f32T)
+
+  const segWidthOv = seg.field('width_px_override', f32T)
+  const effectiveWidthPx = b.let('effective_width_px',
+    select(segWidthOv.gt(0), segWidthOv, layerWidthPx),
+  )
+  const halfWm = b.let('half_w_m', effectiveWidthPx.mul(0.5).add(layerAaPx).mul(layerMpp))
+
+  // Per-endpoint pad ratios (precomputed CPU side).
+  const padP0m = b.var('pad_p0_m', f32T, seg.field('pad_ratio_p0', f32T).mul(halfWm))
+  const padP1m = b.var('pad_p1_m', f32T, seg.field('pad_ratio_p1', f32T).mul(halfWm))
+
+  // Pattern extent scan.
+  const patExtentM = b.var('pat_extent_m', f32T, f32(0))
+  b.if(layerFlags.bitAnd(u32(64)).ne(u32(0)), (c) => {
+    c.forRange('pk', u32(0), (pk) => pk.lt(u32(3)), (cb, pk) => {
+      const pat = cb.let('pat', layer.field('patterns', arrayT(structT('PatternSlot'), 3)).at(pk, structT('PatternSlot')))
+      cb.if(pat.field('id', u32T).eq(u32(0)), (d) => { d.continue() })
+      const szUnit = cb.let('sz_unit', pat.field('flags', u32T).shr(u32(2)).bitAnd(u32(3)))
+      const offUnit = cb.let('off_unit', pat.field('flags', u32T).shr(u32(4)).bitAnd(u32(3)))
+      const sizeM = cb.let('size_m', callFn('pattern_unit_to_m', f32T, pat.field('size', f32T), szUnit, layerMpp))
+      const offM = cb.let('off_m', abs(callFn('pattern_unit_to_m', f32T, pat.field('offset', f32T), offUnit, layerMpp)))
+      cb.assign(patExtentM, max(patExtentM, sizeM.mul(0.5).add(offM)))
+    })
+  })
+
+  // Arrow cap pad.
+  const capTypeVs = b.let('cap_type_vs', layerFlags.bitAnd(u32(7)))
+  const arrowLen = b.let('arrow_len', halfWm.mul(4))
+  const acrossM = b.var('across_m', f32T, max(halfWm, patExtentM))
+  b.assign(padP0m, max(padP0m, patExtentM))
+  b.assign(padP1m, max(padP1m, patExtentM))
+  b.if(capTypeVs.eq(u32(3)), (c) => {
+    c.if(length(seg.field('prev_tangent', vec2fT)).lt(0.001), (d) => {
+      d.assign(padP0m, max(padP0m, arrowLen))
+    })
+    c.if(length(seg.field('next_tangent', vec2fT)).lt(0.001), (d) => {
+      d.assign(padP1m, max(padP1m, arrowLen))
+    })
+  })
+
+  // 6-vert quad → along/across.
+  const along = b.var('along', f32T, f32(0))
+  const across = b.var('across', f32T, f32(0))
+  b.switch(p.vi, [
+    [0, (c) => { c.assign(along, f32(-1)); c.assign(across, f32(-1)) }],
+    [1, (c) => { c.assign(along, f32(1));  c.assign(across, f32(-1)) }],
+    [2, (c) => { c.assign(along, f32(1));  c.assign(across, f32(1)) }],
+    [3, (c) => { c.assign(along, f32(-1)); c.assign(across, f32(-1)) }],
+    [4, (c) => { c.assign(along, f32(1));  c.assign(across, f32(1)) }],
+    [5, (c) => { c.assign(along, f32(-1)); c.assign(across, f32(1)) }],
+  ], () => { /* default: empty */ })
+
+  const isStart = b.let('is_start', along.lt(0))
+  const base = b.let('base', select(isStart, p0, p1))
+  const perpCur = b.let('perp_cur', nrm.mul(across))
+
+  const prevTan = seg.field('prev_tangent', vec2fT)
+  const nextTan = seg.field('next_tangent', vec2fT)
+  const hasPrev = b.let('has_prev', length(prevTan).gt(0.001))
+  const hasNext = b.let('has_next', length(nextTan).gt(0.001))
+  const hasNeighbor = b.let('has_neighbor', select(isStart, hasPrev, hasNext))
+
+  // Pattern across scale.
+  const acrossScale = b.let('across_scale', max(f32(1), acrossM.div(max(halfWm, f32(1e-6)))))
+
+  // Lateral parallel offset.
+  const halfWside = b.let('half_w_side', halfWm.add(layerOffsetM.mul(across)))
+
+  const offset = b.var('offset', vec2fT, perpCur.mul(halfWside).mul(acrossScale))
+  b.if(hasNeighbor, (c) => {
+    const padRatio = c.let('pad_ratio', select(isStart, seg.field('pad_ratio_p0', f32T), seg.field('pad_ratio_p1', f32T)))
+    const basePad = c.let('base_pad', select(isStart, padP0m, padP1m))
+    const offsetExtentM = c.let('offset_extent_m', halfWm.add(abs(layerOffsetM)))
+    const endpointPad = c.let('endpoint_pad', max(basePad, padRatio.mul(offsetExtentM)))
+    const joinTypeVs = c.let('join_type_vs', layerFlags.shr(u32(3)).bitAnd(u32(3)))
+    const joinPad = c.var('join_pad', f32T, halfWm.add(abs(layerOffsetM).mul(padRatio)))
+    c.if(joinTypeVs.eq(u32(0)), (d) => { d.assign(joinPad, endpointPad) })
+    c.assign(joinPad, joinPad.add(f32(0.5).mul(layerMpp)))
+    const alongPad = c.let('along_pad', max(halfWside, joinPad))
+    c.assign(offset, offset.add(dir.mul(along).mul(alongPad).mul(acrossScale)))
+  }).else((c) => {
+    const endpointPad = c.let('endpoint_pad', select(isStart, padP0m, padP1m))
+    c.assign(offset, offset.add(dir.mul(along).mul(endpointPad)))
+  })
+
+  const cornerLocal = b.var('corner_local', vec2fT, base.add(offset))
+
+  // Screen-pixel-width stroke geometry clamp.
+  b.if(layerVpH.gt(0), (c) => {
+    const mvp = tile.field('mvp', mat4x4fT)
+    const zLift = seg.field('z_lift_m', f32T)
+    const centerClip = c.let('center_clip', transformMat4(mvp, vec4(callFn('finalize_corner', vec2fT, base), zLift, f32(1))))
+    const cornerClip = c.let('corner_clip', transformMat4(mvp, vec4(callFn('finalize_corner', vec2fT, cornerLocal), zLift, f32(1))))
+    // .xy swizzle: build vec2 explicitly so the key stays typed (DSL .swizzle
+    // returns Node<string>, which loses .sub/.mul arg inference).
+    const centerXY = c.let('center_xy', vec2(centerClip.x, centerClip.y))
+    const cornerXY = c.let('corner_xy', vec2(cornerClip.x, cornerClip.y))
+    const centerNdc = c.let('center_ndc', centerXY.div(max(abs(centerClip.w), f32(1e-6))).mul(sign(centerClip.w)))
+    const cornerNdc = c.let('corner_ndc', cornerXY.div(max(abs(cornerClip.w), f32(1e-6))).mul(sign(cornerClip.w)))
+    const screenDist = c.let('screen_dist', length(cornerNdc.sub(centerNdc)))
+    const targetNdc = c.let('target_ndc', effectiveWidthPx.add(f32(2).mul(layerAaPx)).div(layerVpH))
+    c.if(screenDist.gt(1e-8), (d) => {
+      const scale = d.let('scale', targetNdc.div(screenDist))
+      d.assign(cornerLocal, base.add(offset.mul(scale)))
+    })
+  })
+
+  // Project once per corner (Mercator: identity; non-Merc: per-vertex; globe: vec3).
+  const out = b.var('out', structT('LineOut'))
+  const cornerProj = b.let('corner_proj', callFn('finalize_corner', vec2fT, cornerLocal))
+  const cornerGlobe = b.let('corner_globe', callFn('finalize_corner_globe', vec3fT, cornerLocal))
+  const mvp = tile.field('mvp', mat4x4fT)
+  const zLift = seg.field('z_lift_m', f32T)
+  const projParams = tile.field('proj_params', vec4fT)
+  const clip = b.let('clip',
+    select(
+      projParams.x.gt(6.5),
+      transformMat4(mvp, vec4(cornerGlobe, f32(1))),
+      transformMat4(mvp, vec4(cornerProj, zLift, f32(1))),
+    ),
+  )
+  b.assign(out.field('position', vec4fT), callFn('apply_log_depth', vec4fT, clip, tile.field('log_depth_fc', f32T)))
+  b.assign(out.field('view_w', f32T), clip.w)
+  b.assign(out.field('world_local', vec2fT), cornerLocal)
+  b.assign(out.field('seg_id', u32T), p.seg_id)
+  const cosCp0 = b.let('cos_c_p0', callFn('endpoint_cos_c', f32T, seg.field('p0_h', vec2fT), seg.field('p0_l', vec2fT)))
+  const cosCp1 = b.let('cos_c_p1', callFn('endpoint_cos_c', f32T, seg.field('p1_h', vec2fT), seg.field('p1_l', vec2fT)))
+  b.assign(out.field('cos_c', f32T), select(isStart, cosCp0, cosCp1))
+  b.ret(out)
+})
+
+// ── Fragment entries (3 variants share compute_line_color) ──
+
+const buildFsLine = (pickEnabled: boolean) =>
+  entryFn('fs_line', 'fragment', [{ name: 'input', type: structT('LineOut') }], structT('LineFragmentOutput'), (b, p) => {
+    const out = b.var('out', structT('LineFragmentOutput'))
+    const color = b.let('color', callFn('compute_line_color', vec4fT, p.input))
+    const rim = b.let('rim', callFn('line_rim_alpha', f32T, p.input))
+    b.assign(out.field('color', vec4fT), vec4(color.rgb, color.a.mul(rim)))
+    if (pickEnabled) b.assign(out.field('pick', vec2uT), vec2u(u32(0), u32(0)))
+    b.assign(out.field('depth', f32T), callFn('compute_log_frag_depth', f32T, p.input.field('view_w', f32T), tile.field('log_depth_fc', f32T)))
+    b.ret(out)
+  })
+
+const buildFsLinePattern = (pickEnabled: boolean) =>
+  entryFn('fs_line_pattern', 'fragment', [{ name: 'input', type: structT('LineOut') }], structT('LineFragmentOutput'), (b, p) => {
+    const base = b.let('base', callFn('compute_line_color', vec4fT, p.input))
+    const tileOrigin = tile.field('tile_origin_merc', vec2fT)
+    const absMerc = b.let('abs_merc', p.input.field('world_local', vec2fT).add(tileOrigin))
+    const repeatX = b.let('repeat_x', max(layer.field('color', vec4fT).r, f32(1)))
+    const repeatY = b.let('repeat_y', max(layer.field('color', vec4fT).a, f32(1)))
+    const uvLocal = b.let('uv_local', vec2(
+      fract(absMerc.x.div(repeatX)),
+      fract(absMerc.y.div(repeatY)),
+    ))
+    const sc = tile.field('stroke_color', vec4fT)
+    const u0 = b.let('u0', sc.r)
+    const v0 = b.let('v0', sc.g)
+    const u1 = b.let('u1', sc.b)
+    const v1 = b.let('v1', sc.a)
+    const atlasUv = b.let('atlas_uv', vec2(
+      u0.add(uvLocal.x.mul(u1.sub(u0))),
+      v0.add(uvLocal.y.mul(v1.sub(v0))),
+    ))
+    const sampled = b.let('sampled', textureSample(sprite_atlas, sprite_samp, atlasUv))
+    const rim = b.let('rim', callFn('line_rim_alpha', f32T, p.input))
+    const out = b.var('out', structT('LineFragmentOutput'))
+    b.assign(out.field('color', vec4fT), vec4(sampled.rgb, sampled.a.mul(base.a).mul(rim)))
+    if (pickEnabled) b.assign(out.field('pick', vec2uT), vec2u(u32(0), u32(0)))
+    b.assign(out.field('depth', f32T), callFn('compute_log_frag_depth', f32T, p.input.field('view_w', f32T), tile.field('log_depth_fc', f32T)))
+    b.ret(out)
+  })
+
+// Max-blend offscreen path: bare @location(0) vec4 return, no log-depth (the
+// offscreen RT has no depth attachment).
+const fsLineMax = entryFn(
+  'fs_line_max', 'fragment',
+  [{ name: 'input', type: structT('LineOut') }],
+  vec4fT,
+  (b, p) => {
+    const c = b.var('c', vec4fT, callFn('compute_line_color', vec4fT, p.input))
+    const rim = b.let('rim', callFn('line_rim_alpha', f32T, p.input))
+    b.assign(c.field('a', f32T), c.field('a', f32T).mul(rim))
+    b.ret(c)
+  },
+  '@location(0)',
+)
+
+// ── Module assembly ──
+
+const buildLineModule = (pickEnabled: boolean): ModuleDecl => module({
+  structs: [
+    TileUniforms, PatternSlot, LineLayer, LineSegment,
+    ShapeDesc, ShapeSegment, LineOut, lineFragmentOutput(pickEnabled),
+  ],
+  bindings: [
+    { group: 0, binding: 0, name: 'tile', space: 'uniform', type: structT('TileUniforms') },
+    { group: 0, binding: 5, name: 'sprite_atlas', space: 'uniform', type: texture2dfT },
+    { group: 0, binding: 6, name: 'sprite_samp', space: 'uniform', type: samplerT },
+    { group: 1, binding: 0, name: 'layer', space: 'uniform', type: structT('LineLayer') },
+    { group: 1, binding: 1, name: 'segments', space: 'storage', access: 'read', type: arrayT(structT('LineSegment')) },
+    { group: 1, binding: 2, name: 'shapes', space: 'storage', access: 'read', type: arrayT(structT('ShapeDesc')) },
+    { group: 1, binding: 3, name: 'shape_segments', space: 'storage', access: 'read', type: arrayT(structT('ShapeSegment')) },
+  ],
+  funcs: [
+    lineEndpoint, finalizeCorner, finalizeCornerGlobe, endpointCosC, patternUnitToM, sdfShape,
+    computeLineColor, lineRimAlpha, vsLine,
+    buildFsLine(pickEnabled), buildFsLinePattern(pickEnabled), fsLineMax,
+  ],
+})
+
+/** Full line shader: shared DSL-emitted projection consts + log-depth fns +
+ *  projection fns + SDF distance/winding helpers, then the line module.
+ *  `pickEnabled` toggles the pick attachment field + writes (replaces the old
+ *  __PICK_FIELD__ / __PICK_WRITE__ regex markers). */
+export const emitLineWgsl = (pickEnabled: boolean): string => [
+  PROJECTION_WGSL_CONSTS,
+  LOG_DEPTH_WGSL_FNS,
+  PROJECTION_WGSL_FNS,
+  SDF_WGSL_DIST_TO_SEGMENT,
+  SDF_WGSL_DIST_TO_QUADRATIC,
+  SDF_WGSL_DIST_TO_CUBIC,
+  SDF_WGSL_WINDING_LINE,
+  emitModule(buildLineModule(pickEnabled)),
+].join('\n')
+
+// ── Compositor (fullscreen-triangle sampling the translucent offscreen RT) ──
+//
+// Standalone — different bind group + a single uniform (opacity). Pairs with
+// pipelineMax in line-renderer.ts.
+
+const CompUniform: StructDecl = {
+  name: 'CompUniform',
+  fields: [
+    { name: 'opacity', type: f32T },
+    { name: '_pad', type: vec3fT },
+  ],
+}
+
+const VsFullOut: StructDecl = {
+  name: 'VsFullOut',
+  fields: [
+    { name: 'pos', type: vec4fT, attr: '@builtin(position)' },
+    { name: 'uv', type: vec2fT, attr: '@location(0)' },
+  ],
+}
+
+const compSamp = bindingRef('samp', samplerT)
+const compSrc = bindingRef('src', texture2dfT)
+const compCu = bindingRef('cu', structT('CompUniform'))
+
+const vsFull = entryFn('vs_full', 'vertex',
+  [{ name: 'vi', type: u32T, builtin: 'vertex_index' }],
+  structT('VsFullOut'),
+  (b, p) => {
+    const pos = b.var('p', vec2fT, vec2(f32(-1), f32(-1)))
+    const uv = b.var('uv', vec2fT, vec2(f32(0), f32(1)))
+    b.if(p.vi.eq(u32(1)), (c) => {
+      c.assign(pos, vec2(f32(3), f32(-1)))
+      c.assign(uv, vec2(f32(2), f32(1)))
+    })
+    b.if(p.vi.eq(u32(2)), (c) => {
+      c.assign(pos, vec2(f32(-1), f32(3)))
+      c.assign(uv, vec2(f32(0), f32(-1)))
+    })
+    const out = b.var('out', structT('VsFullOut'))
+    b.assign(out.field('pos', vec4fT), vec4(pos, f32(0), f32(1)))
+    b.assign(out.field('uv', vec2fT), uv)
+    b.ret(out)
+  },
+)
+
+const fsFull = entryFn('fs_full', 'fragment',
+  [{ name: 'input', type: structT('VsFullOut') }],
+  vec4fT,
+  (b, p) => {
+    const c = b.let('c', textureSample(compSrc, compSamp, p.input.field('uv', vec2fT)))
+    const op = b.let('op', compCu.field('opacity', f32T))
+    // MAX-blend offscreen stores non-premultiplied (rgb, a_aa); premultiply here.
+    b.ret(vec4(c.rgb.mul(c.a).mul(op), c.a.mul(op)))
+  },
+  '@location(0)',
+)
+
+const compositeModule: ModuleDecl = module({
+  structs: [CompUniform, VsFullOut],
+  bindings: [
+    { group: 0, binding: 0, name: 'samp', space: 'uniform', type: samplerT },
+    { group: 0, binding: 1, name: 'src', space: 'uniform', type: texture2dfT },
+    { group: 0, binding: 2, name: 'cu', space: 'uniform', type: structT('CompUniform') },
+  ],
+  funcs: [vsFull, fsFull],
+})
+
+/** Translucent-line compositor: fullscreen triangle that samples the max-blend
+ *  offscreen RT and composites onto the main framebuffer with per-layer
+ *  opacity. Pairs with pipelineMax in line-renderer.ts. */
+export const emitCompositeWgsl = (): string => emitModule(compositeModule)

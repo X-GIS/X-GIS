@@ -39,6 +39,7 @@ export class Builder {
 
   ret(value?: Node): void { this.push({ s: 'return', expr: value?.expr }) }
   break(): void { this.push({ s: 'break' }) }
+  continue(): void { this.push({ s: 'continue' }) }
   discard(): void { this.push({ s: 'discard' }) }
 
   /** if / else-if / else chain. Returns a chainer so `.elif().else()` reads

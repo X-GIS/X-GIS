@@ -68,6 +68,7 @@ function emitStmt(s: Stmt, depth: number): string {
     case 'assignOp': return `${p}${emitExpr(s.target)} ${s.bop}= ${emitExpr(s.expr)};`
     case 'return': return s.expr !== undefined ? `${p}return ${emitExpr(s.expr)};` : `${p}return;`
     case 'break': return `${p}break;`
+    case 'continue': return `${p}continue;`
     case 'discard': return `${p}discard;`
     case 'if': {
       const lines: string[] = []

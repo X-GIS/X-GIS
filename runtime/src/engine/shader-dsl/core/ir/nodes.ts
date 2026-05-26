@@ -40,6 +40,7 @@ export type Stmt =
   | { readonly s: 'for'; readonly init: Stmt; readonly cond: Expr; readonly update: Stmt; readonly body: readonly Stmt[] }
   | { readonly s: 'switch'; readonly scrut: Expr; readonly cases: ReadonlyArray<{ readonly value: number; readonly body: readonly Stmt[] }>; readonly defaultBody?: readonly Stmt[] }
   | { readonly s: 'break' }
+  | { readonly s: 'continue' }
   | { readonly s: 'discard' }
 
 // ── Module-level declarations ──

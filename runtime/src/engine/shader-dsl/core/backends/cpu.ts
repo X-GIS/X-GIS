@@ -229,7 +229,7 @@ function setLValue(target: Expr, value: CpuValue, env: Map<string, CpuValue>, ct
   throw new Error(`shader-dsl/cpu: bad assignment target ${target.op}`)
 }
 
-type Signal = { kind: 'normal' } | { kind: 'return'; value: CpuValue | undefined } | { kind: 'break' } | { kind: 'discard' }
+type Signal = { kind: 'normal' } | { kind: 'return'; value: CpuValue | undefined } | { kind: 'break' } | { kind: 'continue' } | { kind: 'discard' }
 const NORMAL: Signal = { kind: 'normal' }
 
 // One flat env per function call (no per-block child scope). This is safe
@@ -251,6 +251,7 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
       }
       case 'return': return { kind: 'return', value: s.expr ? evalExpr(s.expr, env, ctx) : undefined }
       case 'break': return { kind: 'break' }
+      case 'continue': return { kind: 'continue' }
       case 'discard': return { kind: 'discard' }
       case 'if': {
         let taken = false
@@ -274,6 +275,8 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
           const r = execBody(s.body, env, ctx)
           if (r.kind === 'break') break
           if (r.kind === 'return' || r.kind === 'discard') return r
+          // 'continue' jumps straight to the update + next condition eval —
+          // the body short-circuit already returned, just don't propagate.
           execBody([s.update], env, ctx)
         }
         break
