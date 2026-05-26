@@ -1,43 +1,58 @@
 // ═══════════════════════════════════════════════════════════════════
-// polygon-variant-diff.test.ts — Phase 2.5 US-010 (scaffolding)
+// polygon-variant-diff.test.ts — Phase 2.5 US-010 (impl)
 // ═══════════════════════════════════════════════════════════════════
 //
-// Reads the baseline `.wgsl` snapshots committed under
-// `__polygon-variant-snapshots__/` by US-000 and pins three
-// invariants of the diff-test gate:
+// Per-commit drift gate for the polygon DSL composer. For each of the
+// 8 fixtures in `_polygon-fixtures.FIXTURES`:
 //
-//   1. The snapshot directory carries at least the AC6 fixture floor
-//      (8 files: 4 production-style + 4 synthetic variant patterns).
-//   2. Each snapshot's `// baseline: <40-hex-sha>` header is parseable
-//      and the body is the expected ~1000+ LOC polygon shader template.
-//   3. Every snapshot's baseline SHA matches `git merge-base main HEAD`
-//      — the drift gate fires when `main` advances during PR-B / PR-C
-//      review and the snapshots haven't been re-captured.
+//   1. Compute `emitForFixture(fx)` — the DSL composer's output for
+//      that variant shape.
+//   2. Read the committed snapshot under `__polygon-variant-snapshots__/`.
+//   3. Compare body byte-equal (after stripping the snapshot's
+//      `// baseline: <sha>` + `// fixture: ...` header). Mismatch
+//      surfaces as test failure with a hint to re-capture.
 //
-// What this test does NOT yet do (deferred to PR-C finalisation):
-//   - Re-emit the polygon WGSL via `emitPolygonWgsl(variant, false)`
-//     for each fixture and AST-diff against the snapshot. US-007's
-//     polygon DSL composer lands the `emitPolygonWgsl` entry point;
-//     the AST diff helper (tree-sitter-wgsl OR hand-written tokenizer)
-//     is selected at US-010 final-impl time per the ralplan AC6
-//     fallback rule.
+// The baseline is byte-equal, NOT AST-equivalent, against the legacy
+// POLYGON_SHADER_SOURCE-based emit:
+//   - The composer's declaration order, paren density, and swizzle
+//     conventions differ structurally from the legacy template; a
+//     legacy-vs-DSL diff would need a tree-sitter-wgsl AST diff or
+//     a hand-rolled ~300-LOC tokenizer normaliser, both deferred.
+//   - Pixel survey + CI render-gate validate the LEGACY ≡ DSL
+//     semantic equivalence end-to-end (4/4 across 3 runs at PR-B
+//     close); this gate sits one level above and pins DSL-output
+//     stability per commit.
 //
-// Until then this file is the minimum-viable US-010 gate: it catches
-// snapshot file corruption + SHA drift, which are the two failure
-// modes that would silently invalidate the baseline before the AST
-// diff layer is wired.
+// Refresh protocol: a composer change that intentionally perturbs
+// the emit must be paired with a `bun scripts/capture-polygon-snapshots.ts`
+// + commit of the refreshed `__polygon-variant-snapshots__/`. The
+// ancestor-SHA gate confirms the baseline stays reachable from HEAD.
 
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execSync } from 'node:child_process'
+import { FIXTURES, emitForFixture, type Fixture } from './_polygon-fixtures'
 
 const __filename = fileURLToPath(import.meta.url)
 const SNAPSHOT_DIR = join(dirname(__filename), '__polygon-variant-snapshots__')
 const BASELINE_HEADER = /^\/\/\s*baseline:\s*([a-f0-9]{40})\s*$/m
+const SLUG_HEADER = /^\/\/\s*fixture:\s*([\w-]+)\s*$/m
+// The snapshot header is 5 leading `//` comment lines (baseline,
+// fixture, variant.key, pick, note); strip them to get the WGSL
+// body for byte-equal comparison.
+const HEADER_LINES = 5
 
-describe('polygon-variant snapshot baseline gate — US-010 scaffolding', () => {
+function snapshotBody(content: string): string {
+  return content.split('\n').slice(HEADER_LINES).join('\n')
+}
+
+function fixtureBySlug(slug: string): Fixture | undefined {
+  return FIXTURES.find(f => f.slug === slug)
+}
+
+describe('polygon-variant snapshot drift gate — US-010 impl', () => {
   const files = readdirSync(SNAPSHOT_DIR)
     .filter((f) => f.endsWith('.wgsl'))
     .sort()
@@ -48,20 +63,51 @@ describe('polygon-variant snapshot baseline gate — US-010 scaffolding', () => 
 
   describe('per-fixture invariants', () => {
     for (const file of files) {
-      it(`${file}: baseline header parseable + body has the expected polygon-shader size`, () => {
+      it(`${file}: baseline + fixture headers parseable`, () => {
         const content = readFileSync(join(SNAPSHOT_DIR, file), 'utf8')
-        const headerMatch = content.match(BASELINE_HEADER)
-        expect(headerMatch, `missing or malformed "// baseline: <sha>" header in ${file}`).not.toBeNull()
-        const baselineSha = headerMatch![1]!
-        expect(baselineSha).toMatch(/^[a-f0-9]{40}$/)
-
-        // POLYGON_SHADER_SOURCE is ~826 LOC; the captured snapshot
-        // is the post-buildShader output (which only ADDS variant-
-        // specific preamble lines on top). 1000+ lines covers the
-        // base shader + the smallest variant injections; under that
-        // → the capture is truncated / corrupt.
+        const baselineMatch = content.match(BASELINE_HEADER)
+        expect(baselineMatch, `missing/malformed "// baseline: <sha>" header in ${file}`).not.toBeNull()
+        expect(baselineMatch![1]).toMatch(/^[a-f0-9]{40}$/)
+        const slugMatch = content.match(SLUG_HEADER)
+        expect(slugMatch, `missing "// fixture: <slug>" header in ${file}`).not.toBeNull()
+        // Body should be the composer's emit (~600+ lines for the
+        // smallest fixture, larger for variant-bearing ones).
         const lines = content.split('\n')
-        expect(lines.length).toBeGreaterThan(1000)
+        expect(lines.length).toBeGreaterThan(600)
+      })
+    }
+  })
+
+  describe('per-fixture composer emit byte-equal vs snapshot', () => {
+    for (const file of files) {
+      it(`${file}: emitForFixture(fx) byte-equals committed snapshot`, () => {
+        const content = readFileSync(join(SNAPSHOT_DIR, file), 'utf8')
+        const slugMatch = content.match(SLUG_HEADER)
+        expect(slugMatch, `${file} missing "// fixture: <slug>" header`).not.toBeNull()
+        const slug = slugMatch![1]!
+        const fx = fixtureBySlug(slug)
+        expect(fx, `${file} fixture slug "${slug}" not in FIXTURES`).toBeDefined()
+        const emitted = emitForFixture(fx!) + '\n'
+        const body = snapshotBody(content)
+        if (emitted !== body) {
+          // Find the first diff line for a focused error message.
+          const a = emitted.split('\n')
+          const b = body.split('\n')
+          let firstLine = -1
+          for (let i = 0; i < Math.min(a.length, b.length); i++) {
+            if (a[i] !== b[i]) { firstLine = i; break }
+          }
+          if (firstLine === -1) firstLine = Math.min(a.length, b.length)
+          const ctx = (lines: string[], n: number) =>
+            lines.slice(Math.max(0, n - 2), n + 3).map((l, i) => `  ${(n - 2 + i).toString().padStart(4)}| ${l}`).join('\n')
+          expect.fail(
+            `Composer emit drift in ${file}.\n` +
+            `Re-run \`bun scripts/capture-polygon-snapshots.ts\` and commit if change is intentional.\n` +
+            `First diff at line ${firstLine + 1}:\n` +
+            `--- snapshot ---\n${ctx(b, firstLine)}\n` +
+            `--- emit ---\n${ctx(a, firstLine)}\n`,
+          )
+        }
       })
     }
   })
@@ -83,14 +129,13 @@ describe('polygon-variant snapshot baseline gate — US-010 scaffolding', () => 
   })
 
   it('every snapshot baseline SHA is an ancestor of current HEAD (live drift gate)', () => {
-    // Earlier this gate required strict equality with `git merge-base main HEAD`,
-    // which forced a re-capture on every commit to main (each new commit advances
-    // merge-base past the snapshot baseline). The ancestor relaxation is the
-    // correct semantics — a snapshot baseline that's still reachable from HEAD
-    // is structurally consistent with main's history; only an ORPHANED baseline
-    // (force-push detached it) signals real drift. Re-capture remains the
-    // explicit refresh path when authors want the baseline pinned closer to
-    // tip; the gate just no longer fires on each main advance.
+    // Earlier this gate required strict equality with `git merge-base
+    // main HEAD`, which forced a re-capture on every commit to main
+    // (each new commit advances merge-base past the snapshot
+    // baseline). The ancestor relaxation is the correct semantics —
+    // a snapshot baseline that's still reachable from HEAD is
+    // structurally consistent with main's history; only an ORPHANED
+    // baseline (force-push detached it) signals real drift.
     const drift: { file: string; baseline: string }[] = []
     for (const file of files) {
       const content = readFileSync(join(SNAPSHOT_DIR, file), 'utf8')
@@ -98,16 +143,15 @@ describe('polygon-variant snapshot baseline gate — US-010 scaffolding', () => 
       const baselineSha = headerMatch![1]!
       let ancestor = true
       try {
-        // First confirm the baseline SHA is even reachable in this
-        // checkout. CI (actions/checkout@v4, fetch-depth=1 default)
-        // only sees HEAD's commit; historical baselines aren't testable
-        // there. We treat unreachable-SHA as `ancestor=true` so the
-        // local-dev (full clone) drift check still fires, but the CI
-        // shallow checkout doesn't false-positive on every commit.
+        // Pre-check reachability. CI (actions/checkout@v4
+        // fetch-depth=1 default) only sees HEAD's commit; historical
+        // baselines aren't testable there. Treat unreachable-SHA as
+        // ancestor=true so the local-dev (full clone) drift check
+        // still fires but the CI shallow checkout doesn't false-
+        // positive on every commit.
         execSync(`git cat-file -e ${baselineSha}^{commit}`, {
           stdio: ['ignore', 'ignore', 'ignore'],
         })
-        // SHA exists — ancestry check is meaningful.
         try {
           execSync(`git merge-base --is-ancestor ${baselineSha} HEAD`, {
             stdio: ['ignore', 'ignore', 'ignore'],
@@ -117,7 +161,6 @@ describe('polygon-variant snapshot baseline gate — US-010 scaffolding', () => 
           ancestor = false
         }
       } catch {
-        // SHA not reachable in this checkout (shallow CI). Skip.
         ancestor = true
       }
       if (!ancestor) drift.push({ file, baseline: baselineSha })
