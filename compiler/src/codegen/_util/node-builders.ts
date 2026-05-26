@@ -150,3 +150,38 @@ export function arrayIndex<E extends string>(base: NodeLike<string>, idx: NodeLi
   const elemT = elemTypeKey === 'vec4<f32>' ? VEC4F_T : F32_T
   return { expr: { op: 'index', type: elemT, base: base.expr, idx: idx.expr } } as NodeLike<E>
 }
+
+/** Reference to the `feat_data` storage buffer (typed as array<f32>).
+ *  Used as the base of feat_data lookup index ops. */
+export function featDataBindingRef(): NodeLike<'array<f32>'> {
+  return {
+    expr: {
+      op: 'varref',
+      type: { kind: 'array', elem: F32_T },
+      name: 'feat_data',
+    },
+  } as NodeLike<'array<f32>'>
+}
+
+/** Reference to `input.feat_id` (the vertex param's per-feature index).
+ *  Used in the feat_data[input.feat_id * STRIDE + offset] address calc. */
+export function inputFeatIdRef(): NodeLike<'u32'> {
+  return {
+    expr: {
+      op: 'member',
+      type: U32_T,
+      base: { op: 'varref', type: { kind: 'struct', name: 'VertexOutput' }, name: 'input' },
+      field: 'feat_id',
+    },
+  } as NodeLike<'u32'>
+}
+
+/** Construct the feat_data[input.feat_id * STRIDE + offset] f32 lookup
+ *  Node for a single field — mirrors exprToWGSL's FieldAccess emit. */
+export function featDataField(fieldName: string, fieldMap: Map<string, number>): NodeLike<'f32'> | null {
+  const offset = fieldMap.get(fieldName)
+  if (offset === undefined) return null
+  const stride = fieldMap.size
+  const addr = u32Add(u32Mul(inputFeatIdRef(), u32Lit(stride)), u32Lit(offset))
+  return arrayIndex<'f32'>(featDataBindingRef() as NodeLike<string>, addr, 'f32')
+}

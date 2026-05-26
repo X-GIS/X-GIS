@@ -21,6 +21,7 @@ import {
   f32Add, f32Sub, f32Mul, f32Div,
   u32Add, u32Mul, u32Mod,
   arrayIndex,
+  featDataField, featDataBindingRef, inputFeatIdRef,
 } from './node-builders'
 
 describe('node-builders — literals', () => {
@@ -105,6 +106,37 @@ describe('node-builders — arithmetic + casts (US-005 prep)', () => {
     const palette = constRefVec4('CAT_PALETTE') as never
     const sampled = arrayIndex<'vec4<f32>'>(palette, idx, 'vec4<f32>')
     expect(nodeToWgslString(sampled)).toBe('CAT_PALETTE[(u32(7.0) % 20u)]')
+  })
+})
+
+describe('node-builders — feat_data lookup (US-005 prep)', () => {
+  it('inputFeatIdRef emits input.feat_id', () => {
+    expect(nodeToWgslString(inputFeatIdRef())).toBe('input.feat_id')
+  })
+
+  it('featDataBindingRef emits feat_data', () => {
+    expect(nodeToWgslString(featDataBindingRef())).toBe('feat_data')
+  })
+
+  it('featDataField builds the feat_data[input.feat_id * STRIDE + offset] address — byte-equiv to legacy exprToWGSL FieldAccess', () => {
+    const fieldMap = new Map([['class', 0], ['name', 1], ['layer', 2]])
+    const node = featDataField('class', fieldMap)!
+    // STRIDE = 3, offset = 0
+    expect(nodeToWgslString(node)).toBe('feat_data[((input.feat_id * 3u) + 0u)]')
+  })
+
+  it('featDataField returns null for an unknown field (graceful fallback to legacy "0.0" path)', () => {
+    const fieldMap = new Map([['class', 0]])
+    expect(featDataField('missing', fieldMap)).toBeNull()
+  })
+
+  it('featDataField composes into the categorical Node end-to-end', () => {
+    // Real-world OFM landuse: field 'class' → categorical palette lookup
+    const fieldMap = new Map([['class', 0]])
+    const field = featDataField('class', fieldMap)!
+    const palette = constRefVec4('CAT_PALETTE') as never
+    const sampled = arrayIndex<'vec4<f32>'>(palette, u32Mod(toU32(field), u32Lit(20)), 'vec4<f32>')
+    expect(nodeToWgslString(sampled)).toBe('CAT_PALETTE[(u32(feat_data[((input.feat_id * 1u) + 0u)]) % 20u)]')
   })
 })
 
