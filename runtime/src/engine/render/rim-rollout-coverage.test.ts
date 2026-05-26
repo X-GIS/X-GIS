@@ -12,6 +12,7 @@ import {
 } from './renderer'
 import { WGSL_PROJECTION_FNS } from '../shaders/projection'
 import { readFileSync } from 'fs'
+import { emitRasterWgsl } from '../shader-dsl'
 import { join } from 'path'
 
 function readShaderSource(relPath: string): string {
@@ -41,9 +42,9 @@ describe('rim_alpha rollout coverage', () => {
   })
 
   it('raster shader applies smoothstep rim fade in fs_tile', () => {
-    const src = readShaderSource('raster-renderer.ts')
+    const src = emitRasterWgsl(false)
     expect(src).toContain('smoothstep(0.0, 0.02, input.vis)')
-    expect(src).toContain('u.raster_params.x * rim')
+    expect(src).toContain('u.raster_params.x) * rim')
   })
 
   it('rim_alpha function is emitted into WGSL_PROJECTION_FNS', () => {

@@ -23,7 +23,6 @@
 
 import { describe, expect, it } from 'vitest'
 import { LINE_SHADER_SOURCE } from './line-renderer'
-import { RASTER_SHADER_SOURCE } from './raster-renderer'
 // NOTE: the background shader no longer uses __PICK_*__ markers — it is emitted
 // from the shader DSL (shader-dsl/background.ts) with conditional pick emission.
 // Its pick-variant coverage lives in shader-dsl/background-dsl.test.ts.
@@ -59,33 +58,11 @@ describe('line-renderer shader markers', () => {
   })
 })
 
-describe('raster-renderer shader markers', () => {
-  it('__PICK_FIELD__ token present', () => {
-    expect(RASTER_SHADER_SOURCE).toContain('__PICK_FIELD__')
-  })
-
-  it('__PICK_WRITE__ token present', () => {
-    expect(RASTER_SHADER_SOURCE).toContain('__PICK_WRITE__')
-  })
-
-  it('regex replace simulation actually changes the shader source', () => {
-    const replaced = RASTER_SHADER_SOURCE
-      .replace(/__PICK_FIELD__/g, '@location(1) @interpolate(flat) pick: vec2<u32>,')
-      .replace(/__PICK_WRITE__/g, 'out.pick = vec2<u32>(0u, 0u);')
-    expect(replaced).not.toBe(RASTER_SHADER_SOURCE)
-  })
-})
-
 describe('PICK token count sanity (multiplicity invariant)', () => {
   it('LINE_SHADER_SOURCE: __PICK_FIELD__ ×1, __PICK_WRITE__ ×2', () => {
     expect(countOccurrences(LINE_SHADER_SOURCE, '__PICK_FIELD__')).toBe(1)
     // iter-185 added fs_line_pattern (line-pattern Stage 2) which also
     // emits a __PICK_WRITE__. Count is now 2: fs_line + fs_line_pattern.
     expect(countOccurrences(LINE_SHADER_SOURCE, '__PICK_WRITE__')).toBe(2)
-  })
-
-  it('RASTER_SHADER_SOURCE: __PICK_FIELD__ ×1, __PICK_WRITE__ ×1', () => {
-    expect(countOccurrences(RASTER_SHADER_SOURCE, '__PICK_FIELD__')).toBe(1)
-    expect(countOccurrences(RASTER_SHADER_SOURCE, '__PICK_WRITE__')).toBe(1)
   })
 })

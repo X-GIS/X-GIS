@@ -19,7 +19,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PROJECTIONS } from './projections-table'
 import { WGSL_PROJECTION_FNS } from '../shaders/projection'
-import { cosC, needsBackfaceCullWgsl } from '../shader-dsl'
+import { cosC, needsBackfaceCullWgsl, emitRasterWgsl } from '../shader-dsl'
 
 const AZIMUTHAL = PROJECTIONS[4]!.cullThreshold! // -0.85
 const STEREO = PROJECTIONS[5]!.cullThreshold!    // -0.8
@@ -81,13 +81,10 @@ describe('projection threshold drift gate', () => {
   })
 
   it('inline raster cull ladder thresholds == table', () => {
-    const raster = readFileSync(
-      join(__dirname, '..', 'render', 'raster-renderer.ts'),
-      'utf8',
-    )
+    const raster = emitRasterWgsl(false)
     // `var threshold = 0.0;` then `threshold = -0.85;` (azimuthal),
     // `threshold = -0.8;` (stereo).
-    const found = allMatches(raster, /threshold = (-?[\d.]+);/g)
+    const found = allMatches(raster, /threshold(?:: f32)? = (-?[\d.]+);/g)
     expect(found).toEqual([ORTHO, AZIMUTHAL, STEREO])
   })
 
@@ -97,10 +94,7 @@ describe('projection threshold drift gate', () => {
     const bands = [...WGSL_PROJECTION_FNS.matchAll(/smoothstep\((-?[\d.]+), (-?[\d.]+), cc\)/g)]
       .map((m) => Math.round((parseFloat(m[2]!) - parseFloat(m[1]!)) * 1000) / 1000)
     expect(bands).toEqual([0.02, 0.02, 0.02, 0.02])
-    const raster = readFileSync(
-      join(__dirname, '..', 'render', 'raster-renderer.ts'),
-      'utf8',
-    )
+    const raster = emitRasterWgsl(false)
     // raster applies `smoothstep(0.0, 0.02, input.vis)` — same fade width.
     expect(raster).toContain('smoothstep(0.0, 0.02,')
   })
