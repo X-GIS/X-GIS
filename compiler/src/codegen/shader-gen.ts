@@ -15,6 +15,7 @@ import {
   type ScalarPaletteMode,
 } from './palette-emit'
 import type { ShaderVariant, ColorResult, OpacityResult } from './shader-gen-types'
+import { wgslRaw } from './_back-compat/node-to-wgsl-string'
 import {
   buildFieldMap,
   matchArmsKey,
@@ -89,10 +90,16 @@ export function generateShaderVariant(
   // which is the right behavior for stroke-only layers (no fill draw
   // means no pick attachment write either, so picks fall through to
   // whatever drew underneath).
-  const fillExpr = node.fill.kind === 'none'
-    ? 'u.fill_color'
-    : buildFillExpr(fillResult, opacityResult)
-  const strokeExpr = buildStrokeExpr(strokeResult, opacityResult)
+  // Phase 2.5 US-004 — fillExpr / strokeExpr are now Node-typed
+  // (NodeLike<'vec4<f32>'> | null). The default-uniform shortcut
+  // becomes a literal `null` paired with `fillIsDefault: true` below;
+  // the runtime checks the flag, NOT the field's contents. Non-default
+  // expression assembly stays string-based here and is wrapped via
+  // `wgslRaw` until US-005's per-idiom Node conversion lands.
+  const fillExprStr = node.fill.kind === 'none' ? 'u.fill_color' : buildFillExpr(fillResult, opacityResult)
+  const strokeExprStr = buildStrokeExpr(strokeResult, opacityResult)
+  const fillExpr = node.fill.kind === 'none' ? null : wgslRaw<'vec4<f32>'>(fillExprStr)
+  const strokeExpr = strokeExprStr === 'u.stroke_color' ? null : wgslRaw<'vec4<f32>'>(strokeExprStr)
 
   // ── Cache key ──
   const featureFields = [...allFeatureFields].sort()
@@ -145,13 +152,13 @@ export function generateShaderVariant(
     fillUsesPalette: fillResult.paletteGradientIdx !== undefined,
     strokeUsesPalette: strokeResult.paletteGradientIdx !== undefined,
     opacityUsesPalette: opacityResult.paletteScalarIdx !== undefined,
-    // Phase 2.5 US-002 — typed default-sentinel flags. The string compare
-    // here mirrors the runtime check the flags replace; once US-004
-    // migrates `fillExpr` to a Node value, this becomes a structural
-    // check (e.g. `fillExpr === null`) but the flag's meaning is
-    // stable: "use the cached uniform colour + skip-fill-draw fast path".
-    fillIsDefault: fillExpr === 'u.fill_color',
-    strokeIsDefault: strokeExpr === 'u.stroke_color',
+    // Phase 2.5 US-002+US-004 — typed default-sentinel flags. After
+    // US-004's Node migration the field carries `null` for the
+    // default-uniform placeholder, and the flag tracks that shape
+    // directly. Meaning is stable across the migration: "use the
+    // cached uniform colour + skip-fill-draw fast path".
+    fillIsDefault: fillExpr === null,
+    strokeIsDefault: strokeExpr === null,
   }
 }
 

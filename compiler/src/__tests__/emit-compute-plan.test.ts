@@ -15,6 +15,7 @@ import type {
   ColorValue, DataExpr, RenderNode, Scene, SizeValue, StrokeValue,
 } from '../ir/render-node'
 import type { PropertyShape, RGBA } from '../ir/property-types'
+import { nodeToWgslString } from '../codegen/_back-compat/node-to-wgsl-string'
 
 const RED: RGBA = [1, 0, 0, 1]
 const BLUE: RGBA = [0, 0, 1, 1]
@@ -161,7 +162,14 @@ describe('emitCommands — computePlan emission', () => {
     expect(cmds.computePlan).toBeDefined()
     expect(cmds.shows[0]!.shaderVariant!.computeBindings).toBeUndefined()
     // Legacy fillExpr path preserved.
-    expect(cmds.shows[0]!.shaderVariant!.fillExpr).not.toContain('unpack4x8unorm')
+    // Phase 2.5 US-004 — fillExpr is now NodeLike|null; null means
+    // default-uniform (fillIsDefault: true), which never contains a
+    // compute output reference.
+    {
+      const fe = cmds.shows[0]!.shaderVariant!.fillExpr
+      const fillStr = fe ? nodeToWgslString(fe) : 'u.fill_color'
+      expect(fillStr).not.toContain('unpack4x8unorm')
+    }
   })
 
   it('enableComputePath ON: show.shaderVariant carries computeBindings', () => {
@@ -180,7 +188,7 @@ describe('emitCommands — computePlan emission', () => {
     const variant = cmds.shows[0]!.shaderVariant!
     expect(variant.computeBindings).toBeDefined()
     expect(variant.computeBindings!.length).toBe(1)
-    expect(variant.fillExpr).toContain('unpack4x8unorm(compute_out_fill')
+    expect(variant.fillExpr ? nodeToWgslString(variant.fillExpr) : '').toContain('unpack4x8unorm(compute_out_fill')
     // Default base binding = 16 (avoids existing slot collisions).
     expect(variant.computeBindings![0]!.binding).toBe(16)
   })

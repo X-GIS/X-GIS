@@ -40,6 +40,10 @@ export {
 // module's public surface (consumed by tests via './renderer') stays
 // byte-identical.
 import { POLYGON_SHADER_SOURCE, FILL_RETURN_MARKER, STROKE_RETURN_MARKER } from './renderer-shaders'
+// Phase 2.5 US-004 — extracts the WGSL string from a NodeLike
+// `fillExpr` / `strokeExpr` until US-008 makes the polygon DSL composer
+// accept Node values directly and the back-compat adapter is deleted.
+import { nodeToWgslString } from '@xgis/compiler'
 export {
   POLYGON_SHADER_SOURCE,
   FILL_RETURN_MARKER,
@@ -87,13 +91,17 @@ function buildShader(variant?: ShaderVariantInfo | null): string {
   // US-004 migrates `fillExpr` to `Node<vec4<f32>> | null` the string
   // compare no longer typechecks but `!variant.fillIsDefault` is
   // stable across both the string and Node representations.
+  // Phase 2.5 US-004 — fillExpr / strokeExpr are now NodeLike values
+  // (or null for the default-uniform placeholder). Extract the WGSL
+  // string via the back-compat adapter until US-008 makes the polygon
+  // DSL composer consume Node values directly.
   if (variant.fillExpr && !variant.fillIsDefault) {
     const matchCode = (variant as any).fillPreamble ? `${(variant as any).fillPreamble}  ` : ''
-    shader = shader.replace(FILL_RETURN_MARKER, `${matchCode}out.color = ${variant.fillExpr};`)
+    shader = shader.replace(FILL_RETURN_MARKER, `${matchCode}out.color = ${nodeToWgslString(variant.fillExpr)};`)
   }
   if (variant.strokeExpr && !variant.strokeIsDefault) {
     const matchCode = (variant as any).strokePreamble ? `${(variant as any).strokePreamble}  ` : ''
-    shader = shader.replace(STROKE_RETURN_MARKER, `${matchCode}out.color = ${variant.strokeExpr};`)
+    shader = shader.replace(STROKE_RETURN_MARKER, `${matchCode}out.color = ${nodeToWgslString(variant.strokeExpr)};`)
   }
 
   return applyPick(shader)

@@ -5,18 +5,32 @@
 // internal `ColorResult` / `OpacityResult` shapes are imported back
 // into shader-gen.ts only.
 
+import type { NodeLike } from './_back-compat/node-to-wgsl-string'
+
 /**
  * A specialized shader variant for a layer.
  */
 export interface ShaderVariant {
   /** Cache key — layers with identical keys share a pipeline */
   key: string
-  /** WGSL const declarations to prepend to the shader */
+  /** WGSL const declarations to prepend to the shader.
+   *  Phase 2.5 — kept as string during the in-flight migration; the
+   *  per-idiom Node conversion in US-005 + the polygon DSL composer
+   *  in US-007 are the natural points for the `Partial<ModuleDecl>`
+   *  shape. Deferred per the plan's rollback option. */
   preamble: string
-  /** WGSL expression for fill color (replaces `u.fill_color`) */
-  fillExpr: string
-  /** WGSL expression for stroke color (replaces `u.stroke_color`) */
-  strokeExpr: string
+  /** Fill-color expression as a DSL Node, or `null` for the default-
+   *  uniform placeholder (`fillIsDefault: true` is the typed sentinel).
+   *  The compiler-side emit sites currently wrap pre-built WGSL strings
+   *  via `wgslRaw(...)` so the type can shift without disrupting
+   *  per-idiom emit; US-005 rewrites each call site to construct real
+   *  Node values via the IR builders. Runtime extracts the WGSL string
+   *  via `nodeToWgslString(variant.fillExpr)` at the marker
+   *  substitution site until US-008's polygon DSL composer accepts
+   *  Node directly. */
+  fillExpr: NodeLike<'vec4<f32>'> | null
+  /** Stroke-color expression — same migration shape as `fillExpr`. */
+  strokeExpr: NodeLike<'vec4<f32>'> | null
   /** WGSL code injected before fill return (match if-else chains) */
   fillPreamble?: string
   /** WGSL code injected before stroke return — analogous to

@@ -15,6 +15,19 @@ import { generateShaderVariant } from './shader-gen'
 import { collectPalette } from './palette'
 import type { ColorValue, RenderNode, Scene, SizeValue, StrokeValue, ZoomStop } from '../ir/render-node'
 import type { PropertyShape, RGBA } from '../ir/property-types'
+import type { ShaderVariant } from './shader-gen'
+import { nodeToWgslString } from './_back-compat/node-to-wgsl-string'
+
+// Phase 2.5 US-004 — fillExpr / strokeExpr migrated from string to
+// NodeLike|null. The default-uniform placeholder is now `null` paired
+// with `fillIsDefault: true`; assertions that expected the legacy
+// `'u.fill_color'` string now consult these helpers.
+function fillStr(v: ShaderVariant): string {
+  return v.fillExpr ? nodeToWgslString(v.fillExpr) : 'u.fill_color'
+}
+function strokeStr(v: ShaderVariant): string {
+  return v.strokeExpr ? nodeToWgslString(v.strokeExpr) : 'u.stroke_color'
+}
 
 const RED: RGBA = [1, 0, 0, 1]
 const BLUE: RGBA = [0, 0, 1, 1]
@@ -51,7 +64,7 @@ describe('shader-gen — palette-aware emission', () => {
     const v = generateShaderVariant(node)  // no palette
     expect(v.preamble).not.toContain('color_grad_atlas')
     expect(v.preamble).not.toContain('palette_samp')
-    expect(v.fillExpr).toContain('u.fill_color')
+    expect(fillStr(v)).toContain('u.fill_color')
     expect(v.paletteColorGradients).toEqual([])
   })
 
@@ -63,8 +76,8 @@ describe('shader-gen — palette-aware emission', () => {
     const v = generateShaderVariant(node, undefined, palette)
     expect(v.preamble).toContain('@binding(2) var color_grad_atlas')
     expect(v.preamble).toContain('palette_samp')
-    expect(v.fillExpr).toContain('textureSampleLevel(color_grad_atlas, palette_samp')
-    expect(v.fillExpr).not.toContain('u.fill_color')
+    expect(fillStr(v)).toContain('textureSampleLevel(color_grad_atlas, palette_samp')
+    expect(fillStr(v)).not.toContain('u.fill_color')
     expect(v.paletteColorGradients).toEqual([0])
   })
 
@@ -80,7 +93,7 @@ describe('shader-gen — palette-aware emission', () => {
     const v = generateShaderVariant(node, undefined, palette)
     // Legacy uniform path — no atlas bindings emitted.
     expect(v.preamble).not.toContain('color_grad_atlas')
-    expect(v.fillExpr).toContain('u.fill_color')
+    expect(fillStr(v)).toContain('u.fill_color')
     expect(v.paletteColorGradients).toEqual([])
   })
 
@@ -91,7 +104,7 @@ describe('shader-gen — palette-aware emission', () => {
     const palette = collectPalette(sceneFromNodes(node))
     const v = generateShaderVariant(node, undefined, palette)
     expect(v.preamble).not.toContain('color_grad_atlas')
-    expect(v.fillExpr).toContain('FILL_COLOR')
+    expect(fillStr(v)).toContain('FILL_COLOR')
     expect(v.paletteColorGradients).toEqual([])
   })
 
@@ -105,8 +118,8 @@ describe('shader-gen — palette-aware emission', () => {
     })
     const palette = collectPalette(sceneFromNodes(node))
     const v = generateShaderVariant(node, undefined, palette)
-    expect(v.fillExpr).toContain('textureSampleLevel(color_grad_atlas')
-    expect(v.strokeExpr).toContain('textureSampleLevel(color_grad_atlas')
+    expect(fillStr(v)).toContain('textureSampleLevel(color_grad_atlas')
+    expect(strokeStr(v)).toContain('textureSampleLevel(color_grad_atlas')
     // Both gradients collected; deduped by collectPalette so two
     // distinct gradients show two indices.
     expect(v.paletteColorGradients.length).toBe(2)

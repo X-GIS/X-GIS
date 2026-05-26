@@ -39,6 +39,7 @@ import {
   type SizeValue, type StrokeValue,
 } from '@xgis/compiler'
 import type { PropertyShape } from '@xgis/compiler'
+import { nodeToWgslString } from '@xgis/compiler'
 import { ComputeDispatcher } from '../gpu/compute'
 import { TileComputeResources } from './tile-compute-resources'
 import { packFeatureData } from './compute-feature-packer'
@@ -198,7 +199,8 @@ describe('P4 end-to-end — compiler ↔ runtime contract', () => {
     // reference the same name. Drift here would produce an
     // unresolved-identifier WGSL compile error at pipeline create.
     expect(merged.preamble).toContain('compute_out_fill')
-    expect(merged.fillExpr).toContain('compute_out_fill')
+    // Phase 2.5 US-004 — fillExpr now NodeLike|null.
+    expect(merged.fillExpr ? nodeToWgslString(merged.fillExpr) : '').toContain('compute_out_fill')
   })
 
   it('TileComputeResources allocates buffers per ComputePlanEntry', () => {

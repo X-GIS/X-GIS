@@ -31,6 +31,7 @@ import {
   type SizeValue, type StrokeValue,
 } from '@xgis/compiler'
 import type { PropertyShape } from '@xgis/compiler'
+import { nodeToWgslString } from '@xgis/compiler'
 import { ComputeDispatcher } from '../gpu/compute'
 import { ComputeLayerRegistry } from './compute-layer-registry'
 import { extendBindGroupLayoutEntriesForCompute } from './compute-bind-layout'
@@ -183,7 +184,8 @@ describe('Renderer compute integration — full pipeline simulation', () => {
     expect(variant.computeBindings).toBeDefined()
     expect(variant.computeBindings!.length).toBe(1)
     expect(variant.computeBindings![0]!.binding).toBe(16)
-    expect(variant.fillExpr).toContain('compute_out_fill')
+    // Phase 2.5 US-004 — fillExpr now NodeLike|null.
+    expect(variant.fillExpr ? nodeToWgslString(variant.fillExpr) : '').toContain('compute_out_fill')
 
     // ── Step 2: extend pipeline layout entries ──
     const extended = extendBindGroupLayoutEntriesForCompute(

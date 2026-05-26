@@ -65,8 +65,25 @@ type Expr =
   | { readonly op: 'select'; readonly type: ShaderType; readonly cond: Expr; readonly ifTrue: Expr; readonly ifFalse: Expr }
   | { readonly op: 'index'; readonly type: ShaderType; readonly base: Expr; readonly idx: Expr }
   | { readonly op: 'matchExpr'; readonly type: ShaderType; readonly scrutinee: Expr; readonly cases: ReadonlyArray<readonly [number, Expr]>; readonly default: Expr }
+  // Phase 2.5 US-004 back-compat — wraps a pre-built WGSL string so the
+  // compiler-side emit sites can satisfy the new Node-typed
+  // ShaderVariant fields without yet constructing real Node values
+  // (the per-idiom Node conversion lands one site at a time in US-005).
+  // emit() unwraps this verbatim. REMOVED IN STEP 14.
+  | { readonly op: 'rawString'; readonly value: string }
 
-interface NodeLike { readonly expr: Expr }
+/**
+ * Structural Node mirror — the compiler can't import the runtime Node
+ * class directly (compiler/tsconfig.json's rootDir excludes runtime/
+ * and the runtime package is the dependent in the workspace chain).
+ * Runtime's actual `Node<K>` is structurally assignable to this shape;
+ * the typed `__k?: K` brand carries the WGSL key for type safety in
+ * the compiler-side codegen during the migration window.
+ */
+export interface NodeLike<K extends string = string> {
+  readonly expr: Expr
+  readonly __k?: K
+}
 
 // ── emitExpr copy ──
 //
@@ -117,7 +134,19 @@ function emit(e: Expr): string {
     case 'select': return `select(${emit(e.ifFalse)}, ${emit(e.ifTrue)}, ${emit(e.cond)})`
     case 'index': return `${emit(e.base)}[${emit(e.idx)}]`
     case 'matchExpr': throw new Error('compiler/back-compat: matchExpr is fn-body-only — wrap the Node in an fn before stringifying')
+    case 'rawString': return e.value
   }
+}
+
+/**
+ * Wrap a pre-built WGSL string as a NodeLike so the compiler-side emit
+ * sites can satisfy the new Node-typed ShaderVariant fields during the
+ * Phase 2.5 migration window. Each call site is rewritten in US-005 to
+ * construct real Node values, and this helper is deleted with the
+ * rest of `_back-compat/` at US-008.
+ */
+export function wgslRaw<K extends string>(s: string): NodeLike<K> {
+  return { expr: { op: 'rawString', value: s } }
 }
 
 /**
