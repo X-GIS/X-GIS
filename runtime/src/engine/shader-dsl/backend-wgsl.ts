@@ -17,6 +17,8 @@ export function wgslType(t: ShaderType): string {
     case 'mat': return `mat${t.n}x${t.n}<${t.elem}>`
     case 'struct': return t.name
     case 'array': return t.size !== undefined ? `array<${wgslType(t.elem)}, ${t.size}>` : `array<${wgslType(t.elem)}>`
+    case 'texture': return `texture_${t.dim}<${t.elem}>`
+    case 'sampler': return 'sampler'
     case 'void': return 'void'
   }
 }
@@ -133,15 +135,23 @@ export function emitStruct(s: StructDecl): string {
 }
 
 export function emitBinding(b: BindingDecl): string {
+  // texture / sampler are handle types — no address space (`var x: T;`).
+  if (b.type.kind === 'texture' || b.type.kind === 'sampler') {
+    return `@group(${b.group}) @binding(${b.binding}) var ${b.name}: ${wgslType(b.type)};`
+  }
   const space = b.space === 'storage' ? `storage, ${b.access ?? 'read'}` : 'uniform'
   return `@group(${b.group}) @binding(${b.binding}) var<${space}> ${b.name}: ${wgslType(b.type)};`
 }
 
+function paramAttr(p: { builtin?: string; location?: number }): string {
+  if (p.builtin) return `@builtin(${p.builtin}) `
+  if (p.location !== undefined) return `@location(${p.location}) `
+  return ''
+}
+
 export function emitFunc(f: FuncDecl): string {
-  const params = f.params
-    .map((p) => `${p.builtin ? `@builtin(${p.builtin}) ` : ''}${p.name}: ${wgslType(p.type)}`)
-    .join(', ')
-  const ret = f.ret.kind === 'void' ? '' : ` -> ${wgslType(f.ret)}`
+  const params = f.params.map((p) => `${paramAttr(p)}${p.name}: ${wgslType(p.type)}`).join(', ')
+  const ret = f.ret.kind === 'void' ? '' : ` -> ${f.retAttr ? `${f.retAttr} ` : ''}${wgslType(f.ret)}`
   const attrs = f.attrs && f.attrs.length ? `${f.attrs.join(' ')}\n` : ''
   return `${attrs}fn ${f.name}(${params})${ret} {\n${emitBody(f.body, 1)}\n}`
 }

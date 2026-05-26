@@ -33,6 +33,8 @@ export type ShaderType =
   | { readonly kind: 'mat'; readonly n: 2 | 3 | 4; readonly elem: 'f32' }
   | { readonly kind: 'struct'; readonly name: string }
   | { readonly kind: 'array'; readonly elem: ShaderType; readonly size?: number }
+  | { readonly kind: 'texture'; readonly dim: '2d'; readonly elem: 'f32' }
+  | { readonly kind: 'sampler' }
   | { readonly kind: 'void' }
 
 // `as const satisfies` keeps each constant's LITERAL type (so KeyOf<typeof f32T>
@@ -50,6 +52,8 @@ export const vec3uT = { kind: 'vec', n: 3, elem: 'u32' } as const satisfies Shad
 export const vec4uT = { kind: 'vec', n: 4, elem: 'u32' } as const satisfies ShaderType
 export const vec4iT = { kind: 'vec', n: 4, elem: 'i32' } as const satisfies ShaderType
 export const mat4x4fT = { kind: 'mat', n: 4, elem: 'f32' } as const satisfies ShaderType
+export const texture2dfT = { kind: 'texture', dim: '2d', elem: 'f32' } as const satisfies ShaderType
+export const samplerT = { kind: 'sampler' } as const satisfies ShaderType
 export const voidT = { kind: 'void' } as const satisfies ShaderType
 export const structT = (name: string): ShaderType => ({ kind: 'struct', name })
 /** Array type; pass `size` for a fixed-length WGSL array (`array<T, N>`). */
@@ -77,6 +81,8 @@ export function typeKey(t: ShaderType): string {
     case 'mat': return `mat${t.n}x${t.n}<${t.elem}>`
     case 'struct': return `struct:${t.name}`
     case 'array': return t.size !== undefined ? `array<${typeKey(t.elem)},${t.size}>` : `array<${typeKey(t.elem)}>`
+    case 'texture': return `texture_${t.dim}<${t.elem}>`
+    case 'sampler': return 'sampler'
     case 'void': return 'void'
   }
 }
@@ -157,12 +163,15 @@ export interface BindingDecl {
 
 export interface FuncDecl {
   readonly name: string
-  readonly params: readonly { name: string; type: ShaderType; builtin?: string }[]
+  readonly params: readonly { name: string; type: ShaderType; builtin?: string; location?: number }[]
   readonly ret: ShaderType
   readonly body: readonly Stmt[]
   /** Stage / pipeline attributes emitted before `fn` (e.g. `@compute`,
    *  `@workgroup_size(64)`). Empty for ordinary helper functions. */
   readonly attrs?: readonly string[]
+  /** Return-value attribute for a bare (non-struct) stage output, e.g. a
+   *  fragment `-> @location(0) vec4<f32>`. */
+  readonly retAttr?: string
 }
 
 export interface ModuleDecl {
@@ -257,6 +266,21 @@ export class Node<K extends string = string> {
   get z(): Node<ElemKey<K>> { return this.comp('z') }
   get w(): Node<ElemKey<K>> { return this.comp('w') }
 
+  /** Vector swizzle — `.rgb`, `.xy`, `.a`, … A length-1 swizzle → scalar;
+   *  length-N → vecN of the same element type. */
+  swizzle(comps: string): Node {
+    const t = this.type
+    if (!isVec(t)) throw new Error(`shader-dsl: swizzle .${comps} on non-vector ${typeKey(t)}`)
+    const n = comps.length
+    const type: ShaderType = n === 1 ? { kind: 'scalar', scalar: t.elem } : { kind: 'vec', n: n as 2 | 3 | 4, elem: t.elem }
+    return new Node({ op: 'member', type, base: this.expr, field: comps })
+  }
+  get r(): Node<ElemKey<K>> { return this.comp('x') }
+  get g(): Node<ElemKey<K>> { return this.comp('y') }
+  get b(): Node<ElemKey<K>> { return this.comp('z') }
+  get a(): Node<ElemKey<K>> { return this.comp('w') }
+  get rgb(): Node<'vec3<f32>'> { return this.swizzle('rgb') as Node<'vec3<f32>'> }
+
   /** Struct field access (key inferred from the field's ShaderType literal). */
   field<T extends ShaderType>(name: string, type: T): Node<KeyOf<T>> {
     return new Node<KeyOf<T>>({ op: 'member', type, base: this.expr, field: name })
@@ -334,6 +358,12 @@ export const length = (v: Node<string>): Node<'f32'> => call('length', f32T, v) 
 export const dot = (a: Node<string>, b: Node<string>): Node<'f32'> => call('dot', f32T, a, b) as Node<'f32'>
 /** Pack a vec4<f32> (each component in [0,1]) into a u32 RGBA8. */
 export const pack4x8unorm = (v: Node<'vec4<f32>'>): Node<'u32'> => call('pack4x8unorm', u32T, v) as Node<'u32'>
+/** Sample a 2D texture → vec4<f32>. (CPU eval: nearest-texel stub.) */
+export const textureSample = (tex: Node, smp: Node, uv: NodeLike): Node<'vec4<f32>'> =>
+  call('textureSample', vec4fT, tex, smp, uv) as Node<'vec4<f32>'>
+/** Screen-space derivative magnitude — GPU-only (uncomputable per-invocation
+ *  on the CPU; the interpreter stubs it to 0). */
+export const fwidth = genType1('fwidth')
 
 /** select(cond, ifTrue, ifFalse) — free-function form of Node.select. */
 export const select = <R extends string>(cond: Node<'bool'>, ifTrue: Node<R> | number, ifFalse: Node<R> | number): Node<R> => cond.select(ifTrue, ifFalse)
@@ -504,7 +534,7 @@ export function computeFn(
   }
 }
 
-export interface EntryParam { readonly name: string; readonly type: ShaderType; readonly builtin?: string }
+export interface EntryParam { readonly name: string; readonly type: ShaderType; readonly builtin?: string; readonly location?: number }
 
 /** Maps an entry's param tuple to a name→keyed-Node record, so a `@builtin`
  *  scalar param (e.g. vertex_index: u32) is `Node<'u32'>`, usable as an index. */
@@ -521,6 +551,7 @@ export function entryFn<const P extends readonly EntryParam[]>(
   params: P,
   ret: ShaderType,
   body: (b: Builder, p: EntryParamNodes<P>) => void,
+  retAttr?: string,
 ): FuncDecl {
   const paramNodes: Record<string, Node> = {}
   for (const p of params) paramNodes[p.name] = new Node({ op: 'param', type: p.type, name: p.name })
@@ -528,10 +559,11 @@ export function entryFn<const P extends readonly EntryParam[]>(
   body(b, paramNodes as EntryParamNodes<P>)
   return {
     name,
-    params: params.map((p) => ({ name: p.name, type: p.type, builtin: p.builtin })),
+    params: params.map((p) => ({ name: p.name, type: p.type, builtin: p.builtin, location: p.location })),
     ret,
     body: b.stmts,
     attrs: [`@${stage}`],
+    retAttr,
   }
 }
 

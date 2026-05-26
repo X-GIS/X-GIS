@@ -32,7 +32,7 @@ export interface CpuModule {
   setBinding(name: string, value: CpuValue): void
 }
 
-const FIELD_IDX: Record<string, number> = { x: 0, y: 1, z: 2, w: 3 }
+const FIELD_IDX: Record<string, number> = { x: 0, y: 1, z: 2, w: 3, r: 0, g: 1, b: 2, a: 3 }
 
 const isArr = Array.isArray
 
@@ -83,6 +83,13 @@ const BUILTINS: Record<string, Builtin> = {
     const q = (x: number): number => Math.round(Math.max(0, Math.min(1, x)) * 255) & 0xff
     return (q(a[0]) | (q(a[1]) << 8) | (q(a[2]) << 16) | (q(a[3]) << 24)) >>> 0
   },
+  // GPU-only stubs. textureSample needs the GPU's sampler/atlas; fwidth needs
+  // neighbouring fragments — neither is computable in this per-invocation
+  // interpreter. They exist so a shader that references them still COMPILES on
+  // the CPU side (e.g. for a vertex-only eval); a real headless renderer would
+  // replace these. No current CPU consumer evaluates a fragment that uses them.
+  textureSample: () => [0, 0, 0, 1],
+  fwidth: () => 0,
 }
 
 function applyMinMax(f: (a: number, b: number) => number, a: CpuValue, b: CpuValue): number[] {
@@ -167,7 +174,11 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
     }
     case 'member': {
       const base = evalExpr(e.base, env, ctx)
-      if (isArr(base)) return base[FIELD_IDX[e.field]] as CpuValue
+      if (isArr(base)) {
+        // Multi-char swizzle (.rgb / .xy) → a new vector; single → a scalar.
+        if (e.field.length > 1) return [...e.field].map((c) => base[FIELD_IDX[c]!] as number)
+        return base[FIELD_IDX[e.field]] as CpuValue
+      }
       return (base as Record<string, CpuValue>)[e.field]
     }
     case 'construct': {

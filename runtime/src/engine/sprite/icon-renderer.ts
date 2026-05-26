@@ -14,6 +14,7 @@
 // stage just converts viewport-px → NDC.
 
 import { SpriteAtlasGPU } from './sprite-atlas-gpu'
+import { emitIconWgsl } from '../shader-dsl/icon'
 import type { SpriteInfo } from './sprite-atlas-host'
 
 export interface IconDraw {
@@ -58,64 +59,10 @@ const VERTS_PER_QUAD = 6
 const FLOATS_PER_VERT = 9
 const FLOATS_PER_QUAD = VERTS_PER_QUAD * FLOATS_PER_VERT
 
-const ICON_SHADER_WGSL = /* wgsl */ `
-struct Uniforms { viewport: vec2<f32>, _pad0: f32, _pad1: f32 }
-
-@group(0) @binding(0) var<uniform> u: Uniforms;
-@group(0) @binding(1) var atlas_tex: texture_2d<f32>;
-@group(0) @binding(2) var atlas_smp: sampler;
-
-struct VsOut {
-  @builtin(position) clip_pos: vec4<f32>,
-  @location(0) uv: vec2<f32>,
-  @location(1) opacity: f32,
-  @location(2) tint: vec3<f32>,
-  // Flat: a quad is wholly SDF or wholly raster — no interpolation
-  // across the boundary (there is none within a quad).
-  @location(3) @interpolate(flat) sdf: f32,
-}
-
-@vertex fn vs(
-  @location(0) pos_px: vec2<f32>,
-  @location(1) uv: vec2<f32>,
-  @location(2) opacity: f32,
-  @location(3) tint: vec3<f32>,
-  @location(4) sdf: f32,
-) -> VsOut {
-  let ndc_x = (pos_px.x / u.viewport.x) * 2.0 - 1.0;
-  let ndc_y = 1.0 - (pos_px.y / u.viewport.y) * 2.0;
-  return VsOut(vec4<f32>(ndc_x, ndc_y, 0.0, 1.0), uv, opacity, tint, sdf);
-}
-
-@fragment fn fs(in: VsOut) -> @location(0) vec4<f32> {
-  let c = textureSample(atlas_tex, atlas_smp, in.uv);
-  // fwidth REQUIRES uniform control flow per WGSL spec — calling it
-  // inside a conditional (even with @interpolate(flat) on the gate
-  // varying) fails strict implementations with
-  //   "fwidth must only be called from uniform flow".
-  // Compute aa unconditionally; the raster path discards it. Cost is
-  // negligible (one fwidth + one max per fragment).
-  let d_for_aa = c.a;
-  let aa = max(fwidth(d_for_aa), 1e-4);
-  if (in.sdf > 0.5) {
-    // SDF sprite: the alpha channel holds an unsigned distance field
-    // (0.5 = glyph edge, same encoding as the text atlas). fwidth-
-    // based screen-space AA — mirror of text-renderer's fill_a so
-    // SDF icons and SDF glyphs antialias identically at any zoom.
-    // Colour comes entirely from icon-color (in.tint); the atlas
-    // texel's RGB is meaningless for SDF sprites.
-    let cov = smoothstep(0.5 - aa, 0.5 + aa, c.a);
-    return vec4<f32>(in.tint, cov * in.opacity);
-  }
-  // Raster sprite: straight texture sample. PNG is non-premultiplied;
-  // the blend state below uses src-alpha accordingly so we don't need
-  // to premultiply in the shader. Mapbox icon-opacity multiplies the
-  // source alpha — 1.0 (default) passes through, 0.0 drops the icon,
-  // partial values cross-fade. icon-color is intentionally ignored
-  // for raster sprites per the Mapbox spec.
-  return vec4<f32>(c.rgb, c.a * in.opacity);
-}
-`
+// The icon shader (px→NDC quad + SDF/raster textured fragment) is EMITTED from
+// the shader DSL: shader-dsl/icon.ts (emitIconWgsl), used at createShaderModule
+// below. SDF sprites take an fwidth-based AA path; raster sprites a straight
+// sample; the per-vertex `sdf` flag selects the path (one batch can mix both).
 
 export class IconRenderer {
   private readonly device: GPUDevice
@@ -191,7 +138,7 @@ export class IconRenderer {
       ],
     })
 
-    const module = device.createShaderModule({ code: ICON_SHADER_WGSL, label: 'icon-shader' })
+    const module = device.createShaderModule({ code: emitIconWgsl(), label: 'icon-shader' })
     this.pipeline = device.createRenderPipeline({
       label: 'icon-pipeline',
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.bgLayout] }),
