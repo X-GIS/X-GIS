@@ -37,25 +37,6 @@ const __filename = fileURLToPath(import.meta.url)
 const SNAPSHOT_DIR = join(dirname(__filename), '__polygon-variant-snapshots__')
 const BASELINE_HEADER = /^\/\/\s*baseline:\s*([a-f0-9]{40})\s*$/m
 
-function gitMergeBaseMainHead(): string | null {
-  // Resolves the latest common ancestor of `main` and the current
-  // branch. Tries the local `main` ref first; falls back to
-  // `origin/main` which is what GitHub Actions shallow checkouts
-  // typically have. Returns null when neither ref exists (test runs
-  // in a CI environment with no remote / non-standard checkout) —
-  // the drift gate then becomes "all snapshots have a consistent
-  // baseline among themselves" rather than tied to the live repo
-  // state.
-  for (const ref of ['main', 'origin/main']) {
-    try {
-      return execSync(`git merge-base ${ref} HEAD`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()
-    } catch {
-      // ref doesn't resolve; try the next
-    }
-  }
-  return null
-}
-
 describe('polygon-variant snapshot baseline gate — US-010 scaffolding', () => {
   const files = readdirSync(SNAPSHOT_DIR)
     .filter((f) => f.endsWith('.wgsl'))
@@ -101,25 +82,35 @@ describe('polygon-variant snapshot baseline gate — US-010 scaffolding', () => 
     ).toHaveLength(1)
   })
 
-  it('every snapshot baseline SHA matches git merge-base main HEAD (live drift gate)', () => {
-    const mergeBase = gitMergeBaseMainHead()
-    if (mergeBase == null) {
-      // CI checkout without main / origin-main refs — skip the live
-      // drift check. The consistency gate above still pins the
-      // intra-fixture invariant.
-      return
-    }
+  it('every snapshot baseline SHA is an ancestor of current HEAD (live drift gate)', () => {
+    // Earlier this gate required strict equality with `git merge-base main HEAD`,
+    // which forced a re-capture on every commit to main (each new commit advances
+    // merge-base past the snapshot baseline). The ancestor relaxation is the
+    // correct semantics — a snapshot baseline that's still reachable from HEAD
+    // is structurally consistent with main's history; only an ORPHANED baseline
+    // (force-push detached it) signals real drift. Re-capture remains the
+    // explicit refresh path when authors want the baseline pinned closer to
+    // tip; the gate just no longer fires on each main advance.
     const drift: { file: string; baseline: string }[] = []
     for (const file of files) {
       const content = readFileSync(join(SNAPSHOT_DIR, file), 'utf8')
       const headerMatch = content.match(BASELINE_HEADER)
       const baselineSha = headerMatch![1]!
-      if (baselineSha !== mergeBase) drift.push({ file, baseline: baselineSha })
+      let ancestor = false
+      try {
+        execSync(`git merge-base --is-ancestor ${baselineSha} HEAD`, {
+          stdio: ['ignore', 'ignore', 'ignore'],
+        })
+        ancestor = true
+      } catch {
+        ancestor = false
+      }
+      if (!ancestor) drift.push({ file, baseline: baselineSha })
     }
     expect(
       drift,
       drift.length
-        ? `Snapshot baseline drift detected — re-run \`bun scripts/capture-polygon-snapshots.ts\` and recommit __polygon-variant-snapshots__/. Drifted files:\n${drift.map((d) => `  ${d.file}: baseline=${d.baseline} (expected ${mergeBase})`).join('\n')}`
+        ? `Snapshot baseline orphaned (not an ancestor of HEAD) — re-run \`bun scripts/capture-polygon-snapshots.ts\` and recommit __polygon-variant-snapshots__/. Drifted files:\n${drift.map((d) => `  ${d.file}: baseline=${d.baseline}`).join('\n')}`
         : '',
     ).toEqual([])
   })
