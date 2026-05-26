@@ -145,6 +145,13 @@ export function generateShaderVariant(
     fillUsesPalette: fillResult.paletteGradientIdx !== undefined,
     strokeUsesPalette: strokeResult.paletteGradientIdx !== undefined,
     opacityUsesPalette: opacityResult.paletteScalarIdx !== undefined,
+    // Phase 2.5 US-002 — typed default-sentinel flags. The string compare
+    // here mirrors the runtime check the flags replace; once US-004
+    // migrates `fillExpr` to a Node value, this becomes a structural
+    // check (e.g. `fillExpr === null`) but the flag's meaning is
+    // stable: "use the cached uniform colour + skip-fill-draw fast path".
+    fillIsDefault: fillExpr === 'u.fill_color',
+    strokeIsDefault: strokeExpr === 'u.stroke_color',
   }
 }
 

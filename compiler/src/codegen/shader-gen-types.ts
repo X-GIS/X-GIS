@@ -72,6 +72,22 @@ export interface ShaderVariant {
    *  `resolveNumberShape(paintShapes.opacity, …)` CPU eval and the
    *  paired `u.opacity` writeBuffer when this is set. */
   opacityUsesPalette: boolean
+  /** Phase 2.5 US-002 — typed replacement for the runtime's legacy
+   *  `fillExpr === 'u.fill_color'` string sentinel check. The runtime
+   *  treats this flag as "the variant carries no per-feature fill
+   *  override; use the cached uniform color and the skip-fill-draw
+   *  optimization". Set true when `fillExpr` is the bare
+   *  `'u.fill_color'` placeholder (today emitted by
+   *  `node.fill.kind === 'none'`); false on every per-feature /
+   *  per-zoom / per-palette fill path that injects its own expression
+   *  into the marker substitution. The flag is the migration boundary
+   *  for the upcoming `fillExpr: string → Node<vec4<f32>>` field type
+   *  switch in US-004 — once `fillExpr` is a Node, the
+   *  `=== 'u.fill_color'` string compare on the runtime side no
+   *  longer compiles, but `!variant.fillIsDefault` keeps working. */
+  fillIsDefault: boolean
+  /** Stroke counterpart to `fillIsDefault`. */
+  strokeIsDefault: boolean
   /** P4-5 — populated by `mergeComputeAddendumIntoVariant` when the
    *  fill / stroke axis routed through a compute kernel. Each entry
    *  is `(paintAxis, bindGroup, binding)` so the runtime can detect

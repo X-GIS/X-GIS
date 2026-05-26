@@ -25,6 +25,12 @@ function makeLegacyVariant(overrides: Partial<ShaderVariant> = {}): ShaderVarian
     fillUsesPalette: false,
     strokeUsesPalette: false,
     opacityUsesPalette: false,
+    // Phase 2.5 US-002 — default-fill/stroke sentinel flags. Set to true
+    // here to mirror the legacy `fillExpr: 'u.fill_color'` placeholder.
+    // Tests that override fillExpr to a non-default value should also
+    // flip these to false via the `overrides` spread.
+    fillIsDefault: true,
+    strokeIsDefault: true,
     ...overrides,
   }
 }

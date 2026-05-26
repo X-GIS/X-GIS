@@ -102,6 +102,14 @@ export function mergeComputeAddendumIntoVariant(
     preamble,
     fillExpr: hasFill ? addendum.fillExpr! : variant.fillExpr,
     strokeExpr: hasStroke ? addendum.strokeExpr! : variant.strokeExpr,
+    // Phase 2.5 US-002 — when the compute kernel takes over the axis,
+    // the addendum produces a non-default fillExpr / strokeExpr
+    // (`bindingRefs[i]` etc.) → the default-sentinel flag must clear
+    // so the runtime skip-fill-draw fast path doesn't accidentally
+    // drop the compute-evaluated colour. When compute doesn't touch
+    // the axis, carry the source variant's flag forward unchanged.
+    fillIsDefault: hasFill ? false : variant.fillIsDefault,
+    strokeIsDefault: hasStroke ? false : variant.strokeIsDefault,
     // The legacy match() / if-else preamble is irrelevant when the
     // compute kernel evaluated the colour upstream. Drop them so the
     // emitted shader doesn't carry dead helper-var declarations.

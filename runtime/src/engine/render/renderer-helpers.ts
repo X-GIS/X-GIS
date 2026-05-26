@@ -6,7 +6,29 @@
 // surface stays byte-identical; `parseColor` is internal and imported
 // without re-export.
 
-import type { Easing } from './renderer-types'
+import type { Easing, ShaderVariantInfo } from './renderer-types'
+
+// ═══ Polygon skip-fill-draw predicate ═══
+//
+// Phase 2.5 US-002 — replaces the legacy default-uniform string compare
+// on variant.fillExpr. The runtime's skip-fill-draw fast path (vector-
+// tile-renderer.ts:_skipFillDraw, renderer.ts variant pipeline gate)
+// needs a single source-of-truth predicate so the upcoming Node-type
+// migration (US-004) doesn't accidentally regress the optimisation by
+// missing one of the four call sites.
+
+/**
+ * True when the show's shader variant produces a per-feature fill
+ * colour (data-driven match / zoom-interp / palette sample / compute
+ * binding) and therefore must run the variant pipeline regardless of
+ * `cachedFillColor.a`. False when the variant is the default
+ * `u.fill_color` placeholder OR there's no variant at all — in which
+ * case the bucket-scheduler may skip the fill draw entirely if the
+ * uniform colour also has alpha ~0.
+ */
+export function variantProducesFill(v: ShaderVariantInfo | null | undefined): boolean {
+  return !!v && !v.fillIsDefault
+}
 
 // ═══ Color parsing ═══
 

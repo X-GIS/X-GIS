@@ -82,11 +82,16 @@ function buildShader(variant?: ShaderVariantInfo | null): string {
 
   // Replace fragment color assignments (feat_data indexing is inlined in
   // expressions). The log-depth write after this assignment is untouched.
-  if (variant.fillExpr && variant.fillExpr !== 'u.fill_color') {
+  // Phase 2.5 US-002 — replaced the legacy default-uniform string
+  // compare on fillExpr with the typed `fillIsDefault` sentinel. Once
+  // US-004 migrates `fillExpr` to `Node<vec4<f32>> | null` the string
+  // compare no longer typechecks but `!variant.fillIsDefault` is
+  // stable across both the string and Node representations.
+  if (variant.fillExpr && !variant.fillIsDefault) {
     const matchCode = (variant as any).fillPreamble ? `${(variant as any).fillPreamble}  ` : ''
     shader = shader.replace(FILL_RETURN_MARKER, `${matchCode}out.color = ${variant.fillExpr};`)
   }
-  if (variant.strokeExpr && variant.strokeExpr !== 'u.stroke_color') {
+  if (variant.strokeExpr && !variant.strokeIsDefault) {
     const matchCode = (variant as any).strokePreamble ? `${(variant as any).strokePreamble}  ` : ''
     shader = shader.replace(STROKE_RETURN_MARKER, `${matchCode}out.color = ${variant.strokeExpr};`)
   }
@@ -1213,7 +1218,9 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
     let layerFillPipeline: GPURenderPipeline | null = null
     let layerLinePipeline: GPURenderPipeline | null = null
 
-    if (variant && (variant.preamble || variant.needsFeatureBuffer || variant.fillExpr !== 'u.fill_color')) {
+    // Phase 2.5 US-002 — fillIsDefault replaces the legacy string compare;
+    // see buildShader() above for the migration rationale.
+    if (variant && (variant.preamble || variant.needsFeatureBuffer || !variant.fillIsDefault)) {
       const cached = this.shaderCache.get(variant.key)
       if (cached) {
         layerFillPipeline = cached.fillPipeline
