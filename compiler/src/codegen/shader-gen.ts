@@ -401,10 +401,24 @@ function processColorValue(
       if (lowColor && highColor) {
         const [lr, lg, lb, la] = lowColor
         const [hr, hg, hb, ha] = highColor
+        // Phase 2.5 US-005 idiom — scale() emits the same WGSL shape
+        // as gradient() (mix between two literal vec4 endpoints).
+        // Reuses the same Node composition path.
+        const valNode = simpleScalarNode(ast.args[0], fieldMap)
+        const minNode = simpleScalarNode(ast.args[1], fieldMap)
+        const maxNode = simpleScalarNode(ast.args[2], fieldMap)
+        const nodeExpr = (valNode && minNode && maxNode)
+          ? mix4(
+              vec4fFromRgba(lowColor),
+              vec4fFromRgba(highColor),
+              clampF32(f32Div(f32Sub(valNode, minNode), f32Sub(maxNode, minNode)), f32Lit(0), f32Lit(1)),
+            )
+          : undefined
         return {
           preamble: [],
           isConst: false, needsFeatures: true, isVec4: true,
           expr: `mix(vec4f(${fmt(lr)}, ${fmt(lg)}, ${fmt(lb)}, ${fmt(la)}), vec4f(${fmt(hr)}, ${fmt(hg)}, ${fmt(hb)}, ${fmt(ha)}), clamp((${valExpr} - ${minExpr}) / (${maxExpr} - ${minExpr}), 0.0, 1.0))`,
+          nodeExpr,
         }
       }
     }
