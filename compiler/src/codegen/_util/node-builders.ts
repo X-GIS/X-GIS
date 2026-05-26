@@ -80,24 +80,29 @@ export function vec4fFromRgba(rgba: readonly [number, number, number, number]): 
   return vec4f(f32Lit(rgba[0]), f32Lit(rgba[1]), f32Lit(rgba[2]), f32Lit(rgba[3]))
 }
 
+/** Reference to a uniform / storage binding scalar (`u.opacity`,
+ *  `OPACITY` after a preamble const decl, etc.). The dotted name
+ *  passes through verbatim as a varref. */
+export function refF32(name: string): NodeLike<'f32'> {
+  return { expr: { op: 'varref', type: F32_T, name } } as NodeLike<'f32'>
+}
+
 // ── Compositions ──
 
 /** vec4(color.rgb, color.a * opacity) — the buildFillExpr composition
- *  target. */
+ *  target. WGSL accepts `vec4<f32>(vec3<f32>, f32)` directly, so the
+ *  emitted form is byte-identical to the legacy string-emit shape
+ *  the snapshot baselines were captured against. */
 export function composeFillVec4(color: NodeLike<'vec4<f32>'>, opacity: NodeLike<'f32'>): NodeLike<'vec4<f32>'> {
-  const rgb = { op: 'member', type: { kind: 'vec', n: 3, elem: 'f32' }, base: color.expr, field: 'rgb' } as const
+  const VEC3F_T = { kind: 'vec', n: 3, elem: 'f32' } as const
+  const rgb = { op: 'member', type: VEC3F_T, base: color.expr, field: 'rgb' } as const
   const aChan = { op: 'member', type: F32_T, base: color.expr, field: 'a' } as const
   const mulA = { op: 'binop', type: F32_T, bop: '*', a: aChan, b: opacity.expr } as const
   return {
     expr: {
       op: 'construct',
       type: VEC4F_T,
-      args: [
-        { op: 'member', type: F32_T, base: rgb, field: 'x' },
-        { op: 'member', type: F32_T, base: rgb, field: 'y' },
-        { op: 'member', type: F32_T, base: rgb, field: 'z' },
-        mulA,
-      ],
+      args: [rgb, mulA],
     },
   } as NodeLike<'vec4<f32>'>
 }

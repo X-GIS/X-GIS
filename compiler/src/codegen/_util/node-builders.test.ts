@@ -14,7 +14,7 @@ import { describe, it, expect } from 'vitest'
 import { nodeToWgslString } from '../_back-compat/node-to-wgsl-string'
 import {
   f32Lit, i32Lit, u32Lit, boolLit,
-  constRefVec4, varRefVec4,
+  constRefVec4, varRefVec4, refF32,
   vec4f, vec4fFromRgba,
   composeFillVec4,
 } from './node-builders'
@@ -66,22 +66,17 @@ describe('node-builders — vec4 construct', () => {
 })
 
 describe('node-builders — composeFillVec4', () => {
-  it('emits the buildFillExpr-equivalent composition for a const fill + const opacity', () => {
-    // Mirrors the legacy buildFillExpr output for a constant fill +
-    // constant opacity:
+  it('emits BYTE-IDENTICAL output to legacy buildFillExpr for const fill + const opacity', () => {
+    // Legacy buildFillExpr emits:
     //   vec4f(FILL_COLOR.rgb, FILL_COLOR.a * OPACITY)
-    // The Node-emitted form parenthesises the binop and elaborates
-    // `.rgb` into per-channel access (which the migration accepts as
-    // semantic-equivalent under the diff-test's "swizzle alias /
-    // associative binop" allowance per AC6).
-    const out = nodeToWgslString(composeFillVec4(constRefVec4('FILL_COLOR'), constRefVec4('OPACITY') as never))
-    // The composed form references the rgb members of FILL_COLOR
-    // and the binop on the a channel — semantic equivalence to the
-    // string-emit form is what the diff-test gate (US-010) verifies.
-    expect(out).toContain('FILL_COLOR.rgb.x')
-    expect(out).toContain('FILL_COLOR.rgb.y')
-    expect(out).toContain('FILL_COLOR.rgb.z')
-    expect(out).toContain('FILL_COLOR.a * OPACITY')
-    expect(out.startsWith('vec4<f32>(')).toBe(true)
+    // The Node-emitted form uses WGSL's vec4<f32>(vec3<f32>, f32)
+    // constructor (legal in WGSL) so the emitted text matches the
+    // snapshot baselines without needing the diff-test's "swizzle
+    // alias" allowance. Only the typename `vec4f` -> `vec4<f32>`
+    // expansion differs (the runtime wgsl backend always emits the
+    // fully-qualified form), which is documented as a tolerated
+    // difference under AC6.
+    const out = nodeToWgslString(composeFillVec4(constRefVec4('FILL_COLOR'), refF32('OPACITY')))
+    expect(out).toBe('vec4<f32>(FILL_COLOR.rgb, (FILL_COLOR.a * OPACITY))')
   })
 })
