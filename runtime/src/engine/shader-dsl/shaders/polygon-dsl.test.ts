@@ -49,6 +49,20 @@ describe('emitPolygonWgsl — skeleton', () => {
     expect(wgsl).toContain('@fragment')
   })
 
+  it('emits vs_main_quantized_extruded vertex entry with iter-194 per-vertex lighting', () => {
+    const wgsl = emitPolygonWgsl(null, false)
+    expect(wgsl).toContain('fn vs_main_quantized_extruded')
+    // z_attr packs (z, normal.xyz) into a single vec4 attribute at location 3.
+    expect(wgsl).toMatch(/@location\(3\)[^,]+z_attr\s*:\s*vec4<f32>/)
+    // MapLibre default light constants must round-trip to WGSL.
+    expect(wgsl).toContain('0.288')
+    expect(wgsl).toContain('-0.498')
+    // Luminance-weight rec.709 constants from MapLibre's source.
+    expect(wgsl).toContain('0.2126')
+    expect(wgsl).toContain('0.7152')
+    expect(wgsl).toContain('0.0722')
+  })
+
   it('emits vs_main_quantized vertex entry with unorm16-packed pos_raw attribute', () => {
     const wgsl = emitPolygonWgsl(null, false)
     expect(wgsl).toContain('fn vs_main_quantized')

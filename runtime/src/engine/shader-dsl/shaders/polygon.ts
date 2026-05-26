@@ -22,7 +22,8 @@
 
 import {
   entryFn, fn, module, bindingRef, constRef, callFn,
-  f32, u32, vec2, vec4, toF32, toU32, transformMat4, clamp, select,
+  f32, u32, vec2, vec3, vec4, toF32, toU32, transformMat4, clamp, select,
+  abs, max, mix, sqrt, dot,
   f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   structT,
   Node,
@@ -357,6 +358,143 @@ const vsMainQuantized = entryFn(
   },
 )
 
+// vs_main_quantized_extruded — iter-194 MapLibre-equivalent fill-extrusion
+// vertex with per-vertex face-normal directional lighting + vertical
+// gradient. The mesh-gen upload pipes per-vertex (z, normal.xyz) as a
+// vec4 attribute (location 3); the entry unpacks it, runs the same
+// projection chain as vs_main_quantized, then emits a PRE-SHADED color
+// into v_color. The non-premultiplied output flows through X-GIS's
+// BLEND_ALPHA which composites identically to MapLibre's pre-multiplied
+// BLEND_ALPHA_PREMULT path (proof: final = src.rgb*src.a + dst*(1-src.a)
+// reduces to the same expression both ways).
+
+const vsMainQuantizedExtruded = entryFn(
+  'vs_main_quantized_extruded', 'vertex',
+  [
+    { name: 'pos_raw', type: vec2uT, location: 0 },
+    { name: 'feature_id', type: f32T, location: 2 },
+    // iter-194 — .x = z (extrude height in metres), .yzw = outward unit normal.
+    { name: 'z_attr', type: vec4fT, location: 3 },
+  ],
+  structT('VertexOutput'),
+  (b, p) => {
+    const camH = u.field('cam_h', vec2fT)
+    const camL = u.field('cam_l', vec2fT)
+    const tileOrigin = u.field('tile_origin_merc', vec2fT)
+    const tileExtent = u.field('tile_extent_m', f32T)
+    const projParams = u.field('proj_params', vec4fT)
+    const mvp = u.field('mvp', mat4x4fT)
+    const logDepthFc = u.field('log_depth_fc', f32T)
+    const layerDepthOff = u.field('layer_depth_offset', f32T)
+    const fillTx = u.field('fill_translate_x', f32T)
+    const fillTy = u.field('fill_translate_y', f32T)
+    const fillColor = u.field('fill_color', vec4fT)
+    const deg2rad = constRef('DEG2RAD')
+    const earthR = constRef('EARTH_R')
+    const mercLatLim = constRef('MERCATOR_LAT_LIMIT')
+
+    // Unpack quantized position (no is_top in this path — the z source is
+    // the per-feature z_attr.x).
+    const mxQ = b.let('mx_q', toF32(p.pos_raw.x.bitAnd(u32(0x7FFF))))
+    const myQ = b.let('my_q', toF32(p.pos_raw.y))
+    const local = b.let('local', vec2(mxQ, myQ).div(f32(32767)).mul(tileExtent))
+    const camLocal = b.let('cam_local', camH.add(camL))
+    const rel = b.let('rel', local.sub(camLocal))
+
+    const absMercX = b.let('abs_merc_x', local.x.add(tileOrigin.x))
+    const absMercY = b.let('abs_merc_y', local.y.add(tileOrigin.y))
+    const absLon = b.let('abs_lon', absMercX.div(deg2rad.mul(earthR)))
+    const latRad = b.let('lat_rad', callFn('inv_merc_lat_rad', f32T, absMercY))
+    const absLat = b.let('abs_lat', latRad.div(deg2rad))
+    const absLatClamped = b.let('abs_lat_clamped', clamp(absLat, mercLatLim.neg(), mercLatLim))
+
+    const t = b.let('t', projParams.x)
+    const rtc = b.var('rtc', vec2fT)
+    b.if(t.lt(0.5), (c) => {
+      c.assign(rtc, rel)
+    }).else((c) => {
+      const tileRefLon = c.let('tile_ref_lon',
+        tileOrigin.x.add(f32(0.5).mul(tileExtent)).div(deg2rad.mul(earthR)),
+      )
+      const projXy = c.let('proj_xy', callFn('project_geom', vec2fT, absLon, absLat, projParams, tileRefLon))
+      const centerXy = c.let('center_xy', callFn('project', vec2fT, projParams.y, projParams.z, projParams))
+      c.assign(rtc, projXy.sub(centerXy))
+    })
+    const globeRtc = b.let('globe_rtc',
+      callFn('proj_globe', vec3fT, absLon, absLat).sub(callFn('proj_globe', vec3fT, projParams.y, projParams.z)),
+    )
+
+    // iter-194 — unpack z + normal from the vec4 attribute.
+    const zWorld = b.let('z_world', p.z_attr.x)
+    const normal = b.let('normal', p.z_attr.swizzle('yzw') as Node<'vec3<f32>'>)
+
+    const out = b.var('out', structT('VertexOutput'))
+    const clip = b.var('clip', vec4fT, select(
+      t.gt(6.5),
+      transformMat4(mvp, vec4(globeRtc, f32(1))),
+      transformMat4(mvp, vec4(rtc, zWorld, f32(1))),
+    ))
+    b.assign(clip.x, clip.x.add(fillTx.mul(clip.w)))
+    b.assign(clip.y, clip.y.sub(fillTy.mul(clip.w)))
+    b.assign(out.field('position', vec4fT), callFn('apply_log_depth', vec4fT, clip, logDepthFc))
+    b.assign(out.field('position', vec4fT).z, out.field('position', vec4fT).z.sub(layerDepthOff.mul(out.field('position', vec4fT).w)))
+    b.assign(out.field('view_w', f32T), clip.w)
+    b.assign(out.field('cos_c', f32T), f32(0))
+    b.assign(out.field('feat_id', u32T), toU32(p.feature_id))
+    b.assign(out.field('abs_lat', f32T), absLatClamped)
+    b.assign(out.field('wall_blend', f32T), select(zWorld.gt(f32(0)), f32(1), f32(0)))
+    b.assign(out.field('abs_merc_x', f32T), absMercX)
+    b.assign(out.field('abs_merc_y', f32T), absMercY)
+    b.assign(out.field('world_z', f32T), zWorld)
+
+    // iter-194 — MapLibre-equivalent face-normal directional lighting.
+    // Direct port of fill_extrusion.vertex.glsl, with the default light
+    // style: position [1.15, 210°, 30°] → cartesian (0.288, -0.498, 0.996);
+    // intensity 0.5; color (1,1,1); vertical-gradient = 1.0.
+    const colorRgb = b.let('color_rgb', fillColor.rgb)
+    const opacity = b.let('opacity', fillColor.a)
+    // Luminance weights (Rec. 709). Per-component access is cleaner than a
+    // dot(rgb, vec3(0.2126,0.7152,0.0722)) because the literal then needs a
+    // vec3 construct; the explicit chain matches MapLibre's source.
+    const colorValue = b.let('colorvalue',
+      colorRgb.r.mul(0.2126).add(colorRgb.g.mul(0.7152)).add(colorRgb.b.mul(0.0722)),
+    )
+    const ambient = b.let('ambient', vec3(f32(0.03)))
+    const litColorRgb = b.let('lit_color_rgb', colorRgb.add(ambient))
+    const lightPos = b.let('LIGHT_POS', vec3(f32(0.288), f32(-0.498), f32(0.996)))
+    const lightIntensity = b.let('LIGHT_INTENSITY', f32(0.5))
+    const lightColor = b.let('LIGHT_COLOR', vec3(f32(1)))
+    const directional = b.var('directional', f32T, clamp(dot(normal, lightPos), f32(0), f32(1)))
+    b.assign(directional, mix(
+      f32(1).sub(lightIntensity),
+      max(f32(1).sub(colorValue).add(lightIntensity), f32(1)),
+      directional,
+    ))
+    // Vertical gradient — walls only (|nz| < 0.5). t = is-top boolean.
+    const isWall = b.let('is_wall', abs(normal.z).lt(0.5))
+    const tTop = b.let('t_top', select(zWorld.gt(f32(0)), f32(1), f32(0)))
+    b.if(isWall, (c) => {
+      // (t_top + base) * sqrt(height/150). For the bottom vertex we
+      // approximate height by max(z_world, 1) so the gradient still
+      // computes a sensible value for the bottom lip.
+      const hForGrad = c.let('h_for_grad', max(zWorld, f32(1)))
+      const vgrad = c.let('vgrad', clamp(
+        tTop.mul(sqrt(hForGrad.div(f32(150)))),
+        mix(f32(0.7), f32(0.98), f32(1).sub(lightIntensity)),
+        f32(1),
+      ))
+      c.assign(directional, directional.mul(vgrad))
+    })
+    const shadedRgb = b.let('shaded_rgb',
+      clamp(litColorRgb.mul(directional).mul(lightColor), vec3(f32(0)), vec3(f32(1))),
+    )
+    // Non-premultiplied output — see entry header for the X-GIS BLEND_ALPHA
+    // vs MapLibre BLEND_ALPHA_PREMULT equivalence proof.
+    b.assign(out.field('v_color', vec4fT), vec4(shadedRgb, opacity))
+    b.ret(out)
+  },
+)
+
 // ── Fragment entries ──
 //
 // fs_overdraw — debug=overdraw single constant-output entry shared by every
@@ -445,10 +583,11 @@ const buildPolygonModule = (
       polygonRimAlpha,
       vsMain,
       vsMainQuantized,
+      vsMainQuantizedExtruded,
       fsOverdraw,
-      // The remaining vs_main_quantized_extruded + 5 main fragment entries
-      // (fs_fill / fs_fill_pattern / fs_oit_translucent / fs_fill_extrude /
-      // fs_stroke) land in subsequent iters.
+      // The remaining 5 main fragment entries (fs_fill / fs_fill_pattern /
+      // fs_oit_translucent / fs_fill_extrude / fs_stroke) land in subsequent
+      // iters.
     ],
   })
   if (variant === null) return base
