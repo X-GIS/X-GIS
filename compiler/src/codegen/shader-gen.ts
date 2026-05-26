@@ -16,6 +16,8 @@ import {
 } from './palette-emit'
 import type { ShaderVariant, ColorResult, OpacityResult } from './shader-gen-types'
 import { wgslRaw } from './_back-compat/node-to-wgsl-string'
+import type { NodeLike } from './_back-compat/node-to-wgsl-string'
+import { composeFillVec4, constRefVec4, refF32 } from './_util/node-builders'
 import {
   buildFieldMap,
   matchArmsKey,
@@ -93,13 +95,26 @@ export function generateShaderVariant(
   // Phase 2.5 US-004 — fillExpr / strokeExpr are now Node-typed
   // (NodeLike<'vec4<f32>'> | null). The default-uniform shortcut
   // becomes a literal `null` paired with `fillIsDefault: true` below;
-  // the runtime checks the flag, NOT the field's contents. Non-default
-  // expression assembly stays string-based here and is wrapped via
-  // `wgslRaw` until US-005's per-idiom Node conversion lands.
+  // the runtime checks the flag, NOT the field's contents.
+  //
+  // US-005 idiom #1 (constant-fill + constant-opacity) — when the
+  // fillResult is the FILL_COLOR const path AND opacityResult is the
+  // OPACITY const path, build fillExpr via real DSL Node composition
+  // (composeFillVec4(constRefVec4('FILL_COLOR'), refF32('OPACITY'))).
+  // Every other arm stays on the legacy wgslRaw() string path until
+  // US-005's per-idiom commits land them too. Both paths produce
+  // semantic-equivalent WGSL at the marker substitution site;
+  // pixel-survey is the integration gate.
   const fillExprStr = node.fill.kind === 'none' ? 'u.fill_color' : buildFillExpr(fillResult, opacityResult)
   const strokeExprStr = buildStrokeExpr(strokeResult, opacityResult)
-  const fillExpr = node.fill.kind === 'none' ? null : wgslRaw<'vec4<f32>'>(fillExprStr)
-  const strokeExpr = strokeExprStr === 'u.stroke_color' ? null : wgslRaw<'vec4<f32>'>(strokeExprStr)
+  const fillExprNode = tryComposeConstFillNode(node.fill, fillResult, opacityResult)
+  const strokeExprNode = tryComposeConstStrokeNode(node.stroke.color, strokeResult, opacityResult)
+  const fillExpr: NodeLike<'vec4<f32>'> | null =
+    node.fill.kind === 'none' ? null
+      : (fillExprNode ?? wgslRaw<'vec4<f32>'>(fillExprStr))
+  const strokeExpr: NodeLike<'vec4<f32>'> | null =
+    strokeExprStr === 'u.stroke_color' ? null
+      : (strokeExprNode ?? wgslRaw<'vec4<f32>'>(strokeExprStr))
 
   // ── Cache key ──
   const featureFields = [...allFeatureFields].sort()
@@ -435,6 +450,32 @@ function processOpacity(
 }
 
 // ═══ Expression builders ═══
+
+// Phase 2.5 US-005 idiom #1 — recognise the constant-fill +
+// constant-opacity path and return a real DSL Node value. Returns
+// null when the path is anything else, so the caller falls back to
+// the legacy wgslRaw(string) wrap.
+function tryComposeConstFillNode(
+  fillValue: import('../ir/render-node').ColorValue,
+  color: ColorResult,
+  opacity: OpacityResult,
+): NodeLike<'vec4<f32>'> | null {
+  if (fillValue.kind !== 'constant') return null
+  if (color.expr !== 'FILL_COLOR') return null
+  if (opacity.expr !== 'OPACITY') return null
+  return composeFillVec4(constRefVec4('FILL_COLOR'), refF32('OPACITY'))
+}
+
+function tryComposeConstStrokeNode(
+  strokeValue: import('../ir/render-node').ColorValue,
+  color: ColorResult,
+  opacity: OpacityResult,
+): NodeLike<'vec4<f32>'> | null {
+  if (strokeValue.kind !== 'constant') return null
+  if (color.expr !== 'STROKE_COLOR') return null
+  if (opacity.expr !== 'OPACITY') return null
+  return composeFillVec4(constRefVec4('STROKE_COLOR'), refF32('OPACITY'))
+}
 
 function buildFillExpr(color: ColorResult, opacity: OpacityResult): string {
   if (color.isVec4) {
