@@ -51,6 +51,10 @@ function emitExpr(e: Expr): string {
     // WGSL select(falseVal, trueVal, cond)
     case 'select': return `select(${emitExpr(e.ifFalse)}, ${emitExpr(e.ifTrue)}, ${emitExpr(e.cond)})`
     case 'index': return `${emitExpr(e.base)}[${emitExpr(e.idx)}]`
+    // matchExpr is consumed by the pre-emit pass (wgsl-lower.ts) before
+    // emitModule reaches emitExpr. If one leaks through, the pre-emit
+    // pass was bypassed — fail loudly rather than emit garbage WGSL.
+    case 'matchExpr': throw new Error('shader-dsl/wgsl: matchExpr Expr leaked into emitExpr — lowerModule should have hoisted it')
   }
 }
 
@@ -157,11 +161,19 @@ export function emitFunc(f: FuncDecl): string {
   return `${attrs}fn ${f.name}(${params})${ret} {\n${emitBody(f.body, 1)}\n}`
 }
 
+// matchExpr lowering pre-emit pass (Phase 2.5 US-001).
+// Kept as a side-import so emitModule's body stays compact.
+import { lowerModule } from './wgsl-lower'
+
 export function emitModule(m: ModuleDecl): string {
+  // Phase 2.5 US-001: run the matchExpr→{var slot, Stmt.switch} lowering
+  // pass first so the rest of the emitter stays matchExpr-unaware. The
+  // pass is an identity for any module that contains no matchExpr.
+  const lowered = lowerModule(m)
   const parts: string[] = []
-  if (m.consts.length) parts.push(m.consts.map(emitConst).join('\n'))
-  if (m.structs.length) parts.push(m.structs.map(emitStruct).join('\n\n'))
-  if (m.bindings.length) parts.push(m.bindings.map(emitBinding).join('\n'))
-  if (m.funcs.length) parts.push(m.funcs.map(emitFunc).join('\n\n'))
+  if (lowered.consts.length) parts.push(lowered.consts.map(emitConst).join('\n'))
+  if (lowered.structs.length) parts.push(lowered.structs.map(emitStruct).join('\n\n'))
+  if (lowered.bindings.length) parts.push(lowered.bindings.map(emitBinding).join('\n'))
+  if (lowered.funcs.length) parts.push(lowered.funcs.map(emitFunc).join('\n\n'))
   return parts.join('\n\n') + '\n'
 }

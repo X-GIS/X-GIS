@@ -210,6 +210,14 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       const base = evalExpr(e.base, env, ctx) as CpuValue[]
       return base[evalExpr(e.idx, env, ctx) as number]
     }
+    case 'matchExpr': {
+      // CPU semantics mirror the WGSL pre-emit lowering: evaluate the
+      // scrutinee, find the matching case (by ===), return its value.
+      // No fall-through. Default fires when no case matches.
+      const sv = evalExpr(e.scrutinee, env, ctx) as number
+      const hit = e.cases.find(([v]) => v === sv)
+      return evalExpr(hit ? hit[1] : e.default, env, ctx)
+    }
   }
 }
 
