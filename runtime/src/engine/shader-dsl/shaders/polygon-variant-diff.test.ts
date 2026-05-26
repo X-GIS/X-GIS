@@ -96,14 +96,29 @@ describe('polygon-variant snapshot baseline gate — US-010 scaffolding', () => 
       const content = readFileSync(join(SNAPSHOT_DIR, file), 'utf8')
       const headerMatch = content.match(BASELINE_HEADER)
       const baselineSha = headerMatch![1]!
-      let ancestor = false
+      let ancestor = true
       try {
-        execSync(`git merge-base --is-ancestor ${baselineSha} HEAD`, {
+        // First confirm the baseline SHA is even reachable in this
+        // checkout. CI (actions/checkout@v4, fetch-depth=1 default)
+        // only sees HEAD's commit; historical baselines aren't testable
+        // there. We treat unreachable-SHA as `ancestor=true` so the
+        // local-dev (full clone) drift check still fires, but the CI
+        // shallow checkout doesn't false-positive on every commit.
+        execSync(`git cat-file -e ${baselineSha}^{commit}`, {
           stdio: ['ignore', 'ignore', 'ignore'],
         })
-        ancestor = true
+        // SHA exists — ancestry check is meaningful.
+        try {
+          execSync(`git merge-base --is-ancestor ${baselineSha} HEAD`, {
+            stdio: ['ignore', 'ignore', 'ignore'],
+          })
+          ancestor = true
+        } catch {
+          ancestor = false
+        }
       } catch {
-        ancestor = false
+        // SHA not reachable in this checkout (shallow CI). Skip.
+        ancestor = true
       }
       if (!ancestor) drift.push({ file, baseline: baselineSha })
     }
