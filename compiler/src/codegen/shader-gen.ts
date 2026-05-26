@@ -11,6 +11,7 @@ import {
   emitColorGradientSample,
   emitColorGradientSampleNode,
   emitScalarGradientSample,
+  emitScalarGradientSampleNode,
   emitScalarSampleHelper,
   emitPaletteBindings,
   type ScalarPaletteMode,
@@ -531,6 +532,9 @@ function processOpacity(
         // the helper definition is appended once per variant by
         // generateShaderVariant.
         expr: emitScalarGradientSample(palette, idx),
+        // Phase 2.5 US-005 — Node parallel emission for the scalar
+        // palette sample (opacity zoom-interp w/ palette path).
+        nodeExpr: emitScalarGradientSampleNode(palette, idx) ?? undefined,
         paletteScalarIdx: idx,
       }
     }

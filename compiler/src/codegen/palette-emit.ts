@@ -305,6 +305,34 @@ export function emitScalarGradientSample(
   return `xgis_scalar_sample(${gradientIndex}u, ${zoomExpr}, ${fmtF(zMin)}, ${fmtF(zMax)})`
 }
 
+/** Phase 2.5 US-005 — Node parallel of emitScalarGradientSample.
+ *  Returns the xgis_scalar_sample(...) f32 Node so processOpacity's
+ *  zoom-interp + palette branch can set OpacityResult.nodeExpr. */
+export function emitScalarGradientSampleNode(
+  palette: Palette,
+  gradientIndex: number,
+  zoomVarrefName: string = 'u.zoom',
+): NodeLike<'f32'> | null {
+  const g = palette.scalarGradients[gradientIndex]
+  if (!g) return null
+  const stops = g.stops
+  const zMin = stops[0]!.zoom
+  const zMax = stops[stops.length - 1]!.zoom
+  return {
+    expr: {
+      op: 'call',
+      type: { kind: 'scalar', scalar: 'f32' },
+      fn: 'xgis_scalar_sample',
+      args: [
+        { op: 'lit', type: { kind: 'scalar', scalar: 'u32' }, value: gradientIndex },
+        refF32(zoomVarrefName).expr,
+        { op: 'lit', type: { kind: 'scalar', scalar: 'f32' }, value: zMin },
+        { op: 'lit', type: { kind: 'scalar', scalar: 'f32' }, value: zMax },
+      ],
+    },
+  } as NodeLike<'f32'>
+}
+
 /** Format an f32 literal the same way shader-gen.ts does — trims
  *  trailing zeros, keeps decimal point. Local copy to avoid a
  *  circular import. */
