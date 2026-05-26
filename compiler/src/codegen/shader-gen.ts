@@ -107,8 +107,8 @@ export function generateShaderVariant(
   // pixel-survey is the integration gate.
   const fillExprStr = node.fill.kind === 'none' ? 'u.fill_color' : buildFillExpr(fillResult, opacityResult)
   const strokeExprStr = buildStrokeExpr(strokeResult, opacityResult)
-  const fillExprNode = tryComposeConstFillNode(node.fill, fillResult, opacityResult)
-  const strokeExprNode = tryComposeConstStrokeNode(node.stroke.color, strokeResult, opacityResult)
+  const fillExprNode = tryComposeFillNodeFromVarrefs(fillResult, opacityResult)
+  const strokeExprNode = tryComposeFillNodeFromVarrefs(strokeResult, opacityResult)
   const fillExpr: NodeLike<'vec4<f32>'> | null =
     node.fill.kind === 'none' ? null
       : (fillExprNode ?? wgslRaw<'vec4<f32>'>(fillExprStr))
@@ -451,30 +451,41 @@ function processOpacity(
 
 // ═══ Expression builders ═══
 
-// Phase 2.5 US-005 idiom #1 — recognise the constant-fill +
-// constant-opacity path and return a real DSL Node value. Returns
-// null when the path is anything else, so the caller falls back to
-// the legacy wgslRaw(string) wrap.
-function tryComposeConstFillNode(
-  fillValue: import('../ir/render-node').ColorValue,
-  color: ColorResult,
-  opacity: OpacityResult,
-): NodeLike<'vec4<f32>'> | null {
-  if (fillValue.kind !== 'constant') return null
-  if (color.expr !== 'FILL_COLOR') return null
-  if (opacity.expr !== 'OPACITY') return null
-  return composeFillVec4(constRefVec4('FILL_COLOR'), refF32('OPACITY'))
-}
+// Phase 2.5 US-005 idiom #1+#2 — recognise paths whose ColorResult.expr
+// and OpacityResult.expr are PURE VARREFS (single identifier optionally
+// dotted, e.g. `FILL_COLOR`, `u.fill_color`, `OPACITY`, `u.opacity`).
+// In those cases the legacy `vec4f(<color>.rgb, <color>.a * <opacity>)`
+// composition is structurally equivalent to a real DSL
+// `composeFillVec4(varref(color), varref(opacity))` Node, so the
+// migration produces the same WGSL at the marker substitution site
+// with no per-arm logic change.
+//
+// Covers: constant fill / stroke (FILL_COLOR / STROKE_COLOR), time-
+// interpolated (u.fill_color / u.stroke_color), and the legacy
+// fallback path that returns `u.<prefix>_color` (line 362).
+// Any path whose expr embeds arithmetic / function calls / member
+// accesses beyond a single dotted name falls back to wgslRaw.
 
-function tryComposeConstStrokeNode(
-  strokeValue: import('../ir/render-node').ColorValue,
+// Single dotted-identifier check: `name` or `obj.field`. Rejects WGSL
+// expression text (`vec4f(...)`, `unpack4x8unorm(...)`, `mix(a, b, t)`,
+// data-driven binop strings, etc.).
+const PURE_VARREF_RE = /^[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*$/
+
+function tryComposeFillNodeFromVarrefs(
   color: ColorResult,
   opacity: OpacityResult,
 ): NodeLike<'vec4<f32>'> | null {
-  if (strokeValue.kind !== 'constant') return null
-  if (color.expr !== 'STROKE_COLOR') return null
-  if (opacity.expr !== 'OPACITY') return null
-  return composeFillVec4(constRefVec4('STROKE_COLOR'), refF32('OPACITY'))
+  if (!color.isVec4) return null
+  if (!PURE_VARREF_RE.test(color.expr)) return null
+  if (!PURE_VARREF_RE.test(opacity.expr)) return null
+  // Color is always a vec4 here (isVec4=true guard); opacity is f32.
+  // refF32 emits varref to either `OPACITY` (const decl) or `u.opacity`
+  // (uniform field) — both pass the PURE_VARREF_RE check.
+  // For the color varref, the name might be either `FILL_COLOR` (const
+  // decl) or `u.fill_color` (uniform field). constRefVec4 emits a
+  // `constref` op while the runtime treats it as a varref — same emit
+  // shape, so the WGSL output matches the legacy `<name>` text either way.
+  return composeFillVec4(constRefVec4(color.expr), refF32(opacity.expr))
 }
 
 function buildFillExpr(color: ColorResult, opacity: OpacityResult): string {
