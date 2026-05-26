@@ -43,6 +43,7 @@ export {
 // markers live in renderer-shaders.ts and remain there only for the US-000
 // snapshot capture script's baseline emit — no runtime path uses them.
 import { emitPolygonWgsl } from '../shader-dsl/shaders/polygon'
+import { emitOverdrawComposeWgsl } from '../shader-dsl/shaders/overdraw-compose'
 import { Node } from '../shader-dsl/core/ir'
 // nodeToWgslString is the compiler-side copy of the runtime
 // wgsl.ts:emitExpr — used for the variant-bearing path's splice-point
@@ -584,52 +585,11 @@ export class MapRenderer {
   ensureOverdrawCompose(): GPURenderPipeline {
     if (this.overdrawComposePipeline) return this.overdrawComposePipeline
     const { device, format } = this.ctx
-    const code = /* wgsl */ `
-struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> }
-
-@vertex
-fn vs_full(@builtin(vertex_index) idx: u32) -> VsOut {
-  // Oversized triangle covering NDC — same trick as oit-compose.
-  var pos: vec2<f32>;
-  if (idx == 0u)      { pos = vec2<f32>(-1.0, -1.0); }
-  else if (idx == 1u) { pos = vec2<f32>( 3.0, -1.0); }
-  else                { pos = vec2<f32>(-1.0,  3.0); }
-  var out: VsOut;
-  out.pos = vec4<f32>(pos, 0.0, 1.0);
-  // y-flip — texture origin top-left, NDC origin bottom-left.
-  out.uv = vec2<f32>((pos.x + 1.0) * 0.5, 1.0 - (pos.y + 1.0) * 0.5);
-  return out;
-}
-
-@group(0) @binding(0) var accum_tex: texture_2d<f32>;
-
-// Heat colormap — black → blue → green → yellow → red → white. Tuned
-// so 1-2 overdraws are visibly cool, 8 mid-warm, 16+ saturated red.
-fn colormap(t: f32) -> vec3<f32> {
-  let s = clamp(t, 0.0, 1.0);
-  // 4-stop piecewise: dark navy (0, 0.05, 0.2) → cyan (0, 0.6, 0.6) →
-  // yellow (1, 1, 0) → red (1, 0.2, 0). Polynomial fit, no branching.
-  let r = clamp(s * 3.0 - 0.5, 0.0, 1.0);
-  let g = clamp(s * 2.5, 0.0, 1.0) * clamp(2.0 - s * 2.0, 0.0, 1.0);
-  let b = clamp(0.6 - s * 1.5, 0.0, 1.0);
-  return vec3<f32>(r, g, b);
-}
-
-@fragment
-fn fs_compose(in: VsOut) -> @location(0) vec4<f32> {
-  let dim = vec2<f32>(textureDimensions(accum_tex));
-  let uv = vec2<i32>(in.uv * dim);
-  let count = textureLoad(accum_tex, uv, 0).r;
-  if (count < 0.5) {
-    // No fragments → empty pixel, leave dark to distinguish from "1 draw".
-    return vec4<f32>(0.02, 0.02, 0.04, 1.0);
-  }
-  // Exposure: 16 overdraws → fully saturated. Tunable constant; viable
-  // range 8 (label-heavy scenes) to 32 (extruded-building scenes).
-  let t = count / 16.0;
-  return vec4<f32>(colormap(t), 1.0);
-}
-`
+    // Phase 4+ migration — WGSL was extracted to the polygon DSL in
+    // shader-dsl/shaders/overdraw-compose.ts. emit returns the same
+    // shader text the inline template held; the pipeline's bind-group
+    // layout + entryPoint names (vs_full / fs_compose) are unchanged.
+    const code = emitOverdrawComposeWgsl()
     const module = device.createShaderModule({ code, label: 'overdraw-compose-shader' })
     this.overdrawComposeBindGroupLayout = device.createBindGroupLayout({
       label: 'overdraw-compose-bgl',

@@ -31,6 +31,7 @@ export const vec4fT = { kind: 'vec', n: 4, elem: 'f32' } as const satisfies Shad
 export const vec2uT = { kind: 'vec', n: 2, elem: 'u32' } as const satisfies ShaderType
 export const vec3uT = { kind: 'vec', n: 3, elem: 'u32' } as const satisfies ShaderType
 export const vec4uT = { kind: 'vec', n: 4, elem: 'u32' } as const satisfies ShaderType
+export const vec2iT = { kind: 'vec', n: 2, elem: 'i32' } as const satisfies ShaderType
 export const vec4iT = { kind: 'vec', n: 4, elem: 'i32' } as const satisfies ShaderType
 export const mat4x4fT = { kind: 'mat', n: 4, elem: 'f32' } as const satisfies ShaderType
 export const texture2dfT = { kind: 'texture', dim: '2d', elem: 'f32' } as const satisfies ShaderType

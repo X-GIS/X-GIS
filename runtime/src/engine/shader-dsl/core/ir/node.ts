@@ -7,7 +7,7 @@
 import {
   type ShaderType, type Scalar, type KeyOf, type ElemKey, type ScalarKey,
   typeKey, typeEq, isVec, isScalar, isMat,
-  f32T, i32T, u32T, boolT, vec2fT, vec3fT, vec4fT, vec2uT, arrayT,
+  f32T, i32T, u32T, boolT, vec2fT, vec3fT, vec4fT, vec2uT, vec2iT, arrayT,
 } from './types'
 import type { Expr, BinOp, CmpOp } from './nodes'
 
@@ -231,6 +231,16 @@ export const bitcastU32 = (v: Node<'f32'>): Node<'u32'> => call('bitcast<u32>', 
 /** Sample a 2D texture → vec4<f32>. (CPU eval: nearest-texel stub.) */
 export const textureSample = (tex: Node, smp: Node, uv: NodeLike): Node<'vec4<f32>'> =>
   call('textureSample', vec4fT, tex, smp, uv) as Node<'vec4<f32>'>
+/** Load a texel from a 2D texture at integer coords → vec4<f32>. The mip
+ *  level argument is required by WGSL; pass `0` for the base level.
+ *  Coord is typically `vec2<i32>`; the runtime accepts any vec2 / scalar
+ *  NodeLike and lets WGSL's textureLoad signature check. (CPU stub.) */
+export const textureLoad = (tex: Node, coord: NodeLike, level: NodeLike): Node<'vec4<f32>'> =>
+  call('textureLoad', vec4fT, tex, coord, level) as Node<'vec4<f32>'>
+/** Texture extent in texels → vec2<u32>. Cost: one query per fragment in
+ *  fullscreen-triangle compose passes; cached in a `let` by the caller. */
+export const textureDimensions = (tex: Node): Node<'vec2<u32>'> =>
+  call('textureDimensions', vec2uT, tex) as Node<'vec2<u32>'>
 /** Screen-space derivative magnitude — GPU-only (uncomputable per-invocation
  *  on the CPU; the interpreter stubs it to 0). */
 export const fwidth = genType1('fwidth')
@@ -294,6 +304,7 @@ export const vec2 = (...a: NodeLike[]): Node<'vec2<f32>'> => construct(vec2fT, a
 export const vec3 = (...a: NodeLike[]): Node<'vec3<f32>'> => construct(vec3fT, a) as Node<'vec3<f32>'>
 export const vec4 = (...a: NodeLike[]): Node<'vec4<f32>'> => construct(vec4fT, a) as Node<'vec4<f32>'>
 export const vec2u = (...a: NodeLike[]): Node<'vec2<u32>'> => construct(vec2uT, a) as Node<'vec2<u32>'>
+export const vec2i = (...a: NodeLike[]): Node<'vec2<i32>'> => construct(vec2iT, a) as Node<'vec2<i32>'>
 
 /** mat4x4 × vec4 → vec4 (the generic `.mul` correctly rejects mat×vec since a
  *  matrix is not a scalar/matching-vector operand — this is the explicit MVP
