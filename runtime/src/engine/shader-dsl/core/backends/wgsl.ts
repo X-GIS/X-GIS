@@ -35,7 +35,13 @@ function lit(value: number | boolean, t: ShaderType): string {
   return f32Lit(value)
 }
 
-function emitExpr(e: Expr): string {
+// Phase 2.5 US-003 — exported for the compiler-side
+// `nodeToWgslString` adapter (compiler/src/codegen/_back-compat/) so
+// the in-flight retarget (US-004 → US-008) can convert Node values
+// back to WGSL strings at the runtime boundary while the compiler-
+// side emit sites migrate one at a time. The export is also useful for
+// match-expr.test.ts's defensive-throw probe.
+export function emitExpr(e: Expr): string {
   switch (e.op) {
     case 'lit': return lit(e.value, e.type)
     case 'constref':
@@ -51,6 +57,10 @@ function emitExpr(e: Expr): string {
     // WGSL select(falseVal, trueVal, cond)
     case 'select': return `select(${emitExpr(e.ifFalse)}, ${emitExpr(e.ifTrue)}, ${emitExpr(e.cond)})`
     case 'index': return `${emitExpr(e.base)}[${emitExpr(e.idx)}]`
+    // matchExpr is consumed by the pre-emit pass (wgsl-lower.ts) before
+    // emitModule reaches emitExpr. If one leaks through, the pre-emit
+    // pass was bypassed — fail loudly rather than emit garbage WGSL.
+    case 'matchExpr': throw new Error('shader-dsl/wgsl: matchExpr Expr leaked into emitExpr — lowerModule should have hoisted it')
   }
 }
 
@@ -88,6 +98,14 @@ function emitStmt(s: Stmt, depth: number): string {
       const init = forHeader(s.init)
       const update = forHeader(s.update)
       return `${p}for (${init}; ${emitExpr(s.cond)}; ${update}) {\n${emitBody(s.body, depth + 1)}\n${p}}`
+    }
+    case 'placeholder': {
+      // Phase 2.5 US-007 — emit a defensive WGSL comment if a
+      // placeholder Stmt leaks past the polygon composer. Comments
+      // are no-ops, so the WGSL still parses; the missing return
+      // surfaces as a runtime no-op which is easier to localise
+      // than a parser failure mid-shader.
+      return `${p}// __placeholder: ${s.tag}`
     }
     case 'switch': {
       const lines: string[] = [`${p}switch ${emitExpr(s.scrut)} {`]
@@ -157,11 +175,19 @@ export function emitFunc(f: FuncDecl): string {
   return `${attrs}fn ${f.name}(${params})${ret} {\n${emitBody(f.body, 1)}\n}`
 }
 
+// matchExpr lowering pre-emit pass (Phase 2.5 US-001).
+// Kept as a side-import so emitModule's body stays compact.
+import { lowerModule } from './wgsl-lower'
+
 export function emitModule(m: ModuleDecl): string {
+  // Phase 2.5 US-001: run the matchExpr→{var slot, Stmt.switch} lowering
+  // pass first so the rest of the emitter stays matchExpr-unaware. The
+  // pass is an identity for any module that contains no matchExpr.
+  const lowered = lowerModule(m)
   const parts: string[] = []
-  if (m.consts.length) parts.push(m.consts.map(emitConst).join('\n'))
-  if (m.structs.length) parts.push(m.structs.map(emitStruct).join('\n\n'))
-  if (m.bindings.length) parts.push(m.bindings.map(emitBinding).join('\n'))
-  if (m.funcs.length) parts.push(m.funcs.map(emitFunc).join('\n\n'))
+  if (lowered.consts.length) parts.push(lowered.consts.map(emitConst).join('\n'))
+  if (lowered.structs.length) parts.push(lowered.structs.map(emitStruct).join('\n\n'))
+  if (lowered.bindings.length) parts.push(lowered.bindings.map(emitBinding).join('\n'))
+  if (lowered.funcs.length) parts.push(lowered.funcs.map(emitFunc).join('\n\n'))
   return parts.join('\n\n') + '\n'
 }

@@ -7,13 +7,24 @@ import { buildPerShowMergedVariant } from './compute-variant-build'
 import { emitMatchComputeKernel } from './compute-gen'
 import type { ShaderVariant } from './shader-gen'
 import type { ComputePlanEntry } from './compute-plan'
+import { nodeToWgslString } from './_back-compat/node-to-wgsl-string'
+
+// Phase 2.5 US-004 — fillExpr / strokeExpr migrated to NodeLike|null.
+function fillStr(v: ShaderVariant): string {
+  return v.fillExpr ? nodeToWgslString(v.fillExpr) : 'u.fill_color'
+}
+function strokeStr(v: ShaderVariant): string {
+  return v.strokeExpr ? nodeToWgslString(v.strokeExpr) : 'u.stroke_color'
+}
 
 function makeLegacyVariant(overrides: Partial<ShaderVariant> = {}): ShaderVariant {
   return {
     key: 'legacy',
     preamble: '',
-    fillExpr: 'u.fill_color',
-    strokeExpr: 'u.stroke_color',
+    // Phase 2.5 US-004 — Node-typed fields; `null` paired with
+    // fillIsDefault: true is the default-uniform placeholder.
+    fillExpr: null,
+    strokeExpr: null,
     needsFeatureBuffer: false,
     featureFields: [],
     uniformFields: ['mvp', 'proj_params', 'fill_color', 'stroke_color'],
@@ -23,6 +34,12 @@ function makeLegacyVariant(overrides: Partial<ShaderVariant> = {}): ShaderVarian
     fillUsesPalette: false,
     strokeUsesPalette: false,
     opacityUsesPalette: false,
+    // Phase 2.5 US-002 — default-fill/stroke sentinel flags. Set to true
+    // here to mirror the legacy `fillExpr: 'u.fill_color'` placeholder
+    // shape; tests overriding fillExpr to a non-default value should also
+    // override these to false via the `overrides` spread.
+    fillIsDefault: true,
+    strokeIsDefault: true,
     ...overrides,
   }
 }
@@ -65,7 +82,7 @@ describe('buildPerShowMergedVariant', () => {
     const plan = [makeMatchEntry('class', 7)]
     const out = buildPerShowMergedVariant(v, plan, 7, 0, 1)
     expect(out).not.toBe(v)
-    expect(out.fillExpr).toContain('unpack4x8unorm(compute_out_fill')
+    expect(fillStr(out)).toContain('unpack4x8unorm(compute_out_fill')
   })
 
   it('filters out other shows; only entries for renderNodeIndex contribute', () => {
@@ -76,10 +93,10 @@ describe('buildPerShowMergedVariant', () => {
       makeMatchEntry('c', 2, 'stroke-color'), // other show, ignored
     ]
     const out = buildPerShowMergedVariant(v, plan, 1, 0, 1)
-    expect(out.fillExpr).toContain('unpack4x8unorm')
+    expect(fillStr(out)).toContain('unpack4x8unorm')
     // Only one binding allocated (for 'b'), the stroke entry for
     // index 2 didn't filter in.
-    expect(out.strokeExpr).toBe('u.stroke_color')
+    expect(strokeStr(out)).toBe('u.stroke_color')
   })
 
   it('multiple entries for same show → both bindings in preamble', () => {
@@ -89,8 +106,8 @@ describe('buildPerShowMergedVariant', () => {
       makeMatchEntry('b', 3, 'stroke-color'),
     ]
     const out = buildPerShowMergedVariant(v, plan, 3, 0, 5)
-    expect(out.fillExpr).toContain('compute_out_fill')
-    expect(out.strokeExpr).toContain('compute_out_stroke')
+    expect(fillStr(out)).toContain('compute_out_fill')
+    expect(strokeStr(out)).toContain('compute_out_stroke')
     expect(out.preamble).toContain('@binding(5)')
     expect(out.preamble).toContain('@binding(6)')
   })
@@ -119,6 +136,6 @@ describe('buildPerShowMergedVariant', () => {
     const plan = [makeMatchEntry('class', 0)]
     buildPerShowMergedVariant(v, plan, 0, 0, 1)
     expect(v.uniformFields).toEqual(['mvp', 'fill_color'])
-    expect(v.fillExpr).toBe('u.fill_color')
+    expect(fillStr(v)).toBe('u.fill_color')
   })
 })

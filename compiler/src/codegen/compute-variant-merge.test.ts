@@ -9,13 +9,24 @@ import { emitMatchComputeKernel } from './compute-gen'
 import type { ShaderVariant } from './shader-gen'
 import type { ComputePlanEntry } from './compute-plan'
 import type { ComputeVariantAddendum } from './compute-variant'
+import { nodeToWgslString } from './_back-compat/node-to-wgsl-string'
+
+// Phase 2.5 US-004 — fillExpr / strokeExpr migrated to NodeLike|null.
+function fillStr(v: ShaderVariant): string {
+  return v.fillExpr ? nodeToWgslString(v.fillExpr) : 'u.fill_color'
+}
+function strokeStr(v: ShaderVariant): string {
+  return v.strokeExpr ? nodeToWgslString(v.strokeExpr) : 'u.stroke_color'
+}
 
 function makeLegacyVariant(overrides: Partial<ShaderVariant> = {}): ShaderVariant {
   return {
     key: 'legacy-key',
     preamble: '',
-    fillExpr: 'u.fill_color',
-    strokeExpr: 'u.stroke_color',
+    // Phase 2.5 US-004 — Node-typed fields; `null` paired with
+    // fillIsDefault: true is the default-uniform placeholder.
+    fillExpr: null,
+    strokeExpr: null,
     needsFeatureBuffer: false,
     featureFields: [],
     uniformFields: ['mvp', 'proj_params', 'fill_color', 'stroke_color'],
@@ -25,6 +36,12 @@ function makeLegacyVariant(overrides: Partial<ShaderVariant> = {}): ShaderVarian
     fillUsesPalette: false,
     strokeUsesPalette: false,
     opacityUsesPalette: false,
+    // Phase 2.5 US-002 — default-fill/stroke sentinel flags. Set to true
+    // here to mirror the legacy `fillExpr: 'u.fill_color'` placeholder.
+    // Tests that override fillExpr to a non-default value should also
+    // flip these to false via the `overrides` spread.
+    fillIsDefault: true,
+    strokeIsDefault: true,
     ...overrides,
   }
 }
@@ -67,8 +84,8 @@ describe('mergeComputeAddendumIntoVariant — fill override', () => {
     const v = makeLegacyVariant()
     const addendum = buildComputeVariantAddendum([makeFillEntry()], 0, 1)
     const merged = mergeComputeAddendumIntoVariant(v, addendum)
-    expect(merged.fillExpr).toContain('unpack4x8unorm(compute_out_fill')
-    expect(merged.strokeExpr).toBe('u.stroke_color')
+    expect(fillStr(merged)).toContain('unpack4x8unorm(compute_out_fill')
+    expect(strokeStr(merged)).toBe('u.stroke_color')
   })
 
   it('drops fillPreamble (compute kernel already evaluated)', () => {
@@ -122,8 +139,8 @@ describe('mergeComputeAddendumIntoVariant — stroke override', () => {
     const v = makeLegacyVariant()
     const addendum = buildComputeVariantAddendum([makeStrokeEntry()], 0, 1)
     const merged = mergeComputeAddendumIntoVariant(v, addendum)
-    expect(merged.strokeExpr).toContain('unpack4x8unorm(compute_out_stroke')
-    expect(merged.fillExpr).toBe('u.fill_color')
+    expect(strokeStr(merged)).toContain('unpack4x8unorm(compute_out_stroke')
+    expect(fillStr(merged)).toBe('u.fill_color')
   })
 
   it('drops strokePreamble', () => {
@@ -152,8 +169,8 @@ describe('mergeComputeAddendumIntoVariant — both axes', () => {
       0, 1,
     )
     const merged = mergeComputeAddendumIntoVariant(v, addendum)
-    expect(merged.fillExpr).toContain('compute_out_fill')
-    expect(merged.strokeExpr).toContain('compute_out_stroke')
+    expect(fillStr(merged)).toContain('compute_out_fill')
+    expect(strokeStr(merged)).toContain('compute_out_stroke')
   })
 
   it('drops both preambles + prunes both uniformFields', () => {
@@ -279,7 +296,7 @@ describe('mergeComputeAddendumIntoVariant — invariant preservation', () => {
     const addendum = buildComputeVariantAddendum([makeFillEntry()], 0, 1)
     mergeComputeAddendumIntoVariant(v, addendum)
     expect(v.uniformFields).toEqual(['mvp', 'fill_color'])  // untouched
-    expect(v.fillExpr).toBe('u.fill_color')                  // untouched
+    expect(fillStr(v)).toBe('u.fill_color')                  // untouched
   })
 
   it('preserves needsFeatureBuffer / featureFields / palette fields', () => {

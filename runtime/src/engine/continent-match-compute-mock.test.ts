@@ -21,6 +21,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import {
   Lexer, Parser, lower, emitCommands,
+  nodeToWgslString,
   type ComputePlanEntry,
 } from '@xgis/compiler'
 import { ComputeDispatcher } from './gpu/compute'
@@ -137,8 +138,10 @@ describe('continent-match.xgis — compute path opt-in', () => {
     const continents = cmds.shows.find(s => s.layerName === 'continents')!
     const v = continents.shaderVariant!
     expect(v.preamble).toContain('compute_out_fill')
-    expect(v.fillExpr).toContain('compute_out_fill')
-    expect(v.fillExpr).toContain('unpack4x8unorm')
+    // Phase 2.5 US-004 — fillExpr now NodeLike|null.
+    const fillStr = v.fillExpr ? nodeToWgslString(v.fillExpr) : ''
+    expect(fillStr).toContain('compute_out_fill')
+    expect(fillStr).toContain('unpack4x8unorm')
   })
 
   it('computePlan has the match() entry with the 7 continent + default arms', () => {

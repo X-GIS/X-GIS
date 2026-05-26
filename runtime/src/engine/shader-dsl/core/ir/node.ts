@@ -11,6 +11,11 @@ import {
 } from './types'
 import type { Expr, BinOp, CmpOp } from './nodes'
 
+// Re-export ScalarKey so consumers importing the matchExpr signature can refer
+// to its generic bound without a separate types import (mirrors the existing
+// `KeyOf` / `ElemKey` re-export pattern in the barrel).
+export type { ScalarKey } from './types'
+
 /** Anything acceptable where a Node is expected — a Node, or a number that
  *  is auto-lifted to an f32 literal (the projection math is f32-dominant). */
 export type NodeLike = Node | number
@@ -226,6 +231,44 @@ export const fwidth = genType1('fwidth')
 
 /** select(cond, ifTrue, ifFalse) — free-function form of Node.select. */
 export const select = <R extends string>(cond: Node<'bool'>, ifTrue: Node<R> | number, ifFalse: Node<R> | number): Node<R> => cond.select(ifTrue, ifFalse)
+
+/**
+ * `match (scrutinee) { case v0: r0; ...; default: dflt }` — a typed multi-arm
+ * dispatch over an integer/scalar scrutinee. The wgsl pre-emit pass
+ * (core/backends/wgsl-lower.ts) lowers every matchExpr inside an fn body into
+ * a hoisted `var _mr_N: <R>` slot + `Stmt.switch` writing each case's value
+ * into the slot, and rewrites the matchExpr position into a varref. This
+ * matches the production compiler's existing `var _mcSS = ...; if (...) { ... }`
+ * shape and minimises diff-test noise. For >=10-arm matches the lowering
+ * additionally casts non-integer scrutinees to i32 (WGSL switch is
+ * integer-only); this is the matchExpr perf gate from the ralplan AC2.
+ *
+ * Type-safety: all case values' Node types must match the default's. A
+ * mismatched case Node triggers a runtime throw — tsc rejects most cases at
+ * compile time via the shared `R extends string` bound (covered by the
+ * `@ts-expect-error` probe in match-expr.test.ts).
+ *
+ * Phase 2.5 US-001 — the single new EXPRESSION primitive of the polygon
+ * shader DSL migration.
+ */
+export function matchExpr<S extends ScalarKey, R extends string>(
+  scrutinee: Node<S>,
+  cases: ReadonlyArray<readonly [caseValue: number, value: Node<R>]>,
+  default_: Node<R>,
+): Node<R> {
+  for (const [, v] of cases) {
+    if (!typeEq(v.type, default_.type)) {
+      throw new Error(`shader-dsl: matchExpr case Node type ${typeKey(v.type)} does not match default ${typeKey(default_.type)}`)
+    }
+  }
+  return new Node<R>({
+    op: 'matchExpr',
+    type: default_.type,
+    scrutinee: scrutinee.expr,
+    cases: cases.map(([n, v]) => [n, v.expr] as const),
+    default: default_.expr,
+  })
+}
 
 // Casts
 export const toF32 = (x: Node<string> | number): Node<'f32'> => call('f32', f32T, x) as Node<'f32'>

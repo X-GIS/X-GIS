@@ -8,6 +8,7 @@ import { DEBUG_OVERDRAW } from '../debug-flags'
 import { Camera } from '../projection/camera'
 import type { ShowCommand } from './renderer'
 import { interpolateZoom } from './renderer'
+import { variantProducesFill } from './renderer-helpers'
 import { xlog } from '../log'
 import type { ResolvedShow } from './resolved-show'
 import { visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority, makeTileCoord } from '../../data/tile-select'
@@ -3507,11 +3508,12 @@ export class VectorTileRenderer {
     //      declared no fill at all).
     //   2. show.fill resolved to a color whose alpha is effectively 0.
     // BUT a data-driven `fill match(...)` produces colors entirely inside
-    // the variant pipeline (fillExpr != 'u.fill_color'), so cachedFillColor
+    // the variant pipeline (fillIsDefault === false), so cachedFillColor
     // can be [0,0,0,0] yet the draw is still meaningful — must keep it.
-    const variantFillExpr = show.shaderVariant?.fillExpr
-    const variantProducesFill = !!variantFillExpr && variantFillExpr !== 'u.fill_color'
-    this._skipFillDraw = !variantProducesFill && this.cachedFillColor[3] <= 0.005
+    // Phase 2.5 US-002 — the legacy default-uniform string compare on
+    // variantFillExpr moved to the typed `fillIsDefault` sentinel flag,
+    // exposed via the shared variantProducesFill() helper.
+    this._skipFillDraw = !variantProducesFill(show.shaderVariant) && this.cachedFillColor[3] <= 0.005
 
     // Write uniforms directly via cached Float32Array view (no new typed array allocations)
     const uf = this.uniformF32

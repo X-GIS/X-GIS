@@ -5,18 +5,32 @@
 // internal `ColorResult` / `OpacityResult` shapes are imported back
 // into shader-gen.ts only.
 
+import type { NodeLike } from './_back-compat/node-to-wgsl-string'
+
 /**
  * A specialized shader variant for a layer.
  */
 export interface ShaderVariant {
   /** Cache key — layers with identical keys share a pipeline */
   key: string
-  /** WGSL const declarations to prepend to the shader */
+  /** WGSL const declarations to prepend to the shader.
+   *  Phase 2.5 — kept as string during the in-flight migration; the
+   *  per-idiom Node conversion in US-005 + the polygon DSL composer
+   *  in US-007 are the natural points for the `Partial<ModuleDecl>`
+   *  shape. Deferred per the plan's rollback option. */
   preamble: string
-  /** WGSL expression for fill color (replaces `u.fill_color`) */
-  fillExpr: string
-  /** WGSL expression for stroke color (replaces `u.stroke_color`) */
-  strokeExpr: string
+  /** Fill-color expression as a DSL Node, or `null` for the default-
+   *  uniform placeholder (`fillIsDefault: true` is the typed sentinel).
+   *  The compiler-side emit sites currently wrap pre-built WGSL strings
+   *  via `wgslRaw(...)` so the type can shift without disrupting
+   *  per-idiom emit; US-005 rewrites each call site to construct real
+   *  Node values via the IR builders. Runtime extracts the WGSL string
+   *  via `nodeToWgslString(variant.fillExpr)` at the marker
+   *  substitution site until US-008's polygon DSL composer accepts
+   *  Node directly. */
+  fillExpr: NodeLike<'vec4<f32>'> | null
+  /** Stroke-color expression — same migration shape as `fillExpr`. */
+  strokeExpr: NodeLike<'vec4<f32>'> | null
   /** WGSL code injected before fill return (match if-else chains) */
   fillPreamble?: string
   /** WGSL code injected before stroke return — analogous to
@@ -72,6 +86,22 @@ export interface ShaderVariant {
    *  `resolveNumberShape(paintShapes.opacity, …)` CPU eval and the
    *  paired `u.opacity` writeBuffer when this is set. */
   opacityUsesPalette: boolean
+  /** Phase 2.5 US-002 — typed replacement for the runtime's legacy
+   *  `fillExpr === 'u.fill_color'` string sentinel check. The runtime
+   *  treats this flag as "the variant carries no per-feature fill
+   *  override; use the cached uniform color and the skip-fill-draw
+   *  optimization". Set true when `fillExpr` is the bare
+   *  `'u.fill_color'` placeholder (today emitted by
+   *  `node.fill.kind === 'none'`); false on every per-feature /
+   *  per-zoom / per-palette fill path that injects its own expression
+   *  into the marker substitution. The flag is the migration boundary
+   *  for the upcoming `fillExpr: string → Node<vec4<f32>>` field type
+   *  switch in US-004 — once `fillExpr` is a Node, the
+   *  `=== 'u.fill_color'` string compare on the runtime side no
+   *  longer compiles, but `!variant.fillIsDefault` keeps working. */
+  fillIsDefault: boolean
+  /** Stroke counterpart to `fillIsDefault`. */
+  strokeIsDefault: boolean
   /** P4-5 — populated by `mergeComputeAddendumIntoVariant` when the
    *  fill / stroke axis routed through a compute kernel. Each entry
    *  is `(paintAxis, bindGroup, binding)` so the runtime can detect
@@ -86,6 +116,13 @@ export interface ShaderVariant {
 export interface ColorResult {
   preamble: string[]
   isConst: boolean
+  /** Phase 2.5 US-005 — set by arms that have migrated to DSL Node
+   *  construction. When present, the shader-gen top-level uses this
+   *  via composeFillVec4(nodeExpr, opacity.nodeExpr) instead of the
+   *  legacy string-emit + wgslRaw path. Each per-idiom commit lands
+   *  this for one more arm; once every arm sets it, the legacy
+   *  `expr: string` field can be removed. */
+  nodeExpr?: NodeLike<'vec4<f32>'>
   /** Index into `palette.colorGradients` when this result was routed
    *  through the textureSampleLevel path. Undefined for every legacy
    *  path (constant, time-interpolated, data-driven, conditional). */
@@ -108,6 +145,9 @@ export interface OpacityResult {
   needsUniform: boolean
   needsFeatures: boolean
   expr: string
+  /** Phase 2.5 US-005 — set by arms that have migrated to DSL Node
+   *  construction. Mirrors ColorResult.nodeExpr — see that doc. */
+  nodeExpr?: NodeLike<'f32'>
   /** Set when this opacity is `zoom-interpolated` AND a matching
    *  scalar gradient was collected into the palette pool. Variant
    *  caller pushes onto `paletteScalarGradients` so the runtime can

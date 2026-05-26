@@ -27,6 +27,13 @@
 // pipeline-create time with an unhelpful "binding mismatch" error;
 // keeping the source in one place avoids it.
 
+// Phase 2.5 US-006 — emitComputeOutputReadExprNode consumes these
+// authoring helpers to build the unpack4x8unorm(compute_out_X[fid])
+// call as a real DSL Node.
+import {
+  arrayIndex, varRefArrayU32, unpack4x8unormVec4, inputFeatIdRef,
+} from './_util/node-builders'
+
 /** Which paint axis the compute output evaluates. Two-state union
  *  matches the rest of the P4 plan; future axes (opacity, stroke
  *  width as a scalar) would need a separate emitter because they
@@ -75,6 +82,21 @@ export function emitComputeOutputReadExpr(
 ): string {
   const name = varNameFor(spec.paintAxis)
   return `unpack4x8unorm(${name}[${fidExpr}])`
+}
+
+/** Phase 2.5 US-006 — Node parallel of emitComputeOutputReadExpr.
+ *  Builds the unpack4x8unorm(compute_out_X[input.feat_id]) call
+ *  structurally so the compute-variant merge can populate
+ *  ShaderVariant.{fillExpr,strokeExpr} as real Node values
+ *  without going through the wgslRaw back-compat wrap. */
+export function emitComputeOutputReadExprNode(
+  spec: ComputeOutputBindingSpec,
+): import('./_back-compat/node-to-wgsl-string').NodeLike<'vec4<f32>'> {
+  const name = varNameFor(spec.paintAxis)
+  const buf = varRefArrayU32(name)
+  const idx = inputFeatIdRef()
+  const u32At = arrayIndex<'u32'>(buf as never, idx, 'u32')
+  return unpack4x8unormVec4(u32At)
 }
 
 /** Build the GPUBindGroupLayoutEntry descriptor the runtime needs to

@@ -27,6 +27,13 @@ export type Expr =
   | { readonly op: 'construct'; readonly type: ShaderType; readonly args: readonly Expr[] }
   | { readonly op: 'select'; readonly type: ShaderType; readonly cond: Expr; readonly ifTrue: Expr; readonly ifFalse: Expr }
   | { readonly op: 'index'; readonly type: ShaderType; readonly base: Expr; readonly idx: Expr }
+  // `match (scrutinee) { case v0: e0; ...; default: dflt }`. The WGSL backend
+  // pre-emit pass (core/backends/wgsl-lower.ts) lowers every matchExpr inside
+  // an fn body into a hoisted `{ Stmt.var slot, Stmt.switch }` pair + a
+  // varref to the slot; emitExpr never sees a `matchExpr` Expr post-lowering.
+  // The CPU backend evaluates the scrutinee then returns the matched case's
+  // value or the default. Phase 2.5 (US-001).
+  | { readonly op: 'matchExpr'; readonly type: ShaderType; readonly scrutinee: Expr; readonly cases: ReadonlyArray<readonly [number, Expr]>; readonly default: Expr }
 
 // ── Statement nodes ──
 
@@ -42,6 +49,17 @@ export type Stmt =
   | { readonly s: 'break' }
   | { readonly s: 'continue' }
   | { readonly s: 'discard' }
+  // Phase 2.5 US-007 — composer-swap marker. The polygon DSL module
+  // (shaders/polygon.ts) lays down a placeholder Stmt at each
+  // variant-injection site (`fill-return` / `stroke-return`); the
+  // composer (emitPolygonWgsl) walks the cloned module and replaces
+  // each placeholder with the variant's fill-/stroke- return expr.
+  // emitStmt emits a defensive `// __placeholder: ${tag}` comment if
+  // a placeholder leaks past the composer; the CPU backend throws
+  // (the comment would silently no-op a missing return). The
+  // lowerModule pre-emit pass treats placeholder as a leaf — no
+  // matchExpr lowering descends into it.
+  | { readonly s: 'placeholder'; readonly tag: string }
 
 // ── Module-level declarations ──
 

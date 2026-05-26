@@ -210,6 +210,14 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       const base = evalExpr(e.base, env, ctx) as CpuValue[]
       return base[evalExpr(e.idx, env, ctx) as number]
     }
+    case 'matchExpr': {
+      // CPU semantics mirror the WGSL pre-emit lowering: evaluate the
+      // scrutinee, find the matching case (by ===), return its value.
+      // No fall-through. Default fires when no case matches.
+      const sv = evalExpr(e.scrutinee, env, ctx) as number
+      const hit = e.cases.find(([v]) => v === sv)
+      return evalExpr(hit ? hit[1] : e.default, env, ctx)
+    }
   }
 }
 
@@ -291,6 +299,15 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
           // 'break' inside a switch case terminates the case (already exits body)
         }
         break
+      }
+      case 'placeholder': {
+        // Phase 2.5 US-007 — the polygon composer (emitPolygonWgsl)
+        // MUST swap every placeholder Stmt before emit. If one reaches
+        // CPU eval, the composer forgot to splice — fail loudly rather
+        // than silently no-op (the WGSL backend emits a defensive
+        // comment, but on CPU there's no analogue and a silent
+        // missing-return is much harder to localise).
+        throw new Error(`shader-dsl/cpu: placeholder Stmt reached CPU backend — composer forgot to splice tag=${s.tag}`)
       }
     }
   }

@@ -2,6 +2,10 @@
 // Palette WGSL emission helpers
 // ═══════════════════════════════════════════════════════════════════
 //
+// Phase 2.5 US-005 — also emits Node parallels via the helpers
+// imported below (Phase 3 step 3a stays as string emit until the
+// US-008 cleanup).
+//
 // Plan Phase 3 step 3a (wild-finding-starlight). Pure WGSL string
 // builders that translate the compile-time `Palette`
 // (compiler/src/codegen/palette.ts) into:
@@ -42,6 +46,11 @@
 //     driven, time-interpolated) keeps its existing path.
 
 import type { Palette } from './palette'
+import type { NodeLike } from './_back-compat/node-to-wgsl-string'
+import {
+  f32Lit, f32Sub, f32Div, refF32, clampF32,
+  varRefTexture2d, varRefSampler, vec2f, textureSampleLevelVec4,
+} from './_util/node-builders'
 
 /** Default bind-group / binding indices for palette resources. The
  *  current renderer uses group 0 for everything; once P2 lands the
@@ -177,6 +186,39 @@ export function emitColorGradientSample(
   )
 }
 
+/** Phase 2.5 US-005 idiom (palette sample) — Node-emit parallel to
+ *  emitColorGradientSample. Returns the textureSampleLevel(...)
+ *  vec4<f32> Node so the shader-gen.ts zoom-interp + palette branch
+ *  can set ColorResult.nodeExpr. Mirrors the legacy string emit's
+ *  bake-in approach: zMin / zMax / v are literal Nodes, the only
+ *  varref is u.zoom (or whatever zoomVarrefName the caller supplies). */
+export function emitColorGradientSampleNode(
+  palette: Palette,
+  gradientIndex: number,
+  zoomVarrefName: string = 'u.zoom',
+): NodeLike<'vec4<f32>'> | null {
+  const g = palette.colorGradients[gradientIndex]
+  if (!g) return null
+  const stops = g.stops
+  const zMin = stops[0]!.zoom
+  const zMax = stops[stops.length - 1]!.zoom
+  const total = palette.colorGradients.length
+  const v = (gradientIndex + 0.5) / total
+  const zoomNode = refF32(zoomVarrefName)
+  const zSpan = zMax - zMin || 1
+  const u = clampF32(
+    f32Div(f32Sub(zoomNode, f32Lit(zMin)), f32Lit(zSpan)),
+    f32Lit(0),
+    f32Lit(1),
+  )
+  return textureSampleLevelVec4(
+    varRefTexture2d('color_grad_atlas'),
+    varRefSampler('palette_samp'),
+    vec2f(u, f32Lit(v)),
+    f32Lit(0),
+  )
+}
+
 /** Scalar-gradient sample mode. Picked at variant emission by the
  *  runtime based on `GPUContext.float32FilterableSupported`:
  *
@@ -261,6 +303,34 @@ export function emitScalarGradientSample(
   const zMin = stops[0]!.zoom
   const zMax = stops[stops.length - 1]!.zoom
   return `xgis_scalar_sample(${gradientIndex}u, ${zoomExpr}, ${fmtF(zMin)}, ${fmtF(zMax)})`
+}
+
+/** Phase 2.5 US-005 — Node parallel of emitScalarGradientSample.
+ *  Returns the xgis_scalar_sample(...) f32 Node so processOpacity's
+ *  zoom-interp + palette branch can set OpacityResult.nodeExpr. */
+export function emitScalarGradientSampleNode(
+  palette: Palette,
+  gradientIndex: number,
+  zoomVarrefName: string = 'u.zoom',
+): NodeLike<'f32'> | null {
+  const g = palette.scalarGradients[gradientIndex]
+  if (!g) return null
+  const stops = g.stops
+  const zMin = stops[0]!.zoom
+  const zMax = stops[stops.length - 1]!.zoom
+  return {
+    expr: {
+      op: 'call',
+      type: { kind: 'scalar', scalar: 'f32' },
+      fn: 'xgis_scalar_sample',
+      args: [
+        { op: 'lit', type: { kind: 'scalar', scalar: 'u32' }, value: gradientIndex },
+        refF32(zoomVarrefName).expr,
+        { op: 'lit', type: { kind: 'scalar', scalar: 'f32' }, value: zMin },
+        { op: 'lit', type: { kind: 'scalar', scalar: 'f32' }, value: zMax },
+      ],
+    },
+  } as NodeLike<'f32'>
 }
 
 /** Format an f32 literal the same way shader-gen.ts does — trims
