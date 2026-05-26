@@ -32,34 +32,25 @@ export {
 
 // generateGraticule(zoom) now handles zoom-adaptive steps internally
 
-// ═══ Shader Source ═══
+// ═══ Polygon shader emit ═══
 //
-// The WGSL shader-string constants (POLYGON_SHADER_SOURCE + the
-// fill/stroke/pick marker strings) live in renderer-shaders.ts. They
-// are imported here for buildShader() and re-exported below so this
-// module's public surface (consumed by tests via './renderer') stays
-// byte-identical.
-import { POLYGON_SHADER_SOURCE, FILL_RETURN_MARKER, STROKE_RETURN_MARKER } from './renderer-shaders'
 // Phase 2.5 US-008 — buildShader + pickShader route through the polygon
-// DSL composer. Variant.fillExpr/strokeExpr Nodes flow into the composer;
-// variant.preamble + fillPreamble/strokePreamble (still string-typed in
-// the compiler-side ShaderVariant) splice into the emit post-hoc until
-// per-idiom preamble migration lands.
+// DSL composer (shader-dsl/shaders/polygon.ts). Variant.fillExpr/strokeExpr
+// Nodes flow into the composer; variant.preamble + fillPreamble/
+// strokePreamble (still string-typed in the compiler-side ShaderVariant)
+// splice into the emit post-hoc until per-idiom preamble migration lands.
+// The legacy POLYGON_SHADER_SOURCE template + FILL_RETURN / STROKE_RETURN
+// markers live in renderer-shaders.ts and remain there only for the US-000
+// snapshot capture script's baseline emit — no runtime path uses them.
 import { emitPolygonWgsl } from '../shader-dsl/shaders/polygon'
 import { Node, vec4fT } from '../shader-dsl/core/ir'
-// Phase 2.5 US-004 — extracts the WGSL string from a NodeLike
-// `fillExpr` / `strokeExpr` for the splice-point lookup in the variant-
-// bearing path (the composer emits the same WGSL via wgsl.ts:emitExpr;
-// nodeToWgslString is the compiler-side copy of that emit, kept until
-// US-008's runtime rewire deletes the _back-compat shim).
+// nodeToWgslString is the compiler-side copy of the runtime
+// wgsl.ts:emitExpr — used for the variant-bearing path's splice-point
+// lookup (the composer emits `out.color = <fillExpr-wgsl>;` using the
+// runtime emit; nodeToWgslString produces the same string, so the splice
+// resolves deterministically). Kept until the per-idiom preamble migration
+// closes out the splice path and the _back-compat adapter retires.
 import { nodeToWgslString } from '@xgis/compiler'
-export {
-  POLYGON_SHADER_SOURCE,
-  FILL_RETURN_MARKER,
-  STROKE_RETURN_MARKER,
-  PICK_FIELD_TOKEN,
-  PICK_WRITE_TOKEN,
-} from './renderer-shaders'
 
 /**
  * Build a specialized WGSL shader for a polygon variant. Routes through the
@@ -98,13 +89,20 @@ function buildShader(variant?: ShaderVariantInfo | null): string {
   // the composer. preamble + fillPreamble + strokePreamble strings splice
   // post-emit until the per-idiom Partial<ModuleDecl> / Stmt[] migration
   // closes them out in PR-C.
+  // The compiler-side _back-compat NodeLike.expr captures the same Expr
+  // shape the runtime IR Expr union defines, but TypeScript treats them as
+  // nominally different types (different file-local declarations). Cast
+  // through `unknown` at the seam — the structural mirroring is pinned by
+  // the _back-compat round-trip test. Both casts retire together once
+  // ShaderVariant.fillExpr/strokeExpr migrate to the runtime Expr type.
+  type RuntimeExpr = ConstructorParameters<typeof Node>[0]
   const fillExprNode =
     variant.fillExpr && !variant.fillIsDefault
-      ? new Node<'vec4<f32>'>(variant.fillExpr.expr)
+      ? new Node<'vec4<f32>'>(variant.fillExpr.expr as unknown as RuntimeExpr)
       : null
   const strokeExprNode =
     variant.strokeExpr && !variant.strokeIsDefault
-      ? new Node<'vec4<f32>'>(variant.strokeExpr.expr)
+      ? new Node<'vec4<f32>'>(variant.strokeExpr.expr as unknown as RuntimeExpr)
       : null
   // ShaderVariantInfo.fillExpr expects Node<'vec4<f32>'>; the runtime Node
   // class carries the same {op:'construct'|...} Expr shape that the
