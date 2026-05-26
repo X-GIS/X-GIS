@@ -22,8 +22,8 @@
 
 import {
   entryFn, fn, module, bindingRef, constRef, callFn,
-  f32, vec4,
-  f32T, u32T, vec2fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
+  f32, vec4, toU32, transformMat4, clamp, select,
+  f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   structT,
   Node,
   type StructDecl, type StructField, type ModuleDecl, type Stmt,
@@ -159,6 +159,110 @@ const polygonRimAlpha = fn(
   },
 )
 
+// ── Vertex entries ──
+//
+// vs_main — the f32-precision (DSFUN-split) polygon vertex entry. Reads two
+// vec2<f32> attributes (pos_h + pos_l = high/low halves of the tile-local
+// Mercator position) + a per-vertex feature_id. Path-by-path:
+//   1. DSFUN Mercator subtraction → camera-relative tile-local meters
+//      (cancels the large tile-origin magnitude before the low halves are
+//      added, preserving f64-equivalent precision at any camera zoom).
+//   2. Reconstruct absolute Mercator meters → abs_lon / abs_lat for the
+//      fragment shader's hemisphere-cull recompute.
+//   3. Mercator → projection-specific xy via project_geom (or rel for the
+//      Mercator short-circuit). Globe path uses proj_globe RTC against the
+//      orbit-camera MVP.
+//   4. MVP transform → log-depth rewrite → fill-translate viewport offset
+//      → per-layer NDC-z bias.
+//   5. Forward varyings to the fragment shader.
+
+const vsMain = entryFn(
+  'vs_main', 'vertex',
+  [
+    { name: 'pos_h', type: vec2fT, location: 0 },
+    { name: 'pos_l', type: vec2fT, location: 1 },
+    { name: 'feature_id', type: f32T, location: 2 },
+  ],
+  structT('VertexOutput'),
+  (b, p) => {
+    const camH = u.field('cam_h', vec2fT)
+    const camL = u.field('cam_l', vec2fT)
+    const tileOrigin = u.field('tile_origin_merc', vec2fT)
+    const tileExtent = u.field('tile_extent_m', f32T)
+    const projParams = u.field('proj_params', vec4fT)
+    const mvp = u.field('mvp', mat4x4fT)
+    const logDepthFc = u.field('log_depth_fc', f32T)
+    const layerDepthOff = u.field('layer_depth_offset', f32T)
+    const fillTx = u.field('fill_translate_x', f32T)
+    const fillTy = u.field('fill_translate_y', f32T)
+    const deg2rad = constRef('DEG2RAD')
+    const earthR = constRef('EARTH_R')
+    const mercLatLim = constRef('MERCATOR_LAT_LIMIT')
+
+    // DSFUN Mercator subtraction — camera-relative tile-local meters.
+    const rel = b.let('rel', p.pos_h.sub(camH).add(p.pos_l.sub(camL)))
+    // Reconstruct absolute Mercator meters for non-Mercator reprojection
+    // + fragment-shader hemisphere cull recompute.
+    const absMercX = b.let('abs_merc_x', p.pos_h.x.add(p.pos_l.x).add(tileOrigin.x))
+    const absMercY = b.let('abs_merc_y', p.pos_h.y.add(p.pos_l.y).add(tileOrigin.y))
+    const absLon = b.let('abs_lon', absMercX.div(deg2rad.mul(earthR)))
+    const latRad = b.let('lat_rad', callFn('inv_merc_lat_rad', f32T, absMercY))
+    const absLat = b.let('abs_lat', latRad.div(deg2rad))
+    const absLatClamped = b.let('abs_lat_clamped', clamp(absLat, mercLatLim.neg(), mercLatLim))
+
+    const t = b.let('t', projParams.x)
+    const rtc = b.var('rtc', vec2fT)
+    b.if(t.lt(0.5), (c) => {
+      // Pure Mercator: rel is already camera-relative meters.
+      c.assign(rtc, rel)
+    }).else((c) => {
+      // All other projections: run project_geom on the reconstructed
+      // absolute lon/lat, then subtract the projected camera center. f32
+      // reconstruction precision is fine at low/global zoom — the only
+      // place these projections are exposed.
+      const tileRefLon = c.let('tile_ref_lon',
+        tileOrigin.x.add(f32(0.5).mul(tileExtent)).div(deg2rad.mul(earthR)),
+      )
+      const projXy = c.let('proj_xy', callFn('project_geom', vec2fT, absLon, absLat, projParams, tileRefLon))
+      const centerXy = c.let('center_xy', callFn('project', vec2fT, projParams.y, projParams.z, projParams))
+      c.assign(rtc, projXy.sub(centerXy))
+    })
+
+    // True 3D globe (projType 7): RTC against the focus point ON THE
+    // sphere, then the orbit-camera MVP.
+    const globeRtc = b.let('globe_rtc',
+      callFn('proj_globe', vec3fT, absLon, absLat).sub(callFn('proj_globe', vec3fT, projParams.y, projParams.z)),
+    )
+
+    const out = b.var('out', structT('VertexOutput'))
+    const clip = b.var('clip', vec4fT, select(
+      t.gt(6.5),
+      transformMat4(mvp, vec4(globeRtc, f32(1))),
+      transformMat4(mvp, vec4(rtc, f32(0), f32(1))),
+    ))
+    // Mapbox fill-translate viewport-anchor — runtime pre-bakes
+    // (px*2/canvasDim) so the shader just multiplies by clip.w.
+    b.assign(clip.x, clip.x.add(fillTx.mul(clip.w)))
+    b.assign(clip.y, clip.y.sub(fillTy.mul(clip.w)))
+    // Log-depth rewrite + per-layer NDC-z bias.
+    b.assign(out.field('position', vec4fT), callFn('apply_log_depth', vec4fT, clip, logDepthFc))
+    b.assign(out.field('position', vec4fT).z, out.field('position', vec4fT).z.sub(layerDepthOff.mul(out.field('position', vec4fT).w)))
+    b.assign(out.field('view_w', f32T), clip.w)
+    // cos_c placeholder — fragments recompute per-pixel.
+    b.assign(out.field('cos_c', f32T), f32(0))
+    b.assign(out.field('feat_id', u32T), toU32(p.feature_id))
+    b.assign(out.field('abs_lat', f32T), absLatClamped)
+    // DSFUN line/fill path is not extruded; full brightness.
+    b.assign(out.field('wall_blend', f32T), f32(1))
+    b.assign(out.field('abs_merc_x', f32T), absMercX)
+    b.assign(out.field('abs_merc_y', f32T), absMercY)
+    b.assign(out.field('world_z', f32T), f32(0))
+    // iter-194 — only the extrude path emits.
+    b.assign(out.field('v_color', vec4fT), vec4(f32(0), f32(0), f32(0), f32(0)))
+    b.ret(out)
+  },
+)
+
 // ── Fragment entries ──
 //
 // fs_overdraw — debug=overdraw single constant-output entry shared by every
@@ -245,8 +349,12 @@ const buildPolygonModule = (
     funcs: [
       polygonCosCFragment,
       polygonRimAlpha,
+      vsMain,
       fsOverdraw,
-      // The 3 vertex + 5 main fragment entries land in subsequent iters.
+      // The remaining 2 vertex (vs_main_quantized / vs_main_quantized_extruded)
+      // + 5 main fragment entries (fs_fill / fs_fill_pattern /
+      // fs_oit_translucent / fs_fill_extrude / fs_stroke) land in subsequent
+      // iters.
     ],
   })
   if (variant === null) return base

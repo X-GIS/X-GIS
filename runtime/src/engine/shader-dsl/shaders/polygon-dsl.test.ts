@@ -49,6 +49,21 @@ describe('emitPolygonWgsl — skeleton', () => {
     expect(wgsl).toContain('@fragment')
   })
 
+  it('emits vs_main vertex entry with DSFUN-split pos_h + pos_l attributes', () => {
+    const wgsl = emitPolygonWgsl(null, false)
+    expect(wgsl).toContain('fn vs_main')
+    expect(wgsl).toContain('@vertex')
+    // Per-vertex attributes from POLYGON_SHADER_SOURCE.
+    expect(wgsl).toMatch(/@location\(0\)[^,]+pos_h\s*:\s*vec2<f32>/)
+    expect(wgsl).toMatch(/@location\(1\)[^,]+pos_l\s*:\s*vec2<f32>/)
+    expect(wgsl).toMatch(/@location\(2\)[^,]+feature_id\s*:\s*f32/)
+    // Sanity: vertex path emits the project_geom / project / proj_globe /
+    // apply_log_depth call sites the post-MVP transform depends on.
+    expect(wgsl).toContain('project_geom(')
+    expect(wgsl).toContain('proj_globe(')
+    expect(wgsl).toContain('apply_log_depth(')
+  })
+
   it('pickEnabled=true adds the pick attachment field to FragmentOutput', () => {
     const wgslOff = emitPolygonWgsl(null, false)
     const wgslOn = emitPolygonWgsl(null, true)
