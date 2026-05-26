@@ -40,6 +40,10 @@ export {
 // module's public surface (consumed by tests via './renderer') stays
 // byte-identical.
 import { POLYGON_SHADER_SOURCE, FILL_RETURN_MARKER, STROKE_RETURN_MARKER } from './renderer-shaders'
+// Phase 2.5 US-008 iter-8a — null-variant path routes through the polygon
+// DSL composer. Variant-bearing paths still use POLYGON_SHADER_SOURCE +
+// string.replace until per-idiom preamble migration lands.
+import { emitPolygonWgsl } from '../shader-dsl/shaders/polygon'
 // Phase 2.5 US-004 — extracts the WGSL string from a NodeLike
 // `fillExpr` / `strokeExpr` until US-008 makes the polygon DSL composer
 // accept Node values directly and the back-compat adapter is deleted.
@@ -64,7 +68,15 @@ function buildShader(variant?: ShaderVariantInfo | null): string {
     .replace(/__PICK_FIELD__/g, isPickEnabled() ? '@location(1) @interpolate(flat) pick: vec2<u32>,' : '')
     .replace(/__PICK_WRITE__/g, isPickEnabled() ? 'out.pick = vec2<u32>(input.feat_id, u.pick_id);' : '')
 
-  if (!variant || (!variant.preamble && !variant.needsFeatureBuffer)) return applyPick(POLYGON_SHADER_SOURCE)
+  // Default-uniform path (variant absent OR variant carries no preamble +
+  // no feat_buffer) routes through the polygon DSL composer with a null
+  // ShaderVariantInfo. The composer substitutes the legacy
+  // POLYGON_SHADER_SOURCE:565 / 780 default-uniform assigns into the
+  // fill-return / stroke-return placeholder Stmts in fs_fill / fs_stroke.
+  // applyPick is bypassed — the composer's `pickEnabled` flag drives the
+  // pick-attachment field + write directly (replaces the old __PICK_FIELD__
+  // / __PICK_WRITE__ regex markers).
+  if (!variant || (!variant.preamble && !variant.needsFeatureBuffer)) return emitPolygonWgsl(null, isPickEnabled())
 
   let shader = POLYGON_SHADER_SOURCE
   const insertPoint = '@group(0) @binding(0) var<uniform> u: Uniforms;'
@@ -607,12 +619,11 @@ fn fs_compose(in: VsOut) -> @location(0) vec4<f32> {
   private initPipelines(): void {
     const { device, format } = this.ctx
 
-    // Splice the pick output into the shader template when `?picking=1`
-    // is enabled. Keeps the default (no-pick) shader byte-identical with
-    // the prior build — existing deployments see no change.
-    const pickShader = POLYGON_SHADER_SOURCE
-      .replace(/__PICK_FIELD__/g, isPickEnabled() ? '@location(1) @interpolate(flat) pick: vec2<u32>,' : '')
-      .replace(/__PICK_WRITE__/g, isPickEnabled() ? 'out.pick = vec2<u32>(input.feat_id, u.pick_id);' : '')
+    // Phase 2.5 US-008 iter-8b — base-pipeline pick shader routes through
+    // the polygon DSL composer. The composer's `pickEnabled` flag drives
+    // the pick-attachment field + write directly (replaces the old
+    // __PICK_FIELD__ / __PICK_WRITE__ regex markers in POLYGON_SHADER_SOURCE).
+    const pickShader = emitPolygonWgsl(null, isPickEnabled())
     const shaderModule = device.createShaderModule({
       code: pickShader,
       label: 'xgis-shader',
