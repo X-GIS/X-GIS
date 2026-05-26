@@ -8,11 +8,12 @@ import {
   buildComputeBindGroupEntries,
 } from './compute-bind-layout'
 import type { ShaderVariant } from '@xgis/compiler'
+import { wgslRaw } from '@xgis/compiler'
 
 function legacyVariant(): ShaderVariant {
   return {
     key: 'L', preamble: '',
-    fillExpr: 'u.fill_color', strokeExpr: 'u.stroke_color',
+    fillExpr: wgslRaw('u.fill_color'), strokeExpr: wgslRaw('u.stroke_color'),
     needsFeatureBuffer: false,
     featureFields: [], uniformFields: [],
     categoryOrder: {},
