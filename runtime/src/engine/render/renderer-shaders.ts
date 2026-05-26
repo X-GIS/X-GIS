@@ -812,9 +812,12 @@ fn fs_overdraw() -> @location(0) vec4<f32> {
 // into the legacy uniform path (root cause of the OFM Bright
 // school-fill bug 2026-05-14, fix 5/5 in commit 8e1aa08).
 //
-// Exported so polygon-shader-markers.test.ts can assert each
-// marker appears exactly once in the shader source. CI fails
-// before the silent no-op reaches production.
+// Exported for scripts/capture-polygon-snapshots.ts (US-000 baseline
+// recapture workflow). Phase 2.5 US-008 retired the runtime consumers
+// + their polygon-shader-markers.test.ts marker-drift invariant
+// (superseded by polygon-dsl.test.ts composer-output coverage); this
+// file + the markers retire alongside renderer-shaders.ts in PR-C
+// once US-010's AST-equivalence diff supersedes the snapshot capture.
 export const FILL_RETURN_MARKER = 'out.color = vec4<f32>(u.fill_color.rgb * wall_shade, u.fill_color.a);'
 export const STROKE_RETURN_MARKER = 'out.color = vec4<f32>(u.stroke_color.rgb, u.stroke_color.a * alpha_scale);'
 /** Template tokens replaced via regex (not literal string replace),

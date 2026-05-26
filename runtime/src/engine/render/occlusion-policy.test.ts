@@ -70,8 +70,9 @@ describe('sphere-rim cull policy parity across renderers', () => {
 
   it('each renderer applies both hard discard AND rim fade', () => {
     // This is a documentation gate — the actual WGSL shaders pinned
-    // separately via polygon-shader-markers.test.ts + rim-alpha.test.ts.
-    // Test verifies the policy table itself.
+    // separately via polygon-dsl.test.ts (composer-output structural
+    // checks) + rim-rollout-coverage.test.ts (per-renderer rim-alpha
+    // call site counts). Test verifies the policy table itself.
     for (const r of renderers) {
       expect(expectedPolicy.hardDiscard, `${r} should hard-discard at cos_c<0`).toBe(true)
       expect(expectedPolicy.rimFade, `${r} should rim-fade in [0, RIM_FADE]`).toBe(true)

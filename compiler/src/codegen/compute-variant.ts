@@ -10,12 +10,16 @@
 //
 // shader-gen's existing fragment-shader specialisation pipeline
 // already accepts `preamble` + `fillExpr` + `strokeExpr` (the legacy
-// match()-on-fragment path emits all three). The runtime in
-// renderer.ts:582 looks at the variant and:
+// match()-on-fragment path emits all three). After Phase 2.5 US-008
+// the runtime in renderer.ts buildShader() routes the variant
+// through emitPolygonWgsl (shader-dsl/shaders/polygon.ts), and:
 //
-//   1. Injects `preamble` after the uniforms binding.
-//   2. Replaces FILL_RETURN_MARKER with `fillExpr` if non-default.
-//   3. Same for strokeExpr.
+//   1. Feeds variant.fillExpr / strokeExpr Nodes into the composer's
+//      placeholder Stmt swap (fill-return / stroke-return tags).
+//   2. Splices variant.preamble (still string-typed pending the
+//      Partial<ModuleDecl> migration) after the sprite_samp binding.
+//   3. Splices fillPreamble / strokePreamble (string) immediately
+//      before the variant fill/stroke-return assign.
 //
 // So if we can produce a variant-shape addendum that REPLACES the
 // fill/stroke axes that route to compute with a "read out_color"
