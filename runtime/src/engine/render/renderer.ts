@@ -40,13 +40,18 @@ export {
 // module's public surface (consumed by tests via './renderer') stays
 // byte-identical.
 import { POLYGON_SHADER_SOURCE, FILL_RETURN_MARKER, STROKE_RETURN_MARKER } from './renderer-shaders'
-// Phase 2.5 US-008 iter-8a — null-variant path routes through the polygon
-// DSL composer. Variant-bearing paths still use POLYGON_SHADER_SOURCE +
-// string.replace until per-idiom preamble migration lands.
+// Phase 2.5 US-008 — buildShader + pickShader route through the polygon
+// DSL composer. Variant.fillExpr/strokeExpr Nodes flow into the composer;
+// variant.preamble + fillPreamble/strokePreamble (still string-typed in
+// the compiler-side ShaderVariant) splice into the emit post-hoc until
+// per-idiom preamble migration lands.
 import { emitPolygonWgsl } from '../shader-dsl/shaders/polygon'
+import { Node, vec4fT } from '../shader-dsl/core/ir'
 // Phase 2.5 US-004 — extracts the WGSL string from a NodeLike
-// `fillExpr` / `strokeExpr` until US-008 makes the polygon DSL composer
-// accept Node values directly and the back-compat adapter is deleted.
+// `fillExpr` / `strokeExpr` for the splice-point lookup in the variant-
+// bearing path (the composer emits the same WGSL via wgsl.ts:emitExpr;
+// nodeToWgslString is the compiler-side copy of that emit, kept until
+// US-008's runtime rewire deletes the _back-compat shim).
 import { nodeToWgslString } from '@xgis/compiler'
 export {
   POLYGON_SHADER_SOURCE,
@@ -57,66 +62,100 @@ export {
 } from './renderer-shaders'
 
 /**
- * Build a specialized WGSL shader by injecting variant's preamble and expressions.
+ * Build a specialized WGSL shader for a polygon variant. Routes through the
+ * polygon DSL composer (shader-dsl/shaders/polygon.ts):
+ *
+ *   - `variant.fillExpr` / `strokeExpr` Nodes flow into the composer as
+ *     ShaderVariantInfo.{fillExpr,strokeExpr}; the composer's placeholder
+ *     Stmt swap injects them into fs_fill / fs_stroke at the marker site.
+ *   - `variant.needsFeatureBuffer` toggles the @group(0) @binding(1)
+ *     feat_data storage binding the composer emits.
+ *   - `variant.preamble` (still string-typed in the compiler-side
+ *     ShaderVariant — Partial<ModuleDecl> migration deferred to PR-C)
+ *     splices into the composer output after the @group(0) @binding(6)
+ *     sprite_samp declaration, matching the legacy
+ *     POLYGON_SHADER_SOURCE.replace(@group(0) @binding(0)) insertion
+ *     position (WGSL ignores declaration order, so the absolute position
+ *     doesn't matter for correctness — only the binding numbers do).
+ *   - `variant.fillPreamble` / `strokePreamble` strings (the categorical-
+ *     encoder's `var _mcSS = ...; if (...) { _mcSS = ...; }` chain etc.)
+ *     splice immediately before the composer's fill-return / stroke-return
+ *     assign in fs_fill / fs_stroke. The composer emits the assign as
+ *     `out.color = <fillExpr-wgsl>;` using runtime wgsl.ts:emitExpr;
+ *     nodeToWgslString is the compiler-side copy of that emit — both
+ *     produce byte-identical WGSL for the same Expr, so the splice point
+ *     resolves deterministically.
  */
 function buildShader(variant?: ShaderVariantInfo | null): string {
-  // Strip (or inject) the pick template markers BEFORE any other substitution
-  // so variant pipelines see the same conditional output as the default path.
-  // Default build (PICK=false) replaces both markers with empty strings so
-  // the resulting WGSL is byte-identical to the pre-picking shader.
-  const applyPick = (src: string): string => src
-    .replace(/__PICK_FIELD__/g, isPickEnabled() ? '@location(1) @interpolate(flat) pick: vec2<u32>,' : '')
-    .replace(/__PICK_WRITE__/g, isPickEnabled() ? 'out.pick = vec2<u32>(input.feat_id, u.pick_id);' : '')
-
   // Default-uniform path (variant absent OR variant carries no preamble +
-  // no feat_buffer) routes through the polygon DSL composer with a null
-  // ShaderVariantInfo. The composer substitutes the legacy
-  // POLYGON_SHADER_SOURCE:565 / 780 default-uniform assigns into the
-  // fill-return / stroke-return placeholder Stmts in fs_fill / fs_stroke.
-  // applyPick is bypassed — the composer's `pickEnabled` flag drives the
-  // pick-attachment field + write directly (replaces the old __PICK_FIELD__
-  // / __PICK_WRITE__ regex markers).
-  if (!variant || (!variant.preamble && !variant.needsFeatureBuffer)) return emitPolygonWgsl(null, isPickEnabled())
-
-  let shader = POLYGON_SHADER_SOURCE
-  const insertPoint = '@group(0) @binding(0) var<uniform> u: Uniforms;'
-
-  // Insert storage buffer declaration for per-feature data
-  let insertions = ''
-  if (variant.needsFeatureBuffer) {
-    insertions += '\n@group(0) @binding(1) var<storage, read> feat_data: array<f32>;\n'
+  // no feat_buffer) — the composer's null-variant emit substitutes the
+  // POLYGON_SHADER_SOURCE:565 / 780 default-uniform assigns.
+  if (!variant || (!variant.preamble && !variant.needsFeatureBuffer)) {
+    return emitPolygonWgsl(null, isPickEnabled())
   }
 
-  // Insert preamble (const declarations)
+  // Variant-bearing path — feed Node-typed exprs + needsFeatureBuffer into
+  // the composer. preamble + fillPreamble + strokePreamble strings splice
+  // post-emit until the per-idiom Partial<ModuleDecl> / Stmt[] migration
+  // closes them out in PR-C.
+  const fillExprNode =
+    variant.fillExpr && !variant.fillIsDefault
+      ? new Node<'vec4<f32>'>(variant.fillExpr.expr)
+      : null
+  const strokeExprNode =
+    variant.strokeExpr && !variant.strokeIsDefault
+      ? new Node<'vec4<f32>'>(variant.strokeExpr.expr)
+      : null
+  // ShaderVariantInfo.fillExpr expects Node<'vec4<f32>'>; the runtime Node
+  // class carries the same {op:'construct'|...} Expr shape that the
+  // compiler-side NodeLike captures, so the constructor call is the bridge.
+  void vec4fT
+  let wgsl = emitPolygonWgsl(
+    {
+      preamble: null,
+      fillExpr: fillExprNode,
+      strokeExpr: strokeExprNode,
+      fillPreamble: null,
+      strokePreamble: null,
+      needsFeatureBuffer: variant.needsFeatureBuffer,
+    },
+    isPickEnabled(),
+  )
+
+  // Splice variant.preamble (string) after the composer's last fixed
+  // binding (@group(0) @binding(6) sprite_samp). The line is emitted
+  // exactly once with no leading indent — match on the unindented form
+  // so the splice resolves deterministically.
   if (variant.preamble) {
-    insertions += '\n// ── Specialized constants ──\n' + variant.preamble + '\n'
+    const spriteSampMatch = wgsl.match(/^@group\(0\) @binding\(6\) [^\n]*\n/m)
+    if (spriteSampMatch && spriteSampMatch.index !== undefined) {
+      const insertAt = spriteSampMatch.index + spriteSampMatch[0].length
+      wgsl = wgsl.slice(0, insertAt)
+        + '\n// ── Specialized constants ──\n'
+        + variant.preamble
+        + '\n'
+        + wgsl.slice(insertAt)
+    }
   }
 
-  if (insertions) {
-    shader = shader.replace(insertPoint, insertPoint + insertions)
+  // Splice fillPreamble (string) before the variant fill-return assign.
+  // The composer's fill-return assign is `  out.color = <wgsl>;` with the
+  // standard 2-space body indent; matching on the leading whitespace +
+  // exact assign keeps the splice unambiguous (fs_oit_translucent /
+  // fs_fill_pattern / fs_fill_extrude all assign out.color too but with
+  // different RHS Exprs, so the variantFillExpr-bound match is unique).
+  if (variant.fillExpr && !variant.fillIsDefault && variant.fillPreamble) {
+    const fillExprStr = nodeToWgslString(variant.fillExpr)
+    const assign = `out.color = ${fillExprStr};`
+    wgsl = wgsl.replace(assign, variant.fillPreamble + '\n  ' + assign)
+  }
+  if (variant.strokeExpr && !variant.strokeIsDefault && variant.strokePreamble) {
+    const strokeExprStr = nodeToWgslString(variant.strokeExpr)
+    const assign = `out.color = ${strokeExprStr};`
+    wgsl = wgsl.replace(assign, variant.strokePreamble + '\n  ' + assign)
   }
 
-  // Replace fragment color assignments (feat_data indexing is inlined in
-  // expressions). The log-depth write after this assignment is untouched.
-  // Phase 2.5 US-002 — replaced the legacy default-uniform string
-  // compare on fillExpr with the typed `fillIsDefault` sentinel. Once
-  // US-004 migrates `fillExpr` to `Node<vec4<f32>> | null` the string
-  // compare no longer typechecks but `!variant.fillIsDefault` is
-  // stable across both the string and Node representations.
-  // Phase 2.5 US-004 — fillExpr / strokeExpr are now NodeLike values
-  // (or null for the default-uniform placeholder). Extract the WGSL
-  // string via the back-compat adapter until US-008 makes the polygon
-  // DSL composer consume Node values directly.
-  if (variant.fillExpr && !variant.fillIsDefault) {
-    const matchCode = (variant as any).fillPreamble ? `${(variant as any).fillPreamble}  ` : ''
-    shader = shader.replace(FILL_RETURN_MARKER, `${matchCode}out.color = ${nodeToWgslString(variant.fillExpr)};`)
-  }
-  if (variant.strokeExpr && !variant.strokeIsDefault) {
-    const matchCode = (variant as any).strokePreamble ? `${(variant as any).strokePreamble}  ` : ''
-    shader = shader.replace(STROKE_RETURN_MARKER, `${matchCode}out.color = ${nodeToWgslString(variant.strokeExpr)};`)
-  }
-
-  return applyPick(shader)
+  return wgsl
 }
 
 // ═══ Show command (parsed from AST) ═══
