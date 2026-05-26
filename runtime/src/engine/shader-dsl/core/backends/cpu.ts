@@ -300,6 +300,15 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
         }
         break
       }
+      case 'placeholder': {
+        // Phase 2.5 US-007 — the polygon composer (emitPolygonWgsl)
+        // MUST swap every placeholder Stmt before emit. If one reaches
+        // CPU eval, the composer forgot to splice — fail loudly rather
+        // than silently no-op (the WGSL backend emits a defensive
+        // comment, but on CPU there's no analogue and a silent
+        // missing-return is much harder to localise).
+        throw new Error(`shader-dsl/cpu: placeholder Stmt reached CPU backend — composer forgot to splice tag=${s.tag}`)
+      }
     }
   }
   return NORMAL

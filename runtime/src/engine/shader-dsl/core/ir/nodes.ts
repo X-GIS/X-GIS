@@ -49,6 +49,17 @@ export type Stmt =
   | { readonly s: 'break' }
   | { readonly s: 'continue' }
   | { readonly s: 'discard' }
+  // Phase 2.5 US-007 — composer-swap marker. The polygon DSL module
+  // (shaders/polygon.ts) lays down a placeholder Stmt at each
+  // variant-injection site (`fill-return` / `stroke-return`); the
+  // composer (emitPolygonWgsl) walks the cloned module and replaces
+  // each placeholder with the variant's fill-/stroke- return expr.
+  // emitStmt emits a defensive `// __placeholder: ${tag}` comment if
+  // a placeholder leaks past the composer; the CPU backend throws
+  // (the comment would silently no-op a missing return). The
+  // lowerModule pre-emit pass treats placeholder as a leaf — no
+  // matchExpr lowering descends into it.
+  | { readonly s: 'placeholder'; readonly tag: string }
 
 // ── Module-level declarations ──
 

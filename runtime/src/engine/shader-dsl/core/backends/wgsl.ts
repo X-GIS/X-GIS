@@ -99,6 +99,14 @@ function emitStmt(s: Stmt, depth: number): string {
       const update = forHeader(s.update)
       return `${p}for (${init}; ${emitExpr(s.cond)}; ${update}) {\n${emitBody(s.body, depth + 1)}\n${p}}`
     }
+    case 'placeholder': {
+      // Phase 2.5 US-007 — emit a defensive WGSL comment if a
+      // placeholder Stmt leaks past the polygon composer. Comments
+      // are no-ops, so the WGSL still parses; the missing return
+      // surfaces as a runtime no-op which is easier to localise
+      // than a parser failure mid-shader.
+      return `${p}// __placeholder: ${s.tag}`
+    }
     case 'switch': {
       const lines: string[] = [`${p}switch ${emitExpr(s.scrut)} {`]
       for (const c of s.cases) {

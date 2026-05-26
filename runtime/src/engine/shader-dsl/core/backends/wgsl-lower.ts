@@ -192,6 +192,7 @@ function walkStmtExprs(s: Stmt, visit: (e: Expr) => Expr): Stmt {
     case 'switch':  return { ...s, scrut: visit(s.scrut) }
     case 'break':
     case 'continue':
-    case 'discard': return s
+    case 'discard':
+    case 'placeholder': return s // Phase 2.5 US-007 — leaf, no sub-Expr to lower.
   }
 }
