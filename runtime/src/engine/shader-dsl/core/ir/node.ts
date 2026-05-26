@@ -88,6 +88,23 @@ export class Node<K extends string = string> {
   and(o: Node<'bool'>): Node<'bool'> { return new Node<'bool'>({ op: 'logical', type: boolT, lop: '&&', a: this.expr, b: o.expr }) }
   or(o: Node<'bool'>): Node<'bool'> { return new Node<'bool'>({ op: 'logical', type: boolT, lop: '||', a: this.expr, b: o.expr }) }
 
+  /** Bitwise ops on u32 / i32. Number literals auto-lift to the LHS's scalar
+   *  type so `flags.bitAnd(1)` emits `flags & 1u` for a u32 flags (the WGSL
+   *  rejects mixed-scalar bitwise — typed lifting keeps emit correct). */
+  private bitBin(bop: BinOp, o: NodeLike): Node {
+    const t = this.type
+    if (t.kind !== 'scalar' || (t.scalar !== 'u32' && t.scalar !== 'i32')) {
+      throw new Error(`shader-dsl: bitwise ${bop} requires u32/i32 LHS, got ${typeKey(t)}`)
+    }
+    const bn: Node = typeof o === 'number' ? (t.scalar === 'u32' ? u32(o) : i32(o)) : o
+    return new Node({ op: 'binop', type: t, bop, a: this.expr, b: bn.expr })
+  }
+  bitAnd(o: Node<ScalarKey> | number): Node<K> { return this.bitBin('&', o) as Node<K> }
+  bitOr(o: Node<ScalarKey> | number): Node<K> { return this.bitBin('|', o) as Node<K> }
+  bitXor(o: Node<ScalarKey> | number): Node<K> { return this.bitBin('^', o) as Node<K> }
+  shl(o: Node<ScalarKey> | number): Node<K> { return this.bitBin('<<', o) as Node<K> }
+  shr(o: Node<ScalarKey> | number): Node<K> { return this.bitBin('>>', o) as Node<K> }
+
   /** Vector component access — `.x`/`.y`/`.z`/`.w` → elem scalar. */
   comp(field: 'x' | 'y' | 'z' | 'w'): Node<ElemKey<K>> {
     const t = this.type

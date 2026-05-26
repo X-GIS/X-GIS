@@ -43,6 +43,15 @@ function scalarBin(bop: BinOp, a: number, b: number): number {
     case '*': return a * b
     case '/': return a / b
     case '%': return a % b
+    // Bitwise — JS `& | ^ <<` produce int32; `>>> 0` normalises to nonnegative
+    // u32 so cpu values stay in the unsigned range the shader expects. `>>`
+    // uses JS `>>>` (logical shift) — point's per-feature flag dispatch is all
+    // u32, and the codebase has no i32-arithmetic-shift use case.
+    case '&': return (a & b) >>> 0
+    case '|': return (a | b) >>> 0
+    case '^': return (a ^ b) >>> 0
+    case '<<': return (a << b) >>> 0
+    case '>>': return a >>> b
   }
 }
 

@@ -9,7 +9,7 @@ import type { ShaderType } from './types'
 
 // ── Expression nodes ──
 
-export type BinOp = '+' | '-' | '*' | '/' | '%'
+export type BinOp = '+' | '-' | '*' | '/' | '%' | '&' | '|' | '^' | '<<' | '>>'
 export type CmpOp = '<' | '>' | '<=' | '>=' | '==' | '!='
 export type LogOp = '&&' | '||'
 

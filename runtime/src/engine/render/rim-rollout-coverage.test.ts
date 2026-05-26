@@ -12,7 +12,7 @@ import {
 } from './renderer'
 import { WGSL_PROJECTION_FNS } from '../shaders/projection'
 import { readFileSync } from 'fs'
-import { emitRasterWgsl } from '../shader-dsl'
+import { emitRasterWgsl, emitPointWgsl } from '../shader-dsl'
 import { join } from 'path'
 
 function readShaderSource(relPath: string): string {
@@ -36,9 +36,9 @@ describe('rim_alpha rollout coverage', () => {
 
   it('point shader passes rim_a flat varying and applies it in fs_point', () => {
     // WGSL moved to point-renderer-shaders.ts (renderer re-exports POINT_SHADER).
-    const src = readShaderSource('point-renderer-shaders.ts')
+    const src = emitPointWgsl()
     expect(src).toContain('point_rim_alpha')
-    expect(src).toContain('color.a = color.a * in.rim_a')
+    expect(src).toContain('color.a *= in.rim_a')
   })
 
   it('raster shader applies smoothstep rim fade in fs_tile', () => {
