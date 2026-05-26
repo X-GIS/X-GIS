@@ -1,4 +1,4 @@
-// baseline: 8e8c4c793ea935f237e5c44db68bb95a9519f027
+// baseline: e5eb18c075a4db6174bd78d3a3ba26f264ecc562
 // fixture: positron-constant
 // variant.key: __bare-pick0__
 // pick: false
