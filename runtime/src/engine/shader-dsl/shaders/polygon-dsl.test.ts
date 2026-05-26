@@ -49,6 +49,19 @@ describe('emitPolygonWgsl — skeleton', () => {
     expect(wgsl).toContain('@fragment')
   })
 
+  it('emits vs_main_quantized vertex entry with unorm16-packed pos_raw attribute', () => {
+    const wgsl = emitPolygonWgsl(null, false)
+    expect(wgsl).toContain('fn vs_main_quantized')
+    // pos_raw is the packed @location(0) vec2<u32>; feature_id stays at
+    // location 2 (no @location(1) in the quantized path).
+    expect(wgsl).toMatch(/@location\(0\)[^,]+pos_raw\s*:\s*vec2<u32>/)
+    // 0x8000 is_top bit + 0x7FFF position-quanta mask — invariants the
+    // upload-side mesh generator depends on. The WGSL backend emits u32
+    // literals as decimal with `u` suffix (32768u / 32767u).
+    expect(wgsl).toContain('32768u')
+    expect(wgsl).toContain('32767u')
+  })
+
   it('emits vs_main vertex entry with DSFUN-split pos_h + pos_l attributes', () => {
     const wgsl = emitPolygonWgsl(null, false)
     expect(wgsl).toContain('fn vs_main')
