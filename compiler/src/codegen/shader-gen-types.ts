@@ -116,6 +116,13 @@ export interface ShaderVariant {
 export interface ColorResult {
   preamble: string[]
   isConst: boolean
+  /** Phase 2.5 US-005 — set by arms that have migrated to DSL Node
+   *  construction. When present, the shader-gen top-level uses this
+   *  via composeFillVec4(nodeExpr, opacity.nodeExpr) instead of the
+   *  legacy string-emit + wgslRaw path. Each per-idiom commit lands
+   *  this for one more arm; once every arm sets it, the legacy
+   *  `expr: string` field can be removed. */
+  nodeExpr?: NodeLike<'vec4<f32>'>
   /** Index into `palette.colorGradients` when this result was routed
    *  through the textureSampleLevel path. Undefined for every legacy
    *  path (constant, time-interpolated, data-driven, conditional). */
@@ -138,6 +145,9 @@ export interface OpacityResult {
   needsUniform: boolean
   needsFeatures: boolean
   expr: string
+  /** Phase 2.5 US-005 — set by arms that have migrated to DSL Node
+   *  construction. Mirrors ColorResult.nodeExpr — see that doc. */
+  nodeExpr?: NodeLike<'f32'>
   /** Set when this opacity is `zoom-interpolated` AND a matching
    *  scalar gradient was collected into the palette pool. Variant
    *  caller pushes onto `paletteScalarGradients` so the runtime can

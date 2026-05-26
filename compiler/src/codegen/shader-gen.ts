@@ -17,7 +17,10 @@ import {
 import type { ShaderVariant, ColorResult, OpacityResult } from './shader-gen-types'
 import { wgslRaw } from './_back-compat/node-to-wgsl-string'
 import type { NodeLike } from './_back-compat/node-to-wgsl-string'
-import { composeFillVec4, constRefVec4, refF32 } from './_util/node-builders'
+import {
+  composeFillVec4, constRefVec4, refF32,
+  toU32, u32Lit, u32Mod, arrayIndex, featDataField,
+} from './_util/node-builders'
 import {
   buildFieldMap,
   matchArmsKey,
@@ -107,8 +110,17 @@ export function generateShaderVariant(
   // pixel-survey is the integration gate.
   const fillExprStr = node.fill.kind === 'none' ? 'u.fill_color' : buildFillExpr(fillResult, opacityResult)
   const strokeExprStr = buildStrokeExpr(strokeResult, opacityResult)
-  const fillExprNode = tryComposeFillNodeFromVarrefs(fillResult, opacityResult)
-  const strokeExprNode = tryComposeFillNodeFromVarrefs(strokeResult, opacityResult)
+  // US-005 dispatch order: prefer the per-idiom arm's `nodeExpr`
+  // (lands one bucket at a time), then the generic varref-pair
+  // pattern, finally fall back to wgslRaw(legacy string). Each
+  // ColorResult / OpacityResult arm that migrates sets `.nodeExpr`
+  // and the legacy string path quietly retreats.
+  const fillExprNode = fillResult.nodeExpr && opacityResult.nodeExpr
+    ? composeFillVec4(fillResult.nodeExpr, opacityResult.nodeExpr)
+    : tryComposeFillNodeFromVarrefs(fillResult, opacityResult)
+  const strokeExprNode = strokeResult.nodeExpr && opacityResult.nodeExpr
+    ? composeFillVec4(strokeResult.nodeExpr, opacityResult.nodeExpr)
+    : tryComposeFillNodeFromVarrefs(strokeResult, opacityResult)
   const fillExpr: NodeLike<'vec4<f32>'> | null =
     node.fill.kind === 'none' ? null
       : (fillExprNode ?? wgslRaw<'vec4<f32>'>(fillExprStr))
@@ -226,10 +238,29 @@ function processColorValue(
     if (ast.kind === 'FnCall' && ast.callee.kind === 'Identifier' && ast.callee.name === 'categorical') {
       const fieldExpr = ast.args[0]
       const wgsl = exprToWGSL(fieldExpr, fieldMap, fnEnv)
+      // Phase 2.5 US-005 idiom #3 (categorical) — when the field
+      // argument is a direct FieldAccess / Identifier (the
+      // overwhelmingly common shape; OFM landuse / road class etc.),
+      // build a real Node via featDataField + toU32 + u32Mod +
+      // arrayIndex(CAT_PALETTE). Falls back to wgslRaw for the
+      // arithmetic / builtin-call AST sub-shapes — those need the
+      // full DataExpr->Node converter (deferred to a later commit).
+      const fieldName = (fieldExpr && (fieldExpr.kind === 'Identifier'
+        ? fieldExpr.name
+        : fieldExpr.kind === 'FieldAccess' ? fieldExpr.field : null)) ?? null
+      const fieldNode = fieldName ? featDataField(fieldName, fieldMap) : null
+      const nodeExpr = fieldNode
+        ? arrayIndex<'vec4<f32>'>(
+            constRefVec4('CAT_PALETTE') as NodeLike<string>,
+            u32Mod(toU32(fieldNode), u32Lit(20)),
+            'vec4<f32>',
+          )
+        : undefined
       return {
         preamble: [generatePaletteWGSL()],
         isConst: false, needsFeatures: true, isVec4: true,
         expr: `CAT_PALETTE[u32(${wgsl}) % 20u]`,
+        nodeExpr,
       }
     }
 
@@ -390,6 +421,9 @@ function processOpacity(
       needsUniform: false,
       needsFeatures: false,
       expr: 'OPACITY',
+      // Phase 2.5 US-005 — Node-emit available for constant-opacity
+      // (the most common path).
+      nodeExpr: refF32('OPACITY'),
     }
   }
 
