@@ -142,12 +142,16 @@ export const u32Mod = (a: NodeLike<'u32'>, b: NodeLike<'u32'>) => u32Binop('%', 
  *  generic. The elemKey is opaque to the compiler-side helper — the
  *  caller annotates the result type. */
 export function arrayIndex<E extends string>(base: NodeLike<string>, idx: NodeLike<'u32'> | NodeLike<'i32'>, elemTypeKey: E): NodeLike<E> {
-  // Synthesize a minimal ShaderType for the element; this is opaque
-  // here because the runtime emit only cares about the index op shape,
-  // not the elem type. Use vec4f as the default for the most common
-  // case (palette / categorical color arrays). Callers needing a
-  // different elem can build the structural index op directly.
-  const elemT = elemTypeKey === 'vec4<f32>' ? VEC4F_T : F32_T
+  // Synthesize a minimal ShaderType for the element. Use vec4f as
+  // the default for the palette / categorical color array case;
+  // u32 / i32 for the compute output / feat_data lookup cases;
+  // f32 otherwise. Runtime emit cares about index op shape, not
+  // the elem type, so the simplification is safe.
+  const elemT =
+    elemTypeKey === 'vec4<f32>' ? VEC4F_T :
+    elemTypeKey === 'u32' ? U32_T :
+    elemTypeKey === 'i32' ? I32_T :
+    F32_T
   return { expr: { op: 'index', type: elemT, base: base.expr, idx: idx.expr } } as NodeLike<E>
 }
 
@@ -237,4 +241,18 @@ export function textureSampleLevelVec4(
   return {
     expr: { op: 'call', type: VEC4F_T, fn: 'textureSampleLevel', args: [tex.expr, sampler.expr, uv.expr, lod.expr] },
   } as NodeLike<'vec4<f32>'>
+}
+
+/** unpack4x8unorm(u32) -> vec4<f32> builtin (compute output read path). */
+export function unpack4x8unormVec4(u: NodeLike<'u32'>): NodeLike<'vec4<f32>'> {
+  return {
+    expr: { op: 'call', type: VEC4F_T, fn: 'unpack4x8unorm', args: [u.expr] },
+  } as NodeLike<'vec4<f32>'>
+}
+
+/** storage<read> array<u32> binding ref (compute output buffers). */
+export function varRefArrayU32(name: string): NodeLike<'array<u32>'> {
+  return {
+    expr: { op: 'varref', type: { kind: 'array', elem: U32_T }, name },
+  } as NodeLike<'array<u32>'>
 }

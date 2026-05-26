@@ -53,7 +53,7 @@
 
 import type { ShaderVariant } from './shader-gen'
 import type { ComputeVariantAddendum } from './compute-variant'
-import { wgslRaw } from './_back-compat/node-to-wgsl-string'
+import { emitComputeOutputReadExprNode } from './compute-output-binding'
 
 /** Merge a legacy ShaderVariant with the compute-output addendum.
  *  Returns a new ShaderVariant — original is not mutated. */
@@ -101,12 +101,14 @@ export function mergeComputeAddendumIntoVariant(
     ...variant,
     key,
     preamble,
-    // Phase 2.5 US-004 — addendum.fillExpr / strokeExpr are still raw
-    // WGSL strings (internal compiler-side type); wrap via wgslRaw to
-    // satisfy the Node-typed ShaderVariant fields. US-006 retargets
-    // the compute-variant emit lane to construct Node values directly.
-    fillExpr: hasFill ? wgslRaw<'vec4<f32>'>(addendum.fillExpr!) : variant.fillExpr,
-    strokeExpr: hasStroke ? wgslRaw<'vec4<f32>'>(addendum.strokeExpr!) : variant.strokeExpr,
+    // Phase 2.5 US-006 — construct the Node directly from the
+    // ComputeOutputBindingSpec rather than wrapping the addendum's
+    // string via wgslRaw. The Node form emits the equivalent
+    // 'unpack4x8unorm(compute_out_fill[input.feat_id])' WGSL at the
+    // marker substitution site, semantic-equivalent to the legacy
+    // string emit under AC6 paren-density allowance.
+    fillExpr: hasFill ? emitComputeOutputReadExprNode(addendum.bindings.find(b => b.paintAxis === 'fill')!) : variant.fillExpr,
+    strokeExpr: hasStroke ? emitComputeOutputReadExprNode(addendum.bindings.find(b => b.paintAxis === 'stroke-color')!) : variant.strokeExpr,
     // Phase 2.5 US-002 — when the compute kernel takes over the axis,
     // the addendum produces a non-default fillExpr / strokeExpr
     // (`bindingRefs[i]` etc.) → the default-sentinel flag must clear
