@@ -106,3 +106,47 @@ export function composeFillVec4(color: NodeLike<'vec4<f32>'>, opacity: NodeLike<
     },
   } as NodeLike<'vec4<f32>'>
 }
+
+// ── Arithmetic / casts (US-005 prep for the data-driven / categorical idioms) ──
+
+/** Cast to u32. Mirrors runtime `toU32` — wraps the input Expr in a
+ *  `u32(...)` call which the wgsl backend emits verbatim. */
+export function toU32(x: NodeLike<string>): NodeLike<'u32'> {
+  return { expr: { op: 'call', type: U32_T, fn: 'u32', args: [x.expr] } } as NodeLike<'u32'>
+}
+
+/** Cast to i32. */
+export function toI32(x: NodeLike<string>): NodeLike<'i32'> {
+  return { expr: { op: 'call', type: I32_T, fn: 'i32', args: [x.expr] } } as NodeLike<'i32'>
+}
+
+/** f32 binop helper — produces `(a <bop> b)` as a Node. */
+function f32Binop(bop: '+' | '-' | '*' | '/' | '%', a: NodeLike<'f32'>, b: NodeLike<'f32'>): NodeLike<'f32'> {
+  return { expr: { op: 'binop', type: F32_T, bop, a: a.expr, b: b.expr } } as NodeLike<'f32'>
+}
+
+/** u32 binop helper. */
+function u32Binop(bop: '+' | '-' | '*' | '/' | '%', a: NodeLike<'u32'>, b: NodeLike<'u32'>): NodeLike<'u32'> {
+  return { expr: { op: 'binop', type: U32_T, bop, a: a.expr, b: b.expr } } as NodeLike<'u32'>
+}
+
+export const f32Add = (a: NodeLike<'f32'>, b: NodeLike<'f32'>) => f32Binop('+', a, b)
+export const f32Sub = (a: NodeLike<'f32'>, b: NodeLike<'f32'>) => f32Binop('-', a, b)
+export const f32Mul = (a: NodeLike<'f32'>, b: NodeLike<'f32'>) => f32Binop('*', a, b)
+export const f32Div = (a: NodeLike<'f32'>, b: NodeLike<'f32'>) => f32Binop('/', a, b)
+export const u32Add = (a: NodeLike<'u32'>, b: NodeLike<'u32'>) => u32Binop('+', a, b)
+export const u32Mul = (a: NodeLike<'u32'>, b: NodeLike<'u32'>) => u32Binop('*', a, b)
+export const u32Mod = (a: NodeLike<'u32'>, b: NodeLike<'u32'>) => u32Binop('%', a, b)
+
+/** Array index access (`base[idx]`). Returns a Node of the elemKey
+ *  generic. The elemKey is opaque to the compiler-side helper — the
+ *  caller annotates the result type. */
+export function arrayIndex<E extends string>(base: NodeLike<string>, idx: NodeLike<'u32'> | NodeLike<'i32'>, elemTypeKey: E): NodeLike<E> {
+  // Synthesize a minimal ShaderType for the element; this is opaque
+  // here because the runtime emit only cares about the index op shape,
+  // not the elem type. Use vec4f as the default for the most common
+  // case (palette / categorical color arrays). Callers needing a
+  // different elem can build the structural index op directly.
+  const elemT = elemTypeKey === 'vec4<f32>' ? VEC4F_T : F32_T
+  return { expr: { op: 'index', type: elemT, base: base.expr, idx: idx.expr } } as NodeLike<E>
+}

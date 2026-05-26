@@ -17,6 +17,10 @@ import {
   constRefVec4, varRefVec4, refF32,
   vec4f, vec4fFromRgba,
   composeFillVec4,
+  toU32, toI32,
+  f32Add, f32Sub, f32Mul, f32Div,
+  u32Add, u32Mul, u32Mod,
+  arrayIndex,
 } from './node-builders'
 
 describe('node-builders — literals', () => {
@@ -62,6 +66,45 @@ describe('node-builders — vec4 construct', () => {
   it('vec4fFromRgba is the tuple-shaped shortcut over vec4f', () => {
     const v = vec4fFromRgba([0.78, 0.91, 0.74, 1])
     expect(nodeToWgslString(v)).toBe('vec4<f32>(0.78, 0.91, 0.74, 1.0)')
+  })
+})
+
+describe('node-builders — arithmetic + casts (US-005 prep)', () => {
+  it('toU32 / toI32 emit the standard WGSL cast fn call', () => {
+    expect(nodeToWgslString(toU32(f32Lit(1.5)))).toBe('u32(1.5)')
+    expect(nodeToWgslString(toI32(f32Lit(2.7)))).toBe('i32(2.7)')
+  })
+
+  it('f32Add / Sub / Mul / Div emit parenthesised binops', () => {
+    expect(nodeToWgslString(f32Add(f32Lit(1), f32Lit(2)))).toBe('(1.0 + 2.0)')
+    expect(nodeToWgslString(f32Sub(f32Lit(3), f32Lit(1)))).toBe('(3.0 - 1.0)')
+    expect(nodeToWgslString(f32Mul(f32Lit(2), f32Lit(3)))).toBe('(2.0 * 3.0)')
+    expect(nodeToWgslString(f32Div(f32Lit(6), f32Lit(2)))).toBe('(6.0 / 2.0)')
+  })
+
+  it('u32Add / Mul / Mod emit with u32 literals', () => {
+    expect(nodeToWgslString(u32Add(u32Lit(1), u32Lit(2)))).toBe('(1u + 2u)')
+    expect(nodeToWgslString(u32Mul(u32Lit(3), u32Lit(4)))).toBe('(3u * 4u)')
+    expect(nodeToWgslString(u32Mod(u32Lit(7), u32Lit(20)))).toBe('(7u % 20u)')
+  })
+
+  it('arrayIndex emits base[idx]', () => {
+    const CAT_PALETTE = constRefVec4('CAT_PALETTE') as never
+    expect(nodeToWgslString(arrayIndex<'vec4<f32>'>(CAT_PALETTE, u32Mod(toU32(f32Lit(7)), u32Lit(20)), 'vec4<f32>'))).toBe(
+      'CAT_PALETTE[(u32(7.0) % 20u)]',
+    )
+  })
+
+  it('categorical pattern composes via the new arithmetic helpers', () => {
+    // CAT_PALETTE[u32(field_value) % 20u] — the legacy categorical
+    // emit shape. Composing structurally via the new helpers
+    // (without going through a string layer) verifies the full
+    // expression tree builds + emits cleanly.
+    const fieldValue = f32Lit(7) // surrogate for the data-driven field expression
+    const idx = u32Mod(toU32(fieldValue), u32Lit(20))
+    const palette = constRefVec4('CAT_PALETTE') as never
+    const sampled = arrayIndex<'vec4<f32>'>(palette, idx, 'vec4<f32>')
+    expect(nodeToWgslString(sampled)).toBe('CAT_PALETTE[(u32(7.0) % 20u)]')
   })
 })
 
