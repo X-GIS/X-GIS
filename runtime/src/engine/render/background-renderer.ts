@@ -36,73 +36,12 @@ import {
   OVERDRAW_DEPTH_STENCIL,
 } from '../debug-flags'
 import { BundleCache } from './bundle-cache'
+import { emitBgWgsl } from '../shader-dsl'
 
-// Marker-drift invariant export (renderer-shader-markers.test.ts).
-// Background shader uses three PICK tokens (PICK_FIELD,
-// PICK_OUT_FIELD, PICK_WRITE) — twice the surface area of the
-// polygon shader, twice the chance for a stale rename to drop a
-// token unnoticed.
-export const BG_SHADER_SOURCE: string = /* wgsl */ `
-struct U {
-  mvp: mat4x4<f32>,
-  cam_center: vec2<f32>,
-  _pad: vec2<f32>,
-  color: vec4<f32>,
-}
-@group(0) @binding(0) var<uniform> u: U;
-
-struct VOut {
-  @builtin(position) pos: vec4<f32>,
-  __PICK_FIELD__
-}
-
-// iter-196 — World-extent quad (was fullscreen clip-space).
-// Vertex emits the 4 corners of the Mercator world (clamped to
-// the ±85.051° lat band — anything past that is invalid Mercator
-// space and not rendered by the vector-tile pyramid either). The
-// quad gets projected via the camera MVP so it lands at the world
-// position MapLibre's tile-mesh background renders. Outside the
-// world band (e.g. above the horizon at z=0 + pitch where the
-// world only fills a fraction of the canvas) the canvas clear
-// value (now black per iter-196) shows through instead of the
-// style background colour — matching MapLibre's "no world here =
-// black" convention.
-const WORLD_MERC: f32 = 40075016.686;
-const MAX_Y: f32 = 20037508.34;
-
-@vertex
-fn vs(@builtin(vertex_index) idx: u32) -> VOut {
-  // 5-world-copy wide in X so the quad covers every visible world
-  // wrap at low zoom + bearing (matches iter-189's [-2..+2]
-  // visibleWorldCopies ceiling). Y stays at ±MAX_Y — the world
-  // ends at ±85.051° lat.
-  let X = WORLD_MERC * 2.5;
-  let Y = MAX_Y;
-  var p = array<vec2<f32>, 6>(
-    vec2<f32>(-X, -Y), vec2<f32>(X, -Y), vec2<f32>(-X, Y),
-    vec2<f32>(-X, Y), vec2<f32>(X, -Y), vec2<f32>(X, Y)
-  );
-  // Camera-relative position — MVP expects RTC coords (Mercator
-  // metres minus camera centre).
-  let local = p[idx] - u.cam_center;
-  var out: VOut;
-  out.pos = u.mvp * vec4<f32>(local, 0.0, 1.0);
-  return out;
-}
-
-struct FOut {
-  @location(0) color: vec4<f32>,
-  __PICK_OUT_FIELD__
-}
-
-@fragment
-fn fs(in: VOut) -> FOut {
-  var out: FOut;
-  out.color = u.color;
-  __PICK_WRITE__
-  return out;
-}
-`
+// The bg shader (world-extent quad + MVP + style fill colour) is now EMITTED
+// from the shader DSL: shader-dsl/background.ts. The former __PICK_*__ marker
+// variant is conditional DSL emission via emitBgWgsl(pickEnabled). buildPipeline
+// + buildPipelineOverdraw below call it.
 
 export class BackgroundRenderer {
   private device: GPUDevice
@@ -183,10 +122,7 @@ export class BackgroundRenderer {
    *  those change. */
   private buildPipeline(): GPURenderPipeline {
     const pickEnabled = isPickEnabled()
-    const code = BG_SHADER_SOURCE
-      .replace(/__PICK_FIELD__/g, pickEnabled ? '@location(0) @interpolate(flat) _pad: u32,' : '')
-      .replace(/__PICK_OUT_FIELD__/g, pickEnabled ? '@location(1) pick: vec2<u32>,' : '')
-      .replace(/__PICK_WRITE__/g, pickEnabled ? 'out.pick = vec2<u32>(0u, 0u);' : '')
+    const code = emitBgWgsl(pickEnabled)
     const module = this.device.createShaderModule({ code, label: 'bg-shader' })
     return this.device.createRenderPipeline({
       layout: this.device.createPipelineLayout({
@@ -233,11 +169,7 @@ export class BackgroundRenderer {
     // Reuse the same vertex shader; replace FS by appending the
     // shared overdraw FS. The BG shader's fs_main entry stays alive
     // but is unused in this pipeline.
-    const code = BG_SHADER_SOURCE
-      .replace(/__PICK_FIELD__/g, '')
-      .replace(/__PICK_OUT_FIELD__/g, '')
-      .replace(/__PICK_WRITE__/g, '')
-      + OVERDRAW_FS_SOURCE
+    const code = emitBgWgsl(false) + OVERDRAW_FS_SOURCE
     const module = this.device.createShaderModule({ code, label: 'bg-overdraw-shader' })
     return this.device.createRenderPipeline({
       layout: this.device.createPipelineLayout({

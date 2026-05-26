@@ -8,7 +8,7 @@ import type { LabelDef } from '@xgis/compiler'
 import { resolveNumberShape, resolveColorShape, resolveSteppedShape } from './render/paint-shape-resolve'
 import { hexToRgba } from './feature-helpers'
 import { WORLD_MERC } from './gpu/gpu-shared'
-import { projectWgsl, needsBackfaceCullWgsl } from './projection/projection-wgsl-mirror'
+import { projectWgsl, needsBackfaceCullWgsl } from './shader-dsl'
 import { mercatorYToLat } from './projection/projection'
 import { globeForward } from './projection/globe'
 

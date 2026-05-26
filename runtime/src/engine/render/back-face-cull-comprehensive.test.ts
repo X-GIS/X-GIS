@@ -25,7 +25,7 @@
 //      pass on all flat/cylindrical projections
 
 import { describe, expect, it } from 'vitest'
-import { cosC, needsBackfaceCullWgsl } from '../projection/projection-wgsl-mirror'
+import { cosC, needsBackfaceCullWgsl } from '../shader-dsl'
 
 const EARTH_R = 6378137
 const DEG2RAD = Math.PI / 180

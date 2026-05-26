@@ -10,12 +10,8 @@ import { describe, expect, it } from 'vitest'
 import {
   POLYGON_SHADER_SOURCE,
 } from './renderer'
-import { readFileSync } from 'fs'
-import { join } from 'path'
-
-function readShaderSource(relPath: string): string {
-  return readFileSync(join(__dirname, relPath), 'utf8')
-}
+import { WGSL_PROJECTION_FNS } from '../shaders/projection'
+import { emitRasterWgsl, emitPointWgsl, emitLineWgsl } from '../shader-dsl'
 
 describe('rim_alpha rollout coverage', () => {
   it('polygon shader (fs_fill / fs_stroke / fs_oit_translucent) calls polygon_rim_alpha', () => {
@@ -25,31 +21,29 @@ describe('rim_alpha rollout coverage', () => {
   })
 
   it('line shader calls line_rim_alpha in fs_line and fs_line_max', () => {
-    // WGSL moved to line-renderer-shaders.ts (renderer re-exports LINE_SHADER_SOURCE).
-    const src = readShaderSource('line-renderer-shaders.ts')
+    // WGSL is now emitted from shader-dsl/shaders/line.ts.
+    const src = emitLineWgsl(false)
     const occurrences = (src.match(/line_rim_alpha/g) ?? []).length
-    // 1 definition + 2 uses (fs_line + fs_line_max)
+    // 1 definition + 3 uses (fs_line + fs_line_pattern + fs_line_max).
     expect(occurrences).toBeGreaterThanOrEqual(3)
   })
 
   it('point shader passes rim_a flat varying and applies it in fs_point', () => {
     // WGSL moved to point-renderer-shaders.ts (renderer re-exports POINT_SHADER).
-    const src = readShaderSource('point-renderer-shaders.ts')
+    const src = emitPointWgsl()
     expect(src).toContain('point_rim_alpha')
-    expect(src).toContain('color.a = color.a * in.rim_a')
+    expect(src).toContain('color.a *= in.rim_a')
   })
 
   it('raster shader applies smoothstep rim fade in fs_tile', () => {
-    const src = readShaderSource('raster-renderer.ts')
+    const src = emitRasterWgsl(false)
     expect(src).toContain('smoothstep(0.0, 0.02, input.vis)')
-    expect(src).toContain('u.raster_params.x * rim')
+    expect(src).toContain('u.raster_params.x) * rim')
   })
 
-  it('rim_alpha function itself is defined in shaders/projection.ts', () => {
-    const src = readFileSync(
-      join(__dirname, '..', 'shaders', 'projection.ts'),
-      'utf8',
-    )
-    expect(src).toContain('fn rim_alpha(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>) -> f32')
+  it('rim_alpha function is emitted into WGSL_PROJECTION_FNS', () => {
+    // The projection block is now DSL-emitted (shader-dsl/projections.ts), so
+    // check the emitted string carries the fn — not the source file text.
+    expect(WGSL_PROJECTION_FNS).toContain('fn rim_alpha(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>) -> f32')
   })
 })

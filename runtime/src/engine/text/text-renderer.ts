@@ -19,6 +19,7 @@ import type { GlyphAtlasGPU } from './sdf/glyph-atlas-gpu'
 import { FrameArena } from '../gpu/frame-arena'
 import { bumpAlloc } from '../__profile__/alloc-counter'
 import type { TextDraw } from './text-renderer-types'
+import { emitTextWgsl } from '../shader-dsl'
 
 export type { TextDraw } from './text-renderer-types'
 
@@ -26,132 +27,12 @@ const VERTS_PER_GLYPH = 6  // two triangles
 const FLOATS_PER_VERT = 4  // posX, posY, uvX, uvY
 const FLOATS_PER_GLYPH = VERTS_PER_GLYPH * FLOATS_PER_VERT
 
-const TEXT_SHADER_WGSL = /* wgsl */ `
-struct Uniforms {
-  viewport: vec2<f32>,
-  fill_color: vec4<f32>,
-  halo_color: vec4<f32>,
-  halo_width: f32,         // 0 = no halo (SDF-byte units, [0,1])
-  halo_blur: f32,          // additional smoothstep half-width for halo
-  font_size_px: f32,       // physical-pixel glyph size (CSS-size × DPR)
-  _pad1: f32,
-}
-
-@group(0) @binding(0) var<uniform> u: Uniforms;
-@group(0) @binding(1) var atlas_tex: texture_2d<f32>;
-@group(0) @binding(2) var atlas_smp: sampler;
-
-struct VsOut {
-  @builtin(position) clip_pos: vec4<f32>,
-  @location(0) uv: vec2<f32>,
-}
-
-@vertex fn vs(
-  @location(0) pos_px: vec2<f32>,
-  @location(1) uv: vec2<f32>,
-) -> VsOut {
-  let ndc_x = (pos_px.x / u.viewport.x) * 2.0 - 1.0;
-  let ndc_y = 1.0 - (pos_px.y / u.viewport.y) * 2.0;
-  return VsOut(vec4<f32>(ndc_x, ndc_y, 0.0, 1.0), uv);
-}
-
-@fragment fn fs(in: VsOut) -> @location(0) vec4<f32> {
-  let sdf: f32 = textureSample(atlas_tex, atlas_smp, in.uv).r;
-  // Edge threshold for SDF -> alpha smoothstep. MapLibre's symbol_sdf
-  // uses buffer=192/256=0.75 + a per-glyph-size buffer_offset that
-  // shifts edge inward for smaller display sizes (small text appears
-  // bolder). X-GIS lacks the per-size shift; iter 109 settles at
-  // 0.72 -- between iter 106's 0.75 (matched MapLibre default but
-  // labels too thin per user) and iter 107's 0.7 (too bold + chunky
-  // per follow-up). 0.72 widens silhouette by ~1.4 SDF byte units
-  // per side vs MapLibre default, partially compensating for the
-  // missing per-size buffer_offset without overshooting into
-  // blocky-looking glyphs.
-  //
-  // Remaining smoothness gap (user report 2026-05-19 followup
-  // "현재 라벨 렌더링이 맵리브레와 비교했을때 부드럽게 보이지 않고"):
-  // 3x-crop visual inspection at positron-nyc-z14 shows X-GIS small
-  // labels (label_other 10-CSS-px italic) appear chunkier than
-  // MapLibre's even with this edge + a 0.7 fwidth AA band. The
-  // chunkiness isn't an AA-width issue -- it's vertex sub-pixel
-  // positioning + the PBF 24px native raster downsampled to ~10px
-  // display. Higher-resolution rasterisation or per-fragment gamma
-  // correction would close it; iter 109 leaves the trade-off
-  // documented for a follow-up.
-  // Iter 110: MapLibre-exact AA formula. Earlier fwidth-based AA
-  // (iter 106-109) produced a smoothstep half-width ~18x narrower
-  // than MapLibre's at typical 10-CSS-px labels -- the dominant
-  // cause of user-reported chunky/jagged labels. The fix replaces
-  // the screen-space-derivative AA with MapLibre's per-glyph-size
-  // formula (symbol_sdf.fragment.glsl line 24-42):
-  //   EDGE_GAMMA   = 0.105 / DPR
-  //   fontScale    = size_CSS / 24
-  //   gamma_scaled = EDGE_GAMMA / fontScale  (for non-pitched 2D)
-  //                = 0.105 * 24 / size_CSS
-  //                = 2.52 / size_CSS
-  // Substituting size_CSS = size_phys / DPR cancels DPR:
-  //   gamma_scaled = 2.52 / size_phys
-  // At label_other 10-CSS-px DPR=1: half-width = 0.252, which is
-  // ~12x wider than the prior 0.02 from 0.7*fwidth(sdf). Matches
-  // MapLibre byte-for-byte on non-pitched views.
-  //
-  // Edge restored to 0.75 (= 192/256, MapLibre default). The
-  // iter 107-109 edge=0.7/0.72 was a compensation for the missing
-  // wide AA band; with proper AA the glyph silhouette no longer
-  // needs the inward shift -- smoothstep covers a wide enough
-  // range around byte 192 that the alpha gradient lands at the
-  // correct half-byte for "boldness".
-  let edge: f32 = 0.75;
-  let soft: f32 = max(2.52 / max(u.font_size_px, 1.0), 1.0 / 255.0);
-
-  // Fill mask
-  let fill_a: f32 = smoothstep(edge - soft, edge + soft, sdf);
-
-  // Halo: extends halo_width SDF-byte units outward from the edge.
-  // halo_width is pre-converted from px to SDF-byte space by the
-  // renderer (which knows the rasterisation sdfRadius).
-  if (u.halo_width <= 0.0) {
-    return vec4<f32>(u.fill_color.rgb, u.fill_color.a * fill_a);
-  }
-
-  // Halo: SINGLE smoothstep at halo_edge — matches MapLibre's
-  // symbol_sdf.fragment.glsl (which renders halo as a separate pass
-  // underneath the fill, with halo alpha = 1 over the entire glyph
-  // region + the halo_width-wide outer band). X-GIS combines halo +
-  // fill in one fragment, so the (1 - fill_w) composite factor below
-  // masks the halo region that overlaps the fill — equivalent to
-  // MapLibre's two-pass setup.
-  //
-  // History: prior iter used min(outer, 1-inner) to create a flat-
-  // top ring. That was an attempt to fix a "halo nearly invisible"
-  // bug on Positron city labels — but the actual fix was the per-
-  // source haloK (text-renderer.ts:561 PBF vs allLocal). The ring
-  // formula deviates from MapLibre's single-smoothstep envelope,
-  // visible at higher halo-width values as a hard inner cutoff
-  // instead of MapLibre's smooth falloff.
-  let halo_edge: f32 = edge - u.halo_width;
-  // Iter 117: aa_halo = u.halo_blur + soft (SUM, not MAX).
-  // MapLibre symbol_sdf.fragment.glsl line 46 computes
-  //   gamma_halo = (halo_blur * 1.19 / SDF_PX + EDGE_GAMMA)
-  //                / (fontScale * gamma_scale)
-  // which after the per-DPR / per-fontScale algebra becomes
-  //   gamma_halo = halo_blur_term_in_sdf + soft
-  // where halo_blur_term_in_sdf is what X-GIS packs as
-  // u.halo_blur (= halo_blur_phys * 1.19 * 3 / size_phys) and
-  // soft is 2.52 / font_size_px (the per-glyph-size AA half-width).
-  // Pre-iter-117 used max(halo_blur, soft) which underestimated
-  // AA spread when both terms were present, narrowing halo AA so
-  // halo visual bulking absent and fill alone perceived as too thin
-  // (user-reported on OFM Positron 8.88/36.55/127.16 Seoul label).
-  let aa_halo: f32 = u.halo_blur + soft;
-  let halo_a: f32 = smoothstep(halo_edge - aa_halo, halo_edge + aa_halo, sdf);
-  // Composite: halo behind, fill in front. (1 - fill_w) factor lets
-  // a partially-transparent text-fill show the halo through it.
-  let fill_w = u.fill_color.a * fill_a;
-  let halo_w = u.halo_color.a * halo_a * (1.0 - fill_w);
-  return vec4<f32>(u.fill_color.rgb * fill_w + u.halo_color.rgb * halo_w, fill_w + halo_w);
-}
-`
+// The SDF-text shader (px->NDC quad + MapLibre symbol_sdf fill/halo fragment)
+// is EMITTED from the shader DSL: shader-dsl/shaders/text.ts (emitTextWgsl), used
+// at createShaderModule below. No fwidth -- text uses a per-glyph-size analytic AA
+// half-width (soft = 2.52 / font_size_px). See packUniforms below for the matching
+// halo px->SDF-byte conversion.
+const TEXT_SHADER_WGSL = emitTextWgsl()
 
 /** Uniform buffer slot stride — 256 B safely exceeds every WebGPU
  *  device's minUniformBufferOffsetAlignment (typical = 256, lower

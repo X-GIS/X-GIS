@@ -1,0 +1,416 @@
+// ═══ Shader DSL — point (SDF marker) shader (Phase 2) ═══
+//
+// Re-authors render/point-renderer-shaders.ts POINT_SHADER. Per-feature data
+// lives in storage<read> buffers (feat_data, shapes, segments); the vertex
+// stage expands a per-instance quad around the point centre in either flat
+// (world-space) or billboard (screen-space) mode, and the fragment rasterises
+// the SDF shape (analytic circle for shape_id=0, otherwise from the storage
+// segments). Bitwise unpacking of per-feature flags / size mode / anchor mode
+// exercises the IR's bitwise op extension (& | ^ << >>).
+//
+// emitPointWgsl prepends the shared DSL strings (PROJECTION_WGSL_CONSTS +
+// LOG_DEPTH_WGSL_FNS + PROJECTION_WGSL_FNS) so vs/fs callFn project /
+// inv_merc_lat_rad / needs_backface_cull / rim_alpha / proj_globe /
+// apply_log_depth / compute_log_frag_depth by name and constRef PI /
+// DEG2RAD / EARTH_R / MERCATOR_LAT_LIMIT.
+//
+// No pick variant — the point fragment carries no pick channel (matches the
+// hand shader exactly).
+
+import {
+  entryFn, fn, module, bindingRef, constRef, callFn, transformMat4, arrayLit,
+  f32, u32, i32, toF32, toU32, vec2, vec4, mix, exp, log, tan, clamp,
+  length, dot, min, max, smoothstep, fwidth, select,
+  structT, f32T, u32T, i32T, vec2fT, vec3fT, vec4fT, mat4x4fT, arrayT,
+  type StructDecl, type ModuleDecl,
+} from '../core/ir'
+import { emitModule } from '../core/backends/wgsl'
+import { PROJECTION_WGSL_CONSTS, PROJECTION_WGSL_FNS } from './projections'
+import { LOG_DEPTH_WGSL_FNS } from './log-depth'
+
+const Uniforms: StructDecl = {
+  name: 'Uniforms',
+  fields: [
+    { name: 'mvp', type: mat4x4fT },
+    { name: 'proj_params', type: vec4fT },   // x=projType, y=centerLon, z=centerLat
+    { name: 'tile_rtc', type: vec4fT },      // xy = -project(center), zw = (0,0)
+    { name: 'viewport', type: vec4fT },      // xy = w/h, z = meters/px, w = log_depth_fc
+  ],
+}
+const ShapeDesc: StructDecl = {
+  name: 'ShapeDesc',
+  fields: [
+    { name: 'seg_start', type: u32T },
+    { name: 'seg_count', type: u32T },
+    { name: 'bbox_min_x', type: f32T },
+    { name: 'bbox_min_y', type: f32T },
+    { name: 'bbox_max_x', type: f32T },
+    { name: 'bbox_max_y', type: f32T },
+    { name: '_pad0', type: f32T },
+    { name: '_pad1', type: f32T },
+  ],
+}
+const Segment: StructDecl = {
+  name: 'Segment',
+  fields: [
+    { name: 'kind', type: u32T },          // 0=line 1=quad 2=cubic
+    { name: 'color_idx', type: u32T },
+    { name: 'flags', type: u32T },
+    { name: '_pad', type: u32T },
+    { name: 'p0', type: vec2fT },
+    { name: 'p1', type: vec2fT },
+    { name: 'p2', type: vec2fT },
+    { name: 'p3', type: vec2fT },
+  ],
+}
+const PointOut: StructDecl = {
+  name: 'PointOut',
+  fields: [
+    { name: 'position', type: vec4fT, attr: '@builtin(position)' },
+    { name: 'uv', type: vec2fT, attr: '@location(0)' },
+    { name: 'feat_id', type: u32T, attr: '@location(1) @interpolate(flat)' },
+    { name: 'radius_px', type: f32T, attr: '@location(2) @interpolate(flat)' },
+    { name: 'view_w', type: f32T, attr: '@location(3)' },
+    { name: 'cos_c', type: f32T, attr: '@location(4) @interpolate(flat)' },
+    { name: 'rim_a', type: f32T, attr: '@location(5) @interpolate(flat)' },
+  ],
+}
+const PointFragmentOutput: StructDecl = {
+  name: 'PointFragmentOutput',
+  fields: [
+    { name: 'color', type: vec4fT, attr: '@location(0)' },
+    { name: 'depth', type: f32T, attr: '@builtin(frag_depth)' },
+  ],
+}
+
+const u = bindingRef('u', structT('Uniforms'))
+const featData = bindingRef('feat_data', arrayT(f32T))
+const shapes = bindingRef('shapes', arrayT(structT('ShapeDesc')))
+const segments = bindingRef('segments', arrayT(structT('Segment')))
+
+// STRIDE — per-feature feat_data stride (matches the renderer's f32 pack order).
+const STRIDE = u32(14)
+
+// ── Helper fns ──
+
+const pointAbsLonlat = fn('point_abs_lonlat', { rtc_merc: vec2fT }, vec2fT, (b, p) => {
+  const projParams = u.field('proj_params', vec4fT)
+  const camLat = b.let('cam_lat', clamp(projParams.z, constRef('MERCATOR_LAT_LIMIT').neg(), constRef('MERCATOR_LAT_LIMIT')))
+  const camMercX = b.let('cam_merc_x', projParams.y.mul(constRef('DEG2RAD')).mul(constRef('EARTH_R')))
+  const camMercY = b.let('cam_merc_y', log(tan(constRef('PI').div(4).add(camLat.mul(constRef('DEG2RAD')).div(2)))).mul(constRef('EARTH_R')))
+  const absLon = b.let('abs_lon', p.rtc_merc.x.add(camMercX).div(constRef('DEG2RAD').mul(constRef('EARTH_R'))))
+  const latRad = b.let('lat_rad', callFn('inv_merc_lat_rad', f32T, p.rtc_merc.y.add(camMercY)))
+  const absLat = b.let('abs_lat', latRad.div(constRef('DEG2RAD')))
+  b.ret(vec2(absLon, absLat))
+})
+
+const reprojectPoint = fn('reproject_point', { rtc_merc: vec2fT }, vec2fT, (b, p) => {
+  const projParams = u.field('proj_params', vec4fT)
+  b.if(projParams.x.lt(0.5), (c) => { c.ret(p.rtc_merc) })
+  const ll = b.let('ll', callFn('point_abs_lonlat', vec2fT, p.rtc_merc))
+  const projXy = b.let('proj_xy', callFn('project', vec2fT, ll.x, ll.y, projParams))
+  const centerXy = b.let('center_xy', callFn('project', vec2fT, projParams.y, projParams.z, projParams))
+  b.ret(projXy.sub(centerXy))
+})
+
+const reprojectPointGlobe = fn('reproject_point_globe', { rtc_merc: vec2fT }, vec3fT, (b, p) => {
+  const projParams = u.field('proj_params', vec4fT)
+  const ll = b.let('ll', callFn('point_abs_lonlat', vec2fT, p.rtc_merc))
+  b.ret(callFn('proj_globe', vec3fT, ll.x, ll.y).sub(callFn('proj_globe', vec3fT, projParams.y, projParams.z)))
+})
+
+const pointCosC = fn('point_cos_c', { rtc_merc: vec2fT }, f32T, (b, p) => {
+  const ll = b.let('ll', callFn('point_abs_lonlat', vec2fT, p.rtc_merc))
+  b.ret(callFn('needs_backface_cull', f32T, ll.x, ll.y, u.field('proj_params', vec4fT)))
+})
+
+const pointRimAlpha = fn('point_rim_alpha', { rtc_merc: vec2fT }, f32T, (b, p) => {
+  const ll = b.let('ll', callFn('point_abs_lonlat', vec2fT, p.rtc_merc))
+  b.ret(callFn('rim_alpha', f32T, ll.x, ll.y, u.field('proj_params', vec4fT)))
+})
+
+const distToLine = fn('dist_to_line', { p: vec2fT, a: vec2fT, b: vec2fT }, f32T, (bld, pp) => {
+  const ab = bld.let('ab', pp.b.sub(pp.a))
+  const len2 = bld.let('len2', dot(ab, ab))
+  bld.if(len2.lt(1e-10), (c) => { c.ret(length(pp.p.sub(pp.a))) })
+  const t = bld.let('t', clamp(dot(pp.p.sub(pp.a), ab).div(len2), 0, 1))
+  bld.ret(length(pp.p.sub(pp.a).sub(ab.mul(t))))
+})
+
+const distToQuadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT }, f32T, (bld, pp) => {
+  const bestD = bld.var('best_d', f32T, f32(1e10))
+  bld.forRange('i', u32(0), (i) => i.le(u32(16)), (cb, i) => {
+    const t = cb.let('t', toF32(i).div(16))
+    const ab = cb.let('ab', mix(pp.a, pp.b, t))
+    const bc = cb.let('bc', mix(pp.b, pp.c, t))
+    const q = cb.let('q', mix(ab, bc, t))
+    cb.assign(bestD, min(bestD, length(pp.p.sub(q))))
+  })
+  bld.ret(bestD)
+})
+
+const distToCubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT, d: vec2fT }, f32T, (bld, pp) => {
+  const bestD = bld.var('best_d', f32T, f32(1e10))
+  bld.forRange('i', u32(0), (i) => i.le(u32(24)), (cb, i) => {
+    const t = cb.let('t', toF32(i).div(24))
+    const ab = cb.let('ab', mix(pp.a, pp.b, t))
+    const bc = cb.let('bc', mix(pp.b, pp.c, t))
+    const cd = cb.let('cd', mix(pp.c, pp.d, t))
+    const abc = cb.let('abc', mix(ab, bc, t))
+    const bcd = cb.let('bcd', mix(bc, cd, t))
+    const q = cb.let('q', mix(abc, bcd, t))
+    cb.assign(bestD, min(bestD, length(pp.p.sub(q))))
+  })
+  bld.ret(bestD)
+})
+
+const windingLine = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT }, i32T, (bld, pp) => {
+  bld.if(pp.a.y.le(pp.p.y), (c) => {
+    c.if(pp.b.y.gt(pp.p.y), (d) => {
+      const crossVal = d.let('cross_val', pp.b.x.sub(pp.a.x).mul(pp.p.y.sub(pp.a.y)).sub(pp.p.x.sub(pp.a.x).mul(pp.b.y.sub(pp.a.y))))
+      d.if(crossVal.gt(0), (e) => { e.ret(i32(1)) })
+    })
+  }).else((c) => {
+    c.if(pp.b.y.le(pp.p.y), (d) => {
+      const crossVal = d.let('cross_val', pp.b.x.sub(pp.a.x).mul(pp.p.y.sub(pp.a.y)).sub(pp.p.x.sub(pp.a.x).mul(pp.b.y.sub(pp.a.y))))
+      d.if(crossVal.lt(0), (e) => { e.ret(i32(-1)) })
+    })
+  })
+  bld.ret(i32(0))
+})
+
+const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (bld, pp) => {
+  // Flip Y: NDC Y-up → SVG/path Y-down convention.
+  const uv = bld.let('uv', vec2(pp.uv_in.x, pp.uv_in.y.neg()))
+  const s = bld.let('s', shapes.at(pp.shape_id, structT('ShapeDesc')))
+  const bMinX = s.field('bbox_min_x', f32T)
+  const bMinY = s.field('bbox_min_y', f32T)
+  const bMaxX = s.field('bbox_max_x', f32T)
+  const bMaxY = s.field('bbox_max_y', f32T)
+  // AABB early-out.
+  bld.if(
+    uv.x.lt(bMinX).or(uv.x.gt(bMaxX)).or(uv.y.lt(bMinY)).or(uv.y.gt(bMaxY)),
+    (c) => { c.ret(f32(2)) },
+  )
+  const minDist = bld.var('min_dist', f32T, f32(1e10))
+  const winding = bld.var('winding', i32T, i32(0))
+  const segStart = s.field('seg_start', u32T)
+  const segCount = s.field('seg_count', u32T)
+  // Hard-cap at 32 segments per shape (paste from original).
+  const end = bld.let('end', min(segStart.add(segCount), segStart.add(u32(32))))
+  bld.forRange('i', segStart, (i) => i.lt(end), (cb, i) => {
+    const seg = cb.let('seg', segments.at(i, structT('Segment')))
+    const p0 = seg.field('p0', vec2fT)
+    const p1 = seg.field('p1', vec2fT)
+    const p2 = seg.field('p2', vec2fT)
+    const p3 = seg.field('p3', vec2fT)
+    cb.switch(seg.field('kind', u32T), [
+      [0, (d) => {
+        d.assign(minDist, min(minDist, callFn('dist_to_line', f32T, uv, p0, p1)))
+        d.assignOp(winding, '+', callFn('winding_line', i32T, uv, p0, p1))
+      }],
+      [1, (d) => {
+        d.assign(minDist, min(minDist, callFn('dist_to_quadratic', f32T, uv, p0, p1, p2)))
+        // Approximate winding with chord.
+        d.assignOp(winding, '+', callFn('winding_line', i32T, uv, p0, p2))
+      }],
+      [2, (d) => {
+        d.assign(minDist, min(minDist, callFn('dist_to_cubic', f32T, uv, p0, p1, p2, p3)))
+        // Approximate winding with chord.
+        d.assignOp(winding, '+', callFn('winding_line', i32T, uv, p0, p3))
+      }],
+    ], () => { /* default: empty */ })
+  })
+  // Inside (winding != 0): dist=1 at boundary; outside: dist=1+min_dist.
+  bld.if(winding.ne(i32(0)), (c) => { c.ret(f32(1).sub(minDist)) })
+    .else((c) => { c.ret(f32(1).add(minDist)) })
+})
+
+// ── Entry points ──
+
+const vs = entryFn('vs_point', 'vertex', [
+  { name: 'center', type: vec2fT, location: 0 },
+  { name: 'quad_id', type: u32T, location: 1 },
+  { name: 'feat_id', type: f32T, location: 2 },
+], structT('PointOut'), (b, p) => {
+  const offsets = b.let('offsets', arrayLit(vec2fT,
+    vec2(f32(-1), f32(-1)),
+    vec2(f32(1), f32(-1)),
+    vec2(f32(1), f32(1)),
+    vec2(f32(-1), f32(1)),
+  ))
+  const fid = b.let('fid', toU32(p.feat_id))
+  const rawRadius = b.let('raw_radius', featData.at(fid.mul(STRIDE).add(u32(0)), f32T))
+  // Pack-byte at offset 10: bit 0..3 reserved, bits 4..7 = size_mode,
+  // bit 3 = is_flat, bits 8..9 = anchor_mode.
+  const packed10 = b.let('packed10', toU32(featData.at(fid.mul(STRIDE).add(u32(10)), f32T)))
+  const sizeMode = b.let('size_mode', packed10.shr(u32(4)))
+  // Size mode: 0=px, 1=m, 2=km, 3=deg (equator approx), 4=nm.
+  const radiusPx = b.var('radius_px', f32T)
+  const viewport = u.field('viewport', vec4fT)
+  b.if(sizeMode.eq(u32(1)), (c) => { c.assign(radiusPx, rawRadius.div(viewport.z)) })
+    .elif(sizeMode.eq(u32(2)), (c) => { c.assign(radiusPx, rawRadius.mul(1000).div(viewport.z)) })
+    .elif(sizeMode.eq(u32(3)), (c) => { c.assign(radiusPx, rawRadius.mul(111320).div(viewport.z)) })
+    .elif(sizeMode.eq(u32(4)), (c) => { c.assign(radiusPx, rawRadius.mul(1852).div(viewport.z)) })
+    .else((c) => { c.assign(radiusPx, rawRadius) })
+
+  // RTC: CPU pre-computes (mercX - cameraMercX, mercY - cameraMercY) in f64;
+  // we receive small f32 offsets and re-project for non-Mercator projections.
+  const rtcMerc = b.let('rtc_merc', vec2(featData.at(fid.mul(STRIDE).add(u32(11)), f32T), featData.at(fid.mul(STRIDE).add(u32(12)), f32T)))
+  const pos = b.let('pos', callFn('reproject_point', vec2fT, rtcMerc))
+  const rtcX = b.let('rtc_x', pos.x)
+  const rtcY = b.let('rtc_y', pos.y)
+  // Globe (projType 7): anchor on the sphere via the orbit MVP; billboard
+  // branch below offsets in screen-space around this.
+  const projParams = u.field('proj_params', vec4fT)
+  const mvp = u.field('mvp', mat4x4fT)
+  const centerClip = b.let('center_clip', select(
+    projParams.x.gt(6.5),
+    transformMat4(mvp, vec4(callFn('reproject_point_globe', vec3fT, rtcMerc), f32(1))),
+    transformMat4(mvp, vec4(rtcX, rtcY, f32(0), f32(1))),
+  ))
+
+  // bit 3 of packed10 = flat-quad mode.
+  const isFlat = b.let('is_flat', packed10.bitAnd(u32(8)).ne(u32(0)))
+  b.assign(radiusPx, max(radiusPx, f32(1)))
+  const expand = b.let('expand', radiusPx.add(2))
+
+  const out = b.var('out', structT('PointOut'))
+  // All four corners share the centre's view_w (point markers occupy a
+  // near-zero depth range; per-corner depth divergence would over-strict
+  // the log-depth interpolation).
+  const fc = b.let('fc', viewport.w)
+  b.assign(out.field('view_w', f32T), centerClip.w)
+
+  b.if(isFlat, (c) => {
+    // FLAT: expand in world-space, then transform via MVP. Anchor (bits 8..9):
+    // 0=center, 1=bottom (+Y), 2=top (-Y). On a north-up no-pitch camera
+    // world +Y == screen-up, so bottom-anchor still extends upward from the
+    // ground point (pin metaphor); with bearing rotation it rotates with the
+    // map (flat-paradigm consistent).
+    const anchorMode = c.let('anchor_mode', packed10.shr(u32(8)).bitAnd(u32(3)))
+    const yShift = c.var('y_shift', f32T, f32(0))
+    c.if(anchorMode.eq(u32(1)), (d) => { d.assign(yShift, f32(1)) })
+      .elif(anchorMode.eq(u32(2)), (d) => { d.assign(yShift, f32(-1)) })
+    const worldExpand = c.let('world_expand', expand.mul(viewport.z))   // px → meters
+    const offXY = offsets.at(p.quad_id, vec2fT)
+    const wo = c.let('wo', vec2(offXY.x.mul(worldExpand), offXY.y.add(yShift).mul(worldExpand)))
+    const flatClip = c.let('flat_clip', transformMat4(mvp, vec4(rtcX.add(wo.x), rtcY.add(wo.y), f32(0), f32(1))))
+    c.assign(out.field('position', vec4fT), callFn('apply_log_depth', vec4fT, flatClip, fc))
+    c.assign(out.field('uv', vec2fT), offXY)
+  }).else((c) => {
+    // BILLBOARD: expand in screen-space (NDC), perspective-corrected. Anchor
+    // (bits 8..9): 0=center, 1=bottom (lifts up by one extent so the bottom
+    // edge sits on the projected ground point), 2=top.
+    const anchorMode = c.let('anchor_mode', packed10.shr(u32(8)).bitAnd(u32(3)))
+    const yShiftPx = c.var('y_shift_px', f32T, f32(0))
+    c.if(anchorMode.eq(u32(1)), (d) => { d.assign(yShiftPx, expand) })
+      .elif(anchorMode.eq(u32(2)), (d) => { d.assign(yShiftPx, expand.neg()) })
+    const pxToNdc = c.let('px_to_ndc', vec2(f32(2).div(viewport.x), f32(2).div(viewport.y)))
+    const offXY = offsets.at(p.quad_id, vec2fT)
+    const offsetPx = c.let('offset_px', vec2(offXY.x.mul(expand), offXY.y.mul(expand).add(yShiftPx)))
+    const offsetNdc = c.let('offset_ndc', offsetPx.mul(pxToNdc))
+    const billboardClip = c.let('billboard_clip', centerClip.add(vec4(offsetNdc.mul(centerClip.w), f32(0), f32(0))))
+    c.assign(out.field('position', vec4fT), callFn('apply_log_depth', vec4fT, billboardClip, fc))
+    // UV stays centered so the SDF shape renders unchanged; only the on-
+    // screen placement is shifted.
+    c.assign(out.field('uv', vec2fT), offXY.mul(expand).div(max(radiusPx, f32(1))))
+  })
+  b.assign(out.field('feat_id', u32T), fid)
+  b.assign(out.field('radius_px', f32T), radiusPx)
+  b.assign(out.field('cos_c', f32T), callFn('point_cos_c', f32T, rtcMerc))
+  b.assign(out.field('rim_a', f32T), callFn('point_rim_alpha', f32T, rtcMerc))
+  b.ret(out)
+})
+
+const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: structT('PointOut') }], structT('PointFragmentOutput'), (b, p) => {
+  // Backface cull for globe projections — cos_c is +1 for flat projections.
+  b.if(p.in.field('cos_c', f32T).lt(0), (c) => { c.discard() })
+  const fid = b.let('fid', p.in.field('feat_id', u32T))
+  const shapeId = b.let('shape_id', toU32(featData.at(fid.mul(STRIDE).add(u32(13)), f32T)))
+
+  // AA from UV (always smooth) — not from SDF dist (AABB discontinuities).
+  const aa = b.let('aa', fwidth(length(p.in.field('uv', vec2fT))).mul(1.5))
+
+  const dist = b.var('dist', f32T)
+  b.if(shapeId.eq(u32(0)), (c) => {
+    c.assign(dist, length(p.in.field('uv', vec2fT)))   // analytical circle (fast path)
+  }).else((c) => {
+    c.assign(dist, callFn('sdf_shape', f32T, p.in.field('uv', vec2fT), shapeId.sub(u32(1))))
+  })
+
+  // Per-feature style.
+  const fillColor = b.let('fill_color', vec4(
+    featData.at(fid.mul(STRIDE).add(u32(1)), f32T),
+    featData.at(fid.mul(STRIDE).add(u32(2)), f32T),
+    featData.at(fid.mul(STRIDE).add(u32(3)), f32T),
+    featData.at(fid.mul(STRIDE).add(u32(4)), f32T),
+  ))
+  const strokeColor = b.let('stroke_color', vec4(
+    featData.at(fid.mul(STRIDE).add(u32(5)), f32T),
+    featData.at(fid.mul(STRIDE).add(u32(6)), f32T),
+    featData.at(fid.mul(STRIDE).add(u32(7)), f32T),
+    featData.at(fid.mul(STRIDE).add(u32(8)), f32T),
+  ))
+  const strokeWPx = b.let('stroke_w_px', featData.at(fid.mul(STRIDE).add(u32(9)), f32T))
+  const flags = b.let('flags', toU32(featData.at(fid.mul(STRIDE).add(u32(10)), f32T)))
+
+  // stroke_w in UV space using the actual rendered radius.
+  const strokeW = b.let('stroke_w', strokeWPx.div(max(p.in.field('radius_px', f32T), f32(1))))
+
+  const color = b.var('color', vec4fT, vec4(f32(0), f32(0), f32(0), f32(0)))
+
+  // Fill (bit 0).
+  b.if(flags.bitAnd(u32(1)).ne(u32(0)), (c) => {
+    const fillAlpha = c.let('fill_alpha', f32(1).sub(smoothstep(f32(1).sub(aa), f32(1).add(aa), dist)))
+    c.assign(color, vec4(fillColor.rgb, fillColor.a.mul(fillAlpha)))
+  })
+
+  // Stroke (bit 1).
+  b.if(flags.bitAnd(u32(2)).ne(u32(0)), (c) => {
+    const inner = c.let('inner', f32(1).sub(strokeW))
+    const strokeAlpha = c.let('stroke_alpha',
+      smoothstep(inner.sub(aa), inner.add(aa), dist)
+        .mul(f32(1).sub(smoothstep(f32(1).sub(aa), f32(1).add(aa), dist))),
+    )
+    c.assign(color, mix(color, vec4(strokeColor.rgb, strokeColor.a), strokeAlpha))
+  })
+
+  // Glow (bit 2).
+  b.if(flags.bitAnd(u32(4)).ne(u32(0)), (c) => {
+    const glow = c.let('glow', exp(dist.mul(dist).mul(-2)).mul(0.4))
+    c.assignOp(color, '+', vec4(fillColor.rgb.mul(glow), glow))
+  })
+
+  // Rim fade — flat / cylindrical projections receive rim_a=1.0.
+  b.assignOp(color.field('a', f32T), '*', p.in.field('rim_a', f32T))
+  b.if(color.field('a', f32T).lt(0.005), (c) => { c.discard() })
+  const out = b.var('out', structT('PointFragmentOutput'))
+  b.assign(out.field('color', vec4fT), color)
+  b.assign(out.field('depth', f32T), callFn('compute_log_frag_depth', f32T, p.in.field('view_w', f32T), u.field('viewport', vec4fT).w))
+  b.ret(out)
+})
+
+export const POINT_MODULE: ModuleDecl = module({
+  structs: [Uniforms, ShapeDesc, Segment, PointOut, PointFragmentOutput],
+  bindings: [
+    { group: 0, binding: 0, name: 'u', space: 'uniform', type: structT('Uniforms') },
+    { group: 0, binding: 1, name: 'feat_data', space: 'storage', access: 'read', type: arrayT(f32T) },
+    { group: 0, binding: 2, name: 'shapes', space: 'storage', access: 'read', type: arrayT(structT('ShapeDesc')) },
+    { group: 0, binding: 3, name: 'segments', space: 'storage', access: 'read', type: arrayT(structT('Segment')) },
+  ],
+  funcs: [
+    pointAbsLonlat, reprojectPoint, reprojectPointGlobe, pointCosC, pointRimAlpha,
+    distToLine, distToQuadratic, distToCubic, windingLine, sdfShape,
+    vs, fs,
+  ],
+})
+
+/** Full point shader: shared DSL-emitted projection consts + log-depth fns +
+ *  projection fns, then the point module. No pick variant. */
+export const emitPointWgsl = (): string => [
+  PROJECTION_WGSL_CONSTS,
+  LOG_DEPTH_WGSL_FNS,
+  PROJECTION_WGSL_FNS,
+  emitModule(POINT_MODULE),
+].join('\n')

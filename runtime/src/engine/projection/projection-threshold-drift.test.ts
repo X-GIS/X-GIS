@@ -19,6 +19,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PROJECTIONS } from './projections-table'
 import { WGSL_PROJECTION_FNS } from '../shaders/projection'
+import { cosC, needsBackfaceCullWgsl, emitRasterWgsl } from '../shader-dsl'
 
 const AZIMUTHAL = PROJECTIONS[4]!.cullThreshold! // -0.85
 const STEREO = PROJECTIONS[5]!.cullThreshold!    // -0.8
@@ -41,56 +42,60 @@ describe('projection threshold drift gate', () => {
   })
 
   it('WGSL needs_backface_cull select() thresholds == table', () => {
-    // `return select(-1.0, 1.0, cc > -0.85)` (azimuthal then stereo).
+    // DSL-emitted form: `select(-1.0, 1.0, (cc > -0.85))` (fully parenthesised),
+    // azimuthal then stereo.
     const found = allMatches(
       WGSL_PROJECTION_FNS,
-      /select\(-1\.0, 1\.0, cc > (-?[\d.]+)\)/g,
+      /select\(-1\.0, 1\.0, \(cc > (-?[\d.]+)\)\)/g,
     )
     expect(found).toEqual([AZIMUTHAL, STEREO])
   })
 
   it('WGSL rim_alpha smoothstep lower bounds == table', () => {
-    // `smoothstep(-0.85, -0.85 + RIM_FADE, cc)` — azimuthal then stereo.
+    // DSL emits `smoothstep(LO, HI, cc)` with bounds precomputed (RIM_FADE
+    // inlined). In rim_alpha body order: ortho, azimuthal, stereo, globe.
     const found = allMatches(
       WGSL_PROJECTION_FNS,
-      /smoothstep\((-?[\d.]+), -?[\d.]+ \+ RIM_FADE, cc\)/g,
+      /smoothstep\((-?[\d.]+), -?[\d.]+, cc\)/g,
     )
-    expect(found).toEqual([AZIMUTHAL, STEREO])
-    // ortho + globe rim fade from the visibility boundary (0.0).
-    const orthoGlobe = allMatches(
-      WGSL_PROJECTION_FNS,
-      /smoothstep\((-?[\d.]+), RIM_FADE, cc\)/g,
-    )
-    expect(orthoGlobe).toEqual([ORTHO, ORTHO])
+    expect(found).toEqual([ORTHO, AZIMUTHAL, STEREO, ORTHO])
   })
 
-  it('CPU mirror needsBackfaceCullWgsl thresholds == table', () => {
-    const mirror = readFileSync(join(__dirname, 'projection-wgsl-mirror.ts'), 'utf8')
-    // `if (projType < 4.5) return cc > -0.85 ? 1 : -1` (azimuthal, stereo).
-    const found = allMatches(mirror, /cc > (-?[\d.]+) \? 1 : -1/g)
-    expect(found).toEqual([AZIMUTHAL, STEREO])
+  it('generated cpu needs_backface_cull follows the table thresholds (behavioral)', () => {
+    // The cpu-f64 lowering (shader-dsl/projections.ts) pulls cull thresholds
+    // from the PROJECTIONS table, so its cull SIGN flips exactly at the table
+    // value — drift-impossible by construction. Probe: azimuthal (4) visible
+    // iff cc > AZIMUTHAL, stereographic (5) iff cc > STEREO. (Replaces the old
+    // regex over the hand-written mirror, now deleted.)
+    const CL = 0, CT = 20
+    for (const [pt, thr] of [[4, AZIMUTHAL], [5, STEREO]] as const) {
+      for (let i = 0; i < 12; i++) {
+        for (let j = 0; j < 12; j++) {
+          const lon = -180 + (i / 11) * 360
+          const lat = -85 + (j / 11) * 170
+          const cc = cosC(lon, lat, CL, CT)
+          expect(needsBackfaceCullWgsl(pt, lon, lat, CL, CT) > 0).toBe(cc > thr)
+        }
+      }
+    }
   })
 
   it('inline raster cull ladder thresholds == table', () => {
-    const raster = readFileSync(
-      join(__dirname, '..', 'render', 'raster-renderer.ts'),
-      'utf8',
-    )
+    const raster = emitRasterWgsl(false)
     // `var threshold = 0.0;` then `threshold = -0.85;` (azimuthal),
     // `threshold = -0.8;` (stereo).
-    const found = allMatches(raster, /threshold = (-?[\d.]+);/g)
+    const found = allMatches(raster, /threshold(?:: f32)? = (-?[\d.]+);/g)
     expect(found).toEqual([ORTHO, AZIMUTHAL, STEREO])
   })
 
-  it('RIM_FADE is the same 0.02 in WGSL and the raster shader', () => {
-    const wgslFade = allMatches(WGSL_PROJECTION_FNS, /let RIM_FADE = ([\d.]+);/g)
-    expect(wgslFade).toEqual([0.02])
-    const raster = readFileSync(
-      join(__dirname, '..', 'render', 'raster-renderer.ts'),
-      'utf8',
-    )
-    // raster applies `smoothstep(0.0, 0.02, input.vis)` (rim-rollout pins
-    // the exact string; here we pin the fade WIDTH agrees with the WGSL).
+  it('RIM_FADE band width is 0.02 in the emitted WGSL and the raster shader', () => {
+    // The DSL inlines RIM_FADE (no `let RIM_FADE`), so each emitted smoothstep
+    // band must be exactly 0.02 wide (HI − LO).
+    const bands = [...WGSL_PROJECTION_FNS.matchAll(/smoothstep\((-?[\d.]+), (-?[\d.]+), cc\)/g)]
+      .map((m) => Math.round((parseFloat(m[2]!) - parseFloat(m[1]!)) * 1000) / 1000)
+    expect(bands).toEqual([0.02, 0.02, 0.02, 0.02])
+    const raster = emitRasterWgsl(false)
+    // raster applies `smoothstep(0.0, 0.02, input.vis)` — same fade width.
     expect(raster).toContain('smoothstep(0.0, 0.02,')
   })
 })

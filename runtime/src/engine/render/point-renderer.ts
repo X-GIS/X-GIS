@@ -11,7 +11,7 @@ import { parseHexColor } from '../feature-helpers'
 import { resolveNumberShape } from './paint-shape-resolve'
 import { FrameArena } from '../gpu/frame-arena'
 import type { PointLayer } from './point-renderer-types'
-import { POINT_SHADER } from './point-renderer-shaders'
+import { emitPointWgsl } from '../shader-dsl'
 
 // ═══ Renderer ═══
 
@@ -47,7 +47,7 @@ export class PointRenderer {
     this.device = ctx.device
     const { device } = ctx
 
-    const shaderModule = device.createShaderModule({ code: POINT_SHADER, label: 'sdf-point-shader' })
+    const shaderModule = device.createShaderModule({ code: emitPointWgsl(), label: 'sdf-point-shader' })
 
     this.bindGroupLayout = device.createBindGroupLayout({
       entries: [
@@ -149,7 +149,7 @@ export class PointRenderer {
   rebuildForQuality(): void {
     if (!this.pipelineLayout || !this.vertexBufferLayout) return
     const device = this.device
-    const shaderModule = device.createShaderModule({ code: POINT_SHADER, label: 'sdf-point-shader-rebuilt' })
+    const shaderModule = device.createShaderModule({ code: emitPointWgsl(), label: 'sdf-point-shader-rebuilt' })
     const msaa = { count: getSampleCount() }
     const vb = this.vertexBufferLayout
     const pl = this.pipelineLayout
