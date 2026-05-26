@@ -6,6 +6,7 @@
 
 import { hexToRgba } from '../ir/render-node'
 import { resolveColor } from '../tokens/colors'
+import { canonicalJsonStringify } from './_util/canonical-json'
 
 export function buildFieldMap(fields: Set<string>): Map<string, number> {
   const map = new Map<string, number>()
@@ -18,16 +19,38 @@ export function buildFieldMap(fields: Set<string>): Map<string, number> {
 
 /** Stable short hash of the fill / stroke match-preamble bodies.
  *  Returns empty string when both are absent so non-match variants
- *  keep their existing cache key bytes unchanged. */
-export function matchArmsKey(fillPre: string | undefined, strokePre: string | undefined): string {
-  if (!fillPre && !strokePre) return ''
-  const combined = `${fillPre ?? ''}${strokePre ?? ''}`
+ *  keep their existing cache key bytes unchanged.
+ *
+ *  Phase 2.5 US-010 prep — accepts either the legacy WGSL string
+ *  match-preamble (pre-retarget compiler) or a NodeLike value (the
+ *  matchExpr Node post-US-005). The Node path canonicalises the
+ *  structural JSON before hashing so the cache identity stays stable
+ *  across engines / Node.js versions (raw JSON.stringify's key-order
+ *  is implementation-defined for non-numeric keys). Either input
+ *  funnels through the same djb2 hash so the output bytes don't drift
+ *  during the migration window. */
+export function matchArmsKey(
+  fillPre: string | { readonly expr: unknown } | undefined,
+  strokePre: string | { readonly expr: unknown } | undefined,
+): string {
+  if (fillPre == null && strokePre == null) return ''
+  const combined = `${toHashInput(fillPre)}${toHashInput(strokePre)}`
+  if (combined.length === 0) return ''
   let h = 5381
   for (let i = 0; i < combined.length; i++) {
     h = (h * 33) ^ combined.charCodeAt(i)
     h |= 0
   }
   return `|m:${(h >>> 0).toString(36)}`
+}
+
+function toHashInput(v: string | { readonly expr: unknown } | undefined): string {
+  if (v == null) return ''
+  if (typeof v === 'string') return v
+  // Node-shaped input: canonicalise its structural JSON so the hash
+  // is stable across engines / Node.js versions (raw JSON.stringify
+  // key-order is implementation-defined for non-numeric keys).
+  return canonicalJsonStringify(v)
 }
 
 /** Resolve a color from an AST node (Identifier like "green-100") */
