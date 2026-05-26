@@ -2,6 +2,10 @@
 // Palette WGSL emission helpers
 // ═══════════════════════════════════════════════════════════════════
 //
+// Phase 2.5 US-005 — also emits Node parallels via the helpers
+// imported below (Phase 3 step 3a stays as string emit until the
+// US-008 cleanup).
+//
 // Plan Phase 3 step 3a (wild-finding-starlight). Pure WGSL string
 // builders that translate the compile-time `Palette`
 // (compiler/src/codegen/palette.ts) into:
@@ -42,6 +46,11 @@
 //     driven, time-interpolated) keeps its existing path.
 
 import type { Palette } from './palette'
+import type { NodeLike } from './_back-compat/node-to-wgsl-string'
+import {
+  f32Lit, f32Sub, f32Div, refF32, clampF32,
+  varRefTexture2d, varRefSampler, vec2f, textureSampleLevelVec4,
+} from './_util/node-builders'
 
 /** Default bind-group / binding indices for palette resources. The
  *  current renderer uses group 0 for everything; once P2 lands the
@@ -174,6 +183,39 @@ export function emitColorGradientSample(
     `textureSampleLevel(color_grad_atlas, palette_samp, vec2f(`
     + `clamp((${zoomExpr} - ${fmtF(zMin)}) / ${fmtF(zMax - zMin || 1)}, 0.0, 1.0), `
     + `${fmtF(v)}), 0.0)`
+  )
+}
+
+/** Phase 2.5 US-005 idiom (palette sample) — Node-emit parallel to
+ *  emitColorGradientSample. Returns the textureSampleLevel(...)
+ *  vec4<f32> Node so the shader-gen.ts zoom-interp + palette branch
+ *  can set ColorResult.nodeExpr. Mirrors the legacy string emit's
+ *  bake-in approach: zMin / zMax / v are literal Nodes, the only
+ *  varref is u.zoom (or whatever zoomVarrefName the caller supplies). */
+export function emitColorGradientSampleNode(
+  palette: Palette,
+  gradientIndex: number,
+  zoomVarrefName: string = 'u.zoom',
+): NodeLike<'vec4<f32>'> | null {
+  const g = palette.colorGradients[gradientIndex]
+  if (!g) return null
+  const stops = g.stops
+  const zMin = stops[0]!.zoom
+  const zMax = stops[stops.length - 1]!.zoom
+  const total = palette.colorGradients.length
+  const v = (gradientIndex + 0.5) / total
+  const zoomNode = refF32(zoomVarrefName)
+  const zSpan = zMax - zMin || 1
+  const u = clampF32(
+    f32Div(f32Sub(zoomNode, f32Lit(zMin)), f32Lit(zSpan)),
+    f32Lit(0),
+    f32Lit(1),
+  )
+  return textureSampleLevelVec4(
+    varRefTexture2d('color_grad_atlas'),
+    varRefSampler('palette_samp'),
+    vec2f(u, f32Lit(v)),
+    f32Lit(0),
   )
 }
 

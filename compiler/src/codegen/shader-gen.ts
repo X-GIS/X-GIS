@@ -9,6 +9,7 @@ import { generatePaletteWGSL } from './categorical-encoder'
 import type { Palette } from './palette'
 import {
   emitColorGradientSample,
+  emitColorGradientSampleNode,
   emitScalarGradientSample,
   emitScalarSampleHelper,
   emitPaletteBindings,
@@ -448,6 +449,11 @@ function processColorValue(
         preamble: [],
         isConst: false, needsFeatures: false, isVec4: true,
         expr: emitColorGradientSample(palette, gradientIdx),
+        // Phase 2.5 US-005 idiom (palette sample) — emit the
+        // textureSampleLevel call as a real Node so the zoom-interp +
+        // palette path (OFM Bright zoom-interpolated fills, etc.) flows
+        // Node-emit at the marker substitution site.
+        nodeExpr: emitColorGradientSampleNode(palette, gradientIdx) ?? undefined,
         paletteGradientIdx: gradientIdx,
       }
     }

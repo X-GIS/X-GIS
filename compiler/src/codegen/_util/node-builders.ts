@@ -201,3 +201,40 @@ export function clampF32(x: NodeLike<'f32'>, lo: NodeLike<'f32'>, hi: NodeLike<'
     expr: { op: 'call', type: F32_T, fn: 'clamp', args: [x.expr, lo.expr, hi.expr] },
   } as NodeLike<'f32'>
 }
+
+// ── Texture sample (palette atlas idiom) ──
+
+const VEC2F_T = { kind: 'vec', n: 2, elem: 'f32' } as const
+
+/** vec2<f32>(x, y) literal. */
+export function vec2f(x: NodeLike<'f32'>, y: NodeLike<'f32'>): NodeLike<'vec2<f32>'> {
+  return {
+    expr: { op: 'construct', type: VEC2F_T, args: [x.expr, y.expr] },
+  } as NodeLike<'vec2<f32>'>
+}
+
+/** Texture binding ref (texture_2d<f32>). */
+export function varRefTexture2d(name: string): NodeLike<'texture_2d<f32>'> {
+  return {
+    expr: { op: 'varref', type: { kind: 'texture', dim: '2d', elem: 'f32' }, name },
+  } as NodeLike<'texture_2d<f32>'>
+}
+
+/** Sampler binding ref. */
+export function varRefSampler(name: string): NodeLike<'sampler'> {
+  return {
+    expr: { op: 'varref', type: { kind: 'sampler' }, name },
+  } as NodeLike<'sampler'>
+}
+
+/** textureSampleLevel(tex, sampler, uv, lod) returning vec4<f32>. */
+export function textureSampleLevelVec4(
+  tex: NodeLike<'texture_2d<f32>'>,
+  sampler: NodeLike<'sampler'>,
+  uv: NodeLike<'vec2<f32>'>,
+  lod: NodeLike<'f32'>,
+): NodeLike<'vec4<f32>'> {
+  return {
+    expr: { op: 'call', type: VEC4F_T, fn: 'textureSampleLevel', args: [tex.expr, sampler.expr, uv.expr, lod.expr] },
+  } as NodeLike<'vec4<f32>'>
+}
