@@ -580,6 +580,33 @@ function simpleScalarNode(
       default: return null // '%', comparison, logical → not supported here
     }
   }
+  // Phase 2.5 US-005 — recognise the WGSL-builtin scalar fn calls
+  // exprToWGSL maps through the WGSL_BUILTINS table (clamp, min,
+  // max, abs, sqrt, floor, ceil, sin, cos, ...). Returns a typed
+  // call op when every arg also resolves to a simple scalar Node.
+  if (ast.kind === 'FnCall' && ast.callee.kind === 'Identifier') {
+    const SIMPLE_BUILTINS = new Set([
+      'clamp', 'min', 'max', 'abs', 'sqrt', 'floor', 'ceil', 'round',
+      'log', 'log2', 'exp', 'exp2', 'pow',
+      'sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'atan2',
+    ])
+    if (SIMPLE_BUILTINS.has(ast.callee.name)) {
+      const args: NodeLike<'f32'>[] = []
+      for (const arg of ast.args) {
+        const n = simpleScalarNode(arg, fieldMap)
+        if (!n) return null
+        args.push(n)
+      }
+      return {
+        expr: {
+          op: 'call',
+          type: { kind: 'scalar', scalar: 'f32' },
+          fn: ast.callee.name,
+          args: args.map(a => a.expr),
+        },
+      } as NodeLike<'f32'>
+    }
+  }
   return null
 }
 
