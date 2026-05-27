@@ -1,25 +1,21 @@
 import { describe, it, expect } from 'vitest'
 import { emitRasterWgsl } from './raster'
 
-// Phase-2 raster shader — the largest texture shader: a procedural-grid vertex
-// with a 4-branch projection dispatch (globe / mercator / equirect / other+cull)
-// and a log-depth fragment. The projection + log-depth math is the shared
-// DSL-emitted WGSL (prepended by emitRasterWgsl), so vs/fs call proj_globe /
-// project_geom / center_cos_c / apply_log_depth / compute_log_frag_depth by
-// name. It is not cpu-evaluated (those fns live outside the raster module); the
-// gate is the emission shape + the GPU pixel survey (OFM Liberty natural-earth
-// raster relief exercises the Mercator branch).
-describe('Phase-2 raster shader — DSL emission', () => {
+// Phase-2 PR 2d.3 raster shader — ECEF VS rewrite. The vertex stage uses a
+// single ECEF path (lon/lat → lonlat_to_ecef → subtract tile_ecef_center →
+// MVP) replacing the old 4-branch projection dispatch. The fragment is
+// unchanged: sample + rim fade + log-depth.
+describe('Phase-2 raster shader — DSL emission (ECEF VS, PR 2d.3)', () => {
   const noPick = emitRasterWgsl(false)
   const pick = emitRasterWgsl(true)
   const rasterPart = (w: string) => w.slice(w.indexOf('struct Uniforms'))
 
-  it('prepends the shared projection + log-depth WGSL the vs/fs call', () => {
-    expect(noPick).toContain('proj_globe')
-    expect(noPick).toContain('project_geom')
-    expect(noPick).toContain('center_cos_c')
+  it('prepends ECEF consts + lonlat_to_ecef fn + log-depth fns', () => {
+    expect(noPick).toContain('lonlat_to_ecef')
     expect(noPick).toContain('fn apply_log_depth')
     expect(noPick).toContain('fn compute_log_frag_depth')
+    // ECEF consts: WGS84 semi-major axis
+    expect(noPick).toContain('6378137')
   })
   it('binds u (g0b0) + texture/sampler (g0b1/b2) + tile (g1b0)', () => {
     expect(noPick).toContain('@group(0) @binding(0) var<uniform> u: Uniforms;')
@@ -27,12 +23,21 @@ describe('Phase-2 raster shader — DSL emission', () => {
     expect(noPick).toContain('@group(0) @binding(2) var tex_sampler: sampler;')
     expect(noPick).toContain('@group(1) @binding(0) var<uniform> tile: TileUniforms;')
   })
-  it('procedural-grid vertex + 4-branch projection dispatch', () => {
+  it('TileUniforms has tile_ecef_center (not tile_rtc)', () => {
+    expect(noPick).toContain('tile_ecef_center')
+    expect(noPick).not.toContain('tile_rtc')
+  })
+  it('procedural-grid vertex + single ECEF projection path', () => {
     expect(noPick).toContain('@vertex\nfn vs_tile(@builtin(vertex_index) vid: u32) -> VsOut')
-    expect(noPick).toContain('(t > 6.5)')   // globe
-    expect(noPick).toContain('(t < 0.5)')   // mercator
-    expect(noPick).toContain('(t < 1.5)')   // equirect
+    expect(noPick).toContain('lonlat_to_ecef(')
+    expect(noPick).toContain('tile.tile_ecef_center')
     expect(noPick).toContain('array<u32, 6>')
+    // No old projection-dispatch branches
+    const vsBody = noPick.slice(noPick.indexOf('@vertex\nfn vs_tile'))
+    const vsEnd = vsBody.indexOf('\n@fragment')
+    const vsOnly = vsEnd > 0 ? vsBody.slice(0, vsEnd) : vsBody
+    expect(vsOnly).not.toContain('proj_globe')
+    expect(vsOnly).not.toContain('project_geom')
   })
   it('fragment samples the tile + rim fade + log-depth', () => {
     expect(noPick).toContain('@fragment\nfn fs_tile(input: VsOut) -> RasterFragmentOutput')
