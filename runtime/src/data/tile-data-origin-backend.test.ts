@@ -10,7 +10,10 @@ import { tileKey, decomposeFeatures } from '@xgis/compiler'
 import { TileCatalog } from './tile-catalog'
 import { GeoJSONRuntimeBackend } from './sources/geojson-runtime-backend'
 import { PMTilesBackend, type PMTilesFetcher } from './sources/pmtiles-backend'
-import type { TileSource, TileSourceSink, BackendTileResult } from './tile-source'
+import {
+  TILE_LAYOUT_VERSION,
+  type TileSource, type TileSourceSink, type BackendTileResult,
+} from './tile-source'
 
 // ─── Minimal mock TileSource ──────────────────────────────────────────────────
 // Implements the TileSource protocol with the smallest viable surface.
@@ -26,6 +29,7 @@ function makeMockBackend(id: string): TileSource & { pushResult(key: number, res
         minZoom: 0,
         maxZoom: 4,
         scheme: 'web-mercator-xyz' as const,
+        layoutVersion: TILE_LAYOUT_VERSION,
       }
     },
     has: (_key) => true,

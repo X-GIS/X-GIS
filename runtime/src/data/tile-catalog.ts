@@ -29,8 +29,9 @@ import { visibleTiles } from './tile-select'
 import { VirtualCatalogAdapter } from './sources/virtual-catalog-adapter'
 import { GeoJSONRuntimeBackend } from './sources/geojson-runtime-backend'
 import { SubTileGenerator } from './sub-tile-generator'
-import type {
-  TileSource, TileSourceSink, BackendTileResult, TileScheme,
+import {
+  TILE_LAYOUT_VERSION, TILE_LAYOUT_VERSION_BASE,
+  type TileSource, type TileSourceSink, type BackendTileResult, type TileScheme,
 } from './tile-source'
 // Step 0 of the layer-type refactor: shared types live in tile-types.ts so
 // per-format backend modules can import them without pulling in catalog
@@ -100,6 +101,11 @@ export class TileCatalog {
    *  either over-shoot heap on dense scenes or churn on sparse
    *  ones. */
   private _cachedBytes = 0
+
+  /** Backends already warned about a layoutVersion mismatch — keeps the
+   *  attach-time warn one-shot per backend instance so noisy re-attaches
+   *  (test harnesses, hot reload) don't spam the log. */
+  private _layoutMismatchWarned = new WeakSet<TileSource>()
 
   /** Permanently-pinned keys: the global low-zoom skeleton that
    *  guarantees `classifyFallback`'s ancestor walk always succeeds
@@ -249,6 +255,47 @@ export class TileCatalog {
     backend.attach(this.makeSink(backend))
     this.backends.push(backend)
     this.mergeBackendMeta(backend)
+    this.checkLayoutVersion(backend)
+  }
+
+  /** Compare the attaching backend's `meta.layoutVersion` against the
+   *  running runtime's `TILE_LAYOUT_VERSION`. On mismatch, evict any
+   *  cached tiles attributable to this backend (and the legacy
+   *  unattributed entries — see {@link evictTilesForBackend}) so the next
+   *  visible frame re-decodes through the new layout. Backends shipped
+   *  before the field existed surface as `undefined`; that's treated as
+   *  `TILE_LAYOUT_VERSION_BASE`. The warn fires once per (catalog,
+   *  backend) pair via `_layoutMismatchWarned`. */
+  private checkLayoutVersion(backend: TileSource): void {
+    const v = backend.meta.layoutVersion
+    const mismatch = v === undefined
+      ? TILE_LAYOUT_VERSION > TILE_LAYOUT_VERSION_BASE
+      : v !== TILE_LAYOUT_VERSION
+    if (!mismatch) return
+    this.evictTilesForBackend(backend)
+    if (!this._layoutMismatchWarned.has(backend)) {
+      this._layoutMismatchWarned.add(backend)
+      xlog.warn(`[X-GIS] tile-layout-version mismatch for source: cached=${v ?? TILE_LAYOUT_VERSION_BASE}, running=${TILE_LAYOUT_VERSION} — evicting cache + re-decoding`)
+    }
+  }
+
+  /** Drop every cached tile key whose slice list either matches this
+   *  backend or carries the pre-attribution `undefined` marker (entries
+   *  cached before TileData.originBackend shipped in PR 2c.1 — the
+   *  cache-attribution backfill contract treats them as "any backend"
+   *  for eviction). Routed through {@link deleteCacheEntry} so
+   *  `_cachedBytes` stays in sync. */
+  private evictTilesForBackend(backend: TileSource): void {
+    const toDelete: number[] = []
+    for (const [key, slot] of this.dataCache) {
+      for (const td of slot.values()) {
+        if (td.originBackend === backend || td.originBackend === undefined) {
+          toDelete.push(key)
+          break
+        }
+      }
+    }
+    for (const k of toDelete) this.deleteCacheEntry(k)
   }
 
   /** Catalog's primary tile scheme — the first-attached backend's scheme.

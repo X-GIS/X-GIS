@@ -14,8 +14,9 @@ import {
   compileSingleTile,
   type GeometryPart, type RingPolygon,
 } from '@xgis/compiler'
-import type {
-  TileSource, TileSourceSink, TileSourceMeta,
+import {
+  TILE_LAYOUT_VERSION,
+  type TileSource, type TileSourceSink, type TileSourceMeta,
 } from '../tile-source'
 
 export class GeoJSONRuntimeBackend implements TileSource {
@@ -34,6 +35,10 @@ export class GeoJSONRuntimeBackend implements TileSource {
       maxZoom: 7,
       // GeoJSON-runtime tiles on the Web Mercator XYZ slippy grid.
       scheme: 'web-mercator-xyz',
+      // Declares the polygon vertex byte format this backend emits. Catalog
+      // evicts cached tiles on attach if the runtime's TILE_LAYOUT_VERSION
+      // moves past what's cached (PR 2c.4).
+      layoutVersion: TILE_LAYOUT_VERSION,
       // GeoJSON-runtime doesn't carry a property table — feature
       // properties stay on the in-memory features and are looked up
       // at compile time. Catalog merges (first-wins).

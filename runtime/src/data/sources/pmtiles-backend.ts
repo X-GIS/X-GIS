@@ -25,8 +25,9 @@ import {
   type GeoJSONFeature,
 } from '@xgis/compiler'
 import { buildLineSegments } from '../../core/line-segment-build'
-import type {
-  TileSource, TileSourceSink, TileSourceMeta,
+import {
+  TILE_LAYOUT_VERSION,
+  type TileSource, type TileSourceSink, type TileSourceMeta,
 } from '../tile-source'
 import { getSharedMvtPool, type MvtWorkerPool } from '../workers/mvt-worker-pool'
 import { evalFilterExpr } from '../eval/filter-eval'
@@ -117,6 +118,10 @@ export class PMTilesBackend implements TileSource {
       maxZoom: opts.maxZoom,
       // PMTiles spec MVT tiles are addressed on the Web Mercator XYZ slippy grid.
       scheme: 'web-mercator-xyz',
+      // Declares the polygon vertex byte format this backend emits. Catalog
+      // evicts cached tiles on attach if the runtime's TILE_LAYOUT_VERSION
+      // moves past what's cached (PR 2c.4).
+      layoutVersion: TILE_LAYOUT_VERSION,
       // Empty property table — PMTiles' MVT properties aren't yet
       // surfaced to the styling layer. Catalog merges this with
       // first-attached-wins precedence; another backend's table wins

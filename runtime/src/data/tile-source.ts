@@ -135,11 +135,19 @@ export type TileScheme = 'web-mercator-xyz'
  *   - Backends produced before this field shipped read as `undefined` —
  *     catalog treats `undefined` as `TILE_LAYOUT_VERSION_BASE` (the Phase
  *     1 / pre-ECEF layout) for back-compat. */
-export const TILE_LAYOUT_VERSION = 1 as const
+/** Bumped 1 → 2 in PR 2c.4: PR 2c.2 switched polygon vertex bytes from
+ *  Mercator-DSFUN stride-5 `[mx_h, my_h, mx_l, my_l, fid]` to ECEF-DSFUN
+ *  stride-9 `[ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon, abs_lat]`.
+ *  Cached pre-PR-2c.2 tiles would otherwise feed stride-5 bytes into the
+ *  stride-9 ECEF VS attribute layout. Catalog evicts on attach when this
+ *  doesn't match a backend's advertised `meta.layoutVersion`. */
+export const TILE_LAYOUT_VERSION = 2 as const
 export type TileLayoutVersion = typeof TILE_LAYOUT_VERSION
 
 /** Pre-version-field baseline. Tiles produced by backends that omit
- *  `meta.layoutVersion` are assumed to follow this layout. */
+ *  `meta.layoutVersion` are assumed to follow this layout — never bumped,
+ *  otherwise the cache-attribution backfill contract (treat undefined as
+ *  base) breaks for backends shipped before the field existed. */
 export const TILE_LAYOUT_VERSION_BASE = 1 as const
 
 /** Metadata contributed by a backend at attach time. Catalog merges

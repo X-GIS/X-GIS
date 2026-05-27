@@ -6,17 +6,19 @@ import {
   type TileLayoutVersion,
 } from './tile-source'
 
-describe('TILE_LAYOUT_VERSION (Phase 2 PR 2c-prep scaffolding)', () => {
+describe('TILE_LAYOUT_VERSION (Phase 2 PR 2c.4 — bumped to 2)', () => {
   it('current version is exported as a numeric literal const', () => {
-    expect(TILE_LAYOUT_VERSION).toBe(1)
+    expect(TILE_LAYOUT_VERSION).toBe(2)
     expect(typeof TILE_LAYOUT_VERSION).toBe('number')
   })
 
-  it('baseline matches current version (Phase 2 PR 2c-prep) — bump in PR 2c proper', () => {
-    // Until PR 2c flips the polygon vertex layout from Mercator to ECEF,
-    // baseline and current are equal. PR 2c will bump TILE_LAYOUT_VERSION
-    // to 2 so older caches re-decode.
-    expect(TILE_LAYOUT_VERSION).toBe(TILE_LAYOUT_VERSION_BASE)
+  it('baseline stays at the original pre-version-field value', () => {
+    // PR 2c.4 bumped current to 2 because PR 2c.2 switched polygon vertex
+    // bytes from Mercator-DSFUN stride-5 to ECEF-DSFUN stride-9. Baseline
+    // must NOT move — it's the "what undefined means" contract for
+    // pre-PR-2c-prep backends and persisted cache entries.
+    expect(TILE_LAYOUT_VERSION_BASE).toBe(1)
+    expect(TILE_LAYOUT_VERSION).toBeGreaterThan(TILE_LAYOUT_VERSION_BASE)
   })
 
   it('TileSourceMeta accepts the optional layoutVersion field', () => {
@@ -45,6 +47,6 @@ describe('TILE_LAYOUT_VERSION (Phase 2 PR 2c-prep scaffolding)', () => {
 
   it('TileLayoutVersion type narrows to the literal current value', () => {
     const v: TileLayoutVersion = TILE_LAYOUT_VERSION
-    expect(v).toBe(1)
+    expect(v).toBe(2)
   })
 })

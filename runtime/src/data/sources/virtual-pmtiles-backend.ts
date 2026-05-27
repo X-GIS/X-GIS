@@ -24,7 +24,10 @@ import {
 import * as tilingPool from '../workers/geojson-tiling-pool'
 import { getSharedMvtPool, type MvtWorkerPool } from '../workers/mvt-worker-pool'
 import { buildLineSegments } from '../../core/line-segment-build'
-import type { BackendTileResult, TileSource, TileSourceMeta, TileSourceSink } from '../tile-source'
+import {
+  TILE_LAYOUT_VERSION,
+  type BackendTileResult, type TileSource, type TileSourceMeta, type TileSourceSink,
+} from '../tile-source'
 
 export interface VirtualPMTilesBackendOptions {
   /** Logical source name — used as the MVT layer name when no
@@ -93,6 +96,10 @@ export class VirtualPMTilesBackend implements TileSource {
       maxZoom,
       // geojsonvt produces MVT tiles on the Web Mercator XYZ slippy grid.
       scheme: 'web-mercator-xyz',
+      // Declares the polygon vertex byte format this backend emits. Catalog
+      // evicts cached tiles on attach if the runtime's TILE_LAYOUT_VERSION
+      // moves past what's cached (PR 2c.4).
+      layoutVersion: TILE_LAYOUT_VERSION,
     }
 
     // Kick off the worker-side index build immediately. loadTile()
