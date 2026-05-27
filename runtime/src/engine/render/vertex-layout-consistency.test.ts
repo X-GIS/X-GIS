@@ -92,18 +92,20 @@ describe('iter-320 vertex attribute-layout consistency (CPU pack ↔ WGSL @locat
   const polygon = tryParseLayout('vertexBufferLayout')
   const line = tryParseLayout('lineVertexBufferLayout')
 
-  it('line layout: stride 24 (DSFUN stride-6), loc0 pos_h@0 + loc1 pos_l@8 + loc2 fid@16', () => {
+  it('line layout: stride 36 (ECEF-DSFUN stride-9), loc0 pos_h@0 + loc1 pos_l@12 + loc2 fid@24 + loc3 abs_lon@28 + loc4 abs_lat@32', () => {
     if (!line) {
-      // Line pipeline is preserved in PR 2c.2; this layout MUST exist.
+      // Line pipeline preserved; layout MUST exist.
       throw new Error('lineVertexBufferLayout not found in renderer.ts')
     }
-    expect(line.stride).toBe(24)
+    // PR 2d.1D: migrated from DSFUN stride-24 to ECEF-DSFUN stride-36.
+    // Matches vertexBufferLayout (polygon ECEF). Consumer: vs_main (graticule).
+    expect(line.stride).toBe(36)
     const byLoc = new Map(line.attrs.map(a => [a.location, a]))
-    expect(byLoc.get(0)).toEqual({ location: 0, offset: 0, format: 'float32x2' })
-    expect(byLoc.get(1)).toEqual({ location: 1, offset: 8, format: 'float32x2' })
-    expect(byLoc.get(2)).toEqual({ location: 2, offset: 16, format: 'float32' })
-    // arc_start (offset 20, float 5) intentionally NOT a vertex attr —
-    // the SDF LineRenderer reads it via the segment storage buffer.
+    expect(byLoc.get(0)).toEqual({ location: 0, offset:  0, format: 'float32x3' })
+    expect(byLoc.get(1)).toEqual({ location: 1, offset: 12, format: 'float32x3' })
+    expect(byLoc.get(2)).toEqual({ location: 2, offset: 24, format: 'float32' })
+    expect(byLoc.get(3)).toEqual({ location: 3, offset: 28, format: 'float32' })
+    expect(byLoc.get(4)).toEqual({ location: 4, offset: 32, format: 'float32' })
     assertLayoutSane(line, 'line')
   })
 

@@ -4,10 +4,8 @@ import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
 import {
-  compileGeoJSONToTiles,
   compileSingleTile,
   decomposeFeatures,
-  tileKey,
   lonLatToMercF64,
   type GeoJSONFeatureCollection,
   type CompiledTile,
@@ -161,7 +159,6 @@ function cameraTile(z: number, lat: number, lon: number): { z: number; x: number
 // ═══════════════════════════════════════════════════════════════════
 
 describe('Polygon fill vs stroke alignment (user bug repro)', () => {
-  const BUG = { lat: 27.43511, lon: -1.14730 }
   // The right edge of the triangle (30,-20)→(0,30) crosses the user's
   // latitude at lon ≈ 1.56 — this is a BOUNDARY tile where both fill
   // AND outline should be present.

@@ -155,18 +155,20 @@ describe('emitPolygonWgsl — skeleton', () => {
     expect(wgsl).toContain('ecef_rtc')
   })
 
-  it('emits vs_main vertex entry with DSFUN-split pos_h + pos_l attributes', () => {
+  it('emits vs_main vertex entry with stride-9 ECEF DSFUN attributes (post PR 2d.1D)', () => {
     const wgsl = emitPolygonWgsl(null, false)
     expect(wgsl).toContain('fn vs_main')
     expect(wgsl).toContain('@vertex')
-    // Per-vertex attributes from POLYGON_SHADER_SOURCE.
-    expect(wgsl).toMatch(/@location\(0\)[^,]+pos_h\s*:\s*vec2<f32>/)
-    expect(wgsl).toMatch(/@location\(1\)[^,]+pos_l\s*:\s*vec2<f32>/)
+    // Per-vertex attributes — post PR 2d.1D this is stride-9 ECEF DSFUN
+    // matching vs_main_ecef's flat-fill layout. pos_h/pos_l promoted
+    // vec2→vec3 (added z); abs_lon/abs_lat appended for fragment-side
+    // hemisphere-cull recompute.
+    expect(wgsl).toMatch(/@location\(0\)[^,]+pos_h\s*:\s*vec3<f32>/)
+    expect(wgsl).toMatch(/@location\(1\)[^,]+pos_l\s*:\s*vec3<f32>/)
     expect(wgsl).toMatch(/@location\(2\)[^,]+feature_id\s*:\s*f32/)
-    // Sanity: vertex path emits the project_geom / project / proj_globe /
-    // apply_log_depth call sites the post-MVP transform depends on.
-    expect(wgsl).toContain('project_geom(')
-    expect(wgsl).toContain('proj_globe(')
+    // vs_main now consumes u.mvp_ecef directly — legacy project_geom /
+    // proj_globe calls retired. apply_log_depth is still used for the
+    // depth-buffer linearisation common to all VS entries.
     expect(wgsl).toContain('apply_log_depth(')
   })
 

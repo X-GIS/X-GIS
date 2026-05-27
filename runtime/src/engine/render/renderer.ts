@@ -9,7 +9,6 @@ import {
   STENCIL_WRITE_NO_DEPTH, STENCIL_TEST_NO_DEPTH,
   BLEND_OIT_ACCUM, BLEND_OIT_REVEALAGE,
   OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT,
-  WORLD_MERC, worldCopiesFor,
 } from '../gpu/gpu-shared'
 import { isPickEnabled, getSampleCount } from '../gpu/gpu'
 import { DEBUG_OVERDRAW } from '../debug-flags'
@@ -766,16 +765,18 @@ export class MapRenderer {
         { shaderLocation: 7, offset: 52, format: 'float32'   as GPUVertexFormat }, // is_top
       ],
     }
-    // DSFUN line vertex: [mx_h, my_h, mx_l, my_l, feat_id, arc_start] — stride 24 bytes.
-    // arc_start lives at offset 20; the vertex shader ignores it (the SDF
-    // LineRenderer reads it via the segment storage buffer), but keeping it
-    // in the VB means the same typed-array lays out for both paths.
+    // ECEF-DSFUN line vertex (PR 2d.1D): stride-9 = 36 bytes.
+    // [ex_h, ey_h, ez_h,  ex_l, ey_l, ez_l,  feat_id, abs_lon, abs_lat]
+    //  loc0 (vec3 @0)     loc1 (vec3 @12)     loc2 @24  loc3 @28  loc4 @32
+    // Mirrors vertexBufferLayout (polygon ECEF stride-36). Consumer: vs_main.
     const lineVertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 24,
+      arrayStride: 36,
       attributes: [
-        { shaderLocation: 0, offset: 0,  format: 'float32x2' as GPUVertexFormat },
-        { shaderLocation: 1, offset: 8,  format: 'float32x2' as GPUVertexFormat },
-        { shaderLocation: 2, offset: 16, format: 'float32'   as GPUVertexFormat },
+        { shaderLocation: 0, offset:  0, format: 'float32x3' as GPUVertexFormat },
+        { shaderLocation: 1, offset: 12, format: 'float32x3' as GPUVertexFormat },
+        { shaderLocation: 2, offset: 24, format: 'float32'   as GPUVertexFormat },
+        { shaderLocation: 3, offset: 28, format: 'float32'   as GPUVertexFormat },
+        { shaderLocation: 4, offset: 32, format: 'float32'   as GPUVertexFormat },
       ],
     }
 
@@ -1552,11 +1553,13 @@ export class MapRenderer {
       ],
     }
     const lineVertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 24,
+      arrayStride: 36,
       attributes: [
-        { shaderLocation: 0, offset: 0,  format: 'float32x2' as GPUVertexFormat },
-        { shaderLocation: 1, offset: 8,  format: 'float32x2' as GPUVertexFormat },
-        { shaderLocation: 2, offset: 16, format: 'float32'   as GPUVertexFormat },
+        { shaderLocation: 0, offset:  0, format: 'float32x3' as GPUVertexFormat },
+        { shaderLocation: 1, offset: 12, format: 'float32x3' as GPUVertexFormat },
+        { shaderLocation: 2, offset: 24, format: 'float32'   as GPUVertexFormat },
+        { shaderLocation: 3, offset: 28, format: 'float32'   as GPUVertexFormat },
+        { shaderLocation: 4, offset: 32, format: 'float32'   as GPUVertexFormat },
       ],
     }
 
@@ -1685,11 +1688,13 @@ export class MapRenderer {
       ],
     }
     const lineVertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 24,
+      arrayStride: 36,
       attributes: [
-        { shaderLocation: 0, offset: 0,  format: 'float32x2' as GPUVertexFormat },
-        { shaderLocation: 1, offset: 8,  format: 'float32x2' as GPUVertexFormat },
-        { shaderLocation: 2, offset: 16, format: 'float32'   as GPUVertexFormat },
+        { shaderLocation: 0, offset:  0, format: 'float32x3' as GPUVertexFormat },
+        { shaderLocation: 1, offset: 12, format: 'float32x3' as GPUVertexFormat },
+        { shaderLocation: 2, offset: 24, format: 'float32'   as GPUVertexFormat },
+        { shaderLocation: 3, offset: 28, format: 'float32'   as GPUVertexFormat },
+        { shaderLocation: 4, offset: 32, format: 'float32'   as GPUVertexFormat },
       ],
     }
 
@@ -1848,6 +1853,9 @@ export class MapRenderer {
     const dpr = canvas.clientWidth > 0 ? canvas.width / canvas.clientWidth : 1
     const frame = camera.getFrameView(canvas.width, canvas.height, dpr)
     const mvp = frame.matrix
+    // PR 2d.1D — vs_main now reads u.mvp_ecef (byte 64) for ECEF clip.
+    // Compute once per renderToPass call; graticule loop uses it below.
+    const mvpEcef = camera.getECEFFrameView(canvas.width, canvas.height, dpr).matrix
 
     for (const layer of this.layers) {
       // Read from dynamic properties (supports runtime override)
@@ -1964,39 +1972,42 @@ export class MapRenderer {
     // Draw graticule grid lines (primary world + copies)
     // Each world copy needs its own uniform buffer (WebGPU batches writeBuffer)
     if (this.graticuleEnabled && this.graticuleBuffer) {
-      const gDEG2RAD = Math.PI / 180
-      const gR = 6378137
-      const gcy = Math.log(Math.tan(Math.PI / 4 + Math.max(-85.051129, Math.min(85.051129, projCenterLat)) * gDEG2RAD / 2)) * gR
-      // WORLD_MERC imported from gpu-shared
-
       pass.setPipeline(this.linePipeline)
       pass.setVertexBuffer(0, this.graticuleBuffer)
 
-      // Non-Mercator projections render a single world; only Mercator
-      // wraps via WORLD_MERC. See worldCopiesFor() for rationale.
-      const worldOffs = worldCopiesFor(projType)
-
-      for (let wi = 0; wi < worldOffs.length; wi++) {
+      // PR 2d.1D: graticule vertices are absolute ECEF — no per-copy camera
+      // shift needed. Draw once per frame (ECEF world-copy = same geometry).
+      // Previously iterated worldCopiesFor(projType) for Mercator cam_h shift.
+      for (let wi = 0; wi < 1; wi++) {
         const gratData = new ArrayBuffer(MapRenderer.UNIFORM_SIZE)
+        // ── 256-byte Uniforms struct layout (matches VTR + WGSL) ──────────
+        // byte   0: mvp       (16 f32 = 64 B) — kept for any legacy FS reads
+        // byte  64: mvp_ecef  (16 f32 = 64 B) — PR 2d.1D: vs_main reads this
+        // byte 128: fill_color (4 f32 = 16 B)
+        // byte 144: stroke_color (4 f32)
+        // byte 160: proj_params (4 f32)
+        // byte 168: cam_h (2 f32) | byte 176: cam_l (2 f32) | byte 184: tile_origin_merc (2 f32)
+        // byte 192: opacity | byte 196: log_depth_fc | byte 200: pick_id (u32) | byte 204: layer_depth_offset
+        // byte 208: tile_extent_m | byte 212: extrude_height_m | byte 216: clip_bounds (4 f32)
+        // byte 232: zoom | ...
         new Float32Array(gratData, 0, 16).set(mvp)
-        new Float32Array(gratData, 64, 4).set([1, 1, 1, 0.15])
-        new Float32Array(gratData, 80, 4).set([1, 1, 1, 0.15])
-        new Float32Array(gratData, 96, 4).set([projType, projCenterLon, projCenterLat, 0])
-        // Graticule vertices are DSFUN-encoded in absolute Mercator meters,
-        // so tile_origin_merc = (0,0) and cam_h/cam_l = splitF64(cam_merc).
-        // World-copy offsets shift the camera by ±WORLD_MERC meters.
-        const gcx = projCenterLon * gDEG2RAD * gR - worldOffs[wi] * WORLD_MERC
-        const gcxH = Math.fround(gcx)
-        const gcxL = Math.fround(gcx - gcxH)
-        const gcyH = Math.fround(gcy)
-        const gcyL = Math.fround(gcy - gcyH)
-        new Float32Array(gratData, 112, 4).set([gcxH, gcyH, gcxL, gcyL])
-        // tile_origin_merc=(0,0) for graticule (world-space DSFUN), opacity=1, log_depth_fc
-        new Float32Array(gratData, 128, 4).set([0, 0, 1, frame.logDepthFc])
-        // pick_id=0 — graticule is decorative, never pickable.
-        new Uint32Array(gratData, 144, 4).set([0, 0, 0, 0])
+        new Float32Array(gratData, 64, 16).set(mvpEcef) // PR 2d.1D: vs_main reads u.mvp_ecef
+        // fill_color = white @ 15% opacity (minor grid line colour)
+        new Float32Array(gratData, 128, 4).set([1, 1, 1, 0.15])
+        // stroke_color = white @ 15% opacity
+        new Float32Array(gratData, 144, 4).set([1, 1, 1, 0.15])
+        // proj_params
+        new Float32Array(gratData, 160, 4).set([projType, projCenterLon, projCenterLat, 0])
+        // Graticule vertices are ECEF-encoded (PR 2d.1D); RTC anchor = (0,0,0)
+        // since graticule emits absolute ECEF without per-tile centering.
+        // cam_h / cam_l fields are unused by vs_main (ECEF path) — zero-fill.
+        new Float32Array(gratData, 168, 4).set([0, 0, 0, 0]) // cam_h + cam_l
+        // tile_origin_merc=(0,0), opacity=1, log_depth_fc
+        new Float32Array(gratData, 184, 4).set([0, 0, 1, frame.logDepthFc])
+        // pick_id=0 — graticule is decorative, never pickable. + layer_depth_offset=0
+        new Uint32Array(gratData, 200, 4).set([0, 0, 0, 0])
         // clip_bounds sentinel — same rationale as the polygon path.
-        new Float32Array(gratData, 160, 4).set([-1e30, 0, 0, 0])
+        new Float32Array(gratData, 216, 4).set([-1e30, 0, 0, 0])
         const gratOff = this.allocUniformSlot()
         this.stageUniformSlot(gratOff, gratData)
 
