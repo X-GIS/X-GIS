@@ -7,7 +7,6 @@ import type { GPUContext } from '../gpu/gpu'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import { Camera } from '../projection/camera'
 import type { ShowCommand } from './renderer'
-import { interpolateZoom } from './renderer'
 import { variantProducesFill } from './renderer-helpers'
 import { xlog } from '../log'
 import type { ResolvedShow } from './resolved-show'
@@ -27,7 +26,7 @@ import { PrefetchScheduler } from './prefetch-scheduler'
 import {
   generateWallMeshExtrudedECEF,
 } from '../../core/polygon-mesh'
-import { tileKey, tileKeyParent, tileKeyChildren, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
+import { tileKey, tileKeyParent, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
 import { StagingBufferPool, asyncWriteBuffer } from '../gpu/staging-buffer-pool'
 import { GPUArena } from '../gpu/gpu-arena'
 import { BundleCache, type BundleEncodeDescriptor } from './bundle-cache'
@@ -304,7 +303,6 @@ export class VectorTileRenderer {
    *  `pick_id` (u32). After PR 2d.5 closeout the field sits at f32 slot
    *  36 (byte offset 144) — shifted -16 by the legacy mvp removal. */
   private uniformU32 = new Uint32Array(this.uniformDataBuf)
-  private lastBindGroupLayout: GPUBindGroupLayout | null = null
   /** Uniform-only layout — stays pinned to the base `bindGroupLayout`
    *  even when `render()` swaps `lastBindGroupLayout` for a variant layout. */
   private baseBindGroupLayout: GPUBindGroupLayout | null = null
@@ -513,18 +511,7 @@ export class VectorTileRenderer {
    *  metres) for extruded polygons. Smaller pool — only extruded
    *  tiles (e.g. fill-extrusion buildings) write here. */
   private zBufferArena: GPUArena | null = null
-  private static readonly Z_BUFFER_ARENA_CAPACITY = 32 * 1024 * 1024
 
-  private getOrCreateZBufferArena(): GPUArena {
-    if (this.zBufferArena === null) {
-      this.zBufferArena = new GPUArena(this.device, {
-        capacityBytes: VectorTileRenderer.Z_BUFFER_ARENA_CAPACITY,
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-        label: 'z-buffer-arena',
-      })
-    }
-    return this.zBufferArena
-  }
 
   /** Tiered MAP_WRITE | COPY_SRC pool used by the async upload path
    *  (`doUploadTileAsync`). The sync `doUploadTile` keeps using
@@ -596,7 +583,6 @@ export class VectorTileRenderer {
 
   /** Set bind group layout (must be called before tiles arrive) */
   setBindGroupLayout(layout: GPUBindGroupLayout): void {
-    this.lastBindGroupLayout = layout
     this.baseBindGroupLayout = layout
     this.ensureUniformRing()
   }
@@ -2805,7 +2791,6 @@ export class VectorTileRenderer {
     // here would have clobbered earlier layers' miss counts and
     // falsely signaled "no work pending" when only the last
     // layer happened to converge first.
-    this.lastBindGroupLayout = bindGroupLayout
     this.ensureUniformRing()
     // Promote pending uploads first — they're strictly older than anything
     // this frame's tile walk will queue, so servicing them now keeps the
@@ -3801,7 +3786,6 @@ export class VectorTileRenderer {
 
     for (let i = 0; i < tiles.length; i++) {
       const key = neededKeys[i]
-      const tileZi = tiles[i].z
 
       // ── OVER-ZOOM FAST PATH ──
       // For tiles past archive maxLevel, every layer renders the
@@ -4704,7 +4688,7 @@ export class VectorTileRenderer {
     keys: number[],
     pass: GPURenderPassEncoder | GPURenderBundleEncoder,
     fillPipeline: GPURenderPipeline,
-    linePipeline: GPURenderPipeline,
+    _linePipeline: GPURenderPipeline,
     projCenterLon: number,
     projCenterLat: number,
     worldOffsets: number[] | undefined,
@@ -4959,7 +4943,6 @@ export class VectorTileRenderer {
       const currentTileBg = fillBindGroupLayout === this.baseBindGroupLayout
         ? this.tileBgDefault!
         : (cached.featureBindGroup ?? this.tileBgFeature!)
-      const currentLineTileBg = this.tileBgDefault!
       // Stage the slot into the CPU-side mirror instead of issuing one
       // writeBuffer per tile; the mirror is flushed in a single call at
       // the end of this renderTileKeys invocation.

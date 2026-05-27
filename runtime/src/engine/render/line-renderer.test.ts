@@ -13,11 +13,9 @@ const F32_COLOR = 0         // vec4<f32>  @ 0
 const F32_WIDTH_PX = 4      // f32        @ 16
 const F32_AA_WIDTH = 5      // f32        @ 20
 const F32_MPP = 6           // f32        @ 24
-const F32_MITER_LIMIT = 7   // f32        @ 28
 const U32_FLAGS = 8         // u32        @ 32
 const U32_DASH_COUNT = 9    // u32        @ 36
 const F32_DASH_CYCLE = 10   // f32        @ 40
-const F32_DASH_OFFSET = 11  // f32        @ 44
 const F32_DASH_ARRAY_0 = 12 // array<vec4<f32>,2> @ 48-79
 
 // ═══ DSFUN segment layout (LINE_SEGMENT_STRIDE_F32 = 16) ═══
@@ -38,7 +36,6 @@ const OFF_NEXT_TANGENT = 10
 const OFF_ARC_START = 12
 const OFF_PAD_P0 = 14
 const OFF_PAD_P1 = 15
-const OFF_Z_LIFT = 16
 const OFF_WIDTH_OVERRIDE = 17
 const OFF_COLOR_PACKED = 18
 

@@ -19,7 +19,6 @@ import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../../__prof
 import { DEBUG_OVERDRAW } from '../../debug-flags'
 import { WORLD_MERC } from '../../gpu/gpu-shared'
 import { mercatorYToLat } from '../../projection/projection'
-import { resolveNumberShape } from '../paint-shape-resolve'
 import { resolveLabelEffectiveDef, makeLabelProjectors } from '../../render-loop-helpers'
 import { computeSliceKey } from '../../../data/eval/filter-eval'
 import { TextStage, type TextStageOptions } from '../../text/text-stage'

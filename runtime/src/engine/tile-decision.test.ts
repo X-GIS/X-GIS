@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { tileKey, tileKeyParent } from '@xgis/compiler'
-import { classifyTile, computeProtectedKeys, type ClassifyTileInputs, type TileDecision } from './tile-decision'
+import { classifyTile, computeProtectedKeys, type ClassifyTileInputs } from './tile-decision'
 
 const tile = (z: number, x: number, y: number) => ({ z, x, y, ox: x })
 

@@ -22,7 +22,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { PbfRasterizer } from './pbf-rasterizer'
-import type { GlyphProvider } from './pbf-rasterizer'
+import type { GlyphProvider } from './pbf/glyph-provider'
 import type { GlyphRasterizer, GlyphRasterRequest, GlyphRasterResult } from './glyph-rasterizer'
 import type { PbfGlyph } from './pbf/glyphs-proto'
 

@@ -37,7 +37,6 @@ function loadCountries(): GeoJSONFeatureCollection {
 
 const W = 1024
 const H = 768
-const R = 6378137
 const DEG2RAD = Math.PI / 180
 
 function makeCam(zoom: number, pitch: number, lon: number, lat: number, bearing = 0): Camera {
