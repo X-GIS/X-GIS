@@ -80,12 +80,19 @@ describe('projection threshold drift gate', () => {
     }
   })
 
-  it('inline raster cull ladder thresholds == table', () => {
+  it('raster VS has NO inline cull-threshold ladder (PR 2d.3 — ECEF migration)', () => {
+    // PR 2d.3 retired the per-projection threshold ladder in the raster VS
+    // along with the 4-branch projection dispatch: the new ECEF path writes
+    // `vis = 1` unconditionally, so the rim/backface decision is handled by
+    // the ECEF MVP composition + the existing rim_alpha smoothstep below.
+    // This test now anchors that direction — if a future change reintroduces
+    // a hand-written threshold literal in the raster shader, the table is
+    // the place to wire it. ORTHO/AZIMUTHAL/STEREO referenced here to keep
+    // the table-anchor link explicit for grep/review.
+    void ORTHO; void AZIMUTHAL; void STEREO
     const raster = emitRasterWgsl(false)
-    // `var threshold = 0.0;` then `threshold = -0.85;` (azimuthal),
-    // `threshold = -0.8;` (stereo).
     const found = allMatches(raster, /threshold(?:: f32)? = (-?[\d.]+);/g)
-    expect(found).toEqual([ORTHO, AZIMUTHAL, STEREO])
+    expect(found).toEqual([])
   })
 
   it('RIM_FADE band width is 0.02 in the emitted WGSL and the raster shader', () => {
