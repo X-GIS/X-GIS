@@ -4,7 +4,8 @@ import type { GPUContext } from '../gpu/gpu'
 import type { Camera } from '../projection/camera'
 import { visibleTilesFrustum, tileUrl, loadImageTexture } from '../../data/tile-select'
 import { mercator as mercatorProj } from '../projection/projection'
-import { projectWgsl, projectGeomWgsl, emitRasterWgsl } from '../shader-dsl'
+import { lonLatToECEF } from '../projection/ecef'
+import { emitRasterWgsl } from '../shader-dsl'
 import { BLEND_ALPHA, STENCIL_DISABLED } from '../gpu/gpu-shared'
 import { isPickEnabled, getSampleCount } from '../gpu/gpu'
 import { DEBUG_OVERDRAW } from '../debug-flags'
@@ -61,7 +62,7 @@ export class RasterRenderer {
   private tileUniformPool: GPUBuffer[] = []
   private tileBindGroupPool: GPUBindGroup[] = []
   private tileUniformIdx = 0
-  private drawTileF32 = new Float32Array(12) // bounds(4) + tile_rtc(4) + merc_y(2) + pad(2)
+  private drawTileF32 = new Float32Array(12) // bounds(4) + tile_ecef_center(4) + merc_y(2) + pad(2)
 
   constructor(ctx: GPUContext) {
     this.device = ctx.device
@@ -171,7 +172,7 @@ export class RasterRenderer {
     if (DEBUG_OVERDRAW) return
     this.frameCount++
 
-    const frame = camera.getFrameView(canvasWidth, canvasHeight, dpr)
+    const frame = camera.getECEFFrameView(canvasWidth, canvasHeight, dpr)
     const mvp = frame.matrix
     const { zoom } = camera
 
@@ -277,7 +278,6 @@ export class RasterRenderer {
     // collapses to [0]. Non-Mercator + globe modes return [0] from
     // the helper. Cheaper than the iter-188 hardcoded 5-iteration
     // loop when fewer than 5 copies fit the frustum (typical case).
-    const RASTER_WORLD_MERC = 40075016.686
     const RASTER_WORLD_COPIES = projType < 0.5
       ? camera.getVisibleWorldCopies(canvasWidth, canvasHeight, dpr)
       : [0]
@@ -319,55 +319,18 @@ export class RasterRenderer {
       const north = Math.atan(Math.sinh(Math.PI * (1 - 2 * renderCoord.y / rn))) * 180 / Math.PI
       const south = Math.atan(Math.sinh(Math.PI * (1 - 2 * (renderCoord.y + 1) / rn))) * 180 / Math.PI
 
-      // Compute tile_rtc in f64: project(tileWest, tileSouth) - project(camera)
-      // Uses SW corner as origin — identical to vector tile renderer
-      const DEG2RAD = Math.PI / 180
-      const R = 6378137
-      const MERC_LIMIT = 85.051129
-      const clampMerc = (v: number) => Math.max(-MERC_LIMIT, Math.min(MERC_LIMIT, v))
-      // tile_rtc must be project(tileSW) - project(camera) in the ACTIVE
-      // projection so the shader's `project(v) - project(SW) + tile_rtc`
-      // telescopes to `project(v) - project(camera)`. Mercator stays
-      // inline (clamped log/tan). Every other projection MUST mirror the
-      // GPU project() dispatch exactly via projectWgsl — the previous
-      // plain `lat*R` (equirectangular) here detached raster tiles from
-      // the vector layers under natural_earth / orthographic / azimuthal
-      // / stereographic / oblique (offset grew with camera distance).
-      let tileX: number, tileY: number, centerX: number, centerY: number
-      if (projType < 0.5) {
-        tileX = west * DEG2RAD * R
-        centerX = projCenterLon * DEG2RAD * R
-        tileY = Math.log(Math.tan(Math.PI / 4 + clampMerc(south) * DEG2RAD / 2)) * R
-        centerY = Math.log(Math.tan(Math.PI / 4 + clampMerc(projCenterLat) * DEG2RAD / 2)) * R
-      } else if (projType > 6.5) {
-        // globe (projType 7): the vertex shader's globe branch recomputes
-        // RTC straight from proj_globe(lon,lat) − proj_globe(centre) and
-        // IGNORES tile_rtc ("the Mercator tile_rtc offset is irrelevant
-        // here" — vs_main). The 2D projectWgsl/projectGeomWgsl mirrors have
-        // no globe case (globe is a vec3 sphere path), so any value here is
-        // discarded — compute nothing and, crucially, do NOT fall through
-        // to projectWgsl(7) which silently returned the OBLIQUE-MERCATOR
-        // result. azimuthal-when-tilted promotes to projType 7, so this is
-        // the raster sibling of the label _lblIsGlobe fix.
-        tileX = 0; tileY = 0; centerX = 0; centerY = 0
-      } else {
-        // natural_earth & centre-based projections take the shader's
-        // project_geom else-branch — the SW corner must use the SAME
-        // per-tile unwrap reference (tile centre lon) so the
-        // telescoping project_geom(v) − project_geom(SW) + tile_rtc
-        // stays exact across the antimeridian seam. equirect (1) keeps
-        // the tile-relative branch (projectWgsl / wrap).
-        const refLon = (west + east) / 2
-        const sw = projType < 1.5
-          ? projectWgsl(projType, west, south, projCenterLon, projCenterLat)
-          : projectGeomWgsl(projType, west, south, projCenterLon, projCenterLat, refLon)
-        const cen = projectWgsl(projType, projCenterLon, projCenterLat, projCenterLon, projCenterLat)
-        tileX = sw[0]; tileY = sw[1]; centerX = cen[0]; centerY = cen[1]
-      }
+      // ECEF anchor: SW corner of tile in WGS84 ECEF (unshifted across copies).
+      // The shader subtracts this from lonlat_to_ecef(vertex) to form the RTC
+      // offset vector, then transforms with the ECEF MVP. Precision: f64 here,
+      // f32 in the uniform — acceptable because tile SW is close to vertices.
+      const swEcef = lonLatToECEF(west, south)
 
       // Precompute Mercator Y bounds in f64 — crucially, store merc_south and the
       // small diff (merc_north - merc_south) separately, avoiding catastrophic
       // cancellation in f32 at high zoom where the two values are nearly equal.
+      const DEG2RAD = Math.PI / 180
+      const MERC_LIMIT = 85.051129
+      const clampMerc = (v: number) => Math.max(-MERC_LIMIT, Math.min(MERC_LIMIT, v))
       const mercSouth = Math.log(Math.tan(Math.PI / 4 + clampMerc(south) * DEG2RAD / 2))
       const mercNorth = Math.log(Math.tan(Math.PI / 4 + clampMerc(north) * DEG2RAD / 2))
       const mercDiff = mercNorth - mercSouth
@@ -387,10 +350,11 @@ export class RasterRenderer {
       pass.setBindGroup(0, cached.globalBG)
 
       // iter-188 — world-copy loop. For Mercator, draw the tile in
-      // every visible world copy by shifting tile_rtc.x by
-      // wo * WORLD_MERC. local_x in the vertex shader stays anchored
-      // to the unshifted tileWest (tile_rtc.z), so adding the world
-      // offset to tile_rtc.x cleanly translates the rendered grid.
+      // every visible world copy by shifting bounds.x / bounds.z by
+      // wo * 360°. The vertex shader's mix(bounds.x, bounds.z, uu)
+      // naturally lands lon in the right world copy for lonlat_to_ecef.
+      // tile_ecef_center stays unshifted (shared across copies; the
+      // RTC subtraction is in 3D ECEF and copy-invariant).
       // Non-Mercator collapses to wo=0 only.
       for (const wo of RASTER_WORLD_COPIES) {
         // Get or create a pooled uniform buffer + matching bind group.
@@ -409,11 +373,11 @@ export class RasterRenderer {
         this.tileUniformIdx++
 
         const tf = this.drawTileF32
-        tf[0] = west; tf[1] = south; tf[2] = east; tf[3] = north   // bounds
-        tf[4] = (tileX - centerX) + wo * RASTER_WORLD_MERC          // tile_rtc.x with world offset
-        tf[5] = tileY - centerY  // tile_rtc.y
-        tf[6] = west             // tile_rtc.z = tileWest (unshifted)
-        tf[7] = south            // tile_rtc.w = tileSouth
+        // bounds: shift west/east by wo*360° so the shader's mix(bounds.x, bounds.z, uu)
+        // naturally produces the correct world-copy longitude for lonlat_to_ecef.
+        tf[0] = west + wo * 360; tf[1] = south; tf[2] = east + wo * 360; tf[3] = north
+        // tile_ecef_center: ECEF of SW corner (unshifted; shared across copies).
+        tf[4] = swEcef[0]; tf[5] = swEcef[1]; tf[6] = swEcef[2]; tf[7] = 0
         tf[8] = mercSouth        // merc_y.x
         tf[9] = mercDiff         // merc_y.y
         tf[10] = 0; tf[11] = 0   // padding

@@ -1,31 +1,28 @@
-// ═══ Shader DSL — raster tile shader (Phase 2) ═══
+// ═══ Shader DSL — raster tile shader (Phase 2 PR 2d.3 — ECEF VS) ═══
 //
 // Re-authors render/raster-renderer.ts RASTER_SHADER_SOURCE. The vertex stage
 // generates a procedural N×N grid (vertex_index, no vertex buffer), recovers
-// lon/lat from the tile's Mercator-Y span, and projects per the active
-// projection: a Mercator/equirect RTC fast path, a true-3D-globe branch, and a
-// generic project_geom branch with per-projection backface cull. The fragment
-// samples the tile texture, applies raster-opacity + a rim-alpha fade, and
-// writes log-depth.
+// lon/lat from the tile's Mercator-Y span, and projects via a single ECEF
+// path: lon/lat → lonlat_to_ecef() → subtract tile_ecef_center (RTC) →
+// MVP transform. This replaces the previous 4-branch projection dispatch
+// (globe / mercator / equirect / other+cull). The fragment samples the tile
+// texture, applies raster-opacity + a rim-alpha fade, and writes log-depth.
 //
-// The shared projection + log-depth math is NOT re-authored here — it is the
-// same DSL-emitted WGSL the other renderers use (PROJECTION_WGSL_CONSTS/FNS,
-// LOG_DEPTH_WGSL_FNS), prepended by emitRasterWgsl so this module's vs/fs can
-// call proj_globe / project_geom / center_cos_c / apply_log_depth /
-// compute_log_frag_depth and reference PI / DEG2RAD / EARTH_R.
+// The shared ECEF consts + fns (lonlat_to_ecef / ECEF WGS84 consts) are
+// prepended by emitRasterWgsl alongside the log-depth helpers. The projection
+// WGSL block is no longer emitted — only ECEF_WGSL_CONSTS/FNS + LOG_DEPTH.
 //
-// Pick variant: the pick attachment field + write are conditionally emitted
-// (replacing the old __PICK_FIELD__ / __PICK_WRITE__ string markers); raster
-// always writes (0,0) since a basemap tile carries no feature id.
+// Pick variant: the pick attachment field + write are conditionally emitted;
+// raster always writes (0,0) since a basemap tile carries no feature id.
 
 import {
   entryFn, module, bindingRef, constRef, callFn, transformMat4, arrayLit,
-  f32, u32, toF32, vec2, vec4, vec2u, mix, atan, exp, smoothstep, textureSample,
+  f32, u32, toF32, vec2, vec3, vec4, vec2u, mix, atan, exp, smoothstep, textureSample,
   structT, f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   type StructDecl, type StructField, type ModuleDecl,
 } from '../core/ir'
 import { emitModule } from '../core/backends/wgsl'
-import { PROJECTION_WGSL_CONSTS, PROJECTION_WGSL_FNS } from './projections'
+import { ECEF_WGSL_CONSTS, ECEF_WGSL_FNS } from './ecef'
 import { LOG_DEPTH_WGSL_FNS } from './log-depth'
 
 const Uniforms: StructDecl = {
@@ -41,9 +38,9 @@ const Uniforms: StructDecl = {
 const TileUniforms: StructDecl = {
   name: 'TileUniforms',
   fields: [
-    { name: 'bounds', type: vec4fT },     // west, south, east, north (degrees)
-    { name: 'tile_rtc', type: vec4fT },   // xy = project(tileWest,tileSouth) - project(camera); z = tileWest; w = tileSouth
-    { name: 'merc_y', type: vec2fT },     // x = merc_south (abs), y = merc_diff (north - south)
+    { name: 'bounds', type: vec4fT },          // west, south, east, north (degrees); x/z shifted per world-copy
+    { name: 'tile_ecef_center', type: vec4fT }, // xyz = ECEF of tile SW corner (world-copy unshifted); w = 0
+    { name: 'merc_y', type: vec2fT },           // x = merc_south (abs), y = merc_diff (north - south)
     { name: '_pad', type: vec2fT },
   ],
 }
@@ -86,75 +83,28 @@ const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 've
 
   const mercY = tile.field('merc_y', vec2fT)
   const bounds = tile.field('bounds', vec4fT)
-  const tileRtc = tile.field('tile_rtc', vec4fT)
+  const tileEcefCenter = tile.field('tile_ecef_center', vec4fT)
   const projParams = u.field('proj_params', vec4fT)
 
   // vv=0 → north (offset=diff), vv=1 → south (offset=0). Local offset from tileSouth.
   const mercYOffset = b.let('merc_y_offset', f32(1).sub(vv).mul(mercY.y))
   const mercYAbs = b.let('merc_y_abs', mercY.x.add(mercYOffset))
 
+  // bounds.x/z are world-copy-shifted (west+wo*360, east+wo*360) so lon
+  // naturally lands in the correct world copy. merc_y is copy-independent.
   const lon = b.let('lon', mix(bounds.x, bounds.z, uu))
   const latRad = b.let('lat_rad', f32(2).mul(atan(exp(mercYAbs))).sub(constRef('PI').div(2)))
-  const lat = b.let('lat', latRad.div(constRef('DEG2RAD')))
 
-  const localLon = b.let('local_lon', lon.sub(tileRtc.z))
-  const originLat = b.let('origin_lat', tileRtc.w)
-  const localX = b.let('local_x', localLon.mul(constRef('DEG2RAD')).mul(constRef('EARTH_R')))
+  // ECEF path: lon/lat → WGS84 ECEF → subtract tile SW-corner anchor (RTC).
+  // Works for every projection because the MVP is always the ECEF frame view
+  // (Camera.getECEFFrameView). No per-projection branches needed.
+  const lonRad = b.let('lon_rad', lon.mul(constRef('DEG2RAD')))
+  const ecef = b.let('ecef', callFn('lonlat_to_ecef', vec3fT, lonRad, latRad, f32(0)))
+  const tileEcefCtr = b.let('tile_ecef_ctr', vec3(tileEcefCenter.x, tileEcefCenter.y, tileEcefCenter.z))
+  const ecefRtc = b.let('ecef_rtc', ecef.sub(tileEcefCtr))
 
-  const localY = b.var('local_y', f32T)
-  const t = b.let('t', projParams.x)
-
-  // True 3D globe (projType 7): sphere RTC against the focus point + orbit MVP.
-  b.if(t.gt(6.5), (c) => {
-    const g = c.let('g', callFn('proj_globe', vec3fT, lon, lat).sub(callFn('proj_globe', vec3fT, projParams.y, projParams.z)))
-    const go = c.var('go', structT('VsOut'))
-    const gclip = c.let('gclip', transformMat4(u.field('mvp', mat4x4fT), vec4(g, f32(1))))
-    c.assign(go.field('pos', vec4fT), callFn('apply_log_depth', vec4fT, gclip, projParams.w))
-    c.assign(go.field('view_w', f32T), gclip.w)
-    c.assign(go.field('uv', vec2fT), vec2(uu, vv))
-    c.assign(go.field('vis', f32T), callFn('center_cos_c', f32T, lon, lat, projParams.y, projParams.z))
-    c.ret(go)
-  })
-
-  b.if(t.lt(0.5), (c) => {
-    // Mercator: linear in Mercator Y — offset already relative to tileSouth.
-    c.assign(localY, mercYOffset.mul(constRef('EARTH_R')))
-  }).elif(t.lt(1.5), (c) => {
-    // Equirectangular
-    c.assign(localY, lat.sub(originLat).mul(constRef('DEG2RAD')).mul(constRef('EARTH_R')))
-  }).else((c) => {
-    // Other projections: project absolute then subtract origin, with the tile-
-    // centre longitude as the unwrap reference so a clon±180 seam stays
-    // contiguous. The CPU tile_rtc SW corner uses the matching reference, so
-    // this telescopes exactly.
-    const refLon = c.let('ref_lon', bounds.x.add(bounds.z).mul(0.5))
-    const projected = c.let('projected', callFn('project_geom', vec2fT, lon, lat, projParams, refLon))
-    const originProjected = c.let('origin_projected', callFn('project_geom', vec2fT, tileRtc.z, originLat, projParams, refLon))
-    const rtcOther = c.let('rtc_other', projected.sub(originProjected).add(vec2(tileRtc.x, tileRtc.y)))
-    const out = c.var('out', structT('VsOut'))
-    const clipOther = c.let('clip_other', transformMat4(u.field('mvp', mat4x4fT), vec4(rtcOther, f32(0), f32(1))))
-    c.assign(out.field('pos', vec4fT), callFn('apply_log_depth', vec4fT, clipOther, projParams.w))
-    c.assign(out.field('view_w', f32T), clipOther.w)
-    c.assign(out.field('uv', vec2fT), vec2(uu, vv))
-    // Per-projection cull threshold, inlined (the WGSL compiler can't fold the
-    // switch inside needs_backface_cull on a uniform read — measurable on
-    // raster-heavy frames). ortho=0, azimuthal=-0.85, stereo=-0.8, oblique_merc
-    // never culls (vis=+1).
-    const threshold = c.var('threshold', f32T, f32(0))
-    c.if(t.gt(3.5).and(t.lt(4.5)), (d) => { d.assign(threshold, f32(-0.85)) })
-      .elif(t.gt(4.5).and(t.lt(5.5)), (d) => { d.assign(threshold, f32(-0.8)) })
-      .elif(t.gt(5.5).and(t.lt(6.5)), (d) => {
-        d.assign(out.field('vis', f32T), f32(1))
-        d.ret(out)
-      })
-    c.assign(out.field('vis', f32T), callFn('center_cos_c', f32T, lon, lat, projParams.y, projParams.z).sub(threshold))
-    c.ret(out)
-  })
-
-  // Mercator / equirect fall-through. tile_rtc.xy = project(tileW,tileS) - project(camera) (CPU f64).
-  const rtc = b.let('rtc', vec2(localX.add(tileRtc.x), localY.add(tileRtc.y)))
   const out = b.var('out', structT('VsOut'))
-  const clip = b.let('clip', transformMat4(u.field('mvp', mat4x4fT), vec4(rtc, f32(0), f32(1))))
+  const clip = b.let('clip', transformMat4(u.field('mvp', mat4x4fT), vec4(ecefRtc, f32(1))))
   b.assign(out.field('pos', vec4fT), callFn('apply_log_depth', vec4fT, clip, projParams.w))
   b.assign(out.field('view_w', f32T), clip.w)
   b.assign(out.field('uv', vec2fT), vec2(uu, vv))
@@ -190,12 +140,12 @@ const buildRasterModule = (pickEnabled: boolean): ModuleDecl => module({
   funcs: [vs, buildFs(pickEnabled)],
 })
 
-/** Full raster shader: the shared DSL-emitted projection consts + log-depth fns
- *  + projection fns, then the raster module (structs + bindings + vs_tile +
- *  fs_tile). `pickEnabled` toggles the pick attachment field + write. */
+/** Full raster shader: ECEF consts + lonlat_to_ecef fn + log-depth fns, then
+ *  the raster module (structs + bindings + vs_tile + fs_tile).
+ *  `pickEnabled` toggles the pick attachment field + write. */
 export const emitRasterWgsl = (pickEnabled: boolean): string => [
-  PROJECTION_WGSL_CONSTS,
+  ECEF_WGSL_CONSTS,
+  ECEF_WGSL_FNS,
   LOG_DEPTH_WGSL_FNS,
-  PROJECTION_WGSL_FNS,
   emitModule(buildRasterModule(pickEnabled)),
 ].join('\n')
