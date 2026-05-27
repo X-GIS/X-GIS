@@ -214,13 +214,14 @@ export function projectRingsToMM(rings: number[][][]): number[][][] {
   return out
 }
 
-/** Pack ABSOLUTE Mercator-metre line endpoints into ECEF DSFUN stride-8.
+/** Pack ABSOLUTE Mercator-metre line endpoints into ECEF DSFUN stride-11.
  *
  * Input: stride-8 `[mx, my, featId, arc, tin_x, tin_y, tout_x, tout_y]` —
  * the same scratch shape `packDSFUNLineVertices` already consumes (one
  * entry per endpoint in segment-storage order).
- * Output: stride-8 Float32Array `[ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, abs_lon, abs_lat]`
- * per endpoint.
+ * Output: stride-11 Float32Array per endpoint:
+ *   [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, abs_lon, abs_lat,
+ *    enu_dir_e, enu_dir_n, enu_pad_u]
  *
  * Per endpoint:
  *   1. Inverse Web Mercator → lon/lat radians.
@@ -228,14 +229,26 @@ export function projectRingsToMM(rings: number[][][]): number[][][] {
  *   3. Subtract ecefTileCenter (RTC — relative-to-center; keeps per-tile
  *      residuals ≤ tile-extent metres so the f32 high half holds the
  *      magnitude).
- *   4. DSFUN-split each axis via Math.fround: hi = f32(v), lo = f32(v - hi).
+ *   4. DSFUN split each axis via Math.fround: hi = f32(v), lo = f32(v - hi).
  *   5. Pack abs_lon (degrees) and abs_lat (degrees) at indices 6 + 7.
+ *   6. PR 2d.1B additive — Method A per-endpoint ENU-tangent unit vec3 at
+ *      slots 8-10. The vec3 encodes the segment's local ENU-frame unit
+ *      direction at this endpoint's lon/lat — (east, north, 0). The
+ *      consumer (PR 2d.1C `vs_line`) combines this with the corner
+ *      (along × dir + across × normal) intent and half_w_m, then applies
+ *      `ecef_to_enu_rotation(lon, lat)` to land on the ECEF corner.
+ *      Mirrors `runtime/src/core/line-segment-build.ts` Method A bake at
+ *      LINE_SEG_OFF_ENU_P0 / _P1 (slots 20-25 of LineSegment storage).
  *
- * ENU-tangent packing decision deferred to PR 2d.1 Spike 2 — this spike
- * emits endpoint-only ECEF; per-segment scalars (featId / arc / tangents)
- * are NOT carried in this stride-8 output. Spike 2 will measure CPU-baked
- * corner offset (stride 26) vs per-endpoint ENU rotation packed in segment
- * (stride 30) and pick the winner.
+ *      Mercator y is sec(lat)-stretched relative to physical north metres,
+ *      so the bake squashes the y-component of (tin / tout) by cos(lat)
+ *      before normalising. At endpoints lacking a meaningful tangent
+ *      (cap; both tin and tout are 0) the slot is 0-filled — the consumer
+ *      treats zero ENU dir as "no corner offset" (cap geometry).
+ *
+ * ENU-tangent packing rationale: PR 2d.1 Spike 2 (`line-segment-build.test.ts`)
+ * pinned Method A at < 3.3e-4 px error at lat=85. Stride-26 (Method A) won
+ * vs stride-30 (per-endpoint ENU rotation packed) for hot-path memory.
  *
  * Math constants are duplicated here (not imported from runtime/) because
  * cross-package imports are forbidden in the compiler tiler.  The values
@@ -243,7 +256,10 @@ export function projectRingsToMM(rings: number[][][]): number[][][] {
  *
  * `packDSFUNLineVertices` is NOT removed — additive PR. Retirement happens
  * in PR 2d.1 main after sub-tile-generator + line-renderer consumers
- * migrate to ECEF.
+ * migrate to ECEF. Tiler call-site swap is deferred to PR 2d.1C — `buildLineSegments`
+ * reads stride-10 DSFUN per-vertex layout with feat_id at slot 4; the new
+ * stride-11 ECEF layout has ey_l at slot 4 — direct swap would corrupt
+ * the heights/widths/colors lookups. See .omc/handoffs/pr2d1b-blocker.md.
  */
 export function packECEFLineSegments(
   scratchLv: number[] | Float64Array,
@@ -256,7 +272,7 @@ export function packECEFLineSegments(
   const RAD2DEG = 180 / Math.PI
 
   const IN_STRIDE = 8   // [mx, my, featId, arc, tin_x, tin_y, tout_x, tout_y]
-  const OUT_STRIDE = 8  // [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, abs_lon, abs_lat]
+  const OUT_STRIDE = 11 // [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, abs_lon, abs_lat, enu_dir_e, enu_dir_n, enu_pad_u]
   const count = scratchLv.length / IN_STRIDE
   const out = new Float32Array(count * OUT_STRIDE)
   for (let i = 0; i < count; i++) {
@@ -293,6 +309,30 @@ export function packECEFLineSegments(
     const lon_deg = lon_rad * RAD2DEG
     const lat_deg = lat_rad * RAD2DEG
 
+    // ── PR 2d.1B: per-endpoint ENU-tangent unit vec3 ─────────────────────
+    // tin / tout are Mercator-frame unit tangents the tiler computed
+    // upstream in `augmentLineWithArc`. We prefer `tout` (outgoing) when
+    // it's non-zero; fall back to `tin` (incoming). Either being zero
+    // indicates a cap endpoint — output (0, 0, 0).
+    let tx = scratchLv[si + 6]
+    let ty = scratchLv[si + 7]
+    if (tx === 0 && ty === 0) {
+      tx = scratchLv[si + 4]
+      ty = scratchLv[si + 5]
+    }
+    let enuDirE = 0
+    let enuDirN = 0
+    if (tx !== 0 || ty !== 0) {
+      // Squash y by cos(lat) to convert Mercator-stretched direction
+      // back to ENU-frame north metres, then renormalise.
+      const tyEnu = ty * cosLat
+      const len = Math.hypot(tx, tyEnu)
+      if (len > 1e-9) {
+        enuDirE = tx / len
+        enuDirN = tyEnu / len
+      }
+    }
+
     const di = i * OUT_STRIDE
     out[di]     = exH
     out[di + 1] = eyH
@@ -302,6 +342,12 @@ export function packECEFLineSegments(
     out[di + 5] = ezL
     out[di + 6] = lon_deg
     out[di + 7] = lat_deg
+    out[di + 8] = enuDirE
+    out[di + 9] = enuDirN
+    out[di + 10] = 0  // up-component reserved (Method A across-offset is
+                     //  computed VS-side via cross(up, dir); the up axis
+                     //  emerges from the ENU rotation matrix the VS forms
+                     //  from (lon, lat) — no need to bake it here).
   }
   return out
 }
