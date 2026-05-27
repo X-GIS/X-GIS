@@ -30,7 +30,7 @@ import { VirtualCatalogAdapter } from './sources/virtual-catalog-adapter'
 import { GeoJSONRuntimeBackend } from './sources/geojson-runtime-backend'
 import { SubTileGenerator } from './sub-tile-generator'
 import type {
-  TileSource, TileSourceSink, BackendTileResult,
+  TileSource, TileSourceSink, BackendTileResult, TileScheme,
 } from './tile-source'
 // Step 0 of the layer-type refactor: shared types live in tile-types.ts so
 // per-format backend modules can import them without pulling in catalog
@@ -249,6 +249,20 @@ export class TileCatalog {
     backend.attach(this.getSink())
     this.backends.push(backend)
     this.mergeBackendMeta(backend)
+  }
+
+  /** Phase 1b — return the catalog's primary tile scheme. The plan called
+   *  for `getSourceScheme(name)` but the catalog has no source-name concept
+   *  (SourceManager owns the name → catalog map). The catalog-level
+   *  accessor exposes the first-attached backend's scheme as the primary;
+   *  mixed-scheme dispatch is a Phase 3+ concern. Returns undefined if no
+   *  backend has been attached yet.
+   *
+   *  Phase 2 ECEF VS migration is the intended consumer — VS pipelines
+   *  will read the scheme to dispatch decode paths once non-Mercator
+   *  backends ship. */
+  getScheme(): TileScheme | undefined {
+    return this.backends[0]?.meta.scheme
   }
 
   /** Detach a previously-attached backend. Removes preregistered

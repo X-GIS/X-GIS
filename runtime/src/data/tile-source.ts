@@ -101,6 +101,22 @@ export interface BackendTileResult {
   prebuiltOutlineSegments?: Float32Array
 }
 
+/** Tile-scheme discriminator declared by a backend at attach time.
+ *  Drives scheme-aware decode dispatch in later phases (Tier 3 ECEF VS in
+ *  Phase 2, EPSG:4326 backend in Phase 3, S2 cube-sphere in Phase 4).
+ *
+ *  Phase 1b ships the single-variant union `'web-mercator-xyz'` only — every
+ *  existing X-GIS backend (PMTiles / GeoJSON-tiled / raster XYZ) tiles in
+ *  Web Mercator XYZ at z/x/y. Future variants are reserved but NOT added to
+ *  the union until their backend implementation lands (YAGNI):
+ *    - `'epsg-4326-quadtree'`  — 2-root geographic quadtree (Cesium / NASA
+ *      Worldwind style); enables ±90° latitude coverage without polar
+ *      synthesis. Added in Phase 3.
+ *    - `'s2-cube-sphere'`     — 6-root cube-sphere decomposition (3D Tiles
+ *      1.1 `3DTILES_bounding_volume_S2`); uniform distortion globally. Added
+ *      in Phase 4. */
+export type TileScheme = 'web-mercator-xyz'
+
 /** Metadata contributed by a backend at attach time. Catalog merges
  *  these across attached backends:
  *   - bounds → bounding union
@@ -108,13 +124,17 @@ export interface BackendTileResult {
  *   - propertyTable → first non-empty wins (Phase 1; merging schemas
  *     across backends is a Phase 2 concern, see plan §1.4)
  *   - entries → registered with catalog's XGVTIndex; preregistered
- *     entries route deterministically via entryToBackend. */
+ *     entries route deterministically via entryToBackend.
+ *   - scheme → declared by backend; catalog stores per-source and exposes
+ *     via TileCatalog.getSourceScheme. Phase 1b scaffolding for Tier 3
+ *     ECEF VS migration; no runtime consumer yet. */
 export interface TileSourceMeta {
   bounds: [number, number, number, number]
   minZoom: number
   maxZoom: number
   propertyTable?: PropertyTable
   entries?: { key: number; entry: TileIndexEntry }[]
+  readonly scheme: TileScheme
 }
 
 /** Catalog-side push surface that backends use to deliver tile results.

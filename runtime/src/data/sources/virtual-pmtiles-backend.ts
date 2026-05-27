@@ -91,6 +91,10 @@ export class VirtualPMTilesBackend implements TileSource {
       bounds: opts.bounds ?? WORLD_BOUNDS,
       minZoom: 0,
       maxZoom,
+      // geojsonvt produces MVT tiles on the Web Mercator XYZ slippy grid;
+      // the downstream pipeline is byte-identical to PMTilesBackend's.
+      // Phase 1b scaffolding for Tier 3 scheme dispatch.
+      scheme: 'web-mercator-xyz',
     }
 
     // Kick off the worker-side index build immediately. loadTile()
