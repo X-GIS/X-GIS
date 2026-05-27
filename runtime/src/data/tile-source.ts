@@ -114,6 +114,34 @@ export interface BackendTileResult {
  *      `3DTILES_bounding_volume_S2`); uniform distortion globally. */
 export type TileScheme = 'web-mercator-xyz'
 
+/** Tile-buffer layout version. Increment when the per-vertex stride / field
+ *  semantics produced by `compiler/src/tiler/vector-tiler.ts` change in a way
+ *  that makes previously cached tiles incompatible with the running runtime.
+ *
+ *  Examples that bump this:
+ *   - Phase 2c will switch polygon vertex bytes from
+ *     `[mx_h, my_h, mx_l, my_l, feat_id]` Mercator-metre DSFUN pairs to ECEF
+ *     Cartesian-metre DSFUN triples → bump the version, existing PMTiles
+ *     caches re-decode.
+ *
+ *  Examples that DO NOT bump:
+ *   - Adding a new metadata field that the runtime ignores when absent.
+ *   - Changing a non-vertex-layout invariant.
+ *
+ *  Catalog comparison contract:
+ *   - At `attachBackend` time the catalog reads `meta.layoutVersion` (when
+ *     present). On mismatch it evicts cached tiles for that source so the
+ *     next visible frame re-decodes through the new layout.
+ *   - Backends produced before this field shipped read as `undefined` —
+ *     catalog treats `undefined` as `TILE_LAYOUT_VERSION_BASE` (the Phase
+ *     1 / pre-ECEF layout) for back-compat. */
+export const TILE_LAYOUT_VERSION = 1 as const
+export type TileLayoutVersion = typeof TILE_LAYOUT_VERSION
+
+/** Pre-version-field baseline. Tiles produced by backends that omit
+ *  `meta.layoutVersion` are assumed to follow this layout. */
+export const TILE_LAYOUT_VERSION_BASE = 1 as const
+
 /** Metadata contributed by a backend at attach time. Catalog merges
  *  these across attached backends:
  *   - bounds → bounding union
@@ -123,7 +151,11 @@ export type TileScheme = 'web-mercator-xyz'
  *   - entries → registered with catalog's XGVTIndex; preregistered
  *     entries route deterministically via entryToBackend.
  *   - scheme → declared by backend; catalog exposes via
- *     `TileCatalog.getScheme`. */
+ *     `TileCatalog.getScheme`.
+ *   - layoutVersion → declared by backend; catalog evicts cached tiles
+ *     for that source if the running runtime's `TILE_LAYOUT_VERSION`
+ *     does not match. Optional for back-compat; `undefined` is treated
+ *     as `TILE_LAYOUT_VERSION_BASE`. */
 export interface TileSourceMeta {
   bounds: [number, number, number, number]
   minZoom: number
@@ -131,6 +163,7 @@ export interface TileSourceMeta {
   propertyTable?: PropertyTable
   entries?: { key: number; entry: TileIndexEntry }[]
   readonly scheme: TileScheme
+  readonly layoutVersion?: TileLayoutVersion
 }
 
 /** Catalog-side push surface that backends use to deliver tile results.
