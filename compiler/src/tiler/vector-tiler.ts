@@ -214,6 +214,98 @@ export function projectRingsToMM(rings: number[][][]): number[][][] {
   return out
 }
 
+/** Pack ABSOLUTE Mercator-metre line endpoints into ECEF DSFUN stride-8.
+ *
+ * Input: stride-8 `[mx, my, featId, arc, tin_x, tin_y, tout_x, tout_y]` —
+ * the same scratch shape `packDSFUNLineVertices` already consumes (one
+ * entry per endpoint in segment-storage order).
+ * Output: stride-8 Float32Array `[ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, abs_lon, abs_lat]`
+ * per endpoint.
+ *
+ * Per endpoint:
+ *   1. Inverse Web Mercator → lon/lat radians.
+ *   2. Ellipsoidal ECEF (WGS84) at height=0.
+ *   3. Subtract ecefTileCenter (RTC — relative-to-center; keeps per-tile
+ *      residuals ≤ tile-extent metres so the f32 high half holds the
+ *      magnitude).
+ *   4. DSFUN-split each axis via Math.fround: hi = f32(v), lo = f32(v - hi).
+ *   5. Pack abs_lon (degrees) and abs_lat (degrees) at indices 6 + 7.
+ *
+ * ENU-tangent packing decision deferred to PR 2d.1 Spike 2 — this spike
+ * emits endpoint-only ECEF; per-segment scalars (featId / arc / tangents)
+ * are NOT carried in this stride-8 output. Spike 2 will measure CPU-baked
+ * corner offset (stride 26) vs per-endpoint ENU rotation packed in segment
+ * (stride 30) and pick the winner.
+ *
+ * Math constants are duplicated here (not imported from runtime/) because
+ * cross-package imports are forbidden in the compiler tiler.  The values
+ * are bit-identical to runtime/src/engine/projection/ecef.ts.
+ *
+ * `packDSFUNLineVertices` is NOT removed — additive PR. Retirement happens
+ * in PR 2d.1 main after sub-tile-generator + line-renderer consumers
+ * migrate to ECEF.
+ */
+export function packECEFLineSegments(
+  scratchLv: number[] | Float64Array,
+  ecefTileCenter: readonly [number, number, number],
+): Float32Array {
+  // WGS84 constants (mirrors runtime/src/engine/projection/ecef.ts).
+  const A = 6378137               // semi-major axis (m)
+  const F = 1 / 298.257223563     // flattening
+  const E2 = F * (2 - F)          // first eccentricity squared
+  const RAD2DEG = 180 / Math.PI
+
+  const IN_STRIDE = 8   // [mx, my, featId, arc, tin_x, tin_y, tout_x, tout_y]
+  const OUT_STRIDE = 8  // [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, abs_lon, abs_lat]
+  const count = scratchLv.length / IN_STRIDE
+  const out = new Float32Array(count * OUT_STRIDE)
+  for (let i = 0; i < count; i++) {
+    const si = i * IN_STRIDE
+    const mx = scratchLv[si]
+    const my = scratchLv[si + 1]
+
+    // Inverse Web Mercator → lon/lat radians.
+    const lon_rad = mx / A
+    const lat_rad = 2 * Math.atan(Math.exp(my / A)) - Math.PI / 2
+
+    // WGS84 ellipsoidal ECEF at height = 0.
+    const sinLat = Math.sin(lat_rad)
+    const cosLat = Math.cos(lat_rad)
+    const N = A / Math.sqrt(1 - E2 * sinLat * sinLat)
+    const ex = N * cosLat * Math.cos(lon_rad)
+    const ey = N * cosLat * Math.sin(lon_rad)
+    const ez = N * (1 - E2) * sinLat
+
+    // Subtract tile-anchor ECEF center (RTC).
+    const rx = ex - ecefTileCenter[0]
+    const ry = ey - ecefTileCenter[1]
+    const rz = ez - ecefTileCenter[2]
+
+    // DSFUN split: hi = f32(v), lo = f32(v - hi).
+    const exH = Math.fround(rx)
+    const eyH = Math.fround(ry)
+    const ezH = Math.fround(rz)
+    const exL = Math.fround(rx - exH)
+    const eyL = Math.fround(ry - eyH)
+    const ezL = Math.fround(rz - ezH)
+
+    // Absolute geographic coordinates in degrees (for varyings).
+    const lon_deg = lon_rad * RAD2DEG
+    const lat_deg = lat_rad * RAD2DEG
+
+    const di = i * OUT_STRIDE
+    out[di]     = exH
+    out[di + 1] = eyH
+    out[di + 2] = ezH
+    out[di + 3] = exL
+    out[di + 4] = eyL
+    out[di + 5] = ezL
+    out[di + 6] = lon_deg
+    out[di + 7] = lat_deg
+  }
+  return out
+}
+
 /**
  * Pack a stride-4 scratch array of absolute (lon, lat, feat_id, arc_start)
  * line vertices into a stride-6 DSFUN Float32Array:
