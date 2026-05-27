@@ -350,10 +350,11 @@ export class RasterRenderer {
       pass.setBindGroup(0, cached.globalBG)
 
       // iter-188 — world-copy loop. For Mercator, draw the tile in
-      // every visible world copy by shifting tile_rtc.x by
-      // wo * WORLD_MERC. local_x in the vertex shader stays anchored
-      // to the unshifted tileWest (tile_rtc.z), so adding the world
-      // offset to tile_rtc.x cleanly translates the rendered grid.
+      // every visible world copy by shifting bounds.x / bounds.z by
+      // wo * 360°. The vertex shader's mix(bounds.x, bounds.z, uu)
+      // naturally lands lon in the right world copy for lonlat_to_ecef.
+      // tile_ecef_center stays unshifted (shared across copies; the
+      // RTC subtraction is in 3D ECEF and copy-invariant).
       // Non-Mercator collapses to wo=0 only.
       for (const wo of RASTER_WORLD_COPIES) {
         // Get or create a pooled uniform buffer + matching bind group.
