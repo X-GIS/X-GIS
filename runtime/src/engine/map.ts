@@ -75,7 +75,6 @@ import { prewarmVectorTileSource, detectVectorTileFormat } from '../loader/vecto
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 import { toU32Id, pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
 import type { GeoJSONFeature } from '../loader/geojson'
-// reprojector.ts preserved for future tile-coordinate RTT approach
 
 // ClassifiedShow + OpaqueGroup live in bucket-scheduler.ts so they're
 // importable by tests. Local aliases keep the rest of map.ts terse.
