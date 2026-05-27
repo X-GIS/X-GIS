@@ -1,4 +1,4 @@
-// baseline: a4f7a41cc5bdf5bc3849e73e83047b154df47be7
+// baseline: b5b466cd1b1cc5194ca66ae74bf004034f4162e8
 // fixture: syn-featdata
 // variant.key: syn-featdata
 // pick: false
@@ -315,27 +315,13 @@ fn polygon_rim_alpha(abs_merc_x: f32, abs_merc_y: f32) -> f32 {
 }
 
 @vertex
-fn vs_main(@location(0) pos_h: vec2<f32>, @location(1) pos_l: vec2<f32>, @location(2) feature_id: f32) -> VertexOutput {
-  let rel = ((pos_h - u.cam_h) + (pos_l - u.cam_l));
-  let abs_merc_x = ((pos_h.x + pos_l.x) + u.tile_origin_merc.x);
-  let abs_merc_y = ((pos_h.y + pos_l.y) + u.tile_origin_merc.y);
-  let abs_lon = (abs_merc_x / (DEG2RAD * EARTH_R));
-  let lat_rad = inv_merc_lat_rad(abs_merc_y);
-  let abs_lat = (lat_rad / DEG2RAD);
+fn vs_main(@location(0) pos_h: vec3<f32>, @location(1) pos_l: vec3<f32>, @location(2) feature_id: f32, @location(3) abs_lon: f32, @location(4) abs_lat: f32) -> VertexOutput {
+  let ecef_rtc = (pos_h + pos_l);
+  let abs_merc_x = ((abs_lon * DEG2RAD) * EARTH_R);
   let abs_lat_clamped = clamp(abs_lat, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT);
-  let t = u.proj_params.x;
-  var rtc: vec2<f32>;
-  if ((t < 0.5)) {
-    rtc = rel;
-  } else {
-    let tile_ref_lon = ((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R));
-    let proj_xy = project_geom(abs_lon, abs_lat, u.proj_params, tile_ref_lon);
-    let center_xy = project(u.proj_params.y, u.proj_params.z, u.proj_params);
-    rtc = (proj_xy - center_xy);
-  }
-  let globe_rtc = (proj_globe(abs_lon, abs_lat) - proj_globe(u.proj_params.y, u.proj_params.z));
+  let abs_merc_y = (log(tan(((PI / 4.0) + ((abs_lat_clamped * DEG2RAD) / 2.0)))) * EARTH_R);
   var out: VertexOutput;
-  var clip: vec4<f32> = select((u.mvp * vec4<f32>(rtc, 0.0, 1.0)), (u.mvp * vec4<f32>(globe_rtc, 1.0)), (t > 6.5));
+  var clip: vec4<f32> = (u.mvp_ecef * vec4<f32>(ecef_rtc, 1.0));
   clip.x = (clip.x + (u.fill_translate_x * clip.w));
   clip.y = (clip.y - (u.fill_translate_y * clip.w));
   out.position = apply_log_depth(clip, u.log_depth_fc);

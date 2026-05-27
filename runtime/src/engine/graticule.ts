@@ -2,27 +2,41 @@
 // GPU 프로젝션과 함께 동작. 줌 적응형 간격 + 메이저/마이너 구분.
 
 export interface GraticuleData {
-  /** Line segments in DSFUN stride 6:
-   *  [mx_h, my_h, mx_l, my_l, feat_id, arc_start]. Graticules live in the
-   *  "no-tile" frame so the Mercator-meter values are absolute (tile origin
-   *  = (0,0) in the vs_main uniform). feat_id: 1 = major, 0 = minor. */
+  /** Line vertices in ECEF-DSFUN stride 9 (Phase 2 PR 2d.1D):
+   *  [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, feat_id, abs_lon, abs_lat].
+   *  Graticules live in the "no-tile" frame so RTC=(0,0,0) (the GPU's
+   *  u.mvp_ecef is built directly against absolute ECEF metres for the
+   *  graticule draw — see renderer.ts:1972). feat_id: 1 = major,
+   *  0 = minor. */
   vertices: Float32Array
   indexCount: number
 }
 
-const GRAT_EARTH_R = 6378137
+const GRAT_EARTH_A = 6378137                  // WGS84 semi-major axis (m)
+const GRAT_F = 1 / 298.257223563              // WGS84 flattening
+const GRAT_E2 = GRAT_F * (2 - GRAT_F)         // first eccentricity squared
 const GRAT_DEG2RAD = Math.PI / 180
 const GRAT_LAT_LIMIT = 85.051129
 
-function lonLatToMercDSFUN(lon: number, lat: number, featId: number, out: number[]): void {
+function lonLatToEcefDSFUN(lon: number, lat: number, featId: number, out: number[]): void {
   const clampedLat = Math.max(-GRAT_LAT_LIMIT, Math.min(GRAT_LAT_LIMIT, lat))
-  const mx = lon * GRAT_DEG2RAD * GRAT_EARTH_R
-  const my = Math.log(Math.tan(Math.PI / 4 + clampedLat * GRAT_DEG2RAD / 2)) * GRAT_EARTH_R
-  const mxH = Math.fround(mx)
-  const mxL = Math.fround(mx - mxH)
-  const myH = Math.fround(my)
-  const myL = Math.fround(my - myH)
-  out.push(mxH, myH, mxL, myL, featId, 0)
+  const lonRad = lon * GRAT_DEG2RAD
+  const latRad = clampedLat * GRAT_DEG2RAD
+  const sinLat = Math.sin(latRad)
+  const cosLat = Math.cos(latRad)
+  // WGS84 ellipsoidal ECEF at height = 0.
+  const N = GRAT_EARTH_A / Math.sqrt(1 - GRAT_E2 * sinLat * sinLat)
+  const ex = N * cosLat * Math.cos(lonRad)
+  const ey = N * cosLat * Math.sin(lonRad)
+  const ez = N * (1 - GRAT_E2) * sinLat
+  // DSFUN split: hi = f32(v), lo = f32(v - hi).
+  const exH = Math.fround(ex)
+  const eyH = Math.fround(ey)
+  const ezH = Math.fround(ez)
+  const exL = Math.fround(ex - exH)
+  const eyL = Math.fround(ey - eyH)
+  const ezL = Math.fround(ez - ezH)
+  out.push(exH, eyH, ezH, exL, eyL, ezL, featId, lon, clampedLat)
 }
 
 /** Determine major/minor grid spacing based on zoom level */
@@ -57,11 +71,9 @@ export function generateGraticule(zoom = 2): GraticuleData {
   const cached = graticuleCache.get(cacheKey)
   if (cached) return cached
 
-  // Pre-size: rough vertex count estimate for the major+minor pair.
-  // Each call to lonLatToMercDSFUN pushes 6 floats. Empirical for the
-  // densest bucket (z>=9, major=1, minor=0.5): ~130k vertex pushes.
-  // We slightly overshoot and trim — much faster than push() growth
-  // which copies on every doubling.
+  // Each call to lonLatToEcefDSFUN pushes 9 floats (stride-9 ECEF-DSFUN).
+  // Empirical for the densest bucket (z>=9, major=1, minor=0.5): ~130k
+  // vertex pushes. We collect into a plain number[] then convert once.
   const vertices: number[] = []
   const segmentStep = 2
 
@@ -69,8 +81,8 @@ export function generateGraticule(zoom = 2): GraticuleData {
     for (let lon = -180; lon < 180; lon += step) {
       if (skipStep && lon % skipStep === 0) continue
       for (let lat = -90; lat < 90; lat += segmentStep) {
-        lonLatToMercDSFUN(lon, lat, featId, vertices)
-        lonLatToMercDSFUN(lon, Math.min(lat + segmentStep, 90), featId, vertices)
+        lonLatToEcefDSFUN(lon, lat, featId, vertices)
+        lonLatToEcefDSFUN(lon, Math.min(lat + segmentStep, 90), featId, vertices)
       }
     }
   }
@@ -78,8 +90,8 @@ export function generateGraticule(zoom = 2): GraticuleData {
     for (let lat = -90 + step; lat < 90; lat += step) {
       if (skipStep && (lat + 90) % skipStep === 0) continue
       for (let lon = -180; lon < 180; lon += segmentStep) {
-        lonLatToMercDSFUN(lon, lat, featId, vertices)
-        lonLatToMercDSFUN(Math.min(lon + segmentStep, 180), lat, featId, vertices)
+        lonLatToEcefDSFUN(lon, lat, featId, vertices)
+        lonLatToEcefDSFUN(Math.min(lon + segmentStep, 180), lat, featId, vertices)
       }
     }
   }
@@ -93,7 +105,7 @@ export function generateGraticule(zoom = 2): GraticuleData {
 
   const data: GraticuleData = {
     vertices: new Float32Array(vertices),
-    indexCount: vertices.length / 6,
+    indexCount: vertices.length / 9,
   }
   graticuleCache.set(cacheKey, data)
   return data
@@ -105,12 +117,12 @@ export function generateGlobeOutline(segments = 128): GraticuleData {
   for (let i = 0; i < segments; i++) {
     const a1 = (i / segments) * Math.PI * 2
     const a2 = ((i + 1) / segments) * Math.PI * 2
-    lonLatToMercDSFUN(Math.cos(a1) * 89.99, Math.sin(a1) * 89.99, 0, vertices)
-    lonLatToMercDSFUN(Math.cos(a2) * 89.99, Math.sin(a2) * 89.99, 0, vertices)
+    lonLatToEcefDSFUN(Math.cos(a1) * 89.99, Math.sin(a1) * 89.99, 0, vertices)
+    lonLatToEcefDSFUN(Math.cos(a2) * 89.99, Math.sin(a2) * 89.99, 0, vertices)
   }
 
   return {
     vertices: new Float32Array(vertices),
-    indexCount: vertices.length / 6,
+    indexCount: vertices.length / 9,
   }
 }

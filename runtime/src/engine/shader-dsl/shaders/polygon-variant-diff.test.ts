@@ -70,10 +70,13 @@ describe('polygon-variant snapshot drift gate — US-010 impl', () => {
         expect(baselineMatch![1]).toMatch(/^[a-f0-9]{40}$/)
         const slugMatch = content.match(SLUG_HEADER)
         expect(slugMatch, `missing "// fixture: <slug>" header in ${file}`).not.toBeNull()
-        // Body should be the composer's emit (~600+ lines for the
-        // smallest fixture, larger for variant-bearing ones).
+        // Body should be the composer's emit. After PR 2d.1D vs_main
+        // ECEF rewrite the line ECEF VS retired several Mercator helper
+        // emits — minimum fixture now lands ~593 LOC. 500 LOC floor
+        // preserves the spirit of "meaningful emit" without rejecting
+        // legitimate simplification.
         const lines = content.split('\n')
-        expect(lines.length).toBeGreaterThan(600)
+        expect(lines.length).toBeGreaterThan(500)
       })
     }
   })

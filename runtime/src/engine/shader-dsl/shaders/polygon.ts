@@ -166,85 +166,57 @@ const polygonRimAlpha = fn(
 
 // ── Vertex entries ──
 //
-// vs_main — the f32-precision (DSFUN-split) polygon vertex entry. Reads two
-// vec2<f32> attributes (pos_h + pos_l = high/low halves of the tile-local
-// Mercator position) + a per-vertex feature_id. Path-by-path:
-//   1. DSFUN Mercator subtraction → camera-relative tile-local meters
-//      (cancels the large tile-origin magnitude before the low halves are
-//      added, preserving f64-equivalent precision at any camera zoom).
-//   2. Reconstruct absolute Mercator meters → abs_lon / abs_lat for the
-//      fragment shader's hemisphere-cull recompute.
-//   3. Mercator → projection-specific xy via project_geom (or rel for the
-//      Mercator short-circuit). Globe path uses proj_globe RTC against the
-//      orbit-camera MVP.
-//   4. MVP transform → log-depth rewrite → fill-translate viewport offset
-//      → per-layer NDC-z bias.
-//   5. Forward varyings to the fragment shader.
+// vs_main — Phase 2 PR 2d.1D ECEF line-entry migration.
+//
+// Replaces the per-projection ladder (Mercator-DSFUN rel + project_geom +
+// proj_globe RTC) with a single linear MVP transform against true ECEF
+// metres — identical body to vs_main_ecef. The runtime now ships line
+// vertices in ECEF-DSFUN stride-9 (pos_h.vec3 + pos_l.vec3 + featId +
+// abs_lon + abs_lat); the projection-specific 3D→clip pipeline is fully
+// baked into u.mvp_ecef by Camera.getECEFFrameView() on the CPU.
+//
+// Producer migration in PR 2d.1D: graticule (the sole consumer of this VS
+// after PR 2d.1C moved vs_line off vs_main). MapRenderer.addLayer's
+// GeoJSON line path is unconsumed in the current runtime; if it returns,
+// it MUST ship ECEF stride-9 vertices the same way the graticule does.
+//
+// Tile-line + polygon-stroke outlines route through vs_line (line.ts) —
+// unaffected by this change.
 
 const vsMain = entryFn(
   'vs_main', 'vertex',
   [
-    { name: 'pos_h', type: vec2fT, location: 0 },
-    { name: 'pos_l', type: vec2fT, location: 1 },
+    { name: 'pos_h', type: vec3fT, location: 0 },
+    { name: 'pos_l', type: vec3fT, location: 1 },
     { name: 'feature_id', type: f32T, location: 2 },
+    { name: 'abs_lon', type: f32T, location: 3 },
+    { name: 'abs_lat', type: f32T, location: 4 },
   ],
   structT('VertexOutput'),
   (b, p) => {
-    const camH = u.field('cam_h', vec2fT)
-    const camL = u.field('cam_l', vec2fT)
-    const tileOrigin = u.field('tile_origin_merc', vec2fT)
-    const tileExtent = u.field('tile_extent_m', f32T)
-    const projParams = u.field('proj_params', vec4fT)
-    const mvp = u.field('mvp', mat4x4fT)
+    const mvpEcef = u.field('mvp_ecef', mat4x4fT)
     const logDepthFc = u.field('log_depth_fc', f32T)
     const layerDepthOff = u.field('layer_depth_offset', f32T)
     const fillTx = u.field('fill_translate_x', f32T)
     const fillTy = u.field('fill_translate_y', f32T)
     const deg2rad = constRef('DEG2RAD')
     const earthR = constRef('EARTH_R')
+    const pi = constRef('PI')
     const mercLatLim = constRef('MERCATOR_LAT_LIMIT')
 
-    // DSFUN Mercator subtraction — camera-relative tile-local meters.
-    const rel = b.let('rel', p.pos_h.sub(camH).add(p.pos_l.sub(camL)))
-    // Reconstruct absolute Mercator meters for non-Mercator reprojection
-    // + fragment-shader hemisphere cull recompute.
-    const absMercX = b.let('abs_merc_x', p.pos_h.x.add(p.pos_l.x).add(tileOrigin.x))
-    const absMercY = b.let('abs_merc_y', p.pos_h.y.add(p.pos_l.y).add(tileOrigin.y))
-    const absLon = b.let('abs_lon', absMercX.div(deg2rad.mul(earthR)))
-    const latRad = b.let('lat_rad', callFn('inv_merc_lat_rad', f32T, absMercY))
-    const absLat = b.let('abs_lat', latRad.div(deg2rad))
-    const absLatClamped = b.let('abs_lat_clamped', clamp(absLat, mercLatLim.neg(), mercLatLim))
-
-    const t = b.let('t', projParams.x)
-    const rtc = b.var('rtc', vec2fT)
-    b.if(t.lt(0.5), (c) => {
-      // Pure Mercator: rel is already camera-relative meters.
-      c.assign(rtc, rel)
-    }).else((c) => {
-      // All other projections: run project_geom on the reconstructed
-      // absolute lon/lat, then subtract the projected camera center. f32
-      // reconstruction precision is fine at low/global zoom — the only
-      // place these projections are exposed.
-      const tileRefLon = c.let('tile_ref_lon',
-        tileOrigin.x.add(f32(0.5).mul(tileExtent)).div(deg2rad.mul(earthR)),
-      )
-      const projXy = c.let('proj_xy', callFn('project_geom', vec2fT, absLon, absLat, projParams, tileRefLon))
-      const centerXy = c.let('center_xy', callFn('project', vec2fT, projParams.y, projParams.z, projParams))
-      c.assign(rtc, projXy.sub(centerXy))
-    })
-
-    // True 3D globe (projType 7): RTC against the focus point ON THE
-    // sphere, then the orbit-camera MVP.
-    const globeRtc = b.let('globe_rtc',
-      callFn('proj_globe', vec3fT, absLon, absLat).sub(callFn('proj_globe', vec3fT, projParams.y, projParams.z)),
+    // DSFUN reconstruction in true ECEF metres (camera-relative tile-local).
+    const ecefRtc = b.let('ecef_rtc', p.pos_h.add(p.pos_l))
+    // Reconstruct Mercator absolute coords for the fragment-side
+    // hemisphere-cull recompute (polygon_cos_c_fragment + polygon_rim_alpha
+    // consume abs_merc_x + abs_merc_y).
+    const absMercX = b.let('abs_merc_x', p.abs_lon.mul(deg2rad).mul(earthR))
+    const absLatClamped = b.let('abs_lat_clamped', clamp(p.abs_lat, mercLatLim.neg(), mercLatLim))
+    const absMercY = b.let('abs_merc_y',
+      log(tan(pi.div(f32(4)).add(absLatClamped.mul(deg2rad).div(f32(2))))).mul(earthR),
     )
 
     const out = b.var('out', structT('VertexOutput'))
-    const clip = b.var('clip', vec4fT, select(
-      t.gt(6.5),
-      transformMat4(mvp, vec4(globeRtc, f32(1))),
-      transformMat4(mvp, vec4(rtc, f32(0), f32(1))),
-    ))
+    const clip = b.var('clip', vec4fT, transformMat4(mvpEcef, vec4(ecefRtc, f32(1))))
     // Mapbox fill-translate viewport-anchor — runtime pre-bakes
     // (px*2/canvasDim) so the shader just multiplies by clip.w.
     b.assign(clip.x, clip.x.add(fillTx.mul(clip.w)))
@@ -257,12 +229,12 @@ const vsMain = entryFn(
     b.assign(out.field('cos_c', f32T), f32(0))
     b.assign(out.field('feat_id', u32T), toU32(p.feature_id))
     b.assign(out.field('abs_lat', f32T), absLatClamped)
-    // DSFUN line/fill path is not extruded; full brightness.
+    // Line path is not extruded; full brightness.
     b.assign(out.field('wall_blend', f32T), f32(1))
     b.assign(out.field('abs_merc_x', f32T), absMercX)
     b.assign(out.field('abs_merc_y', f32T), absMercY)
     b.assign(out.field('world_z', f32T), f32(0))
-    // iter-194 — only the extrude path emits.
+    // Only the extrude path emits a non-zero v_color.
     b.assign(out.field('v_color', vec4fT), vec4(f32(0), f32(0), f32(0), f32(0)))
     b.ret(out)
   },

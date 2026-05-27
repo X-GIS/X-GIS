@@ -35,9 +35,6 @@ function polygonCosCFragmentCpu(
   return needsBackfaceCullWgsl(projType, absLon, absLat, clon, clat)
 }
 
-// Mercator extent at zoom 0 — half-world either side of origin.
-const MERC_MAX = Math.PI * EARTH_R
-
 function lonLatToMerc(lon: number, lat: number): [number, number] {
   const x = lon * DEG2RAD * EARTH_R
   const latRad = lat * DEG2RAD

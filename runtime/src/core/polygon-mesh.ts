@@ -119,8 +119,8 @@ export function generateWallMeshExtrudedECEF(
   polygons: RingPolygon[],
   heights: ReadonlyMap<number, number>,
   bases: ReadonlyMap<number, number> | undefined,
-  tileMx: number,
-  tileMy: number,
+  _tileMx: number,
+  _tileMy: number,
   tileEcefCenter: readonly [number, number, number],
 ): WallMeshExtrudedECEF {
   // NOTE: synthetic tile-rect edge detection (cf. `generateWallMeshExtruded`)
