@@ -69,7 +69,6 @@ export type RenderLoopHost = Pick<XGISMap,
   | '_startTime'
   | '_stats'
   | '_statsPanel'
-  | 'backgroundRenderer'
   | 'camera'
   | 'classifyVectorTileShows'
   | 'ctx'
@@ -526,20 +525,14 @@ export class RenderLoop {
     this.host._stats.triangles = rs.triangles
     this.host._stats.lines = rs.lines
     // iter-222 — bundle stats aggregation. Lifetime counters,
-    // monotonic. Aggregate VTR per-source caches + BackgroundRenderer.
+    // monotonic. Aggregate VTR per-source caches.
     // iter-228 — also aggregate LRU `evictions` so the panel shows
     // when the cap is firing.
+    // Phase 2 PR 2c.3 — BackgroundRenderer retired; bundle stats
+    // contribution removed.
     this.host._stats.bundleHits = 0
     this.host._stats.bundleMisses = 0
     this.host._stats.bundleEvictions = 0
-    if (this.host.backgroundRenderer) {
-      const bgs = this.host.backgroundRenderer.getBundleStats?.()
-      if (bgs) {
-        this.host._stats.bundleHits += bgs.hits
-        this.host._stats.bundleMisses += bgs.misses
-        this.host._stats.bundleEvictions += bgs.evictions
-      }
-    }
     let totalTilesVis = 0, totalTilesCached = 0, totalMissed = 0
     for (const [name, { renderer: vtR }] of this.host.vtSources) {
       if (!vtR.hasData()) continue

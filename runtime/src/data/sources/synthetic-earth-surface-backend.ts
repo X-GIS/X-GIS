@@ -1,20 +1,15 @@
 // SyntheticEarthSurfaceBackend — TileSource implementation for the
 // ECEF earth-surface fill mesh (Phase 2 PR 2c.3).
 //
-// Replacement-in-waiting for `BackgroundRenderer`. The backend serves a
-// single z=0 tile carrying a 32x16 lat/lon mesh projected to spherical
-// ECEF metres, packed in the same DSFUN stride-9 layout the polygon VS
-// (`vs_main_ecef`) consumes. Once US-002 (catalog/show wiring) ships,
-// the synthetic show renders the style `background { fill: ... }` colour
-// through the standard polygon ECEF pipeline so the fill curves naturally
-// on sphere projections instead of painting a flat strip.
-//
-// PR 2c.3 scope: ships the backend + tests only. The catalog auto-attach +
-// BackgroundRenderer deletion are deferred to PR 2c.3.B because wiring a
-// synthetic ShowCommand through the existing paint/source/variant pipeline
-// (24 modules reference `ShowCommand`) is multi-day scope. The backend is
-// dormant scaffolding until that follow-up — same pattern PR 2c-prep used
-// for `earth-surface-fill.ts`.
+// Replaces `BackgroundRenderer` (deleted in PR 2c.3.B). The backend
+// serves a single z=0 tile carrying a 32x16 lat/lon mesh projected to
+// spherical ECEF metres, packed in the same DSFUN stride-9 layout the
+// polygon VS (`vs_main_ecef`) consumes. XGISMap.run() auto-attaches
+// this backend when the style declares a `background { fill: ... }`
+// block and prepends a synthetic ShowCommand at the head of the
+// opaque pass; the standard polygon ECEF pipeline renders it so the
+// fill curves naturally on sphere projections instead of painting a
+// flat strip.
 //
 // DSFUN precision note: vertices are DSFUN-split relative to ECEF origin
 // `[0, 0, 0]` (world-center anchor). At sphere magnitudes ~6.378 Mm the
@@ -37,6 +32,13 @@ const Z0_KEY = tileKey(0, 0, 0)
 const WIDTH_SEGMENTS = 32
 const HEIGHT_SEGMENTS = 16
 const WORLD_ANCHOR: ECEF = [0, 0, 0]
+
+/** Stable source-name identifier the synthetic backend stamps on its
+ *  emitted tiles. Mirrors `VectorTileRenderer.effectiveSourceLayer`'s
+ *  `show.sourceLayer || show.targetName` resolution so the synthetic
+ *  ShowCommand (with `targetName === SYNTHETIC_EARTH_SURFACE_SOURCE`)
+ *  lands in the same GPU cache slot. */
+export const SYNTHETIC_EARTH_SURFACE_SOURCE = '__synthetic_earth_surface__'
 
 export class SyntheticEarthSurfaceBackend implements TileSource {
   // meta.bounds follows the Mercator catalog convention (±85° clamp the
@@ -69,12 +71,18 @@ export class SyntheticEarthSurfaceBackend implements TileSource {
   loadTile(key: number): void {
     if (!this.sink || key !== Z0_KEY) return
     if (!this.cachedResult) this.cachedResult = this.buildResult()
-    this.sink.acceptResult(Z0_KEY, this.cachedResult)
+    // Stamp sourceLayer = source name so VTR's effectiveSourceLayer
+    // resolution (`show.sourceLayer || show.targetName`) lands in the
+    // same cache slot. Mirrors the inline-GeoJSON pattern where the
+    // tilingPool emits MVT with `_layer = sourceName`.
+    this.sink.acceptResult(Z0_KEY, this.cachedResult, SYNTHETIC_EARTH_SURFACE_SOURCE)
   }
 
-  /** Update the style background fill color. PR 2c.3.B will route the
-   *  catalog show's paint shape from this field; today it is a stash
-   *  consulted by the (still-extant) BackgroundRenderer call site. */
+  /** Update the style background fill color. The backend stashes the
+   *  RGBA so callers reading via `getFillColor()` see the latest value;
+   *  the synthetic ShowCommand's `paintShapes.fill` carries the colour
+   *  used by the fragment shader (kept in sync via
+   *  `XGISMap.setBackgroundFill`). */
   updateFillColor(rgba: [number, number, number, number]): void {
     this.fillRgba[0] = rgba[0]
     this.fillRgba[1] = rgba[1]

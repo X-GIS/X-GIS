@@ -1,8 +1,12 @@
 // Stub-based smoke for the remaining renderers: VTR / LineRenderer /
-// RasterRenderer / PointRenderer / BackgroundRenderer. Mirrors the
-// MapRenderer test in `renderer-stub-construction.test.ts` — catches
-// "throws at construction under a real adapter" regressions in ms,
-// without needing SwiftShader-WebGPU.
+// RasterRenderer / PointRenderer. Mirrors the MapRenderer test in
+// `renderer-stub-construction.test.ts` — catches "throws at
+// construction under a real adapter" regressions in ms, without
+// needing SwiftShader-WebGPU.
+//
+// Phase 2 PR 2c.3 retired BackgroundRenderer; the synthetic earth-
+// surface ShowCommand now dispatches background fill through the
+// standard polygon ECEF pipeline (no dedicated renderer to smoke).
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
@@ -12,7 +16,6 @@ import { VectorTileRenderer } from './vector-tile-renderer'
 import { LineRenderer } from './line-renderer'
 import { RasterRenderer } from './raster-renderer'
 import { PointRenderer } from './point-renderer'
-import { BackgroundRenderer } from './background-renderer'
 
 let stub: StubInstallation
 
@@ -61,50 +64,20 @@ describe('renderer construction smoke (stub)', () => {
     expect(() => new PointRenderer({ device: ctx.device, format: ctx.format })).not.toThrow()
   })
 
-  it('BackgroundRenderer constructs without throwing', async () => {
-    const ctx = await makeCtx()
-    expect(() => new BackgroundRenderer(ctx)).not.toThrow()
-  })
-
-  it('BackgroundRenderer.render fires exactly one draw(6) per pass', async () => {
-    // Draw-call surface check: with a colour set, BackgroundRenderer
-    // emits a fullscreen-quad pass (6 vertices). iter-213 routed
-    // that draw through GPURenderBundle — bg now records into a
-    // bundle encoder + replays via `pass.executeBundles([bundle])`.
-    // Updated to check that surface instead of `pass.draw` (which
-    // is now called on the bundleEncoder, not the pass).
-    const ctx = await makeCtx()
-    const bg = new BackgroundRenderer(ctx)
-    bg.setFill([0.1, 0.2, 0.3, 1])
-    const enc = ctx.device.createCommandEncoder()
-    const pass = enc.beginRenderPass({
-      colorAttachments: [{
-        view: ctx.context.getCurrentTexture().createView(),
-        loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 },
-      }],
-    })
-    const exBefore = stub.callCounts['pass.executeBundles'] ?? 0
-    bg.render(pass)
-    pass.end()
-    const exAfter = stub.callCounts['pass.executeBundles'] ?? 0
-    expect(exAfter - exBefore,
-      'BackgroundRenderer.render should emit exactly one executeBundles call (bundle path)')
-      .toBe(1)
-  })
-
-  it('all 5 renderers construct in the same order map.ts uses', async () => {
+  it('all renderers construct in the same order map.ts uses', async () => {
     // map.ts wires them in this order: MapRenderer first (its BGL is
-    // a dep for VTR + LineRenderer), then VTR, then BackgroundRenderer,
-    // PointRenderer, LineRenderer, RasterRenderer. Catches "extracting
-    // renderer X broke renderer Y's construction" regression class.
+    // a dep for VTR + LineRenderer), then VTR, PointRenderer,
+    // LineRenderer, RasterRenderer. Catches "extracting renderer X
+    // broke renderer Y's construction" regression class. Phase 2 PR
+    // 2c.3 retired BackgroundRenderer — the synthetic earth-surface
+    // ShowCommand dispatches through the standard VT path.
     const ctx = await makeCtx()
     const mr = new MapRenderer(ctx)
     const vtr = new VectorTileRenderer(ctx)
     vtr.setBindGroupLayout(mr.bindGroupLayout)
-    const bg = new BackgroundRenderer(ctx)
     const pr = new PointRenderer({ device: ctx.device, format: ctx.format })
     const lr = new LineRenderer(ctx, mr.bindGroupLayout)
     const rr = new RasterRenderer(ctx)
-    expect([mr, vtr, bg, pr, lr, rr].every(Boolean)).toBe(true)
+    expect([mr, vtr, pr, lr, rr].every(Boolean)).toBe(true)
   })
 })

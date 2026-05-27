@@ -140,17 +140,15 @@ describe('iter-319 uniform byte-layout consistency (CPU pack ↔ WGSL struct)', 
     const vtr = readFileSync(join(HERE, 'vector-tile-renderer.ts'), 'utf8')
     // mvp: uf.set(mvp, 0)
     expect(vtr).toMatch(/uf\.set\(mvp,\s*0\)/)
-    // NOTE (Phase 2 PR 2c.1): CPU uf[] write indices below are intentionally
-    // NOT updated yet — mvp_ecef slot is reserved but no VS reads it in PR 2c.1
-    // and the CPU zero-fills the new 64-byte gap via the uniform ring buffer.
-    // PR 2c.2 will update the CPU writes and these regex/cross-checks together.
-    // fill_color CPU write still at uf[16] (ring zero-fills mvp_ecef gap)
-    expect(vtr).toMatch(/uf\[16\]\s*=.*(?:cachedFillColor|patternUV)/)
-    // stroke_color CPU write still at uf[20]
-    expect(vtr).toMatch(/uf\[20\]\s*=/)
-    // proj_params CPU write still at uf[24]
-    expect(vtr).toMatch(/uf\[24\]\s*=\s*projType/)
-    // Cross-check: the WGSL struct offsets for those fields (shifted by mvp_ecef).
+    // mvp_ecef: uf.set(mvpEcef, 16) — PR 2c.2 ECEF VS slot
+    expect(vtr).toMatch(/uf\.set\(mvpEcef,\s*16\)/)
+    // fill_color CPU write at uf[32] (shifted +16 by mvp_ecef insertion)
+    expect(vtr).toMatch(/uf\[32\]\s*=.*(?:cachedFillColor|patternUV)/)
+    // stroke_color CPU write at uf[36]
+    expect(vtr).toMatch(/uf\[36\]\s*=/)
+    // proj_params CPU write at uf[40]
+    expect(vtr).toMatch(/uf\[40\]\s*=\s*projType/)
+    // Cross-check: the WGSL struct offsets for those fields.
     expect(EXPECTED_F32_OFFSET.fill_color).toBe(32)
     expect(EXPECTED_F32_OFFSET.stroke_color).toBe(36)
     expect(EXPECTED_F32_OFFSET.proj_params).toBe(40)

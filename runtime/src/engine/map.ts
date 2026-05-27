@@ -5,7 +5,13 @@ import { setLogSink as setEngineLogSink } from './log'
 import { Lexer, Parser, lower, optimize, emitCommands, evaluate, makeEvalProps, deserializeXGB, resolveImportsAsync, resolveUtilities, resolveColor } from '@xgis/compiler'
 import { packPalette, uploadPalette, type PaletteTextures } from './gpu/palette-texture'
 import type * as AST from '@xgis/compiler'
-import { BackgroundRenderer } from './render/background-renderer'
+import { SyntheticEarthSurfaceBackend } from '../data/sources/synthetic-earth-surface-backend'
+import {
+  SYNTHETIC_EARTH_SURFACE_SOURCE,
+  buildSyntheticEarthSurfaceShow,
+  updateSyntheticEarthSurfaceShowFill,
+} from './synthetic-earth-surface-show'
+import { invalidateResolvedShowCache } from './render/resolved-show'
 import { getSharedGeoJSONCompilePool } from '../data/workers/geojson-compile-pool'
 import { initGPU, GPU_PROF, getMaxDpr, type GPUContext } from './gpu/gpu'
 import { QUALITY, updateQuality, type QualityConfig } from './gpu/quality'
@@ -307,14 +313,20 @@ export class XGISMap {
   _startTime: number | null = null
   _elapsedMs = 0
   /** Earth-surface fill color resolved from `background { fill: ... }`.
-   *  Forwarded to BackgroundRenderer after GPU init. null = no
-   *  background block declared, canvas clearValue dominates. */
+   *  Pushed into the synthetic earth-surface show + backend after GPU
+   *  init. null = no background block declared, canvas clearValue
+   *  dominates. */
   private _backgroundColor: [number, number, number, number] | null = null
   /** P3 Step 3c — scene-scoped palette GPU textures. Held for
    *  destruction on the next scene reload; the underlying view is
    *  bound to every VTR + MapRenderer via setPaletteColorAtlas. */
   private _paletteHandles: PaletteTextures | null = null
-  backgroundRenderer: BackgroundRenderer | null = null
+  /** Phase 2 PR 2c.3 — synthetic backend serving the z=0 ECEF earth-
+   *  surface mesh that replaces BackgroundRenderer. Constructed in run()
+   *  + runBinary() after the catalog/renderer pair exists, attached to
+   *  the synthetic source's TileCatalog. Null until run() initialises
+   *  GPU + catalogs. */
+  private _syntheticBackend: SyntheticEarthSurfaceBackend | null = null
 
   // ── Idle-render skip ──
   // Before this, `renderLoop` called `renderFrame()` every rAF (~60Hz) even
@@ -345,6 +357,71 @@ export class XGISMap {
   /** Explicit render trigger for code paths that change state outside the
    *  camera (setSourceData, updateFeature, tile load completion, etc.). */
   invalidate(): void { this._needsRender = true }
+
+  /** Update the style-background fill colour at runtime. Pushes the new
+   *  RGBA into the synthetic earth-surface backend so future-decoded
+   *  ancestor falls + into the synthetic show so the polygon ECEF
+   *  pipeline picks the colour up on the next frame. Caller writes
+   *  `[r, g, b, a]` in 0..1 floats. Pass `null` to drop the synthetic
+   *  source's contribution (canvas clearValue then dominates). */
+  setBackgroundFill(rgba: [number, number, number, number] | null): void {
+    if (rgba === null) {
+      this._backgroundColor = null
+      this.invalidate()
+      return
+    }
+    if (!Array.isArray(rgba) || rgba.length !== 4
+        || !Number.isFinite(rgba[0]) || !Number.isFinite(rgba[1])
+        || !Number.isFinite(rgba[2]) || !Number.isFinite(rgba[3])) {
+      xlog.warn(`[X-GIS] setBackgroundFill: rejected non-finite RGBA ${JSON.stringify(rgba)}`)
+      return
+    }
+    this._backgroundColor = rgba
+    this._syntheticBackend?.updateFillColor(rgba)
+    const synthShow = this.showCommands.find(
+      s => s.targetName === SYNTHETIC_EARTH_SURFACE_SOURCE,
+    )
+    if (synthShow) {
+      updateSyntheticEarthSurfaceShowFill(synthShow, rgba)
+      invalidateResolvedShowCache(synthShow)
+    }
+    this.invalidate()
+  }
+
+  /** Phase 2 PR 2c.3 — wire the synthetic earth-surface source into the
+   *  vector-tile dispatch path. Creates a dedicated TileCatalog +
+   *  VectorTileRenderer pair, attaches the synthetic backend, and seeds
+   *  `rawDatasets` with the `_vectorTile: true` marker rebuildLayers
+   *  checks. Idempotent. */
+  private _installSyntheticEarthSurfaceSource(
+    rgba: [number, number, number, number],
+  ): void {
+    if (this._syntheticBackend) {
+      this._syntheticBackend.updateFillColor(rgba)
+      return
+    }
+    const catalog = new TileCatalog()
+    const vtRenderer = new VectorTileRenderer(this.ctx)
+    vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout)
+    vtRenderer.setPaletteResources(this.renderer.paletteColorAtlasView, this.renderer.paletteSampler)
+    vtRenderer.setSpriteAtlasView(this.renderer.spriteAtlasView)
+    vtRenderer.setExtrudedPipelines(this.renderer.fillPipelineExtruded, this.renderer.fillPipelineExtrudedFallback)
+    vtRenderer.setGroundPipelines(this.renderer.fillPipelineGround, this.renderer.fillPipelineGroundFallback)
+    vtRenderer.setPatternPipelines(this.renderer.fillPipelinePatternGround, this.renderer.fillPipelinePatternGroundFallback)
+    vtRenderer.setPatternExtrudedPipelines(this.renderer.fillPipelinePatternExtruded, this.renderer.fillPipelinePatternExtrudedFallback)
+    vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
+    if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
+    vtRenderer.setSource(catalog)
+    const backend = new SyntheticEarthSurfaceBackend()
+    backend.updateFillColor(rgba)
+    catalog.attachBackend(backend)
+    this._syntheticBackend = backend
+    this.vtSources.set(SYNTHETIC_EARTH_SURFACE_SOURCE, { source: catalog, renderer: vtRenderer })
+    this.rawDatasets.set(
+      SYNTHETIC_EARTH_SURFACE_SOURCE,
+      { _vectorTile: true } as unknown as GeoJSONFeatureCollection,
+    )
+  }
 
   constructor(private canvas: HTMLCanvasElement, options: XGISMapOptions = {}) {
     this.camera = new Camera(0, 20, 2)
@@ -1410,20 +1487,16 @@ export class XGISMap {
     }
 
     // background { fill: <color> } — Mapbox-style earth-surface fill.
-    // Implemented as a fullscreen-quad pre-pass via BackgroundRenderer:
-    // depth-test ALWAYS, depth-write OFF, stencil writeMask 0. Doesn't
-    // interact with the layer depth/stencil bookkeeping at all, so
-    // user layers paint freely on top with no z-fight even at high
-    // pitch under log-depth precision compression. Color lookup:
-    // utility lines first (`| fill-sky-900` → resolveUtilities →
+    // Phase 2 PR 2c.3 ships this through the standard polygon ECEF
+    // pipeline (SyntheticEarthSurfaceBackend serves a z=0 lat/lon-grid
+    // mesh projected to ECEF; the synthetic ShowCommand prepended to
+    // `commands.shows` carries the fill paint). Sphere projections see
+    // the fill curve naturally; flat projections see the band fill at
+    // sort-order 0 just like the legacy BackgroundRenderer path. Color
+    // lookup: utility lines first (`| fill-sky-900` → resolveUtilities →
     // hex), then style properties (`fill: sky-900` or `fill: #082f49`).
     // StyleProperty stores the raw string; `sky-900` resolves via
     // resolveColor(); bare `#rrggbb` passes through.
-    //
-    // Trade-off: in non-Mercator projections this also paints "space"
-    // outside the projected globe. Acceptable for the projections
-    // currently shipped (Mercator + 2D variants); globe-style
-    // projections will need a sphere proxy on top of this.
     let bgColor: string | null = null
     for (const stmt of ast.body) {
       if (stmt.kind !== 'BackgroundStatement') continue
@@ -1522,8 +1595,6 @@ export class XGISMap {
     this.renderer = new MapRenderer(this.ctx)
     this.renderer.setGraticuleEnabled(this._graticuleInitial)
     this.rasterRenderer = new RasterRenderer(this.ctx)
-    this.backgroundRenderer = new BackgroundRenderer(this.ctx)
-    if (this._backgroundColor) this.backgroundRenderer.setFill(this._backgroundColor)
     if (GPU_PROF) this.gpuTimer = new GPUTimer(this.ctx)
 
     // P3 Step 3c — upload the scene-level color gradient palette to GPU
@@ -1637,6 +1708,19 @@ export class XGISMap {
       } else {
         xlog.warn(`[X-GIS] Inline GeoJSON for unknown source "${id}" — dropping. (Mapbox style sources didn't emit a matching load command.)`)
       }
+    }
+
+    // Phase 2 PR 2c.3 — install the synthetic earth-surface backend +
+    // prepend its ShowCommand at sort-order 0 so the style background
+    // fill renders through the polygon ECEF pipeline. Skips when no
+    // `background { fill: ... }` was declared (the canvas clearValue
+    // dominates). Mutates `commands.shows` in place to land ahead of
+    // every authored layer; rebuildLayers() then sees the synthetic
+    // show first and dispatches it through the standard VT path.
+    if (this._backgroundColor) {
+      this._installSyntheticEarthSurfaceSource(this._backgroundColor)
+      const syntheticShow = buildSyntheticEarthSurfaceShow(this._backgroundColor)
+      commands.shows = [syntheticShow, ...commands.shows] as typeof commands.shows
     }
 
     this.showCommands = commands.shows
@@ -2176,6 +2260,16 @@ export class XGISMap {
       // an explicit Non-goal of the EPSG plan (AC12); revisit if/when the
       // .xgb format gains a crs field.
       this.rawDatasets.set(load.name, data)
+    }
+
+    // Mirror of run(): if a caller pushed a background fill via
+    // setBackgroundFill before runBinary, install the synthetic source
+    // + prepend its show. .xgb format doesn't carry a background block
+    // today, so _backgroundColor only lands here through the public API.
+    if (this._backgroundColor) {
+      this._installSyntheticEarthSurfaceSource(this._backgroundColor)
+      const syntheticShow = buildSyntheticEarthSurfaceShow(this._backgroundColor)
+      commands.shows = [syntheticShow, ...commands.shows] as typeof commands.shows
     }
 
     this.showCommands = commands.shows

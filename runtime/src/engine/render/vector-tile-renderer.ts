@@ -3532,8 +3532,9 @@ export class VectorTileRenderer {
     // Write uniforms directly via cached Float32Array view (no new typed array allocations)
     const uf = this.uniformF32
     uf.set(mvp, 0) // offset 0: mvp (16 floats)
+    uf.set(mvpEcef, 16) // offset 16: mvp_ecef (16 floats) — PR 2c.2 ECEF VS slot
     // iter-183 — fill-pattern Stage 2 packs the sprite atlas UV bbox
-    // into the fill_color slot (16-19) instead of the resolved RGBA.
+    // into the fill_color slot (32-35) instead of the resolved RGBA.
     // fs_fill_pattern reads (u0, v0, u1, v1) from u.fill_color. The
     // pattern repeat in metres is written to slots 46/47 below
     // (overriding the fill-translate NDC values). Both overrides
@@ -3544,14 +3545,14 @@ export class VectorTileRenderer {
     const patternSlotsActive = patternUV != null && patternRepeat != null
       && this.fillPipelinePatternGround !== null
     if (patternSlotsActive) {
-      uf[16] = patternUV![0]; uf[17] = patternUV![1]
-      uf[18] = patternUV![2]; uf[19] = patternUV![3]
+      uf[32] = patternUV![0]; uf[33] = patternUV![1]
+      uf[34] = patternUV![2]; uf[35] = patternUV![3]
       this._patternUniformActive = true
       this._patternRepeatMX = patternRepeat![0]
       this._patternRepeatMY = patternRepeat![1]
     } else {
-      uf[16] = this.cachedFillColor[0]; uf[17] = this.cachedFillColor[1]
-      uf[18] = this.cachedFillColor[2]; uf[19] = this.cachedFillColor[3] * this.currentOpacity
+      uf[32] = this.cachedFillColor[0]; uf[33] = this.cachedFillColor[1]
+      uf[34] = this.cachedFillColor[2]; uf[35] = this.cachedFillColor[3] * this.currentOpacity
       this._patternUniformActive = false
     }
     // iter-185 — line-pattern Stage 2 packs the sprite atlas UV bbox
@@ -3565,12 +3566,12 @@ export class VectorTileRenderer {
     this._linePatternActiveForShow = linePatternSlotsActive
     if (linePatternSlotsActive) {
       const lu = show.linePatternUV!
-      uf[20] = lu[0]; uf[21] = lu[1]; uf[22] = lu[2]; uf[23] = lu[3]
+      uf[36] = lu[0]; uf[37] = lu[1]; uf[38] = lu[2]; uf[39] = lu[3]
     } else {
-      uf[20] = this.cachedStrokeColor[0]; uf[21] = this.cachedStrokeColor[1]
-      uf[22] = this.cachedStrokeColor[2]; uf[23] = this.cachedStrokeColor[3] * this.currentOpacity
+      uf[36] = this.cachedStrokeColor[0]; uf[37] = this.cachedStrokeColor[1]
+      uf[38] = this.cachedStrokeColor[2]; uf[39] = this.cachedStrokeColor[3] * this.currentOpacity
     }
-    uf[24] = projType; uf[25] = projCenterLon; uf[26] = projCenterLat; uf[27] = 0
+    uf[40] = projType; uf[41] = projCenterLon; uf[42] = projCenterLat; uf[43] = 0
 
     // Allocate + write SDF line layer slot for this render() call. All
     // drawSegments() calls below will use this same byte offset.
@@ -4336,12 +4337,12 @@ export class VectorTileRenderer {
       const _debugRed = (globalThis as { __XGIS_FALLBACK_RED?: boolean }).__XGIS_FALLBACK_RED
       let _origR = 0, _origG = 0, _origB = 0
       if (_debugRed) {
-        _origR = this.uniformF32[16]
-        _origG = this.uniformF32[17]
-        _origB = this.uniformF32[18]
-        this.uniformF32[16] = 1.0
-        this.uniformF32[17] = 0.0
-        this.uniformF32[18] = 0.0
+        _origR = this.uniformF32[32]
+        _origG = this.uniformF32[33]
+        _origB = this.uniformF32[34]
+        this.uniformF32[32] = 1.0
+        this.uniformF32[33] = 0.0
+        this.uniformF32[34] = 0.0
       }
       // Same layout-matched ground pickup as the primary path —
       // base layout uses the renderer-level fallback ground; feature
@@ -4453,9 +4454,9 @@ export class VectorTileRenderer {
         this.renderTileKeys(fallbackKeys, pass, fallbackFill, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, lineLayerOffsetGap, phase, layerCache, fallbackExtrudedPipeline, bindGroupLayout, translucentBucket, fallbackVisibleKeys)
       }
       if (_debugRed) {
-        this.uniformF32[16] = _origR
-        this.uniformF32[17] = _origG
-        this.uniformF32[18] = _origB
+        this.uniformF32[32] = _origR
+        this.uniformF32[33] = _origG
+        this.uniformF32[34] = _origB
       }
     }
 
@@ -4811,8 +4812,8 @@ export class VectorTileRenderer {
       // visually cleaner and matches the loading sequence's natural cadence.
       const baseFillA = this.cachedFillColor[3] * (this.currentOpacity ?? 1.0)
       const baseStrokeA = this.cachedStrokeColor[3] * (this.currentOpacity ?? 1.0)
-      this.uniformF32[19] = baseFillA
-      this.uniformF32[23] = baseStrokeA
+      this.uniformF32[35] = baseFillA
+      this.uniformF32[39] = baseStrokeA
       // u.opacity for shader variants is written at index 34 (offset 136)
       // in the DSFUN uniform block, below — keep it off the pre-tile pack so
       // we only write it once per slot.
@@ -4841,40 +4842,40 @@ export class VectorTileRenderer {
       const camRelYH = Math.fround(camRelY)
       const camRelYL = Math.fround(camRelY - camRelYH)
 
-      // cam_h (28-29), cam_l (30-31) — offsets 112..127
-      this.uniformF32[28] = camRelXH
-      this.uniformF32[29] = camRelYH
-      this.uniformF32[30] = camRelXL
-      this.uniformF32[31] = camRelYL
+      // cam_h (44-45), cam_l (46-47) — offsets 176..191
+      this.uniformF32[44] = camRelXH
+      this.uniformF32[45] = camRelYH
+      this.uniformF32[46] = camRelXL
+      this.uniformF32[47] = camRelYL
 
-      // tile_origin_merc (32-33) + opacity (34) + log_depth_fc (35)
-      // — offsets 128..143. log_depth_fc was cached by camera.getRTCMatrix
+      // tile_origin_merc (48-49) + opacity (50) + log_depth_fc (51)
+      // — offsets 192..207. log_depth_fc was cached by camera.getRTCMatrix
       // and is shared across every tile drawn this frame.
-      this.uniformF32[32] = Math.fround(tileMercX)
-      this.uniformF32[33] = Math.fround(tileMercY)
-      this.uniformF32[34] = this.currentOpacity ?? 1.0
-      this.uniformF32[35] = this.logDepthFc
-      // pick_id (36) — packed (instanceId<<16)|layerId. instanceId is
+      this.uniformF32[48] = Math.fround(tileMercX)
+      this.uniformF32[49] = Math.fround(tileMercY)
+      this.uniformF32[50] = this.currentOpacity ?? 1.0
+      this.uniformF32[51] = this.logDepthFc
+      // pick_id (52) — packed (instanceId<<16)|layerId. instanceId is
       // 0 for now; future WORLD_COPIES instancing will pack it here.
       // Cached on the show by XGISMap after LayerIdRegistry.register().
-      this.uniformU32[36] = this.currentPickId
-      // layer_depth_offset (37) — per-layer NDC-z bias to disambiguate
+      this.uniformU32[52] = this.currentPickId
+      // layer_depth_offset (53) — per-layer NDC-z bias to disambiguate
       // coplanar fills under log-depth (filter_gdp at pitch=46.5 z-fight
       // bug, 2026-05-04). 1e-3 per layer was empirically chosen to
       // overcome the log-depth precision compression at moderate pitch
       // (~10 effective bits at 85°). Layer index = pickId & 0xFFFF —
       // pickIds are assigned in style declaration order so this matches
       // the bucket scheduler's draw order.
-      this.uniformF32[37] = (this.currentPickId & 0xFFFF) * 1e-3
-      // tile_extent_m (38) — tile-local Mercator-meter extent at this
+      this.uniformF32[53] = (this.currentPickId & 0xFFFF) * 1e-3
+      // tile_extent_m (54) — tile-local Mercator-meter extent at this
       // tile's zoom. vs_main_quantized dequants pos_norm via this.
       // 2π × R / 2^z; we cache R × 2π once per VTR.
-      this.uniformF32[38] = TWO_PI_R_EARTH / Math.pow(2, cached.tileZoom)
-      // extrude_height_m (39) — 3D building extrusion height in
+      this.uniformF32[54] = TWO_PI_R_EARTH / Math.pow(2, cached.tileZoom)
+      // extrude_height_m (55) — 3D building extrusion height in
       // metres. Set in render() from show.sourceLayer (MVP: hard-
       // coded for `buildings`, 0 elsewhere). Per-feature heights
       // via PropertyTable + style `extrude:` syntax are a follow-up.
-      this.uniformF32[39] = this.currentExtrudeHeight
+      this.uniformF32[55] = this.currentExtrudeHeight
       // clip_bounds (40-43) — per-tile mercator clip rect (west,
       // south, east, north). When `visibleKeysForClip` is provided
       // (fallback path), each draw clips to the visible tile it's
@@ -4903,33 +4904,32 @@ export class VectorTileRenderer {
         const vEastLon = ((vx + 1) / vn) * 360 - 180 + worldOff
         const vNorthLat = Math.atan(Math.sinh(Math.PI * (1 - 2 * vy / vn))) * 180 / Math.PI
         const vSouthLat = Math.atan(Math.sinh(Math.PI * (1 - 2 * (vy + 1) / vn))) * 180 / Math.PI
-        this.uniformF32[40] = Math.fround(vWestLon * DEG2RAD * R)
-        this.uniformF32[41] = Math.fround(Math.log(Math.tan(Math.PI / 4 + clampLat(vSouthLat) * DEG2RAD / 2)) * R)
-        this.uniformF32[42] = Math.fround(vEastLon * DEG2RAD * R)
-        this.uniformF32[43] = Math.fround(Math.log(Math.tan(Math.PI / 4 + clampLat(vNorthLat) * DEG2RAD / 2)) * R)
+        this.uniformF32[56] = Math.fround(vWestLon * DEG2RAD * R)
+        this.uniformF32[57] = Math.fround(Math.log(Math.tan(Math.PI / 4 + clampLat(vSouthLat) * DEG2RAD / 2)) * R)
+        this.uniformF32[58] = Math.fround(vEastLon * DEG2RAD * R)
+        this.uniformF32[59] = Math.fround(Math.log(Math.tan(Math.PI / 4 + clampLat(vNorthLat) * DEG2RAD / 2)) * R)
       } else {
         // Sentinel: no clip. Fragment shader's `clip_bounds.x > -1e29`
         // gate skips the discard test entirely.
-        this.uniformF32[40] = -1e30
-        this.uniformF32[41] = 0
-        this.uniformF32[42] = 0
-        this.uniformF32[43] = 0
+        this.uniformF32[56] = -1e30
+        this.uniformF32[57] = 0
+        this.uniformF32[58] = 0
+        this.uniformF32[59] = 0
       }
 
-      // zoom (44) — per-frame camera zoom. Read by the palette
+      // zoom (60) — per-frame camera zoom. Read by the palette
       // gradient sample (P3 Step 3c): the variant shader maps
-      // (zoom - zMin) / span into the gradient atlas's U coord. The
-      // surrounding 3 floats (45-47) are struct alignment padding
-      // and stay zero. Total uniform struct size = 192 bytes
-      // (UNIFORM_SIZE constant above). `this.lastZoom` is the cached
-      // frame zoom set by VTR.render's caller before renderTileKeys
-      // dispatches — camera isn't in this closure's scope.
-      this.uniformF32[44] = this.lastZoom
-      // extrude_base_m (45) — wall bottom z (Mapbox
+      // (zoom - zMin) / span into the gradient atlas's U coord.
+      // Total uniform struct size = 256 bytes (UNIFORM_SIZE constant above).
+      // `this.lastZoom` is the cached frame zoom set by VTR.render's
+      // caller before renderTileKeys dispatches — camera isn't in this
+      // closure's scope.
+      this.uniformF32[60] = this.lastZoom
+      // extrude_base_m (61) — wall bottom z (Mapbox
       // `fill-extrusion-base`). Reuses the first `_pad_zoom_*` slot
-      // without growing the uniform struct past 192 bytes.
-      this.uniformF32[45] = this.currentExtrudeBase
-      // fill-translate NDC-per-px (slots 46/47) — pre-baked at
+      // without growing the uniform struct past 256 bytes.
+      this.uniformF32[61] = this.currentExtrudeBase
+      // fill-translate NDC-per-px (slots 62/63) — pre-baked at
       // render() time using canvasWidth/Height. Vertex shader
       // applies via clip += offset * clip.w so the pixel offset
       // stays constant regardless of depth. iter-183 — pattern shows
@@ -4938,11 +4938,11 @@ export class VectorTileRenderer {
       // for the world-anchored UV). Pattern shows cannot also use
       // fill-translate; documented Stage 2 trade-off.
       if (this._patternUniformActive) {
-        this.uniformF32[46] = this._patternRepeatMX
-        this.uniformF32[47] = this._patternRepeatMY
+        this.uniformF32[62] = this._patternRepeatMX
+        this.uniformF32[63] = this._patternRepeatMY
       } else {
-        this.uniformF32[46] = this.currentFillTranslateNdcX
-        this.uniformF32[47] = this.currentFillTranslateNdcY
+        this.uniformF32[62] = this.currentFillTranslateNdcX
+        this.uniformF32[63] = this.currentFillTranslateNdcY
       }
 
       // Allocate a fresh ring slot for this tile × layer × world-copy draw.

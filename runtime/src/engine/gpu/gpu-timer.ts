@@ -16,7 +16,10 @@
 //     extension the `vt` ring would only count sub-pass 0.
 //
 // Resulting per-frame samples (when inside-passes is on):
-//   bg       sub-pass 0 only           backgroundRenderer
+//   bg       sub-pass 0 only           (legacy bg marker — retired
+//                                      at Phase 2 PR 2c.3; the
+//                                      synthetic earth-surface show
+//                                      now lives in the `vt` ring)
 //   raster   sub-pass 0 only           rasterRenderer
 //   legacy   sub-pass 0 only           legacy MapRenderer
 //   vt       sub-pass 0 vt segment +

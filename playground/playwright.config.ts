@@ -87,7 +87,14 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: {
+        ...devices['Desktop Chrome'],
+        // XGIS_USE_SYSTEM_CHROME=1: use system Chrome via Playwright's
+        // 'chrome' channel. Needed on WSL2 Ubuntu 26.04 where the
+        // PW 1.59 bundled Chromium build is unavailable. Other dev
+        // boxes leave the env var unset and use the bundled Chromium.
+        ...(process.env.XGIS_USE_SYSTEM_CHROME === '1' ? { channel: 'chrome' } : {}),
+      },
     },
   ],
   webServer: {
