@@ -217,21 +217,20 @@ export class StyleProperties {
 export class MapRenderer {
   private ctx: GPUContext
   // Cached per-frame allocation (avoid GC pressure in render loop)
-  // Must equal MapRenderer.UNIFORM_SIZE (256). Inlined because
+  // Must equal MapRenderer.UNIFORM_SIZE (192). Inlined because
   // class-field init can't reference static-readonly fields declared
-  // later in the same class. Grew 192 → 256 in PR 2c.2 when
-  // `mvp_ecef: mat4x4<f32>` joined for the polygon ECEF vertex
-  // pipeline. Out-of-bounds typed-array writes are silent no-ops so a
-  // mismatch here = uniform never reaches the GPU.
-  private uniformDataBuf = new ArrayBuffer(256)
+  // later in the same class. Shrunk 256 → 192 in PR 2d.5 closeout when
+  // the legacy Mercator `mvp` slot was retired (the surviving `mvp`
+  // slot IS the ECEF-MVP). Out-of-bounds typed-array writes are silent
+  // no-ops so a mismatch here = uniform never reaches the GPU.
+  private uniformDataBuf = new ArrayBuffer(192)
   // Dynamic-offset uniform ring (see docs: multi-layer uniform slots)
-  private static readonly UNIFORM_SLOT = 256
-  // Polygon Uniforms struct = 256 bytes (16 mvp + 16 mvp_ecef + 32
-  // trailing fields incl. clip_bounds, zoom block, pad). WGSL spec
-  // requires bind group binding ranges ≥ struct size + multiple of 16.
-  // Grew 192 → 256 in PR 2c.2 when `mvp_ecef: mat4x4<f32>` joined for
-  // the polygon ECEF VS migration.
-  private static readonly UNIFORM_SIZE = 256
+  private static readonly UNIFORM_SLOT = 192
+  // Polygon Uniforms struct = 192 bytes (16 mvp + 32 trailing fields incl.
+  // clip_bounds, zoom block, pad). WGSL spec requires bind group binding
+  // ranges ≥ struct size + multiple of 16. Shrunk 256 → 192 in PR 2d.5
+  // closeout when the legacy Mercator `mvp` slot was retired.
+  private static readonly UNIFORM_SIZE = 192
   fillPipeline!: GPURenderPipeline
   /** Ground-layer fill — identical to fillPipeline except depth
    *  test/write are off. Selected at draw time for any layer whose
@@ -1115,8 +1114,9 @@ export class MapRenderer {
       multisample: msaaState,
     })
 
-    // Uniform ring buffer: 256-byte slots, dynamic offsets per draw.
-    // Guarantees that multi-layer draws don't overwrite each other's uniforms.
+    // Uniform ring buffer: 192-byte slots (post PR 2d.5 closeout), 256-slot
+    // initial capacity, dynamic offsets per draw. Guarantees that multi-
+    // layer draws don't overwrite each other's uniforms.
     // ensure() fires the onGrow callback → builds this.bindGroup (and the
     // per-layer loop, empty at init since no layers are registered yet),
     // faithfully replacing the inline build at the same point in init.
@@ -1851,11 +1851,11 @@ export class MapRenderer {
     // Compute the live DPR so the camera matrix uses CSS-pixel altitude
     // (matches what VTR / raster / point renderers do).
     const dpr = canvas.clientWidth > 0 ? canvas.width / canvas.clientWidth : 1
-    const frame = camera.getFrameView(canvas.width, canvas.height, dpr)
+    // PR 2d.5 closeout: every VS reads `u.mvp` which IS the ECEF-MVP (the
+    // legacy Mercator-`mvp` slot was retired and the struct shrunk
+    // 256 → 192 bytes). `getECEFFrameView` is the canonical MVP builder.
+    const frame = camera.getECEFFrameView(canvas.width, canvas.height, dpr)
     const mvp = frame.matrix
-    // PR 2d.1D — vs_main now reads u.mvp_ecef (byte 64) for ECEF clip.
-    // Compute once per renderToPass call; graticule loop uses it below.
-    const mvpEcef = camera.getECEFFrameView(canvas.width, canvas.height, dpr).matrix
 
     for (const layer of this.layers) {
       // Read from dynamic properties (supports runtime override)
@@ -1886,6 +1886,15 @@ export class MapRenderer {
       const strokeColor = strokeRaw ? [strokeRaw[0], strokeRaw[1], strokeRaw[2], strokeRaw[3] * opacity] : [0, 0, 0, 0]
 
       const uniformData = this.uniformDataBuf
+      // ── 192-byte Uniforms struct layout (post PR 2d.5 closeout) ──
+      // byte   0: mvp         (16 f32 = 64 B) — ECEF-MVP
+      // byte  64: fill_color  (4 f32) | byte  80: stroke_color (4 f32)
+      // byte  96: proj_params (4 f32)
+      // byte 112: cam_h (2 f32) | cam_l (2 f32)
+      // byte 128: tile_origin_merc (2 f32) | opacity | log_depth_fc
+      // byte 144: pick_id (u32) | layer_depth_offset | tile_extent_m | extrude_height_m
+      // byte 160: clip_bounds (4 f32)
+      // byte 176: zoom + 3-float pad → total 192 B
       new Float32Array(uniformData, 0, 16).set(mvp)
       new Float32Array(uniformData, 64, 4).set(fillColor as number[])
       new Float32Array(uniformData, 80, 4).set(strokeColor as number[])
@@ -1922,7 +1931,7 @@ export class MapRenderer {
       new Float32Array(uniformData, 160, 4).set([-1e30, 0, 0, 0])
       // zoom + 3-float pad (offsets 176-191) — P3 palette gradient
       // sample reads u.zoom. Pad slots stay zero; total struct size
-      // is now 192 bytes (UNIFORM_SIZE constant).
+      // is 192 bytes (UNIFORM_SIZE constant).
       new Float32Array(uniformData, 176, 4).set([camera.zoom, 0, 0, 0])
       const slotOffset = this.allocUniformSlot()
       this.stageUniformSlot(slotOffset, uniformData)
@@ -1980,34 +1989,34 @@ export class MapRenderer {
       // Previously iterated worldCopiesFor(projType) for Mercator cam_h shift.
       for (let wi = 0; wi < 1; wi++) {
         const gratData = new ArrayBuffer(MapRenderer.UNIFORM_SIZE)
-        // ── 256-byte Uniforms struct layout (matches VTR + WGSL) ──────────
-        // byte   0: mvp       (16 f32 = 64 B) — kept for any legacy FS reads
-        // byte  64: mvp_ecef  (16 f32 = 64 B) — PR 2d.1D: vs_main reads this
-        // byte 128: fill_color (4 f32 = 16 B)
-        // byte 144: stroke_color (4 f32)
-        // byte 160: proj_params (4 f32)
-        // byte 168: cam_h (2 f32) | byte 176: cam_l (2 f32) | byte 184: tile_origin_merc (2 f32)
-        // byte 192: opacity | byte 196: log_depth_fc | byte 200: pick_id (u32) | byte 204: layer_depth_offset
-        // byte 208: tile_extent_m | byte 212: extrude_height_m | byte 216: clip_bounds (4 f32)
-        // byte 232: zoom | ...
-        new Float32Array(gratData, 0, 16).set(mvp)
-        new Float32Array(gratData, 64, 16).set(mvpEcef) // PR 2d.1D: vs_main reads u.mvp_ecef
+        // ── 192-byte Uniforms struct layout (matches VTR + WGSL; post PR 2d.5
+        // closeout: legacy Mercator `mvp` slot retired; `mvp` IS the ECEF-MVP).
+        // byte   0: mvp        (16 f32 = 64 B) — ECEF-MVP (was `mvp_ecef`)
+        // byte  64: fill_color  (4 f32 = 16 B)
+        // byte  80: stroke_color (4 f32)
+        // byte  96: proj_params  (4 f32)
+        // byte 112: cam_h (2 f32) | cam_l (2 f32)
+        // byte 128: tile_origin_merc (2 f32) | opacity | log_depth_fc
+        // byte 144: pick_id (u32) | layer_depth_offset | tile_extent_m | extrude_height_m
+        // byte 160: clip_bounds (4 f32)
+        // byte 176: zoom + 3-float pad → total 192 B
+        new Float32Array(gratData, 0, 16).set(mvp) // ECEF-MVP for vs_main
         // fill_color = white @ 15% opacity (minor grid line colour)
-        new Float32Array(gratData, 128, 4).set([1, 1, 1, 0.15])
+        new Float32Array(gratData, 64, 4).set([1, 1, 1, 0.15])
         // stroke_color = white @ 15% opacity
-        new Float32Array(gratData, 144, 4).set([1, 1, 1, 0.15])
+        new Float32Array(gratData, 80, 4).set([1, 1, 1, 0.15])
         // proj_params
-        new Float32Array(gratData, 160, 4).set([projType, projCenterLon, projCenterLat, 0])
+        new Float32Array(gratData, 96, 4).set([projType, projCenterLon, projCenterLat, 0])
         // Graticule vertices are ECEF-encoded (PR 2d.1D); RTC anchor = (0,0,0)
         // since graticule emits absolute ECEF without per-tile centering.
         // cam_h / cam_l fields are unused by vs_main (ECEF path) — zero-fill.
-        new Float32Array(gratData, 168, 4).set([0, 0, 0, 0]) // cam_h + cam_l
+        new Float32Array(gratData, 112, 4).set([0, 0, 0, 0]) // cam_h + cam_l
         // tile_origin_merc=(0,0), opacity=1, log_depth_fc
-        new Float32Array(gratData, 184, 4).set([0, 0, 1, frame.logDepthFc])
+        new Float32Array(gratData, 128, 4).set([0, 0, 1, frame.logDepthFc])
         // pick_id=0 — graticule is decorative, never pickable. + layer_depth_offset=0
-        new Uint32Array(gratData, 200, 4).set([0, 0, 0, 0])
+        new Uint32Array(gratData, 144, 4).set([0, 0, 0, 0])
         // clip_bounds sentinel — same rationale as the polygon path.
-        new Float32Array(gratData, 216, 4).set([-1e30, 0, 0, 0])
+        new Float32Array(gratData, 160, 4).set([-1e30, 0, 0, 0])
         const gratOff = this.allocUniformSlot()
         this.stageUniformSlot(gratOff, gratData)
 

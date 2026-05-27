@@ -129,8 +129,8 @@ export class SubTileGenerator {
     // The sub-tile OUTPUT also ships stride-9 ECEF so the renderer's
     // ECEF VS reads the same layout for parent + sub-tile. Each output
     // vertex's `pos_h, pos_l` are DSFUN-split against the SUB-tile's own
-    // ECEF anchor (computed below) so the same `mvp_ecef * vec4(pos_h +
-    // pos_l, 1)` math works without re-anchoring.
+    // ECEF anchor (computed below) so the same `u.mvp * vec4(pos_h +
+    // pos_l, 1)` math works without re-anchoring (post PR 2d.5 closeout).
     const verts = parent.vertices
     const subClampLat = Math.max(-ECEF_LAT_LIMIT, Math.min(ECEF_LAT_LIMIT, subSouth))
     const subTileMx = subWest * ECEF_DEG2RAD * ECEF_EARTH_R

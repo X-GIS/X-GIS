@@ -5,8 +5,8 @@ export interface GraticuleData {
   /** Line vertices in ECEF-DSFUN stride 9 (Phase 2 PR 2d.1D):
    *  [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, feat_id, abs_lon, abs_lat].
    *  Graticules live in the "no-tile" frame so RTC=(0,0,0) (the GPU's
-   *  u.mvp_ecef is built directly against absolute ECEF metres for the
-   *  graticule draw — see renderer.ts:1972). feat_id: 1 = major,
+   *  u.mvp (ECEF-MVP) is built directly against absolute ECEF metres for
+   *  the graticule draw — see renderer.ts:1972). feat_id: 1 = major,
    *  0 = minor. */
   vertices: Float32Array
   indexCount: number
