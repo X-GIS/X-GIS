@@ -218,22 +218,21 @@ export class StyleProperties {
 export class MapRenderer {
   private ctx: GPUContext
   // Cached per-frame allocation (avoid GC pressure in render loop)
-  // Must equal MapRenderer.UNIFORM_SIZE (192). Inlined because
+  // Must equal MapRenderer.UNIFORM_SIZE (256). Inlined because
   // class-field init can't reference static-readonly fields declared
-  // later in the same class. Grew 160 → 176 when `clip_bounds:
-  // vec4<f32>` was added to WGSL Uniforms (per-tile fallback clip
-  // mask). Out-of-bounds typed-array writes are silent no-ops so a
+  // later in the same class. Grew 192 → 256 in PR 2c.2 when
+  // `mvp_ecef: mat4x4<f32>` joined for the polygon ECEF vertex
+  // pipeline. Out-of-bounds typed-array writes are silent no-ops so a
   // mismatch here = uniform never reaches the GPU.
-  private uniformDataBuf = new ArrayBuffer(192)
+  private uniformDataBuf = new ArrayBuffer(256)
   // Dynamic-offset uniform ring (see docs: multi-layer uniform slots)
   private static readonly UNIFORM_SLOT = 256
-  // Polygon Uniforms struct grew from 160 to 176 bytes when
-  // `clip_bounds: vec4<f32>` was added for per-tile clip masking
-  // (parent fallback z=11 ancestor's geometry clipped to the missing
-  // z=15 child's screen extent so cross-z overlaps don't fight at
-  // log-depth precision). WGSL spec requires bind group binding
-  // ranges ≥ struct size + multiple of 16.
-  private static readonly UNIFORM_SIZE = 192
+  // Polygon Uniforms struct = 256 bytes (16 mvp + 16 mvp_ecef + 32
+  // trailing fields incl. clip_bounds, zoom block, pad). WGSL spec
+  // requires bind group binding ranges ≥ struct size + multiple of 16.
+  // Grew 192 → 256 in PR 2c.2 when `mvp_ecef: mat4x4<f32>` joined for
+  // the polygon ECEF VS migration.
+  private static readonly UNIFORM_SIZE = 256
   fillPipeline!: GPURenderPipeline
   /** Ground-layer fill — identical to fillPipeline except depth
    *  test/write are off. Selected at draw time for any layer whose
@@ -242,10 +241,11 @@ export class MapRenderer {
    *  layer_depth_offset NDC bias. */
   fillPipelineGround!: GPURenderPipeline
   /** Per-feature 3D extrusion variant of fillPipeline — identical
-   *  except entryPoint=`vs_main_quantized_extruded` and a second
-   *  vertex buffer slot for the per-vertex z attribute. Used by the
-   *  fill-draw branch when a tile slice carries `heights` (e.g.
-   *  protomaps `buildings` with `render_height`). */
+   *  except entryPoint=`vs_main_ecef_extruded` and a unified ECEF
+   *  vertex buffer (stride-14 floats: pos_h, pos_l, feat_id, abs_lon,
+   *  abs_lat, face_normal, wall_height, is_top). Used by the fill-draw
+   *  branch when a tile slice carries `heights` (e.g. protomaps
+   *  `buildings` with `render_height`). */
   fillPipelineExtruded!: GPURenderPipeline
   /** Weighted-Blended OIT translucent extrude fill. Renders into
    *  `oitAccumTexture` + `oitRevealageTexture` so multiple
@@ -289,9 +289,9 @@ export class MapRenderer {
   fillPipelinePatternGround!: GPURenderPipeline
   fillPipelinePatternGroundFallback!: GPURenderPipeline
   /** iter-186 — fill-extrusion-pattern Stage 2 variants. Same
-   *  vs_main_quantized_extruded vertex path as the solid extrude
-   *  pipelines + the per-feature z attribute buffer; fragment uses
-   *  `fs_fill_pattern` so walls + roofs sample the sprite atlas. */
+   *  vs_main_ecef_extruded vertex path as the solid extrude
+   *  pipelines + the unified ECEF stride-14 vertex buffer; fragment
+   *  uses `fs_fill_pattern` so walls + roofs sample the sprite atlas. */
   fillPipelinePatternExtruded!: GPURenderPipeline
   fillPipelinePatternExtrudedFallback!: GPURenderPipeline
   linePipelineFallback!: GPURenderPipeline
@@ -731,32 +731,39 @@ export class MapRenderer {
       bindGroupLayouts: [this.bindGroupLayout],
     })
 
-    // Phase B quantized polygon vertex: [u16 mx, u16 my, f32 feat_id]
-    // — stride 8 bytes, 60% smaller than the DSFUN stride 20 used by
-    // line geometry. Pipeline binds this layout to vs_main_quantized
-    // which dequants via u.tile_extent_m.
+    // PR 2c.2: polygon flat-fill ECEF stride-9 floats = 36 bytes.
+    // [pos_h(vec3) + pos_l(vec3) + feat_id(f32) + abs_lon(f32) + abs_lat(f32)]
+    // Bound to vs_main_ecef which runs a single linear mvp_ecef transform
+    // on (pos_h + pos_l); abs_lon/abs_lat reconstruct Mercator absolutes
+    // for the fragment-side hemisphere cull.
     const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 8,
+      arrayStride: 36,
       attributes: [
-        { shaderLocation: 0, offset: 0, format: 'uint16x2' as GPUVertexFormat },
-        { shaderLocation: 2, offset: 4, format: 'float32'   as GPUVertexFormat },
+        { shaderLocation: 0, offset:  0, format: 'float32x3' as GPUVertexFormat }, // pos_h
+        { shaderLocation: 1, offset: 12, format: 'float32x3' as GPUVertexFormat }, // pos_l
+        { shaderLocation: 2, offset: 24, format: 'float32'   as GPUVertexFormat }, // feat_id
+        { shaderLocation: 3, offset: 28, format: 'float32'   as GPUVertexFormat }, // abs_lon
+        { shaderLocation: 4, offset: 32, format: 'float32'   as GPUVertexFormat }, // abs_lat
       ],
     }
-    // iter-194 — Parallel attribute (slot 1) for the per-feature
-    // extrusion pipeline. Layout grew f32 → vec4 to carry the per-
-    // vertex outward normal alongside the lift height:
-    //   .x = z          (world metres, 0 for wall bottoms, feature
-    //                    height for wall tops + roof faces)
-    //   .yzw = normal   (unit outward face normal — horizontal for
-    //                    walls, +Z for roof faces; matches MapLibre
-    //                    `a_normal_ed.xyz / 16384` semantics)
-    // The extrude vertex shader uses .yzw to compute MapLibre-
-    // equivalent face-normal directional lighting in the VERTEX
-    // stage (passed to the fragment via `v_color` varying).
-    const extrudedZBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 16,
+    // PR 2c.2: polygon extruded ECEF stride-14 floats = 56 bytes. Unified buffer
+    // (replaces flat-fill + separate extrudedZBufferLayout).
+    // [pos_h(vec3) + pos_l(vec3) + feat_id(f32) + abs_lon(f32) + abs_lat(f32)
+    //  + face_normal(vec3) + wall_height(f32) + is_top(f32)]
+    // Bound to vs_main_ecef_extruded. face_normal drives MapLibre face-
+    // normal directional lighting in the VERTEX stage; wall_height +
+    // is_top discriminate wall-bottom vs wall-top + roof faces.
+    const extrudedVertexBufferLayout: GPUVertexBufferLayout = {
+      arrayStride: 56,
       attributes: [
-        { shaderLocation: 3, offset: 0, format: 'float32x4' as GPUVertexFormat },
+        { shaderLocation: 0, offset:  0, format: 'float32x3' as GPUVertexFormat }, // pos_h
+        { shaderLocation: 1, offset: 12, format: 'float32x3' as GPUVertexFormat }, // pos_l
+        { shaderLocation: 2, offset: 24, format: 'float32'   as GPUVertexFormat }, // feat_id
+        { shaderLocation: 3, offset: 28, format: 'float32'   as GPUVertexFormat }, // abs_lon
+        { shaderLocation: 4, offset: 32, format: 'float32'   as GPUVertexFormat }, // abs_lat
+        { shaderLocation: 5, offset: 36, format: 'float32x3' as GPUVertexFormat }, // face_normal
+        { shaderLocation: 6, offset: 48, format: 'float32'   as GPUVertexFormat }, // wall_height
+        { shaderLocation: 7, offset: 52, format: 'float32'   as GPUVertexFormat }, // is_top
       ],
     }
     // DSFUN line vertex: [mx_h, my_h, mx_l, my_l, feat_id, arc_start] — stride 24 bytes.
@@ -789,7 +796,7 @@ export class MapRenderer {
     const buildSet = (targets: GPUColorTargetState[], suffix: string) => ({
       fill: device.createRenderPipeline({
         layout: pipelineLayout,
-        vertex: { module: shaderModule, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        vertex: { module: shaderModule, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
         depthStencil: STENCIL_WRITE, multisample: msaaState,
@@ -801,7 +808,7 @@ export class MapRenderer {
       // coplanar fragments without the layer_depth_offset hack.
       fillGround: device.createRenderPipeline({
         layout: pipelineLayout,
-        vertex: { module: shaderModule, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        vertex: { module: shaderModule, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
         depthStencil: STENCIL_WRITE_NO_DEPTH, multisample: msaaState,
@@ -809,7 +816,7 @@ export class MapRenderer {
       }),
       fillExtruded: device.createRenderPipeline({
         layout: pipelineLayout,
-        vertex: { module: shaderModule, entryPoint: 'vs_main_quantized_extruded', buffers: [vertexBufferLayout, extrudedZBufferLayout] },
+        vertex: { module: shaderModule, entryPoint: 'vs_main_ecef_extruded', buffers: [extrudedVertexBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_fill_extrude', targets },
         // Two-sided rendering. Concave footprints (dome, courtyard)
         // need back walls visible when the camera tilts to see inside.
@@ -827,7 +834,7 @@ export class MapRenderer {
       }),
       fillFallback: device.createRenderPipeline({
         layout: pipelineLayout,
-        vertex: { module: shaderModule, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        vertex: { module: shaderModule, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
         depthStencil: STENCIL_TEST, multisample: msaaState,
@@ -837,7 +844,7 @@ export class MapRenderer {
       // disabled state as fillGround.
       fillGroundFallback: device.createRenderPipeline({
         layout: pipelineLayout,
-        vertex: { module: shaderModule, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        vertex: { module: shaderModule, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
         depthStencil: STENCIL_TEST_NO_DEPTH, multisample: msaaState,
@@ -845,7 +852,7 @@ export class MapRenderer {
       }),
       fillExtrudedFallback: device.createRenderPipeline({
         layout: pipelineLayout,
-        vertex: { module: shaderModule, entryPoint: 'vs_main_quantized_extruded', buffers: [vertexBufferLayout, extrudedZBufferLayout] },
+        vertex: { module: shaderModule, entryPoint: 'vs_main_ecef_extruded', buffers: [extrudedVertexBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_fill_extrude', targets },
         // Same rationale as `fillExtruded` above: unculled to keep
         // dome / courtyard interiors visible.
@@ -869,7 +876,7 @@ export class MapRenderer {
       // — extrude-pattern variant deferred to iter-185.
       fillPatternGround: device.createRenderPipeline({
         layout: pipelineLayout,
-        vertex: { module: shaderModule, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        vertex: { module: shaderModule, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_fill_pattern', targets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
         depthStencil: STENCIL_WRITE_NO_DEPTH, multisample: msaaState,
@@ -877,24 +884,24 @@ export class MapRenderer {
       }),
       fillPatternGroundFallback: device.createRenderPipeline({
         layout: pipelineLayout,
-        vertex: { module: shaderModule, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        vertex: { module: shaderModule, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_fill_pattern', targets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
         depthStencil: STENCIL_TEST_NO_DEPTH, multisample: msaaState,
         label: `fill-pipeline-pattern-ground-fallback${suffix}`,
       }),
       // iter-186 — fill-extrusion-pattern Stage 2 variants. Same per-
-      // feature extrusion vertex (vs_main_quantized_extruded) as the
-      // solid extrude pipeline + extrudedZBufferLayout for the z slot;
-      // fragment routes to `fs_fill_pattern` so building walls + roofs
-      // sample the sprite atlas. Documented Stage 2 trade-off:
+      // feature extrusion vertex (vs_main_ecef_extruded) as the
+      // solid extrude pipeline + the unified ECEF stride-14 vertex
+      // buffer; fragment routes to `fs_fill_pattern` so building walls
+      // + roofs sample the sprite atlas. Documented Stage 2 trade-off:
       // pattern-extrude shows lose the wall_shade lighting (sprite
       // colour replaces the shaded fill rgb). Stage 2.1 will route to
       // a dedicated fs_fill_pattern_extruded that multiplies by
       // wall_shade.
       fillPatternExtruded: device.createRenderPipeline({
         layout: pipelineLayout,
-        vertex: { module: shaderModule, entryPoint: 'vs_main_quantized_extruded', buffers: [vertexBufferLayout, extrudedZBufferLayout] },
+        vertex: { module: shaderModule, entryPoint: 'vs_main_ecef_extruded', buffers: [extrudedVertexBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_fill_pattern', targets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
         depthStencil: STENCIL_WRITE, multisample: msaaState,
@@ -902,7 +909,7 @@ export class MapRenderer {
       }),
       fillPatternExtrudedFallback: device.createRenderPipeline({
         layout: pipelineLayout,
-        vertex: { module: shaderModule, entryPoint: 'vs_main_quantized_extruded', buffers: [vertexBufferLayout, extrudedZBufferLayout] },
+        vertex: { module: shaderModule, entryPoint: 'vs_main_ecef_extruded', buffers: [extrudedVertexBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_fill_pattern', targets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
         depthStencil: STENCIL_TEST, multisample: msaaState,
@@ -952,7 +959,7 @@ export class MapRenderer {
       }
       this.fillPipelineOverdraw = device.createRenderPipeline({
         layout: pipelineLayout,
-        vertex: { module: shaderModule, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        vertex: { module: shaderModule, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_overdraw', targets: overdrawTargets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
         depthStencil: overdrawDepthStencil,
@@ -969,7 +976,7 @@ export class MapRenderer {
       })
       this.fillPipelineOverdrawFeature = device.createRenderPipeline({
         layout: featurePipelineLayout,
-        vertex: { module: shaderModule, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        vertex: { module: shaderModule, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_overdraw', targets: overdrawTargets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
         depthStencil: overdrawDepthStencil,
@@ -990,9 +997,9 @@ export class MapRenderer {
     // OIT translucent extrude pipeline — separate from buildSet
     // because it targets the OIT MRT pair (rgba16float accum +
     // r16float revealage) at sampleCount=1, not the main pass's
-    // color + pick attachments at MSAA. Same vs_main_quantized_
-    // extruded vertex stage as the opaque fill — only the fragment
-    // entry + targets differ. Depth state DEPTH_READ_ONLY: the
+    // color + pick attachments at MSAA. Same vs_main_ecef_extruded
+    // vertex stage as the opaque fill — only the fragment entry +
+    // targets differ. Depth state DEPTH_READ_ONLY: the
     // translucent fill respects the opaque depth buffer (hidden
     // behind solid walls) without writing depth (so multiple
     // translucent layers don't occlude each other in OIT space).
@@ -1014,7 +1021,7 @@ export class MapRenderer {
     // Deferred — single-sample OIT is the typical industry choice.
     this.fillPipelineExtrudedOIT = device.createRenderPipeline({
       layout: pipelineLayout,
-      vertex: { module: shaderModule, entryPoint: 'vs_main_quantized_extruded', buffers: [vertexBufferLayout, extrudedZBufferLayout] },
+      vertex: { module: shaderModule, entryPoint: 'vs_main_ecef_extruded', buffers: [extrudedVertexBufferLayout] },
       fragment: { module: shaderModule, entryPoint: 'fs_oit_translucent', targets: oitTargets },
       // Iter 130: cullMode 'back' for OIT translucent extruded path.
       // Liberty's fill-extrusion-opacity=0.8 routes here. Pre-iter-130
@@ -1533,11 +1540,15 @@ export class MapRenderer {
       bindGroupLayouts: [layout],
     })
 
+    // PR 2c.2 polygon ECEF stride-9 layout — matches initPipelines() above.
     const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 8,
+      arrayStride: 36,
       attributes: [
-        { shaderLocation: 0, offset: 0, format: 'uint16x2' as GPUVertexFormat },
-        { shaderLocation: 2, offset: 4, format: 'float32'   as GPUVertexFormat },
+        { shaderLocation: 0, offset:  0, format: 'float32x3' as GPUVertexFormat },
+        { shaderLocation: 1, offset: 12, format: 'float32x3' as GPUVertexFormat },
+        { shaderLocation: 2, offset: 24, format: 'float32'   as GPUVertexFormat },
+        { shaderLocation: 3, offset: 28, format: 'float32'   as GPUVertexFormat },
+        { shaderLocation: 4, offset: 32, format: 'float32'   as GPUVertexFormat },
       ],
     }
     const lineVertexBufferLayout: GPUVertexBufferLayout = {
@@ -1552,7 +1563,7 @@ export class MapRenderer {
     const buildSetDesc = (targets: GPUColorTargetState[], suffix: string) => ({
       fill: {
         layout: pipelineLayout,
-        vertex: { module, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        vertex: { module, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list' as const, cullMode: 'none' as const },
         depthStencil: STENCIL_WRITE, multisample: msaaState,
@@ -1560,7 +1571,7 @@ export class MapRenderer {
       },
       fillGround: {
         layout: pipelineLayout,
-        vertex: { module, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        vertex: { module, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list' as const, cullMode: 'none' as const },
         depthStencil: STENCIL_WRITE_NO_DEPTH, multisample: msaaState,
@@ -1576,7 +1587,7 @@ export class MapRenderer {
       },
       fillFallback: {
         layout: pipelineLayout,
-        vertex: { module, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        vertex: { module, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list' as const, cullMode: 'none' as const },
         depthStencil: STENCIL_TEST, multisample: msaaState,
@@ -1584,7 +1595,7 @@ export class MapRenderer {
       },
       fillGroundFallback: {
         layout: pipelineLayout,
-        vertex: { module, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        vertex: { module, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list' as const, cullMode: 'none' as const },
         depthStencil: STENCIL_TEST_NO_DEPTH, multisample: msaaState,
@@ -1662,13 +1673,15 @@ export class MapRenderer {
       bindGroupLayouts: [layout],
     })
 
-    // Phase B quantized polygon vertex layout — matches initPipelines()
-    // above. unorm16x2 + float32 stride 8.
+    // PR 2c.2 polygon ECEF stride-9 layout — matches initPipelines() above.
     const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 8,
+      arrayStride: 36,
       attributes: [
-        { shaderLocation: 0, offset: 0, format: 'uint16x2' as GPUVertexFormat },
-        { shaderLocation: 2, offset: 4, format: 'float32'   as GPUVertexFormat },
+        { shaderLocation: 0, offset:  0, format: 'float32x3' as GPUVertexFormat },
+        { shaderLocation: 1, offset: 12, format: 'float32x3' as GPUVertexFormat },
+        { shaderLocation: 2, offset: 24, format: 'float32'   as GPUVertexFormat },
+        { shaderLocation: 3, offset: 28, format: 'float32'   as GPUVertexFormat },
+        { shaderLocation: 4, offset: 32, format: 'float32'   as GPUVertexFormat },
       ],
     }
     const lineVertexBufferLayout: GPUVertexBufferLayout = {
@@ -1683,7 +1696,7 @@ export class MapRenderer {
     const buildSet = (targets: GPUColorTargetState[], suffix: string) => ({
       fill: device.createRenderPipeline({
         layout: pipelineLayout,
-        vertex: { module, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        vertex: { module, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
         depthStencil: STENCIL_WRITE, multisample: msaaState,
@@ -1698,7 +1711,7 @@ export class MapRenderer {
       // shows away from the base-only fillPipelineGround substitution.
       fillGround: device.createRenderPipeline({
         layout: pipelineLayout,
-        vertex: { module, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        vertex: { module, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
         depthStencil: STENCIL_WRITE_NO_DEPTH, multisample: msaaState,
@@ -1714,7 +1727,7 @@ export class MapRenderer {
       }),
       fillFallback: device.createRenderPipeline({
         layout: pipelineLayout,
-        vertex: { module, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        vertex: { module, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
         depthStencil: STENCIL_TEST, multisample: msaaState,
@@ -1728,7 +1741,7 @@ export class MapRenderer {
       // showing" window.
       fillGroundFallback: device.createRenderPipeline({
         layout: pipelineLayout,
-        vertex: { module, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        vertex: { module, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
         depthStencil: STENCIL_TEST_NO_DEPTH, multisample: msaaState,

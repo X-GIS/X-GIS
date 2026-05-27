@@ -78,10 +78,12 @@ describe('MapRenderer construction (stub)', () => {
     // buffer is the largest one MapRenderer creates at init.
     const ctx = await makeCtx()
     new MapRenderer(ctx)
-    // Per renderer.ts header comment: UNIFORM_SIZE = 192 bytes today.
+    // Per renderer.ts header comment: UNIFORM_SIZE = 256 bytes today
+    // (grew 192 → 256 in PR 2c.2 when `mvp_ecef: mat4x4<f32>` joined
+    // the polygon Uniforms struct for the ECEF VS migration).
     // Bump this assertion when the struct legitimately grows.
     expect((MapRenderer as unknown as { UNIFORM_SIZE: number }).UNIFORM_SIZE)
-      .toBe(192)
+      .toBe(256)
   })
 
   it('bindGroupLayout descriptor declares the polygon Uniforms binding', async () => {

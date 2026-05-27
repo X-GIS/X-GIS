@@ -45,16 +45,30 @@ function loadTriangle(): GeoJSONFeatureCollection {
   return JSON.parse(readFileSync(TRIANGLE_PATH, 'utf8')) as GeoJSONFeatureCollection
 }
 
-/** DSFUN polygon vertex stride 5: [mx_h, my_h, mx_l, my_l, fid] */
-const POLY_STRIDE = 5
+/** ECEF-DSFUN polygon vertex stride 9 (Phase 2 PR 2c.2):
+ *  [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon_deg, abs_lat_deg] */
+const POLY_STRIDE = 9
 /** DSFUN line vertex stride 10: [mx_h, my_h, mx_l, my_l, fid, arc, tin_x, tin_y, tout_x, tout_y] */
 const LINE_STRIDE = 10
 
-/** Reconstruct a polygon-fill vertex's full-precision tile-local
- *  Mercator (mx, my) from the DSFUN hi/lo pair. */
-function polyVertex(vertices: Float32Array, i: number): [number, number] {
+const EARTH_R = 6378137
+const DEG2RAD = Math.PI / 180
+
+/** Reconstruct a polygon-fill vertex in tile-local Mercator metres.
+ *  Source layout is ECEF-DSFUN with packed `abs_lon_deg, abs_lat_deg`
+ *  at slots 7 + 8 (sub-mm Mercator-inverse round-trip per
+ *  `ecef-precision-fuzz.test.ts`). Reproject those to tile-local
+ *  Mercator so fill + outline live in the same space. */
+function polyVertex(
+  vertices: Float32Array, i: number,
+  tileMx: number, tileMy: number,
+): [number, number] {
   const base = i * POLY_STRIDE
-  return [vertices[base] + vertices[base + 2], vertices[base + 1] + vertices[base + 3]]
+  const lonDeg = vertices[base + 7]
+  const latDeg = vertices[base + 8]
+  const mx = lonDeg * DEG2RAD * EARTH_R
+  const my = Math.log(Math.tan(Math.PI / 4 + latDeg * DEG2RAD / 2)) * EARTH_R
+  return [mx - tileMx, my - tileMy]
 }
 
 /** Reconstruct a line vertex's full-precision tile-local Mercator. */
@@ -66,7 +80,13 @@ function lineVertex(vertices: Float32Array, i: number): [number, number] {
 /** Extract the outer boundary edges of the triangle mesh — every
  *  triangle edge that appears in exactly one triangle. These are the
  *  edges the stroke outline should trace. */
+function tileOriginMerc(tile: CompiledTile): [number, number] {
+  const [mx, my] = lonLatToMercF64(tile.tileWest, tile.tileSouth)
+  return [mx, my]
+}
+
 function extractPolygonBoundaryEdges(tile: CompiledTile): Array<[number, number, number, number]> {
+  const [tileMx, tileMy] = tileOriginMerc(tile)
   const edgeCount = new Map<string, { count: number; a: [number, number]; b: [number, number] }>()
   const keyOf = (a: [number, number], b: [number, number]): string => {
     // Sort so (a, b) and (b, a) hash the same.
@@ -79,9 +99,9 @@ function extractPolygonBoundaryEdges(tile: CompiledTile): Array<[number, number,
     const i0 = tile.indices[i]
     const i1 = tile.indices[i + 1]
     const i2 = tile.indices[i + 2]
-    const p0 = polyVertex(tile.vertices, i0)
-    const p1 = polyVertex(tile.vertices, i1)
-    const p2 = polyVertex(tile.vertices, i2)
+    const p0 = polyVertex(tile.vertices, i0, tileMx, tileMy)
+    const p1 = polyVertex(tile.vertices, i1, tileMx, tileMy)
+    const p2 = polyVertex(tile.vertices, i2, tileMx, tileMy)
     for (const [a, b] of [[p0, p1], [p1, p2], [p2, p0]] as const) {
       const k = keyOf(a, b)
       const existing = edgeCount.get(k)
@@ -231,10 +251,11 @@ describe('Polygon fill vs stroke alignment: clip-space disparity diagnostic', ()
 
     // Just report bounding boxes — useful "is there any divergence at
     // all" signal even if the main assertion above is lenient.
+    const [tileMxBB, tileMyBB] = tileOriginMerc(tile)
     let fillMinX = Infinity, fillMaxX = -Infinity, fillMinY = Infinity, fillMaxY = -Infinity
     const count = tile.vertices.length / POLY_STRIDE
     for (let i = 0; i < count; i++) {
-      const [mx, my] = polyVertex(tile.vertices, i)
+      const [mx, my] = polyVertex(tile.vertices, i, tileMxBB, tileMyBB)
       if (mx < fillMinX) fillMinX = mx
       if (mx > fillMaxX) fillMaxX = mx
       if (my < fillMinY) fillMinY = my

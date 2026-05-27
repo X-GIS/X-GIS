@@ -1,142 +1,81 @@
 {
-  "title": "Tier 3 ECEF tile pipeline — Phase 1 (TileScheme abstraction + source-honest principle)",
+  "title": "Tier 3 ECEF tile pipeline — Phase 2 PR 2c remaining sub-PRs (2c.2, 2c.3, 2c.4)",
   "spec": ".omc/specs/deep-dive-bg-flat-not-projection-curved.md",
-  "plan": ".omc/plans/ralplan-tier3-phase1-tile-scheme-abstraction.md",
-  "branch": "feature/ecef-tile-pipeline-phase1",
-  "scope": "Two sequential PRs off feature/ecef-tile-pipeline-phase1 branch. PR #1 (Phase 1a) = polar-cap auto-call removal + setPolarCapsEnabled deprecation via xlog.warn no-op. PR #2 (Phase 1b) = TileScheme single-variant union + readonly scheme field on TileSourceMeta + 4 backend population + VirtualCatalogAdapter lazy throwing proxy + TileCatalog.getSourceScheme accessor. Mercator (projType 0) byte-identity required on BOTH PRs — no snapshot regeneration. Architect+Critic consensus reached after 3 plan iterations.",
+  "plan": ".omc/plans/ralplan-tier3-phase2-ecef-vs-migration.md",
+  "branch": "feature/ecef-tile-pipeline-phase2-pr2c (stacked: 2c2 → 2c3 → 2c4)",
+  "scope": "Phase 2 PR 2c.1 LANDED at PR #159 (commit 975f605, dual-MVP scaffolding + originBackend + sphere ECEF helpers + 24-cell latitude parity). Remaining: 3 sub-PRs sequentially. PR 2c.2 = polygon DSL ECEF VS rewrite + retire-quantized + delete runtime requantize + runtime wall-mesh ECEF lift. PR 2c.3 = SyntheticEarthSurfaceBackend + BackgroundRenderer deletion. PR 2c.4 = TILE_LAYOUT_VERSION 1→2 + per-backend eviction + closeout tracking issue. Each sub-PR is its own branch + PR.",
   "stories": [
     {
       "id": "US-001",
-      "title": "Phase 1a step 0: create branch feature/ecef-tile-pipeline-phase1 from main",
-      "priority": 0,
-      "passes": true,
+      "title": "PR 2c.2 — Polygon DSL ECEF VS rewrite + retire-quantized + delete runtime requantize",
+      "priority": 1,
+      "passes": false,
       "acceptanceCriteria": [
-        "git rev-parse --abbrev-ref HEAD returns 'feature/ecef-tile-pipeline-phase1'.",
-        "git log feature/ecef-tile-pipeline-phase1..main returns empty (branch is at main's HEAD).",
-        "git status reports a clean working tree before any code change in subsequent stories."
+        "Branch feature/ecef-tile-pipeline-phase2-pr2c2 created from feature/ecef-tile-pipeline-phase2-pr2c (PR 2c.1 head).",
+        "runtime/src/engine/shader-dsl/shaders/polygon.ts: DELETED vs_main_quantized and vs_main_quantized_extruded DSL entries. KEPT vs_main (the line VS entry; bound at renderer.ts:822, 858 against lineVertexBufferLayout — must NOT be deleted).",
+        "runtime/src/engine/shader-dsl/shaders/polygon.ts: ADDED vs_main_ecef DSL entry — reads pos_h(vec3) + pos_l(vec3) + feat_id(f32) + abs_lon(f32) + abs_lat(f32) attributes; VS body has `ecef_rtc = pos_h + pos_l; out.position = u.mvp_ecef * vec4(ecef_rtc, 1.0)`. No project_geom call in this entry.",
+        "runtime/src/engine/shader-dsl/shaders/polygon.ts: ADDED vs_main_ecef_extruded DSL entry — reads same flat-fill attributes + face_normal(vec3) + wall_height(f32) + is_top(f32). face_normal feeds existing dot(normal, LIGHT_POS) MapLibre lighting. is_top discriminates wall-bottom (0) vs wall-top/roof (1), preserving wall_blend + tTop semantics at polygon.ts:444, 474.",
+        "compiler/src/tiler/vector-tiler.ts: packECEFPolygonVertices EXTENDED — now also computes abs_lon, abs_lat per vertex and packs them into stride-9 floats `[ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon, abs_lat]`. Mercator-inverse formula (mx → lon_rad → lon_deg) + Mercator-Y-to-lat for abs_lat at tile decode.",
+        "compiler/src/tiler/vector-tiler.ts: vertices field at lines 1411 + 1623 swapped from `packDSFUNPolygonVertices(...)` to `packECEFPolygonVertices(scratch.pv, tileEcefCenter)` where tileEcefCenter = tileEcefCenterFromMerc(tileMx, tileMy) imported from runtime/projection/ecef.ts (or inlined sphere-Mercator → ECEF). KEEP packDSFUNPolygonVertices exported — still used by pointVertices at :1420, :1632.",
+        "runtime/src/core/polygon-mesh.ts: ADDED generateWallMeshExtrudedECEF(polygons, heights, tileEcefCenter): { vertices: Float32Array, indices: Uint32Array } — runtime wall-mesh generator emitting stride-13 ECEF + face_normal + wall_height + is_top. Bottom-ring vertices at lonLatToECEFSphere(lon, lat, 0) - tileEcefCenter, top-ring at lonLatToECEFSphere(lon, lat, height) - tileEcefCenter. abs_lon/abs_lat per vertex via Mercator inverse. face_normal per face (wall: horizontal outward normal; roof: +Up).",
+        "runtime/src/engine/render/vector-tile-renderer.ts: DELETED imports of quantizePolygonVertices + quantizePolygonVerticesExtruded at lines 30-31. DELETED call sites at :2171, :2198, :2432, :2439. Replaced :2178, :2439 generateWallMeshExtruded calls with generateWallMeshExtrudedECEF.",
+        "runtime/src/core/polygon-mesh.ts: DELETED quantizePolygonVertices + quantizePolygonVerticesExtruded exports + QUANT_POLY_STRIDE_BYTES + QUANT_POLY_RANGE constants (polygon-quantized retired; point path unaffected). KEEP generateWallMesh* Mercator path during 2c.2 only if non-extruded consumers remain — grep audit confirms zero non-extruded callers; delete if so.",
+        "runtime/src/engine/render/renderer.ts: vertex layout at lines 734-744 REPLACED with arrayStride=36 (flat polygon: pos_h + pos_l + feat_id + abs_lon + abs_lat = 9 floats). Extruded layout REPLACED with arrayStride=56 (13 floats + is_top at loc 7). The parallel extrudedZBufferLayout at lines 756-761 is RETIRED (folded into unified stride-56 layout).",
+        "runtime/src/engine/render/renderer.ts: ALL polygon pipeline bindings (~20 sites at :792, :804, :812, :830, :840, :848, :872, :880, :897, :905, :955, :972, :1017, :1555, :1563, :1579, :1587, :1686, :1701, :1717, :1731 per plan enumeration) changed: 'vs_main_quantized' → 'vs_main_ecef'; 'vs_main_quantized_extruded' → 'vs_main_ecef_extruded'. Line pipelines at :822, :858 binding 'vs_main' MUST stay unchanged.",
+        "Polygon uniform writer site: builds BOTH u.mvp (existing Mercator via getFrameView) AND u.mvp_ecef (new ENU-metre via getECEFFrameView from PR 2c.1) per frame and uploads. Legacy line/point/raster/text VSes keep reading u.mvp unchanged — zero edits to non-polygon shaders in PR 2c.2.",
+        "Fail-loud grep guard executed before binding rewire: grep -n \"'vs_main_quantized'\" returns 0 hits AFTER the rewire; grep -n \"'vs_main'\" finds line-pipeline bindings ONLY (verify against allowlist {822, 858, …}).",
+        "Polygon DSL snapshot baselines at runtime/src/engine/shader-dsl/shaders/__polygon-variant-snapshots__/*.wgsl regenerated. Diff annotated in PR body: VS body rewrite + attribute layout change + deletion of quantized lighting compose + preservation of vs_main line entry. No unintended secondary changes.",
+        "Latitude-spanning pixel-diff harness vs main baseline: Mercator/equirect/NE/ortho/azi/stereo/oblique/globe at zoom={0,4,8,15} × pitch={0,45,75} × centerLat={0,30,45,60,75,85} for cylindrical/pseudocyl. Total ~200 cells. ≤ 0.5% pixel-delta ceiling per cell. Hard failure of any cell at > 0.5%.",
+        "npx tsc -p compiler/tsconfig.json --noEmit clean.",
+        "npx tsc -p runtime/tsconfig.json --noEmit clean.",
+        "npx vitest run — full suite green.",
+        "CI render-gate green on PR 2c.2 (gh pr checks).",
+        "gh pr create executed with title '[Phase 2 PR 2c.2] Polygon DSL ECEF VS + retire quantized + runtime wall-mesh ECEF lift', body documenting net memory cost (+28 bytes/vertex flat / +36 bytes/vertex extruded vs prev stride-8 + stride-16 sum), pixel-diff harness summary, snapshot diff annotation."
       ]
     },
     {
       "id": "US-002",
-      "title": "Phase 1a code edits: remove polar-cap auto-calls + rewrite setPolarCapsEnabled to xlog.warn no-op",
-      "priority": 1,
-      "passes": true,
+      "title": "PR 2c.3 — SyntheticEarthSurfaceBackend + BackgroundRenderer deletion",
+      "priority": 2,
+      "passes": false,
       "acceptanceCriteria": [
-        "runtime/src/engine/map.ts at the projType change handler (around line 870-872 in the pre-change file) NO LONGER calls setPolarCapsEnabled(true) automatically — grep `setPolarCapsEnabled\\(true\\)` returns zero hits in map.ts outside the method's own body.",
-        "runtime/src/engine/source-manager.ts setSourceData path (around line 469-476) NO LONGER calls isPolarCapsEnabled() / injectPolarCaps — grep `injectPolarCaps` in source-manager.ts returns zero hits.",
-        "runtime/src/engine/map.ts setPolarCapsEnabled method body is a no-op + one-shot xlog.warn(...) call using xlog imported from runtime/src/engine/log.ts (NOT raw console.warn). The warning fires only once per session via a module-scoped _polarCapsWarned flag.",
-        "Warning text contains the substring 'no longer renderer-driven' and references the public utility names (injectPolarCaps / synthesizePolarCaps).",
-        "setPolarCapsEnabled DOES NOT throw — calling map.setPolarCapsEnabled(true) returns normally."
+        "Branch feature/ecef-tile-pipeline-phase2-pr2c3 created from PR 2c.2 head.",
+        "runtime/src/data/sources/synthetic-earth-surface-backend.ts CREATED. Class implements TileSource. Single z=0 tile. meta.scheme='web-mercator-xyz', meta.layoutVersion=TILE_LAYOUT_VERSION (=1 here; bumps to 2 in PR 2c.4), meta.bounds=world bounds, meta.minZoom=0, meta.maxZoom=0. Vertices via generateEarthSurfaceFillMesh from runtime/projection/earth-surface-fill.ts at default 32×16 density, projected via lonLatToECEFSphere per vertex, packed via packECEFPolygonVertices with tileEcefCenter=[0,0,0]. abs_lon/abs_lat per vertex from source mesh lat/lon (no Mercator inverse needed).",
+        "SyntheticEarthSurfaceBackend auto-attached by XGISMap constructor when style declares a background { fill: ... } block. Inserted as synthetic xgis layer at sort-order 0 of the opaque pass (ahead of every real tile). layer_depth_offset = -0.0001 on this layer.",
+        "runtime/src/engine/render/background-renderer.ts DELETED (entire 301-LOC file).",
+        "runtime/src/engine/shader-dsl/shaders/background.ts DELETED (subsumed by polygon DSL via standard polygon fill path).",
+        "All call sites removed: host.backgroundRenderer field on render-loop PassHost type, the `if (host.backgroundRenderer)` block at opaque-pass.ts:140-150, BackgroundRenderer import + instantiation at map.ts:1525-1526, host.backgroundRenderer.setMvp/setCamCenter calls, bundle-stats aggregation at render-loop.ts:535-539, emitBgWgsl references.",
+        "Grep 'BackgroundRenderer|backgroundRenderer|emitBgWgsl' outside .omc/, docs/, tests/ returns zero hits. Build green.",
+        "Opaque-pass clearValue { r:0, g:0, b:0, a:1 } pure-black 'no world here' sentinel PRESERVED at opaque-pass.ts (iter-196 contract preserved).",
+        "Public API XGISMap.setBackgroundFill(rgba | null) PRESERVED — reroutes to the synthetic backend's xgis layer fill colour. Unit test: setBackgroundFill([0.1, 0.2, 0.3, 1]) → render → fragment colour at canvas-centre on empty-style Mercator demo equals (0.1, 0.2, 0.3) within tolerance.",
+        "Debug-overdraw mode (?debug=overdraw) renders synthetic bg as one accumulator increment per fragment via the standard fs_overdraw polygon path. Manual verify.",
+        "Mesh-density facet check: pixel-diff fixture at z=0 ortho pitch=80 lat=0 — synthetic earth-surface looks smooth, no polygonal facets visible at >2 px scale. If failure, escalate widthSegments/heightSegments from 32/16 to 64/32 via constructor arg (cheap; 561 → 2145 verts).",
+        "Net LOC delta in PR body: between -250 and -350 (delete 301 LOC bg-renderer + ~50 LOC call sites; add ~100 LOC synthetic backend).",
+        "Latitude-spanning pixel-diff harness: byte-identical on Mercator; ≤ 0.5% pixel-delta on non-Mercator. z=0 ortho/azi/stereo/globe bg-curve fixture green vs spec screenshot.",
+        "npx tsc -p runtime/tsconfig.json --noEmit clean. npx vitest run — full suite green.",
+        "CI render-gate green on PR 2c.3.",
+        "gh pr create executed with title '[Phase 2 PR 2c.3] Synthetic earth-surface backend + BackgroundRenderer deletion'."
       ]
     },
     {
       "id": "US-003",
-      "title": "Phase 1a public-export + standalone-tool surface preserved",
-      "priority": 2,
-      "passes": true,
-      "acceptanceCriteria": [
-        "runtime/src/index.ts continues to export injectPolarCaps, synthesizePolarCaps, findClampBoundarySpans (grep export confirms all three present).",
-        "runtime/src/loader/polar-cap-detect.ts and runtime/src/data/polar-cap-synth.ts files remain in tree, unchanged in content (or only touched by import-removal cleanup of removed callers).",
-        "bunx vitest run runtime/src/loader/polar-cap-detect.test.ts runtime/src/data/polar-cap-synth.test.ts passes (8+ existing test cases still green)."
-      ]
-    },
-    {
-      "id": "US-004",
-      "title": "Phase 1a deprecation test: new map-polar-cap-deprecation.test.ts",
+      "title": "PR 2c.4 — TILE_LAYOUT_VERSION 1→2 + per-backend eviction + closeout tracking issue",
       "priority": 3,
-      "passes": true,
-      "acceptanceCriteria": [
-        "runtime/src/engine/map-polar-cap-deprecation.test.ts file exists.",
-        "Test asserts map.setPolarCapsEnabled(true) does NOT throw.",
-        "Test installs an xlog sink (per runtime/src/engine/log.ts public API) and asserts the deprecation warning is captured once and only once across repeated calls.",
-        "Test passes via bunx vitest run runtime/src/engine/map-polar-cap-deprecation.test.ts."
-      ]
-    },
-    {
-      "id": "US-005",
-      "title": "Phase 1a verification: full test suite green + Mercator byte-identity + PR #1",
-      "priority": 4,
       "passes": false,
       "acceptanceCriteria": [
-        "bunx tsc -p runtime/tsconfig.json --noEmit reports zero errors.",
-        "bunx vitest run runtime reports the entire suite green.",
-        "Mercator (projType 0) pixel-diff harness shows byte-identical output vs main pre-change baseline AND `git status` reports zero files modified under any pixel-snapshot directory (no snapshot regeneration).",
-        "gh pr create has been run on feature/ecef-tile-pipeline-phase1, producing a PR titled '[Phase 1a] Source-honest: remove polar-cap auto-call from renderer'. PR body links memory note project_polar_cap_fix_2026_05_18.md and explains the source-honest revert.",
-        "gh pr checks reports CI render-gate green on the PR before this story is marked passes:true."
-      ]
-    },
-    {
-      "id": "US-006",
-      "title": "Phase 1b: TileScheme single-variant union + readonly scheme field on TileSourceMeta",
-      "priority": 5,
-      "passes": true,
-      "acceptanceCriteria": [
-        "runtime/src/data/tile-source.ts exports `export type TileScheme = 'web-mercator-xyz'` — single-variant literal union ONLY. No additional variants in the union body.",
-        "JSDoc on TileScheme references future reserved variants 'epsg-4326-quadtree' and 's2-cube-sphere' as Phase 3/4 work, NOT in the union itself.",
-        "TileSourceMeta interface at runtime/src/data/tile-source.ts (around line 112-118) gains `readonly scheme: TileScheme` field. The field is on TileSourceMeta, NOT on TileSource — interface placement verified by reading lines 104-118 + 156-223.",
-        "bunx tsc -p runtime/tsconfig.json --noEmit reports zero errors."
-      ]
-    },
-    {
-      "id": "US-007",
-      "title": "Phase 1b: populate meta.scheme in 4 backends (PMTiles / VirtualPMTiles / GeoJSON dual-write / VirtualCatalogAdapter lazy throw)",
-      "priority": 6,
-      "passes": true,
-      "acceptanceCriteria": [
-        "runtime/src/data/sources/pmtiles-backend.ts populates `meta.scheme = 'web-mercator-xyz'` at the existing `this.meta = {...}` assignment site.",
-        "runtime/src/data/sources/virtual-pmtiles-backend.ts populates `meta.scheme = 'web-mercator-xyz'`.",
-        "runtime/src/data/sources/geojson-runtime-backend.ts populates `meta.scheme = 'web-mercator-xyz'` at BOTH meta-write sites (initial construction AND post-setData() re-assignment).",
-        "runtime/src/data/sources/virtual-catalog-adapter.ts implements meta.scheme as a LAZY getter (or lazy meta computation) that returns wrapped.meta.scheme at access time. Pre-wrap read throws an explicit Error with message containing 'wrap target attached'. NO silent default to 'web-mercator-xyz'.",
-        "grep 'implements TileSource' in runtime/src/data returns exactly 4 files (the 4 backends listed above) — no missing backend."
-      ]
-    },
-    {
-      "id": "US-008",
-      "title": "Phase 1b: TileCatalog.getSourceScheme accessor",
-      "priority": 7,
-      "passes": true,
-      "acceptanceCriteria": [
-        "runtime/src/data/tile-catalog.ts has a public method `getSourceScheme(name: string): TileScheme | undefined`.",
-        "Implementation reads from a per-source map populated when attachBackend / mergeBackendMeta runs (around line 272 of tile-catalog.ts).",
-        "Unregistered name returns undefined (NOT throws).",
-        "No new branch added to the requestTiles dispatch hot path (no cross-scheme dispatch guard)."
-      ]
-    },
-    {
-      "id": "US-009",
-      "title": "Phase 1b: new unit tests (tile-source.scheme.test.ts + tile-catalog-scheme-accessor.test.ts)",
-      "priority": 8,
-      "passes": true,
-      "acceptanceCriteria": [
-        "runtime/src/data/tile-source.scheme.test.ts exists. For each of 4 backends instantiates (with minimal config) and asserts instance.meta.scheme === 'web-mercator-xyz'.",
-        "tile-source.scheme.test.ts includes GeoJSONRuntimeBackend dual meta-write assertion (post-construction AND post-setData()).",
-        "tile-source.scheme.test.ts includes VirtualCatalogAdapter pre-wrap-throw assertion (asserts the explicit Error is raised) and post-wrap forward assertion.",
-        "runtime/src/data/tile-catalog-scheme-accessor.test.ts exists. Asserts catalog.getSourceScheme(name) returns 'web-mercator-xyz' for registered backend; returns undefined for unregistered name.",
-        "bunx vitest run runtime/src/data passes — both new tests green."
-      ]
-    },
-    {
-      "id": "US-010",
-      "title": "Phase 1b docs + bundle size",
-      "priority": 9,
-      "passes": false,
-      "acceptanceCriteria": [
-        "runtime/src/data/AGENTS.md gains a `## Tile scheme discriminator (Phase 1b)` section documenting TileScheme, TileSourceMeta.scheme, getSourceScheme.",
-        "runtime/src/AGENTS.md polar-cap mention is amended to 'polar-cap synth is a public utility, no longer renderer-driven'.",
-        "Bundle size: capture baseline via `bun run build` BEFORE Phase 1b edits, capture again AFTER Phase 1b. Record both gzipped totals. Delta MUST be < 1 KB gzipped — both numbers noted in PR #2 body."
-      ]
-    },
-    {
-      "id": "US-011",
-      "title": "Phase 1b verification: full test suite green + Mercator byte-identity + PR #2",
-      "priority": 10,
-      "passes": false,
-      "acceptanceCriteria": [
-        "bunx tsc -p runtime/tsconfig.json --noEmit reports zero errors.",
-        "bunx vitest run runtime reports the entire suite green.",
-        "Mercator (projType 0) pixel-diff byte-identical AND `git status` reports zero modified pixel-snapshot files.",
-        "gh pr create has been run, producing PR titled '[Phase 1b] TileScheme metadata field + getSourceScheme accessor'. PR body records bundle-size baseline + delta.",
-        "gh pr checks reports CI render-gate green on PR #2 before this story is marked passes:true."
+        "Branch feature/ecef-tile-pipeline-phase2-pr2c4 created from PR 2c.3 head.",
+        "runtime/src/data/tile-source.ts: TILE_LAYOUT_VERSION constant changed 1 → 2. JSDoc updated to note 'Phase 2c PR landed' transition.",
+        "All 4 existing TileSource backends + the SyntheticEarthSurfaceBackend populate meta.layoutVersion = TILE_LAYOUT_VERSION (= 2). Grep 'meta.layoutVersion =' returns 5 hits.",
+        "VirtualCatalogAdapter proxies meta.layoutVersion via the same lazy-getter pattern as meta.scheme (Phase 1b AC1b.4).",
+        "runtime/src/data/tile-catalog.ts attachBackend method reads backend.meta.layoutVersion AFTER mergeBackendMeta runs. If backend.meta.layoutVersion !== undefined && backend.meta.layoutVersion !== TILE_LAYOUT_VERSION: invoke evictTilesForBackend(backend), emit one-shot xlog.warn with text containing 'tile-layout-version mismatch' + source name + cached + running versions, leave the backend attached (re-fetch on next visible frame).",
+        "Undefined layoutVersion treated as TILE_LAYOUT_VERSION_BASE = 1; eviction fires if TILE_LAYOUT_VERSION > 1.",
+        "evictTilesForBackend(backend) private method added to TileCatalog. Iterates dataCache (runtime/data/tile-catalog.ts:65 Map<number, Map<string, TileData>>), checks `entry.originBackend === backend` predicate (using field added in PR 2c.1), drops matching entries. Reuses existing budget-eviction code path with backend-identity filter.",
+        "Unit test runtime/src/data/tile-catalog-layout-version-eviction.test.ts: (a) backend with mismatch → backend's tiles evicted; (b) undefined treated-as-base → evicts when current > 1; (c) version match → no eviction. All three scenarios assert via dataCache state.",
+        "Manual cache-mismatch UX test: pre-PR cache loaded into post-PR build, observe re-decode under ~200 ms, no console errors. Documented in PR body.",
+        "Closeout tracking issue opened: GitHub issue titled 'Phase 2 closeout: retire dual-MVP at PR 2d final sub-PR' referencing the CLOSEOUT MILESTONE in plan Follow-ups + PR 2c.4 URL. Issue URL recorded in PR 2c.4 body.",
+        "npx tsc -p runtime/tsconfig.json --noEmit clean. npx vitest run — full suite green.",
+        "CI render-gate green on PR 2c.4.",
+        "gh pr create executed with title '[Phase 2 PR 2c.4] TILE_LAYOUT_VERSION 1→2 + catalog eviction'. PR body includes the closeout tracking issue URL."
       ]
     }
   ]

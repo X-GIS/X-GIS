@@ -122,11 +122,15 @@ describe('emitPolygonWgsl — skeleton', () => {
     expect(wgslOn).toContain('out.pick')
   })
 
-  it('emits vs_main_quantized_extruded vertex entry with iter-194 per-vertex lighting', () => {
+  it('emits vs_main_ecef_extruded vertex entry with iter-194 per-vertex lighting', () => {
     const wgsl = emitPolygonWgsl(null, false)
-    expect(wgsl).toContain('fn vs_main_quantized_extruded')
-    // z_attr packs (z, normal.xyz) into a single vec4 attribute at location 3.
-    expect(wgsl).toMatch(/@location\(3\)[^,]+z_attr\s*:\s*vec4<f32>/)
+    expect(wgsl).toContain('fn vs_main_ecef_extruded')
+    // Phase 2 PR 2c.2: ECEF VS reads per-vertex face_normal (location 5),
+    // wall_height (location 6), is_top (location 7) — replacing the
+    // legacy vec4 z_attr packing.
+    expect(wgsl).toMatch(/@location\(5\)[^,]+face_normal\s*:\s*vec3<f32>/)
+    expect(wgsl).toMatch(/@location\(6\)[^,]+wall_height\s*:\s*f32/)
+    expect(wgsl).toMatch(/@location\(7\)[^,]+is_top\s*:\s*f32/)
     // MapLibre default light constants must round-trip to WGSL.
     expect(wgsl).toContain('0.288')
     expect(wgsl).toContain('-0.498')
@@ -136,17 +140,19 @@ describe('emitPolygonWgsl — skeleton', () => {
     expect(wgsl).toContain('0.0722')
   })
 
-  it('emits vs_main_quantized vertex entry with unorm16-packed pos_raw attribute', () => {
+  it('emits vs_main_ecef vertex entry with DSFUN-split pos_h/pos_l ECEF attributes', () => {
     const wgsl = emitPolygonWgsl(null, false)
-    expect(wgsl).toContain('fn vs_main_quantized')
-    // pos_raw is the packed @location(0) vec2<u32>; feature_id stays at
-    // location 2 (no @location(1) in the quantized path).
-    expect(wgsl).toMatch(/@location\(0\)[^,]+pos_raw\s*:\s*vec2<u32>/)
-    // 0x8000 is_top bit + 0x7FFF position-quanta mask — invariants the
-    // upload-side mesh generator depends on. The WGSL backend emits u32
-    // literals as decimal with `u` suffix (32768u / 32767u).
-    expect(wgsl).toContain('32768u')
-    expect(wgsl).toContain('32767u')
+    expect(wgsl).toContain('fn vs_main_ecef')
+    // Phase 2 PR 2c.2: ECEF VS reads DSFUN-split vec3<f32> high/low halves
+    // + abs_lon/abs_lat at locations 3/4 — fragment-side hemisphere-cull
+    // recomputes abs_merc_x/y from these.
+    expect(wgsl).toMatch(/@location\(0\)[^,]+pos_h\s*:\s*vec3<f32>/)
+    expect(wgsl).toMatch(/@location\(1\)[^,]+pos_l\s*:\s*vec3<f32>/)
+    expect(wgsl).toMatch(/@location\(3\)[^,]+abs_lon\s*:\s*f32/)
+    expect(wgsl).toMatch(/@location\(4\)[^,]+abs_lat\s*:\s*f32/)
+    // Linear ECEF MVP transform: u.mvp_ecef * vec4(ecef_rtc, 1.0).
+    expect(wgsl).toContain('mvp_ecef')
+    expect(wgsl).toContain('ecef_rtc')
   })
 
   it('emits vs_main vertex entry with DSFUN-split pos_h + pos_l attributes', () => {

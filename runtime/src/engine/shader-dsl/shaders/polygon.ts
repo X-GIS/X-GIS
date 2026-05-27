@@ -4,7 +4,7 @@
 // The polygon shader is the variant-codegen-heavy fill / stroke / extrude
 // pipeline: 1 Uniforms struct (192 bytes; reused by stroke + extrude paths
 // via field aliasing), 3 fixed bindings (u, sprite_atlas, sprite_samp),
-// 3 vertex entries (vs_main / vs_main_quantized / vs_main_quantized_extruded)
+// 3 vertex entries (vs_main / vs_main_ecef / vs_main_ecef_extruded)
 // and 6 fragment entries (fs_fill / fs_fill_pattern / fs_oit_translucent /
 // fs_fill_extrude / fs_stroke / fs_overdraw).
 //
@@ -23,7 +23,7 @@
 import {
   entryFn, fn, module, bindingRef, constRef, callFn,
   f32, u32, vec2, vec2u, vec3, vec4, toF32, toU32, transformMat4, clamp, select,
-  abs, fract, max, min, mix, pow, sqrt, dot, textureSample,
+  abs, fract, max, min, mix, pow, sqrt, dot, log, tan, textureSample,
   f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   structT,
   Node, Builder, arrayT,
@@ -268,126 +268,105 @@ const vsMain = entryFn(
   },
 )
 
-// vs_main_quantized — Phase B unorm16 packed-vertex entry. pos_raw is one
-// vec2<u32>: x carries 15-bit position + 1-bit is_top extrusion flag in
-// bit 15; y is the full 16-bit y quanta. Same projection chain as vs_main
-// after the unpack, plus z_world picking between extrude_base_m / height_m
-// per the is_top bit and a wall_blend signal driven by the same flag.
+// vs_main_ecef — Phase 2 PR 2c.2 polygon flat-fill ECEF vertex entry.
+// Replaces vs_main_quantized's per-projection ladder with a single linear
+// MVP transform against true ECEF metres. The runtime decodes tile vertices
+// once on the CPU to DSFUN-split tile-local ECEF (pos_h + pos_l) + writes
+// the absolute lon/lat alongside each vertex (abs_lon, abs_lat) so the
+// fragment-side hemisphere-cull recompute (polygonCosCFragment) can keep
+// reading abs_merc_x + abs_merc_y as varyings — reconstructed in the VS
+// from abs_lon/abs_lat via Mercator forward.
+//
+// VS work collapses to: ecef_rtc = pos_h + pos_l; clip = u.mvp_ecef * vec4(ecef_rtc, 1).
+// The per-projection branch + project_geom + proj_globe calls are gone:
+// the projection-specific 3D→clip pipeline is fully baked into mvp_ecef
+// by the CPU camera (Camera.getECEFFrameView).
 
-const vsMainQuantized = entryFn(
-  'vs_main_quantized', 'vertex',
+const vsMainEcef = entryFn(
+  'vs_main_ecef', 'vertex',
   [
-    { name: 'pos_raw', type: vec2uT, location: 0 },
+    { name: 'pos_h', type: vec3fT, location: 0 },
+    { name: 'pos_l', type: vec3fT, location: 1 },
     { name: 'feature_id', type: f32T, location: 2 },
+    { name: 'abs_lon', type: f32T, location: 3 },
+    { name: 'abs_lat', type: f32T, location: 4 },
   ],
   structT('VertexOutput'),
   (b, p) => {
-    const camH = u.field('cam_h', vec2fT)
-    const camL = u.field('cam_l', vec2fT)
-    const tileOrigin = u.field('tile_origin_merc', vec2fT)
-    const tileExtent = u.field('tile_extent_m', f32T)
-    const projParams = u.field('proj_params', vec4fT)
-    const mvp = u.field('mvp', mat4x4fT)
+    const mvpEcef = u.field('mvp_ecef', mat4x4fT)
     const logDepthFc = u.field('log_depth_fc', f32T)
     const layerDepthOff = u.field('layer_depth_offset', f32T)
     const fillTx = u.field('fill_translate_x', f32T)
     const fillTy = u.field('fill_translate_y', f32T)
-    const extrudeBaseM = u.field('extrude_base_m', f32T)
-    const extrudeHeightM = u.field('extrude_height_m', f32T)
     const deg2rad = constRef('DEG2RAD')
     const earthR = constRef('EARTH_R')
+    const pi = constRef('PI')
     const mercLatLim = constRef('MERCATOR_LAT_LIMIT')
 
-    // Unpack: bit 15 of x = is_top flag, bits 0-14 of x + all 16 of y =
-    // unsigned position quanta in [0, 32767] and [0, 65535] respectively.
-    const isTop = b.let('is_top', p.pos_raw.x.bitAnd(u32(0x8000)).ne(u32(0)))
-    const mxQ = b.let('mx_q', toF32(p.pos_raw.x.bitAnd(u32(0x7FFF))))
-    const myQ = b.let('my_q', toF32(p.pos_raw.y))
-    const local = b.let('local', vec2(mxQ, myQ).div(f32(32767)).mul(tileExtent))
-    // Tile-local subtraction — at this scale f32 suffices for the sum of
-    // cam_h + cam_l.
-    const camLocal = b.let('cam_local', camH.add(camL))
-    const rel = b.let('rel', local.sub(camLocal))
-
-    const absMercX = b.let('abs_merc_x', local.x.add(tileOrigin.x))
-    const absMercY = b.let('abs_merc_y', local.y.add(tileOrigin.y))
-    const absLon = b.let('abs_lon', absMercX.div(deg2rad.mul(earthR)))
-    const latRad = b.let('lat_rad', callFn('inv_merc_lat_rad', f32T, absMercY))
-    const absLat = b.let('abs_lat', latRad.div(deg2rad))
-    const absLatClamped = b.let('abs_lat_clamped', clamp(absLat, mercLatLim.neg(), mercLatLim))
-
-    const t = b.let('t', projParams.x)
-    const rtc = b.var('rtc', vec2fT)
-    b.if(t.lt(0.5), (c) => {
-      c.assign(rtc, rel)
-    }).else((c) => {
-      const tileRefLon = c.let('tile_ref_lon',
-        tileOrigin.x.add(f32(0.5).mul(tileExtent)).div(deg2rad.mul(earthR)),
-      )
-      const projXy = c.let('proj_xy', callFn('project_geom', vec2fT, absLon, absLat, projParams, tileRefLon))
-      const centerXy = c.let('center_xy', callFn('project', vec2fT, projParams.y, projParams.z, projParams))
-      c.assign(rtc, projXy.sub(centerXy))
-    })
-    const globeRtc = b.let('globe_rtc',
-      callFn('proj_globe', vec3fT, absLon, absLat).sub(callFn('proj_globe', vec3fT, projParams.y, projParams.z)),
+    // DSFUN reconstruction in true ECEF metres (camera-relative tile-local).
+    const ecefRtc = b.let('ecef_rtc', p.pos_h.add(p.pos_l))
+    // Reconstruct Mercator absolute coords for the fragment-side
+    // hemisphere-cull recompute (kept unchanged from vs_main_quantized's
+    // contract — polygonCosCFragment + polygonRimAlpha consume abs_merc_x +
+    // abs_merc_y). The cost is 1 mul + 1 log per vertex.
+    const absMercX = b.let('abs_merc_x', p.abs_lon.mul(deg2rad).mul(earthR))
+    const absLatClamped = b.let('abs_lat_clamped', clamp(p.abs_lat, mercLatLim.neg(), mercLatLim))
+    const absMercY = b.let('abs_merc_y',
+      log(tan(pi.div(f32(4)).add(absLatClamped.mul(deg2rad).div(f32(2))))).mul(earthR),
     )
 
     const out = b.var('out', structT('VertexOutput'))
-    // 3D extrusion: top vertex lifts to extrude_height_m, bottom stays at
-    // extrude_base_m. Non-extrude layers keep both at 0 → flat path.
-    const zWorld = b.let('z_world', select(isTop, extrudeHeightM, extrudeBaseM))
-    const clip = b.var('clip', vec4fT, select(
-      t.gt(6.5),
-      transformMat4(mvp, vec4(globeRtc, f32(1))),
-      transformMat4(mvp, vec4(rtc, zWorld, f32(1))),
-    ))
+    const clip = b.var('clip', vec4fT, transformMat4(mvpEcef, vec4(ecefRtc, f32(1))))
+    // Mapbox fill-translate viewport-anchor — runtime pre-bakes
+    // (px*2/canvasDim) so the shader just multiplies by clip.w.
     b.assign(clip.x, clip.x.add(fillTx.mul(clip.w)))
     b.assign(clip.y, clip.y.sub(fillTy.mul(clip.w)))
+    // Log-depth rewrite + per-layer NDC-z bias.
     b.assign(out.field('position', vec4fT), callFn('apply_log_depth', vec4fT, clip, logDepthFc))
     b.assign(out.field('position', vec4fT).z, out.field('position', vec4fT).z.sub(layerDepthOff.mul(out.field('position', vec4fT).w)))
     b.assign(out.field('view_w', f32T), clip.w)
+    // cos_c placeholder — fragments recompute per-pixel.
     b.assign(out.field('cos_c', f32T), f32(0))
     b.assign(out.field('feat_id', u32T), toU32(p.feature_id))
     b.assign(out.field('abs_lat', f32T), absLatClamped)
-    // wall_blend nested-select: extrude OFF → full brightness; extrude ON →
-    // is_top:1 → 1.0 (roof), is_top:0 → 0.0 (wall bottom).
-    b.assign(out.field('wall_blend', f32T),
-      select(extrudeHeightM.gt(f32(0)), select(isTop, f32(1), f32(0)), f32(1)),
-    )
+    // Flat-fill = full brightness (no wall shading).
+    b.assign(out.field('wall_blend', f32T), f32(1))
     b.assign(out.field('abs_merc_x', f32T), absMercX)
     b.assign(out.field('abs_merc_y', f32T), absMercY)
-    b.assign(out.field('world_z', f32T), zWorld)
+    b.assign(out.field('world_z', f32T), f32(0))
+    // Per-feature variants override v_color via the composer; default 0.
     b.assign(out.field('v_color', vec4fT), vec4(f32(0), f32(0), f32(0), f32(0)))
     b.ret(out)
   },
 )
 
-// vs_main_quantized_extruded — iter-194 MapLibre-equivalent fill-extrusion
-// vertex with per-vertex face-normal directional lighting + vertical
-// gradient. The mesh-gen upload pipes per-vertex (z, normal.xyz) as a
-// vec4 attribute (location 3); the entry unpacks it, runs the same
-// projection chain as vs_main_quantized, then emits a PRE-SHADED color
-// into v_color. The non-premultiplied output flows through X-GIS's
-// BLEND_ALPHA which composites identically to MapLibre's pre-multiplied
-// BLEND_ALPHA_PREMULT path (proof: final = src.rgb*src.a + dst*(1-src.a)
-// reduces to the same expression both ways).
+// vs_main_ecef_extruded — Phase 2 PR 2c.2 polygon extruded ECEF vertex.
+// Replaces vs_main_quantized_extruded. The runtime wall-mesh pre-lifts
+// top-ring vertices in ECEF metres (along the local +Up direction), so
+// the VS just runs the same linear `mvp_ecef * (pos_h + pos_l)` transform
+// — no per-vertex z lift in the shader. is_top discriminates wall-bottom
+// (0.0) vs wall-top + roof (1.0), driving MapLibre lighting + wall_blend
+// + world_z. wall_height feeds the vertical-gradient ramp.
+//
+// MapLibre lighting (Rec.709 luminance + face-normal directional + |nz|<0.5
+// vertical gradient) is preserved verbatim from vs_main_quantized_extruded;
+// only the position math changes.
 
-const vsMainQuantizedExtruded = entryFn(
-  'vs_main_quantized_extruded', 'vertex',
+const vsMainEcefExtruded = entryFn(
+  'vs_main_ecef_extruded', 'vertex',
   [
-    { name: 'pos_raw', type: vec2uT, location: 0 },
+    { name: 'pos_h', type: vec3fT, location: 0 },
+    { name: 'pos_l', type: vec3fT, location: 1 },
     { name: 'feature_id', type: f32T, location: 2 },
-    // iter-194 — .x = z (extrude height in metres), .yzw = outward unit normal.
-    { name: 'z_attr', type: vec4fT, location: 3 },
+    { name: 'abs_lon', type: f32T, location: 3 },
+    { name: 'abs_lat', type: f32T, location: 4 },
+    { name: 'face_normal', type: vec3fT, location: 5 },
+    { name: 'wall_height', type: f32T, location: 6 },
+    { name: 'is_top', type: f32T, location: 7 },
   ],
   structT('VertexOutput'),
   (b, p) => {
-    const camH = u.field('cam_h', vec2fT)
-    const camL = u.field('cam_l', vec2fT)
-    const tileOrigin = u.field('tile_origin_merc', vec2fT)
-    const tileExtent = u.field('tile_extent_m', f32T)
-    const projParams = u.field('proj_params', vec4fT)
-    const mvp = u.field('mvp', mat4x4fT)
+    const mvpEcef = u.field('mvp_ecef', mat4x4fT)
     const logDepthFc = u.field('log_depth_fc', f32T)
     const layerDepthOff = u.field('layer_depth_offset', f32T)
     const fillTx = u.field('fill_translate_x', f32T)
@@ -395,49 +374,21 @@ const vsMainQuantizedExtruded = entryFn(
     const fillColor = u.field('fill_color', vec4fT)
     const deg2rad = constRef('DEG2RAD')
     const earthR = constRef('EARTH_R')
+    const pi = constRef('PI')
     const mercLatLim = constRef('MERCATOR_LAT_LIMIT')
 
-    // Unpack quantized position (no is_top in this path — the z source is
-    // the per-feature z_attr.x).
-    const mxQ = b.let('mx_q', toF32(p.pos_raw.x.bitAnd(u32(0x7FFF))))
-    const myQ = b.let('my_q', toF32(p.pos_raw.y))
-    const local = b.let('local', vec2(mxQ, myQ).div(f32(32767)).mul(tileExtent))
-    const camLocal = b.let('cam_local', camH.add(camL))
-    const rel = b.let('rel', local.sub(camLocal))
-
-    const absMercX = b.let('abs_merc_x', local.x.add(tileOrigin.x))
-    const absMercY = b.let('abs_merc_y', local.y.add(tileOrigin.y))
-    const absLon = b.let('abs_lon', absMercX.div(deg2rad.mul(earthR)))
-    const latRad = b.let('lat_rad', callFn('inv_merc_lat_rad', f32T, absMercY))
-    const absLat = b.let('abs_lat', latRad.div(deg2rad))
-    const absLatClamped = b.let('abs_lat_clamped', clamp(absLat, mercLatLim.neg(), mercLatLim))
-
-    const t = b.let('t', projParams.x)
-    const rtc = b.var('rtc', vec2fT)
-    b.if(t.lt(0.5), (c) => {
-      c.assign(rtc, rel)
-    }).else((c) => {
-      const tileRefLon = c.let('tile_ref_lon',
-        tileOrigin.x.add(f32(0.5).mul(tileExtent)).div(deg2rad.mul(earthR)),
-      )
-      const projXy = c.let('proj_xy', callFn('project_geom', vec2fT, absLon, absLat, projParams, tileRefLon))
-      const centerXy = c.let('center_xy', callFn('project', vec2fT, projParams.y, projParams.z, projParams))
-      c.assign(rtc, projXy.sub(centerXy))
-    })
-    const globeRtc = b.let('globe_rtc',
-      callFn('proj_globe', vec3fT, absLon, absLat).sub(callFn('proj_globe', vec3fT, projParams.y, projParams.z)),
+    // DSFUN reconstruction. Both wall-bottom + wall-top + roof vertices
+    // are pre-positioned in ECEF metres by the runtime wall-mesh, so the
+    // VS sees a single linear transform here.
+    const ecefRtc = b.let('ecef_rtc', p.pos_h.add(p.pos_l))
+    const absMercX = b.let('abs_merc_x', p.abs_lon.mul(deg2rad).mul(earthR))
+    const absLatClamped = b.let('abs_lat_clamped', clamp(p.abs_lat, mercLatLim.neg(), mercLatLim))
+    const absMercY = b.let('abs_merc_y',
+      log(tan(pi.div(f32(4)).add(absLatClamped.mul(deg2rad).div(f32(2))))).mul(earthR),
     )
 
-    // iter-194 — unpack z + normal from the vec4 attribute.
-    const zWorld = b.let('z_world', p.z_attr.x)
-    const normal = b.let('normal', p.z_attr.swizzle('yzw') as Node<'vec3<f32>'>)
-
     const out = b.var('out', structT('VertexOutput'))
-    const clip = b.var('clip', vec4fT, select(
-      t.gt(6.5),
-      transformMat4(mvp, vec4(globeRtc, f32(1))),
-      transformMat4(mvp, vec4(rtc, zWorld, f32(1))),
-    ))
+    const clip = b.var('clip', vec4fT, transformMat4(mvpEcef, vec4(ecefRtc, f32(1))))
     b.assign(clip.x, clip.x.add(fillTx.mul(clip.w)))
     b.assign(clip.y, clip.y.sub(fillTy.mul(clip.w)))
     b.assign(out.field('position', vec4fT), callFn('apply_log_depth', vec4fT, clip, logDepthFc))
@@ -446,20 +397,20 @@ const vsMainQuantizedExtruded = entryFn(
     b.assign(out.field('cos_c', f32T), f32(0))
     b.assign(out.field('feat_id', u32T), toU32(p.feature_id))
     b.assign(out.field('abs_lat', f32T), absLatClamped)
-    b.assign(out.field('wall_blend', f32T), select(zWorld.gt(f32(0)), f32(1), f32(0)))
+    // is_top doubles as wall_blend (legacy contract: 1.0 roof, 0.0 wall
+    // bottom). World-z carries the wall_height for the wall-blend
+    // discriminator + downstream fs_fill_extrude consumers.
+    b.assign(out.field('wall_blend', f32T), p.is_top)
     b.assign(out.field('abs_merc_x', f32T), absMercX)
     b.assign(out.field('abs_merc_y', f32T), absMercY)
-    b.assign(out.field('world_z', f32T), zWorld)
+    b.assign(out.field('world_z', f32T), p.wall_height.mul(p.is_top))
 
-    // iter-194 — MapLibre-equivalent face-normal directional lighting.
-    // Direct port of fill_extrusion.vertex.glsl, with the default light
-    // style: position [1.15, 210°, 30°] → cartesian (0.288, -0.498, 0.996);
+    // MapLibre-equivalent face-normal directional lighting (preserved
+    // verbatim from vs_main_quantized_extruded). Default light style:
+    // position [1.15, 210°, 30°] → cartesian (0.288, -0.498, 0.996);
     // intensity 0.5; color (1,1,1); vertical-gradient = 1.0.
     const colorRgb = b.let('color_rgb', fillColor.rgb)
     const opacity = b.let('opacity', fillColor.a)
-    // Luminance weights (Rec. 709). Per-component access is cleaner than a
-    // dot(rgb, vec3(0.2126,0.7152,0.0722)) because the literal then needs a
-    // vec3 construct; the explicit chain matches MapLibre's source.
     const colorValue = b.let('colorvalue',
       colorRgb.r.mul(0.2126).add(colorRgb.g.mul(0.7152)).add(colorRgb.b.mul(0.0722)),
     )
@@ -468,20 +419,19 @@ const vsMainQuantizedExtruded = entryFn(
     const lightPos = b.let('LIGHT_POS', vec3(f32(0.288), f32(-0.498), f32(0.996)))
     const lightIntensity = b.let('LIGHT_INTENSITY', f32(0.5))
     const lightColor = b.let('LIGHT_COLOR', vec3(f32(1)))
-    const directional = b.var('directional', f32T, clamp(dot(normal, lightPos), f32(0), f32(1)))
+    const directional = b.var('directional', f32T, clamp(dot(p.face_normal, lightPos), f32(0), f32(1)))
     b.assign(directional, mix(
       f32(1).sub(lightIntensity),
       max(f32(1).sub(colorValue).add(lightIntensity), f32(1)),
       directional,
     ))
-    // Vertical gradient — walls only (|nz| < 0.5). t = is-top boolean.
-    const isWall = b.let('is_wall', abs(normal.z).lt(0.5))
-    const tTop = b.let('t_top', select(zWorld.gt(f32(0)), f32(1), f32(0)))
+    // Vertical gradient — walls only (|nz| < 0.5).
+    const isWall = b.let('is_wall', abs(p.face_normal.z).lt(0.5))
+    const tTop = b.let('t_top', p.is_top)
     b.if(isWall, (c) => {
-      // (t_top + base) * sqrt(height/150). For the bottom vertex we
-      // approximate height by max(z_world, 1) so the gradient still
-      // computes a sensible value for the bottom lip.
-      const hForGrad = c.let('h_for_grad', max(zWorld, f32(1)))
+      // (t_top + base) * sqrt(height/150). h_for_grad = max(wall_height, 1)
+      // so the bottom lip still computes a sensible gradient value.
+      const hForGrad = c.let('h_for_grad', max(p.wall_height, f32(1)))
       const vgrad = c.let('vgrad', clamp(
         tTop.mul(sqrt(hForGrad.div(f32(150)))),
         mix(f32(0.7), f32(0.98), f32(1).sub(lightIntensity)),
@@ -492,8 +442,8 @@ const vsMainQuantizedExtruded = entryFn(
     const shadedRgb = b.let('shaded_rgb',
       clamp(litColorRgb.mul(directional).mul(lightColor), vec3(f32(0)), vec3(f32(1))),
     )
-    // Non-premultiplied output — see entry header for the X-GIS BLEND_ALPHA
-    // vs MapLibre BLEND_ALPHA_PREMULT equivalence proof.
+    // Non-premultiplied output — see vs_main_quantized_extruded's removed
+    // header for the BLEND_ALPHA vs BLEND_ALPHA_PREMULT equivalence proof.
     b.assign(out.field('v_color', vec4fT), vec4(shadedRgb, opacity))
     b.ret(out)
   },
@@ -908,7 +858,7 @@ const swapPlaceholders = (
 //
 // PARTIAL — the initial US-007b skeleton lands structs + fixed bindings +
 // helper fns + the trivial fs_overdraw entry. Subsequent commits add the
-// 3 vertex entries (vs_main / vs_main_quantized / vs_main_quantized_extruded)
+// 3 vertex entries (vs_main / vs_main_ecef / vs_main_ecef_extruded)
 // and the 5 main fragment entries (fs_fill with placeholder Stmt at fill-
 // return; fs_fill_pattern; fs_oit_translucent; fs_fill_extrude; fs_stroke
 // with placeholder Stmt at stroke-return).
@@ -932,8 +882,8 @@ const buildPolygonModule = (
       polygonCosCFragment,
       polygonRimAlpha,
       vsMain,
-      vsMainQuantized,
-      vsMainQuantizedExtruded,
+      vsMainEcef,
+      vsMainEcefExtruded,
       buildFsFill(pickEnabled),
       buildFsFillPattern(pickEnabled),
       fsOitTranslucent,

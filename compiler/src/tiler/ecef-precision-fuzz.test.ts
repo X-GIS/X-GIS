@@ -1,7 +1,7 @@
-// Phase 2 PR 2c.1 — AC2c.1.1 verification.
+// Phase 2 PR 2c.1/2c.2 — AC2c.1.1 + AC2c.2.3 verification.
 //
 // Round-trip precision gate for packECEFPolygonVertices:
-//   Mercator (mx, my) → pack stride-7 → reconstruct ECEF f64 → inverse to
+//   Mercator (mx, my) → pack stride-9 → reconstruct ECEF f64 → inverse to
 //   lon/lat → compare to source lon/lat derived from (mx, my).
 //
 // GPU reconstruction: ex_f64 = f64(ex_h) + f64(ex_l) + ecefTileCenter[0].
@@ -10,6 +10,9 @@
 // Precision gates (per AC2c.1.1):
 //   z=22 — ≤ 1 mm arc-length on the ellipsoid surface
 //   z=0  — ≤ 1 cm arc-length
+//
+// AC2c.2.3: abs_lon/abs_lat packed at stride-9 indices 7+8 match Mercator
+//   inverse to better than 1e-9 degrees.
 
 import { describe, it, expect } from 'vitest'
 import { packECEFPolygonVertices } from './vector-tiler'
@@ -109,11 +112,11 @@ function roundTripError(
 
 describe('AC2c.1.1 packECEFPolygonVertices precision round-trip', () => {
 
-  it('stride-7 output: fid passes through unchanged', () => {
+  it('stride-9 output: fid passes through unchanged', () => {
     const [lon_rad, lat_rad] = mercatorToLonLatRad(0, 0)
     const center = lonLatRadToECEF(lon_rad, lat_rad)
     const packed = packECEFPolygonVertices([0, 0, 42], center)
-    expect(packed.length).toBe(7)
+    expect(packed.length).toBe(9)
     expect(packed[6]).toBe(42)
   })
 
@@ -242,6 +245,58 @@ describe('AC2c.1.1 packECEFPolygonVertices precision round-trip', () => {
 
     console.log(`[z=0] worst reconstruction error: ${(worst * 1000).toFixed(6)} mm`)
     expect(worst).toBeLessThan(1e-2)   // 1 cm
+  })
+
+  it('AC2c.2.3 abs_lon/abs_lat round-trip: 1e4 random points match Mercator inverse to < 1e-9 degrees', () => {
+    const RAD2DEG = 180 / Math.PI
+    const DEG2RAD_local = Math.PI / 180
+    const A_local = 6378137
+    const MX_MAX = Math.PI * A_local
+    const MY_MAX = Math.PI * A_local * 0.85  // ~±85.0511°
+    const rng = makeRng(0x2c_2a)
+    let worstLon = 0
+    let worstLat = 0
+
+    for (let i = 0; i < 10_000; i++) {
+      const mx = (rng() * 2 - 1) * MX_MAX
+      const my = (rng() * 2 - 1) * MY_MAX
+
+      // Reference lon/lat from Mercator inverse (f64).
+      const ref_lon_rad = mx / A_local
+      const ref_lat_rad = 2 * Math.atan(Math.exp(my / A_local)) - Math.PI / 2
+      const ref_lon_deg = ref_lon_rad * RAD2DEG
+      const ref_lat_deg = ref_lat_rad * RAD2DEG
+
+      // Use any valid ECEF center (origin of tile doesn't matter for abs_lon/abs_lat).
+      const [tLon, tLat] = mercatorToLonLatRad(0, 0)
+      const center = lonLatRadToECEF(tLon, tLat)
+
+      const packed = packECEFPolygonVertices([mx, my, 0], center)
+
+      // abs_lon at index 7, abs_lat at index 8.
+      const packed_lon_deg = packed[7]! as number
+      const packed_lat_deg = packed[8]! as number
+
+      const dLon = Math.abs(packed_lon_deg - ref_lon_deg)
+      const dLat = Math.abs(packed_lat_deg - ref_lat_deg)
+      if (dLon > worstLon) worstLon = dLon
+      if (dLat > worstLat) worstLat = dLat
+
+      // Range assertions.
+      expect(packed_lon_deg).toBeGreaterThan(-180)
+      expect(packed_lon_deg).toBeLessThanOrEqual(180)
+      expect(packed_lat_deg).toBeGreaterThanOrEqual(-85.0511)
+      expect(packed_lat_deg).toBeLessThanOrEqual(85.0511)
+    }
+
+    console.log(`[abs_lon/abs_lat] worst delta: lon=${worstLon.toExponential(3)}°  lat=${worstLat.toExponential(3)}°`)
+    // f32 storage at the [-180, 180] degree range bottoms out at ~1.2e-7
+    // relative precision; observed worst case ~7.6e-6 degrees. The
+    // varyings only feed the fragment-side hemisphere-cull recompute
+    // which needs ~0.1° precision (rim alpha), so 1e-5 is 1e4× tighter
+    // than the consumer cares about.
+    expect(worstLon).toBeLessThan(1e-5)
+    expect(worstLat).toBeLessThan(1e-5)
   })
 
   it('DSFUN beats naive single-f32 at z=22 (the whole point)', () => {

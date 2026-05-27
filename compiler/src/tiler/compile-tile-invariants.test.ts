@@ -22,10 +22,11 @@ import {
 } from './vector-tiler'
 import type { GeoJSONFeature } from './geojson-types'
 
-// DSFUN strides — runtime/src/data/tile-types.ts defines these
-// (5 floats per polygon vertex, 10 per line vertex). Inlined here
-// because the compiler package doesn't re-export them.
-const DSFUN_POLY_STRIDE = 5
+// Polygon vertex stride — PR 2c.2 swapped Mercator-DSFUN stride-5
+// for ECEF-DSFUN stride-9 (`[ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid,
+// abs_lon, abs_lat]`). Line stride stays at 10 (Mercator-DSFUN with
+// arc + tangent slots).
+const DSFUN_POLY_STRIDE = 9
 const DSFUN_LINE_STRIDE = 10
 
 const poly = (coords: number[][][]): GeoJSONFeature => ({

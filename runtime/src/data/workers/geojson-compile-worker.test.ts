@@ -115,8 +115,10 @@ describe('runCompile — polygon features', () => {
 
     // Earcut on a quad → 2 triangles → 6 indices.
     expect(idx.length).toBe(6)
-    // Stride-5 vertex layout: 4 unique corners = 20 floats.
-    expect(verts.length).toBe(4 * 5)
+    // PR 2c.2 polygon vertex layout: ECEF-DSFUN stride-9
+    // `[ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon, abs_lat]`.
+    // 4 unique corners = 36 floats.
+    expect(verts.length).toBe(4 * 9)
     // Both main arrays must be in the transferables list.
     expect(transferables).toContain(tile.vertices)
     expect(transferables).toContain(tile.indices)

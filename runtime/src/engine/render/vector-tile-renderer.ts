@@ -25,10 +25,7 @@ import {
 } from '../tile-decision'
 import { PrefetchScheduler } from './prefetch-scheduler'
 import {
-  generateWallMesh,
-  generateWallMeshExtruded,
-  quantizePolygonVertices,
-  quantizePolygonVerticesExtruded,
+  generateWallMeshExtrudedECEF,
 } from '../../core/polygon-mesh'
 import { tileKey, tileKeyParent, tileKeyChildren, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
 import { StagingBufferPool, asyncWriteBuffer } from '../gpu/staging-buffer-pool'
@@ -75,14 +72,12 @@ const UNIFORM_SLOT = 256
 // Bind-group binding range size. Must be ≥ the WGSL Uniforms struct
 // size of every shader that reads this binding (polygon, line, point,
 // raster — see renderer.ts / line-renderer.ts / point-renderer.ts).
-// Polygon Uniforms is 192 bytes (48 floats: 36 base + 4 clip_bounds +
-// 4 zoom-block + 4 pad), so the binding must be at least 192.
-// UNIFORM_SLOT (256 bytes/slot) keeps headroom for future struct
-// growth without re-tuning. WGSL spec requires multiple of 16.
-// Grew 176 → 192 when `zoom: f32` joined for P3 palette gradient
-// sampling — the variant shader reads `u.zoom` to map zoom into the
-// gradient atlas's U coord (see emitColorGradientSample).
-const UNIFORM_SIZE = 192
+// Polygon Uniforms is 256 bytes (64 floats: 16 mvp + 16 mvp_ecef +
+// 32 trailing fields incl. clip_bounds + zoom block + 3 pad).
+// UNIFORM_SLOT (256 bytes/slot) matches exactly. WGSL spec requires
+// multiple of 16. PR 2c.2 (ECEF VS migration) grew 192 → 256 when
+// `mvp_ecef: mat4x4<f32>` joined for the polygon ECEF vertex pipeline.
+const UNIFORM_SIZE = 256
 
 /** 2π × Earth radius (m). One full mercator wrap. tile_extent_m at
  *  any zoom z is this constant divided by 2^z (vs_main_quantized
@@ -104,9 +99,12 @@ const TWO_PI_R_EARTH = 2 * Math.PI * 6378137
  *  available fallback before the pinned skeleton at z=0..2/3. */
 const ANCESTOR_PROTECT_DEPTH = 22
 
-// Polygon mesh quantization + wall generation moved to engine/
+// Polygon extruded wall + roof mesh generation lives in core/
 // polygon-mesh.ts so the math is unit-testable independent of GPU
-// state. See `quantizePolygonVertices` + `generateWallMesh`.
+// state. See `generateWallMeshExtrudedECEF`. (The Mercator-DSFUN
+// `quantizePolygonVertices*` + `generateWallMesh*` paths were retired
+// in Phase 2 PR 2c.2 — tile vertices arrive as ECEF-DSFUN stride-9
+// floats from the compiler tiler and upload directly.)
 
 export class VectorTileRenderer {
   private device: GPUDevice
@@ -295,14 +293,16 @@ export class VectorTileRenderer {
    *  2 axes); auto-grows on overflow. */
   private readonly _frameArena = new FrameArena(32 * 1024)
   // Sized to UNIFORM_SIZE (= WGSL Uniforms struct size). Grew from
-  // 160 → 176 when `clip_bounds: vec4<f32>` was added at offset 160.
+  // 192 → 256 in PR 2c.2 when `mvp_ecef: mat4x4<f32>` joined for the
+  // polygon ECEF VS migration.
   // Out-of-bounds typed-array writes are silent no-ops in JS, so a
   // mismatch here = uniform never reaches the GPU = shader reads
   // garbage at the new offset. Keep this in lockstep with WGSL.
   private uniformDataBuf = new ArrayBuffer(UNIFORM_SIZE)
   private uniformF32 = new Float32Array(this.uniformDataBuf) // reusable view over full uniform
   /** Reusable u32 view over the same uniform buffer — used to write
-   *  `pick_id` (u32) into the trailing 16-byte slot at offset 144. */
+   *  `pick_id` (u32). After PR 2c.2 the field sits at f32 slot 52
+   *  (byte offset 208) since the WGSL struct shifted by mvp_ecef. */
   private uniformU32 = new Uint32Array(this.uniformDataBuf)
   private lastBindGroupLayout: GPUBindGroupLayout | null = null
   /** Uniform-only layout — stays pinned to the base `bindGroupLayout`
@@ -2137,65 +2137,68 @@ export class VectorTileRenderer {
     // diagnostic suite can separate tile-upload churn from per-frame
     // uniform writes. Cost is zero — label is a GPU debug string.
     //
-    // Polygon vertex pipeline:
-    //   * Top face: DSFUN F32×5 → quantized u16×2 + f32 stride 8
-    //     (60 % byte reduction). is_top flag in bit 15 of x for
-    //     extruded layers so the shader lifts to z=extrude_height_m.
-    //   * Side walls (extruded layers only): emit per-edge wall
-    //     quads from the polygon ring data and concat onto the top
-    //     vertex/index buffers. is_top alternates 0/1 for the
-    //     bottom/top wall corners.
-    const tileExtentM = TWO_PI_R_EARTH / Math.pow(2, data.tileZoom)
+    // Polygon vertex pipeline (Phase 2 PR 2c.2 — ECEF-DSFUN):
+    //   * Flat slices: `data.vertices` is the tiler's stride-9 ECEF-DSFUN
+    //     buffer (`[ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon,
+    //     abs_lat]` per vertex, 36 bytes). Uploaded directly — no runtime
+    //     re-quantization. Indices come straight from `data.indices`.
+    //   * Extruded slices: `generateWallMeshExtrudedECEF` emits an
+    //     interleaved stride-14 ECEF-DSFUN buffer (walls + roof, 56
+    //     bytes / vertex; layout in `polygon-mesh.ts`'s ECEF block).
+    //     `data.vertices` / `data.indices` are NOT consumed in this
+    //     branch — the wall-mesh generator owns the full extruded
+    //     geometry. Per-vertex height + face_normal + is_top live IN
+    //     the unified buffer, so no parallel z buffer.
     // Slices that carried per-feature `render_height` / `height` from
-    // the MVT decode path get the extruded vertex layout: walls + a
-    // parallel z attribute. Slices without heights data stay on the
-    // single-VB flat layout — render-time decides the actual lift via
-    // the layer's `extrude:` keyword (uniform mode just reads is_top
-    // and applies u.extrude_height_m). The previous heuristic
-    // (`sourceLayer === 'buildings'`) is replaced — slices route
-    // entirely off the data they carry, and per-layer control lives
-    // in the style language now.
+    // the MVT decode path route through the extruded generator; slices
+    // without heights stay on the flat-fill ECEF stride-9 layout. The
+    // previous heuristic (`sourceLayer === 'buildings'`) is replaced —
+    // slices route entirely off the data they carry, and per-layer
+    // control lives in the style language now.
     const useFeatureHeights = data.heights !== undefined && data.heights.size > 0
-    // Per-feature mode: `polygon-mesh.ts:226` does
-    // `heights.get(fid) ?? defaultHeight`. The default is what
-    // features WITHOUT a height entry render at — and the language
-    // contract is now "extrude only when the data says so".
-    // Author-controlled fallbacks (e.g. `extrude: .height ?? 50`)
-    // are evaluated in the worker and end up IN the heights map;
-    // the engine itself doesn't fabricate one.
-    const fallbackHeight = 0
     let polyVerts: ArrayBuffer
     let polyIndices: Uint32Array
-    let zAttribute: Float32Array | null = null
     if (useFeatureHeights && data.polygons) {
-      const top = quantizePolygonVerticesExtruded(data.vertices, tileExtentM, data.heights!, fallbackHeight)
-      const topVertexCount = top.vertices.byteLength / 8
+      // ECEF tile-corner anchor — must match the compiler tiler's
+      // `tileEcefCenter` (`packECEFPolygonVertices`'s RTC origin) so
+      // the unified extruded buffer stays in the same DSFUN frame as
+      // the surrounding flat-fill tiles. WGS84 ellipsoidal math
+      // (cross-package import from runtime/projection forbidden in
+      // the worker thread; mirrors `tileEcefCenterFromMerc`).
+      const A_ = 6378137
+      const F_ = 1 / 298.257223563
+      const E2_ = F_ * (2 - F_)
       const DEG2RAD = Math.PI / 180
-      const R = 6378137
-      const tileMx = data.tileWest * DEG2RAD * R
       const clampLat = Math.max(-85.051129, Math.min(85.051129, data.tileSouth))
-      const tileMy = Math.log(Math.tan(Math.PI / 4 + clampLat * DEG2RAD / 2)) * R
-      const wall = generateWallMeshExtruded(data.polygons, tileExtentM, tileMx, tileMy, data.heights!, fallbackHeight, data.bases, 0)
-      const combined = new Uint8Array(top.vertices.byteLength + wall.vertices.byteLength)
-      combined.set(new Uint8Array(top.vertices), 0)
-      combined.set(new Uint8Array(wall.vertices), top.vertices.byteLength)
-      polyVerts = combined.buffer
-      polyIndices = new Uint32Array(data.indices.length + wall.indices.length)
-      polyIndices.set(data.indices, 0)
-      for (let i = 0; i < wall.indices.length; i++) {
-        polyIndices[data.indices.length + i] = wall.indices[i] + topVertexCount
-      }
-      zAttribute = new Float32Array(top.z.length + wall.z.length)
-      zAttribute.set(top.z, 0)
-      zAttribute.set(wall.z, top.z.length)
+      const tileMx = data.tileWest * DEG2RAD * A_
+      const tileMy = Math.log(Math.tan(Math.PI / 4 + clampLat * DEG2RAD / 2)) * A_
+      const tileLonRad = tileMx / A_
+      const tileLatRad = 2 * Math.atan(Math.exp(tileMy / A_)) - Math.PI / 2
+      const sinLat = Math.sin(tileLatRad)
+      const cosLat = Math.cos(tileLatRad)
+      const N = A_ / Math.sqrt(1 - E2_ * sinLat * sinLat)
+      const tileEcefCenter: readonly [number, number, number] = [
+        N * cosLat * Math.cos(tileLonRad),
+        N * cosLat * Math.sin(tileLonRad),
+        N * (1 - E2_) * sinLat,
+      ]
+      const mesh = generateWallMeshExtrudedECEF(
+        data.polygons, data.heights!, data.bases,
+        tileMx, tileMy, tileEcefCenter,
+      )
+      polyVerts = mesh.vertices.buffer.slice(
+        mesh.vertices.byteOffset,
+        mesh.vertices.byteOffset + mesh.vertices.byteLength,
+      )
+      polyIndices = mesh.indices
     } else {
-      // Flat slice: no heights data → no walls. The is_top bit stays
-      // clear so a layer with `extrude: 50` on this slice silently
-      // renders flat (no height lift) — preferable to fabricating
-      // walls without source-data direction. If users hit this case
-      // they need to source data with a `render_height` / `height`
-      // property.
-      polyVerts = quantizePolygonVertices(data.vertices, tileExtentM, { isTop: false })
+      // Flat slice: tiler already emitted stride-9 ECEF-DSFUN floats —
+      // pass through unchanged. `data.vertices` is a typed-array view;
+      // `slice` copies into a fresh ArrayBuffer the arena can accept.
+      polyVerts = data.vertices.buffer.slice(
+        data.vertices.byteOffset,
+        data.vertices.byteOffset + data.vertices.byteLength,
+      )
       polyIndices = data.indices
     }
     // Phase 6a.2 (iter-208) — polygon vertex now allocates from the
@@ -2216,17 +2219,15 @@ export class VectorTileRenderer {
     const indexBuffer = polyIndexArena.buffer
     this.device.queue.writeBuffer(indexBuffer, polyIndexOffset, polyIndices)
 
-    // Phase 6a.4 (iter-210) — z-buffer from shared arena.
-    let zBuffer: GPUBuffer | null = null
-    let zBufferOffset = 0
-    let zBufferByteLength = 0
-    if (zAttribute) {
-      const zArena = this.getOrCreateZBufferArena()
-      zBufferByteLength = Math.max(zAttribute.byteLength, 4)
-      zBufferOffset = zArena.alloc(zBufferByteLength)
-      zBuffer = zArena.buffer
-      this.device.queue.writeBuffer(zBuffer, zBufferOffset, zAttribute)
-    }
+    // Phase 2 PR 2c.2 — the parallel z attribute is retired. Per-vertex
+    // height + face_normal + is_top now live inside the unified
+    // stride-14 vertex buffer emitted by `generateWallMeshExtrudedECEF`.
+    // The cache schema keeps `zBuffer`-shaped fields populated with
+    // sentinel values so downstream layer-routing logic compiles; the
+    // extruded vertex layout no longer binds a second buffer.
+    const zBuffer: GPUBuffer | null = null
+    const zBufferOffset = 0
+    const zBufferByteLength = 0
 
     let lineVertexBuffer: GPUBuffer | null = null
     let lineIndexBuffer: GPUBuffer | null = null
@@ -2422,35 +2423,46 @@ export class VectorTileRenderer {
     const layerCache = this.getOrCreateLayerCache(sourceLayer)
     if (layerCache.has(key)) return
 
-    const tileExtentM = TWO_PI_R_EARTH / Math.pow(2, data.tileZoom)
+    // Phase 2 PR 2c.2 — ECEF-DSFUN upload (mirror of `doUploadTile`'s sync
+    // path; see that function's comment block for the per-stride layout
+    // contract). Flat slices pass `data.vertices` through unchanged;
+    // extruded slices route through `generateWallMeshExtrudedECEF` for the
+    // unified walls + roof stride-14 buffer.
     const useFeatureHeights = data.heights !== undefined && data.heights.size > 0
-    const fallbackHeight = 0
     let polyVerts: ArrayBuffer
     let polyIndices: Uint32Array
-    let zAttribute: Float32Array | null = null
     if (useFeatureHeights && data.polygons) {
-      const top = quantizePolygonVerticesExtruded(data.vertices, tileExtentM, data.heights!, fallbackHeight)
-      const topVertexCount = top.vertices.byteLength / 8
+      const A_ = 6378137
+      const F_ = 1 / 298.257223563
+      const E2_ = F_ * (2 - F_)
       const DEG2RAD = Math.PI / 180
-      const R = 6378137
-      const tileMx = data.tileWest * DEG2RAD * R
       const clampLat = Math.max(-85.051129, Math.min(85.051129, data.tileSouth))
-      const tileMy = Math.log(Math.tan(Math.PI / 4 + clampLat * DEG2RAD / 2)) * R
-      const wall = generateWallMeshExtruded(data.polygons, tileExtentM, tileMx, tileMy, data.heights!, fallbackHeight, data.bases, 0)
-      const combined = new Uint8Array(top.vertices.byteLength + wall.vertices.byteLength)
-      combined.set(new Uint8Array(top.vertices), 0)
-      combined.set(new Uint8Array(wall.vertices), top.vertices.byteLength)
-      polyVerts = combined.buffer
-      polyIndices = new Uint32Array(data.indices.length + wall.indices.length)
-      polyIndices.set(data.indices, 0)
-      for (let i = 0; i < wall.indices.length; i++) {
-        polyIndices[data.indices.length + i] = wall.indices[i] + topVertexCount
-      }
-      zAttribute = new Float32Array(top.z.length + wall.z.length)
-      zAttribute.set(top.z, 0)
-      zAttribute.set(wall.z, top.z.length)
+      const tileMx = data.tileWest * DEG2RAD * A_
+      const tileMy = Math.log(Math.tan(Math.PI / 4 + clampLat * DEG2RAD / 2)) * A_
+      const tileLonRad = tileMx / A_
+      const tileLatRad = 2 * Math.atan(Math.exp(tileMy / A_)) - Math.PI / 2
+      const sinLat = Math.sin(tileLatRad)
+      const cosLat = Math.cos(tileLatRad)
+      const N = A_ / Math.sqrt(1 - E2_ * sinLat * sinLat)
+      const tileEcefCenter: readonly [number, number, number] = [
+        N * cosLat * Math.cos(tileLonRad),
+        N * cosLat * Math.sin(tileLonRad),
+        N * (1 - E2_) * sinLat,
+      ]
+      const mesh = generateWallMeshExtrudedECEF(
+        data.polygons, data.heights!, data.bases,
+        tileMx, tileMy, tileEcefCenter,
+      )
+      polyVerts = mesh.vertices.buffer.slice(
+        mesh.vertices.byteOffset,
+        mesh.vertices.byteOffset + mesh.vertices.byteLength,
+      )
+      polyIndices = mesh.indices
     } else {
-      polyVerts = quantizePolygonVertices(data.vertices, tileExtentM, { isTop: false })
+      polyVerts = data.vertices.buffer.slice(
+        data.vertices.byteOffset,
+        data.vertices.byteOffset + data.vertices.byteLength,
+      )
       polyIndices = data.indices
     }
 
@@ -2480,17 +2492,11 @@ export class VectorTileRenderer {
     writeHandles.push(asyncWriteBuffer(this.stagingPool, encoder, vertexBuffer, polyVertexOffset, polyVerts))
     writeHandles.push(asyncWriteBuffer(this.stagingPool, encoder, indexBuffer, polyIndexOffset, polyIndices))
 
-    // Phase 6a.4 (iter-210) — z-buffer async path mirror.
-    let zBuffer: GPUBuffer | null = null
-    let zBufferOffset = 0
-    let zBufferByteLength = 0
-    if (zAttribute) {
-      const zArena = this.getOrCreateZBufferArena()
-      zBufferByteLength = Math.max(zAttribute.byteLength, 4)
-      zBufferOffset = zArena.alloc(zBufferByteLength)
-      zBuffer = zArena.buffer
-      writeHandles.push(asyncWriteBuffer(this.stagingPool, encoder, zBuffer, zBufferOffset, zAttribute))
-    }
+    // Phase 2 PR 2c.2 — parallel z attribute retired (see sync path
+    // comment). Cache schema keeps sentinel values populated.
+    const zBuffer: GPUBuffer | null = null
+    const zBufferOffset = 0
+    const zBufferByteLength = 0
 
     let lineVertexBuffer: GPUBuffer | null = null
     let lineIndexBuffer: GPUBuffer | null = null
@@ -3415,6 +3421,14 @@ export class VectorTileRenderer {
 
     const frame = camera.getFrameView(canvasWidth, canvasHeight, dpr)
     const mvp = frame.matrix
+    // PR 2c.2: ECEF-MVP for the polygon ECEF vertex pipeline. Built
+    // alongside the legacy Mercator MVP so polygon `vs_main_ecef` /
+    // `vs_main_ecef_extruded` read `u.mvp_ecef` while the line shader
+    // (sharing the polygon shader module) keeps reading `u.mvp`. The
+    // returned `matrix` reference is overwritten by the next
+    // getECEFFrameView call from the same camera — copy into the
+    // uniform mirror immediately.
+    const mvpEcef = camera.getECEFFrameView(canvasWidth, canvasHeight, dpr).matrix
     this.logDepthFc = frame.logDepthFc
 
     // Cache color parsing — only reparse if show properties changed.
