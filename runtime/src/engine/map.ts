@@ -14,7 +14,6 @@ import { Camera } from './projection/camera'
 import { CameraController } from './camera-controller'
 import { SourceManager } from './source-manager'
 import { InteractionController } from './interaction-controller'
-import { MERCATOR_LAT_LIMIT } from './projection/projection'
 import { MapRenderer } from './render/renderer'
 import { resolveNumberShape } from './render/paint-shape-resolve'
 import { RenderLoop } from './render-loop'
@@ -82,6 +81,11 @@ type OpaqueGroup = ExternalOpaqueGroup
  *  reports LIVE runtime state (not a simulation) so CPU debug sessions
  *  can correlate a specific frame's tile-selection decisions with the
  *  cache / budget pressure that drove them. */
+
+// One-shot guard for the setPolarCapsEnabled deprecation warning.
+// Repeated calls share this module-scoped flag and emit at most one xlog.warn
+// per session.
+let _polarCapsWarned = false
 
 export class XGISMap {
   ctx!: GPUContext
@@ -369,7 +373,6 @@ export class XGISMap {
       rebuildLayers: () => this.rebuildLayers(),
       teardownSource: (sourceId) => this.teardownSource(sourceId),
       deleteFeatureIndex: (sourceId) => { this._featureIndex.delete(sourceId) },
-      isPolarCapsEnabled: () => this._polarCapsEnabled,
     })
     // Pick / interaction QUERY cluster — receives the shared camera +
     // layer/source state by reference; ctx / pickTexture / projectionName /
@@ -583,17 +586,20 @@ export class XGISMap {
    *  Hosts using globe / azimuthal projections should enable this
    *  early in setup, BEFORE setSourceData calls. */
   private _polarCapsEnabled = false
-  setPolarCapsEnabled(on: boolean): void {
-    this._polarCapsEnabled = on
-    // Re-process all existing GeoJSON sources so the toggle takes
-    // effect for data loaded before the flag flipped.
-    if (on) {
-      for (const [sourceId, data] of this.rawDatasets) {
-        if (data && typeof data === 'object' && (data as { type?: string }).type === 'FeatureCollection') {
-          this.setSourceData(sourceId, data as GeoJSONFeatureCollection)
-        }
-      }
-    }
+  /** Polar-cap synthesis is no longer renderer-driven (Phase 1a / Tier 3 source-honest
+   *  principle). The renderer never invents geometry the data does not provide. To
+   *  close polar caps on globe / azimuthal projections, preprocess your GeoJSON with
+   *  the public utilities `injectPolarCaps` / `synthesizePolarCaps` (exported from
+   *  `@xgis/runtime`) before calling `setSourceData`. This setter is retained as a
+   *  no-op + one-shot deprecation warning so existing host code does not throw. */
+  setPolarCapsEnabled(_on: boolean): void {
+    if (_polarCapsWarned) return
+    _polarCapsWarned = true
+    xlog.warn(
+      '[X-GIS] setPolarCapsEnabled is no longer renderer-driven. ' +
+      'Use the injectPolarCaps / synthesizePolarCaps exports as a pre-processing ' +
+      'step on your data, or accept honest source coverage.',
+    )
   }
   isPolarCapsEnabled(): boolean { return this._polarCapsEnabled }
 
@@ -858,18 +864,12 @@ export class XGISMap {
     // pitch>0 (renderers branch on projType 7).
     this.camera.globeMode = name === 'globe'
 
-    // Non-Mercator projections render beyond the Web Mercator clamp
-    // (±85.05°) — up to the true poles for globe / azimuthal — so polygon
-    // sources that stop at the clamp boundary (every Web-Mercator-tiled
-    // source does) leave a blank cap at the pole. Auto-enable cap
-    // synthesis on the first switch to a non-Mercator projection so
-    // GeoJSON polygons close to the pole. No-op for raster / vector-tile
-    // basemaps (no data exists above the clamp to extend). Not enabled for
-    // Mercator (never exposes the gap); not auto-DISABLED on the way back
-    // since the synthesised caps clamp to a degenerate sliver there.
-    if (name !== 'mercator' && !this._polarCapsEnabled) {
-      this.setPolarCapsEnabled(true)
-    }
+    // Phase 1a / Tier 3 source-honest principle: the renderer no longer
+    // auto-invents polar-cap geometry on non-Mercator projection switches.
+    // Hosts that want polar caps should preprocess their GeoJSON with
+    // `injectPolarCaps` (exported from @xgis/runtime) before setSourceData.
+    // Empty polar regions on globe / azimuthal projections are now treated
+    // as honest source coverage, not a renderer responsibility.
 
     this.invalidate()
   }
