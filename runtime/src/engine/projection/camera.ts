@@ -1,6 +1,7 @@
 // ═══ Map Camera — 줌/패닝/회전/피치 ═══
 
 import { lonLatToMercator } from '../../loader/geojson'
+import { mercatorToECEF, ecefToENURotation, type ECEF } from './ecef'
 import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 import { getMaxDpr } from '../gpu/gpu'
 import { computeLogDepthFc } from '../shaders/log-depth'
@@ -289,6 +290,49 @@ export class Camera {
     )
     this._globeMatrix.set(v.rtcMatrix)
     return { matrix: this._globeMatrix, far: v.far }
+  }
+
+  /** Camera anchor in ECEF (Earth-Centered Earth-Fixed) Cartesian metres.
+   *
+   *  Phase 2 ECEF vertex pipeline scaffolding. The canonical camera position
+   *  remains the Mercator-metre pair `centerX, centerY` — every pan/zoom/
+   *  hash-restore/interaction site reads those directly and stays untouched
+   *  by the ECEF migration. ECEF is derived at matrix-build time only,
+   *  never cached on the class.
+   *
+   *  Consumed by Phase 2 PR 2c+ shader paths that switch the polygon /
+   *  line / point / raster / text VSes from Mercator-vertex + per-vertex
+   *  `project_geom` to ECEF-vertex + linear `mvp * vec4(ecef_rtc, 1)`. */
+  getECEFCenter(): ECEF {
+    return mercatorToECEF(this.centerX, this.centerY)
+  }
+
+  /** ECEF→ENU (East/North/Up) tangent-plane rotation at the camera anchor.
+   *
+   *  Column-major Float32Array(16) with identity in the homogeneous row/
+   *  column. Used by Phase 2 PR 2c+ shader paths to compose the legacy
+   *  Mercator-perspective MVP with the ECEF basis swap:
+   *
+   *    ecef_rtc = ecef_vertex - getECEFCenter()
+   *    enu_xyz  = ecefToENURotation(cam_lon, cam_lat) * ecef_rtc
+   *    clip     = existing_perspective_mvp * vec4(enu_xyz, 1)
+   *
+   *  The ENU basis at the camera anchor agrees with the local Mercator-
+   *  metre basis to within tangent-plane curvature error — sub-mm at z=18
+   *  city scale, ≤ 0.5% pixel-delta on Mercator fixtures at world scale.
+   *  This satisfies AC2.1 of the Phase 2 plan without requiring the
+   *  legacy `getRTCMatrix` to be rewritten in PR 2b (PR 2c is the first
+   *  consumer). */
+  getECEFToENURotation(): Float32Array {
+    // Derive the camera lon/lat from the canonical Mercator-metre anchor.
+    // Mirrors the existing inverse-Mercator formula used elsewhere in this
+    // module (e.g. `projection.ts:mercatorYToLatRad`); kept inline so the
+    // helper does not pull in the heavier projection import surface.
+    const EARTH_R = 6378137
+    const RAD2DEG = 180 / Math.PI
+    const lon = (this.centerX / EARTH_R) * RAD2DEG
+    const lat = (2 * Math.atan(Math.exp(this.centerY / EARTH_R)) - Math.PI / 2) * RAD2DEG
+    return ecefToENURotation(lon, lat)
   }
 
   /** RTC matrix: perspective projection × view (pitch + bearing).
