@@ -249,7 +249,6 @@ describe('AC2c.1.1 packECEFPolygonVertices precision round-trip', () => {
 
   it('AC2c.2.3 abs_lon/abs_lat round-trip: 1e4 random points match Mercator inverse to < 1e-9 degrees', () => {
     const RAD2DEG = 180 / Math.PI
-    const DEG2RAD_local = Math.PI / 180
     const A_local = 6378137
     const MX_MAX = Math.PI * A_local
     const MY_MAX = Math.PI * A_local * 0.85  // ~±85.0511°
