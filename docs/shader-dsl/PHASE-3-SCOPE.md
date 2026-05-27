@@ -130,34 +130,13 @@ in PR-B/PR-C scope:
   from `emitFrameUniformWgsl()`. The CPU writer at `setFrame()` is
   the source of truth for byte layout (mvp@0 / proj_params@64 /
   viewport@80 / _pad@96).
-- **`runtime/src/engine/projection/reprojector.ts:19`** —
-  `REPROJECT_SHADER` fragment shader for the 2-pass non-Mercator
-  render path (equirect → target projection via fullscreen quad).
-  **DEFERRED — not in PR-D scope.** Rationale:
-    1. The Reprojector class is **currently unused** at runtime
-       (the active non-Mercator path projects in-shader via
-       `WGSL_PROJECTION_FNS` `project()`, not via reproject pass-2).
-       The class is preserved for a future tile-coordinate RTT
-       approach that hasn't activated yet.
-    2. The shader contains 7 inverse-projection functions
-       (`inv_mercator`, `inv_equirectangular`, `inv_natural_earth`
-       with a Newton-Raphson loop, `inv_orthographic`,
-       `inv_azimuthal_equidistant`, `inv_stereographic`,
-       `inv_oblique_mercator`) plus a 7-branch `pt` dispatch in
-       `fs_reproject` — ~250 LOC of WGSL → estimated ~1500 LOC of
-       DSL FuncDecl/Stmt port.
-    3. The existing test `reprojector-equirect-inverse.test.ts`
-       pins MATH parity via a parallel TS port (good) AND pins the
-       raw WGSL TEXT via regex (`pt == 1)\s*{\s*lonlat =
-       inv_equirectangular`) — DSL emit would change the textual
-       form and break the regex sanity gate without a behavioural
-       failure.
-    4. There is **no GPU-side runtime exercise** of this code path
-       under vitest, so any DSL port would have only the TS-mirror
-       round-trip + the textual regex as verification — both
-       structurally unable to catch a WGSL-side semantic drift.
-  When the tile-RTT approach activates, migrate this in lockstep
-  with the regression test update (regex → emit-content check).
+- **`runtime/src/engine/projection/reprojector.ts`** — DELETED in
+  Phase 2 PR 2e. The file held the `REPROJECT_SHADER` fragment shader
+  for a 2-pass non-Mercator render path that never activated; the
+  active non-Mercator path projects in-shader via the polygon DSL
+  composer (`u.mvp_ecef` post Phase 2 PR 2d.*). The companion test
+  `reprojector-equirect-inverse.test.ts` was deleted with it. No
+  source-tree consumers remained at delete time.
 - **`runtime/src/engine/shaders/AGENTS.md`** — documentation, not
   emit. Two `/* wgsl */` references in prose describe the existing
   pattern; they don't author shader text.
@@ -176,13 +155,13 @@ grep -rE '/\*\s*wgsl\s*\*/' runtime/src/engine/ \
   --exclude=AGENTS.md \
   --exclude='renderer.ts' \
   --exclude='debug-flags.ts' \
-  --exclude='frame-uniform.ts' \
-  --exclude='reprojector.ts'
+  --exclude='frame-uniform.ts'
 ```
 
 Returns **0 hits** once US-010 deletes `renderer-shaders.ts`. The
-unfiltered grep stays >0 until Phase 4+ migrates the runtime non-
-polygon hand-WGSL paths above.
+unfiltered grep also reaches **0 hits** post Phase 2 PR 2e — every
+runtime non-polygon hand-WGSL path listed below has migrated to DSL
+emit and `reprojector.ts` was deleted in PR 2e.
 
 ## Audit rule
 
@@ -243,11 +222,10 @@ grep -rE '/\*\s*wgsl\s*\*/' runtime/src/engine/
       shipped. AC7 unfiltered grep: 6 → 2 files.
 - [x] Phase 4+ wave 3 (OIT compose + texture_multisampled_2d ShaderType)
       shipped. AC7 unfiltered grep: 2 → 1 file (only reprojector.ts).
-- [ ] AC7 unfiltered grep reaches 0 — DEFERRED on
-      `runtime/src/engine/projection/reprojector.ts` per the Reprojector
-      section above (dead code, no GPU-side coverage, multi-day port
-      with high-blast-radius regex test). Migrate alongside the tile-
-      RTT approach activation.
+- [x] AC7 unfiltered grep reaches 0 — `reprojector.ts` DELETED in
+      Phase 2 PR 2e (the "tile-RTT approach activation" did not
+      materialise as a near-term need; the file had no source-tree
+      consumers and AGENTS.md flagged it for deletion in PR 2e).
 - [x] `matchArmsKey` rewired to hash `canonicalJsonStringify(node)`
       so the variant cache identity stays stable across engines.
       Landed in PR #151 (Phase 2.5 PR-A foundations) at

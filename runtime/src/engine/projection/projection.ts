@@ -130,8 +130,7 @@ export function naturalEarth(centralLon = 0): Projection {
     },
 
     inverse(x: number, y: number): [number, number] {
-      // Newton-Raphson on the latitude polynomial, 5 iterations. Mirrors
-      // reprojector.ts inv_natural_earth.
+      // Newton-Raphson on the latitude polynomial, 5 iterations.
       const goalY = y / EARTH_RADIUS
       let t = goalY / 1.007226
       for (let i = 0; i < 5; i++) {
@@ -188,8 +187,8 @@ export function orthographic(centerLon: number, centerLat: number): Projection {
     inverse(x: number, y: number): [number, number] {
       const rho = Math.sqrt(x * x + y * y)
       // At the projection centre rho→0 makes the lat/lon terms divide by
-      // zero (0/0 → NaN). azimuthalEquidistant/stereographic.inverse and
-      // reprojector.ts inv_orthographic all guard this; mirror them.
+      // zero (0/0 → NaN). azimuthalEquidistant/stereographic.inverse
+      // also guard this; mirror them.
       if (rho < 0.001) return [centerLon, centerLat]
       if (rho > EARTH_RADIUS) return [NaN, NaN]
       const c = Math.asin(rho / EARTH_RADIUS)
