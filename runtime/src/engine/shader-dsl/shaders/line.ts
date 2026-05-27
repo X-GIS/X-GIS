@@ -21,11 +21,13 @@
 
 import {
   entryFn, fn, module, bindingRef, constRef, callFn, transformMat4,
-  f32, i32, u32, toF32, vec2, vec4, vec2u, clamp, fract, sign,
+  f32, i32, u32, toF32, vec2, vec3, vec4, vec2u, clamp, fract, sign,
   length, dot, min, max, smoothstep, abs, floor, select, textureSample,
   bitcastU32, unpack4x8unorm,
+  sin, cos, atan, exp, sqrt,
   structT, f32T, u32T, i32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   arrayT,
+  type Node,
   type StructDecl, type StructField, type ModuleDecl,
 } from '../core/ir'
 import { emitModule } from '../core/backends/wgsl'
@@ -44,6 +46,15 @@ const TileUniforms: StructDecl = {
   name: 'TileUniforms',
   fields: [
     { name: 'mvp', type: mat4x4fT },
+    // mvp_ecef (Phase 2 PR 2d.1C): ECEF-MVP for the hybrid line VS ECEF
+    // clip path — vs_line transforms `u.mvp_ecef * vec4(ecef_corner, 1)`
+    // for clip-space output while still emitting `world_local` as tile-
+    // local Mercator metres for the FS distance/clip math (hybrid VS).
+    // Slot mirrors the polygon Uniforms layout byte-for-byte (the line
+    // shader shares group(0) with VTR's polygon bind group, so the line
+    // TileUniforms struct must match polygon Uniforms field offsets up
+    // through `clip_bounds`).
+    { name: 'mvp_ecef', type: mat4x4fT },
     { name: 'fill_color', type: vec4fT },
     { name: 'stroke_color', type: vec4fT },
     { name: 'proj_params', type: vec4fT },
@@ -54,9 +65,10 @@ const TileUniforms: StructDecl = {
     { name: 'opacity', type: f32T },
     // Log-depth factor: 1.0 / log2(cam_far + 1.0). Reuses the old DSFUN _pad0.
     { name: 'log_depth_fc', type: f32T },
-    // Slots 36-39 mirror the polygon Uniforms tail. The line shader only
+    // Slots 52-55 mirror the polygon Uniforms tail. The line shader only
     // reads outline_z_lift_m — the others are padding so the WGSL struct
-    // lines up with the shared 160-byte uniform block.
+    // lines up with the shared 256-byte uniform block (post PR 2c.1
+    // `mvp_ecef` insertion bumped the polygon struct 192 → 256 bytes).
     { name: '_pad_pick', type: u32T },
     { name: '_pad_layer_offset', type: f32T },
     { name: 'tile_extent_m', type: f32T },
@@ -194,32 +206,10 @@ const lineEndpoint = fn('line_endpoint', { p_h: vec2fT, p_l: vec2fT }, vec2fT, (
   b.ret(p.p_h.add(p.p_l))
 })
 
-const finalizeCorner = fn('finalize_corner', { corner: vec2fT }, vec2fT, (b, p) => {
-  const projParams = tile.field('proj_params', vec4fT)
-  b.if(projParams.x.lt(0.5), (c) => { c.ret(p.corner) })
-  const tileOrigin = tile.field('tile_origin_merc', vec2fT)
-  const absMerc = b.let('abs_merc', p.corner.add(tileOrigin))
-  const absLon = b.let('abs_lon', absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R'))))
-  const latRad = b.let('lat_rad', callFn('inv_merc_lat_rad', f32T, absMerc.y))
-  const absLat = b.let('abs_lat', latRad.div(constRef('DEG2RAD')))
-  const tileRefLon = b.let('tile_ref_lon',
-    tileOrigin.x.add(f32(0.5).mul(tile.field('tile_extent_m', f32T)))
-      .div(constRef('DEG2RAD').mul(constRef('EARTH_R'))),
-  )
-  const projXy = b.let('proj_xy', callFn('project_geom', vec2fT, absLon, absLat, projParams, tileRefLon))
-  const centerXy = b.let('center_xy', callFn('project', vec2fT, projParams.y, projParams.z, projParams))
-  b.ret(projXy.sub(centerXy))
-})
-
-const finalizeCornerGlobe = fn('finalize_corner_globe', { corner: vec2fT }, vec3fT, (b, p) => {
-  const tileOrigin = tile.field('tile_origin_merc', vec2fT)
-  const absMerc = b.let('abs_merc', p.corner.add(tileOrigin))
-  const absLon = b.let('abs_lon', absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R'))))
-  const latRad = b.let('lat_rad', callFn('inv_merc_lat_rad', f32T, absMerc.y))
-  const absLat = b.let('abs_lat', latRad.div(constRef('DEG2RAD')))
-  const projParams = tile.field('proj_params', vec4fT)
-  b.ret(callFn('proj_globe', vec3fT, absLon, absLat).sub(callFn('proj_globe', vec3fT, projParams.y, projParams.z)))
-})
+// `finalize_corner` / `finalize_corner_globe` retired in PR 2d.1C — the
+// per-projection ladder (project_geom / proj_globe) moved off the VS hot
+// path; vs_line transforms via `u.mvp_ecef * vec4(ecef_rtc, 1)` and the
+// CPU bakes every projType into mvp_ecef once per frame.
 
 const endpointCosC = fn('endpoint_cos_c', { p_h: vec2fT, p_l: vec2fT }, f32T, (b, p) => {
   const tileOrigin = tile.field('tile_origin_merc', vec2fT)
@@ -830,14 +820,94 @@ const vsLine = entryFn('vs_line', 'vertex', [
 
   const cornerLocal = b.var('corner_local', vec2fT, base.add(offset))
 
-  // Screen-pixel-width stroke geometry clamp.
+  // ── ECEF-RTC corner reconstruction (Phase 2 PR 2d.1C) ────────────────
+  //
+  // Hybrid VS: emit clip via `u.mvp_ecef * vec4(ecef_rtc, 1)` while still
+  // emitting `world_local` as tile-local Mercator metres for the FS
+  // distance / clip / backface / pattern math (`compute_line_color` reads
+  // `world_local` at 6 sites — backface cull, clip-bounds, segment dist,
+  // bevel/cap geometry, rim alpha, pattern repeat). The Mercator path is
+  // unchanged; only the clip transform swaps from
+  // `u.mvp * project_geom(corner)` to `u.mvp_ecef * ecef_rtc(corner)`.
+  //
+  // Math chain:
+  //   1. corner abs Mercator = cornerLocal + tile_origin_merc
+  //   2. inverse Mercator     → (abs_lon_rad, abs_lat_rad)
+  //   3. WGS84 forward ECEF   → ecef_corner
+  //   4. tile ECEF center same chain on tile_origin_merc
+  //   5. ecef_rtc             = ecef_corner - tile_ecef_center
+  //   6. clip                 = u.mvp_ecef * vec4(ecef_rtc, 1)
+  //
+  // Mirrors the polygon ECEF VS (vs_main_ecef) contract: the runtime
+  // builds `u.mvp_ecef` once per frame and the per-tile vertices are
+  // RTC-relative to the tile ECEF center. WGS84 constants match
+  // `ecef.ts:lonLatToECEF` byte-for-byte (a = 6378137, e² = 2f − f² for
+  // f = 1/298.257223563). Per-vertex cost: 2 sin + 2 cos + 2 sqrt + 1
+  // tan + 1 exp — modest on modern GPUs and isolated to the line VS.
+
+  const earthR = constRef('EARTH_R')
+  const pi = constRef('PI')
+  const wgs84E2 = f32(0.006694379990197561) // 2f − f² for f = 1/298.257223563
+
+  // Helper: build local ECEF for an absolute Mercator (x_m, y_m) input.
+  // Returns the WGS84 ellipsoidal ECEF position in metres. Inlined as a
+  // closure-style sequence of `let` bindings to keep the IR flat (DSL
+  // helpers prefer call-site inlining over fn definitions for hot-path
+  // shader math; the polygon ECEF VS pattern at polygon.ts:307-315 is
+  // the same style).
+  type FNode = Node<'f32'>
+  const ecefFromMerc = (
+    builder: typeof b,
+    name: string,
+    absMercX: FNode,
+    absMercY: FNode,
+  ): Node<'vec3<f32>'> => {
+    const lonRad = builder.let(`${name}_lon_rad`, toF32(absMercX.div(earthR)))
+    const latRad = builder.let(`${name}_lat_rad`,
+      toF32(f32(2).mul(atan(exp(absMercY.div(earthR)))).sub(pi.div(f32(2)))),
+    )
+    const sinLat = builder.let(`${name}_sin_lat`, sin(latRad))
+    const cosLat = builder.let(`${name}_cos_lat`, cos(latRad))
+    const sinLon = builder.let(`${name}_sin_lon`, sin(lonRad))
+    const cosLon = builder.let(`${name}_cos_lon`, cos(lonRad))
+    const N = builder.let(`${name}_N`,
+      toF32(earthR.div(sqrt(f32(1).sub(wgs84E2.mul(sinLat).mul(sinLat))))),
+    )
+    return builder.let(`${name}_ecef`, vec3(
+      N.mul(cosLat).mul(cosLon),
+      N.mul(cosLat).mul(sinLon),
+      N.mul(f32(1).sub(wgs84E2)).mul(sinLat),
+    )) as Node<'vec3<f32>'>
+  }
+
+  // Screen-pixel-width stroke geometry clamp. Pre-clamp draft via ECEF
+  // round-trip on the candidate corner (matches polygon convention).
   b.if(layerVpH.gt(0), (c) => {
-    const mvp = tile.field('mvp', mat4x4fT)
     const zLift = seg.field('z_lift_m', f32T)
-    const centerClip = c.let('center_clip', transformMat4(mvp, vec4(callFn('finalize_corner', vec2fT, base), zLift, f32(1))))
-    const cornerClip = c.let('corner_clip', transformMat4(mvp, vec4(callFn('finalize_corner', vec2fT, cornerLocal), zLift, f32(1))))
-    // .xy swizzle: build vec2 explicitly so the key stays typed (DSL .swizzle
-    // returns Node<string>, which loses .sub/.mul arg inference).
+    const tileOrigin = tile.field('tile_origin_merc', vec2fT)
+    const mvpEcef = tile.field('mvp_ecef', mat4x4fT)
+    // Tile ECEF center reconstruction (one set per vs_line invocation).
+    const tileAbsX = c.let('tile_abs_x', toF32(tileOrigin.x))
+    const tileAbsY = c.let('tile_abs_y', toF32(tileOrigin.y))
+    const tileEcef = ecefFromMerc(c, 'clamp_tile', tileAbsX, tileAbsY)
+    // Center corner.
+    const baseAbsX = c.let('base_abs_x', toF32(base.x.add(tileOrigin.x)))
+    const baseAbsY = c.let('base_abs_y', toF32(base.y.add(tileOrigin.y)))
+    const baseEcef = ecefFromMerc(c, 'clamp_base', baseAbsX, baseAbsY)
+    const baseRtc = c.let('base_rtc', baseEcef.sub(tileEcef))
+    const baseRtcLifted = c.let('base_rtc_lifted',
+      vec3(baseRtc.x, baseRtc.y, toF32(baseRtc.z.add(zLift))),
+    )
+    const centerClip = c.let('center_clip', transformMat4(mvpEcef, vec4(baseRtcLifted, f32(1))))
+    // Candidate corner.
+    const cornerAbsX = c.let('corner_abs_x', toF32(cornerLocal.x.add(tileOrigin.x)))
+    const cornerAbsY = c.let('corner_abs_y', toF32(cornerLocal.y.add(tileOrigin.y)))
+    const cornerEcef = ecefFromMerc(c, 'clamp_corner', cornerAbsX, cornerAbsY)
+    const cornerRtc = c.let('corner_rtc', cornerEcef.sub(tileEcef))
+    const cornerRtcLifted = c.let('corner_rtc_lifted',
+      vec3(cornerRtc.x, cornerRtc.y, toF32(cornerRtc.z.add(zLift))),
+    )
+    const cornerClip = c.let('corner_clip', transformMat4(mvpEcef, vec4(cornerRtcLifted, f32(1))))
     const centerXY = c.let('center_xy', vec2(centerClip.x, centerClip.y))
     const cornerXY = c.let('corner_xy', vec2(cornerClip.x, cornerClip.y))
     const centerNdc = c.let('center_ndc', centerXY.div(max(abs(centerClip.w), f32(1e-6))).mul(sign(centerClip.w)))
@@ -850,20 +920,26 @@ const vsLine = entryFn('vs_line', 'vertex', [
     })
   })
 
-  // Project once per corner (Mercator: identity; non-Merc: per-vertex; globe: vec3).
+  // Final corner → ECEF-RTC → clip. Reconstruct tile ECEF center + corner
+  // ECEF via the same WGS84 forward chain as polygon vs_main_ecef.
   const out = b.var('out', structT('LineOut'))
-  const cornerProj = b.let('corner_proj', callFn('finalize_corner', vec2fT, cornerLocal))
-  const cornerGlobe = b.let('corner_globe', callFn('finalize_corner_globe', vec3fT, cornerLocal))
-  const mvp = tile.field('mvp', mat4x4fT)
+  const tileOrigin2 = tile.field('tile_origin_merc', vec2fT)
+  const mvpEcef = tile.field('mvp_ecef', mat4x4fT)
   const zLift = seg.field('z_lift_m', f32T)
-  const projParams = tile.field('proj_params', vec4fT)
-  const clip = b.let('clip',
-    select(
-      projParams.x.gt(6.5),
-      transformMat4(mvp, vec4(cornerGlobe, f32(1))),
-      transformMat4(mvp, vec4(cornerProj, zLift, f32(1))),
-    ),
+
+  const tileAbsX = b.let('tile_abs_x_f', toF32(tileOrigin2.x))
+  const tileAbsY = b.let('tile_abs_y_f', toF32(tileOrigin2.y))
+  const tileEcef = ecefFromMerc(b, 'final_tile', tileAbsX, tileAbsY)
+
+  const cornerAbsX = b.let('corner_abs_x_f', toF32(cornerLocal.x.add(tileOrigin2.x)))
+  const cornerAbsY = b.let('corner_abs_y_f', toF32(cornerLocal.y.add(tileOrigin2.y)))
+  const cornerEcef = ecefFromMerc(b, 'final_corner', cornerAbsX, cornerAbsY)
+  const ecefRtc = b.let('ecef_rtc', cornerEcef.sub(tileEcef))
+  const ecefRtcLifted = b.let('ecef_rtc_lifted',
+    vec3(ecefRtc.x, ecefRtc.y, toF32(ecefRtc.z.add(zLift))),
   )
+
+  const clip = b.let('clip', transformMat4(mvpEcef, vec4(ecefRtcLifted, f32(1))))
   b.assign(out.field('position', vec4fT), callFn('apply_log_depth', vec4fT, clip, tile.field('log_depth_fc', f32T)))
   b.assign(out.field('view_w', f32T), clip.w)
   b.assign(out.field('world_local', vec2fT), cornerLocal)
@@ -948,7 +1024,7 @@ const buildLineModule = (pickEnabled: boolean): ModuleDecl => module({
     { group: 1, binding: 3, name: 'shape_segments', space: 'storage', access: 'read', type: arrayT(structT('ShapeSegment')) },
   ],
   funcs: [
-    lineEndpoint, finalizeCorner, finalizeCornerGlobe, endpointCosC, patternUnitToM, sdfShape,
+    lineEndpoint, endpointCosC, patternUnitToM, sdfShape,
     computeLineColor, lineRimAlpha, vsLine,
     buildFsLine(pickEnabled), buildFsLinePattern(pickEnabled), fsLineMax,
   ],
