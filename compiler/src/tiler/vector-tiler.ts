@@ -70,48 +70,21 @@ export function splitF64(x: number): [number, number] {
   return [h, l]
 }
 
-/**
- * Pack a stride-3 scratch array of absolute (lon, lat, feat_id) vertices into a
- * stride-5 DSFUN Float32Array of tile-local Mercator meters:
- *   [mx_h, my_h, mx_l, my_l, feat_id]
- * The tile origin (tileMx, tileMy) is subtracted in f64 before splitting, so
- * the resulting high/low pair can reconstruct f64-equivalent precision on the
- * GPU via (pos_h - cam_h) + (pos_l - cam_l).
+/** Pack ABSOLUTE Mercator-metre point features into ECEF DSFUN stride-9.
+ *
+ * Phase 2 PR 2d.2 — POINT VS ECEF migration. Identical math + output layout
+ * to `packECEFPolygonVertices`; named separately so the call-site intent at
+ * `pointVertices: packECEFPointFeatures(scratch.ptv, …)` is unambiguous (the
+ * polygon packer name reading `scratch.ptv` would mislead).
+ *
+ * Input: stride-3 `[mx, my, fid]` ABSOLUTE Mercator metres.
+ * Output: stride-9 Float32Array `[ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon, abs_lat]`.
  */
-export function packDSFUNPolygonVertices(
+export function packECEFPointFeatures(
   scratchPv: number[] | Float64Array,
-  tileMx: number,
-  tileMy: number,
+  ecefTileCenter: readonly [number, number, number],
 ): Float32Array {
-  // Input stride-3: [mx, my, fid] in ABSOLUTE Mercator meters (MM).
-  // Output stride-5: [mx_h, my_h, mx_l, my_l, fid] in tile-local MM
-  // split across f32 high/low pairs. See docs/COORDINATES.md for the
-  // per-stage space rules — all polygon CPU work ends in MM so this
-  // function is just re-originating to the tile corner plus DSFUN
-  // high/low splitting. Historical note: used to accept lon/lat and
-  // project here; the projection was hoisted up to the pipeline
-  // entry point (decomposeFeatures → projectRingsToMM) so every
-  // intermediate buffer lives in MM.
-  const count = scratchPv.length / 3
-  const out = new Float32Array(count * 5)
-  for (let i = 0; i < count; i++) {
-    const mx = scratchPv[i * 3]
-    const my = scratchPv[i * 3 + 1]
-    const fid = scratchPv[i * 3 + 2]
-    const localMx = mx - tileMx
-    const localMy = my - tileMy
-    const mxH = Math.fround(localMx)
-    const mxL = Math.fround(localMx - mxH)
-    const myH = Math.fround(localMy)
-    const myL = Math.fround(localMy - myH)
-    const base = i * 5
-    out[base] = mxH
-    out[base + 1] = myH
-    out[base + 2] = mxL
-    out[base + 3] = myL
-    out[base + 4] = fid
-  }
-  return out
+  return packECEFPolygonVertices(scratchPv, ecefTileCenter)
 }
 
 /** Pack ABSOLUTE Mercator-metre polygon vertices into ECEF DSFUN stride-9.
@@ -130,8 +103,6 @@ export function packDSFUNPolygonVertices(
  * Math constants are duplicated here (not imported from runtime/) because
  * cross-package imports are forbidden in the compiler tiler.  The values
  * are bit-identical to runtime/src/engine/projection/ecef.ts.
- *
- * `packDSFUNPolygonVertices` is NOT removed — the point path still uses it.
  */
 export function packECEFPolygonVertices(
   scratchPv: number[] | Float64Array,
@@ -1602,7 +1573,7 @@ function processZoomLevelShared(
             ? packDSFUNLineVertices(scratch.olv, tileMx, tileMy)
             : new Float32Array(0),
           outlineLineIndices: new Uint32Array(scratch.oli),
-          pointVertices: scratch.ptv.length > 0 ? packDSFUNPolygonVertices(scratch.ptv, tileMx, tileMy) : undefined,
+          pointVertices: scratch.ptv.length > 0 ? packECEFPointFeatures(scratch.ptv, tileEcefCenter) : undefined,
           featureCount: featureIds.size,
           fullCover,
           fullCoverFeatureId: fullCoverFeatId,
@@ -1834,7 +1805,7 @@ export function compileSingleTile(
       ? packDSFUNLineVertices(scratch.olv, tileMx, tileMy)
       : new Float32Array(0),
     outlineLineIndices: new Uint32Array(scratch.oli),
-    pointVertices: scratch.ptv.length > 0 ? packDSFUNPolygonVertices(scratch.ptv, tileMx, tileMy) : undefined,
+    pointVertices: scratch.ptv.length > 0 ? packECEFPointFeatures(scratch.ptv, tileEcefCenter) : undefined,
     featureCount: featureIds.size,
     fullCover,
     fullCoverFeatureId: fullCover ? fullCoverFeatId : undefined,

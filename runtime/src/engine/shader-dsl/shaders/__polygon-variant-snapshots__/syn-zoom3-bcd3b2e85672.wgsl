@@ -1,4 +1,4 @@
-// baseline: b5b466cd1b1cc5194ca66ae74bf004034f4162e8
+// baseline: 43852b9a82e082e36bbfc92b91d3a8f858a4b5e2
 // fixture: syn-zoom3
 // variant.key: syn-zoom3
 // pick: false

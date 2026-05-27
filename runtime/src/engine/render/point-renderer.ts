@@ -4,7 +4,8 @@
 // Single draw call for all points via per-feature storage buffer.
 
 import type { Camera } from '../projection/camera'
-import { BLEND_ALPHA, DEPTH_TEST_WRITE, WORLD_MERC, TILE_PX, worldCopiesFor } from '../gpu/gpu-shared'
+import { lonLatToECEF } from '../projection/ecef'
+import { BLEND_ALPHA, DEPTH_TEST_WRITE, WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 import { getSampleCount } from '../gpu/gpu'
 import type { ShapeRegistry } from '../text/sdf-shape'
 import { parseHexColor } from '../feature-helpers'
@@ -27,7 +28,7 @@ export class PointRenderer {
   // recomputing the stride/attribute map.
   private vertexBufferLayout: GPUVertexBufferLayout | null = null
   private uniformBuffer: GPUBuffer
-  private uniformData = new Float32Array(28) // mvp(16) + proj_params(4) + tile_rtc(4) + viewport(2) + pad(2)
+  private uniformData = new Float32Array(28) // mvp_ecef(16) + proj_params(4) + pad(4) + viewport(4)
   /** iter-249 (Plan AAA B.2) — per-flush arena. Each flush*() call
    *  allocates 3 large typed arrays (verts / indices / featData)
    *  sized to per-call vertex count. On flush entry, beginFrame()
@@ -224,7 +225,8 @@ export class PointRenderer {
   }
 
   // ── Tile-based point accumulation (called from VectorTileRenderer) ──
-  private tilePoints: { rtcX: number; rtcY: number; featId: number }[] = []
+  // Phase 2 PR 2d.2 — ECEF DSFUN: [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, featId, absLon, absLat]
+  private tilePoints: { exH: number; eyH: number; ezH: number; exL: number; eyL: number; ezL: number; featId: number; absLon: number; absLat: number }[] = []
   private tilePointBuffer: GPUBuffer | null = null
   private tilePointIndexBuffer: GPUBuffer | null = null
   private tilePointFeatBuffer: GPUBuffer | null = null
@@ -256,9 +258,9 @@ export class PointRenderer {
     this.retiredTilePointBuffers.length = 0
   }
 
-  /** Accumulate a point from a visible tile (pre-computed RTC) */
-  addTilePoint(rtcX: number, rtcY: number, featId: number): void {
-    this.tilePoints.push({ rtcX, rtcY, featId })
+  /** Accumulate a point from a visible tile (ECEF DSFUN components). */
+  addTilePoint(exH: number, eyH: number, ezH: number, exL: number, eyL: number, ezL: number, featId: number, absLon: number, absLat: number): void {
+    this.tilePoints.push({ exH, eyH, ezH, exL, eyL, ezL, featId, absLon, absLat })
   }
 
   /** Flush accumulated tile points as a single draw call */
@@ -289,11 +291,10 @@ export class PointRenderer {
     if (fill) flags |= 1
     if (stroke) flags |= 2
 
-    // Build expanded buffers (one per world copy). Mercator wraps; other
-    // projections collapse to a single world (worldCopiesFor()).
-    const STRIDE = 14
-    // WORLD_MERC imported from gpu-shared
-    const COPIES = worldCopiesFor(projType)
+    // Phase 2 PR 2d.2 — ECEF DSFUN: one world copy (ECEF is absolute,
+    // no Mercator world-wrapping needed).
+    const STRIDE = 20
+    const COPIES = [0]
     const totalN = N * COPIES.length
 
     // iter-249 (Plan AAA B.2) — arena-backed scratch. Pre-iter-249
@@ -305,33 +306,31 @@ export class PointRenderer {
     const featData = this._frameArena.allocF32(totalN * STRIDE)
     const u32View = new Uint32Array(verts.buffer, verts.byteOffset, verts.length)
 
-    for (let w = 0; w < COPIES.length; w++) {
-      const worldOff = COPIES[w] * WORLD_MERC
-      for (let i = 0; i < N; i++) {
-        const pt = this.tilePoints[i]
-        const gi = w * N + i
+    for (let i = 0; i < N; i++) {
+      const pt = this.tilePoints[i]
 
-        const base = gi * 4 * 4
-        for (let q = 0; q < 4; q++) {
-          const off = base + q * 4
-          verts[off] = 0; verts[off + 1] = 0; u32View[off + 2] = q; verts[off + 3] = gi
-        }
-
-        const iBase = gi * 6, vBase = gi * 4
-        indices[iBase] = vBase; indices[iBase+1] = vBase+1; indices[iBase+2] = vBase+2
-        indices[iBase+3] = vBase; indices[iBase+4] = vBase+2; indices[iBase+5] = vBase+3
-
-        const fOff = gi * STRIDE
-        featData[fOff+0] = radiusPx
-        featData[fOff+1] = fill?fill[0]:0; featData[fOff+2] = fill?fill[1]:0
-        featData[fOff+3] = fill?fill[2]:0; featData[fOff+4] = fill?fill[3]*opacity:0
-        featData[fOff+5] = stroke?stroke[0]:0; featData[fOff+6] = stroke?stroke[1]:0
-        featData[fOff+7] = stroke?stroke[2]:0; featData[fOff+8] = stroke?stroke[3]*opacity:0
-        featData[fOff+9] = strokeWidth; featData[fOff+10] = flags
-        featData[fOff+11] = pt.rtcX + worldOff
-        featData[fOff+12] = pt.rtcY
-        featData[fOff+13] = 0 // shape_id (circle default for tile points)
+      const base = i * 4 * 4
+      for (let q = 0; q < 4; q++) {
+        const off = base + q * 4
+        verts[off] = 0; verts[off + 1] = 0; u32View[off + 2] = q; verts[off + 3] = i
       }
+
+      const iBase = i * 6, vBase = i * 4
+      indices[iBase] = vBase; indices[iBase+1] = vBase+1; indices[iBase+2] = vBase+2
+      indices[iBase+3] = vBase; indices[iBase+4] = vBase+2; indices[iBase+5] = vBase+3
+
+      const fOff = i * STRIDE
+      featData[fOff+0] = radiusPx
+      featData[fOff+1] = fill?fill[0]:0; featData[fOff+2] = fill?fill[1]:0
+      featData[fOff+3] = fill?fill[2]:0; featData[fOff+4] = fill?fill[3]*opacity:0
+      featData[fOff+5] = stroke?stroke[0]:0; featData[fOff+6] = stroke?stroke[1]:0
+      featData[fOff+7] = stroke?stroke[2]:0; featData[fOff+8] = stroke?stroke[3]*opacity:0
+      featData[fOff+9] = strokeWidth; featData[fOff+10] = flags
+      // ECEF DSFUN: pos_h.xyz at 11-13, pos_l.xyz at 14-16, abs_lon at 17, abs_lat at 18, shape_id at 19
+      featData[fOff+11] = pt.exH; featData[fOff+12] = pt.eyH; featData[fOff+13] = pt.ezH
+      featData[fOff+14] = pt.exL; featData[fOff+15] = pt.eyL; featData[fOff+16] = pt.ezL
+      featData[fOff+17] = pt.absLon; featData[fOff+18] = pt.absLat
+      featData[fOff+19] = 0 // shape_id (circle default for tile points)
     }
 
     // Defer destroy of the previous frame's buffers — see
@@ -351,7 +350,8 @@ export class PointRenderer {
 
     this.tilePointBindGroup = this.makeBindGroup(this.tilePointFeatBuffer)
 
-    const frame = camera.getFrameView(canvasWidth, canvasHeight, dpr)
+    // Phase 2 PR 2d.2 — use ECEF MVP; tile_rtc slot (20-23) unused.
+    const frame = camera.getECEFFrameView(canvasWidth, canvasHeight, dpr)
     const uf = this.uniformData
     uf.set(frame.matrix, 0)
     uf[16] = projType; uf[17] = projCenterLon; uf[18] = projCenterLat; uf[19] = 0
@@ -370,7 +370,7 @@ export class PointRenderer {
     const strokeA = stroke ? stroke[3] * opacity : 1
     const tileIsTranslucent = opacity < EPS || fillA < EPS || strokeA < EPS
 
-    // Single draw call for all 3 world copies
+    // Single draw call for all tile points
     pass.setPipeline(tileIsTranslucent ? this.pipelineTranslucent : this.pipeline)
     pass.setBindGroup(0, this.tilePointBindGroup)
     pass.setVertexBuffer(0, this.tilePointBuffer)
@@ -447,8 +447,8 @@ export class PointRenderer {
       indices[iBase + 5] = vBase + 3
     }
 
-    // Build per-feature data (stride = 11 floats)
-    const STRIDE = 14
+    // Build per-feature data (stride = 20 floats, ECEF DSFUN layout)
+    const STRIDE = 20
     const featData = this._frameArena.allocF32(points.length * STRIDE)
     let flags = 0
     if (fill) flags |= 1
@@ -478,8 +478,8 @@ export class PointRenderer {
       // stroke width in UV space
       featData[off + 9] = strokeWidth  // raw px, shader converts to UV
       featData[off + 10] = flags
-      // [11] and [12] = RTC x/y, written per-frame in render()
-      featData[off + 13] = shapeId ?? 0
+      // [11..18] = ECEF DSFUN (pos_h.xyz, pos_l.xyz, abs_lon, abs_lat) — written per-frame in render()
+      featData[off + 19] = shapeId ?? 0
     }
 
     // Store original coordinates in f64 for per-frame RTC computation
@@ -534,7 +534,7 @@ export class PointRenderer {
    *  expanded buffer each frame, so the patched values propagate
    *  naturally — no need to touch the expanded buffer. */
   updateDynamicSizes(cameraZoom: number, elapsedMs: number): void {
-    const STRIDE = 14
+    const STRIDE = 20
     for (const layer of this.layers) {
       const shape = layer.sizeShape
       if (shape === null) continue
@@ -568,24 +568,19 @@ export class PointRenderer {
   ): void {
     if (this.layers.length === 0) return
 
-    const frame = camera.getFrameView(canvasWidth, canvasHeight, dpr)
+    // Phase 2 PR 2d.2 — ECEF MVP; tile_rtc slot (20-23) unused.
+    const frame = camera.getECEFFrameView(canvasWidth, canvasHeight, dpr)
     const uf = this.uniformData
 
-    // MVP matrix
+    // ECEF MVP matrix
     uf.set(frame.matrix, 0)
-    // proj_params: shader's reproject_point branches on projType
+    // proj_params: retained for fragment-side hemisphere cull
     uf[16] = projType
     uf[17] = projCenterLon
     uf[18] = projCenterLat
     uf[19] = 0
-    // tile_rtc: -project(center)
-    const DEG2RAD = Math.PI / 180
-    const R = 6378137
-    uf[20] = -projCenterLon * DEG2RAD * R
-    const clampedLat = Math.max(-85.051129, Math.min(85.051129, projCenterLat))
-    uf[21] = -Math.log(Math.tan(Math.PI / 4 + clampedLat * DEG2RAD / 2)) * R
-    uf[22] = 0
-    uf[23] = 0
+    // tile_rtc slot unused (ECEF VS doesn't need Mercator RTC)
+    uf[20] = 0; uf[21] = 0; uf[22] = 0; uf[23] = 0
     // viewport: xy = size, z = meters_per_pixel, w = log_depth_fc
     const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, camera.zoom)
     uf[24] = canvasWidth
@@ -593,21 +588,13 @@ export class PointRenderer {
     uf[26] = metersPerPixel
     uf[27] = frame.logDepthFc
 
-    // tile_rtc no longer needed in uniform (RTC computed per-point in CPU)
-    uf[20] = 0; uf[21] = 0; uf[22] = 0; uf[23] = 0
-
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uf)
 
-    // Camera center in Mercator (f64 precision)
-    const camMercX = projCenterLon * DEG2RAD * R
-    const camClampedLat = Math.max(-85.051129, Math.min(85.051129, projCenterLat))
-    const camMercY = Math.log(Math.tan(Math.PI / 4 + camClampedLat * DEG2RAD / 2)) * R
+    const DEG2RAD = Math.PI / 180
 
-    // WORLD_MERC imported from gpu-shared
-    const STRIDE = 14
-    // World-copy enumeration depends on projection — Mercator wraps,
-    // others collapse to a single world. See worldCopiesFor().
-    const COPIES = worldCopiesFor(projType)
+    // ECEF DSFUN: one world copy (absolute ECEF, no Mercator world-wrapping).
+    const STRIDE = 20
+    const COPIES = [0]
 
     // View-forward projection onto the ground plane, used to sort
     // translucent instances back-to-front. Pitch=0 gives a zero vector
@@ -642,40 +629,43 @@ export class PointRenderer {
       const order = layer.isTranslucent ? this._frameArena.allocU32(totalPoints) : null
 
       for (let w = 0; w < COPIES.length; w++) {
-        const worldOff = COPIES[w] * WORLD_MERC
         const basePoint = w * N
 
         for (let i = 0; i < N; i++) {
           const lon = layer.lons[i]
           const lat = layer.lats[i]
-          const mercX = lon * DEG2RAD * R
-          const clampLat = Math.max(-85.051129, Math.min(85.051129, lat))
-          const mercY = Math.log(Math.tan(Math.PI / 4 + clampLat * DEG2RAD / 2)) * R
 
-          const dx = mercX - camMercX + worldOff
-          const dy = mercY - camMercY
+          // ECEF DSFUN: absolute ECEF with hi/lo split around origin.
+          const ecef = lonLatToECEF(lon, lat)
+          const exH = Math.fround(ecef[0]); const exL = ecef[0] - exH
+          const eyH = Math.fround(ecef[1]); const eyL = ecef[1] - eyH
+          const ezH = Math.fround(ecef[2]); const ezL = ecef[2] - ezH
 
-          // Copy style data from original
+          // Copy style data from original (slots 0-10)
           const srcOff = i * STRIDE
-          const dstOff = (basePoint + i) * STRIDE
+          const globalIdx = basePoint + i
+          const dstOff = globalIdx * STRIDE
           expandedFeat.set(layer.featData.subarray(srcOff, srcOff + 11), dstOff)
-          expandedFeat[dstOff + 13] = layer.featData[srcOff + 13] // shape_id
-          expandedFeat[dstOff + 11] = dx
-          expandedFeat[dstOff + 12] = dy
+          // ECEF DSFUN at slots 11-16, abs_lon/lat at 17-18, shape_id at 19
+          expandedFeat[dstOff + 11] = exH; expandedFeat[dstOff + 12] = eyH; expandedFeat[dstOff + 13] = ezH
+          expandedFeat[dstOff + 14] = exL; expandedFeat[dstOff + 15] = eyL; expandedFeat[dstOff + 16] = ezL
+          expandedFeat[dstOff + 17] = lon; expandedFeat[dstOff + 18] = lat
+          expandedFeat[dstOff + 19] = layer.featData[srcOff + 19] // shape_id
 
           // Build quad vertices
-          const globalIdx = basePoint + i
           const vBase = globalIdx * 4 * 4
           for (let q = 0; q < 4; q++) {
             const off = vBase + q * 4
-            expandedVerts[off + 0] = 0 // placeholder (RTC in feat_data)
+            expandedVerts[off + 0] = 0
             expandedVerts[off + 1] = 0
             u32Verts[off + 2] = q
-            expandedVerts[off + 3] = globalIdx // feat_id indexes into expanded buffer
+            expandedVerts[off + 3] = globalIdx
           }
 
+          // Depth sort key: use ECEF z-component as a proxy for back-to-front.
+          // (more negative ez_h = further from viewer in most projections)
           if (depths && order) {
-            depths[globalIdx] = dx * fwdX + dy * fwdY
+            depths[globalIdx] = exH * fwdX + eyH * fwdY
             order[globalIdx] = globalIdx
           } else {
             // Feature-order indices for opaque layers.
