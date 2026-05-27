@@ -15,6 +15,7 @@ Camera math and the seven map projections. `projection.ts` is the CPU side: `mer
 | `../shader-dsl/cpu-projections.ts` | GENERATED cpu-f64 mirror of WGSL `proj_*` (`projectWgsl`, `projectGeomWgsl`, …) — replaces the deleted `projection-wgsl-mirror.ts`. Lowered from `../shader-dsl/projections.ts`; the parity check pins CPU `projection.ts` against it. |
 | `reprojector.ts` | Currently UNUSED 2-pass equirect→target resampler, preserved for a future RTT approach. No test coverage — keep inverse fns faithful to `projection.ts` on any edit. **Phase 2e** deletes this file (confirmed dead per memory `project_shader_dsl_pr_d_phase4_2026_05_27`). |
 | `ecef.ts` | **Phase 2 PR 2a (scaffolding).** WGS84 ellipsoid ECEF (Earth-Centered Earth-Fixed) coordinate math. `lonLatToECEF` / `mercatorToECEF` / `ecefToLonLat` / `dsfunSplitECEF` — feeds the Tier 3 ECEF vertex pipeline once VSes drop `project_geom` and become `mvp * vec4(ecef_rtc, 1)`. No runtime consumer yet (Phase 2 PR 2c is the first; the polygon VS is the first migration target). |
+| `earth-surface-fill.ts` | **Phase 2 PR 2c-prep (scaffolding).** Lat/lon-grid mesh generator that will replace `BackgroundRenderer` once Phase 2 PR 2c flips the polygon VS to ECEF. `worldBandForProjType(projType)` resolves the per-projType band (Mercator/cyl clamped at ±85°, NE oval, sphere ±90°). `generateEarthSurfaceFillMesh(w, h, band)` emits a minimum-32×16 lat/lon triangle strip in row-major order with CCW winding. Data only — no shader inlines and no runtime consumer yet. |
 
 ## For AI Agents
 
