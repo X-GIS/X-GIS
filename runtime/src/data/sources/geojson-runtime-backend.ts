@@ -32,8 +32,7 @@ export class GeoJSONRuntimeBackend implements TileSource {
       bounds: [-180, -85, 180, 85],
       minZoom: 0,
       maxZoom: 7,
-      // GeoJSON-runtime tiles on the Web Mercator XYZ slippy grid (z/x/y).
-      // Phase 1b scaffolding for Tier 3 scheme dispatch.
+      // GeoJSON-runtime tiles on the Web Mercator XYZ slippy grid.
       scheme: 'web-mercator-xyz',
       // GeoJSON-runtime doesn't carry a property table — feature
       // properties stay on the in-memory features and are looked up
@@ -60,9 +59,8 @@ export class GeoJSONRuntimeBackend implements TileSource {
       ...this.meta,
       maxZoom,
       bounds: computeBounds(parts),
-      // Re-assert scheme on every meta-write site to guard against drift
-      // if the spread above misses the field (Phase 1b AC1b.8 dual-write
-      // assertion target).
+      // Re-asserted at every meta-write site to guard against drift if the
+      // spread above ever misses the field.
       scheme: 'web-mercator-xyz',
     }
     this.buildPartGrid(parts)

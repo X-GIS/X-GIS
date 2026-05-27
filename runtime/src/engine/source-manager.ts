@@ -460,11 +460,6 @@ export class SourceManager {
     // declared CRS is looked up by sourceId in the run()-time registry;
     // absent CRS ⇒ EPSG:4326 / no-op.
     normalized = this._reprojectIngest(sourceId, normalized)
-    // Phase 1a / Tier 3 source-honest principle: polar-cap injection is no
-    // longer renderer-driven. Hosts that need polar caps must call
-    // `injectPolarCaps` (exported from @xgis/runtime) on their GeoJSON before
-    // calling setSourceData. The renderer never invents geometry the data
-    // does not provide.
     this.rawDatasets.set(sourceId, normalized)
     // Full replace invalidates any cached feature index for this source.
     this.deleteFeatureIndex(sourceId)

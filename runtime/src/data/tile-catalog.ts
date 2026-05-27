@@ -251,16 +251,11 @@ export class TileCatalog {
     this.mergeBackendMeta(backend)
   }
 
-  /** Phase 1b — return the catalog's primary tile scheme. The plan called
-   *  for `getSourceScheme(name)` but the catalog has no source-name concept
-   *  (SourceManager owns the name → catalog map). The catalog-level
-   *  accessor exposes the first-attached backend's scheme as the primary;
-   *  mixed-scheme dispatch is a Phase 3+ concern. Returns undefined if no
-   *  backend has been attached yet.
-   *
-   *  Phase 2 ECEF VS migration is the intended consumer — VS pipelines
-   *  will read the scheme to dispatch decode paths once non-Mercator
-   *  backends ship. */
+  /** Catalog's primary tile scheme — the first-attached backend's scheme.
+   *  Returns undefined before any backend is attached. Mixed-scheme dispatch
+   *  is deferred until multi-scheme backends exist; today every attach is
+   *  Mercator XYZ. Per-source name lookup belongs at SourceManager, which
+   *  owns the source-name → catalog map. */
   getScheme(): TileScheme | undefined {
     return this.backends[0]?.meta.scheme
   }

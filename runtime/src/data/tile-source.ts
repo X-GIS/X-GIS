@@ -101,20 +101,17 @@ export interface BackendTileResult {
   prebuiltOutlineSegments?: Float32Array
 }
 
-/** Tile-scheme discriminator declared by a backend at attach time.
- *  Drives scheme-aware decode dispatch in later phases (Tier 3 ECEF VS in
- *  Phase 2, EPSG:4326 backend in Phase 3, S2 cube-sphere in Phase 4).
+/** Tile-scheme discriminator declared by a backend at attach time. Drives
+ *  scheme-aware decode dispatch once non-Mercator backends exist.
  *
- *  Phase 1b ships the single-variant union `'web-mercator-xyz'` only — every
- *  existing X-GIS backend (PMTiles / GeoJSON-tiled / raster XYZ) tiles in
- *  Web Mercator XYZ at z/x/y. Future variants are reserved but NOT added to
- *  the union until their backend implementation lands (YAGNI):
- *    - `'epsg-4326-quadtree'`  — 2-root geographic quadtree (Cesium / NASA
- *      Worldwind style); enables ±90° latitude coverage without polar
- *      synthesis. Added in Phase 3.
- *    - `'s2-cube-sphere'`     — 6-root cube-sphere decomposition (3D Tiles
- *      1.1 `3DTILES_bounding_volume_S2`); uniform distortion globally. Added
- *      in Phase 4. */
+ *  The union is intentionally single-variant today — every shipping backend
+ *  (PMTiles, GeoJSON-tiled, raster XYZ) tiles on Web Mercator XYZ. Variants
+ *  reserved for later additions, kept out of the union until their backends
+ *  land (YAGNI):
+ *    - `'epsg-4326-quadtree'` — 2-root geographic quadtree (Cesium / NASA
+ *      Worldwind style); reaches ±90° latitude without polar synthesis.
+ *    - `'s2-cube-sphere'`     — 6-root cube-sphere (3D Tiles 1.1
+ *      `3DTILES_bounding_volume_S2`); uniform distortion globally. */
 export type TileScheme = 'web-mercator-xyz'
 
 /** Metadata contributed by a backend at attach time. Catalog merges
@@ -125,9 +122,8 @@ export type TileScheme = 'web-mercator-xyz'
  *     across backends is a Phase 2 concern, see plan §1.4)
  *   - entries → registered with catalog's XGVTIndex; preregistered
  *     entries route deterministically via entryToBackend.
- *   - scheme → declared by backend; catalog stores per-source and exposes
- *     via TileCatalog.getSourceScheme. Phase 1b scaffolding for Tier 3
- *     ECEF VS migration; no runtime consumer yet. */
+ *   - scheme → declared by backend; catalog exposes via
+ *     `TileCatalog.getScheme`. */
 export interface TileSourceMeta {
   bounds: [number, number, number, number]
   minZoom: number

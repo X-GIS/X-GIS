@@ -575,23 +575,11 @@ export class XGISMap {
     return this.cameraController.getCameraState()
   }
 
-  /** Polar-cap synthesis on/off — when ON, setSourceData scans every
-   *  GeoJSON polygon for Web Mercator clamp-boundary spans (±85.05°)
-   *  and appends synthesised cap polygons closing the surface to the
-   *  pole. Fixes the circular hole at the pole on globe / ortho /
-   *  azimuthal projections (project_polar_cap_gap_globe).
-   *
-   *  Default OFF for backwards compatibility — Mercator-only
-   *  deployments don't pay the scan cost or load extra polygons.
-   *  Hosts using globe / azimuthal projections should enable this
-   *  early in setup, BEFORE setSourceData calls. */
-  private _polarCapsEnabled = false
-  /** Polar-cap synthesis is no longer renderer-driven (Phase 1a / Tier 3 source-honest
-   *  principle). The renderer never invents geometry the data does not provide. To
-   *  close polar caps on globe / azimuthal projections, preprocess your GeoJSON with
-   *  the public utilities `injectPolarCaps` / `synthesizePolarCaps` (exported from
-   *  `@xgis/runtime`) before calling `setSourceData`. This setter is retained as a
-   *  no-op + one-shot deprecation warning so existing host code does not throw. */
+  /** @deprecated Phase 1a (Tier 3 source-honest principle): polar-cap
+   *  synthesis is no longer renderer-driven. Preprocess GeoJSON with
+   *  `injectPolarCaps` / `synthesizePolarCaps` (re-exported from
+   *  `@xgis/runtime`) before `setSourceData`. This setter is a no-op +
+   *  one-shot `xlog.warn` so existing host code does not throw. */
   setPolarCapsEnabled(_on: boolean): void {
     if (_polarCapsWarned) return
     _polarCapsWarned = true
@@ -601,7 +589,9 @@ export class XGISMap {
       'step on your data, or accept honest source coverage.',
     )
   }
-  isPolarCapsEnabled(): boolean { return this._polarCapsEnabled }
+  /** @deprecated Always returns `false` post-Phase 1a — polar-cap synthesis
+   *  is no longer renderer-driven (see `setPolarCapsEnabled`). */
+  isPolarCapsEnabled(): boolean { return false }
 
   /** Current graticule on/off state. */
   isGraticuleEnabled(): boolean {
@@ -863,14 +853,6 @@ export class XGISMap {
     // azimuthal set switches to it dynamically in renderFrame when
     // pitch>0 (renderers branch on projType 7).
     this.camera.globeMode = name === 'globe'
-
-    // Phase 1a / Tier 3 source-honest principle: the renderer no longer
-    // auto-invents polar-cap geometry on non-Mercator projection switches.
-    // Hosts that want polar caps should preprocess their GeoJSON with
-    // `injectPolarCaps` (exported from @xgis/runtime) before setSourceData.
-    // Empty polar regions on globe / azimuthal projections are now treated
-    // as honest source coverage, not a renderer responsibility.
-
     this.invalidate()
   }
 
