@@ -14,26 +14,16 @@
 
 import { describe, expect, it } from 'vitest'
 import { flattenCoverage } from '../../../compiler/src/convert/spec-coverage'
-import { RUNTIME_CAPABILITIES, runtimeCapability } from '../capabilities'
+import { RUNTIME_CAPABILITIES } from '../capabilities'
 
 // Properties tracked by both tables. The capability table is more
 // granular (per value-form), so a "supported" spec-coverage entry is
 // only consistent with the capability table if AT LEAST the constant
 // form is supported there.
-function specCoverageSaysSupported(name: string): boolean {
-  const entry = flattenCoverage().find(e => e.name === name)
-  return entry?.status === 'supported'
-}
-
-function runtimeSupportsConstant(layerType: string, property: string): boolean | null {
-  const cap = runtimeCapability(layerType, property, 'constant')
-  return cap?.supported ?? null
-}
-
 // Map capability-table layerTypes to the spec-coverage property
 // names (spec-coverage uses bare property names; the capability table
 // scopes by layerType).
-function specName(layerType: string, property: string): string {
+function specName(_layerType: string, property: string): string {
   // Spec-coverage uses property name without a layer-type prefix in
   // most sections; the property name itself is layer-qualified
   // (e.g. "fill-color", "line-width", "circle-radius") so direct

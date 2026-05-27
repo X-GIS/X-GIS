@@ -27,8 +27,7 @@ const HALF_CIRC = Math.PI * EARTH_R
 
 // Returns the [minLat, maxLat] covered by the Mercator pyramid at
 // zoom z. y=0 tile-top is the highest representable latitude.
-function pyramidLatRange(z: number): [number, number] {
-  const n = 1 << z
+function pyramidLatRange(_z: number): [number, number] {
   // Mercator y at y-tile=0 (north edge of north-most tile)
   // = HALF_CIRC * (1 - 2 * 0 / n) = HALF_CIRC
   const yNorth = HALF_CIRC

@@ -8,7 +8,7 @@ import { visibleTilesFrustum, firstIndexedAncestor } from '../../data/tile-selec
 import { mercator } from '../projection/projection'
 import { TileCatalog } from '../../data/tile-catalog'
 import {
-  compileGeoJSONToTiles, decomposeFeatures, tileKey, tileKeyUnpack,
+  compileGeoJSONToTiles, decomposeFeatures, tileKey,
 } from '@xgis/compiler'
 import type { GeoJSONFeatureCollection } from '@xgis/compiler'
 

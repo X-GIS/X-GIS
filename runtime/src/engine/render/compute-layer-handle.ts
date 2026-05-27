@@ -61,7 +61,6 @@ import type { FeaturePropertyBag } from './compute-feature-packer'
  *  feature data is ready; call dispatch + getBindGroupEntries
  *  per frame. */
 export class ComputeLayerHandle {
-  private dispatcher: ComputeDispatcher
   private variant: ShaderVariant
   private renderNodeIndex: number
   private resources: TileComputeResources
@@ -72,7 +71,6 @@ export class ComputeLayerHandle {
     scenePlan: readonly ComputePlanEntry[] | undefined,
     renderNodeIndex: number,
   ) {
-    this.dispatcher = dispatcher
     this.variant = variant
     this.renderNodeIndex = renderNodeIndex
     // Filter the scene plan to entries for THIS show. The variant's

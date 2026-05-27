@@ -90,13 +90,6 @@ describe('iter-301 paired-symbol position invariant', () => {
 
     // Bucket captures by pairKey.
     interface Pair { icon?: Capture; text?: Capture }
-    const byPair = new Map<string, Pair>()
-    for (const c of captures) {
-      // Icon carries pairKey directly; text doesn't via the debug
-      // hook (TextStage's _debugHook doesn't surface pairKey). We
-      // use sequence to match — feature i in the call sequence
-      // corresponds to captures[i*2] icon + captures[i*2+1] text.
-    }
     expect(captures.length).toBe(6)  // 3 features × (icon + text)
 
     // Pair by index: even = icon, odd = text for each feature.

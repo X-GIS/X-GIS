@@ -28,7 +28,7 @@ import { createRasterizer, createMetricsRasterizer, type GlyphRasterizer } from 
 import { GlyphPbfCache } from './sdf/pbf/glyph-pbf-cache'
 import { bumpAlloc } from '../__profile__/alloc-counter'
 import { FrameArena } from '../gpu/frame-arena'
-import { InlineGlyphProvider, type InlineGlyphSource } from './sdf/pbf/inline-glyph-provider'
+import { InlineGlyphProvider } from './sdf/pbf/inline-glyph-provider'
 import type { GlyphProvider } from './sdf/pbf/glyph-provider'
 import { PbfRasterizer } from './sdf/pbf-rasterizer'
 import { TextRenderer, type TextDraw } from './text-renderer'
@@ -86,25 +86,6 @@ const _pretextCache = new Map<number, WrappedLineRange[]>()
  *  fontKey + text only). Collisions trade a misrender against speed:
  *  at 32 bits and ≤4096 entries collision probability is well below
  *  pixel-visible — same trade-off the wrap cache already accepts. */
-function glyphsCacheKey(fontKey: string, text: string): number {
-  let h = 0x811c9dc5 | 0
-  for (let i = 0; i < fontKey.length; i++) {
-    h = Math.imul(h ^ fontKey.charCodeAt(i), 0x01000193)
-  }
-  // 0x1f delimiter — defends against the (fontKey + text) collision
-  // case `("AB","CD") vs ("ABC","D")` that a plain concat would
-  // permit. Same trick xgis uses for tile-key composition.
-  h = Math.imul(h ^ 0x1f, 0x01000193)
-  // Codepoint-aware (matches ensureString's surrogate handling).
-  const len = text.length
-  let i = 0
-  while (i < len) {
-    const cp = text.codePointAt(i)!
-    h = Math.imul(h ^ cp, 0x01000193)
-    i += cp > 0xFFFF ? 2 : 1
-  }
-  return h | 0
-}
 
 /** Fingerprint for the iter-168 layout cache (single-anchor static
  *  case). Mixes the slice-1 glyphsKey (which encodes fontKey + text)
@@ -685,7 +666,6 @@ export class TextStage {
    *  pretextCacheKey. Value: GlyphInfo[] (one per codepoint, same
    *  array shape host.ensureString would return). */
   private readonly _glyphsByTextCache = new Map<number, import('./sdf/glyph-atlas-host').GlyphInfo[]>()
-  private static readonly GLYPHS_CACHE_MAX = 4096
   /** iter 168 — Phase A slice 2: across-frame layout cache.
    *  Caches the per-anchor camera-independent layout output (dx, dy,
    *  glyphOffsets, totalAdvance, blockTop, blockBottom, haloGeom,

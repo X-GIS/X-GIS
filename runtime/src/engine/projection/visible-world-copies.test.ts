@@ -73,7 +73,7 @@ describe('Camera.getVisibleWorldCopies — iter-189 root fix', () => {
 
   it('cache invalidates on camera move', () => {
     const c = camAt(0, 0, 0, 30, 0)
-    const v1 = c.getVisibleWorldCopies(W, H, DPR)
+    c.getVisibleWorldCopies(W, H, DPR) // warm cache
     c.centerX += 1000  // move camera
     const v2 = c.getVisibleWorldCopies(W, H, DPR)
     // identity may match or not (offsets could be same), but the

@@ -15,7 +15,7 @@ import { DEBUG_OVERDRAW } from '../debug-flags'
 import { resolveNumberShape, resolveColorShape } from './paint-shape-resolve'
 import { ComputeDispatcher } from '../gpu/compute'
 import { ComputeLayerRegistry } from './compute-layer-registry'
-import { extendBindGroupLayoutEntriesForCompute, buildComputeBindGroupEntries } from './compute-bind-layout'
+import { extendBindGroupLayoutEntriesForCompute } from './compute-bind-layout'
 import type { ShaderVariantInfo, CachedPipeline, ShowCommand, RenderLayer } from './renderer-types'
 import { parseColor } from './renderer-helpers'
 import { UniformRing } from './uniform-ring'
@@ -1846,7 +1846,7 @@ export class MapRenderer {
     // attachment in debug mode is r16float — formats mismatch. Skip
     // entirely. Vector content goes through VTR, not this path.
     if (DEBUG_OVERDRAW) return
-    const { device, canvas } = this.ctx
+    const { canvas } = this.ctx
     // RTC: no translation in MVP, projection center is at (0,0).
     // Compute the live DPR so the camera matrix uses CSS-pixel altitude
     // (matches what VTR / raster / point renderers do).

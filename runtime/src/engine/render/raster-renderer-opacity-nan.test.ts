@@ -3,7 +3,7 @@
 // silently — the fragment shader multiplied every sampled raster
 // texel by NaN and the whole layer rendered transparent / black.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 
 // We can't easily instantiate RasterRenderer without GPU. Instead
 // test the clamp semantic by re-implementing the gate inline (the

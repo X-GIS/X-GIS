@@ -345,15 +345,6 @@ export function unprojectGlobe(
  *  so `ox === x` always. */
 export interface GlobeTile { z: number; x: number; y: number; ox: number }
 
-function tileLonLat(z: number, x: number, y: number): { lonW: number; lonE: number; latN: number; latS: number } {
-  const n = Math.pow(2, z)
-  const lonW = x / n * 360 - 180
-  const lonE = (x + 1) / n * 360 - 180
-  const latN = Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) * RAD2DEG
-  const latS = Math.atan(Math.sinh(Math.PI * (1 - 2 * (y + 1) / n))) * RAD2DEG
-  return { lonW, lonE, latN, latS }
-}
-
 /** Visible-cap tile selection for the globe.
  *
  *  Descends the web-mercator tile pyramid, keeping tiles that are on
@@ -494,10 +485,10 @@ export function globeVisibleTiles(
   const maxYBound = cssHeightPx * 1.5
   // Matrix elements as locals (avoids index-into-typed-array on every
   // mvp[i] read inside the hot loop).
-  const m0 = mvp[0]!, m1 = mvp[1]!, m2 = mvp[2]!, m3 = mvp[3]!
-  const m4 = mvp[4]!, m5 = mvp[5]!, m6 = mvp[6]!, m7 = mvp[7]!
-  const m8 = mvp[8]!, m9 = mvp[9]!, m10 = mvp[10]!, m11 = mvp[11]!
-  const m12 = mvp[12]!, m13 = mvp[13]!, m14 = mvp[14]!, m15 = mvp[15]!
+  const m0 = mvp[0]!, m1 = mvp[1]!, m3 = mvp[3]!
+  const m4 = mvp[4]!, m5 = mvp[5]!, m7 = mvp[7]!
+  const m8 = mvp[8]!, m9 = mvp[9]!, m11 = mvp[11]!
+  const m12 = mvp[12]!, m13 = mvp[13]!, m15 = mvp[15]!
   const pn = 1 / EARTH_R
   const eyeN0 = eyeN[0], eyeN1 = eyeN[1], eyeN2 = eyeN[2]
 

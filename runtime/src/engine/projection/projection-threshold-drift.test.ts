@@ -15,8 +15,6 @@
 // here diverges from the table → RED; mutate the table → RED.
 
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { PROJECTIONS } from './projections-table'
 import { WGSL_PROJECTION_FNS } from '../shaders/projection'
 import { cosC, needsBackfaceCullWgsl, emitRasterWgsl } from '../shader-dsl'
