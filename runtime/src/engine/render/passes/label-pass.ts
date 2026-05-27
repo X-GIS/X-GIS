@@ -18,9 +18,7 @@ import { evaluate, makeEvalProps, resolveColor } from '@xgis/compiler'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../../__profile__/perf-marks'
 import { DEBUG_OVERDRAW } from '../../debug-flags'
 import { WORLD_MERC } from '../../gpu/gpu-shared'
-import { projectWgsl } from '../../shader-dsl'
 import { mercatorYToLat } from '../../projection/projection'
-import { globeForward } from '../../projection/globe'
 import { resolveNumberShape } from '../paint-shape-resolve'
 import { resolveLabelEffectiveDef, makeLabelProjectors } from '../../render-loop-helpers'
 import { computeSliceKey } from '../../../data/eval/filter-eval'
@@ -41,7 +39,11 @@ class LabelPass implements RenderPass {
   shouldRun(): boolean { return true }
 
   execute(ctx: FrameContext, _scene: SceneView, host: PassHost): void {
-    const { device, dpr, sampleCount: sc, w, h, projType, centerLon, centerLat, encoder } = ctx
+    // Phase 2 PR 2d.4: `projType`/`centerLon`/`centerLat` no longer
+    // destructured — the projType-conditional label projector branches
+    // collapsed to a single ECEF-based projector. Other passes still
+    // consume them off FrameContext directly.
+    const { device, dpr, sampleCount: sc, w, h, encoder } = ctx
       const disableLabels = typeof window !== 'undefined'
         && (window as unknown as { __xgisDisableLabels?: boolean }).__xgisDisableLabels === true
       // Mapbox `layer.minzoom` / `layer.maxzoom`: hide the layer
@@ -157,87 +159,36 @@ class LabelPass implements RenderPass {
         const frame = host.camera.getFrameView(w, h, dpr)
         const mvp = frame.matrix
         ctx.mvp = mvp
-        const ccx = host.camera.centerX
-        const ccy = host.camera.centerY
+        // Phase 2 PR 2d.4: `ccx`/`ccy` (Mercator camera centre) are no
+        // longer threaded into `makeLabelProjectors` — the ECEF projector
+        // reads `mvp_ecef * lonLatToECEF(lon, lat)` directly without a
+        // CPU-side camera subtraction.
 
-        // The four label-anchor projectors (projectMerc / projectLonLat
-        // / projectMercAny / projectLonLatCopies) were inline closures
-        // here. They are now lifted VERBATIM into makeLabelProjectors in
-        // render-loop-helpers.ts — the bodies, scratch-reuse contract and
-        // inter-projector delegation are byte-identical; only the per-
-        // frame locals they captured (MVP, camera centre, projection
-        // flags, projected focus, visible-world-copy list) are now passed
-        // as explicit factory arguments. The per-frame derived values
-        // below are computed in the SAME order as before so behaviour and
-        // side-effect timing are unchanged.
+        // Phase 2 PR 2d.4 — TEXT/LABEL CPU anchor projector ECEF migration.
+        // The four label-anchor projectors (projectMerc / projectLonLat /
+        // projectMercAny / projectLonLatCopies) now share a single ECEF
+        // projector body in render-loop-helpers.ts `makeLabelProjectors`:
+        // `lonLatToECEF(lon, lat) → mvp_ecef * vec4 → NDC → CSS px`. The
+        // projType-conditional `_lblIsMerc`/`_lblIsGlobe`/`_lblGlobeCenter`/
+        // `_lblCenter` derivations + `projectWgsl` import are retired —
+        // under ECEF, the projector is projection-agnostic.
         //
-        // Non-Mercator label anchors mirror the GPU reproject_point
-        // (point-renderer.ts): project(lon,lat) - project(center) in the
-        // ACTIVE projection, then the shared MVP — NOT the Mercator
-        // formula, which detached every label from its feature under
-        // natural_earth / ortho / azimuthal / stereo / oblique. Hoist the
-        // projected camera centre + flag once per frame (centerLon /
-        // centerLat / projType are renderFrame constants) so the hot
-        // per-label path stays allocation-free.
-        const _lblIsMerc = host.projectionName === 'mercator'
-        // Effective-projection, NOT the raw name: ortho/azimuthal/stereo
-        // (projType 3-5) are PROMOTED to the globe path (projType 7) once
-        // tilted (render-loop azimuthalTilted). The GPU + tile selector
-        // already follow the promoted projType; labels must too, or a
-        // tilted-azimuthal view renders geometry as a 3D sphere (proj_globe)
-        // while label anchors fall through projectWgsl's missing projType-7
-        // case to the OBLIQUE-MERCATOR formula → labels detach from their
-        // features ("floating above the disc"). projType===7 ⊇
-        // projectionName==='globe' (globe always promotes to 7), so real
-        // globe is unaffected.
-        const _lblIsGlobe = projType === 7
-        // Globe label anchor = sphere RTC against the focus, then the
-        // full 4×4 orbit MVP (camera emits it in globe mode). Hoisted
-        // per frame like _lblCenter.
-        const _lblGlobeCenter = _lblIsGlobe
-          ? globeForward(centerLon, centerLat)
-          : ([0, 0, 0] as [number, number, number])
-        const _lblCenter: [number, number] = _lblIsMerc || _lblIsGlobe
-          ? [0, 0]
-          : projectWgsl(projType, centerLon, centerLat, centerLon, centerLat)
-
-        // Mercator is periodic in lon, so PointRenderer / VTR emit
-        // every polygon 5× across the -2..+2 world copies. Without
-        // mirroring the same loop here, a country anchor at lon=-179
-        // gets ONE label at its primary copy and nothing on the
-        // adjacent +360° copy that's also visible at z≤2. Result: at
-        // low zoom labels visibly cluster on one side of the world
-        // map ("포인트가 한쪽에 몰림"). Non-Mercator projections
-        // collapse to a single copy — see worldCopiesFor() in
-        // gpu-shared for the rationale.
-        // Label-specific world-copy iteration. Polygon / line draws
-        // enumerate WORLD_COPIES = [-2..+2] so geometry wraps cleanly
-        // at the antimeridian. MapLibre renders labels in EVERY
-        // visible world copy too — at z=0 with pitch / bearing the
-        // user sees multiple worlds and expects country names in
-        // each. iter-188 fix: previous "first that projects" logic
-        // (designed to suppress 2-3× duplicate clusters on un-
-        // pitched z=0) wrongly capped labels at one world copy
-        // even when 3-4 were on-screen, leaving the user's
-        // pitched / bearing'd view with labels only in the central
-        // copy. Now enumerate ALL copies that pass the projector's
-        // NDC ±1.5 window — the screen-space collision pass dedupes
-        // labels whose AABBes overlap, so the "one Belgium per
-        // visible copy" output mirrors MapLibre without manual
-        // priority arbitration.
-        // iter-189 — single source of visible world copies. Camera
-        // computes the list ONCE per frame from inverse-MVP corner
-        // unprojections (z=0 plane lon range → integer offsets
-        // clamped at ±2). Replaces the iter-188 hardcoded
-        // `[0, -1, 1, -2, 2]` enum + per-callsite NDC cull.
+        // World-copy semantics: lonLatToECEF(lon ± 360°) returns the SAME
+        // ECEF point (Earth is one body in 3D), so projectLonLatCopies
+        // collapses to a single screen position per (lon, lat) anchor.
+        // The screen-space collision pass dedupes any remaining wraparound
+        // adjacency. visibleWorldCopies is still set on ctx for downstream
+        // non-label consumers (polygon/line draw enumeration in the
+        // opaque/translucent passes).
         const visibleWorldCopies = host.camera.getVisibleWorldCopies(w, h, dpr)
         ctx.visibleWorldCopies = visibleWorldCopies
+        // Per AC2d.4.2: thread the ECEF MVP (from `getECEFFrameView`) into
+        // makeLabelProjectors. The existing Mercator MVP from `frame.matrix`
+        // above stays on `ctx.mvp` for downstream non-label consumers; the
+        // label projector reads `frameEcef.matrix` exclusively.
+        const frameEcef = host.camera.getECEFFrameView(w, h, dpr)
         const { projectMerc, projectLonLat, projectMercAny, projectLonLatCopies } =
-          makeLabelProjectors(
-            mvp, w, h, ccx, ccy, projType, centerLon, centerLat,
-            _lblIsMerc, _lblIsGlobe, _lblGlobeCenter, _lblCenter,
-            host.projectionName, visibleWorldCopies,
-          )
+          makeLabelProjectors(frameEcef.matrix, w, h)
 
         // (a) Imperative overlays
         for (const ov of host.overlays) {
