@@ -24,6 +24,12 @@
 
 import { describe, it, expect } from 'vitest'
 import { lonLatToECEF } from '../engine/projection/ecef'
+import {
+  buildLineSegments,
+  LINE_SEGMENT_STRIDE_F32,
+  LINE_SEG_OFF_ENU_P0,
+  LINE_SEG_OFF_ENU_P1,
+} from './line-segment-build'
 
 // ── WGS84 + Mercator constants (mirrors ecef.ts/projection.ts) ──────────────
 const A = 6378137                  // semi-major axis (m)
@@ -421,5 +427,131 @@ describe('AC2d.1 Spike 2 — ENU-tangent validation', () => {
     // We expect Method A by construction — record it as the assertion so
     // future regressions on Method A's numerical behaviour flag here.
     expect(aPasses).toBe(true)
+  })
+})
+
+// ═══ PR 2d.1A — LineSegment stride 20 → 26 + CPU-baked corner ENU offset ═══
+//
+// Pins the stride-26 contract and the per-endpoint ENU baked offset
+// slots (Method A from Spike 2). The new vec3 slots sit alongside the
+// existing 20-float layout — `vs_line` does not yet read them; the
+// PR 2d.1C VS rewire will. These tests fail loudly if a future change
+// regresses the additive contract.
+describe('PR 2d.1A — stride 26 + ENU offset bake', () => {
+
+  it('LINE_SEGMENT_STRIDE_F32 === 26 (PR 2d.1A contract)', () => {
+    // The stride drives downstream GPU buffer sizing + LineSegment
+    // WGSL struct alignment. A drift here without bumping the WGSL
+    // struct (PR 2d.1C scope) produces silent VS index aliasing.
+    expect(LINE_SEGMENT_STRIDE_F32).toBe(26)
+    expect(LINE_SEG_OFF_ENU_P0).toBe(20)
+    expect(LINE_SEG_OFF_ENU_P1).toBe(23)
+  })
+
+  it('ENU bake slots are zero when caller omits tile origin (back-compat)', () => {
+    // Production callers haven't been updated to pass tile origin yet
+    // (PR 2d.1B scope). The builder must safely zero-fill the new
+    // slots so `vs_line` reads of the legacy region 0-19 are unaffected.
+    const vertices = new Float32Array([
+      0, 0, 0, 0, 0, 0,
+      100, 0, 0, 0, 0, 100,
+    ])
+    const indices = new Uint32Array([0, 1])
+    const seg = buildLineSegments(vertices, indices, 6, 1000, 1000)
+    expect(seg.length).toBe(LINE_SEGMENT_STRIDE_F32)
+    // ENU offset slots default-zero when tileOriginMx/My omitted.
+    for (let k = 0; k < 3; k++) {
+      expect(seg[LINE_SEG_OFF_ENU_P0 + k]).toBe(0)
+      expect(seg[LINE_SEG_OFF_ENU_P1 + k]).toBe(0)
+    }
+  })
+
+  it('ENU bake populates lat=0 east-heading segment with (1, 0, 0) unit ENU', () => {
+    // East-heading segment at lat=0: Mercator y-scale is exactly 1
+    // per ENU north-metre, so the ENU-frame unit tangent equals the
+    // Mercator-frame unit tangent. The expected baked (dirE, dirN, 0)
+    // vec3 is (1, 0, 0) at both endpoints.
+    //
+    // Vertices in tile-local Mercator metres; tile origin at the
+    // equator at lon=0 (Mercator (0, 0)).
+    const vertices = new Float32Array([
+      0,    0, 0, 0, 0, 0,   // p0: (0, 0)
+      100,  0, 0, 0, 0, 100, // p1: (100, 0)
+    ])
+    const indices = new Uint32Array([0, 1])
+    const seg = buildLineSegments(
+      vertices, indices, 6,
+      1000, 1000,           // tile dims
+      undefined, undefined, undefined, 0,
+      0, 0,                 // tile origin (equator, lon=0)
+    )
+    expect(seg[LINE_SEG_OFF_ENU_P0 + 0]).toBeCloseTo(1, 6)  // dirE
+    expect(seg[LINE_SEG_OFF_ENU_P0 + 1]).toBeCloseTo(0, 6)  // dirN
+    expect(seg[LINE_SEG_OFF_ENU_P0 + 2]).toBe(0)            // up=0
+    expect(seg[LINE_SEG_OFF_ENU_P1 + 0]).toBeCloseTo(1, 6)
+    expect(seg[LINE_SEG_OFF_ENU_P1 + 1]).toBeCloseTo(0, 6)
+    expect(seg[LINE_SEG_OFF_ENU_P1 + 2]).toBe(0)
+  })
+
+  it('ENU bake recovers (1, 0, 0) for east-heading segment at lat≈85', () => {
+    // At lat=85, the Mercator y-stretch is sec(85°) ≈ 11.47×. An
+    // east-pointing segment has zero y component → unaffected by the
+    // stretch, so the ENU-frame tangent stays (1, 0, 0). This pins
+    // the cos(lat) squash only kicks in for non-east headings.
+    //
+    // tileOriginMy at lat=85 = A * ln(tan(pi/4 + 85°/2)).
+    const A = 6378137
+    const lat85Rad = 85 * Math.PI / 180
+    const tileOriginMy = A * Math.log(Math.tan(Math.PI / 4 + lat85Rad / 2))
+    const vertices = new Float32Array([
+      0,    0, 0, 0, 0, 0,
+      100,  0, 0, 0, 0, 100,
+    ])
+    const indices = new Uint32Array([0, 1])
+    const seg = buildLineSegments(
+      vertices, indices, 6,
+      1000, 1000,
+      undefined, undefined, undefined, 0,
+      0, tileOriginMy,
+    )
+    expect(seg[LINE_SEG_OFF_ENU_P0 + 0]).toBeCloseTo(1, 6)
+    expect(seg[LINE_SEG_OFF_ENU_P0 + 1]).toBeCloseTo(0, 6)
+    expect(seg[LINE_SEG_OFF_ENU_P1 + 0]).toBeCloseTo(1, 6)
+    expect(seg[LINE_SEG_OFF_ENU_P1 + 1]).toBeCloseTo(0, 6)
+  })
+
+  it('ENU bake squashes Mercator-y component by cos(lat) for north-heading segments', () => {
+    // A north-heading segment in Mercator metres at lat≈85 has its
+    // y-direction stretched by sec(85°). After cos(lat) squash + re-
+    // normalise we expect the ENU-frame unit tangent to be (0, 1, 0)
+    // — i.e. pointing physical north. This is the WHOLE POINT of
+    // Method A: convert the Mercator-stretched direction to the
+    // local ENU basis at the endpoint before handing to the VS.
+    const A = 6378137
+    const lat85Rad = 85 * Math.PI / 180
+    const tileOriginMy = A * Math.log(Math.tan(Math.PI / 4 + lat85Rad / 2))
+    // 100 m of ENU northing at lat=85 = 100 / cos(85°) Mercator metres.
+    // We pick a small y delta (1 m Mercator) so both endpoints stay
+    // at ~85° latitude — keeps the cos(lat) factor effectively constant.
+    const vertices = new Float32Array([
+      0, 0, 0, 0, 0, 0,
+      0, 1, 0, 0, 0, 1,    // 1 m north in Mercator at lat≈85
+    ])
+    const indices = new Uint32Array([0, 1])
+    const seg = buildLineSegments(
+      vertices, indices, 6,
+      1000, 1000,
+      undefined, undefined, undefined, 0,
+      0, tileOriginMy,
+    )
+    // After cos(lat) squash + re-normalise, the ENU tangent must
+    // point along the +N axis. The (0, 1, 0) target is the post-squash
+    // unit vector.
+    expect(seg[LINE_SEG_OFF_ENU_P0 + 0]).toBeCloseTo(0, 5)
+    expect(seg[LINE_SEG_OFF_ENU_P0 + 1]).toBeCloseTo(1, 5)
+    expect(seg[LINE_SEG_OFF_ENU_P0 + 2]).toBe(0)
+    expect(seg[LINE_SEG_OFF_ENU_P1 + 0]).toBeCloseTo(0, 5)
+    expect(seg[LINE_SEG_OFF_ENU_P1 + 1]).toBeCloseTo(1, 5)
+    expect(seg[LINE_SEG_OFF_ENU_P1 + 2]).toBe(0)
   })
 })
