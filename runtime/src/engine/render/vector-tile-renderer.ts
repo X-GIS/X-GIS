@@ -1172,10 +1172,13 @@ export class VectorTileRenderer {
     for (const k of this.stableKeys) seen.add(k)
     for (const key of seen) {
       const tileData = this.source.getTileData(key, sliceLayer)
-      if (!tileData?.pointVertices || tileData.pointVertices.length < 5) continue
+      // Phase 2 PR 2d.2 follow-up — pointVertices is ECEF DSFUN stride-9:
+      // [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon, abs_lat].
+      // Label dispatcher consumes absolute Mercator metres — reconstruct
+      // from abs_lon/abs_lat at slots 7/8 (matching the polygon ECEF
+      // vertex layout's abs_lon/abs_lat varying convention).
+      if (!tileData?.pointVertices || tileData.pointVertices.length < 9) continue
       const ptv = tileData.pointVertices
-      const tileMercX = tileData.tileWest * DEG2RAD * R
-      const tileMercY = Math.log(Math.tan(Math.PI / 4 + clampLat(tileData.tileSouth) * DEG2RAD / 2)) * R
       // Prefer per-tile featureProps (PMTiles MVT path — each tile
       // carries its own properties Map). Fall back to the catalog-
       // level PropertyTable (XGVT path — pre-built shared table
@@ -1203,12 +1206,12 @@ export class VectorTileRenderer {
       // on Bright z=14 Seoul + GC pressure proportional.
       const bestByFeatId = this._scratchBestByFeatId
       bestByFeatId.clear()
-      for (let i = 0; i < ptv.length; i += 5) {
-        const ptMxLocal = ptv[i] + ptv[i + 2]
-        const ptMyLocal = ptv[i + 1] + ptv[i + 3]
-        const featId = ptv[i + 4] | 0
-        const mercX = tileMercX + ptMxLocal
-        const mercY = tileMercY + ptMyLocal
+      for (let i = 0; i < ptv.length; i += 9) {
+        const featId = ptv[i + 6] | 0
+        const absLon = ptv[i + 7]
+        const absLat = ptv[i + 8]
+        const mercX = absLon * DEG2RAD * R
+        const mercY = Math.log(Math.tan(Math.PI / 4 + clampLat(absLat) * DEG2RAD / 2)) * R
         const isInner = Math.abs(Math.abs(mercX) - WORLD_MERC_HALF) > ANTIMERIDIAN_TOL
         const existing = bestByFeatId.get(featId)
         if (!existing) {

@@ -19,7 +19,7 @@ import {
   tileKeyUnpack, lonLatToMercF64,
   clipPolygonToRect, clipLineToRect,
   augmentRingWithArc, tessellateLineToArrays, packDSFUNLineVertices,
-  packECEFPolygonVertices,
+  packECEFPolygonVertices, packECEFPointFeatures,
   extractNonSyntheticArcs, makeSameBoundarySidePredicateMerc,
 } from '@xgis/compiler'
 import { type TileData, DSFUN_LINE_STRIDE } from './tile-types'
@@ -74,7 +74,7 @@ export class SubTileGenerator {
     if (!parent) return false
     return parent.indices.length > 0
       || parent.lineIndices.length > 0
-      || (parent.pointVertices !== undefined && parent.pointVertices.length >= 5)
+      || (parent.pointVertices !== undefined && parent.pointVertices.length >= 9)
   }
 
   /** Clip `parent`'s geometry into the sub-tile addressed by `subKey`,
@@ -352,27 +352,35 @@ export class SubTileGenerator {
       : new Float32Array(0)
     const outlineLineIndices = new Uint32Array(oliScratch)
 
-    // Point clip. Parent point vertices are stride-5 DSFUN
-    // [mx_h, my_h, mx_l, my_l, fid] in PARENT-local Mercator meters;
-    // reconstruct, test against (clipW..clipN), re-pack into SUB-tile-
-    // local DSFUN. Without this, point layers (place labels, POIs)
-    // vanish at over-zoom because they have no representation in
-    // sub-tile.
+    // Point clip. Phase 2 PR 2d.2 — parent pointVertices is ECEF DSFUN
+    // stride-9 [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon, abs_lat]
+    // anchored at the PARENT tile's ECEF center. Use abs_lon/abs_lat (slots
+    // 7/8) for the sub-tile bounds check, then re-pack each surviving point
+    // against `subTileEcefCenter` via the canonical packECEFPointFeatures
+    // (stride-3 absolute Mercator metres → stride-9 ECEF DSFUN). Without
+    // this, point layers (place labels, POIs) vanish at over-zoom because
+    // they have no representation in the sub-tile.
     let subPointVertices: Float32Array | undefined
-    if (parent.pointVertices && parent.pointVertices.length >= 5) {
+    if (parent.pointVertices && parent.pointVertices.length >= 9) {
       const pv = parent.pointVertices
-      const out: number[] = []
-      for (let i = 0; i < pv.length; i += 5) {
-        const px = pv[i] + pv[i + 2]
-        const py = pv[i + 1] + pv[i + 3]
+      const DEG2RAD = Math.PI / 180
+      const R = 6378137
+      const LAT_LIMIT = 85.051129
+      const clampLat = (v: number) => Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, v))
+      // Stride-3 scratch: [mx, my, fid] absolute Mercator metres for the
+      // points that survive the sub-tile bbox clip.
+      const survivors: number[] = []
+      for (let i = 0; i < pv.length; i += 9) {
+        const absLon = pv[i + 7]
+        const absLat = pv[i + 8]
+        const px = absLon * DEG2RAD * R
+        const py = Math.log(Math.tan(Math.PI / 4 + clampLat(absLat) * DEG2RAD / 2)) * R
         if (px < clipW || px > clipE || py < clipS || py > clipN) continue
-        const lx = px - reoriginX
-        const ly = py - reoriginY
-        const xH = Math.fround(lx); const xL = Math.fround(lx - xH)
-        const yH = Math.fround(ly); const yL = Math.fround(ly - yH)
-        out.push(xH, yH, xL, yL, pv[i + 4])
+        survivors.push(px, py, pv[i + 6])
       }
-      if (out.length >= 5) subPointVertices = new Float32Array(out)
+      if (survivors.length >= 3) {
+        subPointVertices = packECEFPointFeatures(survivors, subTileEcefCenter)
+      }
     }
 
     return {

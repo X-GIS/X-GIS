@@ -28,7 +28,11 @@ export class PointRenderer {
   // recomputing the stride/attribute map.
   private vertexBufferLayout: GPUVertexBufferLayout | null = null
   private uniformBuffer: GPUBuffer
-  private uniformData = new Float32Array(28) // mvp_ecef(16) + proj_params(4) + pad(4) + viewport(4)
+  // Phase 2 PR 2d.2 — Uniforms shrunk: mvp_ecef(16) + proj_params(4) + viewport(4).
+  // tile_rtc slot deleted (was used by the legacy Mercator-DSFUN VS).
+  // 24 floats × 4 = 96 bytes payload; rest of the 128-byte GPU buffer is
+  // unused trailing padding (driver-aligned, harmless).
+  private uniformData = new Float32Array(24)
   /** iter-249 (Plan AAA B.2) — per-flush arena. Each flush*() call
    *  allocates 3 large typed arrays (verts / indices / featData)
    *  sized to per-call vertex count. On flush entry, beginFrame()

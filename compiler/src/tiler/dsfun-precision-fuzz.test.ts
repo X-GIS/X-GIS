@@ -1,7 +1,7 @@
 // iter-314 — DSFUN (double-single float) precision fuzz. Render-
 // critical: the GPU reconstructs each vertex's tile-local meters
 // via (pos_h - cam_h) + (pos_l - cam_l). If splitF64 /
-// packDSFUNPolygonVertices lose precision, vertices land at the
+// packDSFUNLineVertices lose precision, vertices land at the
 // WRONG screen position → visible geometry drift (esp. at deep
 // zoom where tile-local meters are tiny vs absolute Mercator
 // magnitude ~2e7).
@@ -11,6 +11,12 @@
 // magnitude — and crucially, the hi/lo SPLIT must cancel the
 // absolute-Mercator magnitude so deep-zoom vertices keep sub-mm
 // precision.
+//
+// Phase 2 PR 2d.2 — packDSFUNPolygonVertices was deleted (final
+// consumer migrated to packECEFPointFeatures); its tests in this
+// file were removed along with the export. Polygon ECEF precision
+// is covered by ecef-precision-fuzz.test.ts; point ECEF by
+// ecef-point-precision-fuzz.test.ts.
 
 import { describe, it, expect } from 'vitest'
 import {
