@@ -72,7 +72,6 @@ import {
   buildTypographyMap, registerFonts,
 } from './map-geo-helpers'
 import { prewarmVectorTileSource, detectVectorTileFormat } from '../loader/vector-tile-loader'
-import { VirtualPMTilesBackend } from '../data/sources/virtual-pmtiles-backend'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 import { toU32Id, pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
 import type { GeoJSONFeature } from '../loader/geojson'
@@ -363,9 +362,32 @@ export class XGISMap {
    *  ancestor falls + into the synthetic show so the polygon ECEF
    *  pipeline picks the colour up on the next frame. Caller writes
    *  `[r, g, b, a]` in 0..1 floats. Pass `null` to drop the synthetic
-   *  source's contribution (canvas clearValue then dominates). */
+   *  source's contribution (canvas clearValue then dominates) — this
+   *  tears down the synthetic VTR + backend, filters the synthetic
+   *  ShowCommand out of `showCommands`, and clears `_syntheticBackend`.
+   *  Idempotent: calling with `null` repeatedly is a no-op after the
+   *  first teardown. */
   setBackgroundFill(rgba: [number, number, number, number] | null): void {
     if (rgba === null) {
+      // Teardown the synthetic source if it was installed. Without this
+      // the backend keeps emitting tiles + the synthetic show keeps
+      // rendering even though the public API "dropped" the bg fill.
+      if (this._syntheticBackend) {
+        this.teardownSource(SYNTHETIC_EARTH_SURFACE_SOURCE)
+        this.rawDatasets.delete(SYNTHETIC_EARTH_SURFACE_SOURCE)
+        this._syntheticBackend = null
+      }
+      // Filter the synthetic ShowCommand out of the live frame's command
+      // list — rebuildLayers prepends it on each style reload, but a
+      // mid-session null-teardown must drop it now so the next frame
+      // does not dispatch a draw against a torn-down catalog.
+      const synthIdx = this.showCommands.findIndex(
+        s => s.targetName === SYNTHETIC_EARTH_SURFACE_SOURCE,
+      )
+      if (synthIdx >= 0) {
+        invalidateResolvedShowCache(this.showCommands[synthIdx]!)
+        this.showCommands.splice(synthIdx, 1)
+      }
       this._backgroundColor = null
       this.invalidate()
       return
@@ -377,13 +399,26 @@ export class XGISMap {
       return
     }
     this._backgroundColor = rgba
-    this._syntheticBackend?.updateFillColor(rgba)
-    const synthShow = this.showCommands.find(
-      s => s.targetName === SYNTHETIC_EARTH_SURFACE_SOURCE,
-    )
-    if (synthShow) {
-      updateSyntheticEarthSurfaceShowFill(synthShow, rgba)
-      invalidateResolvedShowCache(synthShow)
+    // Re-install path: setBackgroundFill(null) earlier in this session
+    // tore down the synthetic source; the user is now opting back in.
+    // Run the install + prepend the synthetic ShowCommand at sort-order
+    // 0 so the next frame dispatches against a live catalog. Requires
+    // the renderer to be initialised — pre-run() callers just set
+    // `_backgroundColor` and the deferred install fires inside run() /
+    // runBinary() the same as the original install path.
+    if (!this._syntheticBackend && this.renderer) {
+      this._installSyntheticEarthSurfaceSource(rgba)
+      const syntheticShow = buildSyntheticEarthSurfaceShow(rgba)
+      this.showCommands = [syntheticShow, ...this.showCommands]
+    } else {
+      this._syntheticBackend?.updateFillColor(rgba)
+      const synthShow = this.showCommands.find(
+        s => s.targetName === SYNTHETIC_EARTH_SURFACE_SOURCE,
+      )
+      if (synthShow) {
+        updateSyntheticEarthSurfaceShowFill(synthShow, rgba)
+        invalidateResolvedShowCache(synthShow)
+      }
     }
     this.invalidate()
   }
@@ -1346,17 +1381,6 @@ export class XGISMap {
    *  property table). */
   private buildFeatureForEvent(layerId: number, featureId: number): XGISFeature | null {
     return this.interactionController.buildFeatureForEvent(layerId, featureId)
-  }
-
-  /** Look up properties for `featureId` in `sourceName`'s GeoJSON
-   *  feature index. Builds the index on first access using the same
-   *  `feature-id-fallback` resolver the compile worker uses
-   *  (`feature.id` → `properties.id` → array index), so the IDs the
-   *  GPU encoded into the pick texture match the lookup keys here.
-   *  Returns null when the source isn't a GeoJSON dataset or the ID
-   *  isn't found. */
-  private lookupFeatureProperties(sourceName: string, featureId: number): Record<string, unknown> | null {
-    return this.interactionController.lookupFeatureProperties(sourceName, featureId)
   }
 
   /** Convert a CSS-coordinate point to longitude/latitude using the
