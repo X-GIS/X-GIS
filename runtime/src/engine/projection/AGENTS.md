@@ -13,7 +13,8 @@ Camera math and the seven map projections. `projection.ts` is the CPU side: `mer
 | `camera.ts` | `Camera` — zoom/pan/bearing/pitch, MVP, meters-per-pixel, log-depth FC (`computeLogDepthFc`), `buildGlobeMatrix` hookup. |
 | `globe.ts` | True-3D globe (projType 7) — real sphere with pitch as orbit, vs the flat 2D azimuthal discs (3/4/5) that "lay on their side" when pitched. |
 | `../shader-dsl/cpu-projections.ts` | GENERATED cpu-f64 mirror of WGSL `proj_*` (`projectWgsl`, `projectGeomWgsl`, …) — replaces the deleted `projection-wgsl-mirror.ts`. Lowered from `../shader-dsl/projections.ts`; the parity check pins CPU `projection.ts` against it. |
-| `reprojector.ts` | Currently UNUSED 2-pass equirect→target resampler, preserved for a future RTT approach. No test coverage — keep inverse fns faithful to `projection.ts` on any edit. |
+| `reprojector.ts` | Currently UNUSED 2-pass equirect→target resampler, preserved for a future RTT approach. No test coverage — keep inverse fns faithful to `projection.ts` on any edit. **Phase 2e** deletes this file (confirmed dead per memory `project_shader_dsl_pr_d_phase4_2026_05_27`). |
+| `ecef.ts` | **Phase 2 PR 2a (scaffolding).** WGS84 ellipsoid ECEF (Earth-Centered Earth-Fixed) coordinate math. `lonLatToECEF` / `mercatorToECEF` / `ecefToLonLat` / `dsfunSplitECEF` — feeds the Tier 3 ECEF vertex pipeline once VSes drop `project_geom` and become `mvp * vec4(ecef_rtc, 1)`. No runtime consumer yet (Phase 2 PR 2c is the first; the polygon VS is the first migration target). |
 
 ## For AI Agents
 
@@ -28,6 +29,29 @@ Camera math and the seven map projections. `projection.ts` is the CPU side: `mer
 
 ### Common Patterns
 - `{ name, forward, inverse }` projection objects; antipode/div-by-zero guards; DSFUN-friendly meter outputs; log-depth FC computed from the far plane.
+
+## Phase 2 ECEF migration audit (PR 2a deliverables)
+
+### Encode-site enumeration
+The vertex encode site that PRs 2c/2d/2e will rewrite is **`compiler/src/tiler/vector-tiler.ts`** (+ helpers + types). `compiler/src/codegen/shader-gen.ts` is NOT involved — it generates shader code, not vertex layout. The Phase 2 v1/v2 plan misfiled this; v3 onward corrects it. Hot path also includes:
+- `compiler/src/tiler/vector-tiler-helpers.ts`
+- `compiler/src/tiler/vector-tiler-types.ts`
+- GeoJSON path routes through the same `vector-tiler.ts` (via `VirtualPMTilesBackend` → geojsonvt → MVT → tiler; memory `project_geojson_mvt_unification_decision`).
+- MVT worker (`runtime/src/data/workers/mvt-worker*`) consumes tiler output, no runtime encode.
+
+### Tile-cache invalidation surface (AC2.11)
+Audit finding: **no schema/layout version field exists today in `runtime/src/data/`**. Grep confirms zero hits for `XGVT_SCHEMA_VERSION`, `TILE_VERSION`, `cacheVersion`, etc. Eviction is byte-budget-based only (`MAX_CACHED_BYTES` + `evictTiles` at `tile-catalog.ts:97-148`). Phase 2 PR 2c must therefore ADD a version field — proposed `TILE_LAYOUT_VERSION` constant + per-source meta version that the catalog compares on attach. On version mismatch, the catalog evicts cached tiles for that source and triggers re-decode. PR 2c owns the addition; PR 2a documents the audit.
+
+### Earth-surface fill design spec (AC2.3)
+Phase 2 PR 2c replaces `BackgroundRenderer` with a synthetic ECEF earth-surface fill quad dispatched through the standard opaque tile pipeline. Design contract:
+- **Mesh density:** minimum 32×16 lat/lon grid. 4-corner quad is INSUFFICIENT — under sphere VS it stays a planar rectangle, not a curved disc. Density may rise after a globe-disc visual audit in PR 2c; lower bound locked at 32×16.
+- **World-band geometry per projType:**
+  - Mercator / equirect / oblique_mercator: ±180° lon × ±MERCATOR_LAT_LIMIT (±85.0511°) lat rectangle.
+  - Natural Earth: NE polygon-band clipped to NE valid extent.
+  - Orthographic / Azimuthal Equidistant / Stereographic / Globe: ±180° × ±90° sphere band, source-honest at the poles.
+- **Dispatch site:** synthetic `TileSource` backend is the preferred path (leverages existing catalog/pipeline; consistent with the Phase 1b `TileScheme` model). Renderer-level inject is fallback if the synthetic backend approach turns out to add catalog complexity > the BackgroundRenderer deletion savings — decided concretely at PR 2c.
+- **Sort order:** layer 0 of the opaque pass — painted behind every real tile. Real tiles paint on top via the standard pipeline.
+- **clearValue contract preservation:** opaque-pass `clearValue` stays pure black `{r:0,g:0,b:0,a:1}` (iter-196 contract — `runtime/src/engine/render/passes/opaque-pass.ts:86-100` documents the "no world here" sentinel that MapLibre parity depends on). bg color only paints INSIDE the world band; outside it shows the black clearValue through.
 
 ## Dependencies
 
