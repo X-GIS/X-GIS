@@ -32,6 +32,10 @@ export class VirtualCatalogAdapter implements TileSource {
       bounds: catalog.bounds,
       minZoom: catalog.minZoom,
       maxZoom: catalog.maxZoom,
+      // The legacy `VirtualCatalog` interface is Web Mercator XYZ by API
+      // contract (z/x/y slippy fetcher). Declared explicitly so future
+      // schemes don't silently inherit the assumption.
+      scheme: 'web-mercator-xyz',
       propertyTable: { fieldNames: [], fieldTypes: [], values: [] },
       entries: undefined,
     }

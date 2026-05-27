@@ -58,6 +58,7 @@ function makeStubBackend(): {
   const cancelStale = vi.fn<(activeKeys: Set<number>) => void>()
   const meta: TileSourceMeta = {
     bounds: [-180, -85, 180, 85], minZoom: 0, maxZoom: 14,
+    scheme: 'web-mercator-xyz',
   }
   const backend: TileSource = {
     meta,

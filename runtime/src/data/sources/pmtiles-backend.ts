@@ -115,6 +115,8 @@ export class PMTilesBackend implements TileSource {
       bounds: opts.bounds,
       minZoom: opts.minZoom,
       maxZoom: opts.maxZoom,
+      // PMTiles spec MVT tiles are addressed on the Web Mercator XYZ slippy grid.
+      scheme: 'web-mercator-xyz',
       // Empty property table — PMTiles' MVT properties aren't yet
       // surfaced to the styling layer. Catalog merges this with
       // first-attached-wins precedence; another backend's table wins

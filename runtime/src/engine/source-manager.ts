@@ -20,7 +20,6 @@
 //   - `this.rebuildLayers()`         → injected `rebuildLayers` callback
 //   - `this.teardownSource(...)`     → injected `teardownSource` callback
 //   - `this._featureIndex.delete(…)` → injected `deleteFeatureIndex` callback
-//   - `this._polarCapsEnabled`       → injected `isPolarCapsEnabled` accessor
 //   - `this.ctx` / `this.renderer` / `this.lineRenderer` → injected
 //     accessors (these are populated lazily in run() so they must be read
 //     fresh, not captured at construction).
@@ -32,7 +31,6 @@ import { getMaxDpr } from './gpu/gpu'
 import type { MapRenderer } from './render/renderer'
 import type { LineRenderer } from './render/line-renderer'
 import { lonLatToMercator, type GeoJSONFeatureCollection } from '../loader/geojson'
-import { injectPolarCaps } from '../loader/polar-cap-detect'
 import { isTileTemplate } from '../data/tile-select'
 import { TileCatalog } from '../data/tile-catalog'
 import { VectorTileRenderer } from './render/vector-tile-renderer'
@@ -76,8 +74,6 @@ export interface SourceManagerDeps {
   teardownSource(sourceId: string): void
   /** XGISMap's `_featureIndex.delete(sourceId)`. */
   deleteFeatureIndex(sourceId: string): void
-  /** XGISMap's `_polarCapsEnabled` flag (opt-in). */
-  isPolarCapsEnabled(): boolean
 }
 
 export class SourceManager {
@@ -96,7 +92,6 @@ export class SourceManager {
   private readonly rebuildLayers: () => void
   private readonly teardownSource: (sourceId: string) => void
   private readonly deleteFeatureIndex: (sourceId: string) => void
-  private readonly isPolarCapsEnabled: () => boolean
 
   constructor(deps: SourceManagerDeps) {
     this.rawDatasets = deps.rawDatasets
@@ -113,7 +108,6 @@ export class SourceManager {
     this.rebuildLayers = deps.rebuildLayers
     this.teardownSource = deps.teardownSource
     this.deleteFeatureIndex = deps.deleteFeatureIndex
-    this.isPolarCapsEnabled = deps.isPolarCapsEnabled
   }
 
   /** Reproject a real-FC ingest from its declared source CRS to WGS84
@@ -466,14 +460,6 @@ export class SourceManager {
     // declared CRS is looked up by sourceId in the run()-time registry;
     // absent CRS ⇒ EPSG:4326 / no-op.
     normalized = this._reprojectIngest(sourceId, normalized)
-    // Polar-cap injection (opt-in via setPolarCapsEnabled). Appends
-    // synthesised cap polygons that close the surface to the pole
-    // for any source feature touching the Web Mercator clamp boundary
-    // (±85.05° lat). Mirrors the polar-cap fix steps from iter 394-396;
-    // see project_polar_cap_gap_globe memory note.
-    if (this.isPolarCapsEnabled()) {
-      normalized = injectPolarCaps(normalized as never) as never
-    }
     this.rawDatasets.set(sourceId, normalized)
     // Full replace invalidates any cached feature index for this source.
     this.deleteFeatureIndex(sourceId)

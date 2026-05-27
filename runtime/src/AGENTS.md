@@ -9,7 +9,7 @@ Root of the `@xgis/runtime` source tree. Top level holds the public entry barrel
 ## Key Files
 | File | Description |
 |------|-------------|
-| `index.ts` | Public barrel. Re-exports `XGISMap`, `Camera`, `MapRenderer`, `loadGeoJSON`, `lonLatToMercator`, projection factories, `ComputeDispatcher`, polar-cap synth/detect, `VectorTileLoader` + PMTiles helpers, color-ramp helpers, `XGISMapElement`, `RUNTIME_CAPABILITIES`. |
+| `index.ts` | Public barrel. Re-exports `XGISMap`, `Camera`, `MapRenderer`, `loadGeoJSON`, `lonLatToMercator`, projection factories, `ComputeDispatcher`, polar-cap synth/detect (Phase 1a: public utility, **no longer renderer-driven** — apply as a data preprocessing step before `setSourceData`), `VectorTileLoader` + PMTiles helpers, color-ramp helpers, `XGISMapElement`, `RUNTIME_CAPABILITIES`. |
 | `capabilities.ts` | `RUNTIME_CAPABILITIES` table — per `(layerType, property, variant)` flag of what the renderer actually honours vs silently drops/degrades. Pairs with `compiler/.../spec-coverage.ts`; the drift test gates missing entries. |
 | `earcut.d.ts` | Ambient type decl for the `earcut` package. |
 

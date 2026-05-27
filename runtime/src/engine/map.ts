@@ -14,7 +14,6 @@ import { Camera } from './projection/camera'
 import { CameraController } from './camera-controller'
 import { SourceManager } from './source-manager'
 import { InteractionController } from './interaction-controller'
-import { MERCATOR_LAT_LIMIT } from './projection/projection'
 import { MapRenderer } from './render/renderer'
 import { resolveNumberShape } from './render/paint-shape-resolve'
 import { RenderLoop } from './render-loop'
@@ -82,6 +81,11 @@ type OpaqueGroup = ExternalOpaqueGroup
  *  reports LIVE runtime state (not a simulation) so CPU debug sessions
  *  can correlate a specific frame's tile-selection decisions with the
  *  cache / budget pressure that drove them. */
+
+// One-shot guard for the setPolarCapsEnabled deprecation warning.
+// Repeated calls share this module-scoped flag and emit at most one xlog.warn
+// per session.
+let _polarCapsWarned = false
 
 export class XGISMap {
   ctx!: GPUContext
@@ -369,7 +373,6 @@ export class XGISMap {
       rebuildLayers: () => this.rebuildLayers(),
       teardownSource: (sourceId) => this.teardownSource(sourceId),
       deleteFeatureIndex: (sourceId) => { this._featureIndex.delete(sourceId) },
-      isPolarCapsEnabled: () => this._polarCapsEnabled,
     })
     // Pick / interaction QUERY cluster — receives the shared camera +
     // layer/source state by reference; ctx / pickTexture / projectionName /
@@ -572,30 +575,23 @@ export class XGISMap {
     return this.cameraController.getCameraState()
   }
 
-  /** Polar-cap synthesis on/off — when ON, setSourceData scans every
-   *  GeoJSON polygon for Web Mercator clamp-boundary spans (±85.05°)
-   *  and appends synthesised cap polygons closing the surface to the
-   *  pole. Fixes the circular hole at the pole on globe / ortho /
-   *  azimuthal projections (project_polar_cap_gap_globe).
-   *
-   *  Default OFF for backwards compatibility — Mercator-only
-   *  deployments don't pay the scan cost or load extra polygons.
-   *  Hosts using globe / azimuthal projections should enable this
-   *  early in setup, BEFORE setSourceData calls. */
-  private _polarCapsEnabled = false
-  setPolarCapsEnabled(on: boolean): void {
-    this._polarCapsEnabled = on
-    // Re-process all existing GeoJSON sources so the toggle takes
-    // effect for data loaded before the flag flipped.
-    if (on) {
-      for (const [sourceId, data] of this.rawDatasets) {
-        if (data && typeof data === 'object' && (data as { type?: string }).type === 'FeatureCollection') {
-          this.setSourceData(sourceId, data as GeoJSONFeatureCollection)
-        }
-      }
-    }
+  /** @deprecated Phase 1a (Tier 3 source-honest principle): polar-cap
+   *  synthesis is no longer renderer-driven. Preprocess GeoJSON with
+   *  `injectPolarCaps` / `synthesizePolarCaps` (re-exported from
+   *  `@xgis/runtime`) before `setSourceData`. This setter is a no-op +
+   *  one-shot `xlog.warn` so existing host code does not throw. */
+  setPolarCapsEnabled(_on: boolean): void {
+    if (_polarCapsWarned) return
+    _polarCapsWarned = true
+    xlog.warn(
+      '[X-GIS] setPolarCapsEnabled is no longer renderer-driven. ' +
+      'Use the injectPolarCaps / synthesizePolarCaps exports as a pre-processing ' +
+      'step on your data, or accept honest source coverage.',
+    )
   }
-  isPolarCapsEnabled(): boolean { return this._polarCapsEnabled }
+  /** @deprecated Always returns `false` post-Phase 1a — polar-cap synthesis
+   *  is no longer renderer-driven (see `setPolarCapsEnabled`). */
+  isPolarCapsEnabled(): boolean { return false }
 
   /** Current graticule on/off state. */
   isGraticuleEnabled(): boolean {
@@ -857,20 +853,6 @@ export class XGISMap {
     // azimuthal set switches to it dynamically in renderFrame when
     // pitch>0 (renderers branch on projType 7).
     this.camera.globeMode = name === 'globe'
-
-    // Non-Mercator projections render beyond the Web Mercator clamp
-    // (±85.05°) — up to the true poles for globe / azimuthal — so polygon
-    // sources that stop at the clamp boundary (every Web-Mercator-tiled
-    // source does) leave a blank cap at the pole. Auto-enable cap
-    // synthesis on the first switch to a non-Mercator projection so
-    // GeoJSON polygons close to the pole. No-op for raster / vector-tile
-    // basemaps (no data exists above the clamp to extend). Not enabled for
-    // Mercator (never exposes the gap); not auto-DISABLED on the way back
-    // since the synthesised caps clamp to a degenerate sliver there.
-    if (name !== 'mercator' && !this._polarCapsEnabled) {
-      this.setPolarCapsEnabled(true)
-    }
-
     this.invalidate()
   }
 

@@ -30,7 +30,7 @@ import { VirtualCatalogAdapter } from './sources/virtual-catalog-adapter'
 import { GeoJSONRuntimeBackend } from './sources/geojson-runtime-backend'
 import { SubTileGenerator } from './sub-tile-generator'
 import type {
-  TileSource, TileSourceSink, BackendTileResult,
+  TileSource, TileSourceSink, BackendTileResult, TileScheme,
 } from './tile-source'
 // Step 0 of the layer-type refactor: shared types live in tile-types.ts so
 // per-format backend modules can import them without pulling in catalog
@@ -249,6 +249,15 @@ export class TileCatalog {
     backend.attach(this.getSink())
     this.backends.push(backend)
     this.mergeBackendMeta(backend)
+  }
+
+  /** Catalog's primary tile scheme — the first-attached backend's scheme.
+   *  Returns undefined before any backend is attached. Mixed-scheme dispatch
+   *  is deferred until multi-scheme backends exist; today every attach is
+   *  Mercator XYZ. Per-source name lookup belongs at SourceManager, which
+   *  owns the source-name → catalog map. */
+  getScheme(): TileScheme | undefined {
+    return this.backends[0]?.meta.scheme
   }
 
   /** Detach a previously-attached backend. Removes preregistered
