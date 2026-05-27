@@ -4,6 +4,7 @@ import {
   ecefToLonLat,
   mercatorToECEF,
   dsfunSplitECEF,
+  ecefToENURotation,
   WGS84,
 } from './ecef'
 
@@ -131,6 +132,76 @@ describe('dsfunSplitECEF — sub-mm precision via hi/lo split (AC2.5a)', () => {
     expect(hi[0] + lo[0]).toBe(p[0] - center[0])
     expect(hi[1] + lo[1]).toBe(p[1] - center[1])
     expect(hi[2] + lo[2]).toBe(p[2] - center[2])
+  })
+})
+
+describe('ecefToENURotation — local tangent-plane basis', () => {
+  // Helper: read column-major Float32Array(16) as a 4x4 in [row][col] order.
+  const at = (m: Float32Array, row: number, col: number): number =>
+    m[col * 4 + row]
+
+  it('lon=0, lat=0 (equator + prime meridian) — known reference', () => {
+    const r = ecefToENURotation(0, 0)
+    // At (lon=0, lat=0): East=+Y, North=+Z, Up=+X in ECEF.
+    // Row vectors should equal those basis directions:
+    //   E (row 0) = (0, 1, 0)
+    //   N (row 1) = (0, 0, 1)
+    //   U (row 2) = (1, 0, 0)
+    expect(at(r, 0, 0)).toBeCloseTo(0, 12)
+    expect(at(r, 0, 1)).toBeCloseTo(1, 12)
+    expect(at(r, 0, 2)).toBeCloseTo(0, 12)
+    expect(at(r, 1, 0)).toBeCloseTo(0, 12)
+    expect(at(r, 1, 1)).toBeCloseTo(0, 12)
+    expect(at(r, 1, 2)).toBeCloseTo(1, 12)
+    expect(at(r, 2, 0)).toBeCloseTo(1, 12)
+    expect(at(r, 2, 1)).toBeCloseTo(0, 12)
+    expect(at(r, 2, 2)).toBeCloseTo(0, 12)
+  })
+
+  it('rotation matrix is orthonormal for arbitrary anchor', () => {
+    const r = ecefToENURotation(126.97797, 37.56583)  // Seoul
+    // The matrix is stored as Float32Array — f32 precision is ~7 sig figs,
+    // so orthonormality holds within f32 rounding (not f64). 6 dp tolerance
+    // keeps the test honest about the storage class.
+    for (let row = 0; row < 3; row++) {
+      const len = Math.hypot(at(r, row, 0), at(r, row, 1), at(r, row, 2))
+      expect(len).toBeCloseTo(1, 6)
+    }
+    const dot = (a: number, b: number): number =>
+      at(r, a, 0) * at(r, b, 0) + at(r, a, 1) * at(r, b, 1) + at(r, a, 2) * at(r, b, 2)
+    expect(dot(0, 1)).toBeCloseTo(0, 6)
+    expect(dot(0, 2)).toBeCloseTo(0, 6)
+    expect(dot(1, 2)).toBeCloseTo(0, 6)
+  })
+
+  it('Up direction at anchor points along the outward ECEF normal', () => {
+    const lon = 126.97797
+    const lat = 37.56583
+    const r = ecefToENURotation(lon, lat)
+    // ECEF position at the anchor.
+    const ecef = lonLatToECEF(lon, lat)
+    const ecefLen = Math.hypot(ecef[0], ecef[1], ecef[2])
+    // U row dotted with the ECEF position (normalized) ≈ 1 — Up is the
+    // outward normal at the anchor.
+    const u0 = at(r, 2, 0)
+    const u1 = at(r, 2, 1)
+    const u2 = at(r, 2, 2)
+    const cosAngle = (u0 * ecef[0] + u1 * ecef[1] + u2 * ecef[2]) / ecefLen
+    // WGS84 ellipsoid: the surface normal is NOT exactly parallel to the
+    // position vector except at equator/poles, but the angle is small at
+    // mid-latitudes (max ~0.2° in either direction).
+    expect(cosAngle).toBeGreaterThan(0.99995)  // within ~0.6° of parallel
+  })
+
+  it('homogeneous identity row preserved (4x4 form)', () => {
+    const r = ecefToENURotation(0, 0)
+    expect(at(r, 3, 3)).toBe(1)
+    expect(at(r, 3, 0)).toBe(0)
+    expect(at(r, 3, 1)).toBe(0)
+    expect(at(r, 3, 2)).toBe(0)
+    expect(at(r, 0, 3)).toBe(0)
+    expect(at(r, 1, 3)).toBe(0)
+    expect(at(r, 2, 3)).toBe(0)
   })
 })
 

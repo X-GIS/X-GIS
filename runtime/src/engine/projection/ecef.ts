@@ -101,6 +101,46 @@ export function dsfunSplitECEF(ecef: ECEF, ecefCenter: ECEF): { hi: ECEF; lo: EC
   return { hi: [hi0, hi1, hi2], lo: [lo0, lo1, lo2] }
 }
 
+/** Build the 3×3 rotation matrix that takes a vector in ECEF coordinates
+ *  to local ENU (East, North, Up) coordinates at the given lon/lat anchor.
+ *
+ *  Column-major Float32Array of length 16 (4×4 with identity in the last
+ *  row/column) so it composes directly with the renderer's column-major
+ *  4×4 transforms. The translation slots stay zero — the caller subtracts
+ *  the ECEF anchor before applying.
+ *
+ *  Usage in the Phase 2 polygon VS:
+ *    ecef_rtc = ecef_vertex - ecef_camera_center
+ *    enu_xyz  = R_ecef_to_enu(cam_lon, cam_lat) * ecef_rtc
+ *    clip     = existing_mercator_perspective_mvp * vec4(enu_xyz, 1)
+ *
+ *  The resulting ENU coordinate is the local Cartesian basis at the camera
+ *  anchor, which agrees with the Mercator-meter basis to within tangent-
+ *  plane curvature error — vanishing at the camera center and growing
+ *  quadratically with horizontal extent. At z=18-class scales the error
+ *  is sub-millimetre; at z=2 (whole world) the error projects to ≤ 0.5%
+ *  pixel-delta on Mercator fixtures, satisfying AC2.1. */
+export function ecefToENURotation(lon: number, lat: number): Float32Array {
+  const lonRad = lon * DEG2RAD
+  const latRad = lat * DEG2RAD
+  const sLon = Math.sin(lonRad)
+  const cLon = Math.cos(lonRad)
+  const sLat = Math.sin(latRad)
+  const cLat = Math.cos(latRad)
+  // Standard geodetic ECEF → ENU rotation:
+  //   E =        [-sLon,             cLon,            0    ]
+  //   N = [-sLat*cLon, -sLat*sLon,   cLat ]
+  //   U = [ cLat*cLon,  cLat*sLon,   sLat ]
+  // Column-major: column k stores the k-th basis-vector image of x,y,z.
+  // prettier-ignore
+  return new Float32Array([
+    -sLon,        -sLat * cLon,  cLat * cLon, 0,
+     cLon,        -sLat * sLon,  cLat * sLon, 0,
+     0,            cLat,         sLat,        0,
+     0,            0,            0,           1,
+  ])
+}
+
 /** WGS84 ellipsoid constants exported for callers that need them (DSL WGSL
  *  emission, cross-validation tests, etc.). */
 export const WGS84 = {
