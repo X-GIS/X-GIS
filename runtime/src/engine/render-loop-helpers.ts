@@ -7,10 +7,8 @@
 import type { LabelDef } from '@xgis/compiler'
 import { resolveNumberShape, resolveColorShape, resolveSteppedShape } from './render/paint-shape-resolve'
 import { hexToRgba } from './feature-helpers'
-import { WORLD_MERC } from './gpu/gpu-shared'
-import { projectWgsl, needsBackfaceCullWgsl } from './shader-dsl'
+import { lonLatToECEF } from './projection/ecef'
 import { mercatorYToLat } from './projection/projection'
-import { globeForward } from './projection/globe'
 
 /** Per-show label paint resolution. Collapses the unified LabelShapes
  *  bundle (text-size / -color / -halo / font / icon-size / -opacity /
@@ -215,120 +213,54 @@ export function makeLabelProjectors(
   mvp: Float32Array,
   w: number,
   h: number,
-  ccx: number,
-  ccy: number,
-  projType: number,
-  centerLon: number,
-  centerLat: number,
-  isMerc: boolean,
-  isGlobe: boolean,
-  globeCenter: [number, number, number],
-  lblCenter: [number, number],
-  projectionName: string | null | undefined,
-  visibleWorldCopies: readonly number[],
 ): {
   projectMerc: (mx: number, my: number, worldMercatorOffset?: number) => [number, number] | null
   projectLonLat: (lon: number, lat: number, worldMercatorOffset?: number) => [number, number] | null
   projectMercAny: (sx: number, sy: number) => [number, number] | null
   projectLonLatCopies: (lon: number, lat: number) => Array<[number, number]>
 } {
-  // `projectScreen` is a SHARED 2-element scratch — caller copies
-  // values out before the next call.
+  // ECEF projector: lon/lat → WGS84 ECEF → ECEF MVP → NDC → CSS px.
+  // Replaces the old 3-branch projector (Mercator/globe/non-Mercator).
+  // Works for every projection because mvp is always getECEFFrameView().matrix.
+  // Under ECEF, lonLatToECEF(lon ± 360°) returns the SAME point (Earth is
+  // one body in 3D), so world-copy enumeration is a no-op — projectLonLatCopies
+  // returns a single result. The collision pass dedupes naturally.
   const _projScratch: [number, number] = [0, 0]
-  const projectMerc = (
-    mx: number, my: number, worldMercatorOffset: number = 0,
-  ): [number, number] | null => {
-    const rtcX = (mx + worldMercatorOffset) - ccx
-    const rtcY = my - ccy
-    const cw = mvp[3]! * rtcX + mvp[7]! * rtcY + mvp[15]!
+
+  const projectLonLat = (lon: number, lat: number): [number, number] | null => {
+    const e = lonLatToECEF(lon, lat)
+    const cw = mvp[3]! * e[0] + mvp[7]! * e[1] + mvp[11]! * e[2] + mvp[15]!
     if (cw <= 0) return null
-    const ccx_ = mvp[0]! * rtcX + mvp[4]! * rtcY + mvp[12]!
-    const ccy_ = mvp[1]! * rtcX + mvp[5]! * rtcY + mvp[13]!
-    const ndcX = ccx_ / cw
-    const ndcY = ccy_ / cw
+    const ndcX = (mvp[0]! * e[0] + mvp[4]! * e[1] + mvp[8]! * e[2] + mvp[12]!) / cw
+    const ndcY = (mvp[1]! * e[0] + mvp[5]! * e[1] + mvp[9]! * e[2] + mvp[13]!) / cw
     if (ndcX < -1.5 || ndcX > 1.5 || ndcY < -1.5 || ndcY > 1.5) return null
     _projScratch[0] = (ndcX + 1) * 0.5 * w
     _projScratch[1] = (1 - ndcY) * 0.5 * h
     return _projScratch
   }
 
-  const projectLonLat = (
-    lon: number, lat: number, worldMercatorOffset: number = 0,
-  ): [number, number] | null => {
-    if (isMerc) {
-      // Inlined lonLatToMercator to skip the per-call allocation
-      // (used to be `[mx, my] = lonLatToMercator(lon, lat)`).
-      const DEG2RAD = Math.PI / 180
-      const R = 6378137
-      const LAT_LIMIT = 85.051129
-      const lat_c = lat < -LAT_LIMIT ? -LAT_LIMIT : (lat > LAT_LIMIT ? LAT_LIMIT : lat)
-      const mx = lon * DEG2RAD * R
-      const my = Math.log(Math.tan(Math.PI / 4 + lat_c * DEG2RAD / 2)) * R
-      const proj = projectMerc(mx, my, worldMercatorOffset)
-      if (!proj) return null
-      // Return a FRESH 2-tuple — projectMerc's scratch can't survive
-      // across multiple projectLonLat calls in the same expression
-      // (`projectLonLatCopies` builds a list of results).
-      return [proj[0], proj[1]]
-    }
-    if (isGlobe) {
-      // True 3D globe: hemisphere-cull, then sphere RTC against
-      // the focus through the FULL 4×4 orbit MVP (the z column is
-      // significant here, unlike the flat path which drops it).
-      if (needsBackfaceCullWgsl(projType, lon, lat, centerLon, centerLat) < 0) return null
-      const g = globeForward(lon, lat)
-      const rx = g[0] - globeCenter[0]
-      const ry = g[1] - globeCenter[1]
-      const rz = g[2] - globeCenter[2]
-      const cw = mvp[3]! * rx + mvp[7]! * ry + mvp[11]! * rz + mvp[15]!
-      if (cw <= 0) return null
-      const ndcX = (mvp[0]! * rx + mvp[4]! * ry + mvp[8]! * rz + mvp[12]!) / cw
-      const ndcY = (mvp[1]! * rx + mvp[5]! * ry + mvp[9]! * rz + mvp[13]!) / cw
-      if (ndcX < -1.5 || ndcX > 1.5 || ndcY < -1.5 || ndcY > 1.5) return null
-      return [(ndcX + 1) * 0.5 * w, (1 - ndcY) * 0.5 * h]
-    }
-    // Non-Mercator: exact CPU mirror of the GPU per-vertex path.
-    // Cull the back hemisphere first (same thresholds as the
-    // shader's needs_backface_cull), then project unconditionally
-    // and apply the shared MVP. worldMercatorOffset is unused —
-    // non-Mercator collapses to a single world copy.
-    if (needsBackfaceCullWgsl(projType, lon, lat, centerLon, centerLat) < 0) return null
-    const p = projectWgsl(projType, lon, lat, centerLon, centerLat)
-    if (!Number.isFinite(p[0]) || !Number.isFinite(p[1])) return null
-    const rtcX = p[0] - lblCenter[0]
-    const rtcY = p[1] - lblCenter[1]
-    const cw = mvp[3]! * rtcX + mvp[7]! * rtcY + mvp[15]!
-    if (cw <= 0) return null
-    const ndcX = (mvp[0]! * rtcX + mvp[4]! * rtcY + mvp[12]!) / cw
-    const ndcY = (mvp[1]! * rtcX + mvp[5]! * rtcY + mvp[13]!) / cw
-    if (ndcX < -1.5 || ndcX > 1.5 || ndcY < -1.5 || ndcY > 1.5) return null
-    return [(ndcX + 1) * 0.5 * w, (1 - ndcY) * 0.5 * h]
-  }
-
-  const projectMercAny = (sx: number, sy: number): [number, number] | null => {
-    if (isMerc) return projectMerc(sx, sy)
+  // projectMerc: convert Mercator coords to lon/lat, then ECEF project.
+  // Signature kept for call-site compatibility with polygon/line overlay paths.
+  const projectMerc = (mx: number, my: number): [number, number] | null => {
+    const DEG2RAD = Math.PI / 180
     const R = 6378137
-    const lon = sx / (Math.PI / 180 * R)
-    const lat = mercatorYToLat(sy)
-    return projectLonLat(lon, lat, 0)
+    const lon = mx / (DEG2RAD * R)
+    const lat = mercatorYToLat(my)
+    return projectLonLat(lon, lat)
   }
 
-  // iter-260 (Plan AAA B.7) — projectLonLatCopies output array
-  // reused across calls. Each caller iterates the returned
-  // array immediately + doesn't retain it across calls;
-  // scratch reuse safe.
+  // projectMercAny: same as projectMerc (Mercator coords → lon/lat → ECEF).
+  const projectMercAny = (sx: number, sy: number): [number, number] | null => {
+    return projectMerc(sx, sy)
+  }
+
+  // projectLonLatCopies: ECEF space has no world copies — return one result.
+  // The screen-space collision pass handles any remaining dedup.
   const _projectScratch: Array<[number, number]> = []
   const projectLonLatCopies = (lon: number, lat: number): Array<[number, number]> => {
     _projectScratch.length = 0
-    if (projectionName !== 'mercator') {
-      const proj = projectLonLat(lon, lat, 0)
-      if (proj) _projectScratch.push(proj)
-      return _projectScratch
-    }
-    for (const wo of visibleWorldCopies) {
-      const proj = projectLonLat(lon, lat, wo * WORLD_MERC)
-      if (proj) _projectScratch.push(proj)
-    }
+    const proj = projectLonLat(lon, lat)
+    if (proj) _projectScratch.push(proj)
     return _projectScratch
   }
 
