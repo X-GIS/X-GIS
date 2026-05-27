@@ -52,7 +52,7 @@ export interface TileData {
    *  runtime-generated sub-tiles (those still use `outlineIndices`). */
   outlineVertices?: Float32Array
   outlineLineIndices?: Uint32Array
-  pointVertices?: Float32Array // points — DSFUN stride 5
+  pointVertices?: Float32Array // points — ECEF DSFUN stride 9 (PR 2d.2): [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon, abs_lat]
   /** Pre-built SDF line-segment buffers ready for GPU upload. When
    *  present, doUploadTile skips the on-main-thread buildLineSegments
    *  call entirely. PMTiles MVT worker fills these so heavy line-
