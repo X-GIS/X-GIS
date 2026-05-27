@@ -1,4 +1,4 @@
-// baseline: e25d1b8a125cf65950ac82316df0a2d2eca80b78
+// baseline: 52c7f0b4c8726f77d3b5485dcbfa1cdb5753da98
 // fixture: syn-palette
 // variant.key: syn-palette
 // pick: false
@@ -251,6 +251,7 @@ fn inv_merc_lat_rad(merc_y_m: f32) -> f32 {
 
 struct Uniforms {
   mvp: mat4x4<f32>,
+  mvp_ecef: mat4x4<f32>,
   fill_color: vec4<f32>,
   stroke_color: vec4<f32>,
   proj_params: vec4<f32>,

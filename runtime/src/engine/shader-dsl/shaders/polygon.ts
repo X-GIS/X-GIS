@@ -44,6 +44,11 @@ const Uniforms: StructDecl = {
   name: 'Uniforms',
   fields: [
     { name: 'mvp', type: mat4x4fT },
+    // mvp_ecef (Phase 2 PR 2c.1 scaffolding): ECEF-MVP for the polygon ECEF
+    // vertex pipeline. Built in true-ENU-metre semantics on the CPU via
+    // Camera.getECEFFrameView(); consumed by vs_main_ecef in PR 2c.2.
+    // Not yet read by any VS in PR 2c.1 — uniform-buffer slot reservation only.
+    { name: 'mvp_ecef', type: mat4x4fT },
     { name: 'fill_color', type: vec4fT },
     { name: 'stroke_color', type: vec4fT },
     { name: 'proj_params', type: vec4fT },

@@ -219,19 +219,19 @@ export class TileCatalog {
     return null
   }
 
-  /** Lazily-built sink shared by all attached backends. */
-  private _sink: TileSourceSink | null = null
-  private getSink(): TileSourceSink {
-    if (!this._sink) {
-      this._sink = {
-        hasTileData: (key) => this.dataCache.has(key),
-        trackLoading: (key) => { this.loadingTiles.add(key) },
-        releaseLoading: (key) => { this.loadingTiles.delete(key) },
-        getLoadingCount: () => this.loadingTiles.size,
-        acceptResult: (key, result, sourceLayer) => this.acceptResult(key, result, sourceLayer),
-      }
+  /** Build a per-backend sink that captures `backend` in closure so
+   *  acceptResult can stamp `originBackend` on every TileData it stores.
+   *  Each call produces a fresh object — one sink per backend instance,
+   *  not a shared singleton — which is the prerequisite for per-backend
+   *  cache invalidation (PR 2c.5 evictTilesForBackend). */
+  private makeSink(backend: TileSource): TileSourceSink {
+    return {
+      hasTileData: (key) => this.dataCache.has(key),
+      trackLoading: (key) => { this.loadingTiles.add(key) },
+      releaseLoading: (key) => { this.loadingTiles.delete(key) },
+      getLoadingCount: () => this.loadingTiles.size,
+      acceptResult: (key, result, sourceLayer) => this.acceptResult(key, result, sourceLayer, backend),
     }
-    return this._sink
   }
 
   /** Attach a TileSource backend to this catalog. After this call:
@@ -246,7 +246,7 @@ export class TileCatalog {
    *  precedence is attach order — see plans/delegated-hopping-cray.md
    *  §1.2 for rationale. */
   attachBackend(backend: TileSource): void {
-    backend.attach(this.getSink())
+    backend.attach(this.makeSink(backend))
     this.backends.push(backend)
     this.mergeBackendMeta(backend)
   }
@@ -316,14 +316,15 @@ export class TileCatalog {
 
   /** Catalog-side result handler — unifies cacheTileData /
    *  createFullCoverTileData / synthetic-entry creation that
-   *  backends used to do via bespoke sinks. Called by the shared
-   *  sink whenever a backend pushes a result. Pass null for
-   *  empty placeholder (backend determined no data for this key). */
-  private acceptResult(key: number, result: BackendTileResult | null, sourceLayer = ''): void {
+   *  backends used to do via bespoke sinks. Called by the per-backend
+   *  sink (see makeSink) so `backend` is always the exact TileSource
+   *  that produced this result. Pass null for empty placeholder
+   *  (backend determined no data for this key). */
+  private acceptResult(key: number, result: BackendTileResult | null, sourceLayer = '', backend?: TileSource): void {
     if (!result) {
       const empty = new Float32Array(0)
       const emptyI = new Uint32Array(0)
-      this.cacheTileData(key, undefined, empty, emptyI, empty, emptyI, undefined, undefined, undefined, undefined, undefined, undefined, sourceLayer)
+      this.cacheTileData(key, undefined, empty, emptyI, empty, emptyI, undefined, undefined, undefined, undefined, undefined, undefined, sourceLayer, undefined, undefined, undefined, backend)
       return
     }
     // Synthesise an XGVTIndex entry (idempotent — skip if already
@@ -347,7 +348,7 @@ export class TileCatalog {
     if (tileFullCover && result.vertices.length === 0) {
       const entry = this.index?.entryByHash.get(key)
       if (entry) {
-        this.createFullCoverTileData(key, entry, result.lineVertices, result.lineIndices, sourceLayer)
+        this.createFullCoverTileData(key, entry, result.lineVertices, result.lineIndices, sourceLayer, backend)
         return
       }
     }
@@ -365,6 +366,7 @@ export class TileCatalog {
       result.heights,
       result.bases,
       result.featureProps,
+      backend,
     )
   }
 
@@ -973,6 +975,9 @@ export class TileCatalog {
      *  black holes (the quad sits in the '' slot, but the layer asks
      *  for the 'water' slot). */
     sourceLayer = '',
+    /** Backend that produced this tile — forwarded to cacheTileData
+     *  so the synthesised quad carries originBackend attribution. */
+    originBackend?: TileSource,
   ): void {
     const [tz, tx, ty] = tileKeyUnpack(key)
     const tn = Math.pow(2, tz)
@@ -1011,7 +1016,7 @@ export class TileCatalog {
     this.cacheTileData(
       key, undefined, vertices, indices, lineVertices, lineIndices,
       undefined, undefined, undefined, undefined, undefined, undefined,
-      sourceLayer,
+      sourceLayer, undefined, undefined, undefined, originBackend,
     )
   }
 
@@ -1032,6 +1037,10 @@ export class TileCatalog {
     heights?: ReadonlyMap<number, number>,
     bases?: ReadonlyMap<number, number>,
     featureProps?: ReadonlyMap<number, Record<string, unknown>>,
+    /** Backend that produced this tile — captured by the per-backend
+     *  sink closure in makeSink and threaded here so TileData carries
+     *  its origin for per-backend eviction (PR 2c.5). */
+    originBackend?: TileSource,
   ): void {
     const [tz, tx, ty] = tileKeyUnpack(key)
     const tn = Math.pow(2, tz)
@@ -1056,6 +1065,7 @@ export class TileCatalog {
       heights,
       bases,
       featureProps,
+      originBackend,
     }
 
     this.setSlice(key, sourceLayer, data)

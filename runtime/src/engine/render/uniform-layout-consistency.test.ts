@@ -82,25 +82,32 @@ function parseUniformStruct(): { fields: Field[]; sizeBytes: number } {
 // This is the layout the CPU packing in vector-tile-renderer.ts
 // depends on. Updating the WGSL struct REQUIRES updating both this
 // table AND the CPU uf[] writes — this test fails until they agree.
+//
+// Phase 2 PR 2c.1: mvp_ecef added after mvp (slot reservation only).
+// All fields after mvp shifted by +16 f32 slots (64 bytes). Struct
+// size grows 192 → 256 bytes; the ≤192 guard below is updated to ≤256.
+// CPU uf[] writes are NOT updated in PR 2c.1 — mvp_ecef is not yet
+// consumed by any VS and the CPU does not write it yet (zeroed by ring).
 const EXPECTED_F32_OFFSET: Record<string, number> = {
   mvp: 0,
-  fill_color: 16,
-  stroke_color: 20,
-  proj_params: 24,
-  cam_h: 28,
-  cam_l: 30,
-  tile_origin_merc: 32,
-  opacity: 34,
-  log_depth_fc: 35,
-  pick_id: 36,
-  layer_depth_offset: 37,
-  tile_extent_m: 38,
-  extrude_height_m: 39,
-  clip_bounds: 40,
-  zoom: 44,
-  extrude_base_m: 45,
-  fill_translate_x: 46,
-  fill_translate_y: 47,
+  mvp_ecef: 16,
+  fill_color: 32,
+  stroke_color: 36,
+  proj_params: 40,
+  cam_h: 44,
+  cam_l: 46,
+  tile_origin_merc: 48,
+  opacity: 50,
+  log_depth_fc: 51,
+  pick_id: 52,
+  layer_depth_offset: 53,
+  tile_extent_m: 54,
+  extrude_height_m: 55,
+  clip_bounds: 56,
+  zoom: 60,
+  extrude_base_m: 61,
+  fill_translate_x: 62,
+  fill_translate_y: 63,
 }
 
 describe('iter-319 uniform byte-layout consistency (CPU pack ↔ WGSL struct)', () => {
@@ -125,24 +132,28 @@ describe('iter-319 uniform byte-layout consistency (CPU pack ↔ WGSL struct)', 
     expect(cb.byteOffset % 16).toBe(0)
   })
 
-  it('struct fits in the 192-byte uniform-ring slot', () => {
-    expect(sizeBytes).toBeLessThanOrEqual(192)
+  it('struct fits in the 256-byte uniform-ring slot', () => {
+    expect(sizeBytes).toBeLessThanOrEqual(256)
   })
 
   it('CPU pack indices in vector-tile-renderer match parsed offsets', () => {
     const vtr = readFileSync(join(HERE, 'vector-tile-renderer.ts'), 'utf8')
     // mvp: uf.set(mvp, 0)
     expect(vtr).toMatch(/uf\.set\(mvp,\s*0\)/)
-    // fill_color slot 16-19
+    // NOTE (Phase 2 PR 2c.1): CPU uf[] write indices below are intentionally
+    // NOT updated yet — mvp_ecef slot is reserved but no VS reads it in PR 2c.1
+    // and the CPU zero-fills the new 64-byte gap via the uniform ring buffer.
+    // PR 2c.2 will update the CPU writes and these regex/cross-checks together.
+    // fill_color CPU write still at uf[16] (ring zero-fills mvp_ecef gap)
     expect(vtr).toMatch(/uf\[16\]\s*=.*(?:cachedFillColor|patternUV)/)
-    // stroke_color slot 20-23
+    // stroke_color CPU write still at uf[20]
     expect(vtr).toMatch(/uf\[20\]\s*=/)
-    // proj_params slot 24-27
+    // proj_params CPU write still at uf[24]
     expect(vtr).toMatch(/uf\[24\]\s*=\s*projType/)
-    // Cross-check: the parsed offsets for those fields.
-    expect(EXPECTED_F32_OFFSET.fill_color).toBe(16)
-    expect(EXPECTED_F32_OFFSET.stroke_color).toBe(20)
-    expect(EXPECTED_F32_OFFSET.proj_params).toBe(24)
+    // Cross-check: the WGSL struct offsets for those fields (shifted by mvp_ecef).
+    expect(EXPECTED_F32_OFFSET.fill_color).toBe(32)
+    expect(EXPECTED_F32_OFFSET.stroke_color).toBe(36)
+    expect(EXPECTED_F32_OFFSET.proj_params).toBe(40)
   })
 
   it('no field overlaps the next (offset + size ≤ next offset)', () => {

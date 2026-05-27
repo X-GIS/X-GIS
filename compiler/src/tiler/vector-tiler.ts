@@ -169,6 +169,77 @@ export function packDSFUNPolygonVertices(
   return out
 }
 
+/** Pack ABSOLUTE Mercator-metre polygon vertices into ECEF DSFUN stride-7.
+ *
+ * Input: stride-3 `[mx, my, fid]` ABSOLUTE Mercator metres.
+ * Output: stride-7 Float32Array `[ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid]`.
+ *
+ * Per vertex:
+ *   1. Inverse Web Mercator → lon/lat radians.
+ *   2. Ellipsoidal ECEF (WGS84) at height=0.
+ *   3. Subtract ecefTileCenter (tile-anchor RTC — keeps per-tile residuals
+ *      ≤ tile-extent metres so the f32 high half holds the magnitude).
+ *   4. DSFUN-split each axis via Math.fround: hi = f32(v), lo = f32(v - hi).
+ *
+ * Math constants are duplicated here (not imported from runtime/) because
+ * cross-package imports are forbidden in the compiler tiler.  The values
+ * are bit-identical to runtime/src/engine/projection/ecef.ts.
+ *
+ * `packDSFUNPolygonVertices` is NOT removed — the point path still uses it.
+ */
+export function packECEFPolygonVertices(
+  scratchPv: number[] | Float64Array,
+  ecefTileCenter: readonly [number, number, number],
+): Float32Array {
+  // WGS84 constants (mirrors runtime/src/engine/projection/ecef.ts).
+  const A = 6378137               // semi-major axis (m)
+  const F = 1 / 298.257223563     // flattening
+  const E2 = F * (2 - F)          // first eccentricity squared
+
+  const count = scratchPv.length / 3
+  const out = new Float32Array(count * 7)
+  for (let i = 0; i < count; i++) {
+    const mx = scratchPv[i * 3]
+    const my = scratchPv[i * 3 + 1]
+    const fid = scratchPv[i * 3 + 2]
+
+    // Inverse Web Mercator → lon/lat radians.
+    const lon_rad = mx / A
+    const lat_rad = 2 * Math.atan(Math.exp(my / A)) - Math.PI / 2
+
+    // WGS84 ellipsoidal ECEF at height = 0.
+    const sinLat = Math.sin(lat_rad)
+    const cosLat = Math.cos(lat_rad)
+    const N = A / Math.sqrt(1 - E2 * sinLat * sinLat)
+    const ex = N * cosLat * Math.cos(lon_rad)
+    const ey = N * cosLat * Math.sin(lon_rad)
+    const ez = N * (1 - E2) * sinLat
+
+    // Subtract tile-anchor ECEF center (RTC — relative-to-center).
+    const rx = ex - ecefTileCenter[0]
+    const ry = ey - ecefTileCenter[1]
+    const rz = ez - ecefTileCenter[2]
+
+    // DSFUN split: hi = f32(v), lo = f32(v - hi).
+    const exH = Math.fround(rx)
+    const eyH = Math.fround(ry)
+    const ezH = Math.fround(rz)
+    const exL = Math.fround(rx - exH)
+    const eyL = Math.fround(ry - eyH)
+    const ezL = Math.fround(rz - ezH)
+
+    const base = i * 7
+    out[base]     = exH
+    out[base + 1] = eyH
+    out[base + 2] = ezH
+    out[base + 3] = exL
+    out[base + 4] = eyL
+    out[base + 5] = ezL
+    out[base + 6] = fid
+  }
+  return out
+}
+
 /** Project a lon/lat ring array to Mercator meters (MM). Each output
  *  ring is `[[mx, my], ...]`. Use this at the polygon pipeline entry
  *  so all downstream clip/simplify/tessellate runs in MM (industry

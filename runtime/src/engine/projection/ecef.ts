@@ -77,6 +77,53 @@ export function mercatorToECEF(mx: number, my: number, height = 0): ECEF {
   return lonLatToECEF(lon, lat, height)
 }
 
+/** ECEF anchor for a Mercator tile-corner. Used by packECEFPolygonVertices
+ *  in compiler/tiler to derive per-tile DSFUN center.
+ *
+ *  Thin wrapper around `mercatorToECEF(tileMx, tileMy, 0)`. Exposed as a
+ *  named helper so call sites read intent ("per-tile anchor center")
+ *  rather than the lower-level Mercator→ECEF composition. */
+export function tileEcefCenterFromMerc(tileMx: number, tileMy: number): ECEF {
+  return mercatorToECEF(tileMx, tileMy, 0)
+}
+
+/** Sphere-based variant of `lonLatToECEF` (E2 = 0, radius A).
+ *
+ *  Why a sphere variant exists alongside the ellipsoidal `lonLatToECEF`:
+ *  the legacy 2D MVP path is built on a **spherical** Mercator basis
+ *  (`WORLD_MERC = 2π × A` in gpu-shared.ts, single radius A). For Phase 2
+ *  PR 2c.1 the ECEF-MVP must converge with the legacy MVP at lat=0 (where
+ *  cos(0)=1 makes the dual paths mathematically identical per the plan's
+ *  math contract). Building the ECEF anchor + per-vertex ECEF via the
+ *  WGS84 ellipsoid introduces a (1-E2) ≈ 0.99327 north-axis compression
+ *  at the equator — visible as ~8 m per 1223 m of true northing → 1.7 px
+ *  clip-space delta at z=14, breaking the dual-path parity gate.
+ *
+ *  Future Phase 2e (legacy `project_geom` retirement) can collapse callers
+ *  back onto the ellipsoidal helper when that is the only basis in use.
+ *  Until then, the camera + ECEF-MVP pipeline must read the sphere. */
+export function lonLatToECEFSphere(lon: number, lat: number, height = 0): ECEF {
+  const lonRad = lon * DEG2RAD
+  const latRad = lat * DEG2RAD
+  const sinLat = Math.sin(latRad)
+  const cosLat = Math.cos(latRad)
+  const r = A + height
+  const x = r * cosLat * Math.cos(lonRad)
+  const y = r * cosLat * Math.sin(lonRad)
+  const z = r * sinLat
+  return [x, y, z]
+}
+
+/** Sphere-based variant of `mercatorToECEF`. Mirrors the formula but routes
+ *  the lon/lat through `lonLatToECEFSphere`. See `lonLatToECEFSphere` for
+ *  the rationale on why the camera/ECEF-MVP pipeline uses the sphere
+ *  rather than the WGS84 ellipsoid. */
+export function mercatorToECEFSphere(mx: number, my: number, height = 0): ECEF {
+  const lon = (mx / A) * RAD2DEG
+  const lat = (2 * Math.atan(Math.exp(my / A)) - Math.PI / 2) * RAD2DEG
+  return lonLatToECEFSphere(lon, lat, height)
+}
+
 /** DSFUN (double-single fused unit) hi/lo split of an ECEF vertex relative to
  *  an ECEF center. Mirrors the existing polygon VS pattern in `polygon.ts`
  *  (`pos_h` + `pos_l` pair) and lets the GPU reconstruct sub-mm precision

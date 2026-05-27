@@ -8,6 +8,7 @@
 // behaviour change.
 
 import type { CompiledTile, RingPolygon } from '@xgis/compiler'
+import type { TileSource } from './tile-source'
 
 // ═══ Tile lifecycle state ═══
 
@@ -85,6 +86,15 @@ export interface TileData {
    *  feature without round-tripping through a global PropertyTable
    *  (PMTiles doesn't build one — features land here directly). */
   featureProps?: ReadonlyMap<number, Record<string, unknown>>
+  /** Backend that produced this tile data. Set by TileCatalog.acceptResult
+   *  via sink-closure capture. Used by evictTilesForBackend (PR 2c.5) for
+   *  per-backend cache invalidation on TILE_LAYOUT_VERSION mismatch.
+   *
+   *  Pre-PR 2c.1 cache entries (e.g., persisted browser caches from older
+   *  builds) deserialize with `undefined` — treated as "any backend" for
+   *  eviction purposes (intentional rollout backfill). After user cache
+   *  rotation, all entries carry origin attribution. */
+  originBackend?: TileSource
 }
 
 // Stride constants (exported for tests + VTR upload paths)
