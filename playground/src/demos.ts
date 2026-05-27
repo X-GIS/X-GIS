@@ -596,4 +596,5 @@ export const DEMOS: Record<string, Demo> = {
   fixture_projection_orthographic: { name: 'Fixture: projection orthographic', tag: 'fixture', description: 'Orthographic (globe) projection with back-face culling.', source: load('fixture-projection-orthographic.xgis') },
   fixture_projection_natural_earth: { name: 'Fixture: projection natural earth', tag: 'fixture', description: 'Natural Earth pseudocylindrical projection.',          source: load('fixture-projection-natural-earth.xgis') },
   fixture_zoom_opacity:           { name: 'Fixture: zoom opacity stops',   tag: 'fixture', description: 'z0:opacity-10 → z6:opacity-100 fade-in.',                    source: load('fixture-zoom-opacity.xgis') },
+  fixture_synth_bg_only:          { name: 'Fixture: synth bg only',        tag: 'fixture', description: 'Synthetic earth-surface background fill only — AC2c.3.2 mesh density verification.', source: load('fixture-synth-bg-only.xgis') },
 }

@@ -14,8 +14,9 @@
 
 import { xlog } from '../../engine/log'
 import { tileKeyUnpack } from '@xgis/compiler'
-import type {
-  TileSource, TileSourceSink, TileSourceMeta, BackendTileResult,
+import {
+  TILE_LAYOUT_VERSION,
+  type TileSource, type TileSourceSink, type TileSourceMeta, type BackendTileResult,
 } from '../tile-source'
 import type { VirtualCatalog } from '../tile-types'
 
@@ -36,6 +37,10 @@ export class VirtualCatalogAdapter implements TileSource {
       // contract (z/x/y slippy fetcher). Declared explicitly so future
       // schemes don't silently inherit the assumption.
       scheme: 'web-mercator-xyz',
+      // Declares the polygon vertex byte format this backend emits. Catalog
+      // evicts cached tiles on attach if the runtime's TILE_LAYOUT_VERSION
+      // moves past what's cached (PR 2c.4).
+      layoutVersion: TILE_LAYOUT_VERSION,
       propertyTable: { fieldNames: [], fieldTypes: [], values: [] },
       entries: undefined,
     }

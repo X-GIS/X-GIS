@@ -1,0 +1,5 @@
+/* Fixture: synthetic earth-surface background fill only.
+ * No vector sources — background { fill } is the only content.
+ * Used by AC2c.3.2 e2e: verifies SyntheticEarthSurfaceBackend renders
+ * the 32×16 ECEF mesh as a curved disc under ortho z=0 pitch=80. */
+background { fill: #4488cc }

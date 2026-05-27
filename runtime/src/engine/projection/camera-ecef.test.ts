@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { Camera } from './camera'
-import { lonLatToECEF, ecefToENURotation, WGS84 } from './ecef'
+import { lonLatToECEFSphere, ecefToENURotation, WGS84 } from './ecef'
 
 describe('Camera.getECEFCenter — derives ECEF from canonical Mercator centre', () => {
   it('lon=0, lat=0 anchor → ECEF (A, 0, 0) on the WGS84 equator', () => {
@@ -26,10 +26,14 @@ describe('Camera.getECEFCenter — derives ECEF from canonical Mercator centre',
     expect(ecef[2]).toBeCloseTo(0, 3)
   })
 
-  it('Seoul (126.97797, 37.56583) → matches the direct lonLatToECEF result', () => {
+  it('Seoul (126.97797, 37.56583) → matches the sphere-based ECEF reference', () => {
     const cam = new Camera(126.97797, 37.56583, 14)
     const fromCamera = cam.getECEFCenter()
-    const direct = lonLatToECEF(126.97797, 37.56583)
+    // The camera's ECEF anchor uses the SPHERE variant (radius A, E2=0) so
+    // the basis aligns with the legacy spherical-Mercator MVP. Compare
+    // against `lonLatToECEFSphere`, not the ellipsoidal `lonLatToECEF`.
+    // See `lonLatToECEFSphere` docstring in `ecef.ts` for the rationale.
+    const direct = lonLatToECEFSphere(126.97797, 37.56583)
     // Mercator-metre round-trip via the Camera ctor introduces f64
     // rounding; 1 mm agreement is the contract.
     expect(fromCamera[0]).toBeCloseTo(direct[0], 3)

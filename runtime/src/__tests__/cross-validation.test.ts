@@ -415,26 +415,39 @@ describe('Cross-validation: Pipeline geometry area (clip + triangulate vs shapel
   // exact up to earcut precision.
   const set = compileGeoJSONToTiles(gj, { minZoom: 0, maxZoom })
 
+  // PR 2c.2: polygon vertices now ship as ECEF-DSFUN stride-9
+  // `[ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon_deg, abs_lat_deg]`.
+  // The fixture's `areaMercM2` is shapely's exact intersection area in
+  // Mercator metres, so we reproject via the packed abs_lon/abs_lat
+  // slots to recover Mercator (mx, my) per vertex and shoelace from
+  // there. Coordinates become absolute Mercator; the area shoelace
+  // remains translation-invariant.
+  const POLY_STRIDE = 9
+  const EARTH_R_CV = 6378137
+  const DEG2RAD_CV = Math.PI / 180
   function triangleAreaForFeature(
     vertices: Float32Array,
     indices: Uint32Array,
     targetFid: number,
   ): number {
-    // DSFUN polygon stride 5: [mx_h, my_h, mx_l, my_l, fid]
-    // Coordinates are local to the tile origin (cancels in area calc).
+    const polyVertMerc = (i: number): [number, number] => {
+      const base = i * POLY_STRIDE
+      const lonDeg = vertices[base + 7]
+      const latDeg = vertices[base + 8]
+      const mx = lonDeg * DEG2RAD_CV * EARTH_R_CV
+      const my = Math.log(Math.tan(Math.PI / 4 + latDeg * DEG2RAD_CV / 2)) * EARTH_R_CV
+      return [mx, my]
+    }
     let total = 0
     for (let i = 0; i < indices.length; i += 3) {
       const i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2]
-      const fid0 = vertices[i0 * 5 + 4]
-      const fid1 = vertices[i1 * 5 + 4]
-      const fid2 = vertices[i2 * 5 + 4]
+      const fid0 = vertices[i0 * POLY_STRIDE + 6]
+      const fid1 = vertices[i1 * POLY_STRIDE + 6]
+      const fid2 = vertices[i2 * POLY_STRIDE + 6]
       if (fid0 !== targetFid || fid1 !== targetFid || fid2 !== targetFid) continue
-      const x0 = vertices[i0 * 5] + vertices[i0 * 5 + 2]
-      const y0 = vertices[i0 * 5 + 1] + vertices[i0 * 5 + 3]
-      const x1 = vertices[i1 * 5] + vertices[i1 * 5 + 2]
-      const y1 = vertices[i1 * 5 + 1] + vertices[i1 * 5 + 3]
-      const x2 = vertices[i2 * 5] + vertices[i2 * 5 + 2]
-      const y2 = vertices[i2 * 5 + 1] + vertices[i2 * 5 + 3]
+      const [x0, y0] = polyVertMerc(i0)
+      const [x1, y1] = polyVertMerc(i1)
+      const [x2, y2] = polyVertMerc(i2)
       total += 0.5 * Math.abs(x0 * (y1 - y2) + x1 * (y2 - y0) + x2 * (y0 - y1))
     }
     return total

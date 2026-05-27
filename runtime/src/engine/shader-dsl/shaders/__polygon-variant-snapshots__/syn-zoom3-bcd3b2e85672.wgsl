@@ -1,4 +1,4 @@
-// baseline: e25d1b8a125cf65950ac82316df0a2d2eca80b78
+// baseline: 975f605cc8da9201e9a72826accd5a6d2cfd22a9
 // fixture: syn-zoom3
 // variant.key: syn-zoom3
 // pick: false
@@ -251,6 +251,7 @@ fn inv_merc_lat_rad(merc_y_m: f32) -> f32 {
 
 struct Uniforms {
   mvp: mat4x4<f32>,
+  mvp_ecef: mat4x4<f32>,
   fill_color: vec4<f32>,
   stroke_color: vec4<f32>,
   proj_params: vec4<f32>,
@@ -355,33 +356,13 @@ fn vs_main(@location(0) pos_h: vec2<f32>, @location(1) pos_l: vec2<f32>, @locati
 }
 
 @vertex
-fn vs_main_quantized(@location(0) pos_raw: vec2<u32>, @location(2) feature_id: f32) -> VertexOutput {
-  let is_top = ((pos_raw.x & 32768u) != 0u);
-  let mx_q = f32((pos_raw.x & 32767u));
-  let my_q = f32(pos_raw.y);
-  let local = ((vec2<f32>(mx_q, my_q) / 32767.0) * u.tile_extent_m);
-  let cam_local = (u.cam_h + u.cam_l);
-  let rel = (local - cam_local);
-  let abs_merc_x = (local.x + u.tile_origin_merc.x);
-  let abs_merc_y = (local.y + u.tile_origin_merc.y);
-  let abs_lon = (abs_merc_x / (DEG2RAD * EARTH_R));
-  let lat_rad = inv_merc_lat_rad(abs_merc_y);
-  let abs_lat = (lat_rad / DEG2RAD);
+fn vs_main_ecef(@location(0) pos_h: vec3<f32>, @location(1) pos_l: vec3<f32>, @location(2) feature_id: f32, @location(3) abs_lon: f32, @location(4) abs_lat: f32) -> VertexOutput {
+  let ecef_rtc = (pos_h + pos_l);
+  let abs_merc_x = ((abs_lon * DEG2RAD) * EARTH_R);
   let abs_lat_clamped = clamp(abs_lat, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT);
-  let t = u.proj_params.x;
-  var rtc: vec2<f32>;
-  if ((t < 0.5)) {
-    rtc = rel;
-  } else {
-    let tile_ref_lon = ((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R));
-    let proj_xy = project_geom(abs_lon, abs_lat, u.proj_params, tile_ref_lon);
-    let center_xy = project(u.proj_params.y, u.proj_params.z, u.proj_params);
-    rtc = (proj_xy - center_xy);
-  }
-  let globe_rtc = (proj_globe(abs_lon, abs_lat) - proj_globe(u.proj_params.y, u.proj_params.z));
+  let abs_merc_y = (log(tan(((PI / 4.0) + ((abs_lat_clamped * DEG2RAD) / 2.0)))) * EARTH_R);
   var out: VertexOutput;
-  let z_world = select(u.extrude_base_m, u.extrude_height_m, is_top);
-  var clip: vec4<f32> = select((u.mvp * vec4<f32>(rtc, z_world, 1.0)), (u.mvp * vec4<f32>(globe_rtc, 1.0)), (t > 6.5));
+  var clip: vec4<f32> = (u.mvp_ecef * vec4<f32>(ecef_rtc, 1.0));
   clip.x = (clip.x + (u.fill_translate_x * clip.w));
   clip.y = (clip.y - (u.fill_translate_y * clip.w));
   out.position = apply_log_depth(clip, u.log_depth_fc);
@@ -390,42 +371,22 @@ fn vs_main_quantized(@location(0) pos_raw: vec2<u32>, @location(2) feature_id: f
   out.cos_c = 0.0;
   out.feat_id = u32(feature_id);
   out.abs_lat = abs_lat_clamped;
-  out.wall_blend = select(1.0, select(0.0, 1.0, is_top), (u.extrude_height_m > 0.0));
+  out.wall_blend = 1.0;
   out.abs_merc_x = abs_merc_x;
   out.abs_merc_y = abs_merc_y;
-  out.world_z = z_world;
+  out.world_z = 0.0;
   out.v_color = vec4<f32>(0.0, 0.0, 0.0, 0.0);
   return out;
 }
 
 @vertex
-fn vs_main_quantized_extruded(@location(0) pos_raw: vec2<u32>, @location(2) feature_id: f32, @location(3) z_attr: vec4<f32>) -> VertexOutput {
-  let mx_q = f32((pos_raw.x & 32767u));
-  let my_q = f32(pos_raw.y);
-  let local = ((vec2<f32>(mx_q, my_q) / 32767.0) * u.tile_extent_m);
-  let cam_local = (u.cam_h + u.cam_l);
-  let rel = (local - cam_local);
-  let abs_merc_x = (local.x + u.tile_origin_merc.x);
-  let abs_merc_y = (local.y + u.tile_origin_merc.y);
-  let abs_lon = (abs_merc_x / (DEG2RAD * EARTH_R));
-  let lat_rad = inv_merc_lat_rad(abs_merc_y);
-  let abs_lat = (lat_rad / DEG2RAD);
+fn vs_main_ecef_extruded(@location(0) pos_h: vec3<f32>, @location(1) pos_l: vec3<f32>, @location(2) feature_id: f32, @location(3) abs_lon: f32, @location(4) abs_lat: f32, @location(5) face_normal: vec3<f32>, @location(6) wall_height: f32, @location(7) is_top: f32) -> VertexOutput {
+  let ecef_rtc = (pos_h + pos_l);
+  let abs_merc_x = ((abs_lon * DEG2RAD) * EARTH_R);
   let abs_lat_clamped = clamp(abs_lat, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT);
-  let t = u.proj_params.x;
-  var rtc: vec2<f32>;
-  if ((t < 0.5)) {
-    rtc = rel;
-  } else {
-    let tile_ref_lon = ((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R));
-    let proj_xy = project_geom(abs_lon, abs_lat, u.proj_params, tile_ref_lon);
-    let center_xy = project(u.proj_params.y, u.proj_params.z, u.proj_params);
-    rtc = (proj_xy - center_xy);
-  }
-  let globe_rtc = (proj_globe(abs_lon, abs_lat) - proj_globe(u.proj_params.y, u.proj_params.z));
-  let z_world = z_attr.x;
-  let normal = z_attr.yzw;
+  let abs_merc_y = (log(tan(((PI / 4.0) + ((abs_lat_clamped * DEG2RAD) / 2.0)))) * EARTH_R);
   var out: VertexOutput;
-  var clip: vec4<f32> = select((u.mvp * vec4<f32>(rtc, z_world, 1.0)), (u.mvp * vec4<f32>(globe_rtc, 1.0)), (t > 6.5));
+  var clip: vec4<f32> = (u.mvp_ecef * vec4<f32>(ecef_rtc, 1.0));
   clip.x = (clip.x + (u.fill_translate_x * clip.w));
   clip.y = (clip.y - (u.fill_translate_y * clip.w));
   out.position = apply_log_depth(clip, u.log_depth_fc);
@@ -434,10 +395,10 @@ fn vs_main_quantized_extruded(@location(0) pos_raw: vec2<u32>, @location(2) feat
   out.cos_c = 0.0;
   out.feat_id = u32(feature_id);
   out.abs_lat = abs_lat_clamped;
-  out.wall_blend = select(0.0, 1.0, (z_world > 0.0));
+  out.wall_blend = is_top;
   out.abs_merc_x = abs_merc_x;
   out.abs_merc_y = abs_merc_y;
-  out.world_z = z_world;
+  out.world_z = (wall_height * is_top);
   let color_rgb = u.fill_color.rgb;
   let opacity = u.fill_color.w;
   let colorvalue = (((color_rgb.x * 0.2126) + (color_rgb.y * 0.7152)) + (color_rgb.z * 0.0722));
@@ -446,12 +407,12 @@ fn vs_main_quantized_extruded(@location(0) pos_raw: vec2<u32>, @location(2) feat
   let LIGHT_POS = vec3<f32>(0.288, -0.498, 0.996);
   let LIGHT_INTENSITY = 0.5;
   let LIGHT_COLOR = vec3<f32>(1.0);
-  var directional: f32 = clamp(dot(normal, LIGHT_POS), 0.0, 1.0);
+  var directional: f32 = clamp(dot(face_normal, LIGHT_POS), 0.0, 1.0);
   directional = mix((1.0 - LIGHT_INTENSITY), max(((1.0 - colorvalue) + LIGHT_INTENSITY), 1.0), directional);
-  let is_wall = (abs(normal.z) < 0.5);
-  let t_top = select(0.0, 1.0, (z_world > 0.0));
+  let is_wall = (abs(face_normal.z) < 0.5);
+  let t_top = is_top;
   if (is_wall) {
-    let h_for_grad = max(z_world, 1.0);
+    let h_for_grad = max(wall_height, 1.0);
     let vgrad = clamp((t_top * sqrt((h_for_grad / 150.0))), mix(0.7, 0.98, (1.0 - LIGHT_INTENSITY)), 1.0);
     directional = (directional * vgrad);
   }

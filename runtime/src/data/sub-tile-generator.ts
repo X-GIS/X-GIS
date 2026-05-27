@@ -19,9 +19,18 @@ import {
   tileKeyUnpack, lonLatToMercF64,
   clipPolygonToRect, clipLineToRect,
   augmentRingWithArc, tessellateLineToArrays, packDSFUNLineVertices,
+  packECEFPolygonVertices,
   extractNonSyntheticArcs, makeSameBoundarySidePredicateMerc,
 } from '@xgis/compiler'
 import { type TileData, DSFUN_LINE_STRIDE } from './tile-types'
+
+// ECEF stride-9 layout for polygon vertices (PR 2c.2):
+//   [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon_deg, abs_lat_deg]
+const ECEF_POLY_STRIDE = 9
+// WGS84 sphere radius for the abs_lon / Mercator inverse round-trip.
+const ECEF_EARTH_R = 6378137
+const ECEF_DEG2RAD = Math.PI / 180
+const ECEF_LAT_LIMIT = 85.051129
 
 export class SubTileGenerator {
   /** iter-247 (Plan AAA B.2) — scratch fields. Pre-iter-247 every
@@ -110,9 +119,43 @@ export class SubTileGenerator {
       return [h, Math.fround(v - h)]
     }
 
-    // Polygon vertex output: DSFUN stride-5 [mx_h, my_h, mx_l, my_l, feat_id].
-    // iter-247 (Plan AAA B.2) — scratch reuse; clear at start.
+    // Polygon vertex INPUT layout (PR 2c.2): ECEF-DSFUN stride-9 floats
+    // `[ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon, abs_lat]` per
+    // vertex. The clipper still runs in tile-local Mercator metres, so we
+    // recover Mercator from the packed `abs_lon, abs_lat` slots (sub-mm
+    // round-trip per `ecef-precision-fuzz.test.ts` AC2c.2.3) instead of
+    // inverting ECEF → lon/lat via Bowring iteration.
+    //
+    // The sub-tile OUTPUT also ships stride-9 ECEF so the renderer's
+    // ECEF VS reads the same layout for parent + sub-tile. Each output
+    // vertex's `pos_h, pos_l` are DSFUN-split against the SUB-tile's own
+    // ECEF anchor (computed below) so the same `mvp_ecef * vec4(pos_h +
+    // pos_l, 1)` math works without re-anchoring.
     const verts = parent.vertices
+    const subClampLat = Math.max(-ECEF_LAT_LIMIT, Math.min(ECEF_LAT_LIMIT, subSouth))
+    const subTileMx = subWest * ECEF_DEG2RAD * ECEF_EARTH_R
+    const subTileMy = Math.log(Math.tan(Math.PI / 4 + subClampLat * ECEF_DEG2RAD / 2)) * ECEF_EARTH_R
+    // WGS84 ellipsoidal ECEF anchor — must match the compiler tiler's
+    // `tileEcefCenter` math (cross-package import forbidden in worker
+    // threads; values are bit-identical to runtime/projection/ecef.ts's
+    // `tileEcefCenterFromMerc`).
+    const subTileEcefCenter = ((): readonly [number, number, number] => {
+      const F_ = 1 / 298.257223563
+      const E2_ = F_ * (2 - F_)
+      const subTileLonRad = subTileMx / ECEF_EARTH_R
+      const subTileLatRad = 2 * Math.atan(Math.exp(subTileMy / ECEF_EARTH_R)) - Math.PI / 2
+      const sinLat = Math.sin(subTileLatRad)
+      const cosLat = Math.cos(subTileLatRad)
+      const N = ECEF_EARTH_R / Math.sqrt(1 - E2_ * sinLat * sinLat)
+      return [
+        N * cosLat * Math.cos(subTileLonRad),
+        N * cosLat * Math.sin(subTileLonRad),
+        N * (1 - E2_) * sinLat,
+      ]
+    })()
+    // Scratch holds the absolute-Mercator clipped polygon vertices in
+    // stride-3 `[mx, my, fid]` shape; `packECEFPolygonVertices` consumes
+    // this layout directly and emits the stride-9 ECEF output buffer.
     const outV = this._scratchOutV
     outV.length = 0
     const outI = this._scratchOutI
@@ -121,24 +164,36 @@ export class SubTileGenerator {
     outVKey.clear()
     // Quantize to ~1 cm to tolerate clipper noise — DSFUN vertices afford
     // tighter quantization than the old 10 cm tile-local-degree key.
-    const pushDedupPV = (x: number, y: number, fid: number): number => {
-      const k = `${Math.round(x * 100)},${Math.round(y * 100)},${fid}`
+    // `pushDedupPV` receives PARENT-LOCAL Mercator metres (matches the
+    // outputs of `readPV` and `clipPolygonToRect` which both work in the
+    // parent-local frame). It re-anchors to absolute Mercator before
+    // pushing into `outV` because `packECEFPolygonVertices` inverts
+    // Mercator → lon/lat → ECEF internally and needs absolute inputs.
+    const pushDedupPV = (xParentLocal: number, yParentLocal: number, fid: number): number => {
+      const k = `${Math.round(xParentLocal * 100)},${Math.round(yParentLocal * 100)},${fid}`
       const hit = outVKey.get(k)
       if (hit !== undefined) return hit
-      const idx = outV.length / 5
-      const [xH, xL] = splitLocal(x - reoriginX)
-      const [yH, yL] = splitLocal(y - reoriginY)
-      outV.push(xH, yH, xL, yL, fid)
+      const idx = outV.length / 3
+      outV.push(xParentLocal + parentMx, yParentLocal + parentMy, fid)
       outVKey.set(k, idx)
       return idx
     }
+    // `splitLocal` (declared near the top of this function) is retained
+    // for the line / outline / point paths below — those stay on the
+    // Mercator-DSFUN packing until PR 2d migrates them.
 
+    // Read parent ECEF stride-9 vertex back to parent-local Mercator. The
+    // clip rect (`clipW..clipE × clipS..clipN`) is in parent-local
+    // Mercator, so we subtract the parent tile origin from the packed
+    // abs_lon/abs_lat-derived Mercator coords.
     const readPV = (vi: number): [number, number, number] => {
-      const off = vi * 5
-      const x = verts[off] + verts[off + 2]
-      const y = verts[off + 1] + verts[off + 3]
-      const fid = verts[off + 4]
-      return [x, y, fid]
+      const off = vi * ECEF_POLY_STRIDE
+      const absLonDeg = verts[off + 7]
+      const absLatDeg = verts[off + 8]
+      const fid = verts[off + 6]
+      const mxAbs = absLonDeg * ECEF_DEG2RAD * ECEF_EARTH_R
+      const myAbs = Math.log(Math.tan(Math.PI / 4 + absLatDeg * ECEF_DEG2RAD / 2)) * ECEF_EARTH_R
+      return [mxAbs - parentMx, myAbs - parentMy, fid]
     }
 
     for (let t = 0; t < parent.indices.length; t += 3) {
@@ -321,7 +376,11 @@ export class SubTileGenerator {
     }
 
     return {
-      vertices: new Float32Array(outV),
+      // Polygon vertices: pack `outV` (stride-3 absolute Mercator
+      // `[mx, my, fid]`) into stride-9 ECEF-DSFUN via the canonical
+      // tiler packer. Output sits in the same ECEF frame as parent
+      // archive tiles so the renderer's ECEF VS reads one layout.
+      vertices: packECEFPolygonVertices(outV, subTileEcefCenter),
       indices: new Uint32Array(outI),
       lineVertices: new Float32Array(outLV),
       lineIndices: new Uint32Array(outLI),

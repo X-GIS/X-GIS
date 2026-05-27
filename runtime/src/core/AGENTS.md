@@ -10,7 +10,7 @@ GPU-free primitives that the rendering and worker layers both depend on. These m
 | File | Description |
 |------|-------------|
 | `line-segment-build.ts` | Builds the SDF line-segment storage buffer (stride 20 f32 / 80 bytes): DSFUN p0/p1 high+low pairs, prev/next tangents, arc_start, line_length, miter pad ratios, per-segment `z_lift_m` and `width_px_override`. Miter-pad math mirrors the shader. Extracted from `line-renderer.ts`. |
-| `polygon-mesh.ts` | `quantizePolygonVertices(Extruded)` (Float32×5 stride-20 → packed u16×2 + f32 stride-8, `is_top` flag in bit 15) and `generateWallMesh` for 3D extrusion side walls. `EXTRUDE_FALLBACK_HEIGHT_M = 50`. |
+| `polygon-mesh.ts` | `generateWallMeshExtrudedECEF` (stride-14 interleaved ECEF-RTC walls + roof) for 3D extruded fill layers. `EXTRUDE_FALLBACK_HEIGHT_M = 50`. The Mercator-DSFUN `quantizePolygonVertices*` + `generateWallMesh*` paths were retired in Phase 2 PR 2c.2; runtime polygon vertices now ship as ECEF-DSFUN stride-9 directly from the tiler. |
 | `priority-queue.ts` | Concurrency-limited async work scheduler (TS port of NASA-AMMOS 3DTilesRendererJS PriorityQueue). Sort+pop dispatch; FIFO without a priority callback. Used for tile-fetch scheduling. |
 
 ## For AI Agents

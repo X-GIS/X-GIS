@@ -70,61 +70,6 @@ export function splitF64(x: number): [number, number] {
   return [h, l]
 }
 
-/** Quantized polygon vertex stride: Int16×2 (mx, my) + Float32 (fid).
- *  60% smaller than DSFUN_POLY_STRIDE × 4 = 20 bytes. Used by the
- *  vertex-compression pipeline (commit message tag: "Phase B"). The
- *  Int16 coords are normalized to [0, 65535] mapping the [0, tile_
- *  extent_meters] tile-local domain — fixed-constant dequant in the
- *  shader avoids the per-tile uniform overwrite issue that failed the
- *  earlier 245ac66 attempt. */
-export const QUANT_POLY_STRIDE_BYTES = 8
-export const QUANT_POLY_RANGE = 65535
-
-/** Phase B vertex-compression pack. Equivalent to packDSFUNPolygon-
- *  Vertices but emits Int16×2 + Float32 instead of Float32×5. The
- *  shader dequants via `vec2<f32>(pos_i16) / 65535.0 * tile_extent_m`
- *  where `tile_extent_m` derives from the existing per-tile zoom
- *  uniform (no new uniforms). Precision: tile_extent_m / 65535 ≥
- *  0.146 mm at zoom 22 — sub-pixel even at the finest LOD in the
- *  pyramid. */
-export function packQuantizedPolygonVertices(
-  scratchPv: number[] | Float64Array,
-  tileMx: number,
-  tileMy: number,
-  tileExtentMeters: number,
-): ArrayBuffer {
-  // Input stride-3: [mx, my, fid] in absolute Mercator meters (MM).
-  // Output stride-8 bytes: Int16 mx_q, Int16 my_q, Float32 fid.
-  const count = scratchPv.length / 3
-  const buf = new ArrayBuffer(count * QUANT_POLY_STRIDE_BYTES)
-  const i16 = new Int16Array(buf)
-  const f32 = new Float32Array(buf)
-  const scale = QUANT_POLY_RANGE / tileExtentMeters
-  for (let i = 0; i < count; i++) {
-    const mx = scratchPv[i * 3]
-    const my = scratchPv[i * 3 + 1]
-    const fid = scratchPv[i * 3 + 2]
-    const localMx = mx - tileMx
-    const localMy = my - tileMy
-    // Quantize to [0, 65535]. Coords outside [0, tileExtentMeters]
-    // (rare — clip pipeline keeps them inside) saturate via clamp.
-    let mxQ = Math.round(localMx * scale)
-    let myQ = Math.round(localMy * scale)
-    if (mxQ < 0) mxQ = 0; else if (mxQ > QUANT_POLY_RANGE) mxQ = QUANT_POLY_RANGE
-    if (myQ < 0) myQ = 0; else if (myQ > QUANT_POLY_RANGE) myQ = QUANT_POLY_RANGE
-    // Int16 max is 32767, but our domain is unsigned [0, 65535]. We
-    // store the unsigned 16-bit pattern in the Int16 slot — the
-    // shader uses `format: 'unorm16x2'` (or 'uint16x2' + manual
-    // normalize) to interpret it correctly. Here we cast via the
-    // 16-bit two's-complement representation.
-    const i16Idx = i * 4
-    i16[i16Idx] = mxQ <= 32767 ? mxQ : mxQ - 65536
-    i16[i16Idx + 1] = myQ <= 32767 ? myQ : myQ - 65536
-    f32[i * 2 + 1] = fid
-  }
-  return buf
-}
-
 /**
  * Pack a stride-3 scratch array of absolute (lon, lat, feat_id) vertices into a
  * stride-5 DSFUN Float32Array of tile-local Mercator meters:
@@ -165,6 +110,85 @@ export function packDSFUNPolygonVertices(
     out[base + 2] = mxL
     out[base + 3] = myL
     out[base + 4] = fid
+  }
+  return out
+}
+
+/** Pack ABSOLUTE Mercator-metre polygon vertices into ECEF DSFUN stride-9.
+ *
+ * Input: stride-3 `[mx, my, fid]` ABSOLUTE Mercator metres.
+ * Output: stride-9 Float32Array `[ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon, abs_lat]`.
+ *
+ * Per vertex:
+ *   1. Inverse Web Mercator → lon/lat radians.
+ *   2. Ellipsoidal ECEF (WGS84) at height=0.
+ *   3. Subtract ecefTileCenter (tile-anchor RTC — keeps per-tile residuals
+ *      ≤ tile-extent metres so the f32 high half holds the magnitude).
+ *   4. DSFUN-split each axis via Math.fround: hi = f32(v), lo = f32(v - hi).
+ *   5. Pack abs_lon (degrees) and abs_lat (degrees) at indices 7 + 8.
+ *
+ * Math constants are duplicated here (not imported from runtime/) because
+ * cross-package imports are forbidden in the compiler tiler.  The values
+ * are bit-identical to runtime/src/engine/projection/ecef.ts.
+ *
+ * `packDSFUNPolygonVertices` is NOT removed — the point path still uses it.
+ */
+export function packECEFPolygonVertices(
+  scratchPv: number[] | Float64Array,
+  ecefTileCenter: readonly [number, number, number],
+): Float32Array {
+  // WGS84 constants (mirrors runtime/src/engine/projection/ecef.ts).
+  const A = 6378137               // semi-major axis (m)
+  const F = 1 / 298.257223563     // flattening
+  const E2 = F * (2 - F)          // first eccentricity squared
+  const RAD2DEG = 180 / Math.PI
+
+  const count = scratchPv.length / 3
+  const out = new Float32Array(count * 9)
+  for (let i = 0; i < count; i++) {
+    const mx = scratchPv[i * 3]
+    const my = scratchPv[i * 3 + 1]
+    const fid = scratchPv[i * 3 + 2]
+
+    // Inverse Web Mercator → lon/lat radians.
+    const lon_rad = mx / A
+    const lat_rad = 2 * Math.atan(Math.exp(my / A)) - Math.PI / 2
+
+    // WGS84 ellipsoidal ECEF at height = 0.
+    const sinLat = Math.sin(lat_rad)
+    const cosLat = Math.cos(lat_rad)
+    const N = A / Math.sqrt(1 - E2 * sinLat * sinLat)
+    const ex = N * cosLat * Math.cos(lon_rad)
+    const ey = N * cosLat * Math.sin(lon_rad)
+    const ez = N * (1 - E2) * sinLat
+
+    // Subtract tile-anchor ECEF center (RTC — relative-to-center).
+    const rx = ex - ecefTileCenter[0]
+    const ry = ey - ecefTileCenter[1]
+    const rz = ez - ecefTileCenter[2]
+
+    // DSFUN split: hi = f32(v), lo = f32(v - hi).
+    const exH = Math.fround(rx)
+    const eyH = Math.fround(ry)
+    const ezH = Math.fround(rz)
+    const exL = Math.fround(rx - exH)
+    const eyL = Math.fround(ry - eyH)
+    const ezL = Math.fround(rz - ezH)
+
+    // Absolute geographic coordinates in degrees (for varyings).
+    const lon_deg = lon_rad * RAD2DEG
+    const lat_deg = lat_rad * RAD2DEG
+
+    const base = i * 9
+    out[base]     = exH
+    out[base + 1] = eyH
+    out[base + 2] = ezH
+    out[base + 3] = exL
+    out[base + 4] = eyL
+    out[base + 5] = ezL
+    out[base + 6] = fid
+    out[base + 7] = lon_deg
+    out[base + 8] = lat_deg
   }
   return out
 }
@@ -1404,11 +1428,34 @@ function processZoomLevelShared(
         // Mercator meters in f64, then split into (high, low) f32 pairs.
         const [tileMx, tileMy] = lonLatToMercF64(tb.west, tb.south)
 
+        // ECEF tile-corner anchor for `packECEFPolygonVertices`. WGS84
+        // ellipsoidal math — must match `packECEFPolygonVertices` and
+        // `runtime/src/engine/projection/ecef.ts:tileEcefCenterFromMerc`
+        // byte-for-byte (cross-package import forbidden per AC2c.1.1).
+        // Sphere math would leave a ~21 km constant offset between the
+        // anchor and the ellipsoidal per-vertex ECEF, breaking the
+        // sub-mm DSFUN round-trip gated by ecef-precision-fuzz.test.ts.
+        const tileEcefCenter = (() => {
+          const A_ = 6378137
+          const F_ = 1 / 298.257223563
+          const E2_ = F_ * (2 - F_)
+          const tileLonRad = tileMx / A_
+          const tileLatRad = 2 * Math.atan(Math.exp(tileMy / A_)) - Math.PI / 2
+          const sinLat = Math.sin(tileLatRad)
+          const cosLat = Math.cos(tileLatRad)
+          const N = A_ / Math.sqrt(1 - E2_ * sinLat * sinLat)
+          return [
+            N * cosLat * Math.cos(tileLonRad),
+            N * cosLat * Math.sin(tileLonRad),
+            N * (1 - E2_) * sinLat,
+          ] as const
+        })()
+
         tiles.set(key, {
           z, x: tx, y: ty,
           tileWest: tb.west,
           tileSouth: tb.south,
-          vertices: packDSFUNPolygonVertices(scratch.pv, tileMx, tileMy),
+          vertices: packECEFPolygonVertices(scratch.pv, tileEcefCenter),
           indices: new Uint32Array(scratch.pi),
           lineVertices: packDSFUNLineVertices(scratch.lv, tileMx, tileMy),
           lineIndices: new Uint32Array(scratch.li),
@@ -1617,10 +1664,30 @@ export function compileSingleTile(
   // DSFUN pack: project to tile-local Mercator meters, split into high/low pairs
   const [tileMx, tileMy] = lonLatToMercF64(tb.west, tb.south)
 
+  // ECEF tile-corner anchor for `packECEFPolygonVertices`. See the
+  // matching block in `compileGeoJSONToTiles` for the WGS84-vs-sphere
+  // rationale (must match `packECEFPolygonVertices` for sub-mm
+  // DSFUN reconstruction).
+  const tileEcefCenter = (() => {
+    const A_ = 6378137
+    const F_ = 1 / 298.257223563
+    const E2_ = F_ * (2 - F_)
+    const tileLonRad = tileMx / A_
+    const tileLatRad = 2 * Math.atan(Math.exp(tileMy / A_)) - Math.PI / 2
+    const sinLat = Math.sin(tileLatRad)
+    const cosLat = Math.cos(tileLatRad)
+    const N = A_ / Math.sqrt(1 - E2_ * sinLat * sinLat)
+    return [
+      N * cosLat * Math.cos(tileLonRad),
+      N * cosLat * Math.sin(tileLonRad),
+      N * (1 - E2_) * sinLat,
+    ] as const
+  })()
+
   return {
     z, x, y,
     tileWest: tb.west, tileSouth: tb.south,
-    vertices: packDSFUNPolygonVertices(scratch.pv, tileMx, tileMy),
+    vertices: packECEFPolygonVertices(scratch.pv, tileEcefCenter),
     indices: new Uint32Array(scratch.pi),
     lineVertices: packDSFUNLineVertices(scratch.lv, tileMx, tileMy),
     lineIndices: new Uint32Array(scratch.li),

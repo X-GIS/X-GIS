@@ -3,6 +3,7 @@ import {
   lonLatToECEF,
   ecefToLonLat,
   mercatorToECEF,
+  tileEcefCenterFromMerc,
   dsfunSplitECEF,
   ecefToENURotation,
   WGS84,
@@ -202,6 +203,31 @@ describe('ecefToENURotation — local tangent-plane basis', () => {
     expect(at(r, 0, 3)).toBe(0)
     expect(at(r, 1, 3)).toBe(0)
     expect(at(r, 2, 3)).toBe(0)
+  })
+})
+
+describe('tileEcefCenterFromMerc — thin wrapper for per-tile ECEF anchor', () => {
+  it('100 random Mercator tile-corner coords agree byte-exact with mercatorToECEF(mx,my,0)', () => {
+    // Mercator domain ±WORLD_MERC/2 ≈ ±20037508.34 m. Seed-free RNG for the
+    // fuzz loop is fine — the assertion is byte-equal across both code paths
+    // on the same inputs, not statistical.
+    const HALF = 20037508.34
+    for (let i = 0; i < 100; i++) {
+      const mx = (Math.random() * 2 - 1) * HALF
+      const my = (Math.random() * 2 - 1) * HALF
+      const wrapped = tileEcefCenterFromMerc(mx, my)
+      const direct = mercatorToECEF(mx, my, 0)
+      expect(wrapped[0]).toBe(direct[0])
+      expect(wrapped[1]).toBe(direct[1])
+      expect(wrapped[2]).toBe(direct[2])
+    }
+  })
+
+  it('tile-corner (mx=0, my=0) → (A, 0, 0) on the WGS84 equator', () => {
+    const [x, y, z] = tileEcefCenterFromMerc(0, 0)
+    expect(x).toBeCloseTo(WGS84.A, 6)
+    expect(y).toBeCloseTo(0, 6)
+    expect(z).toBeCloseTo(0, 6)
   })
 })
 

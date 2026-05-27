@@ -1,7 +1,7 @@
 // ═══ Map Camera — 줌/패닝/회전/피치 ═══
 
 import { lonLatToMercator } from '../../loader/geojson'
-import { mercatorToECEF, ecefToENURotation, type ECEF } from './ecef'
+import { mercatorToECEFSphere, ecefToENURotation, type ECEF } from './ecef'
 import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 import { getMaxDpr } from '../gpu/gpu'
 import { computeLogDepthFc } from '../shaders/log-depth'
@@ -119,6 +119,24 @@ export class Camera {
 
   // Preallocated RTC matrix (reused every frame)
   private rtcMatrix = new Float32Array(16)
+  /** Preallocated ECEF-ENU MVP buffer for `getECEFFrameView`. Owns a
+   *  separate backing store from `rtcMatrix` (Phase 2 PR 2c.1 architect
+   *  P1 #8) so that interleaved getFrameView/getECEFFrameView calls in
+   *  the same frame don't overwrite each other. */
+  private rtcMatrixECEF = new Float32Array(16)
+  /** ECEF-MVP cache shadow (architect P1 #10 — alternative B: separate
+   *  cache state). Mirror of the `_cache*` block above; the legacy
+   *  matrix cache cannot be re-used because the legacy build path can
+   *  hit and return early while the ECEF build still needs to run. */
+  private _ecefCacheW = -1
+  private _ecefCacheH = -1
+  private _ecefCacheDpr = -1
+  private _ecefCacheCx = NaN
+  private _ecefCacheCy = NaN
+  private _ecefCacheZoom = NaN
+  private _ecefCacheBearing = NaN
+  private _ecefCachePitch = NaN
+  private _ecefCacheFar = 0
 
   // Cache: identical (camera state, viewport, dpr) → reuse rtcMatrix +
   // far instead of rebuilding. Hot for the tile selector which calls
@@ -302,9 +320,15 @@ export class Camera {
    *
    *  Consumed by Phase 2 PR 2c+ shader paths that switch the polygon /
    *  line / point / raster / text VSes from Mercator-vertex + per-vertex
-   *  `project_geom` to ECEF-vertex + linear `mvp * vec4(ecef_rtc, 1)`. */
+   *  `project_geom` to ECEF-vertex + linear `mvp * vec4(ecef_rtc, 1)`.
+   *
+   *  Uses the **sphere** variant (radius A, E2=0) so the ECEF basis matches
+   *  the legacy spherical-Mercator MVP basis used by `_buildRTCMatrix`
+   *  (`WORLD_MERC = 2π × A`). Building on the WGS84 ellipsoid would
+   *  introduce a 0.67 % north-axis compression that breaks the dual-path
+   *  parity gate at lat=0. See `lonLatToECEFSphere` for the full rationale. */
   getECEFCenter(): ECEF {
-    return mercatorToECEF(this.centerX, this.centerY)
+    return mercatorToECEFSphere(this.centerX, this.centerY)
   }
 
   /** ECEF→ENU (East/North/Up) tangent-plane rotation at the camera anchor.
@@ -419,6 +443,170 @@ export class Camera {
     }
     const far = this._buildRTCMatrix(canvasWidth, canvasHeight, dpr)
     return { matrix: this.rtcMatrix, far, logDepthFc: computeLogDepthFc(far) }
+  }
+
+  /** ECEF-MVP for the polygon ECEF pipeline (Phase 2 PR 2c.1).
+   *
+   *  Built in true-ENU-metre semantics:
+   *    altitude_true = altitude_mercator × cos(cam_lat)
+   *    mpp_true      = mpp_mercator × cos(cam_lat)
+   *  Composes with `ecefToENURotation(cam_lon, cam_lat)` so vertices
+   *  expressed in ECEF-RTC (relative to the camera ECEF anchor) project
+   *  correctly: `clip = mvp_ecef × vec4(ecef_rtc, 1)`.
+   *
+   *  Math:
+   *    mvp_ecef = perspective(fov, aspect, near, far)
+   *             × translate(0, 0, -altitude_true)
+   *             × rotateX(-pitch)
+   *             × rotateZ(bearing)
+   *             × ecefToENURotation(cam_lon, cam_lat)
+   *
+   *  Why the cos(lat) factor: legacy `_buildRTCMatrix` is built in
+   *  Mercator-metre semantics (`metersPerPixel = WORLD_MERC/TILE_PX/2^z`
+   *  is Mercator metres per pixel). At latitude φ, one Mercator metre of
+   *  east-west extent equals cos(φ) true east-west metres. ENU output is
+   *  in true metres. Without the cos(lat) altitude correction, polygons
+   *  would render cos(lat) smaller than legacy paths — a 30 % shrink at
+   *  lat=45°, 91 % at lat=85°. Applying cos(lat) on the CPU here moves
+   *  the basis conversion to the camera side where lat is known cheaply.
+   *
+   *  CRITICAL: returns reference to the preallocated `rtcMatrixECEF`
+   *  buffer (separate from `rtcMatrix` used by `getFrameView`). Copy
+   *  contents into your own uniform immediately — a subsequent
+   *  `getECEFFrameView` call from the same camera overwrites this buffer.
+   *
+   *  Globe-mode: bypasses to existing `_globeFrame` (orbit camera owns
+   *  its own math; ECEF migration deferred to a later sub-PR).
+   *
+   *  Cache: separate `_ecefCache*` shadow (architect P1 #10 alt-B). */
+  getECEFFrameView(canvasWidth: number, canvasHeight: number, dpr: number = 1): {
+    matrix: Float32Array
+    far: number
+    logDepthFc: number
+  } {
+    if (this.globeMode) {
+      const g = this._globeFrame(canvasWidth, canvasHeight, dpr)
+      return { matrix: g.matrix, far: g.far, logDepthFc: computeLogDepthFc(g.far) }
+    }
+    if (
+      canvasWidth === this._ecefCacheW &&
+      canvasHeight === this._ecefCacheH &&
+      dpr === this._ecefCacheDpr &&
+      this.centerX === this._ecefCacheCx &&
+      this.centerY === this._ecefCacheCy &&
+      this.zoom === this._ecefCacheZoom &&
+      this.bearing === this._ecefCacheBearing &&
+      this.pitch === this._ecefCachePitch
+    ) {
+      const cachedFar = this._ecefCacheFar
+      return {
+        matrix: this.rtcMatrixECEF,
+        far: cachedFar,
+        logDepthFc: computeLogDepthFc(cachedFar),
+      }
+    }
+
+    // 1. cam_lon, cam_lat from canonical Mercator centerX/centerY.
+    const EARTH_R = 6378137
+    const RAD2DEG = 180 / Math.PI
+    const cam_lon = (this.centerX / EARTH_R) * RAD2DEG
+    const cam_lat = (2 * Math.atan(Math.exp(this.centerY / EARTH_R)) - Math.PI / 2) * RAD2DEG
+    const cos_lat = Math.cos(cam_lat * Math.PI / 180)
+
+    // 2. mpp/altitude in TRUE ENU metres.
+    const mpp_mercator = (WORLD_MERC / TILE_PX) / Math.pow(2, this.zoom)
+    const mpp_true = mpp_mercator * cos_lat
+    const viewHeightTrueM = (canvasHeight / dpr) * mpp_true
+
+    // 3. FOV / aspect / pitch / bearing — identical to legacy build.
+    const fovRad = Camera.FOV * Math.PI / 180
+    const halfFov = fovRad / 2
+    const aspect = canvasWidth / canvasHeight
+    const pitchRad = this.pitch * Math.PI / 180
+    const bearingRad = this.bearing * Math.PI / 180
+
+    // 4. Altitude in true metres + near/far via the legacy formula.
+    const altitude_true = viewHeightTrueM / 2 / Math.tan(halfFov)
+    const maxViewAngle = Math.min(pitchRad + halfFov, Math.PI / 2 - 0.01)
+    const farthestGround = altitude_true / Math.cos(maxViewAngle)
+    const near = Math.max(1.0, altitude_true * 0.01)
+    const far = farthestGround * 1.5
+
+    // 5. Build the 4×4 chain. Mirrors `_buildRTCMatrix:207-258` structure
+    //    but with `altitude_true` and an extra post-multiplied rotation.
+    const mul4 = (out: number[], a: number[], b: number[]) => {
+      for (let c = 0; c < 4; c++)
+        for (let r = 0; r < 4; r++) {
+          let s = 0
+          for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k]
+          out[c * 4 + r] = s
+        }
+    }
+
+    // Perspective (column-major).
+    const f = 1 / Math.tan(halfFov)
+    const nf = 1 / (near - far)
+    const P = [
+      f / aspect, 0, 0, 0,
+      0, f, 0, 0,
+      0, 0, (far + near) * nf, -1,
+      0, 0, 2 * far * near * nf, 0,
+    ]
+    // Translate(0, 0, -altitude_true).
+    const T = [
+      1, 0, 0, 0,
+      0, 1, 0, 0,
+      0, 0, 1, 0,
+      0, 0, -altitude_true, 1,
+    ]
+    // RotateX(-pitch).
+    const cp = Math.cos(-pitchRad), sp = Math.sin(-pitchRad)
+    const Rx = [
+      1, 0, 0, 0,
+      0, cp, sp, 0,
+      0, -sp, cp, 0,
+      0, 0, 0, 1,
+    ]
+    // RotateZ(bearing).
+    const cb = Math.cos(bearingRad), sb = Math.sin(bearingRad)
+    const Rz = [
+      cb, sb, 0, 0,
+      -sb, cb, 0, 0,
+      0, 0, 1, 0,
+      0, 0, 0, 1,
+    ]
+    // ECEF→ENU rotation at camera anchor (column-major Float32Array(16),
+    // homogeneous identity row/column). Convert to plain array for mul4.
+    const RenuF = ecefToENURotation(cam_lon, cam_lat)
+    const Renu: number[] = [
+      RenuF[0],  RenuF[1],  RenuF[2],  RenuF[3],
+      RenuF[4],  RenuF[5],  RenuF[6],  RenuF[7],
+      RenuF[8],  RenuF[9],  RenuF[10], RenuF[11],
+      RenuF[12], RenuF[13], RenuF[14], RenuF[15],
+    ]
+
+    // M = P × T × Rx × Rz × Renu (right-to-left: ECEF→ENU first, then
+    // legacy 2D-camera chain).
+    const t1 = Camera._t1, t2 = Camera._t2, t3 = Camera._t3
+    mul4(t1, Rx, Rz)          // t1 = Rx × Rz
+    mul4(t2, t1, Renu)         // t2 = Rx × Rz × Renu
+    mul4(t1, T, t2)            // t1 = T × Rx × Rz × Renu
+    mul4(t3, P, t1)            // t3 = P × T × Rx × Rz × Renu
+
+    const m = this.rtcMatrixECEF
+    for (let i = 0; i < 16; i++) m[i] = t3[i]
+
+    this._ecefCacheW = canvasWidth
+    this._ecefCacheH = canvasHeight
+    this._ecefCacheDpr = dpr
+    this._ecefCacheCx = this.centerX
+    this._ecefCacheCy = this.centerY
+    this._ecefCacheZoom = this.zoom
+    this._ecefCacheBearing = this.bearing
+    this._ecefCachePitch = this.pitch
+    this._ecefCacheFar = far
+
+    return { matrix: m, far, logDepthFc: computeLogDepthFc(far) }
   }
 
   // Mercator Y limit: ±85.051129° → ±20037508.34m

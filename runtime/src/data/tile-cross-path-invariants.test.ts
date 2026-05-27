@@ -31,16 +31,35 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const TRIANGLE_PATH = resolve(__dirname, '../../../playground/public/data/fixture-triangle.geojson')
 const COUNTRIES_PATH = resolve(__dirname, '../../../playground/public/data/countries.geojson')
 
-const POLY_STRIDE = 5
+// PR 2c.2: polygon vertices now ship as ECEF-DSFUN stride-9
+// `[ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon_deg, abs_lat_deg]`.
+// We reproject via the packed abs_lon/abs_lat slots to recover
+// tile-local Mercator metres for the geometric invariant checks below
+// (areas, boundary-edge alignment). Line vertices remain Mercator-DSFUN
+// stride-10 until PR 2d.
+const POLY_STRIDE = 9
 const LINE_STRIDE = 10
+const EARTH_R_ = 6378137
+const DEG2RAD_ = Math.PI / 180
 
 function loadGeoJSON(p: string): GeoJSONFeatureCollection {
   return JSON.parse(readFileSync(p, 'utf8')) as GeoJSONFeatureCollection
 }
 
-function polyVertex(vertices: Float32Array, i: number): [number, number] {
+/** Reconstruct a polygon-fill vertex in tile-local Mercator metres from
+ *  the packed `abs_lon, abs_lat` ECEF stride-9 slots. Tile origin is
+ *  derived from `tile.tileWest, tile.tileSouth` (matching the compiler
+ *  tiler's `lonLatToMercF64` convention). */
+function polyVertex(
+  vertices: Float32Array, i: number,
+  tileMx: number, tileMy: number,
+): [number, number] {
   const base = i * POLY_STRIDE
-  return [vertices[base] + vertices[base + 2], vertices[base + 1] + vertices[base + 3]]
+  const lonDeg = vertices[base + 7]
+  const latDeg = vertices[base + 8]
+  const mx = lonDeg * DEG2RAD_ * EARTH_R_
+  const my = Math.log(Math.tan(Math.PI / 4 + latDeg * DEG2RAD_ / 2)) * EARTH_R_
+  return [mx - tileMx, my - tileMy]
 }
 
 function lineVertex(vertices: Float32Array, i: number): [number, number] {
@@ -48,13 +67,25 @@ function lineVertex(vertices: Float32Array, i: number): [number, number] {
   return [vertices[base] + vertices[base + 2], vertices[base + 1] + vertices[base + 3]]
 }
 
-/** Shoelace absolute area of a triangle list (DSFUN stride-5). */
-function triangleMeshArea(vertices: Float32Array, indices: Uint32Array): number {
+function tileMercOrigin(tile: { tileWest: number; tileSouth: number }): [number, number] {
+  const mx = tile.tileWest * DEG2RAD_ * EARTH_R_
+  const clampLat = Math.max(-85.051129, Math.min(85.051129, tile.tileSouth))
+  const my = Math.log(Math.tan(Math.PI / 4 + clampLat * DEG2RAD_ / 2)) * EARTH_R_
+  return [mx, my]
+}
+
+/** Shoelace absolute area of a triangle list (ECEF stride-9 polygon
+ *  vertices; we reproject to tile-local Mercator for the area calc). */
+function triangleMeshArea(
+  vertices: Float32Array, indices: Uint32Array,
+  tile: { tileWest: number; tileSouth: number },
+): number {
+  const [tileMx, tileMy] = tileMercOrigin(tile)
   let total = 0
   for (let i = 0; i < indices.length; i += 3) {
-    const [x0, y0] = polyVertex(vertices, indices[i])
-    const [x1, y1] = polyVertex(vertices, indices[i + 1])
-    const [x2, y2] = polyVertex(vertices, indices[i + 2])
+    const [x0, y0] = polyVertex(vertices, indices[i], tileMx, tileMy)
+    const [x1, y1] = polyVertex(vertices, indices[i + 1], tileMx, tileMy)
+    const [x2, y2] = polyVertex(vertices, indices[i + 2], tileMx, tileMy)
     total += 0.5 * Math.abs(x0 * (y1 - y2) + x1 * (y2 - y0) + x2 * (y0 - y1))
   }
   return total
@@ -104,8 +135,8 @@ describe('cross-path: compileGeoJSONToTiles(batch) ≡ compileSingleTile(on-dema
       .toBe(batchTile!.outlineLineIndices.length)
 
     // Area invariant: same triangle list must sum to the same area.
-    const areaBatch = triangleMeshArea(batchTile!.vertices, batchTile!.indices)
-    const areaSingle = triangleMeshArea(singleTile!.vertices, singleTile!.indices)
+    const areaBatch = triangleMeshArea(batchTile!.vertices, batchTile!.indices, batchTile!)
+    const areaSingle = triangleMeshArea(singleTile!.vertices, singleTile!.indices, singleTile!)
     expect(Math.abs(areaBatch - areaSingle),
       `polygon area diverged: batch=${areaBatch.toFixed(2)} single=${areaSingle.toFixed(2)}`,
     ).toBeLessThanOrEqual(1) // 1 m² tolerance in tile-local Mercator
@@ -202,11 +233,12 @@ describe('cross-path: polygon fill boundary == stroke outline endpoints', () => 
         const p0 = fwd ? a : b, p1 = fwd ? b : a
         return `${p0[0].toFixed(3)},${p0[1].toFixed(3)}|${p1[0].toFixed(3)},${p1[1].toFixed(3)}`
       }
+      const [boundaryTileMx, boundaryTileMy] = tileMercOrigin(tile)
       for (let i = 0; i < tile.indices.length; i += 3) {
         const ps: Array<[number, number]> = [
-          polyVertex(tile.vertices, tile.indices[i]),
-          polyVertex(tile.vertices, tile.indices[i + 1]),
-          polyVertex(tile.vertices, tile.indices[i + 2]),
+          polyVertex(tile.vertices, tile.indices[i], boundaryTileMx, boundaryTileMy),
+          polyVertex(tile.vertices, tile.indices[i + 1], boundaryTileMx, boundaryTileMy),
+          polyVertex(tile.vertices, tile.indices[i + 2], boundaryTileMx, boundaryTileMy),
         ]
         for (const [a, b] of [[ps[0], ps[1]], [ps[1], ps[2]], [ps[2], ps[0]]] as const) {
           const k = keyOf(a, b)
@@ -292,7 +324,7 @@ describe('cross-path: generateSubTile area conservation', () => {
     expect(parentTile).not.toBeNull()
     if (!parentTile) return
 
-    const parentArea = triangleMeshArea(parentTile.vertices, parentTile.indices)
+    const parentArea = triangleMeshArea(parentTile.vertices, parentTile.indices, parentTile)
     expect(parentArea, 'parent has nonzero area').toBeGreaterThan(0)
 
     // Build a source whose z=2 level is the parent tile.
@@ -315,7 +347,7 @@ describe('cross-path: generateSubTile area conservation', () => {
       const childData = source.getTileData(childKey)
       expect(childData, `child ${cx}/${cy} not generated`).not.toBeNull()
       if (!childData) continue
-      const childArea = triangleMeshArea(childData.vertices, childData.indices)
+      const childArea = triangleMeshArea(childData.vertices, childData.indices, childData)
       childAreas.push(childArea)
     }
 
@@ -342,8 +374,14 @@ describe('cross-path: generateSubTile area conservation', () => {
 
 describe('cross-path: DSFUN reconstruction precision', () => {
   it('every polygon vertex hi+lo is finite, in-range, and lo stays inside f32 half-ulp of hi', { timeout: 20_000 }, () => {
-    // Use the small triangle fixture so compile is milliseconds, not
-    // seconds. Verifies the packing invariant across zoom levels.
+    // PR 2c.2 transition: polygon vertices are now ECEF-DSFUN stride-9.
+    // The hi half lives at offset 0..2 (ex_h, ey_h, ez_h) and the lo
+    // half at 3..5 (ex_l, ey_l, ez_l) — the residue invariant applies
+    // per-axis. Residual magnitude bound grows from ~1 m (Mercator
+    // tile-local DSFUN) to a few metres (ECEF-RTC tile-anchored DSFUN
+    // at Earth-radius magnitude); 8 m matches the AC2c.1.1 sub-mm
+    // round-trip envelope (per-axis lo carries f64 → f32 truncation
+    // residue, bounded by f32 half-ulp at the ~tile-extent scale).
     const gj = loadGeoJSON(TRIANGLE_PATH)
     const batchSet = compileGeoJSONToTiles(gj, { minZoom: 0, maxZoom: 5 })
     let maxResidue = 0
@@ -351,30 +389,27 @@ describe('cross-path: DSFUN reconstruction precision', () => {
     for (const level of batchSet.levels) for (const tile of level.tiles.values()) {
       const n = tile.vertices.length / POLY_STRIDE
       for (let i = 0; i < n; i++) {
-        // The residue check: hi is a Math.fround'd value and lo is
-        // (v - hi) also Math.fround'd. Reconstruction hi + lo cannot
-        // add more f32 rounding beyond the lo's own rounding. So
-        // any residue here indicates a packing bug.
-        const hi = tile.vertices[i * POLY_STRIDE]
-        const lo = tile.vertices[i * POLY_STRIDE + 2]
-        const reconstructed = hi + lo
-        // Sanity: the reconstructed value is finite and within
-        // reasonable tile-local range (< 2 × Earth circumference).
-        expect(Number.isFinite(reconstructed)).toBe(true)
-        expect(Math.abs(reconstructed)).toBeLessThan(4.1e7)
-        // The residue between hi+lo and "true" packed double is zero
-        // by construction — only meaningful if the ORIGINAL value was
-        // stored somewhere we could compare. In practice this test
-        // enforces: no NaN, no infinity, bounded range. A packing
-        // regression that emitted garbage would blow the finite check.
-        checked++
-        if (Math.abs(lo) > maxResidue) maxResidue = Math.abs(lo)
+        const base = i * POLY_STRIDE
+        for (let axis = 0; axis < 3; axis++) {
+          const hi = tile.vertices[base + axis]
+          const lo = tile.vertices[base + 3 + axis]
+          const reconstructed = hi + lo
+          expect(Number.isFinite(reconstructed)).toBe(true)
+          // ECEF RTC vertex magnitudes are tile-extent metres at most
+          // (per `tileEcefCenter` subtraction); 1e7 leaves headroom.
+          expect(Math.abs(reconstructed)).toBeLessThan(1e7)
+          checked++
+          if (Math.abs(lo) > maxResidue) maxResidue = Math.abs(lo)
+        }
       }
     }
     expect(checked, 'no vertices checked').toBeGreaterThan(0)
-    // lo should be ≤ half-ulp of hi at its magnitude. For MM tile-
-    // local values up to ~40 km, lo is bounded by ~4e-3 m.
-    expect(maxResidue, 'hi/lo residue out of f32 half-ulp range').toBeLessThan(1.0)
+    // ECEF DSFUN lo half: bounded by f32 half-ulp at the magnitude of
+    // the residual after `tileEcefCenter` subtraction. The residue
+    // budget is set generously vs the Mercator-DSFUN baseline (1 m)
+    // because the worst-case input to Math.fround is now an Earth-
+    // radius-scale ECEF residual, not a tile-extent Mercator metre.
+    expect(maxResidue, 'hi/lo residue out of f32 half-ulp range').toBeLessThan(8.0)
   })
 })
 

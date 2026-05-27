@@ -17,7 +17,9 @@ import {
 } from '@xgis/compiler'
 import type { GeoJSONFeature } from '@xgis/compiler'
 
-const DSFUN_POLY_STRIDE = 5
+// PR 2c.2: polygon vertices are now ECEF-DSFUN stride-9 floats per
+// `[ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon, abs_lat]`.
+const DSFUN_POLY_STRIDE = 9
 
 /** Web-Mercator tile bounds in degrees (inline — tileBounds is a
  *  runtime-only helper in tile-select.ts, not exported from the
