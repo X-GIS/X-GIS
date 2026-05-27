@@ -81,8 +81,8 @@ describe('runCompile — point features', () => {
     expect(response.levels[0].tiles.length).toBe(1)
     const tile = response.levels[0].tiles[0][1]
     expect(tile.pointVertices).toBeDefined()
-    // DSFUN stride-5: (mx_h, my_h, mx_l, my_l, feat_id) × 3 points = 15 floats.
-    expect(tile.pointVertices!.byteLength).toBe(3 * 5 * 4)
+    // ECEF-DSFUN stride-9: (ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, feat_id, abs_lon, abs_lat) × 3 points = 27 floats.
+    expect(tile.pointVertices!.byteLength).toBe(3 * 9 * 4)
     // Transferables list includes the point-vertex ArrayBuffer exactly once.
     expect(transferables).toContain(tile.pointVertices)
   })
@@ -95,9 +95,9 @@ describe('runCompile — point features', () => {
     })
     const tile = response.levels[0].tiles[0][1]
     const pv = new Float32Array(tile.pointVertices!)
-    // Stride-5; index 4 = feat_id. Two points → [?, ?, ?, ?, id0, ?, ?, ?, ?, id1]
-    expect(pv[4]).toBe(123)
-    expect(pv[9]).toBe(456)
+    // ECEF-DSFUN stride-9; index 6 = feat_id. Two points → [?, ?, ?, ?, ?, ?, id0, ?, ?, ?, ?, ?, ?, ?, ?, id1, ?, ?]
+    expect(pv[6]).toBe(123)
+    expect(pv[15]).toBe(456)
   })
 })
 

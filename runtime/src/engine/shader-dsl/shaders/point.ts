@@ -18,10 +18,10 @@
 // hand shader exactly).
 
 import {
-  entryFn, fn, module, bindingRef, constRef, callFn, transformMat4, arrayLit,
-  f32, u32, i32, toF32, toU32, vec2, vec4, mix, exp, log, tan, clamp,
-  length, dot, min, max, smoothstep, fwidth, select,
-  structT, f32T, u32T, i32T, vec2fT, vec3fT, vec4fT, mat4x4fT, arrayT,
+  entryFn, fn, module, bindingRef, callFn, transformMat4, arrayLit,
+  f32, u32, i32, toF32, toU32, vec2, vec3, vec4, mix, exp, clamp,
+  length, dot, min, max, smoothstep, fwidth,
+  structT, f32T, u32T, i32T, vec2fT, vec4fT, mat4x4fT, arrayT,
   type StructDecl, type ModuleDecl,
 } from '../core/ir'
 import { emitModule } from '../core/backends/wgsl'
@@ -31,9 +31,18 @@ import { LOG_DEPTH_WGSL_FNS } from './log-depth'
 const Uniforms: StructDecl = {
   name: 'Uniforms',
   fields: [
+    // Phase 2 PR 2d.2 — POINT VS ECEF migration. `mvp` holds the ECEF-MVP
+    // (Camera.getECEFFrameView), not the legacy Mercator-RTC MVP. The slot
+    // name stays `mvp` so the renderer uniform writer keeps a single offset;
+    // PR 2d.5 closeout will rename to `mvp_ecef` across all shaders.
     { name: 'mvp', type: mat4x4fT },
-    { name: 'proj_params', type: vec4fT },   // x=projType, y=centerLon, z=centerLat
-    { name: 'tile_rtc', type: vec4fT },      // xy = -project(center), zw = (0,0)
+    // proj_params: x=projType, y=centerLon, z=centerLat. Retained for the
+    // fragment-side hemisphere-cull (needs_backface_cull + rim_alpha)
+    // which still branches on projType to short-circuit flat projections.
+    { name: 'proj_params', type: vec4fT },
+    // tile_rtc deleted (Phase 2 PR 2d.2) — the camera-relative anchor used
+    // to live here for the Mercator-DSFUN VS; ECEF VS computes the clip
+    // position directly from per-feature ECEF DSFUN, no per-tile offset.
     { name: 'viewport', type: vec4fT },      // xy = w/h, z = meters/px, w = log_depth_fc
   ],
 }
@@ -89,44 +98,30 @@ const shapes = bindingRef('shapes', arrayT(structT('ShapeDesc')))
 const segments = bindingRef('segments', arrayT(structT('Segment')))
 
 // STRIDE — per-feature feat_data stride (matches the renderer's f32 pack order).
-const STRIDE = u32(14)
+// Phase 2 PR 2d.2 — bumped 14 → 20 to carry per-feature ECEF DSFUN center
+// (6 floats: pos_h.xyz + pos_l.xyz at slots 11..16) and absolute lon/lat
+// (2 floats at slots 17..18). Slot 19 holds shape_id (was slot 13 in the
+// pre-PR-2d.2 stride-14 layout). Memory delta: +24 B per feature.
+const STRIDE = u32(20)
 
 // ── Helper fns ──
+// Phase 2 PR 2d.2 — POINT VS ECEF migration. `point_abs_lonlat`,
+// `reproject_point`, `reproject_point_globe` deleted: per-feature abs_lon/
+// abs_lat now arrive baked into featData (slots 17/18), and the position
+// transform collapses to a single `u.mvp * vec4(ecef_rtc, 1)` against
+// ECEF-DSFUN vertices (no per-projection ladder, no rtc_merc).
+//
+// `point_cos_c` + `point_rim_alpha` kept (signature changed to
+// `(abs_lon, abs_lat)`): the fragment-side hemisphere cull + rim fade still
+// branches on projType via proj_params to short-circuit flat projections,
+// mirroring polygon_cos_c_fragment + polygon_rim_alpha in polygon.ts.
 
-const pointAbsLonlat = fn('point_abs_lonlat', { rtc_merc: vec2fT }, vec2fT, (b, p) => {
-  const projParams = u.field('proj_params', vec4fT)
-  const camLat = b.let('cam_lat', clamp(projParams.z, constRef('MERCATOR_LAT_LIMIT').neg(), constRef('MERCATOR_LAT_LIMIT')))
-  const camMercX = b.let('cam_merc_x', projParams.y.mul(constRef('DEG2RAD')).mul(constRef('EARTH_R')))
-  const camMercY = b.let('cam_merc_y', log(tan(constRef('PI').div(4).add(camLat.mul(constRef('DEG2RAD')).div(2)))).mul(constRef('EARTH_R')))
-  const absLon = b.let('abs_lon', p.rtc_merc.x.add(camMercX).div(constRef('DEG2RAD').mul(constRef('EARTH_R'))))
-  const latRad = b.let('lat_rad', callFn('inv_merc_lat_rad', f32T, p.rtc_merc.y.add(camMercY)))
-  const absLat = b.let('abs_lat', latRad.div(constRef('DEG2RAD')))
-  b.ret(vec2(absLon, absLat))
+const pointCosC = fn('point_cos_c', { abs_lon: f32T, abs_lat: f32T }, f32T, (b, p) => {
+  b.ret(callFn('needs_backface_cull', f32T, p.abs_lon, p.abs_lat, u.field('proj_params', vec4fT)))
 })
 
-const reprojectPoint = fn('reproject_point', { rtc_merc: vec2fT }, vec2fT, (b, p) => {
-  const projParams = u.field('proj_params', vec4fT)
-  b.if(projParams.x.lt(0.5), (c) => { c.ret(p.rtc_merc) })
-  const ll = b.let('ll', callFn('point_abs_lonlat', vec2fT, p.rtc_merc))
-  const projXy = b.let('proj_xy', callFn('project', vec2fT, ll.x, ll.y, projParams))
-  const centerXy = b.let('center_xy', callFn('project', vec2fT, projParams.y, projParams.z, projParams))
-  b.ret(projXy.sub(centerXy))
-})
-
-const reprojectPointGlobe = fn('reproject_point_globe', { rtc_merc: vec2fT }, vec3fT, (b, p) => {
-  const projParams = u.field('proj_params', vec4fT)
-  const ll = b.let('ll', callFn('point_abs_lonlat', vec2fT, p.rtc_merc))
-  b.ret(callFn('proj_globe', vec3fT, ll.x, ll.y).sub(callFn('proj_globe', vec3fT, projParams.y, projParams.z)))
-})
-
-const pointCosC = fn('point_cos_c', { rtc_merc: vec2fT }, f32T, (b, p) => {
-  const ll = b.let('ll', callFn('point_abs_lonlat', vec2fT, p.rtc_merc))
-  b.ret(callFn('needs_backface_cull', f32T, ll.x, ll.y, u.field('proj_params', vec4fT)))
-})
-
-const pointRimAlpha = fn('point_rim_alpha', { rtc_merc: vec2fT }, f32T, (b, p) => {
-  const ll = b.let('ll', callFn('point_abs_lonlat', vec2fT, p.rtc_merc))
-  b.ret(callFn('rim_alpha', f32T, ll.x, ll.y, u.field('proj_params', vec4fT)))
+const pointRimAlpha = fn('point_rim_alpha', { abs_lon: f32T, abs_lat: f32T }, f32T, (b, p) => {
+  b.ret(callFn('rim_alpha', f32T, p.abs_lon, p.abs_lat, u.field('proj_params', vec4fT)))
 })
 
 const distToLine = fn('dist_to_line', { p: vec2fT, a: vec2fT, b: vec2fT }, f32T, (bld, pp) => {
@@ -254,21 +249,27 @@ const vs = entryFn('vs_point', 'vertex', [
     .elif(sizeMode.eq(u32(4)), (c) => { c.assign(radiusPx, rawRadius.mul(1852).div(viewport.z)) })
     .else((c) => { c.assign(radiusPx, rawRadius) })
 
-  // RTC: CPU pre-computes (mercX - cameraMercX, mercY - cameraMercY) in f64;
-  // we receive small f32 offsets and re-project for non-Mercator projections.
-  const rtcMerc = b.let('rtc_merc', vec2(featData.at(fid.mul(STRIDE).add(u32(11)), f32T), featData.at(fid.mul(STRIDE).add(u32(12)), f32T)))
-  const pos = b.let('pos', callFn('reproject_point', vec2fT, rtcMerc))
-  const rtcX = b.let('rtc_x', pos.x)
-  const rtcY = b.let('rtc_y', pos.y)
-  // Globe (projType 7): anchor on the sphere via the orbit MVP; billboard
-  // branch below offsets in screen-space around this.
-  const projParams = u.field('proj_params', vec4fT)
-  const mvp = u.field('mvp', mat4x4fT)
-  const centerClip = b.let('center_clip', select(
-    projParams.x.gt(6.5),
-    transformMat4(mvp, vec4(callFn('reproject_point_globe', vec3fT, rtcMerc), f32(1))),
-    transformMat4(mvp, vec4(rtcX, rtcY, f32(0), f32(1))),
+  // Phase 2 PR 2d.2 — ECEF DSFUN per-feature centre.
+  // featData slots 11..16 carry the tile-anchored ECEF DSFUN split
+  // (pos_h.xyz + pos_l.xyz) for the point's centre; slots 17..18 carry
+  // the absolute lon/lat in degrees for the fragment-side hemisphere
+  // cull. The MVP slot is now `mvp_ecef` (named `mvp` for layout
+  // stability — PR 2d.5 will rename across all shaders).
+  const ecefH = b.let('ecef_h', vec3(
+    featData.at(fid.mul(STRIDE).add(u32(11)), f32T),
+    featData.at(fid.mul(STRIDE).add(u32(12)), f32T),
+    featData.at(fid.mul(STRIDE).add(u32(13)), f32T),
   ))
+  const ecefL = b.let('ecef_l', vec3(
+    featData.at(fid.mul(STRIDE).add(u32(14)), f32T),
+    featData.at(fid.mul(STRIDE).add(u32(15)), f32T),
+    featData.at(fid.mul(STRIDE).add(u32(16)), f32T),
+  ))
+  const ecefRtc = b.let('ecef_rtc', ecefH.add(ecefL))
+  const absLon = b.let('abs_lon', featData.at(fid.mul(STRIDE).add(u32(17)), f32T))
+  const absLat = b.let('abs_lat', featData.at(fid.mul(STRIDE).add(u32(18)), f32T))
+  const mvp = u.field('mvp', mat4x4fT)
+  const centerClip = b.let('center_clip', transformMat4(mvp, vec4(ecefRtc, f32(1))))
 
   // bit 3 of packed10 = flat-quad mode.
   const isFlat = b.let('is_flat', packed10.bitAnd(u32(8)).ne(u32(0)))
@@ -283,19 +284,23 @@ const vs = entryFn('vs_point', 'vertex', [
   b.assign(out.field('view_w', f32T), centerClip.w)
 
   b.if(isFlat, (c) => {
-    // FLAT: expand in world-space, then transform via MVP. Anchor (bits 8..9):
-    // 0=center, 1=bottom (+Y), 2=top (-Y). On a north-up no-pitch camera
-    // world +Y == screen-up, so bottom-anchor still extends upward from the
-    // ground point (pin metaphor); with bearing rotation it rotates with the
-    // map (flat-paradigm consistent).
+    // FLAT: expand in screen-space NDC (perspective-corrected via
+    // centerClip.w). Pre-PR-2d.2 the flat branch expanded in world-space
+    // Mercator metres then re-transformed; under ECEF the world-space
+    // expansion would need a true-metre-to-clip jacobian per vertex.
+    // Since the visual contract is "stay coplanar with the ground at the
+    // marker's centre", a screen-space NDC offset around centerClip is
+    // visually equivalent and metric-correct under the ECEF MVP.
+    // Anchor (bits 8..9): 0=center, 1=bottom, 2=top.
     const anchorMode = c.let('anchor_mode', packed10.shr(u32(8)).bitAnd(u32(3)))
-    const yShift = c.var('y_shift', f32T, f32(0))
-    c.if(anchorMode.eq(u32(1)), (d) => { d.assign(yShift, f32(1)) })
-      .elif(anchorMode.eq(u32(2)), (d) => { d.assign(yShift, f32(-1)) })
-    const worldExpand = c.let('world_expand', expand.mul(viewport.z))   // px → meters
+    const yShiftPx = c.var('y_shift_px', f32T, f32(0))
+    c.if(anchorMode.eq(u32(1)), (d) => { d.assign(yShiftPx, expand) })
+      .elif(anchorMode.eq(u32(2)), (d) => { d.assign(yShiftPx, expand.neg()) })
+    const pxToNdc = c.let('px_to_ndc', vec2(f32(2).div(viewport.x), f32(2).div(viewport.y)))
     const offXY = offsets.at(p.quad_id, vec2fT)
-    const wo = c.let('wo', vec2(offXY.x.mul(worldExpand), offXY.y.add(yShift).mul(worldExpand)))
-    const flatClip = c.let('flat_clip', transformMat4(mvp, vec4(rtcX.add(wo.x), rtcY.add(wo.y), f32(0), f32(1))))
+    const offsetPx = c.let('offset_px', vec2(offXY.x.mul(expand), offXY.y.mul(expand).add(yShiftPx)))
+    const offsetNdc = c.let('offset_ndc', offsetPx.mul(pxToNdc))
+    const flatClip = c.let('flat_clip', centerClip.add(vec4(offsetNdc.mul(centerClip.w), f32(0), f32(0))))
     c.assign(out.field('position', vec4fT), callFn('apply_log_depth', vec4fT, flatClip, fc))
     c.assign(out.field('uv', vec2fT), offXY)
   }).else((c) => {
@@ -318,8 +323,8 @@ const vs = entryFn('vs_point', 'vertex', [
   })
   b.assign(out.field('feat_id', u32T), fid)
   b.assign(out.field('radius_px', f32T), radiusPx)
-  b.assign(out.field('cos_c', f32T), callFn('point_cos_c', f32T, rtcMerc))
-  b.assign(out.field('rim_a', f32T), callFn('point_rim_alpha', f32T, rtcMerc))
+  b.assign(out.field('cos_c', f32T), callFn('point_cos_c', f32T, absLon, absLat))
+  b.assign(out.field('rim_a', f32T), callFn('point_rim_alpha', f32T, absLon, absLat))
   b.ret(out)
 })
 
@@ -327,7 +332,8 @@ const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: structT('PointOu
   // Backface cull for globe projections — cos_c is +1 for flat projections.
   b.if(p.in.field('cos_c', f32T).lt(0), (c) => { c.discard() })
   const fid = b.let('fid', p.in.field('feat_id', u32T))
-  const shapeId = b.let('shape_id', toU32(featData.at(fid.mul(STRIDE).add(u32(13)), f32T)))
+  // shape_id moved to slot 19 in PR 2d.2's stride-20 layout (was slot 13).
+  const shapeId = b.let('shape_id', toU32(featData.at(fid.mul(STRIDE).add(u32(19)), f32T)))
 
   // AA from UV (always smooth) — not from SDF dist (AABB discontinuities).
   const aa = b.let('aa', fwidth(length(p.in.field('uv', vec2fT))).mul(1.5))
@@ -400,7 +406,7 @@ export const POINT_MODULE: ModuleDecl = module({
     { group: 0, binding: 3, name: 'segments', space: 'storage', access: 'read', type: arrayT(structT('Segment')) },
   ],
   funcs: [
-    pointAbsLonlat, reprojectPoint, reprojectPointGlobe, pointCosC, pointRimAlpha,
+    pointCosC, pointRimAlpha,
     distToLine, distToQuadratic, distToCubic, windingLine, sdfShape,
     vs, fs,
   ],

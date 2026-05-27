@@ -4601,26 +4601,19 @@ export class VectorTileRenderer {
     // point intent independent of a declared size.
     const hasPointStyle = show.paintShapes?.size != null || show.shape !== null
     if (hasPointStyle && pointRenderer && typeof pointRenderer.addTilePoint === 'function') {
-      const DEG2RAD = Math.PI / 180
-      const R = 6378137
-      const LAT_LIMIT = 85.051129
-      const clampLat = (v: number) => Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, v))
-      const camMercX = projCenterLon * DEG2RAD * R
-      const camMercY = Math.log(Math.tan(Math.PI / 4 + clampLat(projCenterLat) * DEG2RAD / 2)) * R
-
+      // Phase 2 PR 2d.2 — read ECEF DSFUN stride-9:
+      // [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, feat_id, abs_lon, abs_lat]
       for (const key of this.stableKeys) {
         const tileData = this.source!.getTileData(key, sliceLayer)
-        if (!tileData?.pointVertices || tileData.pointVertices.length < 5) continue
+        if (!tileData?.pointVertices || tileData.pointVertices.length < 9) continue
         const ptv = tileData.pointVertices
-        const tileMercX = tileData.tileWest * DEG2RAD * R
-        const tileMercY = Math.log(Math.tan(Math.PI / 4 + clampLat(tileData.tileSouth) * DEG2RAD / 2)) * R
-        const camRelX = camMercX - tileMercX // camera in tile-local Mercator frame (f64)
-        const camRelY = camMercY - tileMercY
-        for (let i = 0; i < ptv.length; i += 5) {
-          // Reconstruct tile-local merc from DSFUN high+low pair
-          const ptMxLocal = ptv[i] + ptv[i + 2]
-          const ptMyLocal = ptv[i + 1] + ptv[i + 3]
-          pointRenderer.addTilePoint(ptMxLocal - camRelX, ptMyLocal - camRelY, ptv[i + 4])
+        for (let i = 0; i < ptv.length; i += 9) {
+          pointRenderer.addTilePoint(
+            ptv[i], ptv[i + 1], ptv[i + 2],   // ex_h, ey_h, ez_h
+            ptv[i + 3], ptv[i + 4], ptv[i + 5], // ex_l, ey_l, ez_l
+            ptv[i + 6],                          // feat_id
+            ptv[i + 7], ptv[i + 8],              // abs_lon, abs_lat
+          )
         }
       }
       pointRenderer.flushTilePoints(pass, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight, show, dpr)
