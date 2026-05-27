@@ -1,0 +1,143 @@
+{
+  "title": "Tier 3 ECEF tile pipeline — Phase 1 (TileScheme abstraction + source-honest principle)",
+  "spec": ".omc/specs/deep-dive-bg-flat-not-projection-curved.md",
+  "plan": ".omc/plans/ralplan-tier3-phase1-tile-scheme-abstraction.md",
+  "branch": "feature/ecef-tile-pipeline-phase1",
+  "scope": "Two sequential PRs off feature/ecef-tile-pipeline-phase1 branch. PR #1 (Phase 1a) = polar-cap auto-call removal + setPolarCapsEnabled deprecation via xlog.warn no-op. PR #2 (Phase 1b) = TileScheme single-variant union + readonly scheme field on TileSourceMeta + 4 backend population + VirtualCatalogAdapter lazy throwing proxy + TileCatalog.getSourceScheme accessor. Mercator (projType 0) byte-identity required on BOTH PRs — no snapshot regeneration. Architect+Critic consensus reached after 3 plan iterations.",
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "Phase 1a step 0: create branch feature/ecef-tile-pipeline-phase1 from main",
+      "priority": 0,
+      "passes": true,
+      "acceptanceCriteria": [
+        "git rev-parse --abbrev-ref HEAD returns 'feature/ecef-tile-pipeline-phase1'.",
+        "git log feature/ecef-tile-pipeline-phase1..main returns empty (branch is at main's HEAD).",
+        "git status reports a clean working tree before any code change in subsequent stories."
+      ]
+    },
+    {
+      "id": "US-002",
+      "title": "Phase 1a code edits: remove polar-cap auto-calls + rewrite setPolarCapsEnabled to xlog.warn no-op",
+      "priority": 1,
+      "passes": true,
+      "acceptanceCriteria": [
+        "runtime/src/engine/map.ts at the projType change handler (around line 870-872 in the pre-change file) NO LONGER calls setPolarCapsEnabled(true) automatically — grep `setPolarCapsEnabled\\(true\\)` returns zero hits in map.ts outside the method's own body.",
+        "runtime/src/engine/source-manager.ts setSourceData path (around line 469-476) NO LONGER calls isPolarCapsEnabled() / injectPolarCaps — grep `injectPolarCaps` in source-manager.ts returns zero hits.",
+        "runtime/src/engine/map.ts setPolarCapsEnabled method body is a no-op + one-shot xlog.warn(...) call using xlog imported from runtime/src/engine/log.ts (NOT raw console.warn). The warning fires only once per session via a module-scoped _polarCapsWarned flag.",
+        "Warning text contains the substring 'no longer renderer-driven' and references the public utility names (injectPolarCaps / synthesizePolarCaps).",
+        "setPolarCapsEnabled DOES NOT throw — calling map.setPolarCapsEnabled(true) returns normally."
+      ]
+    },
+    {
+      "id": "US-003",
+      "title": "Phase 1a public-export + standalone-tool surface preserved",
+      "priority": 2,
+      "passes": true,
+      "acceptanceCriteria": [
+        "runtime/src/index.ts continues to export injectPolarCaps, synthesizePolarCaps, findClampBoundarySpans (grep export confirms all three present).",
+        "runtime/src/loader/polar-cap-detect.ts and runtime/src/data/polar-cap-synth.ts files remain in tree, unchanged in content (or only touched by import-removal cleanup of removed callers).",
+        "bunx vitest run runtime/src/loader/polar-cap-detect.test.ts runtime/src/data/polar-cap-synth.test.ts passes (8+ existing test cases still green)."
+      ]
+    },
+    {
+      "id": "US-004",
+      "title": "Phase 1a deprecation test: new map-polar-cap-deprecation.test.ts",
+      "priority": 3,
+      "passes": true,
+      "acceptanceCriteria": [
+        "runtime/src/engine/map-polar-cap-deprecation.test.ts file exists.",
+        "Test asserts map.setPolarCapsEnabled(true) does NOT throw.",
+        "Test installs an xlog sink (per runtime/src/engine/log.ts public API) and asserts the deprecation warning is captured once and only once across repeated calls.",
+        "Test passes via bunx vitest run runtime/src/engine/map-polar-cap-deprecation.test.ts."
+      ]
+    },
+    {
+      "id": "US-005",
+      "title": "Phase 1a verification: full test suite green + Mercator byte-identity + PR #1",
+      "priority": 4,
+      "passes": false,
+      "acceptanceCriteria": [
+        "bunx tsc -p runtime/tsconfig.json --noEmit reports zero errors.",
+        "bunx vitest run runtime reports the entire suite green.",
+        "Mercator (projType 0) pixel-diff harness shows byte-identical output vs main pre-change baseline AND `git status` reports zero files modified under any pixel-snapshot directory (no snapshot regeneration).",
+        "gh pr create has been run on feature/ecef-tile-pipeline-phase1, producing a PR titled '[Phase 1a] Source-honest: remove polar-cap auto-call from renderer'. PR body links memory note project_polar_cap_fix_2026_05_18.md and explains the source-honest revert.",
+        "gh pr checks reports CI render-gate green on the PR before this story is marked passes:true."
+      ]
+    },
+    {
+      "id": "US-006",
+      "title": "Phase 1b: TileScheme single-variant union + readonly scheme field on TileSourceMeta",
+      "priority": 5,
+      "passes": true,
+      "acceptanceCriteria": [
+        "runtime/src/data/tile-source.ts exports `export type TileScheme = 'web-mercator-xyz'` — single-variant literal union ONLY. No additional variants in the union body.",
+        "JSDoc on TileScheme references future reserved variants 'epsg-4326-quadtree' and 's2-cube-sphere' as Phase 3/4 work, NOT in the union itself.",
+        "TileSourceMeta interface at runtime/src/data/tile-source.ts (around line 112-118) gains `readonly scheme: TileScheme` field. The field is on TileSourceMeta, NOT on TileSource — interface placement verified by reading lines 104-118 + 156-223.",
+        "bunx tsc -p runtime/tsconfig.json --noEmit reports zero errors."
+      ]
+    },
+    {
+      "id": "US-007",
+      "title": "Phase 1b: populate meta.scheme in 4 backends (PMTiles / VirtualPMTiles / GeoJSON dual-write / VirtualCatalogAdapter lazy throw)",
+      "priority": 6,
+      "passes": true,
+      "acceptanceCriteria": [
+        "runtime/src/data/sources/pmtiles-backend.ts populates `meta.scheme = 'web-mercator-xyz'` at the existing `this.meta = {...}` assignment site.",
+        "runtime/src/data/sources/virtual-pmtiles-backend.ts populates `meta.scheme = 'web-mercator-xyz'`.",
+        "runtime/src/data/sources/geojson-runtime-backend.ts populates `meta.scheme = 'web-mercator-xyz'` at BOTH meta-write sites (initial construction AND post-setData() re-assignment).",
+        "runtime/src/data/sources/virtual-catalog-adapter.ts implements meta.scheme as a LAZY getter (or lazy meta computation) that returns wrapped.meta.scheme at access time. Pre-wrap read throws an explicit Error with message containing 'wrap target attached'. NO silent default to 'web-mercator-xyz'.",
+        "grep 'implements TileSource' in runtime/src/data returns exactly 4 files (the 4 backends listed above) — no missing backend."
+      ]
+    },
+    {
+      "id": "US-008",
+      "title": "Phase 1b: TileCatalog.getSourceScheme accessor",
+      "priority": 7,
+      "passes": true,
+      "acceptanceCriteria": [
+        "runtime/src/data/tile-catalog.ts has a public method `getSourceScheme(name: string): TileScheme | undefined`.",
+        "Implementation reads from a per-source map populated when attachBackend / mergeBackendMeta runs (around line 272 of tile-catalog.ts).",
+        "Unregistered name returns undefined (NOT throws).",
+        "No new branch added to the requestTiles dispatch hot path (no cross-scheme dispatch guard)."
+      ]
+    },
+    {
+      "id": "US-009",
+      "title": "Phase 1b: new unit tests (tile-source.scheme.test.ts + tile-catalog-scheme-accessor.test.ts)",
+      "priority": 8,
+      "passes": true,
+      "acceptanceCriteria": [
+        "runtime/src/data/tile-source.scheme.test.ts exists. For each of 4 backends instantiates (with minimal config) and asserts instance.meta.scheme === 'web-mercator-xyz'.",
+        "tile-source.scheme.test.ts includes GeoJSONRuntimeBackend dual meta-write assertion (post-construction AND post-setData()).",
+        "tile-source.scheme.test.ts includes VirtualCatalogAdapter pre-wrap-throw assertion (asserts the explicit Error is raised) and post-wrap forward assertion.",
+        "runtime/src/data/tile-catalog-scheme-accessor.test.ts exists. Asserts catalog.getSourceScheme(name) returns 'web-mercator-xyz' for registered backend; returns undefined for unregistered name.",
+        "bunx vitest run runtime/src/data passes — both new tests green."
+      ]
+    },
+    {
+      "id": "US-010",
+      "title": "Phase 1b docs + bundle size",
+      "priority": 9,
+      "passes": false,
+      "acceptanceCriteria": [
+        "runtime/src/data/AGENTS.md gains a `## Tile scheme discriminator (Phase 1b)` section documenting TileScheme, TileSourceMeta.scheme, getSourceScheme.",
+        "runtime/src/AGENTS.md polar-cap mention is amended to 'polar-cap synth is a public utility, no longer renderer-driven'.",
+        "Bundle size: capture baseline via `bun run build` BEFORE Phase 1b edits, capture again AFTER Phase 1b. Record both gzipped totals. Delta MUST be < 1 KB gzipped — both numbers noted in PR #2 body."
+      ]
+    },
+    {
+      "id": "US-011",
+      "title": "Phase 1b verification: full test suite green + Mercator byte-identity + PR #2",
+      "priority": 10,
+      "passes": false,
+      "acceptanceCriteria": [
+        "bunx tsc -p runtime/tsconfig.json --noEmit reports zero errors.",
+        "bunx vitest run runtime reports the entire suite green.",
+        "Mercator (projType 0) pixel-diff byte-identical AND `git status` reports zero modified pixel-snapshot files.",
+        "gh pr create has been run, producing PR titled '[Phase 1b] TileScheme metadata field + getSourceScheme accessor'. PR body records bundle-size baseline + delta.",
+        "gh pr checks reports CI render-gate green on PR #2 before this story is marked passes:true."
+      ]
+    }
+  ]
+}
