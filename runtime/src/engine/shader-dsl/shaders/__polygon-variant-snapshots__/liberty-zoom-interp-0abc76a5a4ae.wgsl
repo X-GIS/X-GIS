@@ -1,4 +1,4 @@
-// baseline: 43852b9a82e082e36bbfc92b91d3a8f858a4b5e2
+// baseline: c1c3e965eb7b0648d9975264c63e0fba00f03a25
 // fixture: liberty-zoom-interp
 // variant.key: liberty-zoom-interp
 // pick: false
@@ -251,7 +251,6 @@ fn inv_merc_lat_rad(merc_y_m: f32) -> f32 {
 
 struct Uniforms {
   mvp: mat4x4<f32>,
-  mvp_ecef: mat4x4<f32>,
   fill_color: vec4<f32>,
   stroke_color: vec4<f32>,
   proj_params: vec4<f32>,
@@ -324,7 +323,7 @@ fn vs_main(@location(0) pos_h: vec3<f32>, @location(1) pos_l: vec3<f32>, @locati
   let abs_lat_clamped = clamp(abs_lat, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT);
   let abs_merc_y = (log(tan(((PI / 4.0) + ((abs_lat_clamped * DEG2RAD) / 2.0)))) * EARTH_R);
   var out: VertexOutput;
-  var clip: vec4<f32> = (u.mvp_ecef * vec4<f32>(ecef_rtc, 1.0));
+  var clip: vec4<f32> = (u.mvp * vec4<f32>(ecef_rtc, 1.0));
   clip.x = (clip.x + (u.fill_translate_x * clip.w));
   clip.y = (clip.y - (u.fill_translate_y * clip.w));
   out.position = apply_log_depth(clip, u.log_depth_fc);
@@ -348,7 +347,7 @@ fn vs_main_ecef(@location(0) pos_h: vec3<f32>, @location(1) pos_l: vec3<f32>, @l
   let abs_lat_clamped = clamp(abs_lat, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT);
   let abs_merc_y = (log(tan(((PI / 4.0) + ((abs_lat_clamped * DEG2RAD) / 2.0)))) * EARTH_R);
   var out: VertexOutput;
-  var clip: vec4<f32> = (u.mvp_ecef * vec4<f32>(ecef_rtc, 1.0));
+  var clip: vec4<f32> = (u.mvp * vec4<f32>(ecef_rtc, 1.0));
   clip.x = (clip.x + (u.fill_translate_x * clip.w));
   clip.y = (clip.y - (u.fill_translate_y * clip.w));
   out.position = apply_log_depth(clip, u.log_depth_fc);
@@ -372,7 +371,7 @@ fn vs_main_ecef_extruded(@location(0) pos_h: vec3<f32>, @location(1) pos_l: vec3
   let abs_lat_clamped = clamp(abs_lat, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT);
   let abs_merc_y = (log(tan(((PI / 4.0) + ((abs_lat_clamped * DEG2RAD) / 2.0)))) * EARTH_R);
   var out: VertexOutput;
-  var clip: vec4<f32> = (u.mvp_ecef * vec4<f32>(ecef_rtc, 1.0));
+  var clip: vec4<f32> = (u.mvp * vec4<f32>(ecef_rtc, 1.0));
   clip.x = (clip.x + (u.fill_translate_x * clip.w));
   clip.y = (clip.y - (u.fill_translate_y * clip.w));
   out.position = apply_log_depth(clip, u.log_depth_fc);

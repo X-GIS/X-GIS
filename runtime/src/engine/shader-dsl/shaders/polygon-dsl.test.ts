@@ -150,8 +150,10 @@ describe('emitPolygonWgsl — skeleton', () => {
     expect(wgsl).toMatch(/@location\(1\)[^,]+pos_l\s*:\s*vec3<f32>/)
     expect(wgsl).toMatch(/@location\(3\)[^,]+abs_lon\s*:\s*f32/)
     expect(wgsl).toMatch(/@location\(4\)[^,]+abs_lat\s*:\s*f32/)
-    // Linear ECEF MVP transform: u.mvp_ecef * vec4(ecef_rtc, 1.0).
-    expect(wgsl).toContain('mvp_ecef')
+    // Linear ECEF MVP transform: u.mvp * vec4(ecef_rtc, 1.0). Post PR 2d.5
+    // closeout, the legacy Mercator `mvp` slot was retired; the surviving
+    // `mvp` field IS the ECEF-MVP (formerly named `mvp_ecef`).
+    expect(wgsl).toContain('u.mvp')
     expect(wgsl).toContain('ecef_rtc')
   })
 
@@ -166,9 +168,9 @@ describe('emitPolygonWgsl — skeleton', () => {
     expect(wgsl).toMatch(/@location\(0\)[^,]+pos_h\s*:\s*vec3<f32>/)
     expect(wgsl).toMatch(/@location\(1\)[^,]+pos_l\s*:\s*vec3<f32>/)
     expect(wgsl).toMatch(/@location\(2\)[^,]+feature_id\s*:\s*f32/)
-    // vs_main now consumes u.mvp_ecef directly — legacy project_geom /
-    // proj_globe calls retired. apply_log_depth is still used for the
-    // depth-buffer linearisation common to all VS entries.
+    // vs_main now consumes u.mvp (ECEF-MVP) directly — legacy
+    // project_geom / proj_globe calls retired. apply_log_depth is still
+    // used for the depth-buffer linearisation common to all VS entries.
     expect(wgsl).toContain('apply_log_depth(')
   })
 

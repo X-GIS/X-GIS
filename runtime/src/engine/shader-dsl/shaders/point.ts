@@ -32,9 +32,10 @@ const Uniforms: StructDecl = {
   name: 'Uniforms',
   fields: [
     // Phase 2 PR 2d.2 — POINT VS ECEF migration. `mvp` holds the ECEF-MVP
-    // (Camera.getECEFFrameView), not the legacy Mercator-RTC MVP. The slot
-    // name stays `mvp` so the renderer uniform writer keeps a single offset;
-    // PR 2d.5 closeout will rename to `mvp_ecef` across all shaders.
+    // (Camera.getECEFFrameView), not the legacy Mercator-RTC MVP. Post
+    // PR 2d.5 closeout, all polygon/line/raster/point shaders use the
+    // single `mvp` slot for the ECEF-MVP — the dual-slot Mercator+ECEF
+    // layout was retired (polygon Uniforms shrunk 256 → 192 bytes).
     { name: 'mvp', type: mat4x4fT },
     // proj_params: x=projType, y=centerLon, z=centerLat. Retained for the
     // fragment-side hemisphere-cull (needs_backface_cull + rim_alpha)
@@ -253,8 +254,7 @@ const vs = entryFn('vs_point', 'vertex', [
   // featData slots 11..16 carry the tile-anchored ECEF DSFUN split
   // (pos_h.xyz + pos_l.xyz) for the point's centre; slots 17..18 carry
   // the absolute lon/lat in degrees for the fragment-side hemisphere
-  // cull. The MVP slot is now `mvp_ecef` (named `mvp` for layout
-  // stability — PR 2d.5 will rename across all shaders).
+  // cull. The single `u.mvp` slot is the ECEF-MVP (post PR 2d.5).
   const ecefH = b.let('ecef_h', vec3(
     featData.at(fid.mul(STRIDE).add(u32(11)), f32T),
     featData.at(fid.mul(STRIDE).add(u32(12)), f32T),

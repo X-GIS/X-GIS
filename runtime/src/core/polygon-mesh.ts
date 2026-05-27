@@ -35,8 +35,8 @@ import { mercatorYToLatRad } from '../engine/projection/projection'
 // parallel-z) wall mesh with a single interleaved stride-14 Float32Array
 // in ECEF-RTC (Earth-Centered Earth-Fixed, relative to a per-tile centre)
 // coordinates. The runtime VS becomes a linear
-// `mvp_ecef * vec4(pos_h + pos_l, 1)` — `project_geom`'s non-linear
-// dispatch disappears at PR 2c.2's flip.
+// `u.mvp * vec4(pos_h + pos_l, 1)` (ECEF-MVP — see PR 2d.5 closeout)
+// — `project_geom`'s non-linear dispatch disappears at PR 2c.2's flip.
 //
 // Per-vertex layout (14 f32 = 56 bytes, stride matches plan v4 M-3):
 //   loc 0  pos_h        ECEF RTC, high half  (3 floats)

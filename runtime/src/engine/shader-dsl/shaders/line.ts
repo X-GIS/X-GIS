@@ -45,16 +45,18 @@ import {
 const TileUniforms: StructDecl = {
   name: 'TileUniforms',
   fields: [
-    { name: 'mvp', type: mat4x4fT },
-    // mvp_ecef (Phase 2 PR 2d.1C): ECEF-MVP for the hybrid line VS ECEF
-    // clip path — vs_line transforms `u.mvp_ecef * vec4(ecef_corner, 1)`
-    // for clip-space output while still emitting `world_local` as tile-
-    // local Mercator metres for the FS distance/clip math (hybrid VS).
+    // Phase 2 PR 2d.5 closeout: `mvp` holds the ECEF-MVP from
+    // Camera.getECEFFrameView() — the legacy Mercator-RTC `mvp` slot was
+    // retired and the dual-slot layout collapsed (struct shrunk 256 → 192
+    // bytes). The line shader's hybrid VS still emits `world_local` as
+    // tile-local Mercator metres for the FS distance/clip math; only the
+    // clip transform changed: `u.mvp * vec4(ecef_corner, 1)`.
+    //
     // Slot mirrors the polygon Uniforms layout byte-for-byte (the line
     // shader shares group(0) with VTR's polygon bind group, so the line
     // TileUniforms struct must match polygon Uniforms field offsets up
     // through `clip_bounds`).
-    { name: 'mvp_ecef', type: mat4x4fT },
+    { name: 'mvp', type: mat4x4fT },
     { name: 'fill_color', type: vec4fT },
     { name: 'stroke_color', type: vec4fT },
     { name: 'proj_params', type: vec4fT },
@@ -65,10 +67,9 @@ const TileUniforms: StructDecl = {
     { name: 'opacity', type: f32T },
     // Log-depth factor: 1.0 / log2(cam_far + 1.0). Reuses the old DSFUN _pad0.
     { name: 'log_depth_fc', type: f32T },
-    // Slots 52-55 mirror the polygon Uniforms tail. The line shader only
+    // Trailing pads mirror the polygon Uniforms tail. The line shader only
     // reads outline_z_lift_m — the others are padding so the WGSL struct
-    // lines up with the shared 256-byte uniform block (post PR 2c.1
-    // `mvp_ecef` insertion bumped the polygon struct 192 → 256 bytes).
+    // lines up with the shared 192-byte uniform block.
     { name: '_pad_pick', type: u32T },
     { name: '_pad_layer_offset', type: f32T },
     { name: 'tile_extent_m', type: f32T },
@@ -208,8 +209,8 @@ const lineEndpoint = fn('line_endpoint', { p_h: vec2fT, p_l: vec2fT }, vec2fT, (
 
 // `finalize_corner` / `finalize_corner_globe` retired in PR 2d.1C — the
 // per-projection ladder (project_geom / proj_globe) moved off the VS hot
-// path; vs_line transforms via `u.mvp_ecef * vec4(ecef_rtc, 1)` and the
-// CPU bakes every projType into mvp_ecef once per frame.
+// path; vs_line transforms via `u.mvp * vec4(ecef_rtc, 1)` and the
+// CPU bakes every projType into the ECEF-MVP once per frame.
 
 const endpointCosC = fn('endpoint_cos_c', { p_h: vec2fT, p_l: vec2fT }, f32T, (b, p) => {
   const tileOrigin = tile.field('tile_origin_merc', vec2fT)
@@ -822,13 +823,13 @@ const vsLine = entryFn('vs_line', 'vertex', [
 
   // ── ECEF-RTC corner reconstruction (Phase 2 PR 2d.1C) ────────────────
   //
-  // Hybrid VS: emit clip via `u.mvp_ecef * vec4(ecef_rtc, 1)` while still
+  // Hybrid VS: emit clip via `u.mvp * vec4(ecef_rtc, 1)` while still
   // emitting `world_local` as tile-local Mercator metres for the FS
   // distance / clip / backface / pattern math (`compute_line_color` reads
   // `world_local` at 6 sites — backface cull, clip-bounds, segment dist,
   // bevel/cap geometry, rim alpha, pattern repeat). The Mercator path is
   // unchanged; only the clip transform swaps from
-  // `u.mvp * project_geom(corner)` to `u.mvp_ecef * ecef_rtc(corner)`.
+  // `u.mvp * project_geom(corner)` to `u.mvp * ecef_rtc(corner)`.
   //
   // Math chain:
   //   1. corner abs Mercator = cornerLocal + tile_origin_merc
@@ -836,10 +837,10 @@ const vsLine = entryFn('vs_line', 'vertex', [
   //   3. WGS84 forward ECEF   → ecef_corner
   //   4. tile ECEF center same chain on tile_origin_merc
   //   5. ecef_rtc             = ecef_corner - tile_ecef_center
-  //   6. clip                 = u.mvp_ecef * vec4(ecef_rtc, 1)
+  //   6. clip                 = u.mvp * vec4(ecef_rtc, 1)
   //
   // Mirrors the polygon ECEF VS (vs_main_ecef) contract: the runtime
-  // builds `u.mvp_ecef` once per frame and the per-tile vertices are
+  // builds `u.mvp` (ECEF-MVP) once per frame and the per-tile vertices are
   // RTC-relative to the tile ECEF center. WGS84 constants match
   // `ecef.ts:lonLatToECEF` byte-for-byte (a = 6378137, e² = 2f − f² for
   // f = 1/298.257223563). Per-vertex cost: 2 sin + 2 cos + 2 sqrt + 1
@@ -885,7 +886,7 @@ const vsLine = entryFn('vs_line', 'vertex', [
   b.if(layerVpH.gt(0), (c) => {
     const zLift = seg.field('z_lift_m', f32T)
     const tileOrigin = tile.field('tile_origin_merc', vec2fT)
-    const mvpEcef = tile.field('mvp_ecef', mat4x4fT)
+    const mvp = tile.field('mvp', mat4x4fT)
     // Tile ECEF center reconstruction (one set per vs_line invocation).
     const tileAbsX = c.let('tile_abs_x', toF32(tileOrigin.x))
     const tileAbsY = c.let('tile_abs_y', toF32(tileOrigin.y))
@@ -898,7 +899,7 @@ const vsLine = entryFn('vs_line', 'vertex', [
     const baseRtcLifted = c.let('base_rtc_lifted',
       vec3(baseRtc.x, baseRtc.y, toF32(baseRtc.z.add(zLift))),
     )
-    const centerClip = c.let('center_clip', transformMat4(mvpEcef, vec4(baseRtcLifted, f32(1))))
+    const centerClip = c.let('center_clip', transformMat4(mvp, vec4(baseRtcLifted, f32(1))))
     // Candidate corner.
     const cornerAbsX = c.let('corner_abs_x', toF32(cornerLocal.x.add(tileOrigin.x)))
     const cornerAbsY = c.let('corner_abs_y', toF32(cornerLocal.y.add(tileOrigin.y)))
@@ -907,7 +908,7 @@ const vsLine = entryFn('vs_line', 'vertex', [
     const cornerRtcLifted = c.let('corner_rtc_lifted',
       vec3(cornerRtc.x, cornerRtc.y, toF32(cornerRtc.z.add(zLift))),
     )
-    const cornerClip = c.let('corner_clip', transformMat4(mvpEcef, vec4(cornerRtcLifted, f32(1))))
+    const cornerClip = c.let('corner_clip', transformMat4(mvp, vec4(cornerRtcLifted, f32(1))))
     const centerXY = c.let('center_xy', vec2(centerClip.x, centerClip.y))
     const cornerXY = c.let('corner_xy', vec2(cornerClip.x, cornerClip.y))
     const centerNdc = c.let('center_ndc', centerXY.div(max(abs(centerClip.w), f32(1e-6))).mul(sign(centerClip.w)))
@@ -924,7 +925,7 @@ const vsLine = entryFn('vs_line', 'vertex', [
   // ECEF via the same WGS84 forward chain as polygon vs_main_ecef.
   const out = b.var('out', structT('LineOut'))
   const tileOrigin2 = tile.field('tile_origin_merc', vec2fT)
-  const mvpEcef = tile.field('mvp_ecef', mat4x4fT)
+  const mvp = tile.field('mvp', mat4x4fT)
   const zLift = seg.field('z_lift_m', f32T)
 
   const tileAbsX = b.let('tile_abs_x_f', toF32(tileOrigin2.x))
@@ -939,7 +940,7 @@ const vsLine = entryFn('vs_line', 'vertex', [
     vec3(ecefRtc.x, ecefRtc.y, toF32(ecefRtc.z.add(zLift))),
   )
 
-  const clip = b.let('clip', transformMat4(mvpEcef, vec4(ecefRtcLifted, f32(1))))
+  const clip = b.let('clip', transformMat4(mvp, vec4(ecefRtcLifted, f32(1))))
   b.assign(out.field('position', vec4fT), callFn('apply_log_depth', vec4fT, clip, tile.field('log_depth_fc', f32T)))
   b.assign(out.field('view_w', f32T), clip.w)
   b.assign(out.field('world_local', vec2fT), cornerLocal)

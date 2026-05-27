@@ -161,14 +161,14 @@ class LabelPass implements RenderPass {
         ctx.mvp = mvp
         // Phase 2 PR 2d.4: `ccx`/`ccy` (Mercator camera centre) are no
         // longer threaded into `makeLabelProjectors` — the ECEF projector
-        // reads `mvp_ecef * lonLatToECEF(lon, lat)` directly without a
-        // CPU-side camera subtraction.
+        // reads `mvp_ecef_matrix * lonLatToECEF(lon, lat)` directly without
+        // a CPU-side camera subtraction.
 
         // Phase 2 PR 2d.4 — TEXT/LABEL CPU anchor projector ECEF migration.
         // The four label-anchor projectors (projectMerc / projectLonLat /
         // projectMercAny / projectLonLatCopies) now share a single ECEF
         // projector body in render-loop-helpers.ts `makeLabelProjectors`:
-        // `lonLatToECEF(lon, lat) → mvp_ecef * vec4 → NDC → CSS px`. The
+        // `lonLatToECEF(lon, lat) → ECEF-MVP * vec4 → NDC → CSS px`. The
         // projType-conditional `_lblIsMerc`/`_lblIsGlobe`/`_lblGlobeCenter`/
         // `_lblCenter` derivations + `projectWgsl` import are retired —
         // under ECEF, the projector is projection-agnostic.

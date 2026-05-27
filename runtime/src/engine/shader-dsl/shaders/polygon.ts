@@ -43,12 +43,11 @@ import { LOG_DEPTH_WGSL_FNS } from './log-depth'
 const Uniforms: StructDecl = {
   name: 'Uniforms',
   fields: [
+    // Phase 2 PR 2d.5 closeout: legacy Mercator-RTC `mvp` retired — `mvp`
+    // now holds the ECEF-MVP from Camera.getECEFFrameView() (was previously
+    // the second slot `mvp_ecef`). Every polygon VS consumes ECEF; the dual
+    // slot is gone (struct shrunk 256 → 192 bytes).
     { name: 'mvp', type: mat4x4fT },
-    // mvp_ecef (Phase 2 PR 2c.1 scaffolding): ECEF-MVP for the polygon ECEF
-    // vertex pipeline. Built in true-ENU-metre semantics on the CPU via
-    // Camera.getECEFFrameView(); consumed by vs_main_ecef in PR 2c.2.
-    // Not yet read by any VS in PR 2c.1 — uniform-buffer slot reservation only.
-    { name: 'mvp_ecef', type: mat4x4fT },
     { name: 'fill_color', type: vec4fT },
     { name: 'stroke_color', type: vec4fT },
     { name: 'proj_params', type: vec4fT },
@@ -173,7 +172,7 @@ const polygonRimAlpha = fn(
 // metres — identical body to vs_main_ecef. The runtime now ships line
 // vertices in ECEF-DSFUN stride-9 (pos_h.vec3 + pos_l.vec3 + featId +
 // abs_lon + abs_lat); the projection-specific 3D→clip pipeline is fully
-// baked into u.mvp_ecef by Camera.getECEFFrameView() on the CPU.
+// baked into u.mvp by Camera.getECEFFrameView() on the CPU.
 //
 // Producer migration in PR 2d.1D: graticule (the sole consumer of this VS
 // after PR 2d.1C moved vs_line off vs_main). MapRenderer.addLayer's
@@ -194,7 +193,7 @@ const vsMain = entryFn(
   ],
   structT('VertexOutput'),
   (b, p) => {
-    const mvpEcef = u.field('mvp_ecef', mat4x4fT)
+    const mvp = u.field('mvp', mat4x4fT)
     const logDepthFc = u.field('log_depth_fc', f32T)
     const layerDepthOff = u.field('layer_depth_offset', f32T)
     const fillTx = u.field('fill_translate_x', f32T)
@@ -216,7 +215,7 @@ const vsMain = entryFn(
     )
 
     const out = b.var('out', structT('VertexOutput'))
-    const clip = b.var('clip', vec4fT, transformMat4(mvpEcef, vec4(ecefRtc, f32(1))))
+    const clip = b.var('clip', vec4fT, transformMat4(mvp, vec4(ecefRtc, f32(1))))
     // Mapbox fill-translate viewport-anchor — runtime pre-bakes
     // (px*2/canvasDim) so the shader just multiplies by clip.w.
     b.assign(clip.x, clip.x.add(fillTx.mul(clip.w)))
@@ -249,9 +248,9 @@ const vsMain = entryFn(
 // reading abs_merc_x + abs_merc_y as varyings — reconstructed in the VS
 // from abs_lon/abs_lat via Mercator forward.
 //
-// VS work collapses to: ecef_rtc = pos_h + pos_l; clip = u.mvp_ecef * vec4(ecef_rtc, 1).
+// VS work collapses to: ecef_rtc = pos_h + pos_l; clip = u.mvp * vec4(ecef_rtc, 1).
 // The per-projection branch + project_geom + proj_globe calls are gone:
-// the projection-specific 3D→clip pipeline is fully baked into mvp_ecef
+// the projection-specific 3D→clip pipeline is fully baked into u.mvp
 // by the CPU camera (Camera.getECEFFrameView).
 
 const vsMainEcef = entryFn(
@@ -265,7 +264,7 @@ const vsMainEcef = entryFn(
   ],
   structT('VertexOutput'),
   (b, p) => {
-    const mvpEcef = u.field('mvp_ecef', mat4x4fT)
+    const mvp = u.field('mvp', mat4x4fT)
     const logDepthFc = u.field('log_depth_fc', f32T)
     const layerDepthOff = u.field('layer_depth_offset', f32T)
     const fillTx = u.field('fill_translate_x', f32T)
@@ -288,7 +287,7 @@ const vsMainEcef = entryFn(
     )
 
     const out = b.var('out', structT('VertexOutput'))
-    const clip = b.var('clip', vec4fT, transformMat4(mvpEcef, vec4(ecefRtc, f32(1))))
+    const clip = b.var('clip', vec4fT, transformMat4(mvp, vec4(ecefRtc, f32(1))))
     // Mapbox fill-translate viewport-anchor — runtime pre-bakes
     // (px*2/canvasDim) so the shader just multiplies by clip.w.
     b.assign(clip.x, clip.x.add(fillTx.mul(clip.w)))
@@ -315,7 +314,7 @@ const vsMainEcef = entryFn(
 // vs_main_ecef_extruded — Phase 2 PR 2c.2 polygon extruded ECEF vertex.
 // Replaces vs_main_quantized_extruded. The runtime wall-mesh pre-lifts
 // top-ring vertices in ECEF metres (along the local +Up direction), so
-// the VS just runs the same linear `mvp_ecef * (pos_h + pos_l)` transform
+// the VS just runs the same linear `u.mvp * (pos_h + pos_l)` transform
 // — no per-vertex z lift in the shader. is_top discriminates wall-bottom
 // (0.0) vs wall-top + roof (1.0), driving MapLibre lighting + wall_blend
 // + world_z. wall_height feeds the vertical-gradient ramp.
@@ -338,7 +337,7 @@ const vsMainEcefExtruded = entryFn(
   ],
   structT('VertexOutput'),
   (b, p) => {
-    const mvpEcef = u.field('mvp_ecef', mat4x4fT)
+    const mvp = u.field('mvp', mat4x4fT)
     const logDepthFc = u.field('log_depth_fc', f32T)
     const layerDepthOff = u.field('layer_depth_offset', f32T)
     const fillTx = u.field('fill_translate_x', f32T)
@@ -360,7 +359,7 @@ const vsMainEcefExtruded = entryFn(
     )
 
     const out = b.var('out', structT('VertexOutput'))
-    const clip = b.var('clip', vec4fT, transformMat4(mvpEcef, vec4(ecefRtc, f32(1))))
+    const clip = b.var('clip', vec4fT, transformMat4(mvp, vec4(ecefRtc, f32(1))))
     b.assign(clip.x, clip.x.add(fillTx.mul(clip.w)))
     b.assign(clip.y, clip.y.sub(fillTy.mul(clip.w)))
     b.assign(out.field('position', vec4fT), callFn('apply_log_depth', vec4fT, clip, logDepthFc))

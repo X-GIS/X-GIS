@@ -16,7 +16,8 @@
 //   2. Computes each field's f32-offset via WGSL alignment rules.
 //   3. Asserts the offsets match the canonical contract below.
 //   4. Asserts the struct fits in 192 bytes (48 f32) — the size
-//      the renderer's uniform ring slot is allocated for.
+//      the renderer's uniform ring slot is allocated for (post PR 2d.5
+//      closeout: legacy Mercator `mvp` retired, struct shrunk 256 → 192).
 //   5. Asserts the CPU write indices documented in
 //      vector-tile-renderer.ts (uf[0]=mvp, uf[16]=fill_color,
 //      uf[20]=stroke_color, uf[24]=proj_params) match the parsed
@@ -83,31 +84,29 @@ function parseUniformStruct(): { fields: Field[]; sizeBytes: number } {
 // depends on. Updating the WGSL struct REQUIRES updating both this
 // table AND the CPU uf[] writes — this test fails until they agree.
 //
-// Phase 2 PR 2c.1: mvp_ecef added after mvp (slot reservation only).
-// All fields after mvp shifted by +16 f32 slots (64 bytes). Struct
-// size grows 192 → 256 bytes; the ≤192 guard below is updated to ≤256.
-// CPU uf[] writes are NOT updated in PR 2c.1 — mvp_ecef is not yet
-// consumed by any VS and the CPU does not write it yet (zeroed by ring).
+// Phase 2 PR 2d.5 closeout: legacy Mercator `mvp` slot retired; the
+// surviving `mvp` field IS the ECEF-MVP (formerly named `mvp_ecef`).
+// All fields after mvp shifted -16 f32 slots (-64 bytes). Struct
+// size shrunk 256 → 192 bytes; the ≤256 guard below is updated to ≤192.
 const EXPECTED_F32_OFFSET: Record<string, number> = {
   mvp: 0,
-  mvp_ecef: 16,
-  fill_color: 32,
-  stroke_color: 36,
-  proj_params: 40,
-  cam_h: 44,
-  cam_l: 46,
-  tile_origin_merc: 48,
-  opacity: 50,
-  log_depth_fc: 51,
-  pick_id: 52,
-  layer_depth_offset: 53,
-  tile_extent_m: 54,
-  extrude_height_m: 55,
-  clip_bounds: 56,
-  zoom: 60,
-  extrude_base_m: 61,
-  fill_translate_x: 62,
-  fill_translate_y: 63,
+  fill_color: 16,
+  stroke_color: 20,
+  proj_params: 24,
+  cam_h: 28,
+  cam_l: 30,
+  tile_origin_merc: 32,
+  opacity: 34,
+  log_depth_fc: 35,
+  pick_id: 36,
+  layer_depth_offset: 37,
+  tile_extent_m: 38,
+  extrude_height_m: 39,
+  clip_bounds: 40,
+  zoom: 44,
+  extrude_base_m: 45,
+  fill_translate_x: 46,
+  fill_translate_y: 47,
 }
 
 describe('iter-319 uniform byte-layout consistency (CPU pack ↔ WGSL struct)', () => {
@@ -132,26 +131,24 @@ describe('iter-319 uniform byte-layout consistency (CPU pack ↔ WGSL struct)', 
     expect(cb.byteOffset % 16).toBe(0)
   })
 
-  it('struct fits in the 256-byte uniform-ring slot', () => {
-    expect(sizeBytes).toBeLessThanOrEqual(256)
+  it('struct fits in the 192-byte uniform-ring slot', () => {
+    expect(sizeBytes).toBeLessThanOrEqual(192)
   })
 
   it('CPU pack indices in vector-tile-renderer match parsed offsets', () => {
     const vtr = readFileSync(join(HERE, 'vector-tile-renderer.ts'), 'utf8')
-    // mvp: uf.set(mvp, 0)
+    // mvp: uf.set(mvp, 0) — post PR 2d.5 closeout this is the ECEF-MVP
     expect(vtr).toMatch(/uf\.set\(mvp,\s*0\)/)
-    // mvp_ecef: uf.set(mvpEcef, 16) — PR 2c.2 ECEF VS slot
-    expect(vtr).toMatch(/uf\.set\(mvpEcef,\s*16\)/)
-    // fill_color CPU write at uf[32] (shifted +16 by mvp_ecef insertion)
-    expect(vtr).toMatch(/uf\[32\]\s*=.*(?:cachedFillColor|patternUV)/)
-    // stroke_color CPU write at uf[36]
-    expect(vtr).toMatch(/uf\[36\]\s*=/)
-    // proj_params CPU write at uf[40]
-    expect(vtr).toMatch(/uf\[40\]\s*=\s*projType/)
+    // fill_color CPU write at uf[16] (post PR 2d.5: -16 from former uf[32])
+    expect(vtr).toMatch(/uf\[16\]\s*=.*(?:cachedFillColor|patternUV)/)
+    // stroke_color CPU write at uf[20]
+    expect(vtr).toMatch(/uf\[20\]\s*=/)
+    // proj_params CPU write at uf[24]
+    expect(vtr).toMatch(/uf\[24\]\s*=\s*projType/)
     // Cross-check: the WGSL struct offsets for those fields.
-    expect(EXPECTED_F32_OFFSET.fill_color).toBe(32)
-    expect(EXPECTED_F32_OFFSET.stroke_color).toBe(36)
-    expect(EXPECTED_F32_OFFSET.proj_params).toBe(40)
+    expect(EXPECTED_F32_OFFSET.fill_color).toBe(16)
+    expect(EXPECTED_F32_OFFSET.stroke_color).toBe(20)
+    expect(EXPECTED_F32_OFFSET.proj_params).toBe(24)
   })
 
   it('no field overlaps the next (offset + size ≤ next offset)', () => {
