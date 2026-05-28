@@ -56,9 +56,6 @@ export interface FrameContext {
   sampleCount: number
   /** `sampleCount > 1` — whether passes resolve MSAA to the swapchain. */
   useResolve: boolean
-  /** Camera frame-view MVP matrix for the label pass (`frame.matrix`).
-   *  Populated inside the label block at the point it is computed. */
-  mvp: Float32Array
   /** Visible world-copy offsets for label world-copy iteration
    *  (`camera.getVisibleWorldCopies(...)`). Populated inside the label
    *  block at the point it is computed. */

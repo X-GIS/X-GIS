@@ -431,7 +431,29 @@ export class Camera {
    *  Note: `matrix` is a reference to the camera's preallocated
    *  `rtcMatrix` buffer (shared with getRTCMatrix). Copy the contents
    *  into your own uniform immediately; a subsequent call from the same
-   *  camera overwrites this buffer. */
+   *  camera overwrites this buffer.
+   *
+   *  ───────────────────────────────────────────────────────────────────
+   *  Dual-API rationale (post Phase 2 PR 2d.5 ECEF migration):
+   *
+   *  Every production renderer (polygon / line / point / raster / text
+   *  / label-projector) now calls `getECEFFrameView()` — `u.mvp` in every
+   *  shader IS the ECEF-MVP. This legacy Mercator-DSFUN `getFrameView`
+   *  has ZERO production call sites today. It survives for two reasons:
+   *
+   *    1. **Parity test infrastructure** — `camera-ecef-mvp.test.ts` and
+   *       `polygon-ecef-mvp-latitude-parity.test.ts` snapshot the legacy
+   *       Mercator matrix here and assert ECEF parity at equator + grid
+   *       coverage. Deleting this method would lose the verification
+   *       anchor that proves ECEF math is equivalent to the production-
+   *       proven Mercator-DSFUN path at the latitudes where they agree.
+   *    2. **Camera coverage tests** — `camera.test.ts` +
+   *       `camera-coverage.test.ts` use `getFrameView` to assert finite
+   *       far + logDepthFc over the full (projType × pitch × bearing ×
+   *       zoom) grid. Coverage of the legacy build path stays meaningful
+   *       as long as anyone might regress to Mercator-RTC math.
+   *
+   *  Do NOT add production callers — use `getECEFFrameView()`. */
   getFrameView(canvasWidth: number, canvasHeight: number, dpr: number = 1): {
     matrix: Float32Array
     far: number
