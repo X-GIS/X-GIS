@@ -19,7 +19,7 @@
 // WGSL contract (mirror in every shader that binds this):
 //
 //   struct FrameUniform {
-//     mvp: mat4x4<f32>,          // 0..63    — RTC MVP from Camera.getFrameView
+//     mvp: mat4x4<f32>,          // 0..63    — Mercator-DSFUN MVP from Camera.getFrameView
 //     proj_params: vec4<f32>,    // 64..79   — type, centerLon, centerLat, log_depth_fc
 //     viewport: vec4<f32>,       // 80..95   — w_px, h_px, meters_per_pixel, dpr
 //     _pad: vec4<f32>,           // 96..111  — reserved for future shared globals
@@ -30,6 +30,16 @@
 // `setFrame()`. Multi-call renderers (e.g. point-renderer flushing tile
 // points then rendering direct layers) read the same already-written
 // buffer — no risk of "last writeBuffer wins" stomping prior draws.
+//
+// Status (Phase 2 closeout): this class is currently DORMANT in
+// production — every renderer instantiates its own Uniforms struct
+// (post PR 2d.5: 192-byte polygon, point, raster, text variants). The
+// `setFrame` writer remains here as scaffolding for the eventual
+// shared-uniform consolidation pass and continues to exercise the
+// legacy `Camera.getFrameView()` (Mercator-DSFUN) entry point in tests,
+// keeping that surface verified even though no shader binds to this
+// class's GPU buffer yet. See `camera.ts` `getFrameView` JSDoc for the
+// dual-API rationale.
 
 import type { Camera } from '../projection/camera'
 

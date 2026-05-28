@@ -115,7 +115,7 @@ export function visibleTilesFrustum(
   extraMarginPx: number = 0,
   /** Device-pixel-ratio of the canvas backing buffer relative to CSS
    *  pixels. **MVP must be built from device dims to MATCH the
-   *  rendering pass** (which uses `camera.getFrameView(canvas.width,
+   *  rendering pass** (which uses `camera.getECEFFrameView(canvas.width,
    *  canvas.height)`) — feeding CSS dims here makes the camera
    *  altitude DPR× different and tile-corner cull diverges from
    *  what's actually drawn (visible artefact: viewport tiles flash
@@ -135,8 +135,9 @@ export function visibleTilesFrustum(
   // `dpr` for the altitude term so the camera position is CSS-pixel-
   // anchored (DPR-invariant). Aspect ratio (`canvasW/canvasH`) is
   // already DPR-invariant since both dims scale equally. The renderer
-  // passes the same dpr to `getFrameView`, so cull projection and
-  // rasterisation projection produce the same screen positions.
+  // passes the same dpr to `getECEFFrameView` (post Phase 2 PR 2d.5),
+  // so cull projection and rasterisation projection produce the same
+  // screen positions.
   const mvp = camera.getRTCMatrix(canvasWidth, canvasHeight, dpr)
   const camMercX = camera.centerX
   const camMercY = camera.centerY

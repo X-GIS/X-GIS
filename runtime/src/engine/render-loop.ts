@@ -290,7 +290,6 @@ export class RenderLoop {
         frameCount: this.host._frameCount,
         sampleCount: 1,                   // set in the MSAA block below
         useResolve: false,                // set in the MSAA block below
-        mvp: new Float32Array(0),         // set in the label block below
         visibleWorldCopies: [],           // set in the label block below
         passScope,
         rt: this.host.renderTargets,
@@ -311,8 +310,8 @@ export class RenderLoop {
       c.frameCount = this.host._frameCount
       c.passScope = passScope
       c.rt = this.host.renderTargets
-      // colorView / sampleCount / useResolve / mvp / visibleWorldCopies
-      // are repopulated at their own (deeper) computation points below.
+      // colorView / sampleCount / useResolve / visibleWorldCopies are
+      // repopulated at their own (deeper) computation points below.
     }
     const ctx = this._ctx
 

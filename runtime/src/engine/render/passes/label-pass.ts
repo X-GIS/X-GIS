@@ -11,8 +11,8 @@
 // Mechanical changes only: `this.host.X` -> `host.X`; the render-local
 // scalars the block read (device / dpr / sampleCount / w / h / projType /
 // centerLon / centerLat / encoder) are re-bound from ctx at the top so
-// the body text is otherwise byte-identical. ctx.mvp / ctx.visibleWorldCopies
-// are still populated here (the FrameContext fields the label block owns).
+// the body text is otherwise byte-identical. ctx.visibleWorldCopies is
+// still populated here (the FrameContext field the label block owns).
 
 import { evaluate, makeEvalProps, resolveColor } from '@xgis/compiler'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../../__profile__/perf-marks'
@@ -155,12 +155,15 @@ class LabelPass implements RenderPass {
         // → step()'s default arm forever, so country labels never
         // switched from "S. Kor" to "S. Korea" past z=4.
         stage.setCameraZoom(host.camera.zoom)
-        const frame = host.camera.getFrameView(w, h, dpr)
-        const mvp = frame.matrix
-        ctx.mvp = mvp
-        // Phase 2 PR 2d.4: `ccx`/`ccy` (Mercator camera centre) are no
-        // longer threaded into `makeLabelProjectors` — the ECEF projector
-        // reads `mvp_ecef_matrix * lonLatToECEF(lon, lat)` directly without
+        // Phase 2 cleanup: legacy `frame = camera.getFrameView(...)` +
+        // `ctx.mvp = frame.matrix` removed. `ctx.mvp` had zero readers
+        // post PR 2d.4 (label projector reads `frameEcef.matrix` below;
+        // every other renderer calls `getECEFFrameView` directly). The
+        // legacy `getFrameView` API survives for camera-parity tests;
+        // see camera.ts JSDoc for the dual-method rationale.
+        // `ccx`/`ccy` (Mercator camera centre) are no longer threaded into
+        // `makeLabelProjectors` — the ECEF projector reads
+        // `mvp_ecef_matrix * lonLatToECEF(lon, lat)` directly without
         // a CPU-side camera subtraction.
 
         // Phase 2 PR 2d.4 — TEXT/LABEL CPU anchor projector ECEF migration.
@@ -182,9 +185,9 @@ class LabelPass implements RenderPass {
         const visibleWorldCopies = host.camera.getVisibleWorldCopies(w, h, dpr)
         ctx.visibleWorldCopies = visibleWorldCopies
         // Per AC2d.4.2: thread the ECEF MVP (from `getECEFFrameView`) into
-        // makeLabelProjectors. The existing Mercator MVP from `frame.matrix`
-        // above stays on `ctx.mvp` for downstream non-label consumers; the
-        // label projector reads `frameEcef.matrix` exclusively.
+        // makeLabelProjectors. Phase 2 cleanup: the legacy Mercator MVP
+        // (formerly `ctx.mvp = frame.matrix`) was removed — it had zero
+        // readers post PR 2d.4.
         const frameEcef = host.camera.getECEFFrameView(w, h, dpr)
         const { projectMerc, projectLonLat, projectMercAny, projectLonLatCopies } =
           makeLabelProjectors(frameEcef.matrix, w, h)
