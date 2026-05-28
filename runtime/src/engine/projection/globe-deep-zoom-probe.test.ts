@@ -49,6 +49,7 @@ describe('globeVisibleTiles deep-zoom probe (Seoul)', () => {
   // History (source-maxLevel-clamped maxZ; OFM bright maxLevel 14):
   //   BROKEN pre-iter-149:  z14=40 z15=12 z16=4  z16.5=1
   //   FIXED  iter-149:      z14=40 z15=16 z16=12 z16.5=12
+  //   FIXED  +distance-LOD: z14=12 z15=16 z16=12 z16.5=12
   // Root: once camera zoom exceeds maxLevel, a maxZ tile projects
   // larger than the viewport so globeVisibleTiles' 5-sample
   // descent/cull collapsed the set to ~1 tile (globe/oblique
@@ -60,17 +61,29 @@ describe('globeVisibleTiles deep-zoom probe (Seoul)', () => {
   // bypassing the meaningless sample heuristic. Deterministic;
   // bounded by the footprint → no recursion / explosion.
   //
+  // The z=14 count dropped 40→12 with the distance-LOD descent gate
+  // (memory project_non_merc_z14_pitch_over_select): the pre-fix 40
+  // was the over-select at maxZ — globeVisibleTiles emitted full
+  // z=14 leaves for every visible quadtree branch. The mercator SSE
+  // selector picks ~13 tiles for the same view (Seoul z=14 pitch=0
+  // 1280×800), so 12 is the correct count.
+  //
   // Pins the FIXED curve: selection must NOT collapse at overzoom
   // (a regression re-collapsing it, or a change exploding it,
   // fails here).
-  it('selection stays a bounded non-trivial set under overzoom (iter 149)', () => {
+  it('selection stays a bounded non-trivial set under overzoom (iter 149 + distance-LOD)', () => {
     const counts: Record<number, number> = {}
     for (const z of [13, 14, 15, 16, 16.5]) {
       counts[z] = selectAt(z)
       // eslint-disable-next-line no-console
       console.log(`[probe] globeVisibleTiles z=${z} Seoul (maxZ clamped) → ${counts[z]} tiles`)
     }
-    expect(counts[14]!).toBeGreaterThan(20)
+    // Selection at maxZ must cover the foreground (not collapse to
+    // single-digit) without exploding. Mercator SSE picks ~13 at
+    // this view; allow 6..40 as a band that catches both regression
+    // directions (collapse + re-explosion).
+    expect(counts[14]!).toBeGreaterThanOrEqual(6)
+    expect(counts[14]!).toBeLessThanOrEqual(40)
     // FIXED: deep overzoom no longer collapses to ~1 — a real
     // viewport-covering set …
     expect(counts[16]!, 'z16 must not collapse').toBeGreaterThanOrEqual(4)
