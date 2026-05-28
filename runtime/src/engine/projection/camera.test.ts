@@ -678,13 +678,18 @@ describe('Camera — globeMode (orbit matrix for the true 3D globe)', () => {
     })
 
     it('altitude shrinks as zoom increases (closer view)', () => {
-      const cam0 = new Camera(0, 0, 0)
+      // Start from z=1 (not z=0) so the WORLD_MERC viewport-height cap
+      // is inactive — the cap activates at z=0 with this viewport because
+      // 720 px × 78,271 m/px ≈ 56 Mm > 40 Mm world (fix for
+      // project_mercator_z0_pitch_render_2026_05_20). With both endpoints
+      // in the uncapped regime, the 2^Δz = 16× altitude ratio holds.
+      const cam1 = new Camera(0, 0, 1)
       const cam5 = new Camera(0, 0, 5)
-      const s0 = cam0.getDebugSnapshot(W, H, DPR)
+      const s1 = cam1.getDebugSnapshot(W, H, DPR)
       const s5 = cam5.getDebugSnapshot(W, H, DPR)
-      expect(s5.altitude).toBeLessThan(s0.altitude)
-      // 5 zoom levels = 2^5 = 32× tighter view
-      expect(s0.altitude / s5.altitude).toBeCloseTo(32, 0)
+      expect(s5.altitude).toBeLessThan(s1.altitude)
+      // 4 zoom levels = 2^4 = 16× tighter view
+      expect(s1.altitude / s5.altitude).toBeCloseTo(16, 0)
     })
 
     it('far plane grows with pitch at the same zoom', () => {
