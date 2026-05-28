@@ -296,8 +296,17 @@ export function obliqueMercator(centerLon: number, centerLat: number): Projectio
         Math.cos(phi) * Math.sin(dLam),
         Math.sin(phi) * sinPhi0 + Math.cos(phi) * cosPhi0 * Math.cos(dLam),
       )
-      const MERCATOR_LIMIT_RAD = MERCATOR_LAT_LIMIT * DEG2RAD
-      const phiClamped = Math.max(-MERCATOR_LIMIT_RAD, Math.min(MERCATOR_LIMIT_RAD, phiRot))
+      // Singularity-only clamp: log(tan(π/4 + phi/2)) is finite over
+      // |phi| < π/2 and diverges at the pole. The plain Web Mercator
+      // 85.05° clamp is wrong in the ROTATED frame — it collapses
+      // every distinct phi_rot past 85.05° to the same Y, which
+      // produces degenerate tile-mesh vertices when the camera pans
+      // to a real polar region (user-reported tile tearing,
+      // 2026-05-19). Keep distinct Y values for distinct phi_rot up
+      // to a hair below the pole. Bound stays finite for tile-extent
+      // vertex math. See oblique-polar-tearing.test.ts for the seam.
+      const POLE_EPS_RAD = (90 - 1e-4) * DEG2RAD
+      const phiClamped = Math.max(-POLE_EPS_RAD, Math.min(POLE_EPS_RAD, phiRot))
       const x = EARTH_RADIUS * lamRot
       const y = EARTH_RADIUS * Math.log(Math.tan(Math.PI / 4 + phiClamped / 2))
       return [x, y]
