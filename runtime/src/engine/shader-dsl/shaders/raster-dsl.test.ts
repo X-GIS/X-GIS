@@ -17,6 +17,12 @@ describe('Phase-2 raster shader — DSL emission (ECEF VS, PR 2d.3)', () => {
     // ECEF consts: WGS84 semi-major axis
     expect(noPick).toContain('6378137')
   })
+  it('prepends PI and DEG2RAD consts (regression: PR 2d.3 WGSL compile fix)', () => {
+    // vs_tile uses constRef('PI') and constRef('DEG2RAD'); these must be defined
+    // before the DSL-emitted module or WGSL compile fails with "unresolved value".
+    expect(noPick).toContain('const PI:')
+    expect(noPick).toContain('const DEG2RAD:')
+  })
   it('binds u (g0b0) + texture/sampler (g0b1/b2) + tile (g1b0)', () => {
     expect(noPick).toContain('@group(0) @binding(0) var<uniform> u: Uniforms;')
     expect(noPick).toContain('@group(0) @binding(1) var tex: texture_2d<f32>;')
