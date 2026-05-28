@@ -24,6 +24,7 @@ import {
 import { emitModule } from '../core/backends/wgsl'
 import { ECEF_WGSL_CONSTS, ECEF_WGSL_FNS } from './ecef'
 import { LOG_DEPTH_WGSL_FNS } from './log-depth'
+import { PROJECTION_WGSL_CONSTS } from './projections'
 
 const Uniforms: StructDecl = {
   name: 'Uniforms',
@@ -144,6 +145,7 @@ const buildRasterModule = (pickEnabled: boolean): ModuleDecl => module({
  *  the raster module (structs + bindings + vs_tile + fs_tile).
  *  `pickEnabled` toggles the pick attachment field + write. */
 export const emitRasterWgsl = (pickEnabled: boolean): string => [
+  PROJECTION_WGSL_CONSTS,
   ECEF_WGSL_CONSTS,
   ECEF_WGSL_FNS,
   LOG_DEPTH_WGSL_FNS,
