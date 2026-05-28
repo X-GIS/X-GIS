@@ -479,10 +479,26 @@ export function globeVisibleTiles(
   // Seoul on globe — 32k nodes × 5 samples × 2 array allocs per sample
   // = ~300k transient arrays/frame (toScreen tuple + mulVec4 tuple).
   // Inline both ops into the loop; reuse scalar locals.
-  const minXBound = -cssWidthPx * 0.5
-  const maxXBound = cssWidthPx * 1.5
-  const minYBound = -cssHeightPx * 0.5
-  const maxYBound = cssHeightPx * 1.5
+  //
+  // EMIT pad (memory project_non_merc_z14_pitch_over_select): the
+  // visible-viewport rectangle plus a 25 %-of-viewport margin. The
+  // previous 1-viewport pad on each side (4× area) let many leaves at
+  // pitch ≥ 45° pass `anyOnScreen` because the horizon hemisphere
+  // wrapped through it. At z=14 + pitch=60° Seoul the loose pad
+  // emitted 206 tiles vs ~17 the mercator control selects (12× over-
+  // select, drag p95 144-211 ms → 5-7 fps). Tightening to 25 %
+  // matches the `marginPctOfMax` floor tile-select.ts uses at pitch
+  // ≥ 60°, so the sphere selector emits the same envelope of
+  // on-screen tiles as the flat selector. Descent is NOT gated by
+  // this AABB — it depends on `tooBig` (screen span > SUBDIVIDE_PX)
+  // and the explicit `forceDescend` low-zoom / containsTarget cases —
+  // so children of an edge-straddling tile still get visited.
+  const emitPadX = cssWidthPx * 0.25
+  const emitPadY = cssHeightPx * 0.25
+  const minXEmit = -emitPadX
+  const maxXEmit = cssWidthPx + emitPadX
+  const minYEmit = -emitPadY
+  const maxYEmit = cssHeightPx + emitPadY
   // Matrix elements as locals (avoids index-into-typed-array on every
   // mvp[i] read inside the hot loop).
   const m0 = mvp[0]!, m1 = mvp[1]!, m3 = mvp[3]!
@@ -491,6 +507,16 @@ export function globeVisibleTiles(
   const m12 = mvp[12]!, m13 = mvp[13]!, m15 = mvp[15]!
   const pn = 1 / EARTH_R
   const eyeN0 = eyeN[0], eyeN1 = eyeN[1], eyeN2 = eyeN[2]
+  // Eye position in world coords + distance from eye to camera target
+  // (the focal point) — basis for the SSE-style distance LOD: a tile
+  // 2× farther than the target gets `desiredZ = zoom - 1`. Memory
+  // project_non_merc_z14_pitch_over_select.
+  const eye0 = eye[0], eye1 = eye[1], eye2 = eye[2]
+  const distEyeToTarget = Math.sqrt(
+    (view.target[0] - eye0) ** 2
+    + (view.target[1] - eye1) ** 2
+    + (view.target[2] - eye2) ** 2,
+  )
 
   // (`out` hoisted above the overzoom branch.)
   // 3 parallel number arrays as a structure-of-arrays stack — avoids
@@ -532,7 +558,8 @@ export function globeVisibleTiles(
 
     let anyFront = false
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
-    let anyOnScreen = false
+    let anyInFront = 0  // count of samples with valid clip.w (in front of near plane)
+    let distCenter = 0  // 3D Euclidean dist from eye to centre sample
     // Unroll the 5-sample loop. Inline globeForward + mulVec4 + toScreen
     // so the hot path has zero array allocations per node.
     for (let si = 0; si < 5; si++) {
@@ -549,7 +576,13 @@ export function globeVisibleTiles(
       if ((px * eyeN0 + py * eyeN1 + pz * eyeN2) * pn > horizonCos) anyFront = true
       // Inline mulVec4 — w-divide and screen-space conversion.
       const cw = m3 * px + m7 * py + m11 * pz + m15
+      if (si === 4) {
+        // 3D Euclidean dist eye → tile centre for distance-LOD.
+        // Sample 4 is (lonM, latM) — see ll4L/ll4A above.
+        distCenter = Math.sqrt((px - eye0) ** 2 + (py - eye1) ** 2 + (pz - eye2) ** 2)
+      }
       if (cw <= 1e-6) continue
+      anyInFront++
       const cx = m0 * px + m4 * py + m8 * pz + m12
       const cy = m1 * px + m5 * py + m9 * pz + m13
       const sx = (cx / cw + 1) * 0.5 * cssWidthPx
@@ -558,10 +591,33 @@ export function globeVisibleTiles(
       if (sx > maxX) maxX = sx
       if (sy < minY) minY = sy
       if (sy > maxY) maxY = sy
-      if (sx >= minXBound && sx <= maxXBound && sy >= minYBound && sy <= maxYBound) {
-        anyOnScreen = true
-      }
     }
+    // Tile's projected screen AABB (across the 5 samples) vs the
+    // viewport-plus-emit-pad rectangle. The previous test was
+    // "ANY sample falls inside the loose 1-viewport pad" — that
+    // emitted a tile when even ONE corner barely intersected the
+    // wide pad, so high-pitch leaves with a single near-horizon
+    // sample passed through (memory project_non_merc_z14_pitch_over_
+    // select: 206 tiles emitted at p=60° vs 17 the mercator control
+    // picks). True AABB overlap with a 25 % pad emits only tiles whose
+    // projected box visibly intersects the viewport — same envelope as
+    // the flat tile-select.ts margin (matches its `marginPctOfMax` at
+    // pitch ≥ 60°). Descent path (`tooBig`/`forceDescend`) is
+    // independent so children of edge-straddling tiles are still
+    // visited.
+    const anyOnScreenEmit = anyInFront > 0
+      && maxX >= minXEmit && minX <= maxXEmit
+      && maxY >= minYEmit && minY <= maxYEmit
+    // Sub-pixel cull (mirrors tiles-sse.ts MIN_TILE_SCREEN_AREA_PX_SQ).
+    // At pitch ≥ 60° horizon tiles project to AABBs of 1-2 px per side,
+    // paying full draw-call cost for ~zero visible detail. 4 px² = 2×2
+    // px is the lowest reliable AA threshold. Skip the check when the
+    // tile contains the camera target (forceDescend / centre-of-view
+    // tile must always pass regardless of how its samples project at
+    // extreme pitch).
+    const screenAreaPx = isFinite(maxX - minX) && isFinite(maxY - minY)
+      ? Math.max(0, maxX - minX) * Math.max(0, maxY - minY)
+      : 0
 
     // Low-zoom tiles span too much sphere for a 5-sample point test to
     // judge (a tile can straddle the visible cap while all 5 samples
@@ -598,7 +654,37 @@ export function globeVisibleTiles(
     if (!forceDescend && !anyFront) continue
     const screenSpan = Math.max(maxX - minX, maxY - minY)
     const tooBig = !isFinite(screenSpan) || screenSpan > SUBDIVIDE_PX
-    if (tz < maxZ && (forceDescend || tooBig)) {
+    // Distance-LOD (memory project_non_merc_z14_pitch_over_select):
+    // SSE-style `desiredZ = zoom + log2(dT/dC)` coarsens horizon LOD
+    // naturally — a tile 2× farther than the focal point hits
+    // `desiredZ = zoom - 1`, so a leaf at z=14 above a z=13 desire
+    // gets emitted at z=13 instead of subdividing to 4 z=14 grand-
+    // children. Without this rule the pitch-driven screen-span
+    // heuristic kept subdividing every branch all the way to maxZ —
+    // at pitch 60°/75° that emitted 95-262 leaves on 1280×720 vs the
+    // mercator SSE control's 20-36 (4-13× over-select; p95 drag
+    // 144-211 ms = 5-7 fps).
+    //
+    // Uses 3D Euclidean distance (eye → tile centre) NOT perspective
+    // clip.w. clip.w flips negative for tiles beyond the far plane —
+    // those are exactly the horizon tiles we want to coarsen, so a
+    // clip.w gate would miss the bug. The 3D distance is sign-stable;
+    // the perspective matrix's sign is irrelevant to the perceptual
+    // zoom level.
+    const useDistLOD = distCenter > 0 && distEyeToTarget > 0
+    const desiredZ = useDistLOD
+      ? zoom + Math.log2(distEyeToTarget / distCenter)
+      : Infinity
+    // Descent rule: descend if EITHER the tile spans too many on-
+    // screen pixels (foreground subdivision — preserves the pre-fix
+    // behaviour for the camera-side branch) AND it's at or below the
+    // distance-LOD's desired zoom. A horizon tile with `desiredZ ≈ 10`
+    // at `tz = 11` is rejected here (11 ≥ 10) and gets emitted at
+    // tz=11 instead of subdividing to 4 z=12 children that would each
+    // recurse to z=14. This is the SSE pattern's "single coarse zoom
+    // for the horizon strip" behaviour expressed inside the spherical
+    // quadtree.
+    if (tz < maxZ && (forceDescend || (tooBig && tz < Math.floor(desiredZ)))) {
       const cz = tz + 1, cx0 = tx * 2, cy0 = ty * 2
       // 4 children pushed via parallel arrays (no object literal).
       stackZ.push(cz, cz, cz, cz)
@@ -606,7 +692,12 @@ export function globeVisibleTiles(
       stackY.push(cy0, cy0, cy0 + 1, cy0 + 1)
       continue
     }
-    if (anyFront && anyOnScreen) {
+    // Emit gate: front-hemisphere + viewport-overlap + non-trivial
+    // screen size (sub-pixel cull). containsTarget tile passes
+    // unconditionally so the camera-foot is never dropped.
+    const MIN_TILE_SCREEN_AREA_PX_SQ = 4
+    if (anyFront && anyOnScreenEmit
+      && (containsTarget || screenAreaPx >= MIN_TILE_SCREEN_AREA_PX_SQ)) {
       out.push({ z: tz, x: tx, y: ty, ox: tx })
     }
   }
