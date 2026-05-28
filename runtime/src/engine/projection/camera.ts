@@ -207,7 +207,22 @@ export class Camera {
     // would make the altitude (and thus the entire MVP) DPR-dependent,
     // breaking the "same camera = same world view at any DPR"
     // contract that tile selection relies on.
-    const viewHeightMeters = (canvasHeight / dpr) * metersPerPixel
+    //
+    // CAP at WORLD_MERC: at low zoom + tall canvas the raw viewport
+    // height can exceed the world's 40 Mm extent (e.g. 800px × 78,271
+    // m/px ≈ 62.6 Mm at z=0). The resulting ~94 Mm altitude leaves the
+    // camera so far away that the perspective term collapses (m[10]
+    // → -0.5, m[14] ≈ -2·near, clip.w ≈ const across world) and a
+    // pitched view degenerates to a flat horizontal strip with no
+    // foreshortening — visible-bug at z=0 + pitch=60, 204k gt128 px
+    // (~45% canvas) vs MapLibre's proper 3D wedge (memory:
+    // project_mercator_z0_pitch_render_2026_05_20). MapLibre's low-zoom
+    // regime keeps the world fitting the viewport; once viewport ≥
+    // world, the altitude/far should saturate at the world-fit value
+    // (~30 Mm), preserving meaningful perspective division at pitch.
+    // Pure clamp: zooms where viewHeight < WORLD_MERC are byte-identical.
+    const rawViewHeightMeters = (canvasHeight / dpr) * metersPerPixel
+    const viewHeightMeters = Math.min(rawViewHeightMeters, WORLD_MERC)
     const altitude = viewHeightMeters / 2 / Math.tan(halfFov)
 
     // Near/far planes: cover all visible ground including horizon
@@ -408,7 +423,11 @@ export class Camera {
     // ever changes shape.
     const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, this.zoom)
     const halfFovRad = (Camera.FOV * Math.PI / 180) / 2
-    const viewHeightMeters = (canvasHeight / dpr) * metersPerPixel
+    // Mirror the WORLD_MERC cap in `_buildRTCMatrix` so this debug
+    // snapshot reports the altitude the production matrix actually
+    // uses (post-fix for project_mercator_z0_pitch_render_2026_05_20).
+    const rawViewHeightMeters = (canvasHeight / dpr) * metersPerPixel
+    const viewHeightMeters = Math.min(rawViewHeightMeters, WORLD_MERC)
     const altitude = viewHeightMeters / 2 / Math.tan(halfFovRad)
     return {
       matrix,
@@ -536,9 +555,16 @@ export class Camera {
     const cos_lat = Math.cos(cam_lat * Math.PI / 180)
 
     // 2. mpp/altitude in TRUE ENU metres.
+    //    Cap at WORLD_MERC × cos_lat (true-metre equivalent of the
+    //    Mercator world height) to mirror the legacy `_buildRTCMatrix`
+    //    altitude cap. See the comment there for the visible-bug
+    //    rationale: at z=0 + tall canvas the uncapped viewport height
+    //    exceeds the world extent, altitude balloons, and pitched-view
+    //    perspective division degenerates to a flat strip.
     const mpp_mercator = (WORLD_MERC / TILE_PX) / Math.pow(2, this.zoom)
     const mpp_true = mpp_mercator * cos_lat
-    const viewHeightTrueM = (canvasHeight / dpr) * mpp_true
+    const rawViewHeightTrueM = (canvasHeight / dpr) * mpp_true
+    const viewHeightTrueM = Math.min(rawViewHeightTrueM, WORLD_MERC * cos_lat)
 
     // 3. FOV / aspect / pitch / bearing — identical to legacy build.
     const fovRad = Camera.FOV * Math.PI / 180
