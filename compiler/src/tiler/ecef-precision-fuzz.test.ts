@@ -16,6 +16,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { packECEFPolygonVertices } from './vector-tiler'
+import { dequantVertex, dequantVertexF32 } from './dequant-mirror'
 
 // ── WGS84 constants (mirrors runtime/src/engine/projection/ecef.ts) ─────────
 const A = 6378137               // semi-major axis (m)
@@ -85,57 +86,10 @@ function tileExtentM(z: number): number {
 }
 
 // ── Core helper: pack one point and measure reconstruction error ─────────────
-
-/** Decode one quantized vertex's ECEF RTC axes in f64 (the ENCODER's intent /
- *  upper bound on achievable precision). NOTE: this is NOT what the GPU does —
- *  the VS reconstructs in f32 (see `dequantVertexF32`). This f64 path measures
- *  the QUANTIZATION error alone (how much the u16×6 grid loses), independent of
- *  the GPU's f32 arithmetic precision. The buffer is stride 24 bytes: u16×6
- *  position in the first 12 bytes + f32 fid/abs_lon/abs_lat after. */
-function dequantVertex(
-  quant: { vertices: Float32Array; dequantScale: number; dequantHalf: number },
-  vi: number,
-): [number, number, number] {
-  const u16 = new Uint16Array(quant.vertices.buffer, quant.vertices.byteOffset)
-  const u = vi * 12
-  const ax = (u16[u]! * 65536 + u16[u + 1]!) * quant.dequantScale - quant.dequantHalf
-  const ay = (u16[u + 2]! * 65536 + u16[u + 3]!) * quant.dequantScale - quant.dequantHalf
-  const az = (u16[u + 4]! * 65536 + u16[u + 5]!) * quant.dequantScale - quant.dequantHalf
-  return [ax, ay, az]
-}
-
-/** Decode exactly as the GPU VS does, modelling WGSL f32 arithmetic with
- *  Math.fround after every op:
- *    q    = f32( f32(f32(hi) * f32(65536)) + f32(lo) )
- *    axis = f32( f32(q * f32(scale)) - f32(half) )
- *  This is the TRUE end-to-end precision the shader achieves. It is much
- *  coarser than the f64 path at low zoom because q reaches ~2^32, far past
- *  f32's 2^24 exact-integer limit, so the low u16 lane's bits are largely
- *  swallowed — the double-u16 format degrades toward single-u16 precision
- *  on the GPU. (The pre-2f stride-9 DSFUN `pos_h + pos_l` reconstruction has
- *  the same in-shader f32 ceiling; this is a property of an f32 ECEF VS, not
- *  a 2f-specific regression.) The resulting positional error is invisible on
- *  screen — at z=0 it is ~1.6 m against a 6378 km earth radius (~2.5e-7) — but
- *  we pin it here HONESTLY rather than letting the f64 path overstate the gate. */
-function dequantVertexF32(
-  quant: { vertices: Float32Array; dequantScale: number; dequantHalf: number },
-  vi: number,
-): [number, number, number] {
-  const f = Math.fround
-  const u16 = new Uint16Array(quant.vertices.buffer, quant.vertices.byteOffset)
-  const u = vi * 12
-  const scale = f(quant.dequantScale)
-  const half = f(quant.dequantHalf)
-  const axis = (hi: number, lo: number): number => {
-    const q = f(f(f(hi) * f(65536)) + f(lo))
-    return f(f(q * scale) - half)
-  }
-  return [
-    axis(u16[u]!, u16[u + 1]!),
-    axis(u16[u + 2]!, u16[u + 3]!),
-    axis(u16[u + 4]!, u16[u + 5]!),
-  ]
-}
+//
+// dequantVertex (f64, encoder intent) + dequantVertexF32 (GPU-faithful f32)
+// live in ./dequant-mirror so the compute parity harness (_dequant-parity)
+// shares the EXACT same CPU mirror it validates against the real GPU.
 
 function roundTripError(
   mx: number,

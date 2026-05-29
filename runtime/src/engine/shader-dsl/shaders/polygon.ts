@@ -29,7 +29,7 @@ import {
   Node, Builder, arrayT,
   type StructDecl, type StructField, type ModuleDecl, type Stmt, type BindingDecl,
 } from '../core/ir'
-import { emitModule } from '../core/backends/wgsl'
+import { emitModule, emitFunc } from '../core/backends/wgsl'
 import { PROJECTION_WGSL_CONSTS, PROJECTION_WGSL_FNS } from './projections'
 import { LOG_DEPTH_WGSL_FNS } from './log-depth'
 
@@ -280,6 +280,11 @@ const dequantEcefFn = fn(
     ))
   },
 )
+
+// Standalone WGSL for the shared dequant fn — spliced into the compute parity
+// harness (_dequant-parity.spec.ts) so the kernel runs the EXACT shader dequant
+// and its f32 output is checked against the CPU fround mirror (dequantVertexF32).
+export const DEQUANT_ECEF_WGSL = emitFunc(dequantEcefFn)
 
 const vsMainEcef = entryFn(
   'vs_main_ecef', 'vertex',
