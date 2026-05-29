@@ -43,6 +43,17 @@ describe('Phase-2 point shader — DSL emission', () => {
     expect(pointPart).toContain('(flags & 2u)')               // stroke
     expect(pointPart).toContain('(flags & 4u)')               // glow
   })
+  it('VS re-centers ABSOLUTE per-feature ECEF against the camera (DSFUN)', () => {
+    // Camera-relative RTC fix: per-feature ECEF DSFUN is absolute, so the VS
+    // subtracts the camera anchor (u.cam_ecef_h/l) before the MVP. Without
+    // this, every point collapses toward the camera-at-ENU-origin MVP origin.
+    expect(pointPart).toContain('cam_ecef_h')
+    expect(pointPart).toContain('cam_ecef_l')
+    const vsBody = pointPart.slice(pointPart.indexOf('fn vs_point'))
+    const vsOnly = vsBody.slice(0, vsBody.indexOf('fn fs_point'))
+    expect(vsOnly).toContain('u.cam_ecef_h')
+    expect(vsOnly).toContain('u.cam_ecef_l')
+  })
   it('SDF helpers + switch on segment kind', () => {
     expect(pointPart).toContain('fn dist_to_line')
     expect(pointPart).toContain('fn dist_to_quadratic')

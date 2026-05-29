@@ -77,12 +77,18 @@ export function splitF64(x: number): [number, number] {
  * quantized (Phase 2 PR 2f scope is polygon-position only), so this keeps
  * the legacy stride-9 f32 ECEF-DSFUN layout the point VS reads directly.
  *
+ * Camera-relative RTC fix: unlike polygon/line, points from every visible
+ * tile merge into ONE draw with a single frame uniform, so they CANNOT carry
+ * a per-tile ECEF offset. The DSFUN split is therefore around the ABSOLUTE
+ * ECEF position (not tile-relative); the point VS re-centers per frame via
+ * (ecefH − camH) + (ecefL − camL) against the camera anchor. This matches the
+ * addLayer/render() GeoJSON path, which already stores absolute ECEF DSFUN.
+ *
  * Input: stride-3 `[mx, my, fid]` ABSOLUTE Mercator metres.
  * Output: stride-9 Float32Array `[ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon, abs_lat]`.
  */
 export function packECEFPointFeatures(
   scratchPv: number[] | Float64Array,
-  ecefTileCenter: readonly [number, number, number],
 ): Float32Array {
   // WGS84 constants (mirrors runtime/src/engine/projection/ecef.ts).
   const A = 6378137               // semi-major axis (m)
@@ -105,9 +111,11 @@ export function packECEFPointFeatures(
     const ex = N * cosLat * Math.cos(lon_rad)
     const ey = N * cosLat * Math.sin(lon_rad)
     const ez = N * (1 - E2) * sinLat
-    const rx = ex - ecefTileCenter[0]
-    const ry = ey - ecefTileCenter[1]
-    const rz = ez - ecefTileCenter[2]
+    // Absolute ECEF (no per-tile RTC) — see the header note: points merge into
+    // a single draw, so re-centering against the camera happens in the VS.
+    const rx = ex
+    const ry = ey
+    const rz = ez
     const exH = Math.fround(rx)
     const eyH = Math.fround(ry)
     const ezH = Math.fround(rz)
@@ -1679,7 +1687,7 @@ function processZoomLevelShared(
             ? packDSFUNLineVertices(scratch.olv, tileMx, tileMy)
             : new Float32Array(0),
           outlineLineIndices: new Uint32Array(scratch.oli),
-          pointVertices: scratch.ptv.length > 0 ? packECEFPointFeatures(scratch.ptv, tileEcefCenter) : undefined,
+          pointVertices: scratch.ptv.length > 0 ? packECEFPointFeatures(scratch.ptv) : undefined,
           featureCount: featureIds.size,
           fullCover,
           fullCoverFeatureId: fullCoverFeatId,
@@ -1914,7 +1922,7 @@ export function compileSingleTile(
       ? packDSFUNLineVertices(scratch.olv, tileMx, tileMy)
       : new Float32Array(0),
     outlineLineIndices: new Uint32Array(scratch.oli),
-    pointVertices: scratch.ptv.length > 0 ? packECEFPointFeatures(scratch.ptv, tileEcefCenter) : undefined,
+    pointVertices: scratch.ptv.length > 0 ? packECEFPointFeatures(scratch.ptv) : undefined,
     featureCount: featureIds.size,
     fullCover,
     fullCoverFeatureId: fullCover ? fullCoverFeatId : undefined,

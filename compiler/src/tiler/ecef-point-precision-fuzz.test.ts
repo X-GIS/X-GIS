@@ -40,17 +40,6 @@ function mercatorToLonLatRad(mx: number, my: number): [number, number] {
   return [mx / A, 2 * Math.atan(Math.exp(my / A)) - Math.PI / 2]
 }
 
-function lonLatRadToECEF(lon: number, lat: number): [number, number, number] {
-  const sinLat = Math.sin(lat)
-  const cosLat = Math.cos(lat)
-  const N = A / Math.sqrt(1 - E2 * sinLat * sinLat)
-  return [
-    N * cosLat * Math.cos(lon),
-    N * cosLat * Math.sin(lon),
-    N * (1 - E2) * sinLat,
-  ]
-}
-
 function ecefToLonLatRad(x: number, y: number, z: number): [number, number] {
   const lon = Math.atan2(y, x)
   const p = Math.hypot(x, y)
@@ -78,16 +67,16 @@ function tileExtentM(z: number): number {
   return (2 * Math.PI * A) / Math.pow(2, z)
 }
 
-function roundTripError(
-  mx: number,
-  my: number,
-  ecefCenter: readonly [number, number, number],
-): number {
+// Camera-relative RTC fix: packECEFPointFeatures now emits ABSOLUTE ECEF
+// DSFUN (no per-tile center), so reconstruction is hi + lo with no center
+// add-back. DSFUN keeps ~30 nm precision even at the ~6.4e6 m absolute scale,
+// so the sub-mm gates below still hold.
+function roundTripError(mx: number, my: number): number {
   const [srcLon, srcLat] = mercatorToLonLatRad(mx, my)
-  const packed = packECEFPointFeatures([mx, my, 0], ecefCenter)
-  const recX = (packed[0]! as number) + (packed[3]! as number) + ecefCenter[0]
-  const recY = (packed[1]! as number) + (packed[4]! as number) + ecefCenter[1]
-  const recZ = (packed[2]! as number) + (packed[5]! as number) + ecefCenter[2]
+  const packed = packECEFPointFeatures([mx, my, 0])
+  const recX = (packed[0]! as number) + (packed[3]! as number)
+  const recY = (packed[1]! as number) + (packed[4]! as number)
+  const recZ = (packed[2]! as number) + (packed[5]! as number)
   const [recLon, recLat] = ecefToLonLatRad(recX, recY, recZ)
   return arcLengthM(srcLon, srcLat, recLon, recLat)
 }
@@ -97,9 +86,7 @@ function roundTripError(
 describe('AC2d.2.5 packECEFPointFeatures precision round-trip', () => {
 
   it('stride-9 output: fid passes through unchanged', () => {
-    const [lon_rad, lat_rad] = mercatorToLonLatRad(0, 0)
-    const center = lonLatRadToECEF(lon_rad, lat_rad)
-    const packed = packECEFPointFeatures([0, 0, 42], center)
+    const packed = packECEFPointFeatures([0, 0, 42])
     expect(packed.length).toBe(9)
     expect(packed[6]).toBe(42)
   })
@@ -117,10 +104,7 @@ describe('AC2d.2.5 packECEFPointFeatures precision round-trip', () => {
       const mx = baseMx + (rng() * 2 - 1) * ext
       const my = baseMy + (rng() * 2 - 1) * ext
 
-      const [tLon, tLat] = mercatorToLonLatRad(baseMx, baseMy)
-      const center = lonLatRadToECEF(tLon, tLat)
-
-      const err = roundTripError(mx, my, center)
+      const err = roundTripError(mx, my)
       if (err > worst) worst = err
     }
 
@@ -141,10 +125,7 @@ describe('AC2d.2.5 packECEFPointFeatures precision round-trip', () => {
       const mx = baseMx + (rng() * 2 - 1) * ext
       const my = baseMy + (rng() * 2 - 1) * ext
 
-      const [tLon, tLat] = mercatorToLonLatRad(baseMx, baseMy)
-      const center = lonLatRadToECEF(tLon, tLat)
-
-      const err = roundTripError(mx, my, center)
+      const err = roundTripError(mx, my)
       if (err > worst) worst = err
     }
 
@@ -165,10 +146,7 @@ describe('AC2d.2.5 packECEFPointFeatures precision round-trip', () => {
       const mx = baseMx + (rng() * 2 - 1) * ext
       const my = baseMy + (rng() * 2 - 1) * ext
 
-      const [tLon, tLat] = mercatorToLonLatRad(baseMx, baseMy)
-      const center = lonLatRadToECEF(tLon, tLat)
-
-      const err = roundTripError(mx, my, center)
+      const err = roundTripError(mx, my)
       if (err > worst) worst = err
     }
 
@@ -191,10 +169,7 @@ describe('AC2d.2.5 packECEFPointFeatures precision round-trip', () => {
       const my = Math.max(-MY_MAX, Math.min(MY_MAX,
         baseMy + (rng() * 2 - 1) * HALF))
 
-      const [tLon, tLat] = mercatorToLonLatRad(baseMx, baseMy)
-      const center = lonLatRadToECEF(tLon, tLat)
-
-      const err = roundTripError(mx, my, center)
+      const err = roundTripError(mx, my)
       if (err > worst) worst = err
     }
 
@@ -219,10 +194,7 @@ describe('AC2d.2.5 packECEFPointFeatures precision round-trip', () => {
       const ref_lon_deg = ref_lon_rad * RAD2DEG
       const ref_lat_deg = ref_lat_rad * RAD2DEG
 
-      const [tLon, tLat] = mercatorToLonLatRad(0, 0)
-      const center = lonLatRadToECEF(tLon, tLat)
-
-      const packed = packECEFPointFeatures([mx, my, 0], center)
+      const packed = packECEFPointFeatures([mx, my, 0])
 
       const packed_lon_deg = packed[7]! as number
       const packed_lat_deg = packed[8]! as number

@@ -45,6 +45,13 @@ const Uniforms: StructDecl = {
     // to live here for the Mercator-DSFUN VS; ECEF VS computes the clip
     // position directly from per-feature ECEF DSFUN, no per-tile offset.
     { name: 'viewport', type: vec4fT },      // xy = w/h, z = meters/px, w = log_depth_fc
+    // Camera-relative RTC fix: the per-feature ECEF DSFUN is now ABSOLUTE, but
+    // the MVP (Camera.getECEFFrameView) is camera-at-ENU-origin. Subtract the
+    // camera anchor (getECEFCenter, sphere) — split DSFUN hi/lo to preserve
+    // sub-mm precision: ecef_rtc = (ecefH − camH) + (ecefL − camL). xyz used,
+    // w unused.
+    { name: 'cam_ecef_h', type: vec4fT },
+    { name: 'cam_ecef_l', type: vec4fT },
   ],
 }
 const ShapeDesc: StructDecl = {
@@ -265,7 +272,11 @@ const vs = entryFn('vs_point', 'vertex', [
     featData.at(fid.mul(STRIDE).add(u32(15)), f32T),
     featData.at(fid.mul(STRIDE).add(u32(16)), f32T),
   ))
-  const ecefRtc = b.let('ecef_rtc', ecefH.add(ecefL))
+  // Camera-relative RTC: subtract the camera anchor in DSFUN space so the
+  // big absolute ECEF magnitude cancels before the residual reaches f32 math.
+  const camH = b.let('cam_h', u.field('cam_ecef_h', vec4fT).swizzle('xyz'))
+  const camL = b.let('cam_l', u.field('cam_ecef_l', vec4fT).swizzle('xyz'))
+  const ecefRtc = b.let('ecef_rtc', ecefH.sub(camH).add(ecefL.sub(camL)))
   const absLon = b.let('abs_lon', featData.at(fid.mul(STRIDE).add(u32(17)), f32T))
   const absLat = b.let('abs_lat', featData.at(fid.mul(STRIDE).add(u32(18)), f32T))
   const mvp = u.field('mvp', mat4x4fT)
