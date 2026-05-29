@@ -4,7 +4,8 @@
 //   - meta exposes web-mercator-xyz scheme + TILE_LAYOUT_VERSION + z=0 only.
 //   - loadTile pushes exactly one BackendTileResult with 561 verts × stride-9
 //     and 3072 indices (32x16 grid).
-//   - Corner verts reconstruct the ±180° × ±90° band via abs_lon/abs_lat.
+//   - Corner verts reconstruct the per-projType band (sphere ±90°, mercator
+//     ±85°) via abs_lon/abs_lat.
 //   - DSFUN hi+lo reconstructs ECEF metres at sphere magnitudes.
 
 import { describe, it, expect } from 'vitest'
@@ -103,8 +104,8 @@ describe('SyntheticEarthSurfaceBackend — vertex content', () => {
     return q * scale - half
   }
 
-  it('first vertex sits at lon=-180, lat=-90 (south-west pole of sphere band)', () => {
-    const backend = new SyntheticEarthSurfaceBackend()
+  it('first vertex sits at lon=-180, lat=-90 (south-west pole, sphere band projType 7)', () => {
+    const backend = new SyntheticEarthSurfaceBackend(7)
     const { sink, pushed } = makeRecordingSink()
     backend.attach(sink)
     const v = pushed[0].result!.vertices
@@ -112,8 +113,8 @@ describe('SyntheticEarthSurfaceBackend — vertex content', () => {
     expect(v[5]).toBeCloseTo(-90, 6)   // abs_lat
   })
 
-  it('last vertex sits at lon=+180, lat=+90 (north-east pole)', () => {
-    const backend = new SyntheticEarthSurfaceBackend()
+  it('last vertex sits at lon=+180, lat=+90 (north-east pole, sphere band projType 7)', () => {
+    const backend = new SyntheticEarthSurfaceBackend(7)
     const { sink, pushed } = makeRecordingSink()
     backend.attach(sink)
     const v = pushed[0].result!.vertices

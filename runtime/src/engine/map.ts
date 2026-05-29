@@ -6,6 +6,8 @@ import { Lexer, Parser, lower, optimize, emitCommands, evaluate, makeEvalProps, 
 import { packPalette, uploadPalette, type PaletteTextures } from './gpu/palette-texture'
 import type * as AST from '@xgis/compiler'
 import { SyntheticEarthSurfaceBackend } from '../data/sources/synthetic-earth-surface-backend'
+import { PROJECTION_NAME_TO_TYPE } from './projection/projections-table'
+import { worldBandForProjType } from './projection/earth-surface-fill'
 import {
   SYNTHETIC_EARTH_SURFACE_SOURCE,
   buildSyntheticEarthSurfaceShow,
@@ -446,7 +448,8 @@ export class XGISMap {
     vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
     if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
     vtRenderer.setSource(catalog)
-    const backend = new SyntheticEarthSurfaceBackend()
+    const projType = PROJECTION_NAME_TO_TYPE[this.projectionName] ?? 0
+    const backend = new SyntheticEarthSurfaceBackend(projType)
     backend.updateFillColor(rgba)
     catalog.attachBackend(backend)
     this._syntheticBackend = backend
@@ -930,6 +933,22 @@ export class XGISMap {
     const prevProj = this.projectionName
     this.projectionName = canonical
     name = canonical
+
+    // Re-install the synthetic earth-surface backend when the world-band kind
+    // changes (mercator-clamped ↔ sphere-full ↔ natural-earth) so the bg mesh
+    // latitude extent — and its GPU vertex buffer — tracks the projection.
+    // Band-preserving switches (e.g. mercator↔equirectangular, both
+    // mercator-clamped) skip the teardown/rebuild. Color is unchanged, so we
+    // round-trip the existing fill through the teardown + re-install path.
+    if (this._syntheticBackend && this._backgroundColor) {
+      const prevBand = worldBandForProjType(PROJECTION_NAME_TO_TYPE[prevProj] ?? 0)
+      const nextBand = worldBandForProjType(PROJECTION_NAME_TO_TYPE[canonical] ?? 0)
+      if (prevBand !== nextBand) {
+        const rgba = this._backgroundColor
+        this.setBackgroundFill(null)
+        this.setBackgroundFill(rgba)
+      }
+    }
 
     // Adjust zoom for different projection scale
     // The wide-view set (flat azimuthal discs + the true 3D globe) all

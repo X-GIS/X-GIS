@@ -18,7 +18,11 @@
 // escalates beyond 64x32 (AC2c.3.1).
 
 import { tileKey } from '@xgis/compiler'
-import { generateEarthSurfaceFillMesh } from '../../engine/projection/earth-surface-fill'
+import {
+  generateEarthSurfaceFillMesh,
+  worldBandForProjType,
+  type WorldBandKind,
+} from '../../engine/projection/earth-surface-fill'
 import { lonLatToECEFSphere, type ECEF } from '../../engine/projection/ecef'
 import {
   TILE_LAYOUT_VERSION,
@@ -42,9 +46,11 @@ export const SYNTHETIC_EARTH_SURFACE_SOURCE = '__synthetic_earth_surface__'
 
 export class SyntheticEarthSurfaceBackend implements TileSource {
   // meta.bounds follows the Mercator catalog convention (±85° clamp the
-  // catalog assumes for non-sphere ingest). The actual mesh covers ±90°
-  // latitude (`bandLatRange('sphere-full')`) so sphere-projection rims
-  // reach the poles. The two ranges intentionally differ.
+  // catalog assumes for non-sphere ingest). The actual mesh latitude band
+  // now tracks the projType (worldBandForProjType, set in the constructor):
+  // ±85.05° for mercator-class, ±90° for sphere-class. bounds stays ±85°
+  // (catalog tile-selection convention); a sphere-band mesh intentionally
+  // exceeds it so sphere-projection rims reach the poles.
   readonly meta: TileSourceMeta = {
     bounds: [-180, -85, 180, 85],
     minZoom: 0,
@@ -56,6 +62,18 @@ export class SyntheticEarthSurfaceBackend implements TileSource {
   private sink: TileSourceSink | null = null
   private fillRgba: [number, number, number, number] = [0, 0, 0, 0]
   private cachedResult: BackendTileResult | null = null
+  private readonly band: WorldBandKind
+
+  /** @param projType resolved projection kind (0=mercator … 7=globe). The
+   *  earth-surface mesh's latitude band follows `worldBandForProjType`:
+   *  mercator-class (0/1/6) → ±85.05° (source-honest Web-Mercator extent),
+   *  sphere-class (3/4/5/7) → ±90° (poles), natural_earth (2) → ±90° oval.
+   *  The band is fixed per instance; XGISMap re-installs the backend on a
+   *  projection change so the band — and thus the GPU vertex buffer —
+   *  refreshes. */
+  constructor(projType = 0) {
+    this.band = worldBandForProjType(projType)
+  }
 
   has(key: number): boolean {
     return key === Z0_KEY
@@ -95,7 +113,7 @@ export class SyntheticEarthSurfaceBackend implements TileSource {
   }
 
   private buildResult(): BackendTileResult {
-    const mesh = generateEarthSurfaceFillMesh(WIDTH_SEGMENTS, HEIGHT_SEGMENTS, 'sphere-full')
+    const mesh = generateEarthSurfaceFillMesh(WIDTH_SEGMENTS, HEIGHT_SEGMENTS, this.band)
     const vertexCount = mesh.vertices.length / 2  // stride-2 lon/lat → vertex count
 
     // Pass 1: ECEF RTC residual (about WORLD_ANCHOR) + abs lon/lat per vertex;
