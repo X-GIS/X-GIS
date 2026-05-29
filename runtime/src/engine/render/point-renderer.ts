@@ -24,6 +24,36 @@ const POINT_CENTER_FLOAT = vertexField(POINT_FORMAT, 'center').offset / 4    // 
 const POINT_QUADID_FLOAT = vertexField(POINT_FORMAT, 'quad_id').offset / 4   // 2
 const POINT_FEATID_FLOAT = vertexField(POINT_FORMAT, 'feat_id').offset / 4   // 3
 
+/** Pack the point frame uniform (shared by render() and flushTilePoints()).
+ *  Layout (f32 slots): mvp 0..15, proj_params 16..19, viewport 20..23,
+ *  cam_ecef_h 24..27, cam_ecef_l 28..31.
+ *
+ *  Two fixes live here: (1) viewport now lands at 20..23 — it was previously
+ *  written at 24..27, past the old Float32Array(24) bound, so the shader read
+ *  an all-zero viewport (NDC quad expansion divided by zero). (2) cam_ecef_h/l
+ *  carry the camera anchor (getECEFCenter, sphere) split DSFUN so the VS can
+ *  re-center the now-ABSOLUTE per-feature ECEF against the camera-at-ENU-origin
+ *  MVP via (ecefH−camH)+(ecefL−camL). */
+function writePointFrameUniform(
+  uf: Float32Array,
+  frame: { matrix: Float32Array; logDepthFc: number },
+  camera: Camera,
+  projType: number,
+  projCenterLon: number,
+  projCenterLat: number,
+  canvasWidth: number,
+  canvasHeight: number,
+): void {
+  uf.set(frame.matrix, 0)
+  uf[16] = projType; uf[17] = projCenterLon; uf[18] = projCenterLat; uf[19] = 0
+  const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, camera.zoom)
+  uf[20] = canvasWidth; uf[21] = canvasHeight; uf[22] = metersPerPixel; uf[23] = frame.logDepthFc
+  const camC = camera.getECEFCenter()
+  const cxH = Math.fround(camC[0]); const cyH = Math.fround(camC[1]); const czH = Math.fround(camC[2])
+  uf[24] = cxH; uf[25] = cyH; uf[26] = czH; uf[27] = 0
+  uf[28] = camC[0] - cxH; uf[29] = camC[1] - cyH; uf[30] = camC[2] - czH; uf[31] = 0
+}
+
 // ═══ Renderer ═══
 
 export class PointRenderer {
@@ -38,11 +68,12 @@ export class PointRenderer {
   // recomputing the stride/attribute map.
   private vertexBufferLayout: GPUVertexBufferLayout | null = null
   private uniformBuffer: GPUBuffer
-  // Phase 2 PR 2d.2 — Uniforms shrunk: mvp(16) + proj_params(4) + viewport(4).
-  // `mvp` IS the ECEF-MVP (Camera.getECEFFrameView). tile_rtc slot deleted
-  // (was used by the legacy Mercator-DSFUN VS). 24 floats × 4 = 96 bytes
-  // payload; rest of the 128-byte GPU buffer is unused trailing padding.
-  private uniformData = new Float32Array(24)
+  // Point Uniforms: mvp(16) + proj_params(4) + viewport(4) + cam_ecef_h(4) +
+  // cam_ecef_l(4) = 32 floats × 4 = 128 bytes (fills the GPU buffer exactly).
+  // `mvp` IS the ECEF-MVP (Camera.getECEFFrameView). The per-feature ECEF
+  // DSFUN is ABSOLUTE, so cam_ecef_h/l carry the camera anchor (getECEFCenter,
+  // sphere) split DSFUN; the VS re-centers via (ecefH−camH)+(ecefL−camL).
+  private uniformData = new Float32Array(32)
   /** iter-249 (Plan AAA B.2) — per-flush arena. Each flush*() call
    *  allocates 3 large typed arrays (verts / indices / featData)
    *  sized to per-call vertex count. On flush entry, beginFrame()
@@ -359,15 +390,9 @@ export class PointRenderer {
 
     this.tilePointBindGroup = this.makeBindGroup(this.tilePointFeatBuffer)
 
-    // Phase 2 PR 2d.2 — use ECEF MVP; tile_rtc slot (20-23) unused.
     const frame = camera.getECEFFrameView(canvasWidth, canvasHeight, dpr)
     const uf = this.uniformData
-    uf.set(frame.matrix, 0)
-    uf[16] = projType; uf[17] = projCenterLon; uf[18] = projCenterLat; uf[19] = 0
-    uf[20] = 0; uf[21] = 0; uf[22] = 0; uf[23] = 0
-    const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, camera.zoom)
-    // viewport.w = log_depth_fc so fs_point can write @builtin(frag_depth)
-    uf[24] = canvasWidth; uf[25] = canvasHeight; uf[26] = metersPerPixel; uf[27] = frame.logDepthFc
+    writePointFrameUniform(uf, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight)
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uf)
 
     // Pick the translucent (no depth write) pipeline when the effective
@@ -577,26 +602,9 @@ export class PointRenderer {
   ): void {
     if (this.layers.length === 0) return
 
-    // Phase 2 PR 2d.2 — ECEF MVP; tile_rtc slot (20-23) unused.
     const frame = camera.getECEFFrameView(canvasWidth, canvasHeight, dpr)
     const uf = this.uniformData
-
-    // ECEF MVP matrix
-    uf.set(frame.matrix, 0)
-    // proj_params: retained for fragment-side hemisphere cull
-    uf[16] = projType
-    uf[17] = projCenterLon
-    uf[18] = projCenterLat
-    uf[19] = 0
-    // tile_rtc slot unused (ECEF VS doesn't need Mercator RTC)
-    uf[20] = 0; uf[21] = 0; uf[22] = 0; uf[23] = 0
-    // viewport: xy = size, z = meters_per_pixel, w = log_depth_fc
-    const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, camera.zoom)
-    uf[24] = canvasWidth
-    uf[25] = canvasHeight
-    uf[26] = metersPerPixel
-    uf[27] = frame.logDepthFc
-
+    writePointFrameUniform(uf, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight)
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uf)
 
     const DEG2RAD = Math.PI / 180

@@ -71,6 +71,15 @@ const Uniforms: StructDecl = {
     // alongside cam_h/tile_origin_merc in vector-tile-renderer.
     { name: 'tile_dequant_scale', type: f32T },
     { name: 'tile_dequant_half', type: f32T },
+    // Camera-relative RTC re-centering (ECEF), DSFUN hi/lo. dequant yields
+    // ecef_rtc = vertex − tileEcefCenter, but getECEFFrameView's MVP is
+    // camera-at-ENU-origin (no cameraCenter translate), so the VS must feed
+    // vertex − cameraCenter. off = tileEcefCenter − cameraCenter, split hi/lo;
+    // ecef_rtc + off = vertex − cameraCenter. Without it every tile collapses
+    // to the camera origin (verified by _ecef-render-position). The ECEF
+    // analogue of line.ts's cam_h/cam_l.
+    { name: 'cam_ecef_off_h', type: vec4fT },
+    { name: 'cam_ecef_off_l', type: vec4fT },
   ],
 }
 
@@ -221,7 +230,14 @@ const vsMain = entryFn(
     )
 
     const out = b.var('out', structT('VertexOutput'))
-    const clip = b.var('clip', vec4fT, transformMat4(mvp, vec4(ecefRtc, f32(1))))
+    // Camera-relative re-centering: ecef_rtc is tile-center-relative but the
+    // MVP expects vertex − cameraCenter, so add the per-tile DSFUN offset
+    // (tileEcefCenter − cameraCenter) = hi + lo before projecting.
+    const camOffH = u.field('cam_ecef_off_h', vec4fT)
+    const camOffL = u.field('cam_ecef_off_l', vec4fT)
+    const ecefCam = b.let('ecef_cam',
+      ecefRtc.add(vec3(camOffH.x, camOffH.y, camOffH.z)).add(vec3(camOffL.x, camOffL.y, camOffL.z)))
+    const clip = b.var('clip', vec4fT, transformMat4(mvp, vec4(ecefCam, f32(1))))
     // Mapbox fill-translate viewport-anchor — runtime pre-bakes
     // (px*2/canvasDim) so the shader just multiplies by clip.w.
     b.assign(clip.x, clip.x.add(fillTx.mul(clip.w)))
@@ -325,7 +341,14 @@ const vsMainEcef = entryFn(
     )
 
     const out = b.var('out', structT('VertexOutput'))
-    const clip = b.var('clip', vec4fT, transformMat4(mvp, vec4(ecefRtc, f32(1))))
+    // Camera-relative re-centering: ecef_rtc is tile-center-relative but the
+    // MVP expects vertex − cameraCenter, so add the per-tile DSFUN offset
+    // (tileEcefCenter − cameraCenter) = hi + lo before projecting.
+    const camOffH = u.field('cam_ecef_off_h', vec4fT)
+    const camOffL = u.field('cam_ecef_off_l', vec4fT)
+    const ecefCam = b.let('ecef_cam',
+      ecefRtc.add(vec3(camOffH.x, camOffH.y, camOffH.z)).add(vec3(camOffL.x, camOffL.y, camOffL.z)))
+    const clip = b.var('clip', vec4fT, transformMat4(mvp, vec4(ecefCam, f32(1))))
     // Mapbox fill-translate viewport-anchor — runtime pre-bakes
     // (px*2/canvasDim) so the shader just multiplies by clip.w.
     b.assign(clip.x, clip.x.add(fillTx.mul(clip.w)))

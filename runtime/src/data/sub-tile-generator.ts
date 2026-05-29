@@ -359,12 +359,13 @@ export class SubTileGenerator {
 
     // Point clip. Phase 2 PR 2d.2 — parent pointVertices is ECEF DSFUN
     // stride-9 [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon, abs_lat]
-    // anchored at the PARENT tile's ECEF center. Use abs_lon/abs_lat (slots
-    // 7/8) for the sub-tile bounds check, then re-pack each surviving point
-    // against `subTileEcefCenter` via the canonical packECEFPointFeatures
-    // (stride-3 absolute Mercator metres → stride-9 ECEF DSFUN). Without
-    // this, point layers (place labels, POIs) vanish at over-zoom because
-    // they have no representation in the sub-tile.
+    // carrying ABSOLUTE ECEF DSFUN (points re-center against the camera in the
+    // VS, so they're not tile-anchored). Use abs_lon/abs_lat (slots 7/8) for
+    // the sub-tile bounds check, then re-pack each surviving point via the
+    // canonical packECEFPointFeatures (stride-3 absolute Mercator metres →
+    // stride-9 absolute ECEF DSFUN). Without this, point layers (place labels,
+    // POIs) vanish at over-zoom because they have no representation in the
+    // sub-tile.
     let subPointVertices: Float32Array | undefined
     if (parent.pointVertices && parent.pointVertices.length >= 9) {
       const pv = parent.pointVertices
@@ -384,7 +385,7 @@ export class SubTileGenerator {
         survivors.push(px, py, pv[i + 6])
       }
       if (survivors.length >= 3) {
-        subPointVertices = packECEFPointFeatures(survivors, subTileEcefCenter)
+        subPointVertices = packECEFPointFeatures(survivors)
       }
     }
 

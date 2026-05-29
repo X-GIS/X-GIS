@@ -18,12 +18,20 @@ import { lonLatToECEF, lonLatToECEFSphere, WGS84 } from './ecef'
 // X-GIS moved to ECEF for polar data, but vertex and camera disagree at the
 // poles and that region is unverified).
 //
-// This guard pins the mismatch at known latitudes so it can't drift silently —
-// it documents the CURRENT state, it does not assert the state is correct.
-// When vertex and camera are unified onto one frame (Phase 2e collapses the
-// camera onto the ellipsoid, or the tiler onto the sphere), the pole/monotonic
-// assertions flip red — the signal that the gap has closed and this guard must
-// be updated.
+// This guard pins the mismatch at known latitudes so it can't drift silently.
+//
+// RESOLVED — the mismatch is BY DESIGN, not a defect. Unifying the camera onto
+// the ellipsoid (getECEFCenter → mercatorToECEF) was tried and reverted: it
+// broke the ECEF-MVP ↔ legacy-Mercator convergence at 19/24 cells of
+// polygon-ecef-mvp-latitude-parity (AC2c.1.5), i.e. the Mercator pixel-parity
+// (AC1) that the sphere anchor exists to guarantee. The ~24 km measured here is
+// an ABSOLUTE ECEF delta; over an RTC tile extent the tiler's ellipsoid vertices
+// stay within ≤1.5 px of the sphere anchor (that parity test proves it). So the
+// absolute-coordinate frame split is real but decoupled from render accuracy —
+// the camera intentionally stays on the sphere for Mercator parity while
+// vertices stay on the ellipsoid for eventual 3D-Tiles alignment. This guard
+// now documents that intentional split; it would only need revisiting if a
+// future change unifies the frames (which must NOT regress AC2c.1.5).
 
 /** Distance between the vertex frame (tiler ellipsoid = lonLatToECEF) and the
  *  camera frame (sphere = lonLatToECEFSphere) for the same lon/lat. */

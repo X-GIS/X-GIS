@@ -73,11 +73,12 @@ const UNIFORM_SLOT = 256
 // raster — see renderer.ts / line-renderer.ts / point-renderer.ts).
 // Polygon Uniforms is 208 bytes (50 floats: 16 mvp + 32 trailing fields
 // incl. clip_bounds + zoom block + the 2 PR-2f tile_dequant_* slots,
-// rounded up to 208 by the 16-byte struct alignment). PR 2d.5 closeout had
+// rounded up by the 16-byte struct alignment). PR 2d.5 closeout had
 // shrunk this 256 → 192 when the legacy Mercator `mvp` slot was retired; PR
-// 2f re-grows it to 208 (still ≤ the 256-byte UNIFORM_SLOT). WGSL spec
+// 2f re-grew it to 208; the camera-relative RTC fix adds cam_ecef_off_h/l
+// (vec4×2 = 32B) → 240 (still ≤ the 256-byte UNIFORM_SLOT). WGSL spec
 // requires a multiple of 16.
-const UNIFORM_SIZE = 208
+const UNIFORM_SIZE = 240
 
 /** 2π × Earth radius (m). One full mercator wrap. tile_extent_m at
  *  any zoom z is this constant divided by 2^z (vs_main_quantized
@@ -4847,6 +4848,30 @@ export class VectorTileRenderer {
       this.uniformF32[29] = camRelYH
       this.uniformF32[30] = camRelXL
       this.uniformF32[31] = camRelYL
+
+      // Camera-relative RTC (ECEF): off = tileEcefCenter(WGS84 ellipsoid) −
+      // cameraCenter(sphere), DSFUN hi/lo at uniform floats 52-54 / 56-58. The
+      // polygon VS adds this to ecef_rtc so it projects vertex−cameraCenter
+      // through the camera-at-ENU-origin MVP — fixes the 'one spot' collapse
+      // (_ecef-render-position gate). tileEcefCenter mirrors the tiler's
+      // packECEFPolygonVertices anchor; cameraCenter mirrors getECEFCenter
+      // (mercatorToECEFSphere). ECEF is world-copy-independent on the sphere,
+      // so worldOff is NOT applied here (unlike the Mercator cam_h/cam_l).
+      const E2_ECEF = (1 / 298.257223563) * (2 - 1 / 298.257223563)
+      const tLatR = clampLat(cached.tileSouth) * DEG2RAD
+      const tLonR = cached.tileWest * DEG2RAD
+      const tSin = Math.sin(tLatR), tCos = Math.cos(tLatR)
+      const tN = R / Math.sqrt(1 - E2_ECEF * tSin * tSin)
+      const camLatR = clampLat(projCenterLat) * DEG2RAD
+      const camLonR = projCenterLon * DEG2RAD
+      const camCos = Math.cos(camLatR)
+      const offX = tN * tCos * Math.cos(tLonR) - R * camCos * Math.cos(camLonR)
+      const offY = tN * tCos * Math.sin(tLonR) - R * camCos * Math.sin(camLonR)
+      const offZ = tN * (1 - E2_ECEF) * tSin - R * Math.sin(camLatR)
+      const hi = (v: number) => Math.fround(v)
+      this.uniformF32[52] = hi(offX); this.uniformF32[56] = Math.fround(offX - hi(offX))
+      this.uniformF32[53] = hi(offY); this.uniformF32[57] = Math.fround(offY - hi(offY))
+      this.uniformF32[54] = hi(offZ); this.uniformF32[58] = Math.fround(offZ - hi(offZ))
 
       // tile_origin_merc (32-33) + opacity (34) + log_depth_fc (35)
       // — offsets 128..143. log_depth_fc was cached by camera.getRTCMatrix

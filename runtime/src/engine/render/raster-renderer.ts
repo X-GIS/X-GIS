@@ -246,6 +246,11 @@ export class RasterRenderer {
     new Float32Array(uniformData, 64, 4).set([projType, projCenterLon, projCenterLat, frame.logDepthFc])
     // raster_params at offset 80 — x = opacity, yzw reserved.
     new Float32Array(uniformData, 80, 4).set([this._opacity, 0, 0, 0])
+    // cam_ecef_center @96 — camera anchor (sphere) for camera-relative RTC,
+    // mirroring polygon's cam_ecef_off. Subtracted in the raster VS so the ECEF
+    // vertex projects vertex − cameraCenter through the camera-at-origin MVP.
+    const camC = camera.getECEFCenter()
+    new Float32Array(uniformData, 96, 4).set([camC[0], camC[1], camC[2], 0])
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData)
 
     pass.setPipeline(this.pipeline)
