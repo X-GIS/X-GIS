@@ -95,7 +95,16 @@ const FOV_RAD = 0.6435011087932844 // == Camera.FOV, MapLibre default
  *  frames the globe at the same scale as the 2D map at that zoom. */
 export function globeAltitude(zoom: number, cssHeightPx: number): number {
   const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, zoom)
-  const viewHeightMeters = cssHeightPx * metersPerPixel
+  const rawViewHeightMeters = cssHeightPx * metersPerPixel
+  // Sphere-diameter cap — only at z<1 where the uncapped view extent
+  // exceeds the sphere and the disc would subtend ≤ 19 % of the canvas
+  // (memory project_non_merc_z0_disc_render_fail_2026_05_20). At z≥1
+  // the altitude already fits the disc + camera context the globe's
+  // ortho-vs-perspective foreshortening tests pin (globe.test.ts:331).
+  const SPHERE_VIEW_HEIGHT_M = 2 * 6378137  // EARTH_R × 2 = disc diameter
+  const viewHeightMeters = zoom < 1
+    ? Math.min(rawViewHeightMeters, SPHERE_VIEW_HEIGHT_M)
+    : rawViewHeightMeters
   return viewHeightMeters / 2 / Math.tan(FOV_RAD / 2)
 }
 
