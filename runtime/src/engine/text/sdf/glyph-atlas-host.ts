@@ -107,6 +107,27 @@ export class GlyphAtlasHost {
    *  Cached array is shared by reference; callers must treat it
    *  read-only (matches the existing infoCache contract). */
   private readonly stringInfoCache = new Map<string, { info: GlyphInfo[]; generation: number }>()
+  /** iter-#10 Phase A slice 4 (across-frame drag p95). Per-string
+   *  validation memo for `preloadString` + `hasAllGlyphs`. Both
+   *  functions previously walked every codepoint of every pending
+   *  label per frame, calling `ensure()` (preloadString) or peeking
+   *  `metrics` (hasAllGlyphs). At Liberty Seoul z17 pitch68 drag the
+   *  iter-161 CPU profile pinned 21.5 % of drag CPU on `ensure`
+   *  (atlas-state.ts) — dominated by these per-frame walks even on
+   *  steady-state corpora where the atlas was already populated.
+   *
+   *  Key shape: `fontKey + '|' + text` (matches stringInfoCache).
+   *  Value: the generation at which we last admitted every codepoint
+   *  (preloadString) or verified residency (hasAllGlyphs). When the
+   *  current `_generation` matches the cached value, we know the
+   *  atlas state for this exact (fontKey, text) is identical to the
+   *  state at validation time and can skip the codepoint loop.
+   *
+   *  Cache is implicitly invalidated by generation bump (any slot
+   *  eviction triggers it). No explicit clear needed; stale entries
+   *  miss the generation guard and re-validate. */
+  private readonly preloadedAtGen = new Map<string, number>()
+  private readonly hasAllGlyphsAtGen = new Map<string, number>()
   /** Newly rasterised glyphs awaiting GPU upload. Drained by
    *  the GPU wrapper via `consumeDirty()`. */
   private dirty: DirtyGlyph[] = []
@@ -259,6 +280,13 @@ export class GlyphAtlasHost {
    *  stable for the rest of the frame; subsequent `ensureString`
    *  calls hit the metrics cache without further eviction. */
   preloadString(fontKey: string, text: string): void {
+    // iter-#10 Phase A slice 4 — string-level fast path. A previous
+    // call admitted every codepoint at the same generation; nothing
+    // can have shifted the atlas state for this (fontKey, text) since
+    // (eviction would bump the generation). Skip the per-codepoint
+    // walk + Map probes inside `ensure()`.
+    const memoKey = fontKey + '|' + text
+    if (this.preloadedAtGen.get(memoKey) === this._generation) return
     const len = text.length
     let i = 0
     while (i < len) {
@@ -266,6 +294,11 @@ export class GlyphAtlasHost {
       this.ensure(fontKey, cp)
       i += cp > 0xFFFF ? 2 : 1
     }
+    // CRITICAL: record the POST-ensure generation. Any eviction
+    // during the loop bumps `_generation`; storing the latest value
+    // keeps the next call's guard accurate. Mirrors the post-loop
+    // generation read in `ensureString` (line ~337).
+    this.preloadedAtGen.set(memoKey, this._generation)
   }
 
   /** iter-273 — check whether EVERY codepoint in `text` is currently
@@ -282,6 +315,12 @@ export class GlyphAtlasHost {
    *  Returns true iff every codepoint's metricsKey is in
    *  `this.metrics` (= survived the preload + any further eviction). */
   hasAllGlyphs(fontKey: string, text: string): boolean {
+    // iter-#10 Phase A slice 4 — string-level fast path. A previous
+    // call returned true at the current generation; the metrics map
+    // cannot have shed any of those entries since (eviction bumps
+    // generation, invalidating the memo). Skip the per-codepoint loop.
+    const memoKey = fontKey + '|' + text
+    if (this.hasAllGlyphsAtGen.get(memoKey) === this._generation) return true
     const len = text.length
     let i = 0
     while (i < len) {
@@ -290,6 +329,11 @@ export class GlyphAtlasHost {
       if (!this.metrics.has(this.metricsKey(key))) return false
       i += cp > 0xFFFF ? 2 : 1
     }
+    // Record success at the current generation. Only stamp on the
+    // positive branch — a negative result is a transient overflow
+    // condition (label dropped this frame); the next call should
+    // re-check from scratch.
+    this.hasAllGlyphsAtGen.set(memoKey, this._generation)
     return true
   }
 
