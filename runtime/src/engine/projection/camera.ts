@@ -339,9 +339,15 @@ export class Camera {
    *
    *  Uses the **sphere** variant (radius A, E2=0) so the ECEF basis matches
    *  the legacy spherical-Mercator MVP basis used by `_buildRTCMatrix`
-   *  (`WORLD_MERC = 2π × A`). Building on the WGS84 ellipsoid would
-   *  introduce a 0.67 % north-axis compression that breaks the dual-path
-   *  parity gate at lat=0. See `lonLatToECEFSphere` for the full rationale. */
+   *  (`WORLD_MERC = 2π × A`). Building on the WGS84 ellipsoid would introduce a
+   *  0.67 % north-axis compression that breaks the ECEF-MVP↔legacy-Mercator
+   *  convergence (`polygon-ecef-mvp-latitude-parity`, AC2c.1.5) at every
+   *  non-equatorial latitude — verified: switching this to the ellipsoid blows
+   *  19/24 cells past the 1.5 px gate. The vertex/camera frame "mismatch" the
+   *  #189 guard pins is by design: the tiler's ellipsoid vertices stay within
+   *  ≤1.5 px of this sphere anchor over an RTC tile extent, while keeping the
+   *  Mercator pixel-parity (AC1) the sphere basis guarantees. See
+   *  `lonLatToECEFSphere` for the full rationale. */
   getECEFCenter(): ECEF {
     return mercatorToECEFSphere(this.centerX, this.centerY)
   }
