@@ -58,23 +58,20 @@ describe('LineSegment storage-struct layout (CPU writer ↔ WGSL reader)', () =>
     expect(LINE_SEGMENT_STRIDE_BYTES).toBe(LINE_SEGMENT_STRIDE_F32 * 4)
   })
 
-  // KNOWN BUG (it.fails): PR 2d.1A grew the CPU LineSegment stride to 26 floats
-  // (104 B) by appending enu_p0/enu_p1 (slots 20-25), but the WGSL `struct
-  // LineSegment` still declares only 20 floats (std430 stride 80 B). The GPU
-  // therefore indexes array<LineSegment> with an 80 B stride while the CPU
-  // uploads 104 B/segment → segment[1+] reads corrupted memory. SwiftShader
-  // can't render the line storage path so this is invisible in CI pixels, and
-  // storage buffers raise no validation error. When this is fixed (WGSL struct
-  // extended to include enu, OR the CPU enu slots removed), this `it.fails`
-  // flips to passing — remove the `.fails` then. See vs_line line audit.
-  it.fails('WGSL LineSegment std430 stride should equal the CPU upload stride', () => {
+  // PR 2d.1A had grown the CPU stride to 26 floats (104 B) by appending unread
+  // enu_p0/enu_p1 (slots 20-25) while the WGSL `struct LineSegment` stayed at
+  // 20 floats (std430 stride 80 B) — so the GPU indexed array<LineSegment> with
+  // an 80 B stride while the CPU uploaded 104 B/segment, corrupting segment[1+]
+  // (invisible: storage buffers raise no validation error and SwiftShader can't
+  // render the line path). The fix removed the unread enu slots, bringing the
+  // CPU writer back to 20 floats to match the WGSL struct. This gate keeps the
+  // two locked: if they diverge again (either side) it goes red.
+  it('WGSL LineSegment std430 stride equals the CPU upload stride (no drift)', () => {
     expect(wgslStride).toBe(LINE_SEGMENT_STRIDE_BYTES)
   })
 
-  it('documents the current mismatch magnitude (80 B WGSL vs 104 B CPU)', () => {
-    // Pins the exact current numbers so the fix is unambiguous and any further
-    // drift is noticed. Update when the mismatch is resolved.
+  it('both sides are 80 B / 20 floats', () => {
     expect(wgslStride).toBe(80)
-    expect(LINE_SEGMENT_STRIDE_BYTES).toBe(104)
+    expect(LINE_SEGMENT_STRIDE_BYTES).toBe(80)
   })
 })

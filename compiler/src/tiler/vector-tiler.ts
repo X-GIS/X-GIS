@@ -310,8 +310,9 @@ export function projectRingsToMM(rings: number[][][]): number[][][] {
  *      consumer (PR 2d.1C `vs_line`) combines this with the corner
  *      (along × dir + across × normal) intent and half_w_m, then applies
  *      `ecef_to_enu_rotation(lon, lat)` to land on the ECEF corner.
- *      Mirrors `runtime/src/core/line-segment-build.ts` Method A bake at
- *      LINE_SEG_OFF_ENU_P0 / _P1 (slots 20-25 of LineSegment storage).
+ *      (line-segment-build.ts's Method A bake was removed when its
+ *      LineSegment stride dropped to 20 floats to match the WGSL struct;
+ *      this packer remains a separate, unintegrated PR 2d.1B spike.)
  *
  *      Mercator y is sec(lat)-stretched relative to physical north metres,
  *      so the bake squashes the y-component of (tin / tout) by cos(lat)
