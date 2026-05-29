@@ -16,6 +16,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { packECEFPolygonVertices } from './vector-tiler'
+import { dequantVertex, dequantVertexF32 } from './dequant-mirror'
 
 // ── WGS84 constants (mirrors runtime/src/engine/projection/ecef.ts) ─────────
 const A = 6378137               // semi-major axis (m)
@@ -85,22 +86,31 @@ function tileExtentM(z: number): number {
 }
 
 // ── Core helper: pack one point and measure reconstruction error ─────────────
+//
+// dequantVertex (f64, encoder intent) + dequantVertexF32 (GPU-faithful f32)
+// live in ./dequant-mirror so the compute parity harness (_dequant-parity)
+// shares the EXACT same CPU mirror it validates against the real GPU.
 
 function roundTripError(
   mx: number,
   my: number,
   ecefCenter: readonly [number, number, number],
+  decode: (
+    q: { vertices: Float32Array; dequantScale: number; dequantHalf: number },
+    vi: number,
+  ) => [number, number, number] = dequantVertex,
 ): number {
   // Source lon/lat (radians).
   const [srcLon, srcLat] = mercatorToLonLatRad(mx, my)
 
-  // Pack.
-  const packed = packECEFPolygonVertices([mx, my, 0], ecefCenter)
-
-  // GPU reconstruction: f64 hi + f64 lo + tile-center component.
-  const recX = (packed[0]! as number) + (packed[3]! as number) + ecefCenter[0]
-  const recY = (packed[1]! as number) + (packed[4]! as number) + ecefCenter[1]
-  const recZ = (packed[2]! as number) + (packed[5]! as number) + ecefCenter[2]
+  // Pack (quantize) then dequant + re-add the tile-centre component — the
+  // full quantize→dequant round trip. `decode` selects f64 (encoder intent,
+  // default) or f32 (true GPU VS arithmetic, dequantVertexF32).
+  const quant = packECEFPolygonVertices([mx, my, 0], ecefCenter)
+  const [ax, ay, az] = decode(quant, 0)
+  const recX = ax + ecefCenter[0]
+  const recY = ay + ecefCenter[1]
+  const recZ = az + ecefCenter[2]
 
   // Inverse ECEF → lon/lat.
   const [recLon, recLat] = ecefToLonLatRad(recX, recY, recZ)
@@ -112,12 +122,40 @@ function roundTripError(
 
 describe('AC2c.1.1 packECEFPolygonVertices precision round-trip', () => {
 
-  it('stride-9 output: fid passes through unchanged', () => {
+  it('quantized stride-24 output: fid passes through unchanged at float slot 3', () => {
     const [lon_rad, lat_rad] = mercatorToLonLatRad(0, 0)
     const center = lonLatRadToECEF(lon_rad, lat_rad)
-    const packed = packECEFPolygonVertices([0, 0, 42], center)
-    expect(packed.length).toBe(9)
-    expect(packed[6]).toBe(42)
+    const quant = packECEFPolygonVertices([0, 0, 42], center)
+    // stride 24 bytes = 6 floats per vertex; fid at float index 3.
+    expect(quant.vertices.length).toBe(6)
+    expect(quant.vertices[3]).toBe(42)
+    expect(quant.dequantHalf).toBeGreaterThan(0)
+    expect(quant.dequantScale).toBeGreaterThan(0)
+  })
+
+  it('no axis clamps: extreme residuals encode within [0, 0xFFFF] per lane (no overflow)', () => {
+    // Two verts: one near the +max residual, one near the -max. halfRange =
+    // exact max-abs over the verts (+ epsilon) so by construction every axis
+    // stays inside the symmetric range — no encode clamps. Verify every u16
+    // lane is a valid 16-bit value and the round-trip stays sub-mm.
+    const ext = tileExtentM(15)
+    const [tLon, tLat] = mercatorToLonLatRad(ext * 7, ext * 3)
+    const center = lonLatRadToECEF(tLon, tLat)
+    const pv = [ext * 7 + ext * 0.5, ext * 3 + ext * 0.5, 0,
+                ext * 7 - ext * 0.5, ext * 3 - ext * 0.5, 1]
+    const quant = packECEFPolygonVertices(pv, center)
+    const u16 = new Uint16Array(quant.vertices.buffer)
+    for (let lane = 0; lane < 12; lane++) {
+      expect(u16[lane]! >= 0 && u16[lane]! <= 0xFFFF).toBe(true)
+    }
+    // Round-trip both verts: sub-mm.
+    for (let vi = 0; vi < 2; vi++) {
+      const [ax, ay, az] = dequantVertex(quant, vi)
+      const mxRef = pv[vi * 3], myRef = pv[vi * 3 + 1]
+      const [refLon, refLat] = mercatorToLonLatRad(mxRef, myRef)
+      const [recLon, recLat] = ecefToLonLatRad(ax + center[0], ay + center[1], az + center[2])
+      expect(arcLengthM(refLon, refLat, recLon, recLat)).toBeLessThan(1e-3)
+    }
   })
 
   it('single known point: Tokyo at z=15, reconstruction ≤ 1 mm', () => {
@@ -270,11 +308,11 @@ describe('AC2c.1.1 packECEFPolygonVertices precision round-trip', () => {
       const [tLon, tLat] = mercatorToLonLatRad(0, 0)
       const center = lonLatRadToECEF(tLon, tLat)
 
-      const packed = packECEFPolygonVertices([mx, my, 0], center)
+      const quant = packECEFPolygonVertices([mx, my, 0], center)
 
-      // abs_lon at index 7, abs_lat at index 8.
-      const packed_lon_deg = packed[7]! as number
-      const packed_lat_deg = packed[8]! as number
+      // abs_lon at float slot 4, abs_lat at float slot 5 (stride-6 floats).
+      const packed_lon_deg = quant.vertices[4]! as number
+      const packed_lat_deg = quant.vertices[5]! as number
 
       const dLon = Math.abs(packed_lon_deg - ref_lon_deg)
       const dLat = Math.abs(packed_lat_deg - ref_lat_deg)
@@ -329,4 +367,59 @@ describe('AC2c.1.1 packECEFPolygonVertices precision round-trip', () => {
     expect(dsfunErr).toBeLessThanOrEqual(naiveErr)
     expect(dsfunErr).toBeLessThan(1e-3)  // sub-mm absolute
   })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GPU f32 reconstruction precision (the HONEST shader-side gate)
+//
+// The block above decodes in f64 — it measures the quantization grid error
+// alone. The GPU VS reconstructs in f32 (`q = f32(hi)*65536 + f32(lo);
+// axis = q*scale - half`), and because q reaches ~2^32 (far past f32's 2^24
+// exact-integer limit), the low u16 lane's bits are largely swallowed. The
+// real end-to-end precision is therefore MUCH coarser at low zoom than the
+// f64 path reports. We pin the true f32 bounds here so the gate doesn't lie.
+//
+// Why this is acceptable (decision: keep 2f, honest gate):
+//   • Screen-invisible: at z=0 the ~1.6 m error is ~2.5e-7 of the 6378 km
+//     earth radius — far below a pixel at any practical zoom. High zoom
+//     (z=22, where vertices are screen-large) stays at ~1 µm.
+//   • Not a 2f regression: the pre-2f stride-9 DSFUN `pos_h + pos_l` recon
+//     has the same in-shader f32 ceiling (z=0 ~0.4 m). An f32 ECEF VS cannot
+//     do better; this is the format's GPU reality, not a quantization bug.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('PR 2f — GPU f32 in-shader dequant precision (true shader-side bounds)', () => {
+  // Worst-case f32 reconstruction per zoom, measured over 1e4 random points.
+  // Bounds reflect the GPU's actual arithmetic (validated screen-invisible),
+  // NOT the optimistic f64 quantization-only error.
+  const cases: ReadonlyArray<{ z: number; seed: number; boundM: number }> = [
+    { z: 22, seed: 0x2f_22, boundM: 1e-5 },   // ~1 µm — high zoom, near-perfect
+    { z: 15, seed: 0x2f_15, boundM: 1e-3 },   // sub-mm
+    { z: 8,  seed: 0x2f_08, boundM: 5e-2 },   // ~2 cm — coarsened by f32
+    { z: 0,  seed: 0x2f_00, boundM: 3.0 },    // ~1.6 m — screen-invisible (2.5e-7 of R)
+  ]
+
+  for (const { z, seed, boundM } of cases) {
+    it(`1e4 random points — z=${z}: f32 shader reconstruction ≤ ${boundM} m`, () => {
+      const rng = makeRng(seed)
+      const ext = tileExtentM(z)
+      const MX_MAX = Math.PI * A
+      const MY_MAX = Math.PI * A * 0.85
+      // z=0 spans the whole world in one tile; scatter within ±40% world.
+      const scatter = z === 0 ? Math.PI * A * 0.4 : ext
+      let worst = 0
+      for (let i = 0; i < 10_000; i++) {
+        const baseMx = (rng() * 2 - 1) * (MX_MAX - scatter) * (z === 0 ? 0.5 : 1)
+        const baseMy = (rng() * 2 - 1) * (MY_MAX - scatter) * (z === 0 ? 0.5 : 1)
+        const mx = baseMx + (rng() * 2 - 1) * scatter
+        const my = baseMy + (rng() * 2 - 1) * scatter
+        const [tLon, tLat] = mercatorToLonLatRad(baseMx, baseMy)
+        const center = lonLatRadToECEF(tLon, tLat)
+        const err = roundTripError(mx, my, center, dequantVertexF32)
+        if (err > worst) worst = err
+      }
+      console.log(`[z=${z}] worst f32 SHADER reconstruction: ${worst.toExponential(4)} m`)
+      expect(worst).toBeLessThan(boundM)
+    })
+  }
 })

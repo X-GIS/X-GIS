@@ -26,7 +26,11 @@ import { type TileData, DSFUN_LINE_STRIDE } from './tile-types'
 
 // ECEF stride-9 layout for polygon vertices (PR 2c.2):
 //   [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon_deg, abs_lat_deg]
-const ECEF_POLY_STRIDE = 9
+// PR 2f: parent polygon vertices are the quantized ECEF layout — stride 24
+// bytes = 6 floats. Only the f32 tail (fid/abs_lon/abs_lat at float slots
+// 3/4/5) is read here; the quantized u16 position (first 12 bytes) is never
+// touched — the clipper reprojects via abs_lon/abs_lat.
+const ECEF_POLY_STRIDE = 6
 // WGS84 sphere radius for the abs_lon / Mercator inverse round-trip.
 const ECEF_EARTH_R = 6378137
 const ECEF_DEG2RAD = Math.PI / 180
@@ -119,12 +123,13 @@ export class SubTileGenerator {
       return [h, Math.fround(v - h)]
     }
 
-    // Polygon vertex INPUT layout (PR 2c.2): ECEF-DSFUN stride-9 floats
-    // `[ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon, abs_lat]` per
-    // vertex. The clipper still runs in tile-local Mercator metres, so we
-    // recover Mercator from the packed `abs_lon, abs_lat` slots (sub-mm
-    // round-trip per `ecef-precision-fuzz.test.ts` AC2c.2.3) instead of
-    // inverting ECEF → lon/lat via Bowring iteration.
+    // Polygon vertex INPUT layout (PR 2f): quantized ECEF stride 24 bytes =
+    // 6 floats — uint16×6 position (first 12 bytes) + f32 fid/abs_lon/abs_lat
+    // at float slots 3/4/5. The clipper still runs in tile-local Mercator
+    // metres, so we recover Mercator from the packed `abs_lon, abs_lat` slots
+    // (sub-mm round-trip per `ecef-precision-fuzz.test.ts` AC2c.2.3) instead
+    // of dequantizing + inverting ECEF → lon/lat via Bowring iteration. The
+    // quantized position is never read here.
     //
     // The sub-tile OUTPUT also ships stride-9 ECEF so the renderer's
     // ECEF VS reads the same layout for parent + sub-tile. Each output
@@ -188,9 +193,9 @@ export class SubTileGenerator {
     // abs_lon/abs_lat-derived Mercator coords.
     const readPV = (vi: number): [number, number, number] => {
       const off = vi * ECEF_POLY_STRIDE
-      const absLonDeg = verts[off + 7]
-      const absLatDeg = verts[off + 8]
-      const fid = verts[off + 6]
+      const absLonDeg = verts[off + 4]
+      const absLatDeg = verts[off + 5]
+      const fid = verts[off + 3]
       const mxAbs = absLonDeg * ECEF_DEG2RAD * ECEF_EARTH_R
       const myAbs = Math.log(Math.tan(Math.PI / 4 + absLatDeg * ECEF_DEG2RAD / 2)) * ECEF_EARTH_R
       return [mxAbs - parentMx, myAbs - parentMy, fid]
@@ -383,12 +388,16 @@ export class SubTileGenerator {
       }
     }
 
+    // Polygon vertices: pack `outV` (stride-3 absolute Mercator
+    // `[mx, my, fid]`) into the PR 2f quantized ECEF layout via the
+    // canonical tiler packer. Output sits in the same ECEF frame as parent
+    // archive tiles so the renderer's ECEF VS reads one layout. The
+    // per-tile dequant params travel on the sub-tile's TileData.
+    const subQuant = packECEFPolygonVertices(outV, subTileEcefCenter)
     return {
-      // Polygon vertices: pack `outV` (stride-3 absolute Mercator
-      // `[mx, my, fid]`) into stride-9 ECEF-DSFUN via the canonical
-      // tiler packer. Output sits in the same ECEF frame as parent
-      // archive tiles so the renderer's ECEF VS reads one layout.
-      vertices: packECEFPolygonVertices(outV, subTileEcefCenter),
+      vertices: subQuant.vertices,
+      dequantScale: subQuant.dequantScale,
+      dequantHalf: subQuant.dequantHalf,
       indices: new Uint32Array(outI),
       lineVertices: new Float32Array(outLV),
       lineIndices: new Uint32Array(outLI),

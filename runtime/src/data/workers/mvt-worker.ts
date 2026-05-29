@@ -243,6 +243,9 @@ export interface MvtCompileRequest {
 export interface MvtCompileSlice {
   layerName: string
   vertices: ArrayBuffer
+  /** PR 2f per-tile quantized-position dequant params for `vertices`. */
+  dequantScale: number
+  dequantHalf: number
   indices: ArrayBuffer
   lineVertices: ArrayBuffer
   lineIndices: ArrayBuffer
@@ -398,6 +401,8 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
       const slice: MvtCompileSlice = {
         layerName: sliceKey,
         vertices: tile.vertices.buffer as ArrayBuffer,
+        dequantScale: tile.dequantScale,
+        dequantHalf: tile.dequantHalf,
         indices: tile.indices.buffer as ArrayBuffer,
         lineVertices: tile.lineVertices.buffer as ArrayBuffer,
         lineIndices: tile.lineIndices.buffer as ArrayBuffer,

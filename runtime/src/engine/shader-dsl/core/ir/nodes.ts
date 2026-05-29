@@ -60,6 +60,15 @@ export type Stmt =
   // lowerModule pre-emit pass treats placeholder as a leaf — no
   // matchExpr lowering descends into it.
   | { readonly s: 'placeholder'; readonly tag: string }
+  // Phase 2 PR 2e.B.2 — raw WGSL passthrough. Carries a pre-built WGSL
+  // fragment emitted verbatim (at the enclosing body indent) before the
+  // surrounding statements. Used by the polygon composer's fill/stroke
+  // preamble slot to inject the compiler-emitted match `_mcSS` chain
+  // string directly, retiring the renderer's former post-emit string
+  // splice (+ the compiler-side nodeToWgslString copy). GPU-only: the
+  // CPU backend throws (raw WGSL has no CPU evaluation), and the
+  // lowerModule pass treats it as a leaf (no sub-Expr to lower).
+  | { readonly s: 'raw'; readonly wgsl: string }
 
 // ── Module-level declarations ──
 

@@ -115,10 +115,12 @@ describe('runCompile — polygon features', () => {
 
     // Earcut on a quad → 2 triangles → 6 indices.
     expect(idx.length).toBe(6)
-    // PR 2c.2 polygon vertex layout: ECEF-DSFUN stride-9
-    // `[ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon, abs_lat]`.
-    // 4 unique corners = 36 floats.
-    expect(verts.length).toBe(4 * 9)
+    // PR 2f quantized polygon vertex layout: stride 24 bytes = 6 floats
+    // `[uint16×6 position | fid | abs_lon | abs_lat]`.
+    // 4 unique corners = 24 floats. Dequant params travel on the slice.
+    expect(verts.length).toBe(4 * 6)
+    expect(tile.dequantHalf).toBeGreaterThan(0)
+    expect(tile.dequantScale).toBeGreaterThan(0)
     // Both main arrays must be in the transferables list.
     expect(transferables).toContain(tile.vertices)
     expect(transferables).toContain(tile.indices)

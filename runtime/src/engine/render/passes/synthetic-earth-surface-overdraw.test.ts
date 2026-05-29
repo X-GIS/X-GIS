@@ -51,16 +51,20 @@ const OPAQUE_PASS_SRC = readFileSync(
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('AC2c.3.7 — SyntheticEarthSurfaceBackend produces standard polygon tile result', () => {
-  it('buildResult vertex count matches (32+1)*(16+1) = 561 vertices, stride-9', () => {
+  it('buildResult vertex count matches (32+1)*(16+1) = 561 vertices, stride-6 (PR 2f quantized)', () => {
     const backend = new SyntheticEarthSurfaceBackend()
     let result: import('../../../data/tile-source').BackendTileResult | null = null
     backend.attach({
       acceptResult: (_key, r) => { result = r },
     } as unknown as import('../../../data/tile-source').TileSourceSink)
     expect(result).not.toBeNull()
-    // 32×16 grid: (widthSegs+1)*(heightSegs+1) vertices, stride-9 floats each
+    // 32×16 grid: (widthSegs+1)*(heightSegs+1) vertices, PR 2f quantized layout
+    // = stride 24 bytes = 6 floats each (u16×6 position + fid/abs_lon/abs_lat).
     const expectedVertexCount = (32 + 1) * (16 + 1)   // = 561
-    expect(result!.vertices.length).toBe(expectedVertexCount * 9)
+    expect(result!.vertices.length).toBe(expectedVertexCount * 6)
+    // Dequant companion params must accompany the quantized buffer.
+    expect(result!.dequantScale).toBeGreaterThan(0)
+    expect(result!.dequantHalf).toBeGreaterThan(0)
   })
 
   it('buildResult index count matches 32*16*6 = 3072 (two triangles per cell)', () => {
@@ -73,16 +77,21 @@ describe('AC2c.3.7 — SyntheticEarthSurfaceBackend produces standard polygon ti
     expect(result!.indices.length).toBe(expectedIndexCount)
   })
 
-  it('vertices are finite floats (no NaN/Inf that would produce degenerate geometry)', () => {
+  it('f32 tail fields are finite floats (no NaN/Inf that would produce degenerate geometry)', () => {
     const backend = new SyntheticEarthSurfaceBackend()
     let result: import('../../../data/tile-source').BackendTileResult | null = null
     backend.attach({
       acceptResult: (_key, r) => { result = r },
     } as unknown as import('../../../data/tile-source').TileSourceSink)
     const verts = result!.vertices
+    // PR 2f: floats 0..2 of each stride-6 vertex are the quantized u16×6
+    // position lanes (NaN/denormal when reinterpreted as f32 — expected).
+    // Only the f32 tail (fid@3, abs_lon@4, abs_lat@5) is real f32 data.
     let nanCount = 0
-    for (let i = 0; i < verts.length; i++) {
-      if (!Number.isFinite(verts[i])) nanCount++
+    for (let i = 0; i < verts.length; i += 6) {
+      if (!Number.isFinite(verts[i + 3])) nanCount++
+      if (!Number.isFinite(verts[i + 4])) nanCount++
+      if (!Number.isFinite(verts[i + 5])) nanCount++
     }
     expect(nanCount).toBe(0)
   })

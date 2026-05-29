@@ -24,12 +24,12 @@ import {
   entryFn, fn, module, bindingRef, constRef, callFn,
   f32, u32, vec2, vec2u, vec3, vec4, toF32, toU32, transformMat4, clamp, select,
   abs, fract, max, min, mix, pow, sqrt, dot, log, tan, textureSample,
-  f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
+  f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, vec4uT, mat4x4fT, texture2dfT, samplerT,
   structT,
   Node, Builder, arrayT,
   type StructDecl, type StructField, type ModuleDecl, type Stmt, type BindingDecl,
 } from '../core/ir'
-import { emitModule } from '../core/backends/wgsl'
+import { emitModule, emitFunc } from '../core/backends/wgsl'
 import { PROJECTION_WGSL_CONSTS, PROJECTION_WGSL_FNS } from './projections'
 import { LOG_DEPTH_WGSL_FNS } from './log-depth'
 
@@ -65,6 +65,12 @@ const Uniforms: StructDecl = {
     { name: 'extrude_base_m', type: f32T },
     { name: 'fill_translate_x', type: f32T },
     { name: 'fill_translate_y', type: f32T },
+    // Phase 2 PR 2f — per-tile quantized-position dequant. The VS decodes
+    // ecef_rtc per axis as `q = f32(hi)*65536 + f32(lo);
+    // axis = q*tile_dequant_scale - tile_dequant_half`. Written per tile
+    // alongside cam_h/tile_origin_merc in vector-tile-renderer.
+    { name: 'tile_dequant_scale', type: f32T },
+    { name: 'tile_dequant_half', type: f32T },
   ],
 }
 
@@ -253,11 +259,40 @@ const vsMain = entryFn(
 // the projection-specific 3D→clip pipeline is fully baked into u.mvp
 // by the CPU camera (Camera.getECEFFrameView).
 
+// Shared quantized-ECEF dequant — the SINGLE source for the q→ecef_rtc decode.
+// Called by vs_main_ecef + vs_main_ecef_extruded (so they can't drift), AND
+// run standalone in the compute parity harness so the real GPU f32 result is
+// checked against the CPU fround mirror (dequantVertexF32). The whole point of
+// extracting it: the verification kernel executes the EXACT shader logic, not
+// a hand-retyped copy. q = f32(hi)*65536 + f32(lo); axis = q*scale - half.
+const dequantEcefFn = fn(
+  'dequant_ecef',
+  { q_xy: vec4uT, q_z: vec2uT, scale: f32T, half: f32T },
+  vec3fT,
+  (b, { q_xy, q_z, scale, half }) => {
+    const qx = b.let('qx', toF32(q_xy.x).mul(f32(65536)).add(toF32(q_xy.y)))
+    const qy = b.let('qy', toF32(q_xy.z).mul(f32(65536)).add(toF32(q_xy.w)))
+    const qz = b.let('qz', toF32(q_z.x).mul(f32(65536)).add(toF32(q_z.y)))
+    b.ret(vec3(
+      qx.mul(scale).sub(half),
+      qy.mul(scale).sub(half),
+      qz.mul(scale).sub(half),
+    ))
+  },
+)
+
+// Standalone WGSL for the shared dequant fn — spliced into the compute parity
+// harness (_dequant-parity.spec.ts) so the kernel runs the EXACT shader dequant
+// and its f32 output is checked against the CPU fround mirror (dequantVertexF32).
+export const DEQUANT_ECEF_WGSL = emitFunc(dequantEcefFn)
+
 const vsMainEcef = entryFn(
   'vs_main_ecef', 'vertex',
   [
-    { name: 'pos_h', type: vec3fT, location: 0 },
-    { name: 'pos_l', type: vec3fT, location: 1 },
+    // PR 2f quantized position: uint16x4 (qx_hi,qx_lo,qy_hi,qy_lo) at loc 0,
+    // uint16x2 (qz_hi,qz_lo) at loc 1. WebGPU widens uint16 → u32 lanes.
+    { name: 'q_xy', type: vec4uT, location: 0 },
+    { name: 'q_z', type: vec2uT, location: 1 },
     { name: 'feature_id', type: f32T, location: 2 },
     { name: 'abs_lon', type: f32T, location: 3 },
     { name: 'abs_lat', type: f32T, location: 4 },
@@ -269,13 +304,16 @@ const vsMainEcef = entryFn(
     const layerDepthOff = u.field('layer_depth_offset', f32T)
     const fillTx = u.field('fill_translate_x', f32T)
     const fillTy = u.field('fill_translate_y', f32T)
+    const dqScale = u.field('tile_dequant_scale', f32T)
+    const dqHalf = u.field('tile_dequant_half', f32T)
     const deg2rad = constRef('DEG2RAD')
     const earthR = constRef('EARTH_R')
     const pi = constRef('PI')
     const mercLatLim = constRef('MERCATOR_LAT_LIMIT')
 
-    // DSFUN reconstruction in true ECEF metres (camera-relative tile-local).
-    const ecefRtc = b.let('ecef_rtc', p.pos_h.add(p.pos_l))
+    // PR 2f dequant via the shared dequant_ecef fn (single source; also run
+    // standalone in the compute parity harness vs the CPU fround mirror).
+    const ecefRtc = b.let('ecef_rtc', callFn('dequant_ecef', vec3fT, p.q_xy, p.q_z, dqScale, dqHalf))
     // Reconstruct Mercator absolute coords for the fragment-side
     // hemisphere-cull recompute (kept unchanged from vs_main_quantized's
     // contract — polygonCosCFragment + polygonRimAlpha consume abs_merc_x +
@@ -326,8 +364,11 @@ const vsMainEcef = entryFn(
 const vsMainEcefExtruded = entryFn(
   'vs_main_ecef_extruded', 'vertex',
   [
-    { name: 'pos_h', type: vec3fT, location: 0 },
-    { name: 'pos_l', type: vec3fT, location: 1 },
+    // PR 2f quantized position (same split as vs_main_ecef): uint16x4 +
+    // uint16x2. The f32 tail (fid/abs_lon/abs_lat/face_normal/wall_height/
+    // is_top) shifts down accordingly in @location.
+    { name: 'q_xy', type: vec4uT, location: 0 },
+    { name: 'q_z', type: vec2uT, location: 1 },
     { name: 'feature_id', type: f32T, location: 2 },
     { name: 'abs_lon', type: f32T, location: 3 },
     { name: 'abs_lat', type: f32T, location: 4 },
@@ -343,15 +384,18 @@ const vsMainEcefExtruded = entryFn(
     const fillTx = u.field('fill_translate_x', f32T)
     const fillTy = u.field('fill_translate_y', f32T)
     const fillColor = u.field('fill_color', vec4fT)
+    const dqScale = u.field('tile_dequant_scale', f32T)
+    const dqHalf = u.field('tile_dequant_half', f32T)
     const deg2rad = constRef('DEG2RAD')
     const earthR = constRef('EARTH_R')
     const pi = constRef('PI')
     const mercLatLim = constRef('MERCATOR_LAT_LIMIT')
 
-    // DSFUN reconstruction. Both wall-bottom + wall-top + roof vertices
-    // are pre-positioned in ECEF metres by the runtime wall-mesh, so the
-    // VS sees a single linear transform here.
-    const ecefRtc = b.let('ecef_rtc', p.pos_h.add(p.pos_l))
+    // PR 2f dequant via the shared dequant_ecef fn (same single source as
+    // vs_main_ecef). Both wall-bottom + wall-top + roof vertices are
+    // pre-positioned + quantized in ECEF metres by the runtime wall-mesh
+    // (half-range computed post-lift), so the VS just decodes + transforms.
+    const ecefRtc = b.let('ecef_rtc', callFn('dequant_ecef', vec3fT, p.q_xy, p.q_z, dqScale, dqHalf))
     const absMercX = b.let('abs_merc_x', p.abs_lon.mul(deg2rad).mul(earthR))
     const absLatClamped = b.let('abs_lat_clamped', clamp(p.abs_lat, mercLatLim.neg(), mercLatLim))
     const absMercY = b.let('abs_merc_y',
@@ -850,6 +894,7 @@ const buildPolygonModule = (
       { group: 0, binding: 6, name: 'sprite_samp', space: 'uniform', type: samplerT },
     ],
     funcs: [
+      dequantEcefFn,
       polygonCosCFragment,
       polygonRimAlpha,
       vsMain,

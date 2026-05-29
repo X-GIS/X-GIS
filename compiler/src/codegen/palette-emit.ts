@@ -46,7 +46,7 @@
 //     driven, time-interpolated) keeps its existing path.
 
 import type { Palette } from './palette'
-import type { NodeLike } from './_back-compat/node-to-wgsl-string'
+import type { NodeLike } from './node-types'
 import {
   f32Lit, f32Sub, f32Div, refF32, clampF32,
   varRefTexture2d, varRefSampler, vec2f, textureSampleLevelVec4,

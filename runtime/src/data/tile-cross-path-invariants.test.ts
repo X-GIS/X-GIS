@@ -31,13 +31,14 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const TRIANGLE_PATH = resolve(__dirname, '../../../playground/public/data/fixture-triangle.geojson')
 const COUNTRIES_PATH = resolve(__dirname, '../../../playground/public/data/countries.geojson')
 
-// PR 2c.2: polygon vertices now ship as ECEF-DSFUN stride-9
-// `[ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon_deg, abs_lat_deg]`.
-// We reproject via the packed abs_lon/abs_lat slots to recover
-// tile-local Mercator metres for the geometric invariant checks below
-// (areas, boundary-edge alignment). Line vertices remain Mercator-DSFUN
+// PR 2f: polygon vertices now ship as the quantized ECEF layout — stride 24
+// bytes = 6 floats (uint16×6 position + f32 fid + f32 abs_lon_deg + f32
+// abs_lat_deg at float slots 3/4/5). We reproject via the packed
+// abs_lon/abs_lat slots to recover tile-local Mercator metres for the
+// geometric invariant checks below (areas, boundary-edge alignment) — the
+// quantized position is never read here. Line vertices remain Mercator-DSFUN
 // stride-10 until PR 2d.
-const POLY_STRIDE = 9
+const POLY_STRIDE = 6
 const LINE_STRIDE = 10
 const EARTH_R_ = 6378137
 const DEG2RAD_ = Math.PI / 180
@@ -55,8 +56,8 @@ function polyVertex(
   tileMx: number, tileMy: number,
 ): [number, number] {
   const base = i * POLY_STRIDE
-  const lonDeg = vertices[base + 7]
-  const latDeg = vertices[base + 8]
+  const lonDeg = vertices[base + 4]
+  const latDeg = vertices[base + 5]
   const mx = lonDeg * DEG2RAD_ * EARTH_R_
   const my = Math.log(Math.tan(Math.PI / 4 + latDeg * DEG2RAD_ / 2)) * EARTH_R_
   return [mx - tileMx, my - tileMy]
@@ -372,44 +373,41 @@ describe('cross-path: generateSubTile area conservation', () => {
 // invariant breaks, pan/zoom at high latitudes visibly jitters by
 // metres.
 
-describe('cross-path: DSFUN reconstruction precision', () => {
-  it('every polygon vertex hi+lo is finite, in-range, and lo stays inside f32 half-ulp of hi', { timeout: 20_000 }, () => {
-    // PR 2c.2 transition: polygon vertices are now ECEF-DSFUN stride-9.
-    // The hi half lives at offset 0..2 (ex_h, ey_h, ez_h) and the lo
-    // half at 3..5 (ex_l, ey_l, ez_l) — the residue invariant applies
-    // per-axis. Residual magnitude bound grows from ~1 m (Mercator
-    // tile-local DSFUN) to a few metres (ECEF-RTC tile-anchored DSFUN
-    // at Earth-radius magnitude); 8 m matches the AC2c.1.1 sub-mm
-    // round-trip envelope (per-axis lo carries f64 → f32 truncation
-    // residue, bounded by f32 half-ulp at the ~tile-extent scale).
+describe('cross-path: quantized ECEF reconstruction precision', () => {
+  it('every polygon vertex dequants finite, in-range (|axis| ≤ dequantHalf), no clamp', { timeout: 20_000 }, () => {
+    // PR 2f: polygon position is 32-bit fixed point per axis, split into
+    // uint16 hi/lo over the per-tile symmetric range [-dequantHalf,
+    // +dequantHalf]. The GPU VS reconstructs q = hi*65536 + lo; axis =
+    // q*dequantScale - dequantHalf. The invariant: dequant is finite and,
+    // by construction (halfRange = exact max-abs over the tile's verts +
+    // epsilon), every axis stays within ±dequantHalf — i.e. no encode lane
+    // overflowed (no 0xFFFF saturation / 0x0000 floor at the extremes).
     const gj = loadGeoJSON(TRIANGLE_PATH)
     const batchSet = compileGeoJSONToTiles(gj, { minZoom: 0, maxZoom: 5 })
-    let maxResidue = 0
     let checked = 0
     for (const level of batchSet.levels) for (const tile of level.tiles.values()) {
       const n = tile.vertices.length / POLY_STRIDE
+      if (n === 0) continue
+      const half = tile.dequantHalf
+      const scale = tile.dequantScale
+      expect(Number.isFinite(half) && half > 0, 'dequantHalf sane').toBe(true)
+      expect(Number.isFinite(scale) && scale > 0, 'dequantScale sane').toBe(true)
+      const u16 = new Uint16Array(tile.vertices.buffer, tile.vertices.byteOffset)
       for (let i = 0; i < n; i++) {
-        const base = i * POLY_STRIDE
+        const lane = i * POLY_STRIDE * 2  // 2 u16 lanes per float; pos = first 6 lanes
         for (let axis = 0; axis < 3; axis++) {
-          const hi = tile.vertices[base + axis]
-          const lo = tile.vertices[base + 3 + axis]
-          const reconstructed = hi + lo
-          expect(Number.isFinite(reconstructed)).toBe(true)
-          // ECEF RTC vertex magnitudes are tile-extent metres at most
-          // (per `tileEcefCenter` subtraction); 1e7 leaves headroom.
-          expect(Math.abs(reconstructed)).toBeLessThan(1e7)
+          const hi = u16[lane + axis * 2]!
+          const lo = u16[lane + axis * 2 + 1]!
+          const q = hi * 65536 + lo
+          const recon = q * scale - half
+          expect(Number.isFinite(recon)).toBe(true)
+          // Within the symmetric range + a 1 mm slack for the epsilon/round.
+          expect(Math.abs(recon)).toBeLessThanOrEqual(half + 1e-3)
           checked++
-          if (Math.abs(lo) > maxResidue) maxResidue = Math.abs(lo)
         }
       }
     }
     expect(checked, 'no vertices checked').toBeGreaterThan(0)
-    // ECEF DSFUN lo half: bounded by f32 half-ulp at the magnitude of
-    // the residual after `tileEcefCenter` subtraction. The residue
-    // budget is set generously vs the Mercator-DSFUN baseline (1 m)
-    // because the worst-case input to Math.fround is now an Earth-
-    // radius-scale ECEF residual, not a tile-extent Mercator metre.
-    expect(maxResidue, 'hi/lo residue out of f32 half-ulp range').toBeLessThan(8.0)
   })
 })
 

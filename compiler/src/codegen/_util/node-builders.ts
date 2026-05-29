@@ -9,14 +9,10 @@
 // `Node<K>` class directly (compiler tsconfig rootDir excludes
 // runtime/ + a workspace value-dep would cycle); these helpers
 // build the structural Expr literals + the NodeLike wrapper so the
-// migration sites have a stable authoring surface.
-//
-// REMOVED IN STEP 14 with the rest of the `_back-compat/` directory
-// once US-008's polygon DSL composer accepts Node values directly
-// (at which point the compiler imports from `@xgis/runtime` via the
-// then-collapsed cycle).
+// compiler-side codegen sites have a stable authoring surface. The
+// NodeLike / Expr vocabulary lives in the permanent `../node-types`.
 
-import type { NodeLike } from '../_back-compat/node-to-wgsl-string'
+import type { NodeLike } from '../node-types'
 
 // ── ShaderType mirror (matches runtime IR shapes) ──
 

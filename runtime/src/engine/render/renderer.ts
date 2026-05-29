@@ -11,6 +11,9 @@ import {
   OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT,
 } from '../gpu/gpu-shared'
 import { isPickEnabled, getSampleCount } from '../gpu/gpu'
+import { POLYGON_FILL_FORMAT, POLYGON_EXTRUDED_FORMAT } from '@xgis/compiler'
+import { toVertexBufferLayout } from './vertex-buffer-layout'
+import { LINE_FORMAT } from './line-vertex-format'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import { resolveNumberShape, resolveColorShape } from './paint-shape-resolve'
 import { ComputeDispatcher } from '../gpu/compute'
@@ -45,13 +48,7 @@ import { emitPolygonWgsl } from '../shader-dsl/shaders/polygon'
 import { emitOverdrawComposeWgsl } from '../shader-dsl/shaders/overdraw-compose'
 import { emitOitComposeWgsl } from '../shader-dsl/shaders/oit-compose'
 import { Node } from '../shader-dsl/core/ir'
-// nodeToWgslString is the compiler-side copy of the runtime
-// wgsl.ts:emitExpr — used for the variant-bearing path's splice-point
-// lookup (the composer emits `out.color = <fillExpr-wgsl>;` using the
-// runtime emit; nodeToWgslString produces the same string, so the splice
-// resolves deterministically). Kept until the per-idiom preamble migration
-// closes out the splice path and the _back-compat adapter retires.
-import { nodeToWgslString } from '@xgis/compiler'
+import type { Stmt } from '../shader-dsl/core/ir'
 
 /**
  * Build a specialized WGSL shader for a polygon variant. Routes through the
@@ -71,12 +68,11 @@ import { nodeToWgslString } from '@xgis/compiler'
  *     doesn't matter for correctness — only the binding numbers do).
  *   - `variant.fillPreamble` / `strokePreamble` strings (the categorical-
  *     encoder's `var _mcSS = ...; if (...) { _mcSS = ...; }` chain etc.)
- *     splice immediately before the composer's fill-return / stroke-return
- *     assign in fs_fill / fs_stroke. The composer emits the assign as
- *     `out.color = <fillExpr-wgsl>;` using runtime wgsl.ts:emitExpr;
- *     nodeToWgslString is the compiler-side copy of that emit — both
- *     produce byte-identical WGSL for the same Expr, so the splice point
- *     resolves deterministically.
+ *     flow into the composer as raw-WGSL Stmts in the fill-/stroke-preamble
+ *     slot; the composer emits them verbatim (at body indent) immediately
+ *     before the fill-/stroke-return assign. This replaced the former
+ *     post-emit string splice that reconstructed the assign via the
+ *     compiler-side nodeToWgslString copy (retired in PR 2e.B.2).
  */
 function buildShader(variant?: ShaderVariantInfo | null): string {
   // Default-uniform path (variant absent OR variant carries no preamble +
@@ -87,15 +83,14 @@ function buildShader(variant?: ShaderVariantInfo | null): string {
   }
 
   // Variant-bearing path — feed Node-typed exprs + needsFeatureBuffer into
-  // the composer. preamble + fillPreamble + strokePreamble strings splice
-  // post-emit until the per-idiom Partial<ModuleDecl> / Stmt[] migration
-  // closes them out in PR-C.
-  // The compiler-side _back-compat NodeLike.expr captures the same Expr
-  // shape the runtime IR Expr union defines, but TypeScript treats them as
-  // nominally different types (different file-local declarations). Cast
-  // through `unknown` at the seam — the structural mirroring is pinned by
-  // the _back-compat round-trip test. Both casts retire together once
-  // ShaderVariant.fillExpr/strokeExpr migrate to the runtime Expr type.
+  // the composer. variant.preamble (module-shape string) still splices
+  // post-emit until the Partial<ModuleDecl> migration closes it out.
+  // The compiler-side NodeLike.expr captures the same Expr shape the runtime
+  // IR Expr union defines, but TypeScript treats them as nominally different
+  // types (different file-local declarations). Cast through `unknown` at the
+  // seam — the structural mirroring is pinned by the node-to-wgsl round-trip
+  // test. Both casts retire once ShaderVariant.fillExpr/strokeExpr migrate to
+  // the runtime Expr type.
   type RuntimeExpr = ConstructorParameters<typeof Node>[0]
   const fillExprNode =
     variant.fillExpr && !variant.fillIsDefault
@@ -105,6 +100,14 @@ function buildShader(variant?: ShaderVariantInfo | null): string {
     variant.strokeExpr && !variant.strokeIsDefault
       ? new Node<'vec4<f32>'>(variant.strokeExpr.expr as unknown as RuntimeExpr)
       : null
+  // The compiler emits fill/stroke preambles (the categorical `_mcSS` match
+  // chain) as WGSL strings. Wrap each as a raw-WGSL Stmt so the composer
+  // emits it verbatim before the fill-/stroke-return assign — byte-identical
+  // to the former post-emit splice, without the nodeToWgslString reconstruction.
+  const fillPreamble: readonly Stmt[] | null =
+    fillExprNode && variant.fillPreamble ? [{ s: 'raw', wgsl: variant.fillPreamble }] : null
+  const strokePreamble: readonly Stmt[] | null =
+    strokeExprNode && variant.strokePreamble ? [{ s: 'raw', wgsl: variant.strokePreamble }] : null
   // ShaderVariantInfo.fillExpr expects Node<'vec4<f32>'>; the runtime Node
   // class carries the same {op:'construct'|...} Expr shape that the
   // compiler-side NodeLike captures, so the constructor call is the bridge.
@@ -113,8 +116,8 @@ function buildShader(variant?: ShaderVariantInfo | null): string {
       preamble: null,
       fillExpr: fillExprNode,
       strokeExpr: strokeExprNode,
-      fillPreamble: null,
-      strokePreamble: null,
+      fillPreamble,
+      strokePreamble,
       needsFeatureBuffer: variant.needsFeatureBuffer,
     },
     isPickEnabled(),
@@ -134,23 +137,6 @@ function buildShader(variant?: ShaderVariantInfo | null): string {
         + '\n'
         + wgsl.slice(insertAt)
     }
-  }
-
-  // Splice fillPreamble (string) before the variant fill-return assign.
-  // The composer's fill-return assign is `  out.color = <wgsl>;` with the
-  // standard 2-space body indent; matching on the leading whitespace +
-  // exact assign keeps the splice unambiguous (fs_oit_translucent /
-  // fs_fill_pattern / fs_fill_extrude all assign out.color too but with
-  // different RHS Exprs, so the variantFillExpr-bound match is unique).
-  if (variant.fillExpr && !variant.fillIsDefault && variant.fillPreamble) {
-    const fillExprStr = nodeToWgslString(variant.fillExpr)
-    const assign = `out.color = ${fillExprStr};`
-    wgsl = wgsl.replace(assign, variant.fillPreamble + '\n  ' + assign)
-  }
-  if (variant.strokeExpr && !variant.strokeIsDefault && variant.strokePreamble) {
-    const strokeExprStr = nodeToWgslString(variant.strokeExpr)
-    const assign = `out.color = ${strokeExprStr};`
-    wgsl = wgsl.replace(assign, variant.strokePreamble + '\n  ' + assign)
   }
 
   return wgsl
@@ -729,55 +715,18 @@ export class MapRenderer {
       bindGroupLayouts: [this.bindGroupLayout],
     })
 
-    // PR 2c.2: polygon flat-fill ECEF stride-9 floats = 36 bytes.
-    // [pos_h(vec3) + pos_l(vec3) + feat_id(f32) + abs_lon(f32) + abs_lat(f32)]
-    // Bound to vs_main_ecef which runs a single linear mvp_ecef transform
-    // on (pos_h + pos_l); abs_lon/abs_lat reconstruct Mercator absolutes
-    // for the fragment-side hemisphere cull.
-    const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 36,
-      attributes: [
-        { shaderLocation: 0, offset:  0, format: 'float32x3' as GPUVertexFormat }, // pos_h
-        { shaderLocation: 1, offset: 12, format: 'float32x3' as GPUVertexFormat }, // pos_l
-        { shaderLocation: 2, offset: 24, format: 'float32'   as GPUVertexFormat }, // feat_id
-        { shaderLocation: 3, offset: 28, format: 'float32'   as GPUVertexFormat }, // abs_lon
-        { shaderLocation: 4, offset: 32, format: 'float32'   as GPUVertexFormat }, // abs_lat
-      ],
-    }
-    // PR 2c.2: polygon extruded ECEF stride-14 floats = 56 bytes. Unified buffer
-    // (replaces flat-fill + separate extrudedZBufferLayout).
-    // [pos_h(vec3) + pos_l(vec3) + feat_id(f32) + abs_lon(f32) + abs_lat(f32)
-    //  + face_normal(vec3) + wall_height(f32) + is_top(f32)]
-    // Bound to vs_main_ecef_extruded. face_normal drives MapLibre face-
-    // normal directional lighting in the VERTEX stage; wall_height +
-    // is_top discriminate wall-bottom vs wall-top + roof faces.
-    const extrudedVertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 56,
-      attributes: [
-        { shaderLocation: 0, offset:  0, format: 'float32x3' as GPUVertexFormat }, // pos_h
-        { shaderLocation: 1, offset: 12, format: 'float32x3' as GPUVertexFormat }, // pos_l
-        { shaderLocation: 2, offset: 24, format: 'float32'   as GPUVertexFormat }, // feat_id
-        { shaderLocation: 3, offset: 28, format: 'float32'   as GPUVertexFormat }, // abs_lon
-        { shaderLocation: 4, offset: 32, format: 'float32'   as GPUVertexFormat }, // abs_lat
-        { shaderLocation: 5, offset: 36, format: 'float32x3' as GPUVertexFormat }, // face_normal
-        { shaderLocation: 6, offset: 48, format: 'float32'   as GPUVertexFormat }, // wall_height
-        { shaderLocation: 7, offset: 52, format: 'float32'   as GPUVertexFormat }, // is_top
-      ],
-    }
-    // ECEF-DSFUN line vertex (PR 2d.1D): stride-9 = 36 bytes.
-    // [ex_h, ey_h, ez_h,  ex_l, ey_l, ez_l,  feat_id, abs_lon, abs_lat]
-    //  loc0 (vec3 @0)     loc1 (vec3 @12)     loc2 @24  loc3 @28  loc4 @32
-    // Mirrors vertexBufferLayout (polygon ECEF stride-36). Consumer: vs_main.
-    const lineVertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 36,
-      attributes: [
-        { shaderLocation: 0, offset:  0, format: 'float32x3' as GPUVertexFormat },
-        { shaderLocation: 1, offset: 12, format: 'float32x3' as GPUVertexFormat },
-        { shaderLocation: 2, offset: 24, format: 'float32'   as GPUVertexFormat },
-        { shaderLocation: 3, offset: 28, format: 'float32'   as GPUVertexFormat },
-        { shaderLocation: 4, offset: 32, format: 'float32'   as GPUVertexFormat },
-      ],
-    }
+    // PR 2f: polygon flat-fill QUANTIZED ECEF, stride 24 bytes.
+    // [uint16x4 (qx_hi,qx_lo,qy_hi,qy_lo) + uint16x2 (qz_hi,qz_lo)
+    //  + feat_id(f32) + abs_lon(f32) + abs_lat(f32)]
+    // Bound to vs_main_ecef / vs_main_ecef_extruded. Derived from the
+    // single-source POLYGON_FILL_FORMAT / POLYGON_EXTRUDED_FORMAT specs
+    // (@xgis/compiler) that the packer + WGSL @location also derive from —
+    // so layout, packer, and shader attributes cannot drift.
+    const vertexBufferLayout = toVertexBufferLayout(POLYGON_FILL_FORMAT)
+    const extrudedVertexBufferLayout = toVertexBufferLayout(POLYGON_EXTRUDED_FORMAT)
+    // Line vertex layout from the single-source LINE_FORMAT spec (consumer:
+    // vs_main). Same derivation as the two variant builders below — no copies.
+    const lineVertexBufferLayout = toVertexBufferLayout(LINE_FORMAT)
 
     // Pipeline color target list. When picking is on, append an RG32Uint
     // target at location 1 that the fragment shader's out.pick writes into.
@@ -1541,27 +1490,11 @@ export class MapRenderer {
       bindGroupLayouts: [layout],
     })
 
-    // PR 2c.2 polygon ECEF stride-9 layout — matches initPipelines() above.
-    const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 36,
-      attributes: [
-        { shaderLocation: 0, offset:  0, format: 'float32x3' as GPUVertexFormat },
-        { shaderLocation: 1, offset: 12, format: 'float32x3' as GPUVertexFormat },
-        { shaderLocation: 2, offset: 24, format: 'float32'   as GPUVertexFormat },
-        { shaderLocation: 3, offset: 28, format: 'float32'   as GPUVertexFormat },
-        { shaderLocation: 4, offset: 32, format: 'float32'   as GPUVertexFormat },
-      ],
-    }
-    const lineVertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 36,
-      attributes: [
-        { shaderLocation: 0, offset:  0, format: 'float32x3' as GPUVertexFormat },
-        { shaderLocation: 1, offset: 12, format: 'float32x3' as GPUVertexFormat },
-        { shaderLocation: 2, offset: 24, format: 'float32'   as GPUVertexFormat },
-        { shaderLocation: 3, offset: 28, format: 'float32'   as GPUVertexFormat },
-        { shaderLocation: 4, offset: 32, format: 'float32'   as GPUVertexFormat },
-      ],
-    }
+    // Polygon variant fill layout — derived from the single-source
+    // POLYGON_FILL_FORMAT spec (same as the base path + packer + WGSL
+    // @location), so the variant builders cannot drift from vs_main_ecef.
+    const vertexBufferLayout = toVertexBufferLayout(POLYGON_FILL_FORMAT)
+    const lineVertexBufferLayout = toVertexBufferLayout(LINE_FORMAT)
 
     const buildSetDesc = (targets: GPUColorTargetState[], suffix: string) => ({
       fill: {
@@ -1676,27 +1609,11 @@ export class MapRenderer {
       bindGroupLayouts: [layout],
     })
 
-    // PR 2c.2 polygon ECEF stride-9 layout — matches initPipelines() above.
-    const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 36,
-      attributes: [
-        { shaderLocation: 0, offset:  0, format: 'float32x3' as GPUVertexFormat },
-        { shaderLocation: 1, offset: 12, format: 'float32x3' as GPUVertexFormat },
-        { shaderLocation: 2, offset: 24, format: 'float32'   as GPUVertexFormat },
-        { shaderLocation: 3, offset: 28, format: 'float32'   as GPUVertexFormat },
-        { shaderLocation: 4, offset: 32, format: 'float32'   as GPUVertexFormat },
-      ],
-    }
-    const lineVertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 36,
-      attributes: [
-        { shaderLocation: 0, offset:  0, format: 'float32x3' as GPUVertexFormat },
-        { shaderLocation: 1, offset: 12, format: 'float32x3' as GPUVertexFormat },
-        { shaderLocation: 2, offset: 24, format: 'float32'   as GPUVertexFormat },
-        { shaderLocation: 3, offset: 28, format: 'float32'   as GPUVertexFormat },
-        { shaderLocation: 4, offset: 32, format: 'float32'   as GPUVertexFormat },
-      ],
-    }
+    // Polygon variant fill layout — derived from the single-source
+    // POLYGON_FILL_FORMAT spec (same as the base path + packer + WGSL
+    // @location), so the variant builders cannot drift from vs_main_ecef.
+    const vertexBufferLayout = toVertexBufferLayout(POLYGON_FILL_FORMAT)
+    const lineVertexBufferLayout = toVertexBufferLayout(LINE_FORMAT)
 
     const buildSet = (targets: GPUColorTargetState[], suffix: string) => ({
       fill: device.createRenderPipeline({

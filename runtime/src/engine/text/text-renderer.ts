@@ -20,11 +20,18 @@ import { FrameArena } from '../gpu/frame-arena'
 import { bumpAlloc } from '../__profile__/alloc-counter'
 import type { TextDraw } from './text-renderer-types'
 import { emitTextWgsl } from '../shader-dsl'
+import { vertexField } from '@xgis/compiler'
+import { TEXT_FORMAT } from './text-vertex-format'
+import { toVertexBufferLayout } from '../render/vertex-buffer-layout'
 
 export type { TextDraw } from './text-renderer-types'
 
 const VERTS_PER_GLYPH = 6  // two triangles
-const FLOATS_PER_VERT = 4  // posX, posY, uvX, uvY
+// Derived from the single-source TEXT_FORMAT spec so the packer cannot drift
+// from the GPUVertexBufferLayout / text `vs` @location.
+const FLOATS_PER_VERT = TEXT_FORMAT.stride / 4                       // 4 (posX,posY,uvX,uvY)
+const TEXT_PX_SLOT = vertexField(TEXT_FORMAT, 'pos_px').offset / 4   // 0 (x,y = 0,1)
+const TEXT_UV_SLOT = vertexField(TEXT_FORMAT, 'uv').offset / 4       // 2 (u,v = 2,3)
 const FLOATS_PER_GLYPH = VERTS_PER_GLYPH * FLOATS_PER_VERT
 
 // The SDF-text shader (px->NDC quad + MapLibre symbol_sdf fill/halo fragment)
@@ -105,13 +112,7 @@ export class TextRenderer {
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.bgLayout] }),
       vertex: {
         module, entryPoint: 'vs',
-        buffers: [{
-          arrayStride: FLOATS_PER_VERT * 4,
-          attributes: [
-            { shaderLocation: 0, offset: 0, format: 'float32x2' },        // pos_px
-            { shaderLocation: 1, offset: 8, format: 'float32x2' },        // uv
-          ],
-        }],
+        buffers: [toVertexBufferLayout(TEXT_FORMAT)],
       },
       fragment: {
         module, entryPoint: 'fs',
@@ -284,14 +285,16 @@ export class TextRenderer {
         }
 
         const off = glyphIdx * FLOATS_PER_GLYPH
+        // Write one vertex at quad-corner v using spec-derived slots.
+        const W = (v: number, x: number, y: number, uu: number, vv: number): void => {
+          const o = off + v * FLOATS_PER_VERT
+          data[o + TEXT_PX_SLOT] = x; data[o + TEXT_PX_SLOT + 1] = y
+          data[o + TEXT_UV_SLOT] = uu; data[o + TEXT_UV_SLOT + 1] = vv
+        }
         // tri 1: TL, BL, BR
-        data[off + 0] = tlx; data[off + 1] = tly; data[off + 2] = u0;  data[off + 3] = v0
-        data[off + 4] = blx; data[off + 5] = bly; data[off + 6] = u0;  data[off + 7] = v1
-        data[off + 8] = brx; data[off + 9] = bry; data[off + 10] = u1; data[off + 11] = v1
+        W(0, tlx, tly, u0, v0); W(1, blx, bly, u0, v1); W(2, brx, bry, u1, v1)
         // tri 2: TL, BR, TR
-        data[off + 12] = tlx; data[off + 13] = tly; data[off + 14] = u0; data[off + 15] = v0
-        data[off + 16] = brx; data[off + 17] = bry; data[off + 18] = u1; data[off + 19] = v1
-        data[off + 20] = trx; data[off + 21] = try_; data[off + 22] = u1; data[off + 23] = v0
+        W(3, tlx, tly, u0, v0); W(4, brx, bry, u1, v1); W(5, trx, try_, u1, v0)
 
         if (!offsets) {
           penX += g.advanceWidth * scale

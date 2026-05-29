@@ -1,17 +1,17 @@
 // ═══════════════════════════════════════════════════════════════════
-// nodeToWgslString — adapter round-trip (Phase 2.5 US-003)
+// nodeToWgslString — Expr → WGSL emit oracle round-trip
 // ═══════════════════════════════════════════════════════════════════
 //
-// Pins the boundary between Node-shaped compiler emit (US-004 onward)
-// and the legacy string-consuming runtime path. The test stays here
-// until US-008 deletes the adapter file along with the runtime rewire.
+// Pins the compiler-side `nodeToWgslString` against the runtime's
+// `wgsl.ts:emitExpr` shape. Relocated out of `_back-compat/` in PR 2e.B.2
+// with the adapter itself when its production splice-point retired; it
+// survives as the emit-shape equality oracle used across the test suite.
 
 import { describe, it, expect } from 'vitest'
-import { nodeToWgslString } from './node-to-wgsl-string'
+import { nodeToWgslString } from './node-to-wgsl'
 
-// Hand-built mini IR fixtures — match the runtime's `node-to-wgsl-string.ts`
-// local Expr shape verbatim so the test doesn't drag in the runtime
-// workspace transitively.
+// Hand-built mini IR fixtures — match the `node-types.ts` local Expr shape
+// verbatim so the test doesn't drag in the runtime workspace transitively.
 
 const f32T = { kind: 'scalar' as const, scalar: 'f32' as const }
 const u32T = { kind: 'scalar' as const, scalar: 'u32' as const }
@@ -21,7 +21,7 @@ function f32Lit(v: number) {
   return { expr: { op: 'lit' as const, type: f32T, value: v } }
 }
 
-describe('nodeToWgslString — Phase 2.5 US-003 adapter', () => {
+describe('nodeToWgslString — Expr → WGSL oracle', () => {
   it('round-trips a scalar arithmetic binop to parenthesised WGSL', () => {
     const node = {
       expr: {

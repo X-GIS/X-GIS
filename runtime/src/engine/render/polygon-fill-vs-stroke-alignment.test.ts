@@ -43,9 +43,9 @@ function loadTriangle(): GeoJSONFeatureCollection {
   return JSON.parse(readFileSync(TRIANGLE_PATH, 'utf8')) as GeoJSONFeatureCollection
 }
 
-/** ECEF-DSFUN polygon vertex stride 9 (Phase 2 PR 2c.2):
- *  [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon_deg, abs_lat_deg] */
-const POLY_STRIDE = 9
+/** Quantized ECEF polygon vertex (Phase 2 PR 2f): stride 24 bytes = 6 floats
+ *  [uint16×6 position | fid | abs_lon_deg | abs_lat_deg] (abs_* at slots 4/5). */
+const POLY_STRIDE = 6
 /** DSFUN line vertex stride 10: [mx_h, my_h, mx_l, my_l, fid, arc, tin_x, tin_y, tout_x, tout_y] */
 const LINE_STRIDE = 10
 
@@ -53,17 +53,17 @@ const EARTH_R = 6378137
 const DEG2RAD = Math.PI / 180
 
 /** Reconstruct a polygon-fill vertex in tile-local Mercator metres.
- *  Source layout is ECEF-DSFUN with packed `abs_lon_deg, abs_lat_deg`
- *  at slots 7 + 8 (sub-mm Mercator-inverse round-trip per
- *  `ecef-precision-fuzz.test.ts`). Reproject those to tile-local
- *  Mercator so fill + outline live in the same space. */
+ *  Source layout is quantized ECEF (PR 2f) with packed `abs_lon_deg,
+ *  abs_lat_deg` at float slots 4 + 5 (sub-mm Mercator-inverse round-trip per
+ *  `ecef-precision-fuzz.test.ts`). The quantized position is not read here.
+ *  Reproject those to tile-local Mercator so fill + outline share space. */
 function polyVertex(
   vertices: Float32Array, i: number,
   tileMx: number, tileMy: number,
 ): [number, number] {
   const base = i * POLY_STRIDE
-  const lonDeg = vertices[base + 7]
-  const latDeg = vertices[base + 8]
+  const lonDeg = vertices[base + 4]
+  const latDeg = vertices[base + 5]
   const mx = lonDeg * DEG2RAD * EARTH_R
   const my = Math.log(Math.tan(Math.PI / 4 + latDeg * DEG2RAD / 2)) * EARTH_R
   return [mx - tileMx, my - tileMy]

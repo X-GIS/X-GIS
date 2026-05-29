@@ -11,7 +11,7 @@
 // equivalent.
 
 import { describe, it, expect } from 'vitest'
-import { nodeToWgslString } from '../_back-compat/node-to-wgsl-string'
+import { nodeToWgslString } from '../node-to-wgsl'
 import {
   f32Lit, i32Lit, u32Lit, boolLit,
   constRefVec4, varRefVec4, refF32,

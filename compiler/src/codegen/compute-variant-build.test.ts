@@ -7,7 +7,7 @@ import { buildPerShowMergedVariant } from './compute-variant-build'
 import { emitMatchComputeKernel } from './compute-gen'
 import type { ShaderVariant } from './shader-gen'
 import type { ComputePlanEntry } from './compute-plan'
-import { nodeToWgslString } from './_back-compat/node-to-wgsl-string'
+import { nodeToWgslString } from './node-to-wgsl'
 
 // Phase 2.5 US-004 — fillExpr / strokeExpr migrated to NodeLike|null.
 function fillStr(v: ShaderVariant): string {

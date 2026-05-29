@@ -193,6 +193,7 @@ function walkStmtExprs(s: Stmt, visit: (e: Expr) => Expr): Stmt {
     case 'break':
     case 'continue':
     case 'discard':
+    case 'raw': // Phase 2 PR 2e.B.2 — raw WGSL leaf, no sub-Expr to lower.
     case 'placeholder': return s // Phase 2.5 US-007 — leaf, no sub-Expr to lower.
   }
 }

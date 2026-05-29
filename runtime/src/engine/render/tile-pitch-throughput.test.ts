@@ -325,9 +325,13 @@ describe('Throughput convergence: XGVT sub-tile path (the user-bug path)', () =>
 })
 
 describe('Throughput convergence: pitch sweep', () => {
-  // 30s timeout: 9 pitches × up to 200 frames × ~10-20ms per frame
-  // with cold-source setup = ~18s worst case.
-  it('records convergence frames across pitch 0→85', { timeout: 30_000 }, () => {
+  // 120s wall-clock timeout: ~18s worst case on a fast box, but loaded shared
+  // runners (CI ubuntu-latest, sandboxes) have been observed right at / over
+  // the former 30s budget. The wall-clock is only a hang guard — convergence
+  // is already bounded by the 200-frame cap in simulateConvergence, so this
+  // can't loop forever. The perf gate is the per-row frames>0 (converged
+  // within 200 frames) assertion below; the generous budget does NOT weaken it.
+  it('records convergence frames across pitch 0→85', { timeout: 120_000 }, () => {
     const rows: Array<{ pitch: number; tiles: number; frames: number }> = []
     for (const pitch of [0, 20, 40, 60, 70, 75, 80, 84, 85]) {
       const cam = new Camera(BUG.lon, BUG.lat, BUG.zoom)

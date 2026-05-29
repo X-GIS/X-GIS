@@ -48,8 +48,12 @@ import type { TileIndexEntry, PropertyTable, RingPolygon } from '@xgis/compiler'
  *  the union of fields catalog needs to call cacheTileData (or
  *  createFullCoverTileData when fullCover is set with empty vertices). */
 export interface BackendTileResult {
-  /** Polygon fill vertices — DSFUN stride 5. */
+  /** Polygon fill vertices — PR 2f quantized ECEF stride 24 bytes. */
   vertices: Float32Array
+  /** PR 2f per-tile quantized-position dequant step (metres). */
+  dequantScale: number
+  /** PR 2f per-tile symmetric residual half-range (metres). */
+  dequantHalf: number
   /** Triangle indices into `vertices`. */
   indices: Uint32Array
   /** Line vertices — DSFUN stride 10 (arc_start at [5], tangent at [6-9]). */
@@ -135,13 +139,15 @@ export type TileScheme = 'web-mercator-xyz'
  *   - Backends produced before this field shipped read as `undefined` —
  *     catalog treats `undefined` as `TILE_LAYOUT_VERSION_BASE` (the Phase
  *     1 / pre-ECEF layout) for back-compat. */
-/** Bumped 1 → 2 in PR 2c.4: PR 2c.2 switched polygon vertex bytes from
- *  Mercator-DSFUN stride-5 `[mx_h, my_h, mx_l, my_l, fid]` to ECEF-DSFUN
- *  stride-9 `[ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon, abs_lat]`.
- *  Cached pre-PR-2c.2 tiles would otherwise feed stride-5 bytes into the
- *  stride-9 ECEF VS attribute layout. Catalog evicts on attach when this
- *  doesn't match a backend's advertised `meta.layoutVersion`. */
-export const TILE_LAYOUT_VERSION = 2 as const
+/** Bumped 2 → 3 in PR 2f: polygon fill + extruded vertex bytes switched from
+ *  ECEF-DSFUN stride-9/14 f32 to the QUANTIZED ECEF layout — position is
+ *  32-bit fixed point per axis (uint16 hi/lo), flat stride 24 B / extruded
+ *  stride 44 B. Cached pre-PR-2f tiles would otherwise feed f32-position
+ *  bytes into the uint16x4/x2 VS attribute layout (garbage geometry) and
+ *  carry no per-tile dequant uniforms. Catalog evicts on attach when this
+ *  doesn't match a backend's advertised `meta.layoutVersion`.
+ *  (Prior: 1 → 2 in PR 2c.4 — Mercator-DSFUN stride-5 → ECEF-DSFUN stride-9.) */
+export const TILE_LAYOUT_VERSION = 3 as const
 export type TileLayoutVersion = typeof TILE_LAYOUT_VERSION
 
 /** Pre-version-field baseline. Tiles produced by backends that omit

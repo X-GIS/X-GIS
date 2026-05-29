@@ -44,6 +44,9 @@ export interface SerializedTile {
   tileWest: number
   tileSouth: number
   vertices: ArrayBuffer
+  /** PR 2f per-tile quantized-position dequant params for `vertices`. */
+  dequantScale: number
+  dequantHalf: number
   indices: ArrayBuffer
   lineVertices: ArrayBuffer
   lineIndices: ArrayBuffer
@@ -126,6 +129,8 @@ export function runCompile(
         z: tile.z, x: tile.x, y: tile.y,
         tileWest: tile.tileWest, tileSouth: tile.tileSouth,
         vertices: tile.vertices.buffer as ArrayBuffer,
+        dequantScale: tile.dequantScale,
+        dequantHalf: tile.dequantHalf,
         indices: tile.indices.buffer as ArrayBuffer,
         lineVertices: tile.lineVertices.buffer as ArrayBuffer,
         lineIndices: tile.lineIndices.buffer as ArrayBuffer,

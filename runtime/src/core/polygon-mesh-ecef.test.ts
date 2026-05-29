@@ -14,7 +14,10 @@ import type { RingPolygon } from '@xgis/compiler'
 import { generateWallMeshExtrudedECEF } from './polygon-mesh'
 import { lonLatToECEFSphere, tileEcefCenterFromMerc } from '../engine/projection/ecef'
 
-const STRIDE = 14
+// Phase 2 PR 2f: quantized ECEF extruded layout — stride 44 bytes = 11
+// floats. uint16×6 position in the first 12 bytes; f32 tail at float slots
+// 3..10 (fid, abs_lon, abs_lat, face_normal×3, wall_height, is_top).
+const STRIDE = 11
 const A = 6378137
 const DEG2RAD = Math.PI / 180
 
@@ -29,8 +32,8 @@ function lonLatToMerc(lon: number, lat: number): [number, number] {
 }
 
 interface UnpackedVertex {
-  ex_h: number; ey_h: number; ez_h: number
-  ex_l: number; ey_l: number; ez_l: number
+  /** Dequanted ECEF RTC residual (metres), reconstructed via the GPU's math. */
+  rx: number; ry: number; rz: number
   fid: number
   abs_lon: number; abs_lat: number
   fn_x: number; fn_y: number; fn_z: number
@@ -38,29 +41,36 @@ interface UnpackedVertex {
   is_top: number
 }
 
-function unpack(vertices: Float32Array, i: number): UnpackedVertex {
+interface MeshLike {
+  vertices: Float32Array
+  dequantScale: number
+  dequantHalf: number
+}
+
+function unpack(mesh: MeshLike, i: number): UnpackedVertex {
   const o = i * STRIDE
+  const v = mesh.vertices
+  // Dequant position via the GPU VS math: q = hi*65536 + lo; axis = q*scale - half.
+  const u16 = new Uint16Array(v.buffer, v.byteOffset)
+  const lane = i * STRIDE * 2
+  const deq = (axis: number): number =>
+    (u16[lane + axis * 2]! * 65536 + u16[lane + axis * 2 + 1]!) * mesh.dequantScale - mesh.dequantHalf
   return {
-    ex_h: vertices[o], ey_h: vertices[o + 1], ez_h: vertices[o + 2],
-    ex_l: vertices[o + 3], ey_l: vertices[o + 4], ez_l: vertices[o + 5],
-    fid: vertices[o + 6],
-    abs_lon: vertices[o + 7], abs_lat: vertices[o + 8],
-    fn_x: vertices[o + 9], fn_y: vertices[o + 10], fn_z: vertices[o + 11],
-    wall_height: vertices[o + 12],
-    is_top: vertices[o + 13],
+    rx: deq(0), ry: deq(1), rz: deq(2),
+    fid: v[o + 3]!,
+    abs_lon: v[o + 4]!, abs_lat: v[o + 5]!,
+    fn_x: v[o + 6]!, fn_y: v[o + 7]!, fn_z: v[o + 8]!,
+    wall_height: v[o + 9]!,
+    is_top: v[o + 10]!,
   }
 }
 
 function reconstructECEF(v: UnpackedVertex, center: readonly [number, number, number]): [number, number, number] {
-  return [
-    center[0] + v.ex_h + v.ex_l,
-    center[1] + v.ey_h + v.ey_l,
-    center[2] + v.ez_h + v.ez_l,
-  ]
+  return [center[0] + v.rx, center[1] + v.ry, center[2] + v.rz]
 }
 
 describe('generateWallMeshExtrudedECEF', () => {
-  it('emits stride-14 floats with correct is_top discriminator for a single quad at the equator', () => {
+  it('emits stride-44-byte quantized verts with correct is_top discriminator for a single quad at the equator', () => {
     // 1° × 1° quad straddling (0, 0). CCW outer ring (positive area in
     // mx/my). 4 unique verts; ring is CLOSED (last == first).
     const p0 = lonLatToMerc(-0.5, -0.5)
@@ -92,7 +102,7 @@ describe('generateWallMeshExtrudedECEF', () => {
     // a_bot + b_bot = is_top 0; a_top + b_top = is_top 1.
     let wallBottom = 0, wallTop = 0
     for (let i = 0; i < 16; i++) {
-      const v = unpack(mesh.vertices, i)
+      const v = unpack(mesh, i)
       if (v.is_top === 0) wallBottom++
       else if (v.is_top === 1) wallTop++
       expect(v.fid).toBe(42)
@@ -103,7 +113,7 @@ describe('generateWallMeshExtrudedECEF', () => {
 
     // Remaining 4 verts = roof, all is_top = 1.
     for (let i = 16; i < 20; i++) {
-      const v = unpack(mesh.vertices, i)
+      const v = unpack(mesh, i)
       expect(v.is_top).toBe(1)
       expect(v.fid).toBe(42)
       expect(v.wall_height).toBeCloseTo(100, 4)
@@ -111,7 +121,7 @@ describe('generateWallMeshExtrudedECEF', () => {
 
     // face_normal magnitudes ≈ 1 across all vertices.
     for (let i = 0; i < vertCount; i++) {
-      const v = unpack(mesh.vertices, i)
+      const v = unpack(mesh, i)
       const mag = Math.hypot(v.fn_x, v.fn_y, v.fn_z)
       expect(mag).toBeCloseTo(1, 5)
     }
@@ -151,7 +161,7 @@ describe('generateWallMeshExtrudedECEF', () => {
     // Roof verts come after wall verts; wall vert count = 4 edges × 4
     // = 16, so verts 16..19 are roof, in input ring order.
     for (let i = 0; i < 4; i++) {
-      const v = unpack(mesh.vertices, 16 + i)
+      const v = unpack(mesh, 16 + i)
       const [ex, ey, ez] = reconstructECEF(v, center)
       const [refX, refY, refZ] = refCorners[i]
       const dx = ex - refX, dy = ey - refY, dz = ez - refZ
@@ -187,7 +197,7 @@ describe('generateWallMeshExtrudedECEF', () => {
 
     // Roof verts at indices 16..19.
     for (let i = 16; i < 20; i++) {
-      const v = unpack(mesh.vertices, i)
+      const v = unpack(mesh, i)
       const [ex, ey, ez] = reconstructECEF(v, center)
       const pmag = Math.hypot(ex, ey, ez)
       const dot = (v.fn_x * ex + v.fn_y * ey + v.fn_z * ez) / pmag
@@ -218,7 +228,7 @@ describe('generateWallMeshExtrudedECEF', () => {
 
     // Wall verts at indices 0..15.
     for (let i = 0; i < 16; i++) {
-      const v = unpack(mesh.vertices, i)
+      const v = unpack(mesh, i)
       const [ex, ey, ez] = reconstructECEF(v, center)
       const pmag = Math.hypot(ex, ey, ez)
       const upX = ex / pmag, upY = ey / pmag, upZ = ez / pmag
@@ -245,7 +255,7 @@ describe('generateWallMeshExtrudedECEF', () => {
 
     // Still emits walls + roof (degenerate-but-present), wall_height = 0.
     for (let i = 0; i < mesh.vertices.length / STRIDE; i++) {
-      const v = unpack(mesh.vertices, i)
+      const v = unpack(mesh, i)
       expect(v.wall_height).toBe(0)
     }
   })

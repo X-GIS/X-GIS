@@ -13,6 +13,16 @@ import { resolveNumberShape } from './paint-shape-resolve'
 import { FrameArena } from '../gpu/frame-arena'
 import type { PointLayer } from './point-renderer-types'
 import { emitPointWgsl } from '../shader-dsl'
+import { vertexField } from '@xgis/compiler'
+import { POINT_FORMAT } from './point-vertex-format'
+import { toVertexBufferLayout } from './vertex-buffer-layout'
+
+// Float-slot indices derived from the single-source POINT_FORMAT spec so the
+// packer cannot drift from the GPUVertexBufferLayout / vs_point @location.
+const POINT_FLOATS_PER_VERT = POINT_FORMAT.stride / 4                        // 4
+const POINT_CENTER_FLOAT = vertexField(POINT_FORMAT, 'center').offset / 4    // 0 (x,y = 0,1)
+const POINT_QUADID_FLOAT = vertexField(POINT_FORMAT, 'quad_id').offset / 4   // 2
+const POINT_FEATID_FLOAT = vertexField(POINT_FORMAT, 'feat_id').offset / 4   // 3
 
 // ═══ Renderer ═══
 
@@ -67,14 +77,9 @@ export class PointRenderer {
     this.pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [this.bindGroupLayout] })
     const pipelineLayout = this.pipelineLayout
 
-    this.vertexBufferLayout = {
-      arrayStride: 16, // center(2×f32) + quad_id(u32) + feat_id(f32)
-      attributes: [
-        { shaderLocation: 0, offset: 0, format: 'float32x2' as GPUVertexFormat },
-        { shaderLocation: 1, offset: 8, format: 'uint32' as GPUVertexFormat },
-        { shaderLocation: 2, offset: 12, format: 'float32' as GPUVertexFormat },
-      ],
-    }
+    // Derived from the single-source POINT_FORMAT spec (vs_point @location +
+    // packer derive from the same spec, so they cannot drift).
+    this.vertexBufferLayout = toVertexBufferLayout(POINT_FORMAT)
     const vertexBufferLayout = this.vertexBufferLayout
 
     // Polygon offset (depth bias) pulls point markers slightly toward the
@@ -427,19 +432,19 @@ export class PointRenderer {
     // Build quad vertices: 4 vertices per point
     // iter-249 (Plan AAA B.2) — arena-backed.
     this._frameArena.beginFrame()
-    const verts = this._frameArena.allocF32(points.length * 4 * 4) // 4 verts × 4 floats
+    const verts = this._frameArena.allocF32(points.length * 4 * POINT_FLOATS_PER_VERT) // 4 verts/quad
     const indices = this._frameArena.allocU32(points.length * 6)
 
     const u32View = new Uint32Array(verts.buffer, verts.byteOffset, verts.length)
     for (let i = 0; i < points.length; i++) {
-      const base = i * 4 * 4 // 4 verts × 4 floats
+      const base = i * 4 * POINT_FLOATS_PER_VERT // 4 verts/quad
       const { lon, lat } = points[i]
       for (let q = 0; q < 4; q++) {
-        const off = base + q * 4
-        verts[off + 0] = lon
-        verts[off + 1] = lat
-        u32View[off + 2] = q  // quad_id as uint32 (same index — both are 4-byte elements)
-        verts[off + 3] = i    // feat_id as float32
+        const off = base + q * POINT_FLOATS_PER_VERT
+        verts[off + POINT_CENTER_FLOAT]     = lon
+        verts[off + POINT_CENTER_FLOAT + 1] = lat
+        u32View[off + POINT_QUADID_FLOAT] = q  // quad_id as uint32 (4-byte element, same slot)
+        verts[off + POINT_FEATID_FLOAT] = i    // feat_id as float32
       }
       const iBase = i * 6
       const vBase = i * 4

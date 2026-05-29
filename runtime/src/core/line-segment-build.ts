@@ -5,12 +5,11 @@
 // LineRenderer class re-exports from here.
 
 // ═══ Segment Buffer Layout ═══
-// 104 bytes per segment (stride 26 f32). Phase 1: p0, p1 only. Later
+// 80 bytes per segment (stride 20 f32). Phase 1: p0, p1 only. Later
 // phases added prev/next tangents, arc_start, line_length, then
-// per-feature overrides, then (PR 2d.1A) the CPU-baked Method A
-// corner ENU offset for the upcoming line VS ECEF migration.
+// per-feature overrides.
 
-// DSFUN segment layout (stride 26 f32 = 104 bytes):
+// DSFUN segment layout (stride 20 f32 = 80 bytes):
 //   [0-1]   p0_h (vec2<f32>)        — tile-local Mercator meters, high pair
 //   [2-3]   p1_h (vec2<f32>)
 //   [4-5]   p0_l (vec2<f32>)        — low pair
@@ -31,22 +30,9 @@
 //                                      that the worker resolves per
 //                                      feature.
 //   [18]    color_packed (u32 bit-pattern stored in f32 slot)
-//   [19]    _pad19 (f32)            — vec4 alignment fill for the legacy
-//                                      stride-20 region the VS still reads.
-//   ── PR 2d.1A additive — CPU-baked Method A corner ENU offset ──
-//   [20-22] enu_p0 (vec3<f32>)      — per-endpoint baked corner offset
-//                                      in the local ENU basis at p0's lon/lat,
-//                                      pre-multiplied by half_w_m.
-//                                      Layout: (along_dir_E, along_dir_N, 0)
-//                                      packed unit; VS combines with
-//                                      ecef_to_enu_rotation(lon0, lat0)
-//                                      to form corner_offset_ecef.
-//   [23-25] enu_p1 (vec3<f32>)      — same for endpoint p1.
-//
-// The PR 2d.1A slots are PURELY ADDITIVE — `vs_line` still reads only
-// the first 20 floats (legacy region). The new 6 floats are unread
-// until PR 2d.1C rewires `vs_line` to consume them for ECEF clip
-// formation. Per-segment memory cost: +24 B (80 → 104 B).
+//   [19]    _pad19 (f32)            — vec4 alignment fill; matches the WGSL
+//                                      `struct LineSegment` (20 f32 = 80 B,
+//                                      std430). vs_line reads all 20 floats.
 //
 // The shader subtracts (p0_h - cam_h) + (p0_l - cam_l) to cancel tile-origin
 // magnitude and recover camera-relative meters with f64-equivalent precision.
@@ -60,23 +46,8 @@
 // outline used a single uniform value (the layer's fallback) and
 // floated mid-wall on tall / short buildings. 0 = stay on the ground
 // (default for non-extruded layers).
-export const LINE_SEGMENT_STRIDE_F32 = 26
+export const LINE_SEGMENT_STRIDE_F32 = 20
 export const LINE_SEGMENT_STRIDE_BYTES = LINE_SEGMENT_STRIDE_F32 * 4
-
-// ── Method A corner-ENU offset slot offsets (PR 2d.1A) ──
-// Exported for downstream consumers (vs_line in PR 2d.1C, validation
-// tests). The vec3 baked offsets live in the tail of the stride-26
-// LineSegment and are 0-filled when the builder is called without an
-// explicit tile origin (current behaviour for all production callers
-// pending PR 2d.1B's `packECEFLineSegments` integration).
-export const LINE_SEG_OFF_ENU_P0 = 20
-export const LINE_SEG_OFF_ENU_P1 = 23
-
-// WGS84 + Mercator constants used by the per-endpoint ENU bake.
-// Kept local so this builder stays import-light (the engine
-// `projection/ecef.ts` module pulls in additional helpers we don't
-// need here). Bit-for-bit consistent with that module's WGS84.A.
-const ECEF_A = 6378137
 
 /**
  * Miter pad ratio: how far past the endpoint the quad must extend, in units of
@@ -186,16 +157,6 @@ export function buildLineSegments(
    *  rises to defaultHeight, so the wall occludes the outline.
    *  Defaults to 0 (legacy non-extruded layers). */
   defaultHeight: number = 0,
-  /** Tile-origin Mercator metres (`tileMx`, `tileMy`) — the absolute
-   *  Mercator coordinate of the tile's lower-left corner. When BOTH
-   *  are supplied (even when 0+0 — valid Mercator origin at the
-   *  intersection of the equator and the prime meridian), the builder
-   *  populates the PR 2d.1A Method A corner ENU offset slots (f32
-   *  offsets 20-25). When OMITTED, those slots are zero-filled —
-   *  safe because `vs_line` does not yet read them (additive
-   *  scaffolding for PR 2d.1C VS rewire). */
-  tileOriginMx?: number,
-  tileOriginMy?: number,
 ): Float32Array {
   const segCount = indices.length / 2
   const out = new Float32Array(segCount * LINE_SEGMENT_STRIDE_F32)
@@ -435,73 +396,6 @@ export function buildLineSegments(
     // Slot 19 stays at the buffer's zero-init default — it's
     // pure WGSL alignment padding.
 
-    // ── PR 2d.1A: CPU-baked Method A corner ENU offset (slots 20-25) ──
-    //
-    // Per endpoint, the VS will eventually form:
-    //   corner_ecef = ecef_endpoint
-    //               + R_enu→ecef(lon, lat) · (along*dir_enu + across*nrm_enu) * half_w_m
-    //
-    // where (dir_enu, nrm_enu) is the local-ENU unit tangent/normal pair
-    // for the segment. Because the segment is straight in the tile, BOTH
-    // endpoints share the SAME (dir_enu, nrm_enu); only the ENU→ECEF
-    // basis at each endpoint differs. We therefore bake the (E, N, 0)
-    // unit-direction vec3 per endpoint into the segment tail — the VS
-    // will multiply by half_w_m × across coefficient and apply the
-    // per-endpoint ENU→ECEF rotation downstream (PR 2d.1C).
-    //
-    // The current builder operates in tile-local Mercator metres. At
-    // lat=0 the Mercator y-axis is 1 m per ENU north-metre; away from
-    // the equator the Mercator y stretches by sec(lat). To recover an
-    // ENU-frame unit tangent from `(dxUnit, dyUnit)` we therefore
-    // multiply the y component by cos(lat) and re-normalise.
-    //
-    // The bake requires lon/lat per endpoint, which means the builder
-    // needs the tile origin. When the caller doesn't supply it (or
-    // when the tile dimensions are zero), we skip the bake — the slots
-    // remain at the buffer's zero-init default. `vs_line` does not yet
-    // read these slots so the PR is additive-safe.
-    if (tileOriginMx !== undefined && tileOriginMy !== undefined) {
-      // Absolute Mercator metres at each endpoint.
-      const absMxA = p0x + tileOriginMx
-      const absMyA = p0y + tileOriginMy
-      const absMxB = p1x + tileOriginMx
-      const absMyB = p1y + tileOriginMy
-      // Inverse Mercator → lon/lat (radians for the ENU rotation).
-      // Mirrors `ecef.ts:mercatorToECEF` Y→latRad formula.
-      const lonRadA = absMxA / ECEF_A
-      const latRadA = 2 * Math.atan(Math.exp(absMyA / ECEF_A)) - Math.PI / 2
-      const lonRadB = absMxB / ECEF_A
-      const latRadB = 2 * Math.atan(Math.exp(absMyB / ECEF_A)) - Math.PI / 2
-      // Recover ENU-frame unit tangent from the Mercator-frame
-      // unit tangent by squashing the y-axis by cos(lat) per endpoint.
-      // This converts a Mercator-stretched direction back to physical
-      // north metres so the VS's `R_enu→ecef * (E, N, 0)` lands on
-      // the correct ECEF corner.
-      const cosLatA = Math.cos(latRadA)
-      const cosLatB = Math.cos(latRadB)
-      const dyEnuA = dyUnit * cosLatA
-      const dyEnuB = dyUnit * cosLatB
-      const lenEnuA = Math.hypot(dxUnit, dyEnuA)
-      const lenEnuB = Math.hypot(dxUnit, dyEnuB)
-      const dirEa = lenEnuA > 1e-9 ? dxUnit / lenEnuA : 1
-      const dirNa = lenEnuA > 1e-9 ? dyEnuA / lenEnuA : 0
-      const dirEb = lenEnuB > 1e-9 ? dxUnit / lenEnuB : 1
-      const dirNb = lenEnuB > 1e-9 ? dyEnuB / lenEnuB : 0
-      // Bake (E, N, 0) unit-direction vec3 per endpoint. PR 2d.1C's
-      // `vs_line` rewire will combine these with the corner intent
-      // (along ∈ {-1, +1}, across ∈ {-1, +1}) and half_w_m, then
-      // apply `ecef_to_enu_rotation(lon, lat)` to land on ECEF.
-      // Reference voids the latRad → lonRad use in this slot — the
-      // ENU rotation is reconstructed VS-side from the existing
-      // p0_h/p0_l → abs_lon/abs_lat path the FS already uses.
-      void lonRadA; void lonRadB
-      out[off + LINE_SEG_OFF_ENU_P0 + 0] = dirEa
-      out[off + LINE_SEG_OFF_ENU_P0 + 1] = dirNa
-      out[off + LINE_SEG_OFF_ENU_P0 + 2] = 0
-      out[off + LINE_SEG_OFF_ENU_P1 + 0] = dirEb
-      out[off + LINE_SEG_OFF_ENU_P1 + 1] = dirNb
-      out[off + LINE_SEG_OFF_ENU_P1 + 2] = 0
-    }
   }
   return out
 }

@@ -16,6 +16,9 @@
 import { SpriteAtlasGPU } from './sprite-atlas-gpu'
 import { emitIconWgsl } from '../shader-dsl'
 import type { SpriteInfo } from './sprite-atlas-host'
+import { vertexField } from '@xgis/compiler'
+import { ICON_FORMAT } from './icon-vertex-format'
+import { toVertexBufferLayout } from '../render/vertex-buffer-layout'
 
 export interface IconDraw {
   /** Anchor in screen pixels (caller-projected). */
@@ -55,8 +58,15 @@ export type IconAnchor =
   | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
 
 const VERTS_PER_QUAD = 6
+// Derived from the single-source ICON_FORMAT spec so the packer cannot drift
+// from the GPUVertexBufferLayout / icon `vs` @location.
 // pos.x, pos.y, uv.x, uv.y, opacity, tint.r, tint.g, tint.b, sdf
-const FLOATS_PER_VERT = 9
+const FLOATS_PER_VERT = ICON_FORMAT.stride / 4                      // 9
+const ICON_PX_SLOT = vertexField(ICON_FORMAT, 'pos_px').offset / 4  // 0 (x,y = 0,1)
+const ICON_UV_SLOT = vertexField(ICON_FORMAT, 'uv').offset / 4      // 2 (u,v = 2,3)
+const ICON_OPACITY_SLOT = vertexField(ICON_FORMAT, 'opacity').offset / 4 // 4
+const ICON_TINT_SLOT = vertexField(ICON_FORMAT, 'tint').offset / 4  // 5 (r,g,b = 5,6,7)
+const ICON_SDF_SLOT = vertexField(ICON_FORMAT, 'sdf').offset / 4    // 8
 const FLOATS_PER_QUAD = VERTS_PER_QUAD * FLOATS_PER_VERT
 
 // The icon shader (px→NDC quad + SDF/raster textured fragment) is EMITTED from
@@ -144,16 +154,7 @@ export class IconRenderer {
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.bgLayout] }),
       vertex: {
         module, entryPoint: 'vs',
-        buffers: [{
-          arrayStride: FLOATS_PER_VERT * 4,
-          attributes: [
-            { shaderLocation: 0, offset: 0, format: 'float32x2' },  // pos_px
-            { shaderLocation: 1, offset: 8, format: 'float32x2' },  // uv
-            { shaderLocation: 2, offset: 16, format: 'float32' },   // opacity
-            { shaderLocation: 3, offset: 20, format: 'float32x3' }, // tint rgb
-            { shaderLocation: 4, offset: 32, format: 'float32' },   // sdf flag
-          ],
-        }],
+        buffers: [toVertexBufferLayout(ICON_FORMAT)],
       },
       fragment: {
         module, entryPoint: 'fs',
@@ -257,9 +258,11 @@ export class IconRenderer {
       const sdf = d.sprite.sdf ? 1 : 0
       // Per-vertex: pos.xy, uv.xy, opacity, tint.rgb, sdf (9 floats).
       const W = (o: number, x: number, y: number, uu: number, vv: number): void => {
-        data[o] = x; data[o + 1] = y; data[o + 2] = uu; data[o + 3] = vv
-        data[o + 4] = op; data[o + 5] = tr; data[o + 6] = tg; data[o + 7] = tb
-        data[o + 8] = sdf
+        data[o + ICON_PX_SLOT] = x; data[o + ICON_PX_SLOT + 1] = y
+        data[o + ICON_UV_SLOT] = uu; data[o + ICON_UV_SLOT + 1] = vv
+        data[o + ICON_OPACITY_SLOT] = op
+        data[o + ICON_TINT_SLOT] = tr; data[o + ICON_TINT_SLOT + 1] = tg; data[o + ICON_TINT_SLOT + 2] = tb
+        data[o + ICON_SDF_SLOT] = sdf
       }
       // tri 1: TL, BL, BR
       W(off +  0, tlx, tly, u0, v0)

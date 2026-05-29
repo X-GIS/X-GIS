@@ -415,14 +415,15 @@ describe('Cross-validation: Pipeline geometry area (clip + triangulate vs shapel
   // exact up to earcut precision.
   const set = compileGeoJSONToTiles(gj, { minZoom: 0, maxZoom })
 
-  // PR 2c.2: polygon vertices now ship as ECEF-DSFUN stride-9
-  // `[ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon_deg, abs_lat_deg]`.
-  // The fixture's `areaMercM2` is shapely's exact intersection area in
-  // Mercator metres, so we reproject via the packed abs_lon/abs_lat
-  // slots to recover Mercator (mx, my) per vertex and shoelace from
-  // there. Coordinates become absolute Mercator; the area shoelace
-  // remains translation-invariant.
-  const POLY_STRIDE = 9
+  // PR 2f: polygon vertices ship quantized — stride 6 floats / 24 bytes
+  // `[<u16×6 position in floats 0..2>, fid, abs_lon_deg, abs_lat_deg]`.
+  // The first 12 bytes (floats 0..2) hold the quantized u16 position lanes;
+  // this cross-check never touches them. The fixture's `areaMercM2` is
+  // shapely's exact intersection area in Mercator metres, so we reproject
+  // via the packed abs_lon/abs_lat slots (floats 4/5) to recover Mercator
+  // (mx, my) per vertex and shoelace from there. Coordinates become absolute
+  // Mercator; the area shoelace remains translation-invariant.
+  const POLY_STRIDE = 6
   const EARTH_R_CV = 6378137
   const DEG2RAD_CV = Math.PI / 180
   function triangleAreaForFeature(
@@ -432,8 +433,8 @@ describe('Cross-validation: Pipeline geometry area (clip + triangulate vs shapel
   ): number {
     const polyVertMerc = (i: number): [number, number] => {
       const base = i * POLY_STRIDE
-      const lonDeg = vertices[base + 7]
-      const latDeg = vertices[base + 8]
+      const lonDeg = vertices[base + 4]
+      const latDeg = vertices[base + 5]
       const mx = lonDeg * DEG2RAD_CV * EARTH_R_CV
       const my = Math.log(Math.tan(Math.PI / 4 + latDeg * DEG2RAD_CV / 2)) * EARTH_R_CV
       return [mx, my]
@@ -441,9 +442,9 @@ describe('Cross-validation: Pipeline geometry area (clip + triangulate vs shapel
     let total = 0
     for (let i = 0; i < indices.length; i += 3) {
       const i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2]
-      const fid0 = vertices[i0 * POLY_STRIDE + 6]
-      const fid1 = vertices[i1 * POLY_STRIDE + 6]
-      const fid2 = vertices[i2 * POLY_STRIDE + 6]
+      const fid0 = vertices[i0 * POLY_STRIDE + 3]
+      const fid1 = vertices[i1 * POLY_STRIDE + 3]
+      const fid2 = vertices[i2 * POLY_STRIDE + 3]
       if (fid0 !== targetFid || fid1 !== targetFid || fid2 !== targetFid) continue
       const [x0, y0] = polyVertMerc(i0)
       const [x1, y1] = polyVertMerc(i1)
