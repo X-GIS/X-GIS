@@ -242,8 +242,9 @@ const vsMain = entryFn(
       // cam_merc = tile_origin_merc + (cam_h + cam_l) (cam_h/cam_l hold the
       // tile-relative camera offset camMerc − tileMerc), so
       // rel = project(abs) − tile_origin_merc − cam_h − cam_l. The tile
-      // origin algebraically cancels; the staged subtraction keeps the
-      // f32 ≈ 1 m P1 precision. z = 0 — flat fill has no height.
+      // origin NEARLY cancels (residual = f32 rounding of tile_origin_merc,
+      // bounded by the ~1 m P1 tier); the staged subtraction keeps that
+      // precision. z = 0 — flat fill has no height.
       const p2d = c.let('p2d', callFn('project', vec2fT, p.abs_lon, p.abs_lat, projParamsV))
       const rel2d = c.let('rel2d',
         p2d.sub(u.field('tile_origin_merc', vec2fT)).sub(u.field('cam_h', vec2fT)).sub(u.field('cam_l', vec2fT)))
@@ -388,8 +389,9 @@ const vsMainEcef = entryFn(
       // cam_merc = tile_origin_merc + (cam_h + cam_l) (cam_h/cam_l hold the
       // tile-relative camera offset camMerc − tileMerc), so
       // rel = project(abs) − tile_origin_merc − cam_h − cam_l. The tile
-      // origin algebraically cancels; the staged subtraction keeps the
-      // f32 ≈ 1 m P1 precision. z = 0 — flat fill has no height.
+      // origin NEARLY cancels (residual = f32 rounding of tile_origin_merc,
+      // bounded by the ~1 m P1 tier); the staged subtraction keeps that
+      // precision. z = 0 — flat fill has no height.
       const p2d = c.let('p2d', callFn('project', vec2fT, p.abs_lon, p.abs_lat, projParamsV))
       const rel2d = c.let('rel2d',
         p2d.sub(u.field('tile_origin_merc', vec2fT)).sub(u.field('cam_h', vec2fT)).sub(u.field('cam_l', vec2fT)))
@@ -499,9 +501,12 @@ const vsMainEcefExtruded = entryFn(
     // Display projection (see vs_main_ecef): flat Mercator reprojects onto
     // the 2D plane with the extrude lift applied as plane-z; 3D keeps the
     // pre-lifted ECEF-RTC. world_z = wall_height × is_top is the per-vertex
-    // lift the runtime wall-mesh baked into ECEF z (real metres ≈ Mercator
-    // metres near the equator — a known low-latitude approximation under
-    // f32 P1; revisit with a cos(lat) scale if high-lat walls look off).
+    // lift the runtime wall-mesh baked into ECEF z. The lift is real metres
+    // while x/y are projection-plane metres, so it is unscaled relative to the
+    // plane: for Mercator that is the cos(lat) shrink (worse at high latitude);
+    // for the other flat projTypes the plane↔height metric differs again.
+    // Known approximation under f32 P1 — revisit with a per-projection vertical
+    // scale if extruded walls look wrong away from the equator.
     const projParamsV = u.field('proj_params', vec4fT)
     const clip = b.var('clip', vec4fT)
     b.if(projParamsV.x.lt(0.5), (c) => {
