@@ -100,14 +100,17 @@ describe('Phase-2 line shader — DSL emission', () => {
     expect(vs).toContain('tile.cam_ecef_off_h')
     expect(vs).toContain('tile.cam_ecef_off_l')
   })
-  it('vs_line gains the flat-Mercator display branch (projType 0)', () => {
-    // projection-display-layer-restore: flat Mercator (proj_params.x < 0.5)
-    // feeds the camera-relative cornerLocal straight to the flat 2D-plane MVP
-    // (line_endpoint already subtracted the camera for proj<0.5) — no ECEF
-    // round-trip. The 3D path (cam_ecef_off) stays in the else.
+  it('vs_line flat display branch via finalize_corner (projType 0-6)', () => {
+    // projection-display-layer-restore Phase 2: the flat branch (proj_params.x
+    // < 6.5) routes through finalize_corner — Mercator passes the already-
+    // camera-relative cornerLocal through; the other flat projTypes reproject
+    // via project_geom minus the projected camera centre. The 3D ECEF path
+    // (cam_ecef_off) stays in the else.
+    expect(noPick).toContain('fn finalize_corner(')
+    expect(noPick).toContain('project_geom(') // inside finalize_corner (non-Mercator)
     const vs = noPick.slice(noPick.indexOf('fn vs_line'), noPick.indexOf('fn fs_line'))
-    expect(vs).toContain('tile.proj_params.x < 0.5')
-    expect(vs).toContain('corner_local.x, corner_local.y')
+    expect(vs).toContain('tile.proj_params.x < 6.5')
+    expect(vs).toContain('finalize_corner(')
     expect(vs).toContain('tile.cam_ecef_off_h')
   })
 

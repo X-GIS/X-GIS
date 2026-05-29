@@ -176,18 +176,20 @@ describe('emitPolygonWgsl — skeleton', () => {
     expect(wgsl).toContain('apply_log_depth(')
   })
 
-  it('vs entries gain the flat-Mercator display branch (projType 0 reproject)', () => {
-    // projection-display-layer-restore: flat Mercator (proj_params.x < 0.5)
-    // reprojects each vertex onto the 2D plane: rel = project(abs) −
-    // tile_origin_merc − cam_h − cam_l, fed to the flat 2D-plane MVP. 3D /
-    // globe keeps the ECEF-RTC else path.
+  it('vs entries gain flat display branches: Mercator (< 0.5) + non-Mercator (< 6.5)', () => {
+    // projection-display-layer-restore Phase 2: flat Mercator (proj_params.x
+    // < 0.5) reprojects via project() − tile_origin − cam_h − cam_l; the other
+    // flat projTypes (< 6.5) via project_geom(abs, tileRefLon) − projected
+    // camera centre. 3D / globe keeps the ECEF-RTC else path.
     const wgsl = emitPolygonWgsl(null, false)
-    expect(wgsl).toContain('project(abs_lon, abs_lat, u.proj_params)')
+    expect(wgsl).toContain('project(abs_lon, abs_lat, u.proj_params)')          // Mercator
+    expect(wgsl).toContain('project_geom(abs_lon, abs_lat, u.proj_params')      // non-Mercator
     expect(wgsl).toContain('u.proj_params.x < 0.5')
-    // fill (vs_main_ecef) + line-entry (vs_main) + extruded all carry it.
-    const branches = (wgsl.match(/u\.proj_params\.x < 0\.5/g) ?? []).length
-    expect(branches).toBeGreaterThanOrEqual(3)
-    // ECEF 3D path preserved in the else branch.
+    expect(wgsl).toContain('u.proj_params.x < 6.5')
+    // fill (vs_main_ecef) + line-entry (vs_main) + extruded all carry both.
+    expect((wgsl.match(/u\.proj_params\.x < 0\.5/g) ?? []).length).toBeGreaterThanOrEqual(3)
+    expect((wgsl.match(/u\.proj_params\.x < 6\.5/g) ?? []).length).toBeGreaterThanOrEqual(3)
+    // ECEF 3D path preserved in the final else branch.
     expect(wgsl).toContain('cam_ecef_off_h')
   })
 

@@ -4,32 +4,42 @@ import {
   PROJECTION_WGSL_FNS,
 } from '../../runtime/src/engine/shader-dsl/shaders/projections'
 
-// ═══ Flat Mercator display FLATNESS gate (minimal render → texture) ═══
+// ═══ Flat display projection FLATNESS gate (minimal render → texture) ═══
 //
-// projection-display-layer-restore: flat Mercator (projType 0) must render a
-// FLAT 2D plane, not a globe. The vertex shaders reproject per vertex:
-//   clip = mvp_flat * vec4(project(lon, lat, proj_params) − cam_merc, 0, 1)
-// where mvp_flat = Camera.getViewForProjection(0, …) is the flat 2D-plane MVP.
+// projection-display-layer-restore: flat projections (projType 0-6) render a
+// FLAT 2D plane over the ECEF data, not a globe. The vertex shaders reproject
+// per vertex: clip = mvp_flat * vec4(project[_geom](lon,lat) − project(clon,
+// clat), 0, 1), where mvp_flat = Camera.getViewForProjection(<=6) is the flat
+// Mercator-metre MVP (same for all flat projTypes) and the camera centre is
+// computed in-shader from proj_params.y/z.
 //
-// This compiles the EXACT projection WGSL (PROJECTION_WGSL_FNS, the same block
-// prepended into polygon/line/point/raster) + the flat-clip math on SwiftShader
-// and renders one marker per test point into an offscreen texture. The points
-// share a latitude but span longitude. On a FLAT map they land at the SAME
-// screen-Y; a globe would curve them. It also proves `project()` compiles in
-// the real GPU pipeline. (Mirror of _ecef-render-position.spec.ts.)
+// This compiles the EXACT projection WGSL (PROJECTION_WGSL_FNS — the block
+// prepended into polygon/line/point/raster) + the flat-clip math on the real
+// GPU and renders one marker per test point. The cylindrical / pseudocylindrical
+// flat projections (Mercator, equirectangular, natural_earth) share the
+// property that points at the SAME latitude land at the SAME screen-Y (a globe
+// curves them); longitude spreads screen-X without horizon-collapse. It also
+// proves project()/project_geom() compile in the real pipeline. (Mirror of
+// _ecef-render-position.spec.ts.)
 
-const A = 6378137
-const DEG2RAD = Math.PI / 180
-function merc(lonDeg: number, latDeg: number): [number, number] {
-  return [lonDeg * DEG2RAD * A, Math.log(Math.tan(Math.PI / 4 + latDeg * DEG2RAD / 2)) * A]
-}
+// projType → display name (matches projections-table). Only the same-Y
+// (cylindrical/pseudocylindrical) flat projections are asserted here; the
+// azimuthal discs (3-5) are flat but not same-Y, and oblique (6) is rotated.
+const SAME_Y_PROJ = [
+  { projType: 0, name: 'mercator' },
+  { projType: 1, name: 'equirectangular' },
+  { projType: 2, name: 'natural_earth' },
+]
+const LAT = 20
+const LONS = [-20, 0, 20]
 
-test('flat Mercator: same-latitude points render at the same screen-Y', async ({ page }) => {
+test('flat display: same-latitude points share screen-Y (mercator / equirect / natural_earth)', async ({ page }) => {
   test.setTimeout(60_000)
   await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(() => (window as any).__xgisReady === true, { timeout: 20_000 })
 
   // Camera at lon 0, lat 20, low zoom (so ±20° longitude is on-screen), top-down.
+  // The flat MVP is the same Mercator-metre MVP for every flat projType.
   const setup = await page.evaluate(() => {
     const cam = (window as any).__xgisMap.camera
     cam.centerX = 0
@@ -37,19 +47,15 @@ test('flat Mercator: same-latitude points render at the same screen-Y', async ({
     cam.centerY = Math.log(Math.tan(Math.PI / 4 + 20 * (Math.PI / 180) / 2)) * EARTH_R
     cam.zoom = 2; cam.bearing = 0; cam.pitch = 0; cam.globeMode = false
     const frame = cam.getViewForProjection(0, 512, 512, 1)
-    return { mvp: Array.from(frame.matrix as Float32Array), camX: cam.centerX, camY: cam.centerY }
+    return { mvp: Array.from(frame.matrix as Float32Array) }
   })
 
-  const LAT = 20
-  const LONS = [-20, 0, 20]
-
   const out = await page.evaluate(async (args: {
-    consts: string; fns: string; mvp: number[]; camX: number; camY: number; lons: number[]; lat: number
+    consts: string; fns: string; mvp: number[]; projTypes: number[]; lons: number[]; lat: number
   }) => {
     const adapter = await (navigator as any).gpu.requestAdapter()
     const device = await adapter.requestDevice()
     const W = 512, H = 512
-    // A unit quad (6 verts) expanded a few pixels in screen-space around the anchor.
     const quad = new Float32Array([-1, -1, 1, -1, -1, 1, 1, -1, 1, 1, -1, 1])
     const vbuf = device.createBuffer({ size: quad.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST })
     device.queue.writeBuffer(vbuf, 0, quad)
@@ -57,14 +63,14 @@ test('flat Mercator: same-latitude points render at the same screen-Y', async ({
     const code = `
       ${args.consts}
       ${args.fns}
-      struct U {
-        mvp: mat4x4<f32>, proj_params: vec4<f32>,
-        cam: vec2<f32>, anchor: vec2<f32>,
-      }
+      struct U { mvp: mat4x4<f32>, proj_params: vec4<f32>, anchor: vec2<f32>, _pad: vec2<f32> }
       @group(0) @binding(0) var<uniform> u: U;
       @vertex fn vs(@location(0) corner: vec2<f32>) -> @builtin(position) vec4<f32> {
+        // Camera centre computed in-shader (proj_params.y/z = clon/clat) —
+        // identical to the production flat shaders.
+        let cam = project(u.proj_params.y, u.proj_params.z, u.proj_params);
         let p2d = project(u.anchor.x, u.anchor.y, u.proj_params);
-        let rel = p2d - u.cam;
+        let rel = p2d - cam;
         var clip = u.mvp * vec4<f32>(rel.x, rel.y, 0.0, 1.0);
         clip = clip + vec4<f32>(corner * 0.025 * clip.w, 0.0, 0.0);
         return clip;
@@ -81,12 +87,11 @@ test('flat Mercator: same-latitude points render at the same screen-Y', async ({
       primitive: { topology: 'triangle-list' },
     })
 
-    async function draw(anchorLon: number, anchorLat: number): Promise<{ cx: number; cy: number; count: number }> {
+    async function draw(projType: number, anchorLon: number, anchorLat: number): Promise<{ cx: number; cy: number; count: number }> {
       const uarr = new Float32Array(24)
       uarr.set(args.mvp, 0)
-      uarr[16] = 0; uarr[17] = 0; uarr[18] = 0; uarr[19] = 0  // proj_params (projType 0)
-      uarr[20] = args.camX; uarr[21] = args.camY               // cam (Mercator)
-      uarr[22] = anchorLon; uarr[23] = anchorLat               // anchor (lon, lat deg)
+      uarr[16] = projType; uarr[17] = 0; uarr[18] = 20; uarr[19] = 0 // proj_params: type, clon, clat
+      uarr[20] = anchorLon; uarr[21] = anchorLat                      // anchor (lon, lat deg)
       const ubuf = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
       device.queue.writeBuffer(ubuf, 0, uarr)
       const bind = device.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: ubuf } }] })
@@ -107,24 +112,26 @@ test('flat Mercator: same-latitude points render at the same screen-Y', async ({
       return { cx: count ? sx / count : -1, cy: count ? sy / count : -1, count }
     }
 
-    const pts: { cx: number; cy: number; count: number }[] = []
-    for (const lon of args.lons) pts.push(await draw(lon, args.lat))
-    return pts
-  }, { consts: PROJECTION_WGSL_CONSTS, fns: PROJECTION_WGSL_FNS, mvp: setup.mvp, camX: setup.camX, camY: setup.camY, lons: LONS, lat: LAT })
+    const byProj: Record<number, { cx: number; cy: number; count: number }[]> = {}
+    for (const pt of args.projTypes) {
+      byProj[pt] = []
+      for (const lon of args.lons) byProj[pt].push(await draw(pt, lon, args.lat))
+    }
+    return byProj
+  }, { consts: PROJECTION_WGSL_CONSTS, fns: PROJECTION_WGSL_FNS, mvp: setup.mvp, projTypes: SAME_Y_PROJ.map(p => p.projType), lons: LONS, lat: LAT })
 
-  for (let i = 0; i < LONS.length; i++) {
-    console.log(`[flat-flatness] lon=${LONS[i]} → cx=${out[i]!.cx.toFixed(1)} cy=${out[i]!.cy.toFixed(1)} count=${out[i]!.count}`)
-    expect(out[i]!.count, `lon ${LONS[i]} drew nothing`).toBeGreaterThan(10)
+  for (const { projType, name } of SAME_Y_PROJ) {
+    const pts = out[projType]!
+    for (let i = 0; i < LONS.length; i++) {
+      console.log(`[flat-flatness] ${name} lon=${LONS[i]} → cx=${pts[i]!.cx.toFixed(1)} cy=${pts[i]!.cy.toFixed(1)} count=${pts[i]!.count}`)
+      expect(pts[i]!.count, `${name} lon ${LONS[i]} drew nothing`).toBeGreaterThan(10)
+    }
+    const ys = pts.map(p => p.cy)
+    const xs = pts.map(p => p.cx)
+    // FLATNESS: same latitude → same screen-Y (a globe curves them tens of px).
+    expect(Math.max(...ys) - Math.min(...ys), `${name}: same-lat points must share screen-Y`).toBeLessThan(3)
+    // Longitude spreads screen-X monotonically; far points do not collapse.
+    expect(xs[0]! < xs[1]! && xs[1]! < xs[2]!, `${name}: screen-X must increase with longitude`).toBe(true)
+    expect(Math.abs(xs[2]! - xs[0]!), `${name}: longitude span must produce screen-X separation`).toBeGreaterThan(60)
   }
-
-  const ys = out.map(p => p.cy)
-  const xs = out.map(p => p.cx)
-  // FLATNESS: same latitude → same screen-Y. A globe would curve them by tens
-  // of pixels; the flat plane keeps them within rasterization noise.
-  const ySpread = Math.max(...ys) - Math.min(...ys)
-  expect(ySpread, 'same-latitude points must share screen-Y (flat, not globe)').toBeLessThan(3)
-  // The points span longitude → screen-X spreads, and the far points do NOT
-  // collapse toward the centre (a horizon-collapse would bunch them).
-  expect(xs[0]! < xs[1]! && xs[1]! < xs[2]!, 'screen-X must increase with longitude').toBe(true)
-  expect(Math.abs(xs[2]! - xs[0]!), 'longitude span must produce real screen-X separation').toBeGreaterThan(80)
 })

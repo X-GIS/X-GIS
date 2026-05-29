@@ -41,26 +41,28 @@ describe('Phase-2 raster shader — DSL emission (ECEF VS, PR 2d.3)', () => {
     // ECEF vertex projects vertex − cameraCenter through the camera-at-origin MVP.
     expect(noPick).toContain('u.cam_ecef_center')
     expect(noPick).toContain('array<u32, 6>')
-    // No old projection-dispatch branches
+    // vs_tile branches flat (project / project_geom) vs 3D (ECEF). globe (7)
+    // takes the ECEF else, so proj_globe is never CALLED in the VS.
     const vsBody = noPick.slice(noPick.indexOf('@vertex\nfn vs_tile'))
     const vsEnd = vsBody.indexOf('\n@fragment')
     const vsOnly = vsEnd > 0 ? vsBody.slice(0, vsEnd) : vsBody
-    expect(vsOnly).not.toContain('proj_globe')
-    expect(vsOnly).not.toContain('project_geom')
+    expect(vsOnly).not.toContain('proj_globe(')
+    expect(vsOnly).toContain('lonlat_to_ecef(') // ECEF else branch retained
   })
-  it('vs_tile gains the flat-Mercator display branch (projType 0 reproject)', () => {
-    // projection-display-layer-restore: flat Mercator (proj_params.x < 0.5)
-    // reprojects the reconstructed lon/lat onto the 2D plane and feeds the
-    // flat MVP; the 3D ECEF path stays in the else. project() (+ friends) is
-    // now prepended for the flat reprojection — but the VS calls project(),
-    // NOT the retired project_geom / proj_globe (asserted absent above).
+  it('vs_tile flat display branches: Mercator (< 0.5) + non-Mercator (< 6.5)', () => {
+    // projection-display-layer-restore Phase 2: flat Mercator (proj_params.x
+    // < 0.5) reprojects via project(); the other flat projTypes (< 6.5) via
+    // project_geom (world-copy aware) minus the in-shader projected camera
+    // centre; the 3D ECEF path stays in the final else.
     const vsBody = noPick.slice(noPick.indexOf('@vertex\nfn vs_tile'))
     const vsEnd = vsBody.indexOf('\n@fragment')
     const vsOnly = vsEnd > 0 ? vsBody.slice(0, vsEnd) : vsBody
-    expect(vsOnly).toContain('u.proj_params.x < 0.5')
-    expect(vsOnly).toContain('project(lon, lat_deg, u.proj_params)')
-    // The projection forward fn is now emitted in the preamble.
+    expect(vsOnly).toContain('u.proj_params.x < 0.5')              // Mercator fast path
+    expect(vsOnly).toContain('u.proj_params.x < 6.5')              // non-Mercator flat
+    expect(vsOnly).toContain('project(lon, lat_deg, u.proj_params)')        // Mercator
+    expect(vsOnly).toContain('project_geom(lon,')                            // non-Mercator world-copy
     expect(noPick).toContain('fn project(')
+    expect(noPick).toContain('fn project_geom(')
   })
   it('fragment samples the tile + rim fade + log-depth', () => {
     expect(noPick).toContain('@fragment\nfn fs_tile(input: VsOut) -> RasterFragmentOutput')

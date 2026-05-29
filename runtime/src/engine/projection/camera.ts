@@ -679,20 +679,21 @@ export class Camera {
    *  is a SEPARATE concern: a flat 2D map (Mercator/…) projects the curved
    *  ECEF surface onto a plane; the globe shows it as a 3D sphere.
    *
-   *  - Flat Mercator (projType 0, untilted): the flat 2D Mercator-metre MVP
-   *    (`getFrameView` → `_buildRTCMatrix`, no camera-centre translate). The
-   *    vertex shader feeds camera-relative 2D-plane metres
-   *    (`project(abs_lon, abs_lat) − cam_centre`) so the curved data is
-   *    flattened per vertex. This REVERSES the PR #191 'frame split' — that
-   *    split was wrong as an end state for flat projections.
-   *  - 3D (globe 7 / tilted azimuthal → globeMode) and — in Phase 1 — every
-   *    other projType: the ECEF MVP (`getECEFFrameView`).
+   *  - Flat projections (projType 0-6, untilted): the flat 2D Mercator-metre
+   *    MVP (`getFrameView` → `_buildRTCMatrix`, no camera-centre translate).
+   *    The vertex shader feeds camera-relative 2D-plane metres — Mercator via
+   *    `project(abs) − cam`, the other flat forms via `project_geom(abs,
+   *    refLon) − project(camLon, camLat)` — so the curved ECEF data is
+   *    flattened per vertex. This REVERSES the PR #191 'frame split', which
+   *    was wrong as an end state for flat projections.
+   *  - 3D (globe 7 / tilted azimuthal → globeMode): the ECEF MVP
+   *    (`getECEFFrameView`).
    *
    *  Mirrors the render-loop flat/3D decision (render-loop.ts:141-155):
    *  tilted azimuthal promotes to projType 7 + sets globeMode. `projType`
    *  is passed explicitly so the renderer matrix ↔ shader VS branch stay in
    *  lockstep — the shader takes the flat branch exactly when
-   *  `proj_params.x < 0.5` (projType 0), so the selector gates identically.
+   *  `proj_params.x < 6.5` (projType 0-6), so the selector gates identically.
    *
    *  CRITICAL: returns a reference to a preallocated buffer (`rtcMatrix` for
    *  flat, `rtcMatrixECEF` / globe for 3D) — copy contents into your own
@@ -703,7 +704,7 @@ export class Camera {
     far: number
     logDepthFc: number
   } {
-    if (!this.globeMode && projType === 0) {
+    if (!this.globeMode && projType <= 6) {
       return this.getFrameView(canvasWidth, canvasHeight, dpr)
     }
     return this.getECEFFrameView(canvasWidth, canvasHeight, dpr)

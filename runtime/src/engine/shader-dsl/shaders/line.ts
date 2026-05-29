@@ -221,10 +221,31 @@ const lineEndpoint = fn('line_endpoint', { p_h: vec2fT, p_l: vec2fT }, vec2fT, (
   b.ret(p.p_h.add(p.p_l))
 })
 
-// `finalize_corner` / `finalize_corner_globe` retired in PR 2d.1C — the
-// per-projection ladder (project_geom / proj_globe) moved off the VS hot
-// path; vs_line transforms via `u.mvp * vec4(ecef_rtc, 1)` and the
-// CPU bakes every projType into the ECEF-MVP once per frame.
+// finalize_corner — flat-projection reprojection (projection-display-layer-
+// restore Phase 2). Restored from the pre-ECEF path for the flat display
+// branch only; globe + 3D still use the ECEF-MVP, so finalize_corner_globe
+// stays retired. Mercator (proj<0.5): cornerLocal is already camera-relative
+// Mercator metres (line_endpoint subtracted the camera), so pass it through.
+// Non-Mercator (1-6): reconstruct abs lon/lat from the tile-local Mercator
+// corner, reproject via project_geom (world-copy aware; tileRefLon = tile-
+// centre lon), and subtract the camera's projected centre (in-shader from
+// proj_params.y/z). Output feeds the flat 2D-plane MVP.
+const finalizeCorner = fn('finalize_corner', { corner: vec2fT }, vec2fT, (b, p) => {
+  const projParams = tile.field('proj_params', vec4fT)
+  b.if(projParams.x.lt(0.5), (c) => { c.ret(p.corner) })
+  const tileOrigin = tile.field('tile_origin_merc', vec2fT)
+  const absMerc = b.let('abs_merc', p.corner.add(tileOrigin))
+  const absLon = b.let('abs_lon', absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R'))))
+  const latRad = b.let('lat_rad', callFn('inv_merc_lat_rad', f32T, absMerc.y))
+  const absLat = b.let('abs_lat', latRad.div(constRef('DEG2RAD')))
+  const tileRefLon = b.let('tile_ref_lon',
+    tileOrigin.x.add(f32(0.5).mul(tile.field('tile_extent_m', f32T)))
+      .div(constRef('DEG2RAD').mul(constRef('EARTH_R'))),
+  )
+  const projXy = b.let('proj_xy', callFn('project_geom', vec2fT, absLon, absLat, projParams, tileRefLon))
+  const centerXy = b.let('center_xy', callFn('project', vec2fT, projParams.y, projParams.z, projParams))
+  b.ret(projXy.sub(centerXy))
+})
 
 const endpointCosC = fn('endpoint_cos_c', { p_h: vec2fT, p_l: vec2fT }, f32T, (b, p) => {
   const tileOrigin = tile.field('tile_origin_merc', vec2fT)
@@ -917,13 +938,15 @@ const vsLine = entryFn('vs_line', 'vertex', [
     // screen-space width estimate matches the final clip exactly.
     const centerClip = c.var('center_clip', vec4fT)
     const cornerClip = c.var('corner_clip', vec4fT)
-    c.if(projParamsW.x.lt(0.5), (d) => {
-      // FLAT Mercator: base / cornerLocal are ALREADY camera-relative
-      // Mercator metres (line_endpoint subtracted the camera for proj<0.5);
-      // u.mvp is the flat 2D-plane MVP — feed them straight through, no ECEF
-      // round-trip / addCamOff.
-      d.assign(centerClip, transformMat4(mvp, vec4(base.x, base.y, zLift, f32(1))))
-      d.assign(cornerClip, transformMat4(mvp, vec4(cornerLocal.x, cornerLocal.y, zLift, f32(1))))
+    c.if(projParamsW.x.lt(6.5), (d) => {
+      // FLAT (projType 0-6): finalize_corner passes Mercator through (already
+      // camera-relative) and reprojects the other flat forms (project_geom −
+      // projected camera centre). Same flat 2D-plane MVP for center +
+      // candidate so the screen-space width estimate matches the final clip.
+      const baseFc = d.let('base_fc', callFn('finalize_corner', vec2fT, base))
+      const cornerFc = d.let('corner_fc', callFn('finalize_corner', vec2fT, cornerLocal))
+      d.assign(centerClip, transformMat4(mvp, vec4(baseFc.x, baseFc.y, zLift, f32(1))))
+      d.assign(cornerClip, transformMat4(mvp, vec4(cornerFc.x, cornerFc.y, zLift, f32(1))))
     }).else((d) => {
       // 3D ECEF round-trip on the candidate corner (matches polygon convention).
       const tileOrigin = tile.field('tile_origin_merc', vec2fT)
@@ -973,8 +996,11 @@ const vsLine = entryFn('vs_line', 'vertex', [
   const projParamsF = tile.field('proj_params', vec4fT)
 
   const clip = b.var('clip', vec4fT)
-  b.if(projParamsF.x.lt(0.5), (c) => {
-    c.assign(clip, transformMat4(mvp, vec4(cornerLocal.x, cornerLocal.y, zLift, f32(1))))
+  b.if(projParamsF.x.lt(6.5), (c) => {
+    // FLAT (0-6): finalize_corner (Mercator pass-through + non-Mercator
+    // project_geom reproject − projected camera centre) → flat 2D-plane MVP.
+    const cornerFc = c.let('corner_fc_final', callFn('finalize_corner', vec2fT, cornerLocal))
+    c.assign(clip, transformMat4(mvp, vec4(cornerFc.x, cornerFc.y, zLift, f32(1))))
   }).else((c) => {
     const tileAbsX = c.let('tile_abs_x_f', toF32(tileOrigin2.x))
     const tileAbsY = c.let('tile_abs_y_f', toF32(tileOrigin2.y))
@@ -1075,7 +1101,7 @@ const buildLineModule = (pickEnabled: boolean): ModuleDecl => module({
     { group: 1, binding: 3, name: 'shape_segments', space: 'storage', access: 'read', type: arrayT(structT('ShapeSegment')) },
   ],
   funcs: [
-    lineEndpoint, endpointCosC, patternUnitToM, sdfShape,
+    lineEndpoint, finalizeCorner, endpointCosC, patternUnitToM, sdfShape,
     computeLineColor, lineRimAlpha, vsLine,
     buildFsLine(pickEnabled), buildFsLinePattern(pickEnabled), fsLineMax,
   ],

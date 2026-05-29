@@ -125,6 +125,17 @@ const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 've
     const p2d = c.let('p2d', callFn('project', vec2fT, lon, latDeg, projParams))
     const rel2d = c.let('rel2d', p2d.sub(vec2(camEcef.x, camEcef.y)))
     c.assign(clip, transformMat4(u.field('mvp', mat4x4fT), vec4(rel2d.x, rel2d.y, f32(0), f32(1))))
+  }).elif(projParams.x.lt(6.5), (c) => {
+    // FLAT non-Mercator (1-6): reproject the reconstructed lon/lat via
+    // project_geom (world-copy aware; tileRefLon = tile-centre lon from the
+    // tile bounds) minus the camera's projected centre (in-shader from
+    // proj_params.y/z = clon/clat). Same flat MVP; cam_ecef_center unused here.
+    const latDeg = c.let('lat_deg_g', latRad.div(constRef('DEG2RAD')))
+    const tileRefLon = c.let('tile_ref_lon', bounds.x.add(bounds.z).mul(0.5))
+    const p2dG = c.let('p2d_geom', callFn('project_geom', vec2fT, lon, latDeg, projParams, tileRefLon))
+    const camXy = c.let('cam_xy', callFn('project', vec2fT, projParams.y, projParams.z, projParams))
+    const relG = c.let('rel2d_geom', p2dG.sub(camXy))
+    c.assign(clip, transformMat4(u.field('mvp', mat4x4fT), vec4(relG.x, relG.y, f32(0), f32(1))))
   }).else((c) => {
     c.assign(clip, transformMat4(u.field('mvp', mat4x4fT), vec4(ecefRtc, f32(1))))
   })

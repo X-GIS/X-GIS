@@ -106,4 +106,22 @@ describe('flat Mercator display projection (projType 0)', () => {
     for (let i = 0; i < 16; i++) maxDelta = Math.max(maxDelta, Math.abs(view.matrix[i]! - globe.matrix[i]!))
     expect(maxDelta).toBeLessThan(1e-9)
   })
+
+  it('Phase 2 selector: projTypes 0-6 use the flat MVP (≠ ECEF), 7 uses ECEF', () => {
+    const cam = newCam() // globeMode = false
+    const ecefM = Float32Array.from(cam.getECEFFrameView(W, H, DPR).matrix) // copy (buffer is reused)
+    // 0..6 are flat — the matrix must differ from the 3D ECEF MVP.
+    for (let pt = 0; pt <= 6; pt++) {
+      const m = cam.getViewForProjection(pt, W, H, DPR).matrix
+      let d = 0
+      for (let i = 0; i < 16; i++) d = Math.max(d, Math.abs(m[i]! - ecefM[i]!))
+      expect(d, `projType ${pt} must use the flat MVP, not ECEF`).toBeGreaterThan(1e-6)
+    }
+    // 7 (globe) — flat selector falls through to the ECEF MVP (globeMode=false
+    // here selects the ECEF perspective branch, not _globeFrame).
+    const m7 = cam.getViewForProjection(7, W, H, DPR).matrix
+    let d7 = 0
+    for (let i = 0; i < 16; i++) d7 = Math.max(d7, Math.abs(m7[i]! - ecefM[i]!))
+    expect(d7, 'projType 7 must use the ECEF MVP').toBeLessThan(1e-9)
+  })
 })

@@ -1,4 +1,4 @@
-// baseline: 15d052ed706c6dd72206a67a09be0309c6af7421
+// baseline: bde686b28270ec3d25c4f9dfaf8ba2354fd00059
 // fixture: syn-featdata
 // variant.key: syn-featdata
 // pick: false
@@ -336,6 +336,12 @@ fn vs_main(@location(0) pos_h: vec3<f32>, @location(1) pos_l: vec3<f32>, @locati
     let p2d = project(abs_lon, abs_lat, u.proj_params);
     let rel2d = (((p2d - u.tile_origin_merc) - u.cam_h) - u.cam_l);
     clip = (u.mvp * vec4<f32>(rel2d.x, rel2d.y, 0.0, 1.0));
+  } else if ((u.proj_params.x < 6.5)) {
+    let tile_ref_lon = ((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R));
+    let p2d_geom = project_geom(abs_lon, abs_lat, u.proj_params, tile_ref_lon);
+    let cam_xy = project(u.proj_params.y, u.proj_params.z, u.proj_params);
+    let rel2d_geom = (p2d_geom - cam_xy);
+    clip = (u.mvp * vec4<f32>(rel2d_geom.x, rel2d_geom.y, 0.0, 1.0));
   } else {
     let ecef_cam = ((ecef_rtc + vec3<f32>(u.cam_ecef_off_h.x, u.cam_ecef_off_h.y, u.cam_ecef_off_h.z)) + vec3<f32>(u.cam_ecef_off_l.x, u.cam_ecef_off_l.y, u.cam_ecef_off_l.z));
     clip = (u.mvp * vec4<f32>(ecef_cam, 1.0));
@@ -368,6 +374,12 @@ fn vs_main_ecef(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u32>, @loca
     let p2d = project(abs_lon, abs_lat, u.proj_params);
     let rel2d = (((p2d - u.tile_origin_merc) - u.cam_h) - u.cam_l);
     clip = (u.mvp * vec4<f32>(rel2d.x, rel2d.y, 0.0, 1.0));
+  } else if ((u.proj_params.x < 6.5)) {
+    let tile_ref_lon = ((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R));
+    let p2d_geom = project_geom(abs_lon, abs_lat, u.proj_params, tile_ref_lon);
+    let cam_xy = project(u.proj_params.y, u.proj_params.z, u.proj_params);
+    let rel2d_geom = (p2d_geom - cam_xy);
+    clip = (u.mvp * vec4<f32>(rel2d_geom.x, rel2d_geom.y, 0.0, 1.0));
   } else {
     let ecef_cam = ((ecef_rtc + vec3<f32>(u.cam_ecef_off_h.x, u.cam_ecef_off_h.y, u.cam_ecef_off_h.z)) + vec3<f32>(u.cam_ecef_off_l.x, u.cam_ecef_off_l.y, u.cam_ecef_off_l.z));
     clip = (u.mvp * vec4<f32>(ecef_cam, 1.0));
@@ -401,6 +413,13 @@ fn vs_main_ecef_extruded(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u3
     let rel2d = (((p2d - u.tile_origin_merc) - u.cam_h) - u.cam_l);
     let z_plane = (wall_height * is_top);
     clip = (u.mvp * vec4<f32>(rel2d.x, rel2d.y, z_plane, 1.0));
+  } else if ((u.proj_params.x < 6.5)) {
+    let tile_ref_lon = ((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R));
+    let p2d_geom = project_geom(abs_lon, abs_lat, u.proj_params, tile_ref_lon);
+    let cam_xy = project(u.proj_params.y, u.proj_params.z, u.proj_params);
+    let rel2d_geom = (p2d_geom - cam_xy);
+    let z_plane_geom = (wall_height * is_top);
+    clip = (u.mvp * vec4<f32>(rel2d_geom.x, rel2d_geom.y, z_plane_geom, 1.0));
   } else {
     clip = (u.mvp * vec4<f32>(ecef_rtc, 1.0));
   }

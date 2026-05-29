@@ -295,6 +295,17 @@ const vs = entryFn('vs_point', 'vertex', [
     const camMercL = c.let('cam_merc_l', u.field('cam_ecef_l', vec4fT).swizzle('xy'))
     const rel2d = c.let('rel2d', p2d.sub(camMercH).sub(camMercL))
     c.assign(centerClip, transformMat4(mvp, vec4(rel2d.x, rel2d.y, f32(0), f32(1))))
+  }).elif(u.field('proj_params', vec4fT).x.lt(6.5), (c) => {
+    // FLAT non-Mercator (1-6): reproject the marker's lon/lat onto the 2D
+    // plane minus the camera's projected centre (in-shader from proj_params.y/z
+    // = clon/clat). Plain project() (not project_geom) — a single marker needs
+    // no per-tile world-copy offset; project() recentres on clon. Mirrors the
+    // pre-ECEF reproject_point. Same flat MVP; no extra uniform.
+    const pp = c.let('pp', u.field('proj_params', vec4fT))
+    const p2dG = c.let('p2d_proj', callFn('project', vec2fT, absLon, absLat, pp))
+    const camXy = c.let('cam_xy', callFn('project', vec2fT, pp.y, pp.z, pp))
+    const relG = c.let('rel2d_geom', p2dG.sub(camXy))
+    c.assign(centerClip, transformMat4(mvp, vec4(relG.x, relG.y, f32(0), f32(1))))
   }).else((c) => {
     c.assign(centerClip, transformMat4(mvp, vec4(ecefRtc, f32(1))))
   })

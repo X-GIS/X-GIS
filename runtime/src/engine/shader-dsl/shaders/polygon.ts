@@ -248,6 +248,23 @@ const vsMain = entryFn(
       const rel2d = c.let('rel2d',
         p2d.sub(u.field('tile_origin_merc', vec2fT)).sub(u.field('cam_h', vec2fT)).sub(u.field('cam_l', vec2fT)))
       c.assign(clip, transformMat4(mvp, vec4(rel2d.x, rel2d.y, f32(0), f32(1))))
+    }).elif(projParamsV.x.lt(6.5), (c) => {
+      // FLAT non-Mercator (equirect/natural_earth/orthographic/azimuthal_
+      // equidistant/stereographic/oblique): reproject lon/lat onto the
+      // projection's 2D plane — project_geom is world-copy-aware for the
+      // pseudocylindrical/rotated forms — and subtract the camera's projected
+      // centre (computed in-shader from proj_params.y/z = clon/clat, so no
+      // extra uniform). tileRefLon (tile-centre lon) picks the world copy.
+      // Same flat Mercator-metre MVP. Restores the retired finalize_corner
+      // path; globe (7) + tilted azimuthal stay on ECEF in the else.
+      const tileRefLon = c.let('tile_ref_lon',
+        u.field('tile_origin_merc', vec2fT).x
+          .add(f32(0.5).mul(u.field('tile_extent_m', f32T)))
+          .div(deg2rad.mul(earthR)))
+      const p2dG = c.let('p2d_geom', callFn('project_geom', vec2fT, p.abs_lon, p.abs_lat, projParamsV, tileRefLon))
+      const camXy = c.let('cam_xy', callFn('project', vec2fT, projParamsV.y, projParamsV.z, projParamsV))
+      const relG = c.let('rel2d_geom', p2dG.sub(camXy))
+      c.assign(clip, transformMat4(mvp, vec4(relG.x, relG.y, f32(0), f32(1))))
     }).else((c) => {
       // 3D: ECEF-RTC re-centred by (tileEcefCenter − cameraCenter), hi + lo.
       const camOffH = u.field('cam_ecef_off_h', vec4fT)
@@ -377,6 +394,23 @@ const vsMainEcef = entryFn(
       const rel2d = c.let('rel2d',
         p2d.sub(u.field('tile_origin_merc', vec2fT)).sub(u.field('cam_h', vec2fT)).sub(u.field('cam_l', vec2fT)))
       c.assign(clip, transformMat4(mvp, vec4(rel2d.x, rel2d.y, f32(0), f32(1))))
+    }).elif(projParamsV.x.lt(6.5), (c) => {
+      // FLAT non-Mercator (equirect/natural_earth/orthographic/azimuthal_
+      // equidistant/stereographic/oblique): reproject lon/lat onto the
+      // projection's 2D plane — project_geom is world-copy-aware for the
+      // pseudocylindrical/rotated forms — and subtract the camera's projected
+      // centre (computed in-shader from proj_params.y/z = clon/clat, so no
+      // extra uniform). tileRefLon (tile-centre lon) picks the world copy.
+      // Same flat Mercator-metre MVP. Restores the retired finalize_corner
+      // path; globe (7) + tilted azimuthal stay on ECEF in the else.
+      const tileRefLon = c.let('tile_ref_lon',
+        u.field('tile_origin_merc', vec2fT).x
+          .add(f32(0.5).mul(u.field('tile_extent_m', f32T)))
+          .div(deg2rad.mul(earthR)))
+      const p2dG = c.let('p2d_geom', callFn('project_geom', vec2fT, p.abs_lon, p.abs_lat, projParamsV, tileRefLon))
+      const camXy = c.let('cam_xy', callFn('project', vec2fT, projParamsV.y, projParamsV.z, projParamsV))
+      const relG = c.let('rel2d_geom', p2dG.sub(camXy))
+      c.assign(clip, transformMat4(mvp, vec4(relG.x, relG.y, f32(0), f32(1))))
     }).else((c) => {
       // 3D: ECEF-RTC re-centred by (tileEcefCenter − cameraCenter), hi + lo.
       const camOffH = u.field('cam_ecef_off_h', vec4fT)
@@ -476,6 +510,18 @@ const vsMainEcefExtruded = entryFn(
         p2d.sub(u.field('tile_origin_merc', vec2fT)).sub(u.field('cam_h', vec2fT)).sub(u.field('cam_l', vec2fT)))
       const zPlane = c.let('z_plane', p.wall_height.mul(p.is_top))
       c.assign(clip, transformMat4(mvp, vec4(rel2d.x, rel2d.y, zPlane, f32(1))))
+    }).elif(projParamsV.x.lt(6.5), (c) => {
+      // FLAT non-Mercator (see vs_main_ecef): project_geom reproject + the
+      // in-shader projected camera centre; extrude lift applied as plane-z.
+      const tileRefLon = c.let('tile_ref_lon',
+        u.field('tile_origin_merc', vec2fT).x
+          .add(f32(0.5).mul(u.field('tile_extent_m', f32T)))
+          .div(deg2rad.mul(earthR)))
+      const p2dG = c.let('p2d_geom', callFn('project_geom', vec2fT, p.abs_lon, p.abs_lat, projParamsV, tileRefLon))
+      const camXy = c.let('cam_xy', callFn('project', vec2fT, projParamsV.y, projParamsV.z, projParamsV))
+      const relG = c.let('rel2d_geom', p2dG.sub(camXy))
+      const zPlaneG = c.let('z_plane_geom', p.wall_height.mul(p.is_top))
+      c.assign(clip, transformMat4(mvp, vec4(relG.x, relG.y, zPlaneG, f32(1))))
     }).else((c) => {
       c.assign(clip, transformMat4(mvp, vec4(ecefRtc, f32(1))))
     })
