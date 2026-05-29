@@ -7,6 +7,7 @@ import earcut from 'earcut'
 import { simplifyPolygon, simplifyLine, mercatorToleranceForZoom } from './simplify'
 import { clipPolygonToRect, clipLineToRect, splitBoundaryBacktracks } from './clip'
 import { precisionForZoomMM } from './encoding'
+import { POLYGON_FILL_FORMAT, field } from './polygon-vertex-format'
 import type { GeoJSONFeatureCollection, GeoJSONFeature } from './geojson-types'
 import { tileKey, tileKeyUnpack } from './vector-tiler-helpers'
 import type {
@@ -158,6 +159,15 @@ function quantizeAxis(axis: number, halfRange: number, invSpan: number): [number
   return [(q >>> 16) & 0xFFFF, q & 0xFFFF]
 }
 
+// Offsets derived from the single-source POLYGON_FILL_FORMAT spec so the
+// bytes this packer WRITES cannot drift from the WGSL @location attributes /
+// host GPUVertexBufferLayout that READ them. stride 24 B = 6 f32 = 12 u16.
+const FILL_FLOATS_PER_VERT = POLYGON_FILL_FORMAT.stride / 4   // 6
+const FILL_U16_PER_VERT = POLYGON_FILL_FORMAT.stride / 2      // 12
+const FILL_FID_FLOAT = field(POLYGON_FILL_FORMAT, 'feature_id').offset / 4  // 3
+const FILL_LON_FLOAT = field(POLYGON_FILL_FORMAT, 'abs_lon').offset / 4     // 4
+const FILL_LAT_FLOAT = field(POLYGON_FILL_FORMAT, 'abs_lat').offset / 4     // 5
+
 /** Pack ABSOLUTE Mercator-metre polygon vertices into the quantized ECEF
  * layout (Phase 2 PR 2f — double-u16 position).
  *
@@ -235,23 +245,23 @@ export function packECEFPolygonVertices(
   // Interleaved output: stride 24 bytes = 6 floats. f32 tail at float 3/4/5;
   // u16×6 position in the first 12 bytes via a Uint16Array view of the same
   // buffer (little-endian — matches WebGPU uint16x4/x2 component order).
-  const out = new Float32Array(count * 6)
+  const out = new Float32Array(count * FILL_FLOATS_PER_VERT)
   const u16 = new Uint16Array(out.buffer)
   for (let i = 0; i < count; i++) {
     const [xh, xl] = quantizeAxis(rx[i], halfRange, invSpan)
     const [yh, yl] = quantizeAxis(ry[i], halfRange, invSpan)
     const [zh, zl] = quantizeAxis(rz[i], halfRange, invSpan)
-    const u = i * 12          // u16 lane base (6 lanes / vertex)
+    const u = i * FILL_U16_PER_VERT   // u16 lane base (q_xy lanes 0..3, q_z lanes 4..5)
     u16[u]     = xh
     u16[u + 1] = xl
     u16[u + 2] = yh
     u16[u + 3] = yl
     u16[u + 4] = zh
     u16[u + 5] = zl
-    const f = i * 6           // f32 base
-    out[f + 3] = fids[i]
-    out[f + 4] = lonDeg[i]
-    out[f + 5] = latDeg[i]
+    const f = i * FILL_FLOATS_PER_VERT // f32 base
+    out[f + FILL_FID_FLOAT] = fids[i]
+    out[f + FILL_LON_FLOAT] = lonDeg[i]
+    out[f + FILL_LAT_FLOAT] = latDeg[i]
   }
   return { vertices: out, dequantScale, dequantHalf: halfRange }
 }

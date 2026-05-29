@@ -11,6 +11,7 @@ import {
   OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT,
 } from '../gpu/gpu-shared'
 import { isPickEnabled, getSampleCount } from '../gpu/gpu'
+import { POLYGON_FILL_FORMAT, POLYGON_EXTRUDED_FORMAT, type VertexFormat } from '@xgis/compiler'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import { resolveNumberShape, resolveColorShape } from './paint-shape-resolve'
 import { ComputeDispatcher } from '../gpu/compute'
@@ -192,6 +193,23 @@ export class StyleProperties {
   /** List all property names */
   keys(): string[] {
     return [...new Set([...this.defaults.keys(), ...this.overrides.keys()])]
+  }
+}
+
+/** Derive a GPUVertexBufferLayout from the single-source vertex-format spec
+ *  in @xgis/compiler. The packer (which WRITES the bytes) and the WGSL
+ *  @location attributes (which READ them) derive from the SAME spec, so a
+ *  layout built here cannot drift from either — the class of bug where a
+ *  hand-copied float32x3 layout was bound to a uint16-reading vs_main_ecef
+ *  is now structurally impossible. */
+function toVertexBufferLayout(fmt: VertexFormat): GPUVertexBufferLayout {
+  return {
+    arrayStride: fmt.stride,
+    attributes: fmt.fields.map((f) => ({
+      shaderLocation: f.location,
+      offset: f.offset,
+      format: f.vbFormat as GPUVertexFormat,
+    })),
   }
 }
 
@@ -715,41 +733,12 @@ export class MapRenderer {
     // PR 2f: polygon flat-fill QUANTIZED ECEF, stride 24 bytes.
     // [uint16x4 (qx_hi,qx_lo,qy_hi,qy_lo) + uint16x2 (qz_hi,qz_lo)
     //  + feat_id(f32) + abs_lon(f32) + abs_lat(f32)]
-    // Bound to vs_main_ecef. Position is 32-bit fixed point per axis;
-    // the VS dequants via per-tile u.tile_dequant_scale/half then runs the
-    // linear ECEF MVP. abs_lon/abs_lat stay f32 (fragment hemisphere cull).
-    // All offsets 4-byte aligned (uint16x2=4B, uint16x4=8B, f32=4B).
-    const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 24,
-      attributes: [
-        { shaderLocation: 0, offset:  0, format: 'uint16x4' as GPUVertexFormat }, // q_xy (8B)
-        { shaderLocation: 1, offset:  8, format: 'uint16x2' as GPUVertexFormat }, // q_z  (4B)
-        { shaderLocation: 2, offset: 12, format: 'float32'  as GPUVertexFormat }, // feat_id
-        { shaderLocation: 3, offset: 16, format: 'float32'  as GPUVertexFormat }, // abs_lon
-        { shaderLocation: 4, offset: 20, format: 'float32'  as GPUVertexFormat }, // abs_lat
-      ],
-    }
-    // PR 2f: polygon extruded QUANTIZED ECEF, stride 44 bytes. Unified buffer.
-    // [uint16x4 + uint16x2 (12B quantized position)
-    //  + feat_id(f32) + abs_lon(f32) + abs_lat(f32)
-    //  + face_normal(vec3) + wall_height(f32) + is_top(f32)]
-    // Bound to vs_main_ecef_extruded. face_normal drives MapLibre face-
-    // normal directional lighting in the VERTEX stage; wall_height +
-    // is_top discriminate wall-bottom vs wall-top + roof faces. All offsets
-    // 4-byte aligned (face_normal float32x3 at 24 → 36, wall_height 36, is_top 40).
-    const extrudedVertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 44,
-      attributes: [
-        { shaderLocation: 0, offset:  0, format: 'uint16x4'  as GPUVertexFormat }, // q_xy (8B)
-        { shaderLocation: 1, offset:  8, format: 'uint16x2'  as GPUVertexFormat }, // q_z  (4B)
-        { shaderLocation: 2, offset: 12, format: 'float32'   as GPUVertexFormat }, // feat_id
-        { shaderLocation: 3, offset: 16, format: 'float32'   as GPUVertexFormat }, // abs_lon
-        { shaderLocation: 4, offset: 20, format: 'float32'   as GPUVertexFormat }, // abs_lat
-        { shaderLocation: 5, offset: 24, format: 'float32x3' as GPUVertexFormat }, // face_normal
-        { shaderLocation: 6, offset: 36, format: 'float32'   as GPUVertexFormat }, // wall_height
-        { shaderLocation: 7, offset: 40, format: 'float32'   as GPUVertexFormat }, // is_top
-      ],
-    }
+    // Bound to vs_main_ecef / vs_main_ecef_extruded. Derived from the
+    // single-source POLYGON_FILL_FORMAT / POLYGON_EXTRUDED_FORMAT specs
+    // (@xgis/compiler) that the packer + WGSL @location also derive from —
+    // so layout, packer, and shader attributes cannot drift.
+    const vertexBufferLayout = toVertexBufferLayout(POLYGON_FILL_FORMAT)
+    const extrudedVertexBufferLayout = toVertexBufferLayout(POLYGON_EXTRUDED_FORMAT)
     // ECEF-DSFUN line vertex (PR 2d.1D): stride-9 = 36 bytes.
     // [ex_h, ey_h, ez_h,  ex_l, ey_l, ez_l,  feat_id, abs_lon, abs_lat]
     //  loc0 (vec3 @0)     loc1 (vec3 @12)     loc2 @24  loc3 @28  loc4 @32
@@ -1527,22 +1516,10 @@ export class MapRenderer {
       bindGroupLayouts: [layout],
     })
 
-    // PR 2f polygon QUANTIZED ECEF stride-24 layout — MUST match the base
-    // initPipelines() layout (uint16x4 + uint16x2 + f32 tail), since these
-    // variant pipelines bind the same vs_main_ecef entry which now reads
-    // vec4<u32>/vec2<u32> quantized position. (A stale float32x3 layout here
-    // fails CreateRenderPipeline with an attribute base-type mismatch — the
-    // unit/fuzz gates miss it; only real GPU pipeline creation surfaces it.)
-    const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 24,
-      attributes: [
-        { shaderLocation: 0, offset:  0, format: 'uint16x4' as GPUVertexFormat }, // q_xy (8B)
-        { shaderLocation: 1, offset:  8, format: 'uint16x2' as GPUVertexFormat }, // q_z  (4B)
-        { shaderLocation: 2, offset: 12, format: 'float32'  as GPUVertexFormat }, // feat_id
-        { shaderLocation: 3, offset: 16, format: 'float32'  as GPUVertexFormat }, // abs_lon
-        { shaderLocation: 4, offset: 20, format: 'float32'  as GPUVertexFormat }, // abs_lat
-      ],
-    }
+    // Polygon variant fill layout — derived from the single-source
+    // POLYGON_FILL_FORMAT spec (same as the base path + packer + WGSL
+    // @location), so the variant builders cannot drift from vs_main_ecef.
+    const vertexBufferLayout = toVertexBufferLayout(POLYGON_FILL_FORMAT)
     const lineVertexBufferLayout: GPUVertexBufferLayout = {
       arrayStride: 36,
       attributes: [
@@ -1667,22 +1644,10 @@ export class MapRenderer {
       bindGroupLayouts: [layout],
     })
 
-    // PR 2f polygon QUANTIZED ECEF stride-24 layout — MUST match the base
-    // initPipelines() layout (uint16x4 + uint16x2 + f32 tail), since these
-    // variant pipelines bind the same vs_main_ecef entry which now reads
-    // vec4<u32>/vec2<u32> quantized position. (A stale float32x3 layout here
-    // fails CreateRenderPipeline with an attribute base-type mismatch — the
-    // unit/fuzz gates miss it; only real GPU pipeline creation surfaces it.)
-    const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 24,
-      attributes: [
-        { shaderLocation: 0, offset:  0, format: 'uint16x4' as GPUVertexFormat }, // q_xy (8B)
-        { shaderLocation: 1, offset:  8, format: 'uint16x2' as GPUVertexFormat }, // q_z  (4B)
-        { shaderLocation: 2, offset: 12, format: 'float32'  as GPUVertexFormat }, // feat_id
-        { shaderLocation: 3, offset: 16, format: 'float32'  as GPUVertexFormat }, // abs_lon
-        { shaderLocation: 4, offset: 20, format: 'float32'  as GPUVertexFormat }, // abs_lat
-      ],
-    }
+    // Polygon variant fill layout — derived from the single-source
+    // POLYGON_FILL_FORMAT spec (same as the base path + packer + WGSL
+    // @location), so the variant builders cannot drift from vs_main_ecef.
+    const vertexBufferLayout = toVertexBufferLayout(POLYGON_FILL_FORMAT)
     const lineVertexBufferLayout: GPUVertexBufferLayout = {
       arrayStride: 36,
       attributes: [

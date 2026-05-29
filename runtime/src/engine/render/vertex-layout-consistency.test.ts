@@ -29,6 +29,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { emitPolygonWgsl } from '../shader-dsl/shaders/polygon'
+import { POLYGON_FILL_FORMAT, POLYGON_EXTRUDED_FORMAT, type VertexFormat } from '@xgis/compiler'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 // GPUVertexBufferLayout consts stay in renderer.ts; the WGSL (with the
@@ -79,6 +80,39 @@ function tryParseFnLocations(fnName: string): number[] | null {
   return locs.sort((x, y) => x - y)
 }
 
+/** Parse the `@location(N) name: type` inputs a WGSL fn reads, returning
+ *  location→wgslType. Used to cross-check the single-source vertex-format
+ *  spec against what the shader actually declares. */
+function tryParseFnParamTypes(fnName: string): Map<number, string> | null {
+  const re = new RegExp(`fn ${fnName}\\s*\\(([\\s\\S]*?)\\)\\s*->`)
+  const m = SHADER_SRC.match(re)
+  if (!m) return null
+  const params = m[1]!
+  const out = new Map<number, string>()
+  const pRe = /@location\((\d+)\)\s+\w+\s*:\s*([\w<>]+)/g
+  let p: RegExpExecArray | null
+  while ((p = pRe.exec(params)) !== null) {
+    out.set(parseInt(p[1]!, 10), p[2]!.trim())
+  }
+  return out
+}
+
+/** Cross-check a single-source vertex-format spec against the WGSL entry it
+ *  feeds: every spec field's location must appear with the SAME WGSL type the
+ *  spec declares. This is the gate that makes the layout↔shader contract
+ *  unbreakable — the packer + GPUVertexBufferLayout already DERIVE from this
+ *  spec, so if the spec also matches the shader, all four are consistent. */
+function assertSpecMatchesShader(fmt: VertexFormat, fnName: string, ctx: string): void {
+  const shaderTypes = tryParseFnParamTypes(fnName)
+  if (!shaderTypes) throw new Error(`${ctx}: WGSL fn ${fnName} not found in polygon DSL emit`)
+  for (const f of fmt.fields) {
+    expect(shaderTypes.get(f.location), `${ctx} loc${f.location} (${f.name}) missing in ${fnName}`).toBe(f.wgslType)
+  }
+  // No EXTRA shader locations beyond the spec (would mean the layout under-feeds).
+  expect([...shaderTypes.keys()].sort((a, b) => a - b), `${ctx}: ${fnName} reads locations not in spec`)
+    .toEqual(fmt.fields.map((f) => f.location))
+}
+
 function assertLayoutSane(layout: Layout, ctx: string): void {
   for (const at of layout.attrs) {
     const w = FORMAT_BYTES[at.format]
@@ -89,7 +123,6 @@ function assertLayoutSane(layout: Layout, ctx: string): void {
 }
 
 describe('iter-320 vertex attribute-layout consistency (CPU pack ↔ WGSL @location)', () => {
-  const polygon = tryParseLayout('vertexBufferLayout')
   const line = tryParseLayout('lineVertexBufferLayout')
 
   it('line layout: stride 36 (ECEF-DSFUN stride-9), loc0 pos_h@0 + loc1 pos_l@12 + loc2 fid@24 + loc3 abs_lon@28 + loc4 abs_lat@32', () => {
@@ -109,40 +142,48 @@ describe('iter-320 vertex attribute-layout consistency (CPU pack ↔ WGSL @locat
     assertLayoutSane(line, 'line')
   })
 
-  it('polygon flat layout is PR 2f quantized ECEF (stride 24: uint16x4 + uint16x2 + 3×f32)', () => {
-    if (!polygon) {
-      throw new Error('vertexBufferLayout not found in renderer.ts')
-    }
-    // PR 2f: flat-fill position quantized to 32-bit fixed point per axis,
-    // split uint16x4 (loc0 @0) + uint16x2 (loc1 @8); f32 tail fid/abs_lon/
-    // abs_lat at 12/16/20. Stride 24 bytes (was 36 f32 ECEF-DSFUN).
-    expect(polygon.stride).toBe(24)
-    const byLoc = new Map(polygon.attrs.map(a => [a.location, a]))
-    expect(byLoc.get(0)).toEqual({ location: 0, offset:  0, format: 'uint16x4' })
-    expect(byLoc.get(1)).toEqual({ location: 1, offset:  8, format: 'uint16x2' })
-    expect(byLoc.get(2)).toEqual({ location: 2, offset: 12, format: 'float32' })
-    expect(byLoc.get(3)).toEqual({ location: 3, offset: 16, format: 'float32' })
-    expect(byLoc.get(4)).toEqual({ location: 4, offset: 20, format: 'float32' })
-    // Every attribute offset must be 4-byte aligned (R3).
-    for (const a of polygon.attrs) expect(a.offset % 4).toBe(0)
-    assertLayoutSane(polygon, 'polygon')
+  // PR 2f single-source: the polygon fill/extruded GPUVertexBufferLayouts in
+  // renderer.ts now DERIVE from POLYGON_FILL_FORMAT / POLYGON_EXTRUDED_FORMAT
+  // (@xgis/compiler) via toVertexBufferLayout(), and the packer derives its
+  // byte offsets from the SAME specs. So instead of re-parsing renderer.ts
+  // literals (which no longer exist), we (1) pin the spec to the canonical
+  // contract and (2) cross-check the spec against the WGSL @location the
+  // shader actually reads — closing the layout↔shader drift that the PR-2f
+  // variant bug exploited.
+
+  it('polygon fill spec is PR 2f quantized ECEF (stride 24: uint16x4 + uint16x2 + 3×f32)', () => {
+    expect(POLYGON_FILL_FORMAT.stride).toBe(24)
+    expect(POLYGON_FILL_FORMAT.fields.map(f => [f.location, f.offset, f.vbFormat])).toEqual([
+      [0,  0, 'uint16x4'],
+      [1,  8, 'uint16x2'],
+      [2, 12, 'float32'],
+      [3, 16, 'float32'],
+      [4, 20, 'float32'],
+    ])
+    for (const f of POLYGON_FILL_FORMAT.fields) expect(f.offset % 4).toBe(0)
   })
 
-  it('polygon extruded layout is PR 2f quantized ECEF (stride 44)', () => {
-    const extruded = tryParseLayout('extrudedVertexBufferLayout')
-    if (!extruded) throw new Error('extrudedVertexBufferLayout not found in renderer.ts')
-    expect(extruded.stride).toBe(44)
-    const byLoc = new Map(extruded.attrs.map(a => [a.location, a]))
-    expect(byLoc.get(0)).toEqual({ location: 0, offset:  0, format: 'uint16x4' })
-    expect(byLoc.get(1)).toEqual({ location: 1, offset:  8, format: 'uint16x2' })
-    expect(byLoc.get(2)).toEqual({ location: 2, offset: 12, format: 'float32' })
-    expect(byLoc.get(3)).toEqual({ location: 3, offset: 16, format: 'float32' })
-    expect(byLoc.get(4)).toEqual({ location: 4, offset: 20, format: 'float32' })
-    expect(byLoc.get(5)).toEqual({ location: 5, offset: 24, format: 'float32x3' })
-    expect(byLoc.get(6)).toEqual({ location: 6, offset: 36, format: 'float32' })
-    expect(byLoc.get(7)).toEqual({ location: 7, offset: 40, format: 'float32' })
-    for (const a of extruded.attrs) expect(a.offset % 4).toBe(0)
-    assertLayoutSane(extruded, 'extruded')
+  it('polygon extruded spec is PR 2f quantized ECEF (stride 44)', () => {
+    expect(POLYGON_EXTRUDED_FORMAT.stride).toBe(44)
+    expect(POLYGON_EXTRUDED_FORMAT.fields.map(f => [f.location, f.offset, f.vbFormat])).toEqual([
+      [0,  0, 'uint16x4'],
+      [1,  8, 'uint16x2'],
+      [2, 12, 'float32'],
+      [3, 16, 'float32'],
+      [4, 20, 'float32'],
+      [5, 24, 'float32x3'],
+      [6, 36, 'float32'],
+      [7, 40, 'float32'],
+    ])
+    for (const f of POLYGON_EXTRUDED_FORMAT.fields) expect(f.offset % 4).toBe(0)
+  })
+
+  it('polygon fill spec ↔ vs_main_ecef WGSL @location types match exactly', () => {
+    assertSpecMatchesShader(POLYGON_FILL_FORMAT, 'vs_main_ecef', 'fill')
+  })
+
+  it('polygon extruded spec ↔ vs_main_ecef_extruded WGSL @location types match exactly', () => {
+    assertSpecMatchesShader(POLYGON_EXTRUDED_FORMAT, 'vs_main_ecef_extruded', 'extruded')
   })
 
   it('vs_main (line path): every @location covered by the line layout', () => {
