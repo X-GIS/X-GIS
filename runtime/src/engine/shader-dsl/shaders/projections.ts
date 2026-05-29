@@ -160,7 +160,15 @@ const oblique_rot = fn('oblique_rot', { lon_deg: f32T, lat_deg: f32T, clon: f32T
 })
 
 const proj_oblique_mercator_d = fn('proj_oblique_mercator_d', { lam_rot: f32T, phi_rot: f32T }, vec2fT, (b, { lam_rot, phi_rot }) => {
-  const phi_clamped = b.let('phi_clamped', clamp(phi_rot, MERCATOR_LAT_LIMIT.mul(DEG2RAD).neg(), MERCATOR_LAT_LIMIT.mul(DEG2RAD)))
+  // Singularity-only clamp (NOT the 85.05° Web-Mercator clamp).
+  // log(tan(π/4+phi/2)) is finite over |phi|<π/2 and diverges at the
+  // pole; the plain Mercator clamp collapses every distinct phi_rot
+  // past 85.05° to the same Y — yields degenerate tile-mesh vertices
+  // when the camera pans to a real polar region (oblique tile
+  // tearing, 2026-05-19). Keep distinct Y for distinct phi_rot up to
+  // a hair below the pole. See oblique-polar-tearing.test.ts.
+  const POLE_EPS_DEG = f32(90 - 1e-4)
+  const phi_clamped = b.let('phi_clamped', clamp(phi_rot, POLE_EPS_DEG.mul(DEG2RAD).neg(), POLE_EPS_DEG.mul(DEG2RAD)))
   const x = b.let('x', EARTH_R.mul(lam_rot))
   const y = b.let('y', EARTH_R.mul(log(tan(PI.div(4).add(phi_clamped.div(2))))))
   b.ret(vec2(x, y))
