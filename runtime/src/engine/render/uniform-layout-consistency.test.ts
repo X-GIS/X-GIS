@@ -107,6 +107,9 @@ const EXPECTED_F32_OFFSET: Record<string, number> = {
   extrude_base_m: 45,
   fill_translate_x: 46,
   fill_translate_y: 47,
+  // Phase 2 PR 2f — per-tile quantized-position dequant params.
+  tile_dequant_scale: 48,
+  tile_dequant_half: 49,
 }
 
 describe('iter-319 uniform byte-layout consistency (CPU pack ↔ WGSL struct)', () => {
@@ -131,8 +134,11 @@ describe('iter-319 uniform byte-layout consistency (CPU pack ↔ WGSL struct)', 
     expect(cb.byteOffset % 16).toBe(0)
   })
 
-  it('struct fits in the 192-byte uniform-ring slot', () => {
-    expect(sizeBytes).toBeLessThanOrEqual(192)
+  it('struct fits in the 208-byte uniform-ring slot', () => {
+    // PR 2f added tile_dequant_scale + tile_dequant_half (2 f32 at offsets
+    // 48/49) → 50 f32 = 200 bytes, rounded up to 208 by the 16-byte struct
+    // alignment. Still well within the 256-byte ring slot.
+    expect(sizeBytes).toBeLessThanOrEqual(208)
   })
 
   it('CPU pack indices in vector-tile-renderer match parsed offsets', () => {

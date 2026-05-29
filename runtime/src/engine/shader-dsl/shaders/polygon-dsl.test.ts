@@ -140,19 +140,21 @@ describe('emitPolygonWgsl — skeleton', () => {
     expect(wgsl).toContain('0.0722')
   })
 
-  it('emits vs_main_ecef vertex entry with DSFUN-split pos_h/pos_l ECEF attributes', () => {
+  it('emits vs_main_ecef vertex entry with PR 2f quantized-position ECEF attributes', () => {
     const wgsl = emitPolygonWgsl(null, false)
     expect(wgsl).toContain('fn vs_main_ecef')
-    // Phase 2 PR 2c.2: ECEF VS reads DSFUN-split vec3<f32> high/low halves
-    // + abs_lon/abs_lat at locations 3/4 — fragment-side hemisphere-cull
-    // recomputes abs_merc_x/y from these.
-    expect(wgsl).toMatch(/@location\(0\)[^,]+pos_h\s*:\s*vec3<f32>/)
-    expect(wgsl).toMatch(/@location\(1\)[^,]+pos_l\s*:\s*vec3<f32>/)
+    // Phase 2 PR 2f: position is quantized 32-bit fixed point per axis,
+    // split into uint16x4 (loc 0 → vec4<u32>) + uint16x2 (loc 1 → vec2<u32>).
+    // abs_lon/abs_lat stay f32 at locations 3/4.
+    expect(wgsl).toMatch(/@location\(0\)[^,]+q_xy\s*:\s*vec4<u32>/)
+    expect(wgsl).toMatch(/@location\(1\)[^,]+q_z\s*:\s*vec2<u32>/)
     expect(wgsl).toMatch(/@location\(3\)[^,]+abs_lon\s*:\s*f32/)
     expect(wgsl).toMatch(/@location\(4\)[^,]+abs_lat\s*:\s*f32/)
-    // Linear ECEF MVP transform: u.mvp * vec4(ecef_rtc, 1.0). Post PR 2d.5
-    // closeout, the legacy Mercator `mvp` slot was retired; the surviving
-    // `mvp` field IS the ECEF-MVP (formerly named `mvp_ecef`).
+    // Dequant: q = f32(hi)*65536 + f32(lo); axis = q*scale - half.
+    expect(wgsl).toContain('65536')
+    expect(wgsl).toContain('u.tile_dequant_scale')
+    expect(wgsl).toContain('u.tile_dequant_half')
+    // Linear ECEF MVP transform: u.mvp * vec4(ecef_rtc, 1.0).
     expect(wgsl).toContain('u.mvp')
     expect(wgsl).toContain('ecef_rtc')
   })

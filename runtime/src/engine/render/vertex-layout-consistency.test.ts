@@ -39,7 +39,7 @@ const SHADER_SRC = emitPolygonWgsl(null, false)
 
 // GPUVertexFormat → byte width.
 const FORMAT_BYTES: Record<string, number> = {
-  uint16x2: 4, float32: 4, float32x2: 8, float32x3: 12, float32x4: 16,
+  uint16x2: 4, uint16x4: 8, float32: 4, float32x2: 8, float32x3: 12, float32x4: 16,
   uint32: 4, sint16x2: 4,
 }
 
@@ -109,15 +109,40 @@ describe('iter-320 vertex attribute-layout consistency (CPU pack ↔ WGSL @locat
     assertLayoutSane(line, 'line')
   })
 
-  it('polygon layout reflects the active stride contract (stride-8 quantized OR stride-36+ ECEF)', () => {
+  it('polygon flat layout is PR 2f quantized ECEF (stride 24: uint16x4 + uint16x2 + 3×f32)', () => {
     if (!polygon) {
       throw new Error('vertexBufferLayout not found in renderer.ts')
     }
-    // PR 2c.2 transition: legacy stride-8 (quantized u16x2 + f32 fid) or
-    // new stride-36 ECEF-DSFUN (pos_h.vec3 + pos_l.vec3 + fid + abs_lon +
-    // abs_lat). Either layout passes the structural sanity check.
-    expect([8, 36, 56]).toContain(polygon.stride)
+    // PR 2f: flat-fill position quantized to 32-bit fixed point per axis,
+    // split uint16x4 (loc0 @0) + uint16x2 (loc1 @8); f32 tail fid/abs_lon/
+    // abs_lat at 12/16/20. Stride 24 bytes (was 36 f32 ECEF-DSFUN).
+    expect(polygon.stride).toBe(24)
+    const byLoc = new Map(polygon.attrs.map(a => [a.location, a]))
+    expect(byLoc.get(0)).toEqual({ location: 0, offset:  0, format: 'uint16x4' })
+    expect(byLoc.get(1)).toEqual({ location: 1, offset:  8, format: 'uint16x2' })
+    expect(byLoc.get(2)).toEqual({ location: 2, offset: 12, format: 'float32' })
+    expect(byLoc.get(3)).toEqual({ location: 3, offset: 16, format: 'float32' })
+    expect(byLoc.get(4)).toEqual({ location: 4, offset: 20, format: 'float32' })
+    // Every attribute offset must be 4-byte aligned (R3).
+    for (const a of polygon.attrs) expect(a.offset % 4).toBe(0)
     assertLayoutSane(polygon, 'polygon')
+  })
+
+  it('polygon extruded layout is PR 2f quantized ECEF (stride 44)', () => {
+    const extruded = tryParseLayout('extrudedVertexBufferLayout')
+    if (!extruded) throw new Error('extrudedVertexBufferLayout not found in renderer.ts')
+    expect(extruded.stride).toBe(44)
+    const byLoc = new Map(extruded.attrs.map(a => [a.location, a]))
+    expect(byLoc.get(0)).toEqual({ location: 0, offset:  0, format: 'uint16x4' })
+    expect(byLoc.get(1)).toEqual({ location: 1, offset:  8, format: 'uint16x2' })
+    expect(byLoc.get(2)).toEqual({ location: 2, offset: 12, format: 'float32' })
+    expect(byLoc.get(3)).toEqual({ location: 3, offset: 16, format: 'float32' })
+    expect(byLoc.get(4)).toEqual({ location: 4, offset: 20, format: 'float32' })
+    expect(byLoc.get(5)).toEqual({ location: 5, offset: 24, format: 'float32x3' })
+    expect(byLoc.get(6)).toEqual({ location: 6, offset: 36, format: 'float32' })
+    expect(byLoc.get(7)).toEqual({ location: 7, offset: 40, format: 'float32' })
+    for (const a of extruded.attrs) expect(a.offset % 4).toBe(0)
+    assertLayoutSane(extruded, 'extruded')
   })
 
   it('vs_main (line path): every @location covered by the line layout', () => {

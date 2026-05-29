@@ -295,17 +295,19 @@ describe('Vector Tiler', () => {
     }
   })
 
-  it('produces GPU-ready vertex format (ECEF-DSFUN stride 9)', () => {
+  it('produces GPU-ready vertex format (quantized ECEF stride 6 floats / 24 bytes)', () => {
     const tileSet = compileGeoJSONToTiles(simpleGeoJSON, { minZoom: 0, maxZoom: 0 })
     const level0 = tileSet.levels[0]
     const tile = [...level0.tiles.values()][0]
 
-    // PR 2c.2 polygon vertices: ECEF-DSFUN stride 9
-    // [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, feat_id, abs_lon, abs_lat]
-    expect(tile.vertices.length % 9).toBe(0)
+    // PR 2f quantized polygon vertices: stride 24 bytes = 6 floats
+    // [uint16×6 position | f32 feat_id | f32 abs_lon | f32 abs_lat]
+    expect(tile.vertices.length % 6).toBe(0)
+    expect(tile.dequantHalf).toBeGreaterThan(0)
+    expect(tile.dequantScale).toBeGreaterThan(0)
     // Indices should reference valid vertices
     for (let i = 0; i < tile.indices.length; i++) {
-      expect(tile.indices[i]).toBeLessThan(tile.vertices.length / 9)
+      expect(tile.indices[i]).toBeLessThan(tile.vertices.length / 6)
     }
   })
 

@@ -25,7 +25,7 @@ export const EXTRUDE_FALLBACK_HEIGHT_M = 50
 
 import earcut from 'earcut'
 import type { RingPolygon } from '@xgis/compiler'
-import { dsfunSplitECEF, lonLatToECEFSphere } from '../engine/projection/ecef'
+import { lonLatToECEFSphere } from '../engine/projection/ecef'
 import { mercatorYToLatRad } from '../engine/projection/projection'
 
 // ─────────────────────────────────────────────────────────────────
@@ -38,16 +38,21 @@ import { mercatorYToLatRad } from '../engine/projection/projection'
 // `u.mvp * vec4(pos_h + pos_l, 1)` (ECEF-MVP — see PR 2d.5 closeout)
 // — `project_geom`'s non-linear dispatch disappears at PR 2c.2's flip.
 //
-// Per-vertex layout (14 f32 = 56 bytes, stride matches plan v4 M-3):
-//   loc 0  pos_h        ECEF RTC, high half  (3 floats)
-//   loc 1  pos_l        ECEF RTC, low half   (3 floats)
-//   loc 2  feat_id      picking key          (1 float)
-//   loc 3  abs_lon_deg  absolute longitude   (1 float)
-//   loc 4  abs_lat_deg  absolute latitude    (1 float)
-//   loc 5  face_normal  ECEF unit vector     (3 floats) — outward
+// Per-vertex layout — Phase 2 PR 2f quantized ECEF (11 f32 = 44 bytes):
+//   loc 0  position_hi  uint16×4 — qx_hi, qx_lo, qy_hi, qy_lo (bytes  0..7)
+//   loc 1  position_lo  uint16×2 — qz_hi, qz_lo              (bytes  8..11)
+//   loc 2  feat_id      picking key          f32             (byte  12)
+//   loc 3  abs_lon_deg  absolute longitude   f32             (byte  16)
+//   loc 4  abs_lat_deg  absolute latitude    f32             (byte  20)
+//   loc 5  face_normal  ECEF unit vector     f32×3 (bytes 24..35) — outward
 //                       horizontal for walls, radial-up for roof
-//   loc 6  wall_height  feature height (m)   (1 float)
-//   loc 7  is_top       0 = wall-bottom, 1 = wall-top + roof (1 float)
+//   loc 6  wall_height  feature height (m)   f32             (byte  36)
+//   loc 7  is_top       0 = wall-bottom, 1 = wall-top + roof f32 (byte 40)
+//
+// Position is the ECEF RTC residual quantized to 32-bit fixed point per
+// axis over the per-mesh symmetric range [-dequantHalf, +dequantHalf]
+// (computed AFTER the wall-lift so top-ring residuals don't overflow).
+// The GPU VS reconstructs: q = f32(hi)*65536 + f32(lo); axis = q*scale - half.
 //
 // The `is_top` discriminator (M-2 fix) preserves `wall_blend`
 // (`polygon.ts:444`) and `tTop` (`polygon.ts:474`) semantics after the
@@ -56,20 +61,25 @@ import { mercatorYToLatRad } from '../engine/projection/projection'
 // ─────────────────────────────────────────────────────────────────
 
 /** Result of the ECEF extruded wall + roof mesh generator: single
- *  interleaved stride-14 Float32Array (56 bytes / vertex) plus indices.
- *  Roof + walls share the same buffer — caller binds vertices+indices
- *  directly, no concat needed (unlike the Mercator path that paired
- *  separate top + wall buffers). */
+ *  interleaved stride-44-byte buffer (quantized position + f32 tail) plus
+ *  indices and the per-mesh dequant uniform companion. Roof + walls share
+ *  the same buffer — caller binds vertices+indices directly. */
 export interface WallMeshExtrudedECEF {
-  /** Interleaved per-vertex floats; length = vertCount * 14. */
+  /** Interleaved per-vertex bytes; stride 44 = 11 floats. uint16×6 position
+   *  in the first 12 bytes, f32 tail (fid/abs_lon/abs_lat/face_normal×3/
+   *  wall_height/is_top) at float slots 3..10. */
   vertices: Float32Array
   /** Triangle indices into `vertices` (3 per triangle, length divisible
    *  by 3). LOCAL to this mesh; caller treats the whole buffer as a
    *  single draw. */
   indices: Uint32Array
+  /** Per-mesh dequant step (metres) = `2*dequantHalf/0xFFFFFFFF`. */
+  dequantScale: number
+  /** Per-mesh symmetric residual half-range (metres), computed post-lift. */
+  dequantHalf: number
 }
 
-const STRIDE_FLOATS = 14
+const STRIDE_FLOATS = 11
 const RAD2DEG_LOCAL = 180 / Math.PI
 const EARTH_RADIUS_LOCAL = 6378137  // sphere — matches lonLatToECEFSphere
 
@@ -213,6 +223,13 @@ export function generateWallMeshExtrudedECEF(
   const vertices = new Float32Array(totalVerts * STRIDE_FLOATS)
   const indices = new Uint32Array(edgeCount * 6 + roofTriCount * 3)
 
+  // Per-vertex ECEF RTC residual (f64), stashed during emit so the per-mesh
+  // quantization half-range can be computed AFTER the wall-lift (top-ring
+  // residuals are larger than the flat footprint — see R2). Quantized into
+  // the buffer's u16 lanes in a final pass once maxAbs is known.
+  const resid = new Float64Array(totalVerts * 3)
+  let maxAbs = 0
+
   // Write helper — stamps one vertex into `vertices` at slot vIdx.
   // mx, my are ABSOLUTE Mercator metres (same convention as
   // `generateWallMeshExtruded`, where ring coords are already absolute
@@ -233,22 +250,24 @@ export function generateWallMeshExtrudedECEF(
     const latRad = mercatorYToLatRad(my)
     const latDeg = latRad * RAD2DEG_LOCAL
     const ecef = lonLatToECEFSphere(lonDeg, latDeg, height)
-    const { hi, lo } = dsfunSplitECEF(ecef, tileEcefCenter)
+    // ECEF RTC residual (f64) — quantized in the final pass.
+    const ax = ecef[0] - tileEcefCenter[0]
+    const ay = ecef[1] - tileEcefCenter[1]
+    const az = ecef[2] - tileEcefCenter[2]
+    const r = vIdx * 3
+    resid[r] = ax; resid[r + 1] = ay; resid[r + 2] = az
+    const m = Math.max(Math.abs(ax), Math.abs(ay), Math.abs(az))
+    if (m > maxAbs) maxAbs = m
+    // f32 tail (position u16 lanes are written in the quantize pass below).
     const o = vIdx * STRIDE_FLOATS
-    vertices[o    ] = hi[0]
-    vertices[o + 1] = hi[1]
-    vertices[o + 2] = hi[2]
-    vertices[o + 3] = lo[0]
-    vertices[o + 4] = lo[1]
-    vertices[o + 5] = lo[2]
-    vertices[o + 6] = fid
-    vertices[o + 7] = lonDeg
-    vertices[o + 8] = latDeg
-    vertices[o + 9] = fnX
-    vertices[o + 10] = fnY
-    vertices[o + 11] = fnZ
-    vertices[o + 12] = wallHeight
-    vertices[o + 13] = isTop
+    vertices[o + 3] = fid
+    vertices[o + 4] = lonDeg
+    vertices[o + 5] = latDeg
+    vertices[o + 6] = fnX
+    vertices[o + 7] = fnY
+    vertices[o + 8] = fnZ
+    vertices[o + 9] = wallHeight
+    vertices[o + 10] = isTop
   }
 
   let vIdx = 0
@@ -398,11 +417,34 @@ export function generateWallMeshExtrudedECEF(
   // `if (tlen === 0) continue` dropped.
   const finalVertCount = vIdx
   const finalIdxCount = idxOut
+
+  // ── Final pass: quantize position into the u16 lanes ──
+  // Per-mesh symmetric half-range = exact max-abs residual (post-lift) +
+  // epsilon (R1/R2). Encode each axis to 32-bit fixed point, split hi/lo.
+  const dequantHalf = maxAbs + 1e-6
+  const span = 2 * dequantHalf
+  const dequantScale = span / 0xFFFFFFFF
+  const invSpan = 0xFFFFFFFF / span
+  const u16 = new Uint16Array(vertices.buffer)
+  for (let v = 0; v < finalVertCount; v++) {
+    const r = v * 3
+    const lane = v * STRIDE_FLOATS * 2  // 2 u16 per f32 slot; pos = first 6 lanes
+    for (let axis = 0; axis < 3; axis++) {
+      let q = Math.round((resid[r + axis]! + dequantHalf) * invSpan)
+      if (q < 0) q = 0
+      else if (q > 0xFFFFFFFF) q = 0xFFFFFFFF
+      u16[lane + axis * 2]     = (q >>> 16) & 0xFFFF
+      u16[lane + axis * 2 + 1] = q & 0xFFFF
+    }
+  }
+
   if (finalVertCount === totalVerts && finalIdxCount === indices.length) {
-    return { vertices, indices }
+    return { vertices, indices, dequantScale, dequantHalf }
   }
   return {
     vertices: vertices.subarray(0, finalVertCount * STRIDE_FLOATS),
     indices: indices.subarray(0, finalIdxCount),
+    dequantScale,
+    dequantHalf,
   }
 }

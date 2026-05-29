@@ -86,6 +86,22 @@ function tileExtentM(z: number): number {
 
 // ── Core helper: pack one point and measure reconstruction error ─────────────
 
+/** Decode one quantized vertex's ECEF RTC axes via the same math the GPU VS
+ *  runs: read the u16 hi/lo lanes, reconstruct q = hi*65536 + lo, then
+ *  axis = q * dequantScale - dequantHalf. The buffer is stride 24 bytes:
+ *  u16×6 position in the first 12 bytes + f32 fid/abs_lon/abs_lat after. */
+function dequantVertex(
+  quant: { vertices: Float32Array; dequantScale: number; dequantHalf: number },
+  vi: number,
+): [number, number, number] {
+  const u16 = new Uint16Array(quant.vertices.buffer, quant.vertices.byteOffset)
+  const u = vi * 12
+  const ax = (u16[u]! * 65536 + u16[u + 1]!) * quant.dequantScale - quant.dequantHalf
+  const ay = (u16[u + 2]! * 65536 + u16[u + 3]!) * quant.dequantScale - quant.dequantHalf
+  const az = (u16[u + 4]! * 65536 + u16[u + 5]!) * quant.dequantScale - quant.dequantHalf
+  return [ax, ay, az]
+}
+
 function roundTripError(
   mx: number,
   my: number,
@@ -94,13 +110,13 @@ function roundTripError(
   // Source lon/lat (radians).
   const [srcLon, srcLat] = mercatorToLonLatRad(mx, my)
 
-  // Pack.
-  const packed = packECEFPolygonVertices([mx, my, 0], ecefCenter)
-
-  // GPU reconstruction: f64 hi + f64 lo + tile-center component.
-  const recX = (packed[0]! as number) + (packed[3]! as number) + ecefCenter[0]
-  const recY = (packed[1]! as number) + (packed[4]! as number) + ecefCenter[1]
-  const recZ = (packed[2]! as number) + (packed[5]! as number) + ecefCenter[2]
+  // Pack (quantize) then dequant + re-add the tile-centre component — the
+  // full quantize→GPU-dequant round trip.
+  const quant = packECEFPolygonVertices([mx, my, 0], ecefCenter)
+  const [ax, ay, az] = dequantVertex(quant, 0)
+  const recX = ax + ecefCenter[0]
+  const recY = ay + ecefCenter[1]
+  const recZ = az + ecefCenter[2]
 
   // Inverse ECEF → lon/lat.
   const [recLon, recLat] = ecefToLonLatRad(recX, recY, recZ)
@@ -112,12 +128,40 @@ function roundTripError(
 
 describe('AC2c.1.1 packECEFPolygonVertices precision round-trip', () => {
 
-  it('stride-9 output: fid passes through unchanged', () => {
+  it('quantized stride-24 output: fid passes through unchanged at float slot 3', () => {
     const [lon_rad, lat_rad] = mercatorToLonLatRad(0, 0)
     const center = lonLatRadToECEF(lon_rad, lat_rad)
-    const packed = packECEFPolygonVertices([0, 0, 42], center)
-    expect(packed.length).toBe(9)
-    expect(packed[6]).toBe(42)
+    const quant = packECEFPolygonVertices([0, 0, 42], center)
+    // stride 24 bytes = 6 floats per vertex; fid at float index 3.
+    expect(quant.vertices.length).toBe(6)
+    expect(quant.vertices[3]).toBe(42)
+    expect(quant.dequantHalf).toBeGreaterThan(0)
+    expect(quant.dequantScale).toBeGreaterThan(0)
+  })
+
+  it('no axis clamps: extreme residuals encode within [0, 0xFFFF] per lane (no overflow)', () => {
+    // Two verts: one near the +max residual, one near the -max. halfRange =
+    // exact max-abs over the verts (+ epsilon) so by construction every axis
+    // stays inside the symmetric range — no encode clamps. Verify every u16
+    // lane is a valid 16-bit value and the round-trip stays sub-mm.
+    const ext = tileExtentM(15)
+    const [tLon, tLat] = mercatorToLonLatRad(ext * 7, ext * 3)
+    const center = lonLatRadToECEF(tLon, tLat)
+    const pv = [ext * 7 + ext * 0.5, ext * 3 + ext * 0.5, 0,
+                ext * 7 - ext * 0.5, ext * 3 - ext * 0.5, 1]
+    const quant = packECEFPolygonVertices(pv, center)
+    const u16 = new Uint16Array(quant.vertices.buffer)
+    for (let lane = 0; lane < 12; lane++) {
+      expect(u16[lane]! >= 0 && u16[lane]! <= 0xFFFF).toBe(true)
+    }
+    // Round-trip both verts: sub-mm.
+    for (let vi = 0; vi < 2; vi++) {
+      const [ax, ay, az] = dequantVertex(quant, vi)
+      const mxRef = pv[vi * 3], myRef = pv[vi * 3 + 1]
+      const [refLon, refLat] = mercatorToLonLatRad(mxRef, myRef)
+      const [recLon, recLat] = ecefToLonLatRad(ax + center[0], ay + center[1], az + center[2])
+      expect(arcLengthM(refLon, refLat, recLon, recLat)).toBeLessThan(1e-3)
+    }
   })
 
   it('single known point: Tokyo at z=15, reconstruction ≤ 1 mm', () => {
@@ -270,11 +314,11 @@ describe('AC2c.1.1 packECEFPolygonVertices precision round-trip', () => {
       const [tLon, tLat] = mercatorToLonLatRad(0, 0)
       const center = lonLatRadToECEF(tLon, tLat)
 
-      const packed = packECEFPolygonVertices([mx, my, 0], center)
+      const quant = packECEFPolygonVertices([mx, my, 0], center)
 
-      // abs_lon at index 7, abs_lat at index 8.
-      const packed_lon_deg = packed[7]! as number
-      const packed_lat_deg = packed[8]! as number
+      // abs_lon at float slot 4, abs_lat at float slot 5 (stride-6 floats).
+      const packed_lon_deg = quant.vertices[4]! as number
+      const packed_lat_deg = quant.vertices[5]! as number
 
       const dLon = Math.abs(packed_lon_deg - ref_lon_deg)
       const dLat = Math.abs(packed_lat_deg - ref_lat_deg)

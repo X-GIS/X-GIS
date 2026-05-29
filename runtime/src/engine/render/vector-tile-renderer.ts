@@ -71,12 +71,13 @@ const UNIFORM_SLOT = 256
 // Bind-group binding range size. Must be ≥ the WGSL Uniforms struct
 // size of every shader that reads this binding (polygon, line, point,
 // raster — see renderer.ts / line-renderer.ts / point-renderer.ts).
-// Polygon Uniforms is 192 bytes (48 floats: 16 mvp + 32 trailing fields
-// incl. clip_bounds + zoom block + 3 pad). UNIFORM_SLOT (192 bytes/slot)
-// matches exactly. WGSL spec requires multiple of 16. PR 2d.5 closeout
-// shrunk 256 → 192 when the legacy Mercator `mvp` slot was retired (the
-// surviving `mvp` field IS the ECEF-MVP, renamed from `mvp_ecef`).
-const UNIFORM_SIZE = 192
+// Polygon Uniforms is 208 bytes (50 floats: 16 mvp + 32 trailing fields
+// incl. clip_bounds + zoom block + the 2 PR-2f tile_dequant_* slots,
+// rounded up to 208 by the 16-byte struct alignment). PR 2d.5 closeout had
+// shrunk this 256 → 192 when the legacy Mercator `mvp` slot was retired; PR
+// 2f re-grows it to 208 (still ≤ the 256-byte UNIFORM_SLOT). WGSL spec
+// requires a multiple of 16.
+const UNIFORM_SIZE = 208
 
 /** 2π × Earth radius (m). One full mercator wrap. tile_extent_m at
  *  any zoom z is this constant divided by 2^z (vs_main_quantized

@@ -712,39 +712,42 @@ export class MapRenderer {
       bindGroupLayouts: [this.bindGroupLayout],
     })
 
-    // PR 2c.2: polygon flat-fill ECEF stride-9 floats = 36 bytes.
-    // [pos_h(vec3) + pos_l(vec3) + feat_id(f32) + abs_lon(f32) + abs_lat(f32)]
-    // Bound to vs_main_ecef which runs a single linear mvp_ecef transform
-    // on (pos_h + pos_l); abs_lon/abs_lat reconstruct Mercator absolutes
-    // for the fragment-side hemisphere cull.
+    // PR 2f: polygon flat-fill QUANTIZED ECEF, stride 24 bytes.
+    // [uint16x4 (qx_hi,qx_lo,qy_hi,qy_lo) + uint16x2 (qz_hi,qz_lo)
+    //  + feat_id(f32) + abs_lon(f32) + abs_lat(f32)]
+    // Bound to vs_main_ecef. Position is 32-bit fixed point per axis;
+    // the VS dequants via per-tile u.tile_dequant_scale/half then runs the
+    // linear ECEF MVP. abs_lon/abs_lat stay f32 (fragment hemisphere cull).
+    // All offsets 4-byte aligned (uint16x2=4B, uint16x4=8B, f32=4B).
     const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 36,
+      arrayStride: 24,
       attributes: [
-        { shaderLocation: 0, offset:  0, format: 'float32x3' as GPUVertexFormat }, // pos_h
-        { shaderLocation: 1, offset: 12, format: 'float32x3' as GPUVertexFormat }, // pos_l
-        { shaderLocation: 2, offset: 24, format: 'float32'   as GPUVertexFormat }, // feat_id
-        { shaderLocation: 3, offset: 28, format: 'float32'   as GPUVertexFormat }, // abs_lon
-        { shaderLocation: 4, offset: 32, format: 'float32'   as GPUVertexFormat }, // abs_lat
+        { shaderLocation: 0, offset:  0, format: 'uint16x4' as GPUVertexFormat }, // q_xy (8B)
+        { shaderLocation: 1, offset:  8, format: 'uint16x2' as GPUVertexFormat }, // q_z  (4B)
+        { shaderLocation: 2, offset: 12, format: 'float32'  as GPUVertexFormat }, // feat_id
+        { shaderLocation: 3, offset: 16, format: 'float32'  as GPUVertexFormat }, // abs_lon
+        { shaderLocation: 4, offset: 20, format: 'float32'  as GPUVertexFormat }, // abs_lat
       ],
     }
-    // PR 2c.2: polygon extruded ECEF stride-14 floats = 56 bytes. Unified buffer
-    // (replaces flat-fill + separate extrudedZBufferLayout).
-    // [pos_h(vec3) + pos_l(vec3) + feat_id(f32) + abs_lon(f32) + abs_lat(f32)
+    // PR 2f: polygon extruded QUANTIZED ECEF, stride 44 bytes. Unified buffer.
+    // [uint16x4 + uint16x2 (12B quantized position)
+    //  + feat_id(f32) + abs_lon(f32) + abs_lat(f32)
     //  + face_normal(vec3) + wall_height(f32) + is_top(f32)]
     // Bound to vs_main_ecef_extruded. face_normal drives MapLibre face-
     // normal directional lighting in the VERTEX stage; wall_height +
-    // is_top discriminate wall-bottom vs wall-top + roof faces.
+    // is_top discriminate wall-bottom vs wall-top + roof faces. All offsets
+    // 4-byte aligned (face_normal float32x3 at 24 → 36, wall_height 36, is_top 40).
     const extrudedVertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 56,
+      arrayStride: 44,
       attributes: [
-        { shaderLocation: 0, offset:  0, format: 'float32x3' as GPUVertexFormat }, // pos_h
-        { shaderLocation: 1, offset: 12, format: 'float32x3' as GPUVertexFormat }, // pos_l
-        { shaderLocation: 2, offset: 24, format: 'float32'   as GPUVertexFormat }, // feat_id
-        { shaderLocation: 3, offset: 28, format: 'float32'   as GPUVertexFormat }, // abs_lon
-        { shaderLocation: 4, offset: 32, format: 'float32'   as GPUVertexFormat }, // abs_lat
-        { shaderLocation: 5, offset: 36, format: 'float32x3' as GPUVertexFormat }, // face_normal
-        { shaderLocation: 6, offset: 48, format: 'float32'   as GPUVertexFormat }, // wall_height
-        { shaderLocation: 7, offset: 52, format: 'float32'   as GPUVertexFormat }, // is_top
+        { shaderLocation: 0, offset:  0, format: 'uint16x4'  as GPUVertexFormat }, // q_xy (8B)
+        { shaderLocation: 1, offset:  8, format: 'uint16x2'  as GPUVertexFormat }, // q_z  (4B)
+        { shaderLocation: 2, offset: 12, format: 'float32'   as GPUVertexFormat }, // feat_id
+        { shaderLocation: 3, offset: 16, format: 'float32'   as GPUVertexFormat }, // abs_lon
+        { shaderLocation: 4, offset: 20, format: 'float32'   as GPUVertexFormat }, // abs_lat
+        { shaderLocation: 5, offset: 24, format: 'float32x3' as GPUVertexFormat }, // face_normal
+        { shaderLocation: 6, offset: 36, format: 'float32'   as GPUVertexFormat }, // wall_height
+        { shaderLocation: 7, offset: 40, format: 'float32'   as GPUVertexFormat }, // is_top
       ],
     }
     // ECEF-DSFUN line vertex (PR 2d.1D): stride-9 = 36 bytes.

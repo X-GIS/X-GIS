@@ -32,12 +32,18 @@ export interface CompiledTile {
   y: number
   tileWest: number   // tile origin longitude (f64 precision in JS)
   tileSouth: number  // tile origin latitude (f64 precision in JS)
-  /** Polygon fill vertices as DSFUN stride-5 pairs:
-   *  [mx_h, my_h, mx_l, my_l, feat_id] in tile-local Mercator meters.
-   *  mx_h + mx_l reconstructs an f64-equivalent coordinate — the shader
-   *  cancels tile-origin magnitude with (pos_h - cam_h) + (pos_l - cam_l)
-   *  so precision survives into camera-relative space. */
+  /** Polygon fill vertices in the quantized ECEF layout (Phase 2 PR 2f):
+   *  stride 24 bytes = uint16×6 position (32-bit fixed point per axis) +
+   *  f32 fid + f32 abs_lon + f32 abs_lat. Backed by a Float32Array view
+   *  (stride 6 floats). The GPU VS reconstructs each ECEF RTC axis as
+   *  `q = f32(hi)*65536 + f32(lo); axis = q * dequantScale - dequantHalf`. */
   vertices: Float32Array
+  /** Per-tile dequant step (metres) — `2*dequantHalf/0xFFFFFFFF`. Travels
+   *  to the GPU as the `tile_dequant_scale` per-tile uniform. */
+  dequantScale: number
+  /** Per-tile symmetric residual half-range (metres). Travels to the GPU
+   *  as the `tile_dequant_half` per-tile uniform. */
+  dequantHalf: number
   indices: Uint32Array
   /** Line vertices as DSFUN stride-6 pairs:
    *  [mx_h, my_h, mx_l, my_l, feat_id, arc_start]. arc_start is global
