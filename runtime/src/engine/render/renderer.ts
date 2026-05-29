@@ -1527,15 +1527,20 @@ export class MapRenderer {
       bindGroupLayouts: [layout],
     })
 
-    // PR 2c.2 polygon ECEF stride-9 layout — matches initPipelines() above.
+    // PR 2f polygon QUANTIZED ECEF stride-24 layout — MUST match the base
+    // initPipelines() layout (uint16x4 + uint16x2 + f32 tail), since these
+    // variant pipelines bind the same vs_main_ecef entry which now reads
+    // vec4<u32>/vec2<u32> quantized position. (A stale float32x3 layout here
+    // fails CreateRenderPipeline with an attribute base-type mismatch — the
+    // unit/fuzz gates miss it; only real GPU pipeline creation surfaces it.)
     const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 36,
+      arrayStride: 24,
       attributes: [
-        { shaderLocation: 0, offset:  0, format: 'float32x3' as GPUVertexFormat },
-        { shaderLocation: 1, offset: 12, format: 'float32x3' as GPUVertexFormat },
-        { shaderLocation: 2, offset: 24, format: 'float32'   as GPUVertexFormat },
-        { shaderLocation: 3, offset: 28, format: 'float32'   as GPUVertexFormat },
-        { shaderLocation: 4, offset: 32, format: 'float32'   as GPUVertexFormat },
+        { shaderLocation: 0, offset:  0, format: 'uint16x4' as GPUVertexFormat }, // q_xy (8B)
+        { shaderLocation: 1, offset:  8, format: 'uint16x2' as GPUVertexFormat }, // q_z  (4B)
+        { shaderLocation: 2, offset: 12, format: 'float32'  as GPUVertexFormat }, // feat_id
+        { shaderLocation: 3, offset: 16, format: 'float32'  as GPUVertexFormat }, // abs_lon
+        { shaderLocation: 4, offset: 20, format: 'float32'  as GPUVertexFormat }, // abs_lat
       ],
     }
     const lineVertexBufferLayout: GPUVertexBufferLayout = {
@@ -1662,15 +1667,20 @@ export class MapRenderer {
       bindGroupLayouts: [layout],
     })
 
-    // PR 2c.2 polygon ECEF stride-9 layout — matches initPipelines() above.
+    // PR 2f polygon QUANTIZED ECEF stride-24 layout — MUST match the base
+    // initPipelines() layout (uint16x4 + uint16x2 + f32 tail), since these
+    // variant pipelines bind the same vs_main_ecef entry which now reads
+    // vec4<u32>/vec2<u32> quantized position. (A stale float32x3 layout here
+    // fails CreateRenderPipeline with an attribute base-type mismatch — the
+    // unit/fuzz gates miss it; only real GPU pipeline creation surfaces it.)
     const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 36,
+      arrayStride: 24,
       attributes: [
-        { shaderLocation: 0, offset:  0, format: 'float32x3' as GPUVertexFormat },
-        { shaderLocation: 1, offset: 12, format: 'float32x3' as GPUVertexFormat },
-        { shaderLocation: 2, offset: 24, format: 'float32'   as GPUVertexFormat },
-        { shaderLocation: 3, offset: 28, format: 'float32'   as GPUVertexFormat },
-        { shaderLocation: 4, offset: 32, format: 'float32'   as GPUVertexFormat },
+        { shaderLocation: 0, offset:  0, format: 'uint16x4' as GPUVertexFormat }, // q_xy (8B)
+        { shaderLocation: 1, offset:  8, format: 'uint16x2' as GPUVertexFormat }, // q_z  (4B)
+        { shaderLocation: 2, offset: 12, format: 'float32'  as GPUVertexFormat }, // feat_id
+        { shaderLocation: 3, offset: 16, format: 'float32'  as GPUVertexFormat }, // abs_lon
+        { shaderLocation: 4, offset: 20, format: 'float32'  as GPUVertexFormat }, // abs_lat
       ],
     }
     const lineVertexBufferLayout: GPUVertexBufferLayout = {
