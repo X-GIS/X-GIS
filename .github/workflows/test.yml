@@ -26,7 +26,16 @@ jobs:
       # bun install. The filesystem args correspond to the source roots
       # where tests live; vitest.config.* (if any) is respected
       # automatically.
-      - run: ./node_modules/.bin/vitest run compiler/src blueprint/src runtime/src
+      #
+      # Split per workspace: a single combined run over all ~555 files
+      # accumulates worker->main RPC state on the slower CI runner until
+      # `[vitest-worker]: Timeout calling "onTaskUpdate"` fires — every test
+      # passes, the worker just can't report progress back in time. Separate
+      # runs each start a fresh worker pool well under that threshold
+      # (compiler+blueprint ~329, runtime ~226; both verified clean even on a
+      # single worker locally, where the combined ~555 reliably timed out).
+      - run: ./node_modules/.bin/vitest run compiler/src blueprint/src
+      - run: ./node_modules/.bin/vitest run runtime/src
 
   # Render-behavior gate: the unit suite above NEVER executes a shader
   # (deep-dive 2026-05-25 finding #1). This job runs the SHADER-MATH gate

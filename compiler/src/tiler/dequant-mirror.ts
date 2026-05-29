@@ -50,3 +50,29 @@ export function dequantVertexF32(quant: QuantizedDecode, vi: number): [number, n
     axis(u16[u + 4]!, u16[u + 5]!),
   ]
 }
+
+/** CPU fround mirror of WGSL `mat4x4<f32> * vec4<f32>` (column-major), the MVP
+ *  transform vs_main_ecef applies right after dequant (polygon.ts:
+ *  `transformMat4(mvp, vec4(ecef_rtc, 1))`). result[r] = Σ_c m[c*4+r] * v[c],
+ *  Math.fround after each mul/add to model f32 accumulation.
+ *
+ *  `m` is column-major (m[c*4+r] = column c, row r) — the layout the renderer
+ *  uploads and WebGPU expects. Validated against the real GPU by the
+ *  _vs-clip-parity compute harness. Unlike the single-mul dequant (which was
+ *  bit-exact), GPU drivers may fuse mul+add into fma here, so the parity gate
+ *  allows a few ULP rather than exact equality. */
+export function mulMat4Vec4F32(
+  m: ArrayLike<number>,
+  v: readonly [number, number, number, number],
+): [number, number, number, number] {
+  const f = Math.fround
+  const out: [number, number, number, number] = [0, 0, 0, 0]
+  for (let r = 0; r < 4; r++) {
+    let acc = f(f(m[r]!) * f(v[0]))
+    acc = f(acc + f(f(m[4 + r]!) * f(v[1])))
+    acc = f(acc + f(f(m[8 + r]!) * f(v[2])))
+    acc = f(acc + f(f(m[12 + r]!) * f(v[3])))
+    out[r] = acc
+  }
+  return out
+}
