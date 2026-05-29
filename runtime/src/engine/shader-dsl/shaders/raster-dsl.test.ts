@@ -36,7 +36,10 @@ describe('Phase-2 raster shader — DSL emission (ECEF VS, PR 2d.3)', () => {
   it('procedural-grid vertex + single ECEF projection path', () => {
     expect(noPick).toContain('@vertex\nfn vs_tile(@builtin(vertex_index) vid: u32) -> VsOut')
     expect(noPick).toContain('lonlat_to_ecef(')
-    expect(noPick).toContain('tile.tile_ecef_center')
+    // Camera-relative RTC fix: the VS now subtracts the frame cameraCenter
+    // (u.cam_ecef_center) rather than the per-tile tile_ecef_center, so the
+    // ECEF vertex projects vertex − cameraCenter through the camera-at-origin MVP.
+    expect(noPick).toContain('u.cam_ecef_center')
     expect(noPick).toContain('array<u32, 6>')
     // No old projection-dispatch branches
     const vsBody = noPick.slice(noPick.indexOf('@vertex\nfn vs_tile'))

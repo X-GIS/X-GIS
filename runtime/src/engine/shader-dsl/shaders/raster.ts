@@ -34,6 +34,11 @@ const Uniforms: StructDecl = {
     { name: 'proj_params', type: vec4fT },
     // raster_params: x=opacity (0..1), yzw reserved (gamma/brightness/contrast)
     { name: 'raster_params', type: vec4fT },
+    // Camera-relative RTC (same fix as polygon's cam_ecef_off): the vertex ecef
+    // is absolute, so subtract cameraCenter to feed the camera-at-ENU-origin
+    // MVP. xyz = getECEFCenter (sphere); w unused. Raster is texture-grade, so
+    // plain f32 (no DSFUN) is sufficient.
+    { name: 'cam_ecef_center', type: vec4fT },
   ],
 }
 const TileUniforms: StructDecl = {
@@ -84,7 +89,7 @@ const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 've
 
   const mercY = tile.field('merc_y', vec2fT)
   const bounds = tile.field('bounds', vec4fT)
-  const tileEcefCenter = tile.field('tile_ecef_center', vec4fT)
+  const camEcef = u.field('cam_ecef_center', vec4fT)
   const projParams = u.field('proj_params', vec4fT)
 
   // vv=0 → north (offset=diff), vv=1 → south (offset=0). Local offset from tileSouth.
@@ -101,8 +106,9 @@ const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 've
   // (Camera.getECEFFrameView). No per-projection branches needed.
   const lonRad = b.let('lon_rad', lon.mul(constRef('DEG2RAD')))
   const ecef = b.let('ecef', callFn('lonlat_to_ecef', vec3fT, lonRad, latRad, f32(0)))
-  const tileEcefCtr = b.let('tile_ecef_ctr', vec3(tileEcefCenter.x, tileEcefCenter.y, tileEcefCenter.z))
-  const ecefRtc = b.let('ecef_rtc', ecef.sub(tileEcefCtr))
+  // Camera-relative: ecef − cameraCenter (the MVP is camera-at-ENU-origin).
+  const camEcefVec = b.let('cam_ecef_vec', vec3(camEcef.x, camEcef.y, camEcef.z))
+  const ecefRtc = b.let('ecef_rtc', ecef.sub(camEcefVec))
 
   const out = b.var('out', structT('VsOut'))
   const clip = b.let('clip', transformMat4(u.field('mvp', mat4x4fT), vec4(ecefRtc, f32(1))))
