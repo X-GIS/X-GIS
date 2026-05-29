@@ -62,15 +62,18 @@ describe('SyntheticEarthSurfaceBackend — attach + loadTile', () => {
     expect(pushed[0].result).not.toBeNull()
   })
 
-  it('emits 561 verts × stride-9 + 3072 indices from 32x16 grid', () => {
+  it('emits 561 verts × stride-6 (PR 2f quantized) + 3072 indices from 32x16 grid', () => {
     const backend = new SyntheticEarthSurfaceBackend()
     const { sink, pushed } = makeRecordingSink()
     backend.attach(sink)
     const result = pushed[0].result!
-    expect(result.vertices.length).toBe(561 * 9)
+    expect(result.vertices.length).toBe(561 * 6)
     expect(result.indices.length).toBe(32 * 16 * 6)
     expect(result.lineVertices.length).toBe(0)
     expect(result.lineIndices.length).toBe(0)
+    // Quantized buffer must carry its dequant companion params.
+    expect(result.dequantScale).toBeGreaterThan(0)
+    expect(result.dequantHalf).toBeGreaterThan(0)
   })
 
   it('loadTile(z=0 key) re-pushes the cached result object without rebuilding', () => {
@@ -92,13 +95,21 @@ describe('SyntheticEarthSurfaceBackend — attach + loadTile', () => {
 })
 
 describe('SyntheticEarthSurfaceBackend — vertex content', () => {
+  // PR 2f: position is quantized u16×6 in the first 12 bytes (floats 0..2);
+  // f32 tail is fid(3), abs_lon(4), abs_lat(5). Dequant a position axis from
+  // the u16 lanes: q = hi*65536 + lo; axis = q*scale - half.
+  const dequantAxis = (u16: Uint16Array, lane: number, scale: number, half: number): number => {
+    const q = u16[lane] * 65536 + u16[lane + 1]
+    return q * scale - half
+  }
+
   it('first vertex sits at lon=-180, lat=-90 (south-west pole of sphere band)', () => {
     const backend = new SyntheticEarthSurfaceBackend()
     const { sink, pushed } = makeRecordingSink()
     backend.attach(sink)
     const v = pushed[0].result!.vertices
-    expect(v[7]).toBeCloseTo(-180, 6)  // abs_lon
-    expect(v[8]).toBeCloseTo(-90, 6)   // abs_lat
+    expect(v[4]).toBeCloseTo(-180, 6)  // abs_lon
+    expect(v[5]).toBeCloseTo(-90, 6)   // abs_lat
   })
 
   it('last vertex sits at lon=+180, lat=+90 (north-east pole)', () => {
@@ -106,33 +117,37 @@ describe('SyntheticEarthSurfaceBackend — vertex content', () => {
     const { sink, pushed } = makeRecordingSink()
     backend.attach(sink)
     const v = pushed[0].result!.vertices
-    const last = (561 - 1) * 9
-    expect(v[last + 7]).toBeCloseTo(180, 6)
-    expect(v[last + 8]).toBeCloseTo(90, 6)
+    const last = (561 - 1) * 6
+    expect(v[last + 4]).toBeCloseTo(180, 6)
+    expect(v[last + 5]).toBeCloseTo(90, 6)
   })
 
-  it('DSFUN hi+lo at corner reconstructs ECEF magnitude ≈ Earth radius', () => {
+  it('quantized position at corner reconstructs ECEF magnitude ≈ Earth radius', () => {
     const backend = new SyntheticEarthSurfaceBackend()
     const { sink, pushed } = makeRecordingSink()
     backend.attach(sink)
-    const v = pushed[0].result!.vertices
+    const result = pushed[0].result!
+    const v = result.vertices
+    const u16 = new Uint16Array(v.buffer)
     // Sample the mid-row, mid-col vertex — lon=0, lat=0 → ECEF (A, 0, 0).
     // Mid row index = 8 (heightSegments/2), mid col index = 16 (widthSegments/2).
     const cols = 33
-    const midRow = 8
-    const midCol = 16
-    const idx = midRow * cols + midCol
-    const base = idx * 9
-    const ex = v[base] + v[base + 3]   // hi + lo
-    const ey = v[base + 1] + v[base + 4]
-    const ez = v[base + 2] + v[base + 5]
+    const idx = 8 * cols + 16
+    const lane = idx * 12   // u16 lane base (12 lanes / vertex)
+    const { dequantScale: scale, dequantHalf: half } = result
+    // Dequant is the RTC residual about WORLD_ANCHOR = (0,0,0), so the
+    // reconstructed axis IS the absolute sphere ECEF at world-center anchor.
+    const ex = dequantAxis(u16, lane, scale, half)
+    const ey = dequantAxis(u16, lane + 2, scale, half)
+    const ez = dequantAxis(u16, lane + 4, scale, half)
     // At lon=0, lat=0: ECEF = (A, 0, 0). Sphere radius A = 6378137.
-    expect(ex).toBeCloseTo(A, 0)   // ≤1 m DSFUN precision at world-center anchor
-    expect(ey).toBeCloseTo(0, 0)
-    expect(ez).toBeCloseTo(0, 0)
-    // abs_lon/abs_lat at the same vertex
-    expect(v[base + 7]).toBeCloseTo(0, 6)
-    expect(v[base + 8]).toBeCloseTo(0, 6)
+    // double-u16 over a ~6.4e6 m range → ~3 mm step; 0.01 m tolerance.
+    expect(ex).toBeCloseTo(A, 1)
+    expect(ey).toBeCloseTo(0, 1)
+    expect(ez).toBeCloseTo(0, 1)
+    // abs_lon/abs_lat at the same vertex (f32 tail).
+    expect(v[idx * 6 + 4]).toBeCloseTo(0, 6)
+    expect(v[idx * 6 + 5]).toBeCloseTo(0, 6)
   })
 
   it('feat_id is 0 for every vertex (single synthetic feature)', () => {
@@ -141,7 +156,7 @@ describe('SyntheticEarthSurfaceBackend — vertex content', () => {
     backend.attach(sink)
     const v = pushed[0].result!.vertices
     for (let i = 0; i < 561; i++) {
-      expect(v[i * 9 + 6]).toBe(0)
+      expect(v[i * 6 + 3]).toBe(0)
     }
   })
 })

@@ -19,7 +19,7 @@
 
 import { tileKey } from '@xgis/compiler'
 import { generateEarthSurfaceFillMesh } from '../../engine/projection/earth-surface-fill'
-import { lonLatToECEFSphere, dsfunSplitECEF, type ECEF } from '../../engine/projection/ecef'
+import { lonLatToECEFSphere, type ECEF } from '../../engine/projection/ecef'
 import {
   TILE_LAYOUT_VERSION,
   type BackendTileResult,
@@ -97,25 +97,68 @@ export class SyntheticEarthSurfaceBackend implements TileSource {
   private buildResult(): BackendTileResult {
     const mesh = generateEarthSurfaceFillMesh(WIDTH_SEGMENTS, HEIGHT_SEGMENTS, 'sphere-full')
     const vertexCount = mesh.vertices.length / 2  // stride-2 lon/lat → vertex count
-    const vertices = new Float32Array(vertexCount * 9)
+
+    // Pass 1: ECEF RTC residual (about WORLD_ANCHOR) + abs lon/lat per vertex;
+    // track the max-abs residual for the PR 2f double-u16 quantization range.
+    // The world-anchored residuals span ~±6.4e6 m (this mesh covers the whole
+    // globe at z=0), so the per-vertex 32-bit fixed-point step is ~3 mm — far
+    // finer than the 32×16 grid's ~1200 km cell spacing.
+    const rx = new Float64Array(vertexCount)
+    const ry = new Float64Array(vertexCount)
+    const rz = new Float64Array(vertexCount)
+    const lons = new Float64Array(vertexCount)
+    const lats = new Float64Array(vertexCount)
+    let maxAbs = 0
     for (let i = 0; i < vertexCount; i++) {
       const lon = mesh.vertices[i * 2]
       const lat = mesh.vertices[i * 2 + 1]
       const ecef = lonLatToECEFSphere(lon, lat, 0)
-      const { hi, lo } = dsfunSplitECEF(ecef, WORLD_ANCHOR)
-      const base = i * 9
-      vertices[base]     = hi[0]
-      vertices[base + 1] = hi[1]
-      vertices[base + 2] = hi[2]
-      vertices[base + 3] = lo[0]
-      vertices[base + 4] = lo[1]
-      vertices[base + 5] = lo[2]
-      vertices[base + 6] = 0          // feat_id — single synthetic feature
-      vertices[base + 7] = lon        // abs_lon (degrees) — hemisphere-cull varying
-      vertices[base + 8] = lat        // abs_lat (degrees)
+      const ax = ecef[0] - WORLD_ANCHOR[0]
+      const ay = ecef[1] - WORLD_ANCHOR[1]
+      const az = ecef[2] - WORLD_ANCHOR[2]
+      rx[i] = ax; ry[i] = ay; rz[i] = az
+      lons[i] = lon; lats[i] = lat
+      const m = Math.max(Math.abs(ax), Math.abs(ay), Math.abs(az))
+      if (m > maxAbs) maxAbs = m
+    }
+
+    // Per-mesh symmetric half-range; matches the tiler's packECEFPolygonVertices
+    // scheme so vs_main_ecef's dequant (`q*scale - half`) reconstructs the RTC.
+    const dequantHalf = maxAbs + 1e-6
+    const span = 2 * dequantHalf
+    const dequantScale = span / 0xFFFFFFFF
+    const invSpan = 0xFFFFFFFF / span
+    const quant = (axis: number): [number, number] => {
+      let q = Math.round((axis + dequantHalf) * invSpan)
+      if (q < 0) q = 0
+      else if (q > 0xFFFFFFFF) q = 0xFFFFFFFF
+      return [(q >>> 16) & 0xFFFF, q & 0xFFFF]
+    }
+
+    // Pass 2: interleaved stride-24 buffer (u16×6 position + f32 fid/lon/lat),
+    // matching the quantized polygon vertex layout vs_main_ecef consumes.
+    const vertices = new Float32Array(vertexCount * 6)
+    const u16 = new Uint16Array(vertices.buffer)
+    for (let i = 0; i < vertexCount; i++) {
+      const [xh, xl] = quant(rx[i])
+      const [yh, yl] = quant(ry[i])
+      const [zh, zl] = quant(rz[i])
+      const u = i * 12
+      u16[u]     = xh
+      u16[u + 1] = xl
+      u16[u + 2] = yh
+      u16[u + 3] = yl
+      u16[u + 4] = zh
+      u16[u + 5] = zl
+      const f = i * 6
+      vertices[f + 3] = 0          // feat_id — single synthetic feature
+      vertices[f + 4] = lons[i]    // abs_lon (degrees) — hemisphere-cull varying
+      vertices[f + 5] = lats[i]    // abs_lat (degrees)
     }
     return {
       vertices,
+      dequantScale,
+      dequantHalf,
       indices: mesh.indices,
       lineVertices: new Float32Array(0),
       lineIndices: new Uint32Array(0),
