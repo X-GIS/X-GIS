@@ -13,6 +13,7 @@ import {
 import { isPickEnabled, getSampleCount } from '../gpu/gpu'
 import { POLYGON_FILL_FORMAT, POLYGON_EXTRUDED_FORMAT } from '@xgis/compiler'
 import { toVertexBufferLayout } from './vertex-buffer-layout'
+import { LINE_FORMAT } from './line-vertex-format'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import { resolveNumberShape, resolveColorShape } from './paint-shape-resolve'
 import { ComputeDispatcher } from '../gpu/compute'
@@ -723,20 +724,9 @@ export class MapRenderer {
     // so layout, packer, and shader attributes cannot drift.
     const vertexBufferLayout = toVertexBufferLayout(POLYGON_FILL_FORMAT)
     const extrudedVertexBufferLayout = toVertexBufferLayout(POLYGON_EXTRUDED_FORMAT)
-    // ECEF-DSFUN line vertex (PR 2d.1D): stride-9 = 36 bytes.
-    // [ex_h, ey_h, ez_h,  ex_l, ey_l, ez_l,  feat_id, abs_lon, abs_lat]
-    //  loc0 (vec3 @0)     loc1 (vec3 @12)     loc2 @24  loc3 @28  loc4 @32
-    // Mirrors vertexBufferLayout (polygon ECEF stride-36). Consumer: vs_main.
-    const lineVertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 36,
-      attributes: [
-        { shaderLocation: 0, offset:  0, format: 'float32x3' as GPUVertexFormat },
-        { shaderLocation: 1, offset: 12, format: 'float32x3' as GPUVertexFormat },
-        { shaderLocation: 2, offset: 24, format: 'float32'   as GPUVertexFormat },
-        { shaderLocation: 3, offset: 28, format: 'float32'   as GPUVertexFormat },
-        { shaderLocation: 4, offset: 32, format: 'float32'   as GPUVertexFormat },
-      ],
-    }
+    // Line vertex layout from the single-source LINE_FORMAT spec (consumer:
+    // vs_main). Same derivation as the two variant builders below — no copies.
+    const lineVertexBufferLayout = toVertexBufferLayout(LINE_FORMAT)
 
     // Pipeline color target list. When picking is on, append an RG32Uint
     // target at location 1 that the fragment shader's out.pick writes into.
@@ -1504,16 +1494,7 @@ export class MapRenderer {
     // POLYGON_FILL_FORMAT spec (same as the base path + packer + WGSL
     // @location), so the variant builders cannot drift from vs_main_ecef.
     const vertexBufferLayout = toVertexBufferLayout(POLYGON_FILL_FORMAT)
-    const lineVertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 36,
-      attributes: [
-        { shaderLocation: 0, offset:  0, format: 'float32x3' as GPUVertexFormat },
-        { shaderLocation: 1, offset: 12, format: 'float32x3' as GPUVertexFormat },
-        { shaderLocation: 2, offset: 24, format: 'float32'   as GPUVertexFormat },
-        { shaderLocation: 3, offset: 28, format: 'float32'   as GPUVertexFormat },
-        { shaderLocation: 4, offset: 32, format: 'float32'   as GPUVertexFormat },
-      ],
-    }
+    const lineVertexBufferLayout = toVertexBufferLayout(LINE_FORMAT)
 
     const buildSetDesc = (targets: GPUColorTargetState[], suffix: string) => ({
       fill: {
@@ -1632,16 +1613,7 @@ export class MapRenderer {
     // POLYGON_FILL_FORMAT spec (same as the base path + packer + WGSL
     // @location), so the variant builders cannot drift from vs_main_ecef.
     const vertexBufferLayout = toVertexBufferLayout(POLYGON_FILL_FORMAT)
-    const lineVertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 36,
-      attributes: [
-        { shaderLocation: 0, offset:  0, format: 'float32x3' as GPUVertexFormat },
-        { shaderLocation: 1, offset: 12, format: 'float32x3' as GPUVertexFormat },
-        { shaderLocation: 2, offset: 24, format: 'float32'   as GPUVertexFormat },
-        { shaderLocation: 3, offset: 28, format: 'float32'   as GPUVertexFormat },
-        { shaderLocation: 4, offset: 32, format: 'float32'   as GPUVertexFormat },
-      ],
-    }
+    const lineVertexBufferLayout = toVertexBufferLayout(LINE_FORMAT)
 
     const buildSet = (targets: GPUColorTargetState[], suffix: string) => ({
       fill: device.createRenderPipeline({
