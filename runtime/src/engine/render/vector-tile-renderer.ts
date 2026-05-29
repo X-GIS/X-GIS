@@ -2148,6 +2148,10 @@ export class VectorTileRenderer {
     const useFeatureHeights = data.heights !== undefined && data.heights.size > 0
     let polyVerts: ArrayBuffer
     let polyIndices: Uint32Array
+    // PR 2f per-tile quantized-position dequant params (flat: from `data`;
+    // extruded: from the runtime wall-mesh). Written into the per-tile uniform.
+    let dequantScale: number
+    let dequantHalf: number
     if (useFeatureHeights && data.polygons) {
       // ECEF tile-corner anchor — must match the compiler tiler's
       // `tileEcefCenter` (`packECEFPolygonVertices`'s RTC origin) so
@@ -2181,15 +2185,21 @@ export class VectorTileRenderer {
         mesh.vertices.byteOffset + mesh.vertices.byteLength,
       )
       polyIndices = mesh.indices
+      // PR 2f: extruded dequant params computed post-lift by the wall-mesh.
+      dequantScale = mesh.dequantScale
+      dequantHalf = mesh.dequantHalf
     } else {
-      // Flat slice: tiler already emitted stride-9 ECEF-DSFUN floats —
-      // pass through unchanged. `data.vertices` is a typed-array view;
-      // `slice` copies into a fresh ArrayBuffer the arena can accept.
+      // Flat slice: tiler already emitted the PR 2f quantized ECEF layout
+      // (stride 24 bytes) — pass through unchanged. `data.vertices` is a
+      // typed-array view; `slice` copies into a fresh ArrayBuffer the arena
+      // can accept. The companion per-tile dequant params travel on `data`.
       polyVerts = data.vertices.buffer.slice(
         data.vertices.byteOffset,
         data.vertices.byteOffset + data.vertices.byteLength,
       )
       polyIndices = data.indices
+      dequantScale = data.dequantScale
+      dequantHalf = data.dequantHalf
     }
     // Phase 6a.2 (iter-208) — polygon vertex now allocates from the
     // shared arena. The arena's underlying GPUBuffer is set as
@@ -2353,6 +2363,7 @@ export class VectorTileRenderer {
       tileWest: data.tileWest, tileSouth: data.tileSouth,
       tileWidth: data.tileWidth, tileHeight: data.tileHeight,
       tileZoom: data.tileZoom,
+      dequantScale, dequantHalf,
       lastUsedFrame: this.frameCount,
       uploadTimeMs: performance.now(),
       featureDataBuffer: perTileFeat?.buffer ?? null,
@@ -2421,6 +2432,9 @@ export class VectorTileRenderer {
     const useFeatureHeights = data.heights !== undefined && data.heights.size > 0
     let polyVerts: ArrayBuffer
     let polyIndices: Uint32Array
+    // PR 2f per-tile quantized-position dequant params (see sync path).
+    let dequantScale: number
+    let dequantHalf: number
     if (useFeatureHeights && data.polygons) {
       const A_ = 6378137
       const F_ = 1 / 298.257223563
@@ -2448,12 +2462,16 @@ export class VectorTileRenderer {
         mesh.vertices.byteOffset + mesh.vertices.byteLength,
       )
       polyIndices = mesh.indices
+      dequantScale = mesh.dequantScale
+      dequantHalf = mesh.dequantHalf
     } else {
       polyVerts = data.vertices.buffer.slice(
         data.vertices.byteOffset,
         data.vertices.byteOffset + data.vertices.byteLength,
       )
       polyIndices = data.indices
+      dequantScale = data.dequantScale
+      dequantHalf = data.dequantHalf
     }
 
     // One command encoder per tile — all the copyBufferToBuffer ops
@@ -2621,6 +2639,7 @@ export class VectorTileRenderer {
       tileWest: data.tileWest, tileSouth: data.tileSouth,
       tileWidth: data.tileWidth, tileHeight: data.tileHeight,
       tileZoom: data.tileZoom,
+      dequantScale, dequantHalf,
       lastUsedFrame: this.frameCount,
       uploadTimeMs: performance.now(),
       featureDataBuffer: perTileFeat?.buffer ?? null,
@@ -4926,6 +4945,16 @@ export class VectorTileRenderer {
         this.uniformF32[46] = this.currentFillTranslateNdcX
         this.uniformF32[47] = this.currentFillTranslateNdcY
       }
+
+      // tile_dequant_scale (48) + tile_dequant_half (49) — PR 2f per-tile
+      // quantized-position dequant. The polygon VS reconstructs each ECEF
+      // RTC axis as `q = f32(hi)*65536 + f32(lo); axis = q*scale - half`.
+      // These are per-tile (flat: tiler-computed; extruded: wall-mesh-
+      // computed post-lift) so they MUST ride the per-tile uniform slot —
+      // never a batched draw (confirmed: setBindGroup uses a per-tile
+      // dynamic slotOffset, one alloc per tile in this loop).
+      this.uniformF32[48] = cached.dequantScale
+      this.uniformF32[49] = cached.dequantHalf
 
       // Allocate a fresh ring slot for this tile × layer × world-copy draw.
       const slotOffset = this.allocUniformSlot()

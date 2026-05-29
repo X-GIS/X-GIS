@@ -6,9 +6,9 @@ import {
   type TileLayoutVersion,
 } from './tile-source'
 
-describe('TILE_LAYOUT_VERSION (Phase 2 PR 2c.4 — bumped to 2)', () => {
+describe('TILE_LAYOUT_VERSION (Phase 2 PR 2f — bumped to 3)', () => {
   it('current version is exported as a numeric literal const', () => {
-    expect(TILE_LAYOUT_VERSION).toBe(2)
+    expect(TILE_LAYOUT_VERSION).toBe(3)
     expect(typeof TILE_LAYOUT_VERSION).toBe('number')
   })
 
@@ -47,6 +47,6 @@ describe('TILE_LAYOUT_VERSION (Phase 2 PR 2c.4 — bumped to 2)', () => {
 
   it('TileLayoutVersion type narrows to the literal current value', () => {
     const v: TileLayoutVersion = TILE_LAYOUT_VERSION
-    expect(v).toBe(2)
+    expect(v).toBe(3)
   })
 })

@@ -191,6 +191,8 @@ export class MvtWorkerPool {
       const wrapped: MvtCompileSlice[] = slices.map(s => ({
         layerName: s.layerName,
         vertices: new Float32Array(s.vertices),
+        dequantScale: s.dequantScale,
+        dequantHalf: s.dequantHalf,
         indices: new Uint32Array(s.indices),
         lineVertices: new Float32Array(s.lineVertices),
         lineIndices: new Uint32Array(s.lineIndices),

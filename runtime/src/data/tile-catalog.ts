@@ -414,6 +414,7 @@ export class TileCatalog {
       result.bases,
       result.featureProps,
       backend,
+      { scale: result.dequantScale, half: result.dequantHalf },
     )
   }
 
@@ -683,7 +684,7 @@ export class TileCatalog {
           const polygons: RingPolygon[] | undefined = tile.polygons?.map(p => ({
             rings: p.rings, featId: p.featId,
           }))
-          this.cacheTileData(key, polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, tile.pointVertices, tile.outlineIndices)
+          this.cacheTileData(key, polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, tile.pointVertices, tile.outlineIndices, undefined, undefined, undefined, undefined, '', undefined, undefined, undefined, undefined, { scale: tile.dequantScale, half: tile.dequantHalf })
         }
         tileCount++
       }
@@ -757,7 +758,7 @@ export class TileCatalog {
         this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
       } else {
         const polygons: RingPolygon[] | undefined = tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId }))
-        this.cacheTileData(key, polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, tile.pointVertices, tile.outlineIndices)
+        this.cacheTileData(key, polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, tile.pointVertices, tile.outlineIndices, undefined, undefined, undefined, undefined, '', undefined, undefined, undefined, undefined, { scale: tile.dequantScale, half: tile.dequantHalf })
       }
     }
   }
@@ -1088,6 +1089,10 @@ export class TileCatalog {
      *  sink closure in makeSink and threaded here so TileData carries
      *  its origin for per-backend eviction (PR 2c.5). */
     originBackend?: TileSource,
+    /** PR 2f per-tile quantized-position dequant params for `vertices`.
+     *  Defaults to the identity (scale 1, half 0) for empty / synthetic
+     *  full-cover tiles whose `vertices` are zero-length. */
+    dequant: { scale: number; half: number } = { scale: 1, half: 0 },
   ): void {
     const [tz, tx, ty] = tileKeyUnpack(key)
     const tn = Math.pow(2, tz)
@@ -1097,7 +1102,10 @@ export class TileCatalog {
     const tileSouth = Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + 1) / tn))) * 180 / Math.PI
 
     const data: TileData = {
-      vertices, indices, lineVertices, lineIndices,
+      vertices,
+      dequantScale: dequant.scale,
+      dequantHalf: dequant.half,
+      indices, lineVertices, lineIndices,
       outlineIndices: outlineIndices ?? new Uint32Array(0),
       outlineVertices: outlineVertices && outlineVertices.length > 0 ? outlineVertices : undefined,
       outlineLineIndices: outlineLineIndices && outlineLineIndices.length > 0 ? outlineLineIndices : undefined,

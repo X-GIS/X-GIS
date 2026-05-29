@@ -39,7 +39,13 @@ export type TileState = 'unloaded' | 'loading' | 'cached' | 'failed'
  * the shader's DSFUN subtraction (pos_h - cam_h) + (pos_l - cam_l).
  */
 export interface TileData {
-  vertices: Float32Array       // polygon fills — DSFUN stride 5
+  vertices: Float32Array       // polygon fills — PR 2f quantized ECEF stride 24 B
+  /** PR 2f per-tile quantized-position dequant step (metres) =
+   *  `2*dequantHalf/0xFFFFFFFF`. The flat-fill polygon VS decodes each ECEF
+   *  RTC axis as `q = f32(hi)*65536 + f32(lo); axis = q*scale - half`. */
+  dequantScale: number
+  /** PR 2f per-tile symmetric residual half-range (metres). */
+  dequantHalf: number
   indices: Uint32Array         // triangle indices
   lineVertices: Float32Array   // lines — DSFUN stride 10 (arc_start at [5], tangent at [6-9])
   lineIndices: Uint32Array     // line segment indices (pairs)
@@ -97,8 +103,11 @@ export interface TileData {
   originBackend?: TileSource
 }
 
-// Stride constants (exported for tests + VTR upload paths)
-export const DSFUN_POLY_STRIDE = 5
+// Stride constants (exported for tests + VTR upload paths).
+// PR 2f: polygon fill vertices are the quantized ECEF layout — stride 24
+// bytes = 6 floats (uint16×6 position + f32 fid/abs_lon/abs_lat). Used for
+// XGVTIndex `vertexCount` bookkeeping only.
+export const DSFUN_POLY_STRIDE = 6
 export const DSFUN_LINE_STRIDE = 10
 
 // ═══ Catalog-level constants ═══

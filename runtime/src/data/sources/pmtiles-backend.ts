@@ -390,6 +390,8 @@ export class PMTilesBackend implements TileSource {
           for (const slice of slices) {
             sink.acceptResult(key, {
               vertices: slice.vertices,
+              dequantScale: slice.dequantScale,
+              dequantHalf: slice.dequantHalf,
               indices: slice.indices,
               lineVertices: slice.lineVertices,
               lineIndices: slice.lineIndices,
@@ -502,6 +504,8 @@ export class PMTilesBackend implements TileSource {
         }
         sink.acceptResult(key, {
           vertices: tile.vertices,
+          dequantScale: tile.dequantScale,
+          dequantHalf: tile.dequantHalf,
           indices: tile.indices,
           lineVertices: tile.lineVertices,
           lineIndices: tile.lineIndices,

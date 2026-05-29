@@ -119,6 +119,8 @@ export class GeoJSONRuntimeBackend implements TileSource {
     const polygons: RingPolygon[] | undefined = tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId }))
     this.sink.acceptResult(key, {
       vertices: tile.vertices,
+      dequantScale: tile.dequantScale,
+      dequantHalf: tile.dequantHalf,
       indices: tile.indices,
       lineVertices: tile.lineVertices,
       lineIndices: tile.lineIndices,

@@ -235,6 +235,8 @@ export class VirtualPMTilesBackend implements TileSource {
         )
         sink.acceptResult(key, {
           vertices: tile.vertices,
+          dequantScale: tile.dequantScale,
+          dequantHalf: tile.dequantHalf,
           indices: tile.indices,
           lineVertices: tile.lineVertices,
           lineIndices: tile.lineIndices,
@@ -267,7 +269,7 @@ export class VirtualPMTilesBackend implements TileSource {
 /** Direct field-by-field mapping between an MvtCompileSlice (the
  *  wire format) and a BackendTileResult (the sink's shape). */
 function sliceToBackendResult(slice: {
-  vertices: Float32Array; indices: Uint32Array
+  vertices: Float32Array; dequantScale: number; dequantHalf: number; indices: Uint32Array
   lineVertices: Float32Array; lineIndices: Uint32Array
   pointVertices?: Float32Array
   outlineIndices?: Uint32Array; outlineVertices?: Float32Array; outlineLineIndices?: Uint32Array
@@ -282,6 +284,8 @@ function sliceToBackendResult(slice: {
 }): BackendTileResult {
   return {
     vertices: slice.vertices,
+    dequantScale: slice.dequantScale,
+    dequantHalf: slice.dequantHalf,
     indices: slice.indices,
     lineVertices: slice.lineVertices,
     lineIndices: slice.lineIndices,

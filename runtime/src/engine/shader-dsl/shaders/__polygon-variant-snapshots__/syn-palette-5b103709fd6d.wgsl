@@ -1,4 +1,4 @@
-// baseline: 7cee5644bf2d45f41951e857e6615b832d572703
+// baseline: e1921e99b49941585ab54c9d47f7e4fc3083a8ef
 // fixture: syn-palette
 // variant.key: syn-palette
 // pick: false
@@ -268,6 +268,8 @@ struct Uniforms {
   extrude_base_m: f32,
   fill_translate_x: f32,
   fill_translate_y: f32,
+  tile_dequant_scale: f32,
+  tile_dequant_half: f32,
 }
 
 struct VertexOutput {
@@ -340,8 +342,11 @@ fn vs_main(@location(0) pos_h: vec3<f32>, @location(1) pos_l: vec3<f32>, @locati
 }
 
 @vertex
-fn vs_main_ecef(@location(0) pos_h: vec3<f32>, @location(1) pos_l: vec3<f32>, @location(2) feature_id: f32, @location(3) abs_lon: f32, @location(4) abs_lat: f32) -> VertexOutput {
-  let ecef_rtc = (pos_h + pos_l);
+fn vs_main_ecef(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u32>, @location(2) feature_id: f32, @location(3) abs_lon: f32, @location(4) abs_lat: f32) -> VertexOutput {
+  let qx = ((f32(q_xy.x) * 65536.0) + f32(q_xy.y));
+  let qy = ((f32(q_xy.z) * 65536.0) + f32(q_xy.w));
+  let qz = ((f32(q_z.x) * 65536.0) + f32(q_z.y));
+  let ecef_rtc = vec3<f32>(((qx * u.tile_dequant_scale) - u.tile_dequant_half), ((qy * u.tile_dequant_scale) - u.tile_dequant_half), ((qz * u.tile_dequant_scale) - u.tile_dequant_half));
   let abs_merc_x = ((abs_lon * DEG2RAD) * EARTH_R);
   let abs_lat_clamped = clamp(abs_lat, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT);
   let abs_merc_y = (log(tan(((PI / 4.0) + ((abs_lat_clamped * DEG2RAD) / 2.0)))) * EARTH_R);
@@ -364,8 +369,11 @@ fn vs_main_ecef(@location(0) pos_h: vec3<f32>, @location(1) pos_l: vec3<f32>, @l
 }
 
 @vertex
-fn vs_main_ecef_extruded(@location(0) pos_h: vec3<f32>, @location(1) pos_l: vec3<f32>, @location(2) feature_id: f32, @location(3) abs_lon: f32, @location(4) abs_lat: f32, @location(5) face_normal: vec3<f32>, @location(6) wall_height: f32, @location(7) is_top: f32) -> VertexOutput {
-  let ecef_rtc = (pos_h + pos_l);
+fn vs_main_ecef_extruded(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u32>, @location(2) feature_id: f32, @location(3) abs_lon: f32, @location(4) abs_lat: f32, @location(5) face_normal: vec3<f32>, @location(6) wall_height: f32, @location(7) is_top: f32) -> VertexOutput {
+  let qx = ((f32(q_xy.x) * 65536.0) + f32(q_xy.y));
+  let qy = ((f32(q_xy.z) * 65536.0) + f32(q_xy.w));
+  let qz = ((f32(q_z.x) * 65536.0) + f32(q_z.y));
+  let ecef_rtc = vec3<f32>(((qx * u.tile_dequant_scale) - u.tile_dequant_half), ((qy * u.tile_dequant_scale) - u.tile_dequant_half), ((qz * u.tile_dequant_scale) - u.tile_dequant_half));
   let abs_merc_x = ((abs_lon * DEG2RAD) * EARTH_R);
   let abs_lat_clamped = clamp(abs_lat, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT);
   let abs_merc_y = (log(tan(((PI / 4.0) + ((abs_lat_clamped * DEG2RAD) / 2.0)))) * EARTH_R);

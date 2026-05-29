@@ -67,6 +67,8 @@ export class VirtualCatalogAdapter implements TileSource {
       sink.releaseLoading(key)
       sink.acceptResult(key, tile ? {
         vertices: tile.vertices,
+        dequantScale: tile.dequantScale,
+        dequantHalf: tile.dequantHalf,
         indices: tile.indices,
         lineVertices: tile.lineVertices,
         lineIndices: tile.lineIndices,

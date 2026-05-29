@@ -62,6 +62,14 @@ export interface GPUTile {
   tileWidth: number
   tileHeight: number
   tileZoom: number
+  /** PR 2f per-tile quantized-position dequant step (metres) =
+   *  `2*dequantHalf/0xFFFFFFFF`. Written into the per-tile uniform's
+   *  `tile_dequant_scale`; the polygon VS decodes each ECEF RTC axis as
+   *  `q = f32(hi)*65536 + f32(lo); axis = q*scale - half`. */
+  dequantScale: number
+  /** PR 2f per-tile symmetric residual half-range (metres). Written into
+   *  the per-tile uniform's `tile_dequant_half`. */
+  dequantHalf: number
   lastUsedFrame: number
   /** Timestamp (performance.now) at upload. Available for diagnostics
    *  and future tile-fade implementations. */

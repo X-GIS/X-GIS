@@ -17,9 +17,9 @@ import {
 } from '@xgis/compiler'
 import type { GeoJSONFeature } from '@xgis/compiler'
 
-// PR 2c.2: polygon vertices are now ECEF-DSFUN stride-9 floats per
-// `[ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon, abs_lat]`.
-const DSFUN_POLY_STRIDE = 9
+// PR 2f: polygon vertices are the quantized ECEF layout — stride 24 bytes
+// = 6 floats (uint16×6 position + f32 fid/abs_lon/abs_lat at slots 3/4/5).
+const DSFUN_POLY_STRIDE = 6
 
 /** Web-Mercator tile bounds in degrees (inline — tileBounds is a
  *  runtime-only helper in tile-select.ts, not exported from the
@@ -46,6 +46,8 @@ function makeParent(feature: GeoJSONFeature, z: number, x: number, y: number): T
   const b = tileBoundsDeg(z, x, y)
   return {
     vertices: compiled.vertices,
+    dequantScale: compiled.dequantScale,
+    dequantHalf: compiled.dequantHalf,
     indices: compiled.indices,
     lineVertices: compiled.lineVertices,
     lineIndices: compiled.lineIndices,
@@ -65,7 +67,16 @@ function assertFinite(arr: Float32Array, label: string): void {
 }
 
 function assertSubTileInvariants(sub: TileData, ctx: string): void {
-  assertFinite(sub.vertices, `${ctx} vertices`)
+  // Only the f32 tail (fid/abs_lon/abs_lat at slots 3/4/5) is checked for
+  // finiteness — the uint16 quantized position (first 12 bytes), reinterpreted
+  // as f32, is intentionally arbitrary.
+  const vCnt = sub.vertices.length / DSFUN_POLY_STRIDE
+  for (let v = 0; v < vCnt; v++) {
+    for (let s = 3; s < 6; s++) {
+      const val = sub.vertices[v * DSFUN_POLY_STRIDE + s]!
+      if (!Number.isFinite(val)) throw new Error(`${ctx} vertices[${v}].f32[${s}] non-finite: ${val}`)
+    }
+  }
   assertFinite(sub.lineVertices, `${ctx} lineVertices`)
   const vCount = sub.vertices.length / DSFUN_POLY_STRIDE
   expect(sub.indices.length % 3, `${ctx} index count multiple of 3`).toBe(0)
@@ -79,7 +90,8 @@ describe('iter-315 SubTileGenerator overzoom clip', () => {
 
   it('hasClippableGeometry: true with polygon, false when empty', () => {
     const empty: TileData = {
-      vertices: new Float32Array(0), indices: new Uint32Array(0),
+      vertices: new Float32Array(0), dequantScale: 1, dequantHalf: 0,
+      indices: new Uint32Array(0),
       lineVertices: new Float32Array(0), lineIndices: new Uint32Array(0),
       outlineIndices: new Uint32Array(0),
       tileWest: 0, tileSouth: 0, tileWidth: 1, tileHeight: 1, tileZoom: 0,
