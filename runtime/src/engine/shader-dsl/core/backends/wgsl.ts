@@ -35,12 +35,10 @@ function lit(value: number | boolean, t: ShaderType): string {
   return f32Lit(value)
 }
 
-// Phase 2.5 US-003 — exported for the compiler-side
-// `nodeToWgslString` adapter (compiler/src/codegen/_back-compat/) so
-// the in-flight retarget (US-004 → US-008) can convert Node values
-// back to WGSL strings at the runtime boundary while the compiler-
-// side emit sites migrate one at a time. The export is also useful for
-// match-expr.test.ts's defensive-throw probe.
+// Canonical Expr → WGSL emit. The compiler keeps a structural copy
+// (compiler/src/codegen/node-to-wgsl.ts:nodeToWgslString) pinned against this
+// as a test oracle; this export is also useful for match-expr.test.ts's
+// defensive-throw probe.
 export function emitExpr(e: Expr): string {
   switch (e.op) {
     case 'lit': return lit(e.value, e.type)
@@ -107,6 +105,11 @@ function emitStmt(s: Stmt, depth: number): string {
       // than a parser failure mid-shader.
       return `${p}// __placeholder: ${s.tag}`
     }
+    // Phase 2 PR 2e.B.2 — raw WGSL passthrough. The first line gets the
+    // enclosing body indent `p`; internal lines keep their own formatting.
+    // This reproduces the renderer's former splice byte-for-byte (which
+    // inserted the preamble string at the assign's original indent).
+    case 'raw': return `${p}${s.wgsl}`
     case 'switch': {
       const lines: string[] = [`${p}switch ${emitExpr(s.scrut)} {`]
       for (const c of s.cases) {

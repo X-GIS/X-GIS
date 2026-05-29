@@ -45,13 +45,7 @@ import { emitPolygonWgsl } from '../shader-dsl/shaders/polygon'
 import { emitOverdrawComposeWgsl } from '../shader-dsl/shaders/overdraw-compose'
 import { emitOitComposeWgsl } from '../shader-dsl/shaders/oit-compose'
 import { Node } from '../shader-dsl/core/ir'
-// nodeToWgslString is the compiler-side copy of the runtime
-// wgsl.ts:emitExpr — used for the variant-bearing path's splice-point
-// lookup (the composer emits `out.color = <fillExpr-wgsl>;` using the
-// runtime emit; nodeToWgslString produces the same string, so the splice
-// resolves deterministically). Kept until the per-idiom preamble migration
-// closes out the splice path and the _back-compat adapter retires.
-import { nodeToWgslString } from '@xgis/compiler'
+import type { Stmt } from '../shader-dsl/core/ir'
 
 /**
  * Build a specialized WGSL shader for a polygon variant. Routes through the
@@ -71,12 +65,11 @@ import { nodeToWgslString } from '@xgis/compiler'
  *     doesn't matter for correctness — only the binding numbers do).
  *   - `variant.fillPreamble` / `strokePreamble` strings (the categorical-
  *     encoder's `var _mcSS = ...; if (...) { _mcSS = ...; }` chain etc.)
- *     splice immediately before the composer's fill-return / stroke-return
- *     assign in fs_fill / fs_stroke. The composer emits the assign as
- *     `out.color = <fillExpr-wgsl>;` using runtime wgsl.ts:emitExpr;
- *     nodeToWgslString is the compiler-side copy of that emit — both
- *     produce byte-identical WGSL for the same Expr, so the splice point
- *     resolves deterministically.
+ *     flow into the composer as raw-WGSL Stmts in the fill-/stroke-preamble
+ *     slot; the composer emits them verbatim (at body indent) immediately
+ *     before the fill-/stroke-return assign. This replaced the former
+ *     post-emit string splice that reconstructed the assign via the
+ *     compiler-side nodeToWgslString copy (retired in PR 2e.B.2).
  */
 function buildShader(variant?: ShaderVariantInfo | null): string {
   // Default-uniform path (variant absent OR variant carries no preamble +
@@ -87,15 +80,14 @@ function buildShader(variant?: ShaderVariantInfo | null): string {
   }
 
   // Variant-bearing path — feed Node-typed exprs + needsFeatureBuffer into
-  // the composer. preamble + fillPreamble + strokePreamble strings splice
-  // post-emit until the per-idiom Partial<ModuleDecl> / Stmt[] migration
-  // closes them out in PR-C.
-  // The compiler-side _back-compat NodeLike.expr captures the same Expr
-  // shape the runtime IR Expr union defines, but TypeScript treats them as
-  // nominally different types (different file-local declarations). Cast
-  // through `unknown` at the seam — the structural mirroring is pinned by
-  // the _back-compat round-trip test. Both casts retire together once
-  // ShaderVariant.fillExpr/strokeExpr migrate to the runtime Expr type.
+  // the composer. variant.preamble (module-shape string) still splices
+  // post-emit until the Partial<ModuleDecl> migration closes it out.
+  // The compiler-side NodeLike.expr captures the same Expr shape the runtime
+  // IR Expr union defines, but TypeScript treats them as nominally different
+  // types (different file-local declarations). Cast through `unknown` at the
+  // seam — the structural mirroring is pinned by the node-to-wgsl round-trip
+  // test. Both casts retire once ShaderVariant.fillExpr/strokeExpr migrate to
+  // the runtime Expr type.
   type RuntimeExpr = ConstructorParameters<typeof Node>[0]
   const fillExprNode =
     variant.fillExpr && !variant.fillIsDefault
@@ -105,6 +97,14 @@ function buildShader(variant?: ShaderVariantInfo | null): string {
     variant.strokeExpr && !variant.strokeIsDefault
       ? new Node<'vec4<f32>'>(variant.strokeExpr.expr as unknown as RuntimeExpr)
       : null
+  // The compiler emits fill/stroke preambles (the categorical `_mcSS` match
+  // chain) as WGSL strings. Wrap each as a raw-WGSL Stmt so the composer
+  // emits it verbatim before the fill-/stroke-return assign — byte-identical
+  // to the former post-emit splice, without the nodeToWgslString reconstruction.
+  const fillPreamble: readonly Stmt[] | null =
+    fillExprNode && variant.fillPreamble ? [{ s: 'raw', wgsl: variant.fillPreamble }] : null
+  const strokePreamble: readonly Stmt[] | null =
+    strokeExprNode && variant.strokePreamble ? [{ s: 'raw', wgsl: variant.strokePreamble }] : null
   // ShaderVariantInfo.fillExpr expects Node<'vec4<f32>'>; the runtime Node
   // class carries the same {op:'construct'|...} Expr shape that the
   // compiler-side NodeLike captures, so the constructor call is the bridge.
@@ -113,8 +113,8 @@ function buildShader(variant?: ShaderVariantInfo | null): string {
       preamble: null,
       fillExpr: fillExprNode,
       strokeExpr: strokeExprNode,
-      fillPreamble: null,
-      strokePreamble: null,
+      fillPreamble,
+      strokePreamble,
       needsFeatureBuffer: variant.needsFeatureBuffer,
     },
     isPickEnabled(),
@@ -134,23 +134,6 @@ function buildShader(variant?: ShaderVariantInfo | null): string {
         + '\n'
         + wgsl.slice(insertAt)
     }
-  }
-
-  // Splice fillPreamble (string) before the variant fill-return assign.
-  // The composer's fill-return assign is `  out.color = <wgsl>;` with the
-  // standard 2-space body indent; matching on the leading whitespace +
-  // exact assign keeps the splice unambiguous (fs_oit_translucent /
-  // fs_fill_pattern / fs_fill_extrude all assign out.color too but with
-  // different RHS Exprs, so the variantFillExpr-bound match is unique).
-  if (variant.fillExpr && !variant.fillIsDefault && variant.fillPreamble) {
-    const fillExprStr = nodeToWgslString(variant.fillExpr)
-    const assign = `out.color = ${fillExprStr};`
-    wgsl = wgsl.replace(assign, variant.fillPreamble + '\n  ' + assign)
-  }
-  if (variant.strokeExpr && !variant.strokeIsDefault && variant.strokePreamble) {
-    const strokeExprStr = nodeToWgslString(variant.strokeExpr)
-    const assign = `out.color = ${strokeExprStr};`
-    wgsl = wgsl.replace(assign, variant.strokePreamble + '\n  ' + assign)
   }
 
   return wgsl

@@ -309,6 +309,13 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
         // missing-return is much harder to localise).
         throw new Error(`shader-dsl/cpu: placeholder Stmt reached CPU backend — composer forgot to splice tag=${s.tag}`)
       }
+      case 'raw': {
+        // Phase 2 PR 2e.B.2 — raw WGSL passthrough is GPU-only; it has no
+        // CPU evaluation. Reaching here means a raw Stmt was placed on a
+        // shader path that also runs through the CPU mirror (cpu-projections
+        // / compute eval), which is a composition bug — fail loudly.
+        throw new Error('shader-dsl/cpu: raw WGSL Stmt reached CPU backend — raw passthrough is GPU-only')
+      }
     }
   }
   return NORMAL

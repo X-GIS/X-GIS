@@ -16,7 +16,7 @@ import { collectPalette } from './palette'
 import type { ColorValue, RenderNode, Scene, SizeValue, StrokeValue, ZoomStop } from '../ir/render-node'
 import type { PropertyShape, RGBA } from '../ir/property-types'
 import type { ShaderVariant } from './shader-gen'
-import { nodeToWgslString } from './_back-compat/node-to-wgsl-string'
+import { nodeToWgslString } from './node-to-wgsl'
 
 // Phase 2.5 US-004 — fillExpr / strokeExpr migrated from string to
 // NodeLike|null. The default-uniform placeholder is now `null` paired

@@ -256,6 +256,26 @@ describe('emitPolygonWgsl — skeleton', () => {
     expect(wgsl).toMatch(/out\.color\s*=\s*_mcSS/)
   })
 
+  it('raw-WGSL fillPreamble Stmt is emitted verbatim at body indent before the assign (PR 2e.B.2)', () => {
+    // The renderer wraps the compiler's match-chain preamble STRING in a raw
+    // Stmt; the composer must emit it verbatim (first line at the 2-space body
+    // indent) immediately before the fill-return assign — byte-identical to
+    // the retired post-emit string splice.
+    const rawChain = 'var _mcSS: vec4f = vec4f(0.0, 0.0, 0.0, 1.0);\n  if (input.feat_id == 0u) { _mcSS = vec4f(1.0, 0.0, 0.0, 1.0); }\n'
+    const variant: import('./polygon').ShaderVariantInfo = {
+      preamble: null,
+      fillExpr: new Node<'vec4<f32>'>({ op: 'varref', type: vec4fT, name: '_mcSS' }),
+      strokeExpr: null,
+      fillPreamble: [{ s: 'raw', wgsl: rawChain }],
+      strokePreamble: null,
+      needsFeatureBuffer: false,
+    }
+    const wgsl = emitPolygonWgsl(variant, false)
+    // The raw chain lands with its first line at the 2-space body indent,
+    // directly followed (after the chain's own trailing newline) by the assign.
+    expect(wgsl).toContain('  ' + rawChain + '\n  out.color = _mcSS;')
+  })
+
   it('variant.needsFeatureBuffer appends the feat_data @group(1) @binding(0) storage binding', () => {
     const wgslOff = emitPolygonWgsl(null, false)
     expect(wgslOff).not.toContain('feat_data')

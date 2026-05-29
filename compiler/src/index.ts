@@ -29,7 +29,7 @@ export type { ShaderVariant } from './codegen/shader-gen'
 // PR 2e.B.1). `nodeToWgslString` stays the transient splice-point adapter
 // and retires in PR 2e.B.2.
 export { wgslRaw, type NodeLike } from './codegen/node-types'
-export { nodeToWgslString } from './codegen/_back-compat/node-to-wgsl-string'
+export { nodeToWgslString } from './codegen/node-to-wgsl'
 export { collectPalette, emptyPalette } from './codegen/palette'
 export type { Palette, ColorGradient, ScalarGradient } from './codegen/palette'
 export {

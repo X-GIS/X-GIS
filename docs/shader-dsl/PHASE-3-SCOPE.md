@@ -211,10 +211,12 @@ grep -rE '/\*\s*wgsl\s*\*/' runtime/src/engine/
       close — no remaining source-tree consumers after the snapshot
       capture script switched to the composer's emit via
       `_polygon-fixtures.ts`).
-- [ ] `_back-compat/node-to-wgsl-string.ts` adapter deletes after
-      `NodeLike` + `wgslRaw` relocate to a stable compiler-side
-      location (post-US-010) AND the renderer.ts splice-point lookup
-      drops the `nodeToWgslString` call.
+- [x] `_back-compat/` directory DELETED (PR 2e.B). `NodeLike` + `wgslRaw`
+      relocated to `compiler/src/codegen/node-types.ts` (PR 2e.B.1); the
+      renderer splice-point dropped its `nodeToWgslString` call (PR 2e.B.2)
+      — fill/stroke preambles now flow into the polygon composer as raw-WGSL
+      `Stmt`s. `nodeToWgslString` survives at `codegen/node-to-wgsl.ts` as the
+      test-only emit oracle.
 - [x] AC7 grep (tightened form, line 130 above) returns 0 hits in the
       polygon-variant-lane after `renderer-shaders.ts` deletes.
 - [x] Phase 4+ wave 1 (overdraw compose) shipped.

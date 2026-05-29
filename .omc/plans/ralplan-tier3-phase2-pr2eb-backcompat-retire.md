@@ -1,6 +1,6 @@
 # Phase 2 Plan — `_back-compat` Retire (PR 2e.B)
 
-**Status:** design draft (code deferred to a follow-up session — this doc is the planning + risk-surface deliverable the PR 2e.A handoff demanded before code lands).
+**Status:** IMPLEMENTED. PR 2e.B.1 (relocation) + PR 2e.B.2 (splice-point retire + `_back-compat/` deletion via **Approach (a)**, raw-`Stmt` IR variant) both landed on this branch. Open questions resolved: (1) Approach (a) chosen — smaller, precedented by the existing `rawString` Expr op; (2) `nodeToWgslString` kept as the test oracle, relocated to permanent `codegen/node-to-wgsl.ts` (no Node-equality rewrite of 9 files); (3) permanent home = `compiler/src/codegen/node-types.ts`. Byte-identity verified: full suite 550/550 files green, plus a new `raw`-Stmt regression gate in `polygon-dsl.test.ts`.
 **Branch:** `claude/effect-command-19mGH`
 **Handoff predecessor:** `.omc/handoffs/pr2e-backcompat-deferred.md` (PR 2e.A landed `reprojector.ts` deletion; this doc covers the deferred `_back-compat` retire).
 **Scope contract reference:** `docs/shader-dsl/PHASE-3-SCOPE.md:235-238`.

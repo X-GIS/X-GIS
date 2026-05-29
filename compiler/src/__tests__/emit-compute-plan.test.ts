@@ -15,7 +15,7 @@ import type {
   ColorValue, DataExpr, RenderNode, Scene, SizeValue, StrokeValue,
 } from '../ir/render-node'
 import type { PropertyShape, RGBA } from '../ir/property-types'
-import { nodeToWgslString } from '../codegen/_back-compat/node-to-wgsl-string'
+import { nodeToWgslString } from '../codegen/node-to-wgsl'
 
 const RED: RGBA = [1, 0, 0, 1]
 const BLUE: RGBA = [0, 0, 1, 1]

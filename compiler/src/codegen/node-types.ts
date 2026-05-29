@@ -5,19 +5,18 @@
 // The structural mirror of the runtime shader-DSL IR `Expr` union plus the
 // `NodeLike` seam type and the `wgslRaw` helper. These are the compiler's
 // codegen vocabulary — NOT migration scaffolding — so they live here in a
-// permanent home rather than in `_back-compat/`.
+// permanent home.
 //
-// Relocated out of `_back-compat/node-to-wgsl-string.ts` in PR 2e.B.1. The
-// `nodeToWgslString` string adapter (the genuinely transient piece) stays in
-// `_back-compat/` and imports its types from here; it retires with the
-// renderer splice-point (PR 2e.B.2 / US-011).
+// Relocated out of the former `_back-compat/` directory: the type vocabulary
+// landed here in PR 2e.B.1; the `nodeToWgslString` emit oracle (`node-to-wgsl.ts`)
+// imports its types from here. The renderer splice-point that depended on the
+// adapter retired in PR 2e.B.2.
 //
 // The `Expr` shape MUST stay in lock-step with
 // `runtime/src/engine/shader-dsl/core/ir/nodes.ts` Expr union — the compiler
 // can't import the runtime type directly (compiler/tsconfig.json's rootDir
 // excludes runtime/, and the runtime package is the dependent in the
-// workspace chain). The boundary is pinned by
-// `_back-compat/node-to-wgsl-string.test.ts`.
+// workspace chain). The boundary is pinned by `node-to-wgsl.test.ts`.
 
 type Scalar = 'f32' | 'i32' | 'u32' | 'bool'
 
