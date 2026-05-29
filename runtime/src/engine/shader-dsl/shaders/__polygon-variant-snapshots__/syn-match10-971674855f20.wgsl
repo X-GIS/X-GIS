@@ -1,4 +1,4 @@
-// baseline: e1921e99b49941585ab54c9d47f7e4fc3083a8ef
+// baseline: 2de2490c517ce7566ed213e74eec66f145046f0a
 // fixture: syn-match10
 // variant.key: syn-match10
 // pick: false
@@ -301,6 +301,13 @@ struct FragmentOutput {
 
 @group(0) @binding(1) var<storage, read> feat_data: array<f32>;
 
+fn dequant_ecef(q_xy: vec4<u32>, q_z: vec2<u32>, scale: f32, half: f32) -> vec3<f32> {
+  let qx = ((f32(q_xy.x) * 65536.0) + f32(q_xy.y));
+  let qy = ((f32(q_xy.z) * 65536.0) + f32(q_xy.w));
+  let qz = ((f32(q_z.x) * 65536.0) + f32(q_z.y));
+  return vec3<f32>(((qx * scale) - half), ((qy * scale) - half), ((qz * scale) - half));
+}
+
 fn polygon_cos_c_fragment(abs_merc_x: f32, abs_merc_y: f32) -> f32 {
   let abs_lon = (abs_merc_x / (DEG2RAD * EARTH_R));
   let lat_rad = inv_merc_lat_rad(abs_merc_y);
@@ -341,10 +348,7 @@ fn vs_main(@location(0) pos_h: vec3<f32>, @location(1) pos_l: vec3<f32>, @locati
 
 @vertex
 fn vs_main_ecef(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u32>, @location(2) feature_id: f32, @location(3) abs_lon: f32, @location(4) abs_lat: f32) -> VertexOutput {
-  let qx = ((f32(q_xy.x) * 65536.0) + f32(q_xy.y));
-  let qy = ((f32(q_xy.z) * 65536.0) + f32(q_xy.w));
-  let qz = ((f32(q_z.x) * 65536.0) + f32(q_z.y));
-  let ecef_rtc = vec3<f32>(((qx * u.tile_dequant_scale) - u.tile_dequant_half), ((qy * u.tile_dequant_scale) - u.tile_dequant_half), ((qz * u.tile_dequant_scale) - u.tile_dequant_half));
+  let ecef_rtc = dequant_ecef(q_xy, q_z, u.tile_dequant_scale, u.tile_dequant_half);
   let abs_merc_x = ((abs_lon * DEG2RAD) * EARTH_R);
   let abs_lat_clamped = clamp(abs_lat, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT);
   let abs_merc_y = (log(tan(((PI / 4.0) + ((abs_lat_clamped * DEG2RAD) / 2.0)))) * EARTH_R);
@@ -368,10 +372,7 @@ fn vs_main_ecef(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u32>, @loca
 
 @vertex
 fn vs_main_ecef_extruded(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u32>, @location(2) feature_id: f32, @location(3) abs_lon: f32, @location(4) abs_lat: f32, @location(5) face_normal: vec3<f32>, @location(6) wall_height: f32, @location(7) is_top: f32) -> VertexOutput {
-  let qx = ((f32(q_xy.x) * 65536.0) + f32(q_xy.y));
-  let qy = ((f32(q_xy.z) * 65536.0) + f32(q_xy.w));
-  let qz = ((f32(q_z.x) * 65536.0) + f32(q_z.y));
-  let ecef_rtc = vec3<f32>(((qx * u.tile_dequant_scale) - u.tile_dequant_half), ((qy * u.tile_dequant_scale) - u.tile_dequant_half), ((qz * u.tile_dequant_scale) - u.tile_dequant_half));
+  let ecef_rtc = dequant_ecef(q_xy, q_z, u.tile_dequant_scale, u.tile_dequant_half);
   let abs_merc_x = ((abs_lon * DEG2RAD) * EARTH_R);
   let abs_lat_clamped = clamp(abs_lat, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT);
   let abs_merc_y = (log(tan(((PI / 4.0) + ((abs_lat_clamped * DEG2RAD) / 2.0)))) * EARTH_R);

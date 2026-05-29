@@ -259,6 +259,28 @@ const vsMain = entryFn(
 // the projection-specific 3D→clip pipeline is fully baked into u.mvp
 // by the CPU camera (Camera.getECEFFrameView).
 
+// Shared quantized-ECEF dequant — the SINGLE source for the q→ecef_rtc decode.
+// Called by vs_main_ecef + vs_main_ecef_extruded (so they can't drift), AND
+// run standalone in the compute parity harness so the real GPU f32 result is
+// checked against the CPU fround mirror (dequantVertexF32). The whole point of
+// extracting it: the verification kernel executes the EXACT shader logic, not
+// a hand-retyped copy. q = f32(hi)*65536 + f32(lo); axis = q*scale - half.
+const dequantEcefFn = fn(
+  'dequant_ecef',
+  { q_xy: vec4uT, q_z: vec2uT, scale: f32T, half: f32T },
+  vec3fT,
+  (b, { q_xy, q_z, scale, half }) => {
+    const qx = b.let('qx', toF32(q_xy.x).mul(f32(65536)).add(toF32(q_xy.y)))
+    const qy = b.let('qy', toF32(q_xy.z).mul(f32(65536)).add(toF32(q_xy.w)))
+    const qz = b.let('qz', toF32(q_z.x).mul(f32(65536)).add(toF32(q_z.y)))
+    b.ret(vec3(
+      qx.mul(scale).sub(half),
+      qy.mul(scale).sub(half),
+      qz.mul(scale).sub(half),
+    ))
+  },
+)
+
 const vsMainEcef = entryFn(
   'vs_main_ecef', 'vertex',
   [
@@ -284,15 +306,9 @@ const vsMainEcef = entryFn(
     const pi = constRef('PI')
     const mercLatLim = constRef('MERCATOR_LAT_LIMIT')
 
-    // PR 2f dequant: q = f32(hi)*65536 + f32(lo); axis = q*scale - half.
-    const qx = b.let('qx', toF32(p.q_xy.x).mul(f32(65536)).add(toF32(p.q_xy.y)))
-    const qy = b.let('qy', toF32(p.q_xy.z).mul(f32(65536)).add(toF32(p.q_xy.w)))
-    const qz = b.let('qz', toF32(p.q_z.x).mul(f32(65536)).add(toF32(p.q_z.y)))
-    const ecefRtc = b.let('ecef_rtc', vec3(
-      qx.mul(dqScale).sub(dqHalf),
-      qy.mul(dqScale).sub(dqHalf),
-      qz.mul(dqScale).sub(dqHalf),
-    ))
+    // PR 2f dequant via the shared dequant_ecef fn (single source; also run
+    // standalone in the compute parity harness vs the CPU fround mirror).
+    const ecefRtc = b.let('ecef_rtc', callFn('dequant_ecef', vec3fT, p.q_xy, p.q_z, dqScale, dqHalf))
     // Reconstruct Mercator absolute coords for the fragment-side
     // hemisphere-cull recompute (kept unchanged from vs_main_quantized's
     // contract — polygonCosCFragment + polygonRimAlpha consume abs_merc_x +
@@ -370,17 +386,11 @@ const vsMainEcefExtruded = entryFn(
     const pi = constRef('PI')
     const mercLatLim = constRef('MERCATOR_LAT_LIMIT')
 
-    // PR 2f dequant. Both wall-bottom + wall-top + roof vertices are
+    // PR 2f dequant via the shared dequant_ecef fn (same single source as
+    // vs_main_ecef). Both wall-bottom + wall-top + roof vertices are
     // pre-positioned + quantized in ECEF metres by the runtime wall-mesh
     // (half-range computed post-lift), so the VS just decodes + transforms.
-    const qx = b.let('qx', toF32(p.q_xy.x).mul(f32(65536)).add(toF32(p.q_xy.y)))
-    const qy = b.let('qy', toF32(p.q_xy.z).mul(f32(65536)).add(toF32(p.q_xy.w)))
-    const qz = b.let('qz', toF32(p.q_z.x).mul(f32(65536)).add(toF32(p.q_z.y)))
-    const ecefRtc = b.let('ecef_rtc', vec3(
-      qx.mul(dqScale).sub(dqHalf),
-      qy.mul(dqScale).sub(dqHalf),
-      qz.mul(dqScale).sub(dqHalf),
-    ))
+    const ecefRtc = b.let('ecef_rtc', callFn('dequant_ecef', vec3fT, p.q_xy, p.q_z, dqScale, dqHalf))
     const absMercX = b.let('abs_merc_x', p.abs_lon.mul(deg2rad).mul(earthR))
     const absLatClamped = b.let('abs_lat_clamped', clamp(p.abs_lat, mercLatLim.neg(), mercLatLim))
     const absMercY = b.let('abs_merc_y',
@@ -879,6 +889,7 @@ const buildPolygonModule = (
       { group: 0, binding: 6, name: 'sprite_samp', space: 'uniform', type: samplerT },
     ],
     funcs: [
+      dequantEcefFn,
       polygonCosCFragment,
       polygonRimAlpha,
       vsMain,
