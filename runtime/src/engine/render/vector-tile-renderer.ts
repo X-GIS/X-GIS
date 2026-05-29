@@ -3428,16 +3428,15 @@ export class VectorTileRenderer {
       }
     }
 
-    // PR 2d.5 closeout: every polygon/line VS reads `u.mvp` which IS the
-    // ECEF-MVP (the dual Mercator+ECEF layout was retired; struct shrunk
-    // 256 → 192). The returned `matrix` reference is overwritten by the
-    // next getECEFFrameView call from the same camera — copy into the
-    // uniform mirror immediately.
-    //
-    // `logDepthFc` is sourced from `getECEFFrameView` since `getFrameView`
-    // is no longer consumed on this path. The two paths return the same
-    // far-plane in non-globe mode, so logDepthFc is identical.
-    const frame = camera.getECEFFrameView(canvasWidth, canvasHeight, dpr)
+    // Display-projection MVP: `getViewForProjection` returns the flat 2D
+    // Mercator-plane MVP for flat Mercator (projType 0) and the ECEF-MVP
+    // for 3D / globe (and, in Phase 1, every other projType). The polygon /
+    // line VS branches on `proj_params.x` to consume the matching matrix
+    // (flat → `project(abs)−cam` 2D-plane metres; 3D → ECEF-RTC). The
+    // returned `matrix` reference is overwritten by the next call from the
+    // same camera — copy into the uniform mirror immediately. Both paths
+    // return the same far-plane in non-globe mode, so `logDepthFc` matches.
+    const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
     const mvp = frame.matrix
     this.logDepthFc = frame.logDepthFc
 

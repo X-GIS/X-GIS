@@ -911,30 +911,42 @@ const vsLine = entryFn('vs_line', 'vertex', [
   // round-trip on the candidate corner (matches polygon convention).
   b.if(layerVpH.gt(0), (c) => {
     const zLift = seg.field('z_lift_m', f32T)
-    const tileOrigin = tile.field('tile_origin_merc', vec2fT)
     const mvp = tile.field('mvp', mat4x4fT)
-    // Tile ECEF center reconstruction (one set per vs_line invocation).
-    const tileAbsX = c.let('tile_abs_x', toF32(tileOrigin.x))
-    const tileAbsY = c.let('tile_abs_y', toF32(tileOrigin.y))
-    const tileEcef = ecefFromMerc(c, 'clamp_tile', tileAbsX, tileAbsY)
-    // Center corner.
-    const baseAbsX = c.let('base_abs_x', toF32(base.x.add(tileOrigin.x)))
-    const baseAbsY = c.let('base_abs_y', toF32(base.y.add(tileOrigin.y)))
-    const baseEcef = ecefFromMerc(c, 'clamp_base', baseAbsX, baseAbsY)
-    const baseRtc = c.let('base_rtc', baseEcef.sub(tileEcef))
-    const baseRtcLifted = c.let('base_rtc_lifted',
-      vec3(baseRtc.x, baseRtc.y, toF32(baseRtc.z.add(zLift))),
-    )
-    const centerClip = c.let('center_clip', transformMat4(mvp, vec4(addCamOff(baseRtcLifted), f32(1))))
-    // Candidate corner.
-    const cornerAbsX = c.let('corner_abs_x', toF32(cornerLocal.x.add(tileOrigin.x)))
-    const cornerAbsY = c.let('corner_abs_y', toF32(cornerLocal.y.add(tileOrigin.y)))
-    const cornerEcef = ecefFromMerc(c, 'clamp_corner', cornerAbsX, cornerAbsY)
-    const cornerRtc = c.let('corner_rtc', cornerEcef.sub(tileEcef))
-    const cornerRtcLifted = c.let('corner_rtc_lifted',
-      vec3(cornerRtc.x, cornerRtc.y, toF32(cornerRtc.z.add(zLift))),
-    )
-    const cornerClip = c.let('corner_clip', transformMat4(mvp, vec4(addCamOff(cornerRtcLifted), f32(1))))
+    const projParamsW = tile.field('proj_params', vec4fT)
+    // Same MVP transform for center (base) + candidate (cornerLocal) so the
+    // screen-space width estimate matches the final clip exactly.
+    const centerClip = c.var('center_clip', vec4fT)
+    const cornerClip = c.var('corner_clip', vec4fT)
+    c.if(projParamsW.x.lt(0.5), (d) => {
+      // FLAT Mercator: base / cornerLocal are ALREADY camera-relative
+      // Mercator metres (line_endpoint subtracted the camera for proj<0.5);
+      // u.mvp is the flat 2D-plane MVP — feed them straight through, no ECEF
+      // round-trip / addCamOff.
+      d.assign(centerClip, transformMat4(mvp, vec4(base.x, base.y, zLift, f32(1))))
+      d.assign(cornerClip, transformMat4(mvp, vec4(cornerLocal.x, cornerLocal.y, zLift, f32(1))))
+    }).else((d) => {
+      // 3D ECEF round-trip on the candidate corner (matches polygon convention).
+      const tileOrigin = tile.field('tile_origin_merc', vec2fT)
+      const tileAbsX = d.let('tile_abs_x', toF32(tileOrigin.x))
+      const tileAbsY = d.let('tile_abs_y', toF32(tileOrigin.y))
+      const tileEcef = ecefFromMerc(d, 'clamp_tile', tileAbsX, tileAbsY)
+      const baseAbsX = d.let('base_abs_x', toF32(base.x.add(tileOrigin.x)))
+      const baseAbsY = d.let('base_abs_y', toF32(base.y.add(tileOrigin.y)))
+      const baseEcef = ecefFromMerc(d, 'clamp_base', baseAbsX, baseAbsY)
+      const baseRtc = d.let('base_rtc', baseEcef.sub(tileEcef))
+      const baseRtcLifted = d.let('base_rtc_lifted',
+        vec3(baseRtc.x, baseRtc.y, toF32(baseRtc.z.add(zLift))),
+      )
+      d.assign(centerClip, transformMat4(mvp, vec4(addCamOff(baseRtcLifted), f32(1))))
+      const cornerAbsX = d.let('corner_abs_x', toF32(cornerLocal.x.add(tileOrigin.x)))
+      const cornerAbsY = d.let('corner_abs_y', toF32(cornerLocal.y.add(tileOrigin.y)))
+      const cornerEcef = ecefFromMerc(d, 'clamp_corner', cornerAbsX, cornerAbsY)
+      const cornerRtc = d.let('corner_rtc', cornerEcef.sub(tileEcef))
+      const cornerRtcLifted = d.let('corner_rtc_lifted',
+        vec3(cornerRtc.x, cornerRtc.y, toF32(cornerRtc.z.add(zLift))),
+      )
+      d.assign(cornerClip, transformMat4(mvp, vec4(addCamOff(cornerRtcLifted), f32(1))))
+    })
     const centerXY = c.let('center_xy', vec2(centerClip.x, centerClip.y))
     const cornerXY = c.let('corner_xy', vec2(cornerClip.x, cornerClip.y))
     const centerNdc = c.let('center_ndc', centerXY.div(max(abs(centerClip.w), f32(1e-6))).mul(sign(centerClip.w)))
@@ -947,31 +959,38 @@ const vsLine = entryFn('vs_line', 'vertex', [
     })
   })
 
-  // Final corner → ECEF-RTC → clip. Reconstruct tile ECEF center + corner
-  // ECEF via the same WGS84 forward chain as polygon vs_main_ecef.
+  // Final corner → clip. Flat Mercator (proj_params.x < 0.5) feeds the flat
+  // 2D-plane MVP directly — cornerLocal is ALREADY camera-relative Mercator
+  // metres (line_endpoint subtracted the camera for proj<0.5), so no ECEF
+  // round-trip / addCamOff. 3D / globe keeps the WGS84-ECEF chain (cornerLocal
+  // is tile-local there). u.mvp is the matching matrix (getViewForProjection);
+  // zLift is the outline/extrude lift. world_local stays cornerLocal so the
+  // FS distance / clip-bounds math is unchanged.
   const out = b.var('out', structT('LineOut'))
   const tileOrigin2 = tile.field('tile_origin_merc', vec2fT)
   const mvp = tile.field('mvp', mat4x4fT)
   const zLift = seg.field('z_lift_m', f32T)
+  const projParamsF = tile.field('proj_params', vec4fT)
 
-  const tileAbsX = b.let('tile_abs_x_f', toF32(tileOrigin2.x))
-  const tileAbsY = b.let('tile_abs_y_f', toF32(tileOrigin2.y))
-  const tileEcef = ecefFromMerc(b, 'final_tile', tileAbsX, tileAbsY)
-
-  const cornerAbsX = b.let('corner_abs_x_f', toF32(cornerLocal.x.add(tileOrigin2.x)))
-  const cornerAbsY = b.let('corner_abs_y_f', toF32(cornerLocal.y.add(tileOrigin2.y)))
-  const cornerEcef = ecefFromMerc(b, 'final_corner', cornerAbsX, cornerAbsY)
-  const ecefRtc = b.let('ecef_rtc', cornerEcef.sub(tileEcef))
-  const ecefRtcLifted = b.let('ecef_rtc_lifted',
-    vec3(ecefRtc.x, ecefRtc.y, toF32(ecefRtc.z.add(zLift))),
-  )
-
-  // Camera-relative RTC — see addCamOff above. Without this, line projects
-  // vertex−tileEcefCenter and collapses toward each tile's origin, rendering
-  // strokes offset from their fills.
-  const ecefCam = b.let('ecef_cam', addCamOff(ecefRtcLifted))
-
-  const clip = b.let('clip', transformMat4(mvp, vec4(ecefCam, f32(1))))
+  const clip = b.var('clip', vec4fT)
+  b.if(projParamsF.x.lt(0.5), (c) => {
+    c.assign(clip, transformMat4(mvp, vec4(cornerLocal.x, cornerLocal.y, zLift, f32(1))))
+  }).else((c) => {
+    const tileAbsX = c.let('tile_abs_x_f', toF32(tileOrigin2.x))
+    const tileAbsY = c.let('tile_abs_y_f', toF32(tileOrigin2.y))
+    const tileEcef = ecefFromMerc(c, 'final_tile', tileAbsX, tileAbsY)
+    const cornerAbsX = c.let('corner_abs_x_f', toF32(cornerLocal.x.add(tileOrigin2.x)))
+    const cornerAbsY = c.let('corner_abs_y_f', toF32(cornerLocal.y.add(tileOrigin2.y)))
+    const cornerEcef = ecefFromMerc(c, 'final_corner', cornerAbsX, cornerAbsY)
+    const ecefRtc = c.let('ecef_rtc', cornerEcef.sub(tileEcef))
+    const ecefRtcLifted = c.let('ecef_rtc_lifted',
+      vec3(ecefRtc.x, ecefRtc.y, toF32(ecefRtc.z.add(zLift))),
+    )
+    // Camera-relative RTC — without addCamOff, line projects vertex−
+    // tileEcefCenter and collapses toward each tile's origin.
+    const ecefCam = c.let('ecef_cam', addCamOff(ecefRtcLifted))
+    c.assign(clip, transformMat4(mvp, vec4(ecefCam, f32(1))))
+  })
   b.assign(out.field('position', vec4fT), callFn('apply_log_depth', vec4fT, clip, tile.field('log_depth_fc', f32T)))
   b.assign(out.field('view_w', f32T), clip.w)
   b.assign(out.field('world_local', vec2fT), cornerLocal)

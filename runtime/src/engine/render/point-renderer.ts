@@ -48,10 +48,21 @@ function writePointFrameUniform(
   uf[16] = projType; uf[17] = projCenterLon; uf[18] = projCenterLat; uf[19] = 0
   const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, camera.zoom)
   uf[20] = canvasWidth; uf[21] = canvasHeight; uf[22] = metersPerPixel; uf[23] = frame.logDepthFc
-  const camC = camera.getECEFCenter()
-  const cxH = Math.fround(camC[0]); const cyH = Math.fround(camC[1]); const czH = Math.fround(camC[2])
-  uf[24] = cxH; uf[25] = cyH; uf[26] = czH; uf[27] = 0
-  uf[28] = camC[0] - cxH; uf[29] = camC[1] - cyH; uf[30] = camC[2] - czH; uf[31] = 0
+  // Camera centre for the per-vertex re-centring. Flat Mercator (projType 0)
+  // uses the 2D Mercator centre (camera.centerX/Y) split DSFUN into the .xy
+  // lanes — the flat VS does rel = project(abs) − (cam_ecef_h.xy + cam_ecef_l.xy)
+  // and ignores .z. 3D / globe uses the ECEF anchor (getECEFCenter, sphere).
+  if (projType === 0) {
+    const cmx = camera.centerX, cmy = camera.centerY
+    const cmxH = Math.fround(cmx), cmyH = Math.fround(cmy)
+    uf[24] = cmxH; uf[25] = cmyH; uf[26] = 0; uf[27] = 0
+    uf[28] = cmx - cmxH; uf[29] = cmy - cmyH; uf[30] = 0; uf[31] = 0
+  } else {
+    const camC = camera.getECEFCenter()
+    const cxH = Math.fround(camC[0]); const cyH = Math.fround(camC[1]); const czH = Math.fround(camC[2])
+    uf[24] = cxH; uf[25] = cyH; uf[26] = czH; uf[27] = 0
+    uf[28] = camC[0] - cxH; uf[29] = camC[1] - cyH; uf[30] = camC[2] - czH; uf[31] = 0
+  }
 }
 
 // ═══ Renderer ═══
@@ -390,7 +401,7 @@ export class PointRenderer {
 
     this.tilePointBindGroup = this.makeBindGroup(this.tilePointFeatBuffer)
 
-    const frame = camera.getECEFFrameView(canvasWidth, canvasHeight, dpr)
+    const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
     const uf = this.uniformData
     writePointFrameUniform(uf, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight)
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uf)
@@ -602,7 +613,7 @@ export class PointRenderer {
   ): void {
     if (this.layers.length === 0) return
 
-    const frame = camera.getECEFFrameView(canvasWidth, canvasHeight, dpr)
+    const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
     const uf = this.uniformData
     writePointFrameUniform(uf, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight)
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uf)

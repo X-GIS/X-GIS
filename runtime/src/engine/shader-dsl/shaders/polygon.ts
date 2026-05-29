@@ -230,14 +230,32 @@ const vsMain = entryFn(
     )
 
     const out = b.var('out', structT('VertexOutput'))
-    // Camera-relative re-centering: ecef_rtc is tile-center-relative but the
-    // MVP expects vertex − cameraCenter, so add the per-tile DSFUN offset
-    // (tileEcefCenter − cameraCenter) = hi + lo before projecting.
-    const camOffH = u.field('cam_ecef_off_h', vec4fT)
-    const camOffL = u.field('cam_ecef_off_l', vec4fT)
-    const ecefCam = b.let('ecef_cam',
-      ecefRtc.add(vec3(camOffH.x, camOffH.y, camOffH.z)).add(vec3(camOffL.x, camOffL.y, camOffL.z)))
-    const clip = b.var('clip', vec4fT, transformMat4(mvp, vec4(ecefCam, f32(1))))
+    // Display projection (projection-display-layer-restore): flat Mercator
+    // (proj_params.x < 0.5) reprojects each vertex onto the 2D plane and
+    // feeds the flat Mercator-metre MVP; 3D / globe keeps the ECEF-RTC path.
+    // The renderer writes the matching u.mvp (Camera.getViewForProjection),
+    // so only the live branch's matrix is consumed.
+    const projParamsV = u.field('proj_params', vec4fT)
+    const clip = b.var('clip', vec4fT)
+    b.if(projParamsV.x.lt(0.5), (c) => {
+      // FLAT: rel = project(abs_lon, abs_lat) − cam_merc, with
+      // cam_merc = tile_origin_merc + (cam_h + cam_l) (cam_h/cam_l hold the
+      // tile-relative camera offset camMerc − tileMerc), so
+      // rel = project(abs) − tile_origin_merc − cam_h − cam_l. The tile
+      // origin algebraically cancels; the staged subtraction keeps the
+      // f32 ≈ 1 m P1 precision. z = 0 — flat fill has no height.
+      const p2d = c.let('p2d', callFn('project', vec2fT, p.abs_lon, p.abs_lat, projParamsV))
+      const rel2d = c.let('rel2d',
+        p2d.sub(u.field('tile_origin_merc', vec2fT)).sub(u.field('cam_h', vec2fT)).sub(u.field('cam_l', vec2fT)))
+      c.assign(clip, transformMat4(mvp, vec4(rel2d.x, rel2d.y, f32(0), f32(1))))
+    }).else((c) => {
+      // 3D: ECEF-RTC re-centred by (tileEcefCenter − cameraCenter), hi + lo.
+      const camOffH = u.field('cam_ecef_off_h', vec4fT)
+      const camOffL = u.field('cam_ecef_off_l', vec4fT)
+      const ecefCam = c.let('ecef_cam',
+        ecefRtc.add(vec3(camOffH.x, camOffH.y, camOffH.z)).add(vec3(camOffL.x, camOffL.y, camOffL.z)))
+      c.assign(clip, transformMat4(mvp, vec4(ecefCam, f32(1))))
+    })
     // Mapbox fill-translate viewport-anchor — runtime pre-bakes
     // (px*2/canvasDim) so the shader just multiplies by clip.w.
     b.assign(clip.x, clip.x.add(fillTx.mul(clip.w)))
@@ -341,14 +359,32 @@ const vsMainEcef = entryFn(
     )
 
     const out = b.var('out', structT('VertexOutput'))
-    // Camera-relative re-centering: ecef_rtc is tile-center-relative but the
-    // MVP expects vertex − cameraCenter, so add the per-tile DSFUN offset
-    // (tileEcefCenter − cameraCenter) = hi + lo before projecting.
-    const camOffH = u.field('cam_ecef_off_h', vec4fT)
-    const camOffL = u.field('cam_ecef_off_l', vec4fT)
-    const ecefCam = b.let('ecef_cam',
-      ecefRtc.add(vec3(camOffH.x, camOffH.y, camOffH.z)).add(vec3(camOffL.x, camOffL.y, camOffL.z)))
-    const clip = b.var('clip', vec4fT, transformMat4(mvp, vec4(ecefCam, f32(1))))
+    // Display projection (projection-display-layer-restore): flat Mercator
+    // (proj_params.x < 0.5) reprojects each vertex onto the 2D plane and
+    // feeds the flat Mercator-metre MVP; 3D / globe keeps the ECEF-RTC path.
+    // The renderer writes the matching u.mvp (Camera.getViewForProjection),
+    // so only the live branch's matrix is consumed.
+    const projParamsV = u.field('proj_params', vec4fT)
+    const clip = b.var('clip', vec4fT)
+    b.if(projParamsV.x.lt(0.5), (c) => {
+      // FLAT: rel = project(abs_lon, abs_lat) − cam_merc, with
+      // cam_merc = tile_origin_merc + (cam_h + cam_l) (cam_h/cam_l hold the
+      // tile-relative camera offset camMerc − tileMerc), so
+      // rel = project(abs) − tile_origin_merc − cam_h − cam_l. The tile
+      // origin algebraically cancels; the staged subtraction keeps the
+      // f32 ≈ 1 m P1 precision. z = 0 — flat fill has no height.
+      const p2d = c.let('p2d', callFn('project', vec2fT, p.abs_lon, p.abs_lat, projParamsV))
+      const rel2d = c.let('rel2d',
+        p2d.sub(u.field('tile_origin_merc', vec2fT)).sub(u.field('cam_h', vec2fT)).sub(u.field('cam_l', vec2fT)))
+      c.assign(clip, transformMat4(mvp, vec4(rel2d.x, rel2d.y, f32(0), f32(1))))
+    }).else((c) => {
+      // 3D: ECEF-RTC re-centred by (tileEcefCenter − cameraCenter), hi + lo.
+      const camOffH = u.field('cam_ecef_off_h', vec4fT)
+      const camOffL = u.field('cam_ecef_off_l', vec4fT)
+      const ecefCam = c.let('ecef_cam',
+        ecefRtc.add(vec3(camOffH.x, camOffH.y, camOffH.z)).add(vec3(camOffL.x, camOffL.y, camOffL.z)))
+      c.assign(clip, transformMat4(mvp, vec4(ecefCam, f32(1))))
+    })
     // Mapbox fill-translate viewport-anchor — runtime pre-bakes
     // (px*2/canvasDim) so the shader just multiplies by clip.w.
     b.assign(clip.x, clip.x.add(fillTx.mul(clip.w)))
@@ -426,7 +462,23 @@ const vsMainEcefExtruded = entryFn(
     )
 
     const out = b.var('out', structT('VertexOutput'))
-    const clip = b.var('clip', vec4fT, transformMat4(mvp, vec4(ecefRtc, f32(1))))
+    // Display projection (see vs_main_ecef): flat Mercator reprojects onto
+    // the 2D plane with the extrude lift applied as plane-z; 3D keeps the
+    // pre-lifted ECEF-RTC. world_z = wall_height × is_top is the per-vertex
+    // lift the runtime wall-mesh baked into ECEF z (real metres ≈ Mercator
+    // metres near the equator — a known low-latitude approximation under
+    // f32 P1; revisit with a cos(lat) scale if high-lat walls look off).
+    const projParamsV = u.field('proj_params', vec4fT)
+    const clip = b.var('clip', vec4fT)
+    b.if(projParamsV.x.lt(0.5), (c) => {
+      const p2d = c.let('p2d', callFn('project', vec2fT, p.abs_lon, p.abs_lat, projParamsV))
+      const rel2d = c.let('rel2d',
+        p2d.sub(u.field('tile_origin_merc', vec2fT)).sub(u.field('cam_h', vec2fT)).sub(u.field('cam_l', vec2fT)))
+      const zPlane = c.let('z_plane', p.wall_height.mul(p.is_top))
+      c.assign(clip, transformMat4(mvp, vec4(rel2d.x, rel2d.y, zPlane, f32(1))))
+    }).else((c) => {
+      c.assign(clip, transformMat4(mvp, vec4(ecefRtc, f32(1))))
+    })
     b.assign(clip.x, clip.x.add(fillTx.mul(clip.w)))
     b.assign(clip.y, clip.y.sub(fillTy.mul(clip.w)))
     b.assign(out.field('position', vec4fT), callFn('apply_log_depth', vec4fT, clip, logDepthFc))

@@ -48,6 +48,20 @@ describe('Phase-2 raster shader — DSL emission (ECEF VS, PR 2d.3)', () => {
     expect(vsOnly).not.toContain('proj_globe')
     expect(vsOnly).not.toContain('project_geom')
   })
+  it('vs_tile gains the flat-Mercator display branch (projType 0 reproject)', () => {
+    // projection-display-layer-restore: flat Mercator (proj_params.x < 0.5)
+    // reprojects the reconstructed lon/lat onto the 2D plane and feeds the
+    // flat MVP; the 3D ECEF path stays in the else. project() (+ friends) is
+    // now prepended for the flat reprojection — but the VS calls project(),
+    // NOT the retired project_geom / proj_globe (asserted absent above).
+    const vsBody = noPick.slice(noPick.indexOf('@vertex\nfn vs_tile'))
+    const vsEnd = vsBody.indexOf('\n@fragment')
+    const vsOnly = vsEnd > 0 ? vsBody.slice(0, vsEnd) : vsBody
+    expect(vsOnly).toContain('u.proj_params.x < 0.5')
+    expect(vsOnly).toContain('project(lon, lat_deg, u.proj_params)')
+    // The projection forward fn is now emitted in the preamble.
+    expect(noPick).toContain('fn project(')
+  })
   it('fragment samples the tile + rim fade + log-depth', () => {
     expect(noPick).toContain('@fragment\nfn fs_tile(input: VsOut) -> RasterFragmentOutput')
     expect(noPick).toContain('textureSample(tex, tex_sampler, input.uv)')

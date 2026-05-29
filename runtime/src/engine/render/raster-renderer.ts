@@ -172,7 +172,7 @@ export class RasterRenderer {
     if (DEBUG_OVERDRAW) return
     this.frameCount++
 
-    const frame = camera.getECEFFrameView(canvasWidth, canvasHeight, dpr)
+    const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
     const mvp = frame.matrix
     const { zoom } = camera
 
@@ -249,8 +249,15 @@ export class RasterRenderer {
     // cam_ecef_center @96 — camera anchor (sphere) for camera-relative RTC,
     // mirroring polygon's cam_ecef_off. Subtracted in the raster VS so the ECEF
     // vertex projects vertex − cameraCenter through the camera-at-origin MVP.
-    const camC = camera.getECEFCenter()
-    new Float32Array(uniformData, 96, 4).set([camC[0], camC[1], camC[2], 0])
+    // Flat Mercator (projType 0): cam_ecef_center.xy carries the 2D Mercator
+    // camera centre — the flat VS computes rel = project(lon,lat) − cam.xy and
+    // the ECEF lanes are dead there. 3D / globe: the ECEF anchor (sphere).
+    if (projType === 0) {
+      new Float32Array(uniformData, 96, 4).set([camera.centerX, camera.centerY, 0, 0])
+    } else {
+      const camC = camera.getECEFCenter()
+      new Float32Array(uniformData, 96, 4).set([camC[0], camC[1], camC[2], 0])
+    }
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData)
 
     pass.setPipeline(this.pipeline)

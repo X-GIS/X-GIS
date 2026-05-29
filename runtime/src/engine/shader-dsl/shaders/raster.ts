@@ -24,7 +24,7 @@ import {
 import { emitModule } from '../core/backends/wgsl'
 import { ECEF_WGSL_CONSTS, ECEF_WGSL_FNS } from './ecef'
 import { LOG_DEPTH_WGSL_FNS } from './log-depth'
-import { PROJECTION_WGSL_CONSTS } from './projections'
+import { PROJECTION_WGSL_CONSTS, PROJECTION_WGSL_FNS } from './projections'
 
 const Uniforms: StructDecl = {
   name: 'Uniforms',
@@ -111,7 +111,23 @@ const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 've
   const ecefRtc = b.let('ecef_rtc', ecef.sub(camEcefVec))
 
   const out = b.var('out', structT('VsOut'))
-  const clip = b.let('clip', transformMat4(u.field('mvp', mat4x4fT), vec4(ecefRtc, f32(1))))
+  // Display projection (projection-display-layer-restore): flat Mercator
+  // (proj_params.x < 0.5) reprojects the reconstructed lon/lat onto the 2D
+  // plane and feeds the flat Mercator-metre MVP; 3D / globe keeps the ECEF
+  // path. For the flat path the renderer writes the 2D camera centre
+  // (Mercator metres) into cam_ecef_center.xy — those ECEF lanes are dead
+  // there. u.mvp is the matching matrix (Camera.getViewForProjection). f32
+  // reprojection ≈ 1 m at extreme zoom (P1), sub-pixel for texture-grade
+  // raster.
+  const clip = b.var('clip', vec4fT)
+  b.if(projParams.x.lt(0.5), (c) => {
+    const latDeg = c.let('lat_deg', latRad.div(constRef('DEG2RAD')))
+    const p2d = c.let('p2d', callFn('project', vec2fT, lon, latDeg, projParams))
+    const rel2d = c.let('rel2d', p2d.sub(vec2(camEcef.x, camEcef.y)))
+    c.assign(clip, transformMat4(u.field('mvp', mat4x4fT), vec4(rel2d.x, rel2d.y, f32(0), f32(1))))
+  }).else((c) => {
+    c.assign(clip, transformMat4(u.field('mvp', mat4x4fT), vec4(ecefRtc, f32(1))))
+  })
   b.assign(out.field('pos', vec4fT), callFn('apply_log_depth', vec4fT, clip, projParams.w))
   b.assign(out.field('view_w', f32T), clip.w)
   b.assign(out.field('uv', vec2fT), vec2(uu, vv))
@@ -152,6 +168,7 @@ const buildRasterModule = (pickEnabled: boolean): ModuleDecl => module({
  *  `pickEnabled` toggles the pick attachment field + write. */
 export const emitRasterWgsl = (pickEnabled: boolean): string => [
   PROJECTION_WGSL_CONSTS,
+  PROJECTION_WGSL_FNS,
   ECEF_WGSL_CONSTS,
   ECEF_WGSL_FNS,
   LOG_DEPTH_WGSL_FNS,

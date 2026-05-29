@@ -1,4 +1,4 @@
-// baseline: 41ec73405ad60762b854cc4347ccf2b71cedb5b3
+// baseline: 15d052ed706c6dd72206a67a09be0309c6af7421
 // fixture: syn-featdata
 // variant.key: syn-featdata
 // pick: false
@@ -331,8 +331,15 @@ fn vs_main(@location(0) pos_h: vec3<f32>, @location(1) pos_l: vec3<f32>, @locati
   let abs_lat_clamped = clamp(abs_lat, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT);
   let abs_merc_y = (log(tan(((PI / 4.0) + ((abs_lat_clamped * DEG2RAD) / 2.0)))) * EARTH_R);
   var out: VertexOutput;
-  let ecef_cam = ((ecef_rtc + vec3<f32>(u.cam_ecef_off_h.x, u.cam_ecef_off_h.y, u.cam_ecef_off_h.z)) + vec3<f32>(u.cam_ecef_off_l.x, u.cam_ecef_off_l.y, u.cam_ecef_off_l.z));
-  var clip: vec4<f32> = (u.mvp * vec4<f32>(ecef_cam, 1.0));
+  var clip: vec4<f32>;
+  if ((u.proj_params.x < 0.5)) {
+    let p2d = project(abs_lon, abs_lat, u.proj_params);
+    let rel2d = (((p2d - u.tile_origin_merc) - u.cam_h) - u.cam_l);
+    clip = (u.mvp * vec4<f32>(rel2d.x, rel2d.y, 0.0, 1.0));
+  } else {
+    let ecef_cam = ((ecef_rtc + vec3<f32>(u.cam_ecef_off_h.x, u.cam_ecef_off_h.y, u.cam_ecef_off_h.z)) + vec3<f32>(u.cam_ecef_off_l.x, u.cam_ecef_off_l.y, u.cam_ecef_off_l.z));
+    clip = (u.mvp * vec4<f32>(ecef_cam, 1.0));
+  }
   clip.x = (clip.x + (u.fill_translate_x * clip.w));
   clip.y = (clip.y - (u.fill_translate_y * clip.w));
   out.position = apply_log_depth(clip, u.log_depth_fc);
@@ -356,8 +363,15 @@ fn vs_main_ecef(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u32>, @loca
   let abs_lat_clamped = clamp(abs_lat, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT);
   let abs_merc_y = (log(tan(((PI / 4.0) + ((abs_lat_clamped * DEG2RAD) / 2.0)))) * EARTH_R);
   var out: VertexOutput;
-  let ecef_cam = ((ecef_rtc + vec3<f32>(u.cam_ecef_off_h.x, u.cam_ecef_off_h.y, u.cam_ecef_off_h.z)) + vec3<f32>(u.cam_ecef_off_l.x, u.cam_ecef_off_l.y, u.cam_ecef_off_l.z));
-  var clip: vec4<f32> = (u.mvp * vec4<f32>(ecef_cam, 1.0));
+  var clip: vec4<f32>;
+  if ((u.proj_params.x < 0.5)) {
+    let p2d = project(abs_lon, abs_lat, u.proj_params);
+    let rel2d = (((p2d - u.tile_origin_merc) - u.cam_h) - u.cam_l);
+    clip = (u.mvp * vec4<f32>(rel2d.x, rel2d.y, 0.0, 1.0));
+  } else {
+    let ecef_cam = ((ecef_rtc + vec3<f32>(u.cam_ecef_off_h.x, u.cam_ecef_off_h.y, u.cam_ecef_off_h.z)) + vec3<f32>(u.cam_ecef_off_l.x, u.cam_ecef_off_l.y, u.cam_ecef_off_l.z));
+    clip = (u.mvp * vec4<f32>(ecef_cam, 1.0));
+  }
   clip.x = (clip.x + (u.fill_translate_x * clip.w));
   clip.y = (clip.y - (u.fill_translate_y * clip.w));
   out.position = apply_log_depth(clip, u.log_depth_fc);
@@ -381,7 +395,15 @@ fn vs_main_ecef_extruded(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u3
   let abs_lat_clamped = clamp(abs_lat, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT);
   let abs_merc_y = (log(tan(((PI / 4.0) + ((abs_lat_clamped * DEG2RAD) / 2.0)))) * EARTH_R);
   var out: VertexOutput;
-  var clip: vec4<f32> = (u.mvp * vec4<f32>(ecef_rtc, 1.0));
+  var clip: vec4<f32>;
+  if ((u.proj_params.x < 0.5)) {
+    let p2d = project(abs_lon, abs_lat, u.proj_params);
+    let rel2d = (((p2d - u.tile_origin_merc) - u.cam_h) - u.cam_l);
+    let z_plane = (wall_height * is_top);
+    clip = (u.mvp * vec4<f32>(rel2d.x, rel2d.y, z_plane, 1.0));
+  } else {
+    clip = (u.mvp * vec4<f32>(ecef_rtc, 1.0));
+  }
   clip.x = (clip.x + (u.fill_translate_x * clip.w));
   clip.y = (clip.y - (u.fill_translate_y * clip.w));
   out.position = apply_log_depth(clip, u.log_depth_fc);

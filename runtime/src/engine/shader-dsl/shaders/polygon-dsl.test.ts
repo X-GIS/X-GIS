@@ -176,6 +176,21 @@ describe('emitPolygonWgsl — skeleton', () => {
     expect(wgsl).toContain('apply_log_depth(')
   })
 
+  it('vs entries gain the flat-Mercator display branch (projType 0 reproject)', () => {
+    // projection-display-layer-restore: flat Mercator (proj_params.x < 0.5)
+    // reprojects each vertex onto the 2D plane: rel = project(abs) −
+    // tile_origin_merc − cam_h − cam_l, fed to the flat 2D-plane MVP. 3D /
+    // globe keeps the ECEF-RTC else path.
+    const wgsl = emitPolygonWgsl(null, false)
+    expect(wgsl).toContain('project(abs_lon, abs_lat, u.proj_params)')
+    expect(wgsl).toContain('u.proj_params.x < 0.5')
+    // fill (vs_main_ecef) + line-entry (vs_main) + extruded all carry it.
+    const branches = (wgsl.match(/u\.proj_params\.x < 0\.5/g) ?? []).length
+    expect(branches).toBeGreaterThanOrEqual(3)
+    // ECEF 3D path preserved in the else branch.
+    expect(wgsl).toContain('cam_ecef_off_h')
+  })
+
   it('pickEnabled=true adds the pick attachment field to FragmentOutput', () => {
     const wgslOff = emitPolygonWgsl(null, false)
     const wgslOn = emitPolygonWgsl(null, true)

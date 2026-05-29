@@ -54,6 +54,16 @@ describe('Phase-2 point shader — DSL emission', () => {
     expect(vsOnly).toContain('u.cam_ecef_h')
     expect(vsOnly).toContain('u.cam_ecef_l')
   })
+  it('vs_point gains the flat-Mercator display branch (projType 0 reproject)', () => {
+    // projection-display-layer-restore: flat Mercator (proj_params.x < 0.5)
+    // reprojects the absolute lon/lat onto the 2D plane and feeds the flat MVP;
+    // the 3D ECEF anchor stays in the else branch.
+    const vsBody = pointPart.slice(pointPart.indexOf('fn vs_point'))
+    const vsOnly = vsBody.slice(0, vsBody.indexOf('fn fs_point'))
+    expect(vsOnly).toContain('u.proj_params.x < 0.5')
+    expect(vsOnly).toContain('project(abs_lon, abs_lat, u.proj_params)')
+  })
+
   it('SDF helpers + switch on segment kind', () => {
     expect(pointPart).toContain('fn dist_to_line')
     expect(pointPart).toContain('fn dist_to_quadratic')

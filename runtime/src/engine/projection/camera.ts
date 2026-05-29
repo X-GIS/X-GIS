@@ -461,10 +461,13 @@ export class Camera {
    *  ───────────────────────────────────────────────────────────────────
    *  Dual-API rationale (post Phase 2 PR 2d.5 ECEF migration):
    *
-   *  Every production renderer (polygon / line / point / raster / text
-   *  / label-projector) now calls `getECEFFrameView()` — `u.mvp` in every
-   *  shader IS the ECEF-MVP. This legacy Mercator-DSFUN `getFrameView`
-   *  has ZERO production call sites today. It survives for two reasons:
+   *  3D / globe renderers (and Phase-1 non-Mercator projTypes) call
+   *  `getECEFFrameView()` — `u.mvp` is the ECEF-MVP for those. The flat
+   *  display path REVIVES this Mercator-DSFUN `getFrameView` as the flat
+   *  2D-plane MVP: `getViewForProjection(projType=0)` returns it so a flat
+   *  Mercator map projects onto a plane instead of a sphere (the PR #191
+   *  'frame split = by-design' conclusion was wrong and is reverted). It
+   *  also still anchors two parity-test surfaces:
    *
    *    1. **Parity test infrastructure** — `camera-ecef-mvp.test.ts` and
    *       `polygon-ecef-mvp-latitude-parity.test.ts` snapshot the legacy
@@ -478,7 +481,8 @@ export class Camera {
    *       zoom) grid. Coverage of the legacy build path stays meaningful
    *       as long as anyone might regress to Mercator-RTC math.
    *
-   *  Do NOT add production callers — use `getECEFFrameView()`. */
+   *  Production callers go through `getViewForProjection`, which routes
+   *  flat Mercator here and 3D / globe to `getECEFFrameView()`. */
   getFrameView(canvasWidth: number, canvasHeight: number, dpr: number = 1): {
     matrix: Float32Array
     far: number
@@ -668,6 +672,41 @@ export class Camera {
     this._ecefCacheFar = far
 
     return { matrix: m, far, logDepthFc: computeLogDepthFc(far) }
+  }
+
+  /** Display-projection view selector (flat 2D plane vs 3D globe over ECEF
+   *  data). ECEF is the DATA coordinate system, but the DISPLAY projection
+   *  is a SEPARATE concern: a flat 2D map (Mercator/…) projects the curved
+   *  ECEF surface onto a plane; the globe shows it as a 3D sphere.
+   *
+   *  - Flat Mercator (projType 0, untilted): the flat 2D Mercator-metre MVP
+   *    (`getFrameView` → `_buildRTCMatrix`, no camera-centre translate). The
+   *    vertex shader feeds camera-relative 2D-plane metres
+   *    (`project(abs_lon, abs_lat) − cam_centre`) so the curved data is
+   *    flattened per vertex. This REVERSES the PR #191 'frame split' — that
+   *    split was wrong as an end state for flat projections.
+   *  - 3D (globe 7 / tilted azimuthal → globeMode) and — in Phase 1 — every
+   *    other projType: the ECEF MVP (`getECEFFrameView`).
+   *
+   *  Mirrors the render-loop flat/3D decision (render-loop.ts:141-155):
+   *  tilted azimuthal promotes to projType 7 + sets globeMode. `projType`
+   *  is passed explicitly so the renderer matrix ↔ shader VS branch stay in
+   *  lockstep — the shader takes the flat branch exactly when
+   *  `proj_params.x < 0.5` (projType 0), so the selector gates identically.
+   *
+   *  CRITICAL: returns a reference to a preallocated buffer (`rtcMatrix` for
+   *  flat, `rtcMatrixECEF` / globe for 3D) — copy contents into your own
+   *  uniform immediately; a subsequent call from the same camera overwrites
+   *  it. */
+  getViewForProjection(projType: number, canvasWidth: number, canvasHeight: number, dpr: number = 1): {
+    matrix: Float32Array
+    far: number
+    logDepthFc: number
+  } {
+    if (!this.globeMode && projType === 0) {
+      return this.getFrameView(canvasWidth, canvasHeight, dpr)
+    }
+    return this.getECEFFrameView(canvasWidth, canvasHeight, dpr)
   }
 
   // Mercator Y limit: ±85.051129° → ±20037508.34m

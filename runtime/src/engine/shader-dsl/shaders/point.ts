@@ -280,7 +280,24 @@ const vs = entryFn('vs_point', 'vertex', [
   const absLon = b.let('abs_lon', featData.at(fid.mul(STRIDE).add(u32(17)), f32T))
   const absLat = b.let('abs_lat', featData.at(fid.mul(STRIDE).add(u32(18)), f32T))
   const mvp = u.field('mvp', mat4x4fT)
-  const centerClip = b.let('center_clip', transformMat4(mvp, vec4(ecefRtc, f32(1))))
+  // Display projection (projection-display-layer-restore): flat Mercator
+  // (proj_params.x < 0.5) reprojects the absolute lon/lat onto the 2D plane
+  // and feeds the flat Mercator-metre MVP; 3D / globe keeps the ECEF-RTC
+  // anchor. For the flat path the renderer writes the 2D camera centre
+  // (Mercator metres, DSFUN hi/lo) into cam_ecef_h.xy / cam_ecef_l.xy — those
+  // ECEF lanes are dead on the flat path. u.mvp is the matching matrix
+  // (Camera.getViewForProjection). Quad expansion below consumes centerClip
+  // identically for both paths.
+  const centerClip = b.var('center_clip', vec4fT)
+  b.if(u.field('proj_params', vec4fT).x.lt(0.5), (c) => {
+    const p2d = c.let('p2d', callFn('project', vec2fT, absLon, absLat, u.field('proj_params', vec4fT)))
+    const camMercH = c.let('cam_merc_h', u.field('cam_ecef_h', vec4fT).swizzle('xy'))
+    const camMercL = c.let('cam_merc_l', u.field('cam_ecef_l', vec4fT).swizzle('xy'))
+    const rel2d = c.let('rel2d', p2d.sub(camMercH).sub(camMercL))
+    c.assign(centerClip, transformMat4(mvp, vec4(rel2d.x, rel2d.y, f32(0), f32(1))))
+  }).else((c) => {
+    c.assign(centerClip, transformMat4(mvp, vec4(ecefRtc, f32(1))))
+  })
 
   // bit 3 of packed10 = flat-quad mode.
   const isFlat = b.let('is_flat', packed10.bitAnd(u32(8)).ne(u32(0)))

@@ -100,6 +100,17 @@ describe('Phase-2 line shader — DSL emission', () => {
     expect(vs).toContain('tile.cam_ecef_off_h')
     expect(vs).toContain('tile.cam_ecef_off_l')
   })
+  it('vs_line gains the flat-Mercator display branch (projType 0)', () => {
+    // projection-display-layer-restore: flat Mercator (proj_params.x < 0.5)
+    // feeds the camera-relative cornerLocal straight to the flat 2D-plane MVP
+    // (line_endpoint already subtracted the camera for proj<0.5) — no ECEF
+    // round-trip. The 3D path (cam_ecef_off) stays in the else.
+    const vs = noPick.slice(noPick.indexOf('fn vs_line'), noPick.indexOf('fn fs_line'))
+    expect(vs).toContain('tile.proj_params.x < 0.5')
+    expect(vs).toContain('corner_local.x, corner_local.y')
+    expect(vs).toContain('tile.cam_ecef_off_h')
+  })
+
   it('both variants are structurally balanced (line module portion)', () => {
     for (const w of [linePart(noPick), linePart(pick)]) {
       expect((w.match(/{/g) ?? []).length).toBe((w.match(/}/g) ?? []).length)
