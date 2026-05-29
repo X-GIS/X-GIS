@@ -46,8 +46,10 @@ test('ECEF polygon fill lands at its true screen position (camera-relative)', as
   // (lon=10, lat=0) — exactly how the tiler RTCs each tile.
   const tileCenter = ecefSphere(10, 0)
   const cameraCenter = ecefSphere(0, 0) // camera anchor (getECEFCenter uses sphere)
+  // off = tileEcefCenter − cameraCenter (matches the renderer write); FIX adds
+  // it to ecef_rtc so the VS projects vertex − cameraCenter (camera-relative).
   const camRel: [number, number, number] = [
-    cameraCenter[0] - tileCenter[0], cameraCenter[1] - tileCenter[1], cameraCenter[2] - tileCenter[2],
+    tileCenter[0] - cameraCenter[0], tileCenter[1] - cameraCenter[1], tileCenter[2] - cameraCenter[2],
   ]
   const corners = [[9.5, -0.5], [10.5, -0.5], [9.5, 0.5], [10.5, 0.5]] as const
   const rtc = corners.map(([lo, la]) => {
@@ -129,8 +131,24 @@ test('ECEF polygon fill lands at its true screen position (camera-relative)', as
   const cx = (r: { minX: number; maxX: number }) => (r.minX + r.maxX) / 2
   console.log('[ecef-render] CURRENT', JSON.stringify(out.current), 'centerX≈', cx(out.current).toFixed(0))
   console.log('[ecef-render] FIX    ', JSON.stringify(out.fix), 'centerX≈', cx(out.fix).toFixed(0))
-  // Camera at lon=0, polygon at lon=10° → correct render is on the RIGHT half
-  // (x > 256). The buggy current collapses toward center (x ≈ 256).
+
+  // CPU oracle: project the polygon center the camera-relative way
+  // (vertex − cameraCenter) through the same mvp. This is the TRUE screen x;
+  // FIX must match it, CURRENT (tile-relative into a camera-at-origin mvp)
+  // must miss it (it collapses to the camera origin ≈ viewport center).
+  const projX = (mvp: number[], e: number[]): number => {
+    let clipX = 0, clipW = 0
+    for (let k = 0; k < 4; k++) { const v = k < 3 ? e[k]! : 1; clipX += mvp[k * 4]! * v; clipW += mvp[k * 4 + 3]! * v }
+    return (clipX / clipW * 0.5 + 0.5) * 512
+  }
+  const polyCenter = ecefSphere(10, 0)
+  const oracleX = projX(setup.mvp, [polyCenter[0] - cameraCenter[0], polyCenter[1] - cameraCenter[1], polyCenter[2] - cameraCenter[2]])
+  console.log('[ecef-render] CPU oracle centerX (camera-relative) =', oracleX.toFixed(1))
+  console.log('[ecef-render] verdict: current', cx(out.current).toFixed(0), '| fix', cx(out.fix).toFixed(0), '| oracle', oracleX.toFixed(0))
+
   expect(out.fix.count, 'fix drew nothing').toBeGreaterThan(10)
-  console.log('[ecef-render] verdict: current centerX', cx(out.current).toFixed(0), 'vs fix centerX', cx(out.fix).toFixed(0), '(viewport mid=256)')
+  // FIX matches the CPU camera-relative oracle within rasterization tolerance.
+  expect(Math.abs(cx(out.fix) - oracleX), 'FIX must match CPU camera-relative oracle').toBeLessThan(16)
+  // CURRENT (the bug) lands far from the true position — collapsed to center.
+  expect(Math.abs(cx(out.current) - oracleX), 'CURRENT must be wrong (collapsed)').toBeGreaterThan(40)
 })

@@ -110,6 +110,10 @@ const EXPECTED_F32_OFFSET: Record<string, number> = {
   // Phase 2 PR 2f — per-tile quantized-position dequant params.
   tile_dequant_scale: 48,
   tile_dequant_half: 49,
+  // Camera-relative RTC fix — DSFUN hi/lo offset (tileEcefCenter − cameraCenter),
+  // vec4 each, 16-byte aligned after the two dequant scalars (50/51 pad → 52).
+  cam_ecef_off_h: 52,
+  cam_ecef_off_l: 56,
 }
 
 describe('iter-319 uniform byte-layout consistency (CPU pack ↔ WGSL struct)', () => {
@@ -134,11 +138,11 @@ describe('iter-319 uniform byte-layout consistency (CPU pack ↔ WGSL struct)', 
     expect(cb.byteOffset % 16).toBe(0)
   })
 
-  it('struct fits in the 208-byte uniform-ring slot', () => {
-    // PR 2f added tile_dequant_scale + tile_dequant_half (2 f32 at offsets
-    // 48/49) → 50 f32 = 200 bytes, rounded up to 208 by the 16-byte struct
-    // alignment. Still well within the 256-byte ring slot.
-    expect(sizeBytes).toBeLessThanOrEqual(208)
+  it('struct fits in the 240-byte uniform-ring slot', () => {
+    // Camera-relative RTC fix added cam_ecef_off_h/l (vec4×2 = 32B at f32
+    // 52/56) → 60 f32 = 240 bytes. Still within the 256-byte ring slot
+    // (UNIFORM_SLOT), so no ring-stride change was needed.
+    expect(sizeBytes).toBeLessThanOrEqual(240)
   })
 
   it('CPU pack indices in vector-tile-renderer match parsed offsets', () => {
