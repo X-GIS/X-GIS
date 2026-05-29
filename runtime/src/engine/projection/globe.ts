@@ -96,12 +96,15 @@ const FOV_RAD = 0.6435011087932844 // == Camera.FOV, MapLibre default
 export function globeAltitude(zoom: number, cssHeightPx: number): number {
   const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, zoom)
   const rawViewHeightMeters = cssHeightPx * metersPerPixel
-  // Sphere-diameter cap (mirrors Camera.getECEFFrameView). At z=0 the
-  // uncapped view extent exceeds the sphere; altitude balloons and the
-  // disc subtends only ~19% of the canvas instead of filling it
-  // (memory project_non_merc_z0_disc_render_fail_2026_05_20).
+  // Sphere-diameter cap — only at z<1 where the uncapped view extent
+  // exceeds the sphere and the disc would subtend ≤ 19 % of the canvas
+  // (memory project_non_merc_z0_disc_render_fail_2026_05_20). At z≥1
+  // the altitude already fits the disc + camera context the globe's
+  // ortho-vs-perspective foreshortening tests pin (globe.test.ts:331).
   const SPHERE_VIEW_HEIGHT_M = 2 * 6378137  // EARTH_R × 2 = disc diameter
-  const viewHeightMeters = Math.min(rawViewHeightMeters, SPHERE_VIEW_HEIGHT_M)
+  const viewHeightMeters = zoom < 1
+    ? Math.min(rawViewHeightMeters, SPHERE_VIEW_HEIGHT_M)
+    : rawViewHeightMeters
   return viewHeightMeters / 2 / Math.tan(FOV_RAD / 2)
 }
 
