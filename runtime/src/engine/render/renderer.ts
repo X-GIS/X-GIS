@@ -11,7 +11,8 @@ import {
   OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT,
 } from '../gpu/gpu-shared'
 import { isPickEnabled, getSampleCount } from '../gpu/gpu'
-import { POLYGON_FILL_FORMAT, POLYGON_EXTRUDED_FORMAT, type VertexFormat } from '@xgis/compiler'
+import { POLYGON_FILL_FORMAT, POLYGON_EXTRUDED_FORMAT } from '@xgis/compiler'
+import { toVertexBufferLayout } from './vertex-buffer-layout'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import { resolveNumberShape, resolveColorShape } from './paint-shape-resolve'
 import { ComputeDispatcher } from '../gpu/compute'
@@ -193,23 +194,6 @@ export class StyleProperties {
   /** List all property names */
   keys(): string[] {
     return [...new Set([...this.defaults.keys(), ...this.overrides.keys()])]
-  }
-}
-
-/** Derive a GPUVertexBufferLayout from the single-source vertex-format spec
- *  in @xgis/compiler. The packer (which WRITES the bytes) and the WGSL
- *  @location attributes (which READ them) derive from the SAME spec, so a
- *  layout built here cannot drift from either — the class of bug where a
- *  hand-copied float32x3 layout was bound to a uint16-reading vs_main_ecef
- *  is now structurally impossible. */
-function toVertexBufferLayout(fmt: VertexFormat): GPUVertexBufferLayout {
-  return {
-    arrayStride: fmt.stride,
-    attributes: fmt.fields.map((f) => ({
-      shaderLocation: f.location,
-      offset: f.offset,
-      format: f.vbFormat as GPUVertexFormat,
-    })),
   }
 }
 

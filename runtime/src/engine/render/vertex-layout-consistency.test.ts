@@ -29,7 +29,8 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { emitPolygonWgsl } from '../shader-dsl/shaders/polygon'
-import { POLYGON_FILL_FORMAT, POLYGON_EXTRUDED_FORMAT, type VertexFormat } from '@xgis/compiler'
+import { POLYGON_FILL_FORMAT, POLYGON_EXTRUDED_FORMAT } from '@xgis/compiler'
+import { specShaderMismatches } from './__vertex-format-crosscheck'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 // GPUVertexBufferLayout consts stay in renderer.ts; the WGSL (with the
@@ -78,39 +79,6 @@ function tryParseFnLocations(fnName: string): number[] | null {
   let l: RegExpExecArray | null
   while ((l = locRe.exec(params)) !== null) locs.push(parseInt(l[1]!, 10))
   return locs.sort((x, y) => x - y)
-}
-
-/** Parse the `@location(N) name: type` inputs a WGSL fn reads, returning
- *  location→wgslType. Used to cross-check the single-source vertex-format
- *  spec against what the shader actually declares. */
-function tryParseFnParamTypes(fnName: string): Map<number, string> | null {
-  const re = new RegExp(`fn ${fnName}\\s*\\(([\\s\\S]*?)\\)\\s*->`)
-  const m = SHADER_SRC.match(re)
-  if (!m) return null
-  const params = m[1]!
-  const out = new Map<number, string>()
-  const pRe = /@location\((\d+)\)\s+\w+\s*:\s*([\w<>]+)/g
-  let p: RegExpExecArray | null
-  while ((p = pRe.exec(params)) !== null) {
-    out.set(parseInt(p[1]!, 10), p[2]!.trim())
-  }
-  return out
-}
-
-/** Cross-check a single-source vertex-format spec against the WGSL entry it
- *  feeds: every spec field's location must appear with the SAME WGSL type the
- *  spec declares. This is the gate that makes the layout↔shader contract
- *  unbreakable — the packer + GPUVertexBufferLayout already DERIVE from this
- *  spec, so if the spec also matches the shader, all four are consistent. */
-function assertSpecMatchesShader(fmt: VertexFormat, fnName: string, ctx: string): void {
-  const shaderTypes = tryParseFnParamTypes(fnName)
-  if (!shaderTypes) throw new Error(`${ctx}: WGSL fn ${fnName} not found in polygon DSL emit`)
-  for (const f of fmt.fields) {
-    expect(shaderTypes.get(f.location), `${ctx} loc${f.location} (${f.name}) missing in ${fnName}`).toBe(f.wgslType)
-  }
-  // No EXTRA shader locations beyond the spec (would mean the layout under-feeds).
-  expect([...shaderTypes.keys()].sort((a, b) => a - b), `${ctx}: ${fnName} reads locations not in spec`)
-    .toEqual(fmt.fields.map((f) => f.location))
 }
 
 function assertLayoutSane(layout: Layout, ctx: string): void {
@@ -179,11 +147,11 @@ describe('iter-320 vertex attribute-layout consistency (CPU pack ↔ WGSL @locat
   })
 
   it('polygon fill spec ↔ vs_main_ecef WGSL @location types match exactly', () => {
-    assertSpecMatchesShader(POLYGON_FILL_FORMAT, 'vs_main_ecef', 'fill')
+    expect(specShaderMismatches(POLYGON_FILL_FORMAT, SHADER_SRC, 'vs_main_ecef')).toEqual([])
   })
 
   it('polygon extruded spec ↔ vs_main_ecef_extruded WGSL @location types match exactly', () => {
-    assertSpecMatchesShader(POLYGON_EXTRUDED_FORMAT, 'vs_main_ecef_extruded', 'extruded')
+    expect(specShaderMismatches(POLYGON_EXTRUDED_FORMAT, SHADER_SRC, 'vs_main_ecef_extruded')).toEqual([])
   })
 
   it('vs_main (line path): every @location covered by the line layout', () => {
