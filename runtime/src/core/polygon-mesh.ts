@@ -25,6 +25,7 @@ export const EXTRUDE_FALLBACK_HEIGHT_M = 50
 
 import earcut from 'earcut'
 import type { RingPolygon } from '@xgis/compiler'
+import { POLYGON_EXTRUDED_FORMAT, vertexField } from '@xgis/compiler'
 import { lonLatToECEFSphere } from '../engine/projection/ecef'
 import { mercatorYToLatRad } from '../engine/projection/projection'
 
@@ -79,7 +80,19 @@ export interface WallMeshExtrudedECEF {
   dequantHalf: number
 }
 
-const STRIDE_FLOATS = 11
+// Float-slot indices derived from the single-source POLYGON_EXTRUDED_FORMAT
+// spec (@xgis/compiler), so the bytes this writer produces cannot drift from
+// the renderer's extrudedVertexBufferLayout (also derived from the spec) or
+// the vs_main_ecef_extruded @location attributes (cross-checked in
+// vertex-layout-consistency.test.ts). All offsets are 4-byte aligned, so
+// byte offset / 4 == f32 slot index.
+const STRIDE_FLOATS = POLYGON_EXTRUDED_FORMAT.stride / 4              // 11
+const EXT_FID_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'feature_id').offset / 4   // 3
+const EXT_LON_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'abs_lon').offset / 4      // 4
+const EXT_LAT_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'abs_lat').offset / 4      // 5
+const EXT_FNORMAL_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'face_normal').offset / 4 // 6 (x,y,z = 6,7,8)
+const EXT_WALLH_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'wall_height').offset / 4   // 9
+const EXT_ISTOP_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'is_top').offset / 4        // 10
 const RAD2DEG_LOCAL = 180 / Math.PI
 const EARTH_RADIUS_LOCAL = 6378137  // sphere — matches lonLatToECEFSphere
 
@@ -260,14 +273,14 @@ export function generateWallMeshExtrudedECEF(
     if (m > maxAbs) maxAbs = m
     // f32 tail (position u16 lanes are written in the quantize pass below).
     const o = vIdx * STRIDE_FLOATS
-    vertices[o + 3] = fid
-    vertices[o + 4] = lonDeg
-    vertices[o + 5] = latDeg
-    vertices[o + 6] = fnX
-    vertices[o + 7] = fnY
-    vertices[o + 8] = fnZ
-    vertices[o + 9] = wallHeight
-    vertices[o + 10] = isTop
+    vertices[o + EXT_FID_FLOAT] = fid
+    vertices[o + EXT_LON_FLOAT] = lonDeg
+    vertices[o + EXT_LAT_FLOAT] = latDeg
+    vertices[o + EXT_FNORMAL_FLOAT]     = fnX
+    vertices[o + EXT_FNORMAL_FLOAT + 1] = fnY
+    vertices[o + EXT_FNORMAL_FLOAT + 2] = fnZ
+    vertices[o + EXT_WALLH_FLOAT] = wallHeight
+    vertices[o + EXT_ISTOP_FLOAT] = isTop
   }
 
   let vIdx = 0
