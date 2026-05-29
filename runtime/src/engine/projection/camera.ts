@@ -555,16 +555,23 @@ export class Camera {
     const cos_lat = Math.cos(cam_lat * Math.PI / 180)
 
     // 2. mpp/altitude in TRUE ENU metres.
-    //    Cap at WORLD_MERC × cos_lat (true-metre equivalent of the
-    //    Mercator world height) to mirror the legacy `_buildRTCMatrix`
-    //    altitude cap. See the comment there for the visible-bug
-    //    rationale: at z=0 + tall canvas the uncapped viewport height
-    //    exceeds the world extent, altitude balloons, and pitched-view
-    //    perspective division degenerates to a flat strip.
+    //    Cap at MIN(WORLD_MERC × cos_lat, sphere diameter). The Mercator
+    //    cap fits the cylindrical strip; the sphere-diameter cap fits
+    //    the disc subtended by non-cylindrical projections (ortho /
+    //    azimuthal_eq / stereographic / oblique / globe). Whichever is
+    //    smaller is the correct viewable extent — the ECEF VS feeds
+    //    sphere-radius vertices regardless of projType, so altitude
+    //    derived from a 40 Mm cap leaves the disc subtending only
+    //    ~33 % of the canvas at z=0 (memory
+    //    project_non_merc_z0_disc_render_fail_2026_05_20).
+    const SPHERE_VIEW_HEIGHT_M = 2 * 6378137   // EARTH_R × 2 = sphere diameter
     const mpp_mercator = (WORLD_MERC / TILE_PX) / Math.pow(2, this.zoom)
     const mpp_true = mpp_mercator * cos_lat
     const rawViewHeightTrueM = (canvasHeight / dpr) * mpp_true
-    const viewHeightTrueM = Math.min(rawViewHeightTrueM, WORLD_MERC * cos_lat)
+    const viewHeightTrueM = Math.min(
+      rawViewHeightTrueM,
+      Math.min(WORLD_MERC * cos_lat, SPHERE_VIEW_HEIGHT_M),
+    )
 
     // 3. FOV / aspect / pitch / bearing — identical to legacy build.
     const fovRad = Camera.FOV * Math.PI / 180
