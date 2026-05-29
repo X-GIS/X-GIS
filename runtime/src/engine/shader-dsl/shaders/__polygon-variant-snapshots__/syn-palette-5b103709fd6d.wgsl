@@ -1,4 +1,4 @@
-// baseline: c1c3e965eb7b0648d9975264c63e0fba00f03a25
+// baseline: 7cee5644bf2d45f41951e857e6615b832d572703
 // fixture: syn-palette
 // variant.key: syn-palette
 // pick: false
@@ -118,7 +118,7 @@ fn oblique_rot(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> vec2<f32> {
 }
 
 fn proj_oblique_mercator_d(lam_rot: f32, phi_rot: f32) -> vec2<f32> {
-  let phi_clamped = clamp(phi_rot, (-(MERCATOR_LAT_LIMIT * DEG2RAD)), (MERCATOR_LAT_LIMIT * DEG2RAD));
+  let phi_clamped = clamp(phi_rot, (-(89.9999 * DEG2RAD)), (89.9999 * DEG2RAD));
   let x = (EARTH_R * lam_rot);
   let y = (EARTH_R * log(tan(((PI / 4.0) + (phi_clamped / 2.0)))));
   return vec2<f32>(x, y);
