@@ -71,6 +71,35 @@ describe('Phase-2 line shader — DSL emission', () => {
     const writes = (pick.match(/out\.pick = vec2<u32>\(0u, 0u\);/g) ?? []).length
     expect(writes).toBe(2)
   })
+  it('VS applies the camera-relative ECEF offset (line↔fill alignment)', () => {
+    // Camera-relative RTC fix: line projected vertex−tileEcefCenter into the
+    // camera-at-ENU-origin MVP (no cameraCenter translate), so strokes landed
+    // offset from their fills. The VS now adds cam_ecef_off (DSFUN hi+lo) like
+    // polygon, projecting vertex−cameraCenter. The fields must sit at the same
+    // byte offsets as polygon's Uniforms (52/56) since the line + polygon
+    // shaders SHARE VTR's group(0) tile uniform slot.
+    const tu = noPick.match(/struct TileUniforms \{([\s\S]*?)\n\}/)![1]!
+    expect(tu).toContain('cam_ecef_off_h')
+    expect(tu).toContain('cam_ecef_off_l')
+    // WGSL std140 offsets (f32 slots): cam_ecef_off_h at 52, _l at 56, so the
+    // struct is 240 bytes — identical to polygon Uniforms (UNIFORM_SIZE).
+    const T: Record<string, [number, number]> = {
+      'mat4x4<f32>': [64, 16], 'vec4<f32>': [16, 16], 'vec2<f32>': [8, 8], 'f32': [4, 4], 'u32': [4, 4],
+    }
+    let cur = 0, maxA = 1; const off: Record<string, number> = {}
+    for (const raw of tu.split('\n')) {
+      const fm = raw.replace(/\/\/.*$/, '').trim().match(/^(\w+)\s*:\s*([\w<>]+)\s*,?$/)
+      if (!fm) continue
+      const [s, a] = T[fm[2]!]!; cur = Math.ceil(cur / a) * a; off[fm[1]!] = cur / 4; cur += s; if (a > maxA) maxA = a
+    }
+    expect(off.cam_ecef_off_h).toBe(52)
+    expect(off.cam_ecef_off_l).toBe(56)
+    expect(Math.ceil(cur / maxA) * maxA).toBe(240)
+    // The final clip transform feeds vertex+offset through the MVP.
+    const vs = noPick.slice(noPick.indexOf('fn vs_line'), noPick.indexOf('fn fs_line'))
+    expect(vs).toContain('tile.cam_ecef_off_h')
+    expect(vs).toContain('tile.cam_ecef_off_l')
+  })
   it('both variants are structurally balanced (line module portion)', () => {
     for (const w of [linePart(noPick), linePart(pick)]) {
       expect((w.match(/{/g) ?? []).length).toBe((w.match(/}/g) ?? []).length)

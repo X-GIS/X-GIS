@@ -76,6 +76,20 @@ const TileUniforms: StructDecl = {
     { name: 'outline_z_lift_m', type: f32T },
     // Per-tile clip mask in absolute Mercator meters (west, south, east, north).
     { name: 'clip_bounds', type: vec4fT },
+    // Pad to mirror polygon Uniforms offsets 44..51 (zoom / extrude_base /
+    // fill_translate xy / tile_dequant scale+half) so the shared VTR uniform
+    // slot's cam_ecef_off lands at the SAME byte offset (f32 52/56) for both
+    // the line and polygon shaders. The line VS doesn't read these pads.
+    { name: '_pad_tail0', type: vec4fT },
+    { name: '_pad_tail1', type: vec4fT },
+    // Camera-relative RTC (ECEF): tileEcefCenter(WGS84 ellipsoid) −
+    // cameraCenter(sphere), DSFUN hi/lo. VTR writes this per tile at f32
+    // 52-54 / 56-58 (recordTileFill). The line VS adds it to ecef_rtc so
+    // strokes project vertex−cameraCenter through the camera-at-ENU-origin
+    // MVP — the same fix as polygon's cam_ecef_off (fixes the line↔fill
+    // position mismatch, since line was projecting vertex−tileEcefCenter).
+    { name: 'cam_ecef_off_h', type: vec4fT },
+    { name: 'cam_ecef_off_l', type: vec4fT },
   ],
 }
 
@@ -881,6 +895,18 @@ const vsLine = entryFn('vs_line', 'vertex', [
     )) as Node<'vec3<f32>'>
   }
 
+  // Camera-relative RTC offset (tileEcefCenter − cameraCenter), DSFUN hi+lo,
+  // written by VTR per tile at f32 52/56. addCamOff converts a tile-relative
+  // ECEF into vertex−cameraCenter for the camera-at-ENU-origin MVP — the same
+  // two-add form as polygon vs_main_ecef. Applied to BOTH the width-clamp
+  // draft (so its on-screen distance estimate uses the true position) and the
+  // final clip, keeping them consistent.
+  const camOffH = tile.field('cam_ecef_off_h', vec4fT)
+  const camOffL = tile.field('cam_ecef_off_l', vec4fT)
+  const addCamOff = (v: Node<'vec3<f32>'>): Node<'vec3<f32>'> => v
+    .add(vec3(camOffH.x, camOffH.y, camOffH.z))
+    .add(vec3(camOffL.x, camOffL.y, camOffL.z)) as Node<'vec3<f32>'>
+
   // Screen-pixel-width stroke geometry clamp. Pre-clamp draft via ECEF
   // round-trip on the candidate corner (matches polygon convention).
   b.if(layerVpH.gt(0), (c) => {
@@ -899,7 +925,7 @@ const vsLine = entryFn('vs_line', 'vertex', [
     const baseRtcLifted = c.let('base_rtc_lifted',
       vec3(baseRtc.x, baseRtc.y, toF32(baseRtc.z.add(zLift))),
     )
-    const centerClip = c.let('center_clip', transformMat4(mvp, vec4(baseRtcLifted, f32(1))))
+    const centerClip = c.let('center_clip', transformMat4(mvp, vec4(addCamOff(baseRtcLifted), f32(1))))
     // Candidate corner.
     const cornerAbsX = c.let('corner_abs_x', toF32(cornerLocal.x.add(tileOrigin.x)))
     const cornerAbsY = c.let('corner_abs_y', toF32(cornerLocal.y.add(tileOrigin.y)))
@@ -908,7 +934,7 @@ const vsLine = entryFn('vs_line', 'vertex', [
     const cornerRtcLifted = c.let('corner_rtc_lifted',
       vec3(cornerRtc.x, cornerRtc.y, toF32(cornerRtc.z.add(zLift))),
     )
-    const cornerClip = c.let('corner_clip', transformMat4(mvp, vec4(cornerRtcLifted, f32(1))))
+    const cornerClip = c.let('corner_clip', transformMat4(mvp, vec4(addCamOff(cornerRtcLifted), f32(1))))
     const centerXY = c.let('center_xy', vec2(centerClip.x, centerClip.y))
     const cornerXY = c.let('corner_xy', vec2(cornerClip.x, cornerClip.y))
     const centerNdc = c.let('center_ndc', centerXY.div(max(abs(centerClip.w), f32(1e-6))).mul(sign(centerClip.w)))
@@ -940,7 +966,12 @@ const vsLine = entryFn('vs_line', 'vertex', [
     vec3(ecefRtc.x, ecefRtc.y, toF32(ecefRtc.z.add(zLift))),
   )
 
-  const clip = b.let('clip', transformMat4(mvp, vec4(ecefRtcLifted, f32(1))))
+  // Camera-relative RTC — see addCamOff above. Without this, line projects
+  // vertex−tileEcefCenter and collapses toward each tile's origin, rendering
+  // strokes offset from their fills.
+  const ecefCam = b.let('ecef_cam', addCamOff(ecefRtcLifted))
+
+  const clip = b.let('clip', transformMat4(mvp, vec4(ecefCam, f32(1))))
   b.assign(out.field('position', vec4fT), callFn('apply_log_depth', vec4fT, clip, tile.field('log_depth_fc', f32T)))
   b.assign(out.field('view_w', f32T), clip.w)
   b.assign(out.field('world_local', vec2fT), cornerLocal)
