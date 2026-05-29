@@ -5,7 +5,7 @@
 // internal `ColorResult` / `OpacityResult` shapes are imported back
 // into shader-gen.ts only.
 
-import type { NodeLike } from './_back-compat/node-to-wgsl-string'
+import type { NodeLike } from './node-types'
 
 /**
  * A specialized shader variant for a layer.

@@ -1,97 +1,37 @@
 // ═══════════════════════════════════════════════════════════════════
-// nodeToWgslString — DSL Node → WGSL string adapter (REMOVED IN STEP 14)
+// nodeToWgslString — DSL Node → WGSL string adapter (TRANSIENT)
 // ═══════════════════════════════════════════════════════════════════
 //
-// Phase 2.5 US-003 — keeps the compiler ↔ runtime boundary buildable
-// across the in-flight retarget. The compiler-side emit sites migrate
-// one at a time from string assembly to DSL Node construction (US-005);
-// the runtime still consumes ShaderVariant.{fillExpr, strokeExpr} as
-// strings during the in-between commits. This adapter converts a
-// Node value (`{ expr: Expr }`) to the WGSL string the runtime expects.
+// Compiler-side copy of `runtime/src/engine/shader-dsl/core/backends/wgsl.ts:emitExpr`.
+// The runtime's polygon-composer splice-point (`renderer.ts:146,151`)
+// reconstructs the `out.color = <expr-wgsl>;` assign string via this adapter
+// so it can locate the assign and splice the (string) fill/stroke preamble
+// before it. Both produce byte-identical WGSL for the same Expr.
 //
-// REMOVED IN STEP 14: once US-008's runtime rewire makes
-// `emitPolygonWgsl(variant, ...)` consume Node values directly, this
-// file (and the @back-compat directory) is deleted in the same commit.
+// RETIRES with the splice-point (PR 2e.B.2 / US-011): once the compiler emits
+// preambles as Stmt[] (or a raw-Stmt IR variant lands), the renderer feeds
+// them to the composer directly and this file + the `_back-compat/` directory
+// delete. The permanent `NodeLike` / `wgslRaw` / `Expr` vocabulary lives in
+// `../node-types` (relocated in PR 2e.B.1) and survives that deletion.
 //
-// Implementation choice: self-contained `emitExpr` copy rather than a
-// cross-workspace import. The compiler/tsconfig.json has
-// `rootDir: ./src`, so a relative import of
-// `runtime/src/engine/shader-dsl/core/backends/wgsl.ts` would push a
-// runtime file into the compiler's TypeScript program (outside
-// rootDir → tsc error). Adding `@xgis/runtime` as a compiler
-// workspace dep would create a cycle (runtime already declares
-// `@xgis/compiler` as a workspace dep, so runtime's package would
-// then transitively depend on itself).
+// Implementation choice: self-contained `emit` copy rather than a
+// cross-workspace import. The compiler/tsconfig.json has `rootDir: ./src`, so
+// a relative import of the runtime wgsl.ts backend would push a runtime file
+// into the compiler's TypeScript program (outside rootDir → tsc error).
+// Adding `@xgis/runtime` as a compiler workspace dep would create a cycle.
 //
-// Drift risk: the copy diverges from `runtime/.../wgsl.ts:emitExpr` if
-// either file changes during the migration. The US-008 deletion
-// commit closes the window. A small round-trip test in this directory
-// (`node-to-wgsl-string.test.ts`) pins the boundary.
+// Drift risk: the copy diverges from `runtime/.../wgsl.ts:emitExpr` if either
+// file changes. The round-trip test (`node-to-wgsl-string.test.ts`) pins the
+// boundary.
 
-// Local Expr type — minimal duplicate of runtime IR shape. Kept here
-// so the adapter is fully self-contained. The shape MUST stay in lock-
-// step with `runtime/src/engine/shader-dsl/core/ir/nodes.ts` Expr union
-// until US-008 deletes this file. Once the runtime migrates to Node-
-// consuming variants, this type goes away with the file.
-
-type Scalar = 'f32' | 'i32' | 'u32' | 'bool'
-
-type ShaderType =
-  | { readonly kind: 'scalar'; readonly scalar: Scalar }
-  | { readonly kind: 'vec'; readonly n: 2 | 3 | 4; readonly elem: 'f32' | 'i32' | 'u32' }
-  | { readonly kind: 'mat'; readonly n: 2 | 3 | 4; readonly elem: 'f32' }
-  | { readonly kind: 'struct'; readonly name: string }
-  | { readonly kind: 'array'; readonly elem: ShaderType; readonly size?: number }
-  | { readonly kind: 'texture'; readonly dim: '2d'; readonly elem: 'f32' }
-  | { readonly kind: 'sampler' }
-  | { readonly kind: 'void' }
-
-type BinOp = '+' | '-' | '*' | '/' | '%' | '&' | '|' | '^' | '<<' | '>>'
-type CmpOp = '<' | '>' | '<=' | '>=' | '==' | '!='
-type LogOp = '&&' | '||'
-
-type Expr =
-  | { readonly op: 'lit'; readonly type: ShaderType; readonly value: number | boolean }
-  | { readonly op: 'constref'; readonly type: ShaderType; readonly name: string }
-  | { readonly op: 'param'; readonly type: ShaderType; readonly name: string }
-  | { readonly op: 'varref'; readonly type: ShaderType; readonly name: string }
-  | { readonly op: 'binop'; readonly type: ShaderType; readonly bop: BinOp; readonly a: Expr; readonly b: Expr }
-  | { readonly op: 'unop'; readonly type: ShaderType; readonly a: Expr }
-  | { readonly op: 'compare'; readonly type: ShaderType; readonly cop: CmpOp; readonly a: Expr; readonly b: Expr }
-  | { readonly op: 'logical'; readonly type: ShaderType; readonly lop: LogOp; readonly a: Expr; readonly b: Expr }
-  | { readonly op: 'call'; readonly type: ShaderType; readonly fn: string; readonly args: readonly Expr[] }
-  | { readonly op: 'member'; readonly type: ShaderType; readonly base: Expr; readonly field: string }
-  | { readonly op: 'construct'; readonly type: ShaderType; readonly args: readonly Expr[] }
-  | { readonly op: 'select'; readonly type: ShaderType; readonly cond: Expr; readonly ifTrue: Expr; readonly ifFalse: Expr }
-  | { readonly op: 'index'; readonly type: ShaderType; readonly base: Expr; readonly idx: Expr }
-  | { readonly op: 'matchExpr'; readonly type: ShaderType; readonly scrutinee: Expr; readonly cases: ReadonlyArray<readonly [number, Expr]>; readonly default: Expr }
-  // Phase 2.5 US-004 back-compat — wraps a pre-built WGSL string so the
-  // compiler-side emit sites can satisfy the new Node-typed
-  // ShaderVariant fields without yet constructing real Node values
-  // (the per-idiom Node conversion lands one site at a time in US-005).
-  // emit() unwraps this verbatim. REMOVED IN STEP 14.
-  | { readonly op: 'rawString'; readonly value: string }
-
-/**
- * Structural Node mirror — the compiler can't import the runtime Node
- * class directly (compiler/tsconfig.json's rootDir excludes runtime/
- * and the runtime package is the dependent in the workspace chain).
- * Runtime's actual `Node<K>` is structurally assignable to this shape;
- * the typed `__k?: K` brand carries the WGSL key for type safety in
- * the compiler-side codegen during the migration window.
- */
-export interface NodeLike<K extends string = string> {
-  readonly expr: Expr
-  readonly __k?: K
-}
+import type { Expr, ShaderType, NodeLike } from '../node-types'
 
 // ── emitExpr copy ──
 //
-// Verbatim copy of `runtime/src/engine/shader-dsl/core/backends/wgsl.ts:emitExpr`
-// at PR #150 main HEAD. Stays in sync until the US-008 deletion. The
+// Verbatim copy of the runtime `wgsl.ts:emitExpr` at PR #150 main HEAD. The
 // matchExpr case throws — the runtime's pre-emit lowerModule pass owns
-// matchExpr-to-Stmt.switch hoisting; if a matchExpr reaches THIS path,
-// the caller forgot to wrap the Node in a fn body first.
+// matchExpr-to-Stmt.switch hoisting; if a matchExpr reaches THIS path, the
+// caller forgot to wrap the Node in a fn body first.
 
 function f32Lit(v: number): string {
   if (Number.isInteger(v)) return `${v.toFixed(1)}`
@@ -139,21 +79,9 @@ function emit(e: Expr): string {
 }
 
 /**
- * Wrap a pre-built WGSL string as a NodeLike so the compiler-side emit
- * sites can satisfy the new Node-typed ShaderVariant fields during the
- * Phase 2.5 migration window. Each call site is rewritten in US-005 to
- * construct real Node values, and this helper is deleted with the
- * rest of `_back-compat/` at US-008.
- */
-export function wgslRaw<K extends string>(s: string): NodeLike<K> {
-  return { expr: { op: 'rawString', value: s } }
-}
-
-/**
- * Convert a DSL `Node`-shaped value (`{ expr: Expr }`) to its WGSL
- * string representation. Drop-in replacement for the legacy hand-built
- * WGSL strings during the in-flight Phase 2.5 retarget; the US-008
- * runtime rewire removes the need for this adapter entirely.
+ * Convert a DSL `Node`-shaped value (`{ expr: Expr }`) to its WGSL string
+ * representation. The renderer splice-point's string-lookup oracle; retires
+ * in PR 2e.B.2 with the splice-point itself.
  */
 export function nodeToWgslString(node: NodeLike): string {
   return emit(node.expr)

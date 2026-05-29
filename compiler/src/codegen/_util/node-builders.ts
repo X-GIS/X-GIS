@@ -16,7 +16,7 @@
 // (at which point the compiler imports from `@xgis/runtime` via the
 // then-collapsed cycle).
 
-import type { NodeLike } from '../_back-compat/node-to-wgsl-string'
+import type { NodeLike } from '../node-types'
 
 // ── ShaderType mirror (matches runtime IR shapes) ──
 

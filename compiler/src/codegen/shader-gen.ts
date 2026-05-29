@@ -17,8 +17,8 @@ import {
   type ScalarPaletteMode,
 } from './palette-emit'
 import type { ShaderVariant, ColorResult, OpacityResult } from './shader-gen-types'
-import { wgslRaw } from './_back-compat/node-to-wgsl-string'
-import type { NodeLike } from './_back-compat/node-to-wgsl-string'
+import { wgslRaw } from './node-types'
+import type { NodeLike } from './node-types'
 import {
   composeFillVec4, constRefVec4, refF32,
   toU32, u32Lit, u32Mod, arrayIndex, featDataField,

@@ -91,7 +91,7 @@ export function emitComputeOutputReadExpr(
  *  without going through the wgslRaw back-compat wrap. */
 export function emitComputeOutputReadExprNode(
   spec: ComputeOutputBindingSpec,
-): import('./_back-compat/node-to-wgsl-string').NodeLike<'vec4<f32>'> {
+): import('./node-types').NodeLike<'vec4<f32>'> {
   const name = varNameFor(spec.paintAxis)
   const buf = varRefArrayU32(name)
   const idx = inputFeatIdRef()

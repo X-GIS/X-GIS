@@ -25,11 +25,11 @@ export type { TextValue, TextPart, FormatSpec, LabelDef } from './ir/render-node
 export { resolveImports, resolveImportsAsync, type FileReader, type AsyncFileReader, type ResolveImportsOptions } from './module/resolver'
 export { optimize } from './ir/optimize'
 export type { ShaderVariant } from './codegen/shader-gen'
-// Phase 2.5 US-003+US-004 — back-compat adapter for the runtime's
-// marker-substitution path. REMOVED IN STEP 14 with the rest of the
-// _back-compat directory once US-008's polygon DSL composer accepts
-// Node values directly.
-export { nodeToWgslString, wgslRaw, type NodeLike } from './codegen/_back-compat/node-to-wgsl-string'
+// Permanent codegen Node vocabulary (relocated out of _back-compat in
+// PR 2e.B.1). `nodeToWgslString` stays the transient splice-point adapter
+// and retires in PR 2e.B.2.
+export { wgslRaw, type NodeLike } from './codegen/node-types'
+export { nodeToWgslString } from './codegen/_back-compat/node-to-wgsl-string'
 export { collectPalette, emptyPalette } from './codegen/palette'
 export type { Palette, ColorGradient, ScalarGradient } from './codegen/palette'
 export {
