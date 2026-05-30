@@ -85,4 +85,8 @@ test('label anchor vertical parity vs MapLibre (point labels)', async ({ page })
   // position as MapLibre to within a pixel. (Seoul baseline: median 0px.)
   expect(out.ryMedian, 'median vertical anchor residual vs MapLibre (px)').toBeLessThan(2)
   expect(out.ryP75, 'p75 vertical anchor residual vs MapLibre (px)').toBeLessThan(4)
+  // Distribution floor: the bulk of anchors must be sub-pixel, so a regression
+  // that drifts many anchors a few px (without moving the median) still trips.
+  // (Seoul baseline: 96% <2px.)
+  expect(out.under2pct, 'percent of anchors with <2px vertical residual').toBeGreaterThan(85)
 })
