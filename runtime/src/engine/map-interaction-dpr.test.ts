@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { XGISMap } from './map'
+import { QUALITY } from './gpu/quality'
 
 // 0.5 adaptive-DPR: the render loop reads map._interacting to decide
 // whether to pass `interacting` into resizeCanvas (which only matters when
@@ -25,8 +26,25 @@ function stubCanvas(): HTMLCanvasElement {
 }
 
 describe('adaptive-DPR interaction flag', () => {
-  beforeEach(() => vi.useFakeTimers())
-  afterEach(() => vi.useRealTimers())
+  let priorDpr: number | null
+  beforeEach(() => {
+    vi.useFakeTimers()
+    // markInteracting is inert unless the host opted into a reduced
+    // interactionDpr — enable it so the debounce path is exercised.
+    priorDpr = QUALITY.interactionDpr
+    QUALITY.interactionDpr = 1
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    QUALITY.interactionDpr = priorDpr
+  })
+
+  it('is inert in the default config (interactionDpr === null)', () => {
+    QUALITY.interactionDpr = null
+    const map = new XGISMap(stubCanvas())
+    map.markInteracting()
+    expect(map._interacting).toBe(false)
+  })
 
   it('markInteracting sets the flag, idle debounce clears it', () => {
     const map = new XGISMap(stubCanvas())

@@ -97,9 +97,8 @@ async function fetchTileWithRetry(
       const resp = await fetch(url, { signal })
       if (resp.status === 404 || resp.status === 204) return null
       if (resp.ok) {
-        // Size-bomb guard: reject an over-budget tile by its advertised
-        // Content-Length BEFORE materialising the body. Absent/malformed
-        // header ⇒ safe-default (proceed; the parser still bounds work).
+        // Size-bomb guard, fast path: reject a tile that HONESTLY advertises
+        // an over-budget Content-Length before reading any body.
         const cl = resp.headers.get('content-length')
         if (cl !== null) {
           const declared = Number(cl)
@@ -108,8 +107,39 @@ async function fetchTileWithRetry(
             return 'failed'
           }
         }
-        const buf = await resp.arrayBuffer()
-        return new Uint8Array(buf)
+        // A lying or absent Content-Length (chunked transfer) bypasses the
+        // header check, so bound the ACTUAL bytes: stream the body and abort
+        // the moment the cumulative size crosses MAX_TILE_BYTES. Fall back to
+        // arrayBuffer (+ post-check) when the runtime exposes no body stream.
+        const body = resp.body
+        if (!body || typeof body.getReader !== 'function') {
+          const buf = await resp.arrayBuffer()
+          if (buf.byteLength > MAX_TILE_BYTES) {
+            tileFetchNegativeCache.set(url, Date.now() + NEGATIVE_CACHE_TTL_MS)
+            return 'failed'
+          }
+          return new Uint8Array(buf)
+        }
+        const reader = body.getReader()
+        const chunks: Uint8Array[] = []
+        let received = 0
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done) break
+          if (!value) continue
+          received += value.byteLength
+          if (received > MAX_TILE_BYTES) {
+            await reader.cancel()
+            tileFetchNegativeCache.set(url, Date.now() + NEGATIVE_CACHE_TTL_MS)
+            return 'failed'
+          }
+          chunks.push(value)
+        }
+        if (chunks.length === 1) return chunks[0]
+        const out = new Uint8Array(received)
+        let offset = 0
+        for (const c of chunks) { out.set(c, offset); offset += c.byteLength }
+        return out
       }
       lastErr = new Error(`${tileLabel}: HTTP ${resp.status}`)
     } catch (e) {

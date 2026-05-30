@@ -107,4 +107,45 @@ describe('assertSafeRemoteUrl', () => {
     expect(() => assertSafeRemoteUrl('sprites/basic')).not.toThrow()
     expect(() => assertSafeRemoteUrl('/assets/glyphs/{fontstack}/{range}.pbf')).not.toThrow()
   })
+
+  it('blocks IPv4-mapped IPv6 loopback / metadata (SSRF bypass)', () => {
+    expect(() => assertSafeRemoteUrl('http://[::ffff:127.0.0.1]/x')).toThrow(XGISSecurityError)
+    expect(() => assertSafeRemoteUrl('http://[::ffff:169.254.169.254]/x')).toThrow(XGISSecurityError)
+  })
+
+  it('blocks protocol-relative URLs to private hosts but allows public ones', () => {
+    expect(() => assertSafeRemoteUrl('//169.254.169.254/latest/meta-data')).toThrow(XGISSecurityError)
+    expect(() => assertSafeRemoteUrl('//127.0.0.1/x')).toThrow(XGISSecurityError)
+    expect(() => assertSafeRemoteUrl('//cdn.example.com/sprite')).not.toThrow()
+  })
+
+  it('blocks CGNAT and benchmarking ranges', () => {
+    expect(() => assertSafeRemoteUrl('http://100.64.0.1/x')).toThrow(XGISSecurityError)
+    expect(() => assertSafeRemoteUrl('http://198.18.0.1/x')).toThrow(XGISSecurityError)
+  })
+
+  it('still catches decimal / hex IPv4 encodings (parser-normalised)', () => {
+    expect(() => assertSafeRemoteUrl('http://2130706433/x')).toThrow(XGISSecurityError) // 127.0.0.1
+    expect(() => assertSafeRemoteUrl('http://0x7f000001/x')).toThrow(XGISSecurityError)
+  })
+})
+
+describe('assertIngestBudget DoS-nesting hardening', () => {
+  it('throws XGISInputError (not RangeError) on adversarially deep nesting', () => {
+    // Build a coordinates array nested far past MAX_GEOJSON_NEST.
+    let coords: unknown = [0, 0]
+    for (let i = 0; i < 5000; i++) coords = [coords]
+    const feature = { geometry: { type: 'LineString', coordinates: coords } }
+    expect(() => assertIngestBudget([feature], 'deep')).toThrow(XGISInputError)
+  })
+
+  it('early-exits within a single oversized feature (vertex cap mid-traversal)', () => {
+    const ring = Array.from({ length: 50 }, (_, i) => [i, i])
+    const feature = { geometry: { type: 'LineString', coordinates: ring } }
+    // One feature, 50 vertices, cap 10 → must throw even though feature
+    // count (1) is under maxFeatures.
+    expect(() => assertIngestBudget([feature], 'big', { maxFeatures: 10, maxVertices: 10 })).toThrow(
+      XGISInputError,
+    )
+  })
 })

@@ -379,6 +379,9 @@ export class XGISMap {
    *  host opted into a reduced interactionDpr. */
   markInteracting(): void {
     if (this._destroyed) return
+    // Inert unless the host opted into a reduced interaction DPR — skip the
+    // debounce churn entirely in the default (interactionDpr === null) config.
+    if (QUALITY.interactionDpr === null) return
     this._interacting = true
     if (this._interactionIdleTimer !== null) clearTimeout(this._interactionIdleTimer)
     this._interactionIdleTimer = setTimeout(() => {
@@ -1341,6 +1344,9 @@ export class XGISMap {
           void dispatcher.handlePointerDown(x, y, e)
         },
         onPointerUp: (x, y, e) => { this._pointerActive = false; void dispatcher.handlePointerUp(x, y, e) },
+        // OS/gesture steal (capture loss) ends the drag without a clean
+        // pointerup — clear the flag so a later hover can't re-pin low DPR.
+        onPointerCancel: () => { this._pointerActive = false },
         onWheel: (x, y, e) => {
           this._cameraExplicitlyPositioned = true
           this.markInteracting()

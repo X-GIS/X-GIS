@@ -203,8 +203,13 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
   // it's logged but not forwarded to onDeviceLost.
   device.lost.then((info) => {
     ctx.deviceLost = true
-    console.error('[X-GIS] WebGPU device lost:', info.reason, info.message)
-    if (info.reason !== 'destroyed') ctx.onDeviceLost?.(info)
+    // 'destroyed' is our own map.destroy()/device.destroy() teardown — a
+    // normal unmount, not a fault. Stay silent so every SPA unmount doesn't
+    // print a red console.error that looks like a GPU crash.
+    if (info.reason !== 'destroyed') {
+      console.error('[X-GIS] WebGPU device lost:', info.reason, info.message)
+      ctx.onDeviceLost?.(info)
+    }
   }).catch(() => { /* device GC'd before lost resolved — ignore */ })
 
   // Surface validation errors via TWO sinks:

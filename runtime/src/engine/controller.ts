@@ -42,6 +42,10 @@ export interface ControllerEvents {
    *  still runs — listeners should not call `preventDefault` on the
    *  underlying browser event. */
   onWheel?: (clientX: number, clientY: number, ev: WheelEvent) => void
+  /** Fires on `pointercancel` (OS/gesture steal, capture loss). Pairs
+   *  with `onPointerUp` for state that must be reset when a gesture ends
+   *  without a clean release. */
+  onPointerCancel?: (ev: PointerEvent) => void
 }
 
 /** Movement distance (CSS px) at which a press-release stops being a
@@ -403,6 +407,7 @@ export class PanZoomController implements Controller {
         isDragging = false
         lastPinchDist = 0
       }
+      events?.onPointerCancel?.(e)
     }
 
     // Smooth zoom — lerp to target, no spring overshoot
