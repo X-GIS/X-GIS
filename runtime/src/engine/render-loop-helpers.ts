@@ -269,7 +269,9 @@ export function makeLabelProjectors(
     const projectLonLatCopies = (lon: number, lat: number): Array<[number, number]> => {
       _projectScratch.length = 0
       const proj = projectLonLat(lon, lat)
-      if (proj) _projectScratch.push(proj)
+      // Copy out of the shared scratch (matches the flat arm) — defensive
+      // symmetry so a future >1-copy extension can't alias.
+      if (proj) _projectScratch.push([proj[0], proj[1]])
       return _projectScratch
     }
     return { projectMerc, projectLonLat, projectMercAny, projectLonLatCopies }

@@ -173,7 +173,14 @@ class LabelPass implements RenderPass {
         //
         // World copies: flat Mercator has real ±360° copies, so the flat
         // projector iterates visibleWorldCopies (the screen-space collision
-        // pass dedupes adjacency); non-Mercator + ECEF collapse to one copy.
+        // pass dedupes adjacency); ECEF/globe collapse to one (lon±360° is the
+        // same 3D point). KNOWN GAP (TODO): the flat NON-Mercator periodic
+        // projections (equirect/natural_earth/oblique_mercator) DO fan out
+        // ±360° geometry copies at zoom≤4 (enumerateWorldCopies), but the label
+        // projector still emits one — so the wrapped copy renders unlabeled
+        // near the antimeridian at very low zoom. Deferred: needs periodic-copy
+        // enumeration via enumerateWorldCopies (getVisibleWorldCopies returns
+        // [0] for non-Mercator) + an antimeridian label test.
         // visibleWorldCopies is also set on ctx for downstream non-label
         // consumers (polygon/line draw enumeration in the opaque/translucent
         // passes).
@@ -185,8 +192,16 @@ class LabelPass implements RenderPass {
         const { projectMerc, projectLonLat, projectMercAny, projectLonLatCopies } =
           makeLabelProjectors(labelView.matrix, w, h, isFlatProj ? {
             projType,
-            ccx: host.camera.centerX,
-            ccy: host.camera.centerY,
+            // camera-merc reference MUST equal the geometry's camMerc, which the
+            // renderer builds from the ±85-clamped projCenterLon/Lat (=
+            // ctx.centerLon/Lat), NOT raw camera.centerY. At the far-north pan
+            // clamp the reachable centre lat is 85.0–85.051° (maxCameraY =
+            // Y(85.051129°)); raw camera.centerY then exceeds Y(85°) by up to
+            // ~64 km (~13k px @ z14), flinging every Mercator label past the
+            // ±1.5 NDC gate while the (clamped) polygons stay put. For |lat|≤85
+            // the two are identical, so this only repairs the polar band.
+            ccx: ctx.centerLon * (Math.PI / 180) * 6378137,
+            ccy: Math.log(Math.tan(Math.PI / 4 + ctx.centerLat * (Math.PI / 180) / 2)) * 6378137,
             centerLon: ctx.centerLon,
             centerLat: ctx.centerLat,
             visibleWorldCopies,
@@ -835,10 +850,15 @@ class LabelPass implements RenderPass {
                 vtEntry.renderer.forEachLineLabelFeature(sliceKey, (ax, ay, bx, by, props) => {
                   const [aLon, aLat] = mercToLonLat(ax, ay)
                   const [bLon, bLat] = mercToLonLat(bx, by)
-                  const pa = projectLonLat(aLon, aLat)
+                  // projectLonLat returns the shared scratch tuple, so copy A
+                  // out before projecting B — otherwise pa === pb (both hold
+                  // endpoint B) and the midpoint collapses to B with 0 tangent.
+                  const a = projectLonLat(aLon, aLat)
+                  if (!a) return
+                  const ax2 = a[0], ay2 = a[1]
                   const pb = projectLonLat(bLon, bLat)
-                  if (!pa || !pb) return
-                  emitLabelAlongSegment(pa[0], pa[1], pb[0], pb[1], 0.5, props)
+                  if (!pb) return
+                  emitLabelAlongSegment(ax2, ay2, pb[0], pb[1], 0.5, props)
                 })
               }
             } else {
