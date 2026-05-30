@@ -262,9 +262,7 @@ const vsMain = entryFn(
         u.field('tile_origin_merc', vec2fT).x
           .add(f32(0.5).mul(u.field('tile_extent_m', f32T)))
           .div(deg2rad.mul(earthR)))
-      const p2dG = c.let('p2d_geom', callFn('project_geom', vec2fT, p.abs_lon, p.abs_lat, projParamsV, tileRefLon))
-      const camXy = c.let('cam_xy', callFn('project', vec2fT, projParamsV.y, projParamsV.z, projParamsV))
-      const relG = c.let('rel2d_geom', p2dG.sub(camXy))
+      const relG = c.let('rel2d_geom', callFn('flat_rel', vec2fT, p.abs_lon, p.abs_lat, projParamsV, tileRefLon))
       c.assign(clip, transformMat4(mvp, vec4(relG.x, relG.y, f32(0), f32(1))))
     }).else((c) => {
       // 3D: ECEF-RTC re-centred by (tileEcefCenter − cameraCenter), hi + lo.
@@ -409,9 +407,7 @@ const vsMainEcef = entryFn(
         u.field('tile_origin_merc', vec2fT).x
           .add(f32(0.5).mul(u.field('tile_extent_m', f32T)))
           .div(deg2rad.mul(earthR)))
-      const p2dG = c.let('p2d_geom', callFn('project_geom', vec2fT, p.abs_lon, p.abs_lat, projParamsV, tileRefLon))
-      const camXy = c.let('cam_xy', callFn('project', vec2fT, projParamsV.y, projParamsV.z, projParamsV))
-      const relG = c.let('rel2d_geom', p2dG.sub(camXy))
+      const relG = c.let('rel2d_geom', callFn('flat_rel', vec2fT, p.abs_lon, p.abs_lat, projParamsV, tileRefLon))
       c.assign(clip, transformMat4(mvp, vec4(relG.x, relG.y, f32(0), f32(1))))
     }).else((c) => {
       // 3D: ECEF-RTC re-centred by (tileEcefCenter − cameraCenter), hi + lo.
@@ -522,9 +518,7 @@ const vsMainEcefExtruded = entryFn(
         u.field('tile_origin_merc', vec2fT).x
           .add(f32(0.5).mul(u.field('tile_extent_m', f32T)))
           .div(deg2rad.mul(earthR)))
-      const p2dG = c.let('p2d_geom', callFn('project_geom', vec2fT, p.abs_lon, p.abs_lat, projParamsV, tileRefLon))
-      const camXy = c.let('cam_xy', callFn('project', vec2fT, projParamsV.y, projParamsV.z, projParamsV))
-      const relG = c.let('rel2d_geom', p2dG.sub(camXy))
+      const relG = c.let('rel2d_geom', callFn('flat_rel', vec2fT, p.abs_lon, p.abs_lat, projParamsV, tileRefLon))
       const zPlaneG = c.let('z_plane_geom', p.wall_height.mul(p.is_top))
       c.assign(clip, transformMat4(mvp, vec4(relG.x, relG.y, zPlaneG, f32(1))))
     }).else((c) => {

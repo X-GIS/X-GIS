@@ -132,9 +132,7 @@ const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 've
     // proj_params.y/z = clon/clat). Same flat MVP; cam_ecef_center unused here.
     const latDeg = c.let('lat_deg_g', latRad.div(constRef('DEG2RAD')))
     const tileRefLon = c.let('tile_ref_lon', bounds.x.add(bounds.z).mul(0.5))
-    const p2dG = c.let('p2d_geom', callFn('project_geom', vec2fT, lon, latDeg, projParams, tileRefLon))
-    const camXy = c.let('cam_xy', callFn('project', vec2fT, projParams.y, projParams.z, projParams))
-    const relG = c.let('rel2d_geom', p2dG.sub(camXy))
+    const relG = c.let('rel2d_geom', callFn('flat_rel', vec2fT, lon, latDeg, projParams, tileRefLon))
     c.assign(clip, transformMat4(u.field('mvp', mat4x4fT), vec4(relG.x, relG.y, f32(0), f32(1))))
   }).else((c) => {
     c.assign(clip, transformMat4(u.field('mvp', mat4x4fT), vec4(ecefRtc, f32(1))))

@@ -242,9 +242,7 @@ const finalizeCorner = fn('finalize_corner', { corner: vec2fT }, vec2fT, (b, p) 
     tileOrigin.x.add(f32(0.5).mul(tile.field('tile_extent_m', f32T)))
       .div(constRef('DEG2RAD').mul(constRef('EARTH_R'))),
   )
-  const projXy = b.let('proj_xy', callFn('project_geom', vec2fT, absLon, absLat, projParams, tileRefLon))
-  const centerXy = b.let('center_xy', callFn('project', vec2fT, projParams.y, projParams.z, projParams))
-  b.ret(projXy.sub(centerXy))
+  b.ret(callFn('flat_rel', vec2fT, absLon, absLat, projParams, tileRefLon))
 })
 
 const endpointCosC = fn('endpoint_cos_c', { p_h: vec2fT, p_l: vec2fT }, f32T, (b, p) => {

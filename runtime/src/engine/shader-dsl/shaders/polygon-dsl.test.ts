@@ -179,11 +179,12 @@ describe('emitPolygonWgsl — skeleton', () => {
   it('vs entries gain flat display branches: Mercator (< 0.5) + non-Mercator (< 6.5)', () => {
     // projection-display-layer-restore Phase 2: flat Mercator (proj_params.x
     // < 0.5) reprojects via project() − tile_origin − cam_h − cam_l; the other
-    // flat projTypes (< 6.5) via project_geom(abs, tileRefLon) − projected
-    // camera centre. 3D / globe keeps the ECEF-RTC else path.
+    // flat projTypes (< 6.5) via the shared flat_rel helper (project_geom −
+    // projected camera centre). 3D / globe keeps the ECEF-RTC else path.
     const wgsl = emitPolygonWgsl(null, false)
     expect(wgsl).toContain('project(abs_lon, abs_lat, u.proj_params)')          // Mercator
-    expect(wgsl).toContain('project_geom(abs_lon, abs_lat, u.proj_params')      // non-Mercator
+    expect(wgsl).toContain('flat_rel(abs_lon, abs_lat, u.proj_params')          // non-Mercator (shared helper)
+    expect(wgsl).toContain('fn flat_rel(')                                       // emitted once, shared by all
     expect(wgsl).toContain('u.proj_params.x < 0.5')
     expect(wgsl).toContain('u.proj_params.x < 6.5')
     // fill (vs_main_ecef) + line-entry (vs_main) + extruded all carry both.

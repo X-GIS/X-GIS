@@ -104,10 +104,10 @@ describe('Phase-2 line shader — DSL emission', () => {
     // projection-display-layer-restore Phase 2: the flat branch (proj_params.x
     // < 6.5) routes through finalize_corner — Mercator passes the already-
     // camera-relative cornerLocal through; the other flat projTypes reproject
-    // via project_geom minus the projected camera centre. The 3D ECEF path
-    // (cam_ecef_off) stays in the else.
+    // via the shared flat_rel helper (project_geom − projected camera centre).
+    // The 3D ECEF path (cam_ecef_off) stays in the else.
     expect(noPick).toContain('fn finalize_corner(')
-    expect(noPick).toContain('project_geom(') // inside finalize_corner (non-Mercator)
+    expect(noPick).toContain('fn flat_rel(') // finalize_corner delegates to the shared flat_rel
     const vs = noPick.slice(noPick.indexOf('fn vs_line'), noPick.indexOf('fn fs_line'))
     expect(vs).toContain('tile.proj_params.x < 6.5')
     expect(vs).toContain('finalize_corner(')

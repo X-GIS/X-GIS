@@ -295,6 +295,21 @@ const project_geom_cpu = fn('project_geom_cpu', { lon_deg: f32T, lat_deg: f32T, 
   b.ret(callFn('project', vec2fT, lon_deg, lat_deg, proj_params))
 })
 
+// flat_rel — camera-relative projected 2D position for the flat DISPLAY path
+// (projection-display-layer-restore). The single source for the flat reproject
+// + recentre composition shared by the polygon / line / point / raster flat
+// branches: project the vertex (project_geom is world-copy aware for the
+// pseudocylindrical / rotated forms and falls through to plain project for the
+// azimuthal discs) and subtract the camera centre projected the same way
+// (proj_params.y/z = clon/clat). ref_lon selects the world copy — tile-centre
+// lon for tiled sources, the vertex's own lon for individual points. Restores
+// the per-shader pre-ECEF finalize_corner body as ONE reusable fn.
+const flat_rel = fn('flat_rel', { lon_deg: f32T, lat_deg: f32T, proj_params: vec4fT, ref_lon: f32T }, vec2fT, (b, { lon_deg, lat_deg, proj_params, ref_lon }) => {
+  const pv = b.let('pv', callFn('project_geom', vec2fT, lon_deg, lat_deg, proj_params, ref_lon))
+  const cv = b.let('cv', callFn('project', vec2fT, proj_params.y, proj_params.z, proj_params))
+  b.ret(pv.sub(cv))
+})
+
 const needs_backface_cull = fn('needs_backface_cull', { lon_deg: f32T, lat_deg: f32T, proj_params: vec4fT }, f32T, (b, { lon_deg, lat_deg, proj_params }) => {
   const t = b.let('t', proj_params.x)
   const clon = b.let('clon', proj_params.y)
@@ -337,7 +352,7 @@ export const PROJECTION_FUNCS: FuncDecl[] = [
   proj_equirectangular, proj_natural_earth, unwrap_lon_near, unwrap_rad_near,
   proj_orthographic, proj_azimuthal_equidistant, proj_stereographic,
   oblique_rot, proj_oblique_mercator_d, proj_oblique_mercator, proj_globe,
-  center_cos_c, project, project_geom, project_geom_cpu, needs_backface_cull, rim_alpha, inv_merc_lat_rad,
+  center_cos_c, project, project_geom, project_geom_cpu, flat_rel, needs_backface_cull, rim_alpha, inv_merc_lat_rad,
 ]
 
 export const PROJECTION_MODULE: ModuleDecl = module({

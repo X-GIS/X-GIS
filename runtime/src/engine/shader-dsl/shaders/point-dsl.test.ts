@@ -55,15 +55,16 @@ describe('Phase-2 point shader — DSL emission', () => {
     expect(vsOnly).toContain('u.cam_ecef_l')
   })
   it('vs_point flat display branches: Mercator (< 0.5) + non-Mercator (< 6.5)', () => {
-    // projection-display-layer-restore Phase 2: flat Mercator (proj_params.x
-    // < 0.5) and the other flat projTypes (< 6.5) reproject the marker lon/lat
-    // (plain project() — a single marker needs no per-tile world-copy offset)
-    // minus the projected camera centre. The 3D ECEF anchor stays in the else.
+    // projection-display-layer-restore: flat Mercator (proj_params.x < 0.5)
+    // reprojects via project(); the other flat projTypes (< 6.5) via the shared
+    // flat_rel helper with the marker's own lon as ref (nearest world copy).
+    // The 3D ECEF anchor stays in the else.
     const vsBody = pointPart.slice(pointPart.indexOf('fn vs_point'))
     const vsOnly = vsBody.slice(0, vsBody.indexOf('fn fs_point'))
     expect(vsOnly).toContain('u.proj_params.x < 0.5')
     expect(vsOnly).toContain('u.proj_params.x < 6.5')
-    expect(vsOnly).toContain('project(abs_lon, abs_lat, u.proj_params)')
+    expect(vsOnly).toContain('project(abs_lon, abs_lat, u.proj_params)') // Mercator
+    expect(vsOnly).toContain('flat_rel(abs_lon,')                        // non-Mercator (shared helper)
   })
 
   it('SDF helpers + switch on segment kind', () => {
