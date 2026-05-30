@@ -116,12 +116,19 @@ const VIEWS: ViewSpec[] = [
 ]
 
 interface Buckets {
-  eq0: number; le8: number; le16: number; le32: number
+  // eq0 = exact (delta 0). le2/le4 split the former le8 (1-8) into a finer
+  // floor so a delta<=2 "near-match" can be reported — the AA-fringe band a
+  // zero-tolerance eq0 metric wrongly penalizes (X-GIS WebGPU 1-pass vs
+  // MapLibre WebGL 2-pass AA leaves a ~1px sub-byte perimeter on every glyph;
+  // near-match% counts those as a match so the score reflects fidelity, not
+  // the irreducible AA-pipeline difference). See deep-dive trace
+  // label-pixel-match-vs-maplibre. eq0 is KEPT alongside (additive).
+  eq0: number; le2: number; le4: number; le8: number; le16: number; le32: number
   le64: number; le128: number; gt128: number
 }
 
 function diffBuckets(a: PNG, b: PNG, w: number, h: number): Buckets {
-  const buckets: Buckets = { eq0: 0, le8: 0, le16: 0, le32: 0, le64: 0, le128: 0, gt128: 0 }
+  const buckets: Buckets = { eq0: 0, le2: 0, le4: 0, le8: 0, le16: 0, le32: 0, le64: 0, le128: 0, gt128: 0 }
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = (y * w + x) * 4
@@ -130,6 +137,8 @@ function diffBuckets(a: PNG, b: PNG, w: number, h: number): Buckets {
       const db = Math.abs(a.data[i + 2]! - b.data[i + 2]!)
       const m = Math.max(dr, dg, db)
       if (m === 0) buckets.eq0++
+      else if (m <= 2) buckets.le2++
+      else if (m <= 4) buckets.le4++
       else if (m <= 8) buckets.le8++
       else if (m <= 16) buckets.le16++
       else if (m <= 32) buckets.le32++
@@ -311,17 +320,25 @@ test.afterAll(async () => {
   lines.push('halo / icon parity. Compare row-for-row against the labels-off')
   lines.push('table to isolate label / icon drift from polygon drift.')
   lines.push('')
-  lines.push('| View | Identical | ≤8 cumul | ≤32 cumul | ≤128 cumul | >128 px |')
-  lines.push('|---|---:|---:|---:|---:|---:|')
+  // `Identical` (eq0, delta==0) is kept for continuity but PENALIZES correct
+  // labels: the WebGPU-vs-WebGL AA fringe leaves a ~1px sub-byte perimeter on
+  // every glyph, so adding correctly-placed labels LOWERS eq0 (verified:
+  // tokyo eq0 22.30->18.47% while gt128 halved). `near (≤2)` = the tolerance-
+  // floor fidelity metric: it counts that irreducible AA fringe as a match, so
+  // a render with more correct labels scores HIGHER, not lower. Gate on `near`,
+  // read `Identical` only as a strict lower bound.
+  lines.push('| View | Identical | near (≤2) | ≤8 cumul | ≤32 cumul | ≤128 cumul | >128 px |')
+  lines.push('|---|---:|---:|---:|---:|---:|---:|')
   for (const r of results) {
     const t = r.totalPx
     const eq = r.buckets.eq0
-    const cle8 = eq + r.buckets.le8
+    const near2 = eq + r.buckets.le2
+    const cle8 = near2 + r.buckets.le4 + r.buckets.le8
     const cle32 = cle8 + r.buckets.le16 + r.buckets.le32
     const cle128 = cle32 + r.buckets.le64 + r.buckets.le128
     const pct = (n: number) => ((n / t) * 100).toFixed(2) + '%'
     lines.push(
-      `| \`${r.id}\` | ${pct(eq)} | ${pct(cle8)} | ${pct(cle32)} | ${pct(cle128)} | ${r.buckets.gt128} |`,
+      `| \`${r.id}\` | ${pct(eq)} | ${pct(near2)} | ${pct(cle8)} | ${pct(cle32)} | ${pct(cle128)} | ${r.buckets.gt128} |`,
     )
   }
   lines.push('')
