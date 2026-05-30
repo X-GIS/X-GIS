@@ -39,6 +39,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PNG } from 'pngjs'
+import pixelmatch from 'pixelmatch'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const OUT = join(HERE, '__pixel-match-survey-labels__')
@@ -199,6 +200,16 @@ interface ViewResult {
   canvasH: number
   totalPx: number
   buckets: Buckets
+  // pixelmatch perceptual diff (threshold 0.1, includeAA:false = AA-aware:
+  // pixels its heuristic classifies as anti-aliasing are NOT counted). NOTE:
+  // pixelmatch's AA detection assumes
+  // WITHIN-image anti-aliasing; X-GIS and MapLibre rasterize glyph edges
+  // DIFFERENTLY (WebGPU 1-pass vs WebGL 2-pass), so it cannot cleanly exclude
+  // the cross-engine fringe — this is a COMPLEMENTARY perceptual cross-check,
+  // NOT a structural isolator. `near (<=2)` is the primary fidelity metric
+  // (it counts the sub-byte AA fringe as a match via a delta floor); this
+  // column exists for AC1's "AA-aware diff" + cross-validation.
+  aaMismatch: number
 }
 
 const results: ViewResult[] = []
@@ -279,9 +290,15 @@ for (const view of VIEWS) {
 
     const buckets = diffBuckets(mlNorm, xgNorm, w, h)
     const totalPx = w * h
+    // pixelmatch perceptual diff (threshold 0.1, AA-aware via includeAA:false).
+    // Complementary cross-check to near(<=2); it does NOT fully exclude the
+    // cross-engine glyph-edge fringe (X-GIS and MapLibre rasterize edges
+    // differently, so most are counted — aaMismatch > gt128). Output buffer
+    // omitted (count only).
+    const aaMismatch = pixelmatch(mlNorm.data, xgNorm.data, null, w, h, { threshold: 0.1, includeAA: false })
     results.push({
       id: view.id, style: view.style, hash: view.hash,
-      canvasW: w, canvasH: h, totalPx, buckets,
+      canvasW: w, canvasH: h, totalPx, buckets, aaMismatch,
     })
 
     const viewDir = join(OUT, view.id)
@@ -297,7 +314,7 @@ for (const view of VIEWS) {
     writeFileSync(join(viewDir, 'diff-heatmap.png'),
       PNG.sync.write(makeDiffHeatmap(mlNorm, xgNorm, w, h)))
     writeFileSync(join(viewDir, 'buckets.json'), JSON.stringify({
-      buckets, totalPx, canvasW: w, canvasH: h,
+      buckets, aaMismatch, totalPx, canvasW: w, canvasH: h,
       missingIcons, dispatchedIcons, dispatchedLabelTexts,
       lastDrawIconCount, lastLabelCounts, lastDrawSample, canvasInfo,
     }, null, 2))
@@ -327,8 +344,15 @@ test.afterAll(async () => {
   // floor fidelity metric: it counts that irreducible AA fringe as a match, so
   // a render with more correct labels scores HIGHER, not lower. Gate on `near`,
   // read `Identical` only as a strict lower bound.
-  lines.push('| View | Identical | near (≤2) | ≤8 cumul | ≤32 cumul | ≤128 cumul | >128 px |')
-  lines.push('|---|---:|---:|---:|---:|---:|---:|')
+  // `AA-diff` (pixelmatch, perceptual threshold 0.1, includeAA:false) is a
+  // COMPLEMENTARY cross-check, not the primary metric. It runs HIGHER than
+  // gt128 because pixelmatch's AA heuristic only recognizes within-image
+  // anti-aliasing — the two engines' differently-rasterized glyph edges are
+  // counted as real diffs. `near (<=2)` is the primary fidelity metric: it
+  // counts the irreducible sub-byte AA fringe as a match via a delta floor, so
+  // a render with more CORRECT labels scores higher (not lower, as eq0 does).
+  lines.push('| View | Identical | near (≤2) | ≤8 cumul | ≤32 cumul | ≤128 cumul | >128 px | AA-diff px |')
+  lines.push('|---|---:|---:|---:|---:|---:|---:|---:|')
   for (const r of results) {
     const t = r.totalPx
     const eq = r.buckets.eq0
@@ -338,7 +362,7 @@ test.afterAll(async () => {
     const cle128 = cle32 + r.buckets.le64 + r.buckets.le128
     const pct = (n: number) => ((n / t) * 100).toFixed(2) + '%'
     lines.push(
-      `| \`${r.id}\` | ${pct(eq)} | ${pct(near2)} | ${pct(cle8)} | ${pct(cle32)} | ${pct(cle128)} | ${r.buckets.gt128} |`,
+      `| \`${r.id}\` | ${pct(eq)} | ${pct(near2)} | ${pct(cle8)} | ${pct(cle32)} | ${pct(cle128)} | ${r.buckets.gt128} | ${r.aaMismatch} |`,
     )
   }
   lines.push('')
