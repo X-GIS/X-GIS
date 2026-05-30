@@ -14,6 +14,8 @@
 // resolve to a "loaded but empty" state — the rasterizer pipeline
 // can decide to skip icons silently rather than crash.
 
+import { assertSafeRemoteUrl } from '../safety'
+
 export interface SpriteInfo {
   name: string
   /** Top-left of icon in the atlas PNG, in atlas pixels. */
@@ -134,6 +136,18 @@ export class SpriteAtlasHost {
   private _readbackCtx: OffscreenCanvasRenderingContext2D | null = null
 
   private kickOffLoad(): void {
+    // SSRF guard: refuse a private/loopback or non-http(s) sprite URL.
+    // Degrade to 'failed' (no fetch issued) — same graceful path as an
+    // offline/404 miss, so a hostile style only loses its icons, never
+    // crashes the map or probes an internal host.
+    try {
+      assertSafeRemoteUrl(this.spriteUrl, 'sprite URL')
+    } catch {
+      this.state = { status: 'failed' }
+      this.resolveReady?.()
+      this.resolveReady = null
+      return
+    }
     this.state = { status: 'loading' }
     const tryLoad = async (suffix: string): Promise<void> => {
       const jsonUrl = `${this.spriteUrl}${suffix}.json`

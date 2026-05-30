@@ -60,6 +60,10 @@ const TILE_FETCH_LOG_INTERVAL_MS = 60_000
  *  a chance to recover without a page reload. */
 const tileFetchNegativeCache = new Map<string, number>()
 const NEGATIVE_CACHE_TTL_MS = 5 * 60_000
+// DoS ceiling for a single fetched tile. Defensive — well above a dense
+// real-world MVT/PMTiles tile, below the point a size-bomb response can
+// exhaust memory during arrayBuffer() materialisation.
+const MAX_TILE_BYTES = 8 * 1024 * 1024
 
 /** Single-tile fetch with retry + graceful null fallback for transient
  *  upstream failures (5xx, network errors). Returns:
@@ -93,6 +97,17 @@ async function fetchTileWithRetry(
       const resp = await fetch(url, { signal })
       if (resp.status === 404 || resp.status === 204) return null
       if (resp.ok) {
+        // Size-bomb guard: reject an over-budget tile by its advertised
+        // Content-Length BEFORE materialising the body. Absent/malformed
+        // header ⇒ safe-default (proceed; the parser still bounds work).
+        const cl = resp.headers.get('content-length')
+        if (cl !== null) {
+          const declared = Number(cl)
+          if (Number.isFinite(declared) && declared > MAX_TILE_BYTES) {
+            tileFetchNegativeCache.set(url, Date.now() + NEGATIVE_CACHE_TTL_MS)
+            return 'failed'
+          }
+        }
         const buf = await resp.arrayBuffer()
         return new Uint8Array(buf)
       }

@@ -25,6 +25,7 @@
 //     fresh, not captured at construction).
 //   - `this.camera` / `this.canvas`  → injected (stable ctor-time instances).
 
+import { assertIngestBudget } from './safety'
 import type { Camera } from './projection/camera'
 import type { GPUContext } from './gpu/gpu'
 import { getMaxDpr } from './gpu/gpu'
@@ -264,6 +265,9 @@ export class SourceManager {
       )
     }
     const data = await response.json() as GeoJSONFeatureCollection
+    // DoS guard: a fetched .geojson is untrusted remote input — refuse an
+    // over-budget collection before it enters the tiling pipeline.
+    assertIngestBudget((data as { features?: unknown }).features, `GeoJSON source "${load.name}"`)
 
     // Phase 5f: VirtualPMTilesBackend is now the default route for
     // GeoJSON URL sources. The legacy main-thread compileSync path
@@ -455,6 +459,9 @@ export class SourceManager {
     if (!Array.isArray((normalized as { features?: unknown }).features)) {
       throw new Error(`[X-GIS] setSourceData: data.features must be an array (got ${typeof (normalized as { features?: unknown }).features})`)
     }
+    // DoS guard: refuse a pathological host-pushed collection before it
+    // is reprojected / retiled / uploaded (unbounded feature/vertex OOM).
+    assertIngestBudget((normalized as { features?: unknown }).features, `setSourceData("${sourceId}")`)
     // Reproject declared-CRS host-pushed data → WGS84 LL after the shape
     // normalize above and BEFORE polar-cap injection / tiling (AC9). The
     // declared CRS is looked up by sourceId in the run()-time registry;
