@@ -21,6 +21,7 @@
 
 import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 import { MERCATOR_LAT_LIMIT } from './projection'
+import { mul4 } from './camera-helpers'
 
 // Matches projection.ts EARTH_RADIUS exactly — the same sphere the 2D
 // projections scale by, so globe zoom lines up with the 2D pyramid.
@@ -125,16 +126,6 @@ export interface GlobeView {
   target: Vec3
   near: number
   far: number
-}
-
-// Column-major 4×4 × 4×4 → out (same convention as camera.ts mul4).
-function mul4(out: number[], a: number[], b: number[]): void {
-  for (let c = 0; c < 4; c++)
-    for (let r = 0; r < 4; r++) {
-      let s = 0
-      for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k]
-      out[c * 4 + r] = s
-    }
 }
 
 /** Build the orbit-camera view-projection for the globe.

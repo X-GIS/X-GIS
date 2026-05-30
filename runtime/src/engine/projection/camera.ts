@@ -7,7 +7,7 @@ import { getMaxDpr } from '../gpu/gpu'
 import { computeLogDepthFc } from '../shaders/log-depth'
 import { buildGlobeMatrix } from './globe'
 import { mercatorYToLat, mercatorYToLatRad } from './projection'
-import { invOrthographic, mulVec4, invert4x4 } from './camera-helpers'
+import { invOrthographic, mulVec4, invert4x4, mul4 } from './camera-helpers'
 
 export class Camera {
   /** Camera center in Web Mercator coordinates */
@@ -238,14 +238,6 @@ export class Camera {
     const far = farthestGround * 1.5
 
     // Multiply two column-major 4×4 matrices into `out` array
-    const mul4 = (out: number[], a: number[], b: number[]) => {
-      for (let c = 0; c < 4; c++)
-        for (let r = 0; r < 4; r++) {
-          let s = 0
-          for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k]
-          out[c * 4 + r] = s
-        }
-    }
 
     // Perspective matrix (column-major)
     const f = 1 / Math.tan(halfFov)
@@ -599,14 +591,6 @@ export class Camera {
 
     // 5. Build the 4×4 chain. Mirrors `_buildRTCMatrix:207-258` structure
     //    but with `altitude_true` and an extra post-multiplied rotation.
-    const mul4 = (out: number[], a: number[], b: number[]) => {
-      for (let c = 0; c < 4; c++)
-        for (let r = 0; r < 4; r++) {
-          let s = 0
-          for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k]
-          out[c * 4 + r] = s
-        }
-    }
 
     // Perspective (column-major).
     const f = 1 / Math.tan(halfFov)

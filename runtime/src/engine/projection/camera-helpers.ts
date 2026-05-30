@@ -27,6 +27,17 @@ export function mulVec4(m: Float32Array, v: number[]): number[] {
   ]
 }
 
+/** Multiply two 4×4 column-major matrices: out = a × b. (Verbatim of the
+ *  loop previously inlined identically in camera.ts ×2 and globe.ts.) */
+export function mul4(out: number[], a: number[], b: number[]): void {
+  for (let c = 0; c < 4; c++)
+    for (let r = 0; r < 4; r++) {
+      let s = 0
+      for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k]
+      out[c * 4 + r] = s
+    }
+}
+
 /** Invert a 4×4 column-major matrix. Writes result into `out`. */
 export function invert4x4(m: Float32Array, out: Float32Array): boolean {
   const a00=m[0],a01=m[1],a02=m[2],a03=m[3]
