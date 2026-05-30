@@ -184,10 +184,21 @@ function isPrivateHost(hostname: string): boolean {
   if (v4Dotted) return isPrivateHost(v4Dotted[1])
   const v4Hex = h.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/)
   if (v4Hex) {
-    const hi = parseInt(v4Hex[1], 16)
-    const lo = parseInt(v4Hex[2], 16)
-    return isPrivateHost(`${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`)
+    return isPrivateHost(hextetsToDotted(v4Hex[1], v4Hex[2]))
   }
+  // IPv4-compatible IPv6 (deprecated `::a.b.c.d` / `::hi:lo`) — decode the
+  // embedded v4 and re-check (so `::127.0.0.1` / `::169.254.169.254` are
+  // blocked while a public-mapped `::18.52.86.120` stays allowed).
+  const v4CompatDotted = h.match(/^::(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/)
+  if (v4CompatDotted) return isPrivateHost(v4CompatDotted[1])
+  const v4Compat = h.match(/^::([0-9a-f]{1,4}):([0-9a-f]{1,4})$/)
+  if (v4Compat) return isPrivateHost(hextetsToDotted(v4Compat[1], v4Compat[2]))
+  // NAT64 well-known prefix 64:ff9b::/96 and 6to4 2002::/16 each embed a
+  // v4 — decode + re-check so they can't wrap a private/metadata address.
+  const nat64 = h.match(/^64:ff9b::([0-9a-f]{1,4}):([0-9a-f]{1,4})$/)
+  if (nat64) return isPrivateHost(hextetsToDotted(nat64[1], nat64[2]))
+  const sixToFour = h.match(/^2002:([0-9a-f]{1,4}):([0-9a-f]{1,4}):/)
+  if (sixToFour) return isPrivateHost(hextetsToDotted(sixToFour[1], sixToFour[2]))
   const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
   if (m) {
     const a = +m[1]
@@ -201,4 +212,56 @@ function isPrivateHost(hostname: string): boolean {
     if (h === '255.255.255.255') return true
   }
   return false
+}
+
+/** Two IPv6 hextets (the low 32 bits of a v4-mapped/-compatible/NAT64/6to4
+ *  address) → dotted-quad IPv4 string. */
+function hextetsToDotted(hiHex: string, loHex: string): string {
+  const hi = parseInt(hiHex, 16)
+  const lo = parseInt(loHex, 16)
+  return `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`
+}
+
+/** Read a fetch Response body into a Uint8Array, aborting the moment the
+ *  cumulative (or any single chunk's) size crosses `maxBytes`. Defends the
+ *  size-bomb a lying / absent / chunked Content-Length otherwise allows
+ *  through to an unbounded `arrayBuffer()`. Falls back to a buffered read
+ *  with a post-check when the runtime exposes no readable body stream.
+ *  Throws XGISInputError when the cap is exceeded. */
+export async function readBodyCapped(
+  resp: Response,
+  maxBytes: number,
+  label = 'response',
+): Promise<Uint8Array> {
+  const over = (): never => {
+    throw new XGISInputError(`[X-GIS] ${label}: body exceeds the ${maxBytes}-byte cap (DoS guard).`)
+  }
+  const body = resp.body
+  if (!body || typeof body.getReader !== 'function') {
+    const buf = await resp.arrayBuffer()
+    if (buf.byteLength > maxBytes) over()
+    return new Uint8Array(buf)
+  }
+  const reader = body.getReader()
+  const chunks: Uint8Array[] = []
+  let received = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (!value) continue
+    if (value.byteLength > maxBytes || received + value.byteLength > maxBytes) {
+      await reader.cancel()
+      over()
+    }
+    received += value.byteLength
+    chunks.push(value)
+  }
+  if (chunks.length === 1) return chunks[0]
+  const out = new Uint8Array(received)
+  let offset = 0
+  for (const c of chunks) {
+    out.set(c, offset)
+    offset += c.byteLength
+  }
+  return out
 }

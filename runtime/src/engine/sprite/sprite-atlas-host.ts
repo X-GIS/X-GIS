@@ -14,7 +14,12 @@
 // resolve to a "loaded but empty" state — the rasterizer pipeline
 // can decide to skip icons silently rather than crash.
 
-import { assertSafeRemoteUrl } from '../safety'
+import { assertSafeRemoteUrl, readBodyCapped } from '../safety'
+
+/** DoS ceilings for sprite assets — an atlas PNG is a few MB at most; the
+ *  JSON metadata far less. Generous, but bound a size-bomb. */
+const MAX_SPRITE_PNG_BYTES = 32 * 1024 * 1024
+const MAX_SPRITE_JSON_BYTES = 16 * 1024 * 1024
 
 export interface SpriteInfo {
   name: string
@@ -158,11 +163,12 @@ export class SpriteAtlasHost {
       if (!jsonRes.ok || !pngRes.ok) {
         throw new Error(`sprite ${suffix || '1x'} fetch failed`)
       }
-      const [rawJson, pngBlob] = await Promise.all([
-        jsonRes.json() as Promise<Record<string, RawSpriteEntry>>,
-        pngRes.blob(),
+      const [jsonBytes, pngBytes] = await Promise.all([
+        readBodyCapped(jsonRes, MAX_SPRITE_JSON_BYTES, 'sprite json'),
+        readBodyCapped(pngRes, MAX_SPRITE_PNG_BYTES, 'sprite png'),
       ])
-      const image = await decodeBlob(pngBlob)
+      const rawJson = JSON.parse(new TextDecoder().decode(jsonBytes)) as Record<string, RawSpriteEntry>
+      const image = await decodeBlob(new Blob([pngBytes]))
       const metadata = parseMetadata(rawJson)
       this.state = { status: 'loaded', metadata, image }
     }

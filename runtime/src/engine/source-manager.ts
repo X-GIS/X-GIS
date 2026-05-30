@@ -25,7 +25,7 @@
 //     fresh, not captured at construction).
 //   - `this.camera` / `this.canvas`  → injected (stable ctor-time instances).
 
-import { assertIngestBudget } from './safety'
+import { assertIngestBudget, readBodyCapped } from './safety'
 import type { Camera } from './projection/camera'
 import type { GPUContext } from './gpu/gpu'
 import { getMaxDpr } from './gpu/gpu'
@@ -264,9 +264,12 @@ export class SourceManager {
         `"string did not match the expected pattern" when response.json() runs on an HTML 404 body).`,
       )
     }
-    const data = await response.json() as GeoJSONFeatureCollection
-    // DoS guard: a fetched .geojson is untrusted remote input — refuse an
-    // over-budget collection before it enters the tiling pipeline.
+    // DoS guard: bound the RAW body before JSON.parse (a multi-GB body
+    // would OOM response.json() before the feature/vertex cap below runs),
+    // then bound the parsed collection semantically. 256 MB is far above any
+    // interactive dataset; larger sources should be tiled server-side.
+    const rawBytes = await readBodyCapped(response, 256 * 1024 * 1024, `GeoJSON source "${load.name}"`)
+    const data = JSON.parse(new TextDecoder().decode(rawBytes)) as GeoJSONFeatureCollection
     assertIngestBudget((data as { features?: unknown }).features, `GeoJSON source "${load.name}"`)
 
     // Phase 5f: VirtualPMTilesBackend is now the default route for

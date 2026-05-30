@@ -5,6 +5,7 @@ import {
   XGISSecurityError,
   assertIngestBudget,
   assertSafeRemoteUrl,
+  readBodyCapped,
   INGEST_LIMITS,
 } from './safety'
 
@@ -113,6 +114,19 @@ describe('assertSafeRemoteUrl', () => {
     expect(() => assertSafeRemoteUrl('http://[::ffff:169.254.169.254]/x')).toThrow(XGISSecurityError)
   })
 
+  it('blocks IPv4-compatible / NAT64 / 6to4 IPv6 wrapping private addresses', () => {
+    expect(() => assertSafeRemoteUrl('http://[::127.0.0.1]/x')).toThrow(XGISSecurityError)
+    expect(() => assertSafeRemoteUrl('http://[::a9fe:a9fe]/x')).toThrow(XGISSecurityError) // ::169.254.169.254
+    expect(() => assertSafeRemoteUrl('http://[64:ff9b::a9fe:a9fe]/x')).toThrow(XGISSecurityError) // NAT64 metadata
+    expect(() => assertSafeRemoteUrl('http://[2002:7f00:1::]/x')).toThrow(XGISSecurityError) // 6to4 127.0.0.1
+  })
+
+  it('does not over-block IPv6-embedded PUBLIC v4 addresses', () => {
+    // ::8.8.8.8 (public) must stay allowed — the guard re-checks the
+    // embedded v4 rather than blanket-blocking the embedding form.
+    expect(() => assertSafeRemoteUrl('http://[::808:808]/x')).not.toThrow()
+  })
+
   it('blocks protocol-relative URLs to private hosts but allows public ones', () => {
     expect(() => assertSafeRemoteUrl('//169.254.169.254/latest/meta-data')).toThrow(XGISSecurityError)
     expect(() => assertSafeRemoteUrl('//127.0.0.1/x')).toThrow(XGISSecurityError)
@@ -147,5 +161,19 @@ describe('assertIngestBudget DoS-nesting hardening', () => {
     expect(() => assertIngestBudget([feature], 'big', { maxFeatures: 10, maxVertices: 10 })).toThrow(
       XGISInputError,
     )
+  })
+})
+
+describe('readBodyCapped', () => {
+  it('returns a body under the cap', async () => {
+    const resp = new Response(new Uint8Array([1, 2, 3, 4]))
+    const bytes = await readBodyCapped(resp, 1024, 'test')
+    expect(bytes.length).toBe(4)
+    expect(Array.from(bytes)).toEqual([1, 2, 3, 4])
+  })
+
+  it('throws XGISInputError on an over-cap body', async () => {
+    const resp = new Response(new Uint8Array(4096))
+    await expect(readBodyCapped(resp, 1024, 'test')).rejects.toThrow(XGISInputError)
   })
 })
