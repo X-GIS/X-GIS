@@ -114,6 +114,10 @@ export class XGISMap {
   private shapeRegistry: ShapeRegistry | null = null
   lineRenderer: LineRenderer | null = null
   private running = false
+  /** Set by `destroy()`. Gates invalidate / flush so a torn-down map is
+   *  inert and post-destroy calls no-op instead of touching a destroyed
+   *  GPU device. */
+  private _destroyed = false
   projectionName = 'mercator'
   private controller: Controller | null = null
 
@@ -356,7 +360,7 @@ export class XGISMap {
 
   /** Explicit render trigger for code paths that change state outside the
    *  camera (setSourceData, updateFeature, tile load completion, etc.). */
-  invalidate(): void { this._needsRender = true }
+  invalidate(): void { if (this._destroyed) return; this._needsRender = true }
 
   /** Update the style-background fill colour at runtime. Pushes the new
    *  RGBA into the synthetic earth-surface backend so future-decoded
@@ -2672,6 +2676,57 @@ export class XGISMap {
     }
   }
 
+  /** Public teardown — releases every resource this map owns so an SPA
+   *  can unmount it without leaking GPU memory, the render loop, or DOM
+   *  listeners. Idempotent; after it runs the map is inert (invalidate /
+   *  render no-op).
+   *
+   *  NOTE: the GeoJSON compile worker pool is a process-shared singleton
+   *  (getSharedGeoJSONCompilePool) and is intentionally NOT terminated
+   *  here — a sibling map may still be using it. Per-map worker ownership
+   *  is a separate hardening item. */
+  destroy(): void {
+    if (this._destroyed) return
+    this._destroyed = true
+    this.running = false // next requestAnimationFrame tick early-returns
+
+    // DOM / pointer listeners — the leak that survives GC otherwise.
+    this.controller?.detach()
+    this.controller = null
+
+    // Per-source GPU renderers + tile catalogs (renderer.destroy each).
+    for (const key of [...this.vtSources.keys()]) this.teardownSource(key)
+
+    // Overlay stages own GPU buffers + glyph/icon atlases.
+    this.textStage?.destroy()
+    this.textStage = null
+    this.iconStage?.destroy()
+    this.iconStage = null
+
+    // DOM stats overlay element.
+    this._statsPanel?.destroy()
+    this._statsPanel = null
+
+    // Colour / scalar palette + gradient-atlas textures.
+    if (this._paletteHandles) {
+      this._paletteHandles.colorPalette.destroy()
+      this._paletteHandles.scalarPalette.destroy()
+      this._paletteHandles.colorGradientAtlas.destroy()
+      this._paletteHandles.scalarGradientAtlas.destroy()
+      this._paletteHandles = null
+    }
+
+    // Keystone: one call frees EVERY remaining GPU resource allocated on
+    // this map's (per-map) device — buffers, textures, pipelines across
+    // all renderers + render targets. `?.` covers a destroy() before
+    // run() ever populated ctx.
+    this.ctx?.device?.destroy()
+
+    // Drop retained CPU data so it can be GC'd.
+    this.vtSources.clear()
+    this.rawDatasets.clear()
+  }
+
   /** Full-replace push for a GeoJSON source.
    *  Retiles and re-uploads only the affected source; other sources
    *  keep their existing GPU state.
@@ -2750,6 +2805,7 @@ export class XGISMap {
 
   private flushPendingUpdates(): void {
     this._pendingFlushHandle = null
+    if (this._destroyed) return
     if (this._pendingPatches.size === 0) return
 
     for (const [sourceId, patches] of this._pendingPatches) {
