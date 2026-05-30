@@ -155,42 +155,42 @@ class LabelPass implements RenderPass {
         // → step()'s default arm forever, so country labels never
         // switched from "S. Kor" to "S. Korea" past z=4.
         stage.setCameraZoom(host.camera.zoom)
-        // Phase 2 cleanup: legacy `frame = camera.getFrameView(...)` +
-        // `ctx.mvp = frame.matrix` removed. `ctx.mvp` had zero readers
-        // post PR 2d.4 (label projector reads `frameEcef.matrix` below;
-        // every other renderer calls `getECEFFrameView` directly). The
-        // legacy `getFrameView` API survives for camera-parity tests;
-        // see camera.ts JSDoc for the dual-method rationale.
-        // `ccx`/`ccy` (Mercator camera centre) are no longer threaded into
-        // `makeLabelProjectors` — the ECEF projector reads
-        // `mvp_ecef_matrix * lonLatToECEF(lon, lat)` directly without
-        // a CPU-side camera subtraction.
-
-        // Phase 2 PR 2d.4 — TEXT/LABEL CPU anchor projector ECEF migration.
-        // The four label-anchor projectors (projectMerc / projectLonLat /
-        // projectMercAny / projectLonLatCopies) now share a single ECEF
-        // projector body in render-loop-helpers.ts `makeLabelProjectors`:
-        // `lonLatToECEF(lon, lat) → ECEF-MVP * vec4 → NDC → CSS px`. The
-        // projType-conditional `_lblIsMerc`/`_lblIsGlobe`/`_lblGlobeCenter`/
-        // `_lblCenter` derivations + `projectWgsl` import are retired —
-        // under ECEF, the projector is projection-agnostic.
+        // Display-projection label anchors (projection-display-layer-restore).
+        // The anchors must land on the SAME surface as their features:
+        //  - Flat projTypes (0-6, untilted) reproject each anchor onto the 2D
+        //    plane via the flat Mercator-metre MVP (getViewForProjection →
+        //    getFrameView) + a CPU mirror of the per-vertex shader
+        //    reprojection (polygon.ts vs_main flat branch). This is what keeps
+        //    labels on the now-flat geometry — the ECEF-sphere projector
+        //    (PR 2d.4) drifted labels off their features at wide / low-zoom
+        //    flat views.
+        //  - Globe (7) + tilted azimuthal (promoted to 7 + globeMode) keep the
+        //    ECEF projector, matching their getECEFFrameView geometry.
+        // getViewForProjection gates flat vs ECEF with the SAME
+        // `!globeMode && projType <= 6` test the renderer uses for its MVP, so
+        // the label MVP, the geometry MVP, and the shader's proj_params.x
+        // branch stay in lockstep.
         //
-        // World-copy semantics: lonLatToECEF(lon ± 360°) returns the SAME
-        // ECEF point (Earth is one body in 3D), so projectLonLatCopies
-        // collapses to a single screen position per (lon, lat) anchor.
-        // The screen-space collision pass dedupes any remaining wraparound
-        // adjacency. visibleWorldCopies is still set on ctx for downstream
-        // non-label consumers (polygon/line draw enumeration in the
-        // opaque/translucent passes).
+        // World copies: flat Mercator has real ±360° copies, so the flat
+        // projector iterates visibleWorldCopies (the screen-space collision
+        // pass dedupes adjacency); non-Mercator + ECEF collapse to one copy.
+        // visibleWorldCopies is also set on ctx for downstream non-label
+        // consumers (polygon/line draw enumeration in the opaque/translucent
+        // passes).
         const visibleWorldCopies = host.camera.getVisibleWorldCopies(w, h, dpr)
         ctx.visibleWorldCopies = visibleWorldCopies
-        // Per AC2d.4.2: thread the ECEF MVP (from `getECEFFrameView`) into
-        // makeLabelProjectors. Phase 2 cleanup: the legacy Mercator MVP
-        // (formerly `ctx.mvp = frame.matrix`) was removed — it had zero
-        // readers post PR 2d.4.
-        const frameEcef = host.camera.getECEFFrameView(w, h, dpr)
+        const projType = ctx.projType
+        const isFlatProj = !host.camera.globeMode && projType <= 6
+        const labelView = host.camera.getViewForProjection(projType, w, h, dpr)
         const { projectMerc, projectLonLat, projectMercAny, projectLonLatCopies } =
-          makeLabelProjectors(frameEcef.matrix, w, h)
+          makeLabelProjectors(labelView.matrix, w, h, isFlatProj ? {
+            projType,
+            ccx: host.camera.centerX,
+            ccy: host.camera.centerY,
+            centerLon: ctx.centerLon,
+            centerLat: ctx.centerLat,
+            visibleWorldCopies,
+          } : undefined)
 
         // (a) Imperative overlays
         for (const ov of host.overlays) {
