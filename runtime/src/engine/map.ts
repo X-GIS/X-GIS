@@ -118,6 +118,16 @@ export class XGISMap {
    *  inert and post-destroy calls no-op instead of touching a destroyed
    *  GPU device. */
   private _destroyed = false
+  /** Adaptive-DPR interaction state. `_interacting` is read by the render
+   *  loop to pass `interacting` into resizeCanvas — when the host has
+   *  opted into a lower QUALITY.interactionDpr, frames during an active
+   *  gesture render at reduced DPR (cheaper, cooler) and snap back to full
+   *  DPR ~`_INTERACTION_IDLE_MS` after the gesture settles. No effect when
+   *  interactionDpr is null (the default), so this is inert unless opted in. */
+  _interacting = false
+  private _pointerActive = false
+  private _interactionIdleTimer: ReturnType<typeof setTimeout> | null = null
+  private static readonly _INTERACTION_IDLE_MS = 500
   projectionName = 'mercator'
   private controller: Controller | null = null
 
@@ -361,6 +371,22 @@ export class XGISMap {
   /** Explicit render trigger for code paths that change state outside the
    *  camera (setSourceData, updateFeature, tile load completion, etc.). */
   invalidate(): void { if (this._destroyed) return; this._needsRender = true }
+
+  /** Flag an active user gesture (pan / zoom) so the render loop can drop
+   *  to QUALITY.interactionDpr while interacting and restore full DPR once
+   *  the gesture settles. Debounced: each call pushes the idle-restore out
+   *  by `_INTERACTION_IDLE_MS`. No-op after destroy(). Inert unless the
+   *  host opted into a reduced interactionDpr. */
+  markInteracting(): void {
+    if (this._destroyed) return
+    this._interacting = true
+    if (this._interactionIdleTimer !== null) clearTimeout(this._interactionIdleTimer)
+    this._interactionIdleTimer = setTimeout(() => {
+      this._interacting = false
+      this._interactionIdleTimer = null
+      this.invalidate() // one crisp full-DPR frame after the gesture settles
+    }, XGISMap._INTERACTION_IDLE_MS)
+  }
 
   /** Update the style-background fill colour at runtime. Pushes the new
    *  RGBA into the synthetic earth-surface backend so future-decoded
@@ -1297,19 +1323,27 @@ export class XGISMap {
       () => ({ projectionName: this.projectionName }),
       {
         onClick: (x, y, e) => { void dispatcher.handleClick(x, y, e) },
-        onPointerMove: (x, y, e) => { dispatcher.handleMove(x, y, e) },
-        onPointerLeave: (e) => { dispatcher.handlePointerLeave(e) },
+        onPointerMove: (x, y, e) => {
+          // Continuous drag (pointer held) is an active gesture; a bare
+          // hover is not — gate the interaction flag on _pointerActive.
+          if (this._pointerActive) this.markInteracting()
+          dispatcher.handleMove(x, y, e)
+        },
+        onPointerLeave: (e) => { this._pointerActive = false; dispatcher.handlePointerLeave(e) },
         // Any drag, rotate, or wheel zoom is the user explicitly
         // positioning the camera — disable the post-compile bounds-fit
         // auto-snap so the user doesn't get yanked back to whole-world
         // view when the next tile compile lands.
         onPointerDown: (x, y, e) => {
           this._cameraExplicitlyPositioned = true
+          this._pointerActive = true
+          this.markInteracting()
           void dispatcher.handlePointerDown(x, y, e)
         },
-        onPointerUp: (x, y, e) => { void dispatcher.handlePointerUp(x, y, e) },
+        onPointerUp: (x, y, e) => { this._pointerActive = false; void dispatcher.handlePointerUp(x, y, e) },
         onWheel: (x, y, e) => {
           this._cameraExplicitlyPositioned = true
+          this.markInteracting()
           void dispatcher.handleWheel(x, y, e)
         },
       },
@@ -2714,6 +2748,14 @@ export class XGISMap {
     if (this._destroyed) return
     this._destroyed = true
     this.running = false // next requestAnimationFrame tick early-returns
+
+    // Pending interaction-idle debounce.
+    if (this._interactionIdleTimer !== null) {
+      clearTimeout(this._interactionIdleTimer)
+      this._interactionIdleTimer = null
+    }
+    this._interacting = false
+    this._pointerActive = false
 
     // DOM / pointer listeners — the leak that survives GC otherwise.
     this.controller?.detach()

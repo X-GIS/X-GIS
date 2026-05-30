@@ -49,6 +49,7 @@ export type RenderLoopHost = Pick<XGISMap,
   | '_flickerLastFrame'
   | '_flickerLog'
   | '_frameCount'
+  | '_interacting'
   | '_labelDispatchHits'
   | '_labelDispatchMisses'
   | '_lastSigBearing'
@@ -129,7 +130,9 @@ export class RenderLoop {
     // and consumers of arena views don't outlive the prepare →
     // render → end sequence.
     this.host.textStage?.beginFrame()
-    resizeCanvas(this.host.ctx)
+    // Pass the live interaction flag so an opted-in host renders at the
+    // reduced QUALITY.interactionDpr during pan/zoom and full DPR at rest.
+    resizeCanvas(this.host.ctx, this.host._interacting)
     this._resolveFillPatterns()
 
     // Seed the animation clock on first rendered frame, then compute the
