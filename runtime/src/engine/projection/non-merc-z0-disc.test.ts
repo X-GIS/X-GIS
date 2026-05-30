@@ -43,12 +43,15 @@ function mulMat4Vec4(
   return out
 }
 
-/** Project a (lon, lat) point through the ECEF VS path the production
- *  renderer uses: ecef_rtc = ecef(lon,lat) - cam.getECEFCenter(); clip =
- *  cam.getECEFFrameView().matrix * vec4(ecef_rtc, 1). Returns the screen-X
- *  in pixels (NDC.x → pixel) or null if behind the camera. */
+/** Project a (lon, lat) point through the PRODUCTION matrix entry the
+ *  renderer uses per frame — cam.getViewForProjection(projType, …). For
+ *  untilted projType 3-6 (globeMode=false) this routes to the FLAT
+ *  getFrameView (WORLD_MERC cap), NOT getECEFFrameView. The earlier test
+ *  called getECEFFrameView directly and was therefore GREEN while the
+ *  production flat path still ships the ~33% disc bug (confirmed misgating,
+ *  master-plan 0.7). Returns screen-X in pixels or null if behind cam. */
 function projectToScreenX(
-  cam: Camera, lon: number, lat: number,
+  cam: Camera, projType: number, lon: number, lat: number,
   canvasW: number, canvasH: number, dpr: number,
 ): number | null {
   const ecefVertex = mercatorToECEFSphere(
@@ -64,7 +67,7 @@ function projectToScreenX(
   const ex = ecefVertex[0] - ecefCenter[0]
   const ey = ecefVertex[1] - ecefCenter[1]
   const ez = ecefVertex[2] - ecefCenter[2]
-  const mvp = cam.getECEFFrameView(canvasW, canvasH, dpr).matrix
+  const mvp = cam.getViewForProjection(projType, canvasW, canvasH, dpr).matrix
   const clip = mulMat4Vec4(mvp, [ex, ey, ez, 1])
   // Behind-camera reject (clip.w must be positive after perspective divide).
   if (clip[3] <= 1e-6) return null
@@ -85,7 +88,15 @@ describe('non-Merc z=0 disc render scale (orthographic / azimuthal_eq / stereogr
   // width is the visible-bug — fix should bring it to ≥ 50% so the disc
   // is plainly visible at z=0 p=0.
   for (const projType of [3, 4, 5, 6, 7]) {
-    it(`projType=${projType}: disc spans ≥ half canvas at z=0 p=0`, () => {
+    // projType 7 (globe) routes getViewForProjection → getECEFFrameView
+    // (sphere cap) and PASSES. projType 3-6 untilted route → flat
+    // getFrameView (WORLD_MERC cap): the disc subtends only ~32% — the
+    // still-open z=0 bug (master-plan 2.1b). Marked `it.fails` so the gap
+    // is a VISIBLE expected-failure in CI rather than hidden behind a
+    // getECEFFrameView green. Flip back to `it` when 2.1b ships the
+    // sphere-diameter cap to the flat path for non-cylindrical projTypes.
+    const runner = projType === 7 ? it : it.fails
+    runner(`projType=${projType}: disc spans ≥ half canvas at z=0 p=0`, () => {
       const cam = new Camera(0, 0, 0)
       cam.pitch = 0
       cam.bearing = 0
@@ -108,8 +119,8 @@ describe('non-Merc z=0 disc render scale (orthographic / azimuthal_eq / stereogr
       // Eastern + western rim of the disc when centred at (0, 0).
       // ECEF(lon=±90, lat=0) lies on the sphere equator 6.378 Mm east/west
       // of the projection centre.
-      const east = projectToScreenX(cam, +89.9, 0, W, H, DPR)
-      const west = projectToScreenX(cam, -89.9, 0, W, H, DPR)
+      const east = projectToScreenX(cam, projType, +89.9, 0, W, H, DPR)
+      const west = projectToScreenX(cam, projType, -89.9, 0, W, H, DPR)
 
       // Both rim points must project in-front-of-camera at z=0 + pitch=0.
       expect(east, `east-rim behind camera for projType=${projType}`).not.toBeNull()
