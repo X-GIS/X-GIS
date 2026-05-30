@@ -7,7 +7,7 @@ import { getMaxDpr } from '../gpu/gpu'
 import { computeLogDepthFc } from '../shaders/log-depth'
 import { buildGlobeMatrix } from './globe'
 import { mercatorYToLat, mercatorYToLatRad } from './projection'
-import { invOrthographic, mulVec4, invert4x4, mul4 } from './camera-helpers'
+import { invOrthographic, mulVec4, invert4x4, mul4, perspectiveMatrix } from './camera-helpers'
 
 export class Camera {
   /** Camera center in Web Mercator coordinates */
@@ -241,13 +241,7 @@ export class Camera {
 
     // Perspective matrix (column-major)
     const f = 1 / Math.tan(halfFov)
-    const nf = 1 / (near - far)
-    const P = [
-      f / aspect, 0, 0, 0,
-      0, f, 0, 0,
-      0, 0, (far + near) * nf, -1,
-      0, 0, 2 * far * near * nf, 0,
-    ]
+    const P = perspectiveMatrix(f, near, far, aspect)
 
     // Translate(0, 0, -altitude)
     const T = [
@@ -594,13 +588,7 @@ export class Camera {
 
     // Perspective (column-major).
     const f = 1 / Math.tan(halfFov)
-    const nf = 1 / (near - far)
-    const P = [
-      f / aspect, 0, 0, 0,
-      0, f, 0, 0,
-      0, 0, (far + near) * nf, -1,
-      0, 0, 2 * far * near * nf, 0,
-    ]
+    const P = perspectiveMatrix(f, near, far, aspect)
     // Translate(0, 0, -altitude_true).
     const T = [
       1, 0, 0, 0,

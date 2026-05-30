@@ -21,7 +21,7 @@
 
 import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 import { MERCATOR_LAT_LIMIT } from './projection'
-import { mul4 } from './camera-helpers'
+import { mul4, perspectiveMatrix } from './camera-helpers'
 
 // Matches projection.ts EARTH_RADIUS exactly — the same sphere the 2D
 // projections scale by, so globe zoom lines up with the 2D pyramid.
@@ -224,17 +224,10 @@ export function buildGlobeMatrix(
   // shell (within R of the limb-tangent, ±1.5 R headroom) instead.
   const near = ortho ? Math.max(1, eyeDist - EARTH_R * 1.5) : Math.max(1, alt * 0.01)
   const far = ortho ? eyeDist + EARTH_R * 1.5 : (eyeDist + EARTH_R) * 1.5
-  const nf = 1 / (near - far)
-
   // Perspective — identical convention to Camera._buildRTCMatrix. With
   // the telephoto f/eye this is visually parallel yet keeps a varying
   // clip.w so the shared log-depth buffer occludes the far hemisphere.
-  const P = [
-    f / aspect, 0, 0, 0,
-    0, f, 0, 0,
-    0, 0, (far + near) * nf, -1,
-    0, 0, 2 * far * near * nf, 0,
-  ]
+  const P = perspectiveMatrix(f, near, far, aspect)
 
   const out = new Array(16)
   mul4(out, P, view)

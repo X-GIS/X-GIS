@@ -38,6 +38,20 @@ export function mul4(out: number[], a: number[], b: number[]): void {
     }
 }
 
+/** Column-major perspective projection matrix. `f = 1/tan(halfFov)` is
+ *  passed in so each caller applies its own focal adjustment (e.g. the
+ *  globe's telephoto factor); `near`/`far` frame the depth range. The
+ *  array body was byte-identical in camera.ts ×2 and globe.ts. */
+export function perspectiveMatrix(f: number, near: number, far: number, aspect: number): number[] {
+  const nf = 1 / (near - far)
+  return [
+    f / aspect, 0, 0, 0,
+    0, f, 0, 0,
+    0, 0, (far + near) * nf, -1,
+    0, 0, 2 * far * near * nf, 0,
+  ]
+}
+
 /** Invert a 4×4 column-major matrix. Writes result into `out`. */
 export function invert4x4(m: Float32Array, out: Float32Array): boolean {
   const a00=m[0],a01=m[1],a02=m[2],a03=m[3]
