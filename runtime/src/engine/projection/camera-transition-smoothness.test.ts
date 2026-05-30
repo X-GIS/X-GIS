@@ -15,7 +15,7 @@
 // "discontinuity threshold" per frame.
 
 import { describe, expect, it } from 'vitest'
-import { Camera } from '../projection/camera'
+import { Camera } from './camera'
 
 const VIEWPORT_W = 1280
 const VIEWPORT_H = 720
