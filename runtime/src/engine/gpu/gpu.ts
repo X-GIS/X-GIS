@@ -119,9 +119,21 @@ export function clearValidationErrors(ctx: GPUContext): void {
   ctx._validationErrors.length = 0
 }
 
+/** Thrown by initGPU when WebGPU cannot be used at all — `navigator.gpu`
+ *  is absent (unsupported browser) or no GPU adapter is available. The
+ *  map layer catches this specifically to fire `onWebGPUUnavailable()`
+ *  and degrade gracefully, distinct from a mid-pipeline GPU fault. */
+export class WebGPUUnavailableError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'WebGPUUnavailableError'
+    Object.setPrototypeOf(this, new.target.prototype)
+  }
+}
+
 export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
-  if (!navigator.gpu) {
-    throw new Error('WebGPU is not supported in this browser')
+  if (typeof navigator === 'undefined' || !navigator.gpu) {
+    throw new WebGPUUnavailableError('WebGPU is not supported in this browser')
   }
 
   // Try high-performance first, fall back to any available adapter
@@ -129,7 +141,7 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
   if (!adapter) {
     adapter = await navigator.gpu.requestAdapter()
   }
-  if (!adapter) throw new Error('Failed to get GPU adapter')
+  if (!adapter) throw new WebGPUUnavailableError('Failed to get GPU adapter')
 
   // Optional timestamp-query feature — only when ?gpuprof=1 is set AND the
   // adapter advertises support. Falls back to a feature-less device on any

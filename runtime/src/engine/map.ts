@@ -15,7 +15,7 @@ import {
 } from './synthetic-earth-surface-show'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { getSharedGeoJSONCompilePool } from '../data/workers/geojson-compile-pool'
-import { initGPU, GPU_PROF, getMaxDpr, type GPUContext } from './gpu/gpu'
+import { initGPU, GPU_PROF, getMaxDpr, WebGPUUnavailableError, type GPUContext } from './gpu/gpu'
 import { QUALITY, updateQuality, type QualityConfig } from './gpu/quality'
 import { GPUTimer } from './gpu/gpu-timer'
 import { Camera } from './projection/camera'
@@ -583,6 +583,15 @@ export class XGISMap {
     if (this.ctx) this.ctx.onDeviceLost = cb
   }
   private _onDeviceLost?: (info: GPUDeviceLostInfo) => void
+
+  /** Host hook fired once if WebGPU is unavailable when the map tries to
+   *  mount — no `navigator.gpu` (unsupported browser) or no GPU adapter.
+   *  Lets the embedding app surface a graceful "WebGPU required" fallback
+   *  instead of an uncaught throw bubbling to window.onerror. The map
+   *  simply does not mount (no ctx, render loop never starts). Safe to
+   *  set before run(). */
+  onWebGPUUnavailable(cb: () => void): void { this._onWebGPUUnavailable = cb }
+  private _onWebGPUUnavailable: (() => void) | null = null
 
   /** Mapbox-API parity: return the underlying canvas element.
    *  Hosts need this to attach gesture listeners, capture screenshots
@@ -1635,6 +1644,12 @@ export class XGISMap {
     // mount (no silent Canvas2D fallback any more; the fallback path
     // could only render a tiny subset of the pipeline correctly).
     const result = await gpuInit
+    if (result instanceof WebGPUUnavailableError) {
+      // Graceful: no WebGPU / no adapter. Fire the host hook and abort the
+      // mount instead of throwing an uncaught error to window.onerror.
+      this._onWebGPUUnavailable?.()
+      return
+    }
     if (result instanceof Error) throw result
     this.ctx = result
     if (this._onDeviceLost) this.ctx.onDeviceLost = this._onDeviceLost
@@ -2287,7 +2302,17 @@ export class XGISMap {
 
     console.log('[X-GIS] Binary loaded:', commands.loads.length, 'loads,', commands.shows.length, 'shows')
 
-    this.ctx = await initGPU(this.canvas)
+    try {
+      this.ctx = await initGPU(this.canvas)
+    } catch (e) {
+      if (e instanceof WebGPUUnavailableError) {
+        // Graceful: no WebGPU / no adapter. Fire the host hook and abort
+        // the binary mount instead of throwing to window.onerror.
+        this._onWebGPUUnavailable?.()
+        return
+      }
+      throw e
+    }
     if (this._onDeviceLost) this.ctx.onDeviceLost = this._onDeviceLost
     this.renderer = new MapRenderer(this.ctx)
     this.renderer.setGraticuleEnabled(this._graticuleInitial)
