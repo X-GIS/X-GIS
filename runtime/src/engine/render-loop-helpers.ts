@@ -281,6 +281,15 @@ export function makeLabelProjectors(
   //    reprojection onto the 2D plane, against the flat Mercator-metre MVP. ──
   const { projType, ccx, ccy, centerLon, centerLat, visibleWorldCopies } = flat
   const isMerc = projType < 0.5
+  // Orthographic rim-label margin: near the 90° limb a whole meridian of
+  // labels (different latitudes, same near-edge longitude) compresses into a
+  // few px and stacks vertically (headed ortho z0: Iraq/Saudi/…/Madagascar
+  // crammed at the left edge). needs_backface_cull returns RAW cos_c for ortho,
+  // so culling at cos_c < this margin trims the outer ~8.6° rim where the
+  // labels are illegibly crushed. For azimuthal/stereographic it returns a
+  // binary ±1 (their larger discs don't pile up) and flat/cylindrical never
+  // cull, so this margin is a no-op for every projType except ortho.
+  const ORTHO_RIM_LABEL_MARGIN = 0.15
   // lblCenter = project(cam) — the projected camera centre subtracted from
   // each non-Mercator anchor (Mercator subtracts ccx/ccy merc-metres directly).
   const lblCenter: [number, number] = isMerc
@@ -312,8 +321,12 @@ export function makeLabelProjectors(
       return projectMerc(mx, my, worldMercatorOffset)
     }
     // non-Mercator flat: CPU mirror of the shader `flat_rel` reprojection.
-    // The cull gate matches the disc projections' GPU hemisphere cull.
-    if (needsBackfaceCullCpu(projType, lon, lat, centerLon, centerLat) < 0) return null
+    // The cull gate matches the disc projections' GPU hemisphere cull, plus an
+    // ortho rim margin (see ORTHO_RIM_LABEL_MARGIN) that trims the crushed
+    // limb-meridian label pile-up. The margin only affects ortho (raw cos_c);
+    // for every other projType needs_backface_cull returns ±1/1 so `< margin`
+    // reduces to the original `< 0` back-hemisphere cull.
+    if (needsBackfaceCullCpu(projType, lon, lat, centerLon, centerLat) < ORTHO_RIM_LABEL_MARGIN) return null
     const p = projectGeomCpu(projType, lon, lat, centerLon, centerLat, lon)
     if (!Number.isFinite(p[0]) || !Number.isFinite(p[1])) return null
     const rtcX = p[0] - lblCenter[0]
