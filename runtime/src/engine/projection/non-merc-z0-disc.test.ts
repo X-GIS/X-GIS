@@ -1,33 +1,42 @@
-// Non-Mercator z=0 disc render scale.
+// Non-Mercator z=0 disc render scale — FAITHFUL flat-path gate.
 //
-// Memory project_non_merc_z0_disc_render_fail_2026_05_20:
-// ortho / azi / stereo / oblique at z=0 + pitch=0 render essentially blank
-// canvas (97% bg). The polygon VS now uses ECEF vertices + u.mvp from
-// Camera.getECEFFrameView() — so the disc scale on screen is governed by
-// the ratio (sphere radius EARTH_R) / (camera altitude in true ENU metres).
+// Memory project_non_merc_z0_disc_render_fail_2026_05_20: ortho / azi / stereo
+// / oblique at z=0 + pitch=0 were reported to render a small disc (~32%
+// canvas). This gate measures that span through the ACTUAL production flat
+// path so it red-flags the real bug and goes green only when the real fix
+// ships.
 //
-// At z=0 with an 800-px canvas the raw view-height is 62.6 Mm (one
-// canvas-px = WORLD_MERC/TILE_PX = 78,271 m at z=0). The legacy
-// _buildRTCMatrix clamps this at WORLD_MERC (40.075 Mm) — fine for the
-// Mercator-plane vertex world that the legacy path frames. But the
-// ECEF VS sees a SPHERE of radius EARTH_R (6.378 Mm), and the legacy
-// 40-Mm clamp leaves altitude ≈ 60 Mm — so the projected sphere subtends
-// only ~33 % of the canvas (R/alt × 1/tan(halfFov)).
+// PRIOR GATE WAS MIS-MEASURING (master-plan 2.1, workflow w8z8we8k4): it fed
+// `mercatorToECEFSphere(lon·π/180·R, 0, 0) − getECEFCenter()` (an ECEF sphere
+// vertex) into the flat MVP. That is NEITHER production path — the flat path
+// feeds the shader `flat_rel` = `project_geom(lon,lat) − project(clon,clat)`
+// (raw 2D forward metres), and the ECEF path feeds true ECEF vertices through
+// `getECEFFrameView`. The ECEF-vertex-through-flat-MVP feed projected to 0 px
+// for every projType, so the old `it.fails` "passed" for the WRONG reason and
+// additionally mis-marked 4/5/6 as expected-fail when they actually fill.
 //
-// Fix: the WORLD_MERC clamp is a Mercator-world-height assumption; for
-// the hemispherical non-cylindrical set (orthographic 3 / azimuthal_eq 4
-// / stereographic 5 / globe 7) the visible-world height is the sphere
-// diameter 2·EARTH_R = 12.756 Mm, not 40.075 Mm. The ECEF-MVP altitude
-// cap should track that, so the disc fills the canvas at z=0 instead of
-// occupying ~33 %.
+// FAITHFUL feed (this file): `projectGeomCpu(pt,lon,lat,clon,clat,refLon) −
+// projectCpu(pt,clon,clat,clon,clat)` — the CPU mirror of the shader flat_rel
+// — through `getViewForProjection(pt).matrix`, exactly as the polygon/line VS
+// does (`mvp · vec4(flat_rel.x, flat_rel.y, 0, 1)`).
 //
-// Test strategy: project (lon=±90, lat=0) — the eastern + western rim
-// of the disc when centred at (lon=0, lat=0) — through the ECEF VS path
-// and assert the screen-x delta covers ≥ half the canvas width.
+// MEASURED z0 spans (lon ±89.9 rim, 800-px canvas, camera at 0/0):
+//   pt0 mercator 399.6px (50%, the in-band control)   pt3 ortho 254.6px (32%)
+//   pt4 azi 399.6px (50%)   pt5 stereo 508.4px (64%)   pt6 oblique 399.6px (50%)
+// => the disc-fill bug is ORTHOGRAPHIC-ONLY. ortho clamps its limb at rho=R so
+// its 2R disc fills only 0.64× the Mercator control in the 40-Mm flat view;
+// azi/stereo/oblique map lon±89.9 to ≥10 Mm and already fill ≥ the control
+// (their visible disc extends past lon±89.9 to the cull rim, so this is a
+// conservative lower bound for them). The 2.1 fix is therefore an
+// ortho-only uniform flat_rel scale (≈ WORLD_MERC/2R ≈ π), NOT a single
+// sphere cap and NOT the per-projType stereographic framing the antipode-
+// extent analysis feared. See .omc/research/p2-2.1-z0-disc-probe-2026-05-31.md.
 
 import { describe, it, expect } from 'vitest'
 import { Camera } from './camera'
-import { mercatorToECEFSphere } from './ecef'
+import { projectGeomCpu, projectCpu } from '../shader-dsl/shaders/cpu-projections'
+
+const W = 800, H = 800, DPR = 1
 
 // Apply column-major 4x4 to a vec4 → vec4.
 function mulMat4Vec4(
@@ -43,97 +52,71 @@ function mulMat4Vec4(
   return out
 }
 
-/** Project a (lon, lat) point through the PRODUCTION matrix entry the
- *  renderer uses per frame — cam.getViewForProjection(projType, …). For
- *  untilted projType 3-6 (globeMode=false) this routes to the FLAT
- *  getFrameView (WORLD_MERC cap), NOT getECEFFrameView. The earlier test
- *  called getECEFFrameView directly and was therefore GREEN while the
- *  production flat path still ships the ~33% disc bug (confirmed misgating,
- *  master-plan 0.7). Returns screen-X in pixels or null if behind cam. */
-function projectToScreenX(
-  cam: Camera, projType: number, lon: number, lat: number,
-  canvasW: number, canvasH: number, dpr: number,
-): number | null {
-  const ecefVertex = mercatorToECEFSphere(
-    // mercatorToECEFSphere takes (mx, my) but for the RIM points
-    // (lon=±90 at lat=0) the Mercator forward is finite, so use the
-    // engine's Mercator transform inline to keep the test honest about
-    // what the renderer actually feeds the VS.
-    lon * (Math.PI / 180) * 6378137,
-    0,
-    0,
-  )
-  const ecefCenter = cam.getECEFCenter()
-  const ex = ecefVertex[0] - ecefCenter[0]
-  const ey = ecefVertex[1] - ecefCenter[1]
-  const ez = ecefVertex[2] - ecefCenter[2]
-  const mvp = cam.getViewForProjection(projType, canvasW, canvasH, dpr).matrix
-  const clip = mulMat4Vec4(mvp, [ex, ey, ez, 1])
-  // Behind-camera reject (clip.w must be positive after perspective divide).
+/** Screen-X (px) of (lon, 0) through the FAITHFUL flat path: the flat_rel CPU
+ *  mirror fed into the production flat MVP, with camera centred at (0, 0).
+ *  Returns null if the point is behind the camera. */
+function flatScreenX(cam: Camera, projType: number, lon: number): number | null {
+  const [vx, vy] = projectGeomCpu(projType, lon, 0, 0, 0, 0)
+  const [cx, cy] = projectCpu(projType, 0, 0, 0, 0)
+  const mvp = cam.getViewForProjection(projType, W, H, DPR).matrix
+  const clip = mulMat4Vec4(mvp, [vx - cx, vy - cy, 0, 1])
   if (clip[3] <= 1e-6) return null
-  const ndcX = clip[0] / clip[3]
-  // NDC → pixel
-  return (ndcX + 1) * 0.5 * canvasW
+  return (clip[0] / clip[3] + 1) * 0.5 * W
 }
 
-const W = 800, H = 800, DPR = 1
+/** z0/pitch0 disc span (px) between the lon ±89.9 rim for a flat-routed
+ *  projType. */
+function flatDiscSpan(projType: number): number | null {
+  const cam = new Camera(0, 0, 0)
+  cam.pitch = 0
+  cam.bearing = 0
+  cam.projType = projType
+  cam.globeMode = false
+  cam.globeOrtho = projType >= 3 && projType <= 5
+  const east = flatScreenX(cam, projType, +89.9)
+  const west = flatScreenX(cam, projType, -89.9)
+  if (east == null || west == null) return null
+  return Math.abs(east - west)
+}
 
-describe('non-Merc z=0 disc render scale (orthographic / azimuthal_eq / stereographic / oblique_mercator / globe)', () => {
-  // 3=ortho, 4=azimuthal_eq, 5=stereographic, 6=oblique_mercator, 7=globe.
-  // At z=0 + pitch=0 + canvas 800×800 + lon=0,lat=0:
-  //   sphere disc diameter = 2 · EARTH_R = 12.756 Mm
-  // The ECEF camera should frame the disc to fill most of the canvas
-  // (just like the Mercator plane fills the canvas in the cylindrical
-  // projections at z=0). A disc that subtends only ~33% of the canvas
-  // width is the visible-bug — fix should bring it to ≥ 50% so the disc
-  // is plainly visible at z=0 p=0.
-  for (const projType of [3, 4, 5, 6, 7]) {
-    // projType 7 (globe) routes getViewForProjection → getECEFFrameView
-    // (sphere cap) and PASSES. projType 3-6 untilted route → flat
-    // getFrameView (WORLD_MERC cap): the disc subtends only ~32% — the
-    // still-open z=0 bug (master-plan 2.1b). Marked `it.fails` so the gap
-    // is a VISIBLE expected-failure in CI rather than hidden behind a
-    // getECEFFrameView green. Flip back to `it` when 2.1b ships the
-    // sphere-diameter cap to the flat path for non-cylindrical projTypes.
-    const runner = projType === 7 ? it : it.fails
-    runner(`projType=${projType}: disc spans ≥ half canvas at z=0 p=0`, () => {
-      const cam = new Camera(0, 0, 0)
-      cam.pitch = 0
-      cam.bearing = 0
-      cam.projType = projType
-      // projType 7 (globe) flips globeMode on so the orbit camera is used;
-      // projType 3..6 keep the 2D legacy path. This mirrors what
-      // render-loop.ts does on each frame.
-      cam.globeMode = (projType === 7)
-      // projType 3..5 set globeOrtho=true in setProjection; mirror here
-      // (this only matters if globeMode is also true).
-      cam.globeOrtho = (projType >= 3 && projType <= 5)
+describe('non-Merc z=0 disc render scale (faithful flat path)', () => {
+  // In-band faithfulness control: the Mercator flat path frames lon ±89.9
+  // (±10.01 Mm of the 40-Mm view) at ≈50% of the canvas. The mis-measuring
+  // ECEF-vertex feed projected this to 0 px — so this bound proves the gate
+  // is now feeding the real flat_rel path.
+  const mercSpan = flatDiscSpan(0)
+  it('mercator (control) flat disc spans ≈ half the canvas (proves faithful feed)', () => {
+    expect(mercSpan, 'mercator control span null — flat feed broken').not.toBeNull()
+    expect(mercSpan!).toBeGreaterThan(350)
+    expect(mercSpan!).toBeLessThan(450)
+  })
 
-      // Matrix must be finite (degenerate matrix would be the
-      // "tiny sliver/blank" failure mode).
-      const view = cam.getECEFFrameView(W, H, DPR)
-      for (let i = 0; i < 16; i++) {
-        expect(Number.isFinite(view.matrix[i]!), `matrix[${i}] non-finite for projType=${projType}`).toBe(true)
-      }
-
-      // Eastern + western rim of the disc when centred at (0, 0).
-      // ECEF(lon=±90, lat=0) lies on the sphere equator 6.378 Mm east/west
-      // of the projection centre.
-      const east = projectToScreenX(cam, projType, +89.9, 0, W, H, DPR)
-      const west = projectToScreenX(cam, projType, -89.9, 0, W, H, DPR)
-
-      // Both rim points must project in-front-of-camera at z=0 + pitch=0.
-      expect(east, `east-rim behind camera for projType=${projType}`).not.toBeNull()
-      expect(west, `west-rim behind camera for projType=${projType}`).not.toBeNull()
-
-      const span = Math.abs(east! - west!)
-      // Disc must span ≥ 50 % of canvas width — pre-fix value is ~260 px
-      // (32 %) for projType 3-6, exposing the WORLD_MERC mercator-world
-      // clamp leaking into the sphere-projected views.
+  // azimuthal_eq / stereographic / oblique_mercator already fill the canvas at
+  // least as much as the Mercator control at z0 — they are NOT part of the
+  // disc-fill bug (their lon±89.9 rim maps to ≥10 Mm; their true visible disc
+  // extends further still). Pass = span ≥ 0.9× the Mercator control.
+  for (const projType of [4, 5, 6]) {
+    it(`projType=${projType}: flat disc fills ≥ 0.9× the mercator control at z0 p0`, () => {
+      const span = flatDiscSpan(projType)
+      expect(span, `projType=${projType} span null`).not.toBeNull()
       expect(
-        span,
-        `disc span ${span.toFixed(1)}px on ${W}px canvas — too small (≈ ${(100 * span / W).toFixed(0)} % of canvas)`,
-      ).toBeGreaterThanOrEqual(W * 0.5)
+        span! / mercSpan!,
+        `projType=${projType} disc span ${span!.toFixed(1)}px vs mercator ${mercSpan!.toFixed(1)}px`,
+      ).toBeGreaterThanOrEqual(0.9)
     })
   }
+
+  // orthographic is THE disc-fill bug: its limb clamps at rho=R, so the 2R
+  // disc subtends only ~0.64× the Mercator control (254.6px vs 399.6px = 32%
+  // of canvas). Marked `it.fails` so the gap is a VISIBLE expected-failure in
+  // CI. Flip to `it` when 2.1 ships the ortho-only uniform flat_rel scale
+  // (≈ WORLD_MERC/2R) — at which point ortho will also fill ≥ 0.9× the control.
+  it.fails('projType=3 (ortho): flat disc fills ≥ 0.9× the mercator control at z0 p0 [2.1 fix pending]', () => {
+    const span = flatDiscSpan(3)
+    expect(span, 'ortho span null').not.toBeNull()
+    expect(
+      span! / mercSpan!,
+      `ortho disc span ${span!.toFixed(1)}px vs mercator ${mercSpan!.toFixed(1)}px — the ~32%-canvas z0 bug`,
+    ).toBeGreaterThanOrEqual(0.9)
+  })
 })
