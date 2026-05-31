@@ -1,15 +1,16 @@
 // Non-Mercator z=0 disc render scale — FAITHFUL flat-path FRAMING gate.
 //
-// ⚠️ FRAMING-ONLY — GREEN HERE DOES NOT MEAN ORTHO z0 RENDERS. A headed
-// real-GPU screenshot (2026-05-31) proved the flat non-Mercator z0 p0 render is
-// ~100% BLACK (zero map geometry drawn) for BOTH ortho AND azi, and the 2·R cap
-// makes NO pixel difference (cap-on ≡ cap-off, both fully black). So the
-// user-visible z0 bug is a RENDER bug (nothing is drawn at z0 p0 in the flat
-// path), NOT the framing this gate measures. This gate verifies only the MVP
-// disc-span MATH (where a vertex WOULD project); the cap is a correct but
-// not-yet-sufficient prerequisite. Do NOT read a green run as "ortho z0 works".
-// The real fix is whatever makes flat non-merc z0 p0 actually draw the map
-// (tile-select / cull / background at z0). See p2-2.1-z0-disc-probe artifact.
+// FRAMING gate — pairs with the RENDER fix. A headed real-GPU screenshot
+// (2026-05-31) first proved the flat non-Mercator z0 p0 render was ~100% BLACK
+// (zero map geometry drawn) for BOTH ortho AND azi, and that the 2·R cap made
+// NO pixel difference (cap-on ≡ cap-off). Root cause was NOT framing but tile
+// SELECTION: ortho/azi are sphere-routed (globeVisibleTiles), which returned
+// ZERO tiles at z0/maxZ=0 off-centre (the z0 root tile couldn't subdivide and
+// its corner samples missed the visible cap → 0 draws). Fixed in globe.ts
+// (emit the focal-point tile unconditionally; see globe-z0-focal-tile.test.ts).
+// AFTER that fix the headed render shows a full ortho disc, and THIS gate
+// verifies the disc fills the canvas (the 2·R framing cap). The two fixes are
+// complementary: globe.ts makes the tiles draw, the cap makes them fill.
 //
 // Memory project_non_merc_z0_disc_render_fail_2026_05_20: ortho / azi / stereo
 // / oblique at z=0 + pitch=0 were reported to render a small disc (~32%

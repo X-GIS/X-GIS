@@ -644,7 +644,11 @@ export function globeVisibleTiles(
     // globe show only the front side; it is NOT the dateline bug — the
     // dateline is handled by working in continuous lon/lat→sphere
     // space, so both x≈0 and x≈2^z−1 stay when facing the camera).
-    if (!forceDescend && !anyFront) continue
+    // EXCEPT the focal-point tile (containsTarget): it sits at screen
+    // centre and is always visible, but at low maxZ its coarse 5 corner
+    // samples (lon ±180 / poles for the z0 root) can all miss the front
+    // cap → anyFront=false. Never horizon-cull the focal tile.
+    if (!forceDescend && !containsTarget && !anyFront) continue
     const screenSpan = Math.max(maxX - minX, maxY - minY)
     const tooBig = !isFinite(screenSpan) || screenSpan > SUBDIVIDE_PX
     // Distance-LOD (memory project_non_merc_z14_pitch_over_select):
@@ -689,8 +693,17 @@ export function globeVisibleTiles(
     // screen size (sub-pixel cull). containsTarget tile passes
     // unconditionally so the camera-foot is never dropped.
     const MIN_TILE_SCREEN_AREA_PX_SQ = 4
-    if (anyFront && anyOnScreenEmit
-      && (containsTarget || screenAreaPx >= MIN_TILE_SCREEN_AREA_PX_SQ)) {
+    // The tile geometrically containing the camera target is the finest LOD
+    // over the centre of view — always visible, so emit it even when its
+    // coarse 5 corner/centre samples miss the on-screen region. Without this
+    // the z0 root over an off-centre lon (samples at lon ±180 / poles) failed
+    // anyFront/anyOnScreenEmit and the whole frame selected ZERO tiles → a
+    // black canvas for flat ortho/azi/stereo at z0 p0 (the long-standing
+    // project_non_merc_z0_disc_render_fail "blank z0" symptom). containsTarget
+    // reaches the emit gate only as a leaf (tz === maxZ); at tz < maxZ it
+    // force-descends, so this adds at most the single focal tile per frame.
+    if (containsTarget
+      || (anyFront && anyOnScreenEmit && screenAreaPx >= MIN_TILE_SCREEN_AREA_PX_SQ)) {
       out.push({ z: tz, x: tx, y: ty, ox: tx })
     }
   }
