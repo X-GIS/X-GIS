@@ -19,6 +19,7 @@ import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../../__prof
 import { DEBUG_OVERDRAW } from '../../debug-flags'
 import { WORLD_MERC } from '../../gpu/gpu-shared'
 import { mercatorYToLat } from '../../projection/projection'
+import { isGlobeProj } from '../../projection/projections-table'
 import { resolveLabelEffectiveDef, makeLabelProjectors } from '../../render-loop-helpers'
 import { computeSliceKey } from '../../../data/eval/filter-eval'
 import { TextStage, type TextStageOptions } from '../../text/text-stage'
@@ -167,7 +168,7 @@ class LabelPass implements RenderPass {
         //  - Globe (7) + tilted azimuthal (promoted to 7 + globeMode) keep the
         //    ECEF projector, matching their getECEFFrameView geometry.
         // getViewForProjection gates flat vs ECEF with the SAME
-        // `!globeMode && projType <= 6` test the renderer uses for its MVP, so
+        // `!globeMode && !isGlobeProj` test the renderer uses for its MVP, so
         // the label MVP, the geometry MVP, and the shader's proj_params.x
         // branch stay in lockstep.
         //
@@ -187,7 +188,7 @@ class LabelPass implements RenderPass {
         const visibleWorldCopies = host.camera.getVisibleWorldCopies(w, h, dpr)
         ctx.visibleWorldCopies = visibleWorldCopies
         const projType = ctx.projType
-        const isFlatProj = !host.camera.globeMode && projType <= 6
+        const isFlatProj = !host.camera.globeMode && !isGlobeProj(projType)
         const labelView = host.camera.getViewForProjection(projType, w, h, dpr)
         const { projectMerc, projectLonLat, projectMercAny, projectLonLatCopies } =
           makeLabelProjectors(labelView.matrix, w, h, isFlatProj ? {

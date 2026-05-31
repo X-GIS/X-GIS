@@ -7,6 +7,7 @@ import { getMaxDpr } from '../gpu/gpu'
 import { computeLogDepthFc } from '../shaders/log-depth'
 import { buildGlobeMatrix } from './globe'
 import { mercatorYToLat, mercatorYToLatRad } from './projection'
+import { isGlobeProj } from './projections-table'
 import { invOrthographic, mulVec4, invert4x4, mul4, perspectiveMatrix } from './camera-helpers'
 
 export class Camera {
@@ -676,7 +677,7 @@ export class Camera {
     far: number
     logDepthFc: number
   } {
-    if (!this.globeMode && projType <= 6) {
+    if (!this.globeMode && !isGlobeProj(projType)) {
       return this.getFrameView(canvasWidth, canvasHeight, dpr)
     }
     return this.getECEFFrameView(canvasWidth, canvasHeight, dpr)

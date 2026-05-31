@@ -18,7 +18,7 @@
 import { xlog } from './log'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd, flushPerFrameMarks } from './__profile__/perf-marks'
 import { mercatorYToLat } from './projection/projection'
-import { PROJECTION_NAME_TO_TYPE } from './projection/projections-table'
+import { PROJECTION_NAME_TO_TYPE, isGlobeProj } from './projection/projections-table'
 import { resizeCanvas, getSampleCount, getMaxDpr, isPickEnabled } from './gpu/gpu'
 import { DEBUG_OVERDRAW } from './debug-flags'
 import { WORLD_MERC, TILE_PX } from './gpu/gpu-shared'
@@ -151,7 +151,7 @@ export class RenderLoop {
     // each projection's identity (stereographic ≠ ortho) are preserved.
     const azimuthalTilted = (projType >= 3 && projType <= 5) && this.host.camera.pitch > 0
     if (azimuthalTilted) projType = 7
-    this.host.camera.globeMode = (projType === 7)
+    this.host.camera.globeMode = isGlobeProj(projType)
     // Hand the resolved projection kind to the camera so zoomAt can pick
     // a projection-correct cursor anchor (orthographic needs the spherical
     // inverse, not the flat-Mercator-plane unproject).
