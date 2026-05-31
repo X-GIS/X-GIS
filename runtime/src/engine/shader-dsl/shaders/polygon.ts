@@ -197,6 +197,81 @@ const polygonRimAlpha = fn(
 // Tile-line + polygon-stroke outlines route through vs_line (line.ts) —
 // unaffected by this change.
 
+// ── Shared projType ladder (PR-3 dedup) ──
+//
+// The flat/3D "ladder" (proj_params.x < 0.5 flat Mercator / < 6.5 flat
+// non-Mercator / else 3D ECEF-RTC) was hand-pasted byte-for-byte across all
+// three polygon vertex entries (vs_main / vs_main_ecef / vs_main_ecef_extruded).
+// This builder is the single source for that branch so the three VS entries
+// CALL it instead of copying it. It pushes the exact same Stmt tree into the
+// caller's Builder, so the emitted WGSL is byte-identical to the prior inline
+// copies (gated by polygon-variant-diff's __polygon-variant-snapshots__).
+//
+// The fill (vs_main / vs_main_ecef) and extruded (vs_main_ecef_extruded) paths
+// share one branch shape but diverge in exactly two correlated ways, both
+// captured by the single `extruded` flag:
+//   1. FLAT arms' plane-z: fill passes z = 0.0; extruded inserts an extra
+//      `let z_plane[_geom] = wall_height * is_top` and uses it.
+//   2. The 3D (else) arm: fill recentres `ecef_cam = ecef_rtc + cam_ecef_off_h
+//      + cam_ecef_off_l` then transforms; extruded transforms the bare
+//      `ecef_rtc` (NO cam_ecef_off recentre).
+//
+// NOTE on (2): the extruded 3D path is MISSING the cam_ecef_off recentre that
+// the flat-fill 3D path applies. That asymmetry is preserved here verbatim
+// under the byte-equal contract (PR-3 is a pure dedup) — it is NOT corrected
+// in this change. Folding the two copies into one `if (extruded)` simply makes
+// the asymmetry visible in one place for a future fix.
+//
+// All FLAT-arm math (project/flat_rel calls, the tile_origin_merc − cam_h −
+// cam_l recentre, the tile_ref_lon expression, the if-conditions, the projParamsV
+// reference) is byte-identical across all three VS entries, so it lives inline
+// here with no parameterization. The per-VS inputs that genuinely differ
+// (ecef_rtc produced via pos_h+pos_l vs dequant_ecef; the abs_lon/abs_lat param
+// nodes; clip var) are passed in as already-bound Nodes.
+const emitPolygonProjectionLadder = (
+  b: Builder,
+  args: {
+    projParamsV: Node<'vec4<f32>'>
+    mvp: Node<'mat4x4<f32>'>
+    absLon: Node<'f32'>
+    absLat: Node<'f32'>
+    ecefRtc: Node<'vec3<f32>'>
+    clip: Node<'vec4<f32>'>
+    extruded: boolean
+    isTop?: Node<'f32'>
+    wallHeight?: Node<'f32'>
+  },
+): void => {
+  const { projParamsV, mvp, absLon, absLat, ecefRtc, clip, extruded, isTop, wallHeight } = args
+  const deg2rad = constRef('DEG2RAD')
+  const earthR = constRef('EARTH_R')
+  b.if(projParamsV.x.lt(0.5), (c) => {
+    const p2d = c.let('p2d', callFn('project', vec2fT, absLon, absLat, projParamsV))
+    const rel2d = c.let('rel2d',
+      p2d.sub(u.field('tile_origin_merc', vec2fT)).sub(u.field('cam_h', vec2fT)).sub(u.field('cam_l', vec2fT)))
+    const z = extruded ? c.let('z_plane', wallHeight!.mul(isTop!)) : f32(0)
+    c.assign(clip, transformMat4(mvp, vec4(rel2d.x, rel2d.y, z, f32(1))))
+  }).elif(projParamsV.x.lt(6.5), (c) => {
+    const tileRefLon = c.let('tile_ref_lon',
+      u.field('tile_origin_merc', vec2fT).x
+        .add(f32(0.5).mul(u.field('tile_extent_m', f32T)))
+        .div(deg2rad.mul(earthR)))
+    const relG = c.let('rel2d_geom', callFn('flat_rel', vec2fT, absLon, absLat, projParamsV, tileRefLon))
+    const zG = extruded ? c.let('z_plane_geom', wallHeight!.mul(isTop!)) : f32(0)
+    c.assign(clip, transformMat4(mvp, vec4(relG.x, relG.y, zG, f32(1))))
+  }).else((c) => {
+    if (extruded) {
+      c.assign(clip, transformMat4(mvp, vec4(ecefRtc, f32(1))))
+    } else {
+      const camOffH = u.field('cam_ecef_off_h', vec4fT)
+      const camOffL = u.field('cam_ecef_off_l', vec4fT)
+      const ecefCam = c.let('ecef_cam',
+        ecefRtc.add(vec3(camOffH.x, camOffH.y, camOffH.z)).add(vec3(camOffL.x, camOffL.y, camOffL.z)))
+      c.assign(clip, transformMat4(mvp, vec4(ecefCam, f32(1))))
+    }
+  })
+}
+
 const vsMain = entryFn(
   'vs_main', 'vertex',
   [
@@ -237,41 +312,13 @@ const vsMain = entryFn(
     // so only the live branch's matrix is consumed.
     const projParamsV = u.field('proj_params', vec4fT)
     const clip = b.var('clip', vec4fT)
-    b.if(projParamsV.x.lt(0.5), (c) => {
-      // FLAT: rel = project(abs_lon, abs_lat) − cam_merc, with
-      // cam_merc = tile_origin_merc + (cam_h + cam_l) (cam_h/cam_l hold the
-      // tile-relative camera offset camMerc − tileMerc), so
-      // rel = project(abs) − tile_origin_merc − cam_h − cam_l. The tile
-      // origin NEARLY cancels (residual = f32 rounding of tile_origin_merc,
-      // bounded by the ~1 m P1 tier); the staged subtraction keeps that
-      // precision. z = 0 — flat fill has no height.
-      const p2d = c.let('p2d', callFn('project', vec2fT, p.abs_lon, p.abs_lat, projParamsV))
-      const rel2d = c.let('rel2d',
-        p2d.sub(u.field('tile_origin_merc', vec2fT)).sub(u.field('cam_h', vec2fT)).sub(u.field('cam_l', vec2fT)))
-      c.assign(clip, transformMat4(mvp, vec4(rel2d.x, rel2d.y, f32(0), f32(1))))
-    }).elif(projParamsV.x.lt(6.5), (c) => {
-      // FLAT non-Mercator (equirect/natural_earth/orthographic/azimuthal_
-      // equidistant/stereographic/oblique): reproject lon/lat onto the
-      // projection's 2D plane — project_geom is world-copy-aware for the
-      // pseudocylindrical/rotated forms — and subtract the camera's projected
-      // centre (computed in-shader from proj_params.y/z = clon/clat, so no
-      // extra uniform). tileRefLon (tile-centre lon) picks the world copy.
-      // Same flat Mercator-metre MVP. Restores the retired finalize_corner
-      // path; globe (7) + tilted azimuthal stay on ECEF in the else.
-      const tileRefLon = c.let('tile_ref_lon',
-        u.field('tile_origin_merc', vec2fT).x
-          .add(f32(0.5).mul(u.field('tile_extent_m', f32T)))
-          .div(deg2rad.mul(earthR)))
-      const relG = c.let('rel2d_geom', callFn('flat_rel', vec2fT, p.abs_lon, p.abs_lat, projParamsV, tileRefLon))
-      c.assign(clip, transformMat4(mvp, vec4(relG.x, relG.y, f32(0), f32(1))))
-    }).else((c) => {
-      // 3D: ECEF-RTC re-centred by (tileEcefCenter − cameraCenter), hi + lo.
-      const camOffH = u.field('cam_ecef_off_h', vec4fT)
-      const camOffL = u.field('cam_ecef_off_l', vec4fT)
-      const ecefCam = c.let('ecef_cam',
-        ecefRtc.add(vec3(camOffH.x, camOffH.y, camOffH.z)).add(vec3(camOffL.x, camOffL.y, camOffL.z)))
-      c.assign(clip, transformMat4(mvp, vec4(ecefCam, f32(1))))
-    })
+    // FLAT Mercator (proj_params.x < 0.5): rel = project(abs_lon, abs_lat) −
+    // cam_merc, with cam_merc = tile_origin_merc + (cam_h + cam_l); z = 0
+    // (flat fill has no height). FLAT non-Mercator (< 6.5): project_geom-style
+    // flat_rel reproject (world-copy-aware) on the in-shader projected centre.
+    // ELSE: 3D ECEF-RTC re-centred by (tileEcefCenter − cameraCenter), hi + lo.
+    // See emitPolygonProjectionLadder for the full per-arm rationale.
+    emitPolygonProjectionLadder(b, { projParamsV, mvp, absLon: p.abs_lon, absLat: p.abs_lat, ecefRtc, clip, extruded: false })
     // Mapbox fill-translate viewport-anchor — runtime pre-bakes
     // (px*2/canvasDim) so the shader just multiplies by clip.w.
     b.assign(clip.x, clip.x.add(fillTx.mul(clip.w)))
@@ -382,41 +429,11 @@ const vsMainEcef = entryFn(
     // so only the live branch's matrix is consumed.
     const projParamsV = u.field('proj_params', vec4fT)
     const clip = b.var('clip', vec4fT)
-    b.if(projParamsV.x.lt(0.5), (c) => {
-      // FLAT: rel = project(abs_lon, abs_lat) − cam_merc, with
-      // cam_merc = tile_origin_merc + (cam_h + cam_l) (cam_h/cam_l hold the
-      // tile-relative camera offset camMerc − tileMerc), so
-      // rel = project(abs) − tile_origin_merc − cam_h − cam_l. The tile
-      // origin NEARLY cancels (residual = f32 rounding of tile_origin_merc,
-      // bounded by the ~1 m P1 tier); the staged subtraction keeps that
-      // precision. z = 0 — flat fill has no height.
-      const p2d = c.let('p2d', callFn('project', vec2fT, p.abs_lon, p.abs_lat, projParamsV))
-      const rel2d = c.let('rel2d',
-        p2d.sub(u.field('tile_origin_merc', vec2fT)).sub(u.field('cam_h', vec2fT)).sub(u.field('cam_l', vec2fT)))
-      c.assign(clip, transformMat4(mvp, vec4(rel2d.x, rel2d.y, f32(0), f32(1))))
-    }).elif(projParamsV.x.lt(6.5), (c) => {
-      // FLAT non-Mercator (equirect/natural_earth/orthographic/azimuthal_
-      // equidistant/stereographic/oblique): reproject lon/lat onto the
-      // projection's 2D plane — project_geom is world-copy-aware for the
-      // pseudocylindrical/rotated forms — and subtract the camera's projected
-      // centre (computed in-shader from proj_params.y/z = clon/clat, so no
-      // extra uniform). tileRefLon (tile-centre lon) picks the world copy.
-      // Same flat Mercator-metre MVP. Restores the retired finalize_corner
-      // path; globe (7) + tilted azimuthal stay on ECEF in the else.
-      const tileRefLon = c.let('tile_ref_lon',
-        u.field('tile_origin_merc', vec2fT).x
-          .add(f32(0.5).mul(u.field('tile_extent_m', f32T)))
-          .div(deg2rad.mul(earthR)))
-      const relG = c.let('rel2d_geom', callFn('flat_rel', vec2fT, p.abs_lon, p.abs_lat, projParamsV, tileRefLon))
-      c.assign(clip, transformMat4(mvp, vec4(relG.x, relG.y, f32(0), f32(1))))
-    }).else((c) => {
-      // 3D: ECEF-RTC re-centred by (tileEcefCenter − cameraCenter), hi + lo.
-      const camOffH = u.field('cam_ecef_off_h', vec4fT)
-      const camOffL = u.field('cam_ecef_off_l', vec4fT)
-      const ecefCam = c.let('ecef_cam',
-        ecefRtc.add(vec3(camOffH.x, camOffH.y, camOffH.z)).add(vec3(camOffL.x, camOffL.y, camOffL.z)))
-      c.assign(clip, transformMat4(mvp, vec4(ecefCam, f32(1))))
-    })
+    // Same flat/3D ladder as vs_main (see emitPolygonProjectionLadder): flat
+    // Mercator reproject + recentre / flat non-Mercator flat_rel / 3D ECEF-RTC
+    // re-centred by (tileEcefCenter − cameraCenter). Only ecef_rtc is sourced
+    // differently (dequant_ecef vs pos_h+pos_l) — passed in as a Node.
+    emitPolygonProjectionLadder(b, { projParamsV, mvp, absLon: p.abs_lon, absLat: p.abs_lat, ecefRtc, clip, extruded: false })
     // Mapbox fill-translate viewport-anchor — runtime pre-bakes
     // (px*2/canvasDim) so the shader just multiplies by clip.w.
     b.assign(clip.x, clip.x.add(fillTx.mul(clip.w)))
@@ -505,24 +522,14 @@ const vsMainEcefExtruded = entryFn(
     // scale if extruded walls look wrong away from the equator.
     const projParamsV = u.field('proj_params', vec4fT)
     const clip = b.var('clip', vec4fT)
-    b.if(projParamsV.x.lt(0.5), (c) => {
-      const p2d = c.let('p2d', callFn('project', vec2fT, p.abs_lon, p.abs_lat, projParamsV))
-      const rel2d = c.let('rel2d',
-        p2d.sub(u.field('tile_origin_merc', vec2fT)).sub(u.field('cam_h', vec2fT)).sub(u.field('cam_l', vec2fT)))
-      const zPlane = c.let('z_plane', p.wall_height.mul(p.is_top))
-      c.assign(clip, transformMat4(mvp, vec4(rel2d.x, rel2d.y, zPlane, f32(1))))
-    }).elif(projParamsV.x.lt(6.5), (c) => {
-      // FLAT non-Mercator (see vs_main_ecef): project_geom reproject + the
-      // in-shader projected camera centre; extrude lift applied as plane-z.
-      const tileRefLon = c.let('tile_ref_lon',
-        u.field('tile_origin_merc', vec2fT).x
-          .add(f32(0.5).mul(u.field('tile_extent_m', f32T)))
-          .div(deg2rad.mul(earthR)))
-      const relG = c.let('rel2d_geom', callFn('flat_rel', vec2fT, p.abs_lon, p.abs_lat, projParamsV, tileRefLon))
-      const zPlaneG = c.let('z_plane_geom', p.wall_height.mul(p.is_top))
-      c.assign(clip, transformMat4(mvp, vec4(relG.x, relG.y, zPlaneG, f32(1))))
-    }).else((c) => {
-      c.assign(clip, transformMat4(mvp, vec4(ecefRtc, f32(1))))
+    // Same flat/3D ladder as vs_main_ecef but extruded: the FLAT arms add a
+    // `z_plane[_geom] = wall_height * is_top` plane-lift, and the 3D (else) arm
+    // transforms the bare pre-lifted ecef_rtc (NO cam_ecef_off recentre — the
+    // asymmetry vs the flat-fill 3D path is preserved verbatim; see
+    // emitPolygonProjectionLadder). The single `extruded` flag selects both.
+    emitPolygonProjectionLadder(b, {
+      projParamsV, mvp, absLon: p.abs_lon, absLat: p.abs_lat, ecefRtc, clip,
+      extruded: true, isTop: p.is_top, wallHeight: p.wall_height,
     })
     b.assign(clip.x, clip.x.add(fillTx.mul(clip.w)))
     b.assign(clip.y, clip.y.sub(fillTy.mul(clip.w)))
