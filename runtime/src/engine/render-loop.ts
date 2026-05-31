@@ -17,7 +17,7 @@
 
 import { xlog } from './log'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd, flushPerFrameMarks } from './__profile__/perf-marks'
-import { mercatorYToLat } from './projection/projection'
+import { mercatorYToLat, MERCATOR_LAT_LIMIT } from './projection/projection'
 import { PROJECTION_NAME_TO_TYPE, isGlobeProj, promotesToGlobeWhenTilted } from './projection/projections-table'
 import { resizeCanvas, getSampleCount, getMaxDpr, isPickEnabled } from './gpu/gpu'
 import { DEBUG_OVERDRAW } from './debug-flags'
@@ -210,7 +210,11 @@ export class RenderLoop {
     // RTC: Camera center IS projection center. Always.
     const R = 6378137
     const centerLon = (this.host.camera.centerX / R) * (180 / Math.PI)
-    const centerLat = Math.max(-85, Math.min(85,
+    // Clamp the RTC-centre latitude to the SAME Mercator limit the camera
+    // position uses (±85.051129°, camera.ts MAX_Y), not a tighter ±85.0 —
+    // otherwise a near-pole camera (85.0–85.051°) gets an RTC centre ~5.7 km
+    // short of its true position. Unifies the documented centerY-clamp drift.
+    const centerLat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT,
       mercatorYToLat(this.host.camera.centerY)
     ))
 
