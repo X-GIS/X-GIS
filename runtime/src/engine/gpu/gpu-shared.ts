@@ -296,95 +296,17 @@ export const WORLD_MERC = 40075016.686
  *  one effective zoom level closer than MapLibre for the same hash. */
 export const TILE_PX = 512
 
-/** World copy offsets: primary + N copies each side. Used as the
- *  Mercator-path enumeration; other projections collapse to a single
- *  world via `worldCopiesFor()`. */
-export const WORLD_COPIES = [-2, -1, 0, 1, 2]
-const SINGLE_WORLD: readonly number[] = [0]
-
-/** World-copy enumeration gated by projection. Cylindrical /
- *  pseudocylindrical projections (mercator, equirect, natural_earth,
- *  oblique_mercator) are 2π-periodic in lon and emit 5 copies; the
- *  hemispherical projections (ortho, azimuthal_equidistant, stereographic)
- *  and the 3D globe have no periodicity and collapse to a single world.
- *  `projType` is the same `proj_params.x` encoding shaders use:
- *  0 = mercator, 1 = equirect, 2 = natural_earth, 3 = ortho,
- *  4 = azimuthal_equidistant, 5 = stereographic, 6 = oblique_mercator,
- *  7 = globe.
- *
- *  History: equirect / natural_earth shipped iter 126 (`965c6c3`),
- *  oblique_mercator shipped iter 127 (`0df48ec`). Each required a
- *  coordinated three-piece change so the wrapped tiles actually reach
- *  pixels:
- *    1. (this function) emit world-copy tile coords from tiles-sse
- *    2. vector-tile-renderer.ts z=0 root-split enumerates the
- *       4 z=1 children PER world-copy (pre-fix dropped ox != 0 entries)
- *    3. shaders/projection.ts project_geom detects wo from ref_lon and
- *       adds wo*world_width to projected x
- *  Pinned by `world-copy-gap.test.ts` and the
- *  `_world-copy-projections.spec.ts` E2E render. */
-export function worldCopiesFor(projType: number): readonly number[] {
-  if (projType === 0 || projType === 1 || projType === 2 || projType === 6) return WORLD_COPIES
-  return SINGLE_WORLD
-}
-
-/** Whether the globeVisibleTiles-routed periodic projections
- *  (equirect=1 / natural_earth=2 / oblique_mercator=6) should
- *  enumerate the ±2 neighbour world copies at the current zoom.
- *
- *  iter 127 enumerated them at EVERY zoom, a flat 5× tile multiplier.
- *  Adjacent world copies are only ever on-screen when the whole world
- *  is small relative to the viewport — i.e. low zoom. At z≈11-16
- *  (street level) world±1 is thousands of px off-canvas, so the 4×
- *  extra copies were pure fetch / decode / upload / draw waste and the
- *  direct cause of the 2026-05-19 non-Mercator zoom-in jank reports.
- *
- *  iter 139 gates the enumeration to z≤4 (conservative: at z=4 the
- *  world is ~16 tiles wide so one neighbour can still clip a wide
- *  viewport; by z=5 it cannot). Extracted here as a pure predicate so
- *  the user-bug fix is unit-pinned rather than living as an inline
- *  magic comparison in vector-tile-renderer (see
- *  project_predictability_sinks — untested inline thresholds are a
- *  fix-doesn't-hold sink). projType encoding matches `worldCopiesFor`. */
-export const WORLD_COPY_MAX_ZOOM = 4
-export function enumerateWorldCopies(projType: number, zoom: number): boolean {
-  const periodic = projType === 1 || projType === 2 || projType === 6
-  return periodic && zoom <= WORLD_COPY_MAX_ZOOM
-}
-
-/** Whether tile selection routes through the sphere-aware
- *  `globeVisibleTiles` selector instead of the flat frustum selectors
- *  (`visibleTilesSSE` / `visibleTilesFrustumSampled`).
- *
- *  The flat selectors are now PROJECTION-AWARE: they project tile
- *  corners through the active projection's `forward` (relative to the
- *  projected camera centre), matching the GPU vertex path exactly. That
- *  makes them correct for ALL the cylindrical / pseudocylindrical
- *  projections (mercator=0, equirect=1, natural_earth=2) — including at
- *  the poles (where Mercator y diverges from the projection's y) and the
- *  antimeridian (handled by the flat selector's world-copy enumeration,
- *  so both sides of the dateline are covered without a hemisphere cull).
- *  These therefore NEVER sphere-route.
- *
- *  The azimuthal family (ortho=3, azimuthal=4, stereographic=5) and
- *  oblique_mercator=6 project relative to the camera centre (clon,clat
- *  → 0,0), so the flat selector hands them the WRONG tile set once the
- *  camera pans (user reports #4 / #6) — they must use the sphere-aware
- *  selector. Globe (projType 7) reaches this via `globeMode`.
- *
- *  Extracted from the inline boolean in vector-tile-renderer so the
- *  routing decision is unit-pinned, not a fix-doesn't-hold inline
- *  threshold (project_predictability_sinks; iter-127 oblique +
- *  iter-157 azimuthal-family routing). projType matches
- *  `worldCopiesFor`. */
-export function routeToSphereSelector(
-  projType: number,
-  globeMode: boolean,
-): boolean {
-  const azimuthalFamily = projType === 3 || projType === 4 || projType === 5
-  const oblique = projType === 6
-  return globeMode || azimuthalFamily || oblique
-}
+/** World-copy / sphere-routing helpers now DERIVE from the PROJECTIONS
+ *  table (the authority flip — see projections-table.ts). Re-exported here
+ *  so the existing gpu-shared import sites (tiles-sse, tile-select, vtr,
+ *  camera, label-pass) are unchanged. */
+export {
+  WORLD_COPIES,
+  WORLD_COPY_MAX_ZOOM,
+  worldCopiesFor,
+  enumerateWorldCopies,
+  routeToSphereSelector,
+} from "../projection/projections-table"
 
 /** Create an empty uniform buffer */
 export function createUniformBuffer(device: GPUDevice, size: number, label?: string): GPUBuffer {

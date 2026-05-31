@@ -4,13 +4,15 @@ import {
   PROJECTION_NAME_TO_TYPE,
   SELECTOR_PROJ_NAMES,
 } from './projections-table'
-import { worldCopiesFor, enumerateWorldCopies } from '../gpu/gpu-shared'
+import { worldCopiesFor, enumerateWorldCopies, routeToSphereSelector } from '../gpu/gpu-shared'
 
-// The PROJECTIONS table is the single source of truth, but the gpu-shared
-// predicates remain the AUTHORITY for the capability fields. These tests
-// pin every table field to its predicate (or to the exact prior literal
-// for the canonical name↔int representations) so the table can never drift
-// from real runtime behavior.
+// The PROJECTIONS table is the SINGLE SOURCE OF TRUTH (authority flip, P1):
+// the world-copy / sphere-routing predicates now DERIVE from these rows.
+// These tests pin every table field — and the derived predicates — to their
+// intended LITERAL value (not to their own derivation), so the table can
+// never drift from real runtime behavior. (worldCopiesFor /
+// enumerateWorldCopies / routeToSphereSelector are imported from gpu-shared
+// to also exercise its re-export of the relocated predicates.)
 
 describe('PROJECTIONS table', () => {
   it('is ordered so index === projType for every record', () => {
@@ -41,17 +43,36 @@ describe('PROJECTIONS table', () => {
     ])
   })
 
-  it('worldCopies field === worldCopiesFor() predicate output', () => {
+  it('worldCopies === the ±2 multi-world set for the periodic family {0,1,2,6}, single otherwise', () => {
+    const multiWorld = new Set([0, 1, 2, 6]) // mercator / equirect / NE / oblique
     for (const p of PROJECTIONS) {
-      expect(p.worldCopies).toEqual(worldCopiesFor(p.projType))
+      expect(p.worldCopies).toEqual(multiWorld.has(p.projType) ? [-2, -1, 0, 1, 2] : [0])
     }
   })
 
-  it('periodic field === enumerateWorldCopies() periodic set', () => {
+  it('worldCopiesFor() derives that set from the table (re-export pinned)', () => {
     for (const p of PROJECTIONS) {
-      // enumerateWorldCopies(pt, 0): zoom 0 ≤ WORLD_COPY_MAX_ZOOM, so the
-      // result is exactly the `periodic` boolean.
-      expect(p.periodic).toBe(enumerateWorldCopies(p.projType, 0))
+      expect(worldCopiesFor(p.projType)).toEqual(p.worldCopies)
+    }
+  })
+
+  it('periodic === the world-copy-enumerated set {1,2,6} (mercator is flat-routed)', () => {
+    for (const p of PROJECTIONS) {
+      expect(p.periodic).toBe([1, 2, 6].includes(p.projType))
+    }
+  })
+
+  it('enumerateWorldCopies is gated above WORLD_COPY_MAX_ZOOM (off below the gate, on within)', () => {
+    for (const p of PROJECTIONS) {
+      expect(enumerateWorldCopies(p.projType, 4)).toBe(p.periodic) // z≤4: tracks periodic
+      expect(enumerateWorldCopies(p.projType, 5)).toBe(false) // z>4: neighbours off-canvas
+    }
+  })
+
+  it('routeToSphereSelector === {3,4,5,6} (derived !isFlat && !isGlobe), ∪ globeMode', () => {
+    for (const p of PROJECTIONS) {
+      expect(routeToSphereSelector(p.projType, false)).toBe([3, 4, 5, 6].includes(p.projType))
+      expect(routeToSphereSelector(p.projType, true)).toBe(true) // globeMode forces sphere routing
     }
   })
 

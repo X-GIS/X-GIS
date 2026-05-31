@@ -12,18 +12,25 @@
 // capability collapses (tiles-sse `?0:2:1`, tile-select `?0:1`) are
 // behavior-coupled — feeding them the real projType changes non-mercator
 // world-copy enumeration — so they migrate later under EffectiveProjection
-// (H1b), not here. The gpu-shared predicates (worldCopiesFor /
-// enumerateWorldCopies / routeToSphereSelector) remain the AUTHORITY for
-// the capability fields; `projections-table.test.ts` pins every field in
-// this table to those predicates + the WGSL thresholds so the table can
-// never drift from real behavior.
+// (H1b), not here. THIS TABLE IS THE SINGLE SOURCE OF TRUTH (authority flip,
+// P1): the world-copy / sphere-routing predicates (worldCopiesFor /
+// enumerateWorldCopies / routeToSphereSelector) now DERIVE from these rows
+// and are defined in this file; gpu-shared.ts re-exports them so its
+// consumers are unchanged. `projections-table.test.ts` pins each field to
+// its intended literal value, and `projection-threshold-drift.test.ts` pins
+// the emitted WGSL thresholds to `cullThreshold`, so neither can drift.
 
-import { WORLD_COPIES } from '../gpu/gpu-shared'
-
+// World-copy offsets: primary + N copies each side, for the periodic
+// (cylindrical / pseudocylindrical) family. Other projections collapse to a
+// single world. Defined HERE (was gpu-shared) so the table imports nothing
+// from gpu-shared — gpu-shared re-exports these, inverting the dependency.
+export const WORLD_COPIES = [-2, -1, 0, 1, 2]
 // Single-world copy set for the non-periodic (hemispherical / globe)
-// projections. `[0]` is irreducible; pinned === worldCopiesFor() output
-// by the table test.
+// projections. `[0]` is irreducible.
 const SINGLE_WORLD: readonly number[] = [0]
+/** Max zoom at which periodic projections still enumerate neighbour world
+ *  copies (above this the neighbours are off-canvas). */
+export const WORLD_COPY_MAX_ZOOM = 4
 
 export interface ProjectionRecord {
   /** Registry name — matches `Projection.name` and the style
@@ -70,6 +77,47 @@ export const PROJECTIONS: readonly ProjectionRecord[] = [
   { name: 'oblique_mercator',      projType: 6, cullThreshold: null,  rimThreshold: null,  isFlat: false, isSeam: true,  isCylindrical: true,  isGlobe: false, periodic: true,  worldCopies: WORLD_COPIES },
   { name: 'globe',                 projType: 7, cullThreshold: 0.0,   rimThreshold: 0.0,   isFlat: false, isSeam: false, isCylindrical: false, isGlobe: true,  periodic: false, worldCopies: SINGLE_WORLD },
 ]
+
+// ═══ Derived predicates (the authority flip) ═══════════════════════════
+// These read the rows above. gpu-shared.ts re-exports them so its consumers
+// (tiles-sse, tile-select, vector-tile-renderer, camera, label-pass) are
+// unchanged. Behaviour is pinned by world-copy-gap.test.ts,
+// antimeridian-routing.test.ts, and tile-selection-projection.test.ts.
+
+/** World-copy offsets for a projType: the periodic family emits ±2 copies,
+ *  everything else collapses to a single world. (Was the literal
+ *  `===0||1||2||6` set in gpu-shared; now a pure table lookup.) */
+export function worldCopiesFor(projType: number): readonly number[] {
+  return PROJECTIONS[projType]?.worldCopies ?? SINGLE_WORLD
+}
+
+/** Whether the periodic projections (equirect / natural_earth /
+ *  oblique_mercator) should enumerate neighbour world copies at this zoom.
+ *  Mercator is flat-selector-routed and excluded (periodic=false). Above
+ *  WORLD_COPY_MAX_ZOOM the neighbours are off-canvas. */
+export function enumerateWorldCopies(projType: number, zoom: number): boolean {
+  return (PROJECTIONS[projType]?.periodic ?? false) && zoom <= WORLD_COPY_MAX_ZOOM
+}
+
+/** Whether tile selection routes through the sphere-aware globeVisibleTiles
+ *  selector instead of the flat frustum selectors. The azimuthal family
+ *  (3/4/5) and oblique_mercator (6) project relative to the camera centre,
+ *  so the flat selector hands them the wrong tile set once panned; globe (7)
+ *  reaches this via `globeMode`. Derived: `!isFlat && !isGlobe` is exactly
+ *  {3,4,5,6} (0/1/2 are flat-routed; 7 routes via the globeMode flag). */
+export function routeToSphereSelector(projType: number, globeMode: boolean): boolean {
+  const r = PROJECTIONS[projType]
+  return globeMode || (r ? !r.isFlat && !r.isGlobe : false)
+}
+
+// ── Pure capability helpers — the table-derived replacements for scattered
+//    `projType === …` branches across the engine. ──
+export const isFlatProj = (projType: number): boolean => PROJECTIONS[projType]?.isFlat ?? false
+export const isGlobeProj = (projType: number): boolean => PROJECTIONS[projType]?.isGlobe ?? false
+export const isCylindricalProj = (projType: number): boolean => PROJECTIONS[projType]?.isCylindrical ?? false
+export const periodicOf = (projType: number): boolean => PROJECTIONS[projType]?.periodic ?? false
+export const cullThresholdOf = (projType: number): number | null => PROJECTIONS[projType]?.cullThreshold ?? null
+export const rimThresholdOf = (projType: number): number | null => PROJECTIONS[projType]?.rimThreshold ?? null
 
 /** Canonical name → projType map. Derived from PROJECTIONS; replaces the
  *  hand-written object literal in render-loop. Unknown names fall back to
