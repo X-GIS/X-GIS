@@ -110,6 +110,24 @@ export function routeToSphereSelector(projType: number, globeMode: boolean): boo
   return globeMode || (r ? !r.isFlat && !r.isGlobe : false)
 }
 
+/** Whether a projection PROMOTES to the 3D globe path when the camera tilts
+ *  (pitch > 0). The azimuthal family (ortho 3 / azimuthal_eq 4 /
+ *  stereographic 5) are exact 2D discs at pitch=0 but become true spheres
+ *  once tilted, so render-loop promotes them to projType 7 + globeMode.
+ *  Derived `!isFlat && !isGlobe && !isCylindrical` = exactly {3,4,5}.
+ *
+ *  NOTE (latent gap, oblique-6-promotion.test.ts): oblique_mercator (6)
+ *  sphere-ROUTES its tiles (routeToSphereSelector → true) yet is EXCLUDED
+ *  here (it is cylindrical), so at pitch>0 it keeps the flat MVP while its
+ *  tiles come from the sphere selector — flat MVP + sphere tiles. Fixing it
+ *  (promote 6, or flat-route its tiles) is a behaviour change deferred to a
+ *  GPU-verified effort; the difference between these two predicates IS the
+ *  bug, made explicit by the table. */
+export function promotesToGlobeWhenTilted(projType: number): boolean {
+  const r = PROJECTIONS[projType]
+  return r ? !r.isFlat && !r.isGlobe && !r.isCylindrical : false
+}
+
 // ── Pure capability helpers — the table-derived replacements for scattered
 //    `projType === …` branches across the engine. ──
 export const isFlatProj = (projType: number): boolean => PROJECTIONS[projType]?.isFlat ?? false

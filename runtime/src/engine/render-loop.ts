@@ -18,7 +18,7 @@
 import { xlog } from './log'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd, flushPerFrameMarks } from './__profile__/perf-marks'
 import { mercatorYToLat } from './projection/projection'
-import { PROJECTION_NAME_TO_TYPE, isGlobeProj } from './projection/projections-table'
+import { PROJECTION_NAME_TO_TYPE, isGlobeProj, promotesToGlobeWhenTilted } from './projection/projections-table'
 import { resizeCanvas, getSampleCount, getMaxDpr, isPickEnabled } from './gpu/gpu'
 import { DEBUG_OVERDRAW } from './debug-flags'
 import { WORLD_MERC, TILE_PX } from './gpu/gpu-shared'
@@ -149,7 +149,7 @@ export class RenderLoop {
     // (globeOrtho was set in setProjection). At pitch=0 they stay on
     // their exact 2D projection so the CPU/GPU consistency contract and
     // each projection's identity (stereographic ≠ ortho) are preserved.
-    const azimuthalTilted = (projType >= 3 && projType <= 5) && this.host.camera.pitch > 0
+    const azimuthalTilted = promotesToGlobeWhenTilted(projType) && this.host.camera.pitch > 0
     if (azimuthalTilted) projType = 7
     this.host.camera.globeMode = isGlobeProj(projType)
     // Hand the resolved projection kind to the camera so zoomAt can pick
