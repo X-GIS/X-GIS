@@ -1,4 +1,4 @@
-// baseline: c6fa898e6eb9c29c07ade6bccb02d1527d5eff49
+// baseline: 7f1b2f50f63e81d6a0ccab66cfe098470d106b74
 // fixture: syn-match10
 // variant.key: syn-match10
 // pick: false
@@ -421,7 +421,8 @@ fn vs_main_ecef_extruded(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u3
     let z_plane_geom = (wall_height * is_top);
     clip = (u.mvp * vec4<f32>(rel2d_geom.x, rel2d_geom.y, z_plane_geom, 1.0));
   } else {
-    clip = (u.mvp * vec4<f32>(ecef_rtc, 1.0));
+    let ecef_cam = ((ecef_rtc + vec3<f32>(u.cam_ecef_off_h.x, u.cam_ecef_off_h.y, u.cam_ecef_off_h.z)) + vec3<f32>(u.cam_ecef_off_l.x, u.cam_ecef_off_l.y, u.cam_ecef_off_l.z));
+    clip = (u.mvp * vec4<f32>(ecef_cam, 1.0));
   }
   clip.x = (clip.x + (u.fill_translate_x * clip.w));
   clip.y = (clip.y - (u.fill_translate_y * clip.w));
