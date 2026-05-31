@@ -68,3 +68,9 @@ nul
 
 # Local Claude Code harness state (per-machine)
 .claude/
+
+# OMC (oh-my-claudecode) working tree — per-machine runtime state, session
+# artifacts, and scratch docs. Ignored wholesale; not source-controlled.
+# Files committed under .omc before this rule stay tracked until untracked
+# explicitly (git rm --cached).
+.omc
