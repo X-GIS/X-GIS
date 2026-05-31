@@ -10,6 +10,7 @@ import { precisionForZoomMM } from './encoding'
 import { POLYGON_FILL_FORMAT, field } from './polygon-vertex-format'
 import type { GeoJSONFeatureCollection, GeoJSONFeature } from './geojson-types'
 import { tileKey, tileKeyUnpack } from './vector-tiler-helpers'
+import { WGS84 } from '@xgis/shared'
 import type {
   CompiledTileSet,
   PropertyTable,
@@ -52,6 +53,13 @@ export const TILE_EXTENT = 8192
 // subtracts (pos_h - cam_h) + (pos_l - cam_l) to preserve precision under
 // large-magnitude subtraction. See docs/dsfun-refactor-plan.md.
 
+// WGS84 ellipsoid constants — single-sourced from @xgis/shared. The three
+// packECEF* functions below used to each hand-mirror A/F/E2/RAD2DEG with a
+// "mirrors runtime/.../ecef.ts" comment; they now read this one shared copy.
+// (DSFUN_EARTH_R below is a SEPARATE sphere radius for the tile-meter DSFUN
+// split — same magnitude, different coordinate frame, left as-is.)
+const { A, E2, RAD2DEG } = WGS84
+
 const DSFUN_EARTH_R = 6378137
 const DSFUN_DEG2RAD = Math.PI / 180
 const DSFUN_LAT_LIMIT = 85.051129
@@ -90,11 +98,7 @@ export function splitF64(x: number): [number, number] {
 export function packECEFPointFeatures(
   scratchPv: number[] | Float64Array,
 ): Float32Array {
-  // WGS84 constants (mirrors runtime/src/engine/projection/ecef.ts).
-  const A = 6378137               // semi-major axis (m)
-  const F = 1 / 298.257223563     // flattening
-  const E2 = F * (2 - F)          // first eccentricity squared
-  const RAD2DEG = 180 / Math.PI
+  // WGS84 ellipsoid constants come from the module-level @xgis/shared import.
 
   const count = scratchPv.length / 3
   const out = new Float32Array(count * 9)
@@ -202,11 +206,7 @@ export function packECEFPolygonVertices(
   scratchPv: number[] | Float64Array,
   ecefTileCenter: readonly [number, number, number],
 ): QuantizedPolygonVertices {
-  // WGS84 constants (mirrors runtime/src/engine/projection/ecef.ts).
-  const A = 6378137               // semi-major axis (m)
-  const F = 1 / 298.257223563     // flattening
-  const E2 = F * (2 - F)          // first eccentricity squared
-  const RAD2DEG = 180 / Math.PI
+  // WGS84 ellipsoid constants come from the module-level @xgis/shared import.
 
   const count = scratchPv.length / 3
   // Pass 1: compute ECEF RTC residuals + abs lon/lat; track max-abs residual.
@@ -347,11 +347,7 @@ export function packECEFLineSegments(
   scratchLv: number[] | Float64Array,
   ecefTileCenter: readonly [number, number, number],
 ): Float32Array {
-  // WGS84 constants (mirrors runtime/src/engine/projection/ecef.ts).
-  const A = 6378137               // semi-major axis (m)
-  const F = 1 / 298.257223563     // flattening
-  const E2 = F * (2 - F)          // first eccentricity squared
-  const RAD2DEG = 180 / Math.PI
+  // WGS84 ellipsoid constants come from the module-level @xgis/shared import.
 
   const IN_STRIDE = 8   // [mx, my, featId, arc, tin_x, tin_y, tout_x, tout_y]
   const OUT_STRIDE = 11 // [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, abs_lon, abs_lat, enu_dir_e, enu_dir_n, enu_pad_u]
