@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@mapbox/vector-tile": "^2.0.4",
+    "@xgis/shared": "workspace:*",
     "pbf": "^4.0.1"
   },
   "devDependencies": {

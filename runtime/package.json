@@ -10,6 +10,7 @@
   "dependencies": {
     "@chenglou/pretext": "^0.0.7",
     "@xgis/compiler": "workspace:*",
+    "@xgis/shared": "workspace:*",
     "pmtiles": "^4.4.1",
     "proj4": "^2.20.8"
   },
