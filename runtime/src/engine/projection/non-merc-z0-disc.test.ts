@@ -106,17 +106,19 @@ describe('non-Merc z=0 disc render scale (faithful flat path)', () => {
     })
   }
 
-  // orthographic is THE disc-fill bug: its limb clamps at rho=R, so the 2R
-  // disc subtends only ~0.64× the Mercator control (254.6px vs 399.6px = 32%
-  // of canvas). Marked `it.fails` so the gap is a VISIBLE expected-failure in
-  // CI. Flip to `it` when 2.1 ships the ortho-only uniform flat_rel scale
-  // (≈ WORLD_MERC/2R) — at which point ortho will also fill ≥ 0.9× the control.
-  it.fails('projType=3 (ortho): flat disc fills ≥ 0.9× the mercator control at z0 p0 [2.1 fix pending]', () => {
+  // orthographic WAS the disc-fill bug: its limb clamps at rho=R, so before
+  // the 2.1 fix the 2R disc subtended only ~0.64× the Mercator control (254.6px
+  // vs 399.6px = 32% of canvas). The 2.1 fix caps ortho's flat MVP view height
+  // at 2·EARTH_R (flatViewHeightCapM, projections-table) so the disc fills the
+  // canvas at z0 — ortho's lon±90 limb now lands at the canvas edge, ≈ 2× the
+  // Mercator control. Naturally zoom-gated: the cap only binds at low zoom, so
+  // higher zooms stay byte-identical to the cylindrical projections.
+  it('projType=3 (ortho): flat disc fills ≥ 0.9× the mercator control at z0 p0 [2.1 fixed]', () => {
     const span = flatDiscSpan(3)
     expect(span, 'ortho span null').not.toBeNull()
     expect(
       span! / mercSpan!,
-      `ortho disc span ${span!.toFixed(1)}px vs mercator ${mercSpan!.toFixed(1)}px — the ~32%-canvas z0 bug`,
+      `ortho disc span ${span!.toFixed(1)}px vs mercator ${mercSpan!.toFixed(1)}px — should fill after the 2R cap`,
     ).toBeGreaterThanOrEqual(0.9)
   })
 })

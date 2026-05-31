@@ -7,7 +7,7 @@ import { getMaxDpr } from '../gpu/gpu'
 import { computeLogDepthFc } from '../shaders/log-depth'
 import { buildGlobeMatrix } from './globe'
 import { mercatorYToLat, mercatorYToLatRad } from './projection'
-import { isGlobeProj } from './projections-table'
+import { isGlobeProj, flatViewHeightCapM } from './projections-table'
 import { invOrthographic, mulVec4, invert4x4, mul4, perspectiveMatrix } from './camera-helpers'
 
 export class Camera {
@@ -152,6 +152,7 @@ export class Camera {
   private _cacheZoom = NaN
   private _cacheBearing = NaN
   private _cachePitch = NaN
+  private _cacheCap = NaN
   private _cacheFar = 0
   private _invDirty = true
 
@@ -168,7 +169,7 @@ export class Camera {
    *  in different world positions, and tile-selection would diverge from
    *  what DPR=1 renders. Default `dpr=1` preserves existing test call
    *  sites that pass CSS-equivalent dimensions. */
-  private _buildRTCMatrix(canvasWidth: number, canvasHeight: number, dpr: number = 1): number {
+  private _buildRTCMatrix(canvasWidth: number, canvasHeight: number, dpr: number = 1, viewHeightCap: number = WORLD_MERC): number {
     if (
       canvasWidth === this._cacheW &&
       canvasHeight === this._cacheH &&
@@ -177,7 +178,8 @@ export class Camera {
       this.centerY === this._cacheCy &&
       this.zoom === this._cacheZoom &&
       this.bearing === this._cacheBearing &&
-      this.pitch === this._cachePitch
+      this.pitch === this._cachePitch &&
+      viewHeightCap === this._cacheCap
     ) {
       return this._cacheFar
     }
@@ -222,8 +224,13 @@ export class Camera {
     // world, the altitude/far should saturate at the world-fit value
     // (~30 Mm), preserving meaningful perspective division at pitch.
     // Pure clamp: zooms where viewHeight < WORLD_MERC are byte-identical.
+    // The cap is WORLD_MERC for the cylindrical family (the default) but is
+    // lowered per projType by `flatViewHeightCapM` — orthographic caps at
+    // 2·EARTH_R so its hemisphere disc fills the canvas at z0 instead of
+    // subtending ~32% (project_non_merc_z0_disc_render_fail). The cap only
+    // binds at low zoom, so higher zooms stay byte-identical across projTypes.
     const rawViewHeightMeters = (canvasHeight / dpr) * metersPerPixel
-    const viewHeightMeters = Math.min(rawViewHeightMeters, WORLD_MERC)
+    const viewHeightMeters = Math.min(rawViewHeightMeters, viewHeightCap)
     const altitude = viewHeightMeters / 2 / Math.tan(halfFov)
 
     // Near/far planes: cover all visible ground including horizon
@@ -285,6 +292,7 @@ export class Camera {
     this._cacheZoom = this.zoom
     this._cacheBearing = this.bearing
     this._cachePitch = this.pitch
+    this._cacheCap = viewHeightCap
     this._cacheFar = far
     this._invDirty = true
     this._mvpGeneration++
@@ -470,7 +478,7 @@ export class Camera {
    *
    *  Production callers go through `getViewForProjection`, which routes
    *  flat Mercator here and 3D / globe to `getECEFFrameView()`. */
-  getFrameView(canvasWidth: number, canvasHeight: number, dpr: number = 1): {
+  getFrameView(canvasWidth: number, canvasHeight: number, dpr: number = 1, viewHeightCap: number = WORLD_MERC): {
     matrix: Float32Array
     far: number
     logDepthFc: number
@@ -479,7 +487,7 @@ export class Camera {
       const g = this._globeFrame(canvasWidth, canvasHeight, dpr)
       return { matrix: g.matrix, far: g.far, logDepthFc: computeLogDepthFc(g.far) }
     }
-    const far = this._buildRTCMatrix(canvasWidth, canvasHeight, dpr)
+    const far = this._buildRTCMatrix(canvasWidth, canvasHeight, dpr, viewHeightCap)
     return { matrix: this.rtcMatrix, far, logDepthFc: computeLogDepthFc(far) }
   }
 
@@ -678,7 +686,7 @@ export class Camera {
     logDepthFc: number
   } {
     if (!this.globeMode && !isGlobeProj(projType)) {
-      return this.getFrameView(canvasWidth, canvasHeight, dpr)
+      return this.getFrameView(canvasWidth, canvasHeight, dpr, flatViewHeightCapM(projType, WORLD_MERC))
     }
     return this.getECEFFrameView(canvasWidth, canvasHeight, dpr)
   }

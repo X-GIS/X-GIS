@@ -133,6 +133,32 @@ export function promotesToGlobeWhenTilted(projType: number): boolean {
 //    cullThresholdOf …) here when a real consumer needs them — not before. ──
 export const isGlobeProj = (projType: number): boolean => PROJECTIONS[projType]?.isGlobe ?? false
 
+const EARTH_R_M = 6378137
+
+/** Flat-path z0 view-height cap (metres) for a projType. The flat MVP
+ *  (`_buildRTCMatrix`) saturates the camera view height at this value at low
+ *  zoom so the projection's whole visible extent frames the canvas.
+ *
+ *  The cylindrical family (mercator 0 / equirect 1 / natural_earth 2 /
+ *  oblique_mercator 6) fills the Mercator world width, so they take the
+ *  default `worldMercM` (== WORLD_MERC). Orthographic (3) is the exception:
+ *  its visible hemisphere is a DISC of DIAMETER 2·EARTH_R (12.756 Mm) — far
+ *  smaller than the 40-Mm Mercator world — so without this cap the disc
+ *  subtends only ~32% of the canvas at z0 (project_non_merc_z0_disc_render_
+ *  fail; the bug is ortho-only, proven faithfully in non-merc-z0-disc.test).
+ *  Capping ortho's view height at 2·EARTH_R fits the disc exactly (its limb
+ *  at lon±90 lands at the canvas edge) and is naturally zoom-gated — at high
+ *  zoom the raw view height is already < 2R < WORLD_MERC, so the cap does not
+ *  bind and ortho behaves identically to the cylindrical projections.
+ *
+ *  azimuthal_eq (4) / stereographic (5) already fill ≥ the Mercator control
+ *  at z0 (their forward maps lon±90 past the rim), so they keep `worldMercM`
+ *  pending a headed-render framing review. `worldMercM` is passed in so this
+ *  authority file imports nothing. */
+export function flatViewHeightCapM(projType: number, worldMercM: number): number {
+  return projType === 3 ? 2 * EARTH_R_M : worldMercM
+}
+
 /** Canonical name → projType map. Derived from PROJECTIONS; replaces the
  *  hand-written object literal in render-loop. Unknown names fall back to
  *  mercator (0) at the call site, matching the prior `?? 0`. */
