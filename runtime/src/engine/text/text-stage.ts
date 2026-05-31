@@ -252,6 +252,25 @@ function _allowsIdeographicBreaking(cp: number): boolean {
     || cp === 0x02ea || cp === 0x02eb
 }
 
+/** Minimum on-screen size (CSS px) for a label containing CJK/Hangul
+ *  ideographs. Dense Han glyphs carry far more ink than Latin, so the fixed
+ *  24-px SDF atlas minified to the zoom-clamped low-zoom text-size (~9 px at
+ *  z0) collapses e.g. 国 into a solid dark box (cjk-minification-box.test +
+ *  project_non_merc_z0_disc_render_fail headed evidence). Flooring the display
+ *  size keeps the minification mild enough to stay legible. The floor only
+ *  binds where the style size has already clamped below it (very low zoom), so
+ *  higher-zoom rendering — and the label pixel-match baselines — are unchanged. */
+const CJK_MIN_DISPLAY_PX = 14
+
+/** True if the label text contains any CJK/Hangul/Kana ideograph (reuses the
+ *  ideographic-break range table). */
+function hasCjkIdeograph(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    if (_allowsIdeographicBreaking(text.charCodeAt(i))) return true
+  }
+  return false
+}
+
 function _kpBadness(lineWidth: number, targetWidth: number, penalty: number, isLast: boolean): number {
   const ragged = (lineWidth - targetWidth) ** 2
   if (isLast) return lineWidth < targetWidth ? ragged / 2 : ragged * 2
@@ -1203,7 +1222,13 @@ export class TextStage {
       // CSS-px → physical-px. The atlas is in physical px (anchors
       // arrive projected to canvas.width/height) so every length
       // sourced from the LabelDef has to scale by DPR.
-      const sizePx = p.def.size * dpr
+      // Floor CJK-bearing labels to a legible display size: a dense Han glyph
+      // minified from the 24-px atlas to the ~9-px zoom-clamped low-zoom size
+      // renders as a solid box. Latin-only labels keep their style size.
+      const rawSizePx = p.def.size * dpr
+      const sizePx = hasCjkIdeograph(p.text)
+        ? Math.max(rawSizePx, CJK_MIN_DISPLAY_PX * dpr)
+        : rawSizePx
       // letter-spacing in em units (Mapbox convention) — multiplies
       // the display font size to produce extra px between adjacent
       // glyphs. Per-font override (from fontTypography table) is ADDED
