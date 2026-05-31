@@ -38,7 +38,7 @@ import type { TileCatalog } from '../../data/tile-catalog'
 import type { TileData } from '../../data/tile-types'
 import { computeSliceKey } from '../../data/eval/filter-eval'
 import { mercator as mercatorProj, getProjection, type Projection, mercatorYToLat } from '../projection/projection'
-import { SELECTOR_PROJ_NAMES } from '../projection/projections-table'
+import { SELECTOR_PROJ_NAMES, promotesToGlobeWhenTilted } from '../projection/projections-table'
 import type { PointRenderer } from './point-renderer'
 import { buildLineSegments, type LineRenderer } from './line-renderer'
 import { parseHexColor } from '../feature-helpers'
@@ -3210,8 +3210,28 @@ export class VectorTileRenderer {
         const lat = mercatorYToLat(camera.centerY)
         const cssW = canvasWidth / dpr
         const cssH = canvasHeight / dpr
+        // Disc projections (ortho/azi/stereo) fill the viewport even at low
+        // camera zoom — the cap pins the whole hemisphere on screen across
+        // camera zoom 0..~2.3 — so the raw camera zoom under-selects tile
+        // detail: a screen-filling hemisphere drawn from a single coarse z0
+        // tile shows straight-edge coastlines (headed: ortho z0 Australia).
+        // Boost the SELECTION zoom toward the screen-space tile resolution
+        // (a hemisphere spans ≈ half the world across cssW px → z ≈
+        // log2(cssW/128)). Gated to the flat disc set + only when camera.zoom
+        // is below that floor, so higher zoom is a strict no-op (camera.zoom
+        // already exceeds it) and there is no high-zoom over-select
+        // interaction. globe(7)/oblique(6)/cylindrical are unaffected.
+        let selZoom = camera.zoom
+        let selMaxZ = currentZ
+        if (promotesToGlobeWhenTilted(projType)) {
+          const discDetailFloor = Math.log2(Math.max(cssW, cssH) / 128)
+          if (camera.zoom < discDetailFloor) {
+            selZoom = discDetailFloor
+            selMaxZ = Math.max(currentZ, Math.ceil(discDetailFloor))
+          }
+        }
         const globeTiles = globeVisibleTiles(
-          lon, lat, camera.zoom, currentZ, cssW, cssH,
+          lon, lat, selZoom, selMaxZ, cssW, cssH,
           camera.pitch ?? 0, camera.bearing ?? 0,
         )
         // iter 142 diagnostic: raw selection count BEFORE world-copy
