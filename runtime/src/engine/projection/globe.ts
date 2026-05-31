@@ -701,7 +701,9 @@ export function globeVisibleTiles(
     // black canvas for flat ortho/azi/stereo at z0 p0 (the long-standing
     // project_non_merc_z0_disc_render_fail "blank z0" symptom). containsTarget
     // reaches the emit gate only as a leaf (tz === maxZ); at tz < maxZ it
-    // force-descends, so this adds at most the single focal tile per frame.
+    // force-descends, so this adds at most the focal column — one tile
+    // generically, up to four when the camera centre lands exactly on a tile
+    // corner (inclusive bbox test; e.g. lon0/lat0) — all genuinely covering it.
     if (containsTarget
       || (anyFront && anyOnScreenEmit && screenAreaPx >= MIN_TILE_SCREEN_AREA_PX_SQ)) {
       out.push({ z: tz, x: tx, y: ty, ox: tx })

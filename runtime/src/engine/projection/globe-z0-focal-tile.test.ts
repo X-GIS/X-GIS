@@ -13,7 +13,8 @@
 //
 // Fix: the tile geometrically containing the camera target is always at screen
 // centre and must emit even when its coarse samples miss — it reaches the emit
-// gate only as a leaf (tz === maxZ), so this adds at most the single focal tile.
+// gate only as a leaf (tz === maxZ), so this adds at most the focal column (one
+// tile generically; up to four when the centre lands exactly on a tile corner).
 
 import { describe, it, expect } from 'vitest'
 import { globeVisibleTiles } from './globe'
