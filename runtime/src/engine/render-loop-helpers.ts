@@ -9,7 +9,7 @@ import { resolveNumberShape, resolveColorShape, resolveSteppedShape } from './re
 import { hexToRgba } from './feature-helpers'
 import { lonLatToECEF } from './projection/ecef'
 import { mercatorYToLat } from './projection/projection'
-import { projectCpu, projectGeomCpu, needsBackfaceCullCpu } from './shader-dsl/shaders/cpu-projections'
+import { projectCpu, projectGeomCpu, needsBackfaceCullCpu, projMercatorCpu } from './shader-dsl/shaders/cpu-projections'
 import { WORLD_MERC } from './gpu/gpu-shared'
 
 /** Per-show label paint resolution. Collapses the unified LabelShapes
@@ -312,12 +312,10 @@ export function makeLabelProjectors(
 
   const projectLonLat = (lon: number, lat: number, worldMercatorOffset = 0): [number, number] | null => {
     if (isMerc) {
-      const DEG2RAD = Math.PI / 180
-      const R = 6378137
-      const LAT_LIMIT = 85.051129
-      const latC = lat < -LAT_LIMIT ? -LAT_LIMIT : (lat > LAT_LIMIT ? LAT_LIMIT : lat)
-      const mx = lon * DEG2RAD * R
-      const my = Math.log(Math.tan(Math.PI / 4 + latC * DEG2RAD / 2)) * R
+      // Shared clamped CPU Mercator mirror (proj_mercator f64 lowering) —
+      // byte-equivalent to the prior inline (same formula, consts, and
+      // ±85.051129 clamp); pure de-duplication onto the single source.
+      const [mx, my] = projMercatorCpu(lon, lat)
       return projectMerc(mx, my, worldMercatorOffset)
     }
     // non-Mercator flat: CPU mirror of the shader `flat_rel` reprojection.

@@ -96,6 +96,20 @@ describe('PROJECTIONS table', () => {
     for (const p of PROJECTIONS) expect(p.isGlobe).toBe(p.projType === 7)
   })
 
+  it('worldBand === the earth-surface-fill 3-way split per projType', () => {
+    // Table-side equivalence pin for the folded worldBandForProjType lookup:
+    // {0,1,6}=mercator-clamped, {2}=natural-earth, {3,4,5,7}=sphere-full.
+    // Mirrors the per-projType identity gate in earth-surface-fill.test.ts.
+    const expected: Record<number, string> = {
+      0: 'mercator-clamped', 1: 'mercator-clamped', 2: 'natural-earth',
+      3: 'sphere-full', 4: 'sphere-full', 5: 'sphere-full',
+      6: 'mercator-clamped', 7: 'sphere-full',
+    }
+    for (const p of PROJECTIONS) {
+      expect(p.worldBand).toBe(expected[p.projType])
+    }
+  })
+
   it('cull/rim thresholds match shaders/projection.ts per projType', () => {
     // ortho(3) + globe(7) cull at the visibility boundary (0.0);
     // azimuthal(4) at -0.85; stereographic(5) at -0.8; flat/cylindrical
