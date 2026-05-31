@@ -37,9 +37,10 @@
 //
 // Allocation algorithm:
 //
-//   1. Free-list lookup: size-bucket map `Map<bucketSize, offset[]>`
-//      where bucketSize is the next-power-of-2 of the request. A
-//      pop() returns a reusable offset. O(1).
+//   1. Free-list lookup: exact-footprint map `Map<align4(size), offset[]>`.
+//      A pop() returns a reusable offset whose physical footprint EXACTLY
+//      matches the request, so writeBuffer can never overrun the neighbour
+//      allocation. O(1).
 //   2. Bump pointer: when no free slot, advance `bumpPtr` by the
 //      aligned size and return the previous bumpPtr. O(1).
 //   3. Overflow check: if `bumpPtr + aligned > capacity`, throw
@@ -47,8 +48,8 @@
 //
 // Free algorithm:
 //
-//   1. Round size up to bucket boundary.
-//   2. Push offset onto the bucket's free list. O(1).
+//   1. Round size up to the 4-byte boundary (align4).
+//   2. Push offset onto that exact-size free list. O(1).
 //   3. Active byte counter decremented. (Used for stats.)
 //
 // Alignment:
@@ -93,7 +94,9 @@ export interface GPUArenaStats {
   freeCount: number
   /** Number of free-list reuse hits (vs bump-pointer extends). */
   reuseHits: number
-  /** Number of distinct bucket sizes currently populated. */
+  /** Number of distinct exact-aligned sizes currently populated in the
+   *  free-list. (Field name kept for API stability — formerly bucket
+   *  count under the power-of-2 scheme.) */
   bucketCount: number
 }
 
@@ -104,15 +107,9 @@ function align4(bytes: number): number {
   return (bytes + (ALIGN - 1)) & ~(ALIGN - 1)
 }
 
-/** Round `bytes` up to the next power-of-2 boundary, minimum 16 B.
- *  Bucket assignment for the free-list. Minimum prevents pathological
- *  fragmentation on tiny allocations (e.g. 4 B index updates). */
-function bucketSize(bytes: number): number {
-  if (bytes <= 16) return 16
-  let p = 16
-  while (p < bytes) p *= 2
-  return p
-}
+// Free-list is keyed by align4(size): reuse only returns a slot whose
+// physical footprint exactly matches the request, so writeBuffer can never
+// overrun the neighbour allocation.
 
 export class GPUArena {
   readonly buffer: GPUBuffer
@@ -122,12 +119,34 @@ export class GPUArena {
   private allocCount = 0
   private freeCount = 0
   private reuseHits = 0
-  /** Free-list keyed by size-bucket (power of 2, min 16 B). The value
-   *  is an array of free offsets in that bucket. LIFO stack semantics
-   *  (push / pop) so recently-freed slots are preferred — improves
-   *  GPU cache locality during steady-state pan / zoom (same offsets
-   *  reused frame after frame). */
+  /** Free-list keyed by EXACT align4(size). The value is a LIFO stack
+   *  of free offsets of that exact aligned footprint. Identical-footprint
+   *  reuse is required for correctness: bump advances by align4(bytes),
+   *  so a freed slot occupies exactly align4(bytes) — reusing it for any
+   *  larger request would overrun the neighbour. LIFO (push / pop)
+   *  preserves GPU-cache locality during steady-state pan / zoom (same
+   *  offsets reused frame after frame). */
   private freeList = new Map<number, number[]>()
+
+  /** Bump high-water mark in bytes. Allocation-free O(1) field read.
+   *  Gates the OOM throw, so this is the TRIGGER signal (overflow
+   *  risk). NOTE: does NOT fall on free() — free() only repopulates
+   *  the free-list — so it is the WRONG signal for the eviction loop. */
+  get usedBytes(): number {
+    return this.bumpPtr
+  }
+  pressure(): number {
+    return this.bumpPtr / this.capacityBytes
+  }
+  /** In-flight bytes (alloc minus free). Allocation-free O(1) field
+   *  read. FALLS on free(), so this is the eviction LOOP-TERMINATION
+   *  signal (the value byte-pressure eviction can actually lower). */
+  get liveUsedBytes(): number {
+    return this.liveBytes
+  }
+  livePressure(): number {
+    return this.liveBytes / this.capacityBytes
+  }
 
   constructor(device: GPUArenaDevice, opts: GPUArenaOptions) {
     this.buffer = device.createBuffer({
@@ -146,12 +165,13 @@ export class GPUArena {
       throw new Error(`GPUArena.alloc: bytes must be positive (got ${bytes})`)
     }
     const aligned = align4(bytes)
-    const bucket = bucketSize(aligned)
 
-    // 1. Try free-list bucket first. Same-size reuse hits ~95 % of
-    //    requests in steady-state (tiles tend to repeat their byte
-    //    lengths within a source-layer at a given zoom).
-    const stack = this.freeList.get(bucket)
+    // 1. Try the exact-footprint free-list first. Reuse keys on the
+    //    exact aligned footprint, so a popped slot is guaranteed to fit
+    //    the request without overrunning its neighbour. Real tiles
+    //    cluster around a few stride-aligned sizes per source-layer at a
+    //    given zoom, so same-size reuse stays high in steady-state.
+    const stack = this.freeList.get(aligned)
     if (stack !== undefined && stack.length > 0) {
       const offset = stack.pop()!
       this.liveBytes += aligned
@@ -162,12 +182,20 @@ export class GPUArena {
 
     // 2. Fall back to bump pointer. Overflow throws — caller is
     //    expected to size the arena for peak load. Auto-grow is
-    //    a Phase 6a.5 follow-up.
+    //    a Phase 6a.5 follow-up. The throw path calls getStats() to
+    //    enrich the diagnostic; this is the cold/failure path only, so
+    //    the one object allocation introduces no per-frame churn and
+    //    lets the crash site distinguish working-set overflow (free~0,
+    //    live~capacity ⇒ raise capacity / byte-aware eviction) from
+    //    fragmentation (free large, live small ⇒ reuse / compaction).
     if (this.bumpPtr + aligned > this.capacityBytes) {
+      const s = this.getStats()
       throw new Error(
         `GPUArena.alloc: out of capacity. Requested ${bytes} (aligned ${aligned}) ` +
         `but only ${this.capacityBytes - this.bumpPtr} bytes remain ` +
         `(capacity ${this.capacityBytes}, bump ${this.bumpPtr}). ` +
+        `live=${s.liveBytes} free=${s.freeBytes} ` +
+        `reuseHits=${s.reuseHits} allocCount=${s.allocCount} freeCount=${s.freeCount}. ` +
         `Increase capacity OR free() unused allocations.`,
       )
     }
@@ -185,17 +213,17 @@ export class GPUArena {
    *  alloc/free symmetrically).
    *
    *  Calling free() with a mismatched `bytes` produces a silent
-   *  fragmentation leak (the slot goes onto the wrong bucket and
-   *  never gets reused at its actual size). Tests pin the
-   *  alloc/free symmetry. */
+   *  fragmentation leak (the slot goes onto the wrong exact-size key
+   *  and never gets reused at its actual size) but can no longer
+   *  corrupt memory — the failure mode degrades from CORRECTNESS to
+   *  fragmentation-only. Tests pin the alloc/free symmetry. */
   free(offset: number, bytes: number): void {
     if (bytes <= 0) return  // silent no-op for caller convenience
     const aligned = align4(bytes)
-    const bucket = bucketSize(aligned)
-    let stack = this.freeList.get(bucket)
+    let stack = this.freeList.get(aligned)
     if (stack === undefined) {
       stack = []
-      this.freeList.set(bucket, stack)
+      this.freeList.set(aligned, stack)
     }
     stack.push(offset)
     this.liveBytes -= aligned
@@ -222,27 +250,51 @@ export class GPUArena {
     this.freeList.clear()
   }
 
-  /** Snapshot of allocator state for diagnostics + tests. */
+  /** O(1) serviceability probe: can a request of `bytes` be satisfied
+   *  RIGHT NOW without eviction? True iff the exact-align4 free-list holds
+   *  a same-footprint slot OR the bump region still has room. Unlike
+   *  `getStats().freeBytes` (a SUM across all distinct exact-align4 size-
+   *  keys), this is exact for a single request: with exact-size keying a
+   *  free-list total of N bytes spread across mismatched footprints does
+   *  NOT mean an align4(bytes) request is serviceable, but a populated
+   *  stack at the matching key (or bump headroom) does. Allocation-free,
+   *  so it is safe on the alloc-fail recovery path. */
+  canServe(bytes: number): boolean {
+    const aligned = align4(bytes)
+    return (this.freeList.get(aligned)?.length ?? 0) > 0
+      || this.bumpPtr + aligned <= this.capacityBytes
+  }
+
+  /** Reclaim the bump region IFF nothing is live. Safe because no
+   *  outstanding offset can point into the reclaimed range — every
+   *  alloc has been freed (liveBytes === 0). This is the only mid-
+   *  session bump-pointer reclaim that is provably correct without
+   *  defragmentation (full compaction stays the deferred Phase 6a.5
+   *  item). Cheap O(1) check; callers invoke after eviction to relieve
+   *  the fragmentation gap free() alone cannot — free() never lowers
+   *  bumpPtr, so across zoom / source-layer a 66 MB bumpPtr stays
+   *  pinned even when liveBytes is low. Returns true if a reclaim
+   *  happened. */
+  reclaimIfDrained(): boolean {
+    if (this.liveBytes === 0 && this.bumpPtr > 0) {
+      this.reset()
+      return true
+    }
+    return false
+  }
+
+  /** Snapshot of allocator state for diagnostics + tests. The
+   *  free-list is now keyed by EXACT align4(size), so freeBytes is
+   *  exact: liveBytes + freeBytes ≤ bumpPtr holds exactly (was only
+   *  an upper bound under the old bucket-space accounting). */
   getStats(): GPUArenaStats {
     let freeBytes = 0
     let bucketCount = 0
-    for (const stack of this.freeList.values()) {
-      if (stack.length === 0) continue
-      bucketCount++
-      // freeBytes is an upper bound — we know the bucket size + count
-      // but not necessarily the original request size of each entry.
-      // Use the bucket size as the storage size (matches the bump
-      // pointer accounting since alloc bumped by aligned ≤ bucketSize).
-      // Note: alloc bumps by `aligned` (e.g. 12 → 12), but the bucket
-      // assignment uses next-pow2 (12 → 16). The free-list operates
-      // in bucket-space so freeBytes reflects bucket-space too.
-      // Live + free WILL NOT equal bumpPtr unless every bytes-arg was
-      // already power-of-2 aligned. That's expected; getStats is
-      // diagnostic.
-      // Iterate keys for the size term.
-    }
     for (const [size, stack] of this.freeList) {
-      if (stack.length > 0) freeBytes += size * stack.length
+      if (stack.length > 0) {
+        bucketCount++
+        freeBytes += size * stack.length
+      }
     }
     return {
       totalAllocatedBytes: this.bumpPtr,
