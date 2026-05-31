@@ -1,10 +1,21 @@
-// Non-Mercator z=0 disc render scale — FAITHFUL flat-path gate.
+// Non-Mercator z=0 disc render scale — FAITHFUL flat-path FRAMING gate.
+//
+// ⚠️ FRAMING-ONLY — GREEN HERE DOES NOT MEAN ORTHO z0 RENDERS. A headed
+// real-GPU screenshot (2026-05-31) proved the flat non-Mercator z0 p0 render is
+// ~100% BLACK (zero map geometry drawn) for BOTH ortho AND azi, and the 2·R cap
+// makes NO pixel difference (cap-on ≡ cap-off, both fully black). So the
+// user-visible z0 bug is a RENDER bug (nothing is drawn at z0 p0 in the flat
+// path), NOT the framing this gate measures. This gate verifies only the MVP
+// disc-span MATH (where a vertex WOULD project); the cap is a correct but
+// not-yet-sufficient prerequisite. Do NOT read a green run as "ortho z0 works".
+// The real fix is whatever makes flat non-merc z0 p0 actually draw the map
+// (tile-select / cull / background at z0). See p2-2.1-z0-disc-probe artifact.
 //
 // Memory project_non_merc_z0_disc_render_fail_2026_05_20: ortho / azi / stereo
 // / oblique at z=0 + pitch=0 were reported to render a small disc (~32%
 // canvas). This gate measures that span through the ACTUAL production flat
-// path so it red-flags the real bug and goes green only when the real fix
-// ships.
+// path so it red-flags the FRAMING regression and goes green only when the
+// framing fix ships (it has — commit fc0fc19d).
 //
 // PRIOR GATE WAS MIS-MEASURING (master-plan 2.1, workflow w8z8we8k4): it fed
 // `mercatorToECEFSphere(lon·π/180·R, 0, 0) − getECEFCenter()` (an ECEF sphere
