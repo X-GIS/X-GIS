@@ -308,7 +308,7 @@ export class Camera {
    *  camera state. centerLon/Lat are the Mercator-inverse of centerX/Y
    *  so existing pan/zoom (which move centerX/Y) recenter the globe. */
   private _globeFrame(canvasWidth: number, canvasHeight: number, dpr: number): { matrix: Float32Array; far: number } {
-    const R = 6378137
+    const R = EARTH_R
     const lon = this.centerX / R * (180 / Math.PI)
     const lat = mercatorYToLat(this.centerY)
     const v = buildGlobeMatrix(
@@ -364,14 +364,13 @@ export class Camera {
    *  legacy `getRTCMatrix` to be rewritten in PR 2b (PR 2c is the first
    *  consumer). */
   getECEFToENURotation(): Float32Array {
-    // Derive the camera lon/lat from the canonical Mercator-metre anchor.
-    // Mirrors the existing inverse-Mercator formula used elsewhere in this
-    // module (e.g. `projection.ts:mercatorYToLatRad`); kept inline so the
-    // helper does not pull in the heavier projection import surface.
-    const EARTH_R = 6378137
+    // Derive the camera lon/lat from the canonical Mercator-metre anchor via
+    // the shared CPU primitives (`EARTH_R`, `mercatorYToLatRad`) so the
+    // radius + inverse-Mercator stay byte-identical to the rest of the
+    // projection module instead of re-inlining them here.
     const RAD2DEG = 180 / Math.PI
     const lon = (this.centerX / EARTH_R) * RAD2DEG
-    const lat = (2 * Math.atan(Math.exp(this.centerY / EARTH_R)) - Math.PI / 2) * RAD2DEG
+    const lat = mercatorYToLatRad(this.centerY) * RAD2DEG
     return ecefToENURotation(lon, lat)
   }
 
@@ -553,11 +552,12 @@ export class Camera {
       }
     }
 
-    // 1. cam_lon, cam_lat from canonical Mercator centerX/centerY.
-    const EARTH_R = 6378137
+    // 1. cam_lon, cam_lat from canonical Mercator centerX/centerY — via the
+    //    shared `EARTH_R` + `mercatorYToLatRad` primitives (byte-identical to
+    //    the prior inline radius + inverse-Mercator formula).
     const RAD2DEG = 180 / Math.PI
     const cam_lon = (this.centerX / EARTH_R) * RAD2DEG
-    const cam_lat = (2 * Math.atan(Math.exp(this.centerY / EARTH_R)) - Math.PI / 2) * RAD2DEG
+    const cam_lat = mercatorYToLatRad(this.centerY) * RAD2DEG
     const cos_lat = Math.cos(cam_lat * Math.PI / 180)
 
     // 2. mpp/altitude in TRUE ENU metres.
@@ -570,7 +570,7 @@ export class Camera {
     //    derived from a 40 Mm cap leaves the disc subtending only
     //    ~33 % of the canvas at z=0 (memory
     //    project_non_merc_z0_disc_render_fail_2026_05_20).
-    const SPHERE_VIEW_HEIGHT_M = 2 * 6378137   // EARTH_R × 2 = sphere diameter
+    const SPHERE_VIEW_HEIGHT_M = 2 * EARTH_R   // sphere diameter
     const mpp_mercator = (WORLD_MERC / TILE_PX) / Math.pow(2, this.zoom)
     const mpp_true = mpp_mercator * cos_lat
     const rawViewHeightTrueM = (canvasHeight / dpr) * mpp_true
@@ -861,7 +861,7 @@ export class Camera {
       this.unprojectToZ0(w, h / 2, w, h, dpr),
       this.unprojectToZ0(w / 2, h / 2, w, h, dpr),
     ]
-    const R = 6378137
+    const R = EARTH_R
     const DEG_PER_M = 180 / Math.PI / R
     let lonMin = Infinity, lonMax = -Infinity
     for (const s of samples) {
@@ -914,7 +914,7 @@ export class Camera {
       // rotated. Not a pixel-exact arcball, but Cesium-style drag-to-
       // rotate; centerX/Y stay Mercator so the rest of the camera and
       // tile selection keep working unchanged.
-      const R = 6378137
+      const R = EARTH_R
       const mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, this.zoom)
       const rb = this.bearing * Math.PI / 180
       const cb = Math.cos(rb), sb = Math.sin(rb)
@@ -998,7 +998,7 @@ export class Camera {
     const before = this.unprojectToZ0(sxDev, syDev, canvasWidth, canvasHeight, dpr)
 
     if (this.projType === 3 && !this.globeMode) {
-      const R = 6378137
+      const R = EARTH_R
       // Only geo-anchor when the fingers are solidly on the visible
       // hemisphere. Near the limb (|q| → R) the orthographic inverse is
       // singular: a sub-pixel screen move maps to a huge lon/lat swing,
