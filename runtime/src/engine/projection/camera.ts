@@ -424,11 +424,12 @@ export class Camera {
     // ever changes shape.
     const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, this.zoom)
     const halfFovRad = (Camera.FOV * Math.PI / 180) / 2
-    // Mirror the WORLD_MERC cap in `_buildRTCMatrix` so this debug
-    // snapshot reports the altitude the production matrix actually
-    // uses (post-fix for project_mercator_z0_pitch_render_2026_05_20).
+    // Mirror the per-projType cap in `_buildRTCMatrix` so this debug
+    // snapshot reports the altitude the production matrix actually uses
+    // (WORLD_MERC for the cylindrical family; 2·EARTH_R for ortho — post-fix
+    // for project_mercator_z0_pitch_render_2026_05_20 + the z0 disc cap).
     const rawViewHeightMeters = (canvasHeight / dpr) * metersPerPixel
-    const viewHeightMeters = Math.min(rawViewHeightMeters, WORLD_MERC)
+    const viewHeightMeters = Math.min(rawViewHeightMeters, flatViewHeightCapM(this.projType, WORLD_MERC))
     const altitude = viewHeightMeters / 2 / Math.tan(halfFovRad)
     return {
       matrix,
@@ -705,7 +706,12 @@ export class Camera {
    *  changes; while the matrix is stable (e.g. across the 49 tile-selector
    *  unproject calls of a single frame) we skip the invert4x4 entirely. */
   getRTCMatrixInverse(canvasWidth: number, canvasHeight: number, dpr: number = 1): Float32Array {
-    this._buildRTCMatrix(canvasWidth, canvasHeight, dpr)
+    // Use the SAME per-projType cap the render path uses (getViewForProjection
+    // → getFrameView) so screen→world unprojection describes the same camera as
+    // the render. Without this, ortho's unproject would use the WORLD_MERC
+    // default while its render uses the 2·EARTH_R cap — a ~π mismatch in
+    // zoomAt/drag (this.projType is set every frame by the render loop).
+    this._buildRTCMatrix(canvasWidth, canvasHeight, dpr, flatViewHeightCapM(this.projType, WORLD_MERC))
     if (this._invDirty) {
       invert4x4(this.rtcMatrix, this.rtcMatrixInv)
       this._invDirty = false

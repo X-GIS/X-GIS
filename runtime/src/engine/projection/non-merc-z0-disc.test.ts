@@ -27,10 +27,13 @@
 // its 2R disc fills only 0.64× the Mercator control in the 40-Mm flat view;
 // azi/stereo/oblique map lon±89.9 to ≥10 Mm and already fill ≥ the control
 // (their visible disc extends past lon±89.9 to the cull rim, so this is a
-// conservative lower bound for them). The 2.1 fix is therefore an
-// ortho-only uniform flat_rel scale (≈ WORLD_MERC/2R ≈ π), NOT a single
-// sphere cap and NOT the per-projType stereographic framing the antipode-
-// extent analysis feared. See .omc/research/p2-2.1-z0-disc-probe-2026-05-31.md.
+// conservative lower bound for them). The 2.1 fix (commit fc0fc19d) is an
+// ortho-only flat MVP VIEW-HEIGHT CAP at 2·EARTH_R (flatViewHeightCapM,
+// projections-table) — NOT a flat_rel scale (a constant scale would over-size
+// ortho ~3× at high zoom; the cap is naturally zoom-gated) and NOT the
+// per-projType stereographic framing the antipode-extent analysis feared. The
+// cap makes ortho's limb (lon±90) land at the canvas edge, ≈ 2× the Mercator
+// control at z0. See .omc/research/p2-2.1-z0-disc-probe-2026-05-31.md.
 
 import { describe, it, expect } from 'vitest'
 import { Camera } from './camera'
@@ -113,12 +116,18 @@ describe('non-Merc z=0 disc render scale (faithful flat path)', () => {
   // canvas at z0 — ortho's lon±90 limb now lands at the canvas edge, ≈ 2× the
   // Mercator control. Naturally zoom-gated: the cap only binds at low zoom, so
   // higher zooms stay byte-identical to the cylindrical projections.
-  it('projType=3 (ortho): flat disc fills ≥ 0.9× the mercator control at z0 p0 [2.1 fixed]', () => {
+  it('projType=3 (ortho): flat disc fills the canvas (≈2× mercator) at z0 p0 [2.1 fixed]', () => {
     const span = flatDiscSpan(3)
     expect(span, 'ortho span null').not.toBeNull()
+    const ratio = span! / mercSpan!
+    // Lower bound: the disc must fill (≥0.9× the control). Upper bound pins the
+    // 2·EARTH_R cap value: the limb lands at the canvas edge ≈2.0× the control;
+    // a cap of EARTH_R (half) would over-fill to ~4× and still pass a one-sided
+    // ≥0.9, so bound it ≤2.5 to catch a wrong cap value, not just "bigger".
     expect(
-      span! / mercSpan!,
-      `ortho disc span ${span!.toFixed(1)}px vs mercator ${mercSpan!.toFixed(1)}px — should fill after the 2R cap`,
+      ratio,
+      `ortho disc span ${span!.toFixed(1)}px vs mercator ${mercSpan!.toFixed(1)}px (ratio ${ratio.toFixed(2)}) — should be ≈2× after the 2R cap`,
     ).toBeGreaterThanOrEqual(0.9)
+    expect(ratio, `ortho ratio ${ratio.toFixed(2)} over-fills — cap value likely wrong`).toBeLessThanOrEqual(2.5)
   })
 })
