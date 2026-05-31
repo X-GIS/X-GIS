@@ -128,14 +128,10 @@ export function promotesToGlobeWhenTilted(projType: number): boolean {
   return r ? !r.isFlat && !r.isGlobe && !r.isCylindrical : false
 }
 
-// ── Pure capability helpers — the table-derived replacements for scattered
-//    `projType === …` branches across the engine. ──
-export const isFlatProj = (projType: number): boolean => PROJECTIONS[projType]?.isFlat ?? false
+// ── Capability accessor used by the flat-vs-ECEF MVP gate (camera /
+//    label-pass / render-loop). Add siblings (isFlatProj / periodicOf /
+//    cullThresholdOf …) here when a real consumer needs them — not before. ──
 export const isGlobeProj = (projType: number): boolean => PROJECTIONS[projType]?.isGlobe ?? false
-export const isCylindricalProj = (projType: number): boolean => PROJECTIONS[projType]?.isCylindrical ?? false
-export const periodicOf = (projType: number): boolean => PROJECTIONS[projType]?.periodic ?? false
-export const cullThresholdOf = (projType: number): number | null => PROJECTIONS[projType]?.cullThreshold ?? null
-export const rimThresholdOf = (projType: number): number | null => PROJECTIONS[projType]?.rimThreshold ?? null
 
 /** Canonical name → projType map. Derived from PROJECTIONS; replaces the
  *  hand-written object literal in render-loop. Unknown names fall back to
