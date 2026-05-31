@@ -62,6 +62,7 @@ import { describe, it, expect } from 'vitest'
 import {
   getProjection,
   mercator,
+  mercatorYToLat,
   type Projection,
 } from './projection'
 import { Camera } from './camera'
@@ -197,15 +198,15 @@ function relToScreen(cam: Camera, rel: [number, number]): [number, number] | nul
   return [sx, sy]
 }
 
-/** The camera's production screen→geographic recovery, as every non-merc
- *  consumer performs it: unproject to the (Mercator) z=0 plane, add the
- *  Mercator camera centre, invert Mercator → lon/lat. projType-blind by
- *  construction — this is the seam the #8 composer fixes. */
+/** The camera's production screen→geographic recovery. After #8 PR-D this is
+ *  the shared `unprojectToLonLat` composer: it unprojects to the projType's
+ *  OWN z=0 plane, then routes through the per-projType inverse to recover TRUE
+ *  lon/lat. For mercator (0) it is exactly the legacy `mercator.inverse(rel +
+ *  centre)`; for the flat non-merc set (1/2/6) it re-adds the projType's own-
+ *  plane centre offset and applies `getProjection(name).inverse`. For the disc
+ *  set (3/4/5) the composer returns null (deferred), so those still fail. */
 function cameraRecoverLonLat(cam: Camera, sx: number, sy: number): [number, number] | null {
-  const rel = cam.unprojectToZ0(sx, sy, G1_W, G1_H, G1_DPR)
-  if (!rel) return null
-  // centerX/centerY are canonical Mercator metres (camera.ts:14-16).
-  return mercator.inverse(rel[0] + cam.centerX, rel[1] + cam.centerY)
+  return cam.unprojectToLonLat(sx, sy, G1_W, G1_H, G1_DPR)
 }
 
 // Camera geographic anchor + a test point offset from it, per projType.
@@ -263,7 +264,7 @@ function g1RoundTripErrorDeg(projType: number, zoom: number, pitch: number): num
 // Geographic round-trip must land within this many degrees of the input.
 const G1_TOL_DEG = 1e-2
 
-describe('G1 — camera screen→geographic round-trip (mercator PASSES, non-merc FAILS today)', () => {
+describe('G1 — camera screen→geographic round-trip (mercator + flat non-merc 1/2/6 PASS via composer; disc 3/4/5 deferred)', () => {
   // projType 0 (mercator): the camera's z=0 plane IS the Mercator plane, so
   // the geographic recovery is exact at every zoom + pitch. Normal `it`.
   for (const zoom of [2, 6, 12]) {
@@ -276,47 +277,61 @@ describe('G1 — camera screen→geographic round-trip (mercator PASSES, non-mer
     }
   }
 
-  // projTypes 1-6: TARGET contract — fails until the `unprojectToLonLat`
-  // composer lands (#8 PR-D). `unprojectToZ0` inverts EVERY projType through
-  // a flat Mercator z=0 plane, so the recovered geographic point is wrong;
-  // ortho-unproject-parity gives FALSE coverage by round-tripping through the
-  // same wrong plane. `it.fails` flips to failing once the composer lands.
-  const NON_MERC: Array<[number, string]> = [
-    [1, 'equirectangular'], [2, 'natural_earth'], [3, 'orthographic'],
-    [4, 'azimuthal_equidistant'], [5, 'stereographic'], [6, 'oblique_mercator'],
+  // projTypes 1/2/6 (flat non-merc set): the #8 PR-D `unprojectToLonLat`
+  // composer routes the camera recovery through the projType's OWN inverse, so
+  // the geographic round-trip is now exact. Flipped from `it.fails` to normal
+  // `it()` (the composer landed). Cylindrical/oblique also exercise pitch>0.
+  const FLAT_NONMERC: Array<[number, string]> = [
+    [1, 'equirectangular'], [2, 'natural_earth'], [6, 'oblique_mercator'],
   ]
-  for (const [projType, name] of NON_MERC) {
-    // Pitch 0 only for the disc set (3/4/5) — they pitch-lock, and an
-    // untilted disc is the case the #8/#9 flat-inverse fix targets (tilted
-    // promotes to globeMode). Cylindrical/oblique also exercise pitch>0.
-    const pitches = (projType === 3 || projType === 4 || projType === 5) ? [0] : [0, 45]
+  for (const [projType, name] of FLAT_NONMERC) {
     for (const zoom of [2, 6]) {
-      for (const pitch of pitches) {
-        it.fails(
-          `projType ${projType} (${name}) z=${zoom} pitch=${pitch}: geographic round-trip ≈ input ` +
-          `[target contract — fails until unprojectToLonLat composer lands (#8 PR-D); ` +
-          `unprojectToZ0 inverts every projType through the same wrong Mercator z=0 plane]`,
-          () => {
-            const err = g1RoundTripErrorDeg(projType, zoom, pitch)
-            expect(err, `${name} round-trip returned null (z=${zoom} p=${pitch})`).not.toBeNull()
-            expect(err!, `${name} geographic drift ${err}° (z=${zoom} p=${pitch})`).toBeLessThan(G1_TOL_DEG)
-          },
-        )
+      for (const pitch of [0, 45]) {
+        it(`projType ${projType} (${name}) z=${zoom} pitch=${pitch}: geographic round-trip ≈ input`, () => {
+          const err = g1RoundTripErrorDeg(projType, zoom, pitch)
+          expect(err, `${name} round-trip returned null (z=${zoom} p=${pitch})`).not.toBeNull()
+          expect(err!, `${name} geographic drift ${err}° (z=${zoom} p=${pitch})`).toBeLessThan(G1_TOL_DEG)
+        })
       }
     }
   }
 
-  // Quantified evidence of the gap (not gated — informational). Pins the
-  // observed magnitude so a reviewer sees the defect is real and large, not
-  // a rounding wobble. equirect: latitude error grows toward the poles.
-  it('non-merc geographic gap is LARGE, not a rounding wobble (informational)', () => {
+  // projTypes 3/4/5 (azimuthal disc set): STILL TARGET contract — out of #8
+  // scope (limb singularity + zoom-feel; deferred to #9). `unprojectToLonLat`
+  // returns null for these, so `cameraRecoverLonLat` yields null and the body
+  // throws → `it.fails` stays GREEN. They pitch-lock, so only pitch 0 (tilted
+  // promotes to globeMode).
+  const DISC: Array<[number, string]> = [
+    [3, 'orthographic'], [4, 'azimuthal_equidistant'], [5, 'stereographic'],
+  ]
+  for (const [projType, name] of DISC) {
+    for (const zoom of [2, 6]) {
+      it.fails(
+        `projType ${projType} (${name}) z=${zoom} pitch=0: geographic round-trip ≈ input ` +
+        `[target contract — disc inverse deferred to #9; unprojectToLonLat returns ` +
+        `null for the azimuthal set (limb singularity + zoom-feel)]`,
+        () => {
+          const err = g1RoundTripErrorDeg(projType, zoom, 0)
+          expect(err, `${name} round-trip returned null (z=${zoom} p=0)`).not.toBeNull()
+          expect(err!, `${name} geographic drift ${err}° (z=${zoom} p=0)`).toBeLessThan(G1_TOL_DEG)
+        },
+      )
+    }
+  }
+
+  // Quantified evidence (not gated — informational). The #8 composer ELIMINATES
+  // the flat non-merc gap: equirect now round-trips to ~0° (was ≈6.4°). The
+  // disc set (3/4/5) is still unsupported (composer returns null → recovery
+  // null), documenting that the remaining gap is the #9 disc inverse.
+  it('flat non-merc gap is now ~0 after composer; disc set still unsupported (informational)', () => {
     const eqErr = g1RoundTripErrorDeg(1, 6, 0)
     expect(eqErr).not.toBeNull()
-    // Observed ≈ 6.4° latitude error for the (20,40)→(35,60) pair: the
-    // camera labels the equirect plane "Mercator", so the linear-lat point
-    // recovers at the Mercator-log latitude. Pin a generous floor so this
-    // documents the defect without being brittle.
-    expect(eqErr!, `equirect geographic gap ${eqErr}° — expected ≫ tolerance`).toBeGreaterThan(1)
+    // Was ≈6.4° latitude error for the (20,40)→(35,60) pair through the wrong
+    // Mercator plane; the composer recovers the equirect plane exactly.
+    expect(eqErr!, `equirect geographic gap ${eqErr}° — expected ≈0 after composer`).toBeLessThan(G1_TOL_DEG)
+    // Disc set: the composer does not handle it, so recovery is null.
+    const orthoErr = g1RoundTripErrorDeg(3, 6, 0)
+    expect(orthoErr, 'ortho recovery should be null (composer out of scope for disc)').toBeNull()
   })
 })
 
@@ -388,4 +403,140 @@ describe('G6 — globe tile-rim sphere-forward vs ellipsoid-render parity', () =
       expect(d, `lat=${lat} gap ${(d / 1000).toFixed(1)} km — expected 18-26 km`).toBeLessThan(26_000)
     }
   })
+})
+
+// ════════════════════════════════════════════════════════════════════════
+// G1b — streamed-pinch zoom-anchor convergence (MEDIUM robustness lock).
+//
+// G1 proves a SINGLE `unprojectToLonLat` recovery is geographically exact for
+// the flat non-merc set (1/2/6). It does NOT exercise the COMPOUNDING fixed-
+// point iteration inside `zoomAt`: a real pinch streams many tiny zoom deltas,
+// and the camera's central meridian RIDES centerX/Y, so each step re-centres
+// the whole flat frame and the geo-anchor must re-converge every step. The
+// review flagged the worst case: a stream NEAR the ±85.051129° Mercator clamp,
+// where the clat clamp inside `_relToLonLat`/`unprojectToLonLat` could poison
+// the iteration's convergence (the recovered centre stops tracking centerY).
+//
+// This gate streams N successive `zoomAt` steps at a FIXED cursor offset and
+// asserts the geographic point under the cursor stays put to a tight CUMULATIVE
+// pixel budget across the WHOLE stream — at mid latitude (control), high
+// latitude (84.9°), and right at the clamp (85.0°, centerY near max camera Y).
+// A regression in the zoomAt 1/2/6 branch (e.g. dropping the iteration, or the
+// clamp poisoning convergence) makes the anchor slide and this fails.
+//
+// FINDING (PR-D-1 review follow-up): the existing fixed-point loop ALREADY
+// converges to drift = 0.000 px at and beside the clamp, so NO code fix to
+// `zoomAt` was needed — this is a pure regression LOCK. The clat clamp inside
+// `_relToLonLat` does NOT poison convergence (the reviewer's hypothesised
+// failure mode does not occur). The only genuine high-lat constraint is the
+// `maxCameraY` viewport clamp (camera.ts:900), which is SHARED with mercator
+// (projType 0) and legitimately caps how close the centre may sit to the pole;
+// the start zoom is chosen so that clamp permits the near-clamp centre, isolating
+// the iteration's behaviour rather than the viewport limit.
+// ════════════════════════════════════════════════════════════════════════
+
+const RAD2DEG_G1B = 180 / Math.PI
+const EARTH_R_G1B = 6378137
+
+/** The camera's CURRENT centre lon/lat, reconstructed exactly as the render
+ *  path + `_relToLonLat` do: clon = centerX/R·RAD2DEG, clat = mercatorYToLat
+ *  clamped to ±MERCATOR_LAT_LIMIT. Lets us rebuild the live render `flat_rel`
+ *  feed after the camera has moved. */
+function camCentreLonLat(cam: Camera): [number, number] {
+  const clon = (cam.centerX / EARTH_R_G1B) * RAD2DEG_G1B
+  const lat = mercatorYToLat(cam.centerY)
+  const clat = Math.max(-85.051129, Math.min(85.051129, lat))
+  return [clon, clat]
+}
+
+/** Project a geographic lon/lat to a device-pixel screen coord through the
+ *  camera's LIVE render MVP — mirrors the GPU flat_rel = proj.forward(pt) −
+ *  proj.forward(camCentre) feed, using the camera's current centre. Returns
+ *  null if culled / behind camera. */
+function geoToScreen(cam: Camera, lon: number, lat: number): [number, number] | null {
+  const [clon, clat] = camCentreLonLat(cam)
+  const proj = projForType(cam.projType, clon, clat)
+  const [px, py] = proj.forward(lon, lat)
+  const [cx, cy] = proj.forward(clon, clat)
+  if (![px, py, cx, cy].every(Number.isFinite)) return null
+  return relToScreen(cam, [px - cx, py - cy])
+}
+
+describe('G1b — flat non-merc 1/2/6 streamed-pinch zoom-anchor convergence (MEDIUM lock)', () => {
+  // Cumulative under-cursor drift across the WHOLE stream must stay sub-pixel.
+  const G1B_PX_BUDGET = 1.0
+  const STREAM_STEPS = 20
+  // Per-step zoom delta — a realistic pinch increment (~+0.04 zoom/step), so
+  // 20 steps walk a full +0.8 zoom while keeping each step small (the regime
+  // where the fixed-point geo-anchor matters most).
+  const STREAM_DELTA = 0.04
+
+  const FLAT_NONMERC_G1B: Array<[number, string]> = [
+    [1, 'equirectangular'], [2, 'natural_earth'], [6, 'oblique_mercator'],
+  ]
+
+  // Camera centre latitudes: a MID-LATITUDE control, a HIGH-latitude case, and
+  // a NEAR-CLAMP case sitting right at the ±85.051129° Mercator limit (centerY
+  // ≈ max camera Y) — the regime the reviewer flagged.
+  const CENTRE_LATS: Array<[number, string]> = [
+    [40, 'mid-lat (control)'],
+    [84.9, 'high-lat'],
+    [85.0, 'near-clamp'],
+  ]
+
+  // Cursor offset from screen centre — far enough that a wrong-scale or non-
+  // converged anchor slides visibly, but well inside the canvas. The Y offset
+  // is BELOW centre (screen-Y down = lower latitude in the flat frame) so the
+  // anchored geographic point stays at a latitude ≤ the centre latitude — i.e.
+  // INSIDE the ±85.051129° Mercator-representable band even when the centre is
+  // pinned at the clamp. Anchoring a point ABOVE the clamp is physically
+  // impossible in a Mercator-centre camera (its centerY saturates), so that
+  // would test the clamp's hard limit, not the iteration's convergence.
+  const CURSOR_X = G1_W * 0.5 + 180
+  const CURSOR_Y = G1_H * 0.5 + 120
+
+  /** Stream `STREAM_STEPS` zoomAt calls at the fixed cursor and return the
+   *  cumulative under-cursor pixel drift (where the originally-under-cursor
+   *  geographic point ends up on screen vs the cursor itself), or null if the
+   *  recovery is unavailable at any sampled step. */
+  function streamedPinchDriftPx(projType: number, centreLat: number, startZoom: number): number | null {
+    const cam = new Camera(G1_CAM_LON, centreLat, startZoom)
+    cam.projType = projType
+    cam.globeMode = false
+    cam.bearing = 0
+    cam.pitch = 0
+
+    // Geographic point under the cursor BEFORE any zoom.
+    const g0 = cam.unprojectToLonLat(CURSOR_X, CURSOR_Y, G1_W, G1_H, G1_DPR)
+    if (!g0) return null
+
+    for (let s = 0; s < STREAM_STEPS; s++) {
+      cam.zoomAt(STREAM_DELTA, CURSOR_X, CURSOR_Y, G1_W, G1_H)
+    }
+
+    // Where does that ORIGINAL geographic point now sit on screen? The anchor
+    // contract says it must still be under the cursor.
+    const screen = geoToScreen(cam, g0[0], g0[1])
+    if (!screen) return null
+    return Math.hypot(screen[0] - CURSOR_X, screen[1] - CURSOR_Y)
+  }
+
+  for (const [projType, name] of FLAT_NONMERC_G1B) {
+    for (const [centreLat, latLabel] of CENTRE_LATS) {
+      it(`projType ${projType} (${name}) ${latLabel}: ${STREAM_STEPS}-step streamed pinch keeps the under-cursor point < ${G1B_PX_BUDGET}px`, () => {
+        // z9 start: high enough that `maxCameraY` (camera.ts:900 — caps the
+        // centre so the Mercator pole edge stays off-screen) PERMITS a centre at
+        // the near-clamp latitude (85.0°) throughout the stream. At a lower zoom
+        // the viewport clamp legitimately pulls the centre away from the pole
+        // (shared with mercator projType 0 — NOT a 1/2/6 branch effect), which
+        // would mask the iteration-convergence behaviour this gate isolates.
+        const drift = streamedPinchDriftPx(projType, centreLat, 9)
+        expect(drift, `${name} ${latLabel}: streamed-pinch recovery returned null`).not.toBeNull()
+        expect(
+          drift!,
+          `${name} ${latLabel}: cumulative under-cursor drift ${drift!.toFixed(4)}px over ${STREAM_STEPS} steps (budget ${G1B_PX_BUDGET}px)`,
+        ).toBeLessThan(G1B_PX_BUDGET)
+      })
+    }
+  }
 })
