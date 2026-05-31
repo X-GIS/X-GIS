@@ -45,6 +45,12 @@ jobs:
   #                           the TS mirror. Pure compute runs under
   #                           SwiftShader; its weaker transcendentals just
   #                           need the spec's software-GPU tolerance.
+  #   - _wgsl-compile-gate  : createShaderModule()s every emitted shader
+  #                           variant (polygon base, line/point/raster/icon/
+  #                           overdraw/text) and asserts zero WGSL compile
+  #                           errors. Compilation needs no raster, so it runs
+  #                           under SwiftShader too — catches a variant that
+  #                           emits a string the GPU compiler rejects.
   # NOT here, by evidence from earlier runs:
   #   - _projection-coverage : needs the full engine (render pipelines) to
   #                            initialise; SwiftShader can't, so cells time
@@ -76,4 +82,4 @@ jobs:
         env:
           XGIS_SOFTWARE_GPU: '1'
           HEADED: '0'
-        run: ./node_modules/.bin/playwright test _shader-math-parity.spec.ts
+        run: ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts
