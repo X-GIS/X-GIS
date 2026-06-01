@@ -23,7 +23,7 @@
 import {
   entryFn, fn, module, bindingRef, constRef, callFn,
   f32, u32, vec2, vec2u, vec3, vec4, toF32, toU32, transformMat4, clamp, select,
-  abs, fract, max, min, mix, pow, sqrt, dot, log, tan, textureSample,
+  abs, fract, max, min, mix, pow, sqrt, dot, log, tan, floor, textureSample,
   f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, vec4uT, mat4x4fT, texture2dfT, samplerT,
   structT,
   Node, Builder, arrayT,
@@ -243,12 +243,31 @@ const emitPolygonProjectionLadder = (
   const { projParamsV, mvp, absLon, absLat, ecefRtc, clip, extruded, isTop, wallHeight } = args
   const deg2rad = constRef('DEG2RAD')
   const earthR = constRef('EARTH_R')
+  const pi = constRef('PI')
   b.if(projParamsV.x.lt(0.5), (c) => {
     const p2d = c.let('p2d', callFn('project', vec2fT, absLon, absLat, projParamsV))
     const rel2d = c.let('rel2d',
       p2d.sub(u.field('tile_origin_merc', vec2fT)).sub(u.field('cam_h', vec2fT)).sub(u.field('cam_l', vec2fT)))
+    // World-copy offset (world-copy fill-gap fix): project() returns the
+    // PRIMARY-world absolute X (abs_lon ∈ [−180,180], worldOff-blind), and
+    // tile_origin_merc carries (tileWest+worldOff)·DEG2RAD·R while cam_h+cam_l
+    // = camMercX − tileMercX, so the (tileWest+worldOff) terms CANCEL in rel2d
+    // — every world copy collapses onto the primary world (left-half wo≠-1
+    // fills/bg vanish). Re-add the per-copy shift the non-Mercator sibling
+    // already applies (flat_rel → project_geom world_off_m): recover the
+    // tile's true copy index from its displayed centre lon and add
+    // wo·2π·EARTH_R. Camera-independent (the worldOff baked into
+    // tile_origin_merc is an exact 360° multiple, so floor((ref+180)/360) is
+    // the true copy index for any clon incl. the ±180 antimeridian) and
+    // wo=0 ⇒ +0 for single-copy city views (byte-identical fill).
+    const tileRefLon = c.let('tile_ref_lon',
+      u.field('tile_origin_merc', vec2fT).x
+        .add(f32(0.5).mul(u.field('tile_extent_m', f32T)))
+        .div(deg2rad.mul(earthR)))
+    const wo = c.let('wo', floor(tileRefLon.add(180).div(360)))
+    const worldOffM = c.let('world_off_m', wo.mul(2).mul(pi).mul(earthR))
     const z = extruded ? c.let('z_plane', wallHeight!.mul(isTop!)) : f32(0)
-    c.assign(clip, transformMat4(mvp, vec4(rel2d.x, rel2d.y, z, f32(1))))
+    c.assign(clip, transformMat4(mvp, vec4(rel2d.x.add(worldOffM), rel2d.y, z, f32(1))))
   }).elif(projParamsV.x.lt(6.5), (c) => {
     const tileRefLon = c.let('tile_ref_lon',
       u.field('tile_origin_merc', vec2fT).x
