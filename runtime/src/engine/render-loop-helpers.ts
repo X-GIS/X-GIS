@@ -8,6 +8,7 @@ import type { LabelDef } from '@xgis/compiler'
 import { resolveNumberShape, resolveColorShape, resolveSteppedShape } from './render/paint-shape-resolve'
 import { hexToRgba } from './feature-helpers'
 import { lonLatToECEF } from './projection/ecef'
+import { EARTH_R } from './projection/globe'
 import { mercatorYToLat } from './projection/projection'
 import { projectCpu, projectGeomCpu, needsBackfaceCullCpu, projMercatorCpu } from './shader-dsl/shaders/cpu-projections'
 import { WORLD_MERC } from './gpu/gpu-shared'
@@ -242,6 +243,11 @@ export function makeLabelProjectors(
     centerLat: number
     visibleWorldCopies: number[]
   },
+  // Absolute sphere-ECEF camera position (GlobeView.eye). Used ONLY by the
+  // `!flat` (globe/ECEF) branch to back-face/horizon-cull far-hemisphere
+  // anchors so labels behind the globe don't render through it. Ignored on the
+  // flat path (which keeps its own needsBackfaceCullCpu rim gate).
+  eye?: [number, number, number],
 ): {
   projectMerc: (mx: number, my: number, worldMercatorOffset?: number) => [number, number] | null
   projectLonLat: (lon: number, lat: number, worldMercatorOffset?: number) => [number, number] | null
@@ -256,6 +262,23 @@ export function makeLabelProjectors(
 
     const projectLonLat = (lon: number, lat: number): [number, number] | null => {
       const e = lonLatToECEF(lon, lat)
+      // Horizon / back-face cull (mirrors the globe TILE selector, globe.ts:
+      // 409-412). A surface point faces the eye iff
+      //   dot(normalize(e), normalize(eye)) > EARTH_R / |eye|.
+      // Multiplying both sides by |e|·|eye| (both positive) the |eye| cancels:
+      //   dot(e, eye) > EARTH_R · |e|        ← visible
+      //   dot(e, eye) <= EARTH_R · |e|       ← far hemisphere → cull
+      // EARTH_R is imported from the SAME module the tile cull uses, so labels
+      // vanish at EXACTLY the tile horizon. `eye` is absolute sphere coords and
+      // `e` is the ellipsoid lonLatToECEF point; the ≤~0.19° geodetic-vs-
+      // geocentric direction difference is negligible for a horizon test, so
+      // normalize(e) is used directly (no frame conversion — match the sphere
+      // model the tile cull uses).
+      if (eye) {
+        const eLen = Math.hypot(e[0], e[1], e[2])
+        const dotEEye = e[0] * eye[0] + e[1] * eye[1] + e[2] * eye[2]
+        if (dotEEye <= EARTH_R * eLen) return null
+      }
       const cw = mvp[3]! * e[0] + mvp[7]! * e[1] + mvp[11]! * e[2] + mvp[15]!
       if (cw <= 0) return null
       const ndcX = (mvp[0]! * e[0] + mvp[4]! * e[1] + mvp[8]! * e[2] + mvp[12]!) / cw
