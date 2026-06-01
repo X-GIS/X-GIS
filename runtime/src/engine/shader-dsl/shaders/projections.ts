@@ -281,7 +281,21 @@ const project_geom = fn('project_geom', { lon_deg: f32T, lat_deg: f32T, proj_par
     const world_off_m = bb.let('world_off_m', wo.mul(2).mul(PI).mul(EARTH_R))
     const p = bb.var('p', vec2fT)
     bb.if(t.lt(1.5), (c) => { c.assign(p, callFn('proj_equirectangular_d', vec2fT, d, lat_deg)) })
-      .else((c) => { c.assign(p, callFn('proj_natural_earth_d', vec2fT, d, lat_deg)) })
+      .else((c) => {
+        // NE-lobe wrap (antimeridian black-wedge fix): proj_natural_earth_d's
+        // 6th-order polynomial is valid ONLY for d ∈ [−180,180]; an out-of-lobe
+        // d (e.g. −360 when the camera sits on the antimeridian and a world-copy
+        // references clon≈0) returns a NONLINEAR wrong-region x that
+        // world_off_m cannot cancel → the mesh folds and leaves the
+        // camera-facing oval centre uncovered (black). Fold d into one lobe
+        // (dw) before the forward and push the 360°-steps (k) into the world
+        // offset. Equirect is LINEAR so its out-of-range d is exactly absorbed
+        // by world_off_m — it keeps the shared d path (byte-identical WGSL).
+        const dw = c.let('dw', callFn('wrap_lon_delta', f32T, d))
+        const k = c.let('k', floor(d.sub(dw).div(360).add(0.5)))
+        c.assign(p, callFn('proj_natural_earth_d', vec2fT, dw, lat_deg))
+        c.assign(p.x, p.x.add(k.mul(2).mul(PI).mul(EARTH_R)))
+      })
     bb.assign(p.x, p.x.add(world_off_m))
     bb.ret(p)
   })
@@ -321,7 +335,26 @@ const project_geom_cpu = fn('project_geom_cpu', { lon_deg: f32T, lat_deg: f32T, 
     const lon_rel_ref = bb.let('lon_rel_ref', callFn('unwrap_lon_near_keep', f32T, lon_deg.sub(ref_lon), f32(0), sign(lon_deg)))
     const d = bb.let('d', lon_rel_ref.add(ref_d))
     bb.if(t.lt(1.5), (c) => { c.ret(callFn('proj_equirectangular_d', vec2fT, d, lat_deg)) })
-      .else((c) => { c.ret(callFn('proj_natural_earth_d', vec2fT, d, lat_deg)) })
+      .else((c) => {
+        // NE-lobe wrap — CPU mirror of the GPU project_geom black-wedge fix.
+        // proj_natural_earth_d is a polynomial valid only for d ∈ [−180,180];
+        // fold d into one lobe (dw) before the forward, then re-add the
+        // 360°-steps (k) as the lobe offset. The k·2πR term is the SAME lobe
+        // step the GPU world_off_m carries — it is NOT the omitted world-copy
+        // (wo) offset, but the per-vertex correction that keeps a seam-
+        // straddling tile contiguous when the raster consumer telescopes
+        // project_geom(v) − project_geom(SW). Without it wrap_lon_delta would
+        // hard-fold every vertex back to clon±180, erasing project_geom's
+        // seam-awareness (a tile crossing ±180 would tear). Label anchors call
+        // with ref_lon = the anchor's own lon, so d is in-lobe (k = 0) and the
+        // term vanishes — no whole-world jump near ±180. No-op for in-range d;
+        // equirect is linear and keeps the shared d path.
+        const dw = c.let('dw', callFn('wrap_lon_delta', f32T, d))
+        const k = c.let('k', floor(d.sub(dw).div(360).add(0.5)))
+        const p = c.var('p', vec2fT, callFn('proj_natural_earth_d', vec2fT, dw, lat_deg))
+        c.assign(p.x, p.x.add(k.mul(2).mul(PI).mul(EARTH_R)))
+        c.ret(p)
+      })
   })
   b.if(t.gt(5.5), (bb) => {
     const r = bb.let('r', callFn('oblique_rot', vec2fT, lon_deg, lat_deg, clon, clat))

@@ -1,4 +1,4 @@
-// baseline: 3a49daa92e5855499ea4c2967177b7cb7ba16d99
+// baseline: 245f8b35ded3212d775cc9cb0aee949d5640b7f5
 // fixture: syn-featdata
 // variant.key: syn-featdata
 // pick: false
@@ -185,7 +185,10 @@ fn project_geom(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>, ref_lon: f32
     if ((t < 1.5)) {
       p = proj_equirectangular_d(d, lat_deg);
     } else {
-      p = proj_natural_earth_d(d, lat_deg);
+      let dw = wrap_lon_delta(d);
+      let k = floor((((d - dw) / 360.0) + 0.5));
+      p = proj_natural_earth_d(dw, lat_deg);
+      p.x = (p.x + (((k * 2.0) * PI) * EARTH_R));
     }
     p.x = (p.x + world_off_m);
     return p;
