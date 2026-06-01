@@ -1,4 +1,4 @@
-// baseline: 245f8b35ded3212d775cc9cb0aee949d5640b7f5
+// baseline: 52d609c7f8c5c5475ce2d6c34e3981ab4ed03261
 // fixture: liberty-zoom-interp
 // variant.key: liberty-zoom-interp
 // pick: false
@@ -352,7 +352,10 @@ fn vs_main(@location(0) pos_h: vec3<f32>, @location(1) pos_l: vec3<f32>, @locati
   if ((u.proj_params.x < 0.5)) {
     let p2d = project(abs_lon, abs_lat, u.proj_params);
     let rel2d = (((p2d - u.tile_origin_merc) - u.cam_h) - u.cam_l);
-    clip = (u.mvp * vec4<f32>(rel2d.x, rel2d.y, 0.0, 1.0));
+    let tile_ref_lon = ((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R));
+    let wo = floor(((tile_ref_lon + 180.0) / 360.0));
+    let world_off_m = (((wo * 2.0) * PI) * EARTH_R);
+    clip = (u.mvp * vec4<f32>((rel2d.x + world_off_m), rel2d.y, 0.0, 1.0));
   } else if ((u.proj_params.x < 6.5)) {
     let tile_ref_lon = ((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R));
     let rel2d_geom = flat_rel(abs_lon, abs_lat, u.proj_params, tile_ref_lon);
@@ -388,7 +391,10 @@ fn vs_main_ecef(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u32>, @loca
   if ((u.proj_params.x < 0.5)) {
     let p2d = project(abs_lon, abs_lat, u.proj_params);
     let rel2d = (((p2d - u.tile_origin_merc) - u.cam_h) - u.cam_l);
-    clip = (u.mvp * vec4<f32>(rel2d.x, rel2d.y, 0.0, 1.0));
+    let tile_ref_lon = ((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R));
+    let wo = floor(((tile_ref_lon + 180.0) / 360.0));
+    let world_off_m = (((wo * 2.0) * PI) * EARTH_R);
+    clip = (u.mvp * vec4<f32>((rel2d.x + world_off_m), rel2d.y, 0.0, 1.0));
   } else if ((u.proj_params.x < 6.5)) {
     let tile_ref_lon = ((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R));
     let rel2d_geom = flat_rel(abs_lon, abs_lat, u.proj_params, tile_ref_lon);
@@ -424,8 +430,11 @@ fn vs_main_ecef_extruded(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u3
   if ((u.proj_params.x < 0.5)) {
     let p2d = project(abs_lon, abs_lat, u.proj_params);
     let rel2d = (((p2d - u.tile_origin_merc) - u.cam_h) - u.cam_l);
+    let tile_ref_lon = ((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R));
+    let wo = floor(((tile_ref_lon + 180.0) / 360.0));
+    let world_off_m = (((wo * 2.0) * PI) * EARTH_R);
     let z_plane = (wall_height * is_top);
-    clip = (u.mvp * vec4<f32>(rel2d.x, rel2d.y, z_plane, 1.0));
+    clip = (u.mvp * vec4<f32>((rel2d.x + world_off_m), rel2d.y, z_plane, 1.0));
   } else if ((u.proj_params.x < 6.5)) {
     let tile_ref_lon = ((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R));
     let rel2d_geom = flat_rel(abs_lon, abs_lat, u.proj_params, tile_ref_lon);
