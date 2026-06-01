@@ -1,4 +1,4 @@
-// baseline: 5f8eed16d78b09cc3eeba97eee0c8dfaaeb653df
+// baseline: 3a49daa92e5855499ea4c2967177b7cb7ba16d99
 // fixture: liberty-zoom-interp
 // variant.key: liberty-zoom-interp
 // pick: false
@@ -178,7 +178,8 @@ fn project_geom(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>, ref_lon: f32
     let lon_primary = (lon_deg - (wo * 360.0));
     let ref_primary = (ref_lon - (wo * 360.0));
     let ref_d = wrap_lon_delta((ref_primary - clon));
-    let d = unwrap_lon_near_keep((lon_primary - clon), ref_d, sign(lon_primary));
+    let lon_rel_ref = unwrap_lon_near_keep((lon_primary - ref_primary), 0.0, sign(lon_primary));
+    let d = (lon_rel_ref + ref_d);
     let world_off_m = (((wo * 2.0) * PI) * EARTH_R);
     var p: vec2<f32>;
     if ((t < 1.5)) {
