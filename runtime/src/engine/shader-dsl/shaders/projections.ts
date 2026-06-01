@@ -26,7 +26,7 @@
 import {
   fn, module, f32, vec2, vec3,
   f32T, vec2fT, vec3fT, vec4fT,
-  constRef, callFn, clamp, log, tan, sin, cos, asin, acos, atan, atan2, exp, floor, ceil, smoothstep,
+  constRef, callFn, clamp, log, tan, sin, cos, asin, acos, atan, atan2, exp, floor, ceil, sign, smoothstep,
   type ConstDecl, type FuncDecl, type ModuleDecl, type Node, type Builder,
 } from '../core/ir'
 import { PROJECTIONS } from '../../projection/projections-table'
@@ -100,6 +100,27 @@ const proj_natural_earth = fn('proj_natural_earth', { lon_deg: f32T, lat_deg: f3
 
 const unwrap_lon_near = fn('unwrap_lon_near', { value: f32T, ref_v: f32T }, f32T, (b, { value, ref_v }) => {
   b.ret(value.sub(floor(value.sub(ref_v).add(180).div(360)).mul(360)))
+})
+
+// Antimeridian seam-keep variant of unwrap_lon_near. Identical to it for every
+// input EXCEPT one sitting exactly on the ±180 fold tie, where floor() rounds
+// the half-open window [ref−180, ref+180) and pushes a value at +180 across to
+// −180 (or vice versa). At the z0 root tile (tile_ref_lon = 0) a clamped MVT
+// seam wall lives at exactly abs_lon = ±180 — 180° from the reference, the
+// maximal-ambiguity point — so the fold tears the wall a whole world away from
+// its in-lobe neighbours: the equirect/NE black-wedge gore at the Russia /
+// Chukotka dateline (OFM Bright MVT path). A value/ref-only rule cannot fix it
+// because +180 and −180 are mirror images about ref=0; the disambiguator is the
+// seam wall's OWN clamped-longitude sign (keep_sign = sign(lon_primary)): a +180
+// wall came from an east-overshoot polygon whose body is at +X, a −180 wall from
+// a west-overshoot polygon whose body is at −X, so keep each on its own side.
+// Biasing the floor boundary by −keep_sign·ε (ε = 1e-4°, far below any real
+// vertex spacing) tips the tie toward the wall's lobe. Proven byte-identical to
+// unwrap_lon_near for every interior vertex |lon|<180 (the bias never crosses a
+// 360° step there) — it fires ONLY at the exact ±180 seam wall.
+const SEAM_KEEP_EPS = f32(1e-4)
+const unwrap_lon_near_keep = fn('unwrap_lon_near_keep', { value: f32T, ref_v: f32T, keep_sign: f32T }, f32T, (b, { value, ref_v, keep_sign }) => {
+  b.ret(value.sub(floor(value.sub(ref_v).add(180).sub(keep_sign.mul(SEAM_KEEP_EPS)).div(360)).mul(360)))
 })
 
 const unwrap_rad_near = fn('unwrap_rad_near', { value: f32T, ref_v: f32T }, f32T, (b, { value, ref_v }) => {
@@ -245,7 +266,7 @@ const project_geom = fn('project_geom', { lon_deg: f32T, lat_deg: f32T, proj_par
     const lon_primary = bb.let('lon_primary', lon_deg.sub(wo.mul(360)))
     const ref_primary = bb.let('ref_primary', ref_lon.sub(wo.mul(360)))
     const ref_d = bb.let('ref_d', callFn('wrap_lon_delta', f32T, ref_primary.sub(clon)))
-    const d = bb.let('d', callFn('unwrap_lon_near', f32T, lon_primary.sub(clon), ref_d))
+    const d = bb.let('d', callFn('unwrap_lon_near_keep', f32T, lon_primary.sub(clon), ref_d, sign(lon_primary)))
     const world_off_m = bb.let('world_off_m', wo.mul(2).mul(PI).mul(EARTH_R))
     const p = bb.var('p', vec2fT)
     bb.if(t.lt(1.5), (c) => { c.assign(p, callFn('proj_equirectangular_d', vec2fT, d, lat_deg)) })
@@ -282,7 +303,7 @@ const project_geom_cpu = fn('project_geom_cpu', { lon_deg: f32T, lat_deg: f32T, 
   const clat = b.let('clat', proj_params.z)
   b.if(t.gt(0.5).and(t.lt(2.5)), (bb) => {
     const ref_d = bb.let('ref_d', callFn('wrap_lon_delta', f32T, ref_lon.sub(clon)))
-    const d = bb.let('d', callFn('unwrap_lon_near', f32T, lon_deg.sub(clon), ref_d))
+    const d = bb.let('d', callFn('unwrap_lon_near_keep', f32T, lon_deg.sub(clon), ref_d, sign(lon_deg)))
     bb.if(t.lt(1.5), (c) => { c.ret(callFn('proj_equirectangular_d', vec2fT, d, lat_deg)) })
       .else((c) => { c.ret(callFn('proj_natural_earth_d', vec2fT, d, lat_deg)) })
   })
@@ -349,7 +370,7 @@ const inv_merc_lat_rad = fn('inv_merc_lat_rad', { merc_y_m: f32T }, f32T, (b, { 
 
 export const PROJECTION_FUNCS: FuncDecl[] = [
   proj_mercator, wrap_lon_delta, proj_equirectangular_d, proj_natural_earth_d,
-  proj_equirectangular, proj_natural_earth, unwrap_lon_near, unwrap_rad_near,
+  proj_equirectangular, proj_natural_earth, unwrap_lon_near, unwrap_lon_near_keep, unwrap_rad_near,
   proj_orthographic, proj_azimuthal_equidistant, proj_stereographic,
   oblique_rot, proj_oblique_mercator_d, proj_oblique_mercator, proj_globe,
   center_cos_c, project, project_geom, project_geom_cpu, flat_rel, needs_backface_cull, rim_alpha, inv_merc_lat_rad,

@@ -70,7 +70,7 @@ const BUILTINS: Record<string, Builtin> = {
   sin: map1(Math.sin), cos: map1(Math.cos), tan: map1(Math.tan),
   asin: map1(Math.asin), acos: map1(Math.acos), atan: map1(Math.atan),
   exp: map1(Math.exp), log: map1(Math.log), log2: map1(Math.log2), sqrt: map1(Math.sqrt),
-  floor: map1(Math.floor), ceil: map1(Math.ceil), abs: map1(Math.abs),
+  floor: map1(Math.floor), ceil: map1(Math.ceil), abs: map1(Math.abs), sign: map1(Math.sign),
   atan2: (y, x) => Math.atan2(y as number, x as number),
   min: (a, b) => (isArr(a) || isArr(b) ? applyMinMax(Math.min, a, b) : Math.min(a as number, b as number)),
   max: (a, b) => (isArr(a) || isArr(b) ? applyMinMax(Math.max, a, b) : Math.max(a as number, b as number)),

@@ -6,7 +6,9 @@ import {
 import {
   projMercatorWgsl,
   projEquirectangularWgsl,
+  projEquirectangularDWgsl,
   projNaturalEarthWgsl,
+  projNaturalEarthDWgsl,
   projOrthographicWgsl,
   projAzimuthalEquidistantWgsl,
   projStereographicWgsl,
@@ -16,6 +18,7 @@ import {
   projectWgsl,
   projectGeomWgsl,
   unwrapLonNear,
+  wrapLonDelta,
   needsBackfaceCullWgsl,
 } from '../shader-dsl'
 import { globeForward } from './globe'
@@ -455,6 +458,57 @@ describe('project_geom — antimeridian seam continuity', () => {
       for (const [lon, lat] of sampleGrid()) {
         expect(projectGeomWgsl(projType, lon, lat, 30, 20, 999))
           .toEqual(projectWgsl(projType, lon, lat, 30, 20))
+      }
+    }
+  })
+
+  // ── Antimeridian seam-keep (OFM/MVT black-wedge gore fix) ──
+  // The OFM Bright MVT path clamps each seam tile's buffer overshoot to a
+  // wall of vertices pinned at exactly abs_lon = ±180. At the z0 root tile
+  // tile_ref_lon = 0, so that wall sits 180° from the reference — the maximal
+  // unwrap-ambiguity point — and the floor() fold tears a +180 wall a whole
+  // world away from its +179 in-lobe neighbours: the equirect / natural_earth
+  // black wedge at the Russia/Chukotka dateline. unwrap_lon_near_keep resolves
+  // the tie by the wall's own clamped-longitude sign so each lobe stays whole.
+  it('z0 root tile: a ±180 seam wall stays adjacent to its in-lobe neighbour (no gore)', () => {
+    const DEG = Math.PI / 180, R = 6378137
+    const oneDegM = 1 * DEG * R // ≈ 0.111e6 m — expected wall↔neighbour gap
+    for (const projType of [1 /* equirect */, 2 /* natural_earth */]) {
+      // z0 root tile reference longitude is 0; camera at clon=0.
+      // +180 wall must land next to +179 (east lobe), not a world away.
+      const xPlus179 = projectGeomWgsl(projType, 179, 60, 0, 0, 0)[0]
+      const xPlus180 = projectGeomWgsl(projType, 180, 60, 0, 0, 0)[0]
+      expect(Math.abs(xPlus180 - xPlus179)).toBeLessThan(oneDegM * 1.5)
+      // Symmetric west lobe: −180 wall must stay next to −179, NOT flip to +X.
+      const xMinus179 = projectGeomWgsl(projType, -179, 60, 0, 0, 0)[0]
+      const xMinus180 = projectGeomWgsl(projType, -180, 60, 0, 0, 0)[0]
+      expect(Math.abs(xMinus180 - xMinus179)).toBeLessThan(oneDegM * 1.5)
+      // And the two walls are on opposite sides (no collapse onto one lobe).
+      expect(Math.sign(xPlus180)).toBe(1)
+      expect(Math.sign(xMinus180)).toBe(-1)
+    }
+  })
+
+  it('seam-keep is inert for interior vertices |lon| < 180 (byte-identical fold)', () => {
+    // The keep-sign bias only fires at the exact ±180 tie; every interior
+    // vertex must fold exactly as before across tiles/cameras, so the only
+    // visible change is the seam wall — nothing else can shift.
+    for (const projType of [1, 2]) {
+      for (const refLon of [0, 90, -90, 157.5, -157.5]) {
+        for (const clon of [0, 90, 180, -90]) {
+          for (let lon = -179.5; lon <= 179.5; lon += 7.3) {
+            const keep = projectGeomWgsl(projType, lon, 30, clon, 0, refLon)
+            // Reference fold = unwrap_lon_near (no keep-sign) via wrap math:
+            // recompute d the plain way and project.
+            const refD = wrapLonDelta(refLon - clon)
+            const plainD = unwrapLonNear(lon - clon, refD)
+            const r = projType === 1
+              ? projEquirectangularDWgsl(plainD, 30)
+              : projNaturalEarthDWgsl(plainD, 30)
+            expect(keep[0]).toBeCloseTo(r[0], 6)
+            expect(keep[1]).toBeCloseTo(r[1], 6)
+          }
+        }
       }
     }
   })
