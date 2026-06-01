@@ -24,7 +24,7 @@ import {
   f32, i32, u32, toF32, vec2, vec3, vec4, vec2u, clamp, fract, sign,
   length, dot, min, max, smoothstep, abs, floor, select, textureSample,
   bitcastU32, unpack4x8unorm,
-  sin, cos, atan, exp, sqrt,
+  atan, exp,
   structT, f32T, u32T, i32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   arrayT,
   type Node,
@@ -32,6 +32,7 @@ import {
 } from '../core/ir'
 import { emitModule } from '../core/backends/wgsl'
 import { PROJECTION_WGSL_CONSTS, PROJECTION_WGSL_FNS } from './projections'
+import { ECEF_WGSL_CONSTS, ECEF_WGSL_FNS } from './ecef'
 import { LOG_DEPTH_WGSL_FNS } from './log-depth'
 import {
   SDF_WGSL_DIST_TO_SEGMENT,
@@ -874,21 +875,22 @@ const vsLine = entryFn('vs_line', 'vertex', [
   //
   // Mirrors the polygon ECEF VS (vs_main_ecef) contract: the runtime
   // builds `u.mvp` (ECEF-MVP) once per frame and the per-tile vertices are
-  // RTC-relative to the tile ECEF center. WGS84 constants match
-  // `ecef.ts:lonLatToECEF` byte-for-byte (a = 6378137, e² = 2f − f² for
-  // f = 1/298.257223563). Per-vertex cost: 2 sin + 2 cos + 2 sqrt + 1
-  // tan + 1 exp — modest on modern GPUs and isolated to the line VS.
+  // RTC-relative to the tile ECEF center. The WGS84 forward is the shared
+  // `lonlat_to_ecef` primitive (ecef.ts) — the same one the raster VS calls —
+  // so the constants (WGS84_A / WGS84_E2) live in one place. NB: the shared
+  // WGS84_E2 (0.0066943799901975955) is f32-equal to the former inline literal
+  // (0.006694379990197561) — both truncate to the same f32, so this is not a
+  // precision regression despite the differing source digits. Per-vertex cost:
+  // 2 sin + 2 cos + 1 sqrt (inside lonlat_to_ecef) + 1 tan + 1 exp — modest on
+  // modern GPUs and isolated to the line VS.
 
   const earthR = constRef('EARTH_R')
   const pi = constRef('PI')
-  const wgs84E2 = f32(0.006694379990197561) // 2f − f² for f = 1/298.257223563
 
   // Helper: build local ECEF for an absolute Mercator (x_m, y_m) input.
-  // Returns the WGS84 ellipsoidal ECEF position in metres. Inlined as a
-  // closure-style sequence of `let` bindings to keep the IR flat (DSL
-  // helpers prefer call-site inlining over fn definitions for hot-path
-  // shader math; the polygon ECEF VS pattern at polygon.ts:307-315 is
-  // the same style).
+  // Keeps the inverse-Mercator steps (lon/lat radians) inline, then defers the
+  // WGS84 forward-ECEF tail to the shared `lonlat_to_ecef(lon, lat, height=0)`
+  // primitive — identical to the raster VS path (raster.ts callFn site).
   type FNode = Node<'f32'>
   const ecefFromMerc = (
     builder: typeof b,
@@ -900,18 +902,9 @@ const vsLine = entryFn('vs_line', 'vertex', [
     const latRad = builder.let(`${name}_lat_rad`,
       toF32(f32(2).mul(atan(exp(absMercY.div(earthR)))).sub(pi.div(f32(2)))),
     )
-    const sinLat = builder.let(`${name}_sin_lat`, sin(latRad))
-    const cosLat = builder.let(`${name}_cos_lat`, cos(latRad))
-    const sinLon = builder.let(`${name}_sin_lon`, sin(lonRad))
-    const cosLon = builder.let(`${name}_cos_lon`, cos(lonRad))
-    const N = builder.let(`${name}_N`,
-      toF32(earthR.div(sqrt(f32(1).sub(wgs84E2.mul(sinLat).mul(sinLat))))),
-    )
-    return builder.let(`${name}_ecef`, vec3(
-      N.mul(cosLat).mul(cosLon),
-      N.mul(cosLat).mul(sinLon),
-      N.mul(f32(1).sub(wgs84E2)).mul(sinLat),
-    )) as Node<'vec3<f32>'>
+    return builder.let(`${name}_ecef`,
+      callFn('lonlat_to_ecef', vec3fT, lonRad, latRad, f32(0)),
+    ) as Node<'vec3<f32>'>
   }
 
   // Camera-relative RTC offset (tileEcefCenter − cameraCenter), DSFUN hi+lo,
@@ -1113,6 +1106,8 @@ export const emitLineWgsl = (pickEnabled: boolean): string => [
   PROJECTION_WGSL_CONSTS,
   LOG_DEPTH_WGSL_FNS,
   PROJECTION_WGSL_FNS,
+  ECEF_WGSL_CONSTS,
+  ECEF_WGSL_FNS,
   SDF_WGSL_DIST_TO_SEGMENT,
   SDF_WGSL_DIST_TO_QUADRATIC,
   SDF_WGSL_DIST_TO_CUBIC,

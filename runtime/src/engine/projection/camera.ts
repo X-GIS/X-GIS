@@ -5,9 +5,9 @@ import { mercatorToECEFSphere, ecefToENURotation, type ECEF } from './ecef'
 import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 import { getMaxDpr } from '../gpu/gpu'
 import { computeLogDepthFc } from '../shaders/log-depth'
-import { buildGlobeMatrix } from './globe'
-import { mercatorYToLat, mercatorYToLatRad } from './projection'
-import { isGlobeProj, flatViewHeightCapM } from './projections-table'
+import { buildGlobeMatrix, EARTH_R } from './globe'
+import { mercatorYToLat, mercatorYToLatRad, mercator, getProjection, MERCATOR_LAT_LIMIT } from './projection'
+import { isGlobeProj, flatViewHeightCapM, SELECTOR_PROJ_NAMES } from './projections-table'
 import { invOrthographic, mulVec4, invert4x4, mul4, perspectiveMatrix } from './camera-helpers'
 
 export class Camera {
@@ -308,7 +308,7 @@ export class Camera {
    *  camera state. centerLon/Lat are the Mercator-inverse of centerX/Y
    *  so existing pan/zoom (which move centerX/Y) recenter the globe. */
   private _globeFrame(canvasWidth: number, canvasHeight: number, dpr: number): { matrix: Float32Array; far: number } {
-    const R = 6378137
+    const R = EARTH_R
     const lon = this.centerX / R * (180 / Math.PI)
     const lat = mercatorYToLat(this.centerY)
     const v = buildGlobeMatrix(
@@ -364,14 +364,13 @@ export class Camera {
    *  legacy `getRTCMatrix` to be rewritten in PR 2b (PR 2c is the first
    *  consumer). */
   getECEFToENURotation(): Float32Array {
-    // Derive the camera lon/lat from the canonical Mercator-metre anchor.
-    // Mirrors the existing inverse-Mercator formula used elsewhere in this
-    // module (e.g. `projection.ts:mercatorYToLatRad`); kept inline so the
-    // helper does not pull in the heavier projection import surface.
-    const EARTH_R = 6378137
+    // Derive the camera lon/lat from the canonical Mercator-metre anchor via
+    // the shared CPU primitives (`EARTH_R`, `mercatorYToLatRad`) so the
+    // radius + inverse-Mercator stay byte-identical to the rest of the
+    // projection module instead of re-inlining them here.
     const RAD2DEG = 180 / Math.PI
     const lon = (this.centerX / EARTH_R) * RAD2DEG
-    const lat = (2 * Math.atan(Math.exp(this.centerY / EARTH_R)) - Math.PI / 2) * RAD2DEG
+    const lat = mercatorYToLatRad(this.centerY) * RAD2DEG
     return ecefToENURotation(lon, lat)
   }
 
@@ -553,11 +552,12 @@ export class Camera {
       }
     }
 
-    // 1. cam_lon, cam_lat from canonical Mercator centerX/centerY.
-    const EARTH_R = 6378137
+    // 1. cam_lon, cam_lat from canonical Mercator centerX/centerY — via the
+    //    shared `EARTH_R` + `mercatorYToLatRad` primitives (byte-identical to
+    //    the prior inline radius + inverse-Mercator formula).
     const RAD2DEG = 180 / Math.PI
     const cam_lon = (this.centerX / EARTH_R) * RAD2DEG
-    const cam_lat = (2 * Math.atan(Math.exp(this.centerY / EARTH_R)) - Math.PI / 2) * RAD2DEG
+    const cam_lat = mercatorYToLatRad(this.centerY) * RAD2DEG
     const cos_lat = Math.cos(cam_lat * Math.PI / 180)
 
     // 2. mpp/altitude in TRUE ENU metres.
@@ -570,7 +570,7 @@ export class Camera {
     //    derived from a 40 Mm cap leaves the disc subtending only
     //    ~33 % of the canvas at z=0 (memory
     //    project_non_merc_z0_disc_render_fail_2026_05_20).
-    const SPHERE_VIEW_HEIGHT_M = 2 * 6378137   // EARTH_R × 2 = sphere diameter
+    const SPHERE_VIEW_HEIGHT_M = 2 * EARTH_R   // sphere diameter
     const mpp_mercator = (WORLD_MERC / TILE_PX) / Math.pow(2, this.zoom)
     const mpp_true = mpp_mercator * cos_lat
     const rawViewHeightTrueM = (canvasHeight / dpr) * mpp_true
@@ -742,6 +742,82 @@ export class Camera {
     return [nx + t * (fx - nx), ny + t * (fy - ny)]
   }
 
+  /** Projection-unification step #8 — shared screen→geographic inverse
+   *  composer (PR-D D1). Unprojects a screen pixel to TRUE lon/lat for the
+   *  FLAT projType set, fixing the defect where every projType was inverted
+   *  through a flat Mercator z=0 plane.
+   *
+   *  `unprojectToZ0` returns the projType's OWN projected-plane metres,
+   *  camera-relative (== the shader `flat_rel`, because the flat MVP has no
+   *  camera-centre translate). For mercator that plane IS the Mercator plane,
+   *  so the legacy `rel + centre → mercator.inverse` is exact. For the
+   *  cylindrical/pseudocylindrical/oblique non-merc set (projType 1/2/6) it
+   *  is NOT Mercator metres — applying `mercator.inverse` recovers the wrong
+   *  place on Earth (equirect ~6.4°, NE ~10.6°, oblique ~12.8° error). This
+   *  composer instead re-adds `proj.forward(camLon,camLat)` (the projType's
+   *  own-plane centre offset the shader subtracted) and applies the
+   *  per-projType `getProjection(name).inverse` to recover geographic truth.
+   *
+   *  The camera centre (clon/clat) MUST match the GPU `proj_params.y/z`
+   *  written in render-loop (centerX/Y → lon/lat with the ±85.051129° clamp)
+   *  or the CPU inverse centre diverges from the rendered frame.
+   *
+   *  Returns null for projType 3/4/5 (azimuthal discs — limb singularity,
+   *  deferred) and globe (7) so callers keep their existing behaviour for
+   *  those; returns null when the ray misses the ground plane. */
+  unprojectToLonLat(screenX: number, screenY: number, canvasWidth: number, canvasHeight: number, dpr: number = 1): [number, number] | null {
+    const rel = this.unprojectToZ0(screenX, screenY, canvasWidth, canvasHeight, dpr)
+    if (!rel) return null
+    return this._relToLonLat(rel)
+  }
+
+  /** Unproject a screen pixel to an ABSOLUTE Mercator-metre anchor — the
+   *  drag-anchor space `panToScreenAnchor` consumes (centerX/Y are Mercator).
+   *  For mercator (0) this is the legacy `rel + centre`; for the flat non-merc
+   *  set (1/2/6) it composes through the projType inverse → lon/lat → Mercator
+   *  so the anchor is the TRUE geographic point's Mercator metres (NOT the
+   *  wrong `mercCentre + nonMercRel`). Returns null when the ray misses the
+   *  ground or the projType is out of the flat-merc-composer scope (3/4/5/7),
+   *  letting callers keep their existing behaviour there. */
+  unprojectToMercatorAnchor(screenX: number, screenY: number, canvasWidth: number, canvasHeight: number, dpr: number = 1): [number, number] | null {
+    const rel = this.unprojectToZ0(screenX, screenY, canvasWidth, canvasHeight, dpr)
+    if (!rel) return null
+    if (this.projType === 0) return [rel[0] + this.centerX, rel[1] + this.centerY]
+    if (this.projType !== 1 && this.projType !== 2 && this.projType !== 6) return null
+    const ll = this._relToLonLat(rel)
+    if (!ll) return null
+    return mercator.forward(ll[0], ll[1])
+  }
+
+  /** Compose an already-unprojected z=0-plane rel coordinate (the projType's
+   *  own-plane metres returned by `unprojectToZ0`) into geographic lon/lat.
+   *  Split from `unprojectToLonLat` so a caller holding a rel captured against
+   *  a now-stale MVP (zoomAt's pre-zoom `before`) can recover its lon/lat
+   *  without re-unprojecting against the live (post-zoom) matrix. See
+   *  `unprojectToLonLat` for the per-projType math + scope. */
+  private _relToLonLat(rel: [number, number]): [number, number] | null {
+    const pt = this.projType
+    if (pt === 0) {
+      // Mercator: the camera's z=0 plane IS the Mercator plane (centerX/Y are
+      // canonical Mercator metres) — exact, byte-identical to the legacy path.
+      return mercator.inverse(rel[0] + this.centerX, rel[1] + this.centerY)
+    }
+    // Flat non-merc set only (equirectangular 1 / natural_earth 2 /
+    // oblique_mercator 6). Disc (3/4/5) + globe (7) are out of scope.
+    if (pt !== 1 && pt !== 2 && pt !== 6) return null
+    if (this.globeMode) return null
+    const clon = (this.centerX / EARTH_R) * (180 / Math.PI)
+    // Match render-loop.ts: clamp clat to the Mercator limit so the CPU
+    // inverse centre equals the GPU proj_params.z.
+    const clat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, mercatorYToLat(this.centerY)))
+    const proj = getProjection(SELECTOR_PROJ_NAMES[pt], clon, clat)
+    // `cv` = the own-plane centre the shader subtracted (project(cam), with NO
+    // world offset). For equirect/NE cv.x = 0 (wrap_lon_delta(camLon−clon)=0);
+    // for oblique it is the rotated-frame Mercator of the camera.
+    const cv = proj.forward(clon, clat)
+    return proj.inverse(rel[0] + cv[0], rel[1] + cv[1])
+  }
+
   /** iter-189 — world-copy root fix. Single source of truth for
    *  "which world copies are visible this frame", consumed by every
    *  CPU-projected path (labels, raster tile draw, point markers,
@@ -785,7 +861,7 @@ export class Camera {
       this.unprojectToZ0(w, h / 2, w, h, dpr),
       this.unprojectToZ0(w / 2, h / 2, w, h, dpr),
     ]
-    const R = 6378137
+    const R = EARTH_R
     const DEG_PER_M = 180 / Math.PI / R
     let lonMin = Infinity, lonMax = -Infinity
     for (const s of samples) {
@@ -838,7 +914,7 @@ export class Camera {
       // rotated. Not a pixel-exact arcball, but Cesium-style drag-to-
       // rotate; centerX/Y stay Mercator so the rest of the camera and
       // tile selection keep working unchanged.
-      const R = 6378137
+      const R = EARTH_R
       const mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, this.zoom)
       const rb = this.bearing * Math.PI / 180
       const cb = Math.cos(rb), sb = Math.sin(rb)
@@ -922,7 +998,7 @@ export class Camera {
     const before = this.unprojectToZ0(sxDev, syDev, canvasWidth, canvasHeight, dpr)
 
     if (this.projType === 3 && !this.globeMode) {
-      const R = 6378137
+      const R = EARTH_R
       // Only geo-anchor when the fingers are solidly on the visible
       // hemisphere. Near the limb (|q| → R) the orthographic inverse is
       // singular: a sub-pixel screen move maps to a huge lon/lat swing,
@@ -985,12 +1061,51 @@ export class Camera {
     // plane (high pitch, cursor above horizon) — then leave centre as
     // is, the zoom still applied around (0,0)-relative.
     if (before && after) {
-      this.centerX += before[0] - after[0]
-      this.centerY += before[1] - after[1]
-      // Wrap X to stay within one world width (mirrors pan()).
-      const halfWorld = WORLD_MERC / 2
-      if (this.centerX > halfWorld) this.centerX -= WORLD_MERC
-      else if (this.centerX < -halfWorld) this.centerX += WORLD_MERC
+      if (this.projType === 1 || this.projType === 2 || this.projType === 6) {
+        // Flat non-merc (#8): `before` is the projType's OWN-plane rel metres
+        // (NOT Mercator), so the raw `before−after` Mercator-metre delta is
+        // wrong-scale. Anchor the GEOGRAPHIC point instead: recover the lon/lat
+        // under the cursor BEFORE the zoom (from the pre-zoom `before` rel, via
+        // _relToLonLat which reuses that rel rather than re-unprojecting), then
+        // move the camera so that same geographic point sits under the cursor
+        // again at the new zoom.
+        //
+        // FIXED POINT: the projType's central meridian RIDES the camera centre
+        // (proj_params.y/z = camera lon/lat), so shifting the Mercator centre
+        // re-centres the whole flat frame — a single Mercator-metre shift
+        // leaves a residual that compounds across a streamed pinch (measured
+        // ~33-37 px slide). Iterate: each pass recovers the geographic point now
+        // under the cursor and nudges the Mercator centre by the Mercator-metre
+        // difference to the target `G`; convergence is geometric (a few passes
+        // reach sub-pixel). Bounded iteration keeps it O(1) per zoom step.
+        const beforeGeo = this._relToLonLat(before)
+        if (beforeGeo) {
+          const targetM = mercator.forward(beforeGeo[0], beforeGeo[1])
+          const halfWorld = WORLD_MERC / 2
+          for (let iter = 0; iter < 6; iter++) {
+            const curGeo = this.unprojectToLonLat(sxDev, syDev, canvasWidth, canvasHeight, dpr)
+            if (!curGeo) break
+            const curM = mercator.forward(curGeo[0], curGeo[1])
+            const ddx = targetM[0] - curM[0]
+            const ddy = targetM[1] - curM[1]
+            this.centerX += ddx
+            this.centerY += ddy
+            if (this.centerX > halfWorld) this.centerX -= WORLD_MERC
+            else if (this.centerX < -halfWorld) this.centerX += WORLD_MERC
+            // Converged: the geographic point is within ~0.1 m of target.
+            if (Math.abs(ddx) < 0.1 && Math.abs(ddy) < 0.1) break
+          }
+        }
+      } else {
+        // Mercator (0) + deferred disc 4/5: raw Mercator-metre delta (exact
+        // for 0; unchanged-wrong for 4/5, still it.fails in G1).
+        this.centerX += before[0] - after[0]
+        this.centerY += before[1] - after[1]
+        // Wrap X to stay within one world width (mirrors pan()).
+        const halfWorld = WORLD_MERC / 2
+        if (this.centerX > halfWorld) this.centerX -= WORLD_MERC
+        else if (this.centerX < -halfWorld) this.centerX += WORLD_MERC
+      }
     }
 
     // Clamp after zoom: visible area changes with zoom level.
@@ -1027,8 +1142,22 @@ export class Camera {
     const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
     const cur = this.unprojectToZ0(cursorX * dpr, cursorY * dpr, canvasWidth, canvasHeight, dpr)
     if (!cur) return // ray missed ground (above horizon) — leave camera as-is
-    this.centerX = anchorWorldX - cur[0]
-    this.centerY = anchorWorldY - cur[1]
+    if (this.projType === 1 || this.projType === 2 || this.projType === 6) {
+      // Flat non-merc (#8): `cur` is the projType's OWN-plane rel metres, NOT
+      // Mercator. `anchorWorldX/Y` is canonical Mercator metres (the geographic
+      // anchor the controller forwarded through mercator), so subtract in the
+      // SAME space — recover the cursor's geographic point and forward it to
+      // Mercator metres before differencing. Guarded so 0/3/4/5/7 keep the raw
+      // Mercator-metre subtraction byte-identical.
+      const ll = this._relToLonLat(cur)
+      if (!ll) return
+      const mc = mercator.forward(ll[0], ll[1])
+      this.centerX = anchorWorldX - mc[0]
+      this.centerY = anchorWorldY - mc[1]
+    } else {
+      this.centerX = anchorWorldX - cur[0]
+      this.centerY = anchorWorldY - cur[1]
+    }
     const halfWorld = WORLD_MERC / 2
     if (this.centerX > halfWorld) this.centerX -= WORLD_MERC
     else if (this.centerX < -halfWorld) this.centerX += WORLD_MERC

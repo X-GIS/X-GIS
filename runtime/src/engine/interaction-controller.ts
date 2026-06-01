@@ -235,6 +235,15 @@ export class InteractionController {
     const px = (clientX - rect.left) * (canvas.width / rect.width)
     const py = (clientY - rect.top) * (canvas.height / rect.height)
     const dpr = canvas.clientWidth > 0 ? canvas.width / canvas.clientWidth : 1
+    // Flat non-merc set (#8: equirectangular 1 / natural_earth 2 /
+    // oblique_mercator 6) is now invertible via the shared camera composer,
+    // which recovers TRUE geographic lon/lat (not the wrong flat-Mercator
+    // interpretation). Disc (3/4/5) + globe (7) stay unsupported (return null)
+    // pending the ray↔surface inverse (#10/#11).
+    const pt = this.camera.projType
+    if (pt === 1 || pt === 2 || pt === 6) {
+      return this.camera.unprojectToLonLat(px, py, canvas.width, canvas.height, dpr)
+    }
     const rtc = this.camera.unprojectToZ0(px, py, canvas.width, canvas.height, dpr)
     if (!rtc) return null
     // RTC coords are camera-relative meters in projection space. For

@@ -3,27 +3,34 @@
 //
 // Replaces `BackgroundRenderer` (deleted in PR 2c.3.B). The backend
 // serves a single z=0 tile carrying a 32x16 lat/lon mesh projected to
-// spherical ECEF metres, packed in the same DSFUN stride-9 layout the
-// polygon VS (`vs_main_ecef`) consumes. XGISMap.run() auto-attaches
+// WGS84-ellipsoid ECEF metres (via the shared tiler kernel), packed in
+// the same DSFUN quantized layout the polygon VS (`vs_main_ecef`)
+// consumes — so the bg ground shares one geoid with tile polygons.
+// XGISMap.run() auto-attaches
 // this backend when the style declares a `background { fill: ... }`
 // block and prepends a synthetic ShowCommand at the head of the
 // opaque pass; the standard polygon ECEF pipeline renders it so the
 // fill curves naturally on sphere projections instead of painting a
 // flat strip.
 //
-// DSFUN precision note: vertices are DSFUN-split relative to ECEF origin
-// `[0, 0, 0]` (world-center anchor). At sphere magnitudes ~6.378 Mm the
-// f32 hi-half resolves to ~0.76 m, which is invisibly fine for a 32x16
-// grid where adjacent cells span ~1200 km. Revisit if mesh density
-// escalates beyond 64x32 (AC2c.3.1).
+// DSFUN precision note: vertices are quantized (double-u16) about the z=0
+// tile's ELLIPSOID anchor `tileEcefCenter` (lon=-180, lat=Z0_DECODED_SOUTH)
+// via the SHARED tiler kernel `packECEFPolygonVertices`. The bg ground
+// therefore shares ONE geoid (WGS84 ellipsoid) and ONE RTC origin with the
+// surrounding tile polygons, so it lands on the same surface the ground tiles
+// do (origins cancel exactly in the polygon ECEF VS — the anchor latitude is
+// the SAME decoded z=0 tile-south the render-side `off` uses, not the rounded
+// Mercator clamp). The whole globe is anchored about that single tile-corner,
+// so the per-vertex 32-bit fixed-point step is ~3 mm — far finer than the
+// 32×16 grid's ~1200 km cell spacing.
 
-import { tileKey } from '@xgis/compiler'
+import { tileKey, packECEFPolygonVertices } from '@xgis/compiler'
 import {
   generateEarthSurfaceFillMesh,
   worldBandForProjType,
   type WorldBandKind,
 } from '../../engine/projection/earth-surface-fill'
-import { lonLatToECEFSphere, type ECEF } from '../../engine/projection/ecef'
+import { tileEcefCenterFromMerc } from '../../engine/projection/ecef'
 import {
   TILE_LAYOUT_VERSION,
   type BackendTileResult,
@@ -35,7 +42,25 @@ import {
 const Z0_KEY = tileKey(0, 0, 0)
 const WIDTH_SEGMENTS = 32
 const HEIGHT_SEGMENTS = 16
-const WORLD_ANCHOR: ECEF = [0, 0, 0]
+const DEG2RAD = Math.PI / 180
+const A = 6378137 // WGS84 semi-major axis — matches the tiler + render-side `off`.
+// Source-honest Web-Mercator latitude clamp applied to the PER-VERTEX mx/my
+// encode. This is the rounded constant the tiler also uses to cap polar
+// vertices (vector-tile-renderer.ts:2221), so the bg's polar rows surface with
+// the SAME ±85 cap real polar ground verts carry — the geoid stays consistent
+// (runtime/src/engine/render/vector-tile-renderer.ts:2221 clampLat).
+// NOTE: this is the VERTEX clamp only; the tile-corner ANCHOR latitude must use
+// the DECODED z=0 tile-south below, not this rounded value (see Z0_DECODED_SOUTH).
+const MERC_LAT_CLAMP = 85.051129
+// Decoded z=0 tile-south latitude (degrees) — the EXACT value the tile catalog
+// reconstructs for the synthetic z=0 tile (tile-catalog.ts:1102,
+// atan(sinh(±π))·180/π) and the value the render-side `off` anchor feeds
+// through clampLat (vector-tile-renderer.ts:5041). It is just INSIDE the
+// rounded ±85.051129 clamp (|Δ| ≈ 2.46 cm), so clampLat passes it through
+// unchanged. The bg tile-corner ANCHOR must use THIS decoded latitude (not the
+// rounded MERC_LAT_CLAMP) so the bg pack anchor equals the render-side
+// tileEcefCenter EXACTLY and the RTC origins cancel with no residual.
+const Z0_DECODED_SOUTH = Math.atan(Math.sinh(-Math.PI)) * 180 / Math.PI
 
 /** Stable source-name identifier the synthetic backend stamps on its
  *  emitted tiles. Mirrors `VectorTileRenderer.effectiveSourceLayer`'s
@@ -116,67 +141,43 @@ export class SyntheticEarthSurfaceBackend implements TileSource {
     const mesh = generateEarthSurfaceFillMesh(WIDTH_SEGMENTS, HEIGHT_SEGMENTS, this.band)
     const vertexCount = mesh.vertices.length / 2  // stride-2 lon/lat → vertex count
 
-    // Pass 1: ECEF RTC residual (about WORLD_ANCHOR) + abs lon/lat per vertex;
-    // track the max-abs residual for the PR 2f double-u16 quantization range.
-    // The world-anchored residuals span ~±6.4e6 m (this mesh covers the whole
-    // globe at z=0), so the per-vertex 32-bit fixed-point step is ~3 mm — far
-    // finer than the 32×16 grid's ~1200 km cell spacing.
-    const rx = new Float64Array(vertexCount)
-    const ry = new Float64Array(vertexCount)
-    const rz = new Float64Array(vertexCount)
-    const lons = new Float64Array(vertexCount)
-    const lats = new Float64Array(vertexCount)
-    let maxAbs = 0
+    // Anchor about the z=0 synthetic tile's ELLIPSOID corner — the SAME value
+    // the render-side per-tile uniform pack reconstructs into `cam_ecef_off`
+    // (runtime/src/engine/render/vector-tile-renderer.ts:5032-5054, tileWest=-180
+    // / clampLat(cached.tileSouth)). The render `off` uses the DECODED z=0
+    // tile-south (Z0_DECODED_SOUTH), which sits just inside the rounded clamp so
+    // clampLat returns it unchanged — so the anchor latitude here is that decoded
+    // value, NOT the rounded MERC_LAT_CLAMP. Both sides then feed
+    // tileEcefCenterFromMerc the identical tileMy, so the anchors are bit-for-bit
+    // equal and the polygon ECEF VS origins — (vertex − tileEcefCenter) +
+    // (tileEcefCenter − cameraCenter) — cancel exactly with no residual.
+    const tileMx = -180 * DEG2RAD * A
+    const tileMy = Math.log(Math.tan(Math.PI / 4 + Z0_DECODED_SOUTH * DEG2RAD / 2)) * A
+    const ecefTileCenter = tileEcefCenterFromMerc(tileMx, tileMy)
+
+    // Build a stride-3 `[mx, my, fid]` ABSOLUTE Mercator scratch from the mesh
+    // and feed it through the canonical tiler kernel. `packECEFPolygonVertices`
+    // inverts mx/my back through inverse-Mercator then runs the WGS84 ellipsoid
+    // forward (vector-tiler.ts:225-232) — byte-identical to real ground tiles.
+    // The sphere band's ±90 rows are clamped to the Web-Mercator limit for the
+    // mx/my ENCODE only: the kernel re-derives lon/lat from mx/my, so the abs_lat
+    // varying it re-emits is the clamped value — exactly how real polar ground
+    // verts encode (consistent ±85 cap), and the ground geoid stays identical.
+    const scratch = new Float64Array(vertexCount * 3)
     for (let i = 0; i < vertexCount; i++) {
       const lon = mesh.vertices[i * 2]
       const lat = mesh.vertices[i * 2 + 1]
-      const ecef = lonLatToECEFSphere(lon, lat, 0)
-      const ax = ecef[0] - WORLD_ANCHOR[0]
-      const ay = ecef[1] - WORLD_ANCHOR[1]
-      const az = ecef[2] - WORLD_ANCHOR[2]
-      rx[i] = ax; ry[i] = ay; rz[i] = az
-      lons[i] = lon; lats[i] = lat
-      const m = Math.max(Math.abs(ax), Math.abs(ay), Math.abs(az))
-      if (m > maxAbs) maxAbs = m
+      const clampedLat = Math.max(-MERC_LAT_CLAMP, Math.min(MERC_LAT_CLAMP, lat))
+      scratch[i * 3]     = lon * DEG2RAD * A
+      scratch[i * 3 + 1] = Math.log(Math.tan(Math.PI / 4 + clampedLat * DEG2RAD / 2)) * A
+      scratch[i * 3 + 2] = 0   // feat_id — single synthetic feature
     }
 
-    // Per-mesh symmetric half-range; matches the tiler's packECEFPolygonVertices
-    // scheme so vs_main_ecef's dequant (`q*scale - half`) reconstructs the RTC.
-    const dequantHalf = maxAbs + 1e-6
-    const span = 2 * dequantHalf
-    const dequantScale = span / 0xFFFFFFFF
-    const invSpan = 0xFFFFFFFF / span
-    const quant = (axis: number): [number, number] => {
-      let q = Math.round((axis + dequantHalf) * invSpan)
-      if (q < 0) q = 0
-      else if (q > 0xFFFFFFFF) q = 0xFFFFFFFF
-      return [(q >>> 16) & 0xFFFF, q & 0xFFFF]
-    }
-
-    // Pass 2: interleaved stride-24 buffer (u16×6 position + f32 fid/lon/lat),
-    // matching the quantized polygon vertex layout vs_main_ecef consumes.
-    const vertices = new Float32Array(vertexCount * 6)
-    const u16 = new Uint16Array(vertices.buffer)
-    for (let i = 0; i < vertexCount; i++) {
-      const [xh, xl] = quant(rx[i])
-      const [yh, yl] = quant(ry[i])
-      const [zh, zl] = quant(rz[i])
-      const u = i * 12
-      u16[u]     = xh
-      u16[u + 1] = xl
-      u16[u + 2] = yh
-      u16[u + 3] = yl
-      u16[u + 4] = zh
-      u16[u + 5] = zl
-      const f = i * 6
-      vertices[f + 3] = 0          // feat_id — single synthetic feature
-      vertices[f + 4] = lons[i]    // abs_lon (degrees) — hemisphere-cull varying
-      vertices[f + 5] = lats[i]    // abs_lat (degrees)
-    }
+    const q = packECEFPolygonVertices(scratch, ecefTileCenter)
     return {
-      vertices,
-      dequantScale,
-      dequantHalf,
+      vertices: q.vertices,
+      dequantScale: q.dequantScale,
+      dequantHalf: q.dequantHalf,
       indices: mesh.indices,
       lineVertices: new Float32Array(0),
       lineIndices: new Uint32Array(0),

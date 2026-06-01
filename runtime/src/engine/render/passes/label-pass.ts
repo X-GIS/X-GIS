@@ -20,6 +20,7 @@ import { DEBUG_OVERDRAW } from '../../debug-flags'
 import { WORLD_MERC } from '../../gpu/gpu-shared'
 import { mercatorYToLat } from '../../projection/projection'
 import { isGlobeProj } from '../../projection/projections-table'
+import { projMercatorCpu } from '../../shader-dsl/shaders/cpu-projections'
 import { resolveLabelEffectiveDef, makeLabelProjectors } from '../../render-loop-helpers'
 import { computeSliceKey } from '../../../data/eval/filter-eval'
 import { TextStage, type TextStageOptions } from '../../text/text-stage'
@@ -190,19 +191,24 @@ class LabelPass implements RenderPass {
         const projType = ctx.projType
         const isFlatProj = !host.camera.globeMode && !isGlobeProj(projType)
         const labelView = host.camera.getViewForProjection(projType, w, h, dpr)
+        // camera-merc reference MUST equal the geometry's camMerc, which the
+        // renderer builds from the ±85-clamped projCenterLon/Lat (=
+        // ctx.centerLon/Lat), NOT raw camera.centerY. At the far-north pan
+        // clamp the reachable centre lat is 85.0–85.051° (maxCameraY =
+        // Y(85.051129°)); raw camera.centerY then exceeds Y(85°) by up to
+        // ~64 km (~13k px @ z14), flinging every Mercator label past the
+        // ±1.5 NDC gate while the (clamped) polygons stay put. For |lat|≤85
+        // the two are identical, so this only repairs the polar band. Routed
+        // through the shared clamped CPU Mercator mirror (projMercatorCpu);
+        // its ±85.051129 clamp is inert here (ctx.centerLat is already
+        // clamped to that bound upstream). projMercatorCpu returns a fresh
+        // tuple per call (no shared scratch), so there is no aliasing hazard.
+        const camMerc = projMercatorCpu(ctx.centerLon, ctx.centerLat)
         const { projectMerc, projectLonLat, projectMercAny, projectLonLatCopies } =
           makeLabelProjectors(labelView.matrix, w, h, isFlatProj ? {
             projType,
-            // camera-merc reference MUST equal the geometry's camMerc, which the
-            // renderer builds from the ±85-clamped projCenterLon/Lat (=
-            // ctx.centerLon/Lat), NOT raw camera.centerY. At the far-north pan
-            // clamp the reachable centre lat is 85.0–85.051° (maxCameraY =
-            // Y(85.051129°)); raw camera.centerY then exceeds Y(85°) by up to
-            // ~64 km (~13k px @ z14), flinging every Mercator label past the
-            // ±1.5 NDC gate while the (clamped) polygons stay put. For |lat|≤85
-            // the two are identical, so this only repairs the polar band.
-            ccx: ctx.centerLon * (Math.PI / 180) * 6378137,
-            ccy: Math.log(Math.tan(Math.PI / 4 + ctx.centerLat * (Math.PI / 180) / 2)) * 6378137,
+            ccx: camMerc[0],
+            ccy: camMerc[1],
             centerLon: ctx.centerLon,
             centerLat: ctx.centerLat,
             visibleWorldCopies,

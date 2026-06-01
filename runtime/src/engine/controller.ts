@@ -154,13 +154,19 @@ export class PanZoomController implements Controller {
           // coords in [0, canvas.width / canvas.height].
           const dprNow = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 8) : 1
           const r0 = canvas.getBoundingClientRect()
-          const rel = camera.unprojectToZ0(
-            (e.clientX - r0.left) * dprNow, (e.clientY - r0.top) * dprNow,
-            canvas.width, canvas.height, dprNow,
-          )
-          dragAnchor = rel
-            ? [camera.centerX + rel[0], camera.centerY + rel[1]]
-            : null
+          const sxA = (e.clientX - r0.left) * dprNow, syA = (e.clientY - r0.top) * dprNow
+          if (camera.projType === 1 || camera.projType === 2 || camera.projType === 6) {
+            // Flat non-merc (#8): the drag anchor must be the Mercator metres of
+            // the TRUE geographic point under the cursor, not `mercCentre +
+            // nonMercRel` (which mixes spaces). panToScreenAnchor consumes
+            // Mercator metres and composes the cursor through the same inverse.
+            dragAnchor = camera.unprojectToMercatorAnchor(sxA, syA, canvas.width, canvas.height, dprNow)
+          } else {
+            const rel = camera.unprojectToZ0(sxA, syA, canvas.width, canvas.height, dprNow)
+            dragAnchor = rel
+              ? [camera.centerX + rel[0], camera.centerY + rel[1]]
+              : null
+          }
         }
       } else if (activePointers.size === 2) {
         isDragging = false
@@ -391,13 +397,16 @@ export class PanZoomController implements Controller {
         // to the remaining finger's location.
         const dprUp = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 8) : 1
         const rUp = canvas.getBoundingClientRect()
-        const relUp = camera.unprojectToZ0(
-          (remaining.x - rUp.left) * dprUp, (remaining.y - rUp.top) * dprUp,
-          canvas.width, canvas.height, dprUp,
-        )
-        dragAnchor = relUp
-          ? [camera.centerX + relUp[0], camera.centerY + relUp[1]]
-          : null
+        const sxU = (remaining.x - rUp.left) * dprUp, syU = (remaining.y - rUp.top) * dprUp
+        if (camera.projType === 1 || camera.projType === 2 || camera.projType === 6) {
+          // Same flat non-merc (#8) anchor space as the drag-start capture.
+          dragAnchor = camera.unprojectToMercatorAnchor(sxU, syU, canvas.width, canvas.height, dprUp)
+        } else {
+          const relUp = camera.unprojectToZ0(sxU, syU, canvas.width, canvas.height, dprUp)
+          dragAnchor = relUp
+            ? [camera.centerX + relUp[0], camera.centerY + relUp[1]]
+            : null
+        }
       }
     }
 

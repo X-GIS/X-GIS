@@ -51,10 +51,25 @@ jobs:
   #                           errors. Compilation needs no raster, so it runs
   #                           under SwiftShader too — catches a variant that
   #                           emits a string the GPU compiler rejects.
+  #   - _vs-clip-parity     : runs the VS clip math in a standalone COMPUTE
+  #                           pass (createComputePipeline) and reads it back
+  #                           (mapAsync), comparing GPU vs the CPU f32 mirror.
+  #                           Pure compute (same mechanism as _shader-math-
+  #                           parity), so it runs under SwiftShader. Promotes
+  #                           the CPU mirror the extruded/ECEF gates (G7) rely
+  #                           on from locally-validated to CI-enforced.
+  #   - _dequant-parity     : same — the u16→f32 dequant kernel GPU-vs-CPU,
+  #                           standalone compute pass, SwiftShader-safe.
   # NOT here, by evidence from earlier runs:
   #   - _projection-coverage : needs the full engine (render pipelines) to
   #                            initialise; SwiftShader can't, so cells time
   #                            out. Stays a local / pre-push gate.
+  #   - _vs-pipeline-integrity / _globe-arena-pressure : build the full RENDER
+  #                            pipelines (and arena-pressure streams tiles), the
+  #                            same SwiftShader init path that times _projection-
+  #                            coverage out. Candidates for CI once validated on
+  #                            a software-GPU run (and _globe-arena-pressure lands
+  #                            with the GPUArena OOM PR). Local / pre-push for now.
   #   - pixel survey         : SwiftShader can't raster X-GIS correctly →
   #                            false-positive diffs. Local / pre-push only.
   #
@@ -82,4 +97,4 @@ jobs:
         env:
           XGIS_SOFTWARE_GPU: '1'
           HEADED: '0'
-        run: ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts
+        run: ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts

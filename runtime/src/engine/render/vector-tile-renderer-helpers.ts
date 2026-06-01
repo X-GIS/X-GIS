@@ -27,6 +27,19 @@ export function getMaxGpuTiles(): number {
   const w = (typeof window !== 'undefined' ? window.innerWidth : 0) || 0
   return w > 0 && w <= 900 ? MAX_GPU_TILES_MOBILE : MAX_GPU_TILES_DESKTOP
 }
+/** Byte-pressure hysteresis band for the polygon arenas. Eviction is
+ *  triggered on UNIQUE-TILE-COUNT (getMaxGpuTiles), but the arena hard
+ *  limit is BYTES (64 MB). Large globe / extruded tiles can exhaust the
+ *  arena before the count cap is reached, so beginFrame ALSO triggers
+ *  eviction when an arena's bump high-water mark crosses HIGH_WATER, and
+ *  evictGPUTiles drains LRU unprotected tiles until LIVE bytes fall below
+ *  LOW_WATER. The gap (75 % trigger → 60 % drain) prevents per-frame
+ *  thrash; under healthy small-tile Mercator load live bytes stay well
+ *  under HIGH_WATER, so this path never fires and the count path is
+ *  unchanged. Placed next to getMaxGpuTiles so a future mobile-specific
+ *  band is easy. */
+export const ARENA_HIGH_WATER = 0.75
+export const ARENA_LOW_WATER = 0.60
 /** Max tiles promoted from data cache to GPU per frame. Chosen empirically:
  *  crossing a z-boundary produces ~16 newly-visible tiles, and uploading
  *  them all in one frame caused ~250 ms stalls (perf-scenarios benchmark,
