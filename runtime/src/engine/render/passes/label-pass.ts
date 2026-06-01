@@ -212,7 +212,7 @@ class LabelPass implements RenderPass {
             centerLon: ctx.centerLon,
             centerLat: ctx.centerLat,
             visibleWorldCopies,
-          } : undefined)
+          } : undefined, labelView.eye)
 
         // (a) Imperative overlays
         for (const ov of host.overlays) {

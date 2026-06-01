@@ -316,7 +316,7 @@ export class Camera {
   /** Globe orbit view-projection (RTC, focus-relative) from the current
    *  camera state. centerLon/Lat are the Mercator-inverse of centerX/Y
    *  so existing pan/zoom (which move centerX/Y) recenter the globe. */
-  private _globeFrame(canvasWidth: number, canvasHeight: number, dpr: number): { matrix: Float32Array; far: number } {
+  private _globeFrame(canvasWidth: number, canvasHeight: number, dpr: number): { matrix: Float32Array; far: number; eye: ECEF } {
     const R = EARTH_R
     const lon = this.centerX / R * (180 / Math.PI)
     const lat = mercatorYToLat(this.centerY)
@@ -330,7 +330,11 @@ export class Camera {
       this.globeOrtho, this.azimuthalProjType,
     )
     this._globeMatrix.set(v.rtcMatrix)
-    return { matrix: this._globeMatrix, far: v.far }
+    // `v.eye` is the orbit camera position in ABSOLUTE sphere-ECEF metres
+    // (GlobeView.eye). Surfaced for the label back-face/horizon cull, which
+    // is a pure geometric face-the-eye test in absolute coords (independent
+    // of whether the MVP is RTC or absolute).
+    return { matrix: this._globeMatrix, far: v.far, eye: v.eye }
   }
 
   /** Camera anchor in ECEF (Earth-Centered Earth-Fixed) Cartesian metres.
@@ -542,10 +546,15 @@ export class Camera {
     matrix: Float32Array
     far: number
     logDepthFc: number
+    // Absolute sphere-ECEF camera position. Present ONLY on the globe-mode
+    // (orbit) path — consumed by the label horizon cull. The non-globe ENU
+    // ECEF branch below has no explicit eye vector (camera is the ENU origin),
+    // so it stays undefined there.
+    eye?: ECEF
   } {
     if (this.globeMode) {
       const g = this._globeFrame(canvasWidth, canvasHeight, dpr)
-      return { matrix: g.matrix, far: g.far, logDepthFc: computeLogDepthFc(g.far) }
+      return { matrix: g.matrix, far: g.far, logDepthFc: computeLogDepthFc(g.far), eye: g.eye }
     }
     if (
       canvasWidth === this._ecefCacheW &&
@@ -698,6 +707,10 @@ export class Camera {
     matrix: Float32Array
     far: number
     logDepthFc: number
+    // Absolute sphere-ECEF camera position — forwarded from the globe/ECEF
+    // branch (undefined on the flat 2D branch). Lets the label projector apply
+    // the same horizon cull the globe tile selector uses.
+    eye?: ECEF
   } {
     if (!this.globeMode && !isGlobeProj(projType)) {
       return this.getFrameView(canvasWidth, canvasHeight, dpr, flatViewHeightCapM(projType, WORLD_MERC))
