@@ -24,6 +24,11 @@ describe('Phase-2 line shader — DSL emission', () => {
     expect(noPick).toContain('fn dist_to_quadratic')
     expect(noPick).toContain('fn dist_to_cubic')
     expect(noPick).toContain('fn winding_line')
+    // ECEF prepend (mirrors raster-dsl.test): the line VS calls the shared
+    // lonlat_to_ecef primitive, so its definition + the WGS84 const must be
+    // prepended. Guards against a future dropped/doubled ECEF prepend in line.ts.
+    expect(noPick).toContain('fn lonlat_to_ecef(')
+    expect(noPick).toContain('WGS84_A')
   })
   it('binds g0 tile + sprite + g1 layer + 3 storage<read>', () => {
     expect(linePart(noPick)).toContain('@group(0) @binding(0) var<uniform> tile: TileUniforms;')

@@ -28,6 +28,18 @@ export const WORLD_COPIES = [-2, -1, 0, 1, 2]
 // Single-world copy set for the non-periodic (hemispherical / globe)
 // projections. `[0]` is irreducible.
 const SINGLE_WORLD: readonly number[] = [0]
+
+/** Per-projType world-band geometry tag — drives the lat/lat clamp the
+ *  earth-surface-fill mesh generator applies. An explicit per-row data field
+ *  (like cullThreshold / worldCopies) rather than a boolean derivation:
+ *  natural_earth (2) is predicate-identical to equirectangular (1) in the
+ *  boolean columns (both isFlat/isSeam/isCylindrical), so 'natural-earth'
+ *  cannot be isolated from isFlat/isCylindrical/isGlobe — the band is its own
+ *  authority column. `bandLatRange` (earth-surface-fill.ts) consumes this. */
+export type WorldBandKind =
+  | 'mercator-clamped'   // 0 mercator / 1 equirect / 6 oblique-mercator
+  | 'natural-earth'      // 2 natural_earth — oval clip TBD
+  | 'sphere-full'        // 3 ortho / 4 azi-eq / 5 stereo / 7 globe
 /** Max zoom at which periodic projections still enumerate neighbour world
  *  copies (above this the neighbours are off-canvas). */
 export const WORLD_COPY_MAX_ZOOM = 4
@@ -65,17 +77,22 @@ export interface ProjectionRecord {
   /** World-copy offsets (worldCopiesFor): WORLD_COPIES for the cylindrical
    *  family, SINGLE_WORLD otherwise. */
   readonly worldCopies: readonly number[]
+  /** Earth-surface-fill world-band geometry kind (worldBandForProjType). The
+   *  3-way split is {0,1,6}=mercator-clamped, {2}=natural-earth,
+   *  {3,4,5,7}=sphere-full. Explicit data column because natural-earth is not
+   *  separable from the boolean predicates (see WorldBandKind). */
+  readonly worldBand: WorldBandKind
 }
 
 export const PROJECTIONS: readonly ProjectionRecord[] = [
-  { name: 'mercator',              projType: 0, cullThreshold: null,  rimThreshold: null,  isFlat: true,  isSeam: false, isCylindrical: true,  isGlobe: false, periodic: false, worldCopies: WORLD_COPIES },
-  { name: 'equirectangular',       projType: 1, cullThreshold: null,  rimThreshold: null,  isFlat: true,  isSeam: true,  isCylindrical: true,  isGlobe: false, periodic: true,  worldCopies: WORLD_COPIES },
-  { name: 'natural_earth',         projType: 2, cullThreshold: null,  rimThreshold: null,  isFlat: true,  isSeam: true,  isCylindrical: true,  isGlobe: false, periodic: true,  worldCopies: WORLD_COPIES },
-  { name: 'orthographic',          projType: 3, cullThreshold: 0.0,   rimThreshold: 0.0,   isFlat: false, isSeam: false, isCylindrical: false, isGlobe: false, periodic: false, worldCopies: SINGLE_WORLD },
-  { name: 'azimuthal_equidistant', projType: 4, cullThreshold: -0.85, rimThreshold: -0.85, isFlat: false, isSeam: false, isCylindrical: false, isGlobe: false, periodic: false, worldCopies: SINGLE_WORLD },
-  { name: 'stereographic',         projType: 5, cullThreshold: -0.8,  rimThreshold: -0.8,  isFlat: false, isSeam: false, isCylindrical: false, isGlobe: false, periodic: false, worldCopies: SINGLE_WORLD },
-  { name: 'oblique_mercator',      projType: 6, cullThreshold: null,  rimThreshold: null,  isFlat: false, isSeam: true,  isCylindrical: true,  isGlobe: false, periodic: true,  worldCopies: WORLD_COPIES },
-  { name: 'globe',                 projType: 7, cullThreshold: 0.0,   rimThreshold: 0.0,   isFlat: false, isSeam: false, isCylindrical: false, isGlobe: true,  periodic: false, worldCopies: SINGLE_WORLD },
+  { name: 'mercator',              projType: 0, cullThreshold: null,  rimThreshold: null,  isFlat: true,  isSeam: false, isCylindrical: true,  isGlobe: false, periodic: false, worldCopies: WORLD_COPIES,  worldBand: 'mercator-clamped' },
+  { name: 'equirectangular',       projType: 1, cullThreshold: null,  rimThreshold: null,  isFlat: true,  isSeam: true,  isCylindrical: true,  isGlobe: false, periodic: true,  worldCopies: WORLD_COPIES,  worldBand: 'mercator-clamped' },
+  { name: 'natural_earth',         projType: 2, cullThreshold: null,  rimThreshold: null,  isFlat: true,  isSeam: true,  isCylindrical: true,  isGlobe: false, periodic: true,  worldCopies: WORLD_COPIES,  worldBand: 'natural-earth' },
+  { name: 'orthographic',          projType: 3, cullThreshold: 0.0,   rimThreshold: 0.0,   isFlat: false, isSeam: false, isCylindrical: false, isGlobe: false, periodic: false, worldCopies: SINGLE_WORLD, worldBand: 'sphere-full' },
+  { name: 'azimuthal_equidistant', projType: 4, cullThreshold: -0.85, rimThreshold: -0.85, isFlat: false, isSeam: false, isCylindrical: false, isGlobe: false, periodic: false, worldCopies: SINGLE_WORLD, worldBand: 'sphere-full' },
+  { name: 'stereographic',         projType: 5, cullThreshold: -0.8,  rimThreshold: -0.8,  isFlat: false, isSeam: false, isCylindrical: false, isGlobe: false, periodic: false, worldCopies: SINGLE_WORLD, worldBand: 'sphere-full' },
+  { name: 'oblique_mercator',      projType: 6, cullThreshold: null,  rimThreshold: null,  isFlat: false, isSeam: true,  isCylindrical: true,  isGlobe: false, periodic: true,  worldCopies: WORLD_COPIES,  worldBand: 'mercator-clamped' },
+  { name: 'globe',                 projType: 7, cullThreshold: 0.0,   rimThreshold: 0.0,   isFlat: false, isSeam: false, isCylindrical: false, isGlobe: true,  periodic: false, worldCopies: SINGLE_WORLD, worldBand: 'sphere-full' },
 ]
 
 // ═══ Derived predicates (the authority flip) ═══════════════════════════
@@ -132,6 +149,14 @@ export function promotesToGlobeWhenTilted(projType: number): boolean {
 //    label-pass / render-loop). Add siblings (isFlatProj / periodicOf /
 //    cullThresholdOf …) here when a real consumer needs them — not before. ──
 export const isGlobeProj = (projType: number): boolean => PROJECTIONS[projType]?.isGlobe ?? false
+
+/** Resolve the projType integer to its earth-surface-fill world-band kind.
+ *  Pure table lookup over the `worldBand` column. An out-of-range projType
+ *  (never produced in practice — projType is always 0-7 via
+ *  PROJECTION_NAME_TO_TYPE `?? 0`) falls back to 'mercator-clamped'. */
+export function worldBandForProjType(projType: number): WorldBandKind {
+  return PROJECTIONS[projType]?.worldBand ?? 'mercator-clamped'
+}
 
 const EARTH_R_M = 6378137
 

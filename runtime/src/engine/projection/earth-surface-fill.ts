@@ -28,21 +28,14 @@
 
 import { MERCATOR_LAT_LIMIT } from './projection'
 
-/** Per-projType world-band geometry tag — drives the lat/lat clamp the
- *  mesh generator applies. Numeric values mirror `projections-table.ts`
- *  index ordering so callers can pass the resolved `projType` directly. */
-export type WorldBandKind =
-  | 'mercator-clamped'   // 0 mercator / 1 equirect / 6 oblique-mercator
-  | 'natural-earth'      // 2 natural_earth — oval clip TBD
-  | 'sphere-full'        // 3 ortho / 4 azi-eq / 5 stereo / 7 globe
-
-/** Resolve the projType integer pushed by `XGISMap` each frame to the
- *  earth-surface-fill world-band kind. */
-export function worldBandForProjType(projType: number): WorldBandKind {
-  if (projType === 2) return 'natural-earth'
-  if (projType >= 3 && projType !== 6) return 'sphere-full'
-  return 'mercator-clamped'
-}
+// WorldBandKind + worldBandForProjType now live on the authority table
+// (projections-table.ts) as the per-row `worldBand` data column — folding the
+// former hand-encoded magic-int branches onto the single source of truth.
+// Re-exported here to preserve this module's public surface for
+// synthetic-earth-surface-backend.ts, map.ts, and the tests. Direction is
+// table ← earth-surface-fill (acyclic: the table imports nothing).
+export { worldBandForProjType, type WorldBandKind } from './projections-table'
+import type { WorldBandKind } from './projections-table'
 
 /** Lat/lon-grid mesh generator. Emits a triangulated lat/lon strip suitable
  *  for the standard opaque tile pipeline once Phase 2 PR 2c wires ECEF vertex
