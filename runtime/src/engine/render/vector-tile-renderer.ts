@@ -5029,14 +5029,25 @@ export class VectorTileRenderer {
       this.uniformF32[30] = camRelXL
       this.uniformF32[31] = camRelYL
 
-      // Camera-relative RTC (ECEF): off = tileEcefCenter(WGS84 ellipsoid) −
-      // cameraCenter(sphere), DSFUN hi/lo at uniform floats 52-54 / 56-58. The
-      // polygon VS adds this to ecef_rtc so it projects vertex−cameraCenter
-      // through the camera-at-ENU-origin MVP — fixes the 'one spot' collapse
-      // (_ecef-render-position gate). tileEcefCenter mirrors the tiler's
-      // packECEFPolygonVertices anchor; cameraCenter mirrors getECEFCenter
-      // (mercatorToECEFSphere). ECEF is world-copy-independent on the sphere,
-      // so worldOff is NOT applied here (unlike the Mercator cam_h/cam_l).
+      // Camera-relative RTC (ECEF): off = tileEcefCenter − cameraCenter, DSFUN
+      // hi/lo at uniform floats 52-54 / 56-58. The polygon VS adds this to
+      // ecef_rtc so it projects vertex−cameraCenter through the camera-at-ENU-
+      // origin MVP — fixes the 'one spot' collapse (_ecef-render-position gate).
+      // ECEF is world-copy-independent on the sphere, so worldOff is NOT
+      // applied here (unlike the Mercator cam_h/cam_l).
+      //
+      // FRAME CONSISTENCY (globe z14 blank-tiles fix): the tile vertices +
+      // tileEcefCenter are packed on the WGS84 ELLIPSOID (packECEFPolygonVertices
+      // → tileEcefCenterFromMerc → lonLatToECEF, E2≠0). cameraCenter MUST use
+      // the SAME ellipsoid, or `off` carries the ellipsoid−sphere discrepancy
+      // (~21.5 km at Tokyo lat 35.68°). That offset is sub-pixel at low zoom
+      // (0.8 px @ z1.5 → globe renders) but explodes with zoom (4396 px @ z14),
+      // throwing every deep-zoom tile thousands of pixels off-screen → blank.
+      // Previously cameraCenter used a SPHERE (plain R, no E2) — the mismatch.
+      // Both terms on the ellipsoid makes `off` a pure ellipsoid-frame delta
+      // (≈ km, frame-consistent); the residual sphere-MVP error is only the
+      // ellipsoid−sphere of the LOCAL patch (≈ tens of m = a few px at z14,
+      // within the documented 1.7 px ECEF-MVP parity tolerance).
       const E2_ECEF = (1 / 298.257223563) * (2 - 1 / 298.257223563)
       const tLatR = clampLat(cached.tileSouth) * DEG2RAD
       const tLonR = cached.tileWest * DEG2RAD
@@ -5044,10 +5055,11 @@ export class VectorTileRenderer {
       const tN = R / Math.sqrt(1 - E2_ECEF * tSin * tSin)
       const camLatR = clampLat(projCenterLat) * DEG2RAD
       const camLonR = projCenterLon * DEG2RAD
-      const camCos = Math.cos(camLatR)
-      const offX = tN * tCos * Math.cos(tLonR) - R * camCos * Math.cos(camLonR)
-      const offY = tN * tCos * Math.sin(tLonR) - R * camCos * Math.sin(camLonR)
-      const offZ = tN * (1 - E2_ECEF) * tSin - R * Math.sin(camLatR)
+      const camSin = Math.sin(camLatR), camCos = Math.cos(camLatR)
+      const cN = R / Math.sqrt(1 - E2_ECEF * camSin * camSin)
+      const offX = tN * tCos * Math.cos(tLonR) - cN * camCos * Math.cos(camLonR)
+      const offY = tN * tCos * Math.sin(tLonR) - cN * camCos * Math.sin(camLonR)
+      const offZ = tN * (1 - E2_ECEF) * tSin - cN * (1 - E2_ECEF) * camSin
       const hi = (v: number) => Math.fround(v)
       this.uniformF32[52] = hi(offX); this.uniformF32[56] = Math.fround(offX - hi(offX))
       this.uniformF32[53] = hi(offY); this.uniformF32[57] = Math.fround(offY - hi(offY))
