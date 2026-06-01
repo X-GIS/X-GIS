@@ -1,4 +1,4 @@
-// baseline: 7f1b2f50f63e81d6a0ccab66cfe098470d106b74
+// baseline: 5f8eed16d78b09cc3eeba97eee0c8dfaaeb653df
 // fixture: positron-constant
 // variant.key: __bare-pick0__
 // pick: false
@@ -58,6 +58,10 @@ fn proj_natural_earth(lon_deg: f32, lat_deg: f32, clon: f32) -> vec2<f32> {
 
 fn unwrap_lon_near(value: f32, ref_v: f32) -> f32 {
   return (value - (floor((((value - ref_v) + 180.0) / 360.0)) * 360.0));
+}
+
+fn unwrap_lon_near_keep(value: f32, ref_v: f32, keep_sign: f32) -> f32 {
+  return (value - (floor(((((value - ref_v) + 180.0) - (keep_sign * 0.0001)) / 360.0)) * 360.0));
 }
 
 fn unwrap_rad_near(value: f32, ref_v: f32) -> f32 {
@@ -174,7 +178,7 @@ fn project_geom(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>, ref_lon: f32
     let lon_primary = (lon_deg - (wo * 360.0));
     let ref_primary = (ref_lon - (wo * 360.0));
     let ref_d = wrap_lon_delta((ref_primary - clon));
-    let d = unwrap_lon_near((lon_primary - clon), ref_d);
+    let d = unwrap_lon_near_keep((lon_primary - clon), ref_d, sign(lon_primary));
     let world_off_m = (((wo * 2.0) * PI) * EARTH_R);
     var p: vec2<f32>;
     if ((t < 1.5)) {
