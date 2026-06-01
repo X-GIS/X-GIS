@@ -21,6 +21,7 @@
 
 import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 import { MERCATOR_LAT_LIMIT } from './projection'
+import { flatViewHeightCapM } from './projections-table'
 import { mul4, perspectiveMatrix } from './camera-helpers'
 
 // Matches projection.ts EARTH_RADIUS exactly — the same sphere the 2D
@@ -93,10 +94,36 @@ const FOV_RAD = 0.6435011087932844 // == Camera.FOV, MapLibre default
 
 /** Camera altitude above the surface for a web-mercator-style `zoom`.
  *  Identical formula to Camera._buildRTCMatrix so a given numeric zoom
- *  frames the globe at the same scale as the 2D map at that zoom. */
-export function globeAltitude(zoom: number, cssHeightPx: number): number {
+ *  frames the globe at the same scale as the 2D map at that zoom.
+ *
+ *  `ortho`/`projType` — the azimuthal-promoted-to-globe path (orthographic
+ *  3 / azimuthal_eq 4 / stereographic 5 tilted) MUST keep the SAME screen
+ *  scale as the flat 2D disc at the pitch=0 boundary, or the disc jumps
+ *  size the instant the user tilts (project: azimuthal-disc-pitch-framing).
+ *  The perspective globe (projType 7, ortho=false) keeps its own
+ *  `zoom<1`-gated sphere cap byte-identical. For the ortho branch the
+ *  altitude is driven from the EXACT flat-path cap (`flatViewHeightCapM`,
+ *  the same per-projType policy `_buildRTCMatrix` uses for pitch=0): the
+ *  uncapped/zoom<1 rule above gives the WRONG altitude at z≥1 for ortho
+ *  (2.45× too high → disc 2.5× too small) and at z<1 for azi/stereo (0.32×
+ *  → disc ~3× too big). Using the flat cap with NO zoom gate makes the
+ *  telephoto silhouette radius equal the flat-disc altitude at every zoom,
+ *  so pitch>0 only tilts the SAME-scale disc. */
+export function globeAltitude(
+  zoom: number, cssHeightPx: number, ortho = false, projType = GLOBE_PROJ_TYPE,
+): number {
   const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, zoom)
   const rawViewHeightMeters = cssHeightPx * metersPerPixel
+  if (ortho) {
+    // Azimuthal-promoted disc: drive altitude from the flat-path cap so
+    // it is CONTINUOUS with the flat 2D disc at pitch=0. 2·EARTH_R for
+    // ortho (3), WORLD_MERC for azi_eq/stereo (4/5) — single source of
+    // truth shared with the flat MVP (flatViewHeightCapM).
+    const viewHeightMeters = Math.min(
+      rawViewHeightMeters, flatViewHeightCapM(projType, WORLD_MERC),
+    )
+    return viewHeightMeters / 2 / Math.tan(FOV_RAD / 2)
+  }
   // Sphere-diameter cap — only at z<1 where the uncapped view extent
   // exceeds the sphere and the disc would subtend ≤ 19 % of the canvas
   // (memory project_non_merc_z0_disc_render_fail_2026_05_20). At z≥1
@@ -154,7 +181,7 @@ export function buildGlobeMatrix(
   centerLon: number, centerLat: number,
   zoom: number, pitchDeg: number, bearingDeg: number,
   cssWidthPx: number, cssHeightPx: number,
-  ortho = false,
+  ortho = false, projType = GLOBE_PROJ_TYPE,
 ): GlobeView {
   const target = globeForward(centerLon, centerLat)
   const { up: n, east, north } = localFrame(centerLon, centerLat)
@@ -168,7 +195,7 @@ export function buildGlobeMatrix(
     Math.cos(bearing) * north[2] + Math.sin(bearing) * east[2],
   ]
 
-  const alt = globeAltitude(zoom, cssHeightPx)
+  const alt = globeAltitude(zoom, cssHeightPx, ortho, projType)
   // The azimuthal set asks for an ORTHOGRAPHIC (parallel) tilt. A true
   // parallel matrix has clip.w ≡ 1, which collapses the w-driven
   // log-depth buffer to a constant → the far hemisphere is no longer

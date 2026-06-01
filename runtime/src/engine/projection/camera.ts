@@ -65,6 +65,15 @@ export class Camera {
    *  orthographic needs the spherical inverse so the geographic point
    *  under the fingers stays pinned (Cesium-style) during pinch zoom. */
   projType = 0
+  /** The SOURCE azimuthal projType (3 ortho / 4 azimuthal_eq / 5 stereo)
+   *  before the pitch>0 promotion to the globe path (projType 7). `projType`
+   *  above is overwritten to 7 when an azimuthal disc tilts, so it can no
+   *  longer tell ortho from azi/stereo — but the globeOrtho framing needs the
+   *  per-projType flat view-height cap (flatViewHeightCapM) to keep the disc
+   *  the SAME on-screen scale across the pitch=0 boundary. Set by the render
+   *  loop each frame; read ONLY by `_globeFrame` in the globeOrtho branch, so
+   *  the true perspective globe (projType 7, globeOrtho=false) is unaffected. */
+  azimuthalProjType = 0
   private _globeMatrix = new Float32Array(16)
   /** Upper bound for `zoom`. Set by the Map based on source.maxLevel so
    *  that user pan/zoom input and hash restoration can't push us past the
@@ -311,10 +320,14 @@ export class Camera {
     const R = EARTH_R
     const lon = this.centerX / R * (180 / Math.PI)
     const lat = mercatorYToLat(this.centerY)
+    // For the globeOrtho (azimuthal-promoted) path pass the SOURCE azimuthal
+    // projType so globeAltitude applies that projType's flat view-height cap
+    // (continuous scale across the pitch=0 boundary). The true perspective
+    // globe takes globeOrtho=false so the projType arg is never read there.
     const v = buildGlobeMatrix(
       lon, lat, this.zoom, this.pitch, this.bearing,
       canvasWidth / dpr, canvasHeight / dpr,
-      this.globeOrtho,
+      this.globeOrtho, this.azimuthalProjType,
     )
     this._globeMatrix.set(v.rtcMatrix)
     return { matrix: this._globeMatrix, far: v.far }
