@@ -57,11 +57,42 @@ describe('Camera.getVisibleWorldCopies — iter-189 root fix', () => {
     expect(v).toEqual([0])
   })
 
-  it('non-Mercator projType collapses to [0]', () => {
-    const c = camAt(2, 0, 0)
-    c.projType = 1 // equirectangular
-    const v = c.getVisibleWorldCopies(W, H, DPR)
-    expect(v).toEqual([0])
+  it('x-periodic non-Mercator (equirect/NE/oblique) enumerates the periodic copy set at low zoom', () => {
+    // fix/nonmerc-world-copies: the flat x-periodic projections (equirect 1 /
+    // natural_earth 2 / oblique_mercator 6) wrap ±360° exactly like the tile
+    // selector (worldCopiesFor, gated by enumerateWorldCopies at zoom ≤ 4), so
+    // the CPU label projector fans anchors over the same copies the GPU fills
+    // draw. Below the gate the set must be the full ±2 WORLD_COPIES.
+    for (const pt of [1, 2, 6]) {
+      const c = camAt(2, 0, 0)
+      c.projType = pt
+      const v = c.getVisibleWorldCopies(W, H, DPR)
+      expect(v).toEqual([-2, -1, 0, 1, 2])
+    }
+  })
+
+  it('x-periodic non-Mercator collapses to [0] above the world-copy zoom gate', () => {
+    // Above WORLD_COPY_MAX_ZOOM (4) the neighbour worlds are off-canvas; the
+    // periodic set collapses to the primary copy — same gate the tile selector
+    // (enumerateWorldCopies) uses.
+    for (const pt of [1, 2, 6]) {
+      const c = camAt(10, 0, 0)
+      c.projType = pt
+      const v = c.getVisibleWorldCopies(W, H, DPR)
+      expect(v).toEqual([0])
+    }
+  })
+
+  it('azimuthal discs (ortho/azi-eq/stereo) + globe projType stay [0] (non-periodic)', () => {
+    // 3/4/5 are single-disc hemispherical projections and 7 is the true globe —
+    // none are x-periodic, so they must NOT enumerate world copies regardless
+    // of zoom.
+    for (const pt of [3, 4, 5, 7]) {
+      const c = camAt(2, 0, 0)
+      c.projType = pt
+      const v = c.getVisibleWorldCopies(W, H, DPR)
+      expect(v).toEqual([0])
+    }
   })
 
   it('cache reuse — repeated calls without camera change return identical array', () => {

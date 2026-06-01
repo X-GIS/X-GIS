@@ -7,7 +7,7 @@ import { getMaxDpr } from '../gpu/gpu'
 import { computeLogDepthFc } from '../shaders/log-depth'
 import { buildGlobeMatrix, EARTH_R } from './globe'
 import { mercatorYToLat, mercatorYToLatRad, mercator, getProjection, MERCATOR_LAT_LIMIT } from './projection'
-import { isGlobeProj, flatViewHeightCapM, SELECTOR_PROJ_NAMES } from './projections-table'
+import { isGlobeProj, flatViewHeightCapM, SELECTOR_PROJ_NAMES, worldCopiesFor, enumerateWorldCopies } from './projections-table'
 import { invOrthographic, mulVec4, invert4x4, mul4, perspectiveMatrix } from './camera-helpers'
 
 export class Camera {
@@ -832,12 +832,29 @@ export class Camera {
    *  inside `[minLon, maxLon]`. Clamped to ±2 worlds since the
    *  polygon vertex shader's WORLD_COPIES constant pins that ceiling.
    *
-   *  Non-Mercator + globe modes collapse to `[0]` — there is no
-   *  cylindrical world wrap to enumerate. */
+   *  Globe + the azimuthal discs (3/4/5) collapse to `[0]` — there is no
+   *  cylindrical world wrap to enumerate. The x-periodic flat non-Mercator
+   *  set (equirect 1 / natural_earth 2 / oblique_mercator 6) DOES wrap:
+   *  return the SAME zoom-gated periodic copy set the tile selector emits
+   *  (worldCopiesFor, gated by enumerateWorldCopies) so the CPU label
+   *  projector fans out anchors over the same copies the GPU fills draw.
+   *  Above WORLD_COPY_MAX_ZOOM (or globe) it collapses to `[0]`. */
   private _vwcMatrixId = -1
   private _vwcCached: readonly number[] = [0]
   getVisibleWorldCopies(canvasWidth: number, canvasHeight: number, dpr: number = 1): readonly number[] {
-    if (this.globeMode || this.projType !== 0) return [0]
+    if (this.globeMode) return [0]
+    // x-periodic flat non-Mercator (1/2/6): mirror the tile-enumeration gate
+    // exactly — worldCopiesFor() at zoom ≤ WORLD_COPY_MAX_ZOOM, else [0]. The
+    // off-screen copies are NDC-culled downstream by the label projector, so
+    // returning the full ±2 set (not a corner-derived range) keeps label
+    // copies byte-identical to the tile/fill copies. Mercator (0) keeps the
+    // corner-unprojection path below; azimuthal/globe (3/4/5/7) return [0] via
+    // enumerateWorldCopies(periodic=false).
+    if (this.projType !== 0) {
+      return enumerateWorldCopies(this.projType, this.zoom)
+        ? worldCopiesFor(this.projType)
+        : [0]
+    }
     // Build matrix (also bumps `_invDirty` when matrix changed). Use
     // the post-build _invDirty flag as a "matrix identity" hash for
     // the cache — if invert state is fresh, the matrix is fresh too,
