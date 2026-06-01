@@ -11,7 +11,7 @@
 // Test strategy: structural + unit (no GPU required).
 //   T1: SyntheticEarthSurfaceBackend.buildResult produces a valid
 //       BackendTileResult whose vertex count and index count match the
-//       expected 32×16 mesh geometry.
+//       expected 128×64 mesh geometry.
 //   T2: The synthetic ShowCommand returned by buildSyntheticEarthSurfaceShow
 //       carries extrude.kind === 'none' — it routes through the opaque
 //       2D-ground fill path (not the extruded path), which is the same
@@ -47,33 +47,34 @@ const OPAQUE_PASS_SRC = readFileSync(
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
-// T1 — BackendTileResult geometry matches 32×16 earth-surface mesh
+// T1 — BackendTileResult geometry matches 128×64 earth-surface mesh
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('AC2c.3.7 — SyntheticEarthSurfaceBackend produces standard polygon tile result', () => {
-  it('buildResult vertex count matches (32+1)*(16+1) = 561 vertices, stride-6 (PR 2f quantized)', () => {
+  it('buildResult vertex count matches (128+1)*(64+1) = 8385 vertices, stride-6 (PR 2f quantized)', () => {
     const backend = new SyntheticEarthSurfaceBackend()
     let result: import('../../../data/tile-source').BackendTileResult | null = null
     backend.attach({
       acceptResult: (_key, r) => { result = r },
     } as unknown as import('../../../data/tile-source').TileSourceSink)
     expect(result).not.toBeNull()
-    // 32×16 grid: (widthSegs+1)*(heightSegs+1) vertices, PR 2f quantized layout
-    // = stride 24 bytes = 6 floats each (u16×6 position + fid/abs_lon/abs_lat).
-    const expectedVertexCount = (32 + 1) * (16 + 1)   // = 561
+    // 128×64 grid (F1 rim-smoothing): (widthSegs+1)*(heightSegs+1) vertices, PR
+    // 2f quantized layout = stride 24 bytes = 6 floats each (u16×6 position +
+    // fid/abs_lon/abs_lat).
+    const expectedVertexCount = (128 + 1) * (64 + 1)   // = 8385
     expect(result!.vertices.length).toBe(expectedVertexCount * 6)
     // Dequant companion params must accompany the quantized buffer.
     expect(result!.dequantScale).toBeGreaterThan(0)
     expect(result!.dequantHalf).toBeGreaterThan(0)
   })
 
-  it('buildResult index count matches 32*16*6 = 3072 (two triangles per cell)', () => {
+  it('buildResult index count matches 128*64*6 = 49152 (two triangles per cell)', () => {
     const backend = new SyntheticEarthSurfaceBackend()
     let result: import('../../../data/tile-source').BackendTileResult | null = null
     backend.attach({
       acceptResult: (_key, r) => { result = r },
     } as unknown as import('../../../data/tile-source').TileSourceSink)
-    const expectedIndexCount = 32 * 16 * 6  // = 3072
+    const expectedIndexCount = 128 * 64 * 6  // = 49152
     expect(result!.indices.length).toBe(expectedIndexCount)
   })
 

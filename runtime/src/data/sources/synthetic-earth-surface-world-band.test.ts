@@ -19,17 +19,21 @@ import { MERCATOR_LAT_LIMIT } from '../../engine/projection/projection'
 // is empty — so this CPU-geometry check is the automatable path; the rendered
 // disc extent was confirmed via page.screenshot.)
 //
-// GEOID-UNIFICATION UPDATE (projection-matrix PR-1): the bg now encodes through
-// the shared tiler kernel (packECEFPolygonVertices) so it sits on the SAME WGS84
-// ellipsoid + RTC origin as tile ground polygons. The kernel consumes ABSOLUTE
-// Mercator metres and re-emits abs_lat from the Merc-clamped mx/my, so every
-// projType's abs_lat band is capped at ±MERCATOR_LAT_LIMIT (±85.051129) — the
-// SAME cap real polar ground tiles carry. The sphere-class generator rows still
-// span ±90 in lon/lat space, but the emitted ground geoid (and abs_lat) tracks
-// the ±85 Mercator band. Reaching the geometric poles on globe/azimuthal is a
-// separate polar-cap-synthesis concern (see 'polar cap gap on globe' memo), not
-// a basis bug. We therefore assert the unified ±85 abs_lat cap across ALL
-// projTypes here.
+// GEOID-UNIFICATION + POLAR-CAP (F2): the bg encodes onto the SAME WGS84
+// ellipsoid + RTC origin as tile ground polygons. For mercator-class (0/1/6)
+// and natural_earth (2) bands — whose Web-Mercator source data legitimately
+// stops at ±85.05° — the bg runs the shared tiler kernel (packECEFPolygonVertices)
+// and its abs_lat caps at ±MERCATOR_LAT_LIMIT, the SAME cap real polar ground
+// tiles carry (one geoid).
+//
+// SPHERE-class bands (ortho 3 / azimuthal_eq 4 / stereographic 5 / globe 7)
+// must instead REACH the geographic poles: their disc/sphere silhouette is the
+// projection of the FULL ±90 grid, so a ±85.05 cap leaves a black hole at each
+// pole (userbug 09). F2 dual-encodes those bands: |lat|≤85.05 rows stay on the
+// ellipsoid (geoid-identical to the kernel), while |lat|>85.05 polar rows carry
+// the TRUE latitude (±90) via lonLatToECEF — source-honest caps. So sphere-class
+// abs_lat now spans ±90; the |lat|≤85.05 equality with the ground geoid is
+// unchanged (proven in surface-geoid-unification.test.ts).
 
 function backendLatRange(projType?: number): { min: number; max: number } {
   const backend = new SyntheticEarthSurfaceBackend(projType)
@@ -59,16 +63,26 @@ describe('synthetic earth-surface band tracks projType (source-honest world band
     }
   })
 
-  it('natural_earth (2) + sphere-class (3/4/5/7) abs_lat caps at ±85.05° (Merc-clamped ground geoid)', () => {
-    // Post geoid-unification: the sphere-band generator rows still span ±90 in
-    // lon/lat, but the shared tiler kernel re-emits abs_lat from the Merc-clamped
-    // mx/my, so the ENCODED ground band caps at ±MERCATOR_LAT_LIMIT — the same
-    // ±85 cap real polar ground tiles carry (one geoid). Reaching the true poles
-    // is a polar-cap-synthesis follow-up, not part of this basis fix.
-    for (const projType of [2, 3, 4, 5, 7]) {
+  it('natural_earth (2) abs_lat caps at ±85.05° (kept on Merc-clamped ground geoid)', () => {
+    // natural_earth keeps the kernel path (no polar-cap synthesis): its abs_lat
+    // band caps at ±MERCATOR_LAT_LIMIT, the same ±85 cap real polar ground tiles
+    // carry (one geoid). F2 polar caps apply only to the sphere-class bands.
+    const { min, max } = backendLatRange(2)
+    expect(max).toBeCloseTo(MERCATOR_LAT_LIMIT, 1)
+    expect(min).toBeCloseTo(-MERCATOR_LAT_LIMIT, 1)
+  })
+
+  it('sphere-class (3/4/5/7) abs_lat REACHES the geographic poles ±90 (F2 polar caps fill the holes)', () => {
+    // F2 dual-encode: the sphere-band polar rows (|lat|>85.05°) carry the TRUE
+    // latitude (±90) via lonLatToECEF, so the disc/sphere silhouette reaches the
+    // pole and the black polar holes (userbug 09) are filled. The ENCODED abs_lat
+    // band therefore spans the full ±90 — distinctly PAST the ±85.05 Merc cap
+    // that the mercator/natural_earth bands stop at.
+    for (const projType of [3, 4, 5, 7]) {
       const { min, max } = backendLatRange(projType)
-      expect(max).toBeCloseTo(MERCATOR_LAT_LIMIT, 1)
-      expect(min).toBeCloseTo(-MERCATOR_LAT_LIMIT, 1)
+      expect(max).toBeCloseTo(90, 4)   // north pole covered
+      expect(min).toBeCloseTo(-90, 4)  // south pole covered
+      expect(max).toBeGreaterThan(MERCATOR_LAT_LIMIT + 1) // strictly past the ±85 cap
     }
   })
 
