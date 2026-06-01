@@ -12,6 +12,14 @@ import { mercatorYToLat } from './projection/projection'
 import { projectCpu, projectGeomCpu, needsBackfaceCullCpu, projMercatorCpu } from './shader-dsl/shaders/cpu-projections'
 import { WORLD_MERC } from './gpu/gpu-shared'
 
+// Projected-x world circumference for the x-periodic flat NON-Mercator set
+// (equirect 1 / natural_earth 2 / oblique_mercator 6). This is the SAME
+// `world_off_m = wo·2π·EARTH_R` the GPU project_geom applies (projections.ts
+// world-copy arms), NOT the Mercator-metre WORLD_MERC constant — conceptually
+// it is the projected-x circumference. (Numerically WORLD_MERC ≈ this value,
+// but they are kept distinct so the non-merc copy offset tracks project_geom.)
+const WORLD_CIRC = 2 * Math.PI * 6378137
+
 /** Per-show label paint resolution. Collapses the unified LabelShapes
  *  bundle (text-size / -color / -halo / font / icon-size / -opacity /
  *  -color / opacity) plus map-aligned point-label bearing into a single
@@ -327,7 +335,12 @@ export function makeLabelProjectors(
     if (needsBackfaceCullCpu(projType, lon, lat, centerLon, centerLat) < ORTHO_RIM_LABEL_MARGIN) return null
     const p = projectGeomCpu(projType, lon, lat, centerLon, centerLat, lon)
     if (!Number.isFinite(p[0]) || !Number.isFinite(p[1])) return null
-    const rtcX = p[0] - lblCenter[0]
+    // World-copy offset in PROJECTED-x space: `worldMercatorOffset` here carries
+    // `wo·WORLD_CIRC` (set by projectLonLatCopies), the same `world_off_m` the
+    // GPU project_geom adds to p.x for the periodic non-merc arms. projectGeomCpu
+    // is the no-offset mirror (cpu-projections.ts:50), so the shift is applied
+    // here — feeding a shifted refLon would NOT work (equirect wraps lon-delta).
+    const rtcX = (p[0] + worldMercatorOffset) - lblCenter[0]
     const rtcY = p[1] - lblCenter[1]
     const cw = mvp[3]! * rtcX + mvp[7]! * rtcY + mvp[15]!
     if (cw <= 0) return null
@@ -347,19 +360,19 @@ export function makeLabelProjectors(
     return projectLonLat(lon, lat, 0)
   }
 
-  // Flat Mercator has real ±360° world copies; iterate them. Non-Mercator
-  // collapses to one. Each result is copied out (projectLonLat returns the
-  // shared scratch, which the next iteration overwrites).
+  // Both Mercator and the x-periodic flat non-Mercator set (equirect 1 /
+  // natural_earth 2 / oblique_mercator 6) have real ±360° world copies; iterate
+  // `visibleWorldCopies` (the camera-derived periodic set, [0] for the
+  // azimuthal discs / globe). The per-copy offset differs by space: Mercator
+  // shifts in Mercator metres (wo·WORLD_MERC), non-Mercator in projected-x
+  // (wo·WORLD_CIRC == the GPU project_geom `world_off_m`). Each result is copied
+  // out (projectLonLat returns the shared scratch, overwritten next iteration).
   const _projectScratch: Array<[number, number]> = []
+  const copyPeriod = isMerc ? WORLD_MERC : WORLD_CIRC
   const projectLonLatCopies = (lon: number, lat: number): Array<[number, number]> => {
     _projectScratch.length = 0
-    if (!isMerc) {
-      const proj = projectLonLat(lon, lat, 0)
-      if (proj) _projectScratch.push([proj[0], proj[1]])
-      return _projectScratch
-    }
     for (const wo of visibleWorldCopies) {
-      const proj = projectLonLat(lon, lat, wo * WORLD_MERC)
+      const proj = projectLonLat(lon, lat, wo * copyPeriod)
       if (proj) _projectScratch.push([proj[0], proj[1]])
     }
     return _projectScratch
