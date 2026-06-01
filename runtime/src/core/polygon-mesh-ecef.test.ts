@@ -5,14 +5,14 @@
 //   1. Single quad footprint at (lon=0, lat=0), height=100m — vertex
 //      count, is_top discriminator, face_normal unit-magnitude.
 //   2. Random footprint at lat=45° — roof ECEF magnitude matches
-//      lonLatToECEFSphere(_, _, 100) within 1 mm.
+//      lonLatToECEF (WGS84 ellipsoid, _, _, 100) within 1 mm.
 //   3. Roof face_normal points outward (dot with vertex ECEF > 0.9).
 //   4. Wall face_normal is horizontal (|fn · Up| < 0.1).
 
 import { describe, expect, it } from 'vitest'
 import type { RingPolygon } from '@xgis/compiler'
 import { generateWallMeshExtrudedECEF } from './polygon-mesh'
-import { lonLatToECEFSphere, tileEcefCenterFromMerc } from '../engine/projection/ecef'
+import { lonLatToECEF, tileEcefCenterFromMerc } from '../engine/projection/ecef'
 
 // Phase 2 PR 2f: quantized ECEF extruded layout — stride 44 bytes = 11
 // floats. uint16×6 position in the first 12 bytes; f32 tail at float slots
@@ -127,7 +127,7 @@ describe('generateWallMeshExtrudedECEF', () => {
     }
   })
 
-  it('roof ECEF magnitude matches lonLatToECEFSphere within 1 mm at lat=45°', () => {
+  it('roof ECEF magnitude matches lonLatToECEF (WGS84 ellipsoid) within 1 mm at lat=45°', () => {
     // 0.01° × 0.01° quad around (lon=10, lat=45), height 50m.
     const cx = 10, cy = 45
     const d = 0.005
@@ -149,14 +149,16 @@ describe('generateWallMeshExtrudedECEF', () => {
 
     const mesh = generateWallMeshExtrudedECEF(polygons, heights, undefined, tileMx, tileMy, center)
 
-    // Reference ECEFs at corner lon/lat (NOT via the f32-quantized
-    // abs_lon/abs_lat varyings — those are intentionally lossy for
-    // GPU-side picking, not for sub-mm geometry reconstruction).
+    // Reference ECEFs at corner lon/lat on the WGS84 ELLIPSOID (NOT via
+    // the f32-quantized abs_lon/abs_lat varyings — those are intentionally
+    // lossy for GPU-side picking, not for sub-mm geometry reconstruction).
+    // The generator now uses lonLatToECEF (ellipsoid) so wall/roof verts
+    // share the tiler's geoid; the reference is re-pointed to match.
     const refCorners = [
-      lonLatToECEFSphere(cx - d, cy - d, 50),
-      lonLatToECEFSphere(cx + d, cy - d, 50),
-      lonLatToECEFSphere(cx + d, cy + d, 50),
-      lonLatToECEFSphere(cx - d, cy + d, 50),
+      lonLatToECEF(cx - d, cy - d, 50),
+      lonLatToECEF(cx + d, cy - d, 50),
+      lonLatToECEF(cx + d, cy + d, 50),
+      lonLatToECEF(cx - d, cy + d, 50),
     ]
     // Roof verts come after wall verts; wall vert count = 4 edges × 4
     // = 16, so verts 16..19 are roof, in input ring order.

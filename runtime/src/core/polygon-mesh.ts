@@ -26,7 +26,7 @@ export const EXTRUDE_FALLBACK_HEIGHT_M = 50
 import earcut from 'earcut'
 import type { RingPolygon } from '@xgis/compiler'
 import { POLYGON_EXTRUDED_FORMAT, vertexField } from '@xgis/compiler'
-import { lonLatToECEFSphere } from '../engine/projection/ecef'
+import { lonLatToECEF } from '../engine/projection/ecef'
 import { mercatorYToLatRad } from '../engine/projection/projection'
 
 // ─────────────────────────────────────────────────────────────────
@@ -94,7 +94,10 @@ const EXT_FNORMAL_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'face_normal').of
 const EXT_WALLH_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'wall_height').offset / 4   // 9
 const EXT_ISTOP_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'is_top').offset / 4        // 10
 const RAD2DEG_LOCAL = 180 / Math.PI
-const EARTH_RADIUS_LOCAL = 6378137  // sphere — matches lonLatToECEFSphere
+const EARTH_RADIUS_LOCAL = 6378137  // WGS84 semi-major axis; used ONLY for the
+                                    // Mercator longitude inverse (mx/A, basis-
+                                    // independent). The ECEF POSITION is ellipsoid
+                                    // via lonLatToECEF.
 
 /** Build the ECEF extruded wall + roof mesh for a set of polygon
  *  features. Each feature emits:
@@ -107,11 +110,13 @@ const EARTH_RADIUS_LOCAL = 6378137  // sphere — matches lonLatToECEFSphere
  *    `is_top = 1` and `face_normal = normalize(ecef_position)` (radial
  *    "up" from the Earth centre).
  *
- *  All vertices are converted to ECEF on the sphere (radius
- *  `EARTH_RADIUS = 6378137 m`, matching `lonLatToECEFSphere` — the
- *  legacy 2D-MVP and the new ECEF-MVP must converge at the equator per
- *  the math contract). Each ECEF vertex is then DSFUN-split relative
- *  to `tileEcefCenter` so the GPU reconstructs sub-mm precision via
+ *  All vertices are converted to ECEF on the WGS84 ellipsoid
+ *  (`N = A/sqrt(1 - E2*sin²lat)`, `ez = N*(1-E2)*sinLat`, via
+ *  `lonLatToECEF`) — the SAME geoid the tiler's
+ *  `packECEFPolygonVertices` uses for ground polygons, so wall/roof
+ *  vertices share one geoid with the surrounding flat fill. Each ECEF
+ *  vertex is then DSFUN-split relative to `tileEcefCenter` (also
+ *  ellipsoid) so the GPU reconstructs sub-mm precision via
  *  `pos_h + pos_l`.
  *
  *  Wall outward normal: at each edge midpoint the lat/lon ENU basis is
@@ -262,7 +267,7 @@ export function generateWallMeshExtrudedECEF(
     const lonDeg = (mx / EARTH_RADIUS_LOCAL) * RAD2DEG_LOCAL
     const latRad = mercatorYToLatRad(my)
     const latDeg = latRad * RAD2DEG_LOCAL
-    const ecef = lonLatToECEFSphere(lonDeg, latDeg, height)
+    const ecef = lonLatToECEF(lonDeg, latDeg, height)
     // ECEF RTC residual (f64) — quantized in the final pass.
     const ax = ecef[0] - tileEcefCenter[0]
     const ay = ecef[1] - tileEcefCenter[1]
@@ -395,9 +400,13 @@ export function generateWallMeshExtrudedECEF(
       ? outerLen - 1
       : outerLen
     const writeRoofVert = (mx: number, my: number): void => {
-      // Roof face_normal = local ECEF up = normalize(ecef_position);
-      // on the sphere this equals the radial direction at (lon, lat),
-      // independent of height. mx/my are ABSOLUTE Mercator.
+      // Roof face_normal = SPHERE-radial up at (lon, lat): an intentional
+      // LIGHTING approximation that ignores the ellipsoid's normal deflection
+      // (≤ ~0.19° vs the true geodetic vertical) — visually indistinguishable
+      // for roof shading. This is DISTINCT from the POSITION path, which now
+      // uses the WGS84 ELLIPSOID (lonLatToECEF) so roof verts share one geoid
+      // with the ground fill; only the lighting normal stays sphere-radial.
+      // mx/my are ABSOLUTE Mercator.
       const lonRad = mx / EARTH_RADIUS_LOCAL
       const latRad = mercatorYToLatRad(my)
       const cLat = Math.cos(latRad)

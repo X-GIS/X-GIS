@@ -18,6 +18,18 @@ import { MERCATOR_LAT_LIMIT } from '../../engine/projection/projection'
 // extent. (Pixel verification is impossible under SwiftShader — getImageData
 // is empty — so this CPU-geometry check is the automatable path; the rendered
 // disc extent was confirmed via page.screenshot.)
+//
+// GEOID-UNIFICATION UPDATE (projection-matrix PR-1): the bg now encodes through
+// the shared tiler kernel (packECEFPolygonVertices) so it sits on the SAME WGS84
+// ellipsoid + RTC origin as tile ground polygons. The kernel consumes ABSOLUTE
+// Mercator metres and re-emits abs_lat from the Merc-clamped mx/my, so every
+// projType's abs_lat band is capped at ±MERCATOR_LAT_LIMIT (±85.051129) — the
+// SAME cap real polar ground tiles carry. The sphere-class generator rows still
+// span ±90 in lon/lat space, but the emitted ground geoid (and abs_lat) tracks
+// the ±85 Mercator band. Reaching the geometric poles on globe/azimuthal is a
+// separate polar-cap-synthesis concern (see 'polar cap gap on globe' memo), not
+// a basis bug. We therefore assert the unified ±85 abs_lat cap across ALL
+// projTypes here.
 
 function backendLatRange(projType?: number): { min: number; max: number } {
   const backend = new SyntheticEarthSurfaceBackend(projType)
@@ -47,11 +59,16 @@ describe('synthetic earth-surface band tracks projType (source-honest world band
     }
   })
 
-  it('natural_earth (2) + sphere-class (3/4/5/7) reach the poles (±90°)', () => {
+  it('natural_earth (2) + sphere-class (3/4/5/7) abs_lat caps at ±85.05° (Merc-clamped ground geoid)', () => {
+    // Post geoid-unification: the sphere-band generator rows still span ±90 in
+    // lon/lat, but the shared tiler kernel re-emits abs_lat from the Merc-clamped
+    // mx/my, so the ENCODED ground band caps at ±MERCATOR_LAT_LIMIT — the same
+    // ±85 cap real polar ground tiles carry (one geoid). Reaching the true poles
+    // is a polar-cap-synthesis follow-up, not part of this basis fix.
     for (const projType of [2, 3, 4, 5, 7]) {
       const { min, max } = backendLatRange(projType)
-      expect(max).toBeCloseTo(90, 1)
-      expect(min).toBeCloseTo(-90, 1)
+      expect(max).toBeCloseTo(MERCATOR_LAT_LIMIT, 1)
+      expect(min).toBeCloseTo(-MERCATOR_LAT_LIMIT, 1)
     }
   })
 
