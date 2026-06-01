@@ -1,6 +1,8 @@
 // ═══ Graticule (위경도 그리드 라인) + Globe Background ═══
 // GPU 프로젝션과 함께 동작. 줌 적응형 간격 + 메이저/마이너 구분.
 
+import { lonLatToECEF, dsfunSplitECEF } from './projection/ecef'
+
 export interface GraticuleData {
   /** Line vertices in ECEF-DSFUN stride 9 (Phase 2 PR 2d.1D):
    *  [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, feat_id, abs_lon, abs_lat].
@@ -12,31 +14,22 @@ export interface GraticuleData {
   indexCount: number
 }
 
-const GRAT_EARTH_A = 6378137                  // WGS84 semi-major axis (m)
-const GRAT_F = 1 / 298.257223563              // WGS84 flattening
-const GRAT_E2 = GRAT_F * (2 - GRAT_F)         // first eccentricity squared
-const GRAT_DEG2RAD = Math.PI / 180
 const GRAT_LAT_LIMIT = 85.051129
+// DSFUN split is taken relative to the world ECEF origin: graticules live in
+// the "no-tile" frame (RTC = (0,0,0)) so there is no per-tile centre to
+// subtract.
+const GRAT_ECEF_ORIGIN: readonly [number, number, number] = [0, 0, 0]
 
 function lonLatToEcefDSFUN(lon: number, lat: number, featId: number, out: number[]): void {
   const clampedLat = Math.max(-GRAT_LAT_LIMIT, Math.min(GRAT_LAT_LIMIT, lat))
-  const lonRad = lon * GRAT_DEG2RAD
-  const latRad = clampedLat * GRAT_DEG2RAD
-  const sinLat = Math.sin(latRad)
-  const cosLat = Math.cos(latRad)
-  // WGS84 ellipsoidal ECEF at height = 0.
-  const N = GRAT_EARTH_A / Math.sqrt(1 - GRAT_E2 * sinLat * sinLat)
-  const ex = N * cosLat * Math.cos(lonRad)
-  const ey = N * cosLat * Math.sin(lonRad)
-  const ez = N * (1 - GRAT_E2) * sinLat
-  // DSFUN split: hi = f32(v), lo = f32(v - hi).
-  const exH = Math.fround(ex)
-  const eyH = Math.fround(ey)
-  const ezH = Math.fround(ez)
-  const exL = Math.fround(ex - exH)
-  const eyL = Math.fround(ey - eyH)
-  const ezL = Math.fround(ez - ezH)
-  out.push(exH, eyH, ezH, exL, eyL, ezL, featId, lon, clampedLat)
+  // Shared WGS84 ellipsoidal ECEF forward (height = 0) — same constants/
+  // formula the tile pipeline uses, replacing the hand-rolled GRAT_* kernel.
+  const ecef = lonLatToECEF(lon, clampedLat)
+  // DSFUN hi/lo split via the shared helper. With a zero RTC centre this is
+  // bit-identical (after Float32Array storage) to the prior inline
+  // `hi = f32(v); lo = f32(v - hi)` split.
+  const { hi, lo } = dsfunSplitECEF(ecef, GRAT_ECEF_ORIGIN)
+  out.push(hi[0], hi[1], hi[2], lo[0], lo[1], lo[2], featId, lon, clampedLat)
 }
 
 /** Determine major/minor grid spacing based on zoom level */

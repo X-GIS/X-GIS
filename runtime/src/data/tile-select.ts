@@ -21,6 +21,8 @@ export {
 
 import type { Camera } from '../engine/projection/camera'
 import { type Projection, MERCATOR_LAT_LIMIT, mercatorYToLat } from '../engine/projection/projection'
+import { PROJECTION_NAME_TO_TYPE } from '../engine/projection/projections-table'
+import { EARTH_R } from '../engine/projection/globe'
 
 // Mobile GPUs choke on 300 frustum tiles — each tile is a draw call plus
 // SDF-shaded line segments. 120 keeps the foreground refined and the
@@ -130,7 +132,7 @@ export function visibleTilesFrustum(
   const cssWidth = canvasWidth / dpr
   const cssHeight = canvasHeight / dpr
   const DEG2RAD = Math.PI / 180
-  const R = 6378137
+  const R = EARTH_R
   // MVP from device dims + dpr — `_buildRTCMatrix` divides height by
   // `dpr` for the altitude term so the camera position is CSS-pixel-
   // anchored (DPR-invariant). Aspect ratio (`canvasW/canvasH`) is
@@ -144,7 +146,10 @@ export function visibleTilesFrustum(
   // Non-Mercator projections render a single world (no lon-periodic
   // wrap); skip enumerating ±N copies to avoid 5× wasted tile selection
   // + downstream draws. See worldCopiesFor() in gpu-shared.ts.
-  const projType = projection.name === 'mercator' ? 0 : 1
+  // Table-ified (PR-A target #3): only {mercator,equirect,natural_earth}
+  // reach here and worldCopiesFor(1)===worldCopiesFor(2), so the table
+  // lookup is byte-equivalent to the prior `?0:1` for every live input.
+  const projType = PROJECTION_NAME_TO_TYPE[projection.name] ?? 0
   const maxCopies = (worldCopiesFor(projType).length - 1) / 2
   // Subdivide cut-off: a tile crosses this many on-screen pixels →
   // descend into its 4 children. Threshold is in DEVICE pixels (matches
@@ -589,10 +594,12 @@ export function visibleTilesFrustumSampled(
   dpr: number = 1,
 ): TileCoord[] {
   const DEG2RAD = Math.PI / 180
-  const R = 6378137
+  const R = EARTH_R
   const n = Math.pow(2, targetZ)
-  // See parallel comment in visibleTilesFrustum().
-  const projType = projection.name === 'mercator' ? 0 : 1
+  // See parallel comment in visibleTilesFrustum(). Table-ified (PR-A
+  // target #3): byte-equivalent to `?0:1` — `isMerc`/`maxCopies` behave
+  // identically for natural_earth at projType 2 vs the prior 1.
+  const projType = PROJECTION_NAME_TO_TYPE[projection.name] ?? 0
   const maxCopies = (worldCopiesFor(projType).length - 1) / 2
 
   // 9 × 9 sample grid across the viewport. Denser than Mapbox's
