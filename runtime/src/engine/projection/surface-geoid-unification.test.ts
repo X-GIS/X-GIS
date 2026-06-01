@@ -82,9 +82,12 @@ describe('surface geoid unification — bg + extrusion share the tiler ellipsoid
     const [tileMx, tileMy] = lonLatToMerc(-180, Z0_DECODED_SOUTH)
     const center = tileEcefCenterFromMerc(tileMx, tileMy)
 
-    // Sphere band (projType 7) so the spread includes the polar (±90) rows,
-    // which the encode clamps to ±85.051129 — exactly as real polar ground
-    // tiles do.
+    // Sphere band (projType 7) so the spread includes the polar (±90) rows.
+    // F2 dual-encode: |lat|≤85.05 rows take the Merc-clamped ellipsoid ECEF
+    // (geoid-identical to the kernel/ground tiles — the ≤85 equality this gate
+    // protects is UNCHANGED); |lat|>85.05 polar rows take lonLatToECEF(lon, ±90)
+    // directly (bg-only source-honest caps, no tiler equivalent). The reference
+    // is the SAME tiler ellipsoid forward for BOTH — passed the encode latitude.
     const backend = new SyntheticEarthSurfaceBackend(7)
     const { sink, pushed } = recordingSink()
     backend.attach(sink)
@@ -97,15 +100,18 @@ describe('surface geoid unification — bg + extrusion share the tiler ellipsoid
       (u16[lane] * 65536 + u16[lane + 1]) * scale - half
 
     // Grid layout (earth-surface-fill.ts): row-major, cols = widthSegments+1 =
-    // 33, rows = heightSegments+1 = 17, sphere band lat ∈ [-90, 90]. Derive the
+    // 129, rows = heightSegments+1 = 65, sphere band lat ∈ [-90, 90]. Derive the
     // PRECISE (f64) grid lon/lat from the index — NOT the lossy f32 abs_lon/
-    // abs_lat varyings — and apply the SAME Merc clamp the encode used, so the
-    // 1 mm gate is a true geoid check rather than f32-rounding noise.
-    const cols = 33
-    const gridLon = (idx: number): number => -180 + (360 * (idx % cols)) / 32
+    // abs_lat varyings — and apply the SAME encode rule (polar rows keep the
+    // true ±90, the rest are Merc-clamped) so the gate is a true geoid check
+    // rather than f32-rounding noise.
+    const cols = 129
+    const gridLon = (idx: number): number => -180 + (360 * (idx % cols)) / 128
     const gridLat = (idx: number): number => {
-      const lat = -90 + (180 * Math.floor(idx / cols)) / 16
-      return Math.max(-MERC_LAT_CLAMP, Math.min(MERC_LAT_CLAMP, lat))
+      const lat = -90 + (180 * Math.floor(idx / cols)) / 64
+      return Math.abs(lat) > MERC_LAT_CLAMP
+        ? lat
+        : Math.max(-MERC_LAT_CLAMP, Math.min(MERC_LAT_CLAMP, lat))
     }
 
     // Sample a representative spread of grid vertices (every 37th vertex
@@ -226,8 +232,8 @@ describe('surface geoid unification — bg + extrusion share the tiler ellipsoid
     const bgU16 = new Uint16Array(bg.vertices.buffer)
     const bgDeq = (lane: number): number =>
       (bgU16[lane] * 65536 + bgU16[lane + 1]) * bg.dequantScale - bg.dequantHalf
-    const cols = 33
-    const bgIdx = 8 * cols + 16            // lon=0, lat=0
+    const cols = 129
+    const bgIdx = 32 * cols + 64           // lon=0, lat=0
     const bgLane = bgIdx * 12
     const bgECEF: [number, number, number] = [
       bgCenter[0] + bgDeq(bgLane),

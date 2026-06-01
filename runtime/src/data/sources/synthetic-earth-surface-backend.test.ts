@@ -2,8 +2,8 @@
 //
 // Covers AC2c.3.1 surface shape:
 //   - meta exposes web-mercator-xyz scheme + TILE_LAYOUT_VERSION + z=0 only.
-//   - loadTile pushes exactly one BackendTileResult with 561 verts × stride-9
-//     and 3072 indices (32x16 grid).
+//   - loadTile pushes exactly one BackendTileResult with 8385 verts × stride-6
+//     and 49152 indices (128x64 grid — F1 rim-smoothing density).
 //   - Corner verts reconstruct the per-projType band (sphere ±90°, mercator
 //     ±85°) via abs_lon/abs_lat.
 //   - DSFUN hi+lo reconstructs ECEF metres at sphere magnitudes.
@@ -84,13 +84,13 @@ describe('SyntheticEarthSurfaceBackend — attach + loadTile', () => {
     expect(pushed[0].result).not.toBeNull()
   })
 
-  it('emits 561 verts × stride-6 (PR 2f quantized) + 3072 indices from 32x16 grid', () => {
+  it('emits 8385 verts × stride-6 (PR 2f quantized) + 49152 indices from 128x64 grid', () => {
     const backend = new SyntheticEarthSurfaceBackend()
     const { sink, pushed } = makeRecordingSink()
     backend.attach(sink)
     const result = pushed[0].result!
-    expect(result.vertices.length).toBe(561 * 6)
-    expect(result.indices.length).toBe(32 * 16 * 6)
+    expect(result.vertices.length).toBe(129 * 65 * 6)   // (128+1)*(64+1) verts
+    expect(result.indices.length).toBe(128 * 64 * 6)    // 49152
     expect(result.lineVertices.length).toBe(0)
     expect(result.lineIndices.length).toBe(0)
     // Quantized buffer must carry its dequant companion params.
@@ -125,27 +125,27 @@ describe('SyntheticEarthSurfaceBackend — vertex content', () => {
     return q * scale - half
   }
 
-  it('first vertex sits at lon=-180, abs_lat clamped to -85.051129 (sphere band projType 7)', () => {
-    // Post-consolidation the bg encodes through the tiler kernel, which re-emits
-    // abs_lat from the Merc-clamped mx/my. The sphere band's ±90 generator rows
-    // therefore surface as ±85.051129 in abs_lat — the SAME ±85 cap real polar
-    // ground tiles carry (consistent geoid), not the geometric pole.
+  it('first vertex sits at lon=-180, abs_lat REACHES the south pole -90 (sphere band projType 7)', () => {
+    // F2 polar-cap dual-encode: the sphere band's polar rows (|lat| > 85.05°)
+    // forward the TRUE latitude to the WGS84 ellipsoid and carry abs_lat = ±90,
+    // so the disc/sphere silhouette reaches the geographic pole (no ±85 cap
+    // hole). The first generator row is lat = -90 → abs_lat = -90 exactly.
     const backend = new SyntheticEarthSurfaceBackend(7)
     const { sink, pushed } = makeRecordingSink()
     backend.attach(sink)
     const v = pushed[0].result!.vertices
-    expect(v[4]).toBeCloseTo(-180, 6)               // abs_lon
-    expect(v[5]).toBeCloseTo(-MERC_LAT_CLAMP, 4)    // abs_lat (Merc-clamped)
+    expect(v[4]).toBeCloseTo(-180, 6)   // abs_lon
+    expect(v[5]).toBeCloseTo(-90, 4)    // abs_lat — true south pole (cap filled)
   })
 
-  it('last vertex sits at lon=+180, abs_lat clamped to +85.051129 (sphere band projType 7)', () => {
+  it('last vertex sits at lon=+180, abs_lat REACHES the north pole +90 (sphere band projType 7)', () => {
     const backend = new SyntheticEarthSurfaceBackend(7)
     const { sink, pushed } = makeRecordingSink()
     backend.attach(sink)
     const v = pushed[0].result!.vertices
-    const last = (561 - 1) * 6
+    const last = (129 * 65 - 1) * 6
     expect(v[last + 4]).toBeCloseTo(180, 6)
-    expect(v[last + 5]).toBeCloseTo(MERC_LAT_CLAMP, 4)
+    expect(v[last + 5]).toBeCloseTo(90, 4)   // abs_lat — true north pole (cap filled)
   })
 
   it('quantized position at the mid vertex reconstructs the tiler ELLIPSOID ECEF (A,0,0)', () => {
@@ -156,9 +156,9 @@ describe('SyntheticEarthSurfaceBackend — vertex content', () => {
     const v = result.vertices
     const u16 = new Uint16Array(v.buffer)
     // Sample the mid-row, mid-col vertex — lon=0, lat=0 → ECEF (A, 0, 0).
-    // Mid row index = 8 (heightSegments/2), mid col index = 16 (widthSegments/2).
-    const cols = 33
-    const idx = 8 * cols + 16
+    // Mid row index = 32 (heightSegments/2), mid col index = 64 (widthSegments/2).
+    const cols = 129
+    const idx = 32 * cols + 64
     const lane = idx * 12   // u16 lane base (12 lanes / vertex)
     const { dequantScale: scale, dequantHalf: half } = result
     // Dequant is the RTC residual about the z=0 tileEcefCenter (ELLIPSOID),
@@ -178,13 +178,15 @@ describe('SyntheticEarthSurfaceBackend — vertex content', () => {
     expect(v[idx * 6 + 5]).toBeCloseTo(0, 6)
   })
 
-  it('bg vertex ECEF == tiler ELLIPSOID ECEF across a lat/lon spread (basis unified)', () => {
+  it('bg vertex ECEF == tiler ELLIPSOID ECEF across a lat/lon spread (basis unified, caps at ±90)', () => {
     // For each sampled grid vertex, reconstruct absolute ECEF = residual +
-    // tileEcefCenter and assert it equals lonLatToECEF(lon, clampLat(lat)) — the
+    // tileEcefCenter and assert it equals lonLatToECEF(lon, encLat(lat)) — the
     // SAME WGS84 ellipsoid forward the tiler runs for ground polygons — to ≤1mm.
     // This is the direct 'bg ECEF == tiler ellipsoid ECEF' unification check.
-    // Sphere band (projType 7) so the spread includes a polar (±90) row, which
-    // the encode clamps to ±85.051129 exactly as real polar ground verts do.
+    // Sphere band (projType 7): the |lat|≤85.05 rows still match the kernel's
+    // Merc-clamped ellipsoid ECEF (geoid-unification preserved), while the polar
+    // (±90) rows match lonLatToECEF(lon, ±90) DIRECTLY — the F2 source-honest
+    // caps that fill the polar holes.
     const backend = new SyntheticEarthSurfaceBackend(7)
     const { sink, pushed } = makeRecordingSink()
     backend.attach(sink)
@@ -194,20 +196,23 @@ describe('SyntheticEarthSurfaceBackend — vertex content', () => {
     const { dequantScale: scale, dequantHalf: half } = result
     const vertexCount = v.length / 6
     // Derive the PRECISE (f64) grid lon/lat from the index — NOT the lossy f32
-    // abs_lon/abs_lat varyings — and apply the SAME Merc clamp the encode used.
-    const cols = 33
-    const gridLon = (i: number): number => -180 + (360 * (i % cols)) / 32
+    // abs_lon/abs_lat varyings — and apply the SAME encode rule: polar rows keep
+    // the true latitude (±90), the rest are Merc-clamped (matches packECEFWithPolarCaps).
+    const cols = 129
+    const gridLon = (i: number): number => -180 + (360 * (i % cols)) / 128
     const gridLat = (i: number): number => {
-      const lat = -90 + (180 * Math.floor(i / cols)) / 16
-      return Math.max(-MERC_LAT_CLAMP, Math.min(MERC_LAT_CLAMP, lat))
+      const lat = -90 + (180 * Math.floor(i / cols)) / 64
+      return Math.abs(lat) > MERC_LAT_CLAMP
+        ? lat
+        : Math.max(-MERC_LAT_CLAMP, Math.min(MERC_LAT_CLAMP, lat))
     }
     // Sample a spread: south pole row, mid, an off-meridian high-lat vertex,
     // and the north pole row.
     const samples = [
-      0,                    // (lon=-180, lat=-90) → clamps to -85.051129
-      8 * cols + 16,        // (lon=0,    lat=0)
-      12 * cols + 20,       // off-meridian high northern lat
-      vertexCount - 1,      // (lon=+180, lat=+90) → clamps to +85.051129
+      0,                    // (lon=-180, lat=-90) → TRUE -90 (polar cap)
+      32 * cols + 64,       // (lon=0,    lat=0)
+      62 * cols + 80,       // off-meridian high northern lat (84.375° ≤ cap)
+      vertexCount - 1,      // (lon=+180, lat=+90) → TRUE +90 (polar cap)
     ]
     // Tolerance = the double-u16 quant resolution. The bg spans the whole globe
     // about a single tile-corner anchor → per-axis step = dequantScale ≈ 6 mm;
@@ -242,8 +247,8 @@ describe('SyntheticEarthSurfaceBackend — vertex content', () => {
     const v = result.vertices
     const u16 = new Uint16Array(v.buffer)
     const { dequantScale: scale, dequantHalf: half } = result
-    const cols = 33
-    const idx = 8 * cols + 16          // lon=0, lat=0
+    const cols = 129
+    const idx = 32 * cols + 64         // lon=0, lat=0
     const lane = idx * 12
     const [absX, absY, absZ] = lonLatToECEF(0, 0)
     const anchorX = absX - dequantAxis(u16, lane, scale, half)
@@ -266,7 +271,7 @@ describe('SyntheticEarthSurfaceBackend — vertex content', () => {
     const { sink, pushed } = makeRecordingSink()
     backend.attach(sink)
     const v = pushed[0].result!.vertices
-    for (let i = 0; i < 561; i++) {
+    for (let i = 0; i < 129 * 65; i++) {
       expect(v[i * 6 + 3]).toBe(0)
     }
   })
