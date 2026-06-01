@@ -150,6 +150,13 @@ export class RenderLoop {
     // their exact 2D projection so the CPU/GPU consistency contract and
     // each projection's identity (stereographic ≠ ortho) are preserved.
     const azimuthalTilted = promotesToGlobeWhenTilted(projType) && this.host.camera.pitch > 0
+    // The SOURCE azimuthal projType (3/4/5) survives the promotion to 7 so
+    // the globeOrtho framing path can apply that projType's flat view-height
+    // cap (flatViewHeightCapM) — without this the promoted projType=7 would
+    // feed the WORLD_MERC default into globeAltitude's ortho branch and the
+    // ortho (3) disc, which needs the 2·EARTH_R cap, would jump scale the
+    // instant the user tilts (project: azimuthal-disc-pitch-framing).
+    this.host.camera.azimuthalProjType = projType
     if (azimuthalTilted) projType = 7
     this.host.camera.globeMode = isGlobeProj(projType)
     // Hand the resolved projection kind to the camera so zoomAt can pick
