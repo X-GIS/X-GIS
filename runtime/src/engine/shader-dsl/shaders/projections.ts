@@ -266,7 +266,18 @@ const project_geom = fn('project_geom', { lon_deg: f32T, lat_deg: f32T, proj_par
     const lon_primary = bb.let('lon_primary', lon_deg.sub(wo.mul(360)))
     const ref_primary = bb.let('ref_primary', ref_lon.sub(wo.mul(360)))
     const ref_d = bb.let('ref_d', callFn('wrap_lon_delta', f32T, ref_primary.sub(clon)))
-    const d = bb.let('d', callFn('unwrap_lon_near_keep', f32T, lon_primary.sub(clon), ref_d, sign(lon_primary)))
+    // Ref-relative composition (antimeridian seam-flicker fix): recover the
+    // recentred delta d as (lon_primary − ref_primary) unwrapped about the
+    // tile reference, then add ref_d (= small wrap_lon_delta(ref_primary−clon)).
+    // lon_primary and ref_primary share the SAME wo-window, so
+    // |lon_primary − ref_primary| ≤ ~180 — no 360-magnitude f32 intermediate.
+    // The old `lon_primary.sub(clon)` formed −359.99 for the cross-copy west
+    // antimeridian tile when the camera sat near ±180, and the f32 ULP there
+    // (~3.4 m) leaked into the recovered residual: the +180/−180 shared edge
+    // disagreed sub-pixel and step-changed with clon → the dateline-drag
+    // seam flicker. Equal to the old d everywhere except that fold.
+    const lon_rel_ref = bb.let('lon_rel_ref', callFn('unwrap_lon_near_keep', f32T, lon_primary.sub(ref_primary), f32(0), sign(lon_primary)))
+    const d = bb.let('d', lon_rel_ref.add(ref_d))
     const world_off_m = bb.let('world_off_m', wo.mul(2).mul(PI).mul(EARTH_R))
     const p = bb.var('p', vec2fT)
     bb.if(t.lt(1.5), (c) => { c.assign(p, callFn('proj_equirectangular_d', vec2fT, d, lat_deg)) })
@@ -303,7 +314,12 @@ const project_geom_cpu = fn('project_geom_cpu', { lon_deg: f32T, lat_deg: f32T, 
   const clat = b.let('clat', proj_params.z)
   b.if(t.gt(0.5).and(t.lt(2.5)), (bb) => {
     const ref_d = bb.let('ref_d', callFn('wrap_lon_delta', f32T, ref_lon.sub(clon)))
-    const d = bb.let('d', callFn('unwrap_lon_near_keep', f32T, lon_deg.sub(clon), ref_d, sign(lon_deg)))
+    // Ref-relative composition — mirrors the GPU project_geom seam-flicker fix
+    // (no world offset here; ref_lon plays ref_primary, lon_deg plays
+    // lon_primary). Keeps every intermediate small-magnitude so the f32-class
+    // cross-copy cancellation cannot reappear if a consumer rounds to f32.
+    const lon_rel_ref = bb.let('lon_rel_ref', callFn('unwrap_lon_near_keep', f32T, lon_deg.sub(ref_lon), f32(0), sign(lon_deg)))
+    const d = bb.let('d', lon_rel_ref.add(ref_d))
     bb.if(t.lt(1.5), (c) => { c.ret(callFn('proj_equirectangular_d', vec2fT, d, lat_deg)) })
       .else((c) => { c.ret(callFn('proj_natural_earth_d', vec2fT, d, lat_deg)) })
   })
