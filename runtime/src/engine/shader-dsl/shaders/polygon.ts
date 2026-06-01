@@ -208,19 +208,17 @@ const polygonRimAlpha = fn(
 // copies (gated by polygon-variant-diff's __polygon-variant-snapshots__).
 //
 // The fill (vs_main / vs_main_ecef) and extruded (vs_main_ecef_extruded) paths
-// share one branch shape but diverge in exactly two correlated ways, both
-// captured by the single `extruded` flag:
-//   1. FLAT arms' plane-z: fill passes z = 0.0; extruded inserts an extra
-//      `let z_plane[_geom] = wall_height * is_top` and uses it.
-//   2. The 3D (else) arm: fill recentres `ecef_cam = ecef_rtc + cam_ecef_off_h
-//      + cam_ecef_off_l` then transforms; extruded transforms the bare
-//      `ecef_rtc` (NO cam_ecef_off recentre).
+// share one branch shape and diverge in exactly ONE way, captured by the
+// single `extruded` flag: the FLAT arms' plane-z (fill passes z = 0.0;
+// extruded inserts an extra `let z_plane[_geom] = wall_height * is_top`).
 //
-// NOTE on (2): the extruded 3D path is MISSING the cam_ecef_off recentre that
-// the flat-fill 3D path applies. That asymmetry is preserved here verbatim
-// under the byte-equal contract (PR-3 is a pure dedup) — it is NOT corrected
-// in this change. Folding the two copies into one `if (extruded)` simply makes
-// the asymmetry visible in one place for a future fix.
+// The 3D (else) arm is now IDENTICAL for fill and extruded: both recentre
+// `ecef_cam = ecef_rtc + cam_ecef_off_h + cam_ecef_off_l` then transform. The
+// wall-mesh (generateWallMeshExtrudedECEF) emits its residuals in the same
+// tileEcefCenter frame as the flat fill, so the recentre is correct for both;
+// the prior extruded-only bare-`ecef_rtc` path collapsed every extruded tile
+// to the camera-origin tile on projType 7 globe pitch>0 (gated by G7
+// extruded-globe-recenter; was un-gated when the asymmetry was introduced).
 //
 // All FLAT-arm math (project/flat_rel calls, the tile_origin_merc − cam_h −
 // cam_l recentre, the tile_ref_lon expression, the if-conditions, the projParamsV
@@ -260,15 +258,19 @@ const emitPolygonProjectionLadder = (
     const zG = extruded ? c.let('z_plane_geom', wallHeight!.mul(isTop!)) : f32(0)
     c.assign(clip, transformMat4(mvp, vec4(relG.x, relG.y, zG, f32(1))))
   }).else((c) => {
-    if (extruded) {
-      c.assign(clip, transformMat4(mvp, vec4(ecefRtc, f32(1))))
-    } else {
-      const camOffH = u.field('cam_ecef_off_h', vec4fT)
-      const camOffL = u.field('cam_ecef_off_l', vec4fT)
-      const ecefCam = c.let('ecef_cam',
-        ecefRtc.add(vec3(camOffH.x, camOffH.y, camOffH.z)).add(vec3(camOffL.x, camOffL.y, camOffL.z)))
-      c.assign(clip, transformMat4(mvp, vec4(ecefCam, f32(1))))
-    }
+    // 3D ECEF: recentre ecef_rtc (= vertex − tileEcefCenter) by
+    // (tileEcefCenter − cameraCenter), hi + lo, so the camera-at-ENU-origin
+    // MVP transforms vertex − cameraCenter. Identical for fill AND extruded:
+    // the wall-mesh emits residuals in the SAME tileEcefCenter frame as the
+    // flat fill (generateWallMeshExtrudedECEF: ecef − tileEcefCenter), so the
+    // recentre applies unchanged — the z-lift is baked into ecef_rtc and a
+    // translation commutes with it. Without it every extruded tile collapses
+    // to the camera-origin tile on projType 7 globe pitch>0.
+    const camOffH = u.field('cam_ecef_off_h', vec4fT)
+    const camOffL = u.field('cam_ecef_off_l', vec4fT)
+    const ecefCam = c.let('ecef_cam',
+      ecefRtc.add(vec3(camOffH.x, camOffH.y, camOffH.z)).add(vec3(camOffL.x, camOffL.y, camOffL.z)))
+    c.assign(clip, transformMat4(mvp, vec4(ecefCam, f32(1))))
   })
 }
 
@@ -523,10 +525,11 @@ const vsMainEcefExtruded = entryFn(
     const projParamsV = u.field('proj_params', vec4fT)
     const clip = b.var('clip', vec4fT)
     // Same flat/3D ladder as vs_main_ecef but extruded: the FLAT arms add a
-    // `z_plane[_geom] = wall_height * is_top` plane-lift, and the 3D (else) arm
-    // transforms the bare pre-lifted ecef_rtc (NO cam_ecef_off recentre — the
-    // asymmetry vs the flat-fill 3D path is preserved verbatim; see
-    // emitPolygonProjectionLadder). The single `extruded` flag selects both.
+    // `z_plane[_geom] = wall_height * is_top` plane-lift; the 3D (else) arm is
+    // identical to the flat-fill path (pre-lifted ecef_rtc + cam_ecef_off
+    // recentre — the wall-mesh shares the flat fill's tileEcefCenter frame;
+    // see emitPolygonProjectionLadder). The single `extruded` flag selects the
+    // plane-z divergence.
     emitPolygonProjectionLadder(b, {
       projParamsV, mvp, absLon: p.abs_lon, absLat: p.abs_lat, ecefRtc, clip,
       extruded: true, isTop: p.is_top, wallHeight: p.wall_height,
