@@ -39,6 +39,10 @@ import {
   SYNTHETIC_EARTH_SURFACE_LAYER,
 } from '../../synthetic-earth-surface-show'
 import { emitPolygonWgsl } from '../../shader-dsl/shaders/polygon'
+// The whole-viewport colour/accumulator clear moved to the background pass
+// (bucket 0) — the coverage seam from VISION §5 gap #1. The overdraw
+// accumulator a:0 clear is now decided by its pure helper.
+import { backgroundClearValue } from './background-pass'
 
 // Source files for structural dispatch-path analysis
 const OPAQUE_PASS_SRC = readFileSync(
@@ -239,15 +243,16 @@ describe('AC2c.3.7 — polygon DSL fs_overdraw shares module with vs_main_ecef (
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('AC2c.3.7 — overdraw accumulator clear value is a:0 (clean slate per frame)', () => {
-  it('opaque-pass clears r16float target to { r:0, g:0, b:0, a:0 } in DEBUG_OVERDRAW mode', () => {
-    // The additive blend accumulates from zero; an a:1 clear would
-    // bias every pixel with 1 background fragment before any real draw.
-    expect(OPAQUE_PASS_SRC).toContain('{ r: 0, g: 0, b: 0, a: 0 }')
+  it('background pass clears the r16float accumulator to a:0 in overdraw mode (any projType)', () => {
+    // The additive blend accumulates from zero; an a:1 clear would bias
+    // every pixel with 1 background fragment before any real draw. The
+    // overdraw branch overrides projType/bg entirely.
+    expect(backgroundClearValue(0, [0.5, 0.5, 0.5, 1], true)).toEqual({ r: 0, g: 0, b: 0, a: 0 })
+    expect(backgroundClearValue(7, null, true)).toEqual({ r: 0, g: 0, b: 0, a: 0 })
   })
 
-  it('overdraw accumulator clear is inside the DEBUG_OVERDRAW ternary branch (not always applied)', () => {
-    // The two branches: DEBUG_OVERDRAW ? {a:0} : {a:1}.
-    // The a:0 clear is exclusive to overdraw mode — normal mode gets a:1.
-    expect(OPAQUE_PASS_SRC).toMatch(/DEBUG_OVERDRAW[\s\S]{0,60}\{ r: 0, g: 0, b: 0, a: 0 \}/)
+  it('the a:0 clear is exclusive to overdraw — normal mode never yields a:0', () => {
+    expect(backgroundClearValue(0, [0.5, 0.5, 0.5, 1], false)).not.toEqual({ r: 0, g: 0, b: 0, a: 0 })
+    expect(backgroundClearValue(7, null, false)).toEqual({ r: 0, g: 0, b: 0, a: 1 })
   })
 })

@@ -75,30 +75,16 @@ class OpaquePass implements RenderPass {
         const colorAttachments: GPURenderPassColorAttachment[] = [{
           view: ctx.colorView,
           resolveTarget: resolveHere ? ctx.screenView : undefined,
-          // First pass clears to a neutral dark "space" color
-          // visible only where the globe ISN'T (ortho projection
-          // corners outside the sphere). Mapbox `background`
-          // semantics — earth-surface fill — is now handled
-          // through the regular tile pipeline via a synthetic
-          // GeoJSON source injected at parse time. In debug=overdraw
-          // mode the r16float accumulator clears to 0 — every fragment
-          // count starts from zero.
-          // iter-196 — pure black clear (was dark navy 0.039/0.039/0.063).
-          // MapLibre uses pure black for the "no world here" region;
-          // the style `background-color` only renders inside the
-          // world band via the synthetic earth-surface ShowCommand
-          // (Phase 2 PR 2c.3 — replaces the prior world-extent quad
-          // BackgroundRenderer pre-pass). At z=0 + pitch where the
-          // camera frustum reaches above / below the ±85° Mercator
-          // world, this clear value shows through outside the world —
-          // same convention as MapLibre, restoring pixel parity at
-          // the z=0 p=60 cell of the seoul-zoom-matrix.
-          clearValue: isFirst
-            ? (DEBUG_OVERDRAW
-                ? { r: 0, g: 0, b: 0, a: 0 }
-                : { r: 0, g: 0, b: 0, a: 1 })
-            : undefined,
-          loadOp: isFirst ? 'clear' : 'load',
+          // The colour target is cleared by the background pass (bucket 0,
+          // render/passes/background-pass.ts) which now owns the
+          // whole-viewport clear — the coverage seam from VISION §5 gap #1.
+          // Every opaque sub-pass therefore LOADs the colour it left. The
+          // inside-band style `background-color` is still painted by the
+          // synthetic earth-surface ShowCommand through this same pipeline;
+          // the outside-band region is whatever the background pass cleared.
+          // (Depth / stencil / pick are still cleared by THIS first
+          // sub-pass below — they are bucket-1 concerns, not coverage.)
+          loadOp: 'load',
           storeOp: 'store',
         }]
         if (isPickEnabled() && ctx.rt.pickTexture) {
