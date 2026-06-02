@@ -426,7 +426,7 @@ export class XGISLayer {
   constructor(
     public readonly name: string,
     private show: ShowCommand,
-    private invalidate: () => void,
+    invalidate: () => void,
   ) {
     this.style = new XGISLayerStyle({ show, invalidate })
   }

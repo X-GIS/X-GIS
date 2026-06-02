@@ -241,13 +241,15 @@ export function makeLabelProjectors(
     ccy: number
     centerLon: number
     centerLat: number
-    visibleWorldCopies: number[]
+    visibleWorldCopies: readonly number[]
   },
   // Absolute sphere-ECEF camera position (GlobeView.eye). Used ONLY by the
   // `!flat` (globe/ECEF) branch to back-face/horizon-cull far-hemisphere
   // anchors so labels behind the globe don't render through it. Ignored on the
   // flat path (which keeps its own needsBackfaceCullCpu rim gate).
-  eye?: [number, number, number],
+  // `readonly` so the camera's `ECEF` tuple (a readonly triple) passes
+  // without a copy; the body only reads the components.
+  eye?: readonly [number, number, number],
 ): {
   projectMerc: (mx: number, my: number, worldMercatorOffset?: number) => [number, number] | null
   projectLonLat: (lon: number, lat: number, worldMercatorOffset?: number) => [number, number] | null

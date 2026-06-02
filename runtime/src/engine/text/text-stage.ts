@@ -183,7 +183,7 @@ function pretextCacheKey(
 /** Compute the rendered width of glyph range [start, end) using the
  *  per-glyph advances + letter-spacing convention the renderer uses. */
 function rangeWidth(
-  advances: readonly number[], start: number, end: number, letterSpacingPx: number,
+  advances: ArrayLike<number>, start: number, end: number, letterSpacingPx: number,
 ): number {
   let w = 0
   for (let j = start; j < end; j++) {
@@ -317,7 +317,7 @@ function _kpCollectBreakIndices(last: KPBreak | null): number[] {
  *  Returns the list of WrappedLineRange covering glyphs[start..end). */
 function _kpWrapSegment(
   glyphs: readonly GlyphInfo[],
-  advances: readonly number[],
+  advances: ArrayLike<number>,
   letterSpacingPx: number,
   maxWidthPx: number,
   segStart: number, segEnd: number,

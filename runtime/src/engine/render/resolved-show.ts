@@ -15,15 +15,15 @@
 // canvas-fallback renderer; the WebGPU draw path no longer touches
 // them per-frame.
 
-// SceneCommands isn't on the public @xgis/compiler barrel surface but
-// `bucket-scheduler.ts` already imports it the same way; both
-// references stay consistent through @xgis/compiler's workspace
-// resolution. (Adding the export to compiler/src/index.ts surfaces
-// stale field references elsewhere — separate cleanup task.)
-import type { SceneCommands, PropertyShape } from '@xgis/compiler'
+// The runtime's `ShowCommand` (renderer-types.ts) is a SUPERSET of the
+// compiler's emit-commands `ShowCommand`: it carries runtime-only
+// bake/resolve fields (`resolvedFillRgba`, `dashOffset`, the time/zoom
+// stop arrays, …) that this resolver reads below. Use the runtime type,
+// not the compiler's, so those field accesses type-check.
+import type { PropertyShape } from '@xgis/compiler'
+import type { ShowCommand } from './renderer-types'
 import { resolveNumberShape, resolveColorShape } from './paint-shape-resolve'
 
-type ShowCommand = SceneCommands['shows'][0]
 type ShapeRef = PropertyShape<unknown> | null | undefined
 
 // Per-show cache for ResolvedShow snapshots. The classifier hits

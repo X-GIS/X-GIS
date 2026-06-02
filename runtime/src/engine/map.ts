@@ -276,7 +276,7 @@ export class XGISMap {
    *  worker decode produces a new props object ref → cache miss
    *  on first access → entry recomputed. Old entries GC via
    *  WeakMap automatic cleanup. */
-  readonly _featureExprsCache = new WeakMap<Record<string, unknown>, { zoomBucket: number; effectiveDef: unknown; def: unknown }>()
+  readonly _featureExprsCache = new WeakMap<Record<string, unknown>, { zoomBucket: number; effectiveDef: AST.LabelDef; def: AST.LabelDef }>()
   /** iter-261 (Plan L.1.1) — label-dispatch signature for cache
    *  hit-rate diagnostic. Computed at the start of the labelShows
    *  loop; compared to prior frame. Tracks hit/miss without

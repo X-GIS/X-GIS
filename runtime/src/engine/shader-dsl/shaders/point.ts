@@ -274,8 +274,8 @@ const vs = entryFn('vs_point', 'vertex', [
   ))
   // Camera-relative RTC: subtract the camera anchor in DSFUN space so the
   // big absolute ECEF magnitude cancels before the residual reaches f32 math.
-  const camH = b.let('cam_h', u.field('cam_ecef_h', vec4fT).swizzle('xyz'))
-  const camL = b.let('cam_l', u.field('cam_ecef_l', vec4fT).swizzle('xyz'))
+  const camH = b.let('cam_h', u.field('cam_ecef_h', vec4fT).swizzle<'vec3<f32>'>('xyz'))
+  const camL = b.let('cam_l', u.field('cam_ecef_l', vec4fT).swizzle<'vec3<f32>'>('xyz'))
   const ecefRtc = b.let('ecef_rtc', ecefH.sub(camH).add(ecefL.sub(camL)))
   const absLon = b.let('abs_lon', featData.at(fid.mul(STRIDE).add(u32(17)), f32T))
   const absLat = b.let('abs_lat', featData.at(fid.mul(STRIDE).add(u32(18)), f32T))
@@ -291,8 +291,8 @@ const vs = entryFn('vs_point', 'vertex', [
   const centerClip = b.var('center_clip', vec4fT)
   b.if(u.field('proj_params', vec4fT).x.lt(0.5), (c) => {
     const p2d = c.let('p2d', callFn('project', vec2fT, absLon, absLat, u.field('proj_params', vec4fT)))
-    const camMercH = c.let('cam_merc_h', u.field('cam_ecef_h', vec4fT).swizzle('xy'))
-    const camMercL = c.let('cam_merc_l', u.field('cam_ecef_l', vec4fT).swizzle('xy'))
+    const camMercH = c.let('cam_merc_h', u.field('cam_ecef_h', vec4fT).swizzle<'vec2<f32>'>('xy'))
+    const camMercL = c.let('cam_merc_l', u.field('cam_ecef_l', vec4fT).swizzle<'vec2<f32>'>('xy'))
     const rel2d = c.let('rel2d', p2d.sub(camMercH).sub(camMercL))
     c.assign(centerClip, transformMat4(mvp, vec4(rel2d.x, rel2d.y, f32(0), f32(1))))
   }).elif(u.field('proj_params', vec4fT).x.lt(6.5), (c) => {

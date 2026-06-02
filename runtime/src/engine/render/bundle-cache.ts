@@ -132,7 +132,7 @@ export class BundleCache {
     // Cache miss: encode a fresh bundle. WebGPU spec requires the
     // descriptor's formats to match the encompassing render pass.
     const encoder = this.device.createRenderBundleEncoder({
-      colorFormats: desc.colorFormats,
+      colorFormats: [...desc.colorFormats],
       depthStencilFormat: desc.depthStencilFormat,
       sampleCount: desc.sampleCount,
       depthReadOnly: desc.depthReadOnly,

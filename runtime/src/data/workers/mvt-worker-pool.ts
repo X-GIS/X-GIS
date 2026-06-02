@@ -14,6 +14,9 @@ import MvtWorker from './mvt-worker.ts?worker'
 export interface MvtCompileSlice {
   layerName: string
   vertices: Float32Array
+  /** PR 2f per-tile quantized-position dequant params for `vertices`. */
+  dequantScale: number
+  dequantHalf: number
   indices: Uint32Array
   lineVertices: Float32Array
   lineIndices: Uint32Array
@@ -43,6 +46,9 @@ interface PendingJob {
 interface SliceMsg {
   layerName: string
   vertices: ArrayBuffer
+  /** PR 2f per-tile quantized-position dequant params for `vertices`. */
+  dequantScale: number
+  dequantHalf: number
   indices: ArrayBuffer
   lineVertices: ArrayBuffer
   lineIndices: ArrayBuffer

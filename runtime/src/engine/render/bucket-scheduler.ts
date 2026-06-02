@@ -23,7 +23,7 @@
 // fixture combination without spinning up the full WebGPU stack.
 
 import type { LayerDrawPhase, VectorTileRenderer } from './vector-tile-renderer'
-import type { SceneCommands } from '@xgis/compiler'
+import type { ShowCommand } from './renderer-types'
 import { resolveNumberShape } from './paint-shape-resolve'
 import { resolveShow, type ResolvedShow } from './resolved-show'
 import { SAFE_MODE } from '../gpu/gpu'
@@ -49,7 +49,7 @@ import type { RenderTraceRecorder, RGBA } from '../../diagnostics/render-trace'
 export interface ClassifiedShow {
   sourceName: string
   vtEntry: ClassifierVTSource
-  show: SceneCommands['shows'][0]
+  show: ShowCommand
   /** Per-frame snapshot of the show's paint state with every
    *  zoom-stop / time-stop / shape kind already collapsed to a
    *  scalar / RGBA. New consumers should read paint properties
@@ -105,7 +105,7 @@ export interface ClassifierVTSource {
  *  `sourceName` is the lookup key into `vtSources`. */
 export interface ClassifierShowEntry {
   sourceName: string
-  show: SceneCommands['shows'][0]
+  show: ShowCommand
   pipelines: ClassifierVariantPipelines | null
   layout: GPUBindGroupLayout | null
 }

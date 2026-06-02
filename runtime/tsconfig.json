@@ -1,9 +1,22 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
+    "composite": true,
     "outDir": "./dist",
     "rootDir": "./src",
-    "types": ["@webgpu/types"]
+    "types": ["@webgpu/types"],
+    // Consume the emitted declarations of the referenced packages (built
+    // first via the project references below) instead of recompiling their
+    // source under runtime's rootDir. This is what lets VSCode / standalone
+    // `tsc` resolve @xgis/compiler and @xgis/shared to their .d.ts the same
+    // way the project-reference build already does, eliminating the
+    // cross-package TS6059 rootDir errors and source type-drift.
+    "paths": {
+      "@xgis/compiler": ["../compiler/dist/index.d.ts"],
+      "@xgis/compiler/tiler/geodesic": ["../compiler/dist/tiler/geodesic.d.ts"],
+      "@xgis/shared": ["../shared/dist/index.d.ts"]
+    }
   },
+  "references": [{ "path": "../compiler" }, { "path": "../shared" }],
   "include": ["src/**/*.ts"]
 }

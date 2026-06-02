@@ -168,7 +168,11 @@ export class SpriteAtlasHost {
         readBodyCapped(pngRes, MAX_SPRITE_PNG_BYTES, 'sprite png'),
       ])
       const rawJson = JSON.parse(new TextDecoder().decode(jsonBytes)) as Record<string, RawSpriteEntry>
-      const image = await decodeBlob(new Blob([pngBytes]))
+      // readBodyCapped yields a Uint8Array whose generic buffer param is
+      // `ArrayBufferLike` (it may be a stream-chunk passthrough); the Blob
+      // ctor's BlobPart wants a definite-buffer view. The bytes are plain
+      // (never SharedArrayBuffer) here, so narrow at this boundary.
+      const image = await decodeBlob(new Blob([pngBytes as BlobPart]))
       const metadata = parseMetadata(rawJson)
       this.state = { status: 'loaded', metadata, image }
     }

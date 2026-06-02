@@ -44,7 +44,7 @@ import { buildLineSegments, type LineRenderer } from './line-renderer'
 import { parseHexColor } from '../feature-helpers'
 import { ComputeDispatcher } from '../gpu/compute'
 import { ComputeLayerHandle } from './compute-layer-handle'
-import type { GPUTile } from './vector-tile-renderer-types'
+import type { GPUTile, LayerDrawPhase } from './vector-tile-renderer-types'
 import { getMaxGpuTiles, uploadBudgetFor, ARENA_HIGH_WATER, ARENA_LOW_WATER } from './vector-tile-renderer-helpers'
 import { UniformRing } from './uniform-ring'
 
@@ -58,8 +58,11 @@ import { UniformRing } from './uniform-ring'
 // Type/interface declarations live in vector-tile-renderer-types.ts.
 // `LayerDrawPhase` is part of the public module surface, so it is
 // re-exported here to keep imports of `./vector-tile-renderer` working
-// unchanged. `GPUTile` is internal-only (imported above).
-export type { LayerDrawPhase } from './vector-tile-renderer-types'
+// unchanged. It is also imported above so the in-body parameter
+// annotations can reference it (a bare `export type { … } from` only
+// re-exports — it does not bind the name in local scope).
+// `GPUTile` is internal-only (imported above).
+export type { LayerDrawPhase }
 
 // GPU tile cache caps + per-frame upload budget helpers
 // (getMaxGpuTiles / uploadBudgetFor) live in
@@ -2238,7 +2241,7 @@ export class VectorTileRenderer {
       polyVerts = mesh.vertices.buffer.slice(
         mesh.vertices.byteOffset,
         mesh.vertices.byteOffset + mesh.vertices.byteLength,
-      )
+      ) as ArrayBuffer
       polyIndices = mesh.indices
       // PR 2f: extruded dequant params computed post-lift by the wall-mesh.
       dequantScale = mesh.dequantScale
@@ -2251,7 +2254,7 @@ export class VectorTileRenderer {
       polyVerts = data.vertices.buffer.slice(
         data.vertices.byteOffset,
         data.vertices.byteOffset + data.vertices.byteLength,
-      )
+      ) as ArrayBuffer
       polyIndices = data.indices
       dequantScale = data.dequantScale
       dequantHalf = data.dequantHalf
@@ -2562,7 +2565,7 @@ export class VectorTileRenderer {
       polyVerts = mesh.vertices.buffer.slice(
         mesh.vertices.byteOffset,
         mesh.vertices.byteOffset + mesh.vertices.byteLength,
-      )
+      ) as ArrayBuffer
       polyIndices = mesh.indices
       dequantScale = mesh.dequantScale
       dequantHalf = mesh.dequantHalf
@@ -2570,7 +2573,7 @@ export class VectorTileRenderer {
       polyVerts = data.vertices.buffer.slice(
         data.vertices.byteOffset,
         data.vertices.byteOffset + data.vertices.byteLength,
-      )
+      ) as ArrayBuffer
       polyIndices = data.indices
       dequantScale = data.dequantScale
       dequantHalf = data.dequantHalf

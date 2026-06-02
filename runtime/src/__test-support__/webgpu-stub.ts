@@ -176,7 +176,7 @@ export function installWebGPUStub(): StubInstallation {
   }
 
   // Snapshot prior state for clean restore.
-  const g = globalThis as {
+  const g = globalThis as unknown as {
     navigator?: Record<string, unknown>
     GPUShaderStage?: unknown; GPUBufferUsage?: unknown; GPUTextureUsage?: unknown
     GPUMapMode?: unknown; GPUColorWrite?: unknown
@@ -224,7 +224,7 @@ export function installWebGPUStub(): StubInstallation {
   // Stub canvas.getContext('webgpu'). Real Canvas2D / WebGL still need
   // to work for non-WebGPU tests, so we only intercept the 'webgpu' arg.
   if (typeof HTMLCanvasElement !== 'undefined') {
-    HTMLCanvasElement.prototype.getContext = function (type: string, ...rest: unknown[]): unknown {
+    HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, type: string, ...rest: unknown[]): unknown {
       if (type === 'webgpu') {
         return {
           configure: () => { bump('context.configure') },
@@ -232,7 +232,7 @@ export function installWebGPUStub(): StubInstallation {
           getCurrentTexture: () => makeTexture(this.width, this.height),
         }
       }
-      return priorGetContext ? priorGetContext.call(this, type as never, ...(rest as never[])) : null
+      return priorGetContext ? (priorGetContext as (this: HTMLCanvasElement, ...a: unknown[]) => unknown).call(this, type, ...rest) : null
     } as never
   }
 

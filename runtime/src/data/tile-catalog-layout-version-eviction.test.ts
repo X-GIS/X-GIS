@@ -20,6 +20,8 @@ const WORLD_BOUNDS: [number, number, number, number] = [-180, -85, 180, 85]
 
 const EMPTY_RESULT: BackendTileResult = {
   vertices: new Float32Array(0),
+  dequantScale: 0,
+  dequantHalf: 0,
   indices: new Uint32Array(0),
   lineVertices: new Float32Array(0),
   lineIndices: new Uint32Array(0),
