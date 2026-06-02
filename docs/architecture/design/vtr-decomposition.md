@@ -221,71 +221,84 @@ classDiagram
     direction TB
     class VectorTileRenderer {
         <<thin coordinator + hot loop>>
-        -device: GPUDevice
-        -source: TileCatalog
-        -cachedFillColor / currentOpacity / currentPickId
-        -logDepthFc / lastZoom / currentExtrude*
-        +render(pass, camera, projType, show, ...) void
-        -renderTileKeys(keys, ...) void  %% HOT LOOP — packs uniformF32 inline
-        -recordTileFill(...) drawIndexed
+        -device
+        -source
+        -lastZoom
+        -currentExtrudeMode
+        +render(pass, camera, projType, show) void
+        -renderTileKeys(keys) void
+        -recordTileFill() drawIndexed
         +beginFrame(frameId) void
         +endFrame() void
     }
     class GpuTileStore {
-        -gpuCache / _gpuCacheCount
-        -polyVertexArena / polyIndexArena / zBufferArena
-        -_bufferPool / _tileUploadEpoch
-        +get(slot,key) GPUTile
+        -gpuCache
+        -gpuCacheCount
+        -polyVertexArena
+        -polyIndexArena
+        -zBufferArena
+        -bufferPool
+        +get(slot, key) GPUTile
         +evictToBudget(stableKeys) void
-        +forceEvictBytes(arena,n) bool
-        +releaseTile(slot,key) bytes
+        +forceEvictBytes(arena, n) bool
+        +releaseTile(slot, key) bytes
     }
     class TileUploader {
-        -uploadQueue / uploadItemData
-        -_uploadsThisFrame / _heldUploads
-        -_distMemo / stagingPool
-        +enqueue(key,data,slot) void
+        -uploadQueue
+        -uploadItemData
+        -uploadsThisFrame
+        -distMemo
+        -stagingPool
+        +enqueue(key, data, slot) void
         +drain(budget) void
         +cancelStale(activeKeys) void
     }
     class UniformRing {
         <<already extracted>>
-        +allocSlot() / stageSlot() / flush()
+        +allocSlot() Slot
+        +stageSlot() void
+        +flush() void
     }
     class BindGroupRegistry {
-        -tileBgDefault / tileBgFeature
-        -layouts / palette / sprite views
-        -fillPipeline{Extruded,Ground,Pattern,OIT}
+        -tileBgDefault
+        -tileBgFeature
+        -layouts
+        -fillPipelineVariants
         +rebuild() void
         +fillBgFor(layout) GPUBindGroup
-        +pipelineFor(mode,cached) GPURenderPipeline
+        +pipelineFor(mode, cached) GPURenderPipeline
     }
     class FeatureDataBinder {
-        -featureDataBuffer / latestVariant*
-        -computeHandlesByTile / computeDispatcher
-        +captureVariant(v,layout,idx) void
-        +buildPerTile(props,key,slot) void
+        -featureDataBuffer
+        -latestVariant
+        -computeHandlesByTile
+        -computeDispatcher
+        +captureVariant(v, layout, idx) void
+        +buildPerTile(props, key, slot) void
         +dispatch(encoder) void
     }
     class TileSelectionCache {
-        -_frameTileCache / stableKeys
-        -_hysteresisZ / _czPendingAdvance
-        +selectForFrame(camera,projType,...) Selection
+        -frameTileCache
+        -stableKeys
+        -hysteresisZ
+        +selectForFrame(camera, projType) Selection
         +invalidate(frameId) void
     }
     class LabelFeatureSource {
-        -_lineLabelRunsCache / _frameArena
-        +forEachLabel(slice,fn) void
-        +forEachLineLabelPolyline(slice,fn) void
+        -lineLabelRunsCache
+        -frameArena
+        +forEachLabel(slice, fn) void
+        +forEachLineLabelPolyline(slice, fn) void
     }
     class FrameDrawStats {
-        -renderedDraws / _frame* accumulators
-        +recordDraw(...) void
+        -renderedDraws
+        -frameStatAccumulators
+        +recordDraw() void
         +snapshot() DrawStats
     }
     class PrefetchScheduler {
         <<already extracted>>
-        +pump(...) void
+        +pump() void
     }
 
     VectorTileRenderer *-- GpuTileStore

@@ -668,78 +668,97 @@ classDiagram
     direction TB
     class VectorTileRenderer {
         <<thin coordinator + hot loop>>
-        -device / source / currentProjection
-        -cachedFillColor / currentOpacity / currentPickId
-        -logDepthFc / lastZoom / currentExtrude*
-        +render(pass, camera, projType, show, ...) void
-        -renderTileKeys(keys, ...) void  %% HOT LOOP — packs uniformF32[19..58] inline
-        -recordTileFill(...) drawIndexed
+        -device
+        -source
+        -currentProjection
+        -lastZoom
+        -currentExtrudeMode
+        +render(pass, camera, projType, show) void
+        -renderTileKeys(keys) void
+        -recordTileFill() drawIndexed
         +beginFrame(frameId) void
         +endFrame() void
     }
     class GpuTileStore {
-        <<state: where tile GPU bytes live>>
-        -gpuCache / _gpuCacheCount / _tileUploadEpoch
-        -polyVertexArena / polyIndexArena / zBufferArena
-        -_bufferPool
-        +get(slot,key) GPUTile
+        <<owns where tile GPU bytes live>>
+        -gpuCache
+        -gpuCacheCount
+        -polyVertexArena
+        -polyIndexArena
+        -zBufferArena
+        -bufferPool
+        +get(slot, key) GPUTile
         +evictToBudget(stableKeys) void
-        +forceEvictBytes(arena,n) bool
-        +releaseTile(slot,key) bytes
+        +forceEvictBytes(arena, n) bool
+        +releaseTile(slot, key) bytes
     }
     class TileUploader {
-        <<state: upload queue + encode>>
-        -uploadQueue / uploadItemData
-        -_uploadsThisFrame / _heldUploads*
-        -_distMemo / stagingPool
-        +enqueue(key,data,slot) void
+        <<owns upload queue and encode>>
+        -uploadQueue
+        -uploadItemData
+        -uploadsThisFrame
+        -distMemo
+        -stagingPool
+        +enqueue(key, data, slot) void
         +drain(budget) void
         +cancelStale(activeKeys) void
     }
     class UniformRing {
         <<already extracted>>
-        +allocSlot() / stageSlot() / flush()
+        +allocSlot() Slot
+        +stageSlot() void
+        +flush() void
     }
     class BindGroupRegistry {
-        <<state: bind groups + pipeline registry>>
-        -tileBgDefault / tileBgFeature
-        -baseBindGroupLayout / featureBindGroupLayout
-        -fillPipeline{Extruded,Ground,Pattern,OIT}
+        <<owns bind groups and pipeline registry>>
+        -tileBgDefault
+        -tileBgFeature
+        -baseBindGroupLayout
+        -featureBindGroupLayout
+        -fillPipelineVariants
         +rebuild() void
         +fillBgFor(layout) GPUBindGroup
-        +pipelineFor(mode,cached) GPURenderPipeline
+        +pipelineFor(mode, cached) GPURenderPipeline
     }
     class FeatureDataBinder {
-        <<state: compute paint>>
-        -featureDataBuffer / latestVariant*
-        -computeHandlesByTile / computeDispatcher
-        +captureVariant(v,layout,idx) void
-        +buildPerTile(props,key,slot) void
+        <<owns compute paint>>
+        -featureDataBuffer
+        -latestVariant
+        -computeHandlesByTile
+        -computeDispatcher
+        +captureVariant(v, layout, idx) void
+        +buildPerTile(props, key, slot) void
         +dispatch(encoder) void
     }
     class TileSelectionCache {
-        <<state: visible-set memo + hysteresis>>
-        -_frameTileCache / stableKeys
-        -_hysteresisZ / _czPendingAdvance / _frameClassifyMemo
-        +selectForFrame(camera,projType,...) Selection
+        <<owns visible-set memo and hysteresis>>
+        -frameTileCache
+        -stableKeys
+        -hysteresisZ
+        -frameClassifyMemo
+        +selectForFrame(camera, projType) Selection
         +invalidate(frameId) void
     }
     class LabelFeatureSource {
-        <<state: CPU label iteration — NO GPU>>
-        -_lineLabelRunsCache / _labelKeyScratch / _frameArena
-        +forEachLabel(slice,fn) void
-        +forEachLineLabelPolyline(slice,fn) void
+        <<CPU label iteration, no GPU>>
+        -lineLabelRunsCache
+        -labelKeyScratch
+        -frameArena
+        +forEachLabel(slice, fn) void
+        +forEachLineLabelPolyline(slice, fn) void
     }
     class FrameDrawStats {
-        <<state: diagnostics sink>>
-        -renderedDraws / _frame* accumulators / _missedTiles
+        <<diagnostics sink>>
+        -renderedDraws
+        -frameStatAccumulators
+        -missedTiles
         +reset() void
-        +recordDraw(...) void
+        +recordDraw() void
         +snapshot() DrawStats
     }
     class PrefetchScheduler {
         <<already extracted>>
-        +pump(...) void
+        +pump() void
     }
 
     VectorTileRenderer *-- GpuTileStore
@@ -751,7 +770,7 @@ classDiagram
     VectorTileRenderer *-- LabelFeatureSource
     VectorTileRenderer *-- FrameDrawStats
     VectorTileRenderer *-- PrefetchScheduler
-    TileUploader ..> GpuTileStore : alloc arena + write gpuCache (the hard A↔B seam)
+    TileUploader ..> GpuTileStore : alloc arena and write gpuCache (hard A-B seam)
     UniformRing ..> BindGroupRegistry : onGrow callback rebuilds bind groups
     BindGroupRegistry ..> FeatureDataBinder : per-tile featureBindGroup rebuild on ring grow
 ```
