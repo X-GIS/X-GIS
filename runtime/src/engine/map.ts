@@ -328,9 +328,13 @@ export class XGISMap {
   _elapsedMs = 0
   /** Earth-surface fill color resolved from `background { fill: ... }`.
    *  Pushed into the synthetic earth-surface show + backend after GPU
-   *  init. null = no background block declared, canvas clearValue
-   *  dominates. */
-  private _backgroundColor: [number, number, number, number] | null = null
+   *  init. ALSO read by the background pass (render/passes/background-pass.ts)
+   *  to fill the OUTSIDE-band region for flat/cylindrical projections —
+   *  the coverage seam from VISION §5 gap #1. null = no background block
+   *  declared → the pass falls back to the defined black clear. Non-private
+   *  (underscore convention) so the render host can read it, like
+   *  `_rasterShow`. */
+  _backgroundColor: [number, number, number, number] | null = null
   /** P3 Step 3c — scene-scoped palette GPU textures. Held for
    *  destruction on the next scene reload; the underlying view is
    *  bound to every VTR + MapRenderer via setPaletteColorAtlas. */

@@ -25,6 +25,7 @@ import { WORLD_MERC, TILE_PX } from './gpu/gpu-shared'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { type FrameContext } from './render/frame-context'
 import { buildSceneView } from './render/scene-view'
+import { backgroundPass } from './render/passes/background-pass'
 import { opaquePass } from './render/passes/opaque-pass'
 import { oitPass } from './render/passes/oit-pass'
 import { translucentPass } from './render/passes/translucent-pass'
@@ -43,6 +44,7 @@ import { XGISMap } from './map'
  *  RenderLoop. `renderLoop`, `classifyVectorTileShows`, and
  *  `groupOpaqueBySource` remain on the map and are reached via this view. */
 export type RenderLoopHost = Pick<XGISMap,
+  | '_backgroundColor'
   | '_elapsedMs'
   | '_featureExprsCache'
   | '_flickerFirstFrame'
@@ -458,6 +460,11 @@ export class RenderLoop {
       const scene = buildSceneView(this.host, ctx)
 
       if (scene.hasTranslucent) this.host.lineRenderer!.ensureOffscreen(ctx.w, ctx.h)
+
+      // ── Bucket 0: background / coverage clear ── (BackgroundPass — render/passes/background-pass.ts)
+      // Owns the whole-viewport colour clear (relocated from opaque's first
+      // sub-pass). Runs before everything so coverage has one defined owner.
+      backgroundPass.execute(ctx, scene, this.host)
 
       // ── Bucket 1: opaque ── (OpaquePass — render/passes/opaque-pass.ts)
       opaquePass.execute(ctx, scene, this.host)
