@@ -123,13 +123,16 @@ export class Node<K extends string = string> {
   get w(): Node<ElemKey<K>> { return this.comp('w') }
 
   /** Vector swizzle — `.rgb`, `.xy`, `.a`, … A length-1 swizzle → scalar;
-   *  length-N → vecN of the same element type. */
-  swizzle(comps: string): Node {
+   *  length-N → vecN of the same element type. The result key cannot be
+   *  inferred from the runtime `comps` string, so callers that know the
+   *  swizzle shape statically pass it explicitly (e.g. `swizzle<'vec3<f32>'>('xyz')`);
+   *  the default `string` preserves the historical untyped result. */
+  swizzle<R extends string = string>(comps: string): Node<R> {
     const t = this.type
     if (!isVec(t)) throw new Error(`shader-dsl: swizzle .${comps} on non-vector ${typeKey(t)}`)
     const n = comps.length
     const type: ShaderType = n === 1 ? { kind: 'scalar', scalar: t.elem } : { kind: 'vec', n: n as 2 | 3 | 4, elem: t.elem }
-    return new Node({ op: 'member', type, base: this.expr, field: comps })
+    return new Node<R>({ op: 'member', type, base: this.expr, field: comps })
   }
   get r(): Node<ElemKey<K>> { return this.comp('x') }
   get g(): Node<ElemKey<K>> { return this.comp('y') }

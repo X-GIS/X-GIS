@@ -39,21 +39,10 @@ import { generateWallMeshExtrudedECEF } from '../../core/polygon-mesh'
 import { dequantVertexF32, mulMat4Vec4F32 } from '@xgis/compiler'
 
 const DEG2RAD = Math.PI / 180
-const A = 6378137                       // WGS84 semi-major (sphere radius for cam anchor)
-const F = 1 / 298.257223563
-const E2 = F * (2 - F)
+const A = 6378137                       // WGS84 semi-major (Mercator-metre scale)
 const CANVAS_W = 1080
 const CANVAS_H = 720
 const DPR = 1
-
-// Sphere ECEF for the camera anchor — mirrors Camera.getECEFCenter()
-// (mercatorToECEFSphere): radius A, no flattening.
-function lonLatToECEFSphere(lonDeg: number, latDeg: number): [number, number, number] {
-  const lon = lonDeg * DEG2RAD
-  const lat = latDeg * DEG2RAD
-  const cLat = Math.cos(lat)
-  return [A * cLat * Math.cos(lon), A * cLat * Math.sin(lon), A * Math.sin(lat)]
-}
 
 // Ellipsoid tileEcefCenter — mirrors vector-tile-renderer.ts:2175 / 4887
 // (the tile corner via lonLatToECEF, height 0). Built from the tile SW corner.

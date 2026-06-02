@@ -31,6 +31,8 @@ function makeStubTileData(floats: number): TileData {
   const idx = new Uint32Array(floats)
   return {
     vertices: verts,
+    dequantScale: 0,
+    dequantHalf: 0,
     indices: idx,
     lineVertices: lineVerts,
     lineIndices: idx,

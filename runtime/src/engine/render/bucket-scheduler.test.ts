@@ -27,7 +27,8 @@ import {
   type ClassifierShowEntry,
   type ClassifierVTSource,
 } from './bucket-scheduler'
-import type { SceneCommands, PaintShapes, PropertyShape } from '@xgis/compiler'
+import type { PaintShapes, PropertyShape } from '@xgis/compiler'
+import type { ShowCommand } from './renderer-types'
 
 /** Synthesize a PaintShapes bundle from the legacy flat fields a test
  *  fixture sets. Mirrors what emit-commands.ts does for compiled
@@ -35,7 +36,13 @@ import type { SceneCommands, PaintShapes, PropertyShape } from '@xgis/compiler'
  *  shape AND the legacy fields both. The bucket-scheduler reads
  *  paintShapes.{opacity,fill,stroke,strokeWidth,size} directly
  *  (Step 1c / 1c.3 migrations), so this is what feeds it. */
-function synthesizePaintShapes(show: {
+/** Legacy flat paint/animation fields a fixture sets. These are NOT on
+ *  the production `ShowCommand` (the compiler collapses them into typed
+ *  `PropertyShape`s / `paintShapes` before the runtime ever sees a show);
+ *  the test re-creates the same synthesis here so fixtures can keep
+ *  spelling the human-readable stop arrays. `makeShow` reads them as
+ *  synthesis input and emits the real `ShowCommand` shape. */
+interface LegacyShowFixture {
   opacity?: number | null
   strokeWidth?: number
   zoomOpacityStops?: { zoom: number; value: number }[] | null
@@ -54,7 +61,11 @@ function synthesizePaintShapes(show: {
   zoomSizeStops?: { zoom: number; value: number }[] | null
   zoomSizeStopsBase?: number
   timeSizeStops?: { timeMs: number; value: number }[] | null
-}): PaintShapes {
+  dashOffset?: number
+  timeDashOffsetStops?: { timeMs: number; value: number }[] | null
+}
+
+function synthesizePaintShapes(show: LegacyShowFixture): PaintShapes {
   const loop = show.animLoop ?? false
   const easing = show.animEasing ?? 'linear'
   const delayMs = show.animDelayMs ?? 0
@@ -137,7 +148,7 @@ function makeVTSource(hasData = true): ClassifierVTSource {
   }
 }
 
-function makeShow(overrides: Partial<SceneCommands['shows'][0]> = {}): SceneCommands['shows'][0] {
+function makeShow(overrides: Partial<ShowCommand> & LegacyShowFixture = {}): ShowCommand {
   // Minimal valid show. Intentionally conservative — opacity 1,
   // no animation, no zoom interpolation. Tests override exactly
   // the fields they want to exercise.
@@ -192,12 +203,12 @@ function makeShow(overrides: Partial<SceneCommands['shows'][0]> = {}): SceneComm
     ...base,
     paintShapes: synthesizePaintShapes(base),
     dashOffsetShape,
-  } as unknown as SceneCommands['shows'][0]
+  } as unknown as ShowCommand
 }
 
 function makeEntry(
   sourceName: string,
-  show: SceneCommands['shows'][0],
+  show: ShowCommand,
 ): ClassifierShowEntry {
   return { sourceName, show, pipelines: null, layout: null }
 }

@@ -88,8 +88,6 @@ describe('iter-301 paired-symbol position invariant', () => {
       )
     }
 
-    // Bucket captures by pairKey.
-    interface Pair { icon?: Capture; text?: Capture }
     expect(captures.length).toBe(6)  // 3 features × (icon + text)
 
     // Pair by index: even = icon, odd = text for each feature.

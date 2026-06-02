@@ -57,7 +57,7 @@ function pointFC(x: number, y: number): GeoJSONFeatureCollection {
       {
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [x, y] },
-        properties: null,
+        properties: {},
       },
     ],
   }

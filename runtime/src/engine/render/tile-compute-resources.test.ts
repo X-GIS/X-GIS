@@ -13,7 +13,7 @@ import {
 
 beforeAll(() => {
   if (typeof globalThis.GPUBufferUsage === 'undefined') {
-    ;(globalThis as { GPUBufferUsage: Record<string, number> }).GPUBufferUsage = {
+    ;(globalThis as unknown as { GPUBufferUsage: Record<string, number> }).GPUBufferUsage = {
       MAP_READ:      0x0001,
       MAP_WRITE:     0x0002,
       COPY_SRC:      0x0004,

@@ -15,14 +15,19 @@ import { describe, expect, it } from 'vitest'
 // Symbolic depth-state policy table. Real GPU pipeline states live
 // in gpu-shared.ts; this table pins the INTENT so a future config
 // change can be cross-checked.
-const DEPTH_POLICY = {
-  // Pipeline name → { write: bool, test: bool, compareOp: string }
+// Pipeline name → { write: bool, test: bool, compareOp: string }. The
+// value type is pinned explicitly (not `as const`) so the invariant
+// tests below can compare `compareOp` against any GPUCompareFunction
+// literal without TS narrowing each entry to its own single literal
+// (which makes a cross-policy `=== 'always'` check statically false).
+interface DepthPolicy { write: boolean; test: boolean; compareOp: GPUCompareFunction }
+const DEPTH_POLICY: Record<string, DepthPolicy> = {
   STENCIL_WRITE:            { write: true,  test: true,  compareOp: 'less-equal' },
   STENCIL_WRITE_NO_DEPTH:   { write: false, test: false, compareOp: 'always' },
   STENCIL_TEST:             { write: true,  test: true,  compareOp: 'less-equal' },
   STENCIL_TEST_NO_DEPTH:    { write: false, test: false, compareOp: 'always' },
   DEPTH_READ_ONLY:          { write: false, test: true,  compareOp: 'less-equal' },
-} as const
+}
 
 describe('depth-state policy invariants', () => {
   it('extrude buildings WRITE depth (occlude downstream geometry)', () => {

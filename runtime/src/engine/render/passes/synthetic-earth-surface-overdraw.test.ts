@@ -55,7 +55,7 @@ describe('AC2c.3.7 — SyntheticEarthSurfaceBackend produces standard polygon ti
     const backend = new SyntheticEarthSurfaceBackend()
     let result: import('../../../data/tile-source').BackendTileResult | null = null
     backend.attach({
-      acceptResult: (_key, r) => { result = r },
+      acceptResult: (_key: number, r: import('../../../data/tile-source').BackendTileResult | null) => { result = r },
     } as unknown as import('../../../data/tile-source').TileSourceSink)
     expect(result).not.toBeNull()
     // 128×64 grid (F1 rim-smoothing): (widthSegs+1)*(heightSegs+1) vertices, PR
@@ -72,7 +72,7 @@ describe('AC2c.3.7 — SyntheticEarthSurfaceBackend produces standard polygon ti
     const backend = new SyntheticEarthSurfaceBackend()
     let result: import('../../../data/tile-source').BackendTileResult | null = null
     backend.attach({
-      acceptResult: (_key, r) => { result = r },
+      acceptResult: (_key: number, r: import('../../../data/tile-source').BackendTileResult | null) => { result = r },
     } as unknown as import('../../../data/tile-source').TileSourceSink)
     const expectedIndexCount = 128 * 64 * 6  // = 49152
     expect(result!.indices.length).toBe(expectedIndexCount)
@@ -82,7 +82,7 @@ describe('AC2c.3.7 — SyntheticEarthSurfaceBackend produces standard polygon ti
     const backend = new SyntheticEarthSurfaceBackend()
     let result: import('../../../data/tile-source').BackendTileResult | null = null
     backend.attach({
-      acceptResult: (_key, r) => { result = r },
+      acceptResult: (_key: number, r: import('../../../data/tile-source').BackendTileResult | null) => { result = r },
     } as unknown as import('../../../data/tile-source').TileSourceSink)
     const verts = result!.vertices
     // PR 2f: floats 0..2 of each stride-6 vertex are the quantized u16×6
@@ -101,7 +101,7 @@ describe('AC2c.3.7 — SyntheticEarthSurfaceBackend produces standard polygon ti
     const backend = new SyntheticEarthSurfaceBackend()
     let result: import('../../../data/tile-source').BackendTileResult | null = null
     backend.attach({
-      acceptResult: (_key, r) => { result = r },
+      acceptResult: (_key: number, r: import('../../../data/tile-source').BackendTileResult | null) => { result = r },
     } as unknown as import('../../../data/tile-source').TileSourceSink)
     expect(result!.lineVertices.length).toBe(0)
     expect(result!.lineIndices.length).toBe(0)

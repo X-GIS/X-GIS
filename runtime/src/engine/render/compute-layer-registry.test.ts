@@ -15,7 +15,7 @@ import { wgslRaw } from '@xgis/compiler'
 
 beforeAll(() => {
   if (typeof globalThis.GPUBufferUsage === 'undefined') {
-    ;(globalThis as { GPUBufferUsage: Record<string, number> }).GPUBufferUsage = {
+    ;(globalThis as unknown as { GPUBufferUsage: Record<string, number> }).GPUBufferUsage = {
       MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8,
       INDEX: 16, VERTEX: 32, UNIFORM: 64, STORAGE: 128,
       INDIRECT: 256, QUERY_RESOLVE: 512,
