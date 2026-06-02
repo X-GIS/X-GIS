@@ -1,6 +1,6 @@
 # ADR-0005: Background fill as a synthetic earth-surface tile
 
-Status: Accepted (Phase 2 PR 2c.3)
+Status: Accepted (Phase 2 PR 2c.3) — clear-value sub-decision SUPERSEDED by [ADR-0007](0007-defined-coverage-background-pass.md) (2026-06-02)
 Date: 2026-05-28
 
 ## Context
@@ -65,6 +65,14 @@ Concretely:
   above/below the ±85° Mercator world at z=0+pitch, or outside the disc/sphere
   silhouette — falls through to that black clear. This is the iter-196 MapLibre
   parity contract (opaque-pass.ts:86-95).
+
+  > **SUPERSEDED by [ADR-0007](0007-defined-coverage-background-pass.md)
+  > (2026-06-02).** The colour clear moved to a dedicated background pass
+  > (bucket 0) and is now projType-aware: flat/cylindrical projections fill the
+  > outside-band region with the style background-colour (no black void —
+  > VISION §1, the user requirement); disc/globe keep defined black space. The
+  > opaque first sub-pass now `loadOp:'load'`s the colour (depth/stencil/pick
+  > clears stay). The inside-band synthetic earth-surface fill below is unchanged.
 
 ```
                        ┌─────────────────────────────────────────────┐
@@ -172,10 +180,15 @@ drawn once.
   `meta.bounds` stays ±85° (catalog tile-selection convention) even though a
   sphere-band mesh intentionally exceeds it (backend.ts:79-91).
 
-- **Clear semantics unchanged.** The pure-black `clearValue` and its
-  `isFirst ? clear : load` sub-pass discipline are pinned by
-  `opaque-pass-clear-value.test.ts`; this ADR does not change them. The
-  background is *additive on top* of that clear, not a replacement for it.
+- **Clear semantics** (SUPERSEDED — see [ADR-0007](0007-defined-coverage-background-pass.md)).
+  Originally: the pure-black `clearValue` and its `isFirst ? clear : load`
+  sub-pass discipline were pinned by `opaque-pass-clear-value.test.ts`, and the
+  background was *additive on top* of that black clear, not a replacement. As of
+  ADR-0007 the whole-viewport clear is owned by the background pass, is
+  projType-aware (flat → style bg, disc/globe → black), and the pin moved to
+  `background-pass-clear-value.test.ts` (now a behavioural test of
+  `backgroundClearValue`). The inside-band synthetic earth-surface fill is
+  unchanged and still draws on top.
 
 ## References
 
