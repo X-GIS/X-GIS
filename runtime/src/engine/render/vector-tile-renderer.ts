@@ -22,6 +22,7 @@ import {
 } from '../tile-decision'
 import { PrefetchScheduler } from './prefetch-scheduler'
 import { LabelFeatureSource } from './label-feature-source'
+import { FrameDrawStats } from './frame-draw-stats'
 import {
   generateWallMeshExtrudedECEF,
 } from '../../core/polygon-mesh'
@@ -197,6 +198,7 @@ export class VectorTileRenderer {
    *  keeps thin forwarders (forEachLabelFeature etc.) so callers are
    *  unchanged; this collaborator touches ZERO GPU state. */
   private readonly _labelSource = new LabelFeatureSource()
+  private readonly _drawStats = new FrameDrawStats()
   /** GPU buffer pool — keyed by `{powerOfTwoBucketSize}:{usage}`.
    *  doUploadTile and evictGPUTiles together create + destroy 5+
    *  GPUBuffers per tile, several times per frame on mobile during
@@ -377,19 +379,8 @@ export class VectorTileRenderer {
    *  scenes don't pay any allocation. */
   private computeDispatcher: import('../gpu/compute').ComputeDispatcher | null = null
 
-  // Per-frame draw stats
-  private renderedDraws = new Map<number | string, { polyCount: number; lineCount: number; vertexCount: number }>()
-  // DIAG: filled in by render() at the start of each show, read by
-  // renderTileKeys when pushing per-tile drawIndexed entries into the
-  // trace. Both fields are flag-gated and zero-cost when the trace
-  // isn't armed.
-  private lastTraceSlice: string | null = null
-  private lastTracePhase: string | null = null
-  /** Deduped tile-drop warnings. Key format: "<reason>:<z>/<x>/<y>". Once
-   *  per session per key; prevents flood when panning/zooming over an area
-   *  that has no data at the current level. */
-  private tileDropWarnings = new Set<string>()
-  private _missedTiles = 0 // tiles with no fallback this frame
+  // Per-frame draw stats + diagnostics + dedup + trace stash live on the
+  // FrameDrawStats collaborator (Cluster G). See `_drawStats` above.
 
   /** Pipeline pair for tiles with per-feature extrude heights (i.e.
    *  `cached.zBuffer != null`). The orchestrator (renderer.ts) sets
@@ -766,16 +757,10 @@ export class VectorTileRenderer {
     // cache which copies into permanent storage). The arena now
     // lives on the _labelSource collaborator (Cluster F).
     this._labelSource.beginFrame()
-    // Reset the frame-scoped miss counter here so multiple render()
-    // calls within the frame accumulate into one total (see render()).
-    this._missedTiles = 0
-    this._frameTilesVisible = 0
-    this._frameGlobeTilesSelected = 0
-    this._frameDrawCalls = 0
-    this._frameTriangles = 0
-    this._frameLines = 0
-    this._frameVertices = 0
-    this._frameDrawnByZoom.clear()
+    // Reset the frame-scoped miss counter + draw accumulators here so
+    // multiple render() calls within the frame accumulate into one
+    // total (see render()). Does NOT clear renderedDraws (render-scoped).
+    this._drawStats.beginFrame()
     // iter-255 (Plan AAA A.2) — clear inner Maps in place instead
     // of dropping them. Outer Map retained; inner Maps' hash
     // buckets reused next frame. Pre-iter-255 each frame's first
@@ -978,11 +963,6 @@ export class VectorTileRenderer {
    *  `resetUploadFrameCap` so any items the replay re-defers are
    *  re-tracked, while peers that successfully upload drop out. */
   private _heldUploadKeys = new Set<number>()
-  /** Per-decision counts from the last render() call. Always tracked
-   *  (cheap — Map of ~7 string keys). Exposed via
-   *  `getLastDecisionCounts()` for inspector / console diagnosis.
-   *  Reset on every render() entry. */
-  private _lastDecisionCounts: Map<string, number> = new Map()
 
   /** The outer render-on-demand loop calls this to know whether it still
    *  needs to tick — if tiles are queued or actively uploading the
@@ -1012,7 +992,7 @@ export class VectorTileRenderer {
    *    queued-no-fb (BUG)  — uploadTile queued, no fallback (49d4801)
    */
   getLastDecisionCounts(): Record<string, number> {
-    return Object.fromEntries(this._lastDecisionCounts)
+    return this._drawStats.getLastDecisionCounts()
   }
 
   private allocUniformSlot(): number {
@@ -1213,8 +1193,8 @@ export class VectorTileRenderer {
     gpuCap: number
   } {
     return {
-      needed: this._frameTilesVisible,
-      missed: this._missedTiles,
+      needed: this._drawStats.needed(),
+      missed: this._drawStats.missed(),
       gpuUnique: this._gpuCacheCount,
       catalogCached: this.source?.getCacheSize?.() ?? 0,
       catalogLoading: this.source?.getPendingLoadCount?.() ?? 0,
@@ -1264,30 +1244,10 @@ export class VectorTileRenderer {
     this.uniformRing = null
   }
 
-  /** Frame-scoped accumulators (reset in beginFrame, updated in
-   *  render). renderedDraws can't be reused for `tilesVisible`
-   *  because multiple render() calls within a frame must each clear
-   *  their own dedup set (drawKey collision would mute subsequent
-   *  layers' draws of the SAME world-tile + worldOff). These
-   *  counters track the FRAME total across all layer renders. */
-  private _frameTilesVisible = 0
-  /** iter 142 diagnostic — raw globeVisibleTiles() output length for
-   *  the most recent non-Mercator selection this frame (0 for the
-   *  Mercator/SSE path). Splits the non-Merc render-fail repro into
-   *  (a) selection returned empty vs (c) selected-but-culled: if
-   *  this is >0 while tilesVisible==0, selection is fine and the
-   *  fault is downstream; if this is 0, globeVisibleTiles itself
-   *  returned nothing. See project_non_mercator_systemic_2026_05_19. */
-  private _frameGlobeTilesSelected = 0
-  private _frameDrawCalls = 0
-  private _frameTriangles = 0
-  private _frameLines = 0
-  private _frameVertices = 0
-  /** Per-zoom drawn-tile count for the inspector's "drawn by zoom"
-   *  display. Distinguishes tiles ACTUALLY rendered this frame from
-   *  tiles merely retained in gpuCache. The zoom keyspace is small
-   *  (~22 zoom levels max) so a Map cleared each frame is cheap. */
-  private _frameDrawnByZoom: Map<number, number> = new Map()
+  // Frame-scoped draw accumulators (_frameTilesVisible,
+  // _frameGlobeTilesSelected, _frameDrawCalls/_frameTriangles/
+  // _frameLines/_frameVertices, _frameDrawnByZoom) live on the
+  // FrameDrawStats collaborator (Cluster G). See `_drawStats`.
   /** Per-slice memo of classifyTile() decisions, keyed by sliceLayer.
    *  In bright-style maps an MVT source (`openmaptiles`) backs 81
    *  shows that resolve to ~13 distinct (sourceLayer + filter)
@@ -1302,15 +1262,7 @@ export class VectorTileRenderer {
   private _frameClassifyMemo: Map<string, Map<number, TileDecision>> = new Map()
 
   getDrawStats(): { drawCalls: number; vertices: number; triangles: number; lines: number; tilesVisible: number; missedTiles: number; globeTilesSelected: number } {
-    return {
-      drawCalls: this._frameDrawCalls,
-      vertices: this._frameVertices,
-      triangles: this._frameTriangles,
-      lines: this._frameLines,
-      tilesVisible: this._frameTilesVisible,
-      missedTiles: this._missedTiles,
-      globeTilesSelected: this._frameGlobeTilesSelected,
-    }
+    return this._drawStats.getDrawStats()
   }
 
   /** iter-222 — BundleCache stats accessor. Returns lifetime
@@ -1894,8 +1846,8 @@ export class VectorTileRenderer {
     }
     if (pair === null) {
       const wKey = `arena-oom:${sourceLayer}:${key}`
-      if (!this.tileDropWarnings.has(wKey)) {
-        this.tileDropWarnings.add(wKey)
+      if (!this._drawStats.hasWarned(wKey)) {
+        this._drawStats.markWarned(wKey)
         xlog.warn(`[VTR arena-oom] poly arena out of capacity uploading tile ${key} (${sourceLayer || 'base'}); skipping this frame, will retry. vBytes=${polyVertexByteLength} iBytes=${polyIndexByteLength}`)
       }
       return
@@ -2103,8 +2055,8 @@ export class VectorTileRenderer {
         this.polyIndexArena.free(polyIndexOffset, polyIndexFreeBytes)
       }
       const wKey = `upload-throw:${sourceLayer}:${key}`
-      if (!this.tileDropWarnings.has(wKey)) {
-        this.tileDropWarnings.add(wKey)
+      if (!this._drawStats.hasWarned(wKey)) {
+        this._drawStats.markWarned(wKey)
         xlog.warn(`[VTR upload] doUploadTile threw for tile ${key} (${sourceLayer || 'base'}); skipping. ${(e as Error)?.message ?? e}`)
       }
     }
@@ -2212,8 +2164,8 @@ export class VectorTileRenderer {
     }
     if (pair === null) {
       const wKey = `arena-oom:${sourceLayer}:${key}`
-      if (!this.tileDropWarnings.has(wKey)) {
-        this.tileDropWarnings.add(wKey)
+      if (!this._drawStats.hasWarned(wKey)) {
+        this._drawStats.markWarned(wKey)
         xlog.warn(`[VTR arena-oom] poly arena out of capacity uploading tile ${key} (${sourceLayer || 'base'}); skipping this frame, will retry. vBytes=${polyVertexByteLength} iBytes=${polyIndexByteLength}`)
       }
       return
@@ -2416,8 +2368,8 @@ export class VectorTileRenderer {
         polyIndexArena.free(polyIndexOffset, polyIndexByteLength)
       }
       const wKey = `upload-throw:${sourceLayer}:${key}`
-      if (!this.tileDropWarnings.has(wKey)) {
-        this.tileDropWarnings.add(wKey)
+      if (!this._drawStats.hasWarned(wKey)) {
+        this._drawStats.markWarned(wKey)
         xlog.warn(`[VTR upload] doUploadTileAsync threw for tile ${key} (${sourceLayer || 'base'}); skipping. ${(e as Error)?.message ?? e}`)
       }
     }
@@ -2517,11 +2469,9 @@ export class VectorTileRenderer {
       if (trace) {
         // Stash for the per-tile drawIndexed entries renderTileKeys
         // is about to push.
-        this.lastTraceSlice = sliceLayer
-        this.lastTracePhase = phase
+        this._drawStats.setTrace(sliceLayer, phase)
       } else {
-        this.lastTraceSlice = null
-        this.lastTracePhase = null
+        this._drawStats.setTrace(null, null)
       }
     }
     // Pre-fetch this layer's gpuCache slot once. Hot-path lookups
@@ -2570,7 +2520,7 @@ export class VectorTileRenderer {
     // per frame than intended → GPU buffer creation burst →
     // Chrome STATUS_BREAKPOINT at over-zoom.
     this.source.resetCompileBudget(this.currentFrameId)
-    this.renderedDraws.clear()
+    this._drawStats.resetRenderedDraws()
     // _missedTiles is FRAME-scoped, not render-scoped — beginFrame()
     // resets it to 0. Multiple render() calls within one frame
     // (one per ShowCommand for sliced sources like PMTiles 4-layer)
@@ -3004,7 +2954,7 @@ export class VectorTileRenderer {
         // iter 142 diagnostic: raw selection count BEFORE world-copy
         // fan-out / makeTileCoord, so the harness can split
         // selection-empty from selected-but-culled.
-        this._frameGlobeTilesSelected = globeTiles.length
+        this._drawStats.setGlobeTilesSelected(globeTiles.length)
         // GlobeTile (z/x/y/ox) matches the TileCoord shape exactly;
         // makeTileCoord wraps with the absolute-x contract.
         //
@@ -3651,8 +3601,8 @@ export class VectorTileRenderer {
       if (decision.kind === 'drop-no-archive') {
         const t = tiles[i]
         const wKey = `no-ancestor:${t.z}/${t.x}/${t.y}`
-        if (!this.tileDropWarnings.has(wKey)) {
-          this.tileDropWarnings.add(wKey)
+        if (!this._drawStats.hasWarned(wKey)) {
+          this._drawStats.markWarned(wKey)
           xlog.warn(`[VTR tile-drop] no ancestor found for ${t.z}/${t.x}/${t.y} — dropping from render (maxLevel=${maxLevel}).`)
         }
         continue
@@ -3700,7 +3650,7 @@ export class VectorTileRenderer {
         }
       } else if (inner.kind === 'pending') {
         if (inner.requestKey !== null) toLoad.push(inner.requestKey)
-        this._missedTiles++
+        this._drawStats.recordMissedTile()
       }
     }
 
@@ -3733,10 +3683,10 @@ export class VectorTileRenderer {
     // Always-on per-decision summary for inspector / console diagnosis.
     // Reset to start fresh each render() call so consumers see THIS
     // layer's distribution. Tilly with `getLastDecisionCounts()`.
-    this._lastDecisionCounts.clear()
+    this._drawStats.clearDecisionCounts()
     for (let i = 0; i < tiles.length; i++) {
       const d = _tileDecisions[i] ?? 'untracked'
-      this._lastDecisionCounts.set(d, (this._lastDecisionCounts.get(d) ?? 0) + 1)
+      this._drawStats.incDecisionCount(d)
     }
 
     // Request missing tiles BEFORE drawing — on-demand tiles compile synchronously
@@ -4585,7 +4535,7 @@ export class VectorTileRenderer {
       const drawKey: number | string = visibleKey >= 0
         ? `${key}:${worldOff}:${visibleKey}`
         : worldOff === 0 ? key : key + worldOff * 1000000
-      if (this.renderedDraws.has(drawKey)) continue
+      if (this._drawStats.hasDrawn(drawKey)) continue
       const cached = layerCache.get(key)
       if (!cached) continue
 
@@ -4844,8 +4794,8 @@ export class VectorTileRenderer {
                 : 'fill'
             trace.push({
               seq: trace.length,
-              slice: this.lastTraceSlice ?? '?',
-              phase: this.lastTracePhase ?? '?',
+              slice: this._drawStats.traceSlice() ?? '?',
+              phase: this._drawStats.tracePhase() ?? '?',
               extrude: this.currentExtrudeMode === 'none' ? 'none' : 'feature',
               tileKey: key,
               isFill: true,
@@ -4936,18 +4886,11 @@ export class VectorTileRenderer {
       }
 
       const vc = cached.indexCount + cached.lineIndexCount
-      this.renderedDraws.set(drawKey, { polyCount: cached.indexCount, lineCount: cached.lineIndexCount, vertexCount: vc })
-      // Frame-scoped accumulators (sum across all render() calls
-      // within one frame so getDrawStats() reflects the FRAME total
-      // for sliced sources rather than the last layer's stats).
-      this._frameTilesVisible++
-      this._frameVertices += vc
-      if (cached.indexCount > 0) { this._frameDrawCalls++; this._frameTriangles += Math.floor(cached.indexCount / 3) }
-      if (cached.lineIndexCount > 0) { this._frameDrawCalls++; this._frameLines += Math.floor(cached.lineIndexCount / 2) }
-      const tz = cached.tileZoom
-      if (typeof tz === 'number') {
-        this._frameDrawnByZoom.set(tz, (this._frameDrawnByZoom.get(tz) ?? 0) + 1)
-      }
+      // Mark the dedup key AND fold the per-frame accumulator increments
+      // (sum across all render() calls within one frame so getDrawStats()
+      // reflects the FRAME total for sliced sources rather than the last
+      // layer's stats). Same arithmetic/order as the prior inline block.
+      this._drawStats.markDrawn(drawKey, cached.indexCount, cached.lineIndexCount, vc, cached.tileZoom)
     }
     // Second pass: emit every queued stroke draw now that all fills
     // for this layer have written depth. Outline + line-feature
