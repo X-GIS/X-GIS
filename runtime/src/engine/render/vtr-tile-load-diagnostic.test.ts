@@ -6,17 +6,34 @@
 
 import { describe, expect, it } from 'vitest'
 import { VectorTileRenderer } from './vector-tile-renderer'
+import { FrameDrawStats } from './frame-draw-stats'
 
+// `needed`/`missed` now live on the FrameDrawStats collaborator (Cluster G,
+// vtr-decomposition §4 Step 2). getTileLoadDiagnostic reads them back via
+// `_drawStats.needed()/.missed()`, so the bare VTR must carry a real
+// FrameDrawStats whose `_frameTilesVisible`/`_missedTiles` are poked.
 function makeBareVtr(): VectorTileRenderer {
   const vtr = Object.create(VectorTileRenderer.prototype) as VectorTileRenderer
+  const drawStats = new FrameDrawStats()
+  ;(vtr as unknown as { _drawStats: FrameDrawStats })._drawStats = drawStats
   ;(vtr as unknown as { source: unknown }).source = null
-  ;(vtr as unknown as { _frameTilesVisible: number })._frameTilesVisible = 0
-  ;(vtr as unknown as { _missedTiles: number })._missedTiles = 0
+  setNeeded(vtr, 0)
+  setMissed(vtr, 0)
   ;(vtr as unknown as { _gpuCacheCount: number })._gpuCacheCount = 0
   ;(vtr as unknown as { uploadQueue: { size: () => number } }).uploadQueue = {
     size: () => 0,
   }
   return vtr
+}
+
+function setNeeded(vtr: VectorTileRenderer, n: number): void {
+  const ds = (vtr as unknown as { _drawStats: FrameDrawStats })._drawStats
+  ;(ds as unknown as { _frameTilesVisible: number })._frameTilesVisible = n
+}
+
+function setMissed(vtr: VectorTileRenderer, n: number): void {
+  const ds = (vtr as unknown as { _drawStats: FrameDrawStats })._drawStats
+  ;(ds as unknown as { _missedTiles: number })._missedTiles = n
 }
 
 describe('VectorTileRenderer.getTileLoadDiagnostic (iter-288)', () => {
@@ -35,8 +52,8 @@ describe('VectorTileRenderer.getTileLoadDiagnostic (iter-288)', () => {
 
   it('reflects mutated counters', () => {
     const vtr = makeBareVtr()
-    ;(vtr as unknown as { _frameTilesVisible: number })._frameTilesVisible = 140
-    ;(vtr as unknown as { _missedTiles: number })._missedTiles = 78
+    setNeeded(vtr, 140)
+    setMissed(vtr, 78)
     ;(vtr as unknown as { _gpuCacheCount: number })._gpuCacheCount = 62
     ;(vtr as unknown as { uploadQueue: { size: () => number } }).uploadQueue = {
       size: () => 12,
