@@ -80,6 +80,42 @@ export interface GPUArenaDevice {
   createBuffer(desc: GPUBufferDescriptor): GPUBuffer
 }
 
+/** Minimal subset of GPUCommandEncoder used by compaction. Real encoder
+ *  provides this; tests substitute a recording stub. */
+export interface GPUArenaEncoder {
+  copyBufferToBuffer(
+    source: GPUBuffer,
+    sourceOffset: number,
+    destination: GPUBuffer,
+    destinationOffset: number,
+    size: number,
+  ): void
+}
+
+/** One live slot to relocate during compaction. `oldOffset` is the
+ *  current arena offset; `bytes` is the SAME value originally passed to
+ *  `alloc` (the arena re-derives the aligned footprint). The caller
+ *  receives the freshly-packed `newOffset` via the returned plan and
+ *  MUST rewrite the owning record's offset to it atomically with the
+ *  buffer swap (no frame may observe a stale offset against the new
+ *  buffer). */
+export interface ArenaReloc {
+  oldOffset: number
+  bytes: number
+}
+
+/** Result of a compaction: the new packed offset per input relocation
+ *  (same order) plus the OLD buffer the caller must destroy AFTER the
+ *  copy command has been submitted (NOT before — destroying a buffer
+ *  still referenced by an in-flight submit is a validation crash). */
+export interface ArenaCompactionResult {
+  /** New packed offset for relocations[i], same order as input. */
+  newOffsets: number[]
+  /** The pre-compaction GPUBuffer. Destroy ONLY after queue.submit()
+   *  of the encoder that recorded the copies has returned. */
+  oldBuffer: GPUBuffer
+}
+
 /** Allocator diagnostics. Read via `getStats()`. */
 export interface GPUArenaStats {
   /** Total bytes alloc'd (active + free-list) — equals bumpPtr. */
@@ -112,7 +148,15 @@ function align4(bytes: number): number {
 // overrun the neighbour allocation.
 
 export class GPUArena {
-  readonly buffer: GPUBuffer
+  /** Backing GPUBuffer. Mutable internally so `compact()` can ping-pong
+   *  to a freshly-packed buffer; externally exposed read-only via the
+   *  `buffer` getter. Callers that cache `arena.buffer` across a frame
+   *  boundary must re-read it after any compaction (the VTR re-reads it
+   *  when it rewrites each relocated tile's `vertexBuffer` reference). */
+  private _buffer: GPUBuffer
+  get buffer(): GPUBuffer {
+    return this._buffer
+  }
   readonly capacityBytes: number
   private bumpPtr = 0
   private liveBytes = 0
@@ -148,13 +192,22 @@ export class GPUArena {
     return this.liveBytes / this.capacityBytes
   }
 
+  /** Retained for `compact()` — it must `createBuffer` a fresh
+   *  destination of the same shape. */
+  private readonly device: GPUArenaDevice
+  private readonly usage: GPUBufferUsageFlags
+  private readonly label?: string
+
   constructor(device: GPUArenaDevice, opts: GPUArenaOptions) {
-    this.buffer = device.createBuffer({
+    this._buffer = device.createBuffer({
       size: opts.capacityBytes,
       usage: opts.usage,
       label: opts.label,
     })
     this.capacityBytes = opts.capacityBytes
+    this.device = device
+    this.usage = opts.usage
+    this.label = opts.label
   }
 
   /** Allocate `bytes` from the arena. Returns the byte offset into
@@ -282,6 +335,77 @@ export class GPUArena {
     }
     return false
   }
+
+  /** Defragment by relocating the live set to the front of a fresh
+   *  buffer. The bump pointer is monotonic — `free()` only repopulates
+   *  the exact-align4 free-list, never lowers `bumpPtr` — so under a
+   *  heterogeneous tile-size workload the free-list strands bytes whose
+   *  footprints don't match incoming requests and `bumpPtr` climbs to
+   *  `capacity` while `liveBytes` stays tiny. `reclaimIfDrained()` can
+   *  only reset when NOTHING is live, which protected (this-frame) tiles
+   *  make impossible. Compaction is the real fix: it repacks the small
+   *  live set against the front of a new buffer, dropping `bumpPtr` back
+   *  to `liveBytes` and clearing the stranded free-list.
+   *
+   *  GPU SAFETY (the hard part): this records `copyBufferToBuffer` from
+   *  the OLD buffer into a FRESH destination buffer (ping-pong — NEVER an
+   *  in-place self-copy, whose overlapping ranges are undefined). The
+   *  caller MUST:
+   *    1. own a `GPUCommandEncoder` created in the post-submit safe
+   *       window (the same window `evictGPUTiles` runs in — after the
+   *       prior frame's `queue.submit()` has returned),
+   *    2. `queue.submit([encoder.finish()])` AFTER this returns, then
+   *    3. `result.oldBuffer.destroy()` — ONLY after that submit returns
+   *       (destroying a buffer still referenced by an in-flight submit
+   *       is a "buffer used in submit while destroyed" validation crash).
+   *
+   *  This method swaps `this.buffer` to the new buffer + resets
+   *  bookkeeping SYNCHRONOUSLY (no GPU await): `bumpPtr`/`liveBytes`
+   *  become the packed total, the free-list clears. The returned
+   *  `newOffsets[i]` is the new packed offset for `relocations[i]`; the
+   *  caller rewrites each owning record's offset + `buffer` reference to
+   *  it atomically with the swap so the NEXT frame's draws read the new
+   *  buffer at the new offset. `relocations` MUST be exactly the live set
+   *  (every outstanding alloc) — any omitted live slot is dropped. */
+  compact(
+    relocations: readonly ArenaReloc[],
+    encoder: GPUArenaEncoder,
+  ): ArenaCompactionResult {
+    const newBuffer = this.device.createBuffer({
+      size: this.capacityBytes,
+      usage: this.usage,
+      label: this.label,
+    })
+    const newOffsets: number[] = new Array(relocations.length)
+    let packed = 0
+    for (let i = 0; i < relocations.length; i++) {
+      const r = relocations[i]
+      const aligned = align4(r.bytes)
+      // copyBufferToBuffer size must be a multiple of 4; aligned already
+      // is. Source range [oldOffset, oldOffset+aligned) is exactly the
+      // slot the allocator handed out, so the copy can never read past
+      // the neighbour.
+      encoder.copyBufferToBuffer(
+        this._buffer, r.oldOffset, newBuffer, packed, aligned,
+      )
+      newOffsets[i] = packed
+      packed += aligned
+    }
+    const oldBuffer = this._buffer
+    this._buffer = newBuffer
+    // Reset bookkeeping to the packed state. bumpPtr falls from the
+    // (near-capacity) high-water mark to the live total; the stranded
+    // free-list is gone. allocCount/freeCount/reuseHits stay monotonic
+    // for diagnostics; bump a compaction counter.
+    this.bumpPtr = packed
+    this.liveBytes = packed
+    this.freeList.clear()
+    this.compactionCount++
+    return { newOffsets, oldBuffer }
+  }
+
+  /** Number of `compact()` calls since construction (diagnostics). */
+  compactionCount = 0
 
   /** Snapshot of allocator state for diagnostics + tests. The
    *  free-list is now keyed by EXACT align4(size), so freeBytes is

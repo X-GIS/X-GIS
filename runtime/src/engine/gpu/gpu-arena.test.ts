@@ -437,3 +437,152 @@ describe('GPUArena — steady-state simulation', () => {
     expect(a.getStats().liveBytes).toBe(0)
   })
 })
+
+// ── Compaction (Phase 6a.5) ──────────────────────────────────────────
+// Recording encoder for copyBufferToBuffer assertions.
+interface RecordedCopy {
+  source: GPUBuffer
+  sourceOffset: number
+  destination: GPUBuffer
+  destinationOffset: number
+  size: number
+}
+function recordingEncoder() {
+  const copies: RecordedCopy[] = []
+  const enc = {
+    copyBufferToBuffer(
+      source: GPUBuffer, sourceOffset: number,
+      destination: GPUBuffer, destinationOffset: number, size: number,
+    ): void {
+      copies.push({ source, sourceOffset, destination, destinationOffset, size })
+    },
+  }
+  return { enc, copies }
+}
+
+describe('GPUArena — compaction (defrag relocation)', () => {
+  it('relocates the live set to the front of a FRESH buffer and resets bump', () => {
+    // Reproduce the fragmentation crash signature: heterogeneous tile
+    // sizes strand the free-list so bumpPtr climbs to the cap while
+    // liveBytes is tiny. Compaction must drop bumpPtr back to the packed
+    // live total.
+    const a = new GPUArena(mockDevice(), { capacityBytes: 1024, usage: VERTEX_USAGE })
+    const o1 = a.alloc(100)   // align4 100
+    const o2 = a.alloc(40)    // align4 40
+    const o3 = a.alloc(200)   // align4 200
+    // Free the middle one — strands a 40 B slot that won't match the next
+    // (differently-sized) request.
+    a.free(o2, 40)
+    a.alloc(300)              // bumpPtr climbs further (no 300 B slot free)
+    const before = a.getStats()
+    expect(before.totalAllocatedBytes).toBe(100 + 40 + 200 + 300) // 640 bump
+    expect(before.liveBytes).toBe(100 + 200 + 300)                // 600 live
+
+    // Live set = o1(100), o3(200), and the last 300 B alloc. Caller passes
+    // exactly the live slots.
+    const oldBuffer = a.buffer
+    const { enc, copies } = recordingEncoder()
+    const result = a.compact(
+      [
+        { oldOffset: o1, bytes: 100 },
+        { oldOffset: o3, bytes: 200 },
+        { oldOffset: 340, bytes: 300 }, // the 300 B alloc landed at 340
+      ],
+      enc,
+    )
+
+    // New buffer is a distinct GPUBuffer (ping-pong, not in-place).
+    expect(a.buffer).not.toBe(oldBuffer)
+    expect(result.oldBuffer).toBe(oldBuffer)
+    // bumpPtr + liveBytes collapse to the packed total (600), NOT 640.
+    expect(a.usedBytes).toBe(600)
+    expect(a.liveUsedBytes).toBe(600)
+    // Free-list cleared — no stranded bytes remain.
+    expect(a.getStats().freeBytes).toBe(0)
+
+    // New offsets are packed front-to-back in input order.
+    expect(result.newOffsets).toEqual([0, 100, 300])
+
+    // Each copy reads the OLD buffer at the live offset and writes the
+    // NEW buffer at the packed offset, aligned size.
+    expect(copies).toHaveLength(3)
+    expect(copies[0]).toMatchObject({
+      source: oldBuffer, sourceOffset: o1, destination: a.buffer,
+      destinationOffset: 0, size: 100,
+    })
+    expect(copies[1]).toMatchObject({
+      source: oldBuffer, sourceOffset: o3, destination: a.buffer,
+      destinationOffset: 100, size: 200,
+    })
+    expect(copies[2]).toMatchObject({
+      source: oldBuffer, sourceOffset: 340, destination: a.buffer,
+      destinationOffset: 300, size: 300,
+    })
+  })
+
+  it('every copy size is 4-byte aligned (copyBufferToBuffer requirement)', () => {
+    const a = new GPUArena(mockDevice(), { capacityBytes: 1024, usage: VERTEX_USAGE })
+    const o1 = a.alloc(13)  // align4 16
+    const o2 = a.alloc(17)  // align4 20
+    const { enc, copies } = recordingEncoder()
+    a.compact([{ oldOffset: o1, bytes: 13 }, { oldOffset: o2, bytes: 17 }], enc)
+    for (const c of copies) expect(c.size % 4).toBe(0)
+    expect(copies[0].size).toBe(16)
+    expect(copies[1].size).toBe(20)
+    // Packed offsets honour the aligned footprints.
+    expect(a.usedBytes).toBe(36)
+  })
+
+  it('post-compaction arena is immediately allocatable from the packed top', () => {
+    const a = new GPUArena(mockDevice(), { capacityBytes: 512, usage: VERTEX_USAGE })
+    const o1 = a.alloc(64)
+    a.alloc(64)              // bumpPtr = 128
+    a.free(o1, 64)           // strand a 64 B slot
+    const { enc } = recordingEncoder()
+    // Only the second alloc is live (offset 64).
+    a.compact([{ oldOffset: 64, bytes: 64 }], enc)
+    expect(a.usedBytes).toBe(64)
+    // Next alloc extends from the packed top, not the old 128 bump.
+    expect(a.alloc(64)).toBe(64)
+    expect(a.usedBytes).toBe(128)
+  })
+
+  it('compacting an empty live set yields a fresh empty buffer', () => {
+    const a = new GPUArena(mockDevice(), { capacityBytes: 256, usage: VERTEX_USAGE })
+    const o1 = a.alloc(64)
+    a.free(o1, 64)           // nothing live, bumpPtr still 64
+    const oldBuffer = a.buffer
+    const { enc, copies } = recordingEncoder()
+    const result = a.compact([], enc)
+    expect(copies).toHaveLength(0)
+    expect(result.newOffsets).toEqual([])
+    expect(result.oldBuffer).toBe(oldBuffer)
+    expect(a.usedBytes).toBe(0)
+    expect(a.liveUsedBytes).toBe(0)
+    expect(a.alloc(64)).toBe(0)
+  })
+
+  it('compactionCount increments per compaction', () => {
+    const a = new GPUArena(mockDevice(), { capacityBytes: 256, usage: VERTEX_USAGE })
+    a.alloc(32)
+    expect(a.compactionCount).toBe(0)
+    const { enc } = recordingEncoder()
+    a.compact([{ oldOffset: 0, bytes: 32 }], enc)
+    expect(a.compactionCount).toBe(1)
+    a.compact([{ oldOffset: 0, bytes: 32 }], enc)
+    expect(a.compactionCount).toBe(2)
+  })
+
+  it('the new buffer carries the same usage + label as the original', () => {
+    const a = new GPUArena(mockDevice(), {
+      capacityBytes: 256, usage: VERTEX_USAGE, label: 'poly-vertex-arena',
+    })
+    a.alloc(32)
+    const { enc } = recordingEncoder()
+    a.compact([{ oldOffset: 0, bytes: 32 }], enc)
+    const nb = a.buffer as unknown as MockBuffer
+    expect(nb.usage).toBe(VERTEX_USAGE)
+    expect(nb.label).toBe('poly-vertex-arena')
+    expect(nb.size).toBe(256)
+  })
+})
