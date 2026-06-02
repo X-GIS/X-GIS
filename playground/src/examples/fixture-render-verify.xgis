@@ -1,0 +1,38 @@
+/* Fixture: render-verification harness (Oracle-B).
+ *
+ * Four INLINE geojson sources (no url) — the host pushes deterministic
+ * synthetic geometry via setSourceData() after run(): graticule grid,
+ * filled squares, polylines (incl. an antimeridian crosser), and a dot
+ * grid. The SAME geometry is projected by d3-geo into a Canvas2D
+ * reference; the GPU frame is pixel-diffed against it.
+ *
+ * Layer colours are pinned to match render-verify/d3-reference.ts STYLE
+ * so the diff measures geometry/projection placement, not palette:
+ *   poly_fill  fill-emerald-500 (#10b981) stroke-emerald-700 (#047857)
+ *   graticule  stroke-sky-400   (#38bdf8)
+ *   the_lines  stroke-rose-500  (#f43f5e)
+ *   the_points fill-amber-500   (#f59e0b)
+ *
+ * Draw order (declaration order): fills, grid, lines, points on top.
+ */
+source polys     { type: geojson }
+source graticule { type: geojson }
+source lines     { type: geojson }
+source points    { type: geojson }
+
+layer poly_fill {
+  source: polys
+  | fill-emerald-500 stroke-emerald-700 stroke-1
+}
+layer the_grid {
+  source: graticule
+  | stroke-sky-400 stroke-1
+}
+layer the_lines {
+  source: lines
+  | stroke-rose-500 stroke-3
+}
+layer the_points {
+  source: points
+  | fill-amber-500 size-10
+}

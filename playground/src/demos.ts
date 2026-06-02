@@ -588,6 +588,7 @@ export const DEMOS: Record<string, Demo> = {
   fixture_miterlimit:           { name: 'Fixture: miterlimit',         tag: 'fixture', description: 'Sharp-angle miter→bevel fallback path.',       source: load('fixture-miterlimit.xgis') },
   // Extension 3: external data injection
   fixture_inline_push:          { name: 'Fixture: inline push',        tag: 'fixture', description: 'Inline source filled via setSourceData().',    source: load('fixture-inline-push.xgis') },
+  fixture_render_verify:        { name: 'Fixture: render verify',      tag: 'fixture', description: 'Render-verification harness (Oracle-B): 4 inline sources (graticule/polys/lines/points) pushed via setSourceData; diffed vs a d3-geo Canvas reference.', source: load('fixture-render-verify.xgis') },
   fixture_typed_array_points:   { name: 'Fixture: typed-array points', tag: 'fixture', description: 'Inline source filled via setSourcePoints().',  source: load('fixture-typed-array-points.xgis') },
 
   // Extension 4: coverage gaps — cap/anchor/projection/zoom-opacity.
