@@ -78,6 +78,17 @@ import { prewarmVectorTileSource, detectVectorTileFormat } from '../loader/vecto
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 import { toU32Id, pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
 import type { GeoJSONFeature } from '../loader/geojson'
+import { assertSafeRemoteUrl, assertIngestBudget, readBodyCapped } from './safety'
+
+// DoS ceilings for the top-level loader entry points (.xgis style /
+// import-resolver text and .xgb binary scene). Defensive — far above any
+// real style/scene yet bound a size-bomb response before it materialises
+// into a string/ArrayBuffer and OOMs the tab.
+// A style module is text (typically a few KB → low MB); 32 MB is generous.
+const MAX_STYLE_BYTES = 32 * 1024 * 1024
+// A .xgb scene is a serialized binary map (geometry-heavy); 256 MB matches
+// the GeoJSON-source cap in source-manager — the practical interactive ceiling.
+const MAX_XGB_BYTES = 256 * 1024 * 1024
 
 // ClassifiedShow + OpaqueGroup live in bucket-scheduler.ts so they're
 // importable by tests. Local aliases keep the rest of map.ts terse.
@@ -1674,12 +1685,20 @@ export class XGISMap {
         return null
       }
       try {
+        // SSRF guard: an imported style can `import { … } from "<url>"` —
+        // block private/loopback/non-http(s) targets before fetch. Throws
+        // into the catch below → null (the import resolves to nothing, same
+        // as a 404), so an attacker can't probe internal hosts.
+        assertSafeRemoteUrl(url, 'style import URL')
         const resp = await fetch(url)
         if (!resp.ok) {
           xlog.error(`[X-GIS import] fetch ${url} failed: ${resp.status} ${resp.statusText}`)
           return null
         }
-        return await resp.text()
+        // Cap the module body — a lying/absent Content-Length otherwise lets
+        // an unbounded .text() OOM the tab.
+        const bytes = await readBodyCapped(resp, MAX_STYLE_BYTES, `style import ${url}`)
+        return new TextDecoder().decode(bytes)
       } catch (e) {
         xlog.error(`[X-GIS import] fetch ${url} threw:`, (e as Error).message)
         return null
@@ -2521,8 +2540,17 @@ export class XGISMap {
 
     for (const load of commands.loads) {
       const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
+      // SSRF guard: a .xgb scene's source URL is host-supplied. Block
+      // private/loopback/non-http(s) targets before fetch (throws, failing
+      // this binary load the same way a network/parse error already does).
+      assertSafeRemoteUrl(url, `.xgb source "${load.name}"`)
       const response = await fetch(url)
-      const data = await response.json() as GeoJSONFeatureCollection
+      // Cap the raw body before JSON.parse, then bound the parsed collection
+      // semantically — a hostile .xgb side-load can't OOM via an unbounded
+      // .json() nor via an over-budget feature/vertex count.
+      const rawBytes = await readBodyCapped(response, MAX_XGB_BYTES, `.xgb source "${load.name}"`)
+      const data = JSON.parse(new TextDecoder().decode(rawBytes)) as GeoJSONFeatureCollection
+      assertIngestBudget((data as { features?: unknown }).features, `.xgb source "${load.name}"`)
       // No EPSG reprojection here: .xgb does not serialize a source `crs`
       // (compiler/src/serialization/format.ts:44-48 carries name+url only),
       // and runBinary never builds the sourceCRS registry — so every .xgb
@@ -2556,14 +2584,25 @@ export class XGISMap {
 
   /** Auto-detect: .xgb binary or .xgis source */
   async load(url: string): Promise<void> {
+    // SSRF guard for the top-level public loader: a host-supplied URL must
+    // not target a private/loopback host or a non-http(s) scheme. Throws
+    // XGISSecurityError to the caller (this is an explicit public load —
+    // the host decides how to surface a refused URL).
+    assertSafeRemoteUrl(url, 'map source URL')
     const response = await fetch(url)
     const baseUrl = url.substring(0, url.lastIndexOf('/') + 1)
 
     if (url.endsWith('.xgb')) {
-      const buffer = await response.arrayBuffer()
+      // Cap the binary scene body before materialising the ArrayBuffer.
+      const bytes = await readBodyCapped(response, MAX_XGB_BYTES, `.xgb scene ${url}`)
+      // readBodyCapped may hand back a view onto a larger pooled buffer;
+      // pass a tightly-sliced ArrayBuffer to the deserializer.
+      const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
       await this.runBinary(buffer, baseUrl)
     } else {
-      const source = await response.text()
+      // Cap the style body before decoding to text.
+      const bytes = await readBodyCapped(response, MAX_STYLE_BYTES, `.xgis style ${url}`)
+      const source = new TextDecoder().decode(bytes)
       await this.run(source, baseUrl)
     }
   }

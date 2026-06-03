@@ -1,6 +1,7 @@
 import earcut from 'earcut'
 import { interpolateGreatCircle } from '@xgis/compiler/tiler/geodesic'
 import { MERCATOR_LAT_LIMIT } from '../engine/projection/projection'
+import { assertIngestBudget } from '../engine/safety'
 import {
   subdivideRing,
   splitWidePolygon,
@@ -33,6 +34,13 @@ export function loadGeoJSON(data: GeoJSONFeatureCollection): {
   polygons: MeshData
   lines: LineMeshData
 } {
+  // Defense-in-depth DoS guard for the PUBLIC tessellator entry point.
+  // In-repo callers budget upstream, but a direct host caller can hand an
+  // attacker-controlled FeatureCollection straight here; cap the feature /
+  // vertex count before tessellation allocates. No-op on a non-array
+  // `features` — shape errors fall through to the loop's own handling.
+  assertIngestBudget((data as { features?: unknown })?.features, 'loadGeoJSON')
+
   const polyVertices: number[] = []
   const polyIndices: number[] = []
   const polyFeatures: FeatureRange[] = []
