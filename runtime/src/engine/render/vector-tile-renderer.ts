@@ -2377,7 +2377,21 @@ export class VectorTileRenderer {
     // the (shared, still-live) pool so they aren't leaked. The dead
     // arenas were already destroyed+nulled by destroy(), so the claimed
     // poly slots need no free (the whole arena is gone).
-    if (this._destroyed) {
+    // ALSO bail if a COMPACTION (the post-merge arena defrag) swapped an arena
+    // buffer out from under us while we were suspended: `_compactPolyArenas`
+    // replaces `arena.buffer` with a fresh packed buffer and RETIRES the old one
+    // (destroyed a frame later via _retiredArenaBuffers), and our claimed slot
+    // offsets moved. The captured `vertexBuffer`/`indexBuffer` are then a stale/
+    // retired buffer, so this copy's submit would raise the same UAF (the
+    // `_destroyed` flag does NOT trip — compaction is not teardown). A buffer-
+    // identity check covers BOTH cases (teardown nulls the arena; compaction
+    // replaces .buffer); the un-cached tile is re-uploaded into the live buffer
+    // next frame.
+    if (
+      this._destroyed ||
+      this.polyVertexArena?.buffer !== vertexBuffer ||
+      this.polyIndexArena?.buffer !== indexBuffer
+    ) {
       for (const release of releases) release()
       return
     }

@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import basicSsl from '@vitejs/plugin-basic-ssl'
+import { fileURLToPath, URL } from 'node:url'
 
 export default defineConfig({
   // Pages-deploy serves the playground under /X-GIS/play/ so the
@@ -13,6 +14,16 @@ export default defineConfig({
   // playwright run because GitHub auto-sets it for ALL CI jobs.
   base: process.env.XGIS_DEPLOY_BASE === '1' ? '/X-GIS/play/' : '/',
   plugins: [basicSsl()],
+  // Dev/test resolve @xgis/runtime to SOURCE, not the published dist.
+  // ship-P0 packaging set the package `main`/`exports` to ./dist/index.js for
+  // external npm consumers; without this alias the playground (and every e2e
+  // spec) would silently bundle a STALE built dist instead of runtime/src,
+  // defeating the real-GPU verification gates. dist is built only for publishing.
+  resolve: {
+    alias: {
+      '@xgis/runtime': fileURLToPath(new URL('../runtime/src/index.ts', import.meta.url)),
+    },
+  },
   server: {
     port: 3000,
     host: true,
