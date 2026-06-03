@@ -426,7 +426,13 @@ export class Camera {
     canvasH: number
     dpr: number
   } {
-    const far = this._buildRTCMatrix(canvasWidth, canvasHeight, dpr)
+    // Build with the SAME per-projType view-height cap the render path uses
+    // (getViewForProjection → getFrameView → flatViewHeightCapM, camera.ts:716),
+    // mirroring this method's own `altitude` field below (:448). Without the cap
+    // the matrix defaulted to WORLD_MERC while the GPU used flatViewHeightCapM
+    // (2·EARTH_R for projType 3) → the snapshot reported a matrix for a DIFFERENT
+    // camera than it rendered (internally inconsistent vs its cap-correct altitude).
+    const far = this._buildRTCMatrix(canvasWidth, canvasHeight, dpr, flatViewHeightCapM(this.projType, WORLD_MERC))
     // iter-338 — report the ACTUAL matrix the renderer uses: in globe
     // mode that's the orbit-camera `_globeFrame`, not the Mercator RTC.
     // Without this the snapshot (and any continuity gate built on it)
