@@ -1,34 +1,45 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-05-22 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
 
 # eval
 
 ## Purpose
-The expression evaluator: runs AST `Expr` trees against a feature-property bag and returns a value. It powers two distinct paths — compile-time constant folding (`ir/const-fold.ts` calls `evaluate()` with an empty props bag) and runtime data-driven styling (e.g. `size-[speed / 50 | clamp(4, 24)]` evaluated per feature). It implements the full builtin/operator set with Mapbox-compatible semantics (match, coalesce, type coercions, comparisons, math/string builtins) and defines the reserved property keys the runtime injects before each call.
+The expression evaluator: runs AST `Expr` trees against a feature-property bag and returns a value. It serves two distinct paths — compile-time constant folding (`ir/const-fold.ts` calls `evaluate()` with an empty props bag) and runtime data-driven styling (e.g. `size-[speed / 50 | clamp(4, 24)]` evaluated per feature). The module implements the full builtin/operator set with Mapbox/MapLibre-compatible semantics: match, coalesce, pipe, conditional, array access, user-defined functions (with `let`/`for`/`if`/`return` statements), Lab/LCh colour interpolation, geometry generators (`circle`, `arc`, `polygon`, `linestring`), and all Mapbox-spec type-coercion builtins (`to_number`, `to_string`, `to_boolean`, `to_color`). Reserved property keys (`$zoom`, `$featureId`, `$geometryType`) are injected by callers via `makeEvalProps`; `reserved-keys.ts` is the single source of truth for those literal strings.
 
 ## Key Files
 | File | Description |
 |------|-------------|
-| `evaluator.ts` | `evaluate(expr, props)` + `FeatureProps` type. Walks the AST, handling field access, builtins, operators, match/case/coalesce, and the reserved keys (`$zoom`, `$featureId`, `$geometryType`). |
-| `reserved-keys.ts` | THE source of truth for the reserved prop literal strings: `CAMERA_ZOOM_KEY` (`$zoom`), `FEATURE_ID_KEY`, `GEOMETRY_TYPE_KEY` + `makeEvalProps`, `normalizeGeometryType`. The evaluator looks these up by exact name. |
+| `evaluator.ts` | Public entry point: exports `evaluate(expr, props, fnEnv?)`. Walks the full AST dispatching to sub-evaluators for binary/unary/field-access/fn-call/pipe/match/conditional/array. Handles `get()`, `match()` with `matchBlock`, short-circuit `&&`/`||`/`??`, Mapbox-spec ordered-comparison null/NaN/mixed-type rejection, user-defined function dispatch via `FnEnv`, and statement execution (`executeBody` with `let`/`for`/`if`/`return`). Re-exports `FeatureProps`, `FnEnv`, `toNumber`, `toBool` to preserve the public surface. |
+| `evaluator-helpers.ts` | Pure helpers extracted from `evaluator.ts`. `callBuiltin(name, args)` dispatches all named builtins (math, string, interpolate/interpolate_exp/interpolate_lab/interpolate_hcl, step, concat, slice, index_of, number_format, geometry generators, type-conversion). `toNumber` and `toBool` leaf coercions. No AST imports; no mutable module state — safe to call from workers. |
+| `evaluator-types.ts` | Shared type declarations: `FeatureProps = Record<string, unknown>` and `FnEnv = Map<string, AST.FnStatement>`. Extracted from `evaluator.ts` to keep the logic module focused; re-exported from `evaluator.ts`. |
+| `reserved-keys.ts` | THE source of truth for reserved prop literal strings: `CAMERA_ZOOM_KEY` (`$zoom`), `FEATURE_ID_KEY` (`$featureId`), `GEOMETRY_TYPE_KEY` (`$geometryType`). Also exports `makeEvalProps` (builds the props bag safely with all reserved keys), `normalizeGeometryType` (normalises Multi* → base form per Mapbox spec), and `ReservedKey` union type. A grep-based CI guard (`mapbox-spec-conformance.test.ts` → `reserved-keys-no-literals`) fails if raw sigil literals appear outside this file. |
 
 ## For AI Agents
 
 ### Working In This Directory
-- `reserved-keys.ts` is the single source of truth for `$zoom`/`$featureId`/`$geometryType`. Never re-type those literals elsewhere — import them. A typo silently breaks zoom/feature-driven styling.
-- Evaluator semantics must match Mapbox/MapLibre (see `spec/oracle.ts` + `convert/`). When in doubt about an operator's behavior, the spec oracle and the Mapbox conformance tests are the contract.
-- The same `evaluate()` is reused for compile-time folding (empty props) — keep it side-effect-free and deterministic.
+- `reserved-keys.ts` is the single source of truth for `$zoom`/`$featureId`/`$geometryType`. Never re-type those literals elsewhere — import them. A typo silently breaks zoom/feature-driven styling (the PR #102 bug class).
+- Always call `makeEvalProps` to build the props bag; never inline `{ ...props, zoom: tileZoom }` or similar.
+- `evaluator-helpers.ts` is a pure, side-effect-free module — keep it that way. `callBuiltin` must not import from `evaluator.ts` (circular).
+- `evaluate()` is reused for compile-time folding (empty props, no fnEnv) — keep it deterministic and side-effect-free.
+- Evaluator semantics must match Mapbox/MapLibre. When in doubt about an operator's edge cases, check `spec/oracle.ts`, the fuzz tests, and the conformance tests.
+- `evaluateMatch` (standalone `MatchBlock`) is marked "not yet generated by parser" but is wired; keep it in sync with the `FnCall`-attached `matchBlock` path.
+- `executeBody` caps `ForStatement` at `MAX_LOOP_ITERATIONS = 10000` and `circle`/`arc` steps at 4096 — intentional DoS guards.
 
 ### Testing Requirements
-- Colocated: `evaluator-fuzz.test.ts`, `evaluator-builtins-fuzz.test.ts`, `evaluator-nan-bool-coverage.test.ts`, `reserved-keys.test.ts`. Plus `src/__tests__/evaluator.test.ts`, `evaluator-roundtrip.test.ts`, `match-evaluator-mapbox-shape.test.ts`, and many operator-coverage specs. Run the fuzz tests after any builtin/operator change.
+- Colocated test files: `evaluator-fuzz.test.ts`, `evaluator-builtins-fuzz.test.ts`, `evaluator-nan-bool-coverage.test.ts`, `reserved-keys.test.ts`. Run all four after any builtin/operator/coercion change.
+- Upstream tests in `src/__tests__/`: `evaluator.test.ts`, `evaluator-roundtrip.test.ts`, `match-evaluator-mapbox-shape.test.ts`, plus operator-coverage and conformance specs. The `reserved-keys-no-literals` grep guard in `mapbox-spec-conformance.test.ts` must stay green.
 
 ### Common Patterns
-- Mapbox-faithful coercion + null handling; NaN/boolean edge cases are explicitly tested. Builtins are dispatched by name.
+- Mapbox-faithful coercion: NaN/Infinity coerce to 0 via `toNumber`; `toBool` treats NaN as false. Non-finite intermediate arithmetic results are clamped to 0 before leaving `evaluateBinary`.
+- Ordered comparisons (`< > <= >=`) reject null/undefined and non-finite operands as false (not 0), and require same-type operands (mixed string/number → false).
+- `interpolate_lab`/`interpolate_hcl` parse colour hex strings at eval time using `tokens/colors` helpers; non-parseable colours fall back to nearest stop.
 
 ## Dependencies
 
 ### Internal
-- Imports `parser/ast`; consumed by `ir/const-fold`, `format/`, runtime workers.
+- `../parser/ast` — `Expr`, `Statement`, `FnStatement` AST node types.
+- `../tokens/colors` — `parseSrgbHex`, `srgbToLab`, `labToHex`, `labToLch`, `lchToLab` (used by `interpolate_lab`/`interpolate_hcl` in `evaluator-helpers.ts`).
+- Consumed by: `ir/const-fold`, `format/`, runtime data workers.
 
 ### External
 - None.

@@ -1,60 +1,58 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-05-22 -->
+<!-- Generated: 2026-06-03 | Updated: 2026-06-03 -->
 
 # blueprint
 
 ## Purpose
-`@xgis/blueprint` is a standalone, zero-dependency, framework-agnostic visual node editor for authoring X-GIS maps. It implements an Unreal-Blueprint-grade canvas: typed wires, multi-select with marquee, undo/redo history, reroute knots, comment frames, a contextual search-create palette, minimap, per-node lint diagnostics, and an inspector panel. The node catalogue is derived directly from `@xgis/compiler`'s `LANGUAGE_SCHEMA` so it tracks the language automatically. Codegen walks the graph and emits valid `.xgis` source; the importer round-trips any MapLibre/Mapbox `style.json` or raw `.xgis` back into a graph.
+`@xgis/blueprint` is the visual node-graph authoring tool for X-GIS maps. It provides an Unreal-Blueprint-style canvas editor — implemented entirely in vanilla DOM + SVG with zero runtime dependencies beyond `@xgis/compiler` — where users wire together Source, Layer, Style, Preset, Symbol, Function, Background, and Import nodes to produce `.xgis` source text. The package covers three concerns: graph editing (`BlueprintEditor`), code generation (`graphToXgis`), and reverse import from `.xgis` or MapLibre/Mapbox `style.json` back into a graph. It is `private: true` / `version 0.0.1` and is not published to npm. Its node catalogue (`NODE_SPECS`) is derived at module-load time directly from `@xgis/compiler`'s `LANGUAGE_SCHEMA`, so language additions automatically surface in the editor without manual sync. This package does not import `@xgis/runtime` and has no GPU dependency.
 
 ## Key Files
+
 | File | Description |
 |------|-------------|
-| `src/index.ts` | Public exports: re-exports from `types`, `codegen`, `import`, `editor`. |
-| `src/types.ts` | `BPNode`, `BPEdge`, `BPGraph`, `BPFrame` graph model; `NODE_SPECS` catalogue derived from `LANGUAGE_SCHEMA`; `PinType`/`PinSpec`/`FieldSpec`; `PIN_COLOR` (Unreal-style typed wire colours); `pinCompatible`; `uid`; `defaultData`; `starterGraph`. |
-| `src/editor.ts` | `BlueprintEditor` class — all DOM/SVG interaction: pan/zoom, drag-wire, marquee, multi-select, node CRUD, frames, reroutes, snap-to-grid, align/distribute, copy-paste, inspect, minimap orchestration. Zero runtime deps. |
-| `src/codegen.ts` | `graphToXgis(g: BPGraph): string` — walks nodes/edges in language-defined emission order (imports → sources → symbols → styles → fns → presets → background → layers) and produces `.xgis` source text. Reroute knots are transparent during wire resolution. |
-| `src/import.ts` | `importStyleToGraph(styleUrlOrXgis: string): Promise<BPGraph>` — reverse of codegen. Calls `convertMapboxStyle` then splits the result into top-level blocks with a string/comment/brace-aware scanner and reconstructs `source:`/`style:` wires. |
-| `src/diagnostics.ts` | `computeNodeIssues(nodes, edges): Map<id, string[]>` — pure per-node lint (empty names, missing wired source, duplicate names, empty import path, unconnected map sink). No DOM; unit-testable. |
-| `src/history.ts` | `History` class — bounded undo/redo stack of opaque string snapshots (capacity-capped at 100). |
-| `src/minimap.ts` | `renderMinimap(el, view)` — corner canvas overview, only rendered when graph has ≥12 nodes. |
-| `src/palette.ts` | `openSearchPalette(opts)` — contextual search/create overlay; pure view, editor owns node creation and auto-wiring. |
-| `src/geometry.ts` | `bezier(x1,y1,x2,y2): string` — horizontal-tangent cubic Bézier SVG path string for wires. Pure, no state. |
-| `src/datapeek.ts` | `peekData(node, el)` — fetches a GeoJSON source URL and reports feature count + first property keys into a DOM element (for inspector panel). |
-| `src/blueprint.css` | Editor chrome styles; must be imported alongside the JS (exported as `@xgis/blueprint/blueprint.css`). |
-| `package.json` | `@xgis/blueprint` workspace package; single dep `@xgis/compiler`; `main: ./src/index.ts`; `build: tsc --build`, `test: vitest run`. |
-
-## Subdirectories
-| Directory | Purpose |
-|-----------|---------|
-| `src/__tests__/` | Vitest unit tests: codegen contract, per-node diagnostics, import-skip guard (see `src/__tests__/AGENTS.md`). |
+| `src/types.ts` | Graph model (`BPNode`, `BPEdge`, `BPGraph`, `BPFrame`) + `NODE_SPECS` derived from `LANGUAGE_SCHEMA` merged with a local presentation overlay (titles, accent colours, field widget kinds). Two editor-only node types — `map` (output sink, singleton) and `reroute` (wire knot, passthrough) — are defined here outside the schema. Also exports `PinType`, `PIN_COLOR`, `pinCompatible`, `uid`, `defaultData`, `starterGraph`. |
+| `src/editor.ts` | `BlueprintEditor` class — the full interaction surface. Pan/zoom (wheel + pointer-drag), wire drag from pins, marquee multi-select, group move/duplicate/copy-paste, comment frames (move/resize/collapse/cycle-colour), reroute knot insertion on wire double-click, snap-to-grid, align/distribute, undo/redo via `History`, contextual search-palette on empty-canvas drop, inspector panel, per-node diagnostic badges, map-node draw-order panel, minimap, node LOD at zoom < 0.5. Drag state is a discriminated union `Drag`. Wire endpoints are read from live pin DOM rects (screen→world) so no manual layout is maintained. |
+| `src/codegen.ts` | `graphToXgis(g: BPGraph): string` — emits one `.xgis` block per node in canonical language order (imports → sources → symbols → styles → fns → presets → background → layers). `reroute` knots are transparent: the `incoming()` helper resolves wires through them recursively. Layer draw order follows the Map node's `data.order` list reconciled against wired connections. |
+| `src/import.ts` | Reverse direction. `xgisToGraph` uses a brace/string/comment-aware `splitBlocks` scanner to parse raw `.xgis` into a graph. `styleToGraph` delegates to `@xgis/compiler`'s `convertMapboxStyle` then calls `xgisToGraph`. `importText` dispatches heuristically (JSON `{` → style, else `.xgis`). GeoJSON sources with no URL are skipped with a `console.warn`. `autoLayout` arranges the resulting nodes into role-based columns (misc / source / layer / map), wrapping layers at 12 per column. |
+| `src/diagnostics.ts` | `computeNodeIssues(nodes, edges): Map<string, string[]>` — pure, DOM-free per-node lint: empty name, missing source wire on a layer, duplicate source/layer names, empty URL on a source, empty path on an import, no layers wired into the map node. Called on every `emit()` to update the `⚠` badge. |
+| `src/history.ts` | `History` class — bounded undo/redo stack (default 100) of opaque JSON string snapshots. Owns only stack mechanics; the editor owns serialise/restore. `cancel()` drops the most recent record for no-op mutations (e.g. duplicate-edge connect). |
+| `src/geometry.ts` | `bezier(x1, y1, x2, y2): string` — horizontal-tangent cubic Bézier SVG path string for wires. Pure function, no DOM, no state. |
+| `src/minimap.ts` | `renderMinimap(mini, view)` — corner overview rendered as positioned `<i>` elements scaled to a 180×120 box. Suppressed entirely when the graph has fewer than 12 nodes. |
+| `src/palette.ts` | `openSearchPalette(el, opts)` — contextual search-and-create overlay (pure view). Filters candidates by pin type compatibility when invoked from a pin drag; supports keyboard arrow/enter navigation. |
+| `src/datapeek.ts` | `peekData(node, outEl)` — fetches a GeoJSON source URL and reports feature count + first six property keys into a DOM element in the inspector. GeoJSON only; surfaces network/CORS errors as text. |
+| `src/blueprint.css` | All editor chrome styles. Must be imported alongside the JS via `@xgis/blueprint/blueprint.css`; not injected automatically. |
+| `src/index.ts` | Public entry point — re-exports `types`, `codegen`, `import`, `editor`. |
 
 ## For AI Agents
 
 ### Working In This Directory
-- All rendering is pure vanilla DOM + SVG. No framework, no GPU. The zero-deps constraint is strict — do not add npm dependencies.
-- `NODE_SPECS` is computed from `LANGUAGE_SCHEMA` at module load. When the compiler adds or removes a language construct, `types.ts` picks it up automatically via the schema import; the `contract.test.ts` pins the exact field keys so any drift fails loudly.
-- The `editor.ts` file is large (single class with all interaction logic). Follow the existing drag-state discriminated union (`Drag` type) and the `private`-field pattern when adding capabilities.
-- `codegen.ts` and `import.ts` must stay in sync: adding a new node type requires both an emitter in `codegen.ts` and a block recogniser in `import.ts`.
-- Wire resolution in `codegen.ts` uses the `incoming()` helper which transparently traverses reroute knots — always use it rather than iterating `g.edges` directly.
+- `NODE_SPECS` is computed from `LANGUAGE_SCHEMA` at module load. Adding a node type requires: (1) a `LANGUAGE_SCHEMA` entry in the compiler, (2) a `PRESENTATION` overlay entry in `types.ts`, (3) an emitter function in `codegen.ts`, (4) a parser branch in `import.ts`. All four must land together — `contract.test.ts` will fail otherwise.
+- `codegen.ts` and `import.ts` must remain round-trip compatible. Any new field key or block syntax added to codegen must be handled in the import scanner, and vice versa.
+- `BPGraph` is JSON-serialised for undo/redo snapshots and clipboard payloads (prefixed `xgis-bp:`). Keep the model flat and JSON round-trippable — no class instances, no circular refs, no `undefined` values.
+- The `map` and `reroute` node types are editor-only (not in `LANGUAGE_SCHEMA`). Codegen must never emit a block for `reroute`; `incoming()` resolves through it transparently. `map` is a singleton — `addNode` silently returns `null` if one already exists.
+- No GPU, no `@xgis/runtime` imports anywhere in this package. The zero-deps constraint is strict — do not add npm dependencies.
+- `private: true` — do not bump version or add publish config without explicit instruction.
 
 ### Testing Requirements
-- `bun run test` from the `blueprint/` directory runs vitest unit tests.
-- `contract.test.ts` must pass after any change to `NODE_SPECS`, `codegen.ts`, or the compiler `LANGUAGE_SCHEMA` — it pins the exact field keys and pin ids that codegen emits.
-- `diagnostics.test.ts` covers the pure lint function; extend it for any new lint rule added to `diagnostics.ts`.
-- `import-skip.test.ts` guards the block-splitter against malformed input.
+- Tests live in `src/__tests__/`; run with `bun run test` (vitest) from the `blueprint/` directory.
+- `contract.test.ts` — primary gate: pins `NODE_SPECS` field keys and pin IDs to the codegen contract, and verifies `graphToXgis(starterGraph())` round-trips through the compiler's `Lexer` + `Parser` without errors. Must pass after any change to `types.ts`, `codegen.ts`, or `LANGUAGE_SCHEMA`.
+- `diagnostics.test.ts` — unit coverage for `computeNodeIssues`; extend it for any new lint rule.
+- `import-skip.test.ts` — block-scanner guard for malformed and edge-case `.xgis` input.
+- No GPU, no visual regression, no e2e here; the `dist/` directory and test internals are generated output.
 
 ### Common Patterns
-- `BPGraph` is serialised as JSON for undo/redo snapshots and localStorage persistence — keep all graph types JSON-roundtrippable (no class instances, no `undefined` values in the model).
-- Node IDs are generated by `uid()` (crypto.randomUUID short prefix); never construct IDs manually.
-- `defaultData(type)` provides the zero-value field map for a new node; always use it when creating nodes programmatically.
-- `starterGraph()` returns a minimal `map + source + layer` graph suitable for new-document initialisation.
+- Drag state in `editor.ts` is a discriminated union; always narrow on `d.kind` before accessing kind-specific fields.
+- All mutations call `this.record()` before the change and `this.emit()` after. `emit()` calls `syncMapNode()` + `updateBadges()` + the host `onChange` callback.
+- Wire rendering is RAF-batched via `scheduleRedraw()`; do not call `renderEdges()` directly inside tight loops.
+- Field edits use `recordFieldOnce()` (debounced 600 ms) to avoid a history entry per keystroke.
+- `uid(prefix)` generates IDs from `Date.now().toString(36)` + an incrementing counter. IDs are session-stable but not cross-session; do not persist and reuse them as stable keys.
 
 ## Dependencies
 
 ### Internal
-- `@xgis/compiler` — `LANGUAGE_SCHEMA`, `ConstructDef`, `convertMapboxStyle`, `Lexer`, `Parser` (in tests)
+- `@xgis/compiler` (workspace) — `LANGUAGE_SCHEMA`, `ConstructDef`, `convertMapboxStyle`; `Lexer` and `Parser` used in contract tests only.
 
 ### External
-- None at runtime. `vitest` is a dev dependency (via the root workspace).
+- None at runtime. Build: `typescript` (tsc). Tests: `vitest` (via root workspace).
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->

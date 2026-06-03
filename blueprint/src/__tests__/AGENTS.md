@@ -1,28 +1,26 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-05-22 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
 
 # blueprint/src/__tests__
 
 ## Purpose
-Vitest unit tests for the `@xgis/blueprint` package. Three focused test files: a codegen contract test that pins the exact field keys and pin IDs that `codegen.ts` emits (so any drift from `NODE_SPECS` or `LANGUAGE_SCHEMA` fails loudly), a diagnostics test for the pure per-node lint function, and an import-skip guard for the block-splitter parser.
+Vitest unit tests for the `@xgis/blueprint` package. Three focused test files guard the codegen contract, per-node lint diagnostics, and the `.xgis`-to-graph import converter. No DOM dependency — all tests operate on plain node/edge arrays or string source code.
 
 ## Key Files
 | File | Description |
 |------|-------------|
-| `contract.test.ts` | Pins `NODE_SPECS` field keys and pin IDs against the expected codegen contract. Verifies all 10 node types are present, each type's `fields[].key` array matches the exact order codegen expects, layer input pins carry the correct typed IDs (`source:source`, `style:style`, `preset:preset`, `symbol:symbol`), `graphToXgis(starterGraph())` produces parseable `.xgis` (round-trips through `Lexer` + `Parser`), and UID generation produces unique values. |
-| `diagnostics.test.ts` | Unit tests for `computeNodeIssues`. Covers: empty name lint, missing source wire, duplicate source/layer names, empty import path, unconnected map sink. Uses constructed `BPNode[]`/`BPEdge[]` arrays directly — no DOM. |
-| `import-skip.test.ts` | Guards the `splitBlocks` string/comment/brace-aware scanner in `import.ts` against malformed input: unclosed strings, nested braces, comment-only input, empty input. |
-
-## Subdirectories
-*(none)*
+| `contract.test.ts` | Pins `NODE_SPECS` field keys and pin IDs against the codegen contract. Asserts all 10 node types (`background`, `fn`, `import`, `layer`, `map`, `preset`, `reroute`, `source`, `style`, `symbol`), exact `fields[].key` order for 8 node types, the 4 typed layer input pins (`source:source`, `style:style`, `apply:preset`, `symbol:symbol`) including `apply.multi=true` and `source.required=true`, and two round-trip tests: `starterGraph()` producing parseable `.xgis` containing `source land` / `layer continents`, and reroute knots being transparent (chain source→reroute→layer→reroute→map still emits correct `.xgis`). |
+| `diagnostics.test.ts` | Unit tests for `computeNodeIssues`. Covers: empty name / empty URL on a source, unwired layer (no source), unwired map (no layers), duplicate source names, and a fully-wired clean graph returning `issues.size === 0`. |
+| `import-skip.test.ts` | Tests `xgisToGraph` filtering of unusable no-URL geojson sources. Verifies that a source declared as `geojson` with no `url` field is dropped along with its dependent layers, the valid tilejson source and its layer are kept, edges are re-wired correctly (layer→source + layer→map), and no dangling edges reference dropped node IDs. |
 
 ## For AI Agents
 
 ### Working In This Directory
-- `contract.test.ts` is the primary correctness gate for any change to `types.ts`, `codegen.ts`, or `@xgis/compiler`'s `LANGUAGE_SCHEMA`. Run it first after touching those files.
-- When adding a new node type to `NODE_SPECS`, add the corresponding field-key and pin-id assertions to `contract.test.ts` before the type passes review.
-- `diagnostics.test.ts` should be extended whenever a new lint rule is added to `diagnostics.ts`. Tests use raw node/edge arrays — no `BlueprintEditor` instantiation needed.
-- The `parses()` helper in `contract.test.ts` throws if `Lexer`/`Parser` reject the codegen output — this is the round-trip gate.
+- `contract.test.ts` is the primary gate for any change to `types.ts`, `codegen.ts`, or `@xgis/compiler`'s `LANGUAGE_SCHEMA`. Run it first after touching those files.
+- When adding a new node type to `NODE_SPECS`, add field-key and pin-id assertions to `contract.test.ts` before the type passes review.
+- `diagnostics.test.ts` must be extended whenever a new lint rule is added to `diagnostics.ts`. Tests use raw `BPNode[]`/`BPEdge[]` arrays — no `BlueprintEditor` instantiation needed.
+- `import-skip.test.ts` covers `xgisToGraph` in `import.ts`. If the import converter gains new filtering logic (e.g. for tilejson missing url, or symbol sources), add cases here. The test spies on `console.warn` — restore the mock before asserting to avoid noisy output.
+- The `parses()` helper in `contract.test.ts` wraps `Lexer`/`Parser` — this is the round-trip gate; if the compiler rejects the codegen output the test throws.
 
 ### Testing Requirements
 - Run: `bun run test` from `blueprint/` (runs `vitest run`).
@@ -30,18 +28,20 @@ Vitest unit tests for the `@xgis/blueprint` package. Three focused test files: a
 - Do not add DOM-dependent tests here; `BlueprintEditor` DOM tests belong in a separate integration layer.
 
 ### Common Patterns
-- Import pattern: `import { ... } from '../types'`, `import { graphToXgis } from '../codegen'`.
-- Node construction: `{ id: uid(), type: 'source', x: 0, y: 0, data: defaultData('source') }`.
-- Edge construction: `{ id: uid(), from: { node: 'n1', pin: 'out' }, to: { node: 'n2', pin: 'source' } }`.
+- Import pattern: `import { ... } from '../types'`, `import { graphToXgis } from '../codegen'`, `import { xgisToGraph } from '../import'`.
+- Node construction helper: `const n = (type, data) => ({ id: uid('n'), type, x: 0, y: 0, data })`.
+- Edge construction: `{ id: uid('e'), from: { node: 'n1', pin: 'out' }, to: { node: 'n2', pin: 'source' } }`.
 
 ## Dependencies
 
 ### Internal
 - `../types` — `NODE_SPECS`, `starterGraph`, `uid`, `defaultData`, `BPNode`, `BPEdge`, `BPGraph`
 - `../codegen` — `graphToXgis`
-- `@xgis/compiler` — `Lexer`, `Parser` (for round-trip parse in contract test)
+- `../diagnostics` — `computeNodeIssues`
+- `../import` — `xgisToGraph`
+- `@xgis/compiler` — `Lexer`, `Parser` (round-trip parse in contract test)
 
 ### External
-- `vitest` (test runner, via root workspace)
+- `vitest` (test runner + `vi.spyOn`, via root workspace)
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->

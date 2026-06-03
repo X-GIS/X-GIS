@@ -1,36 +1,41 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-05-22 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
 
 # site/src/styles/
 
 ## Purpose
-Global stylesheet entry point for the X-GIS site. `global.css` imports Tailwind v4's base layer and defines the site's design tokens as CSS custom properties (color palette, typography scale, spacing). Imported once in `Base.astro`; the Tailwind v4 Vite plugin scans all Astro/HTML files for utility usage.
+Global stylesheet entry point for the X-GIS Astro docs site. `global.css` is the single CSS file for the entire site: it self-hosts the Geist variable font family (avoiding Google Fonts round-trips), imports Tailwind v4, declares all design tokens in a `@theme` block, sets base HTML/body/selection/focus rules in `@layer base`, and defines three page-load animation keyframes (`fade-up`, `fade-in`, `scale-fade`) plus matching `@utility` classes with reduced-motion overrides.
 
 ## Key Files
 | File | Description |
 |------|-------------|
-| `global.css` | Tailwind v4 base import + CSS custom properties for the design system (accent, fg, fg-dim, fg-mute, bg-card, bg-hover, line, line-strong, etc.) |
+| `global.css` | Entire site stylesheet: `@import` for `@fontsource-variable/geist` + `@fontsource-variable/geist-mono` (self-hosted woff2, hash-busted via Vite); `@import "tailwindcss"`; `@theme` block with 13 color tokens (`--color-bg/bg-elev/bg-card/bg-hover`, `--color-fg/fg-dim/fg-mute/fg-faint`, `--color-line/line-strong`, `--color-accent/accent-hover/accent-press`) and 2 font-stack tokens (`--font-sans`, `--font-mono`); `@layer base` applying fonts, antialiasing, scroll-behavior, `::selection` (accent blue), Apple-style `:focus-visible` ring, tabular numerals; `@keyframes` + `@utility` for `fade-up`, `fade-in`, `scale-fade`; `prefers-reduced-motion` block disabling all three. |
 
 ## For AI Agents
 
 ### Working In This Directory
-- Design tokens are defined as CSS custom properties here. Use `var(--token-name)` in components rather than hard-coding hex values.
-- Tailwind v4 does not use a `tailwind.config.*` file; configuration (theme extensions, custom utilities) is done in this CSS file via `@theme` blocks.
-- Do not add per-component CSS files; use Tailwind utilities in the component markup instead.
+- All color references in components must use `var(--color-*)` tokens (e.g. `text-[var(--color-accent)]` or Tailwind utility aliases like `bg-bg-card`). Never hard-code hex values in components.
+- Tailwind v4 uses `@theme` for token/extension configuration — there is no `tailwind.config.*` file. Add new design tokens here as `--color-*` or `--font-*` custom properties inside the `@theme` block.
+- Font imports are `@fontsource-variable` packages (not Google Fonts CDN). If swapping fonts, update both the `@import` lines and the `--font-sans`/`--font-mono` `@theme` values.
+- Do not add per-component `.css` files; use Tailwind utilities in component markup. This file is the only CSS authored in the project.
+- Animation utilities (`fade-up`, `fade-in`, `scale-fade`) are declared as `@utility` so Tailwind scans them. Apply via class name in markup; they self-disable under `prefers-reduced-motion`.
 
 ### Testing Requirements
-- No automated tests. Verify visually in dev.
+- No automated tests. Verify visually via `bun run dev` in `site/`. Check token propagation, font loading (no FOUT), focus ring on keyboard nav, and animation behaviour with OS reduced-motion toggled.
 
 ### Common Patterns
-- Dark-surface design: `--bg` is a dark neutral, `--accent` is the brand highlight used for links and CTAs.
-- All color references in components use the token names (e.g., `text-accent`, `bg-bg-card`) which map to the CSS custom properties defined here.
+- Apple Developer–style dark palette: true-black `#000000` ground, paper-white `#f5f5f7` text, single iOS-blue accent `#2997ff`. No secondary accents; no gradients except a single hero radial defined in a component.
+- Geist Variable is the primary sans-serif; Geist Mono Variable for code. Both registered via `@font-face` by the fontsource packages — reference as `"Geist Variable"` / `"Geist Mono Variable"` in the font stacks.
+- Page-load motion: `fade-up` (28 px translate + opacity, 1.1 s), `fade-in` (opacity only, 1.4 s), `scale-fade` (scale 0.96→1 + opacity, 1.4 s). All use Apple-easing `cubic-bezier(0.16, 0.84, 0.32, 1)` or `ease-out`.
 
 ## Dependencies
 
 ### Internal
-- Imported by `src/layouts/Base.astro`
+- Imported by `site/src/layouts/Base.astro` (single import point for the whole site)
 
 ### External
-- `tailwindcss` ^4
+- `tailwindcss` ^4 (Vite plugin scans Astro/HTML for utility usage)
+- `@fontsource-variable/geist` (Geist sans variable font, self-hosted woff2)
+- `@fontsource-variable/geist-mono` (Geist Mono variable font, self-hosted woff2)
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->

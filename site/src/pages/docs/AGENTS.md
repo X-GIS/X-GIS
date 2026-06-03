@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-05-22 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
 
 # site/src/pages/docs/
 
@@ -18,34 +18,36 @@ Documentation pages for the X-GIS language and runtime. Each `.astro` file maps 
 | `expressions.astro` | Operator precedence and the four expression idioms (bracket binding, match, filter, field modifier) |
 | `utilities.astro` | Tailwind-style utility class catalog — colors, fills, strokes, opacity, modifiers |
 | `glossary.astro` | Glossary of X-GIS and cartographic terms |
-| `api.astro` | JavaScript API reference — XGISMap, Camera, projections, loaders from `@xgis/runtime` |
-| `mapbox.astro` | Mapbox GL JS → X-GIS migration guide: conceptual differences + expression mapping |
+| `api.astro` | JavaScript API reference — XGISMap, Camera, projections, loaders from `@xgis/runtime`; inlines typed `ApiEntry` structs with per-parameter tables |
+| `mapbox.astro` | Mapbox GL JS -> X-GIS migration guide: conceptual differences + expression mapping |
 | `mapbox-spec.astro` | Auto-validated Mapbox Style Spec coverage matrix (supported / partial / unsupported) from `@xgis/compiler` spec-coverage data |
 
 ## Subdirectories
 | Directory | Purpose |
 |-----------|---------|
-| `concepts/` | (see `concepts/AGENTS.md`) Deep-dive concept guides: RTC precision, projections, compile pipeline |
+| `concepts/` | Deep-dive concept guides: RTC precision, projections, compile pipeline, blueprint/compute (see `concepts/AGENTS.md`) |
 
 ## For AI Agents
 
 ### Working In This Directory
-- All pages here use `<Docs current="..." title="..." description="...">` as their root; `current` must match the path segment after `/docs/` exactly.
-- When adding a new docs page: (1) create the `.astro` file, (2) add a sidebar entry in `src/layouts/Docs.astro`, (3) add a card to `src/pages/docs/index.astro`, (4) add a `SearchRecord` in `src/lib/search-index.ts`.
-- `mapbox-spec.astro` imports from `@xgis/compiler`'s `spec-coverage` module — changes to spec coverage data automatically update this page at build time.
+- All pages use `<Docs current="..." title="..." description="...">` as root; `current` must match the path segment after `/docs/` exactly or the sidebar highlight breaks.
+- When adding a new docs page: (1) create the `.astro` file, (2) add a sidebar entry in `src/layouts/Docs.astro`, (3) add a card to `index.astro`, (4) add a `SearchRecord` in `src/lib/search-index.ts`.
+- `mapbox-spec.astro` imports from `@xgis/compiler`'s `spec-coverage` module — spec coverage data updates automatically propagate at build time; do not inline the matrix manually.
+- `api.astro` defines local `ApiEntry`/`ApiParam`/`ApiReturn`/`ApiSee` interfaces and renders them; changes to the public runtime API require updating those data arrays here.
 
 ### Testing Requirements
-- `bun run check` validates TypeScript in all pages. Verify sidebar highlight (`current` prop) matches the correct entry in `Docs.astro` navigation.
+- `bun run check` validates TypeScript across all pages. Confirm the `current` prop in each page matches its sidebar entry in `Docs.astro`.
+- No vitest unit tests in this directory; correctness is validated at build + visual review time.
 
 ### Common Patterns
 - Code samples use `astro-expressive-code` fenced blocks with the `xgis` language tag for `.xgis` snippets.
-- Pages that render structured data (spec matrix, API reference) import typed data from `@xgis/compiler` or `src/content/` rather than inlining raw arrays.
+- Pages rendering structured data (spec matrix, API reference) import typed data from `@xgis/compiler` or local interfaces rather than inlining raw arrays.
 
 ## Dependencies
 
 ### Internal
-- `src/layouts/Docs.astro`
-- `src/lib/search-index.ts` (for new pages: add a record)
+- `src/layouts/Docs.astro` — shared sidebar + page shell
+- `src/lib/search-index.ts` — add a `SearchRecord` for every new page
 - `@xgis/compiler` — `mapbox-spec.astro` reads spec-coverage; `api.astro` may reference runtime types
 
 ### External

@@ -1,34 +1,42 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-05-22 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
 
 # input
 
 ## Purpose
-The decode side of the vector-tile pipeline: reads a single MVT (`.pbf`) tile and emits `GeoJSONFeature[]` with un-quantized lon/lat, ready to feed the existing `decomposeFeatures → compileSingleTile` path in `tiler/`. MVT geometry is tile-local integers in `[0, extent]`; the decoder un-quantizes via Web Mercator using `toGeoJSON(x, y, z)`, matching X-GIS tile addressing. This is the upstream that lets HTTP PMTiles / TileJSON sources flow through the same compile pipeline as in-memory GeoJSON.
+Decode side of the vector-tile pipeline: reads a single MVT (`.pbf`) tile and emits `GeoJSONFeature[]` with un-quantized lon/lat coordinates, ready to feed into the `decomposeFeatures → compileSingleTile` path in `tiler/`. MVT geometry is tile-local integers in `[0, extent]`; `toGeoJSON(x, y, z)` un-quantizes via Web Mercator to match X-GIS tile addressing. Multi-layer MVTs are flattened to one feature array with the originating layer name stashed in `properties._layer`. This is the single upstream entry-point that lets HTTP PMTiles / TileJSON sources flow through the same compile pipeline as in-memory GeoJSON.
 
 ## Key Files
 | File | Description |
 |------|-------------|
-| `mvt-decoder.ts` | `decodeMvtTile(bytes, opts)` + `MvtDecodeOptions`. Parses MVT/PBF (via `@mapbox/vector-tile` + `pbf`) and returns un-quantized `GeoJSONFeature[]`. |
+| `mvt-decoder.ts` | `decodeMvtTile(buf, z, x, y, opts)` + `MvtDecodeOptions`. Parses MVT/PBF via `@mapbox/vector-tile` + `pbf`, un-quantizes all layers, merges into one `GeoJSONFeature[]`. Contains `clampGeometryToPlanet` which clamps every vertex to `[-180,180]` / `[-85.0511287, 85.0511287]` — critical NaN guard (iter-296): MVT buffer-zone vertices near antimeridian/poles un-quantize to out-of-range values that would poison f32 tile meshes downstream. |
+
+No subdirectories exist in this directory.
 
 ## For AI Agents
 
 ### Working In This Directory
-- Output is the same `GeoJSONFeature[]` shape the GeoJSON path produces, so both upstreams converge on one decode+compile pipeline. Keep coordinate un-quantization aligned with the tiler's Web Mercator addressing (`tiler/vector-tiler.ts`).
-- This is the only place that touches `pbf` / `@mapbox/vector-tile`; isolate raw-PBF handling here.
+- `decodeMvtTile` signature takes `buf, z, x, y, opts` — note positional `z, x, y` separate from `opts`; the old shape used an `opts` object for coords, do not regress.
+- `clampLon`/`clampLat` have an explicit `Number.isNaN` guard before the inequality comparisons; `NaN > MAX` is `false` so a naive ternary lets NaN fall through — the iter-296 regression pinned this. Never simplify this guard without re-running the fuzz suite.
+- `_layer` injection in `properties` is the only way style code can distinguish layers from a multi-layer MVT; do not remove it.
+- This is the only place in the codebase that imports `@mapbox/vector-tile` or `pbf`; keep raw-PBF handling isolated here.
+- Output shape must stay compatible with `GeoJSONFeature` from `../tiler/geojson-types` — both the GeoJSON and MVT upstreams converge on the same compile path.
 
 ### Testing Requirements
-- Colocated `mvt-decoder-fuzz.test.ts`; plus `src/__tests__/mvt-decoder.test.ts`. Run the fuzz test after touching the PBF parse path.
+- `mvt-decoder-fuzz.test.ts` (colocated): covers empty/garbage/all-zero buffers, `ArrayBuffer` vs `Uint8Array` input paths, and the iter-296 clamp contract (NaN→0, ±Infinity→bounds, out-of-range clamped, pathological spread). Run after any change to the decode or clamp path.
+- Additional integration coverage lives in `compiler/src/__tests__/mvt-decoder.test.ts`.
 
 ### Common Patterns
-- `toGeoJSON(x,y,z)` for un-quantization; tile-local integer → lon/lat conversion mirrors the tiler.
+- `f.toGeoJSON(x, y, z)` from `@mapbox/vector-tile` is the un-quantization call; tile-local integer → lon/lat mirrors the tiler's Web Mercator addressing.
+- Layer iteration uses `Object.keys(tile.layers)` which preserves insertion order; layer filter is a `Set<string>` for O(1) lookup.
 
 ## Dependencies
 
 ### Internal
-- Imports `tiler/geojson-types`; output feeds `tiler/` (`decomposeFeatures`/`compileSingleTile`).
+- `../tiler/geojson-types` — `GeoJSONFeature`, `GeoJSONGeometry` types; output feeds `tiler/` (`decomposeFeatures` / `compileSingleTile`).
 
 ### External
-- `@mapbox/vector-tile`, `pbf`.
+- `@mapbox/vector-tile` — MVT protobuf parsing and `toGeoJSON` un-quantization.
+- `pbf` — low-level protobuf reader consumed by `VectorTile`.
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
