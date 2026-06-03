@@ -626,6 +626,30 @@ export class XGISMap {
   onWebGPUUnavailable(cb: () => void): void { this._onWebGPUUnavailable = cb }
   private _onWebGPUUnavailable: (() => void) | null = null
 
+  /** Default WebGPU-unavailable UX when the host did NOT register an
+   *  onWebGPUUnavailable() handler: show a message in the map container
+   *  instead of leaving a silent blank canvas (the renderer is WebGPU-only,
+   *  there is no Canvas 2D / WebGL fallback). The host can override this by
+   *  registering onWebGPUUnavailable(). */
+  private _showWebGPUUnavailableDefault(): void {
+    const msg = 'This map requires a WebGPU-capable browser (latest Chrome/Edge, or Safari 18+).'
+    // eslint-disable-next-line no-console
+    console.warn('[X-GIS] ' + msg + ' Register onWebGPUUnavailable() to customize this.')
+    if (typeof document === 'undefined') return
+    const parent = this.canvas?.parentElement
+    if (!parent || parent.querySelector('[data-xgis-webgpu-unavailable]')) return
+    const el = document.createElement('div')
+    el.setAttribute('data-xgis-webgpu-unavailable', '')
+    el.setAttribute('role', 'alert')
+    el.textContent = msg
+    el.style.cssText =
+      'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;' +
+      'text-align:center;padding:1rem;box-sizing:border-box;' +
+      'font:14px/1.5 system-ui,-apple-system,sans-serif;color:#e5e7eb;background:#111827;'
+    if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative'
+    parent.appendChild(el)
+  }
+
   /** Mapbox-API parity: return the underlying canvas element.
    *  Hosts need this to attach gesture listeners, capture screenshots
    *  via canvas.toBlob, or compute hit-test coordinates. Falls back
@@ -1689,9 +1713,11 @@ export class XGISMap {
     // could only render a tiny subset of the pipeline correctly).
     const result = await gpuInit
     if (result instanceof WebGPUUnavailableError) {
-      // Graceful: no WebGPU / no adapter. Fire the host hook and abort the
-      // mount instead of throwing an uncaught error to window.onerror.
-      this._onWebGPUUnavailable?.()
+      // Graceful: no WebGPU / no adapter. Fire the host hook, or show a default
+      // in-container message if the host registered none, then abort the mount
+      // instead of throwing an uncaught error to window.onerror.
+      if (this._onWebGPUUnavailable) this._onWebGPUUnavailable()
+      else this._showWebGPUUnavailableDefault()
       return
     }
     if (result instanceof Error) throw result
@@ -2350,9 +2376,11 @@ export class XGISMap {
       this.ctx = await initGPU(this.canvas)
     } catch (e) {
       if (e instanceof WebGPUUnavailableError) {
-        // Graceful: no WebGPU / no adapter. Fire the host hook and abort
-        // the binary mount instead of throwing to window.onerror.
-        this._onWebGPUUnavailable?.()
+        // Graceful: no WebGPU / no adapter. Fire the host hook, or show a
+        // default in-container message if none, then abort the binary mount
+        // instead of throwing to window.onerror.
+        if (this._onWebGPUUnavailable) this._onWebGPUUnavailable()
+        else this._showWebGPUUnavailableDefault()
         return
       }
       throw e
