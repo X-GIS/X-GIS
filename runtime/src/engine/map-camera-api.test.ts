@@ -40,6 +40,9 @@ interface Internals {
   off(type: string, listener: unknown): void
   once(type: string, listener: unknown): void
   mapListeners: { has(type: string): boolean }
+  mapEventListeners: { has(type: string): boolean }
+  _processCameraEvents(): void
+  _fireLoadEvent(): void
   getCanvas(): HTMLCanvasElement
   getContainer(): HTMLElement | null
   getBounds(): [[number, number], [number, number]]
@@ -455,6 +458,108 @@ describe('XGISMap Mapbox-API camera setters', () => {
       const fn = () => {}
       map.once('mousemove', fn)
       expect(map.mapListeners.has('mousemove')).toBe(true)
+    })
+  })
+
+  describe('map lifecycle / camera events (P0-8)', () => {
+    it('routes lifecycle event names to the map-event registry, not the feature one', () => {
+      const fn = () => {}
+      map.on('moveend', fn)
+      expect(map.mapEventListeners.has('moveend')).toBe(true)
+      expect(map.mapListeners.has('moveend')).toBe(false)
+      map.off('moveend', fn)
+      expect(map.mapEventListeners.has('moveend')).toBe(false)
+    })
+
+    it('still routes feature event names to the feature registry', () => {
+      const fn = () => {}
+      map.on('click', fn)
+      expect(map.mapListeners.has('click')).toBe(true)
+      expect(map.mapEventListeners.has('click')).toBe(false)
+    })
+
+    it('jumpTo fires movestart + move + moveend (one move cycle)', () => {
+      const seen: string[] = []
+      map.on('movestart', () => seen.push('movestart'))
+      map.on('move', () => seen.push('move'))
+      map.on('moveend', () => seen.push('moveend'))
+      // Seed the event signature (first tick never fires — NaN warmup).
+      map._processCameraEvents()
+      expect(seen).toEqual([])
+      // Real camera change.
+      map.jumpTo({ center: [10, 20], zoom: 5 })
+      // Tick 1: camera changed → movestart + move.
+      map._processCameraEvents()
+      // Tick 2: camera at rest → moveend.
+      map._processCameraEvents()
+      expect(seen).toEqual(['movestart', 'move', 'moveend'])
+    })
+
+    it('jumpTo with a zoom change fires zoomstart + zoom + zoomend', () => {
+      const seen: string[] = []
+      map.on('zoomstart', () => seen.push('zoomstart'))
+      map.on('zoom', () => seen.push('zoom'))
+      map.on('zoomend', () => seen.push('zoomend'))
+      map._processCameraEvents() // seed
+      map.jumpTo({ zoom: 7 })
+      map._processCameraEvents() // zoomstart + zoom
+      map._processCameraEvents() // zoomend
+      expect(seen).toEqual(['zoomstart', 'zoom', 'zoomend'])
+    })
+
+    it('a pure pan (no zoom change) does NOT fire zoom events', () => {
+      const seen: string[] = []
+      map.on('zoom', () => seen.push('zoom'))
+      map.on('move', () => seen.push('move'))
+      map._processCameraEvents() // seed
+      map.jumpTo({ center: [30, 0] }) // pan only
+      map._processCameraEvents()
+      map._processCameraEvents()
+      expect(seen).toContain('move')
+      expect(seen).not.toContain('zoom')
+    })
+
+    it('move payload carries the current center + zoom', () => {
+      let payload: { center: [number, number]; zoom: number } | null = null
+      map.on('move', (e: unknown) => { payload = e as { center: [number, number]; zoom: number } })
+      map._processCameraEvents() // seed
+      map.jumpTo({ center: [12, 34], zoom: 6 })
+      map._processCameraEvents()
+      expect(payload).not.toBeNull()
+      const p = payload as unknown as { center: [number, number]; zoom: number }
+      expect(p.center[0]).toBeCloseTo(12, 4)
+      expect(p.center[1]).toBeCloseTo(34, 4)
+      expect(p.zoom).toBeCloseTo(6, 4)
+    })
+
+    it('load fires once, even if the load hook runs twice', () => {
+      let count = 0
+      map.on('load', () => { count++ })
+      map._fireLoadEvent()
+      map._fireLoadEvent()
+      expect(count).toBe(1)
+    })
+
+    it('idle fires once when the camera is at rest with no pending work', () => {
+      let idleCount = 0
+      map.on('idle', () => { idleCount++ })
+      // Simulate the post-render quiesced state: a real frame would have
+      // cleared _needsRender and stored the camera signature into
+      // _lastSig*. Mirror that here (no GPU in the unit env) so
+      // shouldRenderThisFrame() reports "nothing to draw".
+      const internal = map as unknown as {
+        _needsRender: boolean; camera: { zoom: number; centerX: number; centerY: number; bearing: number; pitch: number }
+        _lastSigZoom: number; _lastSigCX: number; _lastSigCY: number; _lastSigBearing: number; _lastSigPitch: number
+      }
+      internal._needsRender = false
+      internal._lastSigZoom = internal.camera.zoom
+      internal._lastSigCX = internal.camera.centerX
+      internal._lastSigCY = internal.camera.centerY
+      internal._lastSigBearing = internal.camera.bearing
+      internal._lastSigPitch = internal.camera.pitch
+      map._processCameraEvents() // seed (camera unchanged) → idle transition
+      map._processCameraEvents() // stays idle → no second fire
+      expect(idleCount).toBe(1)
     })
   })
 

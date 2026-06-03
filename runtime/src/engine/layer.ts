@@ -419,6 +419,107 @@ export class ListenerRegistry {
   }
 }
 
+// ═══ Map-level lifecycle / camera events ═══
+//
+// Distinct from the feature/pointer events above: these carry NO feature,
+// NO layer target, and NO pickAt round-trip. They fire from the camera
+// mutation path (drag / wheel / jumpTo all funnel through the same camera
+// signature) and the render loop (load = first frame; idle = loop
+// quiesced). MapLibre GL JS event semantics are the reference:
+//   - load        — once, after the first rendered frame.
+//   - movestart   — camera begins moving (center/zoom/bearing/pitch).
+//   - move        — every frame the camera changed.
+//   - moveend     — camera came to rest after a move.
+//   - zoomstart   — zoom begins changing.
+//   - zoom        — every frame the zoom changed.
+//   - zoomend     — zoom came to rest.
+//   - idle        — no pending tile/label work AND camera at rest.
+export type XGISMapEventType =
+  | 'load' | 'idle'
+  | 'movestart' | 'move' | 'moveend'
+  | 'zoomstart' | 'zoom' | 'zoomend'
+
+/** Payload delivered to map-level lifecycle / camera listeners. Carries
+ *  the current camera state (center [lon, lat], zoom, bearing, pitch) so
+ *  move/zoom handlers can read the viewport without a follow-up getter —
+ *  matches the MapLibre `MapLibreEvent`-ish shape. `load` / `idle` carry
+ *  the same snapshot for uniformity. */
+export class XGISMapEvent {
+  readonly type: XGISMapEventType
+  /** The map that fired the event. Typed `unknown` here to avoid a layer
+   *  → map import cycle; XGISMap narrows it for its own callers. */
+  readonly target: unknown
+  readonly center: readonly [number, number]
+  readonly zoom: number
+  readonly bearing: number
+  readonly pitch: number
+  readonly timeStamp: number
+
+  constructor(init: {
+    type: XGISMapEventType
+    target: unknown
+    center: readonly [number, number]
+    zoom: number
+    bearing: number
+    pitch: number
+  }) {
+    this.type = init.type
+    this.target = init.target
+    this.center = init.center
+    this.zoom = init.zoom
+    this.bearing = init.bearing
+    this.pitch = init.pitch
+    this.timeStamp = typeof performance !== 'undefined' ? performance.now() : Date.now()
+  }
+}
+
+export type XGISMapListener = (event: XGISMapEvent) => void
+
+/** Listener bookkeeping for the map-level lifecycle / camera events.
+ *  Parallel to `ListenerRegistry` (which is hard-typed to the feature
+ *  event surface) but typed for `XGISMapEvent` — the two never share an
+ *  event-name namespace, so keeping them separate avoids widening the
+ *  feature dispatch path. Same add/remove/has/dispatch contract:
+ *  re-registering is a no-op, `{ once }` self-removes, `{ signal }`
+ *  removes on abort, dispatch iterates a snapshot. */
+export class MapEventRegistry {
+  private map = new Map<XGISMapEventType, Map<XGISMapListener, XGISMapListener>>()
+
+  add(
+    type: XGISMapEventType,
+    listener: XGISMapListener,
+    options?: { signal?: AbortSignal; once?: boolean },
+  ): void {
+    if (options?.signal?.aborted) return
+    let typeMap = this.map.get(type)
+    if (!typeMap) { typeMap = new Map(); this.map.set(type, typeMap) }
+    if (typeMap.has(listener)) return
+    const wrapped: XGISMapListener = options?.once
+      ? (e) => { typeMap!.delete(listener); listener(e) }
+      : listener
+    typeMap.set(listener, wrapped)
+    options?.signal?.addEventListener('abort', () => typeMap!.delete(listener), { once: true })
+  }
+
+  remove(type: XGISMapEventType, listener: XGISMapListener): void {
+    this.map.get(type)?.delete(listener)
+  }
+
+  has(type: XGISMapEventType): boolean {
+    const typeMap = this.map.get(type)
+    return !!typeMap && typeMap.size > 0
+  }
+
+  dispatch(event: XGISMapEvent): void {
+    const typeMap = this.map.get(event.type)
+    if (!typeMap || typeMap.size === 0) return
+    for (const wrapped of [...typeMap.values()]) {
+      try { wrapped(event) }
+      catch (e) { xlog.error(`[X-GIS] '${event.type}' map listener:`, e) }
+    }
+  }
+}
+
 export class XGISLayer {
   readonly style: XGISLayerStyle
   private listeners = new ListenerRegistry()

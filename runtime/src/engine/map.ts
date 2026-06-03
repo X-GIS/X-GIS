@@ -44,8 +44,9 @@ import { TextStage, type TextStageOptions } from './text/text-stage'
 import type { GlyphProvider } from './text/sdf/pbf/glyph-provider'
 import { IconStage } from './sprite/icon-stage'
 import {
-  LayerIdRegistry, XGISLayer, ListenerRegistry,
+  LayerIdRegistry, XGISLayer, ListenerRegistry, MapEventRegistry, XGISMapEvent,
   type XGISFeature, type XGISFeatureEvent, type XGISFeatureEventType, type XGISFeatureListener,
+  type XGISMapEventType, type XGISMapListener,
 } from './layer'
 import { EventDispatcher } from './event-dispatcher'
 import { TileCatalog } from '../data/tile-catalog'
@@ -92,6 +93,16 @@ type OpaqueGroup = ExternalOpaqueGroup
 // Repeated calls share this module-scoped flag and emit at most one xlog.warn
 // per session.
 let _polarCapsWarned = false
+
+// Lifecycle/camera event names — used by on()/off()/once() to route to
+// the map-event registry (vs. the feature-event registry). Kept in sync
+// with XGISMapEventType in layer.ts.
+const MAP_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'load', 'idle', 'movestart', 'move', 'moveend', 'zoomstart', 'zoom', 'zoomend',
+])
+function isMapEventType(type: string): type is XGISMapEventType {
+  return MAP_EVENT_TYPES.has(type)
+}
 
 export class XGISMap {
   ctx!: GPUContext
@@ -196,6 +207,33 @@ export class XGISMap {
    *  Layer-level dispatch runs first; map-level fires only if no
    *  `preventDefault` was called there. */
   private mapListeners = new ListenerRegistry()
+
+  /** Map-level lifecycle / camera event registry — `map.on('moveend', h)`
+   *  / `map.on('load', h)` / `map.on('idle', h)`. Separate from
+   *  `mapListeners` (feature/pointer events) because the two carry
+   *  different payloads; `on()`/`off()`/`once()` route to the right one
+   *  by event name. Emit sites: load = first rendered frame (run());
+   *  move/zoom/movestart/zoomstart/moveend/zoomend/idle = render-loop
+   *  signature diff (catches both gesture + programmatic camera lanes). */
+  private mapEventListeners = new MapEventRegistry()
+
+  /** One-shot guard so `load` fires exactly once even if run()/runBinary
+   *  is somehow re-entered. */
+  private _loadFired = false
+  /** Move/zoom transition state for the render-loop signature diff. A
+   *  "move" spans from the first camera-signature change until the camera
+   *  comes to rest; a "zoom" likewise but tracks zoom alone. `_wasIdle`
+   *  edge-detects the busy→idle transition for the single `idle` fire. */
+  private _moveActive = false
+  private _zoomActive = false
+  private _wasIdle = false
+
+  /** Bound `keydown` handler for keyboard pan/zoom (P0-7 a11y). Stored so
+   *  `destroy()` can detach it — otherwise the listener (and the closed-
+   *  over map) leaks when an SPA unmounts. `null` until `_setupAccessibility`
+   *  attaches it (skipped when the canvas is not a real DOM element, e.g.
+   *  the unit-test mock). */
+  private _keyDownHandler: ((e: KeyboardEvent) => void) | null = null
 
   // `_cameraExplicitlyPositioned` is owned by CameraController and
   // exposed on XGISMap via a get/set accessor (see below near
@@ -571,10 +609,98 @@ export class XGISMap {
     // at render time, so constructing it before run() populates them is
     // safe.
     this.renderLoopInstance = new RenderLoop(this)
+    // P0-7 a11y baseline: make the host-supplied canvas focusable +
+    // keyboard-drivable. Runs at ctor time (canvas is available pre-GPU);
+    // no-ops when the canvas is not a real DOM element (unit-test mock).
+    this._setupAccessibility(options.ariaLabel)
   }
 
   /** Captured at ctor time so run() can apply it once MapRenderer exists. */
   private _graticuleInitial = false
+
+  /** P0-7 accessibility baseline. The renderer is canvas-only with no
+   *  internal DOM, so the host's <canvas> is the keyboard / screen-reader
+   *  surface. This makes it focusable (`tabindex=0`), names it for
+   *  assistive tech (`role="region"` + `aria-label`), draws a visible
+   *  `:focus-visible` ring (WCAG 2.4.7), and routes arrow / +/- keys to
+   *  the SAME camera methods drag + wheel use (`panBy` / `zoomIn` /
+   *  `zoomOut` on the shared `cameraController`) so keyboard moves reuse
+   *  the move-event bus, respect `maxBounds`, and clamp zoom identically.
+   *
+   *  Skipped when `this.canvas` is not a real DOM element (the unit-test
+   *  mock is a bare `{ width, height }` object) — mirrors the
+   *  `typeof document === 'undefined'` guard in
+   *  `_showWebGPUUnavailableDefault`. */
+  private _setupAccessibility(ariaLabel?: string): void {
+    const canvas = this.canvas
+    if (typeof document === 'undefined') return
+    if (!canvas || typeof canvas.setAttribute !== 'function' || typeof canvas.addEventListener !== 'function') return
+    // Focusable + named for assistive tech. Only set tabIndex if the host
+    // hasn't already made it focusable, so an embedder's explicit choice
+    // (e.g. tabindex=-1 to drive focus programmatically) is preserved.
+    if (!canvas.hasAttribute('tabindex')) canvas.tabIndex = 0
+    if (!canvas.hasAttribute('role')) canvas.setAttribute('role', 'region')
+    if (!canvas.hasAttribute('aria-label')) canvas.setAttribute('aria-label', ariaLabel ?? 'Map')
+    // Marker the shared focus-ring stylesheet targets (independent of the
+    // role/aria-label values, which a host may override).
+    canvas.setAttribute('data-xgis-map', '')
+    XGISMap._injectFocusStyle()
+    const handler = (e: KeyboardEvent) => this._onKeyDown(e)
+    this._keyDownHandler = handler
+    canvas.addEventListener('keydown', handler)
+  }
+
+  /** Inject a single shared stylesheet that draws a focus ring on any
+   *  X-GIS canvas — only when keyboard-driven (`:focus-visible`), so a
+   *  pointer click doesn't show the ring. Module-once via a guard flag;
+   *  targets the `data-xgis-map` marker `_setupAccessibility` sets, which
+   *  is stable even if the host overrides role / aria-label. */
+  private static _focusStyleInjected = false
+  private static _injectFocusStyle(): void {
+    if (XGISMap._focusStyleInjected) return
+    if (typeof document === 'undefined' || !document.head) return
+    XGISMap._focusStyleInjected = true
+    const style = document.createElement('style')
+    style.setAttribute('data-xgis-a11y', '')
+    style.textContent =
+      'canvas[data-xgis-map]:focus-visible{' +
+      'outline:3px solid #4d90fe;outline-offset:2px;}'
+    document.head.appendChild(style)
+  }
+
+  /** Keyboard pan/zoom (P0-7). Arrow keys pan, `+`/`=` zoom in, `-`/`_`
+   *  zoom out, Shift accelerates the pan. Routes through the shared
+   *  `cameraController` (same path as drag/wheel) so the render-loop
+   *  camera-diff fires `move`/`moveend`/`zoom*` for free. `preventDefault`
+   *  is called ONLY for keys we act on, and we bail when an unhandled
+   *  modifier (Ctrl/Alt/Meta) is held so we don't steal browser shortcuts. */
+  private _onKeyDown(e: KeyboardEvent): void {
+    if (this._destroyed) return
+    // Leave browser / OS chords (Ctrl+, Alt+, Cmd+) alone. Shift is the
+    // only modifier we consume (fast pan).
+    if (e.ctrlKey || e.altKey || e.metaKey) return
+    // prefers-reduced-motion: keyboard pan/zoom are already instant jumps
+    // (no transition infra), so there is nothing to suppress; honored here
+    // as a forward-looking guard for when easeTo/flyTo gain animation.
+    const PAN_PX = 80
+    const FAST_PX = 320
+    const step = e.shiftKey ? FAST_PX : PAN_PX
+    switch (e.key) {
+      case 'ArrowUp':    this.cameraController.panBy([0, -step]); break
+      case 'ArrowDown':  this.cameraController.panBy([0,  step]); break
+      case 'ArrowLeft':  this.cameraController.panBy([-step, 0]); break
+      case 'ArrowRight': this.cameraController.panBy([ step, 0]); break
+      case '+': case '=': this.cameraController.zoomIn(); break
+      case '-': case '_': this.cameraController.zoomOut(); break
+      default: return // not a key we handle — leave default behaviour intact
+    }
+    e.preventDefault()
+    // Mirror the pointer-gesture bookkeeping (onPointerDown): the user has
+    // taken control of the camera, so the post-compile bounds auto-fit must
+    // not clobber it, and the interaction-DPR path can kick in.
+    this._cameraExplicitlyPositioned = true
+    this.markInteracting()
+  }
 
   /** Toggle the lat/lon grid overlay. Default off. */
   setGraticuleEnabled(on: boolean): void {
@@ -1924,6 +2050,7 @@ export class XGISMap {
     // the render loop. Gated on `typeof window` so SSR / Node tests
     // don't trip over the global.
     this._loaded = true
+    this._fireLoadEvent()
     if (typeof window !== 'undefined') {
       ;(window as unknown as { __xgisReady?: boolean }).__xgisReady = true
       // Expose a deterministic scene-snapshot helper. Captures the
@@ -2423,6 +2550,7 @@ export class XGISMap {
     this.switchController()
     this.running = true
     this.renderLoop()
+    this._fireLoadEvent()
     console.log('[X-GIS] Map running (from binary)')
   }
 
@@ -2442,6 +2570,12 @@ export class XGISMap {
 
   renderLoop = (): void => {
     if (!this.running) return
+    // Emit move/zoom/idle lifecycle events from the single render-loop
+    // vantage point — runs every rAF tick (before the skip gate) so it
+    // catches camera changes from BOTH the gesture lane (controller
+    // mutates camera directly) and the programmatic lane (jumpTo →
+    // invalidate). Cheap when no listeners are registered.
+    this._processCameraEvents()
     if (!this.shouldRenderThisFrame()) {
       requestAnimationFrame(this.renderLoop)
       return
@@ -2455,6 +2589,68 @@ export class XGISMap {
       // useless "Script error. @ :0:0" placeholder under iOS WebKit.
       xlog.error('[X-GIS frame]', (err as Error)?.stack ?? err)
       this.running = false  // stop the loop so the error doesn't repeat 60×/sec
+    }
+  }
+
+  // Last camera signature for which lifecycle events were emitted. Kept
+  // separate from `_lastSig*` (owned by renderFrame's idle-skip gate) so
+  // the event logic is self-contained and robust across skipped frames.
+  private _evtSigCX = NaN
+  private _evtSigCY = NaN
+  private _evtSigZoom = NaN
+  private _evtSigBearing = NaN
+  private _evtSigPitch = NaN
+
+  /** Drive movestart/move/moveend, zoomstart/zoom/zoomend, and idle off
+   *  the camera signature, once per rAF tick. MapLibre semantics:
+   *    - a "move" begins on the first changed frame (`movestart`), fires
+   *      `move` every changed frame, and ends (`moveend`) the first frame
+   *      the camera is unchanged again — regardless of pending tile work.
+   *    - "zoom" likewise, gated on the zoom field alone.
+   *    - `idle` fires once on the busy→idle transition: camera at rest
+   *      AND no pending tile/label work AND no active move/zoom.
+   *  Diffing the camera (not `_lastSig*`) means programmatic jumpTo and
+   *  user drag/wheel both flow through here uniformly. */
+  private _processCameraEvents(): void {
+    const c = this.camera
+    const cxChanged = c.centerX !== this._evtSigCX
+    const cyChanged = c.centerY !== this._evtSigCY
+    const bearingChanged = c.bearing !== this._evtSigBearing
+    const pitchChanged = c.pitch !== this._evtSigPitch
+    const zoomChanged = c.zoom !== this._evtSigZoom
+    // First tick: seed the signature without firing (NaN !== anything).
+    const seeded = Number.isFinite(this._evtSigCX)
+    const moved = seeded && (cxChanged || cyChanged || bearingChanged || pitchChanged || zoomChanged)
+
+    if (moved) {
+      // Zoom start/continue (zoom is also a move in MapLibre).
+      if (zoomChanged) {
+        if (!this._zoomActive) { this._zoomActive = true; this._fireMapEvent('zoomstart') }
+      }
+      if (!this._moveActive) { this._moveActive = true; this._fireMapEvent('movestart') }
+      if (zoomChanged) this._fireMapEvent('zoom')
+      this._fireMapEvent('move')
+    } else {
+      // Camera at rest this tick — close out any open move/zoom.
+      if (this._zoomActive) { this._zoomActive = false; this._fireMapEvent('zoomend') }
+      if (this._moveActive) { this._moveActive = false; this._fireMapEvent('moveend') }
+    }
+
+    // Update the emitted-signature snapshot.
+    this._evtSigCX = c.centerX
+    this._evtSigCY = c.centerY
+    this._evtSigZoom = c.zoom
+    this._evtSigBearing = c.bearing
+    this._evtSigPitch = c.pitch
+
+    // Idle = nothing left to draw AND camera at rest AND no open gesture.
+    // `shouldRenderThisFrame()` already folds in _needsRender,
+    // _sceneHasAnimation, hasPendingSourceWork, and the camera/size diff.
+    const idleNow = !this._moveActive && !this._zoomActive && !this.shouldRenderThisFrame()
+    if (idleNow) {
+      if (!this._wasIdle) { this._wasIdle = true; this._fireMapEvent('idle') }
+    } else {
+      this._wasIdle = false
     }
   }
 
@@ -2689,16 +2885,56 @@ export class XGISMap {
 
   /** Mapbox-API parity: `on()` / `off()` aliases for addEventListener /
    *  removeEventListener. MapLibre / Mapbox GL JS authors expect this
-   *  shorter form; routing both call sites through the same registry
-   *  keeps the existing one source of truth. */
-  on(type: XGISFeatureEventType, listener: XGISFeatureListener): void {
-    this.mapListeners.add(type, listener)
+   *  shorter form. Two event surfaces are routed by name:
+   *    - feature/pointer events (click, mousemove, …) → `mapListeners`,
+   *      delivered with an `XGISFeatureEvent` (carries the hit feature).
+   *    - lifecycle/camera events (load, idle, move*, zoom*) →
+   *      `mapEventListeners`, delivered with an `XGISMapEvent` (carries
+   *      the camera state).
+   *  The unions are disjoint, so the name discriminates cleanly. */
+  on(type: XGISMapEventType, listener: XGISMapListener): void
+  on(type: XGISFeatureEventType, listener: XGISFeatureListener): void
+  on(type: XGISFeatureEventType | XGISMapEventType, listener: XGISFeatureListener | XGISMapListener): void {
+    if (isMapEventType(type)) this.mapEventListeners.add(type, listener as XGISMapListener)
+    else this.mapListeners.add(type, listener as XGISFeatureListener)
   }
-  off(type: XGISFeatureEventType, listener: XGISFeatureListener): void {
-    this.mapListeners.remove(type, listener)
+  off(type: XGISMapEventType, listener: XGISMapListener): void
+  off(type: XGISFeatureEventType, listener: XGISFeatureListener): void
+  off(type: XGISFeatureEventType | XGISMapEventType, listener: XGISFeatureListener | XGISMapListener): void {
+    if (isMapEventType(type)) this.mapEventListeners.remove(type, listener as XGISMapListener)
+    else this.mapListeners.remove(type, listener as XGISFeatureListener)
   }
-  once(type: XGISFeatureEventType, listener: XGISFeatureListener): void {
-    this.mapListeners.add(type, listener, { once: true })
+  once(type: XGISMapEventType, listener: XGISMapListener): void
+  once(type: XGISFeatureEventType, listener: XGISFeatureListener): void
+  once(type: XGISFeatureEventType | XGISMapEventType, listener: XGISFeatureListener | XGISMapListener): void {
+    if (isMapEventType(type)) this.mapEventListeners.add(type, listener as XGISMapListener, { once: true })
+    else this.mapListeners.add(type, listener as XGISFeatureListener, { once: true })
+  }
+
+  /** Build + dispatch a lifecycle/camera event from the current camera
+   *  state. No-op when no listener is registered for `type` so the
+   *  per-frame move/zoom path stays cheap. */
+  private _fireMapEvent(type: XGISMapEventType): void {
+    if (!this.mapEventListeners.has(type)) return
+    const cam = this.cameraController.getCameraState()
+    this.mapEventListeners.dispatch(new XGISMapEvent({
+      type,
+      target: this,
+      center: cam.center,
+      zoom: cam.zoom,
+      bearing: cam.bearing,
+      pitch: cam.pitch,
+    }))
+  }
+
+  /** Fire `load` exactly once, after the map has entered the render loop
+   *  (the first frame has been scheduled). Mirrors the `_loaded` /
+   *  `__xgisReady` contract — both run() and runBinary() call this after
+   *  setting `_loaded = true`. MapLibre fires `load` once per map. */
+  private _fireLoadEvent(): void {
+    if (this._loadFired) return
+    this._loadFired = true
+    this._fireMapEvent('load')
   }
 
   /** Internal: dispatcher calls this after a layer-level dispatch so
@@ -2798,6 +3034,14 @@ export class XGISMap {
     // DOM / pointer listeners — the leak that survives GC otherwise.
     this.controller?.detach()
     this.controller = null
+
+    // Keyboard (a11y) listener — same leak class as the pointer listeners.
+    // Detach from `this.canvas` (the exact element `_setupAccessibility`
+    // attached to), not `getCanvas()`, so removal is symmetric.
+    if (this._keyDownHandler) {
+      this.canvas?.removeEventListener('keydown', this._keyDownHandler)
+      this._keyDownHandler = null
+    }
 
     // Per-source GPU renderers + tile catalogs (renderer.destroy each).
     for (const key of [...this.vtSources.keys()]) this.teardownSource(key)
