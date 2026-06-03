@@ -435,11 +435,31 @@ export class VectorTileRenderer {
   private polyVertexArena: GPUArena | null = null
   private static readonly POLY_VERTEX_ARENA_CAPACITY = 64 * 1024 * 1024
 
+  /** Set true by `forceEvictBytes` when an alloc still cannot be served
+   *  AFTER forced LRU eviction — i.e. the live set is fragmented (bump
+   *  pointer near the cap while liveBytes is tiny) and the remaining
+   *  tiles are protected stableKeys that eviction can't drop. The actual
+   *  defragmenting `copyBufferToBuffer` MUST run in the post-submit safe
+   *  window (NOT here, mid-render), so we only flag it; `beginFrame`
+   *  drains the flag in the SAME safe window `evictGPUTiles` uses. */
+  private _pendingArenaCompaction = false
+
+  /** Old arena GPUBuffers retired by a compaction, awaiting destroy. A
+   *  compaction swaps `arena.buffer` to a fresh packed buffer; the old
+   *  buffer is pushed here and destroyed on the NEXT `beginFrame` (one
+   *  full frame later), by which point the compaction's copy submit AND
+   *  any command that referenced the old buffer have drained. Mirrors the
+   *  uniform-ring retired-pool pattern. */
+  private _retiredArenaBuffers: GPUBuffer[] = []
+
   private getOrCreatePolyVertexArena(): GPUArena {
     if (this.polyVertexArena === null) {
       this.polyVertexArena = new GPUArena(this.device, {
         capacityBytes: VectorTileRenderer.POLY_VERTEX_ARENA_CAPACITY,
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        // COPY_SRC is required for compaction's copyBufferToBuffer (it
+        // reads the old arena buffer as the copy SOURCE when relocating the
+        // live set into the freshly-packed destination buffer).
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
         label: 'poly-vertex-arena',
       })
     }
@@ -458,7 +478,8 @@ export class VectorTileRenderer {
     if (this.polyIndexArena === null) {
       this.polyIndexArena = new GPUArena(this.device, {
         capacityBytes: VectorTileRenderer.POLY_INDEX_ARENA_CAPACITY,
-        usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+        // COPY_SRC required for compaction (see poly-vertex-arena above).
+        usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
         label: 'poly-index-arena',
       })
     }
@@ -825,7 +846,29 @@ export class VectorTileRenderer {
       && this.polyVertexArena.usedBytes >= VectorTileRenderer.POLY_VERTEX_ARENA_CAPACITY * ARENA_HIGH_WATER
     const iHi = this.polyIndexArena !== null
       && this.polyIndexArena.usedBytes >= VectorTileRenderer.POLY_INDEX_ARENA_CAPACITY * ARENA_HIGH_WATER
+    // Drain arena buffers retired by a PRIOR frame's compaction. A full
+    // frame has elapsed since they were swapped out (their copy submit +
+    // every render that referenced them has long drained), so destroying
+    // them now is safe — and must happen BEFORE this frame's compaction
+    // pushes new entries, so the list never grows unbounded.
+    if (this._retiredArenaBuffers.length > 0) {
+      for (const b of this._retiredArenaBuffers) b.destroy()
+      this._retiredArenaBuffers.length = 0
+    }
     if (overCount || vHi || iHi) this.evictGPUTiles()
+    // Deferred arena compaction (Phase 6a.5). When a mid-render alloc-fail
+    // couldn't be relieved by forced eviction — because the live set is
+    // FRAGMENTED (monotonic bumpPtr near the cap, liveBytes tiny) and the
+    // residual tiles are protected stableKeys — forceEvictBytes flagged a
+    // compaction. Run it HERE, in the post-submit safe window (the prior
+    // frame's queue.submit() has returned), so the relocating
+    // copyBufferToBuffer + old-buffer destroy can't poison an in-flight
+    // submit. evictGPUTiles ran just above, so the live set is already as
+    // small as protection allows before we repack it.
+    if (this._pendingArenaCompaction) {
+      this._pendingArenaCompaction = false
+      this._compactPolyArenas()
+    }
     // CPU-side TileCatalog eviction. Without this the dataCache grew
     // unbounded for the lifetime of the session — VTR's gpuCache
     // capped GPU memory but every parsed-and-decoded tile's
@@ -1256,6 +1299,10 @@ export class VectorTileRenderer {
     this.polyIndexArena = null
     this.zBufferArena?.destroy()
     this.zBufferArena = null
+    // Phase 6a.5 — destroy any arena buffers retired by a compaction that
+    // haven't yet been drained by a subsequent beginFrame.
+    for (const b of this._retiredArenaBuffers) b.destroy()
+    this._retiredArenaBuffers.length = 0
 
     this.featureDataBuffer?.destroy()
     this.featureDataBuffer = null
@@ -5187,7 +5234,110 @@ export class VectorTileRenderer {
     // drop a tile despite having freed everything — bump headroom stays
     // pinned even at live=0. Re-probe after reclaim.
     arena.reclaimIfDrained()
-    return hasRoom()
+    const served = hasRoom()
+    if (!served) {
+      // Eviction couldn't make room AND reclaim didn't fire (liveBytes > 0,
+      // i.e. the remaining live tiles are protected stableKeys). This is the
+      // FRAGMENTATION signature: bumpPtr is pinned near the cap by the
+      // monotonic bump pointer while the stranded free-list holds footprints
+      // that don't match this request. The bump can only fall via compaction
+      // — but the relocating copyBufferToBuffer must run in the post-submit
+      // safe window, never mid-render here. Flag it for beginFrame to drain.
+      this._pendingArenaCompaction = true
+    }
+    return served
+  }
+
+  /** Run a deferred poly-arena compaction in the post-submit safe window.
+   *  Called ONLY from `beginFrame` (after the prior frame's queue.submit()
+   *  has returned, the SAME window `evictGPUTiles` uses) so the relocating
+   *  `copyBufferToBuffer` + the old-buffer destroy can never poison an
+   *  in-flight submit. Defragments BOTH polygon arenas: repacks the live
+   *  set (every resident tile's vertex+index slot) to the front of a fresh
+   *  buffer, then rewrites each tile's offset + buffer reference ATOMICALLY
+   *  with the swap so the next frame's draws read the new buffer at the new
+   *  offset (no frame can observe a half-compacted arena — the rewrite is a
+   *  synchronous JS loop with no await between swap and offset write). */
+  private _compactPolyArenas(): void {
+    const vArena = this.polyVertexArena
+    const iArena = this.polyIndexArena
+    if (vArena === null && iArena === null) return
+
+    // SAFETY GUARD vs async uploads. doUploadTileAsync captures the arena
+    // buffer reference (cached.vertexBuffer) BEFORE its mapAsync await, then
+    // submits AFTER. An in-flight async upload can therefore be suspended
+    // across this beginFrame; if we swap + retire the arena buffer now, that
+    // upload would (a) submit a copy into the old buffer it already captured
+    // and (b) record a tile whose buffer/offset point at the pre-compaction
+    // buffer — which the NEXT compaction would mis-relocate from the new
+    // buffer. Async jobs are a single mapAsync round-trip, so simply DEFER:
+    // re-arm the pending flag and compact on a later frame when the upload
+    // window is clear. (Mid-render sync doUploadTile cannot be in flight
+    // here — beginFrame runs between frames, never inside a render call.)
+    if (this.uploadQueue.activeCount() > 0) {
+      this._pendingArenaCompaction = true
+      return
+    }
+
+    // Build the live relocation set from the gpuCache — the VTR owns the
+    // ground truth of which offsets are live (the arena only tracks bump +
+    // free-list). Each resident tile holds exactly one vertex slot and one
+    // index slot. Collect tile refs in a stable order; the per-arena
+    // relocation arrays index-align with this list so we can rewrite each
+    // tile's offsets from the returned newOffsets.
+    const tiles: GPUTile[] = []
+    for (const inner of this.gpuCache.values()) {
+      for (const tile of inner.values()) tiles.push(tile)
+    }
+    if (tiles.length === 0) {
+      // Nothing live: the cheap reclaim already covers this, but be safe.
+      vArena?.reclaimIfDrained()
+      iArena?.reclaimIfDrained()
+      return
+    }
+
+    const vReloc = vArena
+      ? tiles.map((t) => ({ oldOffset: t.polyVertexOffset, bytes: t.polyVertexByteLength }))
+      : null
+    const iReloc = iArena
+      ? tiles.map((t) => ({ oldOffset: t.polyIndexOffset, bytes: t.polyIndexByteLength }))
+      : null
+
+    // One encoder records ALL copies for both arenas; a single submit makes
+    // the whole relocation atomic w.r.t. the GPU timeline.
+    const encoder = this.device.createCommandEncoder({ label: 'arena-compact' })
+    const vResult = vArena && vReloc ? vArena.compact(vReloc, encoder) : null
+    const iResult = iArena && iReloc ? iArena.compact(iReloc, encoder) : null
+    this.device.queue.submit([encoder.finish()])
+
+    // Rewrite tile records to the new offsets + new buffer reference. This
+    // is the atomic offset rewrite: it runs synchronously with no await, so
+    // no frame can be rendered against a half-compacted arena. The NEXT
+    // frame's draw loop reads cached.vertexBuffer + cached.polyVertexOffset,
+    // which now point at the freshly-packed buffer.
+    const newVBuffer = vArena?.buffer
+    const newIBuffer = iArena?.buffer
+    for (let k = 0; k < tiles.length; k++) {
+      const t = tiles[k]
+      if (vResult && newVBuffer) {
+        t.vertexBuffer = newVBuffer
+        t.polyVertexOffset = vResult.newOffsets[k]
+      }
+      if (iResult && newIBuffer) {
+        t.indexBuffer = newIBuffer
+        t.polyIndexOffset = iResult.newOffsets[k]
+      }
+    }
+
+    // Retire the OLD buffers for destruction one frame later instead of
+    // destroying them inline. The copy submit above + the prior frame's
+    // render submit have both drained, so an inline destroy is safe vs
+    // THOSE. The deferral is defense-in-depth against any consumer that
+    // captured the old buffer ref this frame (the async-upload guard above
+    // already covers the known case); next beginFrame drains the retired
+    // list, by which point nothing can still reference them.
+    if (vResult) this._retiredArenaBuffers.push(vResult.oldBuffer)
+    if (iResult) this._retiredArenaBuffers.push(iResult.oldBuffer)
   }
 }
 
