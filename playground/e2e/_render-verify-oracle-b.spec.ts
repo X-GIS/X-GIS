@@ -50,26 +50,43 @@ interface MapH {
   invalidate?(): void
 }
 
+/** Families whose ink the per-family oracle can hard-gate. amber is OPEN
+ *  FINDING #1 (inline-GeoJSON point-render gap) — warned, never hard-gated. */
+type InkFamily = 'emerald' | 'rose' | 'sky' | 'amber'
+
 interface CaseDef {
   name: string
   center: [number, number]
   zoom: number
-  /** Assert the polygon-fill + point families actually rasterize (nonzero
-   *  emerald + amber ink on the X-GIS side). Use a camera that frames them. */
-  requireFamilies?: boolean
+  /** Families this camera FRAMES that MUST produce nonzero ink — a dropped
+   *  family (e.g. the rose `the_lines` layer repointed at a dead source, or a
+   *  dropped fill/grid pipeline) then FAILS the gate even though the pixel
+   *  oracle is blind to thin/sparse geometry. Only list families the clean
+   *  baseline reliably rasterizes at this camera (measured, see report). amber
+   *  is never listed (OPEN FINDING #1 — warned, not gated). */
+  requireInk?: InkFamily[]
 }
 
 const CASES: CaseDef[] = [
-  // Europe-ish frame (the probe camera) — graticule + lines in view.
-  { name: 'mercator-europe', center: [2.3, 48.8], zoom: 4 },
+  // Europe-ish frame (the probe camera) — graticule + lines in view. The sky
+  // grid spans the whole frame and the rose zigzag-north line ([…,[0,50]])
+  // reaches the centre, so BOTH must rasterize: dropping the_lines (rose) or
+  // the_grid (sky) fails here — the pixel oracle alone misses a thin dropped
+  // family.
+  { name: 'mercator-europe', center: [2.3, 48.8], zoom: 4, requireInk: ['sky', 'rose'] },
   // Antimeridian: center near +180 so the [170,10]→[-170,10] crosser is on
-  // screen. The seam must be a continuous segment, NOT a full-width tear.
-  { name: 'mercator-antimeridian', center: [180, 10], zoom: 3 },
+  // screen. The seam must be a continuous segment, NOT a full-width tear — the
+  // pixel gate catches a tear (full-width >> 6%). The graticule SKIPS ±180
+  // (meridians -150..150) so the grid is sparse-to-absent at this camera
+  // (measured sky=0); gate ROSE instead — the crosser itself is rose, so a
+  // dropped the_lines layer fails here AND the tear is a placement defect the
+  // pixel gate flags. (sky is gated on europe + fills-points where it frames.)
+  { name: 'mercator-antimeridian', center: [180, 10], zoom: 3, requireInk: ['rose'] },
   // Equator/prime-meridian frame: the [0,0] square + the central point grid
   // are on-screen here (they sit off-frame at the europe camera). This case
   // EXERCISES the polygon-fill and point pipelines, so a regression dropping
   // either FAILS the gate — closing the "2 of 4 families never tested" hole.
-  { name: 'mercator-fills-points', center: [0, 0], zoom: 2, requireFamilies: true },
+  { name: 'mercator-fills-points', center: [0, 0], zoom: 2, requireInk: ['emerald', 'sky'] },
 ]
 
 test.describe.configure({ mode: 'serial' })
@@ -240,17 +257,30 @@ for (const c of CASES) {
       }
       const a = await decode(xgisB64)
       const b = await decode(refB64)
-      // Per-family ink on the X-GIS frame so a dropped fill/point pipeline can
-      // be ASSERTED, not silently passed (the numeric oracle only checks
-      // placement; drawCalls>0 only catches a fully black frame). Count pixels
-      // near each family colour: emerald fill #10b981, amber point #f59e0b.
+      // Per-family ink on the X-GIS frame so a dropped fill/line/grid/point
+      // pipeline can be ASSERTED, not silently passed (the numeric oracle only
+      // checks placement; drawCalls>0 only catches a fully black frame; the
+      // pixel oracle is INSENSITIVE to a thin/sparse dropped family — a dropped
+      // stroke-3 line layer adds <0.3% mismatch, under the 6% gate). Count
+      // pixels near each fixture family colour:
+      //   emerald fill  #10b981  (poly_fill)
+      //   rose   stroke #f43f5e  (the_lines)
+      //   sky    stroke #38bdf8  (the_grid)
+      //   amber  fill   #f59e0b  (the_points)
+      // Each family is matched FIRST (priority by draw order on top) so a pixel
+      // is attributed to one family only; widths are sampled at the family's
+      // pinned hex within an L1 ball so AA halo pixels still count.
       const near = (i: number, r: number, g: number, bl: number): boolean =>
         Math.abs(a[i] - r) + Math.abs(a[i + 1] - g) + Math.abs(a[i + 2] - bl) < 90
       let emeraldPx = 0
       let amberPx = 0
+      let rosePx = 0
+      let skyPx = 0
       for (let i = 0; i < a.length; i += 4) {
         if (near(i, 16, 185, 129)) emeraldPx++
         else if (near(i, 245, 158, 11)) amberPx++
+        else if (near(i, 244, 63, 94)) rosePx++
+        else if (near(i, 56, 189, 248)) skyPx++
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const viteImport = (u: string): Promise<any> => import(/* @vite-ignore */ u)
@@ -266,7 +296,7 @@ for (const c of CASES) {
       dc.width = W; dc.height = H
       const dx = dc.getContext('2d')!
       dx.putImageData(new ImageData(out, W, H), 0, 0)
-      return { mismatched, ratio: mismatched / (W * H), diffUrl: dc.toDataURL('image/png'), emeraldPx, amberPx }
+      return { mismatched, ratio: mismatched / (W * H), diffUrl: dc.toDataURL('image/png'), emeraldPx, amberPx, rosePx, skyPx }
     }, { xgisB64: xgisPng.toString('base64'), refB64: refPng.toString('base64'), W, H })
 
     writeFileSync(`${OUT}/${c.name}__diff.png`, Buffer.from(diff.diffUrl.split(',')[1], 'base64'))
@@ -316,6 +346,14 @@ for (const c of CASES) {
       // projection drift (a non-world-multiple offset) is still caught.
       const worldW = 512 * Math.pow(2, zoom)
       let maxErr = 0
+      // Track non-finite samples EXPLICITLY. The plain `if (e > maxErr)`
+      // reduction SWALLOWS a NaN/Inf MVP: `NaN > 0` is false, so maxErr stays
+      // at its 0 init and a NaN-poisoned projection (e.g. Camera.FOV → NaN
+      // corrupting the perspective term of every clip coord) would PASS the
+      // `maxErr < tol` gate. A non-finite screen coord is itself a render
+      // defect, so we flag it and surface it as a non-finite maxErrPx that
+      // the gate below rejects.
+      let sawNonFinite = false
       for (const lon of lons) for (const lat of lats) {
         const [sx, sy] = xgisScreen(lon, lat)
         const d3 = projection([lon, lat]) as [number, number] | null
@@ -323,9 +361,13 @@ for (const c of CASES) {
         let dx = sx - d3[0]
         dx -= Math.round(dx / worldW) * worldW
         const e = Math.hypot(dx, sy - d3[1])
+        if (!Number.isFinite(e)) { sawNonFinite = true; continue }
         if (e > maxErr) maxErr = e
       }
-      return { maxErrPx: maxErr }
+      // A non-finite sample poisons the result: emit NaN so the gate (which
+      // asserts a FINITE maxErrPx below) fails decisively instead of reading
+      // the swallowed 0.
+      return { maxErrPx: sawNonFinite ? NaN : maxErr }
     }, { center: c.center, zoom: c.zoom, Wcss, Hcss })
 
     // ── e. Report ────────────────────────────────────────────────────────
@@ -334,8 +376,8 @@ for (const c of CASES) {
       `[oracle-B] ${c.name}  drawCalls=${drawCalls}  ` +
       `mismatch=${(diff.ratio * 100).toFixed(3)}% ` +
       `(gate≤${PIXEL_MISMATCH_MAX * 100}%, ${diff.mismatched}px)  ` +
-      `numericMaxErr=${numeric.maxErrPx.toExponential(3)}px (gate≤${NUMERIC_ERR_MAX_PX})  ` +
-      `ink{emerald=${diff.emeraldPx},amber=${diff.amberPx}}  ` +
+      `numericMaxErr=${Number.isFinite(numeric.maxErrPx) ? numeric.maxErrPx.toExponential(3) : String(numeric.maxErrPx)}px (gate≤${NUMERIC_ERR_MAX_PX})  ` +
+      `ink{emerald=${diff.emeraldPx},rose=${diff.rosePx},sky=${diff.skyPx},amber=${diff.amberPx}}  ` +
       `→ ${OUT}/${c.name}__{xgis,ref,diff}.png`,
     )
 
@@ -347,31 +389,51 @@ for (const c of CASES) {
     // drop-empty-slice); routing through VirtualPMTilesBackend fixes it.
     expect(drawCalls, `${c.name}: X-GIS drew NOTHING (drawCalls=0) — fixtures never reached the GPU`).toBeGreaterThan(0)
 
-    // PER-FAMILY ink oracle — on a case that FRAMES the polygons + points,
-    // assert each pipeline actually rasterized. Without this, a regression
-    // dropping the entire fill or point pipeline leaves the gate green (the
-    // numeric oracle only checks placement; drawCalls>0 only catches a fully
-    // black frame). The europe/antimeridian cameras leave polys/points off-
-    // screen, so this gate only applies to the framing case.
-    if (c.requireFamilies) {
-      // Polygon-fill IS verified to rasterize (emerald ink present) — a dropped
-      // fill pipeline would fail here, not pass silently.
-      expect(diff.emeraldPx, `${c.name}: polygon-fill produced NO emerald ink — fill pipeline dropped?`).toBeGreaterThan(0)
-      // OPEN FINDING #1 (the harness's first real catch): host-pushed inline
-      // GeoJSON POINT features render NO amber ink while the polygon/line slice
-      // path is active. The RC1 fix routes inline GeoJSON through
-      // VirtualPMTilesBackend (which tiles polys/lines by slice-key); points
-      // appear to need the legacy point path / setSourcePoints. Logged, not yet
-      // hard-gated — resolving the inline point+polygon backend tension is
-      // tracked separately. (This is exactly the class of gap the harness
-      // exists to surface; it is reported, not hidden.)
-      if (diff.amberPx === 0) {
-        // eslint-disable-next-line no-console
-        console.warn(`[oracle-B] ${c.name}: OPEN FINDING #1 — points produced 0 amber ink (inline-GeoJSON point-render gap vs VirtualPMTilesBackend)`)
-      }
+    // PER-FAMILY ink oracle — on a case that FRAMES a family, assert that
+    // family's pipeline actually rasterized. Without this, a regression
+    // dropping a whole family (the rose `the_lines` layer repointed at a dead
+    // source; a dropped fill/grid pipeline) leaves the gate GREEN: the numeric
+    // oracle only checks placement, drawCalls>0 only catches a fully black
+    // frame, and the pixel oracle is INSENSITIVE to thin/sparse dropped
+    // geometry (a dropped stroke-3 line adds <0.3% mismatch, under the 6%
+    // gate). Each case lists the families it frames (requireInk); a listed
+    // family with zero ink FAILS here.
+    const inkOf: Record<InkFamily, number> = {
+      emerald: diff.emeraldPx, rose: diff.rosePx, sky: diff.skyPx, amber: diff.amberPx,
+    }
+    for (const fam of c.requireInk ?? []) {
+      expect(
+        inkOf[fam],
+        `${c.name}: family "${fam}" produced NO ink — its layer/pipeline was dropped ` +
+        `(pixel oracle is blind to a thin/sparse dropped family; this per-family gate catches it).`,
+      ).toBeGreaterThan(0)
+    }
+    // OPEN FINDING #1 (the harness's first real catch, kept a WARN not a gate):
+    // host-pushed inline GeoJSON POINT features render NO amber ink while the
+    // polygon/line slice path is active. The RC1 fix routes inline GeoJSON
+    // through VirtualPMTilesBackend (which tiles polys/lines by slice-key);
+    // points appear to need the legacy point path / setSourcePoints. amber is
+    // therefore NEVER in requireInk — resolving the inline point+polygon
+    // backend tension is tracked separately. (Exactly the class of gap the
+    // harness exists to surface; it is reported, not hidden.)
+    if (diff.amberPx === 0) {
+      // eslint-disable-next-line no-console
+      console.warn(`[oracle-B] ${c.name}: OPEN FINDING #1 — points produced 0 amber ink (inline-GeoJSON point-render gap vs VirtualPMTilesBackend)`)
     }
 
     // NUMERIC oracle (tolerance-free placement check) — always gated.
+    // FINITENESS first: a NaN/Inf MVP (corrupted uniform, divide-by-zero,
+    // Camera.FOV → NaN) makes every projected screen coord non-finite. The
+    // numeric reduction now propagates that as a non-finite maxErrPx; assert
+    // it is finite EXPLICITLY so the failure names the cause rather than
+    // hiding inside a swallowed `NaN < tol === false`. (drawCalls>0 cannot
+    // catch this — a NaN-MVP still issues draws; pixel cannot either — the
+    // culled frame stays under the gate.)
+    expect(
+      Number.isFinite(numeric.maxErrPx),
+      `${c.name}: numeric forward-agreement is NON-FINITE (maxErrPx=${numeric.maxErrPx}) — ` +
+      `the live MVP is NaN/Inf (corrupted camera/projection uniform).`,
+    ).toBe(true)
     expect(numeric.maxErrPx, `forward-agreement drift ${numeric.maxErrPx}px`).toBeLessThan(NUMERIC_ERR_MAX_PX)
 
     // PIXEL oracle. The antimeridian case ALSO implicitly asserts seam
