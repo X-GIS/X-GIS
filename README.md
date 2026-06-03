@@ -26,7 +26,7 @@ X-GIS solves this with a **language** instead of a library:
 - **GPU-invisible** -- the compiler generates optimized WGSL shaders, buffer layouts, and render strategies automatically
 - **Tailwind for maps** -- utility-class styling with modifiers: `z8:opacity-40`, `friendly:fill-green-500`, `hover:glow-8`
 - **Compile-time optimization** -- constant folding, expression classification, shader specialization
-- **One source, any renderer** -- WebGPU when available, Canvas 2D fallback when not
+- **WebGPU-powered** -- requires a WebGPU-capable browser; on an unsupported browser it throws `WebGPUUnavailableError` and fires the `onWebGPUUnavailable()` host hook (no built-in Canvas 2D / WebGL fallback)
 
 ## Quick Start
 
@@ -124,7 +124,7 @@ layer tracks {
              /                  \
      SceneCommands        ShaderVariant[]
              \                  /
-              Runtime + GPU / Canvas 2D
+              Runtime + WebGPU
 ```
 
 Three packages:
@@ -132,13 +132,12 @@ Three packages:
 | Package | Role |
 |---------|------|
 | `@xgis/compiler` | Lexer, parser, IR, optimizer, WGSL codegen. Pure TypeScript, no GPU deps. |
-| `@xgis/runtime` | WebGPU renderers (vector, raster tiles, globe), Canvas 2D fallback, camera, interaction. |
+| `@xgis/runtime` | WebGPU renderers (vector, raster tiles, globe), camera, interaction. |
 | `@xgis/playground` | Vite dev app for testing. |
 
 ## Rendering
 
-- **WebGPU** (primary) -- 7 map projections baked into WGSL shaders, RTC coordinate system for float32 precision
-- **Canvas 2D** (fallback) -- automatic when WebGPU adapter unavailable, same projections via CPU
+- **WebGPU** (only) -- 7 map projections baked into WGSL shaders, RTC coordinate system for float32 precision. No Canvas 2D / WebGL fallback: on an unsupported browser `initGPU` throws `WebGPUUnavailableError` and fires the `onWebGPUUnavailable()` host hook (provide it to show a fallback UI). See the browser-support matrix before adopting.
 - **Globe mode** -- 2-pass: equirectangular flat map to offscreen texture, then sphere mesh with lighting
 - **Raster tiles** -- `{z}/{x}/{y}` URL templates, LRU cache (256 tiles), priority loading, zoom-change cancellation
 - **Mobile** -- touch pan/pinch-zoom, DPR-aware rendering, HTTPS dev server for WebGPU
