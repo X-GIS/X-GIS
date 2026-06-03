@@ -23,7 +23,7 @@
 // loader instance for isolated caches.
 
 import { xlog } from '../engine/log'
-import { readBodyCapped } from '../engine/safety'
+import { readBodyCapped, assertSafeRemoteUrl } from '../engine/safety'
 import { PMTiles, TileType } from 'pmtiles'
 import { TileCatalog } from '../data/tile-catalog'
 import { PMTilesBackend } from '../data/sources/pmtiles-backend'
@@ -65,6 +65,10 @@ const NEGATIVE_CACHE_TTL_MS = 5 * 60_000
 // real-world MVT/PMTiles tile, below the point a size-bomb response can
 // exhaust memory during arrayBuffer() materialisation.
 const MAX_TILE_BYTES = 8 * 1024 * 1024
+// DoS ceiling for a TileJSON manifest body. A manifest is small JSON
+// metadata (a few KB in practice); 4 MB is far above any legitimate
+// manifest yet bounds a size-bomb response before JSON.parse materialises it.
+const MAX_TILEJSON_BYTES = 4 * 1024 * 1024
 
 /** Single-tile fetch with retry + graceful null fallback for transient
  *  upstream failures (5xx, network errors). Returns:
@@ -86,6 +90,16 @@ async function fetchTileWithRetry(
   // Compiler now rejects empty URLs upstream (iter 300); this gate
   // catches hand-constructed scenes that bypass the converter.
   if (!url || typeof url !== 'string') return 'failed'
+  // SSRF guard: a host-supplied tile template must not target a
+  // private/loopback/link-local host or a non-http(s) scheme. An unsafe
+  // URL degrades to the same negative-cached 'failed' as any other fetch
+  // failure — the rest of the map keeps loading.
+  try {
+    assertSafeRemoteUrl(url, 'tile URL')
+  } catch {
+    tileFetchNegativeCache.set(url, Date.now() + NEGATIVE_CACHE_TTL_MS)
+    return 'failed'
+  }
   const negativeExpiry = tileFetchNegativeCache.get(url)
   if (negativeExpiry !== undefined) {
     if (Date.now() < negativeExpiry) return 'failed'
@@ -264,7 +278,22 @@ export class PMTilesArchiveSource extends VectorTileSource {
         if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
         const resp = await archive.getZxy(z, x, y)
         if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
-        return resp ? new Uint8Array(resp.data) : null
+        if (!resp) return null
+        // Decompression-bomb guard: archive.getZxy returns tile bytes the
+        // pmtiles lib has ALREADY decompressed, so the streaming
+        // readBodyCapped cap (applied to network responses) never sees
+        // them. A hostile archive can ship a tiny gzip blob that inflates
+        // to hundreds of MB and exhaust the GPU arena. Reject any tile
+        // whose decoded size crosses the same MAX_TILE_BYTES ceiling →
+        // null (tile renders empty, map stays alive).
+        if (resp.data.byteLength > MAX_TILE_BYTES) {
+          xlog.warn(
+            `[X-GIS] PMTiles tile ${z}/${x}/${y}: decoded ${resp.data.byteLength} bytes ` +
+            `exceeds the ${MAX_TILE_BYTES}-byte cap (decompression-bomb guard) — skipping.`,
+          )
+          return null
+        }
+        return new Uint8Array(resp.data)
       },
     }
   }
@@ -443,6 +472,13 @@ export class VectorTileLoader {
     // detectVectorTileFormat strip and compiler-side stripPmtilesScheme.
     const cleanUrl = /^pmtiles:\/\//i.test(url) ? url.slice('pmtiles://'.length) : url
     return memoizeOpen(this.archiveCache, cleanUrl, async () => {
+      // SSRF guard BEFORE constructing PMTiles — the lib fetches the
+      // header, directory pages and tile byte-ranges internally, so
+      // guarding the URL here is the only place to stop it probing a
+      // private/loopback host. Inside the async closure so the throw
+      // becomes a rejected promise that resolve()'s catch AND prewarm()'s
+      // .catch() both handle → soft null (catalog stays empty, demo loads).
+      assertSafeRemoteUrl(cleanUrl, 'PMTiles URL')
       const archive = new PMTiles(cleanUrl)
       const header = await archive.getHeader()
       if (header.tileType !== TileType.Mvt) {
@@ -499,9 +535,17 @@ export class VectorTileLoader {
           attribution: undefined,
         }
       }
+      // SSRF guard: a style's TileJSON URL is host-supplied. Throw here
+      // rejects the cache promise → TileJSONSource.resolve()'s catch (and
+      // prewarm()'s .catch()) turn it into a soft null, leaving the demo
+      // alive.
+      assertSafeRemoteUrl(url, 'TileJSON URL')
       const resp = await fetch(url)
       if (!resp.ok) throw new Error(`TileJSON ${url} returned HTTP ${resp.status}`)
-      const tj = await resp.json() as RawTileJSON
+      // Cap the manifest body before JSON.parse — a lying/absent
+      // Content-Length otherwise lets an unbounded .json() OOM the tab.
+      const tjBytes = await readBodyCapped(resp, MAX_TILEJSON_BYTES, `TileJSON ${url}`)
+      const tj = JSON.parse(new TextDecoder().decode(tjBytes)) as RawTileJSON
       if (!tj.tiles || tj.tiles.length === 0) {
         throw new Error(`TileJSON ${url}: missing or empty tiles[] template`)
       }

@@ -1,54 +1,77 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-05-22 -->
+<!-- Generated: 2026-06-03 | Updated: 2026-06-03 -->
 
-# site/
+# site
 
 ## Purpose
-Marketing and documentation website for X-GIS, built with Astro 5. Targets `https://x-gis.github.io/X-GIS` on GitHub Pages (base path injected from `GITHUB_ACTIONS` env var). Provides the public landing page, the full language reference, concept guides, API docs, an interactive examples gallery, and a live `.xgis` converter page. The site consumes workspace packages (`@xgis/compiler`, `@xgis/runtime`, `@xgis/blueprint`) directly; Vite excludes them from pre-bundling via `optimizeDeps.exclude`.
+Astro 5 static documentation and marketing site for X-GIS, deployed to GitHub Pages at `x-gis.github.io/X-GIS`. Holds the public landing page, full docs section (quickstart, language reference, API reference, concepts, cookbook, Mapbox migration guide, glossary), a live examples gallery deep-linking into the playground, a Mapbox-style JSON converter (`/convert`), and the Blueprint visual node-editor page. Imports `@xgis/compiler`, `@xgis/runtime`, and `@xgis/blueprint` directly from the monorepo workspace so pages can embed live engine code client-side. No unit tests; correctness is validated by `astro check` and `astro build`.
 
 ## Key Files
+
 | File | Description |
-|------|-------------|
-| `astro.config.mjs` | Astro config: `@astrojs/sitemap`, `@tailwindcss/vite`, `astro-expressive-code` with custom `.xgis` Shiki grammar loaded from `src/lib/xgis-grammar.json`; workspace package exclusions |
-| `package.json` | `@xgis/site` workspace package; scripts: `dev`, `build`, `preview`, `check` |
-| `tsconfig.json` | TypeScript config for the site |
+|---|---|
+| `astro.config.mjs` | Build config: sets `site`/`base` for GH Pages (`/X-GIS/` in CI, `/` in dev), registers `astro-expressive-code` with the custom `.xgis` Shiki grammar and `github-dark-default` theme, excludes workspace packages from Vite pre-bundling, enables `basicSsl` for local HTTPS (required for WebGPU). |
+| `package.json` | `@xgis/site` workspace package. Scripts: `dev`, `build`, `preview`, `check`. Key deps: `astro ^5.1`, `astro-expressive-code ^0.42`, `tailwindcss ^4`, `@xgis/compiler workspace:*`, `@xgis/runtime workspace:*`, `@xgis/blueprint workspace:*`. |
+| `tsconfig.json` | Extends `astro/tsconfigs/strict`; adds `jsx: react-jsx` / `jsxImportSource: react` for React components embedded in Astro pages. |
+| `src/layouts/Base.astro` | Root HTML shell: viewport meta, canonical URL, Open Graph + Twitter cards, JSON-LD (`SoftwareSourceCode` + `WebSite` schema), Geist variable font, mobile nav drawer mount point. |
+| `src/layouts/Docs.astro` | Docs page shell: left sidebar nav (activated by `current` prop), right-side TOC, "Last updated" stamp via `gitMeta()`, and "Edit on GitHub" link. |
+| `src/lib/git-meta.ts` | Build-time helper that shells out to `git log` to produce ISO timestamp, human-relative age, and contributor count for a repo-relative file path. Caches the repo root from `git rev-parse --show-toplevel`. |
+| `src/lib/search-index.ts` | Builds a flat `SearchRecord[]` from `reference-sections.ts` + `gallery-demos.ts` + hand-authored anchor records. Embedded as inline JSON by the `Search` component; client-side fuzzy filter, no external service. |
+| `src/lib/xgis-grammar.json` | TextMate grammar for the `.xgis` style language: tokenises block keywords (`source`, `layer`, `keyframes`, `preset`, `symbol`, `background`), pipe lines, color literals, operators (`??`, `\|`, `?:`), and runtime accessors (`zoom`, `.field`). Used by Shiki for all code blocks; must stay in sync with `vscode-xgis/syntaxes/xgis.tmLanguage.json`. |
+| `src/content/gallery-demos.ts` | Authoritative `Category[]` + `Demo[]` registry for the `/examples` gallery and search index. Each `Demo` carries `id`, optional `runId`, `title`, `body`, `defaultHash`, `devOnly`, and `standaloneUrl`. |
+| `src/content/reference-sections.ts` | Authoritative `ReferenceSection[]` for `/docs/reference`. Each section has `id`, `title`, `body`, a `.xgis` `code` snippet, and optional `demoId`/`demoQuery`/`demoHash` for "Try this" playground deep-links. |
+| `src/pages/index.astro` | Landing page: composes `Hero`, `Why`, and `QuickStart`. |
+| `src/pages/examples.astro` | Gallery page: renders demo cards from `galleryCategories`. Cards deep-link to `/play/demo.html?id=<name>`; dev mode swaps `__PG_HOST__` client-side for LAN access to playground on port 3000. |
+| `src/pages/convert.astro` | Mapbox-style JSON → `.xgis` converter running `@xgis/compiler`'s `mapboxToXgis` pipeline client-side. Preset buttons for OpenFreeMap Liberty/Bright/Positron and MapLibre Demotiles. In prod hands off via `sessionStorage`; in dev uses base64 URL hash. |
+| `src/pages/blueprint.astro` | Embeds `@xgis/blueprint` visual node-editor; hands generated `.xgis` source to the playground via the same `sessionStorage`/hash contract as `convert.astro`. |
+| `src/components/Search.astro` | Client-side fuzzy search over the embedded JSON index; groups results by `type` (`doc` vs `demo`) with tag badges. |
+| `src/styles/global.css` | Tailwind v4 entrypoint; site-wide CSS custom properties (color tokens, typography scale). |
+
+`src/pages/docs/` contains one `.astro` file per docs page (quickstart, api, reference, expressions, functions, sources, utilities, cookbook, mapbox, mapbox-spec, glossary, index) plus a `concepts/` subfolder (rtc, pipeline, projections, compute). `src/components/` holds remaining UI atoms: Header, Hero, Footer, Why, QuickStart, Callout, Capabilities, RuntimeSupport, SeeAlso, SpecLinks, Stats, MobileNav, MobileNavDrawer, OnThisPage, PageFeedback.
 
 ## Subdirectories
+
 | Directory | Purpose |
-|-----------|---------|
-| `public/` | (see `public/AGENTS.md`) Static assets served as-is |
-| `src/` | (see `src/AGENTS.md`) All Astro source: pages, components, layouts, lib, styles |
+|---|---|
+| `public` | Static assets: SVG logos, OG image, `robots.txt`, `data/land.geojson` for gallery demos, and `thumbnails/*.jpg` for gallery cards (~50 demo thumbnails). (see `public/AGENTS.md`) |
+| `src` | All Astro source: layouts, pages, components, content registries, lib utilities, and styles. (see `src/AGENTS.md`) |
 
 ## For AI Agents
 
 ### Working In This Directory
-- Run `bun dev` from this directory (not repo root) to start the dev server on `https://localhost:4321`.
-- The `base` URL is `/` in dev and `/X-GIS` in CI; use `import.meta.env.BASE_URL` in pages, never hard-code paths.
-- The `.xgis` Shiki grammar (`src/lib/xgis-grammar.json`) must be kept in sync with the VS Code extension grammar (`vscode-xgis/syntaxes/xgis.tmLanguage.json`) — they share token scope names.
-- Workspace packages are referenced via `workspace:*`; changes in `@xgis/compiler`/`@xgis/runtime` are immediately visible without a separate build step.
+- `BASE_URL` is `/X-GIS/` in CI and `/` in dev — always use `import.meta.env.BASE_URL` (never hard-code `/X-GIS/`) for internal links and asset paths.
+- Workspace packages (`@xgis/compiler`, `@xgis/runtime`, `@xgis/blueprint`) are excluded from Vite's `optimizeDeps`; adding a new workspace import requires the same exclusion entry in `astro.config.mjs`.
+- HTTPS (`basicSsl`) is required in dev because WebGPU is only available in secure contexts — `astro dev` without SSL breaks any page that imports `@xgis/runtime`.
+- The playground is a separate Vite app (`playground/`), not part of the Astro build. In production both are merged into one GH Pages artifact under `/play/`. Do not add a Vite proxy for the playground URL — the cross-origin redirect via URL hash is the established pattern.
+- `gitMeta()` paths must be repo-root-relative (e.g. `'site/src/pages/docs/api.astro'`), not site-relative.
+- `src/lib/xgis-grammar.json` token scope names must stay in sync with `vscode-xgis/syntaxes/xgis.tmLanguage.json`.
 
 ### Testing Requirements
-- `bun run check` runs `astro check` (TypeScript + Astro diagnostics) — run before committing page or component changes.
-- `bun run build` produces the static site in `dist/`; verify it passes before push.
-- No Vitest unit tests live here; correctness of runtime behaviour is tested in `runtime/src/__tests__/`.
+`@xgis/site` has no Vitest unit tests. Validate changes with:
+- `bun run check` (`astro check`) — type-checks all `.astro` + `.ts` files.
+- `bun run build` — full static build; catches broken imports, missing types, and Shiki grammar errors.
+Playwright e2e lives in `playground/` (not here) and covers the runtime, not the docs site.
 
 ### Common Patterns
-- All docs pages use the `Docs` layout from `src/layouts/Docs.astro`, passing `current` (path after `/docs/`) for sidebar highlighting.
-- Navigation cards, search records, and gallery entries are typed in `src/content/`; import from there rather than duplicating strings inline.
-- The converter page (`src/pages/convert.astro`) uses a cross-origin redirect to the playground in dev and an iframe in prod — don't add a Vite proxy to `astro.config.mjs` (previous attempt failed due to SSL mismatch).
+- Every docs page passes a `current` string to `<Docs current="concepts/rtc">` so the sidebar highlights the active link.
+- New reference entries go in `src/content/reference-sections.ts` (one `ReferenceSection` object); search indexing is automatic via `buildSearchIndex`.
+- New gallery demos go in `src/content/gallery-demos.ts` (one `Demo` in the appropriate `Category`); add a `public/thumbnails/<id>.jpg` for the card image, or set `noThumb: true` if a screenshot is not available.
+- Code blocks use the `xgis` language identifier (` ```xgis `) to get tokenisation from `xgis-grammar.json`.
+- `devOnly: true` on a `Demo` suppresses the gallery card in production but keeps the demo accessible in the playground locally.
 
 ## Dependencies
 
 ### Internal
-- `@xgis/compiler` — used on the convert page and in the blueprint viewer
-- `@xgis/runtime` — used for live map embeds
-- `@xgis/blueprint` — used on `blueprint.astro`
+- `@xgis/compiler workspace:*` — used client-side in `convert.astro` for Mapbox-style conversion and in the blueprint viewer.
+- `@xgis/runtime workspace:*` — imported by pages that embed live maps or expose the JS API reference.
+- `@xgis/blueprint workspace:*` — embedded in `blueprint.astro` as the visual node editor.
 
 ### External
-- `astro` ^5.1
-- `astro-expressive-code` ^0.42 — syntax-highlighted code blocks with copy button
-- `@tailwindcss/vite` ^4 — Tailwind v4 via Vite plugin (no `tailwind.config.*`)
-- `@astrojs/sitemap` ^3.7 — auto-generated `sitemap.xml`
-- `@fontsource-variable/geist`, `@fontsource-variable/geist-mono` — self-hosted variable fonts
+- `astro ^5.1` — static site framework / build system.
+- `astro-expressive-code ^0.42` — syntax-highlighted code blocks with copy buttons and language labels (wraps Shiki).
+- `tailwindcss ^4` + `@tailwindcss/vite` — utility CSS, Tailwind v4 Vite plugin (no `tailwind.config.*` file).
+- `@astrojs/sitemap ^3.7` — auto-generates `sitemap.xml` at build time.
+- `@fontsource-variable/geist`, `@fontsource-variable/geist-mono` — self-hosted variable fonts (no Google Fonts requests).
+- `@vitejs/plugin-basic-ssl` — dev-only self-signed TLS cert for local HTTPS / WebGPU access.
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->

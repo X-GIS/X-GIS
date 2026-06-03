@@ -1,47 +1,55 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-05-22 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
 
 # site/src/pages/
 
 ## Purpose
-Route-mapped Astro pages that define the site's URL structure. Top-level pages cover the marketing site (home, examples gallery, blueprint viewer, converter). The `docs/` sub-tree contains the full documentation hierarchy (quickstart, cookbook, language reference, API, concept guides, Mapbox migration/coverage).
+Route-mapped Astro pages that define the site's URL structure. Top-level pages cover the marketing site (home), the interactive examples gallery, a live Mapbox-style-to-.xgis converter, and the Blueprint visual node-editor. The `docs/` sub-tree contains the full documentation hierarchy (quickstart, cookbook, language reference, API, concept guides, Mapbox migration/coverage).
 
 ## Key Files
 | File | Description |
 |------|-------------|
-| `index.astro` | Home page — composes `Hero`, `Why`, `QuickStart` sections |
-| `examples.astro` | Interactive examples gallery — renders cards from `content/gallery-demos.ts` with thumbnails and playground links |
-| `convert.astro` | Live `.xgis`-to-Mapbox-style converter; uses cross-origin redirect to the playground in dev, iframe embed in prod |
-| `blueprint.astro` | Blueprint visual node editor viewer using `@xgis/blueprint` |
+| `index.astro` | Home page — composes `Hero`, `Why`, and `QuickStart` sections inside `<Base>` layout; the canonical "what is X-GIS" entry point |
+| `examples.astro` | Interactive examples gallery — featured "Start here" 3-card section plus full category grid; deep-links into `/play/demo.html?id=…`; handles `devOnly` card filtering and the `__PG_HOST__` LAN-IP swap for playground dev access; thumbnails served from `/thumbnails/<runId>.jpg` |
+| `convert.astro` | Live Mapbox Style JSON → `.xgis` converter; preset chips for OpenFreeMap Liberty/Bright/Positron + MapLibre Demotiles; URL fetch or paste input; emits an `import "<url>"` one-liner shortcut; hands off to the playground via `sessionStorage` (prod same-origin) or base64 URL hash (dev cross-origin); imports `convertMapboxStyle` from `@xgis/compiler` as a real ES module so dynamic imports resolve |
+| `blueprint.astro` | Blueprint visual node-editor — `BlueprintEditor` canvas with add/undo/redo/fit/snap toolbar; live WebGPU preview pane (runtime dynamically imported on first render); inspector panel; `.xgis` source output; style→graph import from URL or paste; graph persisted to `localStorage`; same dev/prod playground handoff as `/convert` |
 
 ## Subdirectories
 | Directory | Purpose |
 |-----------|---------|
-| `docs/` | (see `docs/AGENTS.md`) Full docs hierarchy — all `/docs/**` routes |
+| `docs/` | Full docs hierarchy — all `/docs/**` routes (see `docs/AGENTS.md`) |
 
 ## For AI Agents
 
 ### Working In This Directory
-- Every new top-level page must use either `<Base>` (with manual `<Header>`/`<Footer>`) or `<Docs>` as its root layout.
-- The `convert.astro` page has a dev/prod branch for the playground URL — do not simplify it; the dev branch handles the SSL cross-origin issue.
-- Gallery card thumbnails are loaded from `/thumbnails/{id}.jpg`; the base path prefix is applied automatically by Astro.
+- Every new top-level page must use `<Base>` (with manual `<Header>`/`<Footer>`) as its root layout; the `<Docs>` layout belongs to `docs/` only.
+- `examples.astro` uses an inline `<script is:inline>` to swap `__PG_HOST__` placeholders at runtime — do not remove it; dev access from a LAN IP depends on it.
+- `convert.astro` and `blueprint.astro` use regular Astro `<script>` (not `is:inline`, not `define:vars`) so Vite can resolve `@xgis/compiler` and `@xgis/blueprint` as bare workspace specifiers; that distinction is load-bearing.
+- `blueprint.astro` dynamically imports `@xgis/runtime` on first render to code-split the heavy WebGPU bundle out of the initial page load.
+- Gallery card thumbnails are captured by `playground/e2e/_capture-thumbnails.spec.ts` and land in `site/public/thumbnails/<runId>.jpg`; the base-path prefix is applied automatically via the `${base}/thumbnails` constant.
+- Always use `const base = import.meta.env.BASE_URL.replace(/\/+$/, '')` when constructing internal URLs — hardcoded `/` paths break under the `/X-GIS` GH Pages base path.
 
 ### Testing Requirements
-- `bun run check` validates props and imports. Verify new pages render correctly in `bun dev`.
+- `bun run check` (Astro type-check + Vite resolve) validates props and imports across all pages.
+- Verify new pages render in `bun dev` before committing; there are no vitest unit tests for page components.
+- The playground must be running (`bun run dev` in `playground/`) to test the convert/blueprint "Open in playground" flows in dev mode.
 
 ### Common Patterns
-- `const base = import.meta.env.BASE_URL.replace(/\/+$/, '')` at the top of any page that constructs internal URLs.
-- Use `<a href={`${base}/docs/...`}>` not `<a href="/docs/...">` to keep links correct under the `/X-GIS` base path in production.
+- `const base = import.meta.env.BASE_URL.replace(/\/+$/, '')` at the top of any page constructing internal URLs.
+- `import.meta.env.DEV` guards dev-only branches (cross-origin playground handoff, `devOnly` card visibility) — these tree-shake in production builds.
+- Playground handoff: prod → `sessionStorage` keys `__xgisImportSource` / `__xgisImportLabel` / `__xgisImportSprite` / `__xgisImportGlyphs`; dev → base64 `#src=` URL hash with `?label=` / `?sprite=` / `?glyphs=` query params.
 
 ## Dependencies
 
 ### Internal
-- `src/layouts/Base.astro`, `src/layouts/Docs.astro`
-- `src/components/` — Header, Footer, Hero, Why, QuickStart, etc.
-- `src/content/gallery-demos.ts`
-- `@xgis/blueprint`, `@xgis/compiler`, `@xgis/runtime`
+- `src/layouts/Base.astro`
+- `src/components/` — Header, Footer, Hero, Why, QuickStart
+- `src/content/gallery-demos.ts` — `galleryCategories`, `featuredDemos`, `runIdOf`
+- `@xgis/compiler` — `convertMapboxStyle`, `Lexer`, `Parser`
+- `@xgis/blueprint` — `BlueprintEditor`, `graphToXgis`, `importText`, `styleToGraph`, `starterGraph`
+- `@xgis/runtime` — `XGISMap` (dynamically imported in blueprint live preview)
 
 ### External
-None beyond what layouts/components use
+None beyond what layouts and components use
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->

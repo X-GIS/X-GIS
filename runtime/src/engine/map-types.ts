@@ -129,6 +129,11 @@ export interface XGISMapOptions {
    *  basemap-quality output it should opt in. Toggle at runtime via
    *  `map.setGraticuleEnabled(bool)`. */
   graticule?: boolean
+  /** Accessible name applied to the canvas via `aria-label`, announced
+   *  by screen readers when the map receives focus. Defaults to `"Map"`.
+   *  Set a deployment-specific label (e.g. `"Seoul transit map"`) so the
+   *  a11y tree distinguishes multiple maps on a page. */
+  ariaLabel?: string
 }
 
 /** Map of CSS family name → per-font typography overrides. Built once

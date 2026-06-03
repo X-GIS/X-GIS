@@ -23,11 +23,12 @@ mentions a Canvas 2D fallback as an aspiration; it is not built.)
 
 ## Install / import
 
-Workspace package (`"private": true`), consumed inside the bun monorepo:
+```bash
+npm install @xgis/runtime
+```
 
-```jsonc
-// package.json
-"dependencies": { "@xgis/runtime": "workspace:*" }
+```ts
+import { XGISMap } from '@xgis/runtime'
 ```
 
 Apps import only from the package barrel (`@xgis/runtime`), never from internal
@@ -112,15 +113,17 @@ Cross-cutting design notes worth knowing before editing:
 
 ## Build / test
 
-Scripts run from the repo root (the package defines no scripts of its own; build
-and test are workspace-level):
+The package defines a `build` script that produces the published, single-bundled
+`dist/` (Vite lib build + `scripts/build-dts.ts` for the rolled-up declarations);
+typecheck and test run from the repo root:
 
 ```bash
+bun run --filter @xgis/runtime build   # build the publishable dist/ (JS + bundled .d.ts)
 bun run build   # typechecks the workspace — run before commits; vitest does NOT typecheck
 bun run test    # root `vitest run` — runs the WHOLE monorepo's *.test.ts (not runtime-only)
 ```
 
-`runtime/package.json` defines no scripts of its own. Perf, tile-selection, and
+Perf, tile-selection, and
 projection changes additionally gate on Playwright suites driven by **root-level**
 scripts (run from the repo root, which `cd`s into `playground/`):
 `test:pixel`, `test:perf`, `test:projection`, plus `test:e2e` (defined in
@@ -131,13 +134,18 @@ and [`docs/verification/STRATEGY.md`](../docs/verification/STRATEGY.md).
 
 ## Dependencies
 
-- **Internal:** `@xgis/compiler` (scene commands, shader variants, MVT decode/
-  compile, geojson-vt port, expression `evaluate`), `@xgis/shared`.
-- **External:** `pmtiles` (archive reader), `@chenglou/pretext` (text layout),
-  `proj4` (EPSG input-data reprojection — a user-approved
-  [zero-dep-policy exception](./AGENTS.md), input side only; the seven display
-  projections stay hand-written). Dev: `geojson-vt`, `vt-pbf` (in-memory GeoJSON
-  tiling for the virtual-PMTiles path).
+The internal `@xgis/compiler` (scene commands, shader variants, MVT decode/
+compile, geojson-vt port, expression `evaluate`) and `@xgis/shared` are **bundled
+into `dist/`** at build time, so the published package depends only on genuine
+third-party externals:
+
+- **Runtime:** `@mapbox/vector-tile` + `pbf` (MVT decode), `pmtiles` (archive
+  reader), `earcut` (polygon tessellation), `proj4` (EPSG input-data reprojection
+  — a user-approved [zero-dep-policy exception](./AGENTS.md), input side only; the
+  seven display projections stay hand-written), and `@webgpu/types` (ambient
+  WebGPU type globals referenced by the shipped `.d.ts`).
+- **Dev:** `geojson-vt`, `vt-pbf` (in-memory GeoJSON tiling for the
+  virtual-PMTiles path), plus the Vite + `rollup-plugin-dts` build toolchain.
 
 ## See also
 

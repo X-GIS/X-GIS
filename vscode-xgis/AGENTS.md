@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-05-22 -->
+<!-- Generated: 2026-06-03 | Updated: 2026-06-03 -->
 
 # vscode-xgis/
 
@@ -10,29 +10,31 @@ VS Code extension that adds language support for `.xgis` files. Provides syntax 
 | File | Description |
 |------|-------------|
 | `package.json` | Extension manifest: language ID `xgis`, file extension `.xgis`, aliases `["X-GIS", "xgis"]`, VS Code engine `^1.80.0`, contributes `languages` + `grammars` entries |
-| `language-configuration.json` | Editor behaviour: line comments `//`, block comments `/* */`, bracket pairs `{}`, `[]`, `()`, auto-close pairs, surrounding pairs, indentation increase/decrease rules based on `{` / `}` |
-| `syntaxes/xgis.tmLanguage.json` | TextMate grammar (`scopeName: source.xgis`). Tokenises: keywords (`source`, `layer`, `preset`, `style`, `import`, `let`, `fn`, `if`, `else`, `for`, `in`, `return`, `match`, `symbol`), functions, utilities, field accessors (`.fieldName`), operators (`|>`, `??`, `=>`), color literals (`#rrggbb`), numbers, strings, comments |
+| `language-configuration.json` | Editor behaviour: line comments `//`, block comments `/* */`, bracket pairs `{}` `[]` `()`, auto-close pairs, surrounding pairs, indentation increase/decrease rules based on `{` / `}` |
+| `syntaxes/xgis.tmLanguage.json` | TextMate grammar (`scopeName: source.xgis`). Tokenises: control keywords (`source`, `layer`, `preset`, `style`, `import`, `let`, `fn`, `if`, `else`, `for`, `in`, `return`, `match`, `symbol`), other keywords (`type`, `url`, `visible`, `hidden`, `filter`), property names (`fill`, `stroke`, `stroke-width`, `opacity`, `size`), built-in functions (`categorical`, `gradient`, `clamp`, `min`, `max`, `sqrt`, `smoothstep`, `mix`, …), Tailwind-style utility classes (`fill-blue-500`, `stroke-red-300`, etc.), field accessors (`.fieldName`), operators (`\|`, `->`, `==`, `!=`, `<=`, `>=`, `&&`, `\|\|`), zoom modifiers (`z14:`), color literals (`#rrggbb`), numbers, strings, block/line comments |
 
 ## Subdirectories
 | Directory | Purpose |
 |-----------|---------|
-| `syntaxes/` | (see `syntaxes/AGENTS.md`) TextMate grammar file |
+| `syntaxes/` | TextMate grammar file (see `syntaxes/AGENTS.md`) |
 
 ## For AI Agents
 
 ### Working In This Directory
-- `syntaxes/xgis.tmLanguage.json` and `site/src/lib/xgis-grammar.json` are **parallel copies** of the same grammar. When adding new keywords, operators, or token rules to one, apply the identical change to the other. The site uses it for Shiki syntax highlighting in code blocks; VS Code uses it for editor highlighting.
-- The extension has no TypeScript source — all contributions are declared in `package.json`. Adding a language server would require a new `extension.ts` entry point and activation event.
-- Scope names follow TextMate conventions: `keyword.control.xgis`, `entity.name.function.xgis`, `variable.other.field.xgis`, `constant.other.color.xgis`, etc. Use these consistently so theme authors can target X-GIS tokens.
+- `syntaxes/xgis.tmLanguage.json` and `site/src/lib/xgis-grammar.json` are parallel copies of the same grammar. When adding new keywords, operators, or token rules to one, apply the identical change to the other. The site uses it for Shiki syntax highlighting in code blocks; VS Code uses it for editor highlighting.
+- The extension has no TypeScript source — all contributions are declared in `package.json`. Adding a language server would require a new `extension.ts` entry point and an `activationEvents` entry.
+- Scope names follow TextMate conventions: `keyword.control.xgis`, `support.function.xgis`, `variable.other.field.xgis`, `constant.other.color.xgis`, `keyword.operator.pipe.xgis`, etc. Use these consistently so theme authors can target X-GIS tokens.
 - VS Code engine requirement is `^1.80.0` — do not raise it unless a newer API is genuinely needed.
+- When the `.xgis` language gains new constructs in `compiler/`, update grammar patterns in both parallel copies in the same commit.
 
 ### Testing Requirements
-- No automated tests. Verify by side-loading: press F5 in VS Code with this folder open to launch an Extension Development Host, then open a `.xgis` file and confirm token colours.
-- After grammar changes, also open the site in dev (`bun dev` from `site/`) and verify code blocks render correctly with the updated grammar.
+- No automated tests. Verify by side-loading: press F5 in VS Code with this folder open to launch an Extension Development Host, open a `.xgis` file, and use "Developer: Inspect Editor Tokens and Scopes" to confirm correct scope assignment.
+- After grammar changes, also run `bun dev` from `site/` and verify code blocks render correctly with the updated grammar.
 
 ### Common Patterns
-- Grammar patterns use `"name"` for single-token rules and `"begin"`/`"end"` for multi-token spans (strings, block comments).
+- Grammar patterns use `"match"` + `"name"` for single-token rules and `"begin"`/`"end"` for multi-token spans (strings, block comments).
 - The `"repository"` section groups rules; top-level `"patterns"` includes them in priority order (comments before strings before keywords avoids false matches inside comments).
+- No build step — the extension is pure JSON; `vsce package` bundles it directly.
 
 ## Dependencies
 

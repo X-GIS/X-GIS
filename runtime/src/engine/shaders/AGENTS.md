@@ -1,35 +1,41 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-05-22 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
 
 # shaders
 
 ## Purpose
-Shared WGSL string blocks that every renderer concatenates into its inline shader. These are the single sources of truth for GPU code that would otherwise be copy-pasted (and drift) across renderers: the projection function block (all 7 projections in WGSL), the logarithmic-depth-buffer functions, and common SDF distance helpers.
+Thin re-export layer that surfaces DSL-emitted WGSL snippets and CPU-side GPU math helpers under stable names. All three files delegate their WGSL strings to `engine/shader-dsl` — the actual WGSL is generated from the shader-DSL IR graphs (`shader-dsl/projections.ts`, `shader-dsl/log-depth.ts`, `shader-dsl/sdf.ts`). Renderers in `engine/render/*` string-concatenate these exports into their inline pipeline shaders at build time.
 
 ## Key Files
 | File | Description |
 |------|-------------|
-| `projection.ts` | `WGSL_PROJECTION_CONSTS` + `WGSL_PROJECTION_FNS` — the GPU projection block (Mercator/equirect/NE/ortho/azimuthal/stereo/oblique). Consumed by polygon, line, point, raster shaders. SOURCE OF TRUTH for CPU↔GPU parity. |
-| `log-depth.ts` | `WGSL_LOG_DEPTH_FNS` + `computeLogDepthFc` — Three.js-equivalent logarithmic depth buffer (distributes 24-bit depth precision logarithmically; fixes z-fighting at high pitch where standard depth gives ~10 bits near the far plane). |
-| `sdf.ts` | `WGSL_DIST_TO_SEGMENT` and friends — common signed-distance-field functions shared by point + line renderers. |
+| `projection.ts` | Re-exports `WGSL_PROJECTION_CONSTS` / `WGSL_PROJECTION_FNS` from `shader-dsl`. WGSL is DSL-emitted (Phase 0, US-P0-4b) from `shader-dsl/projections.ts`, eliminating the former hand-written ~310-line template. Encodes projTypes 0–7 (mercator/equirect/natural_earth/ortho/azimuthal/stereo/oblique/globe). `project()`, `project_geom()`, `needs_backface_cull()`, `rim_alpha()` all accept `proj_params: vec4<f32>`. |
+| `log-depth.ts` | Re-exports `WGSL_LOG_DEPTH_FNS` from `shader-dsl` plus the CPU helpers `computeLogDepthFc(far)` and `simulateLogDepthZ(viewW, far)`. Log-depth vertex formula: `z_clip = log2(w+1) * fc * w`; fragment overrides `@builtin(frag_depth)`. `fc` is packed into the uniform ring once per frame (reuses former DSFUN `_pad0` slot). |
+| `sdf.ts` | Re-exports six named DSL-emitted SDF snippets (`WGSL_DIST_TO_SEGMENT`, `WGSL_DIST_TO_QUADRATIC`, `WGSL_DIST_TO_CUBIC`, `WGSL_WINDING_LINE`, `WGSL_SDF_SHAPE`, `WGSL_SHAPE_STRUCTS`) plus the convenience aggregate `WGSL_SDF_ALL`. Consumed by `line-renderer-shaders.ts` for shield / shape rendering. |
 
 ## For AI Agents
 
 ### Working In This Directory
-- `projection.ts` (WGSL) is the source of truth for projection math. Any change here must be mirrored in the CPU `engine/projection/projection.ts` AND the shader-DSL graph `engine/shader-dsl/projections.ts` (which regenerates the cpu-f64 lowering `engine/shader-dsl/cpu-projections.ts` — formerly the hand-maintained `projection-wgsl-mirror.ts`, now deleted). The parity tests compare all three. This is a documented recurring divergence point.
-- These are plain template strings tagged with the `wgsl` block-comment marker (the literal sequence `slash-star wgsl star-slash` placed immediately before the backtick); they get string-concatenated, so keep WGSL identifiers globally unique and avoid reserved words (gated by `wgsl-reserved-words.test.ts`). Phase 4+ progressively replaces these with `shader-dsl/shaders/*` ModuleDecl emits — see `docs/shader-dsl/PHASE-3-SCOPE.md`.
-- Log-depth FC must be computed consistently on CPU (`computeLogDepthFc`) and applied in the WGSL block — they pair up.
+- **Do not edit WGSL here.** These files are re-export shims. Projection math lives in `shader-dsl/projections.ts` (regenerates both the WGSL and the cpu-f64 lowering `shader-dsl/cpu-projections.ts`). Log-depth WGSL lives in `shader-dsl/log-depth.ts`. SDF WGSL lives in `shader-dsl/sdf.ts`.
+- `computeLogDepthFc` and `simulateLogDepthZ` in `log-depth.ts` are the only CPU-side functions here; they are the canonical CPU reference pinned by `log-depth.test.ts`. Any change must preserve `fc = 1 / log2(far + 1)`.
+- projType dispatch encoding (`proj_params.x`) is authoritative in `projection/projections-table.ts` (index == projType). The WGSL `project()` switch must stay in sync with that table.
+- WGSL identifiers must be globally unique across all concatenated snippets — no reserved words. This is enforced by `wgsl-reserved-words.test.ts` in this directory.
+- CPU↔GPU parity is a documented recurring divergence point. The drift class is closed by construction (single DSL source), but any manual edit to a DSL graph must re-run parity tests before merging.
 
 ### Testing Requirements
-- `wgsl-reserved-words.test.ts` (no WGSL reserved identifiers). Parity is enforced from `engine/projection/projection-wgsl-consistency.test.ts`. Add a parity assertion when adding a projection function.
+- `wgsl-reserved-words.test.ts` — asserts no WGSL reserved identifiers appear in the emitted strings.
+- `engine/projection/projection-wgsl-consistency.test.ts` — CPU canonical vs cpu-f64 lowering ≤1 mm across all projTypes.
+- `playground/e2e/_shader-math-parity.spec.ts` — executed WGSL vs cpu-f64 (real GPU, SwiftShader in CI).
+- `log-depth.test.ts` (elsewhere in engine) — monotonicity + bounds of `simulateLogDepthZ`.
 
 ### Common Patterns
-- Exported `const WGSL_* = <wgsl-tag> \`...\`` blocks (where `<wgsl-tag>` is the block-comment marker described above), concatenated by renderers at pipeline-build time. Phase 4+ targets convert these to `emitFooWgsl()` calls backed by `shader-dsl/shaders/foo.ts` ModuleDecl emits.
+- All WGSL exports are plain `string` constants re-exported from `shader-dsl`. Renderers inline them via template literal concatenation at pipeline-build time — no runtime cost.
+- CPU helpers (`computeLogDepthFc`, `simulateLogDepthZ`) are plain functions; import them wherever the uniform ring is packed or tests simulate log-depth math.
 
 ## Dependencies
 
 ### Internal
-- None (consumed by `engine/render/*` and `engine/projection/camera`).
+- `../shader-dsl` — all WGSL string generation (DSL IR emit). No other internal imports.
 
 ### External
 - None.

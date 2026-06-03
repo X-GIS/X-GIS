@@ -1,40 +1,38 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-05-22 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
 
 # playground/public
 
 ## Purpose
-Static assets served verbatim by Vite at the `/` root. Contains GeoJSON and XGT data files for demos and fixtures, a JSON style override for the isolated buildings-only comparison, and a sample Mapbox style with inline GeoJSON. These files are referenced directly by `.xgis` source files and e2e specs via absolute URL paths like `/data/countries.geojson`.
+Static assets served verbatim by Vite at the `/` root during local development and e2e runs. Contains the two top-level style JSON files used by the comparison harness and the inline-GeoJSON demo, plus the `data/` subtree of GeoJSON fixtures and Natural Earth datasets. Files here are referenced by `.xgis` source files and Playwright e2e specs via absolute URL paths such as `/data/countries.geojson`.
 
 ## Key Files
 | File | Description |
 |------|-------------|
-| `liberty-buildings-only.json` | Stripped MapLibre Liberty style containing only background fill, flat building fill, and 3D building extrusion. Used by `compare.html` for isolated extrude pixel-diff comparison (iter-192). |
-| `sample-mapbox-with-inline-geojson.json` | Sample Mapbox style with an inline GeoJSON source; used by the `import-mapbox-inline-geojson` demo and its e2e spec. |
+| `liberty-buildings-only.json` | Stripped MapLibre Liberty style retaining only background fill, flat building fill, and 3D building extrusion. Referenced by `compare-runner.ts` STYLES catalogue for isolated extrude pixel-diff comparison. If renamed, update the catalogue entry. |
+| `sample-mapbox-with-inline-geojson.json` | Sample Mapbox style with an inline GeoJSON source; loaded by the `import-mapbox-inline-geojson.xgis` demo and its e2e spec. |
 
-## Subdirectories
-| Directory | Purpose |
-|-----------|---------|
-| `data/` | GeoJSON and XGT geographic data assets for demos and fixtures (see `data/AGENTS.md`). |
+The `data/` subdirectory (documented separately in `data/AGENTS.md`) holds all GeoJSON and XGT geographic assets: Natural Earth layers at 110m / 50m / 10m resolution, fixture GeoJSONs for isolated render/pipeline tests (triangle, point, line, join, square, antimeridian, mercator-clip, categorical, stress, EPSG:5179 Seoul reprojection), a pre-compiled `countries.xgt`, and the `data/libs/` S-100 nautical `.xgis` library (see `data/libs/AGENTS.md`).
 
 ## For AI Agents
 
 ### Working In This Directory
-- Files here are served at their URL path relative to the Vite root. A file at `public/data/countries.geojson` is accessible at `https://localhost:3000/data/countries.geojson`.
-- Do not add large binary files (images, PMTiles archives). Large GeoJSON files are acceptable.
-- Style JSON files (`liberty-buildings-only.json`) are referenced by `compare-runner.ts` STYLES catalogue by path. If you rename a file, update the catalogue entry.
+- Files are served at their path relative to the Vite root; `public/data/foo.geojson` → `http://localhost:3000/data/foo.geojson`.
+- Do not add large binary files (images, PMTiles archives). Large GeoJSON is acceptable.
+- The two top-level JSON files are referenced by name in `src/compare-runner.ts`. Renaming either requires updating that catalogue entry.
+- Fixture GeoJSONs live under `data/` and are named `fixture-<capability>.geojson` to match `src/examples/fixture-<capability>.xgis` and the corresponding e2e spec.
 
 ### Testing Requirements
-- Assets are indirectly tested via e2e specs that load demos referencing them. No dedicated asset tests.
+- Assets are tested indirectly: style JSONs via e2e compare specs; fixture GeoJSONs via Playwright fixture and probe specs under `playground/e2e/`. No dedicated unit tests for assets themselves.
 
 ### Common Patterns
-- GeoJSON assets follow the standard FeatureCollection format.
-- `.xgt` files are X-GIS compiled tile format; they are referenced from `.xgis` source files.
+- GeoJSON assets follow RFC 7946 (WGS-84 coordinates, FeatureCollection wrapper).
+- `.xgt` files are compiled X-GIS tile format; regenerate via the compiler CLI if the XGT format changes.
 
 ## Dependencies
 
 ### Internal
-- Referenced by `src/examples/*.xgis` source files and `src/compare-runner.ts`.
+- Referenced by `playground/src/examples/*.xgis` source files and `playground/src/compare-runner.ts`.
 
 ### External
 - None.

@@ -23,6 +23,7 @@ import type { Camera } from '../engine/projection/camera'
 import { type Projection, MERCATOR_LAT_LIMIT, mercatorYToLat } from '../engine/projection/projection'
 import { PROJECTION_NAME_TO_TYPE } from '../engine/projection/projections-table'
 import { EARTH_R } from '../engine/projection/globe'
+import { assertSafeRemoteUrl } from '../engine/safety'
 
 // Mobile GPUs choke on 300 frustum tiles — each tile is a draw call plus
 // SDF-shaded line segments. 120 keeps the foreground refined and the
@@ -715,6 +716,15 @@ export async function loadImageTexture(
   // URL and createImageBitmap would fail on the HTML payload. Mirror
   // of fetchTileWithRetry empty-URL guard (iter 348).
   if (!url || typeof url !== 'string') return null
+  // SSRF guard for the raster image-tile path (covers both the primary
+  // and parent-fallback call sites in raster-renderer). A host urlTemplate
+  // pointing at a private/loopback host throws → caught below → null, the
+  // same graceful fallback as an offline/404 tile.
+  try {
+    assertSafeRemoteUrl(url, 'raster tile URL')
+  } catch {
+    return null
+  }
   try {
     const response = await fetch(url, { signal })
     if (!response.ok) return null

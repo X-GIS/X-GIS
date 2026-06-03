@@ -25,7 +25,7 @@
 //     fresh, not captured at construction).
 //   - `this.camera` / `this.canvas`  → injected (stable ctor-time instances).
 
-import { assertIngestBudget, readBodyCapped } from './safety'
+import { assertIngestBudget, readBodyCapped, assertSafeRemoteUrl } from './safety'
 import type { Camera } from './projection/camera'
 import type { GPUContext } from './gpu/gpu'
 import { getMaxDpr } from './gpu/gpu'
@@ -255,7 +255,11 @@ export class SourceManager {
       return
     }
 
-    // GeoJSON URL fetch.
+    // GeoJSON URL fetch. SSRF guard first — a style's source `url` is
+    // host-supplied; block private/loopback/non-http(s) targets. Throws
+    // XGISSecurityError, caught at _attachOneSource's existing boundary so
+    // the bad source fails cleanly without taking down the map.
+    assertSafeRemoteUrl(url, `GeoJSON source "${load.name}"`)
     const response = await fetch(url)
     if (!response.ok) {
       throw new Error(

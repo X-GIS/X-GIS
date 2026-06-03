@@ -1,56 +1,61 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-05-22 -->
+<!-- Generated: 2026-06-03 | Updated: 2026-06-03 -->
 
 # compiler/src
 
 ## Purpose
-The root of the compiler source tree. `index.ts` is the only public entry point — it re-exports the curated surface of every subdirectory (lexer, parser, IR, codegen, eval, format, convert, tiler, module, schema, etc.). The actual pipeline stages live in the subdirectories below; this level mostly aggregates them and declares the one ambient type the package needs.
+Root of the compiler source tree. `index.ts` is the sole public entry point for the `@xgis/compiler` package — it re-exports the curated public surface of every subdirectory: lexer, parser, IR lowering/optimization/emit, expression evaluator, format pipeline, codegen (WGSL shader variants + GPU compute kernels + palette), vector tiler, MVT decoder, Mapbox/MapLibre style converter, binary serializer, diagnostics profiler, and language schema. The subdirectories hold all implementation; this level only aggregates them and declares one ambient module type.
 
 ## Key Files
 | File | Description |
 |------|-------------|
-| `index.ts` | Public package barrel. Every export the runtime / playground / site consume is listed here: `Lexer`, `Parser`, AST types, `lower`, `optimize`, `emitCommands`, `evaluate`, codegen (`ShaderVariant`, palette, compute-*), tiler (`compileGeoJSONToTiles`, clip, simplify, geodesic), `convertMapboxStyle`, schema, format. Read this first to find where anything is. |
-| `earcut.d.ts` | Ambient `declare module 'earcut'` for the untyped triangulation dependency. |
+| `index.ts` | Public package barrel (~100 lines). Re-exports every symbol consumers need: `Lexer`/`Parser`/AST types, `lower`/`optimize`/`emitCommands`, IR types (`Scene`, `RenderNode`, `PropertyShape`), `evaluate`/`makeEvalProps`/reserved keys, format helpers (`formatValue`, `parseFormatSpec`, `parseTextTemplate`), codegen (`ShaderVariant`, `collectPalette`, compute-gen/plan/output-binding/variant/variant-merge/variant-build, `paint-routing`, node-type helpers), tiler (`compileGeoJSONToTiles`, ECEF packers, `clipPolygonToRect`, `simplify`, `interpolateGreatCircle`, vertex-format, dequant-mirror), `decodeMvtTile`, `convertMapboxStyle`/`MAPBOX_COVERAGE`, `getStyleProfile`, CSE/deps analysis passes, and `LANGUAGE_SCHEMA`. Read this first to locate any symbol. |
+| `earcut.d.ts` | Ambient `declare module 'earcut'` for the untyped polygon-triangulation dependency used by the tiler. |
 
 ## Subdirectories
 | Directory | Purpose |
 |-----------|---------|
-| `lexer/` | Tokenizer + token/keyword/unit tables (see `lexer/AGENTS.md`). |
-| `parser/` | Recursive-descent parser + AST node types (see `parser/AGENTS.md`). |
-| `ir/` | AST→IR lowering, optimize, classify, const-fold, deps, emit-commands, PropertyShape (see `ir/AGENTS.md`). |
-| `ir/passes/` | Individual `Scene → Scene` IR optimization passes (CSE, dead-code, fold, merge-layers) (see `ir/passes/AGENTS.md`). |
-| `codegen/` | WGSL shader-variant + compute-kernel + palette emitters (see `codegen/AGENTS.md`). |
-| `eval/` | Compile-time / runtime AST expression evaluator + reserved keys (see `eval/AGENTS.md`). |
-| `convert/` | Mapbox/MapLibre style → xgis source importer (see `convert/AGENTS.md`). |
-| `tiler/` | GeoJSON → GPU-ready tile pyramid; clip, simplify, geodesic, encoding (see `tiler/AGENTS.md`). |
-| `tiler/geojsonvt/` | 1:1 TypeScript port of mapbox/geojson-vt + MVT encoder (see `tiler/geojsonvt/AGENTS.md`). |
-| `input/` | MVT (.pbf) tile decoder feeding the tiler pipeline (see `input/AGENTS.md`). |
-| `format/` | Value formatters + format-spec / text-template parsers (see `format/AGENTS.md`). |
-| `module/` | `import` statement resolver (see `module/AGENTS.md`). |
-| `schema/` | Declarative language-construct schema for the blueprint editor (see `schema/AGENTS.md`). |
-| `spec/` | Mapbox spec oracle + zero-value semantics (see `spec/AGENTS.md`). |
-| `tokens/` | Tailwind color-token palette resolver (see `tokens/AGENTS.md`). |
-| `binary/` | `.xgb` compiled-binary serialize/deserialize (see `binary/AGENTS.md`). |
-| `diagnostics/` | Compile-time scene optimization profile report (see `diagnostics/AGENTS.md`). |
+| `binary/` | `.xgb` compiled-binary serialize/deserialize (see `binary/AGENTS.md`) |
+| `codegen/` | WGSL shader-variant + compute-kernel (gen/plan/output-binding/variant/merge/build) + palette emitters + paint-routing + node-type DSL (see `codegen/AGENTS.md`) |
+| `convert/` | Mapbox/MapLibre style → xgis importer + spec-coverage table (see `convert/AGENTS.md`) |
+| `diagnostics/` | Compile-time scene optimization profile report (see `diagnostics/AGENTS.md`) |
+| `eval/` | Compile-time/runtime AST expression evaluator, reserved-keys, evaluator-helpers (see `eval/AGENTS.md`) |
+| `format/` | Value formatters + format-spec / text-template parsers (see `format/AGENTS.md`) |
+| `input/` | MVT (.pbf) tile decoder (see `input/AGENTS.md`) |
+| `ir/` | AST→IR lowering, optimize, classify, const-fold, deps, emit-commands, PropertyShape, utility-resolver, and IR passes (CSE, dead-code, fold, merge-layers) (see `ir/AGENTS.md`) |
+| `lexer/` | Tokenizer + token/keyword/unit tables (see `lexer/AGENTS.md`) |
+| `module/` | `import` statement resolver (see `module/AGENTS.md`) |
+| `parser/` | Recursive-descent parser + AST node types (see `parser/AGENTS.md`) |
+| `schema/` | Declarative language-construct schema for the blueprint editor (see `schema/AGENTS.md`) |
+| `spec/` | Mapbox spec oracle + zero-value semantics (see `spec/AGENTS.md`) |
+| `tiler/` | GeoJSON → GPU-ready tile pyramid; ECEF vertex packers, clip, simplify, geodesic, encoding, vertex-format, dequant-mirror, geojson-vt port (see `tiler/AGENTS.md`) |
+| `tokens/` | Tailwind color-token palette resolver (see `tokens/AGENTS.md`) |
+
+`__tests__/` holds regression, fixture-sweep, spec-conformance, and cross-subsystem integration tests (including fixtures in `__tests__/fixtures/`). Not enumerated here.
 
 ## For AI Agents
 
 ### Working In This Directory
-- When adding a new public symbol, export it from `index.ts` — consumers import from `@xgis/compiler`, never deep paths (the one exception is `@xgis/compiler/tiler/geodesic`, declared in `package.json` exports).
-- Keep `index.ts` grouped by subsystem (it already is: lexer/parser → binary → ir → eval → format → codegen → tiler → input → convert → diagnostics → passes → schema).
+- Any new public symbol must be exported from `index.ts` — all consumers import from `@xgis/compiler`, never from deep paths (sole exception: `@xgis/compiler/tiler/geodesic`, declared in `package.json#exports`).
+- Keep `index.ts` grouped by subsystem in its existing order: lexer/parser → binary → ir → eval → format → codegen → tiler → input → convert → diagnostics → passes → schema. Do not reorder sections.
+- `earcut.d.ts` here is a duplicate of `tiler/earcut.d.ts`; both are needed — do not remove either without checking resolution scope.
+- Run `bun run build` (not just vitest) before any PR — vitest does not typecheck; the build will catch type errors in `index.ts` re-exports.
 
 ### Testing Requirements
-- Spec/coverage/regression tests live in `src/__tests__/` (excluded from this doc tree). Subsystem-specific unit tests are colocated in each subdir.
+- Cross-subsystem and regression tests: `src/__tests__/` (60+ test files). Run with `vitest` from the compiler package root.
+- Subsystem unit tests are colocated in each subdirectory (e.g., `codegen/compute-gen.test.ts`, `ir/deps.test.ts`).
+- Fixture-sweep tests (`__tests__/fixture-sweep.test.ts`) run the full compiler pipeline over real OFM style fixtures in `__tests__/fixtures/`.
 
 ### Common Patterns
-- Type-only re-exports use `export type { ... }`; value+type splits are explicit.
+- Type-only re-exports use `export type { ... }`; value+type splits are always explicit.
+- New codegen symbols follow the existing grouping inside `index.ts`: compute-* exports are clustered together after palette.
 
 ## Dependencies
 
 ### Internal
-- `index.ts` imports from every subdirectory.
+- `index.ts` imports from every subdirectory in this tree; no cross-package imports at this level.
 
 ### External
-- None directly at this level (subdirs pull `pbf`, `@mapbox/vector-tile`, `earcut`).
+- None directly at this level. Subdirs pull `pbf`, `@mapbox/vector-tile` (input/), and `earcut` (tiler/).
 
-<!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
+<!-- MANUAL: notes below this line are preserved on regeneration -->

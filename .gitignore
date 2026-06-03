@@ -66,6 +66,9 @@ runtime/src/**/*.js
 *.tsbuildinfo
 nul
 
+# npm pack output — local tarballs from `npm pack` / clean-room verification
+*.tgz
+
 # Local Claude Code harness state (per-machine)
 .claude/
 

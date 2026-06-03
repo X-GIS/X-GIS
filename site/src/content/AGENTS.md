@@ -1,38 +1,40 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-05-22 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
 
 # site/src/content/
 
 ## Purpose
-Typed TypeScript data modules that serve as the single source of truth for structured page content. Two modules live here: the gallery demo list (consumed by `examples.astro` and the search index) and the language-reference section list (consumed by `reference.astro` and the search index). Keeping data here rather than inline in pages ensures the build-time search index stays consistent with the rendered pages.
+Typed TypeScript data modules that serve as the single source of truth for structured page content. Two modules live here: `gallery-demos.ts` (the authoritative `Category[]` + `Demo[]` list consumed by `examples.astro` and the search index) and `reference-sections.ts` (the `ReferenceSection[]` list consumed by `reference.astro` and the search index). Keeping data here rather than inline in pages ensures the build-time search index stays consistent with the rendered pages. No subdirectories; no other source files.
 
 ## Key Files
 | File | Description |
 |------|-------------|
-| `gallery-demos.ts` | Authoritative `Demo[]` list for the `/examples` gallery: `id`, `title`, `body`, optional `runId`, `defaultHash`, `noThumb`, `devOnly`, `standaloneUrl` fields. Thumbnail filename = `public/thumbnails/{id}.jpg`. |
-| `reference-sections.ts` | Typed list of language-reference sections used to build the right-side TOC and the search index records for the `/docs/reference` page |
+| `gallery-demos.ts` | Exports `Demo` interface, `Category` interface, `galleryCategories: Category[]` (11 categories, ~50 demos), `featuredDemos: Demo[]` (3 entries), and `runIdOf(d)` helper. Each `Demo` carries `id`, optional `runId`, `title`, `body`, and optional `noThumb`, `defaultHash`, `devOnly`, `standaloneUrl`. Thumbnail filename convention: `public/thumbnails/{id}.jpg`. |
+| `reference-sections.ts` | Exports `ReferenceSection` interface and `referenceSections: ReferenceSection[]` (12 sections: quick-start → sources → layers → modifiers → filters → match → background → presets → symbols → animation → projections → js-api). Each section carries `id`, `title`, `body`, optional `code` snippet, and optional `demoId`/`demoQuery`/`demoHash` for playground deep-links. |
 
 ## For AI Agents
 
 ### Working In This Directory
-- `gallery-demos.ts` is the ONLY place to add, remove, or rename gallery demos. Do not add demo metadata in `examples.astro` directly.
-- The `id` field in each `Demo` entry must match: (1) the playground demo key (or explicit `runId`), and (2) the thumbnail filename `public/thumbnails/{id}.jpg`.
-- Set `devOnly: true` for demos that depend on the local Vite proxy (e.g., protomaps v4 daily basemap) — they will be hidden in the production build.
-- `reference-sections.ts` changes require a corresponding update to the actual content in `src/pages/docs/reference.astro`.
+- `gallery-demos.ts` is the ONLY place to add, remove, or rename gallery demos. Do not add demo metadata directly in `examples.astro`.
+- The `id` field in each `Demo` entry must match: (1) the playground demo key (or explicit `runId`), and (2) the thumbnail filename `public/thumbnails/{id}.jpg`. `runIdOf(demo)` resolves `runId ?? id.replace(/-/g, '_')`.
+- Set `devOnly: true` for demos that depend on the local Vite proxy (e.g., the protomaps v4 daily basemap) — they are hidden in production builds.
+- PMTiles demos that get rewritten to the Firenze sample archive in production should carry a `defaultHash` so the user lands at a visible location.
+- `standaloneUrl` bypasses `demo.html?id=…` for demos that need bespoke JS glue beyond the declarative `.xgis`-source contract.
+- `reference-sections.ts` changes require a corresponding update to the actual prose in `src/pages/docs/reference.astro`.
 
 ### Testing Requirements
-- TypeScript compilation via `bun run check` validates the exported types. No runtime tests.
+- TypeScript compilation via `bun run check` validates exported types. There are no runtime unit tests for this directory.
 
 ### Common Patterns
-- Both files export a typed array constant. Import with named imports, not default imports.
-- `runIdOf(demo)` helper in `gallery-demos.ts` resolves `runId ?? id.replace(/-/g, '_')`.
+- Both files export named array constants; consumers use named imports, not default imports.
+- `referenceSections` entries with `demoId` render a "Try this →" playground link; `demoHash` pins the camera to a useful position when the archive is the Firenze sample.
 
 ## Dependencies
 
 ### Internal
-- `src/lib/search-index.ts` — imports both modules to build the search index
-- `src/pages/examples.astro` — imports `gallery-demos.ts`
-- `src/pages/docs/reference.astro` — imports `reference-sections.ts`
+- `src/lib/search-index.ts` — imports both modules to build the build-time search index
+- `src/pages/examples.astro` — imports `galleryCategories` and `featuredDemos` from `gallery-demos.ts`
+- `src/pages/docs/reference.astro` — imports `referenceSections` from `reference-sections.ts`
 
 ### External
 None
