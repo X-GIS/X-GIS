@@ -20,11 +20,21 @@
 // resolution-independent (dpr scales W and H together), so CSS-px is the
 // canonical convention and is what d3 must use throughout (scale + translate).
 //
-// The non-mercator branches (1–7) are STUBBED with the correct d3 factory
-// per the projType→d3 table for later milestones. They are configured with a
-// best-effort scale/translate/rotate but are NOT yet probe-verified against
-// the engine's ECEF MVP path (getECEFFrameView) — calling them throws so a
-// caller can't silently trust an unverified reference.
+// FLAT projections (projType 1 equirectangular, 2 natural_earth) share the
+// SAME Mercator RTC MVP as mercator: the engine pre-reprojects each vertex by
+// a flat project_geom(lonlat, projType) before the shared MVP consumes it
+// (runtime/src/engine/shader-dsl/shaders/projections.ts). So X-GIS screen =
+// MVP_merc · (project_geom(ll) − project_geom(center), 0, 1). The d3 recipes
+// below are PROBE-VERIFIED bit-exact (maxErr ~6e-6 px vs the live GPU MVP):
+//   • equirectangular — STOCK geoEquirectangular aligns to FP-zero.
+//   • natural_earth   — STOCK geoNaturalEarth1 does NOT align (d3's x-poly
+//     differs from X-GIS's); a CUSTOM raw built from X-GIS's exact polynomial
+//     (xgisNaturalEarth1Raw, below) aligns to FP-zero.
+// Both use the same .scale(256/π·2^z) (px-per-radian == the mercator scaleA).
+//
+// The remaining non-flat branches (orthographic/azimuthal/stereographic/
+// oblique) are STILL stubbed (3D ECEF MVP, not probe-verified) — calling them
+// throws so a caller can't silently trust an unverified reference.
 
 import {
   geoMercator,
@@ -34,8 +44,28 @@ import {
   geoAzimuthalEquidistant,
   geoStereographic,
   geoTransverseMercator,
+  geoProjection,
   type GeoProjection,
 } from 'd3-geo'
+
+// X-GIS's EXACT Natural Earth I x/y polynomial (proj_natural_earth_d,
+// runtime/.../projections.ts L79-91). d3's stock geoNaturalEarth1 uses a
+// different x-scale polynomial (sign-flipped φ⁴ term + 10th/12th-order terms
+// vs X-GIS's φ⁶ truncation), so it does NOT align (best ~1.5 px). This raw
+// receives λ/φ in RADIANS and returns radians; geoProjection's .scale carries
+// radians→px (== scaleA), matching equirectangular. The φ-polynomial here is
+// the CPU mirror of the GPU project_geom for projType 2.
+function xgisNaturalEarth1Raw(lambda: number, phi: number): [number, number] {
+  const phi2 = phi * phi
+  const phi4 = phi2 * phi2
+  const phi6 = phi2 * phi4
+  const xScale = 0.8707 - 0.131979 * phi2 + 0.013791 * phi4 - 0.0081435 * phi6
+  const yVal =
+    phi *
+    (1.007226 +
+      phi2 * (0.015085 + phi2 * (-0.044475 + 0.028874 * phi2 - 0.005916 * phi4)))
+  return [lambda * xScale, yVal]
+}
 
 /** X-GIS setProjection names → projType index (gpu-shared PROJECTIONS order). */
 export type ProjName =
@@ -63,7 +93,11 @@ export const D3_PROJECTION_FACTORY: Record<ProjName, (() => GeoProjection) | nul
 }
 
 /** Projections whose d3 mapping is PROBE-VERIFIED bit-exact vs the GPU MVP. */
-const VERIFIED: ReadonlySet<ProjName> = new Set<ProjName>(['mercator'])
+const VERIFIED: ReadonlySet<ProjName> = new Set<ProjName>([
+  'mercator',
+  'equirectangular',
+  'natural_earth',
+])
 
 /**
  * Build a configured d3-geo projection reproducing X-GIS's on-screen
@@ -91,30 +125,52 @@ export function xgisCameraToD3(
 
   const [lon, lat] = center
 
-  if (projName === 'mercator') {
-    // The proven, bit-exact recipe.
-    return geoMercator()
-      .scale((256 / Math.PI) * Math.pow(2, zoom))
-      .translate([Wcss / 2, Hcss / 2])
-      .center([lon, lat])
-  }
-
   if (!VERIFIED.has(projName)) {
-    // Stub: configured but NOT probe-verified. Refuse to hand back an
-    // unverified reference so a future milestone can't silently diff
-    // against the wrong placement. The d3 factory table above is the
-    // mapping a later milestone will calibrate (likely vs getECEFFrameView).
+    // Not yet probe-verified (orthographic/azimuthal/stereographic/oblique —
+    // 3D ECEF MVP path). Refuse to hand back an unverified reference so a
+    // future milestone can't silently diff against the wrong placement.
     throw new Error(
       `xgisCameraToD3: projection "${projName}" d3-reference is not yet ` +
-        `probe-verified (milestone-1 covers mercator only). ` +
+        `probe-verified (Oracle-B covers mercator/equirectangular/natural_earth). ` +
         `Factory is ${factory.name}; calibrate against getECEFFrameView before use.`,
     )
   }
 
-  // Unreachable in milestone-1 (only mercator is VERIFIED and handled above).
-  return factory()
-    .scale((256 / Math.PI) * Math.pow(2, zoom))
-    .translate([Wcss / 2, Hcss / 2])
-    .rotate([-lon, 0])
-    .center([0, lat])
+  // All three VERIFIED flat projections share the same scale (256/π·2^z =
+  // px-per-radian == the mercator px-per-metre scaleA), the same CSS-px
+  // translate, and the same .center([lon,lat]) (the engine's RTC subtraction
+  // of project_geom(center) cancels d3's .center() shift exactly). Only the
+  // raw projection differs: mercator/equirectangular are stock; natural_earth
+  // uses X-GIS's exact polynomial raw (stock geoNaturalEarth1 does NOT align).
+  const scale = (256 / Math.PI) * Math.pow(2, zoom)
+
+  if (projName === 'mercator') {
+    // The proven, bit-exact recipe.
+    return geoMercator()
+      .scale(scale)
+      .translate([Wcss / 2, Hcss / 2])
+      .center([lon, lat])
+  }
+
+  if (projName === 'equirectangular') {
+    // Probe-verified: STOCK geoEquirectangular aligns to FP-zero (maxErr
+    // 6.84e-6 px). Raw is [λ,φ] in radians — same scale as mercator.
+    return geoEquirectangular()
+      .scale(scale)
+      .translate([Wcss / 2, Hcss / 2])
+      .center([lon, lat])
+  }
+
+  if (projName === 'natural_earth') {
+    // Probe-verified: a CUSTOM raw matching X-GIS's exact NE-I polynomial
+    // aligns to FP-zero (maxErr 6.37e-6 px); stock geoNaturalEarth1 does not.
+    return geoProjection(xgisNaturalEarth1Raw)
+      .scale(scale)
+      .translate([Wcss / 2, Hcss / 2])
+      .center([lon, lat])
+  }
+
+  // VERIFIED.has(projName) is true but no branch matched — unreachable while
+  // the verified set and the branches above stay in sync.
+  throw new Error(`xgisCameraToD3: unhandled verified projection "${projName}".`)
 }
