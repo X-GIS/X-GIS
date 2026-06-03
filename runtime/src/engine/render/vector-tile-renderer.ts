@@ -892,6 +892,15 @@ export class VectorTileRenderer {
   private uploadQueue = new PriorityQueue<string, void>()
   private uploadItemData = new Map<string, { key: number; data: TileData; sourceLayer: string }>()
 
+  /** Set by destroy() before the arenas are torn down. In-flight
+   *  `doUploadTileAsync` coroutines suspended on the staging mapAsync
+   *  round-trip re-check this after their awaits and bail out WITHOUT
+   *  submitting — otherwise their `queue.submit` would reference the
+   *  now-destroyed poly-vertex/index arena buffer ("used in submit
+   *  while destroyed"). See destroy() + doUploadTileAsync's pre-submit
+   *  guard. */
+  private _destroyed = false
+
   /** Per-frame distSq memo + cached camera centre. distSq runs O(N log N)
    *  times per upload-queue sort and once per fetch-priority dispatch;
    *  the camera is constant for the whole frame, so cache the (key →
@@ -1208,6 +1217,17 @@ export class VectorTileRenderer {
    *  whole map is disposed. After destroy() the renderer is dead —
    *  create a new VectorTileRenderer if another upload is needed. */
   destroy(): void {
+    // Mark torn-down FIRST so any in-flight async upload that is
+    // suspended on the staging mapAsync round-trip will, on resume,
+    // skip its `queue.submit` instead of copying into a destroyed
+    // arena buffer (the "used in submit while destroyed" UAF). Then
+    // drop every still-QUEUED upload (not yet dispatched) so no new
+    // coroutine can start and capture the arena buffer after this
+    // point. ACTIVE coroutines are handled by the pre-submit guard in
+    // doUploadTileAsync via the _destroyed flag.
+    this._destroyed = true
+    this.uploadQueue.removeByFilter(() => true)
+    this.uploadItemData.clear()
     // P4 compute resources: per-tile ComputeLayerHandle instances
     // own (feat / out / count) buffer trios. Free them before the
     // legacy buffer loop so device memory is reclaimed in one pass.
@@ -2298,6 +2318,22 @@ export class VectorTileRenderer {
     // every copy command for the tile.
     const settled = await Promise.all(writeHandles)
     for (const h of settled) releases.push(h.release)
+
+    // UAF guard: a synchronous teardown (e.g. a projection band-change
+    // calling setBackgroundFill(null) → teardownSource → destroy()) can
+    // land inside the staging mapAsync suspension above. If it did, the
+    // captured `vertexBuffer`/`indexBuffer` (= the poly arena buffers,
+    // VTR:2175-2176) have been destroyed, and the encoder's
+    // copyBufferToBuffer targets them — submitting would raise
+    // "Buffer poly-vertex-arena/poly-index-arena used in submit while
+    // destroyed". Bail WITHOUT submitting; return the staging slots to
+    // the (shared, still-live) pool so they aren't leaked. The dead
+    // arenas were already destroyed+nulled by destroy(), so the claimed
+    // poly slots need no free (the whole arena is gone).
+    if (this._destroyed) {
+      for (const release of releases) release()
+      return
+    }
 
     // Single submit per tile. The GPU now consumes staging → dst.
     this.device.queue.submit([encoder.finish()])
