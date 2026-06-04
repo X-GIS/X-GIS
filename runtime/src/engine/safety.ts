@@ -192,6 +192,15 @@ export async function safeFetch(
   let currentInit: RequestInit = { ...init, redirect: 'manual' }
   for (let hop = 0; hop <= MAX_SAFE_REDIRECTS; hop++) {
     const resp = await fetch(currentUrl, currentInit)
+    // In a browser, redirect:'manual' yields an opaque-redirect response
+    // (type 'opaqueredirect', status 0) whose Location is unreadable — we
+    // cannot re-validate the hop, so refuse rather than hand back a broken
+    // (empty) body. Fails closed: a redirecting source errors clearly instead
+    // of silently. (In Node the status is the real 3xx and the Location path
+    // below re-validates + follows.)
+    if (resp.type === 'opaqueredirect' || resp.status === 0) {
+      throw new XGISSecurityError(`[X-GIS] ${label}: redirect target hidden by the browser; refusing to follow un-revalidatable redirect (SSRF guard).`)
+    }
     if (resp.status < 300 || resp.status >= 400) return resp
     const location = resp.headers.get('location')
     if (location === null) return resp
