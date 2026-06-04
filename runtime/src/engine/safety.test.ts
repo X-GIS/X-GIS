@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import {
   XGISError,
   XGISInputError,
@@ -18,6 +18,35 @@ describe('XGISError taxonomy', () => {
     expect(sec).toBeInstanceOf(XGISError)
     expect(input.name).toBe('XGISInputError')
     expect(sec.name).toBe('XGISSecurityError')
+  })
+})
+
+describe('assertSafeRemoteUrl same-origin loopback allowance', () => {
+  const setOrigin = (origin: string | undefined) => {
+    if (origin === undefined) delete (globalThis as { window?: unknown }).window
+    else (globalThis as { window?: { location: { origin: string } } }).window = { location: { origin } }
+  }
+  afterEach(() => setOrigin(undefined))
+
+  it('allows a loopback host that is the SAME origin as the page (dev server own assets + proxy)', () => {
+    setOrigin('https://localhost:3000')
+    expect(() => assertSafeRemoteUrl('https://localhost:3000/data/x.geojson')).not.toThrow()
+    expect(() => assertSafeRemoteUrl('https://localhost:3000/pmtiles-proxy/v4.pmtiles')).not.toThrow()
+  })
+
+  it('still blocks a private host that is a DIFFERENT origin than the page', () => {
+    setOrigin('https://maps.example.com')
+    expect(() => assertSafeRemoteUrl('https://127.0.0.1/internal')).toThrow(XGISSecurityError)
+    expect(() => assertSafeRemoteUrl('https://169.254.169.254/latest/meta-data')).toThrow(XGISSecurityError)
+    // a different loopback PORT is cross-origin → still blocked
+    setOrigin('https://localhost:3000')
+    expect(() => assertSafeRemoteUrl('https://localhost:8080/x')).toThrow(XGISSecurityError)
+  })
+
+  it('blocks every private host when there is no page origin (Node / SSR — the real SSRF surface)', () => {
+    setOrigin(undefined)
+    expect(() => assertSafeRemoteUrl('https://localhost:3000/x')).toThrow(XGISSecurityError)
+    expect(() => assertSafeRemoteUrl('https://127.0.0.1/x')).toThrow(XGISSecurityError)
   })
 })
 

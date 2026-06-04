@@ -120,6 +120,20 @@ function walkCoordPairs(coords: unknown, budget: VertexBudget, depth: number): v
   for (const c of coords) walkCoordPairs(c, budget, depth + 1)
 }
 
+/** A private/loopback host is only an SSRF risk when it is a DIFFERENT origin
+ *  than the page issuing the fetch. Fetching the page's OWN origin (e.g. a dev
+ *  server on https://localhost:3000 serving its own /data assets + CORS proxy)
+ *  is not a server-side request to an internal host — the browser already
+ *  governs it as same-origin. Allow that; keep blocking CROSS-origin private
+ *  hosts (a public page reaching 127.0.0.1 / 169.254.169.254 / RFC1918). In
+ *  Node / SSR there is no page origin, so this returns false and every private
+ *  host stays blocked — the real server-side SSRF surface. */
+function isSameOriginAsPage(url: URL): boolean {
+  return typeof window !== 'undefined'
+    && typeof window.location !== 'undefined'
+    && url.origin === window.location.origin
+}
+
 /** SSRF guard for remote asset URLs. Absolute URLs must use http(s) and
  *  must not target a private / loopback / link-local host. Relative URLs
  *  resolve same-origin and are allowed — EXCEPT protocol-relative
@@ -145,7 +159,7 @@ export function assertSafeRemoteUrl(raw: string, label = 'remote URL'): void {
       } catch {
         resolved = null
       }
-      if (resolved && resolved.hostname !== 'x.invalid' && isPrivateHost(resolved.hostname)) {
+      if (resolved && resolved.hostname !== 'x.invalid' && isPrivateHost(resolved.hostname) && !isSameOriginAsPage(resolved)) {
         throw new XGISSecurityError(`[X-GIS] ${label}: private/loopback host blocked (SSRF guard).`)
       }
     }
@@ -160,7 +174,7 @@ export function assertSafeRemoteUrl(raw: string, label = 'remote URL'): void {
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new XGISSecurityError(`[X-GIS] ${label}: URL scheme not allowed (http/https only).`)
   }
-  if (isPrivateHost(parsed.hostname)) {
+  if (isPrivateHost(parsed.hostname) && !isSameOriginAsPage(parsed)) {
     throw new XGISSecurityError(`[X-GIS] ${label}: private/loopback host blocked (SSRF guard).`)
   }
 }
