@@ -39,6 +39,7 @@ import { PointRenderer } from './render/point-renderer'
 import { ShapeRegistry } from './text/sdf-shape'
 import { LineRenderer } from './render/line-renderer'
 import { PanZoomController, type Controller } from './controller'
+import { DirtyTracker, DirtyDomain } from './state/dirty'
 import { VectorTileRenderer } from './render/vector-tile-renderer'
 import { TextStage, type TextStageOptions } from './text/text-stage'
 import type { GlyphProvider } from './text/sdf/pbf/glyph-provider'
@@ -406,6 +407,7 @@ export class XGISMap {
   // pending. Any camera input, data push, or active animation resumes
   // per-frame rendering naturally.
   _needsRender = true
+  private _dirty = new DirtyTracker()
   private _sceneHasAnimation = false
   _lastSigZoom = NaN
   _lastSigCX = NaN
@@ -424,7 +426,7 @@ export class XGISMap {
 
   /** Explicit render trigger for code paths that change state outside the
    *  camera (setSourceData, updateFeature, tile load completion, etc.). */
-  invalidate(): void { if (this._destroyed) return; this._needsRender = true }
+  invalidate(): void { if (this._destroyed) return; this._needsRender = true; this._dirty.tag(DirtyDomain.CAMERA | DirtyDomain.VIEWPORT | DirtyDomain.PROJECTION | DirtyDomain.STYLE | DirtyDomain.SOURCE | DirtyDomain.GEOMETRY | DirtyDomain.LABEL | DirtyDomain.CLOCK) }
 
   /** Flag an active user gesture (pan / zoom) so the render loop can drop
    *  to QUALITY.interactionDpr while interacting and restore full DPR once
