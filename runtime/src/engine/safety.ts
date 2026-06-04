@@ -165,6 +165,47 @@ export function assertSafeRemoteUrl(raw: string, label = 'remote URL'): void {
   }
 }
 
+/** Max redirect hops `safeFetch` will follow before giving up. Bounds a
+ *  redirect loop and an attacker chaining hops to wear down the guard. */
+const MAX_SAFE_REDIRECTS = 5
+
+/** SSRF-safe fetch. `assertSafeRemoteUrl` only validates the URL STRING — a
+ *  plain `fetch()` with the default `redirect: 'follow'` lets an allowlisted
+ *  public host 302 to 169.254.169.254 / 127.0.0.1 / an RFC1918 address and
+ *  the guard never re-runs on the `Location`. This re-validates every hop:
+ *  it fetches with `redirect: 'manual'`, and on a 3xx with a `Location`
+ *  header resolves that against the current URL, runs `assertSafeRemoteUrl`
+ *  on it, and follows it the same way — up to MAX_SAFE_REDIRECTS hops. A
+ *  non-3xx (or a 3xx without a Location) response is returned as-is, so
+ *  non-redirecting requests behave exactly like a direct fetch. The
+ *  caller's `init` (method / headers / signal) is preserved on each hop;
+ *  the request body is dropped after the first hop per fetch redirect
+ *  semantics. Throws XGISSecurityError on a private/loopback redirect target
+ *  or when the hop limit is exceeded. */
+export async function safeFetch(
+  url: string,
+  init?: RequestInit,
+  label = 'remote URL',
+): Promise<Response> {
+  assertSafeRemoteUrl(url, label)
+  let currentUrl = url
+  let currentInit: RequestInit = { ...init, redirect: 'manual' }
+  for (let hop = 0; hop <= MAX_SAFE_REDIRECTS; hop++) {
+    const resp = await fetch(currentUrl, currentInit)
+    if (resp.status < 300 || resp.status >= 400) return resp
+    const location = resp.headers.get('location')
+    if (location === null) return resp
+    const next = new URL(location, currentUrl).href
+    assertSafeRemoteUrl(next, label)
+    currentUrl = next
+    // Per fetch semantics a redirect drops the request body; keep method,
+    // headers and signal but strip body on every subsequent hop.
+    const { body: _body, ...rest } = currentInit
+    currentInit = { ...rest, redirect: 'manual' }
+  }
+  throw new XGISSecurityError(`[X-GIS] ${label}: too many redirects (SSRF guard).`)
+}
+
 /** True for loopback, private (RFC1918 / CGNAT / benchmarking), link-local,
  *  and IPv6 unique-local / link-local / IPv4-mapped hosts. Decimal / hex /
  *  octal / short-form IPv4 are already normalised to dotted-quad by the

@@ -23,7 +23,7 @@
 // loader instance for isolated caches.
 
 import { xlog } from '../engine/log'
-import { readBodyCapped, assertSafeRemoteUrl } from '../engine/safety'
+import { readBodyCapped, assertSafeRemoteUrl, safeFetch } from '../engine/safety'
 import { PMTiles, TileType } from 'pmtiles'
 import { TileCatalog } from '../data/tile-catalog'
 import { PMTilesBackend } from '../data/sources/pmtiles-backend'
@@ -109,7 +109,12 @@ async function fetchTileWithRetry(
   let lastErr: Error | null = null
   for (let attempt = 0; attempt <= backoffsMs.length; attempt++) {
     try {
-      const resp = await fetch(url, { signal })
+      // safeFetch re-validates each redirect hop (following manually) so an
+      // allowlisted tile host can't 302 to a private/loopback address. The
+      // initial-URL SSRF check above already negative-caches; a redirect to
+      // a private host throws here → handled as a fetch failure → retried,
+      // then negative-cached 'failed' like any other tile error.
+      const resp = await safeFetch(url, { signal }, 'tile URL')
       if (resp.status === 404 || resp.status === 204) return null
       if (resp.ok) {
         // Size-bomb guard, fast path: reject a tile that HONESTLY advertises
@@ -535,12 +540,13 @@ export class VectorTileLoader {
           attribution: undefined,
         }
       }
-      // SSRF guard: a style's TileJSON URL is host-supplied. Throw here
-      // rejects the cache promise → TileJSONSource.resolve()'s catch (and
-      // prewarm()'s .catch()) turn it into a soft null, leaving the demo
-      // alive.
-      assertSafeRemoteUrl(url, 'TileJSON URL')
-      const resp = await fetch(url)
+      // SSRF guard: a style's TileJSON URL is host-supplied. safeFetch
+      // validates the URL AND re-checks every redirect hop (following
+      // manually) so an allowlisted host can't 302 to an internal address.
+      // A throw rejects the cache promise → TileJSONSource.resolve()'s catch
+      // (and prewarm()'s .catch()) turn it into a soft null, leaving the
+      // demo alive.
+      const resp = await safeFetch(url, undefined, 'TileJSON URL')
       if (!resp.ok) throw new Error(`TileJSON ${url} returned HTTP ${resp.status}`)
       // Cap the manifest body before JSON.parse — a lying/absent
       // Content-Length otherwise lets an unbounded .json() OOM the tab.

@@ -79,7 +79,7 @@ import { prewarmVectorTileSource, detectVectorTileFormat } from '../loader/vecto
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 import { toU32Id, pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
 import type { GeoJSONFeature } from '../loader/geojson'
-import { assertSafeRemoteUrl, assertIngestBudget, readBodyCapped } from './safety'
+import { safeFetch, assertIngestBudget, readBodyCapped } from './safety'
 
 // DoS ceilings for the top-level loader entry points (.xgis style /
 // import-resolver text and .xgb binary scene). Defensive — far above any
@@ -1687,11 +1687,12 @@ export class XGISMap {
       }
       try {
         // SSRF guard: an imported style can `import { … } from "<url>"` —
-        // block private/loopback/non-http(s) targets before fetch. Throws
-        // into the catch below → null (the import resolves to nothing, same
-        // as a 404), so an attacker can't probe internal hosts.
-        assertSafeRemoteUrl(url, 'style import URL')
-        const resp = await fetch(url)
+        // block private/loopback/non-http(s) targets before fetch, AND
+        // re-check every redirect hop (safeFetch follows manually) so an
+        // allowlisted host can't 302 to an internal address. Throws into
+        // the catch below → null (the import resolves to nothing, same as a
+        // 404), so an attacker can't probe internal hosts.
+        const resp = await safeFetch(url, undefined, 'style import URL')
         if (!resp.ok) {
           xlog.error(`[X-GIS import] fetch ${url} failed: ${resp.status} ${resp.statusText}`)
           return null
@@ -2556,10 +2557,11 @@ export class XGISMap {
     for (const load of commands.loads) {
       const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
       // SSRF guard: a .xgb scene's source URL is host-supplied. Block
-      // private/loopback/non-http(s) targets before fetch (throws, failing
-      // this binary load the same way a network/parse error already does).
-      assertSafeRemoteUrl(url, `.xgb source "${load.name}"`)
-      const response = await fetch(url)
+      // private/loopback/non-http(s) targets before fetch AND re-check each
+      // redirect hop (safeFetch follows manually) so an allowlisted host
+      // can't 302 to an internal address (throws, failing this binary load
+      // the same way a network/parse error already does).
+      const response = await safeFetch(url, undefined, `.xgb source "${load.name}"`)
       // Cap the raw body before JSON.parse, then bound the parsed collection
       // semantically — a hostile .xgb side-load can't OOM via an unbounded
       // .json() nor via an over-budget feature/vertex count.
@@ -2600,11 +2602,12 @@ export class XGISMap {
   /** Auto-detect: .xgb binary or .xgis source */
   async load(url: string): Promise<void> {
     // SSRF guard for the top-level public loader: a host-supplied URL must
-    // not target a private/loopback host or a non-http(s) scheme. Throws
+    // not target a private/loopback host or a non-http(s) scheme, and every
+    // redirect hop is re-checked (safeFetch follows manually) so an
+    // allowlisted host can't 302 to an internal address. Throws
     // XGISSecurityError to the caller (this is an explicit public load —
     // the host decides how to surface a refused URL).
-    assertSafeRemoteUrl(url, 'map source URL')
-    const response = await fetch(url)
+    const response = await safeFetch(url, undefined, 'map source URL')
     const baseUrl = url.substring(0, url.lastIndexOf('/') + 1)
 
     if (url.endsWith('.xgb')) {
