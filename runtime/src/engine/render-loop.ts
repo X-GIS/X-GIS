@@ -17,8 +17,8 @@
 
 import { xlog } from './log'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd, flushPerFrameMarks } from './__profile__/perf-marks'
-import { mercatorYToLat, MERCATOR_LAT_LIMIT } from './projection/projection'
-import { PROJECTION_NAME_TO_TYPE, isGlobeProj, promotesToGlobeWhenTilted } from './projection/projections-table'
+import { mercatorYToLat } from './projection/projection'
+import { PROJECTION_NAME_TO_TYPE, isGlobeProj, promotesToGlobeWhenTilted, poleLimit } from './projection/projections-table'
 import { resizeCanvas, getSampleCount, getMaxDpr, isPickEnabled } from './gpu/gpu'
 import { DEBUG_OVERDRAW } from './debug-flags'
 import { WORLD_MERC, TILE_PX } from './gpu/gpu-shared'
@@ -219,11 +219,15 @@ export class RenderLoop {
     // RTC: Camera center IS projection center. Always.
     const R = 6378137
     const centerLon = (this.host.camera.centerX / R) * (180 / Math.PI)
-    // Clamp the RTC-centre latitude to the SAME Mercator limit the camera
-    // position uses (±85.051129°, camera.ts MAX_Y), not a tighter ±85.0 —
-    // otherwise a near-pole camera (85.0–85.051°) gets an RTC centre ~5.7 km
-    // short of its true position. Unifies the documented centerY-clamp drift.
-    const centerLat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT,
+    // Clamp the RTC-centre latitude to the projection's pole limit
+    // (projections-table poleLimit SoT: ±85.051129° cylindrical, ±90° sphere —
+    // replacing the scattered Mercator literal). The input is mercatorYToLat of
+    // the Mercator-bounded centerY, so it never exceeds ±85.051129° today →
+    // relaxing the sphere bound to 90 is a byte-identical no-op (roadmap S5
+    // inert); the sphere allowance becomes live once centre storage holds true
+    // latitude (S10).
+    const rtcPoleLimit = poleLimit(this.host.camera.projType)
+    const centerLat = Math.max(-rtcPoleLimit, Math.min(rtcPoleLimit,
       mercatorYToLat(this.host.camera.centerY)
     ))
 

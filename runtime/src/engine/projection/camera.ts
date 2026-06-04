@@ -6,8 +6,8 @@ import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 import { getMaxDpr } from '../gpu/gpu'
 import { computeLogDepthFc } from '../shaders/log-depth'
 import { buildGlobeMatrix, EARTH_R } from './globe'
-import { mercatorYToLat, mercatorYToLatRad, mercator, getProjection, MERCATOR_LAT_LIMIT } from './projection'
-import { isGlobeProj, flatViewHeightCapM, SELECTOR_PROJ_NAMES, worldCopiesFor, enumerateWorldCopies } from './projections-table'
+import { mercatorYToLat, mercatorYToLatRad, mercator, getProjection } from './projection'
+import { isGlobeProj, flatViewHeightCapM, SELECTOR_PROJ_NAMES, worldCopiesFor, enumerateWorldCopies, poleLimit } from './projections-table'
 import { invOrthographic, mulVec4, invert4x4, mul4, perspectiveMatrix } from './camera-helpers'
 
 export class Camera {
@@ -839,9 +839,11 @@ export class Camera {
     if (pt !== 1 && pt !== 2 && pt !== 6) return null
     if (this.globeMode) return null
     const clon = (this.centerX / EARTH_R) * (180 / Math.PI)
-    // Match render-loop.ts: clamp clat to the Mercator limit so the CPU
-    // inverse centre equals the GPU proj_params.z.
-    const clat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, mercatorYToLat(this.centerY)))
+    // Match render-loop.ts: clamp clat via poleLimit(pt) (projections-table SoT,
+    // replacing the Mercator literal) so the CPU inverse centre equals the GPU
+    // proj_params.z. pt∈{1,2,6} here + bounded mercatorYToLat input → byte-
+    // identical (roadmap S5 inert).
+    const clat = Math.max(-poleLimit(pt), Math.min(poleLimit(pt), mercatorYToLat(this.centerY)))
     const proj = getProjection(SELECTOR_PROJ_NAMES[pt], clon, clat)
     // `cv` = the own-plane centre the shader subtracted (project(cam), with NO
     // world offset). For equirect/NE cv.x = 0 (wrap_lon_delta(camLon−clon)=0);
