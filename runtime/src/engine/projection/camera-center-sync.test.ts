@@ -118,15 +118,32 @@ describe('centerLatDeg sync contract', () => {
   })
 
   describe('interactive paths keep centerLatDeg in sync (no stale)', () => {
-    it('globe-drag pan keeps centerLatDeg === mercatorYToLat(centerY)', () => {
+    it('globe-drag pan (sub-85) keeps centerLatDeg consistent with the Mercator mirror', () => {
       const cam = new Camera(0, 40, 3)
       cam.projType = 7
       cam.globeMode = true
-      // pan() globe-drag branch is pure math (no GPU/canvas) — drag down a bit.
+      // pan() globe-drag branch is pure math (no GPU/canvas) — drag a bit.
       cam.pan(0, 60, 1280, 720)
-      expect(cam.centerLatDeg).toBe(mercatorYToLat(cam.centerY))
-      // Drag keeps the ±85.05 clamp, so the field never exceeds it here.
+      // Post-S12 centerLatDeg is AUTHORITATIVE (the drag writes it directly);
+      // for a sub-85.05 drag it still agrees with the Mercator-mirror centerY to
+      // the forward+inverse round-trip floor (~1e-9), no longer byte-exact.
+      expect(cam.centerLatDeg).toBeCloseTo(mercatorYToLat(cam.centerY), 9)
       expect(Math.abs(cam.centerLatDeg)).toBeLessThanOrEqual(MERC_LIMIT + 1e-6)
+    })
+
+    it('globe-drag pan REACHES THE POLE past 85.05 (roadmap S12)', () => {
+      const cam = new Camera(0, 0, 3)
+      cam.projType = 7
+      cam.globeMode = true
+      const ctrl = makeController(cam)
+      ctrl.setCenter(0, 84) // start just below the old Mercator wall
+      // Drag northward hard — enough to push the centre well past 85.05. Before
+      // S12 this saturated at 85.051129; now it rolls to the pole limit (90).
+      cam.pan(0, 400, 1280, 720)
+      expect(cam.centerLatDeg).toBeGreaterThan(MERC_LIMIT) // crossed the old wall
+      expect(cam.centerLatDeg).toBeCloseTo(90, 3) // clamped to poleLimit(7)=90
+      // centerY stays Mercator-bounded so the 2D / tile readers keep working.
+      expect(mercatorYToLat(cam.centerY)).toBeCloseTo(MERC_LIMIT, 3)
     })
 
     it('flat pan keeps centerLatDeg === mercatorYToLat(centerY)', () => {

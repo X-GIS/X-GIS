@@ -1011,15 +1011,23 @@ export class Camera {
       const gdy = -dx * sb + dy * cb
       const degPerPx = (mpp / R) * (180 / Math.PI)
       let lon = this.centerX / R * (180 / Math.PI) - gdx * degPerPx
-      let lat = mercatorYToLat(this.centerY) + gdy * degPerPx
-      lat = Math.max(-85.051129, Math.min(85.051129, lat))
+      // Read the TRUE centre latitude (centerLatDeg), NOT mercatorYToLat(centerY)
+      // which saturates at ±85.051129 — otherwise a drag that started past the
+      // Mercator limit (a pole-ward centre placed by setCenter / a prior drag)
+      // would snap back to 85.05 every step. Nudge it and clamp to the
+      // projection's pole limit (poleLimit=90 for the sphere family) so the
+      // drag rolls the globe all the way to the pole (roadmap S12).
+      const pl = poleLimit(this.projType)
+      const lat = Math.max(-pl, Math.min(pl, this.centerLatDeg + gdy * degPerPx))
       lon = ((lon + 180) % 360 + 360) % 360 - 180
       this.centerX = lon * (Math.PI / 180) * R
-      this.centerY = Math.log(Math.tan(Math.PI / 4 + lat * (Math.PI / 180) / 2)) * R
-      // Drag keeps the ±85.05 lat clamp (drag-to-pole is deferred S12); keep
-      // centerLatDeg synced from the final centerY so the globe readers never
-      // see a stale latitude.
-      this._syncCenterLatFromMercator()
+      // centerLatDeg is authoritative for the sphere; centerY keeps the
+      // Mercator-representable mirror (clamped ±85.05) for the 2D / tile-pyramid
+      // readers. Write centerLatDeg DIRECTLY (no _syncCenterLatFromMercator,
+      // which would reset it back to ≤85.05 and undo the pole reach).
+      this.centerLatDeg = lat
+      const mercLat = Math.max(-85.051129, Math.min(85.051129, lat))
+      this.centerY = Math.log(Math.tan(Math.PI / 4 + mercLat * (Math.PI / 180) / 2)) * R
       return
     }
     // mpp from the formula `WORLD_MERC / TILE_PX / 2^zoom` is meters per
