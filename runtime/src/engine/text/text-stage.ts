@@ -916,6 +916,7 @@ export class TextStage {
     def: LabelDef,
     fontKey?: string,
     layerName?: string,
+    pairKey?: string,
   ): void {
     const text = resolveText(value, props, this.cameraZoom)
     if (text.length === 0) return
@@ -958,6 +959,7 @@ export class TextStage {
       polylineX, polylineY, centerOffsetPx,
       def,
       fontKey: fontKey ?? composeFontKey(def, this.opts.defaultFont),
+      pairKey,
     })
   }
 
@@ -1103,6 +1105,12 @@ export class TextStage {
        *  undefined falls back to layer-order priority via the
        *  reverse iteration trick below. */
       sortKey?: number
+      /** Iter 112 paired-symbol collision: pairKey of the paired icon
+       *  for curved line shields. Carried on the shaped entry (not
+       *  indexed back into pendingLine) because the line-loop below
+       *  `continue`-skips unshapeable labels, so shaped[] is NOT 1:1
+       *  with pendingLine[] indices. The drop loop reads it directly. */
+      pairKey?: string
     }
     const shaped: ShapedLabel[] = []
     const dpr = this.dpr
@@ -1815,6 +1823,7 @@ export class TextStage {
         allowOverlap: p.def.allowOverlap === true,
         ignorePlacement: p.def.ignorePlacement === true,
         sortKey: p.def.sortKey,
+        pairKey: p.pairKey,
       })
     }
     perfMarkEnd('stage-prepare.line-loop')
@@ -1892,11 +1901,15 @@ export class TextStage {
     // ShapedLabel still references its source PendingLabel by index.
     for (let i = 0; i < shaped.length; i++) {
       const placement = placements[i]!
-      const src = this.pending[i]
+      // Point labels carry pairKey on their PendingLabel (shaped[] is
+      // 1:1 with this.pending for the point range). Curved line shields
+      // carry it on the shaped entry instead — the line-loop skips
+      // unshapeable labels so pendingLine[] indices don't line up.
+      const pairKey = this.pending[i]?.pairKey ?? shaped[i]!.pairKey
       if (placement.placed) {
         draws.push(shaped[i]!.layouts[placement.chosen]!.draw)
-      } else if (src?.pairKey !== undefined) {
-        this.droppedPairKeys.add(src.pairKey)
+      } else if (pairKey !== undefined) {
+        this.droppedPairKeys.add(pairKey)
       }
     }
     perfMarkEnd('stage-prepare.collision')

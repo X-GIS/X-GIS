@@ -111,4 +111,11 @@ export interface PendingLineLabel {
   centerOffsetPx: number
   def: LabelDef
   fontKey: string
+  /** Iter 112 paired-symbol collision: identifier shared with the
+   *  icon dispatched at the SAME line-walk anchor. Mirror of
+   *  PendingLabel.pairKey for curved (tangent-rotated) shields — when
+   *  the text is collision-rejected the stage stamps this into
+   *  droppedPairKeys so IconStage drops the orphaned badge. Without it,
+   *  curved highway shields render the box with no road number. */
+  pairKey?: string
 }

@@ -714,6 +714,17 @@ class LabelPass implements RenderPass {
                     total += Math.sqrt(dx * dx + dy * dy)
                   }
                   const featDef = applyFeatureExprs(props)
+                  // Iter 112 paired-symbol collision for CURVED shields.
+                  // Mirror of emitLabelAlongSegment (~line 538): a
+                  // tangent-rotated line label with a paired icon-image
+                  // (OFM highway-shield-* / road_shield_us at z>=11) must
+                  // place/drop with its badge. Each emitted stop below
+                  // gets a fresh `${layer}:seq${_lineLabelSeq++}` shared
+                  // by the curved label AND its dispatchIcon, so a
+                  // collision-rejected number drops the orphaned box.
+                  const curvePairedWithIcon = featDef.iconImage !== undefined
+                    && featDef.iconImage !== null
+                    && featDef.iconImage !== ''
                   // Cross-tile dedupe key. resolveText() varies across
                   // road segments when one segment carries
                   // `name:nonlatin` and the next doesn't — the concat
@@ -768,11 +779,14 @@ class LabelPass implements RenderPass {
                         const sx = _samplePosOut[0], sy = _samplePosOut[1]
                         const tang = _samplePosOut[2]
                         if (!isTooCloseToSameText(resolvedTextForDedupe, sx, sy)) {
+                          const pairKey = curvePairedWithIcon
+                            ? `${labelLayerName ?? ''}:seq${_lineLabelSeq++}`
+                            : undefined
                           stage.addCurvedLineLabel(
                             featDef.text, props,
                             polyX, polyY, total * 0.5,
                             featDef,
-                            undefined, labelLayerName,
+                            undefined, labelLayerName, pairKey,
                           )
                           // OFM road shield + similar: icon-along-line
                           // approximation. Dispatch the icon at the
@@ -783,8 +797,10 @@ class LabelPass implements RenderPass {
                           // than no icons at all. User report 2026-05-18.
                           // tang carries the segment direction so
                           // icon-rotation-alignment=map (OFM road_oneway
-                          // arrows) follows the road tangent.
-                          dispatchIcon(featDef, sx, sy, tang)
+                          // arrows) follows the road tangent. Same
+                          // pairKey as the label so the badge drops when
+                          // the road number loses collision.
+                          dispatchIcon(featDef, sx, sy, tang, pairKey)
                           recordTextPosition(resolvedTextForDedupe, sx, sy)
                         }
                       }
@@ -796,13 +812,16 @@ class LabelPass implements RenderPass {
                         const sx = _samplePosOut[0], sy = _samplePosOut[1]
                         const tang = _samplePosOut[2]
                         if (!isTooCloseToSameText(resolvedTextForDedupe, sx, sy)) {
+                          const pairKey = curvePairedWithIcon
+                            ? `${labelLayerName ?? ''}:seq${_lineLabelSeq++}`
+                            : undefined
                           stage.addCurvedLineLabel(
                             featDef.text, props,
                             polyX, polyY, nextStop,
                             featDef,
-                            undefined, labelLayerName,
+                            undefined, labelLayerName, pairKey,
                           )
-                          dispatchIcon(featDef, sx, sy, tang)
+                          dispatchIcon(featDef, sx, sy, tang, pairKey)
                           recordTextPosition(resolvedTextForDedupe, sx, sy)
                         }
                       }
