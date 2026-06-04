@@ -160,6 +160,12 @@ export class MvtWorkerPool {
       })
       w.addEventListener('error', (e: ErrorEvent) => {
         console.error('[mvt-worker]', e.message)
+        // Reject every outstanding compile so callers don't hang on a
+        // crashed worker — without this the in-flight tile stays
+        // permanently blank and is never re-requested.
+        const err = new Error(e.message || 'mvt worker error')
+        for (const job of this.pending.values()) job.reject(err)
+        this.pending.clear()
       })
       this.workers.push(w)
     }
