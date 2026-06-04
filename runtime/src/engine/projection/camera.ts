@@ -1,7 +1,7 @@
 // ═══ Map Camera — 줌/패닝/회전/피치 ═══
 
 import { lonLatToMercator } from '../../loader/geojson'
-import { mercatorToECEFSphere, ecefToENURotation, type ECEF } from './ecef'
+import { mercatorToECEFSphere, lonLatToECEFSphere, ecefToENURotation, type ECEF } from './ecef'
 import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 import { getMaxDpr } from '../gpu/gpu'
 import { computeLogDepthFc } from '../shaders/log-depth'
@@ -14,6 +14,17 @@ export class Camera {
   /** Camera center in Web Mercator coordinates */
   centerX: number
   centerY: number
+  /** TRUE centre latitude in degrees, clamped to `poleLimit(projType)`.
+   *  INVARIANT: for any centre with |lat| <= 85.051129 (all cylindrical
+   *  projections, and globe away from the pole) `centerLatDeg ===
+   *  mercatorYToLat(centerY)` EXACTLY — so this field is byte-identical to the
+   *  Mercator-derived latitude everywhere except a sphere camera placed past
+   *  85.05. Only `setCenter` RELAXES past 85.05 (static reach-the-pole); the
+   *  globe-anchor readers (_globeFrame / getECEFCenter / getECEFToENURotation)
+   *  read THIS instead of inverting the Mercator-bounded centerY, letting the
+   *  globe orbit reach the pole. Interactive drag/pinch keep their ±85.05 lat
+   *  clamp but MUST keep this field synced so it never goes stale. */
+  centerLatDeg: number
   /** Zoom level (0 = whole world, higher = closer) */
   zoom: number
   /** Map rotation in degrees (0 = north up, clockwise positive) */
@@ -102,7 +113,22 @@ export class Camera {
     const [mx, my] = lonLatToMercator(lon, lat)
     this.centerX = mx
     this.centerY = my
+    this.centerLatDeg = mercatorYToLat(my)
     this.zoom = zoom
+  }
+
+  /** Resync centerLatDeg from the Mercator centerY. Call after any centerY
+   *  write that establishes a |lat|<=85.051129 centre (drag/pinch/pan/clamp);
+   *  setCenter writes centerLatDeg directly and may exceed 85.05 on a sphere. */
+  private _syncCenterLatFromMercator(): void {
+    this.centerLatDeg = mercatorYToLat(this.centerY)
+  }
+
+  /** Public sync hook for centerY writers outside the Camera class (the
+   *  controller's pan fast-path / zoom-anchor block). Keeps the Mercator→lat
+   *  formula in one place so callers don't re-inline mercatorYToLat. */
+  syncCenterLat(): void {
+    this._syncCenterLatFromMercator()
   }
 
   /** Get the view-projection matrix as Float32Array (column-major 4x4) */
@@ -319,7 +345,10 @@ export class Camera {
   private _globeFrame(canvasWidth: number, canvasHeight: number, dpr: number): { matrix: Float32Array; far: number; eye: ECEF } {
     const R = EARTH_R
     const lon = this.centerX / R * (180 / Math.PI)
-    const lat = mercatorYToLat(this.centerY)
+    // Read the maintained true centre latitude (NOT mercatorYToLat(centerY),
+    // which saturates at ±85.051129) so the globe orbit can reach the pole
+    // when setCenter places the centre past the Mercator limit.
+    const lat = this.centerLatDeg
     // For the globeOrtho (azimuthal-promoted) path pass the SOURCE azimuthal
     // projType so globeAltitude applies that projType's flat view-height cap
     // (continuous scale across the pitch=0 boundary). The true perspective
@@ -361,7 +390,14 @@ export class Camera {
    *  Mercator pixel-parity (AC1) the sphere basis guarantees. See
    *  `lonLatToECEFSphere` for the full rationale. */
   getECEFCenter(): ECEF {
-    return mercatorToECEFSphere(this.centerX, this.centerY)
+    // Derive lon from the Mercator centerX, but use the maintained true centre
+    // latitude (centerLatDeg) instead of inverting the Mercator-bounded centerY.
+    // For |lat|<=85.05 this is byte-identical to mercatorToECEFSphere(centerX,
+    // centerY) (mercatorToECEFSphere(mx,my) === lonLatToECEFSphere(mx/A·RAD2DEG,
+    // mercatorYToLat(my))); past 85.05 on the sphere it places the ECEF anchor
+    // at the true pole-ward latitude so the globe orbit can reach the pole.
+    const RAD2DEG = 180 / Math.PI
+    return lonLatToECEFSphere((this.centerX / EARTH_R) * RAD2DEG, this.centerLatDeg)
   }
 
   /** ECEF→ENU (East/North/Up) tangent-plane rotation at the camera anchor.
@@ -387,7 +423,9 @@ export class Camera {
     // projection module instead of re-inlining them here.
     const RAD2DEG = 180 / Math.PI
     const lon = (this.centerX / EARTH_R) * RAD2DEG
-    const lat = mercatorYToLatRad(this.centerY) * RAD2DEG
+    // True centre latitude (maintained field), not the Mercator-bounded
+    // inverse — byte-identical for |lat|<=85.05, reaches the pole past it.
+    const lat = this.centerLatDeg
     return ecefToENURotation(lon, lat)
   }
 
@@ -978,6 +1016,10 @@ export class Camera {
       lon = ((lon + 180) % 360 + 360) % 360 - 180
       this.centerX = lon * (Math.PI / 180) * R
       this.centerY = Math.log(Math.tan(Math.PI / 4 + lat * (Math.PI / 180) / 2)) * R
+      // Drag keeps the ±85.05 lat clamp (drag-to-pole is deferred S12); keep
+      // centerLatDeg synced from the final centerY so the globe readers never
+      // see a stale latitude.
+      this._syncCenterLatFromMercator()
       return
     }
     // mpp from the formula `WORLD_MERC / TILE_PX / 2^zoom` is meters per
@@ -1008,6 +1050,7 @@ export class Camera {
     const maxY = this.maxCameraY(canvasHeight)
     const newY = this.centerY + mapDy * metersPerInputPixel
     this.centerY = Math.max(-maxY, Math.min(maxY, newY))
+    this._syncCenterLatFromMercator()
   }
 
   /** Rotate by delta degrees */
@@ -1097,6 +1140,7 @@ export class Camera {
       }
       const maxYO = this.maxCameraY(canvasHeight)
       this.centerY = Math.max(-maxYO, Math.min(maxYO, this.centerY))
+      this._syncCenterLatFromMercator()
       return
     }
 
@@ -1162,6 +1206,7 @@ export class Camera {
     // Clamp after zoom: visible area changes with zoom level.
     const maxY = this.maxCameraY(canvasHeight)
     this.centerY = Math.max(-maxY, Math.min(maxY, this.centerY))
+    this._syncCenterLatFromMercator()
   }
 
   /** Pan the camera so the world point captured at drag start stays
@@ -1214,5 +1259,6 @@ export class Camera {
     else if (this.centerX < -halfWorld) this.centerX += WORLD_MERC
     const maxY = this.maxCameraY(canvasHeight)
     this.centerY = Math.max(-maxY, Math.min(maxY, this.centerY))
+    this._syncCenterLatFromMercator()
   }
 }

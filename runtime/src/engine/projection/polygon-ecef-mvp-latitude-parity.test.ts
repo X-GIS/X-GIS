@@ -83,6 +83,12 @@ function runCell(lat: number, zoom: number): CellResult {
   const centerY = EARTH_R * Math.log(Math.tan(Math.PI / 4 + latRad / 2))
   const cam = new Camera(0, 0, zoom)
   cam.centerY = centerY
+  // This test pokes centerY directly (bypassing setCenter/pan). Re-sync
+  // centerLatDeg from it so the camera is internally consistent — exactly what
+  // every production centerY writer now does. getECEFCenter reads centerLatDeg
+  // (the globe reach-the-pole fix), so without this the ECEF anchor would stay
+  // at the constructor's lat=0 while centerY is at `lat`, breaking parity.
+  cam.syncCenterLat()
   cam.bearing = 0
   cam.pitch = 0
 

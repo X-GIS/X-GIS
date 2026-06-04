@@ -15,7 +15,8 @@
 //   - `this._maxBounds` / `this._cameraExplicitlyPositioned` → owned here
 
 import { Camera } from './projection/camera'
-import { MERCATOR_LAT_LIMIT, mercatorYToLatRad } from './projection/projection'
+import { MERCATOR_LAT_LIMIT, mercatorYToLat, mercatorYToLatRad } from './projection/projection'
+import { poleLimit, representsCenterAs } from './projection/projections-table'
 import { WORLD_MERC, TILE_PX } from './gpu/gpu-shared'
 import { lonLatToMercator } from '../loader/geojson'
 import { xlog } from './log'
@@ -66,11 +67,20 @@ export class CameraController {
       cLon = Math.max(this._maxBounds.west, Math.min(this._maxBounds.east, cLon))
       cLat = Math.max(this._maxBounds.south, Math.min(this._maxBounds.north, cLat))
     }
-    // Clamp lat to Mercator-safe limit; lon wraps in renderFrame.
-    const clampedLat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, cLat))
-    const [mx, my] = lonLatToMercator(cLon, clampedLat)
+    // Dual clamp: centerY must stay Mercator-representable (±85.051129) so the
+    // 2D plane MVP / tile selection keep working, but the TRUE centre latitude
+    // (centerLatDeg) may reach the projType's pole — for the sphere family
+    // (globe/ortho/azi/stereo, poleLimit=90) this is how setCenter([0,89]) on
+    // the globe orbits the camera to the pole instead of saturating at 85.05.
+    // For cylindrical projections poleLimit=85.051129 ⇒ trueLat===mercLat ⇒
+    // centerLatDeg===mercatorYToLat(centerY): byte-identical to the old clamp.
+    const pl = poleLimit(this.camera.projType)
+    const trueLat = Math.max(-pl, Math.min(pl, cLat))
+    const mercLat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, cLat))
+    const [mx, my] = lonLatToMercator(cLon, mercLat)
     this.camera.centerX = mx
     this.camera.centerY = my
+    this.camera.centerLatDeg = trueLat
     this.invalidate()
   }
 
@@ -269,6 +279,9 @@ export class CameraController {
     } else {
       this.camera.centerX += dxMap
       this.camera.centerY -= dyMap
+      // This fast-path never exceeds ±85.05 (no pole-ward placement), so keep
+      // centerLatDeg synced from the final Mercator centerY.
+      this.camera.syncCenterLat()
       this.invalidate()
     }
   }
@@ -312,10 +325,17 @@ export class CameraController {
           cLon = Math.max(this._maxBounds.west, Math.min(this._maxBounds.east, cLon))
           cLat = Math.max(this._maxBounds.south, Math.min(this._maxBounds.north, cLat))
         }
-        const clampedLat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, cLat))
-        const [mx, my] = lonLatToMercator(cLon, clampedLat)
+        // Same dual clamp as setCenter: centerY stays Mercator-representable,
+        // centerLatDeg carries the true (possibly pole-ward) centre latitude so
+        // jumpTo({ center: [0, 89] }) on the globe reaches the pole. Byte-
+        // identical for cylindrical projections (poleLimit=85.051129).
+        const pl = poleLimit(this.camera.projType)
+        const trueLat = Math.max(-pl, Math.min(pl, cLat))
+        const mercLat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, cLat))
+        const [mx, my] = lonLatToMercator(cLon, mercLat)
         this.camera.centerX = mx
         this.camera.centerY = my
+        this.camera.centerLatDeg = trueLat
       }
     }
     if (opts.zoom !== undefined) {
@@ -371,8 +391,18 @@ export class CameraController {
     const cx = Number.isFinite(this.camera.centerX) ? this.camera.centerX : 0
     const cy = Number.isFinite(this.camera.centerY) ? this.camera.centerY : 0
     const lon = cx / (DEG2RAD * EARTH_RADIUS)
-    const latRad = mercatorYToLatRad(cy)
-    const lat = latRad / DEG2RAD
+    // Sphere family (globe/ortho/azi/stereo) stores its TRUE centre latitude in
+    // centerLatDeg, which can exceed the Mercator ±85.05 limit (reach-the-pole).
+    // Report THAT so getCenter([0,89]) round-trips on the globe instead of
+    // saturating at 85.05. Cylindrical projections keep the Mercator-Y inverse
+    // (byte-identical: centerLatDeg===mercatorYToLat(centerY) there). Fall back
+    // to the Mercator-derived value if centerLatDeg is somehow non-finite.
+    let lat: number
+    if (representsCenterAs(this.camera.projType) === 'lat-deg' && Number.isFinite(this.camera.centerLatDeg)) {
+      lat = this.camera.centerLatDeg
+    } else {
+      lat = mercatorYToLat(cy)
+    }
     return {
       center: [lon, lat],
       zoom: Number.isFinite(this.camera.zoom) ? this.camera.zoom : 0,

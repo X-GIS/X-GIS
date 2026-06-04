@@ -91,6 +91,10 @@ export class PrefetchScheduler {
     const futureCam = new Camera(0, 0, future.zoom)
     futureCam.centerX = future.cx
     futureCam.centerY = future.cy
+    // Sync the maintained true-centre latitude from the projected centerY so
+    // this temp camera is internally consistent (it only drives the flat
+    // frustum prefetch walk, but keep the invariant intact).
+    futureCam.syncCenterLat()
     futureCam.zoom = future.zoom
     futureCam.pitch = camera.pitch
     futureCam.bearing = camera.bearing

@@ -183,7 +183,7 @@ export class RenderLoop {
     // sensible default before the clamp so one bad assignment doesn't
     // lock the camera into NaN matrices for every subsequent frame.
     if (!Number.isFinite(this.host.camera.centerX)) this.host.camera.centerX = 0
-    if (!Number.isFinite(this.host.camera.centerY)) this.host.camera.centerY = 0
+    if (!Number.isFinite(this.host.camera.centerY)) { this.host.camera.centerY = 0; this.host.camera.syncCenterLat() }
     if (!Number.isFinite(this.host.camera.zoom)) this.host.camera.zoom = 0
     if (!Number.isFinite(this.host.camera.bearing)) this.host.camera.bearing = 0
     // pitch goes through a setter (iter 368) so this is a defensive

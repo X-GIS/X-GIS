@@ -726,7 +726,7 @@ export const MATRIX: MatrixCell[] = [
     ],
     gate: 'soft',
     knownStatus: 'expected_red',
-    note: 'Known-bug: globe pole pan-block — centerLat clamped to ±85.051129° even in globe mode (camera.ts), so a lat=89 cell leaves the pole off-frame. finite_mvp expected PASS; black_ratio expected to fire (mis-clamped framing). Soft tripwire.',
+    note: 'Globe pole-reach: the centerLat pan-block (±85.051129° clamp in globe mode) is FIXED — camera.centerLatDeg (roadmap S10) now carries the true pole-ward latitude so a lat=89 cell orbits the camera to the pole (verified: camera-center-sync.test reaches 89; arctic geography frames correctly). REMAINING expected_red: a residual polar-cap-gap artifact at the exact pole (white wedge + pole singularity) — the Web-Mercator tile pyramid has no rows past 85.05, so the fix EXPOSES (does not create) the pre-existing coverage/tessellation gap. Tracked separately (polar-cap-synth: GeoJSON-wired, PMTiles/TileJSON open). black_ratio/finite_mvp stay PASS (the gap renders white land + a singular point, not a void). Flip to green only once a pole-at-centre numeric oracle or a reviewed cap-gap-free baseline exists. Soft tripwire.',
   },
   {
     id: 'globe-backface-label-p0',

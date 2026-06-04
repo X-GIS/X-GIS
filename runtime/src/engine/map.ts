@@ -2527,6 +2527,8 @@ export class XGISMap {
             const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
             this.camera.centerX = cx
             this.camera.centerY = cy
+            // Keep centerLatDeg consistent with the fitted centerY (≤85, byte-safe).
+            this.camera.syncCenterLat()
             const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
             const cssW = this.canvas.width / dpr
             this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, cssW)

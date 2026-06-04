@@ -350,6 +350,10 @@ export async function replayMapSnapshot(
   m.camera.centerX = snap.camera.lon * DEG2RAD * R
   const clampedLat = Math.max(-85.051129, Math.min(85.051129, snap.camera.lat))
   m.camera.centerY = Math.log(Math.tan(Math.PI / 4 + clampedLat * DEG2RAD / 2)) * R
+  // Keep the maintained true-centre-latitude consistent with the restored
+  // centerY (bounded ≤85.05 here, so byte-safe) — the globe anchor readers
+  // consume centerLatDeg, not the Mercator-bounded inverse.
+  m.camera.syncCenterLat()
   m.camera.zoom = snap.camera.zoom
   m.camera.bearing = snap.camera.bearing
   m.camera.pitch = snap.camera.pitch
