@@ -51,6 +51,41 @@ export async function captureCanvas(
     { timeout: readyTimeout },
   )
 
+  // Wait for the engine to actually PAINT the scene, not just for the
+  // render loop to start. __xgisReady flips true when the loop starts, but
+  // URL/inline source data loads ASYNC and paints a frame or two later via
+  // invalidate(); the engine renders on-demand, so a fixed rAF count can
+  // screenshot the empty pre-data frame. Poll `hasPendingSourceWork()` (the
+  // engine's own "source fetch/upload/missed-tile still draining" check, the
+  // same gate render-on-demand uses) until it has been clear for a few
+  // consecutive frames. A data-bearing demo keeps it true while its fetch is
+  // in flight, so this waits for the real first paint; an animated scene
+  // (which never goes idle) still settles once its source work drains; a
+  // static demo settles in ~80ms; the bounded fallback prevents a hang.
+  // `_wasIdle` is the field fallback for builds without the method.
+  await page.evaluate((timeoutMs) => {
+    return new Promise<void>((resolve) => {
+      const m = (window as unknown as {
+        __xgisMap?: { hasPendingSourceWork?: () => boolean; _wasIdle?: boolean }
+      }).__xgisMap
+      if (!m) { resolve(); return }
+      const t0 = performance.now()
+      let stable = 0
+      const tick = () => {
+        let settled = false
+        try {
+          settled = typeof m.hasPendingSourceWork === 'function'
+            ? m.hasPendingSourceWork() === false
+            : m._wasIdle === true
+        } catch { settled = false }
+        stable = settled ? stable + 1 : 0
+        if (stable >= 5 || performance.now() - t0 > timeoutMs) resolve()
+        else requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+    })
+  }, readyTimeout)
+
   // Two extra rAF ticks so any shader-variant pipeline created on the
   // first frame can compose into the visible swap chain on frame 2.
   await page.evaluate(() => new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
