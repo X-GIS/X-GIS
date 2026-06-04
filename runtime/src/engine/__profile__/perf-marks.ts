@@ -39,6 +39,19 @@ interface PhaseState {
 
 const WINDOW = 60
 
+// iter-XXX — perf-marks are a diagnostic, not a production feature. Recording
+// costs ~8-12% of frame CPU during high-pitch drag (measured #2 hottest file),
+// so it is OFF by default and markStart/markEnd/flushPerFrameMarks early-return
+// to do zero performance.now()/Map work. Opt in via `__xgisPerfMarks = true`
+// before load, or call setPerfMarksEnabled(true) at runtime, to restore full
+// diagnostics. The recorded semantics are identical when enabled.
+let ENABLED = (globalThis as { __xgisPerfMarks?: boolean }).__xgisPerfMarks === true
+
+/** Toggle perf-marks recording. Off by default in production. */
+export function setPerfMarksEnabled(b: boolean): void {
+  ENABLED = b
+}
+
 const _states = new Map<string, PhaseState>()
 
 function getOrCreate(name: string): PhaseState {
@@ -60,11 +73,13 @@ function getOrCreate(name: string): PhaseState {
 }
 
 export function markStart(name: string): void {
+  if (!ENABLED) return
   const s = getOrCreate(name)
   s.startTs = performance.now()
 }
 
 export function markEnd(name: string): void {
+  if (!ENABLED) return
   const s = _states.get(name)
   if (s === undefined || s.startTs < 0) return
   const dur = performance.now() - s.startTs
@@ -79,6 +94,7 @@ export function markEnd(name: string): void {
 /** iter-263 — flush per-frame accumulators into per-frame ring.
  *  Call once per frame (e.g. from map.ts endFrame). */
 export function flushPerFrameMarks(): void {
+  if (!ENABLED) return
   for (const s of _states.values()) {
     s.perFrameRing[s.perFrameRingIdx] = s.perFrameSum
     s.perFrameRingIdx = (s.perFrameRingIdx + 1) % WINDOW

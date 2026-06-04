@@ -2,10 +2,13 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
-  markStart, markEnd, getPhaseAverages, resetPhaseTimings,
+  markStart, markEnd, getPhaseAverages, resetPhaseTimings, setPerfMarksEnabled,
 } from './perf-marks'
 
 beforeEach(() => {
+  // Recording is OFF by default in production; enable it so the diagnostic
+  // assertions below actually observe recorded samples.
+  setPerfMarksEnabled(true)
   resetPhaseTimings()
 })
 
