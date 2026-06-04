@@ -61,11 +61,14 @@ export type OracleKind =
   | 'black_ratio' // pure-black pixel fraction ≤ max (every pixel must have a defined source)
   | 'screenshot_diff' // committed PNG baseline diff via pixelDiffRatio (the ONLY oracle needing human bless)
   | 'label_onscreen' // every placed label anchor within viewport+margin (gross mis-dispatch)
+  | 'finite_mvp' // all 16 floats of the live camera MVP (getCameraDebugSnapshot().matrix) are finite (no NaN/Inf); projection-agnostic, no baseline
 
 /** The ink families the synthetic fixture renders (pinned to its layer hexes,
  *  see render-verify/d3-reference.ts STYLE), plus `slate` for ofm-bright
- *  water fill (used by the antimeridian cell's fill-present check). */
-export type InkFamilyName = 'emerald' | 'rose' | 'sky' | 'amber' | 'slate'
+ *  water fill (used by the antimeridian cell's fill-present check) and
+ *  `disc_fill` (#4488cc) for the SyntheticEarthSurfaceBackend solid disc
+ *  (used by the disc-family presence/drawCalls invariant). */
+export type InkFamilyName = 'emerald' | 'rose' | 'sky' | 'amber' | 'slate' | 'disc_fill'
 
 export interface OracleSpec {
   kind: OracleKind

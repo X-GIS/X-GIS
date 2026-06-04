@@ -58,6 +58,7 @@ const FAMILY_RGB: Record<InkFamilyName, [number, number, number]> = {
   sky: [56, 189, 248],
   amber: [245, 158, 11],
   slate: [170, 211, 223],
+  disc_fill: [68, 136, 204], // #4488cc — SyntheticEarthSurfaceBackend solid disc fill
 }
 const FAMILY_TOL: Record<InkFamilyName, number> = {
   emerald: 45,
@@ -65,6 +66,7 @@ const FAMILY_TOL: Record<InkFamilyName, number> = {
   sky: 45,
   amber: 45,
   slate: 60,
+  disc_fill: 40, // matches the synth-bg disc tolerance used by runDiscFraction
 }
 
 // ── numeric_forward / pixel_ref: build the d3 reference + compare ───────────
@@ -467,6 +469,38 @@ async function runLabelOnscreen(
   }
 }
 
+/** finite_mvp — assert every element of the live camera MVP matrix
+ *  (getCameraDebugSnapshot().matrix) is finite (no NaN/Inf). A NaN/Inf in the
+ *  projection uniform is the root of disc/globe coord-readout corruption and a
+ *  silent render collapse. Projection-AGNOSTIC and BASELINE-FREE: it works for
+ *  every projection (including the non-flat ones numeric_forward skips) and
+ *  stores nothing — it is the no-baseline finiteness guard for oblique/disc/
+ *  globe cells where xgisCameraToD3 throws. */
+async function runFiniteMvp(page: Page): Promise<OracleResult> {
+  const result = await page.evaluate(() => {
+    const m = (window as unknown as {
+      __xgisMap: { getCameraDebugSnapshot(w: number, h: number, dpr: number): { matrix: number[] } }
+    }).__xgisMap
+    const mapBox = document.querySelector('#map')!.getBoundingClientRect()
+    const W = Math.round(mapBox.width)
+    const H = Math.round(mapBox.height)
+    const dpr = window.devicePixelRatio || 1
+    const snap = m.getCameraDebugSnapshot(W, H, dpr)
+    const bad = snap.matrix.filter((v) => !Number.isFinite(v)).length
+    return { badCount: bad, total: snap.matrix.length }
+  })
+  return {
+    kind: 'finite_mvp',
+    pass: result.badCount === 0,
+    status: 'ok',
+    measured: result.badCount,
+    threshold: 0,
+    detail: result.badCount === 0
+      ? `all ${result.total} MVP floats finite`
+      : `${result.badCount}/${result.total} non-finite entries (NaN or Inf) in camera MVP`,
+  }
+}
+
 /** Dispatch one oracle. The runner calls this per (cell, oracle) and records
  *  the result; it never throws on a detector failure — it returns a result. */
 export async function runOracle(
@@ -484,6 +518,7 @@ export async function runOracle(
       case 'black_ratio': return await runBlackRatio(page, o, png)
       case 'screenshot_diff': return await runScreenshotDiff(page, cell, o, png)
       case 'label_onscreen': return await runLabelOnscreen(page, o)
+      case 'finite_mvp': return await runFiniteMvp(page)
       default:
         return {
           kind: String(o.kind),
