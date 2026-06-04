@@ -381,7 +381,12 @@ export class SubTileGenerator {
         const absLat = pv[i + 8]
         const px = absLon * DEG2RAD * R
         const py = Math.log(Math.tan(Math.PI / 4 + clampLat(absLat) * DEG2RAD / 2)) * R
-        if (px < clipW || px > clipE || py < clipS || py > clipN) continue
+        // clipW/E/S/N are parent-local offsets, so the bbox test must run in
+        // the parent-local frame (matching the polygon/line paths). Compare
+        // local coords, but push the ABSOLUTE px/py downstream.
+        const lpx = px - parentMx
+        const lpy = py - parentMy
+        if (lpx < clipW || lpx > clipE || lpy < clipS || lpy > clipN) continue
         survivors.push(px, py, pv[i + 6])
       }
       if (survivors.length >= 3) {
