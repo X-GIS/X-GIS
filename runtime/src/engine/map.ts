@@ -40,6 +40,7 @@ import { ShapeRegistry } from './text/sdf-shape'
 import { LineRenderer } from './render/line-renderer'
 import { PanZoomController, type Controller } from './controller'
 import { DirtyTracker, DirtyDomain } from './state/dirty'
+import { OperatorBus } from './ops/operator-bus'
 import { VectorTileRenderer } from './render/vector-tile-renderer'
 import { TextStage, type TextStageOptions } from './text/text-stage'
 import type { GlyphProvider } from './text/sdf/pbf/glyph-provider'
@@ -408,6 +409,7 @@ export class XGISMap {
   // per-frame rendering naturally.
   _needsRender = true
   private _dirty = new DirtyTracker()
+  private _ops = new OperatorBus(this._dirty)
   private _sceneHasAnimation = false
   _lastSigZoom = NaN
   _lastSigCX = NaN
@@ -479,6 +481,7 @@ export class XGISMap {
         this.showCommands.splice(synthIdx, 1)
       }
       this._backgroundColor = null
+      this._ops.dispatch({ kind: 'SetBackgroundFill', value: null }, DirtyDomain.STYLE)
       this.invalidate()
       return
     }
@@ -510,6 +513,7 @@ export class XGISMap {
         invalidateResolvedShowCache(synthShow)
       }
     }
+    this._ops.dispatch({ kind: 'SetBackgroundFill', value: rgba }, DirtyDomain.STYLE)
     this.invalidate()
   }
 
@@ -720,6 +724,7 @@ export class XGISMap {
   setGraticuleEnabled(on: boolean): void {
     this.renderer?.setGraticuleEnabled(on)
     this._graticuleInitial = on
+    this._ops.dispatch({ kind: 'SetGraticule', value: on }, DirtyDomain.STYLE)
     this.invalidate()
   }
 
@@ -1193,6 +1198,7 @@ export class XGISMap {
     // azimuthal set switches to it dynamically in renderFrame when
     // pitch>0 (renderers branch on projType 7).
     this.camera.globeMode = name === 'globe'
+    this._ops.dispatch({ kind: 'SetProjection', name: canonical }, DirtyDomain.PROJECTION)
     this.invalidate()
   }
 
