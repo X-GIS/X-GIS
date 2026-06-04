@@ -50,6 +50,7 @@ import {
 } from './layer'
 import { EventDispatcher } from './event-dispatcher'
 import { TileCatalog } from '../data/tile-catalog'
+import { isTileTemplate } from '../data/tile-select'
 import { buildShowSourceMaps } from './show-source-maps'
 import {
   parseHexColor, hexToRgba,
@@ -1838,6 +1839,18 @@ export class XGISMap {
       if (format === 'pmtiles' || format === 'tilejson') {
         prewarmVectorTileSource(url, format)
         anyVectorTile = true
+      } else {
+        // GeoJSON URL sources default-route through VirtualPMTilesBackend
+        // (source-manager Phase 5f), which decodes tiles on the SAME MVT
+        // worker pool. Mirror source-manager's classification: anything that
+        // is NOT a raster (declared raster, or an untyped {z}/{x}/{y}
+        // template) falls through to the GeoJSON path and needs that pool.
+        const isDeclaredVector = declaredType === 'vector'
+          || declaredType === 'tilejson'
+          || declaredType === 'pmtiles'
+        const looksLikeRaster = declaredType === 'raster'
+          || (!isDeclaredVector && isTileTemplate(url))
+        if (!looksLikeRaster) anyVectorTile = true
       }
     }
     // Prewarm the MVT decode worker pool when ANY load needs it. Each
@@ -1845,9 +1858,11 @@ export class XGISMap {
     // first compile pays that cost serially after the first byte
     // arrives. Pre-spawning here lets the workers initialise in
     // parallel with PMTiles header round trips and shader compile.
+    // GeoJSON loads now hit this too (they decode on the MVT pool via the
+    // virtual-PMTiles route) — without the prewarm the fleet spins up cold
+    // on the first compile() AFTER __xgisReady (~720 ms of idle worker
+    // module-eval the pre-ready GPU/shader init would otherwise hide).
     if (anyVectorTile) {
-      // Async import to keep the worker-pool module out of the path
-      // for pure-GeoJSON demos that never touch MVT decode.
       void import('../data/workers/mvt-worker-pool').then(m => m.prewarmMvtWorkerPool()).catch(() => undefined)
     }
 
