@@ -1115,6 +1115,12 @@ export class VectorTileRenderer {
       this.polyVertexArena?.reset()
       this.polyIndexArena?.reset()
       this.zBufferArena?.reset()
+      // P4 compute path — gpuCache is being cleared wholesale, so every
+      // per-tile ComputeLayerHandle is now orphaned. Free + clear them
+      // here too (the per-tile release loop above goes through arenas,
+      // not _releaseTileSlots, so it never touches these).
+      for (const h of this.computeHandlesByTile.values()) h.destroy()
+      this.computeHandlesByTile.clear()
       this.gpuCache.clear()
       this._gpuCacheCount = 0
     }
@@ -5261,6 +5267,17 @@ export class VectorTileRenderer {
     tile.outlineSegmentBuffer?.destroy()
     tile.lineSegmentBuffer?.destroy()
     tile.featureDataBuffer?.destroy()
+    // P4 compute path — the per-tile ComputeLayerHandle (feat / out /
+    // count buffer trio) is keyed `${tileKey}:${sourceLayer}` (slot here
+    // IS the sourceLayer; tk IS the tileKey). Free + drop it so its
+    // buffers are reclaimed and dispatchComputePass stops iterating over
+    // this evicted tile every frame.
+    const handleKey = `${tk}:${slot}`
+    const handle = this.computeHandlesByTile.get(handleKey)
+    if (handle) {
+      handle.destroy()
+      this.computeHandlesByTile.delete(handleKey)
+    }
     inner.delete(tk)
     this._gpuCacheCount--
     return { vBytes, iBytes }
