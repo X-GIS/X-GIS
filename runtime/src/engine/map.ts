@@ -1629,6 +1629,14 @@ export class XGISMap {
 
   /** Load and run an X-GIS program */
   async run(source: string, baseUrl = ''): Promise<void> {
+    // Re-entry guard. A destroyed map is inert — re-running would
+    // resurrect it (re-arm the render loop + hold a fresh GPUDevice for
+    // the page lifetime), so bail. Re-running a still-live map is a
+    // legitimate scene swap, but the prior run()'s ctx/renderers/stages
+    // must be torn down first or its GPUDevice is orphaned.
+    if (this._destroyed) return
+    if (this._loaded || this.running) this._teardownForReinit()
+
     // Reset the e2e ready signal for this load. The smoke test polls
     // __xgisReady after triggering navigation; the previous demo's
     // `true` would falsely satisfy the wait if we didn't clear it.
@@ -1882,6 +1890,13 @@ export class XGISMap {
       return
     }
     if (result instanceof Error) throw result
+    // A destroy() may have landed while requestDevice() was in flight.
+    // Re-arming state now would resurrect the map AND leak this freshly-
+    // minted device for the page lifetime — destroy it and bail instead.
+    if (this._destroyed) {
+      (result as GPUContext)?.device?.destroy?.()
+      return
+    }
     this.ctx = result
     if (this._onDeviceLost) this.ctx.onDeviceLost = this._onDeviceLost
     this.renderer = new MapRenderer(this.ctx)
@@ -2065,6 +2080,15 @@ export class XGISMap {
       } catch (e) {
         xlog.warn('[X-GIS] shader prewarm failed (falling back to lazy compile on first draw):', (e as Error).message)
       }
+    }
+
+    // A destroy() may have landed across the data-load / prewarm awaits.
+    // Stop before rebuildLayers + re-arming the render loop — otherwise
+    // the destroyed map resurrects and its device leaks for the page
+    // lifetime. Tear down the device we created earlier in this run().
+    if (this._destroyed) {
+      this.ctx?.device?.destroy?.()
+      return
     }
 
     // 4. Build render layers + fit camera
@@ -2529,13 +2553,19 @@ export class XGISMap {
 
   /** Load and run a pre-compiled .xgb binary */
   async runBinary(buffer: ArrayBuffer, baseUrl = ''): Promise<void> {
+    // Re-entry guard — see run(). A destroyed map stays inert; a live map
+    // tears down its prior device before re-loading so it isn't orphaned.
+    if (this._destroyed) return
+    if (this._loaded || this.running) this._teardownForReinit()
+
     const scene = deserializeXGB(buffer)
     const commands: SceneCommands = { loads: scene.loads, shows: scene.shows as unknown as SceneCommands['shows'] }
 
     console.log('[X-GIS] Binary loaded:', commands.loads.length, 'loads,', commands.shows.length, 'shows')
 
+    let ctx: GPUContext
     try {
-      this.ctx = await initGPU(this.canvas)
+      ctx = await initGPU(this.canvas)
     } catch (e) {
       if (e instanceof WebGPUUnavailableError) {
         // Graceful: no WebGPU / no adapter. Fire the host hook, or show a
@@ -2547,6 +2577,14 @@ export class XGISMap {
       }
       throw e
     }
+    // A destroy() may have landed while requestDevice() was in flight —
+    // re-arming now would resurrect the map and leak this device. Destroy
+    // it and bail before assigning ctx / building renderers.
+    if (this._destroyed) {
+      ctx?.device?.destroy?.()
+      return
+    }
+    this.ctx = ctx
     if (this._onDeviceLost) this.ctx.onDeviceLost = this._onDeviceLost
     this.renderer = new MapRenderer(this.ctx)
     this.renderer.setGraticuleEnabled(this._graticuleInitial)
@@ -2585,6 +2623,14 @@ export class XGISMap {
       this._installSyntheticEarthSurfaceSource(this._backgroundColor)
       const syntheticShow = buildSyntheticEarthSurfaceShow(this._backgroundColor)
       commands.shows = [syntheticShow, ...commands.shows] as typeof commands.shows
+    }
+
+    // A destroy() may have landed across the per-source fetch awaits.
+    // Stop before rebuildLayers + re-arming the loop, destroying the
+    // device created above so it doesn't outlive the map.
+    if (this._destroyed) {
+      this.ctx?.device?.destroy?.()
+      return
     }
 
     this.showCommands = commands.shows
@@ -3064,6 +3110,42 @@ export class XGISMap {
         this.vtSources.delete(key)
       }
     }
+  }
+
+  /** Release every GPU resource this map allocated in a prior run()/
+   *  runBinary() so the SAME instance can be re-loaded without orphaning
+   *  the previous GPUDevice. Mirrors destroy()'s resource-freeing body
+   *  MINUS the _destroyed latch and the canvas/controller/keyboard
+   *  removal — those DOM hooks are reused by the re-run. After this
+   *  returns, run()/runBinary() rebuild ctx + renderers + stages clean.
+   *  No-op when nothing was ever loaded (`?.` covers a null ctx). */
+  private _teardownForReinit(): void {
+    this.running = false
+
+    // Per-source GPU renderers + tile catalogs.
+    for (const key of [...this.vtSources.keys()]) this.teardownSource(key)
+
+    // Overlay stages own GPU buffers + glyph/icon atlases.
+    this.textStage?.destroy()
+    this.textStage = null
+    this.iconStage?.destroy()
+    this.iconStage = null
+
+    // Colour / scalar palette + gradient-atlas textures.
+    if (this._paletteHandles) {
+      this._paletteHandles.colorPalette.destroy()
+      this._paletteHandles.scalarPalette.destroy()
+      this._paletteHandles.colorGradientAtlas.destroy()
+      this._paletteHandles.scalarGradientAtlas.destroy()
+      this._paletteHandles = null
+    }
+
+    // Keystone: frees EVERY remaining GPU resource on the prior per-map
+    // device (buffers, textures, pipelines across all renderers + render
+    // targets) in one call, so the orphaned device can't outlive the map.
+    this.ctx?.device?.destroy()
+
+    this.vtSources.clear()
   }
 
   /** Public teardown — releases every resource this map owns so an SPA
