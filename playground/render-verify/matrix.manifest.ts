@@ -206,11 +206,10 @@ export const MATRIX: MatrixCell[] = [
     oracles: [
       { kind: 'numeric_forward', max: 1e-2 },
       { kind: 'ink_family', families: [{ name: 'emerald', minRatio: 0.0005 }, { name: 'sky', minRatio: 0.001 }] },
-      { kind: 'black_ratio', max: 0.02 },
     ],
     gate: 'hard',
     knownStatus: 'green',
-    note: 'Probe-verified equirect numeric_forward (maxErr ~6e-6 px). Guards projType-1 reproject regression; synthetic fixture gives reproducible emerald+sky ink.',
+    note: 'Probe-verified equirect numeric_forward (maxErr ~6e-6 px). Guards projType-1 reproject regression; synthetic fixture gives reproducible emerald+sky ink. (black_ratio dropped: the synthetic fixture renders on a black backdrop — its ~73% black is legit empty bg, not a void.)',
   },
   {
     id: 'equirect-p30-ofm-z4',
@@ -241,11 +240,10 @@ export const MATRIX: MatrixCell[] = [
     oracles: [
       { kind: 'ink_family', families: [{ name: 'slate', minRatio: 0.005 }] },
       { kind: 'black_ratio', max: 0.02 },
-      { kind: 'numeric_forward', max: 1e-2 },
     ],
     gate: 'hard',
     knownStatus: 'green',
-    note: 'High-pitch (60°) equirect — most demanding flat-cylindrical tilt. black_ratio catches the above-horizon void; numeric_forward gates MVP finiteness at high pitch.',
+    note: 'High-pitch (60°) equirect — most demanding flat-cylindrical tilt. black_ratio catches the above-horizon void. (numeric_forward dropped: the flat CPU mirror has no perspective/tilt term, so it is invalid at pitch != 0 — ink+black gate the tilt.)',
   },
   {
     id: 'equirect-seoul-z14-deepzoom',
@@ -293,11 +291,10 @@ export const MATRIX: MatrixCell[] = [
     oracles: [
       { kind: 'numeric_forward', max: 1e-2 },
       { kind: 'ink_family', families: [{ name: 'emerald', minRatio: 0.0005 }, { name: 'sky', minRatio: 0.001 }] },
-      { kind: 'black_ratio', max: 0.02 },
     ],
     gate: 'hard',
     knownStatus: 'green',
-    note: 'Probe-verified NE numeric_forward (maxErr ~6e-4 px via xgisNaturalEarth1Raw). Guards projType-2 reproject; center [0,20] avoids the OPEN antimeridian seam tear.',
+    note: 'Probe-verified NE numeric_forward (maxErr ~6e-4 px via xgisNaturalEarth1Raw). Guards projType-2 reproject; center [0,20] avoids the OPEN antimeridian seam tear. (black_ratio dropped: synthetic black backdrop ~73% is legit empty bg, not a void.)',
   },
   {
     id: 'natearth-p30-ofm-z4',
@@ -524,16 +521,17 @@ export const MATRIX: MatrixCell[] = [
     dataset: 'synthetic_disc',
     surfaces: ['bg'],
     camera: { center: [0, 0] },
-    // z2 shrinks the disc to a small circle inside the canvas — wide existence
-    // band (0.30 ± 0.28) catches disc-absent vs disc-present.
+    // Ortho z2 frames the disc IDENTICALLY to z0 (the 2R cap binds at both) — a
+    // near-full-canvas disc (~88% fill), NOT a shrunken circle. Band mirrors
+    // ortho-z0-p0-disc; black_ratio ~0.15 = the 4:3 canvas corners outside the disc.
     oracles: [
-      { kind: 'disc_fraction', expected: 0.30, max: 0.28 },
+      { kind: 'disc_fraction', expected: 0.88, max: 0.12 },
       { kind: 'finite_mvp' },
-      { kind: 'black_ratio', max: 0.05 },
+      { kind: 'black_ratio', max: 0.15 },
     ],
     gate: 'hard',
     knownStatus: 'green',
-    note: 'Ortho z2 p0 — non-z0 framing path. Wide existence band + finite_mvp + black_ratio (≤5%) guard the cap-table switch at low non-zero zoom.',
+    note: 'Ortho z2 p0 — non-z0 framing path. Disc frames like z0 (~88%); finite_mvp + black_ratio (≤15%, disc corners) guard the cap-table switch at low non-zero zoom.',
   },
   {
     id: 'azi-z0-p60-disc-pitched',
@@ -566,11 +564,11 @@ export const MATRIX: MatrixCell[] = [
     oracles: [
       { kind: 'ink_family', families: [{ name: 'slate', minRatio: 0.005 }] },
       { kind: 'finite_mvp' },
-      { kind: 'black_ratio', max: 0.05 },
+      { kind: 'black_ratio', max: 0.15 },
     ],
     gate: 'hard',
     knownStatus: 'green',
-    note: 'Real-data ortho z2 — full pipeline (bg+fill+line) under disc projection. ink_family catches a dropped layer; black_ratio (≤5%) catches disc-interior void; finite_mvp guards the matrix. numeric_forward correctly omitted (throws for ortho).',
+    note: 'Real-data ortho z2 — full pipeline (bg+fill+line) under disc projection. ink_family catches a dropped layer; black_ratio (≤15%; the 4:3 disc-corner void is unavoidable) catches disc-interior void; finite_mvp guards the matrix. numeric_forward correctly omitted (throws for ortho).',
   },
   {
     id: 'azi-ofm-z2-p0-content',
