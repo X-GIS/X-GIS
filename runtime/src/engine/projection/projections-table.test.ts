@@ -3,8 +3,11 @@ import {
   PROJECTIONS,
   PROJECTION_NAME_TO_TYPE,
   SELECTOR_PROJ_NAMES,
+  poleLimit,
+  representsCenterAs,
 } from './projections-table'
 import { worldCopiesFor, enumerateWorldCopies, routeToSphereSelector } from '../gpu/gpu-shared'
+import { MERCATOR_LAT_LIMIT } from './projection'
 
 // The PROJECTIONS table is the SINGLE SOURCE OF TRUTH (authority flip, P1):
 // the world-copy / sphere-routing predicates now DERIVE from these rows.
@@ -107,6 +110,41 @@ describe('PROJECTIONS table', () => {
     }
     for (const p of PROJECTIONS) {
       expect(p.worldBand).toBe(expected[p.projType])
+    }
+  })
+
+  it('poleLimit() === Mercator limit for {0,1,6}, true pole (90) for {2,3,4,5,7}', () => {
+    // Derived from the worldBand column: mercator-clamped → 85.051129°,
+    // natural-earth + sphere-full → 90°. natural_earth (2) reaches the true
+    // pole despite being cylindrical — it is NOT mercator-clamped.
+    const expected: Record<number, number> = {
+      0: 85.051129, 1: 85.051129, 6: 85.051129,
+      2: 90, 3: 90, 4: 90, 5: 90, 7: 90,
+    }
+    for (const p of PROJECTIONS) {
+      expect(poleLimit(p.projType)).toBe(expected[p.projType])
+    }
+  })
+
+  it('poleLimit(0) === MERCATOR_LAT_LIMIT (drift gate vs projection.ts)', () => {
+    // The table mirrors MERCATOR_LAT_LIMIT locally (MERCATOR_POLE_LIMIT) so the
+    // authority file imports nothing; this gate pins the mirror equal to the
+    // real const, mirroring projection-threshold-drift.test. Mutate either copy
+    // → RED. Covers all three mercator-clamped projTypes for completeness.
+    expect(poleLimit(0)).toBe(MERCATOR_LAT_LIMIT)
+    expect(poleLimit(1)).toBe(MERCATOR_LAT_LIMIT)
+    expect(poleLimit(6)).toBe(MERCATOR_LAT_LIMIT)
+  })
+
+  it("representsCenterAs() === 'mercator-y' for {0,1,2,6}, 'lat-deg' for {3,4,5,7}", () => {
+    // Sphere-full family stores a true centre latitude; the cylindrical family
+    // (incl. natural_earth, the DECIDED default) keeps Mercator-Y pan authority.
+    const expected: Record<number, string> = {
+      0: 'mercator-y', 1: 'mercator-y', 2: 'mercator-y', 6: 'mercator-y',
+      3: 'lat-deg', 4: 'lat-deg', 5: 'lat-deg', 7: 'lat-deg',
+    }
+    for (const p of PROJECTIONS) {
+      expect(representsCenterAs(p.projType)).toBe(expected[p.projType])
     }
   })
 

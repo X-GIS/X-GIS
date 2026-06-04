@@ -158,6 +158,37 @@ export function worldBandForProjType(projType: number): WorldBandKind {
   return PROJECTIONS[projType]?.worldBand ?? 'mercator-clamped'
 }
 
+// Mirror of MERCATOR_LAT_LIMIT (projection.ts); pinned equal by
+// projections-table.test.ts. Duplicated (not imported) so this authority file
+// keeps importing nothing — the dependency-inversion invariant documented at
+// the top (lines 24-26) and re-stated for flatViewHeightCapM/WORLD_COPIES.
+// The drift-gate test imports the real const and asserts poleLimit(0) equals
+// it, mirroring the projection-threshold-drift.test pattern.
+const MERCATOR_POLE_LIMIT = 85.051129
+
+/** Latitude (degrees) at which a projType's pole is reached. The
+ *  mercator-clamped family (mercator 0 / equirect 1 / oblique_mercator 6)
+ *  saturates at the Web Mercator limit (~85.0511°); natural_earth (2) and the
+ *  sphere-full family (3/4/5/7) reach the true geographic pole (90°). Derived
+ *  from the `worldBand` column, not a projType switch. */
+export function poleLimit(projType: number): number {
+  // mercator-clamped → Mercator pole limit; natural-earth + sphere-full → true pole
+  return worldBandForProjType(projType) === 'mercator-clamped' ? MERCATOR_POLE_LIMIT : 90
+}
+
+/** How a projType represents its camera-centre latitude for pan/zoom
+ *  authority. */
+export type CenterRepr = 'mercator-y' | 'lat-deg'
+
+/** Whether a projType stores its centre as a true latitude (sphere family) or
+ *  as a Mercator-Y pan coordinate (cylindrical family, incl. natural_earth —
+ *  the DECIDED default — which keeps Mercator-Y pan authority). Derived from
+ *  the `worldBand` column, not a projType switch. */
+export function representsCenterAs(projType: number): CenterRepr {
+  // sphere-family stores true centre latitude; cylindrical (incl natural_earth, DECIDED default) keeps Mercator-Y pan authority
+  return worldBandForProjType(projType) === 'sphere-full' ? 'lat-deg' : 'mercator-y'
+}
+
 const EARTH_R_M = 6378137
 
 /** Flat-path z0 view-height cap (metres) for a projType. The flat MVP
