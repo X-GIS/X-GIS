@@ -3228,8 +3228,13 @@ export class XGISMap {
       let index = this._featureIndex.get(sourceId)
       if (!index) {
         index = new Map()
-        for (const f of data.features) {
-          index.set(toU32Id(f.id ?? f.properties?.id), f)
+        for (let i = 0; i < data.features.length; i++) {
+          const f = data.features[i]
+          // +1 on the fallback index branch mirrors the encode chokepoint
+          // (geojson-compile-worker.ts:resolveIdResolver) so the stable id
+          // the host receives from a pick event (i+1 for id-less features)
+          // matches the key updateFeature patches against here.
+          index.set(toU32Id(f.id ?? f.properties?.id ?? i + 1), f)
         }
         this._featureIndex.set(sourceId, index)
       }

@@ -57,10 +57,13 @@ describe('resolveIdResolver', () => {
     expect(r({ type: 'Feature', id: 42, geometry: null, properties: {} }, 0)).toBe(42)
   })
 
-  it('feature-id-fallback falls back to properties.id, then index', () => {
+  it('feature-id-fallback falls back to properties.id, then index+1', () => {
     const r = resolveIdResolver('feature-id-fallback')
     expect(r({ type: 'Feature', geometry: null, properties: { id: 7 } }, 999)).toBe(7)
-    expect(r({ type: 'Feature', geometry: null, properties: {} }, 3)).toBe(3)
+    // Fallback index is offset by +1 so the first id-less feature (index 0)
+    // becomes 1, never the pick decoder's "no feature" sentinel 0.
+    expect(r({ type: 'Feature', geometry: null, properties: {} }, 3)).toBe(4)
+    expect(r({ type: 'Feature', geometry: null, properties: {} }, 0)).toBe(1)
   })
 })
 

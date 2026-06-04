@@ -93,7 +93,12 @@ type OutMsg = GeoJSONCompileResponse | GeoJSONCompileError
 
 export function resolveIdResolver(mode: IdResolverMode) {
   if (mode === 'feature-id-fallback') {
-    return (f: GeoJSONFeature, i: number) => toU32Id(f.id ?? f.properties?.id ?? i)
+    // Offset the fallback array-INDEX by +1 so the first id-less feature
+    // becomes 1, never 0. featureId 0 is the pick decoder's "no feature"
+    // sentinel (mirrors LayerIdRegistry.next=1 on the layer axis), so an
+    // index-0 feature would otherwise be permanently un-pickable. Explicit
+    // `f.id` / `properties.id` values are NOT offset — only the index branch.
+    return (f: GeoJSONFeature, i: number) => toU32Id(f.id ?? f.properties?.id ?? i + 1)
   }
   return (_f: GeoJSONFeature, i: number) => i
 }

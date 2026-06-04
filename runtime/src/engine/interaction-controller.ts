@@ -213,7 +213,10 @@ export class InteractionController {
       index = new Map()
       for (let i = 0; i < data.features.length; i++) {
         const f = data.features[i]
-        const id = toU32Id(f.id ?? f.properties?.id ?? i)
+        // +1 on the fallback index branch mirrors the encode chokepoint
+        // (geojson-compile-worker.ts:resolveIdResolver) so a feature that
+        // encodes to i+1 in the GPU pick buffer looks up at i+1 here.
+        const id = toU32Id(f.id ?? f.properties?.id ?? i + 1)
         index.set(id, f)
       }
       this._featureIndex.set(sourceName, index)
