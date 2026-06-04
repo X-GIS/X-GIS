@@ -247,7 +247,7 @@ const vs = entryFn('vs_point', 'vertex', [
   // Pack-byte at offset 10: bit 0..3 reserved, bits 4..7 = size_mode,
   // bit 3 = is_flat, bits 8..9 = anchor_mode.
   const packed10 = b.let('packed10', toU32(featData.at(fid.mul(STRIDE).add(u32(10)), f32T)))
-  const sizeMode = b.let('size_mode', packed10.shr(u32(4)))
+  const sizeMode = b.let('size_mode', packed10.shr(u32(4)).bitAnd(u32(0xF)))
   // Size mode: 0=px, 1=m, 2=km, 3=deg (equator approx), 4=nm.
   const radiusPx = b.var('radius_px', f32T)
   const viewport = u.field('viewport', vec4fT)
