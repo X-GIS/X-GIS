@@ -768,6 +768,26 @@ export class VectorTileRenderer {
     archiveAncestor: number[]
   } | null = null
 
+  /** Frame-scoped memo for the zoom-transition readiness gate's SSE
+   *  pass (see render() ~:2841). When a transition is "wanted", the
+   *  gate runs `visibleTilesSSE(camera, selectorProj, step, …)` once
+   *  per ShowCommand to count cached-vs-total tiles at the step LOD.
+   *  The selection is sourceLayer-INDEPENDENT — its only per-show
+   *  inputs are `step` (the LOD being probed) and `marginPx` (stroke-
+   *  derived cull margin); everything else (camera, canvas, dpr,
+   *  projection) is frame-constant, captured by `frameId`. A
+   *  Bright/Liberty style with ~13 shows sharing one source therefore
+   *  re-ran an identical SSE walk up to 13× per frame during zoom.
+   *
+   *  Key = `step * 4096 + marginPx`, scoped by `frameId`. Distinct
+   *  `step` values across a multi-LOD step-advance within one frame
+   *  get distinct entries (correct — they probe different LODs);
+   *  distinct stroke margins likewise. Cleared each frame so a camera
+   *  / canvas change (which bumps `frameId`) invalidates every entry,
+   *  keeping pan/zoom tile updates correct. */
+  private readonly _gateSSECache = new Map<number, ReturnType<typeof visibleTilesSSE>>()
+  private _gateSSECacheFrameId = -1
+
   beginFrame(frameId: number = 0): void {
     this.currentFrameId = frameId
     this.uniformRing?.resetSlot()
@@ -2838,10 +2858,32 @@ export class VectorTileRenderer {
           // DIFFERENT tile set than the renderer asks for, so the
           // readiness check wouldn't actually predict the renderer's
           // demand. SSE is faster AND consistent.
-          stepTiles = visibleTilesSSE(
-            camera, selectorProj, step,
-            canvasWidth, canvasHeight, offsetMarginPx, dpr,
-          )
+          //
+          // Frame-scoped memo: with one source feeding ~13 layer
+          // ShowCommands, every show whose camera crosses an integer
+          // zoom boundary re-ran this identical SSE walk. The selection
+          // depends only on `step` (the probed LOD) and `offsetMarginPx`
+          // (per-show stroke margin) — all other inputs (camera, canvas,
+          // dpr, selectorProj) are frame-constant. Cache on those two,
+          // scoped by `currentFrameId`; the per-show `total/ready` count
+          // below is still recomputed (it reads the live catalog cache),
+          // only the quadtree walk is shared. Cleared on frameId change
+          // so a camera/canvas move re-selects (panning still updates).
+          if (this._gateSSECacheFrameId !== this.currentFrameId) {
+            this._gateSSECache.clear()
+            this._gateSSECacheFrameId = this.currentFrameId
+          }
+          const gateKey = step * 4096 + offsetMarginPx
+          const cachedStep = this._gateSSECache.get(gateKey)
+          if (cachedStep !== undefined) {
+            stepTiles = cachedStep
+          } else {
+            stepTiles = visibleTilesSSE(
+              camera, selectorProj, step,
+              canvasWidth, canvasHeight, offsetMarginPx, dpr,
+            )
+            this._gateSSECache.set(gateKey, stepTiles)
+          }
           for (const t of stepTiles) {
             if (t.z !== step) continue
             total++
