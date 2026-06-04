@@ -664,12 +664,16 @@ const emitLogDepthJitter = (b: Builder, input: Node, out: Node): void => {
   b.assign(out.field('depth', f32T), baseDepth.add(jitter))
 }
 
-// Pick attachment write — only emits when pickEnabled. low16 = u.pick_id;
-// high16 reserved (always 0 in current renderer; WORLD_COPIES will populate).
+// Pick attachment write (RG32Uint) — only emits when pickEnabled. The readback
+// decoder (interaction-controller) expects R = feat_id (the per-feature id) and
+// G = pick_id (the packed (instanceId<<16)|layerId), and drops the sample as a
+// miss when either is 0. Writing pick_id into R / 0 into G (the pre-fix DSL port
+// of #152) left layerId === 0 for every pixel, so pickAt returned null for all
+// polygon fills. Keep R = feat_id, G = pick_id.
 
-const emitPickWrite = (b: Builder, out: Node, pickEnabled: boolean): void => {
+const emitPickWrite = (b: Builder, input: Node, out: Node, pickEnabled: boolean): void => {
   if (!pickEnabled) return
-  b.assign(out.field('pick', vec2uT), vec2u(u.field('pick_id', u32T), u32(0)))
+  b.assign(out.field('pick', vec2uT), vec2u(input.field('feat_id', u32T), u.field('pick_id', u32T)))
 }
 
 // ── Fragment entries ──
@@ -713,7 +717,7 @@ const buildFsFill = (pickEnabled: boolean) =>
       // inherit it without per-variant codegen plumbing.
       const rimA = callFn('polygon_rim_alpha', f32T, input.field('abs_merc_x', f32T), input.field('abs_merc_y', f32T))
       b.assign(out.field('color', vec4fT).a, out.field('color', vec4fT).a.mul(rimA))
-      emitPickWrite(b, out, pickEnabled)
+      emitPickWrite(b, input, out, pickEnabled)
       emitLogDepthJitter(b, input, out)
       b.ret(out)
     },
@@ -754,7 +758,7 @@ const buildFsFillPattern = (pickEnabled: boolean) =>
       b.assign(out.field('color', vec4fT), vec4(sampled.rgb, sampled.a.mul(u.field('opacity', f32T))))
       const rimA = callFn('polygon_rim_alpha', f32T, input.field('abs_merc_x', f32T), input.field('abs_merc_y', f32T))
       b.assign(out.field('color', vec4fT).a, out.field('color', vec4fT).a.mul(rimA))
-      emitPickWrite(b, out, pickEnabled)
+      emitPickWrite(b, input, out, pickEnabled)
       emitLogDepthJitter(b, input, out)
       b.ret(out)
     },
@@ -826,7 +830,7 @@ const buildFsFillExtrude = (pickEnabled: boolean) =>
       // edges on globe / azimuthal projections.
       const rim = b.let('rim', callFn('polygon_rim_alpha', f32T, input.field('abs_merc_x', f32T), input.field('abs_merc_y', f32T)))
       b.assign(out.field('color', vec4fT), input.field('v_color', vec4fT).mul(rim))
-      emitPickWrite(b, out, pickEnabled)
+      emitPickWrite(b, input, out, pickEnabled)
       emitLogDepthJitter(b, input, out)
       b.ret(out)
     },
@@ -861,7 +865,7 @@ const buildFsStroke = (pickEnabled: boolean) =>
       b.placeholder('stroke-return')
       const rimA = callFn('polygon_rim_alpha', f32T, input.field('abs_merc_x', f32T), input.field('abs_merc_y', f32T))
       b.assign(out.field('color', vec4fT).a, out.field('color', vec4fT).a.mul(rimA))
-      emitPickWrite(b, out, pickEnabled)
+      emitPickWrite(b, input, out, pickEnabled)
       // Stroke depth: bare log-depth, no per-feature jitter.
       b.assign(out.field('depth', f32T), callFn('compute_log_frag_depth', f32T, input.field('view_w', f32T), u.field('log_depth_fc', f32T)))
       b.ret(out)
