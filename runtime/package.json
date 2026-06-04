@@ -29,6 +29,8 @@
     "proj4": "^2.20.8"
   },
   "devDependencies": {
+    "@xgis/compiler": "workspace:*",
+    "@xgis/shared": "workspace:*",
     "geojson-vt": "^4.0.2",
     "rollup": "^4.60.4",
     "rollup-plugin-dts": "^6.4.1",
