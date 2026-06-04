@@ -16,6 +16,9 @@
     "dev:all": "bun run --filter @xgis/playground --filter @xgis/site dev",
     "precheck": "bun scripts/precheck.ts",
     "precheck:smoke": "bun scripts/precheck.ts --smoke",
+    "precheck:matrix": "bun scripts/precheck.ts --matrix",
+    "matrix:accept": "bun scripts/matrix-accept.ts",
+    "matrix:report": "bun scripts/matrix-report.ts",
     "setup:hooks": "git config core.hooksPath .githooks && echo Pre-push hook armed. Skip with --no-verify."
   },
   "devDependencies": {

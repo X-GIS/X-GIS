@@ -49,6 +49,10 @@ playground/e2e/__*__
 !playground/e2e/__pixel-match-demotiles-user__/**
 !playground/e2e/__projection-zoom-survey__
 !playground/e2e/__projection-zoom-survey__/**
+# Matrix-gate candidate artifacts (scratch for human review) stay ignored via
+# the __*__ rule above. The REVIEWED baseline corpus lives at
+# playground/render-verify/baselines/ (NOT under __*__), so it is tracked by
+# default — only `bun run matrix:accept` writes there. See docs/verification/MATRIX.md.
 
 # Profiling + perf-debug dumps (ad-hoc, not source-controlled)
 *.cpuprofile
