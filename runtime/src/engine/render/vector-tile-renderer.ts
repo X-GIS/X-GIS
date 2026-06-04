@@ -2269,6 +2269,30 @@ export class VectorTileRenderer {
     // below frees on throw; the race-guard frees on early-return.
     let polySlotsCached = false
 
+    // Declared OUTSIDE the try so the catch backstop below can reach them.
+    // A throw mid-acquire (e.g. the 2nd acquireBuffer / uploadSegmentBufferAsync)
+    // can leave some of these populated; the catch must free them too.
+    let lineVertexBuffer: GPUBuffer | null = null
+    let lineIndexBuffer: GPUBuffer | null = null
+    let outlineIndexBuffer: GPUBuffer | null = null
+    let outlineSegmentBuffer: GPUBuffer | null = null
+    let lineSegmentBuffer: GPUBuffer | null = null
+    // Bail-site cleanup: the three early-returns below (UAF/compaction guard,
+    // same-key race guard, catch backstop) all return BEFORE layerCache.set,
+    // so the line/outline buffers acquired above + the segment buffers built
+    // below are never recorded in the cache entry and _releaseTileSlots can
+    // never reach them — they leak VRAM. Each bail site calls this first to
+    // return the pooled index/vertex buffers + destroy the lineRenderer-owned
+    // segment buffers. Same order/guards as _releaseTileSlots; all null for
+    // synthetic sources (no lineRenderer / empty line data).
+    const cleanupLineBuffers = () => {
+      this.releaseBuffer(lineVertexBuffer)
+      this.releaseBuffer(lineIndexBuffer)
+      this.releaseBuffer(outlineIndexBuffer)
+      outlineSegmentBuffer?.destroy()
+      lineSegmentBuffer?.destroy()
+    }
+
     try {
 
     // Kick off the staging-buffer mapAsync for vertex + index in
@@ -2284,8 +2308,6 @@ export class VectorTileRenderer {
     const zBufferOffset = 0
     const zBufferByteLength = 0
 
-    let lineVertexBuffer: GPUBuffer | null = null
-    let lineIndexBuffer: GPUBuffer | null = null
     if (data.lineVertices.length > 0) {
       lineVertexBuffer = this.acquireBuffer(
         data.lineVertices.byteLength,
@@ -2302,7 +2324,6 @@ export class VectorTileRenderer {
       writeHandles.push(asyncWriteBuffer(this.stagingPool, encoder, lineIndexBuffer, 0, data.lineIndices))
     }
 
-    let outlineIndexBuffer: GPUBuffer | null = null
     let outlineIndexCount = 0
     if (data.outlineIndices && data.outlineIndices.length > 0) {
       outlineIndexBuffer = this.acquireBuffer(
@@ -2317,10 +2338,8 @@ export class VectorTileRenderer {
     // SDF line segment buffers — same logic as sync path but routed
     // through `uploadSegmentBufferAsync` so the segment-buffer write
     // shares this tile's staging pool + encoder.
-    let outlineSegmentBuffer: GPUBuffer | null = null
     let outlineSegmentCount = 0
     let outlineSegmentBindGroup: GPUBindGroup | null = null
-    let lineSegmentBuffer: GPUBuffer | null = null
     let lineSegmentCount = 0
     let lineSegmentBindGroup: GPUBindGroup | null = null
     if (this.lineRenderer) {
@@ -2413,6 +2432,7 @@ export class VectorTileRenderer {
       this.polyIndexArena?.buffer !== indexBuffer
     ) {
       for (const release of releases) release()
+      cleanupLineBuffers()
       return
     }
 
@@ -2433,6 +2453,7 @@ export class VectorTileRenderer {
     if (layerCache.has(key)) {
       polyVertexArena.free(polyVertexOffset, polyVertexByteLength)
       polyIndexArena.free(polyIndexOffset, polyIndexByteLength)
+      cleanupLineBuffers()
       return
     }
 
@@ -2483,6 +2504,9 @@ export class VectorTileRenderer {
       if (!polySlotsCached) {
         polyVertexArena.free(polyVertexOffset, polyVertexByteLength)
         polyIndexArena.free(polyIndexOffset, polyIndexByteLength)
+        // The line/outline/segment buffers acquired before the throw were
+        // never handed to the cache either — free them with the poly slots.
+        cleanupLineBuffers()
       }
       const wKey = `upload-throw:${sourceLayer}:${key}`
       if (!this._drawStats.hasWarned(wKey)) {
