@@ -25,7 +25,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Page } from '@playwright/test'
-import { colorHistogram, pixelDiffRatio } from '../e2e/helpers/visual'
+import { captureCanvas, colorHistogram, pixelDiffRatio } from '../e2e/helpers/visual'
 import type { MatrixCell, OracleSpec, InkFamilyName } from './matrix-types'
 
 /** Directory of human-reviewed, committed baseline PNGs (matrix-accept writes
@@ -501,6 +501,38 @@ async function runFiniteMvp(page: Page): Promise<OracleResult> {
   }
 }
 
+/** frame_stability — deterministic-render guard. Re-captures a SECOND frame of
+ *  the same settled static scene and diffs it against the first (the png the
+ *  runner already captured). On the current renderer consecutive frames are
+ *  pixel-identical, so the ratio is ~0; a future invalidation/skip bug that
+ *  corrupts a reused static frame makes N+1 differ and fails. Uses a tiny
+ *  tolerance to absorb GPU sub-pixel non-determinism / any settle jitter.
+ *
+ *  Capture alignment: the runner's first png is taken via `captureCanvas(page)`
+ *  with no `elapsedMsAtLeast` (purely the `hasPendingSourceWork()` idle gate +
+ *  2 rAF ticks). The re-capture here uses the same call form so both frames
+ *  are at comparably-settled clock — no animation-elapsed offset is added,
+ *  which is correct for the static `synthetic_disc` cells this oracle targets. */
+async function runFrameStability(
+  page: Page,
+  png: Buffer,
+  o: OracleSpec,
+): Promise<OracleResult> {
+  const threshold = o.max ?? 0.005
+  // Re-capture frame N+1 of the same static scene using the same settle
+  // semantics as the runner's first capture (hasPendingSourceWork idle + 2 rAF).
+  const png2 = await captureCanvas(page)
+  const ratio = await pixelDiffRatio(page, png, png2, 12)
+  return {
+    kind: 'frame_stability',
+    pass: ratio <= threshold,
+    status: 'ok',
+    measured: ratio,
+    threshold,
+    detail: `frame N vs N+1 diff ${(ratio * 100).toFixed(4)}% (≤${(threshold * 100).toFixed(2)}%)`,
+  }
+}
+
 /** Dispatch one oracle. The runner calls this per (cell, oracle) and records
  *  the result; it never throws on a detector failure — it returns a result. */
 export async function runOracle(
@@ -519,6 +551,7 @@ export async function runOracle(
       case 'screenshot_diff': return await runScreenshotDiff(page, cell, o, png)
       case 'label_onscreen': return await runLabelOnscreen(page, o)
       case 'finite_mvp': return await runFiniteMvp(page)
+      case 'frame_stability': return await runFrameStability(page, png, o)
       default:
         return {
           kind: String(o.kind),

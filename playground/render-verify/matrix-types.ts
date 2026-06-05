@@ -62,6 +62,7 @@ export type OracleKind =
   | 'screenshot_diff' // committed PNG baseline diff via pixelDiffRatio (the ONLY oracle needing human bless)
   | 'label_onscreen' // every placed label anchor within viewport+margin (gross mis-dispatch)
   | 'finite_mvp' // all 16 floats of the live camera MVP (getCameraDebugSnapshot().matrix) are finite (no NaN/Inf); projection-agnostic, no baseline
+  | 'frame_stability' // frame N vs frame N+1 diff ≈0 on a settled static scene; deterministic-render guard for future invalidation/skip work (S16)
 
 /** The ink families the synthetic fixture renders (pinned to its layer hexes,
  *  see render-verify/d3-reference.ts STYLE), plus `slate` for ofm-bright

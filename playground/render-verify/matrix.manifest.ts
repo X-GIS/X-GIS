@@ -528,6 +528,7 @@ export const MATRIX: MatrixCell[] = [
       { kind: 'disc_fraction', expected: 0.88, max: 0.12 },
       { kind: 'finite_mvp' },
       { kind: 'black_ratio', max: 0.15 },
+      { kind: 'frame_stability', max: 0.005 },
     ],
     gate: 'hard',
     knownStatus: 'green',
@@ -618,6 +619,7 @@ export const MATRIX: MatrixCell[] = [
     oracles: [
       { kind: 'finite_mvp' },
       { kind: 'ink_family', families: [{ name: 'disc_fill', minRatio: 0.10 }] },
+      { kind: 'frame_stability', max: 0.005 },
     ],
     gate: 'hard',
     knownStatus: 'green',
