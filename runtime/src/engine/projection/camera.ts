@@ -1,14 +1,22 @@
 // ═══ Map Camera — 줌/패닝/회전/피치 ═══
 
 import { lonLatToMercator } from '../../loader/geojson'
-import { mercatorToECEFSphere, lonLatToECEFSphere, ecefToENURotation, type ECEF } from './ecef'
+import { type ECEF } from './ecef'
 import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 import { getMaxDpr } from '../gpu/gpu'
 import { computeLogDepthFc } from '../shaders/log-depth'
-import { buildGlobeMatrix, EARTH_R } from './globe'
+import { EARTH_R } from './globe'
 import { mercatorYToLat, mercatorYToLatRad, mercator, getProjection } from './projection'
 import { isGlobeProj, flatViewHeightCapM, SELECTOR_PROJ_NAMES, worldCopiesFor, enumerateWorldCopies, poleLimit } from './projections-table'
-import { invOrthographic, mulVec4, invert4x4, mul4, perspectiveMatrix } from './camera-helpers'
+import { invOrthographic, mulVec4, invert4x4 } from './camera-helpers'
+import {
+  type CameraView,
+  buildRTCMatrix,
+  buildGlobeFrame,
+  buildECEFFrameView,
+  ecefCenterOf,
+  ecefToENUOf,
+} from './view-matrix'
 
 export class Camera {
   /** Camera center in Web Mercator coordinates */
@@ -217,6 +225,23 @@ export class Camera {
    *  in different world positions, and tile-selection would diverge from
    *  what DPR=1 renders. Default `dpr=1` preserves existing test call
    *  sites that pass CSS-equivalent dimensions. */
+  /** Build a `CameraView` snapshot of the scalar inputs the pure matrix
+   *  builders read. Reads the accessor-gated `pitch` ONCE (so `pitchLocked`
+   *  is honoured exactly as the inline reads did) and stamps the class FOV. */
+  private _view(): CameraView {
+    return {
+      centerX: this.centerX,
+      centerY: this.centerY,
+      centerLatDeg: this.centerLatDeg,
+      zoom: this.zoom,
+      bearing: this.bearing,
+      pitch: this.pitch,
+      fovDeg: Camera.FOV,
+      globeOrtho: this.globeOrtho,
+      azimuthalProjType: this.azimuthalProjType,
+    }
+  }
+
   private _buildRTCMatrix(canvasWidth: number, canvasHeight: number, dpr: number = 1, viewHeightCap: number = WORLD_MERC): number {
     if (
       canvasWidth === this._cacheW &&
@@ -231,107 +256,11 @@ export class Camera {
     ) {
       return this._cacheFar
     }
-    const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, this.zoom)
-    const m = this.rtcMatrix
-
-    // ── Always use perspective path (no ortho/perspective discontinuity) ──
-    // MVP = Perspective × Translate(0,0,-alt) × RotateX(pitch) × RotateZ(bearing)
-    // Applied right-to-left: bearing → pitch → move camera up → project
-
-    const fovRad = Camera.FOV * Math.PI / 180
-    const halfFov = fovRad / 2
-    const aspect = canvasWidth / canvasHeight
-    const pitchRad = this.pitch * Math.PI / 180
-    // Mapbox / MapLibre convention: `bearing=90` makes the map face
-    // east, so `RotateZ(+bearing)` is the world→camera transform that
-    // brings east into camera-forward. X-GIS previously used
-    // `-bearing` here, which inverted the rotation direction relative
-    // to MapLibre — visible as bearing=90 facing west instead of east
-    // when compared side-by-side. The pan handler below uses the
-    // same convention (`+bearing` rotates screen-space input into
-    // world-space delta) so drag direction stays consistent after
-    // the sign fix.
-    const bearingRad = this.bearing * Math.PI / 180
-
-    // Camera altitude in Mercator meters — based on the CSS-pixel
-    // viewport height. Tying it to the device-pixel `canvasHeight`
-    // would make the altitude (and thus the entire MVP) DPR-dependent,
-    // breaking the "same camera = same world view at any DPR"
-    // contract that tile selection relies on.
-    //
-    // CAP at WORLD_MERC: at low zoom + tall canvas the raw viewport
-    // height can exceed the world's 40 Mm extent (e.g. 800px × 78,271
-    // m/px ≈ 62.6 Mm at z=0). The resulting ~94 Mm altitude leaves the
-    // camera so far away that the perspective term collapses (m[10]
-    // → -0.5, m[14] ≈ -2·near, clip.w ≈ const across world) and a
-    // pitched view degenerates to a flat horizontal strip with no
-    // foreshortening — visible-bug at z=0 + pitch=60, 204k gt128 px
-    // (~45% canvas) vs MapLibre's proper 3D wedge (memory:
-    // project_mercator_z0_pitch_render_2026_05_20). MapLibre's low-zoom
-    // regime keeps the world fitting the viewport; once viewport ≥
-    // world, the altitude/far should saturate at the world-fit value
-    // (~30 Mm), preserving meaningful perspective division at pitch.
-    // Pure clamp: zooms where viewHeight < WORLD_MERC are byte-identical.
-    // The cap is WORLD_MERC for the cylindrical family (the default) but is
-    // lowered per projType by `flatViewHeightCapM` — orthographic caps at
-    // 2·EARTH_R so its hemisphere disc fills the canvas at z0 instead of
-    // subtending ~32% (project_non_merc_z0_disc_render_fail). The cap only
-    // binds at low zoom, so higher zooms stay byte-identical across projTypes.
-    const rawViewHeightMeters = (canvasHeight / dpr) * metersPerPixel
-    const viewHeightMeters = Math.min(rawViewHeightMeters, viewHeightCap)
-    const altitude = viewHeightMeters / 2 / Math.tan(halfFov)
-
-    // Near/far planes: cover all visible ground including horizon
-    // maxViewAngle = angle from vertical to the top of the screen ray
-    // When pitch + halfFov >= 90°, the top of the screen is past the horizon
-    const maxViewAngle = Math.min(pitchRad + halfFov, Math.PI / 2 - 0.01)
-    const farthestGround = altitude / Math.cos(maxViewAngle)
-    // Near plane: 1% of altitude, but never smaller than 1 m. Log-depth
-    // preserves precision at any near/far ratio, so the tiny floor only
-    // protects against primitive clipping when the camera dips below ~1 m
-    // above the ground (zoom ~22 + pitch 0).
-    const near = Math.max(1.0, altitude * 0.01)
-    const far = farthestGround * 1.5
-
-    // Multiply two column-major 4×4 matrices into `out` array
-
-    // Perspective matrix (column-major)
-    const f = 1 / Math.tan(halfFov)
-    const P = perspectiveMatrix(f, near, far, aspect)
-
-    // Translate(0, 0, -altitude)
-    const T = [
-      1, 0, 0, 0,
-      0, 1, 0, 0,
-      0, 0, 1, 0,
-      0, 0, -altitude, 1,
-    ]
-
-    // RotateX(-pitch) — tilt camera backward (look down at map from ahead)
-    const cp = Math.cos(-pitchRad), sp = Math.sin(-pitchRad)
-    const Rx = [
-      1, 0, 0, 0,
-      0, cp, sp, 0,
-      0, -sp, cp, 0,
-      0, 0, 0, 1,
-    ]
-
-    // RotateZ(bearing)
-    const cb = Math.cos(bearingRad), sb = Math.sin(bearingRad)
-    const Rz = [
-      cb, sb, 0, 0,
-      -sb, cb, 0, 0,
-      0, 0, 1, 0,
-      0, 0, 0, 1,
-    ]
-
-    // MVP = P × T × Rx × Rz  (right-to-left: bearing → pitch → translate → project)
-    const t1 = Camera._t1, t2 = Camera._t2
-    mul4(t1, Rx, Rz)      // t1 = Rx × Rz
-    mul4(t2, T, t1)        // t2 = T × (Rx × Rz)
-    mul4(Camera._t3, P, t2) // t3 = P × T × Rx × Rz
-
-    for (let i = 0; i < 16; i++) m[i] = Camera._t3[i]
+    // Pure matrix algebra lives in view-matrix.ts (buildRTCMatrix). It writes
+    // the MVP into the preallocated `rtcMatrix` buffer and returns far; the
+    // cache shadow + invalidation below stay on the camera. The bearing-sign /
+    // altitude-cap / near-far rationale is documented at the builder.
+    const { far } = buildRTCMatrix(this._view(), canvasWidth, canvasHeight, dpr, viewHeightCap, this.rtcMatrix)
     this._cacheW = canvasWidth
     this._cacheH = canvasHeight
     this._cacheDpr = dpr
@@ -356,27 +285,13 @@ export class Camera {
    *  camera state. centerLon/Lat are the Mercator-inverse of centerX/Y
    *  so existing pan/zoom (which move centerX/Y) recenter the globe. */
   private _globeFrame(canvasWidth: number, canvasHeight: number, dpr: number): { matrix: Float32Array; far: number; eye: ECEF } {
-    const R = EARTH_R
-    const lon = this.centerX / R * (180 / Math.PI)
-    // Read the maintained true centre latitude (NOT mercatorYToLat(centerY),
-    // which saturates at ±85.051129) so the globe orbit can reach the pole
-    // when setCenter places the centre past the Mercator limit.
-    const lat = this.centerLatDeg
-    // For the globeOrtho (azimuthal-promoted) path pass the SOURCE azimuthal
-    // projType so globeAltitude applies that projType's flat view-height cap
-    // (continuous scale across the pitch=0 boundary). The true perspective
-    // globe takes globeOrtho=false so the projType arg is never read there.
-    const v = buildGlobeMatrix(
-      lon, lat, this.zoom, this.pitch, this.bearing,
-      canvasWidth / dpr, canvasHeight / dpr,
-      this.globeOrtho, this.azimuthalProjType,
-    )
-    this._globeMatrix.set(v.rtcMatrix)
-    // `v.eye` is the orbit camera position in ABSOLUTE sphere-ECEF metres
-    // (GlobeView.eye). Surfaced for the label back-face/horizon cull, which
-    // is a pure geometric face-the-eye test in absolute coords (independent
-    // of whether the MVP is RTC or absolute).
-    return { matrix: this._globeMatrix, far: v.far, eye: v.eye }
+    // Pure builder (view-matrix.ts → buildGlobeFrame) derives lon from the
+    // Mercator centerX, reads the maintained true centre latitude, delegates to
+    // buildGlobeMatrix, and writes the RTC matrix into the preallocated
+    // `_globeMatrix` buffer. `eye` is the orbit camera position in ABSOLUTE
+    // sphere-ECEF metres (surfaced for the label back-face/horizon cull).
+    const { far, eye } = buildGlobeFrame(this._view(), canvasWidth, canvasHeight, dpr, this._globeMatrix)
+    return { matrix: this._globeMatrix, far, eye }
   }
 
   /** Camera anchor in ECEF (Earth-Centered Earth-Fixed) Cartesian metres.
@@ -409,8 +324,7 @@ export class Camera {
     // centerY) (mercatorToECEFSphere(mx,my) === lonLatToECEFSphere(mx/A·RAD2DEG,
     // mercatorYToLat(my))); past 85.05 on the sphere it places the ECEF anchor
     // at the true pole-ward latitude so the globe orbit can reach the pole.
-    const RAD2DEG = 180 / Math.PI
-    return lonLatToECEFSphere((this.centerX / EARTH_R) * RAD2DEG, this.centerLatDeg)
+    return ecefCenterOf(this)
   }
 
   /** ECEF→ENU (East/North/Up) tangent-plane rotation at the camera anchor.
@@ -431,15 +345,10 @@ export class Camera {
    *  consumer). */
   getECEFToENURotation(): Float32Array {
     // Derive the camera lon/lat from the canonical Mercator-metre anchor via
-    // the shared CPU primitives (`EARTH_R`, `mercatorYToLatRad`) so the
-    // radius + inverse-Mercator stay byte-identical to the rest of the
-    // projection module instead of re-inlining them here.
-    const RAD2DEG = 180 / Math.PI
-    const lon = (this.centerX / EARTH_R) * RAD2DEG
-    // True centre latitude (maintained field), not the Mercator-bounded
-    // inverse — byte-identical for |lat|<=85.05, reaches the pole past it.
-    const lat = this.centerLatDeg
-    return ecefToENURotation(lon, lat)
+    // the shared CPU primitives (`EARTH_R`, the true centre latitude) so the
+    // radius stays byte-identical to the rest of the projection module. Pure
+    // body lives in view-matrix.ts (ecefToENUOf).
+    return ecefToENUOf(this)
   }
 
   /** RTC matrix: perspective projection × view (pitch + bearing).
@@ -631,96 +540,13 @@ export class Camera {
       }
     }
 
-    // 1. cam_lon, cam_lat from canonical Mercator centerX/centerY — via the
-    //    shared `EARTH_R` + `mercatorYToLatRad` primitives (byte-identical to
-    //    the prior inline radius + inverse-Mercator formula).
-    const RAD2DEG = 180 / Math.PI
-    const cam_lon = (this.centerX / EARTH_R) * RAD2DEG
-    const cam_lat = mercatorYToLatRad(this.centerY) * RAD2DEG
-    const cos_lat = Math.cos(cam_lat * Math.PI / 180)
-
-    // 2. mpp/altitude in TRUE ENU metres.
-    //    Cap at MIN(WORLD_MERC × cos_lat, sphere diameter). The Mercator
-    //    cap fits the cylindrical strip; the sphere-diameter cap fits
-    //    the disc subtended by non-cylindrical projections (ortho /
-    //    azimuthal_eq / stereographic / oblique / globe). Whichever is
-    //    smaller is the correct viewable extent — the ECEF VS feeds
-    //    sphere-radius vertices regardless of projType, so altitude
-    //    derived from a 40 Mm cap leaves the disc subtending only
-    //    ~33 % of the canvas at z=0 (memory
-    //    project_non_merc_z0_disc_render_fail_2026_05_20).
-    const SPHERE_VIEW_HEIGHT_M = 2 * EARTH_R   // sphere diameter
-    const mpp_mercator = (WORLD_MERC / TILE_PX) / Math.pow(2, this.zoom)
-    const mpp_true = mpp_mercator * cos_lat
-    const rawViewHeightTrueM = (canvasHeight / dpr) * mpp_true
-    const viewHeightTrueM = Math.min(
-      rawViewHeightTrueM,
-      Math.min(WORLD_MERC * cos_lat, SPHERE_VIEW_HEIGHT_M),
-    )
-
-    // 3. FOV / aspect / pitch / bearing — identical to legacy build.
-    const fovRad = Camera.FOV * Math.PI / 180
-    const halfFov = fovRad / 2
-    const aspect = canvasWidth / canvasHeight
-    const pitchRad = this.pitch * Math.PI / 180
-    const bearingRad = this.bearing * Math.PI / 180
-
-    // 4. Altitude in true metres + near/far via the legacy formula.
-    const altitude_true = viewHeightTrueM / 2 / Math.tan(halfFov)
-    const maxViewAngle = Math.min(pitchRad + halfFov, Math.PI / 2 - 0.01)
-    const farthestGround = altitude_true / Math.cos(maxViewAngle)
-    const near = Math.max(1.0, altitude_true * 0.01)
-    const far = farthestGround * 1.5
-
-    // 5. Build the 4×4 chain. Mirrors `_buildRTCMatrix:207-258` structure
-    //    but with `altitude_true` and an extra post-multiplied rotation.
-
-    // Perspective (column-major).
-    const f = 1 / Math.tan(halfFov)
-    const P = perspectiveMatrix(f, near, far, aspect)
-    // Translate(0, 0, -altitude_true).
-    const T = [
-      1, 0, 0, 0,
-      0, 1, 0, 0,
-      0, 0, 1, 0,
-      0, 0, -altitude_true, 1,
-    ]
-    // RotateX(-pitch).
-    const cp = Math.cos(-pitchRad), sp = Math.sin(-pitchRad)
-    const Rx = [
-      1, 0, 0, 0,
-      0, cp, sp, 0,
-      0, -sp, cp, 0,
-      0, 0, 0, 1,
-    ]
-    // RotateZ(bearing).
-    const cb = Math.cos(bearingRad), sb = Math.sin(bearingRad)
-    const Rz = [
-      cb, sb, 0, 0,
-      -sb, cb, 0, 0,
-      0, 0, 1, 0,
-      0, 0, 0, 1,
-    ]
-    // ECEF→ENU rotation at camera anchor (column-major Float32Array(16),
-    // homogeneous identity row/column). Convert to plain array for mul4.
-    const RenuF = ecefToENURotation(cam_lon, cam_lat)
-    const Renu: number[] = [
-      RenuF[0],  RenuF[1],  RenuF[2],  RenuF[3],
-      RenuF[4],  RenuF[5],  RenuF[6],  RenuF[7],
-      RenuF[8],  RenuF[9],  RenuF[10], RenuF[11],
-      RenuF[12], RenuF[13], RenuF[14], RenuF[15],
-    ]
-
-    // M = P × T × Rx × Rz × Renu (right-to-left: ECEF→ENU first, then
-    // legacy 2D-camera chain).
-    const t1 = Camera._t1, t2 = Camera._t2, t3 = Camera._t3
-    mul4(t1, Rx, Rz)          // t1 = Rx × Rz
-    mul4(t2, t1, Renu)         // t2 = Rx × Rz × Renu
-    mul4(t1, T, t2)            // t1 = T × Rx × Rz × Renu
-    mul4(t3, P, t1)            // t3 = P × T × Rx × Rz × Renu
-
+    // Pure matrix algebra lives in view-matrix.ts (buildECEFFrameView): true-
+    // ENU-metre altitude with the cos(lat) correction, near/far via the legacy
+    // formula, and the P × T × Rx × Rz × Renu chain — written into the
+    // preallocated `rtcMatrixECEF` buffer. The cos(lat) rationale + cap policy
+    // are documented at the builder. The separate ECEF cache shadow stays here.
     const m = this.rtcMatrixECEF
-    for (let i = 0; i < 16; i++) m[i] = t3[i]
+    const { far } = buildECEFFrameView(this._view(), canvasWidth, canvasHeight, dpr, m)
 
     this._ecefCacheW = canvasWidth
     this._ecefCacheH = canvasHeight
@@ -777,9 +603,6 @@ export class Camera {
 
   // Mercator Y limit: ±85.051129° → ±20037508.34m
   private static readonly MAX_Y = 20037508.34
-  private static _t1 = new Array(16).fill(0)
-  private static _t2 = new Array(16).fill(0)
-  private static _t3 = new Array(16).fill(0)
 
   // ── MVP Inverse (for screen → world unprojection) ──
   private rtcMatrixInv = new Float32Array(16)
