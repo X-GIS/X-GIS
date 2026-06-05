@@ -124,6 +124,19 @@ export class Camera {
     this.centerLatDeg = mercatorYToLat(this.centerY)
   }
 
+  /** After a zoom (which must NOT move the centre latitude on its own),
+   *  carry centerLatDeg by the SAME delta the Mercator centerY moved, so a
+   *  pole-ward centre (centerLatDeg > 85.05, centerY saturated) is preserved
+   *  through zoom instead of being reset to the Mercator limit. Clamped to the
+   *  projection's pole limit. For cylindrical projections latPreserve ===
+   *  mercLatPreserve (the invariant), so this collapses to
+   *  centerLatDeg = mercatorYToLat(centerY) — byte-identical to the old reset. */
+  private _carryCenterLatThroughZoom(latPreserve: number, mercLatPreserve: number): void {
+    const delta = mercatorYToLat(this.centerY) - mercLatPreserve
+    const pl = poleLimit(this.projType)
+    this.centerLatDeg = Math.max(-pl, Math.min(pl, latPreserve + delta))
+  }
+
   /** Public sync hook for centerY writers outside the Camera class (the
    *  controller's pan fast-path / zoom-anchor block). Keeps the Mercator→lat
    *  formula in one place so callers don't re-inline mercatorYToLat. */
@@ -1083,6 +1096,13 @@ export class Camera {
    *  computed in raw screen coords without the bearing rotation
    *  that `pan()` already applies). */
   zoomAt(delta: number, screenX: number, screenY: number, canvasWidth: number, canvasHeight: number): void {
+    // A pure zoom must NOT move the centre latitude. Capture the TRUE centre
+    // latitude and the Mercator-derived latitude BEFORE any centerY mutation,
+    // so the trailing sync can carry centerLatDeg by the same delta centerY
+    // moves (preserving a pole-ward sphere centre past 85.05). See
+    // _carryCenterLatThroughZoom.
+    const _latPreserve = this.centerLatDeg
+    const _mercLatPreserve = mercatorYToLat(this.centerY)
     const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
     // unprojectToZ0 takes DEVICE-pixel screen coords (it scales by
     // canvasWidth which is device-px). Convert CSS clientX/Y → device.
@@ -1148,7 +1168,7 @@ export class Camera {
       }
       const maxYO = this.maxCameraY(canvasHeight)
       this.centerY = Math.max(-maxYO, Math.min(maxYO, this.centerY))
-      this._syncCenterLatFromMercator()
+      this._carryCenterLatThroughZoom(_latPreserve, _mercLatPreserve)
       return
     }
 
@@ -1214,7 +1234,7 @@ export class Camera {
     // Clamp after zoom: visible area changes with zoom level.
     const maxY = this.maxCameraY(canvasHeight)
     this.centerY = Math.max(-maxY, Math.min(maxY, this.centerY))
-    this._syncCenterLatFromMercator()
+    this._carryCenterLatThroughZoom(_latPreserve, _mercLatPreserve)
   }
 
   /** Pan the camera so the world point captured at drag start stays

@@ -154,6 +154,53 @@ describe('centerLatDeg sync contract', () => {
     })
   })
 
+  describe('zoom must NOT move the centre latitude (pole-snap-back fix, roadmap S11)', () => {
+    it('GLOBE: a zoom with NO Mercator-centre move PRESERVES a pole-ward centre (89), no snap-back to 85.05', () => {
+      // The globe orbit recenters even for a canvas-centre anchor (the sphere
+      // MVP is not a flat plane, so `before`/`after` differ across the zoom and
+      // legitimately pan the centre — driving the real zoomAt here would assert
+      // a moving target). Per the fix's contract we assert the helper directly:
+      // when the Mercator centerY does NOT move (a TRULY pure zoom), the carry
+      // helper must leave the pole-ward latitude untouched — i.e. NO snap-back
+      // to 85.05. Before the fix the trailing _syncCenterLatFromMercator reset
+      // centerLatDeg = mercatorYToLat(centerY) = 85.05 unconditionally.
+      const cam = new Camera(0, 0, 3)
+      cam.projType = 7
+      cam.globeMode = true
+      const ctrl = makeController(cam)
+      ctrl.setCenter(0, 89) // orbit to the pole; centerY saturates at 85.05
+
+      expect(cam.centerLatDeg).toBeCloseTo(89, 3)
+      expect(mercatorYToLat(cam.centerY)).toBeCloseTo(MERC_LIMIT, 3)
+
+      const mercLatPreserve = mercatorYToLat(cam.centerY)
+      // centerY unchanged (pure zoom): the same value the top-of-zoomAt capture
+      // saw, so delta === 0 and the pole-ward latitude is carried verbatim.
+      ;(cam as unknown as {
+        _carryCenterLatThroughZoom(l: number, m: number): void
+      })._carryCenterLatThroughZoom(89, mercLatPreserve)
+
+      expect(cam.centerLatDeg).toBe(89) // NOT reset to 85.05 — exactly preserved
+      expect(mercatorYToLat(cam.centerY)).toBeCloseTo(MERC_LIMIT, 3) // centerY stays bounded
+    })
+
+    it('CYLINDRICAL: a PURE zoom keeps the invariant centerLatDeg === mercatorYToLat(centerY) byte-exact', () => {
+      const W = 1280, H = 720
+      const cam = new Camera(0, 70, 3)
+      cam.projType = 0
+
+      // Sanity: the invariant holds before the zoom.
+      expect(cam.centerLatDeg).toBeCloseTo(mercatorYToLat(cam.centerY), 10)
+
+      cam.zoomAt(0.5, W / 2, H / 2, W, H)
+
+      // For a cylindrical projection latPreserve === mercLatPreserve, so the
+      // carry helper collapses to centerLatDeg = mercatorYToLat(centerY) —
+      // byte-identical to the old reset. The invariant survives the zoom.
+      expect(cam.centerLatDeg).toBe(mercatorYToLat(cam.centerY))
+    })
+  })
+
   it('a fresh camera satisfies the invariant', () => {
     const cam = new Camera(12, 45, 4)
     expect(cam.centerLatDeg).toBe(mercatorYToLat(cam.centerY))
