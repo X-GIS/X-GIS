@@ -6,9 +6,9 @@ import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 import { getMaxDpr } from '../gpu/gpu'
 import { computeLogDepthFc } from '../shaders/log-depth'
 import { EARTH_R } from './globe'
-import { mercatorYToLat, mercatorYToLatRad, mercator, getProjection } from './projection'
-import { isGlobeProj, flatViewHeightCapM, SELECTOR_PROJ_NAMES, worldCopiesFor, enumerateWorldCopies, poleLimit } from './projections-table'
-import { invOrthographic, mulVec4, invert4x4 } from './camera-helpers'
+import { mercatorYToLat, mercatorYToLatRad, mercator } from './projection'
+import { isGlobeProj, flatViewHeightCapM, worldCopiesFor, enumerateWorldCopies, poleLimit } from './projections-table'
+import { invOrthographic, invert4x4 } from './camera-helpers'
 import {
   type CameraView,
   buildRTCMatrix,
@@ -17,6 +17,12 @@ import {
   ecefCenterOf,
   ecefToENUOf,
 } from './view-matrix'
+import {
+  unprojectToZ0 as unprojectToZ0Pure,
+  unprojectToLonLat as unprojectToLonLatPure,
+  unprojectToMercatorAnchor as unprojectToMercatorAnchorPure,
+  relToLonLat as relToLonLatPure,
+} from './unproject'
 
 export class Camera {
   /** Camera center in Web Mercator coordinates */
@@ -628,24 +634,11 @@ export class Camera {
   /** Unproject screen pixel to z=0 world plane (RTC-relative).
    *  Returns [x, y] in projection meters relative to camera center, or null if behind horizon. */
   unprojectToZ0(screenX: number, screenY: number, canvasWidth: number, canvasHeight: number, dpr: number = 1): [number, number] | null {
+    // Fetch the cached inverse (this method owns getRTCMatrixInverse + the
+    // rtcMatrixInv buffer + _invDirty), then defer the pure inverse math to
+    // unproject.ts.
     const inv = this.getRTCMatrixInverse(canvasWidth, canvasHeight, dpr)
-    const ndcX = (screenX / canvasWidth) * 2 - 1
-    const ndcY = 1 - (screenY / canvasHeight) * 2
-
-    // Ray from near to far plane
-    const n = mulVec4(inv, [ndcX, ndcY, -1, 1])
-    const f = mulVec4(inv, [ndcX, ndcY, 1, 1])
-    // Perspective divide
-    const nx = n[0] / n[3], ny = n[1] / n[3], nz = n[2] / n[3]
-    const fx = f[0] / f[3], fy = f[1] / f[3], fz = f[2] / f[3]
-
-    // Intersect with z=0 plane
-    const dz = fz - nz
-    if (Math.abs(dz) < 1e-10) return null
-    const t = -nz / dz
-    if (t < 0) return null // behind camera
-
-    return [nx + t * (fx - nx), ny + t * (fy - ny)]
+    return unprojectToZ0Pure(inv, screenX, screenY, canvasWidth, canvasHeight)
   }
 
   /** Projection-unification step #8 — shared screen→geographic inverse
@@ -672,9 +665,11 @@ export class Camera {
    *  deferred) and globe (7) so callers keep their existing behaviour for
    *  those; returns null when the ray misses the ground plane. */
   unprojectToLonLat(screenX: number, screenY: number, canvasWidth: number, canvasHeight: number, dpr: number = 1): [number, number] | null {
-    const rel = this.unprojectToZ0(screenX, screenY, canvasWidth, canvasHeight, dpr)
-    if (!rel) return null
-    return this._relToLonLat(rel)
+    // Wrapper: fetch the cached inverse (keeps getRTCMatrixInverse plumbing on
+    // the camera), then run the pure compose. Equivalent to
+    // unprojectToZ0 → _relToLonLat but threads the same inverse once.
+    const inv = this.getRTCMatrixInverse(canvasWidth, canvasHeight, dpr)
+    return unprojectToLonLatPure(this, inv, screenX, screenY, canvasWidth, canvasHeight)
   }
 
   /** Unproject a screen pixel to an ABSOLUTE Mercator-metre anchor — the
@@ -686,13 +681,9 @@ export class Camera {
    *  ground or the projType is out of the flat-merc-composer scope (3/4/5/7),
    *  letting callers keep their existing behaviour there. */
   unprojectToMercatorAnchor(screenX: number, screenY: number, canvasWidth: number, canvasHeight: number, dpr: number = 1): [number, number] | null {
-    const rel = this.unprojectToZ0(screenX, screenY, canvasWidth, canvasHeight, dpr)
-    if (!rel) return null
-    if (this.projType === 0) return [rel[0] + this.centerX, rel[1] + this.centerY]
-    if (this.projType !== 1 && this.projType !== 2 && this.projType !== 6) return null
-    const ll = this._relToLonLat(rel)
-    if (!ll) return null
-    return mercator.forward(ll[0], ll[1])
+    // Wrapper: fetch the cached inverse, defer the pure anchor compose.
+    const inv = this.getRTCMatrixInverse(canvasWidth, canvasHeight, dpr)
+    return unprojectToMercatorAnchorPure(this, inv, screenX, screenY, canvasWidth, canvasHeight)
   }
 
   /** Compose an already-unprojected z=0-plane rel coordinate (the projType's
@@ -702,28 +693,9 @@ export class Camera {
    *  without re-unprojecting against the live (post-zoom) matrix. See
    *  `unprojectToLonLat` for the per-projType math + scope. */
   private _relToLonLat(rel: [number, number]): [number, number] | null {
-    const pt = this.projType
-    if (pt === 0) {
-      // Mercator: the camera's z=0 plane IS the Mercator plane (centerX/Y are
-      // canonical Mercator metres) — exact, byte-identical to the legacy path.
-      return mercator.inverse(rel[0] + this.centerX, rel[1] + this.centerY)
-    }
-    // Flat non-merc set only (equirectangular 1 / natural_earth 2 /
-    // oblique_mercator 6). Disc (3/4/5) + globe (7) are out of scope.
-    if (pt !== 1 && pt !== 2 && pt !== 6) return null
-    if (this.globeMode) return null
-    const clon = (this.centerX / EARTH_R) * (180 / Math.PI)
-    // Match render-loop.ts: clamp clat via poleLimit(pt) (projections-table SoT,
-    // replacing the Mercator literal) so the CPU inverse centre equals the GPU
-    // proj_params.z. pt∈{1,2,6} here + bounded mercatorYToLat input → byte-
-    // identical (roadmap S5 inert).
-    const clat = Math.max(-poleLimit(pt), Math.min(poleLimit(pt), mercatorYToLat(this.centerY)))
-    const proj = getProjection(SELECTOR_PROJ_NAMES[pt], clon, clat)
-    // `cv` = the own-plane centre the shader subtracted (project(cam), with NO
-    // world offset). For equirect/NE cv.x = 0 (wrap_lon_delta(camLon−clon)=0);
-    // for oblique it is the rotated-frame Mercator of the camera.
-    const cv = proj.forward(clon, clat)
-    return proj.inverse(rel[0] + cv[0], rel[1] + cv[1])
+    // Wrapper: the per-projType inverse compose lives in unproject.ts; `this`
+    // satisfies the UnprojectView snapshot (centerX/centerY/projType/globeMode).
+    return relToLonLatPure(this, rel)
   }
 
   /** iter-189 — world-copy root fix. Single source of truth for
