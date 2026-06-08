@@ -74,7 +74,7 @@ export type {
   XGISMapOptions, FontTypographyMap,
 } from './map-types'
 import {
-  asVectorTileKind, sceneHasAnyAnimation,
+  asVectorTileKind, sceneHasAnyAnimation, labelsHaveTimeAnimation,
   buildTypographyMap, registerFonts,
 } from './map-geo-helpers'
 import { prewarmVectorTileSource, detectVectorTileFormat } from '../loader/vector-tile-loader'
@@ -411,6 +411,11 @@ export class XGISMap {
   private _dirty = new DirtyTracker()
   private _ops = new OperatorBus(this._dirty)
   private _sceneHasAnimation = false
+  /** True when a label carries a time-driven shape (text-size/-color/-halo/
+   *  -opacity/icon-* against the clock). Read by the label pass: the S16
+   *  prepare-skip signature omits the animation clock, so a time-animated
+   *  label must keep re-collating even when the camera is static. */
+  _labelsHaveTimeAnimation = false
   _lastSigZoom = NaN
   _lastSigCX = NaN
   _lastSigCY = NaN
@@ -2062,6 +2067,7 @@ export class XGISMap {
 
     this.showCommands = commands.shows
     this._sceneHasAnimation = sceneHasAnyAnimation(commands.shows)
+    this._labelsHaveTimeAnimation = labelsHaveTimeAnimation(commands.shows)
     // Full scene (re)build — style, sources, geometry, labels, and possibly
     // projection/animation all replaced; DIRTY_ALL is the honest mask.
     this._markDirty(DIRTY_ALL)
@@ -2669,6 +2675,7 @@ export class XGISMap {
 
     this.showCommands = commands.shows
     this._sceneHasAnimation = sceneHasAnyAnimation(commands.shows)
+    this._labelsHaveTimeAnimation = labelsHaveTimeAnimation(commands.shows)
     // Full scene (re)build from a binary load — same DIRTY_ALL mask as run().
     this._markDirty(DIRTY_ALL)
     this.rebuildLayers()

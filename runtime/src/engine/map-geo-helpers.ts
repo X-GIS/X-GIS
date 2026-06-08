@@ -45,6 +45,36 @@ export function sceneHasAnyAnimation(shows: {
   })
 }
 
+/** True when any ShowCommand's LABEL carries a per-frame time-driven shape
+ *  (text-size / -color / -halo / -opacity / icon-size / -opacity / -color
+ *  interpolated against the animation clock). The S16 label-prepare skip keys
+ *  on a camera/canvas/tile signature that does NOT include the clock, so a
+ *  time-animated label on a static-camera frame would otherwise be skipped and
+ *  freeze. The render loop reads this to keep re-collating such scenes.
+ *  zoom-interp label shapes are NOT counted — the skip signature includes zoom,
+ *  so those re-prepare correctly on their own. */
+export function labelsHaveTimeAnimation(shows: {
+  label?: { shapes?: import('@xgis/compiler').LabelDef['shapes'] } | null
+}[]): boolean {
+  const isTimeAnimated = (
+    s: import('@xgis/compiler').PropertyShape<unknown> | null | undefined,
+  ): boolean => s != null && (s.kind === 'time-interpolated' || s.kind === 'zoom-time')
+  return shows.some(s => {
+    const sh = s.label?.shapes
+    if (!sh) return false
+    return isTimeAnimated(sh.size)
+      || isTimeAnimated(sh.color)
+      || isTimeAnimated(sh.haloWidth)
+      || isTimeAnimated(sh.haloColor)
+      || isTimeAnimated(sh.haloBlur)
+      || isTimeAnimated(sh.fontWeight)
+      || isTimeAnimated(sh.iconSize)
+      || isTimeAnimated(sh.opacity)
+      || isTimeAnimated(sh.iconOpacity)
+      || isTimeAnimated(sh.iconColor)
+  })
+}
+
 /** Walk every coordinate in a GeoJSON FeatureCollection and return
  *  the lon/lat bbox. Used by the Phase 5e VirtualPMTilesBackend
  *  attach path to pick a camera-fit position when the source has
