@@ -86,6 +86,13 @@ export interface TextStageOptions {
    *  different intrinsic tracking / leading without forking the style
    *  spec. Missing-family lookups are no-ops (identity 0 / 1). */
   fontTypography?: Map<string, { letterSpacingEm: number; lineHeightScale: number }>
+  /** Audit ① B1 — called when an async glyph resource (PBF range) LANDS
+   *  after the frame that requested it already drew. The atlas slot is
+   *  invalidated internally, but the owning map must also re-arm a frame
+   *  AND tag the LABEL domain dirty, or the S16 label-collision skip keeps
+   *  serving the stale (zero-SDF) glyph until the camera moves. The host
+   *  wires this to `markLabelDirty()`; omitted in tests / non-PBF setups. */
+  onResourceLanded?: () => void
 }
 
 export interface PendingLabel {

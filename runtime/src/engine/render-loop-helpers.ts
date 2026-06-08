@@ -12,6 +12,7 @@ import { EARTH_R } from './projection/globe'
 import { mercatorYToLat } from './projection/projection'
 import { projectCpu, projectGeomCpu, needsBackfaceCullCpu, projMercatorCpu } from './shader-dsl/shaders/cpu-projections'
 import { WORLD_MERC } from './gpu/gpu-shared'
+import { xlog } from './log'
 
 // Projected-x world circumference for the x-periodic flat NON-Mercator set
 // (equirect 1 / natural_earth 2 / oblique_mercator 6). This is the SAME
@@ -20,6 +21,30 @@ import { WORLD_MERC } from './gpu/gpu-shared'
 // it is the projected-x circumference. (Numerically WORLD_MERC ≈ this value,
 // but they are kept distinct so the non-merc copy offset tracks project_geom.)
 const WORLD_CIRC = 2 * Math.PI * 6378137
+
+/** Pop a WebGPU validation error scope and report BOTH failure outcomes.
+ *  Fire-and-forget (the popErrorScope promise is intentionally NOT awaited
+ *  in the 60 Hz loop). Two things can go wrong and BOTH are now logged:
+ *    1. the scope RESOLVES with a real validation error → log it with `tag`;
+ *    2. the pop itself REJECTS (scope-stack mismatch / device lost) → log it.
+ *  Audit ⑧ B2: the rejection branch was previously `.catch(() => {})`, which
+ *  silently dropped a real fault signal (a stack mismatch means an earlier
+ *  push/pop is unbalanced; a device-lost reject is the first sign of a GPU
+ *  fault). This is the side-effecting exception to this file's pure-helper
+ *  rule — it owns only the `xlog` logger, no map state. */
+export function reportErrorScope(
+  popPromise: Promise<GPUError | null>,
+  tag: string,
+): void {
+  popPromise
+    .then((err) => { if (err) xlog.error(`[X-GIS ${tag}]`, err.message) })
+    .catch((e) => {
+      xlog.error(
+        `[X-GIS ${tag}] popErrorScope rejected`,
+        e instanceof Error ? e.message : String(e),
+      )
+    })
+}
 
 /** Per-show label paint resolution. Collapses the unified LabelShapes
  *  bundle (text-size / -color / -halo / font / icon-size / -opacity /

@@ -23,6 +23,7 @@ import { resizeCanvas, getSampleCount, getMaxDpr, isPickEnabled } from './gpu/gp
 import { DEBUG_OVERDRAW } from './debug-flags'
 import { WORLD_MERC, TILE_PX } from './gpu/gpu-shared'
 import { invalidateResolvedShowCache } from './render/resolved-show'
+import { reportErrorScope } from './render-loop-helpers'
 import { type FrameContext } from './render/frame-context'
 import { buildSceneView } from './render/scene-view'
 import { backgroundPass } from './render/passes/background-pass'
@@ -76,6 +77,7 @@ export type RenderLoopHost = Pick<XGISMap,
   | 'camera'
   | 'classifyVectorTileShows'
   | 'consumeLabelDirty'
+  | 'markLabelDirty'
   | 'ctx'
   | 'fontTypography'
   | 'glyphProviders'
@@ -288,9 +290,9 @@ export class RenderLoop {
       device.pushErrorScope('validation')
       try { fn() }
       finally {
-        device.popErrorScope().then((err) => {
-          if (err) xlog.error(`[X-GIS pass:${label}]`, err.message)
-        }).catch(() => { /* scope stack mismatch — swallow */ })
+        // Report BOTH a resolved validation error AND a rejected pop —
+        // the rejection was previously swallowed (Audit ⑧ B2).
+        reportErrorScope(device.popErrorScope(), `pass:${label}`)
       }
       perfMarkEnd(`encoder.pass.${label}`)
     }
@@ -539,9 +541,7 @@ export class RenderLoop {
     // Drain any readbacks that finished mapping last frame, kick mapAsync
     // on freshly-submitted ones. Cheap when disabled (no-op).
     this.host.gpuTimer?.pollReadbacks()
-    device.popErrorScope().then((err) => {
-      if (err) xlog.error('[X-GIS frame-validation]', err.message)
-    }).catch(() => { /* scope mismatch — ignore */ })
+    reportErrorScope(device.popErrorScope(), 'frame-validation')
 
     // Collect stats from renderers
     this.host._stats.zoom = this.host.camera.zoom

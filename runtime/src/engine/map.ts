@@ -453,6 +453,14 @@ export class XGISMap {
    *  signature to skip re-dispatch + re-collision on an unchanged frame. */
   consumeLabelDirty(): boolean { return this._dirty.consume(DirtyDomain.LABEL) }
 
+  /** Producer side of the LABEL dirty domain — re-arm a frame AND tag
+   *  LABEL so the next frame's S16 skip is forced to re-prepare. Used by
+   *  the TextStage when an async glyph resource (PBF range) lands after the
+   *  requesting frame already drew (Audit ① B1): without this, the skip
+   *  keeps replaying the stale zero-SDF glyph until the camera moves.
+   *  Package-internal (no modifier) so RenderLoopHost can see it. */
+  markLabelDirty(): void { this._markDirty(DirtyDomain.LABEL) }
+
   /** Flag an active user gesture (pan / zoom) so the render loop can drop
    *  to QUALITY.interactionDpr while interacting and restore full DPR once
    *  the gesture settles. Debounced: each call pushes the idle-restore out
