@@ -533,6 +533,75 @@ async function runFrameStability(
   }
 }
 
+/** post_change — under-invalidation guard, the COMPLEMENT of frame_stability.
+ *  frame_stability proves a STATIC scene's reused frame stays correct (N+1 == N);
+ *  post_change proves a CHANGED scene actually REPAINTS (N' ≠ N). It applies a
+ *  reversible, guaranteed-visible camera mutation (zoom +1 — on a flat content
+ *  cell this scales the geometry across the whole frame), re-captures, and
+ *  asserts the frame MOVED by at least `min`, then RESTORES the cell's exact
+ *  camera so any later oracle (and the trailing re-capture) observes the
+ *  original, byte-identical frame — safe because the renderer is frame-
+ *  deterministic (proven by frame_stability). The manifest also lists it LAST so
+ *  the mutate→restore window never overlaps a sibling oracle.
+ *
+ *  Mutation choice: zoom (NOT pan/bearing). The synthetic_disc cells frame_
+ *  stability uses are a featureless sphere whose silhouette doesn't move under
+ *  pan/bearing and whose ortho zoom is 2R-cap-bound — so this oracle lives on a
+ *  flat content cell (merc-europe), where zoom is uncapped and content visibly
+ *  moves.
+ *
+ *  Inert today: the live renderer always repaints on a camera change, so this
+ *  passes with a wide margin. It becomes the S16 net — a consumer skip that
+ *  UNDER-invalidates (wrongly skips a needed repaint) leaves the frame stale,
+ *  N' == N, and trips here. */
+async function runPostChange(
+  page: Page,
+  png: Buffer,
+  cell: MatrixCell,
+  o: OracleSpec,
+): Promise<OracleResult> {
+  const min = o.min ?? 0.005
+  // Apply a reversible, guaranteed-visible mutation: zoom +1 (uncapped on flat
+  // projections; ~doubles the on-screen scale, walking the full-frame graticule
+  // + content to new positions). The achievable diff is capped by content
+  // density (a sparse synthetic scene is mostly uniform background), so +1's
+  // ~1.3% is the cap, not a floor — a bigger jump pushes content off-frame and
+  // measures LESS. min sits well below it (see manifest).
+  const ZOOM_DELTA = 1
+  await page.evaluate((z) => {
+    const m = (window as unknown as {
+      __xgisMap: { jumpTo(o: { zoom?: number }): void; invalidate?(): void }
+    }).__xgisMap
+    m.jumpTo({ zoom: z })
+    m.invalidate?.()
+  }, cell.zoom + ZOOM_DELTA)
+  const pngChanged = await captureCanvas(page)
+  const ratio = await pixelDiffRatio(page, png, pngChanged, 12)
+  // Restore the cell's EXACT camera so downstream oracles / re-captures observe
+  // the original frame (deterministic renderer ⇒ byte-identical to `png`).
+  await page.evaluate(({ center, zoom, pitch, bearing }) => {
+    const m = (window as unknown as {
+      __xgisMap: {
+        jumpTo(o: { center?: [number, number]; zoom?: number; pitch?: number; bearing?: number }): void
+        markCameraPositioned(): void
+        invalidate?(): void
+      }
+    }).__xgisMap
+    m.jumpTo({ center, zoom, pitch, bearing })
+    m.markCameraPositioned()
+    m.invalidate?.()
+  }, { center: cell.camera.center, zoom: cell.zoom, pitch: cell.pitch, bearing: cell.bearing })
+  await captureCanvas(page) // re-settle the restored frame before returning
+  return {
+    kind: 'post_change',
+    pass: ratio >= min,
+    status: 'ok',
+    measured: ratio,
+    threshold: min,
+    detail: `post-change frame moved ${(ratio * 100).toFixed(3)}% on zoom ${cell.zoom}→${cell.zoom + ZOOM_DELTA} (≥${(min * 100).toFixed(2)}% required)`,
+  }
+}
+
 /** Dispatch one oracle. The runner calls this per (cell, oracle) and records
  *  the result; it never throws on a detector failure — it returns a result. */
 export async function runOracle(
@@ -552,6 +621,7 @@ export async function runOracle(
       case 'label_onscreen': return await runLabelOnscreen(page, o)
       case 'finite_mvp': return await runFiniteMvp(page)
       case 'frame_stability': return await runFrameStability(page, png, o)
+      case 'post_change': return await runPostChange(page, png, cell, o)
       default:
         return {
           kind: String(o.kind),
