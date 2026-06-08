@@ -358,20 +358,12 @@ export class XGISMap {
     return this.textStage?.getLayoutCacheStats() ?? null
   }
   _frameCount = 0
-  // Bumped from 60 → 240 (4 s @ 60 fps) — PMTiles world-scale
-  // archives at z=0/z=1 trigger massive worker compiles (water +
-  // earth polygons spanning the planet) that legitimately take
-  // 2–4 seconds on first-load before any slice arrives. The shorter
-  // grace fired stale FLICKER warnings for the entire load period
-  // even though everything was working as designed.
-  static readonly FLICKER_GRACE_FRAMES = 240
   /** Ring buffer of recent FLICKER dispatches across ALL sources,
    *  keyed by wall-clock time so `inspectPipeline()` can show what
    *  happened in the last few seconds. Capped at 32 entries — the
    *  60-frame throttle keeps the write rate low, so 32 covers ~30s
    *  of the worst sustained case. */
   _flickerLog: { ts: number; source: string; missed: number; z: number; cache: number }[] = []
-  static readonly FLICKER_LOG_CAP = 32
   /** Wall-clock animation origin captured on the first rendered frame.
    *  `performance.now() - _startTime` yields the elapsed milliseconds
    *  fed into every time-interpolated value (opacity today, more

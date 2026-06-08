@@ -33,7 +33,20 @@ import { translucentPass } from './render/passes/translucent-pass'
 import { pointsPass } from './render/passes/points-pass'
 import { labelPass } from './render/passes/label-pass'
 import { overdrawComposePass } from './render/passes/overdraw-compose-pass'
-import { XGISMap } from './map'
+import type { XGISMap } from './map'
+
+// Flicker-detection tuning, render-loop-only. Relocated from XGISMap statics
+// so this module imports XGISMap as a TYPE only — breaking the map<->render-loop
+// runtime value-import cycle (the only value use of XGISMap here was these two
+// constants). _flickerLog stays on XGISMap (per-map instance state).
+/** Frames of grace before a missing-tile FLICKER warning fires. 240 = 4 s
+ *  @60fps — PMTiles world-scale z0/z1 archives trigger multi-second worker
+ *  compiles that legitimately delay the first slice; a shorter grace fired
+ *  stale warnings for the entire load even though all was working as designed. */
+const FLICKER_GRACE_FRAMES = 240
+/** Cap on XGISMap._flickerLog — 32 entries ~= 30 s of the worst sustained
+ *  case at the 60-frame throttle. */
+const FLICKER_LOG_CAP = 32
 
 /** Typed view of the XGISMap members the relocated render path touches.
  *  Derived from XGISMap with `Pick` so the field/method types stay in
@@ -594,7 +607,7 @@ export class RenderLoop {
           this.host._flickerFirstFrame.set(name, firstSeen)
         }
         const framesSinceFirst = this.host._frameCount - firstSeen
-        if (framesSinceFirst >= XGISMap.FLICKER_GRACE_FRAMES) {
+        if (framesSinceFirst >= FLICKER_GRACE_FRAMES) {
           const last = this.host._flickerLastFrame.get(name) ?? -Infinity
           if (this.host._frameCount - last >= 60) {
             this.host._flickerLastFrame.set(name, this.host._frameCount)
@@ -607,8 +620,8 @@ export class RenderLoop {
               ts: typeof performance !== 'undefined' ? performance.now() : Date.now(),
               source: name, missed: vts.missedTiles, z: zRounded, cache: cacheSize,
             })
-            if (this.host._flickerLog.length > XGISMap.FLICKER_LOG_CAP) {
-              this.host._flickerLog.splice(0, this.host._flickerLog.length - XGISMap.FLICKER_LOG_CAP)
+            if (this.host._flickerLog.length > FLICKER_LOG_CAP) {
+              this.host._flickerLog.splice(0, this.host._flickerLog.length - FLICKER_LOG_CAP)
             }
           }
         }
