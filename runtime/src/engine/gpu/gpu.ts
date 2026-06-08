@@ -182,6 +182,16 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
   if (!context) throw new Error('Failed to get WebGPU context')
 
   const format = navigator.gpu.getPreferredCanvasFormat()
+  // Colour pipeline (DELIBERATE — verified by the 2026-06 rendering audit, not a
+  // gap): the canvas uses the preferred NON-srgb unorm format with NO `-srgb`
+  // view. Shaders emit sRGB-encoded colours directly (hexToRgba → 0..1 sRGB, no
+  // linearisation), so solid fills display 1:1. The trade-off is that ALPHA
+  // BLENDING runs in sRGB (perceptual) space rather than linear — technically
+  // "gamma-incorrect" per WebGPU best practice, but it is exactly what MapLibre
+  // GL JS and the wider web-map ecosystem do, and X-GIS is pixel-matched against
+  // MapLibre. Switching to gamma-correct linear blending (render through an
+  // `-srgb` view + linear colours) would DIVERGE from that baseline and require
+  // re-tuning every halo/translucency — so it is intentionally NOT done here.
   context.configure({ device, format, alphaMode: 'premultiplied' })
 
   // Build the GPUContext bundle BEFORE wiring the validation
