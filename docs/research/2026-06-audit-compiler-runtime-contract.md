@@ -1,0 +1,45 @@
+# Audit ⑤ — Compiler ↔ runtime contract
+
+*Deep-research synthesis, 2026-06-08. Direct file:line audit of the X-GIS compiler→runtime boundary merged with producer↔consumer / type-contract research. Part of the 10-audit series. Claims cited inline.*
+
+---
+
+## TL;DR
+The compiler→runtime boundary is **the least type-safe seam in the codebase**, and it's structural, not incidental. `ShowCommand` — the central artifact the compiler emits and the runtime consumes — is **defined twice, independently** (`compiler/src/ir/emit-commands.ts:41` and `runtime/src/engine/render/renderer-types.ts:52`), with **no shared types package**; the expression payload that actually drives data-driven paint crosses the boundary typed as **`{ ast: unknown }`** and is then **double-cast** `as unknown as RuntimeExpr` (`renderer.ts:97,101`). There is **no version/compatibility field** on the compiled artifact, and the only "parity" test (`node-to-wgsl.test.ts`) is a *within-compiler* IR→WGSL oracle that **does not span the seam**. So a compiler-side change to the expression AST or `ShowCommand` shape **type-checks clean and breaks (or silently misrenders) at runtime**. The good news: the team already demonstrates the right pattern elsewhere — `blueprint/src/__tests__/contract.test.ts` is a proper consumer-style contract test for the editor→codegen boundary; it just hasn't been applied to compiler→runtime.
+
+---
+
+## A. The contract (as audited)
+The pipeline is `.xgis` source → compiler parse/IR → `emitCommands()` → `SceneCommands { shows: ShowCommand[] }` → runtime `VTR.render()`. `ShowCommand` carries fill/stroke/size/paint, and for **data-driven** paint a per-feature expression: the runtime shape is `extrude?: ... | { kind: 'feature'; expr: { ast: unknown }; fallback: number }` (`renderer-types.ts:176,182`), and fill/stroke variants likewise carry `fillExpr`/`strokeExpr` whose `.expr` is consumed by wrapping it in a shader-DSL `Node`. Expressions are Mapbox-style (interpolate/step/match/get) — evaluated CPU-side and/or lowered to WGSL by the compiler's `node-to-wgsl`.
+
+## B. Findings (file:line, severity)
+
+### B1 — `ShowCommand` is duplicated across packages, not shared — HIGH (drift risk)
+Two independent `export interface ShowCommand`: `compiler/src/ir/emit-commands.ts:41` (producer) and `runtime/src/engine/render/renderer-types.ts:52` (consumer). The compiler does **not** import the runtime type (no `@xgis/runtime` import of it); they are parallel definitions kept in sync **by hand**. The research is unambiguous on the consequence: duplicating a type means "a change on one side does not propagate, and the compiler cannot catch it because each side type-checks against its own isolated definition — the bug surfaces at runtime" [dev.to monorepo types, high]. The fix is a single shared definition so "TypeScript immediately shows you every place that needs updating" [outstand.so, high]. **Fix:** hoist `ShowCommand` (and the expr AST type) into a shared package both import; drift becomes a compile error at every usage site.
+
+### B2 — The expression boundary is `{ ast: unknown }` + a double assertion — HIGH (the live unsafe cast)
+The expression that drives data-driven paint crosses as **`expr: { ast: unknown }`** (`renderer-types.ts:176,182`) — i.e. *fully untyped at the seam* — and the runtime then does `new Node<'vec4<f32>'>(variant.fillExpr.expr as unknown as RuntimeExpr)` (`renderer.ts:97,101`). A **double assertion through `unknown` erases the type history**, so TypeScript "has nothing to compare the producer's actual shape against… the double assertion compiles but crashes at runtime" [TS handbook + devresourcehub, high]. This is exactly the producer-change-silently-breaks-consumer footgun: a compiler-side AST node rename/reshape passes every type check and only fails when the runtime walks the wrong shape. (The shader audit flagged this same cast as its B-tier risk #11 — this audit confirms it's the *defining* property of the seam, not a one-off.)
+
+### B3 — No version / compatibility field on the artifact — MEDIUM
+No `schemaVersion`/`compilerVersion`/IR-version field exists on the compiled output (grep across `renderer-types.ts` + `shared/` found none). So a runtime consuming an artifact from a **mismatched compiler** (e.g. a cached/imported style compiled by an older toolchain, or the `import "mapbox-style"` path) **silently misparses** instead of failing fast. The research prescribes a version tag so the consumer can "detect a version mismatch and *fail fast* instead of silently misparsing" [Drill/defmt, high], with managed compatibility rules as the alternative to a hard reject [Confluent, high]. **Fix:** stamp the artifact with a contract version and check it at ingestion.
+
+### B4 — The only parity test is within-compiler and narrow — MEDIUM (false sense of coverage)
+`compiler/src/codegen/node-to-wgsl.test.ts` is a good oracle — but it validates the **compiler's own** `nodeToWgslString` (IR `Expr` → WGSL string: `(1.0 + 2.0)`, `vec4<f32>(...)`, `7u`, `select(false,true,cond)` arg order). It does **not** validate that the runtime's `RuntimeExpr` interpretation matches the compiler's AST, nor that the `as unknown as` cast is shape-safe. So the seam that most needs a contract oracle (B2) has none; the existing test guards a *different* (intra-compiler) transformation. **Schema validation at the runtime ingestion point** — parse/validate the AST against a schema before use — would "recover the safety a `as unknown as` cast discards" by actually checking the shape the cast merely asserts [norbix JSON-schema, high].
+
+## C. What's robust
+The pieces of a good contract exist — they're just pointed at the wrong boundary. `blueprint/src/__tests__/contract.test.ts` is a **proper contract test** ("keeps exact codegen field keys", "starter graph round-trips through the real compiler") for the editor→codegen seam — exactly the **consumer-driven contract** pattern [Pact, high] that compiler→runtime needs. `node-to-wgsl.test.ts` is a solid within-compiler oracle. The `ShowCommand` fields are explicitly enumerated (not stringly-typed), and the back-compat comments (`renderer-types.ts:57-59`, `emit-commands.ts:423`) show the team is *aware* the runtime consumes a specific field subset. The raw materials for a real cross-boundary contract are present.
+
+## D. Top fixes (ranked)
+1. **Share the type** (B1) — one `ShowCommand` + expr-AST definition both packages import; converts hand-sync drift into compile errors. The single highest-leverage change.
+2. **Validate the AST at ingestion** (B2/B4) — a schema `.parse()` at the runtime boundary (where the `as unknown as` cast lives) turns a silent runtime corruption into a fail-fast at the edge; pair with a cross-boundary contract test modeled on the existing blueprint one.
+3. **Stamp a contract version** (B3) — fail fast on compiler/runtime mismatch instead of misparsing, especially for cached/imported styles.
+
+> If a full shared type is infeasible across the package split, B2's runtime schema validation + B3's version stamp together recover most of the safety that B1's shared type would give — the research's "when a shared compile-time type isn't feasible, re-establish safety at runtime via contract testing + schema/versioning" path [Pact + Confluent + norbix].
+
+---
+
+## Sources
+**Codebase audit (file:line):** `runtime/src/engine/render/renderer.ts:97,101` (`as unknown as RuntimeExpr`), `runtime/src/engine/render/renderer-types.ts:52,176,182` (runtime ShowCommand, `{ast: unknown}`), `compiler/src/ir/emit-commands.ts:41,311-442` (compiler ShowCommand, emit), `compiler/src/codegen/node-to-wgsl.ts` + `.test.ts` (within-compiler oracle), `compiler/src/codegen/node-types.ts`, `blueprint/src/__tests__/contract.test.ts` (the right pattern, wrong boundary); no version field found in `renderer-types.ts`/`shared/`.
+**Contract research:** TypeScript handbook (assertions; `as unknown as` double-assertion escape hatch) https://www.typescriptlang.org/docs/handbook/2/everyday-types.html [high]; devresourcehub (double assertion compiles, crashes at runtime) [high]; dev.to monorepo types + outstand.so (duplication drift vs shared-type compile errors) [high]; Pact / pactflow (consumer-driven contract testing as the runtime substitute) [high]; Confluent data-contracts (version mismatch → silent consumer failure; compatibility rules) [high]; Drill/defmt (versioned wire format, fail-fast) [high]; norbix JSON-schema (validate at ingestion boundary) [high].
+
+*Confidence: the codebase facts (direct grep/read — duplicated ShowCommand, `{ast: unknown}`, the double cast, no version field, within-compiler-only parity) are load-bearing and verified first-hand; the producer↔consumer contract research is primary-sourced. The dedicated codebase-contract agent did not return before synthesis, so this audit is grounded in direct repository inspection plus the contract research rather than that agent's report — the load-bearing file:line facts were verified independently.*
