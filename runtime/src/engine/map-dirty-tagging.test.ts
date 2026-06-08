@@ -80,6 +80,34 @@ describe('S14 granular dirty tagging — text overlays tag LABEL only', () => {
     expect(s._dirty.peek(DirtyDomain.LABEL)).toBe(false)
     expect(s._needsRender).toBe(false)
   })
+
+  it('markLabelDirty() tags LABEL + re-arms _needsRender, nothing else (Audit ① B1)', () => {
+    // PIN: the producer side wired into TextStage's onResourceLanded. An
+    // async glyph landing must re-arm a frame AND tag LABEL so the next
+    // frame's S16 skip re-prepares (not replay the stale zero-SDF glyph).
+    const map = new XGISMap(mockCanvas())
+    const s = clean(map)
+    map.markLabelDirty()
+    expect(s._dirty.peek(DirtyDomain.LABEL)).toBe(true)
+    expect(s._needsRender).toBe(true)
+    // Granular: it must NOT smear other domains (else it would force a
+    // needless full camera/source/style re-eval every glyph land).
+    expect(s._dirty.peek(DirtyDomain.CAMERA)).toBe(false)
+    expect(s._dirty.peek(DirtyDomain.SOURCE)).toBe(false)
+    expect(s._dirty.peek(DirtyDomain.PROJECTION)).toBe(false)
+    expect(s._dirty.peek(DirtyDomain.STYLE)).toBe(false)
+  })
+
+  it('markLabelDirty() then consumeLabelDirty() breaks the S16 skip', () => {
+    // The end-to-end contract: after a glyph lands, the next frame's
+    // consumeLabelDirty() returns true → the skip-gate's `!labelDirty`
+    // term is false → re-prepare runs.
+    const map = new XGISMap(mockCanvas())
+    map.consumeLabelDirty() // drain construction-time DIRTY_ALL
+    expect(map.consumeLabelDirty()).toBe(false)
+    map.markLabelDirty()
+    expect(map.consumeLabelDirty()).toBe(true)
+  })
 })
 
 describe('S16 consumer skip — consumeLabelDirty() read-and-clear', () => {

@@ -148,6 +148,22 @@ function textKeyFor(fontKey: string, text: string): number {
   return h | 0
 }
 
+/** Audit ④ B1 — layout-cache hit validity. The numeric `_layoutKey`
+ *  (32-bit FNV-1a over font/size/width/…) CAN collide; the generation
+ *  guard only catches eviction-staleness, so on a collision the cache
+ *  would serve label-A's glyphs+offsets for label-B (the "일부만" scatter,
+ *  iter-327). Validate the EXACT source identity (`srcKey` = fontKey+text)
+ *  on hit — a string compare is collision-proof. A hit is valid only when
+ *  BOTH the atlas generation matches (slots unchanged) AND the source text
+ *  matches (no hash collision). Exported for direct unit testing. */
+export function layoutCacheEntryValid(
+  entry: { generation: number; srcKey: string },
+  srcKey: string,
+  generation: number,
+): boolean {
+  return entry.generation === generation && entry.srcKey === srcKey
+}
+
 function pretextCacheKey(
   glyphs: readonly GlyphInfo[],
   // iter-241 — `ArrayLike<number>` accepts both `number[]` and
@@ -711,6 +727,10 @@ export class TextStage {
      *  may point at reassigned codepoints (iter-175 corruption root),
      *  so treat as cache miss. */
     generation: number
+    /** Audit ④ B1 — exact source identity (`fontKey\0text`) at write.
+     *  On read, a `_layoutKey` hash collision is rejected by comparing
+     *  this against the requesting label's srcKey (see layoutCacheEntryValid). */
+    srcKey: string
     haloGeom?: { width: number; blur?: number }
     sizePx: number; letterSpacingPx: number; rotateRad?: number
   }>()
@@ -809,7 +829,15 @@ export class TextStage {
       if (options.glyphsUrl) providers.push(new GlyphPbfCache({ glyphsUrl: options.glyphsUrl }))
       pbfRas = new PbfRasterizer({
         fallback, providers,
-        onLanded: (fontKey, codepoint) => this.host.invalidate(fontKey, codepoint),
+        onLanded: (fontKey, codepoint) => {
+          // Invalidate the atlas slot (upgrade zero-SDF → real SDF next
+          // frame) AND ring the bell on the owning map (Audit ① B1): the
+          // S16 label-collision skip would otherwise keep replaying the
+          // stale glyph until the camera moves, because the dispatch
+          // signature is unchanged by a background resource landing.
+          this.host.invalidate(fontKey, codepoint)
+          options.onResourceLanded?.()
+        },
       })
       rasterizer = pbfRas
     } else {
@@ -1357,9 +1385,15 @@ export class TextStage {
         && candidates.length === 1
         && p.def.rotate === undefined
       let _layoutKey: number | undefined
+      // Audit ④ B1 — exact source identity to reject `_layoutKey` hash
+      // collisions on hit (the NUL separator keeps `font+text` distinct
+      // from `fon+ttext`). Declared alongside `_layoutKey` so it reaches
+      // the cache-store site below.
+      let _srcKey: string | undefined
       if (_isCacheable) {
         const anchorStr = String(candidates[0])
         const cacheKey = textKeyFor(p.fontKey, p.text)
+        _srcKey = p.fontKey + '\u0000' + p.text
         _layoutKey = layoutCacheKey(
           cacheKey, sizePx, letterSpacingPx,
           maxWidthPx === Infinity ? Infinity : maxWidthPx,
@@ -1373,12 +1407,14 @@ export class TextStage {
           haloOut?.blur ?? 0,
         )
         const hit = this._layoutCache.get(_layoutKey)
-        // iter-190 generation guard. hit.glyphs[] references atlas
-        // slots whose pxX / pxY change when the slot is reassigned.
-        // If the host bumped its generation since this entry was
-        // written, the references may now point at unrelated
-        // codepoints → drop the entry and fall through to recompute.
-        if (hit !== undefined && hit.generation === this.host.getGeneration()) {
+        // iter-190 generation guard + Audit ④ B1 text-identity guard.
+        // hit.glyphs[] references atlas slots whose pxX / pxY change when
+        // the slot is reassigned, so a generation bump invalidates them;
+        // AND the 32-bit `_layoutKey` can collide, so a matching key may
+        // belong to a DIFFERENT label — `srcKey` rejects that. Either
+        // mismatch → drop the entry and fall through to recompute.
+        if (hit !== undefined
+            && layoutCacheEntryValid(hit, _srcKey, this.host.getGeneration())) {
           // iter-266 — count hit (after generation guard, so this
           // is a "real" hit that skipped the candidates loop).
           this._layoutCacheHits++
@@ -1599,6 +1635,9 @@ export class TextStage {
             blockBottom: vlay.blockBottom,
             glyphOffsets: cachedGlyphOffsets, glyphs,
             generation: this.host.getGeneration(),
+            // Audit ④ B1 — `_isCacheable` here ⟹ `_srcKey` was assigned
+            // above; `?? ''` only satisfies the `string | undefined` type.
+            srcKey: _srcKey ?? '',
             haloGeom: haloOut
               ? {
                   width: haloOut.width,

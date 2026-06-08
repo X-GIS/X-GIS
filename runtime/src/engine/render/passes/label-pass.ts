@@ -76,6 +76,10 @@ class LabelPass implements RenderPass {
           // resolution so Hangul/Han labels aren't GPU-upscaled ~dpr×
           // from a 24-px atlas raster (low-res CJK on hidpi screens).
           tsOpts.dpr = dpr
+          // Audit ① B1 — when an async PBF glyph range lands after the
+          // frame that needed it drew, re-arm a frame + tag LABEL dirty so
+          // the S16 skip re-prepares instead of replaying the stale glyph.
+          tsOpts.onResourceLanded = () => host.markLabelDirty()
           host.textStage = new TextStage(device, host.ctx.format, tsOpts, sc)
           host.textStage.prewarmGISDefaults()
           // Attach any debug hook that was set before the stage existed.
