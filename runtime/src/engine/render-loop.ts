@@ -52,6 +52,7 @@ export type RenderLoopHost = Pick<XGISMap,
   | '_flickerLog'
   | '_frameCount'
   | '_interacting'
+  | '_labelsHaveTimeAnimation'
   | '_labelDispatchHits'
   | '_labelDispatchMisses'
   | '_lastSigBearing'

@@ -612,6 +612,11 @@ export class TextStage {
    *  Null when no overrides were configured (default identity behaviour). */
   private readonly fontTypography: TextStageOptions['fontTypography'] | null
   private readonly pending: PendingLabel[] = []
+  /** S16 prepare-skip guard: false when the last prepare() dropped any label
+   *  because its glyphs hadn't landed yet (an async glyph range still in
+   *  flight). The label pass must NOT skip prepare while this is false, or a
+   *  label awaiting its glyphs would stay dropped until the camera moves. */
+  private _lastPrepareFullyResolved = false
   private readonly pendingLine: PendingLineLabel[] = []
   /** iter-241 (Plan AAA B.2) — per-frame scratch arena for typed-array
    *  allocations that today fire per-label-per-frame inside `prepare()`.
@@ -1086,6 +1091,7 @@ export class TextStage {
     if (this.pending.length === 0 && this.pendingLine.length === 0) {
       this.renderer.setDraws([])
       this._lastDrawnLabelCount = 0
+      this._lastPrepareFullyResolved = true // nothing to resolve
       return
     }
     // Phase 1: shape every label, compute its screen-space bbox, and
@@ -1192,18 +1198,26 @@ export class TextStage {
     // loop's ensureString call returns an empty array → shaped[]
     // gets an empty layout → collision drops it cleanly. Cleared
     // on next frame's reset().
+    // Track whether EVERY label's glyphs were present this prepare. A drop
+    // here means an async glyph range is still in flight; the S16 skip reads
+    // _lastPrepareFullyResolved so the label pass keeps re-preparing (rather
+    // than freezing a dropped label) until the range lands.
+    let fullyResolved = true
     for (let i = 0; i < this.pending.length; i++) {
       const p = this.pending[i]!
       if (!this.host.hasAllGlyphs(p.fontKey, p.text)) {
         p.text = ''  // overflow drop — label skipped this frame
+        fullyResolved = false
       }
     }
     for (let i = 0; i < this.pendingLine.length; i++) {
       const p = this.pendingLine[i]!
       if (!this.host.hasAllGlyphs(p.fontKey, p.text)) {
         p.text = ''
+        fullyResolved = false
       }
     }
+    this._lastPrepareFullyResolved = fullyResolved
 
     // iter-265 — sub-phase drill. Point-label shaping loop covers
     // ensureString + advances FrameArena fill + Knuth-Plass wrap +
@@ -1963,6 +1977,13 @@ export class TextStage {
    *  a prior prepare() — emits nothing in that case. */
   render(pass: GPURenderPassEncoder, viewport: { width: number; height: number }): void {
     this.renderer.draw(pass, viewport)
+  }
+
+  /** S16 skip guard — see `_lastPrepareFullyResolved`. False until a prepare()
+   *  completes with every label's glyphs present; the label pass must not skip
+   *  prepare while this is false. */
+  wasLastPrepareFullyResolved(): boolean {
+    return this._lastPrepareFullyResolved
   }
 
   /** Reset the pending queue for the next frame. Call after render()

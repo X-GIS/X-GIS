@@ -199,6 +199,16 @@ export class IconStage {
     this.pending = []
   }
 
+  /** True once the sprite atlas fetch has reached a TERMINAL state (loaded or
+   *  failed) — i.e. no further icon-resolution change can arrive. The label
+   *  pass reads this to decide the S16 prepare-skip is safe: while the atlas is
+   *  still 'loading'/'idle', a skip would freeze the frame before icons resolve,
+   *  so the caller must keep preparing until this returns true. */
+  isAtlasTerminal(): boolean {
+    const s = this.host.getState().status
+    return s === 'loaded' || s === 'failed'
+  }
+
   /** Async-ready hook — resolves once the atlas reaches a terminal
    *  state (loaded OR failed). Useful for callers who want to suppress
    *  the first frame until icons are available. Failure does NOT

@@ -265,7 +265,23 @@ class LabelPass implements RenderPass {
         // never skipped. frame_stability (replay == original) + post_change
         // (move ⇒ rebuild) on the label matrix cell are the regression net.
         const labelDirty = host.consumeLabelDirty()
-        const canSkipLabelPrepare = host._prevLabelDispatchSig === _dispatchSig && !labelDirty
+        // The skip is only safe when the dispatch signature captures EVERYTHING
+        // that can change the labels. Two things it can't: (a) an async label
+        // resource (glyph range / sprite atlas) landing after the sig settled —
+        // `wasLastPrepareFullyResolved()` is false while glyphs are still in
+        // flight, and `isAtlasTerminal()` is false while the atlas is loading,
+        // so we keep preparing until both resolve; (b) a time-driven label shape
+        // (the sig omits the animation clock) — `_labelsHaveTimeAnimation`. While
+        // any of these hold, force a re-collation so a late glyph/icon or an
+        // animated text-size isn't frozen until the camera moves.
+        const labelResourcesPending =
+          !stage.wasLastPrepareFullyResolved()
+          || (iStage !== null && !iStage.isAtlasTerminal())
+        const canSkipLabelPrepare =
+          host._prevLabelDispatchSig === _dispatchSig
+          && !labelDirty
+          && !labelResourcesPending
+          && !host._labelsHaveTimeAnimation
         if (canSkipLabelPrepare) {
           host._labelDispatchHits++
         } else {
