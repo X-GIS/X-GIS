@@ -10,7 +10,7 @@ import { precisionForZoomMM } from './encoding'
 import { POLYGON_FILL_FORMAT, field } from './polygon-vertex-format'
 import type { GeoJSONFeatureCollection, GeoJSONFeature } from './geojson-types'
 import { tileKey, tileKeyUnpack } from './vector-tiler-helpers'
-import { WGS84 } from '@xgis/shared'
+import { WGS84, quantizeAxis } from '@xgis/shared'
 import type {
   CompiledTileSet,
   PropertyTable,
@@ -151,24 +151,6 @@ export interface QuantizedPolygonVertices {
   dequantScale: number
   /** `halfRange` — half the symmetric per-tile residual span (metres). */
   dequantHalf: number
-}
-
-/** ECEF residual half-range fixed-point quantizer (Phase 2 PR 2f).
- *
- * Quantizes one ECEF RTC residual axis into 32-bit fixed point over the
- * symmetric range `[-halfRange, +halfRange]`, then splits into u16 hi/lo:
- *   q  = round((axis + halfRange) / (2*halfRange) * 0xFFFFFFFF)   // u32
- *   hi = q >>> 16   lo = q & 0xFFFF
- * Returns hi, lo as the two u16 lanes. `invSpan = 0xFFFFFFFF / (2*halfRange)`
- * is hoisted by the caller. */
-function quantizeAxis(axis: number, halfRange: number, invSpan: number): [number, number] {
-  let q = Math.round((axis + halfRange) * invSpan)
-  // Clamp into [0, 0xFFFFFFFF] — by construction (halfRange = exact max-abs
-  // over the tile's verts + epsilon) no axis exceeds the range, but rounding
-  // at the extreme could land at 0x1_0000_0000; clamp defends the cast.
-  if (q < 0) q = 0
-  else if (q > 0xFFFFFFFF) q = 0xFFFFFFFF
-  return [(q >>> 16) & 0xFFFF, q & 0xFFFF]
 }
 
 // Offsets derived from the single-source POLYGON_FILL_FORMAT spec so the

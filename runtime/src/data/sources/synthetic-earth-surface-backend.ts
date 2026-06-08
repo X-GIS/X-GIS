@@ -31,6 +31,7 @@ import {
   type WorldBandKind,
 } from '../../engine/projection/earth-surface-fill'
 import { tileEcefCenterFromMerc, lonLatToECEF } from '../../engine/projection/ecef'
+import { quantizeAxis } from '@xgis/shared'
 import {
   TILE_LAYOUT_VERSION,
   type BackendTileResult,
@@ -205,17 +206,6 @@ const FILL_U16_PER_VERT = 12
 const FILL_FID_FLOAT = 3
 const FILL_LON_FLOAT = 4
 const FILL_LAT_FLOAT = 5
-
-/** Quantize one ECEF-RTC residual axis into u16 hi/lo over the symmetric range
- *  `[-halfRange, +halfRange]`. BYTE-IDENTICAL to the tiler kernel's private
- *  `quantizeAxis` (vector-tiler.ts:164) so caps + grid share the GPU decode
- *  (`q = hi*65536 + lo; axis = q*scale - half`). */
-function quantizeAxis(axis: number, halfRange: number, invSpan: number): [number, number] {
-  let q = Math.round((axis + halfRange) * invSpan)
-  if (q < 0) q = 0
-  else if (q > 0xFFFFFFFF) q = 0xFFFFFFFF
-  return [(q >>> 16) & 0xFFFF, q & 0xFFFF]
-}
 
 /** Mercator-clamped pack (the canonical ground-tile path). Builds an absolute
  *  Mercator-metre scratch (latitude capped at the Web-Mercator limit) and runs
