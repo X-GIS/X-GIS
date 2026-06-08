@@ -77,6 +77,13 @@ interface ReportRow {
 }
 const rows: ReportRow[] = []
 const hardFailures: string[] = []
+// Audit ③ E — an `expected_red` cell that gets fixed (or regresses past
+// threshold) flips its oracles green with NO alert today, so a documented
+// open bug silently disappears (or a "baseline taken while broken" silently
+// passes). Collect every expected_red cell whose oracles ALL pass this run
+// and surface it in the report so a human re-checks: promote to green, or
+// strengthen the oracle that's failing to catch the documented bug.
+const expectedRedAllGreen: string[] = []
 
 test.describe.configure({ mode: 'serial' }) // GPU contention — mirror Oracle-B / pixel-match.
 
@@ -168,6 +175,9 @@ for (const cell of CELLS) {
     writeFileSync(join(OUT, `${cell.id}.png`), png)
 
     // ── Run each oracle; record; collect hard failures. NEVER throw here. ──
+    // Track this cell's verdicts for the Audit ③ E expected_red-flip alert.
+    let sawPass = false
+    let sawNonPass = false
     for (const o of cell.oracles) {
       const result: OracleResult = await runOracle(page, png, cell, o)
       const verdict: ReportRow['verdict'] =
@@ -176,6 +186,8 @@ for (const cell of CELLS) {
         : result.pass ? 'PASS'
         : gate === 'hard' ? 'FAIL'
         : 'SOFT'
+      if (verdict === 'PASS') sawPass = true
+      else if (verdict === 'SOFT' || verdict === 'FAIL') sawNonPass = true
       rows.push({
         cellId: cell.id,
         projection: cell.projection,
@@ -192,6 +204,12 @@ for (const cell of CELLS) {
       }
       // eslint-disable-next-line no-console
       console.log(`[matrix] ${cell.id} (${cell.knownStatus}/${gate}) ${result.kind}: ${verdict} — ${result.detail}`)
+    }
+    // Audit ③ E — a documented-open-bug cell whose oracles ALL pass (at
+    // least one real PASS, no SOFT/FAIL) is a silent flip: either the bug
+    // is fixed (→ promote to green) or no oracle actually catches it.
+    if (cell.knownStatus === 'expected_red' && sawPass && !sawNonPass) {
+      expectedRedAllGreen.push(cell.id)
     }
   })
 }
@@ -219,10 +237,17 @@ test.afterAll(() => {
   if (candidates > 0) {
     lines.push(`→ ${candidates} cell-oracle(s) need a reviewed baseline: inspect e2e/__matrix__/<id>.png, then \`bun run matrix:accept <id>\`.`)
   }
+  if (expectedRedAllGreen.length > 0) {
+    lines.push('───────────────────────────────────────────────────────────────')
+    lines.push(`⚠ EXPECTED_RED FLIP — ${expectedRedAllGreen.length} documented-bug cell(s) now pass ALL oracles:`)
+    for (const id of expectedRedAllGreen) lines.push(`    ${id}`)
+    lines.push('  → either the bug is FIXED (promote knownStatus: expected_red → green in')
+    lines.push('    matrix.manifest.ts) or NO oracle catches it (strengthen the oracle).')
+  }
   // eslint-disable-next-line no-console
   console.log(lines.join('\n'))
   try {
-    writeFileSync(join(OUT, 'report.json'), JSON.stringify({ rows, hardFailures }, null, 2))
+    writeFileSync(join(OUT, 'report.json'), JSON.stringify({ rows, hardFailures, expectedRedAllGreen }, null, 2))
   } catch { /* artifact write is best-effort */ }
 
   // The ONLY hard assertion: hard-gated cells with a real failure.
