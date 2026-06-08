@@ -251,7 +251,22 @@ class LabelPass implements RenderPass {
           + `|${(c.bearing * 100) | 0}|${(c.pitch * 100) | 0}`
           + `|${host.ctx.canvas.width}x${host.ctx.canvas.height}`
           + `|${labelShows.length}|${_vtrSig}`
-        if (host._prevLabelDispatchSig === _dispatchSig) {
+        // S16 — first consumer skip. Read-and-clear the LABEL dirty domain
+        // (overlay add/remove, scene rebuild, any invalidate() all re-tag it),
+        // and combine it with the dispatch signature: when neither the sig nor
+        // the LABEL domain changed, the prepared collision result from the prior
+        // frame is still valid, so we skip stage.prepare() / iStage.prepare()
+        // (the O(N²) greedy collision + shaping + GPU upload) and let
+        // stage.render() replay the renderer's persistent draws unchanged. The
+        // dispatch loop still runs (kept simple + leak-free; its `pending` is
+        // dropped via stage.reset()/iStage.reset()); a future increment can
+        // skip it too. Correctness gate: any camera/canvas/tile change moves the
+        // sig; any label-content change tags LABEL — so a needed re-collision is
+        // never skipped. frame_stability (replay == original) + post_change
+        // (move ⇒ rebuild) on the label matrix cell are the regression net.
+        const labelDirty = host.consumeLabelDirty()
+        const canSkipLabelPrepare = host._prevLabelDispatchSig === _dispatchSig && !labelDirty
+        if (canSkipLabelPrepare) {
           host._labelDispatchHits++
         } else {
           host._labelDispatchMisses++
@@ -988,9 +1003,14 @@ class LabelPass implements RenderPass {
         // iter-258 — label-dispatch loop ends here; mark close.
         perfMarkEnd('encoder.label-dispatch')
         perfMarkStart('encoder.stage-prepare')
-        stage.prepare()
-        if (iStage) iStage.setDroppedPairKeys(stage.getDroppedPairKeys())
-        iStage?.prepare()
+        // S16 skip: on an unchanged frame, reuse the prior prepare's GPU draws
+        // (stage.render below replays them); skipping the collision + upload is
+        // the measurable payload (see getLabelDispatchStats hitRate).
+        if (!canSkipLabelPrepare) {
+          stage.prepare()
+          if (iStage) iStage.setDroppedPairKeys(stage.getDroppedPairKeys())
+          iStage?.prepare()
+        }
         perfMarkEnd('encoder.stage-prepare')
         // Text overlay v1: skipped in debug=overdraw — text pipeline
         // targets the swapchain format, not r16float. Phase 2 adds
@@ -1012,7 +1032,11 @@ class LabelPass implements RenderPass {
             tPass.end()
           })
         }
+        // Drop both stages' per-frame dispatch queues. iStage.reset() mirrors
+        // stage.reset() so a frame that skipped iStage.prepare() (S16) cannot
+        // carry dispatched-but-unprepared icons into the next prepared set.
         stage.reset()
+        iStage?.reset()
       }
   }
 }

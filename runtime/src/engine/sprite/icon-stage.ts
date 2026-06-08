@@ -190,6 +190,15 @@ export class IconStage {
     this.renderer.draw(pass, viewport)
   }
 
+  /** Drop the pending icon queue without preparing. `prepare()` normally
+   *  clears `pending` at its tail; the label pass calls this every frame so a
+   *  frame that SKIPS `prepare()` (S16 collision skip) cannot leak dispatched
+   *  icons into the next prepared set. The renderer's draws are untouched, so
+   *  a skipped frame replays the previous prepare's icons. */
+  reset(): void {
+    this.pending = []
+  }
+
   /** Async-ready hook — resolves once the atlas reaches a terminal
    *  state (loaded OR failed). Useful for callers who want to suppress
    *  the first frame until icons are available. Failure does NOT

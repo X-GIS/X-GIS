@@ -440,6 +440,14 @@ export class XGISMap {
    *  path that already runs only on a live map. */
   private _markDirty(domains: number): void { this._needsRender = true; this._dirty.tag(domains) }
 
+  /** Eval-side consumer for the label pass (S16 — the FIRST consumer skip).
+   *  Reads-and-CLEARS the LABEL domain: returns whether labels were re-tagged
+   *  since the last call, then resets the bit so the next frame starts clean
+   *  unless an edit (overlay add/remove, scene rebuild, or any invalidate())
+   *  re-tags it. The label pass combines this with its camera/canvas/tile-set
+   *  signature to skip re-dispatch + re-collision on an unchanged frame. */
+  consumeLabelDirty(): boolean { return this._dirty.consume(DirtyDomain.LABEL) }
+
   /** Flag an active user gesture (pan / zoom) so the render loop can drop
    *  to QUALITY.interactionDpr while interacting and restore full DPR once
    *  the gesture settles. Debounced: each call pushes the idle-restore out
