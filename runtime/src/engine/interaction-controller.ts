@@ -66,6 +66,21 @@ export interface InteractionControllerDeps {
   getVectorTileShows(): VectorTileShowEntry[]
 }
 
+/** Map a CSS-pixel coordinate to the device-pixel index to sample, at the
+ *  CENTRE of the CSS pixel (Audit ⑩ B2). `Math.floor(css * scale)` lands on
+ *  the TOP-LEFT of a DPR≥2 device-pixel group — a ~0.5px bias at DPR2, ~1px
+ *  at DPR3 — so edge clicks miss; adding 0.5 CSS px before scaling samples
+ *  the pixel's centre instead. Result is clamped into [0, canvasSpan-1].
+ *  Returns -1 when the CSS coord is outside the element (caller → miss).
+ *  `cssCoord` is element-relative (clientX - rect.left); `rectSpan` is the
+ *  element's CSS width/height; `canvasSpan` is the backing-store width/height. */
+export function cssToDevicePixel(cssCoord: number, rectSpan: number, canvasSpan: number): number {
+  if (!(cssCoord >= 0) || cssCoord >= rectSpan || rectSpan <= 0) return -1
+  const scale = canvasSpan / rectSpan
+  const px = Math.floor((cssCoord + 0.5) * scale)
+  return px < 0 ? 0 : px >= canvasSpan ? canvasSpan - 1 : px
+}
+
 export class InteractionController {
   private readonly camera: Camera
   private readonly layerIds: LayerIdRegistry
@@ -113,11 +128,13 @@ export class InteractionController {
     if (!pickTexture || !ctx) return null
     const canvas = ctx.canvas
     const rect = canvas.getBoundingClientRect()
-    // Convert CSS coords → physical pixels (match the dpr used for the
-    // framebuffer size). Clamp into bounds; out-of-canvas → null.
-    const px = Math.floor((clientX - rect.left) * (canvas.width / rect.width))
-    const py = Math.floor((clientY - rect.top) * (canvas.height / rect.height))
-    if (px < 0 || py < 0 || px >= canvas.width || py >= canvas.height) return null
+    // Convert CSS coords → physical pixels, sampling the CENTRE of the CSS
+    // pixel (Audit ⑩ B2 — a plain floor biases toward the top-left of the
+    // DPR≥2 device-pixel group, ~0.5px at DPR2, causing edge misses).
+    // Out-of-element → -1 → miss.
+    const px = cssToDevicePixel(clientX - rect.left, rect.width, canvas.width)
+    const py = cssToDevicePixel(clientY - rect.top, rect.height, canvas.height)
+    if (px < 0 || py < 0) return null
 
     // Rent a staging buffer. Each slot is 8 bytes (one RG32Uint pixel,
     // padded to minimum 256-byte row per WebGPU's copy alignment). We
@@ -153,13 +170,7 @@ export class InteractionController {
       slot.buf.unmap()
       const layerId = packed & 0xffff
       const instanceId = (packed >>> 16) & 0xffff
-      // Both featureId=0 and layerId=0 are sentinels: featureId=0 means "no
-      // feature drew here" (raster-only / background), layerId=0 means "no
-      // pickable layer drew here" (e.g., graticule, or Phase 3's
-      // pointer-events:none with writeMask=0 yields 0 because the slot was
-      // never written). Either is a miss.
-      if (featureId === 0 || layerId === 0) return null
-      return { featureId, layerId, instanceId }
+      return this.resolvePick(featureId, layerId, instanceId)
     } finally {
       slot.inUse = false
     }
@@ -173,6 +184,26 @@ export class InteractionController {
     const name = this.layerIds.getName(layerId)
     if (!name) return null
     return this.xgisLayers.get(name) ?? null
+  }
+
+  /** Resolve a raw pick sample into a hit or a miss. Two reasons for a miss:
+   *    1. the no-feature sentinels — featureId=0 ("no feature drew here":
+   *       raster-only / background), layerId=0 ("no pickable layer drew
+   *       here": graticule, or a `pointer-events:none` writeMask=0 slot that
+   *       was never written);
+   *    2. Audit ⑩ B1 — the hit landed on a layer the author HID
+   *       (`visible === false`). The render pass already filters hidden VT
+   *       layers out of BOTH colour and pick (the opaque + label passes write
+   *       the pick texture from the same visibility-filtered show list), so
+   *       this closes the 1-frame window where the pick texture is still from
+   *       the frame BEFORE a `layer.visible = false`, and pins the
+   *       invisible⇒unclickable contract at the readback boundary. */
+  resolvePick(
+    featureId: number, layerId: number, instanceId: number,
+  ): { featureId: number; layerId: number; instanceId: number } | null {
+    if (featureId === 0 || layerId === 0) return null
+    if (this.getLayerByPickId(layerId)?.visible === false) return null
+    return { featureId, layerId, instanceId }
   }
 
   /** Build the rich feature payload for an event hit. Falls back to an
