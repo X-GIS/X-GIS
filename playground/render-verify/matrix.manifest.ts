@@ -41,10 +41,16 @@ export const MATRIX: MatrixCell[] = [
           { name: 'rose', minRatio: 0.0005 },
         ],
       },
+      // Under-invalidation guard (S16 net). LAST so its mutate→restore window
+      // never overlaps a sibling oracle. min mirrors frame_stability's 0.5%
+      // "same frame?" boundary: under-invalidation makes the post-change frame
+      // byte-identical to the pre-change one (diff ≈ 0 < min), while a correct
+      // repaint clears it with wide margin (a needed repaint must NOT be skipped).
+      { kind: 'post_change', min: 0.005 },
     ],
     gate: 'hard',
     knownStatus: 'green',
-    note: 'Oracle-B parity anchor — math-derived reference, no human bless needed.',
+    note: 'Oracle-B parity anchor — math-derived reference, no human bless needed. post_change is the under-invalidation complement to the disc cells frame_stability.',
   },
 
   // (1) DISC — azimuthal framing. The disc-fraction oracle is a PRESENCE +

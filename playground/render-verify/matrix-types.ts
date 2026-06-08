@@ -63,6 +63,7 @@ export type OracleKind =
   | 'label_onscreen' // every placed label anchor within viewport+margin (gross mis-dispatch)
   | 'finite_mvp' // all 16 floats of the live camera MVP (getCameraDebugSnapshot().matrix) are finite (no NaN/Inf); projection-agnostic, no baseline
   | 'frame_stability' // frame N vs frame N+1 diff ≈0 on a settled static scene; deterministic-render guard for future invalidation/skip work (S16)
+  | 'post_change' // frame BEFORE vs AFTER a reversible camera change diff ≥min; under-invalidation guard (a needed repaint must NOT be skipped) — the complement of frame_stability, the S16 net
 
 /** The ink families the synthetic fixture renders (pinned to its layer hexes,
  *  see render-verify/d3-reference.ts STYLE), plus `slate` for ofm-bright
@@ -79,6 +80,8 @@ export interface OracleSpec {
    *   black_ratio → max pure-black fraction [0,1]
    *   disc_fraction → ± tolerance around `expected` */
   max?: number
+  /** post_change → MINIMUM before/after mismatch ratio a real change must
+   *  exceed (under-invalidation floor). */
   min?: number
   /** ink_family: families that MUST produce ink, each with a min pixel ratio. */
   families?: { name: InkFamilyName; minRatio: number }[]
