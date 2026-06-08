@@ -60,6 +60,27 @@ export function flatViewHeightCapM(projType: number, worldMercM: number): number
 
 ---
 
+## #4b — Depth-ordering matrix oracle (the gate for #4)
+
+**Why real-GPU only (measured, not assumed):** I spiked this in-container — flat synthetic countries fill **56.75%** emerald under SwiftShader, but the **same geometry extruded renders 0.00% emerald / 2.48% non-black**. So **the 3D extrude pipeline does not raster under SwiftShader** — this oracle cannot be validated in CI/software-GPU and must be built + validated on the real-GPU desktop, alongside #4. Build it *before* flipping #4 so it gates the reversed-Z change.
+
+**What it proves:** two overlapping extruded features (NEAR taller, FAR shorter) at the same lon/lat, viewed at pitch — NEAR must occlude FAR. A botched reversed-Z (wrong compare/clear/format/sign) flips or breaks occlusion → the oracle fails. The current renderer occludes correctly (`opaque-pass.ts:174-215` two-phase, `less-equal` + depth write), so it passes today and gates against the regression. `frame_stability` already catches the *temporal* half (z-fighting flicker); `depth_order` adds the *static* occlusion-color check.
+
+**Implementation (no engine changes — fixture + oracle only):**
+1. **Fixture** — `playground/render-verify/fixtures.ts`: add `EXTRUDES` = two same-footprint polygons with `properties.height` 50 (near) / 20 (far) and distinct fill colors; export into `FIXTURE_SOURCES`.
+2. **Demo** — a DEDICATED `.xgis` (do NOT touch `fixture-render-verify.xgis` — the other synthetic cells share it). New `fixture-extrude.xgis` with two layers (`buildings_near` filter `.name=="near"` blue-400, `buildings_far` filter `.name=="far"` blue-600), both `fill-extrusion-height-[.height]`. Register a `synthetic_extrude` dataset + DEMO_ID in `_matrix-gate.spec.ts`.
+3. **Oracle kind** — `matrix-types.ts`: add `'depth_order'` to `OracleKind` and an optional `config?: { nearColor; farColor; pixelRegions }` to `OracleSpec`.
+4. **Detector** — `matrix-oracles.ts` `runDepthOrder()`: sample a 3×3 interior region at the NEAR top-face; pass when ≥80% of samples match `nearColor` (±20/ch) AND 0% match `farColor`. (Sample interior, not edges, to avoid AA fuzz.)
+5. **Cell** — `matrix.manifest.ts`: `merc-extrude-occlu` (mercator z5 p30 bearing0 center [0,0]), `dataset: 'synthetic_extrude'`, oracles `depth_order` + `frame_stability` + `black_ratio`. **`gate: 'soft'` initially** (pixel-color occlusion is precision-sensitive); promote to `hard` after several stable real-GPU runs.
+6. Validate: `XGIS_MATRIX=1 XGIS_MATRIX_FILTER='merc-extrude-*' bun precheck:matrix` — confirm green on the current (correct) renderer, then keep it green through the #4 reversed-Z change.
+
+---
+
 ## Already done in-container (verified here)
 - **S16 skip staleness fix** (async glyph/sprite landing + time-driven labels) — committed, build + 2569 vitest + software matrix green.
 - **#3 gamma** — diagnosed as **not a bug**: sRGB-space blending is deliberate and matches the MapLibre pixel-match baseline; documented at `gpu.ts:185`. No change needed.
+
+## Investigated and intentionally NOT done in-container
+- **Depth-ordering oracle (#4b)** — extrude pipeline doesn't raster under SwiftShader (measured above), so it can only be validated on real GPU; full design above, build it with #4.
+- **High-pitch tile coverage** — the documented holes (z12/p60, z15/p75, z15/p84) are **already mitigated** by the 2026-05-04 camera-tile injection (`tile-select.ts:426-498`); `tile-high-pitch-coverage.test.ts`'s `KNOWN_FAIL_AT` set is empty and all assertions pass. The remaining "near-first DFS" refactor is a quality change to *working* code with a broad regression surface (GPU-cache thrash, convergence perf, 5+ pinned tests) — deliberately not undertaken unprompted.
+
