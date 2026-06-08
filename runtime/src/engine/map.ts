@@ -39,7 +39,7 @@ import { PointRenderer } from './render/point-renderer'
 import { ShapeRegistry } from './text/sdf-shape'
 import { LineRenderer } from './render/line-renderer'
 import { PanZoomController, type Controller } from './controller'
-import { DirtyTracker, DirtyDomain } from './state/dirty'
+import { DirtyTracker, DirtyDomain, DIRTY_ALL } from './state/dirty'
 import { OperatorBus } from './ops/operator-bus'
 import { VectorTileRenderer } from './render/vector-tile-renderer'
 import { TextStage, type TextStageOptions } from './text/text-stage'
@@ -429,6 +429,16 @@ export class XGISMap {
   /** Explicit render trigger for code paths that change state outside the
    *  camera (setSourceData, updateFeature, tile load completion, etc.). */
   invalidate(): void { if (this._destroyed) return; this._needsRender = true; this._dirty.tag(DirtyDomain.CAMERA | DirtyDomain.VIEWPORT | DirtyDomain.PROJECTION | DirtyDomain.STYLE | DirtyDomain.SOURCE | DirtyDomain.GEOMETRY | DirtyDomain.LABEL | DirtyDomain.CLOCK) }
+
+  /** Internal render trigger for the non-camera state changes that used to set
+   *  `_needsRender = true` raw (scene rebuild, overlay add/remove). Sets the
+   *  render flag AND tags the matching dirty domain(s) in one place so the two
+   *  cannot drift — the granular counterpart to invalidate()'s blanket
+   *  DIRTY_ALL. Still INERT: `shouldRenderThisFrame()` reads `_needsRender`, not
+   *  `_dirty`, so output is byte-identical until a consumer reads the bitset
+   *  (S16). No `_destroyed` guard — every caller is an internal load/overlay
+   *  path that already runs only on a live map. */
+  private _markDirty(domains: number): void { this._needsRender = true; this._dirty.tag(domains) }
 
   /** Flag an active user gesture (pan / zoom) so the render loop can drop
    *  to QUALITY.interactionDpr while interacting and restore full DPR once
@@ -2044,7 +2054,9 @@ export class XGISMap {
 
     this.showCommands = commands.shows
     this._sceneHasAnimation = sceneHasAnyAnimation(commands.shows)
-    this._needsRender = true
+    // Full scene (re)build — style, sources, geometry, labels, and possibly
+    // projection/animation all replaced; DIRTY_ALL is the honest mask.
+    this._markDirty(DIRTY_ALL)
     // Cache the compute plan on `this` so non-run paths (e.g.
     // rebuildLayers after a setProjection, which re-creates VTR
     // sources WITHOUT a fresh emitCommands run) can still hand the
@@ -2649,7 +2661,8 @@ export class XGISMap {
 
     this.showCommands = commands.shows
     this._sceneHasAnimation = sceneHasAnyAnimation(commands.shows)
-    this._needsRender = true
+    // Full scene (re)build from a binary load — same DIRTY_ALL mask as run().
+    this._markDirty(DIRTY_ALL)
     this.rebuildLayers()
 
     this.switchController()
@@ -3374,13 +3387,13 @@ export class XGISMap {
       transform: opts.transform,
     }
     this.overlays.push(overlay)
-    this._needsRender = true
+    this._markDirty(DirtyDomain.LABEL)
     return {
       remove: () => {
         const i = this.overlays.indexOf(overlay)
         if (i !== -1) {
           this.overlays.splice(i, 1)
-          this._needsRender = true
+          this._markDirty(DirtyDomain.LABEL)
         }
       },
     }
@@ -3390,6 +3403,6 @@ export class XGISMap {
   clearOverlays(): void {
     if (this.overlays.length === 0) return
     this.overlays.length = 0
-    this._needsRender = true
+    this._markDirty(DirtyDomain.LABEL)
   }
 }
