@@ -179,10 +179,21 @@ export const MATRIX: MatrixCell[] = [
     dataset: 'ofm_bright',
     surfaces: ['label'],
     camera: { center: [126.98, 37.55] },
-    oracles: [{ kind: 'label_onscreen', max: 3 }],
+    oracles: [
+      { kind: 'label_onscreen', max: 3 },
+      // S16 label-skip gate. frame_stability re-captures the settled scene: the
+      // SECOND frame exercises the consumer skip (sig unchanged + LABEL clean →
+      // prepare() skipped → renderer draws replayed), so a ~0 diff proves the
+      // replayed labels are byte-identical to the freshly-collided ones; a stale
+      // or corrupted replay fails here. post_change zooms 14→15: the sig moves →
+      // full re-dispatch + re-collision → the frame MUST change, catching an
+      // over-aggressive skip that under-invalidates a needed label rebuild.
+      { kind: 'frame_stability', max: 0.005 },
+      { kind: 'post_change', min: 0.005 },
+    ],
     gate: 'hard',
     knownStatus: 'green',
-    note: 'Label fidelity is position-gated (anchor-onscreen), never pixel-gated.',
+    note: 'Label fidelity is position-gated (anchor-onscreen), never pixel-gated. frame_stability + post_change gate the S16 label dispatch/collision skip (replay-correct + move-rebuilds). Real-GPU only — validate on the desktop matrix.',
   },
 
   // ═══════════════════════════════════════════════════════════════════════

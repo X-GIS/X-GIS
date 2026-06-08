@@ -74,6 +74,7 @@ export type RenderLoopHost = Pick<XGISMap,
   | '_statsPanel'
   | 'camera'
   | 'classifyVectorTileShows'
+  | 'consumeLabelDirty'
   | 'ctx'
   | 'fontTypography'
   | 'glyphProviders'
