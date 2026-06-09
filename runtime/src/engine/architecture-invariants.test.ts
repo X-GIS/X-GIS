@@ -83,7 +83,7 @@ const LOC_CEILINGS: Record<string, number> = {
   'compiler/src/ir/lower.ts': 2184,
   'runtime/src/engine/text/text-stage.ts': 2040,
   'compiler/src/tiler/vector-tiler.ts': 1997,
-  'runtime/src/engine/render/renderer.ts': 1860,
+  'runtime/src/engine/render/renderer.ts': 915,
   'compiler/src/convert/layers.ts': 1539,
   'compiler/src/convert/expressions.ts': 1534,
   'runtime/src/data/tile-catalog.ts': 1388,
@@ -98,6 +98,16 @@ const LOC_CEILINGS: Record<string, number> = {
   // and its hard-won fix-history comments carry the bulk of the LOC —
   // just over the 800 cap. Baselined here; shrink as comments distil.
   'runtime/src/engine/render/tile-selection-cache.ts': 858,
+  // renderer.ts Unit-1 extraction (PipelineFactory) — the pipeline /
+  // bind-group-layout / atlas-stub construction + the three per-variant
+  // builders (createVariantPipelines + createVariantPipelinesAsync +
+  // buildVariantDescriptors, each a near-identical descriptor set) were
+  // moved VERBATIM (rasterization-critical, CI has no GPU; plan §2 Unit 1).
+  // Over the 800 cap because the verbatim descriptor sets + hard-won
+  // fix-history comments (OIT cull, iter-130/186/197 etc.) carry the LOC.
+  // Baselined here; shrink as the three builders converge (descriptor
+  // factory) + comments distil.
+  'runtime/src/engine/render/pipeline-factory.ts': 1193,
 }
 const NEW_FILE_CAP = 800
 
