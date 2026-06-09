@@ -117,7 +117,7 @@ test.describe('Mobile fast-gesture thermal load', () => {
             if (ds.drawCalls > peaks.drawCalls) peaks.drawCalls = ds.drawCalls
             if ((ds.triangles ?? 0) > peaks.triangles) peaks.triangles = ds.triangles ?? 0
           }
-          const cz = renderer._hysteresisZ
+          const cz = renderer._selection?._hysteresisZ
           if (typeof cz === 'number') currentZ = cz
           const dz = renderer._frameDrawnByZoom
           if (dz) {
@@ -127,7 +127,7 @@ test.describe('Mobile fast-gesture thermal load', () => {
               if (n > peak) drawnByZoomPeakFrame.set(z, n)
             }
           }
-          const visTiles = renderer._frameTileCache?.tiles
+          const visTiles = renderer._selection?.frameTileCache?.()?.tiles
           if (visTiles) {
             for (const t of visTiles) {
               visibleByZoomSum.set(t.z, (visibleByZoomSum.get(t.z) ?? 0) + 1)

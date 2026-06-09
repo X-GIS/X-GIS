@@ -62,7 +62,7 @@ test('user URL: z=18.5 pitch=67.5 over-zoom diagnostic', async ({ page }) => {
                 }
                 renderer?: {
                   _frameDrawnByZoom?: Map<number, number>
-                  _frameTileCache?: { tiles?: Array<{ z: number; x: number; y: number }> }
+                  _selection?: { frameTileCache?: () => { tiles?: Array<{ z: number; x: number; y: number }> } | null }
                   gpuCache?: { size?: number }
                   showCommands?: Array<{ targetName: string; sourceLayer?: string }>
                 }
@@ -79,7 +79,7 @@ test('user URL: z=18.5 pitch=67.5 over-zoom diagnostic', async ({ page }) => {
           const pipeline = map?.inspectPipeline ? map.inspectPipeline() : null
           // Inspect the actual requested-tile set from the last selection.
           const tilesSeen: Record<number, number> = {}
-          const cached = vt?.renderer?._frameTileCache
+          const cached = vt?.renderer?._selection?.frameTileCache?.()
           if (cached?.tiles) {
             for (const t of cached.tiles) tilesSeen[t.z] = (tilesSeen[t.z] ?? 0) + 1
           }

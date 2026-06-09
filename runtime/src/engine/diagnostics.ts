@@ -233,14 +233,14 @@ export async function captureMapSnapshot(map: XGISMap): Promise<MapSnapshot> {
       const r = (entry as unknown as { renderer?: {
         _gpuCacheCount?: number
         getPendingUploadCount?: () => number
-        _frameTileCache?: { tiles?: Array<{ z: number; x: number; y: number }> }
+        _selection?: { frameTileCache?: () => { tiles?: Array<{ z: number; x: number; y: number }> } | null }
       } }).renderer
       const cat = (entry as unknown as { source?: { getPendingLoadCount?: () => number } }).source
       sources[name] = {
         gpuCacheCount: r?._gpuCacheCount ?? 0,
         pendingFetch: cat?.getPendingLoadCount?.() ?? 0,
         pendingUpload: r?.getPendingUploadCount?.() ?? 0,
-        tiles: r?._frameTileCache?.tiles ?? [],
+        tiles: r?._selection?.frameTileCache?.()?.tiles ?? [],
       }
     }
   }

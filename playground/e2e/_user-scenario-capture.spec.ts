@@ -54,7 +54,7 @@ test.describe('User scenario capture', () => {
         const map = window.__xgisMap
         if (!map?.vtSources) return false
         for (const { renderer } of map.vtSources.values()) {
-          if (typeof renderer._hysteresisZ === 'number' && renderer._hysteresisZ >= 0) return true
+          if (typeof renderer._selection?._hysteresisZ === 'number' && renderer._selection._hysteresisZ >= 0) return true
         }
         return false
       }, null, { timeout: 30_000 })
@@ -66,10 +66,10 @@ test.describe('User scenario capture', () => {
           cz: -1, visible: 0, gpuTiles: 0, catalogTiles: 0, decisions: {},
         }
         for (const { renderer, source } of map.vtSources!.values() as IterableIterator<{
-          renderer: { _hysteresisZ?: number; getDrawStats?: () => { tilesVisible: number }; gpuCache?: Map<string, Map<number, unknown>>; getLastDecisionCounts?: () => Record<string, number> },
+          renderer: { _selection?: { _hysteresisZ?: number }; getDrawStats?: () => { tilesVisible: number }; gpuCache?: Map<string, Map<number, unknown>>; getLastDecisionCounts?: () => Record<string, number> },
           source: { dataCache?: Map<number, unknown> }
         }>) {
-          out.cz = renderer._hysteresisZ ?? -1
+          out.cz = renderer._selection?._hysteresisZ ?? -1
           out.visible = renderer.getDrawStats?.().tilesVisible ?? 0
           if (renderer.gpuCache) {
             const inner = renderer.gpuCache.values().next().value
