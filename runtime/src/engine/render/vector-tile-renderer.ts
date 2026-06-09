@@ -2089,7 +2089,7 @@ export class VectorTileRenderer {
       vertexBuffer, polyVertexOffset, polyVertexByteLength, indexBuffer,
       polyIndexOffset, polyIndexByteLength,
       indexCount: polyIndices.length,
-      zBuffer, zBufferOffset, zBufferByteLength,
+      zBuffer, zBufferOffset, zBufferByteLength, extruded: useFeatureHeights,
       lineVertexBuffer, lineIndexBuffer,
       lineIndexCount: data.lineIndices.length,
       outlineIndexBuffer, outlineIndexCount,
@@ -2473,7 +2473,7 @@ export class VectorTileRenderer {
       vertexBuffer, polyVertexOffset, polyVertexByteLength, indexBuffer,
       polyIndexOffset, polyIndexByteLength,
       indexCount: polyIndices.length,
-      zBuffer, zBufferOffset, zBufferByteLength,
+      zBuffer, zBufferOffset, zBufferByteLength, extruded: useFeatureHeights,
       lineVertexBuffer, lineIndexBuffer,
       lineIndexCount: data.lineIndices.length,
       outlineIndexBuffer, outlineIndexCount,
@@ -4958,7 +4958,7 @@ export class VectorTileRenderer {
             const route: 'oit' | 'extrude' | 'fill' | 'skip' =
               willSkip ? 'skip'
               : useOitPipe ? 'oit'
-              : (this.currentExtrudeMode === 'per-feature' && cached.zBuffer !== null)
+              : (this.currentExtrudeMode === 'per-feature' && cached.extruded)
                 ? 'extrude'
                 : 'fill'
             trace.push({
@@ -4969,7 +4969,7 @@ export class VectorTileRenderer {
               tileKey: key,
               isFill: true,
               pipelineRoute: route,
-              hasZBuffer: cached.zBuffer !== null,
+              hasZBuffer: cached.extruded,
             })
           }
         }
@@ -5007,13 +5007,13 @@ export class VectorTileRenderer {
         const wantsExtrude = !isOitFill
           && this.currentExtrudeMode === 'per-feature'
           && fillPipelineExtruded !== null
-        if (wantsExtrude && cached.zBuffer === null) {
+        if (wantsExtrude && !cached.extruded) {
           if (drawStrokes) strokeQueue.push({ cached, slotOffset })
           continue
         }
         const useExtrudedPipe = !isOitFill
           && this.currentExtrudeMode === 'per-feature'
-          && cached.zBuffer !== null
+          && cached.extruded
           && fillPipelineExtruded !== null
         // Debug=overdraw: collapse OIT + extruded paths onto the
         // single overdraw pipeline supplied as `fillPipeline`. The
