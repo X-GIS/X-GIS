@@ -9,6 +9,10 @@
 // direct inspection of the warning text — the source has both an
 // ALIASES map and a VALID set, and any future renderFrame lookup
 // must stay in sync with VALID.
+//
+// The ALIASES + VALID sets live on ViewportModeController (the
+// projection-mode collaborator extracted from map.ts); XGISMap.setProjection
+// is a one-line forwarder. Inspect the controller source for the contract.
 
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'fs'
@@ -18,7 +22,7 @@ import { PROJECTIONS } from './projection/projections-table'
 describe('setProjection validity set', () => {
   it('every ALIASES entry maps to a VALID name', () => {
     const src = readFileSync(
-      join(__dirname, 'map.ts'),
+      join(__dirname, 'render', 'viewport-mode-controller.ts'),
       'utf8',
     )
     // ALIASES → canonical.
@@ -44,7 +48,7 @@ describe('setProjection validity set', () => {
 
   it('VALID set matches the renderFrame projType lookup', () => {
     const src = readFileSync(
-      join(__dirname, 'map.ts'),
+      join(__dirname, 'render', 'viewport-mode-controller.ts'),
       'utf8',
     )
     // VALID set declared in setProjection.
@@ -64,8 +68,8 @@ describe('setProjection validity set', () => {
 
     // renderFrame's projType lookup is now derived from the single-source
     // PROJECTIONS table (render-loop.ts uses PROJECTION_NAME_TO_TYPE, built
-    // from this table). The VALID set in map.ts must stay in sync with the
-    // table's projection names — checked here against the runtime values.
+    // from this table). The VALID set in ViewportModeController must stay in
+    // sync with the table's projection names — checked here against runtime.
     expect(PROJECTIONS.map((p) => p.name).sort()).toEqual(validNames.sort())
   })
 })

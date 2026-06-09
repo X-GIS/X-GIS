@@ -20,6 +20,7 @@ import { QUALITY, updateQuality, type QualityConfig } from './gpu/quality'
 import { GPUTimer } from './gpu/gpu-timer'
 import { Camera } from './projection/camera'
 import { CameraController } from './camera-controller'
+import { ViewportModeController } from './render/viewport-mode-controller'
 import { SourceManager } from './source-manager'
 import { InteractionController } from './interaction-controller'
 import { MapRenderer } from './render/renderer'
@@ -102,11 +103,6 @@ type OpaqueGroup = ExternalOpaqueGroup
  *  can correlate a specific frame's tile-selection decisions with the
  *  cache / budget pressure that drove them. */
 
-// One-shot guard for the setPolarCapsEnabled deprecation warning.
-// Repeated calls share this module-scoped flag and emit at most one xlog.warn
-// per session.
-let _polarCapsWarned = false
-
 // Lifecycle/camera event names — used by on()/off()/once() to route to
 // the map-event registry (vs. the feature-event registry). Kept in sync
 // with XGISMapEventType in layer.ts.
@@ -121,6 +117,7 @@ export class XGISMap {
   ctx!: GPUContext
   camera: Camera
   private cameraController!: CameraController
+  private readonly _viewport: ViewportModeController
   private sourceManager!: SourceManager
   private interactionController!: InteractionController
   renderer!: MapRenderer
@@ -152,7 +149,11 @@ export class XGISMap {
   private _pointerActive = false
   private _interactionIdleTimer: ReturnType<typeof setTimeout> | null = null
   private static readonly _INTERACTION_IDLE_MS = 500
-  projectionName = 'mercator'
+  /** The active projection's canonical name. Owned by `_viewport`
+   *  (ViewportModeController); exposed here as a field-read getter so the
+   *  RenderLoop host view / label-pass (`host.projectionName`) and the
+   *  internal reads keep their plain property-access shape. */
+  get projectionName(): string { return this._viewport.projectionName }
   private controller: Controller | null = null
 
   // SDF text overlay stage. Lazy — first `addOverlay` call instantiates.
@@ -581,6 +582,27 @@ export class XGISMap {
       getCanvas: () => this.getCanvas(),
       getCtxCanvas: () => this.ctx?.canvas,
     })
+    // Projection-mode + graticule cluster. Holds the shared camera (writes
+    // zoom/pitch/globeOrtho/globeMode/pitchLocked on a projection switch) and
+    // reaches the renderer fresh for graticule. The world-band-change bg
+    // rebuild stays on map.ts (STYLE-fused, plan §5 false-boundary #1) — the
+    // controller signals it via this callback at the exact in-body position
+    // the inline block occupied, preserving the band-change → camera-writes
+    // → tag/invalidate order.
+    this._viewport = new ViewportModeController(this.camera, {
+      getRenderer: () => this.renderer,
+      onWorldBandChange: (prevProj, canonical) => {
+        if (this._syntheticBackend && this._backgroundColor) {
+          const prevBand = worldBandForProjType(PROJECTION_NAME_TO_TYPE[prevProj] ?? 0)
+          const nextBand = worldBandForProjType(PROJECTION_NAME_TO_TYPE[canonical] ?? 0)
+          if (prevBand !== nextBand) {
+            const rgba = this._backgroundColor
+            this.setBackgroundFill(null)
+            this.setBackgroundFill(rgba)
+          }
+        }
+      },
+    })
     // Source-ingest cluster — receives the SAME source-state Map
     // instances by reference so every internal read in renderFrame /
     // rebuildLayers / hasPendingSourceWork / diagnostics stays untouched.
@@ -639,9 +661,9 @@ export class XGISMap {
     // simple flag the run() method reads when invoking emitCommands.
     if (options.enableComputePath) this._enableComputePath = true
     // Graticule default off (was implicitly on). Applied AFTER renderer
-    // construction via setGraticuleEnabled — held here until renderer
-    // exists (initGPU resolves in run()).
-    this._graticuleInitial = options.graticule === true
+    // construction via setGraticuleEnabled — held on the viewport controller
+    // until renderer exists (initGPU resolves in run()).
+    this._viewport.graticuleInitial = options.graticule === true
     // RenderLoop owns the per-frame GPU render method (extracted from
     // map.ts). It holds this map by reference and reaches its members
     // through a typed host view — renderer / ctx / stages are read fresh
@@ -653,9 +675,6 @@ export class XGISMap {
     // no-ops when the canvas is not a real DOM element (unit-test mock).
     this._setupAccessibility(options.ariaLabel)
   }
-
-  /** Captured at ctor time so run() can apply it once MapRenderer exists. */
-  private _graticuleInitial = false
 
   /** P0-7 accessibility baseline. The renderer is canvas-only with no
    *  internal DOM, so the host's <canvas> is the keyboard / screen-reader
@@ -741,10 +760,11 @@ export class XGISMap {
     this.markInteracting()
   }
 
-  /** Toggle the lat/lon grid overlay. Default off. */
+  /** Toggle the lat/lon grid overlay. Default off. Forwards to the viewport
+   *  controller (renderer delegate + held-state); tag + invalidate stay here
+   *  to preserve the original tail order. */
   setGraticuleEnabled(on: boolean): void {
-    this.renderer?.setGraticuleEnabled(on)
-    this._graticuleInitial = on
+    this._viewport.setGraticuleEnabled(on)
     this._dirty.tag(DirtyDomain.STYLE)
     this.invalidate()
   }
@@ -934,22 +954,14 @@ export class XGISMap {
    *  `injectPolarCaps` / `synthesizePolarCaps` (re-exported from
    *  `@xgis/runtime`) before `setSourceData`. This setter is a no-op +
    *  one-shot `xlog.warn` so existing host code does not throw. */
-  setPolarCapsEnabled(_on: boolean): void {
-    if (_polarCapsWarned) return
-    _polarCapsWarned = true
-    xlog.warn(
-      '[X-GIS] setPolarCapsEnabled is no longer renderer-driven. ' +
-      'Use the injectPolarCaps / synthesizePolarCaps exports as a pre-processing ' +
-      'step on your data, or accept honest source coverage.',
-    )
-  }
+  setPolarCapsEnabled(on: boolean): void { this._viewport.setPolarCapsEnabled(on) }
   /** @deprecated Always returns `false` post-Phase 1a — polar-cap synthesis
    *  is no longer renderer-driven (see `setPolarCapsEnabled`). */
-  isPolarCapsEnabled(): boolean { return false }
+  isPolarCapsEnabled(): boolean { return this._viewport.isPolarCapsEnabled() }
 
   /** Current graticule on/off state. */
   isGraticuleEnabled(): boolean {
-    return this.renderer?.isGraticuleEnabled() ?? this._graticuleInitial
+    return this._viewport.isGraticuleEnabled()
   }
 
   /** P4 opt-in flag. When true, run() invokes
@@ -1143,92 +1155,20 @@ export class XGISMap {
     }
   }
 
-  /** Change projection at runtime — GPU uniform only, no re-tessellation! */
+  /** Change projection at runtime — GPU uniform only, no re-tessellation!
+   *  Forwards to ViewportModeController (name validation + camera writes +
+   *  the world-band-change bg-rebuild callback run on map.ts). The tag +
+   *  invalidate stay here, in their original tail order, and only fire when
+   *  the controller applied the switch (`true`); an unknown name is dropped
+   *  with a warn inside the controller and short-circuits here. */
   setProjection(name: string): void {
-    // Normalize common aliases so URL `?proj=equirect` / Monaco's
-    // hyphen-separated names ('natural-earth') resolve to the canonical
-    // key the projType lookup uses. Unknown values silently fell back to
-    // mercator (renderFrame's `?? 0`) — a silent footgun.
-    const ALIASES: Record<string, string> = {
-      equirect: 'equirectangular',
-      'natural-earth': 'natural_earth',
-      'azimuthal-equidistant': 'azimuthal_equidistant',
-      'oblique-mercator': 'oblique_mercator',
-    }
-    const canonical = ALIASES[name] ?? name
-    // Validate the canonical name is one the renderFrame projType
-    // lookup recognises. Pre-fix an unknown name (`setProjection
-    // ("globey")`) silently fell to mercator at renderFrame (`?? 0`)
-    // — a debugging footgun. Warn loudly + drop the call so the
-    // previous projection stays active.
-    const VALID = new Set([
-      'mercator', 'equirectangular', 'natural_earth',
-      'orthographic', 'azimuthal_equidistant', 'stereographic',
-      'oblique_mercator', 'globe',
-    ])
-    if (!VALID.has(canonical)) {
-      xlog.warn(`[X-GIS] setProjection: unknown projection "${name}" — keeping "${this.projectionName}". Valid: ${[...VALID].join(', ')}.`)
-      return
-    }
-    const prevProj = this.projectionName
-    this.projectionName = canonical
-    name = canonical
-
-    // Re-install the synthetic earth-surface backend when the world-band kind
-    // changes (mercator-clamped ↔ sphere-full ↔ natural-earth) so the bg mesh
-    // latitude extent — and its GPU vertex buffer — tracks the projection.
-    // Band-preserving switches (e.g. mercator↔equirectangular, both
-    // mercator-clamped) skip the teardown/rebuild. Color is unchanged, so we
-    // round-trip the existing fill through the teardown + re-install path.
-    if (this._syntheticBackend && this._backgroundColor) {
-      const prevBand = worldBandForProjType(PROJECTION_NAME_TO_TYPE[prevProj] ?? 0)
-      const nextBand = worldBandForProjType(PROJECTION_NAME_TO_TYPE[canonical] ?? 0)
-      if (prevBand !== nextBand) {
-        const rgba = this._backgroundColor
-        this.setBackgroundFill(null)
-        this.setBackgroundFill(rgba)
-      }
-    }
-
-    // Adjust zoom for different projection scale
-    // The wide-view set (flat azimuthal discs + the true 3D globe) all
-    // frame the whole earth, so they need the zoomed-out view.
-    const isWideView = (n: string) =>
-      ['orthographic', 'azimuthal_equidistant', 'stereographic', 'globe'].includes(n)
-    if (!isWideView(prevProj) && isWideView(name)) {
-      this.camera.zoom = Math.min(this.camera.zoom, 1.5)
-    } else if (isWideView(prevProj) && !isWideView(name)) {
-      this.camera.zoom = Math.max(this.camera.zoom, 1.5)
-    }
-
-    // The azimuthal projections (ortho / azimuthal_equidistant /
-    // stereographic) are exact 2D discs at pitch=0. A pitched 2D camera
-    // would just lay the disc on its side, so instead of locking pitch
-    // we promote them to the true 3D sphere when tilted: renderFrame
-    // flips them to the globe vertex path (projType 7) with an
-    // ORTHOGRAPHIC orbit camera (camera.globeOrtho) once pitch>0, giving
-    // a real parallel-projection 3D tilt that is byte-identical to the
-    // 2D disc at pitch=0 (orthographic projection of a sphere from the
-    // surface normal IS the disc). pitch is no longer locked; it starts
-    // at 0 on a projection switch so the view opens flat/exact.
-    const AZIMUTHAL = ['orthographic', 'azimuthal_equidistant', 'stereographic']
-    const isAzimuthal = AZIMUTHAL.includes(name)
-    this.camera.pitchLocked = false
-    if (isAzimuthal || name === 'globe') this.camera.pitch = 0
-    // Azimuthal-when-tilted uses the parallel (orthographic) orbit
-    // camera; the true `globe` keeps its perspective orbit camera.
-    this.camera.globeOrtho = isAzimuthal
-
-    // True 3D globe always emits the orbit view-projection; the
-    // azimuthal set switches to it dynamically in renderFrame when
-    // pitch>0 (renderers branch on projType 7).
-    this.camera.globeMode = name === 'globe'
+    if (!this._viewport.setProjection(name)) return
     this._dirty.tag(DirtyDomain.PROJECTION)
     this.invalidate()
   }
 
   getProjectionName(): string {
-    return this.projectionName
+    return this._viewport.getProjectionName()
   }
 
   /** Set the style's `glyphs` URL template (e.g.
@@ -1933,7 +1873,7 @@ export class XGISMap {
     this.ctx = result
     if (this._onDeviceLost) this.ctx.onDeviceLost = this._onDeviceLost
     this.renderer = new MapRenderer(this.ctx)
-    this.renderer.setGraticuleEnabled(this._graticuleInitial)
+    this.renderer.setGraticuleEnabled(this._viewport.graticuleInitial)
     this.rasterRenderer = new RasterRenderer(this.ctx)
     if (GPU_PROF) this.gpuTimer = new GPUTimer(this.ctx)
 
@@ -2625,7 +2565,7 @@ export class XGISMap {
     this.ctx = ctx
     if (this._onDeviceLost) this.ctx.onDeviceLost = this._onDeviceLost
     this.renderer = new MapRenderer(this.ctx)
-    this.renderer.setGraticuleEnabled(this._graticuleInitial)
+    this.renderer.setGraticuleEnabled(this._viewport.graticuleInitial)
     this.rasterRenderer = new RasterRenderer(this.ctx)
     if (GPU_PROF) this.gpuTimer = new GPUTimer(this.ctx)
       try { this.pointRenderer = new PointRenderer(this.ctx) } catch (e) { xlog.warn('[X-GIS] PointRenderer init failed:', e) }

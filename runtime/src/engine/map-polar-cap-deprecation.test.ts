@@ -6,11 +6,24 @@
 import { describe, it, expect } from 'vitest'
 import { setLogSink } from './log'
 import { XGISMap } from './map'
+import { ViewportModeController } from './render/viewport-mode-controller'
+import { Camera } from './projection/camera'
 
 describe('XGISMap.setPolarCapsEnabled deprecation', () => {
-  // setPolarCapsEnabled does not touch `this`, so bypassing the GPU
-  // constructor with a bare prototype object is sufficient.
-  const makeStub = (): XGISMap => Object.create(XGISMap.prototype) as XGISMap
+  // setPolarCapsEnabled forwards to the ViewportModeController collaborator
+  // (it owns the deprecated stub). Bypass the GPU constructor with a bare
+  // prototype object, but wire the one collaborator the forwarder reaches —
+  // a real controller whose setPolarCapsEnabled is self-contained (only the
+  // module-scoped one-shot warn guard, no camera/renderer use).
+  const makeStub = (): XGISMap => {
+    const map = Object.create(XGISMap.prototype) as XGISMap
+    const viewport = new ViewportModeController(new Camera(0, 0, 0), {
+      getRenderer: () => undefined,
+      onWorldBandChange: () => {},
+    })
+    ;(map as unknown as { _viewport: ViewportModeController })._viewport = viewport
+    return map
+  }
 
   it('is a no-op that emits the deprecation warning at most once per session', () => {
     const warnings: string[] = []
