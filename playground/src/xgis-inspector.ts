@@ -26,9 +26,13 @@ interface VTRDiag {
   getCacheSize?: () => number
   getPendingUploadCount?: () => number
   source?: unknown
-  _hysteresisZ?: number
-  _czPendingAdvance?: { target: number; since: number } | null
-  _lastCamMoveAt?: number
+  // Tile-selection state moved onto the TileSelectionCache collaborator
+  // (VTR Unit-1 decomposition); the inspector reads it through `_selection`.
+  _selection?: {
+    _hysteresisZ?: number
+    _czPendingAdvance?: { target: number; since: number } | null
+    _lastCamMoveAt?: number
+  }
   _bufferPool?: Map<string, GPUBuffer[]>
   gpuCache?: Map<string, Map<number, unknown>>
 }
@@ -357,7 +361,7 @@ function renderTiles(state: InspectorState, map: XGISMap | undefined): string {
           if (typeof tz === 'number') byZ.set(tz, (byZ.get(tz) ?? 0) + 1)
         }
       }
-      const cz = r._hysteresisZ ?? '?'
+      const cz = r._selection?._hysteresisZ ?? '?'
       const zKeys = [...byZ.keys()].sort((a, b) => a - b)
       const gpuSummary = zKeys.length
         ? zKeys.map(z => `z=${z}:${byZ.get(z)}`).join(' ')
@@ -513,15 +517,15 @@ function renderCamera(_state: InspectorState, map: XGISMap | undefined): string 
     for (const [name, { renderer }] of map.vtSources) {
       const r = renderer as VTRDiag
       lines.push(`── ${name} ──`)
-      lines.push(`hysteresisZ : ${r._hysteresisZ ?? '?'}`)
-      const pa = r._czPendingAdvance
+      lines.push(`hysteresisZ : ${r._selection?._hysteresisZ ?? '?'}`)
+      const pa = r._selection?._czPendingAdvance
       if (pa) {
         const elapsed = performance.now() - pa.since
         lines.push(`pending adv : target=${pa.target} elapsed=${elapsed.toFixed(0)}ms`)
       } else {
         lines.push('pending adv : (none)')
       }
-      const moveAt = r._lastCamMoveAt
+      const moveAt = r._selection?._lastCamMoveAt
       if (moveAt !== undefined) {
         const sinceMove = performance.now() - moveAt
         lines.push(`idle        : ${sinceMove > 200 ? 'yes' : 'no'} (${sinceMove.toFixed(0)}ms since move)`)

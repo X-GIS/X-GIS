@@ -19,7 +19,7 @@
 import { test, expect } from '@playwright/test'
 
 interface XgisMap {
-  vtSources: Map<string, { renderer: { _hysteresisZ: number; getDrawStats?: () => { tilesVisible: number } } }>
+  vtSources: Map<string, { renderer: { _selection?: { _hysteresisZ?: number }; getDrawStats?: () => { tilesVisible: number } } }>
   camera: { zoom: number }
 }
 declare global {
@@ -56,7 +56,7 @@ test.describe('Zoom transition: hold previous LOD until next is ready', () => {
         const map = window.__xgisMap
         if (!map?.vtSources) return []
         const out: number[] = []
-        for (const { renderer } of map.vtSources.values()) out.push(renderer._hysteresisZ)
+        for (const { renderer } of map.vtSources.values()) out.push(renderer._selection?._hysteresisZ ?? -1)
         return out
       })
     }
@@ -118,7 +118,7 @@ test.describe('Zoom transition: hold previous LOD until next is ready', () => {
         const map = window.__xgisMap
         if (!map?.vtSources) return []
         const out: number[] = []
-        for (const { renderer } of map.vtSources.values()) out.push(renderer._hysteresisZ)
+        for (const { renderer } of map.vtSources.values()) out.push(renderer._selection?._hysteresisZ ?? -1)
         return out
       })
     }

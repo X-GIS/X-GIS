@@ -59,7 +59,7 @@ test.describe('Production invariant — visibility / fallback consistency', () =
       const map = window.__xgisMap
       if (!map?.vtSources) return false
       let cz = -1
-      for (const { renderer } of map.vtSources.values()) cz = renderer._hysteresisZ ?? cz
+      for (const { renderer } of map.vtSources.values()) cz = renderer._selection?._hysteresisZ ?? cz
       return cz >= 9
     }, null, { timeout: 30_000 })
     await page.waitForTimeout(3000)

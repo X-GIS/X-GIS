@@ -53,7 +53,7 @@ test.describe('3D building depth-sort diag', () => {
           for (const [name, src] of map.vtSources) {
             const r = src.renderer
             out[name] = {
-              tiles: r?._frameTileCache?.tiles?.length ?? 0,
+              tiles: r?._selection?.frameTileCache?.()?.tiles?.length ?? 0,
               gpuCache: r?._gpuCacheCount ?? 0,
             }
           }

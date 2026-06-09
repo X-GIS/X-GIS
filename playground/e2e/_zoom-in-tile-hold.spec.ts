@@ -63,7 +63,7 @@ interface RampSample {
 }
 
 interface XgisMap {
-  vtSources: Map<string, { renderer: { _hysteresisZ: number; getDrawStats?: () => { tilesVisible: number; missedTiles: number } } }>
+  vtSources: Map<string, { renderer: { _selection?: { _hysteresisZ?: number }; getDrawStats?: () => { tilesVisible: number; missedTiles: number } } }>
   camera: { zoom: number }
   inspectPipeline?: () => {
     sources: Array<{
@@ -194,7 +194,7 @@ test.describe('Zoom-in tile hold (continuous gesture)', () => {
           const hysteresisZ: number[] = []
           let totalVisible = 0
           for (const { renderer } of map.vtSources.values()) {
-            hysteresisZ.push(renderer._hysteresisZ)
+            hysteresisZ.push(renderer._selection?._hysteresisZ ?? -1)
             totalVisible += renderer.getDrawStats?.().tilesVisible ?? 0
           }
           const inspect = map.inspectPipeline?.()

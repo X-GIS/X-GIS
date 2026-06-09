@@ -117,8 +117,8 @@ test.describe('Mobile detail uniformity', () => {
       if (!map?.vtSources) return null
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const r = [...map.vtSources.values()][0]?.renderer as any
-      const cz = r._hysteresisZ as number
-      const cache = r._frameTileCache
+      const cz = r._selection?._hysteresisZ as number
+      const cache = r._selection?.frameTileCache?.()
       const visible = (cache?.tiles ?? []) as { z: number; x: number; y: number }[]
       // Catalog dataCache is a Map<number, Map<string, TileData>>.
       // Sample one slot to read tileZoom (every slice in the slot

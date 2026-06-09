@@ -50,8 +50,10 @@ for (const scn of SCENARIOS) {
         camera: { lon: number; lat: number; zoom: number; bearing: number; pitch: number }
         vtSources?: Map<string, {
           renderer?: {
-            _frameTileCache?: {
-              tiles?: Array<{ z: number; x: number; y: number }>
+            _selection?: {
+              frameTileCache?: () => {
+                tiles?: Array<{ z: number; x: number; y: number }>
+              } | null
             }
           }
         }>
@@ -62,7 +64,7 @@ for (const scn of SCENARIOS) {
     // Pick whichever vector-tile source the demo registered. bright
     // uses "openmaptiles", pmtiles_layered uses "pm_world".
     const vt = (map.vtSources && [...map.vtSources.values()][0]) || undefined
-    const tiles = vt?.renderer?._frameTileCache?.tiles ?? []
+    const tiles = vt?.renderer?._selection?.frameTileCache?.()?.tiles ?? []
 
     // Group tiles by z and dedupe (a tile shows up in cache.tiles
     // for every world-copy + every render call, but the (z,x,y)

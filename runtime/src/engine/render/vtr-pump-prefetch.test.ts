@@ -11,16 +11,17 @@
 //
 // VTR's constructor does heavy WebGPU init we can't run in vitest, so
 // we build the instance with Object.create + manual field injection —
-// pumpPrefetch only touches `source`, `_prevPanCam`, `currentFrameId`,
-// and `_frameTileCache`, none of which need GPU. Same escape hatch
-// the multi-layer-overzoom test uses against TileCatalog's private
-// setSlice.
+// pumpPrefetch only touches `source`, `prefetchScheduler`, and the
+// selection collaborator's per-frame tile cache (`_selection`), none of
+// which need GPU. Same escape hatch the multi-layer-overzoom test uses
+// against TileCatalog's private setSlice.
 
 import { describe, expect, it, vi } from 'vitest'
 import { tileKey, tileKeyChildren } from '@xgis/compiler'
 import { Camera } from '../projection/camera'
 import { VectorTileRenderer } from './vector-tile-renderer'
 import { PrefetchScheduler } from './prefetch-scheduler'
+import { TileSelectionCache, type FrameTileCache } from './tile-selection-cache'
 
 // Build a minimal "catalog" that records prefetchTiles calls. Only
 // the fields pumpPrefetch reads need to be present; everything else
@@ -49,14 +50,17 @@ function makeMockCatalog(opts: {
 
 // Construct a VTR instance bypassing GPU init. Class field initializers
 // don't run with Object.create, so the dependency-injected fields
-// pumpPrefetch reads (prefetchScheduler, source, _frameTileCache,
-// currentFrameId) are wired in manually.
+// pumpPrefetch reads (prefetchScheduler, source, _selection) are wired
+// in manually. The per-frame tile cache now lives on the selection
+// collaborator, so we seed a real TileSelectionCache's internal
+// `_frameTileCache` (read back via its `frameTileCache()` accessor).
 function makeVtr(catalog: unknown, neededKeys: number[], frameId: number): VectorTileRenderer {
   const vtr = Object.create(VectorTileRenderer.prototype) as VectorTileRenderer
   ;(vtr as unknown as { source: unknown }).source = catalog
   ;(vtr as unknown as { prefetchScheduler: PrefetchScheduler }).prefetchScheduler = new PrefetchScheduler()
   ;(vtr as unknown as { currentFrameId: number }).currentFrameId = frameId
-  ;(vtr as unknown as { _frameTileCache: unknown })._frameTileCache = {
+  const selection = new TileSelectionCache()
+  const frameTileCache: FrameTileCache = {
     frameId,
     neededKeys,
     tiles: [],
@@ -68,6 +72,8 @@ function makeVtr(catalog: unknown, neededKeys: number[], frameId: number): Vecto
     marginPx: 0,
     currentZ: 14,
   }
+  ;(selection as unknown as { _frameTileCache: FrameTileCache })._frameTileCache = frameTileCache
+  ;(vtr as unknown as { _selection: TileSelectionCache })._selection = selection
   return vtr
 }
 

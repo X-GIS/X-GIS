@@ -16,7 +16,11 @@ import { test, expect } from '@playwright/test'
 interface VTRDiag {
   getDrawStats?: () => { tilesVisible: number; drawCalls: number }
   _frameDrawnByZoom?: Map<number, number>
-  _hysteresisZ?: number
+  _selection?: {
+    _hysteresisZ?: number
+    frameTileCache?: () => { tiles?: { z: number; x: number; y: number }[] } | null
+  }
+  source?: unknown
   gpuCache?: Map<string, Map<number, { tileZoom?: number }>>
 }
 interface XGISMap {
@@ -85,7 +89,7 @@ test.describe('Mobile flat-pitch over-draw', () => {
       if (canvas) { out.canvasW = canvas.width; out.canvasH = canvas.height }
       for (const { renderer } of map.vtSources.values()) {
         const r = renderer as VTRDiag
-        out.currentZ = r._hysteresisZ ?? null
+        out.currentZ = r._selection?._hysteresisZ ?? null
         const dz = r._frameDrawnByZoom
         if (dz) {
           for (const [z, n] of dz) {
@@ -139,7 +143,7 @@ test.describe('Mobile flat-pitch over-draw', () => {
       const map = window.__xgisMap!
       const camera = map.camera!
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const cz = (([...map.vtSources!.values()][0]).renderer as any)._hysteresisZ as number
+      const cz = (([...map.vtSources!.values()][0]).renderer as any)._selection?._hysteresisZ as number
       const canvas = document.querySelector('canvas') as HTMLCanvasElement
       const cw = canvas.width, ch = canvas.height
       // Mercator → tile-y at zoom z.
@@ -167,7 +171,7 @@ test.describe('Mobile flat-pitch over-draw', () => {
       }
       // Read what visibleTilesFrustum actually returned (cached).
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const cache = (([...map.vtSources!.values()][0]).renderer as any)._frameTileCache
+      const cache = (([...map.vtSources!.values()][0]).renderer as any)._selection?.frameTileCache?.()
       const actualAtZ: { x: number; y: number }[] = []
       if (cache?.tiles) {
         for (const t of cache.tiles) {
@@ -213,8 +217,8 @@ test.describe('Mobile flat-pitch over-draw', () => {
       // Find one bundled `tiles` import via well-known global if any.
       // Easier: instrument directly — we know the runtime calls
       // visibleTilesFrustum once per frame with the cached
-      // result. Read VTR's _frameTileCache.
-      const cache = r0._frameTileCache
+      // result. Read VTR's selection-cache frame tile memo.
+      const cache = r0._selection?.frameTileCache?.()
       const tiles: { z: number; x: number; y: number }[] = cache?.tiles ?? []
       const byZ = new Map<number, number>()
       for (const t of tiles) byZ.set(t.z, (byZ.get(t.z) ?? 0) + 1)

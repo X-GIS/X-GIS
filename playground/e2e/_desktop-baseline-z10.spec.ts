@@ -63,7 +63,7 @@ test.describe('Desktop baseline z=10 Seoul', () => {
           out.peaks.triangles = Math.max(out.peaks.triangles, ds.triangles ?? 0)
           out.peaks.lines = Math.max(out.peaks.lines, ds.lines ?? 0)
         }
-        const cz = renderer._hysteresisZ
+        const cz = renderer._selection?._hysteresisZ
         if (typeof cz === 'number') out.currentZ = cz
         const dz = renderer._frameDrawnByZoom
         if (dz) {
@@ -71,7 +71,7 @@ test.describe('Desktop baseline z=10 Seoul', () => {
             out.drawnByZoom[z] = (out.drawnByZoom[z] ?? 0) + n
           }
         }
-        const visTiles = renderer._frameTileCache?.tiles
+        const visTiles = renderer._selection?.frameTileCache?.()?.tiles
         if (visTiles) {
           for (const t of visTiles) {
             out.visibleByZoom[t.z] = (out.visibleByZoom[t.z] ?? 0) + 1
