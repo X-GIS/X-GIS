@@ -83,7 +83,7 @@ const LOC_CEILINGS: Record<string, number> = {
   'compiler/src/ir/lower.ts': 2184,
   'runtime/src/engine/text/text-stage.ts': 2040,
   'compiler/src/tiler/vector-tiler.ts': 1997,
-  'runtime/src/engine/render/renderer.ts': 1947,
+  'runtime/src/engine/render/renderer.ts': 1860,
   'compiler/src/convert/layers.ts': 1539,
   'compiler/src/convert/expressions.ts': 1534,
   'runtime/src/data/tile-catalog.ts': 1388,

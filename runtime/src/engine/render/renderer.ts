@@ -3,7 +3,6 @@
 import type { GPUContext } from '../gpu/gpu'
 import type { Camera } from '../projection/camera'
 import type { MeshData, LineMeshData } from '../../loader/geojson'
-import { generateGraticule } from '../graticule'
 import {
   BLEND_ALPHA, STENCIL_WRITE, STENCIL_TEST,
   STENCIL_WRITE_NO_DEPTH, STENCIL_TEST_NO_DEPTH,
@@ -22,6 +21,7 @@ import { extendBindGroupLayoutEntriesForCompute } from './compute-bind-layout'
 import type { ShaderVariantInfo, CachedPipeline, ShowCommand, RenderLayer } from './renderer-types'
 import { parseColor } from './renderer-helpers'
 import { UniformRing } from './uniform-ring'
+import { GraticuleRenderer } from './graticule-renderer'
 
 // Re-export the extracted types so this module's public surface stays
 // byte-identical (external consumers import these from './renderer').
@@ -31,8 +31,6 @@ export type { ShaderVariantInfo, CachedPipeline, Easing, ShowCommand } from './r
 export {
   interpolateZoom, interpolateZoomRgba, interpolateTime, interpolateTimeColor,
 } from './renderer-helpers'
-
-// generateGraticule(zoom) now handles zoom-adaptive steps internally
 
 // ═══ Polygon shader emit ═══
 //
@@ -323,24 +321,11 @@ export class MapRenderer {
   spriteAtlasView!: GPUTextureView
   private bindGroup!: GPUBindGroup
   private layers: RenderLayer[] = []
-  private graticuleBuffer: GPUBuffer | null = null
-  private graticuleVertexCount = 0
-  private lastGratZoom = -1
-  /** Toggle for the lat/lon grid overlay. Default OFF — the graticule
-   *  was a dev/debug aid that shipped enabled; basemap-quality output
-   *  should opt in. XGISMap exposes `setGraticuleEnabled()` so the
-   *  host app + URL flags can flip it without rebuilding renderers. */
-  private graticuleEnabled = false
-  /** GPU-buffer cache mirroring graticule.ts's CPU-data cache.
-   *  Keyed by GraticuleData IDENTITY — the underlying generator
-   *  returns the same object for the same zoom bucket, so a Map
-   *  keyed by reference avoids recomputing a bucket key here.
-   *
-   *  10 ms / call on Bright zoom animations (createBuffer +
-   *  writeBuffer + destroy) fired exactly on LOD-boundary frames,
-   *  doubling the worst-frame hitch. With this cache, re-entry into
-   *  a previously-seen bucket is a pointer swap (~0 ms). */
-  private graticuleBufferCache = new WeakMap<object, { buf: GPUBuffer; count: number }>()
+  /** Lat/lon grid overlay collaborator. Owns its own GPU-buffer lifecycle
+   *  + zoom-bucket regeneration + WeakMap cache; borrows linePipeline +
+   *  base bindGroup + uniformRing per frame (passed into renderFrame).
+   *  Built in the ctor (after `this.ctx` is set). */
+  private readonly _graticule: GraticuleRenderer
 
 
   /** Get rendering stats for all layers */
@@ -357,10 +342,11 @@ export class MapRenderer {
         lines += Math.floor(layer.lineIndexCount / 2)
       }
     }
-    if (this.graticuleVertexCount > 0) {
+    const gratVerts = this._graticule.vertexCount()
+    if (gratVerts > 0) {
       drawCalls++
-      lines += Math.floor(this.graticuleVertexCount / 2)
-      vertices += this.graticuleVertexCount
+      lines += Math.floor(gratVerts / 2)
+      vertices += gratVerts
     }
     return { drawCalls, vertices, triangles, lines }
   }
@@ -391,6 +377,7 @@ export class MapRenderer {
 
   constructor(ctx: GPUContext) {
     this.ctx = ctx
+    this._graticule = new GraticuleRenderer(ctx)
     this.initPipelines()
     // Graticule init is lazy — first frame after setGraticuleEnabled(true)
     // builds the buffer. Default off so the ctor stays cheap and the
@@ -399,13 +386,12 @@ export class MapRenderer {
 
   /** Toggle the lat/lon grid overlay at runtime. Default off. */
   setGraticuleEnabled(on: boolean): void {
-    this.graticuleEnabled = on
-    if (on && !this.graticuleBuffer) this.initGraticule(this.lastGratZoom >= 0 ? this.lastGratZoom : 2)
+    this._graticule.setEnabled(on)
   }
 
   /** Read the current graticule on/off state. */
   isGraticuleEnabled(): boolean {
-    return this.graticuleEnabled
+    return this._graticule.isEnabled()
   }
 
   /** Get-or-create the compute registry. Lazy because most scenes
@@ -1698,35 +1684,6 @@ export class MapRenderer {
     }
   }
 
-  private initGraticule(zoom = 2): void {
-    const grat = generateGraticule(zoom)
-    // Same GraticuleData reference → same bucket as last call →
-    // GPU buffer is already correct, no need to destroy/create/upload.
-    const cached = this.graticuleBufferCache.get(grat)
-    if (cached) {
-      this.graticuleBuffer = cached.buf
-      this.graticuleVertexCount = cached.count
-      this.lastGratZoom = zoom
-      return
-    }
-    // Don't destroy the previous buffer — it's still referenced by
-    // a cached entry for its own bucket. The WeakMap holds references
-    // alive while their bucket is reachable; when graticule.ts's
-    // bucket cache evicts (currently never), the GraticuleData object
-    // becomes unreachable and the WeakMap entry GCs along with the
-    // GPUBuffer.
-    const buf = this.ctx.device.createBuffer({
-      size: grat.vertices.byteLength,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-      label: 'graticule',
-    })
-    this.ctx.device.queue.writeBuffer(buf, 0, grat.vertices)
-    this.graticuleBufferCache.set(grat, { buf, count: grat.indexCount })
-    this.graticuleBuffer = buf
-    this.graticuleVertexCount = grat.indexCount
-    this.lastGratZoom = zoom
-  }
-
   /** Remove all layers (for re-projection) */
   getLayer(name: string): RenderLayer | undefined {
     return this.layers.find((l) => l.show.targetName === name)
@@ -1885,62 +1842,18 @@ export class MapRenderer {
       }
     }
 
-    // Regenerate graticule if zoom level changed (adaptive spacing).
-    // Skip entirely when disabled so the GPU buffer + writeBuffer
-    // churn stays out of the hot path for default-off basemaps.
-    if (this.graticuleEnabled) {
-      const gratZoom = Math.round(camera.zoom)
-      if (gratZoom !== this.lastGratZoom) {
-        this.initGraticule(gratZoom)
-      }
-    }
-
-    // Draw graticule grid lines (primary world + copies)
-    // Each world copy needs its own uniform buffer (WebGPU batches writeBuffer)
-    if (this.graticuleEnabled && this.graticuleBuffer) {
-      pass.setPipeline(this.linePipeline)
-      pass.setVertexBuffer(0, this.graticuleBuffer)
-
-      // PR 2d.1D: graticule vertices are absolute ECEF — no per-copy camera
-      // shift needed. Draw once per frame (ECEF world-copy = same geometry).
-      // Previously iterated worldCopiesFor(projType) for Mercator cam_h shift.
-      for (let wi = 0; wi < 1; wi++) {
-        const gratData = new ArrayBuffer(MapRenderer.UNIFORM_SIZE)
-        // ── 192-byte Uniforms struct layout (matches VTR + WGSL; post PR 2d.5
-        // closeout: legacy Mercator `mvp` slot retired; `mvp` IS the ECEF-MVP).
-        // byte   0: mvp        (16 f32 = 64 B) — ECEF-MVP (was `mvp_ecef`)
-        // byte  64: fill_color  (4 f32 = 16 B)
-        // byte  80: stroke_color (4 f32)
-        // byte  96: proj_params  (4 f32)
-        // byte 112: cam_h (2 f32) | cam_l (2 f32)
-        // byte 128: tile_origin_merc (2 f32) | opacity | log_depth_fc
-        // byte 144: pick_id (u32) | layer_depth_offset | tile_extent_m | extrude_height_m
-        // byte 160: clip_bounds (4 f32)
-        // byte 176: zoom + 3-float pad → total 192 B
-        new Float32Array(gratData, 0, 16).set(mvp) // ECEF-MVP for vs_main
-        // fill_color = white @ 15% opacity (minor grid line colour)
-        new Float32Array(gratData, 64, 4).set([1, 1, 1, 0.15])
-        // stroke_color = white @ 15% opacity
-        new Float32Array(gratData, 80, 4).set([1, 1, 1, 0.15])
-        // proj_params
-        new Float32Array(gratData, 96, 4).set([projType, projCenterLon, projCenterLat, 0])
-        // Graticule vertices are ECEF-encoded (PR 2d.1D); RTC anchor = (0,0,0)
-        // since graticule emits absolute ECEF without per-tile centering.
-        // cam_h / cam_l fields are unused by vs_main (ECEF path) — zero-fill.
-        new Float32Array(gratData, 112, 4).set([0, 0, 0, 0]) // cam_h + cam_l
-        // tile_origin_merc=(0,0), opacity=1, log_depth_fc
-        new Float32Array(gratData, 128, 4).set([0, 0, 1, frame.logDepthFc])
-        // pick_id=0 — graticule is decorative, never pickable. + layer_depth_offset=0
-        new Uint32Array(gratData, 144, 4).set([0, 0, 0, 0])
-        // clip_bounds sentinel — same rationale as the polygon path.
-        new Float32Array(gratData, 160, 4).set([-1e30, 0, 0, 0])
-        const gratOff = this.allocUniformSlot()
-        this.stageUniformSlot(gratOff, gratData)
-
-        pass.setBindGroup(0, this.bindGroup, [gratOff])
-        pass.draw(this.graticuleVertexCount)
-      }
-    }
+    // Graticule overlay — regenerate (zoom-bucket gate) + draw, at the SAME
+    // point in the frame (after the layer draws). The collaborator borrows
+    // the layer path's linePipeline + base bindGroup + uniformRing and
+    // reuses the SAME 192-byte uniform offsets (passed in, not re-derived).
+    this._graticule.renderFrame(pass, this.linePipeline, this.bindGroup, this.uniformRing, {
+      mvp,
+      logDepthFc: frame.logDepthFc,
+      projType,
+      projCenterLon,
+      projCenterLat,
+      zoom: camera.zoom,
+    })
 
     // pass.end() and submit() are handled by caller
   }
