@@ -12,7 +12,6 @@ import { xlog } from '../log'
 import type { ResolvedShow } from './resolved-show'
 import { visibleTilesFrustum, visibleTilesFrustumSampled, makeTileCoord } from '../../data/tile-select'
 import { structuralHashKey } from '../_cache/structural-key'
-import { Epoch } from '../_cache/versioned-state'
 import type { BundleKeyState } from '../_cache/bundle-cache-key'
 import { globeVisibleTiles } from '../projection/globe'
 import {
@@ -25,6 +24,7 @@ import { FrameDrawStats } from './frame-draw-stats'
 import { TileSelectionCache } from './tile-selection-cache'
 import { FeatureDataBinder } from './feature-data-binder'
 import { GpuTileStore } from './gpu-tile-store'
+import { BindGroupRegistry } from './bind-group-registry'
 import {
   generateWallMeshExtrudedECEF,
 } from '../../core/polygon-mesh'
@@ -132,16 +132,19 @@ export class VectorTileRenderer {
    *  `_featureBinder.releaseTile`) + the upload-active probe (B) arrive as
    *  call arguments. */
   private readonly _store: GpuTileStore
-  /** iter-226 — Bumped on every `rebuildTileBindGroups()` call.
-   *  rebuilds replace `tileBgDefault` / `tileBgFeature` (shared
-   *  bind groups used by tiles whose per-tile `featureBindGroup`
-   *  is null), so cached bundles holding refs to the prior
-   *  generation must re-encode. Independent of per-tile uploads;
-   *  fires on uniform-ring grow + sprite-atlas / palette rewire. */
-  // iter-282 — Epoch instance instead of raw counter. .bump() at
-  // rebuild sites + .value() in cache key state literal. Same numeric
-  // semantics, type-safe at the call site (must go through .bump()).
-  private readonly _bindGroupEpoch = new Epoch()
+  /** Base bind-group + fill-pipeline resource registry (Cluster C — the
+   *  "thin-C" final decomposition unit). Owns the two source-level bind
+   *  groups (`tileBgDefault`/`tileBgFeature`), the base bind-group layout,
+   *  the palette/sprite atlas views/sampler, the bind-group rebuild epoch,
+   *  and ALL fill-pipeline field pairs + their setters. VTR keeps thin
+   *  forwarders for the external setter surface (renderer.ts/map.ts/
+   *  source-manager.ts/render-loop.ts) and coordinates the onGrow
+   *  single-trigger fan-out (base rebuild then per-tile rebuild). The
+   *  registry holds NO reference to VTR/FeatureDataBinder/GpuTileStore —
+   *  it receives the uniform-ring buffer + feature layout + feature data
+   *  buffer as `rebuildBase` call arguments. Constructed in the constructor
+   *  (after `this.device` is assigned). */
+  private readonly _bindGroups: BindGroupRegistry
   /** The Cluster-D compute-handle release hook handed to the store's
    *  eviction path (the `7b31ce52` free order). A single pre-bound arrow
    *  so the store never imports FeatureDataBinder nor holds a VTR
@@ -228,9 +231,6 @@ export class VectorTileRenderer {
    *  `pick_id` (u32). After PR 2d.5 closeout the field sits at f32 slot
    *  36 (byte offset 144) — shifted -16 by the legacy mvp removal. */
   private uniformU32 = new Uint32Array(this.uniformDataBuf)
-  /** Uniform-only layout — stays pinned to the base `bindGroupLayout`
-   *  even when `render()` swaps `lastBindGroupLayout` for a variant layout. */
-  private baseBindGroupLayout: GPUBindGroupLayout | null = null
   private cachedFillColor = [0, 0, 0, 0]
   private cachedStrokeColor = [0, 0, 0, 0]
   private cachedShowFill = ''
@@ -293,10 +293,9 @@ export class VectorTileRenderer {
   // Shared across all tiles + world copies + layers in a frame. Each draw
   // gets a fresh 256-byte slot, preventing multi-layer writeBuffer clobber.
   private uniformRing: UniformRing | null = null
-  /** Tile bind group referencing the ring with dynamic offset (uniform only). */
-  private tileBgDefault: GPUBindGroup | null = null
-  /** Tile bind group referencing the ring + feature storage (variant shaders). */
-  private tileBgFeature: GPUBindGroup | null = null
+  // The two source-level tile bind groups (`tileBgDefault` /
+  // `tileBgFeature`) live on the BindGroupRegistry (Cluster C); read via
+  // `_bindGroups.baseGroup()` / `.featureGroup()` in the hot loop.
 
   // SDF line renderer (set externally)
   private lineRenderer: LineRenderer | null = null
@@ -307,34 +306,18 @@ export class VectorTileRenderer {
    *  and the `featureBindGroupLayout`. VTR keeps thin forwarders
    *  (`buildFeatureDataBuffer`/`setComputePlan`/`dispatchComputePass`/
    *  `hasFeatureData`) for external callers; the per-tile rebuild
-   *  (`rebuildPerTileGroups`) is CALLED by `rebuildTileBindGroups` (the
-   *  single `UniformRing.onGrow` trigger) — the binder never registers its
-   *  own onGrow nor references VTR/gpuCache (they arrive as call args).
+   *  (`rebuildPerTileGroups`) is CALLED by `_onUniformRingGrow` (the
+   *  single `UniformRing.onGrow` fan-out, base→per-tile) — the binder never
+   *  registers its own onGrow nor references VTR/gpuCache (they arrive as
+   *  call args).
    *  Constructed in the constructor (after `this.device` is assigned). */
   private readonly _featureBinder: FeatureDataBinder
 
   // Per-frame draw stats + diagnostics + dedup + trace stash live on the
   // FrameDrawStats collaborator (Cluster G). See `_drawStats` above.
-
-  /** Pipeline pair for tiles with per-feature extrude heights (i.e.
-   *  `cached.extruded`). The orchestrator (renderer.ts) sets
-   *  these once at init via `setExtrudedPipelines`; VTR swaps them in
-   *  for the fill draw when the cached tile carries extruded geometry. Null
-   *  before `setExtrudedPipelines` runs — flat-only render still works
-   *  because the branch checks `cached.extruded` first. */
-  private fillPipelineExtruded: GPURenderPipeline | null = null
-  private fillPipelineExtrudedFallback: GPURenderPipeline | null = null
-  /** Ground-layer fill pipelines — depth test/write disabled.
-   *  Selected when `currentExtrudeMode === 'none'` so coplanar
-   *  ground polygons (water, landuse, roads-as-fill, etc.) resolve
-   *  via painter's order instead of the layer_depth_offset NDC
-   *  bias hack. Null until setGroundPipelines runs. */
-  private fillPipelineGround: GPURenderPipeline | null = null
-  private fillPipelineGroundFallback: GPURenderPipeline | null = null
-  /** OIT translucent extrude pipeline — Weighted-Blended OIT MRT
-   *  output. Selected when render() runs with phase='oit-fill'
-   *  (translucent extrude bucket). Null until setOITPipeline runs. */
-  private fillPipelineExtrudedOIT: GPURenderPipeline | null = null
+  // The fill-pipeline field pairs (extruded / ground / OIT / pattern) +
+  // their setters live on the BindGroupRegistry (Cluster C). See
+  // `_bindGroups` above + the thin forwarders below.
 
   constructor(ctx: GPUContext) {
     this.device = ctx.device
@@ -343,6 +326,7 @@ export class VectorTileRenderer {
     this.bundleCache = new BundleCache(ctx.device)
     this._featureBinder = new FeatureDataBinder(ctx.device)
     this._store = new GpuTileStore(ctx.device)
+    this._bindGroups = new BindGroupRegistry(ctx.device)
   }
 
   /** iter-218 (Phase RB.B.6) — swapchain color format. Captured from
@@ -383,8 +367,7 @@ export class VectorTileRenderer {
    *  pick between flat and extruded fill paths on a per-tile basis
    *  without threading another parameter through `render()`. */
   setExtrudedPipelines(main: GPURenderPipeline, fallback: GPURenderPipeline): void {
-    this.fillPipelineExtruded = main
-    this.fillPipelineExtrudedFallback = fallback
+    this._bindGroups.setExtrudedPipelines(main, fallback)
   }
 
   /** Provide the depth-disabled ground-layer fill pipelines. Same
@@ -394,8 +377,7 @@ export class VectorTileRenderer {
    *  without log-depth precision noise + layer_depth_offset
    *  arithmetic fighting at coplanar fragments. */
   setGroundPipelines(main: GPURenderPipeline, fallback: GPURenderPipeline): void {
-    this.fillPipelineGround = main
-    this.fillPipelineGroundFallback = fallback
+    this._bindGroups.setGroundPipelines(main, fallback)
   }
 
   /** iter-183 — fill-pattern Stage 2 pattern ground pipelines. Caller
@@ -404,21 +386,15 @@ export class VectorTileRenderer {
    *  pipelines when `show.fillPatternUV` is populated (the iconStage
    *  has resolved the sprite atlas UV bbox via map.ts). */
   setPatternPipelines(main: GPURenderPipeline, fallback: GPURenderPipeline): void {
-    this.fillPipelinePatternGround = main
-    this.fillPipelinePatternGroundFallback = fallback
+    this._bindGroups.setPatternPipelines(main, fallback)
   }
-  private fillPipelinePatternGround: GPURenderPipeline | null = null
-  private fillPipelinePatternGroundFallback: GPURenderPipeline | null = null
 
   /** iter-186 — fill-extrusion-pattern Stage 2 variants. Mirror of
    *  setPatternPipelines for the extruded (per-feature z attribute)
    *  vertex path. */
   setPatternExtrudedPipelines(main: GPURenderPipeline, fallback: GPURenderPipeline): void {
-    this.fillPipelinePatternExtruded = main
-    this.fillPipelinePatternExtrudedFallback = fallback
+    this._bindGroups.setPatternExtrudedPipelines(main, fallback)
   }
-  private fillPipelinePatternExtruded: GPURenderPipeline | null = null
-  private fillPipelinePatternExtrudedFallback: GPURenderPipeline | null = null
 
   /** Provide the OIT translucent extrude pipeline. Used when
    *  render() runs with phase='oit-fill': translucent buildings
@@ -426,7 +402,7 @@ export class VectorTileRenderer {
    *  later compose pass can blend them order-independently onto
    *  the opaque framebuffer. */
   setOITPipeline(p: GPURenderPipeline): void {
-    this.fillPipelineExtrudedOIT = p
+    this._bindGroups.setOITPipeline(p)
   }
 
   /** Connect to a data source */
@@ -438,9 +414,12 @@ export class VectorTileRenderer {
     }
   }
 
-  /** Set bind group layout (must be called before tiles arrive) */
+  /** Set bind group layout (must be called before tiles arrive). Thin
+   *  forwarder — the base layout lives on the BindGroupRegistry (Cluster C);
+   *  the uniform-ring `ensureUniformRing` side effect stays on VTR (the ring
+   *  is VTR-owned, plan §5 DO-NOT-SPLIT #1). */
   setBindGroupLayout(layout: GPUBindGroupLayout): void {
-    this.baseBindGroupLayout = layout
+    this._bindGroups.setBindGroupLayout(layout)
     this.ensureUniformRing()
   }
 
@@ -476,98 +455,59 @@ export class VectorTileRenderer {
   /** P3 Step 3c — set palette atlas resources used by binding 2 + 4
    *  on the polygon bind-group layout. Caller (MapRenderer) hands
    *  the 1×1 stub by default; once `uploadPalette` lands the real
-   *  atlas, the same call rebuilds the tile bind groups in place. */
+   *  atlas, the same call rebuilds the tile bind groups in place. Thin
+   *  forwarder — the palette resources live on the BindGroupRegistry
+   *  (Cluster C); the `_onUniformRingGrow` fan-out rebuilds BOTH the base
+   *  groups AND the per-tile feature groups so a palette change propagates
+   *  exactly as the old `rebuildTileBindGroups()` did. */
   setPaletteResources(colorAtlasView: GPUTextureView, sampler: GPUSampler): void {
-    this.paletteColorAtlasView = colorAtlasView
-    this.paletteSampler = sampler
-    this.rebuildTileBindGroups()
+    this._bindGroups.setPaletteResources(colorAtlasView, sampler)
+    this._onUniformRingGrow()
   }
-  private paletteColorAtlasView: GPUTextureView | null = null
-  private paletteSampler: GPUSampler | null = null
 
   /** iter-181 — fill-pattern Stage 2 infra mirror of
    *  setPaletteResources. Sprite atlas texture at binding 5; sampler
    *  reuses `paletteSampler` at binding 4. Stub 1×1 white via the
    *  initial MapRenderer.setSpriteAtlas push; replaced when the
-   *  IconStage finishes loading the real sprite atlas. */
+   *  IconStage finishes loading the real sprite atlas. Thin forwarder
+   *  (registry-owned resource + base/per-tile fan-out, as above). */
   setSpriteAtlasView(view: GPUTextureView): void {
-    this.spriteAtlasView = view
-    this.rebuildTileBindGroups()
+    this._bindGroups.setSpriteAtlasView(view)
+    this._onUniformRingGrow()
   }
-  private spriteAtlasView: GPUTextureView | null = null
 
   private ensureUniformRing(): void {
     if (this.uniformRing) return
-    this.uniformRing = new UniformRing(this.device, UNIFORM_SLOT, 1024, 'vtr-uniform-ring', () => this.rebuildTileBindGroups())
+    this.uniformRing = new UniformRing(this.device, UNIFORM_SLOT, 1024, 'vtr-uniform-ring', () => this._onUniformRingGrow())
     this.uniformRing.ensure()
   }
 
-  private rebuildTileBindGroups(): void {
+  /** The SINGLE `UniformRing.onGrow` fan-out (also fired by the palette /
+   *  sprite-atlas setters). One trigger, base → per-tile order (plan §5
+   *  DO-NOT-SPLIT #3, the iter-348/349 stale-colour fix). VTR coordinates;
+   *  the BindGroupRegistry rebuilds the BASE source-level groups (Cluster C)
+   *  and the FeatureDataBinder rebuilds the PER-TILE feature groups
+   *  (Cluster D). Neither owns the onGrow wire — VTR does. The ring buffer +
+   *  feature layout + feature data buffer + palette resources arrive as
+   *  call arguments, so neither collaborator holds a VTR reference.
+   *
+   *  iter-226 — the base rebuild replaces `tileBgDefault`/`tileBgFeature`
+   *  (new refs) and bumps the bind-group epoch so stale RenderBundles miss.
+   *  iter-349 — the per-tile feature bind groups (data-driven MVT tiles)
+   *  bind the same ring at binding 0; after a grow they'd keep referencing
+   *  the OLD (retired, then destroyed-next-frame) ring → data-driven fills
+   *  read stale uniform colours (the user-reported high-pitch "land flashes
+   *  water-blue" while moving). Rebuilding both against the new ring fixes
+   *  it; the order (base then per-tile) is preserved from the prior inline
+   *  `rebuildTileBindGroups`. */
+  private _onUniformRingGrow(): void {
     const ringBuf = this.uniformRing?.buffer
-    if (!ringBuf || !this.baseBindGroupLayout) return
-    // Palette bindings 2/4 are part of mr-baseBindGroupLayout /
-    // mr-featureBindGroupLayout. Defer bind-group construction until
-    // both palette resources are wired so we don't ever build a
-    // group missing those entries.
-    if (!this.paletteColorAtlasView || !this.paletteSampler || !this.spriteAtlasView) return
-    this.tileBgDefault = this.device.createBindGroup({
-      label: 'vtr-tileBg-default',
-      layout: this.baseBindGroupLayout,
-      entries: [
-        { binding: 0, resource: { buffer: ringBuf, offset: 0, size: UNIFORM_SIZE } },
-        { binding: 2, resource: this.paletteColorAtlasView },
-        { binding: 4, resource: this.paletteSampler },
-        { binding: 5, resource: this.spriteAtlasView },
-        { binding: 6, resource: this.paletteSampler },
-      ],
-    })
-    const featureLayout = this._featureBinder.featureBindGroupLayout()
-    const sourceFeatureBuffer = this._featureBinder.featureDataBufferHandle()
-    if (featureLayout && sourceFeatureBuffer) {
-      this.tileBgFeature = this.device.createBindGroup({
-        label: 'vtr-tileBg-feature',
-        layout: featureLayout,
-        entries: [
-          { binding: 0, resource: { buffer: ringBuf, offset: 0, size: UNIFORM_SIZE } },
-          { binding: 1, resource: { buffer: sourceFeatureBuffer } },
-          { binding: 2, resource: this.paletteColorAtlasView },
-          { binding: 4, resource: this.paletteSampler },
-          { binding: 5, resource: this.spriteAtlasView },
-          { binding: 6, resource: this.paletteSampler },
-        ],
-      })
-    } else {
-      this.tileBgFeature = null
-    }
-    // iter-226 — tileBg{Default,Feature} are new refs after this
-    // function. Any cached RenderBundle that held the prior refs is
-    // now stale; bump the epoch so the next cache lookup misses.
-    // iter-282 — Epoch.bump() supersedes the raw `++` (single
-    // mutation point; consumers read via .value() in key literals).
-    this._bindGroupEpoch.bump()
-    // iter-349 — the PER-TILE feature bind groups (data-driven MVT
-    // tiles) bind the uniform ring at binding 0 too, but were created
-    // once at upload and are NOT among tileBg{Default,Feature}. After a
-    // uniform-ring grow they'd keep referencing the OLD (retired, then
-    // destroyed-next-frame) ring → data-driven fills read stale uniform
-    // colours (the user-reported high-pitch "land flashes water-blue"
-    // while moving; compute=1 reads colour from its output buffer so it
-    // was immune). Rebuild them against the new ring. The per-tile feature
-    // bind groups are Cluster D state — the binder owns the rebuild; VTR
-    // hands it the cached-tiles iterator + current ring + palette so the
-    // single onGrow fan-out stays one trigger (no duplicate onGrow handler).
-    this._featureBinder.rebuildPerTileGroups(this._store.cache(), ringBuf, this._paletteResources())
-  }
-
-  /** Snapshot of the palette/sprite atlas resources (Cluster C) the
-   *  FeatureDataBinder needs to compose per-tile feature bind groups.
-   *  Passed by value per call so the binder never holds a VTR reference. */
-  private _paletteResources(): import('./feature-data-binder').PaletteResources {
-    return {
-      paletteColorAtlasView: this.paletteColorAtlasView,
-      paletteSampler: this.paletteSampler,
-      spriteAtlasView: this.spriteAtlasView,
-    }
+    this._bindGroups.rebuildBase(
+      ringBuf,
+      this._featureBinder.featureBindGroupLayout(),
+      this._featureBinder.featureDataBufferHandle(),
+    )
+    this._featureBinder.rebuildPerTileGroups(this._store.cache(), ringBuf, this._bindGroups.paletteResources())
   }
 
   /** Frame ID set by `beginFrame(frameId)`, threaded through to
@@ -1089,9 +1029,10 @@ export class VectorTileRenderer {
   /** Build per-feature GPU storage buffer from PropertyTable. Thin
    *  forwarder — the data-driven feature buffer + variant-schema capture
    *  live on the FeatureDataBinder (Cluster D). VTR supplies the source
-   *  PropertyTable and rebuilds `tileBgFeature` afterward (Cluster C still
-   *  on VTR) only when a source-level buffer was actually built — matching
-   *  the original early-return-before-rebuild on the PMTiles path. */
+   *  PropertyTable and rebuilds `tileBgFeature` afterward (via the registry
+   *  base rebuild + per-tile fan-out) only when a source-level buffer was
+   *  actually built — matching the original early-return-before-rebuild on
+   *  the PMTiles path. */
   buildFeatureDataBuffer(
     variant: ShaderVariant,
     featureBindGroupLayout: GPUBindGroupLayout,
@@ -1102,7 +1043,7 @@ export class VectorTileRenderer {
     )
     if (builtSourceBuffer) {
       // Build the shared feature-bound tile bind group
-      this.rebuildTileBindGroups()
+      this._onUniformRingGrow()
     }
   }
 
@@ -1547,7 +1488,7 @@ export class VectorTileRenderer {
     // identity already used by the upload queue + held set, so the
     // handle's lifetime tracks the tile's bind-group lifetime.
     const perTileFeat = this._featureBinder.buildPerTileFeatureData(
-      data.featureProps, this.uniformRing?.buffer, this._paletteResources(), `${key}:${sourceLayer}`)
+      data.featureProps, this.uniformRing?.buffer, this._bindGroups.paletteResources(), `${key}:${sourceLayer}`)
 
     layerCache.set(key, {
       vertexBuffer, polyVertexOffset, polyVertexByteLength, indexBuffer,
@@ -1934,7 +1875,7 @@ export class VectorTileRenderer {
     // identity already used by the upload queue + held set, so the
     // handle's lifetime tracks the tile's bind-group lifetime.
     const perTileFeat = this._featureBinder.buildPerTileFeatureData(
-      data.featureProps, this.uniformRing?.buffer, this._paletteResources(), `${key}:${sourceLayer}`)
+      data.featureProps, this.uniformRing?.buffer, this._bindGroups.paletteResources(), `${key}:${sourceLayer}`)
 
     layerCache.set(key, {
       vertexBuffer, polyVertexOffset, polyVertexByteLength, indexBuffer,
@@ -2120,8 +2061,8 @@ export class VectorTileRenderer {
     // PropertyTable is empty), so the compound landuse `class` match
     // variant's render() never reached its tile loop. Per-tile feature
     // groups are tested inside the loop via `cached.featureBindGroup`.
-    if (bindGroupLayout !== this.baseBindGroupLayout
-        && !this.tileBgFeature
+    if (bindGroupLayout !== this._bindGroups.baseLayout()
+        && !this._bindGroups.featureGroup()
         && this._featureBinder.latestVariantFieldsLength() === 0) return
 
     this.frameCount++
@@ -2325,7 +2266,7 @@ export class VectorTileRenderer {
     const patternUV = show.fillPatternUV
     const patternRepeat = show.fillPatternRepeatM
     const patternSlotsActive = patternUV != null && patternRepeat != null
-      && this.fillPipelinePatternGround !== null
+      && this._bindGroups.patternGroundPipeline() !== null
     if (patternSlotsActive) {
       uf[16] = patternUV![0]; uf[17] = patternUV![1]
       uf[18] = patternUV![2]; uf[19] = patternUV![3]
@@ -2910,7 +2851,7 @@ export class VectorTileRenderer {
       //     caller / test stub), fall back to `fillPipeline` and
       //     accept depth-write — better z-fighting than a layout
       //     mismatch that drops the whole encoder.
-      const groundIsBase = bindGroupLayout === this.baseBindGroupLayout
+      const groundIsBase = bindGroupLayout === this._bindGroups.baseLayout()
       // ?debug=overdraw: VTR's internal `fillPipelineGround` targets the
       // swapchain format, but the caller's `fillPipelineGroundOverride`
       // is the r16float debug variant. Always prefer the override here
@@ -2918,7 +2859,7 @@ export class VectorTileRenderer {
       const groundForLayout: GPURenderPipeline | null = DEBUG_OVERDRAW
         ? (fillPipelineGroundOverride ?? fillPipeline)
         : (groundIsBase
-            ? this.fillPipelineGround
+            ? this._bindGroups.groundPipeline()
             : (fillPipelineGroundOverride ?? null))
       // iter-183 — fill-pattern Stage 2 routing. When the show has a
       // resolved pattern UV bbox AND the variant pipeline path isn't
@@ -2931,9 +2872,9 @@ export class VectorTileRenderer {
       const patternActive = !DEBUG_OVERDRAW
         && groundIsBase
         && show.fillPatternUV != null
-        && this.fillPipelinePatternGround !== null
+        && this._bindGroups.patternGroundPipeline() !== null
       const groundChoice = patternActive
-        ? this.fillPipelinePatternGround
+        ? this._bindGroups.patternGroundPipeline()
         : groundForLayout
       const mainFill = this.currentExtrudeMode === 'none' && groundChoice !== null
         ? groundChoice
@@ -2945,10 +2886,10 @@ export class VectorTileRenderer {
       const extrudedPatternActive = !DEBUG_OVERDRAW
         && groundIsBase
         && show.fillPatternUV != null
-        && this.fillPipelinePatternExtruded !== null
+        && this._bindGroups.patternExtrudedPipeline() !== null
       const extrudedPipeline = extrudedPatternActive
-        ? this.fillPipelinePatternExtruded
-        : this.fillPipelineExtruded
+        ? this._bindGroups.patternExtrudedPipeline()
+        : this._bindGroups.extrudedPipeline()
       // iter-220 (Phase RB.B.8) — bundle wrap for the primary
       // opaque pass call. Gated to the main opaque attachment
       // context (excludes OIT, debug overdraw, translucent stroke
@@ -3037,7 +2978,7 @@ export class VectorTileRenderer {
           neededKeys: neededKeys.slice(),
           epochs,
           worldOffsets: worldOffDeg ? worldOffDeg.map(o => Math.round(o * 1e3)) : null,
-          bindGroupEpoch: this._bindGroupEpoch.value(),
+          bindGroupEpoch: this._bindGroups.epoch(),
           pickOn,
           samples,
           mainPipelineLabel: mainFill.label ?? null,
@@ -3128,20 +3069,20 @@ export class VectorTileRenderer {
       // Same layout-matched ground pickup as the primary path —
       // base layout uses the renderer-level fallback ground; feature
       // layout uses the variant's fallback ground override.
-      const fallbackGroundIsBase = bindGroupLayout === this.baseBindGroupLayout
+      const fallbackGroundIsBase = bindGroupLayout === this._bindGroups.baseLayout()
       const fallbackGroundForLayout: GPURenderPipeline | null = DEBUG_OVERDRAW
         ? (fillPipelineGroundFallbackOverride ?? fillPipelineFallback ?? null)
         : (fallbackGroundIsBase
-            ? this.fillPipelineGroundFallback
+            ? this._bindGroups.groundPipelineFallback()
             : (fillPipelineGroundFallbackOverride ?? null))
       // iter-183 — fill-pattern Stage 2 fallback routing (mirror of
       // the primary path above).
       const fallbackPatternActive = !DEBUG_OVERDRAW
         && fallbackGroundIsBase
         && show.fillPatternUV != null
-        && this.fillPipelinePatternGroundFallback !== null
+        && this._bindGroups.patternGroundPipelineFallback() !== null
       const fallbackGroundChoice = fallbackPatternActive
-        ? this.fillPipelinePatternGroundFallback
+        ? this._bindGroups.patternGroundPipelineFallback()
         : fallbackGroundForLayout
       const fallbackFill = this.currentExtrudeMode === 'none' && fallbackGroundChoice !== null
         ? fallbackGroundChoice
@@ -3150,10 +3091,10 @@ export class VectorTileRenderer {
       const fallbackExtrudedPatternActive = !DEBUG_OVERDRAW
         && fallbackGroundIsBase
         && show.fillPatternUV != null
-        && this.fillPipelinePatternExtrudedFallback !== null
+        && this._bindGroups.patternExtrudedPipelineFallback() !== null
       const fallbackExtrudedPipeline = fallbackExtrudedPatternActive
-        ? this.fillPipelinePatternExtrudedFallback
-        : this.fillPipelineExtrudedFallback
+        ? this._bindGroups.patternExtrudedPipelineFallback()
+        : this._bindGroups.extrudedPipelineFallback()
       // iter-221 (Phase RB.B.9) — fallback path bundle wrap. Mirror
       // of iter-220's primary-call wrap, applied to the
       // fallbackKeys renderTileKeys invocation. Same gate + same
@@ -3201,7 +3142,7 @@ export class VectorTileRenderer {
           fallbackVisibleKeys: fallbackVisibleKeys ? fallbackVisibleKeys.slice() : null,
           epochs: fbEpochs,
           worldOffsets: fallbackOffsets ? fallbackOffsets.map(o => Math.round(o * 1e3)) : null,
-          bindGroupEpoch: this._bindGroupEpoch.value(),
+          bindGroupEpoch: this._bindGroups.epoch(),
           pickOn: fbPickOn,
           samples: fbSamples,
           mainPipelineLabel: fallbackFill.label ?? null,
@@ -3541,15 +3482,15 @@ export class VectorTileRenderer {
     // Lines always use baseBindGroupLayout (assertion further below
     // is preserved). Strokes get the same uniform-only layout via
     // currentLineTileBg.
-    const fillBg = fillBindGroupLayout === this.baseBindGroupLayout
-      ? this.tileBgDefault
-      : this.tileBgFeature
+    const fillBg = fillBindGroupLayout === this._bindGroups.baseLayout()
+      ? this._bindGroups.baseGroup()
+      : this._bindGroups.featureGroup()
     // For featureBindGroupLayout the source-level `tileBgFeature` is
     // null in the MVT/PMTiles path (each tile owns its own
     // featureBindGroup). Don't early-return on that case — per-tile
     // bind group resolution happens inside the keys loop. baseBindGroup
     // is constant-fill and never per-tile, so its absence still aborts.
-    if (fillBindGroupLayout === this.baseBindGroupLayout && !fillBg) return
+    if (fillBindGroupLayout === this._bindGroups.baseLayout() && !fillBg) return
     if (!this.uniformRing?.buffer) return
     // Stroke draws are batched and emitted AFTER every fill in this
     // pass has written depth, so per-tile outlines depth-test against
@@ -3780,9 +3721,9 @@ export class VectorTileRenderer {
       // global-PropertyTable bind group; using it for MVT would index
       // a different (zero-filled) buffer and silently mis-route every
       // feature to the variant shader's fallback arm.
-      const currentTileBg = fillBindGroupLayout === this.baseBindGroupLayout
-        ? this.tileBgDefault!
-        : (cached.featureBindGroup ?? this.tileBgFeature!)
+      const currentTileBg = fillBindGroupLayout === this._bindGroups.baseLayout()
+        ? this._bindGroups.baseGroup()!
+        : (cached.featureBindGroup ?? this._bindGroups.featureGroup()!)
       // Stage the slot into the CPU-side mirror instead of issuing one
       // writeBuffer per tile; the mirror is flushed in a single call at
       // the end of this renderTileKeys invocation.
@@ -3805,7 +3746,7 @@ export class VectorTileRenderer {
         //  * uniform / ground (opaque): pre-selected `fillPipeline`
         const useOitPipe = isOitFill
           && cached.extruded
-          && this.fillPipelineExtrudedOIT !== null
+          && this._bindGroups.extrudedOITPipeline() !== null
         // DIAG: log per-tile drawIndexed for the current trace if armed.
         // Granular enough to verify the cross-tile order claim
         // ("all tiles' 2D before any 3D") rather than just per-show
@@ -3890,7 +3831,7 @@ export class VectorTileRenderer {
         const activePipe = DEBUG_OVERDRAW
           ? fillPipeline
           : (useOitPipe
-              ? this.fillPipelineExtrudedOIT!
+              ? this._bindGroups.extrudedOITPipeline()!
               : useExtrudedPipe
                 ? fillPipelineExtruded!
                 : fillPipeline)
@@ -3942,7 +3883,7 @@ export class VectorTileRenderer {
       // bundle's executeBundles already replays the stroke draws.
       // strokeQueue side effects (push from per-tile loop) remain
       // populated for any non-bundle path or stats.
-      const currentLineTileBg2 = this.tileBgDefault!
+      const currentLineTileBg2 = this._bindGroups.baseGroup()!
       // line-gap-width double-draw: when the second offset slot was
       // written, iterate the strokeQueue with each offset. Single-line
       // (default) draws once. The second pass uses the SAME segment
