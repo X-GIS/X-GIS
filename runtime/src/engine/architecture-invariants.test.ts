@@ -79,7 +79,7 @@ describe('arch ratchet: map ↔ render-loop value-import cycle stays broken', ()
 // High-water marks measured 2026-06-09. LOWER these as files shrink.
 const LOC_CEILINGS: Record<string, number> = {
   'runtime/src/engine/render/vector-tile-renderer.ts': 3913,
-  'runtime/src/engine/map.ts': 3423,
+  'runtime/src/engine/map.ts': 3421,
   'compiler/src/ir/lower.ts': 2184,
   'runtime/src/engine/text/text-stage.ts': 2040,
   'compiler/src/tiler/vector-tiler.ts': 1997,
