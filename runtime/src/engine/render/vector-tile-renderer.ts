@@ -24,6 +24,7 @@ import { LabelFeatureSource } from './label-feature-source'
 import { FrameDrawStats } from './frame-draw-stats'
 import { TileSelectionCache } from './tile-selection-cache'
 import { FeatureDataBinder } from './feature-data-binder'
+import { GpuTileStore } from './gpu-tile-store'
 import {
   generateWallMeshExtrudedECEF,
 } from '../../core/polygon-mesh'
@@ -44,7 +45,7 @@ import type { PointRenderer } from './point-renderer'
 import { buildLineSegments, type LineRenderer } from './line-renderer'
 import { parseHexColor } from '../feature-helpers'
 import type { GPUTile, LayerDrawPhase } from './vector-tile-renderer-types'
-import { getMaxGpuTiles, uploadBudgetFor, ARENA_HIGH_WATER, ARENA_LOW_WATER } from './vector-tile-renderer-helpers'
+import { getMaxGpuTiles, uploadBudgetFor } from './vector-tile-renderer-helpers'
 import { UniformRing } from './uniform-ring'
 
 // projType (camera.projType / proj_params.x) → projection registry name,
@@ -119,30 +120,18 @@ export class VectorTileRenderer {
     return this.source?.maxLevel ?? 0
   }
   currentProjection: import('../projection/projection').Projection | null = null
-  /** GPU tile cache keyed by `${tileKey}|${sourceLayer}`. The `sourceLayer`
-   *  segment is the MVT layer slot — '' for single-layer sources
-   *  (XGVT-binary, GeoJSON-runtime, sub-tiles), MVT layer name for
-   *  per-layer slices (PMTiles). One tile key may have N entries here,
-   *  one per xgis layer's `sourceLayer` filter. */
-  /** Nested cache: outer key = MVT source-layer slot ('' for single-
-   *  layer sources), inner key = numeric tile key. Lets the per-frame
-   *  hot path fetch the inner Map once per `render()` call and then
-   *  do pure numeric `has`/`get` lookups, eliminating composite-string
-   *  allocation in the per-tile loop (was ~1.6 k allocations/frame at
-   *  z=22 over Seoul × 4 PMTiles layers). */
-  private gpuCache = new Map<string, Map<number, GPUTile>>()
-  /** Total entries across all inner maps. Mirrors what the old flat
-   *  `gpuCache.size` reported; used by eviction trigger, cache-size
-   *  diagnostics, and the setLineRenderer reset guard. */
-  private _gpuCacheCount = 0
-  /** iter-226 — Strictly-monotonic counter assigned to each upload's
-   *  `GPUTile.uploadEpoch`. Replaces the cache-size signal
-   *  (`_gpuCacheCount`) in the RenderBundle cache key, where it was
-   *  too coarse (changed on any upload/eviction even for tiles
-   *  unrelated to the bundle). Per-tile epoch XORed across needed
-   *  keys lets a hit prove every referenced tile's bind group is
-   *  still the one the bundle recorded. */
-  private _tileUploadEpoch = 0
+  /** Resident GPU tile set (Cluster A — the memory core): the nested
+   *  `${tileKey}|${sourceLayer}` cache map, the three GPUArenas (poly
+   *  vertex / poly index / z-buffer), the pooled GPU buffer recycler, the
+   *  unique-key + byte-aware LRU eviction (#218 fix), the OOM Lane-B forced
+   *  eviction, and the deferred post-submit arena compaction. VTR holds it
+   *  as an injected collaborator and keeps thin forwarders for the external
+   *  surface (`getCacheSize`); the uploader (Cluster B) + the render hot
+   *  loop call THROUGH it. The store holds NO VTR back-reference —
+   *  `stableKeys` (E) + the compute-handle release hook (D, bound to
+   *  `_featureBinder.releaseTile`) + the upload-active probe (B) arrive as
+   *  call arguments. */
+  private readonly _store: GpuTileStore
   /** iter-226 — Bumped on every `rebuildTileBindGroups()` call.
    *  rebuilds replace `tileBgDefault` / `tileBgFeature` (shared
    *  bind groups used by tiles whose per-tile `featureBindGroup`
@@ -153,13 +142,30 @@ export class VectorTileRenderer {
   // rebuild sites + .value() in cache key state literal. Same numeric
   // semantics, type-safe at the call site (must go through .bump()).
   private readonly _bindGroupEpoch = new Epoch()
+  /** The Cluster-D compute-handle release hook handed to the store's
+   *  eviction path (the `7b31ce52` free order). A single pre-bound arrow
+   *  so the store never imports FeatureDataBinder nor holds a VTR
+   *  reference, and eviction never allocates a fresh closure per call. */
+  private readonly _releaseTileHook = (handleKey: string): void => {
+    this._featureBinder.releaseTile(handleKey)
+  }
   private getLayerCache(sourceLayer: string): Map<number, GPUTile> | undefined {
-    return this.gpuCache.get(sourceLayer)
+    return this._store.getLayer(sourceLayer)
   }
   private getOrCreateLayerCache(sourceLayer: string): Map<number, GPUTile> {
-    let m = this.gpuCache.get(sourceLayer)
-    if (!m) { m = new Map(); this.gpuCache.set(sourceLayer, m) }
-    return m
+    return this._store.getOrCreateLayer(sourceLayer)
+  }
+  /** Back-compat read-only view of the resident GPU tile cache for the
+   *  browser-injected e2e leak/hit-rate probes (`_pmtiles-stress-leak`,
+   *  `_continuous-wheel-zoom`, `_mobile-overdraw-flat-pitch`,
+   *  `_osm-style-merge-proof`, `_user-scenario-capture`,
+   *  `_openfreemap-bright-overzoom`) that read `renderer.gpuCache`
+   *  (`.get`/`.size`/`.values`). The cache itself moved onto the
+   *  GpuTileStore (Cluster A); this getter forwards the live Map so those
+   *  probes keep working unchanged. No production hot-loop reads this — the
+   *  per-tile loop hoists the inner Map via `getLayerCache` once/frame. */
+  get gpuCache(): Map<string, Map<number, GPUTile>> {
+    return this._store.cache()
   }
   private frameCount = 0
   private lastZoom = -1
@@ -183,40 +189,16 @@ export class VectorTileRenderer {
    *  unchanged; this collaborator touches ZERO GPU state. */
   private readonly _labelSource = new LabelFeatureSource()
   private readonly _drawStats = new FrameDrawStats()
-  /** GPU buffer pool — keyed by `{powerOfTwoBucketSize}:{usage}`.
-   *  doUploadTile and evictGPUTiles together create + destroy 5+
-   *  GPUBuffers per tile, several times per frame on mobile during
-   *  fast pinch/pan. Each createBuffer / destroy is a GPU driver
-   *  call; pooling lets us hand a freed buffer straight back to
-   *  the next acquire instead of round-tripping through the
-   *  driver. Buckets are powers of two from 2 KB → 4 MB so size-
-   *  fit reuse works across tiles with similar feature density.
-   *  Cap per bucket prevents the pool itself from holding GPU
-   *  memory hostage. */
-  private _bufferPool = new Map<string, GPUBuffer[]>()
-  private static readonly _BUFFER_POOL_CAP_PER_BUCKET = 16
-  private static _bufferBucketSize(size: number): number {
-    let bucket = 2048
-    while (bucket < size) bucket *= 2
-    return bucket
-  }
+  /** Pooled GPU buffer acquire/release — thin forwarders to the
+   *  GpuTileStore (Cluster A owner). The pool keyed by
+   *  `{powerOfTwoBucketSize}:{usage}` lives on the store; doUploadTile +
+   *  eviction hand freed line/outline buffers straight back to the next
+   *  acquire instead of round-tripping through the GPU driver. */
   private acquireBuffer(size: number, usage: GPUBufferUsageFlags, label: string): GPUBuffer {
-    const bucket = VectorTileRenderer._bufferBucketSize(size)
-    const key = `${bucket}:${usage}`
-    const pool = this._bufferPool.get(key)
-    if (pool && pool.length > 0) return pool.pop()!
-    return this.device.createBuffer({ size: bucket, usage, label })
+    return this._store.acquireBuffer(size, usage, label)
   }
   private releaseBuffer(buf: GPUBuffer | null | undefined): void {
-    if (!buf) return
-    const key = `${buf.size}:${buf.usage}`
-    let pool = this._bufferPool.get(key)
-    if (!pool) { pool = []; this._bufferPool.set(key, pool) }
-    if (pool.length < VectorTileRenderer._BUFFER_POOL_CAP_PER_BUCKET) {
-      pool.push(buf)
-    } else {
-      buf.destroy()
-    }
+    this._store.releaseBuffer(buf)
   }
   /** Hot-path scratch collections — reused across render() calls
    *  to avoid per-frame Set/Map allocations. Each is `.clear()`'d
@@ -360,6 +342,7 @@ export class VectorTileRenderer {
     this.stagingPool = new StagingBufferPool(ctx.device)
     this.bundleCache = new BundleCache(ctx.device)
     this._featureBinder = new FeatureDataBinder(ctx.device)
+    this._store = new GpuTileStore(ctx.device)
   }
 
   /** iter-218 (Phase RB.B.6) — swapchain color format. Captured from
@@ -373,77 +356,19 @@ export class VectorTileRenderer {
    *  produces a different key → re-encode. */
   private bundleCache: BundleCache
 
-  /** Phase 6a.2 (iter-208) — shared polygon vertex arena. Replaces the
-   *  per-tile `acquireBuffer` allocation for polygon vertex buffers so
-   *  ALL tiles bind from the same underlying GPUBuffer with per-tile
-   *  offsets. Lazy-init on first `doUploadTile` / `doUploadTileAsync`
-   *  call so the GPUDevice is guaranteed alive (constructor runs before
-   *  the device is fully configured in some test paths).
-   *
-   *  Sizing rationale (iter-208 initial): 64 MB caps at ~256 tiles ×
-   *  ~250 KB peak polygon vertex per (tile, source-layer). Sufficient
-   *  for OFM Bright/Liberty/Positron z=14 (~150 visible × ~6 source-
-   *  layers ≈ ~37 MB headroom). Future Phase 6a.5 adds auto-grow if
-   *  needed. */
-  private polyVertexArena: GPUArena | null = null
-  private static readonly POLY_VERTEX_ARENA_CAPACITY = 64 * 1024 * 1024
-
-  /** Set true by `forceEvictBytes` when an alloc still cannot be served
-   *  AFTER forced LRU eviction — i.e. the live set is fragmented (bump
-   *  pointer near the cap while liveBytes is tiny) and the remaining
-   *  tiles are protected stableKeys that eviction can't drop. The actual
-   *  defragmenting `copyBufferToBuffer` MUST run in the post-submit safe
-   *  window (NOT here, mid-render), so we only flag it; `beginFrame`
-   *  drains the flag in the SAME safe window `evictGPUTiles` uses. */
-  private _pendingArenaCompaction = false
-
-  /** Old arena GPUBuffers retired by a compaction, awaiting destroy. A
-   *  compaction swaps `arena.buffer` to a fresh packed buffer; the old
-   *  buffer is pushed here and destroyed on the NEXT `beginFrame` (one
-   *  full frame later), by which point the compaction's copy submit AND
-   *  any command that referenced the old buffer have drained. Mirrors the
-   *  uniform-ring retired-pool pattern. */
-  private _retiredArenaBuffers: GPUBuffer[] = []
-
+  /** Polygon vertex/index arena getters — thin forwarders to the
+   *  GpuTileStore (Cluster A owner). The arenas (poly vertex / poly index
+   *  / z-buffer) + their capacity consts + the pending-compaction flag +
+   *  the retired-buffer pool all live on the store; the uploader lazy-
+   *  inits via these getters on first `doUploadTile`/`doUploadTileAsync`
+   *  and binds every tile from the same underlying GPUBuffer with per-tile
+   *  offsets. */
   private getOrCreatePolyVertexArena(): GPUArena {
-    if (this.polyVertexArena === null) {
-      this.polyVertexArena = new GPUArena(this.device, {
-        capacityBytes: VectorTileRenderer.POLY_VERTEX_ARENA_CAPACITY,
-        // COPY_SRC is required for compaction's copyBufferToBuffer (it
-        // reads the old arena buffer as the copy SOURCE when relocating the
-        // live set into the freshly-packed destination buffer).
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-        label: 'poly-vertex-arena',
-      })
-    }
-    return this.polyVertexArena
+    return this._store.polyVertexArenaOrCreate()
   }
-
-  /** Phase 6a.3 (iter-209) — shared polygon index arena. Mirror of
-   *  the vertex arena above. Capacity 64 MB matching vertex arena —
-   *  initial 32 MB sizing underestimated demotiles-europe-z2 which
-   *  exceeded 33 MB across all source-layers before eviction kicked
-   *  in. Phase 6a.5 will add auto-grow + cross-test reset. */
-  private polyIndexArena: GPUArena | null = null
-  private static readonly POLY_INDEX_ARENA_CAPACITY = 64 * 1024 * 1024
-
   private getOrCreatePolyIndexArena(): GPUArena {
-    if (this.polyIndexArena === null) {
-      this.polyIndexArena = new GPUArena(this.device, {
-        capacityBytes: VectorTileRenderer.POLY_INDEX_ARENA_CAPACITY,
-        // COPY_SRC required for compaction (see poly-vertex-arena above).
-        usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-        label: 'poly-index-arena',
-      })
-    }
-    return this.polyIndexArena
+    return this._store.polyIndexArenaOrCreate()
   }
-
-  /** Phase 6a.4 (iter-210) — z-attribute arena. Per-vertex z (world
-   *  metres) for extruded polygons. Smaller pool — only extruded
-   *  tiles (e.g. fill-extrusion buildings) write here. */
-  private zBufferArena: GPUArena | null = null
-
 
   /** Tiered MAP_WRITE | COPY_SRC pool used by the async upload path
    *  (`doUploadTileAsync`). The sync `doUploadTile` keeps using
@@ -631,7 +556,7 @@ export class VectorTileRenderer {
     // bind groups are Cluster D state — the binder owns the rebuild; VTR
     // hands it the cached-tiles iterator + current ring + palette so the
     // single onGrow fan-out stays one trigger (no duplicate onGrow handler).
-    this._featureBinder.rebuildPerTileGroups(this.gpuCache, ringBuf, this._paletteResources())
+    this._featureBinder.rebuildPerTileGroups(this._store.cache(), ringBuf, this._paletteResources())
   }
 
   /** Snapshot of the palette/sprite atlas resources (Cluster C) the
@@ -710,48 +635,18 @@ export class VectorTileRenderer {
     // demos. Defer to the start of the next frame: the previous frame's
     // queue.submit() has returned by now, so destroying these buffers
     // can't poison any in-flight submit.
-    // Trigger conservatively — gpuCache.size counts composite (key, layer)
-    // entries, but the cap evictGPUTiles enforces is on UNIQUE TILE KEYS.
-    // A sliced source can have ~4× the entries-per-tile, so we may enter
-    // evictGPUTiles below the cap; it short-circuits correctly in that case.
     //
-    // Byte-pressure OR (Lane A): the count cap alone can't bound a large-
-    // tile workload — globe / extruded tiles exhaust the 64 MB arena
-    // before the unique-key count reaches getMaxGpuTiles, so the arena
-    // alloc would throw every frame while the count trigger never fires.
-    // ALSO trigger when an arena's bump high-water mark (usedBytes — the
-    // exact value the OOM throw checks) crosses ARENA_HIGH_WATER. Read
-    // only already-created arenas (the getters need an instance; never
-    // force-create — a polygon-free source must not allocate 64 MB just
-    // to be probed). Both getters are allocation-free O(1) field reads.
-    const overCount = this._gpuCacheCount > getMaxGpuTiles()
-    const vHi = this.polyVertexArena !== null
-      && this.polyVertexArena.usedBytes >= VectorTileRenderer.POLY_VERTEX_ARENA_CAPACITY * ARENA_HIGH_WATER
-    const iHi = this.polyIndexArena !== null
-      && this.polyIndexArena.usedBytes >= VectorTileRenderer.POLY_INDEX_ARENA_CAPACITY * ARENA_HIGH_WATER
-    // Drain arena buffers retired by a PRIOR frame's compaction. A full
-    // frame has elapsed since they were swapped out (their copy submit +
-    // every render that referenced them has long drained), so destroying
-    // them now is safe — and must happen BEFORE this frame's compaction
-    // pushes new entries, so the list never grows unbounded.
-    if (this._retiredArenaBuffers.length > 0) {
-      for (const b of this._retiredArenaBuffers) b.destroy()
-      this._retiredArenaBuffers.length = 0
-    }
-    if (overCount || vHi || iHi) this.evictGPUTiles()
-    // Deferred arena compaction (Phase 6a.5). When a mid-render alloc-fail
-    // couldn't be relieved by forced eviction — because the live set is
-    // FRAGMENTED (monotonic bumpPtr near the cap, liveBytes tiny) and the
-    // residual tiles are protected stableKeys — forceEvictBytes flagged a
-    // compaction. Run it HERE, in the post-submit safe window (the prior
-    // frame's queue.submit() has returned), so the relocating
-    // copyBufferToBuffer + old-buffer destroy can't poison an in-flight
-    // submit. evictGPUTiles ran just above, so the live set is already as
-    // small as protection allows before we repack it.
-    if (this._pendingArenaCompaction) {
-      this._pendingArenaCompaction = false
-      this._compactPolyArenas()
-    }
+    // The retired-buffer drain + the count/byte high-water evict trigger +
+    // the deferred compaction drain all live on the GpuTileStore (Cluster A
+    // owner) and run, in that exact order, inside `runFrameMaintenance` —
+    // the post-submit safe window. `stableKeys` (E) + the compute-handle
+    // release hook (D) + the upload-active probe (B) are passed in so the
+    // store references neither VTR nor the upload queue.
+    this._store.runFrameMaintenance(
+      this.stableKeys,
+      this._releaseTileHook,
+      () => this.uploadQueue.activeCount() > 0,
+    )
     // CPU-side TileCatalog eviction. Without this the dataCache grew
     // unbounded for the lifetime of the session — VTR's gpuCache
     // capped GPU memory but every parsed-and-decoded tile's
@@ -957,34 +852,18 @@ export class VectorTileRenderer {
     this.lineRenderer = lr
     // If tiles were uploaded before LineRenderer was available they have no
     // segment buffers — force re-upload so outlines/lines render on next frame.
-    if (wasNull && this._gpuCacheCount > 0) {
-      for (const inner of this.gpuCache.values()) {
-        for (const tile of inner.values()) {
-          // Phase 6a.2/6a.3 — vertex + index buffers are shared arena
-          // GPUBuffers. Per-tile destroy() would kill every other
-          // tile's slice. Reset arenas once after the loop.
-          tile.lineVertexBuffer?.destroy()
-          tile.lineIndexBuffer?.destroy()
-          tile.outlineIndexBuffer?.destroy()
-          tile.outlineSegmentBuffer?.destroy()
-          tile.lineSegmentBuffer?.destroy()
-          tile.featureDataBuffer?.destroy()
-        }
-      }
-      // Phase 6a.2/6a.3/6a.4 — reset every arena (keep GPU buffers
-      // alive for next upload). reset() bounces the bump pointer to
-      // 0 + clears the free-list — same effect as destroy + recreate
-      // but without the GPU allocation cost.
-      this.polyVertexArena?.reset()
-      this.polyIndexArena?.reset()
-      this.zBufferArena?.reset()
+    if (wasNull && this._store.cacheCount() > 0) {
       // P4 compute path — gpuCache is being cleared wholesale, so every
       // per-tile ComputeLayerHandle is now orphaned. Free + clear them
-      // here too (the per-tile release loop above goes through arenas,
-      // not _releaseTileSlots, so it never touches these).
+      // here (Cluster D, VTR-owned) BEFORE the store wipes its cache; the
+      // store's per-tile buffer-destroy loop goes through arenas, not
+      // _releaseTileSlots, so it never touches these compute handles — the
+      // two buffer sets are disjoint, so the relative order is moot.
       this._featureBinder.releaseAllComputeHandles()
-      this.gpuCache.clear()
-      this._gpuCacheCount = 0
+      // The store destroys every per-tile line/outline/feature buffer,
+      // resets all three arenas (keep GPU buffers alive for next upload),
+      // and clears the cache + count — the Cluster-A half of the reset.
+      this._store.resetForReupload()
     }
   }
 
@@ -1088,7 +967,7 @@ export class VectorTileRenderer {
   }
 
   getCacheSize(): number {
-    return this._gpuCacheCount
+    return this._store.cacheCount()
   }
 
   /** iter-288 — FLICKER class diagnostic. Returns a per-frame
@@ -1135,7 +1014,7 @@ export class VectorTileRenderer {
     return {
       needed: this._drawStats.needed(),
       missed: this._drawStats.missed(),
-      gpuUnique: this._gpuCacheCount,
+      gpuUnique: this._store.cacheCount(),
       catalogCached: this.source?.getCacheSize?.() ?? 0,
       catalogLoading: this.source?.getPendingLoadCount?.() ?? 0,
       uploadQueued: this.uploadQueue.size(),
@@ -1163,31 +1042,11 @@ export class VectorTileRenderer {
     // own (feat / out / count) buffer trios. Free them before the
     // legacy buffer loop so device memory is reclaimed in one pass.
     this._featureBinder.releaseAllComputeHandles()
-    for (const inner of this.gpuCache.values()) {
-      for (const tile of inner.values()) {
-        // Phase 6a.2/6a.3 — vertex + index buffers are shared arena
-        // resources. arena.destroy() below tears them down.
-        tile.lineVertexBuffer?.destroy()
-        tile.lineIndexBuffer?.destroy()
-        tile.outlineIndexBuffer?.destroy()
-        tile.outlineSegmentBuffer?.destroy()
-        tile.lineSegmentBuffer?.destroy()
-        tile.featureDataBuffer?.destroy()
-      }
-    }
-    this.gpuCache.clear()
-    this._gpuCacheCount = 0
-    // Phase 6a.2/6a.3/6a.4 — release every arena's GPU buffer.
-    this.polyVertexArena?.destroy()
-    this.polyVertexArena = null
-    this.polyIndexArena?.destroy()
-    this.polyIndexArena = null
-    this.zBufferArena?.destroy()
-    this.zBufferArena = null
-    // Phase 6a.5 — destroy any arena buffers retired by a compaction that
-    // haven't yet been drained by a subsequent beginFrame.
-    for (const b of this._retiredArenaBuffers) b.destroy()
-    this._retiredArenaBuffers.length = 0
+    // Cluster-A teardown: destroy every per-tile line/outline/feature
+    // buffer, clear the cache + count, destroy all three arenas, and
+    // drain any compaction-retired buffers — the eviction/teardown half
+    // of destroy, now owned by the GpuTileStore.
+    this._store.destroy()
 
     this._featureBinder.destroy()
 
@@ -1426,8 +1285,8 @@ export class VectorTileRenderer {
     // BEFORE layerCache.set, those slots would never be recorded →
     // never freed. We track both offsets + their byte lengths in
     // let-vars (offset −1 = unset) and free any assigned slot in the
-    // catch via this.polyVertexArena / this.polyIndexArena (guaranteed
-    // created once an offset has been assigned).
+    // catch via the store arenas (`_store.polyVertexArenaOrNull()` /
+    // `polyIndexArenaOrNull()` — created once an offset is assigned).
     let polyVertexOffset = -1
     let polyIndexOffset = -1
     let polyVertexFreeBytes = 0
@@ -1537,8 +1396,8 @@ export class VectorTileRenderer {
     // upload routes have identical OOM behaviour.
     let pair = this._allocPolyPair(polyVertexArena, polyIndexArena, polyVertexByteLength, polyIndexByteLength)
     if (pair === null) {
-      this.forceEvictBytes(polyVertexArena, polyVertexByteLength)
-      this.forceEvictBytes(polyIndexArena, polyIndexByteLength)
+      this._store.forceEvictBytes(polyVertexArena, polyVertexByteLength, this.stableKeys, this._releaseTileHook)
+      this._store.forceEvictBytes(polyIndexArena, polyIndexByteLength, this.stableKeys, this._releaseTileHook)
       pair = this._allocPolyPair(polyVertexArena, polyIndexArena, polyVertexByteLength, polyIndexByteLength)
     }
     if (pair === null) {
@@ -1710,9 +1569,9 @@ export class VectorTileRenderer {
       featureBindGroup: perTileFeat?.bindGroup ?? null,
       // iter-226 — strictly-monotonic per-tile upload counter for
       // RenderBundle cache key composition (see _tileUploadEpoch).
-      uploadEpoch: (this._tileUploadEpoch = (this._tileUploadEpoch + 1) | 0),
+      uploadEpoch: this._store.nextUploadEpoch(),
     })
-    this._gpuCacheCount++
+    this._store.incrementCount()
 
     // Drop main-thread copies of GPU-resident SDF segment buffers.
     // These are 45 % of catalog memory on a fully-warm world-scale
@@ -1746,11 +1605,13 @@ export class VectorTileRenderer {
       // reaching here means layerCache.set did not run, so the polygon
       // vertex/index slots claimed by allocPair are orphaned. Free any
       // assigned offset (option b) before degrading to skip-this-tile.
-      if (polyVertexOffset >= 0 && this.polyVertexArena !== null) {
-        this.polyVertexArena.free(polyVertexOffset, polyVertexFreeBytes)
+      const vArena = this._store.polyVertexArenaOrNull()
+      const iArena = this._store.polyIndexArenaOrNull()
+      if (polyVertexOffset >= 0 && vArena !== null) {
+        vArena.free(polyVertexOffset, polyVertexFreeBytes)
       }
-      if (polyIndexOffset >= 0 && this.polyIndexArena !== null) {
-        this.polyIndexArena.free(polyIndexOffset, polyIndexFreeBytes)
+      if (polyIndexOffset >= 0 && iArena !== null) {
+        iArena.free(polyIndexOffset, polyIndexFreeBytes)
       }
       const wKey = `upload-throw:${sourceLayer}:${key}`
       if (!this._drawStats.hasWarned(wKey)) {
@@ -1856,8 +1717,8 @@ export class VectorTileRenderer {
     // next frame's classifyTile re-decides upload.
     let pair = this._allocPolyPair(polyVertexArena, polyIndexArena, polyVertexByteLength, polyIndexByteLength)
     if (pair === null) {
-      this.forceEvictBytes(polyVertexArena, polyVertexByteLength)
-      this.forceEvictBytes(polyIndexArena, polyIndexByteLength)
+      this._store.forceEvictBytes(polyVertexArena, polyVertexByteLength, this.stableKeys, this._releaseTileHook)
+      this._store.forceEvictBytes(polyIndexArena, polyIndexByteLength, this.stableKeys, this._releaseTileHook)
       pair = this._allocPolyPair(polyVertexArena, polyIndexArena, polyVertexByteLength, polyIndexByteLength)
     }
     if (pair === null) {
@@ -2039,8 +1900,8 @@ export class VectorTileRenderer {
     // next frame.
     if (
       this._destroyed ||
-      this.polyVertexArena?.buffer !== vertexBuffer ||
-      this.polyIndexArena?.buffer !== indexBuffer
+      this._store.polyVertexArenaOrNull()?.buffer !== vertexBuffer ||
+      this._store.polyIndexArenaOrNull()?.buffer !== indexBuffer
     ) {
       for (const release of releases) release()
       cleanupLineBuffers()
@@ -2094,9 +1955,9 @@ export class VectorTileRenderer {
       featureDataBuffer: perTileFeat?.buffer ?? null,
       featureBindGroup: perTileFeat?.bindGroup ?? null,
       // iter-226 — see sync upload-path for rationale.
-      uploadEpoch: (this._tileUploadEpoch = (this._tileUploadEpoch + 1) | 0),
+      uploadEpoch: this._store.nextUploadEpoch(),
     })
-    this._gpuCacheCount++
+    this._store.incrementCount()
     // Poly slots are now owned by the cache entry — the backstop must NOT
     // free them.
     polySlotsCached = true
@@ -4107,337 +3968,5 @@ export class VectorTileRenderer {
     this.flushUniformStaging()
   }
 
-  /** Drop LRU tiles past MAX_GPU_TILES and destroy their GPU buffers.
-   *  ONLY called from `beginFrame()` so the previous frame's
-   *  `queue.submit()` has already returned — destroying buffers here
-   *  cannot poison an in-flight submit. Calling this from inside
-   *  `render()` (the old behaviour) raced the bucket scheduler's
-   *  multi-render-per-frame pattern; see beginFrame() for the full
-   *  story. */
-  private evictGPUTiles(): void {
-    // Lane A — under-budget check consults BOTH the unique-key count cap
-    // AND LIVE byte pressure. Use liveUsedBytes (which FALLS on free()),
-    // NOT usedBytes (bumpPtr, monotonic-up — it never relieves, so looping
-    // on it would thrash to the protected floor). Eviction drains down to
-    // ARENA_LOW_WATER (hysteresis vs the HIGH_WATER trigger in beginFrame)
-    // to avoid per-frame thrash.
-    const cap = getMaxGpuTiles()
-    const underBytes = (): boolean => {
-      const vLow = this.polyVertexArena === null
-        || this.polyVertexArena.liveUsedBytes <= VectorTileRenderer.POLY_VERTEX_ARENA_CAPACITY * ARENA_LOW_WATER
-      const iLow = this.polyIndexArena === null
-        || this.polyIndexArena.liveUsedBytes <= VectorTileRenderer.POLY_INDEX_ARENA_CAPACITY * ARENA_LOW_WATER
-      return vLow && iLow
-    }
-
-    // FIX 4 — cheap early-out BEFORE the per-frame byTileKey Map build.
-    // The HIGH_WATER trigger in beginFrame keys on usedBytes (bumpPtr,
-    // monotonic) while the in-loop stop keys on liveUsedBytes — so in the
-    // thrash window (bumpPtr high, liveBytes already under LOW_WATER) the
-    // trigger keeps firing while there is nothing to evict, and we'd rebuild
-    // this Map every frame for no progress. `_gpuCacheCount` is the COMPOSITE
-    // (key, layer) entry count, which is ALWAYS ≥ the unique-tile-key count
-    // the cap measures, so `_gpuCacheCount <= cap` conservatively implies the
-    // unique count is under cap too — a sound skip. Reuses underBytes() for
-    // the byte half. The full Map-building path below still runs whenever
-    // either signal says there is real work.
-    if (this._gpuCacheCount <= cap && underBytes()) return
-
-    // Cap is on UNIQUE TILE KEYS, not composite (key, layer) entries —
-    // a sliced source (PMTiles water/roads/buildings/...) generates
-    // ~4 entries per tile, so a per-entry cap would let 100 visible
-    // tiles × 4 layers = 400 entries blow MAX_GPU_TILES = 512 with
-    // only 128 unique tiles. That under-counts what's actually visible
-    // and triggers thrash. Counting unique keys keeps "tiles in flight"
-    // bounded by tile geometry, not layer count. Slices share lifetime
-    // — once a tile leaves the viewport every layer's slice is
-    // irrelevant, so they evict together.
-    // Aggregate per-tile-key entries across all layer slots. Each
-    // bucket records the slot names (so we can drop the per-slot
-    // entries together) and the latest lastUsedFrame across slots.
-    const byTileKey = new Map<number, { lastUsed: number; tileZoom: number; slots: string[] }>()
-    for (const [slot, inner] of this.gpuCache) {
-      for (const [tk, tile] of inner) {
-        let bucket = byTileKey.get(tk)
-        if (!bucket) {
-          bucket = { lastUsed: tile.lastUsedFrame, tileZoom: tile.tileZoom, slots: [] }
-          byTileKey.set(tk, bucket)
-        }
-        bucket.slots.push(slot)
-        if (tile.lastUsedFrame > bucket.lastUsed) bucket.lastUsed = tile.lastUsedFrame
-      }
-    }
-    // Precise unique-tile-key re-check now that the Map is built: the
-    // early-out above used the COMPOSITE count (conservative); this uses
-    // the exact unique-key count + the same byte predicate. (cap +
-    // underBytes hoisted to the top of this method for the early-out.)
-    if (byTileKey.size <= cap && underBytes()) return
-
-    // Eviction policy: only this frame's stableKeys are protected.
-    //
-    // The previous policy ALSO blanket-protected every tileZoom ≤
-    // sourceMaxLevel (i.e. every archived ancestor). On a PMTiles
-    // archive with maxLevel = 15, that meant essentially every cached
-    // tile was protected — the cap stopped doing anything. Real-device
-    // iPhone inspector showed gpuCache 317 entries past the 256 cap
-    // because of this. Same fix as the catalog evictTiles change
-    // earlier in this series: visible-frame protection (stableKeys =
-    // neededKeys ∪ fallbackKeys) covers every ancestor sub-tile gen
-    // actually needs THIS frame; ancestors for non-visible regions
-    // are recoverable by re-fetch + GPU re-upload when the camera
-    // returns to them — at the cost of a brief load shimmer, which
-    // is far preferable to thermal throttle.
-    const protectedKeys = this._scratchProtectedKeys
-    protectedKeys.clear()
-    for (const k of this.stableKeys) protectedKeys.add(k)
-
-    const evictable: { tk: number; lastUsed: number; slots: string[] }[] = []
-    for (const [tk, bucket] of byTileKey) {
-      if (protectedKeys.has(tk)) continue
-      evictable.push({ tk, lastUsed: bucket.lastUsed, slots: bucket.slots })
-    }
-    evictable.sort((a, b) => a.lastUsed - b.lastUsed)
-
-    // Lane A — pressure-driven LRU loop (was a fixed toEvict count pass).
-    // `evictable` is already LRU-sorted and already excludes
-    // protectedKeys, so the loop can NEVER evict a stableKey. After each
-    // tile-key eviction, re-check the stop condition: stop once BOTH the
-    // count is under cap AND every arena is below the live low-water mark
-    // (hysteresis). Genuine over-budget frame: if every remaining tile is
-    // protected the loop simply runs out of evictable entries and exits —
-    // it does NOT spin; Lane B's alloc-fail safety net handles the
-    // residual.
-    let evicted = 0
-    for (const ev of evictable) {
-      if (byTileKey.size - evicted <= cap && underBytes()) break
-      for (const slot of ev.slots) this._releaseTileSlots(slot, ev.tk)
-      evicted++
-    }
-
-    // Lane A — opportunistically reclaim drained arenas. free() never
-    // lowers bumpPtr, so across zoom / source-layer the freed power-of-2
-    // (now exact-align4) free-list won't match the next alloc's footprint
-    // and a 66 MB bumpPtr stays pinned even when liveBytes is low.
-    // reclaimIfDrained() resets the bump region IFF liveBytes === 0 —
-    // safe because no outstanding offset can then point into it. This is
-    // the only correct mid-session bump reclaim short of full compaction
-    // (deferred Phase 6a.5).
-    this.polyVertexArena?.reclaimIfDrained()
-    this.polyIndexArena?.reclaimIfDrained()
-    this.zBufferArena?.reclaimIfDrained()
-  }
-
-  /** Release one (slot, tileKey) entry: free its arena ranges + pooled
-   *  GPU buffers + destroy non-poolable buffers, then delete the cache
-   *  entry and decrement the count. Shared by evictGPUTiles (count /
-   *  byte cap) and forceEvictBytes (byte-pressure on alloc-fail). Pure
-   *  extraction of the former inline release block — same operations,
-   *  same ORDER (arena.free → releaseBuffer → destroy), same guards — so
-   *  the count-cap path is byte-for-byte behaviour-preserving. Returns
-   *  the polygon vertex+index bytes reclaimed so forceEvictBytes can sum
-   *  progress without a per-tile getStats(). */
-  private _releaseTileSlots(slot: string, tk: number): { vBytes: number; iBytes: number } {
-    const inner = this.gpuCache.get(slot)
-    if (!inner) return { vBytes: 0, iBytes: 0 }
-    const tile = inner.get(tk)
-    if (!tile) return { vBytes: 0, iBytes: 0 }
-    let vBytes = 0
-    let iBytes = 0
-    // Phase 6a.2 (iter-208) — polygon vertex lives in the shared arena.
-    // Release the per-tile RANGE back to the arena (free-list) instead of
-    // pooling the shared GPUBuffer object (which would corrupt every
-    // other tile sharing this arena).
-    if (this.polyVertexArena !== null) {
-      this.polyVertexArena.free(tile.polyVertexOffset, tile.polyVertexByteLength)
-      vBytes = tile.polyVertexByteLength
-    }
-    // Phase 6a.3 — index now arena-resident too. Free the range back to
-    // the arena's free-list; never call releaseBuffer on the shared
-    // GPUBuffer.
-    if (this.polyIndexArena !== null) {
-      this.polyIndexArena.free(tile.polyIndexOffset, tile.polyIndexByteLength)
-      iBytes = tile.polyIndexByteLength
-    }
-    // Phase 6a.4 — z-buffer arena slice release. Flat (non-extruded)
-    // tiles have zBufferByteLength === 0; arena.free is a silent no-op in
-    // that case (GPUArena guards bytes<=0).
-    if (this.zBufferArena !== null && tile.zBufferByteLength > 0) {
-      this.zBufferArena.free(tile.zBufferOffset, tile.zBufferByteLength)
-    }
-    this.releaseBuffer(tile.lineVertexBuffer)
-    this.releaseBuffer(tile.lineIndexBuffer)
-    this.releaseBuffer(tile.outlineIndexBuffer)
-    // SDF segment buffers are owned by lineRenderer's path; keep
-    // destroying directly. Same for per-tile feature data — not pool-
-    // friendly because its size depends on each tile's unique feature
-    // count + variant schema.
-    tile.outlineSegmentBuffer?.destroy()
-    tile.lineSegmentBuffer?.destroy()
-    tile.featureDataBuffer?.destroy()
-    // P4 compute path — the per-tile ComputeLayerHandle (feat / out /
-    // count buffer trio) is keyed `${tileKey}:${sourceLayer}` (slot here
-    // IS the sourceLayer; tk IS the tileKey). Free + drop it (via the
-    // FeatureDataBinder, Cluster D owner) so its buffers are reclaimed and
-    // dispatchComputePass stops iterating over this evicted tile every
-    // frame. Stays AFTER featureDataBuffer.destroy() — the 7b31ce52 order.
-    this._featureBinder.releaseTile(`${tk}:${slot}`)
-    inner.delete(tk)
-    this._gpuCacheCount--
-    return { vBytes, iBytes }
-  }
-
-  /** Forced eviction triggered ONLY on an arena alloc-fail (OOM, Lane B).
-   *  Unlike evictGPUTiles, this ignores the UNIQUE-TILE-KEY cap and the
-   *  byTileKey.size early-return — it evicts LRU *unprotected* tile keys
-   *  (stableKeys stay protected so the visible frame survives) until the
-   *  given arena reports at least `needed` free bytes, or no more
-   *  unprotected tiles remain. Returns true if it freed enough. Called
-   *  off the hot path (alloc throws are rare), so the getStats() reads
-   *  + transient Map/sort here are acceptable. */
-  private forceEvictBytes(arena: GPUArena, needed: number): boolean {
-    // O(1) exact serviceability probe. getStats().freeBytes is the SUM
-    // across all distinct exact-align4 size-keys, so `freeBytes >= needed`
-    // is a FALSE POSITIVE under fragmentation (the sum can exceed `needed`
-    // while no single matching-footprint slot exists). canServe() checks
-    // the matching free-list stack OR bump headroom directly, so it is
-    // exact for one align4(needed) request.
-    const hasRoom = (): boolean => arena.canServe(needed)
-    if (hasRoom()) return true
-
-    // LRU-ordered list of unprotected tile keys (same protection policy
-    // as evictGPUTiles: only this frame's stableKeys are spared).
-    const protectedKeys = this._scratchProtectedKeys
-    protectedKeys.clear()
-    for (const k of this.stableKeys) protectedKeys.add(k)
-
-    const byTileKey = new Map<number, { lastUsed: number; slots: string[] }>()
-    for (const [slot, inner] of this.gpuCache) {
-      for (const [tk, tile] of inner) {
-        if (protectedKeys.has(tk)) continue
-        let bucket = byTileKey.get(tk)
-        if (!bucket) {
-          bucket = { lastUsed: tile.lastUsedFrame, slots: [] }
-          byTileKey.set(tk, bucket)
-        }
-        bucket.slots.push(slot)
-        if (tile.lastUsedFrame > bucket.lastUsed) bucket.lastUsed = tile.lastUsedFrame
-      }
-    }
-    const order = [...byTileKey.entries()].sort((a, b) => a[1].lastUsed - b[1].lastUsed)
-    for (const [tk, bucket] of order) {
-      for (const slot of bucket.slots) this._releaseTileSlots(slot, tk)
-      if (hasRoom()) return true
-    }
-    // Last resort: if the forced eviction drained liveBytes to 0, reclaim
-    // the bump region (resets bumpPtr → 0) to expose the WHOLE arena.
-    // free() alone never lowers bumpPtr, so without this the OOM path could
-    // drop a tile despite having freed everything — bump headroom stays
-    // pinned even at live=0. Re-probe after reclaim.
-    arena.reclaimIfDrained()
-    const served = hasRoom()
-    if (!served) {
-      // Eviction couldn't make room AND reclaim didn't fire (liveBytes > 0,
-      // i.e. the remaining live tiles are protected stableKeys). This is the
-      // FRAGMENTATION signature: bumpPtr is pinned near the cap by the
-      // monotonic bump pointer while the stranded free-list holds footprints
-      // that don't match this request. The bump can only fall via compaction
-      // — but the relocating copyBufferToBuffer must run in the post-submit
-      // safe window, never mid-render here. Flag it for beginFrame to drain.
-      this._pendingArenaCompaction = true
-    }
-    return served
-  }
-
-  /** Run a deferred poly-arena compaction in the post-submit safe window.
-   *  Called ONLY from `beginFrame` (after the prior frame's queue.submit()
-   *  has returned, the SAME window `evictGPUTiles` uses) so the relocating
-   *  `copyBufferToBuffer` + the old-buffer destroy can never poison an
-   *  in-flight submit. Defragments BOTH polygon arenas: repacks the live
-   *  set (every resident tile's vertex+index slot) to the front of a fresh
-   *  buffer, then rewrites each tile's offset + buffer reference ATOMICALLY
-   *  with the swap so the next frame's draws read the new buffer at the new
-   *  offset (no frame can observe a half-compacted arena — the rewrite is a
-   *  synchronous JS loop with no await between swap and offset write). */
-  private _compactPolyArenas(): void {
-    const vArena = this.polyVertexArena
-    const iArena = this.polyIndexArena
-    if (vArena === null && iArena === null) return
-
-    // SAFETY GUARD vs async uploads. doUploadTileAsync captures the arena
-    // buffer reference (cached.vertexBuffer) BEFORE its mapAsync await, then
-    // submits AFTER. An in-flight async upload can therefore be suspended
-    // across this beginFrame; if we swap + retire the arena buffer now, that
-    // upload would (a) submit a copy into the old buffer it already captured
-    // and (b) record a tile whose buffer/offset point at the pre-compaction
-    // buffer — which the NEXT compaction would mis-relocate from the new
-    // buffer. Async jobs are a single mapAsync round-trip, so simply DEFER:
-    // re-arm the pending flag and compact on a later frame when the upload
-    // window is clear. (Mid-render sync doUploadTile cannot be in flight
-    // here — beginFrame runs between frames, never inside a render call.)
-    if (this.uploadQueue.activeCount() > 0) {
-      this._pendingArenaCompaction = true
-      return
-    }
-
-    // Build the live relocation set from the gpuCache — the VTR owns the
-    // ground truth of which offsets are live (the arena only tracks bump +
-    // free-list). Each resident tile holds exactly one vertex slot and one
-    // index slot. Collect tile refs in a stable order; the per-arena
-    // relocation arrays index-align with this list so we can rewrite each
-    // tile's offsets from the returned newOffsets.
-    const tiles: GPUTile[] = []
-    for (const inner of this.gpuCache.values()) {
-      for (const tile of inner.values()) tiles.push(tile)
-    }
-    if (tiles.length === 0) {
-      // Nothing live: the cheap reclaim already covers this, but be safe.
-      vArena?.reclaimIfDrained()
-      iArena?.reclaimIfDrained()
-      return
-    }
-
-    const vReloc = vArena
-      ? tiles.map((t) => ({ oldOffset: t.polyVertexOffset, bytes: t.polyVertexByteLength }))
-      : null
-    const iReloc = iArena
-      ? tiles.map((t) => ({ oldOffset: t.polyIndexOffset, bytes: t.polyIndexByteLength }))
-      : null
-
-    // One encoder records ALL copies for both arenas; a single submit makes
-    // the whole relocation atomic w.r.t. the GPU timeline.
-    const encoder = this.device.createCommandEncoder({ label: 'arena-compact' })
-    const vResult = vArena && vReloc ? vArena.compact(vReloc, encoder) : null
-    const iResult = iArena && iReloc ? iArena.compact(iReloc, encoder) : null
-    this.device.queue.submit([encoder.finish()])
-
-    // Rewrite tile records to the new offsets + new buffer reference. This
-    // is the atomic offset rewrite: it runs synchronously with no await, so
-    // no frame can be rendered against a half-compacted arena. The NEXT
-    // frame's draw loop reads cached.vertexBuffer + cached.polyVertexOffset,
-    // which now point at the freshly-packed buffer.
-    const newVBuffer = vArena?.buffer
-    const newIBuffer = iArena?.buffer
-    for (let k = 0; k < tiles.length; k++) {
-      const t = tiles[k]
-      if (vResult && newVBuffer) {
-        t.vertexBuffer = newVBuffer
-        t.polyVertexOffset = vResult.newOffsets[k]
-      }
-      if (iResult && newIBuffer) {
-        t.indexBuffer = newIBuffer
-        t.polyIndexOffset = iResult.newOffsets[k]
-      }
-    }
-
-    // Retire the OLD buffers for destruction one frame later instead of
-    // destroying them inline. The copy submit above + the prior frame's
-    // render submit have both drained, so an inline destroy is safe vs
-    // THOSE. The deferral is defense-in-depth against any consumer that
-    // captured the old buffer ref this frame (the async-upload guard above
-    // already covers the known case); next beginFrame drains the retired
-    // list, by which point nothing can still reference them.
-    if (vResult) this._retiredArenaBuffers.push(vResult.oldBuffer)
-    if (iResult) this._retiredArenaBuffers.push(iResult.oldBuffer)
-  }
 }
 
