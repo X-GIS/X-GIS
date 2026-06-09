@@ -23,6 +23,7 @@ import { PrefetchScheduler } from './prefetch-scheduler'
 import { LabelFeatureSource } from './label-feature-source'
 import { FrameDrawStats } from './frame-draw-stats'
 import { TileSelectionCache } from './tile-selection-cache'
+import { FeatureDataBinder } from './feature-data-binder'
 import {
   generateWallMeshExtrudedECEF,
 } from '../../core/polygon-mesh'
@@ -42,8 +43,6 @@ import { SELECTOR_PROJ_NAMES } from '../projection/projections-table'
 import type { PointRenderer } from './point-renderer'
 import { buildLineSegments, type LineRenderer } from './line-renderer'
 import { parseHexColor } from '../feature-helpers'
-import { ComputeDispatcher } from '../gpu/compute'
-import { ComputeLayerHandle } from './compute-layer-handle'
 import type { GPUTile, LayerDrawPhase } from './vector-tile-renderer-types'
 import { getMaxGpuTiles, uploadBudgetFor, ARENA_HIGH_WATER, ARENA_LOW_WATER } from './vector-tile-renderer-helpers'
 import { UniformRing } from './uniform-ring'
@@ -320,39 +319,17 @@ export class VectorTileRenderer {
   // SDF line renderer (set externally)
   private lineRenderer: LineRenderer | null = null
 
-  // Global feature data buffer (GeoJSON path: one PropertyTable per
-  // source covers all sub-tiles since featIds are global). MVT/PMTiles
-  // path keeps this null and builds per-tile featureDataBuffer / bind
-  // group on tile upload instead — each PMTiles tile carries its own
-  // 0-based featId space, so a shared source-level table can't index.
-  private featureDataBuffer: GPUBuffer | null = null
-  private featureBindGroupLayout: GPUBindGroupLayout | null = null
-
-  // Latest data-driven variant requirements captured when a show with
-  // `needsFeatureBuffer` binds to this renderer (via
-  // `buildFeatureDataBuffer` or the per-tile equivalent). Used at tile
-  // upload time so the worker-emitted `data.featureProps` can be packed
-  // into a per-tile feat_data buffer indexed by the polygon vertex
-  // stride-8 `fid`. Empty when no data-driven paint expr is wired.
-  private latestVariantFields: readonly string[] = []
-  private latestVariantCategoryOrder: Record<string, readonly string[]> = {}
-  /** Compute path (P4) — captured at `buildFeatureDataBuffer` time
-   *  when the show's variant carries `computeBindings`. Drives
-   *  per-tile `ComputeLayerHandle` construction inside
-   *  `buildPerTileFeatureData`. All three null when the variant has
-   *  no compute paint (legacy path, no behaviour change). */
-  private latestVariant: import('@xgis/compiler').ShaderVariant | null = null
-  private latestComputePlan: readonly import('@xgis/compiler').ComputePlanEntry[] | undefined
-  private latestRenderNodeIndex: number | undefined
-  /** Per-tile compute handles for THIS VTR's variant. Keyed by the
-   *  `tileKey:sourceLayer` string the tile uploader already uses for
-   *  the layer cache, so handle lifetime tracks the tile's bind
-   *  group lifetime. Cleared from `destroy()` + on tile eviction. */
-  private computeHandlesByTile = new Map<string, import('./compute-layer-handle').ComputeLayerHandle>()
-  /** Singleton ComputeDispatcher shared by every per-tile handle.
-   *  Lazy-created on first compute-variant attach so non-compute
-   *  scenes don't pay any allocation. */
-  private computeDispatcher: import('../gpu/compute').ComputeDispatcher | null = null
+  /** Data-driven feature buffer + per-tile feature bind groups + compute
+   *  paint (Cluster D). Owns `featureDataBuffer`, the captured
+   *  `latestVariant*` schema, the per-tile `ComputeLayerHandle` lifetime,
+   *  and the `featureBindGroupLayout`. VTR keeps thin forwarders
+   *  (`buildFeatureDataBuffer`/`setComputePlan`/`dispatchComputePass`/
+   *  `hasFeatureData`) for external callers; the per-tile rebuild
+   *  (`rebuildPerTileGroups`) is CALLED by `rebuildTileBindGroups` (the
+   *  single `UniformRing.onGrow` trigger) — the binder never registers its
+   *  own onGrow nor references VTR/gpuCache (they arrive as call args).
+   *  Constructed in the constructor (after `this.device` is assigned). */
+  private readonly _featureBinder: FeatureDataBinder
 
   // Per-frame draw stats + diagnostics + dedup + trace stash live on the
   // FrameDrawStats collaborator (Cluster G). See `_drawStats` above.
@@ -382,6 +359,7 @@ export class VectorTileRenderer {
     this.format = ctx.format
     this.stagingPool = new StagingBufferPool(ctx.device)
     this.bundleCache = new BundleCache(ctx.device)
+    this._featureBinder = new FeatureDataBinder(ctx.device)
   }
 
   /** iter-218 (Phase RB.B.6) — swapchain color format. Captured from
@@ -553,7 +531,7 @@ export class VectorTileRenderer {
   setComputePlan(
     plan: readonly import('@xgis/compiler').ComputePlanEntry[] | undefined,
   ): void {
-    this.latestComputePlan = plan
+    this._featureBinder.setComputePlan(plan)
   }
 
   /** Run every attached compute kernel onto the encoder. Call ONCE
@@ -567,10 +545,7 @@ export class VectorTileRenderer {
     encoder: GPUCommandEncoder,
     timestampWritesProvider?: { computeWrites(): GPUComputePassTimestampWrites | null } | null,
   ): void {
-    if (this.computeHandlesByTile.size === 0) return
-    for (const handle of this.computeHandlesByTile.values()) {
-      handle.dispatch(encoder, timestampWritesProvider)
-    }
+    this._featureBinder.dispatchComputePass(encoder, timestampWritesProvider)
   }
 
   /** P3 Step 3c — set palette atlas resources used by binding 2 + 4
@@ -621,13 +596,15 @@ export class VectorTileRenderer {
         { binding: 6, resource: this.paletteSampler },
       ],
     })
-    if (this.featureBindGroupLayout && this.featureDataBuffer) {
+    const featureLayout = this._featureBinder.featureBindGroupLayout()
+    const sourceFeatureBuffer = this._featureBinder.featureDataBufferHandle()
+    if (featureLayout && sourceFeatureBuffer) {
       this.tileBgFeature = this.device.createBindGroup({
         label: 'vtr-tileBg-feature',
-        layout: this.featureBindGroupLayout,
+        layout: featureLayout,
         entries: [
           { binding: 0, resource: { buffer: ringBuf, offset: 0, size: UNIFORM_SIZE } },
-          { binding: 1, resource: { buffer: this.featureDataBuffer } },
+          { binding: 1, resource: { buffer: sourceFeatureBuffer } },
           { binding: 2, resource: this.paletteColorAtlasView },
           { binding: 4, resource: this.paletteSampler },
           { binding: 5, resource: this.spriteAtlasView },
@@ -650,44 +627,21 @@ export class VectorTileRenderer {
     // destroyed-next-frame) ring → data-driven fills read stale uniform
     // colours (the user-reported high-pitch "land flashes water-blue"
     // while moving; compute=1 reads colour from its output buffer so it
-    // was immune). Rebuild them against the new ring.
-    this.rebuildPerTileFeatureBindGroups()
+    // was immune). Rebuild them against the new ring. The per-tile feature
+    // bind groups are Cluster D state — the binder owns the rebuild; VTR
+    // hands it the cached-tiles iterator + current ring + palette so the
+    // single onGrow fan-out stays one trigger (no duplicate onGrow handler).
+    this._featureBinder.rebuildPerTileGroups(this.gpuCache, ringBuf, this._paletteResources())
   }
 
-  /** Recreate every cached per-tile feature bind group against the
-   *  CURRENT uniform ring + feature data buffer (+ stable compute output
-   *  entries). Called from rebuildTileBindGroups so a uniform-ring grow
-   *  doesn't strand data-driven tiles on the retired ring. No-op until
-   *  the atlas/palette resources are wired or when no per-tile groups
-   *  exist (setup-time calls hit an empty cache). Grows are rare (ring
-   *  capacity doubles + persists), so the O(cached tiles) cost is paid
-   *  at most once per capacity level. */
-  private rebuildPerTileFeatureBindGroups(): void {
-    const ringBuf = this.uniformRing?.buffer
-    if (!ringBuf || !this.featureBindGroupLayout
-      || !this.paletteColorAtlasView || !this.paletteSampler || !this.spriteAtlasView) return
-    for (const [sourceLayer, layerCache] of this.gpuCache) {
-      for (const [tileKey, tile] of layerCache) {
-        if (!tile.featureBindGroup || !tile.featureDataBuffer) continue
-        // Compute output buffers (binding 16+) are unaffected by a ring
-        // grow; re-fetch from the per-tile handle so the entry list
-        // matches what buildPerTileFeatureData produced.
-        const handle = this.computeHandlesByTile.get(`${tileKey}:${sourceLayer}`)
-        const compEntries = handle?.getBindGroupEntries() ?? []
-        tile.featureBindGroup = this.device.createBindGroup({
-          label: 'per-tile-feature-bg',
-          layout: this.featureBindGroupLayout,
-          entries: [
-            { binding: 0, resource: { buffer: ringBuf, offset: 0, size: UNIFORM_SIZE } },
-            { binding: 1, resource: { buffer: tile.featureDataBuffer } },
-            { binding: 2, resource: this.paletteColorAtlasView },
-            { binding: 4, resource: this.paletteSampler },
-            { binding: 5, resource: this.spriteAtlasView },
-            { binding: 6, resource: this.paletteSampler },
-            ...compEntries,
-          ],
-        })
-      }
+  /** Snapshot of the palette/sprite atlas resources (Cluster C) the
+   *  FeatureDataBinder needs to compose per-tile feature bind groups.
+   *  Passed by value per call so the binder never holds a VTR reference. */
+  private _paletteResources(): import('./feature-data-binder').PaletteResources {
+    return {
+      paletteColorAtlasView: this.paletteColorAtlasView,
+      paletteSampler: this.paletteSampler,
+      spriteAtlasView: this.spriteAtlasView,
     }
   }
 
@@ -1028,8 +982,7 @@ export class VectorTileRenderer {
       // per-tile ComputeLayerHandle is now orphaned. Free + clear them
       // here too (the per-tile release loop above goes through arenas,
       // not _releaseTileSlots, so it never touches these).
-      for (const h of this.computeHandlesByTile.values()) h.destroy()
-      this.computeHandlesByTile.clear()
+      this._featureBinder.releaseAllComputeHandles()
       this.gpuCache.clear()
       this._gpuCacheCount = 0
     }
@@ -1131,7 +1084,7 @@ export class VectorTileRenderer {
   }
 
   hasFeatureData(): boolean {
-    return this.featureDataBuffer !== null
+    return this._featureBinder.hasFeatureData()
   }
 
   getCacheSize(): number {
@@ -1209,10 +1162,7 @@ export class VectorTileRenderer {
     // P4 compute resources: per-tile ComputeLayerHandle instances
     // own (feat / out / count) buffer trios. Free them before the
     // legacy buffer loop so device memory is reclaimed in one pass.
-    for (const handle of this.computeHandlesByTile.values()) {
-      handle.destroy()
-    }
-    this.computeHandlesByTile.clear()
+    this._featureBinder.releaseAllComputeHandles()
     for (const inner of this.gpuCache.values()) {
       for (const tile of inner.values()) {
         // Phase 6a.2/6a.3 — vertex + index buffers are shared arena
@@ -1239,8 +1189,7 @@ export class VectorTileRenderer {
     for (const b of this._retiredArenaBuffers) b.destroy()
     this._retiredArenaBuffers.length = 0
 
-    this.featureDataBuffer?.destroy()
-    this.featureDataBuffer = null
+    this._featureBinder.destroy()
 
     this.uniformRing?.destroy()
     this.uniformRing = null
@@ -1278,278 +1227,24 @@ export class VectorTileRenderer {
     return { hits: s.hits, misses: s.misses, evictions: s.evictions }
   }
 
-  /** Build per-feature GPU storage buffer from PropertyTable */
+  /** Build per-feature GPU storage buffer from PropertyTable. Thin
+   *  forwarder — the data-driven feature buffer + variant-schema capture
+   *  live on the FeatureDataBinder (Cluster D). VTR supplies the source
+   *  PropertyTable and rebuilds `tileBgFeature` afterward (Cluster C still
+   *  on VTR) only when a source-level buffer was actually built — matching
+   *  the original early-return-before-rebuild on the PMTiles path. */
   buildFeatureDataBuffer(
     variant: ShaderVariant,
     featureBindGroupLayout: GPUBindGroupLayout,
     renderNodeIndex?: number,
   ): void {
-    // Capture variant requirements regardless of PropertyTable state so
-    // the per-tile feature-buffer path (MVT/PMTiles) has the field list
-    // + categoryOrder needed at tile upload time. Without this, MVT
-    // tiles with featureProps had no schema to pack and rendered as
-    // missing fills (OFM Bright landuse `class` match).
-    this.latestVariantFields = variant.featureFields
-    this.latestVariantCategoryOrder = (variant.categoryOrder as Record<string, readonly string[]>) ?? {}
-    this.featureBindGroupLayout = featureBindGroupLayout
-    // Capture variant + renderNodeIndex ATOMICALLY when the show's
-    // paint routes through the P4 compute path. Per-tile handle
-    // construction in `buildPerTileFeatureData` reads BOTH and
-    // throws on drift — capturing them together prevents the
-    // cross-show drift bug where a subsequent non-compute show
-    // would mutate `latestRenderNodeIndex` while leaving
-    // `latestVariant` pointing at a prior compute show's variant.
-    if ((variant.computeBindings?.length ?? 0) > 0) {
-      this.latestVariant = variant
-      this.latestRenderNodeIndex = renderNodeIndex
-    } else {
-      this.latestVariant = null
-      this.latestRenderNodeIndex = undefined
+    const builtSourceBuffer = this._featureBinder.buildFeatureDataBuffer(
+      variant, featureBindGroupLayout, this.source?.getPropertyTable(), renderNodeIndex,
+    )
+    if (builtSourceBuffer) {
+      // Build the shared feature-bound tile bind group
+      this.rebuildTileBindGroups()
     }
-
-    const table = this.source?.getPropertyTable()
-    if (!table || variant.featureFields.length === 0 || table.values.length === 0) {
-      // No source-level PropertyTable available (PMTiles backend leaves
-      // it empty by design). Per-tile path will handle on uploadTile.
-      return
-    }
-
-    const fieldCount = variant.featureFields.length
-    const featureCount = table.values.length
-    const data = new Float32Array(featureCount * fieldCount)
-
-    const catMaps = new Map<string, Map<string, number>>()
-    for (const fieldName of variant.featureFields) {
-      const fi = table.fieldNames.indexOf(fieldName)
-      if (fi >= 0 && table.fieldTypes[fi] === 'string') {
-        // PRIMARY source of category IDs: the shader's compile-time
-        // pattern list (`variant.categoryOrder[field]`). Without this
-        // path, the runtime fell back to "alphabetical sort of unique
-        // values in THIS tile's data" — which collides with the
-        // shader's IDs whenever the data is a proper subset of the
-        // pattern set. For OFM Bright's compound `landuse__merged_4`
-        // (cemetery/hospital/school/railway), a tile containing only
-        // school features would otherwise assign school=0, matching
-        // the shader's cemetery branch and painting school polygons
-        // in cemetery green. With this stable map, school is always
-        // ID 3 regardless of which subset of values the tile carries.
-        const compileTimeOrder = variant.categoryOrder?.[fieldName]
-        const map = new Map<string, number>()
-        if (compileTimeOrder && compileTimeOrder.length > 0) {
-          compileTimeOrder.forEach((v, i) => map.set(v, i))
-          // Append any unexpected values (e.g. data has a new class the
-          // style didn't author for) at the END so they map to indices
-          // outside the shader's if-else range — those features fall
-          // through to the fallback colour, matching the match()
-          // expression's `_` default arm intent.
-          const uniqueVals = new Set<string>()
-          for (const row of table.values) {
-            const v = row[fi]
-            if (typeof v === 'string' && !map.has(v)) uniqueVals.add(v)
-          }
-          let next = compileTimeOrder.length
-          for (const v of [...uniqueVals].sort()) map.set(v, next++)
-        } else {
-          // Legacy path: variant doesn't expose category order (e.g.
-          // shader uses `categorical()` palette, not `match()`). Sort
-          // unique data values alphabetically; matches the historic
-          // assignment behaviour.
-          const uniqueVals = new Set<string>()
-          for (const row of table.values) {
-            const v = row[fi]
-            if (typeof v === 'string') uniqueVals.add(v)
-          }
-          const sorted = [...uniqueVals].sort()
-          sorted.forEach((v, i) => map.set(v, i))
-        }
-        catMaps.set(fieldName, map)
-      }
-    }
-
-    for (let i = 0; i < featureCount; i++) {
-      const row = table.values[i]
-      for (let j = 0; j < fieldCount; j++) {
-        const fieldName = variant.featureFields[j]
-        const fi = table.fieldNames.indexOf(fieldName)
-        if (fi < 0) continue
-        const val = row[fi]
-        const catMap = catMaps.get(fieldName)
-        if (catMap && typeof val === 'string') {
-          data[i * fieldCount + j] = catMap.get(val) ?? 0
-        } else {
-          data[i * fieldCount + j] = typeof val === 'number' ? val : 0
-        }
-      }
-    }
-
-    this.featureDataBuffer = this.device.createBuffer({
-      size: Math.max(data.byteLength, 16),
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      label: 'feature-data',
-    })
-    this.device.queue.writeBuffer(this.featureDataBuffer, 0, data)
-
-    // Build the shared feature-bound tile bind group
-    this.rebuildTileBindGroups()
-
-    console.log(`[X-GIS] Feature data buffer: ${featureCount} features × ${fieldCount} fields`)
-  }
-
-  /** Build a per-tile feat_data buffer + bind group from MVT/PMTiles
-   *  worker output (`data.featureProps`). The source-level PropertyTable
-   *  is permanently empty for PMTiles backends — each tile owns its
-   *  own 0-based featId space, so a single shared buffer can't index
-   *  them all. Returned buffer is sized by the tile's actual feature
-   *  count (not a global maximum), uses the captured variant field +
-   *  categoryOrder schema, and binds to the shared `uniformRing` so
-   *  per-tile dynamic offsets still work.
-   *
-   *  Returns null when there's nothing to build (no variant captured
-   *  yet, no per-tile properties, layout missing) so the caller can
-   *  skip the buffer-allocate call entirely. */
-  private buildPerTileFeatureData(
-    featureProps: ReadonlyMap<number, Record<string, unknown>> | undefined,
-    handleKey: string = '',
-  ): { buffer: GPUBuffer; bindGroup: GPUBindGroup } | null {
-    if (!featureProps || featureProps.size === 0) return null
-    if (this.latestVariantFields.length === 0) return null
-    const ringBuf = this.uniformRing?.buffer
-    if (!this.featureBindGroupLayout || !ringBuf) return null
-
-    const fields = this.latestVariantFields
-    const fieldCount = fields.length
-    // featId is tile-local but not necessarily contiguous (worker
-    // may filter out features). Size the buffer by (max featId + 1)
-    // so vertex-side `feat_data[fid]` indexing stays direct without a
-    // featId → row mapping table. Unfilled slots default to 0 which
-    // matches the variant shader's fallback arm.
-    let maxFid = -1
-    for (const fid of featureProps.keys()) {
-      if (fid > maxFid) maxFid = fid
-    }
-    const featureCount = maxFid + 1
-    if (featureCount <= 0) return null
-
-    const data = new Float32Array(featureCount * fieldCount)
-
-    // Per-field categorical maps — same compile-time-order-first logic
-    // as the source-level path so the shader's if-else chain IDs match.
-    const catMaps = new Map<string, Map<string, number>>()
-    for (const fieldName of fields) {
-      const order = this.latestVariantCategoryOrder[fieldName]
-      const map = new Map<string, number>()
-      if (order && order.length > 0) {
-        order.forEach((v, i) => map.set(v, i))
-        // Unknown values get IDs beyond the if-else range → fallback arm.
-        const unseen = new Set<string>()
-        for (const props of featureProps.values()) {
-          const v = props[fieldName]
-          if (typeof v === 'string' && !map.has(v)) unseen.add(v)
-        }
-        let next = order.length
-        for (const v of [...unseen].sort()) map.set(v, next++)
-      } else {
-        const unique = new Set<string>()
-        for (const props of featureProps.values()) {
-          const v = props[fieldName]
-          if (typeof v === 'string') unique.add(v)
-        }
-        const sorted = [...unique].sort()
-        sorted.forEach((v, i) => map.set(v, i))
-      }
-      catMaps.set(fieldName, map)
-    }
-
-    for (const [fid, props] of featureProps) {
-      for (let j = 0; j < fieldCount; j++) {
-        const fieldName = fields[j]!
-        const val = props[fieldName]
-        const catMap = catMaps.get(fieldName)
-        if (catMap && typeof val === 'string') {
-          data[fid * fieldCount + j] = catMap.get(val) ?? 0
-        } else if (typeof val === 'number') {
-          data[fid * fieldCount + j] = val
-        }
-      }
-    }
-    // DEBUG: when `__xgisForceClassId` is set on globalThis, every
-    // feat_data entry gets the same ID. Lets us isolate fid-mapping
-    // bugs from shader-emit bugs — if every polygon paints with the
-    // forced class's color, the bind path is correct and the issue is
-    // upstream (worker fid vs featureProps key); if some polygons stay
-    // unpainted, the issue is in the bind / shader.
-
-    const buffer = this.device.createBuffer({
-      size: Math.max(data.byteLength, 16),
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      label: 'per-tile-feature-data',
-    })
-    this.device.queue.writeBuffer(buffer, 0, data)
-
-    // mr-featureBindGroupLayout requires palette bindings 2 + 4
-    // (added in P3 Step 3c). When the renderer hasn't pushed palette
-    // resources yet, return null buffer so the caller falls back to
-    // a non-feature pipeline rather than producing an invalid group.
-    if (!this.paletteColorAtlasView || !this.paletteSampler || !this.spriteAtlasView) return null
-
-    // P4 compute path: when the captured variant carries
-    // computeBindings, build (or refresh) a per-tile
-    // ComputeLayerHandle for this (variant, tile) pair and append
-    // its output buffer entries to the bind group. Legacy (no
-    // computeBindings) shows skip this entirely — the bind group
-    // stays at the legacy 4-entry shape.
-    let extraComputeEntries: { binding: number; resource: { buffer: GPUBuffer } }[] = []
-    if (this.latestVariant
-      && (this.latestVariant.computeBindings?.length ?? 0) > 0
-      && this.latestComputePlan
-      && this.latestRenderNodeIndex !== undefined
-      && handleKey) {
-      // Lazy-init the dispatcher on first compute attach.
-      if (!this.computeDispatcher) {
-        this.computeDispatcher = new ComputeDispatcher({ device: this.device } as never)
-      }
-      // Build or refresh the handle for THIS tile.
-      let handle = this.computeHandlesByTile.get(handleKey)
-      if (!handle) {
-        handle = new ComputeLayerHandle(
-          this.computeDispatcher,
-          this.latestVariant,
-          this.latestComputePlan,
-          this.latestRenderNodeIndex,
-        )
-        this.computeHandlesByTile.set(handleKey, handle)
-      }
-      // Upload feature props through the handle. featureProps is a
-      // Map<fid, props>; the handle's packer takes a `getProps(fid)`
-      // closure so we adapt.
-      let maxFid = -1
-      for (const fid of featureProps.keys()) if (fid > maxFid) maxFid = fid
-      const featureCount = maxFid + 1
-      handle!.uploadFromProps(
-        (fid: number) => featureProps.get(fid) ?? null,
-        featureCount,
-      )
-      // Append the handle's bind-group entries (compute output
-      // storage buffer at binding 16 by default).
-      const compEntries = handle!.getBindGroupEntries()
-      if (compEntries) extraComputeEntries = compEntries
-    }
-
-    const bindGroup = this.device.createBindGroup({
-      label: 'per-tile-feature-bg',
-      layout: this.featureBindGroupLayout,
-      entries: [
-        { binding: 0, resource: { buffer: ringBuf, offset: 0, size: UNIFORM_SIZE } },
-        { binding: 1, resource: { buffer } },
-        { binding: 2, resource: this.paletteColorAtlasView },
-        { binding: 4, resource: this.paletteSampler },
-        { binding: 5, resource: this.spriteAtlasView },
-        { binding: 6, resource: this.paletteSampler },
-        ...extraComputeEntries,
-      ],
-    })
-
-    return { buffer, bindGroup }
   }
 
   /** Route uploads through the priority queue. Every call enqueues an
@@ -1992,7 +1687,8 @@ export class VectorTileRenderer {
     // Compute-handle keying matches the legacy `${key}:${sourceLayer}`
     // identity already used by the upload queue + held set, so the
     // handle's lifetime tracks the tile's bind-group lifetime.
-    const perTileFeat = this.buildPerTileFeatureData(data.featureProps, `${key}:${sourceLayer}`)
+    const perTileFeat = this._featureBinder.buildPerTileFeatureData(
+      data.featureProps, this.uniformRing?.buffer, this._paletteResources(), `${key}:${sourceLayer}`)
 
     layerCache.set(key, {
       vertexBuffer, polyVertexOffset, polyVertexByteLength, indexBuffer,
@@ -2376,7 +2072,8 @@ export class VectorTileRenderer {
     // Compute-handle keying matches the legacy `${key}:${sourceLayer}`
     // identity already used by the upload queue + held set, so the
     // handle's lifetime tracks the tile's bind-group lifetime.
-    const perTileFeat = this.buildPerTileFeatureData(data.featureProps, `${key}:${sourceLayer}`)
+    const perTileFeat = this._featureBinder.buildPerTileFeatureData(
+      data.featureProps, this.uniformRing?.buffer, this._paletteResources(), `${key}:${sourceLayer}`)
 
     layerCache.set(key, {
       vertexBuffer, polyVertexOffset, polyVertexByteLength, indexBuffer,
@@ -2564,7 +2261,7 @@ export class VectorTileRenderer {
     // groups are tested inside the loop via `cached.featureBindGroup`.
     if (bindGroupLayout !== this.baseBindGroupLayout
         && !this.tileBgFeature
-        && this.latestVariantFields.length === 0) return
+        && this._featureBinder.latestVariantFieldsLength() === 0) return
 
     this.frameCount++
     // Pass the FRAME-level id (set by beginFrame from map's
@@ -4579,15 +4276,11 @@ export class VectorTileRenderer {
     tile.featureDataBuffer?.destroy()
     // P4 compute path — the per-tile ComputeLayerHandle (feat / out /
     // count buffer trio) is keyed `${tileKey}:${sourceLayer}` (slot here
-    // IS the sourceLayer; tk IS the tileKey). Free + drop it so its
-    // buffers are reclaimed and dispatchComputePass stops iterating over
-    // this evicted tile every frame.
-    const handleKey = `${tk}:${slot}`
-    const handle = this.computeHandlesByTile.get(handleKey)
-    if (handle) {
-      handle.destroy()
-      this.computeHandlesByTile.delete(handleKey)
-    }
+    // IS the sourceLayer; tk IS the tileKey). Free + drop it (via the
+    // FeatureDataBinder, Cluster D owner) so its buffers are reclaimed and
+    // dispatchComputePass stops iterating over this evicted tile every
+    // frame. Stays AFTER featureDataBuffer.destroy() — the 7b31ce52 order.
+    this._featureBinder.releaseTile(`${tk}:${slot}`)
     inner.delete(tk)
     this._gpuCacheCount--
     return { vBytes, iBytes }

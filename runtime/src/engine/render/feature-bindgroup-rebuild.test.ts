@@ -6,37 +6,47 @@
 // groups they keep referencing the old/destroyed ring → data-driven fills
 // read stale uniform colours during interaction (user-reported high-pitch
 // "land flashes water-blue"; compute=1 reads colour from its output buffer
-// → was immune). This test pins that rebuildTileBindGroups re-points every
-// cached per-tile group at the CURRENT ring.
+// → was immune). This test pins that the FeatureDataBinder's per-tile
+// rebuild (CALLED by VTR.rebuildTileBindGroups, the single onGrow trigger)
+// re-points every cached per-tile group at the CURRENT ring.
+//
+// VTR decomposition (U2-prime): `rebuildPerTileFeatureBindGroups` moved onto
+// FeatureDataBinder.rebuildPerTileGroups(gpuCache, ringBuf, palette) —
+// gpuCache + ring + palette arrive as CALL ARGUMENTS (the binder never
+// references VTR). featureBindGroupLayout + computeHandlesByTile are now
+// binder-owned.
 import { describe, it, expect } from 'vitest'
-import { VectorTileRenderer } from './vector-tile-renderer'
+import { FeatureDataBinder } from './feature-data-binder'
 
 interface FakeBuf { id: string }
 interface FakeBG { id: string; entries: { binding: number; resource: { buffer?: FakeBuf } }[] }
 
 describe('iter-349 per-tile feature bind group rebuild on ring grow', () => {
-  it('rebuildTileBindGroups re-points every cached featureBindGroup at the current uniform ring', () => {
-    const vtr = Object.create(VectorTileRenderer.prototype) as VectorTileRenderer
+  it('rebuildPerTileGroups re-points every cached featureBindGroup at the current uniform ring', () => {
+    const binder = Object.create(FeatureDataBinder.prototype) as FeatureDataBinder
     const NEW_RING: FakeBuf = { id: 'new-ring' }
     const OLD_BG: FakeBG = { id: 'old-bg', entries: [{ binding: 0, resource: { buffer: { id: 'old-ring' } } }] }
     const featBuf: FakeBuf = { id: 'feat-data' }
     const created: FakeBG[] = []
     const tile = { featureBindGroup: OLD_BG, featureDataBuffer: featBuf } as unknown as { featureBindGroup: unknown; featureDataBuffer: unknown }
-    const inj = vtr as unknown as Record<string, unknown>
+    const inj = binder as unknown as Record<string, unknown>
     inj.device = {
       createBindGroup: (d: { entries: { binding: number; resource: { buffer?: FakeBuf } }[] }) => {
         const bg: FakeBG = { id: `bg${created.length}`, entries: d.entries }; created.push(bg); return bg
       },
     }
-    inj.uniformRing = { buffer: NEW_RING }
-    inj.featureBindGroupLayout = { id: 'feat-layout' }
-    inj.paletteColorAtlasView = { id: 'pal' }
-    inj.paletteSampler = { id: 'samp' }
-    inj.spriteAtlasView = { id: 'sprite' }
+    inj._featureBindGroupLayout = { id: 'feat-layout' }
     inj.computeHandlesByTile = new Map()
-    inj.gpuCache = new Map([['water', new Map([[42, tile]])]])
+    const gpuCache = new Map([['water', new Map([[42, tile]])]])
+    const palette = {
+      paletteColorAtlasView: { id: 'pal' },
+      paletteSampler: { id: 'samp' },
+      spriteAtlasView: { id: 'sprite' },
+    }
 
-    ;(vtr as unknown as { rebuildPerTileFeatureBindGroups: () => void }).rebuildPerTileFeatureBindGroups()
+    ;(binder as unknown as {
+      rebuildPerTileGroups: (c: unknown, r: unknown, p: unknown) => void
+    }).rebuildPerTileGroups(gpuCache as never, NEW_RING as never, palette as never)
 
     // A new bind group was created and stored on the tile.
     expect(created.length).toBe(1)
@@ -50,14 +60,14 @@ describe('iter-349 per-tile feature bind group rebuild on ring grow', () => {
   })
 
   it('no-op when atlas/palette not yet wired (setup-time call, empty cache safe)', () => {
-    const vtr = Object.create(VectorTileRenderer.prototype) as VectorTileRenderer
-    const inj = vtr as unknown as Record<string, unknown>
+    const binder = Object.create(FeatureDataBinder.prototype) as FeatureDataBinder
+    const inj = binder as unknown as Record<string, unknown>
     inj.device = { createBindGroup: () => { throw new Error('should not be called') } }
-    inj.uniformRing = { buffer: { id: 'r' } }
-    inj.featureBindGroupLayout = null   // not ready
-    inj.paletteColorAtlasView = null
+    inj._featureBindGroupLayout = null   // not ready
     inj.computeHandlesByTile = new Map()
-    inj.gpuCache = new Map()
-    expect(() => (vtr as unknown as { rebuildPerTileFeatureBindGroups: () => void }).rebuildPerTileFeatureBindGroups()).not.toThrow()
+    const palette = { paletteColorAtlasView: null, paletteSampler: null, spriteAtlasView: null }
+    expect(() => (binder as unknown as {
+      rebuildPerTileGroups: (c: unknown, r: unknown, p: unknown) => void
+    }).rebuildPerTileGroups(new Map() as never, { id: 'r' } as never, palette as never)).not.toThrow()
   })
 })
