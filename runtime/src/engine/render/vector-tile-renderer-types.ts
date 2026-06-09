@@ -45,6 +45,12 @@ export interface GPUTile {
   zBufferOffset: number
   /** Phase 6a.4 — aligned byte length of z-buffer slice. */
   zBufferByteLength: number
+  /** Whether THIS slice carries per-feature extruded geometry (walls + roof
+   *  in the unified stride-14 buffer from `generateWallMeshExtrudedECEF`).
+   *  Post-Phase-2-PR-2c.2 the parallel `zBuffer` was retired to an always-null
+   *  sentinel, so the draw path must read THIS flag (not `zBuffer != null`) to
+   *  pick the extruded pipeline / skip a heightless fallback slice. */
+  extruded: boolean
   lineVertexBuffer: GPUBuffer | null
   lineIndexBuffer: GPUBuffer | null
   lineIndexCount: number
