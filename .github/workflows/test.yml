@@ -41,9 +41,11 @@ jobs:
       # the per-test console chatter ([X-GIS]/[matrix] logs) that keeps the
       # main thread busy while workers wait on the RPC; failure output is
       # unaffected.
-      - run: ./node_modules/.bin/vitest run --silent compiler/src blueprint/src
-      - run: ./node_modules/.bin/vitest run --silent runtime/src/engine/render runtime/src/engine/projection runtime/src/engine/text
-      - run: ./node_modules/.bin/vitest run --silent runtime/src --exclude "runtime/src/engine/render/**" --exclude "runtime/src/engine/projection/**" --exclude "runtime/src/engine/text/**"
+      # NOTE: `--silent=true` (explicit value) — bare `--silent <path>` makes
+      # vitest's CLI parser eat the path filter as the flag's value.
+      - run: ./node_modules/.bin/vitest run --silent=true compiler/src blueprint/src
+      - run: ./node_modules/.bin/vitest run --silent=true runtime/src/engine/render runtime/src/engine/projection runtime/src/engine/text
+      - run: ./node_modules/.bin/vitest run --silent=true runtime/src --exclude "runtime/src/engine/render/**" --exclude "runtime/src/engine/projection/**" --exclude "runtime/src/engine/text/**"
 
   # Render-behavior gate: the unit suite above NEVER executes a shader
   # (deep-dive 2026-05-25 finding #1). This job runs the SHADER-MATH gate
