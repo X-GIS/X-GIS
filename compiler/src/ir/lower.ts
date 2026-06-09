@@ -6,12 +6,12 @@ import type * as AST from '../parser/ast'
 import { resolveColor } from '../tokens/colors'
 import type { LowerOptions } from './lower-types'
 import {
-  bindingToTextValue,
   bindingAsConstantNumber,
   extractMatchDefaultColor,
   extractInterpolateZoomStops,
   extractInterpolateZoomColorStops,
 } from './lower-helpers'
+import { lowerLabelProps } from './lower-label'
 // Re-export public types so importers of './lower' keep their surface.
 export type { LowerOptions, ZoomStopsWithBase } from './lower-types'
 import {
@@ -32,7 +32,6 @@ import {
   sizeConstant,
   shapeNone,
   hexToRgba,
-  buildLabelShapes,
   type ShapeRef,
 } from './render-node'
 
@@ -197,113 +196,10 @@ function lowerLayer(
   let geometryExpr: import('../parser/ast').Expr | null = null
   let extrude: import('./render-node').ExtrudeValue = { kind: 'none' }
   let extrudeBase: import('./render-node').ExtrudeValue = { kind: 'none' }
-  // Per-feature text label. The text comes from `label-[<expr>]`;
-  // visual knobs (size, color, halo, anchor, transform) come from
-  // sibling `label-*` utilities that fold into the LabelDef when we
-  // assemble the RenderNode below. Engine plumbing in Batch 1c.
-  let label: import('./render-node').LabelDef | undefined
-  let labelSize: number | undefined
-  const labelSizeZoomStops: ZoomStop<number>[] = []
-  // Mapbox `["interpolate", ["exponential", N], ["zoom"], …]` base
-  // for the size curve. 1 (default) → linear; > 1 → faster growth
-  // near the upper zoom stop, the OFM Bright road-width convention.
-  let labelSizeZoomStopsBase: number | undefined
-  let labelColor: [number, number, number, number] | undefined
-  const labelColorZoomStops: ZoomStop<[number, number, number, number]>[] = []
-  let labelColorZoomStopsBase: number | undefined
-  let labelColorExpr: import('./render-node').DataExpr | undefined
-  let labelSizeExpr: import('./render-node').DataExpr | undefined
-  let labelHaloWidth: number | undefined
-  const labelHaloWidthZoomStops: ZoomStop<number>[] = []
-  let labelHaloWidthZoomStopsBase: number | undefined
-  let labelHaloColor: [number, number, number, number] | undefined
-  const labelHaloColorZoomStops: ZoomStop<[number, number, number, number]>[] = []
-  let labelHaloColorZoomStopsBase: number | undefined
-  let labelHaloBlur: number | undefined
-  let labelSpacing: number | undefined
-  let labelRotationAlignment: 'map' | 'viewport' | 'auto' | undefined
-  let labelPitchAlignment: 'map' | 'viewport' | 'auto' | undefined
-  let labelKeepUpright: boolean | undefined
-  let labelAnchor: import('./render-node').LabelDef['anchor'] | undefined
-  // Collect every label-anchor-X utility seen — Mapbox text-variable-
-  // anchor maps to multiple emissions by the converter, in priority
-  // order. The runtime tries each on collision; first non-colliding
-  // wins. Single-anchor styles still produce a one-element list and
-  // foldLabelKnobs strips it down to just `anchor`.
-  const labelAnchorCandidates: NonNullable<import('./render-node').LabelDef['anchorCandidates']> = []
-  let labelTransform: import('./render-node').LabelDef['transform'] | undefined
-  let labelOffsetX: number | undefined
-  let labelOffsetY: number | undefined
-  let labelTranslateX: number | undefined
-  let labelTranslateY: number | undefined
-  let labelRadialOffset: number | undefined
-  // `text-variable-anchor-offset` em offsets, keyed by the 0-based
-  // pair index the converter emitted; zipped back onto the ordered
-  // anchor candidates at assembly time.
-  const labelVao: Array<[number, number] | undefined> = []
-  const setVao = (idx: number, axis: string, n: number): void => {
-    const cur = labelVao[idx] ?? [0, 0]
-    if (axis === 'x') cur[0] = n
-    else if (axis === 'y') cur[1] = n
-    labelVao[idx] = cur
-  }
-  let labelAllowOverlap: boolean | undefined
-  let labelIgnorePlacement: boolean | undefined
-  let labelPadding: number | undefined
-  let labelSortKey: number | undefined
-  let labelRotate: number | undefined
-  let labelLetterSpacing: number | undefined
-  let labelFontStack: string[] | undefined
-  let labelFontWeight: number | undefined
-  let labelFontStyle: 'normal' | 'italic' | undefined
-  let labelMaxWidth: number | undefined
-  let labelLineHeight: number | undefined
-  let labelJustify: 'auto' | 'left' | 'center' | 'right' | undefined
-  let labelPlacement: 'point' | 'line' | 'line-center' | undefined
-  // ── Icon (Batch 2) ──
-  let labelIconImage: string | undefined
-  /** Per-feature icon-image expression. Set from the bracket
-   *  binding form `label-icon-image-[<expr>]` emitted by the
-   *  converter when icon-image is a Mapbox match/case expression.
-   *  Runtime TextStage evaluates the AST per feature to pick the
-   *  sprite key. */
-  let labelIconImageExpr: { ast: unknown } | undefined
-  let labelIconSize: number | undefined
-  // Mapbox `icon-size: ["interpolate", …, ["zoom"], …]` (OFM bright
-  // road_oneway authors `15→0.5, 19→1`). Constant + zoom-interp both
-  // resolve to a per-frame number at runtime — same shape as text-
-  // size's labelSizeZoomStops. Mirror at layers.ts:emit (iter 523).
-  const labelIconSizeZoomStops: ZoomStop<number>[] = []
-  let labelIconSizeZoomStopsBase: number | undefined
-  let labelIconAnchor: import('./render-node').LabelDef['iconAnchor'] | undefined
-  let labelIconOffset: [number, number] | undefined
-  let labelIconRotate: number | undefined
-  let labelIconOpacity: number | undefined
-  // iter 113 — text-opacity + icon-opacity PropertyShape accumulators.
-  // Constant text-opacity stays folded into label-color's alpha at
-  // convert-time (applyAlphaMultiplier in layers.ts); only zoom-interp
-  // / data-driven forms land here. Constant icon-opacity DOES route
-  // through labelIconOpacity (above) since IconStage carries its own
-  // per-draw opacity scalar.
-  const labelOpacityZoomStops: ZoomStop<number>[] = []
-  let labelOpacityZoomStopsBase: number | undefined
-  let labelOpacityExpr: { ast: unknown } | undefined
-  const labelIconOpacityZoomStops: ZoomStop<number>[] = []
-  let labelIconOpacityZoomStopsBase: number | undefined
-  let labelIconOpacityExpr: { ast: unknown } | undefined
-  // iter 138 — icon-color (SDF sprite tint). Mirrors labelColor: a
-  // static RGBA fallback plus optional zoom-interp stops / per-feature
-  // expression. Runtime dispatchIcon resolves and passes tint into
-  // IconRenderer; raster sprites ignore it (renderer-side per spec).
-  let labelIconColor: [number, number, number, number] | undefined
-  const labelIconColorZoomStops: ZoomStop<[number, number, number, number]>[] = []
-  let labelIconColorZoomStopsBase: number | undefined
-  let labelIconColorExpr: import('./render-node').DataExpr | undefined
-  /** Mapbox `icon-rotation-alignment` — "map" means icon rotates
-   *  with the line tangent under symbol-placement=line. Other
-   *  values (viewport / auto / absent) match X-GIS' default render
-   *  and stay undefined here. */
-  let labelIconRotationAlignment: 'map' | undefined
+  // Per-feature text label + all `label-*` / `label-icon-*` visual
+  // knobs are resolved by `lowerLabelProps` (lower-label.ts) in a
+  // separate utility-loop pass; the label accumulators no longer live
+  // here. See lower-label.ts header for the disjointness invariant.
 
   for (const prop of stmt.properties) {
     if (prop.name === 'source' && prop.value.kind === 'Identifier') {
@@ -618,154 +514,9 @@ function lowerLayer(
           if (last && last.value > 0) strokeGapWidth = last.value
           continue
         }
-        if (zoomStops && name === 'label-size') {
-          for (const s of zoomStops.stops) labelSizeZoomStops.push({ zoom: s.zoom, value: s.value })
-          if (zoomStops.base !== 1) labelSizeZoomStopsBase = zoomStops.base
-          continue
-        }
-        if (zoomStops && name === 'label-icon-size') {
-          // Mapbox `icon-size: interpolate(zoom, …)` — OFM bright
-          // road_oneway / road_oneway_opposite (2 layers) use this
-          // (15→0.5, 19→1) to shrink one-way arrows at low zoom.
-          // Pre-iter-523 the constant-only lower path silently
-          // dropped these stops → arrows always rendered at 100%
-          // (iter 522 surfaced the warning). Per-frame resolve now
-          // matches MapLibre's interpolate semantics including the
-          // pre-first-stop clamp (z<15 → 0.5x).
-          for (const s of zoomStops.stops) labelIconSizeZoomStops.push({ zoom: s.zoom, value: Math.max(0, s.value) })
-          if (zoomStops.base !== 1) labelIconSizeZoomStopsBase = zoomStops.base
-          continue
-        }
-        if (zoomStops && name === 'label-opacity') {
-          // Mapbox `text-opacity: interpolate(zoom, …)` — non-constant
-          // form for the alpha multiplier on label fill colour. The
-          // converter emits this bracket binding only when the value
-          // CANNOT be folded into label-color's alpha (i.e. non-
-          // constant on either axis). Runtime resolves per frame via
-          // shapes.opacity and multiplies into resolvedColor.a +
-          // resolvedHalo.color.a. Iter 113.
-          for (const s of zoomStops.stops) {
-            labelOpacityZoomStops.push({
-              zoom: s.zoom,
-              value: Math.max(0, Math.min(1, s.value)),
-            })
-          }
-          if (zoomStops.base !== 1) labelOpacityZoomStopsBase = zoomStops.base
-          continue
-        }
-        if (zoomStops && name === 'label-icon-opacity') {
-          // Mapbox `icon-opacity: interpolate(zoom, …)`. Per-frame
-          // resolve at dispatchIcon → IconStage opacity. Iter 113.
-          for (const s of zoomStops.stops) {
-            labelIconOpacityZoomStops.push({
-              zoom: s.zoom,
-              value: Math.max(0, Math.min(1, s.value)),
-            })
-          }
-          if (zoomStops.base !== 1) labelIconOpacityZoomStopsBase = zoomStops.base
-          continue
-        }
-        if (!zoomStops && name === 'label-opacity') {
-          // Data-driven text-opacity (case / match / get). Runtime
-          // applyFeatureExprs evaluates the AST per feature. Iter 113.
-          labelOpacityExpr = { ast: item.binding }
-          continue
-        }
-        if (!zoomStops && name === 'label-icon-opacity') {
-          labelIconOpacityExpr = { ast: item.binding }
-          continue
-        }
-        // Non-zoom-interp label-size binding → per-feature evaluation.
-        // Catches Mapbox `text-size: ["case", …]` / `["match", …]` /
-        // arithmetic forms. The static `size` field stays at its
-        // default (12) to feed any consumer that ignores sizeExpr.
-        if (name === 'label-size' && !zoomStops) {
-          labelSizeExpr = { ast: item.binding }
-          continue
-        }
-        // label-halo zoom-interpolated width → full stops; runtime
-        // interpolates per-frame. Last stop also seeds `halo.width`
-        // as the static fallback when the runtime can't evaluate
-        // (e.g. consumers reading the IR directly without a camera).
-        if (zoomStops && name === 'label-halo') {
-          for (const s of zoomStops.stops) labelHaloWidthZoomStops.push({ zoom: s.zoom, value: s.value })
-          if (zoomStops.base !== 1) labelHaloWidthZoomStopsBase = zoomStops.base
-          labelHaloWidth = zoomStops.stops[zoomStops.stops.length - 1]!.value
-          continue
-        }
-        // label-color zoom-interpolated colour — full stops, RGBA
-        // arrays. Runtime walks `colorZoomStops` per frame and
-        // component-interpolates. The static `color` field is
-        // populated from the last stop so non-interp consumers
-        // still see a sensible value.
-        if (name === 'label-color') {
-          const interp = extractInterpolateZoomColorStops(item.binding)
-          if (interp) {
-            for (const s of interp.stops) {
-              const hex = resolveColor(s.value)
-              if (hex) labelColorZoomStops.push({ zoom: s.zoom, value: hexToRgba(hex) })
-            }
-            if (labelColorZoomStops.length > 0) {
-              if (interp.base !== 1) labelColorZoomStopsBase = interp.base
-              labelColor = labelColorZoomStops[labelColorZoomStops.length - 1]!.value
-              continue
-            }
-          }
-          // Non-zoom-interp colour binding → per-feature expression.
-          // Catches `label-color-[.kind == "city" ? #ff0000 : #000000]`
-          // (the Mapbox `text-color: ["case", …]` shape). Runtime
-          // evaluates per-feature against props.
-          labelColorExpr = { ast: item.binding }
-          continue
-        }
-        // icon-color zoom-interp / per-feature binding (iter 138).
-        // Direct mirror of the label-color arm above.
-        if (name === 'label-icon-color') {
-          const interp = extractInterpolateZoomColorStops(item.binding)
-          if (interp) {
-            for (const s of interp.stops) {
-              const hex = resolveColor(s.value)
-              if (hex) labelIconColorZoomStops.push({ zoom: s.zoom, value: hexToRgba(hex) })
-            }
-            if (labelIconColorZoomStops.length > 0) {
-              if (interp.base !== 1) labelIconColorZoomStopsBase = interp.base
-              labelIconColor = labelIconColorZoomStops[labelIconColorZoomStops.length - 1]!.value
-              continue
-            }
-          }
-          labelIconColorExpr = { ast: item.binding }
-          continue
-        }
-        if (name === 'label-halo-color') {
-          const interp = extractInterpolateZoomColorStops(item.binding)
-          if (interp) {
-            for (const s of interp.stops) {
-              const hex = resolveColor(s.value)
-              if (hex) labelHaloColorZoomStops.push({ zoom: s.zoom, value: hexToRgba(hex) })
-            }
-            if (labelHaloColorZoomStops.length > 0) {
-              if (interp.base !== 1) labelHaloColorZoomStopsBase = interp.base
-              labelHaloColor = labelHaloColorZoomStops[labelHaloColorZoomStops.length - 1]!.value
-              continue
-            }
-          }
-          // Per-feature `match(.field) { v -> #color, …, _ -> #default }`
-          // — mirror of the fill arm below. Without this branch, a halo
-          // colour authored as a match() (e.g. road shields picking
-          // halo colour by network class) silently dropped: the
-          // colour-stop extractor returns null on a non-interpolate
-          // shape, and the arm previously fell through without setting
-          // labelHaloColor. Bake the default arm as the static fallback
-          // so the runtime renders SOMETHING; per-feature halo dispatch
-          // through colorExpr lands in a follow-up IR change (LabelDef
-          // currently has no haloColorExpr field).
-          const defaultHex = extractMatchDefaultColor(item.binding)
-          if (defaultHex) {
-            const rgba = hexToRgba(defaultHex)
-            labelHaloColor = [rgba[0], rgba[1], rgba[2], rgba[3]]
-            continue
-          }
-        }
+        // ── label-* / label-icon-* binding arms moved to lowerLabelProps
+        //    (lower-label.ts). The second pass there owns the label/icon
+        //    zoom-stops, exprs, text, and negative-numeric label arms.
         if (name === 'fill') {
           // Mapbox `paint.fill-color: ["interpolate", curve, ["zoom"], …]`
           // converts to `fill-[interpolate(zoom, z1, #hex, …)]`. The
@@ -897,54 +648,23 @@ function lowerLayer(
           extrude = { kind: 'feature', expr: { ast: item.binding }, fallback: 0 }
         } else if (name === 'fill-extrusion-base') {
           extrudeBase = { kind: 'feature', expr: { ast: item.binding }, fallback: 0 }
-        } else if (name === 'label') {
-          // `label-[<expr>]` — text content for per-feature labels.
-          // The runtime (TextStage) resolves the expression against
-          // each feature's properties and emits per-glyph quads. The
-          // 12-px size seed is a default; subsequent `label-size-N`
-          // utilities override it before foldLabelKnobs.
-          label = { text: bindingToTextValue(item.binding), size: 12 }
-        } else if (name === 'label-icon-image') {
-          // `label-icon-image-[<expr>]` — per-feature icon sprite
-          // key. Runtime evaluates the AST against each feature's
-          // properties and dispatches the resolved sprite to
-          // IconStage. Used by OFM POI layers which select icons by
-          // `subclass` / `class` via Mapbox `match()` / `case()`.
-          labelIconImageExpr = { ast: item.binding }
-          continue
+        } else if (name === 'label' || name === 'label-icon-image' || name.startsWith('label-')) {
+          // All `label-*` / `label-icon-*` binding items (text, icon-image,
+          // and the negative-numeric label arms) are owned by
+          // lowerLabelProps (lower-label.ts) in its own pass. Skip them
+          // here so they never reach the X-GIS0005 catch-all below.
         } else {
-          // Numeric label-* utilities that allow negative values use
-          // bracket-binding form (`label-offset-y-[-0.2]`) since the
-          // utility-name grammar treats `-` as a segment separator.
-          // We only accept literal-number (or unary-minus literal)
-          // bindings here — full data-driven offsets land later.
+          // Numeric paint utilities that allow negative values use
+          // bracket-binding form since the utility-name grammar treats
+          // `-` as a segment separator. We only accept literal-number
+          // (or unary-minus literal) bindings here.
           const n = bindingAsConstantNumber(item.binding)
           if (n !== null) {
-            if (name === 'label-offset-x') { labelOffsetX = n; continue }
-            if (name === 'label-offset-y') { labelOffsetY = n; continue }
-            if (name === 'label-translate-x') { labelTranslateX = n; continue }
-            if (name === 'label-translate-y') { labelTranslateY = n; continue }
             if (name === 'fill-translate-x') { fillTranslateX = n; continue }
             if (name === 'fill-translate-y') { fillTranslateY = n; continue }
-            if (name === 'label-radial-offset') { labelRadialOffset = n; continue }
-            if (name.startsWith('label-vao-')) {
-              // `label-vao-<idx>-<x|y>` bracket form (negative em).
-              const m = /^label-vao-(\d+)-([xy])$/.exec(name)
-              if (m) { setVao(parseInt(m[1]!, 10), m[2]!, n); continue }
-            }
-            if (name === 'label-rotate') { labelRotate = n; continue }
-            if (name === 'label-letter-spacing') { labelLetterSpacing = n; continue }
-            if (name === 'label-padding') { labelPadding = n; continue }
-            if (name === 'label-sort-key') { labelSortKey = n; continue }
-            // Bracket-binding form for negative icon-offset components.
-            if (name === 'label-icon-offset-x') { labelIconOffset = [n, labelIconOffset?.[1] ?? 0]; continue }
-            if (name === 'label-icon-offset-y') { labelIconOffset = [labelIconOffset?.[0] ?? 0, n]; continue }
-            if (name === 'label-icon-rotate') { labelIconRotate = n; continue }
-            if (name === 'label-icon-size') { labelIconSize = n; continue }
           }
           // Bracket-binding form with a name that's not in any of the
-          // handled arms above (and not a recognised negative-numeric
-          // label utility). Pre-fix this was the silent-drop hole that
+          // handled arms above. Pre-fix this was the silent-drop hole that
           // hid the `stroke-[interpolate_exp(zoom, …)]` regression — a
           // `name: "stroke"` binding falls through every named handler
           // and gets dropped without a peep, so every Mapbox
@@ -965,99 +685,15 @@ function lowerLayer(
         continue
       }
 
-      // ── label-* visual knob utilities (Batch 1c-8g) ──
-      // Folded into `label` at the bottom of the function. Order with
-      // `label-[<expr>]` doesn't matter — these are just stored in
-      // locals until assembly time.
-      if (name === 'label-uppercase') { labelTransform = 'uppercase'; continue }
-      if (name === 'label-lowercase') { labelTransform = 'lowercase'; continue }
-      if (name === 'label-none') { labelTransform = 'none'; continue }
-      if (name === 'label-allow-overlap') { labelAllowOverlap = true; continue }
-      if (name === 'label-ignore-placement') { labelIgnorePlacement = true; continue }
-      // Mapbox `symbol-placement: line | line-center` — labels follow
-      // line geometry instead of anchoring at a point. Runtime walks
-      // the line's segments and emits a label per feature with rotation
-      // matching the local tangent.
-      if (name === 'label-along-path') { labelPlacement = 'line'; continue }
-      if (name === 'label-line-center') { labelPlacement = 'line-center'; continue }
-      if (name === 'label-rotation-alignment-map') { labelRotationAlignment = 'map'; continue }
-      if (name === 'label-rotation-alignment-viewport') { labelRotationAlignment = 'viewport'; continue }
-      if (name === 'label-rotation-alignment-auto') { labelRotationAlignment = 'auto'; continue }
-      if (name === 'label-pitch-alignment-map') { labelPitchAlignment = 'map'; continue }
-      if (name === 'label-pitch-alignment-viewport') { labelPitchAlignment = 'viewport'; continue }
-      if (name === 'label-pitch-alignment-auto') { labelPitchAlignment = 'auto'; continue }
-      if (name === 'label-keep-upright-true') { labelKeepUpright = true; continue }
-      if (name === 'label-keep-upright-false') { labelKeepUpright = false; continue }
-      if (name === 'label-justify-auto') { labelJustify = 'auto'; continue }
-      if (name === 'label-justify-left') { labelJustify = 'left'; continue }
-      if (name === 'label-justify-center') { labelJustify = 'center'; continue }
-      if (name === 'label-justify-right') { labelJustify = 'right'; continue }
-      if (name.startsWith('label-anchor-')) {
-        const a = name.slice('label-anchor-'.length)
-        const valid = ['center', 'top', 'bottom', 'left', 'right',
-          'top-left', 'top-right', 'bottom-left', 'bottom-right'] as const
-        if ((valid as readonly string[]).includes(a)) {
-          // First-seen wins for the static `anchor`; later siblings
-          // become collision-fallback candidates. Avoid duplicates so
-          // an accidental `label-anchor-top label-anchor-top` doesn't
-          // bloat the candidate list.
-          if (labelAnchor === undefined) labelAnchor = a as typeof valid[number]
-          if (!labelAnchorCandidates.includes(a as typeof valid[number])) {
-            labelAnchorCandidates.push(a as typeof valid[number])
-          }
-          continue
-        }
-      }
-      if (name.startsWith('label-size-')) {
-        const num = parseFloat(name.slice('label-size-'.length))
-        if (!isNaN(num)) labelSize = num
-        continue
-      }
-      if (name.startsWith('label-halo-color-')) {
-        const hex = resolveColor(name.slice('label-halo-color-'.length))
-        if (hex) labelHaloColor = hexToRgba(hex)
-        continue
-      }
-      if (name.startsWith('label-halo-blur-')) {
-        const num = parseFloat(name.slice('label-halo-blur-'.length))
-        if (!isNaN(num)) labelHaloBlur = num
-        continue
-      }
-      if (name.startsWith('label-halo-')) {
-        const num = parseFloat(name.slice('label-halo-'.length))
-        if (!isNaN(num)) labelHaloWidth = num
-        continue
-      }
-      if (name.startsWith('label-icon-color-')) {
-        const hex = resolveColor(name.slice('label-icon-color-'.length))
-        if (hex) labelIconColor = hexToRgba(hex)
-        continue
-      }
-      if (name.startsWith('label-color-')) {
-        const hex = resolveColor(name.slice('label-color-'.length))
-        if (hex) labelColor = hexToRgba(hex)
-        continue
-      }
-      if (name.startsWith('label-offset-x-')) {
-        const num = parseFloat(name.slice('label-offset-x-'.length))
-        if (!isNaN(num)) labelOffsetX = num
-        continue
-      }
-      if (name.startsWith('label-offset-y-')) {
-        const num = parseFloat(name.slice('label-offset-y-'.length))
-        if (!isNaN(num)) labelOffsetY = num
-        continue
-      }
-      if (name.startsWith('label-translate-x-')) {
-        const num = parseFloat(name.slice('label-translate-x-'.length))
-        if (!isNaN(num)) labelTranslateX = num
-        continue
-      }
+      // ── label-* / label-icon-* visual knob utilities ──
+      // All resolved by lowerLabelProps (lower-label.ts) in its own
+      // pass. The two PAINT `fill-translate-*` numeric arms that used to
+      // sit interleaved with the label arms stay here.
       if (name.startsWith('fill-translate-x-')) {
         // Mapbox `paint.fill-translate` x component in CSS pixels.
         // Bracket-wrap form for negatives (`fill-translate-x-[-2]`)
-        // is handled by the bracket binding parser above (label-
-        // numeric-binding pattern). Plain numeric form lands here.
+        // is handled by the bracket binding parser above. Plain
+        // numeric form lands here.
         const num = parseFloat(name.slice('fill-translate-x-'.length))
         if (!isNaN(num)) fillTranslateX = num
         continue
@@ -1067,171 +703,11 @@ function lowerLayer(
         if (!isNaN(num)) fillTranslateY = num
         continue
       }
-      if (name.startsWith('label-translate-y-')) {
-        const num = parseFloat(name.slice('label-translate-y-'.length))
-        if (!isNaN(num)) labelTranslateY = num
-        continue
-      }
-      if (name.startsWith('label-padding-')) {
-        const num = parseFloat(name.slice('label-padding-'.length))
-        if (!isNaN(num)) labelPadding = num
-        continue
-      }
-      if (name.startsWith('label-sort-key-')) {
-        const num = parseFloat(name.slice('label-sort-key-'.length))
-        if (!isNaN(num) && Number.isFinite(num)) labelSortKey = num
-        continue
-      }
-      if (name.startsWith('label-radial-offset-')) {
-        const num = parseFloat(name.slice('label-radial-offset-'.length))
-        if (!isNaN(num)) labelRadialOffset = num
-        continue
-      }
-      if (name.startsWith('label-vao-')) {
-        // `label-vao-<idx>-<x|y>-<n>` (positive em; negatives use the
-        // bracket-binding form handled above).
-        const m = /^label-vao-(\d+)-([xy])-(.+)$/.exec(name)
-        if (m) {
-          const num = parseFloat(m[3]!)
-          if (!isNaN(num)) setVao(parseInt(m[1]!, 10), m[2]!, num)
-        }
-        continue
-      }
-      if (name.startsWith('label-rotate-')) {
-        const num = parseFloat(name.slice('label-rotate-'.length))
-        if (!isNaN(num)) labelRotate = num
-        continue
-      }
-      if (name.startsWith('label-letter-spacing-')) {
-        const num = parseFloat(name.slice('label-letter-spacing-'.length))
-        if (!isNaN(num)) labelLetterSpacing = num
-        continue
-      }
-      if (name.startsWith('label-max-width-')) {
-        const num = parseFloat(name.slice('label-max-width-'.length))
-        if (!isNaN(num)) labelMaxWidth = num
-        continue
-      }
-      if (name.startsWith('label-line-height-')) {
-        const num = parseFloat(name.slice('label-line-height-'.length))
-        if (!isNaN(num)) labelLineHeight = num
-        continue
-      }
-      // ── Icon (Batch 2 — sprite atlas) ──
-      // Mapbox `icon-image` (constant string only for now). The
-      // utility carries the raw atlas key; downstream IconStage looks
-      // it up in the sprite metadata on draw.
-      if (name.startsWith('label-icon-image-')) {
-        labelIconImage = name.slice('label-icon-image-'.length)
-        continue
-      }
-      if (name.startsWith('label-icon-size-')) {
-        const num = parseFloat(name.slice('label-icon-size-'.length))
-        if (!isNaN(num)) labelIconSize = num
-        continue
-      }
-      if (name.startsWith('label-icon-anchor-')) {
-        const a = name.slice('label-icon-anchor-'.length)
-        const valid = ['center', 'top', 'bottom', 'left', 'right',
-          'top-left', 'top-right', 'bottom-left', 'bottom-right'] as const
-        if ((valid as readonly string[]).includes(a)) {
-          labelIconAnchor = a as typeof valid[number]
-        }
-        continue
-      }
-      if (name.startsWith('label-icon-offset-x-')) {
-        const num = parseFloat(name.slice('label-icon-offset-x-'.length))
-        if (!isNaN(num)) labelIconOffset = [num, labelIconOffset?.[1] ?? 0]
-        continue
-      }
-      if (name.startsWith('label-icon-offset-y-')) {
-        const num = parseFloat(name.slice('label-icon-offset-y-'.length))
-        if (!isNaN(num)) labelIconOffset = [labelIconOffset?.[0] ?? 0, num]
-        continue
-      }
-      if (name.startsWith('label-icon-rotate-')) {
-        const num = parseFloat(name.slice('label-icon-rotate-'.length))
-        if (!isNaN(num)) labelIconRotate = num
-        continue
-      }
-      if (name.startsWith('label-icon-opacity-')) {
-        const num = parseFloat(name.slice('label-icon-opacity-'.length))
-        if (!isNaN(num)) labelIconOpacity = Math.max(0, Math.min(1, num))
-        continue
-      }
-      if (name === 'label-icon-rotation-alignment-map') {
-        labelIconRotationAlignment = 'map'
-        continue
-      }
-      if (name.startsWith('label-spacing-')) {
-        const num = parseFloat(name.slice('label-spacing-'.length))
-        if (!isNaN(num)) labelSpacing = num
-        continue
-      }
-      if (name.startsWith('label-font-weight-')) {
-        // Numeric CSS weight (100..900). The converter normalises
-        // Mapbox's word suffixes — "Bold" → 700, "Light" → 300, etc.
-        // Hand-authored xgis can also write `label-font-weight-500`
-        // for medium without going through the converter.
-        const num = parseFloat(name.slice('label-font-weight-'.length))
-        if (!isNaN(num)) labelFontWeight = num
-        continue
-      }
-      if (name === 'label-italic') {
-        // Boolean utility — presence sets italic. The runtime composes
-        // ctx.font with `italic` as the CSS style prefix so the browser
-        // selects the italic face from the OS. Spelled `label-italic`
-        // (not `label-font-style-italic`) because `style` is reserved
-        // for the top-level `style { … }` block grammar.
-        labelFontStyle = 'italic'
-        continue
-      }
-      if (name.startsWith('label-font-')) {
-        // Each `label-font-X` utility APPENDS one font to the
-        // fallback stack. Spaces in Mapbox font names round-trip
-        // via `-`. Stack form (multiple utilities):
-        //   | label-font-Noto-Sans label-font-Noto-Sans-CJK
-        // The runtime feeds the whole stack to ctx.font as a
-        // comma-separated CSS font value so the browser handles
-        // glyph-by-glyph fallback automatically (Latin glyphs from
-        // the first font, CJK from the second when the first lacks
-        // them). Weight/italic words used to live IN this name; they
-        // now ride `label-font-weight-N` / `label-font-style-X` so
-        // ctx.font can apply them via CSS shorthand instead of as
-        // part of the family token.
-        const raw = name.slice('label-font-'.length)
-        const restored = raw.replace(/-/g, ' ')
-        if (restored.length > 0) {
-          if (!labelFontStack) labelFontStack = []
-          labelFontStack.push(restored)
-        }
-        continue
-      }
-
-      // Catch-all safety net for unrecognised `label-*` utilities,
-      // mirroring the bracket-binding X-GIS0005 guard. Every handled
-      // label utility above `continue`s; anything that starts with
-      // `label-` and reaches here had NO parsing arm, so the converter
-      // emitted a value that lower.ts silently drops — the exact
-      // failure mode of the text-variable-anchor regression (converter
-      // emitted `label-anchor-*`, but for the real layout property the
-      // emission was missing entirely). Surface it as a warn so a
-      // future converter/lower mismatch fails CI instead of shipping a
-      // silently-ignored knob. (Malformed values like an invalid
-      // `label-anchor-<x>` also land here — equally worth flagging.)
-      if (name.startsWith('label-')) {
-        diagnostics.push({
-          severity: 'warn',
-          code: 'X-GIS0006',
-          line: stmt.line,
-          message:
-            `Label utility "${name}" has no handler in lower.ts — the ` +
-            `value is being dropped. Add a matching arm in the label-` +
-            `utility parser so the converter's emission threads into ` +
-            `LabelDef.`,
-        })
-        continue
-      }
+      // ── label-* / label-icon-* constant + X-GIS0006 catch-all moved
+      //    to lowerLabelProps (lower-label.ts). Any constant `label-*`
+      //    utility is owned by that pass; skip it here so it never trips
+      //    a paint arm or the X-GIS0005 net below.
+      if (name.startsWith('label-')) continue
 
       if (name.startsWith('fill-extrusion-height-')) {
         // Mapbox `fill-extrusion-height` paint property as a tailwind-
@@ -1610,19 +1086,6 @@ function lowerLayer(
     }
   }
 
-  // Mapbox `text-variable-anchor-offset`: zip the i-th emitted anchor
-  // candidate with the i-th `label-vao-*` offset pair. Only built when
-  // the converter actually emitted vao pairs — plain text-variable-
-  // anchor / text-radial-offset leave this undefined and the runtime
-  // falls back to the radial / text-offset path.
-  const labelVariableAnchorOffset = labelVao.length > 0
-    ? labelAnchorCandidates
-        .slice(0, labelVao.length)
-        .map((a, i) => [a, labelVao[i] ?? [0, 0]] as [
-          typeof a, [number, number],
-        ])
-    : undefined
-
   return {
     name: stmt.name,
     sourceRef,
@@ -1684,245 +1147,10 @@ function lowerLayer(
     fillTranslateY,
     fillPattern: fillPattern ?? undefined,
     linePattern: linePattern ?? undefined,
-    label: foldLabelKnobs(label, {
-      labelSize, labelColor, labelHaloWidth, labelHaloColor, labelHaloBlur,
-      labelAnchor, labelTransform, labelOffsetX, labelOffsetY,
-      labelTranslateX, labelTranslateY, labelRadialOffset,
-      labelVariableAnchorOffset,
-      labelSizeZoomStops: labelSizeZoomStops.length > 0 ? labelSizeZoomStops : undefined,
-      labelSizeZoomStopsBase,
-      labelColorZoomStops: labelColorZoomStops.length > 0 ? labelColorZoomStops : undefined,
-      labelColorZoomStopsBase,
-      labelColorExpr, labelSizeExpr,
-      labelAnchorCandidates: labelAnchorCandidates.length > 1 ? labelAnchorCandidates : undefined,
-      labelHaloWidthZoomStops: labelHaloWidthZoomStops.length > 0 ? labelHaloWidthZoomStops : undefined,
-      labelHaloWidthZoomStopsBase,
-      labelHaloColorZoomStops: labelHaloColorZoomStops.length > 0 ? labelHaloColorZoomStops : undefined,
-      labelHaloColorZoomStopsBase,
-      labelAllowOverlap, labelIgnorePlacement, labelPadding, labelSortKey,
-      labelRotate, labelLetterSpacing, labelFontStack, labelFontWeight, labelFontStyle,
-      labelMaxWidth, labelLineHeight, labelJustify,
-      labelPlacement, labelSpacing,
-      labelRotationAlignment, labelPitchAlignment, labelKeepUpright,
-      labelIconImage, labelIconImageExpr, labelIconSize, labelIconAnchor, labelIconOffset, labelIconRotate, labelIconOpacity, labelIconRotationAlignment,
-      labelIconSizeZoomStops: labelIconSizeZoomStops.length > 0 ? labelIconSizeZoomStops : undefined,
-      labelIconSizeZoomStopsBase,
-      labelOpacityZoomStops: labelOpacityZoomStops.length > 0 ? labelOpacityZoomStops : undefined,
-      labelOpacityZoomStopsBase,
-      labelOpacityExpr,
-      labelIconOpacityZoomStops: labelIconOpacityZoomStops.length > 0 ? labelIconOpacityZoomStops : undefined,
-      labelIconOpacityZoomStopsBase,
-      labelIconOpacityExpr,
-      labelIconColor,
-      labelIconColorZoomStops: labelIconColorZoomStops.length > 0 ? labelIconColorZoomStops : undefined,
-      labelIconColorZoomStopsBase,
-      labelIconColorExpr,
-    }),
+    label: lowerLabelProps(expandedUtilities, diagnostics, stmt.line),
   }
 }
 
-/** Merge sibling `label-*` utility values into the LabelDef built
- *  from `label-[<expr>]`. Returns the input unchanged when no knobs
- *  are present (covers the common one-utility-only case). When knobs
- *  exist but the layer has no `label-[<expr>]`, returns undefined —
- *  visual knobs without a text source produce no rendering and the
- *  warning is the user's responsibility (the converter surfaces it). */
-function foldLabelKnobs(
-  base: import('./render-node').LabelDef | undefined,
-  knobs: {
-    labelSize?: number
-    labelColor?: [number, number, number, number]
-    labelHaloWidth?: number
-    labelHaloColor?: [number, number, number, number]
-    labelHaloBlur?: number
-    labelAnchor?: import('./render-node').LabelDef['anchor']
-    labelAnchorCandidates?: import('./render-node').LabelDef['anchorCandidates']
-    labelTransform?: import('./render-node').LabelDef['transform']
-    labelOffsetX?: number
-    labelOffsetY?: number
-    labelTranslateX?: number
-    labelTranslateY?: number
-    labelRadialOffset?: number
-    labelVariableAnchorOffset?: import('./render-node').LabelDef['variableAnchorOffset']
-    labelSizeZoomStops?: ZoomStop<number>[]
-    /** Mapbox `["exponential", N]` curve base for the size stops.
-     *  Undefined / 1 → linear; >1 → faster growth at higher zooms. */
-    labelSizeZoomStopsBase?: number
-    labelColorZoomStops?: ZoomStop<[number, number, number, number]>[]
-    labelColorZoomStopsBase?: number
-    labelColorExpr?: import('./render-node').DataExpr
-    labelSizeExpr?: import('./render-node').DataExpr
-    labelHaloWidthZoomStops?: ZoomStop<number>[]
-    labelHaloWidthZoomStopsBase?: number
-    labelHaloColorZoomStops?: ZoomStop<[number, number, number, number]>[]
-    labelHaloColorZoomStopsBase?: number
-    labelAllowOverlap?: boolean
-    labelIgnorePlacement?: boolean
-    labelPadding?: number
-    labelSortKey?: number
-    labelRotate?: number
-    labelLetterSpacing?: number
-    labelFontStack?: string[]
-    labelFontWeight?: number
-    labelFontStyle?: 'normal' | 'italic'
-    labelMaxWidth?: number
-    labelLineHeight?: number
-    labelJustify?: 'auto' | 'left' | 'center' | 'right'
-    labelPlacement?: 'point' | 'line' | 'line-center'
-    labelSpacing?: number
-    labelRotationAlignment?: 'map' | 'viewport' | 'auto'
-    labelPitchAlignment?: 'map' | 'viewport' | 'auto'
-    labelKeepUpright?: boolean
-    labelIconImage?: string
-    labelIconImageExpr?: { ast: unknown }
-    labelIconSize?: number
-    labelIconSizeZoomStops?: ZoomStop<number>[]
-    labelIconSizeZoomStopsBase?: number
-    labelIconAnchor?: import('./render-node').LabelDef['iconAnchor']
-    labelIconOffset?: [number, number]
-    labelIconRotate?: number
-    labelIconOpacity?: number
-    labelIconRotationAlignment?: 'map'
-    // iter 113 — opacity PropertyShape inputs (zoom-interp + expr).
-    labelOpacityZoomStops?: ZoomStop<number>[]
-    labelOpacityZoomStopsBase?: number
-    labelOpacityExpr?: { ast: unknown }
-    labelIconOpacityZoomStops?: ZoomStop<number>[]
-    labelIconOpacityZoomStopsBase?: number
-    labelIconOpacityExpr?: { ast: unknown }
-    // iter 138 — icon-color (SDF tint) PropertyShape inputs.
-    labelIconColor?: [number, number, number, number]
-    labelIconColorZoomStops?: ZoomStop<[number, number, number, number]>[]
-    labelIconColorZoomStopsBase?: number
-    labelIconColorExpr?: import('./render-node').DataExpr
-  },
-): import('./render-node').LabelDef | undefined {
-  if (!base) return undefined
-  let halo = base.halo
-  if (knobs.labelHaloWidth !== undefined
-      || knobs.labelHaloColor !== undefined
-      || knobs.labelHaloBlur !== undefined) {
-    const resolvedBlur = knobs.labelHaloBlur ?? base.halo?.blur
-    halo = {
-      // Mapbox `text-halo-color` default is `rgba(0,0,0,0)` (transparent
-      // black). Stops at this fallback should NOT paint a visible halo —
-      // pre-fix the [0,0,0,1] (opaque black) default rendered a hard black
-      // outline around every label that declared `text-halo-width: N` but
-      // omitted `text-halo-color`. Most visible on OFM Bright at z > 12.2
-      // where `highway-name-major` first appears: grey #666 text got
-      // smothered by an opaque black halo.
-      color: knobs.labelHaloColor ?? base.halo?.color ?? [0, 0, 0, 0],
-      // Mapbox spec text-halo-width default is 0 (no halo). Pre-fix
-      // X-GIS defaulted to 1 so a style declaring text-halo-color: #fff
-      // with no halo-width painted a 1 px white halo — opposite of
-      // the Mapbox render. Aligned to spec; the runtime shader already
-      // gates on halo_width > 0 so a 0 default produces no draw.
-      width: knobs.labelHaloWidth ?? base.halo?.width ?? 0,
-      ...(resolvedBlur !== undefined ? { blur: resolvedBlur } : {}),
-    }
-  }
-  let offset = base.offset
-  if (knobs.labelOffsetX !== undefined || knobs.labelOffsetY !== undefined) {
-    offset = [
-      knobs.labelOffsetX ?? base.offset?.[0] ?? 0,
-      knobs.labelOffsetY ?? base.offset?.[1] ?? 0,
-    ]
-  }
-  let translate = base.translate
-  if (knobs.labelTranslateX !== undefined || knobs.labelTranslateY !== undefined) {
-    translate = [
-      knobs.labelTranslateX ?? base.translate?.[0] ?? 0,
-      knobs.labelTranslateY ?? base.translate?.[1] ?? 0,
-    ]
-  }
-  const merged: import('./render-node').LabelDef = {
-    ...base,
-    ...(knobs.labelSize !== undefined ? { size: knobs.labelSize } : {}),
-    ...(knobs.labelColor !== undefined ? { color: knobs.labelColor } : {}),
-    ...(halo !== undefined ? { halo } : {}),
-    ...(knobs.labelAnchor !== undefined ? { anchor: knobs.labelAnchor } : {}),
-    ...(knobs.labelAnchorCandidates !== undefined ? { anchorCandidates: knobs.labelAnchorCandidates } : {}),
-    ...(knobs.labelTransform !== undefined ? { transform: knobs.labelTransform } : {}),
-    ...(offset !== undefined ? { offset } : {}),
-    ...(translate !== undefined ? { translate } : {}),
-    ...(knobs.labelRadialOffset !== undefined ? { radialOffset: knobs.labelRadialOffset } : {}),
-    ...(knobs.labelVariableAnchorOffset !== undefined && knobs.labelVariableAnchorOffset.length > 0
-      ? { variableAnchorOffset: knobs.labelVariableAnchorOffset } : {}),
-    ...(knobs.labelAllowOverlap !== undefined ? { allowOverlap: knobs.labelAllowOverlap } : {}),
-    ...(knobs.labelIgnorePlacement !== undefined ? { ignorePlacement: knobs.labelIgnorePlacement } : {}),
-    ...(knobs.labelPadding !== undefined ? { padding: knobs.labelPadding } : {}),
-    ...(knobs.labelSortKey !== undefined ? { sortKey: knobs.labelSortKey } : {}),
-    ...(knobs.labelRotate !== undefined ? { rotate: knobs.labelRotate } : {}),
-    ...(knobs.labelLetterSpacing !== undefined ? { letterSpacing: knobs.labelLetterSpacing } : {}),
-    ...(knobs.labelFontStack !== undefined && knobs.labelFontStack.length > 0
-      ? { font: knobs.labelFontStack } : {}),
-    ...(knobs.labelFontWeight !== undefined ? { fontWeight: knobs.labelFontWeight } : {}),
-    ...(knobs.labelFontStyle !== undefined ? { fontStyle: knobs.labelFontStyle } : {}),
-    ...(knobs.labelMaxWidth !== undefined ? { maxWidth: knobs.labelMaxWidth } : {}),
-    ...(knobs.labelLineHeight !== undefined ? { lineHeight: knobs.labelLineHeight } : {}),
-    ...(knobs.labelJustify !== undefined ? { justify: knobs.labelJustify } : {}),
-    ...(knobs.labelPlacement !== undefined ? { placement: knobs.labelPlacement } : {}),
-    ...(knobs.labelSpacing !== undefined ? { spacing: knobs.labelSpacing } : {}),
-    ...(knobs.labelRotationAlignment !== undefined ? { rotationAlignment: knobs.labelRotationAlignment } : {}),
-    ...(knobs.labelPitchAlignment !== undefined ? { pitchAlignment: knobs.labelPitchAlignment } : {}),
-    ...(knobs.labelKeepUpright !== undefined ? { keepUpright: knobs.labelKeepUpright } : {}),
-    // Batch 2 — sprite icon fields
-    ...(knobs.labelIconImage !== undefined ? { iconImage: knobs.labelIconImage } : {}),
-    ...(knobs.labelIconImageExpr !== undefined ? { iconImageExpr: knobs.labelIconImageExpr } : {}),
-    ...(knobs.labelIconSize !== undefined ? { iconSize: knobs.labelIconSize } : {}),
-    ...(knobs.labelIconAnchor !== undefined ? { iconAnchor: knobs.labelIconAnchor } : {}),
-    ...(knobs.labelIconOffset !== undefined ? { iconOffset: knobs.labelIconOffset } : {}),
-    ...(knobs.labelIconRotate !== undefined ? { iconRotate: knobs.labelIconRotate } : {}),
-    ...(knobs.labelIconOpacity !== undefined ? { iconOpacity: knobs.labelIconOpacity } : {}),
-    ...(knobs.labelIconColor !== undefined ? { iconColor: knobs.labelIconColor } : {}),
-    ...(knobs.labelIconRotationAlignment !== undefined ? { iconRotationAlignment: knobs.labelIconRotationAlignment } : {}),
-  }
-  // Plan Label L3: the LabelDef no longer carries `xxxZoomStops` /
-  // `xxxExpr` siblings — those were dead-staging fields. Build the
-  // unified shapes bundle from the knob inputs (the actual source
-  // of the data) + the merged label's static fallbacks.
-  merged.shapes = buildLabelShapes({
-    size: merged.size,
-    sizeZoomStops: knobs.labelSizeZoomStops && knobs.labelSizeZoomStops.length > 0
-      ? knobs.labelSizeZoomStops : undefined,
-    sizeZoomStopsBase: knobs.labelSizeZoomStopsBase,
-    sizeExpr: knobs.labelSizeExpr,
-    color: merged.color,
-    colorZoomStops: knobs.labelColorZoomStops && knobs.labelColorZoomStops.length > 0
-      ? knobs.labelColorZoomStops : undefined,
-    colorZoomStopsBase: knobs.labelColorZoomStopsBase,
-    colorExpr: knobs.labelColorExpr,
-    halo: merged.halo,
-    haloWidthZoomStops: knobs.labelHaloWidthZoomStops && knobs.labelHaloWidthZoomStops.length > 0
-      ? knobs.labelHaloWidthZoomStops : undefined,
-    haloWidthZoomStopsBase: knobs.labelHaloWidthZoomStopsBase,
-    haloColorZoomStops: knobs.labelHaloColorZoomStops && knobs.labelHaloColorZoomStops.length > 0
-      ? knobs.labelHaloColorZoomStops : undefined,
-    haloColorZoomStopsBase: knobs.labelHaloColorZoomStopsBase,
-    fontStack: merged.font,
-    fontWeight: merged.fontWeight,
-    fontStyle: merged.fontStyle,
-    iconSize: merged.iconSize,
-    iconSizeZoomStops: knobs.labelIconSizeZoomStops && knobs.labelIconSizeZoomStops.length > 0
-      ? knobs.labelIconSizeZoomStops : undefined,
-    iconSizeZoomStopsBase: knobs.labelIconSizeZoomStopsBase,
-    opacityZoomStops: knobs.labelOpacityZoomStops && knobs.labelOpacityZoomStops.length > 0
-      ? knobs.labelOpacityZoomStops : undefined,
-    opacityZoomStopsBase: knobs.labelOpacityZoomStopsBase,
-    opacityExpr: knobs.labelOpacityExpr as import('./render-node').DataExpr | undefined,
-    iconOpacity: merged.iconOpacity,
-    iconOpacityZoomStops: knobs.labelIconOpacityZoomStops && knobs.labelIconOpacityZoomStops.length > 0
-      ? knobs.labelIconOpacityZoomStops : undefined,
-    iconOpacityZoomStopsBase: knobs.labelIconOpacityZoomStopsBase,
-    iconOpacityExpr: knobs.labelIconOpacityExpr as import('./render-node').DataExpr | undefined,
-    iconColor: merged.iconColor,
-    iconColorZoomStops: knobs.labelIconColorZoomStops && knobs.labelIconColorZoomStops.length > 0
-      ? knobs.labelIconColorZoomStops : undefined,
-    iconColorZoomStopsBase: knobs.labelIconColorZoomStopsBase,
-    iconColorExpr: knobs.labelIconColorExpr,
-  })
-  return merged
-}
 
 /**
  * Apply CSS-like style properties to rendering values.
