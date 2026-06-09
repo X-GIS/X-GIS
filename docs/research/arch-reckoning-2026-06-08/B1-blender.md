@@ -1,0 +1,133 @@
+# B1 — Blender Architecture: Does its DNA transfer to a WebGPU web-map renderer?
+
+**Research date:** 2026-06-08
+**Framing:** X-GIS has a roadmap literally named "Blender-DNA migration." This report assesses, hard and skeptically, whether Blender's DNA / depsgraph / operator model is *appropriate* for a real-time WebGPU + TypeScript web-map renderer, or whether it is a **category error**. Blender is an offline-capable native desktop modeling app (C/C++); a web-map renderer is a streaming, real-time, view-centric system. Do not assume transfer.
+
+**Source-access note:** `developer.blender.org`, `devtalk.blender.org`, `wiki.blender.org`, and `code.blender.org` consistently returned HTTP 403 to automated fetching during this research. Where a primary page could not be fetched directly, claims are sourced from (a) the official Blender Python API docs at `docs.blender.org` (fetchable), (b) the DeepWiki mirror of `blender/blender` source, (c) the official Blender 2.80 release notes content surfaced via search, and (d) independent technical write-ups (renderday, harlepengren) that quote Blender primary sources. Every claim is cited; primary sources are preferred and flagged.
+
+---
+
+## 1. What Blender's architecture actually is
+
+### 1.1 "Everything is data" = the DNA / ID-datablock model
+
+Blender's foundational principle is that **all persistent state is plain serializable C structs**, defined in `makesdna/DNA_*_types.h`. The DeepWiki source description of the codebase: "Serializable C structs, `.blend` file format" encapsulate all persistent state; types like `bNodeTree`, `bNode`, `bNodeSocket` form the foundation ([DeepWiki blender/blender](https://deepwiki.com/blender/blender)).
+
+The unit of this data model is the **ID datablock**. Per the official ID docs: "Objects, meshes, materials, scenes are all examples of ID Datablocks. ID Datablocks are blocks of memory that start with a set of common properties. The ID base type defines a unique name, linking from other libraries and garbage collection for all datablock types in Blender" ([Blender ID datablocks dev docs, via search](https://developer.blender.org/docs/features/core/datablocks/id_type/)). Concretely, in C "this is modeled as a struct that embeds a struct of type ID as the first field" — so every datablock shares a consistent header for naming, reference-counting, library linking, and garbage collection ([Blender ID_Type wiki, via search](https://wiki.blender.org/wiki/Source/Architecture/ID/ID_Type)).
+
+This is what enables **library linking / reuse / instancing**: "Data-blocks can reference each other, for reuse and instancing… weak references to a data-block in another library .blend file are used to re-use already appended data instead of appending new copies" ([Blender data-blocks manual + ID docs, via search](https://docs.blender.org/manual/en/latest/files/data_blocks.html)).
+
+### 1.2 DNA / SDNA serialization: a self-describing memory dump
+
+The `.blend` file is, deliberately, **"a memory dump of Blender's data structures, annotated with metadata"** — Blender does not normalize data on save; "conversion and adaptation are done during file load" ([renderday: .blend format](https://renderday.com/blog/understanding-blenders-blend-file-format)). Each file embeds an **SDNA (Structure DNA)** block describing every struct used: field NAMEs, TYPEs, type lengths (TLEN), and structure definitions (STRC). "This approach means the file carries its schema, allowing Blender to interpret data even when struct definitions change" ([renderday](https://renderday.com/blog/understanding-blenders-blend-file-format)).
+
+Forward/backward compatibility works by **field-by-field name+type mapping** between the file's SDNA and the running binary's SDNA: missing fields get defaults, unknown old fields are skipped, and explicit **`do_versions` / version-patching code** (`blenloader/intern/versioning_*.cc`) runs after load to migrate complex cases ([renderday](https://renderday.com/blog/understanding-blenders-blend-file-format); [DeepWiki](https://deepwiki.com/blender/blender)). This is how a 20-year-old `.blend` can still open.
+
+**Critical, often-missed nuance:** Blender already separates **persistent DNA** from **runtime structures**. DeepWiki: "`bNodeTree` (saved to disk) pairs with `bNodeTreeRuntime` (computed, ephemeral cache)… This separation allows backward compatibility" ([DeepWiki](https://deepwiki.com/blender/blender)). The serialized struct is NOT the hot-path runtime representation; Blender derives "more efficient, derived in-memory representations for runtime operations" ([Future of DNA & RNA workshop, via search](https://devtalk.blender.org/t/2026-04-10-future-of-dna-rna-workshop-notes/45005)). The "everything is data" reputation overstates how unified it really is.
+
+### 1.3 The depsgraph: data-oriented evaluation
+
+The dependency graph (DEG) "manages and evaluates data dependencies within a scene" by building "a directed acyclic graph (DAG) of all data-blocks and their relationships," ensuring updates run in correct order for animation, modifiers, constraints ([DeepWiki: dependency graph](https://deepwiki.com/blender/blender/10.2-dependency-graph)). Nodes exist at three granularities: **ID datablocks → component nodes** (Geometry, Transform) **→ operation nodes** (e.g. a specific modifier). On change, "the DEG identifies the affected nodes and re-evaluates them in a topological order," triggered by recalc flags ([DeepWiki](https://deepwiki.com/blender/blender/10.2-dependency-graph)).
+
+Two design pillars matter most:
+
+1. **Original vs evaluated data (copy-on-write).** "The dependency graph always performs evaluation on a copy of original data, which is the way to support data to be in different states at the same time and solve threading conflicts between render and viewport threads" ([Blender depsgraph dev docs, via search](https://developer.blender.org/docs/features/core/depsgraph/)). COW is deliberately de-duplicating: it "duplicates only data which is getting changed"; CustomData layers stay shared until a modifier mutates one, then it decouples ([Blender 2.80 depsgraph release notes, via search](https://developer.blender.org/docs/release_notes/2.80/depsgraph/)).
+
+2. **Multithreaded, parallel evaluation.** The 2.8 rewrite's stated payoff: "Objects, modifiers and constraints are now updated in parallel more often… for some complex scenes running on CPUs with many cores, all these changes can give an order of magnitude better performance" ([Blender 2.80 release notes, via search](https://developer.blender.org/docs/release_notes/2.80/depsgraph/)). Acknowledged trade-off: "The new dependency graph uses more memory than before, to support a clearer separation of the original edited data and evaluated data" ([Blender 2.80 release notes, via search](https://developer.blender.org/docs/release_notes/2.80/depsgraph/)).
+
+### 1.4 The operator + context system
+
+Blender separates **operator TYPE from operator INSTANCE**. A `wmOperatorType` is "the blueprint" (identifier like `"object.delete"`, callbacks, properties); the `wmOperator` instance is created on execution and destroyed after. Blender keeps "a global registry" of ~2,000 operator types ([Blender operators wiki dump](https://julianeisel.github.io/wiki.blender.org-dump/wiki/Source/Interface/Operators.html)). Execution flows through `exec()` / `invoke()` / `modal()` returning status codes (`OPERATOR_FINISHED`, `OPERATOR_CANCELLED`, `OPERATOR_RUNNING_MODAL`, `OPERATOR_PASS_THROUGH`) ([wiki dump](https://julianeisel.github.io/wiki.blender.org-dump/wiki/Source/Interface/Operators.html)).
+
+The intentional design win is **separating view (event handler) from data (operator)**: "separating these two is important for re-use of Operators, like for macros, history, redo, or python" ([Blender operators dev docs, via search](https://developer.blender.org/docs/features/interface/operators/)). On success the operator system does an **"undo push"** automatically and can build an "Adjust Last Operation" redo panel from the operator's properties ([wiki dump](https://julianeisel.github.io/wiki.blender.org-dump/wiki/Source/Interface/Operators.html)). Python operators and macros reuse the exact same registry, giving uniform undo/scriptability across the C/Python boundary ([wiki dump](https://julianeisel.github.io/wiki.blender.org-dump/wiki/Source/Interface/Operators.html)).
+
+Operators "act on **context**" (`bContext`) — "what the user is focusing on," e.g. the active object/window. A `poll()` callback gates whether an operator can run in the current context ([Blender operators dev docs, via search](https://developer.blender.org/docs/features/interface/operators/); [bpy.context docs, via search](https://docs.blender.org/api/current/bpy.context.html)).
+
+---
+
+## 2. Blender's OWN admission of its architectural limits
+
+This is the part the "Blender-DNA migration" framing ignores. Blender's core developers are openly critical of this architecture's long-term cost:
+
+- **Not designed to be extensible.** The official Extensible Architecture Proposal states plainly: "Blender was not initially designed to be extensible, and adding new features often requires changes to many files. As the codebase grew, it became harder and harder to manage." The "long-term target is a completely redesigned Blender" for "modularity, maintainability, and extensibility" ([Extensible Architecture Proposal, via search](https://developer.blender.org/docs/features/core/proposals/extensibility/)).
+
+- **DNA's C-struct serialization is platform-coupled and brittle.** Because DNA *is* raw memory layout, it is "inherently low-level and sensitive to details such as structure padding, pointer size, and endianness… tightly coupled to compiler behavior and platform architecture" ([DNA dev docs summarized via search](https://developer.blender.org/docs/features/core/dna/)). Files "aren't byte-for-byte identical across platforms" (32-bit vs 64-bit, endianness) — the loader must do pointer relocation and byte-swapping ([renderday](https://renderday.com/blog/understanding-blenders-blend-file-format)). Blender's own parser "has limitations, such as not supporting `#define`s for array sizes" ([Future of DNA & RNA workshop, via search](https://devtalk.blender.org/t/2026-04-10-future-of-dna-rna-workshop-notes/45005)).
+
+- **They are actively considering replacing the serialization model.** The April 2026 "Future of DNA & RNA" workshop's agenda: "How to allow/improve usage of modern C++ in Blender data model (DNA)… and whether to create a fully new serialization model for Blender files" ([Future of DNA & RNA workshop, via search](https://devtalk.blender.org/t/2026-04-10-future-of-dna-rna-workshop-notes/45005)). There is also a long-running "DNA: Decentralization and C++" discussion about modernizing it ([DNA decentralization thread, via search](https://devtalk.blender.org/t/dna-decentralization-and-c/30391)).
+
+- **Big rewrites cause regressions.** Blender devs note "some recent projects involving big rewrites have led to a large number of regressions… a fair amount could have been prevented with a better strategy for refactoring" ([Refactoring Strategy thread, via search](https://devtalk.blender.org/t/refactoring-strategy-for-projects/39136)). The depsgraph rewrite itself spanned multiple releases.
+
+- **Context is implicit global state.** Operators "implicitly rely on context state"; calling one "in the wrong context will raise a RuntimeError," guarded only by `poll()` ([bpy.ops gotchas, via search](https://docs.blender.org/api/current/bpy.ops.html)). And "no work has gone into making Blender's python integration thread safe" ([bpy gotchas, via search](https://docs.blender.org/api/current/bpy.ops.html)). The operator/context model is **single-threaded UI-thread-bound** by design; the depsgraph's threading is *underneath* it, on evaluated copies.
+
+The honest summary: Blender's DNA/depsgraph/operator stack is a remarkable, decades-stable design **for what it is** — an interactive authoring tool with a persistent document model — but its own maintainers describe the DNA serialization and overall extensibility as technical debt they want to redesign.
+
+---
+
+## 3. Transfer assessment: principle-by-principle (skeptical)
+
+X-GIS = WebGPU + TypeScript, **streaming real-time view** over externally-authored data (PMTiles/MVT/GeoJSON/styles), no user-authored persistent document of its own. This is the decisive structural difference and it kills most of the literal transfer.
+
+| Blender principle | Transfers to X-GIS? | Verdict & why |
+|---|---|---|
+| **DNA / SDNA self-describing struct serialization (`.blend`)** | **NO — category error** | X-GIS has **no persistent document to serialize.** Its inputs (PMTiles, MVT, GeoJSON, the style JSON) are *already* standardized, versioned, externally-owned formats. Inventing an X-GIS "DNA" file format solves a problem X-GIS does not have. The entire value of SDNA — opening a 20-year-old user file — is irrelevant to a renderer that re-fetches tiles every session. Worse, DNA's design strengths (raw C memory layout, pointer relocation, endianness handling) are **meaningless in TypeScript/JS**, where there are no raw struct pointers, no manual padding, and `ArrayBuffer`/JSON serialization is already trivial. Adopting "DNA" here imports the *costs* (a bespoke schema-migration layer, `do_versions`-style version patching) with *none* of the benefits. |
+| **ID-datablock model: uniform header (name, refcount, GC, library link)** | **PARTIAL — as a lightweight resource-handle idea only** | The *idea* of a uniform handle to shareable, reference-counted GPU resources (tile buffers, glyph atlases, sprite sheets, pipelines) is sound and X-GIS likely already does ad-hoc refcounting. But "everything is an ID with library linking and a fake-user GC" is **massive overkill** for a renderer. There is no user library linking; there is no need for named, cross-file weak references. Take the *narrow* lesson (one consistent resource/handle + lifetime model for cache-eviction), not the literal ID system. Memory note `project_gpuarena_oom_byte_aware_eviction` shows X-GIS's real lifetime problem is **byte-aware GPU arena eviction**, which a refcount+handle abstraction helps — but that's a cache, not a datablock graph. |
+| **Depsgraph: data-oriented, dependency-ordered evaluation on a DAG** | **PARTIAL — the *pattern* transfers; the *implementation* does not** | The valuable transfer is **explicit dependency-tracked invalidation**: when style/camera/source/tile changes, only recompute the affected downstream stages in topological order, instead of recomputing everything per frame. This directly addresses X-GIS pain (see memory: per-frame label collision without off-screen cull, adaptive-DPR dead code, label pipeline as dominant CPU hot path). **But** a Blender-scale general DAG of ID→component→operation nodes is the wrong shape: a map renderer's pipeline is a **mostly-fixed, shallow DAG** (sources → tiles → layers → draw passes), not an open-ended user-built graph. Build a **small, hard-coded dirty-domain/invalidation system**, not a general depsgraph engine. The branch name `invalidation-perf-phase` suggests this is exactly the live work — and it is the *one* genuinely transferable Blender idea. |
+| **Copy-on-write: original vs evaluated data for thread-safety** | **PARTIAL / WEAK** | Blender needs COW because the **viewport and render threads read evaluated data while the user mutates originals on the UI thread** ([depsgraph docs, via search](https://developer.blender.org/docs/features/core/depsgraph/)). X-GIS's threading story is different: JS is single-threaded on the main thread; parallelism is **Web Workers with structured-clone / transferable `ArrayBuffer` message passing**, which is *already* a copy/ownership-transfer boundary. You get thread-safety from the Worker model for free; you do **not** need a COW datablock layer. The narrow transfer: keep an immutable "evaluated/rendered" snapshot the GPU submit reads, separate from the in-flight mutable state — but that's standard double-buffering, not Blender COW. |
+| **Operator system: typed command registry + automatic undo push + redo panel** | **NO (undo) / PARTIAL (command bus)** | The **undo/redo half does not transfer**: a map renderer has no user-authored document to undo. Automatic "undo push" after every operator is pure overhead here. The **command-bus half partially transfers**: a typed registry of named operations (`setStyle`, `flyTo`, `setLayerVisibility`, `addSource`) with a uniform invoke path and poll-style preconditions is a clean public API surface — and memory notes flag X-GIS's "eventless API" and stub `easeTo`/`flyTo` as ship blockers. But this is just **the Command pattern + an event/API layer**, which X-GIS should design around web idioms (promises, events, MapLibre-style API parity), not around `wmOperatorType`/`modal()`/`OPERATOR_RUNNING_MODAL` semantics. Note: X-GIS's existing `OperatorBus` (named in the roadmap memory) is a reasonable place for this — keep it thin. |
+| **Context (`bContext`) as implicit global state operators read** | **NO — actively harmful** | This is one of Blender's *weakest* parts (RuntimeErrors on wrong context, not thread-safe, poll-gated implicit state). A real-time renderer wants **explicit, immutable per-frame view/camera state passed down**, not a mutable global context object that commands reach into. X-GIS already has a `FrameContext`/`SceneView` (per memory: "RenderLoop + FrameContext + SceneView"); that explicit-passing model is *better* than Blender's context — do not regress toward `bContext`. |
+| **DNA↔RNA split (data vs introspection/API wrapper)** | **NO / N/A** | RNA exists to give a C app runtime introspection, auto-built UI panels, and a Python binding over C structs ([RNA chapter, O'Reilly](https://www.oreilly.com/library/view/core-blender-development/9781484264157/html/495914_1_En_6_Chapter.xhtml)). In TypeScript, **the language already provides** reflection-ish capabilities, object literals, and a JS API surface. Building an RNA-equivalent introspection layer over TS data would be re-implementing what the platform gives you for free. Classic native-app workaround with no web analog. |
+
+---
+
+## 4. Anti-patterns Blender deliberately avoids (and what X-GIS should copy)
+
+These are the *transferable* lessons — design discipline, not the literal subsystems:
+
+1. **No re-evaluate-everything-on-change.** The depsgraph exists precisely to avoid recomputing the whole scene when one value changes ([DeepWiki depsgraph](https://deepwiki.com/blender/blender/10.2-dependency-graph)). **Transfer: strongly yes.** Dependency-scoped invalidation is X-GIS's biggest win.
+2. **No mutating the data you're rendering from.** Original/evaluated separation prevents the render thread from racing the editor ([depsgraph docs, via search](https://developer.blender.org/docs/features/core/depsgraph/)). **Transfer: as double-buffered immutable frame state** (X-GIS already heads here with FrameContext).
+3. **No silent data loss on version skew.** Explicit `do_versions` migration instead of guessing ([renderday](https://renderday.com/blog/understanding-blenders-blend-file-format)). **Transfer: partial** — applies to *style-spec* version handling (MapLibre style versions), not to a bespoke binary format.
+4. **No behavior-in-data coupling for bulk data.** Data-oriented design keeps "functionality and data" separate for cache locality when iterating many entities ([dataorienteddesign.com](https://www.dataorienteddesign.com/dodmain/node5.html); [ECS, Wikipedia](https://en.wikipedia.org/wiki/Entity_component_system)). **Transfer: yes** for X-GIS's hot loops (tile vertex packing, label layout) — keep them as flat typed-array passes, which X-GIS already does (SoA stacks per memory). This is the ONE place "data-oriented" genuinely matters for a renderer, and it's about **typed-array SoA hot loops**, not about a datablock document model.
+
+And the anti-pattern Blender *failed* to avoid, which X-GIS must NOT import:
+- **Tying the in-memory hot representation to the serialization format.** Blender mitigates this with `*Runtime` side-structs, but its own devs cite DNA's serialization coupling as debt they want to redesign ([Future of DNA & RNA workshop, via search](https://devtalk.blender.org/t/2026-04-10-future-of-dna-rna-workshop-notes/45005)). A "Blender-DNA migration" that makes X-GIS's runtime structures mirror a serialization schema would be **importing Blender's known mistake.**
+
+---
+
+## 5. Bottom line for the 5-year decision
+
+**The "Blender-DNA migration" framing is largely a category error, and should be renamed and rescoped.** Blender's DNA serialization, ID-library-linking, RNA introspection, operator-undo, and `bContext` exist to serve an **interactive authoring tool with a persistent user document**, on **native C/C++ with raw pointers**. X-GIS is a **stateless-per-session streaming view** in **TypeScript** over **already-standardized external formats**. Most of Blender's DNA stack solves problems X-GIS does not have, and several of its mechanisms (raw-memory serialization, RNA reflection, COW for UI/render threads, global context) are native-app workarounds with no web payoff — or are debt Blender itself wants to shed.
+
+**What genuinely transfers** is a short list, and it is about *patterns*, not Blender's code:
+1. **Dependency-tracked, scoped invalidation** (the depsgraph *idea*) — implement as a small fixed dirty-domain graph, not a general engine. This is the highest-value transfer and aligns with the current `invalidation-perf-phase` branch.
+2. **Data-oriented SoA hot loops** for tile/label/vertex bulk work (already partly present).
+3. **An immutable per-frame snapshot** the GPU submit reads (double-buffering; already heading there via FrameContext).
+4. **A thin typed command/event bus** for the public API (the API-surface need is real; the `wmOperator`/undo machinery is not).
+
+**What to reject:** a bespoke "DNA" file format, an ID-datablock+library-linking document model, an RNA-style introspection layer, COW datablocks, automatic operator undo, and a global `bContext`. Adopting these would import Blender's *costs and known debt* with none of its authoring-tool benefits — and would couple a real-time renderer to an offline-app shape. The roadmap's named authorities (DirtyDomains, OperatorBus, EvaluatedTile, projections-table) are the *defensible* subset; "DNA serialization" is the part to drop.
+
+---
+
+## Sources
+
+- [Blender DNA — Developer Documentation (summarized via search; primary)](https://developer.blender.org/docs/features/core/dna/)
+- [Blender Dependency Graph — Developer Documentation (via search; primary)](https://developer.blender.org/docs/features/core/depsgraph/)
+- [Blender 2.80 Dependency Graph release notes (via search; primary)](https://developer.blender.org/docs/release_notes/2.80/depsgraph/)
+- [Blender Operators — Developer Documentation (via search; primary)](https://developer.blender.org/docs/features/interface/operators/)
+- [Blender Extensible Architecture Proposal (via search; primary, self-criticism)](https://developer.blender.org/docs/features/core/proposals/extensibility/)
+- [Future of DNA & RNA — Workshop Notes, 2026-04-10 (via search; primary, core-dev)](https://devtalk.blender.org/t/2026-04-10-future-of-dna-rna-workshop-notes/45005)
+- [DNA: Decentralization and C++ — Developer Forum (via search; primary)](https://devtalk.blender.org/t/dna-decentralization-and-c/30391)
+- [Refactoring Strategy for Projects — Developer Forum (via search; primary)](https://devtalk.blender.org/t/refactoring-strategy-for-projects/39136)
+- [Blender ID datablocks — Developer Documentation (via search; primary)](https://developer.blender.org/docs/features/core/datablocks/id_type/)
+- [Blender ID_Type — Developer Wiki (via search; primary)](https://wiki.blender.org/wiki/Source/Architecture/ID/ID_Type)
+- [DeepWiki: blender/blender architecture overview](https://deepwiki.com/blender/blender)
+- [DeepWiki: blender/blender — Dependency Graph](https://deepwiki.com/blender/blender/10.2-dependency-graph)
+- [Blender Operators — wiki.blender.org dump (fetched directly)](https://julianeisel.github.io/wiki.blender.org-dump/wiki/Source/Interface/Operators.html)
+- [renderday: Understanding Blender's .blend File Format and DNA/RNA Compatibility (fetched directly)](https://renderday.com/blog/understanding-blenders-blend-file-format)
+- [harlepengren: Blender DNA — Unraveling the Internal Structure (fetched directly)](https://harlepengren.com/blender-dna-unraveling-the-internal-structure/)
+- [Blender ID (bpy_struct) — Python API (via search; primary)](https://docs.blender.org/api/current/bpy.types.ID.html)
+- [Blender data-blocks — Manual (via search; primary)](https://docs.blender.org/manual/en/latest/files/data_blocks.html)
+- [bpy.context — Python API (via search; primary)](https://docs.blender.org/api/current/bpy.context.html)
+- [bpy.ops gotchas / threading — Python API (via search; primary)](https://docs.blender.org/api/current/bpy.ops.html)
+- [Core Blender Development: RNA and the Data API — O'Reilly/Springer](https://www.oreilly.com/library/view/core-blender-development/9781484264157/html/495914_1_En_6_Chapter.xhtml)
+- [Data-Oriented Design — Component Based Objects](https://www.dataorienteddesign.com/dodmain/node5.html)
+- [Entity Component System — Wikipedia](https://en.wikipedia.org/wiki/Entity_component_system)

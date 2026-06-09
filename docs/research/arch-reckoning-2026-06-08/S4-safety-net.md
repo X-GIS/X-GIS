@@ -1,0 +1,105 @@
+# S4 — The Behavioral Safety-Net Thesis: COLD Verdict
+
+**Thesis under test:** *"Refactor feels risky AND bugs hide for the SAME reason — there is no behavioral safety net. Build the net FIRST, and both unlock simultaneously."*
+
+**Disposition: VALIDATED, with one sharpening that strengthens it and one boundary where it is incomplete.** Date 2026-06-09. Every claim traces to an A* (X-GIS code finding, file:line) or B* (external authority) evidence file. Where I reason beyond them I label it INFERENCE.
+
+---
+
+## 1. COLD VERDICT (one paragraph)
+
+**Not sustainable as-is for a 5-year / 3D-tiles / 4D goal — and the safety-net thesis is the correct root-level reconciliation of why.** The two symptoms the owner reports — "refactors don't hold / fixing bug A reopens bug B" and "bugs compile, pass unit tests, and still render wrong" — are not two problems. They are one missing capability viewed from two sides: there is **no automated oracle that observes rendered/interactive behavior**, so neither a refactor nor a bug-fix can ever be *proven* to preserve behavior. A4 measures this exactly: of 262 runtime unit tests, **260 verify CPU math, exactly one touches a GPU device, exactly one reads a pixel, and zero call `.render()`** (A4 §3a); the only behavior-observing gate (the real-GPU matrix) is **local-only and manual** (A4 §3b ④), which for regression purposes "is not a gate — it is a debugging tool." B5(c) confirms this is *structural to graphics testing*, not a discipline failure: "compiles + unit-green ≠ renders right" is the oracle problem, and the field-standard answer is a four-oracle visual matrix on a real GPU, which X-GIS has built but **not wired into any automated lane**. The thesis holds because the *absence of the same artifact* — a behavioral characterization test (B5(c) golden-master; Feathers "legacy code is code without tests," B5(c)) — is simultaneously what makes A5's god-file decomposition too dangerous to attempt (S20 deferred precisely because "CI can't catch the failure," A5 §3.2) and what lets A4's OIT bug, A2's inert-invalidation bug, and A6's contract-drift bug sit green in the tree. Build the net first and *both* unlock; skip it and every other recommendation in this reckoning is unverifiable.
+
+---
+
+## 2. ROOT CAUSES (not symptoms)
+
+The symptoms ("fix doesn't hold," "invisible bugs," "stalled roadmap") all reduce to **three** structural root causes, ordered by causal depth.
+
+### RC-1 — The only behavior-observing oracle is not automated (THE root)
+The decisive fact, from A4 §3b: **every automated gate that runs without a human is pure CPU/compute.** CI runs exactly 4 specs — `_shader-math-parity`, `_wgsl-compile-gate`, `_vs-clip-parity`, `_dequant-parity` (A4 §3b ③, `test.yml:100`) — and **not one produces or inspects a pixel.** This is *forced*, not lazy: GitHub runners have no GPU, SwiftShader cannot raster X-GIS (false-positives + init timeout, A4 §3b ①②, ADR-0004). So the real-GPU matrix that *can* see behavior runs only on a dev box, by hand (A4 §3b ④). B5(c) names the consequence precisely: a renderer's characterization test *must* be "a golden-master rendered image" on a real GPU, because there is no cheap function that says "this frame is correct." X-GIS has the matrix (45 cells, A4 §3c) but it is a **tripwire, not a gate** — and it is not in the loop that runs on every commit.
+
+### RC-2 — No characterization test exists *before* the code is touched
+B5(c) and the Feathers machinery (B5(c) §4: "legacy code is code without tests"; Strangler Fig / Branch-by-Abstraction require "golden-master characterization first," B5(c) §c rule) make the dependency explicit: **safe large refactors require locking the current behavior as a test before any edit.** X-GIS has the inverse — its god-files are precisely the untested surfaces. A1 §2.3 flags TextStage's 903-LOC `prepare()` as having **0 dedicated unit tests historically**; A1 §2.1 flags VTR's **~2,054-LOC `render()` method**; A4 §2b flags `label-pass.execute()` as a **~980-LOC single method with 12 inline closures**. These are the exact surfaces a refactor must change, and they are the exact surfaces with no behavioral snapshot. Per B5(c)'s Feathers chain, there is therefore no safe seam to change them through — which is *mechanically* why "refactor feels risky."
+
+### RC-3 — Mutation has many write paths, so no snapshot can be trusted to be complete
+Even where a behavioral diff exists, A2 §4 shows the data flow is "a web of back-references, not unidirectional": the **gesture lane writes camera state directly, bypassing the op/dirty system** (A2 §4, `controller.ts:195,250,…`), render passes mutate the scene-command structs they consume (A2 §4, `render-loop.ts:696–759`), and there are **two parallel camera-write paths only one of which feeds invalidation bookkeeping** (A2 §4). INFERENCE (supported): a characterization test is only as trustworthy as the input space it pins; with mutation entering from gesture, programmatic, render-loop, and async-callback lanes, a naive golden test can pass while an un-pinned write path drifts — so the net must be *metamorphic/invariant-based* (B5(c) §d ②④), not only golden-master, to cover the combinatorial input space.
+
+**The reconciliation, stated coldly:** RC-1 is why bugs hide (no automated behavioral observer). RC-2 is why refactors feel risky (no pre-change behavioral lock). **They are the same missing artifact** — an automated behavioral characterization oracle — viewed from the bug-detection side (RC-1) and the change-safety side (RC-2). The thesis is correct.
+
+---
+
+## 3. TARGET STATE (what "good" looks like, grounded in what the references ACTUALLY do)
+
+"Good" is **not "more unit tests."** B5(c) is explicit and the A4 numbers confirm it: the gap "is structural, not fixable by adding more unit tests." Good is a **four-oracle layered net with the behavioral oracle automated on a real-GPU lane**, mirroring what the cited authorities actually run:
+
+1. **CPU property-based invariants (CI, fast).** B5(c) §d ④: assert invariants — forward∘inverse ≈ identity within ε, every on-screen anchor projects within canvas, tile coverage has no gaps/overlaps, label collision idempotent — generated over thousands of random inputs (`fast-check`). X-GIS already has the *seed* of this: cross-validation vs pyproj/mercantile/shapely (A4 §3e). This catches math drift; it is the layer X-GIS already lives in.
+
+2. **Golden-master image MATRIX on a real GPU (the characterization test + the refactor gate).** B5(c) §d ①: capture frame buffers, compare against stored known-good references, **perceptual-tolerance diff** (odiff-style with AA handling) for cross-GPU stability — not MD5/exact, which false-positives on sub-pixel driver AA (B5(c) §d ①, BrowserStack/VRT sources). It must span the **combinatorial output space** (projection × pitch × zoom × data × surface), because "a single golden view is a tripwire, not a gate; bugs hide in the combinations" (B5(c) §d TRANSFER VERDICT). X-GIS's matrix (A4 §3c) is the skeleton of exactly this — it needs to become a perceptual golden-master gate, not a presence tripwire, and run automatically.
+
+3. **Metamorphic relations (correctness signal without a ground-truth image).** B5(c) §d ②: the oracle-problem escape hatch GraphicsFuzz uses — semantics-preserving input transforms must yield equivalent output. For a map: pan-one-tile-then-back ⇒ identical frame; world-copy wrap ⇒ identical content one world over; same scene via two projection code-paths ⇒ identical pixels; zoom-out-then-in ⇒ stable. This is "the cheapest way to expand coverage" (B5(c) §d rule) and it directly attacks A2's two-parallel-write-path risk (RC-3) by asserting round-trip invariance regardless of which lane mutated.
+
+4. **Differential vs a reference renderer where one exists.** B5(c) §d ③: same style+camera through X-GIS vs MapLibre/d3-geo, diff. X-GIS already does the numeric flavor (d3-geo, A4 §3e); extend to pixel-differential. B3 is the peer that makes this concrete — MapLibre's `idle` event (B3 §4, §5) is the *observable convergence signal* that makes any of these tests deterministic; without it the harness has "paint-wait fragility" (B3 §5, X-GIS memory). **`idle`/`render` events are a prerequisite of the net, not a separate feature.**
+
+**The infrastructure unlock both A4 and A5 name as load-bearing: a GPU-enabled CI runner.** A4 §4 calls it "the lasting unlock" that "converts the local-only matrix from a debugging tool into an actual regression gate." A5 §4 Q1 sharpens it: the matrix *as it stands* "is blind to the extrusion path S20 must preserve" (flat fill renders 56.75% under SwiftShader, the same geometry extruded renders **0.00%**, A5 §4.5) — so even a wired matrix is incomplete until it runs on real hardware. Target state = four oracles, golden-master automated on real-GPU CI, perceptual-diff, spanning the combinatorial space, with `idle` as the convergence signal.
+
+---
+
+## 4. RECOMMENDATIONS
+
+Ordered so the net exists *before* the decomposition it protects. Each is sized to the evidence.
+
+### R1 — Stand up a GPU-enabled CI lane and promote the existing matrix to an automated golden-master gate
+- **Rationale:** This is *the* unlock both first-hand audits independently name (A4 §4 "lasting unlock"; A5 §4 Q1). It converts the asset X-GIS already built (45-cell matrix, A4 §3c) from a manual debugging tool into the automated behavioral oracle RC-1 says is missing. B5(c) §d confirms the visual tier "MUST run on a real GPU" and is "the decisive layer." Without it, R3–R6 cannot be verified and the roadmap stays parked (A5 §3.2).
+- **Evidence:** A4 §3b④, §4; A5 §4.5, Part 5 Q1; B5(c) §d (pyramid + TRANSFER VERDICT).
+- **Risk:** Medium. GPU CI runners cost money and add flake surface; perceptual thresholds need tuning or they false-positive on driver AA (B5(c) §d ① known failure mode). Mitigation is in the literature: perceptual/tolerance diff, not exact-hash, with same-GPU exact-hash reserved for drift detection.
+- **Blast-radius:** CI config + harness wiring; **zero production code.** This is the lowest-blast, highest-leverage item — it touches no shader, no god-file.
+
+### R2 — Add the `idle`/`render` observable convergence signal (and an `'error'` event) before expanding the net
+- **Rationale:** Every oracle in §3 needs a deterministic "the frame is settled" signal to assert against; without it the harness has documented paint-wait fragility (B3 §5; A4 §3 references the same harness pain). MapLibre's `idle` is literally "no pending loads and the animation loop has finished" (B3 §5) and is the test hook the four-oracle net depends on. A6 E2 separately shows there is **no `'error'` event at all** (CRITICAL) — so today a device-loss or validation failure during a test run is invisible to the harness, which silently corrupts golden comparisons.
+- **Evidence:** B3 §4 (`Evented` mixin, ~200 LOC, zero GPU coupling), §5 (idle/convergence); A2 §3 (event surface exists but `easeTo`/`flyTo` are `jumpTo` stubs that fire move events in one tick — breaks any cadence-based test wait); A6 E2 (no `'error'` event).
+- **Risk:** Low. B3 §4 shows the `Evented` pattern is ~200 LOC of pure TypeScript with no renderer coupling; A2 §3 confirms X-GIS already has `MapEventRegistry` and a single-vantage `_processCameraEvents()` — this is wiring, not invention.
+- **Blast-radius:** `layer.ts`/`map.ts` event surface + harness wait logic. Small, additive.
+
+### R3 — Lock golden-master characterization tests on the god-files BEFORE any S20-style decomposition
+- **Rationale:** This is the thesis operationalized. B5(c) §c is unambiguous: Strangler Fig / Branch-by-Abstraction are safe *only* with "golden-master characterization first"; Feathers — "legacy code is code without tests." A5 proves the cost of skipping it: the god-files **grew** (`map.ts` +604 LOC / +21%, VTR +142, A5 §2.2) because S20 (the decomposition) was deferred as "too risky for CI" (A5 §3.2). Lock the behavior of VTR's `render()` (A1 §2.1, ~2,054 LOC), `label-pass.execute()` (A4 §2b, ~980 LOC), and TextStage's `prepare()` (A1 §2.3, 903 LOC, **0 tests**) as real-GPU golden masters first; *then* decomposition becomes "a series of small, reviewable, instantly-revertible changes" (B5(c) §c, Branch-by-Abstraction).
+- **Evidence:** B5(c) §c (all four refactor techniques + the "golden-master first" rule); A5 §2.2, §3.2 (god-files grew, S20 deferred for lack of a catchable gate); A1 §2.1/2.3, A4 §2b (the untested target methods).
+- **Risk:** Medium. Golden masters on a 2,054-LOC fused method are coarse — they pin the *output* but a wrong-but-consistent baseline can be locked. Mitigation: pair with metamorphic relations (R5) so the baseline itself is cross-checked, and use A4's `cross-validation` tier to anchor the math independently.
+- **Blast-radius:** Test-only until decomposition starts. The decomposition that follows is high-blast (VTR/label-pass), which is *exactly why* the net must precede it.
+
+### R4 — Add the `expected_red` flip-alert and extend emit-stability snapshots to line/point/raster
+- **Rationale:** Two cheap, GPU-free, already-scoped fixes that close active stale-baseline holes the net depends on. A4 §3c: **26 of 45 matrix cells are `expected_red`** (known-broken, coerced to soft) and the flip-alert is **absent** (`grep EXPECTED_RED|FIXED:` → zero hits) — so when a known bug regresses *or gets fixed*, the cell flips silently (A4 §3c, §4 action 1; it is task #6 / Step 1.5, still pending per the in-context task list). A4 §1c: the byte-drift emit-stability snapshot exists for **polygon only**; line/point/raster author hand-WGSL strings (`line.ts:1105`) with **no emit gate** — so a refactor silently changing the line shader's output is caught only by "does it compile," not "did the output change."
+- **Evidence:** A4 §1c, §3c, §4 (actions 1–2); the live task list (#6 Step 1.5 pending).
+- **Risk:** Very low. A4 calls the flip-alert "~1 line" and the snapshot extension "~20 lines, mirror `__polygon-variant-snapshots__`."
+- **Blast-radius:** Manifest/evaluator + new fixture files. Trivial. This is the "do it today" item.
+
+### R5 — Build metamorphic relations as the coverage multiplier, keyed to X-GIS's known bug classes
+- **Rationale:** Metamorphic testing is the only oracle that gives correctness signal *without* a ground-truth image (B5(c) §d ②, GraphicsFuzz/Google), and it directly attacks RC-3 (two parallel write paths). The relations are cheap and abundant for a map (B5(c) §d ②): pan-and-back ⇒ identical; world-copy wrap ⇒ identical one world over; dual-projection-path ⇒ identical pixels; zoom-out-then-in ⇒ stable. These map 1:1 onto X-GIS's recurring memory bugs (world-copy gaps, projection divergence) and onto A2's gesture-vs-programmatic write-path risk — a pan-and-back relation falsifies any lane that mutates without restoring.
+- **Evidence:** B5(c) §d ② (metamorphic + GraphicsFuzz); A2 §4 (two write paths, RC-3); A4 §3d (OIT — a metamorphic "compose order shouldn't matter" relation would have caught the non-commutative-`over` bug that zero current tests cover).
+- **Risk:** Low-medium. Defining semantics-preserving transforms requires care (a transform that *isn't* truly equivalent yields false failures), but the relations above are well-established in the field.
+- **Blast-radius:** Test-only, on the real-GPU lane from R1.
+
+### R6 — Forbid big-bang rewrites and enforce the net with structural CI gates
+- **Rationale:** B5(c) §c rule: "Forbid big-bang rewrites of any render-path subsystem." A1 §6 and A4 §0 both observe the decomposition *plan is correct and unexecuted* — the failure is "non-execution + zero enforcement." A1 §6 proposes the concrete gates: fail new `render/` files >800 LOC, forbid `projType === <int>` outside `projections-table.ts`, break the `map → render-loop → map` cycle (A1 §3.1). These keep the god-files from regrowing (A5 §2.2 proved they will, absent a gate) and make the net's protection durable.
+- **Evidence:** B5(c) §c (no big-bang, Strangler/BbA/Sprout); A1 §6 (the three structural gates); A5 §2.2 (god-files grew because nothing blocked them).
+- **Risk:** Low. LOC/lint gates are standard CI. The cultural risk (A5 §3.3) — that the team prefers writing audits to attempting S20 — is the real one and no CI gate fixes it; the net is what *de-risks* the attempt so it becomes thinkable.
+- **Blast-radius:** CI config + a one-time cycle break (`map ↔ render-loop`, A1 §3.1). Moderate for the cycle break, trivial for the lint gates.
+
+---
+
+## 5. EXPLICIT UNCERTAINTIES & DISAGREEMENTS
+
+1. **Does the net "unlock both" *fully*, or only render-path bugs?** The thesis is strongest for the **render/raster** bug class, which A4 measures definitively. It is **weaker for the contract/event/lifecycle classes** A6 raises: the compiler↔runtime `ShowCommand` drift (A6 C1, defined twice, hand-synced), the `{ast: unknown}` ×7 seam (A6 C3), device-loss-is-terminal (A6 E1), and the un-installable package (A6 α) are bugs a *visual* net would **not** catch — they need a shared type (compile-error gate) and a contract test, not a golden image. **Honest scope:** the safety-net thesis covers the bug class the owner most viscerally feels (invisible render bugs) and the refactor-safety problem, but "behavioral safety net" must be read as *two* nets — a visual/metamorphic net (R1–R5) for the render path AND a type/contract net (A6's shared-type + version-stamp fixes) for the seam. A4's own §3e is fair about this: the architecture *can* catch the math/compile class today; it is the raster/behavior/event/memory class it cannot. I am confident on render; I flag the seam class as a co-equal net the thesis under-emphasizes.
+
+2. **Is golden-master enough, or does the fused-method problem defeat it?** INFERENCE, medium confidence: a golden master pins *output*, but B5(c) §c warns "prefer duplication over the wrong abstraction" and a 2,054-LOC `render()` (A1 §2.1) may have output so entangled that a coarse golden baseline locks in *wrong-but-consistent* behavior (the matrix already documents 26 known-broken cells, A4 §3c). I lean on R5 (metamorphic) + A4's cross-validation tier to anchor the baseline, but I cannot prove from the evidence that golden-master alone is sufficient on these specific methods — only that it is *necessary* and *standard* (B5(c) §d ①).
+
+3. **Cost/feasibility of GPU CI is asserted, not costed.** A4 §4 and A5 §4 both name GPU-CI as the unlock but neither audit prices it or confirms a provider works for X-GIS's WebGPU stack under headless real-GPU. B5(c) §d says the field runs the visual tier on "local/desktop or GPU-equipped runner" — it validates the *approach* but not that a hosted runner renders WebGPU correctly. This is the single largest open feasibility question and R1's risk rating depends on it.
+
+4. **Mild disagreement with A4's framing that the gaps are "enumerated but not closed."** A4 §4 credits the architecture 3/5 partly because "the gaps are enumerated." A5 §3.3 is harsher and, I think, more correct for *this* theme: the enumeration has itself become the comfortable activity (12 doc commits vs 10 feat in the recent window, A5 §3.1). For the safety-net thesis specifically, *enumeration is not the net* — the net is the automated oracle. I weight A5's "research-to-execution ratio is inverted" finding above A4's partial-credit, because R1/R4 (the actual net pieces) have sat un-done while audits accumulated. The thesis's practical force is: **the next unit of work should be R1+R4, not another A*/B*/S* document.**
+
+5. **Whether `easeTo`/`flyTo` being stubs (A2 §3) blocks the net.** A2 shows `easeTo`/`flyTo` alias `jumpTo` and fire `movestart/move/moveend` in a single tick. INFERENCE: this is a *minor* dependency for R2 — metamorphic pan-and-back and golden-master tests do not need real easing — but any test asserting *animation cadence* (e.g. "move fires N times over a 2s ease") is untestable until easing is real. I down-rank this; it is not on the critical path to the net.
+
+---
+
+### Evidence ledger
+A4 §1c/§2b/§3a–e/§4 (test census: 260/262 CPU-only, 1 GPU, 1 pixel, 0 render; 4 CI specs paint nothing; matrix local-only; 26/45 expected_red, flip-alert absent; OIT live bug; polygon-only emit snapshot). A2 §3/§4 (event surface + `idle` vantage; gesture-vs-programmatic dual write path; render-loop mutates scene structs). A5 §2.2/§3.1–3.3/§4.5/Part 5 (god-files grew +604/+142; S20 deferred for un-catchable failure; GPU-CI named as unlock; matrix blind to extrusion 56.75%→0.00%; research-to-execution inverted). A1 §2.1/2.3/§3.1/§6 (VTR `render()` ~2,054 LOC; TextStage `prepare()` 903 LOC / 0 tests; map↔render-loop cycle; proposed structural CI gates). A6 C1/C3/E1/E2/α (contract drift; untyped seam; device-loss terminal; no `'error'` event; un-installable — the co-equal seam net). B3 §4/§5 (`Evented` mixin ~200 LOC; `idle`/convergence; dirty-flag loop). B5(c)/(d) (Strangler/BbA/Feathers golden-master-first; four-oracle net; real-GPU requirement; perceptual diff; metamorphic/GraphicsFuzz; matrix-not-single-view).
