@@ -12,6 +12,15 @@ import { FrameDrawStats } from './frame-draw-stats'
 // vtr-decomposition §4 Step 2). getTileLoadDiagnostic reads them back via
 // `_drawStats.needed()/.missed()`, so the bare VTR must carry a real
 // FrameDrawStats whose `_frameTilesVisible`/`_missedTiles` are poked.
+// The GPU resident-tile COUNT now lives on the GpuTileStore collaborator
+// (Cluster A, vtr-decomposition U3-prime); getTileLoadDiagnostic reads it
+// via `_store.cacheCount()`, so the bare VTR carries a minimal store stub
+// whose count is settable (mirrors the `uploadQueue` size stub below).
+function setGpuUnique(vtr: VectorTileRenderer, n: number): void {
+  ;(vtr as unknown as { _store: { cacheCount: () => number } })._store = {
+    cacheCount: () => n,
+  }
+}
 function makeBareVtr(): VectorTileRenderer {
   const vtr = Object.create(VectorTileRenderer.prototype) as VectorTileRenderer
   const drawStats = new FrameDrawStats()
@@ -19,7 +28,7 @@ function makeBareVtr(): VectorTileRenderer {
   ;(vtr as unknown as { source: unknown }).source = null
   setNeeded(vtr, 0)
   setMissed(vtr, 0)
-  ;(vtr as unknown as { _gpuCacheCount: number })._gpuCacheCount = 0
+  setGpuUnique(vtr, 0)
   ;(vtr as unknown as { uploadQueue: { size: () => number } }).uploadQueue = {
     size: () => 0,
   }
@@ -54,7 +63,7 @@ describe('VectorTileRenderer.getTileLoadDiagnostic (iter-288)', () => {
     const vtr = makeBareVtr()
     setNeeded(vtr, 140)
     setMissed(vtr, 78)
-    ;(vtr as unknown as { _gpuCacheCount: number })._gpuCacheCount = 62
+    setGpuUnique(vtr, 62)
     ;(vtr as unknown as { uploadQueue: { size: () => number } }).uploadQueue = {
       size: () => 12,
     }

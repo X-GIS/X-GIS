@@ -48,9 +48,14 @@ function makeVtr(): VectorTileRenderer {
     add: vi.fn(() => Promise.resolve()),
   }
   ;(vtr as unknown as { uploadItemData: Map<string, unknown> }).uploadItemData = new Map()
-  // gpuCache is consulted at the very top of uploadTile to dedupe
-  // already-on-GPU keys; an empty Map fakes "nothing on GPU yet".
-  ;(vtr as unknown as { gpuCache: Map<string, Map<number, unknown>> }).gpuCache = new Map()
+  // The GPU tile cache is consulted at the very top of uploadTile (via
+  // getLayerCache → _store.getLayer) to dedupe already-on-GPU keys. The
+  // cache moved onto the GpuTileStore collaborator (Cluster A, U3-prime),
+  // so stub the store's getLayer to fake "nothing on GPU yet" (no inner
+  // map for any sourceLayer).
+  ;(vtr as unknown as { _store: { getLayer: () => undefined } })._store = {
+    getLayer: () => undefined,
+  }
   return vtr
 }
 
