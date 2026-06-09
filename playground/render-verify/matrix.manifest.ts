@@ -885,4 +885,30 @@ export const MATRIX: MatrixCell[] = [
     knownStatus: 'expected_red',
     note: 'Known-bug axis: disc/globe coord-readout NaN. finite_mvp probes getCameraDebugSnapshot().matrix for NaN/Inf (root of coord-readout corruption); disc_fraction confirms the disc renders. Soft tripwire; flips green when the ECEF/ortho MVP path is NaN-clean.',
   },
+
+  // (N) 3D EXTRUSION DEPTH (#4b) — REAL-GPU ONLY (extrude doesn't raster under
+  // SwiftShader). osm-style on protomaps v4 (API TileJSON) extrudes buildings
+  // from `.height` at Tokyo z16 p45 — the only working extrusion path (synthetic
+  // inline cannot extrude; OFM-Bright buildings are flat — verified 2026-06-09).
+  // At pitch the front buildings occlude the back; a botched depth state
+  // (reversed-Z / wrong compare) z-fights → frame_stability fails. black_ratio =
+  // the dense city rendered. The holistic screenshot_diff depth-regression gate
+  // is added once a real-GPU capture is reviewed + accepted. Candidate → soft.
+  {
+    id: 'osm-shinjuku-z16-p60-extrude',
+    projection: 'mercator',
+    zoom: 16,
+    pitch: 60,
+    bearing: 0,
+    dataset: 'osm_style',
+    surfaces: ['fill', 'line', 'label', 'extrusion'],
+    camera: { center: [139.6917, 35.6895] }, // Nishi-Shinjuku skyscraper cluster
+    oracles: [
+      { kind: 'black_ratio', max: 0.2 },
+      { kind: 'frame_stability', max: 0.02 },
+    ],
+    gate: 'soft',
+    knownStatus: 'candidate',
+    note: 'Real-data 3D extrusion depth net (protomaps v4 buildings, Shinjuku z16 p60) — the only working extrusion path (synthetic inline cannot extrude, OFM buildings are flat). frame_stability catches the z-fighting a botched depth state (reversed-Z) produces; black_ratio = the dense 3D city rendered. A reviewed screenshot_diff baseline (the holistic depth-regression gate) is the natural next add.',
+  },
 ]
