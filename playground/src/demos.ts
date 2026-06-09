@@ -4,39 +4,33 @@
 
 const modules = import.meta.glob<string>('./examples/*.xgis', { eager: true, query: '?raw', import: 'default' })
 
-// Production URL rewrites for .xgis sources.
+// .xgis source URL rewrites — applied in BOTH dev and prod.
 //
-// In dev (`bun run dev`) the .xgis sources reference
-// `/pmtiles-proxy/protomaps/v4.pmtiles`. Vite proxies that path to
-// demo-bucket.protomaps.com so the browser sees a same-origin
-// response (the protomaps demo bucket rejects CORS preflight, so
-// direct fetches from any other origin fail).
-//
-// In production (GH Pages, no proxy server) we substitute the dev
-// proxy URL with the protomaps API TileJSON endpoint. The runtime's
-// pmtiles-source loader detects `.json` URLs and switches to the
-// XYZ MVT-tile-server fetcher path (added with this change), so the
-// same demo .xgis sources work both ways without code changes.
-//
-// The API key below is restricted in the protomaps dashboard to
-// CORS Origin = https://x-gis.github.io, so it can't be reused from
-// any other domain even if the bundled JS is mirrored.
-const PROD_PROTOMAPS_API_KEY = '360aa6108dc73d2e'
+// The protomaps demo bucket the demos originally referenced
+// (`demo-bucket.protomaps.com/v4.pmtiles`, via the vite `/pmtiles-proxy/
+// protomaps` proxy) is DEAD — the file 404s as of 2026-06, so the proxy no
+// longer resolves and the v4 demos (osm-style, pmtiles-layered, etc.) render
+// only their style background. Rewrite that dead path to the protomaps API
+// TileJSON. The runtime's pmtiles-source loader detects `.json` URLs and
+// switches to the XYZ MVT-tile-server fetcher, so the same .xgis sources work
+// everywhere. Per protomaps' CORS policy a keyed request from localhost is
+// CORS-exempt (local dev), and the key is allowed for https://x-gis.github.io
+// in prod — so the direct API URL works in both. (Previously this rewrite was
+// prod-only; with the bucket gone, dev needs it too.)
+const PROTOMAPS_API_KEY = '360aa6108dc73d2e'
 
-const PROD_URL_REWRITES: Array<[RegExp, string]> = import.meta.env.PROD
-  ? [
-      [
-        /\/pmtiles-proxy\/protomaps\/v4\.pmtiles/g,
-        `https://api.protomaps.com/tiles/v4.json?key=${PROD_PROTOMAPS_API_KEY}`,
-      ],
-    ]
-  : []
+const URL_REWRITES: Array<[RegExp, string]> = [
+  [
+    /\/pmtiles-proxy\/protomaps\/v4\.pmtiles/g,
+    `https://api.protomaps.com/tiles/v4.json?key=${PROTOMAPS_API_KEY}`,
+  ],
+]
 
 function load(file: string): string {
   const key = `./examples/${file}`
   let src = modules[key]
   if (!src) throw new Error(`Missing example: ${key}`)
-  for (const [pattern, replacement] of PROD_URL_REWRITES) {
+  for (const [pattern, replacement] of URL_REWRITES) {
     src = src.replace(pattern, replacement)
   }
   return src
