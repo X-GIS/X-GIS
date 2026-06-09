@@ -50,6 +50,7 @@ const DEMO_ID: Record<Dataset, string> = {
   synthetic: 'fixture_render_verify',
   ofm_bright: 'openfreemap_bright',
   synthetic_disc: 'fixture_synth_bg_only',
+  osm_style: 'osm_style',
 }
 
 interface MapH {

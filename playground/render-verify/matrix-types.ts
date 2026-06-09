@@ -37,8 +37,12 @@ export type { ProjName }
  *                    a real-world 93-layer OpenMapTiles basemap.
  *   synthetic_disc → fixture-synth-bg-only.xgis (id `fixture_synth_bg_only`),
  *                    the SyntheticEarthSurfaceBackend solid #4488cc disc.
+ *   osm_style      → osm-style.xgis (id `osm_style`), protomaps v4 (API
+ *                    TileJSON) with REAL 3D-extruded buildings — the only
+ *                    working extrusion path (synthetic inline cannot extrude;
+ *                    OFM-Bright buildings are flat). Used by the depth cell.
  */
-export type Dataset = 'synthetic' | 'ofm_bright' | 'synthetic_disc'
+export type Dataset = 'synthetic' | 'ofm_bright' | 'synthetic_disc' | 'osm_style'
 
 /** Render surfaces a cell is documented to exercise. Attribution only — the
  *  surfaces a cell frames are governed by its dataset + camera; this field
