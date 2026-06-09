@@ -22,7 +22,7 @@ import { describe, it, expect } from 'vitest'
 import {
   splitF64, packDSFUNLineVertices,
   lonLatToMercF64,
-} from './vector-tiler'
+} from './ecef-packing'
 
 function makeRng(seed: number): () => number {
   let s = seed | 0
