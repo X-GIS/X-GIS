@@ -383,11 +383,11 @@ export class VectorTileRenderer {
   // FrameDrawStats collaborator (Cluster G). See `_drawStats` above.
 
   /** Pipeline pair for tiles with per-feature extrude heights (i.e.
-   *  `cached.zBuffer != null`). The orchestrator (renderer.ts) sets
+   *  `cached.extruded`). The orchestrator (renderer.ts) sets
    *  these once at init via `setExtrudedPipelines`; VTR swaps them in
-   *  for the fill draw when the cached tile carries a z buffer. Null
+   *  for the fill draw when the cached tile carries extruded geometry. Null
    *  before `setExtrudedPipelines` runs — flat-only render still works
-   *  because the branch checks `cached.zBuffer` first. */
+   *  because the branch checks `cached.extruded` first. */
   private fillPipelineExtruded: GPURenderPipeline | null = null
   private fillPipelineExtrudedFallback: GPURenderPipeline | null = null
   /** Ground-layer fill pipelines — depth test/write disabled.
@@ -2089,7 +2089,7 @@ export class VectorTileRenderer {
       vertexBuffer, polyVertexOffset, polyVertexByteLength, indexBuffer,
       polyIndexOffset, polyIndexByteLength,
       indexCount: polyIndices.length,
-      zBuffer, zBufferOffset, zBufferByteLength, extruded: useFeatureHeights,
+      zBuffer, zBufferOffset, zBufferByteLength, extruded: useFeatureHeights && !!data.polygons,
       lineVertexBuffer, lineIndexBuffer,
       lineIndexCount: data.lineIndices.length,
       outlineIndexBuffer, outlineIndexCount,
@@ -2473,7 +2473,7 @@ export class VectorTileRenderer {
       vertexBuffer, polyVertexOffset, polyVertexByteLength, indexBuffer,
       polyIndexOffset, polyIndexByteLength,
       indexCount: polyIndices.length,
-      zBuffer, zBufferOffset, zBufferByteLength, extruded: useFeatureHeights,
+      zBuffer, zBufferOffset, zBufferByteLength, extruded: useFeatureHeights && !!data.polygons,
       lineVertexBuffer, lineIndexBuffer,
       lineIndexCount: data.lineIndices.length,
       outlineIndexBuffer, outlineIndexCount,
@@ -4936,7 +4936,7 @@ export class VectorTileRenderer {
         //  * per-feature extrude (opaque): vs_main_quantized_extruded + zBuffer
         //  * uniform / ground (opaque): pre-selected `fillPipeline`
         const useOitPipe = isOitFill
-          && cached.zBuffer !== null
+          && cached.extruded
           && this.fillPipelineExtrudedOIT !== null
         // DIAG: log per-tile drawIndexed for the current trace if armed.
         // Granular enough to verify the cross-tile order claim
@@ -4979,7 +4979,7 @@ export class VectorTileRenderer {
         // would attach an OPAQUE-targets pipeline to the OIT pass and
         // trip "Attachment state of RenderPipeline is not compatible
         // with RenderPassEncoder" at every frame's submit. This used
-        // to fire when (a) cached.zBuffer was null on a fallback
+        // to fire when (a) cached.extruded was false on a fallback
         // ancestor tile of an extruded slice or (b) setOITPipeline
         // hadn't run yet. Either way: skip the draw rather than
         // emit an incompatible pipeline. Visual cost: a translucent
