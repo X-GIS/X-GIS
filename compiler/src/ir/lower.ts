@@ -12,6 +12,7 @@ import {
   extractInterpolateZoomColorStops,
 } from './lower-helpers'
 import { lowerLabelProps } from './lower-label'
+import { expandKeyframeTimeStops } from './lower-animation'
 // Re-export public types so importers of './lower' keep their surface.
 export type { LowerOptions, ZoomStopsWithBase } from './lower-types'
 import {
@@ -22,7 +23,6 @@ import {
   type SizeValue,
   type OpacityValue,
   type ZoomStop,
-  type TimeStop,
   type Easing,
   type ConditionalBranch,
   colorNone,
@@ -897,84 +897,15 @@ function lowerLayer(
     }
   }
 
-  // Expand referenced keyframes into per-property time stops.
-  //
-  // PR 1 covered opacity. PR 3 (this code) covers fill, stroke color,
-  // stroke width, point size, and stroke dash-offset — the five
-  // properties that already have concrete per-layer uniform slots.
-  // PR 5 will add transforms, PR 6 filters.
-  const opacityTimeStops: TimeStop<number>[] = []
-  const fillTimeStops: TimeStop<[number, number, number, number]>[] = []
-  const strokeColorTimeStops: TimeStop<[number, number, number, number]>[] = []
-  const strokeWidthTimeStops: TimeStop<number>[] = []
-  const sizeTimeStops: TimeStop<number>[] = []
-  const dashOffsetTimeStops: TimeStop<number>[] = []
-  if (animationName) {
-    const kf = keyframesMap.get(animationName)
-    if (!kf) {
-      throw new Error(
-        `Unknown keyframes reference: animation-${animationName} ` +
-        `(layer '${stmt.name}' at line ${stmt.line})`,
-      )
-    }
-    for (const frame of kf.frames) {
-      const timeMs = (frame.percent / 100) * animationDurationMs
-      for (const item of frame.utilities) {
-        const uname = item.name
-        // ── opacity ──
-        if (uname.startsWith('opacity-')) {
-          const num = parseFloat(uname.slice('opacity-'.length))
-          if (!isNaN(num)) {
-            opacityTimeStops.push({
-              timeMs,
-              value: num <= 1 ? num : num / 100,
-            })
-          }
-          continue
-        }
-        // ── dash-offset (meters) ──
-        // Must come before the generic `stroke-` branch because
-        // `stroke-dashoffset-N` shares the prefix.
-        if (uname.startsWith('stroke-dashoffset-')) {
-          const num = parseFloat(uname.slice('stroke-dashoffset-'.length))
-          if (!isNaN(num)) dashOffsetTimeStops.push({ timeMs, value: num })
-          continue
-        }
-        // ── fill color ──
-        if (uname.startsWith('fill-')) {
-          const hex = resolveColor(uname.slice('fill-'.length))
-          if (hex) fillTimeStops.push({ timeMs, value: hexToRgba(hex) })
-          continue
-        }
-        // ── stroke: either color or width ──
-        // The existing static lowering treats `stroke-<number>` as
-        // width and `stroke-<colorname>` as color. Mirror that here.
-        if (uname.startsWith('stroke-')) {
-          const rest = uname.slice('stroke-'.length)
-          const num = parseFloat(rest)
-          if (!isNaN(num) && rest === String(num)) {
-            strokeWidthTimeStops.push({ timeMs, value: num })
-          } else {
-            const hex = resolveColor(rest)
-            if (hex) strokeColorTimeStops.push({ timeMs, value: hexToRgba(hex) })
-          }
-          continue
-        }
-        // ── point size ──
-        if (uname.startsWith('size-')) {
-          const sizeStr = uname.slice('size-'.length)
-          const unitMatch = sizeStr.match(/^([\d.]+)(px|m|km|nm|deg)?$/)
-          if (unitMatch) {
-            const num = parseFloat(unitMatch[1])
-            if (!isNaN(num)) sizeTimeStops.push({ timeMs, value: num })
-          }
-          continue
-        }
-        // Unknown keyframe utilities are silently ignored. Future PRs
-        // extend this loop (transforms, filters, etc.).
-      }
-    }
-  }
+  // Expand referenced keyframes into per-property time stops. Pure
+  // sub-pass (lower-animation.ts): reads only the animation meta set in
+  // the loop above + the keyframes table, returns the six time-stop
+  // arrays consumed by the promotion block below. The call stays here —
+  // AFTER the utility loop (so animationName/Duration are set) and
+  // BEFORE the promotion (DO-NOT-SPLIT #2).
+  const { opacityTimeStops, fillTimeStops, strokeColorTimeStops,
+          strokeWidthTimeStops, sizeTimeStops, dashOffsetTimeStops }
+    = expandKeyframeTimeStops(animationName, animationDurationMs, keyframesMap, stmt.name, stmt.line)
 
   // Build conditional fill if branches exist
   if (fillBranches.length > 0) {
