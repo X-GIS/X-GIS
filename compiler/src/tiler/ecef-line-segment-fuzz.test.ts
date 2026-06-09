@@ -26,7 +26,7 @@
 //     Method A formula at lat=0 and lat=85 fixtures from Spike 2.
 
 import { describe, it, expect } from 'vitest'
-import { packECEFLineSegments } from './vector-tiler'
+import { packECEFLineSegments } from './ecef-packing'
 
 // ── WGS84 constants (mirrors runtime/src/engine/projection/ecef.ts) ─────────
 const A = 6378137               // semi-major axis (m)

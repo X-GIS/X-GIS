@@ -15,7 +15,7 @@
 //   inverse to better than 1e-9 degrees.
 
 import { describe, it, expect } from 'vitest'
-import { packECEFPolygonVertices } from './vector-tiler'
+import { packECEFPolygonVertices } from './ecef-packing'
 import { dequantVertex, dequantVertexF32 } from './dequant-mirror'
 
 // ── WGS84 constants (mirrors runtime/src/engine/projection/ecef.ts) ─────────

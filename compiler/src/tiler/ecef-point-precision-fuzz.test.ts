@@ -16,7 +16,7 @@
 //   z=0  — ≤ 1 cm
 
 import { describe, it, expect } from 'vitest'
-import { packECEFPointFeatures } from './vector-tiler'
+import { packECEFPointFeatures } from './ecef-packing'
 
 // ── WGS84 constants (mirrors runtime/src/engine/projection/ecef.ts) ─────────
 const A = 6378137               // semi-major axis (m)
