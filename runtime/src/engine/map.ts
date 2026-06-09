@@ -40,7 +40,6 @@ import { ShapeRegistry } from './text/sdf-shape'
 import { LineRenderer } from './render/line-renderer'
 import { PanZoomController, type Controller } from './controller'
 import { DirtyTracker, DirtyDomain, DIRTY_ALL } from './state/dirty'
-import { OperatorBus } from './ops/operator-bus'
 import { VectorTileRenderer } from './render/vector-tile-renderer'
 import { TextStage, type TextStageOptions } from './text/text-stage'
 import type { GlyphProvider } from './text/sdf/pbf/glyph-provider'
@@ -401,7 +400,6 @@ export class XGISMap {
   // per-frame rendering naturally.
   _needsRender = true
   private _dirty = new DirtyTracker()
-  private _ops = new OperatorBus(this._dirty)
   private _sceneHasAnimation = false
   /** True when a label carries a time-driven shape (text-size/-color/-halo/
    *  -opacity/icon-* against the clock). Read by the label pass: the S16
@@ -504,7 +502,7 @@ export class XGISMap {
         this.showCommands.splice(synthIdx, 1)
       }
       this._backgroundColor = null
-      this._ops.dispatch({ kind: 'SetBackgroundFill', value: null }, DirtyDomain.STYLE)
+      this._dirty.tag(DirtyDomain.STYLE)
       this.invalidate()
       return
     }
@@ -536,7 +534,7 @@ export class XGISMap {
         invalidateResolvedShowCache(synthShow)
       }
     }
-    this._ops.dispatch({ kind: 'SetBackgroundFill', value: rgba }, DirtyDomain.STYLE)
+    this._dirty.tag(DirtyDomain.STYLE)
     this.invalidate()
   }
 
@@ -747,15 +745,15 @@ export class XGISMap {
   setGraticuleEnabled(on: boolean): void {
     this.renderer?.setGraticuleEnabled(on)
     this._graticuleInitial = on
-    this._ops.dispatch({ kind: 'SetGraticule', value: on }, DirtyDomain.STYLE)
+    this._dirty.tag(DirtyDomain.STYLE)
     this.invalidate()
   }
 
   /** Mapbox-API parity: programmatic camera control. Delegated to
    *  CameraController — see camera-controller.ts for the validation /
    *  clamp logic (moved verbatim). */
-  setCenter(lon: number, lat: number): void { this.cameraController.setCenter(lon, lat); this._ops.dispatch({ kind: 'SetCenter', lon, lat }, DirtyDomain.CAMERA) }
-  setZoom(zoom: number): void { this.cameraController.setZoom(zoom); this._ops.dispatch({ kind: 'SetZoom', zoom }, DirtyDomain.CAMERA) }
+  setCenter(lon: number, lat: number): void { this.cameraController.setCenter(lon, lat); this._dirty.tag(DirtyDomain.CAMERA) }
+  setZoom(zoom: number): void { this.cameraController.setZoom(zoom); this._dirty.tag(DirtyDomain.CAMERA) }
   setMinZoom(z: number): void { this.cameraController.setMinZoom(z) }
   setMaxZoom(z: number): void { this.cameraController.setMaxZoom(z) }
   getMinZoom(): number { return this.cameraController.getMinZoom() }
@@ -843,7 +841,7 @@ export class XGISMap {
     opts: { padding?: number; bearing?: number; pitch?: number } = {},
   ): void {
     this.cameraController.fitBounds(bounds, opts)
-    this._ops.dispatch({ kind: 'FitBounds', args: bounds }, DirtyDomain.CAMERA)
+    this._dirty.tag(DirtyDomain.CAMERA)
   }
 
   /** Mapbox-API parity stub: setStyle / addLayer / addSource / addImage
@@ -898,25 +896,25 @@ export class XGISMap {
    *  CameraController. */
   easeTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number; duration?: number; easing?: unknown }): void {
     this.cameraController.easeTo(opts)
-    this._ops.dispatch({ kind: 'EaseTo', opts }, DirtyDomain.CAMERA)
+    this._dirty.tag(DirtyDomain.CAMERA)
   }
   flyTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number; duration?: number; speed?: number; curve?: number }): void {
     this.cameraController.flyTo(opts)
-    this._ops.dispatch({ kind: 'FlyTo', opts }, DirtyDomain.CAMERA)
+    this._dirty.tag(DirtyDomain.CAMERA)
   }
 
   /** Mapbox-API parity: pan the map by an offset in CSS pixels.
    *  Delegated to CameraController. */
-  panBy(offset: [number, number]): void { this.cameraController.panBy(offset); this._ops.dispatch({ kind: 'PanBy', offset }, DirtyDomain.CAMERA) }
+  panBy(offset: [number, number]): void { this.cameraController.panBy(offset); this._dirty.tag(DirtyDomain.CAMERA) }
 
-  setBearing(bearing: number): void { this.cameraController.setBearing(bearing); this._ops.dispatch({ kind: 'SetBearing', bearing }, DirtyDomain.CAMERA) }
-  setPitch(pitch: number): void { this.cameraController.setPitch(pitch); this._ops.dispatch({ kind: 'SetPitch', pitch }, DirtyDomain.CAMERA) }
+  setBearing(bearing: number): void { this.cameraController.setBearing(bearing); this._dirty.tag(DirtyDomain.CAMERA) }
+  setPitch(pitch: number): void { this.cameraController.setPitch(pitch); this._dirty.tag(DirtyDomain.CAMERA) }
 
   /** Mapbox-API parity: bulk camera update. Delegated to
    *  CameraController. */
   jumpTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number }): void {
     this.cameraController.jumpTo(opts)
-    this._ops.dispatch({ kind: 'JumpTo', opts }, DirtyDomain.CAMERA)
+    this._dirty.tag(DirtyDomain.CAMERA)
   }
 
   /** Mapbox-API parity: per-axis getters. Delegated to CameraController. */
@@ -1225,7 +1223,7 @@ export class XGISMap {
     // azimuthal set switches to it dynamically in renderFrame when
     // pitch>0 (renderers branch on projType 7).
     this.camera.globeMode = name === 'globe'
-    this._ops.dispatch({ kind: 'SetProjection', name: canonical }, DirtyDomain.PROJECTION)
+    this._dirty.tag(DirtyDomain.PROJECTION)
     this.invalidate()
   }
 
@@ -2958,13 +2956,13 @@ export class XGISMap {
         // Mirror of the runtime hexToRgba contract fix (iter 318).
         if (typeof value === 'string' && hexToRgba(value) === null) return false
         layer.style.fill = value as string | null
-        this._ops.dispatch({ kind: 'SetPaintProperty', layerId, property, value }, DirtyDomain.STYLE)
+        this._dirty.tag(DirtyDomain.STYLE)
         return true
       case 'line-color':
         if (typeof value !== 'string' && value !== null) return false
         if (typeof value === 'string' && hexToRgba(value) === null) return false
         layer.style.stroke = value as string | null
-        this._ops.dispatch({ kind: 'SetPaintProperty', layerId, property, value }, DirtyDomain.STYLE)
+        this._dirty.tag(DirtyDomain.STYLE)
         return true
       case 'fill-opacity':
       case 'line-opacity':
@@ -2975,21 +2973,21 @@ export class XGISMap {
         // alpha compositing.
         if (typeof value !== 'number' || !Number.isFinite(value)) return false
         layer.style.opacity = Math.max(0, Math.min(1, value))
-        this._ops.dispatch({ kind: 'SetPaintProperty', layerId, property, value }, DirtyDomain.STYLE)
+        this._dirty.tag(DirtyDomain.STYLE)
         return true
       case 'line-width':
         // Mapbox spec: line-width >= 0. Negative values previously
         // propagated and the line shader produced inside-out miters.
         if (typeof value !== 'number' || !Number.isFinite(value)) return false
         layer.style.strokeWidth = Math.max(0, value)
-        this._ops.dispatch({ kind: 'SetPaintProperty', layerId, property, value }, DirtyDomain.STYLE)
+        this._dirty.tag(DirtyDomain.STYLE)
         return true
       case 'visibility':
         // Mapbox-style: 'visible' | 'none'. Coerce to boolean for the
         // XGISLayerStyle setter; reject other strings.
         if (value !== 'visible' && value !== 'none') return false
         layer.style.visible = value === 'visible'
-        this._ops.dispatch({ kind: 'SetPaintProperty', layerId, property, value }, DirtyDomain.STYLE)
+        this._dirty.tag(DirtyDomain.STYLE)
         return true
       default:
         return false
