@@ -30,6 +30,26 @@ describe('Phase-2 line shader — DSL emission', () => {
     expect(noPick).toContain('fn lonlat_to_ecef(')
     expect(noPick).toContain('WGS84_A')
   })
+  it('globe arm lifts z_lift along the GEODETIC NORMAL, not the ECEF polar axis', () => {
+    // z_lift must ride INTO lonlat_to_ecef as the geodetic height argument —
+    // the same frame the CPU lonLatToECEF uses for the extruded polygon roof
+    // ring. The pre-fix form added z_lift to the ECEF Z component AFTER
+    // conversion, displacing extruded outlines h·cos(lat) north of (and
+    // h·(1−sin lat) below) the fill roof edge on globe (~44 m / ~37 px at z16
+    // for h=50 at Seoul) — the user-visible fill-vs-outline offset.
+    for (const w of [noPick, pick]) {
+      // final clip arm + both width-clamp draft corners take the height arg
+      expect(w).toContain('lonlat_to_ecef(final_corner_lon_rad, final_corner_lat_rad, seg.z_lift_m)')
+      expect(w).toContain('lonlat_to_ecef(clamp_base_lon_rad, clamp_base_lat_rad, seg.z_lift_m)')
+      expect(w).toContain('lonlat_to_ecef(clamp_corner_lon_rad, clamp_corner_lat_rad, seg.z_lift_m)')
+      // the RTC anchor stays height-0 (polygon tile_ecef_center parity)
+      expect(w).toContain('lonlat_to_ecef(final_tile_lon_rad, final_tile_lat_rad, 0.0)')
+      // the polar-axis post-add form must NOT come back
+      expect(w).not.toContain('ecef_rtc_lifted')
+      expect(w).not.toContain('base_rtc_lifted')
+      expect(w).not.toContain('corner_rtc_lifted')
+    }
+  })
   it('binds g0 tile + sprite + g1 layer + 3 storage<read>', () => {
     expect(linePart(noPick)).toContain('@group(0) @binding(0) var<uniform> tile: TileUniforms;')
     expect(linePart(noPick)).toContain('@group(0) @binding(5) var sprite_atlas: texture_2d<f32>;')

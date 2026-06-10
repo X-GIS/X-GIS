@@ -889,21 +889,28 @@ const vsLine = entryFn('vs_line', 'vertex', [
 
   // Helper: build local ECEF for an absolute Mercator (x_m, y_m) input.
   // Keeps the inverse-Mercator steps (lon/lat radians) inline, then defers the
-  // WGS84 forward-ECEF tail to the shared `lonlat_to_ecef(lon, lat, height=0)`
+  // WGS84 forward-ECEF tail to the shared `lonlat_to_ecef(lon, lat, height)`
   // primitive — identical to the raster VS path (raster.ts callFn site).
+  // `height` lifts along the GEODETIC NORMAL ((N+h)·cosφ…, (N(1−E2)+h)·sinφ) —
+  // the same frame the CPU `lonLatToECEF` uses for the extruded polygon roof
+  // ring (polygon-mesh.ts). The previous form lifted z_lift along the ECEF
+  // POLAR axis after conversion, displacing extruded outlines h·cos(lat)
+  // northward + h·(1−sin lat) below the roof edge (~44 m / ~37 px at z16 for
+  // h=50 at Seoul) — the user-visible fill-vs-outline offset on globe.
   type FNode = Node<'f32'>
   const ecefFromMerc = (
     builder: typeof b,
     name: string,
     absMercX: FNode,
     absMercY: FNode,
+    height: FNode = f32(0),
   ): Node<'vec3<f32>'> => {
     const lonRad = builder.let(`${name}_lon_rad`, toF32(absMercX.div(earthR)))
     const latRad = builder.let(`${name}_lat_rad`,
       toF32(f32(2).mul(atan(exp(absMercY.div(earthR)))).sub(pi.div(f32(2)))),
     )
     return builder.let(`${name}_ecef`,
-      callFn('lonlat_to_ecef', vec3fT, lonRad, latRad, f32(0)),
+      callFn('lonlat_to_ecef', vec3fT, lonRad, latRad, height),
     ) as Node<'vec3<f32>'>
   }
 
@@ -946,20 +953,16 @@ const vsLine = entryFn('vs_line', 'vertex', [
       const tileEcef = ecefFromMerc(d, 'clamp_tile', tileAbsX, tileAbsY)
       const baseAbsX = d.let('base_abs_x', toF32(base.x.add(tileOrigin.x)))
       const baseAbsY = d.let('base_abs_y', toF32(base.y.add(tileOrigin.y)))
-      const baseEcef = ecefFromMerc(d, 'clamp_base', baseAbsX, baseAbsY)
+      // z_lift rides INTO lonlat_to_ecef as geodetic height (tileEcef anchor
+      // stays height-0 = the polygon tile_ecef_center RTC frame).
+      const baseEcef = ecefFromMerc(d, 'clamp_base', baseAbsX, baseAbsY, zLift)
       const baseRtc = d.let('base_rtc', baseEcef.sub(tileEcef))
-      const baseRtcLifted = d.let('base_rtc_lifted',
-        vec3(baseRtc.x, baseRtc.y, toF32(baseRtc.z.add(zLift))),
-      )
-      d.assign(centerClip, transformMat4(mvp, vec4(addCamOff(baseRtcLifted), f32(1))))
+      d.assign(centerClip, transformMat4(mvp, vec4(addCamOff(baseRtc as Node<'vec3<f32>'>), f32(1))))
       const cornerAbsX = d.let('corner_abs_x', toF32(cornerLocal.x.add(tileOrigin.x)))
       const cornerAbsY = d.let('corner_abs_y', toF32(cornerLocal.y.add(tileOrigin.y)))
-      const cornerEcef = ecefFromMerc(d, 'clamp_corner', cornerAbsX, cornerAbsY)
+      const cornerEcef = ecefFromMerc(d, 'clamp_corner', cornerAbsX, cornerAbsY, zLift)
       const cornerRtc = d.let('corner_rtc', cornerEcef.sub(tileEcef))
-      const cornerRtcLifted = d.let('corner_rtc_lifted',
-        vec3(cornerRtc.x, cornerRtc.y, toF32(cornerRtc.z.add(zLift))),
-      )
-      d.assign(cornerClip, transformMat4(mvp, vec4(addCamOff(cornerRtcLifted), f32(1))))
+      d.assign(cornerClip, transformMat4(mvp, vec4(addCamOff(cornerRtc as Node<'vec3<f32>'>), f32(1))))
     })
     const centerXY = c.let('center_xy', vec2(centerClip.x, centerClip.y))
     const cornerXY = c.let('corner_xy', vec2(cornerClip.x, cornerClip.y))
@@ -998,14 +1001,13 @@ const vsLine = entryFn('vs_line', 'vertex', [
     const tileEcef = ecefFromMerc(c, 'final_tile', tileAbsX, tileAbsY)
     const cornerAbsX = c.let('corner_abs_x_f', toF32(cornerLocal.x.add(tileOrigin2.x)))
     const cornerAbsY = c.let('corner_abs_y_f', toF32(cornerLocal.y.add(tileOrigin2.y)))
-    const cornerEcef = ecefFromMerc(c, 'final_corner', cornerAbsX, cornerAbsY)
+    // z_lift = geodetic height inside lonlat_to_ecef (matches the CPU
+    // lonLatToECEF roof-ring lift); the tile anchor stays height-0.
+    const cornerEcef = ecefFromMerc(c, 'final_corner', cornerAbsX, cornerAbsY, zLift)
     const ecefRtc = c.let('ecef_rtc', cornerEcef.sub(tileEcef))
-    const ecefRtcLifted = c.let('ecef_rtc_lifted',
-      vec3(ecefRtc.x, ecefRtc.y, toF32(ecefRtc.z.add(zLift))),
-    )
     // Camera-relative RTC — without addCamOff, line projects vertex−
     // tileEcefCenter and collapses toward each tile's origin.
-    const ecefCam = c.let('ecef_cam', addCamOff(ecefRtcLifted))
+    const ecefCam = c.let('ecef_cam', addCamOff(ecefRtc as Node<'vec3<f32>'>))
     c.assign(clip, transformMat4(mvp, vec4(ecefCam, f32(1))))
   })
   b.assign(out.field('position', vec4fT), callFn('apply_log_depth', vec4fT, clip, tile.field('log_depth_fc', f32T)))
