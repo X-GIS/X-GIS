@@ -887,16 +887,12 @@ const vsLine = entryFn('vs_line', 'vertex', [
   const earthR = constRef('EARTH_R')
   const pi = constRef('PI')
 
-  // Helper: build local ECEF for an absolute Mercator (x_m, y_m) input.
-  // Keeps the inverse-Mercator steps (lon/lat radians) inline, then defers the
-  // WGS84 forward-ECEF tail to the shared `lonlat_to_ecef(lon, lat, height)`
-  // primitive — identical to the raster VS path (raster.ts callFn site).
-  // `height` lifts along the GEODETIC NORMAL ((N+h)·cosφ…, (N(1−E2)+h)·sinφ) —
-  // the same frame the CPU `lonLatToECEF` uses for the extruded polygon roof
-  // ring (polygon-mesh.ts). The previous form lifted z_lift along the ECEF
-  // POLAR axis after conversion, displacing extruded outlines h·cos(lat)
-  // northward + h·(1−sin lat) below the roof edge (~44 m / ~37 px at z16 for
-  // h=50 at Seoul) — the user-visible fill-vs-outline offset on globe.
+  // Helper: build local ECEF for an absolute Mercator (x_m, y_m) input via the
+  // shared `lonlat_to_ecef(lon, lat, height)` (same as the raster VS path).
+  // `height` lifts along the GEODETIC NORMAL — the frame the CPU lonLatToECEF
+  // uses for the extruded roof ring (polygon-mesh.ts). The previous form added
+  // z_lift to ECEF Z AFTER conversion (polar axis), displacing extruded
+  // outlines h·cos(lat) north + h·(1−sin lat) below the roof (~37 px at z16).
   type FNode = Node<'f32'>
   const ecefFromMerc = (
     builder: typeof b,

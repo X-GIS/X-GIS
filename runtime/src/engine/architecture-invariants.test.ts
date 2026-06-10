@@ -88,7 +88,7 @@ const LOC_CEILINGS: Record<string, number> = {
   'compiler/src/convert/expressions.ts': 1534,
   'runtime/src/data/tile-catalog.ts': 1388,
   'blueprint/src/editor.ts': 1353,
-  'runtime/src/engine/shader-dsl/shaders/line.ts': 1189,
+  'runtime/src/engine/shader-dsl/shaders/line.ts': 1187,
   'compiler/src/parser/parser.ts': 1171,
   'runtime/src/engine/shader-dsl/shaders/polygon.ts': 1139,
   'runtime/src/engine/projection/camera.ts': 1087,
