@@ -33,20 +33,22 @@ import type { GlyphProvider } from './sdf/pbf/glyph-provider'
 import { PbfRasterizer } from './sdf/pbf-rasterizer'
 import { TextRenderer, type TextDraw } from './text-renderer'
 import { greedyPlaceBboxes, type CollisionItem } from './text-collision'
-import { FONT_KEY_SENTINEL } from './sdf/glyph-rasterizer'
 import {
   applyTextTransform, stripCurveLineExtraScripts,
   evaluateVariableOffsetEm, variableAnchorOffsetEm,
   resolveTypography,
+  layoutCacheKey, textKeyFor, layoutCacheEntryValid,
+  mlVerticalLayout, composeFontKey,
+  ONE_EM, SHAPING_DEFAULT_OFFSET, CJK_FALLBACK_CHAIN,
   type LabelAnchor,
 } from './text-stage-helpers'
 import type {
-  MlVerticalLayout,
   TextStageOptions, PendingLabel, PendingLineLabel,
 } from './text-stage-types'
 import {
   wrapWithKnuthPlass, hasCjkIdeograph, CJK_MIN_DISPLAY_PX,
 } from './text-wrap'
+import { TextStageDiagnostics } from './text-stage-diagnostics'
 // iter-265 — sub-phase drill inside prepare(). encoder.stage-prepare
 // shows 1.31 ms/frame in iter-263 budget but we don't know which
 // inner phase dominates (point shape vs curved line layout vs
@@ -65,181 +67,15 @@ export { resolveTypography } from './text-stage-helpers'
 // in text-wrap.test.ts / text-layout-edge.test.ts /
 // bilingual-label-placement-repro.test.ts stays byte-identical.
 export { wrapForTesting } from './text-wrap'
-
-/** FNV-1a 32-bit hash of (fontKey, text codepoints). Used by the
- *  iter-167 glyph-string cache. Same hash shape as pretextCacheKey
- *  but without the size/spacing fields (the cached value depends on
- *  fontKey + text only). Collisions trade a misrender against speed:
- *  at 32 bits and ≤4096 entries collision probability is well below
- *  pixel-visible — same trade-off the wrap cache already accepts. */
-
-/** Fingerprint for the iter-168 layout cache (single-anchor static
- *  case). Mixes the slice-1 glyphsKey (which encodes fontKey + text)
- *  with every shape-affecting def field. Numeric fields are
- *  bucket-quantised so sub-px / sub-frame jitter collapses on one
- *  entry (same convention as pretextCacheKey). 32-bit hash, 4096-
- *  entry cap — collision probability well below pixel-visible. */
-const _ANCHOR_ORDINAL: Record<string, number> = {
-  center: 0, top: 1, bottom: 2, left: 3, right: 4,
-  'top-left': 5, 'top-right': 6, 'bottom-left': 7, 'bottom-right': 8,
-}
-const _JUSTIFY_ORDINAL: Record<string, number> = {
-  center: 0, left: 1, right: 2, auto: 3,
-}
-function layoutCacheKey(
-  glyphsKey: number,
-  sizePx: number, letterSpacingPx: number, maxWidthPx: number,
-  lineHeightPx: number,
-  justify: string, anchor: string,
-  offsetX: number, offsetY: number,
-  translateX: number, translateY: number,
-  padding: number,
-  haloWidth: number, haloBlur: number,
-): number {
-  let h = glyphsKey | 0
-  h = Math.imul(h ^ ((sizePx * 10) | 0), 0x01000193)
-  h = Math.imul(h ^ ((letterSpacingPx * 100) | 0), 0x01000193)
-  h = Math.imul(h ^ (maxWidthPx === Infinity ? -1 : (maxWidthPx * 10) | 0), 0x01000193)
-  h = Math.imul(h ^ ((lineHeightPx * 10) | 0), 0x01000193)
-  h = Math.imul(h ^ ((_JUSTIFY_ORDINAL[justify] ?? 15) + 1), 0x01000193)
-  h = Math.imul(h ^ ((_ANCHOR_ORDINAL[anchor] ?? 15) + 1), 0x01000193)
-  h = Math.imul(h ^ ((offsetX * 10) | 0), 0x01000193)
-  h = Math.imul(h ^ ((offsetY * 10) | 0), 0x01000193)
-  h = Math.imul(h ^ ((translateX * 10) | 0), 0x01000193)
-  h = Math.imul(h ^ ((translateY * 10) | 0), 0x01000193)
-  h = Math.imul(h ^ ((padding * 10) | 0), 0x01000193)
-  h = Math.imul(h ^ ((haloWidth * 10) | 0), 0x01000193)
-  h = Math.imul(h ^ ((haloBlur * 10) | 0), 0x01000193)
-  return h | 0
-}
-
-/** iter-167/190 — quick FNV-1a of `(fontKey, text)` for the layout
- *  cache. Smaller than pretextCacheKey (no advances bucket) since
- *  the layout cache is keyed by `(text, font, size, …)` and the
- *  advances depend on the resolved glyphs, which themselves are
- *  function of `(fontKey, text)` — folding advances into this key
- *  would just be redundant entropy. The atlas-generation guard at
- *  the cache-hit site catches the stale-slot case that needed
- *  per-advance bucketing in pretextCacheKey. */
-function textKeyFor(fontKey: string, text: string): number {
-  let h = 0x811c9dc5 | 0
-  for (let i = 0; i < fontKey.length; i++) {
-    h = Math.imul(h ^ fontKey.charCodeAt(i), 0x01000193)
-  }
-  // Separator byte so `font+text` != `fon+ttext`.
-  h = Math.imul(h ^ 0x7f, 0x01000193)
-  for (let i = 0; i < text.length; i++) {
-    h = Math.imul(h ^ text.charCodeAt(i), 0x01000193)
-  }
-  return h | 0
-}
-
-/** Audit ④ B1 — layout-cache hit validity. The numeric `_layoutKey`
- *  (32-bit FNV-1a over font/size/width/…) CAN collide; the generation
- *  guard only catches eviction-staleness, so on a collision the cache
- *  would serve label-A's glyphs+offsets for label-B (the "일부만" scatter,
- *  iter-327). Validate the EXACT source identity (`srcKey` = fontKey+text)
- *  on hit — a string compare is collision-proof. A hit is valid only when
- *  BOTH the atlas generation matches (slots unchanged) AND the source text
- *  matches (no hash collision). Exported for direct unit testing. */
-export function layoutCacheEntryValid(
-  entry: { generation: number; srcKey: string },
-  srcKey: string,
-  generation: number,
-): boolean {
-  return entry.generation === generation && entry.srcKey === srcKey
-}
-
-/** ONE_EM / SHAPING_DEFAULT_OFFSET — MapLibre `shaping.ts` constants.
- *  MapLibre lays text in a 24-unit em space; the baseline of every
- *  line sits a FIXED −17/24 em below the line-box top, independent of
- *  the glyphs' own ink metrics. We work in display px, so the em→px
- *  factor is sizePx/ONE_EM. */
-const ONE_EM = 24
-const SHAPING_DEFAULT_OFFSET = -17
-
-/** MapLibre `shapeLines` + `align()` vertical model for the common
- *  single-section (scale=1, no inline images) case — every map label
- *  in OFM/MapLibre-demo styles. Each line occupies a CONSTANT
- *  `lineHeightPx` box; the per-line baseline is
- *  `li·LH + OFF + (−vAlign·n·LH + 0.5·LH)` (the `maxLineHeight ===
- *  lineHeight` branch of MapLibre `align`), with `OFF = −17·sizePx/24`.
- *  This replaces the old per-glyph maxAscent/maxDescent box, which
- *  diverged from MapLibre whenever line scripts had different ink
- *  metrics (bilingual Latin+Hangul). `vAlign` is MapLibre
- *  `getAnchorAlignment`: top→0, bottom→1, else 0.5. */
-export function mlVerticalLayout(
-  vAlign: 0 | 0.5 | 1, lineCount: number,
-  lineHeightPx: number, sizePx: number,
-  // iter-242 (Plan AAA B.2) — optional FrameArena for baselineY
-  // scratch. When provided, the per-line baseline array carves from
-  // the arena (no per-call allocation); when undefined (test seam),
-  // falls back to `new Array(n)`. The returned `baselineY` is a
-  // typed-array view that's only valid until the arena's next
-  // `beginFrame()` — consumers must read inside the same frame
-  // (matches the iter-241 advances lifetime contract).
-  arena?: FrameArena,
-): MlVerticalLayout {
-  const LH = lineHeightPx
-  const n = lineCount
-  const off = (SHAPING_DEFAULT_OFFSET * sizePx) / ONE_EM
-  const shiftY = -vAlign * n * LH + 0.5 * LH
-  let baselineY: ArrayLike<number>
-  if (arena !== undefined) {
-    bumpAlloc('text-stage.mlVerticalLayout.baselineY.FrameArena')
-    const view = arena.allocF32(n)
-    for (let li = 0; li < n; li++) view[li] = li * LH + off + shiftY
-    baselineY = view
-  } else {
-    bumpAlloc('text-stage.mlVerticalLayout.baselineY.Array')
-    const arr: number[] = new Array(n)
-    for (let li = 0; li < n; li++) arr[li] = li * LH + off + shiftY
-    baselineY = arr
-  }
-  const blockTop = -vAlign * n * LH
-  return { baselineY, blockTop, blockBottom: blockTop + n * LH }
-}
-
-/** Test seam for `mlVerticalLayout`. */
-export function verticalLayoutForTesting(
-  vAlign: 0 | 0.5 | 1, lineCount: number,
-  lineHeightPx: number, sizePx: number,
-): MlVerticalLayout {
-  return mlVerticalLayout(vAlign, lineCount, lineHeightPx, sizePx)
-}
-
-/** Compose the rasterizer-visible font key for one label.
- *
- *  Format when weight/style are unset: plain CSS family-list string
- *  ("Foo, Bar, sans-serif"). When the LabelDef carries a fontWeight
- *  or fontStyle, the helper prepends a sentinel-delimited prefix:
- *
- *      \x01<style>\x01<weight>\x01<family-list>
- *
- *  glyph-rasterizer.ts detects the sentinel and unpacks the three
- *  fields into a properly-ordered CSS font shorthand
- *  ("italic 700 24px Foo, sans-serif"). Without this, the only way
- *  to carry weight info through ctx.font is to embed it in the
- *  family name itself, which CSS parses literally and the browser
- *  silently falls back to its default font — the root cause of "all
- *  Mapbox labels look the same Regular weight".
- *
- *  CJK_FALLBACK_CHAIN is appended after any user-supplied family
- *  list so Mapbox styles that only declare "Noto Sans Regular"
- *  still pick up a Korean / Japanese / Chinese font from the host
- *  OS for glyphs the primary family lacks. */
-export function composeFontKey(def: LabelDef, defaultFamily: string): string {
-  const family = def.font && def.font.length > 0
-    ? def.font.map(f => f.includes(' ') ? `"${f}"` : f).join(',')
-      + ',' + CJK_FALLBACK_CHAIN
-    : defaultFamily
-  if (def.fontStyle === undefined && def.fontWeight === undefined) {
-    return family
-  }
-  const style = def.fontStyle ?? 'normal'
-  const weight = def.fontWeight ?? 400
-  return `${FONT_KEY_SENTINEL}${style}${FONT_KEY_SENTINEL}${weight}${FONT_KEY_SENTINEL}${family}`
-}
+// Re-export the pure shaping helpers (moved to text-stage-helpers.ts)
+// so existing test imports from './text-stage' stay byte-identical
+// (layout-cache-entry-valid.test.ts, text-vertical.test.ts,
+// text-layout-edge.test.ts, text-stage.test.ts,
+// bilingual-label-placement-repro.test.ts).
+export {
+  layoutCacheEntryValid, mlVerticalLayout, verticalLayoutForTesting,
+  composeFontKey,
+} from './text-stage-helpers'
 
 // Slot must fit (rasterFontSize + 2*sdfRadius). PBF arrives at 24 px
 // native (MapLibre's ONE_EM). Setting rasterFontSize to match means
@@ -265,8 +101,8 @@ export function composeFontKey(def: LabelDef, defaultFamily: string): string {
 // engine-level label without a Mapbox font stack still reads
 // Hangul/Han correctly on every host OS we ship on (macOS / Win /
 // Linux). Per-label font stacks coming from Mapbox styles get the
-// same fallback chain appended in addLabel/addCurvedLineLabel.
-const CJK_FALLBACK_CHAIN = '"Noto Sans CJK KR","Apple SD Gothic Neo","Malgun Gothic","Microsoft YaHei","Noto Sans CJK JP","Hiragino Sans","Yu Gothic",sans-serif'
+// same fallback chain appended in composeFontKey. CJK_FALLBACK_CHAIN
+// now lives in text-stage-helpers.ts alongside composeFontKey.
 const DEFAULTS: Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders' | 'fontTypography' | 'dpr' | 'onResourceLanded'>> = {
   slotSize: 64,
   // iter-272 — bump atlas slots 1296 → 4096 (~3.2× headroom).
@@ -325,37 +161,13 @@ export class TextStage {
   beginFrame(): void {
     this._frameArena.beginFrame()
   }
-  /** Diagnostic: cumulative set of resolved label-text strings the
-   *  stage has SUBMITTED (post addLabel / addCurvedLineLabel) since
-   *  last clear. Mirror of IconStage.getDispatchedIconNames() — answers
-   *  "did the text reach the stage" (vs "evaluated to empty and
-   *  dropped before submit"). Used by e2e diagnostics to isolate
-   *  text-expr eval failures from downstream collision suppression.
-   *  Iter 108. */
-  private readonly dispatchedLabelTexts: Set<string> = new Set()
-  /** iter-285 — per-frame counters disambiguating collision-suppressed
-   *  vs render-but-invisible. Filled by prepare(): submitted is the
-   *  raw addLabel/addCurvedLineLabel count at frame start, drawn is the
-   *  count of TextDraws actually pushed to renderer.setDraws (post-
-   *  collision). User-reported OFM Bright Texas highway shields:
-   *  text numbers dispatchedLabelTexts include "10"/"45"/"288" but no
-   *  visible glyphs on screen — these counters localise whether
-   *  collision dropped them or render-but-invisible. */
-  private _lastSubmittedLabelCount = 0
-  private _lastDrawnLabelCount = 0
-  /** iter 152 diagnostic — per-label halo normalisation capture for
-   *  the z0-halo-too-large probe (user report #1). One entry per
-   *  shaped label this prepare(): resolved fontSize (= def.size·dpr),
-   *  the fixed atlas rasterFontSize, the resolved halo width (phys
-   *  px), and haloWidthNorm = the value packUniforms feeds the
-   *  shader (halo.width·3/fontSize). Lets an E2E read what the LIVE
-   *  pipeline actually resolves at z0 vs deeper zoom — the unknown a
-   *  unit probe of packUniforms can't reach. Capped to keep the
-   *  array bounded. (memory project_z0_halo_too_large_2026_05_19) */
-  private readonly haloDebug: Array<{
-    text: string; fontSize: number; rasterFontSize: number
-    haloWidth: number; haloWidthNorm: number
-  }> = []
+  /** Bounded label-pipeline observability (dispatch texts, z0-halo
+   *  norm probe, glyph-placement dump, submitted/drawn counters, trace
+   *  records). Diagnostics-only: zero influence on draws. The VERBS
+   *  stay at the call sites in addLabel / addCurvedLineLabel /
+   *  prepare(); TextStage keeps every public getter/setter as a thin
+   *  forwarder so external/test signatures stay unchanged. */
+  private readonly _diag = new TextStageDiagnostics()
   /** Iter 112: pair-keys of labels REJECTED by the collision pass.
    *  IconStage reads this set in its own prepare() to drop matching
    *  icons — MapLibre-style "text+icon as one symbol" sync without a
@@ -627,7 +439,7 @@ export class TextStage {
     // scripts head-to-tail along the road).
     const transformed = stripCurveLineExtraScripts(applyTextTransform(text, def.transform))
     if (transformed.length === 0) return
-    if (this.dispatchedLabelTexts.size < 256) this.dispatchedLabelTexts.add(transformed)
+    this._diag.recordDispatch(transformed)
     if (this._debugHook && polylineX.length > 0) {
       // Approximate the curve's anchor as its first vertex — enough
       // for the debug overlay to pin down a screen position. Mid-
@@ -635,25 +447,11 @@ export class TextStage {
       // worth the cost for a debug-only path.
       this._debugHook(transformed, polylineX[0]!, polylineY[0]!, 'curve')
     }
-    if (this._traceRecorder !== null && polylineX.length > 0) {
-      this._traceRecorder.recordLabel({
-        layerName: layerName ?? '',
-        text: transformed,
-        color: (def.color ?? [0, 0, 0, 1]) as readonly [number, number, number, number],
-        halo: def.halo ? {
-          color: def.halo.color as readonly [number, number, number, number],
-          width: def.halo.width,
-          blur: def.halo.blur ?? 0,
-        } : undefined,
-        fontFamily: (def.font && def.font[0]) ?? 'sans-serif',
-        fontWeight: def.fontWeight ?? 400,
-        fontStyle: def.fontStyle ?? 'normal',
-        sizePx: def.size,
-        placement: 'curve',
-        state: 'placed',
-        anchorScreenX: polylineX[0]!,
-        anchorScreenY: polylineY[0]!,
-      })
+    if (polylineX.length > 0) {
+      this._diag.recordTrace(
+        this._traceRecorder, 'curve', def, transformed,
+        polylineX[0]!, polylineY[0]!, layerName,
+      )
     }
     this.pendingLine.push({
       text: transformed,
@@ -668,17 +466,6 @@ export class TextStage {
    *  TextValue + feature props inline; caller already knows the
    *  feature's screen anchor (after projection). Empty resolved
    *  text is silently skipped. */
-  // iter-327 — live glyph-placement dump. When `_dumpFilter` is set,
-  // prepare() records the actual per-glyph (x,y) offsets of every drawn
-  // label whose text CONTAINS the filter substring. Lets a live session
-  // read the REAL composition output for a user-reported scatter (e.g.
-  // "서울특별시") and decide whether the corruption is in prepare (CPU)
-  // or downstream in the GPU shader. Off by default (zero cost).
-  private _dumpFilter: string | null = null
-  private _dumpedLabels: Array<{
-    text: string; anchorX: number; anchorY: number; fontSize: number; slotSize: number; curved: boolean
-    glyphs: Array<{ cp: number; x: number; y: number; bearingY: number; height: number; rfs: number }>
-  }> = []
   /** iter-336 — glyph-atlas generation (host bumps on every slot
    *  eviction). Stable across a steady frame ⇒ no eviction ⇒ no
    *  glyph-slot aliasing possible. See XGISMap.getAtlasGeneration. */
@@ -686,7 +473,7 @@ export class TextStage {
 
   /** Enable per-glyph offset capture for labels containing `substr`.
    *  Pass null to disable. Cleared + refilled each prepare(). */
-  setLabelDumpFilter(substr: string | null): void { this._dumpFilter = substr }
+  setLabelDumpFilter(substr: string | null): void { this._diag.setLabelDumpFilter(substr) }
   /** Last prepare()'s captured labels matching the dump filter, with
    *  each glyph's resolved (x,y) offset from the label anchor PLUS the
    *  per-glyph metrics + display fontSize + atlas slotSize the renderer
@@ -697,25 +484,25 @@ export class TextStage {
   getDumpedLabels(): ReadonlyArray<{
     text: string; anchorX: number; anchorY: number; fontSize: number; slotSize: number; curved: boolean
     glyphs: ReadonlyArray<{ cp: number; x: number; y: number; bearingY: number; height: number; rfs: number }>
-  }> { return this._dumpedLabels }
+  }> { return this._diag.getDumpedLabels() }
 
   /** Diagnostic: every resolved text string the stage has submitted
    *  since last clear (mirror of IconStage.getDispatchedIconNames).
    *  Iter 108 — added to localize the OFM Bright Texas highway-shield
    *  text-overlay no-render bug. */
-  getDispatchedLabelTexts(): string[] { return [...this.dispatchedLabelTexts].sort() }
-  clearDispatchedLabelTexts(): void { this.dispatchedLabelTexts.clear() }
+  getDispatchedLabelTexts(): string[] { return this._diag.getDispatchedLabelTexts() }
+  clearDispatchedLabelTexts(): void { this._diag.clearDispatchedLabelTexts() }
   /** iter-285 — last frame's submitted (raw addLabel) and drawn
    *  (post-collision) label counts. `submitted - drawn` measures
    *  collision-suppression pressure for the most recent prepare(). */
-  getLastSubmittedLabelCount(): number { return this._lastSubmittedLabelCount }
-  getLastDrawnLabelCount(): number { return this._lastDrawnLabelCount }
+  getLastSubmittedLabelCount(): number { return this._diag.getLastSubmittedLabelCount() }
+  getLastDrawnLabelCount(): number { return this._diag.getLastDrawnLabelCount() }
   /** iter 152 — drain the z0-halo probe capture (see haloDebug). */
   getHaloDebug(): ReadonlyArray<{
     text: string; fontSize: number; rasterFontSize: number
     haloWidth: number; haloWidthNorm: number
-  }> { return this.haloDebug.slice() }
-  clearHaloDebug(): void { this.haloDebug.length = 0 }
+  }> { return this._diag.getHaloDebug() }
+  clearHaloDebug(): void { this._diag.clearHaloDebug() }
 
   /** Iter 112: pair-keys of text labels REJECTED by the most recent
    *  prepare() collision pass. IconStage.prepare reads this to drop
@@ -738,33 +525,15 @@ export class TextStage {
     if (text.length === 0) return
     const transformed = applyTextTransform(text, def.transform)
     // Iter 108 dispatch diagnostic — record post-resolve text BEFORE
-    // collision. Mirror of IconStage.dispatchedIconNames. Cap at 256
-    // entries so unbounded label corpora (Bright Korea ~5000 unique)
-    // don't blow up the set.
-    if (this.dispatchedLabelTexts.size < 256) this.dispatchedLabelTexts.add(transformed)
+    // collision. Mirror of IconStage.dispatchedIconNames.
+    this._diag.recordDispatch(transformed)
     if (this._debugHook) {
       this._debugHook(transformed, anchorScreenX, anchorScreenY, 'point')
     }
-    if (this._traceRecorder !== null) {
-      this._traceRecorder.recordLabel({
-        layerName: layerName ?? '',
-        text: transformed,
-        color: (def.color ?? [0, 0, 0, 1]) as readonly [number, number, number, number],
-        halo: def.halo ? {
-          color: def.halo.color as readonly [number, number, number, number],
-          width: def.halo.width,
-          blur: def.halo.blur ?? 0,
-        } : undefined,
-        fontFamily: (def.font && def.font[0]) ?? 'sans-serif',
-        fontWeight: def.fontWeight ?? 400,
-        fontStyle: def.fontStyle ?? 'normal',
-        sizePx: def.size,
-        placement: 'point',
-        state: 'placed',  // collision result not known yet at submit time
-        anchorScreenX,
-        anchorScreenY,
-      })
-    }
+    this._diag.recordTrace(
+      this._traceRecorder, 'point', def, transformed,
+      anchorScreenX, anchorScreenY, layerName,
+    )
     this.pending.push({
       text: transformed,
       anchorX: anchorScreenX,
@@ -783,10 +552,10 @@ export class TextStage {
     // iter-285 — snapshot submitted count BEFORE collision pass.
     // pendingLine entries each may yield 1+ placements; counted as 1
     // per submission for a coarse but useful diagnostic.
-    this._lastSubmittedLabelCount = this.pending.length + this.pendingLine.length
+    this._diag.setSubmittedCount(this.pending.length + this.pendingLine.length)
     if (this.pending.length === 0 && this.pendingLine.length === 0) {
       this.renderer.setDraws([])
-      this._lastDrawnLabelCount = 0
+      this._diag.setDrawnCount(0)
       this._lastPrepareFullyResolved = true // nothing to resolve
       return
     }
@@ -1319,17 +1088,8 @@ export class TextStage {
       }
       // iter 152: z0-halo probe capture. haloK=3 mirrors
       // packUniforms' pxToSdf (text-renderer.ts:602-609) exactly so
-      // haloWidthNorm here == the buf[12] the shader receives.
-      if (this.haloDebug.length < 512) {
-        const hw = haloOut ? haloOut.width : 0
-        this.haloDebug.push({
-          text: p.text,
-          fontSize: sizePx,
-          rasterFontSize: this.opts.rasterFontSize,
-          haloWidth: hw,
-          haloWidthNorm: sizePx > 0 ? (hw * 3) / sizePx : 0,
-        })
-      }
+      // haloWidthNorm captured here == the buf[12] the shader receives.
+      this._diag.captureHalo(p.text, sizePx, this.opts.rasterFontSize, haloOut ? haloOut.width : 0)
       shaped.push({
         layouts,
         allowOverlap: p.def.allowOverlap === true,
@@ -1645,38 +1405,11 @@ export class TextStage {
     // page0.width to compute UVs.
     this.gpu.flush()
     // iter-327 — live glyph-placement dump (off unless a filter is set).
-    if (this._dumpFilter !== null) {
-      const filt = this._dumpFilter
-      this._dumpedLabels = []
-      for (const d of draws) {
-        const text = String.fromCodePoint(...d.glyphs.map(g => g.codepoint))
-        if (!text.includes(filt)) continue
-        const off = d.glyphOffsets
-        const glyphs = d.glyphs.map((g, gi) => ({
-          cp: g.codepoint,
-          x: off ? off[gi * 2]! : NaN,
-          y: off ? off[gi * 2 + 1]! : NaN,
-          // setDraws inputs: the final vertex top y =
-          //   anchorY + y - bearingY*(fontSize/rfs) - (slotH - height*scale)/2.
-          // A CJK glyph with anomalous bearingY/height rises into the
-          // line above even though its baseline y is correct.
-          bearingY: g.bearingY,
-          height: g.height,
-          rfs: g.rasterFontSize ?? this.opts.rasterFontSize,
-        }))
-        this._dumpedLabels.push({
-          text, anchorX: d.anchorX, anchorY: d.anchorY,
-          fontSize: d.fontSize, slotSize: this.opts.slotSize,
-          // Line-following labels (roads/rivers, symbol-placement=line)
-          // carry per-glyph rotations and place glyphs ALONG a curve —
-          // the stacked-line render-y analysis does NOT apply to them.
-          curved: d.glyphRotations !== undefined,
-          glyphs,
-        })
-      }
-    }
+    // Reads `draws` AFTER collision and BEFORE setDraws; the call stays
+    // at this exact point in the emit sequence.
+    this._diag.captureDump(draws, this.opts.slotSize, this.opts.rasterFontSize)
     this.renderer.setDraws(draws)
-    this._lastDrawnLabelCount = draws.length
+    this._diag.setDrawnCount(draws.length)
     perfMarkEnd('stage-prepare.emit')
   }
 
