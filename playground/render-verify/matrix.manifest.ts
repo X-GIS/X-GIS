@@ -121,8 +121,8 @@ export const MATRIX: MatrixCell[] = [
       { kind: 'screenshot_diff', max: 0.02 },
     ],
     gate: 'hard',
-    knownStatus: 'candidate',
-    note: 'Deep-zoom non-merc real data — no d3 oracle; relies on a reviewed PNG baseline. Soft until accepted.',
+    knownStatus: 'green',
+    note: 'Deep-zoom non-merc real data — no d3 oracle; relies on a reviewed PNG baseline (accepted 2026-06-10).',
   },
 
   // (4) HIGH-PITCH — the tilted blind quadrant. The above-horizon void must be
@@ -141,8 +141,8 @@ export const MATRIX: MatrixCell[] = [
       { kind: 'screenshot_diff', max: 0.025 },
     ],
     gate: 'hard',
-    knownStatus: 'candidate',
-    note: 'z0+pitch strip-vs-wedge class lives here; black-ratio + baseline tripwire. Soft until accepted.',
+    knownStatus: 'green',
+    note: 'z0+pitch strip-vs-wedge class lives here; black-ratio + baseline tripwire (accepted 2026-06-10).',
   },
 
   // (5) ANTIMERIDIAN — globe at the dateline. Globe has no flat d3 reference,
@@ -162,8 +162,8 @@ export const MATRIX: MatrixCell[] = [
       { kind: 'screenshot_diff', max: 0.03 },
     ],
     gate: 'soft',
-    knownStatus: 'candidate',
-    note: 'Globe seam continuity — no closed-form/d3 oracle; fill-present + baseline only.',
+    knownStatus: 'green',
+    note: 'Globe seam continuity — no closed-form/d3 oracle; fill-present + baseline (accepted 2026-06-10; gate stays soft deliberately).',
   },
 
   // (6) LABEL-HEAVY — position oracle, NOT pixel (labels proven unmeasurable by
@@ -293,8 +293,8 @@ export const MATRIX: MatrixCell[] = [
       { kind: 'black_ratio', max: 0.02 },
     ],
     gate: 'soft',
-    knownStatus: 'expected_red',
-    note: 'Known-bug: equirect antimeridian seam flicker on cross-copy water polygons (T-junction void strip). Soft tripwire; flips green when the cross-copy suture is fixed.',
+    knownStatus: 'green',
+    note: 'FIXED-BY 2756ba3e (2026-06-01, #207): antimeridian seam-wall kept on its home lobe (unwrap_lon_near_keep sign-biased fold). Was: equirect antimeridian seam flicker on cross-copy water polygons (T-junction void strip / black wedge at ±180). 3× real-GPU PASS 2026-06-09.',
   },
   {
     id: 'natearth-world-z2-p0-numeric',
@@ -378,8 +378,8 @@ export const MATRIX: MatrixCell[] = [
       { kind: 'black_ratio', max: 0.02 },
     ],
     gate: 'soft',
-    knownStatus: 'expected_red',
-    note: 'Known-bug: NE antimeridian seam flicker (variable-x-scale adds distortion at the dateline). Soft tripwire; documents the open NE seam bug.',
+    knownStatus: 'green',
+    note: 'FIXED-BY 2756ba3e + 52d609c7 (2026-06-01, #207/#211): seam-wall home-lobe keep + NE-lobe wrap before polynomial eval. Was: NE antimeridian seam flicker (variable-x-scale distortion at the dateline → black wedge). 3× real-GPU PASS 2026-06-09.',
   },
   {
     id: 'oblique-world-z2-p0',
@@ -449,8 +449,8 @@ export const MATRIX: MatrixCell[] = [
       { kind: 'black_ratio', max: 0.02 },
     ],
     gate: 'soft',
-    knownStatus: 'expected_red',
-    note: 'Known-bug: oblique polar tearing at lat 75°N (rotated antimeridian + MERCATOR_LAT_LIMIT clamp → tile tearing / fill gaps). Soft tripwire; flips green when the subdivision fix lands.',
+    knownStatus: 'green',
+    note: 'FIXED-BY 79fe33ba (2026-05-29, #184): singularity-only clamp (89.9999°) in the rotated frame replaces MERCATOR_LAT_LIMIT. Was: oblique polar tearing at lat 75°N (rotated antimeridian + 85.05° clamp → vertex collapse → tile tearing / fill gaps). Gated by oblique-polar-tearing.test.ts; 3× real-GPU PASS 2026-06-09.',
   },
   {
     id: 'oblique-antimeridian-z2',
@@ -467,7 +467,7 @@ export const MATRIX: MatrixCell[] = [
     ],
     gate: 'soft',
     knownStatus: 'expected_red',
-    note: 'Known-bug: oblique rotated-antimeridian tearing (seam-suture handles the unrotated case only). Soft tripwire; documents the open rotated-seam bug.',
+    note: 'Known-bug LIVE: oblique rotated-antimeridian tearing — the rotated-frame radian unwrap (unwrap_rad_near) never received the seam-keep fix that cured the degree-space cells (2756ba3e fixed unwrap_lon_near_keep only). ORACLE GAP (triage 2026-06-10): ink_family/black_ratio pass even with a tear — passing is vacuous. Needs a seam-continuity oracle (screenshot_diff baseline at [180,0] once the seam is fixed, or a seam-column fill-class continuity probe). Cell doubles as the live-bug tripwire meanwhile.',
   },
   {
     id: 'equirect-seoul-z16-deepzoom-ofm',
@@ -481,10 +481,14 @@ export const MATRIX: MatrixCell[] = [
     oracles: [
       { kind: 'ink_family', families: [{ name: 'slate', minRatio: 0.005 }] },
       { kind: 'black_ratio', max: 0.02 },
+      // Triage 2026-06-10: ink/black pass was VACUOUS for the documented
+      // 0.11px f32-RTC drift — this positional oracle (mirroring the z14
+      // sibling natearth-seoul-z14-drift) makes the red non-vacuous.
+      { kind: 'numeric_forward', max: 1e-2 },
     ],
     gate: 'soft',
     knownStatus: 'expected_red',
-    note: 'Known-bug: z16 equirect deep-zoom (prior harness flagged 0.11px drift). Uses real tiles to verify the pipeline is not totally broken under f32 RTC precision loss — black_ratio catches a wholly unrendered frame. Soft tripwire.',
+    note: 'Known-bug: z16 equirect deep-zoom 0.11px f32-RTC drift (fundamental f32 physics per the 2026-06-08 audit 4197390f). numeric_forward measures live MVP vs the CPU mirror — the drift shows as > 1e-2 px; ink/black only guard a wholly unrendered frame. Soft tripwire.',
   },
 
   // ── FAMILY: disc-azimuthal (orthographic / azimuthal_equidistant / stereographic)
@@ -567,8 +571,8 @@ export const MATRIX: MatrixCell[] = [
       { kind: 'finite_mvp' },
     ],
     gate: 'soft',
-    knownStatus: 'expected_red',
-    note: 'Known-bug: azi z0 pitch=60 stacks the flatViewHeightCapM gap (under-framing) with pitch foreshortening. Presence-floor disc_fraction + finite_mvp. Soft tripwire.',
+    knownStatus: 'green',
+    note: 'FIXED-BY b6be8c11 (2026-06-01, #206): flatViewHeightCapM threaded into the tilted-azimuthal (globeOrtho) path — pitched framing now continuous with the flat path across the pitch=0 boundary. Was: azi z0 pitch=60 stacked the cap gap with pitch foreshortening (disc ~3× oversized vs flat). Base azi cap-table gap still red in azi-z0-p0-disc-uncapped. Pinned by azimuthal-disc-pitch-framing.test.ts; 3× real-GPU PASS 2026-06-09.',
   },
   {
     id: 'ortho-ofm-z2-p0-content',
@@ -604,7 +608,7 @@ export const MATRIX: MatrixCell[] = [
     ],
     gate: 'soft',
     knownStatus: 'expected_red',
-    note: 'Known-bug: azi framing gap (flatViewHeightCapM → WORLD_MERC) → tiny disc + large black surround → black_ratio expected to exceed 5%. finite_mvp is the always-meaningful guard. Soft tripwire; flips green when the cap table covers azi.',
+    note: 'Known-bug LIVE but ZOOM-GATED (triage 2026-06-10): the azi cap gap (projType 4 → WORLD_MERC fall-through, projections-table.ts) never binds at z2 — black_ratio ≤5% passes VACUOUSLY here. The cap-gap red is held by azi-z0-p0-disc-uncapped (z0, where it binds). Stays expected_red until either the cap table covers azi or this cell gains a z0 disc_fraction probe (expected 0.589, max 0.08).',
   },
   {
     id: 'stereo-ofm-z2-p0-content',
@@ -622,7 +626,7 @@ export const MATRIX: MatrixCell[] = [
     ],
     gate: 'soft',
     knownStatus: 'expected_red',
-    note: 'Known-bug: stereo column of the flatViewHeightCapM gap (≈0.239 framed disc) → large black surround → black_ratio expected to exceed 5%. Soft tripwire; flips green when stereo is added to the cap table.',
+    note: 'Known-bug LIVE but ZOOM-GATED (triage 2026-06-10): stereo column of the cap gap (projType 5 uncapped, same code site as azi) never binds at z2 — black_ratio passes VACUOUSLY here. The cap-gap red is held by stereo-z0-p0-disc-uncapped (z0). Stays expected_red until either the cap table covers stereo or this cell gains a z0 disc_fraction probe (expected 0.589, max 0.08).',
   },
   {
     id: 'ortho-z0-p0-finite-mvp',
@@ -710,8 +714,8 @@ export const MATRIX: MatrixCell[] = [
       { kind: 'finite_mvp' },
     ],
     gate: 'soft',
-    knownStatus: 'expected_red',
-    note: 'Known-bug: globe z14 sphere-vs-ellipsoid geoid offset (~21 km between bg-mesh sphere and ellipsoid tiles → seam misregistration). black_ratio expected to fire; finite_mvp should pass. Soft tripwire; flips green when geoid unification lands.',
+    knownStatus: 'green',
+    note: 'FIXED-BY 5125c182 + f77722fb (2026-06-01, #208/#194): ellipsoid camera basis in globe RTC offset (sphere−ellipsoid ~21.5 km term cancels) + bg mesh unified to WGS84 ellipsoid. Was: globe z14 sphere-vs-ellipsoid geoid offset (~21 km bg-mesh-vs-tiles → seam misregistration / blank tiles). Gated by globe-ecef-frame-consistency + surface-geoid-unification tests; 3× real-GPU PASS 2026-06-09.',
   },
   {
     id: 'globe-pitch-p45-z4',
@@ -744,8 +748,8 @@ export const MATRIX: MatrixCell[] = [
       { kind: 'black_ratio', max: 0.05 },
     ],
     gate: 'soft',
-    knownStatus: 'expected_red',
-    note: 'Globe pole-reach: the centerLat pan-block (±85.051129° clamp in globe mode) is FIXED — camera.centerLatDeg (roadmap S10/S12) carries the true pole-ward latitude so a lat=89 cell orbits the camera to the pole (verified: camera-center-sync.test reaches 89; arctic geography frames correctly). The EXACT pole renders clean (see globe-pole-z5-clean — Arctic-Ocean bg, no singularity). REMAINING expected_red is only the FILL-DETAIL gap: the Web-Mercator tile pyramid has no rows past 85.05, so the ~5° cap below the pole shows earth-surface bg instead of PMTiles land/water detail. This is opt-in by design (renderer auto cap-synth was deprecated → injectPolarCaps is user-driven), not a render bug. black_ratio/finite_mvp stay PASS (bg fills it, not a void). Soft tripwire; flip green if a pole-detail oracle is ever added.',
+    knownStatus: 'green',
+    note: 'FIXED-BY e4c36973 + b702fba1 + 5edb29d5 (2026-06-05, S10/S11/S12): centerLatDeg carries the true pole-ward latitude through setCenter/drag/zoom — pan-block at ±85.051129° removed (camera-center-sync.test reaches 89). Was: globe pole-reach pan-block (camera snapped back to the Mercator limit). Remaining ~5° sub-pole fill-detail gap is opt-in by design (injectPolarCaps user-driven), not a render bug — see globe-pole-z5-clean. 3× real-GPU PASS 2026-06-09.',
   },
   {
     id: 'globe-pole-z5-clean',
@@ -777,8 +781,8 @@ export const MATRIX: MatrixCell[] = [
       { kind: 'label_onscreen', max: 3 },
     ],
     gate: 'soft',
-    knownStatus: 'expected_red',
-    note: 'Known-bug axis: globe back-face label horizon-cull. Far-hemisphere anchors should be culled (eye·normal<0→null); label_onscreen asserts they do not project to visible screen. Expected_red until confirmed on a real-GPU run. Soft tripwire.',
+    knownStatus: 'green',
+    note: 'FIXED-BY 3a49daa9 (2026-06-01, #209): horizon cull — far-hemisphere anchors (eye·normal<0) return null in makeLabelProjectors. Was: globe back-face labels rendered through the globe. Gated by render-loop-label-backface.test.ts; label_onscreen ≤3 confirmed 3× real-GPU 2026-06-09.',
   },
 
   // ── FAMILY: known-failure-tripwires (cross-projection confirmed-bug cells)
@@ -831,8 +835,8 @@ export const MATRIX: MatrixCell[] = [
       { kind: 'black_ratio', max: 0.10 },
     ],
     gate: 'soft',
-    knownStatus: 'expected_red',
-    note: 'Known-bug: z0 systemic weak spot (per_projection_audit). NE z0+pitch=60 — numeric_forward checks forward agreement, not framing collapse; black_ratio catches the void above the clipped horizon when framing collapses. Soft tripwire.',
+    knownStatus: 'green',
+    note: 'FIXED-BY 8b72fd85 (2026-05-29, #182): viewHeightMeters capped at WORLD_MERC in buildGlobeMatrix near/far path — z0+pitch altitude bloat removed for all cylindrical projections. Was: z0 systemic weak spot — NE z0+pitch=60 framing collapse, void above the clipped horizon. 3× real-GPU PASS 2026-06-09.',
   },
   {
     id: 'natearth-seoul-z14-drift',
@@ -882,8 +886,8 @@ export const MATRIX: MatrixCell[] = [
       { kind: 'disc_fraction', expected: 0.88, max: 0.12 },
     ],
     gate: 'soft',
-    knownStatus: 'expected_red',
-    note: 'Known-bug axis: disc/globe coord-readout NaN. finite_mvp probes getCameraDebugSnapshot().matrix for NaN/Inf (root of coord-readout corruption); disc_fraction confirms the disc renders. Soft tripwire; flips green when the ECEF/ortho MVP path is NaN-clean.',
+    knownStatus: 'green',
+    note: 'FIXED-BY 837d34ca (2026-06-03): getCameraDebugSnapshot().matrix computed with the render\'s per-projType view-height cap (projType 3 → 2·EARTH_R) — snapshot no longer reports a different camera than the GPU rendered. Was: disc/globe coord-readout NaN (NaN/Inf in the ortho MVP snapshot). finite_mvp + disc_fraction PASS 3× real-GPU 2026-06-09.',
   },
 
   // (N) 3D EXTRUSION DEPTH (#4b) — REAL-GPU ONLY (extrude doesn't raster under
@@ -906,9 +910,15 @@ export const MATRIX: MatrixCell[] = [
     oracles: [
       { kind: 'black_ratio', max: 0.2 },
       { kind: 'frame_stability', max: 0.02 },
+      // The holistic depth-ordering gate: a reviewed baseline of the 3D
+      // skyline pins WHICH building pixels win the depth test. Any
+      // depth-sort / occlusion regression ("buildings behind appear in
+      // front", reckoning #4) repaints whole facades → the diff fails.
+      // Threshold 0.03: real network data + label AA variance at p60.
+      { kind: 'screenshot_diff', max: 0.03 },
     ],
     gate: 'soft',
-    knownStatus: 'candidate',
-    note: 'Real-data 3D extrusion depth net (protomaps v4 buildings, Shinjuku z16 p60) — the only working extrusion path (synthetic inline cannot extrude, OFM buildings are flat). frame_stability catches the z-fighting a botched depth state (reversed-Z) produces; black_ratio = the dense 3D city rendered. A reviewed screenshot_diff baseline (the holistic depth-regression gate) is the natural next add.',
+    knownStatus: 'green',
+    note: 'Real-data 3D extrusion depth net (protomaps v4 buildings, Shinjuku z16 p60) — the only working extrusion path (synthetic inline cannot extrude, OFM buildings are flat). frame_stability catches the z-fighting a botched depth state (reversed-Z) produces; black_ratio = the dense 3D city rendered; screenshot_diff (baseline reviewed + accepted 2026-06-10: near towers occlude far, no ordering inversion) pins the depth/occlusion ordering holistically. Gate stays soft: protomaps network data.',
   },
 ]

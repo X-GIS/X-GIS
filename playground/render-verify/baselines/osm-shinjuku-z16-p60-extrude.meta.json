@@ -1,0 +1,8 @@
+{
+  "cellId": "osm-shinjuku-z16-p60-extrude",
+  "reviewedBy": "xgis-dev",
+  "reviewedAt": "2026-06-10T04:01:15.173Z",
+  "commit": "1d0b7e0de5ca3323fe90ea58c3b0bb8c704939fe",
+  "candidateBytes": 288836,
+  "note": "Human-reviewed via matrix:accept. The candidate render was confirmed CORRECT (not merely present) before acceptance."
+}

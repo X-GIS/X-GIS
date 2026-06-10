@@ -179,6 +179,11 @@ for (const cell of CELLS) {
     // Track this cell's verdicts for the Audit ③ E expected_red-flip alert.
     let sawPass = false
     let sawNonPass = false
+    // SKIP / CANDIDATE = the oracle did not actually judge the cell. A
+    // partially-skipped run must NOT count as an all-green flip — without
+    // this, an environment-dependent skip falsely reports a documented bug
+    // as fixed.
+    let sawInconclusive = false
     for (const o of cell.oracles) {
       const result: OracleResult = await runOracle(page, png, cell, o)
       const verdict: ReportRow['verdict'] =
@@ -189,6 +194,7 @@ for (const cell of CELLS) {
         : 'SOFT'
       if (verdict === 'PASS') sawPass = true
       else if (verdict === 'SOFT' || verdict === 'FAIL') sawNonPass = true
+      else sawInconclusive = true // SKIP | CANDIDATE
       rows.push({
         cellId: cell.id,
         projection: cell.projection,
@@ -207,9 +213,10 @@ for (const cell of CELLS) {
       console.log(`[matrix] ${cell.id} (${cell.knownStatus}/${gate}) ${result.kind}: ${verdict} — ${result.detail}`)
     }
     // Audit ③ E — a documented-open-bug cell whose oracles ALL pass (at
-    // least one real PASS, no SOFT/FAIL) is a silent flip: either the bug
-    // is fixed (→ promote to green) or no oracle actually catches it.
-    if (cell.knownStatus === 'expected_red' && sawPass && !sawNonPass) {
+    // least one real PASS, no SOFT/FAIL, and NOTHING skipped/candidate —
+    // every oracle must have actually judged) is a silent flip: either the
+    // bug is fixed (→ promote to green) or no oracle actually catches it.
+    if (cell.knownStatus === 'expected_red' && sawPass && !sawNonPass && !sawInconclusive) {
       expectedRedAllGreen.push(cell.id)
     }
   })
