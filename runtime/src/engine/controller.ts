@@ -1,6 +1,7 @@
 // ═══ Map Controllers — 프로젝션에 따른 카메라 조작 ═══
 
 import type { Camera } from './projection/camera'
+import { unprojectGlobeFromCamera } from './projection/globe-anchor'
 import { xlog } from './log'
 
 export interface Controller {
@@ -155,7 +156,14 @@ export class PanZoomController implements Controller {
           const dprNow = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 8) : 1
           const r0 = canvas.getBoundingClientRect()
           const sxA = (e.clientX - r0.left) * dprNow, syA = (e.clientY - r0.top) * dprNow
-          if (camera.projType === 1 || camera.projType === 2 || camera.projType === 6) {
+          if (camera.globeMode) {
+            // Globe (#11): anchor the GEOGRAPHIC point under the cursor on the
+            // RENDERED SPHERE (ray↔sphere inverse) — panToScreenAnchor's globe
+            // branch rotates the centre so this lon/lat stays under the cursor.
+            // null = pressed off the limb → the delta-pan fallback below
+            // (camera.pan's globe nudge) keeps the drag usable.
+            dragAnchor = unprojectGlobeFromCamera(camera, sxA, syA, canvas.width, canvas.height, dprNow)
+          } else if (camera.projType === 1 || camera.projType === 2 || camera.projType === 6) {
             // Flat non-merc (#8): the drag anchor must be the Mercator metres of
             // the TRUE geographic point under the cursor, not `mercCentre +
             // nonMercRel` (which mixes spaces). panToScreenAnchor consumes
@@ -398,7 +406,10 @@ export class PanZoomController implements Controller {
         const dprUp = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 8) : 1
         const rUp = canvas.getBoundingClientRect()
         const sxU = (remaining.x - rUp.left) * dprUp, syU = (remaining.y - rUp.top) * dprUp
-        if (camera.projType === 1 || camera.projType === 2 || camera.projType === 6) {
+        if (camera.globeMode) {
+          // Same globe lon/lat anchor space as the drag-start capture.
+          dragAnchor = unprojectGlobeFromCamera(camera, sxU, syU, canvas.width, canvas.height, dprUp)
+        } else if (camera.projType === 1 || camera.projType === 2 || camera.projType === 6) {
           // Same flat non-merc (#8) anchor space as the drag-start capture.
           dragAnchor = camera.unprojectToMercatorAnchor(sxU, syU, canvas.width, canvas.height, dprUp)
         } else {

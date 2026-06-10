@@ -23,6 +23,7 @@ import {
   unprojectToMercatorAnchor as unprojectToMercatorAnchorPure,
   relToLonLat as relToLonLatPure,
 } from './unproject'
+import { zoomAtGlobeAnchored, panGlobeToScreenAnchor } from './globe-anchor'
 
 export class Camera {
   /** Camera center in Web Mercator coordinates */
@@ -72,9 +73,7 @@ export class Camera {
    *  is what makes pitch a Cesium-style 3D tilt rather than laying a
    *  flat map on its side. The 2D path below is untouched (guard-claused
    *  in getRTCMatrix / getFrameView) so projType 0..6 stay byte-identical.
-   *  NOTE: pan/zoom still mutate centerX/Y/zoom in Mercator terms and
-   *  the globe re-derives from them — usable, but true drag-to-rotate /
-   *  cursor-anchored globe zoom is the remaining interaction wiring. */
+   *  Globe-mode input anchors route through globe-anchor.ts (ray↔sphere). */
   globeMode = false
   /** When in globeMode, use a parallel (orthographic) orbit-camera
    *  projection instead of the perspective one. Set by the Map for the
@@ -879,17 +878,10 @@ export class Camera {
     this.bearing = 0
   }
 
-  /** Zoom by delta at CSS screen position (clientX/clientY).
-   *
-   *  Anchors the world point under the cursor: unproject the cursor
-   *  via the BEFORE-zoom MVP (gets the world location it points at),
-   *  apply the zoom delta, then re-unproject at the same cursor and
-   *  shift `centerX/Y` by the difference so that same world point
-   *  sits under the cursor again. Works at any pitch and bearing
-   *  because unprojectToZ0 walks the full MVP — the previous
-   *  implementation only handled pitch=0 + bearing=0 (offset
-   *  computed in raw screen coords without the bearing rotation
-   *  that `pan()` already applies). */
+  /** Zoom by delta at CSS screen position (clientX/clientY). Anchors the
+   *  world point under the cursor: unproject via the BEFORE-zoom MVP, apply
+   *  the delta, re-unproject, shift centerX/Y by the difference. Any
+   *  pitch/bearing (unprojectToZ0 walks the full MVP). */
   zoomAt(delta: number, screenX: number, screenY: number, canvasWidth: number, canvasHeight: number): void {
     // A pure zoom must NOT move the centre latitude. Capture the TRUE centre
     // latitude and the Mercator-derived latitude BEFORE any centerY mutation,
@@ -903,6 +895,13 @@ export class Camera {
     // canvasWidth which is device-px). Convert CSS clientX/Y → device.
     const sxDev = screenX * dpr
     const syDev = screenY * dpr
+
+    if (this.globeMode) {
+      // #11: anchor on the rendered sphere — unprojectToZ0 below is a
+      // phantom flat plane in globe mode (16-20 px G5c drift).
+      zoomAtGlobeAnchored(this, delta, sxDev, syDev, canvasWidth, canvasHeight, dpr)
+      return
+    }
 
     // World point under cursor BEFORE zoom — relative to current
     // camera (rel coords). For orthographic these are points on the
@@ -1032,33 +1031,28 @@ export class Camera {
     this._carryCenterLatThroughZoom(_latPreserve, _mercLatPreserve)
   }
 
-  /** Pan the camera so the world point captured at drag start stays
-   *  under the cursor as the cursor moves.
+  /** Pan so the world point captured at drag start stays under the cursor.
    *
-   *  CRITICAL: `anchorWorldX/Y` must be ABSOLUTE world (mercator
-   *  metres), not camera-relative — i.e. the controller computed it
-   *  ONCE at drag start as `centerX_at_start + unprojectToZ0(...)`
-   *  and stashed THAT. Each pointermove this method recomputes
-   *  cursor_rel against the LIVE MVP and assigns
-   *  `centerX = anchorWorldX - cursor_rel.x` directly.
+   *  CRITICAL: `anchorWorldX/Y` is ABSOLUTE world (Mercator metres), stashed
+   *  ONCE at drag start; each move assigns `centerX = anchor − cursor_rel`
+   *  against the LIVE MVP. A camera-relative anchor goes stale each move →
+   *  runaway accumulating drift; absolute + direct assignment is idempotent.
+   *  Correct under any pitch/bearing (the unprojection walks the live MVP).
    *
-   *  Why absolute: as the camera moves on each pointermove, a
-   *  camera-relative anchor goes stale (it was relative to the
-   *  ORIGINAL camera position) and produces a residual delta on
-   *  every move — visible as runaway accumulating motion in the
-   *  wrong direction. Absolute world coords + direct assignment
-   *  is idempotent: if the cursor returns to its starting screen
-   *  position the camera returns to its starting world position.
-   *
-   *  Equivalent to old delta-based `pan()` at pitch=0 + bearing=0;
-   *  correct under any pitch / bearing because the unprojection walks
-   *  the live MVP. */
+   *  GLOBE MODE: `anchorWorldX/Y` are the anchored LON/LAT degrees instead
+   *  (captured via the ray↔sphere inverse) — globe-anchor.ts. */
   panToScreenAnchor(
     anchorWorldX: number, anchorWorldY: number,
     cursorX: number, cursorY: number,
     canvasWidth: number, canvasHeight: number,
   ): void {
     const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+    if (this.globeMode) {
+      // #11: ground-track the sphere via centerLatDeg (the Mercator path
+      // below would clamp a pole-ward centre back to ±85.05).
+      panGlobeToScreenAnchor(this, anchorWorldX, anchorWorldY, cursorX * dpr, cursorY * dpr, canvasWidth, canvasHeight, dpr)
+      return
+    }
     const cur = this.unprojectToZ0(cursorX * dpr, cursorY * dpr, canvasWidth, canvasHeight, dpr)
     if (!cur) return // ray missed ground (above horizon) — leave camera as-is
     if (this.projType === 1 || this.projType === 2 || this.projType === 6) {
