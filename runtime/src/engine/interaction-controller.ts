@@ -26,6 +26,7 @@
 //   - `this.pickReadbackPool`   → owned here (only pickAt reads/mutates it).
 
 import type { Camera } from './projection/camera'
+import { unprojectGlobeFromCamera } from './projection/globe-anchor'
 import { mercatorYToLat } from './projection/projection'
 import type { GPUContext } from './gpu/gpu'
 import type { LayerIdRegistry, XGISLayer, XGISFeature } from './layer'
@@ -257,8 +258,10 @@ export class InteractionController {
   }
 
   /** Convert a CSS-coordinate point to longitude/latitude using the
-   *  current camera. Mercator-only; other projections return null and
-   *  the dispatcher coerces to [NaN, NaN]. */
+   *  current camera. Mercator, the flat non-merc set (1/2/6) and globe mode
+   *  (true globe 7 + tilted discs promoted to the sphere) return real
+   *  coordinates; the UNTILTED disc set (3/4/5) returns null (deferred #9)
+   *  and the dispatcher coerces to [NaN, NaN]. */
   clientToLngLat(clientX: number, clientY: number): readonly [number, number] | null {
     const ctx = this.getCtx()
     if (!ctx) return null
@@ -269,11 +272,19 @@ export class InteractionController {
     const px = (clientX - rect.left) * (canvas.width / rect.width)
     const py = (clientY - rect.top) * (canvas.height / rect.height)
     const dpr = canvas.clientWidth > 0 ? canvas.width / canvas.clientWidth : 1
+    // Globe mode (#10/#11): the true globe AND the tilted azimuthal discs
+    // (promoted to projType 7 + globeMode by the render loop) invert via the
+    // ray↔sphere inverse on the RENDERED sphere — the flat-plane unprojects
+    // below describe a phantom Mercator plane in globe mode. Off the limb →
+    // null (no ground under the cursor), same as a missed ground-plane ray.
+    if (this.camera.globeMode) {
+      return unprojectGlobeFromCamera(this.camera, px, py, canvas.width, canvas.height, dpr)
+    }
     // Flat non-merc set (#8: equirectangular 1 / natural_earth 2 /
     // oblique_mercator 6) is now invertible via the shared camera composer,
     // which recovers TRUE geographic lon/lat (not the wrong flat-Mercator
-    // interpretation). Disc (3/4/5) + globe (7) stay unsupported (return null)
-    // pending the ray↔surface inverse (#10/#11).
+    // interpretation). The UNTILTED disc set (3/4/5) stays unsupported
+    // (return null) pending the flat-disc inverse (#9).
     const pt = this.camera.projType
     if (pt === 1 || pt === 2 || pt === 6) {
       return this.camera.unprojectToLonLat(px, py, canvas.width, canvas.height, dpr)

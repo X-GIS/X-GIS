@@ -42,8 +42,10 @@
 // REACHES the new anchored path and drives the Camera through it (the camera
 // moves via unprojectToMercatorAnchor + panToScreenAnchor, not the delta-pan
 // fallback, not a no-op), plus that clientToLngLat now returns finite geo for
-// 1/2/6. The Mercator control proves the harness + anchored-drag wiring are
-// sound by round-tripping to 0.
+// 1/2/6 and globe mode (#11 ray↔sphere wiring — globe drag itself IS exactly
+// round-trip-gated below, unlike the single-pass 1/2/6 anchor). The Mercator
+// control proves the harness + anchored-drag wiring are sound by
+// round-tripping to 0.
 //
 // projType encoding: 0 mercator · 1 equirectangular · 2 natural_earth
 //   · 3 orthographic · 4 azimuthal_equidistant · 5 stereographic
@@ -51,6 +53,8 @@
 
 import { describe, it, expect, afterEach } from 'vitest'
 import { Camera } from './projection/camera'
+import { buildGlobeMatrix, unprojectGlobe } from './projection/globe'
+import { mercatorYToLat } from './projection/projection'
 import { PanZoomController } from './controller'
 import { InteractionController, type InteractionControllerDeps } from './interaction-controller'
 import type { GPUContext } from './gpu/gpu'
@@ -161,6 +165,54 @@ describe('GATE 2A — PanZoomController drag wiring (projType 1/2/6 route throug
     }
   })
 
+  // GLOBE (7) — the #11 wiring: the controller's globeMode branch captures the
+  // grabbed LON/LAT via the ray↔sphere inverse (unprojectGlobeFromCamera) and
+  // panToScreenAnchor's globe branch ground-tracks it. Like the mercator
+  // control, assert the ROUND-TRIP: the grabbed sphere point is still under
+  // the (moved) cursor at drag end — measured against the live globe MVP
+  // oracle (unprojectGlobe), NOT the camera's own inverse. A unit-mixing
+  // regression (lon/lat anchor fed to the Mercator-metre arm, or the phantom
+  // flat-plane anchor restored) drifts ~0.06-0.1° (≈10px at z6) and fails.
+  it('globe(7): drag keeps the grabbed sphere point under the cursor (globeMode ray↔sphere anchored drag)', () => {
+    const cam = makeFlatCamera(7)
+    cam.globeMode = true
+    const { canvas, fire } = makeStubCanvas()
+    const ctrl = new PanZoomController()
+    ctrl.attach(canvas, cam, () => ({ projectionName: 'globe' }))
+    try {
+      // Live globe MVP oracle — same reconstruction the interaction-contract
+      // gates use (gzGlobeView): centre from the canonical Mercator metres.
+      const globeView = () => {
+        const clon = (cam.centerX / 6378137) * (180 / Math.PI)
+        const clat = Math.max(-85.051129, Math.min(85.051129, mercatorYToLat(cam.centerY)))
+        return buildGlobeMatrix(clon, clat, cam.zoom, cam.pitch, cam.bearing, W, H, cam.globeOrtho)
+      }
+      const sx = 500, sy = 450
+      const g0 = unprojectGlobe(sx, sy, W, H, globeView())
+      expect(g0, 'globe: sphere point under start pointer is null').not.toBeNull()
+
+      fire('pointerdown', ptr(1, sx, sy))
+      let px = sx, py = sy
+      for (let s = 0; s < 30; s++) {
+        px += 2; py -= 1.5
+        fire('pointermove', ptr(1, px, py))
+      }
+      // No `pointerup` — see the mercator control's note above.
+
+      const gEnd = unprojectGlobe(px, py, W, H, globeView())
+      expect(gEnd, 'globe: sphere point under end pointer is null').not.toBeNull()
+      let dLon = g0![0] - gEnd![0]
+      if (dLon > 180) dLon -= 360
+      if (dLon < -180) dLon += 360
+      // 5e-3° ≈ 0.5 px at z6 — measured ~7e-5° lon / 7e-6° lat through the
+      // wired path (70× headroom), vs ~0.06° for the pre-fix phantom anchor.
+      expect(Math.abs(dLon), `globe under-cursor lon drift ${dLon}°`).toBeLessThan(5e-3)
+      expect(Math.abs(g0![1] - gEnd![1]), `globe under-cursor lat drift ${g0![1] - gEnd![1]}°`).toBeLessThan(5e-3)
+    } finally {
+      ctrl.detach()
+    }
+  })
+
   // FLAT NON-MERC (1/2/6): #200 wired the drag anchor through the new
   // unprojectToMercatorAnchor branch. Verify the controller REACHES it and
   // drives the Camera: the centre moves substantially in response to the drag
@@ -249,7 +301,7 @@ describe('GATE 2B — PanZoomController wheel wiring (drives camera.zoomAt)', ()
 // ════════════════════════════════════════════════════════════════════════
 // 2C — InteractionController.clientToLngLat routing (the #200 projType gate).
 // ════════════════════════════════════════════════════════════════════════
-describe('GATE 2C — InteractionController.clientToLngLat routing (1/2/6 finite via unprojectToLonLat; 3/4/5/7 null)', () => {
+describe('GATE 2C — InteractionController.clientToLngLat routing (1/2/6 finite via unprojectToLonLat; globeMode finite via ray↔sphere; untilted 3/4/5 null)', () => {
   function makeInteractionController(cam: Camera, projName: string): InteractionController {
     const { canvas } = makeStubCanvas()
     // clientToLngLat only reads getCtx().canvas + the camera; the remaining
@@ -289,25 +341,46 @@ describe('GATE 2C — InteractionController.clientToLngLat routing (1/2/6 finite
     })
   }
 
-  // 3/4/5 (disc) + 7 (globe): the audit's documented unsupported set —
-  // interaction-controller.ts returns null (disc inverse / ray↔sphere unproject
-  // deferred to #9/#11). Pins that #200 did NOT silently start returning a
-  // wrong (flat-Mercator-misinterpreted) coord for these.
-  const UNSUPPORTED: Array<[number, string, boolean]> = [
-    [3, 'orthographic', false],
-    [4, 'azimuthal_equidistant', false],
-    [5, 'stereographic', false],
-    [7, 'globe', true],
+  // GLOBE MODE (true globe 7 — same path serves the tilted discs the render
+  // loop promotes to projType 7 + globeMode): clientToLngLat now routes
+  // through the ray↔sphere inverse (#10/#11) and returns the REAL lon/lat
+  // under the cursor (was null → [NaN,NaN] event coordinates); off the limb
+  // it stays null (no ground under the pointer).
+  it('globe(7): clientToLngLat returns finite on-sphere lon/lat; off-limb → null', () => {
+    const cam = makeFlatCamera(7, 2)
+    cam.globeMode = true
+    const ic = makeInteractionController(cam, 'globe')
+    const ll = ic.clientToLngLat(500, 450)
+    expect(ll, 'globe: clientToLngLat returned null on the visible sphere (the globeMode branch was not reached)').not.toBeNull()
+    expect(Number.isFinite(ll![0]) && Number.isFinite(ll![1]), `globe: clientToLngLat not finite ${ll}`).toBe(true)
+    // Near the (20,30) camera centre for an on-canvas pixel — a wiring check,
+    // not a precision re-test (G5c/G5d pin the inverse's fidelity).
+    expect(Math.abs(ll![0] - 20), `globe: lon ${ll![0]} far from centre`).toBeLessThan(60)
+    expect(Math.abs(ll![1] - 30), `globe: lat ${ll![1]} far from centre`).toBeLessThan(60)
+    // Off the limb: at z0 the sphere subtends a small disc; the canvas-corner
+    // ray misses it → null (the [NaN,NaN] coercion stays for empty space).
+    cam.zoom = 0
+    const off = ic.clientToLngLat(2, 2)
+    expect(off, `globe: corner pixel at z0 should miss the limb, got ${off}`).toBeNull()
+  })
+
+  // UNTILTED 3/4/5 (flat disc set): still unsupported — the flat-disc inverse
+  // is the SEPARATE #9 contract (globeMode is false at pitch 0, so the
+  // ray↔sphere branch does not apply). Pins that the globe wiring did NOT
+  // silently start returning a wrong (flat-Mercator-misinterpreted) coord.
+  const UNSUPPORTED: Array<[number, string]> = [
+    [3, 'orthographic'],
+    [4, 'azimuthal_equidistant'],
+    [5, 'stereographic'],
   ]
-  for (const [projType, name, globeMode] of UNSUPPORTED) {
-    it(`${name}(${projType}): clientToLngLat returns null (disc/globe inverse deferred — not silently wrong)`, () => {
+  for (const [projType, name] of UNSUPPORTED) {
+    it(`${name}(${projType}): clientToLngLat returns null (untilted disc inverse deferred to #9 — not silently wrong)`, () => {
       const cam = makeFlatCamera(projType)
-      cam.globeMode = globeMode
       // The projection name the controller reads is not 'mercator' for these,
       // so even the legacy fallback arm returns null.
       const ic = makeInteractionController(cam, name)
       const ll = ic.clientToLngLat(500, 450)
-      expect(ll, `${name}: clientToLngLat should be null for the deferred disc/globe set, got ${ll}`).toBeNull()
+      expect(ll, `${name}: clientToLngLat should be null for the deferred untilted disc set, got ${ll}`).toBeNull()
     })
   }
 })

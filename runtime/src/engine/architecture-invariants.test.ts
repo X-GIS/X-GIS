@@ -91,7 +91,7 @@ const LOC_CEILINGS: Record<string, number> = {
   'runtime/src/engine/shader-dsl/shaders/line.ts': 1189,
   'compiler/src/parser/parser.ts': 1171,
   'runtime/src/engine/shader-dsl/shaders/polygon.ts': 1139,
-  'runtime/src/engine/projection/camera.ts': 1087,
+  'runtime/src/engine/projection/camera.ts': 1081,
   'runtime/src/engine/render/passes/label-pass.ts': 1065,
   // VTR Unit-1 extraction (Cluster E-selection). The hysteresis +
   // readiness-gate logic was moved VERBATIM (plan §5 DO-NOT-SPLIT #2),

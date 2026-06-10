@@ -33,18 +33,16 @@
 //        depends on the not-yet-made geoid decision (sphere-camera vs
 //        ellipsoid-everywhere) and the gesture is interaction-feel —
 //        partially subjective, pairs with a human eyeball pass.
-//   G4 — globe pick accuracy (click a known lat/lon on the globe, assert the
-//        wired inverse returns it). Deferred: `clientToLngLat` returns null
-//        for all non-mercator TODAY (the feature is unimplemented, not just
-//        offset), so there is no value to assert against until the ray↔
-//        surface inverse is wired (#10/#11); its tolerance is the geoid
-//        decision (a few km on sphere, tightening to geoid-exact on ellipsoid).
-//   G5 — globe pan/zoom round-trip (grab a surface point, pan/zoom, assert it
-//        returns under the cursor). Deferred: no production path exercises
-//        globe drag/zoom at all today (pan is a Cesium-style Mercator nudge,
-//        zoom falls to a flat z=0 plane); the round-trip only has meaning once
-//        the real ray↔surface unproject is wired (#11). Needs real-GPU /
-//        interaction e2e + eyeball.
+//   G4 — globe pick accuracy. PARTIALLY LANDED (#10/#11 globe-mode wiring):
+//        `clientToLngLat` now routes globeMode (true globe 7 + tilted discs
+//        promoted to the sphere) through the ray↔sphere inverse — gated in
+//        controller-interaction-gate.test.ts GATE 2C. Still deferred for the
+//        UNTILTED disc set (3/4/5, #9: stays null); the sphere-vs-ellipsoid
+//        geoid tolerance also remains open (#7).
+//   G5 — globe pan/zoom round-trip. CPU-LANDED (#11): zoomAt routes globeMode
+//        through unprojectGlobe (G5c below — flipped to a regression lock) and
+//        the drag anchor ground-tracks via panGlobeToScreenAnchor (G5d below).
+//        The real-GPU interaction e2e + eyeball feel pass remains open.
 //   G8 — non-Mercator fitBounds (globe/disc frames the bbox at the correct
 //        zoom). Deferred: the corrected lonSpan→zoom mapping is a #5 medium-
 //        term behaviour change; its expected zoom depends on the projection
@@ -552,7 +550,7 @@ describe('G1b — flat non-merc 1/2/6 streamed-pinch zoom-anchor convergence (ME
 //   - G1b streams zoomAt but ONLY for the flat non-merc set (1/2/6), which
 //     has a fixed-point iteration in zoomAt; the disc/globe branches are
 //     structurally different (disc: the projType===3 special case; globe:
-//     no branch at all → falls to the flat Mercator general arm).
+//     the globeMode dispatch into globe-anchor.ts zoomAtGlobeAnchored).
 //
 // HARNESS: pick a screen pixel offset from centre; recover the geographic
 // point there via the CORRECT per-projType ORACLE (NOT the camera's own
@@ -577,21 +575,31 @@ describe('G1b — flat non-merc 1/2/6 streamed-pinch zoom-anchor convergence (ME
 //        the flat MVP, getViewForProjection(projType)→getFrameView). Flips
 //        green when invAzimuthal/invStereographic is wired into zoomAt's disc
 //        branch — the #9 / PR-D contract.
-//   G5c projType 7 (globe): it.fails. zoomAt has NO globe branch (camera.ts:983
-//        `projType === 3 && !globeMode` excludes globeMode), so a globe zoom
-//        anchors against the phantom flat Mercator z=0 plane (unprojectToZ0),
-//        NOT the on-screen sphere. Oracle = unprojectGlobe on the live globe
-//        MVP (the same buildGlobeMatrix the renderer uses via
-//        getViewForProjection(7)). Flips green when zoomAt gets a globe branch
-//        routed through unprojectGlobe — the #11 / PR-D contract.
+//   G5c projType 7 (globe): normal it() — PASSES (regression lock, #11 landed).
+//        zoomAt now dispatches globeMode to the ray↔sphere fixed point
+//        (globe-anchor.ts zoomAtGlobeAnchored) instead of anchoring against
+//        the phantom flat Mercator z=0 plane. Oracle = unprojectGlobe on the
+//        live globe MVP (the same buildGlobeMatrix the renderer uses via
+//        getViewForProjection(7)). Dropping the globe dispatch returns this
+//        to the 16-20 px phantom-plane fling.
+//   G5d projType 7 (globe) DRAG: normal it() — landed with G5c. The drag
+//        anchor is the grabbed lon/lat (controller globeMode branch) and
+//        panToScreenAnchor ground-tracks it via panGlobeToScreenAnchor.
 //
 // OBSERVED anchor drift (this environment, see body for the exact harness):
 //   G3a ortho(3) z10/z12 streamed 20×0.04 : 0.06 px / 0.015 px  (PASS, locked)
 //   G3b azim_eq(4) / stereo(5) z4..z8       : ~10-18 px          (FLING → fails)
-//   G5c globe(7)  z4/z8 pitch0/30           : ~7-15 px           (PHANTOM → fails)
+//   G5c globe(7)  z4/z8 pitch0/30           : was 16-20 px phantom-plane →
+//        0.011-0.35 px wired. The z8 residual is the f32 GlobeView.matrix +
+//        f32 invert4x4 noise floor (~1 m at 6.4e6 m sphere coords), which
+//        grows ~2×/zoom level in px terms (measured 1.05 px z10 / 3.4 px z12 /
+//        7.4 px z14) — an unprojectGlobe precision property, not an anchor-
+//        logic defect; a deep-zoom fix needs an f64 (or RTC) unproject matrix.
+//   G5d globe(7) drag z4/z8 pitch0/45       : 0.005-0.06 px worst per-move
+//        (was 7-11 px through the phantom-plane Mercator-metre anchor).
 // ════════════════════════════════════════════════════════════════════════
 
-describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a locks ortho; G3b 4/5 + G5c globe are target contracts)', () => {
+describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a ortho + G5c/G5d globe locked; G3b 4/5 are target contracts)', () => {
   const GZ_W = 800, GZ_H = 800, GZ_DPR = 1
   const GZ_R = 6378137
   const GZ_RAD2DEG = 180 / Math.PI
@@ -755,20 +763,20 @@ describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a locks o
     }
   }
 
-  // ── G5c — globe(7): TARGET contract. ──
-  // zoomAt has no globe branch (`projType === 3 && !globeMode` excludes
-  // globeMode), so a globe zoom anchors against the phantom flat Mercator z=0
-  // plane (unprojectToZ0) instead of the on-screen sphere. it.fails: the
-  // drift assertion THROWS today (observed ~7-15 px, measured against the REAL
-  // sphere via unprojectGlobe), and FLIPS green when zoomAt routes globe-mode
-  // through unprojectGlobe on the live globe MVP (#11 / PR-D).
+  // ── G5c — globe(7): PASSES (regression lock — #11 landed). ──
+  // zoomAt dispatches globeMode to zoomAtGlobeAnchored (globe-anchor.ts): the
+  // cursor anchor is recovered on the RENDERED SPHERE via the ray↔sphere
+  // unprojectGlobe and the centre re-converges through a ≤6-pass fixed point,
+  // replacing the phantom flat Mercator z=0-plane anchor (was 16-20 px drift
+  // over this stream; wired = 0.011-0.35 px, see the OBSERVED table above).
+  // Dropping the globe dispatch in camera.zoomAt returns this to the fling.
   const G5C_PX_BUDGET = 1.0
   for (const zoom of [4, 8]) {
     for (const pitch of [0, 30]) {
-      it.fails(
+      it(
         `G5c projType 7 (globe) z=${zoom} pitch=${pitch}: ${GZ_STEPS}-step zoom keeps the under-cursor geo point < ${G5C_PX_BUDGET}px ` +
-        `[#11/PR-D target contract — zoomAt has no globe branch; it anchors to the phantom flat Mercator z=0 plane, ` +
-        `not the on-screen sphere → ~7-15px drift measured via unprojectGlobe]`,
+        `[regression lock — zoomAt routes globeMode through zoomAtGlobeAnchored (ray↔sphere fixed point); ` +
+        `was 16-20px against the phantom flat Mercator plane]`,
         () => {
           const drift = globeStreamedDriftPx(zoom, pitch)
           expect(drift, `globe streamed-zoom recovery returned null (z=${zoom} p=${pitch})`).not.toBeNull()
@@ -781,10 +789,91 @@ describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a locks o
     }
   }
 
+  // ── G5d — globe(7) drag ground-tracking (landed WITH the #11 wiring). ──
+  // The controller's globeMode drag anchor is the grabbed lon/lat (ray↔sphere,
+  // controller.ts globeMode branch); each pointermove panToScreenAnchor
+  // rotates the centre so that lon/lat returns under the cursor
+  // (globe-anchor.ts panGlobeToScreenAnchor — centerLatDeg pole semantics,
+  // NOT the flat arm's Mercator-metre subtraction). Streams the SAME 30-move
+  // drag the GATE 2A controller harness fires and asserts the WORST per-move
+  // under-cursor drift, so one bad step cannot hide behind a good final frame.
+  // Budget 1.0 px mirrors G3a/G5c; measured 0.005-0.06 px (16× headroom).
+  // Pre-wiring (phantom Mercator-metre anchor + flat-plane cursor unproject)
+  // measured 7-11 px on this harness.
+  const G5D_PX_BUDGET = 1.0
+
+  /** Worst per-move under-cursor pixel drift across a streamed 30-move drag,
+   *  driving the PRODUCTION camera path (panToScreenAnchor) with the anchor
+   *  the controller's globeMode branch captures. */
+  function globeDragWorstDriftPx(startZoom: number, pitch: number): number | null {
+    const cam = new Camera(20, 30, startZoom)
+    cam.projType = 7
+    cam.globeMode = true
+    cam.bearing = 0
+    cam.pitch = pitch
+    const SX0 = GZ_W * 0.5 - 120, SY0 = GZ_H * 0.5 + 80
+    // The sphere point under the cursor at drag start = the controller's
+    // globeMode anchor (unprojectGlobeFromCamera ≡ this oracle at dpr 1).
+    const g0 = unprojectGlobe(SX0, SY0, GZ_W, GZ_H, gzGlobeView(cam))
+    if (!g0) return null
+    let px = SX0, py = SY0
+    let worst = 0
+    for (let s = 0; s < 30; s++) {
+      px += 2; py -= 1.5
+      cam.panToScreenAnchor(g0[0], g0[1], px, py, GZ_W, GZ_H)
+      const screen = globeScreenForGeo(cam, g0[0], g0[1])
+      if (!screen) return null
+      worst = Math.max(worst, Math.hypot(screen[0] - px, screen[1] - py))
+    }
+    return worst
+  }
+
+  for (const zoom of [4, 8]) {
+    for (const pitch of [0, 45]) {
+      it(
+        `G5d projType 7 (globe) z=${zoom} pitch=${pitch}: 30-move drag keeps the grabbed sphere point < ${G5D_PX_BUDGET}px under the cursor (worst move) ` +
+        `[globe drag ground-tracking — panGlobeToScreenAnchor; was 7-11px through the phantom-plane Mercator-metre anchor]`,
+        () => {
+          const worst = globeDragWorstDriftPx(zoom, pitch)
+          expect(worst, `globe drag recovery returned null (z=${zoom} p=${pitch})`).not.toBeNull()
+          expect(
+            worst!,
+            `globe worst per-move under-cursor drift ${worst!.toFixed(4)}px across 30 moves (budget ${G5D_PX_BUDGET}px)`,
+          ).toBeLessThan(G5D_PX_BUDGET)
+        },
+      )
+    }
+  }
+
+  // G5d pole semantics: an anchored globe drag must keep the centerLatDeg
+  // pole-reach (roadmap S12) — the globe branch writes centerLatDeg directly
+  // and must NOT fall into the flat arm's trailing _syncCenterLatFromMercator,
+  // which clamps back to ±85.051129 and would make the pole unreachable by
+  // anchored drag (the pre-fix panToScreenAnchor-vs-pan conflict). centerY
+  // stays Mercator-bounded for the 2D / tile-pyramid readers.
+  it('G5d pole-reach: anchored globe drag crosses 85.05° (centerLatDeg authoritative; centerY mirror stays bounded)', () => {
+    const cam = new Camera(0, 84.5, 3)
+    cam.projType = 7
+    cam.globeMode = true
+    cam.bearing = 0
+    cam.pitch = 0
+    // Grab the screen centre (= the 84.5° centre point) and drag it 300 px
+    // DOWN: content follows the cursor, the centre rolls poleward (measured:
+    // centerLatDeg reaches the poleLimit(7)=90 clamp on this drag).
+    const anchor = unprojectGlobe(GZ_W / 2, GZ_H / 2, GZ_W, GZ_H, gzGlobeView(cam))
+    expect(anchor, 'pole-reach: anchor unproject returned null').not.toBeNull()
+    cam.panToScreenAnchor(anchor![0], anchor![1], GZ_W / 2, GZ_H / 2 + 300, GZ_W, GZ_H)
+    expect(cam.centerLatDeg, `centerLatDeg ${cam.centerLatDeg}° did not cross the Mercator wall`).toBeGreaterThan(85.051129)
+    // Mercator mirror stays representable for the 2D / tile-pyramid readers.
+    expect(mercatorYToLat(cam.centerY)).toBeLessThanOrEqual(85.051129 + 1e-6)
+    expect(Number.isFinite(cam.centerX)).toBe(true)
+  })
+
   // Quantified evidence (not gated — informational). Pins the anchor-drift
   // magnitudes so the "fling" claims are MEASURED, not asserted, and documents
-  // the contrast: ortho(3) is sub-pixel; 4/5/7 are an order of magnitude off.
-  it('disc/globe zoomAt-anchor drift: ortho(3) sub-px vs 4/5/7 flung (informational)', () => {
+  // the contrast: ortho(3) + globe(7, #11 wired) are sub-pixel; the untilted
+  // 4/5 disc set (still on the general Mercator-delta arm, #9) flings.
+  it('disc/globe zoomAt-anchor drift: ortho(3) + globe(7) sub-px vs 4/5 flung (informational)', () => {
     const ortho = discStreamedDriftPx(3, 'orthographic', 10)
     const azim = discStreamedDriftPx(4, 'azimuthal_equidistant', 8)
     const stereo = discStreamedDriftPx(5, 'stereographic', 8)
@@ -792,10 +881,10 @@ describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a locks o
     for (const [label, v] of [['ortho', ortho], ['azim', azim], ['stereo', stereo], ['globe', globe]] as const) {
       expect(v, `${label} drift returned null`).not.toBeNull()
     }
-    // ortho is anchored; the rest fling. Pin the order-of-magnitude gap.
+    // ortho + globe are anchored; the 4/5 discs fling. Pin the gap.
     expect(ortho!, `ortho(3) drift ${ortho}px — expected sub-px (anchored)`).toBeLessThan(1.0)
     expect(azim!, `azim_eq(4) drift ${azim}px — expected >>1px (flung)`).toBeGreaterThan(5)
     expect(stereo!, `stereo(5) drift ${stereo}px — expected >>1px (flung)`).toBeGreaterThan(5)
-    expect(globe!, `globe(7) drift ${globe}px — expected >>1px (phantom-plane)`).toBeGreaterThan(5)
+    expect(globe!, `globe(7) drift ${globe}px — expected sub-px (ray↔sphere anchored)`).toBeLessThan(1.0)
   })
 })
