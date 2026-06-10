@@ -2,7 +2,11 @@
 // here for production use; tests can import without pulling in
 // TextRenderer's WGSL pipeline + GPU types.
 
+import type { LabelDef } from '@xgis/compiler'
 import { FONT_KEY_SENTINEL } from './sdf/glyph-rasterizer'
+import { bumpAlloc } from '../__profile__/alloc-counter'
+import { FrameArena } from '../gpu/frame-arena'
+import type { MlVerticalLayout } from './text-stage-types'
 
 /** Resolve per-font typography overrides for the given fontKey against
  *  a typography table. The primary family is the first entry of the
@@ -47,7 +51,10 @@ export type LabelAnchor =
 // X-GIS we keep offsets in em (multiplied by sizePx at draw time), so
 // 7 layout-px = 7/24 em. Replicated verbatim so variable-anchor labels
 // land where MapLibre puts them (user opted for MapLibre-latest parity).
-const ONE_EM = 24
+// ONE_EM is the single MapLibre em-space unit shared by both the
+// variable-anchor baseline math here and mlVerticalLayout below; it is
+// exported for the point-loop centreShift in text-stage.ts.
+export const ONE_EM = 24
 const BASELINE_OFFSET_EM = 7 / ONE_EM
 
 /** Port of MapLibre `evaluateVariableOffset` (variable_text_anchor.ts)
@@ -130,4 +137,184 @@ export function variableAnchorOffsetEm(
 export function stripCurveLineExtraScripts(text: string): string {
   const lf = text.indexOf('\n')
   return lf >= 0 ? text.slice(0, lf) : text
+}
+
+/** Fingerprint for the iter-168 layout cache (single-anchor static
+ *  case). Mixes the slice-1 glyphsKey (which encodes fontKey + text)
+ *  with every shape-affecting def field. Numeric fields are
+ *  bucket-quantised so sub-px / sub-frame jitter collapses on one
+ *  entry (same convention as pretextCacheKey). 32-bit hash, 4096-
+ *  entry cap — collision probability well below pixel-visible. */
+const _ANCHOR_ORDINAL: Record<string, number> = {
+  center: 0, top: 1, bottom: 2, left: 3, right: 4,
+  'top-left': 5, 'top-right': 6, 'bottom-left': 7, 'bottom-right': 8,
+}
+const _JUSTIFY_ORDINAL: Record<string, number> = {
+  center: 0, left: 1, right: 2, auto: 3,
+}
+export function layoutCacheKey(
+  glyphsKey: number,
+  sizePx: number, letterSpacingPx: number, maxWidthPx: number,
+  lineHeightPx: number,
+  justify: string, anchor: string,
+  offsetX: number, offsetY: number,
+  translateX: number, translateY: number,
+  padding: number,
+  haloWidth: number, haloBlur: number,
+): number {
+  let h = glyphsKey | 0
+  h = Math.imul(h ^ ((sizePx * 10) | 0), 0x01000193)
+  h = Math.imul(h ^ ((letterSpacingPx * 100) | 0), 0x01000193)
+  h = Math.imul(h ^ (maxWidthPx === Infinity ? -1 : (maxWidthPx * 10) | 0), 0x01000193)
+  h = Math.imul(h ^ ((lineHeightPx * 10) | 0), 0x01000193)
+  h = Math.imul(h ^ ((_JUSTIFY_ORDINAL[justify] ?? 15) + 1), 0x01000193)
+  h = Math.imul(h ^ ((_ANCHOR_ORDINAL[anchor] ?? 15) + 1), 0x01000193)
+  h = Math.imul(h ^ ((offsetX * 10) | 0), 0x01000193)
+  h = Math.imul(h ^ ((offsetY * 10) | 0), 0x01000193)
+  h = Math.imul(h ^ ((translateX * 10) | 0), 0x01000193)
+  h = Math.imul(h ^ ((translateY * 10) | 0), 0x01000193)
+  h = Math.imul(h ^ ((padding * 10) | 0), 0x01000193)
+  h = Math.imul(h ^ ((haloWidth * 10) | 0), 0x01000193)
+  h = Math.imul(h ^ ((haloBlur * 10) | 0), 0x01000193)
+  return h | 0
+}
+
+/** iter-167/190 — quick FNV-1a of `(fontKey, text)` for the layout
+ *  cache. Smaller than pretextCacheKey (no advances bucket) since
+ *  the layout cache is keyed by `(text, font, size, …)` and the
+ *  advances depend on the resolved glyphs, which themselves are
+ *  function of `(fontKey, text)` — folding advances into this key
+ *  would just be redundant entropy. The atlas-generation guard at
+ *  the cache-hit site catches the stale-slot case that needed
+ *  per-advance bucketing in pretextCacheKey. */
+export function textKeyFor(fontKey: string, text: string): number {
+  let h = 0x811c9dc5 | 0
+  for (let i = 0; i < fontKey.length; i++) {
+    h = Math.imul(h ^ fontKey.charCodeAt(i), 0x01000193)
+  }
+  // Separator byte so `font+text` != `fon+ttext`.
+  h = Math.imul(h ^ 0x7f, 0x01000193)
+  for (let i = 0; i < text.length; i++) {
+    h = Math.imul(h ^ text.charCodeAt(i), 0x01000193)
+  }
+  return h | 0
+}
+
+/** Audit ④ B1 — layout-cache hit validity. The numeric `_layoutKey`
+ *  (32-bit FNV-1a over font/size/width/…) CAN collide; the generation
+ *  guard only catches eviction-staleness, so on a collision the cache
+ *  would serve label-A's glyphs+offsets for label-B (the "일부만" scatter,
+ *  iter-327). Validate the EXACT source identity (`srcKey` = fontKey+text)
+ *  on hit — a string compare is collision-proof. A hit is valid only when
+ *  BOTH the atlas generation matches (slots unchanged) AND the source text
+ *  matches (no hash collision). Exported for direct unit testing. */
+export function layoutCacheEntryValid(
+  entry: { generation: number; srcKey: string },
+  srcKey: string,
+  generation: number,
+): boolean {
+  return entry.generation === generation && entry.srcKey === srcKey
+}
+
+/** SHAPING_DEFAULT_OFFSET — MapLibre `shaping.ts` constant. MapLibre
+ *  lays text in a 24-unit em space (ONE_EM, declared above); the
+ *  baseline of every line sits a FIXED −17/24 em below the line-box
+ *  top, independent of the glyphs' own ink metrics. We work in display
+ *  px, so the em→px factor is sizePx/ONE_EM. */
+export const SHAPING_DEFAULT_OFFSET = -17
+
+/** MapLibre `shapeLines` + `align()` vertical model for the common
+ *  single-section (scale=1, no inline images) case — every map label
+ *  in OFM/MapLibre-demo styles. Each line occupies a CONSTANT
+ *  `lineHeightPx` box; the per-line baseline is
+ *  `li·LH + OFF + (−vAlign·n·LH + 0.5·LH)` (the `maxLineHeight ===
+ *  lineHeight` branch of MapLibre `align`), with `OFF = −17·sizePx/24`.
+ *  This replaces the old per-glyph maxAscent/maxDescent box, which
+ *  diverged from MapLibre whenever line scripts had different ink
+ *  metrics (bilingual Latin+Hangul). `vAlign` is MapLibre
+ *  `getAnchorAlignment`: top→0, bottom→1, else 0.5. */
+export function mlVerticalLayout(
+  vAlign: 0 | 0.5 | 1, lineCount: number,
+  lineHeightPx: number, sizePx: number,
+  // iter-242 (Plan AAA B.2) — optional FrameArena for baselineY
+  // scratch. When provided, the per-line baseline array carves from
+  // the arena (no per-call allocation); when undefined (test seam),
+  // falls back to `new Array(n)`. The returned `baselineY` is a
+  // typed-array view that's only valid until the arena's next
+  // `beginFrame()` — consumers must read inside the same frame
+  // (matches the iter-241 advances lifetime contract).
+  arena?: FrameArena,
+): MlVerticalLayout {
+  const LH = lineHeightPx
+  const n = lineCount
+  const off = (SHAPING_DEFAULT_OFFSET * sizePx) / ONE_EM
+  const shiftY = -vAlign * n * LH + 0.5 * LH
+  let baselineY: ArrayLike<number>
+  if (arena !== undefined) {
+    bumpAlloc('text-stage.mlVerticalLayout.baselineY.FrameArena')
+    const view = arena.allocF32(n)
+    for (let li = 0; li < n; li++) view[li] = li * LH + off + shiftY
+    baselineY = view
+  } else {
+    bumpAlloc('text-stage.mlVerticalLayout.baselineY.Array')
+    const arr: number[] = new Array(n)
+    for (let li = 0; li < n; li++) arr[li] = li * LH + off + shiftY
+    baselineY = arr
+  }
+  const blockTop = -vAlign * n * LH
+  return { baselineY, blockTop, blockBottom: blockTop + n * LH }
+}
+
+/** Test seam for `mlVerticalLayout`. */
+export function verticalLayoutForTesting(
+  vAlign: 0 | 0.5 | 1, lineCount: number,
+  lineHeightPx: number, sizePx: number,
+): MlVerticalLayout {
+  return mlVerticalLayout(vAlign, lineCount, lineHeightPx, sizePx)
+}
+
+// Slot must fit (rasterFontSize + 2*sdfRadius). PBF arrives at 24 px
+// native (MapLibre's ONE_EM). Setting rasterFontSize to match means
+// PBF→atlas is a 1:1 byte copy with no bilinear resample — every
+// PBF-sourced glyph keeps the upstream tile server's sub-pixel SDF
+// precision exactly.
+//
+// CJK_FALLBACK_CHAIN chains common CJK fallbacks AFTER sans-serif so an
+// engine-level label without a Mapbox font stack still reads
+// Hangul/Han correctly on every host OS we ship on (macOS / Win /
+// Linux). Per-label font stacks coming from Mapbox styles get the
+// same fallback chain appended in composeFontKey.
+export const CJK_FALLBACK_CHAIN = '"Noto Sans CJK KR","Apple SD Gothic Neo","Malgun Gothic","Microsoft YaHei","Noto Sans CJK JP","Hiragino Sans","Yu Gothic",sans-serif'
+
+/** Compose the rasterizer-visible font key for one label.
+ *
+ *  Format when weight/style are unset: plain CSS family-list string
+ *  ("Foo, Bar, sans-serif"). When the LabelDef carries a fontWeight
+ *  or fontStyle, the helper prepends a sentinel-delimited prefix:
+ *
+ *      \x01<style>\x01<weight>\x01<family-list>
+ *
+ *  glyph-rasterizer.ts detects the sentinel and unpacks the three
+ *  fields into a properly-ordered CSS font shorthand
+ *  ("italic 700 24px Foo, sans-serif"). Without this, the only way
+ *  to carry weight info through ctx.font is to embed it in the
+ *  family name itself, which CSS parses literally and the browser
+ *  silently falls back to its default font — the root cause of "all
+ *  Mapbox labels look the same Regular weight".
+ *
+ *  CJK_FALLBACK_CHAIN is appended after any user-supplied family
+ *  list so Mapbox styles that only declare "Noto Sans Regular"
+ *  still pick up a Korean / Japanese / Chinese font from the host
+ *  OS for glyphs the primary family lacks. */
+export function composeFontKey(def: LabelDef, defaultFamily: string): string {
+  const family = def.font && def.font.length > 0
+    ? def.font.map(f => f.includes(' ') ? `"${f}"` : f).join(',')
+      + ',' + CJK_FALLBACK_CHAIN
+    : defaultFamily
+  if (def.fontStyle === undefined && def.fontWeight === undefined) {
+    return family
+  }
+  const style = def.fontStyle ?? 'normal'
+  const weight = def.fontWeight ?? 400
+  return `${FONT_KEY_SENTINEL}${style}${FONT_KEY_SENTINEL}${weight}${FONT_KEY_SENTINEL}${family}`
 }

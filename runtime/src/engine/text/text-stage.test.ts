@@ -138,22 +138,30 @@ describe('composeFontKey', () => {
 // Without a unit test the accessor pair could silently break the
 // browser-side `__xgisMap.getLastLabelCounts()` console probe.
 // Direct private-field read via type-asserted Object.create —
-// matches the vtr-tile-load-diagnostic pattern (iter-289).
+// matches the vtr-tile-load-diagnostic pattern (iter-289). The
+// counters now live on the injected TextStageDiagnostics collaborator;
+// the public getter contract is unchanged.
 import { TextStage } from './text-stage'
+import { TextStageDiagnostics } from './text-stage-diagnostics'
+
+function stubStageWithCounts(submitted: number, drawn: number): TextStage {
+  const stage = Object.create(TextStage.prototype) as TextStage
+  const diag = new TextStageDiagnostics()
+  diag.setSubmittedCount(submitted)
+  diag.setDrawnCount(drawn)
+  ;(stage as unknown as { _diag: TextStageDiagnostics })._diag = diag
+  return stage
+}
 
 describe('TextStage submitted/drawn label counters (iter-285)', () => {
   it('zero state before any prepare()', () => {
-    const stage = Object.create(TextStage.prototype) as TextStage
-    ;(stage as unknown as { _lastSubmittedLabelCount: number })._lastSubmittedLabelCount = 0
-    ;(stage as unknown as { _lastDrawnLabelCount: number })._lastDrawnLabelCount = 0
+    const stage = stubStageWithCounts(0, 0)
     expect(stage.getLastSubmittedLabelCount()).toBe(0)
     expect(stage.getLastDrawnLabelCount()).toBe(0)
   })
 
   it('reflects iter-285 partition: submitted ≫ drawn = collision-suppressed', () => {
-    const stage = Object.create(TextStage.prototype) as TextStage
-    ;(stage as unknown as { _lastSubmittedLabelCount: number })._lastSubmittedLabelCount = 44
-    ;(stage as unknown as { _lastDrawnLabelCount: number })._lastDrawnLabelCount = 6
+    const stage = stubStageWithCounts(44, 6)
     expect(stage.getLastSubmittedLabelCount()).toBe(44)
     expect(stage.getLastDrawnLabelCount()).toBe(6)
     // The expected reading on the highway-shield case: text-collision
@@ -163,9 +171,7 @@ describe('TextStage submitted/drawn label counters (iter-285)', () => {
   })
 
   it('reflects iter-285 partition: submitted == drawn = render-but-invisible', () => {
-    const stage = Object.create(TextStage.prototype) as TextStage
-    ;(stage as unknown as { _lastSubmittedLabelCount: number })._lastSubmittedLabelCount = 28
-    ;(stage as unknown as { _lastDrawnLabelCount: number })._lastDrawnLabelCount = 28
+    const stage = stubStageWithCounts(28, 28)
     expect(stage.getLastSubmittedLabelCount()).toBe(stage.getLastDrawnLabelCount())
     // All 28 labels reached the renderer but none visible on screen
     // → render-but-invisible class (color / halo / pipeline / z-order).

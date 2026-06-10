@@ -15,6 +15,7 @@
 import { describe, it, expect } from 'vitest'
 import { IconStage } from './icon-stage'
 import { TextStage } from '../text/text-stage'
+import { TextStageDiagnostics } from '../text/text-stage-diagnostics'
 import type { LabelDef } from '@xgis/compiler'
 
 interface Capture {
@@ -40,8 +41,7 @@ function makeTextStageStub(): TextStage {
   const stage = Object.create(TextStage.prototype) as TextStage
   ;(stage as unknown as { pending: unknown[] }).pending = []
   ;(stage as unknown as { pendingLine: unknown[] }).pendingLine = []
-  ;(stage as unknown as { dispatchedLabelTexts: Set<string> }).dispatchedLabelTexts = new Set()
-  ;(stage as unknown as { haloDebug: unknown[] }).haloDebug = []
+  ;(stage as unknown as { _diag: TextStageDiagnostics })._diag = new TextStageDiagnostics()
   ;(stage as unknown as { droppedPairKeys: Set<string> }).droppedPairKeys = new Set()
   ;(stage as unknown as { cameraZoom: number }).cameraZoom = 12
   ;(stage as unknown as { opts: { defaultFont: string } }).opts = { defaultFont: 'Noto Sans' }
