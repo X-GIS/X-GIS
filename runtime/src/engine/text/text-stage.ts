@@ -599,7 +599,7 @@ export function composeFontKey(def: LabelDef, defaultFamily: string): string {
 // Linux). Per-label font stacks coming from Mapbox styles get the
 // same fallback chain appended in addLabel/addCurvedLineLabel.
 const CJK_FALLBACK_CHAIN = '"Noto Sans CJK KR","Apple SD Gothic Neo","Malgun Gothic","Microsoft YaHei","Noto Sans CJK JP","Hiragino Sans","Yu Gothic",sans-serif'
-const DEFAULTS: Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders' | 'fontTypography' | 'dpr'>> = {
+const DEFAULTS: Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders' | 'fontTypography' | 'dpr' | 'onResourceLanded'>> = {
   slotSize: 64,
   // iter-272 — bump atlas slots 1296 → 4096 (~3.2× headroom).
   // User-reported bilingual label corruption on OFM Bright dense
@@ -618,7 +618,7 @@ export class TextStage {
   readonly host: GlyphAtlasHost
   readonly gpu: GlyphAtlasGPU
   readonly renderer: TextRenderer
-  readonly opts: Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders' | 'fontTypography' | 'dpr'>>
+  readonly opts: Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders' | 'fontTypography' | 'dpr' | 'onResourceLanded'>>
   /** The PBF rasterizer when this stage was built with PBF/inline/
    *  custom-provider config; null when no PBF chain is active.
    *  Exposed so `addGlyphProvider` can extend the chain after the
@@ -767,7 +767,7 @@ export class TextStage {
     options: TextStageOptions = {},
     sampleCount: number = 1,
   ) {
-    this.opts = { ...DEFAULTS, ...options } as Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders' | 'fontTypography' | 'dpr'>>
+    this.opts = { ...DEFAULTS, ...options } as Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders' | 'fontTypography' | 'dpr' | 'onResourceLanded'>>
     // Iter 116: rasterFontSize + sdfRadius are now DPR-invariant —
     // they match MapLibre's TinySDF defaults (fontSize=24, radius=8,
     // textureScale=1) and the PBF glyph server's native 24-px raster.
