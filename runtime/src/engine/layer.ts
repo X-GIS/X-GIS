@@ -25,6 +25,7 @@
 import type { ShowCommand } from './render/renderer'
 import { parseHexColor as parseHexColorRaw } from './feature-helpers'
 import { xlog } from './log'
+import { QUALITY } from './gpu/quality'
 
 /** Wrapper that returns `null` on parse failure so the setters can
  *  short-circuit without touching paintShapes when given a malformed
@@ -369,6 +370,72 @@ export class XGISFeatureEvent {
 
 export type XGISFeatureListener = (event: XGISFeatureEvent) => void
 
+// ═══ Registration-time diagnostics (P0 silent-failure warnings) ═══
+//
+// Two silent-failure classes a first-time user hits immediately, both
+// warned once at the single shared registration funnel below
+// (ListenerRegistry.add — reached by layer.addEventListener AND by
+// XGISMap.on/once/addEventListener feature routing):
+//  1. Unknown event type — map.on('rotate') has no implementation; the
+//     name falls through to the feature registry and never fires.
+//  2. Picking disabled — EVERY feature event (click/hover/wheel) needs
+//     the GPU pick RT (the dispatcher's first step is pickAt), and every
+//     quality preset ships picking:false, so listeners never fire.
+
+/** Canonical feature/pointer event names (mirrors XGISFeatureEventType). */
+export const FEATURE_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'click', 'mouseenter', 'mouseleave', 'mousemove', 'pointerdown', 'pointerup', 'wheel',
+])
+/** Canonical lifecycle/camera event names (mirrors XGISMapEventType below).
+ *  XGISMap.on/off/once route through this membership test. */
+export const MAP_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'load', 'idle', 'movestart', 'move', 'moveend', 'zoomstart', 'zoom', 'zoomend',
+])
+export function isMapEventType(type: string): type is XGISMapEventType {
+  return MAP_EVENT_TYPES.has(type)
+}
+
+const _warnedUnknownTypes = new Set<string>()
+let _warnedPickingOff = false
+/** Test-only: reset the warn-once latches between specs. */
+export function _resetListenerWarnings(): void {
+  _warnedUnknownTypes.clear()
+  _warnedPickingOff = false
+}
+
+function warnOnListenerRegistration(type: string): void {
+  if (!FEATURE_EVENT_TYPES.has(type)) {
+    // Once per unknown event-type name.
+    if (_warnedUnknownTypes.has(type)) return
+    _warnedUnknownTypes.add(type)
+    if (MAP_EVENT_TYPES.has(type)) {
+      // A real lifecycle name sent down the FEATURE funnel — reachable via
+      // map/layer addEventListener (map.on/off/once route it correctly).
+      xlog.warn(
+        `[X-GIS] '${type}' is a map lifecycle event — it never fires from a ` +
+        `feature/layer listener registry. Register it with map.on('${type}', …).`,
+      )
+      return
+    }
+    xlog.warn(
+      `[X-GIS] Unknown event type '${type}' — this listener will never fire. ` +
+      `Supported map events: ${[...MAP_EVENT_TYPES].join(', ')}. ` +
+      `Supported feature events: ${[...FEATURE_EVENT_TYPES].join(', ')}.`,
+    )
+  } else if (!QUALITY.picking && !_warnedPickingOff) {
+    // Once globally. Warn-only (NOT auto-enable): flipping picking on
+    // silently would also force MSAA off — a visual surprise the host
+    // must opt into (quality.ts pick/msaa coupling).
+    _warnedPickingOff = true
+    xlog.warn(
+      `[X-GIS] A '${type}' listener was registered but GPU picking is disabled ` +
+      `(every quality preset defaults picking:false), so feature events never fire. ` +
+      `Enable with map.setQuality({ picking: true }) or the ?picking=1 URL flag ` +
+      `(note: picking forces MSAA off).`,
+    )
+  }
+}
+
 /** EventTarget-flavoured listener bookkeeping shared by `XGISLayer`
  *  (per-layer dispatch) and `XGISMap` (delegated dispatch — fires for
  *  any layer hit). Same `addEventListener` semantics: re-registering a
@@ -383,6 +450,7 @@ export class ListenerRegistry {
     listener: XGISFeatureListener,
     options?: { signal?: AbortSignal; once?: boolean },
   ): void {
+    warnOnListenerRegistration(type)
     if (options?.signal?.aborted) return
     let typeMap = this.map.get(type)
     if (!typeMap) { typeMap = new Map(); this.map.set(type, typeMap) }

@@ -46,10 +46,11 @@ import { TextStage, type TextStageOptions } from './text/text-stage'
 import type { GlyphProvider } from './text/sdf/pbf/glyph-provider'
 import { IconStage } from './sprite/icon-stage'
 import {
-  LayerIdRegistry, XGISLayer, ListenerRegistry, MapEventRegistry, XGISMapEvent,
+  LayerIdRegistry, XGISLayer, ListenerRegistry, MapEventRegistry, XGISMapEvent, isMapEventType,
   type XGISFeature, type XGISFeatureEvent, type XGISFeatureEventType, type XGISFeatureListener,
   type XGISMapEventType, type XGISMapListener,
 } from './layer'
+import { attachAutoResize } from './auto-resize'
 import { EventDispatcher } from './event-dispatcher'
 import { TileCatalog } from '../data/tile-catalog'
 import { isTileTemplate } from '../data/tile-select'
@@ -103,15 +104,8 @@ type OpaqueGroup = ExternalOpaqueGroup
  *  can correlate a specific frame's tile-selection decisions with the
  *  cache / budget pressure that drove them. */
 
-// Lifecycle/camera event names — used by on()/off()/once() to route to
-// the map-event registry (vs. the feature-event registry). Kept in sync
-// with XGISMapEventType in layer.ts.
-const MAP_EVENT_TYPES: ReadonlySet<string> = new Set([
-  'load', 'idle', 'movestart', 'move', 'moveend', 'zoomstart', 'zoom', 'zoomend',
-])
-function isMapEventType(type: string): type is XGISMapEventType {
-  return MAP_EVENT_TYPES.has(type)
-}
+// Lifecycle/camera event routing (isMapEventType) lives in layer.ts next
+// to the canonical MAP_EVENT_TYPES set + the registration-time warnings.
 
 export class XGISMap {
   ctx!: GPUContext
@@ -135,6 +129,8 @@ export class XGISMap {
   private shapeRegistry: ShapeRegistry | null = null
   lineRenderer: LineRenderer | null = null
   private running = false
+  /** Consecutive renderFrame faults (P0-2); reset by a successful frame. */
+  private _frameFailures = 0
   /** Set by `destroy()`. Gates invalidate / flush so a torn-down map is
    *  inert and post-destroy calls no-op instead of touching a destroyed
    *  GPU device. */
@@ -248,6 +244,8 @@ export class XGISMap {
    *  attaches it (skipped when the canvas is not a real DOM element, e.g.
    *  the unit-test mock). */
   private _keyDownHandler: ((e: KeyboardEvent) => void) | null = null
+  /** Detach hook for the auto resize/DPR observers (P0-3); destroy() mirror. */
+  private _detachAutoResize: (() => void) | null = null
 
   // `_cameraExplicitlyPositioned` is owned by CameraController and
   // exposed on XGISMap via a get/set accessor (see below near
@@ -674,6 +672,9 @@ export class XGISMap {
     // keyboard-drivable. Runs at ctor time (canvas is available pre-GPU);
     // no-ops when the canvas is not a real DOM element (unit-test mock).
     this._setupAccessibility(options.ariaLabel)
+    // P0-3: container-resize + monitor-swap DPR tracking while idle; both
+    // funnel into the existing public resize() path. No-op in test envs.
+    this._detachAutoResize = attachAutoResize(this.canvas, () => this.resize())
   }
 
   /** P0-7 accessibility baseline. The renderer is canvas-only with no
@@ -897,11 +898,9 @@ export class XGISMap {
     this._warnUnsupported('addImage', 'Sprite atlas is not implemented yet (Batch 2 roadmap). Embed icon data in feature properties for now.')
   }
 
-  /** Mapbox-API parity: notify the map that its container resized.
-   *  X-GIS's renderFrame already reads canvas.width / .height every
-   *  frame, so the actual buffer pickup is automatic — this method
-   *  just invalidates so the next frame fires immediately rather
-   *  than waiting for an unrelated trigger. Idempotent. */
+  /** Notify the map that its container resized (Mapbox-API parity). Just
+   *  invalidates — the next frame's resizeCanvas picks up the new buffer
+   *  size. Idempotent; also the funnel for the auto observers (P0-3). */
   resize(): void {
     this.invalidate()
   }
@@ -2653,11 +2652,8 @@ export class XGISMap {
 
   renderLoop = (): void => {
     if (!this.running) return
-    // Emit move/zoom/idle lifecycle events from the single render-loop
-    // vantage point — runs every rAF tick (before the skip gate) so it
-    // catches camera changes from BOTH the gesture lane (controller
-    // mutates camera directly) and the programmatic lane (jumpTo →
-    // invalidate). Cheap when no listeners are registered.
+    // Emit move/zoom/idle lifecycle events every rAF tick (before the skip
+    // gate): catches camera changes from BOTH the gesture + programmatic lanes.
     this._processCameraEvents()
     if (!this.shouldRenderThisFrame()) {
       requestAnimationFrame(this.renderLoop)
@@ -2665,13 +2661,20 @@ export class XGISMap {
     }
     try {
       this.renderFrame()
+      this._frameFailures = 0
     } catch (err) {
-      // Surface frame errors to the console so the in-page log overlay
-      // (and PC DevTools) can show the real message. Without this wrap,
-      // requestAnimationFrame errors bubble to window.onerror as the
-      // useless "Script error. @ :0:0" placeholder under iOS WebKit.
+      // Surface the real message to the console / log overlay (a rAF throw
+      // reaches window.onerror as "Script error. @ :0:0" under iOS WebKit).
       xlog.error('[X-GIS frame]', (err as Error)?.stack ?? err)
-      this.running = false  // stop the loop so the error doesn't repeat 60×/sec
+      // Bounded recovery (P0-2): retry next frame so a transient fault can't
+      // freeze the map; only a persistent fault (3 consecutive) halts the loop
+      // (no 60×/sec spam). destroy()/device-loss exit via running/deviceLost.
+      if (++this._frameFailures >= 3) {
+        xlog.error(`[X-GIS] render loop halted after ${this._frameFailures} consecutive frame failures`)
+        this.running = false
+        return
+      }
+      requestAnimationFrame(this.renderLoop)
     }
   }
 
@@ -2954,11 +2957,9 @@ export class XGISMap {
     }
   }
 
-  /** Map-level event delegation. Fires for any layer that gets hit —
-   *  the event's `target` is the hit layer. Same `XGISFeatureEvent`
-   *  shape as layer-level handlers. Layer-level listeners run first;
-   *  if any of them call `preventDefault`, the map-level dispatch is
-   *  suppressed for that hit. Mirrors `document.addEventListener`. */
+  /** Map-level event delegation — fires for any layer hit (`target` = the
+   *  hit layer, same `XGISFeatureEvent` shape). Layer-level listeners run
+   *  first; their `preventDefault` suppresses the map-level dispatch. */
   addEventListener(
     type: XGISFeatureEventType,
     listener: XGISFeatureListener,
@@ -2971,15 +2972,12 @@ export class XGISMap {
     this.mapListeners.remove(type, listener)
   }
 
-  /** Mapbox-API parity: `on()` / `off()` aliases for addEventListener /
-   *  removeEventListener. MapLibre / Mapbox GL JS authors expect this
-   *  shorter form. Two event surfaces are routed by name:
-   *    - feature/pointer events (click, mousemove, …) → `mapListeners`,
-   *      delivered with an `XGISFeatureEvent` (carries the hit feature).
-   *    - lifecycle/camera events (load, idle, move*, zoom*) →
-   *      `mapEventListeners`, delivered with an `XGISMapEvent` (carries
-   *      the camera state).
-   *  The unions are disjoint, so the name discriminates cleanly. */
+  /** Mapbox-API parity `on()`/`off()` aliases. Two disjoint event surfaces
+   *  routed by name: feature/pointer events (click, mousemove, …) →
+   *  `mapListeners` (XGISFeatureEvent, carries the hit feature);
+   *  lifecycle/camera events (load, idle, move*, zoom*) →
+   *  `mapEventListeners` (XGISMapEvent, carries the camera state).
+   *  Unknown names warn once at the feature registry (layer.ts, P0-4). */
   on(type: XGISMapEventType, listener: XGISMapListener): void
   on(type: XGISFeatureEventType, listener: XGISFeatureListener): void
   on(type: XGISFeatureEventType | XGISMapEventType, listener: XGISFeatureListener | XGISMapListener): void {
@@ -3000,8 +2998,7 @@ export class XGISMap {
   }
 
   /** Build + dispatch a lifecycle/camera event from the current camera
-   *  state. No-op when no listener is registered for `type` so the
-   *  per-frame move/zoom path stays cheap. */
+   *  state. No-op without listeners so the per-frame path stays cheap. */
   private _fireMapEvent(type: XGISMapEventType): void {
     if (!this.mapEventListeners.has(type)) return
     const cam = this.cameraController.getCameraState()
@@ -3026,9 +3023,8 @@ export class XGISMap {
   }
 
   /** Internal: dispatcher calls this after a layer-level dispatch so
-   *  map-level handlers see every hit. The `event.defaultPrevented`
-   *  flag carries through — listeners that want to suppress map-level
-   *  delegation just call `preventDefault()` on the layer event. */
+   *  map-level handlers see every hit. `event.defaultPrevented` carries
+   *  through — a layer listener's preventDefault() suppresses this. */
   _dispatchMapEvent(event: XGISFeatureEvent): void {
     if (event.defaultPrevented) return
     if (!this.mapListeners.has(event.type)) return
@@ -3166,6 +3162,10 @@ export class XGISMap {
       this.canvas?.removeEventListener('keydown', this._keyDownHandler)
       this._keyDownHandler = null
     }
+
+    // Auto resize/DPR observers (P0-3) — teardown mirror of the ctor attach.
+    this._detachAutoResize?.()
+    this._detachAutoResize = null
 
     // Per-source GPU renderers + tile catalogs (renderer.destroy each).
     for (const key of [...this.vtSources.keys()]) this.teardownSource(key)
