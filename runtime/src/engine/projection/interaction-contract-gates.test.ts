@@ -540,6 +540,132 @@ describe('G1b — flat non-merc 1/2/6 streamed-pinch zoom-anchor convergence (ME
 })
 
 // ════════════════════════════════════════════════════════════════════════
+// G1c — flat non-merc 1/2/6 streamed-DRAG anchor convergence (B3 lock).
+//
+// THE INVARIANT: the geographic point grabbed at pointer-down stays under the
+// cursor across a streamed drag. G1b locks this for the PINCH path (zoomAt's
+// ≤6-pass fixed-point iteration); the DRAG path (panToScreenAnchor) ran a
+// SINGLE pass for 1/2/6 — and a wrong-space one at that: it subtracted the
+// cursor point's ABSOLUTE Mercator metres where the Mercator arm subtracts
+// camera-RELATIVE metres, so the grabbed point slid tens of px off the cursor
+// over a 30-step drag (B3 — the residual controller-interaction-gate.test.ts
+// documented unasserted). Both gestures now share the same fixed-point loop
+// (camera-helpers.ts convergeFlatAnchor); this gate locks the DRAG side.
+//
+// HARNESS (G3a/G5d oracle style — NOT the camera's own recovery): derive the
+// grabbed geographic point from the start-cursor offset via the per-projType
+// ORACLE inverse (projForType; the pitch-0 dpr-1 flat MVP maps own-plane rel
+// metres to screen px linearly at mpp per px — the mapping only SEEDS where
+// the grabbed point is, its true pixel is then taken from the oracle forward
+// geoToScreen through the live MVP). Feed panToScreenAnchor the point's
+// canonical Mercator-metre anchor (mercator.forward — exactly what the
+// controller stashes at pointer-down via unprojectToMercatorAnchor), stream
+// 30 cursor moves (+2, −1.5 px/step — the same drag the controller wiring
+// gate fires), then re-project the grabbed point via geoToScreen and assert
+// it is still under the moved cursor. The camera's own unprojectToLonLat is
+// never consulted by the measurement (it is what the loop under test
+// iterates on).
+// ════════════════════════════════════════════════════════════════════════
+describe('G1c — flat non-merc 1/2/6 streamed-drag anchor convergence (B3 lock)', () => {
+  // Cumulative under-cursor drift after the WHOLE 30-step drag must stay
+  // sub-pixel — same budget as G1b's pinch stream.
+  const G1C_PX_BUDGET = 1.0
+  const DRAG_STEPS = 30
+  // Per-step cursor motion: the controller wiring gate's stream (GATE 2A).
+  const DRAG_DX = 2, DRAG_DY = -1.5
+
+  // Metres per device pixel at the start zoom (TILE_PX=512 pyramid, dpr 1) —
+  // seeds the grabbed point's own-plane offset from the cursor offset.
+  const WORLD_MERC_G1C = 40075016.686
+  const TILE_PX_G1C = 512
+
+  const FLAT_NONMERC_G1C: Array<[number, string]> = [
+    [1, 'equirectangular'], [2, 'natural_earth'], [6, 'oblique_mercator'],
+  ]
+
+  // Same latitude spread as G1b: mid-lat control, high-lat, and the centre
+  // pinned at the ±85.051129° Mercator clamp. The cursor stream drags UP the
+  // screen (DRAG_DY < 0), which moves the centre to LOWER latitudes — away
+  // from the clamp — so the near-clamp case exercises convergence beside the
+  // clamp, not the (mercator-shared) maxCameraY hard limit.
+  const CENTRE_LATS_G1C: Array<[number, string]> = [
+    [40, 'mid-lat (control)'],
+    [84.9, 'high-lat'],
+    [85.0, 'near-clamp'],
+  ]
+
+  // Same start-cursor offset as G1b — below screen centre, so the grabbed
+  // latitude sits INSIDE the Mercator-representable band at the clamp.
+  const G1C_CURSOR_X = G1_W * 0.5 + 180
+  const G1C_CURSOR_Y = G1_H * 0.5 + 120
+
+  /** Stream a DRAG_STEPS-step drag through panToScreenAnchor and return the
+   *  final under-cursor pixel drift of the grabbed geographic point
+   *  (oracle-measured), or null if any oracle step is unavailable. */
+  function streamedDragDriftPx(projType: number, centreLat: number, startZoom: number): number | null {
+    const cam = new Camera(G1_CAM_LON, centreLat, startZoom)
+    cam.projType = projType
+    cam.globeMode = false
+    cam.bearing = 0
+    cam.pitch = 0
+
+    // Grabbed geographic point — oracle inverse of the start-cursor offset.
+    const mpp = (WORLD_MERC_G1C / TILE_PX_G1C) / Math.pow(2, startZoom)
+    const [clon0, clat0] = camCentreLonLat(cam)
+    const proj0 = projForType(projType, clon0, clat0)
+    const cv0 = proj0.forward(clon0, clat0)
+    const g0 = proj0.inverse(
+      (G1C_CURSOR_X - G1_W / 2) * mpp + cv0[0],
+      (G1_H / 2 - G1C_CURSOR_Y) * mpp + cv0[1],
+    )
+    if (!g0.every(Number.isFinite)) return null
+
+    // TRUE start pixel of the grabbed point through the live render MVP, and
+    // the canonical Mercator-metre anchor the controller would stash for it.
+    const s0 = geoToScreen(cam, g0[0], g0[1])
+    if (!s0) return null
+    const [ax, ay] = mercator.forward(g0[0], g0[1])
+
+    let px = s0[0], py = s0[1]
+    for (let s = 0; s < DRAG_STEPS; s++) {
+      px += DRAG_DX; py += DRAG_DY
+      cam.panToScreenAnchor(ax, ay, px, py, G1_W, G1_H)
+    }
+
+    // Where does the grabbed geographic point now sit on screen? The drag
+    // anchor contract says: still under the (moved) cursor.
+    const sEnd = geoToScreen(cam, g0[0], g0[1])
+    if (!sEnd) return null
+    return Math.hypot(sEnd[0] - px, sEnd[1] - py)
+  }
+
+  // MERCATOR CONTROL: projType 0's drag anchor is the exact single-pass
+  // `centre = anchor − rel` (its z=0 plane IS the Mercator plane). Drift here
+  // is pure float32-MVP oracle noise — proves the harness itself is sound.
+  it('projType 0 (mercator) mid-lat control: 30-step streamed drag is exact (harness soundness)', () => {
+    const drift = streamedDragDriftPx(0, 40, 9)
+    expect(drift, 'mercator: streamed-drag oracle returned null').not.toBeNull()
+    expect(drift!, `mercator control drift ${drift!.toFixed(6)}px`).toBeLessThan(0.01)
+  })
+
+  for (const [projType, name] of FLAT_NONMERC_G1C) {
+    for (const [centreLat, latLabel] of CENTRE_LATS_G1C) {
+      it(`projType ${projType} (${name}) ${latLabel}: ${DRAG_STEPS}-step streamed drag keeps the grabbed point < ${G1C_PX_BUDGET}px under the cursor`, () => {
+        // z9 start — same maxCameraY rationale as G1b: the viewport clamp
+        // must PERMIT the near-clamp centre so the gate isolates the
+        // iteration's convergence, not the (mercator-shared) viewport limit.
+        const drift = streamedDragDriftPx(projType, centreLat, 9)
+        expect(drift, `${name} ${latLabel}: streamed-drag oracle returned null`).not.toBeNull()
+        expect(
+          drift!,
+          `${name} ${latLabel}: cumulative under-cursor drift ${drift!.toFixed(4)}px over ${DRAG_STEPS}-step drag (budget ${G1C_PX_BUDGET}px)`,
+        ).toBeLessThan(G1C_PX_BUDGET)
+      })
+    }
+  }
+})
+
+// ════════════════════════════════════════════════════════════════════════
 // GATE 1 (PR-D) — disc + globe zoomAt-anchor invariant.
 //
 // THE INVARIANT: the geographic point under the cursor must stay under the

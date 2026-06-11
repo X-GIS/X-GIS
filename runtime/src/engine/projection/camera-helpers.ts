@@ -1,5 +1,62 @@
 // ═══ Matrix Utilities — pure helpers extracted from camera.ts ═══
 
+import { mercator } from './projection'
+import { WORLD_MERC } from '../gpu/gpu-shared'
+
+/** Minimal camera surface `convergeFlatAnchor` mutates — satisfied
+ *  structurally by `Camera` (it re-reads the LIVE centre each pass through
+ *  `unprojectToLonLat`, which consults `centerX`/`centerY` directly). */
+export interface FlatAnchorCamera {
+  centerX: number
+  centerY: number
+  unprojectToLonLat(
+    screenX: number, screenY: number,
+    canvasWidth: number, canvasHeight: number, dpr: number,
+  ): [number, number] | null
+}
+
+/** Shared fixed-point anchor iteration for the flat non-merc set
+ *  (equirectangular 1 / natural_earth 2 / oblique_mercator 6): nudge the
+ *  Mercator centre until the geographic point under device pixel
+ *  (screenX, screenY) projects to (targetMX, targetMY) Mercator metres.
+ *
+ *  WHY ITERATE: the projType's central meridian RIDES the camera centre
+ *  (proj_params.y/z = camera lon/lat), so shifting the Mercator centre
+ *  re-centres the whole flat frame — a single Mercator-metre shift leaves a
+ *  residual that compounds across a streamed gesture. Each pass recovers the
+ *  geographic point now under the pixel and nudges the centre by the
+ *  Mercator-metre difference to the target; convergence is geometric (a few
+ *  passes reach sub-pixel). Bounded at 6 passes / a 0.1 m threshold so it
+ *  stays O(1) per gesture step.
+ *
+ *  Used by BOTH `Camera.zoomAt` (pinch anchor — the loop's original home,
+ *  moved here verbatim) and `Camera.panToScreenAnchor` (drag anchor — B3: it
+ *  was a single wrong-space pass while zoomAt iterated, sliding the grabbed
+ *  point hundreds of px over a 30-step drag; interaction-contract-gates G1c
+ *  locks it). Extracted so the two gestures cannot drift apart again. */
+export function convergeFlatAnchor(
+  cam: FlatAnchorCamera,
+  targetMX: number, targetMY: number,
+  screenX: number, screenY: number,
+  canvasWidth: number, canvasHeight: number,
+  dpr: number,
+): void {
+  const halfWorld = WORLD_MERC / 2
+  for (let iter = 0; iter < 6; iter++) {
+    const curGeo = cam.unprojectToLonLat(screenX, screenY, canvasWidth, canvasHeight, dpr)
+    if (!curGeo) break
+    const curM = mercator.forward(curGeo[0], curGeo[1])
+    const ddx = targetMX - curM[0]
+    const ddy = targetMY - curM[1]
+    cam.centerX += ddx
+    cam.centerY += ddy
+    if (cam.centerX > halfWorld) cam.centerX -= WORLD_MERC
+    else if (cam.centerX < -halfWorld) cam.centerX += WORLD_MERC
+    // Converged: the geographic point is within ~0.1 m of target.
+    if (Math.abs(ddx) < 0.1 && Math.abs(ddy) < 0.1) break
+  }
+}
+
 /** Inverse of `proj_orthographic` (shaders/projection.ts): disc-plane
  *  metres (relative to the projection centre `lon0`/`lat0`, radians) →
  *  geographic `[lon, lat]` radians. Snyder's azimuthal-orthographic
