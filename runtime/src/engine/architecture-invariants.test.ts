@@ -135,7 +135,7 @@ describe('arch ratchet: file size (shrink-only god-files, no new ones)', () => {
 // frozen 2026-06-09. LOWER these as branches are routed through exported
 // membership accessors (isCylindrical / isFlat / isOrtho / …).
 const PROJTYPE_ALLOWLIST: Record<string, number> = {
-  'runtime/src/engine/projection/camera.ts': 8,
+  'runtime/src/engine/projection/camera.ts': 7,
   'runtime/src/engine/controller.ts': 6,
   'runtime/src/engine/projection/unproject.ts': 4,
   'runtime/src/loader/tiles-sse.ts': 3,

@@ -7,8 +7,8 @@ import { getMaxDpr } from '../gpu/gpu'
 import { computeLogDepthFc } from '../shaders/log-depth'
 import { EARTH_R } from './globe'
 import { mercatorYToLat, mercatorYToLatRad, mercator } from './projection'
-import { isGlobeProj, flatViewHeightCapM, worldCopiesFor, enumerateWorldCopies, poleLimit } from './projections-table'
-import { invOrthographic, invert4x4 } from './camera-helpers'
+import { isGlobeProj, flatViewHeightCapM, worldCopiesFor, enumerateWorldCopies, poleLimit, promotesToGlobeWhenTilted } from './projections-table'
+import { discAnchorFor, invert4x4 } from './camera-helpers'
 import {
   type CameraView,
   buildRTCMatrix,
@@ -904,60 +904,60 @@ export class Camera {
     }
 
     // World point under cursor BEFORE zoom — relative to current
-    // camera (rel coords). For orthographic these are points on the
-    // azimuthal DISC plane (RTC, projection-centre-relative), NOT the
-    // Mercator plane, so the Mercator-meter centre shift below would be
-    // wrong-scale and fling the globe off-screen on every pinch step
-    // (reported as "orthographic pinch zoom doesn't work"). The
-    // orthographic branch instead pins the GEOGRAPHIC point under the
-    // fingers (Cesium-style) by inverse-projecting it through the disc.
+    // camera (rel coords). For the untilted azimuthal discs (ortho 3 /
+    // azimuthal-eq 4 / stereo 5) these are points on the DISC plane
+    // (RTC, projection-centre-relative), NOT the Mercator plane, so the
+    // Mercator-metre centre shift below would be wrong-scale and fling
+    // the disc off-screen on every pinch step (G3a/G3b). The disc
+    // branch instead pins the GEOGRAPHIC point under the fingers
+    // (Cesium-style) by inverse-projecting it through the disc.
     const before = this.unprojectToZ0(sxDev, syDev, canvasWidth, canvasHeight, dpr)
 
-    if (this.projType === 3 && !this.globeMode) {
+    if (!this.globeMode && promotesToGlobeWhenTilted(this.projType)) {
       const R = EARTH_R
-      // Only geo-anchor when the fingers are solidly on the visible
-      // hemisphere. Near the limb (|q| → R) the orthographic inverse is
-      // singular: a sub-pixel screen move maps to a huge lon/lat swing,
-      // so anchoring there flings the globe ~tens of degrees per step
-      // (the "still doesn't work on mobile" case — the pinch midpoint is
-      // rarely dead-centre on the disc). Off the disc / near the limb we
-      // fall back to a plain centre-anchored scale, which is exactly how
-      // Cesium behaves when you pinch on empty space beside the globe.
-      const DISC_SAFE = 0.85 * R
+      // Only geo-anchor while the fingers are solidly inside the disc
+      // inverse's well-conditioned region — each inverse turns singular
+      // at its own radius (ortho: limb ρ→R; azimuthal-eq: antipode
+      // ρ→πR; stereo: antipode pushed to ρ→∞): a sub-pixel screen move
+      // there maps to a huge lon/lat swing that flings the disc ~tens
+      // of degrees per step (a pinch midpoint is rarely dead-centre).
+      // Past safeRho (camera-helpers.ts) we fall back to a plain centre-
+      // anchored scale — Cesium's behaviour for a pinch beside the globe.
+      const disc = discAnchorFor(this.projType)
       const onDisc = (p: [number, number] | null): boolean =>
-        !!p && Math.hypot(p[0], p[1]) < DISC_SAFE
+        !!p && Math.hypot(p[0], p[1]) < disc.safeRho
 
       const lon0 = this.centerX / R
       const lat0 = mercatorYToLatRad(this.centerY)
-      const anchor = onDisc(before) ? invOrthographic(before![0], before![1], lon0, lat0) : null
+      const anchor = onDisc(before) ? disc.inv(before![0], before![1], lon0, lat0) : null
 
       this.zoom = Math.max(0, Math.min(this.maxZoom, this.zoom + delta))
 
       if (anchor) {
-        // Same screen point, new zoom, UNCHANGED centre → the disc
-        // scaled about the projection centre so a different geographic
-        // point now sits under the fingers. Rotate the globe by that
-        // geographic difference so the originally-touched point returns
-        // under the fingers. Pinch streams many small deltas, so the
-        // local-linear residual self-corrects across the gesture.
-        const q = this.unprojectToZ0(sxDev, syDev, canvasWidth, canvasHeight, dpr)
-        const cur = onDisc(q) ? invOrthographic(q![0], q![1], lon0, lat0) : null
-        if (cur) {
-          // Clamp the per-call rotation. A legitimate pinch step nudges
-          // the centre by a fraction of a degree; anything larger is a
-          // numerical spike from the still-nonlinear inverse and must
-          // not be allowed to fling the globe.
-          const STEP_LIM = 0.12 // rad ≈ 6.9° — invisibly large for real pinch
-          const clamp = (v: number) => Math.max(-STEP_LIM, Math.min(STEP_LIM, v))
-          let newLon = lon0 + clamp(anchor[0] - cur[0])
-          // Mercator-finite latitude bound — matches the Map's per-frame
-          // centerLat clamp so centerY stays representable.
-          const LAT_LIM = 85.051129 * Math.PI / 180
-          const newLat = Math.max(-LAT_LIM, Math.min(LAT_LIM, lat0 + clamp(anchor[1] - cur[1])))
+        // Same screen point, new zoom, UNCHANGED centre → a different geo
+        // point sits under the fingers; rotate the disc so the touched one
+        // returns. One rotation is only locally linear (the disc frame RIDES
+        // the centre); the residual compounds at low zoom (G3b z4: ~3.4 px
+        // single-pass) — iterate like the flat non-merc arm below. STEP_LIM
+        // clamps the TOTAL per-call rotation; LAT_LIM = Map's centerLat clamp.
+        const STEP_LIM = 0.12 // rad ≈ 6.9° — invisibly large for real pinch
+        const LAT_LIM = 85.051129 * Math.PI / 180
+        const lim = (v: number) => Math.max(-STEP_LIM, Math.min(STEP_LIM, v))
+        for (let iter = 0; iter < 6; iter++) {
+          const q = this.unprojectToZ0(sxDev, syDev, canvasWidth, canvasHeight, dpr)
+          const lonC = this.centerX / R, latC = mercatorYToLatRad(this.centerY)
+          const cur = onDisc(q) ? disc.inv(q![0], q![1], lonC, latC) : null
+          if (!cur) break
+          const dLon = anchor[0] - cur[0], dLat = anchor[1] - cur[1]
+          // Wrap the total before clamping — centerX may X-wrap mid-loop.
+          const tot = ((lonC + dLon - lon0 + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI
+          let newLon = lon0 + lim(tot)
+          const newLat = Math.max(-LAT_LIM, Math.min(LAT_LIM, lat0 + lim(latC + dLat - lat0)))
           // Wrap longitude to (-π, π].
           newLon = ((newLon + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI
           this.centerX = newLon * R
           this.centerY = R * Math.log(Math.tan(Math.PI / 4 + newLat / 2))
+          if (Math.abs(dLon) < 1e-9 && Math.abs(dLat) < 1e-9) break // ≈6 mm ground: converged
         }
       }
       const maxYO = this.maxCameraY(canvasHeight)
@@ -1014,8 +1014,8 @@ export class Camera {
           }
         }
       } else {
-        // Mercator (0) + deferred disc 4/5: raw Mercator-metre delta (exact
-        // for 0; unchanged-wrong for 4/5, still it.fails in G1).
+        // Mercator (0) + globe (7): raw Mercator-metre delta (exact for
+        // 0; globe still anchors the phantom flat plane — G5c, deferred).
         this.centerX += before[0] - after[0]
         this.centerY += before[1] - after[1]
         // Wrap X to stay within one world width (mirrors pan()).
