@@ -549,8 +549,9 @@ describe('G1b — flat non-merc 1/2/6 streamed-pinch zoom-anchor convergence (ME
 //     disc set (unprojectToLonLat returns null for 3/4/5/7).
 //   - G1b streams zoomAt but ONLY for the flat non-merc set (1/2/6), which
 //     has a fixed-point iteration in zoomAt; the disc/globe branches are
-//     structurally different (disc: the projType===3 special case; globe:
-//     the globeMode dispatch into globe-anchor.ts zoomAtGlobeAnchored).
+//     structurally different (disc: the promotesToGlobeWhenTilted geo-anchor
+//     branch; globe: the globeMode dispatch into globe-anchor.ts
+//     zoomAtGlobeAnchored).
 //
 // HARNESS: pick a screen pixel offset from centre; recover the geographic
 // point there via the CORRECT per-projType ORACLE (NOT the camera's own
@@ -564,17 +565,17 @@ describe('G1b — flat non-merc 1/2/6 streamed-pinch zoom-anchor convergence (ME
 // a stream of small ones — see STREAM_DELTA).
 //
 //   G3a projType 3 (orthographic): normal it() — PASSES. zoomAt has the disc
-//        geo-anchor special case (camera.ts:1000, invOrthographic). Regression
-//        LOCK: drop that branch and the anchor flings like G3b.
-//   G3b projType 4 (azimuthal_equidistant) + 5 (stereographic): it.fails.
-//        zoomAt's `projType === 3` guard EXCLUDES 4/5, so they fall through to
-//        the general branch (camera.ts:1099) which subtracts Mercator-plane
-//        metres from a disc-plane `before`/`after` — wrong scale → fling.
-//        Oracle = getProjection(name,clon,clat).inverse on the disc plane
-//        (these are NOT globeMode at pitch 0 — an untilted disc renders through
-//        the flat MVP, getViewForProjection(projType)→getFrameView). Flips
-//        green when invAzimuthal/invStereographic is wired into zoomAt's disc
-//        branch — the #9 / PR-D contract.
+//        geo-anchor branch (camera.ts, discAnchorFor → invOrthographic).
+//        Regression LOCK: drop that branch and the anchor flings like old G3b.
+//   G3b projType 4 (azimuthal_equidistant) + 5 (stereographic): normal it() —
+//        PASSES (regression lock). zoomAt's disc geo-anchor covers the whole
+//        promotesToGlobeWhenTilted set {3,4,5}: discAnchorFor dispatches
+//        invAzimuthalEquidistant / invStereographic (camera-helpers.ts). Was
+//        ~10-18 px fling while the branch was gated `projType === 3` and 4/5
+//        fell to the general arm's Mercator-metre subtraction of a disc-plane
+//        `before`/`after` (wrong scale). Oracle = getProjection(name,clon,
+//        clat).inverse on the disc plane (these are NOT globeMode at pitch 0 —
+//        an untilted disc renders through the flat MVP, getFrameView).
 //   G5c projType 7 (globe): normal it() — PASSES (regression lock, #11 landed).
 //        zoomAt now dispatches globeMode to the ray↔sphere fixed point
 //        (globe-anchor.ts zoomAtGlobeAnchored) instead of anchoring against
@@ -587,8 +588,8 @@ describe('G1b — flat non-merc 1/2/6 streamed-pinch zoom-anchor convergence (ME
 //        panToScreenAnchor ground-tracks it via panGlobeToScreenAnchor.
 //
 // OBSERVED anchor drift (this environment, see body for the exact harness):
-//   G3a ortho(3) z10/z12 streamed 20×0.04 : 0.06 px / 0.015 px  (PASS, locked)
-//   G3b azim_eq(4) / stereo(5) z4..z8       : ~10-18 px          (FLING → fails)
+//   G3a ortho(3) z10/z12 streamed 20×0.04 : ~2e-4 px  (PASS, locked; iterated)
+//   G3b azim_eq(4) / stereo(5) z4..z8       : ~2e-4 px  (PASS, locked; was ~10-18 px)
 //   G5c globe(7)  z4/z8 pitch0/30           : was 16-20 px phantom-plane →
 //        0.011-0.35 px wired. The z8 residual is the f32 GlobeView.matrix +
 //        f32 invert4x4 noise floor (~1 m at 6.4e6 m sphere coords), which
@@ -599,7 +600,7 @@ describe('G1b — flat non-merc 1/2/6 streamed-pinch zoom-anchor convergence (ME
 //        (was 7-11 px through the phantom-plane Mercator-metre anchor).
 // ════════════════════════════════════════════════════════════════════════
 
-describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a ortho + G5c/G5d globe locked; G3b 4/5 are target contracts)', () => {
+describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a+G3b disc set + G5c/G5d globe all locked)', () => {
   const GZ_W = 800, GZ_H = 800, GZ_DPR = 1
   const GZ_R = 6378137
   const GZ_RAD2DEG = 180 / Math.PI
@@ -714,14 +715,13 @@ describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a ortho +
   }
 
   // ── G3a — orthographic(3): PASSES (regression lock on the disc geo-anchor). ──
-  // The disc special case (camera.ts:1000) keeps the geographic point under
-  // the cursor. Its accuracy improves with zoom (lower zoom = larger per-step
-  // Mercator-metre centre shift = larger local-linear residual through the
-  // disc inverse, additionally bounded by the per-step STEP_LIM clamp), so the
-  // lock is asserted at z≥10 where the streamed anchor is solidly sub-pixel
-  // (observed 0.06 px @z10, 0.015 px @z12). 1.0 px budget mirrors G1b and
-  // still leaves >15× headroom — a regression (dropping the projType===3
-  // branch) jumps this to the ~10-18 px G3b fling range.
+  // The disc geo-anchor (camera.ts:917) keeps the geographic point under the
+  // cursor. The anchor now ITERATES recover-and-rotate inside zoomAt (the
+  // single-pass local-linear residual used to grow toward low zoom: 0.06 px
+  // @z10 then, ~3.4 px @z4 for the G3b pair), so the streamed drift is ~2e-4
+  // px at every zoom; the lock stays at z≥10 (its historical regime) with the
+  // 1.0 px G1b-mirror budget — a regression (dropping the disc geo-anchor
+  // branch) jumps this to the ~10-18 px pre-fix fling range.
   const G3A_PX_BUDGET = 1.0
   for (const zoom of [10, 12]) {
     it(`G3a projType 3 (orthographic) z=${zoom}: ${GZ_STEPS}-step zoom keeps the under-cursor geo point < ${G3A_PX_BUDGET}px [regression lock — disc geo-anchor, camera.ts:1000]`, () => {
@@ -734,23 +734,23 @@ describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a ortho +
     })
   }
 
-  // ── G3b — azimuthal_equidistant(4) + stereographic(5): TARGET contract. ──
-  // zoomAt's disc geo-anchor is gated on `projType === 3`, so 4/5 fall to the
-  // general branch and subtract Mercator-plane metres from a disc-plane point
-  // → wrong-scale fling. it.fails: the body's drift assertion THROWS today
-  // (observed ~10-18 px), and FLIPS to failing the moment invAzimuthal /
-  // invStereographic is wired into the disc branch (the under-cursor point
-  // then stays put and the assertion passes — forcing removal of this marker).
+  // ── G3b — azimuthal_equidistant(4) + stereographic(5): PASSES (lock). ──
+  // zoomAt's disc geo-anchor covers the whole promotesToGlobeWhenTilted set:
+  // discAnchorFor (camera-helpers.ts) dispatches invAzimuthalEquidistant /
+  // invStereographic, so the under-cursor geo point stays put. Regression
+  // LOCK (flipped from it.fails when the inverses were wired): re-gating the
+  // branch to ortho only — or breaking an inverse's ρ→c map — returns 4/5 to
+  // the general arm's ~10-18 px wrong-scale Mercator-metre fling.
   const G3B_PX_BUDGET = 1.0
   const G3B_DISC: Array<[number, string]> = [
     [4, 'azimuthal_equidistant'], [5, 'stereographic'],
   ]
   for (const [projType, name] of G3B_DISC) {
     for (const zoom of [4, 8]) {
-      it.fails(
+      it(
         `G3b projType ${projType} (${name}) z=${zoom}: ${GZ_STEPS}-step zoom keeps the under-cursor geo point < ${G3B_PX_BUDGET}px ` +
-        `[#9/PR-D target contract — zoomAt's disc geo-anchor is gated on projType===3, so ${name} falls to the ` +
-        `general branch and subtracts Mercator-plane metres from a disc-plane point → fling; ~10-18px today]`,
+        `[regression lock — disc geo-anchor via discAnchorFor (camera-helpers.ts); ` +
+        `was ~10-18px fling while the branch was gated projType===3]`,
         () => {
           const drift = discStreamedDriftPx(projType, name, zoom)
           expect(drift, `${name} streamed-zoom recovery returned null (z=${zoom})`).not.toBeNull()
@@ -870,10 +870,10 @@ describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a ortho +
   })
 
   // Quantified evidence (not gated — informational). Pins the anchor-drift
-  // magnitudes so the "fling" claims are MEASURED, not asserted, and documents
-  // the contrast: ortho(3) + globe(7, #11 wired) are sub-pixel; the untilted
-  // 4/5 disc set (still on the general Mercator-delta arm, #9) flings.
-  it('disc/globe zoomAt-anchor drift: ortho(3) + globe(7) sub-px vs 4/5 flung (informational)', () => {
+  // magnitudes so the "anchored" claims are MEASURED, not asserted: with #9
+  // (disc geo-anchor over all of promotesToGlobeWhenTilted) AND #11 (globe
+  // ray↔sphere dispatch) both landed, ALL FOUR are sub-pixel.
+  it('disc/globe zoomAt-anchor drift: disc set (3/4/5) + globe(7) all anchored sub-px (informational)', () => {
     const ortho = discStreamedDriftPx(3, 'orthographic', 10)
     const azim = discStreamedDriftPx(4, 'azimuthal_equidistant', 8)
     const stereo = discStreamedDriftPx(5, 'stereographic', 8)
@@ -881,10 +881,10 @@ describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a ortho +
     for (const [label, v] of [['ortho', ortho], ['azim', azim], ['stereo', stereo], ['globe', globe]] as const) {
       expect(v, `${label} drift returned null`).not.toBeNull()
     }
-    // ortho + globe are anchored; the 4/5 discs fling. Pin the gap.
+    // #9 + #11 both landed: every projection class is anchored. Pin sub-px.
     expect(ortho!, `ortho(3) drift ${ortho}px — expected sub-px (anchored)`).toBeLessThan(1.0)
-    expect(azim!, `azim_eq(4) drift ${azim}px — expected >>1px (flung)`).toBeGreaterThan(5)
-    expect(stereo!, `stereo(5) drift ${stereo}px — expected >>1px (flung)`).toBeGreaterThan(5)
+    expect(azim!, `azim_eq(4) drift ${azim}px — expected sub-px (anchored)`).toBeLessThan(1.0)
+    expect(stereo!, `stereo(5) drift ${stereo}px — expected sub-px (anchored)`).toBeLessThan(1.0)
     expect(globe!, `globe(7) drift ${globe}px — expected sub-px (ray↔sphere anchored)`).toBeLessThan(1.0)
   })
 })
