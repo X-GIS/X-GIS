@@ -30,21 +30,20 @@
 //     spinning an animation loop. The easing tail is interaction-FEEL, out of
 //     scope for a wiring gate.
 //
-// RESIDUAL NOTED (genuine finding, not a harness limitation): for the flat
-// non-merc set (1/2/6) the DRAG anchor (camera.panToScreenAnchor) is a
-// SINGLE-PASS anchor — unlike camera.zoomAt, which runs a fixed-point
-// iteration for 1/2/6 (camera.ts:1085). So a flat non-merc drag does NOT keep
-// the grabbed geographic point glued under the cursor the way a Mercator drag
-// does (Mercator round-trips to EXACTLY 0; equirect/NE/oblique drift tens to
-// hundreds of px over a 30-step drag). That under-cursor-stickiness is the
-// PR-D drag-anchor target (a #11-adjacent contract), NOT what #200 wired. What
-// #200 wired — and what this gate verifies PASSING — is that the controller
-// REACHES the new anchored path and drives the Camera through it (the camera
-// moves via unprojectToMercatorAnchor + panToScreenAnchor, not the delta-pan
-// fallback, not a no-op), plus that clientToLngLat now returns finite geo for
-// 1/2/6 and globe mode (#11 ray↔sphere wiring — globe drag itself IS exactly
-// round-trip-gated below, unlike the single-pass 1/2/6 anchor). The Mercator
-// control proves the harness + anchored-drag wiring are sound by
+// RESIDUAL (B3) — RESOLVED: the flat non-merc (1/2/6) DRAG anchor
+// (camera.panToScreenAnchor) used to be a SINGLE-PASS anchor — unlike
+// camera.zoomAt, which runs a fixed-point iteration for 1/2/6 — so a flat
+// non-merc drag slid the grabbed geographic point off the cursor (hundreds of
+// px over a 30-step drag). Both gestures now share the camera-helpers.ts
+// convergeFlatAnchor fixed-point loop; the under-cursor drag stickiness is
+// oracle-gated in interaction-contract-gates.test.ts G1c (streamed 30-step
+// drag < 1 px), NOT here. What #200 wired — and what this gate verifies
+// PASSING — is that the controller REACHES the new anchored path and drives
+// the Camera through it (the camera moves via unprojectToMercatorAnchor +
+// panToScreenAnchor, not the delta-pan fallback, not a no-op), plus that
+// clientToLngLat now returns finite geo for 1/2/6 and globe mode (#11
+// ray↔sphere wiring — globe drag itself IS exactly round-trip-gated below).
+// The Mercator control proves the harness + anchored-drag wiring are sound by
 // round-tripping to 0.
 //
 // projType encoding: 0 mercator · 1 equirectangular · 2 natural_earth
@@ -218,8 +217,8 @@ describe('GATE 2A — PanZoomController drag wiring (projType 1/2/6 route throug
   // drives the Camera: the centre moves substantially in response to the drag
   // (the anchored path executed, not the no-op / not a stale anchor), and it
   // moves by MORE than a single move's worth (a streamed drag accumulated).
-  // The exact "stays glued under the cursor" stickiness is the single-pass
-  // panToScreenAnchor residual documented in the header — out of #200 scope.
+  // The exact "stays glued under the cursor" stickiness is oracle-gated in
+  // interaction-contract-gates.test.ts G1c (B3 fixed — see header note).
   for (const [projType, name] of FLAT_NONMERC) {
     it(`${name}(${projType}): drag drives the Camera via the anchored path (centre moves, anchor was finite)`, () => {
       const cam = makeFlatCamera(projType)

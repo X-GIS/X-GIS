@@ -8,7 +8,7 @@ import { computeLogDepthFc } from '../shaders/log-depth'
 import { EARTH_R } from './globe'
 import { mercatorYToLat, mercatorYToLatRad, mercator } from './projection'
 import { isGlobeProj, flatViewHeightCapM, worldCopiesFor, enumerateWorldCopies, poleLimit, promotesToGlobeWhenTilted } from './projections-table'
-import { discAnchorFor, invert4x4 } from './camera-helpers'
+import { discAnchorFor, invert4x4, convergeFlatAnchor } from './camera-helpers'
 import {
   type CameraView,
   buildRTCMatrix,
@@ -991,27 +991,13 @@ export class Camera {
         // (proj_params.y/z = camera lon/lat), so shifting the Mercator centre
         // re-centres the whole flat frame — a single Mercator-metre shift
         // leaves a residual that compounds across a streamed pinch (measured
-        // ~33-37 px slide). Iterate: each pass recovers the geographic point now
-        // under the cursor and nudges the Mercator centre by the Mercator-metre
-        // difference to the target `G`; convergence is geometric (a few passes
-        // reach sub-pixel). Bounded iteration keeps it O(1) per zoom step.
+        // ~33-37 px slide). convergeFlatAnchor (camera-helpers.ts — the loop's
+        // verbatim extraction, shared with panToScreenAnchor's drag anchor)
+        // iterates ≤6 passes to a 0.1 m threshold.
         const beforeGeo = this._relToLonLat(before)
         if (beforeGeo) {
           const targetM = mercator.forward(beforeGeo[0], beforeGeo[1])
-          const halfWorld = WORLD_MERC / 2
-          for (let iter = 0; iter < 6; iter++) {
-            const curGeo = this.unprojectToLonLat(sxDev, syDev, canvasWidth, canvasHeight, dpr)
-            if (!curGeo) break
-            const curM = mercator.forward(curGeo[0], curGeo[1])
-            const ddx = targetM[0] - curM[0]
-            const ddy = targetM[1] - curM[1]
-            this.centerX += ddx
-            this.centerY += ddy
-            if (this.centerX > halfWorld) this.centerX -= WORLD_MERC
-            else if (this.centerX < -halfWorld) this.centerX += WORLD_MERC
-            // Converged: the geographic point is within ~0.1 m of target.
-            if (Math.abs(ddx) < 0.1 && Math.abs(ddy) < 0.1) break
-          }
+          convergeFlatAnchor(this, targetM[0], targetM[1], sxDev, syDev, canvasWidth, canvasHeight, dpr)
         }
       } else {
         // Mercator (0) + globe (7): raw Mercator-metre delta (exact for
@@ -1058,15 +1044,15 @@ export class Camera {
     if (this.projType === 1 || this.projType === 2 || this.projType === 6) {
       // Flat non-merc (#8): `cur` is the projType's OWN-plane rel metres, NOT
       // Mercator. `anchorWorldX/Y` is canonical Mercator metres (the geographic
-      // anchor the controller forwarded through mercator), so subtract in the
-      // SAME space — recover the cursor's geographic point and forward it to
-      // Mercator metres before differencing. Guarded so 0/3/4/5/7 keep the raw
-      // Mercator-metre subtraction byte-identical.
-      const ll = this._relToLonLat(cur)
-      if (!ll) return
-      const mc = mercator.forward(ll[0], ll[1])
-      this.centerX = anchorWorldX - mc[0]
-      this.centerY = anchorWorldY - mc[1]
+      // anchor the controller forwarded through mercator), so the raw
+      // Mercator-metre subtraction below would mix spaces. Run the SAME
+      // fixed-point iteration as zoomAt's pinch anchor (B3 — the old
+      // single-pass here both mixed absolute-vs-relative Mercator metres and
+      // ignored that the central meridian rides the centre, sliding the
+      // grabbed point hundreds of px over a 30-step drag; gate: interaction-
+      // contract-gates G1c). Guarded so 0/3/4/5/7 keep the raw subtraction
+      // byte-identical.
+      convergeFlatAnchor(this, anchorWorldX, anchorWorldY, cursorX * dpr, cursorY * dpr, canvasWidth, canvasHeight, dpr)
     } else {
       this.centerX = anchorWorldX - cur[0]
       this.centerY = anchorWorldY - cur[1]
