@@ -41,6 +41,10 @@ export interface MvtCompileSlice {
 interface PendingJob {
   resolve: (slices: MvtCompileSlice[]) => void
   reject: (e: Error) => void
+  /** Index into `workers` of the worker this job was dispatched to. A
+   *  worker 'error' rejects only the jobs it owns — the other N-1
+   *  workers stay alive and still post their 'compile-done'. */
+  workerIndex: number
 }
 
 interface SliceMsg {
@@ -160,12 +164,19 @@ export class MvtWorkerPool {
       })
       w.addEventListener('error', (e: ErrorEvent) => {
         console.error('[mvt-worker]', e.message)
-        // Reject every outstanding compile so callers don't hang on a
-        // crashed worker — without this the in-flight tile stays
-        // permanently blank and is never re-requested.
+        // Reject ONLY the jobs dispatched to THIS worker so callers don't
+        // hang on a crashed worker — without this the in-flight tile stays
+        // permanently blank and is never re-requested. The other N-1
+        // round-robin workers are still alive and will post their
+        // 'compile-done'; rejecting their jobs here would discard those
+        // good results (their messages then hit the `if (!job) return`
+        // early-out) and spuriously fail healthy tiles.
         const err = new Error(e.message || 'mvt worker error')
-        for (const job of this.pending.values()) job.reject(err)
-        this.pending.clear()
+        for (const [taskId, job] of this.pending) {
+          if (job.workerIndex !== i) continue
+          job.reject(err)
+          this.pending.delete(taskId)
+        }
       })
       this.workers.push(w)
     }
@@ -251,8 +262,9 @@ export class MvtWorkerPool {
     this.ensureWorkers()
     const taskId = this.nextTaskId++
     return new Promise<MvtCompileSlice[]>((resolve, reject) => {
-      this.pending.set(taskId, { resolve, reject })
-      const w = this.workers[this.nextWorker]
+      const workerIndex = this.nextWorker
+      this.pending.set(taskId, { resolve, reject, workerIndex })
+      const w = this.workers[workerIndex]
       this.nextWorker = (this.nextWorker + 1) % this.workers.length
       w.postMessage({
         kind: 'compile-mvt', taskId, bytes,
