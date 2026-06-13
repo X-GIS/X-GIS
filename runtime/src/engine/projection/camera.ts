@@ -157,20 +157,16 @@ export class Camera {
     this._syncCenterLatFromMercator()
   }
 
-  /** Mercator-metre bbox the camera centre must stay inside, mirroring the
-   *  CameraController's lon/lat `_maxBounds`. Set by CameraController.setMaxBounds
-   *  so the INTERACTIVE gesture mutators (pan / panToScreenAnchor / zoomAt) —
-   *  which drive this shared Camera directly, bypassing the controller's lon/lat
-   *  clamp — honour the configured bounds too. Same single-Camera propagation
-   *  pattern as minZoom/maxZoom. `null` = unconstrained. */
+  /** Mercator-metre bbox the centre must stay inside (mirrors CameraController's
+   *  lon/lat `_maxBounds`), set by setMaxBounds so the gesture mutators honour
+   *  bounds too — same shared-Camera propagation as minZoom. `null` = off. */
   private _maxBoundsMerc: { minX: number; maxX: number; minY: number; maxY: number } | null = null
   setMaxBoundsMerc(b: { minX: number; maxX: number; minY: number; maxY: number } | null): void {
     this._maxBoundsMerc = b
   }
 
-  /** Clamp centerX/centerY into `_maxBoundsMerc` when set. Called at every
-   *  gesture mutator exit AFTER the existing world-wrap / pole clamp so the
-   *  configured bounds win. Keeps centerLatDeg synced from the clamped centerY. */
+  /** Clamp centre into `_maxBoundsMerc` (no-op when null). Called at each gesture
+   *  mutator exit AFTER the world-wrap/pole clamp so bounds win. */
   private clampCenterToBounds(): void {
     const b = this._maxBoundsMerc
     if (!b) return
