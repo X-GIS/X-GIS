@@ -218,6 +218,58 @@ export function buildLineSegments(
     arcStart[i] = vertices[a * stride + 5]
   }
 
+  // ── line_length (slot 13) — total arc length of each polyline ──
+  // The pattern shader (shader-dsl/shaders/line.ts) places START/END/CENTER
+  // single-instance patterns in POLYLINE-ARC space:
+  //   centerArc = START → start_offset
+  //               END   → line_length - start_offset
+  //               CENTER→ line_length * 0.5
+  // then projects to the segment via `arc_on_seg = centerArc - seg.arc_start`.
+  // `arc_start` (vertex[5]) is PER-POLYLINE-RELATIVE: the compiler's
+  // `augmentChainWithArc` (compiler/src/tiler/vector-tiler.ts:617) resets
+  // `arc = 0` at each chain's first vertex and accumulates to the chain's
+  // total length at its last vertex. So for END to land on the polyline's
+  // far endpoint and CENTER on its midpoint, `line_length` MUST equal that
+  // polyline's total arc length (max arc value over the chain).
+  //
+  // Segments of one polyline form a connected component over the shared-
+  // endpoint graph already built above (adjStart/adjList). Union-find the
+  // vertices per segment, then per component set:
+  //   lineLength = max(arcStart[k] + segLen[k]) - min(arcStart[k])
+  // This is the total polyline length regardless of whether arc_start is
+  // chain-relative (min ≈ 0, so it reduces to max arc-end) or globally
+  // offset — both yield the correct END/CENTER frame for the shader.
+  const parent = new Uint32Array(vertCount)
+  for (let v = 0; v < vertCount; v++) parent[v] = v
+  const find = (x: number): number => {
+    let r = x
+    while (parent[r] !== r) r = parent[r]
+    // Path compression.
+    while (parent[x] !== r) { const nx = parent[x]; parent[x] = r; x = nx }
+    return r
+  }
+  for (let i = 0; i < segCount; i++) {
+    const ra = find(indices[i * 2])
+    const rb = find(indices[i * 2 + 1])
+    if (ra !== rb) parent[ra] = rb
+  }
+  // Per-component min(arcStart) and max(arcEnd), keyed by component root.
+  const compMin = new Map<number, number>()
+  const compMax = new Map<number, number>()
+  for (let i = 0; i < segCount; i++) {
+    const root = find(indices[i * 2])
+    const start = arcStart[i]
+    const end = arcStart[i] + segLen[i]
+    const curMin = compMin.get(root)
+    if (curMin === undefined || start < curMin) compMin.set(root, start)
+    const curMax = compMax.get(root)
+    if (curMax === undefined || end > curMax) compMax.set(root, end)
+  }
+  for (let i = 0; i < segCount; i++) {
+    const root = find(indices[i * 2])
+    arcTotal[i] = (compMax.get(root) ?? 0) - (compMin.get(root) ?? 0)
+  }
+
   // Tile-boundary tolerance in Mercator meters. Matches the compile-
   // time `makeSameBoundarySidePredicateMerc` default in
   // `compiler/src/tiler/vector-tiler.ts:1057` so a vertex the compiler
