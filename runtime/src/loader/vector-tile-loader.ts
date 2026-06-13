@@ -61,6 +61,41 @@ const TILE_FETCH_LOG_INTERVAL_MS = 60_000
  *  a chance to recover without a page reload. */
 const tileFetchNegativeCache = new Map<string, number>()
 const NEGATIVE_CACHE_TTL_MS = 5 * 60_000
+// Hard size cap for the negative cache. Every z/x/y is a distinct URL,
+// so panning across a broken region inserts one entry per tile that is
+// never revisited — without a bound the Map grows for the page lifetime.
+// Entries are time-bounded by NEGATIVE_CACHE_TTL_MS; this is a backstop
+// for a flood of distinct failing URLs before any TTL expires.
+const NEGATIVE_CACHE_MAX_ENTRIES = 4096
+
+/** Record `url` as negative-cached. Lazily sweeps expired entries on each
+ *  insert (entries are time-bounded anyway), then enforces a hard size cap
+ *  with FIFO eviction (Map preserves insertion order → the oldest keys are
+ *  dropped first) so the cache can't grow unbounded when distinct failing
+ *  URLs never get revisited. */
+function negativeCacheSet(url: string, now: number): void {
+  for (const [k, exp] of tileFetchNegativeCache) {
+    if (now >= exp) tileFetchNegativeCache.delete(k)
+  }
+  tileFetchNegativeCache.set(url, now + NEGATIVE_CACHE_TTL_MS)
+  while (tileFetchNegativeCache.size > NEGATIVE_CACHE_MAX_ENTRIES) {
+    const oldest = tileFetchNegativeCache.keys().next().value
+    if (oldest === undefined) break
+    tileFetchNegativeCache.delete(oldest)
+  }
+}
+
+/** Test-only accessor for the module-private negative cache size. Lets the
+ *  bound be asserted directly after driving the public fetch path. */
+export function __tileFetchNegativeCacheSizeForTest(): number {
+  return tileFetchNegativeCache.size
+}
+
+/** Test-only reset of the module-private negative cache so suites don't
+ *  bleed entries into one another (the cache is process-wide). */
+export function __resetTileFetchNegativeCacheForTest(): void {
+  tileFetchNegativeCache.clear()
+}
 // DoS ceiling for a single fetched tile. Defensive — well above a dense
 // real-world MVT/PMTiles tile, below the point a size-bomb response can
 // exhaust memory during arrayBuffer() materialisation.
@@ -97,7 +132,7 @@ async function fetchTileWithRetry(
   try {
     assertSafeRemoteUrl(url, 'tile URL')
   } catch {
-    tileFetchNegativeCache.set(url, Date.now() + NEGATIVE_CACHE_TTL_MS)
+    negativeCacheSet(url, Date.now())
     return 'failed'
   }
   const negativeExpiry = tileFetchNegativeCache.get(url)
@@ -123,7 +158,7 @@ async function fetchTileWithRetry(
         if (cl !== null) {
           const declared = Number(cl)
           if (Number.isFinite(declared) && declared > MAX_TILE_BYTES) {
-            tileFetchNegativeCache.set(url, Date.now() + NEGATIVE_CACHE_TTL_MS)
+            negativeCacheSet(url, Date.now())
             return 'failed'
           }
         }
@@ -134,7 +169,7 @@ async function fetchTileWithRetry(
         try {
           return await readBodyCapped(resp, MAX_TILE_BYTES, tileLabel)
         } catch {
-          tileFetchNegativeCache.set(url, Date.now() + NEGATIVE_CACHE_TTL_MS)
+          negativeCacheSet(url, Date.now())
           return 'failed'
         }
       }
@@ -145,16 +180,26 @@ async function fetchTileWithRetry(
     }
     if (attempt === backoffsMs.length) break
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(resolve, backoffsMs[attempt])
-      signal.addEventListener('abort', () => {
+      // Remove the abort listener on the resolve path too: {once:true}
+      // only auto-removes after the abort event FIRES, so a normal
+      // timer-fire would otherwise leave the listener lingering on the
+      // signal until the controller is GC'd. Declare timer with `let`
+      // first so onAbort can clear it without a TDZ hazard.
+      let timer: ReturnType<typeof setTimeout>
+      const onAbort = (): void => {
         clearTimeout(timer)
         reject(new DOMException('Aborted', 'AbortError'))
-      }, { once: true })
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
+      timer = setTimeout(() => {
+        signal.removeEventListener('abort', onAbort)
+        resolve()
+      }, backoffsMs[attempt])
     })
   }
-  tileFetchNegativeCache.set(url, Date.now() + NEGATIVE_CACHE_TTL_MS)
-  const urlKey = url.replace(/\/\d+\/\d+\/\d+/, '/{z}/{x}/{y}')
   const now = Date.now()
+  negativeCacheSet(url, now)
+  const urlKey = url.replace(/\/\d+\/\d+\/\d+/, '/{z}/{x}/{y}')
   const lastLogged = tileFetchLogThrottle.get(urlKey) ?? 0
   if (now - lastLogged > TILE_FETCH_LOG_INTERVAL_MS) {
     tileFetchLogThrottle.set(urlKey, now)
