@@ -559,19 +559,10 @@ export class Parser {
         if (depth === 0) break
         continue
       }
-      // Tokens like commas / numbers / percent / identifiers all
-      // come through with their raw `value` field already set, so
-      // joining them back yields a usable source-text stand-in. The
-      // lexer discards whitespace, so we must re-insert a separator
-      // between adjacent value tokens — otherwise space-separated CSS
-      // colour functions like `oklab(0.5 -0.05 0.1)` collapse to
-      // `oklab(0.5-0.050.1)` and parseCssColorFn's /[,\s]+/ split sees
-      // < 3 parts → null → the colour silently drops. Rules:
-      //   * never pad immediately after `(`
-      //   * never insert before a comma (the comma form already
-      //     separates: `rgb(255, 0, 0)`)
-      //   * glue `-` (Minus) to the number that follows it so a
-      //     negative channel stays one token (`-0.05`, not `- 0.05`)
+      // Re-insert a separator (lexer drops whitespace) so space-separated CSS
+      // colour fns like `oklab(0.5 -0.05 0.1)` don't collapse to `0.5-0.050.1`
+      // (→ parseCssColorFn <3 parts → null). Skip after `(`, before a comma,
+      // and after `-` (keep a negative channel glued: `-0.05`).
       const last = raw[raw.length - 1]
       if (last !== '(' && last !== '-' && t.type !== TokenType.Comma) {
         raw += ' '

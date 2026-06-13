@@ -78,7 +78,14 @@ describe('arch ratchet: map ↔ render-loop value-import cycle stays broken', ()
 // ── Gate 3: LOC ceilings (god-files shrink-only; no new god-files) ───
 // High-water marks measured 2026-06-09. LOWER these as files shrink.
 const LOC_CEILINGS: Record<string, number> = {
-  'runtime/src/engine/render/vector-tile-renderer.ts': 3913,
+  // Bumped 3913→3924 for the sync-path (doUploadTile) line/outline/segment
+  // buffer-leak fix: the 5 buffer declarations are hoisted ABOVE the try so
+  // the catch backstop can reach them, and 5 cleanup statements (release the
+  // pooled line/index buffers + destroy the lineRenderer-owned segment
+  // buffers) mirror doUploadTileAsync's cleanupLineBuffers. Irreducible — the
+  // async path already carries the identical structure; this closes the
+  // asymmetric sync gap (throw before layerCache.set → leaked VRAM).
+  'runtime/src/engine/render/vector-tile-renderer.ts': 3924,
   // Bumped 3361→3393 for the destroy()-completeness fix: cancelling the
   // EventDispatcher move-rAF + the pending-flush rAF, clearing _pendingPatches,
   // and removing the run()-installed window globals (__xgisReady/snapshot/
@@ -90,16 +97,23 @@ const LOC_CEILINGS: Record<string, number> = {
   // `_tileBackedUpdateWarned` Set + the enqueue-time guard + the defensive
   // flush-time warn are irreducible (warn-once data-loss prevention).
   'runtime/src/engine/map.ts': 3412,
-  'compiler/src/ir/lower.ts': 1343,
+  // Bumped 1343→1344 for the opacity sub-1.5% round-trip fix (#274); comments
+  // trimmed to the minimum, net +1 irreducible.
+  'compiler/src/ir/lower.ts': 1344,
   'runtime/src/engine/text/text-stage.ts': 1441,
   'compiler/src/tiler/vector-tiler.ts': 1509,
   'runtime/src/engine/render/renderer.ts': 915,
   'compiler/src/convert/layers.ts': 1539,
   'compiler/src/convert/expressions.ts': 1534,
   'runtime/src/data/tile-catalog.ts': 1388,
-  'blueprint/src/editor.ts': 1353,
+  // Bumped 1353→1354 for the load() history.reset() fix (#270): one
+  // irreducible statement (undo-after-import correctness).
+  'blueprint/src/editor.ts': 1354,
   'runtime/src/engine/shader-dsl/shaders/line.ts': 1187,
-  'compiler/src/parser/parser.ts': 1171,
+  // Bumped 1171→1176 for the CSS color-fn whitespace fix (#274): the
+  // separator-insertion logic in captureFnCallAsString is irreducible (comment
+  // already trimmed). parser.ts decomposition remains a tracked priority.
+  'compiler/src/parser/parser.ts': 1176,
   'runtime/src/engine/shader-dsl/shaders/polygon.ts': 1139,
   // Bumped 1067→1092 for the minZoom + setMaxBounds gesture-clamp correctness
   // fixes (#244/#248): the maxBounds clamp method + its 7 gesture-exit call

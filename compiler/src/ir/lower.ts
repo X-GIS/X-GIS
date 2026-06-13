@@ -489,15 +489,8 @@ function lowerLayer(
           for (const s of zoomStops.stops) {
             opacityZoomStops.push({
               zoom: s.zoom,
-              // The `opacity-<N>` token is ALWAYS the 0..100 scale: the
-              // Mapbox converter emits Math.round(clamped*100) (0→0,
-              // 0.01→1, 0.5→50, 1.0→100) and hand-authored .xgis uses
-              // the same 0..100 form (opacity-30, opacity-95, …). The
-              // old `<=1 ? : /100` heuristic mis-read `opacity-1`
-              // (Mapbox 0.01) as the legacy 0..1 form (1.0 = full),
-              // collapsing any opacity in ~(0, 0.015) to 100×. Divide
-              // unconditionally — behaviour-preserving for every value
-              // ≥ 2 and for 0; only fixes the 1 collision.
+              // opacity-<N> is the 0..100 scale; divide always (the old
+              // `<=1?:/100` heuristic mis-read opacity-1 = Mapbox 0.01 as 1.0).
               value: s.value / 100,
             })
           }
@@ -826,10 +819,7 @@ function lowerLayer(
       } else if (name.startsWith('opacity-')) {
         const num = parseFloat(name.slice(8))
         if (!isNaN(num)) {
-          // 0..100 scale unconditionally (see the zoom-stop arm above):
-          // `opacity-1` is Mapbox 0.01, NOT full opacity. The legacy
-          // `<=1 ? : /100` heuristic collapsed sub-1.5% opacities to 100×.
-          const val = num / 100
+          const val = num / 100 // 0..100 scale (see opacity zoom-stop arm)
           opacity = opacityConstant(val)
         }
       } else if (name.startsWith('size-')) {
