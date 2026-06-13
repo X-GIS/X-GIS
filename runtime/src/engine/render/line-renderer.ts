@@ -120,6 +120,13 @@ export { LINE_SEGMENT_STRIDE_F32, LINE_SEGMENT_STRIDE_BYTES, buildLineSegments }
 
 export class LineRenderer {
   private static readonly LAYER_SLOT = 256
+  /** Composite uniform slot stride. Matches LAYER_SLOT (256) so the
+   *  dynamic offset is a multiple of the typical
+   *  minUniformBufferOffsetAlignment, exactly as the layer ring does. */
+  private static readonly COMPOSITE_SLOT = 256
+  /** Bytes of the composite slot actually bound: CompUniform = f32 opacity
+   *  + vec3f pad = 16 bytes. Used as the dynamic bind size. */
+  private static readonly COMPOSITE_USED = 16
   private device: GPUDevice
   private format: GPUTextureFormat
   /** Standard alpha-blend pipeline — used for opaque line draws. */
@@ -164,14 +171,16 @@ export class LineRenderer {
   private compositePipeline!: GPURenderPipeline
   private compositeBindGroupLayout!: GPUBindGroupLayout
   private compositeBindGroup: GPUBindGroup | null = null
-  /** Composite uniform buffer — single f32 (opacity). 16-byte aligned. */
-  private compositeUniformBuffer!: GPUBuffer
-  /** Last opacity value written to compositeUniformBuffer. The composite
-   *  only needs a fresh writeBuffer when the opacity actually changes
-   *  (between frames where opacity stays constant we'd otherwise rewrite
-   *  identical bytes — cheap per call but ~200 redundant calls per
-   *  translucent scenario). */
-  private lastCompositeOpacity = Number.NaN
+  /** Composite uniform ring. 256-byte slots → each composite() call writes
+   *  its own opacity into a fresh slot and binds via dynamic offset. This
+   *  prevents the multi-layer writeBuffer clobbering hazard that a single
+   *  shared buffer suffers: WebGPU applies every queue.writeBuffer for the
+   *  frame before any submitted draw runs, so a shared buffer would make
+   *  every composite draw sample the LAST layer's opacity. Mirrors
+   *  `layerRing`. */
+  private compositeRing!: GPUBuffer
+  private compositeRingCapacity = 256
+  private compositeSlot = 0
 
   constructor(ctx: GPUContext, vtrTileBindGroupLayout: GPUBindGroupLayout) {
     this.device = ctx.device
@@ -294,7 +303,7 @@ export class LineRenderer {
       entries: [
         { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
         { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-        { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform', hasDynamicOffset: true } },
       ],
     })
     const compositeModule = this.device.createShaderModule({ code: emitCompositeWgsl(), label: 'line-composite' })
@@ -318,10 +327,13 @@ export class LineRenderer {
       magFilter: 'linear', minFilter: 'linear',
       addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge',
     })
-    this.compositeUniformBuffer = this.device.createBuffer({
-      size: 32,
+    // Composite uniform ring. 256-byte slots → dynamic offsets prevent
+    // multi-layer writeBuffer clobbering within a single frame, mirroring
+    // `layerRing`.
+    this.compositeRing = this.device.createBuffer({
+      size: this.compositeRingCapacity * LineRenderer.COMPOSITE_SLOT,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      label: 'line-composite-uniform',
+      label: 'line-composite-ring',
     })
   }
 
@@ -388,7 +400,8 @@ export class LineRenderer {
       entries: [
         { binding: 0, resource: this.offscreenSampler },
         { binding: 1, resource: this.offscreenView },
-        { binding: 2, resource: { buffer: this.compositeUniformBuffer } },
+        // Dynamic-offset binding: actual slot is chosen per composite() call.
+        { binding: 2, resource: { buffer: this.compositeRing, offset: 0, size: LineRenderer.COMPOSITE_USED } },
       ],
     })
   }
@@ -407,15 +420,25 @@ export class LineRenderer {
     })
   }
 
-  /** Composite the offscreen RT onto a main render pass with the given opacity. */
+  /** Composite the offscreen RT onto a main render pass with the given opacity.
+   *  Each call allocates a fresh composite-ring slot, writes its own opacity
+   *  there, and binds via dynamic offset. Two composite() calls in one frame
+   *  with different opacities therefore read distinct slots at GPU execution
+   *  time — fixing the shared-buffer clobber where every draw sampled the
+   *  last layer's opacity. */
   composite(mainPass: GPURenderPassEncoder, opacity: number): void {
     if (!this.compositeBindGroup) return
-    if (opacity !== this.lastCompositeOpacity) {
-      this.device.queue.writeBuffer(this.compositeUniformBuffer, 0, new Float32Array([opacity, 0, 0, 0]))
-      this.lastCompositeOpacity = opacity
+    const off = this.compositeSlot < this.compositeRingCapacity
+      ? this.compositeSlot * LineRenderer.COMPOSITE_SLOT
+      : (this.compositeRingCapacity - 1) * LineRenderer.COMPOSITE_SLOT
+    if (this.compositeSlot >= this.compositeRingCapacity) {
+      xlog.warn('[LineRenderer] composite ring overflow — capping at capacity; opacity bleed possible')
+    } else {
+      this.compositeSlot++
     }
+    this.device.queue.writeBuffer(this.compositeRing, off, new Float32Array([opacity, 0, 0, 0]))
     mainPass.setPipeline(this.compositePipeline)
-    mainPass.setBindGroup(0, this.compositeBindGroup)
+    mainPass.setBindGroup(0, this.compositeBindGroup, [off])
     mainPass.draw(3, 1)
   }
 
@@ -468,9 +491,10 @@ export class LineRenderer {
     return { buffer: buf, release: handle.release }
   }
 
-  /** Reset the layer ring slot cursor. Call once per frame. */
+  /** Reset the layer + composite ring slot cursors. Call once per frame. */
   beginFrame(): void {
     this.layerSlot = 0
+    this.compositeSlot = 0
   }
 
   /**
