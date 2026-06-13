@@ -171,13 +171,16 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     // iter-178 — line-pattern Stage 1 (parallel to iter-177 fill-
     // pattern). Constant string emit only; runtime resolves sprite
     // centre pixel as line colour at draw time. Stage 2 (real
-    // repeating-sprite stroke renderer) deferred. Mapbox `line-*`
-    // maps to xgis `stroke-*` (line-color → stroke-<hex>, line-
-    // width → stroke-<n>), so the utility name follows suit.
+    // repeating-sprite stroke renderer) deferred. NOTE: line-pattern
+    // rides a DISTINCT `stroke-image-` utility — NOT `stroke-pattern-`
+    // — because `stroke-pattern-<bareshape>` is already the native
+    // X-GIS SDF dash-symbol namespace (railroad/fence/marker/…), and
+    // colliding with it routed the sprite into the dash path where it
+    // was silently dropped. `stroke-image-<sprite>` keeps the two apart.
     if (p['line-pattern'] !== undefined && p['line-pattern'] !== null) {
       const v = p['line-pattern']
       if (typeof v === 'string') {
-        out.push(`stroke-pattern-${v}`)
+        out.push(`stroke-image-${v}`)
       } else {
         warnings.push(`Layer "${layer.id}" — line-pattern non-constant form (expression / interpolate) not yet wired through the IR; the constant string form is supported (iter-178). The layer falls back to line-color or transparent.`)
       }

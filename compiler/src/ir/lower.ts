@@ -798,13 +798,16 @@ function lowerLayer(
         // currently dropped (lower.ts has no binding-form arm for it).
         const num = parseFloat(name.slice('stroke-gap-'.length))
         if (!isNaN(num) && num > 0) strokeGapWidth = num
-      } else if (name.startsWith('stroke-pattern-')) {
+      } else if (name.startsWith('stroke-image-')) {
         // iter-178 Mapbox `line-pattern` Stage 1. Sprite name after
-        // `stroke-pattern-`; runtime samples the sprite's centre
-        // pixel for the line colour. Must precede the generic
-        // `stroke-` branch below (which would otherwise treat
-        // `pattern-X` as an unknown colour name and drop it).
-        const sprite = name.slice('stroke-pattern-'.length)
+        // `stroke-image-`; runtime samples the sprite's centre pixel
+        // for the line colour. Uses the DISTINCT `stroke-image-`
+        // namespace (not `stroke-pattern-`, which the native SDF dash
+        // arms above own) so the sprite is no longer mis-routed into
+        // the dash path. Must precede the generic `stroke-` branch
+        // below (which would otherwise treat `image-X` as an unknown
+        // colour name and drop it).
+        const sprite = name.slice('stroke-image-'.length)
         if (sprite.length > 0) linePattern = sprite
       } else if (name.startsWith('stroke-')) {
         const rest = name.slice(7)
