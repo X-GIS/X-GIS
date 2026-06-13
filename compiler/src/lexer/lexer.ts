@@ -126,6 +126,18 @@ export class Lexer {
         else if (esc === '"') value += '"'
         else value += esc
       } else {
+        // A real embedded newline must advance the physical line/col,
+        // mirroring tokenize()'s newline branch and skipBlockComment().
+        // Without this, every token AFTER a multi-line string reported a
+        // line too low by the embedded-newline count (the trailing col++
+        // lands col at 1 — the start of the next physical line).
+        if (this.src[this.pos] === '\n') {
+          value += '\n'
+          this.pos++
+          this.line++
+          this.col = 1
+          continue
+        }
         value += this.src[this.pos]
       }
       this.pos++

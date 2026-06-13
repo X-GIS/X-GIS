@@ -356,7 +356,7 @@ function parseCssColorFn(input: string): string | null {
   if (fn === 'lch' || fn === 'oklch') {
     // lch(L C H [/ A]) / oklch(L C H [/ A]). H supports deg/turn/rad/grad.
     const L = parseLabL(parts[0], fn === 'oklch')
-    const C = parseLabAB(parts[1], fn === 'oklch')
+    const C = parseLchC(parts[1], fn === 'oklch')
     const H = parseHue(parts[2])
     if (L === null || C === null || H === null) return null
     const alpha = parts.length === 4 ? parseAlpha(parts[3]) : 1
@@ -536,6 +536,20 @@ function parseLabAB(p: string, _isOk: boolean): number | null {
   if (!Number.isFinite(v)) return null
   // Percent: 100% maps to lab=125 or ok=0.4 per spec.
   if (p.endsWith('%')) return _isOk ? v / 100 * 0.4 : v / 100 * 125
+  return v
+}
+
+function parseLchC(p: string, isOk: boolean): number | null {
+  // lch/oklch CHROMA channel. Per CSS Color 4, percentage chroma uses a
+  // DIFFERENT reference than lab/oklab a/b: lch 100% → 150 (oklch 100%
+  // → 0.4). The lab a/b reference is ±125 (lab) / ±0.4 (ok). Using
+  // parseLabAB here under-saturated lch percentage chroma (125 vs 150);
+  // oklch was coincidentally correct because its a/b ref equals its
+  // chroma ref (0.4). Unitless chroma passes through unchanged. Chroma
+  // is non-negative; the spec clamps to [0, ∞).
+  const v = parseFloat(p.endsWith('%') ? p.slice(0, -1) : p)
+  if (!Number.isFinite(v)) return null
+  if (p.endsWith('%')) return isOk ? v / 100 * 0.4 : v / 100 * 150
   return v
 }
 
