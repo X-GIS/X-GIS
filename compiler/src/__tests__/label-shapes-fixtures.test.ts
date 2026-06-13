@@ -100,8 +100,16 @@ describe('LabelShapes inference on MapLibre demotiles', () => {
     // Source: "text-color": "#1077B0"
     const layer = findLayer(scene, /geolines[_-]label/)
     if (!layer) return  // optional — depends on demotiles version
+    // The layer IS present in this fixture, so assert the color resolves
+    // unconditionally (mirrors the water_name sibling above). The previous
+    // `if (color?.kind === 'constant')` wrapper ran ZERO assertions whenever the
+    // color dropped or routed non-constant — a vacuous green that masked the
+    // exact regression the title claims to cover.
     const color = layer.label?.shapes?.color
-    if (color?.kind === 'constant') {
+    expect(color, 'geolines-label must have a shapes.color').toBeDefined()
+    expect(color).not.toBeNull()
+    expect(color!.kind).toBe('constant')
+    if (color !== null && color.kind === 'constant') {
       // #1077B0 → r=0x10/255≈0.063, g=0x77/255≈0.467, b=0xB0/255≈0.690
       expect(color.value[0]).toBeCloseTo(16 / 255, 3)
       expect(color.value[1]).toBeCloseTo(119 / 255, 3)
