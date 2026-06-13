@@ -73,6 +73,11 @@ function pin(node: string, p: string, dir: 'in' | 'out', ptype: PinType): [strin
 
 const node = (id: string): BPNode => ({ id, type: 'reroute', x: 0, y: 0, data: {} })
 
+// History.past is private; read its depth structurally for the undo-count
+// assertions (the test deliberately inspects the undo stack size).
+const pastLen = (ed: Internals): number =>
+  (ed.history as unknown as { past: unknown[] }).past.length
+
 describe('blueprint wire undo correctness', () => {
   it('reconnecting an input wire records ONE undo step for the whole gesture (#bug4)', () => {
     const ed = makeEditor()
@@ -82,7 +87,7 @@ describe('blueprint wire undo correctness', () => {
     // Existing wire s.out → l.in is what the user grabs off the input pin.
     ed.edges = [{ id: 'e_old', from: { node: 's', pin: 'out' }, to: { node: 'l', pin: 'in' } }]
 
-    const before = ed.history.past.length
+    const before = pastLen(ed)
 
     // 1. Grab the wire at the input pin l.in (detaches it from s.out).
     ed.startWire('l', { id: 'in', label: '', type: 'any' }, 'in')
@@ -95,7 +100,7 @@ describe('blueprint wire undo correctness', () => {
 
     // One user gesture ⇒ exactly one snapshot on the undo stack
     // (unpatched code records twice — startWire AND tryConnect).
-    expect(ed.history.past.length - before).toBe(1)
+    expect(pastLen(ed) - before).toBe(1)
   })
 
   it('a standalone connect still records normally', () => {
@@ -103,9 +108,9 @@ describe('blueprint wire undo correctness', () => {
     ed.nodes = [node('s'), node('l')]
     ed.pinEls = new Map([pin('s', 'out', 'out', 'any'), pin('l', 'in', 'in', 'any')])
 
-    const before = ed.history.past.length
+    const before = pastLen(ed)
     ed.tryConnect({ node: 's', pin: 'out', ptype: 'any' }, { node: 'l', pin: 'in', dir: 'in', ptype: 'any' })
-    expect(ed.history.past.length - before).toBe(1)
+    expect(pastLen(ed) - before).toBe(1)
     expect(ed.edges.some((e) => e.from.node === 's' && e.to.node === 'l')).toBe(true)
   })
 })
@@ -129,8 +134,8 @@ describe('insertReroute clears the stale edge selection (#bug5)', () => {
     // With selEdge cleared, Delete hits deleteSelection's no-op guard and
     // records nothing (unpatched: stale selEdge bypasses the guard → a
     // phantom record() + edge-filter that matches nothing).
-    const before = ed.history.past.length
+    const before = pastLen(ed)
     ed.deleteSelection()
-    expect(ed.history.past.length - before).toBe(0)
+    expect(pastLen(ed) - before).toBe(0)
   })
 })
