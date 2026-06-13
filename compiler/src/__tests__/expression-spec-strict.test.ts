@@ -7,6 +7,8 @@
 
 import { describe, expect, it } from 'vitest'
 import { exprToXgis } from '../convert/expressions'
+import { parseExpressionString } from '../parser/parser'
+import { evaluate } from '../eval/evaluator'
 
 describe('Mapbox spec-strict expression validation', () => {
   describe('match labels MUST be literal string/number', () => {
@@ -44,6 +46,10 @@ describe('Mapbox spec-strict expression validation', () => {
       )
       expect(result).not.toBeNull()
       expect(warnings.some(w => w.includes('not literal'))).toBe(false)
+      // The converter emits numeric labels as bare numbers; that output
+      // is re-parsed in production, so the round-trip must parse + eval.
+      const ast = parseExpressionString(result!)
+      expect(evaluate(ast, { rank: 2 })).toBe('b')
     })
 
     it('accepts array of literal labels (Mapbox shorthand)', () => {
