@@ -77,6 +77,46 @@ describe('ecefToLonLat — round-trip', () => {
   }
 })
 
+describe('ecefToLonLat — polar singularity (exact pole, p≈0)', () => {
+  const B = WGS84.A * (1 - WGS84.F)  // semi-minor axis = a(1-f)
+
+  it('exact north pole (0, 0, +b) → finite lat=90, height≈0 (was NaN)', () => {
+    const [lon, lat, h] = ecefToLonLat(0, 0, B)
+    expect(Number.isFinite(lat)).toBe(true)
+    expect(Number.isFinite(h)).toBe(true)
+    expect(lat).toBeCloseTo(90, 9)
+    expect(lon).toBe(0)
+    expect(h).toBeCloseTo(0, 4)  // on the polar surface → height ~0
+  })
+
+  it('exact south pole (0, 0, -b) → finite lat=-90, height≈0 (was NaN)', () => {
+    const [lon, lat, h] = ecefToLonLat(0, 0, -B)
+    expect(Number.isFinite(lat)).toBe(true)
+    expect(Number.isFinite(h)).toBe(true)
+    expect(lat).toBeCloseTo(-90, 9)
+    expect(lon).toBe(0)
+    expect(h).toBeCloseTo(0, 4)
+  })
+
+  it('north pole with altitude (0, 0, b+1000) → height≈1000', () => {
+    const [, lat, h] = ecefToLonLat(0, 0, B + 1000)
+    expect(Number.isFinite(lat)).toBe(true)
+    expect(lat).toBeCloseTo(90, 9)
+    expect(h).toBeCloseTo(1000, 4)
+  })
+
+  it('lonLatToECEF(0, 90, 0) round-trips to finite lat≈90', () => {
+    // The forward of the exact pole yields a tiny nonzero x (~3.9e-10) from
+    // cos(π/2) f64 noise, so this did not NaN before the guard; assert it
+    // stays correct (finite, lat≈90) after.
+    const ecef = lonLatToECEF(0, 90, 0)
+    const [, lat, h] = ecefToLonLat(ecef[0], ecef[1], ecef[2])
+    expect(Number.isFinite(lat)).toBe(true)
+    expect(lat).toBeCloseTo(90, 9)
+    expect(h).toBeCloseTo(0, 4)
+  })
+})
+
 describe('mercatorToECEF — composes Mercator inverse + lonLatToECEF', () => {
   it('equator origin (mx=0, my=0) → (A, 0, 0)', () => {
     const [x, y, z] = mercatorToECEF(0, 0)

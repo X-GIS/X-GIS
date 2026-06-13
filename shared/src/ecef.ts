@@ -52,6 +52,17 @@ export function lonLatToECEF(lon: number, lat: number, height = 0): ECEF {
 export function ecefToLonLat(x: number, y: number, z: number): LonLatHeight {
   const lon = Math.atan2(y, x)
   const p = Math.hypot(x, y)
+  // Polar singularity guard: at p≈0 the point sits on the spin axis, so the
+  // Bowring iteration hits cos(±π/2)≈0 (height = p/cosLat - N) and a
+  // (N + height)=0 division (atan2's second arg → 0·(-∞) = NaN), returning
+  // lat=NaN, height=NaN. Short-circuit to the exact pole: lon is undefined on
+  // the axis (convention 0), lat = ±90°, and the ellipsoidal height is the
+  // distance from the polar surface |z| - b where b = a(1-f) is the
+  // semi-minor axis.
+  if (p < 1e-9) {
+    const b = A * (1 - F)
+    return [0, z >= 0 ? 90 : -90, Math.abs(z) - b]
+  }
   // Bowring's initial estimate.
   let lat = Math.atan2(z, p * (1 - E2))
   let N = A
