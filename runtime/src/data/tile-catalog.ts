@@ -122,6 +122,16 @@ export class TileCatalog {
    *  cancellation between prewarm pump retries. */
   private _skeletonKeys = new Set<number>()
 
+  /** Pending timer handle for the prewarmSkeleton retry pump + a
+   *  hard-stop latch. The pump self-reschedules every 250 ms until
+   *  every skeleton key reports hasTileData; a 'failed' (5xx/network)
+   *  skeleton tile never populates dataCache, so without an explicit
+   *  cancel the pump reschedules for the page lifetime — GC-pinning
+   *  the catalog and firing prefetch against a dead source. destroy()
+   *  clears the handle + sets the latch so tick() bails. */
+  private _skeletonTimer: ReturnType<typeof setTimeout> | null = null
+  private _stopped = false
+
   /** Best-effort byte size of a TileData. Sums every typed-array
    *  field we hold; skips `polygons` because RingPolygon is plain
    *  JS arrays (V8-internal, no byteLength) and stress-test
@@ -879,12 +889,26 @@ export class TileCatalog {
     // bytes arriving.
     this.markSkeleton(keys)
     const tick = (): void => {
+      if (this._stopped) return
       const remaining = keys.filter(k => !this.hasTileData(k))
       if (remaining.length === 0) return
       this.prefetchTiles(remaining)
-      setTimeout(tick, 250)
+      this._skeletonTimer = setTimeout(tick, 250)
     }
     tick()
+  }
+
+  /** Stop the prewarmSkeleton retry pump and release what pins this
+   *  catalog past its source's lifetime. Called from map.ts
+   *  teardownSource (reached by both destroy() and _teardownForReinit)
+   *  so a 'failed' skeleton tile can no longer keep the 250 ms pump —
+   *  and the catalog + dataCache it captures — alive forever. */
+  destroy(): void {
+    this._stopped = true
+    if (this._skeletonTimer !== null) {
+      clearTimeout(this._skeletonTimer)
+      this._skeletonTimer = null
+    }
   }
 
   /** Update the fetch-queue priority comparator on every backend that
@@ -1306,6 +1330,15 @@ export class TileCatalog {
     // (loose safety net). Either tripping is enough to trigger
     // eviction; the loop runs until BOTH are under their limits.
     const _byteCap = maxCachedBytes()
+    // Sweep expired evict-shield entries on EVERY call, before the
+    // under-budget early-return below. The shield's only removal path
+    // used to sit after that return, so a map that stays under the cap
+    // while still prefetching never drained the shield — it grew
+    // monotonically (JS-heap growth + progressively slower has()).
+    const _now = Date.now()
+    for (const [k, exp] of this._evictShield) {
+      if (exp <= _now) this._evictShield.delete(k)
+    }
     if (this.dataCache.size <= MAX_CACHED_TILES
         && this._cachedBytes <= _byteCap) {
       // Nothing to do — but still verify the protected set wasn't
@@ -1336,12 +1369,8 @@ export class TileCatalog {
     // regions are recoverable by re-fetching when the camera
     // returns to them — at the cost of a brief load shimmer, which
     // is far preferable to OOM.
-    // Cleanup expired evict-shield entries first so they don't
-    // permanently freeze the cap once a key's TTL passes.
-    const now = Date.now()
-    for (const [k, exp] of this._evictShield) {
-      if (exp <= now) this._evictShield.delete(k)
-    }
+    // (Expired evict-shield entries were already swept above the
+    // early-return guard so the shield drains every call.)
     // Also protect keys the catalog prefetched within the last
     // EVICT_SHIELD_TTL_MS (5 s). The held-cz step prefetch lives
     // here for long enough to bridge the gap between fetch

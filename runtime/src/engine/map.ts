@@ -3089,12 +3089,12 @@ export class XGISMap {
   // with `source X { type: geojson }` (no url) so run() can seed an
   // empty placeholder that setSourceData then fills.
 
-  /** Destroy GPU resources for every vtSources entry belonging to
-   *  `sourceId` (including its filtered variants keyed `id__N`). */
+  /** Destroy GPU + catalog resources for every vtSources entry belonging to `sourceId` (incl. its filtered variants keyed `id__N`). */
   private teardownSource(sourceId: string): void {
     for (const [key, entry] of this.vtSources) {
       if (key === sourceId || key.startsWith(`${sourceId}__`)) {
         entry.renderer.destroy()
+        entry.source.destroy()
         this.vtSources.delete(key)
       }
     }
