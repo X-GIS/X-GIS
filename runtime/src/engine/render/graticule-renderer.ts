@@ -8,7 +8,7 @@
 // back-reference).
 //
 // DO-NOT-SPLIT (renderer-decomposition-2026-06-09 §6 #1): the per-frame
-// uniform write uses the SAME 192-byte std140 struct offsets as the layer
+// uniform write uses the SAME 240-byte std140 struct offsets as the layer
 // path. The packed frame values (mvp / logDepthFc / proj_params / zoom) are
 // PASSED IN; the offsets are NOT re-derived or changed.
 
@@ -17,7 +17,7 @@ import { generateGraticule } from '../graticule'
 import type { UniformRing } from './uniform-ring'
 
 /** Per-frame data the graticule draw needs from the coordinator. The
- *  graticule reuses the SAME 192-byte uniform struct offsets as the layer
+ *  graticule reuses the SAME 240-byte uniform struct offsets as the layer
  *  path — these are the packed values written at those offsets, never
  *  re-derived here. */
 export interface GraticuleFrame {
@@ -36,10 +36,11 @@ export interface GraticuleFrame {
 }
 
 export class GraticuleRenderer {
-  // Polygon Uniforms struct = 192 bytes (matches VTR + WGSL; post PR 2d.5
-  // closeout). Out-of-bounds typed-array writes are silent no-ops so this
-  // MUST stay 192 — a mismatch = the uniform never reaches the GPU.
-  private static readonly UNIFORM_SIZE = 192
+  // Polygon Uniforms struct = 240 bytes (matches VTR + WGSL + MapRenderer's
+  // UNIFORM_SIZE; the borrowed linePipeline's shader references u up to
+  // cam_ecef_off_l @224, so the bound range must cover 240). Out-of-bounds
+  // typed-array writes are silent no-ops; the RTC fields 192-239 stay zero.
+  private static readonly UNIFORM_SIZE = 240
 
   private graticuleBuffer: GPUBuffer | null = null
   private graticuleVertexCount = 0
@@ -141,7 +142,7 @@ export class GraticuleRenderer {
       // Previously iterated worldCopiesFor(projType) for Mercator cam_h shift.
       for (let wi = 0; wi < 1; wi++) {
         const gratData = new ArrayBuffer(GraticuleRenderer.UNIFORM_SIZE)
-        // ── 192-byte Uniforms struct layout (matches VTR + WGSL; post PR 2d.5
+        // ── 240-byte Uniforms struct layout (matches VTR + WGSL; post PR 2d.5
         // closeout: legacy Mercator `mvp` slot retired; `mvp` IS the ECEF-MVP).
         // byte   0: mvp        (16 f32 = 64 B) — ECEF-MVP (was `mvp_ecef`)
         // byte  64: fill_color  (4 f32 = 16 B)
@@ -151,7 +152,8 @@ export class GraticuleRenderer {
         // byte 128: tile_origin_merc (2 f32) | opacity | log_depth_fc
         // byte 144: pick_id (u32) | layer_depth_offset | tile_extent_m | extrude_height_m
         // byte 160: clip_bounds (4 f32)
-        // byte 176: zoom + 3-float pad → total 192 B
+        // byte 176: zoom + 3-float pad; bytes 192-239 = RTC fields (zero
+        // for the graticule's absolute-ECEF path) → total 240 B
         new Float32Array(gratData, 0, 16).set(frame.mvp) // ECEF-MVP for vs_main
         // fill_color = white @ 15% opacity (minor grid line colour)
         new Float32Array(gratData, 64, 4).set([1, 1, 1, 0.15])
