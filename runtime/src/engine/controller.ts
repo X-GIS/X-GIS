@@ -82,6 +82,16 @@ export class PanZoomController implements Controller {
     const activePointers = new Map<number, { x: number; y: number }>()
     let lastPinchDist = 0
 
+    // RAF lifecycle: the inertia + smooth-zoom loops self-reschedule via
+    // requestAnimationFrame and both mutate the shared camera. detach()
+    // (switchController reload / map.stop() / map.destroy()) must cancel any
+    // in-flight loop, else a frame queued before teardown keeps writing the
+    // camera after the controller is gone. Store the pending handles + a
+    // `detached` guard so a frame already queued at cancel time bails.
+    let inertiaRaf: number | null = null
+    let zoomRaf: number | null = null
+    let detached = false
+
     // Click detection: track press location + cumulative pointer travel
     // since pointerdown. Click fires from pointerup when travel stays
     // under the deadzone AND no rotation gesture activated.
@@ -197,14 +207,18 @@ export class PanZoomController implements Controller {
     const MAX_INERTIA_VEL = 15  // cap velocity (CSS px/frame)
 
     const applyInertia = safe('inertia', () => {
+      // Bail if the controller was detached after this frame was queued but
+      // before it ran — otherwise we'd mutate a camera the map no longer owns.
+      if (detached) { inertiaAnimating = false; inertiaRaf = null; return }
       if (Math.abs(panVelX) < 0.5 && Math.abs(panVelY) < 0.5) {
         inertiaAnimating = false
+        inertiaRaf = null
         return
       }
       camera.pan(panVelX, panVelY, canvas.width, canvas.height)
       panVelX *= 0.90
       panVelY *= 0.90
-      requestAnimationFrame(applyInertia)
+      inertiaRaf = requestAnimationFrame(applyInertia)
     })
 
     let isRotatePending = false  // right-click down, waiting for movement
@@ -284,6 +298,13 @@ export class PanZoomController implements Controller {
         }
         lastPinchAngle = angle
 
+        // Snapshot the PREVIOUS frame's pinch distance BEFORE the zoom block
+        // overwrites lastPinchDist — the pitch disambiguation below needs the
+        // frame-over-frame distance delta. Reading lastPinchDist after the
+        // overwrite made distChange structurally 0, so the parallel-vs-pinch
+        // guard degenerated to centerMove > 2 and an asymmetric pinch (center
+        // drifting vertically) wrongly tilted the map.
+        const prevDist = lastPinchDist
         const dist = getPinchDistance(activePointers)
         if (lastPinchDist > 0) {
           const scale = dist / lastPinchDist
@@ -298,9 +319,9 @@ export class PanZoomController implements Controller {
         // Only apply when both fingers move in same direction (parallel drag),
         // not during pinch-to-zoom (distance change dominates)
         const center = getPinchCenter(activePointers)
-        if (lastPinchCenterY !== 0 && lastPinchDist > 0) {
+        if (lastPinchCenterY !== 0 && prevDist > 0) {
           const dy = center.y - lastPinchCenterY
-          const distChange = Math.abs(dist - lastPinchDist)
+          const distChange = Math.abs(dist - prevDist)
           const centerMove = Math.abs(dy)
           // Only pitch if vertical center movement >> distance change (parallel drag)
           if (centerMove > 2 && centerMove > distChange * 2) {
@@ -437,14 +458,17 @@ export class PanZoomController implements Controller {
     let animating = false
 
     const animateZoom = safe('animateZoom', () => {
+      // Bail if detached after this frame was queued (see applyInertia).
+      if (detached) { animating = false; zoomRaf = null; return }
       const diff = targetZoom - camera.zoom
       if (Math.abs(diff) < 0.005) {
         if (diff !== 0) camera.zoomAt(diff, zoomScreenX, zoomScreenY, canvas.width, canvas.height)
         animating = false
+        zoomRaf = null
         return
       }
       camera.zoomAt(diff * 0.2, zoomScreenX, zoomScreenY, canvas.width, canvas.height)
-      requestAnimationFrame(animateZoom)
+      zoomRaf = requestAnimationFrame(animateZoom)
     })
 
     const onWheel = (e: WheelEvent) => {
@@ -505,6 +529,19 @@ export class PanZoomController implements Controller {
     canvas.addEventListener('wheel', sWheel, { passive: false })
 
     this.cleanup = () => {
+      // Stop the self-rescheduling RAF loops: flip the guard (so any frame
+      // already queued bails before touching the camera), clear the animating
+      // flags, and cancel the pending handles. cancelAnimationFrame is guarded
+      // for non-DOM hosts (node/test), matching the window guards above.
+      detached = true
+      inertiaAnimating = false
+      animating = false
+      if (typeof cancelAnimationFrame !== 'undefined') {
+        if (inertiaRaf !== null) cancelAnimationFrame(inertiaRaf)
+        if (zoomRaf !== null) cancelAnimationFrame(zoomRaf)
+      }
+      inertiaRaf = null
+      zoomRaf = null
       canvas.removeEventListener('contextmenu', sContextMenu)
       canvas.removeEventListener('pointerdown', sPointerDown)
       canvas.removeEventListener('pointermove', sPointerMove)
