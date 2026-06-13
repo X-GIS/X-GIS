@@ -111,7 +111,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // trimmed to the minimum, net +1 irreducible.
   'compiler/src/ir/lower.ts': 1344,
   'runtime/src/engine/text/text-stage.ts': 1441,
-  'compiler/src/tiler/vector-tiler.ts': 1509,
+  // Bumped 1509→1517 for the GeometryCollection decompose fix (RFC 7946
+  // §3.1.8): decomposeFeatures' per-type switch is wrapped in an inner
+  // recursive helper so a GeometryCollection member-decomposes under the
+  // parent id instead of silently dropping. The wrapper signature + the
+  // GeometryCollection branch + the rewritten outer loop are irreducible.
+  'compiler/src/tiler/vector-tiler.ts': 1517,
   'runtime/src/engine/render/renderer.ts': 915,
   'compiler/src/convert/layers.ts': 1539,
   // Bumped 1534→1574 for the arithmetic-arity fix (expr-arith-coalesce): the
