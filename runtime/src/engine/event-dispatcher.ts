@@ -91,6 +91,18 @@ export class EventDispatcher {
     })
   }
 
+  /** Teardown — cancel any pending move-coalescing rAF so its callback
+   *  can't fire `pickAt` against a destroyed device, and drop the
+   *  cross-frame hover/move state so nothing is GC-pinned. Idempotent. */
+  destroy(): void {
+    if (this.moveRafHandle !== null) {
+      cancelAnimationFrame(this.moveRafHandle)
+      this.moveRafHandle = null
+    }
+    this.moveLatest = null
+    this.hoverPrev = null
+  }
+
   /** Pointer left the canvas entirely. Force a `mouseleave` on whatever
    *  was hovered so layers don't get stuck thinking the cursor is still
    *  over them. */
