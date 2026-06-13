@@ -458,6 +458,8 @@ describe('Cross-validation: Pipeline geometry area (clip + triangulate vs shapel
     const levelByZ = new Map(set.levels.map(l => [l.zoom, l]))
     const report: string[] = []
     let maxRelDelta = 0
+    let compared = 0          // samples that produced a non-zero triangulated area
+    const dropped: string[] = []
     for (const s of fixture.pipeline_area_samples) {
       const level = levelByZ.get(s.z)
       if (!level) continue
@@ -466,7 +468,16 @@ describe('Cross-validation: Pipeline geometry area (clip + triangulate vs shapel
       if (!tile) continue
 
       const ourArea = triangleAreaForFeature(tile.vertices, tile.indices, s.featureIndex)
-      if (ourArea === 0) continue // feature absent in tile — separate concern
+      if (ourArea === 0) {
+        // The tile IS present (passed the !tile guard) but the feature
+        // contributed zero area — i.e. the pipeline DROPPED it. The old code
+        // silently `continue`d here, so a wholly-dropped polygon could never
+        // raise maxRelDelta and the "catch dropped polygons" tolerance below
+        // was vacuous for exactly that failure mode. Record + fail instead.
+        dropped.push(`${s.name} z=${s.z} x=${s.x} y=${s.y}: area=0 (dropped)`)
+        continue
+      }
+      compared++
 
       const rel = Math.abs(ourArea - s.areaMercM2) / Math.max(ourArea, s.areaMercM2, 1)
       if (rel > maxRelDelta) maxRelDelta = rel
@@ -474,6 +485,11 @@ describe('Cross-validation: Pipeline geometry area (clip + triangulate vs shapel
         report.push(`${s.name} z=${s.z} x=${s.x} y=${s.y}: ours=${ourArea.toExponential(3)} shapely=${s.areaMercM2.toExponential(3)} rel=${(rel * 100).toFixed(2)}%`)
       }
     }
+    // Gate is only meaningful if real comparisons ran and nothing was silently
+    // dropped (a dropped feature has ourArea=0, previously excluded from the
+    // tolerance check).
+    expect(compared, 'no non-zero area comparisons ran — area gate is vacuous').toBeGreaterThan(0)
+    expect(dropped, `pipeline dropped sampled features whose tile is present:\n  ${dropped.join('\n  ')}`).toEqual([])
     // 2% tolerance: clipping snaps vertices to tile edges and earcut
     // fan-triangulates, both of which introduce O(ε²) area noise per
     // edge. Keep loose enough to absorb that but tight enough to catch
