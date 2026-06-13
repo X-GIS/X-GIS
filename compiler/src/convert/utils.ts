@@ -18,6 +18,15 @@ export function parenthesize(s: string): string {
   return / (\?\?|\|\||&&|==|!=|<|>|<=|>=|\+|-|\*|\/|%) /.test(s) ? `(${s})` : s
 }
 
+/** Wrap with parens when the string is a ternary (`cond ? a : b`).
+ *  The parser puts ternary ABOVE `??` (parser.ts parseExpr vs
+ *  parseCoalesce), so an unparenthesized ternary arm of a `??` join
+ *  mis-binds: `cond ? a : b ?? fb` parses as `cond ? a : (b ?? fb)`
+ *  — the coalesce fallback migrates into the ternary else-branch. */
+export function parenthesizeTernary(s: string): string {
+  return / \? /.test(s) ? `(${s})` : s
+}
+
 /** xgis identifiers must be `[a-zA-Z_][a-zA-Z0-9_]*` — Mapbox often
  *  uses kebab-case (`landcover_glacier` is fine, `road-major` isn't).
  *  Replace anything outside the allowed set with `_`. Reserved xgis

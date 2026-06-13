@@ -8,7 +8,7 @@
 // `filterToXgis` is the wrapper that ALSO accepts legacy filter
 // shapes — most callers want this one.
 
-import { parenthesize } from './utils'
+import { parenthesize, parenthesizeTernary } from './utils'
 import { cssBezierEase } from './paint'
 import {
   parseSrgbHex, srgbToLab, labToHex, labToLch, lchToLab,
@@ -228,7 +228,9 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
       if (valid.length < args.length) {
         warnings.push(`["coalesce"] dropped ${args.length - valid.length} of ${args.length} args that failed to convert; resulting fallback chain may differ from the authored intent.`)
       }
-      return valid.join(' ?? ')
+      // Parenthesize ternary arms so the `??` fallback can't migrate
+      // into a non-final arm's else-branch (parser puts `?:` above `??`).
+      return valid.map(parenthesizeTernary).join(' ?? ')
     }
     case 'case': {
       // ["case", cond1, val1, cond2, val2, …, default]
@@ -425,19 +427,16 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
       const inner = filterToXgis(v[1], warnings)
       return inner ? `!(${inner})` : null
     }
-    // Comparison / arithmetic operators map identically.
-    case '==': case '!=': case '<': case '<=': case '>': case '>=':
-    case '+': case '-': case '*': case '/': case '%': {
-      // Mapbox spec allows comparison ops to accept a trailing
-      // `["collator", {…}]` arg that controls case-sensitivity /
-      // locale-aware ordering of string compares (`["==", a, b,
-      // ["collator", { "case-sensitive": false }]]`). X-GIS string
-      // comparison is byte-exact — we drop the collator with a warning
-      // and proceed with the bare a/b. Without this branch the 4-arg
-      // form fell to the length-check below and returned null, hiding
-      // the entire predicate.
-      if (v.length === 4
-          && (op === '==' || op === '!=' || op === '<' || op === '<=' || op === '>' || op === '>=')) {
+    // Comparison operators. Mapbox spec allows a trailing
+    // `["collator", {…}]` arg that controls case-sensitivity /
+    // locale-aware ordering of string compares (`["==", a, b,
+    // ["collator", { "case-sensitive": false }]]`). X-GIS string
+    // comparison is byte-exact — we drop the collator with a warning
+    // and proceed with the bare a/b. Without this branch the 4-arg
+    // form fell to the length-check below and returned null, hiding
+    // the entire predicate.
+    case '==': case '!=': case '<': case '<=': case '>': case '>=': {
+      if (v.length === 4) {
         const collator = v[3]
         if (Array.isArray(collator) && collator[0] === 'collator') {
           warnings.push(`["${op}"] trailing ["collator", …] dropped — X-GIS string compare is byte-exact (no case-insensitive / locale-aware ordering).`)
@@ -448,6 +447,45 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
         }
       }
       if (v.length !== 3) return null
+      const a = exprToXgis(v[1], warnings)
+      const b = exprToXgis(v[2], warnings)
+      if (a === null || b === null) return null
+      return `${a} ${op} ${b}`
+    }
+    // Arithmetic operators. Mapbox spec: `+`/`*` variadic (≥ 2 args);
+    // `-` unary (negation) OR binary; `/`/`%` strictly binary. Pre-fix
+    // the shared comparison branch required EXACTLY 2 operands, so the
+    // variadic/unary forms returned null and silently collapsed the
+    // whole containing case/interpolate/paint value. Evaluator supports
+    // binary +,-,*,/,% and unary -; `(a + b + c)` parses left-assoc.
+    case '+': case '*': {
+      if (v.length < 3) {
+        warnings.push(`["${op}"] expects at least 2 arguments, got ${v.length - 1}.`)
+        return null
+      }
+      const parts = v.slice(1).map(a => exprToXgis(a, warnings))
+      if (parts.some(p => p === null)) return null
+      return `(${parts.join(` ${op} `)})`
+    }
+    case '-': {
+      if (v.length === 2) {
+        const a = exprToXgis(v[1], warnings)
+        return a === null ? null : `(-(${a}))`
+      }
+      if (v.length === 3) {
+        const a = exprToXgis(v[1], warnings)
+        const b = exprToXgis(v[2], warnings)
+        if (a === null || b === null) return null
+        return `${a} - ${b}`
+      }
+      warnings.push(`["-"] expects 1 or 2 arguments, got ${v.length - 1}.`)
+      return null
+    }
+    case '/': case '%': {
+      if (v.length !== 3) {
+        warnings.push(`["${op}"] expects exactly 2 arguments, got ${v.length - 1}.`)
+        return null
+      }
       const a = exprToXgis(v[1], warnings)
       const b = exprToXgis(v[2], warnings)
       if (a === null || b === null) return null
@@ -522,7 +560,9 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
         warnings.push(`["${op}"] dropped ${args.length - valid.length} of ${args.length} arg(s) that failed to convert; resulting fallback chain may differ from the authored intent.`)
       }
       if (valid.length === 1) return valid[0]!
-      return valid.join(' ?? ')
+      // Parenthesize ternary arms — see coalesce note: an unwrapped
+      // ternary arm would swallow the `??` fallback into its else.
+      return valid.map(parenthesizeTernary).join(' ?? ')
     }
     case 'interpolate':
     case 'interpolate-lab':

@@ -17,8 +17,10 @@ describe('["zoom"] accessor lowering', () => {
 
   it('["zoom"] inside arithmetic emits inline identifier', () => {
     const w: string[] = []
-    expect(exprToXgis(['*', ['zoom'], 2], w)).toBe('zoom * 2')
-    expect(exprToXgis(['+', ['zoom'], -8], w)).toBe('zoom + -8')
+    // Variadic +/* wrap the chained product/sum in parens (so an arm
+    // can't re-bind under an outer operator); the inner `zoom` stays bare.
+    expect(exprToXgis(['*', ['zoom'], 2], w)).toBe('(zoom * 2)')
+    expect(exprToXgis(['+', ['zoom'], -8], w)).toBe('(zoom + -8)')
   })
 
   it('["zoom"] inside a comparison routes for zoom-gate filters', () => {
