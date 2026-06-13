@@ -304,12 +304,18 @@ export class GpuTileStore {
    *    2. high-water evict trigger → `evictToBudget`,
    *    3. deferred compaction drain → `_compactPolyArenas`.
    *  `stableKeys` (E) + `releaseTileHook` (D) + the upload-active probe (B)
-   *  arrive as arguments so the store references neither VTR nor the queue. */
+   *  arrive as arguments so the store references neither VTR nor the queue.
+   *  Returns `true` when this pass RELOCATED the poly arenas (swapped each
+   *  tile's vertex/index buffer to a fresh packed buffer + retired the old).
+   *  The caller (VTR) uses this to drop any render bundles that recorded the
+   *  now-retired buffer ref — neither uploadEpoch nor bindGroupEpoch, the only
+   *  compaction-relevant bundle-key fields, change on compaction, so a stale
+   *  bundle would otherwise replay against the retired buffer. */
   runFrameMaintenance(
     stableKeys: readonly number[],
     releaseTileHook: ReleaseTileHook,
     uploadActive: () => boolean,
-  ): void {
+  ): boolean {
     // Byte-pressure OR (Lane A): the count cap alone can't bound a large-
     // tile workload — globe / extruded tiles exhaust the 64 MB arena
     // before the unique-key count reaches getMaxGpuTiles, so the arena
@@ -345,8 +351,9 @@ export class GpuTileStore {
     // small as protection allows before we repack it.
     if (this._pendingArenaCompaction) {
       this._pendingArenaCompaction = false
-      this._compactPolyArenas(uploadActive)
+      return this._compactPolyArenas(uploadActive)
     }
+    return false
   }
 
   /** Drop LRU tiles past MAX_GPU_TILES and destroy their GPU buffers.
@@ -605,11 +612,14 @@ export class GpuTileStore {
    *  fresh buffer, then rewrites each tile's offset + buffer reference
    *  ATOMICALLY with the swap so the next frame's draws read the new buffer at
    *  the new offset (no frame can observe a half-compacted arena — the rewrite
-   *  is a synchronous JS loop with no await between swap and offset write). */
-  private _compactPolyArenas(uploadActive: () => boolean): void {
+   *  is a synchronous JS loop with no await between swap and offset write).
+   *  Returns `true` iff a relocation actually happened (arena buffers swapped
+   *  + old buffers retired); `false` on any no-op / defer path so the caller
+   *  only invalidates render bundles when the buffer refs really moved. */
+  private _compactPolyArenas(uploadActive: () => boolean): boolean {
     const vArena = this.polyVertexArena
     const iArena = this.polyIndexArena
-    if (vArena === null && iArena === null) return
+    if (vArena === null && iArena === null) return false
 
     // SAFETY GUARD vs async uploads. doUploadTileAsync captures the arena
     // buffer reference (cached.vertexBuffer) BEFORE its mapAsync await, then
@@ -624,7 +634,7 @@ export class GpuTileStore {
     // here — beginFrame runs between frames, never inside a render call.)
     if (uploadActive()) {
       this._pendingArenaCompaction = true
-      return
+      return false
     }
 
     // Build the live relocation set from the gpuCache — the VTR owns the
@@ -639,9 +649,10 @@ export class GpuTileStore {
     }
     if (tiles.length === 0) {
       // Nothing live: the cheap reclaim already covers this, but be safe.
+      // No tile buffer refs moved, so the caller need not invalidate bundles.
       vArena?.reclaimIfDrained()
       iArena?.reclaimIfDrained()
-      return
+      return false
     }
 
     const vReloc = vArena
@@ -686,6 +697,11 @@ export class GpuTileStore {
     // list, by which point nothing can still reference them.
     if (vResult) this._retiredArenaBuffers.push(vResult.oldBuffer)
     if (iResult) this._retiredArenaBuffers.push(iResult.oldBuffer)
+    // Signal the caller that buffer refs moved (and old buffers were retired)
+    // so it can invalidate any render bundles recorded against them. The
+    // retired buffers are not destroyed until the NEXT runFrameMaintenance, so
+    // invalidation (this frame) lands a full frame before destruction.
+    return vResult !== null || iResult !== null
   }
 
   /** Tear down all GPU resources owned by the store — the eviction/teardown
