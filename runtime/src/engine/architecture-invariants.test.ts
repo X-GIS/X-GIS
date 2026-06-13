@@ -90,7 +90,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // render bundle (whose recorded buffer ref the arena swap retired) is
   // irreducible — the explanatory comment carries the bulk (mirrors the
   // async-upload buffer-identity guard; latent since bundles are default-OFF).
-  'runtime/src/engine/render/vector-tile-renderer.ts': 3934,
+  // Bumped 3934→3938 for the continuous-zoom fill-interp fix: slot 44 (u.zoom)
+  // must carry the fractional camera.zoom, not the integer tile-selection
+  // lastZoom, or OFM zoom-interp fills + palette gradients snap at integer
+  // boundaries. Adds a `currentCameraZoom` field (cached in render()) — net
+  // +4 lines after trimming the slot-44 comment.
+  'runtime/src/engine/render/vector-tile-renderer.ts': 3938,
   // Bumped 3361→3393 for the destroy()-completeness fix: cancelling the
   // EventDispatcher move-rAF + the pending-flush rAF, clearing _pendingPatches,
   // and removing the run()-installed window globals (__xgisReady/snapshot/
