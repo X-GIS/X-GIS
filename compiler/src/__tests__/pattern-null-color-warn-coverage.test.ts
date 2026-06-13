@@ -43,9 +43,10 @@ describe('pattern-without-color null-as-omit', () => {
       ],
     }
     const code = convertMapboxStyle(style as never)
-    // iter-178 — Stage 1 emits `stroke-pattern-<name>`; legacy warn
+    // iter-178 — Stage 1 emits `stroke-image-<name>` (a DISTINCT utility
+    // from the native SDF `stroke-pattern-` dash namespace); legacy warn
     // ("declared without line-color") was retired.
-    expect(code).toMatch(/stroke-pattern-dashes/)
+    expect(code).toMatch(/stroke-image-dashes/)
     expect(code).not.toMatch(/line-pattern declared without/)
   })
 
