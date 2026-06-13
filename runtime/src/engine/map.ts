@@ -259,6 +259,9 @@ export class XGISMap {
   private _pendingPatches = new Map<string, Map<number, { geometry?: GeoJSONFeature['geometry']; properties?: Record<string, unknown> }>>()
   private _pendingFlushHandle: number | null = null
   private _unknownSourceWarned = new Set<string>()
+  // Tile-backed (URL-loaded) sources store a marker, not a FeatureCollection,
+  // so updateFeature can't patch them. Warn once per source (see updateFeature).
+  private _tileBackedUpdateWarned = new Set<string>()
   // Lazy featureId → feature index per source, so flushPendingUpdates can
   // patch in O(patches) instead of O(features). Invalidated on setSourceData
   // (full replace) and rebuilt on demand.
@@ -3277,6 +3280,17 @@ export class XGISMap {
       }
       return
     }
+    // Tile-backed markers carry no FeatureCollection, so a patch would be
+    // silently dropped at flush. Warn-once at enqueue time so the host learns
+    // immediately rather than discovering a no-op.
+    const dataset = this.rawDatasets.get(sourceId)
+    if (!dataset || !Array.isArray((dataset as { features?: unknown }).features)) {
+      if (!this._tileBackedUpdateWarned.has(sourceId)) {
+        xlog.warn(`[X-GIS] updateFeature: source "${sourceId}" is tile-backed (URL-loaded); feature updates are only supported for host-pushed GeoJSON sources (setSourceData)`)
+        this._tileBackedUpdateWarned.add(sourceId)
+      }
+      return
+    }
     let bySource = this._pendingPatches.get(sourceId)
     if (!bySource) {
       bySource = new Map()
@@ -3315,12 +3329,17 @@ export class XGISMap {
 
     for (const [sourceId, patches] of this._pendingPatches) {
       const data = this.rawDatasets.get(sourceId)
-      // Also guard against malformed dataset shape — setSourceData
-      // validates upfront but a host bypassing the API and directly
-      // assigning rawDatasets (legacy / test) could leave the entry
-      // in an unexpected shape. `data.features` not being an array
-      // would crash the for-of with no diagnostic.
-      if (!data || !Array.isArray((data as { features?: unknown }).features)) continue
+      // Non-FeatureCollection shape (tile-backed marker / legacy direct write):
+      // `.features` not being an array would crash the for-of. updateFeature
+      // rejects markers at enqueue time; a patch reaching here warns once so
+      // the no-op is observable rather than silent.
+      if (!data || !Array.isArray((data as { features?: unknown }).features)) {
+        if (!this._tileBackedUpdateWarned.has(sourceId)) {
+          xlog.warn(`[X-GIS] updateFeature: source "${sourceId}" is not a patchable FeatureCollection; ${patches.size} pending update(s) dropped`)
+          this._tileBackedUpdateWarned.add(sourceId)
+        }
+        continue
+      }
       // Lookup via featureId index so patching is O(patches) instead of
       // O(features). The index is built once per source and reused across
       // flush cycles until setSourceData replaces the dataset.

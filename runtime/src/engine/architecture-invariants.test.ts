@@ -84,7 +84,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // and removing the run()-installed window globals (__xgisReady/snapshot/
   // replay/trace) are irreducible teardown statements. map.ts decomposition
   // remains a tracked priority; shrink as the destroy body is extracted.
-  'runtime/src/engine/map.ts': 3393,
+  // Bumped 3393→3412 for the updateFeature() tile-backed silent-drop fix:
+  // a `{_vectorTile}`/`{_tileUrl}` marker passed the rawDatasets.has()
+  // precondition, queued a patch that flush then discarded with no warn. The
+  // `_tileBackedUpdateWarned` Set + the enqueue-time guard + the defensive
+  // flush-time warn are irreducible (warn-once data-loss prevention).
+  'runtime/src/engine/map.ts': 3412,
   'compiler/src/ir/lower.ts': 1343,
   'runtime/src/engine/text/text-stage.ts': 1441,
   'compiler/src/tiler/vector-tiler.ts': 1509,
