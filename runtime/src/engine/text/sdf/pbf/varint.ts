@@ -6,6 +6,18 @@
 //   2 = length-delimited (string, bytes, embedded message)
 // We implement just those plus a generic skip for forward-compat.
 
+/** Bounded EOF signal. Thrown when a varint is read with no bytes left
+ *  (or a varint runs off the end of the buffer). Decoders catch this at
+ *  the top level and return whatever was parsed so far, so a truncated or
+ *  internally-inconsistent PBF degrades to a partial/empty result instead
+ *  of spinning forever. */
+export class PbfEofError extends Error {
+  constructor() {
+    super('PbfReader: unexpected end of buffer')
+    this.name = 'PbfEofError'
+  }
+}
+
 export class PbfReader {
   pos = 0
   readonly buf: Uint8Array
@@ -22,6 +34,10 @@ export class PbfReader {
   }
 
   readVarint(): number {
+    // Entering at EOF means a caller (readTag / skip / a length read) is
+    // asking for a value the buffer cannot supply. Signal terminal EOF so
+    // the reader cannot make a no-progress read and spin a `while` loop.
+    if (this.pos >= this.len) throw new PbfEofError()
     let result = 0
     let shift = 0
     while (this.pos < this.len) {
@@ -34,7 +50,9 @@ export class PbfReader {
         return result >>> 0
       }
     }
-    return result >>> 0
+    // Ran off the end with the continuation bit still set: a truncated
+    // mid-varint. Treat as EOF rather than returning a partial value.
+    throw new PbfEofError()
   }
 
   readSignedVarint(): number {
@@ -64,7 +82,10 @@ export class PbfReader {
 
   readMessage<T>(fn: (r: PbfReader, end: number) => T): T {
     const len = this.readVarint()
-    const end = this.pos + len
+    // Clamp to the buffer: a submessage declaring more bytes than remain
+    // must not push `end` past EOF (which let inner loops walk off the end
+    // and spin on no-progress reads).
+    const end = Math.min(this.pos + len, this.len)
     return fn(this, end)
   }
 }
