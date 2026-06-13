@@ -376,6 +376,44 @@ describe('XGISMap Mapbox-API camera setters', () => {
       const state = map.getCameraState()
       expect(state.center[0]).toBeLessThanOrEqual(131)
     })
+
+    it('interactive pan gesture honors bounds (shared Camera, not just programmatic)', () => {
+      // setMaxBounds is documented to clamp USER PAN GESTURES too, but the
+      // interactive seam (PanZoomController) drives camera.pan() directly on
+      // the SHARED Camera, bypassing the controller's lon/lat clamp. Drive
+      // that exact seam: set bounds via the controller, then call the raw
+      // gesture mutator on the same shared camera.
+      const cam = map.camera as unknown as {
+        zoom: number
+        pan(dx: number, dy: number, w: number, h: number): void
+      }
+      map.setMaxBounds([[125, 33], [131, 39]])
+      map.setCenter(128, 36) // inside bbox
+      cam.zoom = 0
+      // Pan east aggressively — a huge dx that would escape the bbox.
+      cam.pan(100000, 0, 1200, 800)
+      const state = map.getCameraState()
+      expect(state.center[0]).toBeGreaterThanOrEqual(125)
+      expect(state.center[0]).toBeLessThanOrEqual(131)
+    })
+
+    it('interactive zoom gesture honors bounds (shared Camera, not just programmatic)', () => {
+      const cam = map.camera as unknown as {
+        zoom: number
+        zoomAt(d: number, sx: number, sy: number, w: number, h: number): void
+      }
+      map.setMaxBounds([[125, 33], [131, 39]])
+      map.setCenter(131, 39) // pinned at the NE corner
+      cam.zoom = 0
+      // Zoom in anchored far off the bbox corner — the anchor shift would
+      // drift the center outside without the gesture clamp.
+      cam.zoomAt(2, 1199, 0, 1200, 800)
+      const state = map.getCameraState()
+      expect(state.center[0]).toBeGreaterThanOrEqual(125)
+      expect(state.center[0]).toBeLessThanOrEqual(131)
+      expect(state.center[1]).toBeGreaterThanOrEqual(33)
+      expect(state.center[1]).toBeLessThanOrEqual(39)
+    })
   })
 
   describe('easeTo / flyTo (iter 437)', () => {
