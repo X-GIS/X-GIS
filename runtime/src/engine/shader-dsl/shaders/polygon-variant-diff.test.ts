@@ -45,7 +45,14 @@ const SLUG_HEADER = /^\/\/\s*fixture:\s*([\w-]+)\s*$/m
 const HEADER_LINES = 5
 
 function snapshotBody(content: string): string {
-  return content.split('\n').slice(HEADER_LINES).join('\n')
+  // Normalise CRLF→LF before the byte-equal comparison. git autocrlf
+  // checks the committed snapshot out with CRLF on Windows, but the DSL
+  // composer always emits LF — so without this the gate false-fails on
+  // EVERY line on a CRLF working tree (Linux CI, which keeps LF, passes).
+  // Normalising masks only line-ending differences, never a real emit
+  // drift (the emitter has no CRLF code path), so the gate's purpose is
+  // preserved while it stops being OS-dependent.
+  return content.replace(/\r\n/g, '\n').split('\n').slice(HEADER_LINES).join('\n')
 }
 
 function fixtureBySlug(slug: string): Fixture | undefined {
