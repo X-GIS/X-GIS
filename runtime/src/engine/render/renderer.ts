@@ -84,20 +84,20 @@ export class StyleProperties {
 export class MapRenderer {
   private ctx: GPUContext
   // Cached per-frame allocation (avoid GC pressure in render loop)
-  // Must equal MapRenderer.UNIFORM_SIZE (192). Inlined because
+  // Must equal MapRenderer.UNIFORM_SIZE (240). Inlined because
   // class-field init can't reference static-readonly fields declared
-  // later in the same class. Shrunk 256 → 192 in PR 2d.5 closeout when
-  // the legacy Mercator `mvp` slot was retired (the surviving `mvp`
-  // slot IS the ECEF-MVP). Out-of-bounds typed-array writes are silent
-  // no-ops so a mismatch here = uniform never reaches the GPU.
-  private uniformDataBuf = new ArrayBuffer(192)
+  // later in the same class. Grew 192 → 240 when the camera-relative RTC
+  // fields (cam_ecef_off_h @208, cam_ecef_off_l @224) extended the shared
+  // polygon/line Uniforms struct. Out-of-bounds typed-array writes are
+  // silent no-ops so a mismatch here = uniform never reaches the GPU.
+  private uniformDataBuf = new ArrayBuffer(240)
   // Dynamic-offset uniform ring (see docs: multi-layer uniform slots)
-  private static readonly UNIFORM_SLOT = 192
-  // Polygon Uniforms struct = 192 bytes (16 mvp + 32 trailing fields incl.
-  // clip_bounds, zoom block, pad). WGSL spec requires bind group binding
-  // ranges ≥ struct size + multiple of 16. Shrunk 256 → 192 in PR 2d.5
-  // closeout when the legacy Mercator `mvp` slot was retired.
-  private static readonly UNIFORM_SIZE = 192
+  private static readonly UNIFORM_SLOT = 240
+  // Polygon Uniforms struct = 240 bytes — matches VTR + WGSL (the shared
+  // fill/line shaders statically reference u up to cam_ecef_off_l @224).
+  // The BGL omits minBindingSize, so WebGPU uses the shader-derived 240-byte
+  // minimum at draw time; a smaller bind `size` fails draw-time validation.
+  private static readonly UNIFORM_SIZE = 240
   /** Pipeline-construction collaborator (Unit 1 of
    *  renderer-decomposition-2026-06-09). Owns every render pipeline +
    *  bind-group layout + the atlas STUB textures + the shared sampler +
@@ -240,7 +240,7 @@ export class MapRenderer {
     // once the real atlases land.
     this.paletteColorAtlasView = this._pipelines.paletteStubTextureView
     this.spriteAtlasView = this._pipelines.spriteAtlasStubTextureView
-    // Uniform ring buffer: 192-byte slots (post PR 2d.5 closeout), 256-slot
+    // Uniform ring buffer: 240-byte slots (shared polygon/line struct), 256-slot
     // initial capacity, dynamic offsets per draw. Guarantees that multi-
     // layer draws don't overwrite each other's uniforms.
     // ensure() fires the onGrow callback → builds this.bindGroup (and the
@@ -859,8 +859,8 @@ export class MapRenderer {
       // per-tile clip mask landed in 9c026b3.
       new Float32Array(uniformData, 160, 4).set([-1e30, 0, 0, 0])
       // zoom + 3-float pad (offsets 176-191) — P3 palette gradient
-      // sample reads u.zoom. Pad slots stay zero; total struct size
-      // is 192 bytes (UNIFORM_SIZE constant).
+      // sample reads u.zoom. Pad slots stay zero (RTC fields 192-239 too);
+      // total struct size is 240 bytes (UNIFORM_SIZE constant).
       new Float32Array(uniformData, 176, 4).set([camera.zoom, 0, 0, 0])
       const slotOffset = this.allocUniformSlot()
       this.stageUniformSlot(slotOffset, uniformData)
