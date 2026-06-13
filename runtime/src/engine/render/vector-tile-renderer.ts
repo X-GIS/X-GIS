@@ -1232,6 +1232,14 @@ export class VectorTileRenderer {
     let polyIndexOffset = -1
     let polyVertexFreeBytes = 0
     let polyIndexFreeBytes = 0
+    // Hoisted OUTSIDE the try (mirror of doUploadTileAsync) so the catch
+    // backstop can free buffers acquired before a pre-cache throw — else
+    // those line/index + segment buffers leak VRAM.
+    let lineVertexBuffer: GPUBuffer | null = null
+    let lineIndexBuffer: GPUBuffer | null = null
+    let outlineIndexBuffer: GPUBuffer | null = null
+    let outlineSegmentBuffer: GPUBuffer | null = null
+    let lineSegmentBuffer: GPUBuffer | null = null
     try {
     // Label every per-tile buffer so writeBuffer attribution in the
     // diagnostic suite can separate tile-upload churn from per-frame
@@ -1368,8 +1376,6 @@ export class VectorTileRenderer {
     const zBufferOffset = 0
     const zBufferByteLength = 0
 
-    let lineVertexBuffer: GPUBuffer | null = null
-    let lineIndexBuffer: GPUBuffer | null = null
     if (data.lineVertices.length > 0) {
       lineVertexBuffer = this.acquireBuffer(
         data.lineVertices.byteLength,
@@ -1387,7 +1393,6 @@ export class VectorTileRenderer {
     }
 
     // Outline indices (polygon edges, reuses polygon vertex buffer)
-    let outlineIndexBuffer: GPUBuffer | null = null
     let outlineIndexCount = 0
     if (data.outlineIndices && data.outlineIndices.length > 0) {
       outlineIndexBuffer = this.acquireBuffer(
@@ -1403,10 +1408,8 @@ export class VectorTileRenderer {
     // buildLineSegments now reads DSFUN-stride vertex buffers and needs the
     // tile extent in Mercator meters so its tile-boundary detection keeps
     // seamless joins across tile edges.
-    let outlineSegmentBuffer: GPUBuffer | null = null
     let outlineSegmentCount = 0
     let outlineSegmentBindGroup: GPUBindGroup | null = null
-    let lineSegmentBuffer: GPUBuffer | null = null
     let lineSegmentCount = 0
     let lineSegmentBindGroup: GPUBindGroup | null = null
     if (this.lineRenderer) {
@@ -1554,6 +1557,14 @@ export class VectorTileRenderer {
       if (polyIndexOffset >= 0 && iArena !== null) {
         iArena.free(polyIndexOffset, polyIndexFreeBytes)
       }
+      // Line/outline/segment buffers acquired before the throw were never
+      // cached either — free them too (mirror of async cleanupLineBuffers;
+      // no double-free: the happy path exits the try without this catch).
+      this.releaseBuffer(lineVertexBuffer)
+      this.releaseBuffer(lineIndexBuffer)
+      this.releaseBuffer(outlineIndexBuffer)
+      outlineSegmentBuffer?.destroy()
+      lineSegmentBuffer?.destroy()
       const wKey = `upload-throw:${sourceLayer}:${key}`
       if (!this._drawStats.hasWarned(wKey)) {
         this._drawStats.markWarned(wKey)
