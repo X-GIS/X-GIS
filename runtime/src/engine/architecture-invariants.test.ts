@@ -109,7 +109,10 @@ const LOC_CEILINGS: Record<string, number> = {
   'compiler/src/tiler/vector-tiler.ts': 1509,
   'runtime/src/engine/render/renderer.ts': 915,
   'compiler/src/convert/layers.ts': 1539,
-  'compiler/src/convert/expressions.ts': 1534,
+  // Bumped 1534→1574 for the arithmetic-arity fix (expr-arith-coalesce): the
+  // variadic +/*, unary/binary -, and exact-2 //% forms each need a distinct
+  // branch (was one over-strict shared comparison branch). Irreducible.
+  'compiler/src/convert/expressions.ts': 1574,
   'runtime/src/data/tile-catalog.ts': 1388,
   // Bumped 1353→1354 for the load() history.reset() fix (#270): one
   // irreducible statement (undo-after-import correctness).
