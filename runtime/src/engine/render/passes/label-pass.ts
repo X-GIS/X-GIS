@@ -449,6 +449,7 @@ class LabelPass implements RenderPass {
                 dispatchIcon(featDef, projected[0], projected[1], 0, pairKey)
               }
             }
+            perfMarkEnd('encoder.label-dispatch.show')
             continue
           }
 

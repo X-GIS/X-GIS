@@ -145,7 +145,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // the `total < spacingPx*0.5` curved branch was missing the two matching
   // perfMarkEnd('…line.emit')/('…line.polyline') calls its sibling returns
   // already make (lines ~867/889/906) — two irreducible balanced-mark lines.
-  'runtime/src/engine/render/passes/label-pass.ts': 1067,
+  // Bumped 1067→1068 for the GeoJSON label-show `continue` (~452) perf-mark
+  // balance fix: it was missing the matching perfMarkEnd('…label-dispatch.show')
+  // the loop-tail makes (~1022) — one irreducible balanced-mark line.
+  'runtime/src/engine/render/passes/label-pass.ts': 1068,
   // VTR Unit-1 extraction (Cluster E-selection). The hysteresis +
   // readiness-gate logic was moved VERBATIM (plan §5 DO-NOT-SPLIT #2),
   // and its hard-won fix-history comments carry the bulk of the LOC —
