@@ -186,7 +186,8 @@ export class PanZoomController implements Controller {
     }
 
     // Prevent context menu on right-click
-    canvas.addEventListener('contextmenu', safe('contextmenu', (e: Event) => e.preventDefault()))
+    const sContextMenu = safe('contextmenu', (e: Event) => e.preventDefault())
+    canvas.addEventListener('contextmenu', sContextMenu)
 
     // Pan inertia
     let panVelX = 0, panVelY = 0
@@ -504,6 +505,7 @@ export class PanZoomController implements Controller {
     canvas.addEventListener('wheel', sWheel, { passive: false })
 
     this.cleanup = () => {
+      canvas.removeEventListener('contextmenu', sContextMenu)
       canvas.removeEventListener('pointerdown', sPointerDown)
       canvas.removeEventListener('pointermove', sPointerMove)
       canvas.removeEventListener('pointerup', sPointerUp)
