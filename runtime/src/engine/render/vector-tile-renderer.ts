@@ -172,6 +172,10 @@ export class VectorTileRenderer {
   }
   private frameCount = 0
   private lastZoom = -1
+  /** Continuous camera.zoom cached by render() for slot 44 (u.zoom).
+   *  Distinct from lastZoom (integer tile-selection zoom) so polygon
+   *  zoom-interp fills + palette gradients interpolate, not snap. */
+  private currentCameraZoom = 0
   private stableKeys: number[] = []
   /** Per-frame visible-tile selection + zoom-transition hysteresis +
    *  readiness gate (Cluster E-selection). Owns `_frameTileCache`, the
@@ -2163,6 +2167,7 @@ export class VectorTileRenderer {
     } = sel
 
     if (currentZ !== this.lastZoom) this.lastZoom = currentZ
+    this.currentCameraZoom = camera.zoom
 
     // Display-projection MVP: `getViewForProjection` returns the flat 2D
     // Mercator-plane MVP for flat Mercator (projType 0) and the ECEF-MVP
@@ -3689,15 +3694,14 @@ export class VectorTileRenderer {
         this.uniformF32[43] = 0
       }
 
-      // zoom (44) — per-frame camera zoom. Read by the palette
-      // gradient sample (P3 Step 3c): the variant shader maps
-      // (zoom - zMin) / span into the gradient atlas's U coord.
-      // Total uniform struct size = 192 bytes (UNIFORM_SIZE constant above,
-      // post PR 2d.5 closeout).
-      // `this.lastZoom` is the cached frame zoom set by VTR.render's
-      // caller before renderTileKeys dispatches — camera isn't in this
-      // closure's scope.
-      this.uniformF32[44] = this.lastZoom
+      // zoom (44) — per-frame CONTINUOUS camera zoom (camera.zoom),
+      // cached by render() into this.currentCameraZoom. Read by the
+      // palette gradient sample (P3 Step 3c) + zoom-interp fills: the
+      // variant shader maps (zoom - zMin) / span into the gradient
+      // atlas's U coord. MUST be the fractional camera zoom — using
+      // the integer this.lastZoom (tile-selection zoom) snaps fills +
+      // gradients at integer boundaries instead of interpolating.
+      this.uniformF32[44] = this.currentCameraZoom
       // extrude_base_m (45) — wall bottom z (Mapbox
       // `fill-extrusion-base`). Reuses the first `_pad_zoom_*` slot
       // without growing the uniform struct past 192 bytes.
