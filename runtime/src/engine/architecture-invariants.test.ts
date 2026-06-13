@@ -132,10 +132,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // irreducible statement (undo-after-import correctness).
   'blueprint/src/editor.ts': 1354,
   'runtime/src/engine/shader-dsl/shaders/line.ts': 1187,
-  // Bumped 1171→1176 for the CSS color-fn whitespace fix (#274): the
-  // separator-insertion logic in captureFnCallAsString is irreducible (comment
-  // already trimmed). parser.ts decomposition remains a tracked priority.
-  'compiler/src/parser/parser.ts': 1176,
+  // Bumped 1171→1176 (#274 CSS color-fn whitespace), then 1176→1178 (#317) for
+  // the two irreducible numeric match()-label arm-pattern cases (Number, and
+  // Minus+Number). parser.ts decomposition remains a tracked priority.
+  'compiler/src/parser/parser.ts': 1178,
   'runtime/src/engine/shader-dsl/shaders/polygon.ts': 1139,
   // Bumped 1067→1092 for the minZoom + setMaxBounds gesture-clamp correctness
   // fixes (#244/#248): the maxBounds clamp method + its 7 gesture-exit call
