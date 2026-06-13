@@ -69,7 +69,7 @@ export function invOrthographic(x: number, y: number, lon0: number, lat0: number
   const c = Math.asin(Math.min(1, rho / R))
   const sinC = Math.sin(c), cosC = Math.cos(c)
   const sinP0 = Math.sin(lat0), cosP0 = Math.cos(lat0)
-  const lat = Math.asin(cosC * sinP0 + (y * sinC * cosP0) / rho)
+  const lat = Math.asin(Math.max(-1, Math.min(1, cosC * sinP0 + (y * sinC * cosP0) / rho)))
   const lon = lon0 + Math.atan2(x * sinC, rho * cosC * cosP0 - y * sinC * sinP0)
   return [lon, lat]
 }
