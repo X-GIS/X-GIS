@@ -85,7 +85,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // buffers) mirror doUploadTileAsync's cleanupLineBuffers. Irreducible — the
   // async path already carries the identical structure; this closes the
   // asymmetric sync gap (throw before layerCache.set → leaked VRAM).
-  'runtime/src/engine/render/vector-tile-renderer.ts': 3924,
+  // Bumped 3924→3934 for the bundle-cache compaction-UAF fix: capturing
+  // runFrameMaintenance's new "compacted" return + invalidating every cached
+  // render bundle (whose recorded buffer ref the arena swap retired) is
+  // irreducible — the explanatory comment carries the bulk (mirrors the
+  // async-upload buffer-identity guard; latent since bundles are default-OFF).
+  'runtime/src/engine/render/vector-tile-renderer.ts': 3934,
   // Bumped 3361→3393 for the destroy()-completeness fix: cancelling the
   // EventDispatcher move-rAF + the pending-flush rAF, clearing _pendingPatches,
   // and removing the run()-installed window globals (__xgisReady/snapshot/

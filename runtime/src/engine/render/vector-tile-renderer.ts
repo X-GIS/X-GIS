@@ -582,11 +582,21 @@ export class VectorTileRenderer {
     // the post-submit safe window. `stableKeys` (E) + the compute-handle
     // release hook (D) + the upload-active probe (B) are passed in so the
     // store references neither VTR nor the upload queue.
-    this._store.runFrameMaintenance(
+    const compacted = this._store.runFrameMaintenance(
       this.stableKeys,
       this._releaseTileHook,
       () => this.uploadQueue.activeCount() > 0,
     )
+    // Compaction swapped each tile's vertex/index buffer to a fresh packed
+    // buffer + retired the old one (destroyed next maintenance pass). Cached
+    // render bundles recorded the OLD buffer ref (recordTileFill setVertexBuffer)
+    // and neither uploadEpoch nor bindGroupEpoch — the only compaction-relevant
+    // bundle-key fields — changed, so a stale bundle would replay against the
+    // retired buffer (UAF / wrong draw). Drop every cached bundle so the next
+    // frame re-encodes against the live buffer; invalidation runs a full frame
+    // before the retired buffer is destroyed. Mirrors the async-upload path's
+    // buffer-identity guard. (Bundles are default-OFF; this is a latent-UAF fix.)
+    if (compacted) this.bundleCache.invalidateAll()
     // CPU-side TileCatalog eviction. Without this the dataCache grew
     // unbounded for the lifetime of the session — VTR's gpuCache
     // capped GPU memory but every parsed-and-decoded tile's
