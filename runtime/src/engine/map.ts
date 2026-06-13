@@ -1141,6 +1141,10 @@ export class XGISMap {
    *  Pool reuse: the staging buffer ring avoids allocating per call, so
    *  hover scenarios (60 Hz pickAt) stay cheap. */
   async pickAt(clientX: number, clientY: number): Promise<{ featureId: number; layerId: number; instanceId: number } | null> {
+    // Defense-in-depth: a move-rAF queued before destroy() must not run
+    // copyTextureToBuffer/submit on the destroyed device (the dispatcher's
+    // rAF is cancelled in destroy(); guard the entry point too).
+    if (this._destroyed) return null
     return this.interactionController.pickAt(clientX, clientY)
   }
 
@@ -3151,6 +3155,22 @@ export class XGISMap {
     this._interacting = false
     this._pointerActive = false
 
+    // Pending feature-update flush rAF (scheduleFlushPendingUpdates uses
+    // window.requestAnimationFrame, or a setTimeout fallback in non-DOM
+    // envs) — cancel with the matching primitive to drop the GC pin.
+    if (this._pendingFlushHandle !== null) {
+      if (typeof window !== 'undefined' && window.cancelAnimationFrame) {
+        window.cancelAnimationFrame(this._pendingFlushHandle)
+      } else clearTimeout(this._pendingFlushHandle)
+      this._pendingFlushHandle = null
+    }
+    this._pendingPatches.clear()
+
+    // Pointer-event dispatcher owns a move-coalescing rAF with no other
+    // cancel path; its callback funnels into pickAt on the destroyed device.
+    this.eventDispatcher?.destroy()
+    this.eventDispatcher = null
+
     // DOM / pointer listeners — the leak that survives GC otherwise.
     this.controller?.detach()
     this.controller = null
@@ -3198,6 +3218,18 @@ export class XGISMap {
     // Drop retained CPU data so it can be GC'd.
     this.vtSources.clear()
     this.rawDatasets.clear()
+
+    // Window globals run() installed: snapshot/replay/trace closures capture
+    // `this` (GC pin) and __xgisReady advertises a live map. Mirror of the
+    // run() install block (~2088) — clear them so a destroyed map is neither
+    // pinned nor reported loaded.
+    if (typeof window !== 'undefined') {
+      const w = window as unknown as { __xgisReady?: boolean; __xgisSnapshot?: unknown; __xgisStartDrawOrderTrace?: unknown; __xgisReplaySnapshot?: unknown }
+      w.__xgisReady = false
+      delete w.__xgisSnapshot
+      delete w.__xgisStartDrawOrderTrace
+      delete w.__xgisReplaySnapshot
+    }
   }
 
   /** Full-replace push for a GeoJSON source.

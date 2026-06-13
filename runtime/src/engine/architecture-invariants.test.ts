@@ -79,7 +79,12 @@ describe('arch ratchet: map ↔ render-loop value-import cycle stays broken', ()
 // High-water marks measured 2026-06-09. LOWER these as files shrink.
 const LOC_CEILINGS: Record<string, number> = {
   'runtime/src/engine/render/vector-tile-renderer.ts': 3913,
-  'runtime/src/engine/map.ts': 3361,
+  // Bumped 3361→3393 for the destroy()-completeness fix: cancelling the
+  // EventDispatcher move-rAF + the pending-flush rAF, clearing _pendingPatches,
+  // and removing the run()-installed window globals (__xgisReady/snapshot/
+  // replay/trace) are irreducible teardown statements. map.ts decomposition
+  // remains a tracked priority; shrink as the destroy body is extracted.
+  'runtime/src/engine/map.ts': 3393,
   'compiler/src/ir/lower.ts': 1343,
   'runtime/src/engine/text/text-stage.ts': 1441,
   'compiler/src/tiler/vector-tiler.ts': 1509,
