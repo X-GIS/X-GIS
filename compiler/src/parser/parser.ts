@@ -795,6 +795,13 @@ export class Parser {
         pattern = this.advance().value
       } else if (this.check(TokenType.Identifier)) {
         pattern = this.advance().value
+      } else if (this.check(TokenType.Number)) {
+        pattern = this.advance().value
+      } else if (this.check(TokenType.Minus) &&
+                 this.tokens[this.pos + 1]?.type === TokenType.Number) {
+        // Converter emits bare negative numeric keys (e.g. `-3 -> v`).
+        this.advance()
+        pattern = '-' + this.advance().value
       } else {
         break
       }
@@ -802,14 +809,9 @@ export class Parser {
       // Arrow: ->
       this.expect(TokenType.Arrow)
 
-      // Value parsing — three shapes:
-      //   #abcdef               → ColorLiteral
-      //   red-500 / gray-300    → utility-name Identifier (only when
-      //                           an Identifier is followed by `-`)
-      //   true / 42 / "x" / .f  → general expression (parseCoalesce
-      //                           so `??` works; we deliberately stay
-      //                           below the pipe operator like
-      //                           parseBlockProperty does)
+      // Value shapes: #abcdef → ColorLiteral; red-500 → utility-name
+      // Identifier (only when an Identifier is followed by `-`); else a
+      // general expression via parseCoalesce (below the pipe operator).
       let value: AST.Expr
       if (this.check(TokenType.Color)) {
         value = { kind: 'ColorLiteral', value: this.advance().value }
