@@ -15,7 +15,7 @@
 //   - `this._maxBounds` / `this._cameraExplicitlyPositioned` → owned here
 
 import { Camera } from './projection/camera'
-import { MERCATOR_LAT_LIMIT, mercatorYToLat, mercatorYToLatRad } from './projection/projection'
+import { MERCATOR_LAT_LIMIT, mercatorYToLat, mercatorYToLatRad, mercator } from './projection/projection'
 import { poleLimit, representsCenterAs } from './projection/projections-table'
 import { WORLD_MERC, TILE_PX } from './gpu/gpu-shared'
 import { lonLatToMercator } from '../loader/geojson'
@@ -136,6 +136,7 @@ export class CameraController {
   setMaxBounds(bounds: [[number, number], [number, number]] | null): void {
     if (bounds === null) {
       this._maxBounds = null
+      this.camera.setMaxBoundsMerc(null)
       return
     }
     const [[w, s], [e, n]] = bounds
@@ -156,6 +157,16 @@ export class CameraController {
       return
     }
     this._maxBounds = { west: w, south: s, east: e, north: n }
+    // Propagate to the shared Camera in Mercator metres so the INTERACTIVE
+    // gesture mutators (camera.pan / panToScreenAnchor / zoomAt) honour the
+    // bounds too — they drive the Camera directly and never see the lon/lat
+    // clamp above. mercator.forward is the SAME forward the Camera uses to
+    // derive centerX/centerY (it clamps lat to MERCATOR_LAT_LIMIT), so the
+    // Mercator box matches the camera's coordinate space exactly. minY comes
+    // from the SOUTH lat, maxY from the NORTH lat.
+    const [minX, minY] = mercator.forward(w, s)
+    const [maxX, maxY] = mercator.forward(e, n)
+    this.camera.setMaxBoundsMerc({ minX, maxX, minY, maxY })
     // Immediately clamp current center inside the new bounds.
     const state = this.getCameraState()
     const lon = state.center[0]

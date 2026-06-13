@@ -157,6 +157,28 @@ export class Camera {
     this._syncCenterLatFromMercator()
   }
 
+  /** Mercator-metre bbox the camera centre must stay inside, mirroring the
+   *  CameraController's lon/lat `_maxBounds`. Set by CameraController.setMaxBounds
+   *  so the INTERACTIVE gesture mutators (pan / panToScreenAnchor / zoomAt) —
+   *  which drive this shared Camera directly, bypassing the controller's lon/lat
+   *  clamp — honour the configured bounds too. Same single-Camera propagation
+   *  pattern as minZoom/maxZoom. `null` = unconstrained. */
+  private _maxBoundsMerc: { minX: number; maxX: number; minY: number; maxY: number } | null = null
+  setMaxBoundsMerc(b: { minX: number; maxX: number; minY: number; maxY: number } | null): void {
+    this._maxBoundsMerc = b
+  }
+
+  /** Clamp centerX/centerY into `_maxBoundsMerc` when set. Called at every
+   *  gesture mutator exit AFTER the existing world-wrap / pole clamp so the
+   *  configured bounds win. Keeps centerLatDeg synced from the clamped centerY. */
+  private clampCenterToBounds(): void {
+    const b = this._maxBoundsMerc
+    if (!b) return
+    this.centerX = Math.max(b.minX, Math.min(b.maxX, this.centerX))
+    this.centerY = Math.max(b.minY, Math.min(b.maxY, this.centerY))
+    this._syncCenterLatFromMercator()
+  }
+
   /** Get the view-projection matrix as Float32Array (column-major 4x4) */
   getMatrix(canvasWidth: number, canvasHeight: number): Float32Array {
     // Scale: at zoom 0, the whole world (~40M meters) fits in the viewport
@@ -835,6 +857,7 @@ export class Camera {
       this.centerLatDeg = lat
       const mercLat = Math.max(-85.051129, Math.min(85.051129, lat))
       this.centerY = Math.log(Math.tan(Math.PI / 4 + mercLat * (Math.PI / 180) / 2)) * R
+      this.clampCenterToBounds()
       return
     }
     // mpp from the formula `WORLD_MERC / TILE_PX / 2^zoom` is meters per
@@ -866,6 +889,7 @@ export class Camera {
     const newY = this.centerY + mapDy * metersPerInputPixel
     this.centerY = Math.max(-maxY, Math.min(maxY, newY))
     this._syncCenterLatFromMercator()
+    this.clampCenterToBounds()
   }
 
   /** Rotate by delta degrees */
@@ -900,6 +924,7 @@ export class Camera {
       // #11: anchor on the rendered sphere — unprojectToZ0 below is a
       // phantom flat plane in globe mode (16-20 px G5c drift).
       zoomAtGlobeAnchored(this, delta, sxDev, syDev, canvasWidth, canvasHeight, dpr)
+      this.clampCenterToBounds()
       return
     }
 
@@ -963,6 +988,7 @@ export class Camera {
       const maxYO = this.maxCameraY(canvasHeight)
       this.centerY = Math.max(-maxYO, Math.min(maxYO, this.centerY))
       this._carryCenterLatThroughZoom(_latPreserve, _mercLatPreserve)
+      this.clampCenterToBounds()
       return
     }
 
@@ -1015,6 +1041,7 @@ export class Camera {
     const maxY = this.maxCameraY(canvasHeight)
     this.centerY = Math.max(-maxY, Math.min(maxY, this.centerY))
     this._carryCenterLatThroughZoom(_latPreserve, _mercLatPreserve)
+    this.clampCenterToBounds()
   }
 
   /** Pan so the world point captured at drag start stays under the cursor.
@@ -1037,6 +1064,7 @@ export class Camera {
       // #11: ground-track the sphere via centerLatDeg (the Mercator path
       // below would clamp a pole-ward centre back to ±85.05).
       panGlobeToScreenAnchor(this, anchorWorldX, anchorWorldY, cursorX * dpr, cursorY * dpr, canvasWidth, canvasHeight, dpr)
+      this.clampCenterToBounds()
       return
     }
     const cur = this.unprojectToZ0(cursorX * dpr, cursorY * dpr, canvasWidth, canvasHeight, dpr)
@@ -1063,5 +1091,6 @@ export class Camera {
     const maxY = this.maxCameraY(canvasHeight)
     this.centerY = Math.max(-maxY, Math.min(maxY, this.centerY))
     this._syncCenterLatFromMercator()
+    this.clampCenterToBounds()
   }
 }
