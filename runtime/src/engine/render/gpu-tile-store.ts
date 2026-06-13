@@ -734,5 +734,11 @@ export class GpuTileStore {
     // haven't yet been drained by a subsequent beginFrame.
     for (const b of this._retiredArenaBuffers) b.destroy()
     this._retiredArenaBuffers.length = 0
+    // Drain the pooled-buffer recycler: pooled line/index/outline buffers are
+    // standalone GPUBuffers (NOT arena slices), so the arena destroys above do
+    // not reclaim them. Without this they leak until device loss across SPA
+    // map create/destroy cycles.
+    for (const pool of this._bufferPool.values()) for (const b of pool) b.destroy()
+    this._bufferPool.clear()
   }
 }
