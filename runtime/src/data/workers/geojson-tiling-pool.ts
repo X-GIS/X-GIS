@@ -4,10 +4,14 @@
 // future scene needs more parallelism we can extend to a pool here
 // without touching the worker protocol.
 //
-// API:
-//   - setSource(name, geojson, options?)  → Promise<void>
-//   - getTile(name, z, x, y, key)         → Promise<Uint8Array>
+// API (callers pass a per-map `instanceId` from `newTilingInstanceId()`
+// so the singleton worker namespaces each caller's index — two maps
+// with the same source name no longer collide):
+//   - newTilingInstanceId()                          → string
+//   - setSource(instanceId, name, geojson, options?) → Promise<void>
+//   - getTile(instanceId, name, z, x, y, key)        → Promise<Uint8Array>
 //     (empty Uint8Array when the tile has no features)
+//   - dropSource(instanceId, name)                   → void (evict index)
 
 import type { GeoJSONVTOptions } from '@xgis/compiler'
 import type { InMsg, OutMsg } from './geojson-tiling-worker'
@@ -61,17 +65,37 @@ function post(msg: InMsg): void {
   getWorker().postMessage(msg)
 }
 
-/** Initialise / replace the worker's index for `sourceName`.
+/** Mint a process-unique caller id. The worker is a singleton shared by
+ *  every XGISMap on the page; callers namespace their index keys with one
+ *  of these so two maps that declare a GeoJSON source with the SAME
+ *  user-facing name (the common default 'geojson') don't clobber each
+ *  other's index under the bare name. One id per SourceManager (≈ per map). */
+let _nextInstanceId = 1
+export function newTilingInstanceId(): string {
+  return `gjt${_nextInstanceId++}`
+}
+
+/** Compose the worker-side index key from the caller id + the user-facing
+ *  source name. Keep the two arguments separate everywhere else so the
+ *  encoded MVT layer name (and any host-visible diagnostic) stays the bare
+ *  `sourceName`. */
+function composeIndexKey(instanceId: string, sourceName: string): string {
+  return `${instanceId}::${sourceName}`
+}
+
+/** Initialise / replace the worker's index for `(instanceId, sourceName)`.
  *  Resolves when the index is built and ready to serve tiles. */
 export function setSource(
+  instanceId: string,
   sourceName: string,
   geojson: unknown,
   options?: Partial<GeoJSONVTOptions>,
 ): Promise<void> {
   const taskId = _nextTaskId++
+  const indexKey = composeIndexKey(instanceId, sourceName)
   return new Promise<void>((resolve, reject) => {
     pendingSetSource.set(taskId, { resolve, reject })
-    post({ kind: 'set-source', taskId, sourceName, geojson, options })
+    post({ kind: 'set-source', taskId, indexKey, sourceName, geojson, options })
   })
 }
 
@@ -79,15 +103,28 @@ export function setSource(
  *  Uint8Array has length 0 when the tile has no features (caller
  *  should treat that as "tile is empty, not missing"). */
 export function getTile(
+  instanceId: string,
   sourceName: string,
   z: number, x: number, y: number,
   key: number,
 ): Promise<Uint8Array> {
   const taskId = _nextTaskId++
+  const indexKey = composeIndexKey(instanceId, sourceName)
   return new Promise<Uint8Array>((resolve, reject) => {
     pendingGetTile.set(taskId, { resolve, reject })
-    post({ kind: 'get-tile', taskId, sourceName, z, x, y, key })
+    post({ kind: 'get-tile', taskId, indexKey, sourceName, z, x, y, key })
   })
+}
+
+/** Evict the worker's retained index for `(instanceId, sourceName)`.
+ *  Fire-and-forget — the worker frees the per-source GeoJSONVT index so a
+ *  detached / replaced source isn't pinned for the process lifetime. Safe
+ *  on the shared singleton: only this caller's namespaced key is dropped,
+ *  so a sibling map's live index is untouched. */
+export function dropSource(instanceId: string, sourceName: string): void {
+  // No worker yet ⇒ nothing was ever indexed under this key.
+  if (_worker === null) return
+  post({ kind: 'drop-source', indexKey: composeIndexKey(instanceId, sourceName) })
 }
 
 /** Terminate the underlying worker. Test cleanup only — production

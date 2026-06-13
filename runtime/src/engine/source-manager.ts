@@ -41,6 +41,7 @@ import type { SceneCommands } from './interpreter'
 import { asVectorTileKind, computeGeoJSONBounds } from './map-geo-helpers'
 import { attachPMTilesSource, detectVectorTileFormat } from '../loader/vector-tile-loader'
 import { VirtualPMTilesBackend } from '../data/sources/virtual-pmtiles-backend'
+import * as tilingPool from '../data/workers/geojson-tiling-pool'
 import { reprojectFeatureCollection } from '../data/sources/reproject-fc'
 
 /** Dependencies SourceManager needs from the host XGISMap. */
@@ -93,6 +94,13 @@ export class SourceManager {
   private readonly rebuildLayers: () => void
   private readonly teardownSource: (sourceId: string) => void
   private readonly deleteFeatureIndex: (sourceId: string) => void
+
+  /** Per-SourceManager (≈ per-map) id used to namespace this map's GeoJSON
+   *  tiling-worker indexes. The tiling worker is a process-global singleton
+   *  shared by every map; without a per-caller prefix, two maps that declare
+   *  a GeoJSON source with the same name (the common default 'geojson') would
+   *  clobber each other's index. Also drives the `dropSource` eviction below. */
+  private readonly _tilingInstanceId = tilingPool.newTilingInstanceId()
 
   constructor(deps: SourceManagerDeps) {
     this.rawDatasets = deps.rawDatasets
@@ -327,6 +335,7 @@ export class SourceManager {
   ): void {
     const backend = new VirtualPMTilesBackend({
       sourceName: vtKey,
+      instanceId: this._tilingInstanceId,
       geojson: filtered,
       // No per-show filter / extrude / stroke overrides here — those
       // are exactly the cases the gate above rejects.
@@ -401,6 +410,7 @@ export class SourceManager {
 
     const backend = new VirtualPMTilesBackend({
       sourceName,
+      instanceId: this._tilingInstanceId,
       geojson: data,
       layers: filterLayers,
       extrudeExprs: maps.extrudeExprsBySource.get(sourceName),
@@ -485,6 +495,13 @@ export class SourceManager {
     // Full replace invalidates any cached feature index for this source.
     this.deleteFeatureIndex(sourceId)
     this.teardownSource(sourceId)
+    // Evict the old GeoJSON tiling-worker index for this source before the
+    // rebuild re-tiles it. Without this the per-source GeoJSONVT index leaks
+    // in the singleton worker for the process lifetime (SPA churn / repeated
+    // setSourceData). Scoped to THIS map's namespaced key, so a sibling map's
+    // index is untouched. Drop BEFORE rebuildLayers so the fresh setSource
+    // (same key, new data) isn't the one that gets deleted.
+    tilingPool.dropSource(this._tilingInstanceId, sourceId)
     this.rebuildLayers()
     this.invalidate()
   }

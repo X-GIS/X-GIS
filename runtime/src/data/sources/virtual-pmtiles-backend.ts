@@ -31,9 +31,15 @@ import {
 
 export interface VirtualPMTilesBackendOptions {
   /** Logical source name — used as the MVT layer name when no
-   *  `sourceLayer:` filter is set on the consuming xgis layer, and
-   *  as the key inside the tiling worker's index map. */
+   *  `sourceLayer:` filter is set on the consuming xgis layer. */
   sourceName: string
+  /** Per-caller (≈ per-map) id from `tilingPool.newTilingInstanceId()`.
+   *  Composed with `sourceName` into the singleton tiling worker's index
+   *  key so two maps that declare a source with the same name don't
+   *  clobber each other's index. Defaults to a fresh id when unset (the
+   *  inline-attach test seam) — sources sharing one map should pass the
+   *  SAME id so the detach-path `dropSource` can free the right index. */
+  instanceId?: string
   /** Parsed GeoJSON object (FeatureCollection / Feature / single
    *  geometry — anything geojsonvt's `convert` accepts). */
   geojson: unknown
@@ -71,6 +77,7 @@ export class VirtualPMTilesBackend implements TileSource {
   private indexReady: Promise<void>
 
   private readonly sourceName: string
+  private readonly instanceId: string
   private readonly layers?: string[]
   private readonly extrudeExprs?: Record<string, unknown>
   private readonly extrudeBaseExprs?: Record<string, unknown>
@@ -81,6 +88,7 @@ export class VirtualPMTilesBackend implements TileSource {
 
   constructor(opts: VirtualPMTilesBackendOptions) {
     this.sourceName = opts.sourceName
+    this.instanceId = opts.instanceId ?? tilingPool.newTilingInstanceId()
     this.layers = opts.layers
     this.extrudeExprs = opts.extrudeExprs
     this.extrudeBaseExprs = opts.extrudeBaseExprs
@@ -107,7 +115,7 @@ export class VirtualPMTilesBackend implements TileSource {
     // completes in tens of ms so by the first tile request the
     // worker is usually ready.
     this.indexReady = tilingPool.setSource(
-      this.sourceName, opts.geojson, this.geojsonvtOptions,
+      this.instanceId, this.sourceName, opts.geojson, this.geojsonvtOptions,
     )
   }
 
@@ -146,7 +154,7 @@ export class VirtualPMTilesBackend implements TileSource {
     const [z, x, y] = tileKeyUnpack(key)
     let bytes: Uint8Array
     try {
-      bytes = await tilingPool.getTile(this.sourceName, z, x, y, key)
+      bytes = await tilingPool.getTile(this.instanceId, this.sourceName, z, x, y, key)
     } catch (err) {
       xlog.error('[virtual-pmtiles getTile]', (err as Error)?.stack ?? err)
       sink.acceptResult(key, null)
