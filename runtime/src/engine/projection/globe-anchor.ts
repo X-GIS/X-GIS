@@ -38,6 +38,7 @@ export interface GlobeAnchorCamera {
   centerLatDeg: number
   zoom: number
   maxZoom: number
+  minZoom: number
   pitch: number
   bearing: number
   projType: number
@@ -125,7 +126,7 @@ export function zoomAtGlobeAnchored(
 ): void {
   const before = unprojectGlobeFromCamera(cam, screenX, screenY, canvasWidth, canvasHeight, dpr)
   // Same clamp as the flat zoomAt arms.
-  cam.zoom = Math.max(0, Math.min(cam.maxZoom, cam.zoom + delta))
+  cam.zoom = Math.max(cam.minZoom, Math.min(cam.maxZoom, cam.zoom + delta))
   if (!before) return
   for (let i = 0; i < MAX_PASSES; i++) {
     const cur = unprojectGlobeFromCamera(cam, screenX, screenY, canvasWidth, canvasHeight, dpr)
