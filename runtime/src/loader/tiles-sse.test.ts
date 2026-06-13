@@ -168,9 +168,11 @@ describe('visibleTilesSSE — Phase 2 world copies', () => {
   })
 
   it('non-Mercator projection emits a single world copy only', () => {
-    // The worldCopiesFor(projType=1) returns [0]. Tile selector should
-    // skip the ±N enumeration so non-Mercator (ortho, equirect, …)
-    // doesn't double-emit the visible hemisphere.
+    // orthographic resolves to projType=3, whose worldCopiesFor() is
+    // SINGLE_WORLD = [0]. The selector skips the ±N enumeration so a disc
+    // projection doesn't 5x-emit the visible hemisphere. (worldCopiesFor(1)
+    // — equirectangular — is the 5-copy cylindrical array, NOT [0]; see
+    // tiles-sse-projtype.test.ts for the projType-resolution regression.)
     const cam = makeCam(2, 0, 0, 0)
     const ortho = { ...mercator, name: 'orthographic' as const }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
