@@ -91,7 +91,10 @@ const LOC_CEILINGS: Record<string, number> = {
   'runtime/src/engine/shader-dsl/shaders/line.ts': 1187,
   'compiler/src/parser/parser.ts': 1171,
   'runtime/src/engine/shader-dsl/shaders/polygon.ts': 1139,
-  'runtime/src/engine/projection/camera.ts': 1067,
+  // Bumped 1067→1092 for the minZoom + setMaxBounds gesture-clamp correctness
+  // fixes (#244/#248): the maxBounds clamp method + its 7 gesture-exit call
+  // sites are irreducible. camera.ts decomposition remains a tracked priority.
+  'runtime/src/engine/projection/camera.ts': 1092,
   'runtime/src/engine/render/passes/label-pass.ts': 1065,
   // VTR Unit-1 extraction (Cluster E-selection). The hysteresis +
   // readiness-gate logic was moved VERBATIM (plan §5 DO-NOT-SPLIT #2),
