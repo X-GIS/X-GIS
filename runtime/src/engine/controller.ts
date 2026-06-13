@@ -2,6 +2,7 @@
 
 import type { Camera } from './projection/camera'
 import { unprojectGlobeFromCamera } from './projection/globe-anchor'
+import { getMaxDpr } from './gpu/gpu'
 import { xlog } from './log'
 
 export interface Controller {
@@ -163,7 +164,7 @@ export class PanZoomController implements Controller {
           // bounding rect — the canvas may not sit at viewport (0,0)
           // (header / editor pane / etc), and unprojectToZ0 expects
           // coords in [0, canvas.width / canvas.height].
-          const dprNow = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 8) : 1
+          const dprNow = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
           const r0 = canvas.getBoundingClientRect()
           const sxA = (e.clientX - r0.left) * dprNow, syA = (e.clientY - r0.top) * dprNow
           if (camera.globeMode) {
@@ -425,7 +426,7 @@ export class PanZoomController implements Controller {
         // pointermove asks panToScreenAnchor to place that stale
         // world point under the lifted-to position — a visible jump
         // to the remaining finger's location.
-        const dprUp = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 8) : 1
+        const dprUp = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
         const rUp = canvas.getBoundingClientRect()
         const sxU = (remaining.x - rUp.left) * dprUp, syU = (remaining.y - rUp.top) * dprUp
         if (camera.globeMode) {
