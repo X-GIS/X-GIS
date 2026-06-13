@@ -110,6 +110,7 @@ export class Lexer {
   }
 
   private readString(): void {
+    const startLine = this.line
     const startCol = this.col
     this.pos++ // skip opening "
     this.col++
@@ -150,7 +151,7 @@ export class Lexer {
 
     this.pos++ // skip closing "
     this.col++
-    this.tokens.push({ type: TokenType.String, value, line: this.line, col: startCol })
+    this.tokens.push({ type: TokenType.String, value, line: startLine, col: startCol })
   }
 
   private readColor(): void {

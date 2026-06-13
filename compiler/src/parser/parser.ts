@@ -183,8 +183,7 @@ export class Parser {
 
     const values: AST.Expr[] = [this.parseExpr()]
 
-    // Additional comma-separated values (e.g., stroke: #ccc, 1px)
-    // But stop if the next token after comma is "identifier:" (next property)
+    // Additional comma-separated values (e.g., stroke: #ccc, 1px); stop if the next token after comma is "identifier:" (next property)
     while (this.check(TokenType.Comma)) {
       // Lookahead: if comma is followed by Identifier + Colon, it's a property separator
       if (this.isNextPropertyStart()) {
@@ -192,6 +191,7 @@ export class Parser {
         break
       }
       this.advance() // skip comma (value separator)
+      if (this.check(TokenType.RBrace) || this.isEnd()) break // trailing comma — like arg lists / array literals
       values.push(this.parseExpr())
     }
 
@@ -700,12 +700,12 @@ export class Parser {
     // Check for trailing unit after ] — e.g., size-[expr]km
     let bindingUnit: string | null = null
     if (binding) {
-      const unitTypes = [TokenType.Px, TokenType.M, TokenType.Km, TokenType.Nm, TokenType.Deg]
+      const unitTypes = [TokenType.Px, TokenType.M, TokenType.Km, TokenType.Nm, TokenType.Deg, TokenType.S, TokenType.Ms]
       if (unitTypes.includes(this.current().type)) {
         bindingUnit = this.advance().value
       } else if (this.check(TokenType.Identifier)) {
         const v = this.current().value
-        if (['px', 'm', 'km', 'nm', 'deg'].includes(v)) {
+        if (['px', 'm', 'km', 'nm', 'deg', 's', 'ms'].includes(v)) {
           bindingUnit = this.advance().value
         }
       }
