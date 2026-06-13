@@ -146,6 +146,15 @@ export class GeoJSONCompilePool {
         })
         w.addEventListener('error', (e) => {
           console.error('[geojson-compile-worker]', e.message)
+          // Reject every outstanding compile so callers don't hang on a
+          // crashed worker — without this the inline-GeoJSON source's tiles
+          // never apply (the compile() Promise never settles) and the pending
+          // entry leaks forever. Mirrors mvt-worker-pool's error handler; the
+          // crashed worker is left in `this.workers` (round-robin index would
+          // desync if dropped) — same trade-off as the sibling array pool.
+          const err = new Error(e.message || 'geojson compile worker error')
+          for (const job of this.pending.values()) job.reject(err)
+          this.pending.clear()
         })
         this.workers.push(w)
       }
