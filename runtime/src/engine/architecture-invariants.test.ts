@@ -123,7 +123,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // variadic +/*, unary/binary -, and exact-2 //% forms each need a distinct
   // branch (was one over-strict shared comparison branch). Irreducible.
   'compiler/src/convert/expressions.ts': 1574,
-  'runtime/src/data/tile-catalog.ts': 1388,
+  // Bumped 1388→1417 for the tile-catalog lifecycle fixes (BUG 11/13): the
+  // prewarm-pump _skeletonTimer/_stopped fields + destroy() cancel method, and
+  // the hoisted evict-shield sweep, are irreducible (two real leaks). Catalog
+  // decomposition remains a tracked priority.
+  'runtime/src/data/tile-catalog.ts': 1417,
   // Bumped 1353→1354 for the load() history.reset() fix (#270): one
   // irreducible statement (undo-after-import correctness).
   'blueprint/src/editor.ts': 1354,
