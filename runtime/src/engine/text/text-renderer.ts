@@ -217,11 +217,21 @@ export class TextRenderer {
         if (g.codepoint === 10) continue
         // Page boundary: flush the current slice and start a new one
         // pointing at this glyph's page.
-        if (g.slot.page !== slicePage && sliceGlyphCount > 0) {
-          flushSlice()
-          sliceFirst = glyphIdx * VERTS_PER_GLYPH
+        if (g.slot.page !== slicePage) {
+          if (sliceGlyphCount > 0) {
+            // Mid-label boundary: close the open slice, start a new one
+            // pointing at this glyph's page.
+            flushSlice()
+            sliceFirst = glyphIdx * VERTS_PER_GLYPH
+            sliceGlyphCount = 0
+          }
+          // Adopt this glyph's page for the (re)opening slice. When
+          // sliceGlyphCount === 0 nothing is written yet, so this also
+          // corrects a stale seed (slicePage was initialised from
+          // glyphs[0], which may be a skipped leading newline on a
+          // different page than the first drawable glyph — binding the
+          // wrong atlas page → wrong/blank glyph).
           slicePage = g.slot.page
-          sliceGlyphCount = 0
         }
         // Per-glyph slot→display scale. PBF glyphs are baked at their
         // 24-px native reference, local Hangul at the DPR-scaled

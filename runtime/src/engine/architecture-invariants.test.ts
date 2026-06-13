@@ -119,7 +119,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // fixes (#244/#248): the maxBounds clamp method + its 7 gesture-exit call
   // sites are irreducible. camera.ts decomposition remains a tracked priority.
   'runtime/src/engine/projection/camera.ts': 1092,
-  'runtime/src/engine/render/passes/label-pass.ts': 1065,
+  // Bumped 1065→1067 for the curved-text early-return perf-mark balance fix:
+  // the `total < spacingPx*0.5` curved branch was missing the two matching
+  // perfMarkEnd('…line.emit')/('…line.polyline') calls its sibling returns
+  // already make (lines ~867/889/906) — two irreducible balanced-mark lines.
+  'runtime/src/engine/render/passes/label-pass.ts': 1067,
   // VTR Unit-1 extraction (Cluster E-selection). The hysteresis +
   // readiness-gate logic was moved VERBATIM (plan §5 DO-NOT-SPLIT #2),
   // and its hard-won fix-history comments carry the bulk of the LOC —

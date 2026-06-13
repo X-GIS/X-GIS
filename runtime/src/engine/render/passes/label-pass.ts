@@ -839,6 +839,8 @@ class LabelPass implements RenderPass {
                           recordTextPosition(resolvedTextForDedupe, sx, sy)
                         }
                       }
+                      perfMarkEnd('encoder.label-dispatch.line.emit')
+                      perfMarkEnd('encoder.label-dispatch.line.polyline')
                       return
                     }
                     let nextStop = spacingPx * 0.5
