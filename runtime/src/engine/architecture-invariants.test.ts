@@ -128,9 +128,8 @@ const LOC_CEILINGS: Record<string, number> = {
   // the hoisted evict-shield sweep, are irreducible (two real leaks). Catalog
   // decomposition remains a tracked priority.
   'runtime/src/data/tile-catalog.ts': 1417,
-  // Bumped 1353→1354 for the load() history.reset() fix (#270): one
-  // irreducible statement (undo-after-import correctness).
-  'blueprint/src/editor.ts': 1354,
+  // Bumped 1354→1356 for the undo-correctness fixes: tryConnect skipRecord param + insertReroute selEdge clear (two irreducible statements).
+  'blueprint/src/editor.ts': 1356,
   'runtime/src/engine/shader-dsl/shaders/line.ts': 1187,
   // Bumped 1171→1176 (#274 CSS color-fn whitespace), then 1176→1178 (#317) for
   // the two irreducible numeric match()-label arm-pattern cases (Number, and
