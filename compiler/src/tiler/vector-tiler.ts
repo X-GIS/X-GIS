@@ -93,12 +93,11 @@ export function decomposeFeatures(
 ): GeometryPart[] {
   const parts: GeometryPart[] = []
 
-  for (let fi = 0; fi < features.length; fi++) {
-    const feature = features[fi]
-    const geom = feature.geometry
-    if (!geom) continue
-    const id = idResolver(feature, fi)
-
+  // Recursive per-geometry dispatch so a GeometryCollection (RFC 7946
+  // §3.1.8) decomposes each member under the parent id — matches the
+  // sibling geojson-vt path; was a silent drop (zero parts) before.
+  function decomposeGeom(geom: GeoJSONFeature['geometry'], id: number): void {
+    if (!geom) return
     if (geom.type === 'Polygon') {
       const rings = geom.coordinates as number[][][]
       parts.push(makePolygonPart(rings, id))
@@ -120,7 +119,16 @@ export function decomposeFeatures(
       for (const coord of geom.coordinates as number[][]) {
         parts.push({ type: 'point', point: coord, featureIndex: id, minLon: coord[0], minLat: coord[1], maxLon: coord[0], maxLat: coord[1] })
       }
+    } else if ((geom as { type: string }).type === 'GeometryCollection') {
+      const members = (geom as unknown as { geometries?: GeoJSONFeature['geometry'][] }).geometries ?? []
+      for (const member of members) decomposeGeom(member, id)
     }
+  }
+
+  for (let fi = 0; fi < features.length; fi++) {
+    const feature = features[fi]
+    if (!feature.geometry) continue
+    decomposeGeom(feature.geometry, idResolver(feature, fi))
   }
 
   return parts
