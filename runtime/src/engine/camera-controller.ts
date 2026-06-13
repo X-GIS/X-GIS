@@ -18,6 +18,7 @@ import { Camera } from './projection/camera'
 import { MERCATOR_LAT_LIMIT, mercatorYToLat, mercatorYToLatRad, mercator } from './projection/projection'
 import { poleLimit, representsCenterAs } from './projection/projections-table'
 import { WORLD_MERC, TILE_PX } from './gpu/gpu-shared'
+import { getMaxDpr } from './gpu/gpu'
 import { lonLatToMercator } from '../loader/geojson'
 import { xlog } from './log'
 
@@ -192,8 +193,12 @@ export class CameraController {
    *  return value (`getBounds()` returns LngLatBounds). */
   getBounds(): [[number, number], [number, number]] {
     const canvas = this.getCanvas()
-    const cssW = canvas?.width ?? 800
-    const cssH = canvas?.height ?? 600
+    // canvas.width/height are DEVICE px (clientWidth*dpr, gpu.ts
+    // resizeCanvas); degPerPx below is per-CSS-pixel, so strip the dpr to
+    // get the CSS-px viewport span. Without this the bbox is dpr× too wide.
+    const dpr = this._dpr()
+    const cssW = (canvas?.width ?? 800) / dpr
+    const cssH = (canvas?.height ?? 600) / dpr
     // degrees-per-pixel at current zoom (formula matches the inverse
     // of _fitZoomToLonSpan: zoom = log2(360 / (degPerPx * 256)) - 1
     // so degPerPx = 360 / (256 * 2^(zoom + 1))).
@@ -229,7 +234,14 @@ export class CameraController {
     const centerLon = (w + e) / 2
     const centerLat = (s + n) / 2
     const lonSpan = Math.max(1e-9, e - w)
-    const canvasW = (this.getCtxCanvas()?.width ?? 800) - (opts.padding ?? 0) * 2
+    // canvas.width is DEVICE px (clientWidth*dpr, gpu.ts resizeCanvas) but
+    // _fitZoomToLonSpan's degPerPx→zoom math expects CSS px, so strip the
+    // dpr first (matches map.ts's canonical `this.canvas.width / dpr`). The
+    // 800 fallback (no ctx yet) is already a CSS-notional default — leave
+    // it un-divided. THEN subtract padding (CSS px per Mapbox) in CSS space.
+    const ctxW = this.getCtxCanvas()?.width
+    const cssCanvasW = ctxW !== undefined ? ctxW / this._dpr() : 800
+    const canvasW = cssCanvasW - (opts.padding ?? 0) * 2
     const cssWidthPx = canvasW > 0 ? canvasW : 800
     const zoom = this._fitZoomToLonSpan(lonSpan, cssWidthPx)
     this.jumpTo({
@@ -265,11 +277,13 @@ export class CameraController {
       return
     }
     const mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, this.camera.zoom)
-    const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 4) : 1
-    // CSS-px → Mercator meters at current zoom. dpr scales the CSS-px
-    // input into the device-px buffer the camera works in.
-    const dxMerc = offset[0] * mpp * dpr
-    const dyMerc = offset[1] * mpp * dpr
+    // CSS-px → Mercator meters at current zoom. The camera works in CSS
+    // pixels (Camera.pan is DPR-invariant, commit ee1f394) and `mpp` uses
+    // the same metres-per-CSS-pixel as view-matrix.ts, so NO dpr factor:
+    // panBy([100,0]) must move the same world distance as a 100-CSS-pixel
+    // drag regardless of devicePixelRatio.
+    const dxMerc = offset[0] * mpp
+    const dyMerc = offset[1] * mpp
     // Bearing rotation: screen-space +x is the map's east only when
     // bearing=0. Rotate the offset back into the map's reference frame.
     const bearingRad = this.camera.bearing * Math.PI / 180
@@ -437,6 +451,17 @@ export class CameraController {
     if (!(lonSpan > 1e-9) || !(cssWidthPx > 0)) return 4
     const degPerPx = lonSpan / cssWidthPx
     return Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
+  }
+
+  /** Device-pixel-ratio used to convert the canvas device-pixel buffer
+   *  size back to CSS pixels. Identical expression to gpu.ts resizeCanvas
+   *  (`Math.min(window.devicePixelRatio || 1, getMaxDpr())`) so the inverse
+   *  (`canvas.width / dpr`) is exact — and to map.ts's canonical bounds-fit
+   *  usage at the sync setRawParts site. The camera/view-matrix path works
+   *  in CSS pixels (DPR-invariant, commit ee1f394), so panBy / fitBounds /
+   *  getBounds must strip the DPR the device-pixel canvas.width carries. */
+  private _dpr(): number {
+    return typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
   }
 
   /** Whether the camera was explicitly positioned (hash / setView /
