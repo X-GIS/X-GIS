@@ -46,6 +46,7 @@ import type { Camera } from '../engine/projection/camera'
 import type { Projection } from './../engine/projection/projection'
 import { mercatorYToLat } from '../engine/projection/projection'
 import { worldCopiesFor, TILE_PX } from '../engine/gpu/gpu-shared'
+import { PROJECTION_NAME_TO_TYPE } from '../engine/projection/projections-table'
 import type { TileCoord } from '../data/tile-select'
 
 const EARTH_CIRC_M = 40075016.686
@@ -218,8 +219,12 @@ export function visibleTilesSSE(
   // logic; we only apply this cap on Mercator + equirect, where the
   // math otherwise lets the strip grow unboundedly. Disable via
   // `opts.disableHorizonCull` for diagnostic rendering.
-  const projType = projection.name === 'mercator' ? 0
-    : projection.name === 'natural_earth' ? 2 : 1
+  // Resolve projType from the authoritative PROJECTIONS table (mirrors
+  // data/tile-select.ts:153). The prior `projection.name` ternary collapsed
+  // every disc/globe projection to equirectangular (projType 1), so
+  // worldCopiesFor() ran the DFS from 5 world-copy roots on SINGLE_WORLD
+  // discs and reprojected lon up to ±900° on a non-periodic surface.
+  const projType = PROJECTION_NAME_TO_TYPE[projection.name] ?? 0
   const horizonCullActive = projType === 0 && !opts.disableHorizonCull
   const earthR = 6378137
   const horizonDist = horizonCullActive
@@ -449,9 +454,10 @@ export function visibleTilesSSE(
   }
 
   // Run the DFS from each world copy's root. `projType` was computed
-  // earlier (alongside the horizon-cull setup); for non-Mercator the
-  // worldCopiesFor array collapses to `[0]` so this is a single
-  // iteration.
+  // earlier (alongside the horizon-cull setup); single-world disc/globe
+  // projections resolve to `worldCopies = [0]` (one iteration), while the
+  // cylindrical family (mercator/equirect/natural_earth/oblique) enumerates
+  // the ±N copies.
   const worldCopies = worldCopiesFor(projType)
   for (const wc of worldCopies) {
     visit(0, 0, 0, wc)
