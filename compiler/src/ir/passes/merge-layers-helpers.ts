@@ -8,7 +8,7 @@
 
 import type * as AST from '../../parser/ast'
 import type { RenderNode, DataExpr } from '../render-node'
-import type { FilterAnalysis } from './merge-layers-types'
+import type { FilterAnalysis, FilterValue } from './merge-layers-types'
 
 /** Returns null when the filter doesn't match the merge contract.
  *  Otherwise the field name and the list of equality-tested literal
@@ -24,7 +24,7 @@ import type { FilterAnalysis } from './merge-layers-types'
 export function analyzeNotFilter(filter: DataExpr | null): FilterAnalysis | null {
   if (!filter) return null
   const ast = filter.ast as AST.Expr
-  const values: string[] = []
+  const values: FilterValue[] = []
   let field: string | null = null
   const visit = (node: AST.Expr): boolean => {
     if (node.kind === 'BinaryExpr' && node.op === '&&') {
@@ -46,17 +46,37 @@ export function analyzeNotFilter(filter: DataExpr | null): FilterAnalysis | null
   return { field, values }
 }
 
-export function setEqual(a: string[], b: string[]): boolean {
+/** Set equality by the stringified `raw` value. The merge contract
+ *  for default-arm absorption only cares whether the `!=` chain
+ *  excludes exactly the kinds the `||` chain includes — that's a
+ *  string-keyed comparison (the match-arm dispatch is string-keyed
+ *  too), so the literal TYPE tag is intentionally ignored here. */
+/** De-duplicate FilterValues by their stringified `raw` key, keeping
+ *  first-seen order and the first occurrence's `wasString` tag. A
+ *  plain `new Set<FilterValue>()` would dedup by object identity (never
+ *  collapses), so the union build needs an explicit raw-keyed pass. */
+export function dedupByRaw(values: FilterValue[]): FilterValue[] {
+  const seen = new Set<string>()
+  const out: FilterValue[] = []
+  for (const v of values) {
+    if (seen.has(v.raw)) continue
+    seen.add(v.raw)
+    out.push(v)
+  }
+  return out
+}
+
+export function setEqual(a: FilterValue[], b: FilterValue[]): boolean {
   if (a.length !== b.length) return false
-  const set = new Set(a)
-  for (const v of b) if (!set.has(v)) return false
+  const set = new Set(a.map(v => v.raw))
+  for (const v of b) if (!set.has(v.raw)) return false
   return true
 }
 
 export function analyzeFilter(filter: DataExpr | null): FilterAnalysis | null {
   if (!filter) return null
   const ast = filter.ast as AST.Expr
-  const values: string[] = []
+  const values: FilterValue[] = []
   let field: string | null = null
 
   // Recursive walk over `||`-joined `.field == LITERAL` comparisons.
@@ -86,9 +106,15 @@ export function extractField(expr: AST.Expr): string | null {
   return null
 }
 
-export function extractLiteral(expr: AST.Expr): string | null {
-  if (expr.kind === 'StringLiteral') return expr.value
-  if (expr.kind === 'NumberLiteral') return String(expr.value)
+/** Extract the equality literal AND remember its source kind. A
+ *  StringLiteral yields `wasString: true` so `buildOrFilter` re-emits
+ *  it as a StringLiteral — preserving the strict-`===` match semantics
+ *  the unmerged layer had. Pre-fix this returned a bare string for
+ *  both and `buildOrFilter` re-guessed the type via `Number()`,
+ *  silently converting `.class == "1"` into `.class == 1`. */
+export function extractLiteral(expr: AST.Expr): FilterValue | null {
+  if (expr.kind === 'StringLiteral') return { raw: expr.value, wasString: true }
+  if (expr.kind === 'NumberLiteral') return { raw: String(expr.value), wasString: false }
   return null
 }
 
@@ -317,22 +343,24 @@ export function rgbaToHex(rgba: import('../property-types').RGBA): string {
  *  members. Pre-bucket evaluates this on CPU at decode time so the
  *  worker's slice contains only features matching at least one
  *  member's filter. */
-export function buildOrFilter(field: string, allValues: string[]): AST.Expr {
+export function buildOrFilter(field: string, allValues: FilterValue[]): AST.Expr {
   // Build .field == v0 || .field == v1 || ...
   const fieldAccess = (): AST.Expr => ({
     kind: 'FieldAccess',
     object: null,
     field,
   } as unknown as AST.Expr)
-  const literalOf = (v: string): AST.Expr => {
-    // Numeric values in the filter were stringified at extraction
-    // time; if it round-trips through Number cleanly, emit a
-    // NumberLiteral so == compares numerics correctly.
-    const n = Number(v)
-    if (Number.isFinite(n) && String(n) === v) {
-      return { kind: 'NumberLiteral', value: n } as AST.Expr
+  const literalOf = (v: FilterValue): AST.Expr => {
+    // Re-emit the SAME node kind the source filter used. A source
+    // StringLiteral stays a StringLiteral (even when its text looks
+    // numeric, e.g. "1"); a source NumberLiteral stays a
+    // NumberLiteral. The evaluator's `==` is strict (`left ===
+    // right`, evaluator.ts), so preserving the type keeps the merged
+    // OR-filter matching exactly the features the unmerged layer did.
+    if (v.wasString) {
+      return { kind: 'StringLiteral', value: v.raw } as AST.Expr
     }
-    return { kind: 'StringLiteral', value: v } as AST.Expr
+    return { kind: 'NumberLiteral', value: Number(v.raw) } as AST.Expr
   }
   let acc: AST.Expr = {
     kind: 'BinaryExpr',
