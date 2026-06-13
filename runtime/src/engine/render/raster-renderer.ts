@@ -284,15 +284,22 @@ export class RasterRenderer {
       }
     }
 
-    // iter-189 — camera-derived world-copy enumeration. Single source
-    // shared with the label / overlay paths in map.ts: at z=0 with
-    // pitch + bearing the camera sees up to 5 copies; un-pitched z=15
-    // collapses to [0]. Non-Mercator + globe modes return [0] from
-    // the helper. Cheaper than the iter-188 hardcoded 5-iteration
-    // loop when fewer than 5 copies fit the frustum (typical case).
-    const RASTER_WORLD_COPIES = projType < 0.5
-      ? camera.getVisibleWorldCopies(canvasWidth, canvasHeight, dpr)
-      : [0]
+    // World-copy fan-out is the SELECTOR's job (ADR-0006: one copy-set
+    // per pipeline). `visibleTilesFrustum` enumerates the visible copies
+    // for the cylindrical family (worldCopiesFor → WORLD_COPIES) and bakes
+    // each copy's offset into the tile's `ox` — so the bounds derived from
+    // `ox` below (`west = ox/rn*360 - 180`) already sit in their own world
+    // copy. Re-looping `camera.getVisibleWorldCopies()` here shifted those
+    // already-placed bounds AGAIN by wo*360, drawing every selected tile at
+    // every (ox + wo) position: the same logical world tile rasterised
+    // multiple times at the same screen location (raster-opacity<1 then
+    // COMPOUNDED the alpha; opacity=1 was wasted over-draw). The VTR vector
+    // path reads the selector ox ONCE (tile-selection-cache worldOffDeg) and
+    // draws each tile once — mirror that single-source pattern here. Globe /
+    // ECEF (projType ≥ 0.5) and the cylindrical non-Mercator flat set
+    // (1/2/6, routed through the mercator-named selector shim) were already
+    // collapsed to [0] and stay unchanged.
+    const RASTER_WORLD_COPIES = [0]
     // Render tiles: current zoom first, then parent fallback for missing
     for (const coord of tiles) {
       const key = `${coord.z}/${coord.x}/${coord.y}`
