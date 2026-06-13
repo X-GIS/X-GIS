@@ -105,6 +105,7 @@ export class BlueprintEditor {
     this.selNodes.clear()
     this.selFrames.clear()
     this.selEdge = null
+    this.history.reset()
     this.renderAll()
     this.emit()
   }
