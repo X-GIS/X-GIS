@@ -109,7 +109,7 @@ describe('LabelShapes inference on MapLibre demotiles', () => {
     expect(color, 'geolines-label must have a shapes.color').toBeDefined()
     expect(color).not.toBeNull()
     expect(color!.kind).toBe('constant')
-    if (color !== null && color.kind === 'constant') {
+    if (color?.kind === 'constant') {
       // #1077B0 → r=0x10/255≈0.063, g=0x77/255≈0.467, b=0xB0/255≈0.690
       expect(color.value[0]).toBeCloseTo(16 / 255, 3)
       expect(color.value[1]).toBeCloseTo(119 / 255, 3)
