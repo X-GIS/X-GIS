@@ -777,7 +777,7 @@ export class TileSelectionCache {
       // children at the same screen pixels, blowing up triangle
       // counts. Strip them out into a separate `protectedAncestors`
       // list that the eviction policy folds into `stableKeys` later.
-      const protectedAncestors: number[] = []
+      protectedAncestors = []
       const renderTiles: typeof tiles = []
       for (const t of tiles) {
         if (t.fallbackOnly) {
