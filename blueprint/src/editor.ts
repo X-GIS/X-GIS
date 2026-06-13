@@ -51,7 +51,7 @@ type Drag =
   | { kind: 'node'; id: string; ox: Map<string, [number, number]>; mx: number; my: number }
   | { kind: 'frame'; id: string; ox: Map<string, [number, number]>; fx: number; fy: number; mx: number; my: number }
   | { kind: 'resize'; id: string; mx: number; my: number; w: number; h: number }
-  | { kind: 'wire'; from: { node: string; pin: string; ptype: PinType } }
+  | { kind: 'wire'; from: { node: string; pin: string; ptype: PinType }; reconnected?: boolean }
   | { kind: 'marquee'; x0: number; y0: number }
   | null
 
@@ -782,7 +782,7 @@ export class BlueprintEditor {
           pin: el.dataset.pin!,
           dir: el.dataset.dir as 'in' | 'out',
           ptype: el.dataset.ptype as PinType,
-        })
+        }, d.reconnected)
       } else {
         // dropped on empty canvas → contextual create + auto-wire
         this.openPalette(e.clientX, e.clientY, d.from)
@@ -822,7 +822,7 @@ export class BlueprintEditor {
         this.edges = this.edges.filter((x) => x.id !== ex.id)
         this.renderEdges()
         this.emit()
-        this.drag = { kind: 'wire', from: { node: fromNode, pin: fromPin, ptype: ft } }
+        this.drag = { kind: 'wire', from: { node: fromNode, pin: fromPin, ptype: ft }, reconnected: true }
         this.showPinHints('out', ft)
         return
       }
@@ -851,6 +851,7 @@ export class BlueprintEditor {
   private tryConnect(
     a: { node: string; pin: string; ptype: PinType },
     b: { node: string; pin: string; dir: 'in' | 'out'; ptype: PinType },
+    skipRecord = false,
   ) {
     const aDir = this.pinDir(a.node, a.pin)
     if (!aDir || aDir === b.dir) return
@@ -858,7 +859,7 @@ export class BlueprintEditor {
     if (!pinCompatible(a.ptype, b.ptype)) return
     const out = aDir === 'out' ? a : b
     const inp = aDir === 'out' ? b : a
-    this.record()
+    if (!skipRecord) this.record() // a reconnect gesture already recorded in startWire
     const spec = NODE_SPECS[this.nodeType(inp.node)]
     const pinSpec = spec.inputs.find((p) => p.id === inp.pin)
     if (!pinSpec?.multi)
@@ -868,7 +869,7 @@ export class BlueprintEditor {
         (x) => x.from.node === out.node && x.from.pin === out.pin && x.to.node === inp.node && x.to.pin === inp.pin,
       )
     ) {
-      this.history.cancel()
+      if (!skipRecord) this.history.cancel()
       return
     }
     this.edges.push({ id: uid('e'), from: { node: out.node, pin: out.pin }, to: { node: inp.node, pin: inp.pin } })
@@ -885,6 +886,7 @@ export class BlueprintEditor {
     const rr: BPNode = { id: uid('n'), type: 'reroute', x: w.x - 7, y: w.y - 7, data: {} }
     this.nodes.push(rr)
     this.edges = this.edges.filter((x) => x.id !== edgeId)
+    if (this.selEdge === edgeId) this.selEdge = null
     this.edges.push({ id: uid('e'), from: { ...e.from }, to: { node: rr.id, pin: 'in' } })
     this.edges.push({ id: uid('e'), from: { node: rr.id, pin: 'out' }, to: { ...e.to } })
     this.mountNode(rr)
