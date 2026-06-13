@@ -295,6 +295,43 @@ describe('GATE 2B — PanZoomController wheel wiring (drives camera.zoomAt)', ()
       }
     })
   }
+
+  // minZoom floor: a streamed zoom-OUT wheel must not push the camera below
+  // camera.minZoom. controller.ts:474 clamps the easing TARGET; the bug floored
+  // it at the literal 0, so setMinZoom(8) failed to constrain wheel zoom-out
+  // (it fell to z0). Faithful harness: a BOUNDED synchronous rAF actually runs
+  // the easing loop to convergence (the other GATE 2B tests use a no-op rAF and
+  // only assert the FIRST zoomAt fired — that cannot reach the floor). We fire
+  // many large zoom-out wheels and assert the settled camera.zoom never dips
+  // below minZoom. Before the fix the target clamps at 0 and the camera eases to 0.
+  it('mercator(0): streamed zoom-out wheel never drops below camera.minZoom', () => {
+    // Bounded synchronous rAF: run each scheduled frame inline (so animateZoom
+    // converges within the wheel handler's synchronous call) with a hard frame
+    // cap so a non-converging loop can't hang the test.
+    let frames = 0
+    ;(globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame =
+      (cb: FrameRequestCallback) => {
+        if (frames++ < 2000) cb(0)
+        return 0
+      }
+
+    const cam = makeFlatCamera(0, 10)
+    cam.minZoom = 8
+    const { canvas, fire } = makeStubCanvas()
+    const ctrl = new PanZoomController()
+    ctrl.attach(canvas, cam, () => ({ projectionName: 'mercator' }))
+    try {
+      // deltaY>0 = wheel down = zoom OUT. Fire enough to overshoot the floor by
+      // a wide margin (each event moves the target by at most 1 zoom level).
+      for (let i = 0; i < 40; i++) {
+        fire('wheel', { clientX: 400, clientY: 400, deltaY: +120, deltaMode: 0, preventDefault() {} })
+      }
+      expect(cam.zoom, `mercator: wheel zoom-out fell below minZoom (zoom=${cam.zoom}, minZoom=${cam.minZoom})`).toBeGreaterThanOrEqual(8)
+      expect(Number.isFinite(cam.zoom), 'mercator: zoom went non-finite after streamed wheel').toBe(true)
+    } finally {
+      ctrl.detach()
+    }
+  })
 })
 
 // ════════════════════════════════════════════════════════════════════════

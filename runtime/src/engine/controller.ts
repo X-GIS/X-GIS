@@ -471,7 +471,7 @@ export class PanZoomController implements Controller {
       if (pending * delta < 0) {
         targetZoom = camera.zoom
       }
-      targetZoom = Math.max(0, Math.min(camera.maxZoom, targetZoom + Math.max(-1, Math.min(1, delta))))
+      targetZoom = Math.max(camera.minZoom, Math.min(camera.maxZoom, targetZoom + Math.max(-1, Math.min(1, delta))))
       // Canvas-local cursor coords — same reason as the drag anchor
       // above: clientX/Y is viewport-relative, canvas may be offset
       // (header / panel above), and unprojectToZ0 needs coords in

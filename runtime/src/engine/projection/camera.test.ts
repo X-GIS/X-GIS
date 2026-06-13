@@ -24,6 +24,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { Camera } from './camera'
+import { zoomAtGlobeAnchored, type GlobeAnchorCamera } from './globe-anchor'
 import { lonLatToMercator } from '../../loader/geojson'
 
 /** Inverse of `lonLatToMercator` for the round-trip assertion below.
@@ -710,5 +711,59 @@ describe('Camera — globeMode (orbit matrix for the true 3D globe)', () => {
       expect(s.bearingDeg).toBe(30)
       expect(s.zoom).toBe(7.5)
     })
+  })
+})
+
+// ── Gesture zoom honors camera.minZoom (not the literal 0 floor) ──
+//
+// Bug: every INTERACTIVE zoom path floored zoom-out at the literal `0`
+// instead of `camera.minZoom` (host-configurable via map.setMinZoom). The
+// ceiling correctly used `maxZoom`; only the floor was wrong. Programmatic
+// paths (setZoom/jumpTo) already clamp to minZoom — these gesture paths did
+// not, so setMinZoom(8) failed to constrain wheel/pinch/globe zoom-out (it
+// fell to z0). These lock the floor on all three Camera.zoomAt arms + the
+// globe-anchor helper. Before the fix each `cam.zoom` lands at 0.
+describe('Camera — gesture zoom honors minZoom (floor is minZoom, not literal 0)', () => {
+  it('flat arm: zoomAt with a large zoom-out delta clamps at minZoom, not 0', () => {
+    const cam = new Camera(0, 0, 10) // projType 0 (mercator) → flat zoomAt arm
+    cam.minZoom = 8
+    cam.zoomAt(-20, W / 2, H / 2, W, H)
+    expect(cam.zoom).toBeGreaterThanOrEqual(8)
+  })
+
+  it('disc arm (orthographic, promotesToGlobeWhenTilted): zoomAt clamps at minZoom, not 0', () => {
+    const cam = new Camera(0, 0, 10)
+    cam.projType = 3 // orthographic — !globeMode && promotesToGlobeWhenTilted → disc arm (cam.ts:934)
+    cam.minZoom = 8
+    cam.zoomAt(-20, W / 2, H / 2, W, H)
+    expect(cam.zoom).toBeGreaterThanOrEqual(8)
+  })
+
+  it('globe anchor: zoomAtGlobeAnchored clamps at minZoom, not 0', () => {
+    // GlobeAnchorCamera-shaped object (the Camera class satisfies it
+    // structurally; a plain literal isolates the helper's own clamp at
+    // globe-anchor.ts:128 from the rest of the Camera).
+    const cam: GlobeAnchorCamera = {
+      centerX: 0,
+      centerY: 0,
+      centerLatDeg: 0,
+      zoom: 10,
+      maxZoom: 22,
+      minZoom: 8,
+      pitch: 0,
+      bearing: 0,
+      projType: 7,
+      globeOrtho: false,
+      azimuthalProjType: 3,
+    }
+    zoomAtGlobeAnchored(cam, -20, W / 2, H / 2, W, H, DPR)
+    expect(cam.zoom).toBeGreaterThanOrEqual(8)
+  })
+
+  it('still clamps at the literal 0 floor when minZoom is left at its default', () => {
+    const cam = new Camera(0, 0, 5) // minZoom defaults to 0
+    cam.zoomAt(-20, W / 2, H / 2, W, H)
+    expect(cam.zoom).toBeGreaterThanOrEqual(0)
+    expect(cam.zoom).toBeCloseTo(0, 6)
   })
 })

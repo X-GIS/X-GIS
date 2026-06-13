@@ -931,7 +931,7 @@ export class Camera {
       const lat0 = mercatorYToLatRad(this.centerY)
       const anchor = onDisc(before) ? disc.inv(before![0], before![1], lon0, lat0) : null
 
-      this.zoom = Math.max(0, Math.min(this.maxZoom, this.zoom + delta))
+      this.zoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoom + delta))
 
       if (anchor) {
         // Same screen point, new zoom, UNCHANGED centre → a different geo
@@ -968,7 +968,7 @@ export class Camera {
 
     // Apply zoom; this also invalidates the MVP cache so the next
     // unproject below rebuilds against the new MPP.
-    this.zoom = Math.max(0, Math.min(this.maxZoom, this.zoom + delta))
+    this.zoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoom + delta))
 
     // World point under cursor AFTER zoom (camera not yet shifted).
     const after = this.unprojectToZ0(sxDev, syDev, canvasWidth, canvasHeight, dpr)
