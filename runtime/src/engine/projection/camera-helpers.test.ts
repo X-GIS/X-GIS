@@ -18,6 +18,25 @@
 // inside its cos c ≥ −0.9 forward cull) — sub-mm against plane coordinates
 // of up to ~5·10⁷ m.
 
+// ═══ invOrthographic asin-clamp regression (camera-helpers) ═══
+//
+// invOrthographic's `lat = asin(cos c · sin φ0 + (y · sin c · cos φ0)/ρ)` is
+// analytically ±1 at the projected pole/antipode (φ0 + c = ±90°), but FP
+// rounding overshoots the argument past 1.0 → asin → NaN → poisons zoomAt's
+// centre write (camera.centerY). The two SIBLING inverses in the same file
+// (invAzimuthalEquidistant / invStereographic) already clamp the asin arg to
+// ±1; invOrthographic must match. This bug is REACHABLE: invOrthographic is
+// DISC_ANCHORS[3].inv, gated in Camera.zoomAt only by ρ < 0.85·R — a gate
+// that does NOT bound the asin argument away from 1.0.
+//
+// Oracle: a cursor near the projected pole at high-lat centre. Concrete tuple
+// (pinned for determinism, x=0 / cursor straight toward the pole):
+//   lat0 ≈ 31.7898°, y = ρ = 5 421 330.281866528 m (ρ/R ≈ 0.8500 < 0.85)
+//   c = asin(ρ/R) ≈ 58.2102° ⇒ φ0 + c ≈ 90.0000° (the projected pole)
+//   unclamped asin arg = 1.0000000000000002  (> 1.0 by one ulp)
+// UNFIXED (line 72 unclamped): asin(1.0000000000000002) === NaN.
+// FIXED (asin arg clamped to ±1): lat === +π/2, finite.
+
 import { describe, it, expect } from 'vitest'
 import {
   invOrthographic,
@@ -158,5 +177,33 @@ describe('discAnchorFor dispatch (zoomAt disc geo-anchor table)', () => {
     expect(discAnchorFor(3).safeRho).toBeCloseTo(0.85 * R, 6)
     expect(discAnchorFor(4).safeRho).toBeCloseTo(0.85 * Math.PI * R, 6)
     expect(discAnchorFor(5).safeRho).toBeCloseTo(2 * R * Math.tan(0.425 * Math.PI), 6)
+  })
+})
+
+describe('invOrthographic asin-clamp at the projected pole (zoomAt geo-anchor)', () => {
+  // Pinned geometry where the UNCLAMPED asin argument overshoots 1.0 by FP
+  // rounding while ρ < 0.85·R (inside Camera.zoomAt's geo-anchor gate). x=0
+  // puts the cursor straight toward the projected pole; lat0 + c = +90°.
+  const x = 0
+  const y = 5421330.281866528
+  const lon0 = 0
+  const lat0 = 31.78979999999816 * DEG2RAD
+
+  it('the unclamped asin argument exceeds 1.0 (FP overshoot) while ρ < 0.85·R', () => {
+    const rho = Math.hypot(x, y)
+    expect(rho).toBeLessThan(0.85 * R) // inside zoomAt's geo-anchor gate
+    const c = Math.asin(Math.min(1, rho / R))
+    const arg = Math.cos(c) * Math.sin(lat0) + (y * Math.sin(c) * Math.cos(lat0)) / rho
+    // The raw argument is past 1.0 — Math.asin(arg) of THIS value is NaN.
+    expect(arg).toBeGreaterThan(1.0)
+    expect(Number.isFinite(Math.asin(arg))).toBe(false)
+  })
+
+  it('invOrthographic returns a FINITE lat (clamped, not NaN) at the projected pole', () => {
+    const [lon, lat] = invOrthographic(x, y, lon0, lat0)
+    expect(Number.isFinite(lat)).toBe(true) // FAILS unfixed: lat === NaN
+    expect(Number.isFinite(lon)).toBe(true)
+    // Analytically the projected pole — the north pole at +π/2.
+    expect(lat).toBeCloseTo(Math.PI / 2, 12)
   })
 })
