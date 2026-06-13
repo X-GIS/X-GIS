@@ -124,9 +124,13 @@ export class LineRenderer {
    *  dynamic offset is a multiple of the typical
    *  minUniformBufferOffsetAlignment, exactly as the layer ring does. */
   private static readonly COMPOSITE_SLOT = 256
-  /** Bytes of the composite slot actually bound: CompUniform = f32 opacity
-   *  + vec3f pad = 16 bytes. Used as the dynamic bind size. */
-  private static readonly COMPOSITE_USED = 16
+  /** Bytes of the composite slot actually bound = the std140 size of the WGSL
+   *  `CompUniform { opacity: f32, _pad: vec3f }` (shaders/line.ts). vec3f aligns
+   *  to 16, so opacity sits at 0, _pad at 16, and the struct rounds up to 32 —
+   *  NOT 16. This MUST be >= the pipeline's minimum binding size or WebGPU
+   *  rejects the composite draw at frame-validation ("bound with size 16 …
+   *  requires at least 32 bytes"). Equals the original pre-ring buffer size. */
+  private static readonly COMPOSITE_USED = 32
   private device: GPUDevice
   private format: GPUTextureFormat
   /** Standard alpha-blend pipeline — used for opaque line draws. */
