@@ -322,10 +322,15 @@ export class SubTileGenerator {
     // bug at z<3. extractNonSyntheticArcs walks each parent ring with a
     // predicate built from the PARENT tile's bounds and drops edges
     // whose both endpoints lie on the same parent-rect side.
-    const parentMxE_local = parentMxE - parentMx  // parent's east in parent-local MM
-    const parentMyN_local = parentMyN - parentMy
+    //
+    // The ring coords are ABSOLUTE Mercator metres (vector-tiler emits
+    // absolute MM; tile-catalog + this generator forward them unchanged),
+    // so the predicate must be in absolute MM too — a parent-local rect
+    // anchored at (0,0) never matches the absolute ring X (millions of m)
+    // except at lon=-180, leaving the filter dead and the synthetic
+    // axis-aligned frame edges visible as outline strokes.
     const isSameParentBoundarySide = makeSameBoundarySidePredicateMerc(
-      0, 0, parentMxE_local, parentMyN_local,
+      parentMx, parentMy, parentMxE, parentMyN,
     )
     // iter-250 — scratch reuse; clear at start. Same pattern as
     // outV/outI hoist above.
@@ -340,9 +345,31 @@ export class SubTileGenerator {
           const interiorArcs = extractNonSyntheticArcs(ring, isSameParentBoundarySide)
           for (const arc of interiorArcs) {
             if (arc.length < 2) continue
-            const arcRing = augmentRingWithArc(arc)
+            // `arc` is in ABSOLUTE Mercator metres (parent.polygons rings
+            // are absolute MM), so skip augmentRingWithArc's lon/lat→MM
+            // projection — matching the compiler outline path. Without
+            // mmInput the metre coords are reprojected as degrees and the
+            // subsequent MM-rect clip drops every segment (empty outlines).
+            const arcRing = augmentRingWithArc(arc, { mmInput: true })
             if (arcRing.length < 2) continue
-            const segments = clipLineToRect(arcRing, subMxW, subMyS, subMxE, subMyN)
+            // augmentRingWithArc CLOSES the chain (appends a wrap vertex =
+            // first vertex). For an arc that was SPLIT out of a clipped
+            // parent ring, that wrap re-introduces the synthetic boundary
+            // edge extractNonSyntheticArcs just removed — the closing
+            // segment runs between the two cut points on the same parent
+            // rect side. Drop the wrap vertex only when it is such a
+            // synthetic edge (same test the extractor uses); a fully-
+            // interior ring's closure connects interior points and is kept.
+            let chain = arcRing
+            const last = arcRing[arcRing.length - 1]
+            const prev = arcRing[arcRing.length - 2]
+            if (Math.abs(last[0] - arcRing[0][0]) < 1e-6 &&
+                Math.abs(last[1] - arcRing[0][1]) < 1e-6 &&
+                isSameParentBoundarySide(prev, last)) {
+              chain = arcRing.slice(0, -1)
+              if (chain.length < 2) continue
+            }
+            const segments = clipLineToRect(chain, subMxW, subMyS, subMxE, subMyN)
             for (const seg of segments) {
               if (seg.length >= 2) {
                 tessellateLineToArrays(seg, poly.featId, olvScratch, oliScratch)
