@@ -50,6 +50,7 @@ import {
   buildMatchAst,
   buildWidthMatchAst,
   buildOrFilter,
+  dedupByRaw,
 } from './merge-layers-helpers'
 
 /** The pass entry point. Walks `scene.renderNodes` once, accumulating
@@ -151,7 +152,7 @@ export function mergeLayers(scene: Scene): Scene {
           && strokesShapeEqual(first.stroke, cand.stroke)) {
         const notFilter = analyzeNotFilter(cand.filter)
         if (notFilter && notFilter.field === firstFilter.field) {
-          const allCompoundValues = [...new Set(group.flatMap(g => g.filter.values))]
+          const allCompoundValues = dedupByRaw(group.flatMap(g => g.filter.values))
           if (setEqual(notFilter.values, allCompoundValues)) {
             defaultArmNode = cand
             j++
@@ -184,7 +185,11 @@ export function mergeLayers(scene: Scene): Scene {
       if (w.value !== firstWidth) widthsAllEqual = false
       const fillRgba = node.fill.kind === 'constant' ? node.fill.rgba : null
       const strokeRgba = node.stroke.color.kind === 'constant' ? node.stroke.color.rgba : null
-      for (const v of filter.values) {
+      for (const fv of filter.values) {
+        // The match-arm pattern is the stringified raw value — the
+        // evaluator stringifies the match key (evaluator.ts) so arms
+        // compare by string regardless of the source literal type.
+        const v = fv.raw
         if (fillRgba && !seenFillValues.has(v)) {
           fillArms.push({ pattern: v, rgba: fillRgba })
           seenFillValues.add(v)
@@ -204,7 +209,7 @@ export function mergeLayers(scene: Scene): Scene {
       }
     }
 
-    const allValues = [...new Set(group.flatMap(g => g.filter.values))]
+    const allValues = dedupByRaw(group.flatMap(g => g.filter.values))
     // When a default-arm node was absorbed, the compound covers
     // EVERY feature in the source layer (the explicit ||-values
     // PLUS everything else); drop the filter entirely so the

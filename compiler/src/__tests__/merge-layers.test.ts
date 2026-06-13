@@ -4,6 +4,27 @@ import { Parser } from '../parser/parser'
 import { lower } from '../ir/lower'
 import { optimize } from '../ir/optimize'
 import { emitCommands } from '../ir/emit-commands'
+import { evaluate } from '../eval/evaluator'
+import type * as AST from '../parser/ast'
+
+/** Walk an OR-filter AST and collect the right-hand literal node of
+ *  every `.field == LITERAL` comparison. Used to assert the merged
+ *  compound's pre-bucket filter preserved the SOURCE literal kind
+ *  (StringLiteral vs NumberLiteral) rather than re-guessing via
+ *  `Number()`. */
+function collectEqLiterals(node: AST.Expr): AST.Expr[] {
+  const out: AST.Expr[] = []
+  const visit = (n: AST.Expr): void => {
+    if (n.kind === 'BinaryExpr' && n.op === '||') {
+      visit(n.left); visit(n.right); return
+    }
+    if (n.kind === 'BinaryExpr' && n.op === '==') {
+      out.push(n.right)
+    }
+  }
+  visit(node)
+  return out
+}
 
 function compileToScene(source: string) {
   const tokens = new Lexer(source).tokenize()
@@ -413,5 +434,87 @@ describe('mergeLayers — IR auto-merge of same-source-layer xgis layers', () =>
     // Compound filter should be the OR of all values (5 values).
     const filterAst = scene.renderNodes[0].filter?.ast as { kind: string } | null
     expect(filterAst?.kind).toBe('BinaryExpr')
+  })
+})
+
+describe('mergeLayers — preserves source literal TYPE in the OR-filter', () => {
+  it('string-typed numeric value ("1") round-trips as a StringLiteral, not NumberLiteral', () => {
+    // Repro for the layer-merge type-coercion regression: two
+    // mergeable layers whose filter is a STRING equality on a
+    // numeric-looking value. The unmerged layers used StringLiteral
+    // "1" and matched a feature with `class: "1"`. Pre-fix the merge
+    // pass re-guessed the literal kind via `Number()` and rebuilt the
+    // compound OR-filter as `.class == 1` (NumberLiteral). The
+    // evaluator's `==` is strict (`left === right`), so `"1" === 1`
+    // is false and the merge silently DROPPED the feature.
+    const source = `
+      source pm { type: pmtiles url: "x.pmtiles" }
+      layer a {
+        source: pm sourceLayer: "x" filter: .class == "1"
+        | fill-green-200 stroke-stone-300 stroke-0.3
+      }
+      layer b {
+        source: pm sourceLayer: "x" filter: .class == "2"
+        | fill-lime-100 stroke-stone-300 stroke-0.3
+      }
+    `
+    const scene = compileToScene(source)
+    expect(scene.renderNodes.length).toBe(1)
+    const filterAst = scene.renderNodes[0].filter?.ast as AST.Expr | undefined
+    expect(filterAst).toBeDefined()
+
+    // Every equality literal must stay a StringLiteral with the exact
+    // raw text — NOT a NumberLiteral. (Fail-before: NumberLiteral 1/2.)
+    const lits = collectEqLiterals(filterAst!)
+    expect(lits.length).toBe(2)
+    for (const lit of lits) {
+      expect(lit.kind).toBe('StringLiteral')
+    }
+    expect(lits.map(l => (l as AST.StringLiteral).value).sort()).toEqual(['1', '2'])
+
+    // End-to-end semantics: the merged OR-filter must KEEP a feature
+    // whose `class` is the string "1" and DROP a feature whose
+    // `class` is the number 1 — exactly the unmerged `.class == "1"`
+    // (StringLiteral, strict ===) behaviour. (Fail-before: kept=false.)
+    expect(evaluate(filterAst!, { class: '1' })).toBe(true)
+    expect(evaluate(filterAst!, { class: '2' })).toBe(true)
+    expect(evaluate(filterAst!, { class: 1 })).toBe(false)
+    expect(evaluate(filterAst!, { class: 3 })).toBe(false)
+    expect(evaluate(filterAst!, { class: 'other' })).toBe(false)
+  })
+
+  it('numeric-typed source value (rank == 1) still round-trips as a NumberLiteral (no reverse regression)', () => {
+    // The complementary direction: a genuinely numeric source filter
+    // must STILL emit a NumberLiteral so it matches numeric feature
+    // props. Guards against a fix that over-corrects to always-string.
+    const source = `
+      source pm { type: pmtiles url: "x.pmtiles" }
+      layer a {
+        source: pm sourceLayer: "x" filter: .rank == 1
+        | fill-green-200 stroke-stone-300 stroke-0.3
+      }
+      layer b {
+        source: pm sourceLayer: "x" filter: .rank == 2
+        | fill-lime-100 stroke-stone-300 stroke-0.3
+      }
+    `
+    const scene = compileToScene(source)
+    expect(scene.renderNodes.length).toBe(1)
+    const filterAst = scene.renderNodes[0].filter?.ast as AST.Expr | undefined
+    expect(filterAst).toBeDefined()
+
+    const lits = collectEqLiterals(filterAst!)
+    expect(lits.length).toBe(2)
+    for (const lit of lits) {
+      expect(lit.kind).toBe('NumberLiteral')
+    }
+    expect(lits.map(l => (l as AST.NumberLiteral).value).sort()).toEqual([1, 2])
+
+    // Numeric feature props match; the numeric-string "1" does NOT
+    // (mirrors the unmerged `.rank == 1` NumberLiteral strict ===).
+    expect(evaluate(filterAst!, { rank: 1 })).toBe(true)
+    expect(evaluate(filterAst!, { rank: 2 })).toBe(true)
+    expect(evaluate(filterAst!, { rank: '1' })).toBe(false)
+    expect(evaluate(filterAst!, { rank: 3 })).toBe(false)
   })
 })
