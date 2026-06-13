@@ -78,12 +78,15 @@ describe('MapRenderer construction (stub)', () => {
     // buffer is the largest one MapRenderer creates at init.
     const ctx = await makeCtx()
     new MapRenderer(ctx)
-    // Per renderer.ts header comment: UNIFORM_SIZE = 192 bytes today
-    // (shrunk 256 → 192 in PR 2d.5 closeout when the legacy Mercator
-    // `mvp` slot was retired; the surviving `mvp` field IS the ECEF-MVP).
+    // UNIFORM_SIZE = 240 bytes: grew 192 → 240 in #297 so MapRenderer's
+    // binding meets the polygon/line pipeline's minimum binding size (the
+    // Uniforms struct ends at the cam_ecef_off_h/_l vec4 pair @ byte 224);
+    // a 192-byte bind range was below the shader-derived minimum and a real
+    // GPU rejected the fill/line (and graticule) draws. (Historically 256 →
+    // 192 in PR 2d.5 when the legacy Mercator `mvp` slot was retired.)
     // Bump this assertion when the struct legitimately grows.
     expect((MapRenderer as unknown as { UNIFORM_SIZE: number }).UNIFORM_SIZE)
-      .toBe(192)
+      .toBe(240)
   })
 
   it('bindGroupLayout descriptor declares the polygon Uniforms binding', async () => {
