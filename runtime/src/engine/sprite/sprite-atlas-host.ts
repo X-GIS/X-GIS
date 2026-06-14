@@ -14,7 +14,7 @@
 // resolve to a "loaded but empty" state — the rasterizer pipeline
 // can decide to skip icons silently rather than crash.
 
-import { assertSafeRemoteUrl, readBodyCapped } from '../safety'
+import { assertSafeRemoteUrl, readBodyCapped, safeFetch } from '../safety'
 
 /** DoS ceilings for sprite assets — an atlas PNG is a few MB at most; the
  *  JSON metadata far less. Generous, but bound a size-bomb. */
@@ -157,8 +157,12 @@ export class SpriteAtlasHost {
     const tryLoad = async (suffix: string): Promise<void> => {
       const jsonUrl = `${this.spriteUrl}${suffix}.json`
       const pngUrl = `${this.spriteUrl}${suffix}.png`
+      // safeFetch re-validates every redirect hop (following manually) so an
+      // allowlisted sprite host can't 302 to a private/loopback address; the
+      // host's injected fetch is threaded through for test parity.
       const [jsonRes, pngRes] = await Promise.all([
-        this.fetchFn(jsonUrl), this.fetchFn(pngUrl),
+        safeFetch(jsonUrl, undefined, 'sprite json URL', this.fetchFn),
+        safeFetch(pngUrl, undefined, 'sprite png URL', this.fetchFn),
       ])
       if (!jsonRes.ok || !pngRes.ok) {
         throw new Error(`sprite ${suffix || '1x'} fetch failed`)

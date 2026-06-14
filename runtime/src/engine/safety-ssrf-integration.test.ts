@@ -17,6 +17,40 @@ function spyFetch(): { fn: typeof globalThis.fetch; calls: () => number } {
   return { fn, calls: () => calls }
 }
 
+// Mock fetch that models the redirect-SSRF: a public host answers the FIRST
+// request with a 302 whose `Location` points at a private/loopback address.
+// It honours fetch redirect semantics so it discriminates the FIX from the
+// bug: with the default `redirect:'follow'` (the un-fixed code path) it
+// transparently follows the 302 and serves the PRIVATE host's 200 body — the
+// SSRF. With `redirect:'manual'` (what safeFetch passes) it returns the raw
+// 302, leaving safeFetch to re-validate + refuse the Location. `urls` records
+// every URL actually requested so a test can assert the private host was hit
+// (bug) or never reached (fixed).
+function redirectingFetch(redirectTo: string): {
+  fn: typeof globalThis.fetch
+  urls: string[]
+} {
+  const urls: string[] = []
+  let first = true
+  const fn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input.toString()
+    urls.push(url)
+    if (first) {
+      first = false
+      const manual = init?.redirect === 'manual'
+      if (manual) {
+        return new Response('', { status: 302, headers: { location: redirectTo } })
+      }
+      // Default redirect:'follow' → transparently follow to the private host
+      // and hand back ITS body (the SSRF the fix must prevent).
+      urls.push(redirectTo)
+      return new Response('', { status: 200 })
+    }
+    return new Response('', { status: 200 })
+  }) as unknown as typeof globalThis.fetch
+  return { fn, urls }
+}
+
 // Some wired sites (loadImageTexture, the vector-tile loader, the PMTiles
 // lib) call the GLOBAL fetch — patch it so an SSRF-blocked URL provably
 // never reaches the network.
@@ -46,6 +80,16 @@ describe('SSRF guard — sprite atlas', () => {
     expect(spy.calls()).toBeGreaterThan(0)
     expect(host.getState().status).not.toBe('failed')
   })
+
+  it('fails (never fetches the private host) when a public sprite URL 302s to cloud metadata', async () => {
+    const r = redirectingFetch('http://169.254.169.254/latest/meta-data')
+    const host = new SpriteAtlasHost({ spriteUrl: 'https://example.com/sprites/foo', fetch: r.fn })
+    await host.whenReady()
+    expect(host.getState().status).toBe('failed')
+    // The first-hop public URL was fetched, but the redirect target —
+    // re-validated by safeFetch — was refused before reaching the network.
+    expect(r.urls.some(u => u.includes('169.254.169.254'))).toBe(false)
+  })
 })
 
 describe('SSRF guard — glyph cache', () => {
@@ -70,6 +114,27 @@ describe('SSRF guard — glyph cache', () => {
     })
     cache.ensure('Open Sans', 65, () => {})
     expect(spy.calls()).toBeGreaterThan(0)
+  })
+
+  it('marks the range failed (never fetches the private host) when a public glyph URL 302s to a loopback address', async () => {
+    const r = redirectingFetch('http://127.0.0.1/font/Open%20Sans/0-255.pbf')
+    const cache = new GlyphPbfCache({
+      glyphsUrl: 'https://example.com/font/{fontstack}/{range}.pbf',
+      fetch: r.fn,
+    })
+    let ready = false
+    cache.ensure('Open Sans', 65, () => { ready = true })
+    // safeFetch rejects on the re-validated redirect → range degrades to the
+    // silent 'failed' fallback. The rejection threads through an async fetch
+    // + .then/.catch chain, so let the microtask queue drain until the range
+    // settles (bounded so a real hang fails the test rather than loops).
+    for (let i = 0; i < 50 && !cache.isResolved('Open Sans', 65); i++) {
+      await Promise.resolve()
+    }
+    expect(ready).toBe(false)
+    expect(cache.get('Open Sans', 65)).toBeUndefined()
+    expect(cache.isResolved('Open Sans', 65)).toBe(true)
+    expect(r.urls.some(u => u.includes('127.0.0.1'))).toBe(false)
   })
 })
 
