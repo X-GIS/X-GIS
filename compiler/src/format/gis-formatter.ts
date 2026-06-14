@@ -71,11 +71,11 @@ export function formatDM(deg: number, axis: Axis = undefined, precision = 3): st
   return `${d}°${mStr}'${suffix}`
 }
 
-/** 3-digit bearing (000–360). Wraps negatives into 0-360 range. */
+/** 3-digit bearing (000–359). Wraps negatives into 0-360 range; 360 folds to 000. */
 export function formatBearing(deg: number): string {
   if (!Number.isFinite(deg)) return String(deg)
   const wrapped = ((deg % 360) + 360) % 360
-  const rounded = Math.round(wrapped)
+  const rounded = Math.round(wrapped) % 360
   return `${String(rounded).padStart(3, '0')}°`
 }
 
