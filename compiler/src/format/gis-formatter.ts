@@ -24,17 +24,31 @@
 export type CoordTuple = [number, number]
 export type Axis = 'lat' | 'lon' | undefined
 
+/** Round a sub-unit value to `precision` decimals and carry overflow.
+ *  When the rounded value reaches 60 (e.g. seconds round to 60.0), it
+ *  resets to 0 and signals a carry into the next-coarser unit. Returns
+ *  the toFixed string plus whether a carry occurred. */
+function carryFixed(value: number, precision: number): { str: string; carry: boolean } {
+  const rounded = Number(value.toFixed(precision))
+  if (rounded >= 60) return { str: (0).toFixed(precision), carry: true }
+  return { str: rounded.toFixed(precision), carry: false }
+}
+
 /** Format a single signed-degree value as DMS.
  *  axis: 'lat' → N/S suffix; 'lon' → E/W suffix; undefined → no suffix. */
 export function formatDMS(deg: number, axis: Axis = undefined, precision = 1): string {
   if (!Number.isFinite(deg)) return String(deg)
   const sign = deg < 0 ? -1 : 1
   const abs = Math.abs(deg)
-  const d = Math.floor(abs)
+  let d = Math.floor(abs)
   const minTotal = (abs - d) * 60
-  const m = Math.floor(minTotal)
+  let m = Math.floor(minTotal)
   const s = (minTotal - m) * 60
-  const sStr = s.toFixed(precision)
+  const { str: sStr, carry } = carryFixed(s, precision)
+  if (carry) {
+    m += 1
+    if (m === 60) { m = 0; d += 1 }
+  }
   const suffix = axis === 'lat' ? (sign < 0 ? 'S' : 'N')
     : axis === 'lon' ? (sign < 0 ? 'W' : 'E')
     : (sign < 0 ? '-' : '')
@@ -47,9 +61,10 @@ export function formatDM(deg: number, axis: Axis = undefined, precision = 3): st
   if (!Number.isFinite(deg)) return String(deg)
   const sign = deg < 0 ? -1 : 1
   const abs = Math.abs(deg)
-  const d = Math.floor(abs)
+  let d = Math.floor(abs)
   const minTotal = (abs - d) * 60
-  const mStr = minTotal.toFixed(precision)
+  const { str: mStr, carry } = carryFixed(minTotal, precision)
+  if (carry) d += 1
   const suffix = axis === 'lat' ? (sign < 0 ? 'S' : 'N')
     : axis === 'lon' ? (sign < 0 ? 'W' : 'E')
     : (sign < 0 ? '-' : '')
