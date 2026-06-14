@@ -146,7 +146,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // thin) — what remains here is irreducible host glue: the geojsonCapPoles
   // field + SourceManager dep, the `_polarCapHost()` adapter, the run()
   // install call, and the onWorldBandChange re-install/detach branch.
-  'runtime/src/engine/map.ts': 3489,
+  // Bumped 3489→3494: the onWorldBandChange cap (re)install must trigger
+  // rebuildLayers() so the cap show enters `vectorTileShows` (the dispatch
+  // list is rebuilt from showCommands, not read raw) — else the cap tile is
+  // cached but never selected/drawn. Irreducible host glue.
+  'runtime/src/engine/map.ts': 3494,
   // Bumped 1343→1344 for the opacity sub-1.5% round-trip fix (#274); comments
   // trimmed to the minimum, net +1 irreducible.
   // Bumped 1344→1348 for the polygon fill-stroke INSET default (US-002): a

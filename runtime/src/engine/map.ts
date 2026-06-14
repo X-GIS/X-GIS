@@ -635,9 +635,14 @@ export class XGISMap {
           this.setBackgroundFill(rgba)
         }
         // Per-source polar caps (issue #360 F1): mercator-class has no pole
-        // hole → detach; sphere-class needs the caps → (re-)install.
+        // hole → detach; sphere-class → (re-)install. rebuildLayers() then
+        // re-runs so the new cap show enters `vectorTileShows` (the dispatch
+        // list is built from showCommands at rebuild time — without it the cap
+        // tile is cached but never selected/drawn).
+        const hadCaps = this.geojsonCapPoles.size > 0
         if (nextBand === 'mercator-clamped') detachGeoJSONPolarCaps(this._polarCapHost())
         else installGeoJSONPolarCaps(this._polarCapHost())
+        if (hadCaps && this.renderer) this.rebuildLayers()
       },
     })
     // Source-ingest cluster — receives the SAME source-state Map
