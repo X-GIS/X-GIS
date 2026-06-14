@@ -102,7 +102,11 @@ export class CameraController {
       xlog.warn(`[X-GIS] setMinZoom: non-finite (${z}); ignored.`)
       return
     }
-    this.camera.minZoom = Math.max(0, Math.min(22, z))
+    // Reconcile against maxZoom: minZoom must never exceed maxZoom or the
+    // shared zoom clamp Math.max(min, Math.min(max, z)) collapses to `min`,
+    // pinning the camera ABOVE maxZoom and locking it. (MapLibre invariant
+    // min<=max.)
+    this.camera.minZoom = Math.min(Math.max(0, Math.min(22, z)), this.camera.maxZoom)
     if (this.camera.zoom < this.camera.minZoom) {
       this.camera.zoom = this.camera.minZoom
       this.invalidate()
@@ -113,7 +117,8 @@ export class CameraController {
       xlog.warn(`[X-GIS] setMaxZoom: non-finite (${z}); ignored.`)
       return
     }
-    this.camera.maxZoom = Math.max(0, Math.min(22, z))
+    // Reconcile against minZoom (see setMinZoom) so min<=max always holds.
+    this.camera.maxZoom = Math.max(Math.max(0, Math.min(22, z)), this.camera.minZoom)
     if (this.camera.zoom > this.camera.maxZoom) {
       this.camera.zoom = this.camera.maxZoom
       this.invalidate()
@@ -231,6 +236,15 @@ export class CameraController {
       xlog.warn(`[X-GIS] fitBounds: invalid bounds (${w},${s})-(${e},${n}); ignored.`)
       return
     }
+    // Antimeridian-crossing bbox (west > east) is unsupported — same as
+    // setMaxBounds. Without this guard lonSpan = Math.max(1e-9, e-w) collapses
+    // to 1e-9 (e-w is negative), the fit silently falls back to zoom 4, and
+    // centerLon = (w+e)/2 lands on the ANTIPODE of the intended centre. Reject
+    // loudly so callers don't get a silently-wrong camera.
+    if (w > e) {
+      xlog.warn(`[X-GIS] fitBounds: antimeridian-crossing bbox (west=${w} > east=${e}) not supported; ignored.`)
+      return
+    }
     const centerLon = (w + e) / 2
     const centerLat = (s + n) / 2
     const lonSpan = Math.max(1e-9, e - w)
@@ -340,6 +354,13 @@ export class CameraController {
    *  Matches MapLibre GL JS `map.jumpTo({ center: [lon, lat], zoom, bearing, pitch })`. */
   jumpTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number }): void {
     if (opts.center) {
+      // Guard the destructure: a non-array `center` (e.g. `{}` or a bare
+      // object) is non-iterable and would throw a TypeError that propagates
+      // through the easeTo/flyTo aliases. Every other validator here
+      // warns-and-ignores, so match that contract.
+      if (!Array.isArray(opts.center) || opts.center.length < 2) {
+        xlog.warn(`[X-GIS] jumpTo: center must be [lon, lat]; skipped.`)
+      } else {
       const [lon, lat] = opts.center
       if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
         xlog.warn(`[X-GIS] jumpTo: non-finite center (${lon}, ${lat}); skipped.`)
@@ -361,6 +382,7 @@ export class CameraController {
         this.camera.centerX = mx
         this.camera.centerY = my
         this.camera.centerLatDeg = trueLat
+      }
       }
     }
     if (opts.zoom !== undefined) {
