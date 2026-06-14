@@ -238,21 +238,26 @@ export class SourceManager {
 
       // Fit camera to the FIRST source that finishes. Multi-source demos
       // typically share world-bounds; "first to win" avoids order-
-      // dependent racing across parallel loads.
+      // dependent racing across parallel loads. Route through
+      // `_runBoundsFitGate` so an explicitly-positioned camera (setView /
+      // hash / pointer / programmatic setter) is NOT clobbered when the
+      // attach lands — matching the GeoJSON + inline paths.
       if (!cameraFitState.fit) {
         const vtBounds = vtRenderer.getBounds()
         if (vtBounds) {
-          cameraFitState.fit = true
-          const [minLon, minLat, maxLon, maxLat] = vtBounds
-          const clampedLat = Math.max(-85, Math.min(85, (minLat + maxLat) / 2))
-          const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
-          this.camera.centerX = cx
-          this.camera.centerY = cy
-          // Keep centerLatDeg consistent with the fitted centerY (≤85, byte-safe).
-          this.camera.syncCenterLat()
-          const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
-          const cssW = this.canvas.width / dpr
-          this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, cssW)
+          this._runBoundsFitGate(() => {
+            cameraFitState.fit = true
+            const [minLon, minLat, maxLon, maxLat] = vtBounds
+            const clampedLat = Math.max(-85, Math.min(85, (minLat + maxLat) / 2))
+            const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
+            this.camera.centerX = cx
+            this.camera.centerY = cy
+            // Keep centerLatDeg consistent with the fitted centerY (≤85, byte-safe).
+            this.camera.syncCenterLat()
+            const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+            const cssW = this.canvas.width / dpr
+            this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, cssW)
+          })
         }
       }
       return
@@ -425,21 +430,26 @@ export class SourceManager {
     this.rawDatasets.set(sourceName, { _vectorTile: true } as unknown as GeoJSONFeatureCollection)
 
     // Camera-fit: derive bounds from the GeoJSON features themselves
-    // (no remote metadata to consult, unlike PMTiles).
+    // (no remote metadata to consult, unlike PMTiles). Route through
+    // `_runBoundsFitGate` so an explicitly-positioned camera (setView /
+    // hash / pointer / programmatic setter) is NOT clobbered when the
+    // attach lands — matching the inline path above.
     if (!cameraFitState.fit) {
       const bounds = computeGeoJSONBounds(data)
       if (bounds) {
-        cameraFitState.fit = true
-        const [minLon, minLat, maxLon, maxLat] = bounds
-        const clampedLat = Math.max(-85, Math.min(85, (minLat + maxLat) / 2))
-        const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
-        this.camera.centerX = cx
-        this.camera.centerY = cy
-        // Keep centerLatDeg consistent with the fitted centerY (≤85, byte-safe).
-        this.camera.syncCenterLat()
-        const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
-        const cssW = this.canvas.width / dpr
-        this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, cssW)
+        this._runBoundsFitGate(() => {
+          cameraFitState.fit = true
+          const [minLon, minLat, maxLon, maxLat] = bounds
+          const clampedLat = Math.max(-85, Math.min(85, (minLat + maxLat) / 2))
+          const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
+          this.camera.centerX = cx
+          this.camera.centerY = cy
+          // Keep centerLatDeg consistent with the fitted centerY (≤85, byte-safe).
+          this.camera.syncCenterLat()
+          const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+          const cssW = this.canvas.width / dpr
+          this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, cssW)
+        })
       }
     }
   }
