@@ -24,6 +24,16 @@
 
 import { PbfReader, PbfEofError } from './varint'
 
+const PBF_BUFFER = 3  // px of outer buffer per side (bitmap = (w+6)×(h+6))
+// Sane ceiling on glyph dimensions. PBFs are baked at a 24-px reference,
+// so even bold/CJK glyphs stay well under ~100 px per side; a couple of
+// hundred is a generous bound. width/height are untrusted uint32 varints
+// from a network glyph PBF — without a ceiling a forged glyph could carry
+// an absurd (e.g. 2e8) dimension that the slot copier then has to defend
+// against. Beyond the ceiling we drop the glyph so the rasteriser falls
+// back to Canvas2D.
+const MAX_GLYPH_DIM = 256
+
 export interface PbfGlyph {
   id: number
   bitmap: Uint8Array
@@ -107,6 +117,25 @@ function readGlyph(r: PbfReader, end: number): PbfGlyph {
     else if (field === 7 && wire === 0) advance = r.readVarint()
     else r.skip(wire)
     if (r.pos <= before) break
+  }
+  // Cross-field validation of untrusted dimensions. The bitmap must be
+  // exactly (width+6)×(height+6) per the buffer convention, and the
+  // dimensions must stay under a sane ceiling. A glyph that violates
+  // either is malformed/forged: drop its bitmap (and zero the bbox) so
+  // the rasteriser falls back to Canvas2D instead of copying a bitmap
+  // whose declared size does not match its contents. advance/left/top
+  // are kept — a bitmap-less glyph is a valid advance-only entry.
+  if (bitmap.length > 0) {
+    const expected = (width + 2 * PBF_BUFFER) * (height + 2 * PBF_BUFFER)
+    if (
+      width > MAX_GLYPH_DIM ||
+      height > MAX_GLYPH_DIM ||
+      bitmap.length !== expected
+    ) {
+      bitmap = new Uint8Array(0)
+      width = 0
+      height = 0
+    }
   }
   return { id, bitmap, width, height, left, top, advance }
 }
