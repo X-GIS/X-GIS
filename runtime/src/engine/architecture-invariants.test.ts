@@ -106,7 +106,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // precondition, queued a patch that flush then discarded with no warn. The
   // `_tileBackedUpdateWarned` Set + the enqueue-time guard + the defensive
   // flush-time warn are irreducible (warn-once data-loss prevention).
-  'runtime/src/engine/map.ts': 3412,
+  // Bumped 3412→3416 for the bounds-fit-gate parity fix: the programmatic
+  // Mapbox-parity setters (jumpTo/easeTo/flyTo/fitBounds) must mark the
+  // camera explicitly positioned — matching the pointer/wheel/keyboard
+  // handlers — so a post-compile bounds-fit can't clobber a host-set camera.
+  'runtime/src/engine/map.ts': 3416,
   // Bumped 1343→1344 for the opacity sub-1.5% round-trip fix (#274); comments
   // trimmed to the minimum, net +1 irreducible.
   'compiler/src/ir/lower.ts': 1344,

@@ -776,8 +776,8 @@ export class XGISMap {
   /** Mapbox-API parity: programmatic camera control. Delegated to
    *  CameraController — see camera-controller.ts for the validation /
    *  clamp logic (moved verbatim). */
-  setCenter(lon: number, lat: number): void { this.cameraController.setCenter(lon, lat); this._dirty.tag(DirtyDomain.CAMERA) }
-  setZoom(zoom: number): void { this.cameraController.setZoom(zoom); this._dirty.tag(DirtyDomain.CAMERA) }
+  setCenter(lon: number, lat: number): void { this.cameraController.setCenter(lon, lat); this._cameraExplicitlyPositioned = true; this._dirty.tag(DirtyDomain.CAMERA) }
+  setZoom(zoom: number): void { this.cameraController.setZoom(zoom); this._cameraExplicitlyPositioned = true; this._dirty.tag(DirtyDomain.CAMERA) }
   setMinZoom(z: number): void { this.cameraController.setMinZoom(z) }
   setMaxZoom(z: number): void { this.cameraController.setMaxZoom(z) }
   getMinZoom(): number { return this.cameraController.getMinZoom() }
@@ -865,6 +865,7 @@ export class XGISMap {
     opts: { padding?: number; bearing?: number; pitch?: number } = {},
   ): void {
     this.cameraController.fitBounds(bounds, opts)
+    this._cameraExplicitlyPositioned = true
     this._dirty.tag(DirtyDomain.CAMERA)
   }
 
@@ -918,16 +919,18 @@ export class XGISMap {
    *  CameraController. */
   easeTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number; duration?: number; easing?: unknown }): void {
     this.cameraController.easeTo(opts)
+    this._cameraExplicitlyPositioned = true
     this._dirty.tag(DirtyDomain.CAMERA)
   }
   flyTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number; duration?: number; speed?: number; curve?: number }): void {
     this.cameraController.flyTo(opts)
+    this._cameraExplicitlyPositioned = true
     this._dirty.tag(DirtyDomain.CAMERA)
   }
 
   /** Mapbox-API parity: pan the map by an offset in CSS pixels.
    *  Delegated to CameraController. */
-  panBy(offset: [number, number]): void { this.cameraController.panBy(offset); this._dirty.tag(DirtyDomain.CAMERA) }
+  panBy(offset: [number, number]): void { this.cameraController.panBy(offset); this._cameraExplicitlyPositioned = true; this._dirty.tag(DirtyDomain.CAMERA) }
 
   setBearing(bearing: number): void { this.cameraController.setBearing(bearing); this._dirty.tag(DirtyDomain.CAMERA) }
   setPitch(pitch: number): void { this.cameraController.setPitch(pitch); this._dirty.tag(DirtyDomain.CAMERA) }
@@ -936,6 +939,7 @@ export class XGISMap {
    *  CameraController. */
   jumpTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number }): void {
     this.cameraController.jumpTo(opts)
+    this._cameraExplicitlyPositioned = true
     this._dirty.tag(DirtyDomain.CAMERA)
   }
 

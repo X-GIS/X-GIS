@@ -72,3 +72,56 @@ describe('XGISMap bounds-fit gate', () => {
     expect(apply).toHaveBeenCalledOnce()
   })
 })
+
+// B1: the programmatic Mapbox-parity camera setters (setCenter / setZoom /
+// jumpTo / easeTo / flyTo / panBy / fitBounds) must mark the camera as
+// explicitly positioned — same bookkeeping the pointer / wheel / keyboard
+// handlers do (onPointerDown / onWheel / _onKeyDown all set the flag). Pre-
+// fix a host that positioned the camera via these setters BEFORE a source
+// compile landed got yanked back to the data extent by the post-attach
+// bounds-fit, because the flag stayed false and `_runBoundsFitGate` opened.
+describe('XGISMap programmatic setters close the bounds-fit gate (B1)', () => {
+  it('setCenter marks the camera positioned', () => {
+    const map = new XGISMap(mockCanvas())
+    expect(map._cameraPositionedFlag).toBe(false)
+    map.setCenter(2.35, 48.85)
+    expect(map._cameraPositionedFlag).toBe(true)
+    expect(map._runBoundsFitGate(vi.fn())).toBe(false)
+  })
+
+  it('setZoom marks the camera positioned', () => {
+    const map = new XGISMap(mockCanvas())
+    map.setZoom(10)
+    expect(map._cameraPositionedFlag).toBe(true)
+  })
+
+  it('jumpTo marks the camera positioned', () => {
+    const map = new XGISMap(mockCanvas())
+    map.jumpTo({ center: [2.35, 48.85], zoom: 12 })
+    expect(map._cameraPositionedFlag).toBe(true)
+  })
+
+  it('easeTo marks the camera positioned', () => {
+    const map = new XGISMap(mockCanvas())
+    map.easeTo({ center: [2.35, 48.85], zoom: 12 })
+    expect(map._cameraPositionedFlag).toBe(true)
+  })
+
+  it('flyTo marks the camera positioned', () => {
+    const map = new XGISMap(mockCanvas())
+    map.flyTo({ center: [2.35, 48.85], zoom: 12 })
+    expect(map._cameraPositionedFlag).toBe(true)
+  })
+
+  it('panBy marks the camera positioned', () => {
+    const map = new XGISMap(mockCanvas())
+    map.panBy([100, 50])
+    expect(map._cameraPositionedFlag).toBe(true)
+  })
+
+  it('fitBounds marks the camera positioned', () => {
+    const map = new XGISMap(mockCanvas())
+    map.fitBounds([[2.2, 48.8], [2.5, 48.9]])
+    expect(map._cameraPositionedFlag).toBe(true)
+  })
+})
