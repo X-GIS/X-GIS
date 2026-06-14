@@ -2,7 +2,12 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
-    include: ['compiler/src/**/*.test.ts', 'blueprint/src/**/*.test.ts', 'runtime/src/**/*.test.ts'],
+    include: [
+      'shared/src/**/*.test.ts',
+      'compiler/src/**/*.test.ts',
+      'blueprint/src/**/*.test.ts',
+      'runtime/src/**/*.test.ts',
+    ],
     // Several real-data tests (tile-cross-path-invariants /
     // tile-pitch-throughput / tile-real-data-coverage) load the
     // 250-feature Natural Earth `countries.geojson` and run the full
