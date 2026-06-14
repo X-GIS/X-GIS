@@ -69,15 +69,27 @@ export function pbfGlyphToSlot(
     // raster) and no byte rescale (PBF already encodes 255-per-
     // radius slope matching the shader's haloK=3 convention since
     // iter 114).
-    for (let y = 0; y < bh; y++) {
+    //
+    // Bound BOTH loops to the on-slot window. g.width/g.height are
+    // untrusted uint32 varints from a network glyph PBF: a huge width
+    // with a tiny bitmap (which still passes the length>0 guard) made
+    // the inner loop run the full bw per in-range row regardless of
+    // the dstX clip — O(slotSize·width) = a multi-second CPU freeze on
+    // the first label using that glyph. Iterating only x∈[xStart,xEnd)
+    // (dstX in [0,slotSize)) and y∈[yStart,yEnd) caps the copy at
+    // O(slotSize²); out-of-window source/dest are never visited.
+    const xStart = Math.max(0, -ox)
+    const xEnd = Math.min(bw, slotSize - ox)
+    const yStart = Math.max(0, -oy)
+    const yEnd = Math.min(bh, slotSize - oy)
+    for (let y = yStart; y < yEnd; y++) {
       const dstY = oy + y
-      if (dstY < 0 || dstY >= slotSize) continue
       const srcBase = y * bw
       const dstBase = dstY * slotSize + ox
-      for (let x = 0; x < bw; x++) {
-        const dstX = ox + x
-        if (dstX < 0 || dstX >= slotSize) continue
-        sdf[dstBase + x] = g.bitmap[srcBase + x]!
+      for (let x = xStart; x < xEnd; x++) {
+        const src = srcBase + x
+        if (src >= g.bitmap.length) break
+        sdf[dstBase + x] = g.bitmap[src]!
       }
     }
   }
