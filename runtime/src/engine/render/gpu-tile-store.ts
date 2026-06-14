@@ -105,10 +105,26 @@ export class GpuTileStore {
    *  Sizing rationale (iter-208 initial): 64 MB caps at ~256 tiles ×
    *  ~250 KB peak polygon vertex per (tile, source-layer). Sufficient
    *  for OFM Bright/Liberty/Positron z=14 (~150 visible × ~6 source-
-   *  layers ≈ ~37 MB headroom). Future Phase 6a.5 adds auto-grow if
-   *  needed. */
+   *  layers ≈ ~37 MB headroom).
+   *
+   *  Bumped 64→128 MB (2026-06-15): dense-city BUILDINGS under pitch
+   *  overflow 64 MB. Measured osm_style NYC z15.2 pitch45 (real-GPU):
+   *  ~80 visible tiles via pitch foreshortening, vertex need ≈ 104 MB
+   *  (66.5 MB resident at the 64 MB cap + ~38 MB of building tiles that
+   *  could not allocate → "[VTR arena-oom] … (buildings); skipping this
+   *  frame"), so ~19 building tiles were dropped EVERY frame (visible
+   *  buildings missing/flickering). Those tiles are all PROTECTED
+   *  (stableKeys / on-screen), so byte-eviction cannot relieve the
+   *  pressure — the live set genuinely exceeds the cap. 128 MB fits the
+   *  measured peak with headroom. Only the VERTEX arena is starved; the
+   *  index arena (below) peaked ~18 MB here, so it is left at 64 MB.
+   *  This is a sizing fix, NOT a logic change — eviction/compaction/
+   *  bundle-invalidation are untouched. The principled long-term fixes
+   *  (pitch-distance LOD so distant tiles carry coarser geometry, and
+   *  GPUArena auto-grow per the deferred Phase 6a.5) remain follow-ups;
+   *  both also address the high tile-fetch volume at pitch. */
   private polyVertexArena: GPUArena | null = null
-  private static readonly POLY_VERTEX_ARENA_CAPACITY = 64 * 1024 * 1024
+  private static readonly POLY_VERTEX_ARENA_CAPACITY = 128 * 1024 * 1024
 
   /** Set true by `forceEvictBytes` when an alloc still cannot be served
    *  AFTER forced LRU eviction — i.e. the live set is fragmented (bump
