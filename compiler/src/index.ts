@@ -69,7 +69,7 @@ export { mergeComputeAddendumIntoVariant } from './codegen/compute-variant-merge
 export { buildPerShowMergedVariant } from './codegen/compute-variant-build'
 export { TILE_FLAG_FULL_COVER, type XGVTIndex, type XGVTHeader, type TileIndexEntry } from './tiler/tile-format'
 export { tileKey, tileKeyUnpack, tileKeyParent, tileKeyChildren, compileGeoJSONToTiles, compileGeoJSONToTilesAsync, compileSingleTile, decomposeFeatures, augmentRingWithArc, tessellateLineToArrays, extractNonSyntheticArcs, makeSameBoundarySidePredicateMerc, type GeometryPart, type PropertyTable, type PropertyFieldType, type CompiledTileSet, type CompiledTile, type TileLevel, type TilerOptions, type FeatureIdResolver } from './tiler/vector-tiler'
-export { lonLatToMercF64, splitF64, packDSFUNLineVertices, packECEFPolygonVertices, packECEFPointFeatures, packECEFLineSegments } from './tiler/ecef-packing'
+export { lonLatToMercF64, splitF64, packDSFUNLineVertices, packECEFPolygonVertices, packECEFPointFeatures, packECEFLineSegments, tileEcefCenterFromMerc } from './tiler/ecef-packing'
 export { clipPolygonToRect, clipPolygonToRectV2, clipLineToRect } from './tiler/clip'
 export { geojsonvt, GeoJSONVT, DEFAULT_OPTIONS as GEOJSONVT_DEFAULT_OPTIONS } from './tiler/geojsonvt'
 export { encodeMVT, type MVTLayerInput, type EncodeOptions } from './tiler/geojsonvt/encode-mvt'

@@ -129,8 +129,8 @@ describe('Real-data: sub-tile generation for country interiors', () => {
     // Real borders are fractal (rivers, disputed zones, tiny islands
     // in 10m admin data) so we don't require any specific hit — but
     // every time full-cover DOES fire on real data, the synthesized
-    // quad MUST have the expected shape (4 vertices × stride 5 = 20
-    // floats, 6 indices). The strict zoom-animation test below
+    // quad MUST have the expected shape (4 vertices × stride 6 = 24
+    // floats — quantized-ECEF fill layout, 6 indices). The strict zoom-animation test below
     // guarantees that full-cover fires for France/Paris at some
     // zoom, so this is a supplementary shape check.
     const source = setupSource()
@@ -153,7 +153,7 @@ describe('Real-data: sub-tile generation for country interiors', () => {
       if (!entry || (entry.flags & TILE_FLAG_FULL_COVER) === 0) continue
       const data = source.getTileData(key)
       expect(data).not.toBeNull()
-      expect(data!.vertices.length).toBe(20)
+      expect(data!.vertices.length).toBe(24)
       expect(data!.indices.length).toBe(6)
     }
   })
