@@ -138,7 +138,8 @@ const LOC_CEILINGS: Record<string, number> = {
   // decomposition remains a tracked priority.
   'runtime/src/data/tile-catalog.ts': 1417,
   // Bumped 1354→1356 for the undo-correctness fixes: tryConnect skipRecord param + insertReroute selEdge clear (two irreducible statements).
-  'blueprint/src/editor.ts': 1356,
+  // Bumped 1356→1370 for the deserialization guard (#353): sanitizeGraph() drops unknown node types + dangling edges at the load/paste/restore trust boundary.
+  'blueprint/src/editor.ts': 1370,
   'runtime/src/engine/shader-dsl/shaders/line.ts': 1187,
   // Bumped 1171→1176 (#274 CSS color-fn whitespace), then 1176→1178 (#317) for
   // the two irreducible numeric match()-label arm-pattern cases (Number, and
