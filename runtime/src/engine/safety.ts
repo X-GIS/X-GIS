@@ -195,17 +195,21 @@ const MAX_SAFE_REDIRECTS = 5
  *  caller's `init` (method / headers / signal) is preserved on each hop;
  *  the request body is dropped after the first hop per fetch redirect
  *  semantics. Throws XGISSecurityError on a private/loopback redirect target
- *  or when the hop limit is exceeded. */
+ *  or when the hop limit is exceeded. `fetchImpl` overrides the network
+ *  call (defaults to the global `fetch`) so a host that injects its own
+ *  fetch for testing keeps that injection while still getting redirect
+ *  re-validation. */
 export async function safeFetch(
   url: string,
   init?: RequestInit,
   label = 'remote URL',
+  fetchImpl: typeof globalThis.fetch = fetch,
 ): Promise<Response> {
   assertSafeRemoteUrl(url, label)
   let currentUrl = url
   let currentInit: RequestInit = { ...init, redirect: 'manual' }
   for (let hop = 0; hop <= MAX_SAFE_REDIRECTS; hop++) {
-    const resp = await fetch(currentUrl, currentInit)
+    const resp = await fetchImpl(currentUrl, currentInit)
     // In a browser, redirect:'manual' yields an opaque-redirect response
     // (type 'opaqueredirect', status 0) whose Location is unreadable — we
     // cannot re-validate the hop, so refuse rather than hand back a broken
