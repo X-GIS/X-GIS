@@ -241,13 +241,26 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
   return ctx
 }
 
-export function resizeCanvas(ctx: GPUContext, interacting = false): void {
+/** The devicePixelRatio the swapchain is (re)sized to. During an
+ *  interaction `resizeCanvas` drops to `QUALITY.interactionDpr` (when set),
+ *  otherwise it uses the full `getMaxDpr()` cap. The render loop MUST derive
+ *  its per-frame `dpr` (which feeds the MVP altitude / camera zoom-scale)
+ *  from the SAME value — a divergent cap makes `canvasHeight/dpr` disagree
+ *  with the actual buffer size and the zoom-scale jumps on every gesture
+ *  under presets that set `interactionDpr` (balanced/battery/?adaptiveDpr).
+ *  Single source of truth so the two can never drift. SSR/no-GPU → 1. */
+export function effectiveDpr(interacting = false): number {
   // Use the LIVE getter so runtime `map.setQuality({ maxDpr })` propagates
   // on the very next resize without touching anything else.
   const cap = interacting && QUALITY.interactionDpr !== null
     ? QUALITY.interactionDpr
     : getMaxDpr()
-  const dpr = Math.min(window.devicePixelRatio || 1, cap)
+  if (typeof window === 'undefined') return 1
+  return Math.min(window.devicePixelRatio || 1, cap)
+}
+
+export function resizeCanvas(ctx: GPUContext, interacting = false): void {
+  const dpr = effectiveDpr(interacting)
   const w = Math.floor(ctx.canvas.clientWidth * dpr)
   const h = Math.floor(ctx.canvas.clientHeight * dpr)
   if (ctx.canvas.width !== w || ctx.canvas.height !== h) {

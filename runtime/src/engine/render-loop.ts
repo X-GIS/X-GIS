@@ -19,7 +19,7 @@ import { xlog } from './log'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd, flushPerFrameMarks } from './__profile__/perf-marks'
 import { mercatorYToLat } from './projection/projection'
 import { PROJECTION_NAME_TO_TYPE, isGlobeProj, promotesToGlobeWhenTilted, poleLimit } from './projection/projections-table'
-import { resizeCanvas, getSampleCount, getMaxDpr, isPickEnabled } from './gpu/gpu'
+import { resizeCanvas, effectiveDpr, getSampleCount, isPickEnabled } from './gpu/gpu'
 import { DEBUG_OVERDRAW } from './debug-flags'
 import { WORLD_MERC, TILE_PX } from './gpu/gpu-shared'
 import { invalidateResolvedShowCache } from './render/resolved-show'
@@ -211,7 +211,12 @@ export class RenderLoop {
     if (!Number.isFinite(this.host.camera.maxZoom)) this.host.camera.maxZoom = 22
     const MAX_MERC = 20037508.34
     const WORLD_MERC_FULL = MAX_MERC * 2 // full circumference
-    const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+    // Derive dpr from the SAME interaction-aware cap resizeCanvas just used
+    // (line ~154, fed this.host._interacting) — otherwise the MVP altitude
+    // (canvasHeight/dpr) disagrees with the actual swapchain size and the
+    // camera zoom-scale jumps on every gesture under presets that set
+    // interactionDpr (balanced/battery/?adaptiveDpr). See effectiveDpr.
+    const dpr = effectiveDpr(this.host._interacting)
     const mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, this.host.camera.zoom)
     const visHalfY = (h / dpr) * mpp / 2
     const maxY = Math.max(0, MAX_MERC - visHalfY)
