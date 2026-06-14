@@ -19,6 +19,7 @@ import {
   TILE_FLAG_FULL_COVER,
   tileKey, tileKeyUnpack,
   lonLatToMercF64,
+  packECEFPolygonVertices, tileEcefCenterFromMerc,
   type XGVTIndex, type TileIndexEntry,
   type PropertyTable, type RingPolygon,
   type CompiledTileSet, type TileLevel,
@@ -1059,36 +1060,33 @@ export class TileCatalog {
     const tileNorth = Math.atan(Math.sinh(Math.PI * (1 - 2 * ty / tn))) * 180 / Math.PI
     const fid = entry.fullCoverFeatureId
 
-    // DSFUN stride-5 quad in tile-local Mercator meters. Corner 0 is
-    // (0,0), corner 2 is (merc_width, merc_height).
-    const [tileMx, tileMy] = lonLatToMercF64(tileWest, tileSouth)
+    // Quantized-ECEF stride-6 quad (POLYGON_FILL_FORMAT, stride 24 B) spanning
+    // the tile in ABSOLUTE Mercator metres — the SAME layout the fill pipeline
+    // binds and the fill VS decodes (abs_lon @loc3 / abs_lat @loc4). Built via
+    // the canonical packer + anchor the tiler uses (vector-tiler.ts). Earlier
+    // this emitted a stride-5 tile-local DSFUN quad with no abs_lon/abs_lat, so
+    // the fill VS mis-decoded position and the per-fragment clip_bounds discard
+    // was inert — an over-zoom full-cover parent flooded the viewport.
+    const [swMx, swMy] = lonLatToMercF64(tileWest, tileSouth)
+    const [seMx, seMy] = lonLatToMercF64(tileEast, tileSouth)
     const [neMx, neMy] = lonLatToMercF64(tileEast, tileNorth)
-    const mercWidth = neMx - tileMx
-    const mercHeight = neMy - tileMy
+    const [nwMx, nwMy] = lonLatToMercF64(tileWest, tileNorth)
 
-    const splitLocal = (v: number): [number, number] => {
-      const h = Math.fround(v)
-      return [h, Math.fround(v - h)]
-    }
-    const [wH, wL] = splitLocal(mercWidth)
-    const [hH, hL] = splitLocal(mercHeight)
-
-    const vertices = new Float32Array([
-      // (0, 0)
-      0, 0, 0, 0, fid,
-      // (width, 0)
-      wH, 0, wL, 0, fid,
-      // (width, height)
-      wH, hH, wL, hL, fid,
-      // (0, height)
-      0, hH, 0, hL, fid,
-    ])
+    const scratchPv = [
+      swMx, swMy, fid,  // corner 0 (SW)
+      seMx, seMy, fid,  // corner 1 (SE)
+      neMx, neMy, fid,  // corner 2 (NE)
+      nwMx, nwMy, fid,  // corner 3 (NW)
+    ]
+    const quant = packECEFPolygonVertices(scratchPv, tileEcefCenterFromMerc(swMx, swMy))
+    const vertices = quant.vertices
     const indices = new Uint32Array([0, 1, 2, 0, 2, 3])
 
     this.cacheTileData(
       key, undefined, vertices, indices, lineVertices, lineIndices,
       undefined, undefined, undefined, undefined, undefined, undefined,
       sourceLayer, undefined, undefined, undefined, originBackend,
+      { scale: quant.dequantScale, half: quant.dequantHalf },
     )
   }
 
