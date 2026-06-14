@@ -41,6 +41,7 @@ import type { SceneCommands } from './interpreter'
 import { asVectorTileKind, computeGeoJSONBounds } from './map-geo-helpers'
 import { attachPMTilesSource, detectVectorTileFormat } from '../loader/vector-tile-loader'
 import { VirtualPMTilesBackend } from '../data/sources/virtual-pmtiles-backend'
+import { detectCapPoles, type CapPoles } from '../data/sources/geojson-polar-cap-backend'
 import * as tilingPool from '../data/workers/geojson-tiling-pool'
 import { reprojectFeatureCollection } from '../data/sources/reproject-fc'
 
@@ -52,6 +53,11 @@ export interface SourceManagerDeps {
   vtSources: Map<string, { source: TileCatalog; renderer: VectorTileRenderer }>
   /** Shared with XGISMap — same Map instance, by reference. */
   sourceCRS: Map<string, string>
+  /** Shared with XGISMap — same Map instance, by reference. Records the
+   *  Mercator clamp-boundary poles each GeoJSON source touches (issue #360
+   *  F1) so XGISMap's polar-cap install can synthesise the right cap(s)
+   *  without re-walking the (already-tiled) feature collection. */
+  geojsonCapPoles: Map<string, CapPoles>
   /** The Camera instance (stable, created in XGISMap ctor). */
   camera: Camera
   /** The raw constructor canvas — `this.canvas` on the host (NOT
@@ -83,6 +89,7 @@ export class SourceManager {
   private readonly rawDatasets: Map<string, GeoJSONFeatureCollection>
   private readonly vtSources: Map<string, { source: TileCatalog; renderer: VectorTileRenderer }>
   private readonly sourceCRS: Map<string, string>
+  private readonly geojsonCapPoles: Map<string, CapPoles>
   private readonly camera: Camera
   private readonly canvas: HTMLCanvasElement
   private readonly getCtx: () => GPUContext
@@ -106,6 +113,7 @@ export class SourceManager {
     this.rawDatasets = deps.rawDatasets
     this.vtSources = deps.vtSources
     this.sourceCRS = deps.sourceCRS
+    this.geojsonCapPoles = deps.geojsonCapPoles
     this.camera = deps.camera
     this.canvas = deps.canvas
     this.getCtx = deps.getCtx
@@ -397,6 +405,13 @@ export class SourceManager {
     // backend (below) and the camera-fit bounds (computeGeoJSONBounds)
     // operate on reprojected coordinates (AC9). Absent CRS ⇒ 4326 / no-op.
     data = this._reprojectIngest(sourceName, data)
+    // Record which Mercator clamp-boundary pole(s) this source touches so
+    // XGISMap's polar-cap install (issue #360 F1) can synthesise the cap(s)
+    // that close the ±5° hole on globe / sphere projections. Detection runs
+    // on the reprojected WGS84 LL coordinates (matching the cap mesh frame).
+    const capPoles = detectCapPoles(data)
+    if (capPoles.north || capPoles.south) this.geojsonCapPoles.set(sourceName, capPoles)
+    else this.geojsonCapPoles.delete(sourceName)
     const source = new TileCatalog()
     const vtRenderer = new VectorTileRenderer(this.getCtx())
     vtRenderer.setBindGroupLayout(this.getRenderer().bindGroupLayout)

@@ -14,6 +14,12 @@ import {
   buildSyntheticEarthSurfaceShow,
   updateSyntheticEarthSurfaceShowFill,
 } from './synthetic-earth-surface-show'
+import { type CapPoles } from '../data/sources/geojson-polar-cap-backend'
+import {
+  installGeoJSONPolarCaps,
+  detachGeoJSONPolarCaps,
+  type PolarCapInstallHost,
+} from './geojson-polar-cap-show'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { getSharedGeoJSONCompilePool } from '../data/workers/geojson-compile-pool'
 import { initGPU, GPU_PROF, getMaxDpr, effectiveDpr, WebGPUUnavailableError, type GPUContext } from './gpu/gpu'
@@ -24,7 +30,7 @@ import { CameraController } from './camera-controller'
 import { ViewportModeController } from './render/viewport-mode-controller'
 import { SourceManager } from './source-manager'
 import { InteractionController } from './interaction-controller'
-import { MapRenderer } from './render/renderer'
+import { MapRenderer, type ShowCommand } from './render/renderer'
 import { resolveNumberShape } from './render/paint-shape-resolve'
 import { RenderLoop } from './render-loop'
 import { RenderTargets } from './render/render-targets'
@@ -192,6 +198,11 @@ export class XGISMap {
    *  reproject pushed data from EPSG → WGS84. Sources without a declared
    *  CRS are absent (treated as EPSG:4326 / no-op). */
   private sourceCRS = new Map<string, string>()
+  /** Mercator clamp-boundary pole(s) each GeoJSON source touches, recorded
+   *  by SourceManager at attach time (issue #360 F1). Read by the polar-cap
+   *  install — both initially and on a projection change — so the cap
+   *  backend can be (re-)synthesised without re-walking the feature data. */
+  private geojsonCapPoles = new Map<string, CapPoles>()
   showCommands: SceneCommands['shows'] = []
 
   /** Stable u16 IDs assigned to each layer in `addLayer` order. Stamped
@@ -577,6 +588,25 @@ export class XGISMap {
     )
   }
 
+  /** Issue #360 F1 — XGISMap-side host adapter for the per-source polar-cap
+   *  install (logic lives in geojson-polar-cap-show.ts so map.ts stays thin).
+   *  The vtSources/rawDatasets/geojsonCapPoles Maps are shared by reference;
+   *  showCommands is read/replaced through the accessor pair. */
+  private _polarCapHost(): PolarCapInstallHost {
+    return {
+      ctx: this.ctx,
+      renderer: this.renderer,
+      lineRenderer: this.lineRenderer,
+      projectionName: this.projectionName,
+      vtSources: this.vtSources,
+      rawDatasets: this.rawDatasets,
+      geojsonCapPoles: this.geojsonCapPoles,
+      getShowCommands: () => this.showCommands as ShowCommand[],
+      setShowCommands: (shows) => { this.showCommands = shows as SceneCommands['shows'] },
+      teardownSource: (id) => this.teardownSource(id),
+    }
+  }
+
   constructor(private canvas: HTMLCanvasElement, options: XGISMapOptions = {}) {
     this.camera = new Camera(0, 20, 2)
     this.cameraController = new CameraController(this.camera, {
@@ -594,15 +624,20 @@ export class XGISMap {
     this._viewport = new ViewportModeController(this.camera, {
       getRenderer: () => this.renderer,
       onWorldBandChange: (prevProj, canonical) => {
+        const prevBand = worldBandForProjType(PROJECTION_NAME_TO_TYPE[prevProj] ?? 0)
+        const nextBand = worldBandForProjType(PROJECTION_NAME_TO_TYPE[canonical] ?? 0)
+        if (prevBand === nextBand) return
+        // Synthetic background — its mesh latitude band is fixed per instance,
+        // so a band change must re-install the backend with the new band.
         if (this._syntheticBackend && this._backgroundColor) {
-          const prevBand = worldBandForProjType(PROJECTION_NAME_TO_TYPE[prevProj] ?? 0)
-          const nextBand = worldBandForProjType(PROJECTION_NAME_TO_TYPE[canonical] ?? 0)
-          if (prevBand !== nextBand) {
-            const rgba = this._backgroundColor
-            this.setBackgroundFill(null)
-            this.setBackgroundFill(rgba)
-          }
+          const rgba = this._backgroundColor
+          this.setBackgroundFill(null)
+          this.setBackgroundFill(rgba)
         }
+        // Per-source polar caps (issue #360 F1): mercator-class has no pole
+        // hole → detach; sphere-class needs the caps → (re-)install.
+        if (nextBand === 'mercator-clamped') detachGeoJSONPolarCaps(this._polarCapHost())
+        else installGeoJSONPolarCaps(this._polarCapHost())
       },
     })
     // Source-ingest cluster — receives the SAME source-state Map
@@ -614,6 +649,7 @@ export class XGISMap {
       rawDatasets: this.rawDatasets,
       vtSources: this.vtSources,
       sourceCRS: this.sourceCRS,
+      geojsonCapPoles: this.geojsonCapPoles,
       camera: this.camera,
       canvas: this.canvas,
       getCtx: () => this.ctx,
@@ -2045,6 +2081,12 @@ export class XGISMap {
     }
 
     this.showCommands = commands.shows
+    // Issue #360 F1 — install per-source polar caps now that `showCommands`
+    // is live (the cap fill is resolved from each source's polygon fill show)
+    // and SourceManager has recorded which sources touch a pole. No-op on
+    // mercator-class projections; the projection-change hook re-drives it.
+    installGeoJSONPolarCaps(this._polarCapHost())
+    commands.shows = this.showCommands as typeof commands.shows
     this._sceneHasAnimation = sceneHasAnyAnimation(commands.shows)
     this._labelsHaveTimeAnimation = labelsHaveTimeAnimation(commands.shows)
     // Full scene (re)build — style, sources, geometry, labels, and possibly

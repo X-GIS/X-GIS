@@ -141,7 +141,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // re-raster fix: a runtime-added provider must repaint an idle map — 1 line).
   // Bumped 3438→3447 for the WOFF font-land glyph re-raster: fontsReady→
   // invalidateAllGlyphs + markLabelDirty (Canvas2D fallbacks upgrade on load).
-  'runtime/src/engine/map.ts': 3447,
+  // Bumped 3447→3489 for the #360 F1 per-source polar-cap wiring: the cap
+  // install/detach LOGIC lives in geojson-polar-cap-show.ts (map.ts stays
+  // thin) — what remains here is irreducible host glue: the geojsonCapPoles
+  // field + SourceManager dep, the `_polarCapHost()` adapter, the run()
+  // install call, and the onWorldBandChange re-install/detach branch.
+  'runtime/src/engine/map.ts': 3489,
   // Bumped 1343→1344 for the opacity sub-1.5% round-trip fix (#274); comments
   // trimmed to the minimum, net +1 irreducible.
   // Bumped 1344→1348 for the polygon fill-stroke INSET default (US-002): a
