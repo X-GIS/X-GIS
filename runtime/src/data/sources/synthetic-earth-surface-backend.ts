@@ -30,8 +30,8 @@ import {
   worldBandForProjType,
   type WorldBandKind,
 } from '../../engine/projection/earth-surface-fill'
-import { tileEcefCenterFromMerc, lonLatToECEF } from '../../engine/projection/ecef'
-import { quantizeAxis } from '@xgis/shared'
+import { tileEcefCenterFromMerc } from '../../engine/projection/ecef'
+import { packECEFWithPolarCaps, MERC_LAT_CLAMP } from './polar-cap-ecef-pack'
 import {
   TILE_LAYOUT_VERSION,
   type BackendTileResult,
@@ -51,14 +51,12 @@ const WIDTH_SEGMENTS = 128
 const HEIGHT_SEGMENTS = 64
 const DEG2RAD = Math.PI / 180
 const A = 6378137 // WGS84 semi-major axis — matches the tiler + render-side `off`.
-// Source-honest Web-Mercator latitude clamp applied to the PER-VERTEX mx/my
-// encode. This is the rounded constant the tiler also uses to cap polar
-// vertices (vector-tile-renderer.ts:2221), so the bg's polar rows surface with
-// the SAME ±85 cap real polar ground verts carry — the geoid stays consistent
-// (runtime/src/engine/render/vector-tile-renderer.ts:2221 clampLat).
+// MERC_LAT_CLAMP (imported from ./polar-cap-ecef-pack) is the source-honest
+// Web-Mercator latitude clamp applied to the PER-VERTEX mx/my encode — the
+// rounded constant the tiler also uses to cap polar vertices, so the bg's polar
+// rows surface with the SAME ±85 cap real polar ground verts carry.
 // NOTE: this is the VERTEX clamp only; the tile-corner ANCHOR latitude must use
 // the DECODED z=0 tile-south below, not this rounded value (see Z0_DECODED_SOUTH).
-const MERC_LAT_CLAMP = 85.051129
 // Decoded z=0 tile-south latitude (degrees) — the EXACT value the tile catalog
 // reconstructs for the synthetic z=0 tile (tile-catalog.ts:1102,
 // atan(sinh(±π))·180/π) and the value the render-side `off` anchor feeds
@@ -198,14 +196,10 @@ export class SyntheticEarthSurfaceBackend implements TileSource {
 
 // ── Quantized-ECEF packing for the synthetic z=0 surface ─────────────────────
 //
-// POLYGON_FILL_FORMAT contract (compiler/src/tiler/polygon-vertex-format.ts):
-//   stride = 6 f32 = 12 u16. u16×6 position lanes 0..5 occupy bytes 0..11;
-//   f32 tail = feature_id @float3, abs_lon @float4, abs_lat @float5.
-const FILL_FLOATS_PER_VERT = 6
-const FILL_U16_PER_VERT = 12
-const FILL_FID_FLOAT = 3
-const FILL_LON_FLOAT = 4
-const FILL_LAT_FLOAT = 5
+// The sphere-band polar-cap packer (`packECEFWithPolarCaps`) lives in the
+// shared ./polar-cap-ecef-pack module so the per-source GeoJSON polar-cap
+// backend (issue #360 F1) reuses the SAME proven path. The Mercator-clamped
+// ground-tile path stays local below.
 
 /** Mercator-clamped pack (the canonical ground-tile path). Builds an absolute
  *  Mercator-metre scratch (latitude capped at the Web-Mercator limit) and runs
@@ -228,81 +222,4 @@ function packKernelClamped(
   }
   const q = packECEFPolygonVertices(scratch, ecefTileCenter)
   return { vertices: q.vertices, dequantScale: q.dequantScale, dequantHalf: q.dequantHalf }
-}
-
-/** Sphere-band pack WITH source-honest polar caps (F2 — principled dual-encode).
- *
- *  Per vertex:
- *    – |lat| ≤ MERC_LAT_CLAMP: latitude is Merc-clamped and the WGS84-ellipsoid
- *      ECEF is taken at that clamped latitude — the SAME geoid + abs_lat the
- *      shared kernel emits for ground tiles (reconstructs to the kernel value
- *      within the quant step, so geoid-unification is preserved).
- *    – |lat| >  MERC_LAT_CLAMP: latitude is kept TRUE (up to ±90) and the ECEF
- *      is `lonLatToECEF(lon, lat)` directly — the polar-cap rows the kernel
- *      cannot reach. abs_lat carries the true latitude so the flat-disc vertex
- *      arm projects the cap geometry all the way to the pole, closing the hole.
- *
- *  All vertices share ONE per-buffer symmetric half-range (max-abs residual
- *  over grid + caps) so they decode through the single `tile_dequant_scale`
- *  the GPU binds — the polar residual is only ~24 mm larger than the ±85 band,
- *  so the shared scale shifts the ≤85 bytes imperceptibly (well inside the
- *  geoid-unification tolerance). The ellipsoid forward is inlined to match the
- *  kernel exactly (vector-tiler.ts:225-232). */
-function packECEFWithPolarCaps(
-  meshVerts: Float32Array,
-  vertexCount: number,
-  ecefTileCenter: readonly [number, number, number],
-): { vertices: Float32Array; dequantScale: number; dequantHalf: number } {
-  // Pass 1: ECEF residuals + per-vertex abs_lon/abs_lat; track max-abs residual.
-  const rx = new Float64Array(vertexCount)
-  const ry = new Float64Array(vertexCount)
-  const rz = new Float64Array(vertexCount)
-  const lonDeg = new Float64Array(vertexCount)
-  const latDeg = new Float64Array(vertexCount)
-  let maxAbs = 0
-  for (let i = 0; i < vertexCount; i++) {
-    const lon = meshVerts[i * 2]
-    const lat = meshVerts[i * 2 + 1]
-    // Polar rows (|lat| beyond the Web-Mercator cap) forward the TRUE latitude
-    // to the WGS84 ellipsoid; all others use the Merc-clamped latitude so they
-    // stay geoid-identical to the kernel/ground-tile path.
-    const encLat = Math.abs(lat) > MERC_LAT_CLAMP
-      ? lat
-      : Math.max(-MERC_LAT_CLAMP, Math.min(MERC_LAT_CLAMP, lat))
-    const [ex, ey, ez] = lonLatToECEF(lon, encLat)
-    const ax = ex - ecefTileCenter[0]
-    const ay = ey - ecefTileCenter[1]
-    const az = ez - ecefTileCenter[2]
-    rx[i] = ax; ry[i] = ay; rz[i] = az
-    lonDeg[i] = lon
-    latDeg[i] = encLat
-    const m = Math.max(Math.abs(ax), Math.abs(ay), Math.abs(az))
-    if (m > maxAbs) maxAbs = m
-  }
-
-  // Symmetric half-range + dequant params — mirrors the kernel exactly.
-  const halfRange = maxAbs + 1e-6
-  const span = 2 * halfRange
-  const dequantScale = span / 0xFFFFFFFF
-  const invSpan = 0xFFFFFFFF / span
-
-  const out = new Float32Array(vertexCount * FILL_FLOATS_PER_VERT)
-  const u16 = new Uint16Array(out.buffer)
-  for (let i = 0; i < vertexCount; i++) {
-    const [xh, xl] = quantizeAxis(rx[i], halfRange, invSpan)
-    const [yh, yl] = quantizeAxis(ry[i], halfRange, invSpan)
-    const [zh, zl] = quantizeAxis(rz[i], halfRange, invSpan)
-    const u = i * FILL_U16_PER_VERT
-    u16[u]     = xh
-    u16[u + 1] = xl
-    u16[u + 2] = yh
-    u16[u + 3] = yl
-    u16[u + 4] = zh
-    u16[u + 5] = zl
-    const f = i * FILL_FLOATS_PER_VERT
-    out[f + FILL_FID_FLOAT] = 0   // single synthetic feature
-    out[f + FILL_LON_FLOAT] = lonDeg[i]
-    out[f + FILL_LAT_FLOAT] = latDeg[i]
-  }
-  return { vertices: out, dequantScale, dequantHalf: halfRange }
 }
