@@ -117,7 +117,10 @@ const LOC_CEILINGS: Record<string, number> = {
   'runtime/src/engine/map.ts': 3416,
   // Bumped 1343→1344 for the opacity sub-1.5% round-trip fix (#274); comments
   // trimmed to the minimum, net +1 irreducible.
-  'compiler/src/ir/lower.ts': 1344,
+  // Bumped 1344→1348 for the polygon fill-stroke INSET default (US-002): a
+  // thick outline straddled + ate the fill edge at CENTER; default fill+stroke
+  // layers to inset (1 expr + 4 trimmed comment lines, irreducible behavior).
+  'compiler/src/ir/lower.ts': 1348,
   'runtime/src/engine/text/text-stage.ts': 1441,
   // Bumped 1509→1517 for the GeometryCollection decompose fix (RFC 7946
   // §3.1.8): decomposeFeatures' per-type switch is wrapped in an inner

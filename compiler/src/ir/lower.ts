@@ -1053,7 +1053,11 @@ function lowerLayer(
         dashArray, dashOffset,
         patterns: validPatterns.length > 0 ? validPatterns : undefined,
         offset: strokeOffset,
-        align: strokeAlign,
+        // Polygon fill-STROKE (layer has BOTH fill + stroke) defaults to INSET:
+        // a thick outline sits inside the fill (CSS border-box), fill silhouette
+        // unchanged — not CENTER straddling + eating ~half-width of the fill.
+        // Explicit stroke-align wins; lines (no fill) keep runtime center.
+        align: strokeAlign ?? (fill !== undefined && strokeColor !== undefined ? 'inset' : undefined),
         blur: strokeBlur,
         gapWidth: strokeGapWidth,
         timeWidthStops: strokeWidthTimeStops.length >= 2 ? strokeWidthTimeStops : undefined,
