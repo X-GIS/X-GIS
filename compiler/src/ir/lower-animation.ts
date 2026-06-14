@@ -75,7 +75,7 @@ export function expandKeyframeTimeStops(
           if (!isNaN(num)) {
             opacityTimeStops.push({
               timeMs,
-              value: num <= 1 ? num : num / 100,
+              value: num / 100,
             })
           }
           continue
