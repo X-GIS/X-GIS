@@ -99,6 +99,7 @@ export class BlueprintEditor {
 
   // ── public API ──
   load(g: BPGraph) {
+    g = this.sanitizeGraph(g)
     this.nodes = g.nodes.map((n) => ({ ...n, data: { ...n.data } }))
     this.edges = g.edges.map((e) => ({ ...e }))
     this.frames = (g.frames ?? []).map((f) => ({ ...f }))
@@ -239,6 +240,18 @@ export class BlueprintEditor {
     this.emit()
   }
 
+  // ── deserialization guard ──
+  /** Drop nodes whose type is not a known NODE_SPECS key and edges that
+   *  reference a missing node id. Applied at every untrusted-JSON seam
+   *  (load / paste / undo-restore) BEFORE any record()/mount so a stale
+   *  or foreign payload can never throw mid-mutation. */
+  private sanitizeGraph(g: BPGraph): BPGraph {
+    const nodes = (g.nodes ?? []).filter((n) => n.type in NODE_SPECS)
+    const ids = new Set(nodes.map((n) => n.id))
+    const edges = (g.edges ?? []).filter((e) => ids.has(e.from.node) && ids.has(e.to.node))
+    return { nodes, edges, frames: g.frames ?? [] }
+  }
+
   // ── history ──
   private snapshot(): string {
     return JSON.stringify({ nodes: this.nodes, edges: this.edges, frames: this.frames })
@@ -247,7 +260,7 @@ export class BlueprintEditor {
     this.history.record(this.snapshot())
   }
   private restore(s: string) {
-    const g = JSON.parse(s)
+    const g = this.sanitizeGraph(JSON.parse(s))
     this.nodes = g.nodes
     this.edges = g.edges
     this.frames = g.frames ?? []
@@ -960,6 +973,7 @@ export class BlueprintEditor {
     ;(this as unknown as { _clip: string })._clip = txt
   }
   private spawn(g: BPGraph, dx: number, dy: number) {
+    g = this.sanitizeGraph(g)
     this.record()
     const idmap = new Map<string, string>()
     this.selNodes.clear()
