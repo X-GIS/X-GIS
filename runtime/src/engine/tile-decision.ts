@@ -91,6 +91,17 @@ export interface ClassifyTileInputs {
   layerCache: Map<number, unknown>
   /** True iff THIS LAYER's slice for `key` is in the CPU catalog. */
   hasSliceInCatalog: (key: number) => boolean
+  /** True iff THIS LAYER's slice for `key` is in the CPU catalog AND
+   *  carries real geometry (not an empty placeholder). Single-layer
+   *  GeoJSON stores an EMPTY placeholder under the default '' slice for
+   *  tiles with no overlapping features (geojson-runtime-backend
+   *  acceptResult(key,null)); hasSliceInCatalog reports those as cached
+   *  (slot.size>0) so path-3 would force them into queued-with-fallback
+   *  and never reach drop-empty. This predicate lets path-3 ignore the
+   *  empty placeholder. Defaults to hasSliceInCatalog when omitted —
+   *  multi-layer sources never store an empty placeholder under a named
+   *  slice, so their behavior is unchanged (back-compat). */
+  hasNonEmptySliceInCatalog?: (key: number) => boolean
   /** True iff ANY slice for `key` is in the CPU catalog (regardless of
    *  this layer). Used to detect "tile loaded but this layer empty". */
   hasAnySliceInCatalog: (key: number) => boolean
@@ -133,6 +144,10 @@ export function classifyTile(input: ClassifyTileInputs): TileDecision {
   const { visible, visibleKey, maxLevel, parentAtMaxLevel,
     layerCache, hasSliceInCatalog, hasAnySliceInCatalog,
     sliceLayer } = input
+  // Default the non-empty predicate to hasSliceInCatalog (back-compat:
+  // multi-layer sources never store an empty placeholder under a named
+  // slice, so the two predicates coincide there).
+  const hasNonEmptySliceInCatalog = input.hasNonEmptySliceInCatalog ?? hasSliceInCatalog
   const tileZ = visible.z
 
   // 1. OVER-ZOOM FAST PATH — visible tile is past archive maxLevel.
@@ -169,7 +184,13 @@ export function classifyTile(input: ClassifyTileInputs): TileDecision {
   //    (Bug class commit-49d4801: walking the parent here is critical
   //    so the area is filled while uploadTile is queued behind the
   //    per-frame budget.)
-  const thisSliceCached = hasSliceInCatalog(visibleKey)
+  //    An EMPTY placeholder (single-layer GeoJSON default '' slice,
+  //    geojson-runtime-backend acceptResult(key,null)) reports as
+  //    cached via hasSliceInCatalog but carries no geometry — uploading
+  //    it is a no-op and would block the drop-empty branch below. Gate
+  //    path-3 on the non-empty predicate so an empty placeholder falls
+  //    through to the drop-empty / fallback logic instead.
+  const thisSliceCached = hasNonEmptySliceInCatalog(visibleKey)
   if (thisSliceCached) {
     return {
       kind: 'queued-with-fallback',
@@ -201,7 +222,14 @@ export function classifyTile(input: ClassifyTileInputs): TileDecision {
   //    branch never refetches the visible tile unnecessarily — the
   //    catalog's per-key dedupe (`hasTileData(visibleKey)=true`
   //    because landcover slice is present) blocks repeat loadTile.
-  if (sliceLayer && tileZ <= maxLevel && hasAnySliceInCatalog(visibleKey)) {
+  //    Single-layer GeoJSON (sliceLayer='') reaches this branch too:
+  //    its visible slice is present in catalog but empty (the
+  //    placeholder filtered out of path-3 above), so
+  //    thisSlicePresentButEmpty captures the default-slice empty tile
+  //    that the `sliceLayer && hasAnySliceInCatalog` multi-layer guard
+  //    would otherwise skip.
+  const thisSlicePresentButEmpty = hasSliceInCatalog(visibleKey) && !hasNonEmptySliceInCatalog(visibleKey)
+  if (tileZ <= maxLevel && (thisSlicePresentButEmpty || (sliceLayer && hasAnySliceInCatalog(visibleKey)))) {
     const fb = classifyFallback(input)
     if (fb.kind === 'parent-fallback' || fb.kind === 'child-fallback') {
       return fb

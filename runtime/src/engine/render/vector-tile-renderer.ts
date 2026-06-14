@@ -2574,6 +2574,16 @@ export class VectorTileRenderer {
           archiveAncestor: archiveAncestor[i],
           layerCache,
           hasSliceInCatalog: sliceCached,
+          // Non-empty predicate: single-layer GeoJSON stores an empty
+          // placeholder (zero geometry) under the default '' slice for
+          // tiles with no features; hasTileData reports it as cached.
+          // Report it as NOT-cached here so the empty default slice
+          // classifies as drop-empty instead of queued-with-fallback.
+          hasNonEmptySliceInCatalog: (k) => {
+            if (layerCache.has(k)) return true
+            const d = this.source!.getTileData(k, sliceLayer)
+            return !!d && (d.vertices.length > 0 || d.lineVertices.length > 0 || (d.pointVertices?.length ?? 0) > 0 || !!d.fullCover)
+          },
           hasAnySliceInCatalog: (k) => this.source!.hasTileData(k),
           hasEntryInIndex: (k) => this.source!.hasEntryInIndex(k),
           sliceLayer,
