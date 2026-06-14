@@ -95,7 +95,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // lastZoom, or OFM zoom-interp fills + palette gradients snap at integer
   // boundaries. Adds a `currentCameraZoom` field (cached in render()) — net
   // +4 lines after trimming the slot-44 comment.
-  'runtime/src/engine/render/vector-tile-renderer.ts': 3938,
+  // Bumped 3938→3948 for the empty-default-slice fix (#356-followup): the
+  // classifyTile call site passes a hasNonEmptySliceInCatalog predicate so a
+  // single-layer GeoJSON empty placeholder classifies as drop-empty instead of
+  // being forced into a parent-fallback (+10 lines, irreducible inline closure).
+  'runtime/src/engine/render/vector-tile-renderer.ts': 3948,
   // Bumped 3361→3393 for the destroy()-completeness fix: cancelling the
   // EventDispatcher move-rAF + the pending-flush rAF, clearing _pendingPatches,
   // and removing the run()-installed window globals (__xgisReady/snapshot/
