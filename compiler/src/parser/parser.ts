@@ -820,7 +820,7 @@ export class Parser {
         const colorName = this.parseUtilityName()
         value = { kind: 'Identifier', name: colorName }
       } else {
-        value = this.parseCoalesce()
+        value = this.parseExpr()
       }
 
       arms.push({ pattern, value })
