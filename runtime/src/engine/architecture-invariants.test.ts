@@ -120,7 +120,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // recursive helper so a GeometryCollection member-decomposes under the
   // parent id instead of silently dropping. The wrapper signature + the
   // GeometryCollection branch + the rewritten outer loop are irreducible.
-  'compiler/src/tiler/vector-tiler.ts': 1517,
+  // Bumped 1517→1551 for the antimeridian outline-seam fix: the
+  // dropTileBoundaryEdges helper + its two outline-emit call sites drop
+  // source edges coincident with a tile boundary (the lon ±180 dateline
+  // splits Natural Earth bakes) so the polygon outline stops stroking a
+  // full-height seam line in every world copy. Real-GPU-bisect-confirmed.
+  'compiler/src/tiler/vector-tiler.ts': 1551,
   'runtime/src/engine/render/renderer.ts': 915,
   'compiler/src/convert/layers.ts': 1539,
   // Bumped 1534→1574 for the arithmetic-arity fix (expr-arith-coalesce): the

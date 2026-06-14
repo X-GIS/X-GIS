@@ -712,6 +712,38 @@ export function augmentRingWithArc(ring: number[][], opts?: { mmInput?: boolean 
   return augmentChainWithArc(ring, true, opts)
 }
 
+/** Split a line-clipped outline polyline at edges that lie ALONG a tile
+ *  boundary (both endpoints on the SAME vertical or horizontal side,
+ *  within eps), dropping those edges.
+ *
+ *  WHY: clipLineToRect (Liang-Barsky) is artifact-free for edges that
+ *  CROSS a boundary, but it PRESERVES a source edge that is coincident
+ *  with a boundary — e.g. the antimeridian-split edges Natural Earth
+ *  bakes at lon ±180, or a poleward-clamp edge. Stroking those draws a
+ *  spurious full-height seam line at the world/tile boundary, repeated
+ *  in every world copy (user-reported antimeridian vertical line).
+ *  The crossing case (one endpoint on the boundary) is preserved, so a
+ *  real border meeting the boundary still strokes up to it. */
+function dropTileBoundaryEdges(
+  seg: number[][], xW: number, yS: number, xE: number, yN: number, eps: number,
+): number[][][] {
+  const onSameSide = (a: number[], b: number[]): boolean =>
+    (Math.abs(a[0] - xW) < eps && Math.abs(b[0] - xW) < eps) ||
+    (Math.abs(a[0] - xE) < eps && Math.abs(b[0] - xE) < eps) ||
+    (Math.abs(a[1] - yS) < eps && Math.abs(b[1] - yS) < eps) ||
+    (Math.abs(a[1] - yN) < eps && Math.abs(b[1] - yN) < eps)
+  const runs: number[][][] = []
+  let cur: number[][] = seg.length ? [seg[0]] : []
+  for (let i = 1; i < seg.length; i++) {
+    if (onSameSide(seg[i - 1], seg[i])) {
+      if (cur.length >= 2) runs.push(cur)
+      cur = [seg[i]]
+    } else cur.push(seg[i])
+  }
+  if (cur.length >= 2) runs.push(cur)
+  return runs
+}
+
 /** Extract the "interior" arcs of a clipped polygon ring — the
  *  sub-chains whose edges come from the ORIGINAL polygon's boundary,
  *  not the synthetic axis-aligned edges Sutherland-Hodgman added to
@@ -1098,14 +1130,15 @@ function processZoomLevelShared(
             // axis-aligned edges, so the outline buffer is free of
             // tile-rect artifacts by construction — no need for
             // extractNonSyntheticArcs filtering.
+            const obEps = Math.max((tbMxE - tbMxW) * 1e-9, 1e-6)
             for (const ring of sp.rings) {
               if (ring.length < 2) continue
               const augmented = augmentRingWithArc(ring, { mmInput: true })
               if (augmented.length < 2) continue
               const segments = clipLineToRect(augmented, tbMxW, tbMyS, tbMxE, tbMyN)
               for (const seg of segments) {
-                if (seg.length >= 2) {
-                  tessellateLineToArrays(seg, fid, scratch.olv, scratch.oli)
+                for (const run of dropTileBoundaryEdges(seg, tbMxW, tbMyS, tbMxE, tbMyN, obEps)) {
+                  tessellateLineToArrays(run, fid, scratch.olv, scratch.oli)
                 }
               }
             }
@@ -1332,14 +1365,15 @@ export function compileSingleTile(
         // polygon-clipped intersection points (both Liang-Barsky and
         // Sutherland-Hodgman produce the same crossing). So fill /
         // stroke endpoints still agree by construction.
+        const obEps = Math.max((stMxE - stMxW) * 1e-9, 1e-6)
         for (const ring of part.rings) {
           if (ring.length < 2) continue
           const augmented = augmentRingWithArc(ring, { mmInput: true })
           if (augmented.length < 2) continue
           const segments = clipLineToRect(augmented, stMxW, stMyS, stMxE, stMyN)
           for (const seg of segments) {
-            if (seg.length >= 2) {
-              tessellateLineToArrays(seg, fid, scratch.olv, scratch.oli)
+            for (const run of dropTileBoundaryEdges(seg, stMxW, stMyS, stMxE, stMyN, obEps)) {
+              tessellateLineToArrays(run, fid, scratch.olv, scratch.oli)
             }
           }
         }
