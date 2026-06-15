@@ -37,7 +37,22 @@ export function simplify(ring: number[][], tolerance: number, isLocked?: (coord:
   return result
 }
 
-/** Recursive Douglas-Peucker step (respects pre-locked vertices) */
+/** Douglas-Peucker step (respects pre-locked vertices).
+ *
+ *  Explicit-stack iterative implementation — NOT recursive. A single ring
+ *  in countries.geojson at low zoom carries tens of thousands of vertices,
+ *  and the worst-case Douglas-Peucker descent depth is O(n) (a near-monotonic
+ *  edge, or a long run of boundary-locked vertices, peels one point per level).
+ *  The prior recursive form overflowed the JS native call stack
+ *  (`RangeError: Maximum call stack size exceeded` in the tiler worker, every
+ *  tile) on the `categorical` demo at z0. The heap-backed stack here has no
+ *  such ceiling.
+ *
+ *  Behaviour is identical to the recursion: each [lo,hi] segment splits at its
+ *  FIRST locked interior vertex (recursing the two sides, ignoring the distance
+ *  test for that segment), otherwise at its max-deviation vertex when that
+ *  deviation exceeds tolerance. The `keep[]` output is independent of segment
+ *  processing order, so LIFO popping yields the same result as recursive descent. */
 function dpStep(
   ring: number[][],
   first: number,
@@ -45,31 +60,40 @@ function dpStep(
   sqTolerance: number,
   keep: Uint8Array,
 ): void {
-  // If a locked vertex exists between first..last, we must recurse through it
-  // even if the max distance is below tolerance
-  let maxDist = 0
-  let maxIdx = first
-  let hasLocked = false
+  // Flat [lo, hi, lo, hi, ...] segment stack; push/pop pairs.
+  const stack: number[] = [first, last]
 
-  for (let i = first + 1; i < last; i++) {
-    if (keep[i]) {
-      // Locked vertex — recurse into sub-segments around it
-      hasLocked = true
-      if (i - first > 1) dpStep(ring, first, i, sqTolerance, keep)
-      if (last - i > 1) dpStep(ring, i, last, sqTolerance, keep)
-      return
-    }
-    const dist = sqDistToSegment(ring[i], ring[first], ring[last])
-    if (dist > maxDist) {
-      maxDist = dist
-      maxIdx = i
-    }
-  }
+  while (stack.length > 0) {
+    const hi = stack.pop()!
+    const lo = stack.pop()!
 
-  if (!hasLocked && maxDist > sqTolerance) {
-    keep[maxIdx] = 1
-    if (maxIdx - first > 1) dpStep(ring, first, maxIdx, sqTolerance, keep)
-    if (last - maxIdx > 1) dpStep(ring, maxIdx, last, sqTolerance, keep)
+    let maxDist = 0
+    let maxIdx = lo
+    let hasLocked = false
+
+    for (let i = lo + 1; i < hi; i++) {
+      if (keep[i]) {
+        // Locked vertex — split into sub-segments around it (the distance
+        // test is skipped for this segment, as in the recursive form).
+        hasLocked = true
+        if (i - lo > 1) stack.push(lo, i)
+        if (hi - i > 1) stack.push(i, hi)
+        break
+      }
+      const dist = sqDistToSegment(ring[i], ring[lo], ring[hi])
+      if (dist > maxDist) {
+        maxDist = dist
+        maxIdx = i
+      }
+    }
+
+    if (hasLocked) continue
+
+    if (maxDist > sqTolerance) {
+      keep[maxIdx] = 1
+      if (maxIdx - lo > 1) stack.push(lo, maxIdx)
+      if (hi - maxIdx > 1) stack.push(maxIdx, hi)
+    }
   }
 }
 
