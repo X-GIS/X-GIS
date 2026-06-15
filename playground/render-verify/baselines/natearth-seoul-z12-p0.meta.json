@@ -1,8 +1,8 @@
 {
   "cellId": "natearth-seoul-z12-p0",
   "reviewedBy": "xgis-dev",
-  "reviewedAt": "2026-06-10T00:14:05.247Z",
-  "commit": "1d0b7e0de5ca3323fe90ea58c3b0bb8c704939fe",
-  "candidateBytes": 400479,
+  "reviewedAt": "2026-06-15T16:55:55.980Z",
+  "commit": "6b63b1859e959b7c6a1377d8fb59d5ecdd71166a",
+  "candidateBytes": 336331,
   "note": "Human-reviewed via matrix:accept. The candidate render was confirmed CORRECT (not merely present) before acceptance."
 }
