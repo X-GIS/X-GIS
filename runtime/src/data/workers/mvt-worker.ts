@@ -24,6 +24,39 @@ import { buildLineSegments } from '../../core/line-segment-build'
 import { evalExtrudeExpr } from '../eval/extrude-eval'
 import { evalFilterExpr } from '../eval/filter-eval'
 
+/** Build the featId → properties Map the SDF label pipeline + data-driven
+ *  feature buffer read from. When `keys` is non-empty, clone ONLY those
+ *  keys per feature — the union of the label text-field + the variant's
+ *  match/interpolate fields, a handful out of OFM's name/name:en/…/class/
+ *  rank/… bag. Filtering here is the whole point: the returned Map is
+ *  structured-cloned worker→main and that clone is the dominant transition
+ *  cost (309 ms/msg on Bright). An undefined / empty `keys` is the safe
+ *  fallback (legacy non-showSlices path, or an un-introspectable label AST):
+ *  keep the FULL Record so no consumer loses a field it references.
+ *  Exported for direct unit testing of the filter contract. */
+export function buildFeatureProps(
+  features: GeoJSONFeature[],
+  keys?: string[],
+): Map<number, Record<string, unknown>> {
+  const out = new Map<number, Record<string, unknown>>()
+  if (keys && keys.length > 0) {
+    for (let fi = 0; fi < features.length; fi++) {
+      const props = features[fi]?.properties
+      if (props) {
+        const filtered: Record<string, unknown> = {}
+        for (const k of keys) if (k in props) filtered[k] = (props as Record<string, unknown>)[k]
+        out.set(fi, filtered)
+      }
+    }
+  } else {
+    for (let fi = 0; fi < features.length; fi++) {
+      const props = features[fi]?.properties
+      if (props) out.set(fi, props as Record<string, unknown>)
+    }
+  }
+  return out
+}
+
 /** Extract per-feature 3D extrude heights from a layer's features.
  *  Only runs when the style explicitly opts in via `extrude:` (the
  *  AST is passed in as `expr`). Layers without an extrude directive
@@ -227,7 +260,7 @@ export interface MvtCompileRequest {
    *  draws that result when N shows share one MVT source layer with
    *  different `filter:` clauses (the OSM-style demo's 6 landuse_*
    *  layers all reading `landuse`). */
-  showSlices?: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null; needsFeatureProps?: boolean; needsExtrude?: boolean }>
+  showSlices?: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null; needsFeatureProps?: boolean; needsExtrude?: boolean; featurePropKeys?: string[] }>
   /** Per-sliceKey stroke-width override AST. The compound layer's
    *  width AST evaluated per feature → resolved width baked into the
    *  line segment buffer's per-segment slot so the line shader picks
@@ -296,7 +329,7 @@ type OutMsg = MvtCompileResponse | MvtCompileError
 
 // ── Worker entry ──
 
-self.addEventListener('message', (e: MessageEvent<InMsg>) => {
+const onMessage = (e: MessageEvent<InMsg>): void => {
   const msg = e.data
   if (msg.kind !== 'compile-mvt') return
 
@@ -335,23 +368,22 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
       sourceFeatures: GeoJSONFeature[],
       needsFeatureProps: boolean,
       needsExtrude: boolean,
+      featurePropKeys?: string[],
     ): void => {
       if (sourceFeatures.length === 0) return
       const parts = decomposeFeatures(sourceFeatures)
       const tile = compileSingleTile(parts, msg.z, msg.x, msg.y, msg.maxZoom)
       if (!tile) return
-      // featureProps for the SDF text label pipeline. Skip emission for
-      // slices whose consumer shows have no `label-` utility — the
-      // structured-clone of the Map across the worker→main boundary
-      // is the dominant cost (309 ms/message on Bright transitions).
-      // Empty Map → `featureProps: undefined` below.
-      const featureProps = new Map<number, Record<string, unknown>>()
-      if (needsFeatureProps) {
-        for (let fi = 0; fi < sourceFeatures.length; fi++) {
-          const props = sourceFeatures[fi]?.properties
-          if (props) featureProps.set(fi, props as Record<string, unknown>)
-        }
-      }
+      // featureProps for the SDF text label pipeline + data-driven feature
+      // buffer. Skip emission for slices whose consumer shows read no per-
+      // feature attributes (the structured-clone of the Map worker→main is
+      // the dominant cost — 309 ms/message on Bright transitions). When
+      // populated, `featurePropKeys` (always set on the showSlices path)
+      // restricts the clone to just the consumed fields — see
+      // buildFeatureProps. Empty Map → `featureProps: undefined` below.
+      const featureProps = needsFeatureProps
+        ? buildFeatureProps(sourceFeatures, featurePropKeys)
+        : new Map<number, Record<string, unknown>>()
       // Same skip for extrude data — only populate when ANY show on
       // this slice declared `fill-extrusion-height-…`.
       const heights = needsExtrude
@@ -452,12 +484,14 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
           desc.sliceKey, desc.sourceLayer, subset,
           desc.needsFeatureProps === true,
           desc.needsExtrude === true,
+          desc.featurePropKeys,
         )
       }
     } else {
       // Legacy path: one slice per MVT source layer, no filter
-      // bucketing. No need flags available — emit everything for
-      // back-compat. Callers that opt into showSlices get the savings.
+      // bucketing. No slice descriptor → no featurePropKeys, so
+      // featureProps stays UNFILTERED (full Record) for back-compat.
+      // Callers that opt into showSlices get the field-filter savings.
       for (const [layerName, layerFeatures] of byLayer) {
         emitSlice(layerName, layerName, layerFeatures, true, true)
       }
@@ -477,4 +511,16 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
       stack: e.stack,
     })
   }
-})
+}
+
+// Gate on DedicatedWorkerGlobalScope (mirrors geojson-compile-worker.ts) so
+// this module can be imported by unit tests — which need buildFeatureProps /
+// the message types — without `self` being defined or a stray listener
+// registering on the test global.
+const isWorkerScope =
+  typeof self !== 'undefined' &&
+  typeof (self as unknown as { importScripts?: unknown }).importScripts !== 'undefined'
+
+if (isWorkerScope) {
+  self.addEventListener('message', onMessage)
+}

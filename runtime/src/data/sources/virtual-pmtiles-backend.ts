@@ -62,7 +62,7 @@ export interface VirtualPMTilesBackendOptions {
   /** Per-show slice descriptors — when set the MVT worker emits one
    *  pre-filtered slice per (sourceLayer, filter) combo. Mirrors
    *  PMTilesBackend.options.showSlices. */
-  showSlices?: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null; needsFeatureProps?: boolean; needsExtrude?: boolean }>
+  showSlices?: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null; needsFeatureProps?: boolean; needsExtrude?: boolean; featurePropKeys?: string[] }>
   /** Per-sliceKey stroke-width / colour override ASTs (compiler-
    *  synthesised by the layer-merge pass). */
   strokeWidthExprs?: Record<string, unknown>

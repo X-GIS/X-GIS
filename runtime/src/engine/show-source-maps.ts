@@ -12,8 +12,73 @@
 // loadAll → cameraFit → rebuildLayers) instead of 100 lines of
 // preamble.
 
+import { collectFieldsStrict, type LabelDef, type TextValue } from '@xgis/compiler'
 import { computeSliceKey } from '../data/eval/filter-eval'
 import type { ShowCommand } from './render/renderer'
+
+/** Collect ALL feature-property field names a LabelDef reads at runtime.
+ *
+ *  Four sources (label-pass.ts:343-407):
+ *    1. text (TextValue) — the text-field AST, one or more interp parts
+ *    2. iconImageExpr — data-driven icon-image (OFM POI subclass/class match)
+ *    3. shapes.size when data-driven — per-feature font-size expr
+ *    4. shapes.color when data-driven — per-feature text-color expr
+ *
+ *  Uses collectFieldsStrict (NOT collectFields) for every AST so that any
+ *  node kind we do not fully traverse (ConditionalExpr, MatchBlock arms,
+ *  ArrayLiteral, ArrayAccess, …) returns null rather than silently dropping
+ *  fields. A null from ANY of the four sources poisons the whole result →
+ *  caller falls back to full props for that slice (safe; labels/icons never
+ *  lose a field). Paint-safe: collectFields/walkExpr are NEVER called here. */
+function collectLabelFields(label: LabelDef | undefined): Set<string> | null {
+  if (!label) return new Set()
+  const acc = new Set<string>()
+
+  // ── 1. text (TextValue) ─────────────────────────────────────────────
+  const text = label.text
+  if (text.kind === 'expr') {
+    const r = collectFieldsStrict(text.expr.ast)
+    if (r === null) return null
+    for (const f of r) acc.add(f)
+  } else if (text.kind === 'template') {
+    for (const part of text.parts) {
+      if (part.kind === 'interp') {
+        const r = collectFieldsStrict(part.expr.ast)
+        if (r === null) return null
+        for (const f of r) acc.add(f)
+      }
+    }
+  } else {
+    // Unknown TextValue shape — bail to full props.
+    return null
+  }
+
+  // ── 2. iconImageExpr ────────────────────────────────────────────────
+  // Cast matches label-pass.ts:353 which reads iconImageExpr the same way.
+  const iconImageAst = (label as { iconImageExpr?: { ast?: unknown } }).iconImageExpr?.ast
+  if (iconImageAst !== undefined) {
+    const r = collectFieldsStrict(iconImageAst as import('@xgis/compiler').Expr)
+    if (r === null) return null
+    for (const f of r) acc.add(f)
+  }
+
+  // ── 3. shapes.size when data-driven ─────────────────────────────────
+  const shapes = label.shapes
+  if (shapes?.size.kind === 'data-driven') {
+    const r = collectFieldsStrict(shapes.size.expr.ast)
+    if (r === null) return null
+    for (const f of r) acc.add(f)
+  }
+
+  // ── 4. shapes.color when data-driven ────────────────────────────────
+  if (shapes?.color?.kind === 'data-driven') {
+    const r = collectFieldsStrict(shapes.color.expr.ast)
+    if (r === null) return null
+    for (const f of r) acc.add(f)
+  }
+
+  return acc
+}
 
 export interface ShowSourceMaps {
   /** Per-source set of MVT layer names actually consumed by xgis
@@ -55,6 +120,16 @@ export interface ShowSourceMaps {
     filterAst: unknown | null
     needsFeatureProps: boolean
     needsExtrude: boolean
+    /** Minimal set of feature-property keys any consumer on this slice
+     *  actually reads — the union of the data-driven variant's
+     *  `featureFields` and the label text-field's referenced fields.
+     *  Sorted for determinism. The MVT worker clones ONLY these keys
+     *  per feature instead of the whole properties Record, cutting the
+     *  worker→main structured-clone cost (309 ms/msg on Bright). An
+     *  EMPTY array is the safe fallback (an un-introspectable label AST,
+     *  or a literal-only label): the worker keeps the FULL props Record
+     *  so no consumer can lose a field it references. */
+    featurePropKeys: string[]
   }>>
 }
 
@@ -131,7 +206,14 @@ export function buildShowSourceMaps(shows: readonly ShowCommand[]): ShowSourceMa
     filterAst: unknown | null
     needsFeatureProps: boolean
     needsExtrude: boolean
+    featurePropKeys: string[]
   }>>()
+  // Per-slice union of used feature-property field names, tracked as a
+  // Set while merging shows that share a sliceKey. A null entry means
+  // "fall back to full props" (a label AST we couldn't introspect) and
+  // it's sticky — once any show on the slice forces full props, the
+  // whole slice keeps them so no consumer loses a field.
+  const fieldSetsBySlice = new Map<string, Set<string> | null>()
   for (const show of shows) {
     const layer = effectiveLayer(show)
     if (!layer) continue
@@ -150,12 +232,45 @@ export function buildShowSourceMaps(shows: readonly ShowCommand[]): ShowSourceMa
       || show.shaderVariant?.needsFeatureBuffer === true
     const ex = (show as { extrude?: { kind?: string } }).extrude
     const needsExtrude = !!ex && ex.kind !== 'none' && ex.kind !== undefined
+    // Compute the fields THIS show reads so the worker clones only those.
+    // Two sources: the data-driven variant's featureFields (the match /
+    // interpolate fields, only when it actually builds a feature buffer)
+    // and the label text-field AST. A null label-field result (unknown
+    // AST shape) poisons the slice to full props — labels never lose a
+    // field they reference.
+    const sliceFields = fieldSetsBySlice.get(sliceKey)
+    if (sliceFields !== null) {
+      const acc: Set<string> = sliceFields ?? new Set<string>()
+      if (show.shaderVariant?.needsFeatureBuffer === true) {
+        for (const f of show.shaderVariant.featureFields) acc.add(f)
+      }
+      if (show.label !== undefined) {
+        const labelFields = collectLabelFields(show.label)
+        if (labelFields === null) {
+          fieldSetsBySlice.set(sliceKey, null)
+        } else {
+          for (const f of labelFields) acc.add(f)
+          fieldSetsBySlice.set(sliceKey, acc)
+        }
+      } else {
+        fieldSetsBySlice.set(sliceKey, acc)
+      }
+    }
     const existing = list.find(s => s.sliceKey === sliceKey)
     if (existing) {
       if (needsFeatureProps) existing.needsFeatureProps = true
       if (needsExtrude) existing.needsExtrude = true
     } else {
-      list.push({ sliceKey, sourceLayer: layer, filterAst, needsFeatureProps, needsExtrude })
+      list.push({ sliceKey, sourceLayer: layer, filterAst, needsFeatureProps, needsExtrude, featurePropKeys: [] })
+    }
+  }
+  // Bake the accumulated field Sets into each slice's sorted
+  // featurePropKeys. A null Set → empty array (the worker treats an
+  // undefined/empty featurePropKeys as "no filtering — full props").
+  for (const list of showSlicesBySource.values()) {
+    for (const slice of list) {
+      const fields = fieldSetsBySlice.get(slice.sliceKey)
+      slice.featurePropKeys = fields ? [...fields].sort() : []
     }
   }
 

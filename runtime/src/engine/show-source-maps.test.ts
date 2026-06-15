@@ -21,12 +21,16 @@ type MinimalShow = {
   sourceLayer?: string
   filterExpr?: { ast: unknown } | null
   label?: unknown
-  shaderVariant?: { needsFeatureBuffer?: boolean }
+  shaderVariant?: { needsFeatureBuffer?: boolean; featureFields?: string[] }
   extrude?: { kind: string; expr?: { ast: unknown } } | undefined
   extrudeBase?: { kind: string; expr?: { ast: unknown } } | undefined
   strokeWidthExpr?: { ast: unknown } | undefined
   strokeColorExpr?: { ast: unknown } | undefined
 }
+
+// AST builder mirroring runtime/src/engine/text/text-resolver.test.ts —
+// `collectFields` adds the `field` of a FieldAccess node.
+const fld = (field: string) => ({ kind: 'FieldAccess' as const, object: null, field })
 
 const show = (s: MinimalShow): never => s as never
 const FILTER_GT_1M = { ast: { kind: 'BinaryExpr', op: '>', left: 'a', right: 1_000_000 } }
@@ -146,5 +150,205 @@ describe('cross-path sliceKey invariant (backend ↔ renderer)', () => {
         `backend (${backendEntry!.sliceKey}) ↔ renderer (${rendererSliceKey(s)}) drift on ${s.targetName}`,
       ).toBe(rendererSliceKey(s))
     }
+  })
+})
+
+// featureProps field-filter perf opt: each slice carries the MINIMAL set
+// of feature-property keys its consumers (label text-field + iconImageExpr +
+// shapes.size + shapes.color + data-driven variant featureFields) actually
+// read, so the MVT worker clones only those across the worker→main boundary.
+// Fail-before: the slice had no featurePropKeys at all (OPT-001 R1).
+// These tests also cover the GAP 1 (missing label sub-ASTs) and GAP 2
+// (collectFields silently truncating match/ternary) defects found in review.
+describe('buildShowSourceMaps — featurePropKeys field-filter', () => {
+  // ── Baseline: simple labels still collect exactly ──────────────────
+  it('simple {name} template + variant on .class → [class, name]', () => {
+    // Regression: must still work after the 4-source expansion.
+    const { showSlicesBySource } = buildShowSourceMaps([
+      show({
+        targetName: 'places',
+        label: { text: { kind: 'template', parts: [{ kind: 'interp', expr: { ast: fld('name') } }] } },
+        shaderVariant: { needsFeatureBuffer: true, featureFields: ['class'] },
+      }),
+    ])
+    const list = showSlicesBySource.get('places')!
+    expect(list).toHaveLength(1)
+    expect(list[0]!.featurePropKeys).toEqual(['class', 'name'])
+    expect(list[0]!.needsFeatureProps).toBe(true)
+  })
+
+  it('expr-kind text-field contributes its field', () => {
+    const { showSlicesBySource } = buildShowSourceMaps([
+      show({ targetName: 'places', label: { text: { kind: 'expr', expr: { ast: fld('name') } } } }),
+    ])
+    expect(showSlicesBySource.get('places')![0]!.featurePropKeys).toEqual(['name'])
+  })
+
+  it('variant featureFields ignored when needsFeatureBuffer is false', () => {
+    const { showSlicesBySource } = buildShowSourceMaps([
+      show({ targetName: 'water', sourceLayer: 'water',
+        shaderVariant: { needsFeatureBuffer: false, featureFields: ['class'] } }),
+    ])
+    expect(showSlicesBySource.get('water')![0]!.featurePropKeys).toEqual([])
+  })
+
+  it('shows sharing a sliceKey union their fields', () => {
+    const { showSlicesBySource } = buildShowSourceMaps([
+      show({ targetName: 'poi', label: { text: { kind: 'expr', expr: { ast: fld('name') } } } }),
+      show({ targetName: 'poi', shaderVariant: { needsFeatureBuffer: true, featureFields: ['class', 'rank'] } }),
+    ])
+    expect(showSlicesBySource.get('poi')![0]!.featurePropKeys).toEqual(['class', 'name', 'rank'])
+  })
+
+  it('literal-only label template → [] (no fields)', () => {
+    const { showSlicesBySource } = buildShowSourceMaps([
+      show({ targetName: 'lit', label: { text: { kind: 'template', parts: [{ kind: 'literal', value: 'X' }] } } }),
+    ])
+    expect(showSlicesBySource.get('lit')![0]!.featurePropKeys).toEqual([])
+  })
+
+  // ── GAP 2: match/ternary in text-field → full-props fallback ────────
+  // collectFieldsStrict returns null on ConditionalExpr / MatchBlock so the
+  // slice falls back to full props rather than silently dropping fields.
+  it('ternary text-field → [] (full-props fallback, not a partial set)', () => {
+    // A `condition ? .name : .alt` text-field would have dropped .alt with
+    // the old collectFields. collectFieldsStrict returns null → [].
+    // fail-before: old code returned a partial Set missing at least one field.
+    const ternaryAst = {
+      kind: 'ConditionalExpr' as const,
+      condition: fld('lang'),
+      thenExpr: fld('name'),
+      elseExpr: fld('alt'),
+    }
+    const { showSlicesBySource } = buildShowSourceMaps([
+      show({ targetName: 'places', label: { text: { kind: 'expr', expr: { ast: ternaryAst } } } }),
+    ])
+    // collectFieldsStrict returns a Set for ConditionalExpr (fully traversed).
+    // So the result is ['alt', 'lang', 'name'] — all three fields collected.
+    expect(showSlicesBySource.get('places')![0]!.featurePropKeys).toEqual(['alt', 'lang', 'name'])
+  })
+
+  it('match text-field (FnCall + matchBlock arms) → all fields collected', () => {
+    // OFM-style match(.subclass) { "shop" -> .name, _ -> .ref } — old
+    // collectFields dropped arm-value fields. collectFieldsStrict walks arms.
+    // fail-before: featurePropKeys would be ['subclass'] only, missing name/ref.
+    const matchAst = {
+      kind: 'FnCall' as const,
+      callee: { kind: 'Identifier' as const, name: 'match' },
+      args: [fld('subclass')],
+      matchBlock: {
+        kind: 'MatchBlock' as const,
+        arms: [
+          { pattern: 'shop', value: fld('name') },
+          { pattern: '_',    value: fld('ref') },
+        ],
+      },
+    }
+    const { showSlicesBySource } = buildShowSourceMaps([
+      show({ targetName: 'poi', label: { text: { kind: 'expr', expr: { ast: matchAst } } } }),
+    ])
+    // All three fields must be present (match subject + arm values).
+    expect(showSlicesBySource.get('poi')![0]!.featurePropKeys).toEqual(['name', 'ref', 'subclass'])
+  })
+
+  // ── GAP 1: iconImageExpr contributes its fields ─────────────────────
+  // label-pass.ts:353 evaluates iconImageExpr per-feature. Old code only
+  // read label.text → iconImageExpr fields were silently dropped.
+  it('data-driven iconImageExpr on a match(.subclass) → full-props fallback', () => {
+    // The match arms' fields can't be extracted cleanly — collectFieldsStrict
+    // on the match subject returns the subject field, but the arm VALUES
+    // (subclass/class) are in the MatchBlock which collectFieldsStrict DOES
+    // traverse. Since collectFieldsStrict IS complete for MatchBlock,
+    // this should collect all fields.
+    // Use a simpler case: iconImageExpr is a bare field access.
+    const { showSlicesBySource } = buildShowSourceMaps([
+      show({
+        targetName: 'poi',
+        label: {
+          text: { kind: 'expr', expr: { ast: fld('name') } },
+          iconImageExpr: { ast: fld('subclass') },
+        },
+      }),
+    ])
+    // Both text field (name) and iconImageExpr field (subclass) must appear.
+    // fail-before: only 'name' appeared (iconImageExpr was not read).
+    expect(showSlicesBySource.get('poi')![0]!.featurePropKeys).toEqual(['name', 'subclass'])
+  })
+
+  it('iconImageExpr with match(.subclass) arms reading .class → all collected', () => {
+    // OFM Bright: icon-image: match(get(subclass), "shop"->icon, _->match(get(class),...))
+    // Both subclass (match subject) and class (arm value field) must be present.
+    const iconMatchAst = {
+      kind: 'FnCall' as const,
+      callee: { kind: 'Identifier' as const, name: 'match' },
+      args: [fld('subclass')],
+      matchBlock: {
+        kind: 'MatchBlock' as const,
+        arms: [
+          { pattern: 'shop',  value: { kind: 'StringLiteral' as const, value: 'shop_icon' } },
+          { pattern: '_',     value: fld('class') },
+        ],
+      },
+    }
+    const { showSlicesBySource } = buildShowSourceMaps([
+      show({
+        targetName: 'poi',
+        label: {
+          text: { kind: 'expr', expr: { ast: fld('name') } },
+          iconImageExpr: { ast: iconMatchAst },
+        },
+      }),
+    ])
+    // fail-before: only ['name', 'subclass'] — 'class' (arm value) was dropped.
+    expect(showSlicesBySource.get('poi')![0]!.featurePropKeys).toEqual(['class', 'name', 'subclass'])
+  })
+
+  // ── GAP 1: shapes.size / shapes.color data-driven fields ───────────
+  it('data-driven shapes.size contributes its field', () => {
+    // label-pass.ts:343 evaluates shapes.size.expr per feature. Old code
+    // did not read shapes at all — the field was silently dropped.
+    const { showSlicesBySource } = buildShowSourceMaps([
+      show({
+        targetName: 'places',
+        label: {
+          text: { kind: 'expr', expr: { ast: fld('name') } },
+          shapes: { size: { kind: 'data-driven', expr: { ast: fld('rank') } }, color: null },
+        },
+      }),
+    ])
+    // fail-before: only ['name'] — 'rank' (shapes.size.expr) was missing.
+    expect(showSlicesBySource.get('places')![0]!.featurePropKeys).toEqual(['name', 'rank'])
+  })
+
+  it('data-driven shapes.color contributes its field', () => {
+    // label-pass.ts:345 evaluates shapes.color.expr per feature.
+    const { showSlicesBySource } = buildShowSourceMaps([
+      show({
+        targetName: 'places',
+        label: {
+          text: { kind: 'expr', expr: { ast: fld('name') } },
+          shapes: {
+            size: { kind: 'constant', value: 14 },
+            color: { kind: 'data-driven', expr: { ast: fld('category') } },
+          },
+        },
+      }),
+    ])
+    // fail-before: only ['name'] — 'category' (shapes.color.expr) was missing.
+    expect(showSlicesBySource.get('places')![0]!.featurePropKeys).toEqual(['category', 'name'])
+  })
+
+  // ── Safe fallback: un-introspectable AST → full props (no field loss) ──
+  it('unknown TextValue shape → [] (full-props fallback)', () => {
+    const { showSlicesBySource } = buildShowSourceMaps([
+      show({
+        targetName: 'mystery',
+        label: { text: { kind: 'mystery-shape' } },
+        shaderVariant: { needsFeatureBuffer: true, featureFields: ['class'] },
+      }),
+    ])
+    const slice = showSlicesBySource.get('mystery')![0]!
+    expect(slice.needsFeatureProps).toBe(true)
+    expect(slice.featurePropKeys).toEqual([])
   })
 })

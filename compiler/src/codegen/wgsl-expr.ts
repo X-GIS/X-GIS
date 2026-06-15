@@ -360,3 +360,101 @@ function walkExpr(expr: AST.Expr, fields: Set<string>): void {
       break
   }
 }
+
+/**
+ * Conservative field-name collector for runtime label/icon field-filter.
+ *
+ * Returns the Set of feature-property field names the expression reads,
+ * OR null if the expression contains ANY node kind this function does not
+ * fully traverse — ConditionalExpr, MatchBlock arms, ArrayLiteral,
+ * ArrayAccess, or anything unrecognised. A null result tells the caller
+ * "we can't guarantee completeness; fall back to full props" so labels
+ * and icons never silently lose a field they reference.
+ *
+ * PAINT-SAFE: this function is INDEPENDENT of collectFields/walkExpr.
+ * Do NOT change collectFields or walkExpr — the GPU feature-buffer layout
+ * depends on them and the variant drift gate checks their output. This
+ * function is exclusively for the runtime worker featureProps filter path.
+ *
+ * Node coverage (complete — returns Set):
+ *   NumberLiteral / StringLiteral / ColorLiteral / BoolLiteral — no fields
+ *   Identifier — adds name (except reserved 'zoom')
+ *   FieldAccess — adds field, recurses into object
+ *   BinaryExpr — recurses left + right
+ *   UnaryExpr — recurses operand
+ *   FnCall — recurses args + matchBlock arms (key+value both)
+ *   PipeExpr — recurses input + transform args
+ *   MatchBlock — recurses all arm values
+ *   ArrayLiteral — recurses all elements
+ *   ArrayAccess — recurses array + index
+ *   ConditionalExpr — recurses condition + thenExpr + elseExpr
+ *
+ * Returns null immediately on any unrecognised kind (defensive).
+ */
+export function collectFieldsStrict(expr: AST.Expr): Set<string> | null {
+  const fields = new Set<string>()
+  return walkStrict(expr, fields) ? fields : null
+}
+
+/** Returns false if it encounters any unrecognised node kind. */
+function walkStrict(expr: AST.Expr, fields: Set<string>): boolean {
+  switch (expr.kind) {
+    case 'NumberLiteral':
+    case 'StringLiteral':
+    case 'ColorLiteral':
+    case 'BoolLiteral':
+      return true
+    case 'Identifier':
+      if (expr.name !== 'zoom') fields.add(expr.name)
+      return true
+    case 'FieldAccess':
+      fields.add(expr.field)
+      return expr.object === null || walkStrict(expr.object, fields)
+    case 'BinaryExpr':
+      return walkStrict(expr.left, fields) && walkStrict(expr.right, fields)
+    case 'UnaryExpr':
+      return walkStrict(expr.operand, fields)
+    case 'FnCall': {
+      for (const a of expr.args) {
+        if (!walkStrict(a, fields)) return false
+      }
+      if (expr.matchBlock) {
+        if (!walkStrict(expr.matchBlock, fields)) return false
+      }
+      return true
+    }
+    case 'PipeExpr': {
+      if (!walkStrict(expr.input, fields)) return false
+      for (const t of expr.transforms) {
+        for (const a of t.args) {
+          if (!walkStrict(a, fields)) return false
+        }
+        if (t.matchBlock) {
+          if (!walkStrict(t.matchBlock, fields)) return false
+        }
+      }
+      return true
+    }
+    case 'MatchBlock': {
+      for (const arm of expr.arms) {
+        if (!walkStrict(arm.value, fields)) return false
+      }
+      return true
+    }
+    case 'ArrayLiteral': {
+      for (const el of expr.elements) {
+        if (!walkStrict(el, fields)) return false
+      }
+      return true
+    }
+    case 'ArrayAccess':
+      return walkStrict(expr.array, fields) && walkStrict(expr.index, fields)
+    case 'ConditionalExpr':
+      return walkStrict(expr.condition, fields)
+        && walkStrict(expr.thenExpr, fields)
+        && walkStrict(expr.elseExpr, fields)
+    default:
+      // Unrecognised node kind — bail conservatively.
+      return false
+  }
+}

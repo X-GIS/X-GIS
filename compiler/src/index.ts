@@ -30,6 +30,14 @@ export type { ShaderVariant } from './codegen/shader-gen'
 // PR 2e.B.1). `nodeToWgslString` stays the transient splice-point adapter
 // and retires in PR 2e.B.2.
 export { wgslRaw, type NodeLike } from './codegen/node-types'
+// Field-name extraction for an expression AST. Reused by the runtime's
+// show-source-maps to compute the minimal per-slice featureProps key set
+// (label text-field + data-driven paint fields) so the MVT worker clones
+// only the consumed properties across the worker→main boundary.
+// collectFields: GPU paint path — do NOT change; variant drift gate depends on it.
+// collectFieldsStrict: runtime label/icon filter path — conservative, returns
+//   null on any unrecognised node so callers fall back to full props safely.
+export { collectFields, collectFieldsStrict } from './codegen/wgsl-expr'
 export { nodeToWgslString } from './codegen/node-to-wgsl'
 export { collectPalette, emptyPalette } from './codegen/palette'
 export type { Palette, ColorGradient, ScalarGradient } from './codegen/palette'
