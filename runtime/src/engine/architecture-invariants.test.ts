@@ -180,6 +180,13 @@ const LOC_CEILINGS: Record<string, number> = {
   // Baselined here; shrink as the three builders converge (descriptor
   // factory) + comments distil.
   'runtime/src/engine/render/pipeline-factory.ts': 1193,
+  // GpuTileStore — VTR Cluster-A extraction (the resident-tile memory core:
+  // gpuCache + the three GPUArenas + byte-aware eviction + OOM forced eviction
+  // + deferred compaction/AUTO-GROW). Over the 800 cap because the verbatim
+  // arena lifecycle + its hard-won fix-history comments (#218 OOM, #288/#289
+  // relocation→bundle-invalidation, #366 mid-render-destroy UAF, US-003 grow)
+  // carry the LOC. Baselined here; decomposition is a tracked priority.
+  'runtime/src/engine/render/gpu-tile-store.ts': 870,
 }
 const NEW_FILE_CAP = 800
 

@@ -47,6 +47,12 @@ import type { GPUTile } from './vector-tile-renderer-types'
  *  direction and the "store holds no back-reference" discipline. */
 export type ReleaseTileHook = (handleKey: string) => void
 
+/** Round up to the 4-byte boundary — mirrors GPUArena's internal align4 so
+ *  the grow-target math matches what `alloc` will actually consume. */
+function align4(bytes: number): number {
+  return (bytes + 3) & ~3
+}
+
 export class GpuTileStore {
   private device: GPUDevice
 
@@ -126,6 +132,13 @@ export class GpuTileStore {
    *  both also address the high tile-fetch volume at pitch. */
   private polyVertexArena: GPUArena | null = null
   private static readonly POLY_VERTEX_ARENA_CAPACITY = 128 * 1024 * 1024
+  /** Hard ceiling for auto-grow of the VERTEX arena (US-003). On alloc-fail
+   *  with a genuinely over-capacity (eviction-PROTECTED) live set, the arena
+   *  grows toward this ceiling; AT the ceiling it degrades to the pre-grow
+   *  skip-and-warn (#218 behavior). 512MB absorbs extreme z17.9+ pitch
+   *  fill-extrusion (tiles 6–12MB each, ~80 visible) where a fixed 128MB
+   *  can't fit the protected live set, without unbounded VRAM growth. */
+  private static readonly POLY_VERTEX_ARENA_CEILING = 512 * 1024 * 1024
 
   /** Set true by `forceEvictBytes` when an alloc still cannot be served
    *  AFTER forced LRU eviction — i.e. the live set is fragmented (bump
@@ -135,6 +148,18 @@ export class GpuTileStore {
    *  window (NOT here, mid-render), so we only flag it; `runFrameMaintenance`
    *  drains the flag in the SAME safe window `evictToBudget` uses. */
   private _pendingArenaCompaction = false
+
+  /** Per-arena auto-grow target capacity in bytes (US-003), set by
+   *  `forceEvictBytes` when an alloc still can't be served AND the live set
+   *  genuinely exceeds the arena's CURRENT capacity (over-capacity, not mere
+   *  fragmentation) AND capacity is below the ceiling. 0 = no grow pending.
+   *  Drained in the post-submit safe window by `runFrameMaintenance` →
+   *  `_compactPolyArenas(…, vTarget, iTarget)`, which grows the arena by
+   *  relocating the live set into a LARGER buffer — same safe-window +
+   *  `_retiredArenaBuffers` deferral + bundle-invalidation as compaction.
+   *  Distinct from `_pendingArenaCompaction` (same-size defrag). */
+  private _pendingArenaGrowV = 0
+  private _pendingArenaGrowI = 0
 
   /** Old arena GPUBuffers retired by a compaction, awaiting destroy. A
    *  compaction swaps `arena.buffer` to a fresh packed buffer; the old
@@ -179,6 +204,9 @@ export class GpuTileStore {
    *  in. Phase 6a.5 will add auto-grow + cross-test reset. */
   private polyIndexArena: GPUArena | null = null
   private static readonly POLY_INDEX_ARENA_CAPACITY = 64 * 1024 * 1024
+  /** Hard ceiling for auto-grow of the INDEX arena (US-003). Indices are
+   *  ~1/4 the vertex byte volume, so 256MB mirrors the vertex headroom. */
+  private static readonly POLY_INDEX_ARENA_CEILING = 256 * 1024 * 1024
 
   private getOrCreatePolyIndexArena(): GPUArena {
     if (this.polyIndexArena === null) {
@@ -357,10 +385,13 @@ export class GpuTileStore {
     // force-create — a polygon-free source must not allocate 64 MB just
     // to be probed). Both getters are allocation-free O(1) field reads.
     const overCount = this._gpuCacheCount > getMaxGpuTiles()
+    // Use the arena's CURRENT capacity (not the static initial cap) so the
+    // trigger tracks an auto-grown arena — else a grown arena would re-trigger
+    // eviction the moment usedBytes passed 0.75× the OLD cap (over-eviction).
     const vHi = this.polyVertexArena !== null
-      && this.polyVertexArena.usedBytes >= GpuTileStore.POLY_VERTEX_ARENA_CAPACITY * ARENA_HIGH_WATER
+      && this.polyVertexArena.usedBytes >= this.polyVertexArena.capacityBytes * ARENA_HIGH_WATER
     const iHi = this.polyIndexArena !== null
-      && this.polyIndexArena.usedBytes >= GpuTileStore.POLY_INDEX_ARENA_CAPACITY * ARENA_HIGH_WATER
+      && this.polyIndexArena.usedBytes >= this.polyIndexArena.capacityBytes * ARENA_HIGH_WATER
     // Drain arena buffers retired by a PRIOR frame's compaction. A full
     // frame has elapsed since they were swapped out (their copy submit +
     // every render that referenced them has long drained), so destroying
@@ -390,9 +421,19 @@ export class GpuTileStore {
     // copyBufferToBuffer + old-buffer destroy can't poison an in-flight
     // submit. evictToBudget ran just above, so the live set is already as
     // small as protection allows before we repack it.
-    if (this._pendingArenaCompaction) {
+    // Deferred arena GROW (US-003) shares this same post-submit safe window
+    // and the same relocation primitive as compaction: forceEvictBytes flags
+    // a per-arena grow target when the live set genuinely exceeds capacity.
+    // A grow and a (fragmentation) compaction can both be pending — grow the
+    // flagged arena to its target, compact the other at its current capacity;
+    // one encoder/submit/invalidation covers both.
+    if (this._pendingArenaGrowV > 0 || this._pendingArenaGrowI > 0 || this._pendingArenaCompaction) {
+      const vTarget = this._pendingArenaGrowV > 0 ? this._pendingArenaGrowV : undefined
+      const iTarget = this._pendingArenaGrowI > 0 ? this._pendingArenaGrowI : undefined
       this._pendingArenaCompaction = false
-      return this._compactPolyArenas(uploadActive)
+      this._pendingArenaGrowV = 0
+      this._pendingArenaGrowI = 0
+      return this._compactPolyArenas(uploadActive, vTarget, iTarget)
     }
     return false
   }
@@ -414,9 +455,9 @@ export class GpuTileStore {
     const cap = getMaxGpuTiles()
     const underBytes = (): boolean => {
       const vLow = this.polyVertexArena === null
-        || this.polyVertexArena.liveUsedBytes <= GpuTileStore.POLY_VERTEX_ARENA_CAPACITY * ARENA_LOW_WATER
+        || this.polyVertexArena.liveUsedBytes <= this.polyVertexArena.capacityBytes * ARENA_LOW_WATER
       const iLow = this.polyIndexArena === null
-        || this.polyIndexArena.liveUsedBytes <= GpuTileStore.POLY_INDEX_ARENA_CAPACITY * ARENA_LOW_WATER
+        || this.polyIndexArena.liveUsedBytes <= this.polyIndexArena.capacityBytes * ARENA_LOW_WATER
       return vLow && iLow
     }
 
@@ -639,14 +680,35 @@ export class GpuTileStore {
     arena.reclaimIfDrained()
     const served = hasRoom()
     if (!served) {
-      // Eviction couldn't make room AND reclaim didn't fire (liveBytes > 0,
-      // i.e. the remaining live tiles are protected stableKeys). This is the
-      // FRAGMENTATION signature: bumpPtr is pinned near the cap by the
-      // monotonic bump pointer while the stranded free-list holds footprints
-      // that don't match this request. The bump can only fall via compaction
-      // — but the relocating copyBufferToBuffer must run in the post-submit
-      // safe window, never mid-render here. Flag it for beginFrame to drain.
-      this._pendingArenaCompaction = true
+      // Eviction + reclaim couldn't serve. Two distinct causes, each with its
+      // own remedy — both deferred to the post-submit safe window (the
+      // relocating copyBufferToBuffer must NEVER run mid-render here):
+      //   • OVER-CAPACITY: the live set itself (mostly protected stableKeys)
+      //     plus this request exceeds the arena's CURRENT capacity. No same-
+      //     size repack can help — the arena must GROW. (The user's extreme
+      //     z17.9+ pitch fill-extrusion: ~all visible building tiles are
+      //     protected, so the protected live set alone overflows 128MB.)
+      //   • FRAGMENTATION: liveBytes is small but the monotonic bumpPtr is
+      //     pinned near the cap by stranded mismatched free-list footprints.
+      //     A same-size COMPACTION repacks and relieves it.
+      const ceiling = arena === this.polyVertexArena
+        ? GpuTileStore.POLY_VERTEX_ARENA_CEILING
+        : GpuTileStore.POLY_INDEX_ARENA_CEILING
+      const overCapacity = arena.liveUsedBytes + align4(needed) > arena.capacityBytes
+      if (overCapacity && arena.capacityBytes < ceiling) {
+        // Grow target: fit live+needed, at least 1.5× current (amortizes
+        // repeated growth), capped at the ceiling.
+        const target = Math.min(
+          ceiling,
+          Math.max(Math.ceil(arena.capacityBytes * 1.5), align4(arena.liveUsedBytes + needed)),
+        )
+        if (arena === this.polyVertexArena) this._pendingArenaGrowV = target
+        else this._pendingArenaGrowI = target
+      } else {
+        // Fragmentation, OR already at the ceiling → graceful skip-and-warn
+        // (the pre-grow #218 behavior; the caller logs [VTR arena-oom]).
+        this._pendingArenaCompaction = true
+      }
     }
     return served
   }
@@ -663,8 +725,14 @@ export class GpuTileStore {
    *  is a synchronous JS loop with no await between swap and offset write).
    *  Returns `true` iff a relocation actually happened (arena buffers swapped
    *  + old buffers retired); `false` on any no-op / defer path so the caller
-   *  only invalidates render bundles when the buffer refs really moved. */
-  private _compactPolyArenas(uploadActive: () => boolean): boolean {
+   *  only invalidates render bundles when the buffer refs really moved.
+   *
+   *  `vTarget`/`iTarget` (US-003 auto-grow): when set, that arena is relocated
+   *  into a LARGER buffer of the target capacity instead of a same-size repack
+   *  — every other step (safe window, retired-buffer deferral, atomic offset
+   *  rewrite, bundle invalidation) is identical, which is why grow piggybacks
+   *  on this method. undefined = same-size defrag (the compaction case). */
+  private _compactPolyArenas(uploadActive: () => boolean, vTarget?: number, iTarget?: number): boolean {
     const vArena = this.polyVertexArena
     const iArena = this.polyIndexArena
     if (vArena === null && iArena === null) return false
@@ -681,7 +749,11 @@ export class GpuTileStore {
     // window is clear. (Mid-render sync doUploadTile cannot be in flight
     // here — beginFrame runs between frames, never inside a render call.)
     if (uploadActive()) {
-      this._pendingArenaCompaction = true
+      // Re-arm exactly what was requested so the next clear frame retries it
+      // (a grow target must not be downgraded to a same-size compaction).
+      if (vTarget !== undefined) this._pendingArenaGrowV = vTarget
+      if (iTarget !== undefined) this._pendingArenaGrowI = iTarget
+      if (vTarget === undefined && iTarget === undefined) this._pendingArenaCompaction = true
       return false
     }
 
@@ -712,9 +784,9 @@ export class GpuTileStore {
 
     // One encoder records ALL copies for both arenas; a single submit makes
     // the whole relocation atomic w.r.t. the GPU timeline.
-    const encoder = this.device.createCommandEncoder({ label: 'arena-compact' })
-    const vResult = vArena && vReloc ? vArena.compact(vReloc, encoder) : null
-    const iResult = iArena && iReloc ? iArena.compact(iReloc, encoder) : null
+    const encoder = this.device.createCommandEncoder({ label: 'arena-compact-grow' })
+    const vResult = vArena && vReloc ? vArena.compact(vReloc, encoder, vTarget) : null
+    const iResult = iArena && iReloc ? iArena.compact(iReloc, encoder, iTarget) : null
     this.device.queue.submit([encoder.finish()])
 
     // Rewrite tile records to the new offsets + new buffer reference. This

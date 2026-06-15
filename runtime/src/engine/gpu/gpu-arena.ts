@@ -28,10 +28,13 @@
 //   - **Defragmentation.** Free-list grows fragmentation over a
 //     long session. Initial implementation accepts this; Phase 6a.5
 //     adds compaction during idle frames OR on alloc-fail.
-//   - **Auto-grow.** Initial implementation throws on overflow
-//     (caller pre-sizes capacity for the expected steady-state).
-//     Phase 6a.5 adds `device.createBuffer` + `copyBufferToBuffer`
-//     growth.
+//   - **Auto-grow** (Phase 6a.5 — NOW SUPPORTED). `compact(relocations,
+//     encoder, targetCapacity)` relocates the live set into a LARGER
+//     buffer (same `copyBufferToBuffer` ping-pong as defrag, bigger
+//     destination), so the store can grow on alloc-fail when the live
+//     set genuinely exceeds capacity. The bare `alloc()` still throws on
+//     overflow; growth is driven by the store's forceEvictBytes →
+//     post-submit `runFrameMaintenance` path (never mid-render).
 //   - **GPU resource management beyond the single buffer.** Bind
 //     groups, pipelines, etc. stay at the VTR layer.
 //
@@ -157,7 +160,15 @@ export class GPUArena {
   get buffer(): GPUBuffer {
     return this._buffer
   }
-  readonly capacityBytes: number
+  /** Logical capacity in bytes. MUTABLE: `compact(…, targetCapacity)` can
+   *  grow it by relocating the live set into a larger buffer (Phase 6a.5
+   *  auto-grow). Exposed read-only via the getter; only `compact()` writes
+   *  it, synchronously with the buffer swap, so no frame observes a capacity
+   *  that disagrees with `this._buffer`. */
+  private _capacityBytes: number
+  get capacityBytes(): number {
+    return this._capacityBytes
+  }
   private bumpPtr = 0
   private liveBytes = 0
   private allocCount = 0
@@ -204,7 +215,7 @@ export class GPUArena {
       usage: opts.usage,
       label: opts.label,
     })
-    this.capacityBytes = opts.capacityBytes
+    this._capacityBytes = opts.capacityBytes
     this.device = device
     this.usage = opts.usage
     this.label = opts.label
@@ -366,13 +377,18 @@ export class GPUArena {
    *  caller rewrites each owning record's offset + `buffer` reference to
    *  it atomically with the swap so the NEXT frame's draws read the new
    *  buffer at the new offset. `relocations` MUST be exactly the live set
-   *  (every outstanding alloc) — any omitted live slot is dropped. */
+   *  (every outstanding alloc) — any omitted live slot is dropped.
+   *
+   *  `targetCapacity` (optional, defaults to the current capacity = a same-
+   *  size defrag) sizes the fresh destination buffer: pass a LARGER value to
+   *  AUTO-GROW. `capacityBytes` adopts it synchronously with the swap. */
   compact(
     relocations: readonly ArenaReloc[],
     encoder: GPUArenaEncoder,
+    targetCapacity: number = this._capacityBytes,
   ): ArenaCompactionResult {
     const newBuffer = this.device.createBuffer({
-      size: this.capacityBytes,
+      size: targetCapacity,
       usage: this.usage,
       label: this.label,
     })
@@ -393,6 +409,10 @@ export class GPUArena {
     }
     const oldBuffer = this._buffer
     this._buffer = newBuffer
+    // Adopt the new buffer's capacity (defaults to current = same-size
+    // defrag; larger = auto-grow). Written synchronously with the buffer
+    // swap so capacity and _buffer never disagree across a frame.
+    this._capacityBytes = targetCapacity
     // Reset bookkeeping to the packed state. bumpPtr falls from the
     // (near-capacity) high-water mark to the live total; the stranded
     // free-list is gone. allocCount/freeCount/reuseHits stay monotonic
