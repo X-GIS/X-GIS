@@ -132,12 +132,7 @@ const LOC_CEILINGS: Record<string, number> = {
   // source edges coincident with a tile boundary (the lon ±180 dateline
   // splits Natural Earth bakes) so the polygon outline stops stroking a
   // full-height seam line in every world copy. Real-GPU-bisect-confirmed.
-  // Bumped 1551→1582 for the inter-tile fill-overlap seam fix: the widened
-  // clip rect + lockstep boundary-lock predicate + widened full-cover area
-  // basis, at both the batch and single-tile clip sites, plus the shared
-  // FILL_TILE_OVERLAP_FRAC const. Real-GPU before/after confirmed (background
-  // hairline between same-layer fill tiles on the globe).
-  'compiler/src/tiler/vector-tiler.ts': 1582,
+  'compiler/src/tiler/vector-tiler.ts': 1551,
   'runtime/src/engine/render/renderer.ts': 915,
   'compiler/src/convert/layers.ts': 1539,
   // Bumped 1534→1574 for the arithmetic-arity fix (expr-arith-coalesce): the
@@ -148,10 +143,7 @@ const LOC_CEILINGS: Record<string, number> = {
   // prewarm-pump _skeletonTimer/_stopped fields + destroy() cancel method, and
   // the hoisted evict-shield sweep, are irreducible (two real leaks). Catalog
   // decomposition remains a tracked priority.
-  // Bumped 1417→1425 for the inter-tile fill-overlap seam fix: createFullCover
-  // TileData widens the synthesized quad by FILL_TILE_OVERLAP_FRAC (anchor kept
-  // at the exact SW corner). Catalog decomposition remains a tracked priority.
-  'runtime/src/data/tile-catalog.ts': 1425,
+  'runtime/src/data/tile-catalog.ts': 1417,
   // Bumped 1354→1356 for the undo-correctness fixes: tryConnect skipRecord param + insertReroute selEdge clear (two irreducible statements).
   // Bumped 1356→1370 for the deserialization guard (#353): sanitizeGraph() drops unknown node types + dangling edges at the load/paste/restore trust boundary.
   'blueprint/src/editor.ts': 1370,

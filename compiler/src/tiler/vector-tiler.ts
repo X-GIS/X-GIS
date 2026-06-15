@@ -308,18 +308,6 @@ function vertexKey(x: number, y: number, fid: number): string {
 // wedge artifact and stay consistent with the MM-throughout pipeline; a
 // future quality pass could swap in geodesic midpoints for high-latitude
 // polygons spanning >10° if needed.
-/** Inter-tile fill overlap, as a fraction of tile span per side. Adjacent
- *  same-layer fill tiles otherwise abut at an exact shared edge that 4× MSAA
- *  renders as a background-bleed hairline (visible on the globe, worse toward
- *  the limb / under pitch, where projection curvature widens the inter-tile
- *  gap). geojsonvt ships a 25% buffer for exactly this, but the per-tile clip
- *  discards it, so we re-introduce a symmetric overlap on the FILL (only). 5%
- *  clears the glancing-angle limb seams that 2% leaves faintly visible (real-
- *  GPU tuned); the extreme-grazing horizon pixel is hemisphere-cull territory.
- *  Safe at any magnitude: the clipped ring stays bounded by the real polygon;
- *  the full-cover quad spills the same colour under a neighbour that draws atop. */
-export const FILL_TILE_OVERLAP_FRAC = 0.05
-
 const MAX_TRI_DEGREES_FOR_PROJ = 2
 const MAX_TRI_SUBDIVIDE_DEPTH = 5
 
@@ -1037,12 +1025,6 @@ function processZoomLevelShared(
       // Mercator space to match generateSubTile's Mercator-space clipper).
       const [tbMxW, tbMyS] = lonLatToMercF64(tb.west, tb.south)
       const [tbMxE, tbMyN] = lonLatToMercF64(tb.east, tb.north)
-      // Widened clip rect (fill overlap) — see FILL_TILE_OVERLAP_FRAC. Fill +
-      // boundary-lock + full-cover detection use these; outline stays exact.
-      const ovX = (tbMxE - tbMxW) * FILL_TILE_OVERLAP_FRAC
-      const ovY = (tbMyN - tbMyS) * FILL_TILE_OVERLAP_FRAC
-      const clipW = tbMxW - ovX, clipE = tbMxE + ovX
-      const clipS = tbMyS - ovY, clipN = tbMyN + ovY
 
       scratch.pv.length = 0; scratch.pi.length = 0
       scratch.lv.length = 0; scratch.li.length = 0
@@ -1055,12 +1037,9 @@ function processZoomLevelShared(
       // simplification. Single MM predicate — polygons + lines + outlines
       // now all clip/simplify in MM (docs/COORDINATES.md).
       const MERC_EPS = 1.0
-      // Lock against the WIDENED edges (lockstep with the clip below) so the
-      // overlap margin survives simplification — locking the exact edges would
-      // let simplify pull the fill back in and re-open the seam.
       const isOnBoundaryMerc = (c: number[]) =>
-        Math.abs(c[0] - clipW) < MERC_EPS || Math.abs(c[0] - clipE) < MERC_EPS ||
-        Math.abs(c[1] - clipS) < MERC_EPS || Math.abs(c[1] - clipN) < MERC_EPS
+        Math.abs(c[0] - tbMxW) < MERC_EPS || Math.abs(c[0] - tbMxE) < MERC_EPS ||
+        Math.abs(c[1] - tbMyS) < MERC_EPS || Math.abs(c[1] - tbMyN) < MERC_EPS
 
       // Track clipped rings for full-cover detection + ring storage
       let tileClippedRings: number[][][] = []
@@ -1080,7 +1059,7 @@ function processZoomLevelShared(
           // path runs: clip → simplify → tessellate all in MM. Both
           // fill and outline share the same clipped ring set, so their
           // endpoints agree by construction.
-          const clipped = clipPolygonToRect(sp.rings, clipW, clipS, clipE, clipN, precisionForZoomMM(z))
+          const clipped = clipPolygonToRect(sp.rings, tbMxW, tbMyS, tbMxE, tbMyN, precisionForZoomMM(z))
           if (clipped.length > 0 && clipped[0].length >= 3) {
             tileClippedRings.push(...clipped)
             tilePolyFeatureIds.add(fid)
@@ -1204,8 +1183,7 @@ function processZoomLevelShared(
       let fullCover = false
       let fullCoverFeatId = -1
       if (tilePolyFeatureIds.size === 1 && tileClippedRings.length === 1) {
-        // Widened basis: a true full-cover ring now fills the WIDENED rect.
-        const tileArea = (clipE - clipW) * (clipN - clipS)
+        const tileArea = (tbMxE - tbMxW) * (tbMyN - tbMyS)
         const polyArea = Math.abs(shoelaceArea(tileClippedRings[0]))
         if (Math.abs(polyArea - tileArea) / tileArea < 1e-6) {
           fullCover = true
@@ -1301,21 +1279,13 @@ export function compileSingleTile(
   // and tessellation happens in MM per docs/COORDINATES.md.
   const [stMxW, stMyS] = lonLatToMercF64(tb.west, tb.south)
   const [stMxE, stMyN] = lonLatToMercF64(tb.east, tb.north)
-  // Widened clip rect (fill overlap) — see FILL_TILE_OVERLAP_FRAC. Fill +
-  // boundary-lock + full-cover detection use these; outline stays exact.
-  const ovX = (stMxE - stMxW) * FILL_TILE_OVERLAP_FRAC
-  const ovY = (stMyN - stMyS) * FILL_TILE_OVERLAP_FRAC
-  const clipW = stMxW - ovX, clipE = stMxE + ovX
-  const clipS = stMyS - ovY, clipN = stMyN + ovY
   const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[], ptv: [] as number[], olv: [] as number[], oli: [] as number[] }
   const featureIds = new Set<number>()
   const dedupMap = new Map<string, number>()
   const MERC_EPS = 1.0 // 1 meter tolerance for tile-boundary detection
-  // Lock against the WIDENED edges (lockstep with the clip) so the overlap
-  // margin survives simplification — see the matching note in the batch path.
   const isOnBoundaryMerc = (c: number[]) =>
-    Math.abs(c[0] - clipW) < MERC_EPS || Math.abs(c[0] - clipE) < MERC_EPS ||
-    Math.abs(c[1] - clipS) < MERC_EPS || Math.abs(c[1] - clipN) < MERC_EPS
+    Math.abs(c[0] - stMxW) < MERC_EPS || Math.abs(c[0] - stMxE) < MERC_EPS ||
+    Math.abs(c[1] - stMyS) < MERC_EPS || Math.abs(c[1] - stMyN) < MERC_EPS
   const tilePolygons: { rings: number[][][]; featId: number }[] = []
 
   for (const part of parts) {
@@ -1332,7 +1302,7 @@ export function compileSingleTile(
       // (decomposeFeatures time). Hot path is clip → simplify →
       // tessellate all in MM. Fill and outline share the same clipped
       // ring set so endpoints agree by construction.
-      const clipped = clipPolygonToRect(part.rings, clipW, clipS, clipE, clipN, precisionMM)
+      const clipped = clipPolygonToRect(part.rings, stMxW, stMyS, stMxE, stMyN, precisionMM)
       if (clipped.length > 0 && clipped[0].length >= 3) {
         const dataRings = z < maxZoom ? simplifyPolygon(clipped, z, isOnBoundaryMerc, mercatorToleranceForZoom(z)) : clipped
         // Repair self-intersecting OUTER ring only — but only when an
@@ -1441,8 +1411,7 @@ export function compileSingleTile(
   let fullCoverFeatId = -1
   if (tilePolygons.length === 1 && tilePolygons[0].rings.length === 1) {
     const ring = tilePolygons[0].rings[0]
-    // Widened basis: a true full-cover ring now fills the WIDENED rect.
-    const tileArea = (clipE - clipW) * (clipN - clipS)
+    const tileArea = (stMxE - stMxW) * (stMyN - stMyS)
     const polyArea = Math.abs(shoelaceArea(ring))
     if (tileArea > 0 && Math.abs(polyArea - tileArea) / tileArea < 1e-6) {
       fullCover = true
