@@ -13,8 +13,13 @@
 // counter). Side effects + decision live in different functions; the
 // decision is unit-testable with mock caches.
 
-import { tileKeyChildren, tileKeyParent } from '@xgis/compiler'
+import { tileKey, tileKeyChildren, tileKeyParent } from '@xgis/compiler'
 import type { TileCoord } from '../data/tile-select'
+import { visibleTilesFrustum, visibleTilesFrustumSampled, makeTileCoord } from '../data/tile-select'
+import type { Camera } from './projection/camera'
+import { type Projection, mercatorYToLat } from './projection/projection'
+import { routeToSphereSelector } from './gpu/gpu-shared'
+import { globeVisibleTiles } from './projection/globe'
 
 /** What to do with a visible tile this frame. Tagged union so the
  *  TypeScript exhaustiveness check covers every branch — adding a new
@@ -495,4 +500,108 @@ export function collectSiblingPrefetchKeys(
     }
   }
   return [...out]
+}
+
+/** Tier-2 zoom-direction prefetch tile-key set.
+ *
+ *  When the camera is mid-zoom toward an integer boundary, this builds
+ *  the *next* LOD's visible tile keys so the caller can request them in
+ *  the background (GPU-resident before `currentZ` advances). Direction
+ *  is mutually exclusive per instant:
+ *    * Zoom-in:   cameraZoom > currentZ + 0.5 → prefetch z=currentZ+1
+ *    * Zoom-out:  cameraZoom < currentZ       → prefetch z=currentZ-1
+ *  Returns `[]` when neither fires (stable zoom / clamped at the LOD
+ *  range ends) or when no candidate tile is uncached.
+ *
+ *  Mirrors the main selector's routing so the prefetch set matches what
+ *  the render path will ask for: centre-relative projections (azimuthal
+ *  family, oblique, globe) route through `globeVisibleTiles`; the
+ *  cylindrical ones use the projection-aware flat frustum selectors
+ *  (sampled below pitch 30, exact at/above). `isCached` is the caller's
+ *  slice-cache predicate (already-loading keys are KEPT in the set so
+ *  the catalog's prefetch shield survives across rounds — the caller's
+ *  predicate decides what counts as cached).
+ *
+ *  Pure: testable in isolation. The caller is responsible for the
+ *  `TileCatalog.prefetchTiles` side effect and the per-frame throttle.
+ *
+ *  `camera` is the LIVE Camera instance — the flat frustum selectors
+ *  call its `getRTCMatrix` / `unprojectToZ0` methods and read matrix /
+ *  cap state beyond the scalar snapshot, so it is passed straight
+ *  through (byte-identical to the inline render() block). The scalar
+ *  `cameraZoom` / `centerX` / `centerY` / `pitch` / `bearing` /
+ *  `projType` / `globeMode` fields drive the direction thresholds, the
+ *  routing decision, and the `globeVisibleTiles` lon/lat path. */
+export function computeZoomDirectionPrefetchKeys(input: {
+  camera: Camera
+  cameraZoom: number
+  currentZ: number
+  maxSubTileZ: number
+  projType: number
+  globeMode: boolean
+  centerX: number
+  centerY: number
+  pitch: number
+  bearing: number
+  canvasWidth: number
+  canvasHeight: number
+  dpr: number
+  selectorProj: Projection
+  offsetMarginPx: number
+  isCached: (k: number) => boolean
+}): number[] {
+  const {
+    camera, cameraZoom, currentZ, maxSubTileZ, projType, globeMode,
+    centerX, centerY, pitch, bearing,
+    canvasWidth, canvasHeight, dpr, selectorProj, offsetMarginPx, isCached,
+  } = input
+  let prefetchZ = -1
+  if (cameraZoom > currentZ + 0.5 && currentZ + 1 <= maxSubTileZ) {
+    prefetchZ = currentZ + 1
+  } else if (cameraZoom < currentZ && currentZ - 1 >= 0) {
+    prefetchZ = currentZ - 1
+  }
+  if (prefetchZ < 0) return []
+  // Mirror the main selector's routing so the prefetch tile set matches
+  // what the render path will ask for: the centre-relative projections
+  // (azimuthal family, oblique, globe) go through globeVisibleTiles; the
+  // cylindrical ones use the projection-aware flat selectors. Otherwise
+  // prefetch loads doomed-to-be-unused tiles into the GPU.
+  const prefetchTiles = routeToSphereSelector(projType, globeMode)
+    ? (() => {
+        const R = 6378137
+        const lonPF = centerX / R * (180 / Math.PI)
+        const latPF = mercatorYToLat(centerY)
+        const cssWPF = canvasWidth / dpr
+        const cssHPF = canvasHeight / dpr
+        return globeVisibleTiles(
+          lonPF, latPF, cameraZoom, prefetchZ, cssWPF, cssHPF,
+          pitch, bearing,
+        ).map(t => makeTileCoord(t.z, t.x, t.y, 0))
+      })()
+    : pitch < 30
+    ? visibleTilesFrustumSampled(
+        camera, selectorProj, prefetchZ,
+        canvasWidth, canvasHeight, offsetMarginPx, dpr,
+      )
+    : visibleTilesFrustum(
+        camera, selectorProj, prefetchZ,
+        canvasWidth, canvasHeight, offsetMarginPx, dpr,
+      )
+  const prefetchKeys: number[] = []
+  for (const t of prefetchTiles) {
+    const k = tileKey(t.z, t.x, t.y)
+    // Skip already-loaded keys; KEEP already-loading ones in the
+    // intent set so catalog's _prefetchKeys protection covers
+    // them across cancelStale calls. catalog.requestTiles
+    // dedupes loadingTiles internally, so passing duplicates is
+    // free. Without the in-flight keys here, the second
+    // prefetch round (6 frames later) would yield an empty
+    // array → catalog's age-out clears the shield → next frame
+    // aborts the still-in-flight prefetch.
+    if (!isCached(k)) {
+      prefetchKeys.push(k)
+    }
+  }
+  return prefetchKeys
 }

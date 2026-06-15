@@ -103,7 +103,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // per-tile fill loop resolves the feature bind group to null (not a lying `!`)
   // and skips the fill draw when absent — binding null with a dynamic offset
   // invalidated the whole encoder (black screen on non-mercator projections).
-  'runtime/src/engine/render/vector-tile-renderer.ts': 3955,
+  // Lowered 3955→3923 for the Tier-2 zoom-direction prefetch extraction: the
+  // tile-set math moved VERBATIM to tile-decision.computeZoomDirectionPrefetchKeys
+  // (pure, unit-tested), leaving only the guard + prefetchTiles side-effect inline
+  // (byte-identical execution order). Five now-unused imports also dropped.
+  'runtime/src/engine/render/vector-tile-renderer.ts': 3923,
   // Bumped 3361→3393 for the destroy()-completeness fix: cancelling the
   // EventDispatcher move-rAF + the pending-flush rAF, clearing _pendingPatches,
   // and removing the run()-installed window globals (__xgisReady/snapshot/
