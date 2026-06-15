@@ -159,7 +159,7 @@ const LOC_CEILINGS: Record<string, number> = {
   // with a never-drop fallback chain (hole[0] → centroid → any vertex →
   // largest sub-outer). Net +26 after collapsing the two inline loops; the
   // helper is shared by both sites so it can't fold into either.
-  'compiler/src/tiler/vector-tiler.ts': 1577,
+  'compiler/src/tiler/vector-tiler.ts': 1570,
   'runtime/src/engine/render/renderer.ts': 915,
   // Lowered 776→254: extracted the text-layout family (text-anchor /
   // variable-anchor[-offset] / transform / offset / translate / radial-offset /

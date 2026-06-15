@@ -208,30 +208,23 @@ function pointInRing(x: number, y: number, ring: number[][]): boolean {
  *  `hole[0]` (the old behaviour) SILENTLY DROPPED a hole whose first
  *  vertex landed in a concavity between sub-outers or in a region the
  *  split cut away — the fill then painted over the cutout. This never
- *  drops a real hole: it falls back from hole[0] to the hole's centroid,
- *  then to any other hole vertex, and finally to the largest-area
- *  sub-outer so every surviving hole lands in exactly one bucket. */
+ *  drops a real hole: it scans EVERY hole vertex (a hole interior to a
+ *  sub-outer always has an interior vertex, and a point cannot be strictly
+ *  interior to two disjoint-interior sub-outers, so the first hit is the
+ *  correct bucket), then falls back to the largest-area sub-outer so every
+ *  surviving hole lands in exactly one bucket. (The centroid is deliberately
+ *  NOT probed: a non-convex hole's centroid can fall outside its own ring —
+ *  inside a NEIGHBOURING sub-outer — and mis-bucket; vertices cannot.) */
 function assignHoleBucket(hole: number[][], effectiveOuters: number[][][]): number {
-  // 1. hole[0] (covers the overwhelmingly common in-one-sub-outer case).
-  for (let si = 0; si < effectiveOuters.length; si++) {
-    if (pointInRing(hole[0]![0]!, hole[0]![1]!, effectiveOuters[si]!)) return si
-  }
-  // 2. Centroid — robust when hole[0] sits in a concavity but the hole's
-  //    body is squarely inside a sub-outer.
-  let cx = 0, cy = 0
-  for (const v of hole) { cx += v[0]!; cy += v[1]! }
-  cx /= hole.length; cy /= hole.length
-  for (let si = 0; si < effectiveOuters.length; si++) {
-    if (pointInRing(cx, cy, effectiveOuters[si]!)) return si
-  }
-  // 3. Any other hole vertex — handles a non-convex hole whose centroid
-  //    falls outside its own ring.
-  for (let vi = 1; vi < hole.length; vi++) {
+  // 1. Every hole vertex (hole[0] first = the common in-one-sub-outer case).
+  //    Each probe point is ON the hole's own ring, so it is interior to the
+  //    hole's true container and to no other sub-outer.
+  for (let vi = 0; vi < hole.length; vi++) {
     for (let si = 0; si < effectiveOuters.length; si++) {
       if (pointInRing(hole[vi]![0]!, hole[vi]![1]!, effectiveOuters[si]!)) return si
     }
   }
-  // 4. Last resort — the largest sub-outer. A clipped hole that matches no
+  // 2. Last resort — the largest sub-outer. A clipped hole that matches no
   //    sub-outer by point test still belongs to the feature; bucketing it
   //    here keeps it in the ring set (earcut handles a hole that pokes
   //    slightly past the outer) instead of erasing the cutout entirely.
