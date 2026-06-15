@@ -138,7 +138,7 @@ const LOC_CEILINGS: Record<string, number> = {
   // full-height seam line in every world copy. Real-GPU-bisect-confirmed.
   'compiler/src/tiler/vector-tiler.ts': 1551,
   'runtime/src/engine/render/renderer.ts': 915,
-  'compiler/src/convert/layers.ts': 1539,
+  'compiler/src/convert/layers.ts': 776,
   // Bumped 1534→1574 for the arithmetic-arity fix (expr-arith-coalesce): the
   // variadic +/*, unary/binary -, and exact-2 //% forms each need a distinct
   // branch (was one over-strict shared comparison branch). Irreducible.
