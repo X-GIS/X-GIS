@@ -43,9 +43,17 @@ jobs:
       # unaffected.
       # NOTE: `--silent=true` (explicit value) — bare `--silent <path>` makes
       # vitest's CLI parser eat the path filter as the flag's value.
+      # RE-TUNED 2026-06-16: the R8 bug-hunt + decomposition test files pushed
+      # BOTH ~130 shards to 156 files; render+projection+text flaked the RPC
+      # timeout again (PR #384 run 27581620678 — 'Timeout calling onTaskUpdate').
+      # Split runtime into FOUR path-invocations, each <110 files (render 72 /
+      # projection+text 84 / engine-rest 92 / non-engine 64 = 312, a clean
+      # partition of runtime/src), each a fresh worker pool under the threshold.
       - run: ./node_modules/.bin/vitest run --silent=true compiler/src blueprint/src
-      - run: ./node_modules/.bin/vitest run --silent=true runtime/src/engine/render runtime/src/engine/projection runtime/src/engine/text
-      - run: ./node_modules/.bin/vitest run --silent=true runtime/src --exclude "runtime/src/engine/render/**" --exclude "runtime/src/engine/projection/**" --exclude "runtime/src/engine/text/**"
+      - run: ./node_modules/.bin/vitest run --silent=true runtime/src/engine/render
+      - run: ./node_modules/.bin/vitest run --silent=true runtime/src/engine/projection runtime/src/engine/text
+      - run: ./node_modules/.bin/vitest run --silent=true runtime/src/engine --exclude "runtime/src/engine/render/**" --exclude "runtime/src/engine/projection/**" --exclude "runtime/src/engine/text/**"
+      - run: ./node_modules/.bin/vitest run --silent=true runtime/src --exclude "runtime/src/engine/**"
 
   # Render-behavior gate: the unit suite above NEVER executes a shader
   # (deep-dive 2026-05-25 finding #1). This job runs the SHADER-MATH gate
