@@ -99,7 +99,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // classifyTile call site passes a hasNonEmptySliceInCatalog predicate so a
   // single-layer GeoJSON empty placeholder classifies as drop-empty instead of
   // being forced into a parent-fallback (+10 lines, irreducible inline closure).
-  'runtime/src/engine/render/vector-tile-renderer.ts': 3948,
+  // Bumped 3948→3955 for the match()-variant null-feature-bg crash fix: the
+  // per-tile fill loop resolves the feature bind group to null (not a lying `!`)
+  // and skips the fill draw when absent — binding null with a dynamic offset
+  // invalidated the whole encoder (black screen on non-mercator projections).
+  'runtime/src/engine/render/vector-tile-renderer.ts': 3955,
   // Bumped 3361→3393 for the destroy()-completeness fix: cancelling the
   // EventDispatcher move-rAF + the pending-flush rAF, clearing _pendingPatches,
   // and removing the run()-installed window globals (__xgisReady/snapshot/

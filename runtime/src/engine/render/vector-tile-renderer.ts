@@ -3756,9 +3756,13 @@ export class VectorTileRenderer {
       // global-PropertyTable bind group; using it for MVT would index
       // a different (zero-filled) buffer and silently mis-route every
       // feature to the variant shader's fallback arm.
-      const currentTileBg = fillBindGroupLayout === this._bindGroups.baseLayout()
+      // Feature-layout fill: per-tile (MVT) or source-level (GeoJSON) feature bg.
+      // Either can be transiently null (e.g. a frame after a projection switch);
+      // binding null with a dynamic offset corrupts the whole encoder (every
+      // later draw + finish() fail → black screen) → resolve null, skip below.
+      const currentTileBg: GPUBindGroup | null = fillBindGroupLayout === this._bindGroups.baseLayout()
         ? this._bindGroups.baseGroup()!
-        : (cached.featureBindGroup ?? this._bindGroups.featureGroup()!)
+        : (cached.featureBindGroup ?? this._bindGroups.featureGroup() ?? null)
       // Stage the slot into the CPU-side mirror instead of issuing one
       // writeBuffer per tile; the mirror is flushed in a single call at
       // the end of this renderTileKeys invocation.
@@ -3877,10 +3881,13 @@ export class VectorTileRenderer {
         // GPURenderBundleEncoder accepts. Encapsulating them lets a
         // future iter (iter-217) route through a bundle encoder
         // without re-tracing the conditionals.
-        this.recordTileFill(
-          pass, activePipe, currentTileBg, slotOffset, cached,
-          /* bindZBuffer */ useOitPipe || useExtrudedPipe,
-        )
+        // Skip if feature bg not ready — never bind null (see note above).
+        if (currentTileBg) {
+          this.recordTileFill(
+            pass, activePipe, currentTileBg, slotOffset, cached,
+            /* bindZBuffer */ useOitPipe || useExtrudedPipe,
+          )
+        }
       }
 
       // Strokes (polygon outlines + line features) deferred to a
