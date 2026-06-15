@@ -19,7 +19,7 @@ import {
   TILE_FLAG_FULL_COVER,
   tileKey, tileKeyUnpack,
   lonLatToMercF64,
-  packECEFPolygonVertices, tileEcefCenterFromMerc, FILL_TILE_OVERLAP_FRAC,
+  packECEFPolygonVertices, tileEcefCenterFromMerc,
   type XGVTIndex, type TileIndexEntry,
   type PropertyTable, type RingPolygon,
   type CompiledTileSet, type TileLevel,
@@ -1067,20 +1067,10 @@ export class TileCatalog {
     // this emitted a stride-5 tile-local DSFUN quad with no abs_lon/abs_lat, so
     // the fill VS mis-decoded position and the per-fragment clip_bounds discard
     // was inert — an over-zoom full-cover parent flooded the viewport.
-    // Fill overlap (FILL_TILE_OVERLAP_FRAC) — widen the synthesized quad so
-    // full-cover tiles overlap their neighbours instead of abutting at an exact
-    // edge that 4× MSAA renders as a background-bleed hairline. Anchor stays at
-    // the EXACT SW corner so the DSFUN round-trip is unchanged.
-    const [swMx0, swMy0] = lonLatToMercF64(tileWest, tileSouth)
-    const [neMx0, neMy0] = lonLatToMercF64(tileEast, tileNorth)
-    const ovX = (neMx0 - swMx0) * FILL_TILE_OVERLAP_FRAC
-    const ovY = (neMy0 - swMy0) * FILL_TILE_OVERLAP_FRAC
-    const wMx = swMx0 - ovX, eMx = neMx0 + ovX
-    const sMy = swMy0 - ovY, nMy = neMy0 + ovY
-    const swMx = wMx, swMy = sMy
-    const seMx = eMx, seMy = sMy
-    const neMx = eMx, neMy = nMy
-    const nwMx = wMx, nwMy = nMy
+    const [swMx, swMy] = lonLatToMercF64(tileWest, tileSouth)
+    const [seMx, seMy] = lonLatToMercF64(tileEast, tileSouth)
+    const [neMx, neMy] = lonLatToMercF64(tileEast, tileNorth)
+    const [nwMx, nwMy] = lonLatToMercF64(tileWest, tileNorth)
 
     const scratchPv = [
       swMx, swMy, fid,  // corner 0 (SW)
@@ -1088,7 +1078,7 @@ export class TileCatalog {
       neMx, neMy, fid,  // corner 2 (NE)
       nwMx, nwMy, fid,  // corner 3 (NW)
     ]
-    const quant = packECEFPolygonVertices(scratchPv, tileEcefCenterFromMerc(swMx0, swMy0))
+    const quant = packECEFPolygonVertices(scratchPv, tileEcefCenterFromMerc(swMx, swMy))
     const vertices = quant.vertices
     const indices = new Uint32Array([0, 1, 2, 0, 2, 3])
 
