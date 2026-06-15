@@ -7,6 +7,18 @@ import type {
   FlatLine, GeoJSONVTOptions, InternalTile, ProjectedFeature, TileFeature, TileGeometryType,
 } from './types'
 
+// #360 F2 — world zooms render at FULL FIDELITY (no Douglas-Peucker
+// simplification). At z<=3 the per-zoom tolerance below is large enough to
+// straighten the world-ocean ring's narrow inlets (Gibraltar→Mediterranean,
+// Black Sea, Caspian, Guinea coast) and the sub-85° Arctic — the ring chord
+// cuts across the inlet mouth, dropping the enclosed sea, which then renders
+// clear/BLACK (an oracle data-faithfulness violation; confirmed real-GPU +
+// raw point-in-polygon + tolerance bisect, 2026-06-15). The vertex-count cost
+// at world zoom is trivial (single-digit-thousands worldwide); z>=4 keep the
+// zoom-scaled tolerance (byte-identical), maxZoom was already 0. This is an
+// intentional divergence from upstream geojson-vt at low zoom.
+const LOW_ZOOM_NO_SIMPLIFY = 3
+
 export function createTile(
   features: ProjectedFeature[],
   z: number,
@@ -14,7 +26,9 @@ export function createTile(
   ty: number,
   options: GeoJSONVTOptions,
 ): InternalTile {
-  const tolerance = z === options.maxZoom ? 0 : options.tolerance / ((1 << z) * options.extent)
+  const tolerance = (z === options.maxZoom || z <= LOW_ZOOM_NO_SIMPLIFY)
+    ? 0
+    : options.tolerance / ((1 << z) * options.extent)
   const tile: InternalTile = {
     features: [],
     numPoints: 0,
