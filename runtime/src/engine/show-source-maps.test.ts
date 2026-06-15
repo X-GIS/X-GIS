@@ -31,6 +31,13 @@ type MinimalShow = {
 // AST builder mirroring runtime/src/engine/text/text-resolver.test.ts —
 // `collectFields` adds the `field` of a FieldAccess node.
 const fld = (field: string) => ({ kind: 'FieldAccess' as const, object: null, field })
+// `get("name:latin")` builtin call — the form the Mapbox converter emits for
+// colon-bearing keys that the `.field` syntax cannot lex (mapbox-to-xgis).
+const getStr = (field: string) => ({
+  kind: 'FnCall' as const,
+  callee: { kind: 'Identifier' as const, name: 'get' },
+  args: [{ kind: 'StringLiteral' as const, value: field }],
+})
 
 const show = (s: MinimalShow): never => s as never
 const FILTER_GT_1M = { ast: { kind: 'BinaryExpr', op: '>', left: 'a', right: 1_000_000 } }
@@ -301,6 +308,50 @@ describe('buildShowSourceMaps — featurePropKeys field-filter', () => {
     ])
     // fail-before: only ['name', 'subclass'] — 'class' (arm value) was dropped.
     expect(showSlicesBySource.get('poi')![0]!.featurePropKeys).toEqual(['class', 'name', 'subclass'])
+  })
+
+  // ── GAP 3: get("colon-field") builtin call (the #375 OFM regression) ─
+  // The converter emits get("name:latin") (FnCall) for colon keys the
+  // `.field` syntax can't lex; collectFieldsStrict must read the StringLiteral
+  // arg or the field is silently dropped from the transfer filter.
+  it('get("name:latin") text-field → [name:latin] (colon field via builtin call)', () => {
+    // fail-before: collectFieldsStrict returned [] (FnCall arg-recursion saw a
+    // StringLiteral and added nothing) → OFM non-latin labels lost their text.
+    const { showSlicesBySource } = buildShowSourceMaps([
+      show({ targetName: 'place', label: { text: { kind: 'expr', expr: { ast: getStr('name:latin') } } } }),
+    ])
+    expect(showSlicesBySource.get('place')![0]!.featurePropKeys).toEqual(['name:latin'])
+  })
+
+  it('OFM Bright place label expr → all 4 name fields collected', () => {
+    // get("name:nonlatin") != null ? concat(get("name:latin"),get("name:nonlatin")) : .name_en ?? .name
+    // The two colon fields are get()-calls; name_en/name are FieldAccess. All
+    // four must survive the filter or non-latin places render the wrong/blank
+    // name. fail-before: only ['name', 'name_en'] (the FieldAccess ones).
+    const ofmText = {
+      kind: 'ConditionalExpr' as const,
+      condition: { kind: 'BinaryExpr' as const, op: '!=', left: getStr('name:nonlatin'), right: { kind: 'Identifier' as const, name: 'null' } },
+      thenExpr: { kind: 'FnCall' as const, callee: { kind: 'Identifier' as const, name: 'concat' }, args: [getStr('name:latin'), getStr('name:nonlatin')] },
+      elseExpr: { kind: 'BinaryExpr' as const, op: '??', left: fld('name_en'), right: fld('name') },
+    }
+    const { showSlicesBySource } = buildShowSourceMaps([
+      show({ targetName: 'place', label: { text: { kind: 'expr', expr: { ast: ofmText } } } }),
+    ])
+    expect(showSlicesBySource.get('place')![0]!.featurePropKeys).toEqual(['name', 'name:latin', 'name:nonlatin', 'name_en'])
+  })
+
+  it('dynamic get(<non-literal>) → full-props fallback ([])', () => {
+    // get(concat("name:", get("lang"))) — the accessed key is unknowable
+    // statically, so the slice must keep full props rather than drop a field.
+    const dynGet = {
+      kind: 'FnCall' as const,
+      callee: { kind: 'Identifier' as const, name: 'get' },
+      args: [{ kind: 'FnCall' as const, callee: { kind: 'Identifier' as const, name: 'concat' }, args: [{ kind: 'StringLiteral' as const, value: 'name:' }, getStr('lang')] }],
+    }
+    const { showSlicesBySource } = buildShowSourceMaps([
+      show({ targetName: 'place', label: { text: { kind: 'expr', expr: { ast: dynGet } } } }),
+    ])
+    expect(showSlicesBySource.get('place')![0]!.featurePropKeys).toEqual([])
   })
 
   // ── GAP 1: shapes.size / shapes.color data-driven fields ───────────

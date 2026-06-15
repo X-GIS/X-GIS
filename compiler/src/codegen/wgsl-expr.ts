@@ -405,7 +405,9 @@ function walkStrict(expr: AST.Expr, fields: Set<string>): boolean {
     case 'BoolLiteral':
       return true
     case 'Identifier':
-      if (expr.name !== 'zoom') fields.add(expr.name)
+      // 'zoom' is the camera builtin; null/true/false are keyword literals
+      // (the grammar has no Null/Bool-as-Identifier node) — none is a field.
+      if (expr.name !== 'zoom' && expr.name !== 'null' && expr.name !== 'true' && expr.name !== 'false') fields.add(expr.name)
       return true
     case 'FieldAccess':
       fields.add(expr.field)
@@ -415,6 +417,22 @@ function walkStrict(expr: AST.Expr, fields: Set<string>): boolean {
     case 'UnaryExpr':
       return walkStrict(expr.operand, fields)
     case 'FnCall': {
+      // get("field") is an evaluator builtin (eval/evaluator.ts:260) that reads
+      // a feature property BY NAME — the converter emits this form for colon-
+      // bearing keys (e.g. name:latin / name:nonlatin) that the `.field`
+      // FieldAccess syntax cannot lex. The key lives in a StringLiteral arg,
+      // NOT a FieldAccess, so the generic arg-recursion below would miss it,
+      // silently dropping the field from the per-slice featureProps filter
+      // (broke OFM Bright non-latin labels, #375 follow-up). `has` is handled
+      // defensively: the converter lowers has(...) to `.field != null` /
+      // get(...) != null today, but a direct has("k") reads the same key.
+      if (expr.callee.kind === 'Identifier' && (expr.callee.name === 'get' || expr.callee.name === 'has')) {
+        const a0 = expr.args[0]
+        if (a0 && a0.kind === 'StringLiteral') { fields.add(a0.value); return true }
+        // Dynamic key (e.g. get(concat("name:", get("lang")))) — the accessed
+        // field is unknowable statically; bail so the slice keeps full props.
+        return false
+      }
       for (const a of expr.args) {
         if (!walkStrict(a, fields)) return false
       }
