@@ -255,7 +255,7 @@ export class MvtWorkerPool {
     layers?: string[],
     extrudeExprs?: Record<string, unknown>,
     extrudeBaseExprs?: Record<string, unknown>,
-    showSlices?: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null; needsFeatureProps?: boolean; needsExtrude?: boolean }>,
+    showSlices?: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null; needsFeatureProps?: boolean; needsExtrude?: boolean; featurePropKeys?: string[] }>,
     strokeWidthExprs?: Record<string, unknown>,
     strokeColorExprs?: Record<string, unknown>,
   ): Promise<MvtCompileSlice[]> {

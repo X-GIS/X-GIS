@@ -61,7 +61,7 @@ export interface PMTilesBackendOptions {
    *  instead of one slice per source layer — eliminating the
    *  redundant draws when N xgis layers share one MVT layer with
    *  different filters. See `filter-eval.ts` for the contract. */
-  showSlices?: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null; needsFeatureProps?: boolean; needsExtrude?: boolean }>
+  showSlices?: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null; needsFeatureProps?: boolean; needsExtrude?: boolean; featurePropKeys?: string[] }>
   /** Per-sliceKey stroke-width override AST. The worker uses it to
    *  bake per-feature widths into the slice's line segment buffer so
    *  the line shader picks each feature's width without re-uploading

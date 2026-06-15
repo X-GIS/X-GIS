@@ -54,7 +54,7 @@ export class PMTilesBackend implements TileSource {
   private layers: string[] | undefined
   private extrudeExprs: Record<string, unknown> | undefined
   private extrudeBaseExprs: Record<string, unknown> | undefined
-  private showSlices: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null; needsFeatureProps?: boolean; needsExtrude?: boolean }> | undefined
+  private showSlices: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null; needsFeatureProps?: boolean; needsExtrude?: boolean; featurePropKeys?: string[] }> | undefined
   private strokeWidthExprs: Record<string, unknown> | undefined
   private strokeColorExprs: Record<string, unknown> | undefined
   private sink: TileSourceSink | null = null
