@@ -1123,7 +1123,15 @@ export class TextStage {
     for (const p of this.pendingLine) {
       const glyphs = this.host.ensureString(p.fontKey, p.text)
       if (glyphs.length === 0) continue
-      const sizePx = p.def.size * dpr
+      // Mirror the point-loop CJK display-size floor (~:716): a dense Han
+      // glyph minified from the 24-px atlas to the low-zoom size renders as
+      // a solid box. Curved/line labels were missing this floor, so CJK road
+      // labels boxed out at low zoom. Everything downstream (verticalOffset,
+      // halfH, letterSpacing, advances) derives from sizePx → single site.
+      const rawSizePx = p.def.size * dpr
+      const sizePx = hasCjkIdeograph(p.text)
+        ? Math.max(rawSizePx, CJK_MIN_DISPLAY_PX * dpr)
+        : rawSizePx
       // Same per-font override path as the point-label branch above —
       // see the comment there for rationale. Curve labels reuse the
       // same letter-spacing semantics (extra em between adjacent

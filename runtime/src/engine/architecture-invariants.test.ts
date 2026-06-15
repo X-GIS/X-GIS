@@ -107,7 +107,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // tile-set math moved VERBATIM to tile-decision.computeZoomDirectionPrefetchKeys
   // (pure, unit-tested), leaving only the guard + prefetchTiles side-effect inline
   // (byte-identical execution order). Five now-unused imports also dropped.
-  'runtime/src/engine/render/vector-tile-renderer.ts': 3923,
+  // Bumped 3923→3929 for the fill/line-pattern atlas-UV clobber fix (slots 19/23):
+  // the two unconditional uf[19]/uf[23] writes split into _patternUniformActive /
+  // _linePatternActiveForShow guarded writes + the 6-line rationale comment — the
+  // shader reads those slots as the pattern v1, so the guard is irreducible.
+  'runtime/src/engine/render/vector-tile-renderer.ts': 3929,
   // Bumped 3361→3393 for the destroy()-completeness fix: cancelling the
   // EventDispatcher move-rAF + the pending-flush rAF, clearing _pendingPatches,
   // and removing the run()-installed window globals (__xgisReady/snapshot/
@@ -129,7 +133,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // thick outline straddled + ate the fill edge at CENTER; default fill+stroke
   // layers to inset (1 expr + 4 trimmed comment lines, irreducible behavior).
   'compiler/src/ir/lower.ts': 1348,
-  'runtime/src/engine/text/text-stage.ts': 1441,
+  // Bumped 1441→1449 for the CJK display-size floor on CURVED/line labels: the
+  // point-loop floor (hasCjkIdeograph → Math.max(size, CJK_MIN_DISPLAY_PX*dpr))
+  // mirrored onto the curved loop so dense Han road labels stop boxing out at
+  // low zoom (1 raw→floored expr + the 5-line parity rationale, irreducible).
+  'runtime/src/engine/text/text-stage.ts': 1449,
   // Bumped 1509→1517 for the GeometryCollection decompose fix (RFC 7946
   // §3.1.8): decomposeFeatures' per-type switch is wrapped in an inner
   // recursive helper so a GeometryCollection member-decomposes under the
