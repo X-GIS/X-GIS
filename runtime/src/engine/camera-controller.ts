@@ -172,7 +172,10 @@ export class CameraController {
     // from the SOUTH lat, maxY from the NORTH lat.
     const [minX, minY] = mercator.forward(w, s)
     const [maxX, maxY] = mercator.forward(e, n)
-    this.camera.setMaxBoundsMerc({ minX, maxX, minY, maxY })
+    // Carry the TRUE north/south latitudes alongside the (Mercator-saturated)
+    // metre box: the sphere family clamps centerLatDeg against these so a
+    // maxBounds past ±85.05 doesn't pin the globe centre below the pole.
+    this.camera.setMaxBoundsMerc({ minX, maxX, minY, maxY, northLat: n, southLat: s })
     // Immediately clamp current center inside the new bounds.
     const state = this.getCameraState()
     const lon = state.center[0]

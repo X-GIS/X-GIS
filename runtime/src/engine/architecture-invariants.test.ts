@@ -111,7 +111,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // the two unconditional uf[19]/uf[23] writes split into _patternUniformActive /
   // _linePatternActiveForShow guarded writes + the 6-line rationale comment — the
   // shader reads those slots as the pattern v1, so the guard is irreducible.
-  'runtime/src/engine/render/vector-tile-renderer.ts': 3929,
+  // Bumped 3929→3959 for BUG D4 (cancelStaleUploads byte-accounting leak): the
+  // _releasePrebuiltSegments helper + its two drop-path call sites (queued +
+  // held) null prebuiltLineSegments/prebuiltOutlineSegments on dropped uploads
+  // whose TileData stays cached, keeping sizeOfTileData's segment-omission
+  // invariant true so the byte-cap eviction stops under-firing. Shared helper.
+  'runtime/src/engine/render/vector-tile-renderer.ts': 3959,
   // Bumped 3361→3393 for the destroy()-completeness fix: cancelling the
   // EventDispatcher move-rAF + the pending-flush rAF, clearing _pendingPatches,
   // and removing the run()-installed window globals (__xgisReady/snapshot/
@@ -148,7 +153,13 @@ const LOC_CEILINGS: Record<string, number> = {
   // source edges coincident with a tile boundary (the lon ±180 dateline
   // splits Natural Earth bakes) so the polygon outline stops stroking a
   // full-height seam line in every world copy. Real-GPU-bisect-confirmed.
-  'compiler/src/tiler/vector-tiler.ts': 1551,
+  // Bumped 1551→1577 for BUG T4 (hole-distribution drop): the
+  // assignHoleBucket helper replaces the fragile single-vertex test in
+  // BOTH boundary-split hole-distribution loops (tileLevel + compileSingleTile)
+  // with a never-drop fallback chain (hole[0] → centroid → any vertex →
+  // largest sub-outer). Net +26 after collapsing the two inline loops; the
+  // helper is shared by both sites so it can't fold into either.
+  'compiler/src/tiler/vector-tiler.ts': 1570,
   'runtime/src/engine/render/renderer.ts': 915,
   // Lowered 776→254: extracted the text-layout family (text-anchor /
   // variable-anchor[-offset] / transform / offset / translate / radial-offset /
@@ -188,7 +199,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 1067→1092 for the minZoom + setMaxBounds gesture-clamp correctness
   // fixes (#244/#248): the maxBounds clamp method + its 7 gesture-exit call
   // sites are irreducible. camera.ts decomposition remains a tracked priority.
-  'runtime/src/engine/projection/camera.ts': 1092,
+  // Bumped 1092→1108 for BUG P4 (sphere-family maxBounds pole-reach): the
+  // clampCenterToBounds sphere branch clamps centerLatDeg against the bbox's
+  // TRUE latitudes (carried as northLat/southLat on _maxBoundsMerc) instead of
+  // re-syncing from the Mercator-saturated centerY, so a maxBounds past ±85.05
+  // no longer pins the globe centre below the pole. Cylindrical path unchanged.
+  'runtime/src/engine/projection/camera.ts': 1108,
   // Bumped 1065→1067 for the curved-text early-return perf-mark balance fix:
   // the `total < spacingPx*0.5` curved branch was missing the two matching
   // perfMarkEnd('…line.emit')/('…line.polyline') calls its sibling returns
