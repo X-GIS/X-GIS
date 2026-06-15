@@ -200,7 +200,7 @@ describe('computeZoomDirectionPrefetchKeys — byte-faithful extraction of the V
     expect(got.length).toBeGreaterThan(0)
   })
 
-  it('non-mercator flat selectorProj (equirectangular) zoom-in: matches inline', () => {
+  it('non-mercator flat selectorProj (equirectangular) zoom-in: matches inline + non-empty', () => {
     // projType 1 (equirectangular) is flat → flat-selector route with a
     // non-trivial selectorProj, the same getProjection(...) render() builds.
     const cam = makeCam(8.7, 0, false)
@@ -208,6 +208,7 @@ describe('computeZoomDirectionPrefetchKeys — byte-faithful extraction of the V
     const selectorProj = getProjection('equirectangular', cam.centerX / 6378137 * (180 / Math.PI), 37)
     const { ref, got } = bothPaths({ camera: cam, currentZ: 8, selectorProj })
     expect(got).toEqual(ref)
+    expect(got.length).toBeGreaterThan(0)
   })
 
   it('respects isCached: already-cached keys are skipped identically on both paths', () => {
