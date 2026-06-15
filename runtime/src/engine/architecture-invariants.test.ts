@@ -142,7 +142,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 1534→1574 for the arithmetic-arity fix (expr-arith-coalesce): the
   // variadic +/*, unary/binary -, and exact-2 //% forms each need a distinct
   // branch (was one over-strict shared comparison branch). Irreducible.
-  'compiler/src/convert/expressions.ts': 1574,
+  // Lowered 1574→1071: extracted the interpolate family → expr-interpolate.ts
+  // and the match family (convertMatch + matchToTernary + matchToBooleanFilter)
+  // → expr-match.ts (behavior-preserving, byte-identical fixture SHA gate).
+  'compiler/src/convert/expressions.ts': 1071,
   // Bumped 1388→1417 for the tile-catalog lifecycle fixes (BUG 11/13): the
   // prewarm-pump _skeletonTimer/_stopped fields + destroy() cancel method, and
   // the hoisted evict-shield sweep, are irreducible (two real leaks). Catalog
