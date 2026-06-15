@@ -138,7 +138,20 @@ const LOC_CEILINGS: Record<string, number> = {
   // full-height seam line in every world copy. Real-GPU-bisect-confirmed.
   'compiler/src/tiler/vector-tiler.ts': 1551,
   'runtime/src/engine/render/renderer.ts': 915,
-  'compiler/src/convert/layers.ts': 776,
+  // Lowered 776→254: extracted the text-layout family (text-anchor /
+  // variable-anchor[-offset] / transform / offset / translate / radial-offset /
+  // collision / rotate / letter-spacing / max-width / line-height / justify /
+  // font / symbol-placement / rotation+pitch-alignment / symbol-spacing /
+  // keep-upright) → convertTextLayoutProperties in layers-symbol.ts (the U6
+  // sub-pass; behavior-preserving, byte-identical fixture SHA gate).
+  'compiler/src/convert/layers.ts': 254,
+  // layers-symbol.ts — the symbol-converter sub-pass module (text-paint / icon /
+  // gap + the U6 text-layout family extracted from layers.ts). Over the 800 cap
+  // because the lifted passes carry their hard-won v8-strict literal-unwrap +
+  // enum-validation + clamp regression-guard comments VERBATIM (kept intact so
+  // the byte-identical fixture SHA gate holds). It's a cohesive sub-converter,
+  // not a god-file; baselined here, shrink as the comments distil.
+  'compiler/src/convert/layers-symbol.ts': 1052,
   // Bumped 1534→1574 for the arithmetic-arity fix (expr-arith-coalesce): the
   // variadic +/*, unary/binary -, and exact-2 //% forms each need a distinct
   // branch (was one over-strict shared comparison branch). Irreducible.
