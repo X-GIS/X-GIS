@@ -10,12 +10,10 @@ import type { ShowCommand } from './renderer'
 import { variantProducesFill } from './renderer-helpers'
 import { xlog } from '../log'
 import type { ResolvedShow } from './resolved-show'
-import { visibleTilesFrustum, visibleTilesFrustumSampled, makeTileCoord } from '../../data/tile-select'
 import { structuralHashKey } from '../_cache/structural-key'
 import type { BundleKeyState } from '../_cache/bundle-cache-key'
-import { globeVisibleTiles } from '../projection/globe'
 import {
-  classifyTile, computeProtectedKeys,
+  classifyTile, computeProtectedKeys, computeZoomDirectionPrefetchKeys,
   type TileDecision,
 } from '../tile-decision'
 import { PrefetchScheduler } from './prefetch-scheduler'
@@ -28,18 +26,18 @@ import { BindGroupRegistry } from './bind-group-registry'
 import {
   generateWallMeshExtrudedECEF,
 } from '../../core/polygon-mesh'
-import { tileKey, tileKeyParent, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
+import { tileKeyParent, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
 import { StagingBufferPool, asyncWriteBuffer } from '../gpu/staging-buffer-pool'
 import { GPUArena } from '../gpu/gpu-arena'
 import { BundleCache, type BundleEncodeDescriptor } from './bundle-cache'
 import { isPickEnabled, getSampleCount } from '../gpu/gpu'
-import { WORLD_MERC, TILE_PX, routeToSphereSelector } from '../gpu/gpu-shared'
+import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 import { PriorityQueue, PriorityQueueItemRemovedError } from '../../core/priority-queue'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog } from '../../data/tile-catalog'
 import type { TileData } from '../../data/tile-types'
 import { computeSliceKey } from '../../data/eval/filter-eval'
-import { mercator as mercatorProj, getProjection, type Projection, mercatorYToLat } from '../projection/projection'
+import { mercator as mercatorProj, getProjection, type Projection } from '../projection/projection'
 import { SELECTOR_PROJ_NAMES } from '../projection/projections-table'
 import type { PointRenderer } from './point-renderer'
 import { buildLineSegments, type LineRenderer } from './line-renderer'
@@ -3250,59 +3248,29 @@ export class VectorTileRenderer {
     // doesn't need per-frame freshness because the camera typically
     // moves slowly relative to the rAF cadence.
     if (cameraIdle && this.frameCount % 6 === 0) {
-      let prefetchZ = -1
-      if (camera.zoom > currentZ + 0.5 && currentZ + 1 <= maxSubTileZ) {
-        prefetchZ = currentZ + 1
-      } else if (camera.zoom < currentZ && currentZ - 1 >= 0) {
-        prefetchZ = currentZ - 1
-      }
-      if (prefetchZ >= 0) {
-        // Mirror the main selector's routing so the prefetch tile set
-        // matches what the render path will ask for: the centre-relative
-        // projections (azimuthal family, oblique, globe) go through
-        // globeVisibleTiles; the cylindrical ones use the projection-
-        // aware flat selectors. Otherwise prefetch loads doomed-to-be-
-        // unused tiles into the GPU.
-        const projTypePF = (camera as { projType?: number }).projType ?? 0
-        const prefetchTiles = routeToSphereSelector(projTypePF, camera.globeMode)
-          ? (() => {
-              const R = 6378137
-              const lonPF = camera.centerX / R * (180 / Math.PI)
-              const latPF = mercatorYToLat(camera.centerY)
-              const cssWPF = canvasWidth / dpr
-              const cssHPF = canvasHeight / dpr
-              return globeVisibleTiles(
-                lonPF, latPF, camera.zoom, prefetchZ, cssWPF, cssHPF,
-                camera.pitch ?? 0, camera.bearing ?? 0,
-              ).map(t => makeTileCoord(t.z, t.x, t.y, 0))
-            })()
-          : (camera.pitch ?? 0) < 30
-          ? visibleTilesFrustumSampled(
-              camera, selectorProj, prefetchZ,
-              canvasWidth, canvasHeight, offsetMarginPx, dpr,
-            )
-          : visibleTilesFrustum(
-              camera, selectorProj, prefetchZ,
-              canvasWidth, canvasHeight, offsetMarginPx, dpr,
-            )
-        const prefetchKeys: number[] = []
-        for (const t of prefetchTiles) {
-          const k = tileKey(t.z, t.x, t.y)
-          // Skip already-loaded keys; KEEP already-loading ones in the
-          // intent set so catalog's _prefetchKeys protection covers
-          // them across cancelStale calls. catalog.requestTiles
-          // dedupes loadingTiles internally, so passing duplicates is
-          // free. Without the in-flight keys here, the second
-          // prefetch round (6 frames later) would yield an empty
-          // array → catalog's age-out clears the shield → next frame
-          // aborts the still-in-flight prefetch.
-          if (!sliceCached(k)) {
-            prefetchKeys.push(k)
-          }
-        }
-        if (prefetchKeys.length > 0) {
-          this.source.prefetchTiles(prefetchKeys)
-        }
+      // Tile-set math extracted to tile-decision.computeZoomDirectionPrefetchKeys
+      // (pure, unit-tested). Guard + prefetchTiles side-effect stay inline so
+      // execution order/throttle is byte-identical to the prior inline block.
+      const prefetchKeys = computeZoomDirectionPrefetchKeys({
+        camera,
+        cameraZoom: camera.zoom,
+        currentZ,
+        maxSubTileZ,
+        projType: (camera as { projType?: number }).projType ?? 0,
+        globeMode: camera.globeMode,
+        centerX: camera.centerX,
+        centerY: camera.centerY,
+        pitch: camera.pitch ?? 0,
+        bearing: camera.bearing ?? 0,
+        canvasWidth,
+        canvasHeight,
+        dpr,
+        selectorProj,
+        offsetMarginPx,
+        isCached: sliceCached,
+      })
+      if (prefetchKeys.length > 0) {
+        this.source.prefetchTiles(prefetchKeys)
       }
     }
 
