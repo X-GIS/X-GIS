@@ -203,6 +203,46 @@ function pointInRing(x: number, y: number, ring: number[][]): boolean {
   return inside
 }
 
+/** Pick the sub-outer that owns a hole after `splitBoundaryBacktracks`
+ *  fragmented the outer ring into `effectiveOuters`. Testing only
+ *  `hole[0]` (the old behaviour) SILENTLY DROPPED a hole whose first
+ *  vertex landed in a concavity between sub-outers or in a region the
+ *  split cut away — the fill then painted over the cutout. This never
+ *  drops a real hole: it falls back from hole[0] to the hole's centroid,
+ *  then to any other hole vertex, and finally to the largest-area
+ *  sub-outer so every surviving hole lands in exactly one bucket. */
+function assignHoleBucket(hole: number[][], effectiveOuters: number[][][]): number {
+  // 1. hole[0] (covers the overwhelmingly common in-one-sub-outer case).
+  for (let si = 0; si < effectiveOuters.length; si++) {
+    if (pointInRing(hole[0]![0]!, hole[0]![1]!, effectiveOuters[si]!)) return si
+  }
+  // 2. Centroid — robust when hole[0] sits in a concavity but the hole's
+  //    body is squarely inside a sub-outer.
+  let cx = 0, cy = 0
+  for (const v of hole) { cx += v[0]!; cy += v[1]! }
+  cx /= hole.length; cy /= hole.length
+  for (let si = 0; si < effectiveOuters.length; si++) {
+    if (pointInRing(cx, cy, effectiveOuters[si]!)) return si
+  }
+  // 3. Any other hole vertex — handles a non-convex hole whose centroid
+  //    falls outside its own ring.
+  for (let vi = 1; vi < hole.length; vi++) {
+    for (let si = 0; si < effectiveOuters.length; si++) {
+      if (pointInRing(hole[vi]![0]!, hole[vi]![1]!, effectiveOuters[si]!)) return si
+    }
+  }
+  // 4. Last resort — the largest sub-outer. A clipped hole that matches no
+  //    sub-outer by point test still belongs to the feature; bucketing it
+  //    here keeps it in the ring set (earcut handles a hole that pokes
+  //    slightly past the outer) instead of erasing the cutout entirely.
+  let largest = 0, largestArea = -1
+  for (let si = 0; si < effectiveOuters.length; si++) {
+    const a = Math.abs(shoelaceArea(effectiveOuters[si]!))
+    if (a > largestArea) { largestArea = a; largest = si }
+  }
+  return largest
+}
+
 // ═══ Tile Math ═══
 
 function tileBounds(z: number, x: number, y: number): { west: number; south: number; east: number; north: number } {
@@ -1104,14 +1144,7 @@ function processZoomLevelShared(
                   // sub-outer gets only the holes that fall inside it.
                   const subHoles: number[][][][] = effectiveOuters.map(() => [])
                   for (const hole of holes) {
-                    const px = hole[0]![0]!
-                    const py = hole[0]![1]!
-                    for (let si = 0; si < effectiveOuters.length; si++) {
-                      if (pointInRing(px, py, effectiveOuters[si]!)) {
-                        subHoles[si]!.push(hole)
-                        break
-                      }
-                    }
+                    subHoles[assignHoleBucket(hole, effectiveOuters)]!.push(hole)
                   }
                   const allRingsForFeature: number[][][] = []
                   for (let si = 0; si < effectiveOuters.length; si++) {
@@ -1328,14 +1361,7 @@ export function compileSingleTile(
             } else {
               const subHoles: number[][][][] = effectiveOuters.map(() => [])
               for (const hole of holes) {
-                const px = hole[0]![0]!
-                const py = hole[0]![1]!
-                for (let si = 0; si < effectiveOuters.length; si++) {
-                  if (pointInRing(px, py, effectiveOuters[si]!)) {
-                    subHoles[si]!.push(hole)
-                    break
-                  }
-                }
+                subHoles[assignHoleBucket(hole, effectiveOuters)]!.push(hole)
               }
               const allRingsForFeature: number[][][] = []
               for (let si = 0; si < effectiveOuters.length; si++) {

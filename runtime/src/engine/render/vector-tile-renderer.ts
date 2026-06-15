@@ -1182,7 +1182,20 @@ export class VectorTileRenderer {
     if (staleIds.length > 0) {
       const staleSet = new Set(staleIds)
       this.uploadQueue.removeByFilter(id => staleSet.has(id))
-      for (const id of staleIds) itemData.delete(id)
+      for (const id of staleIds) {
+        const item = itemData.get(id)
+        // The dropped upload was the only thing that would have nulled
+        // these prebuilt SDF segment buffers (doUploadTile does it post-
+        // upload). The TileData stays in the catalog's dataCache, but
+        // `TileCatalog.sizeOfTileData` deliberately OMITS prebuilt
+        // segments (it assumes they're nulled after upload) — so a
+        // retained multi-MB segment buffer is uncounted by `_cachedBytes`
+        // and the byte-cap eviction under-fires. Null them here to keep
+        // the size-omission invariant true; buildLineSegments rebuilds
+        // them on a later re-upload exactly as the post-upload null relies on.
+        if (item) VectorTileRenderer._releasePrebuiltSegments(item.data)
+        itemData.delete(id)
+      }
     }
     // Compact _heldUploads in-place. _heldUploadIds + _heldUploadKeys
     // are rebuilt from the survivors so the coherence guard in
@@ -1196,10 +1209,27 @@ export class VectorTileRenderer {
           kept.push(item)
           this._heldUploadIds.add(`${item.key}:${item.sourceLayer}`)
           this._heldUploadKeys.add(item.key)
+        } else {
+          // Same uncounted-bytes leak as the queued-drop path above — a
+          // held item that gets dropped keeps its prebuilt segments
+          // forever otherwise. Null them so `sizeOfTileData`'s omission
+          // stays accurate.
+          VectorTileRenderer._releasePrebuiltSegments(item.data)
         }
       }
       this._heldUploads = kept
     }
+  }
+
+  /** Null a TileData's prebuilt SDF segment buffers. Used by
+   *  `cancelStaleUploads` when it drops a queued / held upload whose
+   *  TileData stays in the catalog: the buffers are rebuilt on demand by
+   *  `buildLineSegments` at the next upload, and `TileCatalog.sizeOfTileData`
+   *  assumes they're absent for cached tiles, so leaving them set would
+   *  under-count `_cachedBytes` and stall byte-cap eviction. */
+  private static _releasePrebuiltSegments(data: TileData): void {
+    data.prebuiltLineSegments = undefined
+    data.prebuiltOutlineSegments = undefined
   }
 
   /** Lane B — atomic polygon vertex+index arena alloc. Allocates the

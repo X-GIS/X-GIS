@@ -19,7 +19,7 @@
 import { describe, expect, it } from 'vitest'
 import { Camera } from './camera'
 import { CameraController, type CameraControllerDeps } from '../camera-controller'
-import { mercatorYToLat } from './projection'
+import { mercatorYToLat, mercator } from './projection'
 
 const MERC_LIMIT = 85.051129
 
@@ -203,6 +203,107 @@ describe('centerLatDeg sync contract', () => {
 
   it('a fresh camera satisfies the invariant', () => {
     const cam = new Camera(12, 45, 4)
+    expect(cam.centerLatDeg).toBe(mercatorYToLat(cam.centerY))
+  })
+})
+
+// ═══ BUG P4 — maxBounds must not pin the sphere family below the pole ═══
+//
+// `CameraController.setMaxBounds` projects the bbox corners with
+// `mercator.forward`, which SATURATES latitude at ±85.051129° before
+// handing the metre box to `camera.setMaxBoundsMerc`. The camera's
+// `clampCenterToBounds` then clamped centerY into that box and called
+// `_syncCenterLatFromMercator`, RESETTING centerLatDeg from the saturated
+// centerY. For the sphere family (globe / ortho / azimuthal / stereo)
+// where centerLatDeg legitimately reaches the pole, a maxBounds with a
+// north past 85.05 wrongly pinned the camera at 85.051129 — the
+// reach-the-pole roadmap-S12 behaviour was undone by the bounds clamp.
+//
+// The cylindrical family is CORRECT to clamp at the Mercator limit, so
+// the fix is sphere-only: the control case below proves a Mercator camera
+// with the same bounds still clamps centerY at the Mercator limit.
+describe('BUG P4 — sphere-family maxBounds preserves pole reach', () => {
+  // Mirror CameraController.setMaxBounds's mercator.forward corner
+  // projection so the metre box matches what production hands the camera.
+  function mercBox(w: number, s: number, e: number, n: number) {
+    const [minX, minY] = mercator.forward(w, s)
+    const [maxX, maxY] = mercator.forward(e, n)
+    return { minX, maxX, minY, maxY }
+  }
+
+  it('GLOBE: a maxBounds with north=88 still lets the globe drag REACH past 85.05', () => {
+    const cam = new Camera(0, 0, 3)
+    cam.projType = 7
+    cam.globeMode = true
+    const ctrl = makeController(cam)
+    ctrl.setCenter(0, 84) // start just below the old Mercator wall
+
+    // Bounds whose TRUE north is 88° — well past the Mercator limit. The
+    // metre box saturates maxY at the 85.05 value; the sphere family must
+    // clamp centerLatDeg against the TRUE 88°, not the saturated metre Y.
+    ctrl.setMaxBounds([[-20, -88], [20, 88]])
+
+    // Drag northward hard. Pre-fix clampCenterToBounds reset centerLatDeg
+    // to mercatorYToLat(saturated centerY) = 85.051129 on every step.
+    cam.pan(0, 400, 1280, 720)
+
+    // The drag rolls toward the pole; the 88° bound caps it at 88, NOT at
+    // the Mercator 85.05 wall. FAIL-BEFORE asserts the cross past 85.05.
+    expect(cam.centerLatDeg).toBeGreaterThan(MERC_LIMIT) // crossed the old wall
+    expect(cam.centerLatDeg).toBeLessThanOrEqual(88 + 1e-6) // but inside the bound
+    expect(cam.centerLatDeg).toBeCloseTo(88, 2) // pole-ward, pinned at the true north
+  })
+
+  it('GLOBE: maxBounds STILL clamps the sphere centre at the true north (does not over-reach)', () => {
+    const cam = new Camera(0, 0, 3)
+    cam.projType = 7
+    cam.globeMode = true
+    const ctrl = makeController(cam)
+    ctrl.setCenter(0, 70)
+    // A tighter north of 80° must cap centerLatDeg at 80 even though the
+    // sphere could otherwise roll to 90 — bounds are still enforced.
+    ctrl.setMaxBounds([[-20, -80], [20, 80]])
+    cam.pan(0, 600, 1280, 720)
+    expect(cam.centerLatDeg).toBeLessThanOrEqual(80 + 1e-6)
+    expect(cam.centerLatDeg).toBeCloseTo(80, 2)
+  })
+
+  it('CYLINDRICAL CONTROL: mercator camera with the same bounds keeps centerLatDeg synced from centerY (no sphere relax)', () => {
+    const cam = new Camera(0, 0, 3)
+    cam.projType = 0 // mercator — cylindrical family, must NOT change
+    const ctrl = makeController(cam)
+    ctrl.setCenter(0, 80)
+    ctrl.setMaxBounds([[-20, -88], [20, 88]])
+
+    // Drag north hard. The flat clamp caps centerY at the viewport pole
+    // limit, then the (unchanged) cylindrical clampCenterToBounds path
+    // keeps centerLatDeg === mercatorYToLat(centerY). The sphere-only fix
+    // must leave this byte-exact identity intact (and never relax the
+    // cylindrical centre past the Mercator wall).
+    cam.pan(0, 4000, 1280, 720)
+
+    // Byte-exact cylindrical sync invariant preserved (the fix branches on
+    // representsCenterAs and never reaches the lat-deg clamp here).
+    expect(cam.centerLatDeg).toBe(mercatorYToLat(cam.centerY))
+    // The cylindrical centre never exceeds the Mercator wall.
+    expect(cam.centerLatDeg).toBeLessThanOrEqual(MERC_LIMIT + 1e-9)
+    // The bounds box itself saturates at the Mercator limit metre value —
+    // the cylindrical family is CORRECT to clamp there.
+    const box = mercBox(-20, -88, 20, 88)
+    expect(mercatorYToLat(box.maxY)).toBeCloseTo(MERC_LIMIT, 6)
+  })
+
+  it('CYLINDRICAL CONTROL: a below-limit north (80) still clamps the mercator centre at exactly 80', () => {
+    // When the bound's north is BELOW the Mercator wall, the metre box is
+    // un-saturated and the cylindrical clamp must pin the centre at the
+    // true 80°. This is the case the sphere fix must NOT alter.
+    const cam = new Camera(0, 0, 6) // higher zoom so maxCameraY > the 80 bound
+    cam.projType = 0
+    const ctrl = makeController(cam)
+    ctrl.setCenter(0, 70)
+    ctrl.setMaxBounds([[-20, -80], [20, 80]])
+    cam.pan(0, 8000, 1280, 720)
+    expect(mercatorYToLat(cam.centerY)).toBeCloseTo(80, 3)
     expect(cam.centerLatDeg).toBe(mercatorYToLat(cam.centerY))
   })
 })

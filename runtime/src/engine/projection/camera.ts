@@ -7,7 +7,7 @@ import { getMaxDpr } from '../gpu/gpu'
 import { computeLogDepthFc } from '../shaders/log-depth'
 import { EARTH_R } from './globe'
 import { mercatorYToLat, mercatorYToLatRad, mercator } from './projection'
-import { isGlobeProj, flatViewHeightCapM, worldCopiesFor, enumerateWorldCopies, poleLimit, promotesToGlobeWhenTilted } from './projections-table'
+import { isGlobeProj, flatViewHeightCapM, worldCopiesFor, enumerateWorldCopies, poleLimit, promotesToGlobeWhenTilted, representsCenterAs } from './projections-table'
 import { discAnchorFor, invert4x4, convergeFlatAnchor } from './camera-helpers'
 import {
   type CameraView,
@@ -159,9 +159,13 @@ export class Camera {
 
   /** Mercator-metre bbox the centre must stay inside (mirrors CameraController's
    *  lon/lat `_maxBounds`), set by setMaxBounds so the gesture mutators honour
-   *  bounds too — same shared-Camera propagation as minZoom. `null` = off. */
-  private _maxBoundsMerc: { minX: number; maxX: number; minY: number; maxY: number } | null = null
-  setMaxBoundsMerc(b: { minX: number; maxX: number; minY: number; maxY: number } | null): void {
+   *  bounds too — same shared-Camera propagation as minZoom. `null` = off.
+   *  `northLat`/`southLat` carry the bbox's TRUE latitudes (degrees): the
+   *  metre minY/maxY saturate at ±85.051129° (mercator.forward clamps), so the
+   *  sphere family — whose centre legitimately reaches the pole — clamps
+   *  centerLatDeg against these instead of the saturated metre Y. */
+  private _maxBoundsMerc: { minX: number; maxX: number; minY: number; maxY: number; northLat: number; southLat: number } | null = null
+  setMaxBoundsMerc(b: { minX: number; maxX: number; minY: number; maxY: number; northLat: number; southLat: number } | null): void {
     this._maxBoundsMerc = b
   }
 
@@ -172,6 +176,18 @@ export class Camera {
     if (!b) return
     this.centerX = Math.max(b.minX, Math.min(b.maxX, this.centerX))
     this.centerY = Math.max(b.minY, Math.min(b.maxY, this.centerY))
+    // Sphere family (globe / ortho / azimuthal / stereo): centerLatDeg is the
+    // pole-reaching authority. Clamping it from the SATURATED metre centerY
+    // (via _syncCenterLatFromMercator) would pin it at ±85.05 and undo the
+    // reach-the-pole behaviour (roadmap S12) whenever maxBounds' north/south
+    // exceeds the Mercator limit. Clamp centerLatDeg against the bbox's TRUE
+    // latitudes instead; centerY stays Mercator-bounded for the 2D/tile readers.
+    if (representsCenterAs(this.projType) === 'lat-deg') {
+      this.centerLatDeg = Math.max(b.southLat, Math.min(b.northLat, this.centerLatDeg))
+      return
+    }
+    // Cylindrical family: the Mercator-metre clamp is correct — sync
+    // centerLatDeg from the bounded centerY exactly as before (byte-identical).
     this._syncCenterLatFromMercator()
   }
 
