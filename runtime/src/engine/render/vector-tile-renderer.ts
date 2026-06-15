@@ -3531,8 +3531,14 @@ export class VectorTileRenderer {
       // visually cleaner and matches the loading sequence's natural cadence.
       const baseFillA = this.cachedFillColor[3] * (this.currentOpacity ?? 1.0)
       const baseStrokeA = this.cachedStrokeColor[3] * (this.currentOpacity ?? 1.0)
-      this.uniformF32[19] = baseFillA
-      this.uniformF32[23] = baseStrokeA
+      // iter-183/185 — when a pattern is active, render() packed the sprite
+      // atlas UV bbox into uf[16..19] (fill, v1=uf[19]) / uf[20..23] (line,
+      // v1=uf[23]). The fragment shader reads fill_color.a / stroke_color.a
+      // as the pattern's v1; clobbering it with the alpha here corrupts the
+      // UV (black/garbage pattern). Same guard as slots 46/47 below — only
+      // write the alpha when NO pattern owns the slot.
+      if (!this._patternUniformActive) this.uniformF32[19] = baseFillA
+      if (!this._linePatternActiveForShow) this.uniformF32[23] = baseStrokeA
       // u.opacity for shader variants is written at index 34 (offset 136 in
       // the post PR 2d.5 192-byte layout) in the DSFUN uniform block, below
       // — keep it off the pre-tile pack so we only write it once per slot.
