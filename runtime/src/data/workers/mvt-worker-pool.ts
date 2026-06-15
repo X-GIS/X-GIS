@@ -95,6 +95,10 @@ export class MvtWorkerPool {
    *  node, SSR) so unit tests still drain. */
   private resolveQueue: Array<{ job: PendingJob; slices: SliceMsg[] }> = []
   private resolveScheduled = false
+  /** Handle of the in-flight rAF (or setTimeout) drain callback, retained so
+   *  dispose() can cancel it — otherwise a scheduled drain fires post-teardown
+   *  and resolves jobs after the pool was disposed. null when none scheduled. */
+  private _rafHandle: number | null = null
   private static readonly MAX_RESOLVES_PER_FRAME = 4
 
   // Diagnostic counters — incremented by every drain; specs poll for
@@ -188,10 +192,12 @@ export class MvtWorkerPool {
   private scheduleResolveDrain(): void {
     if (this.resolveScheduled) return
     this.resolveScheduled = true
+    // Retain the handle so dispose() can cancel a still-pending drain (a
+    // post-teardown drain would resolve jobs after the workers were terminated).
     if (typeof requestAnimationFrame !== 'undefined') {
-      requestAnimationFrame(() => this.drainResolveQueue())
+      this._rafHandle = requestAnimationFrame(() => this.drainResolveQueue())
     } else {
-      setTimeout(() => this.drainResolveQueue(), 0)
+      this._rafHandle = setTimeout(() => this.drainResolveQueue(), 0) as unknown as number
     }
   }
 
@@ -207,6 +213,9 @@ export class MvtWorkerPool {
    *  transition. */
   private drainResolveQueue(): void {
     this.resolveScheduled = false
+    // The scheduled callback has now fired — its handle is spent. Clear it so a
+    // later dispose() doesn't cancel an unrelated (re-used) timer id.
+    this._rafHandle = null
     const drainStart = performance.now()
     let processed = 0
     while (processed < MvtWorkerPool.MAX_RESOLVES_PER_FRAME && this.resolveQueue.length > 0) {
@@ -281,6 +290,16 @@ export class MvtWorkerPool {
   }
 
   dispose(): void {
+    // Cancel any scheduled resolve-drain so it can't fire post-teardown and
+    // resolve jobs after the workers were terminated; then drop the buffered
+    // results + reset the scheduler flag.
+    if (this._rafHandle != null) {
+      if (typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(this._rafHandle)
+      else clearTimeout(this._rafHandle)
+    }
+    this._rafHandle = null
+    this.resolveScheduled = false
+    this.resolveQueue.length = 0
     for (const w of this.workers) w.terminate()
     this.workers.length = 0
     for (const { reject } of this.pending.values()) {

@@ -34,6 +34,17 @@ const PBF_BUFFER = 3  // px of outer buffer per side (bitmap = (w+6)×(h+6))
 // back to Canvas2D.
 const MAX_GLYPH_DIM = 256
 
+// Amplification ceilings on the COUNT of decoded entries. The 8 MB input cap
+// (MAX_GLYPH_BYTES in glyph-pbf-cache.ts) bounds the wire size, but a body of
+// minimal advance-only glyph submessages is only a few bytes each — 8 MB packs
+// ~1.4M of them, and each lands in a Map (~336 MB resident). A 256-codepoint
+// range legitimately holds ≤256 glyphs (1024 is a generous bound), and a glyphs
+// PBF carries a small handful of fontstacks (64 is generous). Past either cap we
+// stop adding (drop the excess) — fail-closed, never throw, mirroring the
+// MAX_GLYPH_DIM dimension cap so a forged PBF degrades to a partial result.
+const MAX_GLYPHS_PER_STACK = 1024
+const MAX_FONTSTACKS = 64
+
 export interface PbfGlyph {
   id: number
   bitmap: Uint8Array
@@ -60,7 +71,13 @@ export function decodeGlyphsPbf(buf: Uint8Array): PbfFontstack[] {
       // A zero field is never valid; combined with a no-progress check it
       // prevents a corrupt/zero-padded tail from spinning the loop.
       if (field === 0) break
-      if (field === 1 && wire === 2) stacks.push(r.readMessage(readFontstack))
+      if (field === 1 && wire === 2) {
+        // Fontstack-count cap (amplification DoS): drop any fontstack past the
+        // ceiling. Stop decoding entirely — a conformant glyphs PBF never holds
+        // dozens of stacks, so the tail is forged padding.
+        if (stacks.length >= MAX_FONTSTACKS) break
+        stacks.push(r.readMessage(readFontstack))
+      }
       else r.skip(wire)
       if (r.pos <= before) break
     }
@@ -87,6 +104,11 @@ function readFontstack(r: PbfReader, end: number): PbfFontstack {
       const len = r.readVarint()
       stack.range = r.readString(len)
     } else if (field === 3 && wire === 2) {
+      // Per-stack glyph-count cap (amplification DoS): once the ceiling is hit,
+      // stop adding (drop the excess) — fail-closed like MAX_GLYPH_DIM. Skip to
+      // the message end so the reader resyncs cleanly instead of misparsing the
+      // forged tail. A legit 256-codepoint range never exceeds this bound.
+      if (stack.glyphs.size >= MAX_GLYPHS_PER_STACK) { r.pos = end; break }
       const g = r.readMessage(readGlyph)
       stack.glyphs.set(g.id, g)
     } else r.skip(wire)
