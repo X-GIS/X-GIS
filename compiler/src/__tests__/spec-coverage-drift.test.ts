@@ -28,7 +28,7 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const CONVERT_DIR = join(HERE, '..', 'convert')
 
 function readConverterSource(): string {
-  const files = ['expressions.ts', 'layers.ts', 'paint.ts', 'sources.ts', 'colors.ts', 'mapbox-to-xgis.ts']
+  const files = ['expressions.ts', 'layers.ts', 'layers-circle.ts', 'layers-symbol.ts', 'paint.ts', 'sources.ts', 'colors.ts', 'mapbox-to-xgis.ts']
   return files.map(f => readFileSync(join(CONVERT_DIR, f), 'utf8')).join('\n\n')
 }
 

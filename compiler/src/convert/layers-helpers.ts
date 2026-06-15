@@ -96,6 +96,34 @@ export function applyAlphaMultiplier(colorStr: string, opacity: number | null): 
   return `#${hh(r)}${hh(g)}${hh(b)}${hh(aOut)}`
 }
 
+// text-anchor → label-anchor-X. Mapbox's 9-way anchor maps 1:1
+// to the IR's 9-way LabelDef.anchor (render-node.ts:244-246).
+// Shared between the static text-anchor / text-variable-anchor blocks
+// and the text-variable-anchor-offset offset block in convertSymbolLayer.
+export const VALID_ANCHORS = new Set([
+  'center', 'top', 'bottom', 'left', 'right',
+  'top-left', 'top-right', 'bottom-left', 'bottom-right',
+])
+
+/** Format a signed number for a utility-name segment. Negative values
+ *  use the bracket binding form `[<n>]` because the utility-name grammar
+ *  treats `-` as a segment separator — emitting `label-offset-y--0.2`
+ *  would lex as a malformed double-dash name. */
+export const fmtSigned = (n: number): string => n < 0 ? `[${n}]` : `${n}`
+
+// Per-element v8 literal-wrap unwrap so a double-wrap shape like
+// `["literal", [["literal", 0], ["literal", -1.5]]]` resolves to
+// [0, -1.5]. Outer unwrap above gave the inner array but each
+// scalar may still be wrapped — pre-fix the typeof === 'number'
+// gate failed and the offset silently dropped.
+export const unwrapPairScalars = (t: unknown): unknown[] | null => {
+  if (!Array.isArray(t) || t.length !== 2) return null
+  return t.map(c => {
+    while (Array.isArray(c) && c.length === 2 && c[0] === 'literal') c = c[1]
+    return c
+  })
+}
+
 /** Coerce a (possibly malformed) layer.layout / layer.paint value to a
  *  plain Record. Mirror of paint.ts's same guard — non-object forms
  *  (string copy-paste, array, etc.) used to let property-name index
