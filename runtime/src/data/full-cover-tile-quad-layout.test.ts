@@ -12,7 +12,7 @@
 // and abs_lon/abs_lat populated within the tile's lon/lat bounds.
 
 import { describe, it, expect } from 'vitest'
-import { tileKey, tileKeyUnpack } from '@xgis/compiler'
+import { tileKey, tileKeyUnpack, FILL_TILE_OVERLAP_FRAC } from '@xgis/compiler'
 import { TileCatalog } from './tile-catalog'
 import { DSFUN_POLY_STRIDE } from './tile-types'
 import {
@@ -99,13 +99,39 @@ describe('createFullCoverTileData quad layout (quantized-ECEF stride 6)', () => 
     const tileWest = tx / tn * 360 - 180
     const tileEast = (tx + 1) / tn * 360 - 180
     const tileSouth = Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + 1) / tn))) * 180 / Math.PI
-    const tileNorth = Math.atan(Math.sinh(Math.PI * (1 - 2 * ty / tn))) * 180 / Math.PI
-    const absLon0 = verts[4]
-    const absLat0 = verts[5]
-    const eps = 1e-3
-    expect(absLon0).toBeGreaterThanOrEqual(tileWest - eps)
-    expect(absLon0).toBeLessThanOrEqual(tileEast + eps)
-    expect(absLat0).toBeGreaterThanOrEqual(tileSouth - eps)
-    expect(absLat0).toBeLessThanOrEqual(tileNorth + eps)
+    const tileSpanLon = tileEast - tileWest
+    const absLon0 = verts[4]!
+    const absLat0 = verts[5]!
+    // Corner 0 is the SW corner, widened OUTWARD by FILL_TILE_OVERLAP_FRAC
+    // (inter-tile seam fix). lon is linear in Mercator x, so its widened value
+    // is exact: tileWest − span·frac. abs_lat must sit at the (slightly widened)
+    // SOUTH edge — crucially NOT at the pre-fix sentinel (0 / fid), which would
+    // be tens of degrees north. Exact widening is pinned by the test below.
+    expect(absLon0).toBeCloseTo(tileWest - tileSpanLon * FILL_TILE_OVERLAP_FRAC, 1)
+    expect(absLat0).toBeLessThanOrEqual(tileSouth + 1e-3) // south corner, not fid/north
+    expect(absLat0).toBeGreaterThan(tileSouth - 10)       // widened south, not garbage
+  })
+
+  it('synthesised quad is widened by FILL_TILE_OVERLAP_FRAC (inter-tile seam fix)', () => {
+    const catalog = new TileCatalog()
+    const backend = makeMockBackend()
+    catalog.attachBackend(backend)
+
+    const key = tileKey(3, 4, 3)
+    backend.pushResult(key, fullCoverResult(7))
+    const data = catalog.getTileData(key)!
+
+    // abs_lon at float slot 4 of each stride-6 corner (SW, SE, NE, NW).
+    const verts = data.vertices
+    const absLon = [verts[4]!, verts[10]!, verts[16]!, verts[22]!]
+    const span = Math.max(...absLon) - Math.min(...absLon)
+
+    const [tz, tx] = tileKeyUnpack(key)
+    const tn = Math.pow(2, tz)
+    const tileSpanLon = ((tx + 1) / tn * 360 - 180) - (tx / tn * 360 - 180)
+
+    // Mercator x is linear in lon, so the widened quad's abs_lon span equals the
+    // tile span scaled by (1 + 2·frac). Pre-fix (exact corners) span == tile span.
+    expect(span / tileSpanLon).toBeCloseTo(1 + 2 * FILL_TILE_OVERLAP_FRAC, 3)
   })
 })
