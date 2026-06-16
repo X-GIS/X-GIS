@@ -12,12 +12,12 @@
 // pointing back. See .claude/skills/debug-toolkit.
 //
 // STRIPPING — every check is gated on `import.meta.env.DEV`, which Vite
-// replaces with the literal `false` in the production app build, so
-// esbuild dead-code-eliminates the body to nothing. It is `true` under
-// the dev server AND vitest, so the checks are live exactly when you
-// debug or test, and cost zero in shipped builds. The gate is read at
-// each call (not via a re-exported const) so the replacement + DCE is
-// reliable across modules.
+// replaces with the literal `false` in ANY `vite build` (keyed on serve vs
+// build, not on mode — so even the runtime library build strips it), so
+// esbuild dead-code-eliminates the body to nothing. DEV is `true` only under
+// the dev server AND vitest, so the checks are live exactly when you debug or
+// test, and cost zero in shipped builds. The gate is read at each call (not
+// via a re-exported const) so the replacement + DCE is reliable across modules.
 
 declare global {
   // Vite injects import.meta.env; declare only the flag we read so this
@@ -60,7 +60,12 @@ export function devAssertClose(
  *  screenshot — which only sees the one camera you pointed at — this is
  *  EXHAUSTIVE over execution: it catches the divergence on whatever tile /
  *  frame / projection first triggers it, including the axis you never
- *  thought to look at. Stripped in prod. */
+ *  thought to look at. Stripped in prod.
+ *
+ *  NOTE: `name` is a SHARED global namespace (one module-level map). Two call
+ *  sites with the same name cross-fire; per-tile/per-frame watching should
+ *  use a unique name and `devWatchReset` it per batch (or it leaks one entry
+ *  per distinct name for the page lifetime — dev-only, but real). */
 const _watch = new Map<string, number>()
 export function devWatch(
   name: string, value: number, eps = 0,

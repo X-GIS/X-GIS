@@ -58,8 +58,10 @@ function ecefToLonLatRad(x: number, y: number, z: number): [number, number] {
 }
 
 // Ground resolution at the render zoom: ~156543.03 / 2^z metres / CSS-px
-// (Web-Mercator at the equator; Seoul lat scales it by cos(lat) but the
-// equatorial figure is the conservative px budget).
+// (Web-Mercator at the equator). At Seoul (lat≈37.5°) true m/px is ×cos(lat)
+// smaller, so the real per-px gate is slightly TIGHTER than this equatorial
+// figure — i.e. using the equatorial value is marginally lenient. Immaterial
+// here: the measured split is 0.000 px against a 0.25 px gate (3+ orders).
 const Z_RENDER = 19.4
 const M_PER_PX = 156543.03392 / Math.pow(2, Z_RENDER)  // ≈ 0.226 m/px
 
@@ -88,7 +90,9 @@ describe('H2 step-1 — fill ↔ outline encoding coincidence (CPU cross-path)',
     // OUTLINE path: pack → reconstruct tile-local metres (hi+lo) → + tile
     // origin → inverse Mercator → lon/lat. This is the Mercator-metre
     // position the line VS reconstructs BEFORE its own MM→ECEF step.
-    const po = packDSFUNLineVertices([mx, my, 0, 0], tileMx, tileMy)
+    // stride-8 input shape (the line kernel's IN_STRIDE; trailing tin/tout
+    // slots zeroed) so count===1 and no undefined slot is read.
+    const po = packDSFUNLineVertices([mx, my, 0, 0, 0, 0, 0, 0], tileMx, tileMy)
     const oMx = tileMx + po[0]! + po[2]!   // mx_h + mx_l + origin
     const oMy = tileMy + po[1]! + po[3]!   // my_h + my_l + origin
     const [oLon, oLat] = mercatorToLonLatRad(oMx, oMy)
@@ -139,7 +143,8 @@ describe('H2 step-1 — fill ↔ outline encoding coincidence (CPU cross-path)',
     const fillMercY = A * Math.log(Math.tan(Math.PI / 4 + (absLatDeg * DEG2RAD) / 2))
 
     // OUTLINE (line arm): DSFUN hi/lo reconstruct the exact tile-local metres.
-    const po = packDSFUNLineVertices([mx, my, 0, 0], tileMx, tileMy)
+    // stride-8 input shape (line kernel IN_STRIDE; tin/tout slots zeroed).
+    const po = packDSFUNLineVertices([mx, my, 0, 0, 0, 0, 0, 0], tileMx, tileMy)
     const outMercX = tileMx + po[0]! + po[2]!
     const outMercY = tileMy + po[1]! + po[3]!
 
