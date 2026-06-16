@@ -8,6 +8,7 @@ import type * as AST from '@xgis/compiler'
 import { SyntheticEarthSurfaceBackend } from '../data/sources/synthetic-earth-surface-backend'
 import { PROJECTION_NAME_TO_TYPE } from './projection/projections-table'
 import { worldBandForProjType } from './projection/earth-surface-fill'
+import { projectLonLatToScreenCss } from './render-loop-helpers'
 import {
   SYNTHETIC_EARTH_SURFACE_SOURCE,
   buildSyntheticEarthSurfaceShow,
@@ -15,7 +16,7 @@ import {
 } from './synthetic-earth-surface-show'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { getSharedGeoJSONCompilePool } from '../data/workers/geojson-compile-pool'
-import { initGPU, GPU_PROF, getMaxDpr, WebGPUUnavailableError, type GPUContext } from './gpu/gpu'
+import { initGPU, GPU_PROF, getMaxDpr, effectiveDpr, WebGPUUnavailableError, type GPUContext } from './gpu/gpu'
 import { QUALITY, updateQuality, type QualityConfig } from './gpu/quality'
 import { GPUTimer } from './gpu/gpu-timer'
 import { Camera } from './projection/camera'
@@ -948,6 +949,17 @@ export class XGISMap {
   getZoom(): number { return this.cameraController.getZoom() }
   getBearing(): number { return this.cameraController.getBearing() }
   getPitch(): number { return this.cameraController.getPitch() }
+
+  /** MapLibre-API parity + the core debug-measurement primitive: project
+   *  `[lon, lat]` → canvas-local CSS-px (×dpr for device px). Impl +
+   *  full contract in `projectLonLatToScreenCss`. Inverse `unproject` TODO. */
+  project(lonLat: readonly [number, number]): [number, number] | null {
+    const dpr = effectiveDpr(this._interacting)  // SAME interaction-cap dpr the frame sizes the canvas with (render-loop.ts:219)
+    const [centerLon, centerLat] = this.getCenter()
+    return projectLonLatToScreenCss(
+      this.camera, this.canvas.width, this.canvas.height, dpr, centerLon, centerLat, lonLat,
+    )
+  }
 
   /** Mapbox-API parity: read the current camera state as a single
    *  object. Delegated to CameraController. */
