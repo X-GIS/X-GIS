@@ -36,6 +36,7 @@ class FlipRasterizer implements GlyphRasterizer {
 
 const FONT = 'test-font'
 const A = 0x41
+const B = 0x42
 
 describe('GlyphAtlasHost: a late-landed glyph upgrades on the next ensureString', () => {
   it('invalidate() bumps generation so ensureString re-rasterises the PBF-upgraded glyph', () => {
@@ -64,5 +65,29 @@ describe('GlyphAtlasHost: a late-landed glyph upgrades on the next ensureString'
     expect(ras.calls.get(A), 'glyph must be re-rasterised after invalidate()').toBe(2)
     expect(upgraded[0].pbf, 'late-landed glyph must upgrade to the real SDF').toBe(true)
     expect(upgraded[0].advanceWidth).toBe(20)
+  })
+
+  it('invalidateAll() upgrades every fallback glyph when a provider is added at runtime', () => {
+    // The synchronous twin of the async-land bug: XGISMap.addGlyphProvider adds a
+    // source AFTER labels were shaped with the fallback. invalidateAll() must bump
+    // generation + mark all stale so every glyph re-rasterises through the new chain.
+    const ras = new FlipRasterizer()
+    const host = new GlyphAtlasHost({ slotSize: 64, pageSize: 256 }, ras, { fontSize: 24, sdfRadius: 8 })
+
+    const first = host.ensureString(FONT, 'AB')
+    expect(first.every((g) => !g.pbf)).toBe(true)
+    expect(ras.calls.get(A)).toBe(1)
+    expect(ras.calls.get(B)).toBe(1)
+
+    // A runtime-added provider now supplies the real glyphs.
+    ras.real = true
+    const gen = host.getGeneration()
+    host.invalidateAll()
+    expect(host.getGeneration(), 'invalidateAll must bump generation').toBe(gen + 1)
+
+    const upgraded = host.ensureString(FONT, 'AB')
+    expect(upgraded.every((g) => g.pbf), 'every fallback glyph must upgrade after invalidateAll').toBe(true)
+    expect(ras.calls.get(A)).toBe(2)
+    expect(ras.calls.get(B)).toBe(2)
   })
 })

@@ -137,7 +137,9 @@ const LOC_CEILINGS: Record<string, number> = {
   // (projectLonLatToScreenCss); unproject() delegates to the camera's existing
   // unprojectToLonLat — only the public method shells live here. map.ts
   // decomposition remains the #1 tracked god-file priority.
-  'runtime/src/engine/map.ts': 3437,
+  // Bumped 3437→3438 for addGlyphProvider's markLabelDirty re-arm (CJK glyph
+  // re-raster fix: a runtime-added provider must repaint an idle map — 1 line).
+  'runtime/src/engine/map.ts': 3438,
   // Bumped 1343→1344 for the opacity sub-1.5% round-trip fix (#274); comments
   // trimmed to the minimum, net +1 irreducible.
   // Bumped 1344→1348 for the polygon fill-stroke INSET default (US-002): a
@@ -148,7 +150,9 @@ const LOC_CEILINGS: Record<string, number> = {
   // point-loop floor (hasCjkIdeograph → Math.max(size, CJK_MIN_DISPLAY_PX*dpr))
   // mirrored onto the curved loop so dense Han road labels stop boxing out at
   // low zoom (1 raw→floored expr + the 5-line parity rationale, irreducible).
-  'runtime/src/engine/text/text-stage.ts': 1449,
+  // Bumped 1449→1453 for addGlyphProvider's invalidateAll wiring (CJK glyph
+  // re-raster fix: a runtime-added provider re-rasters already-shaped fallbacks).
+  'runtime/src/engine/text/text-stage.ts': 1453,
   // Bumped 1509→1517 for the GeometryCollection decompose fix (RFC 7946
   // §3.1.8): decomposeFeatures' per-type switch is wrapped in an inner
   // recursive helper so a GeometryCollection member-decomposes under the

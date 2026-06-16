@@ -1230,6 +1230,7 @@ export class XGISMap {
   addGlyphProvider(provider: GlyphProvider): void {
     this.glyphProviders.push(provider)
     this.textStage?.addGlyphProvider(provider)
+    this.markLabelDirty() // re-arm the loop so an idle map repaints the upgraded glyphs
   }
 
   /** Set the style's `sprite` URL prefix (e.g.

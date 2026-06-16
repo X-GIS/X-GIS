@@ -270,6 +270,22 @@ export class GlyphAtlasHost {
     }
   }
 
+  /** Invalidate EVERY cached glyph: mark all stale + bump the generation so the
+   *  generation-keyed string caches (stringInfoCache / preloadedAtGen /
+   *  hasAllGlyphsAtGen) miss and every glyph re-rasterises through the chain on
+   *  the next ensure. Used when a glyph PROVIDER is added at runtime
+   *  (XGISMap.addGlyphProvider): the new source may supply glyphs that
+   *  already-shaped labels fell back on, with no per-codepoint signal of which —
+   *  so re-raster all. The fleet-scale sibling of invalidate()'s single-glyph
+   *  upgrade; without it a runtime-added provider's glyphs never replace the
+   *  fallback (the synchronous twin of the async-land generation-bump bug). */
+  invalidateAll(): void {
+    if (this.metrics.size === 0) return
+    for (const mk of this.metrics.keys()) this.stale.add(mk)
+    this.infoCache.clear()
+    this._generation++
+  }
+
   /** iter-268 — preload every codepoint in `text` into the atlas
    *  WITHOUT returning a GlyphInfo[] array. Used by `TextStage
    *  .prepare()` to drain all per-frame admissions (and any

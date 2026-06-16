@@ -352,7 +352,11 @@ export class TextStage {
    *  current bytes until invalidated. Used by `XGISMap.addGlyph
    *  Provider` for runtime composition. */
   addGlyphProvider(provider: GlyphProvider): void {
-    this.pbfRasterizer?.addProvider(provider)
+    if (!this.pbfRasterizer) return
+    this.pbfRasterizer.addProvider(provider)
+    // Re-raster all: a runtime-added provider may supply glyphs already shaped as
+    // the fallback; the generation bump makes the string caches miss next prepare.
+    this.host.invalidateAll()
   }
 
   /** Set the device pixel ratio for the current frame. Call before
