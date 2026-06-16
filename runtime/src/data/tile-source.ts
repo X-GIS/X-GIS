@@ -146,8 +146,16 @@ export type TileScheme = 'web-mercator-xyz'
  *  bytes into the uint16x4/x2 VS attribute layout (garbage geometry) and
  *  carry no per-tile dequant uniforms. Catalog evicts on attach when this
  *  doesn't match a backend's advertised `meta.layoutVersion`.
- *  (Prior: 1 → 2 in PR 2c.4 — Mercator-DSFUN stride-5 → ECEF-DSFUN stride-9.) */
-export const TILE_LAYOUT_VERSION = 3 as const
+ *  (Prior: 1 → 2 in PR 2c.4 — Mercator-DSFUN stride-5 → ECEF-DSFUN stride-9.)
+ *
+ *  Bumped 3 → 4: the polygon fill f32 tail slots (bytes 16..23) changed
+ *  SEMANTICS from absolute lon/lat DEGREES to TILE-LOCAL Mercator metres
+ *  (mx − tileOriginMerc). Same stride/layout, but a cached v3 tile feeds
+ *  degree values where the new VS expects local-Mercator metres → fill drawn
+ *  at the wrong place. Stride is unchanged so only the value meaning differs;
+ *  the eviction-on-mismatch still applies. Fixes the f32-degree fill/outline
+ *  displacement at deep over-zoom (z>20). */
+export const TILE_LAYOUT_VERSION = 4 as const
 export type TileLayoutVersion = typeof TILE_LAYOUT_VERSION
 
 /** Pre-version-field baseline. Tiles produced by backends that omit

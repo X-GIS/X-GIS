@@ -238,13 +238,33 @@ const emitPolygonProjectionLadder = (
     extruded: boolean
     isTop?: Node<'f32'>
     wallHeight?: Node<'f32'>
+    // When provided (quantized fill VS), the flat-Mercator arm positions from
+    // this PRECISE tile-local Mercator vec2 (vertex_merc − tile_origin_merc)
+    // instead of re-projecting the lossy f32 abs_lon/abs_lat degrees. absLon/
+    // absLat are still used by the non-Mercator (flat_rel) arm.
+    localMerc?: Node<'vec2<f32>'>
   },
 ): void => {
-  const { projParamsV, mvp, absLon, absLat, ecefRtc, clip, extruded, isTop, wallHeight } = args
+  const { projParamsV, mvp, absLon, absLat, ecefRtc, clip, extruded, isTop, wallHeight, localMerc } = args
   const deg2rad = constRef('DEG2RAD')
   const earthR = constRef('EARTH_R')
   const pi = constRef('PI')
   b.if(projParamsV.x.lt(0.5), (c) => {
+    const zPlane = extruded ? c.let('z_plane', wallHeight!.mul(isTop!)) : f32(0)
+    if (localMerc) {
+      // PRECISE tile-local Mercator (quantized fill): rel = local_merc − cam_h
+      // − cam_l. cam_h/cam_l already carry camMerc − tile_origin_merc(+worldOff)
+      // (renderer DSFUN split), so the world-copy offset is IMPLICIT — no
+      // project()/worldOff re-add needed. This mirrors the line/outline VS, so
+      // the fill coincides with its outline by construction. local_merc is a
+      // single f32 but sub-mm at every zoom (magnitude ≤ tile extent), unlike
+      // the absolute-degree project() path below (~1.35 m at |lon|≈127° → the
+      // ~10 px fill/outline split at deep over-zoom this fixes).
+      const relLocal = c.let('rel2d_local',
+        localMerc.sub(u.field('cam_h', vec2fT)).sub(u.field('cam_l', vec2fT)))
+      c.assign(clip, transformMat4(mvp, vec4(relLocal.x, relLocal.y, zPlane, f32(1))))
+      return
+    }
     const p2d = c.let('p2d', callFn('project', vec2fT, absLon, absLat, projParamsV))
     const rel2d = c.let('rel2d',
       p2d.sub(u.field('tile_origin_merc', vec2fT)).sub(u.field('cam_h', vec2fT)).sub(u.field('cam_l', vec2fT)))
@@ -266,8 +286,7 @@ const emitPolygonProjectionLadder = (
         .div(deg2rad.mul(earthR)))
     const wo = c.let('wo', floor(tileRefLon.add(180).div(360)))
     const worldOffM = c.let('world_off_m', wo.mul(2).mul(pi).mul(earthR))
-    const z = extruded ? c.let('z_plane', wallHeight!.mul(isTop!)) : f32(0)
-    c.assign(clip, transformMat4(mvp, vec4(rel2d.x.add(worldOffM), rel2d.y, z, f32(1))))
+    c.assign(clip, transformMat4(mvp, vec4(rel2d.x.add(worldOffM), rel2d.y, zPlane, f32(1))))
   }).elif(projParamsV.x.lt(6.5), (c) => {
     const tileRefLon = c.let('tile_ref_lon',
       u.field('tile_origin_merc', vec2fT).x
@@ -432,15 +451,16 @@ const vsMainEcef = entryFn(
     // PR 2f dequant via the shared dequant_ecef fn (single source; also run
     // standalone in the compute parity harness vs the CPU fround mirror).
     const ecefRtc = b.let('ecef_rtc', callFn('dequant_ecef', vec3fT, p.q_xy, p.q_z, dqScale, dqHalf))
-    // Reconstruct Mercator absolute coords for the fragment-side
-    // hemisphere-cull recompute (kept unchanged from vs_main_quantized's
-    // contract — polygonCosCFragment + polygonRimAlpha consume abs_merc_x +
-    // abs_merc_y). The cost is 1 mul + 1 log per vertex.
-    const absMercX = b.let('abs_merc_x', p.abs_lon.mul(deg2rad).mul(earthR))
-    const absLatClamped = b.let('abs_lat_clamped', clamp(p.abs_lat, mercLatLim.neg(), mercLatLim))
-    const absMercY = b.let('abs_merc_y',
-      log(tan(pi.div(f32(4)).add(absLatClamped.mul(deg2rad).div(f32(2))))).mul(earthR),
-    )
+    // The f32 tail slots (abs_lon/abs_lat) now carry TILE-LOCAL Mercator
+    // (local_merc = vertex_merc − tile_origin_merc), NOT degrees. Reconstruct
+    // ABSOLUTE Mercator (+ tile_origin_merc) for the fragment hemisphere-cull
+    // varyings — f32 (~1 m), which polygonCosCFragment + polygonRimAlpha
+    // tolerate. The precise position uses local_merc directly in the ladder.
+    const tileOriginM = u.field('tile_origin_merc', vec2fT)
+    const absMercX = b.let('abs_merc_x', p.abs_lon.add(tileOriginM.x))
+    const absMercY = b.let('abs_merc_y', p.abs_lat.add(tileOriginM.y))
+    const absLatClamped = b.let('abs_lat_clamped',
+      clamp(callFn('inv_merc_lat_rad', f32T, absMercY).div(deg2rad), mercLatLim.neg(), mercLatLim))
 
     const out = b.var('out', structT('VertexOutput'))
     // Display projection (projection-display-layer-restore): flat Mercator
@@ -454,7 +474,16 @@ const vsMainEcef = entryFn(
     // Mercator reproject + recentre / flat non-Mercator flat_rel / 3D ECEF-RTC
     // re-centred by (tileEcefCenter − cameraCenter). Only ecef_rtc is sourced
     // differently (dequant_ecef vs pos_h+pos_l) — passed in as a Node.
-    emitPolygonProjectionLadder(b, { projParamsV, mvp, absLon: p.abs_lon, absLat: p.abs_lat, ecefRtc, clip, extruded: false })
+    emitPolygonProjectionLadder(b, {
+      projParamsV, mvp,
+      // local_merc (the f32 tail slots) drives the PRECISE flat-Mercator
+      // position; absLon/absLat (reconstructed absolute, ~1 m) feed only the
+      // non-Mercator flat_rel arm.
+      absLon: absMercX.div(deg2rad.mul(earthR)),
+      absLat: absLatClamped,
+      localMerc: vec2(p.abs_lon, p.abs_lat),
+      ecefRtc, clip, extruded: false,
+    })
     // Mapbox fill-translate viewport-anchor — runtime pre-bakes
     // (px*2/canvasDim) so the shader just multiplies by clip.w.
     b.assign(clip.x, clip.x.add(fillTx.mul(clip.w)))

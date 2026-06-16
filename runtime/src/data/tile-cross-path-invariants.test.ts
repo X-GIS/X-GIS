@@ -47,20 +47,16 @@ function loadGeoJSON(p: string): GeoJSONFeatureCollection {
   return JSON.parse(readFileSync(p, 'utf8')) as GeoJSONFeatureCollection
 }
 
-/** Reconstruct a polygon-fill vertex in tile-local Mercator metres from
- *  the packed `abs_lon, abs_lat` ECEF stride-9 slots. Tile origin is
- *  derived from `tile.tileWest, tile.tileSouth` (matching the compiler
- *  tiler's `lonLatToMercF64` convention). */
+/** A polygon-fill vertex in tile-local Mercator metres. The f32 tail slots
+ *  4/5 now store tile-local Mercator (vertex_merc − tileOriginMerc) directly
+ *  — read them as-is (pre-fix they held absolute lon/lat degrees that this
+ *  helper re-projected and origin-subtracted). */
 function polyVertex(
   vertices: Float32Array, i: number,
-  tileMx: number, tileMy: number,
+  _tileMx: number, _tileMy: number,
 ): [number, number] {
   const base = i * POLY_STRIDE
-  const lonDeg = vertices[base + 4]
-  const latDeg = vertices[base + 5]
-  const mx = lonDeg * DEG2RAD_ * EARTH_R_
-  const my = Math.log(Math.tan(Math.PI / 4 + latDeg * DEG2RAD_ / 2)) * EARTH_R_
-  return [mx - tileMx, my - tileMy]
+  return [vertices[base + 4], vertices[base + 5]]
 }
 
 function lineVertex(vertices: Float32Array, i: number): [number, number] {

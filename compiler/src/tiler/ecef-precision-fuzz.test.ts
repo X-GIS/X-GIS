@@ -285,55 +285,41 @@ describe('AC2c.1.1 packECEFPolygonVertices precision round-trip', () => {
     expect(worst).toBeLessThan(1e-2)   // 1 cm
   })
 
-  it('AC2c.2.3 abs_lon/abs_lat round-trip: 1e4 random points match Mercator inverse to < 1e-9 degrees', () => {
-    const RAD2DEG = 180 / Math.PI
+  it('AC2c.2.3 local_merc round-trip: tile-local Mercator slots reconstruct absolute Mercator to < 1 mm', () => {
+    // The f32 tail slots now carry TILE-LOCAL Mercator (mx − tileOriginMerc),
+    // NOT absolute lon/lat degrees. The flat-Mercator fill VS positions from
+    // these directly (rel = local_merc − cam), so they must reconstruct the
+    // absolute Mercator to sub-mm at EVERY zoom — the precision the absolute-
+    // degree slots lacked (~1.35 m at |lon|≈127° → ~10 px over-zoom split that
+    // displaced the fill from its outline).
     const A_local = 6378137
     const MX_MAX = Math.PI * A_local
     const MY_MAX = Math.PI * A_local * 0.85  // ~±85.0511°
     const rng = makeRng(0x2c_2a)
-    let worstLon = 0
-    let worstLat = 0
+    let worst = 0
 
     for (let i = 0; i < 10_000; i++) {
-      const mx = (rng() * 2 - 1) * MX_MAX
-      const my = (rng() * 2 - 1) * MY_MAX
+      // A realistic deep-zoom tile origin + a vertex within ~one z14 tile of it.
+      const originMx = (rng() * 2 - 1) * MX_MAX * 0.98
+      const originMy = (rng() * 2 - 1) * MY_MAX * 0.98
+      const mx = originMx + (rng() * 2 - 1) * 2500  // ≤ ~2.5 km tile extent
+      const my = originMy + (rng() * 2 - 1) * 2500
 
-      // Reference lon/lat from Mercator inverse (f64).
-      const ref_lon_rad = mx / A_local
-      const ref_lat_rad = 2 * Math.atan(Math.exp(my / A_local)) - Math.PI / 2
-      const ref_lon_deg = ref_lon_rad * RAD2DEG
-      const ref_lat_deg = ref_lat_rad * RAD2DEG
-
-      // Use any valid ECEF center (origin of tile doesn't matter for abs_lon/abs_lat).
       const [tLon, tLat] = mercatorToLonLatRad(0, 0)
       const center = lonLatRadToECEF(tLon, tLat)
+      const quant = packECEFPolygonVertices([mx, my, 0], center, [originMx, originMy])
 
-      const quant = packECEFPolygonVertices([mx, my, 0], center)
-
-      // abs_lon at float slot 4, abs_lat at float slot 5 (stride-6 floats).
-      const packed_lon_deg = quant.vertices[4]! as number
-      const packed_lat_deg = quant.vertices[5]! as number
-
-      const dLon = Math.abs(packed_lon_deg - ref_lon_deg)
-      const dLat = Math.abs(packed_lat_deg - ref_lat_deg)
-      if (dLon > worstLon) worstLon = dLon
-      if (dLat > worstLat) worstLat = dLat
-
-      // Range assertions.
-      expect(packed_lon_deg).toBeGreaterThan(-180)
-      expect(packed_lon_deg).toBeLessThanOrEqual(180)
-      expect(packed_lat_deg).toBeGreaterThanOrEqual(-85.0511)
-      expect(packed_lat_deg).toBeLessThanOrEqual(85.0511)
+      // local_merc at float slots 4 / 5 (stride-6). origin(f64) + slot(f32) = abs mx.
+      const reconMx = originMx + (quant.vertices[4]! as number)
+      const reconMy = originMy + (quant.vertices[5]! as number)
+      worst = Math.max(worst, Math.abs(reconMx - mx), Math.abs(reconMy - my))
     }
 
-    console.log(`[abs_lon/abs_lat] worst delta: lon=${worstLon.toExponential(3)}°  lat=${worstLat.toExponential(3)}°`)
-    // f32 storage at the [-180, 180] degree range bottoms out at ~1.2e-7
-    // relative precision; observed worst case ~7.6e-6 degrees. The
-    // varyings only feed the fragment-side hemisphere-cull recompute
-    // which needs ~0.1° precision (rim alpha), so 1e-5 is 1e4× tighter
-    // than the consumer cares about.
-    expect(worstLon).toBeLessThan(1e-5)
-    expect(worstLat).toBeLessThan(1e-5)
+    console.log(`[local_merc] worst reconstruction error: ${worst.toExponential(3)} m`)
+    // Single f32 at ≤ tile-extent magnitude (~2.5 km) → ulp ~3e-4 m, so the
+    // f64-origin + f32-slot reconstruction is sub-mm. The renderer's DSFUN
+    // cam_h/cam_l cancel the origin in the live position path identically.
+    expect(worst).toBeLessThan(1e-3)  // < 1 mm at every zoom
   })
 
   it('DSFUN beats naive single-f32 at z=22 (the whole point)', () => {

@@ -166,8 +166,18 @@ const FILL_LAT_FLOAT = field(POLYGON_FILL_FORMAT, 'abs_lat').offset / 4     // 5
  * stride-24-byte interleaved buffer:
  *   bytes  0..11  uint16×6 — qx_hi, qx_lo, qy_hi, qy_lo, qz_hi, qz_lo
  *   bytes 12..15  f32      — fid
- *   bytes 16..19  f32      — abs_lon (degrees)
- *   bytes 20..23  f32      — abs_lat (degrees)
+ *   bytes 16..19  f32      — local_merc_x (tile-local Mercator metres = mx − tileOriginMerc[0])
+ *   bytes 20..23  f32      — local_merc_y (tile-local Mercator metres = my − tileOriginMerc[1])
+ *
+ * The two f32 tail slots historically stored ABSOLUTE lon/lat degrees, which
+ * the flat-Mercator fill VS re-projected for position — but a single f32 at
+ * |lon|≈127° has ~1.35 m granularity, magnified to ~10 px of fill/outline
+ * displacement at z>20 over-zoom (the outline path keeps DSFUN precision).
+ * Storing TILE-LOCAL Mercator instead keeps the magnitude small (≤ tile
+ * extent), so a single f32 stays sub-millimetre at every zoom and the flat
+ * fill coincides with the outline by construction (`rel = local_merc − cam`,
+ * mirroring the line/outline path). The fragment hemisphere-cull reconstructs
+ * absolute lon/lat from `local_merc + tile_origin_merc` (≈1 m, cull-tolerant).
  *
  * Per vertex:
  *   1. Inverse Web Mercator → lon/lat radians.
@@ -183,6 +193,11 @@ const FILL_LAT_FLOAT = field(POLYGON_FILL_FORMAT, 'abs_lat').offset / 4     // 5
 export function packECEFPolygonVertices(
   scratchPv: number[] | Float64Array,
   ecefTileCenter: readonly [number, number, number],
+  // Tile-local Mercator origin = [merc(tileWest), merc(tileSouth)] — the SAME
+  // origin the renderer writes to `tile_origin_merc` (primary world, no
+  // worldOff). The f32 tail slots store `[mx, my] − tileOriginMerc` so the
+  // flat-Mercator fill VS reads a small, sub-mm-precise tile-local position.
+  tileOriginMerc: readonly [number, number] = [0, 0],
 ): QuantizedPolygonVertices {
   // WGS84 ellipsoid constants come from the module-level @xgis/shared import.
 
@@ -191,8 +206,8 @@ export function packECEFPolygonVertices(
   const rx = new Float64Array(count)
   const ry = new Float64Array(count)
   const rz = new Float64Array(count)
-  const lonDeg = new Float64Array(count)
-  const latDeg = new Float64Array(count)
+  const localMercX = new Float64Array(count)
+  const localMercY = new Float64Array(count)
   const fids = new Float64Array(count)
   let maxAbs = 0
   for (let i = 0; i < count; i++) {
@@ -213,8 +228,9 @@ export function packECEFPolygonVertices(
     const ay = ey - ecefTileCenter[1]
     const az = ez - ecefTileCenter[2]
     rx[i] = ax; ry[i] = ay; rz[i] = az
-    lonDeg[i] = lon_rad * RAD2DEG
-    latDeg[i] = lat_rad * RAD2DEG
+    // Tile-local Mercator (small magnitude → sub-mm in f32 at every zoom).
+    localMercX[i] = mx - tileOriginMerc[0]
+    localMercY[i] = my - tileOriginMerc[1]
 
     const m = Math.max(Math.abs(ax), Math.abs(ay), Math.abs(az))
     if (m > maxAbs) maxAbs = m
@@ -246,8 +262,8 @@ export function packECEFPolygonVertices(
     u16[u + 5] = zl
     const f = i * FILL_FLOATS_PER_VERT // f32 base
     out[f + FILL_FID_FLOAT] = fids[i]
-    out[f + FILL_LON_FLOAT] = lonDeg[i]
-    out[f + FILL_LAT_FLOAT] = latDeg[i]
+    out[f + FILL_LON_FLOAT] = localMercX[i]
+    out[f + FILL_LAT_FLOAT] = localMercY[i]
   }
   return { vertices: out, dequantScale, dequantHalf: halfRange }
 }

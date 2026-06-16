@@ -1236,7 +1236,7 @@ function processZoomLevelShared(
         // ecef-precision-fuzz.test.ts.
         const tileEcefCenter = tileEcefCenterFromMerc(tileMx, tileMy)
 
-        const quantPv = packECEFPolygonVertices(scratch.pv, tileEcefCenter)
+        const quantPv = packECEFPolygonVertices(scratch.pv, tileEcefCenter, [tileMx, tileMy])
         tiles.set(key, {
           z, x: tx, y: ty,
           tileWest: tb.west,
@@ -1454,7 +1454,7 @@ export function compileSingleTile(
   // DSFUN reconstruction).
   const tileEcefCenter = tileEcefCenterFromMerc(tileMx, tileMy)
 
-  const quantPv = packECEFPolygonVertices(scratch.pv, tileEcefCenter)
+  const quantPv = packECEFPolygonVertices(scratch.pv, tileEcefCenter, [tileMx, tileMy])
   return {
     z, x, y,
     tileWest: tb.west, tileSouth: tb.south,

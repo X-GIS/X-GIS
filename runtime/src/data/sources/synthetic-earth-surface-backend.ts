@@ -220,6 +220,14 @@ function packKernelClamped(
     scratch[i * 3 + 1] = Math.log(Math.tan(Math.PI / 4 + clampedLat * DEG2RAD / 2)) * A
     scratch[i * 3 + 2] = 0   // feat_id — single synthetic feature
   }
-  const q = packECEFPolygonVertices(scratch, ecefTileCenter)
+  // Pass the bg tile's Mercator origin so the f32 tail slots store TILE-LOCAL
+  // Mercator (mx − origin) — matching what the renderer writes to
+  // `tile_origin_merc` for this bg tile (tileWest=-180 / Z0_DECODED_SOUTH). The
+  // flat-Mercator fill VS now reads local Mercator; without the origin it would
+  // draw the bg shifted. Recomputed from module consts (the caller's tileMx/
+  // tileMy use the identical formula → bit-for-bit the same origin).
+  const originMx = -180 * DEG2RAD * A
+  const originMy = Math.log(Math.tan(Math.PI / 4 + (Z0_DECODED_SOUTH * DEG2RAD) / 2)) * A
+  const q = packECEFPolygonVertices(scratch, ecefTileCenter, [originMx, originMy])
   return { vertices: q.vertices, dequantScale: q.dequantScale, dequantHalf: q.dequantHalf }
 }
