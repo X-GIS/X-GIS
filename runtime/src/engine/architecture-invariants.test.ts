@@ -131,12 +131,13 @@ const LOC_CEILINGS: Record<string, number> = {
   // Mapbox-parity setters (jumpTo/easeTo/flyTo/fitBounds) must mark the
   // camera explicitly positioned — matching the pointer/wheel/keyboard
   // handlers — so a post-compile bounds-fit can't clobber a host-set camera.
-  // Bumped 3416→3429 for the `map.project()` public accessor (MapLibre-API
-  // parity + the debug-measurement primitive): a thin delegate + short doc.
-  // The actual projection logic was EXTRACTED to render-loop-helpers.ts
-  // (projectLonLatToScreenCss) — only the public method shell lives here.
-  // map.ts decomposition remains the #1 tracked god-file priority.
-  'runtime/src/engine/map.ts': 3429,
+  // Bumped 3416→3437 for the `map.project()` / `map.unproject()` public
+  // accessors (MapLibre-API parity + the debug-measurement primitive): thin
+  // delegates. project()'s logic was EXTRACTED to render-loop-helpers.ts
+  // (projectLonLatToScreenCss); unproject() delegates to the camera's existing
+  // unprojectToLonLat — only the public method shells live here. map.ts
+  // decomposition remains the #1 tracked god-file priority.
+  'runtime/src/engine/map.ts': 3437,
   // Bumped 1343→1344 for the opacity sub-1.5% round-trip fix (#274); comments
   // trimmed to the minimum, net +1 irreducible.
   // Bumped 1344→1348 for the polygon fill-stroke INSET default (US-002): a
