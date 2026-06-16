@@ -1006,6 +1006,17 @@ const vsLine = entryFn('vs_line', 'vertex', [
     const ecefCam = c.let('ecef_cam', addCamOff(ecefRtc as Node<'vec3<f32>'>))
     c.assign(clip, transformMat4(mvp, vec4(ecefCam, f32(1))))
   })
+  // Mapbox fill-translate for POLYGON OUTLINES: a fill's outline draws through
+  // the line pipeline sharing the fill's per-tile slot, so slots 46/47
+  // (`_pad_tail0.zw`) already carry its NDC translate. Apply the SAME viewport
+  // offset the polygon VS does (polygon.ts:345) so an outline stays glued to a
+  // translated fill (OFM building-top roof) — MapLibre parity. Standalone lines
+  // write 0 → no-op; the <0.25 guard skips the pattern-repeat-metres overload.
+  const fillT = b.let('fill_translate_ndc', tile.field('_pad_tail0', vec4fT))
+  b.if(fillT.z.mul(fillT.z).add(fillT.w.mul(fillT.w)).lt(f32(0.25)), (c) => {
+    c.assign(clip.x, clip.x.add(fillT.z.mul(clip.w)))
+    c.assign(clip.y, clip.y.sub(fillT.w.mul(clip.w)))
+  })
   b.assign(out.field('position', vec4fT), callFn('apply_log_depth', vec4fT, clip, tile.field('log_depth_fc', f32T)))
   b.assign(out.field('view_w', f32T), clip.w)
   b.assign(out.field('world_local', vec2fT), cornerLocal)

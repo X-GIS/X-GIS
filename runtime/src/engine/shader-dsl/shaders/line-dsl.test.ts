@@ -30,6 +30,25 @@ describe('Phase-2 line shader — DSL emission', () => {
     expect(noPick).toContain('fn lonlat_to_ecef(')
     expect(noPick).toContain('WGS84_A')
   })
+  it('couples the fill viewport fill-translate onto polygon outlines (slots 46/47)', () => {
+    // A fill's outline draws through the LINE pipeline but shares the fill's
+    // per-tile uniform slot (strokeQueue reuses the fill slotOffset), so slots
+    // 46/47 (`_pad_tail0.zw`) already carry the fill's (px*2/canvasDim) NDC
+    // translate. The line VS must apply the SAME viewport offset the polygon VS
+    // does (polygon.ts:345-346) or a translated fill's outline separates from
+    // it — OFM building-top (fill-translate [-2,-2] + fill-outline-color)
+    // rendered a visible DOUBLE edge at deep zoom (fill moved −2 px, outline 0).
+    // Standalone line layers write 0 here → no-op; the squared-magnitude < 0.25
+    // guard skips the pattern-repeat-METRES overload of these same slots.
+    for (const w of [noPick, pick]) {
+      expect(w).toContain('let fill_translate_ndc = tile._pad_tail0;')
+      expect(w).toContain('clip.x = (clip.x + (fill_translate_ndc.z * clip.w))')
+      expect(w).toContain('clip.y = (clip.y - (fill_translate_ndc.w * clip.w))')
+      expect(w).toContain('< 0.25')  // NDC≪0.5 applied; pattern-repeat metres≫0.5 skipped
+      // applied to `clip` BEFORE log-depth finalises the position
+      expect(linePart(w)).toMatch(/fill_translate_ndc[\s\S]*?apply_log_depth/)
+    }
+  })
   it('globe arm lifts z_lift along the GEODETIC NORMAL, not the ECEF polar axis', () => {
     // z_lift must ride INTO lonlat_to_ecef as the geodetic height argument —
     // the same frame the CPU lonLatToECEF uses for the extruded polygon roof
