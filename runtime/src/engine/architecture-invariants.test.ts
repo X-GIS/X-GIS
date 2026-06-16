@@ -198,7 +198,15 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 1354→1356 for the undo-correctness fixes: tryConnect skipRecord param + insertReroute selEdge clear (two irreducible statements).
   // Bumped 1356→1370 for the deserialization guard (#353): sanitizeGraph() drops unknown node types + dangling edges at the load/paste/restore trust boundary.
   'blueprint/src/editor.ts': 1370,
-  'runtime/src/engine/shader-dsl/shaders/line.ts': 1187,
+  // Bumped 1187→1198 for the fill-translate→outline coupling fix: a fill's
+  // outline (drawn through the line pipeline) must apply the SAME viewport
+  // fill-translate the polygon VS does, or a translated fill's outline
+  // separates from it (OFM building-top double-edge at deep zoom). The
+  // guard + 2-axis apply are irreducible; the apply itself duplicates
+  // polygon.ts:345 × 3 — extracting a shared `apply_fill_translate` (which
+  // would net-shrink both files) is a tracked follow-up (blocked on the
+  // polygon byte-equal snapshot gate).
+  'runtime/src/engine/shader-dsl/shaders/line.ts': 1198,
   // Bumped 1171→1176 (#274 CSS color-fn whitespace), then 1176→1178 (#317) for
   // the two irreducible numeric match()-label arm-pattern cases (Number, and
   // Minus+Number). parser.ts decomposition remains a tracked priority.
