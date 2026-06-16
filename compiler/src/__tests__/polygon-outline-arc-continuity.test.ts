@@ -1,20 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import { compileGeoJSONToTiles, decomposeFeatures } from '../tiler/vector-tiler'
 
-// Regression: polygon outlines used to flow through a per-tile BFS chain
-// walker that reset arc_start at every tile boundary. Combined with the
-// dash period being measured in Mercator meters, a polygon ring split
-// across multiple tiles rendered each tile's edge with phase=0 — long
-// synthetic boundary edges fit entirely in the dash "on" half and looked
-// solid. The fix: route polygon outlines through the same augment +
-// clip + tessellate pipeline as line features, so every outline vertex
-// carries the global ring-relative arc length and the dash phase stays
-// continuous across clipped tile fragments.
-//
-// This test asserts the invariant directly: a polygon ring large enough
-// to span two tiles emits outlineVertices in BOTH tiles whose arc_start
-// values lie on the SAME monotonic sequence (ring perimeter), not
-// independent per-tile sequences starting at zero.
+// Arc parameter on polygon outlines. The outline now derives from the
+// SAME per-tile `clipped` rings the fill tessellates (fill/outline
+// coincidence fix), so arc is augmented PER-TILE and restarts near 0 in
+// each tile. Cross-tile GLOBAL arc continuity (a former invariant, commit
+// 3227174) was traded away to make the outline trace the fill's exact
+// vertices — the only way to close the magnified fill/stroke gap. Two
+// properties still hold and are pinned below:
+//   1. a boundary-crossing polygon uses per-tile arc (NOT one global
+//      sequence — the deliberate behavior change), and
+//   2. arc is monotonic non-decreasing WITHIN each tile's chain (dash
+//      phase + joins still work inside a tile).
 //
 // Reading layout: outlineVertices is DSFUN stride-10 packed —
 //   [mx_h, my_h, mx_l, my_l, feat_id, arc, tin_x, tin_y, tout_x, tout_y]
@@ -32,21 +29,29 @@ function arcsFromTile(outlineVerts: Float32Array): number[] {
 }
 
 describe('polygon outline arc continuity across tile boundaries', () => {
-  // RESOLVED (commit 3227174): the outline emission switched from
-  // polygon-clipped rings (Sutherland-Hodgman + extractNonSyntheticArcs)
-  // to line-clipped ORIGINAL rings (Liang-Barsky on the un-clipped ring).
-  // The original ring carries its own arc parameter through
-  // augmentRingWithArc — both tiles' clipped fragments inherit the same
-  // arc-space, so cross-tile dash continuity is preserved by
-  // construction. The historical `.fails` marker was for the prior
-  // polygon-clipped path that reset arc at each tile boundary.
-  it('a polygon spanning two horizontally adjacent tiles shares one arc-space', () => {
-    // Polygon centered on the antimeridian-free 0° meridian so it splits
-    // cleanly between west tile (x=0) and east tile (x=1) at zoom 1.
-    // At z=1 the world is divided into a 2×2 tile grid; tile boundary
-    // sits at lon=0. The polygon spans [-30, 30] lon × [-10, 10] lat —
-    // crosses the meridian, so its outline must appear in BOTH x=0 and
-    // x=1 at z=1.
+  // SUPERSEDED by the fill/outline COINCIDENCE fix (d34aed2 made real).
+  //
+  // History: 3227174 routed the outline through a line-clip of the
+  // ORIGINAL ring (Liang-Barsky) + augmentRingWithArc on the un-clipped
+  // ring, so every clipped fragment inherited ONE global arc-space and
+  // cross-tile dash phase was continuous. But that path's vertices came
+  // from a DIFFERENT clipper than the fill (Sutherland-Hodgman), so the
+  // outline landed up to a few metres off the fill edge at every tile
+  // crossing — a gap visible under magnification (user-reported).
+  //
+  // The coincidence fix derives the outline from the SAME `clipped`
+  // rings the fill tessellates. The clipped ring carries no whole-ring
+  // parameter (Sutherland-Hodgman emits an independent ring per tile),
+  // so arc is now augmented PER-TILE, starting near 0 in each tile.
+  // Cross-tile GLOBAL arc continuity is the deliberate casualty:
+  // recovering it would require non-clipped vertices, which reopens the
+  // gap. Exact fill/outline coincidence won; dashed polygon outlines
+  // (a niche style) lose phase continuity across tile seams.
+  //
+  // This test now PINS the new behavior: a boundary-crossing polygon's
+  // outline arc is per-tile (max arc << full ring perimeter), NOT one
+  // shared global sequence.
+  it('a polygon spanning adjacent tiles uses PER-TILE arc (coincidence supersedes global arc)', () => {
     const geojson = {
       type: 'FeatureCollection' as const,
       features: [{
@@ -65,31 +70,20 @@ describe('polygon outline arc continuity across tile boundaries', () => {
     expect(set.levels.length).toBeGreaterThan(0)
     const z1 = set.levels.find(l => l.zoom === 1)
     expect(z1).toBeDefined()
-    // z=1 tiles: (z=1, x=0, y=0) west-north, (z=1, x=1, y=0) east-north,
-    // (z=1, x=0, y=1) west-south, (z=1, x=1, y=1) east-south. Polygon
-    // lat range [-10, 10] crosses the equator, so all four contain part
-    // of the ring.
     const tiles = [...z1!.tiles.values()].filter(t => t.outlineVertices.length > 0)
     expect(tiles.length).toBeGreaterThanOrEqual(2)
 
-    // Collect every arc value emitted across all tiles. Under the OLD
-    // per-tile BFS path each tile's arc started at 0 — the union would
-    // contain many duplicates near zero. Under the global-arc fix the
-    // arcs lie on ONE monotonic sequence, so the maximum arc seen
-    // across all tiles approximates the full ring perimeter.
+    // Per-tile arc: each tile's arc restarts near 0 and only spans that
+    // tile's own clipped fragment. The max arc seen anywhere is a single
+    // tile's contribution (~a few e6 m at the equator), well BELOW the
+    // full ring perimeter (~1.78e7 m). Under the old global-arc path
+    // maxArc reached the whole perimeter; that is intentionally gone.
     const allArcs: number[] = []
     for (const t of tiles) allArcs.push(...arcsFromTile(t.outlineVertices))
     const maxArc = Math.max(...allArcs)
     const minArc = Math.min(...allArcs)
-
-    // Ring perimeter ≈ 2 × (60° lon at equator + 20° lat) in meters.
-    // 60° at equator is ~6.7e6 m in Mercator; 20° lat is ~2.2e6 m.
-    // Perimeter ≈ 1.78e7 m. We assert maxArc is in that ballpark
-    // (>1e7) — under the buggy path, every tile's arc reset to 0 and
-    // maxArc would only reach the longest single tile's contribution
-    // (~3-4e6 m), well below 1e7.
-    expect(maxArc).toBeGreaterThan(1e7)
-    expect(minArc).toBeLessThanOrEqual(1) // first vertex starts at 0
+    expect(maxArc).toBeLessThan(1e7)     // per-tile, NOT full perimeter
+    expect(minArc).toBeLessThanOrEqual(1) // each tile's first vertex starts at 0
   })
 
   it('arc values within a single tile increase monotonically along each clipped chain', () => {
