@@ -952,13 +952,22 @@ export class XGISMap {
 
   /** MapLibre-API parity + the core debug-measurement primitive: project
    *  `[lon, lat]` → canvas-local CSS-px (×dpr for device px). Impl +
-   *  full contract in `projectLonLatToScreenCss`. Inverse `unproject` TODO. */
+   *  full contract in `projectLonLatToScreenCss`. */
   project(lonLat: readonly [number, number]): [number, number] | null {
     const dpr = effectiveDpr(this._interacting)  // SAME interaction-cap dpr the frame sizes the canvas with (render-loop.ts:219)
     const [centerLon, centerLat] = this.getCenter()
     return projectLonLatToScreenCss(
       this.camera, this.canvas.width, this.canvas.height, dpr, centerLon, centerLat, lonLat,
     )
+  }
+
+  /** Inverse of `project`: canvas-local CSS-px → `[lon, lat]` (null if the ray
+   *  misses the surface — off a globe/disc). Delegates to the camera's
+   *  validated screen→lon/lat inverse (the gesture-anchor inverse,
+   *  camera-helpers.ts) at the same interaction-cap dpr `project` uses. */
+  unproject(screen: readonly [number, number]): [number, number] | null {
+    const dpr = effectiveDpr(this._interacting)
+    return this.camera.unprojectToLonLat(screen[0] * dpr, screen[1] * dpr, this.canvas.width, this.canvas.height, dpr)
   }
 
   /** Mapbox-API parity: read the current camera state as a single

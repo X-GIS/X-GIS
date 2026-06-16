@@ -13,9 +13,10 @@ test('map.project(): center→canvas-centre, lon offset monotone', async ({ page
   const r = await page.evaluate(() => {
     const m = (window as unknown as { __xgisMap?: {
       project: (ll: [number, number]) => [number, number] | null
+      unproject: (s: [number, number]) => [number, number] | null
       getCenter: () => [number, number]
     } }).__xgisMap
-    if (!m?.project) return { ok: false }
+    if (!m?.project || !m?.unproject) return { ok: false }
     // project() returns CSS px relative to the CANVAS top-left, so compare to
     // the canvas's own CSS dimensions (demo.html has a control sidebar → the
     // canvas is NOT the full window).
@@ -25,7 +26,8 @@ test('map.project(): center→canvas-centre, lon offset monotone', async ({ page
     const c = m.getCenter()
     const pc = m.project(c)
     const pe = m.project([c[0] + 10, c[1]])  // +10° lon → screen moves +x
-    return { ok: true, c, cssW, cssH, pc, pe }
+    const un = pc ? m.unproject(pc) : null    // round-trip: unproject(project(c)) ≈ c
+    return { ok: true, c, cssW, cssH, pc, pe, un }
   })
 
   expect(r.ok).toBe(true)
@@ -38,5 +40,9 @@ test('map.project(): center→canvas-centre, lon offset monotone', async ({ page
   expect(r.pe).not.toBeNull()
   expect(r.pe![0]).toBeGreaterThan(r.pc![0])
   expect(r.pe![0] - r.pc![0]).toBeLessThan(r.cssW!)  // not flung off
-  console.log('[project] center', r.c, '→', r.pc, '| +10°lon →', r.pe)
+  // unproject(project(center)) round-trips back to center (≤ 0.05°)
+  expect(r.un).not.toBeNull()
+  expect(Math.abs(r.un![0] - r.c![0])).toBeLessThan(0.05)
+  expect(Math.abs(r.un![1] - r.c![1])).toBeLessThan(0.05)
+  console.log('[project] center', r.c, '→', r.pc, '| +10°lon →', r.pe, '| unproject(pc)→', r.un)
 })
