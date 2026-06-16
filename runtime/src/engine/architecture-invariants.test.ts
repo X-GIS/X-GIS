@@ -159,6 +159,14 @@ const LOC_CEILINGS: Record<string, number> = {
   // with a never-drop fallback chain (hole[0] → centroid → any vertex →
   // largest sub-outer). Net +26 after collapsing the two inline loops; the
   // helper is shared by both sites so it can't fold into either.
+  // Fill/outline COINCIDENCE fix (d34aed2 made real): both outline-emit
+  // sites now derive from the fill's `clipped` rings via the pre-existing
+  // extractNonSyntheticArcs (#347 seam-strip preserved) instead of a
+  // separate line-clip of the original ring — closing a ~3.8 m fill/stroke
+  // gap at tile crossings. dropTileBoundaryEdges deleted (its job folds
+  // into extractNonSyntheticArcs); dropConsecutiveDuplicates added (strips
+  // the S-H closing-duplicate that would make a degenerate outline edge).
+  // Net negative — stays under the 1570 cap.
   'compiler/src/tiler/vector-tiler.ts': 1570,
   'runtime/src/engine/render/renderer.ts': 915,
   // Lowered 776→254: extracted the text-layout family (text-anchor /

@@ -143,16 +143,9 @@ function makePolygonPart(rings: number[][][], featureIndex: number): GeometryPar
   // vertices) instead of O(source vertices × tiles).
   //
   // Great-circle subdivision is NOT applied here (only on lines —
-  // makeLinePart). Polygons split fill/outline through different
-  // paths: outline uses `clipped` (unsimplified), fill uses
-  // `dataRings = simplifyPolygon(clipped)` at z<maxZoom. Adding
-  // sub-vertices to rings causes simplification to drop them from
-  // fill but keep them in outline — outline endpoints land off the
-  // fill boundary by hundreds of meters, breaking the d34aed2
-  // invariant (visible fill/stroke gap). Polygon globe-surface
-  // rendering needs a downstream-pipeline fix (subdivide after
-  // simplification, or unify both paths through dataRings) — left
-  // for a later commit.
+  // makeLinePart). Polygon fill and outline both derive from the same
+  // un-simplified `clipped` ring per tile (see processZoomLevelShared /
+  // compileSingleTile), so they coincide by construction (d34aed2).
   const bbox = ringsBBox(rings[0])
   const mmRings = projectRingsToMM(rings)
   return { type: 'polygon', rings: mmRings, featureIndex, ...bbox }
@@ -745,38 +738,6 @@ export function augmentRingWithArc(ring: number[][], opts?: { mmInput?: boolean 
   return augmentChainWithArc(ring, true, opts)
 }
 
-/** Split a line-clipped outline polyline at edges that lie ALONG a tile
- *  boundary (both endpoints on the SAME vertical or horizontal side,
- *  within eps), dropping those edges.
- *
- *  WHY: clipLineToRect (Liang-Barsky) is artifact-free for edges that
- *  CROSS a boundary, but it PRESERVES a source edge that is coincident
- *  with a boundary — e.g. the antimeridian-split edges Natural Earth
- *  bakes at lon ±180, or a poleward-clamp edge. Stroking those draws a
- *  spurious full-height seam line at the world/tile boundary, repeated
- *  in every world copy (user-reported antimeridian vertical line).
- *  The crossing case (one endpoint on the boundary) is preserved, so a
- *  real border meeting the boundary still strokes up to it. */
-function dropTileBoundaryEdges(
-  seg: number[][], xW: number, yS: number, xE: number, yN: number, eps: number,
-): number[][][] {
-  const onSameSide = (a: number[], b: number[]): boolean =>
-    (Math.abs(a[0] - xW) < eps && Math.abs(b[0] - xW) < eps) ||
-    (Math.abs(a[0] - xE) < eps && Math.abs(b[0] - xE) < eps) ||
-    (Math.abs(a[1] - yS) < eps && Math.abs(b[1] - yS) < eps) ||
-    (Math.abs(a[1] - yN) < eps && Math.abs(b[1] - yN) < eps)
-  const runs: number[][][] = []
-  let cur: number[][] = seg.length ? [seg[0]] : []
-  for (let i = 1; i < seg.length; i++) {
-    if (onSameSide(seg[i - 1], seg[i])) {
-      if (cur.length >= 2) runs.push(cur)
-      cur = [seg[i]]
-    } else cur.push(seg[i])
-  }
-  if (cur.length >= 2) runs.push(cur)
-  return runs
-}
-
 /** Extract the "interior" arcs of a clipped polygon ring — the
  *  sub-chains whose edges come from the ORIGINAL polygon's boundary,
  *  not the synthetic axis-aligned edges Sutherland-Hodgman added to
@@ -870,6 +831,25 @@ export function makeSameBoundarySidePredicateMerc(
  *  `augmentChainWithArc` for call-site readability. */
 function augmentLineWithArc(coords: number[][]): number[][] {
   return augmentChainWithArc(coords, false)
+}
+
+/** Drop consecutive-duplicate vertices from a polyline. Sutherland-
+ *  Hodgman can emit a repeated vertex when the source ring's closing
+ *  point coincides with the clip rect corner (e.g. a fully-interior
+ *  ring keeps its GeoJSON first==last as two adjacent identical
+ *  vertices). Feeding that to the outline tessellator makes a zero-
+ *  length segment → a degenerate self-adjacency that poisons the
+ *  runtime join walker. Removing it changes nothing visible (the
+ *  segment had no length; the fill's earcut ignores it too), so
+ *  fill/outline coincidence is preserved. */
+function dropConsecutiveDuplicates(coords: number[][], eps = 1e-6): number[][] {
+  if (coords.length < 2) return coords
+  const out: number[][] = [coords[0]!]
+  for (let i = 1; i < coords.length; i++) {
+    const p = coords[i]!, q = out[out.length - 1]!
+    if (Math.abs(p[0]! - q[0]!) > eps || Math.abs(p[1]! - q[1]!) > eps) out.push(p)
+  }
+  return out
 }
 
 /** Push a single chain (open or closed-and-augmented) into stride-8
@@ -1087,21 +1067,26 @@ function processZoomLevelShared(
         const fid = sp.original.featureIndex // stable feature ID
 
         if (sp.rings) {
-          // Industry-standard MM-native pipeline. sp.rings are already
-          // in MM (projected once in makePolygonPart), so the hot
-          // path runs: clip → simplify → tessellate all in MM. Both
-          // fill and outline share the same clipped ring set, so their
-          // endpoints agree by construction.
+          // sp.rings are already MM (projected in makePolygonPart). The
+          // FILL uses the raw `clipped` ring at EVERY zoom (no simplify),
+          // so it shares the exact ring set the OUTLINE line-clips below —
+          // boundaries coincide by construction (d34aed2). Fill is NOT
+          // simplified because the outline keeps the original ring's full
+          // detail for cross-tile dash-arc continuity (3227174); a
+          // simplified fill at z<maxZoom diverged from its own stroke by
+          // up to the tolerance (km at low zoom). simplify∘clip ≠
+          // clip∘simplify, so simplifying the outline can't fix it either.
           const clipped = clipPolygonToRect(sp.rings, tbMxW, tbMyS, tbMxE, tbMyN, precisionForZoomMM(z))
           if (clipped.length > 0 && clipped[0].length >= 3) {
             tileClippedRings.push(...clipped)
             tilePolyFeatureIds.add(fid)
             for (const ring of clipped) preSimplifyVerts += ring.length
-            // At maxZoom: use original data (for runtime sub-tiling)
-            // Below maxZoom: simplify to reduce vertex count
-            const dataRings = z < maxZoom ? simplifyPolygon(clipped, z, isOnBoundaryMerc, mercatorToleranceForZoom(z)) : clipped
+            const dataRings = clipped
+            // Adaptive-subdivision metric ONLY (preSimplifyVerts >
+            // postSimplifyVerts → needsSubdivision); the probe-simplify
+            // output is discarded, never touching the emitted fill above.
             if (z < maxZoom) {
-              for (const ring of dataRings) postSimplifyVerts += ring.length
+              for (const ring of simplifyPolygon(clipped, z, isOnBoundaryMerc, mercatorToleranceForZoom(z))) postSimplifyVerts += ring.length
             } else {
               postSimplifyVerts += preSimplifyVerts
             }
@@ -1150,22 +1135,32 @@ function processZoomLevelShared(
                 }
               }
             }
-            // Outline: treat each ORIGINAL ring as a closed
-            // LineString and line-clip to the tile rect (MapLibre
-            // approach). Line-clipping doesn't introduce synthetic
-            // axis-aligned edges, so the outline buffer is free of
-            // tile-rect artifacts by construction — no need for
-            // extractNonSyntheticArcs filtering.
-            const obEps = Math.max((tbMxE - tbMxW) * 1e-9, 1e-6)
-            for (const ring of sp.rings) {
+            // Outline: derive from the SAME `clipped` rings the fill
+            // tessellates, NOT a line-clip of the original ring. The two
+            // clippers round boundary-crossing intersections differently,
+            // so a line-clipped outline lands up to ~3.8 m off the fill
+            // edge at tile crossings — a gap visible under magnification.
+            // Tracing the identical `clipped` vertices makes fill/outline
+            // coincide by construction (d34aed2, now real).
+            // `extractNonSyntheticArcs` strips the synthetic tile-rect
+            // edges Sutherland-Hodgman adds to close the ring (#347 — else
+            // the outline strokes a seam at every internal tile boundary),
+            // returning open boundary arcs or the whole closed ring when
+            // fully interior.
+            const sidePred = makeSameBoundarySidePredicateMerc(tbMxW, tbMyS, tbMxE, tbMyN, 1.0)
+            for (const ring of clipped) {
               if (ring.length < 2) continue
-              const augmented = augmentRingWithArc(ring, { mmInput: true })
-              if (augmented.length < 2) continue
-              const segments = clipLineToRect(augmented, tbMxW, tbMyS, tbMxE, tbMyN)
-              for (const seg of segments) {
-                for (const run of dropTileBoundaryEdges(seg, tbMxW, tbMyS, tbMxE, tbMyN, obEps)) {
-                  tessellateLineToArrays(run, fid, scratch.olv, scratch.oli)
-                }
+              for (const arc of extractNonSyntheticArcs(ring, sidePred)) {
+                // mmInput augment adds per-tile arc + tangents WITHOUT
+                // moving any vertex, so coincidence holds. Cross-tile
+                // GLOBAL arc (3227174) is traded for exact coincidence:
+                // the clipped ring has no whole-ring parameter. Strip the
+                // S-H closing-duplicate first (degenerate self-adjacency).
+                const isClosed = arc.length >= 3 && arc === ring
+                const clean = dropConsecutiveDuplicates(arc)
+                if (clean.length < 2) continue
+                const chain = augmentChainWithArc(clean, isClosed, { mmInput: true })
+                if (chain.length >= 2) tessellateLineToArrays(chain, fid, scratch.olv, scratch.oli)
               }
             }
           }
@@ -1226,10 +1221,9 @@ function processZoomLevelShared(
       const hasGeometry = scratch.pv.length >= 9 || scratch.lv.length >= 8 || scratch.ptv.length >= 3
       if (fullCover || hasGeometry) {
 
-        // The legacy boundary-edge filter that used to drop synthetic
-        // tile-boundary outline segments is gone — clipLineToRect (used
-        // by the new outline path) doesn't generate those segments in
-        // the first place, so there's nothing to filter.
+        // No post-hoc boundary-edge filter: the outline path strips
+        // synthetic tile-rect edges up front via extractNonSyntheticArcs
+        // (#347), so scratch.olv never holds a tile-boundary segment.
 
         // DSFUN pack: project scratch vertices (absolute lon/lat) to tile-local
         // Mercator meters in f64, then split into (high, low) f32 pairs.
@@ -1323,14 +1317,15 @@ export function compileSingleTile(
     const fid = part.featureIndex
 
     if (part.type === 'polygon' && part.rings) {
-      // Industry-standard pipeline (Mapbox GL / MapLibre / Tippecanoe):
-      // rings are ALREADY in MM — projected once at makePolygonPart
-      // (decomposeFeatures time). Hot path is clip → simplify →
-      // tessellate all in MM. Fill and outline share the same clipped
-      // ring set so endpoints agree by construction.
+      // rings are ALREADY MM (makePolygonPart). The FILL uses the raw
+      // `clipped` ring at every zoom (no simplification) so it shares the
+      // exact ring set the OUTLINE line-clips below — boundaries coincide
+      // by construction (d34aed2). Simplifying the fill at z<maxZoom while
+      // the outline kept full detail produced a fill/stroke gap growing
+      // with zoom-out; see the matching note in processZoomLevelShared.
       const clipped = clipPolygonToRect(part.rings, stMxW, stMyS, stMxE, stMyN, precisionMM)
       if (clipped.length > 0 && clipped[0].length >= 3) {
-        const dataRings = z < maxZoom ? simplifyPolygon(clipped, z, isOnBoundaryMerc, mercatorToleranceForZoom(z)) : clipped
+        const dataRings = clipped
         // Repair self-intersecting OUTER ring only — but only when an
         // earcut probe actually detects the overlap. See
         // `needsBacktrackRepair` for the coverage-based detection.
@@ -1367,33 +1362,34 @@ export function compileSingleTile(
             }
           }
         }
-        // Outline emission: treat each ORIGINAL ring as a closed
-        // LineString and line-clip to the tile rect. This is what
-        // MapLibre does for `type:line` layers on a polygon source —
-        // line-clipping (Liang-Barsky) doesn't introduce synthetic
-        // axis-aligned tile-rect edges the way Sutherland-Hodgman
-        // polygon-clipping does, so the outline buffer is free of
-        // boundary-coincident artifacts by construction. No
-        // `extractNonSyntheticArcs` filter, no synthetic-edge
-        // detection — geometry is preserved if and only if it was a
-        // real edge of the source polygon.
+        // Outline emission: derive from the SAME `clipped` rings the
+        // fill tessellates, NOT a separate line-clip of the original
+        // ring. A line-clipped outline lands a few metres off the
+        // polygon-clipped fill edge at tile crossings (the two clippers
+        // round boundary intersections differently), opening a gap
+        // visible under magnification. Tracing the identical `clipped`
+        // vertices makes fill/outline coincide by construction.
         //
-        // Trade-off vs the prior `clipped`-based path: outline
-        // endpoints land where the ORIGINAL ring crossed the tile
-        // boundary, which is geometrically identical to the
-        // polygon-clipped intersection points (both Liang-Barsky and
-        // Sutherland-Hodgman produce the same crossing). So fill /
-        // stroke endpoints still agree by construction.
-        const obEps = Math.max((stMxE - stMxW) * 1e-9, 1e-6)
-        for (const ring of part.rings) {
+        // `extractNonSyntheticArcs` strips the synthetic axis-aligned
+        // edges Sutherland-Hodgman adds to close the ring along the
+        // tile rect (#347 — otherwise the outline strokes a spurious
+        // seam at every internal tile boundary). It returns open arcs
+        // of original-boundary edges, or the whole closed ring when the
+        // polygon is fully interior (closed-by-intent → append the
+        // first vertex so the last→first edge strokes).
+        const sidePred = makeSameBoundarySidePredicateMerc(stMxW, stMyS, stMxE, stMyN, 1.0)
+        for (const ring of clipped) {
           if (ring.length < 2) continue
-          const augmented = augmentRingWithArc(ring, { mmInput: true })
-          if (augmented.length < 2) continue
-          const segments = clipLineToRect(augmented, stMxW, stMyS, stMxE, stMyN)
-          for (const seg of segments) {
-            for (const run of dropTileBoundaryEdges(seg, stMxW, stMyS, stMxE, stMyN, obEps)) {
-              tessellateLineToArrays(run, fid, scratch.olv, scratch.oli)
-            }
+          for (const arc of extractNonSyntheticArcs(ring, sidePred)) {
+            // Augment with per-tile arc + tangents without moving any
+            // vertex (mmInput) so fill/outline stay coincident. Cross-
+            // tile global arc continuity is traded for exact coincidence
+            // (see processZoomLevelShared for the full rationale).
+            const isClosed = arc.length >= 3 && arc === ring
+            const clean = dropConsecutiveDuplicates(arc)
+            if (clean.length < 2) continue
+            const chain = augmentChainWithArc(clean, isClosed, { mmInput: true })
+            if (chain.length >= 2) tessellateLineToArrays(chain, fid, scratch.olv, scratch.oli)
           }
         }
       }
@@ -1446,8 +1442,8 @@ export function compileSingleTile(
 
   if (!fullCover && scratch.pv.length < 9 && scratch.lv.length < 8 && scratch.ptv.length < 3) return null
 
-  // No legacy boundary-edge filter — clipLineToRect (used by the
-  // outline path above) doesn't generate synthetic boundary segments.
+  // No post-hoc boundary-edge filter — the outline path above strips
+  // synthetic tile-rect edges via extractNonSyntheticArcs (#347).
 
   // DSFUN pack: project to tile-local Mercator meters, split into high/low pairs
   const [tileMx, tileMy] = lonLatToMercF64(tb.west, tb.south)
