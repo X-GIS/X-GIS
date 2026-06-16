@@ -16,7 +16,7 @@ import {
 } from './synthetic-earth-surface-show'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { getSharedGeoJSONCompilePool } from '../data/workers/geojson-compile-pool'
-import { initGPU, GPU_PROF, getMaxDpr, WebGPUUnavailableError, type GPUContext } from './gpu/gpu'
+import { initGPU, GPU_PROF, getMaxDpr, effectiveDpr, WebGPUUnavailableError, type GPUContext } from './gpu/gpu'
 import { QUALITY, updateQuality, type QualityConfig } from './gpu/quality'
 import { GPUTimer } from './gpu/gpu-timer'
 import { Camera } from './projection/camera'
@@ -954,8 +954,7 @@ export class XGISMap {
    *  `[lon, lat]` → canvas-local CSS-px (×dpr for device px). Impl +
    *  full contract in `projectLonLatToScreenCss`. Inverse `unproject` TODO. */
   project(lonLat: readonly [number, number]): [number, number] | null {
-    const dpr = typeof window !== 'undefined'
-      ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+    const dpr = effectiveDpr(this._interacting)  // SAME interaction-cap dpr the frame sizes the canvas with (render-loop.ts:219)
     const [centerLon, centerLat] = this.getCenter()
     return projectLonLatToScreenCss(
       this.camera, this.canvas.width, this.canvas.height, dpr, centerLon, centerLat, lonLat,

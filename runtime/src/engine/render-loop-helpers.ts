@@ -439,7 +439,11 @@ export function makeLabelProjectors(
  *  CPU mirror of the polygon/line vertex shader) so the result lands where a
  *  feature at that lon/lat is drawn. `w`/`h` are BACKING px (canvas.width); the
  *  result is divided by `dpr` to CSS px (MapLibre `project` convention).
- *  Returns null when the point is culled (behind globe / off a disc). */
+ *  Returns null when the point is culled (behind globe / off a disc) or the
+ *  input is non-finite, and the PRIMARY world copy (single-valued, like
+ *  MapLibre). CAVEAT: `centerLon/centerLat` should be the frame's clamped proj
+ *  centre (mercatorYToLat(centerY)); the sphere family above ±85° lat in the
+ *  untilted flat branch may diverge from the live frame (follow-up). */
 export function projectLonLatToScreenCss(
   camera: Camera,
   w: number,
@@ -449,6 +453,7 @@ export function projectLonLatToScreenCss(
   centerLat: number,
   lonLat: readonly [number, number],
 ): [number, number] | null {
+  if (!Number.isFinite(lonLat[0]) || !Number.isFinite(lonLat[1])) return null
   const projType = camera.projType
   const isFlatProj = !camera.globeMode && !isGlobeProj(projType)
   const view = camera.getViewForProjection(projType, w, h, dpr)
