@@ -35,6 +35,22 @@ import { MERCATOR_LAT_LIMIT } from '../../engine/projection/projection'
 // abs_lat now spans ±90; the |lat|≤85.05 equality with the ground geoid is
 // unchanged (proven in surface-geoid-unification.test.ts).
 
+// Decode a stride-6 vertex's latitude from float slot 5. The mercator-class
+// bands (0/1/2/6) run the shared `packECEFPolygonVertices` kernel, whose tail
+// slots now hold TILE-LOCAL Mercator (mx − tileOriginMerc) — reconstruct lat
+// via origin + inverse Mercator. The sphere-class bands (3/4/5/7) carry abs_lat
+// DEGREES directly (lonLatToECEF, F2 polar caps) — read as-is.
+const SLOT_A = 6378137
+const SLOT_D2R = Math.PI / 180
+const Z0_SOUTH = (Math.atan(Math.sinh(-Math.PI)) * 180) / Math.PI // z=0 tile south ≈ -85.0511°
+const BG_TILE_MY = Math.log(Math.tan(Math.PI / 4 + (Z0_SOUTH * SLOT_D2R) / 2)) * SLOT_A
+function decodeLat(slot5: number, projType: number): number {
+  const mercatorClass = projType === 0 || projType === 1 || projType === 2 || projType === 6
+  if (!mercatorClass) return slot5 // abs_lat degrees (sphere-class)
+  const absMy = slot5 + BG_TILE_MY
+  return (2 * Math.atan(Math.exp(absMy / SLOT_A)) - Math.PI / 2) / SLOT_D2R
+}
+
 function backendLatRange(projType?: number): { min: number; max: number } {
   const backend = new SyntheticEarthSurfaceBackend(projType)
   let result: BackendTileResult | null = null
@@ -47,7 +63,7 @@ function backendLatRange(projType?: number): { min: number; max: number } {
   let min = Infinity
   let max = -Infinity
   for (let i = 0; i < n; i++) {
-    const lat = v[i * 6 + 5]! // abs_lat tail at stride-6 offset 5
+    const lat = decodeLat(v[i * 6 + 5]!, projType ?? 0)
     if (lat < min) min = lat
     if (lat > max) max = lat
   }

@@ -91,21 +91,28 @@ describe('createFullCoverTileData quad layout (quantized-ECEF stride 6)', () => 
     expect(data!.dequantHalf, 'per-tile ECEF half-range must be a real metre span').toBeGreaterThan(0)
     expect(data!.dequantScale, 'per-tile dequant step must be positive').toBeGreaterThan(0)
 
-    // abs_lon / abs_lat live at float slots 4 / 5 of each stride-6 vertex.
-    // Corner 0 is the tile SW corner; its abs_lon/abs_lat must sit inside the
-    // tile's lon/lat bounds. Pre-fix these slots held 0 / fid (no abs coords).
+    // Float slots 4 / 5 now hold TILE-LOCAL Mercator (vertex_merc −
+    // tileOriginMerc), NOT absolute lon/lat degrees. Reconstruct absolute
+    // lon/lat (origin + local) and assert vertex 0 sits inside the tile's
+    // bounds. Pre-fix these slots held absolute degrees (and earlier 0 / fid).
     const [tz, tx, ty] = tileKeyUnpack(key)
     const tn = Math.pow(2, tz)
     const tileWest = tx / tn * 360 - 180
     const tileEast = (tx + 1) / tn * 360 - 180
     const tileSouth = Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + 1) / tn))) * 180 / Math.PI
     const tileNorth = Math.atan(Math.sinh(Math.PI * (1 - 2 * ty / tn))) * 180 / Math.PI
-    const absLon0 = verts[4]
-    const absLat0 = verts[5]
+    const R = 6378137
+    const D2R = Math.PI / 180
+    const tileOriginMx = tileWest * D2R * R
+    const tileOriginMy = Math.log(Math.tan(Math.PI / 4 + tileSouth * D2R / 2)) * R
+    const absMx0 = verts[4] + tileOriginMx
+    const absMy0 = verts[5] + tileOriginMy
+    const lon0 = absMx0 / (D2R * R)
+    const lat0 = (2 * Math.atan(Math.exp(absMy0 / R)) - Math.PI / 2) / D2R
     const eps = 1e-3
-    expect(absLon0).toBeGreaterThanOrEqual(tileWest - eps)
-    expect(absLon0).toBeLessThanOrEqual(tileEast + eps)
-    expect(absLat0).toBeGreaterThanOrEqual(tileSouth - eps)
-    expect(absLat0).toBeLessThanOrEqual(tileNorth + eps)
+    expect(lon0).toBeGreaterThanOrEqual(tileWest - eps)
+    expect(lon0).toBeLessThanOrEqual(tileEast + eps)
+    expect(lat0).toBeGreaterThanOrEqual(tileSouth - eps)
+    expect(lat0).toBeLessThanOrEqual(tileNorth + eps)
   })
 })

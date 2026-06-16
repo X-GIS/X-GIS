@@ -192,15 +192,21 @@ export class SubTileGenerator {
     // Mercator, so we subtract the parent tile origin from the packed
     // abs_lon/abs_lat-derived Mercator coords.
     const readPV = (vi: number): [number, number, number] => {
+      // Slots 4/5 now carry TILE-LOCAL Mercator (vertex_merc − parentTileOrigin,
+      // packed by packECEFPolygonVertices). The parent's origin == [parentMx,
+      // parentMy], so the stored local Mercator IS already parent-local — read
+      // it directly (sub-mm f32, no degree round-trip). Pre-fix this read the
+      // f32 abs_lon/abs_lat DEGREE slots and re-projected (~1.3 m grain).
       const off = vi * ECEF_POLY_STRIDE
-      const absLonDeg = verts[off + 4]
-      const absLatDeg = verts[off + 5]
-      const fid = verts[off + 3]
-      const mxAbs = absLonDeg * ECEF_DEG2RAD * ECEF_EARTH_R
-      const myAbs = Math.log(Math.tan(Math.PI / 4 + absLatDeg * ECEF_DEG2RAD / 2)) * ECEF_EARTH_R
-      return [mxAbs - parentMx, myAbs - parentMy, fid]
+      return [verts[off + 4], verts[off + 5], verts[off + 3]]
     }
 
+    // FILL: clip the parent's triangle mesh into the sub-rect. `readPV` recovers
+    // each parent vertex's tile-local Mercator from the f32 tail slots — now
+    // EXACT (they store tile-local Mercator metres, not the old ~1.3 m absolute-
+    // degree round-trip), so the over-zoom fill is sub-mm-faithful and coincides
+    // with the outline. Reusing the parent's existing triangulation is cheaper
+    // than re-tessellating its rings per sub-tile.
     for (let t = 0; t < parent.indices.length; t += 3) {
       const i0 = parent.indices[t], i1 = parent.indices[t + 1], i2 = parent.indices[t + 2]
       const [x0, y0, fid] = readPV(i0)
@@ -217,11 +223,11 @@ export class SubTileGenerator {
       }
 
       const clipped = clipPolygonToRect([[[x0, y0], [x1, y1], [x2, y2]]], clipW, clipS, clipE, clipN)
-      if (clipped.length === 0 || clipped[0].length < 3) continue
-      const ring = clipped[0]
+      if (clipped.length === 0 || clipped[0]!.length < 3) continue
+      const ring = clipped[0]!
       const ringIdx: number[] = []
       for (const [x, y] of ring) ringIdx.push(pushDedupPV(x, y, fid))
-      for (let j = 1; j < ring.length - 1; j++) outI.push(ringIdx[0], ringIdx[j], ringIdx[j + 1])
+      for (let j = 1; j < ring.length - 1; j++) outI.push(ringIdx[0]!, ringIdx[j]!, ringIdx[j + 1]!)
     }
 
     // Line clip (Liang-Barsky). DSFUN stride-10 reconstruction + dedup.
@@ -426,7 +432,7 @@ export class SubTileGenerator {
     // canonical tiler packer. Output sits in the same ECEF frame as parent
     // archive tiles so the renderer's ECEF VS reads one layout. The
     // per-tile dequant params travel on the sub-tile's TileData.
-    const subQuant = packECEFPolygonVertices(outV, subTileEcefCenter)
+    const subQuant = packECEFPolygonVertices(outV, subTileEcefCenter, [subMxW, subMyS])
     return {
       vertices: subQuant.vertices,
       dequantScale: subQuant.dequantScale,

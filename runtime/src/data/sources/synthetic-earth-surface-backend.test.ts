@@ -173,9 +173,12 @@ describe('SyntheticEarthSurfaceBackend — vertex content', () => {
     expect(ey).toBeCloseTo(refY, 1)
     expect(ez).toBeCloseTo(refZ, 1)
     expect(refX).toBeCloseTo(A, 1)  // sanity: equator radius == semi-major axis
-    // abs_lon/abs_lat at the same vertex (f32 tail).
-    expect(v[idx * 6 + 4]).toBeCloseTo(0, 6)
-    expect(v[idx * 6 + 5]).toBeCloseTo(0, 6)
+    // The f32 tail now holds TILE-LOCAL Mercator (local_merc = mx − tileOrigin);
+    // reconstruct lon/lat (origin + local → inverse Mercator). Mid vertex = (0,0).
+    const absMx = v[idx * 6 + 4]! + Z0_TILE_MX
+    const absMy = v[idx * 6 + 5]! + Z0_TILE_MY
+    expect(absMx / (DEG2RAD * A)).toBeCloseTo(0, 4)               // lon ≈ 0
+    expect((2 * Math.atan(Math.exp(absMy / A)) - Math.PI / 2) / DEG2RAD).toBeCloseTo(0, 4) // lat ≈ 0
   })
 
   it('bg vertex ECEF == tiler ELLIPSOID ECEF across a lat/lon spread (basis unified, caps at ±90)', () => {

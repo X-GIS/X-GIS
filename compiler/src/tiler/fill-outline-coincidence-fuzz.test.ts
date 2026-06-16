@@ -112,47 +112,12 @@ describe('H2 step-1 — fill ↔ outline encoding coincidence (CPU cross-path)',
     expect(splitPx).toBeLessThan(0.25)
   })
 
-  // H2 hypothesis A (REFUTED, kept as the record). The flat Mercator polygon
-  // arm (polygon.ts:247-250) reconstructs the fill vertex as
-  // `project(abs_lon, abs_lat)` from the f32 DEGREE varyings (slots 4/5),
-  // whereas the line VS uses DSFUN hi/lo tile-local metres. It was plausible
-  // the fill thus inherited a ~1 m degree-quantization drift. CPU result:
-  // the abs_lon/abs_lat reconstruction lands within ~0.1 m (≈0.5 px @ z19.4)
-  // of the DSFUN outline — sub-pixel, and its error is per-vertex JITTER
-  // (random sign), NOT the measured ~10 px CONSTANT outward translation. So
-  // abs_lon/abs_lat precision is NOT the cause of the visible fill drift;
-  // the cause is a constant per-tile offset further down the flat arm
-  // (tile_origin_merc f32 rounding not fully cancelling cam_h/cam_l, or a
-  // fill-translate paint term) — a SHADER-side term CPU pack/unpack cannot
-  // see → GPU readback. This test pins the refutation so the hypothesis is
-  // not re-tried.
-  it('REFUTED hypothesis A: f32 abs_lon/abs_lat reconstruction is sub-pixel (NOT the ~10 px fill drift)', () => {
-    const lonDeg = 126.99179, latDeg = 37.48381
-    const [mx, my] = lonLatToMercF64(lonDeg, latDeg)
-    const ext = (2 * Math.PI * A) / Math.pow(2, 14)
-    const tileMx = mx - ext * 0.3
-    const tileMy = my - ext * 0.2
-    const tileEcefCenter = tileEcefCenterFromMerc(tileMx, tileMy)
-    const qf = packECEFPolygonVertices([mx, my, 0], tileEcefCenter)
-
-    // FILL (flat Mercator arm): project() from the packed f32 abs_lon/abs_lat
-    // degrees (vertices[4]/[5]) — exactly what the VS feeds `project`.
-    const absLonDeg = qf.vertices[4]!  // f32-stored degrees
-    const absLatDeg = qf.vertices[5]!
-    const fillMercX = absLonDeg * DEG2RAD * A
-    const fillMercY = A * Math.log(Math.tan(Math.PI / 4 + (absLatDeg * DEG2RAD) / 2))
-
-    // OUTLINE (line arm): DSFUN hi/lo reconstruct the exact tile-local metres.
-    // stride-8 input shape (line kernel IN_STRIDE; tin/tout slots zeroed).
-    const po = packDSFUNLineVertices([mx, my, 0, 0, 0, 0, 0, 0], tileMx, tileMy)
-    const outMercX = tileMx + po[0]! + po[2]!
-    const outMercY = tileMy + po[1]! + po[3]!
-
-    const splitM = Math.hypot(fillMercX - outMercX, fillMercY - outMercY)
-    const splitPx = splitM / M_PER_PX
-    console.log(`[H2 hyp-A REFUTED] flat-fill(f32 abs_lon/lat) vs DSFUN-outline: ${splitM.toFixed(3)} m = ${splitPx.toFixed(2)} px @ z${Z_RENDER} (cause must be elsewhere)`)
-
-    // abs_lon/abs_lat reconstruction is sub-pixel → ruled out as the cause.
-    expect(splitPx).toBeLessThan(1)
-  })
+  // NOTE: an earlier "hypothesis A REFUTED" test lived here, concluding the f32
+  // abs_lon/abs_lat fill position was NOT the cause (it measured sub-pixel at a
+  // single near-tile point). That refutation was WRONG — it under-measured by
+  // probing one point near the tile origin, where the f32-degree grain is
+  // small. A real-GPU bisect + independent trace CONFIRMED the f32-degree fill
+  // position WAS the ~10 px drift at deep over-zoom (worst-case ~1.35 m at
+  // |lon|≈127°). The fix stores TILE-LOCAL Mercator in those slots so the fill
+  // position is sub-mm at every zoom (gated by ecef-precision-fuzz AC2c.2.3).
 })

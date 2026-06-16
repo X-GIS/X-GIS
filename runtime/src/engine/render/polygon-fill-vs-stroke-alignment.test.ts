@@ -49,9 +49,6 @@ const POLY_STRIDE = 6
 /** DSFUN line vertex stride 10: [mx_h, my_h, mx_l, my_l, fid, arc, tin_x, tin_y, tout_x, tout_y] */
 const LINE_STRIDE = 10
 
-const EARTH_R = 6378137
-const DEG2RAD = Math.PI / 180
-
 /** Reconstruct a polygon-fill vertex in tile-local Mercator metres.
  *  Source layout is quantized ECEF (PR 2f) with packed `abs_lon_deg,
  *  abs_lat_deg` at float slots 4 + 5 (sub-mm Mercator-inverse round-trip per
@@ -59,14 +56,13 @@ const DEG2RAD = Math.PI / 180
  *  Reproject those to tile-local Mercator so fill + outline share space. */
 function polyVertex(
   vertices: Float32Array, i: number,
-  tileMx: number, tileMy: number,
+  _tileMx: number, _tileMy: number,
 ): [number, number] {
+  // Float slots 4/5 now store TILE-LOCAL Mercator (vertex_merc − tileOriginMerc)
+  // directly — relative to the same origin `tileOriginMerc()` computes — so read
+  // them as-is (pre-fix they held absolute lon/lat degrees this re-projected).
   const base = i * POLY_STRIDE
-  const lonDeg = vertices[base + 4]
-  const latDeg = vertices[base + 5]
-  const mx = lonDeg * DEG2RAD * EARTH_R
-  const my = Math.log(Math.tan(Math.PI / 4 + latDeg * DEG2RAD / 2)) * EARTH_R
-  return [mx - tileMx, my - tileMy]
+  return [vertices[base + 4], vertices[base + 5]]
 }
 
 /** Reconstruct a line vertex's full-precision tile-local Mercator. */

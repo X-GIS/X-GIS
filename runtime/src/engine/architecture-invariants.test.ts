@@ -217,7 +217,14 @@ const LOC_CEILINGS: Record<string, number> = {
   // the two irreducible numeric match()-label arm-pattern cases (Number, and
   // Minus+Number). parser.ts decomposition remains a tracked priority.
   'compiler/src/parser/parser.ts': 1178,
-  'runtime/src/engine/shader-dsl/shaders/polygon.ts': 1139,
+  // Bumped 1139→1168 for the flat-Mercator fill-position precision fix: the
+  // quantized fill VS (vs_main_ecef) now positions from TILE-LOCAL Mercator
+  // (the f32 tail slots) via a dedicated localMerc ladder branch instead of
+  // re-projecting the lossy absolute-degree slots — the branch + the absMerc
+  // varying reconstruction are irreducible (they fix the ~10 px fill/outline
+  // split at deep over-zoom). Extracting the shared flat-arm is a tracked
+  // follow-up (blocked on the polygon-variant byte-equal snapshot gate).
+  'runtime/src/engine/shader-dsl/shaders/polygon.ts': 1168,
   // Bumped 1067→1092 for the minZoom + setMaxBounds gesture-clamp correctness
   // fixes (#244/#248): the maxBounds clamp method + its 7 gesture-exit call
   // sites are irreducible. camera.ts decomposition remains a tracked priority.
