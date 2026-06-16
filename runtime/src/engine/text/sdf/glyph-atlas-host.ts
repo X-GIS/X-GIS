@@ -257,6 +257,16 @@ export class GlyphAtlasHost {
       // will re-raster + rebuild with the post-upgrade metrics. Skip
       // this and a stale GlyphInfo could survive until eviction.
       this.infoCache.delete(mk)
+      // BUG FIX (low-zoom CJK labels dropping all but early-landed glyphs):
+      // bump the generation so the generation-keyed STRING caches added later
+      // (stringInfoCache / preloadedAtGen / hasAllGlyphsAtGen, iter-233/#10)
+      // miss next frame. Those caches short-circuit BEFORE `ensure()` is
+      // reached, so without a bump a glyph whose PBF range lands AFTER the
+      // label was first shaped is never re-ensured — its slot keeps the
+      // zero-SDF metrics fallback forever (only glyphs whose range landed
+      // before the first shape, e.g. high-frequency 市, ever render). The
+      // eviction path bumps generation for the same staleness reason.
+      this._generation++
     }
   }
 
