@@ -11,6 +11,8 @@ import { lonLatToECEF } from './projection/ecef'
 import { EARTH_R } from './projection/globe'
 import { mercatorYToLat } from './projection/projection'
 import { projectCpu, projectGeomCpu, needsBackfaceCullCpu, projMercatorCpu } from './shader-dsl/shaders/cpu-projections'
+import { isGlobeProj } from './projection/projections-table'
+import type { Camera } from './projection/camera'
 import { WORLD_MERC } from './gpu/gpu-shared'
 import { xlog } from './log'
 
@@ -429,4 +431,35 @@ export function makeLabelProjectors(
   }
 
   return { projectMerc, projectLonLat, projectMercAny, projectLonLatCopies }
+}
+
+/** Project `[lon, lat]` → CSS-px screen coords (canvas-local) through the
+ *  current camera/projection — the CPU mirror behind `map.project()`. Builds
+ *  the SAME projector the label pass uses (`makeLabelProjectors`, the validated
+ *  CPU mirror of the polygon/line vertex shader) so the result lands where a
+ *  feature at that lon/lat is drawn. `w`/`h` are BACKING px (canvas.width); the
+ *  result is divided by `dpr` to CSS px (MapLibre `project` convention).
+ *  Returns null when the point is culled (behind globe / off a disc). */
+export function projectLonLatToScreenCss(
+  camera: Camera,
+  w: number,
+  h: number,
+  dpr: number,
+  centerLon: number,
+  centerLat: number,
+  lonLat: readonly [number, number],
+): [number, number] | null {
+  const projType = camera.projType
+  const isFlatProj = !camera.globeMode && !isGlobeProj(projType)
+  const view = camera.getViewForProjection(projType, w, h, dpr)
+  const camMerc = projMercatorCpu(centerLon, centerLat)
+  const { projectLonLat } = makeLabelProjectors(
+    view.matrix, w, h,
+    isFlatProj
+      ? { projType, ccx: camMerc[0], ccy: camMerc[1], centerLon, centerLat, visibleWorldCopies: camera.getVisibleWorldCopies(w, h, dpr) }
+      : undefined,
+    view.eye,
+  )
+  const r = projectLonLat(lonLat[0], lonLat[1])
+  return r ? [r[0] / dpr, r[1] / dpr] : null
 }
