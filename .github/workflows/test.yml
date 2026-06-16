@@ -78,6 +78,13 @@ jobs:
   #                           on from locally-validated to CI-enforced.
   #   - _dequant-parity     : same — the u16→f32 dequant kernel GPU-vs-CPU,
   #                           standalone compute pass, SwiftShader-safe.
+  #   - _polygon-fill-flat-parity : runs the polygon FILL flat-Mercator arm
+  #                           (proj_params.x < 0.5 — the path _vs-clip-parity's
+  #                           ECEF arm does NOT cover) in a compute pass and
+  #                           proves the #392 tile-local-Mercator fill arm
+  #                           coincides with the f64 outline, while the pre-#392
+  #                           f32-degree arm provably splits. Guards the bug
+  #                           that recurred #387→#389→#392. SwiftShader-safe.
   # NOT here, by evidence from earlier runs:
   #   - _projection-coverage : needs the full engine (render pipelines) to
   #                            initialise; SwiftShader can't, so cells time
@@ -115,4 +122,4 @@ jobs:
         env:
           XGIS_SOFTWARE_GPU: '1'
           HEADED: '0'
-        run: ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts
+        run: ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts
