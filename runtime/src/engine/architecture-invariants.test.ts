@@ -281,7 +281,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // camera.getECEFCenter() into makeLabelProjectors so the ECEF label projector
   // anchors against the same focus the globe RTC matrix subtracts (labels were
   // projected from absolute ECEF → floated off / vanished under pitch).
-  'runtime/src/engine/render/passes/label-pass.ts': 1073,
+  // Bumped 1073→1087 for the one-way-arrow dedupe fix: extracted
+  // lineLabelDeduped (exported pure predicate + the '' → never-dedupe guard
+  // so text-less icon line layers stop collapsing to ~1 arrow per show).
+  'runtime/src/engine/render/passes/label-pass.ts': 1087,
   // VTR Unit-1 extraction (Cluster E-selection). The hysteresis +
   // readiness-gate logic was moved VERBATIM (plan §5 DO-NOT-SPLIT #2),
   // and its hard-won fix-history comments carry the bulk of the LOC —
