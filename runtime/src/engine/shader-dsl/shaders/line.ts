@@ -125,7 +125,10 @@ const LineLayer: StructDecl = {
     { name: 'patterns', type: arrayT(structT('PatternSlot'), 3) },
     { name: 'offset_m', type: f32T },
     { name: 'viewport_height', type: f32T },
-    { name: '_pad_b', type: f32T },
+    // Device-pixel ratio. The screen-width clamp (vs_line) divides the
+    // pixel target by viewport_height (DEVICE px) but the width target is
+    // in CSS px, so it must be scaled by dpr to land on the right NDC span.
+    { name: 'dpr', type: f32T },
     { name: '_pad_c', type: f32T },
   ],
 }
@@ -768,6 +771,7 @@ const vsLine = entryFn('vs_line', 'vertex', [
   const layerOffsetM = layer.field('offset_m', f32T)
   const layerFlags = layer.field('flags', u32T)
   const layerVpH = layer.field('viewport_height', f32T)
+  const layerDpr = layer.field('dpr', f32T)
 
   const segWidthOv = seg.field('width_px_override', f32T)
   const effectiveWidthPx = b.let('effective_width_px',
@@ -965,7 +969,8 @@ const vsLine = entryFn('vs_line', 'vertex', [
     const centerNdc = c.let('center_ndc', centerXY.div(max(abs(centerClip.w), f32(1e-6))).mul(sign(centerClip.w)))
     const cornerNdc = c.let('corner_ndc', cornerXY.div(max(abs(cornerClip.w), f32(1e-6))).mul(sign(cornerClip.w)))
     const screenDist = c.let('screen_dist', length(cornerNdc.sub(centerNdc)))
-    const targetNdc = c.let('target_ndc', effectiveWidthPx.add(f32(2).mul(layerAaPx)).div(layerVpH))
+    // width target is CSS px; viewport_height is DEVICE px → scale by dpr.
+    const targetNdc = c.let('target_ndc', effectiveWidthPx.add(f32(2).mul(layerAaPx)).mul(layerDpr).div(layerVpH))
     c.if(screenDist.gt(1e-8), (d) => {
       const scale = d.let('scale', targetNdc.div(screenDist))
       d.assign(cornerLocal, base.add(offset.mul(scale)))

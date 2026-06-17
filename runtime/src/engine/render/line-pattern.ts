@@ -19,8 +19,9 @@
 //   [12-19] dash_array[8]
 //   [20-43] patterns[3] × 8 f32 each (id, flags, spacing, size, offset, start_offset, pad×2)
 //   [44]    offset_m                 — lateral parallel-offset (+left)
-//   [45]    viewport_height          — screen height in pixels
-//   [46-47] pad×2                    — 16-byte alignment
+//   [45]    viewport_height          — screen height in DEVICE pixels
+//   [46]    dpr                      — device-pixel ratio (CSS→device scale)
+//   [47]    pad                      — 16-byte alignment
 // Total = 48 f32 = 192 bytes.
 
 export const LINE_UNIFORM_SIZE = 192
@@ -193,6 +194,10 @@ export function packLineLayerUniform(
    *  MapLibre's native line antialiasing budget; `blur` adds on top
    *  per the Mapbox spec ("Blur applied to the line, in pixels."). */
   blurPx: number = 0,
+  /** Device-pixel ratio. The vs_line screen-width clamp divides the CSS-px
+   *  width target by viewport_height (DEVICE px), so it must scale by dpr to
+   *  hit the right NDC span — without it lines render 1/dpr too thin. */
+  dpr: number = 1,
 ): Float32Array {
   const buf = _lineUniformScratchF32
   const u32 = _lineUniformScratchU32
@@ -268,5 +273,6 @@ export function packLineLayerUniform(
   // Lateral parallel offset: DSL value in pixels → shader wants meters.
   buf[44] = offsetPx * mppAtCenter
   buf[45] = viewportHeight
+  buf[46] = dpr
   return buf
 }
