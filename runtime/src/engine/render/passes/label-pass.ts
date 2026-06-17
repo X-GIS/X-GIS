@@ -32,6 +32,20 @@ import type { FrameContext } from '../frame-context'
 import type { SceneView } from '../scene-view'
 import type { RenderPass, PassHost } from './pass'
 
+/** Cross-tile line-label dedupe predicate. A named road stamped across N
+ *  tile boundaries collapses to a single label via its (unique) resolved
+ *  text. But TEXT-LESS icon-only line layers — OFM `road_oneway` arrows
+ *  have an `icon-image` and NO `text-field` — resolve to `''` for every
+ *  along-line stop, so an empty key must NEVER dedupe: otherwise the first
+ *  arrow records `''` and every later stop (this polyline + every other
+ *  one-way segment in the show) sees `has('')` → suppressed, collapsing the
+ *  whole layer to ~one arrow on screen. Only non-empty (named) keys collapse.
+ *  Exported for unit coverage — the placement loop is an anon callback. */
+export function lineLabelDeduped(resolvedText: string, emitted: ReadonlySet<string>): boolean {
+  if (resolvedText === '') return false
+  return emitted.has(resolvedText)
+}
+
 class LabelPass implements RenderPass {
   readonly label = 'labels'
 
@@ -636,7 +650,7 @@ class LabelPass implements RenderPass {
                 const emittedTextNames = host._scratchEmittedTextNames
                 emittedTextNames.clear()
                 const isTooCloseToSameText = (resolvedText: string, _sx: number, _sy: number): boolean => {
-                  return emittedTextNames.has(resolvedText)
+                  return lineLabelDeduped(resolvedText, emittedTextNames)
                 }
                 const recordTextPosition = (resolvedText: string, _sx: number, _sy: number): void => {
                   emittedTextNames.add(resolvedText)
