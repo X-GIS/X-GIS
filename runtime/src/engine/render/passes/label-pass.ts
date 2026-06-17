@@ -217,7 +217,11 @@ class LabelPass implements RenderPass {
             centerLon: ctx.centerLon,
             centerLat: ctx.centerLat,
             visibleWorldCopies,
-          } : undefined, labelView.eye)
+          } : undefined, labelView.eye,
+          // Globe RTC focus: the matrix is focus-relative, so the ECEF label
+          // projector must anchor against the same camera focus the geometry
+          // VS subtracts. Flat path ignores it.
+          isFlatProj ? undefined : host.camera.getECEFCenter())
 
         // (a) Imperative overlays
         for (const ov of host.overlays) {

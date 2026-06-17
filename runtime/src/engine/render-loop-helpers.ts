@@ -277,6 +277,13 @@ export function makeLabelProjectors(
   // `readonly` so the camera's `ECEF` tuple (a readonly triple) passes
   // without a copy; the body only reads the components.
   eye?: readonly [number, number, number],
+  // Camera focus in absolute sphere-ECEF metres (camera.getECEFCenter()) — the
+  // RTC origin of the globe `mvp` (buildGlobeMatrix subtracts the same focus
+  // `target`). The `!flat` branch projects `e − focus` because that `mvp` is
+  // the RTC (focus-relative) matrix; geometry feeds it `vertex − cameraCenter`
+  // too. Omitting it fed ABSOLUTE ECEF into the RTC matrix → labels splayed off
+  // their features and, under pitch, shot off the top of the screen (vanished).
+  focus?: readonly [number, number, number],
 ): {
   projectMerc: (mx: number, my: number, worldMercatorOffset?: number) => [number, number] | null
   projectLonLat: (lon: number, lat: number, worldMercatorOffset?: number) => [number, number] | null
@@ -308,10 +315,16 @@ export function makeLabelProjectors(
         const dotEEye = e[0] * eye[0] + e[1] * eye[1] + e[2] * eye[2]
         if (dotEEye <= EARTH_R * eLen) return null
       }
-      const cw = mvp[3]! * e[0] + mvp[7]! * e[1] + mvp[11]! * e[2] + mvp[15]!
+      // `mvp` is the RTC (focus-relative) globe matrix, so feed it the anchor
+      // relative to the camera focus — NOT absolute ECEF (the cull above stays
+      // absolute). Mirrors the geometry VS's `vertex − cameraCenter`.
+      const rx = e[0] - (focus ? focus[0] : 0)
+      const ry = e[1] - (focus ? focus[1] : 0)
+      const rz = e[2] - (focus ? focus[2] : 0)
+      const cw = mvp[3]! * rx + mvp[7]! * ry + mvp[11]! * rz + mvp[15]!
       if (cw <= 0) return null
-      const ndcX = (mvp[0]! * e[0] + mvp[4]! * e[1] + mvp[8]! * e[2] + mvp[12]!) / cw
-      const ndcY = (mvp[1]! * e[0] + mvp[5]! * e[1] + mvp[9]! * e[2] + mvp[13]!) / cw
+      const ndcX = (mvp[0]! * rx + mvp[4]! * ry + mvp[8]! * rz + mvp[12]!) / cw
+      const ndcY = (mvp[1]! * rx + mvp[5]! * ry + mvp[9]! * rz + mvp[13]!) / cw
       if (ndcX < -1.5 || ndcX > 1.5 || ndcY < -1.5 || ndcY > 1.5) return null
       _projScratch[0] = (ndcX + 1) * 0.5 * w
       _projScratch[1] = (1 - ndcY) * 0.5 * h
