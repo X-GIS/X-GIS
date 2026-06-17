@@ -111,6 +111,7 @@ class LabelPass implements RenderPass {
                 || host.showCommands.some(s => s.fillPattern || s.linePattern))) {
           host.iconStage = new IconStage(device, host.ctx.format, {
             spriteUrl: host.spriteUrl, dpr,
+            onLanded: () => host.markLabelDirty(), // sprite-land re-arm (glyph parity)
           }, sc)
         }
         const iStage = host.iconStage

@@ -359,6 +359,12 @@ export class TextStage {
     this.host.invalidateAll()
   }
 
+  /** Re-raster every glyph — e.g. after a WOFF FontFace lands so glyphs drawn
+   *  with the Canvas2D system fallback upgrade. Bumps the atlas generation. */
+  invalidateAllGlyphs(): void {
+    this.host.invalidateAll()
+  }
+
   /** Set the device pixel ratio for the current frame. Call before
    *  prepare(). Sizes/offsets in LabelDef are CSS-px convention;
    *  multiplying by DPR matches the physical-pixel anchor space. */

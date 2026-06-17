@@ -86,4 +86,16 @@ describe('TextStage onLanded → onResourceLanded forward (Audit ① B1)', () =>
     expect((stage as unknown as { pbfRasterizer: PbfRasterizer | null }).pbfRasterizer).toBeNull()
     expect(onResourceLanded).not.toHaveBeenCalled()
   })
+
+  it('invalidateAllGlyphs() bumps the atlas generation so glyphs re-raster (WOFF font-land invalidate half)', () => {
+    // Closes the ② coverage gap: the device-free map test exercises only the
+    // render-kick (markLabelDirty, textStage null there); this pins the
+    // invalidate half — the generation bump that breaks the stringInfoCache
+    // short-circuit so a Canvas2D fallback glyph re-rasters once the WOFF lands.
+    const stage = new TextStage(stubDevice(), 'bgra8unorm', { rasterizer: new MockRasterizer() })
+    stage.host.ensureString(fontKeyOf('normal', 400, 'X'), 'A') // populate one glyph
+    const g0 = stage.host.getGeneration()
+    stage.invalidateAllGlyphs()
+    expect(stage.host.getGeneration(), 'invalidateAllGlyphs must bump the atlas generation').toBe(g0 + 1)
+  })
 })
