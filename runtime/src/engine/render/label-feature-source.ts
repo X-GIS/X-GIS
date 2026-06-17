@@ -132,12 +132,12 @@ export class LabelFeatureSource {
     for (const k of stableKeys) seen.add(k)
     for (const key of seen) {
       const tileData = source.getTileData(key, sliceLayer)
-      // Phase 2 PR 2d.2 follow-up — pointVertices is ECEF DSFUN stride-9:
-      // [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon, abs_lat].
-      // Label dispatcher consumes absolute Mercator metres — reconstruct
-      // from abs_lon/abs_lat at slots 7/8 (matching the polygon ECEF
-      // vertex layout's abs_lon/abs_lat varying convention).
-      if (!tileData?.pointVertices || tileData.pointVertices.length < 9) continue
+      // pointVertices is ECEF DSFUN stride-13:
+      // [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon, abs_lat, mx_h, mx_l, my_h, my_l].
+      // The label dispatcher consumes absolute Mercator metres — read the
+      // precise Mercator DSFUN tail (slots 9-12), NOT the lossy f32
+      // abs_lon/abs_lat at 7/8.
+      if (!tileData?.pointVertices || tileData.pointVertices.length < 13) continue
       const ptv = tileData.pointVertices
       // Prefer per-tile featureProps (PMTiles MVT path — each tile
       // carries its own properties Map). Fall back to the catalog-
@@ -166,12 +166,13 @@ export class LabelFeatureSource {
       // on Bright z=14 Seoul + GC pressure proportional.
       const bestByFeatId = this._scratchBestByFeatId
       bestByFeatId.clear()
-      for (let i = 0; i < ptv.length; i += 9) {
+      for (let i = 0; i < ptv.length; i += 13) {
         const featId = ptv[i + 6] | 0
-        const absLon = ptv[i + 7]
-        const absLat = ptv[i + 8]
-        const mercX = absLon * DEG2RAD * R
-        const mercY = Math.log(Math.tan(Math.PI / 4 + clampLat(absLat) * DEG2RAD / 2)) * R
+        // Precise absolute Mercator from the DSFUN tail (slots 9-12). The f32
+        // abs_lon/abs_lat at 7/8 lose ~1.35 m at |lon|≈127° (≈5.7 px at z20),
+        // splaying the label off its feature; mx_h+mx_l is sub-mm at any zoom.
+        const mercX = ptv[i + 9] + ptv[i + 10]
+        const mercY = ptv[i + 11] + ptv[i + 12]
         const isInner = Math.abs(Math.abs(mercX) - WORLD_MERC_HALF) > ANTIMERIDIAN_TOL
         const existing = bestByFeatId.get(featId)
         if (!existing) {

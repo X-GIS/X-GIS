@@ -119,7 +119,9 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 3959→3961 for the line-width dpr fix: the two writeLayerSlot call
   // sites (stroke + gap) each thread `dpr` into the layer uniform so vs_line's
   // screen-width clamp lands on the right NDC span (roads were 1/dpr too thin).
-  'runtime/src/engine/render/vector-tile-renderer.ts': 3961,
+  // Bumped 3961→3962 for the point precision fix: the tile-point decode passes
+  // the absolute Mercator DSFUN tail (slots 9-12) to addTilePoint.
+  'runtime/src/engine/render/vector-tile-renderer.ts': 3962,
   // Bumped 3361→3393 for the destroy()-completeness fix: cancelling the
   // EventDispatcher move-rAF + the pending-flush rAF, clearing _pendingPatches,
   // and removing the run()-installed window globals (__xgisReady/snapshot/

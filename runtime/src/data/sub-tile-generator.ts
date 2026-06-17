@@ -78,7 +78,7 @@ export class SubTileGenerator {
     if (!parent) return false
     return parent.indices.length > 0
       || parent.lineIndices.length > 0
-      || (parent.pointVertices !== undefined && parent.pointVertices.length >= 9)
+      || (parent.pointVertices !== undefined && parent.pointVertices.length >= 13)
   }
 
   /** Clip `parent`'s geometry into the sub-tile addressed by `subKey`,
@@ -400,20 +400,17 @@ export class SubTileGenerator {
     // POIs) vanish at over-zoom because they have no representation in the
     // sub-tile.
     let subPointVertices: Float32Array | undefined
-    if (parent.pointVertices && parent.pointVertices.length >= 9) {
+    if (parent.pointVertices && parent.pointVertices.length >= 13) {
       const pv = parent.pointVertices
-      const DEG2RAD = Math.PI / 180
-      const R = 6378137
-      const LAT_LIMIT = 85.051129
-      const clampLat = (v: number) => Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, v))
       // Stride-3 scratch: [mx, my, fid] absolute Mercator metres for the
       // points that survive the sub-tile bbox clip.
       const survivors: number[] = []
-      for (let i = 0; i < pv.length; i += 9) {
-        const absLon = pv[i + 7]
-        const absLat = pv[i + 8]
-        const px = absLon * DEG2RAD * R
-        const py = Math.log(Math.tan(Math.PI / 4 + clampLat(absLat) * DEG2RAD / 2)) * R
+      for (let i = 0; i < pv.length; i += 13) {
+        // Precise absolute Mercator from the DSFUN tail (slots 9-12), NOT the
+        // lossy f32 abs_lon/abs_lat (7/8) — so over-zoom points keep sub-mm
+        // precision through the re-pack.
+        const px = pv[i + 9] + pv[i + 10]
+        const py = pv[i + 11] + pv[i + 12]
         // clipW/E/S/N are parent-local offsets, so the bbox test must run in
         // the parent-local frame (matching the polygon/line paths). Compare
         // local coords, but push the ABSOLUTE px/py downstream.

@@ -56,15 +56,18 @@ describe('Phase-2 point shader — DSL emission', () => {
   })
   it('vs_point flat display branches: Mercator (< 0.5) + non-Mercator (< 6.5)', () => {
     // projection-display-layer-restore: flat Mercator (proj_params.x < 0.5)
-    // reprojects via project(); the other flat projTypes (< 6.5) via the shared
-    // flat_rel helper with the marker's own lon as ref (nearest world copy).
-    // The 3D ECEF anchor stays in the else.
+    // recenters the PRECISE absolute Mercator DSFUN tail (slots 20-23) against
+    // the camera — `(mx_h − cam_merc_h.x) + (mx_l − cam_merc_l.x)` — instead of
+    // reprojecting the lossy f32 abs_lon/abs_lat. The other flat projTypes
+    // (< 6.5) still use the shared flat_rel helper; the 3D ECEF anchor stays
+    // in the else.
     const vsBody = pointPart.slice(pointPart.indexOf('fn vs_point'))
     const vsOnly = vsBody.slice(0, vsBody.indexOf('fn fs_point'))
     expect(vsOnly).toContain('u.proj_params.x < 0.5')
     expect(vsOnly).toContain('u.proj_params.x < 6.5')
-    expect(vsOnly).toContain('project(abs_lon, abs_lat, u.proj_params)') // Mercator
-    expect(vsOnly).toContain('flat_rel(abs_lon,')                        // non-Mercator (shared helper)
+    expect(vsOnly).toContain('(mx_h - cam_merc_h.x)')   // Mercator: precise DSFUN tail
+    expect(vsOnly).not.toContain('project(abs_lon, abs_lat, u.proj_params)') // not the lossy reproject
+    expect(vsOnly).toContain('flat_rel(abs_lon,')       // non-Mercator (shared helper)
   })
 
   it('SDF helpers + switch on segment kind', () => {

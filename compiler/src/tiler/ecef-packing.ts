@@ -75,11 +75,12 @@ export function tileEcefCenterFromMerc(
   ] as const
 }
 
-/** Pack ABSOLUTE Mercator-metre point features into ECEF DSFUN stride-9.
+/** Pack ABSOLUTE Mercator-metre point features into ECEF DSFUN stride-13.
  *
  * Phase 2 PR 2d.2 — POINT VS ECEF migration. Point vertices are NOT
  * quantized (Phase 2 PR 2f scope is polygon-position only), so this keeps
- * the legacy stride-9 f32 ECEF-DSFUN layout the point VS reads directly.
+ * the f32 ECEF-DSFUN layout the point VS reads directly (grown 9→13 to add
+ * the absolute Mercator DSFUN tail for precise flat-Mercator position).
  *
  * Camera-relative RTC fix: unlike polygon/line, points from every visible
  * tile merge into ONE draw with a single frame uniform, so they CANNOT carry
@@ -89,7 +90,18 @@ export function tileEcefCenterFromMerc(
  * addLayer/render() GeoJSON path, which already stores absolute ECEF DSFUN.
  *
  * Input: stride-3 `[mx, my, fid]` ABSOLUTE Mercator metres.
- * Output: stride-9 Float32Array `[ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon, abs_lat]`.
+ * Output: stride-13 Float32Array
+ *   `[ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon, abs_lat, mx_h, mx_l, my_h, my_l]`.
+ *
+ * Slots 9-12 are the ABSOLUTE Mercator-metre DSFUN split (hi/lo of mx, my). The
+ * flat-Mercator point VS used to reproject the f32 `abs_lon/abs_lat` DEGREES
+ * (slots 7/8) for position, but a single f32 at |lon|≈127° has ~1.35 m
+ * granularity → ~5.7 px of icon/label displacement at z20 (the H2 fill bug
+ * class). Points merge into ONE draw with no per-tile origin, so — unlike the
+ * polygon tile-local fix — the precise position is ABSOLUTE Mercator DSFUN,
+ * camera-recentered in the VS (`(mx_h−camH)+(mx_l−camL)`) exactly like the ECEF
+ * lanes. abs_lon/abs_lat are kept (slots 7/8) for the fragment hemisphere cull,
+ * which is degree-tolerant.
  */
 export function packECEFPointFeatures(
   scratchPv: number[] | Float64Array,
@@ -97,7 +109,7 @@ export function packECEFPointFeatures(
   // WGS84 ellipsoid constants come from the module-level @xgis/shared import.
 
   const count = scratchPv.length / 3
-  const out = new Float32Array(count * 9)
+  const out = new Float32Array(count * 13)
   for (let i = 0; i < count; i++) {
     const mx = scratchPv[i * 3]
     const my = scratchPv[i * 3 + 1]
@@ -120,7 +132,11 @@ export function packECEFPointFeatures(
     const eyH = Math.fround(ry)
     const ezH = Math.fround(rz)
 
-    const base = i * 9
+    // Absolute Mercator DSFUN (slots 9-12) — precise flat-Mercator position.
+    const mxH = Math.fround(mx)
+    const myH = Math.fround(my)
+
+    const base = i * 13
     out[base]     = exH
     out[base + 1] = eyH
     out[base + 2] = ezH
@@ -130,6 +146,10 @@ export function packECEFPointFeatures(
     out[base + 6] = fid
     out[base + 7] = lon_rad * RAD2DEG
     out[base + 8] = lat_rad * RAD2DEG
+    out[base + 9]  = mxH
+    out[base + 10] = Math.fround(mx - mxH)
+    out[base + 11] = myH
+    out[base + 12] = Math.fround(my - myH)
   }
   return out
 }

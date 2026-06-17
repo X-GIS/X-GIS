@@ -110,7 +110,10 @@ const segments = bindingRef('segments', arrayT(structT('Segment')))
 // (6 floats: pos_h.xyz + pos_l.xyz at slots 11..16) and absolute lon/lat
 // (2 floats at slots 17..18). Slot 19 holds shape_id (was slot 13 in the
 // pre-PR-2d.2 stride-14 layout). Memory delta: +24 B per feature.
-const STRIDE = u32(20)
+// Bumped 20 → 24 for the absolute Mercator DSFUN tail (slots 20-23 =
+// mx_h, mx_l, my_h, my_l) — precise flat-Mercator position so the flat-Merc
+// branch no longer reprojects the lossy f32 abs_lon/abs_lat (~5.7 px @ z20).
+const STRIDE = u32(24)
 
 // ── Helper fns ──
 // Phase 2 PR 2d.2 — POINT VS ECEF migration. `point_abs_lonlat`,
@@ -290,11 +293,18 @@ const vs = entryFn('vs_point', 'vertex', [
   // identically for both paths.
   const centerClip = b.var('center_clip', vec4fT)
   b.if(u.field('proj_params', vec4fT).x.lt(0.5), (c) => {
-    const p2d = c.let('p2d', callFn('project', vec2fT, absLon, absLat, u.field('proj_params', vec4fT)))
+    // Precise absolute Mercator DSFUN (slots 20-23), camera-recentered in DSFUN
+    // space — `(mx_h−camH)+(mx_l−camL)` — exactly like ecef_rtc. The old path
+    // reprojected the lossy f32 abs_lon/abs_lat (~1.35 m → ~5.7 px @ z20).
+    const mxH = c.let('mx_h', featData.at(fid.mul(STRIDE).add(u32(20)), f32T))
+    const mxL = c.let('mx_l', featData.at(fid.mul(STRIDE).add(u32(21)), f32T))
+    const myH = c.let('my_h', featData.at(fid.mul(STRIDE).add(u32(22)), f32T))
+    const myL = c.let('my_l', featData.at(fid.mul(STRIDE).add(u32(23)), f32T))
     const camMercH = c.let('cam_merc_h', u.field('cam_ecef_h', vec4fT).swizzle<'vec2<f32>'>('xy'))
     const camMercL = c.let('cam_merc_l', u.field('cam_ecef_l', vec4fT).swizzle<'vec2<f32>'>('xy'))
-    const rel2d = c.let('rel2d', p2d.sub(camMercH).sub(camMercL))
-    c.assign(centerClip, transformMat4(mvp, vec4(rel2d.x, rel2d.y, f32(0), f32(1))))
+    const relX = c.let('rel_x', mxH.sub(camMercH.x).add(mxL.sub(camMercL.x)))
+    const relY = c.let('rel_y', myH.sub(camMercH.y).add(myL.sub(camMercL.y)))
+    c.assign(centerClip, transformMat4(mvp, vec4(relX, relY, f32(0), f32(1))))
   }).elif(u.field('proj_params', vec4fT).x.lt(6.5), (c) => {
     // FLAT non-Mercator (1-6): the shared flat_rel — reproject the marker's
     // lon/lat minus the in-shader projected camera centre. ref_lon = the

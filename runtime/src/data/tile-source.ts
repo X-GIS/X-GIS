@@ -154,8 +154,15 @@ export type TileScheme = 'web-mercator-xyz'
  *  degree values where the new VS expects local-Mercator metres → fill drawn
  *  at the wrong place. Stride is unchanged so only the value meaning differs;
  *  the eviction-on-mismatch still applies. Fixes the f32-degree fill/outline
- *  displacement at deep over-zoom (z>20). */
-export const TILE_LAYOUT_VERSION = 4 as const
+ *  displacement at deep over-zoom (z>20).
+ *
+ *  Bumped 4 → 5: the POINT vertex buffer grew from stride-9 to stride-13 —
+ *  appended an absolute Mercator DSFUN tail (slots 9-12 = mx_h, mx_l, my_h,
+ *  my_l) so the flat-Mercator point/icon/label VS reads a precise position
+ *  instead of reprojecting the lossy f32 abs_lon/abs_lat (~5.7 px @ z20). A
+ *  cached v4 tile feeds stride-9 point bytes into the stride-13 decode →
+ *  mis-paired points; eviction-on-mismatch handles it. */
+export const TILE_LAYOUT_VERSION = 5 as const
 export type TileLayoutVersion = typeof TILE_LAYOUT_VERSION
 
 /** Pre-version-field baseline. Tiles produced by backends that omit
