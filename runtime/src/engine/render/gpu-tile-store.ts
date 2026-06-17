@@ -161,6 +161,20 @@ export class GpuTileStore {
   private _pendingArenaGrowV = 0
   private _pendingArenaGrowI = 0
 
+  /** Per-arena, per-frame "forced eviction is futile" latch. Set when a
+   *  `forceEvictBytes` pass freed nothing servable AND flagged a deferred
+   *  remedy (grow/compaction) — both of which only execute next frame in
+   *  `runFrameMaintenance`. Nothing frees mid-frame (the protected stableKeys
+   *  are fixed for the frame; uploads only ADD), so once an arena is futile it
+   *  stays futile for the rest of the frame. The next `forceEvictBytes` call
+   *  then short-circuits BEFORE the O(resident-set) Map-build + sort — at
+   *  z22+pitch / globe-zoom the sync fallback uploader retries per-tile-per-
+   *  layer, so without this latch that whole scan runs O(tiles) times per
+   *  frame over an all-protected set that frees 0 bytes (the ARENA-OOM lag).
+   *  Cleared each frame in `runFrameMaintenance` so a moved camera retries. */
+  private _evictFutileV = false
+  private _evictFutileI = false
+
   /** Old arena GPUBuffers retired by a compaction, awaiting destroy. A
    *  compaction swaps `arena.buffer` to a fresh packed buffer; the old
    *  buffer is pushed here and destroyed on the NEXT `runFrameMaintenance`
@@ -411,6 +425,10 @@ export class GpuTileStore {
       for (const b of this._retiredTileBuffers) b.destroy()
       this._retiredTileBuffers.length = 0
     }
+    // (a1) New frame: clear the per-arena eviction-futility latch so a moved
+    // camera (which unprotects last frame's tiles) re-attempts a real evict.
+    this._evictFutileV = false
+    this._evictFutileI = false
     if (overCount || vHi || iHi) this.evictToBudget(stableKeys, releaseTileHook)
     // Deferred arena compaction (Phase 6a.5). When a mid-render alloc-fail
     // couldn't be relieved by forced eviction — because the live set is
@@ -648,6 +666,15 @@ export class GpuTileStore {
     const hasRoom = (): boolean => arena.canServe(needed)
     if (hasRoom()) return true
 
+    // (a1) At-ceiling futility short-circuit. A prior forceEvictBytes this
+    // frame already proved eviction can't help (all-resident tiles protected,
+    // remedy deferred to next frame's runFrameMaintenance). Nothing frees
+    // mid-frame, so the O(resident-set) Map-build + sort below would re-scan
+    // an unchanged all-protected set and free 0 again. Skip it — the deferred
+    // grow/compaction was already flagged by that first failing call.
+    const futile = arena === this.polyVertexArena ? this._evictFutileV : this._evictFutileI
+    if (futile) return false
+
     // LRU-ordered list of unprotected tile keys (same protection policy
     // as evictToBudget: only this frame's stableKeys are spared).
     const protectedKeys = this._scratchProtectedKeys
@@ -709,6 +736,12 @@ export class GpuTileStore {
         // (the pre-grow #218 behavior; the caller logs [VTR arena-oom]).
         this._pendingArenaCompaction = true
       }
+      // (a1) Latch this arena futile for the rest of the frame: the remedy
+      // just flagged (grow/compaction) only executes next frame, and nothing
+      // frees mid-frame, so every later forceEvictBytes call this frame is a
+      // guaranteed miss → short-circuit it above instead of re-scanning.
+      if (arena === this.polyVertexArena) this._evictFutileV = true
+      else this._evictFutileI = true
     }
     return served
   }
