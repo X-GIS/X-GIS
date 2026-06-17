@@ -275,7 +275,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // the loop-tail makes (~1022) — one irreducible balanced-mark line.
   // Bumped 1068→1069 for the sprite-land render re-arm: IconStage onLanded =>
   // host.markLabelDirty() (sprite atlas land must repaint an idle map — 1 line).
-  'runtime/src/engine/render/passes/label-pass.ts': 1069,
+  // Bumped 1069→1073 for the globe-label RTC focus fix: pass
+  // camera.getECEFCenter() into makeLabelProjectors so the ECEF label projector
+  // anchors against the same focus the globe RTC matrix subtracts (labels were
+  // projected from absolute ECEF → floated off / vanished under pitch).
+  'runtime/src/engine/render/passes/label-pass.ts': 1073,
   // VTR Unit-1 extraction (Cluster E-selection). The hysteresis +
   // readiness-gate logic was moved VERBATIM (plan §5 DO-NOT-SPLIT #2),
   // and its hard-won fix-history comments carry the bulk of the LOC —
