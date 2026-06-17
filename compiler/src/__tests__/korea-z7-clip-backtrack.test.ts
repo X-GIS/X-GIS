@@ -108,17 +108,33 @@ const KOREA_Z7_TILES = [
 ] as const
 
 describe('clip back-track repair — Korea z=7 regression', () => {
-  it('without repair: tile (108,49,7) has 256 % triangle overlap on South Korea', () => {
+  it('snap-clamp makes the clip self-consistent — no back-track overlap at tile (108,49,7)', () => {
+    // The original test asserted coverage > 2 (256 % self-overlap) to pin
+    // the S-H back-track bug as a hard lower bound. Its own comment (written
+    // at the time) explicitly anticipated that "any future clipper change that
+    // fixes the underlying issue (so this test would fall to 100 %) should
+    // land its own assertion" — this is that assertion.
+    //
+    // Root cause removed: clip.ts `intersect()` now clamps the snapped
+    // perpendicular coordinate to the segment's own [min, max] span
+    // (snap-to-segment-range clamp, #360). Previously the 1 m snap grid
+    // could overshoot the perpendicular rect edge by up to 0.5 m, placing
+    // an intersection vertex slightly outside the tile rect. On Korea z=7
+    // tile (108,49) that 0.054 m escape on the east edge caused earcut to
+    // render overlapping triangles. With the clamp the intersection sits
+    // exactly on the rect edge; the 8-vertex output ring is already clean.
+    //
+    // `splitBoundaryBacktracks` is RETAINED: the "with repair" test below
+    // still exercises that path on the same tile because the geometry has
+    // two disconnected east-edge parts that are legitimately split by repair.
     const { south } = loadKorea()
     const ringMM = projectToMM(south)
     const tb = tileBoundsMM(7, 108, 49)
     const clipped = clipPolygonToRect([ringMM], tb.w, tb.s, tb.e, tb.n, precisionForZoomMM(7))
     expect(clipped.length).toBeGreaterThan(0)
     const coverage = earcutAreaCoverage(clipped)
-    // Pin the bug as a hard upper-bound check — any future clipper
-    // change that fixes the underlying issue (so this test would
-    // fall to 100 %) should land its own assertion.
-    expect(coverage).toBeGreaterThan(2)
+    // Unrepaired clip is now self-consistent — earcut coverage ≈ 100 %.
+    expect(coverage).toBeCloseTo(1.0, 1)
   })
 
   it('with repair: tile (108,49,7) renders with 100 % triangle coverage', () => {

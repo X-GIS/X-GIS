@@ -105,23 +105,37 @@ describe('BUG T4 — boundary-split hole distribution never drops a hole', () =>
     const solidIndices = solidTile!.indices.length
     const donutIndices = donutTile!.indices.length
 
-    // Sanity: this tile really does exercise the multi-sub-outer split
-    // (the South Korea outer back-tracks on the east edge at z7 108,49).
-    // The solid polygon tessellates to the canonical 12 indices (4
-    // triangles across the two split sub-outers).
+    // Sanity: this tile really does exercise the S-H clip and produces
+    // a valid tessellation. The solid polygon compiles to 12 indices
+    // (4 triangles spanning the two disconnected east-edge parts of the
+    // South Korea coastline on this tile).
     expect(solidIndices).toBe(12)
 
-    // FAIL-BEFORE: pre-fix the hole was dropped → the donut triangulated
-    // identically to the solid (12 === 12). Post-fix the retained hole is
-    // earcut-carved into the southern sub-outer, producing MORE indices.
+    // FAIL-BEFORE (pre-assignHoleBucket fix): the hole was dropped → the
+    // donut triangulated identically to the solid (12 === 12). Post-fix
+    // the retained hole is earcut-carved into the southern part, producing
+    // MORE indices (30 observed). This assertion is the core invariant —
+    // it catches any regression that silently drops the hole.
     expect(donutIndices).toBeGreaterThan(solidIndices)
 
-    // And the emitted polygon ring set must INCLUDE the hole ring. Solid
-    // emits 2 rings (the two sub-outers); the donut must emit 3 (two
-    // sub-outers + the surviving hole). Pre-fix it emitted only 2.
+    // Ring-count check: the hole must appear as an extra ring in the
+    // compiled output.
+    //
+    // Count change from the snap-clamp fix (#360 clip.ts intersect):
+    // Previously the 1 m snap grid overshot the east edge by 0.054 m,
+    // making `splitBoundaryBacktracks` split the solid outer into 2
+    // sub-outer rings at compileSingleTile level → solidRingCount was 2.
+    // With the clamp the intersection is exact, the 8-vertex outer ring
+    // is already geometrically clean, and compileSingleTile emits it as
+    // 1 ring → solidRingCount=1.
+    // The donut path still splits (the hole triggers the split via
+    // assignHoleBucket), so donutRingCount=3 (2 outer sub-rings + 1 hole).
+    // Net: donutRingCount == solidRingCount + 2.
     const solidRingCount = (solidTile!.polygons ?? []).reduce((a, p) => a + p.rings.length, 0)
     const donutRingCount = (donutTile!.polygons ?? []).reduce((a, p) => a + p.rings.length, 0)
-    expect(solidRingCount).toBe(2)
-    expect(donutRingCount).toBe(solidRingCount + 1)
+    expect(solidRingCount).toBe(1)
+    // Donut gets 2 extra rings: the outer is split into 2 disconnected
+    // sub-outers (real Korea coastline geometry) + the 1 surviving hole.
+    expect(donutRingCount).toBe(solidRingCount + 2)
   })
 })
