@@ -309,13 +309,32 @@ function snapToGrid(v: number, precision: number): number {
 /** Compute intersection of segment a→b with edge at value on given axis.
  *  The boundary-axis coordinate is exact (= value).
  *  The perpendicular coordinate is snapped to precision grid to ensure
- *  adjacent tiles produce identical boundary vertices. */
+ *  adjacent tiles produce identical boundary vertices.
+ *
+ *  The snapped perpendicular coordinate is CLAMPED to the segment's own
+ *  perpendicular span [min, max]. A true intersection's perpendicular
+ *  coordinate is a convex combination of the endpoints (t∈[0,1]), so it
+ *  always lies within that span — but `snapToGrid` can round it OUT of the
+ *  span by up to half the grid (≈5 m at z≤5, ≈50 m at z≤2). When the
+ *  intersection sits near a tile-rect CORNER, that overshoot pushes the
+ *  point past the PERPENDICULAR rect edge: e.g. a south-edge crossing whose
+ *  snapped x lands a few metres EAST of the east edge. The resulting near-
+ *  boundary corner is then no longer within `extractNonSyntheticArcs`'s eps
+ *  of the east edge, so the synthetic closing edge along that edge escapes
+ *  the synthetic filter and renders as a spurious vertical/horizontal stroke
+ *  along the tile boundary (#360 land outline). Clamping keeps the snapped
+ *  corner on the rect; adjacent tiles share the segment so the clamp is
+ *  identical on both sides → seam consistency is preserved. */
 function intersect(a: number[], b: number[], value: number, axis: 0 | 1, precision?: number): number[] {
   const t = (value - a[axis]) / (b[axis] - a[axis])
   const other = a[1 - axis] + t * (b[1 - axis] - a[1 - axis])
-  return axis === 0
-    ? [value, precision ? snapToGrid(other, precision) : other]
-    : [precision ? snapToGrid(other, precision) : other, value]
+  let snapped = other
+  if (precision) {
+    const lo = Math.min(a[1 - axis], b[1 - axis])
+    const hi = Math.max(a[1 - axis], b[1 - axis])
+    snapped = Math.max(lo, Math.min(hi, snapToGrid(other, precision)))
+  }
+  return axis === 0 ? [value, snapped] : [snapped, value]
 }
 
 // ═══ Line Clipping ═══
