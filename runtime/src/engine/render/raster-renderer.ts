@@ -4,12 +4,24 @@ import type { GPUContext } from '../gpu/gpu'
 import type { Camera } from '../projection/camera'
 import { visibleTilesFrustum, tileUrl, loadImageTexture } from '../../data/tile-select'
 import { mercator as mercatorProj } from '../projection/projection'
-import { lonLatToECEF } from '../projection/ecef'
+import { lonLatToECEF, type ECEF } from '../projection/ecef'
 import { emitRasterWgsl } from '../shader-dsl'
 import { BLEND_ALPHA, STENCIL_DISABLED } from '../gpu/gpu-shared'
 import { isPickEnabled, getSampleCount } from '../gpu/gpu'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 
+/** Camera RTC anchor for the raster VS on the globe / 3D surfaces.
+ *
+ *  MUST be the WGS84 **ellipsoid** ECEF of the camera centre (lonLatToECEF,
+ *  E2≠0) — the same frame `lonlat_to_ecef` reconstructs the raster tile
+ *  vertices in. The camera's `getECEFCenter()` is the **sphere** (E2=0);
+ *  subtracting a sphere anchor from ellipsoid vertices leaves the
+ *  ellipsoid−sphere discrepancy (~21.5 km at mid-latitude) on every vertex,
+ *  which threw the whole raster sheet off the globe. Mirrors the vector
+ *  tiler's ellipsoid `cam_ecef_off` (vector-tile-renderer.ts:3627-3638). */
+export function rasterGlobeCamAnchor(lonDeg: number, latDeg: number): ECEF {
+  return lonLatToECEF(lonDeg, latDeg)
+}
 
 interface CachedTile {
   texture: GPUTexture
@@ -246,16 +258,23 @@ export class RasterRenderer {
     new Float32Array(uniformData, 64, 4).set([projType, projCenterLon, projCenterLat, frame.logDepthFc])
     // raster_params at offset 80 — x = opacity, yzw reserved.
     new Float32Array(uniformData, 80, 4).set([this._opacity, 0, 0, 0])
-    // cam_ecef_center @96 — camera anchor (sphere) for camera-relative RTC,
+    // cam_ecef_center @96 — camera anchor (ellipsoid) for camera-relative RTC,
     // mirroring polygon's cam_ecef_off. Subtracted in the raster VS so the ECEF
     // vertex projects vertex − cameraCenter through the camera-at-origin MVP.
     // Flat Mercator (projType 0): cam_ecef_center.xy carries the 2D Mercator
     // camera centre — the flat VS computes rel = project(lon,lat) − cam.xy and
-    // the ECEF lanes are dead there. 3D / globe: the ECEF anchor (sphere).
+    // the ECEF lanes are dead there. 3D / globe: the ECEF anchor (ellipsoid).
     if (projType === 0) {
       new Float32Array(uniformData, 96, 4).set([camera.centerX, camera.centerY, 0, 0])
     } else {
-      const camC = camera.getECEFCenter()
+      // ELLIPSOID camera anchor — the raster VS reconstructs each vertex via
+      // lonlat_to_ecef (WGS84, E2≠0), so the anchor it subtracts MUST be on the
+      // same ellipsoid. getECEFCenter() is the SPHERE (E2=0); subtracting it
+      // from ellipsoid vertices left the ellipsoid−sphere discrepancy (~21.5 km
+      // at mid-lat) on every vertex → the raster sheet flew off the globe. This
+      // is the exact frame-consistency fix the vector tiler already applies to
+      // cam_ecef_off (vector-tile-renderer.ts:3627-3638).
+      const camC = rasterGlobeCamAnchor(projCenterLon, projCenterLat)
       new Float32Array(uniformData, 96, 4).set([camC[0], camC[1], camC[2], 0])
     }
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData)
