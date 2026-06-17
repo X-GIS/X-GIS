@@ -256,7 +256,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // TRUE latitudes (carried as northLat/southLat on _maxBoundsMerc) instead of
   // re-syncing from the Mercator-saturated centerY, so a maxBounds past ±85.05
   // no longer pins the globe centre below the pole. Cylindrical path unchanged.
-  'runtime/src/engine/projection/camera.ts': 1108,
+  // Bumped 1108→1114 for the pan-inertia bearing-sign fix: camera.pan rotated
+  // the screen delta by Rot(−bearing) instead of Rot(+bearing) (off by 2·θ, so
+  // inertia flung the wrong way on a rotated map). The 6 added lines are the
+  // contract comment tying the sign to panToScreenAnchor's MVP inverse.
+  'runtime/src/engine/projection/camera.ts': 1114,
   // Bumped 1065→1067 for the curved-text early-return perf-mark balance fix:
   // the `total < spacingPx*0.5` curved branch was missing the two matching
   // perfMarkEnd('…line.emit')/('…line.polyline') calls its sibling returns
