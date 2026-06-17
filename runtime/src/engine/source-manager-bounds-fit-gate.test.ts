@@ -93,6 +93,7 @@ function makeSourceManager(camera: Camera, positioned: { value: boolean }) {
     rawDatasets: new Map(),
     vtSources: new Map(),
     sourceCRS: new Map(),
+    geojsonCapPoles: new Map(),
     camera,
     canvas: { width: 1200, height: 800 } as unknown as HTMLCanvasElement,
     getCtx: () => ({ device: {}, format: 'bgra8unorm' }) as unknown as GPUContext,

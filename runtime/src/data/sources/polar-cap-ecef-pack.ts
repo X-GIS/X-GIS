@@ -26,6 +26,8 @@ import { quantizeAxis } from '@xgis/shared'
  *  latitude (the polar cap the Mercator pipeline cannot reach); rows within it
  *  stay Merc-clamped so they remain geoid-identical to ground-tile polygons. */
 export const MERC_LAT_CLAMP = 85.051129
+const DEG2RAD = Math.PI / 180
+const A = 6378137 // WGS84 semi-major axis — matches the tiler + render-side `off`.
 
 // POLYGON_FILL_FORMAT contract (compiler/src/tiler/polygon-vertex-format.ts):
 //   stride = 6 f32 = 12 u16. u16×6 position lanes 0..5 occupy bytes 0..11;
@@ -62,13 +64,23 @@ export function packECEFWithPolarCaps(
   meshVerts: Float32Array,
   vertexCount: number,
   ecefTileCenter: readonly [number, number, number],
+  originMerc: readonly [number, number],
 ): { vertices: Float32Array; dequantScale: number; dequantHalf: number } {
-  // Pass 1: ECEF residuals + per-vertex abs_lon/abs_lat; track max-abs residual.
+  // Pass 1: ECEF residuals + per-vertex TILE-LOCAL Mercator; track max-abs residual.
   const rx = new Float64Array(vertexCount)
   const ry = new Float64Array(vertexCount)
   const rz = new Float64Array(vertexCount)
-  const lonDeg = new Float64Array(vertexCount)
-  const latDeg = new Float64Array(vertexCount)
+  // f32 tail slots carry TILE-LOCAL Mercator (vertex_merc − tile_origin_merc),
+  // NOT degrees — the polygon fill VS (`vs_main_ecef`, PR #392) reads these slots
+  // as local Mercator for the flat-Mercator arm AND reconstructs absolute
+  // Mercator (+ tile_origin_merc) for the fragment hemisphere-cull. Writing
+  // degrees here made abs_merc garbage → on the globe arm the cull discarded
+  // every polar-cap fragment (the #360 black hole). The Mercator-Y uses the
+  // CLAMPED latitude (the pole can't be Mercator-represented; the ECEF position
+  // still reaches ±90 via the quantized lanes, so the cap fills while the cull
+  // treats the rim as the ±85.05 boundary it can see).
+  const localMx = new Float64Array(vertexCount)
+  const localMy = new Float64Array(vertexCount)
   let maxAbs = 0
   for (let i = 0; i < vertexCount; i++) {
     const lon = meshVerts[i * 2]
@@ -76,16 +88,16 @@ export function packECEFWithPolarCaps(
     // Polar rows (|lat| beyond the Web-Mercator cap) forward the TRUE latitude
     // to the WGS84 ellipsoid; all others use the Merc-clamped latitude so they
     // stay geoid-identical to the kernel/ground-tile path.
-    const encLat = Math.abs(lat) > MERC_LAT_CLAMP
-      ? lat
-      : Math.max(-MERC_LAT_CLAMP, Math.min(MERC_LAT_CLAMP, lat))
+    const clampedLat = Math.max(-MERC_LAT_CLAMP, Math.min(MERC_LAT_CLAMP, lat))
+    const encLat = Math.abs(lat) > MERC_LAT_CLAMP ? lat : clampedLat
     const [ex, ey, ez] = lonLatToECEF(lon, encLat)
     const ax = ex - ecefTileCenter[0]
     const ay = ey - ecefTileCenter[1]
     const az = ez - ecefTileCenter[2]
     rx[i] = ax; ry[i] = ay; rz[i] = az
-    lonDeg[i] = lon
-    latDeg[i] = encLat
+    // Tile-local Mercator (clamped lat) — absolute merc minus the tile origin.
+    localMx[i] = lon * DEG2RAD * A - originMerc[0]
+    localMy[i] = Math.log(Math.tan(Math.PI / 4 + clampedLat * DEG2RAD / 2)) * A - originMerc[1]
     const m = Math.max(Math.abs(ax), Math.abs(ay), Math.abs(az))
     if (m > maxAbs) maxAbs = m
   }
@@ -111,8 +123,8 @@ export function packECEFWithPolarCaps(
     u16[u + 5] = zl
     const f = i * FILL_FLOATS_PER_VERT
     out[f + FILL_FID_FLOAT] = 0   // single synthetic feature
-    out[f + FILL_LON_FLOAT] = lonDeg[i]
-    out[f + FILL_LAT_FLOAT] = latDeg[i]
+    out[f + FILL_LON_FLOAT] = localMx[i]
+    out[f + FILL_LAT_FLOAT] = localMy[i]
   }
   return { vertices: out, dequantScale, dequantHalf: halfRange }
 }

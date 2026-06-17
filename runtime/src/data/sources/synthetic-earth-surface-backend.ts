@@ -181,7 +181,7 @@ export class SyntheticEarthSurfaceBackend implements TileSource {
     // they keep the unchanged canonical kernel path — byte-identical, zero
     // behaviour change.
     const q = this.band === 'sphere-full'
-      ? packECEFWithPolarCaps(mesh.vertices, vertexCount, ecefTileCenter)
+      ? packECEFWithPolarCaps(mesh.vertices, vertexCount, ecefTileCenter, [tileMx, tileMy])
       : packKernelClamped(mesh.vertices, vertexCount, ecefTileCenter)
     return {
       vertices: q.vertices,

@@ -40,6 +40,7 @@ function makeManager() {
     rawDatasets,
     vtSources: new Map(),
     sourceCRS: new Map(), // no declared CRS ⇒ reproject is a no-op
+    geojsonCapPoles: new Map(),
     camera: {} as never,
     canvas: { width: 800 } as never,
     getCtx: () => ({}) as never,
