@@ -37,4 +37,18 @@ describe('line stroke width — dpr', () => {
     // terminating semicolon) — not merely somewhere in the 1300-line shader.
     expect(wgsl).toMatch(/let target_ndc =[^;]*layer\.dpr[^;]*;/)
   })
+
+  // The screen-width clamp's target_ndc is miscalibrated against the
+  // perspective viewport scale (it under-targets ~4×), so the raw
+  // target_ndc/screen_dist ratio SHRANK every flat stroke to a fraction of its
+  // width — roads rendered ~1/3 of the MapLibre width (real-GPU: synthetic
+  // stroke-10 fell to 3 px at dpr1). The base quad is (w/2+aa)·mpp metres,
+  // which the FS distance field renders at exactly the intended width, so the
+  // clamp must only GROW the quad (counter foreshortening), never shrink it.
+  // The cap is `max(ratio, 1)`. Fails before (bare `target_ndc / screen_dist`),
+  // passes after.
+  it('caps the screen-width clamp scale at 1 — never shrinks the stroke quad', () => {
+    const wgsl = emitLineWgsl(false)
+    expect(wgsl).toMatch(/let scale = max\(\(target_ndc \/ screen_dist\), 1/)
+  })
 })
