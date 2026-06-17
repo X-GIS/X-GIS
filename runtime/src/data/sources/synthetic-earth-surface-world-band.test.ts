@@ -35,18 +35,19 @@ import { MERCATOR_LAT_LIMIT } from '../../engine/projection/projection'
 // abs_lat now spans ±90; the |lat|≤85.05 equality with the ground geoid is
 // unchanged (proven in surface-geoid-unification.test.ts).
 
-// Decode a stride-6 vertex's latitude from float slot 5. The mercator-class
-// bands (0/1/2/6) run the shared `packECEFPolygonVertices` kernel, whose tail
-// slots now hold TILE-LOCAL Mercator (mx − tileOriginMerc) — reconstruct lat
-// via origin + inverse Mercator. The sphere-class bands (3/4/5/7) carry abs_lat
-// DEGREES directly (lonLatToECEF, F2 polar caps) — read as-is.
+// Decode a stride-6 vertex's TAIL latitude from float slot 5. ALL bands now hold
+// TILE-LOCAL Mercator (mx − tileOriginMerc) in the f32 tail — reconstruct lat via
+// origin + inverse Mercator. Mercator is clamp-bounded, so this TAIL latitude
+// caps at ±85.05° for EVERY band; the sphere-class geographic poles (±90) are
+// carried by the QUANTIZED ECEF lanes, NOT the tail (see #360 F1 — writing the
+// raw ±90 degrees into the tail made `vs_main_ecef`'s abs_merc garbage so the
+// globe fragment cull discarded the whole polar cap). The ECEF ±90 reach is
+// pinned in synthetic-earth-surface-backend.test.ts (the dequant-lane checks).
 const SLOT_A = 6378137
 const SLOT_D2R = Math.PI / 180
 const Z0_SOUTH = (Math.atan(Math.sinh(-Math.PI)) * 180) / Math.PI // z=0 tile south ≈ -85.0511°
 const BG_TILE_MY = Math.log(Math.tan(Math.PI / 4 + (Z0_SOUTH * SLOT_D2R) / 2)) * SLOT_A
-function decodeLat(slot5: number, projType: number): number {
-  const mercatorClass = projType === 0 || projType === 1 || projType === 2 || projType === 6
-  if (!mercatorClass) return slot5 // abs_lat degrees (sphere-class)
+function decodeLat(slot5: number): number {
   const absMy = slot5 + BG_TILE_MY
   return (2 * Math.atan(Math.exp(absMy / SLOT_A)) - Math.PI / 2) / SLOT_D2R
 }
@@ -63,7 +64,7 @@ function backendLatRange(projType?: number): { min: number; max: number } {
   let min = Infinity
   let max = -Infinity
   for (let i = 0; i < n; i++) {
-    const lat = decodeLat(v[i * 6 + 5]!, projType ?? 0)
+    const lat = decodeLat(v[i * 6 + 5]!)
     if (lat < min) min = lat
     if (lat > max) max = lat
   }
@@ -88,17 +89,20 @@ describe('synthetic earth-surface band tracks projType (source-honest world band
     expect(min).toBeCloseTo(-MERCATOR_LAT_LIMIT, 1)
   })
 
-  it('sphere-class (3/4/5/7) abs_lat REACHES the geographic poles ±90 (F2 polar caps fill the holes)', () => {
-    // F2 dual-encode: the sphere-band polar rows (|lat|>85.05°) carry the TRUE
-    // latitude (±90) via lonLatToECEF, so the disc/sphere silhouette reaches the
-    // pole and the black polar holes (userbug 09) are filled. The ENCODED abs_lat
-    // band therefore spans the full ±90 — distinctly PAST the ±85.05 Merc cap
-    // that the mercator/natural_earth bands stop at.
+  it('sphere-class (3/4/5/7) TAIL Mercator caps at ±85.05 — the ±90 poles ride the ECEF lanes, not the tail (#360 F1)', () => {
+    // F2 dual-encode reaches the geographic poles through the QUANTIZED ECEF
+    // POSITION lanes (lonLatToECEF(lon, ±90)) — pinned in
+    // synthetic-earth-surface-backend.test.ts. The f32 TAIL, by contrast, carries
+    // TILE-LOCAL MERCATOR (clamp-bounded), so its decoded latitude caps at the
+    // ±85.05 Web-Mercator limit for EVERY band. Writing the raw ±90 degrees into
+    // the tail (the prior bug) made `vs_main_ecef`'s abs_merc garbage, so on the
+    // globe arm the fragment hemisphere-cull discarded every polar-cap fragment —
+    // the #360 black hole. The tail MUST therefore stay Merc-clamped here.
     for (const projType of [3, 4, 5, 7]) {
       const { min, max } = backendLatRange(projType)
-      expect(max).toBeCloseTo(90, 4)   // north pole covered
-      expect(min).toBeCloseTo(-90, 4)  // south pole covered
-      expect(max).toBeGreaterThan(MERCATOR_LAT_LIMIT + 1) // strictly past the ±85 cap
+      expect(max).toBeCloseTo(MERCATOR_LAT_LIMIT, 1)   // tail clamps at +85.05 (NOT +90)
+      expect(min).toBeCloseTo(-MERCATOR_LAT_LIMIT, 1)  // tail clamps at -85.05 (NOT -90)
+      expect(max).toBeLessThan(86)                      // strictly NOT past the ±85 cap
     }
   })
 

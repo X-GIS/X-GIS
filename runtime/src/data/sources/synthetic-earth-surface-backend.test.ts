@@ -125,27 +125,54 @@ describe('SyntheticEarthSurfaceBackend — vertex content', () => {
     return q * scale - half
   }
 
-  it('first vertex sits at lon=-180, abs_lat REACHES the south pole -90 (sphere band projType 7)', () => {
+  it('first vertex (lon=-180, lat=-90) reaches the south pole via the QUANTIZED ECEF lanes; f32 tail is tile-local Mercator', () => {
     // F2 polar-cap dual-encode: the sphere band's polar rows (|lat| > 85.05°)
-    // forward the TRUE latitude to the WGS84 ellipsoid and carry abs_lat = ±90,
-    // so the disc/sphere silhouette reaches the geographic pole (no ±85 cap
-    // hole). The first generator row is lat = -90 → abs_lat = -90 exactly.
+    // forward the TRUE latitude to the WGS84 ellipsoid, so the disc/sphere
+    // silhouette reaches the geographic pole (no ±85 cap hole). The pole is
+    // reached via the QUANTIZED ECEF POSITION lanes — NOT the f32 tail, which
+    // (post #392 / #360 F1 fix) carries TILE-LOCAL MERCATOR so `vs_main_ecef`'s
+    // abs_merc reconstruction + fragment hemisphere-cull stay valid. Writing
+    // DEGREES into the tail (the prior bug) made abs_merc garbage → the globe
+    // cull discarded every polar-cap fragment (the #360 black hole).
     const backend = new SyntheticEarthSurfaceBackend(7)
     const { sink, pushed } = makeRecordingSink()
     backend.attach(sink)
-    const v = pushed[0].result!.vertices
-    expect(v[4]).toBeCloseTo(-180, 6)   // abs_lon
-    expect(v[5]).toBeCloseTo(-90, 4)    // abs_lat — true south pole (cap filled)
+    const result = pushed[0].result!
+    const v = result.vertices
+    const u16 = new Uint16Array(v.buffer)
+    const { dequantScale: scale, dequantHalf: half } = result
+    // The QUANTIZED position reconstructs the TRUE south pole (the cap reaches ±90).
+    const ex = dequantAxis(u16, 0, scale, half) + Z0_TILE_CENTER[0]
+    const ey = dequantAxis(u16, 2, scale, half) + Z0_TILE_CENTER[1]
+    const ez = dequantAxis(u16, 4, scale, half) + Z0_TILE_CENTER[2]
+    const [px, py, pz] = lonLatToECEF(-180, -90)
+    expect(ex).toBeCloseTo(px, 1)
+    expect(ey).toBeCloseTo(py, 1)
+    expect(ez).toBeCloseTo(pz, 1)
+    // f32 tail = tile-local Mercator. lon=-180 is the tile-west origin → local X = 0.
+    expect(v[4]).toBeCloseTo(0, 2)   // local_merc X
   })
 
-  it('last vertex sits at lon=+180, abs_lat REACHES the north pole +90 (sphere band projType 7)', () => {
+  it('last vertex (lon=+180, lat=+90) reaches the north pole via the QUANTIZED ECEF lanes; f32 tail is tile-local Mercator', () => {
     const backend = new SyntheticEarthSurfaceBackend(7)
     const { sink, pushed } = makeRecordingSink()
     backend.attach(sink)
-    const v = pushed[0].result!.vertices
-    const last = (129 * 65 - 1) * 6
-    expect(v[last + 4]).toBeCloseTo(180, 6)
-    expect(v[last + 5]).toBeCloseTo(90, 4)   // abs_lat — true north pole (cap filled)
+    const result = pushed[0].result!
+    const v = result.vertices
+    const u16 = new Uint16Array(v.buffer)
+    const { dequantScale: scale, dequantHalf: half } = result
+    const last = 129 * 65 - 1
+    const lane = last * 12
+    const ex = dequantAxis(u16, lane, scale, half) + Z0_TILE_CENTER[0]
+    const ey = dequantAxis(u16, lane + 2, scale, half) + Z0_TILE_CENTER[1]
+    const ez = dequantAxis(u16, lane + 4, scale, half) + Z0_TILE_CENTER[2]
+    const [px, py, pz] = lonLatToECEF(180, 90)
+    expect(ex).toBeCloseTo(px, 1)
+    expect(ey).toBeCloseTo(py, 1)
+    expect(ez).toBeCloseTo(pz, 1)
+    // f32 tail = tile-local Mercator. lon=+180 → local X = (180+180)·deg2rad·A
+    // (~4e7 m; f32 ulp ≈ 4 m there, so compare within a few metres).
+    expect(Math.abs(v[last * 6 + 4]! - 360 * DEG2RAD * A)).toBeLessThan(5)   // local_merc X
   })
 
   it('quantized position at the mid vertex reconstructs the tiler ELLIPSOID ECEF (A,0,0)', () => {

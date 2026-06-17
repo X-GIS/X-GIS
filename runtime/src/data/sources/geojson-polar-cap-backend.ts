@@ -232,7 +232,7 @@ export class GeoJSONPolarCapBackend implements TileSource {
     const tileMy = Math.log(Math.tan(Math.PI / 4 + Z0_DECODED_SOUTH * DEG2RAD / 2)) * A
     const ecefTileCenter = tileEcefCenterFromMerc(tileMx, tileMy)
 
-    const q = packECEFWithPolarCaps(mesh.vertices, vertexCount, ecefTileCenter)
+    const q = packECEFWithPolarCaps(mesh.vertices, vertexCount, ecefTileCenter, [tileMx, tileMy])
     return {
       vertices: q.vertices,
       dequantScale: q.dequantScale,

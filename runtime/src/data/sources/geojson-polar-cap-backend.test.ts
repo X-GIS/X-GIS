@@ -17,11 +17,21 @@ import {
 } from '../../engine/geojson-polar-cap-show'
 import type { GeoJSONFeatureCollection } from '../../loader/geojson'
 import type { BackendTileResult, TileSourceSink } from '../tile-source'
+import { lonLatToECEF, tileEcefCenterFromMerc } from '../../engine/projection/ecef'
 import { tileKey } from '@xgis/compiler'
 
 const MERC_LAT_CLAMP = 85.051129
 const FILL_FLOATS_PER_VERT = 6
 const FILL_LAT_FLOAT = 5
+const A = 6378137
+const DEG2RAD = Math.PI / 180
+// The z=0 synthetic tile's ELLIPSOID corner anchor — the SAME value the cap
+// backend packs about (lon=-180, decoded z0-south); the render-side `off`
+// reconstructs it, so absolute ECEF = residual + anchor.
+const Z0_DECODED_SOUTH = Math.atan(Math.sinh(-Math.PI)) * 180 / Math.PI
+const Z0_TILE_MX = -180 * DEG2RAD * A
+const Z0_TILE_MY = Math.log(Math.tan(Math.PI / 4 + Z0_DECODED_SOUTH * DEG2RAD / 2)) * A
+const Z0_TILE_CENTER = tileEcefCenterFromMerc(Z0_TILE_MX, Z0_TILE_MY)
 
 // Stride-2 lon/lat → row of latitudes present in the mesh.
 function latsOf(verts: Float32Array): number[] {
@@ -61,7 +71,12 @@ describe('generatePolarCapMesh', () => {
 })
 
 describe('GeoJSONPolarCapBackend packed output', () => {
-  it('emits a vertex with abs_lat≈90 carrying a finite, non-degenerate ECEF residual', () => {
+  it('a pole vertex reaches the TRUE north pole ECEF via the quantized lanes (NOT the f32 tail)', () => {
+    // #360 F1 fix: the cap reaches ±90 through the QUANTIZED ECEF POSITION lanes.
+    // The f32 tail now carries TILE-LOCAL MERCATOR (so `vs_main_ecef`'s abs_merc
+    // reconstruction + the fragment hemisphere-cull stay valid) — writing DEGREES
+    // there (the prior bug) made abs_merc garbage so the globe cull discarded the
+    // whole cap. We therefore locate the pole by ECEF, not by a tail abs_lat=90.
     let captured: BackendTileResult | null = null
     const sink: TileSourceSink = {
       trackLoading() {},
@@ -78,23 +93,32 @@ describe('GeoJSONPolarCapBackend packed output', () => {
     const u16 = new Uint16Array(verts.buffer)
     const count = verts.length / FILL_FLOATS_PER_VERT
 
-    let poleVertex = -1
+    // Reconstruct each vertex's absolute ECEF (residual + tile anchor) and find
+    // the one closest to the true north pole.
+    const [npx, npy, npz] = lonLatToECEF(0, 90)
+    let best = -1, bestErr = Infinity
     for (let i = 0; i < count; i++) {
-      const absLat = verts[i * FILL_FLOATS_PER_VERT + FILL_LAT_FLOAT]!
-      if (Math.abs(absLat - 90) < 1e-3) { poleVertex = i; break }
+      const u = i * 12
+      const ex = (u16[u]! * 65536 + u16[u + 1]!) * res.dequantScale - res.dequantHalf + Z0_TILE_CENTER[0]
+      const ey = (u16[u + 2]! * 65536 + u16[u + 3]!) * res.dequantScale - res.dequantHalf + Z0_TILE_CENTER[1]
+      const ez = (u16[u + 4]! * 65536 + u16[u + 5]!) * res.dequantScale - res.dequantHalf + Z0_TILE_CENTER[2]
+      const err = Math.hypot(ex - npx, ey - npy, ez - npz)
+      if (err < bestErr) { bestErr = err; best = i }
     }
-    expect(poleVertex).toBeGreaterThanOrEqual(0)
-
-    // Decode the stride-6 quantized residual: q = hi*65536 + lo; residual =
-    // q * dequantScale - dequantHalf. The pole vertex must decode to a finite,
-    // non-zero residual (it does NOT sit exactly at the tile-corner anchor).
-    const u = poleVertex * 12
-    const axes = [0, 2, 4].map((lane) => {
-      const q = u16[u + lane]! * 65536 + u16[u + lane + 1]!
-      return q * res.dequantScale - res.dequantHalf
-    })
-    for (const a of axes) expect(Number.isFinite(a)).toBe(true)
-    expect(axes.some((a) => Math.abs(a) > 1)).toBe(true)
+    expect(best).toBeGreaterThanOrEqual(0)
+    // The nearest cap vertex sits AT the true north pole (sub-metre after the
+    // double-u16 dequant over a ~1.3e7 m range).
+    expect(bestErr).toBeLessThan(1)
+    // DISCRIMINATING fail-before: the f32 tail is TILE-LOCAL MERCATOR, NOT
+    // degrees. Vertex 0 is the cap's SW corner (lon=-180, lat=85.05) → its
+    // local Mercator X is 0 (the tile-west origin). The prior bug wrote the
+    // raw longitude (-180°) here, so this assertion fails on the old pack.
+    expect(verts[0 * FILL_FLOATS_PER_VERT + 4]!).toBeCloseTo(0, 2)   // local_merc X (was -180)
+    // Its tail Mercator-Y reconstructs to the ±85.05 clamp boundary, never ±90
+    // (the pole is carried by the ECEF lanes above, not the Mercator-capped tail).
+    const absMy0 = verts[0 * FILL_FLOATS_PER_VERT + FILL_LAT_FLOAT]! + Z0_TILE_MY
+    const tailLat0 = (2 * Math.atan(Math.exp(absMy0 / A)) - Math.PI / 2) / DEG2RAD
+    expect(Math.abs(tailLat0)).toBeCloseTo(MERC_LAT_CLAMP, 2)
   })
 
   it('serves only the z=0 tile', () => {
