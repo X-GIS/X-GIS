@@ -277,7 +277,7 @@ export class PointRenderer {
 
   // ── Tile-based point accumulation (called from VectorTileRenderer) ──
   // Phase 2 PR 2d.2 — ECEF DSFUN: [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, featId, absLon, absLat]
-  private tilePoints: { exH: number; eyH: number; ezH: number; exL: number; eyL: number; ezL: number; featId: number; absLon: number; absLat: number }[] = []
+  private tilePoints: { exH: number; eyH: number; ezH: number; exL: number; eyL: number; ezL: number; featId: number; absLon: number; absLat: number; mxH: number; mxL: number; myH: number; myL: number }[] = []
   private tilePointBuffer: GPUBuffer | null = null
   private tilePointIndexBuffer: GPUBuffer | null = null
   private tilePointFeatBuffer: GPUBuffer | null = null
@@ -310,8 +310,8 @@ export class PointRenderer {
   }
 
   /** Accumulate a point from a visible tile (ECEF DSFUN components). */
-  addTilePoint(exH: number, eyH: number, ezH: number, exL: number, eyL: number, ezL: number, featId: number, absLon: number, absLat: number): void {
-    this.tilePoints.push({ exH, eyH, ezH, exL, eyL, ezL, featId, absLon, absLat })
+  addTilePoint(exH: number, eyH: number, ezH: number, exL: number, eyL: number, ezL: number, featId: number, absLon: number, absLat: number, mxH: number, mxL: number, myH: number, myL: number): void {
+    this.tilePoints.push({ exH, eyH, ezH, exL, eyL, ezL, featId, absLon, absLat, mxH, mxL, myH, myL })
   }
 
   /** Flush accumulated tile points as a single draw call */
@@ -344,7 +344,7 @@ export class PointRenderer {
 
     // Phase 2 PR 2d.2 — ECEF DSFUN: one world copy (ECEF is absolute,
     // no Mercator world-wrapping needed).
-    const STRIDE = 20
+    const STRIDE = 24
     const COPIES = [0]
     const totalN = N * COPIES.length
 
@@ -382,6 +382,10 @@ export class PointRenderer {
       featData[fOff+14] = pt.exL; featData[fOff+15] = pt.eyL; featData[fOff+16] = pt.ezL
       featData[fOff+17] = pt.absLon; featData[fOff+18] = pt.absLat
       featData[fOff+19] = 0 // shape_id (circle default for tile points)
+      // Absolute Mercator DSFUN at 20-23 — precise flat-Mercator position so
+      // the flat-Merc VS no longer reprojects the lossy abs_lon/abs_lat.
+      featData[fOff+20] = pt.mxH; featData[fOff+21] = pt.mxL
+      featData[fOff+22] = pt.myH; featData[fOff+23] = pt.myL
     }
 
     // Defer destroy of the previous frame's buffers — see
@@ -492,8 +496,9 @@ export class PointRenderer {
       indices[iBase + 5] = vBase + 3
     }
 
-    // Build per-feature data (stride = 20 floats, ECEF DSFUN layout)
-    const STRIDE = 20
+    // Build per-feature data (stride = 24 floats, ECEF DSFUN layout +
+    // absolute Mercator DSFUN tail at 20-23 for precise flat-Mercator position)
+    const STRIDE = 24
     const featData = this._frameArena.allocF32(points.length * STRIDE)
     let flags = 0
     if (fill) flags |= 1
@@ -579,7 +584,7 @@ export class PointRenderer {
    *  expanded buffer each frame, so the patched values propagate
    *  naturally — no need to touch the expanded buffer. */
   updateDynamicSizes(cameraZoom: number, elapsedMs: number): void {
-    const STRIDE = 20
+    const STRIDE = 24
     for (const layer of this.layers) {
       const shape = layer.sizeShape
       if (shape === null) continue
@@ -619,9 +624,10 @@ export class PointRenderer {
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uf)
 
     const DEG2RAD = Math.PI / 180
+    const R_MERC = 6378137 // web-Mercator sphere radius (matches the tiler packer)
 
     // ECEF DSFUN: one world copy (absolute ECEF, no Mercator world-wrapping).
-    const STRIDE = 20
+    const STRIDE = 24
     const COPIES = [0]
 
     // View-forward projection onto the ground plane, used to sort
@@ -679,6 +685,13 @@ export class PointRenderer {
           expandedFeat[dstOff + 14] = exL; expandedFeat[dstOff + 15] = eyL; expandedFeat[dstOff + 16] = ezL
           expandedFeat[dstOff + 17] = lon; expandedFeat[dstOff + 18] = lat
           expandedFeat[dstOff + 19] = layer.featData[srcOff + 19] // shape_id
+          // Absolute Mercator DSFUN (20-23) — precise flat-Mercator position.
+          const mx = lon * DEG2RAD * R_MERC
+          const myClamp = Math.max(-85.051129, Math.min(85.051129, lat))
+          const my = Math.log(Math.tan(Math.PI / 4 + myClamp * DEG2RAD / 2)) * R_MERC
+          const mxH = Math.fround(mx); const myH = Math.fround(my)
+          expandedFeat[dstOff + 20] = mxH; expandedFeat[dstOff + 21] = Math.fround(mx - mxH)
+          expandedFeat[dstOff + 22] = myH; expandedFeat[dstOff + 23] = Math.fround(my - myH)
 
           // Build quad vertices
           const vBase = globalIdx * 4 * 4

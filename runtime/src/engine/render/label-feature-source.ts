@@ -166,12 +166,13 @@ export class LabelFeatureSource {
       // on Bright z=14 Seoul + GC pressure proportional.
       const bestByFeatId = this._scratchBestByFeatId
       bestByFeatId.clear()
-      for (let i = 0; i < ptv.length; i += 9) {
+      for (let i = 0; i < ptv.length; i += 13) {
         const featId = ptv[i + 6] | 0
-        const absLon = ptv[i + 7]
-        const absLat = ptv[i + 8]
-        const mercX = absLon * DEG2RAD * R
-        const mercY = Math.log(Math.tan(Math.PI / 4 + clampLat(absLat) * DEG2RAD / 2)) * R
+        // Precise absolute Mercator from the DSFUN tail (slots 9-12). The f32
+        // abs_lon/abs_lat at 7/8 lose ~1.35 m at |lon|≈127° (≈5.7 px at z20),
+        // splaying the label off its feature; mx_h+mx_l is sub-mm at any zoom.
+        const mercX = ptv[i + 9] + ptv[i + 10]
+        const mercY = ptv[i + 11] + ptv[i + 12]
         const isInner = Math.abs(Math.abs(mercX) - WORLD_MERC_HALF) > ANTIMERIDIAN_TOL
         const existing = bestByFeatId.get(featId)
         if (!existing) {

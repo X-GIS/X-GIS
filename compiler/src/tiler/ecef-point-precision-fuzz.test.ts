@@ -85,10 +85,44 @@ function roundTripError(mx: number, my: number): number {
 
 describe('AC2d.2.5 packECEFPointFeatures precision round-trip', () => {
 
-  it('stride-9 output: fid passes through unchanged', () => {
+  it('stride-13 output: fid passes through unchanged', () => {
     const packed = packECEFPointFeatures([0, 0, 42])
-    expect(packed.length).toBe(9)
+    expect(packed.length).toBe(13)
     expect(packed[6]).toBe(42)
+  })
+
+  // The flat-Mercator point/icon/label VS reads the absolute Mercator DSFUN
+  // tail (slots 9-12) instead of reprojecting the lossy f32 abs_lon/abs_lat.
+  // mx_h + mx_l must reconstruct the input Mercator to sub-mm at every zoom,
+  // AND the f32-degree path it replaces must be materially worse (proving the
+  // tail is necessary). Fails before the fix (slots 9-12 didn't exist).
+  it('abs Mercator DSFUN tail (9-12) reconstructs sub-mm; beats the f32-degree path', () => {
+    const DEG2RAD = Math.PI / 180
+    const RAD2DEG = 180 / Math.PI
+    const rng = makeRng(0x2d_dd)
+    const MX_MAX = Math.PI * A
+    const MY_MAX = Math.PI * A * 0.85
+    let worstDsfun = 0
+    let worstLossy = 0
+    for (let i = 0; i < 10_000; i++) {
+      const mx = (rng() * 2 - 1) * MX_MAX
+      const my = (rng() * 2 - 1) * MY_MAX
+      const packed = packECEFPointFeatures([mx, my, 0])
+      // DSFUN tail reconstruction.
+      const recMx = (packed[9]! as number) + (packed[10]! as number)
+      const recMy = (packed[11]! as number) + (packed[12]! as number)
+      worstDsfun = Math.max(worstDsfun, Math.hypot(recMx - mx, recMy - my))
+      // Lossy path the VS USED to take: f32 abs_lon/abs_lat (7/8) → Mercator.
+      const lossyMx = (packed[7]! as number) * DEG2RAD * A
+      const latRad = (packed[8]! as number) * DEG2RAD
+      const lossyMy = Math.log(Math.tan(Math.PI / 4 + latRad / 2)) * A
+      worstLossy = Math.max(worstLossy, Math.hypot(lossyMx - mx, lossyMy - my))
+      // silence unused RAD2DEG lint when the body shrinks
+      void RAD2DEG
+    }
+    console.log(`[merc DSFUN tail] worst: dsfun=${(worstDsfun * 1000).toFixed(6)} mm  lossy=${(worstLossy).toFixed(3)} m`)
+    expect(worstDsfun).toBeLessThan(1e-3)          // sub-mm
+    expect(worstLossy).toBeGreaterThan(0.1)        // the f32-degree path loses >10 cm
   })
 
   it('1e4 random points — z=22: worst-case ≤ 1 mm', () => {

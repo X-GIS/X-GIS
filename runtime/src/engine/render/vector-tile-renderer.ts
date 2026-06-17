@@ -3363,14 +3363,15 @@ export class VectorTileRenderer {
       // [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, feat_id, abs_lon, abs_lat]
       for (const key of this.stableKeys) {
         const tileData = this.source!.getTileData(key, sliceLayer)
-        if (!tileData?.pointVertices || tileData.pointVertices.length < 9) continue
+        if (!tileData?.pointVertices || tileData.pointVertices.length < 13) continue
         const ptv = tileData.pointVertices
-        for (let i = 0; i < ptv.length; i += 9) {
+        for (let i = 0; i < ptv.length; i += 13) {
           pointRenderer.addTilePoint(
             ptv[i], ptv[i + 1], ptv[i + 2],   // ex_h, ey_h, ez_h
             ptv[i + 3], ptv[i + 4], ptv[i + 5], // ex_l, ey_l, ez_l
             ptv[i + 6],                          // feat_id
-            ptv[i + 7], ptv[i + 8],              // abs_lon, abs_lat
+            ptv[i + 7], ptv[i + 8],              // abs_lon, abs_lat (cull)
+            ptv[i + 9], ptv[i + 10], ptv[i + 11], ptv[i + 12], // merc DSFUN mx_h,mx_l,my_h,my_l
           )
         }
       }

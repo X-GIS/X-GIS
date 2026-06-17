@@ -6,9 +6,9 @@ import {
   type TileLayoutVersion,
 } from './tile-source'
 
-describe('TILE_LAYOUT_VERSION (bumped to 4 — fill f32 tail slots now tile-local Mercator)', () => {
+describe('TILE_LAYOUT_VERSION (bumped to 5 — point vertex stride 9→13, abs Mercator DSFUN tail)', () => {
   it('current version is exported as a numeric literal const', () => {
-    expect(TILE_LAYOUT_VERSION).toBe(4)
+    expect(TILE_LAYOUT_VERSION).toBe(5)
     expect(typeof TILE_LAYOUT_VERSION).toBe('number')
   })
 
@@ -47,6 +47,6 @@ describe('TILE_LAYOUT_VERSION (bumped to 4 — fill f32 tail slots now tile-loca
 
   it('TileLayoutVersion type narrows to the literal current value', () => {
     const v: TileLayoutVersion = TILE_LAYOUT_VERSION
-    expect(v).toBe(4)
+    expect(v).toBe(5)
   })
 })
