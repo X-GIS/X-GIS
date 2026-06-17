@@ -75,11 +75,12 @@ export function tileEcefCenterFromMerc(
   ] as const
 }
 
-/** Pack ABSOLUTE Mercator-metre point features into ECEF DSFUN stride-9.
+/** Pack ABSOLUTE Mercator-metre point features into ECEF DSFUN stride-13.
  *
  * Phase 2 PR 2d.2 — POINT VS ECEF migration. Point vertices are NOT
  * quantized (Phase 2 PR 2f scope is polygon-position only), so this keeps
- * the legacy stride-9 f32 ECEF-DSFUN layout the point VS reads directly.
+ * the f32 ECEF-DSFUN layout the point VS reads directly (grown 9→13 to add
+ * the absolute Mercator DSFUN tail for precise flat-Mercator position).
  *
  * Camera-relative RTC fix: unlike polygon/line, points from every visible
  * tile merge into ONE draw with a single frame uniform, so they CANNOT carry
