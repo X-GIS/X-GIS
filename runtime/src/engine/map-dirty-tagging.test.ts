@@ -98,6 +98,19 @@ describe('S14 granular dirty tagging — text overlays tag LABEL only', () => {
     expect(s._dirty.peek(DirtyDomain.STYLE)).toBe(false)
   })
 
+  it('fontsReady resolve re-arms LABEL + _needsRender (WOFF font-land glyph re-raster)', async () => {
+    // The resource-land twin of the glyph-land fix: a label drawn with the
+    // Canvas2D system fallback before a WOFF FontFace lands must re-raster +
+    // repaint when the font arrives. Without the fontsReady→markLabelDirty
+    // wiring an idle map keeps the fallback letterforms forever.
+    const map = new XGISMap(mockCanvas(), { fonts: [{ family: 'X-Test', data: new ArrayBuffer(4) }] })
+    const s = clean(map)
+    await map.fontsReady
+    await Promise.resolve() // flush the wired .then microtask
+    expect(s._dirty.peek(DirtyDomain.LABEL)).toBe(true)
+    expect(s._needsRender).toBe(true)
+  })
+
   it('markLabelDirty() then consumeLabelDirty() breaks the S16 skip', () => {
     // The end-to-end contract: after a glyph lands, the next frame's
     // consumeLabelDirty() returns true → the skip-gate's `!labelDirty`

@@ -16,6 +16,9 @@ export interface IconStageOptions {
   dpr?: number
   /** Optional fetch override (tests). */
   fetch?: typeof globalThis.fetch
+  /** Re-arm hook fired when the sprite atlas reaches a terminal state, so an
+   *  idle map repaints the just-landed icons / fill-patterns. */
+  onLanded?: () => void
 }
 
 interface PendingIcon {
@@ -85,6 +88,7 @@ export class IconStage {
       spriteUrl: options.spriteUrl,
       fetch: options.fetch,
       dpr: options.dpr ?? 1,
+      onLanded: options.onLanded,
     })
     this.gpu = new SpriteAtlasGPU(device, this.host)
     this.renderer = new IconRenderer(device, this.gpu, presentationFormat, sampleCount)

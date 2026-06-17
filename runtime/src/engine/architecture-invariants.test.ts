@@ -139,7 +139,9 @@ const LOC_CEILINGS: Record<string, number> = {
   // decomposition remains the #1 tracked god-file priority.
   // Bumped 3437→3438 for addGlyphProvider's markLabelDirty re-arm (CJK glyph
   // re-raster fix: a runtime-added provider must repaint an idle map — 1 line).
-  'runtime/src/engine/map.ts': 3438,
+  // Bumped 3438→3447 for the WOFF font-land glyph re-raster: fontsReady→
+  // invalidateAllGlyphs + markLabelDirty (Canvas2D fallbacks upgrade on load).
+  'runtime/src/engine/map.ts': 3447,
   // Bumped 1343→1344 for the opacity sub-1.5% round-trip fix (#274); comments
   // trimmed to the minimum, net +1 irreducible.
   // Bumped 1344→1348 for the polygon fill-stroke INSET default (US-002): a
@@ -152,7 +154,8 @@ const LOC_CEILINGS: Record<string, number> = {
   // low zoom (1 raw→floored expr + the 5-line parity rationale, irreducible).
   // Bumped 1449→1453 for addGlyphProvider's invalidateAll wiring (CJK glyph
   // re-raster fix: a runtime-added provider re-rasters already-shaped fallbacks).
-  'runtime/src/engine/text/text-stage.ts': 1453,
+  // Bumped 1453→1459 for invalidateAllGlyphs() (WOFF font-land re-raster hook).
+  'runtime/src/engine/text/text-stage.ts': 1459,
   // Bumped 1509→1517 for the GeometryCollection decompose fix (RFC 7946
   // §3.1.8): decomposeFeatures' per-type switch is wrapped in an inner
   // recursive helper so a GeometryCollection member-decomposes under the
@@ -245,7 +248,9 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 1067→1068 for the GeoJSON label-show `continue` (~452) perf-mark
   // balance fix: it was missing the matching perfMarkEnd('…label-dispatch.show')
   // the loop-tail makes (~1022) — one irreducible balanced-mark line.
-  'runtime/src/engine/render/passes/label-pass.ts': 1068,
+  // Bumped 1068→1069 for the sprite-land render re-arm: IconStage onLanded =>
+  // host.markLabelDirty() (sprite atlas land must repaint an idle map — 1 line).
+  'runtime/src/engine/render/passes/label-pass.ts': 1069,
   // VTR Unit-1 extraction (Cluster E-selection). The hysteresis +
   // readiness-gate logic was moved VERBATIM (plan §5 DO-NOT-SPLIT #2),
   // and its hard-won fix-history comments carry the bulk of the LOC —

@@ -50,6 +50,11 @@ export interface SpriteAtlasHostOptions {
   /** When the device DPR is ≥ 1.5, the host tries `${spriteUrl}@2x.{json,png}`
    *  first and falls back to the 1× variant on 404. Defaults to 1. */
   dpr?: number
+  /** Fires once the atlas reaches a terminal state (loaded or failed) — the
+   *  render-loop re-arm hook so an idle map repaints the just-landed icons /
+   *  fill-patterns (mirrors the glyph onResourceLanded; without it a sprite
+   *  that lands after the loop idles waits for the next interaction to paint). */
+  onLanded?: () => void
 }
 
 const HIGH_DPR_SUFFIX = '@2x'
@@ -61,11 +66,13 @@ export class SpriteAtlasHost {
   private state: SpriteAtlasState = { status: 'idle' }
   private readonly readyPromise: Promise<void>
   private resolveReady: (() => void) | null = null
+  private readonly onLanded?: () => void
 
   constructor(opts: SpriteAtlasHostOptions) {
     this.spriteUrl = opts.spriteUrl
     this.fetchFn = opts.fetch ?? globalThis.fetch.bind(globalThis)
     this.dpr = opts.dpr ?? 1
+    this.onLanded = opts.onLanded
     // Promise resolves on terminal state (loaded OR failed). Callers
     // who need the atlas before first draw await this once; callers
     // happy with "render-when-ready" can just probe `get()`.
@@ -151,6 +158,7 @@ export class SpriteAtlasHost {
       this.state = { status: 'failed' }
       this.resolveReady?.()
       this.resolveReady = null
+      this.onLanded?.()
       return
     }
     this.state = { status: 'loading' }
@@ -192,7 +200,7 @@ export class SpriteAtlasHost {
     }
 
     const start = this.dpr >= 1.5 ? tryLoad(HIGH_DPR_SUFFIX).catch(fallbackLoad) : tryLoad('').catch(handleFailure)
-    start.finally(() => { this.resolveReady?.(); this.resolveReady = null })
+    start.finally(() => { this.resolveReady?.(); this.resolveReady = null; this.onLanded?.() })
   }
 }
 

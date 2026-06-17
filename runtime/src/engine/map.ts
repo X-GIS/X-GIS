@@ -659,6 +659,15 @@ export class XGISMap {
     } else {
       this.fontsReady = Promise.resolve()
     }
+    // When the WOFF FontFace(s) land, re-raster glyphs that Canvas2D drew with
+    // the system fallback before they loaded + re-arm the loop — else a label
+    // submitted before fontsReady keeps the fallback letterforms forever (the
+    // resource-land twin of the glyph/provider re-raster fixes).
+    if (options.fonts) void this.fontsReady.then(() => {
+      if (this._destroyed) return
+      this.textStage?.invalidateAllGlyphs()
+      this.markLabelDirty()
+    })
     // P4 opt-in for compute-driven paint evaluation. Stored as a
     // simple flag the run() method reads when invoking emitCommands.
     if (options.enableComputePath) this._enableComputePath = true
