@@ -116,7 +116,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // held) null prebuiltLineSegments/prebuiltOutlineSegments on dropped uploads
   // whose TileData stays cached, keeping sizeOfTileData's segment-omission
   // invariant true so the byte-cap eviction stops under-firing. Shared helper.
-  'runtime/src/engine/render/vector-tile-renderer.ts': 3959,
+  // Bumped 3959→3961 for the line-width dpr fix: the two writeLayerSlot call
+  // sites (stroke + gap) each thread `dpr` into the layer uniform so vs_line's
+  // screen-width clamp lands on the right NDC span (roads were 1/dpr too thin).
+  'runtime/src/engine/render/vector-tile-renderer.ts': 3961,
   // Bumped 3361→3393 for the destroy()-completeness fix: cancelling the
   // EventDispatcher move-rAF + the pending-flush rAF, clearing _pendingPatches,
   // and removing the run()-installed window globals (__xgisReady/snapshot/
@@ -228,7 +231,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // polygon.ts:345 × 3 — extracting a shared `apply_fill_translate` (which
   // would net-shrink both files) is a tracked follow-up (blocked on the
   // polygon byte-equal snapshot gate).
-  'runtime/src/engine/shader-dsl/shaders/line.ts': 1198,
+  // Bumped 1198→1203 for the line-width dpr fix: a `dpr` field on LineLayer
+  // (slot 46, was pad) + its vs_line accessor + the ×dpr factor on the
+  // screen-width clamp's target_ndc, with load-bearing comments explaining the
+  // CSS-px-target / device-px-viewport mismatch the factor corrects.
+  'runtime/src/engine/shader-dsl/shaders/line.ts': 1203,
   // Bumped 1171→1176 (#274 CSS color-fn whitespace), then 1176→1178 (#317) for
   // the two irreducible numeric match()-label arm-pattern cases (Number, and
   // Minus+Number). parser.ts decomposition remains a tracked priority.

@@ -518,6 +518,7 @@ export class LineRenderer {
     offsetPx: number = 0,
     viewportHeight: number = 1,
     blurPx: number = 0,
+    dpr: number = 1,
   ): number {
     // Pattern sanity checks (deduped, one warning per condition per
     // LineRenderer instance). Runs on the parameter set BEFORE packing so
@@ -532,7 +533,7 @@ export class LineRenderer {
     this.layerSlot++
     const data = packLineLayerUniform(
       strokeColor, strokeWidthPx, opacity, mppAtCenter,
-      cap, join, miterLimit, dash, patterns, offsetPx, viewportHeight, blurPx,
+      cap, join, miterLimit, dash, patterns, offsetPx, viewportHeight, blurPx, dpr,
     )
     // Stage into the CPU mirror; flushLayerStaging (called from the
     // map's render loop via `endFrame()`) emits a single writeBuffer

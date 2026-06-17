@@ -2473,6 +2473,7 @@ export class VectorTileRenderer {
         effectiveOffset + halfGap,
         canvasHeight,
         show.strokeBlur ?? 0,
+        dpr,
       )
       if (gapWidth > 0) {
         lineLayerOffsetGap = this.lineRenderer.writeLayerSlot(
@@ -2488,6 +2489,7 @@ export class VectorTileRenderer {
           effectiveOffset - halfGap,
           canvasHeight,
           show.strokeBlur ?? 0,
+          dpr,
         )
       }
     }
