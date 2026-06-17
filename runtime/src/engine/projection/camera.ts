@@ -885,12 +885,18 @@ export class Camera {
     // feels DPR× more sensitive" on a DPR=3 phone.
     const metersPerInputPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, this.zoom)
 
-    // Rotate screen delta by bearing to get map-space delta
+    // Rotate the screen delta by +bearing to get the map-space delta. This
+    // MUST match the drag-anchor path (panToScreenAnchor, which inverts the
+    // live MVP): a screen drag at bearing θ moves the world by Rot(+θ)·delta.
+    // The prior Rot(−θ) form was off by 2θ — coincidentally correct only at
+    // θ=0/180, so inertia flung the wrong way on a rotated map (drag was fine
+    // because it uses panToScreenAnchor; inertia + the above-horizon fallback
+    // use this path).
     const rad = this.bearing * Math.PI / 180
     const cos = Math.cos(rad)
     const sin = Math.sin(rad)
-    const mapDx = dx * cos + dy * sin
-    const mapDy = -dx * sin + dy * cos
+    const mapDx = dx * cos - dy * sin
+    const mapDy = dx * sin + dy * cos
 
     this.centerX -= mapDx * metersPerInputPixel
     // Wrap X to stay within one world width (prevents infinite drift)
