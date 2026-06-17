@@ -971,8 +971,17 @@ const vsLine = entryFn('vs_line', 'vertex', [
     const screenDist = c.let('screen_dist', length(cornerNdc.sub(centerNdc)))
     // width target is CSS px; viewport_height is DEVICE px → scale by dpr.
     const targetNdc = c.let('target_ndc', effectiveWidthPx.add(f32(2).mul(layerAaPx)).mul(layerDpr).div(layerVpH))
+    // The screen-width clamp may only GROW the quad to counter projection
+    // foreshortening — never SHRINK it below the base quad. The base offset is
+    // (w/2+aa)·mpp tile-local metres, which the FS distance field (world_local
+    // / mpp) renders at exactly the intended CSS-px width; a quad smaller than
+    // that clips the fragment coverage and the stroke renders far too thin.
+    // (targetNdc is miscalibrated against the perspective viewport scale — it
+    // under-targets ~4×, so the raw scale was shrinking every flat stroke to a
+    // fraction of its width. Capping at 1 restores the correct base width and
+    // keeps the legitimate grow-for-foreshortening path.)
     c.if(screenDist.gt(1e-8), (d) => {
-      const scale = d.let('scale', targetNdc.div(screenDist))
+      const scale = d.let('scale', max(targetNdc.div(screenDist), f32(1)))
       d.assign(cornerLocal, base.add(offset.mul(scale)))
     })
   })
