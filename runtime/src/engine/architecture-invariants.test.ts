@@ -306,7 +306,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // arena lifecycle + its hard-won fix-history comments (#218 OOM, #288/#289
   // relocation→bundle-invalidation, #366 mid-render-destroy UAF, US-003 grow)
   // carry the LOC. Baselined here; decomposition is a tracked priority.
-  'runtime/src/engine/render/gpu-tile-store.ts': 870,
+  // Bumped 870→903 for the at-ceiling eviction-futility short-circuit (a1):
+  // two per-arena latch fields + the short-circuit + the per-frame reset +
+  // the invariant comments (nothing frees mid-frame → re-scan is pure waste),
+  // killing the ARENA-OOM per-frame O(resident) re-scan lag at z22+pitch.
+  'runtime/src/engine/render/gpu-tile-store.ts': 903,
 }
 const NEW_FILE_CAP = 800
 
