@@ -53,7 +53,7 @@ import { TextStage, type TextStageOptions } from './text/text-stage'
 import type { GlyphProvider } from './text/sdf/pbf/glyph-provider'
 import { IconStage } from './sprite/icon-stage'
 import {
-  LayerIdRegistry, XGISLayer, ListenerRegistry, MapEventRegistry, XGISMapEvent, isMapEventType,
+  LayerIdRegistry, XGISLayer,
   type XGISFeature, type XGISFeatureEvent, type XGISFeatureEventType, type XGISFeatureListener,
   type XGISMapEventType, type XGISMapListener,
 } from './layer'
@@ -90,6 +90,7 @@ import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 import { pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
 import type { GeoJSONFeature } from '../loader/geojson'
 import { FeatureUpdateQueue } from './feature-update-queue'
+import { MapEventBus } from './map-event-bus'
 import { safeFetch, assertIngestBudget, readBodyCapped } from './safety'
 
 // DoS ceilings for the top-level loader entry points (.xgis style /
@@ -225,31 +226,15 @@ export class XGISMap {
    *  reused across re-projections. */
   private eventDispatcher: EventDispatcher | null = null
 
-  /** Map-level listener registry — `map.addEventListener('click', h)`
-   *  receives every layer hit, like document-level event delegation.
-   *  Layer-level dispatch runs first; map-level fires only if no
-   *  `preventDefault` was called there. */
-  private mapListeners = new ListenerRegistry()
+  /** Map-level event bus — owns listener registries, load/move/zoom/idle
+   *  state, and the per-rAF camera-signature diff. Extracted from map.ts
+   *  (2026-06-19 runtime redesign §3.2 "MapEventBus"). */
+  private _eventBus!: MapEventBus
 
-  /** Map-level lifecycle / camera event registry — `map.on('moveend', h)`
-   *  / `map.on('load', h)` / `map.on('idle', h)`. Separate from
-   *  `mapListeners` (feature/pointer events) because the two carry
-   *  different payloads; `on()`/`off()`/`once()` route to the right one
-   *  by event name. Emit sites: load = first rendered frame (run());
-   *  move/zoom/movestart/zoomstart/moveend/zoomend/idle = render-loop
-   *  signature diff (catches both gesture + programmatic camera lanes). */
-  private mapEventListeners = new MapEventRegistry()
-
-  /** One-shot guard so `load` fires exactly once even if run()/runBinary
-   *  is somehow re-entered. */
-  private _loadFired = false
-  /** Move/zoom transition state for the render-loop signature diff. A
-   *  "move" spans from the first camera-signature change until the camera
-   *  comes to rest; a "zoom" likewise but tracks zoom alone. `_wasIdle`
-   *  edge-detects the busy→idle transition for the single `idle` fire. */
-  private _moveActive = false
-  private _zoomActive = false
-  private _wasIdle = false
+  // Delegating accessors so existing internal readers (switchController,
+  // diagnostics, destroy) stay byte-identical.
+  private get mapListeners() { return this._eventBus.mapListeners }
+  private get mapEventListeners() { return this._eventBus.mapEventListeners }
 
   /** Bound `keydown` handler for keyboard pan/zoom (P0-7 a11y). Stored so
    *  `destroy()` can detach it — otherwise the listener (and the closed-
@@ -624,6 +609,14 @@ export class XGISMap {
       invalidate: () => this.invalidate(),
       getCanvas: () => this.getCanvas(),
       getCtxCanvas: () => this.ctx?.canvas,
+    })
+    // Event bus — owns listener registries + camera-signature diff state.
+    // Constructed after cameraController so getCameraState() is available.
+    this._eventBus = new MapEventBus({
+      camera: this.camera,
+      getCameraState: () => this.cameraController.getCameraState(),
+      shouldRenderThisFrame: () => this.shouldRenderThisFrame(),
+      target: this,
     })
     // Projection-mode + graticule cluster. Holds the shared camera (writes
     // zoom/pitch/globeOrtho/globeMode/pitchLocked on a projection switch) and
@@ -2778,66 +2771,10 @@ export class XGISMap {
     }
   }
 
-  // Last camera signature for which lifecycle events were emitted. Kept
-  // separate from `_lastSig*` (owned by renderFrame's idle-skip gate) so
-  // the event logic is self-contained and robust across skipped frames.
-  private _evtSigCX = NaN
-  private _evtSigCY = NaN
-  private _evtSigZoom = NaN
-  private _evtSigBearing = NaN
-  private _evtSigPitch = NaN
-
   /** Drive movestart/move/moveend, zoomstart/zoom/zoomend, and idle off
-   *  the camera signature, once per rAF tick. MapLibre semantics:
-   *    - a "move" begins on the first changed frame (`movestart`), fires
-   *      `move` every changed frame, and ends (`moveend`) the first frame
-   *      the camera is unchanged again — regardless of pending tile work.
-   *    - "zoom" likewise, gated on the zoom field alone.
-   *    - `idle` fires once on the busy→idle transition: camera at rest
-   *      AND no pending tile/label work AND no active move/zoom.
-   *  Diffing the camera (not `_lastSig*`) means programmatic jumpTo and
-   *  user drag/wheel both flow through here uniformly. */
+   *  the camera signature — delegated to MapEventBus (map-event-bus.ts). */
   private _processCameraEvents(): void {
-    const c = this.camera
-    const cxChanged = c.centerX !== this._evtSigCX
-    const cyChanged = c.centerY !== this._evtSigCY
-    const bearingChanged = c.bearing !== this._evtSigBearing
-    const pitchChanged = c.pitch !== this._evtSigPitch
-    const zoomChanged = c.zoom !== this._evtSigZoom
-    // First tick: seed the signature without firing (NaN !== anything).
-    const seeded = Number.isFinite(this._evtSigCX)
-    const moved = seeded && (cxChanged || cyChanged || bearingChanged || pitchChanged || zoomChanged)
-
-    if (moved) {
-      // Zoom start/continue (zoom is also a move in MapLibre).
-      if (zoomChanged) {
-        if (!this._zoomActive) { this._zoomActive = true; this._fireMapEvent('zoomstart') }
-      }
-      if (!this._moveActive) { this._moveActive = true; this._fireMapEvent('movestart') }
-      if (zoomChanged) this._fireMapEvent('zoom')
-      this._fireMapEvent('move')
-    } else {
-      // Camera at rest this tick — close out any open move/zoom.
-      if (this._zoomActive) { this._zoomActive = false; this._fireMapEvent('zoomend') }
-      if (this._moveActive) { this._moveActive = false; this._fireMapEvent('moveend') }
-    }
-
-    // Update the emitted-signature snapshot.
-    this._evtSigCX = c.centerX
-    this._evtSigCY = c.centerY
-    this._evtSigZoom = c.zoom
-    this._evtSigBearing = c.bearing
-    this._evtSigPitch = c.pitch
-
-    // Idle = nothing left to draw AND camera at rest AND no open gesture.
-    // `shouldRenderThisFrame()` already folds in _needsRender,
-    // _sceneHasAnimation, hasPendingSourceWork, and the camera/size diff.
-    const idleNow = !this._moveActive && !this._zoomActive && !this.shouldRenderThisFrame()
-    if (idleNow) {
-      if (!this._wasIdle) { this._wasIdle = true; this._fireMapEvent('idle') }
-    } else {
-      this._wasIdle = false
-    }
+    this._eventBus.processCameraEvents()
   }
 
   /** Decide whether `renderLoop` should actually call `renderFrame()`.
@@ -3057,78 +2994,53 @@ export class XGISMap {
     }
   }
 
-  /** Map-level event delegation — fires for any layer hit (`target` = the
-   *  hit layer, same `XGISFeatureEvent` shape). Layer-level listeners run
-   *  first; their `preventDefault` suppresses the map-level dispatch. */
+  /** Map-level event delegation — delegated to MapEventBus. */
   addEventListener(
     type: XGISFeatureEventType,
     listener: XGISFeatureListener,
     options?: { signal?: AbortSignal; once?: boolean },
   ): void {
-    this.mapListeners.add(type, listener, options)
+    this._eventBus.addEventListener(type, listener, options)
   }
 
   removeEventListener(type: XGISFeatureEventType, listener: XGISFeatureListener): void {
-    this.mapListeners.remove(type, listener)
+    this._eventBus.removeEventListener(type, listener)
   }
 
-  /** Mapbox-API parity `on()`/`off()` aliases. Two disjoint event surfaces
-   *  routed by name: feature/pointer events (click, mousemove, …) →
-   *  `mapListeners` (XGISFeatureEvent, carries the hit feature);
-   *  lifecycle/camera events (load, idle, move*, zoom*) →
-   *  `mapEventListeners` (XGISMapEvent, carries the camera state).
-   *  Unknown names warn once at the feature registry (layer.ts, P0-4). */
+  /** Mapbox-API parity `on()`/`off()` aliases — delegated to MapEventBus. */
   on(type: XGISMapEventType, listener: XGISMapListener): void
   on(type: XGISFeatureEventType, listener: XGISFeatureListener): void
   on(type: XGISFeatureEventType | XGISMapEventType, listener: XGISFeatureListener | XGISMapListener): void {
-    if (isMapEventType(type)) this.mapEventListeners.add(type, listener as XGISMapListener)
-    else this.mapListeners.add(type, listener as XGISFeatureListener)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(this._eventBus.on as (t: any, l: any) => void)(type, listener)
   }
   off(type: XGISMapEventType, listener: XGISMapListener): void
   off(type: XGISFeatureEventType, listener: XGISFeatureListener): void
   off(type: XGISFeatureEventType | XGISMapEventType, listener: XGISFeatureListener | XGISMapListener): void {
-    if (isMapEventType(type)) this.mapEventListeners.remove(type, listener as XGISMapListener)
-    else this.mapListeners.remove(type, listener as XGISFeatureListener)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(this._eventBus.off as (t: any, l: any) => void)(type, listener)
   }
   once(type: XGISMapEventType, listener: XGISMapListener): void
   once(type: XGISFeatureEventType, listener: XGISFeatureListener): void
   once(type: XGISFeatureEventType | XGISMapEventType, listener: XGISFeatureListener | XGISMapListener): void {
-    if (isMapEventType(type)) this.mapEventListeners.add(type, listener as XGISMapListener, { once: true })
-    else this.mapListeners.add(type, listener as XGISFeatureListener, { once: true })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(this._eventBus.once as (t: any, l: any) => void)(type, listener)
   }
 
-  /** Build + dispatch a lifecycle/camera event from the current camera
-   *  state. No-op without listeners so the per-frame path stays cheap. */
+  /** Build + dispatch a lifecycle/camera event — delegated to MapEventBus. */
   private _fireMapEvent(type: XGISMapEventType): void {
-    if (!this.mapEventListeners.has(type)) return
-    const cam = this.cameraController.getCameraState()
-    this.mapEventListeners.dispatch(new XGISMapEvent({
-      type,
-      target: this,
-      center: cam.center,
-      zoom: cam.zoom,
-      bearing: cam.bearing,
-      pitch: cam.pitch,
-    }))
+    this._eventBus._fireMapEvent(type)
   }
 
-  /** Fire `load` exactly once, after the map has entered the render loop
-   *  (the first frame has been scheduled). Mirrors the `_loaded` /
-   *  `__xgisReady` contract — both run() and runBinary() call this after
-   *  setting `_loaded = true`. MapLibre fires `load` once per map. */
+  /** Fire `load` exactly once — delegated to MapEventBus. */
   private _fireLoadEvent(): void {
-    if (this._loadFired) return
-    this._loadFired = true
-    this._fireMapEvent('load')
+    this._eventBus.fireLoadEvent()
   }
 
-  /** Internal: dispatcher calls this after a layer-level dispatch so
-   *  map-level handlers see every hit. `event.defaultPrevented` carries
-   *  through — a layer listener's preventDefault() suppresses this. */
+  /** Internal: dispatcher calls this after a layer-level dispatch —
+   *  delegated to MapEventBus. */
   _dispatchMapEvent(event: XGISFeatureEvent): void {
-    if (event.defaultPrevented) return
-    if (!this.mapListeners.has(event.type)) return
-    this.mapListeners.dispatch(event, 'map')
+    this._eventBus.dispatchMapEvent(event)
   }
 
   // ═══ Dynamic Property API (lower-level dot-notation; prefer .style) ═══
