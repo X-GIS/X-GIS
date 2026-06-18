@@ -46,6 +46,18 @@ export function lineLabelDeduped(resolvedText: string, emitted: ReadonlySet<stri
   return emitted.has(resolvedText)
 }
 
+/** Stable per-instance pair key for a POINT label's text+icon (the place-name
+ *  dot). Keyed on a monotonic per-show sequence index — NOT the rounded screen
+ *  position the pre-#419 code used, whose sub-pixel-drift rounding flipped so a
+ *  dot's key collided with a NEIGHBOUR label's dropped key and the dot blinked
+ *  on pan/zoom. The text and its dot share one dispatch's key (pairing intact,
+ *  iter-119); each instance / world-copy gets a distinct index. No position arg
+ *  ⇒ two co-located labels can NEVER collide by construction (the #419 root).
+ *  Mirrors the line path's `_lineLabelSeq` (iter-176). Exported for coverage. */
+export function pointLabelPairKey(layerName: string | undefined, seq: number): string {
+  return `${layerName ?? ''}:pt${seq}`
+}
+
 class LabelPass implements RenderPass {
   readonly label = 'labels'
 
@@ -312,6 +324,14 @@ class LabelPass implements RenderPass {
           host._prevLabelDispatchSig = _dispatchSig
         }
         for (const show of labelShows) {
+          // Per-show monotonic key for POINT-label text+icon pairing — mirrors
+          // _lineLabelSeq (iter-176). A STABLE per-instance key; replaces the
+          // old rounded-screen-coords pairKey whose sub-pixel camera drift
+          // flipped the rounding, so a city dot's key collided with a
+          // neighbour's dropped key and the dot blinked on pan/zoom (#419).
+          // text + dot share the same value (iter-119 pairing intact); each
+          // world-copy dispatch increments (copies stay independent).
+          let _pointLabelSeq = 0
           // iter-262 — per-show wrap to find what consumes the
           // 6+ ms gap not accounted for by line/point sub-marks.
           perfMarkStart('encoder.label-dispatch.show')
@@ -458,7 +478,7 @@ class LabelPass implements RenderPass {
                 const pairedWithIcon = featDef.iconImage !== undefined
                   && featDef.iconImage !== null && featDef.iconImage !== ''
                 const pairKey = pairedWithIcon
-                  ? `${labelLayerName ?? ''}:${Math.round(projected[0])},${Math.round(projected[1])}`
+                  ? pointLabelPairKey(labelLayerName, _pointLabelSeq++)
                   : undefined
                 stage.addLabel(
                   featDef.text, feat.properties ?? {},
@@ -1001,7 +1021,7 @@ class LabelPass implements RenderPass {
                   const [lon, lat] = mercToLonLat(mercX, mercY)
                   for (const projected of projectLonLatCopies(lon, lat)) {
                     const pairKey = pairedWithIcon
-                      ? `${labelLayerName ?? ''}:${Math.round(projected[0])},${Math.round(projected[1])}`
+                      ? pointLabelPairKey(labelLayerName, _pointLabelSeq++)
                       : undefined
                     stage.addLabel(
                       featDef.text, props,
@@ -1025,7 +1045,7 @@ class LabelPass implements RenderPass {
                   if (!proj) continue
                   const px = proj[0], py = proj[1]
                   const pairKey = pairedWithIcon
-                    ? `${labelLayerName ?? ''}:${Math.round(px)},${Math.round(py)}`
+                    ? pointLabelPairKey(labelLayerName, _pointLabelSeq++)
                     : undefined
                   stage.addLabel(
                     featDef.text, props,
