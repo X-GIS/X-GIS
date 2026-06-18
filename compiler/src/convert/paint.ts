@@ -192,14 +192,7 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     if (p['line-gradient'] !== undefined && p['line-gradient'] !== null) {
       warnings.push(`Layer "${layer.id}" — line-gradient set but requires the line-progress accessor + per-fragment arc-length varying through the line renderer; not implemented (Plan §4 deferred). Layer falls back to solid line-color.`)
     }
-    // line-translate — fill-translate has a u.fill_translate_x/y
-    // uniform; line-translate would mirror that via a
-    // u.line_translate_x/y uniform threaded through line-renderer.ts
-    // vertex shader. Surface the specific gap rather than the
-    // generic ignored-properties blob.
-    if (p['line-translate'] !== undefined && p['line-translate'] !== null) {
-      warnings.push(`Layer "${layer.id}" — line-translate set but the line renderer has no per-frame translate uniform yet (Plan §4 deferred — mirror of fill-translate's u.fill_translate_x/y); offset is dropped.`)
-    }
+    addLineTranslate(out, p['line-translate'], warnings)
     surfaceIgnoredPaint(layer.id, p, warnings, [
       'line-translate-anchor', 'line-sort-key',
       'line-round-limit',
@@ -538,6 +531,53 @@ function addFillTranslate(out: string[], v: unknown, warnings: string[]): void {
     }
   }
   warnings.push(`paint.fill-translate: non-constant form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`)
+}
+
+/** Mapbox `paint.line-translate: [dx, dy]` → xgis
+ *  `stroke-translate-x-N stroke-translate-y-M` (signed pixel offsets).
+ *  Mirrors addFillTranslate exactly — same constant + zoom-interp
+ *  last-stop forms, same bracket-negative convention.
+ *
+ *  Sign convention: Mapbox positive x = right, positive y = down
+ *  (screen space). The runtime WGSL negates y for NDC convention
+ *  (NDC y is UP) — same as fill-translate.
+ *
+ *  Anchor: line-translate-anchor: viewport (default) is the only
+ *  currently-honoured mode. "map" would shift in world coords; not
+ *  yet implemented. */
+function addLineTranslate(out: string[], v: unknown, warnings: string[]): void {
+  if (isOmitted(v)) return
+  // Unwrap Mapbox v8 `["literal", [dx, dy]]` wrapper.
+  while (Array.isArray(v) && v.length === 2 && v[0] === 'literal') {
+    v = v[1]
+  }
+  if (Array.isArray(v) && v.length === 2
+      && typeof v[0] === 'number' && Number.isFinite(v[0])
+      && typeof v[1] === 'number' && Number.isFinite(v[1])) {
+    const fmt = (n: number): string => n < 0 ? `[${n}]` : `${n}`
+    if (v[0] !== 0) out.push(`stroke-translate-x-${fmt(v[0])}`)
+    if (v[1] !== 0) out.push(`stroke-translate-y-${fmt(v[1])}`)
+    return
+  }
+  // Zoom-interp on vec2 — last-stop approximation (mirrors fill-translate).
+  if (Array.isArray(v) && v.length >= 4 && v[0] === 'interpolate') {
+    let last: unknown = null
+    for (let i = 3; i + 1 < v.length; i += 2) {
+      last = v[i + 1]
+    }
+    while (Array.isArray(last) && last.length === 2 && last[0] === 'literal') {
+      last = last[1]
+    }
+    if (Array.isArray(last) && last.length === 2
+        && typeof last[0] === 'number' && Number.isFinite(last[0])
+        && typeof last[1] === 'number' && Number.isFinite(last[1])) {
+      const fmt = (n: number): string => n < 0 ? `[${n}]` : `${n}`
+      if (last[0] !== 0) out.push(`stroke-translate-x-${fmt(last[0])}`)
+      if (last[1] !== 0) out.push(`stroke-translate-y-${fmt(last[1])}`)
+      return
+    }
+  }
+  warnings.push(`paint.line-translate: non-constant form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`)
 }
 
 /** Mapbox `paint.line-blur` (edge feathering, CSS px) → xgis

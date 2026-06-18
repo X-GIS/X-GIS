@@ -246,7 +246,9 @@ const LOC_CEILINGS: Record<string, number> = {
   // max(ratio, 1) stops it shrinking every flat stroke to a fraction of its
   // width (roads rendered ~1/3 the MapLibre width). The added lines are the
   // load-bearing rationale comment for the cap.
-  'runtime/src/engine/shader-dsl/shaders/line.ts': 1212,
+  // Bumped 1212→1228 for line-translate: LineLayer struct gains line_translate_x/y +
+  // 2 pads (4 fields) + vs_line translate apply block (8 lines).
+  'runtime/src/engine/shader-dsl/shaders/line.ts': 1228,
   // Bumped 1171→1176 (#274 CSS color-fn whitespace), then 1176→1178 (#317) for
   // the two irreducible numeric match()-label arm-pattern cases (Number, and
   // Minus+Number). parser.ts decomposition remains a tracked priority.

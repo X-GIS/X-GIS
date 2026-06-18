@@ -20,9 +20,9 @@ const CASES: Case[] = [
   // fill-extrusion-translate is SUPPORTED iter-180 — routed through
   // the same addFillTranslate helper since the fill-extrusion vertex
   // shaders apply u.fill_translate_x/y already. Both omitted here.
-  { property: 'line-translate',
-    layerType: 'line', value: [1, 1],
-    expectIn: 'no per-frame translate uniform' },
+  // line-translate is now SUPPORTED — addLineTranslate emits
+  // stroke-translate-x/y; runtime wires u.line_translate_x/y. Removed
+  // from gap cases; see line-translate-warn.test.ts for end-to-end coverage.
   { property: 'circle-translate',
     layerType: 'circle', value: [1, 1],
     expectIn: 'point renderer has no per-frame translate' },

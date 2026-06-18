@@ -214,6 +214,14 @@ export interface ShowCommand {
    *  fills, +down. Runtime baker writes (px * 2 / canvasHeight) into
    *  uniformF32[47]; vertex shader negates internally for NDC y. */
   fillTranslateY?: number
+  /** Mapbox `paint.line-translate` x — CSS-px viewport offset on
+   *  lines, +right. Runtime bakes (px * 2 / canvasWidth) into the
+   *  line layer uniform's line_translate_x slot (buf[48]). */
+  strokeTranslateX?: number
+  /** Mapbox `paint.line-translate` y — CSS-px viewport offset on
+   *  lines, +down. Runtime bakes (px * 2 / canvasHeight) into
+   *  line_translate_y slot (buf[49]); shader negates for NDC y. */
+  strokeTranslateY?: number
   // Stable u16 layer ID assigned by `XGISMap` via `LayerIdRegistry` after
   // the compiler emits this command. Threaded into every per-tile uniform
   // write so the fragment shader can stamp the pick texture's G channel
