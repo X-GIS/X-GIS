@@ -38,6 +38,14 @@ interface PendingIcon {
    *  TextStage.getDroppedPairKeys() and drops icons whose paired
    *  text was collision-rejected. */
   pairKey?: string
+  /** #417 — line-placement icon collision. When true, prepare() drops
+   *  this icon if its box overlaps an already-placed collide-icon (icon-
+   *  padding AABB). Used for symbol-placement:line icons (e.g. OFM
+   *  road_oneway arrows) so two PARALLEL road features' overlapping
+   *  arrows collapse to one chain like MapLibre, instead of drawing
+   *  side-by-side. POINT-placement icons (the allow-overlap city dots)
+   *  leave this false → never collision-dropped (preserves #419). */
+  collide?: boolean
 }
 
 export class IconStage {
@@ -101,7 +109,7 @@ export class IconStage {
    *  sprite atlas — unknown names are dropped silently in prepare(). */
   addIcon(
     anchorX: number, anchorY: number, iconName: string,
-    opts: { sizeScale?: number; rotateRad?: number; anchor?: IconAnchor; opacity?: number; tint?: [number, number, number]; pairKey?: string } = {},
+    opts: { sizeScale?: number; rotateRad?: number; anchor?: IconAnchor; opacity?: number; tint?: [number, number, number]; pairKey?: string; collide?: boolean } = {},
   ): void {
     if (this._iconDebugHook) {
       this._iconDebugHook(iconName, anchorX, anchorY, opts.pairKey)
@@ -114,6 +122,7 @@ export class IconStage {
       opacity: opts.opacity ?? 1,
       tint: opts.tint,
       pairKey: opts.pairKey,
+      collide: opts.collide ?? false,
     })
   }
 
@@ -141,6 +150,9 @@ export class IconStage {
     // as the atlas lands the next frame picks them up — but if
     // metadata isn't there yet, EVERY icon misses and we just skip.
     const draws: IconDraw[] = []
+    // #417 — boxes of already-placed collide-icons (symbol-placement:line,
+    // e.g. road_oneway arrows) for the per-frame overlap collision below.
+    const placedBoxes: { minX: number; minY: number; maxX: number; maxY: number }[] = []
     // Track missing names ONLY when the atlas is in the terminal
     // 'loaded' state — during 'loading' / 'idle' / 'failed' every
     // lookup misses for orthogonal reasons (no atlas in memory).
@@ -163,6 +175,25 @@ export class IconStage {
       // on top so a "1.0" icon-size looks the same physical size on
       // hidpi displays as the design intent.
       const sizeScale = p.sizeScale * this.dpr
+      // #417 — line-icon overlap collision. A symbol-placement:line icon
+      // (collide=true) is dropped when its padded box overlaps an
+      // already-placed collide-icon, so two parallel road features'
+      // overlapping arrows collapse to one chain (MapLibre parity).
+      // Zoom-invariant (tests actual icon boxes, not a fixed distance).
+      // Only collide-icons are tested + recorded → point dots untouched (#419).
+      if (p.collide) {
+        const cdW = (sprite.width / sprite.pixelRatio) * sizeScale
+        const cdH = (sprite.height / sprite.pixelRatio) * sizeScale
+        const pad = 2 * this.dpr  // Mapbox icon-padding default
+        const minX = p.anchorX - cdW / 2 - pad, maxX = p.anchorX + cdW / 2 + pad
+        const minY = p.anchorY - cdH / 2 - pad, maxY = p.anchorY + cdH / 2 + pad
+        let overlaps = false
+        for (const b of placedBoxes) {
+          if (minX < b.maxX && maxX > b.minX && minY < b.maxY && maxY > b.minY) { overlaps = true; break }
+        }
+        if (overlaps) continue
+        placedBoxes.push({ minX, minY, maxX, maxY })
+      }
       draws.push({
         anchorX: p.anchorX, anchorY: p.anchorY,
         sprite, sizeScale,
