@@ -169,7 +169,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 1449→1453 for addGlyphProvider's invalidateAll wiring (CJK glyph
   // re-raster fix: a runtime-added provider re-rasters already-shaped fallbacks).
   // Bumped 1453→1459 for invalidateAllGlyphs() (WOFF font-land re-raster hook).
-  'runtime/src/engine/text/text-stage.ts': 1459,
+  // Bumped 1459→1465 for the italic-label synthetic-oblique flag (#416): a
+  // labelItalic = (def.fontStyle==='italic') per loop (point + curved) + the
+  // `italic:` field on the three TextDraw build sites so the renderer shears
+  // CJK/Hangul glyphs (the italic glyph PBF serves ideographs upright).
+  'runtime/src/engine/text/text-stage.ts': 1465,
   // Bumped 1509→1517 for the GeometryCollection decompose fix (RFC 7946
   // §3.1.8): decomposeFeatures' per-type switch is wrapped in an inner
   // recursive helper so a GeometryCollection member-decomposes under the

@@ -19,6 +19,7 @@ import type { GlyphAtlasGPU } from './sdf/glyph-atlas-gpu'
 import { FrameArena } from '../gpu/frame-arena'
 import { bumpAlloc } from '../__profile__/alloc-counter'
 import type { TextDraw } from './text-renderer-types'
+import { codePointIsIdeographic } from './text-wrap'
 import { emitTextWgsl } from '../shader-dsl'
 import { vertexField } from '@xgis/compiler'
 import { TEXT_FORMAT } from './text-vertex-format'
@@ -33,6 +34,13 @@ const FLOATS_PER_VERT = TEXT_FORMAT.stride / 4                       // 4 (posX,
 const TEXT_PX_SLOT = vertexField(TEXT_FORMAT, 'pos_px').offset / 4   // 0 (x,y = 0,1)
 const TEXT_UV_SLOT = vertexField(TEXT_FORMAT, 'uv').offset / 4       // 2 (u,v = 2,3)
 const FLOATS_PER_GLYPH = VERTS_PER_GLYPH * FLOATS_PER_VERT
+
+// Synthetic-oblique shear for the CJK/Hangul/Kana glyphs of an italic
+// label. The italic glyph PBF ("Noto Sans Italic") serves ideographs
+// UPRIGHT (Noto has no italic CJK face), so MapLibre slants them ~12°;
+// tan(12°) ≈ 0.21. Latin glyphs carry a real italic in their SDF and
+// are left untouched (see the ideographic-codepoint gate in setDraws).
+const OBLIQUE_TAN = 0.21
 
 // The SDF-text shader (px->NDC quad + MapLibre symbol_sdf fill/halo fragment)
 // is EMITTED from the shader DSL: shader-dsl/shaders/text.ts (emitTextWgsl), used
@@ -174,6 +182,7 @@ export class TextRenderer {
       const letterSpacingPx = d.letterSpacingPx ?? 0
       const offsets = d.glyphOffsets
       const perGlyphRot = d.glyphRotations
+      const italicOblique = d.italic === true
       // iter-248 — pass arena so each per-draw uniform pack uses
       // the same backing buffer as the iter-244 vertex data.
       const uniforms = packUniforms(d, this._frameArena)
@@ -262,6 +271,14 @@ export class TextRenderer {
         const y0 = baseY2 - g.bearingY * scale - (drawH - g.height * scale) * 0.5
         const x1 = x0 + drawW
         const y1 = y0 + drawH
+        // Synthetic oblique (italic) for CJK/Hangul/Kana glyphs: shear x by
+        // each corner's distance above the baseline (baseY2). Latin glyphs
+        // get real italic from the font (PBF SDF already slanted); the italic
+        // glyph PBF serves CJK UPRIGHT, so MapLibre obliques them — gate on
+        // the ideographic codepoint, not the glyph source.
+        const shear = (italicOblique && codePointIsIdeographic(g.codepoint)) ? OBLIQUE_TAN : 0
+        const shTop = shear * (baseY2 - y0)
+        const shBot = shear * (baseY2 - y1)
         const u0 = g.slot.pxX / pageSize
         const v0 = g.slot.pxY / pageSize
         const u1 = (g.slot.pxX + slotSize) / pageSize
@@ -277,21 +294,21 @@ export class TextRenderer {
         let brx: number, bry: number, trx: number, try_: number
         if (perGlyphRot !== undefined) {
           const gRot = perGlyphRot[gi] ?? 0
-          const gcx = (x0 + x1) * 0.5, gcy = (y0 + y1) * 0.5
+          const gcx = (x0 + x1) * 0.5 + (shTop + shBot) * 0.5, gcy = (y0 + y1) * 0.5
           const c = Math.cos(gRot), s = Math.sin(gRot)
           const rotateGlyph = (x: number, y: number): [number, number] => {
             const ddx = x - gcx, ddy = y - gcy
             return [gcx + ddx * c - ddy * s, gcy + ddx * s + ddy * c]
           };
-          [tlx, tly] = rotateGlyph(x0, y0)
-          ;[blx, bly] = rotateGlyph(x0, y1)
-          ;[brx, bry] = rotateGlyph(x1, y1)
-          ;[trx, try_] = rotateGlyph(x1, y0)
+          [tlx, tly] = rotateGlyph(x0 + shTop, y0)
+          ;[blx, bly] = rotateGlyph(x0 + shBot, y1)
+          ;[brx, bry] = rotateGlyph(x1 + shBot, y1)
+          ;[trx, try_] = rotateGlyph(x1 + shTop, y0)
         } else {
-          [tlx, tly] = rotateXY(x0, y0)
-          ;[blx, bly] = rotateXY(x0, y1)
-          ;[brx, bry] = rotateXY(x1, y1)
-          ;[trx, try_] = rotateXY(x1, y0)
+          [tlx, tly] = rotateXY(x0 + shTop, y0)
+          ;[blx, bly] = rotateXY(x0 + shBot, y1)
+          ;[brx, bry] = rotateXY(x1 + shBot, y1)
+          ;[trx, try_] = rotateXY(x1 + shTop, y0)
         }
 
         const off = glyphIdx * FLOATS_PER_GLYPH

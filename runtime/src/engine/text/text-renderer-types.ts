@@ -56,4 +56,10 @@ export interface TextDraw {
    *  positions each glyph at its sample point). When set, `rotateRad`
    *  is ignored. */
   glyphRotations?: Float32Array
+  /** Label font is italic. Latin glyphs carry a real italic in their
+   *  SDF, but the italic glyph PBF serves CJK/Hangul/Kana ideographs
+   *  UPRIGHT — so the renderer applies a synthetic oblique shear to the
+   *  ideographic-codepoint glyphs of an italic label, matching
+   *  MapLibre's local-ideograph oblique. */
+  italic?: boolean
 }
