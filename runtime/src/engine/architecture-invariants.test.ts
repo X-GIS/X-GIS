@@ -19,7 +19,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { join, dirname, relative } from 'node:path'
+import { join, dirname, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
@@ -344,6 +344,67 @@ describe('arch ratchet: file size (shrink-only god-files, no new ones)', () => {
       .filter((x) => x.n > NEW_FILE_CAP)
       .map((x) => `${x.r}: ${x.n} > ${NEW_FILE_CAP} — split it before it becomes a god-file`)
     expect(tooBig, tooBig.join('\n')).toEqual([])
+  })
+})
+
+// ── Gate 5: layer import-direction (downward-only spine) ─────────────
+// 2026-06-18 runtime redesign §2.1: runtime/src obeys a layered spine
+//   L0 coords/camera → L1 gpu/platform → L2 data/io → L3 render → L4 facade
+// where an import may target the SAME or a LOWER layer. The current upward
+// edges (all L0 projection files reaching gpu/loader for constants /
+// converters) are snapshotted below as a SHRINK-ONLY allowlist — exactly
+// today's set — so this gate cannot false-positive; it fails only on a NEW
+// upward edge. Type-only imports are erased by tsc (no runtime cycle) and are
+// exempt, mirroring Gate 2's render-loop→map carve-out.
+//
+// To lower the baseline: sever an edge (redesign R-A/R-B/R-C — move the pure
+// coord constants/converter down to L0) and DELETE its allowlist line. Never ADD.
+const LAYER_OF = (relPath: string): number | null => {
+  const p = relPath.replace(/\\/g, '/')
+  if (p === 'runtime/src/engine/shaders/log-depth.ts') return 0
+  if (p.startsWith('runtime/src/engine/projection/')) return 0
+  if (p.startsWith('runtime/src/engine/gpu/')) return 1
+  if (p.startsWith('runtime/src/engine/shaders/')) return 1
+  if (p.startsWith('runtime/src/engine/shader-dsl/')) return 1
+  if (p.startsWith('runtime/src/data/')) return 2
+  if (p.startsWith('runtime/src/loader/')) return 2
+  if (p.startsWith('runtime/src/engine/render/')) return 3
+  if (p.startsWith('runtime/src/engine/text/')) return 3
+  if (p.startsWith('runtime/src/engine/sprite/')) return 3
+  if (p === 'runtime/src/engine/map.ts') return 4
+  if (p === 'runtime/src/engine/controller.ts') return 4
+  return null // unclassified (engine root files etc.) — not yet layered
+}
+const UPWARD_EDGE_ALLOWLIST: ReadonlySet<string> = new Set([
+  'runtime/src/engine/projection/camera-helpers.ts=>runtime/src/engine/gpu/gpu-shared.ts',
+  'runtime/src/engine/projection/camera.ts=>runtime/src/engine/gpu/gpu-shared.ts',
+  'runtime/src/engine/projection/camera.ts=>runtime/src/engine/gpu/gpu.ts',
+  'runtime/src/engine/projection/camera.ts=>runtime/src/loader/geojson.ts',
+  'runtime/src/engine/projection/globe.ts=>runtime/src/engine/gpu/gpu-shared.ts',
+  'runtime/src/engine/projection/view-matrix.ts=>runtime/src/engine/gpu/gpu-shared.ts',
+])
+
+describe('arch ratchet: layer import-direction (downward-only spine)', () => {
+  it('no NEW upward cross-layer import edge beyond the snapshot allowlist', () => {
+    const violations: string[] = []
+    for (const f of ALL_TS) {
+      const srcRel = rel(f)
+      const srcLayer = LAYER_OF(srcRel)
+      if (srcLayer === null) continue
+      for (const line of readFileSync(f, 'utf8').split('\n')) {
+        const m = /\bfrom\s+['"](\.[^'"]+)['"]/.exec(line)
+        if (!m) continue
+        if (/^\s*(?:import|export)\s+type\b/.test(line)) continue // erased by tsc
+        let tgt = relative(ROOT, resolve(dirname(f), m[1])).split('\\').join('/')
+        if (!tgt.endsWith('.ts')) tgt += '.ts'
+        const tgtLayer = LAYER_OF(tgt)
+        if (tgtLayer === null) continue
+        if (tgtLayer > srcLayer && !UPWARD_EDGE_ALLOWLIST.has(`${srcRel}=>${tgt}`)) {
+          violations.push(`${srcRel} (L${srcLayer}) → ${tgt} (L${tgtLayer}): NEW upward edge — import downward or sever it (redesign §2)`)
+        }
+      }
+    }
+    expect(violations, violations.join('\n')).toEqual([])
   })
 })
 
