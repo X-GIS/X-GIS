@@ -285,6 +285,11 @@ function lowerLayer(
   /** Mapbox `paint.fill-translate` y — viewport pixel offset, +down
    *  (screen-space convention; runtime negates for NDC). */
   let fillTranslateY: number | undefined
+  /** Mapbox `paint.fill-antialias` / `fill-extrusion-vertical-gradient`
+   *  opt-out flags. Undefined = spec default (true) = unchanged render;
+   *  only the explicit `false` utility sets these. */
+  let fillAntialias: boolean | undefined
+  let fillExtrusionVerticalGradient: boolean | undefined
   /** Mapbox `paint.circle-translate` x/y and `circle-blur`. */
   let circleTranslateX: number | undefined
   let circleTranslateY: number | undefined
@@ -719,6 +724,11 @@ function lowerLayer(
         if (!isNaN(num)) fillTranslateY = num
         continue
       }
+      // Mapbox `paint.fill-antialias: false` opt-out — single-token
+      // utility (only the false case is emitted by the converter).
+      if (name === 'fill-antialias-false') { fillAntialias = false; continue }
+      // Mapbox `paint.fill-extrusion-vertical-gradient: false` opt-out.
+      if (name === 'fill-extrusion-vertical-gradient-false') { fillExtrusionVerticalGradient = false; continue }
       if (name.startsWith('circle-translate-x-')) {
         const num = parseFloat(name.slice('circle-translate-x-'.length))
         if (!isNaN(num)) circleTranslateX = num
@@ -1120,6 +1130,8 @@ function lowerLayer(
     extrudeBase,
     fillTranslateX,
     fillTranslateY,
+    fillAntialias,
+    fillExtrusionVerticalGradient,
     circleTranslateX,
     circleTranslateY,
     circleBlur,

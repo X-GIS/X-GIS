@@ -625,8 +625,13 @@ const vsMainEcefExtruded = entryFn(
       max(f32(1).sub(colorValue).add(lightIntensity), f32(1)),
       directional,
     ))
-    // Vertical gradient — walls only (|nz| < 0.5).
-    const isWall = b.let('is_wall', abs(p.face_normal.z).lt(0.5))
+    // Vertical gradient — walls only (|nz| < 0.5). Mapbox
+    // fill-extrusion-vertical-gradient opt-out: the flag rides the spare
+    // cam_ecef_off_l.w uniform lane (1 = default = ramp on, 0 = off). AND
+    // it into the wall test so `false` skips the ramp (flat wall shading);
+    // at the default the branch is taken exactly as before (no-op gate).
+    const vgGradOn = b.let('vgrad_on', u.field('cam_ecef_off_l', vec4fT).w.ne(f32(0)))
+    const isWall = b.let('is_wall', abs(p.face_normal.z).lt(0.5).and(vgGradOn))
     const tTop = b.let('t_top', p.is_top)
     b.if(isWall, (c) => {
       // (t_top + base) * sqrt(height/150). h_for_grad = max(wall_height, 1)
@@ -750,9 +755,16 @@ const buildFsFill = (pickEnabled: boolean) =>
       //     out.color = vec4<f32>(u.fill_color.rgb * wall_shade, u.fill_color.a);
       b.placeholder('fill-return')
       // Rim alpha fade — applied AFTER the marker so variant pipelines
-      // inherit it without per-variant codegen plumbing.
-      const rimA = callFn('polygon_rim_alpha', f32T, input.field('abs_merc_x', f32T), input.field('abs_merc_y', f32T))
-      b.assign(out.field('color', vec4fT).a, out.field('color', vec4fT).a.mul(rimA))
+      // inherit it without per-variant codegen plumbing. Mapbox
+      // fill-antialias opt-out: the only fragment smoothstep that touches
+      // fill alpha is rim_alpha (the sphere-rim hemisphere fade), so
+      // `fill-antialias: false` gates it off → hard edges. The flag rides
+      // the spare cam_ecef_off_h.w uniform lane (1 = default, 0 = off);
+      // at the default the multiply runs exactly as before (no-op gate).
+      b.if(u.field('cam_ecef_off_h', vec4fT).w.ne(f32(0)), (c) => {
+        const rimA = callFn('polygon_rim_alpha', f32T, input.field('abs_merc_x', f32T), input.field('abs_merc_y', f32T))
+        c.assign(out.field('color', vec4fT).a, out.field('color', vec4fT).a.mul(rimA))
+      })
       emitPickWrite(b, input, out, pickEnabled)
       emitLogDepthJitter(b, input, out)
       b.ret(out)

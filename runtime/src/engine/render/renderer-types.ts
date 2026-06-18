@@ -214,6 +214,16 @@ export interface ShowCommand {
    *  fills, +down. Runtime baker writes (px * 2 / canvasHeight) into
    *  uniformF32[47]; vertex shader negates internally for NDC y. */
   fillTranslateY?: number
+  /** Mapbox `paint.fill-antialias` opt-out. Default (undefined / true)
+   *  keeps the current fill render path; `false` is packed into the
+   *  polygon uniform's cam_ecef_off_h.w lane (f32 slot 55) so the fill
+   *  fragment can skip the sphere-rim smoothstep AA fade (hard edges). */
+  fillAntialias?: boolean
+  /** Mapbox `paint.fill-extrusion-vertical-gradient` opt-out. Default
+   *  (undefined / true) keeps the gradient ramp; `false` is packed into
+   *  the polygon uniform's cam_ecef_off_l.w lane (f32 slot 59) so the
+   *  extrude vertex shader skips the vertical-gradient wall ramp. */
+  fillExtrusionVerticalGradient?: boolean
   /** Mapbox `paint.circle-translate` x — CSS-px viewport offset on
    *  circles, +right. Point renderer writes into circle_params.x of
    *  the point uniform; vertex shader applies post-MVP. Default 0. */

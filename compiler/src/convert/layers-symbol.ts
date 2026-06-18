@@ -639,16 +639,35 @@ export function convertTextLayoutProperties(
     if (translate[0] !== 0) utils.push(`label-translate-x-${fmtSigned(translate[0])}`)
     if (translate[1] !== 0) utils.push(`label-translate-y-${fmtSigned(translate[1])}`)
   }
-  // icon-translate (paint) — symmetric with text-translate but
-  // separate offset that applies only to icons (e.g. shift a POI
-  // icon up by 4px while keeping the label centred). X-GIS symbol
-  // path uses the SAME label-translate-{x,y}-N utilities for both
-  // text and icon today; a dedicated label-icon-translate-{x,y}
-  // pair would thread through IconStage at dispatch time. Surface
-  // the gap explicitly so authors who depend on independent icon
-  // vs text offset (shield + caption styles) see it.
-  if (paint['icon-translate'] !== undefined && paint['icon-translate'] !== null) {
-    warnings.push(`Symbol layer "${layer.id}" — icon-translate set but X-GIS shares the text-translate offset for both icon and text (Plan §4 deferred — needs dedicated label-icon-translate plumbing through IconStage). Icon uses text-translate value if any, else 0.`)
+  // icon-translate (paint) — CSS-px viewport offset that applies ONLY
+  // to the icon (e.g. shift a POI icon up 4px while keeping the label
+  // centred). Distinct from text-translate; the runtime threads it
+  // through dispatchIcon → IconStage.addIcon at dispatch time. Emits
+  // the dedicated `label-icon-translate-{x,y}-N` utility pair (mirror
+  // of icon-offset's split — `-` is the utility-grammar segment
+  // separator, so signed values ride the bracket form via fmtSigned).
+  // icon-translate-anchor: viewport (default) is the honoured mode; a
+  // map-space anchor would shift in world coords (not implemented).
+  const iconTranslateRaw = unwrapLiteralTuple(paint['icon-translate'])
+  const iconTranslate = Array.isArray(iconTranslateRaw) && iconTranslateRaw.length === 2
+    ? iconTranslateRaw.map(c => {
+        while (Array.isArray(c) && c.length === 2 && c[0] === 'literal') c = c[1]
+        return c
+      })
+    : null
+  if (iconTranslate !== null
+      && typeof iconTranslate[0] === 'number' && Number.isFinite(iconTranslate[0])
+      && typeof iconTranslate[1] === 'number' && Number.isFinite(iconTranslate[1])) {
+    if (iconTranslate[0] !== 0) utils.push(`label-icon-translate-x-${fmtSigned(iconTranslate[0])}`)
+    if (iconTranslate[1] !== 0) utils.push(`label-icon-translate-y-${fmtSigned(iconTranslate[1])}`)
+  } else if (paint['icon-translate'] !== undefined && paint['icon-translate'] !== null) {
+    warnings.push(`Symbol layer "${layer.id}" — icon-translate non-constant form (expression / interpolate) not yet supported; the constant [dx, dy] form is. Offset dropped.`)
+  }
+  // icon-translate-anchor: only "viewport" (the spec default) is
+  // honoured; "map" would offset in world space (not implemented).
+  const iconTranslateAnchor = unwrapLiteralScalar(paint['icon-translate-anchor'])
+  if (iconTranslateAnchor === 'map') {
+    warnings.push(`Symbol layer "${layer.id}" — icon-translate-anchor "map" not implemented; icon-translate is applied in viewport (screen) space.`)
   }
   // text-radial-offset (em) → label-radial-offset-N. Only meaningful
   // alongside text-variable-anchor: the runtime pushes the label away

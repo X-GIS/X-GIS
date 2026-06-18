@@ -3,7 +3,7 @@
 // Used for data-driven styling: size-[speed / 50 | clamp(4, 24)]
 
 import type * as AST from '../parser/ast'
-import { CAMERA_ZOOM_KEY } from './reserved-keys'
+import { CAMERA_ZOOM_KEY, CAMERA_PITCH_KEY } from './reserved-keys'
 import { callBuiltin, toNumber, toBool } from './evaluator-helpers'
 import type { FeatureProps, FnEnv } from './evaluator-types'
 
@@ -33,6 +33,10 @@ export function evaluate(expr: AST.Expr, props: FeatureProps, fnEnv?: FnEnv): un
       // available) and per-frame (renderer, zoom known) call sites
       // without API divergence.
       if (expr.name === 'zoom') return props[CAMERA_ZOOM_KEY] ?? null
+      // Special runtime identifier `pitch` — Mapbox `["pitch"]`. Same
+      // reserved-key injection contract as `zoom`; render-path sites
+      // inject the live camera pitch, decode-time sites leave it null.
+      if (expr.name === 'pitch') return props[CAMERA_PITCH_KEY] ?? null
       return props[expr.name] ?? null
     case 'FieldAccess':
       return evaluateFieldAccess(expr, props, fnEnv)

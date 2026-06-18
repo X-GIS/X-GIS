@@ -145,17 +145,17 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
       }
     }
     addFillTranslate(out, p['fill-translate'], warnings)
-    // fill-antialias: default `true` matches X-GIS runtime (fragment
-    // shader always anti-aliases edges via MSAA + smoothstep).
-    // Explicit `false` is a real gap — Mapbox spec says edges should
-    // be hard pixel-art steps; X-GIS can't disable AA per-layer yet
-    // (would need a separate pipeline binding without MSAA). Warn
-    // only on the false case so authors of pixel-art landcover
-    // styles know why their land looks soft.
+    // fill-antialias: default `true` matches X-GIS runtime (the fill
+    // fragment multiplies in the sphere-rim smoothstep AA fade). Only
+    // the explicit `false` opt-out changes anything — emit a single
+    // `fill-antialias-false` flag the runtime threads to the fragment
+    // shader to drop the rim smoothstep (hard edges, pixel-art intent).
+    // Geometric edge AA from pipeline MSAA is not per-layer disable-able
+    // and is left untouched; the unauthored / true path is byte-identical.
     const aaRaw = p['fill-antialias']
     const aa = Array.isArray(aaRaw) && aaRaw.length === 2 && aaRaw[0] === 'literal' ? aaRaw[1] : aaRaw
     if (aa === false) {
-      warnings.push(`Layer "${layer.id}" — fill-antialias false: X-GIS runtime can't disable edge AA per layer yet (would need a no-MSAA pipeline binding). Layer renders smooth edges; Plan §3.1 deferred.`)
+      out.push('fill-antialias-false')
     }
     surfaceIgnoredPaint(layer.id, p, warnings, [
       'fill-translate-anchor', 'fill-sort-key',
@@ -208,14 +208,18 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     // 2026-05-18). Prior warning at this site is obsolete; uniform-
     // constant base lifts walls off z=0 as MapLibre does.
     //
-    // fill-extrusion-vertical-gradient: special-case the default
-    // (true) so authors who explicitly set the spec default don't
-    // see a spurious "ignored" warning. false IS a real gap (runtime
-    // always applies the gradient ramp) and stays in the
-    // surfaceIgnoredPaint candidates list below.
+    // fill-extrusion-vertical-gradient: the spec default (true) is
+    // honoured byte-identically (the extrude vertex shader applies the
+    // 0.7→1.0 wall ramp). Only the explicit `false` opt-out changes
+    // anything — emit a single `fill-extrusion-vertical-gradient-false`
+    // flag the runtime threads to the extrude vertex shader to skip the
+    // gradient ramp (flat wall shading). Either way it's no longer an
+    // "ignored property", so it's dropped from surfaceIgnoredPaint.
     const vgRaw = p['fill-extrusion-vertical-gradient']
     const vg = Array.isArray(vgRaw) && vgRaw.length === 2 && vgRaw[0] === 'literal' ? vgRaw[1] : vgRaw
-    const skipVerticalGradientWarn = vg === true || vg === undefined || vg === null
+    if (vg === false) {
+      out.push('fill-extrusion-vertical-gradient-false')
+    }
     // iter-180 — fill-extrusion-translate Stage 1. The fill-extrusion
     // WGSL paths (vs_main_quantized + vs_main_quantized_extruded) already
     // apply u.fill_translate_x/y to clip-space xy at the end of the
@@ -240,9 +244,11 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
         warnings.push(`Layer "${layer.id}" — fill-extrusion-pattern non-constant form (expression / interpolate) not yet wired through the IR; the constant string form is supported (iter-179). The walls fall back to fill-extrusion-color or transparent.`)
       }
     }
+    // fill-extrusion-vertical-gradient is now implemented (true default
+    // honoured + false opt-out emitted above), so it's no longer an
+    // ignored property and is omitted from the candidates list.
     surfaceIgnoredPaint(layer.id, p, warnings, [
       'fill-extrusion-translate-anchor',
-      ...(skipVerticalGradientWarn ? [] : ['fill-extrusion-vertical-gradient']),
       'fill-extrusion-ambient-occlusion-intensity',
       'fill-extrusion-ambient-occlusion-radius',
     ])
