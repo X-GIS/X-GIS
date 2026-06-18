@@ -209,6 +209,10 @@ describe('mapbox spec-coverage drift detector', () => {
       // allowlist them; their conversion is exercised by other tests
       // (openfreemap-convert, mapbox-convert).
       'id', 'type', 'source', 'minzoom', 'maxzoom', 'filter',
+      // Pseudo-field names handled via `peeledPseudoField === '$type'`
+      // / `'$id'` comparisons in filterToXgis — the $ prefix means
+      // neither the `case 'X':` nor `op === 'X'` regex grabs them.
+      '$type', '$id',
     ])
     const realOrphans = orphans.filter(o => !allowlist.has(o))
     expect(realOrphans, `Coverage table marks these as supported but the converter source has no matching reference — either the converter regressed or the table needs cleanup: ${realOrphans.join(', ')}`).toEqual([])
