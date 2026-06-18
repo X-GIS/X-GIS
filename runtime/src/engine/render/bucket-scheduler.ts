@@ -266,8 +266,23 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     // still come from the static show — they're not zoom/time-driven.
     if (composedOpa < 0.005) continue
 
+    // #415 — a pure LINE layer (stroke, no fill: road casings/inners,
+    // boundaries, waterways) must NOT have its translucent stroke
+    // deferred to the late offscreen MAX pass. That pass composites on
+    // top of ALL opaque layers, so a translucent lower-style-order road
+    // (positron `highway_minor`, opacity < 1) painted OVER an opaque
+    // higher-style-order road (`highway_major_inner`, opacity 1) — the
+    // grey minor rendering on top of the white major. MapLibre keeps all
+    // line layers in one style-ordered pass; mirror that by drawing pure
+    // line strokes in the opaque pass in style order (the proven `?safe=1`
+    // ordering, minus its quality downgrade). Self-overlap at joins/caps
+    // is negligible at basemap line widths and matches MapLibre. Fill +
+    // stroke layers (translucent polygon outlines) keep the offscreen
+    // path — their fill already draws in order, and they are not the
+    // road-stacking class this fixes.
+    const isPureLine = !entry.show.fill && !!entry.show.stroke
     const isTranslucentStroke =
-      !safeMode && composedOpa < 0.999 && !!entry.show.stroke
+      !safeMode && composedOpa < 0.999 && !!entry.show.stroke && !isPureLine
     // iter-193 — revert iter-192's two-pass offscreen OIT path.
     // Buildings-only isolated harness (Paris z=18.25 pitch=49.8)
     // showed iter-192 produced ≤8 cumul = 18.60 % vs iter-191
