@@ -87,8 +87,9 @@ import {
 } from './map-geo-helpers'
 import { prewarmVectorTileSource, detectVectorTileFormat } from '../loader/vector-tile-loader'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
-import { toU32Id, pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
+import { pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
 import type { GeoJSONFeature } from '../loader/geojson'
+import { FeatureUpdateQueue } from './feature-update-queue'
 import { safeFetch, assertIngestBudget, readBodyCapped } from './safety'
 
 // DoS ceilings for the top-level loader entry points (.xgis style /
@@ -267,17 +268,27 @@ export class XGISMap {
   // `run()`. Toggled from markCameraPositioned() + pan/zoom/rotate
   // gestures + setProjection().
 
-  // External-injection update state (see setSourceData / updateFeature)
-  private _pendingPatches = new Map<string, Map<number, { geometry?: GeoJSONFeature['geometry']; properties?: Record<string, unknown> }>>()
-  private _pendingFlushHandle: number | null = null
-  private _unknownSourceWarned = new Set<string>()
-  // Tile-backed (URL-loaded) sources store a marker, not a FeatureCollection,
-  // so updateFeature can't patch them. Warn once per source (see updateFeature).
-  private _tileBackedUpdateWarned = new Set<string>()
-  // Lazy featureId → feature index per source, so flushPendingUpdates can
-  // patch in O(patches) instead of O(features). Invalidated on setSourceData
-  // (full replace) and rebuilt on demand.
-  private _featureIndex = new Map<string, Map<number, GeoJSONFeature>>()
+  // External-injection update state (see setSourceData / updateFeature).
+  // The pending-patch queue, coalescing flush rAF, warn-once sets, and the
+  // lazy featureId→feature index live in FeatureUpdateQueue
+  // (feature-update-queue.ts); map.ts keeps a thin reference and forwards
+  // updateFeature / destroy to it. The queue's `featureIndex` map is shared
+  // by reference with sourceManager (delete-on-replace) and
+  // interactionController (read for pick payloads).
+  private featureUpdateQueue = new FeatureUpdateQueue({
+    rawDatasets: this.rawDatasets,
+    isDestroyed: () => this._destroyed,
+    teardownSource: (id) => this.teardownSource(id),
+    rebuildLayers: () => this.rebuildLayers(),
+    invalidate: () => this.invalidate(),
+  })
+  // Delegating views onto the relocated queue state. The pending-patch
+  // queue and flush rAF handle now live in FeatureUpdateQueue; these keep
+  // the historical private-field surface stable for in-repo white-box
+  // diagnostics (destroy-teardown + tile-backed warn-once specs).
+  private get _pendingPatches() { return this.featureUpdateQueue.pendingPatches }
+  private get _pendingFlushHandle(): number | null { return this.featureUpdateQueue.pendingFlushHandle }
+  private set _pendingFlushHandle(handle: number | null) { this.featureUpdateQueue.pendingFlushHandle = handle }
 
   // GPU render-target texture lifecycle (stencil / msaa / OIT accum +
   // revealage / offscreen-extrude depth / overdraw accumulator / pick),
@@ -665,7 +676,7 @@ export class XGISMap {
       runBoundsFitGate: (apply) => this._runBoundsFitGate(apply),
       rebuildLayers: () => this.rebuildLayers(),
       teardownSource: (sourceId) => this.teardownSource(sourceId),
-      deleteFeatureIndex: (sourceId) => { this._featureIndex.delete(sourceId) },
+      deleteFeatureIndex: (sourceId) => { this.featureUpdateQueue.featureIndex.delete(sourceId) },
     })
     // Pick / interaction QUERY cluster — receives the shared camera +
     // layer/source state by reference; ctx / pickTexture / projectionName /
@@ -676,7 +687,7 @@ export class XGISMap {
       layerIds: this.layerIds,
       xgisLayers: this.xgisLayers,
       rawDatasets: this.rawDatasets,
-      featureIndex: this._featureIndex,
+      featureIndex: this.featureUpdateQueue.featureIndex,
       getCtx: () => this.ctx,
       getPickTexture: () => this.pickTexture,
       getProjectionName: () => this.projectionName,
@@ -3242,14 +3253,9 @@ export class XGISMap {
 
     // Pending feature-update flush rAF (scheduleFlushPendingUpdates uses
     // window.requestAnimationFrame, or a setTimeout fallback in non-DOM
-    // envs) — cancel with the matching primitive to drop the GC pin.
-    if (this._pendingFlushHandle !== null) {
-      if (typeof window !== 'undefined' && window.cancelAnimationFrame) {
-        window.cancelAnimationFrame(this._pendingFlushHandle)
-      } else clearTimeout(this._pendingFlushHandle)
-      this._pendingFlushHandle = null
-    }
-    this._pendingPatches.clear()
+    // envs) — cancel with the matching primitive to drop the GC pin, then
+    // drop all pending patches.
+    this.featureUpdateQueue.destroy()
 
     // Pointer-event dispatcher owns a move-coalescing rAF with no other
     // cancel path; its callback funnels into pickAt on the destroyed device.
@@ -3355,102 +3361,7 @@ export class XGISMap {
     featureId: number,
     patch: { geometry?: GeoJSONFeature['geometry']; properties?: Record<string, unknown> },
   ): void {
-    if (!this.rawDatasets.has(sourceId)) {
-      if (!this._unknownSourceWarned.has(sourceId)) {
-        xlog.warn(`[X-GIS] updateFeature: unknown source "${sourceId}"`)
-        this._unknownSourceWarned.add(sourceId)
-      }
-      return
-    }
-    // Tile-backed markers carry no FeatureCollection, so a patch would be
-    // silently dropped at flush. Warn-once at enqueue time so the host learns
-    // immediately rather than discovering a no-op.
-    const dataset = this.rawDatasets.get(sourceId)
-    if (!dataset || !Array.isArray((dataset as { features?: unknown }).features)) {
-      if (!this._tileBackedUpdateWarned.has(sourceId)) {
-        xlog.warn(`[X-GIS] updateFeature: source "${sourceId}" is tile-backed (URL-loaded); feature updates are only supported for host-pushed GeoJSON sources (setSourceData)`)
-        this._tileBackedUpdateWarned.add(sourceId)
-      }
-      return
-    }
-    let bySource = this._pendingPatches.get(sourceId)
-    if (!bySource) {
-      bySource = new Map()
-      this._pendingPatches.set(sourceId, bySource)
-    }
-    const existing = bySource.get(featureId)
-    // Defensive: coerce non-plain-object patch.properties to {} so a
-    // host passing a string / array (TypeScript-cast at the boundary)
-    // doesn't spread char/index keys into the patched feature props.
-    // Mirror of the makeEvalProps coercion (4e11bb7).
-    const patchProps = patch.properties
-    const safePatchProps = patchProps !== null && patchProps !== undefined
-      && typeof patchProps === 'object' && !Array.isArray(patchProps)
-      ? patchProps
-      : {}
-    bySource.set(featureId, {
-      geometry: patch.geometry ?? existing?.geometry,
-      properties: { ...(existing?.properties ?? {}), ...safePatchProps },
-    })
-    this.scheduleFlushPendingUpdates()
-    this.invalidate()
-  }
-
-  private scheduleFlushPendingUpdates(): void {
-    if (this._pendingFlushHandle !== null) return
-    const raf = (typeof window !== 'undefined' && window.requestAnimationFrame)
-      ? window.requestAnimationFrame.bind(window)
-      : (cb: FrameRequestCallback): number => setTimeout(() => cb(performance.now()), 16) as unknown as number
-    this._pendingFlushHandle = raf(() => this.flushPendingUpdates())
-  }
-
-  private flushPendingUpdates(): void {
-    this._pendingFlushHandle = null
-    if (this._destroyed) return
-    if (this._pendingPatches.size === 0) return
-
-    for (const [sourceId, patches] of this._pendingPatches) {
-      const data = this.rawDatasets.get(sourceId)
-      // Non-FeatureCollection shape (tile-backed marker / legacy direct write):
-      // `.features` not being an array would crash the for-of. updateFeature
-      // rejects markers at enqueue time; a patch reaching here warns once so
-      // the no-op is observable rather than silent.
-      if (!data || !Array.isArray((data as { features?: unknown }).features)) {
-        if (!this._tileBackedUpdateWarned.has(sourceId)) {
-          xlog.warn(`[X-GIS] updateFeature: source "${sourceId}" is not a patchable FeatureCollection; ${patches.size} pending update(s) dropped`)
-          this._tileBackedUpdateWarned.add(sourceId)
-        }
-        continue
-      }
-      // Lookup via featureId index so patching is O(patches) instead of
-      // O(features). The index is built once per source and reused across
-      // flush cycles until setSourceData replaces the dataset.
-      let index = this._featureIndex.get(sourceId)
-      if (!index) {
-        index = new Map()
-        for (let i = 0; i < data.features.length; i++) {
-          const f = data.features[i]
-          // +1 on the fallback index branch mirrors the encode chokepoint
-          // (geojson-compile-worker.ts:resolveIdResolver) so the stable id
-          // the host receives from a pick event (i+1 for id-less features)
-          // matches the key updateFeature patches against here.
-          index.set(toU32Id(f.id ?? f.properties?.id ?? i + 1), f)
-        }
-        this._featureIndex.set(sourceId, index)
-      }
-      for (const [fid, patch] of patches) {
-        const f = index.get(fid)
-        if (!f) continue
-        if (patch.geometry) f.geometry = patch.geometry
-        if (patch.properties) {
-          f.properties = { ...(f.properties ?? {}), ...patch.properties }
-        }
-      }
-      // Trigger a single retile for this source.
-      this.teardownSource(sourceId)
-    }
-    this._pendingPatches.clear()
-    this.rebuildLayers()
+    this.featureUpdateQueue.updateFeature(sourceId, featureId, patch)
   }
 
   stop(): void {
