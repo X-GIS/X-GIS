@@ -5,6 +5,13 @@ on:
   push:
     branches: [main]
 
+# Cancel a PR's older in-flight run when a new commit is pushed to the same
+# ref — iterative pushes used to leave 3-5min runs burning in parallel.
+# Keyed on ref so main's push runs are independent per commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -14,6 +21,14 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+
+      # Cache bun's global package store so `bun install` reuses downloaded
+      # tarballs instead of re-fetching every run. Keyed on the lockfile.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/bun.lockb') }}
+          restore-keys: bun-${{ runner.os }}-
 
       - run: bun install
 
@@ -107,8 +122,23 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/bun.lockb') }}
+          restore-keys: bun-${{ runner.os }}-
       - run: bun install
       - run: bun run build
+      # Cache the downloaded browser binaries (~/.cache/ms-playwright). The
+      # biggest render-gate time sink was re-downloading chromium every run;
+      # on a cache hit the install step below detects the browsers present and
+      # only re-runs the (lighter) apt --with-deps step. Keyed on the lockfile
+      # so a playwright version bump busts the cache.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/bun.lockb') }}
+          restore-keys: pw-${{ runner.os }}-
       # Use the PROJECT-LOCAL playwright bin (hoisted to root node_modules
       # by bun), NOT `bunx playwright` — bunx fetches the standalone
       # `playwright` package at a DIFFERENT version, installs browsers for
