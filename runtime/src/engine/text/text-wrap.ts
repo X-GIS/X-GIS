@@ -152,6 +152,16 @@ function _allowsIdeographicBreaking(cp: number): boolean {
  *  higher-zoom rendering — and the label pixel-match baselines — are unchanged. */
 export const CJK_MIN_DISPLAY_PX = 14
 
+/** True if the codepoint is a CJK/Hangul/Kana ideograph. MapLibre renders
+ *  these with a SYNTHETIC oblique in italic labels because the italic glyph
+ *  PBF (e.g. "Noto Sans Italic") serves them UPRIGHT — Noto has no italic
+ *  CJK face. The text renderer gates its oblique shear on this so Latin runs
+ *  (real font italic) stay untouched while CJK runs slant. Reuses the
+ *  ideographic-break range table. */
+export function codePointIsIdeographic(cp: number): boolean {
+  return _allowsIdeographicBreaking(cp)
+}
+
 /** True if the label text contains any CJK/Hangul/Kana ideograph (reuses the
  *  ideographic-break range table). */
 export function hasCjkIdeograph(text: string): boolean {

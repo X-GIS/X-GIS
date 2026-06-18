@@ -726,6 +726,8 @@ export class TextStage {
       const sizePx = hasCjkIdeograph(p.text)
         ? Math.max(rawSizePx, CJK_MIN_DISPLAY_PX * dpr)
         : rawSizePx
+      // Label italic → renderer shears CJK/Hangul glyphs (synthetic oblique).
+      const labelItalic = p.def.fontStyle === 'italic'
       // letter-spacing in em units (Mapbox convention) — multiplies
       // the display font size to produce extra px between adjacent
       // glyphs. Per-font override (from fontTypography table) is ADDED
@@ -882,6 +884,7 @@ export class TextStage {
               draw: {
                 anchorX: drawX, anchorY: drawY,
                 glyphs: hit.glyphs,
+                italic: labelItalic,
                 fontSize: hit.sizePx,
                 rasterFontSize: this.opts.rasterFontSize,
                 color: p.def.color ?? [0, 0, 0, 1],
@@ -1052,6 +1055,7 @@ export class TextStage {
             anchorX: drawX,
             anchorY: drawY,
             glyphs,
+            italic: labelItalic,
             fontSize: sizePx,
             rasterFontSize: this.opts.rasterFontSize,
             color: p.def.color ?? [0, 0, 0, 1],
@@ -1142,6 +1146,7 @@ export class TextStage {
       const sizePx = hasCjkIdeograph(p.text)
         ? Math.max(rawSizePx, CJK_MIN_DISPLAY_PX * dpr)
         : rawSizePx
+      const labelItalic = p.def.fontStyle === 'italic'
       // Same per-font override path as the point-label branch above —
       // see the comment there for rationale. Curve labels reuse the
       // same letter-spacing semantics (extra em between adjacent
@@ -1300,6 +1305,7 @@ export class TextStage {
         anchorX: 0,
         anchorY: 0,
         glyphs,
+        italic: labelItalic,
         fontSize: sizePx,
         rasterFontSize: this.opts.rasterFontSize,
         color: p.def.color ?? [0, 0, 0, 1],
