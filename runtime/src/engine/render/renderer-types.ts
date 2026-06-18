@@ -214,6 +214,17 @@ export interface ShowCommand {
    *  fills, +down. Runtime baker writes (px * 2 / canvasHeight) into
    *  uniformF32[47]; vertex shader negates internally for NDC y. */
   fillTranslateY?: number
+  /** Mapbox `paint.circle-translate` x — CSS-px viewport offset on
+   *  circles, +right. Point renderer writes into circle_params.x of
+   *  the point uniform; vertex shader applies post-MVP. Default 0. */
+  circleTranslateX?: number
+  /** Mapbox `paint.circle-translate` y — CSS-px viewport offset on
+   *  circles, +down. Point renderer writes into circle_params.y;
+   *  vertex shader negates for NDC y. Default 0. */
+  circleTranslateY?: number
+  /** Mapbox `paint.circle-blur` — CSS-px feathering added to the
+   *  smoothstep AA band in the point fragment shader. Default 0 = crisp. */
+  circleBlur?: number
   // Stable u16 layer ID assigned by `XGISMap` via `LayerIdRegistry` after
   // the compiler emits this command. Threaded into every per-tile uniform
   // write so the fragment shader can stamp the pick texture's G channel

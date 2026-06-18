@@ -38,6 +38,12 @@ export interface PointLayer {
    *  meaningful for zoom-only shapes — time-animated layers always
    *  update because elapsedMs always advances. */
   lastDynZoom: number
+  /** circle-translate x in CSS px (+right). Baked to NDC in the uniform. */
+  circleTranslateX: number
+  /** circle-translate y in CSS px (+down). Baked to NDC in the uniform. */
+  circleTranslateY: number
+  /** circle-blur in CSS px (0 = crisp edge / no-op). */
+  circleBlur: number
   // Expanded buffers for 3× world copies (created on first render)
   _expandedVertBuf?: GPUBuffer
   _expandedIdxBuf?: GPUBuffer

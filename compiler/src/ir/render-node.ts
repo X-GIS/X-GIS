@@ -130,6 +130,14 @@ export interface RenderNode {
    *  pixels regardless of camera zoom. */
   fillTranslateX?: number
   fillTranslateY?: number
+  /** Mapbox `paint.circle-translate` — CSS-px viewport offset for
+   *  circle layers. Same sign convention as fill-translate: +x=right,
+   *  +y=down (screen-space). Default [0,0] → no-op. */
+  circleTranslateX?: number
+  circleTranslateY?: number
+  /** Mapbox `paint.circle-blur` — extends the point fragment's
+   *  smoothstep AA band. 0 = crisp edge (default/no-op). */
+  circleBlur?: number
   /** iter-177 Mapbox `paint.fill-pattern` Stage 1 — constant sprite
    *  name. Runtime resolves against sprite atlas at draw time and
    *  uses sprite centre pixel as fill colour. Stage 2 (real

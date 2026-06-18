@@ -20,12 +20,11 @@ const CASES: Case[] = [
   // fill-extrusion-translate is SUPPORTED iter-180 — routed through
   // the same addFillTranslate helper since the fill-extrusion vertex
   // shaders apply u.fill_translate_x/y already. Both omitted here.
+  // circle-translate is SUPPORTED (constant + last-stop zoom-interp)
+  // via circle_params.xy in the point uniform — omitted here.
   { property: 'line-translate',
     layerType: 'line', value: [1, 1],
     expectIn: 'no per-frame translate uniform' },
-  { property: 'circle-translate',
-    layerType: 'circle', value: [1, 1],
-    expectIn: 'point renderer has no per-frame translate' },
   { property: 'icon-translate',
     layerType: 'symbol', value: [1, 1],
     expectIn: 'shares the text-translate offset' },

@@ -285,6 +285,10 @@ function lowerLayer(
   /** Mapbox `paint.fill-translate` y — viewport pixel offset, +down
    *  (screen-space convention; runtime negates for NDC). */
   let fillTranslateY: number | undefined
+  /** Mapbox `paint.circle-translate` x/y and `circle-blur`. */
+  let circleTranslateX: number | undefined
+  let circleTranslateY: number | undefined
+  let circleBlur: number | undefined
   let strokeColor: ColorValue = colorNone()
   let strokeWidth = 1
   /** Per-feature / zoom-interpolated stroke-width AST. Populated from
@@ -664,6 +668,9 @@ function lowerLayer(
           if (n !== null) {
             if (name === 'fill-translate-x') { fillTranslateX = n; continue }
             if (name === 'fill-translate-y') { fillTranslateY = n; continue }
+            if (name === 'circle-translate-x') { circleTranslateX = n; continue }
+            if (name === 'circle-translate-y') { circleTranslateY = n; continue }
+            if (name === 'circle-blur') { circleBlur = n; continue }
           }
           // Bracket-binding form with a name that's not in any of the
           // handled arms above. Pre-fix this was the silent-drop hole that
@@ -703,6 +710,21 @@ function lowerLayer(
       if (name.startsWith('fill-translate-y-')) {
         const num = parseFloat(name.slice('fill-translate-y-'.length))
         if (!isNaN(num)) fillTranslateY = num
+        continue
+      }
+      if (name.startsWith('circle-translate-x-')) {
+        const num = parseFloat(name.slice('circle-translate-x-'.length))
+        if (!isNaN(num)) circleTranslateX = num
+        continue
+      }
+      if (name.startsWith('circle-translate-y-')) {
+        const num = parseFloat(name.slice('circle-translate-y-'.length))
+        if (!isNaN(num)) circleTranslateY = num
+        continue
+      }
+      if (name.startsWith('circle-blur-')) {
+        const num = parseFloat(name.slice('circle-blur-'.length))
+        if (!isNaN(num)) circleBlur = num
         continue
       }
       // ── label-* / label-icon-* constant + X-GIS0006 catch-all moved
@@ -1081,6 +1103,9 @@ function lowerLayer(
     extrudeBase,
     fillTranslateX,
     fillTranslateY,
+    circleTranslateX,
+    circleTranslateY,
+    circleBlur,
     fillPattern: fillPattern ?? undefined,
     linePattern: linePattern ?? undefined,
     label: lowerLabelProps(expandedUtilities, diagnostics, stmt.line),

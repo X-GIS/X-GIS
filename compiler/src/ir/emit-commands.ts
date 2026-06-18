@@ -155,6 +155,13 @@ export interface ShowCommand {
    *  translate render path. */
   fillTranslateX?: number
   fillTranslateY?: number
+  /** Mapbox `paint.circle-translate` — CSS-px viewport offset for circle
+   *  layers. Default 0/0 / undefined = no-op (existing rendering unchanged). */
+  circleTranslateX?: number
+  circleTranslateY?: number
+  /** Mapbox `paint.circle-blur` — extends the point fragment smoothstep
+   *  AA band. Default 0 / undefined = crisp edge (no-op). */
+  circleBlur?: number
   /** Optional per-feature text label spec (Batch 1c). When set, the
    *  runtime resolves `label.text` against each feature's properties
    *  via the format pipeline, projects the feature's anchor (point
@@ -457,6 +464,9 @@ function emitShow(
     extrudeBase: node.extrudeBase,
     fillTranslateX: node.fillTranslateX,
     fillTranslateY: node.fillTranslateY,
+    circleTranslateX: node.circleTranslateX,
+    circleTranslateY: node.circleTranslateY,
+    circleBlur: node.circleBlur,
     label: node.label,
     paintShapes: {
       fill: colorValueToShape(node.fill),

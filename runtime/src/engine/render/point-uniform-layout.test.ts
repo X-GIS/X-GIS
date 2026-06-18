@@ -55,11 +55,12 @@ describe('point uniform byte-layout consistency (CPU pack ↔ WGSL struct)', () 
       viewport: 20,
       cam_ecef_h: 24,
       cam_ecef_l: 28,
+      circle_params: 32,
     })
   })
 
-  it('struct is 128 bytes — exactly the renderer Float32Array(32) / GPU buffer', () => {
-    expect(sizeBytes).toBe(128)
+  it('struct is 144 bytes — exactly the renderer Float32Array(36) / GPU buffer', () => {
+    expect(sizeBytes).toBe(144)
   })
 
   it('writePointFrameUniform writes each field at its WGSL slot', () => {
@@ -74,7 +75,11 @@ describe('point uniform byte-layout consistency (CPU pack ↔ WGSL struct)', () 
     // cam_ecef_h @24, cam_ecef_l @28 (DSFUN camera anchor)
     expect(src).toMatch(/uf\[24\]\s*=\s*cxH/)
     expect(src).toMatch(/uf\[28\]\s*=\s*camC\[0\]\s*-\s*cxH/)
-    // uniformData sized to the full 32-slot struct.
-    expect(src).toMatch(/uniformData\s*=\s*new Float32Array\(32\)/)
+    // circle_params @32-35: translate_x_ndc, translate_y_ndc, blur_px, _unused
+    expect(src).toMatch(/uf\[32\]/)
+    expect(src).toMatch(/uf\[33\]/)
+    expect(src).toMatch(/uf\[34\]\s*=\s*circleBlur/)
+    // uniformData sized to the full 36-slot struct.
+    expect(src).toMatch(/uniformData\s*=\s*new Float32Array\(36\)/)
   })
 })
