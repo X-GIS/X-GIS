@@ -289,6 +289,11 @@ function lowerLayer(
   let circleTranslateX: number | undefined
   let circleTranslateY: number | undefined
   let circleBlur: number | undefined
+  /** Mapbox `paint.line-translate` x — viewport pixel offset, +right.
+   *  Mirror of fillTranslateX for line layers. */
+  let strokeTranslateX: number | undefined
+  /** Mapbox `paint.line-translate` y — viewport pixel offset, +down. */
+  let strokeTranslateY: number | undefined
   let strokeColor: ColorValue = colorNone()
   let strokeWidth = 1
   /** Per-feature / zoom-interpolated stroke-width AST. Populated from
@@ -671,6 +676,8 @@ function lowerLayer(
             if (name === 'circle-translate-x') { circleTranslateX = n; continue }
             if (name === 'circle-translate-y') { circleTranslateY = n; continue }
             if (name === 'circle-blur') { circleBlur = n; continue }
+            if (name === 'stroke-translate-x') { strokeTranslateX = n; continue }
+            if (name === 'stroke-translate-y') { strokeTranslateY = n; continue }
           }
           // Bracket-binding form with a name that's not in any of the
           // handled arms above. Pre-fix this was the silent-drop hole that
@@ -725,6 +732,16 @@ function lowerLayer(
       if (name.startsWith('circle-blur-')) {
         const num = parseFloat(name.slice('circle-blur-'.length))
         if (!isNaN(num)) circleBlur = num
+        continue
+      }
+      if (name.startsWith('stroke-translate-x-')) {
+        const num = parseFloat(name.slice('stroke-translate-x-'.length))
+        if (!isNaN(num)) strokeTranslateX = num
+        continue
+      }
+      if (name.startsWith('stroke-translate-y-')) {
+        const num = parseFloat(name.slice('stroke-translate-y-'.length))
+        if (!isNaN(num)) strokeTranslateY = num
         continue
       }
       // ── label-* / label-icon-* constant + X-GIS0006 catch-all moved
@@ -1106,6 +1123,8 @@ function lowerLayer(
     circleTranslateX,
     circleTranslateY,
     circleBlur,
+    strokeTranslateX,
+    strokeTranslateY,
     fillPattern: fillPattern ?? undefined,
     linePattern: linePattern ?? undefined,
     label: lowerLabelProps(expandedUtilities, diagnostics, stmt.line),

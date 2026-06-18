@@ -138,6 +138,12 @@ export interface RenderNode {
   /** Mapbox `paint.circle-blur` — extends the point fragment's
    *  smoothstep AA band. 0 = crisp edge (default/no-op). */
   circleBlur?: number
+  /** Mapbox `paint.line-translate` — line layer shifted by [dx, dy]
+   *  CSS px in screen space (positive dx = right, positive dy = down).
+   *  Default [0,0]. Constant + zoom-interp last-stop approximation.
+   *  Mirror of fillTranslateX/Y for the line pipeline. */
+  strokeTranslateX?: number
+  strokeTranslateY?: number
   /** iter-177 Mapbox `paint.fill-pattern` Stage 1 — constant sprite
    *  name. Runtime resolves against sprite atlas at draw time and
    *  uses sprite centre pixel as fill colour. Stage 2 (real

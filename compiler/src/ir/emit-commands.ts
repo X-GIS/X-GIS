@@ -162,6 +162,11 @@ export interface ShowCommand {
   /** Mapbox `paint.circle-blur` — extends the point fragment smoothstep
    *  AA band. Default 0 / undefined = crisp edge (no-op). */
   circleBlur?: number
+  /** Mapbox `paint.line-translate` (viewport-anchor) — CSS px
+   *  offset on lines. Mirrors fillTranslateX/Y for the line pipeline.
+   *  Runtime bakes CSS px → NDC-per-pixel into u.line_translate_x/y. */
+  strokeTranslateX?: number
+  strokeTranslateY?: number
   /** Optional per-feature text label spec (Batch 1c). When set, the
    *  runtime resolves `label.text` against each feature's properties
    *  via the format pipeline, projects the feature's anchor (point
@@ -467,6 +472,8 @@ function emitShow(
     circleTranslateX: node.circleTranslateX,
     circleTranslateY: node.circleTranslateY,
     circleBlur: node.circleBlur,
+    strokeTranslateX: node.strokeTranslateX,
+    strokeTranslateY: node.strokeTranslateY,
     label: node.label,
     paintShapes: {
       fill: colorValueToShape(node.fill),

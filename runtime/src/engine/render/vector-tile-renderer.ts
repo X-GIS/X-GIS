@@ -257,6 +257,11 @@ export class VectorTileRenderer {
    *  pixel-constant regardless of depth. 0 = no translate (default). */
   private currentFillTranslateNdcX = 0
   private currentFillTranslateNdcY = 0
+  /** Mapbox line-translate — pre-baked from CSS px to NDC-per-pixel.
+   *  Set at render() time when show.strokeTranslateX/Y are non-zero.
+   *  Passed to writeLayerSlot → packed into line uniform buf[47/48]. */
+  private currentStrokeTranslateNdcX = 0
+  private currentStrokeTranslateNdcY = 0
   /** iter-183 — fill-pattern Stage 2 per-show flag. Set true when the
    *  current `render()` call's show has a resolved pattern UV bbox +
    *  the pattern pipeline is wired. Per-tile uniform writes use this
@@ -2257,6 +2262,11 @@ export class VectorTileRenderer {
     const fty = show.fillTranslateY ?? 0
     this.currentFillTranslateNdcX = ftx !== 0 ? (ftx * 2) / canvasWidth : 0
     this.currentFillTranslateNdcY = fty !== 0 ? (fty * 2) / canvasHeight : 0
+    // Mapbox line-translate (viewport anchor) — same bake as fill-translate.
+    const ltx = show.strokeTranslateX ?? 0
+    const lty = show.strokeTranslateY ?? 0
+    this.currentStrokeTranslateNdcX = ltx !== 0 ? (ltx * 2) / canvasWidth : 0
+    this.currentStrokeTranslateNdcY = lty !== 0 ? (lty * 2) / canvasHeight : 0
     // Per-frame resolved fill RGBA — animated stops were already
     // collapsed by the bucket scheduler. ResolvedShow is the SOLE
     // per-frame source; static hex still flows via show.fill below
@@ -2474,6 +2484,8 @@ export class VectorTileRenderer {
         canvasHeight,
         show.strokeBlur ?? 0,
         dpr,
+        this.currentStrokeTranslateNdcX,
+        this.currentStrokeTranslateNdcY,
       )
       if (gapWidth > 0) {
         lineLayerOffsetGap = this.lineRenderer.writeLayerSlot(
@@ -2490,6 +2502,8 @@ export class VectorTileRenderer {
           canvasHeight,
           show.strokeBlur ?? 0,
           dpr,
+          this.currentStrokeTranslateNdcX,
+          this.currentStrokeTranslateNdcY,
         )
       }
     }
