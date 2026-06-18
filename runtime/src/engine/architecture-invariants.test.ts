@@ -292,7 +292,13 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 1073→1087 for the one-way-arrow dedupe fix: extracted
   // lineLabelDeduped (exported pure predicate + the '' → never-dedupe guard
   // so text-less icon line layers stop collapsing to ~1 arrow per show).
-  'runtime/src/engine/render/passes/label-pass.ts': 1087,
+  // Bumped 1087→1119: (a) +12 already on main from #424's pointLabelPairKey
+  // helper + comment (landed without a matching bump → reconciled here), and
+  // (b) the #417 one-way-arrow icon-collision fix — dispatchIcon now resolves
+  // the text template (road_oneway resolves to '') to gate text-less line
+  // icons into IconStage's overlap-dedup, collapsing the doubled side-by-side
+  // arrow chains to one like MapLibre.
+  'runtime/src/engine/render/passes/label-pass.ts': 1119,
   // VTR Unit-1 extraction (Cluster E-selection). The hysteresis +
   // readiness-gate logic was moved VERBATIM (plan §5 DO-NOT-SPLIT #2),
   // and its hard-won fix-history comments carry the bulk of the LOC —

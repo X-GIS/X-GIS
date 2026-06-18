@@ -155,7 +155,7 @@ class LabelPass implements RenderPass {
         // doesn't call this (icon-along-curve is a Phase B+ feature);
         // point-anchored POI symbols (the demotiles + OFM Bright bus-
         // stop / school / amenity layers) flow through here.
-        const dispatchIcon = (def: { iconImage?: string; iconSize?: number; iconAnchor?: import('@xgis/compiler').LabelDef['iconAnchor']; iconOffset?: [number, number]; iconRotate?: number; iconOpacity?: number; iconColor?: [number, number, number, number]; iconRotationAlignment?: 'map' }, ax: number, ay: number, lineTangentDeg = 0, pairKey?: string): void => {
+        const dispatchIcon = (def: { iconImage?: string; iconSize?: number; iconAnchor?: import('@xgis/compiler').LabelDef['iconAnchor']; iconOffset?: [number, number]; iconRotate?: number; iconOpacity?: number; iconColor?: [number, number, number, number]; iconRotationAlignment?: 'map'; text?: import('@xgis/compiler').LabelDef['text'] }, ax: number, ay: number, lineTangentDeg = 0, pairKey?: string, collide = false, props?: import('../../text/text-resolver').FeatureProps): void => {
           if (!iStage || def.iconImage === undefined) return
           const offDx = (def.iconOffset?.[0] ?? 0) * dpr
           const offDy = (def.iconOffset?.[1] ?? 0) * dpr
@@ -172,6 +172,17 @@ class LabelPass implements RenderPass {
           // icon-opacity owns alpha). Undefined when unauthored so
           // the renderer keeps the raster/identity path.
           const ic = def.iconColor
+          // #417 — only collision-dedup TEXT-LESS line icons (road_oneway
+          // arrows). A text-paired line icon (highway shield) is left
+          // uncollided so dropping its box can't orphan its number text;
+          // shield text+icon already drop together via the pairKey path.
+          // def.text is a TEXT-VALUE expression (template/concat), not a
+          // string — road_oneway's resolves to "" — so resolve it against
+          // the feature props before deciding (a bare `=== ''` never matched).
+          const resolvedText = collide && def.text !== undefined && def.text !== null
+            ? resolveText(def.text, props ?? {}, host.camera.zoom)
+            : ''
+          const doCollide = collide && resolvedText === ''
           iStage.addIcon(ax + offDx, ay + offDy, def.iconImage, {
             sizeScale: def.iconSize ?? 1,
             rotateRad: ((def.iconRotate ?? 0) + tangent) * Math.PI / 180,
@@ -179,6 +190,7 @@ class LabelPass implements RenderPass {
             opacity: def.iconOpacity ?? 1,
             tint: ic ? [ic[0], ic[1], ic[2]] : undefined,
             pairKey,
+            collide: doCollide,
           })
         }
         // Mapbox `text-field` expressions that depend on zoom (e.g.
@@ -639,7 +651,7 @@ class LabelPass implements RenderPass {
                 // to place/drop together. The unflipped tangent feeds
                 // icon-rotation-alignment=map so road_oneway arrows
                 // point along the road.
-                dispatchIcon(featDef, x, y, rawTangentDeg, pairKey)
+                dispatchIcon(featDef, x, y, rawTangentDeg, pairKey, true, props)
               }
               if (spacingPx > 0) {
                 // Polyline path: project all vertices, walk in screen
@@ -875,7 +887,7 @@ class LabelPass implements RenderPass {
                           // arrows) follows the road tangent. Same
                           // pairKey as the label so the badge drops when
                           // the road number loses collision.
-                          dispatchIcon(featDef, sx, sy, tang, pairKey)
+                          dispatchIcon(featDef, sx, sy, tang, pairKey, true, props)
                           recordTextPosition(resolvedTextForDedupe, sx, sy)
                         }
                       }
@@ -898,7 +910,7 @@ class LabelPass implements RenderPass {
                             featDef,
                             undefined, labelLayerName, pairKey,
                           )
-                          dispatchIcon(featDef, sx, sy, tang, pairKey)
+                          dispatchIcon(featDef, sx, sy, tang, pairKey, true, props)
                           recordTextPosition(resolvedTextForDedupe, sx, sy)
                         }
                       }
