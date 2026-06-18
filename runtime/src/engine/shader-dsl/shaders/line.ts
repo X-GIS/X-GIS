@@ -698,7 +698,12 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
           const pdK = cb2.let('pd_k', shapeVK.sub(1).mul(halfS))
           cb2.assign(patDm, min(patDm, pdK))
         })
-        cb.continue()
+        // REPEAT handled by the k-loop above; skip the single-instance
+        // block. Emit on `d` (the if-block), NOT the outer `cb` —
+        // `cb.continue()` put an UNCONDITIONAL `continue;` at the loop-body
+        // top: all pattern code dead (WGSL "unreachable" warning) + line
+        // patterns silently dropped.
+        d.continue()
       })
 
       // START / END / CENTER — single instance.
