@@ -297,6 +297,25 @@ describe('classifyVectorTileShows — base cases', () => {
     expect(result.opaque[0]).toBe(result.translucent[0])
   })
 
+  it('#415: a translucent PURE-LINE layer (stroke, no fill) is NOT deferred — draws in style order', () => {
+    // positron `highway_minor` is a stroke-only line layer with
+    // line-opacity < 1. The old classifier deferred its stroke to the
+    // late offscreen MAX pass, painting the grey minor road OVER the
+    // opaque white major road (`highway_major_inner`) at intersections.
+    // The fix keeps pure-line strokes in the opaque pass in style order
+    // (mirrors MapLibre), so this layer must NOT enter the translucent
+    // bucket and must draw fills+strokes together ('all').
+    const sources = new Map([['src', makeVTSource()]])
+    const result = classifyVectorTileShows(makeInput(
+      [makeEntry('src', makeShow({ fill: null, stroke: '#888888', opacity: 0.5 }))],
+      sources,
+    ))
+    expect(result.opaque).toHaveLength(1)
+    expect(result.opaque[0].isTranslucentStroke).toBe(false)
+    expect(result.opaque[0].fillPhase).toBe('all')
+    expect(result.translucent).toHaveLength(0)
+  })
+
   it('does NOT mark as translucent-stroke when opacity is high enough (≥ 0.999)', () => {
     const sources = new Map([['src', makeVTSource()]])
     const result = classifyVectorTileShows(makeInput(
