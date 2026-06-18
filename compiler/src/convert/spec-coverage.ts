@@ -349,8 +349,8 @@ const FILTERS: readonly CoverageEntry[] = [
   { name: 'has / !has',                              status: 'supported' },
   { name: 'all / any / !',                           status: 'supported' },
   { name: 'match (boolean form)',                    status: 'supported', note: 'Lowers to OR/AND chain when all values are boolean literals.', source: 'expressions.ts:335' },
-  { name: '$type',                                   status: 'unsupported', impact: 'low', note: 'Legacy filter — use the new `["geometry-type"]` accessor instead.', source: 'expressions.ts:414' },
-  { name: '$id',                                     status: 'unsupported', impact: 'low', note: 'Legacy filter — use the new `["id"]` expression-form accessor instead. Mirror of $type → geometry-type migration.' },
+  { name: '$type',                                   status: 'supported', note: 'Legacy filter — routes to geometry-type accessor (get("$geometryType")).', source: 'expressions.ts' },
+  { name: '$id',                                     status: 'supported', note: 'Legacy filter — routes to id accessor (get("$featureId")).', source: 'expressions.ts' },
 ]
 
 // ─── Assembled tree ───────────────────────────────────────────────────
