@@ -2,19 +2,132 @@ name: test
 
 on:
   pull_request:
+    # Pure-documentation changes can neither break vitest nor the shader
+    # gate, so skip the WHOLE workflow for them. SAFE because (measured
+    # 2026-06-18) main has NO required status checks and NO rulesets — a
+    # workflow that never runs posts no check, and no merge is gated on
+    # these contexts, so PRs do NOT get stuck on "Expected". If branch
+    # protection is ever added with a required test/render check, REMOVE
+    # this paths-ignore (a never-running required check strands the PR) and
+    # rely on the per-job `if:` skip below (render-gate always posts a green
+    # check) plus the `test-result` aggregator (single stable required name).
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.gitignore'
   push:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.gitignore'
 
 # Cancel a PR's older in-flight run when a new commit is pushed to the same
 # ref — iterative pushes used to leave 3-5min runs burning in parallel.
-# Keyed on ref so main's push runs are independent per commit.
+# Keyed on github.ref, so each PR branch (and main) cancels only its OWN
+# older run; PRs don't cancel each other. Keys on the whole workflow run, so
+# it covers all 5 `test` matrix legs + render-gate as one cancellable unit.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # Cheap filter job: decides whether render-affecting code changed. Output
+  # `render` drives the render-gate skip below. This job is sub-5s (no bun,
+  # no build) and the paths cover every input the shader/projection gate
+  # exercises: emitted WGSL + projection math (compiler/runtime/shared), the
+  # playground specs/harness the gate runs, the lockfiles, and the workflow
+  # file itself (so edits to the gate always re-run it).
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      render: ${{ steps.filter.outputs.render }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            render:
+              - 'compiler/**'
+              - 'runtime/**'
+              - 'shared/**'
+              - 'blueprint/**'
+              - 'playground/**'
+              - 'bun.lock'
+              - 'bun.lockb'
+              - 'package.json'
+              - '**/package.json'
+              - '.github/workflows/test.yml'
+
   test:
     runs-on: ubuntu-latest
+    # PARALLELIZE the unit suite. The 5 vitest path-filter sets used to run
+    # SERIALLY on one runner (~149s of vitest on top of the ~28s build,
+    # job ~189s). Each set is now its own matrix leg, so they run on 5
+    # concurrent runners and the `test` job finishes ≈ its slowest leg
+    # (engine-render ≈ build 28s + vitest 49s ≈ ~84s) instead of ~189s.
+    # COST TRADEOFF: `bun run build` (28s) now runs once PER leg (5x) — more
+    # runner-minutes, far less wall-clock. Watch the account's concurrent-job
+    # cap (5 test legs + render-gate = 6 concurrent jobs).
+    strategy:
+      # One leg fails -> let the others finish so a red shard doesn't mask
+      # which others are also red. Each leg is an independent vitest pool.
+      fail-fast: false
+      matrix:
+        include:
+          # IMPORTANT: each `args` value is one of the FIVE path-filter sets,
+          # BYTE-IDENTICAL to the pre-matrix serial invocations. They were
+          # split for the worker->main `onTaskUpdate` RPC-timeout, NOT for
+          # parallelism, and must NOT be merged.
+          #
+          # A single combined run over all ~590 files accumulates worker->main
+          # RPC state on the slower CI runner until `[vitest-worker]: Timeout
+          # calling "onTaskUpdate"` fires — every test passes, the worker just
+          # can't report progress back in time. Separate runs each start a
+          # fresh worker pool well under that threshold.
+          #
+          # RE-TUNED 2026-06-10: the runtime shard was calibrated at ~226 files;
+          # the god-file decomposition session grew it to 262 and the timeout
+          # came back (run 27242663060: 2592/2592 tests PASSED, job failed on the
+          # reporter RPC — twice). runtime split into two ~130-file shards.
+          # `--silent` additionally drops the per-test console chatter
+          # ([X-GIS]/[matrix] logs) that keeps the main thread busy while
+          # workers wait on the RPC; failure output is unaffected.
+          # NOTE: `--silent=true` (explicit value) — bare `--silent <path>` makes
+          # vitest's CLI parser eat the path filter as the flag's value.
+          # RE-TUNED 2026-06-16: the R8 bug-hunt + decomposition test files pushed
+          # BOTH ~130 shards to 156 files; render+projection+text flaked the RPC
+          # timeout again (PR #384 run 27581620678 — 'Timeout calling onTaskUpdate').
+          # Split runtime into FOUR path-invocations, each <110 files (render 72 /
+          # projection+text 84 / engine-rest 92 / non-engine 64 = 312, a clean
+          # partition of runtime/src), each a fresh worker pool under the threshold.
+          #
+          # If a future file-growth pushes one leg back over ~110 files and the
+          # timeout returns, SPLIT THAT ONE `id` into two matrix entries — do
+          # NOT rebalance by merging legs back together.
+          - id: compiler-blueprint
+            args: compiler/src blueprint/src
+          - id: engine-render
+            args: runtime/src/engine/render
+          - id: engine-proj-text
+            args: runtime/src/engine/projection runtime/src/engine/text
+          - id: engine-rest
+            args: >-
+              runtime/src/engine
+              --exclude "runtime/src/engine/render/**"
+              --exclude "runtime/src/engine/projection/**"
+              --exclude "runtime/src/engine/text/**"
+          - id: runtime-nonengine
+            args: >-
+              runtime/src
+              --exclude "runtime/src/engine/**"
+    # Distinct per-leg check name in the GitHub UI / status API, e.g.
+    # "test (engine-render)". The single stable context for branch protection
+    # is `test-result` below — require THAT, not these per-leg names.
+    name: test (${{ matrix.id }})
     steps:
       - uses: actions/checkout@v4
 
@@ -24,51 +137,42 @@ jobs:
 
       # Cache bun's global package store so `bun install` reuses downloaded
       # tarballs instead of re-fetching every run. Keyed on the lockfile.
+      # All 5 matrix legs share this SAME restore key, so install stays ~1s.
       - uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/bun.lockb') }}
           restore-keys: bun-${{ runner.os }}-
 
-      - run: bun install
+      # --frozen-lockfile: fail loudly if package.json and bun.lock disagree,
+      # rather than silently mutating the lockfile in CI. A single committed
+      # bun.lock exists to freeze against.
+      - run: bun install --frozen-lockfile
 
       # Build first so the typescript project references (compiler →
       # runtime → playground/site) emit and tests downstream of compiler
       # can resolve the published types. Same step as deploy-pages.yml.
+      # NOTE: this now runs once PER matrix leg (5x) instead of once.
       - run: bun run build
 
-      # vitest is hoisted to the workspace root (node_modules/.bin) by
-      # bun install. The filesystem args correspond to the source roots
-      # where tests live; vitest.config.* (if any) is respected
-      # automatically.
-      #
-      # Split per workspace: a single combined run over all ~590 files
-      # accumulates worker->main RPC state on the slower CI runner until
-      # `[vitest-worker]: Timeout calling "onTaskUpdate"` fires — every test
-      # passes, the worker just can't report progress back in time. Separate
-      # runs each start a fresh worker pool well under that threshold.
-      #
-      # RE-TUNED 2026-06-10: the runtime shard was calibrated at ~226 files;
-      # the god-file decomposition session grew it to 262 and the timeout
-      # came back (run 27242663060: 2592/2592 tests PASSED, job failed on the
-      # reporter RPC — twice). runtime now splits into two ~130-file shards
-      # (render+projection+text vs the rest). `--silent` additionally drops
-      # the per-test console chatter ([X-GIS]/[matrix] logs) that keeps the
-      # main thread busy while workers wait on the RPC; failure output is
-      # unaffected.
-      # NOTE: `--silent=true` (explicit value) — bare `--silent <path>` makes
-      # vitest's CLI parser eat the path filter as the flag's value.
-      # RE-TUNED 2026-06-16: the R8 bug-hunt + decomposition test files pushed
-      # BOTH ~130 shards to 156 files; render+projection+text flaked the RPC
-      # timeout again (PR #384 run 27581620678 — 'Timeout calling onTaskUpdate').
-      # Split runtime into FOUR path-invocations, each <110 files (render 72 /
-      # projection+text 84 / engine-rest 92 / non-engine 64 = 312, a clean
-      # partition of runtime/src), each a fresh worker pool under the threshold.
-      - run: ./node_modules/.bin/vitest run --silent=true compiler/src blueprint/src
-      - run: ./node_modules/.bin/vitest run --silent=true runtime/src/engine/render
-      - run: ./node_modules/.bin/vitest run --silent=true runtime/src/engine/projection runtime/src/engine/text
-      - run: ./node_modules/.bin/vitest run --silent=true runtime/src/engine --exclude "runtime/src/engine/render/**" --exclude "runtime/src/engine/projection/**" --exclude "runtime/src/engine/text/**"
-      - run: ./node_modules/.bin/vitest run --silent=true runtime/src --exclude "runtime/src/engine/**"
+      # The single vitest invocation for THIS shard. `args` is unquoted on
+      # purpose so multi-path / --exclude tokens word-split into separate
+      # argv entries; the embedded double-quotes survive into the run line
+      # and bash leaves the globs unexpanded, reproducing the original argv.
+      - run: ./node_modules/.bin/vitest run --silent=true ${{ matrix.args }}
+
+  # Single stable status context that aggregates the matrix. Branch
+  # protection (if ever enabled) should require `test-result`, NOT the
+  # per-leg `test (...)` names — this name is immune to leg-count changes.
+  # `if: always()` so it runs even when a leg fails; it then fails iff any
+  # leg failed.
+  test-result:
+    name: test-result
+    needs: test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: '[ "${{ needs.test.result }}" = "success" ] || exit 1'
 
   # Render-behavior gate: the unit suite above NEVER executes a shader
   # (deep-dive 2026-05-25 finding #1). This job runs the SHADER-MATH gate
@@ -115,26 +219,42 @@ jobs:
   #
   # Blocking gate (validated green on run 26387561414): shader-math runs
   # under SwiftShader and now fails CI on gross WGSL projection drift.
+  #
+  # SKIP-WHEN-IRRELEVANT: gated on the `changes` filter. When no render-
+  # affecting code changed, every expensive step is `if:`-skipped but the JOB
+  # still succeeds, so the `render-gate` check posts green — the protection-
+  # safe pattern for a check that MIGHT become required later. The 5
+  # SwiftShader specs are UNCHANGED in coverage: whenever render code changes
+  # (render == 'true') all five run exactly as before. ~82s of runner work is
+  # saved per docs-only PR. Wall-clock is unchanged (this job runs in parallel
+  # with `test` and is not the critical path) — the win is runner-minutes.
   render-gate:
+    needs: changes
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - if: needs.changes.outputs.render == 'true'
+        uses: actions/checkout@v4
+      - if: needs.changes.outputs.render == 'true'
+        uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - uses: actions/cache@v4
+      - if: needs.changes.outputs.render == 'true'
+        uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/bun.lockb') }}
           restore-keys: bun-${{ runner.os }}-
-      - run: bun install
-      - run: bun run build
+      - if: needs.changes.outputs.render == 'true'
+        run: bun install --frozen-lockfile
+      - if: needs.changes.outputs.render == 'true'
+        run: bun run build
       # Cache the downloaded browser binaries (~/.cache/ms-playwright). The
       # biggest render-gate time sink was re-downloading chromium every run;
       # on a cache hit the install step below detects the browsers present and
       # only re-runs the (lighter) apt --with-deps step. Keyed on the lockfile
       # so a playwright version bump busts the cache.
-      - uses: actions/cache@v4
+      - if: needs.changes.outputs.render == 'true'
+        uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: pw-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/bun.lockb') }}
@@ -146,8 +266,10 @@ jobs:
       # can't find its own revision's binary. Headless runs use
       # chrome-headless-shell, a SEPARATE binary from full chromium —
       # install both or browserType.launch fails before any test runs.
-      - run: ./playground/node_modules/.bin/playwright install chromium chromium-headless-shell --with-deps
+      - if: needs.changes.outputs.render == 'true'
+        run: ./playground/node_modules/.bin/playwright install chromium chromium-headless-shell --with-deps
       - name: Render gates under SwiftShader
+        if: needs.changes.outputs.render == 'true'
         working-directory: playground
         env:
           XGIS_SOFTWARE_GPU: '1'
