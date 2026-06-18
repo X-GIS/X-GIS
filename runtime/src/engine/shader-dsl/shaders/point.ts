@@ -52,6 +52,11 @@ const Uniforms: StructDecl = {
     // w unused.
     { name: 'cam_ecef_h', type: vec4fT },
     { name: 'cam_ecef_l', type: vec4fT },
+    // circle_params: x=translate_x_ndc, y=translate_y_ndc, z=blur_px, w=unused.
+    // translate_x/y are pre-baked to NDC-per-pixel (px * 2 / w/h) by the
+    // renderer — same convention as fill_translate_x/y in polygon.ts.
+    // Default [0,0,0,0] → no-op (existing rendering byte-identical).
+    { name: 'circle_params', type: vec4fT },
   ],
 }
 const ShapeDesc: StructDecl = {
@@ -317,6 +322,19 @@ const vs = entryFn('vs_point', 'vertex', [
     c.assign(centerClip, transformMat4(mvp, vec4(ecefRtc, f32(1))))
   })
 
+  // circle-translate: apply viewport-space offset post-MVP.
+  // translate_x/y are pre-baked to NDC-per-pixel by the renderer
+  // (circle_params.xy). Multiply by clip.w to keep the shift pixel-
+  // constant regardless of depth — same approach as polygon fill-translate.
+  // Default [0,0] → no-op.
+  const circleParams = b.let('circle_params', u.field('circle_params', vec4fT))
+  b.assign(centerClip, centerClip.add(vec4(
+    circleParams.x.mul(centerClip.w),
+    circleParams.y.mul(centerClip.w),
+    f32(0),
+    f32(0),
+  )))
+
   // bit 3 of packed10 = flat-quad mode.
   const isFlat = b.let('is_flat', packed10.bitAnd(u32(8)).ne(u32(0)))
   b.assign(radiusPx, max(radiusPx, f32(1)))
@@ -383,6 +401,11 @@ const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: structT('PointOu
 
   // AA from UV (always smooth) — not from SDF dist (AABB discontinuities).
   const aa = b.let('aa', fwidth(length(p.in.field('uv', vec2fT))).mul(1.5))
+  // circle-blur: widen the AA band by blur_px converted to UV units.
+  // blur_uv = blur_px / radius_px. Default 0 → band unchanged (no-op).
+  const blurPx = b.let('blur_px', u.field('circle_params', vec4fT).z)
+  const blurUv = b.let('blur_uv', blurPx.div(max(p.in.field('radius_px', f32T), f32(1))))
+  const halfBand = b.let('half_band', aa.add(blurUv))
 
   const dist = b.var('dist', f32T)
   b.if(shapeId.eq(u32(0)), (c) => {
@@ -414,7 +437,7 @@ const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: structT('PointOu
 
   // Fill (bit 0).
   b.if(flags.bitAnd(u32(1)).ne(u32(0)), (c) => {
-    const fillAlpha = c.let('fill_alpha', f32(1).sub(smoothstep(f32(1).sub(aa), f32(1).add(aa), dist)))
+    const fillAlpha = c.let('fill_alpha', f32(1).sub(smoothstep(f32(1).sub(halfBand), f32(1).add(halfBand), dist)))
     c.assign(color, vec4(fillColor.rgb, fillColor.a.mul(fillAlpha)))
   })
 
@@ -423,7 +446,7 @@ const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: structT('PointOu
     const inner = c.let('inner', f32(1).sub(strokeW))
     const strokeAlpha = c.let('stroke_alpha',
       smoothstep(inner.sub(aa), inner.add(aa), dist)
-        .mul(f32(1).sub(smoothstep(f32(1).sub(aa), f32(1).add(aa), dist))),
+        .mul(f32(1).sub(smoothstep(f32(1).sub(halfBand), f32(1).add(halfBand), dist))),
     )
     c.assign(color, mix(color, vec4(strokeColor.rgb, strokeColor.a), strokeAlpha))
   })
