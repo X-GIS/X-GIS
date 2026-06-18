@@ -21,8 +21,10 @@ import { lonLatToECEF, tileEcefCenterFromMerc } from '../../engine/projection/ec
 import { tileKey } from '@xgis/compiler'
 
 const MERC_LAT_CLAMP = 85.051129
-const FILL_FLOATS_PER_VERT = 6
+const FILL_FLOATS_PER_VERT = 7   // #398: stride 28 B = 7 f32 (added true_lat)
+const FILL_U16_PER_VERT = 14
 const FILL_LAT_FLOAT = 5
+const FILL_TRUELAT_FLOAT = 6
 const A = 6378137
 const DEG2RAD = Math.PI / 180
 // The z=0 synthetic tile's ELLIPSOID corner anchor — the SAME value the cap
@@ -98,7 +100,7 @@ describe('GeoJSONPolarCapBackend packed output', () => {
     const [npx, npy, npz] = lonLatToECEF(0, 90)
     let best = -1, bestErr = Infinity
     for (let i = 0; i < count; i++) {
-      const u = i * 12
+      const u = i * FILL_U16_PER_VERT
       const ex = (u16[u]! * 65536 + u16[u + 1]!) * res.dequantScale - res.dequantHalf + Z0_TILE_CENTER[0]
       const ey = (u16[u + 2]! * 65536 + u16[u + 3]!) * res.dequantScale - res.dequantHalf + Z0_TILE_CENTER[1]
       const ez = (u16[u + 4]! * 65536 + u16[u + 5]!) * res.dequantScale - res.dequantHalf + Z0_TILE_CENTER[2]
@@ -119,6 +121,16 @@ describe('GeoJSONPolarCapBackend packed output', () => {
     const absMy0 = verts[0 * FILL_FLOATS_PER_VERT + FILL_LAT_FLOAT]! + Z0_TILE_MY
     const tailLat0 = (2 * Math.atan(Math.exp(absMy0 / A)) - Math.PI / 2) / DEG2RAD
     expect(Math.abs(tailLat0)).toBeCloseTo(MERC_LAT_CLAMP, 2)
+    // #398: the SW corner sits on the clamp boundary, so its UNCLAMPED true_lat
+    // equals 85.05 here; the row that DOES reach the pole carries 90 in this
+    // slot (the disc arm projects from true_lat, closing the annular hole).
+    expect(verts[0 * FILL_FLOATS_PER_VERT + FILL_TRUELAT_FLOAT]!).toBeCloseTo(MERC_LAT_CLAMP, 2)
+    // At least one cap row carries the true ±90 pole latitude in the slot.
+    let sawPole = false
+    for (let i = 0; i < count; i++) {
+      if (Math.abs(verts[i * FILL_FLOATS_PER_VERT + FILL_TRUELAT_FLOAT]! - 90) < 1e-2) sawPole = true
+    }
+    expect(sawPole).toBe(true)
   })
 
   it('serves only the z=0 tile', () => {

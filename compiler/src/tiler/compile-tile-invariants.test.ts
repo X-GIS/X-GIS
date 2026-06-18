@@ -26,10 +26,10 @@ import type { GeoJSONFeature } from './geojson-types'
 // for ECEF-DSFUN stride-9 (`[ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid,
 // abs_lon, abs_lat]`). Line stride stays at 10 (Mercator-DSFUN with
 // arc + tangent slots).
-// Phase 2 PR 2f: polygon fill vertices are now the quantized ECEF layout —
-// stride 24 bytes = 6 floats (uint16×6 position in the first 12 bytes + f32
-// fid/abs_lon/abs_lat at float slots 3/4/5).
-const QUANT_POLY_STRIDE_FLOATS = 6
+// #398: polygon fill vertices are the quantized ECEF layout —
+// stride 28 bytes = 7 floats (uint16×6 position in the first 12 bytes + f32
+// fid/abs_lon/abs_lat/true_lat at float slots 3/4/5/6).
+const QUANT_POLY_STRIDE_FLOATS = 7
 const DSFUN_LINE_STRIDE = 10
 
 const poly = (coords: number[][][]): GeoJSONFeature => ({
@@ -57,12 +57,12 @@ function assertFinite(arr: Float32Array, label: string): void {
 }
 
 function assertRenderInvariants(t: CompiledLike, ctx: string): void {
-  // Only the f32 tail (fid/abs_lon/abs_lat at float slots 3/4/5) is checked
-  // for finiteness — the first 12 bytes per vertex are uint16 fixed-point
-  // position that, reinterpreted as f32, are intentionally arbitrary.
+  // Only the f32 tail (fid/abs_lon/abs_lat/true_lat at float slots 3/4/5/6) is
+  // checked for finiteness — the first 12 bytes per vertex are uint16
+  // fixed-point position that, reinterpreted as f32, are intentionally arbitrary.
   const vCount = t.vertices.length / QUANT_POLY_STRIDE_FLOATS
   for (let v = 0; v < vCount; v++) {
-    for (let s = 3; s < 6; s++) {
+    for (let s = 3; s < 7; s++) {
       const val = t.vertices[v * QUANT_POLY_STRIDE_FLOATS + s]!
       if (!Number.isFinite(val)) {
         throw new Error(`${ctx} vertices[${v}].f32[${s}] non-finite: ${val}`)

@@ -1,5 +1,5 @@
 // CPU mirror of the GPU `dequant_ecef` shader fn (runtime polygon.ts). Two
-// decoders of the stride-24 quantized buffer (u16×6 position in the first 12
+// decoders of the stride-28 quantized buffer (u16×6 position in the first 12
 // bytes + f32 tail):
 //
 //   - dequantVertex     — f64 (Math.* with no fround). The ENCODER's intent /
@@ -14,16 +14,23 @@
 // equals this mirror — proving the CPU model faithfully represents GPU f32. It
 // is also the honest precision oracle for ecef-precision-fuzz.
 
+import { POLYGON_FILL_FORMAT } from './polygon-vertex-format'
+
 export interface QuantizedDecode {
   vertices: Float32Array
   dequantScale: number
   dequantHalf: number
 }
 
+// u16 lanes per vertex — derived from the single-source format so the mirror
+// strides correctly when a tail slot is added (stride 28 → 14 u16). The u16×6
+// position still occupies the first 12 bytes; only the per-vertex stride grows.
+const FILL_U16_PER_VERT = POLYGON_FILL_FORMAT.stride / 2
+
 /** f64 decode — quantization-grid error only (encoder intent). NOT the GPU. */
 export function dequantVertex(quant: QuantizedDecode, vi: number): [number, number, number] {
   const u16 = new Uint16Array(quant.vertices.buffer, quant.vertices.byteOffset)
-  const u = vi * 12
+  const u = vi * FILL_U16_PER_VERT
   const ax = (u16[u]! * 65536 + u16[u + 1]!) * quant.dequantScale - quant.dequantHalf
   const ay = (u16[u + 2]! * 65536 + u16[u + 3]!) * quant.dequantScale - quant.dequantHalf
   const az = (u16[u + 4]! * 65536 + u16[u + 5]!) * quant.dequantScale - quant.dequantHalf
@@ -37,7 +44,7 @@ export function dequantVertex(quant: QuantizedDecode, vi: number): [number, numb
 export function dequantVertexF32(quant: QuantizedDecode, vi: number): [number, number, number] {
   const f = Math.fround
   const u16 = new Uint16Array(quant.vertices.buffer, quant.vertices.byteOffset)
-  const u = vi * 12
+  const u = vi * FILL_U16_PER_VERT
   const scale = f(quant.dequantScale)
   const half = f(quant.dequantHalf)
   const axis = (hi: number, lo: number): number => {

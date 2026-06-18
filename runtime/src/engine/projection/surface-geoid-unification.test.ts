@@ -95,7 +95,7 @@ describe('surface geoid unification — bg + extrusion share the tiler ellipsoid
     const v = result.vertices
     const u16 = new Uint16Array(v.buffer)
     const { dequantScale: scale, dequantHalf: half } = result
-    const vertexCount = v.length / 6
+    const vertexCount = v.length / 7   // #398: fill stride 28 B = 7 f32
     const deq = (lane: number): number =>
       (u16[lane] * 65536 + u16[lane + 1]) * scale - half
 
@@ -128,7 +128,7 @@ describe('surface geoid unification — bg + extrusion share the tiler ellipsoid
     const tol = 4 * scale
     let checked = 0
     for (const idx of samples) {
-      const lane = idx * 12
+      const lane = idx * 14   // #398: fill stride 14 u16/vert
       const ex = deq(lane) + center[0]
       const ey = deq(lane + 2) + center[1]
       const ez = deq(lane + 4) + center[2]
@@ -234,7 +234,7 @@ describe('surface geoid unification — bg + extrusion share the tiler ellipsoid
       (bgU16[lane] * 65536 + bgU16[lane + 1]) * bg.dequantScale - bg.dequantHalf
     const cols = 129
     const bgIdx = 32 * cols + 64           // lon=0, lat=0
-    const bgLane = bgIdx * 12
+    const bgLane = bgIdx * 14   // #398: fill stride 14 u16/vert
     const bgECEF: [number, number, number] = [
       bgCenter[0] + bgDeq(bgLane),
       bgCenter[1] + bgDeq(bgLane + 2),

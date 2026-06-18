@@ -13,13 +13,14 @@ import {
 
 describe('polygon-vertex-format derivation', () => {
   it('fill format: offsets + stride match the hand-written layout', () => {
-    expect(POLYGON_FILL_FORMAT.stride).toBe(24)
+    expect(POLYGON_FILL_FORMAT.stride).toBe(28)
     expect(POLYGON_FILL_FORMAT.fields.map((f) => [f.name, f.location, f.offset, f.vbFormat])).toEqual([
       ['q_xy',       0,  0, 'uint16x4'],
       ['q_z',        1,  8, 'uint16x2'],
       ['feature_id', 2, 12, 'float32'],
       ['abs_lon',    3, 16, 'float32'],
       ['abs_lat',    4, 20, 'float32'],
+      ['true_lat',   5, 24, 'float32'],
     ])
   })
 

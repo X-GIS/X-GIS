@@ -20,14 +20,15 @@ import { specShaderMismatches } from './__vertex-format-crosscheck'
 const SHADER_SRC = emitPolygonWgsl(null, false)
 
 describe('vertex attribute-layout consistency (spec ↔ WGSL @location)', () => {
-  it('polygon fill spec is PR 2f quantized ECEF (stride 24: uint16x4 + uint16x2 + 3×f32)', () => {
-    expect(POLYGON_FILL_FORMAT.stride).toBe(24)
+  it('polygon fill spec is PR 2f quantized ECEF + true_lat (stride 28: uint16x4 + uint16x2 + 4×f32)', () => {
+    expect(POLYGON_FILL_FORMAT.stride).toBe(28)
     expect(POLYGON_FILL_FORMAT.fields.map(f => [f.location, f.offset, f.vbFormat])).toEqual([
       [0,  0, 'uint16x4'],
       [1,  8, 'uint16x2'],
       [2, 12, 'float32'],
       [3, 16, 'float32'],
       [4, 20, 'float32'],
+      [5, 24, 'float32'],
     ])
     for (const f of POLYGON_FILL_FORMAT.fields) expect(f.offset % 4).toBe(0)
   })

@@ -1,4 +1,4 @@
-// baseline: f61e7dac7cfc0943f8fb17ff0a034d18e70aafa1
+// baseline: 1e98ea79d699374a3584e50d689121e5cc274414
 // fixture: liberty-zoom-interp
 // variant.key: liberty-zoom-interp
 // pick: false
@@ -381,7 +381,7 @@ fn vs_main(@location(0) pos_h: vec3<f32>, @location(1) pos_l: vec3<f32>, @locati
 }
 
 @vertex
-fn vs_main_ecef(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u32>, @location(2) feature_id: f32, @location(3) abs_lon: f32, @location(4) abs_lat: f32) -> VertexOutput {
+fn vs_main_ecef(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u32>, @location(2) feature_id: f32, @location(3) abs_lon: f32, @location(4) abs_lat: f32, @location(5) true_lat: f32) -> VertexOutput {
   let ecef_rtc = dequant_ecef(q_xy, q_z, u.tile_dequant_scale, u.tile_dequant_half);
   let abs_merc_x = (abs_lon + u.tile_origin_merc.x);
   let abs_merc_y = (abs_lat + u.tile_origin_merc.y);
@@ -393,7 +393,7 @@ fn vs_main_ecef(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u32>, @loca
     clip = (u.mvp * vec4<f32>(rel2d_local.x, rel2d_local.y, 0.0, 1.0));
   } else if ((u.proj_params.x < 6.5)) {
     let tile_ref_lon = ((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R));
-    let rel2d_geom = flat_rel((abs_merc_x / (DEG2RAD * EARTH_R)), abs_lat_clamped, u.proj_params, tile_ref_lon);
+    let rel2d_geom = flat_rel((abs_merc_x / (DEG2RAD * EARTH_R)), true_lat, u.proj_params, tile_ref_lon);
     clip = (u.mvp * vec4<f32>(rel2d_geom.x, rel2d_geom.y, 0.0, 1.0));
   } else {
     let ecef_cam = ((ecef_rtc + vec3<f32>(u.cam_ecef_off_h.x, u.cam_ecef_off_h.y, u.cam_ecef_off_h.z)) + vec3<f32>(u.cam_ecef_off_l.x, u.cam_ecef_off_l.y, u.cam_ecef_off_l.z));

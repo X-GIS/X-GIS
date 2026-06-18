@@ -17,9 +17,10 @@ import {
 } from '@xgis/compiler'
 import type { GeoJSONFeature } from '@xgis/compiler'
 
-// PR 2f: polygon vertices are the quantized ECEF layout — stride 24 bytes
-// = 6 floats (uint16×6 position + f32 fid/abs_lon/abs_lat at slots 3/4/5).
-const DSFUN_POLY_STRIDE = 6
+// #398: polygon vertices are the quantized ECEF layout — stride 28 bytes
+// = 7 floats (uint16×6 position + f32 fid/abs_lon/abs_lat/true_lat at slots
+// 3/4/5/6).
+const DSFUN_POLY_STRIDE = 7
 
 /** Web-Mercator tile bounds in degrees (inline — tileBounds is a
  *  runtime-only helper in tile-select.ts, not exported from the
@@ -67,12 +68,12 @@ function assertFinite(arr: Float32Array, label: string): void {
 }
 
 function assertSubTileInvariants(sub: TileData, ctx: string): void {
-  // Only the f32 tail (fid/abs_lon/abs_lat at slots 3/4/5) is checked for
-  // finiteness — the uint16 quantized position (first 12 bytes), reinterpreted
+  // Only the f32 tail (fid/abs_lon/abs_lat/true_lat at slots 3/4/5/6) is checked
+  // for finiteness — the uint16 quantized position (first 12 bytes), reinterpreted
   // as f32, is intentionally arbitrary.
   const vCnt = sub.vertices.length / DSFUN_POLY_STRIDE
   for (let v = 0; v < vCnt; v++) {
-    for (let s = 3; s < 6; s++) {
+    for (let s = 3; s < 7; s++) {
       const val = sub.vertices[v * DSFUN_POLY_STRIDE + s]!
       if (!Number.isFinite(val)) throw new Error(`${ctx} vertices[${v}].f32[${s}] non-finite: ${val}`)
     }

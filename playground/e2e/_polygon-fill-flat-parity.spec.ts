@@ -153,8 +153,8 @@ test.describe('polygon fill flat-Mercator arm parity (GPU position ≡ outline)'
       const packed = packECEFPolygonVertices(scratch, ecefCenter, [tileMx, tileMy])
       const inp = new Float32Array(N * 4)
       for (let i = 0; i < N; i++) {
-        inp[i * 4] = packed.vertices[i * 6 + 4]     // local_merc_x (slot FILL_LON_FLOAT)
-        inp[i * 4 + 1] = packed.vertices[i * 6 + 5] // local_merc_y (slot FILL_LAT_FLOAT)
+        inp[i * 4] = packed.vertices[i * 7 + 4]     // local_merc_x (slot FILL_LON_FLOAT; fill stride 7 floats post-#398)
+        inp[i * 4 + 1] = packed.vertices[i * 7 + 5] // local_merc_y (slot FILL_LAT_FLOAT)
         inp[i * 4 + 2] = lons[i]
         inp[i * 4 + 3] = lats[i]
       }

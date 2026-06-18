@@ -1349,8 +1349,8 @@ export class VectorTileRenderer {
       dequantScale = mesh.dequantScale
       dequantHalf = mesh.dequantHalf
     } else {
-      // Flat slice: tiler already emitted the PR 2f quantized ECEF layout
-      // (stride 24 bytes) — pass through unchanged. `data.vertices` is a
+      // Flat slice: tiler already emitted the quantized ECEF layout
+      // (stride 28 bytes, #398) — pass through unchanged. `data.vertices` is a
       // typed-array view; `slice` copies into a fresh ArrayBuffer the arena
       // can accept. The companion per-tile dequant params travel on `data`.
       polyVerts = data.vertices.buffer.slice(

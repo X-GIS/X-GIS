@@ -60,11 +60,12 @@ function backendLatRange(projType?: number): { min: number; max: number } {
   } as unknown as TileSourceSink)
   if (!result) throw new Error('backend did not emit a result on attach')
   const v = (result as BackendTileResult).vertices
-  const n = v.length / 6
+  const FILL_FLOATS_PER_VERT = 7   // #398: stride 28 B = 7 f32
+  const n = v.length / FILL_FLOATS_PER_VERT
   let min = Infinity
   let max = -Infinity
   for (let i = 0; i < n; i++) {
-    const lat = decodeLat(v[i * 6 + 5]!)
+    const lat = decodeLat(v[i * FILL_FLOATS_PER_VERT + 5]!)
     if (lat < min) min = lat
     if (lat > max) max = lat
   }

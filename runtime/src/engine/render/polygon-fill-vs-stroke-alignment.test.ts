@@ -43,9 +43,9 @@ function loadTriangle(): GeoJSONFeatureCollection {
   return JSON.parse(readFileSync(TRIANGLE_PATH, 'utf8')) as GeoJSONFeatureCollection
 }
 
-/** Quantized ECEF polygon vertex (Phase 2 PR 2f): stride 24 bytes = 6 floats
- *  [uint16×6 position | fid | abs_lon_deg | abs_lat_deg] (abs_* at slots 4/5). */
-const POLY_STRIDE = 6
+/** Quantized ECEF polygon vertex (#398): stride 28 bytes = 7 floats
+ *  [uint16×6 position | fid | abs_lon | abs_lat | true_lat] (abs_* at slots 4/5). */
+const POLY_STRIDE = 7
 /** DSFUN line vertex stride 10: [mx_h, my_h, mx_l, my_l, fid, arc, tin_x, tin_y, tout_x, tout_y] */
 const LINE_STRIDE = 10
 

@@ -240,12 +240,15 @@ const emitPolygonProjectionLadder = (
     wallHeight?: Node<'f32'>
     // When provided (quantized fill VS), the flat-Mercator arm positions from
     // this PRECISE tile-local Mercator vec2 (vertex_merc − tile_origin_merc)
-    // instead of re-projecting the lossy f32 abs_lon/abs_lat degrees. absLon/
-    // absLat are still used by the non-Mercator (flat_rel) arm.
+    // instead of re-projecting the lossy f32 abs_lon/abs_lat degrees.
     localMerc?: Node<'vec2<f32>'>
+    // #398: TRUE unclamped lat the disc (flat_rel) arm projects from instead of
+    // the Merc-clamped absLat — so the ±90 caps reach the pole, not the 85.05
+    // ring. ONLY flat_rel reads it; other arms byte-identical. Absent → absLat.
+    discLat?: Node<'f32'>
   },
 ): void => {
-  const { projParamsV, mvp, absLon, absLat, ecefRtc, clip, extruded, isTop, wallHeight, localMerc } = args
+  const { projParamsV, mvp, absLon, absLat, ecefRtc, clip, extruded, isTop, wallHeight, localMerc, discLat } = args
   const deg2rad = constRef('DEG2RAD')
   const earthR = constRef('EARTH_R')
   const pi = constRef('PI')
@@ -292,7 +295,9 @@ const emitPolygonProjectionLadder = (
       u.field('tile_origin_merc', vec2fT).x
         .add(f32(0.5).mul(u.field('tile_extent_m', f32T)))
         .div(deg2rad.mul(earthR)))
-    const relG = c.let('rel2d_geom', callFn('flat_rel', vec2fT, absLon, absLat, projParamsV, tileRefLon))
+    // #398: project from discLat (TRUE lat) when supplied; absLat would pin the
+    // polar caps to the 85.05 ring. Extruded VS → absLat (discLat undefined).
+    const relG = c.let('rel2d_geom', callFn('flat_rel', vec2fT, absLon, discLat ?? absLat, projParamsV, tileRefLon))
     const zG = extruded ? c.let('z_plane_geom', wallHeight!.mul(isTop!)) : f32(0)
     c.assign(clip, transformMat4(mvp, vec4(relG.x, relG.y, zG, f32(1))))
   }).else((c) => {
@@ -433,6 +438,8 @@ const vsMainEcef = entryFn(
     { name: 'feature_id', type: f32T, location: 2 },
     { name: 'abs_lon', type: f32T, location: 3 },
     { name: 'abs_lat', type: f32T, location: 4 },
+    // #398: TRUE unclamped lat (deg) — disc arm projects the ±90 caps from this.
+    { name: 'true_lat', type: f32T, location: 5 },
   ],
   structT('VertexOutput'),
   (b, p) => {
@@ -476,11 +483,11 @@ const vsMainEcef = entryFn(
     // differently (dequant_ecef vs pos_h+pos_l) — passed in as a Node.
     emitPolygonProjectionLadder(b, {
       projParamsV, mvp,
-      // local_merc (the f32 tail slots) drives the PRECISE flat-Mercator
-      // position; absLon/absLat (reconstructed absolute, ~1 m) feed only the
-      // non-Mercator flat_rel arm.
+      // local_merc (f32 tail) drives the PRECISE flat-Mercator position;
+      // absLon/absLat feed only flat_rel; discLat (#398) gives it the TRUE lat.
       absLon: absMercX.div(deg2rad.mul(earthR)),
       absLat: absLatClamped,
+      discLat: p.true_lat,
       localMerc: vec2(p.abs_lon, p.abs_lat),
       ecefRtc, clip, extruded: false,
     })

@@ -153,7 +153,7 @@ describe('Real-data: sub-tile generation for country interiors', () => {
       if (!entry || (entry.flags & TILE_FLAG_FULL_COVER) === 0) continue
       const data = source.getTileData(key)
       expect(data).not.toBeNull()
-      expect(data!.vertices.length).toBe(24)
+      expect(data!.vertices.length).toBe(28)   // #398: 4 corners × 7 floats
       expect(data!.indices.length).toBe(6)
     }
   })

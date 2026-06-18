@@ -21,6 +21,9 @@ import {
 // WGS84 semi-major axis — matches the tiler + the render-side `off`.
 const A = 6378137
 const DEG2RAD = Math.PI / 180
+// #398: polygon fill stride 28 B = 7 f32 = 14 u16 per vertex.
+const FILL_FLOATS_PER_VERT = 7
+const FILL_U16_PER_VERT = 14
 // Source-honest Web-Mercator latitude clamp applied to the PER-VERTEX abs_lat
 // encode (the rounded ±85 cap real polar ground verts also carry). The bg
 // consolidates onto the tiler kernel, so the same clamp governs its abs_lat.
@@ -84,12 +87,12 @@ describe('SyntheticEarthSurfaceBackend — attach + loadTile', () => {
     expect(pushed[0].result).not.toBeNull()
   })
 
-  it('emits 8385 verts × stride-6 (PR 2f quantized) + 49152 indices from 128x64 grid', () => {
+  it('emits 8385 verts × stride-7 (#398 quantized + true_lat) + 49152 indices from 128x64 grid', () => {
     const backend = new SyntheticEarthSurfaceBackend()
     const { sink, pushed } = makeRecordingSink()
     backend.attach(sink)
     const result = pushed[0].result!
-    expect(result.vertices.length).toBe(129 * 65 * 6)   // (128+1)*(64+1) verts
+    expect(result.vertices.length).toBe(129 * 65 * 7)   // (128+1)*(64+1) verts
     expect(result.indices.length).toBe(128 * 64 * 6)    // 49152
     expect(result.lineVertices.length).toBe(0)
     expect(result.lineIndices.length).toBe(0)
@@ -162,7 +165,7 @@ describe('SyntheticEarthSurfaceBackend — vertex content', () => {
     const u16 = new Uint16Array(v.buffer)
     const { dequantScale: scale, dequantHalf: half } = result
     const last = 129 * 65 - 1
-    const lane = last * 12
+    const lane = last * FILL_U16_PER_VERT
     const ex = dequantAxis(u16, lane, scale, half) + Z0_TILE_CENTER[0]
     const ey = dequantAxis(u16, lane + 2, scale, half) + Z0_TILE_CENTER[1]
     const ez = dequantAxis(u16, lane + 4, scale, half) + Z0_TILE_CENTER[2]
@@ -172,7 +175,7 @@ describe('SyntheticEarthSurfaceBackend — vertex content', () => {
     expect(ez).toBeCloseTo(pz, 1)
     // f32 tail = tile-local Mercator. lon=+180 → local X = (180+180)·deg2rad·A
     // (~4e7 m; f32 ulp ≈ 4 m there, so compare within a few metres).
-    expect(Math.abs(v[last * 6 + 4]! - 360 * DEG2RAD * A)).toBeLessThan(5)   // local_merc X
+    expect(Math.abs(v[last * FILL_FLOATS_PER_VERT + 4]! - 360 * DEG2RAD * A)).toBeLessThan(5)   // local_merc X
   })
 
   it('quantized position at the mid vertex reconstructs the tiler ELLIPSOID ECEF (A,0,0)', () => {
@@ -186,7 +189,7 @@ describe('SyntheticEarthSurfaceBackend — vertex content', () => {
     // Mid row index = 32 (heightSegments/2), mid col index = 64 (widthSegments/2).
     const cols = 129
     const idx = 32 * cols + 64
-    const lane = idx * 12   // u16 lane base (12 lanes / vertex)
+    const lane = idx * FILL_U16_PER_VERT   // u16 lane base (14 lanes / vertex)
     const { dequantScale: scale, dequantHalf: half } = result
     // Dequant is the RTC residual about the z=0 tileEcefCenter (ELLIPSOID),
     // so the absolute ECEF = residual + tileEcefCenter.
@@ -202,8 +205,8 @@ describe('SyntheticEarthSurfaceBackend — vertex content', () => {
     expect(refX).toBeCloseTo(A, 1)  // sanity: equator radius == semi-major axis
     // The f32 tail now holds TILE-LOCAL Mercator (local_merc = mx − tileOrigin);
     // reconstruct lon/lat (origin + local → inverse Mercator). Mid vertex = (0,0).
-    const absMx = v[idx * 6 + 4]! + Z0_TILE_MX
-    const absMy = v[idx * 6 + 5]! + Z0_TILE_MY
+    const absMx = v[idx * FILL_FLOATS_PER_VERT + 4]! + Z0_TILE_MX
+    const absMy = v[idx * FILL_FLOATS_PER_VERT + 5]! + Z0_TILE_MY
     expect(absMx / (DEG2RAD * A)).toBeCloseTo(0, 4)               // lon ≈ 0
     expect((2 * Math.atan(Math.exp(absMy / A)) - Math.PI / 2) / DEG2RAD).toBeCloseTo(0, 4) // lat ≈ 0
   })
@@ -224,7 +227,7 @@ describe('SyntheticEarthSurfaceBackend — vertex content', () => {
     const v = result.vertices
     const u16 = new Uint16Array(v.buffer)
     const { dequantScale: scale, dequantHalf: half } = result
-    const vertexCount = v.length / 6
+    const vertexCount = v.length / FILL_FLOATS_PER_VERT
     // Derive the PRECISE (f64) grid lon/lat from the index — NOT the lossy f32
     // abs_lon/abs_lat varyings — and apply the SAME encode rule: polar rows keep
     // the true latitude (±90), the rest are Merc-clamped (matches packECEFWithPolarCaps).
@@ -250,7 +253,7 @@ describe('SyntheticEarthSurfaceBackend — vertex content', () => {
     // ellipsoid (sphere would miss by ~21 km at the pole), NOT lonLatToECEFSphere.
     const tol = 4 * scale
     for (const idx of samples) {
-      const lane = idx * 12
+      const lane = idx * FILL_U16_PER_VERT
       const ex = dequantAxis(u16, lane, scale, half) + Z0_TILE_CENTER[0]
       const ey = dequantAxis(u16, lane + 2, scale, half) + Z0_TILE_CENTER[1]
       const ez = dequantAxis(u16, lane + 4, scale, half) + Z0_TILE_CENTER[2]
@@ -279,7 +282,7 @@ describe('SyntheticEarthSurfaceBackend — vertex content', () => {
     const { dequantScale: scale, dequantHalf: half } = result
     const cols = 129
     const idx = 32 * cols + 64         // lon=0, lat=0
-    const lane = idx * 12
+    const lane = idx * FILL_U16_PER_VERT
     const [absX, absY, absZ] = lonLatToECEF(0, 0)
     const anchorX = absX - dequantAxis(u16, lane, scale, half)
     const anchorY = absY - dequantAxis(u16, lane + 2, scale, half)
@@ -302,7 +305,7 @@ describe('SyntheticEarthSurfaceBackend — vertex content', () => {
     backend.attach(sink)
     const v = pushed[0].result!.vertices
     for (let i = 0; i < 129 * 65; i++) {
-      expect(v[i * 6 + 3]).toBe(0)
+      expect(v[i * FILL_FLOATS_PER_VERT + 3]).toBe(0)
     }
   })
 })

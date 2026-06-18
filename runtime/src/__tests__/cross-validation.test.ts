@@ -415,15 +415,15 @@ describe('Cross-validation: Pipeline geometry area (clip + triangulate vs shapel
   // exact up to earcut precision.
   const set = compileGeoJSONToTiles(gj, { minZoom: 0, maxZoom })
 
-  // PR 2f: polygon vertices ship quantized — stride 6 floats / 24 bytes
-  // `[<u16×6 position in floats 0..2>, fid, abs_lon_deg, abs_lat_deg]`.
+  // #398: polygon vertices ship quantized — stride 7 floats / 28 bytes
+  // `[<u16×6 position in floats 0..2>, fid, abs_lon, abs_lat, true_lat]`.
   // The first 12 bytes (floats 0..2) hold the quantized u16 position lanes;
   // this cross-check never touches them. The fixture's `areaMercM2` is
   // shapely's exact intersection area in Mercator metres, so we reproject
   // via the packed abs_lon/abs_lat slots (floats 4/5) to recover Mercator
   // (mx, my) per vertex and shoelace from there. Coordinates become absolute
   // Mercator; the area shoelace remains translation-invariant.
-  const POLY_STRIDE = 6
+  const POLY_STRIDE = 7
   const EARTH_R_CV = 6378137
   const DEG2RAD_CV = Math.PI / 180
   function triangleAreaForFeature(
