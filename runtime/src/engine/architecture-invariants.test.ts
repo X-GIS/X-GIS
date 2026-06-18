@@ -258,7 +258,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // varying reconstruction are irreducible (they fix the ~10 px fill/outline
   // split at deep over-zoom). Extracting the shared flat-arm is a tracked
   // follow-up (blocked on the polygon-variant byte-equal snapshot gate).
-  'runtime/src/engine/shader-dsl/shaders/polygon.ts': 1168,
+  // Bumped 1168→1175 for the #398 disc-pole fix: vs_main_ecef gains a true_lat
+  // vertex input + the ladder gains a discLat param the disc (flat_rel) arm
+  // projects from (the Merc-clamped abs_lat left a ~550 km annular pole hole on
+  // ortho/azimuthal/stereographic). Irreducible additive plumbing.
+  'runtime/src/engine/shader-dsl/shaders/polygon.ts': 1175,
   // Bumped 1067→1092 for the minZoom + setMaxBounds gesture-clamp correctness
   // fixes (#244/#248): the maxBounds clamp method + its 7 gesture-exit call
   // sites are irreducible. camera.ts decomposition remains a tracked priority.

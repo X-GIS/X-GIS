@@ -1,13 +1,14 @@
 // Regression: createFullCoverTileData must emit the quantized-ECEF polygon
-// fill layout (POLYGON_FILL_FORMAT, stride 24 B = 6 floats) — the SAME layout
-// the fill pipeline binds (pipeline-factory.ts -> toVertexBufferLayout(
-// POLYGON_FILL_FORMAT)) and the fill VS decodes (abs_lon @loc3 / abs_lat @loc4).
+// fill layout (POLYGON_FILL_FORMAT, stride 28 B = 7 floats, #398) — the SAME
+// layout the fill pipeline binds (pipeline-factory.ts -> toVertexBufferLayout(
+// POLYGON_FILL_FORMAT)) and the fill VS decodes (abs_lon @loc3 / abs_lat @loc4
+// / true_lat @loc5).
 //
 // Before the fix it emitted a stride-5 tile-local DSFUN quad ([h,0,l,0,fid]),
 // so abs_lon/abs_lat were absent, the VS mis-decoded position, and the
 // per-fragment clip_bounds discard was inert -> an over-zoom full-cover parent
 // flooded the viewport. The CPU-detectable invariant pinned here is the buffer
-// layout: length divisible by DSFUN_POLY_STRIDE (=6), 4 corners => exactly 24
+// layout: length divisible by DSFUN_POLY_STRIDE (=7), 4 corners => exactly 28
 // floats, a real per-tile dequant half-range (> 0, not the identity default),
 // and abs_lon/abs_lat populated within the tile's lon/lat bounds.
 
@@ -62,7 +63,7 @@ function fullCoverResult(fid: number): BackendTileResult {
   }
 }
 
-describe('createFullCoverTileData quad layout (quantized-ECEF stride 6)', () => {
+describe('createFullCoverTileData quad layout (quantized-ECEF stride 7)', () => {
   it('synthesised full-cover quad matches the POLYGON_FILL_FORMAT stride', () => {
     const catalog = new TileCatalog()
     const backend = makeMockBackend()
@@ -74,13 +75,12 @@ describe('createFullCoverTileData quad layout (quantized-ECEF stride 6)', () => 
     const data = catalog.getTileData(key)
     expect(data, 'full-cover tile must be cached').not.toBeNull()
 
-    // 4 corners. Stride-6 (quantized ECEF) => 24 floats. The pre-fix stride-5
-    // buffer is 20 floats => 20 % 6 === 2 (fails), and 20 !== 24 (fails).
-    expect(data!.vertices.length % DSFUN_POLY_STRIDE, 'vertex buffer must be a whole number of stride-6 vertices').toBe(0)
-    expect(data!.vertices.length, '4 corners x 6 floats').toBe(4 * DSFUN_POLY_STRIDE)
+    // 4 corners. Stride-7 (quantized ECEF + true_lat, #398) => 28 floats.
+    expect(data!.vertices.length % DSFUN_POLY_STRIDE, 'vertex buffer must be a whole number of stride-7 vertices').toBe(0)
+    expect(data!.vertices.length, '4 corners x 7 floats').toBe(4 * DSFUN_POLY_STRIDE)
 
     // acceptResult bookkeeping (vertexCount = vertices.length / DSFUN_POLY_STRIDE) must be
-    // consistent with the actual buffer: 24 / 6 === 4 corners.
+    // consistent with the actual buffer: 28 / 7 === 4 corners.
     const idx = catalog.getIndex()!
     const verts = data!.vertices
     expect(verts.length / DSFUN_POLY_STRIDE).toBe(4)

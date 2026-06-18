@@ -62,11 +62,11 @@ describe('AC2c.3.7 — SyntheticEarthSurfaceBackend produces standard polygon ti
       acceptResult: (_key: number, r: import('../../../data/tile-source').BackendTileResult | null) => { result = r },
     } as unknown as import('../../../data/tile-source').TileSourceSink)
     expect(result).not.toBeNull()
-    // 128×64 grid (F1 rim-smoothing): (widthSegs+1)*(heightSegs+1) vertices, PR
-    // 2f quantized layout = stride 24 bytes = 6 floats each (u16×6 position +
-    // fid/abs_lon/abs_lat).
+    // 128×64 grid (F1 rim-smoothing): (widthSegs+1)*(heightSegs+1) vertices,
+    // #398 quantized layout = stride 28 bytes = 7 floats each (u16×6 position +
+    // fid/abs_lon/abs_lat/true_lat).
     const expectedVertexCount = (128 + 1) * (64 + 1)   // = 8385
-    expect(result!.vertices.length).toBe(expectedVertexCount * 6)
+    expect(result!.vertices.length).toBe(expectedVertexCount * 7)
     // Dequant companion params must accompany the quantized buffer.
     expect(result!.dequantScale).toBeGreaterThan(0)
     expect(result!.dequantHalf).toBeGreaterThan(0)
@@ -89,14 +89,15 @@ describe('AC2c.3.7 — SyntheticEarthSurfaceBackend produces standard polygon ti
       acceptResult: (_key: number, r: import('../../../data/tile-source').BackendTileResult | null) => { result = r },
     } as unknown as import('../../../data/tile-source').TileSourceSink)
     const verts = result!.vertices
-    // PR 2f: floats 0..2 of each stride-6 vertex are the quantized u16×6
+    // #398: floats 0..2 of each stride-7 vertex are the quantized u16×6
     // position lanes (NaN/denormal when reinterpreted as f32 — expected).
-    // Only the f32 tail (fid@3, abs_lon@4, abs_lat@5) is real f32 data.
+    // Only the f32 tail (fid@3, abs_lon@4, abs_lat@5, true_lat@6) is real f32 data.
     let nanCount = 0
-    for (let i = 0; i < verts.length; i += 6) {
+    for (let i = 0; i < verts.length; i += 7) {
       if (!Number.isFinite(verts[i + 3])) nanCount++
       if (!Number.isFinite(verts[i + 4])) nanCount++
       if (!Number.isFinite(verts[i + 5])) nanCount++
+      if (!Number.isFinite(verts[i + 6])) nanCount++
     }
     expect(nanCount).toBe(0)
   })

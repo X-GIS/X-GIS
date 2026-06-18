@@ -25,9 +25,10 @@ import { tileEcefCenterFromMerc } from '../../engine/projection/ecef'
 
 const A = 6378137
 const DEG2RAD = Math.PI / 180
-const FILL = 6        // floats per vertex (POLYGON_FILL_FORMAT stride)
-const LON_SLOT = 4    // abs_lon (tile-local Mercator X)
-const LAT_SLOT = 5    // abs_lat (tile-local Mercator Y)
+const FILL = 7          // floats per vertex (POLYGON_FILL_FORMAT stride, #398)
+const LON_SLOT = 4      // abs_lon (tile-local Mercator X)
+const LAT_SLOT = 5      // abs_lat (tile-local Mercator Y)
+const TRUELAT_SLOT = 6  // true_lat (UNCLAMPED latitude degrees — disc arm, #398)
 
 const mercX = (lonDeg: number): number => lonDeg * DEG2RAD * A
 const mercY = (latDeg: number): number =>
@@ -57,6 +58,12 @@ describe('POLYGON_FILL_FORMAT f32 tail contract: slots 4/5 are TILE-LOCAL Mercat
     const [absMx, absMy] = absMercFromTail(vertices[LON_SLOT]!, vertices[LAT_SLOT]!)
     expect(Math.abs(absMx - mx)).toBeLessThan(NEAR_M)
     expect(Math.abs(absMy - my)).toBeLessThan(NEAR_M)
+    // #398 slot 6: ground/non-polar true_lat == the clamped-decoded latitude.
+    // lat=50 is below the Merc clamp, so the abs_lat slot decodes to 50 and
+    // true_lat must agree (the disc arm reads the SAME latitude for ground).
+    const decodedLat = (2 * Math.atan(Math.exp(absMy / A)) - Math.PI / 2) / DEG2RAD
+    expect(vertices[TRUELAT_SLOT]!).toBeCloseTo(lat, 4)
+    expect(vertices[TRUELAT_SLOT]!).toBeCloseTo(decodedLat, 4)
   })
 
   it('packECEFWithPolarCaps writes tile-local Mercator (clamped), NOT degrees — #360 regression gate', () => {
@@ -76,6 +83,10 @@ describe('POLYGON_FILL_FORMAT f32 tail contract: slots 4/5 are TILE-LOCAL Mercat
     // Decoded latitude is Merc-clamped — never the raw ±90 nor a degrees artefact.
     const lat0 = (2 * Math.atan(Math.exp(absMy0 / A)) - Math.PI / 2) / DEG2RAD
     expect(lat0).toBeCloseTo(MERC_LAT_CLAMP, 2)
+    // #398 slot 6: the POLAR row keeps the TRUE unclamped latitude (±90) — this
+    // is what the disc (flat_rel) arm projects from to reach the pole, while
+    // abs_lat (slot 5) stays Merc-clamped for the hemisphere cull.
+    expect(vertices[TRUELAT_SLOT]!).toBeCloseTo(90, 4)
 
     // vertex 1: lon=30, lat=50 (below the clamp) → straight Mercator passthrough.
     const [absMx1, absMy1] = absMercFromTail(
@@ -83,5 +94,7 @@ describe('POLYGON_FILL_FORMAT f32 tail contract: slots 4/5 are TILE-LOCAL Mercat
     )
     expect(Math.abs(absMx1 - mercX(30))).toBeLessThan(NEAR_M)
     expect(Math.abs(absMy1 - mercY(50))).toBeLessThan(NEAR_M)
+    // #398 slot 6: a below-clamp row's true_lat == its actual latitude (50).
+    expect(vertices[FILL + TRUELAT_SLOT]!).toBeCloseTo(50, 4)
   })
 })

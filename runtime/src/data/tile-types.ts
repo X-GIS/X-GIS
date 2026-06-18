@@ -104,10 +104,10 @@ export interface TileData {
 }
 
 // Stride constants (exported for tests + VTR upload paths).
-// PR 2f: polygon fill vertices are the quantized ECEF layout — stride 24
-// bytes = 6 floats (uint16×6 position + f32 fid/abs_lon/abs_lat). Used for
-// XGVTIndex `vertexCount` bookkeeping only.
-export const DSFUN_POLY_STRIDE = 6
+// #398: polygon fill vertices are the quantized ECEF layout — stride 28
+// bytes = 7 floats (uint16×6 position + f32 fid/abs_lon/abs_lat/true_lat).
+// Used for XGVTIndex `vertexCount` bookkeeping only.
+export const DSFUN_POLY_STRIDE = 7
 export const DSFUN_LINE_STRIDE = 10
 
 // ═══ Catalog-level constants ═══

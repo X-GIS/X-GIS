@@ -31,14 +31,14 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const TRIANGLE_PATH = resolve(__dirname, '../../../playground/public/data/fixture-triangle.geojson')
 const COUNTRIES_PATH = resolve(__dirname, '../../../playground/public/data/countries.geojson')
 
-// PR 2f: polygon vertices now ship as the quantized ECEF layout — stride 24
-// bytes = 6 floats (uint16×6 position + f32 fid + f32 abs_lon_deg + f32
-// abs_lat_deg at float slots 3/4/5). We reproject via the packed
+// #398: polygon vertices now ship as the quantized ECEF layout — stride 28
+// bytes = 7 floats (uint16×6 position + f32 fid + f32 abs_lon + f32 abs_lat +
+// f32 true_lat at float slots 3/4/5/6). We reproject via the packed
 // abs_lon/abs_lat slots to recover tile-local Mercator metres for the
 // geometric invariant checks below (areas, boundary-edge alignment) — the
 // quantized position is never read here. Line vertices remain Mercator-DSFUN
 // stride-10 until PR 2d.
-const POLY_STRIDE = 6
+const POLY_STRIDE = 7
 const LINE_STRIDE = 10
 const EARTH_R_ = 6378137
 const DEG2RAD_ = Math.PI / 180

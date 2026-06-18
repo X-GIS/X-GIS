@@ -26,11 +26,12 @@ import { type TileData, DSFUN_LINE_STRIDE } from './tile-types'
 
 // ECEF stride-9 layout for polygon vertices (PR 2c.2):
 //   [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon_deg, abs_lat_deg]
-// PR 2f: parent polygon vertices are the quantized ECEF layout — stride 24
-// bytes = 6 floats. Only the f32 tail (fid/abs_lon/abs_lat at float slots
-// 3/4/5) is read here; the quantized u16 position (first 12 bytes) is never
-// touched — the clipper reprojects via abs_lon/abs_lat.
-const ECEF_POLY_STRIDE = 6
+// #398: parent polygon vertices are the quantized ECEF layout — stride 28
+// bytes = 7 floats. Only the f32 tail (fid/abs_lon/abs_lat at float slots
+// 3/4/5; true_lat @6 is re-derived by the re-pack, not read here) is read; the
+// quantized u16 position (first 12 bytes) is never touched — the clipper
+// reprojects via the tile-local Mercator tail.
+const ECEF_POLY_STRIDE = 7
 // WGS84 sphere radius for the abs_lon / Mercator inverse round-trip.
 const ECEF_EARTH_R = 6378137
 const ECEF_DEG2RAD = Math.PI / 180
@@ -123,9 +124,9 @@ export class SubTileGenerator {
       return [h, Math.fround(v - h)]
     }
 
-    // Polygon vertex INPUT layout (PR 2f): quantized ECEF stride 24 bytes =
-    // 6 floats — uint16×6 position (first 12 bytes) + f32 fid/abs_lon/abs_lat
-    // at float slots 3/4/5. The clipper still runs in tile-local Mercator
+    // Polygon vertex INPUT layout (#398): quantized ECEF stride 28 bytes =
+    // 7 floats — uint16×6 position (first 12 bytes) + f32 fid/abs_lon/abs_lat/
+    // true_lat at float slots 3/4/5/6. The clipper still runs in tile-local Mercator
     // metres, so we recover Mercator from the packed `abs_lon, abs_lat` slots
     // (sub-mm round-trip per `ecef-precision-fuzz.test.ts` AC2c.2.3) instead
     // of dequantizing + inverting ECEF → lon/lat via Bowring iteration. The

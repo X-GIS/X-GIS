@@ -161,8 +161,17 @@ export type TileScheme = 'web-mercator-xyz'
  *  my_l) so the flat-Mercator point/icon/label VS reads a precise position
  *  instead of reprojecting the lossy f32 abs_lon/abs_lat (~5.7 px @ z20). A
  *  cached v4 tile feeds stride-9 point bytes into the stride-13 decode →
- *  mis-paired points; eviction-on-mismatch handles it. */
-export const TILE_LAYOUT_VERSION = 5 as const
+ *  mis-paired points; eviction-on-mismatch handles it.
+ *
+ *  Bumped 5 → 6 (#398): the polygon FILL vertex grew from stride 24 B (6 f32)
+ *  to stride 28 B (7 f32) — an ADDITIVE `true_lat` tail slot (@float6, bytes
+ *  24..27) carrying the UNCLAMPED latitude the disc (flat_rel) arm projects
+ *  from, so the ±90 polar caps reach the pole on ortho/azimuthal/stereographic
+ *  instead of the Merc-clamped 85.05 ring (the ~550 km annular hole). A cached
+ *  v5 tile feeds stride-24 fill bytes into the stride-28 VS attribute layout →
+ *  mis-strided geometry; eviction-on-mismatch handles it. (Extruded format
+ *  unchanged — no poles in buildings.) */
+export const TILE_LAYOUT_VERSION = 6 as const
 export type TileLayoutVersion = typeof TILE_LAYOUT_VERSION
 
 /** Pre-version-field baseline. Tiles produced by backends that omit

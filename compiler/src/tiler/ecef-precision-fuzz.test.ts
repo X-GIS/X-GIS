@@ -122,12 +122,12 @@ function roundTripError(
 
 describe('AC2c.1.1 packECEFPolygonVertices precision round-trip', () => {
 
-  it('quantized stride-24 output: fid passes through unchanged at float slot 3', () => {
+  it('quantized stride-28 output: fid passes through unchanged at float slot 3', () => {
     const [lon_rad, lat_rad] = mercatorToLonLatRad(0, 0)
     const center = lonLatRadToECEF(lon_rad, lat_rad)
     const quant = packECEFPolygonVertices([0, 0, 42], center)
-    // stride 24 bytes = 6 floats per vertex; fid at float index 3.
-    expect(quant.vertices.length).toBe(6)
+    // #398: stride 28 bytes = 7 floats per vertex; fid at float index 3.
+    expect(quant.vertices.length).toBe(7)
     expect(quant.vertices[3]).toBe(42)
     expect(quant.dequantHalf).toBeGreaterThan(0)
     expect(quant.dequantScale).toBeGreaterThan(0)
@@ -145,8 +145,15 @@ describe('AC2c.1.1 packECEFPolygonVertices precision round-trip', () => {
                 ext * 7 - ext * 0.5, ext * 3 - ext * 0.5, 1]
     const quant = packECEFPolygonVertices(pv, center)
     const u16 = new Uint16Array(quant.vertices.buffer)
-    for (let lane = 0; lane < 12; lane++) {
-      expect(u16[lane]! >= 0 && u16[lane]! <= 0xFFFF).toBe(true)
+    // #398: stride is now 14 u16/vert (28 B). The 6 position lanes (0..5) of
+    // each vertex must be valid 16-bit values; the f32 tail lanes are not
+    // position and not checked here.
+    const U16_PER_VERT = 14
+    for (let vi = 0; vi < 2; vi++) {
+      for (let lane = 0; lane < 6; lane++) {
+        const v = u16[vi * U16_PER_VERT + lane]!
+        expect(v >= 0 && v <= 0xFFFF).toBe(true)
+      }
     }
     // Round-trip both verts: sub-mm.
     for (let vi = 0; vi < 2; vi++) {

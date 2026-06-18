@@ -21,6 +21,7 @@
 
 import { lonLatToECEF } from '../../engine/projection/ecef'
 import { quantizeAxis } from '@xgis/shared'
+import { POLYGON_FILL_FORMAT, vertexField } from '@xgis/compiler'
 
 /** Source-honest Web-Mercator latitude clamp. Rows beyond this take their TRUE
  *  latitude (the polar cap the Mercator pipeline cannot reach); rows within it
@@ -30,13 +31,16 @@ const DEG2RAD = Math.PI / 180
 const A = 6378137 // WGS84 semi-major axis — matches the tiler + render-side `off`.
 
 // POLYGON_FILL_FORMAT contract (compiler/src/tiler/polygon-vertex-format.ts):
-//   stride = 6 f32 = 12 u16. u16×6 position lanes 0..5 occupy bytes 0..11;
-//   f32 tail = feature_id @float3, abs_lon @float4, abs_lat @float5.
-const FILL_FLOATS_PER_VERT = 6
-const FILL_U16_PER_VERT = 12
-const FILL_FID_FLOAT = 3
-const FILL_LON_FLOAT = 4
-const FILL_LAT_FLOAT = 5
+//   stride = 7 f32 = 14 u16. u16×6 position lanes 0..5 occupy bytes 0..11;
+//   f32 tail = feature_id @float3, abs_lon @float4, abs_lat @float5,
+//   true_lat @float6. Slots are DERIVED from the shared format (not
+//   hardcoded) so a future tail change cannot drift this producer.
+const FILL_FLOATS_PER_VERT = POLYGON_FILL_FORMAT.stride / 4
+const FILL_U16_PER_VERT = POLYGON_FILL_FORMAT.stride / 2
+const FILL_FID_FLOAT = vertexField(POLYGON_FILL_FORMAT, 'feature_id').offset / 4
+const FILL_LON_FLOAT = vertexField(POLYGON_FILL_FORMAT, 'abs_lon').offset / 4
+const FILL_LAT_FLOAT = vertexField(POLYGON_FILL_FORMAT, 'abs_lat').offset / 4
+const FILL_TRUELAT_FLOAT = vertexField(POLYGON_FILL_FORMAT, 'true_lat').offset / 4
 
 /** Pack a stride-2 (lon,lat) mesh into the quantized-ECEF POLYGON_FILL_FORMAT
  *  WITH source-honest polar caps.
@@ -81,10 +85,14 @@ export function packECEFWithPolarCaps(
   // treats the rim as the ±85.05 boundary it can see).
   const localMx = new Float64Array(vertexCount)
   const localMy = new Float64Array(vertexCount)
+  // UNCLAMPED latitude (degrees) per vertex — the disc (flat_rel) arm reads this
+  // from the true_lat tail slot so polar-cap rows reach ±90 (#398).
+  const trueLat = new Float64Array(vertexCount)
   let maxAbs = 0
   for (let i = 0; i < vertexCount; i++) {
     const lon = meshVerts[i * 2]
     const lat = meshVerts[i * 2 + 1]
+    trueLat[i] = lat
     // Polar rows (|lat| beyond the Web-Mercator cap) forward the TRUE latitude
     // to the WGS84 ellipsoid; all others use the Merc-clamped latitude so they
     // stay geoid-identical to the kernel/ground-tile path.
@@ -125,6 +133,12 @@ export function packECEFWithPolarCaps(
     out[f + FILL_FID_FLOAT] = 0   // single synthetic feature
     out[f + FILL_LON_FLOAT] = localMx[i]
     out[f + FILL_LAT_FLOAT] = localMy[i]
+    // true_lat (#398) = the UNCLAMPED latitude (±90 at the pole). The disc
+    // (flat_rel) arm projects from this, so the polar caps reach the geographic
+    // pole instead of the Merc-clamped 85.05 ring the abs_lat slot decodes to
+    // (the 550 km annular hole on ortho/azimuthal/stereographic). The abs_lon/
+    // abs_lat slots stay Merc-clamped (unchanged) for the hemisphere cull.
+    out[f + FILL_TRUELAT_FLOAT] = trueLat[i]
   }
   return { vertices: out, dequantScale, dequantHalf: halfRange }
 }

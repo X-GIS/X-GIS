@@ -158,10 +158,10 @@ export function packECEFPointFeatures(
  *  buffer. The GPU VS reconstructs each axis as
  *  `q = f32(hi)*65536 + f32(lo); axis = q * dequantScale - dequantHalf`. */
 export interface QuantizedPolygonVertices {
-  /** Interleaved bytes: stride 24 = uint16×6 position (12 B) + f32 fid (4 B)
-   *  + f32 abs_lon (4 B) + f32 abs_lat (4 B). Backed by a Float32Array view
-   *  (stride 6 floats) so the f32 tail lands at float indices 3/4/5 and the
-   *  u16 position occupies the first 12 bytes. */
+  /** Interleaved bytes: stride 28 = uint16×6 position (12 B) + f32 fid (4 B)
+   *  + f32 abs_lon (4 B) + f32 abs_lat (4 B) + f32 true_lat (4 B). Backed by a
+   *  Float32Array view (stride 7 floats) so the f32 tail lands at float indices
+   *  3/4/5/6 and the u16 position occupies the first 12 bytes. */
   vertices: Float32Array
   /** `2 * halfRange / 0xFFFFFFFF` — the per-step metre size. */
   dequantScale: number
@@ -172,22 +172,25 @@ export interface QuantizedPolygonVertices {
 // Offsets derived from the single-source POLYGON_FILL_FORMAT spec so the
 // bytes this packer WRITES cannot drift from the WGSL @location attributes /
 // host GPUVertexBufferLayout that READ them. stride 24 B = 6 f32 = 12 u16.
-const FILL_FLOATS_PER_VERT = POLYGON_FILL_FORMAT.stride / 4   // 6
-const FILL_U16_PER_VERT = POLYGON_FILL_FORMAT.stride / 2      // 12
+const FILL_FLOATS_PER_VERT = POLYGON_FILL_FORMAT.stride / 4   // 7
+const FILL_U16_PER_VERT = POLYGON_FILL_FORMAT.stride / 2      // 14
 const FILL_FID_FLOAT = field(POLYGON_FILL_FORMAT, 'feature_id').offset / 4  // 3
 const FILL_LON_FLOAT = field(POLYGON_FILL_FORMAT, 'abs_lon').offset / 4     // 4
 const FILL_LAT_FLOAT = field(POLYGON_FILL_FORMAT, 'abs_lat').offset / 4     // 5
+const FILL_TRUELAT_FLOAT = field(POLYGON_FILL_FORMAT, 'true_lat').offset / 4 // 6
 
 /** Pack ABSOLUTE Mercator-metre polygon vertices into the quantized ECEF
  * layout (Phase 2 PR 2f — double-u16 position).
  *
  * Input: stride-3 `[mx, my, fid]` ABSOLUTE Mercator metres.
  * Output: `{ vertices, dequantScale, dequantHalf }`. `vertices` is a
- * stride-24-byte interleaved buffer:
+ * stride-28-byte interleaved buffer:
  *   bytes  0..11  uint16×6 — qx_hi, qx_lo, qy_hi, qy_lo, qz_hi, qz_lo
  *   bytes 12..15  f32      — fid
  *   bytes 16..19  f32      — local_merc_x (tile-local Mercator metres = mx − tileOriginMerc[0])
  *   bytes 20..23  f32      — local_merc_y (tile-local Mercator metres = my − tileOriginMerc[1])
+ *   bytes 24..27  f32      — true_lat (degrees, inv-merc(my)) — the disc arm's
+ *                            absLat (#398); ground tiles all < 85.05.
  *
  * The two f32 tail slots historically stored ABSOLUTE lon/lat degrees, which
  * the flat-Mercator fill VS re-projected for position — but a single f32 at
@@ -228,6 +231,13 @@ export function packECEFPolygonVertices(
   const rz = new Float64Array(count)
   const localMercX = new Float64Array(count)
   const localMercY = new Float64Array(count)
+  // True latitude (degrees) the Mercator tail decodes to — for ground tiles
+  // all |lat| < 85.05 so this equals inv-merc(my) in degrees, byte-identical to
+  // what the disc (flat_rel) arm would compute from the clamped abs_lat. Feeds
+  // the new true_lat tail slot the disc arm reads (#398); the polar-cap packer
+  // overrides it with the UNCLAMPED ±90 for the rows the Mercator pipeline
+  // cannot reach.
+  const trueLatDeg = new Float64Array(count)
   const fids = new Float64Array(count)
   let maxAbs = 0
   for (let i = 0; i < count; i++) {
@@ -237,6 +247,7 @@ export function packECEFPolygonVertices(
 
     const lon_rad = mx / A
     const lat_rad = 2 * Math.atan(Math.exp(my / A)) - Math.PI / 2
+    trueLatDeg[i] = lat_rad * RAD2DEG
     const sinLat = Math.sin(lat_rad)
     const cosLat = Math.cos(lat_rad)
     const N = A / Math.sqrt(1 - E2 * sinLat * sinLat)
@@ -284,6 +295,7 @@ export function packECEFPolygonVertices(
     out[f + FILL_FID_FLOAT] = fids[i]
     out[f + FILL_LON_FLOAT] = localMercX[i]
     out[f + FILL_LAT_FLOAT] = localMercY[i]
+    out[f + FILL_TRUELAT_FLOAT] = trueLatDeg[i]
   }
   return { vertices: out, dequantScale, dequantHalf: halfRange }
 }

@@ -24,14 +24,19 @@ export { field, type VbFormat, type WgslType, type VertexField, type ResolvedFie
 
 // ── The polygon fill format (consumed by vs_main_ecef) ───────────────────────
 // bytes  0..11  uint16×6 quantized ECEF-RTC position (q_xy @0, q_z @8)
-// bytes 12..23  f32 tail: feature_id, abs_lon (deg), abs_lat (deg)
-// stride 24.
+// bytes 12..23  f32 tail: feature_id, abs_lon (local Merc), abs_lat (local Merc)
+// bytes 24..27  f32 true_lat (degrees) — the UNCLAMPED latitude the disc
+//               (flat_rel) arm projects from, so the ±90 polar caps reach the
+//               pole instead of the Merc-clamped 85.05 ring (#398). Additive
+//               tail slot; the u16 position + abs_lon/abs_lat slots are
+//               unchanged. stride 28.
 export const POLYGON_FILL_FORMAT: VertexFormat = buildFormat([
   { name: 'q_xy', location: 0, vbFormat: 'uint16x4', wgslType: 'vec4<u32>' },
   { name: 'q_z', location: 1, vbFormat: 'uint16x2', wgslType: 'vec2<u32>' },
   { name: 'feature_id', location: 2, vbFormat: 'float32', wgslType: 'f32' },
   { name: 'abs_lon', location: 3, vbFormat: 'float32', wgslType: 'f32' },
   { name: 'abs_lat', location: 4, vbFormat: 'float32', wgslType: 'f32' },
+  { name: 'true_lat', location: 5, vbFormat: 'float32', wgslType: 'f32' },
 ])
 
 // ── The polygon extruded format (consumed by vs_main_ecef_extruded) ──────────
