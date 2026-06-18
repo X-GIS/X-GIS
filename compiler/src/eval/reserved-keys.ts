@@ -21,6 +21,16 @@
  *  baking per-feature values at decode time. */
 export const CAMERA_ZOOM_KEY = '$zoom' as const
 
+/** Reserved key for the current CAMERA PITCH in degrees (0 = top-down,
+ *  60 = max tilt). The evaluator's `pitch` identifier resolves to
+ *  `props[CAMERA_PITCH_KEY]`. Mirror of CAMERA_ZOOM_KEY for the Mapbox
+ *  `["pitch"]` expression accessor. Only the render-path eval sites
+ *  (filter / paint) inject it (they hold `camera.pitch`); worker /
+ *  tile-decode sites leave it absent (no camera), so `["pitch"]`
+ *  resolves to null there — same proxy contract `["zoom"]` has with
+ *  tileZoom. */
+export const CAMERA_PITCH_KEY = '$pitch' as const
+
 /** Reserved key for the feature's stable ID. Mapbox `["id"]` (PR #91)
  *  and `["get", "$featureId"]` both resolve through this slot.
  *  Worker / runtime inject `feature.id` here when present. */
@@ -53,6 +63,7 @@ export function normalizeGeometryType(t: string | undefined): string | undefined
  *  reserved" checks in lower.ts / converter. */
 export type ReservedKey =
   | typeof CAMERA_ZOOM_KEY
+  | typeof CAMERA_PITCH_KEY
   | typeof FEATURE_ID_KEY
   | typeof GEOMETRY_TYPE_KEY
 
@@ -75,6 +86,9 @@ export function makeEvalProps(opts: {
   props?: Record<string, unknown> | null
   /** Camera (or tile) zoom — exposed to `interpolate(zoom, …)` etc. */
   cameraZoom?: number
+  /** Camera pitch in degrees — exposed to Mapbox `["pitch"]`. Only the
+   *  render-path eval sites supply it; absent at worker/decode time. */
+  cameraPitch?: number
   /** Stable feature ID — exposed via `["id"]` / `["get","$featureId"]`. */
   featureId?: string | number
   /** GeoJSON geometry type — exposed via `["geometry-type"]`. */
@@ -91,6 +105,7 @@ export function makeEvalProps(opts: {
     : {}
   const out: Record<string, unknown> = { ...safeProps }
   if (opts.cameraZoom !== undefined) out[CAMERA_ZOOM_KEY] = opts.cameraZoom
+  if (opts.cameraPitch !== undefined) out[CAMERA_PITCH_KEY] = opts.cameraPitch
   if (opts.featureId !== undefined) out[FEATURE_ID_KEY] = opts.featureId
   if (opts.geometryType !== undefined) {
     out[GEOMETRY_TYPE_KEY] = normalizeGeometryType(opts.geometryType)

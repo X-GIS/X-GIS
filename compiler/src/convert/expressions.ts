@@ -819,6 +819,18 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
       }
       return 'zoom'
     }
+    case 'pitch': {
+      // Mapbox `["pitch"]` accessor → xgis bare `pitch` identifier.
+      // The evaluator special-cases the name (eval/evaluator.ts) to read
+      // `props[CAMERA_PITCH_KEY]`, so this resolves to the live camera
+      // pitch (degrees) at evaluation time — mirror of the `["zoom"]`
+      // path above. Render-path eval sites (filter / paint) inject it;
+      // worker / tile-decode sites leave it null (no camera).
+      if (v.length !== 1) {
+        warnings.push(`Malformed ["pitch"] expression: zero-arg accessor takes no arguments, got ${v.length - 1}.`)
+      }
+      return 'pitch'
+    }
     case 'geometry-type': {
       // Mapbox ["geometry-type"] resolves to "Point" / "LineString" /
       // "Polygon" (or their Multi* variants) per feature. xgis has no
@@ -937,7 +949,9 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
       'sky-radial-progress': 'Sky-radial-progress accessor — sky layer rendering not implemented.',
       'accumulated': 'Accumulated accessor — clusterProperties pipeline not implemented (clustering is host-side today).',
       'distance-from-center': 'Distance-from-center accessor — globe-mode runtime queries not wired through to filter eval yet.',
-      'pitch': 'Camera pitch accessor — runtime pitch is not exposed as a filter/paint input today.',
+      // `pitch` is now SUPPORTED — handled by the `case 'pitch'` arm
+      // above (returns the bare `pitch` identifier), so it never reaches
+      // this fallback table.
       'feature-state': 'Feature-state accessor — map.setFeatureState() / hover-state is not yet implemented; values resolve to null.',
       'image': 'Image accessor — sprite atlas (Batch 2) not yet implemented; the layer falls through to its colour-only fallback.',
       'within': 'Within accessor — polygon-containment filter not yet implemented; predicate evaluates to false.',

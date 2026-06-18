@@ -167,6 +167,14 @@ export interface ShowCommand {
    *  Runtime bakes CSS px → NDC-per-pixel into u.line_translate_x/y. */
   strokeTranslateX?: number
   strokeTranslateY?: number
+  /** Mapbox `paint.fill-antialias` opt-out. Default (undefined / true)
+   *  preserves the current fill render path byte-for-byte; only `false`
+   *  is passed through to disable the rim-alpha smoothstep at runtime. */
+  fillAntialias?: boolean
+  /** Mapbox `paint.fill-extrusion-vertical-gradient` opt-out. Default
+   *  (undefined / true) preserves the current extrude shading; only
+   *  `false` disables the vertical-gradient wall ramp at runtime. */
+  fillExtrusionVerticalGradient?: boolean
   /** Optional per-feature text label spec (Batch 1c). When set, the
    *  runtime resolves `label.text` against each feature's properties
    *  via the format pipeline, projects the feature's anchor (point
@@ -474,6 +482,8 @@ function emitShow(
     circleBlur: node.circleBlur,
     strokeTranslateX: node.strokeTranslateX,
     strokeTranslateY: node.strokeTranslateY,
+    fillAntialias: node.fillAntialias,
+    fillExtrusionVerticalGradient: node.fillExtrusionVerticalGradient,
     label: node.label,
     paintShapes: {
       fill: colorValueToShape(node.fill),

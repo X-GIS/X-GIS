@@ -115,6 +115,11 @@ export function lowerLabelProps(
   let labelIconSizeZoomStopsBase: number | undefined
   let labelIconAnchor: import('./render-node').LabelDef['iconAnchor'] | undefined
   let labelIconOffset: [number, number] | undefined
+  // Mapbox `paint.icon-translate` — viewport CSS-px screen offset on the
+  // icon (mirror of icon-offset's accumulator; separate field so a
+  // shield + caption style can offset icon vs text independently).
+  let labelIconTranslateX: number | undefined
+  let labelIconTranslateY: number | undefined
   let labelIconRotate: number | undefined
   let labelIconOpacity: number | undefined
   // iter 113 — text/icon-opacity PropertyShape accumulators (zoom-interp
@@ -297,6 +302,9 @@ export function lowerLabelProps(
           // Bracket-binding form for negative icon-offset components.
           if (name === 'label-icon-offset-x') { labelIconOffset = [n, labelIconOffset?.[1] ?? 0]; continue }
           if (name === 'label-icon-offset-y') { labelIconOffset = [labelIconOffset?.[0] ?? 0, n]; continue }
+          // Bracket-binding form for negative icon-translate components.
+          if (name === 'label-icon-translate-x') { labelIconTranslateX = n; continue }
+          if (name === 'label-icon-translate-y') { labelIconTranslateY = n; continue }
           if (name === 'label-icon-rotate') { labelIconRotate = n; continue }
           if (name === 'label-icon-size') { labelIconSize = n; continue }
         }
@@ -490,6 +498,16 @@ export function lowerLabelProps(
         if (!isNaN(num)) labelIconOffset = [labelIconOffset?.[0] ?? 0, num]
         continue
       }
+      if (name.startsWith('label-icon-translate-x-')) {
+        const num = parseFloat(name.slice('label-icon-translate-x-'.length))
+        if (!isNaN(num)) labelIconTranslateX = num
+        continue
+      }
+      if (name.startsWith('label-icon-translate-y-')) {
+        const num = parseFloat(name.slice('label-icon-translate-y-'.length))
+        if (!isNaN(num)) labelIconTranslateY = num
+        continue
+      }
       if (name.startsWith('label-icon-rotate-')) {
         const num = parseFloat(name.slice('label-icon-rotate-'.length))
         if (!isNaN(num)) labelIconRotate = num
@@ -590,7 +608,7 @@ export function lowerLabelProps(
     labelMaxWidth, labelLineHeight, labelJustify,
     labelPlacement, labelSpacing,
     labelRotationAlignment, labelPitchAlignment, labelKeepUpright,
-    labelIconImage, labelIconImageExpr, labelIconSize, labelIconAnchor, labelIconOffset, labelIconRotate, labelIconOpacity, labelIconRotationAlignment,
+    labelIconImage, labelIconImageExpr, labelIconSize, labelIconAnchor, labelIconOffset, labelIconTranslateX, labelIconTranslateY, labelIconRotate, labelIconOpacity, labelIconRotationAlignment,
     labelIconSizeZoomStops: labelIconSizeZoomStops.length > 0 ? labelIconSizeZoomStops : undefined,
     labelIconSizeZoomStopsBase,
     labelOpacityZoomStops: labelOpacityZoomStops.length > 0 ? labelOpacityZoomStops : undefined,
@@ -665,6 +683,8 @@ function foldLabelKnobs(
     labelIconSizeZoomStopsBase?: number
     labelIconAnchor?: import('./render-node').LabelDef['iconAnchor']
     labelIconOffset?: [number, number]
+    labelIconTranslateX?: number
+    labelIconTranslateY?: number
     labelIconRotate?: number
     labelIconOpacity?: number
     labelIconRotationAlignment?: 'map'
@@ -747,6 +767,8 @@ function foldLabelKnobs(
     ...(knobs.labelIconSize !== undefined ? { iconSize: knobs.labelIconSize } : {}),
     ...(knobs.labelIconAnchor !== undefined ? { iconAnchor: knobs.labelIconAnchor } : {}),
     ...(knobs.labelIconOffset !== undefined ? { iconOffset: knobs.labelIconOffset } : {}),
+    ...(knobs.labelIconTranslateX !== undefined ? { iconTranslateX: knobs.labelIconTranslateX } : {}),
+    ...(knobs.labelIconTranslateY !== undefined ? { iconTranslateY: knobs.labelIconTranslateY } : {}),
     ...(knobs.labelIconRotate !== undefined ? { iconRotate: knobs.labelIconRotate } : {}),
     ...(knobs.labelIconOpacity !== undefined ? { iconOpacity: knobs.labelIconOpacity } : {}),
     ...(knobs.labelIconColor !== undefined ? { iconColor: knobs.labelIconColor } : {}),

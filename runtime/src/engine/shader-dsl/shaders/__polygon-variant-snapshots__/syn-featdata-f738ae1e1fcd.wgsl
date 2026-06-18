@@ -1,4 +1,4 @@
-// baseline: 1e98ea79d699374a3584e50d689121e5cc274414
+// baseline: b0ed99d96cebee92acc41fa58995f0b4d4361331
 // fixture: syn-featdata
 // variant.key: syn-featdata
 // pick: false
@@ -459,7 +459,8 @@ fn vs_main_ecef_extruded(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u3
   let LIGHT_COLOR = vec3<f32>(1.0);
   var directional: f32 = clamp(dot(face_normal, LIGHT_POS), 0.0, 1.0);
   directional = mix((1.0 - LIGHT_INTENSITY), max(((1.0 - colorvalue) + LIGHT_INTENSITY), 1.0), directional);
-  let is_wall = (abs(face_normal.z) < 0.5);
+  let vgrad_on = (u.cam_ecef_off_l.w != 0.0);
+  let is_wall = ((abs(face_normal.z) < 0.5) && vgrad_on);
   let t_top = is_top;
   if (is_wall) {
     let h_for_grad = max(wall_height, 1.0);
@@ -499,7 +500,9 @@ fn fs_fill(input: VertexOutput) -> FragmentOutput {
   let roof_bonus = select(0.0, 0.05, (input.wall_blend >= 0.999));
   let wall_shade = min(1.0, (v_shade + roof_bonus));
   out.color = vec4<f32>(feat_data[input.feat_id * 3u + 0u], feat_data[input.feat_id * 3u + 1u], feat_data[input.feat_id * 3u + 2u], 1.0);
-  out.color.w = (out.color.w * polygon_rim_alpha(input.abs_merc_x, input.abs_merc_y));
+  if ((u.cam_ecef_off_h.w != 0.0)) {
+    out.color.w = (out.color.w * polygon_rim_alpha(input.abs_merc_x, input.abs_merc_y));
+  }
   let base_depth = compute_log_frag_depth(input.view_w, u.log_depth_fc);
   let id_lo = (input.feat_id & 65535u);
   let mixed = (((id_lo ^ (id_lo >> 7u)) ^ (id_lo << 3u)) & 1023u);
