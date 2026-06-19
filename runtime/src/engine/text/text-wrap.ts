@@ -174,10 +174,20 @@ export function cjkBucketPx(displayCssPx: number, dpr: number): number {
   return Math.round(bucket * dpr)
 }
 
-/** Display-size bucket (device px) for a label, or 0 when it has no CJK
- *  (Latin-only → plain PBF path). Replaces the old CJK_MIN_DISPLAY_PX floor:
- *  CJK renders crisp at its bucket so the authored size is kept (#421). */
+/** Local-ideograph CJK routing is PARKED — it caused a thick/blurry regression
+ *  at normal zoom (OFM Bright z17): the small-bucket Canvas2D→computeSDF SDF
+ *  reads softer + heavier than the 24-px PBF (and than MapLibre's own local),
+ *  so CJK labels looked thicker, fuzzier, and lower-contrast than ML. Until the
+ *  local SDF quality matches PBF/ML, route CJK through the sharp PBF path
+ *  (return 0). The CJK_MIN_DISPLAY_PX floor stays removed, so PBF renders CJK at
+ *  the faithful authored size and #421's oversize fix is preserved. The bucket
+ *  plumbing (cjkSizedFontKey / PbfRasterizer.cjkFull / host routing) stays in
+ *  place, dormant, for the eventual SDF-quality fix — flip this to re-enable. */
+const LOCAL_IDEOGRAPH_ENABLED: boolean = false
+
+/** Display-size bucket (device px) for a label, or 0 → plain PBF path. */
 export function cjkBucketFor(text: string, sizeCss: number, dpr: number): number {
+  if (!LOCAL_IDEOGRAPH_ENABLED) return 0
   return hasCjkIdeograph(text) ? cjkBucketPx(sizeCss, dpr) : 0
 }
 
