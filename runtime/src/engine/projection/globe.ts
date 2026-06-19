@@ -124,16 +124,16 @@ export function globeAltitude(
     )
     return viewHeightMeters / 2 / Math.tan(FOV_RAD / 2)
   }
-  // Sphere-diameter cap — only at z<1 where the uncapped view extent
-  // exceeds the sphere and the disc would subtend ≤ 19 % of the canvas
-  // (memory project_non_merc_z0_disc_render_fail_2026_05_20). At z≥1
-  // the altitude already fits the disc + camera context the globe's
-  // ortho-vs-perspective foreshortening tests pin (globe.test.ts:331).
-  const SPHERE_VIEW_HEIGHT_M = 2 * 6378137  // EARTH_R × 2 = disc diameter
-  const viewHeightMeters = zoom < 1
-    ? Math.min(rawViewHeightMeters, SPHERE_VIEW_HEIGHT_M)
-    : rawViewHeightMeters
-  return viewHeightMeters / 2 / Math.tan(FOV_RAD / 2)
+  // #450: NO z<1 cap. The perspective globe follows MapLibre's mercator pixel
+  // scale at every zoom — disc diameter ≈ worldSize/π — so it SHRINKS as you
+  // zoom out (z0 ≈ 150 px, matching ML). The earlier `min(raw, 2·EARTH_R)` cap
+  // clamped the z<1 view height to the sphere diameter, forcing the globe to
+  // ~3× ML's size (a near-full-viewport disc that, under pitch, became the
+  // reported #450 grazing close-up). The azimuthal/ortho DISC keeps its own
+  // flatViewHeightCapM (the ortho branch above); this touches only the true
+  // perspective globe, and only at z<1 (z≥1 was already uncapped, so the
+  // foreshortening tests at globe.test.ts:331 are unaffected).
+  return rawViewHeightMeters / 2 / Math.tan(FOV_RAD / 2)
 }
 
 export interface GlobeView {

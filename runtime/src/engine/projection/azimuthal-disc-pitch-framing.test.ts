@@ -115,11 +115,17 @@ describe('azimuthal disc pitch-framing continuity (globeOrtho altitude == flat-d
   // branch) is the broken path — assert it genuinely disagrees with the flat
   // disc on the offending cells, so this gate would have CAUGHT the bug.
   it('the old projType-blind altitude DID jump (regression witness)', () => {
-    // ortho z1: old uncapped alt is ~2.45× the flat 2R-capped alt.
+    // ortho z1: the projType-blind path is uncapped at z≥1 (#450 left z≥1
+    // untouched) → ~2.45× the flat 2R-capped alt: a hard jump.
     const oldOrthoZ1 = globeAltitude(1, H, false) / flatDiscAltitude(1, 3)
     expect(oldOrthoZ1).toBeGreaterThan(2) // would have been a hard jump
-    // azi z0: old 2R-capped alt is ~0.32× the flat WORLD_MERC-capped alt.
-    const oldAziZ0 = globeAltitude(0, H, false) / flatDiscAltitude(0, 4)
+    // azi z0: the OLD projType-blind `min(raw, 2R)` cap was ~0.32× the flat
+    // WORLD_MERC-capped azi alt. #450 removed that z<1 cap from the perspective
+    // globe (globeAltitude ortho=false), so compute the historical capped value
+    // inline rather than via the now-uncapped production path.
+    const mppZ0 = (WORLD_MERC / TILE_PX) / Math.pow(2, 0)
+    const oldCappedAltZ0 = Math.min(H * mppZ0, 2 * 6378137) / 2 / Math.tan(FOV_RAD / 2)
+    const oldAziZ0 = oldCappedAltZ0 / flatDiscAltitude(0, 4)
     expect(oldAziZ0).toBeLessThan(0.4)
   })
 
