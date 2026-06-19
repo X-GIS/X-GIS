@@ -323,8 +323,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped to 1137 (#424 pointLabelPairKey + #417 one-way-arrow icon-collision
   // + #411 deep-zoom road-label screen-space subdivision) then 1137→1142 (mbx
   // icon-translate: dispatchIcon adds def.iconTranslateX/Y × dpr alongside
-  // icon-offset, plus the def type fields + contract comment).
-  'runtime/src/engine/render/passes/label-pass.ts': 1142,
+  // icon-offset, plus the def type fields + contract comment). Then 1142→1157
+  // for the #402-C rebake-sig pixel-quantization: the exported dispatchCenterKey
+  // helper (centre→px key, with the load-bearing rationale comment) + call site.
+  'runtime/src/engine/render/passes/label-pass.ts': 1157,
   // VTR Unit-1 extraction (Cluster E-selection). The hysteresis +
   // readiness-gate logic was moved VERBATIM (plan §5 DO-NOT-SPLIT #2),
   // and its hard-won fix-history comments carry the bulk of the LOC —

@@ -17,7 +17,7 @@
 import { evaluate, makeEvalProps, resolveColor } from '@xgis/compiler'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../../__profile__/perf-marks'
 import { DEBUG_OVERDRAW } from '../../debug-flags'
-import { WORLD_MERC } from '../../gpu/gpu-shared'
+import { WORLD_MERC, TILE_PX } from '../../gpu/gpu-shared'
 import { mercatorYToLat } from '../../projection/projection'
 import { isGlobeProj } from '../../projection/projections-table'
 import { projMercatorCpu } from '../../shader-dsl/shaders/cpu-projections'
@@ -74,6 +74,21 @@ export function lineLabelSubdivSteps(
   if (!(pxPerMeter > 0) || !(gapPx > 0)) return 1
   const segScreenPx = segLenM * pxPerMeter
   return Math.max(1, Math.min(maxSteps, Math.ceil(segScreenPx / gapPx)))
+}
+
+/** Camera-centre key for the label-rebake dispatch signature, quantized to ~1
+ *  CSS px — NOT 1 Mercator metre. The rebake-skip replays the prior frame's
+ *  baked screen-px icons while this key is unchanged. centerX/centerY are
+ *  Mercator metres; `centerX|0` ticks only every 1 m, which at deep zoom is tens
+ *  of px (z22: mpp ≈ 0.0186 m/px → 1 m ≈ 54 px), so a sub-metre drag froze the
+ *  icons/shields for tens of px while the GPU road kept moving (#402-C jitter).
+ *  Dividing by mpp = WORLD_MERC/TILE_PX/2^zoom yields the centre's pixel
+ *  coordinate, so the key ticks per ~1 px of pan at every zoom (and stops the
+ *  wasteful per-metre rebakes at low zoom where 1 m ≪ 1 px). Exported for
+ *  coverage. */
+export function dispatchCenterKey(centerX: number, centerY: number, zoom: number): string {
+  const mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, zoom)
+  return `${(centerX / mpp) | 0},${(centerY / mpp) | 0}`
 }
 
 class LabelPass implements RenderPass {
@@ -317,7 +332,7 @@ class LabelPass implements RenderPass {
           _vtrSig += `${name}:${e.renderer.getCacheSize()};`
         }
         const _dispatchSig =
-          `${(c.zoom * 100) | 0}|${c.centerX | 0},${c.centerY | 0}`
+          `${(c.zoom * 100) | 0}|${dispatchCenterKey(c.centerX, c.centerY, c.zoom)}`
           + `|${(c.bearing * 100) | 0}|${(c.pitch * 100) | 0}`
           + `|${host.ctx.canvas.width}x${host.ctx.canvas.height}`
           + `|${labelShows.length}|${_vtrSig}`
