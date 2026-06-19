@@ -1012,13 +1012,12 @@ export class TileCatalog {
     const tileNorth = Math.atan(Math.sinh(Math.PI * (1 - 2 * ty / tn))) * 180 / Math.PI
     const fid = entry.fullCoverFeatureId
 
-    // Quantized-ECEF stride-6 quad (POLYGON_FILL_FORMAT, stride 24 B) spanning
-    // the tile in ABSOLUTE Mercator metres — the SAME layout the fill pipeline
-    // binds and the fill VS decodes (abs_lon @loc3 / abs_lat @loc4). Built via
-    // the canonical packer + anchor the tiler uses (vector-tiler.ts). Earlier
-    // this emitted a stride-5 tile-local DSFUN quad with no abs_lon/abs_lat, so
-    // the fill VS mis-decoded position and the per-fragment clip_bounds discard
-    // was inert — an over-zoom full-cover parent flooded the viewport.
+    // Quantized-ECEF quad (POLYGON_FILL_FORMAT, stride 28 B) spanning the tile,
+    // input as ABSOLUTE Mercator metres — the SAME layout the fill pipeline
+    // binds and the fill VS decodes. Built via the canonical packer + anchor the
+    // tiler uses (vector-tiler.ts). Earlier this emitted a stride-5 tile-local
+    // DSFUN quad with no f32 tail, so the fill VS mis-decoded position and the
+    // per-fragment clip_bounds discard was inert (over-zoom flood).
     const [swMx, swMy] = lonLatToMercF64(tileWest, tileSouth)
     const [seMx, seMy] = lonLatToMercF64(tileEast, tileSouth)
     const [neMx, neMy] = lonLatToMercF64(tileEast, tileNorth)
@@ -1030,7 +1029,15 @@ export class TileCatalog {
       neMx, neMy, fid,  // corner 2 (NE)
       nwMx, nwMy, fid,  // corner 3 (NW)
     ]
-    const quant = packECEFPolygonVertices(scratchPv, tileEcefCenterFromMerc(swMx, swMy))
+    // tileOriginMerc = [merc(tileWest), merc(tileSouth)] = [swMx, swMy] — MUST
+    // match the renderer's per-tile `tile_origin_merc` uniform. The packer
+    // stores the f32 tail as TILE-LOCAL Mercator (mx − tileOriginMerc); omitting
+    // this arg defaulted it to [0,0], so the tail held ABSOLUTE Mercator and the
+    // flat fill VS double-counted the origin → the full-cover quad rendered at
+    // the wrong place (pure-ocean tiles showed the background color, #449).
+    const quant = packECEFPolygonVertices(
+      scratchPv, tileEcefCenterFromMerc(swMx, swMy), [swMx, swMy],
+    )
     const vertices = quant.vertices
     const indices = new Uint32Array([0, 1, 2, 0, 2, 3])
 

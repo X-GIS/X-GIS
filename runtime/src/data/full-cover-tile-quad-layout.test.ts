@@ -115,4 +115,46 @@ describe('createFullCoverTileData quad layout (quantized-ECEF stride 7)', () => 
     expect(lat0).toBeGreaterThanOrEqual(tileSouth - eps)
     expect(lat0).toBeLessThanOrEqual(tileNorth + eps)
   })
+
+  // #449 — the tail must be TILE-LOCAL Mercator (mx − tileOriginMerc), so
+  // createFullCoverTileData MUST pass tileOriginMerc to the packer. Omitting it
+  // defaulted to [0,0] → the tail held ABSOLUTE Mercator → the flat fill VS
+  // double-counted tile_origin_merc → the full-cover quad rendered off-tile
+  // (pure-ocean tiles showed the background colour). The prior test used tile
+  // (3,4,3) where tileWest=0 AND tileSouth=0, so [0,0] coincided with the real
+  // origin and MASKED the bug — this uses a tile with a NON-zero origin so the
+  // absolute-vs-local mistake throws the reconstructed corner out of bounds.
+  it('full-cover quad tail is tile-local at a non-zero-origin tile (#449)', () => {
+    const catalog = new TileCatalog()
+    const backend = makeMockBackend()
+    catalog.attachBackend(backend)
+
+    const key = tileKey(3, 6, 2) // lon ∈ [90,135], lat ∈ [~40.9,~66.5] — origin ≠ 0
+    backend.pushResult(key, fullCoverResult(7))
+    const data = catalog.getTileData(key)
+    expect(data, 'full-cover tile must be cached').not.toBeNull()
+
+    const [tz, tx, ty] = tileKeyUnpack(key)
+    const tn = Math.pow(2, tz)
+    const tileWest = tx / tn * 360 - 180
+    const tileEast = (tx + 1) / tn * 360 - 180
+    const tileSouth = Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + 1) / tn))) * 180 / Math.PI
+    const tileNorth = Math.atan(Math.sinh(Math.PI * (1 - 2 * ty / tn))) * 180 / Math.PI
+    const R = 6378137, D2R = Math.PI / 180
+    const tileOriginMx = tileWest * D2R * R
+    const tileOriginMy = Math.log(Math.tan(Math.PI / 4 + tileSouth * D2R / 2)) * R
+    const verts = data!.vertices
+    const eps = 1e-3
+    // Every corner: local_merc (slots 4/5) + origin must reconstruct INSIDE the
+    // tile. Fails-before (tail = absolute → reconstruct ≈ 2× → out of bounds).
+    for (let c = 0; c < 4; c++) {
+      const lon = (verts[c * DSFUN_POLY_STRIDE + 4] + tileOriginMx) / (D2R * R)
+      const absMy = verts[c * DSFUN_POLY_STRIDE + 5] + tileOriginMy
+      const lat = (2 * Math.atan(Math.exp(absMy / R)) - Math.PI / 2) / D2R
+      expect(lon, `corner ${c} lon in [${tileWest},${tileEast}]`).toBeGreaterThanOrEqual(tileWest - eps)
+      expect(lon, `corner ${c} lon in [${tileWest},${tileEast}]`).toBeLessThanOrEqual(tileEast + eps)
+      expect(lat, `corner ${c} lat in [${tileSouth},${tileNorth}]`).toBeGreaterThanOrEqual(tileSouth - eps)
+      expect(lat, `corner ${c} lat in [${tileSouth},${tileNorth}]`).toBeLessThanOrEqual(tileNorth + eps)
+    }
+  })
 })
