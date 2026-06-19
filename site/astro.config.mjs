@@ -1,4 +1,5 @@
 import { defineConfig } from 'astro/config'
+import { fileURLToPath, URL } from 'node:url'
 import sitemap from '@astrojs/sitemap'
 import tailwindcss from '@tailwindcss/vite'
 import basicSsl from '@vitejs/plugin-basic-ssl'
@@ -40,6 +41,17 @@ export default defineConfig({
   ],
   vite: {
     plugins: [tailwindcss(), basicSsl()],
+    // Dev/build resolve @xgis/runtime to SOURCE, not the published dist.
+    // ship-P0 packaging set the runtime package `main`/`exports` to
+    // ./dist/index.js for external npm consumers; without this alias the
+    // site build (blueprint live-preview + Hero both dynamically import
+    // @xgis/runtime) fails to resolve the package entry because dist is
+    // built only for publishing. Same alias the playground vite config uses.
+    resolve: {
+      alias: {
+        '@xgis/runtime': fileURLToPath(new URL('../runtime/src/index.ts', import.meta.url)),
+      },
+    },
     // Workspace packages must skip Vite's pre-bundle (it can't crawl
     // their TS exports correctly through symlinks). Same fix the
     // playground uses.
