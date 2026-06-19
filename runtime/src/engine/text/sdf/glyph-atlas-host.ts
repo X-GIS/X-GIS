@@ -20,6 +20,8 @@ import {
 import type {
   GlyphRasterizer, GlyphRasterResult,
 } from './glyph-rasterizer'
+import { cjkSizedFontKey } from './glyph-rasterizer'
+import { codePointIsIdeographic } from '../text-wrap'
 
 export interface GlyphInfo {
   codepoint: number
@@ -305,19 +307,21 @@ export class GlyphAtlasHost {
    *  After this completes for ALL pending labels, the atlas is
    *  stable for the rest of the frame; subsequent `ensureString`
    *  calls hit the metrics cache without further eviction. */
-  preloadString(fontKey: string, text: string): void {
+  preloadString(fontKey: string, text: string, cjkBucket = 0): void {
     // iter-#10 Phase A slice 4 — string-level fast path. A previous
     // call admitted every codepoint at the same generation; nothing
     // can have shifted the atlas state for this (fontKey, text) since
     // (eviction would bump the generation). Skip the per-codepoint
     // walk + Map probes inside `ensure()`.
-    const memoKey = fontKey + '|' + text
+    // cjkBucket is part of the memo key: a zoom that re-buckets the CJK
+    // glyphs is a different atlas working set and MUST re-admit.
+    const memoKey = fontKey + '|' + cjkBucket + '|' + text
     if (this.preloadedAtGen.get(memoKey) === this._generation) return
     const len = text.length
     let i = 0
     while (i < len) {
       const cp = text.codePointAt(i)!
-      this.ensure(fontKey, cp)
+      this.ensure(this.routeKey(fontKey, cp, cjkBucket), cp)
       i += cp > 0xFFFF ? 2 : 1
     }
     // CRITICAL: record the POST-ensure generation. Any eviction
@@ -340,18 +344,18 @@ export class GlyphAtlasHost {
    *
    *  Returns true iff every codepoint's metricsKey is in
    *  `this.metrics` (= survived the preload + any further eviction). */
-  hasAllGlyphs(fontKey: string, text: string): boolean {
+  hasAllGlyphs(fontKey: string, text: string, cjkBucket = 0): boolean {
     // iter-#10 Phase A slice 4 — string-level fast path. A previous
     // call returned true at the current generation; the metrics map
     // cannot have shed any of those entries since (eviction bumps
     // generation, invalidating the memo). Skip the per-codepoint loop.
-    const memoKey = fontKey + '|' + text
+    const memoKey = fontKey + '|' + cjkBucket + '|' + text
     if (this.hasAllGlyphsAtGen.get(memoKey) === this._generation) return true
     const len = text.length
     let i = 0
     while (i < len) {
       const cp = text.codePointAt(i)!
-      const key: GlyphKey = { fontKey, codepoint: cp, sdfRadius: this.sdfRadius }
+      const key: GlyphKey = { fontKey: this.routeKey(fontKey, cp, cjkBucket), codepoint: cp, sdfRadius: this.sdfRadius }
       if (!this.metrics.has(this.metricsKey(key))) return false
       i += cp > 0xFFFF ? 2 : 1
     }
@@ -382,8 +386,8 @@ export class GlyphAtlasHost {
    *  Contract: returned array is SHARED with the cache. Callers must
    *  not mutate (matches the existing GlyphInfo / infoCache contract;
    *  text-stage `wrapWithKnuthPlass` + line-label paths read-only). */
-  ensureString(fontKey: string, text: string): GlyphInfo[] {
-    const cacheKey = fontKey + '|' + text
+  ensureString(fontKey: string, text: string, cjkBucket = 0): GlyphInfo[] {
+    const cacheKey = fontKey + '|' + cjkBucket + '|' + text
     const cached = this.stringInfoCache.get(cacheKey)
     if (cached !== undefined && cached.generation === this._generation) {
       return cached.info
@@ -393,7 +397,7 @@ export class GlyphAtlasHost {
     let i = 0
     while (i < len) {
       const cp = text.codePointAt(i)!
-      out.push(this.ensure(fontKey, cp))
+      out.push(this.ensure(this.routeKey(fontKey, cp, cjkBucket), cp))
       // Surrogate pair (BMP supplement) spans 2 UTF-16 code units.
       i += cp > 0xFFFF ? 2 : 1
     }
@@ -438,6 +442,16 @@ export class GlyphAtlasHost {
   }
 
   // ─── internals ────────────────────────────────────────────────
+
+  /** Local-ideograph routing (#421): when a CJK display-size bucket is
+   *  active, ideograph codepoints get a size-marked fontKey so they land in
+   *  their own atlas slot AND the rasterizer renders them locally at that
+   *  size. Latin (and CJK when no bucket) keep the plain key → PBF path. */
+  private routeKey(fontKey: string, codepoint: number, cjkBucket: number): string {
+    return (cjkBucket > 0 && codePointIsIdeographic(codepoint))
+      ? cjkSizedFontKey(fontKey, cjkBucket)
+      : fontKey
+  }
 
   private metricsKey(k: GlyphKey): number {
     // Same encoding shape as AtlasState.keyToNum — sdfRadius 7b |

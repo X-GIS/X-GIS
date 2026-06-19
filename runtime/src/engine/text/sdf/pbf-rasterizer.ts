@@ -16,7 +16,7 @@
 import type {
   GlyphRasterizer, GlyphRasterRequest, GlyphRasterResult,
 } from './glyph-rasterizer'
-import { parseFontKey } from './glyph-rasterizer'
+import { parseFontKey, parseSizedFontKey } from './glyph-rasterizer'
 import type { GlyphProvider } from './pbf/glyph-provider'
 import { pbfGlyphToSlot, PBF_REF_SIZE } from './pbf/pbf-to-slot'
 
@@ -105,6 +105,15 @@ export function deriveFontstack(fontKey: string): string {
 
 export interface PbfRasterizerDeps {
   fallback: GlyphRasterizer
+  /** Full Canvas2D rasterizer used for LOCAL-IDEOGRAPH glyphs (#421): a
+   *  size-marked fontKey (see cjkSizedFontKey) is rendered here at its
+   *  display-size bucket via the OS CJK face — matching MapLibre's
+   *  localIdeographFontFamily — instead of fetched from the PBF server at the
+   *  fixed 24-px reference (which minifies into a box at small sizes). Unlike
+   *  `fallback` (metrics-only, zero SDF), this is the FULL Canvas2D path so the
+   *  glyph is the PRIMARY render, not a placeholder awaiting a PBF that never
+   *  comes. Defaults to `fallback` when omitted (legacy: CJK via PBF). */
+  cjkFull?: GlyphRasterizer
   /** Ordered chain of glyph sources. Walked left-to-right per glyph;
    *  the first sync hit wins. Adding a provider later via
    *  `addProvider()` appends to the chain. */
@@ -117,11 +126,13 @@ export interface PbfRasterizerDeps {
 
 export class PbfRasterizer implements GlyphRasterizer {
   private readonly fallback: GlyphRasterizer
+  private readonly cjkFull: GlyphRasterizer
   private readonly providers: GlyphProvider[]
   private readonly onLanded: (fontKey: string, codepoint: number) => void
 
   constructor(deps: PbfRasterizerDeps) {
     this.fallback = deps.fallback
+    this.cjkFull = deps.cjkFull ?? deps.fallback
     // Defensive copy — caller's array can still be mutated, but our
     // walking-order isn't affected by their later splices.
     this.providers = [...deps.providers]
@@ -137,6 +148,15 @@ export class PbfRasterizer implements GlyphRasterizer {
   }
 
   rasterize(req: GlyphRasterRequest): GlyphRasterResult {
+    // Local-ideograph (#421): a size-marked fontKey is a CJK glyph the text
+    // stage wants rendered at its display size. Skip the PBF server entirely
+    // (its fixed-24 SDF minifies to a box at small sizes) and rasterise it
+    // locally at the bucket via the full Canvas2D path. The marker is only
+    // ever attached to ideograph codepoints, so this never diverts Latin.
+    if (parseSizedFontKey(req.fontKey).sizePx !== null) {
+      return this.cjkFull.rasterize(req)
+    }
+
     const fontstack = deriveFontstack(req.fontKey)
 
     // 1. Sync probe — first hit wins.

@@ -52,6 +52,30 @@ export function parseFontKey(fontKey: string): { style: string; weight: string; 
   }
 }
 
+/** Local-ideograph display-size marker (#421). A CJK/ideograph glyph is
+ *  rasterised LOCALLY at a display-size bucket (not the fixed 24-px PBF),
+ *  matching MapLibre's localIdeographFontFamily so small CJK stays legible
+ *  instead of minifying a 24-px SDF into a solid box. The bucket is appended
+ *  to the fontKey so the existing fontKey→atlas-slot interning gives a
+ *  distinct slot per (font, size) for free. `\x1f` (Unit Separator) is
+ *  non-printable + can never appear in a CSS family name, and — unlike the
+ *  `\x01` FONT_KEY_SENTINEL — does not collide with parseFontKey's split. */
+export const FONT_KEY_SIZE_MARKER = '\x1f'
+
+/** Append a display-size bucket to a fontKey (ideograph glyphs only). */
+export function cjkSizedFontKey(fontKey: string, bucketPx: number): string {
+  return `${fontKey}${FONT_KEY_SIZE_MARKER}${bucketPx}`
+}
+
+/** Split a (possibly) size-marked fontKey into the base key + the bucket px.
+ *  `sizePx` is null when the key carries no marker (the normal PBF path). */
+export function parseSizedFontKey(fontKey: string): { fontKey: string; sizePx: number | null } {
+  const i = fontKey.indexOf(FONT_KEY_SIZE_MARKER)
+  if (i < 0) return { fontKey, sizePx: null }
+  const px = parseInt(fontKey.slice(i + FONT_KEY_SIZE_MARKER.length), 10)
+  return { fontKey: fontKey.slice(0, i), sizePx: Number.isFinite(px) && px > 0 ? px : null }
+}
+
 export interface GlyphRasterRequest {
   /** CSS-style font shorthand the Canvas2D ctx.font expects.
    *  E.g. "16px Noto Sans". The atlas key uses just `fontKey`
@@ -133,7 +157,15 @@ export class Canvas2DRasterizer implements GlyphRasterizer {
   }
 
   rasterize(req: GlyphRasterRequest): GlyphRasterResult {
-    const { fontKey, fontSize, codepoint, sdfRadius, slotSize } = req
+    const { codepoint, sdfRadius, slotSize } = req
+    // Local-ideograph (#421): a size-marked fontKey requests rasterisation AT
+    // the display-size bucket encoded in the key (not req.fontSize, which the
+    // atlas host hardcodes to its 24-px reference). The returned
+    // rasterFontSize = that bucket, so the renderer's per-glyph
+    // `scale = sizePx / rasterFontSize` lands ≈ 1 → crisp small CJK.
+    const sized = parseSizedFontKey(req.fontKey)
+    const fontKey = sized.fontKey
+    const fontSize = sized.sizePx ?? req.fontSize
     const ctx = this.ctx
 
     if (this.canvas.width !== slotSize || this.canvas.height !== slotSize) {

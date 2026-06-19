@@ -152,6 +152,28 @@ function _allowsIdeographicBreaking(cp: number): boolean {
  *  higher-zoom rendering — and the label pixel-match baselines — are unchanged. */
 export const CJK_MIN_DISPLAY_PX = 14
 
+/** Local-ideograph display-size ladder (#421). CJK/ideograph glyphs are
+ *  rasterised LOCALLY at one of these CSS-px buckets (× dpr) instead of the
+ *  fixed 24-px PBF reference, so a small CJK label stays crisp (minification
+ *  ≤ ~bucket/displaySize) instead of minifying a 24-px SDF into a solid box —
+ *  the box-out the old `CJK_MIN_DISPLAY_PX` floor papered over by INFLATING the
+ *  label (which broke MapLibre size parity, #421). A coarse ladder keeps the
+ *  atlas-slot count + re-raster churn bounded as zoom moves a label between
+ *  buckets. Buckets ≤ 48 fit the 64-px atlas slot (48 + 2·8 = 64). */
+export const CJK_SIZE_BUCKETS_CSS = [12, 16, 20, 24, 32, 48] as const
+
+/** Pick the display-size bucket (device px) for a CJK glyph rendered at
+ *  `displayCssPx`. Returns the smallest bucket ≥ the display size (always
+ *  minify, never magnify → no blur from upscaling a too-small SDF), clamped to
+ *  the largest bucket. */
+export function cjkBucketPx(displayCssPx: number, dpr: number): number {
+  let bucket = CJK_SIZE_BUCKETS_CSS[CJK_SIZE_BUCKETS_CSS.length - 1]!
+  for (const b of CJK_SIZE_BUCKETS_CSS) {
+    if (b >= displayCssPx) { bucket = b; break }
+  }
+  return Math.round(bucket * dpr)
+}
+
 /** True if the codepoint is a CJK/Hangul/Kana ideograph. MapLibre renders
  *  these with a SYNTHETIC oblique in italic labels because the italic glyph
  *  PBF (e.g. "Noto Sans Italic") serves them UPRIGHT — Noto has no italic
