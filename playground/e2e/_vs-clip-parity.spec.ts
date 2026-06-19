@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { DEQUANT_ECEF_WGSL } from '../../runtime/src/engine/shader-dsl/shaders/polygon'
-import { dequantVertexF32, mulMat4Vec4F32 } from '@xgis/compiler'
+import { dequantVertexF32, mulMat4Vec4F32, POLYGON_FILL_FORMAT } from '@xgis/compiler'
 
 // ═══ vs_main_ecef clip-space parity: GPU f32 (dequant→MVP→clip) ≡ CPU fround ═══
 //
@@ -72,13 +72,18 @@ test.describe('vs_main_ecef clip parity (GPU dequant→MVP ≡ CPU fround)', () 
       const scale = (2 * half) / 0xFFFFFFFF
       for (const mvp of MVPS) {
         const rng = makeRng(seed++)
-        const verts = new Float32Array(N * 6)
+        // Stride from the SINGLE-SOURCE polygon fill format (stride 28 = 14 u16;
+        // position is lanes 0..5 + f32 tail) so the synthetic buffer strides
+        // EXACTLY like dequantVertexF32 reads it. Hardcoding 12 u16 drifted when
+        // the stride grew 24→28 — the cause of the red dequant/clip render-gate.
+        const u16PerVert = POLYGON_FILL_FORMAT.stride / 2
+        const verts = new Float32Array(N * (POLYGON_FILL_FORMAT.stride / 4))
         const u16 = new Uint16Array(verts.buffer)
         const inU32 = new Uint32Array(N * 6)
         for (let i = 0; i < N; i++) {
           for (let k = 0; k < 6; k++) {
             const v = Math.floor(rng() * 0x10000) & 0xFFFF
-            u16[i * 12 + k] = v
+            u16[i * u16PerVert + k] = v
             inU32[i * 6 + k] = v
           }
         }
