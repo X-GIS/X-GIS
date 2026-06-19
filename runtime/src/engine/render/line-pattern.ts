@@ -184,7 +184,8 @@ export function packLineLayerUniform(
   mppAtCenter: number,
   cap: number = LINE_CAP_BUTT,
   join: number = LINE_JOIN_MITER,
-  miterLimit: number = 4.0,
+  miterLimit: number = 2.0, // Mapbox spec default
+
   dash: DashConfig | null = null,
   patterns: PatternSlot[] = [],
   offsetPx: number = 0,

@@ -99,6 +99,18 @@ describe('packLineLayerUniform', () => {
     expect(buf[F32_DASH_ARRAY_0]).toBe(0)
   })
 
+  it('omitted cap/join/miter-limit default to the Mapbox spec (butt / miter / 2)', () => {
+    // The converter emits a cap/join/miter utility ONLY when the Mapbox layer
+    // SETS the property; an omitted property must fall back to the spec default
+    // here AND at the VTR call site (`show.linecap ?? 'butt'`), so a layer that
+    // omits line-cap renders FLAT (butt), not round — matching MapLibre.
+    const buf = packLineLayerUniform([1, 0, 0, 1], 4, 1, 1000) // cap/join/miter omitted
+    const u32 = new Uint32Array(buf.buffer)
+    expect(u32[U32_FLAGS] & 0x7).toBe(LINE_CAP_BUTT)          // cap bits 0-2 = butt (0)
+    expect((u32[U32_FLAGS] >>> 3) & 0x3).toBe(LINE_JOIN_MITER) // join bits 3-4 = miter (0)
+    expect(buf[7]).toBeCloseTo(2.0, 6)                         // miter_limit slot = spec default 2
+  })
+
   it('packs a 2-value dash array and sets dash_enable + dash_count + cycle', () => {
     const buf = packLineLayerUniform(
       [1, 1, 1, 1], 2, 1, 100,
