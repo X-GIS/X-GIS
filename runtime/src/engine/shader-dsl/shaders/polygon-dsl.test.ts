@@ -131,9 +131,14 @@ describe('emitPolygonWgsl — skeleton', () => {
     expect(wgsl).toMatch(/@location\(5\)[^,]+face_normal\s*:\s*vec3<f32>/)
     expect(wgsl).toMatch(/@location\(6\)[^,]+wall_height\s*:\s*f32/)
     expect(wgsl).toMatch(/@location\(7\)[^,]+is_top\s*:\s*f32/)
-    // MapLibre default light constants must round-trip to WGSL.
-    expect(wgsl).toContain('0.288')
-    expect(wgsl).toContain('-0.498')
+    // #420 — the MapLibre light (raw 0.288,-0.498,0.996) now lives in the
+    // CPU pack (vector-tile-renderer), rotated into ECEF by the camera-anchor
+    // ENU→ECEF basis so it shares the face_normal's frame. The shader reads
+    // it from the uniform; the raw literals no longer appear in WGSL.
+    expect(wgsl).toContain('u.light_dir_ecef')
+    expect(wgsl).toMatch(/u\.light_dir_ecef\.xyz/)
+    expect(wgsl).not.toContain('0.288')
+    expect(wgsl).not.toContain('-0.498')
     // Luminance-weight rec.709 constants from MapLibre's source.
     expect(wgsl).toContain('0.2126')
     expect(wgsl).toContain('0.7152')

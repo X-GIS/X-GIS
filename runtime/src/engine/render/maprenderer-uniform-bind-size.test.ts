@@ -9,14 +9,15 @@ import { GraticuleRenderer } from './graticule-renderer'
 // MapRenderer.UNIFORM_SIZE`, and draws the SHARED fill/line pipelines
 // (compiled from the polygon/line shader). That shader's `struct Uniforms`
 // grew to 240 bytes when the camera-relative RTC fields were added
-// (cam_ecef_off_h @208, cam_ecef_off_l @224) and statically references `u`.
-// The bind-group-layout omits minBindingSize (→0), so WebGPU uses the
-// shader-derived 240-byte minimum at draw time. MapRenderer.UNIFORM_SIZE
-// was still 192 < 240 → a REAL GPU rejects the draw at frame-validation:
-//   "[Buffer] bound with size 192 … requires at least 240".
+// (cam_ecef_off_h @208, cam_ecef_off_l @224), then to 256 when #420 appended
+// light_dir_ecef @240; it statically references `u`. The bind-group-layout
+// omits minBindingSize (→0), so WebGPU uses the shader-derived 256-byte
+// minimum at draw time. A smaller MapRenderer.UNIFORM_SIZE (192, then 240)
+// → a REAL GPU rejects the draw at frame-validation:
+//   "[Buffer] bound with size 240 … requires at least 256".
 // Reachable via the shipped graticule overlay (setGraticuleEnabled(true)),
-// which borrows MapRenderer's linePipeline + base bindGroup and binds a
-// 192-byte gratData. VTR already uses 240 (uniform-layout-consistency.test).
+// which borrows MapRenderer's linePipeline + base bindGroup. VTR already
+// uses 256 (uniform-layout-consistency.test).
 //
 // The mock GPUDevice does NOT enforce WebGPU's minimum-binding-size
 // validation (see feedback_verification_holistic_not_granular: mock unit
@@ -66,18 +67,18 @@ function wgslStructSize(src: string, name: string): number {
 describe('MapRenderer uniform bind size (bug maprenderer-uniform-240)', () => {
   const required = wgslStructSize(emitPolygonWgsl(null, false), 'Uniforms')
 
-  it('polygon Uniforms std140 size is 240 (RTC fields cam_ecef_off_h/l)', () => {
+  it('polygon Uniforms std140 size is 256 (#420 light_dir_ecef @240)', () => {
     // Pins the canonical figure asserted by uniform-layout-consistency.test.ts.
-    expect(required).toBe(240)
+    expect(required).toBe(256)
   })
 
   it('MapRenderer.UNIFORM_SIZE >= the polygon Uniforms std140 size', () => {
     const used = (MapRenderer as unknown as { UNIFORM_SIZE: number }).UNIFORM_SIZE
     // The bind `size` for binding 0 MUST be >= the pipeline's minimum binding
     // size (= the shared shader's Uniforms struct size), or WebGPU rejects the
-    // draw. Pre-fix used=192 < required=240 → the draw-time validation error.
+    // draw. Pre-fix used=240 < required=256 → the draw-time validation error.
     expect(used).toBeGreaterThanOrEqual(required)
-    expect(used).toBe(240)
+    expect(used).toBe(256)
   })
 
   it('the uniform slot stride holds the bind size', () => {
@@ -88,7 +89,7 @@ describe('MapRenderer uniform bind size (bug maprenderer-uniform-240)', () => {
 
   it('GraticuleRenderer.UNIFORM_SIZE matches (borrows the same pipeline+bindGroup)', () => {
     // The graticule draws with MapRenderer's linePipeline + base bindGroup, so
-    // its gratData must fill the same 240-byte bound range.
+    // its gratData must fill the same 256-byte bound range.
     const grat = (GraticuleRenderer as unknown as { UNIFORM_SIZE: number }).UNIFORM_SIZE
     expect(grat).toBe(required)
   })

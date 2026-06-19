@@ -125,7 +125,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // vertical-gradient opt-out flags: two baked per-show fields + their render()
   // bake + the two uniform writes into the spare cam_ecef_off_{h,l}.w lanes +
   // the contract comments. Irreducible additive plumbing (no struct growth).
-  'runtime/src/engine/render/vector-tile-renderer.ts': 3996,
+  // Bumped 3996→4011 (#420) for the light_dir_ecef pack: the camera-anchor
+  // ENU→ECEF light rotation (camSinLon/camCosLon + 3 uniform writes) + the
+  // basis-contract comment that ties it to polygon-mesh.ts's normals.
+  'runtime/src/engine/render/vector-tile-renderer.ts': 4011,
   // Bumped 3361→3393 for the destroy()-completeness fix: cancelling the
   // EventDispatcher move-rAF + the pending-flush rAF, clearing _pendingPatches,
   // and removing the run()-installed window globals (__xgisReady/snapshot/
@@ -212,7 +215,9 @@ const LOC_CEILINGS: Record<string, number> = {
   // the S-H closing-duplicate that would make a degenerate outline edge).
   // Net negative — stays under the 1570 cap.
   'compiler/src/tiler/vector-tiler.ts': 1570,
-  'runtime/src/engine/render/renderer.ts': 915,
+  // Bumped 915→917 (#420) for the UNIFORM_SIZE/SLOT 240→256 bump +
+  // light_dir_ecef contract comment when the polygon Uniforms struct grew.
+  'runtime/src/engine/render/renderer.ts': 917,
   // Lowered 776→254: extracted the text-layout family (text-anchor /
   // variable-anchor[-offset] / transform / offset / translate / radial-offset /
   // collision / rotate / letter-spacing / max-width / line-height / justify /
@@ -290,7 +295,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // smoothstep in an `if (cam_ecef_off_h.w != 0)` (fill-antialias), and
   // vs_main_ecef_extruded ANDs an `cam_ecef_off_l.w != 0` flag into the
   // per-wall vertical-gradient test. Default (flag=1) byte-identical behavior.
-  'runtime/src/engine/shader-dsl/shaders/polygon.ts': 1187,
+  // Bumped 1187→1197 (#420) for the light_dir_ecef uniform: the struct field +
+  // its contract comment + the extrude VS reading it (the raw light moved to
+  // the CPU pack, rotated into the face_normal's ECEF frame).
+  'runtime/src/engine/shader-dsl/shaders/polygon.ts': 1197,
   // Bumped 1067→1092 for the minZoom + setMaxBounds gesture-clamp correctness
   // fixes (#244/#248): the maxBounds clamp method + its 7 gesture-exit call
   // sites are irreducible. camera.ts decomposition remains a tracked priority.

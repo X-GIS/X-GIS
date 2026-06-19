@@ -3676,6 +3676,21 @@ export class VectorTileRenderer {
       this.uniformF32[55] = this.currentFillAntialias
       this.uniformF32[59] = this.currentFillVerticalGradient
 
+      // light_dir_ecef (60-62) — #420. The extrude VS dots the per-vertex ECEF
+      // face_normal against this; the raw MapLibre light (0.288,-0.498,0.996)
+      // is a tile/viewport-frame constant, so against an ECEF normal it gave
+      // arbitrary per-face brightness (roof mid, one wall spikes to 1, rest at
+      // the 0.5 dark floor). Rotate it as (East,North,Up) into ECEF by the
+      // camera-anchor ENU→ECEF basis — the SAME basis polygon-mesh.ts uses for
+      // the wall/roof normals (East=(-sLon,cLon,0), North=(-sLat·cLon,
+      // -sLat·sLon,cLat), Up=(cLat·cLon,cLat·sLon,sLat)) → roof brightest,
+      // walls in MapLibre's band (CPU-oracle confirmed). .w (63) spare.
+      const camSinLon = Math.sin(camLonR), camCosLon = Math.cos(camLonR)
+      const LE = 0.288, LN = -0.498, LU = 0.996
+      this.uniformF32[60] = Math.fround(LE * (-camSinLon) + LN * (-camSin * camCosLon) + LU * (camCos * camCosLon))
+      this.uniformF32[61] = Math.fround(LE * (camCosLon) + LN * (-camSin * camSinLon) + LU * (camCos * camSinLon))
+      this.uniformF32[62] = Math.fround(/* LE*0 */ LN * (camCos) + LU * (camSin))
+
       // tile_origin_merc (32-33) + opacity (34) + log_depth_fc (35)
       // — offsets 128..143. log_depth_fc was cached by camera.getRTCMatrix
       // and is shared across every tile drawn this frame.

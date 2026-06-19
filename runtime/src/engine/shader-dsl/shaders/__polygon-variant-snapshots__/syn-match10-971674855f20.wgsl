@@ -1,4 +1,4 @@
-// baseline: b0ed99d96cebee92acc41fa58995f0b4d4361331
+// baseline: fe013f5b17e5ea82f5df5738b661c227a1d737ca
 // fixture: syn-match10
 // variant.key: syn-match10
 // pick: false
@@ -286,6 +286,7 @@ struct Uniforms {
   tile_dequant_half: f32,
   cam_ecef_off_h: vec4<f32>,
   cam_ecef_off_l: vec4<f32>,
+  light_dir_ecef: vec4<f32>,
 }
 
 struct VertexOutput {
@@ -454,7 +455,7 @@ fn vs_main_ecef_extruded(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u3
   let colorvalue = (((color_rgb.x * 0.2126) + (color_rgb.y * 0.7152)) + (color_rgb.z * 0.0722));
   let ambient = vec3<f32>(0.03);
   let lit_color_rgb = (color_rgb + ambient);
-  let LIGHT_POS = vec3<f32>(0.288, -0.498, 0.996);
+  let LIGHT_POS = u.light_dir_ecef.xyz;
   let LIGHT_INTENSITY = 0.5;
   let LIGHT_COLOR = vec3<f32>(1.0);
   var directional: f32 = clamp(dot(face_normal, LIGHT_POS), 0.0, 1.0);
