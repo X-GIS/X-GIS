@@ -2397,12 +2397,12 @@ export class VectorTileRenderer {
       const mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, camera.zoom)
       const capMap = { butt: 0, round: 1, square: 2, arrow: 3 } as const
       const joinMap = { miter: 0, round: 1, bevel: 2 } as const
-      // Default cap/join = round. Round is a stable circle SDF that fills
-      // corners and chain ends correctly at any angle. Miter/bevel require
-      // explicit opt-in via `stroke-linejoin-miter` / `stroke-linecap-butt`.
-      const cap = capMap[show.linecap ?? 'round']
-      const join = joinMap[show.linejoin ?? 'round']
-      const miterLimit = show.miterlimit ?? 4.0
+      // Mapbox GL spec defaults for OMITTED line-cap/join/miter-limit:
+      // butt / miter / 2 (the converter emits a utility only when the layer
+      // SETS them). Sharp miters bevel-fall-back in line-segment-build.ts.
+      const cap = capMap[show.linecap ?? 'butt']
+      const join = joinMap[show.linejoin ?? 'miter']
+      const miterLimit = show.miterlimit ?? 2.0
       // Dash values are in LINE-WIDTH UNITS (Mapbox spec:
       // "The lengths are later multiplied by the line width").
       // A `[2, 3]` dash on a 4-px line is 8 px dash + 12 px gap;

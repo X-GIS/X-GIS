@@ -19,7 +19,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { join, dirname, relative } from 'node:path'
+import { join, dirname, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
@@ -266,9 +266,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // max(ratio, 1) stops it shrinking every flat stroke to a fraction of its
   // width (roads rendered ~1/3 the MapLibre width). The added lines are the
   // load-bearing rationale comment for the cap.
-  // Bumped 1212→1228 for line-translate: LineLayer struct gains line_translate_x/y +
-  // 2 pads (4 fields) + vs_line translate apply block (8 lines).
-  'runtime/src/engine/shader-dsl/shaders/line.ts': 1228,
+  // Bumped 1212→1217 (#412 stray-`continue` line-pattern reachability fix, +5
+  // rationale comment) then 1217→1233 (mbx line-translate: LineLayer struct
+  // gains line_translate_x/y + 2 pads + the vs_line translate apply block).
+  'runtime/src/engine/shader-dsl/shaders/line.ts': 1233,
   // Bumped 1171→1176 (#274 CSS color-fn whitespace), then 1176→1178 (#317) for
   // the two irreducible numeric match()-label arm-pattern cases (Number, and
   // Minus+Number). parser.ts decomposition remains a tracked priority.
@@ -319,16 +320,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 1073→1087 for the one-way-arrow dedupe fix: extracted
   // lineLabelDeduped (exported pure predicate + the '' → never-dedupe guard
   // so text-less icon line layers stop collapsing to ~1 arrow per show).
-  // Bumped 1087→1119: (a) +12 already on main from #424's pointLabelPairKey
-  // helper + comment (landed without a matching bump → reconciled here), and
-  // (b) the #417 one-way-arrow icon-collision fix — dispatchIcon now resolves
-  // the text template (road_oneway resolves to '') to gate text-less line
-  // icons into IconStage's overlap-dedup, collapsing the doubled side-by-side
-  // arrow chains to one like MapLibre.
-  // Bumped 1119→1124 (mbx_batch2) for icon-translate: dispatchIcon adds
-  // def.iconTranslateX/Y (× dpr) into the icon anchor offset alongside
-  // icon-offset, plus the def type fields + contract comment.
-  'runtime/src/engine/render/passes/label-pass.ts': 1124,
+  // Bumped to 1137 (#424 pointLabelPairKey + #417 one-way-arrow icon-collision
+  // + #411 deep-zoom road-label screen-space subdivision) then 1137→1142 (mbx
+  // icon-translate: dispatchIcon adds def.iconTranslateX/Y × dpr alongside
+  // icon-offset, plus the def type fields + contract comment).
+  'runtime/src/engine/render/passes/label-pass.ts': 1142,
   // VTR Unit-1 extraction (Cluster E-selection). The hysteresis +
   // readiness-gate logic was moved VERBATIM (plan §5 DO-NOT-SPLIT #2),
   // and its hard-won fix-history comments carry the bulk of the LOC —
@@ -383,6 +379,67 @@ describe('arch ratchet: file size (shrink-only god-files, no new ones)', () => {
       .filter((x) => x.n > NEW_FILE_CAP)
       .map((x) => `${x.r}: ${x.n} > ${NEW_FILE_CAP} — split it before it becomes a god-file`)
     expect(tooBig, tooBig.join('\n')).toEqual([])
+  })
+})
+
+// ── Gate 5: layer import-direction (downward-only spine) ─────────────
+// 2026-06-18 runtime redesign §2.1: runtime/src obeys a layered spine
+//   L0 coords/camera → L1 gpu/platform → L2 data/io → L3 render → L4 facade
+// where an import may target the SAME or a LOWER layer. The current upward
+// edges (all L0 projection files reaching gpu/loader for constants /
+// converters) are snapshotted below as a SHRINK-ONLY allowlist — exactly
+// today's set — so this gate cannot false-positive; it fails only on a NEW
+// upward edge. Type-only imports are erased by tsc (no runtime cycle) and are
+// exempt, mirroring Gate 2's render-loop→map carve-out.
+//
+// To lower the baseline: sever an edge (redesign R-A/R-B/R-C — move the pure
+// coord constants/converter down to L0) and DELETE its allowlist line. Never ADD.
+const LAYER_OF = (relPath: string): number | null => {
+  const p = relPath.replace(/\\/g, '/')
+  if (p === 'runtime/src/engine/shaders/log-depth.ts') return 0
+  if (p.startsWith('runtime/src/engine/projection/')) return 0
+  if (p.startsWith('runtime/src/engine/gpu/')) return 1
+  if (p.startsWith('runtime/src/engine/shaders/')) return 1
+  if (p.startsWith('runtime/src/engine/shader-dsl/')) return 1
+  if (p.startsWith('runtime/src/data/')) return 2
+  if (p.startsWith('runtime/src/loader/')) return 2
+  if (p.startsWith('runtime/src/engine/render/')) return 3
+  if (p.startsWith('runtime/src/engine/text/')) return 3
+  if (p.startsWith('runtime/src/engine/sprite/')) return 3
+  if (p === 'runtime/src/engine/map.ts') return 4
+  if (p === 'runtime/src/engine/controller.ts') return 4
+  return null // unclassified (engine root files etc.) — not yet layered
+}
+const UPWARD_EDGE_ALLOWLIST: ReadonlySet<string> = new Set([
+  'runtime/src/engine/projection/camera-helpers.ts=>runtime/src/engine/gpu/gpu-shared.ts',
+  'runtime/src/engine/projection/camera.ts=>runtime/src/engine/gpu/gpu-shared.ts',
+  'runtime/src/engine/projection/camera.ts=>runtime/src/engine/gpu/gpu.ts',
+  'runtime/src/engine/projection/camera.ts=>runtime/src/loader/geojson.ts',
+  'runtime/src/engine/projection/globe.ts=>runtime/src/engine/gpu/gpu-shared.ts',
+  'runtime/src/engine/projection/view-matrix.ts=>runtime/src/engine/gpu/gpu-shared.ts',
+])
+
+describe('arch ratchet: layer import-direction (downward-only spine)', () => {
+  it('no NEW upward cross-layer import edge beyond the snapshot allowlist', () => {
+    const violations: string[] = []
+    for (const f of ALL_TS) {
+      const srcRel = rel(f)
+      const srcLayer = LAYER_OF(srcRel)
+      if (srcLayer === null) continue
+      for (const line of readFileSync(f, 'utf8').split('\n')) {
+        const m = /\bfrom\s+['"](\.[^'"]+)['"]/.exec(line)
+        if (!m) continue
+        if (/^\s*(?:import|export)\s+type\b/.test(line)) continue // erased by tsc
+        let tgt = relative(ROOT, resolve(dirname(f), m[1])).split('\\').join('/')
+        if (!tgt.endsWith('.ts')) tgt += '.ts'
+        const tgtLayer = LAYER_OF(tgt)
+        if (tgtLayer === null) continue
+        if (tgtLayer > srcLayer && !UPWARD_EDGE_ALLOWLIST.has(`${srcRel}=>${tgt}`)) {
+          violations.push(`${srcRel} (L${srcLayer}) → ${tgt} (L${tgtLayer}): NEW upward edge — import downward or sever it (redesign §2)`)
+        }
+      }
+    }
+    expect(violations, violations.join('\n')).toEqual([])
   })
 })
 

@@ -58,6 +58,24 @@ export function pointLabelPairKey(layerName: string | undefined, seq: number): s
   return `${layerName ?? ''}:pt${seq}`
 }
 
+/** Per-segment sample count for line-label placement, computed from the
+ *  segment's SCREEN length (metres × on-screen px-per-metre), not raw metres.
+ *  A segment that crosses the viewport but whose endpoints fall outside the
+ *  NDC window must be subdivided so an interior sample lands on-screen —
+ *  otherwise the projected polyline is degenerate and the label silently
+ *  drops (the deep-zoom road-label vanish bug: a ~360 m road segment at z19
+ *  spans ~2500 px yet is far below any metre threshold). Genuinely short
+ *  on-screen segments resolve to 1 (low-zoom perf preserved). Clamped to
+ *  [1, maxSteps]; `pxPerMeter <= 0` (camera centre unprojectable) falls back
+ *  to 1. Exported for unit coverage — the placement walk is an anon callback. */
+export function lineLabelSubdivSteps(
+  segLenM: number, pxPerMeter: number, gapPx: number, maxSteps: number,
+): number {
+  if (!(pxPerMeter > 0) || !(gapPx > 0)) return 1
+  const segScreenPx = segLenM * pxPerMeter
+  return Math.max(1, Math.min(maxSteps, Math.ceil(segScreenPx / gapPx)))
+}
+
 class LabelPass implements RenderPass {
   readonly label = 'labels'
 
@@ -692,7 +710,7 @@ class LabelPass implements RenderPass {
                 const recordTextPosition = (resolvedText: string, _sx: number, _sy: number): void => {
                   emittedTextNames.add(resolvedText)
                 }
-                const SUBDIVS_PER_SEG = 16
+                const SUBDIVS_PER_SEG = 32
                 // Polyline projection scratch — sized once per show, big
                 // enough to hold the worst-case sample count across any
                 // polyline encountered in this layer. Each callback
@@ -712,6 +730,19 @@ class LabelPass implements RenderPass {
                 // icon-rotation-alignment=map to rotate per-segment icons
                 // with the line direction (OFM road_oneway arrows).
                 const _samplePosOut: [number, number, number] = [0, 0, 0]
+                // Screen-space subdivision density (fixes the deep-zoom road-label
+                // vanish). Project the camera centre and a +1 m east neighbour; the
+                // px gap = on-screen pixels per mercator metre. Drives the per-
+                // segment sample count below so a segment that is SHORT in metres
+                // but spans the viewport in PIXELS at high zoom still gets interior
+                // samples. Both points sit at the RTC origin so they always project.
+                const _ppmA = projectMercAny(camMerc[0], camMerc[1])
+                const _ppmAx = _ppmA ? _ppmA[0] : NaN
+                const _ppmAy = _ppmA ? _ppmA[1] : NaN
+                const _ppmB = projectMercAny(camMerc[0] + 1, camMerc[1])
+                const pxPerMeter = (_ppmA && _ppmB && Number.isFinite(_ppmAx))
+                  ? Math.hypot(_ppmB[0] - _ppmAx, _ppmB[1] - _ppmAy) : 0
+                const LABEL_SAMPLE_GAP_PX = 96
                 vtEntry.renderer.forEachLineLabelPolyline(sliceKey, (mxs, mys, props) => {
                   perfMarkStart('encoder.label-dispatch.line.polyline')
                   if (mxs.length < 2) { perfMarkEnd('encoder.label-dispatch.line.polyline'); return }
@@ -746,42 +777,29 @@ class LabelPass implements RenderPass {
                   }
                   perfMarkStart('encoder.label-dispatch.line.project')
                   let pn = 0  // active sample count
-                  // iter-264 — adaptive subdivision based on segment
-                  // length. Subdivision exists to handle world-spanning
-                  // lines (demotiles geolines: Tropic of Cancer with 2
-                  // vertices at lng=±180) so the on-screen portion
-                  // projects properly. PMTiles road segments are
-                  // typically < 10 km in mercator-metre space —
-                  // subdivision count of 16 is gross overkill.
-                  //
-                  // Threshold = 100 km (1e5 m). Anything below = no
-                  // subdivision needed (just project endpoints). Above
-                  // 100 km, proportional sampling up to SUBDIVS_PER_SEG.
-                  //
-                  // Trade-off: very short segments (< 100 km) get
-                  // straight-line interpolation between endpoints,
-                  // which is correct in mercator space anyway. Long
-                  // segments still get dense sampling for projection
-                  // correctness across viewport boundaries.
-                  const SUBDIV_LEN_THRESHOLD_M = 1e5
+                  // Per-segment sample count from SCREEN length (segLenM ×
+                  // pxPerMeter), NOT raw metres. Subdivision exists so a segment
+                  // that spans the viewport but whose ENDPOINTS fall outside the
+                  // NDC window still contributes an on-screen sample. The old gate
+                  // (subdivide only if > 100 km in metres) handled world-spanning
+                  // demotiles geolines but MISSED the deep-zoom case: a ~360 m road
+                  // segment at z19 spans ~2500 px and crosses the viewport, yet is
+                  // far below 100 km → sampled at endpoints only → both off-screen
+                  // → degenerate polyline (length 0) → the label silently dropped
+                  // (high-zoom road-label vanish bug). Gap-bounded screen sampling
+                  // captures the crossing at any zoom; a genuinely short on-screen
+                  // segment still resolves to dynSteps = 1 (low-zoom perf preserved,
+                  // since pxPerMeter is small there). For i > 0 the shared start
+                  // vertex is skipped (s starts at 1) so adjacent segments don't
+                  // emit a duplicate zero-length point.
                   for (let i = 0; i < N - 1; i++) {
                     const ax = mxs[i]!, ay = mys[i]!
                     const bx = mxs[i + 1]!, by = mys[i + 1]!
                     const segDx = bx - ax, segDy = by - ay
                     const segLenM = Math.sqrt(segDx * segDx + segDy * segDy)
-                    // Adaptive subdivision count. Short segments get 1
-                    // (endpoint only); long segments get full count
-                    // proportional to length / threshold.
-                    let dynSteps: number
-                    if (segLenM < SUBDIV_LEN_THRESHOLD_M) {
-                      dynSteps = 1
-                    } else {
-                      const k = Math.min(SUBDIVS_PER_SEG, Math.ceil(segLenM / SUBDIV_LEN_THRESHOLD_M))
-                      dynSteps = i === 0 ? k : k - 1
-                    }
-                    const startT = (i === 0 || segLenM < SUBDIV_LEN_THRESHOLD_M) ? 0 : 1 / dynSteps
-                    for (let s = 0; s <= dynSteps; s++) {
-                      const t = dynSteps > 0 ? startT + s * (1 - startT) / dynSteps : 0
+                    const dynSteps = lineLabelSubdivSteps(segLenM, pxPerMeter, LABEL_SAMPLE_GAP_PX, SUBDIVS_PER_SEG)
+                    for (let s = i === 0 ? 0 : 1; s <= dynSteps; s++) {
+                      const t = s / dynSteps
                       const sx = ax + (bx - ax) * t
                       const sy = ay + (by - ay) * t
                       // Direct merc → screen projection. Skips the
