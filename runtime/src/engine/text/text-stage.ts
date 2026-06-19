@@ -741,7 +741,7 @@ export class TextStage {
         ? p.def.maxWidth * sizePx : Infinity
       const lineHeightEm = (p.def.lineHeight ?? 1.2) * typo.lineHeightScale
       const lineHeightPx = lineHeightEm * sizePx
-      const justify = p.def.justify ?? 'center'
+      const justify = p.def.justify ?? 'auto' // spec default 'auto' (resolved below)
 
       // Per-glyph display advances (slot→px). Vertical placement does
       // NOT use ink metrics anymore — it follows MapLibre's constant
