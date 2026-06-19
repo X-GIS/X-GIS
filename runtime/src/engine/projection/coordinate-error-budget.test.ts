@@ -40,7 +40,6 @@ const R = 6378137
 const DEG2RAD = Math.PI / 180
 const TILE_SIZE = 512 // Web-Mercator px tiles (MapLibre parity)
 const ULP_F32 = 2 ** -23 // f32 relative grain (consecutive-float spacing / value)
-const LAT_LIM = 85.051129
 
 // The shader's TRUNCATED f32 constants (snapshot proj_mercator) — using the exact
 // same truncated values the GPU does keeps the simulation faithful.
