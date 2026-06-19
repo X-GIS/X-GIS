@@ -114,6 +114,10 @@ const TABLE_NOISE = new Set([
   // raw style JSON and call XGISMap.setProjection(). No converter
   // string reference; the xgis DSL doesn't carry projection state.
   'projection',
+  // WS-9 — `light` is host-applied via XGISMap.setLight() (demo-runner /
+  // compare-runner parse the top-level block). No converter string ref;
+  // the xgis DSL doesn't carry light state.
+  'light',
 ])
 
 describe('mapbox spec-coverage drift detector', () => {

@@ -1,4 +1,4 @@
-// baseline: 9a386be3900fccee159569804584d544a2fef40c
+// baseline: 72c6293f4fde3d88f9454e06ced4958e022a6612
 // fixture: positron-constant
 // variant.key: __bare-pick0__
 // pick: false
@@ -284,6 +284,8 @@ struct Uniforms {
   fill_translate_y: f32,
   tile_dequant_scale: f32,
   tile_dequant_half: f32,
+  light_color_packed: u32,
+  _pad_light_align: u32,
   cam_ecef_off_h: vec4<f32>,
   cam_ecef_off_l: vec4<f32>,
   light_dir_ecef: vec4<f32>,
@@ -454,8 +456,8 @@ fn vs_main_ecef_extruded(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u3
   let ambient = vec3<f32>(0.03);
   let lit_color_rgb = (color_rgb + ambient);
   let LIGHT_POS = u.light_dir_ecef.xyz;
-  let LIGHT_INTENSITY = 0.5;
-  let LIGHT_COLOR = vec3<f32>(1.0);
+  let LIGHT_INTENSITY = u.light_dir_ecef.w;
+  let LIGHT_COLOR = unpack4x8unorm(u.light_color_packed).xyz;
   var directional: f32 = clamp(dot(face_normal, LIGHT_POS), 0.0, 1.0);
   directional = mix((1.0 - LIGHT_INTENSITY), max(((1.0 - colorvalue) + LIGHT_INTENSITY), 1.0), directional);
   let vgrad_on = (u.cam_ecef_off_l.w != 0.0);

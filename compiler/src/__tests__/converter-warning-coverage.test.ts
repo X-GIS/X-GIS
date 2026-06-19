@@ -117,7 +117,7 @@ describe('converter warning coverage', () => {
       .toBe(true)
   })
 
-  it('top-level fog / light → ignored-fields warning (projection now host-applied, WS-8)', () => {
+  it('top-level fog → ignored-fields warning (projection + light host-applied, WS-8/WS-9)', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
@@ -132,7 +132,10 @@ describe('converter warning coverage', () => {
     // compare-runner read it off the raw style JSON and call
     // XGISMap.setProjection), so it must NOT appear in the ignored list.
     expect(note, `projection should be host-applied, not ignored: ${note}`).not.toContain('projection')
-    for (const k of ['fog', 'light']) {
+    // WS-9: top-level `light` is now host-applied (XGISMap.setLight via the
+    // demo-runner / compare-runner), so it must NOT appear in the ignored list.
+    expect(note, `light should be host-applied, not ignored: ${note}`).not.toContain('light')
+    for (const k of ['fog']) {
       expect(note, `expected "${k}" in: ${note}`).toContain(k)
     }
   })

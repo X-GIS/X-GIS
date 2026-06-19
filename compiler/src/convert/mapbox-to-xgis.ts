@@ -197,7 +197,11 @@ export function convertMapboxStyle(
   // converter silently dropped them and the conversion-notes block
   // gave no hint that an authored sky / lights setup wasn't carrying
   // through. Same surfacing pattern as fog / light / terrain.
-  for (const k of ['fog', 'light', 'lights', 'terrain', 'sky', 'transition', 'imports', 'models']) {
+  // `light` (v8 single directional light) is host-applied via
+  // XGISMap.setLight() — same pattern as projection/camera — so it is NOT
+  // listed here. `lights` (v3 standard-style ambient+directional rig) is a
+  // different, unimplemented feature and stays warned.
+  for (const k of ['fog', 'lights', 'terrain', 'sky', 'transition', 'imports', 'models']) {
     const v = styleAny[k]
     if (v !== undefined && v !== null) topLevelGaps.push(k)
   }

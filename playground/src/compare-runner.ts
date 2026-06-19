@@ -10,7 +10,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { XGISMap } from '@xgis/runtime'
 import { convertMapboxStyle } from '@xgis/compiler'
-import { extractMapboxProjectionName } from './mapbox-projection'
+import { extractMapboxProjectionName, extractMapboxLight } from './mapbox-projection'
 
 // ── Style catalogue ─────────────────────────────────────────────────
 const STYLES: { id: string; label: string; url: string }[] = [
@@ -290,6 +290,10 @@ async function mountBoth(url: string): Promise<void> {
     xgMap.setProjection(effProj)
     applyViewToXgis(xgMap, initialView)
   }
+  // WS-9 — honour the style's top-level `light` block on the X-GIS pane
+  // (MapLibre applies its own light natively from the same style).
+  const styleLight = extractMapboxLight(styleJson)
+  if (styleLight) xgMap.setLight(styleLight)
 
   // X-GIS → MapLibre sync loop (rAF poll; the engine has no event hook
   // for camera writes from the user's pointer driver).

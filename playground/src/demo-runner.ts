@@ -5,7 +5,7 @@ import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 
 import { XGISMap, lonLatToMercator } from '@xgis/runtime'
 import { DEMOS } from './demos'
-import { extractMapboxProjectionName } from './mapbox-projection'
+import { extractMapboxProjectionName, extractMapboxLight } from './mapbox-projection'
 import { registerXGISLanguage, registerXGISTheme, validateSource, discoverFields } from './monaco-xgis'
 
 // Monaco web worker setup
@@ -1043,6 +1043,11 @@ selectEl.addEventListener('change', () => loadDemo(parseInt(selectEl.value)))
         if (styleProj && !new URLSearchParams(location.search).get('proj')) {
           currentMap?.setProjection(styleProj)
         }
+        // WS-9 — honour the style's top-level `light` block (host-applied,
+        // affects fill-extrusion shading). Default light is left untouched
+        // when the style declares none.
+        const styleLight = extractMapboxLight(styleObj)
+        if (styleLight) currentMap?.setLight(styleLight)
         // Apply style-declared camera when nothing else (URL hash or
         // bounds-fit) explicitly positioned us yet. URL hash camera
         // (parseHash → markCameraPositioned at boot) wins because the

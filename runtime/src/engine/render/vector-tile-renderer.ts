@@ -269,6 +269,15 @@ export class VectorTileRenderer {
    *  bool) because the slot is an f32 the WGSL reads via `!= 0`. */
   private currentFillAntialias = 1
   private currentFillVerticalGradient = 1
+  /** WS-9 — top-level fill-extrusion light, pushed each frame from the
+   *  render loop (host._light). Defaults = MapLibre/Mapbox default so an
+   *  untouched renderer is byte-identical to the pre-WS-9 baked consts.
+   *  position = [radius, azimuth°, polar°] (Mapbox spec); the packer
+   *  converts it to an (East,North,Up) direction then rotates into ECEF by
+   *  the camera-anchor basis (same path the old fixed light used). */
+  private _lightPosition: [number, number, number] = [1.15, 210, 30]
+  private _lightIntensity = 0.5
+  private _lightColor: [number, number, number] = [1, 1, 1]
   /** iter-183 — fill-pattern Stage 2 per-show flag. Set true when the
    *  current `render()` call's show has a resolved pattern UV bbox +
    *  the pattern pipeline is wired. Per-tile uniform writes use this
@@ -382,6 +391,16 @@ export class VectorTileRenderer {
    *  without threading another parameter through `render()`. */
   setExtrudedPipelines(main: GPURenderPipeline, fallback: GPURenderPipeline): void {
     this._bindGroups.setExtrudedPipelines(main, fallback)
+  }
+
+  /** WS-9 — set the fill-extrusion light (top-level style concern, not
+   *  per-show). The render loop pushes host._light into every VTR each
+   *  frame; omitted fields keep their current value. Cheap (3 scalar
+   *  stores); the packer consumes them per tile uniform write. */
+  setLight(light: { position?: [number, number, number]; intensity?: number; color?: [number, number, number] }): void {
+    if (light.position) this._lightPosition = light.position
+    if (typeof light.intensity === 'number') this._lightIntensity = light.intensity
+    if (light.color) this._lightColor = light.color
   }
 
   /** Provide the depth-disabled ground-layer fill pipelines. Same
@@ -3686,10 +3705,28 @@ export class VectorTileRenderer {
       // -sLat·sLon,cLat), Up=(cLat·cLon,cLat·sLon,sLat)) → roof brightest,
       // walls in MapLibre's band (CPU-oracle confirmed). .w (63) spare.
       const camSinLon = Math.sin(camLonR), camCosLon = Math.cos(camLonR)
-      const LE = 0.288, LN = -0.498, LU = 0.996
+      // WS-9 — convert the Mapbox light position [radius, azimuth°, polar°]
+      // to an (East,North,Up) direction via MapLibre's sphericalToCartesian
+      // (azimuth +90° so 0° points north). The default [1.15,210,30]
+      // reproduces the old baked (0.288,-0.498,0.996).
+      const [lRad, lAz, lPol] = this._lightPosition
+      const lAzR = (lAz + 90) * DEG2RAD, lPolR = lPol * DEG2RAD
+      const LE = lRad * Math.cos(lAzR) * Math.sin(lPolR)
+      const LN = lRad * Math.sin(lAzR) * Math.sin(lPolR)
+      const LU = lRad * Math.cos(lPolR)
       this.uniformF32[60] = Math.fround(LE * (-camSinLon) + LN * (-camSin * camCosLon) + LU * (camCos * camCosLon))
       this.uniformF32[61] = Math.fround(LE * (camCosLon) + LN * (-camSin * camSinLon) + LU * (camCos * camSinLon))
       this.uniformF32[62] = Math.fround(/* LE*0 */ LN * (camCos) + LU * (camSin))
+      // WS-9 — intensity → light_dir_ecef.w (slot 63); colour → RGBA8 packed
+      // into light_color_packed (slot 50). The extrude VS reads both; all
+      // other variants ignore them. Default (0.5, white) = pre-WS-9 consts.
+      this.uniformF32[63] = this._lightIntensity
+      const lc = this._lightColor
+      const lr8 = Math.max(0, Math.min(255, Math.round(lc[0] * 255)))
+      const lg8 = Math.max(0, Math.min(255, Math.round(lc[1] * 255)))
+      const lb8 = Math.max(0, Math.min(255, Math.round(lc[2] * 255)))
+      // unpack4x8unorm order: .x = byte 0 (LSB) = r, … so pack r|g<<8|b<<16.
+      this.uniformU32[50] = (lr8 | (lg8 << 8) | (lb8 << 16) | (255 << 24)) >>> 0
 
       // tile_origin_merc (32-33) + opacity (34) + log_depth_fc (35)
       // — offsets 128..143. log_depth_fc was cached by camera.getRTCMatrix

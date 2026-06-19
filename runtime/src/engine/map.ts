@@ -398,6 +398,16 @@ export class XGISMap {
    *  (underscore convention) so the render host can read it, like
    *  `_rasterShow`. */
   _backgroundColor: [number, number, number, number] | null = null
+  /** WS-9 — top-level fill-extrusion light (Mapbox `light`). Pushed into
+   *  every VTR each frame by the render loop. position = [radius,
+   *  azimuth°, polar°]; intensity 0..1; color RGB 0..1. Defaults = the
+   *  Mapbox default so the pre-WS-9 baked-const render is unchanged.
+   *  `anchor` is accepted by the importer but the directional frame stays
+   *  the camera-anchor ENU basis (the #420 default behaviour); the
+   *  map/viewport bearing distinction is not yet modelled. Non-private so
+   *  the render host reads it, like `_backgroundColor`. */
+  _light: { position: [number, number, number]; intensity: number; color: [number, number, number] }
+    = { position: [1.15, 210, 30], intensity: 0.5, color: [1, 1, 1] }
   /** P3 Step 3c — scene-scoped palette GPU textures. Held for
    *  destruction on the next scene reload; the underlying view is
    *  bound to every VTR + MapRenderer via setPaletteColorAtlas. */
@@ -500,6 +510,32 @@ export class XGISMap {
    *  ShowCommand out of `showCommands`, and clears `_syntheticBackend`.
    *  Idempotent: calling with `null` repeatedly is a no-op after the
    *  first teardown. */
+  /** WS-9 — set the top-level fill-extrusion light (Mapbox `light`). The
+   *  host integration (demo-runner / compare-runner) calls this with the
+   *  parsed `light` block, mirroring setProjection / setBackgroundFill —
+   *  light is a top-level style concern, not encoded in the xgis DSL.
+   *  Omitted fields keep their current value; null resets to the Mapbox
+   *  default. The render loop pushes `_light` into every VTR each frame. */
+  setLight(light: { position?: [number, number, number]; intensity?: number; color?: [number, number, number] } | null): void {
+    if (light === null) {
+      this._light = { position: [1.15, 210, 30], intensity: 0.5, color: [1, 1, 1] }
+    } else {
+      if (Array.isArray(light.position) && light.position.length === 3
+          && light.position.every(n => Number.isFinite(n))) {
+        this._light.position = [light.position[0]!, light.position[1]!, light.position[2]!]
+      }
+      if (typeof light.intensity === 'number' && Number.isFinite(light.intensity)) {
+        this._light.intensity = Math.max(0, Math.min(1, light.intensity))
+      }
+      if (Array.isArray(light.color) && light.color.length === 3
+          && light.color.every(n => Number.isFinite(n))) {
+        this._light.color = [light.color[0]!, light.color[1]!, light.color[2]!]
+      }
+    }
+    this._dirty.tag(DirtyDomain.STYLE)
+    this.invalidate()
+  }
+
   setBackgroundFill(rgba: [number, number, number, number] | null): void {
     if (rgba === null) {
       // Teardown the synthetic source if it was installed. Without this
