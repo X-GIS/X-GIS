@@ -58,6 +58,9 @@ export function pointLabelPairKey(layerName: string | undefined, seq: number): s
   return `${layerName ?? ''}:pt${seq}`
 }
 
+// #458: emit a point-label dedup key when unclaimed or from a strictly HIGHER layer (top-wins); same/lower → drop.
+export const shouldEmitPointDedup = (prev: number | undefined, showIdx: number): boolean => prev === undefined || showIdx > prev
+
 /** Per-segment sample count for line-label placement, computed from the
  *  segment's SCREEN length (metres × on-screen px-per-metre), not raw metres.
  *  A segment that crosses the viewport but whose endpoints fall outside the
@@ -373,7 +376,9 @@ class LabelPass implements RenderPass {
           host._labelDispatchMisses++
           host._prevLabelDispatchSig = _dispatchSig
         }
-        for (const show of labelShows) {
+        // _showIdx = draw order (later show = higher layer) — point-label dedup precedence (#458).
+        for (let _showIdx = 0; _showIdx < labelShows.length; _showIdx++) {
+          const show = labelShows[_showIdx]!
           // Per-show monotonic key for POINT-label text+icon pairing — mirrors
           // _lineLabelSeq (iter-176). A STABLE per-instance key; replaces the
           // old rounded-screen-coords pairKey whose sub-pixel camera drift
@@ -1055,8 +1060,9 @@ class LabelPass implements RenderPass {
                 const dedupKey = resolvedText !== ''
                   ? `${resolvedText}|${Math.round(mercX / 256)},${Math.round(mercY / 256)}`
                   : ''
-                if (dedupKey !== '' && emittedPointNames.has(dedupKey)) return
-                if (dedupKey !== '') emittedPointNames.add(dedupKey)
+                // Higher layer wins (#458); same/lower collapses (cross-tile / bilingual — iter-274/280).
+                if (dedupKey !== '' && !shouldEmitPointDedup(emittedPointNames.get(dedupKey), _showIdx)) return
+                if (dedupKey !== '') emittedPointNames.set(dedupKey, _showIdx)
                 // No fontKey override — see note at line ~2370.
                 // World-copy loop on MERCATOR coords directly — skips
                 // the merc → lonLat → merc round-trip the previous

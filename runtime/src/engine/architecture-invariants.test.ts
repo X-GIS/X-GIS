@@ -334,7 +334,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // icon-offset, plus the def type fields + contract comment). Then 1142→1157
   // for the #402-C rebake-sig pixel-quantization: the exported dispatchCenterKey
   // helper (centre→px key, with the load-bearing rationale comment) + call site.
-  'runtime/src/engine/render/passes/label-pass.ts': 1157,
+  // Then 1157→1163 for #458 layer-order point-label dedup: the exported
+  // shouldEmitPointDedup predicate + the show-index loop counter (the dedup now
+  // lets a higher layer's duplicate win instead of first-emission-wins).
+  'runtime/src/engine/render/passes/label-pass.ts': 1163,
   // VTR Unit-1 extraction (Cluster E-selection). The hysteresis +
   // readiness-gate logic was moved VERBATIM (plan §5 DO-NOT-SPLIT #2),
   // and its hard-won fix-history comments carry the bulk of the LOC —
