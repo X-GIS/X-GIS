@@ -61,7 +61,7 @@ export const LINE_SEGMENT_STRIDE_BYTES = LINE_SEGMENT_STRIDE_F32 * 4
  * when the corner is sharper than `miterLimit` allows (bevel fallback).
  * Otherwise returns `1 / sin(half_angle)` capped at `miterLimit`.
  */
-function computeMiterPadRatio(
+export function computeMiterPadRatio(
   tangentA: [number, number],
   tangentB: [number, number],
   miterLimit: number,
@@ -83,13 +83,13 @@ function computeMiterPadRatio(
   if (denom < 1e-6) return miterLimit // 180° degenerate — worst case
   const padAlong = cross / denom
   if (padAlong < 0.05) return 1       // collinear-ish, no miter needed
-  // Miter limit check: 1/sin(θ/2) > miterLimit → bevel fallback.
-  // sinHalf = |cross| / |A+B|
+  // Miter limit: ratio 1/cos(θ/2) > miterLimit → bevel. θ = deflection between
+  // the arriving/leaving tangents, so |A+B| = 2·cos(θ/2) ⇒ cosHalf = bisLen/2.
+  // (Was wrongly sin(θ/2) = cross/bisLen — failed to bevel SHARP corners and
+  // spuriously bevelled SHALLOW ones; #432.)
   const bisLen = Math.hypot(ax + bx, ay + by)
-  if (bisLen > 1e-6) {
-    const sinHalf = cross / bisLen
-    if (sinHalf < 1 / miterLimit) return 1 // beyond miter limit → bevel
-  }
+  const cosHalf = bisLen / 2
+  if (cosHalf < 1 / miterLimit) return 1 // beyond miter limit → bevel
   return Math.min(padAlong, miterLimit)
 }
 
