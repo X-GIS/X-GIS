@@ -58,18 +58,8 @@ export function pointLabelPairKey(layerName: string | undefined, seq: number): s
   return `${layerName ?? ''}:pt${seq}`
 }
 
-/** Point-label cross-show dedup precedence (#458). `prevPriority` is the
- *  draw-order index of the layer that already claimed this (text, anchor)
- *  key this frame (undefined if unclaimed); `showPriority` is the current
- *  show's index. Returns true to EMIT (and claim/raise the key): when
- *  unclaimed, or when this is a strictly HIGHER layer (Mapbox top-layer
- *  wins — the collision pass then drops the earlier lower-layer label at
- *  the same anchor, so poi_transit blue beats poi_r* grey). Same- or
- *  lower-layer duplicates return false → collapsed (cross-tile centroids,
- *  bilingual text-field). Exported for coverage. */
-export function shouldEmitPointDedup(prevPriority: number | undefined, showPriority: number): boolean {
-  return prevPriority === undefined || showPriority > prevPriority
-}
+// #458: emit a point-label dedup key when unclaimed or from a strictly HIGHER layer (top-wins); same/lower → drop.
+export const shouldEmitPointDedup = (prev: number | undefined, showIdx: number): boolean => prev === undefined || showIdx > prev
 
 /** Per-segment sample count for line-label placement, computed from the
  *  segment's SCREEN length (metres × on-screen px-per-metre), not raw metres.
@@ -386,12 +376,9 @@ class LabelPass implements RenderPass {
           host._labelDispatchMisses++
           host._prevLabelDispatchSig = _dispatchSig
         }
-        let _showIdx = -1
-        for (const show of labelShows) {
-          // Draw-order priority: labelShows preserves style order, so a
-          // later index = a higher (on-top) layer. Used by the point-label
-          // dedup to let a higher layer win over a lower one (#458).
-          _showIdx++
+        // _showIdx = draw order (later show = higher layer) — point-label dedup precedence (#458).
+        for (let _showIdx = 0; _showIdx < labelShows.length; _showIdx++) {
+          const show = labelShows[_showIdx]!
           // Per-show monotonic key for POINT-label text+icon pairing — mirrors
           // _lineLabelSeq (iter-176). A STABLE per-instance key; replaces the
           // old rounded-screen-coords pairKey whose sub-pixel camera drift
@@ -1073,19 +1060,9 @@ class LabelPass implements RenderPass {
                 const dedupKey = resolvedText !== ''
                   ? `${resolvedText}|${Math.round(mercX / 256)},${Math.round(mercY / 256)}`
                   : ''
-                // Layer-order precedence (Mapbox: a label in a HIGHER layer
-                // wins over the same name in a lower one). Same- or lower-layer
-                // duplicates stay collapsed (cross-tile centroids, bilingual
-                // text-field — the iter-274/iter-280 cases). A HIGHER-layer
-                // duplicate is let through so the collision pass — which drops
-                // the earlier lower-layer label at the same anchor — resolves
-                // it in favour of the top layer (poi_transit blue over poi_r*
-                // grey). Exact-overlap duplicates always collapse in collision,
-                // so this never double-draws. (#458)
-                if (dedupKey !== '') {
-                  if (!shouldEmitPointDedup(emittedPointNames.get(dedupKey), _showIdx)) return
-                  emittedPointNames.set(dedupKey, _showIdx)
-                }
+                // Higher layer wins (#458); same/lower collapses (cross-tile / bilingual — iter-274/280).
+                if (dedupKey !== '' && !shouldEmitPointDedup(emittedPointNames.get(dedupKey), _showIdx)) return
+                if (dedupKey !== '') emittedPointNames.set(dedupKey, _showIdx)
                 // No fontKey override — see note at line ~2370.
                 // World-copy loop on MERCATOR coords directly — skips
                 // the merc → lonLat → merc round-trip the previous
