@@ -91,3 +91,27 @@ Eyeballing a downscaled composite is NOT verification.
 
 For a whole-frame fidelity pass, 16-split the frame itself and read each tile. A scalar
 ratio or a downscaled glance is a tripwire, not a verdict.
+
+---
+
+## 6. Code Discovery — codebase-memory MCP FIRST (mandatory, not "if I remember")
+
+This OVERRIDES default behavior. When LOCATING code — a function/class/route/variable, who
+calls it, what it calls, its data flow, or how a subsystem is structured — query the
+`codebase-memory` MCP graph FIRST, not Grep/Glob/Read. Reaching for Grep first is the
+recurring mistake; the graph surfaces the cross-path consumers and call chains a text
+search misses (exactly the blast radius this codebase's bugs hide in).
+
+**Use first (project="D-X-GIS"):**
+- `search_graph` (name_pattern / label / qn_pattern / query) — find definitions & symbols
+- `trace_path` (mode: calls | data_flow | cross_service) — callers, callees, impact, data flow
+- `get_code_snippet` (qualified_name) — exact symbol source
+- `query_graph` (Cypher) — complex relationship queries
+- `search_code` — graph-augmented grep when you must text-match
+- `get_architecture` — package/module structure
+If the project is not indexed yet, run `index_repository` first.
+
+**Grep / Glob / Read remain correct for:** non-code text, configs, comments, docs; and you
+must ALWAYS `Read` a file before editing it. The rule is graph-first for *finding* code —
+not a ban on Read. Pairs with the `flow-first` skill: graph the call/data flow + blast
+radius before editing.
