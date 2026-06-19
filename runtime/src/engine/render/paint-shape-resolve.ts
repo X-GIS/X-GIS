@@ -20,9 +20,15 @@
 // authoritative as the migration completes.
 
 import type { PropertyShape } from '@xgis/compiler'
+// #redesign Wave 0.1 — import the interpolators from their DEFINITION site
+// (renderer-helpers) instead of re-routing through renderer.ts's re-export.
+// renderer.ts:22-24 merely re-exports these 4 from './renderer-helpers'
+// (defs at renderer-helpers.ts:84/123/190/224), so this is a behavior-
+// identical binding swap that severs the paint-shape-resolve → renderer
+// import edge (the renderer↔paint cycle; design §3.4 / Wave 0).
 import {
   interpolateZoom, interpolateZoomRgba, interpolateTime, interpolateTimeColor,
-} from './renderer'
+} from './renderer-helpers'
 
 /** Compact representation of "value plus how it was computed". The
  *  `hasZoom` / `hasTime` flags drive the bucket-scheduler's
