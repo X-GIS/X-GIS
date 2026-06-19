@@ -161,18 +161,43 @@ jobs:
       # and bash leaves the globs unexpanded, reproducing the original argv.
       - run: ./node_modules/.bin/vitest run --silent=true ${{ matrix.args }}
 
-  # Single stable status context that aggregates the matrix. Branch
-  # protection (if ever enabled) should require `test-result`, NOT the
-  # per-leg `test (...)` names — this name is immune to leg-count changes.
+  # Typecheck gate. The vitest legs above NEVER run `tsc`, and the runtime
+  # `bun run build` is a vite/esbuild bundle that strips types WITHOUT checking
+  # them — so 19 runtime tsc errors reached main across #428–#430 unnoticed
+  # (the build still bundled, the published .d.ts + IDE just went unsound). This
+  # job runs the strict no-emit pass the wave lacked. `bun run build` first so
+  # the compiler project references emit the .d.ts that runtime/tsconfig.json
+  # paths resolve (and `tsc --build` in the compiler build also gates compiler
+  # types); then an explicit `--noEmit` over runtime (vite skips it).
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/bun.lockb') }}
+          restore-keys: bun-${{ runner.os }}-
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: ./node_modules/.bin/tsc -p runtime/tsconfig.json --noEmit
+
+  # Single stable status context that aggregates the matrix + typecheck. Branch
+  # protection (if ever enabled) should require `test-result`, NOT the per-leg
+  # `test (...)` names — this name is immune to leg-count changes.
   # `if: always()` so it runs even when a leg fails; it then fails iff any
-  # leg failed.
+  # leg (or the typecheck) failed.
   test-result:
     name: test-result
-    needs: test
+    needs: [test, typecheck]
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - run: '[ "${{ needs.test.result }}" = "success" ] || exit 1'
+      - run: '[ "${{ needs.test.result }}" = "success" ] && [ "${{ needs.typecheck.result }}" = "success" ] || exit 1'
 
   # Render-behavior gate: the unit suite above NEVER executes a shader
   # (deep-dive 2026-05-25 finding #1). This job runs the SHADER-MATH gate
