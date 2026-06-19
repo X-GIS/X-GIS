@@ -2670,11 +2670,17 @@ export class VectorTileRenderer {
       if (decision.kind === 'primary') continue
       if (decision.kind === 'drop-empty-slice') continue
       if (decision.kind === 'drop-no-archive') {
-        const t = tiles[i]
-        const wKey = `no-ancestor:${t.z}/${t.x}/${t.y}`
-        if (!this._drawStats.hasWarned(wKey)) {
-          this._drawStats.markWarned(wKey)
-          xlog.warn(`[VTR tile-drop] no ancestor found for ${t.z}/${t.x}/${t.y} — dropping from render (maxLevel=${maxLevel}).`)
+        // Only warn for real tiled archives (maxLevel > 0) that genuinely
+        // lost an ancestor. Inline / synthetic single-root sources report
+        // maxLevel 0 and paint the z0 tile via the inline-data path, so a
+        // drop-no-archive there is benign startup noise, not tile loss. (#461)
+        if (maxLevel > 0) {
+          const t = tiles[i]
+          const wKey = `no-ancestor:${t.z}/${t.x}/${t.y}`
+          if (!this._drawStats.hasWarned(wKey)) {
+            this._drawStats.markWarned(wKey)
+            xlog.warn(`[VTR tile-drop] no ancestor found for ${t.z}/${t.x}/${t.y} — dropping from render (maxLevel=${maxLevel}).`)
+          }
         }
         continue
       }
