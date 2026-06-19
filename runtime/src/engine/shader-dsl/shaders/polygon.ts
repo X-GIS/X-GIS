@@ -80,6 +80,14 @@ const Uniforms: StructDecl = {
     // analogue of line.ts's cam_h/cam_l.
     { name: 'cam_ecef_off_h', type: vec4fT },
     { name: 'cam_ecef_off_l', type: vec4fT },
+    // #420 — fill-extrusion directional light in ECEF (.xyz; .w spare). The
+    // extrude VS dots it against the per-vertex ECEF face_normal, so it must
+    // share that frame. The raw MapLibre light (0.288,-0.498,0.996) is a
+    // tile/viewport-frame constant; dotting it against an ECEF normal gave
+    // arbitrary per-face brightness. The CPU packs it as (East,North,Up)
+    // rotated by the camera-anchor ENU→ECEF basis (vector-tile-renderer),
+    // matching polygon-mesh.ts's normal basis.
+    { name: 'light_dir_ecef', type: vec4fT },
   ],
 }
 
@@ -615,7 +623,10 @@ const vsMainEcefExtruded = entryFn(
     )
     const ambient = b.let('ambient', vec3(f32(0.03)))
     const litColorRgb = b.let('lit_color_rgb', colorRgb.add(ambient))
-    const lightPos = b.let('LIGHT_POS', vec3(f32(0.288), f32(-0.498), f32(0.996)))
+    // #420 — ECEF-frame light dir (raw 0.288,-0.498,0.996 rotated by the
+    // camera-anchor ENU→ECEF basis on the CPU). Same frame as face_normal →
+    // fixes the dark side/back walls.
+    const lightPos = b.let('LIGHT_POS', u.field('light_dir_ecef', vec4fT).swizzle<'vec3<f32>'>('xyz'))
     const lightIntensity = b.let('LIGHT_INTENSITY', f32(0.5))
     const lightColor = b.let('LIGHT_COLOR', vec3(f32(1)))
     const directional = b.var('directional', f32T, clamp(dot(p.face_normal, lightPos), f32(0), f32(1)))

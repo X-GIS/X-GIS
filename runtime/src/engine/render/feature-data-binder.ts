@@ -34,8 +34,9 @@ import type { GPUTile } from './vector-tile-renderer-types'
 // the VTR module-local `UNIFORM_SIZE` (the WGSL `Uniforms` struct size) —
 // every per-tile + source-level feature bind group binds the ring at this
 // size, exactly as the in-VTR rebuild did. Kept in lockstep with VTR's
-// constant by value (240, the camera-relative RTC layout).
-const UNIFORM_SIZE = 240
+// constant by value (256 after #420 added light_dir_ecef vec4 to the
+// camera-relative RTC layout).
+const UNIFORM_SIZE = 256
 
 /** Palette / sprite atlas resources passed per-call into the per-tile
  *  rebuild + carried at `buildPerTileFeatureData` time. These live on VTR

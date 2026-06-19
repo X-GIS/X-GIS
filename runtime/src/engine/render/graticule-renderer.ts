@@ -36,11 +36,12 @@ export interface GraticuleFrame {
 }
 
 export class GraticuleRenderer {
-  // Polygon Uniforms struct = 240 bytes (matches VTR + WGSL + MapRenderer's
+  // Polygon Uniforms struct = 256 bytes (matches VTR + WGSL + MapRenderer's
   // UNIFORM_SIZE; the borrowed linePipeline's shader references u up to
-  // cam_ecef_off_l @224, so the bound range must cover 240). Out-of-bounds
-  // typed-array writes are silent no-ops; the RTC fields 192-239 stay zero.
-  private static readonly UNIFORM_SIZE = 240
+  // light_dir_ecef @240, so the bound range must cover 256). Out-of-bounds
+  // typed-array writes are silent no-ops; the RTC fields 192-239 +
+  // light_dir_ecef 240-255 stay zero (graticule lines never extrude).
+  private static readonly UNIFORM_SIZE = 256
 
   private graticuleBuffer: GPUBuffer | null = null
   private graticuleVertexCount = 0

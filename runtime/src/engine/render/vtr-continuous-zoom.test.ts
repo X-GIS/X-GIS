@@ -23,7 +23,8 @@ import { tileKey } from '@xgis/compiler'
 import { VectorTileRenderer } from './vector-tile-renderer'
 import type { GPUTile } from './vector-tile-renderer-types'
 
-const UNIFORM_SIZE = 240 // bytes — matches the module-private constant
+const UNIFORM_SIZE = 256 // bytes — matches VTR's module-private UNIFORM_SLOT
+// (256; the per-tile pack writes up to light_dir_ecef at f32 60-62, #420)
 
 // A cached tile with NO geometry: indexCount/segment counts all 0 so the
 // fill draw (`cached.indexCount > 0`) and stroke push are both skipped,

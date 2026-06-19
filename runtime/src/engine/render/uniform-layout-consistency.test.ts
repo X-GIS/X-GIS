@@ -114,6 +114,11 @@ const EXPECTED_F32_OFFSET: Record<string, number> = {
   // vec4 each, 16-byte aligned after the two dequant scalars (50/51 pad → 52).
   cam_ecef_off_h: 52,
   cam_ecef_off_l: 56,
+  // #420 — fill-extrusion ECEF light dir (vec4, .xyz used). 16-byte aligned
+  // after cam_ecef_off_l (60). Grows the struct 240 → 256 bytes (exactly
+  // fills the 256-byte ring slot). CPU pack at uf[60..62] in vector-tile-
+  // renderer (rotated from the raw MapLibre light by the camera ENU→ECEF basis).
+  light_dir_ecef: 60,
 }
 
 describe('iter-319 uniform byte-layout consistency (CPU pack ↔ WGSL struct)', () => {
@@ -138,11 +143,12 @@ describe('iter-319 uniform byte-layout consistency (CPU pack ↔ WGSL struct)', 
     expect(cb.byteOffset % 16).toBe(0)
   })
 
-  it('struct fits in the 240-byte uniform-ring slot', () => {
-    // Camera-relative RTC fix added cam_ecef_off_h/l (vec4×2 = 32B at f32
-    // 52/56) → 60 f32 = 240 bytes. Still within the 256-byte ring slot
-    // (UNIFORM_SLOT), so no ring-stride change was needed.
-    expect(sizeBytes).toBeLessThanOrEqual(240)
+  it('struct fits in the 256-byte uniform-ring slot', () => {
+    // #420 added light_dir_ecef (vec4 = 16B at f32 60) → 64 f32 = 256 bytes,
+    // exactly filling the 256-byte ring slot (UNIFORM_SLOT), so no ring-stride
+    // change was needed. (Camera-relative RTC's cam_ecef_off_h/l at 52/56 had
+    // taken it to 240.)
+    expect(sizeBytes).toBeLessThanOrEqual(256)
   })
 
   it('CPU pack indices in vector-tile-renderer match parsed offsets', () => {

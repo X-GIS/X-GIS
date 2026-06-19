@@ -46,9 +46,9 @@ import { Epoch } from '../_cache/versioned-state'
 // Bind-group binding range size for binding 0 (the uniform ring). Mirrors
 // the VTR module-local `UNIFORM_SIZE` (the WGSL `Uniforms` struct size) —
 // the source-level bind groups bind the ring at this size, exactly as the
-// in-VTR rebuild did. Kept in lockstep with VTR's constant by value (240,
-// the camera-relative RTC layout).
-const UNIFORM_SIZE = 240
+// in-VTR rebuild did. Kept in lockstep with VTR's constant by value (256
+// after #420 added light_dir_ecef vec4 to the camera-relative RTC layout).
+const UNIFORM_SIZE = 256
 
 export class BindGroupRegistry {
   private device: GPUDevice
