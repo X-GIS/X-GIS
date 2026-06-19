@@ -464,10 +464,10 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
         e.assign(dM, max(dM, alongP0.neg().add(layerMpp)))
       })
     })
-    // BEVEL / over-limit MITER edge clip at p0.
-    const crossP0Mag = c.let('cross_p0_mag', abs(prevTan.x.mul(dir.y).sub(prevTan.y.mul(dir.x))))
+    // BEVEL / over-limit MITER edge clip at p0. Bevel when miter ratio
+    // 1/cos(θ/2) > limit ⇒ bisMag = 2cos(θ/2) < 2/limit (#432; was sin, wrong).
     const bisMagP0 = c.let('bis_mag_p0', length(prevTan.add(dir)))
-    const miterOverP0 = c.let('miter_over_p0', bisMagP0.gt(layerMiterLimit.mul(crossP0Mag)))
+    const miterOverP0 = c.let('miter_over_p0', bisMagP0.lt(f32(2).div(max(layerMiterLimit, f32(1e-4)))))
     const applyBevelP0 = c.let('apply_bevel_p0',
       joinFlags.eq(u32(2)).or(joinFlags.eq(u32(0)).and(miterOverP0)),
     )
@@ -501,9 +501,9 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
         e.assign(dM, max(dM, alongP1.add(layerMpp)))
       })
     })
-    const crossP1Mag = c.let('cross_p1_mag', abs(dir.x.mul(nextTan.y).sub(dir.y.mul(nextTan.x))))
+    // Bevel when miter ratio 1/cos(θ/2) > limit ⇒ bisMag < 2/limit (#432).
     const bisMagP1 = c.let('bis_mag_p1', length(dir.add(nextTan)))
-    const miterOverP1 = c.let('miter_over_p1', bisMagP1.gt(layerMiterLimit.mul(crossP1Mag)))
+    const miterOverP1 = c.let('miter_over_p1', bisMagP1.lt(f32(2).div(max(layerMiterLimit, f32(1e-4)))))
     const applyBevelP1 = c.let('apply_bevel_p1',
       joinFlags.eq(u32(2)).or(joinFlags.eq(u32(0)).and(miterOverP1)),
     )
