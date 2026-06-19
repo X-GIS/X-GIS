@@ -301,8 +301,14 @@ describe('mergeLayers — IR auto-merge of same-source-layer xgis layers', () =>
     expect(scene.renderNodes[0].stroke.color.kind).toBe('constant')
   })
 
-  it('absorbs &&-chain != layer as the compound _ default arm', () => {
-    // Mirrors the OSM-style landuse_other pattern.
+  it('does NOT absorb a stroke-only != default arm — center ≠ inset alignment', () => {
+    // Mirrors the OSM-style landuse_other pattern. A stroke-ONLY default arm
+    // (landuse_other, no fill) resolves to CENTER alignment (Mapbox-faithful
+    // pure line), while the fill+stroke explicit arms (park/grass) default to
+    // INSET. center ≠ inset render differently, so the default arm must NOT be
+    // absorbed — park+grass merge, landuse_other stays its own node. (Before the
+    // line-stroke center fix every stroked layer was wrongly inset, so the arm
+    // absorbed by accident; this asserts the corrected semantics.)
     const source = `
       source pm { type: pmtiles url: "x.pmtiles" }
       layer landuse_park {
@@ -320,17 +326,17 @@ describe('mergeLayers — IR auto-merge of same-source-layer xgis layers', () =>
       }
     `
     const scene = compileToScene(source)
-    // Absorb landuse_other into the compound. Should be 1 RenderNode.
-    expect(scene.renderNodes.length).toBe(1)
+    // park + grass (both fill+stroke, inset) merge; landuse_other (stroke-only,
+    // center) stays separate → 2 RenderNodes, not 1.
+    expect(scene.renderNodes.length).toBe(2)
     const compound = scene.renderNodes[0]
-    expect(compound.name).toMatch(/\+1default$/)
-    // Filter dropped — the slice now accepts every source-layer
-    // feature (the absorbed default arm renders ones the explicit
-    // arms don't match).
-    expect(compound.filter).toBeNull()
-    // Width baked because landuse_other's stroke-0.2 differs from
-    // the group's stroke-0.3.
-    expect(compound.stroke.width.kind).toBe('data-driven')
+    expect(compound.fill.kind).toBe('data-driven')   // park||grass fill
+    expect(compound.stroke.align).toBe('inset')      // fill+stroke → inset
+    expect(compound.filter).not.toBeNull()           // park||grass, not a dropped-default null
+    const other = scene.renderNodes[1]
+    expect(other.name).toBe('landuse_other')
+    expect(other.fill.kind).toBe('none')             // pure line
+    expect(other.stroke.align).toBeUndefined()       // center (Mapbox-faithful)
   })
 
   it('does NOT absorb when != value set differs from || values', () => {
