@@ -408,16 +408,16 @@ describe('buildLineSegments', () => {
       expect(seg1PadP0).toBeCloseTo(1.0, 1)
     })
 
-    it('gentle turn beyond miter limit: pad ratio clamps to 1 (bevel fallback)', () => {
-      // Very gentle turn (10° external angle). Half-angle = 5°, sin = 0.0872.
-      // That is below 1/miter_limit = 0.25, so the miter is longer than 4×half_w
-      // and CPU should fall back to pad = 1 (bevel).
-      const cos10 = Math.cos(10 * Math.PI / 180)
-      const sin10 = Math.sin(10 * Math.PI / 180)
+    it('sharp turn beyond miter limit: pad ratio clamps to 1 (bevel fallback)', () => {
+      // Sharp ~160° deflection (interior 20°). Miter ratio 1/cos(θ/2) =
+      // 1/cos(80°) ≈ 5.76 > miter_limit 4, so the miter overshoots and the CPU
+      // falls back to pad = 1 (bevel). (#432: the bevel test is on cos(θ/2), not
+      // sin — a GENTLE turn miters; only a genuinely sharp one bevels.)
+      const a = 160 * Math.PI / 180
       const vertices = dsfunLineVerts([
-        [0,                      0],
-        [1000,                   0],
-        [1000 + 1000 * cos10,    1000 * sin10],
+        [0,                          0],
+        [1000,                       0],
+        [1000 + 1000 * Math.cos(a),  1000 * Math.sin(a)],
       ])
       const indices = new Uint32Array([0, 1, 1, 2])
       const segData = buildLineSegments(vertices, indices, 6)
