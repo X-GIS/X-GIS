@@ -677,7 +677,8 @@ const vsMainEcefExtruded = entryFn(
 const emitPolygonFragmentDiscards = (b: Builder, input: Node): void => {
   const cosC = callFn('polygon_cos_c_fragment', f32T, input.field('abs_merc_x', f32T), input.field('abs_merc_y', f32T))
   b.if(cosC.lt(f32(0)), (c) => { c.discard() })
-  b.if(abs(input.field('abs_lat', f32T)).gt(constRef('MERCATOR_LAT_LIMIT')), (c) => { c.discard() })
+  // #399 +0.5° margin: cap abs_lat is VS-clamped to exactly ±LIMIT, so a bare `>LIMIT` flips per MSAA sample at the pole fan (speckle); loosen-only ⇒ #360-hole-safe.
+  b.if(abs(input.field('abs_lat', f32T)).gt(constRef('MERCATOR_LAT_LIMIT').add(f32(0.5))), (c) => { c.discard() })
   const clipBounds = u.field('clip_bounds', vec4fT)
   const clipValid = b.let('_clip_valid',
     clipBounds.x.gt(f32(-1e29))
