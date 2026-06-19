@@ -203,15 +203,15 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
   // per-stop to avoid double-dash utility names.
   const strokeWidth = unwrapLiteralScalar(paint['circle-stroke-width'])
   if (typeof strokeWidth === 'number' && Number.isFinite(strokeWidth)) {
-    // Negative + zero both mean "no stroke" — skip utility emission.
-    // Number.isFinite rejects NaN / Infinity.
-    // Pre-fix a negative number fell through the `> 0` gate into the
-    // else-if interp/expr branch and emitted `stroke-[-5]` as a
-    // bracket binding.
+    // Emit the width EXPLICITLY even for 0 / negative (clamped to 0).
+    // The interpreter seeds a shared `strokeWidth = 1` default (that is the
+    // line-width spec default, NOT the circle one), so an omitted / zero
+    // circle-stroke-width must override it to 0 or the circle draws a
+    // spurious 1 px edge. Number.isFinite rejects NaN / Infinity.
     if (strokeWidth < 0) {
-      warnings.push(`Circle layer "${layer.id}" — circle-stroke-width ${strokeWidth} is negative; Mapbox spec requires >= 0. Skipped (no stroke).`)
+      warnings.push(`Circle layer "${layer.id}" — circle-stroke-width ${strokeWidth} is negative; Mapbox spec requires >= 0. Clamped to 0 (no stroke).`)
     }
-    if (strokeWidth > 0) utils.push(`stroke-${strokeWidth}`)
+    utils.push(`stroke-${Math.max(0, strokeWidth)}`)
   } else if (strokeWidth !== undefined && strokeWidth !== null) {
     const interp = interpolateZoomCall(strokeWidth, warnings,
       (val) => typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null)
@@ -225,6 +225,12 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
       const expr = exprToXgis(strokeWidth, warnings)
       if (expr !== null) utils.push(`stroke-[${expr}]`)
     }
+  } else {
+    // OMITTED — Mapbox spec default circle-stroke-width = 0 (no stroke).
+    // Emit stroke-0 so the circle does not inherit the interpreter's shared
+    // strokeWidth = 1 (the line-width default). Matches MapLibre, which
+    // draws NO circle edge unless circle-stroke-width is authored > 0.
+    utils.push('stroke-0')
   }
 
   // Surface dropped properties so the user knows the gap. Includes
