@@ -677,14 +677,7 @@ const vsMainEcefExtruded = entryFn(
 const emitPolygonFragmentDiscards = (b: Builder, input: Node): void => {
   const cosC = callFn('polygon_cos_c_fragment', f32T, input.field('abs_merc_x', f32T), input.field('abs_merc_y', f32T))
   b.if(cosC.lt(f32(0)), (c) => { c.discard() })
-  // #399 — +0.5° margin on the abs-lat clamp. Polar-cap fragments carry an
-  // abs_lat PINNED to exactly ±MERCATOR_LAT_LIMIT (the VS clamps it), so a bare
-  // `> LIMIT` test sits on the f32 knife-edge and flips per MSAA sample at the
-  // pole convergence → the radial speckle fan. The margin moves the boundary
-  // strictly outside the clamped value so the cap is never on-threshold; real
-  // out-of-Mercator fragments don't exist in (LIMIT, LIMIT+0.5) (Mercator data
-  // tops out at LIMIT, the cap is clamped to LIMIT), so this only ever keeps
-  // more fragments — it cannot re-open the #360 pole hole.
+  // #399 +0.5° margin: cap abs_lat is VS-clamped to exactly ±LIMIT, so a bare `>LIMIT` flips per MSAA sample at the pole fan (speckle); loosen-only ⇒ #360-hole-safe.
   b.if(abs(input.field('abs_lat', f32T)).gt(constRef('MERCATOR_LAT_LIMIT').add(f32(0.5))), (c) => { c.discard() })
   const clipBounds = u.field('clip_bounds', vec4fT)
   const clipValid = b.let('_clip_valid',

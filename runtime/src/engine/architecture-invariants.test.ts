@@ -298,7 +298,8 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 1187→1197 (#420) for the light_dir_ecef uniform: the struct field +
   // its contract comment + the extrude VS reading it (the raw light moved to
   // the CPU pack, rotated into the face_normal's ECEF frame).
-  'runtime/src/engine/shader-dsl/shaders/polygon.ts': 1197,
+  // Bumped 1197→1198 (#399) for the +0.5° abs-lat discard margin's one-line note.
+  'runtime/src/engine/shader-dsl/shaders/polygon.ts': 1198,
   // Bumped 1067→1092 for the minZoom + setMaxBounds gesture-clamp correctness
   // fixes (#244/#248): the maxBounds clamp method + its 7 gesture-exit call
   // sites are irreducible. camera.ts decomposition remains a tracked priority.
