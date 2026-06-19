@@ -105,7 +105,9 @@
       "Bash(git checkout *)",
       "Bash(git push *)",
       "Bash(awk 'NR==615,/^  [a-zA-Z_]/{ if \\(NR>615 && /^  [a-zA-Z_]/\\) {print NR\": END\"; exit} print NR\": \"$0}' /d/X-GIS/runtime/src/engine/vector-tile-renderer.ts)",
-      "Bash(awk -F: '$1>615 && /private|public|^[0-9]+:  [a-z]/ {print; exit}')"
+      "Bash(awk -F: '$1>615 && /private|public|^[0-9]+:  [a-z]/ {print; exit}')",
+      "Bash(rtk git *)",
+      "Bash(rtk du *)"
     ]
   }
 }

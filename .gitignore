@@ -82,3 +82,4 @@ nul
 # Files committed under .omc before this rule stay tracked until untracked
 # explicitly (git rm --cached).
 .omc
+tmp/
