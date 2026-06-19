@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { DEQUANT_ECEF_WGSL } from '../../runtime/src/engine/shader-dsl/shaders/polygon'
-import { dequantVertexF32 } from '@xgis/compiler'
+import { dequantVertexF32, POLYGON_FILL_FORMAT } from '@xgis/compiler'
 
 // ═══ dequant_ecef compute parity: GPU f32 ≡ CPU fround mirror ═══
 //
@@ -70,14 +70,20 @@ test.describe('dequant_ecef compute parity (GPU f32 ≡ CPU fround mirror)', () 
     const cases = CASES.map(({ label, half }, ci) => {
       const scale = (2 * half) / 0xFFFFFFFF
       const rng = makeRng(0xD0 + ci)
-      // stride-24 buffer (12 u16 / vertex); dequantVertexF32 reads lanes 0..5.
-      const verts = new Float32Array(N * 6)
+      // Stride from the SINGLE-SOURCE polygon fill format (stride 28 = 14 u16;
+      // the u16×6 position is lanes 0..5, the rest is the f32 tail) so the
+      // synthetic buffer strides EXACTLY like dequantVertexF32 reads it
+      // (`vi * POLYGON_FILL_FORMAT.stride/2`). Hardcoding 12 u16 drifted when a
+      // tail slot grew the stride 24→28 — the dequant/clip render-gate has been
+      // red on every main run because of that off-by-2-u16 misread.
+      const u16PerVert = POLYGON_FILL_FORMAT.stride / 2
+      const verts = new Float32Array(N * (POLYGON_FILL_FORMAT.stride / 4))
       const u16 = new Uint16Array(verts.buffer)
       const inU32 = new Uint32Array(N * 6)
       for (let i = 0; i < N; i++) {
         for (let k = 0; k < 6; k++) {
           const v = Math.floor(rng() * 0x10000) & 0xFFFF
-          u16[i * 12 + k] = v
+          u16[i * u16PerVert + k] = v
           inU32[i * 6 + k] = v
         }
       }
