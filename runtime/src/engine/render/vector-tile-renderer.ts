@@ -77,9 +77,9 @@ const UNIFORM_SLOT = 256
 // rounded up by the 16-byte struct alignment). PR 2d.5 closeout had
 // shrunk this 256 → 192 when the legacy Mercator `mvp` slot was retired; PR
 // 2f re-grew it to 208; the camera-relative RTC fix adds cam_ecef_off_h/l
-// (vec4×2 = 32B) → 240 (still ≤ the 256-byte UNIFORM_SLOT). WGSL spec
-// requires a multiple of 16.
-const UNIFORM_SIZE = 240
+// (vec4×2 = 32B) → 240; #420 adds light_dir_ecef (vec4 = 16B) → 256 (== the
+// 256-byte UNIFORM_SLOT). WGSL spec requires a multiple of 16.
+const UNIFORM_SIZE = 256
 
 /** 2π × Earth radius (m). One full mercator wrap. tile_extent_m at
  *  any zoom z is this constant divided by 2^z (vs_main_quantized
