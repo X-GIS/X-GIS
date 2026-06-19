@@ -19,6 +19,26 @@ import type {
 // intentional divergence from upstream geojson-vt at low zoom.
 const LOW_ZOOM_NO_SIMPLIFY = 3
 
+// #460 — full-fidelity at low zoom (tolerance 0, the #360 F2 fix above) is only
+// affordable when the tile is cheap. A detailed source (the 14 MB picking-demo
+// countries.geojson ≈ 548k verts) otherwise drops ~3.45M tris into the single
+// z0 world tile → ~5 s compile → the fill + picking are blank for seconds. Cap
+// it: keep full fidelity at low zoom only while the tile's input vertex count is
+// under budget; past it, fall back to the normal zoom-scaled tolerance (coarse
+// world borders — correct at world scale, matches MapLibre). The shipped ocean
+// ring (ne_110m_ocean ≈ 5.3k verts, and finer oceans well under this) stays
+// under budget, so the #360 enclosed-sea coverage at z0-3 is untouched.
+const LOW_ZOOM_FULL_FIDELITY_BUDGET = 100_000
+
+/** Cheap input-vertex count (sums FlatLine lengths; O(rings), not O(coords)). */
+function countPoints(geom: FlatLine | FlatLine[] | FlatLine[][]): number {
+  if (geom.length === 0) return 0
+  if (typeof geom[0] === 'number') return (geom as FlatLine).length / 3
+  let n = 0
+  for (const part of geom as Array<FlatLine | FlatLine[]>) n += countPoints(part)
+  return n
+}
+
 export function createTile(
   features: ProjectedFeature[],
   z: number,
@@ -26,7 +46,16 @@ export function createTile(
   ty: number,
   options: GeoJSONVTOptions,
 ): InternalTile {
-  const tolerance = (z === options.maxZoom || z <= LOW_ZOOM_NO_SIMPLIFY)
+  // Low-zoom full fidelity only while under the vertex budget (#460/#360).
+  let lowZoomFidelity = z <= LOW_ZOOM_NO_SIMPLIFY
+  if (lowZoomFidelity && z !== options.maxZoom) {
+    let pts = 0
+    for (const f of features) {
+      pts += countPoints(f.geometry)
+      if (pts > LOW_ZOOM_FULL_FIDELITY_BUDGET) { lowZoomFidelity = false; break }
+    }
+  }
+  const tolerance = (z === options.maxZoom || lowZoomFidelity)
     ? 0
     : options.tolerance / ((1 << z) * options.extent)
   const tile: InternalTile = {
