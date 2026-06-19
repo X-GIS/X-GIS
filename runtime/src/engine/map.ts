@@ -53,7 +53,7 @@ import { TextStage, type TextStageOptions } from './text/text-stage'
 import type { GlyphProvider } from './text/sdf/pbf/glyph-provider'
 import { IconStage } from './sprite/icon-stage'
 import {
-  LayerIdRegistry, XGISLayer, ListenerRegistry, MapEventRegistry, XGISMapEvent, isMapEventType,
+  LayerIdRegistry, XGISLayer,
   type XGISFeature, type XGISFeatureEvent, type XGISFeatureEventType, type XGISFeatureListener,
   type XGISMapEventType, type XGISMapListener,
 } from './layer'
@@ -87,8 +87,10 @@ import {
 } from './map-geo-helpers'
 import { prewarmVectorTileSource, detectVectorTileFormat } from '../loader/vector-tile-loader'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
-import { toU32Id, pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
+import { pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
 import type { GeoJSONFeature } from '../loader/geojson'
+import { FeatureUpdateQueue } from './feature-update-queue'
+import { MapEventBus } from './map-event-bus'
 import { safeFetch, assertIngestBudget, readBodyCapped } from './safety'
 
 // DoS ceilings for the top-level loader entry points (.xgis style /
@@ -224,31 +226,15 @@ export class XGISMap {
    *  reused across re-projections. */
   private eventDispatcher: EventDispatcher | null = null
 
-  /** Map-level listener registry — `map.addEventListener('click', h)`
-   *  receives every layer hit, like document-level event delegation.
-   *  Layer-level dispatch runs first; map-level fires only if no
-   *  `preventDefault` was called there. */
-  private mapListeners = new ListenerRegistry()
+  /** Map-level event bus — owns listener registries, load/move/zoom/idle
+   *  state, and the per-rAF camera-signature diff. Extracted from map.ts
+   *  (2026-06-19 runtime redesign §3.2 "MapEventBus"). */
+  private _eventBus!: MapEventBus
 
-  /** Map-level lifecycle / camera event registry — `map.on('moveend', h)`
-   *  / `map.on('load', h)` / `map.on('idle', h)`. Separate from
-   *  `mapListeners` (feature/pointer events) because the two carry
-   *  different payloads; `on()`/`off()`/`once()` route to the right one
-   *  by event name. Emit sites: load = first rendered frame (run());
-   *  move/zoom/movestart/zoomstart/moveend/zoomend/idle = render-loop
-   *  signature diff (catches both gesture + programmatic camera lanes). */
-  private mapEventListeners = new MapEventRegistry()
-
-  /** One-shot guard so `load` fires exactly once even if run()/runBinary
-   *  is somehow re-entered. */
-  private _loadFired = false
-  /** Move/zoom transition state for the render-loop signature diff. A
-   *  "move" spans from the first camera-signature change until the camera
-   *  comes to rest; a "zoom" likewise but tracks zoom alone. `_wasIdle`
-   *  edge-detects the busy→idle transition for the single `idle` fire. */
-  private _moveActive = false
-  private _zoomActive = false
-  private _wasIdle = false
+  // Delegating accessors so existing internal readers (switchController,
+  // diagnostics, destroy) stay byte-identical.
+  private get mapListeners() { return this._eventBus.mapListeners }
+  private get mapEventListeners() { return this._eventBus.mapEventListeners }
 
   /** Bound `keydown` handler for keyboard pan/zoom (P0-7 a11y). Stored so
    *  `destroy()` can detach it — otherwise the listener (and the closed-
@@ -267,17 +253,27 @@ export class XGISMap {
   // `run()`. Toggled from markCameraPositioned() + pan/zoom/rotate
   // gestures + setProjection().
 
-  // External-injection update state (see setSourceData / updateFeature)
-  private _pendingPatches = new Map<string, Map<number, { geometry?: GeoJSONFeature['geometry']; properties?: Record<string, unknown> }>>()
-  private _pendingFlushHandle: number | null = null
-  private _unknownSourceWarned = new Set<string>()
-  // Tile-backed (URL-loaded) sources store a marker, not a FeatureCollection,
-  // so updateFeature can't patch them. Warn once per source (see updateFeature).
-  private _tileBackedUpdateWarned = new Set<string>()
-  // Lazy featureId → feature index per source, so flushPendingUpdates can
-  // patch in O(patches) instead of O(features). Invalidated on setSourceData
-  // (full replace) and rebuilt on demand.
-  private _featureIndex = new Map<string, Map<number, GeoJSONFeature>>()
+  // External-injection update state (see setSourceData / updateFeature).
+  // The pending-patch queue, coalescing flush rAF, warn-once sets, and the
+  // lazy featureId→feature index live in FeatureUpdateQueue
+  // (feature-update-queue.ts); map.ts keeps a thin reference and forwards
+  // updateFeature / destroy to it. The queue's `featureIndex` map is shared
+  // by reference with sourceManager (delete-on-replace) and
+  // interactionController (read for pick payloads).
+  private featureUpdateQueue = new FeatureUpdateQueue({
+    rawDatasets: this.rawDatasets,
+    isDestroyed: () => this._destroyed,
+    teardownSource: (id) => this.teardownSource(id),
+    rebuildLayers: () => this.rebuildLayers(),
+    invalidate: () => this.invalidate(),
+  })
+  // Delegating views onto the relocated queue state. The pending-patch
+  // queue and flush rAF handle now live in FeatureUpdateQueue; these keep
+  // the historical private-field surface stable for in-repo white-box
+  // diagnostics (destroy-teardown + tile-backed warn-once specs).
+  private get _pendingPatches() { return this.featureUpdateQueue.pendingPatches }
+  private get _pendingFlushHandle(): number | null { return this.featureUpdateQueue.pendingFlushHandle }
+  private set _pendingFlushHandle(handle: number | null) { this.featureUpdateQueue.pendingFlushHandle = handle }
 
   // GPU render-target texture lifecycle (stencil / msaa / OIT accum +
   // revealage / offscreen-extrude depth / overdraw accumulator / pick),
@@ -614,6 +610,14 @@ export class XGISMap {
       getCanvas: () => this.getCanvas(),
       getCtxCanvas: () => this.ctx?.canvas,
     })
+    // Event bus — owns listener registries + camera-signature diff state.
+    // Constructed after cameraController so getCameraState() is available.
+    this._eventBus = new MapEventBus({
+      camera: this.camera,
+      getCameraState: () => this.cameraController.getCameraState(),
+      shouldRenderThisFrame: () => this.shouldRenderThisFrame(),
+      target: this,
+    })
     // Projection-mode + graticule cluster. Holds the shared camera (writes
     // zoom/pitch/globeOrtho/globeMode/pitchLocked on a projection switch) and
     // reaches the renderer fresh for graticule. The world-band-change bg
@@ -665,7 +669,7 @@ export class XGISMap {
       runBoundsFitGate: (apply) => this._runBoundsFitGate(apply),
       rebuildLayers: () => this.rebuildLayers(),
       teardownSource: (sourceId) => this.teardownSource(sourceId),
-      deleteFeatureIndex: (sourceId) => { this._featureIndex.delete(sourceId) },
+      deleteFeatureIndex: (sourceId) => { this.featureUpdateQueue.featureIndex.delete(sourceId) },
     })
     // Pick / interaction QUERY cluster — receives the shared camera +
     // layer/source state by reference; ctx / pickTexture / projectionName /
@@ -676,7 +680,7 @@ export class XGISMap {
       layerIds: this.layerIds,
       xgisLayers: this.xgisLayers,
       rawDatasets: this.rawDatasets,
-      featureIndex: this._featureIndex,
+      featureIndex: this.featureUpdateQueue.featureIndex,
       getCtx: () => this.ctx,
       getPickTexture: () => this.pickTexture,
       getProjectionName: () => this.projectionName,
@@ -2767,66 +2771,10 @@ export class XGISMap {
     }
   }
 
-  // Last camera signature for which lifecycle events were emitted. Kept
-  // separate from `_lastSig*` (owned by renderFrame's idle-skip gate) so
-  // the event logic is self-contained and robust across skipped frames.
-  private _evtSigCX = NaN
-  private _evtSigCY = NaN
-  private _evtSigZoom = NaN
-  private _evtSigBearing = NaN
-  private _evtSigPitch = NaN
-
   /** Drive movestart/move/moveend, zoomstart/zoom/zoomend, and idle off
-   *  the camera signature, once per rAF tick. MapLibre semantics:
-   *    - a "move" begins on the first changed frame (`movestart`), fires
-   *      `move` every changed frame, and ends (`moveend`) the first frame
-   *      the camera is unchanged again — regardless of pending tile work.
-   *    - "zoom" likewise, gated on the zoom field alone.
-   *    - `idle` fires once on the busy→idle transition: camera at rest
-   *      AND no pending tile/label work AND no active move/zoom.
-   *  Diffing the camera (not `_lastSig*`) means programmatic jumpTo and
-   *  user drag/wheel both flow through here uniformly. */
+   *  the camera signature — delegated to MapEventBus (map-event-bus.ts). */
   private _processCameraEvents(): void {
-    const c = this.camera
-    const cxChanged = c.centerX !== this._evtSigCX
-    const cyChanged = c.centerY !== this._evtSigCY
-    const bearingChanged = c.bearing !== this._evtSigBearing
-    const pitchChanged = c.pitch !== this._evtSigPitch
-    const zoomChanged = c.zoom !== this._evtSigZoom
-    // First tick: seed the signature without firing (NaN !== anything).
-    const seeded = Number.isFinite(this._evtSigCX)
-    const moved = seeded && (cxChanged || cyChanged || bearingChanged || pitchChanged || zoomChanged)
-
-    if (moved) {
-      // Zoom start/continue (zoom is also a move in MapLibre).
-      if (zoomChanged) {
-        if (!this._zoomActive) { this._zoomActive = true; this._fireMapEvent('zoomstart') }
-      }
-      if (!this._moveActive) { this._moveActive = true; this._fireMapEvent('movestart') }
-      if (zoomChanged) this._fireMapEvent('zoom')
-      this._fireMapEvent('move')
-    } else {
-      // Camera at rest this tick — close out any open move/zoom.
-      if (this._zoomActive) { this._zoomActive = false; this._fireMapEvent('zoomend') }
-      if (this._moveActive) { this._moveActive = false; this._fireMapEvent('moveend') }
-    }
-
-    // Update the emitted-signature snapshot.
-    this._evtSigCX = c.centerX
-    this._evtSigCY = c.centerY
-    this._evtSigZoom = c.zoom
-    this._evtSigBearing = c.bearing
-    this._evtSigPitch = c.pitch
-
-    // Idle = nothing left to draw AND camera at rest AND no open gesture.
-    // `shouldRenderThisFrame()` already folds in _needsRender,
-    // _sceneHasAnimation, hasPendingSourceWork, and the camera/size diff.
-    const idleNow = !this._moveActive && !this._zoomActive && !this.shouldRenderThisFrame()
-    if (idleNow) {
-      if (!this._wasIdle) { this._wasIdle = true; this._fireMapEvent('idle') }
-    } else {
-      this._wasIdle = false
-    }
+    this._eventBus.processCameraEvents()
   }
 
   /** Decide whether `renderLoop` should actually call `renderFrame()`.
@@ -3046,78 +2994,53 @@ export class XGISMap {
     }
   }
 
-  /** Map-level event delegation — fires for any layer hit (`target` = the
-   *  hit layer, same `XGISFeatureEvent` shape). Layer-level listeners run
-   *  first; their `preventDefault` suppresses the map-level dispatch. */
+  /** Map-level event delegation — delegated to MapEventBus. */
   addEventListener(
     type: XGISFeatureEventType,
     listener: XGISFeatureListener,
     options?: { signal?: AbortSignal; once?: boolean },
   ): void {
-    this.mapListeners.add(type, listener, options)
+    this._eventBus.addEventListener(type, listener, options)
   }
 
   removeEventListener(type: XGISFeatureEventType, listener: XGISFeatureListener): void {
-    this.mapListeners.remove(type, listener)
+    this._eventBus.removeEventListener(type, listener)
   }
 
-  /** Mapbox-API parity `on()`/`off()` aliases. Two disjoint event surfaces
-   *  routed by name: feature/pointer events (click, mousemove, …) →
-   *  `mapListeners` (XGISFeatureEvent, carries the hit feature);
-   *  lifecycle/camera events (load, idle, move*, zoom*) →
-   *  `mapEventListeners` (XGISMapEvent, carries the camera state).
-   *  Unknown names warn once at the feature registry (layer.ts, P0-4). */
+  /** Mapbox-API parity `on()`/`off()` aliases — delegated to MapEventBus. */
   on(type: XGISMapEventType, listener: XGISMapListener): void
   on(type: XGISFeatureEventType, listener: XGISFeatureListener): void
   on(type: XGISFeatureEventType | XGISMapEventType, listener: XGISFeatureListener | XGISMapListener): void {
-    if (isMapEventType(type)) this.mapEventListeners.add(type, listener as XGISMapListener)
-    else this.mapListeners.add(type, listener as XGISFeatureListener)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(this._eventBus.on as (t: any, l: any) => void)(type, listener)
   }
   off(type: XGISMapEventType, listener: XGISMapListener): void
   off(type: XGISFeatureEventType, listener: XGISFeatureListener): void
   off(type: XGISFeatureEventType | XGISMapEventType, listener: XGISFeatureListener | XGISMapListener): void {
-    if (isMapEventType(type)) this.mapEventListeners.remove(type, listener as XGISMapListener)
-    else this.mapListeners.remove(type, listener as XGISFeatureListener)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(this._eventBus.off as (t: any, l: any) => void)(type, listener)
   }
   once(type: XGISMapEventType, listener: XGISMapListener): void
   once(type: XGISFeatureEventType, listener: XGISFeatureListener): void
   once(type: XGISFeatureEventType | XGISMapEventType, listener: XGISFeatureListener | XGISMapListener): void {
-    if (isMapEventType(type)) this.mapEventListeners.add(type, listener as XGISMapListener, { once: true })
-    else this.mapListeners.add(type, listener as XGISFeatureListener, { once: true })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(this._eventBus.once as (t: any, l: any) => void)(type, listener)
   }
 
-  /** Build + dispatch a lifecycle/camera event from the current camera
-   *  state. No-op without listeners so the per-frame path stays cheap. */
+  /** Build + dispatch a lifecycle/camera event — delegated to MapEventBus. */
   private _fireMapEvent(type: XGISMapEventType): void {
-    if (!this.mapEventListeners.has(type)) return
-    const cam = this.cameraController.getCameraState()
-    this.mapEventListeners.dispatch(new XGISMapEvent({
-      type,
-      target: this,
-      center: cam.center,
-      zoom: cam.zoom,
-      bearing: cam.bearing,
-      pitch: cam.pitch,
-    }))
+    this._eventBus._fireMapEvent(type)
   }
 
-  /** Fire `load` exactly once, after the map has entered the render loop
-   *  (the first frame has been scheduled). Mirrors the `_loaded` /
-   *  `__xgisReady` contract — both run() and runBinary() call this after
-   *  setting `_loaded = true`. MapLibre fires `load` once per map. */
+  /** Fire `load` exactly once — delegated to MapEventBus. */
   private _fireLoadEvent(): void {
-    if (this._loadFired) return
-    this._loadFired = true
-    this._fireMapEvent('load')
+    this._eventBus.fireLoadEvent()
   }
 
-  /** Internal: dispatcher calls this after a layer-level dispatch so
-   *  map-level handlers see every hit. `event.defaultPrevented` carries
-   *  through — a layer listener's preventDefault() suppresses this. */
+  /** Internal: dispatcher calls this after a layer-level dispatch —
+   *  delegated to MapEventBus. */
   _dispatchMapEvent(event: XGISFeatureEvent): void {
-    if (event.defaultPrevented) return
-    if (!this.mapListeners.has(event.type)) return
-    this.mapListeners.dispatch(event, 'map')
+    this._eventBus.dispatchMapEvent(event)
   }
 
   // ═══ Dynamic Property API (lower-level dot-notation; prefer .style) ═══
@@ -3242,14 +3165,9 @@ export class XGISMap {
 
     // Pending feature-update flush rAF (scheduleFlushPendingUpdates uses
     // window.requestAnimationFrame, or a setTimeout fallback in non-DOM
-    // envs) — cancel with the matching primitive to drop the GC pin.
-    if (this._pendingFlushHandle !== null) {
-      if (typeof window !== 'undefined' && window.cancelAnimationFrame) {
-        window.cancelAnimationFrame(this._pendingFlushHandle)
-      } else clearTimeout(this._pendingFlushHandle)
-      this._pendingFlushHandle = null
-    }
-    this._pendingPatches.clear()
+    // envs) — cancel with the matching primitive to drop the GC pin, then
+    // drop all pending patches.
+    this.featureUpdateQueue.destroy()
 
     // Pointer-event dispatcher owns a move-coalescing rAF with no other
     // cancel path; its callback funnels into pickAt on the destroyed device.
@@ -3355,102 +3273,7 @@ export class XGISMap {
     featureId: number,
     patch: { geometry?: GeoJSONFeature['geometry']; properties?: Record<string, unknown> },
   ): void {
-    if (!this.rawDatasets.has(sourceId)) {
-      if (!this._unknownSourceWarned.has(sourceId)) {
-        xlog.warn(`[X-GIS] updateFeature: unknown source "${sourceId}"`)
-        this._unknownSourceWarned.add(sourceId)
-      }
-      return
-    }
-    // Tile-backed markers carry no FeatureCollection, so a patch would be
-    // silently dropped at flush. Warn-once at enqueue time so the host learns
-    // immediately rather than discovering a no-op.
-    const dataset = this.rawDatasets.get(sourceId)
-    if (!dataset || !Array.isArray((dataset as { features?: unknown }).features)) {
-      if (!this._tileBackedUpdateWarned.has(sourceId)) {
-        xlog.warn(`[X-GIS] updateFeature: source "${sourceId}" is tile-backed (URL-loaded); feature updates are only supported for host-pushed GeoJSON sources (setSourceData)`)
-        this._tileBackedUpdateWarned.add(sourceId)
-      }
-      return
-    }
-    let bySource = this._pendingPatches.get(sourceId)
-    if (!bySource) {
-      bySource = new Map()
-      this._pendingPatches.set(sourceId, bySource)
-    }
-    const existing = bySource.get(featureId)
-    // Defensive: coerce non-plain-object patch.properties to {} so a
-    // host passing a string / array (TypeScript-cast at the boundary)
-    // doesn't spread char/index keys into the patched feature props.
-    // Mirror of the makeEvalProps coercion (4e11bb7).
-    const patchProps = patch.properties
-    const safePatchProps = patchProps !== null && patchProps !== undefined
-      && typeof patchProps === 'object' && !Array.isArray(patchProps)
-      ? patchProps
-      : {}
-    bySource.set(featureId, {
-      geometry: patch.geometry ?? existing?.geometry,
-      properties: { ...(existing?.properties ?? {}), ...safePatchProps },
-    })
-    this.scheduleFlushPendingUpdates()
-    this.invalidate()
-  }
-
-  private scheduleFlushPendingUpdates(): void {
-    if (this._pendingFlushHandle !== null) return
-    const raf = (typeof window !== 'undefined' && window.requestAnimationFrame)
-      ? window.requestAnimationFrame.bind(window)
-      : (cb: FrameRequestCallback): number => setTimeout(() => cb(performance.now()), 16) as unknown as number
-    this._pendingFlushHandle = raf(() => this.flushPendingUpdates())
-  }
-
-  private flushPendingUpdates(): void {
-    this._pendingFlushHandle = null
-    if (this._destroyed) return
-    if (this._pendingPatches.size === 0) return
-
-    for (const [sourceId, patches] of this._pendingPatches) {
-      const data = this.rawDatasets.get(sourceId)
-      // Non-FeatureCollection shape (tile-backed marker / legacy direct write):
-      // `.features` not being an array would crash the for-of. updateFeature
-      // rejects markers at enqueue time; a patch reaching here warns once so
-      // the no-op is observable rather than silent.
-      if (!data || !Array.isArray((data as { features?: unknown }).features)) {
-        if (!this._tileBackedUpdateWarned.has(sourceId)) {
-          xlog.warn(`[X-GIS] updateFeature: source "${sourceId}" is not a patchable FeatureCollection; ${patches.size} pending update(s) dropped`)
-          this._tileBackedUpdateWarned.add(sourceId)
-        }
-        continue
-      }
-      // Lookup via featureId index so patching is O(patches) instead of
-      // O(features). The index is built once per source and reused across
-      // flush cycles until setSourceData replaces the dataset.
-      let index = this._featureIndex.get(sourceId)
-      if (!index) {
-        index = new Map()
-        for (let i = 0; i < data.features.length; i++) {
-          const f = data.features[i]
-          // +1 on the fallback index branch mirrors the encode chokepoint
-          // (geojson-compile-worker.ts:resolveIdResolver) so the stable id
-          // the host receives from a pick event (i+1 for id-less features)
-          // matches the key updateFeature patches against here.
-          index.set(toU32Id(f.id ?? f.properties?.id ?? i + 1), f)
-        }
-        this._featureIndex.set(sourceId, index)
-      }
-      for (const [fid, patch] of patches) {
-        const f = index.get(fid)
-        if (!f) continue
-        if (patch.geometry) f.geometry = patch.geometry
-        if (patch.properties) {
-          f.properties = { ...(f.properties ?? {}), ...patch.properties }
-        }
-      }
-      // Trigger a single retile for this source.
-      this.teardownSource(sourceId)
-    }
-    this._pendingPatches.clear()
-    this.rebuildLayers()
+    this.featureUpdateQueue.updateFeature(sourceId, featureId, patch)
   }
 
   stop(): void {

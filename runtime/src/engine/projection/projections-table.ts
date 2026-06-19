@@ -150,6 +150,12 @@ export function promotesToGlobeWhenTilted(projType: number): boolean {
 //    cullThresholdOf …) here when a real consumer needs them — not before. ──
 export const isGlobeProj = (projType: number): boolean => PROJECTIONS[projType]?.isGlobe ?? false
 
+/** Whether the projType is Mercator (0) — the only flat-cylindrical
+ *  non-periodic projection that uses corner-unprojection for world-copy
+ *  enumeration (all other projTypes use the table-driven periodic path or
+ *  collapse to [0]). */
+export const isMercatorProj = (projType: number): boolean => !!(PROJECTIONS[projType]?.isCylindrical && !PROJECTIONS[projType]?.periodic)
+
 /** Resolve the projType integer to its earth-surface-fill world-band kind.
  *  Pure table lookup over the `worldBand` column. An out-of-range projType
  *  (never produced in practice — projType is always 0-7 via

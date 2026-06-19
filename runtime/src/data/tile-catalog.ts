@@ -45,6 +45,7 @@ import {
   type VirtualCatalog, type VirtualTileFetcher,
 } from './tile-types'
 import { unionBounds } from './tile-catalog-helpers'
+import { TileDataCache } from './tile-data-cache'
 
 export {
   type TileData, type TileState,
@@ -56,15 +57,13 @@ export {
 
 export class TileCatalog {
   private index: XGVTIndex | null = null
-  /** Cache of compiled tile data per (tile key, source-layer name).
-   *  The inner map is keyed by MVT layer name; '' (empty string) is
-   *  the "default" slice used by single-layer sources (XGVT-binary,
-   *  GeoJSON-runtime) and as the legacy back-compat lookup for code
-   *  that doesn't pass a sourceLayer. PMTiles emits one slice per
-   *  MVT layer present in the tile, each landing under that layer's
-   *  name — so a single source can serve multiple xgis layers each
-   *  with its own `sourceLayer` filter. */
-  private dataCache = new Map<number, Map<string, TileData>>()
+  /** In-memory compiled-tile store + byte accounting. Extracted to
+   *  TileDataCache (redesign §3.5): owns the per-(tile key, source-
+   *  layer) TileData map, the cumulative byte total, and the
+   *  setSlice / deleteCacheEntry bookkeeping that keeps the two in
+   *  sync. The catalog owns only the eviction POLICY; the cache owns
+   *  the accounting MECHANISM. */
+  private cache = new TileDataCache()
   private loadingTiles = new Set<number>()
 
   /** Ordered list of attached backends. Multi-backend dispatch is
@@ -93,15 +92,6 @@ export class TileCatalog {
    *  per-layer slices (PMTiles). VTR uploads a per-(key, layer)
    *  GPU entry so different xgis layers can draw distinct slices. */
   onTileLoaded: ((key: number, data: TileData, sourceLayer: string) => void) | null = null
-
-  /** Cumulative byte cost of every TileData in `dataCache`, kept
-   *  in sync by setSlice / dataCache.delete paths. Used by
-   *  evictTiles to enforce `MAX_CACHED_BYTES` independent of
-   *  tile count — a single dense city-zoom tile can hold 4-8 MB
-   *  while a sparse ocean tile is < 100 KB, so count-based caps
-   *  either over-shoot heap on dense scenes or churn on sparse
-   *  ones. */
-  private _cachedBytes = 0
 
   /** Backends already warned about a layoutVersion mismatch — keeps the
    *  attach-time warn one-shot per backend instance so noisy re-attaches
@@ -133,57 +123,19 @@ export class TileCatalog {
   private _skeletonTimer: ReturnType<typeof setTimeout> | null = null
   private _stopped = false
 
-  /** Best-effort byte size of a TileData. Sums every typed-array
-   *  field we hold; skips `polygons` because RingPolygon is plain
-   *  JS arrays (V8-internal, no byteLength) and stress-test
-   *  measurement put it at ~20 % of typed-array total — not zero,
-   *  but the budget cap has 25 % slack so this approximation is
-   *  fine for the eviction trigger. */
-  private static sizeOfTileData(td: TileData): number {
-    let n = 0
-    n += td.vertices.byteLength + td.indices.byteLength
-    n += td.lineVertices.byteLength + td.lineIndices.byteLength
-    n += td.outlineIndices.byteLength
-    if (td.outlineVertices) n += td.outlineVertices.byteLength
-    if (td.outlineLineIndices) n += td.outlineLineIndices.byteLength
-    if (td.pointVertices) n += td.pointVertices.byteLength
-    // prebuiltLineSegments / prebuiltOutlineSegments INTENTIONALLY
-    // omitted: VTR.doUploadTile nulls them out after GPU upload (a
-    // 180 MB / 256-tile heap-saving optimisation). Including them
-    // here would drift `_cachedBytes` upward — setSlice adds them
-    // when the tile arrives, but the matching subtract in
-    // deleteCacheEntry sees them already null. Real-device
-    // inspector showed 2 catalog tiles reporting 263 MB cached
-    // because of this; the byte cap then false-positive evicted
-    // visible tiles, leaving currentZ stripes covered by parent-
-    // walk fallback (regression: _mobile-detail-uniformity).
-    return n
-  }
-
-  /** Internal: set a slice in the per-key nested map, creating the
-   *  outer slot lazily. Used by cacheTileData + sub-tile gen.
-   *  Maintains `_cachedBytes` so evictTiles can enforce a byte
-   *  budget — same slot replacement subtracts the old data's size
-   *  before adding the new one. */
+  /** Internal: set a slice via the TileDataCache (byte accounting +
+   *  nested-map insert). Thin delegate — kept as a method so the
+   *  test escape-hatch (`(catalog as …).setSlice.bind(catalog)` in
+   *  tile-catalog-skeleton / -lifecycle / multi-layer-overzoom tests)
+   *  keeps reaching the same injection path. */
   private setSlice(key: number, layer: string, data: TileData): void {
-    let slot = this.dataCache.get(key)
-    if (!slot) { slot = new Map(); this.dataCache.set(key, slot) }
-    const prev = slot.get(layer)
-    if (prev) this._cachedBytes -= TileCatalog.sizeOfTileData(prev)
-    slot.set(layer, data)
-    this._cachedBytes += TileCatalog.sizeOfTileData(data)
+    this.cache.setSlice(key, layer, data)
   }
 
-  /** Internal: drop a key (all slices) from dataCache. Use this
-   *  instead of dataCache.delete directly so `_cachedBytes` stays
-   *  in sync. */
+  /** Internal: drop a key (all slices) from the cache, keeping byte
+   *  accounting in sync. Thin delegate to TileDataCache. */
   private deleteCacheEntry(key: number): void {
-    const slot = this.dataCache.get(key)
-    if (!slot) return
-    for (const td of slot.values()) {
-      this._cachedBytes -= TileCatalog.sizeOfTileData(td)
-    }
-    this.dataCache.delete(key)
+    this.cache.deleteCacheEntry(key)
   }
 
   // ── Data access ──
@@ -243,7 +195,7 @@ export class TileCatalog {
    *  cache invalidation (PR 2c.5 evictTilesForBackend). */
   private makeSink(backend: TileSource): TileSourceSink {
     return {
-      hasTileData: (key) => this.dataCache.has(key),
+      hasTileData: (key) => this.cache.has(key),
       trackLoading: (key) => { this.loadingTiles.add(key) },
       releaseLoading: (key) => { this.loadingTiles.delete(key) },
       getLoadingCount: () => this.loadingTiles.size,
@@ -298,7 +250,7 @@ export class TileCatalog {
    *  `_cachedBytes` stays in sync. */
   private evictTilesForBackend(backend: TileSource): void {
     const toDelete: number[] = []
-    for (const [key, slot] of this.dataCache) {
+    for (const [key, slot] of this.cache.entries()) {
       for (const td of slot.values()) {
         if (td.originBackend === backend || td.originBackend === undefined) {
           toDelete.push(key)
@@ -554,7 +506,7 @@ export class TileCatalog {
    *  backend handles parts lookup, compileSingleTile, and result push
    *  via the shared sink. */
   compileTileOnDemand(key: number): boolean {
-    if (this.dataCache.has(key)) return false
+    if (this.cache.has(key)) return false
     for (const backend of this.backends) {
       if (!backend.compileSync || !backend.has(key)) continue
       return this.tryCompileSync(key, backend)
@@ -571,7 +523,7 @@ export class TileCatalog {
    *  key (e.g. PMTiles). When sourceLayer is set, returns that
    *  specific MVT layer's slice or null when absent. */
   getTileData(key: number, sourceLayer?: string): TileData | null {
-    const slot = this.dataCache.get(key)
+    const slot = this.cache.getSlot(key)
     if (!slot) return null
     if (sourceLayer) return slot.get(sourceLayer) ?? null
     // Back-compat: '' = default slice, OR first slice if only per-layer present.
@@ -582,7 +534,7 @@ export class TileCatalog {
   }
 
   hasTileData(key: number, sourceLayer?: string): boolean {
-    const slot = this.dataCache.get(key)
+    const slot = this.cache.getSlot(key)
     if (!slot) return false
     if (sourceLayer) return slot.has(sourceLayer)
     return slot.size > 0
@@ -601,7 +553,7 @@ export class TileCatalog {
    *  failure that's about to expire. See `TileState` in tile-types.ts
    *  for the transition diagram. */
   getTileState(key: number): TileState {
-    if (this.dataCache.has(key)) return 'cached'
+    if (this.cache.has(key)) return 'cached'
     if (this.loadingTiles.has(key)) return 'loading'
     for (const b of this.backends) {
       if (b.isFailed?.(key)) return 'failed'
@@ -616,7 +568,7 @@ export class TileCatalog {
    *  failed keys are typically rare; query individual keys via
    *  getTileState if needed. */
   getStateBreakdown(): { cached: number; loading: number } {
-    return { cached: this.dataCache.size, loading: this.loadingTiles.size }
+    return { cached: this.cache.size, loading: this.loadingTiles.size }
   }
 
   /** True when any tile is still being fetched. Read each frame by the
@@ -626,7 +578,7 @@ export class TileCatalog {
   }
 
   getCacheSize(): number {
-    return this.dataCache.size
+    return this.cache.size
   }
 
   /** Diagnostic accessors — let inspectPipeline() + CPU debug tests
@@ -986,7 +938,7 @@ export class TileCatalog {
 
     const _maxConcurrent = maxConcurrentLoads()
     for (const key of keys) {
-      if (this.dataCache.has(key) || this.loadingTiles.has(key)) continue
+      if (this.cache.has(key) || this.loadingTiles.has(key)) continue
       if (this.loadingTiles.size >= _maxConcurrent) break
 
       // Preregistered entries (XGVT-binary) route through entryToBackend.
@@ -1232,7 +1184,7 @@ export class TileCatalog {
         // frame cancelStale shield rotation. `prefetchTiles` →
         // `requestTiles` dedupes loadingTiles internally so this is
         // free.
-        if (!this.dataCache.has(key) && this.index.entryByHash.has(key)) {
+        if (!this.cache.has(key) && this.index.entryByHash.has(key)) {
           prefetchKeys.push(key)
         }
       }
@@ -1261,7 +1213,7 @@ export class TileCatalog {
 
     for (const t of nextTiles) {
       const key = tileKey(t.z, t.x, t.y)
-      if (this.dataCache.has(key) || this.loadingTiles.has(key)) continue
+      if (this.cache.has(key) || this.loadingTiles.has(key)) continue
       if (this.index.entryByHash.has(key)) {
         prefetchKeys.push(key)
       }
@@ -1275,39 +1227,8 @@ export class TileCatalog {
 
   // ── Cache eviction ──
 
-  /** Recompute the actual byte size of every cached TileData and
-   *  compare against the running `_cachedBytes` accumulator. Drift
-   *  triggered the user-reported "263 MB for 2 tiles" inspector
-   *  bug (commit 497a2c1: prebuiltLineSegments were included in
-   *  setSlice's add but excluded from delete after GPU upload
-   *  nulled them). Activated by `globalThis.__XGIS_INVARIANTS`;
-   *  production builds skip the recomputation entirely. */
-  private assertByteAccountingInvariant(label: string): void {
-    if (!(globalThis as { __XGIS_INVARIANTS?: boolean }).__XGIS_INVARIANTS) return
-    let actual = 0
-    for (const slot of this.dataCache.values()) {
-      for (const td of slot.values()) {
-        actual += TileCatalog.sizeOfTileData(td)
-      }
-    }
-    const drift = Math.abs(actual - this._cachedBytes)
-    // 1 KB tolerance — Math.fround / typed-array byteLength rounding
-    // shouldn't introduce more than a handful of bytes per tile;
-    // a tile-count multiplier of <1 KB across hundreds of tiles
-    // means the accounting is consistent.
-    if (drift > 1024) {
-      throw new Error(
-        `[XGIS INVARIANT] _cachedBytes drift at ${label}: actual=${actual} `
-        + `accumulator=${this._cachedBytes} drift=${drift} bytes across `
-        + `${this.dataCache.size} tile slots. The setSlice / deleteCacheEntry `
-        + `byte-add/subtract path is out of sync with sizeOfTileData. See `
-        + `commit 497a2c1 for the prebuilt-SDF drift class.`,
-      )
-    }
-  }
-
   evictTiles(protectedKeys: Set<number>): void {
-    this.assertByteAccountingInvariant('evictTiles-entry')
+    this.cache.assertByteAccountingInvariant('evictTiles-entry')
     // Snapshot the protected keys that ARE in catalog pre-eviction —
     // these must survive the eviction call (Cesium replacement
     // invariant). Only takes effect when invariants are enabled.
@@ -1321,7 +1242,7 @@ export class TileCatalog {
     const _protectedPresent = _inv
       ? new Set(
           [...protectedKeys, ...this._skeletonKeys]
-            .filter(k => this.dataCache.has(k)),
+            .filter(k => this.cache.has(k)),
         )
       : null
     // Two caps: byte-based (tight, accurate) and count-based
@@ -1337,13 +1258,13 @@ export class TileCatalog {
     for (const [k, exp] of this._evictShield) {
       if (exp <= _now) this._evictShield.delete(k)
     }
-    if (this.dataCache.size <= MAX_CACHED_TILES
-        && this._cachedBytes <= _byteCap) {
+    if (this.cache.size <= MAX_CACHED_TILES
+        && this.cache.cachedBytes <= _byteCap) {
       // Nothing to do — but still verify the protected set wasn't
       // accidentally dropped by some prior code path.
       if (_inv && _protectedPresent) {
         for (const k of _protectedPresent) {
-          if (!this.dataCache.has(k)) {
+          if (!this.cache.has(k)) {
             throw new Error(`[XGIS INVARIANT] protected key ${k} missing from catalog at evictTiles entry — replacement invariant violated by a prior code path`)
           }
         }
@@ -1377,7 +1298,7 @@ export class TileCatalog {
     // (regression: _zoom-transition-blank-tiles.spec.ts).
     // Skeleton keys (Cesium-style permanent base layer) are
     // unconditionally protected — see `_skeletonKeys` doc.
-    const entries = [...this.dataCache.entries()]
+    const entries = [...this.cache.entries()]
       .filter(([key]) => !protectedKeys.has(key)
                       && !this._evictShield.has(key)
                       && !this._skeletonKeys.has(key))
@@ -1387,12 +1308,12 @@ export class TileCatalog {
     // / setSlice doesn't re-insert).
     let i = 0
     while (i < entries.length
-           && (this.dataCache.size > MAX_CACHED_TILES
-               || this._cachedBytes > _byteCap)) {
+           && (this.cache.size > MAX_CACHED_TILES
+               || this.cache.cachedBytes > _byteCap)) {
       this.deleteCacheEntry(entries[i][0])
       i++
     }
-    this.assertByteAccountingInvariant('evictTiles-exit')
+    this.cache.assertByteAccountingInvariant('evictTiles-exit')
 
     // Cesium replacement-invariant audit: every protected key that
     // was present pre-eviction must still be present post-eviction.
@@ -1401,7 +1322,7 @@ export class TileCatalog {
     // where the filter is altered.
     if (_inv && _protectedPresent) {
       for (const k of _protectedPresent) {
-        if (!this.dataCache.has(k)) {
+        if (!this.cache.has(k)) {
           throw new Error(
             `[XGIS INVARIANT] protected key ${k} was evicted despite being in `
             + `protectedKeys — replacement invariant violated. The eviction `
