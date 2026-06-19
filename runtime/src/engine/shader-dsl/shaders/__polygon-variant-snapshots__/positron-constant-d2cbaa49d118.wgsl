@@ -1,4 +1,4 @@
-// baseline: fe013f5b17e5ea82f5df5738b661c227a1d737ca
+// baseline: 9a386be3900fccee159569804584d544a2fef40c
 // fixture: positron-constant
 // variant.key: __bare-pick0__
 // pick: false
@@ -476,7 +476,7 @@ fn fs_fill(input: VertexOutput) -> FragmentOutput {
   if ((polygon_cos_c_fragment(input.abs_merc_x, input.abs_merc_y) < 0.0)) {
     discard;
   }
-  if ((abs(input.abs_lat) > MERCATOR_LAT_LIMIT)) {
+  if ((abs(input.abs_lat) > (MERCATOR_LAT_LIMIT + 0.5))) {
     discard;
   }
   let _clip_valid = (((u.clip_bounds.x > -1e+29) && (u.clip_bounds.z > u.clip_bounds.x)) && (u.clip_bounds.w > u.clip_bounds.y));
@@ -515,7 +515,7 @@ fn fs_fill_pattern(input: VertexOutput) -> FragmentOutput {
   if ((polygon_cos_c_fragment(input.abs_merc_x, input.abs_merc_y) < 0.0)) {
     discard;
   }
-  if ((abs(input.abs_lat) > MERCATOR_LAT_LIMIT)) {
+  if ((abs(input.abs_lat) > (MERCATOR_LAT_LIMIT + 0.5))) {
     discard;
   }
   let _clip_valid = (((u.clip_bounds.x > -1e+29) && (u.clip_bounds.z > u.clip_bounds.x)) && (u.clip_bounds.w > u.clip_bounds.y));
@@ -558,7 +558,7 @@ fn fs_oit_translucent(input: VertexOutput) -> OitFragmentOutput {
   if ((polygon_cos_c_fragment(input.abs_merc_x, input.abs_merc_y) < 0.0)) {
     discard;
   }
-  if ((abs(input.abs_lat) > MERCATOR_LAT_LIMIT)) {
+  if ((abs(input.abs_lat) > (MERCATOR_LAT_LIMIT + 0.5))) {
     discard;
   }
   let _clip_valid = (((u.clip_bounds.x > -1e+29) && (u.clip_bounds.z > u.clip_bounds.x)) && (u.clip_bounds.w > u.clip_bounds.y));
@@ -597,7 +597,7 @@ fn fs_fill_extrude(input: VertexOutput) -> FragmentOutput {
   if ((polygon_cos_c_fragment(input.abs_merc_x, input.abs_merc_y) < 0.0)) {
     discard;
   }
-  if ((abs(input.abs_lat) > MERCATOR_LAT_LIMIT)) {
+  if ((abs(input.abs_lat) > (MERCATOR_LAT_LIMIT + 0.5))) {
     discard;
   }
   let _clip_valid = (((u.clip_bounds.x > -1e+29) && (u.clip_bounds.z > u.clip_bounds.x)) && (u.clip_bounds.w > u.clip_bounds.y));
@@ -631,7 +631,7 @@ fn fs_stroke(input: VertexOutput) -> FragmentOutput {
   if ((polygon_cos_c_fragment(input.abs_merc_x, input.abs_merc_y) < 0.0)) {
     discard;
   }
-  if ((abs(input.abs_lat) > MERCATOR_LAT_LIMIT)) {
+  if ((abs(input.abs_lat) > (MERCATOR_LAT_LIMIT + 0.5))) {
     discard;
   }
   let _clip_valid = (((u.clip_bounds.x > -1e+29) && (u.clip_bounds.z > u.clip_bounds.x)) && (u.clip_bounds.w > u.clip_bounds.y));
