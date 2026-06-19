@@ -80,7 +80,14 @@ export function computeMiterPadRatio(
   const cross = Math.abs(ax * by - ay * bx)
   const dotAB = ax * bx + ay * by
   const denom = 1 + dotAB
-  if (denom < 1e-6) return miterLimit // 180° degenerate — worst case
+  // ~180° reversal (tangents antiparallel): the true miter is infinite, so it
+  // MUST bevel — pad 1, no extension. Returning `miterLimit` here (the old
+  // "worst case") extended the join quad miterLimit×half_w ALONG the reversed
+  // segment, which at a dense-vertex cluster points across the stroke and
+  // sprouts a perpendicular whisker spike (#463). Sharper-than-limit corners
+  // already bevel via the cosHalf check below; this is the same outcome for the
+  // degenerate end of that range, just guarded earlier to avoid 0/0 in padAlong.
+  if (denom < 1e-6) return 1 // 180° reversal → bevel (no miter extension)
   const padAlong = cross / denom
   if (padAlong < 0.05) return 1       // collinear-ish, no miter needed
   // Miter limit: ratio 1/cos(θ/2) > miterLimit → bevel. θ = deflection between
