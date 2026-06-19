@@ -2672,7 +2672,7 @@ export class VectorTileRenderer {
       if (decision.kind === 'drop-no-archive') {
         const t = tiles[i]
         const wKey = `no-ancestor:${t.z}/${t.x}/${t.y}`
-        if (!this._drawStats.hasWarned(wKey)) {
+        if (maxLevel > 0 && !this._drawStats.hasWarned(wKey)) {
           this._drawStats.markWarned(wKey)
           xlog.warn(`[VTR tile-drop] no ancestor found for ${t.z}/${t.x}/${t.y} — dropping from render (maxLevel=${maxLevel}).`)
         }
