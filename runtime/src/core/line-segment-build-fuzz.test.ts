@@ -190,6 +190,17 @@ describe('iter-297 buildLineSegments fuzz', () => {
       assertAllFinite(r, 'hairpin')
     })
 
+    it('FAIL-BEFORE (#463): a ~180° reversal BEVELS (pad 1), not miterLimit — no whisker spike', () => {
+      // seg0 = (0,0)→(100,0), seg1 = (100,0)→(0,0): the join at the apex is a
+      // ~180° reversal. Pre-#463 the denom<1e-6 guard returned miterLimit (4),
+      // extending the quad 4×half_w along the reversed segment → a perpendicular
+      // whisker at dense-vertex clusters. It must bevel (pad 1) instead.
+      const v = v6([0, 0, 0, 0, 0, 0], [100, 0.0001, 0, 0, 0, 100], [0, 0.0002, 0, 0, 0, 200])
+      const r = buildLineSegments(v, idx(0, 1, 1, 2), 6, 1000, 1000)
+      const padP1Seg0 = r[0 * LINE_SEGMENT_STRIDE_F32 + 15] // slot 15 = pad_ratio_p1 (join at apex)
+      expect(padP1Seg0).toBeLessThanOrEqual(1)
+    })
+
     it('coincident consecutive vertices — zero tangent guarded', () => {
       const v = v6([5, 5, 0, 0, 0, 0], [5, 5, 0, 0, 0, 0], [10, 10, 0, 0, 0, 7])
       const r = buildLineSegments(v, idx(0, 1, 1, 2), 6, 1000, 1000)
