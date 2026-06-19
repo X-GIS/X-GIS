@@ -1053,14 +1053,10 @@ function lowerLayer(
         dashArray, dashOffset,
         patterns: validPatterns.length > 0 ? validPatterns : undefined,
         offset: strokeOffset,
-        // Polygon fill-STROKE (layer has BOTH a real fill + stroke) defaults to
-        // INSET: a thick outline sits inside the fill (CSS border-box), fill
-        // silhouette unchanged — not CENTER straddling + eating ~half-width of
-        // the fill. Explicit stroke-align wins; pure lines (fill is colorNone,
-        // e.g. every Mapbox `type:line` layer) keep Mapbox-faithful CENTER —
-        // `fill`/`strokeColor` always default to colorNone() so the test must be
-        // `kind !== 'none'`, NOT `!== undefined` (which was always true and
-        // wrongly inset every stroked line by half its width).
+        // Real fill+stroke → INSET (outline inside the fill, CSS border-box);
+        // pure lines (fill is colorNone) keep Mapbox CENTER. Test `kind !==
+        // 'none'` NOT `!== undefined` — both default to colorNone() so
+        // `!== undefined` was always true and wrongly inset every line (#439).
         align: strokeAlign ?? (fill.kind !== 'none' && strokeColor.kind !== 'none' ? 'inset' : undefined),
         blur: strokeBlur,
         gapWidth: strokeGapWidth,
