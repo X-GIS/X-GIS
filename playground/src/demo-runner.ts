@@ -5,6 +5,7 @@ import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 
 import { XGISMap, lonLatToMercator } from '@xgis/runtime'
 import { DEMOS } from './demos'
+import { extractMapboxProjectionName } from './mapbox-projection'
 import { registerXGISLanguage, registerXGISTheme, validateSource, discoverFields } from './monaco-xgis'
 
 // Monaco web worker setup
@@ -1033,6 +1034,15 @@ selectEl.addEventListener('change', () => loadDemo(parseInt(selectEl.value)))
         pendingSpriteUrl = typeof spriteUrl === 'string' && spriteUrl.length > 0 ? spriteUrl : null
         pendingGlyphsUrl = typeof glyphsUrl === 'string' && glyphsUrl.length > 0 ? glyphsUrl : null
         await runSource(xgis, 'Imported (Mapbox)')
+        // WS-8 — honour the style's top-level `projection` field. Apply
+        // BEFORE the camera block below so setProjection's zoom-clamp /
+        // globeMode writes don't clobber the style-declared camera. URL
+        // `?proj=` still wins: runSource() already applied it above, so
+        // skip when the override is present.
+        const styleProj = extractMapboxProjectionName(styleObj)
+        if (styleProj && !new URLSearchParams(location.search).get('proj')) {
+          currentMap?.setProjection(styleProj)
+        }
         // Apply style-declared camera when nothing else (URL hash or
         // bounds-fit) explicitly positioned us yet. URL hash camera
         // (parseHash → markCameraPositioned at boot) wins because the

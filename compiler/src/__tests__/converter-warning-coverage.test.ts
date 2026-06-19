@@ -117,7 +117,7 @@ describe('converter warning coverage', () => {
       .toBe(true)
   })
 
-  it('top-level projection / fog / light / terrain → ignored-fields warning', () => {
+  it('top-level fog / light → ignored-fields warning (projection now host-applied, WS-8)', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
@@ -128,7 +128,11 @@ describe('converter warning coverage', () => {
     })
     expect(w.some(s => s.startsWith('Top-level style fields ignored'))).toBe(true)
     const note = w.find(s => s.startsWith('Top-level style fields ignored'))!
-    for (const k of ['projection', 'fog', 'light']) {
+    // WS-8: top-level `projection` is now host-applied (demo-runner /
+    // compare-runner read it off the raw style JSON and call
+    // XGISMap.setProjection), so it must NOT appear in the ignored list.
+    expect(note, `projection should be host-applied, not ignored: ${note}`).not.toContain('projection')
+    for (const k of ['fog', 'light']) {
       expect(note, `expected "${k}" in: ${note}`).toContain(k)
     }
   })

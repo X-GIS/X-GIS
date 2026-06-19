@@ -163,17 +163,16 @@ export function convertMapboxStyle(
   // Only fields that meaningfully change rendering AND have no host
   // hook today get warned:
   //
-  //   projection — runtime supports multiple projections via the
-  //                `?proj=` URL flag, but the style-spec field isn't
-  //                read. A style declaring `projection: { type:
-  //                "globe" }` renders flat-Mercator.
   //   fog / light / terrain / transition / imports — Mapbox v3
   //                additions, none implemented.
   //
-  // Centre / zoom / pitch / bearing / glyphs / sprite are deliberately
-  // omitted — they're host-integration concerns (the playground's
-  // demo-runner + compare-runner read them and call the matching
-  // XGISMap setters), not converter ones.
+  // Centre / zoom / pitch / bearing / glyphs / sprite / projection are
+  // deliberately omitted — they're host-integration concerns (the
+  // playground's demo-runner + compare-runner read them off the raw
+  // style JSON and call the matching XGISMap setters: setProjection for
+  // the top-level `projection` field, mapped from the Mapbox type name),
+  // not converter ones. The xgis DSL carries no top-level camera /
+  // projection state.
   const styleAny = style as unknown as Record<string, unknown>
   // Mapbox spec: top-level `version` must be 8 — the entire schema
   // (sources / layers / paint / layout / expressions) is version-
@@ -192,9 +191,6 @@ export function convertMapboxStyle(
   }
 
   const topLevelGaps: string[] = []
-  if (styleAny.projection !== undefined && styleAny.projection !== null) {
-    topLevelGaps.push('projection')
-  }
   // sky (v2+ atmospheric haze / horizon gradient), lights (v3
   // standard-style ambient + directional rig), models (v3 standard-
   // style glTF 3D placements) — none implemented. Pre-fix the

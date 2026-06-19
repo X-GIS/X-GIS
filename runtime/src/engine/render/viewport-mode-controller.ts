@@ -76,6 +76,13 @@ export class ViewportModeController {
     const ALIASES: Record<string, string> = {
       equirect: 'equirectangular',
       'natural-earth': 'natural_earth',
+      // Mapbox style-spec `projection` uses camelCase type names; map the
+      // ones with an X-GIS equivalent (naturalEarth → natural_earth). The
+      // matching names (mercator / globe / equirectangular) need no alias.
+      // Mapbox-only types (albers / equalEarth / lambertConformalConic /
+      // winkelTripel) have no X-GIS surface → fall through to the VALID
+      // gate below and warn + keep the current projection.
+      naturalEarth: 'natural_earth',
       'azimuthal-equidistant': 'azimuthal_equidistant',
       'oblique-mercator': 'oblique_mercator',
     }
