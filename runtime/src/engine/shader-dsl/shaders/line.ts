@@ -41,6 +41,11 @@ import {
   SDF_WGSL_WINDING_LINE,
 } from './sdf'
 
+// Round-join acute-fold threshold on |prevTan + dir| (unit vectors → length is
+// 2·sin(interiorAngle/2)). 0.6 ⇒ interior angle ≲ 35°, well clear of normal road
+// bends (60° corner = 1.0, right angle = 1.41, straight = 2.0); see #413.
+const JOIN_ACUTE_BIS = 0.6
+
 // ── Struct declarations ──
 
 const TileUniforms: StructDecl = {
@@ -543,29 +548,28 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
     c.if(joinType.eq(u32(1)).and(distP0.gt(0)), (d) => {
       const bisP0j = d.let('bis_p0_j', prevTan.add(dir))
       const bisLenJ = d.let('bis_len_j', length(bisP0j))
-      d.if(bisLenJ.gt(1e-6), (e) => {
-        const bisUnitJ = e.let('bis_unit_j', bisP0j.div(bisLenJ))
-        const alongJ = e.let('along_j', dot(segP.sub(p0JoinCenter), bisUnitJ))
-        e.if(alongJ.ge(0), (f) => {
-          const circleD = f.let('circle_d', length(segP.sub(p0JoinCenter)).sub(halfWm))
-          const alongExtendP0 = f.let('along_extend_p0', abs(layerOffsetM).mul(seg.field('pad_ratio_p0', f32T)))
-
-          const currentD = f.var('current_d', f32T, dM)
-          f.if(distP0.gt(alongExtendP0), (g) => {
-            g.assign(currentD, max(dM, distP0.sub(alongExtendP0)))
-          })
-
-          const prevNrm = f.let('prev_nrm', vec2(prevTan.y.neg(), prevTan.x))
-          const prevSignedPerp = f.let('prev_signed_perp', dot(segP.sub(p0), prevNrm))
-          const prevPerpM = f.let('prev_perp_m', abs(prevSignedPerp.sub(layerOffsetM)))
-          const neighborD = f.var('neighbor_d', f32T, prevPerpM.sub(halfWm))
-          const alongPastPrevEnd = f.let('along_past_prev_end', dot(segP.sub(p0), prevTan))
-          f.if(alongPastPrevEnd.gt(alongExtendP0), (g) => {
-            g.assign(neighborD, max(neighborD, alongPastPrevEnd.sub(alongExtendP0)))
-          })
-
-          f.assign(dM, min(min(currentD, circleD), neighborD))
+      // Acute fold → full round point (ML parity); moderate bends keep the
+      // half-plane. #413; see JOIN_ACUTE_BIS + the select() combine below.
+      const acuteFoldP0 = d.let('acute_fold_p0', bisLenJ.le(JOIN_ACUTE_BIS))
+      const bisUnitJ = d.let('bis_unit_j', bisP0j.div(max(bisLenJ, f32(1e-6))))
+      const alongJ = d.let('along_j', dot(segP.sub(p0JoinCenter), bisUnitJ))
+      d.if(acuteFoldP0.or(alongJ.ge(0)), (f) => {
+        const circleD = f.let('circle_d', length(segP.sub(p0JoinCenter)).sub(halfWm))
+        const alongExtendP0 = f.let('along_extend_p0', abs(layerOffsetM).mul(seg.field('pad_ratio_p0', f32T)))
+        const currentD = f.var('current_d', f32T, dM)
+        f.if(distP0.gt(alongExtendP0), (g) => {
+          g.assign(currentD, max(dM, distP0.sub(alongExtendP0)))
         })
+        const prevNrm = f.let('prev_nrm', vec2(prevTan.y.neg(), prevTan.x))
+        const prevSignedPerp = f.let('prev_signed_perp', dot(segP.sub(p0), prevNrm))
+        const prevPerpM = f.let('prev_perp_m', abs(prevSignedPerp.sub(layerOffsetM)))
+        const neighborD = f.var('neighbor_d', f32T, prevPerpM.sub(halfWm))
+        const alongPastPrevEnd = f.let('along_past_prev_end', dot(segP.sub(p0), prevTan))
+        f.if(alongPastPrevEnd.gt(alongExtendP0), (g) => {
+          g.assign(neighborD, max(neighborD, alongPastPrevEnd.sub(alongExtendP0)))
+        })
+        // Acute fold → pure round-point union (no carve); else original combine.
+        f.assign(dM, min(circleD, select(acuteFoldP0, dM, min(currentD, neighborD))))
       })
     })
   })
@@ -590,29 +594,25 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
     c.if(joinTypeP1.eq(u32(1)).and(distP1.gt(0)), (d) => {
       const bisP1j = d.let('bis_p1_j', dir.add(nextTan))
       const bisLenJ = d.let('bis_len_j', length(bisP1j))
-      d.if(bisLenJ.gt(1e-6), (e) => {
-        const bisUnitJ = e.let('bis_unit_j', bisP1j.div(bisLenJ))
-        const alongJ = e.let('along_j', dot(segP.sub(p1JoinCenter), bisUnitJ))
-        e.if(alongJ.le(0), (f) => {
-          const circleD = f.let('circle_d', length(segP.sub(p1JoinCenter)).sub(halfWm))
-          const alongExtendP1 = f.let('along_extend_p1', abs(layerOffsetM).mul(seg.field('pad_ratio_p1', f32T)))
-
-          const currentD = f.var('current_d', f32T, dM)
-          f.if(distP1.gt(alongExtendP1), (g) => {
-            g.assign(currentD, max(dM, distP1.sub(alongExtendP1)))
-          })
-
-          const nextNrm = f.let('next_nrm', vec2(nextTan.y.neg(), nextTan.x))
-          const nextSignedPerp = f.let('next_signed_perp', dot(segP.sub(p1), nextNrm))
-          const nextPerpM = f.let('next_perp_m', abs(nextSignedPerp.sub(layerOffsetM)))
-          const neighborD = f.var('neighbor_d', f32T, nextPerpM.sub(halfWm))
-          const alongIntoNext = f.let('along_into_next', dot(segP.sub(p1), nextTan))
-          f.if(alongIntoNext.lt(alongExtendP1.neg()), (g) => {
-            g.assign(neighborD, max(neighborD, alongIntoNext.neg().sub(alongExtendP1)))
-          })
-
-          f.assign(dM, min(min(currentD, circleD), neighborD))
+      const acuteFoldP1 = d.let('acute_fold_p1', bisLenJ.le(JOIN_ACUTE_BIS)) // #413, mirrors p0
+      const bisUnitJ = d.let('bis_unit_j', bisP1j.div(max(bisLenJ, f32(1e-6))))
+      const alongJ = d.let('along_j', dot(segP.sub(p1JoinCenter), bisUnitJ))
+      d.if(acuteFoldP1.or(alongJ.le(0)), (f) => {
+        const circleD = f.let('circle_d', length(segP.sub(p1JoinCenter)).sub(halfWm))
+        const alongExtendP1 = f.let('along_extend_p1', abs(layerOffsetM).mul(seg.field('pad_ratio_p1', f32T)))
+        const currentD = f.var('current_d', f32T, dM)
+        f.if(distP1.gt(alongExtendP1), (g) => {
+          g.assign(currentD, max(dM, distP1.sub(alongExtendP1)))
         })
+        const nextNrm = f.let('next_nrm', vec2(nextTan.y.neg(), nextTan.x))
+        const nextSignedPerp = f.let('next_signed_perp', dot(segP.sub(p1), nextNrm))
+        const nextPerpM = f.let('next_perp_m', abs(nextSignedPerp.sub(layerOffsetM)))
+        const neighborD = f.var('neighbor_d', f32T, nextPerpM.sub(halfWm))
+        const alongIntoNext = f.let('along_into_next', dot(segP.sub(p1), nextTan))
+        f.if(alongIntoNext.lt(alongExtendP1.neg()), (g) => {
+          g.assign(neighborD, max(neighborD, alongIntoNext.neg().sub(alongExtendP1)))
+        })
+        f.assign(dM, min(circleD, select(acuteFoldP1, dM, min(currentD, neighborD))))
       })
     })
   })
