@@ -237,11 +237,11 @@ export interface ShowCommand {
   circleBlur?: number
   /** Mapbox `paint.line-translate` x — CSS-px viewport offset on
    *  lines, +right. Runtime bakes (px * 2 / canvasWidth) into the
-   *  line layer uniform's line_translate_x slot (buf[48]). */
+   *  line layer uniform's line_translate_x slot (buf[47]). */
   strokeTranslateX?: number
   /** Mapbox `paint.line-translate` y — CSS-px viewport offset on
    *  lines, +down. Runtime bakes (px * 2 / canvasHeight) into
-   *  line_translate_y slot (buf[49]); shader negates for NDC y. */
+   *  line_translate_y slot (buf[48]); shader negates for NDC y. */
   strokeTranslateY?: number
   // Stable u16 layer ID assigned by `XGISMap` via `LayerIdRegistry` after
   // the compiler emits this command. Threaded into every per-tile uniform
