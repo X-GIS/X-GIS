@@ -152,7 +152,7 @@ describe('Mapbox text-justify → LabelDef.justify (4-way)', () => {
     })
   }
 
-  it('omitted text-justify → LabelDef.justify undefined (runtime defaults to "center")', () => {
+  it('omitted text-justify → LabelDef.justify undefined (runtime defaults to "auto" per the spec)', () => {
     const lbl = labelDefFor({})
     expect(lbl.justify).toBeUndefined()
   })
