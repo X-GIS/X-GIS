@@ -327,7 +327,11 @@ export class XGISMap {
    *  as long as each show clears before use. The closures that
    *  capture the Set still read the live shared ref correctly. */
   readonly _scratchEmittedTextNames = new Set<string>()
-  readonly _scratchEmittedPointNames = new Set<string>()
+  /** Point-label cross-show/cross-tile dedup. Value = the draw-order
+   *  priority (show index) of the layer that claimed the key, so a
+   *  HIGHER layer's duplicate can supersede a lower one's per Mapbox
+   *  layer-order precedence (#458). */
+  readonly _scratchEmittedPointNames = new Map<string, number>()
   /** iter-259 (Plan AAA B.7) — applyFeatureExprs cache. Keyed on
    *  props ref via WeakMap so per-feature LabelDef survives across
    *  frames + auto-GCs when source data drops the feature. Per

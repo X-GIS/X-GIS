@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { pointLabelPairKey } from './label-pass'
+import { pointLabelPairKey, shouldEmitPointDedup } from './label-pass'
 
 // #419 — a place-label dot (circle_11_black) blinks on/off during pan/zoom.
 // ROOT: the point text+icon pairKey was the ROUNDED SCREEN position
@@ -37,5 +37,34 @@ describe('pointLabelPairKey — stable per-instance point pair key (#419)', () =
     // signature and breaks this import/assertion.
     expect(pointLabelPairKey('city', 3)).toBe('city:pt3')
     expect(pointLabelPairKey(undefined, 0)).toBe(':pt0')
+  })
+})
+
+// #458 — a transit POI matched by two symbol layers (poi_transit blue ABOVE
+// poi_r* grey) rendered the LOWER layer's grey text. ROOT: the point-label
+// cross-show dedup was a layer-blind first-wins Set, so poi_r* (lower, emitted
+// first) claimed the (text, anchor) key and poi_transit (higher) was dropped —
+// inverting Mapbox layer-order precedence (top layer wins). Fix: the dedup is
+// priority-aware — a strictly higher layer is let through so the collision pass
+// drops the earlier lower-layer label at the same anchor.
+describe('shouldEmitPointDedup — layer-order point-label precedence (#458)', () => {
+  it('emits when the (text, anchor) key is unclaimed this frame', () => {
+    expect(shouldEmitPointDedup(undefined, 0)).toBe(true)
+    expect(shouldEmitPointDedup(undefined, 7)).toBe(true)
+  })
+
+  it('drops a SAME-layer duplicate (cross-tile centroid / bilingual collapse — iter-274/280 preserved)', () => {
+    expect(shouldEmitPointDedup(3, 3)).toBe(false)
+  })
+
+  it('drops a LOWER-layer duplicate (an earlier-claimed higher layer keeps the screen)', () => {
+    expect(shouldEmitPointDedup(5, 2)).toBe(false)
+  })
+
+  it('FAIL-BEFORE: a HIGHER-layer duplicate is EMITTED so the top layer wins (poi_transit blue over poi_r* grey)', () => {
+    // Pre-#458 the dedup was a layer-blind first-wins Set: once the lower
+    // poi_r* (priority 2) claimed the key, the higher poi_transit (priority
+    // 5) was always dropped → this returned false → grey text on screen.
+    expect(shouldEmitPointDedup(2, 5)).toBe(true)
   })
 })
