@@ -46,7 +46,7 @@ import type {
   TextStageOptions, PendingLabel, PendingLineLabel,
 } from './text-stage-types'
 import {
-  wrapWithKnuthPlass, hasCjkIdeograph, cjkBucketPx,
+  wrapWithKnuthPlass, cjkBucketFor,
 } from './text-wrap'
 import { TextStageDiagnostics } from './text-stage-diagnostics'
 // iter-265 — sub-phase drill inside prepare(). encoder.stage-prepare
@@ -116,15 +116,6 @@ const DEFAULTS: Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'in
   rasterFontSize: 24,
   sdfRadius: 8,
   defaultFont: CJK_FALLBACK_CHAIN,
-}
-
-/** Local-ideograph display-size bucket (device px) for a label, or 0 when the
- *  label has no CJK/ideograph glyphs (Latin-only → plain PBF path, no bucket).
- *  #421: replaces the old `CJK_MIN_DISPLAY_PX` floor — instead of INFLATING the
- *  label to stay legible (which broke MapLibre size parity), CJK glyphs are
- *  rasterised locally at this bucket so they're crisp at the authored size. */
-function cjkBucketFor(text: string, sizeCss: number, dpr: number): number {
-  return hasCjkIdeograph(text) ? cjkBucketPx(sizeCss, dpr) : 0
 }
 
 export class TextStage {
@@ -318,9 +309,7 @@ export class TextStage {
       if (options.glyphsUrl) providers.push(new GlyphPbfCache({ glyphsUrl: options.glyphsUrl }))
       pbfRas = new PbfRasterizer({
         fallback, providers,
-        // Local-ideograph (#421): CJK glyphs with a display-size bucket render
-        // through the FULL Canvas2D path (OS CJK face at the bucket size), not
-        // the metrics-only `fallback` and not the PBF server.
+        // Local-ideograph (#421): bucketed CJK renders via the FULL Canvas2D path.
         cjkFull: fullFallback,
         onLanded: (fontKey, codepoint) => {
           // Invalidate the atlas slot (upgrade zero-SDF → real SDF next
@@ -735,11 +724,7 @@ export class TextStage {
       // Floor CJK-bearing labels to a legible display size: a dense Han glyph
       // minified from the 24-px atlas to the ~9-px zoom-clamped low-zoom size
       // renders as a solid box. Latin-only labels keep their style size.
-      // #421: CJK is now rasterised locally at its display-size bucket
-      // (cjkBucketFor → ensureString), so the old CJK_MIN_DISPLAY_PX floor that
-      // INFLATED the label to stay legible is gone — sizePx is the faithful
-      // authored size, matching MapLibre. Legibility comes from the
-      // display-size SDF, not from making the text bigger.
+      // #421: floor removed — CJK crisp via local-ideograph; sizePx = authored size (ML parity).
       const rawSizePx = p.def.size * dpr
       const sizePx = rawSizePx
       // Label italic → renderer shears CJK/Hangul glyphs (synthetic oblique).
@@ -1158,11 +1143,7 @@ export class TextStage {
       // a solid box. Curved/line labels were missing this floor, so CJK road
       // labels boxed out at low zoom. Everything downstream (verticalOffset,
       // halfH, letterSpacing, advances) derives from sizePx → single site.
-      // #421: CJK is now rasterised locally at its display-size bucket
-      // (cjkBucketFor → ensureString), so the old CJK_MIN_DISPLAY_PX floor that
-      // INFLATED the label to stay legible is gone — sizePx is the faithful
-      // authored size, matching MapLibre. Legibility comes from the
-      // display-size SDF, not from making the text bigger.
+      // #421: floor removed — CJK crisp via local-ideograph; sizePx = authored size (ML parity).
       const rawSizePx = p.def.size * dpr
       const sizePx = rawSizePx
       const labelItalic = p.def.fontStyle === 'italic'

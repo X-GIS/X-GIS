@@ -174,6 +174,13 @@ export function cjkBucketPx(displayCssPx: number, dpr: number): number {
   return Math.round(bucket * dpr)
 }
 
+/** Display-size bucket (device px) for a label, or 0 when it has no CJK
+ *  (Latin-only → plain PBF path). Replaces the old CJK_MIN_DISPLAY_PX floor:
+ *  CJK renders crisp at its bucket so the authored size is kept (#421). */
+export function cjkBucketFor(text: string, sizeCss: number, dpr: number): number {
+  return hasCjkIdeograph(text) ? cjkBucketPx(sizeCss, dpr) : 0
+}
+
 /** True if the codepoint is a CJK/Hangul/Kana ideograph. MapLibre renders
  *  these with a SYNTHETIC oblique in italic labels because the italic glyph
  *  PBF (e.g. "Noto Sans Italic") serves them UPRIGHT — Noto has no italic

@@ -58,7 +58,7 @@ describe('PbfRasterizer local-ideograph routing', () => {
     const log: string[] = []
     const probed: number[] = []
     const provider: GlyphProvider = {
-      get: (_fs, cp) => { probed.push(cp); return null },
+      get: (_fs, cp) => { probed.push(cp); return undefined },
     }
     const ras = new PbfRasterizer({
       fallback: recordingRasterizer('fallback', log),
@@ -75,7 +75,7 @@ describe('PbfRasterizer local-ideograph routing', () => {
     const log: string[] = []
     const probed: number[] = []
     const provider: GlyphProvider = {
-      get: (_fs, cp) => { probed.push(cp); return null },
+      get: (_fs, cp) => { probed.push(cp); return undefined },
     }
     const ras = new PbfRasterizer({
       fallback: recordingRasterizer('fallback', log),
