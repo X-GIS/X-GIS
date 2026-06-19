@@ -1,22 +1,21 @@
-// Fail-before gate for the CJK display-size floor on CURVED / line labels.
+// Curved / line-label CJK display-size PARITY with the point path (#421).
 //
-// The point-label loop floors a dense-CJK label's display size to
-// CJK_MIN_DISPLAY_PX (text-stage.ts ~:716, gated cjk-minification-box.test +
-// the headed z0 box-out evidence) so a 国-class glyph minified from the 24-px
-// SDF atlas doesn't collapse into a solid box at low zoom. The CURVED loop
-// (addCurvedLineLabel → prepare line-loop) computed `sizePx = def.size * dpr`
-// with NO floor, so CJK road / line labels boxed out at low zoom while their
-// point-label siblings stayed legible.
+// HISTORY: a `CJK_MIN_DISPLAY_PX = 14` floor used to INFLATE any dense-CJK
+// label below 14 px so a 国-class glyph minified from the fixed 24-px SDF atlas
+// didn't collapse into a box at low zoom. That floor broke MapLibre SIZE parity
+// (#421 — labels ~1.4× too big) and applied to the whole label (Latin sub-lines
+// too). It is now REMOVED: CJK glyphs are rasterised LOCALLY at their
+// display-size bucket (local-ideograph, like MapLibre's localIdeographFontFamily)
+// so they stay legible at the AUTHORED size — legibility comes from the SDF
+// size, not from inflating the text.
 //
-// This pins the floor on the curved path: a CJK curved label whose
-// def.size*dpr is BELOW the floor must emit TextDraw.fontSize >= the floor.
-// Pre-fix it emits def.size*dpr (< floor) → red. Same harness as
-// curved-line-shaping.test.ts (real TextStage.prepare with a stub device).
+// This pins the NEW contract on the curved path: a CJK curved label emits the
+// faithful `def.size * dpr` (NOT a floored 14), matching both MapLibre and the
+// point-label path. Same harness as curved-line-shaping.test.ts.
 
 import { describe, it, expect } from 'vitest'
 import { TextStage } from './text-stage'
 import { MockRasterizer } from './sdf/glyph-rasterizer'
-import { CJK_MIN_DISPLAY_PX } from './text-wrap'
 import type { LabelDef, TextValue } from '@xgis/compiler'
 import type { TextDraw } from './text-renderer'
 
@@ -85,30 +84,25 @@ function emitCurved(text: string, size: number): TextDraw {
   return draw!
 }
 
-describe('CJK curved/line-label display-size floor (parity with the point path)', () => {
+describe('CJK curved/line-label display-size parity with the point path (#421)', () => {
   const DPR = 1
-  // def.size deliberately below the floor so the floor is the only thing that
-  // can lift the emitted fontSize. 6 px < CJK_MIN_DISPLAY_PX (14).
+  // Small dense-CJK size that the OLD floor would have inflated to 14. The new
+  // contract: emit it FAITHFULLY (no inflation) — legibility comes from the
+  // local-ideograph display-size SDF, not from enlarging the text.
   const SMALL = 6
 
-  it('CJK curved label below the floor emits fontSize >= CJK_MIN_DISPLAY_PX*dpr', () => {
-    // 国 (U+56FD) is a dense Han ideograph — the box-out glyph.
+  it('CJK curved label is NOT inflated — emits the faithful def.size*dpr (was floored to 14)', () => {
+    // 国 (U+56FD) is a dense Han ideograph — the glyph the old floor targeted.
     const draw = emitCurved('国', SMALL)
-    expect(draw.fontSize).toBeGreaterThanOrEqual(CJK_MIN_DISPLAY_PX * DPR)
-  })
-
-  it('the floor binds (def.size*dpr was actually below it) — guards a no-op test', () => {
-    // Confirms the case is real: the raw size is under the floor, so a passing
-    // assertion above can only be the floor, not an already-large size.
-    expect(SMALL * DPR).toBeLessThan(CJK_MIN_DISPLAY_PX * DPR)
-    const draw = emitCurved('国', SMALL)
-    expect(draw.fontSize).toBe(CJK_MIN_DISPLAY_PX * DPR)
-  })
-
-  it('non-CJK curved label is NOT floored — keeps its (small) style size', () => {
-    // Latin labels carry less ink and must keep parity with the style size;
-    // the floor must not touch them.
-    const draw = emitCurved('AB', SMALL)
     expect(draw.fontSize).toBe(SMALL * DPR)
+  })
+
+  it('CJK and Latin curved labels resolve to the SAME size (no CJK special-case inflation)', () => {
+    // Parity: the size path must treat 国 and AB identically now that the floor
+    // is gone — both = the authored size, matching MapLibre.
+    const cjk = emitCurved('国', SMALL)
+    const latin = emitCurved('AB', SMALL)
+    expect(cjk.fontSize).toBe(latin.fontSize)
+    expect(latin.fontSize).toBe(SMALL * DPR)
   })
 })

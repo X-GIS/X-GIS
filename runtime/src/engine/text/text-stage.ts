@@ -46,7 +46,7 @@ import type {
   TextStageOptions, PendingLabel, PendingLineLabel,
 } from './text-stage-types'
 import {
-  wrapWithKnuthPlass, hasCjkIdeograph, CJK_MIN_DISPLAY_PX,
+  wrapWithKnuthPlass, cjkBucketFor,
 } from './text-wrap'
 import { TextStageDiagnostics } from './text-stage-diagnostics'
 // iter-265 — sub-phase drill inside prepare(). encoder.stage-prepare
@@ -309,6 +309,8 @@ export class TextStage {
       if (options.glyphsUrl) providers.push(new GlyphPbfCache({ glyphsUrl: options.glyphsUrl }))
       pbfRas = new PbfRasterizer({
         fallback, providers,
+        // Local-ideograph (#421): bucketed CJK renders via the FULL Canvas2D path.
+        cjkFull: fullFallback,
         onLanded: (fontKey, codepoint) => {
           // Invalidate the atlas slot (upgrade zero-SDF → real SDF next
           // frame) AND ring the bell on the owning map (Audit ① B1): the
@@ -641,11 +643,11 @@ export class TextStage {
     // doesn't apply at the user-reported zoom levels.
     for (let i = 0; i < this.pending.length; i++) {
       const p = this.pending[i]!
-      this.host.preloadString(p.fontKey, p.text)
+      this.host.preloadString(p.fontKey, p.text, cjkBucketFor(p.text, p.def.size, dpr))
     }
     for (let i = 0; i < this.pendingLine.length; i++) {
       const p = this.pendingLine[i]!
-      this.host.preloadString(p.fontKey, p.text)
+      this.host.preloadString(p.fontKey, p.text, cjkBucketFor(p.text, p.def.size, dpr))
     }
 
     // iter-273 — atlas overflow guard. preloadString admits each
@@ -680,14 +682,14 @@ export class TextStage {
     let fullyResolved = true
     for (let i = 0; i < this.pending.length; i++) {
       const p = this.pending[i]!
-      if (!this.host.hasAllGlyphs(p.fontKey, p.text)) {
+      if (!this.host.hasAllGlyphs(p.fontKey, p.text, cjkBucketFor(p.text, p.def.size, dpr))) {
         p.text = ''  // overflow drop — label skipped this frame
         fullyResolved = false
       }
     }
     for (let i = 0; i < this.pendingLine.length; i++) {
       const p = this.pendingLine[i]!
-      if (!this.host.hasAllGlyphs(p.fontKey, p.text)) {
+      if (!this.host.hasAllGlyphs(p.fontKey, p.text, cjkBucketFor(p.text, p.def.size, dpr))) {
         p.text = ''
         fullyResolved = false
       }
@@ -715,17 +717,16 @@ export class TextStage {
       // GlyphInfo or a cache value that copies pxX/pxY rather than
       // referencing the live slot). #10 drag p95 -36% (slice 1) +
       // -4% (slice 2) gains lost; correctness > perf.
-      const glyphs = this.host.ensureString(p.fontKey, p.text)
+      const glyphs = this.host.ensureString(p.fontKey, p.text, cjkBucketFor(p.text, p.def.size, dpr))
       // CSS-px → physical-px. The atlas is in physical px (anchors
       // arrive projected to canvas.width/height) so every length
       // sourced from the LabelDef has to scale by DPR.
       // Floor CJK-bearing labels to a legible display size: a dense Han glyph
       // minified from the 24-px atlas to the ~9-px zoom-clamped low-zoom size
       // renders as a solid box. Latin-only labels keep their style size.
+      // #421: floor removed — CJK crisp via local-ideograph; sizePx = authored size (ML parity).
       const rawSizePx = p.def.size * dpr
-      const sizePx = hasCjkIdeograph(p.text)
-        ? Math.max(rawSizePx, CJK_MIN_DISPLAY_PX * dpr)
-        : rawSizePx
+      const sizePx = rawSizePx
       // Label italic → renderer shears CJK/Hangul glyphs (synthetic oblique).
       const labelItalic = p.def.fontStyle === 'italic'
       // letter-spacing in em units (Mapbox convention) — multiplies
@@ -1135,17 +1136,16 @@ export class TextStage {
     // road/transportation heavy fixtures (Liberty highways at z>=12).
     perfMarkStart('stage-prepare.line-loop')
     for (const p of this.pendingLine) {
-      const glyphs = this.host.ensureString(p.fontKey, p.text)
+      const glyphs = this.host.ensureString(p.fontKey, p.text, cjkBucketFor(p.text, p.def.size, dpr))
       if (glyphs.length === 0) continue
       // Mirror the point-loop CJK display-size floor (~:716): a dense Han
       // glyph minified from the 24-px atlas to the low-zoom size renders as
       // a solid box. Curved/line labels were missing this floor, so CJK road
       // labels boxed out at low zoom. Everything downstream (verticalOffset,
       // halfH, letterSpacing, advances) derives from sizePx → single site.
+      // #421: floor removed — CJK crisp via local-ideograph; sizePx = authored size (ML parity).
       const rawSizePx = p.def.size * dpr
-      const sizePx = hasCjkIdeograph(p.text)
-        ? Math.max(rawSizePx, CJK_MIN_DISPLAY_PX * dpr)
-        : rawSizePx
+      const sizePx = rawSizePx
       const labelItalic = p.def.fontStyle === 'italic'
       // Same per-font override path as the point-label branch above —
       // see the comment there for rationale. Curve labels reuse the
