@@ -251,15 +251,13 @@ describe('3a. Mapbox spec defaults — applied when source style omits the prope
   })
 
   // ── circle: circle-stroke-width default → 0 (spec) ──
-  it('circle.circle-stroke-width omitted → strokeWidth absent / 0', () => {
+  it('circle.circle-stroke-width omitted → strokeWidth = 0 (spec)', () => {
     const s = showFromStyle(buildCircleStyle())
     expect(specDefault('circle', 'paint', 'circle-stroke-width')).toBe(0)
-    // When unset, circle layers should NOT emit a positive stroke width.
-    if (s.strokeWidth !== 0 && s.strokeWidth !== 1) {
-      // Legacy ShowCommand initialises strokeWidth=1 even with no stroke.
-      // Accept either 0 (true to spec) or 1 (legacy default).
-      throw new Error(`circle-stroke-width default expected 0 or legacy-1, got ${s.strokeWidth}`)
-    }
+    // The converter emits `stroke-0` for an omitted circle-stroke-width so
+    // the circle does not inherit the shared interpreter strokeWidth=1 (the
+    // line-width default). MapLibre draws NO circle edge when it is unset.
+    expect(s.strokeWidth).toBe(0)
   })
 })
 
