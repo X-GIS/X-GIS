@@ -246,7 +246,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // max(ratio, 1) stops it shrinking every flat stroke to a fraction of its
   // width (roads rendered ~1/3 the MapLibre width). The added lines are the
   // load-bearing rationale comment for the cap.
-  'runtime/src/engine/shader-dsl/shaders/line.ts': 1212,
+  // Bumped 1212→1217 for the stray-`continue` fix: the line-pattern fragment
+  // loop emitted `cb.continue()` (outer builder) instead of `d.continue()`,
+  // placing an UNCONDITIONAL continue at the loop-body top that made all
+  // pattern code unreachable (WGSL warning + dropped line patterns). +5 lines
+  // is the rationale comment guarding the builder-scope footgun.
+  'runtime/src/engine/shader-dsl/shaders/line.ts': 1217,
   // Bumped 1171→1176 (#274 CSS color-fn whitespace), then 1176→1178 (#317) for
   // the two irreducible numeric match()-label arm-pattern cases (Number, and
   // Minus+Number). parser.ts decomposition remains a tracked priority.
