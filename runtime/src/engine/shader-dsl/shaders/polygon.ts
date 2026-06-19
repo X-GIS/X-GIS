@@ -452,7 +452,6 @@ const vsMainEcef = entryFn(
     const dqHalf = u.field('tile_dequant_half', f32T)
     const deg2rad = constRef('DEG2RAD')
     const earthR = constRef('EARTH_R')
-    const pi = constRef('PI')
     const mercLatLim = constRef('MERCATOR_LAT_LIMIT')
 
     // PR 2f dequant via the shared dequant_ecef fn (single source; also run

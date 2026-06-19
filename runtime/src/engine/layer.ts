@@ -607,6 +607,14 @@ export class XGISLayer {
     return this.show.pickId ?? 0
   }
 
+  /** Whether this layer is currently visible. Mirrors
+   *  `layer.style.visible` (both delegate to the backing `show.visible`).
+   *  The interaction controller reads this to enforce the
+   *  invisible⇒unclickable contract at the pick-readback boundary. */
+  get visible(): boolean {
+    return this.show.visible
+  }
+
   addEventListener(
     type: XGISFeatureEventType,
     listener: XGISFeatureListener,

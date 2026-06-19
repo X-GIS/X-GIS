@@ -336,7 +336,7 @@ export async function replayMapSnapshot(
   }
   const timeoutMs = opts.timeoutMs ?? 30_000
   const m = map as unknown as {
-    camera: { centerX: number; centerY: number; zoom: number; bearing: number; pitch: number }
+    camera: { centerX: number; centerY: number; zoom: number; bearing: number; pitch: number; syncCenterLat(): void }
     _cameraExplicitlyPositioned: boolean
     _needsRender: boolean
     vtSources?: Map<string, unknown>

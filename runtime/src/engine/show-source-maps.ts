@@ -12,7 +12,7 @@
 // loadAll → cameraFit → rebuildLayers) instead of 100 lines of
 // preamble.
 
-import { collectFieldsStrict, type LabelDef, type TextValue } from '@xgis/compiler'
+import { collectFieldsStrict, type LabelDef } from '@xgis/compiler'
 import { computeSliceKey } from '../data/eval/filter-eval'
 import type { ShowCommand } from './render/renderer'
 

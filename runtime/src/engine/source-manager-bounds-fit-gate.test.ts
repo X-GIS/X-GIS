@@ -54,7 +54,6 @@ vi.mock('../data/sources/virtual-pmtiles-backend', () => ({
 
 import { SourceManager, type SourceManagerDeps } from './source-manager'
 import { Camera } from './projection/camera'
-import { TileCatalog } from '../data/tile-catalog'
 import type { ShowSourceMaps } from './show-source-maps'
 import type { GeoJSONFeatureCollection } from '../loader/geojson'
 import type { MapRenderer } from './render/renderer'

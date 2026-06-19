@@ -234,7 +234,10 @@ export class XGISMap {
   // Delegating accessors so existing internal readers (switchController,
   // diagnostics, destroy) stay byte-identical.
   private get mapListeners() { return this._eventBus.mapListeners }
-  private get mapEventListeners() { return this._eventBus.mapEventListeners }
+  // Public (not `private`) so the white-box lifecycle-event spec can read it
+  // without tripping noUnusedLocals — it has no internal caller (mirrors the
+  // `_cameraPositionedFlag` test-only accessor convention). Not public API.
+  get mapEventListeners() { return this._eventBus.mapEventListeners }
 
   /** Bound `keydown` handler for keyboard pan/zoom (P0-7 a11y). Stored so
    *  `destroy()` can detach it — otherwise the listener (and the closed-
@@ -270,10 +273,13 @@ export class XGISMap {
   // Delegating views onto the relocated queue state. The pending-patch
   // queue and flush rAF handle now live in FeatureUpdateQueue; these keep
   // the historical private-field surface stable for in-repo white-box
-  // diagnostics (destroy-teardown + tile-backed warn-once specs).
-  private get _pendingPatches() { return this.featureUpdateQueue.pendingPatches }
-  private get _pendingFlushHandle(): number | null { return this.featureUpdateQueue.pendingFlushHandle }
-  private set _pendingFlushHandle(handle: number | null) { this.featureUpdateQueue.pendingFlushHandle = handle }
+  // diagnostics (destroy-teardown + tile-backed warn-once specs). Public
+  // (not `private`) so those specs can read/write them without tripping
+  // noUnusedLocals — no internal caller (mirrors `_cameraPositionedFlag`).
+  // Not public API.
+  get _pendingPatches() { return this.featureUpdateQueue.pendingPatches }
+  get _pendingFlushHandle(): number | null { return this.featureUpdateQueue.pendingFlushHandle }
+  set _pendingFlushHandle(handle: number | null) { this.featureUpdateQueue.pendingFlushHandle = handle }
 
   // GPU render-target texture lifecycle (stencil / msaa / OIT accum +
   // revealage / offscreen-extrude depth / overdraw accumulator / pick),
@@ -3027,11 +3033,6 @@ export class XGISMap {
   once(type: XGISFeatureEventType | XGISMapEventType, listener: XGISFeatureListener | XGISMapListener): void {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(this._eventBus.once as (t: any, l: any) => void)(type, listener)
-  }
-
-  /** Build + dispatch a lifecycle/camera event — delegated to MapEventBus. */
-  private _fireMapEvent(type: XGISMapEventType): void {
-    this._eventBus._fireMapEvent(type)
   }
 
   /** Fire `load` exactly once — delegated to MapEventBus. */

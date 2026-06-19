@@ -90,10 +90,6 @@ export class LabelFeatureSource {
     const table = source.getPropertyTable()
     const fieldNames = table?.fieldNames ?? []
     const values = table?.values ?? []
-    const DEG2RAD = Math.PI / 180
-    const R = 6378137
-    const LAT_LIMIT = 85.051129
-    const clampLat = (v: number): number => Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, v))
 
     // Walk BOTH neededKeys (camera-visible) AND stableKeys (broader
     // cache) for label features. We previously walked only neededKeys
