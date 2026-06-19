@@ -22,6 +22,9 @@ class FlipRasterizer implements GlyphRasterizer {
   rasterize(req: GlyphRasterRequest): GlyphRasterResult {
     this.calls.set(req.codepoint, (this.calls.get(req.codepoint) ?? 0) + 1)
     return {
+      fontKey: req.fontKey,
+      codepoint: req.codepoint,
+      sdfRadius: req.sdfRadius,
       sdf: new Uint8Array(req.slotSize * req.slotSize),
       advanceWidth: this.real ? 20 : 10,
       bearingX: 0,

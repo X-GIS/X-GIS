@@ -59,6 +59,12 @@ export interface TileData {
   outlineVertices?: Float32Array
   outlineLineIndices?: Uint32Array
   pointVertices?: Float32Array // points — ECEF DSFUN stride 9 (PR 2d.2): [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon, abs_lat]
+  /** Whole-tile background fill (e.g. ocean/land base): the tile is covered by
+   *  a single full-extent quad. Set by the decode backends; VTR treats such a
+   *  tile as renderable even with no other geometry. */
+  fullCover?: boolean
+  /** Feature id of the full-cover quad (0 when none). */
+  fullCoverFeatureId?: number
   /** Pre-built SDF line-segment buffers ready for GPU upload. When
    *  present, doUploadTile skips the on-main-thread buildLineSegments
    *  call entirely. PMTiles MVT worker fills these so heavy line-
