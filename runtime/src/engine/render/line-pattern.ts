@@ -21,10 +21,12 @@
 //   [44]    offset_m                 — lateral parallel-offset (+left)
 //   [45]    viewport_height          — screen height in DEVICE pixels
 //   [46]    dpr                      — device-pixel ratio (CSS→device scale)
-//   [47]    pad                      — 16-byte alignment
-// Total = 48 f32 = 192 bytes.
+//   [47]    line_translate_x         — NDC-per-pixel x offset (Mapbox line-translate)
+//   [48]    line_translate_y         — NDC-per-pixel y offset (Mapbox line-translate)
+//   [49-51] pad                      — 16-byte alignment (208 bytes total)
+// Total = 52 f32 = 208 bytes.
 
-export const LINE_UNIFORM_SIZE = 192
+export const LINE_UNIFORM_SIZE = 208
 export const PATTERN_SLOT_COUNT = 3
 export const PATTERN_SLOT_F32 = 8 // 32 bytes per slot
 
@@ -199,6 +201,12 @@ export function packLineLayerUniform(
    *  width target by viewport_height (DEVICE px), so it must scale by dpr to
    *  hit the right NDC span — without it lines render 1/dpr too thin. */
   dpr: number = 1,
+  /** Mapbox `paint.line-translate` x — pre-baked NDC-per-pixel offset
+   *  (caller computes `px * 2 / canvasWidth`). Default 0 = no offset. */
+  lineTranslateX: number = 0,
+  /** Mapbox `paint.line-translate` y — pre-baked NDC-per-pixel offset
+   *  (caller computes `px * 2 / canvasHeight`). Default 0 = no offset. */
+  lineTranslateY: number = 0,
 ): Float32Array {
   const buf = _lineUniformScratchF32
   const u32 = _lineUniformScratchU32
@@ -275,5 +283,8 @@ export function packLineLayerUniform(
   buf[44] = offsetPx * mppAtCenter
   buf[45] = viewportHeight
   buf[46] = dpr
+  buf[47] = lineTranslateX
+  buf[48] = lineTranslateY
+  // buf[49-51] remain 0 (pad for 16-byte alignment)
   return buf
 }

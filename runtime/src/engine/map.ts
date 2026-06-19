@@ -2386,11 +2386,11 @@ export class XGISMap {
         continue
       }
 
-      let filtered = applyFilter(data, show.filterExpr, this.camera.zoom)
+      let filtered = applyFilter(data, show.filterExpr, this.camera.zoom, this.camera.pitch)
 
       // Procedural geometry: evaluate geometry expression per feature
       if (show.geometryExpr?.ast) {
-        filtered = applyGeometry(filtered, show.geometryExpr, this.camera.zoom)
+        filtered = applyGeometry(filtered, show.geometryExpr, this.camera.zoom, this.camera.pitch)
       }
 
       // Point geometry → SDF point renderer (skip polygon tiling pipeline)
@@ -2423,12 +2423,14 @@ export class XGISMap {
         if (show.sizeExpr?.ast) {
           const ast = show.sizeExpr.ast as import('@xgis/compiler').Expr
           const cameraZoom = this.camera.zoom
+          const cameraPitch = this.camera.pitch
           perFeatureSizes = filtered.features.map(f => {
             const bag = makeEvalProps({
               props: (f.properties ?? undefined) as Record<string, unknown> | undefined,
               geometryType: f.geometry?.type,
               featureId: (f as { id?: string | number }).id,
               cameraZoom,
+              cameraPitch,
             })
             // Per-feature throw isolation — mirror of applyFilter
             // (566ab36). One pathological size expression must not

@@ -233,30 +233,61 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
     utils.push('stroke-0')
   }
 
-  // Surface dropped properties so the user knows the gap. Includes
-  // the layout/paint subset that the circle helper doesn't honour;
-  // `circle-sort-key` (per-feature draw order) and
-  // `visibility:none` (caller-route via the layer-level visible
-  // property) belong here too.
-  //
-  // circle-translate gets the same specific gap warning as
-  // line-translate / fill-extrusion-translate — its absence is
-  // because the point-renderer has no per-frame translate uniform
-  // yet, NOT because the property is silently dropped. Surface
-  // outside the generic ignored-properties blob.
-  if (paint['circle-translate'] !== undefined && paint['circle-translate'] !== null) {
-    warnings.push(`Layer "${layer.id}" — circle-translate set but the point renderer has no per-frame translate uniform yet (Plan §4 deferred — mirror of fill-translate's u.fill_translate_x/y); offset is dropped.`)
+  // circle-translate → circle-translate-x-N circle-translate-y-M.
+  // Constant [dx, dy] only; zoom-interp on vec2 deferred (same constraint
+  // as fill-translate in paint.ts:addFillTranslate). Default [0,0] → silent.
+  const circleTranslate = paint['circle-translate']
+  if (circleTranslate !== undefined && circleTranslate !== null) {
+    let tv: unknown = circleTranslate
+    // Unwrap Mapbox v8 ["literal", [dx, dy]] form.
+    while (Array.isArray(tv) && tv.length === 2 && tv[0] === 'literal') tv = tv[1]
+    if (Array.isArray(tv) && tv.length === 2
+        && typeof tv[0] === 'number' && Number.isFinite(tv[0])
+        && typeof tv[1] === 'number' && Number.isFinite(tv[1])) {
+      // Negative numbers wrap in brackets so the utility lexer doesn't
+      // treat the `-` as a segment separator — same convention as
+      // fill-translate-x / label-offset in lower.ts.
+      const fmt = (n: number): string => n < 0 ? `[${n}]` : `${n}`
+      if (tv[0] !== 0) utils.push(`circle-translate-x-${fmt(tv[0] as number)}`)
+      if (tv[1] !== 0) utils.push(`circle-translate-y-${fmt(tv[1] as number)}`)
+    } else if (Array.isArray(tv) && tv.length >= 4 && tv[0] === 'interpolate') {
+      // Zoom-interp on vec2: approximate by last stop (same pattern as
+      // addFillTranslate in paint.ts).
+      let last: unknown = null
+      for (let i = 3; i + 1 < tv.length; i += 2) last = tv[i + 1]
+      while (Array.isArray(last) && last.length === 2 && last[0] === 'literal') last = last[1]
+      if (Array.isArray(last) && last.length === 2
+          && typeof last[0] === 'number' && Number.isFinite(last[0])
+          && typeof last[1] === 'number' && Number.isFinite(last[1])) {
+        const fmt = (n: number): string => n < 0 ? `[${n}]` : `${n}`
+        if (last[0] !== 0) utils.push(`circle-translate-x-${fmt(last[0] as number)}`)
+        if (last[1] !== 0) utils.push(`circle-translate-y-${fmt(last[1] as number)}`)
+        warnings.push(`Layer "${layer.id}" — circle-translate: zoom-interpolated form not yet fully supported — using last stop value as constant approximation.`)
+      } else {
+        warnings.push(`Layer "${layer.id}" — circle-translate: non-constant form not yet supported — value dropped.`)
+      }
+    } else {
+      warnings.push(`Layer "${layer.id}" — circle-translate: non-constant form not yet supported — value dropped.`)
+    }
   }
-  // circle-blur: soft edge for circles (CSS-px feathering). Point-
-  // renderer fragment uses a smoothstep AA already but doesn't expand
-  // by an authored blur width — needs a per-feature blur attr + wider
-  // quad (Plan §4 deferred). Surface specific gap.
-  if (paint['circle-blur'] !== undefined && paint['circle-blur'] !== null) {
-    warnings.push(`Layer "${layer.id}" — circle-blur set but X-GIS' point renderer has no per-feature blur attribute yet (Plan §4 deferred — needs vertex blur attr + wider quad). Circles render with the fixed AA smoothstep.`)
+
+  // circle-blur → circle-blur-N. Soft edge feathering in CSS px.
+  // Extends the point fragment's existing smoothstep AA band.
+  // Default 0 → no-op / silent.
+  const circleBlurVal = unwrapLiteralScalar(paint['circle-blur'])
+  if (typeof circleBlurVal === 'number' && Number.isFinite(circleBlurVal)) {
+    if (circleBlurVal < 0) {
+      warnings.push(`Circle layer "${layer.id}" — circle-blur ${circleBlurVal} is negative; Mapbox spec requires >= 0. Clamped to 0.`)
+    }
+    if (circleBlurVal > 0) utils.push(`circle-blur-${Math.max(0, circleBlurVal)}`)
+  } else if (paint['circle-blur'] !== undefined && paint['circle-blur'] !== null && circleBlurVal === undefined) {
+    // Non-scalar (expression / zoom-interp) — not yet supported. Warn + drop.
+    warnings.push(`Layer "${layer.id}" — circle-blur: non-constant form not yet supported — value dropped.`)
   }
+
+  // Surface dropped properties so the user knows the gap.
   const ignored: string[] = []
   for (const k of [
-    // circle-blur: specific gap warning (iter 99)
     'circle-translate-anchor',
     'circle-pitch-scale', 'circle-pitch-alignment',
     // circle-stroke-opacity: only the constant form folds into stroke

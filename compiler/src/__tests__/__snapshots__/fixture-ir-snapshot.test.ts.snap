@@ -13,20 +13,20 @@ exports[`Fixture conversion structural snapshot > maplibre-demotiles — convert
 exports[`Fixture conversion structural snapshot > openfreemap-bright — converted output fingerprint 1`] = `
 {
   "layerCount": 119,
-  "outputBytes": 40374,
-  "outputLines": 917,
-  "outputSha256": "15c27093f73b1d45f7cd31d3b453de3f27caa7f0d85b5f17d51479e2dbd11724",
-  "warningCount": 3,
+  "outputBytes": 40204,
+  "outputLines": 916,
+  "outputSha256": "64ec6de8708f61136d165f3840dec54edb7e62d1f45759ab968f93b4121e4c2b",
+  "warningCount": 2,
 }
 `;
 
 exports[`Fixture conversion structural snapshot > openfreemap-liberty — converted output fingerprint 1`] = `
 {
   "layerCount": 111,
-  "outputBytes": 36311,
-  "outputLines": 865,
-  "outputSha256": "cb857384db05f0f12cd3137233a0b1e943f27b5da052eee78aee416b3f1b6832",
-  "warningCount": 6,
+  "outputBytes": 35795,
+  "outputLines": 862,
+  "outputSha256": "27e77af8c20418940cd7d1474e574d23ef0726739bffcc9c77992582026fd8d0",
+  "warningCount": 3,
 }
 `;
 

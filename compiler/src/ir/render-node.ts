@@ -130,6 +130,33 @@ export interface RenderNode {
    *  pixels regardless of camera zoom. */
   fillTranslateX?: number
   fillTranslateY?: number
+  /** Mapbox `paint.circle-translate` — CSS-px viewport offset for
+   *  circle layers. Same sign convention as fill-translate: +x=right,
+   *  +y=down (screen-space). Default [0,0] → no-op. */
+  circleTranslateX?: number
+  circleTranslateY?: number
+  /** Mapbox `paint.circle-blur` — extends the point fragment's
+   *  smoothstep AA band. 0 = crisp edge (default/no-op). */
+  circleBlur?: number
+  /** Mapbox `paint.line-translate` — line layer shifted by [dx, dy]
+   *  CSS px in screen space (positive dx = right, positive dy = down).
+   *  Default [0,0]. Constant + zoom-interp last-stop approximation.
+   *  Mirror of fillTranslateX/Y for the line pipeline. */
+  strokeTranslateX?: number
+  strokeTranslateY?: number
+  /** Mapbox `paint.fill-antialias` opt-out. Default (unauthored / true)
+   *  = current behavior (the fill fragment multiplies in the sphere-rim
+   *  smoothstep AA fade). Only `false` changes anything: the runtime
+   *  drops the rim-alpha smoothstep so fill edges stay hard, honouring
+   *  the spec's pixel-art intent. (Geometric edge AA from pipeline MSAA
+   *  is not per-layer-disable-able and is left untouched.) */
+  fillAntialias?: boolean
+  /** Mapbox `paint.fill-extrusion-vertical-gradient` opt-out. Default
+   *  (unauthored / true) = current behavior (the extrude vertex shader
+   *  applies the 0.7→1.0 vertical-gradient wall ramp). Only `false`
+   *  changes anything: the runtime skips the gradient ramp so walls
+   *  shade flat. */
+  fillExtrusionVerticalGradient?: boolean
   /** iter-177 Mapbox `paint.fill-pattern` Stage 1 — constant sprite
    *  name. Runtime resolves against sprite atlas at draw time and
    *  uses sprite centre pixel as fill colour. Stage 2 (real
@@ -418,6 +445,15 @@ export interface LabelDef {
     | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
   /** Mapbox `icon-offset` in display pixels `[dx, dy]`. Default [0,0]. */
   iconOffset?: [number, number]
+  /** Mapbox `paint.icon-translate` — CSS-px viewport offset applied to
+   *  the icon only (positive dx = right, positive dy = down). Default
+   *  [0,0]. Distinct from `icon-offset` (a layout em/px nudge baked
+   *  before rotation): icon-translate is a paint-time screen shift the
+   *  runtime adds at dispatch (dispatchIcon → IconStage.addIcon), scaled
+   *  by dpr like icon-offset. icon-translate-anchor=viewport (default)
+   *  is the only honoured mode. */
+  iconTranslateX?: number
+  iconTranslateY?: number
   /** Mapbox `icon-rotate` in degrees clockwise. Default 0. */
   iconRotate?: number
   /** Mapbox `icon-opacity` alpha multiplier on icon fragments. 0..1

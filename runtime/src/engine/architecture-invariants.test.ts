@@ -121,7 +121,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // screen-width clamp lands on the right NDC span (roads were 1/dpr too thin).
   // Bumped 3961→3962 for the point precision fix: the tile-point decode passes
   // the absolute Mercator DSFUN tail (slots 9-12) to addTilePoint.
-  'runtime/src/engine/render/vector-tile-renderer.ts': 3962,
+  // Bumped 3962→3996 (mbx_batch2) for the fill-antialias / fill-extrusion-
+  // vertical-gradient opt-out flags: two baked per-show fields + their render()
+  // bake + the two uniform writes into the spare cam_ecef_off_{h,l}.w lanes +
+  // the contract comments. Irreducible additive plumbing (no struct growth).
+  'runtime/src/engine/render/vector-tile-renderer.ts': 3996,
   // Bumped 3361→3393 for the destroy()-completeness fix: cancelling the
   // EventDispatcher move-rAF + the pending-flush rAF, clearing _pendingPatches,
   // and removing the run()-installed window globals (__xgisReady/snapshot/
@@ -155,13 +159,22 @@ const LOC_CEILINGS: Record<string, number> = {
   // rebuildLayers() so the cap show enters `vectorTileShows` (the dispatch
   // list is rebuilt from showCommands, not read raw) — else the cap tile is
   // cached but never selected/drawn. Irreducible host glue.
-  'runtime/src/engine/map.ts': 3494,
+  // Bumped 3494→3496 (mbx_batch2) for the Mapbox `["pitch"]` identifier:
+  // the render-path eval sites (applyFilter + per-feature paint/size eval)
+  // inject `this.camera.pitch` alongside cameraZoom (2 lines).
+  'runtime/src/engine/map.ts': 3496,
   // Bumped 1343→1344 for the opacity sub-1.5% round-trip fix (#274); comments
   // trimmed to the minimum, net +1 irreducible.
   // Bumped 1344→1348 for the polygon fill-stroke INSET default (US-002): a
   // thick outline straddled + ate the fill edge at CENTER; default fill+stroke
   // layers to inset (1 expr + 4 trimmed comment lines, irreducible behavior).
-  'compiler/src/ir/lower.ts': 1348,
+  // Re-baselined 1348→1404 (mbx_batch2): the branch had drifted to 1392 from
+  // prior batch work (circle-translate / legacy $type-$id filters) without a
+  // ceiling bump; +9 here for the fill-antialias-false /
+  // fill-extrusion-vertical-gradient-false opt-out parse arms + the two
+  // boolean accumulators + RenderNode return wiring. lower.ts decomposition
+  // stays a tracked priority.
+  'compiler/src/ir/lower.ts': 1404,
   // Bumped 1441→1449 for the CJK display-size floor on CURVED/line labels: the
   // point-loop floor (hasCjkIdeograph → Math.max(size, CJK_MIN_DISPLAY_PX*dpr))
   // mirrored onto the curved loop so dense Han road labels stop boxing out at
@@ -213,14 +226,21 @@ const LOC_CEILINGS: Record<string, number> = {
   // enum-validation + clamp regression-guard comments VERBATIM (kept intact so
   // the byte-identical fixture SHA gate holds). It's a cohesive sub-converter,
   // not a god-file; baselined here, shrink as the comments distil.
-  'compiler/src/convert/layers-symbol.ts': 1052,
+  // Bumped 1052→1071 (mbx_batch2) for the icon-translate emit: the constant
+  // [dx, dy] unwrap + the label-icon-translate-{x,y}-N split + the
+  // icon-translate-anchor "map" warn (replacing the old single-line gap warn).
+  'compiler/src/convert/layers-symbol.ts': 1071,
   // Bumped 1534→1574 for the arithmetic-arity fix (expr-arith-coalesce): the
   // variadic +/*, unary/binary -, and exact-2 //% forms each need a distinct
   // branch (was one over-strict shared comparison branch). Irreducible.
   // Lowered 1574→1071: extracted the interpolate family → expr-interpolate.ts
   // and the match family (convertMatch + matchToTernary + matchToBooleanFilter)
   // → expr-match.ts (behavior-preserving, byte-identical fixture SHA gate).
-  'compiler/src/convert/expressions.ts': 1071,
+  // Re-baselined 1071→1116 (mbx_batch2): the file had drifted to 1102 from
+  // prior batch work without a ceiling bump; +14 here for the `case 'pitch'`
+  // arm (mirror of `case 'zoom'`) lowering Mapbox `["pitch"]` to the bare
+  // pitch identifier.
+  'compiler/src/convert/expressions.ts': 1116,
   // Bumped 1388→1417 for the tile-catalog lifecycle fixes (BUG 11/13): the
   // prewarm-pump _skeletonTimer/_stopped fields + destroy() cancel method, and
   // the hoisted evict-shield sweep, are irreducible (two real leaks). Catalog
@@ -246,12 +266,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // max(ratio, 1) stops it shrinking every flat stroke to a fraction of its
   // width (roads rendered ~1/3 the MapLibre width). The added lines are the
   // load-bearing rationale comment for the cap.
-  // Bumped 1212→1217 for the stray-`continue` fix: the line-pattern fragment
-  // loop emitted `cb.continue()` (outer builder) instead of `d.continue()`,
-  // placing an UNCONDITIONAL continue at the loop-body top that made all
-  // pattern code unreachable (WGSL warning + dropped line patterns). +5 lines
-  // is the rationale comment guarding the builder-scope footgun.
-  'runtime/src/engine/shader-dsl/shaders/line.ts': 1217,
+  // Bumped 1212→1217 (#412 stray-`continue` line-pattern reachability fix, +5
+  // rationale comment) then 1217→1233 (mbx line-translate: LineLayer struct
+  // gains line_translate_x/y + 2 pads + the vs_line translate apply block).
+  'runtime/src/engine/shader-dsl/shaders/line.ts': 1233,
   // Bumped 1171→1176 (#274 CSS color-fn whitespace), then 1176→1178 (#317) for
   // the two irreducible numeric match()-label arm-pattern cases (Number, and
   // Minus+Number). parser.ts decomposition remains a tracked priority.
@@ -267,7 +285,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // vertex input + the ladder gains a discLat param the disc (flat_rel) arm
   // projects from (the Merc-clamped abs_lat left a ~550 km annular pole hole on
   // ortho/azimuthal/stereographic). Irreducible additive plumbing.
-  'runtime/src/engine/shader-dsl/shaders/polygon.ts': 1175,
+  // Bumped 1175→1187 (mbx_batch2) for the fill-antialias / fill-extrusion-
+  // vertical-gradient opt-out WGSL gates: fs_fill wraps the rim-alpha
+  // smoothstep in an `if (cam_ecef_off_h.w != 0)` (fill-antialias), and
+  // vs_main_ecef_extruded ANDs an `cam_ecef_off_l.w != 0` flag into the
+  // per-wall vertical-gradient test. Default (flag=1) byte-identical behavior.
+  'runtime/src/engine/shader-dsl/shaders/polygon.ts': 1187,
   // Bumped 1067→1092 for the minZoom + setMaxBounds gesture-clamp correctness
   // fixes (#244/#248): the maxBounds clamp method + its 7 gesture-exit call
   // sites are irreducible. camera.ts decomposition remains a tracked priority.
@@ -297,12 +320,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 1073→1087 for the one-way-arrow dedupe fix: extracted
   // lineLabelDeduped (exported pure predicate + the '' → never-dedupe guard
   // so text-less icon line layers stop collapsing to ~1 arrow per show).
-  // Bumped to 1137: 1119 already on main (#424 pointLabelPairKey + #417
-  // one-way-arrow icon-collision fix) + the #411 deep-zoom road-label vanish
-  // fix — exported lineLabelSubdivSteps + screen-space line-label subdivision
-  // (segLenM × pxPerMeter, not a metre threshold) so a viewport-crossing
-  // segment with off-screen endpoints still yields on-screen samples.
-  'runtime/src/engine/render/passes/label-pass.ts': 1137,
+  // Bumped to 1137 (#424 pointLabelPairKey + #417 one-way-arrow icon-collision
+  // + #411 deep-zoom road-label screen-space subdivision) then 1137→1142 (mbx
+  // icon-translate: dispatchIcon adds def.iconTranslateX/Y × dpr alongside
+  // icon-offset, plus the def type fields + contract comment).
+  'runtime/src/engine/render/passes/label-pass.ts': 1142,
   // VTR Unit-1 extraction (Cluster E-selection). The hysteresis +
   // readiness-gate logic was moved VERBATIM (plan §5 DO-NOT-SPLIT #2),
   // and its hard-won fix-history comments carry the bulk of the LOC —
@@ -329,6 +351,15 @@ const LOC_CEILINGS: Record<string, number> = {
   // the invariant comments (nothing frees mid-frame → re-scan is pure waste),
   // killing the ARENA-OOM per-frame O(resident) re-scan lag at z22+pitch.
   'runtime/src/engine/render/gpu-tile-store.ts': 903,
+  // Baselined at 805 (mbx_batch2): point-renderer.ts crossed the 800 cap from
+  // prior batch work (circle-translate / circle-blur). Not touched here;
+  // baselined to keep the ratchet honest. Decomposition is a tracked follow-up.
+  'runtime/src/engine/render/point-renderer.ts': 805,
+  // Baselined at 820 (mbx_batch2): lower-label.ts is the label-knob lowering
+  // sub-pass extracted from lower.ts; crossed 800 here for the icon-translate
+  // accumulators + parse arms + knobs-interface + merge wiring. Cohesive
+  // sub-lowerer, not a god-file; baselined, shrink as it converges.
+  'compiler/src/ir/lower-label.ts': 820,
 }
 const NEW_FILE_CAP = 800
 

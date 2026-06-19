@@ -145,17 +145,17 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
       }
     }
     addFillTranslate(out, p['fill-translate'], warnings)
-    // fill-antialias: default `true` matches X-GIS runtime (fragment
-    // shader always anti-aliases edges via MSAA + smoothstep).
-    // Explicit `false` is a real gap — Mapbox spec says edges should
-    // be hard pixel-art steps; X-GIS can't disable AA per-layer yet
-    // (would need a separate pipeline binding without MSAA). Warn
-    // only on the false case so authors of pixel-art landcover
-    // styles know why their land looks soft.
+    // fill-antialias: default `true` matches X-GIS runtime (the fill
+    // fragment multiplies in the sphere-rim smoothstep AA fade). Only
+    // the explicit `false` opt-out changes anything — emit a single
+    // `fill-antialias-false` flag the runtime threads to the fragment
+    // shader to drop the rim smoothstep (hard edges, pixel-art intent).
+    // Geometric edge AA from pipeline MSAA is not per-layer disable-able
+    // and is left untouched; the unauthored / true path is byte-identical.
     const aaRaw = p['fill-antialias']
     const aa = Array.isArray(aaRaw) && aaRaw.length === 2 && aaRaw[0] === 'literal' ? aaRaw[1] : aaRaw
     if (aa === false) {
-      warnings.push(`Layer "${layer.id}" — fill-antialias false: X-GIS runtime can't disable edge AA per layer yet (would need a no-MSAA pipeline binding). Layer renders smooth edges; Plan §3.1 deferred.`)
+      out.push('fill-antialias-false')
     }
     surfaceIgnoredPaint(layer.id, p, warnings, [
       'fill-translate-anchor', 'fill-sort-key',
@@ -192,14 +192,7 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     if (p['line-gradient'] !== undefined && p['line-gradient'] !== null) {
       warnings.push(`Layer "${layer.id}" — line-gradient set but requires the line-progress accessor + per-fragment arc-length varying through the line renderer; not implemented (Plan §4 deferred). Layer falls back to solid line-color.`)
     }
-    // line-translate — fill-translate has a u.fill_translate_x/y
-    // uniform; line-translate would mirror that via a
-    // u.line_translate_x/y uniform threaded through line-renderer.ts
-    // vertex shader. Surface the specific gap rather than the
-    // generic ignored-properties blob.
-    if (p['line-translate'] !== undefined && p['line-translate'] !== null) {
-      warnings.push(`Layer "${layer.id}" — line-translate set but the line renderer has no per-frame translate uniform yet (Plan §4 deferred — mirror of fill-translate's u.fill_translate_x/y); offset is dropped.`)
-    }
+    addLineTranslate(out, p['line-translate'], warnings)
     surfaceIgnoredPaint(layer.id, p, warnings, [
       'line-translate-anchor', 'line-sort-key',
       'line-round-limit',
@@ -215,14 +208,18 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     // 2026-05-18). Prior warning at this site is obsolete; uniform-
     // constant base lifts walls off z=0 as MapLibre does.
     //
-    // fill-extrusion-vertical-gradient: special-case the default
-    // (true) so authors who explicitly set the spec default don't
-    // see a spurious "ignored" warning. false IS a real gap (runtime
-    // always applies the gradient ramp) and stays in the
-    // surfaceIgnoredPaint candidates list below.
+    // fill-extrusion-vertical-gradient: the spec default (true) is
+    // honoured byte-identically (the extrude vertex shader applies the
+    // 0.7→1.0 wall ramp). Only the explicit `false` opt-out changes
+    // anything — emit a single `fill-extrusion-vertical-gradient-false`
+    // flag the runtime threads to the extrude vertex shader to skip the
+    // gradient ramp (flat wall shading). Either way it's no longer an
+    // "ignored property", so it's dropped from surfaceIgnoredPaint.
     const vgRaw = p['fill-extrusion-vertical-gradient']
     const vg = Array.isArray(vgRaw) && vgRaw.length === 2 && vgRaw[0] === 'literal' ? vgRaw[1] : vgRaw
-    const skipVerticalGradientWarn = vg === true || vg === undefined || vg === null
+    if (vg === false) {
+      out.push('fill-extrusion-vertical-gradient-false')
+    }
     // iter-180 — fill-extrusion-translate Stage 1. The fill-extrusion
     // WGSL paths (vs_main_quantized + vs_main_quantized_extruded) already
     // apply u.fill_translate_x/y to clip-space xy at the end of the
@@ -247,9 +244,11 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
         warnings.push(`Layer "${layer.id}" — fill-extrusion-pattern non-constant form (expression / interpolate) not yet wired through the IR; the constant string form is supported (iter-179). The walls fall back to fill-extrusion-color or transparent.`)
       }
     }
+    // fill-extrusion-vertical-gradient is now implemented (true default
+    // honoured + false opt-out emitted above), so it's no longer an
+    // ignored property and is omitted from the candidates list.
     surfaceIgnoredPaint(layer.id, p, warnings, [
       'fill-extrusion-translate-anchor',
-      ...(skipVerticalGradientWarn ? [] : ['fill-extrusion-vertical-gradient']),
       'fill-extrusion-ambient-occlusion-intensity',
       'fill-extrusion-ambient-occlusion-radius',
     ])
@@ -538,6 +537,53 @@ function addFillTranslate(out: string[], v: unknown, warnings: string[]): void {
     }
   }
   warnings.push(`paint.fill-translate: non-constant form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`)
+}
+
+/** Mapbox `paint.line-translate: [dx, dy]` → xgis
+ *  `stroke-translate-x-N stroke-translate-y-M` (signed pixel offsets).
+ *  Mirrors addFillTranslate exactly — same constant + zoom-interp
+ *  last-stop forms, same bracket-negative convention.
+ *
+ *  Sign convention: Mapbox positive x = right, positive y = down
+ *  (screen space). The runtime WGSL negates y for NDC convention
+ *  (NDC y is UP) — same as fill-translate.
+ *
+ *  Anchor: line-translate-anchor: viewport (default) is the only
+ *  currently-honoured mode. "map" would shift in world coords; not
+ *  yet implemented. */
+function addLineTranslate(out: string[], v: unknown, warnings: string[]): void {
+  if (isOmitted(v)) return
+  // Unwrap Mapbox v8 `["literal", [dx, dy]]` wrapper.
+  while (Array.isArray(v) && v.length === 2 && v[0] === 'literal') {
+    v = v[1]
+  }
+  if (Array.isArray(v) && v.length === 2
+      && typeof v[0] === 'number' && Number.isFinite(v[0])
+      && typeof v[1] === 'number' && Number.isFinite(v[1])) {
+    const fmt = (n: number): string => n < 0 ? `[${n}]` : `${n}`
+    if (v[0] !== 0) out.push(`stroke-translate-x-${fmt(v[0])}`)
+    if (v[1] !== 0) out.push(`stroke-translate-y-${fmt(v[1])}`)
+    return
+  }
+  // Zoom-interp on vec2 — last-stop approximation (mirrors fill-translate).
+  if (Array.isArray(v) && v.length >= 4 && v[0] === 'interpolate') {
+    let last: unknown = null
+    for (let i = 3; i + 1 < v.length; i += 2) {
+      last = v[i + 1]
+    }
+    while (Array.isArray(last) && last.length === 2 && last[0] === 'literal') {
+      last = last[1]
+    }
+    if (Array.isArray(last) && last.length === 2
+        && typeof last[0] === 'number' && Number.isFinite(last[0])
+        && typeof last[1] === 'number' && Number.isFinite(last[1])) {
+      const fmt = (n: number): string => n < 0 ? `[${n}]` : `${n}`
+      if (last[0] !== 0) out.push(`stroke-translate-x-${fmt(last[0])}`)
+      if (last[1] !== 0) out.push(`stroke-translate-y-${fmt(last[1])}`)
+      return
+    }
+  }
+  warnings.push(`paint.line-translate: non-constant form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`)
 }
 
 /** Mapbox `paint.line-blur` (edge feathering, CSS px) → xgis

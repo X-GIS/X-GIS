@@ -20,15 +20,13 @@ const CASES: Case[] = [
   // fill-extrusion-translate is SUPPORTED iter-180 — routed through
   // the same addFillTranslate helper since the fill-extrusion vertex
   // shaders apply u.fill_translate_x/y already. Both omitted here.
-  { property: 'line-translate',
-    layerType: 'line', value: [1, 1],
-    expectIn: 'no per-frame translate uniform' },
-  { property: 'circle-translate',
-    layerType: 'circle', value: [1, 1],
-    expectIn: 'point renderer has no per-frame translate' },
-  { property: 'icon-translate',
-    layerType: 'symbol', value: [1, 1],
-    expectIn: 'shares the text-translate offset' },
+  // circle-translate is SUPPORTED (constant + last-stop zoom-interp) via
+  // circle_params.xy in the point uniform — omitted (see circle-translate-blur-emit.test.ts).
+  // line-translate is SUPPORTED — addLineTranslate emits stroke-translate-x/y;
+  // runtime wires u.line_translate_x/y — omitted (see line-translate-warn.test.ts).
+  // icon-translate is now SUPPORTED — layers-symbol.ts emits
+  // label-icon-translate-{x,y}-N; runtime dispatchIcon adds the offset
+  // at IconStage.addIcon — omitted (see icon-translate.test.ts).
 ]
 
 function buildStyle(c: Case): Record<string, unknown> {
@@ -84,6 +82,13 @@ describe('fill-extrusion-translate Stage 1 — emits utility, no warning', () =>
 })
 
 describe('translate-property gap warning specificity', () => {
+  // CASES is now empty — every translate paint property (fill / line /
+  // circle / fill-extrusion / icon) is implemented end-to-end, so none
+  // emits a gap warning any more. The matrix is retained (empty) so a
+  // future regression that re-deprecates one can re-add its case here.
+  it('all translate properties are implemented (no gap-warning cases remain)', () => {
+    expect(CASES).toHaveLength(0)
+  })
   for (const c of CASES) {
     it(`${c.property} → specific warning naming the missing uniform`, () => {
       const coverage = { sources: [], layers: [], warnings: [] as string[] }

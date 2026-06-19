@@ -214,6 +214,35 @@ export interface ShowCommand {
    *  fills, +down. Runtime baker writes (px * 2 / canvasHeight) into
    *  uniformF32[47]; vertex shader negates internally for NDC y. */
   fillTranslateY?: number
+  /** Mapbox `paint.fill-antialias` opt-out. Default (undefined / true)
+   *  keeps the current fill render path; `false` is packed into the
+   *  polygon uniform's cam_ecef_off_h.w lane (f32 slot 55) so the fill
+   *  fragment can skip the sphere-rim smoothstep AA fade (hard edges). */
+  fillAntialias?: boolean
+  /** Mapbox `paint.fill-extrusion-vertical-gradient` opt-out. Default
+   *  (undefined / true) keeps the gradient ramp; `false` is packed into
+   *  the polygon uniform's cam_ecef_off_l.w lane (f32 slot 59) so the
+   *  extrude vertex shader skips the vertical-gradient wall ramp. */
+  fillExtrusionVerticalGradient?: boolean
+  /** Mapbox `paint.circle-translate` x — CSS-px viewport offset on
+   *  circles, +right. Point renderer writes into circle_params.x of
+   *  the point uniform; vertex shader applies post-MVP. Default 0. */
+  circleTranslateX?: number
+  /** Mapbox `paint.circle-translate` y — CSS-px viewport offset on
+   *  circles, +down. Point renderer writes into circle_params.y;
+   *  vertex shader negates for NDC y. Default 0. */
+  circleTranslateY?: number
+  /** Mapbox `paint.circle-blur` — CSS-px feathering added to the
+   *  smoothstep AA band in the point fragment shader. Default 0 = crisp. */
+  circleBlur?: number
+  /** Mapbox `paint.line-translate` x — CSS-px viewport offset on
+   *  lines, +right. Runtime bakes (px * 2 / canvasWidth) into the
+   *  line layer uniform's line_translate_x slot (buf[47]). */
+  strokeTranslateX?: number
+  /** Mapbox `paint.line-translate` y — CSS-px viewport offset on
+   *  lines, +down. Runtime bakes (px * 2 / canvasHeight) into
+   *  line_translate_y slot (buf[48]); shader negates for NDC y. */
+  strokeTranslateY?: number
   // Stable u16 layer ID assigned by `XGISMap` via `LayerIdRegistry` after
   // the compiler emits this command. Threaded into every per-tile uniform
   // write so the fragment shader can stamp the pick texture's G channel

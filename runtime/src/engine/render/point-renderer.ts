@@ -26,14 +26,18 @@ const POINT_FEATID_FLOAT = vertexField(POINT_FORMAT, 'feat_id').offset / 4   // 
 
 /** Pack the point frame uniform (shared by render() and flushTilePoints()).
  *  Layout (f32 slots): mvp 0..15, proj_params 16..19, viewport 20..23,
- *  cam_ecef_h 24..27, cam_ecef_l 28..31.
+ *  cam_ecef_h 24..27, cam_ecef_l 28..31, circle_params 32..35.
  *
  *  Two fixes live here: (1) viewport now lands at 20..23 — it was previously
  *  written at 24..27, past the old Float32Array(24) bound, so the shader read
  *  an all-zero viewport (NDC quad expansion divided by zero). (2) cam_ecef_h/l
  *  carry the camera anchor (getECEFCenter, sphere) split DSFUN so the VS can
  *  re-center the now-ABSOLUTE per-feature ECEF against the camera-at-ENU-origin
- *  MVP via (ecefH−camH)+(ecefL−camL). */
+ *  MVP via (ecefH−camH)+(ecefL−camL).
+ *
+ *  circle_params @32-35: x=translate_x_ndc, y=translate_y_ndc, z=blur_px, w=0.
+ *  translate_x/y are pre-baked as NDC-per-pixel (px * 2 / w/h), same
+ *  convention as fill_translate in polygon.ts. Default [0,0,0,0] = no-op. */
 function writePointFrameUniform(
   uf: Float32Array,
   frame: { matrix: Float32Array; logDepthFc: number },
@@ -43,6 +47,9 @@ function writePointFrameUniform(
   projCenterLat: number,
   canvasWidth: number,
   canvasHeight: number,
+  circleTranslateX = 0,
+  circleTranslateY = 0,
+  circleBlur = 0,
 ): void {
   uf.set(frame.matrix, 0)
   uf[16] = projType; uf[17] = projCenterLon; uf[18] = projCenterLat; uf[19] = 0
@@ -63,6 +70,13 @@ function writePointFrameUniform(
     uf[24] = cxH; uf[25] = cyH; uf[26] = czH; uf[27] = 0
     uf[28] = camC[0] - cxH; uf[29] = camC[1] - cyH; uf[30] = camC[2] - czH; uf[31] = 0
   }
+  // circle_params @32-35: translate_x_ndc, translate_y_ndc, blur_px, _unused.
+  // Bake translate from CSS-px to NDC-per-pixel (multiply by clip.w in VS).
+  // Negate y because NDC y is UP (screen y is DOWN).
+  uf[32] = canvasWidth  > 0 ? (circleTranslateX * 2) / canvasWidth  : 0
+  uf[33] = canvasHeight > 0 ? -(circleTranslateY * 2) / canvasHeight : 0
+  uf[34] = circleBlur
+  uf[35] = 0
 }
 
 // ═══ Renderer ═══
@@ -80,11 +94,12 @@ export class PointRenderer {
   private vertexBufferLayout: GPUVertexBufferLayout | null = null
   private uniformBuffer: GPUBuffer
   // Point Uniforms: mvp(16) + proj_params(4) + viewport(4) + cam_ecef_h(4) +
-  // cam_ecef_l(4) = 32 floats × 4 = 128 bytes (fills the GPU buffer exactly).
+  // cam_ecef_l(4) + circle_params(4) = 36 floats × 4 = 144 bytes.
   // `mvp` IS the ECEF-MVP (Camera.getECEFFrameView). The per-feature ECEF
   // DSFUN is ABSOLUTE, so cam_ecef_h/l carry the camera anchor (getECEFCenter,
   // sphere) split DSFUN; the VS re-centers via (ecefH−camH)+(ecefL−camL).
-  private uniformData = new Float32Array(32)
+  // circle_params @32-35: translate_x_ndc, translate_y_ndc, blur_px, _unused.
+  private uniformData = new Float32Array(36)
   /** iter-249 (Plan AAA B.2) — per-flush arena. Each flush*() call
    *  allocates 3 large typed arrays (verts / indices / featData)
    *  sized to per-call vertex count. On flush entry, beginFrame()
@@ -189,7 +204,7 @@ export class PointRenderer {
     })
 
     this.uniformBuffer = device.createBuffer({
-      size: 128, // 28 floats × 4 = 112, padded to 128
+      size: 144, // 36 floats × 4 = 144 (mvp+proj_params+viewport+cam_ecef_h/l+circle_params)
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     })
   }
@@ -323,7 +338,7 @@ export class PointRenderer {
     projCenterLat: number,
     canvasWidth: number,
     canvasHeight: number,
-    show: { fill?: string | null; stroke?: string | null; strokeWidth?: number; size?: number | null; opacity?: number },
+    show: { fill?: string | null; stroke?: string | null; strokeWidth?: number; size?: number | null; opacity?: number; circleTranslateX?: number; circleTranslateY?: number; circleBlur?: number },
     dpr: number = 1,
   ): void {
     if (this.tilePoints.length === 0) return
@@ -407,7 +422,7 @@ export class PointRenderer {
 
     const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
     const uf = this.uniformData
-    writePointFrameUniform(uf, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight)
+    writePointFrameUniform(uf, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight, show.circleTranslateX ?? 0, show.circleTranslateY ?? 0, show.circleBlur ?? 0)
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uf)
 
     // Pick the translucent (no depth write) pipeline when the effective
@@ -453,6 +468,9 @@ export class PointRenderer {
     shapeId?: number,
     anchor?: 'center' | 'bottom' | 'top',
     sizeShape?: import('@xgis/compiler').PropertyShape<number> | null,
+    circleTranslateX?: number,
+    circleTranslateY?: number,
+    circleBlur?: number,
   ): void {
     const points: { lon: number; lat: number }[] = []
 
@@ -570,6 +588,9 @@ export class PointRenderer {
       isTranslucent,
       sizeShape: sizeShape ?? null,
       lastDynZoom: Number.NaN,
+      circleTranslateX: circleTranslateX ?? 0,
+      circleTranslateY: circleTranslateY ?? 0,
+      circleBlur: circleBlur ?? 0,
     })
 
     console.log(`[X-GIS] SDF point layer: ${points.length} points`)
@@ -620,8 +641,6 @@ export class PointRenderer {
 
     const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
     const uf = this.uniformData
-    writePointFrameUniform(uf, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight)
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, uf)
 
     const DEG2RAD = Math.PI / 180
     const R_MERC = 6378137 // web-Mercator sphere radius (matches the tiler packer)
@@ -751,6 +770,9 @@ export class PointRenderer {
     }
 
     const drawLayer = (layer: PointLayer, pipeline: GPURenderPipeline, totalPoints: number) => {
+      // Write per-layer uniform (circle_params may differ between layers).
+      writePointFrameUniform(uf, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight, layer.circleTranslateX, layer.circleTranslateY, layer.circleBlur)
+      this.device.queue.writeBuffer(this.uniformBuffer, 0, uf)
       pass.setPipeline(pipeline)
       pass.setBindGroup(0, layer._expandedBindGroup!)
       pass.setVertexBuffer(0, layer._expandedVertBuf!)

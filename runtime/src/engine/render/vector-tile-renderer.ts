@@ -257,6 +257,18 @@ export class VectorTileRenderer {
    *  pixel-constant regardless of depth. 0 = no translate (default). */
   private currentFillTranslateNdcX = 0
   private currentFillTranslateNdcY = 0
+  /** Mapbox line-translate — pre-baked from CSS px to NDC-per-pixel.
+   *  Set at render() time when show.strokeTranslateX/Y are non-zero.
+   *  Passed to writeLayerSlot → packed into line uniform buf[47/48]. */
+  private currentStrokeTranslateNdcX = 0
+  private currentStrokeTranslateNdcY = 0
+  /** Mapbox fill-antialias / fill-extrusion-vertical-gradient opt-out
+   *  flags, baked per-show in render() and packed into the polygon
+   *  uniform's spare cam_ecef_off_{h,l}.w lanes (f32 55 / 59). 1 =
+   *  current behavior (default), 0 = the feature is disabled. Float (not
+   *  bool) because the slot is an f32 the WGSL reads via `!= 0`. */
+  private currentFillAntialias = 1
+  private currentFillVerticalGradient = 1
   /** iter-183 — fill-pattern Stage 2 per-show flag. Set true when the
    *  current `render()` call's show has a resolved pattern UV bbox +
    *  the pattern pipeline is wired. Per-tile uniform writes use this
@@ -2257,6 +2269,17 @@ export class VectorTileRenderer {
     const fty = show.fillTranslateY ?? 0
     this.currentFillTranslateNdcX = ftx !== 0 ? (ftx * 2) / canvasWidth : 0
     this.currentFillTranslateNdcY = fty !== 0 ? (fty * 2) / canvasHeight : 0
+    // Mapbox line-translate (viewport anchor) — same bake as fill-translate.
+    const ltx = show.strokeTranslateX ?? 0
+    const lty = show.strokeTranslateY ?? 0
+    this.currentStrokeTranslateNdcX = ltx !== 0 ? (ltx * 2) / canvasWidth : 0
+    this.currentStrokeTranslateNdcY = lty !== 0 ? (lty * 2) / canvasHeight : 0
+    // Mapbox fill-antialias / fill-extrusion-vertical-gradient opt-outs.
+    // Default (undefined / true) → 1 (current behavior, byte-identical).
+    // Explicit false → 0; the WGSL gates the rim-smoothstep / vertical-
+    // gradient ramp on `!= 0`. Packed into cam_ecef_off_{h,l}.w below.
+    this.currentFillAntialias = show.fillAntialias === false ? 0 : 1
+    this.currentFillVerticalGradient = show.fillExtrusionVerticalGradient === false ? 0 : 1
     // Per-frame resolved fill RGBA — animated stops were already
     // collapsed by the bucket scheduler. ResolvedShow is the SOLE
     // per-frame source; static hex still flows via show.fill below
@@ -2474,6 +2497,8 @@ export class VectorTileRenderer {
         canvasHeight,
         show.strokeBlur ?? 0,
         dpr,
+        this.currentStrokeTranslateNdcX,
+        this.currentStrokeTranslateNdcY,
       )
       if (gapWidth > 0) {
         lineLayerOffsetGap = this.lineRenderer.writeLayerSlot(
@@ -2490,6 +2515,8 @@ export class VectorTileRenderer {
           canvasHeight,
           show.strokeBlur ?? 0,
           dpr,
+          this.currentStrokeTranslateNdcX,
+          this.currentStrokeTranslateNdcY,
         )
       }
     }
@@ -3641,6 +3668,13 @@ export class VectorTileRenderer {
       this.uniformF32[52] = hi(offX); this.uniformF32[56] = Math.fround(offX - hi(offX))
       this.uniformF32[53] = hi(offY); this.uniformF32[57] = Math.fround(offY - hi(offY))
       this.uniformF32[54] = hi(offZ); this.uniformF32[58] = Math.fround(offZ - hi(offZ))
+      // Mapbox opt-out flags ride the spare .w lanes of the two
+      // cam_ecef_off vec4s (the VS only reads .xyz, so .w is free):
+      //   cam_ecef_off_h.w (f32 55) = fill-antialias    (1 default, 0 = off)
+      //   cam_ecef_off_l.w (f32 59) = fill-extrusion-vertical-gradient
+      // Zero-cost when both are at their default 1 (current render path).
+      this.uniformF32[55] = this.currentFillAntialias
+      this.uniformF32[59] = this.currentFillVerticalGradient
 
       // tile_origin_merc (32-33) + opacity (34) + log_depth_fc (35)
       // — offsets 128..143. log_depth_fc was cached by camera.getRTCMatrix

@@ -155,6 +155,26 @@ export interface ShowCommand {
    *  translate render path. */
   fillTranslateX?: number
   fillTranslateY?: number
+  /** Mapbox `paint.circle-translate` — CSS-px viewport offset for circle
+   *  layers. Default 0/0 / undefined = no-op (existing rendering unchanged). */
+  circleTranslateX?: number
+  circleTranslateY?: number
+  /** Mapbox `paint.circle-blur` — extends the point fragment smoothstep
+   *  AA band. Default 0 / undefined = crisp edge (no-op). */
+  circleBlur?: number
+  /** Mapbox `paint.line-translate` (viewport-anchor) — CSS px
+   *  offset on lines. Mirrors fillTranslateX/Y for the line pipeline.
+   *  Runtime bakes CSS px → NDC-per-pixel into u.line_translate_x/y. */
+  strokeTranslateX?: number
+  strokeTranslateY?: number
+  /** Mapbox `paint.fill-antialias` opt-out. Default (undefined / true)
+   *  preserves the current fill render path byte-for-byte; only `false`
+   *  is passed through to disable the rim-alpha smoothstep at runtime. */
+  fillAntialias?: boolean
+  /** Mapbox `paint.fill-extrusion-vertical-gradient` opt-out. Default
+   *  (undefined / true) preserves the current extrude shading; only
+   *  `false` disables the vertical-gradient wall ramp at runtime. */
+  fillExtrusionVerticalGradient?: boolean
   /** Optional per-feature text label spec (Batch 1c). When set, the
    *  runtime resolves `label.text` against each feature's properties
    *  via the format pipeline, projects the feature's anchor (point
@@ -457,6 +477,13 @@ function emitShow(
     extrudeBase: node.extrudeBase,
     fillTranslateX: node.fillTranslateX,
     fillTranslateY: node.fillTranslateY,
+    circleTranslateX: node.circleTranslateX,
+    circleTranslateY: node.circleTranslateY,
+    circleBlur: node.circleBlur,
+    strokeTranslateX: node.strokeTranslateX,
+    strokeTranslateY: node.strokeTranslateY,
+    fillAntialias: node.fillAntialias,
+    fillExtrusionVerticalGradient: node.fillExtrusionVerticalGradient,
     label: node.label,
     paintShapes: {
       fill: colorValueToShape(node.fill),

@@ -157,6 +157,7 @@ export function applyFilter(
   data: GeoJSONFeatureCollection,
   filterExpr?: { ast: unknown } | null,
   cameraZoom?: number,
+  cameraPitch?: number,
 ): GeoJSONFeatureCollection {
   // Defensive: null/undefined data short-circuits before `.features`
   // access. The host's data-load step can hand applyFilter a
@@ -178,6 +179,7 @@ export function applyFilter(
       geometryType: f.geometry?.type,
       featureId: (f as { id?: string | number }).id,
       cameraZoom,
+      cameraPitch,
     })
     // Wrap evaluate in try/catch so one malformed feature (or a
     // pathological filter expression hitting a stack-overflow / null
@@ -216,6 +218,7 @@ export function applyGeometry(
   data: GeoJSONFeatureCollection,
   geometryExpr: { ast: unknown },
   cameraZoom?: number,
+  cameraPitch?: number,
 ): GeoJSONFeatureCollection {
   // Guard against a malformed FeatureCollection — `applyFilter` has
   // the same `!data.features` short-circuit. Without this, `.map(...)`
@@ -230,6 +233,7 @@ export function applyGeometry(
       geometryType: f.geometry?.type,
       featureId: (f as { id?: string | number }).id,
       cameraZoom,
+      cameraPitch,
     })
     // Same per-feature isolation as applyFilter (566ab36): a throw in
     // evaluate on ONE feature must not nuke the whole collection.

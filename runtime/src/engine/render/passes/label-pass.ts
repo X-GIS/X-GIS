@@ -173,10 +173,15 @@ class LabelPass implements RenderPass {
         // doesn't call this (icon-along-curve is a Phase B+ feature);
         // point-anchored POI symbols (the demotiles + OFM Bright bus-
         // stop / school / amenity layers) flow through here.
-        const dispatchIcon = (def: { iconImage?: string; iconSize?: number; iconAnchor?: import('@xgis/compiler').LabelDef['iconAnchor']; iconOffset?: [number, number]; iconRotate?: number; iconOpacity?: number; iconColor?: [number, number, number, number]; iconRotationAlignment?: 'map'; text?: import('@xgis/compiler').LabelDef['text'] }, ax: number, ay: number, lineTangentDeg = 0, pairKey?: string, collide = false, props?: import('../../text/text-resolver').FeatureProps): void => {
+        const dispatchIcon = (def: { iconImage?: string; iconSize?: number; iconAnchor?: import('@xgis/compiler').LabelDef['iconAnchor']; iconOffset?: [number, number]; iconTranslateX?: number; iconTranslateY?: number; iconRotate?: number; iconOpacity?: number; iconColor?: [number, number, number, number]; iconRotationAlignment?: 'map'; text?: import('@xgis/compiler').LabelDef['text'] }, ax: number, ay: number, lineTangentDeg = 0, pairKey?: string, collide = false, props?: import('../../text/text-resolver').FeatureProps): void => {
           if (!iStage || def.iconImage === undefined) return
-          const offDx = (def.iconOffset?.[0] ?? 0) * dpr
-          const offDy = (def.iconOffset?.[1] ?? 0) * dpr
+          // icon-offset (layout, em/px nudge baked before rotation) AND
+          // icon-translate (paint, viewport screen shift) both land as a
+          // CSS-px anchor offset here, scaled by dpr to physical px. Mapbox
+          // applies icon-translate in screen space (positive y = down),
+          // matching the +ay-down anchor convention, so a straight add.
+          const offDx = ((def.iconOffset?.[0] ?? 0) + (def.iconTranslateX ?? 0)) * dpr
+          const offDy = ((def.iconOffset?.[1] ?? 0) + (def.iconTranslateY ?? 0)) * dpr
           // icon-rotation-alignment=map under symbol-placement=line
           // adds the per-segment tangent to the icon's authored
           // rotation. OFM road_oneway: icon-rotate=90 + tangent of

@@ -1,11 +1,19 @@
-// fill-antialias surface behaviour. Default `true` matches X-GIS
-// runtime (always anti-aliases edges) → no spurious warning when
-// authored explicitly. `false` is a real gap (X-GIS can't disable
-// edge AA per layer yet) → warns explicitly so pixel-art landcover
-// authors know why their land looks soft.
+// fill-antialias surface + opt-out propagation.
+//
+// Default `true` matches X-GIS runtime (the fill fragment multiplies in
+// the sphere-rim smoothstep) → no spurious warning when authored
+// explicitly. `false` is now IMPLEMENTED end-to-end: the converter emits
+// a `fill-antialias-false` flag that flows Mapbox → ShowCommand
+// .fillAntialias = false, and the runtime gates the rim smoothstep off.
+// So `false` no longer warns; instead it propagates the flag.
 
 import { describe, expect, it } from 'vitest'
 import { convertMapboxStyle } from '../convert/mapbox-to-xgis'
+import { Lexer } from '../lexer/lexer'
+import { Parser } from '../parser/parser'
+import { lower } from '../ir/lower'
+import { optimize } from '../ir/optimize'
+import { emitCommands } from '../ir/emit-commands'
 
 function buildStyle(value: unknown) {
   return {
@@ -24,19 +32,30 @@ function buildStyle(value: unknown) {
   }
 }
 
-describe('fill-antialias surface behaviour', () => {
-  it('omitted → no warning', () => {
+function compileToShows(mapboxStyle: unknown): ReturnType<typeof emitCommands>['shows'] {
+  const xgisSource = convertMapboxStyle(mapboxStyle as Parameters<typeof convertMapboxStyle>[0])
+  const tokens = new Lexer(xgisSource).tokenize()
+  const ast = new Parser(tokens).parse()
+  const scene = lower(ast)
+  return emitCommands(optimize(scene, ast)).shows
+}
+
+describe('fill-antialias surface + opt-out propagation', () => {
+  it('omitted → no warning, fillAntialias undefined (default path)', () => {
     const coverage = { sources: [], layers: [], warnings: [] as string[] }
     const style = buildStyle(undefined)
     delete (style.layers[0]!.paint as Record<string, unknown>)['fill-antialias']
     convertMapboxStyle(style as never, { coverage })
     expect(coverage.warnings.some(w => w.includes('fill-antialias'))).toBe(false)
+    const shows = compileToShows(style)
+    expect(shows[0]!.fillAntialias).toBeUndefined()
   })
 
-  it('explicit true (spec default) → no warning', () => {
+  it('explicit true (spec default) → no warning, fillAntialias undefined', () => {
     const coverage = { sources: [], layers: [], warnings: [] as string[] }
     convertMapboxStyle(buildStyle(true) as never, { coverage })
     expect(coverage.warnings.some(w => w.includes('fill-antialias'))).toBe(false)
+    expect(compileToShows(buildStyle(true))[0]!.fillAntialias).toBeUndefined()
   })
 
   it('["literal", true] → no warning (v8 strict wrap)', () => {
@@ -45,17 +64,22 @@ describe('fill-antialias surface behaviour', () => {
     expect(coverage.warnings.some(w => w.includes('fill-antialias'))).toBe(false)
   })
 
-  it('false → warns (real runtime gap)', () => {
+  it('false → no warn, fillAntialias=false propagated to ShowCommand', () => {
     const coverage = { sources: [], layers: [], warnings: [] as string[] }
     convertMapboxStyle(buildStyle(false) as never, { coverage })
-    const w = coverage.warnings.find(w => w.includes('fill-antialias false'))
-    expect(w).toBeDefined()
-    expect(w).toContain("can't disable edge AA")
+    // Implemented now — the false case no longer surfaces a gap warning.
+    expect(coverage.warnings.some(w => w.includes('fill-antialias'))).toBe(false)
+    const shows = compileToShows(buildStyle(false))
+    expect(shows[0]!.fillAntialias).toBe(false)
   })
 
-  it('["literal", false] → warns (v8 strict wrap honoured)', () => {
-    const coverage = { sources: [], layers: [], warnings: [] as string[] }
-    convertMapboxStyle(buildStyle(['literal', false]) as never, { coverage })
-    expect(coverage.warnings.some(w => w.includes('fill-antialias false'))).toBe(true)
+  it('["literal", false] → fillAntialias=false (v8 strict wrap honoured)', () => {
+    const shows = compileToShows(buildStyle(['literal', false]))
+    expect(shows[0]!.fillAntialias).toBe(false)
+  })
+
+  it('emits the fill-antialias-false utility in the xgis source', () => {
+    const xgis = convertMapboxStyle(buildStyle(false) as Parameters<typeof convertMapboxStyle>[0])
+    expect(xgis).toContain('fill-antialias-false')
   })
 })

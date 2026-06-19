@@ -819,6 +819,18 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
       }
       return 'zoom'
     }
+    case 'pitch': {
+      // Mapbox `["pitch"]` accessor → xgis bare `pitch` identifier.
+      // The evaluator special-cases the name (eval/evaluator.ts) to read
+      // `props[CAMERA_PITCH_KEY]`, so this resolves to the live camera
+      // pitch (degrees) at evaluation time — mirror of the `["zoom"]`
+      // path above. Render-path eval sites (filter / paint) inject it;
+      // worker / tile-decode sites leave it null (no camera).
+      if (v.length !== 1) {
+        warnings.push(`Malformed ["pitch"] expression: zero-arg accessor takes no arguments, got ${v.length - 1}.`)
+      }
+      return 'pitch'
+    }
     case 'geometry-type': {
       // Mapbox ["geometry-type"] resolves to "Point" / "LineString" /
       // "Polygon" (or their Multi* variants) per feature. xgis has no
@@ -937,7 +949,9 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
       'sky-radial-progress': 'Sky-radial-progress accessor — sky layer rendering not implemented.',
       'accumulated': 'Accumulated accessor — clusterProperties pipeline not implemented (clustering is host-side today).',
       'distance-from-center': 'Distance-from-center accessor — globe-mode runtime queries not wired through to filter eval yet.',
-      'pitch': 'Camera pitch accessor — runtime pitch is not exposed as a filter/paint input today.',
+      // `pitch` is now SUPPORTED — handled by the `case 'pitch'` arm
+      // above (returns the bare `pitch` identifier), so it never reaches
+      // this fallback table.
       'feature-state': 'Feature-state accessor — map.setFeatureState() / hover-state is not yet implemented; values resolve to null.',
       'image': 'Image accessor — sprite atlas (Batch 2) not yet implemented; the layer falls through to its colour-only fallback.',
       'within': 'Within accessor — polygon-containment filter not yet implemented; predicate evaluates to false.',
@@ -980,15 +994,18 @@ export function filterToXgis(v: unknown, warnings: string[]): string | null {
   if (!Array.isArray(v)) return exprToXgis(v, warnings)
   const op = v[0]
 
-  // Mapbox pseudo-fields ($type, $id) have no xgis equivalent. $type
-  // is redundant — layer geometry type is already encoded by which
-  // utility class (fill- / stroke- / shape-) the layer uses — so we
-  // drop the sub-predicate. $id has no accessor; user has to swap in
-  // a real `.field` check after the fact.
+  // Mapbox pseudo-fields ($type, $id) in the legacy filter form are
+  // routed to the existing expression-form accessors:
+  //   $type  →  ["geometry-type"]  →  get("$geometryType")
+  //   $id    →  ["id"]             →  get("$featureId")
+  // Both accessors are already supported (expressions.ts:822, :840).
+  // Pre-fix these were dropped with a warning. Now we rewrite the
+  // array in-place so the comparison/in/!in paths downstream handle
+  // the accessor just like any other expression operand.
   // Peel wrapped pseudo-field name (mirror of legacy comparison fix
   // 8013bc3) — ['==', ['literal', '$type'], 'Polygon'] should still
-  // be recognised as a pseudo-field drop, not fall to a literal-vs-
-  // literal compare.
+  // be recognised as a pseudo-field rewrite, not fall to a literal-
+  // vs-literal compare.
   let peeledPseudoField: unknown = v[1]
   while (Array.isArray(peeledPseudoField) && peeledPseudoField.length === 2
       && peeledPseudoField[0] === 'literal') {
@@ -996,8 +1013,36 @@ export function filterToXgis(v: unknown, warnings: string[]): string | null {
   }
   if ((op === '==' || op === '!=' || op === 'in' || op === '!in') &&
       (peeledPseudoField === '$type' || peeledPseudoField === '$id')) {
-    warnings.push(`Filter on "${peeledPseudoField}" dropped — no xgis equivalent (geometry type is implied by the layer's utility class).`)
-    return null
+    const accessorExpr = peeledPseudoField === '$type'
+      ? ['geometry-type']
+      : ['id']
+    const accessorStr = peeledPseudoField === '$type'
+      ? 'get("$geometryType")'
+      : 'get("$featureId")'
+    if (op === '==' || op === '!=') {
+      // Scalar comparison: rewrite v[1] to the accessor expr and fall
+      // through to the expression-form comparison handler below.
+      const rewritten = [op, accessorExpr, ...v.slice(2)]
+      return exprToXgis(rewritten, warnings)
+    }
+    // Legacy in / !in multi-value form: ["in", "$type", "Point", "LineString"]
+    // Expand to equality OR / AND chain over the accessor.
+    const keys = v.slice(2)
+    if (keys.length === 0) return op === 'in' ? 'false' : 'true'
+    const eqOp = op === 'in' ? '==' : '!='
+    const joiner = op === 'in' ? ' || ' : ' && '
+    const parts: string[] = []
+    for (const k of keys) {
+      const kStr = typeof k === 'string' ? JSON.stringify(k)
+        : typeof k === 'number' || typeof k === 'boolean' ? String(k) : null
+      if (kStr === null) {
+        warnings.push(`["${op}"] with "${ peeledPseudoField }" dropped a key that is not a literal string/number/boolean: ${JSON.stringify(k).slice(0, 60)}`)
+        continue
+      }
+      parts.push(`${accessorStr} ${eqOp} ${kStr}`)
+    }
+    if (parts.length === 0) return op === 'in' ? 'false' : 'true'
+    return parts.join(joiner)
   }
 
   // Boolean-returning ["match", input, k1, true, k2, true, …, false]

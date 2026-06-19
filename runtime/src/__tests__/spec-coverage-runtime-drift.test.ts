@@ -58,6 +58,9 @@ describe('spec-coverage ↔ runtime capability drift', () => {
       'version', 'name', 'metadata', 'center', 'zoom', 'bearing', 'pitch',
       'sources', 'layers', 'sprite', 'glyphs', 'transition',
       'visibility', 'minzoom', 'maxzoom', 'filter', 'id', 'type',
+      // Legacy filter pseudo-fields ($type/$id) handled at expression lowering,
+      // not renderable paint/layout props — no capabilities row (#430).
+      '$type', '$id',
       'source', 'source-layer', 'paint', 'layout',
       // Expression operators tracked in a different section.
       'literal', 'get', 'has', '!has', 'in', '!in', 'all', 'any', '!',

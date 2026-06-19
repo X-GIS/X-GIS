@@ -22,7 +22,8 @@ describe('unsupported op warnings — specific not generic', () => {
     ['heatmap-density', [], 'Heatmap density accessor'],
     ['line-progress', [], 'Line-progress accessor'],
     ['distance-from-center', [], 'Distance-from-center accessor'],
-    ['pitch', [], 'Camera pitch accessor'],
+    // `pitch` was here — now SUPPORTED (lowers to a bare `pitch`
+    // identifier, mirror of `zoom`); see expressions-pitch.test.ts.
     ['image', ['icon'], 'Image accessor'],
     ['is-supported-script', ['x'], 'is-supported-script accessor'],
     // Iter 544 additions:

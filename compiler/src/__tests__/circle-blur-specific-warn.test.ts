@@ -1,15 +1,15 @@
-// Iter 99: promote circle-blur from generic ignoredText aggregator
-// to a specific layer-level warning naming the missing per-feature
-// blur attribute. Parallel to icon-color / circle-translate / line-
-// translate / fill-extrusion-translate specific gap warnings.
+// circle-blur is now supported (constant numeric form). This test verifies:
+//  - A constant positive circle-blur emits a circle-blur-N utility (no gap warning).
+//  - A layer without circle-blur produces no blur utility or warning.
+//  - A zero-value circle-blur is a no-op (silent, no utility emitted).
 
 import { describe, expect, it } from 'vitest'
 import { convertMapboxStyle } from '../convert/mapbox-to-xgis'
 
-function warningsOf(style: unknown): string[] {
-  const coverage = { sources: [], layers: [], warnings: [] as string[] }
-  convertMapboxStyle(style as never, { coverage })
-  return coverage.warnings
+function outputOf(style: unknown): { src: string; warnings: string[] } {
+  const coverage = { sources: [], layers: [] as never[], warnings: [] as string[] }
+  const src = convertMapboxStyle(style as never, { coverage })
+  return { src, warnings: coverage.warnings }
 }
 
 function buildCircle(paint: Record<string, unknown>): unknown {
@@ -32,24 +32,29 @@ function buildCircle(paint: Record<string, unknown>): unknown {
   }
 }
 
-describe('circle-blur specific gap warning', () => {
-  it('circle-blur authored → specific warn (not generic ignoredText)', () => {
-    const w = warningsOf(buildCircle({ 'circle-blur': 0.5 }))
-    expect(w.some(s =>
-      s.includes('circle-blur')
-      && s.includes('per-feature blur')
-      && s.includes('Plan §4'),
-    )).toBe(true)
-    // Should NOT also surface in the generic ignored-properties blob
-    // (the iter 99 promotion).
-    expect(w.some(s =>
+describe('circle-blur supported (constant numeric)', () => {
+  it('circle-blur: 0.5 → emits circle-blur-0.5 utility (no gap warning)', () => {
+    const { src, warnings } = outputOf(buildCircle({ 'circle-blur': 0.5 }))
+    // Utility must appear in the emitted xgis source.
+    expect(src).toContain('circle-blur-0.5')
+    // No old-style gap warning about Plan §4 / per-feature blur attr.
+    expect(warnings.some(s => s.includes('Plan §4') && s.includes('circle-blur'))).toBe(false)
+    // Should NOT surface in the generic ignored-properties blob.
+    expect(warnings.some(s =>
       s.includes('ignored properties')
       && s.includes('circle-blur'),
     )).toBe(false)
   })
 
-  it('layer WITHOUT circle-blur does NOT warn', () => {
-    const w = warningsOf(buildCircle({}))
-    expect(w.some(s => s.includes('circle-blur'))).toBe(false)
+  it('circle-blur: 0 → silent (no utility, no warning)', () => {
+    const { src, warnings } = outputOf(buildCircle({ 'circle-blur': 0 }))
+    expect(src).not.toContain('circle-blur')
+    expect(warnings.some(s => s.includes('circle-blur'))).toBe(false)
+  })
+
+  it('layer WITHOUT circle-blur → no utility, no warning', () => {
+    const { src, warnings } = outputOf(buildCircle({}))
+    expect(src).not.toContain('circle-blur')
+    expect(warnings.some(s => s.includes('circle-blur'))).toBe(false)
   })
 })

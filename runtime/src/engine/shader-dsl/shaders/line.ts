@@ -134,7 +134,14 @@ const LineLayer: StructDecl = {
     // pixel target by viewport_height (DEVICE px) but the width target is
     // in CSS px, so it must be scaled by dpr to land on the right NDC span.
     { name: 'dpr', type: f32T },
-    { name: '_pad_c', type: f32T },
+    // Mapbox line-translate viewport offset — NDC-per-pixel, pre-baked
+    // by the runtime baker (px * 2 / canvasDim). Applied post-MVP in
+    // vs_line: clip.x += layer.line_translate_x * clip.w (mirrors
+    // fill-translate's per-tile uniform path). Default 0 = no-op.
+    { name: 'line_translate_x', type: f32T },
+    { name: 'line_translate_y', type: f32T },
+    { name: '_pad_d', type: f32T },
+    { name: '_pad_e', type: f32T },
   ],
 }
 
@@ -1035,6 +1042,15 @@ const vsLine = entryFn('vs_line', 'vertex', [
   b.if(fillT.z.mul(fillT.z).add(fillT.w.mul(fillT.w)).lt(f32(0.25)), (c) => {
     c.assign(clip.x, clip.x.add(fillT.z.mul(clip.w)))
     c.assign(clip.y, clip.y.sub(fillT.w.mul(clip.w)))
+  })
+  // Mapbox line-translate viewport offset — applied post-MVP so the pixel
+  // shift stays constant regardless of depth (mirrors fill-translate logic).
+  // Default 0 → no-op; non-zero shifts the entire line layer in screen space.
+  const ltx = b.let('line_translate_x', layer.field('line_translate_x', f32T))
+  const lty = b.let('line_translate_y', layer.field('line_translate_y', f32T))
+  b.if(ltx.mul(ltx).add(lty.mul(lty)).gt(f32(0)), (c) => {
+    c.assign(clip.x, clip.x.add(ltx.mul(clip.w)))
+    c.assign(clip.y, clip.y.sub(lty.mul(clip.w)))
   })
   b.assign(out.field('position', vec4fT), callFn('apply_log_depth', vec4fT, clip, tile.field('log_depth_fc', f32T)))
   b.assign(out.field('view_w', f32T), clip.w)
