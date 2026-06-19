@@ -129,6 +129,12 @@ async function mountBoth(url: string): Promise<void> {
   }
 
   const initialView = parseHash() ?? defaultViewForStyle()
+  // ?proj=<name> overrides the projection on BOTH panes. X-GIS supports
+  // the full table (globe / orthographic / azimuthal_equidistant / …);
+  // MapLibre v5 only has a real globe, so non-globe names leave the ML
+  // pane on mercator (X-GIS-only inspection). Without this the page was
+  // always mercator and `?proj=globe` silently did nothing.
+  const projParam = new URLSearchParams(location.search).get('proj')
 
   // Tear down any previous instances first
   if (mlMap) { mlMap.remove(); mlMap = null }
@@ -184,6 +190,13 @@ async function mountBoth(url: string): Promise<void> {
       for (const c of ctrls) {
         ;(c as HTMLElement).style.display = 'none'
       }
+    }
+    // Globe is the only non-mercator projection MapLibre v5 renders.
+    // ML globe is adaptive (auto-transitions to mercator above ~z6),
+    // so the globe A/B is meaningful at low zoom — matching the z0
+    // globe repros in #450 / #451.
+    if (projParam === 'globe') {
+      try { mlMap!.setProjection({ type: 'globe' }) } catch { /* ML build without globe */ }
     }
     ;(window as unknown as { __mlReady?: boolean }).__mlReady = true
   })
@@ -265,6 +278,13 @@ async function mountBoth(url: string): Promise<void> {
   // Initial camera (parseHash sets it but convertMapboxStyle's bounds-
   // fit pass may have nudged us — re-apply to be sure).
   applyViewToXgis(xgMap, initialView)
+  // setProjection writes camera state (globeMode / pitchLocked / zoom
+  // clamps) so re-apply the URL view AFTER the switch to land on the
+  // exact requested camera.
+  if (projParam && projParam !== 'mercator') {
+    xgMap.setProjection(projParam)
+    applyViewToXgis(xgMap, initialView)
+  }
 
   // X-GIS → MapLibre sync loop (rAF poll; the engine has no event hook
   // for camera writes from the user's pointer driver).
