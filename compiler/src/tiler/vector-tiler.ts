@@ -65,6 +65,9 @@ import {
   DSFUN_DEG2RAD,
 } from './ecef-packing'
 import { subdivideGreatCircle } from './geometry-sphere'
+import { tilePolygonPart } from './polygon-tiler'
+import { tileLinePart } from './line-tiler'
+import { tilePointPart } from './point-tiler'
 
 // Re-export the byte-packing kernels so the module's public surface is
 // unchanged (the @xgis/compiler barrel re-points to ./ecef-packing directly;
@@ -208,7 +211,7 @@ function pointInRing(x: number, y: number, ring: number[][]): boolean {
  *  surviving hole lands in exactly one bucket. (The centroid is deliberately
  *  NOT probed: a non-convex hole's centroid can fall outside its own ring —
  *  inside a NEIGHBOURING sub-outer — and mis-bucket; vertices cannot.) */
-function assignHoleBucket(hole: number[][], effectiveOuters: number[][][]): number {
+export function assignHoleBucket(hole: number[][], effectiveOuters: number[][][]): number {
   // 1. Every hole vertex (hole[0] first = the common in-one-sub-outer case).
   //    Each probe point is ON the hole's own ring, so it is interior to the
   //    hole's true container and to no other sub-outer.
@@ -479,7 +482,7 @@ function subdivideTriangleMM(
  *  pay during the real tessellation — the probe earcut is a small
  *  overhead specific to this safety check.
  */
-function needsBacktrackRepair(outer: number[][], holes: number[][][]): boolean {
+export function needsBacktrackRepair(outer: number[][], holes: number[][][]): boolean {
   const flat: number[] = []
   const holeIdx: number[] = []
   for (const p of outer) flat.push(p[0]!, p[1]!)
@@ -516,7 +519,7 @@ function needsBacktrackRepair(outer: number[][], holes: number[][][]): boolean {
   return triArea / ringArea > 1.2
 }
 
-function tessellatePolygonToArrays(
+export function tessellatePolygonToArrays(
   rings: number[][][],
   featureId: number,
   outVerts: number[],
@@ -605,7 +608,7 @@ function tessellatePolygonToArrays(
  * f64 Mercator to a higher-precision projection) lives in one spot
  * and doesn't drift between the two paths.
  */
-function augmentChainWithArc(coords: number[][], closed: boolean, opts?: { mmInput?: boolean }): number[][] {
+export function augmentChainWithArc(coords: number[][], closed: boolean, opts?: { mmInput?: boolean }): number[][] {
   const DEG2RAD = Math.PI / 180
   const R = 6378137
   const LAT_LIMIT = 85.051129
@@ -829,7 +832,7 @@ export function makeSameBoundarySidePredicateMerc(
 
 /** Open polyline → arc-augmented chain. Thin shim around
  *  `augmentChainWithArc` for call-site readability. */
-function augmentLineWithArc(coords: number[][]): number[][] {
+export function augmentLineWithArc(coords: number[][]): number[][] {
   return augmentChainWithArc(coords, false)
 }
 
@@ -842,7 +845,7 @@ function augmentLineWithArc(coords: number[][]): number[][] {
  *  runtime join walker. Removing it changes nothing visible (the
  *  segment had no length; the fill's earcut ignores it too), so
  *  fill/outline coincidence is preserved. */
-function dropConsecutiveDuplicates(coords: number[][], eps = 1e-6): number[][] {
+export function dropConsecutiveDuplicates(coords: number[][], eps = 1e-6): number[][] {
   if (coords.length < 2) return coords
   const out: number[][] = [coords[0]!]
   for (let i = 1; i < coords.length; i++) {
@@ -1299,6 +1302,7 @@ export function compileSingleTile(
   // and tessellation happens in MM per docs/COORDINATES.md.
   const [stMxW, stMyS] = lonLatToMercF64(tb.west, tb.south)
   const [stMxE, stMyN] = lonLatToMercF64(tb.east, tb.north)
+  const clipMerc = { mxW: stMxW, myS: stMyS, mxE: stMxE, myN: stMyN }
   const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[], ptv: [] as number[], olv: [] as number[], oli: [] as number[] }
   const featureIds = new Set<number>()
   const dedupMap = new Map<string, number>()
@@ -1316,106 +1320,22 @@ export function compileSingleTile(
 
     const fid = part.featureIndex
 
+    // Per-geometry dispatch. Each branch's body lives in its own
+    // concern module (polygon-tiler / line-tiler / point-tiler);
+    // the logic, call order, and the packed buffer bytes are
+    // identical to the former inline branches. The shared clip /
+    // tessellate / DSFUN-pack helpers stay in their current modules
+    // (the vertex bytes are a CPU↔WGSL contract).
     if (part.type === 'polygon' && part.rings) {
-      // rings are ALREADY MM (makePolygonPart). The FILL uses the raw
-      // `clipped` ring at every zoom (no simplification) so it shares the
-      // exact ring set the OUTLINE line-clips below — boundaries coincide
-      // by construction (d34aed2). Simplifying the fill at z<maxZoom while
-      // the outline kept full detail produced a fill/stroke gap growing
-      // with zoom-out; see the matching note in processZoomLevelShared.
-      const clipped = clipPolygonToRect(part.rings, stMxW, stMyS, stMxE, stMyN, precisionMM)
-      if (clipped.length > 0 && clipped[0].length >= 3) {
-        const dataRings = clipped
-        // Repair self-intersecting OUTER ring only — but only when an
-        // earcut probe actually detects the overlap. See
-        // `needsBacktrackRepair` for the coverage-based detection.
-        if (dataRings.length > 0 && dataRings[0]!.length >= 3) {
-          const holes = dataRings.slice(1).filter(r => r.length >= 3)
-          const acceptSplit = needsBacktrackRepair(dataRings[0]!, holes)
-          if (!acceptSplit) {
-            const repairedRings = [dataRings[0]!, ...holes]
-            tessellatePolygonToArrays(repairedRings, fid, scratch.pv, scratch.pi, dedupMap)
-            featureIds.add(fid)
-            tilePolygons.push({ rings: repairedRings, featId: fid })
-          } else {
-            const outerSubs = splitBoundaryBacktracks(dataRings[0]!, stMxW, stMyS, stMxE, stMyN)
-            const usableOuters = outerSubs.filter(r => r.length >= 3)
-            const effectiveOuters = usableOuters.length > 0 ? usableOuters : [dataRings[0]!]
-            if (effectiveOuters.length === 1) {
-              const repairedRings = [effectiveOuters[0]!, ...holes]
-              tessellatePolygonToArrays(repairedRings, fid, scratch.pv, scratch.pi, dedupMap)
-              featureIds.add(fid)
-              tilePolygons.push({ rings: repairedRings, featId: fid })
-            } else {
-              const subHoles: number[][][][] = effectiveOuters.map(() => [])
-              for (const hole of holes) {
-                subHoles[assignHoleBucket(hole, effectiveOuters)]!.push(hole)
-              }
-              const allRingsForFeature: number[][][] = []
-              for (let si = 0; si < effectiveOuters.length; si++) {
-                const subRings = [effectiveOuters[si]!, ...subHoles[si]!]
-                tessellatePolygonToArrays(subRings, fid, scratch.pv, scratch.pi, dedupMap)
-                for (const r of subRings) allRingsForFeature.push(r)
-              }
-              featureIds.add(fid)
-              tilePolygons.push({ rings: allRingsForFeature, featId: fid })
-            }
-          }
-        }
-        // Outline emission: derive from the SAME `clipped` rings the
-        // fill tessellates, NOT a separate line-clip of the original
-        // ring. A line-clipped outline lands a few metres off the
-        // polygon-clipped fill edge at tile crossings (the two clippers
-        // round boundary intersections differently), opening a gap
-        // visible under magnification. Tracing the identical `clipped`
-        // vertices makes fill/outline coincide by construction.
-        //
-        // `extractNonSyntheticArcs` strips the synthetic axis-aligned
-        // edges Sutherland-Hodgman adds to close the ring along the
-        // tile rect (#347 — otherwise the outline strokes a spurious
-        // seam at every internal tile boundary). It returns open arcs
-        // of original-boundary edges, or the whole closed ring when the
-        // polygon is fully interior (closed-by-intent → append the
-        // first vertex so the last→first edge strokes).
-        const sidePred = makeSameBoundarySidePredicateMerc(stMxW, stMyS, stMxE, stMyN, 1.0)
-        for (const ring of clipped) {
-          if (ring.length < 2) continue
-          for (const arc of extractNonSyntheticArcs(ring, sidePred)) {
-            // Augment with per-tile arc + tangents without moving any
-            // vertex (mmInput) so fill/outline stay coincident. Cross-
-            // tile global arc continuity is traded for exact coincidence
-            // (see processZoomLevelShared for the full rationale).
-            const isClosed = arc.length >= 3 && arc === ring
-            const clean = dropConsecutiveDuplicates(arc)
-            if (clean.length < 2) continue
-            const chain = augmentChainWithArc(clean, isClosed, { mmInput: true })
-            if (chain.length >= 2) tessellateLineToArrays(chain, fid, scratch.olv, scratch.oli)
-          }
-        }
-      }
+      tilePolygonPart(part, fid, clipMerc, precisionMM, scratch, dedupMap, featureIds, tilePolygons)
     }
 
     if (part.type === 'line' && part.coords) {
-      const arcLine = augmentLineWithArc(part.coords)
-      const segments = clipLineToRect(arcLine, stMxW, stMyS, stMxE, stMyN)
-      for (const seg of segments) {
-        if (seg.length >= 2) {
-          const dataLine = z < maxZoom ? simplifyLine(seg, z, isOnBoundaryMerc, mercatorToleranceForZoom(z)) : seg
-          if (dataLine.length >= 2) {
-            tessellateLineToArrays(dataLine, fid, scratch.lv, scratch.li)
-            featureIds.add(fid)
-          }
-        }
-      }
+      tileLinePart(part, fid, clipMerc, z, maxZoom, isOnBoundaryMerc, scratch, featureIds)
     }
 
     if (part.type === 'point' && part.point) {
-      const [px, py] = part.point
-      if (px >= tb.west && px <= tb.east && py >= tb.south && py <= tb.north) {
-        const [pmx, pmy] = lonLatToMercF64(px, py)
-        scratch.ptv.push(pmx, pmy, fid)
-        featureIds.add(fid)
-      }
+      tilePointPart(part, fid, tb, scratch, featureIds)
     }
   }
 
