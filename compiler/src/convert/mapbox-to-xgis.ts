@@ -45,6 +45,7 @@ import type { MapboxStyle, MapboxLayer } from './types'
 import { convertSource, type ConvertSourceOptions } from './sources'
 import { convertLayer } from './layers'
 import { colorToXgis } from './colors'
+import { interpolateZoomCall } from './paint'
 import { expandPerFeatureColorMatch } from './expand-color-match'
 import { sanitizeId } from './utils'
 
@@ -163,17 +164,16 @@ export function convertMapboxStyle(
   // Only fields that meaningfully change rendering AND have no host
   // hook today get warned:
   //
-  //   projection — runtime supports multiple projections via the
-  //                `?proj=` URL flag, but the style-spec field isn't
-  //                read. A style declaring `projection: { type:
-  //                "globe" }` renders flat-Mercator.
   //   fog / light / terrain / transition / imports — Mapbox v3
   //                additions, none implemented.
   //
-  // Centre / zoom / pitch / bearing / glyphs / sprite are deliberately
-  // omitted — they're host-integration concerns (the playground's
-  // demo-runner + compare-runner read them and call the matching
-  // XGISMap setters), not converter ones.
+  // Centre / zoom / pitch / bearing / glyphs / sprite / projection are
+  // deliberately omitted — they're host-integration concerns (the
+  // playground's demo-runner + compare-runner read them off the raw
+  // style JSON and call the matching XGISMap setters: setProjection for
+  // the top-level `projection` field, mapped from the Mapbox type name),
+  // not converter ones. The xgis DSL carries no top-level camera /
+  // projection state.
   const styleAny = style as unknown as Record<string, unknown>
   // Mapbox spec: top-level `version` must be 8 — the entire schema
   // (sources / layers / paint / layout / expressions) is version-
@@ -192,16 +192,17 @@ export function convertMapboxStyle(
   }
 
   const topLevelGaps: string[] = []
-  if (styleAny.projection !== undefined && styleAny.projection !== null) {
-    topLevelGaps.push('projection')
-  }
   // sky (v2+ atmospheric haze / horizon gradient), lights (v3
   // standard-style ambient + directional rig), models (v3 standard-
   // style glTF 3D placements) — none implemented. Pre-fix the
   // converter silently dropped them and the conversion-notes block
   // gave no hint that an authored sky / lights setup wasn't carrying
   // through. Same surfacing pattern as fog / light / terrain.
-  for (const k of ['fog', 'light', 'lights', 'terrain', 'sky', 'transition', 'imports', 'models']) {
+  // `light` (v8 single directional light) is host-applied via
+  // XGISMap.setLight() — same pattern as projection/camera — so it is NOT
+  // listed here. `lights` (v3 standard-style ambient+directional rig) is a
+  // different, unimplemented feature and stays warned.
+  for (const k of ['fog', 'lights', 'terrain', 'sky', 'transition', 'imports', 'models']) {
     const v = styleAny[k]
     if (v !== undefined && v !== null) topLevelGaps.push(k)
   }
@@ -388,7 +389,27 @@ export function convertMapboxStyle(
       warnings.push(`Background layer "${bgLayer.id}" — visibility "${bgVisibility.slice(0, 40)}" is not a valid enum; expected 'visible' | 'none'.`)
     }
     const color = bgLayer.paint?.['background-color']
-    let colorStr = bgVisibilityNone ? null : colorToXgis(color, warnings)
+    // Probe the constant-colour conversion into a scratch warnings
+    // buffer so a zoom-interp `background-color` (which colorToXgis
+    // declines with a "Color expression not converted" note) doesn't
+    // leak that note when the WS-1 interpolate path below DOES convert
+    // it. The scratch warnings are committed to the real list only when
+    // we keep the constant result.
+    const colorProbeWarnings: string[] = []
+    let colorStr = bgVisibilityNone ? null : colorToXgis(color, colorProbeWarnings)
+    // WS-1 — zoom-interpolated background-color. When `background-color`
+    // is `["interpolate", ["linear"], ["zoom"], …]`, emit the colour as
+    // an `interpolate(zoom, …)` fill value so map.ts resolves the RGBA
+    // per frame (flat: background-pass clear; sphere: synthetic earth-
+    // surface show paintShapes.fill). The constant path keeps emitting a
+    // hex via `colorStr`. colorToXgis returns null on the interpolate
+    // shape, so this only fires when the constant path already declined.
+    const colorInterp = (colorStr === null && !bgVisibilityNone)
+      ? interpolateZoomCall(color, warnings, (val, w) => colorToXgis(val, w))
+      : null
+    // Commit the constant-colour probe diagnostics unless the interpolate
+    // path claimed the value (then the "not converted" note is spurious).
+    if (colorInterp === null) warnings.push(...colorProbeWarnings)
     // Defensive: coerce non-object bgLayer.paint to {} (mirror of the
     // layers.ts safePropsBag guard). A string paint value previously
     // let bgPaint['background-opacity'] index a char and the warning
@@ -402,8 +423,8 @@ export function convertMapboxStyle(
     // circle-stroke-opacity iter 4 partial landing). When both
     // background-color hex AND a constant numeric background-opacity
     // < 1 are authored, fold the opacity into the hex alpha channel.
-    // Zoom-interp / data-driven forms still warn via the ignored list
-    // below.
+    // Zoom-interp / data-driven forms fall through to the opacity:
+    // interpolate emit below (WS-1).
     {
       let bgOpRaw: unknown = bgPaint['background-opacity']
       while (Array.isArray(bgOpRaw) && bgOpRaw.length === 2 && bgOpRaw[0] === 'literal') bgOpRaw = bgOpRaw[1]
@@ -417,26 +438,44 @@ export function convertMapboxStyle(
         colorStr = colorStr.slice(0, 7) + aHex
       }
     }
-    if (colorStr) {
-      lines.push(`background { fill: ${colorStr} }`)
-      lines.push('')
-    }
-    // Surface dropped background paint props. background-pattern is
-    // the bitmap-atlas equivalent (Batch 2 follow-up). Constant
-    // background-opacity has been folded into the hex above; only
-    // non-constant (zoom-interp / data-driven) forms surface here.
-    const bgIgnored: string[] = []
     const bgOpacity = bgPaint['background-opacity']
-    // Suppress the "ignored" warning when bg-opacity is a constant
-    // number — already folded into the hex alpha. Only the
-    // non-constant form is a real gap (would need a per-frame
-    // uniform).
+    // WS-1 — zoom-interpolated background-opacity. Emit an `opacity:`
+    // style property (0..100, like circle-opacity) that map.ts lexes
+    // back into a PropertyShape<number> and multiplies into the clear
+    // alpha per frame. Constant numeric opacity already folded into the
+    // hex above; only the non-constant interpolate form lands here.
     const bgOpacityIsConstant = (() => {
       let v: unknown = bgOpacity
       while (Array.isArray(v) && v.length === 2 && v[0] === 'literal') v = v[1]
       return typeof v === 'number' && Number.isFinite(v)
     })()
-    if (bgOpacity !== undefined && bgOpacity !== null && !bgOpacityIsConstant) {
+    const opacityInterp = !bgOpacityIsConstant
+      ? interpolateZoomCall(bgOpacity, warnings, (val) =>
+          typeof val === 'number' && Number.isFinite(val)
+            ? String(Math.round(Math.max(0, Math.min(1, val)) * 100))
+            : null)
+      : null
+    // Emit the background block from the resolved fill (constant hex OR
+    // zoom-interp) + the optional zoom-interp opacity. The xgis
+    // `background { … }` directive parses both `fill:` and `opacity:`
+    // style properties (parser.isStylePropertyStart).
+    const fillStr = colorStr ?? colorInterp
+    if (fillStr) {
+      const body = opacityInterp
+        ? `fill: ${fillStr} opacity: ${opacityInterp}`
+        : `fill: ${fillStr}`
+      lines.push(`background { ${body} }`)
+      lines.push('')
+    }
+    // Surface dropped background paint props. background-pattern is
+    // the bitmap-atlas equivalent (Batch 2 follow-up). Constant
+    // background-opacity folds into the hex; zoom-interp opacity emits
+    // an `opacity:` property above — neither surfaces here. A
+    // data-driven (non-zoom) opacity that interpolateZoomCall declined
+    // (opacityInterp === null) is still a real gap.
+    const bgIgnored: string[] = []
+    if (bgOpacity !== undefined && bgOpacity !== null
+        && !bgOpacityIsConstant && opacityInterp === null) {
       bgIgnored.push('background-opacity (non-constant)')
     }
     const bgPattern = bgPaint['background-pattern']
@@ -449,7 +488,7 @@ export function convertMapboxStyle(
       options.coverage.layers.push({
         layerId: bgLayer.id,
         type: 'background',
-        action: colorStr ? (reasons.length > 0 ? 'lossy' : 'converted') : 'skipped',
+        action: fillStr ? (reasons.length > 0 ? 'lossy' : 'converted') : 'skipped',
         reasons,
       })
     }

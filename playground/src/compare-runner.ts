@@ -10,6 +10,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { XGISMap } from '@xgis/runtime'
 import { convertMapboxStyle } from '@xgis/compiler'
+import { extractMapboxProjectionName, extractMapboxLight } from './mapbox-projection'
 
 // ── Style catalogue ─────────────────────────────────────────────────
 const STYLES: { id: string; label: string; url: string }[] = [
@@ -135,6 +136,10 @@ async function mountBoth(url: string): Promise<void> {
   // pane on mercator (X-GIS-only inspection). Without this the page was
   // always mercator and `?proj=globe` silently did nothing.
   const projParam = new URLSearchParams(location.search).get('proj')
+  // WS-8 — when no URL `?proj=` override, honour the style's top-level
+  // `projection` field on both panes (?proj= still wins). Mapbox type
+  // name (un-aliased); setProjection maps it on the X-GIS side.
+  const effProj = projParam ?? extractMapboxProjectionName(styleJson)
 
   // Tear down any previous instances first
   if (mlMap) { mlMap.remove(); mlMap = null }
@@ -195,7 +200,7 @@ async function mountBoth(url: string): Promise<void> {
     // ML globe is adaptive (auto-transitions to mercator above ~z6),
     // so the globe A/B is meaningful at low zoom — matching the z0
     // globe repros in #450 / #451.
-    if (projParam === 'globe') {
+    if (effProj === 'globe') {
       try { mlMap!.setProjection({ type: 'globe' }) } catch { /* ML build without globe */ }
     }
     ;(window as unknown as { __mlReady?: boolean }).__mlReady = true
@@ -281,10 +286,14 @@ async function mountBoth(url: string): Promise<void> {
   // setProjection writes camera state (globeMode / pitchLocked / zoom
   // clamps) so re-apply the URL view AFTER the switch to land on the
   // exact requested camera.
-  if (projParam && projParam !== 'mercator') {
-    xgMap.setProjection(projParam)
+  if (effProj && effProj !== 'mercator') {
+    xgMap.setProjection(effProj)
     applyViewToXgis(xgMap, initialView)
   }
+  // WS-9 — honour the style's top-level `light` block on the X-GIS pane
+  // (MapLibre applies its own light natively from the same style).
+  const styleLight = extractMapboxLight(styleJson)
+  if (styleLight) xgMap.setLight(styleLight)
 
   // X-GIS → MapLibre sync loop (rAF poll; the engine has no event hook
   // for camera writes from the user's pointer driver).

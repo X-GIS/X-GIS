@@ -44,6 +44,36 @@ export interface PointLayer {
   circleTranslateY: number
   /** circle-blur in CSS px (0 = crisp edge / no-op). */
   circleBlur: number
+  /** WS-1 — per-frame zoom-interp circle-stroke-opacity. When a zoom /
+   *  time / zoom-time shape, `updateDynamicSizes` resolves it each frame
+   *  and writes `baseStrokeAlphaSlot8 × resolved` into feat_data slot 8.
+   *  `null` / `constant` / `data-driven` are no-ops at the layer level
+   *  (the constant alpha is already folded into the stroke colour). */
+  strokeOpacityShape: import('@xgis/compiler').PropertyShape<number> | null
+  /** The stroke alpha baked into feat_data slot 8 at addLayer time
+   *  (stroke[3] × layer opacity). The per-frame resolved stroke-opacity
+   *  multiplies this base — kept separate so re-resolution never compounds. */
+  baseStrokeAlphaSlot8: number
+  /** Last zoom the dynamic stroke-opacity was uploaded for — skips
+   *  redundant featData patches when the camera is idle (mirror of
+   *  `lastDynZoom`). */
+  lastDynStrokeOpacityZoom: number
+  /** WS-1 — per-frame zoom-interp circle-translate x / y. When a zoom /
+   *  time / zoom-time shape, `updateDynamicSizes` resolves it each frame
+   *  and writes the result into `circleTranslateX` / `circleTranslateY`
+   *  (the fields `writePointFrameUniform` bakes into the point frame
+   *  uniform's circle_params.xy — uf[32]/[33] — next frame). `null` /
+   *  `constant` / `data-driven` are no-ops (the constant fallback below
+   *  is already stored in `circleTranslateX` / `circleTranslateY`). */
+  circleTranslateXShape: import('@xgis/compiler').PropertyShape<number> | null
+  circleTranslateYShape: import('@xgis/compiler').PropertyShape<number> | null
+  /** Constant circle-translate fallback (CSS px). Kept separate so a
+   *  per-frame resolved shape never compounds on prior frames. */
+  baseCircleTranslateX: number
+  baseCircleTranslateY: number
+  /** Last zoom the dynamic circle-translate was resolved for — skips
+   *  redundant work when the camera is idle (mirror of `lastDynZoom`). */
+  lastDynTranslateZoom: number
   // Expanded buffers for 3× world copies (created on first render)
   _expandedVertBuf?: GPUBuffer
   _expandedIdxBuf?: GPUBuffer

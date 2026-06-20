@@ -117,7 +117,7 @@ describe('converter warning coverage', () => {
       .toBe(true)
   })
 
-  it('top-level projection / fog / light / terrain → ignored-fields warning', () => {
+  it('top-level fog → ignored-fields warning (projection + light host-applied, WS-8/WS-9)', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
@@ -128,7 +128,14 @@ describe('converter warning coverage', () => {
     })
     expect(w.some(s => s.startsWith('Top-level style fields ignored'))).toBe(true)
     const note = w.find(s => s.startsWith('Top-level style fields ignored'))!
-    for (const k of ['projection', 'fog', 'light']) {
+    // WS-8: top-level `projection` is now host-applied (demo-runner /
+    // compare-runner read it off the raw style JSON and call
+    // XGISMap.setProjection), so it must NOT appear in the ignored list.
+    expect(note, `projection should be host-applied, not ignored: ${note}`).not.toContain('projection')
+    // WS-9: top-level `light` is now host-applied (XGISMap.setLight via the
+    // demo-runner / compare-runner), so it must NOT appear in the ignored list.
+    expect(note, `light should be host-applied, not ignored: ${note}`).not.toContain('light')
+    for (const k of ['fog']) {
       expect(note, `expected "${k}" in: ${note}`).toContain(k)
     }
   })
@@ -336,7 +343,10 @@ describe('converter warning coverage', () => {
     expect(note).toContain('background-pattern')
   })
 
-  it('background-opacity zoom-interp → still surfaces as non-constant gap', () => {
+  it('background-opacity zoom-interp → emits opacity: interpolate, no warning (WS-1)', () => {
+    // WS-1: a zoom-interpolated background-opacity is now emitted as an
+    // `opacity: interpolate(zoom, …)` style property the runtime resolves
+    // per frame — it no longer surfaces as a non-constant gap.
     const w = warningsOf({
       version: 8,
       sources: {},
@@ -350,8 +360,7 @@ describe('converter warning coverage', () => {
       }],
     })
     const note = w.find(s => s.includes('"bg"') && s.includes('background-opacity'))
-    expect(note).toBeDefined()
-    expect(note).toContain('non-constant')
+    expect(note, `expected no background-opacity warning, got: ${JSON.stringify(w)}`).toBeUndefined()
   })
 
   it('GeoJSON promoteId → reserved-id warning', () => {
@@ -631,10 +640,10 @@ describe('converter warning coverage', () => {
     expect(out).toMatch(/label-vao-1-y-1/)
   })
 
-  it('zoom-interp line-dasharray → non-constant warning', () => {
-    // Pins ccb126b — addStrokeDash warns on the non-array shape
-    // (interpolate-by-zoom dasharray that the IR has no consumer for
-    // today).
+  it('zoom-interp line-dasharray → bracket binding, no warning (WS-1)', () => {
+    // WS-1 — interpolate-by-zoom dasharray now lowers to a
+    // PropertyShape<number[]> (stroke-dasharray-[interpolate(zoom, …)])
+    // resolved per frame (STEP). No longer dropped/warned.
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
@@ -651,11 +660,9 @@ describe('converter warning coverage', () => {
         },
       }],
     })
-    // Post-iter-27 warning text distinguishes the specific gap
-    // shape (zoom-interp vs data-driven vs generic non-constant)
-    // so the user knows WHICH path is missing.
-    expect(w.some(s => s.includes('paint.line-dasharray')
-      && (s.includes('zoom-interp') || s.includes('non-constant')))).toBe(true)
+    // WS-1: the zoom-interp form is handled (bracket binding), so no
+    // line-dasharray warning is emitted.
+    expect(w.some(s => s.includes('paint.line-dasharray'))).toBe(false)
   })
 
   it('glyphs / sprite must NOT appear in the top-level warning (host-integration handled)', () => {

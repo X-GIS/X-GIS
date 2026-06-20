@@ -338,7 +338,7 @@ export class PointRenderer {
     projCenterLat: number,
     canvasWidth: number,
     canvasHeight: number,
-    show: { fill?: string | null; stroke?: string | null; strokeWidth?: number; size?: number | null; opacity?: number; circleTranslateX?: number; circleTranslateY?: number; circleBlur?: number },
+    show: { fill?: string | null; stroke?: string | null; strokeWidth?: number; size?: number | null; opacity?: number; circleTranslateX?: number; circleTranslateY?: number; circleBlur?: number; circleTranslateXShape?: import('@xgis/compiler').PropertyShape<number> | null; circleTranslateYShape?: import('@xgis/compiler').PropertyShape<number> | null; circleStrokeOpacityShape?: import('@xgis/compiler').PropertyShape<number> | null },
     dpr: number = 1,
   ): void {
     if (this.tilePoints.length === 0) return
@@ -352,6 +352,19 @@ export class PointRenderer {
     const opacity = show.opacity ?? 1.0
     const radiusPx = show.size ?? 6
     const strokeWidth = show.strokeWidth ?? 1  // raw px, shader converts to UV
+    // WS-1 — per-frame zoom-interp on the tile-point path (mirror of the
+    // GeoJSON updateDynamicSizes path). flushTilePoints rebakes feat_data +
+    // the frame uniform every frame, so resolve the shapes here. These are
+    // zoom-only, so elapsedMs=0 is fine.
+    const tileStrokeOpacity = show.circleStrokeOpacityShape
+      ? Math.max(0, Math.min(1, resolveNumberShape(show.circleStrokeOpacityShape, camera.zoom, 0).value))
+      : 1
+    const tileTranslateX = show.circleTranslateXShape
+      ? resolveNumberShape(show.circleTranslateXShape, camera.zoom, 0).value
+      : (show.circleTranslateX ?? 0)
+    const tileTranslateY = show.circleTranslateYShape
+      ? resolveNumberShape(show.circleTranslateYShape, camera.zoom, 0).value
+      : (show.circleTranslateY ?? 0)
 
     let flags = 0
     if (fill) flags |= 1
@@ -390,7 +403,7 @@ export class PointRenderer {
       featData[fOff+1] = fill?fill[0]:0; featData[fOff+2] = fill?fill[1]:0
       featData[fOff+3] = fill?fill[2]:0; featData[fOff+4] = fill?fill[3]*opacity:0
       featData[fOff+5] = stroke?stroke[0]:0; featData[fOff+6] = stroke?stroke[1]:0
-      featData[fOff+7] = stroke?stroke[2]:0; featData[fOff+8] = stroke?stroke[3]*opacity:0
+      featData[fOff+7] = stroke?stroke[2]:0; featData[fOff+8] = stroke?stroke[3]*opacity*tileStrokeOpacity:0
       featData[fOff+9] = strokeWidth; featData[fOff+10] = flags
       // ECEF DSFUN: pos_h.xyz at 11-13, pos_l.xyz at 14-16, abs_lon at 17, abs_lat at 18, shape_id at 19
       featData[fOff+11] = pt.exH; featData[fOff+12] = pt.eyH; featData[fOff+13] = pt.ezH
@@ -422,7 +435,7 @@ export class PointRenderer {
 
     const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
     const uf = this.uniformData
-    writePointFrameUniform(uf, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight, show.circleTranslateX ?? 0, show.circleTranslateY ?? 0, show.circleBlur ?? 0)
+    writePointFrameUniform(uf, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight, tileTranslateX, tileTranslateY, show.circleBlur ?? 0)
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uf)
 
     // Pick the translucent (no depth write) pipeline when the effective
@@ -431,7 +444,7 @@ export class PointRenderer {
     // Matches the classification used in addLayer().
     const EPS = 0.999
     const fillA = fill ? fill[3] * opacity : 1
-    const strokeA = stroke ? stroke[3] * opacity : 1
+    const strokeA = stroke ? stroke[3] * opacity * tileStrokeOpacity : 1
     const tileIsTranslucent = opacity < EPS || fillA < EPS || strokeA < EPS
 
     // Single draw call for all tile points
@@ -471,6 +484,9 @@ export class PointRenderer {
     circleTranslateX?: number,
     circleTranslateY?: number,
     circleBlur?: number,
+    strokeOpacityShape?: import('@xgis/compiler').PropertyShape<number> | null,
+    circleTranslateXShape?: import('@xgis/compiler').PropertyShape<number> | null,
+    circleTranslateYShape?: import('@xgis/compiler').PropertyShape<number> | null,
   ): void {
     const points: { lon: number; lat: number }[] = []
 
@@ -591,6 +607,19 @@ export class PointRenderer {
       circleTranslateX: circleTranslateX ?? 0,
       circleTranslateY: circleTranslateY ?? 0,
       circleBlur: circleBlur ?? 0,
+      strokeOpacityShape: strokeOpacityShape ?? null,
+      // Base stroke alpha baked into feat_data slot 8 (stroke[3] × layer
+      // opacity) — the per-frame resolved stroke-opacity multiplies THIS.
+      baseStrokeAlphaSlot8: stroke ? stroke[3] * opacity : 0,
+      lastDynStrokeOpacityZoom: Number.NaN,
+      // WS-1 — per-frame zoom-interp circle-translate. The constant
+      // fallback lives in base*; updateDynamicSizes resolves the shape
+      // (when animated) into circleTranslateX/Y each frame.
+      circleTranslateXShape: circleTranslateXShape ?? null,
+      circleTranslateYShape: circleTranslateYShape ?? null,
+      baseCircleTranslateX: circleTranslateX ?? 0,
+      baseCircleTranslateY: circleTranslateY ?? 0,
+      lastDynTranslateZoom: Number.NaN,
     })
 
     console.log(`[X-GIS] SDF point layer: ${points.length} points`)
@@ -624,6 +653,53 @@ export class PointRenderer {
         layer.featData[i * STRIDE + 0] = size
       }
       layer.lastDynZoom = cameraZoom
+    }
+    // WS-1 — per-frame zoom-interp circle-stroke-opacity. A separate loop
+    // (not folded into the size loop above) because a layer may author a
+    // stroke-opacity shape without a size shape — the size loop's early
+    // `continue`s would otherwise skip it. Resolves the shape and writes
+    // baseStrokeAlphaSlot8 × resolved into feat_data slot 8 (the stroke
+    // alpha); render() re-copies slots 0–10 each frame so it propagates.
+    for (const layer of this.layers) {
+      const shape = layer.strokeOpacityShape
+      if (shape === null) continue
+      // Only zoom/time kinds need per-frame re-resolution — constant /
+      // data-driven are already folded into the baked stroke colour.
+      if (shape.kind !== 'zoom-interpolated'
+          && shape.kind !== 'time-interpolated'
+          && shape.kind !== 'zoom-time') continue
+      const r = resolveNumberShape(shape, cameraZoom, elapsedMs)
+      // Zoom-only optimization — skip when the camera hasn't moved.
+      if (!r.hasTime && Math.abs(layer.lastDynStrokeOpacityZoom - cameraZoom) < 0.001) continue
+      const alpha = layer.baseStrokeAlphaSlot8 * Math.max(0, Math.min(1, r.value))
+      for (let i = 0; i < layer.pointCount; i++) {
+        layer.featData[i * STRIDE + 8] = alpha
+      }
+      layer.lastDynStrokeOpacityZoom = cameraZoom
+    }
+    // WS-1 — per-frame zoom-interp circle-translate. Resolves the x / y
+    // shapes and writes the result into layer.circleTranslateX / Y — the
+    // fields writePointFrameUniform bakes to NDC (uf 32/33) when render()
+    // draws the layer next. Not feat_data: circle-translate is a frame
+    // uniform, not a per-vertex attribute. A separate loop (not folded
+    // into the size loop) because a layer may author a translate shape
+    // without a size shape.
+    for (const layer of this.layers) {
+      const sx = layer.circleTranslateXShape
+      const sy = layer.circleTranslateYShape
+      const animatedX = sx !== null
+        && (sx.kind === 'zoom-interpolated' || sx.kind === 'time-interpolated' || sx.kind === 'zoom-time')
+      const animatedY = sy !== null
+        && (sy.kind === 'zoom-interpolated' || sy.kind === 'time-interpolated' || sy.kind === 'zoom-time')
+      if (!animatedX && !animatedY) continue
+      const rx = animatedX ? resolveNumberShape(sx, cameraZoom, elapsedMs) : null
+      const ry = animatedY ? resolveNumberShape(sy, cameraZoom, elapsedMs) : null
+      const hasTime = (rx?.hasTime ?? false) || (ry?.hasTime ?? false)
+      // Zoom-only optimization — skip when the camera hasn't moved.
+      if (!hasTime && Math.abs(layer.lastDynTranslateZoom - cameraZoom) < 0.001) continue
+      if (rx !== null) layer.circleTranslateX = rx.value
+      if (ry !== null) layer.circleTranslateY = ry.value
+      layer.lastDynTranslateZoom = cameraZoom
     }
   }
 

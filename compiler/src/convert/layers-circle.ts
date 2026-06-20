@@ -29,9 +29,12 @@ import {
  *    circle-stroke-color  → `stroke-<color>`
  *    circle-stroke-width  → `stroke-N`      (CSS px, single edge width)
  *
- *  Not yet honoured (warnings emitted): circle-blur, circle-translate
- *  + circle-translate-anchor, circle-pitch-scale, circle-pitch-alignment,
- *  circle-stroke-opacity (would need fold-into-stroke-alpha).
+ *  circle-stroke-opacity → constant folds into stroke hex alpha;
+ *  zoom-interp emits `stroke-opacity-[…]` resolved per frame.
+ *
+ *  Not yet honoured (warnings emitted): circle-translate-anchor,
+ *  circle-pitch-scale, circle-pitch-alignment, data-driven
+ *  circle-stroke-opacity.
  */
 export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
   const paint = safePropsBag((layer as { paint?: unknown }).paint)
@@ -155,17 +158,34 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
   // dropped (same regression class as the line-color fix).
   // Same null-as-omit treatment as circle-color above.
   //
-  // circle-stroke-opacity (Mapbox spec) folds into stroke-colour alpha
-  // when both are constant. Plan §4: stops short of a dedicated paint
-  // shape so non-constant opacity still warns + drops below. Constant
-  // alpha multiplication keeps the common case (e.g. `0.5`-alpha
-  // outline rings) correct without a per-frame uniform.
+  // circle-stroke-opacity (Mapbox spec). Constant form folds into the
+  // stroke-colour hex alpha (no per-frame uniform needed). The
+  // zoom-interp form (WS-1, part 4) emits a `stroke-opacity-[interpolate(
+  // zoom, …)]` bracket binding the runtime resolves per frame — it
+  // multiplies into the circle's baked stroke alpha (feat_data slot 8)
+  // in PointRenderer.updateDynamicSizes, mirroring circle-opacity above.
+  // In the zoom-interp case the stroke colour is left at its base alpha
+  // (no fold) so the per-frame multiply isn't double-applied.
   const strokeColor = paint['circle-stroke-color']
   const strokeOpacityRaw = unwrapLiteralScalar(paint['circle-stroke-opacity'])
   const strokeOpacityConst =
     typeof strokeOpacityRaw === 'number' && Number.isFinite(strokeOpacityRaw)
       ? Math.max(0, Math.min(1, strokeOpacityRaw))
       : null
+  // Zoom-interp stroke-opacity → bracket binding (0..100 scale, same as
+  // circle-opacity). Only attempt when the raw value is a non-constant
+  // object (interpolate call); a bare number stays on the constant fold
+  // path. When this is non-null the constant fold is skipped below.
+  const strokeOpacityInterp =
+    strokeOpacityConst === null
+      && typeof strokeOpacityRaw === 'object' && strokeOpacityRaw !== null
+      ? interpolateZoomCall(paint['circle-stroke-opacity'], warnings, (val) => {
+          if (typeof val !== 'number') return null
+          const c = Math.max(0, Math.min(1, val))
+          return String(Math.round(c * 100))
+        })
+      : null
+  if (strokeOpacityInterp !== null) utils.push(`stroke-opacity-[${strokeOpacityInterp}]`)
   if (!isOmittedValue(strokeColor)) {
     const interp = interpolateZoomCall(strokeColor, warnings, (val, w) => colorToXgis(val, w))
     if (interp !== null) {
@@ -234,8 +254,10 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
   }
 
   // circle-translate → circle-translate-x-N circle-translate-y-M.
-  // Constant [dx, dy] only; zoom-interp on vec2 deferred (same constraint
-  // as fill-translate in paint.ts:addFillTranslate). Default [0,0] → silent.
+  // Constant [dx, dy] folds to scalar utilities; zoom-interp on the vec2
+  // splits per-axis into circle-translate-{x,y}-[interpolate(zoom,…)]
+  // bracket bindings resolved per frame (WS-1 part 5, mirrors
+  // addFillTranslate in paint.ts). Default [0,0] → silent.
   const circleTranslate = paint['circle-translate']
   if (circleTranslate !== undefined && circleTranslate !== null) {
     let tv: unknown = circleTranslate
@@ -251,18 +273,29 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
       if (tv[0] !== 0) utils.push(`circle-translate-x-${fmt(tv[0] as number)}`)
       if (tv[1] !== 0) utils.push(`circle-translate-y-${fmt(tv[1] as number)}`)
     } else if (Array.isArray(tv) && tv.length >= 4 && tv[0] === 'interpolate') {
-      // Zoom-interp on vec2: approximate by last stop (same pattern as
-      // addFillTranslate in paint.ts).
-      let last: unknown = null
-      for (let i = 3; i + 1 < tv.length; i += 2) last = tv[i + 1]
-      while (Array.isArray(last) && last.length === 2 && last[0] === 'literal') last = last[1]
-      if (Array.isArray(last) && last.length === 2
-          && typeof last[0] === 'number' && Number.isFinite(last[0])
-          && typeof last[1] === 'number' && Number.isFinite(last[1])) {
-        const fmt = (n: number): string => n < 0 ? `[${n}]` : `${n}`
-        if (last[0] !== 0) utils.push(`circle-translate-x-${fmt(last[0] as number)}`)
-        if (last[1] !== 0) utils.push(`circle-translate-y-${fmt(last[1] as number)}`)
-        warnings.push(`Layer "${layer.id}" — circle-translate: zoom-interpolated form not yet fully supported — using last stop value as constant approximation.`)
+      // WS-1 (part 5) — per-frame zoom-interp on the vec2, mirroring
+      // addFillTranslate in paint.ts. Split into scalar x and y
+      // zoom-interpolates and emit `circle-translate-x-[…]` +
+      // `circle-translate-y-[…]` bracket bindings. lower.ts parses each
+      // into RenderNode.circleTranslate{X,Y}Shape → emit threads them to
+      // ShowCommand → PointRenderer.updateDynamicSizes resolves per frame
+      // into the point frame uniform (circle_params.xy). Replaces the old
+      // last-stop approximation.
+      const axisInterp = (idx: 0 | 1): string | null =>
+        interpolateZoomCall(tv, warnings, (val) => {
+          let inner: unknown = val
+          while (Array.isArray(inner) && inner.length === 2 && inner[0] === 'literal') inner = inner[1]
+          if (Array.isArray(inner) && inner.length === 2
+              && typeof inner[idx] === 'number' && Number.isFinite(inner[idx])) {
+            return String(inner[idx])
+          }
+          return null
+        })
+      const ix = axisInterp(0)
+      const iy = axisInterp(1)
+      if (ix !== null && iy !== null) {
+        utils.push(`circle-translate-x-[${ix}]`)
+        utils.push(`circle-translate-y-[${iy}]`)
       } else {
         warnings.push(`Layer "${layer.id}" — circle-translate: non-constant form not yet supported — value dropped.`)
       }
@@ -290,11 +323,14 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
   for (const k of [
     'circle-translate-anchor',
     'circle-pitch-scale', 'circle-pitch-alignment',
-    // circle-stroke-opacity: only the constant form folds into stroke
-    // hex alpha above. Zoom-interp / data-driven still surface as
-    // ignored so the user sees the gap. Check the unwrapped value
-    // shape — if it's a scalar number we handled it; otherwise warn.
+    // circle-stroke-opacity: the constant form folds into stroke hex
+    // alpha and the zoom-interp form emits a `stroke-opacity-[…]`
+    // binding (both handled above). Only a non-interpolate data-driven
+    // form remains a gap — surface it so the user sees it. Check the
+    // unwrapped value shape: a scalar number OR a resolved zoom-interp
+    // (strokeOpacityInterp !== null) we handled; otherwise warn.
     ...(typeof strokeOpacityRaw === 'object' && strokeOpacityRaw !== null
+      && strokeOpacityInterp === null
       ? ['circle-stroke-opacity']
       : []),
     'circle-sort-key',

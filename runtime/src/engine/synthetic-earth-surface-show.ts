@@ -12,6 +12,7 @@
 // resolveShow path as every other layer, so debug-overdraw and the
 // per-layer log-depth bias work without special-casing.
 
+import type { PropertyShape } from '@xgis/compiler'
 import type { ShowCommand } from './render/renderer-types'
 import { SYNTHETIC_EARTH_SURFACE_SOURCE } from '../data/sources/synthetic-earth-surface-backend'
 
@@ -21,9 +22,19 @@ export const SYNTHETIC_EARTH_SURFACE_LAYER = '__synthetic_earth_surface__'
 /** Construct the synthetic earth-surface ShowCommand from the parsed
  *  style background colour. RGBA in straight-alpha unit floats. Callers
  *  later mutate the returned object's `fill` / `resolvedFillRgba` on
- *  setBackgroundFill so the resolveShow cache invalidates by reference. */
+ *  setBackgroundFill so the resolveShow cache invalidates by reference.
+ *
+ *  WS-1 — `fillShape` carries a zoom-interpolated `background-color`
+ *  (Mapbox `["interpolate", …, ["zoom"], …]`). When provided it becomes
+ *  the show's `paintShapes.fill`, which resolveShow/resolveColorShape
+ *  already resolves per frame — so the sphere/globe earth-surface fill
+ *  follows the zoom curve with no further wiring. `rgba` stays the
+ *  static fallback hex (used before the first per-frame resolve and by
+ *  the legacy static-hex consumers). When null the fill is the constant
+ *  `rgba` as before. */
 export function buildSyntheticEarthSurfaceShow(
   rgba: [number, number, number, number],
+  fillShape?: PropertyShape<readonly [number, number, number, number]> | null,
 ): ShowCommand {
   return {
     targetName: SYNTHETIC_EARTH_SURFACE_SOURCE,
@@ -39,7 +50,7 @@ export function buildSyntheticEarthSurfaceShow(
     extrudeBase: { kind: 'none' },
     resolvedFillRgba: rgba,
     paintShapes: {
-      fill: { kind: 'constant', value: rgba },
+      fill: fillShape ?? { kind: 'constant', value: rgba },
       stroke: null,
       opacity: { kind: 'constant', value: 1 },
       strokeWidth: { kind: 'constant', value: 0 },

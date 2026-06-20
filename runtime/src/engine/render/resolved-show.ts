@@ -22,7 +22,7 @@
 // not the compiler's, so those field accesses type-check.
 import type { PropertyShape } from '@xgis/compiler'
 import type { ShowCommand } from './renderer-types'
-import { resolveNumberShape, resolveColorShape } from './paint-shape-resolve'
+import { resolveNumberShape, resolveColorShape, resolveArrayShape } from './paint-shape-resolve'
 
 type ShapeRef = PropertyShape<unknown> | null | undefined
 
@@ -107,6 +107,20 @@ export interface ResolvedShow {
 
   /** RGBA stroke when the layer declared one. */
   readonly stroke: RGBA | null
+
+  /** WS-1 — per-frame zoom-interp viewport translate in CSS px for
+   *  fill / line. Falls back to the constant ShowCommand.*TranslateX/Y
+   *  when no shape was authored. Circle translate resolves in the
+   *  point-renderer (it doesn't flow through ResolvedShow). */
+  readonly fillTranslateX: number
+  readonly fillTranslateY: number
+  readonly strokeTranslateX: number
+  readonly strokeTranslateY: number
+
+  /** WS-1 — per-frame zoom-interp dash array (CSS-px on/off lengths), or
+   *  `null` when the layer has no dash shape (VTR falls back to the static
+   *  `ShowCommand.dashArray`). STEPped to the nearest zoom stop. */
+  readonly dashArray: readonly number[] | null
 }
 
 /** Per-frame camera + clock context the resolver needs. Keeps the
@@ -178,6 +192,29 @@ export function resolveShow(show: ShowCommand, env: ResolveEnv): ResolvedShow {
     ? resolveNumberShape(show.dashOffsetShape, cameraZoom, elapsedMs).value
     : 0
 
+  // WS-1 — per-frame zoom-interp translate (fill / line). Prefer the
+  // shape; fall back to the constant ShowCommand field. These are
+  // zoom-only, so the resolve-cache (keyed on zoom) keeps them fresh
+  // automatically — no extra cache-ref tracking needed.
+  const fillTranslateX = show.fillTranslateXShape
+    ? resolveNumberShape(show.fillTranslateXShape, cameraZoom, elapsedMs).value
+    : (show.fillTranslateX ?? 0)
+  const fillTranslateY = show.fillTranslateYShape
+    ? resolveNumberShape(show.fillTranslateYShape, cameraZoom, elapsedMs).value
+    : (show.fillTranslateY ?? 0)
+  const strokeTranslateX = show.strokeTranslateXShape
+    ? resolveNumberShape(show.strokeTranslateXShape, cameraZoom, elapsedMs).value
+    : (show.strokeTranslateX ?? 0)
+  const strokeTranslateY = show.strokeTranslateYShape
+    ? resolveNumberShape(show.strokeTranslateYShape, cameraZoom, elapsedMs).value
+    : (show.strokeTranslateY ?? 0)
+
+  // WS-1 — per-frame zoom-interp dash array (STEP). Zoom-only, so the
+  // zoom-keyed resolve-cache keeps it fresh. null → VTR uses show.dashArray.
+  const dashArray = show.dashArrayShape
+    ? resolveArrayShape(show.dashArrayShape, cameraZoom)
+    : null
+
   // Fill / stroke colour — `null` from the resolver means "the
   // ShowCommand's static `fill` hex is authoritative this frame".
   //
@@ -217,6 +254,8 @@ export function resolveShow(show: ShowCommand, env: ResolveEnv): ResolvedShow {
     layerName: show.layerName ?? show.sourceLayer ?? show.targetName ?? '',
     opacity, strokeWidth, size, dashOffset,
     fill, stroke,
+    fillTranslateX, fillTranslateY, strokeTranslateX, strokeTranslateY,
+    dashArray,
   }
 
   const hasTimeDep =

@@ -8,11 +8,8 @@ Properties where the runtime currently degrades or drops a specific value-form.
 |---|---|---|---|
 | fill | fill-opacity | data-driven | Per-feature opacity not threaded through renderer |
 | fill | fill-antialias | constant | false branch not implemented; pipeline always uses MSAA |
-| fill | fill-translate | zoom-interp | Per-frame zoom-interp deferred; last-stop approx only |
 | fill | fill-pattern | data-driven | Expression form of fill-pattern (per-feature sprite name) not threaded through IR |
-| line | line-dasharray | zoom-interp | PropertyShape<array> variant pending |
 | line | line-pattern | data-driven | Expression form not threaded through IR |
-| symbol | text-opacity | zoom-interp | Fast-path resolves constant only |
 | symbol | text-opacity | data-driven | Per-feature alpha path deferred |
 | symbol | text-pitch-alignment | constant | Runtime never projects labels onto ground plane |
 | symbol | icon-opacity | zoom-interp | Per-feature alpha attr path deferred |
@@ -20,16 +17,14 @@ Properties where the runtime currently degrades or drops a specific value-form.
 | symbol | icon-size | data-driven | Worker per-feature evaluator pending |
 | symbol | symbol-sort-key | data-driven | Expression flattens to 0; per-feature key plumbing pending |
 | fill-extrusion | fill-extrusion-pattern | data-driven | Expression form not threaded through IR |
-| circle | circle-stroke-opacity | zoom-interp | Per-frame uniform path pending |
-| background | background-opacity | zoom-interp | Per-frame uniform path pending |
 | raster | raster-opacity | data-driven | Data-driven not applicable to raster tiles |
 
 ## Spec-coverage status breakdown
 
 | Status | Count |
 |---|---:|
-| supported | 138 |
-| partial | 28 |
+| supported | 148 |
+| partial | 18 |
 | unsupported | 69 |
 | na | 7 |
 | **total** | **242** |
@@ -49,8 +44,6 @@ Properties marked `partial` — converter accepts but runtime degrades. These ne
 
 | Property | Impact | Note |
 |---|---|---|
-| light | low | iter-194 — MapLibre-equivalent face-normal directional lighting + vertical-gradient implemented in the extrude vertex shader (`vs_main_quantized_extruded`). Default Mapbox light values baked as WGSL consts: position=[1.15, 210°, 30°] → cartesian (0.288, -0.498, 0.996), intensity=0.5, color=white. Style-spec `light` keyword parsing (custom anchor / intensity / position / color) is the remaining gap — when authored, those values are dropped and the renderer falls through to the defaults. For OFM bright / liberty / positron the defaults are exactly what the style would author, so this gap is invisible on the target corpus; custom-light styles (Mapbox Studio gallery, NYT data-vis maps) would still see the default lighting. |
-| projection | low | mercator only; URL `?proj=` provides limited overrides at runtime. |
 | raster-dem | medium | Source registered, no hillshade renderer yet (Batch 4). |
 | symbol-sort-key | medium | Constant numeric value plumbed end-to-end (iter 399-405). Runtime collision pass sorts CollisionItems by sortKey ascending — lower wins. Expression form (`["get", "rank"]`) flattens to 0 with a warning. |
 | text-overlap | low | MapLibre overlap-policy enum (never / always / cooperative). always → label-allow-overlap; never → default; cooperative approximated as always (priority-aware collision pending) + warning. Wins over legacy text-allow-overlap when both declared. |
@@ -58,20 +51,12 @@ Properties marked `partial` — converter accepts but runtime degrades. These ne
 | icon-allow-overlap | medium | No icon collision queue yet — every icon places (matches `true` semantics). OFM label_city/town/village/city_capital authoring `true` (4 layers per fixture) renders correctly. `false` would suppress overlapping icons; not implemented (would need icon-side collision bboxes). Iter 495 status review. |
 | icon-overlap | medium | MapLibre overlap-policy enum. `always` matches X-GIS default (every icon places). `never`/`cooperative` need icon collision bboxes (deferred). Iter 495 status review. |
 | icon-optional | low | Default `false` (icon required for label placement) is X-GIS' current contract — labels with iconImage place when both fit. OFM label_city/town/etc. all author the default. `true` (label may place icon-less) needs icon-side collision arbitration; not implemented. |
-| background-color | low | Constant + CSS form only — interpolate-by-zoom of background falls through (rare). |
-| background-opacity | low | Constant numeric form folds into background-color hex alpha (iter 47, mirror of circle-stroke-opacity iter 4). Zoom-interp / data-driven still warn — would need a per-frame uniform on the background-fill emit path. |
 | fill-antialias | low | Default `true` byte-identical (current render path). Geometric fill-edge AA in X-GIS comes from pipeline MSAA, not a per-fragment coverage smoothstep, so it is not per-layer disable-able. The `false` opt-out IS now wired: the converter emits a `fill-antialias-false` flag (paint.ts) → ShowCommand.fillAntialias → the polygon uniform's spare cam_ecef_off_h.w lane → the fs_fill fragment gates the only fill-alpha smoothstep it has (the sphere-rim hemisphere fade, polygon_rim_alpha) on the flag, giving a hard rim edge. On flat-Mercator the rim factor is already 1.0 so `false` is visually inert there; it bites on the curved-globe/azimuthal rim. OFM liberty `landcover_wood`/`grass`/`ice` set `false`. |
-| fill-translate | low | Constant vec2 + zoom-interp last-stop approx end-to-end. Runtime WGSL u.fill_translate_x/y adds CSS-px offset converted to NDC at vs_main (`clip.xy += u.fill_translate * clip.w`). OFM building-top pseudo-3D roof offset honoured. Full per-frame zoom-interp deferred. Iter 501 + 508 shipped 2026-05-18. |
-| line-dasharray | medium | Constant numeric array only — interpolate-by-zoom dasharray not lowered. Iter 27 sharpened the non-constant warning to name the specific shape (zoom-interp needs PropertyShape<array>; data-driven needs per-feature dash plumbing). |
-| line-translate | low | Constant vec2 + zoom-interp last-stop approx end-to-end (mirrors fill-translate). Converter emits stroke-translate-x-N / stroke-translate-y-M utilities; lower.ts parses them into strokeTranslateX/Y on the render node; VTR bakes CSS px → NDC-per-pixel and writes into LineLayer uniform slots 48/49 (u.line_translate_x/y). Applied in vs_line post-MVP (`clip.xy += u.line_translate * clip.w`). viewport anchor only — map-space translate deferred. |
 | line-translate-anchor | low | viewport (default) is honoured (matches X-GIS behaviour). map coordinate space for line-translate deferred (no OFM uses). |
 | icon-translate | low | CSS-px viewport offset for icons (independent of text-translate). Constant [dx, dy] form wired end-to-end: converter emits `label-icon-translate-{x,y}-N` (layers-symbol.ts) → LabelDef.iconTranslateX/Y → dispatchIcon adds it (× dpr) to the icon anchor before IconStage.addIcon (label-pass.ts), alongside icon-offset. Default [0,0] = no-op. Non-constant (expression / interpolate) form still warns + drops. |
 | icon-translate-anchor | low | Only `viewport` (the value matching X-GIS' screen-space icon-translate) is honoured. `map` (world-space offset on bearing) warns + is not implemented. |
 | circle-blur | low | Constant numeric form extends the point fragment smoothstep AA band via circle_params.z in the point uniform (layers-circle.ts). Zoom-interp / data-driven forms warn + drop — need a per-feature feat_data slot for per-feature blur. |
-| circle-stroke-opacity | low | Constant numeric form folds into stroke-color hex alpha (iter 4, Plan §4 partial landing — same pattern later applied to background-opacity in iter 47). Zoom-interp / data-driven forms still warn + drop — need a dedicated paint shape for per-frame uniform multiplication. |
-| circle-translate | low | Constant [dx, dy] vec2 + zoom-interp last-stop approximation supported. Emits circle-translate-x-N / circle-translate-y-M utilities; lower.ts threads to ShowCommand.circleTranslateX/Y; point uniform circle_params.xy baked to NDC-per-pixel by PointRenderer. Full per-frame zoom-interp deferred (same constraint as fill-translate). |
 | circle-translate-anchor | low | viewport (spec default) is the only honoured mode — X-GIS point renderer always applies the translate in viewport/NDC space. 'map'-anchor (world-space shift) is unsupported and warns + drops. The anchor no-op suppression (when circle-translate is absent) mirrors fill-translate-anchor behaviour. |
-| fill-extrusion-translate | low | iter-180 routed through addFillTranslate alongside fill-translate. The fill-extrusion vertex shaders (vs_main_quantized + vs_main_quantized_extruded) already apply u.fill_translate_x/y; the converter just stopped dropping the value. Constant vec2 + zoom-interp last-stop approximation supported. Full per-frame zoom-interp deferred (mirror of fill-translate). |
 | rgb / rgba | low | Constant channels only — hex-encoded at convert time. Per-channel v8 literal-wrap (`["literal", N]`) accepted. |
 | hsl / hsla | low | Constant channels only — converted via CSS hsl()/hsla() and re-hexed at convert time. Per-channel v8 literal-wrap accepted. |
 | interpolate (cubic-bezier) | low | Numeric-valued zoom AND data-driven interpolates densify at compile time into a piecewise-linear approximation (6 samples per segment, CSS bezier-eased via Newton-Raphson). Runtime sees a longer linear stop list and visually approximates the bezier curve. Non-numeric values (colour stops) still warn and fold to pure linear. Iter 60-62 landings. |

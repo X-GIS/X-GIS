@@ -9,6 +9,7 @@ import {
   bindingAsConstantNumber,
   extractMatchDefaultColor,
   extractInterpolateZoomStops,
+  extractInterpolateZoomArrayStops,
   extractInterpolateZoomColorStops,
 } from './lower-helpers'
 import { lowerLabelProps } from './lower-label'
@@ -299,6 +300,16 @@ function lowerLayer(
   let strokeTranslateX: number | undefined
   /** Mapbox `paint.line-translate` y — viewport pixel offset, +down. */
   let strokeTranslateY: number | undefined
+  // WS-1 — per-frame zoom-interp translate (per-axis scalar shape).
+  // Inline stop type (structurally a ZoomStop<number>[]) keeps lower.ts
+  // free of a ZoomStop import dependency.
+  type TranslateShape = { kind: 'zoom-interpolated'; stops: { zoom: number; value: number }[]; base?: number }
+  let fillTranslateXShape: TranslateShape | undefined
+  let fillTranslateYShape: TranslateShape | undefined
+  let circleTranslateXShape: TranslateShape | undefined
+  let circleTranslateYShape: TranslateShape | undefined
+  let strokeTranslateXShape: TranslateShape | undefined
+  let strokeTranslateYShape: TranslateShape | undefined
   let strokeColor: ColorValue = colorNone()
   let strokeWidth = 1
   /** Per-feature / zoom-interpolated stroke-width AST. Populated from
@@ -329,6 +340,12 @@ function lowerLayer(
   let strokeOffset: number | undefined
   let strokeAlign: 'center' | 'inset' | 'outset' | undefined
   let strokeBlur: number | undefined
+  // WS-1 — per-frame zoom-interp dasharray (PropertyShape<number[]>, STEP).
+  let dashArrayShape: { kind: 'zoom-interpolated'; stops: { zoom: number; value: number[] }[]; base?: number } | undefined
+  // WS-1 — per-frame zoom-interp circle-stroke-opacity (PropertyShape<number>).
+  // The converter emits the 0..100 scale (same as opacity); divide back to
+  // 0..1 here so the runtime resolves a plain alpha multiplier.
+  let strokeOpacityShape: { kind: 'zoom-interpolated'; stops: { zoom: number; value: number }[]; base?: number } | undefined
   /** Mapbox `line-gap-width` — px gap between the two parallel
    *  strokes that make up a "double line" casing. Constant form
    *  only at the moment; zoom-interp lands later (the converter
@@ -499,6 +516,15 @@ function lowerLayer(
       // and `interpolate` as builtins).
       if (item.binding) {
         const zoomStops = extractInterpolateZoomStops(item.binding)
+        // WS-1 — zoom-interp dasharray (array-valued stops). Steps at
+        // runtime (Mapbox line-dasharray is interpolated:false).
+        if (name === 'stroke-dasharray') {
+          const arrStops = extractInterpolateZoomArrayStops(item.binding)
+          if (arrStops) {
+            dashArrayShape = { kind: 'zoom-interpolated', stops: arrStops.stops, base: arrStops.base }
+            continue
+          }
+        }
         if (zoomStops && name === 'opacity') {
           for (const s of zoomStops.stops) {
             opacityZoomStops.push({
@@ -530,6 +556,21 @@ function lowerLayer(
           if (last && last.value > 0) strokeGapWidth = last.value
           continue
         }
+        // WS-1 — per-frame zoom-interp translate (per-axis). The converter
+        // splits the Mapbox vec2 interpolate into scalar x/y bracket
+        // bindings; each lowers to a zoom-interpolated PropertyShape the
+        // runtime resolves per frame (resolveShow → resolveNumberShape).
+        if (zoomStops && name === 'fill-translate-x') { fillTranslateXShape = { kind: 'zoom-interpolated', stops: zoomStops.stops, base: zoomStops.base }; continue }
+        if (zoomStops && name === 'fill-translate-y') { fillTranslateYShape = { kind: 'zoom-interpolated', stops: zoomStops.stops, base: zoomStops.base }; continue }
+        if (zoomStops && name === 'circle-translate-x') { circleTranslateXShape = { kind: 'zoom-interpolated', stops: zoomStops.stops, base: zoomStops.base }; continue }
+        if (zoomStops && name === 'circle-translate-y') { circleTranslateYShape = { kind: 'zoom-interpolated', stops: zoomStops.stops, base: zoomStops.base }; continue }
+        if (zoomStops && name === 'stroke-translate-x') { strokeTranslateXShape = { kind: 'zoom-interpolated', stops: zoomStops.stops, base: zoomStops.base }; continue }
+        if (zoomStops && name === 'stroke-translate-y') { strokeTranslateYShape = { kind: 'zoom-interpolated', stops: zoomStops.stops, base: zoomStops.base }; continue }
+        // WS-1 — circle-stroke-opacity zoom-interp. Converter emits the
+        // 0..100 opacity scale (mirror of circle-opacity); divide each stop
+        // back to 0..1 so the runtime multiplies a plain alpha into the
+        // point's baked stroke alpha (feat_data slot 8) each frame.
+        if (zoomStops && name === 'stroke-opacity') { strokeOpacityShape = { kind: 'zoom-interpolated', stops: zoomStops.stops.map(s => ({ zoom: s.zoom, value: s.value / 100 })), base: zoomStops.base }; continue }
         // ── label-* / label-icon-* binding arms moved to lowerLabelProps
         //    (lower-label.ts). The second pass there owns the label/icon
         //    zoom-stops, exprs, text, and negative-numeric label arms.
@@ -1099,7 +1140,8 @@ function lowerLayer(
         width: widthSource,
         ...(strokeColorExpr !== undefined ? { colorExpr: strokeColorExpr } : {}),
         linecap, linejoin, miterlimit,
-        dashArray, dashOffset,
+        dashArray, dashArrayShape, dashOffset,
+        strokeOpacityShape,
         patterns: validPatterns.length > 0 ? validPatterns : undefined,
         offset: strokeOffset,
         // Real fill+stroke → INSET (outline inside the fill, CSS border-box);
@@ -1137,6 +1179,12 @@ function lowerLayer(
     circleBlur,
     strokeTranslateX,
     strokeTranslateY,
+    fillTranslateXShape,
+    fillTranslateYShape,
+    circleTranslateXShape,
+    circleTranslateYShape,
+    strokeTranslateXShape,
+    strokeTranslateYShape,
     fillPattern: fillPattern ?? undefined,
     linePattern: linePattern ?? undefined,
     label: lowerLabelProps(expandedUtilities, diagnostics, stmt.line),

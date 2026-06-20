@@ -30,7 +30,11 @@ export const RUNTIME_CAPABILITIES: readonly RuntimeCapability[] = [
   { property: 'fill-opacity',        layerType: 'fill', variant: 'data-driven', supported: false, note: 'Per-feature opacity not threaded through renderer' },
   { property: 'fill-antialias',      layerType: 'fill', variant: 'constant',    supported: false, note: 'false branch not implemented; pipeline always uses MSAA' },
   { property: 'fill-translate',      layerType: 'fill', variant: 'constant',    supported: true },
-  { property: 'fill-translate',      layerType: 'fill', variant: 'zoom-interp', supported: false, note: 'Per-frame zoom-interp deferred; last-stop approx only' },
+  { property: 'fill-translate',      layerType: 'fill', variant: 'zoom-interp', supported: true,  note: 'WS-1 — per-frame: fillTranslate{X,Y}Shape resolved each frame in resolveShow (resolveNumberShape) → VTR NDC bake.' },
+  { property: 'line-translate',      layerType: 'line', variant: 'constant',    supported: true },
+  { property: 'line-translate',      layerType: 'line', variant: 'zoom-interp', supported: true,  note: 'WS-1 — per-frame via strokeTranslate{X,Y}Shape (mirrors fill-translate, resolved in resolveShow).' },
+  { property: 'fill-extrusion-translate', layerType: 'fill-extrusion', variant: 'constant',    supported: true },
+  { property: 'fill-extrusion-translate', layerType: 'fill-extrusion', variant: 'zoom-interp', supported: true,  note: 'WS-1 — routes through the fill-translate path; same per-frame resolve, applied in the extrude VS u.fill_translate.' },
   // iter-181/182/183/184 Stage 2 — UV-tiled sprite atlas sampled in
   // fs_fill_pattern with world-anchored UV. Constant string sprite
   // name only; expression form still warns at convert.
@@ -48,7 +52,7 @@ export const RUNTIME_CAPABILITIES: readonly RuntimeCapability[] = [
   { property: 'line-opacity',        layerType: 'line', variant: 'zoom-interp', supported: true },
   { property: 'line-blur',           layerType: 'line', variant: 'constant',    supported: true,  note: 'Strict-zero NOT honoured yet (1.5px soft fade at blur=0)' },
   { property: 'line-dasharray',      layerType: 'line', variant: 'constant',    supported: true },
-  { property: 'line-dasharray',      layerType: 'line', variant: 'zoom-interp', supported: false, note: 'PropertyShape<array> variant pending' },
+  { property: 'line-dasharray',      layerType: 'line', variant: 'zoom-interp', supported: true,  note: 'WS-1 — PropertyShape<number[]> resolved per frame (resolveArrayShape STEP, Mapbox dash is interpolated:false) in resolveShow → VTR prefers ResolvedShow.dashArray.' },
   { property: 'line-gap-width',      layerType: 'line', variant: 'constant',    supported: true },
   { property: 'line-gap-width',      layerType: 'line', variant: 'zoom-interp', supported: true },
   { property: 'line-offset',         layerType: 'line', variant: 'constant',    supported: true },
@@ -62,7 +66,7 @@ export const RUNTIME_CAPABILITIES: readonly RuntimeCapability[] = [
   { property: 'text-color',          layerType: 'symbol', variant: 'zoom-interp', supported: true },
   { property: 'text-color',          layerType: 'symbol', variant: 'data-driven', supported: true },
   { property: 'text-opacity',        layerType: 'symbol', variant: 'constant',    supported: true },
-  { property: 'text-opacity',        layerType: 'symbol', variant: 'zoom-interp', supported: false, note: 'Fast-path resolves constant only' },
+  { property: 'text-opacity',        layerType: 'symbol', variant: 'zoom-interp', supported: true,  note: 'WS-1 — LabelShapes.opacity PropertyShape resolved per frame in render-loop-helpers (resolveNumberShape into resolvedColor.a + halo.a). Iter 113.' },
   { property: 'text-opacity',        layerType: 'symbol', variant: 'data-driven', supported: false, note: 'Per-feature alpha path deferred' },
   { property: 'text-halo-color',     layerType: 'symbol', variant: 'constant',    supported: true },
   { property: 'text-halo-color',     layerType: 'symbol', variant: 'zoom-interp', supported: true },
@@ -160,12 +164,15 @@ export const RUNTIME_CAPABILITIES: readonly RuntimeCapability[] = [
   { property: 'circle-stroke-width', layerType: 'circle', variant: 'constant',    supported: true },
   { property: 'circle-stroke-width', layerType: 'circle', variant: 'zoom-interp', supported: true },
   { property: 'circle-stroke-opacity', layerType: 'circle', variant: 'constant',  supported: true,  note: 'Folds into stroke-color hex alpha at compile time (iter 4)' },
-  { property: 'circle-stroke-opacity', layerType: 'circle', variant: 'zoom-interp', supported: false, note: 'Per-frame uniform path pending' },
+  { property: 'circle-stroke-opacity', layerType: 'circle', variant: 'zoom-interp', supported: true,  note: 'Resolved per frame by PointRenderer.updateDynamicSizes and multiplied into the baked stroke alpha (feat_data slot 8) — WS-1 part 4' },
+  { property: 'circle-translate',    layerType: 'circle', variant: 'constant',    supported: true },
+  { property: 'circle-translate',    layerType: 'circle', variant: 'zoom-interp', supported: true,  note: 'WS-1 — per-frame via circleTranslate{X,Y}Shape resolved in PointRenderer.updateDynamicSizes into the point frame uniform.' },
 
   // Background (top-level directive in xgis)
   { property: 'background-color',    layerType: 'background', variant: 'constant',  supported: true },
+  { property: 'background-color',    layerType: 'background', variant: 'zoom-interp', supported: true,  note: 'WS-1 — interpolate(zoom, …) fill resolves per frame: flat via the background-pass clear, sphere via the synthetic earth-surface show paintShapes.fill' },
   { property: 'background-opacity',  layerType: 'background', variant: 'constant',  supported: true,  note: 'Folds into background-color hex alpha (iter 47)' },
-  { property: 'background-opacity',  layerType: 'background', variant: 'zoom-interp', supported: false, note: 'Per-frame uniform path pending' },
+  { property: 'background-opacity',  layerType: 'background', variant: 'zoom-interp', supported: true,  note: 'WS-1 — opacity: interpolate(zoom, …) resolves per frame and multiplies into the background clear alpha' },
 
   // Raster (remaining tracks supported by raster-renderer)
   { property: 'raster-opacity',      layerType: 'raster', variant: 'data-driven', supported: false, note: 'Data-driven not applicable to raster tiles' },

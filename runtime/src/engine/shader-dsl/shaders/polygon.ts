@@ -23,7 +23,7 @@
 import {
   entryFn, fn, module, bindingRef, constRef, callFn,
   f32, u32, vec2, vec2u, vec3, vec4, toF32, toU32, transformMat4, clamp, select,
-  abs, fract, max, min, mix, pow, sqrt, dot, log, tan, floor, textureSample,
+  abs, fract, max, min, mix, pow, sqrt, dot, log, tan, floor, textureSample, unpack4x8unorm,
   f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, vec4uT, mat4x4fT, texture2dfT, samplerT,
   structT,
   Node, Builder, arrayT,
@@ -71,6 +71,14 @@ const Uniforms: StructDecl = {
     // alongside cam_h/tile_origin_merc in vector-tile-renderer.
     { name: 'tile_dequant_scale', type: f32T },
     { name: 'tile_dequant_half', type: f32T },
+    // WS-9 — fill-extrusion light colour packed RGBA8 (offset 200, slot 50).
+    // These two u32 lanes exactly fill the 8-byte pad WGSL otherwise inserts
+    // here to 16-align the cam_ecef_off_h vec4 below, so the struct size —
+    // and thus UNIFORM_SIZE / UNIFORM_SLOT — stay 256 (no buffer growth).
+    // The extrude VS unpacks light_color_packed + reads intensity from
+    // light_dir_ecef.w; every other polygon variant ignores both fields.
+    { name: 'light_color_packed', type: u32T },
+    { name: '_pad_light_align', type: u32T },
     // Camera-relative RTC re-centering (ECEF), DSFUN hi/lo. dequant yields
     // ecef_rtc = vertex − tileEcefCenter, but getECEFFrameView's MVP is
     // camera-at-ENU-origin (no cameraCenter translate), so the VS must feed
@@ -627,8 +635,13 @@ const vsMainEcefExtruded = entryFn(
     // camera-anchor ENU→ECEF basis on the CPU). Same frame as face_normal →
     // fixes the dark side/back walls.
     const lightPos = b.let('LIGHT_POS', u.field('light_dir_ecef', vec4fT).swizzle<'vec3<f32>'>('xyz'))
-    const lightIntensity = b.let('LIGHT_INTENSITY', f32(0.5))
-    const lightColor = b.let('LIGHT_COLOR', vec3(f32(1)))
+    // WS-9 — intensity + colour are uniforms now (were baked consts). The CPU
+    // packs the MapLibre default (intensity 0.5, white) when no custom `light`
+    // is authored, so the default render stays byte-identical. Intensity rides
+    // light_dir_ecef.w; colour is RGBA8 in light_color_packed (8-bit per
+    // channel — ample for a light tint).
+    const lightIntensity = b.let('LIGHT_INTENSITY', u.field('light_dir_ecef', vec4fT).w)
+    const lightColor = b.let('LIGHT_COLOR', unpack4x8unorm(u.field('light_color_packed', u32T)).swizzle<'vec3<f32>'>('xyz'))
     const directional = b.var('directional', f32T, clamp(dot(p.face_normal, lightPos), f32(0), f32(1)))
     b.assign(directional, mix(
       f32(1).sub(lightIntensity),

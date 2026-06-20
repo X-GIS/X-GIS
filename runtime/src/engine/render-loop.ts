@@ -59,6 +59,9 @@ const FLICKER_LOG_CAP = 32
  *  `groupOpaqueBySource` remain on the map and are reached via this view. */
 export type RenderLoopHost = Pick<XGISMap,
   | '_backgroundColor'
+  | '_backgroundColorShape'
+  | '_backgroundOpacityShape'
+  | '_light'
   | '_elapsedMs'
   | '_featureExprsCache'
   | '_flickerFirstFrame'
@@ -404,6 +407,10 @@ export class RenderLoop {
       // per-frame catalog budget reset can short-circuit duplicate
       // calls from the same source feeding multiple layers.
       for (const [, { renderer: vtR }] of this.host.vtSources) vtR.beginFrame(this.host._frameCount)
+      // WS-9 — push the top-level fill-extrusion light into every VTR. Cheap
+      // (3 scalar stores); keeps each VTR's per-tile light pack current with
+      // the latest setLight() without per-creation-site seeding.
+      for (const [, { renderer: vtR }] of this.host.vtSources) vtR.setLight(this.host._light)
       // Frame-scope prefetch pump — fires exactly once per wall-clock
       // frame for every attached vector source. Hosts the
       // Google-Earth-style pan-direction speculation + AMMOS

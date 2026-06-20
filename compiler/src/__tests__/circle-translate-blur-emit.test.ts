@@ -55,6 +55,19 @@ describe('circle-translate emit', () => {
     expect(src).toContain('circle-translate-x-4')
     expect(src).toContain('circle-translate-y-8')
   })
+
+  it('zoom-interp vec2 → per-axis bracket bindings, no warning (WS-1 part 5)', () => {
+    const { src, warnings } = convert({
+      'circle-translate': ['interpolate', ['linear'], ['zoom'],
+        5, ['literal', [0, 0]], 15, ['literal', [10, -6]]],
+    })
+    expect(src).toContain('circle-translate-x-[interpolate(zoom, 5, 0, 15, 10)]')
+    expect(src).toContain('circle-translate-y-[interpolate(zoom, 5, 0, 15, -6)]')
+    // No last-stop-approximation warning any more — resolved per frame.
+    expect(warnings.some(w =>
+      w.includes('circle-translate')
+      && (w.includes('last stop') || w.includes('dropped') || w.includes('not yet')))).toBe(false)
+  })
 })
 
 describe('circle-translate-anchor emit', () => {

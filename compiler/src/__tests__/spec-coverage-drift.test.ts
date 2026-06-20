@@ -109,6 +109,15 @@ const TABLE_NOISE = new Set([
   // + `markCameraPositioned()`. No converter touchpoint by design;
   // the xgis DSL doesn't carry top-level camera state.
   'center', 'bearing', 'pitch',
+  // WS-8 — same host-applied pattern as center/bearing/pitch: the
+  // demo-runner + compare-runner read top-level `projection` off the
+  // raw style JSON and call XGISMap.setProjection(). No converter
+  // string reference; the xgis DSL doesn't carry projection state.
+  'projection',
+  // WS-9 — `light` is host-applied via XGISMap.setLight() (demo-runner /
+  // compare-runner parse the top-level block). No converter string ref;
+  // the xgis DSL doesn't carry light state.
+  'light',
 ])
 
 describe('mapbox spec-coverage drift detector', () => {

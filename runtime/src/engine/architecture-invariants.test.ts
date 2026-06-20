@@ -128,7 +128,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 3996→4011 (#420) for the light_dir_ecef pack: the camera-anchor
   // ENU→ECEF light rotation (camSinLon/camCosLon + 3 uniform writes) + the
   // basis-contract comment that ties it to polygon-mesh.ts's normals.
-  'runtime/src/engine/render/vector-tile-renderer.ts': 4011,
+  // Bumped 4011→4051 (WS-9 + WS-1): the fill-extrusion light state +
+  // setLight() + the per-tile light-colour/intensity pack (slots 50/63),
+  // plus reading the per-frame resolved fill/line translate off ResolvedShow.
+  // Bumped 4051→4054 (WS-1 line-dasharray): prefer ResolvedShow.dashArray.
+  'runtime/src/engine/render/vector-tile-renderer.ts': 4054,
   // Bumped 3361→3393 for the destroy()-completeness fix: cancelling the
   // EventDispatcher move-rAF + the pending-flush rAF, clearing _pendingPatches,
   // and removing the run()-installed window globals (__xgisReady/snapshot/
@@ -177,7 +181,18 @@ const LOC_CEILINGS: Record<string, number> = {
   // fill-extrusion-vertical-gradient-false opt-out parse arms + the two
   // boolean accumulators + RenderNode return wiring. lower.ts decomposition
   // stays a tracked priority.
-  'compiler/src/ir/lower.ts': 1404,
+  // Bumped 1404→1430 (WS-1): per-axis zoom-interp translate shapes —
+  // fillTranslate{X,Y}Shape / strokeTranslate{X,Y}Shape / circleTranslate
+  // {X,Y}Shape declarations, the six bracket-binding parse arms, and the
+  // RenderNode return wiring.
+  // Bumped 1430→1442 (WS-1 line-dasharray): dashArrayShape var + the
+  // stroke-dasharray array-stop binding arm + StrokeValue return wiring.
+  // Bumped 1442→1452 (WS-1 circle-stroke-opacity): strokeOpacityShape var +
+  // the stroke-opacity zoom-stop binding arm (÷100 back to 0..1) + the
+  // StrokeValue return wiring + contract comments. Irreducible additive
+  // plumbing (mirror of the dasharray arm); lower.ts decomposition stays
+  // a tracked priority.
+  'compiler/src/ir/lower.ts': 1452,
   // Bumped 1441→1449 for the CJK display-size floor on CURVED/line labels: the
   // point-loop floor (hasCjkIdeograph → Math.max(size, CJK_MIN_DISPLAY_PX*dpr))
   // mirrored onto the curved loop so dense Han road labels stop boxing out at
@@ -299,7 +314,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // its contract comment + the extrude VS reading it (the raw light moved to
   // the CPU pack, rotated into the face_normal's ECEF frame).
   // Bumped 1197→1198 (#399) for the +0.5° abs-lat discard margin's one-line note.
-  'runtime/src/engine/shader-dsl/shaders/polygon.ts': 1198,
+  // Bumped 1198→1211 (WS-9): the two light_color_packed / _pad_light_align
+  // Uniforms struct lanes + the extrude VS reading intensity from
+  // light_dir_ecef.w and colour from unpack4x8unorm(light_color_packed).
+  'runtime/src/engine/shader-dsl/shaders/polygon.ts': 1211,
   // Bumped 1067→1092 for the minZoom + setMaxBounds gesture-clamp correctness
   // fixes (#244/#248): the maxBounds clamp method + its 7 gesture-exit call
   // sites are irreducible. camera.ts decomposition remains a tracked priority.
@@ -368,7 +386,23 @@ const LOC_CEILINGS: Record<string, number> = {
   // Baselined at 805 (mbx_batch2): point-renderer.ts crossed the 800 cap from
   // prior batch work (circle-translate / circle-blur). Not touched here;
   // baselined to keep the ratchet honest. Decomposition is a tracked follow-up.
-  'runtime/src/engine/render/point-renderer.ts': 805,
+  // Bumped 805→834 (WS-1 circle-stroke-opacity): the addLayer strokeOpacityShape
+  // param + the three PointLayer fields (shape / baseStrokeAlphaSlot8 /
+  // lastDynStrokeOpacityZoom) baked at construction + the per-frame resolve
+  // loop in updateDynamicSizes (separate from the size loop because a layer
+  // may author stroke-opacity without a size) + contract comments. Irreducible
+  // additive plumbing; decomposition stays a tracked follow-up.
+  // Bumped 834→868 (WS-1 circle-translate, part 5): the two addLayer
+  // circleTranslate{X,Y}Shape params + the five PointLayer fields (the two
+  // shapes / baseCircleTranslate{X,Y} / lastDynTranslateZoom) baked at
+  // construction + the per-frame resolve loop in updateDynamicSizes (separate
+  // from the size / stroke-opacity loops because a layer may author a
+  // translate shape without either) + contract comments. Same irreducible
+  // additive plumbing class; decomposition stays a tracked follow-up.
+  // Bumped 868→881 (WS-1 review fix): flushTilePoints (vector-tile circle
+  // path) now resolves circle-translate + circle-stroke-opacity shapes per
+  // frame, mirroring the GeoJSON updateDynamicSizes path.
+  'runtime/src/engine/render/point-renderer.ts': 881,
   // Baselined at 820 (mbx_batch2): lower-label.ts is the label-knob lowering
   // sub-pass extracted from lower.ts; crossed 800 here for the icon-translate
   // accumulators + parse arms + knobs-interface + merge wiring. Cohesive

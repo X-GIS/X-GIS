@@ -28,6 +28,7 @@
 
 import { DEBUG_OVERDRAW } from '../../debug-flags'
 import { worldBandForProjType } from '../../projection/projections-table'
+import { resolveColorShape, resolveNumberShape } from '../paint-shape-resolve'
 import type { FrameContext } from '../frame-context'
 import type { SceneView } from '../scene-view'
 import type { RenderPass, PassHost } from './pass'
@@ -64,7 +65,23 @@ class BackgroundPass implements RenderPass {
   shouldRun(): boolean { return true }
 
   execute(ctx: FrameContext, _scene: SceneView, host: PassHost): void {
-    const clearValue = backgroundClearValue(ctx.projType, host._backgroundColor, DEBUG_OVERDRAW)
+    // WS-1 — resolve a zoom-interpolated background-color / -opacity to
+    // this frame's RGBA before picking the clear colour. `backgroundClearValue`
+    // stays a pure function: it receives the already-resolved RGBA. Constant
+    // backgrounds skip the resolve (shape === null) and pass `_backgroundColor`
+    // through unchanged.
+    const colorShape = host._backgroundColorShape
+    let bg = host._backgroundColor
+    if (colorShape) {
+      const resolved = resolveColorShape(colorShape, ctx.camera.zoom, ctx.elapsedMs)
+      if (resolved) bg = [resolved.value[0], resolved.value[1], resolved.value[2], resolved.value[3]]
+    }
+    const opacityShape = host._backgroundOpacityShape
+    if (opacityShape && bg) {
+      const a = resolveNumberShape(opacityShape, ctx.camera.zoom, ctx.elapsedMs).value
+      bg = [bg[0], bg[1], bg[2], bg[3] * a]
+    }
+    const clearValue = backgroundClearValue(ctx.projType, bg, DEBUG_OVERDRAW)
     ctx.passScope('background', () => {
       const pass = ctx.encoder.beginRenderPass({
         colorAttachments: [{

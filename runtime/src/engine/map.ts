@@ -2,7 +2,7 @@
 
 import { xlog } from './log'
 import { setLogSink as setEngineLogSink } from './log'
-import { Lexer, Parser, lower, optimize, emitCommands, evaluate, makeEvalProps, deserializeXGB, resolveImportsAsync, resolveUtilities, resolveColor } from '@xgis/compiler'
+import { Lexer, Parser, lower, optimize, emitCommands, evaluate, makeEvalProps, deserializeXGB, resolveImportsAsync, resolveUtilities, resolveColor, extractInterpolateZoomColorStops, extractInterpolateZoomStops } from '@xgis/compiler'
 import { packPalette, uploadPalette, type PaletteTextures } from './gpu/palette-texture'
 import type * as AST from '@xgis/compiler'
 import { SyntheticEarthSurfaceBackend } from '../data/sources/synthetic-earth-surface-backend'
@@ -102,6 +102,33 @@ const MAX_STYLE_BYTES = 32 * 1024 * 1024
 // A .xgb scene is a serialized binary map (geometry-heavy); 256 MB matches
 // the GeoJSON-source cap in source-manager — the practical interactive ceiling.
 const MAX_XGB_BYTES = 256 * 1024 * 1024
+
+/** WS-1 — true when a background `fill:` / `opacity:` style-property value
+ *  is a zoom interpolate call (the converter emits these for Mapbox
+ *  `["interpolate", …, ["zoom"], …]` background paints). The constant
+ *  hex / named-colour / numeric forms don't start with this prefix and
+ *  fall through to the legacy constant path. */
+function isInterpolateString(raw: string): boolean {
+  return raw.startsWith('interpolate(') || raw.startsWith('interpolate_exp(')
+}
+
+/** WS-1 — lex+parse a `interpolate(zoom, …)` style-property string back
+ *  into the FnCall AST.Expr so the compiler's stop extractors can pull
+ *  its (zoom, value) stops. The converter captured the call as a single
+ *  string (parser.captureFnCallAsString); re-parsing it as a standalone
+ *  program yields one ExprStatement whose `.expr` is the interpolate
+ *  call. Returns null on any parse failure so the caller falls through
+ *  to the constant path instead of throwing on a malformed value. */
+function parseFillInterpolate(raw: string): AST.Expr | null {
+  try {
+    const program = new Parser(new Lexer(raw).tokenize()).parse()
+    const first = program.body[0]
+    if (first && first.kind === 'ExprStatement') return first.expr
+    return null
+  } catch {
+    return null
+  }
+}
 
 // ClassifiedShow + OpaqueGroup live in bucket-scheduler.ts so they're
 // importable by tests. Local aliases keep the rest of map.ts terse.
@@ -398,6 +425,32 @@ export class XGISMap {
    *  (underscore convention) so the render host can read it, like
    *  `_rasterShow`. */
   _backgroundColor: [number, number, number, number] | null = null
+  /** WS-1 — zoom-interpolated `background-color`. When the style authors
+   *  `background-color` as `["interpolate", ["linear"], ["zoom"], …]`,
+   *  the converter emits `background { fill: interpolate(zoom, …) }` and
+   *  run()'s background parse lexes the fill string back into this shape.
+   *  Resolved per frame by the background pass (flat clear colour) and
+   *  threaded into the synthetic earth-surface show's paintShapes.fill
+   *  (sphere path). null = constant background (the `_backgroundColor`
+   *  hex is authoritative). Non-private so the render host reads it. */
+  _backgroundColorShape: import('@xgis/compiler').PropertyShape<readonly [number, number, number, number]> | null = null
+  /** WS-1 — zoom-interpolated `background-opacity`. Built from a
+   *  `background { … opacity: interpolate(zoom, …) }` style property
+   *  (0..1 after dividing the emitted 0..100 stops). Resolved per frame
+   *  by the background pass and multiplied into the clear alpha. null =
+   *  constant opacity (already folded into the colour hex alpha at
+   *  convert time). Non-private so the render host reads it. */
+  _backgroundOpacityShape: import('@xgis/compiler').PropertyShape<number> | null = null
+  /** WS-9 — top-level fill-extrusion light (Mapbox `light`). Pushed into
+   *  every VTR each frame by the render loop. position = [radius,
+   *  azimuth°, polar°]; intensity 0..1; color RGB 0..1. Defaults = the
+   *  Mapbox default so the pre-WS-9 baked-const render is unchanged.
+   *  `anchor` is accepted by the importer but the directional frame stays
+   *  the camera-anchor ENU basis (the #420 default behaviour); the
+   *  map/viewport bearing distinction is not yet modelled. Non-private so
+   *  the render host reads it, like `_backgroundColor`. */
+  _light: { position: [number, number, number]; intensity: number; color: [number, number, number] }
+    = { position: [1.15, 210, 30], intensity: 0.5, color: [1, 1, 1] }
   /** P3 Step 3c — scene-scoped palette GPU textures. Held for
    *  destruction on the next scene reload; the underlying view is
    *  bound to every VTR + MapRenderer via setPaletteColorAtlas. */
@@ -500,6 +553,32 @@ export class XGISMap {
    *  ShowCommand out of `showCommands`, and clears `_syntheticBackend`.
    *  Idempotent: calling with `null` repeatedly is a no-op after the
    *  first teardown. */
+  /** WS-9 — set the top-level fill-extrusion light (Mapbox `light`). The
+   *  host integration (demo-runner / compare-runner) calls this with the
+   *  parsed `light` block, mirroring setProjection / setBackgroundFill —
+   *  light is a top-level style concern, not encoded in the xgis DSL.
+   *  Omitted fields keep their current value; null resets to the Mapbox
+   *  default. The render loop pushes `_light` into every VTR each frame. */
+  setLight(light: { position?: [number, number, number]; intensity?: number; color?: [number, number, number] } | null): void {
+    if (light === null) {
+      this._light = { position: [1.15, 210, 30], intensity: 0.5, color: [1, 1, 1] }
+    } else {
+      if (Array.isArray(light.position) && light.position.length === 3
+          && light.position.every(n => Number.isFinite(n))) {
+        this._light.position = [light.position[0]!, light.position[1]!, light.position[2]!]
+      }
+      if (typeof light.intensity === 'number' && Number.isFinite(light.intensity)) {
+        this._light.intensity = Math.max(0, Math.min(1, light.intensity))
+      }
+      if (Array.isArray(light.color) && light.color.length === 3
+          && light.color.every(n => Number.isFinite(n))) {
+        this._light.color = [light.color[0]!, light.color[1]!, light.color[2]!]
+      }
+    }
+    this._dirty.tag(DirtyDomain.STYLE)
+    this.invalidate()
+  }
+
   setBackgroundFill(rgba: [number, number, number, number] | null): void {
     if (rgba === null) {
       // Teardown the synthetic source if it was installed. Without this
@@ -1844,6 +1923,12 @@ export class XGISMap {
     // hex), then style properties (`fill: sky-900` or `fill: #082f49`).
     // StyleProperty stores the raw string; `sky-900` resolves via
     // resolveColor(); bare `#rrggbb` passes through.
+    // WS-1 — reset the per-frame zoom-interp background shapes before the
+    // parse so a re-run() with a CONSTANT background clears a stale shape
+    // left by a previous zoom-interp style (the constant path below sets
+    // `_backgroundColor` but never touches these).
+    this._backgroundColorShape = null
+    this._backgroundOpacityShape = null
     let bgColor: string | null = null
     for (const stmt of ast.body) {
       if (stmt.kind !== 'BackgroundStatement') continue
@@ -1852,12 +1937,43 @@ export class XGISMap {
       const resolved = resolveUtilities(items)
       let color: string | null = resolved.fill ?? null
       for (const sp of stmt.styleProperties) {
-        if (sp.name !== 'fill') continue
         const raw = sp.value
-        if (raw.startsWith('#')) color = raw
-        else {
-          const hex = resolveColor(raw)
-          if (hex) color = hex
+        if (sp.name === 'fill') {
+          // WS-1 — a zoom-interp `fill: interpolate(zoom, …)` (emitted by
+          // the converter for `["interpolate", …, ["zoom"], …]` colours)
+          // lexes back into a colour shape resolved per frame. Constant
+          // hex / named colours keep the legacy `_backgroundColor` path.
+          const expr = isInterpolateString(raw) ? parseFillInterpolate(raw) : null
+          const colorInterp = expr ? extractInterpolateZoomColorStops(expr) : null
+          if (colorInterp && colorInterp.stops.length > 0) {
+            const stops: { zoom: number; value: readonly [number, number, number, number] }[] = []
+            for (const s of colorInterp.stops) {
+              const rgba = hexToRgba(s.value)
+              if (rgba !== null) stops.push({ zoom: s.zoom, value: rgba })
+            }
+            if (stops.length > 0) {
+              this._backgroundColorShape = colorInterp.base !== 1
+                ? { kind: 'zoom-interpolated', stops, base: colorInterp.base }
+                : { kind: 'zoom-interpolated', stops }
+            }
+          } else if (raw.startsWith('#')) {
+            color = raw
+          } else {
+            const hex = resolveColor(raw)
+            if (hex) color = hex
+          }
+        } else if (sp.name === 'opacity') {
+          // WS-1 — a zoom-interp `opacity: interpolate(zoom, …)` (0..100
+          // stops, like circle-opacity). Build a PropertyShape<number> in
+          // 0..1 the background pass multiplies into the clear alpha.
+          const expr = isInterpolateString(raw) ? parseFillInterpolate(raw) : null
+          const opInterp = expr ? extractInterpolateZoomStops(expr) : null
+          if (opInterp && opInterp.stops.length > 0) {
+            const stops = opInterp.stops.map(s => ({ zoom: s.zoom, value: s.value / 100 }))
+            this._backgroundOpacityShape = opInterp.base !== 1
+              ? { kind: 'zoom-interpolated', stops, base: opInterp.base }
+              : { kind: 'zoom-interpolated', stops }
+          }
         }
       }
       if (color) bgColor = color
@@ -1871,6 +1987,17 @@ export class XGISMap {
     if (bgColor) {
       const parsed = hexToRgba(bgColor)
       if (parsed !== null) this._backgroundColor = parsed
+    }
+    // A zoom-interp background-color has no constant `_backgroundColor`.
+    // Seed it from the first stop so the synthetic earth-surface install
+    // (sphere path) + the pre-frame clear have a sensible static colour
+    // before the first per-frame resolve, and so the existing
+    // `if (this._backgroundColor)` install gates still fire.
+    if (this._backgroundColor === null && this._backgroundColorShape !== null) {
+      const first = this._backgroundColorShape.kind === 'zoom-interpolated'
+        ? this._backgroundColorShape.stops[0]?.value
+        : undefined
+      if (first) this._backgroundColor = [first[0], first[1], first[2], first[3]]
     }
 
     console.log('[X-GIS] Parsed:', commands.loads.length, 'loads,', commands.shows.length, 'shows')
@@ -2095,7 +2222,9 @@ export class XGISMap {
     // show first and dispatches it through the standard VT path.
     if (this._backgroundColor) {
       this._installSyntheticEarthSurfaceSource(this._backgroundColor)
-      const syntheticShow = buildSyntheticEarthSurfaceShow(this._backgroundColor)
+      // WS-1 — pass the zoom-interp colour shape so the sphere/globe
+      // earth-surface fill resolves per frame (resolveShow handles it).
+      const syntheticShow = buildSyntheticEarthSurfaceShow(this._backgroundColor, this._backgroundColorShape)
       commands.shows = [syntheticShow, ...commands.shows] as typeof commands.shows
     }
 
@@ -2470,6 +2599,16 @@ export class XGISMap {
           shapeId,
           show.anchor,
           show.paintShapes.size,
+          // WS-1 (part 5) — circle-translate now threads through the
+          // GeoJSON point path: constant fallbacks here, per-frame
+          // zoom-interp shapes in the trailing slots (resolved by
+          // PointRenderer.updateDynamicSizes into the point frame uniform).
+          show.circleTranslateX ?? 0,
+          show.circleTranslateY ?? 0,
+          show.circleBlur ?? 0,
+          show.circleStrokeOpacityShape ?? null,
+          show.circleTranslateXShape ?? null,
+          show.circleTranslateYShape ?? null,
         )
         continue
       }
