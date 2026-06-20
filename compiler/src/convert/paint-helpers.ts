@@ -7,6 +7,9 @@ import {
   parseSrgbHex, srgbToLab, labToHex, labToLch, lchToLab,
 } from '../tokens/colors'
 import type { InterpolateZoomShape } from './paint-types'
+import { colorToXgis } from './colors'
+import { exprToXgis } from './expressions'
+import { maybeBracket } from './utils'
 
 /** Unwrap Mapbox v8's `["literal", value]` wrapper for any scalar /
  *  array stop value or paint scalar input. The callbacks downstream
@@ -447,4 +450,230 @@ export function unwrapLiteralNumeric(v: unknown): unknown {
     v = v[1]
   }
   return v
+}
+
+// ─── shared ignored-paint diagnostic (used by every per-type emitter) ───
+
+/** Consolidated "ignored paint property" diagnostic. Pushes ONE
+ *  warning per layer listing every property that's been declared but
+ *  isn't honoured by the runtime today. Mirror of the symbol-layer
+ *  `ignoredText` block in layers.ts — one warning per layer keeps
+ *  the conversion-notes section readable while still surfacing every
+ *  gap. Callers pass the list of property names that the layer
+ *  TYPE doesn't currently process. */
+/** Mapbox spec: anchor properties have no effect without their parent
+ *  translate. Skip the warning when the parent is absent — the layer's
+ *  visual is unchanged regardless of our handling. landcover_wetland
+ *  in openfreemap-liberty hits this (fill-translate-anchor: "map"
+ *  with no fill-translate) so the iter 467 lossy report counted a
+ *  spurious entry for that layer. */
+const ANCHOR_PARENT: Record<string, string> = {
+  'fill-translate-anchor': 'fill-translate',
+  'line-translate-anchor': 'line-translate',
+  'icon-translate-anchor': 'icon-translate',
+  'text-translate-anchor': 'text-translate',
+  'fill-extrusion-translate-anchor': 'fill-extrusion-translate',
+}
+
+/** Spec-default values where authoring the default matches X-GIS
+ *  behaviour — no warning needed. Per-property lookup; the warn-only
+ *  case is the gap-revealing value (e.g. fill-antialias=false). Keyed
+ *  by property name; value is the spec default that suppresses warn.
+ *  ["literal", v] wraps unwrapped before comparison.
+ */
+const SPEC_DEFAULT_NO_WARN: Record<string, unknown> = {
+  'raster-resampling': 'linear',
+  // *-translate-anchor: spec default 'map' for fill/line/circle/
+  // fill-extrusion translate-anchor, but X-GIS today only implements
+  // viewport-space translates (matches the 'viewport' value). Authors
+  // writing 'viewport' explicitly match X-GIS behaviour — no warning.
+  // 'map' is the real gap (would shift in world coords on bearing).
+  'line-translate-anchor': 'viewport',
+  'circle-translate-anchor': 'viewport',
+  'fill-translate-anchor': 'viewport',
+  'fill-extrusion-translate-anchor': 'viewport',
+  // text-translate-anchor / icon-translate-anchor: same shape but
+  // handled in the symbol layout path, not via surfaceIgnoredPaint.
+  // Add future spec-defaults here when they enter surfaceIgnoredPaint.
+  // fill-extrusion-vertical-gradient already handled inline because
+  // its conditional is at the candidate-list site (cleaner there).
+  // fill-antialias has its own value-aware emit before this fn.
+}
+
+export function surfaceIgnoredPaint(
+  layerId: string,
+  paint: Record<string, unknown>,
+  warnings: string[],
+  candidates: readonly string[],
+): void {
+  const hits: string[] = []
+  for (const k of candidates) {
+    // Both undefined AND null mean "property omitted" per Mapbox
+    // spec — no warning needed when the author explicitly set it
+    // to null to fall back to the default.
+    if (paint[k] === undefined || paint[k] === null) continue
+    // Anchor-dependency skip: a `*-translate-anchor` without its
+    // parent `*-translate` has no observable effect (anchor only
+    // controls the coordinate space of the translate).
+    const parent = ANCHOR_PARENT[k]
+    if (parent !== undefined && (paint[parent] === undefined || paint[parent] === null)) continue
+    // Spec-default suppression: when the author explicitly sets the
+    // spec default value AND that default matches X-GIS behaviour,
+    // skip the warning (no actual gap to surface).
+    const specDefault = SPEC_DEFAULT_NO_WARN[k]
+    if (specDefault !== undefined && unwrapLiteralScalarLocal(paint[k]) === specDefault) continue
+    hits.push(k)
+  }
+  if (hits.length > 0) {
+    warnings.push(`Layer "${layerId}" — ignored paint properties: ${hits.join(', ')}`)
+  }
+}
+
+// ─── shared per-property emitters (used by multiple per-type modules) ───
+
+export function addFill(out: string[], v: unknown, warnings: string[]): void {
+  // Treat null the same as undefined — Mapbox spec: a null paint
+  // value falls back to the property default. Without this gate
+  // null flowed through to exprToXgis (commit a969be5 made null
+  // lower to the `null` identifier), emitted `fill-[null]`, and the
+  // runtime resolved to no-fill instead of the spec default.
+  if (isOmitted(v)) return
+  const interp = interpolateZoomCall(v, warnings, (val, w) => colorToXgis(val, w))
+  if (interp !== null) {
+    out.push(`fill-[${interp}]`)
+    return
+  }
+  const s = colorToXgis(v, warnings)
+  if (s) {
+    out.push(`fill-${s}`)
+    return
+  }
+  // Per-feature data-driven shape (`match` / `case` / etc.) — route
+  // through the generic expression converter. Without this fallback
+  // the MapLibre demo's `countries-fill` (`["match", ["get",
+  // "ADM0_A3"], …, default]`) silently dropped fill-color: the
+  // constant-only path returned null and the layer rendered without
+  // a fill. lower.ts now extracts the match default arm as a
+  // constant fallback when the runtime per-feature fill pipeline
+  // isn't yet wired.
+  const expr = exprToXgis(v, warnings)
+  if (expr !== null) out.push(`fill-[${expr}]`)
+}
+
+export function addOpacity(out: string[], v: unknown, warnings: string[]): void {
+  if (isOmitted(v)) return
+  // See unwrapLiteralNumeric — covers `["literal", 0.5]` so the
+  // scalar-scale conversion fires. Sibling to colorToXgis literal
+  // unwrap (e3c5c62).
+  v = unwrapLiteralNumeric(v)
+  if (typeof v === 'number') {
+    // Reject NaN/Infinity. typeof v === 'number' passes for NaN, then
+    // Math.max(0, Math.min(1, NaN)) propagates NaN, `Math.round(NaN
+    // * 100)` is NaN, and the emitted utility name is `opacity-NaN`
+    // — the runtime lex-rejects it and the whole layer's paint
+    // utilities silently drop. Same pattern as the raster-opacity
+    // NaN guard.
+    if (!Number.isFinite(v)) {
+      warnings.push(`paint.*opacity: non-finite value ${v} (NaN/Infinity); Mapbox spec requires a finite number in [0, 1]. Property dropped.`)
+      return
+    }
+    // Mapbox spec: opacity ∈ [0, 1]. Clamp at convert time so a
+    // typo'd negative or > 1 value doesn't produce a malformed
+    // utility name (`opacity--50` lexes as an utility name with
+    // double-dash that the parser splits on the wrong segment).
+    if (v < 0 || v > 100) {
+      warnings.push(`paint.*opacity: value ${v} out of range; Mapbox spec requires [0, 1] (X-GIS auto-detects [0, 100] percent). Clamped to ${Math.max(0, Math.min(1, v <= 1 ? v : v / 100))}.`)
+    }
+    const clamped = Math.max(0, Math.min(1, v <= 1 ? v : v / 100))
+    out.push(`opacity-${Math.round(clamped * 100)}`)
+    return
+  }
+  const interp = interpolateZoomCall(v, warnings, (val) => {
+    if (typeof val !== 'number' || !Number.isFinite(val)) return null
+    // Mapbox opacity is 0..1; xgis opacity utility takes 0..100.
+    // Scale here so the stops match the utility's scale. Apply the
+    // SAME [0, 1] clamp the constant path uses — pre-fix a negative
+    // or > 1 stop emitted invalid utility names (opacity-[-50, …])
+    // or > 100 percent values. Mirror of the constant-path clamp
+    // at line 558. Reject non-finite (NaN/Infinity) too — same
+    // class as the constant-path guard above.
+    const clamped = Math.max(0, Math.min(1, val <= 1 ? val : val / 100))
+    return String(Math.round(clamped * 100))
+  })
+  if (interp !== null) {
+    out.push(`opacity-[${interp}]`)
+    return
+  }
+  const x = exprToXgis(v, warnings)
+  if (x !== null) out.push(`opacity-${maybeBracket(x)}`)
+}
+
+/** Mapbox `paint.fill-translate: [dx, dy]` → xgis
+ *  `fill-translate-x-N fill-translate-y-M` (signed pixel offsets).
+ *  Constant form only at the moment; zoom-interp on vec2 needs
+ *  per-axis decomposition (Mapbox emits a single stop value per
+ *  zoom that is itself [x, y]) which the binding-form parser
+ *  doesn't yet handle. Default [0,0] is silent.
+ *
+ *  Sign convention: Mapbox positive x = right, positive y = down
+ *  (screen space). The runtime WGSL multiplies by clip.w to keep
+ *  the offset constant in pixels regardless of depth, then negates
+ *  y for NDC convention (NDC y is UP).
+ *
+ *  Anchor: fill-translate-anchor: viewport (default) is the only
+ *  currently-honored mode. "map" would shift in world coords; not
+ *  yet implemented (no OFM hits use map anchor). */
+export function addFillTranslate(out: string[], v: unknown, warnings: string[]): void {
+  if (isOmitted(v)) return
+  // Mapbox v8 wraps `[dx, dy]` as `["literal", [dx, dy]]`. Unwrap so
+  // the bare-array fast path catches both forms.
+  while (Array.isArray(v) && v.length === 2 && v[0] === 'literal') {
+    v = v[1]
+  }
+  if (Array.isArray(v) && v.length === 2
+      && typeof v[0] === 'number' && Number.isFinite(v[0])
+      && typeof v[1] === 'number' && Number.isFinite(v[1])) {
+    // Negative numbers wrap in brackets so the utility-name lexer
+    // doesn't read the `-` as a segment separator (same convention
+    // as label-offset-x / -y in layers.ts:656).
+    const fmt = (n: number): string => n < 0 ? `[${n}]` : `${n}`
+    if (v[0] !== 0) out.push(`fill-translate-x-${fmt(v[0])}`)
+    if (v[1] !== 0) out.push(`fill-translate-y-${fmt(v[1])}`)
+    return
+  }
+  // WS-1 — per-frame zoom-interp via per-axis scalar PropertyShape.
+  // Mapbox emits stops whose values are [x, y] arrays; split into two
+  // scalar zoom-interpolates (x and y) and emit a bracket binding per
+  // axis (fill-translate-x-[interpolate(zoom,…)]). lower.ts parses each
+  // into RenderNode.fillTranslate{X,Y}Shape → resolveShow resolves them
+  // per frame (resolveNumberShape) → VTR NDC-bakes the resolved value.
+  // Replaces the old last-stop approximation.
+  if (Array.isArray(v) && v.length >= 4 && v[0] === 'interpolate') {
+    const ix = vec2AxisZoomInterp(v, warnings, 0)
+    const iy = vec2AxisZoomInterp(v, warnings, 1)
+    if (ix !== null && iy !== null) {
+      out.push(`fill-translate-x-[${ix}]`)
+      out.push(`fill-translate-y-[${iy}]`)
+      return
+    }
+  }
+  warnings.push(`paint.fill-translate: non-constant form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`)
+}
+
+/** Build a scalar zoom-interpolate bracket-binding body for ONE axis
+ *  (idx 0 = x, 1 = y) of a Mapbox vec2 `interpolate(zoom, …, [dx,dy], …)`.
+ *  Returns the inner xgis interpolate string (no brackets) or null when
+ *  the value isn't a zoom-interp vec2 (caller falls through to a
+ *  warning). WS-1 — per-axis scalar shapes reuse resolveNumberShape so
+ *  no new vec2 interpolator is needed. */
+export function vec2AxisZoomInterp(v: unknown, warnings: string[], idx: 0 | 1): string | null {
+  return interpolateZoomCall(v, warnings, (val) => {
+    let inner: unknown = val
+    while (Array.isArray(inner) && inner.length === 2 && inner[0] === 'literal') inner = inner[1]
+    if (Array.isArray(inner) && inner.length === 2
+        && typeof inner[idx] === 'number' && Number.isFinite(inner[idx])) {
+      return String(inner[idx])
+    }
+    return null
+  })
 }
