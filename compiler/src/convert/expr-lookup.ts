@@ -159,6 +159,24 @@ export const pitchHandler: ExprHandler = (v, warnings) => {
   return 'pitch'
 }
 
+export const propertiesHandler: ExprHandler = (v, warnings) => {
+  // Mapbox ["properties"] returns the WHOLE feature.properties object
+  // (vs ["get", k] for one field). xgis has no object-literal accessor
+  // syntax, so we lower to a `properties()` builtin which the evaluator
+  // (eval/evaluator.ts evaluateFnCall) special-cases — it holds the
+  // props bag in scope (like the `get(...)` builtin) and returns a
+  // shallow copy of feature.properties with the reserved $-sigil keys
+  // ($zoom / $pitch / $featureId / $geometryType) stripped, matching
+  // Mapbox's "only the feature's own properties" semantic. Useful as the
+  // object arg to a downstream lookup or in `["==", ["properties"], …]`
+  // existence-style tests. Zero-arg accessor — surface extra args so a
+  // malformed `["properties", 1]` isn't silently dropped.
+  if (v.length !== 1) {
+    warnings.push(`Malformed ["properties"] expression: zero-arg accessor takes no arguments, got ${v.length - 1}.`)
+  }
+  return 'properties()'
+}
+
 export const geometryTypeHandler: ExprHandler = (v, warnings) => {
   // Mapbox ["geometry-type"] resolves to "Point" / "LineString" /
   // "Polygon" (or their Multi* variants) per feature. xgis has no

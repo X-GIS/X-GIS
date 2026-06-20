@@ -20,7 +20,7 @@ import {
 } from './expr-logic'
 import {
   getHandler, hasHandler, notHasHandler, atHandler, typeofHandler,
-  zoomHandler, pitchHandler, geometryTypeHandler, idHandler, inHandler,
+  zoomHandler, pitchHandler, propertiesHandler, geometryTypeHandler, idHandler, inHandler,
 } from './expr-lookup'
 import {
   literalHandler, arrayHandler, typeCoercionHandler, concatHandler,
@@ -120,6 +120,7 @@ export const EXPR_HANDLERS: Map<string, ExprHandler> = new Map([
   // zero-arg feature accessors
   ['zoom', zoomHandler],
   ['pitch', pitchHandler],
+  ['properties', propertiesHandler],
   ['geometry-type', geometryTypeHandler],
   ['id', idHandler],
   // lookup — in

@@ -27,7 +27,10 @@ describe('unsupported op warnings — specific not generic', () => {
     ['image', ['icon'], 'Image accessor'],
     ['is-supported-script', ['x'], 'is-supported-script accessor'],
     // Iter 544 additions:
-    ['properties', [], 'Feature properties bag accessor'],
+    // `properties` was here — now SUPPORTED (lowers to a `properties()`
+    // builtin returning the feature.properties object, mirror of the
+    // `geometry-type` / `id` accessor pattern); see
+    // expressions-properties.test.ts.
     ['distance', [{ type: 'Point', coordinates: [0, 0] }], 'Geometry distance accessor'],
   ]
 
