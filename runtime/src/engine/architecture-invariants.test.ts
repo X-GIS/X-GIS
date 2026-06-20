@@ -292,8 +292,11 @@ const LOC_CEILINGS: Record<string, number> = {
   'runtime/src/engine/shader-dsl/shaders/line.ts': 1233,
   // Bumped 1171→1176 (#274 CSS color-fn whitespace), then 1176→1178 (#317) for
   // the two irreducible numeric match()-label arm-pattern cases (Number, and
-  // Minus+Number). parser.ts decomposition remains a tracked priority.
-  'compiler/src/parser/parser.ts': 1178,
+  // Minus+Number). Lowered 1178→50 (Tier-C5): the Parser god-file was split
+  // into a thin driver (parser.ts) over a shared token cursor
+  // (parser-cursor.ts), the expression precedence ladder (parser-expressions.ts),
+  // and the statement handlers + keyword→handler registry (parser-statements.ts).
+  'compiler/src/parser/parser.ts': 50,
   // Bumped 1139→1168 for the flat-Mercator fill-position precision fix: the
   // quantized fill VS (vs_main_ecef) now positions from TILE-LOCAL Mercator
   // (the f32 tail slots) via a dedicated localMerc ladder branch instead of
