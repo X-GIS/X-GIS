@@ -23,6 +23,7 @@ import {
 } from '../core/ir'
 import { emitModule } from '../core/backends/wgsl'
 import { ECEF_WGSL_CONSTS, ECEF_WGSL_FNS } from './ecef'
+import { RASTER_COLOR_WGSL_FNS } from './raster-color'
 import { LOG_DEPTH_WGSL_FNS } from './log-depth'
 import { PROJECTION_WGSL_CONSTS, PROJECTION_WGSL_FNS } from './projections'
 
@@ -32,8 +33,14 @@ const Uniforms: StructDecl = {
     { name: 'mvp', type: mat4x4fT },
     // proj_params: x=type, y=centerLon, z=centerLat, w=log_depth_fc
     { name: 'proj_params', type: vec4fT },
-    // raster_params: x=opacity (0..1), yzw reserved (gamma/brightness/contrast)
+    // raster_params: x=opacity (0..1), yzw reserved
     { name: 'raster_params', type: vec4fT },
+    // raster-* colour adjustments (Mapbox paint). raster_color0 =
+    // (hueRotateDeg, brightnessMin, brightnessMax, saturation);
+    // raster_color1.x = contrast. ALL defaults (0,0,1,0)/(0,…) are a hard
+    // no-op so an un-authored raster show samples the texel unchanged.
+    { name: 'raster_color0', type: vec4fT },
+    { name: 'raster_color1', type: vec4fT },
     // Camera-relative RTC (same fix as polygon's cam_ecef_off): the vertex ecef
     // is absolute, so subtract cameraCenter to feed the camera-at-ENU-origin
     // MVP. xyz = getECEFCenter (sphere); w unused. Raster is texture-grade, so
@@ -152,9 +159,14 @@ const buildFs = (pickEnabled: boolean) =>
     // Rim alpha fade — input.vis carries (cos_c - threshold); Mercator writes
     // vis=1 so smoothstep is a no-op on flat/cylindrical projections.
     const rim = b.let('rim', smoothstep(0, 0.02, p.input.field('vis', f32T)))
+    // raster-* colour adjustments (hue-rotate / brightness / saturation /
+    // contrast). Defaults are a hard no-op so an un-authored show is
+    // byte-identical to the raw texel rgb.
+    const adjRgb = b.let('adj_rgb', callFn('raster_color_adjust', vec3fT,
+      c.rgb, u.field('raster_color0', vec4fT), u.field('raster_color1', vec4fT)))
     // raster-opacity multiplies alpha only (premultiplied blend keeps RGB at
     // texel value, so a half-opacity raster fades rather than darkens).
-    b.assign(out.field('color', vec4fT), vec4(c.rgb, c.a.mul(u.field('raster_params', vec4fT).x).mul(rim)))
+    b.assign(out.field('color', vec4fT), vec4(adjRgb, c.a.mul(u.field('raster_params', vec4fT).x).mul(rim)))
     // Basemap tile carries no feature id → always (0,0).
     if (pickEnabled) b.assign(out.field('pick', vec2uT), vec2u(u32(0), u32(0)))
     b.assign(out.field('depth', f32T), callFn('compute_log_frag_depth', f32T, p.input.field('view_w', f32T), u.field('proj_params', vec4fT).w))
@@ -180,6 +192,8 @@ export const emitRasterWgsl = (pickEnabled: boolean): string => [
   PROJECTION_WGSL_FNS,
   ECEF_WGSL_CONSTS,
   ECEF_WGSL_FNS,
+  // After ECEF_WGSL_CONSTS — raster_color_adjust reads DEG2RAD_F from it.
+  RASTER_COLOR_WGSL_FNS,
   LOG_DEPTH_WGSL_FNS,
   emitModule(buildRasterModule(pickEnabled)),
 ].join('\n')

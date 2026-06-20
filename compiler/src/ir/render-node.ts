@@ -195,8 +195,29 @@ export interface RenderNodeExtrudePaint {
   fillExtrusionVerticalGradient?: boolean
 }
 
+/** Raster fragment colour adjustments (Mapbox `raster-*`). All fields are
+ *  flat optional constants; an absent field means the layer didn't author
+ *  that axis and the runtime falls back to the spec default (a no-op). Only
+ *  the constant form is plumbed — non-constant raster colour params are
+ *  rare and warn at convert time. */
+export interface RenderNodeRasterPaint {
+  /** `raster-hue-rotate` — degrees of HSL hue rotation. Default 0. */
+  rasterHueRotate?: number
+  /** `raster-brightness-min` — lower bound of brightness remap. Default 0. */
+  rasterBrightnessMin?: number
+  /** `raster-brightness-max` — upper bound of brightness remap. Default 1. */
+  rasterBrightnessMax?: number
+  /** `raster-saturation` — HSL saturation multiplier (-1..1). Default 0. */
+  rasterSaturation?: number
+  /** `raster-contrast` — contrast scale (-1..1). Default 0. */
+  rasterContrast?: number
+  /** `raster-resampling: nearest` flag. Default (unauthored / 'linear')
+   *  = linear sampler, byte-identical to today. */
+  rasterResamplingNearest?: boolean
+}
+
 export interface RenderNode
-  extends RenderNodeFillPaint, RenderNodeLinePaint, RenderNodeCirclePaint, RenderNodeExtrudePaint {
+  extends RenderNodeFillPaint, RenderNodeLinePaint, RenderNodeCirclePaint, RenderNodeExtrudePaint, RenderNodeRasterPaint {
   name: string
   sourceRef: string  // references SourceDef.name
   /** Optional MVT layer slice within the referenced source. When set,

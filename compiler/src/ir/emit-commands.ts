@@ -541,6 +541,16 @@ function emitShow(
       },
       circle: { size: sizeValueToShape(node.size) },
       common: { opacity: node.opacity },
+      // Raster colour adjustments — each field carries the spec default when
+      // the node didn't author it, so resolveNumberShape yields a no-op.
+      raster: {
+        hueRotate: { kind: 'constant', value: node.rasterHueRotate ?? 0 },
+        brightnessMin: { kind: 'constant', value: node.rasterBrightnessMin ?? 0 },
+        brightnessMax: { kind: 'constant', value: node.rasterBrightnessMax ?? 1 },
+        saturation: { kind: 'constant', value: node.rasterSaturation ?? 0 },
+        contrast: { kind: 'constant', value: node.rasterContrast ?? 0 },
+        resamplingNearest: node.rasterResamplingNearest ?? false,
+      },
     },
   }
 }

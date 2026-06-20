@@ -28,6 +28,7 @@ import {
   type ClassifierVTSource,
 } from './bucket-scheduler'
 import type { PaintShapes, PropertyShape } from '@xgis/compiler'
+import { defaultRasterShapes } from '@xgis/compiler'
 import type { ShowCommand } from './renderer-types'
 
 /** Synthesize a PaintShapes bundle from the legacy flat fields a test
@@ -131,6 +132,7 @@ function synthesizePaintShapes(show: LegacyShowFixture): PaintShapes {
     line: { stroke, strokeWidth },
     circle: { size },
     common: { opacity },
+    raster: defaultRasterShapes(),
   }
 }
 

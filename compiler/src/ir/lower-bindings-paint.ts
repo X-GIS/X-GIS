@@ -121,6 +121,15 @@ export const bindingFallthroughHandler: BindingHandler = {
       if (ctx.name === 'circle-blur') { a.circleBlur = n; return true }
       if (ctx.name === 'stroke-translate-x') { a.strokeTranslateX = n; return true }
       if (ctx.name === 'stroke-translate-y') { a.strokeTranslateY = n; return true }
+      // Raster colour adjustments allow negative values (hue-rotate /
+      // saturation / contrast / brightness), so they reach the lexer in
+      // bracket-binding form (`raster-contrast-[-0.5]`). Constant numbers
+      // only — non-constant raster colour forms aren't plumbed.
+      if (ctx.name === 'raster-hue-rotate') { a.rasterHueRotate = n; return true }
+      if (ctx.name === 'raster-brightness-min') { a.rasterBrightnessMin = n; return true }
+      if (ctx.name === 'raster-brightness-max') { a.rasterBrightnessMax = n; return true }
+      if (ctx.name === 'raster-saturation') { a.rasterSaturation = n; return true }
+      if (ctx.name === 'raster-contrast') { a.rasterContrast = n; return true }
     }
     // Bracket-binding form with a name that's not in any of the
     // handled arms above. Pre-fix this was the silent-drop hole that
@@ -258,6 +267,35 @@ export const miscUtilHandlers: BindingHandler[] = [
       }
       return true
     },
+  },
+  // Raster colour adjustments — plain-numeric utility form (positive
+  // values). Negatives arrive in bracket-binding form (handled in
+  // bindingFallthroughHandler). brightness-{min,max} matched BEFORE the
+  // bare hue/sat/contrast names so the longer prefix wins. resampling
+  // flag is a bare boolean.
+  {
+    match: (c) => c.name.startsWith('raster-brightness-min-'),
+    apply: (c) => { const n = parseFloat(c.name.slice('raster-brightness-min-'.length)); if (!isNaN(n)) c.acc.rasterBrightnessMin = n; return true },
+  },
+  {
+    match: (c) => c.name.startsWith('raster-brightness-max-'),
+    apply: (c) => { const n = parseFloat(c.name.slice('raster-brightness-max-'.length)); if (!isNaN(n)) c.acc.rasterBrightnessMax = n; return true },
+  },
+  {
+    match: (c) => c.name.startsWith('raster-hue-rotate-'),
+    apply: (c) => { const n = parseFloat(c.name.slice('raster-hue-rotate-'.length)); if (!isNaN(n)) c.acc.rasterHueRotate = n; return true },
+  },
+  {
+    match: (c) => c.name.startsWith('raster-saturation-'),
+    apply: (c) => { const n = parseFloat(c.name.slice('raster-saturation-'.length)); if (!isNaN(n)) c.acc.rasterSaturation = n; return true },
+  },
+  {
+    match: (c) => c.name === 'raster-resampling-nearest',
+    apply: (c) => { c.acc.rasterResamplingNearest = true; return true },
+  },
+  {
+    match: (c) => c.name.startsWith('raster-contrast-'),
+    apply: (c) => { const n = parseFloat(c.name.slice('raster-contrast-'.length)); if (!isNaN(n)) c.acc.rasterContrast = n; return true },
   },
   { match: (c) => c.name.startsWith('projection-'), apply: (c) => { c.acc.projection = c.name.slice(11); return true } },
   { match: (c) => c.name === 'hidden', apply: (c) => { c.acc.visible = false; return true } },

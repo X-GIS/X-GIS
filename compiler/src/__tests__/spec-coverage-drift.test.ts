@@ -206,6 +206,11 @@ describe('mapbox spec-coverage drift detector', () => {
     const allowlist = new Set<string>([
       // Top-level structural keys that don't appear as `case` strings:
       'name', 'sources', 'layers',
+      // MapLibre v3 alias for raster-resampling — read via the
+      // non-hyphenated `p['resampling']` bracket access in paint-raster.ts
+      // (the drift extractor only greps hyphenated bracket keys), same
+      // value space + same nearest-sampler path as raster-resampling.
+      'resampling',
       // Source type entries are matched as `'vector'`, `'raster'`, etc. in the SCAN
       // but the table display names are parenthesised — accept either form.
       'vector (.pmtiles)', 'vector (TileJSON)', 'geojson (URL)', 'geojson (inline)',

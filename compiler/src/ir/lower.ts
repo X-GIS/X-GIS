@@ -461,6 +461,15 @@ function lowerLayer(
   let animationDelayMs = 0
   let animationLoop = false
 
+  // Mapbox `raster-*` fragment colour adjustments. undefined = layer didn't
+  // author the axis → runtime falls back to the spec default (a no-op).
+  let rasterHueRotate: number | undefined
+  let rasterBrightnessMin: number | undefined
+  let rasterBrightnessMax: number | undefined
+  let rasterSaturation: number | undefined
+  let rasterContrast: number | undefined
+  let rasterResamplingNearest: boolean | undefined
+
   // Assemble the mutable LayerAccumulator from the post-cascade locals
   // (named style → inline CSS already applied above) plus fresh per-loop
   // collectors. The binding/utility handlers mutate THIS; lowerLayer reads
@@ -484,6 +493,8 @@ function lowerLayer(
     opacity, size, projection, visible, pointerEvents, billboard, anchor, shape,
     fillBranches, opacityZoomStops, sizeZoomStops, opacityZoomStopsBase, sizeZoomStopsBase,
     animationName, animationDurationMs, animationEasing, animationDelayMs, animationLoop,
+    rasterHueRotate, rasterBrightnessMin, rasterBrightnessMax, rasterSaturation, rasterContrast,
+    rasterResamplingNearest,
   }
 
   for (const line of expandedUtilities) {
@@ -612,6 +623,12 @@ function lowerLayer(
   animationEasing = acc.animationEasing
   animationDelayMs = acc.animationDelayMs
   animationLoop = acc.animationLoop
+  rasterHueRotate = acc.rasterHueRotate
+  rasterBrightnessMin = acc.rasterBrightnessMin
+  rasterBrightnessMax = acc.rasterBrightnessMax
+  rasterSaturation = acc.rasterSaturation
+  rasterContrast = acc.rasterContrast
+  rasterResamplingNearest = acc.rasterResamplingNearest
 
   // Expand referenced keyframes into per-property time stops. Pure
   // sub-pass (lower-animation.ts): reads only the animation meta set in
@@ -814,6 +831,12 @@ function lowerLayer(
     strokeTranslateYShape,
     fillPattern: fillPattern ?? undefined,
     linePattern: linePattern ?? undefined,
+    rasterHueRotate,
+    rasterBrightnessMin,
+    rasterBrightnessMax,
+    rasterSaturation,
+    rasterContrast,
+    rasterResamplingNearest,
     label: lowerLabelProps(expandedUtilities, diagnostics, stmt.line),
   }
 }

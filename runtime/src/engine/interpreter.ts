@@ -1,7 +1,7 @@
 // ═══ AST Interpreter — AST를 실행 가능한 명령으로 변환 ═══
 
 import type * as AST from '@xgis/compiler'
-import { resolveUtilities, resolveColor } from '@xgis/compiler'
+import { resolveUtilities, resolveColor, defaultRasterShapes } from '@xgis/compiler'
 import type { PaintShapes, PropertyShape, PropertyRGBA } from '@xgis/compiler'
 import type { ShowCommand } from './render/renderer'
 // Use runtime hexToRgba (nullable variant — returns null on invalid
@@ -45,6 +45,7 @@ function synthesizeConstantPaintShapes(args: {
     },
     circle: { size: null },
     common: { opacity: { kind: 'constant', value: args.opacity } },
+    raster: defaultRasterShapes(),
   }
 }
 

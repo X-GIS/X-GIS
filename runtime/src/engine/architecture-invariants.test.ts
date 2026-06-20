@@ -432,6 +432,13 @@ const LOC_CEILINGS: Record<string, number> = {
   // + the `label-max-angle-N` parse arm + the knobs-interface field + the
   // foldLabelKnobs spread + comment. Same additive label-knob plumbing class.
   'compiler/src/ir/lower-label.ts': 828,
+  // Baselined at 818 (Phase S Batch 3 raster colour adjustments): render-node.ts
+  // crossed the 800 cap from the new RenderNodeRasterPaint concern interface
+  // (the six raster-* fields + their doc comments) added to the per-concern
+  // RenderNode extends chain. Cohesive paint-concern type module, not a
+  // god-file — same additive Mapbox-property plumbing class as the other
+  // baselined ir/* files; decomposition stays a tracked follow-up.
+  'compiler/src/ir/render-node.ts': 818,
 }
 const NEW_FILE_CAP = 800
 

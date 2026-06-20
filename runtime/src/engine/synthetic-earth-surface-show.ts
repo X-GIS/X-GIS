@@ -13,6 +13,7 @@
 // per-layer log-depth bias work without special-casing.
 
 import type { PropertyShape } from '@xgis/compiler'
+import { defaultRasterShapes } from '@xgis/compiler'
 import type { ShowCommand } from './render/renderer-types'
 import { SYNTHETIC_EARTH_SURFACE_SOURCE } from '../data/sources/synthetic-earth-surface-backend'
 
@@ -57,6 +58,7 @@ export function buildSyntheticEarthSurfaceShow(
       },
       circle: { size: null },
       common: { opacity: { kind: 'constant', value: 1 } },
+      raster: defaultRasterShapes(),
     },
   }
 }
