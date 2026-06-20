@@ -9,7 +9,9 @@ The Mapbox/MapLibre style importer: converts a Mapbox v8 style JSON into xgis so
 ## Key Files
 | File | Description |
 |------|-------------|
-| `mapbox-to-xgis.ts` | Top-level entry `convertMapboxStyle(style, opts)`. Orchestrates all sibling converters; one page of coordination logic only. |
+| `mapbox-to-xgis.ts` | Top-level entry `convertMapboxStyle(style, opts)` — THIN orchestrator (Tier-C5 split). Validation pre-walks live in `validate-sources.ts` / `validate-layers.ts`; the background-layer converter body in `convert-background-layer.ts`. Calls them in a fixed order; the `warnings[]` append order is part of the contract (conversion-notes tests pin it). |
+| `validate-sources.ts` / `validate-layers.ts` | Pure style-validation pre-walks lifted out of `convertMapboxStyle` (zoom ranges, id collisions, source-layer / source-ref checks) — return their warnings; no conversion side effects. |
+| `convert-background-layer.ts` | The background-layer converter body lifted out of `mapbox-to-xgis.ts` (`convertBackgroundLayer`); holds the `background-*` paint references. |
 | `sources.ts` | Converts Mapbox `sources` (geojson/vector/raster) → xgis sources; stashes inline GeoJSON into a collector for `setSourceData` auto-push. |
 | `layers.ts` | Per-layer conversion incl. symbol-placement step expansion (splits one Mapbox layer into zoom-range sublayers for road shields), delegating to `layers-helpers.ts`. |
 | `layers-helpers.ts` | Pure helpers extracted from `layers.ts`: `unwrapLiteralTuple`, `unwrapLiteralScalar`, `applyAlphaMultiplier`, `safePropsBag`, `isOmittedValue`, `parseMapboxFontName`, `textFieldToXgisExpr`, `parseSymbolPlacementStep`. None close over module state. |

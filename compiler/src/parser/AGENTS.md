@@ -15,7 +15,7 @@ Second stage of the X-GIS compiler pipeline. Consumes the `Token[]` stream produ
 ## For AI Agents
 
 ### Working In This Directory
-- AST nodes are discriminated unions keyed on `kind` (e.g. `'LetStatement'`). Adding a new construct requires: a new type in `ast.ts`, membership in the `Statement` or `Expr` union, and a parse branch in `parser.ts` dispatched from `parseStatement()` or the expression chain.
+- AST nodes are discriminated unions keyed on `kind` (e.g. `'LetStatement'`). Adding a new construct requires: a new type in `ast.ts`, membership in the `Statement` or `Expr` union, and either a statement handler in `parser-statements.ts` (registered in the keyword→handler map) or a level in the `parser-expressions.ts` precedence ladder. `parser.ts` is now a THIN driver over the shared `parser-cursor.ts` token cursor (Tier-C5 split) — do not re-inline statement/expression parsing into it.
 - The parser silently drops `Newline` tokens in its constructor — X-GIS statement boundaries come entirely from the grammar, not from newlines. Do not add newline-sensitivity.
 - `parseBlockProperty()` calls `parseCoalesce()` (not `parseExpr()`) to prevent `|` from being consumed as a pipe operator inside `layer`/`source` block values. Any new block-property-like production must follow the same rule.
 - `parseExpressionString()` is the public contract for `ir/lower.ts`; it must always throw on trailing tokens rather than silently ignoring them.
