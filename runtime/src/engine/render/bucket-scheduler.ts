@@ -255,7 +255,7 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     // on the resolvedShow snapshot below — single source of truth,
     // no parallel `resolvedXxx` locals to keep in sync.
     const composedOpa = resolveNumberShape(
-      entry.show.paintShapes.opacity, input.cameraZoom, input.elapsedMs,
+      entry.show.paintShapes.common.opacity, input.cameraZoom, input.elapsedMs,
     ).value
 
     // Phase 4c-final: no more effectiveShow clone + mutation. The

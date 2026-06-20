@@ -70,16 +70,16 @@ export function resolveLabelEffectiveDef(
   // text-size: constant / zoom-interpolated paths resolve to a
   // concrete number; data-driven needs the per-feature eval
   // path, so we treat its placeholder as the static `def.size`.
-  const resolvedSize = shapes && shapes.size.kind !== 'data-driven'
-    ? resolveNumberShape(shapes.size, z, elapsedMs).value
+  const resolvedSize = shapes && shapes.textLayout.size.kind !== 'data-driven'
+    ? resolveNumberShape(shapes.textLayout.size, z, elapsedMs).value
     : def.size
   // text-color: null shape → fall back to the layer fill hex.
   // data-driven goes through applyFeatureExprs.
   let resolvedColor: [number, number, number, number] | undefined
-  if (shapes && shapes.color !== null && shapes.color.kind !== 'data-driven') {
-    const c = resolveColorShape(shapes.color, z, elapsedMs)
+  if (shapes && shapes.textPaint.color !== null && shapes.textPaint.color.kind !== 'data-driven') {
+    const c = resolveColorShape(shapes.textPaint.color, z, elapsedMs)
     if (c !== null) resolvedColor = c.value as [number, number, number, number]
-    else if (shapes.color.kind === 'constant') resolvedColor = shapes.color.value as [number, number, number, number]
+    else if (shapes.textPaint.color.kind === 'constant') resolvedColor = shapes.textPaint.color.value as [number, number, number, number]
   }
   if (resolvedColor === undefined) {
     resolvedColor = hexToRgba(layerFill) ?? [1, 1, 1, 1]
@@ -98,19 +98,19 @@ export function resolveLabelEffectiveDef(
   let haloWidthOverride: number | undefined
   let haloColorOverride: [number, number, number, number] | undefined
   let haloBlurOverride: number | undefined
-  if (shapes?.haloWidth && shapes.haloWidth.kind !== 'data-driven') {
-    haloWidthOverride = resolveNumberShape(shapes.haloWidth, z, elapsedMs).value
+  if (shapes?.textPaint.haloWidth && shapes.textPaint.haloWidth.kind !== 'data-driven') {
+    haloWidthOverride = resolveNumberShape(shapes.textPaint.haloWidth, z, elapsedMs).value
   }
-  if (shapes?.haloColor && shapes.haloColor.kind !== 'data-driven') {
-    const c = resolveColorShape(shapes.haloColor, z, elapsedMs)
+  if (shapes?.textPaint.haloColor && shapes.textPaint.haloColor.kind !== 'data-driven') {
+    const c = resolveColorShape(shapes.textPaint.haloColor, z, elapsedMs)
     haloColorOverride = (c !== null
       ? c.value as [number, number, number, number]
-      : (shapes.haloColor.kind === 'constant'
-        ? shapes.haloColor.value as [number, number, number, number]
+      : (shapes.textPaint.haloColor.kind === 'constant'
+        ? shapes.textPaint.haloColor.value as [number, number, number, number]
         : undefined))
   }
-  if (shapes?.haloBlur && shapes.haloBlur.kind !== 'data-driven') {
-    haloBlurOverride = resolveNumberShape(shapes.haloBlur, z, elapsedMs).value
+  if (shapes?.textPaint.haloBlur && shapes.textPaint.haloBlur.kind !== 'data-driven') {
+    haloBlurOverride = resolveNumberShape(shapes.textPaint.haloBlur, z, elapsedMs).value
   }
   let resolvedHalo = def.halo
   if (haloWidthOverride !== undefined || haloColorOverride !== undefined || haloBlurOverride !== undefined) {
@@ -135,15 +135,15 @@ export function resolveLabelEffectiveDef(
   let resolvedFont = def.font
   let resolvedFontWeight = def.fontWeight
   let resolvedFontStyle = def.fontStyle
-  if (shapes?.font && shapes.font.kind !== 'data-driven') {
-    const stack = resolveSteppedShape(shapes.font, z)
+  if (shapes?.textLayout.font && shapes.textLayout.font.kind !== 'data-driven') {
+    const stack = resolveSteppedShape(shapes.textLayout.font, z)
     if (stack !== null && stack.length > 0) resolvedFont = [...stack]
   }
-  if (shapes?.fontWeight && shapes.fontWeight.kind !== 'data-driven') {
-    resolvedFontWeight = resolveNumberShape(shapes.fontWeight, z, elapsedMs).value
+  if (shapes?.textLayout.fontWeight && shapes.textLayout.fontWeight.kind !== 'data-driven') {
+    resolvedFontWeight = resolveNumberShape(shapes.textLayout.fontWeight, z, elapsedMs).value
   }
-  if (shapes?.fontStyle && shapes.fontStyle.kind !== 'data-driven') {
-    const v = resolveSteppedShape(shapes.fontStyle, z)
+  if (shapes?.textLayout.fontStyle && shapes.textLayout.fontStyle.kind !== 'data-driven') {
+    const v = resolveSteppedShape(shapes.textLayout.fontStyle, z)
     if (v !== null) resolvedFontStyle = v
   }
   // text-rotation-alignment: 'map' makes point labels rotate
@@ -172,16 +172,16 @@ export function resolveLabelEffectiveDef(
   // shape falls back to def.iconSize (= constant from
   // LabelDef) or the spec default 1 at dispatchIcon. Mirror
   // of the text-size resolve above.
-  const resolvedIconSize = shapes && shapes.iconSize !== null && shapes.iconSize.kind !== 'data-driven'
-    ? resolveNumberShape(shapes.iconSize, z, elapsedMs).value
+  const resolvedIconSize = shapes && shapes.icon.iconSize !== null && shapes.icon.iconSize.kind !== 'data-driven'
+    ? resolveNumberShape(shapes.icon.iconSize, z, elapsedMs).value
     : def.iconSize
   // text-opacity — non-constant forms only land here. The
   // constant form is already folded into label-color's alpha
   // at convert-time (applyAlphaMultiplier). Multiplied into
   // resolvedColor.a + resolvedHalo.color.a so halo also fades.
   // Data-driven goes through applyFeatureExprs. Iter 113.
-  if (shapes && shapes.opacity !== null && shapes.opacity.kind !== 'data-driven') {
-    const op = resolveNumberShape(shapes.opacity, z, elapsedMs).value
+  if (shapes && shapes.textPaint.opacity !== null && shapes.textPaint.opacity.kind !== 'data-driven') {
+    const op = resolveNumberShape(shapes.textPaint.opacity, z, elapsedMs).value
     const clamped = Math.max(0, Math.min(1, op))
     if (resolvedColor !== undefined) {
       resolvedColor = [resolvedColor[0], resolvedColor[1], resolvedColor[2], resolvedColor[3] * clamped]
@@ -194,17 +194,17 @@ export function resolveLabelEffectiveDef(
   // icon-opacity — both constant and non-constant route through
   // shapes.iconOpacity (PropertyShape). Falls back to def.iconOpacity
   // (LabelDef constant) when no shape was authored.
-  const resolvedIconOpacity = shapes && shapes.iconOpacity !== null && shapes.iconOpacity.kind !== 'data-driven'
-    ? resolveNumberShape(shapes.iconOpacity, z, elapsedMs).value
+  const resolvedIconOpacity = shapes && shapes.icon.iconOpacity !== null && shapes.icon.iconOpacity.kind !== 'data-driven'
+    ? resolveNumberShape(shapes.icon.iconOpacity, z, elapsedMs).value
     : def.iconOpacity
   // icon-color — constant + zoom-interp route through
   // shapes.iconColor (PropertyShape<RGBA>); data-driven is
   // handled by the per-feature evaluator below (mirrors color).
   let resolvedIconColor: [number, number, number, number] | undefined
-  if (shapes && shapes.iconColor !== null && shapes.iconColor.kind !== 'data-driven') {
-    const ic = resolveColorShape(shapes.iconColor, z, elapsedMs)
+  if (shapes && shapes.icon.iconColor !== null && shapes.icon.iconColor.kind !== 'data-driven') {
+    const ic = resolveColorShape(shapes.icon.iconColor, z, elapsedMs)
     if (ic !== null) resolvedIconColor = ic.value as [number, number, number, number]
-    else if (shapes.iconColor.kind === 'constant') resolvedIconColor = shapes.iconColor.value as [number, number, number, number]
+    else if (shapes.icon.iconColor.kind === 'constant') resolvedIconColor = shapes.icon.iconColor.value as [number, number, number, number]
   }
   if (resolvedIconColor === undefined) resolvedIconColor = def.iconColor
   // Iter 133 perf: in-place field set instead of conditional

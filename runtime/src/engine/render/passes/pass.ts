@@ -14,11 +14,41 @@
 
 import type { FrameContext } from '../frame-context'
 import type { SceneView } from '../scene-view'
-import type { RenderLoopHost } from '../../render-loop'
+import type {
+  BackgroundPassHost,
+  OpaquePassHost,
+  OitPassHost,
+  TranslucentPassHost,
+  PointsPassHost,
+  LabelPassHost,
+  OverdrawComposePassHost,
+} from './pass-hosts'
+// Re-export the per-pass role views so each concrete pass imports its role
+// alongside RenderPass from this one module (single import line per pass).
+export type {
+  BackgroundPassHost,
+  OpaquePassHost,
+  OitPassHost,
+  TranslucentPassHost,
+  PointsPassHost,
+  LabelPassHost,
+  OverdrawComposePassHost,
+} from './pass-hosts'
 
 /** The owning-map view a pass reaches its renderers / stages / camera
- *  through. Same typed Pick the RenderLoop uses. */
-export type PassHost = RenderLoopHost
+ *  through — the COMPOSITION (intersection) of every per-pass role view.
+ *  Each concrete pass narrows its `execute` host param to its own role
+ *  (e.g. BackgroundPassHost); the generic `RenderPass.execute` declares
+ *  the composed PassHost so the RenderLoop can drive any pass uniformly.
+ *  Same member set the loop hands in — a pure TYPE re-grouping. */
+export type PassHost =
+  & BackgroundPassHost
+  & OpaquePassHost
+  & OitPassHost
+  & TranslucentPassHost
+  & PointsPassHost
+  & LabelPassHost
+  & OverdrawComposePassHost
 
 /** One stage of the fixed render-pass chain. */
 export interface RenderPass {

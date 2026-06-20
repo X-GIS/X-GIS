@@ -34,6 +34,12 @@ import { pointsPass } from './render/passes/points-pass'
 import { labelPass } from './render/passes/label-pass'
 import { overdrawComposePass } from './render/passes/overdraw-compose-pass'
 import type { XGISMap } from './map'
+// Host ROLE views (Tier-B sub-bundle): the flat ~57-key `Pick<XGISMap>` is
+// now segmented into per-pass role views in render/passes/pass-hosts.ts;
+// `RenderLoopHost` is their intersection. Re-exported here so the existing
+// `import { RenderLoopHost } from '../render-loop'` consumers keep resolving.
+import type { RenderLoopHost } from './render/passes/pass-hosts'
+export type { RenderLoopHost } from './render/passes/pass-hosts'
 
 // Flicker-detection tuning, render-loop-only. Relocated from XGISMap statics
 // so this module imports XGISMap as a TYPE only — breaking the map<->render-loop
@@ -47,75 +53,6 @@ const FLICKER_GRACE_FRAMES = 240
 /** Cap on XGISMap._flickerLog — 32 entries ~= 30 s of the worst sustained
  *  case at the 60-frame throttle. */
 const FLICKER_LOG_CAP = 32
-
-/** Typed view of the XGISMap members the relocated render path touches.
- *  Derived from XGISMap with `Pick` so the field/method types stay in
- *  exact lock-step with the class (zero drift, no hand-maintained type
- *  list). Every member listed here was relaxed from `private` to
- *  no-modifier (package-internal) in map.ts so this Pick can see it; the
- *  members stay OFF the public API surface (no `public` keyword). The
- *  render-only `_resolveFillPatterns` is NOT here — it moved into
- *  RenderLoop. `renderLoop`, `classifyVectorTileShows`, and
- *  `groupOpaqueBySource` remain on the map and are reached via this view. */
-export type RenderLoopHost = Pick<XGISMap,
-  | '_backgroundColor'
-  | '_backgroundColorShape'
-  | '_backgroundOpacityShape'
-  | '_light'
-  | '_elapsedMs'
-  | '_featureExprsCache'
-  | '_flickerFirstFrame'
-  | '_flickerLastFrame'
-  | '_flickerLog'
-  | '_frameCount'
-  | '_interacting'
-  | '_labelsHaveTimeAnimation'
-  | '_labelDispatchHits'
-  | '_labelDispatchMisses'
-  | '_lastSigBearing'
-  | '_lastSigCX'
-  | '_lastSigCY'
-  | '_lastSigH'
-  | '_lastSigPitch'
-  | '_lastSigW'
-  | '_lastSigZoom'
-  | '_needsRender'
-  | '_pendingLabelDebugHook'
-  | '_pendingTraceRecorder'
-  | '_prevLabelDispatchSig'
-  | '_rasterShow'
-  | '_scratchEmittedPointNames'
-  | '_scratchEmittedTextNames'
-  | '_spriteAtlasViewPushed'
-  | '_startTime'
-  | '_stats'
-  | '_statsPanel'
-  | 'camera'
-  | 'classifyVectorTileShows'
-  | 'consumeLabelDirty'
-  | 'markLabelDirty'
-  | 'ctx'
-  | 'fontTypography'
-  | 'glyphProviders'
-  | 'glyphsUrl'
-  | 'gpuTimer'
-  | 'groupOpaqueBySource'
-  | 'iconStage'
-  | 'inlineGlyphs'
-  | 'lineRenderer'
-  | 'overlays'
-  | 'pointRenderer'
-  | 'projectionName'
-  | 'rasterRenderer'
-  | 'rawDatasets'
-  | 'renderLoop'
-  | 'renderTargets'
-  | 'renderer'
-  | 'showCommands'
-  | 'spriteUrl'
-  | 'textStage'
-  | 'vtSources'
->
 
 export class RenderLoop {
   private readonly host: RenderLoopHost

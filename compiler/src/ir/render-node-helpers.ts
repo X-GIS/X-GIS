@@ -230,7 +230,11 @@ export function buildLabelShapes(input: {
     iconColor = { kind: 'constant', value: input.iconColor }
   }
 
-  return { size, color, haloWidth, haloColor, haloBlur, font, fontWeight, fontStyle, iconSize, opacity, iconOpacity, iconColor }
+  return {
+    textPaint: { color, haloWidth, haloColor, haloBlur, opacity },
+    textLayout: { size, font, fontWeight, fontStyle },
+    icon: { iconSize, iconOpacity, iconColor },
+  }
 }
 
 /**

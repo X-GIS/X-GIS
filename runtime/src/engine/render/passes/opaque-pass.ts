@@ -18,7 +18,7 @@ import { isPickEnabled } from '../../gpu/gpu'
 import { resolveNumberShape } from '../paint-shape-resolve'
 import type { FrameContext } from '../frame-context'
 import type { SceneView } from '../scene-view'
-import type { RenderPass, PassHost } from './pass'
+import type { RenderPass, OpaquePassHost } from './pass'
 
 class OpaquePass implements RenderPass {
   readonly label = 'opaque'
@@ -27,7 +27,7 @@ class OpaquePass implements RenderPass {
   // background + screen clear), even with no opaque vector layers.
   shouldRun(): boolean { return true }
 
-  execute(ctx: FrameContext, scene: SceneView, host: PassHost): void {
+  execute(ctx: FrameContext, scene: SceneView, host: OpaquePassHost): void {
     const encoder = ctx.encoder
     // ── Bucket 1: opaque ──
     // Always emit at least one pass so raster + canvas background
@@ -129,7 +129,7 @@ class OpaquePass implements RenderPass {
           // renderer's uniform.
           if (host._rasterShow) {
             const op = resolveNumberShape(
-              host._rasterShow.paintShapes.opacity,
+              host._rasterShow.paintShapes.common.opacity,
               host.camera.zoom, host._elapsedMs,
             ).value
             host.rasterRenderer.setOpacity(op)

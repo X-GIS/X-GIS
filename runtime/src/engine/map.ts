@@ -2545,7 +2545,7 @@ export class XGISMap {
         // time — sufficient for static displays; live resize for
         // animated sizes runs through pointRenderer.updateDynamicSizes
         // each frame.
-        const sizeShape = show.paintShapes.size
+        const sizeShape = show.paintShapes.circle.size
         const baseSize = sizeShape !== null
           ? (sizeShape.kind === 'constant'
               ? sizeShape.value
@@ -2598,7 +2598,7 @@ export class XGISMap {
           show.billboard,
           shapeId,
           show.anchor,
-          show.paintShapes.size,
+          show.paintShapes.circle.size,
           // WS-1 (part 5) — circle-translate now threads through the
           // GeoJSON point path: constant fallbacks here, per-frame
           // zoom-interp shapes in the trailing slots (resolved by

@@ -798,18 +798,18 @@ export class MapRenderer {
       // working at runtime; for the four animated kinds the resolver
       // takes precedence.
       const ps = layer.show.paintShapes
-      const opacity = ps.opacity.kind === 'constant'
+      const opacity = ps.common.opacity.kind === 'constant'
         ? layer.props.getNumber('opacity', 1.0)
-        : resolveNumberShape(ps.opacity, camera.zoom, elapsedMs).value
+        : resolveNumberShape(ps.common.opacity, camera.zoom, elapsedMs).value
 
       let fillRaw = layer.props.getColor('fill')
       let strokeRaw = layer.props.getColor('stroke')
-      if (ps.fill !== null) {
-        const r = resolveColorShape(ps.fill, camera.zoom, elapsedMs)
+      if (ps.fill.fill !== null) {
+        const r = resolveColorShape(ps.fill.fill, camera.zoom, elapsedMs)
         if (r !== null) fillRaw = [r.value[0], r.value[1], r.value[2], r.value[3]]
       }
-      if (ps.stroke !== null) {
-        const r = resolveColorShape(ps.stroke, camera.zoom, elapsedMs)
+      if (ps.line.stroke !== null) {
+        const r = resolveColorShape(ps.line.stroke, camera.zoom, elapsedMs)
         if (r !== null) strokeRaw = [r.value[0], r.value[1], r.value[2], r.value[3]]
       }
       const fillColor = fillRaw ? [fillRaw[0], fillRaw[1], fillRaw[2], fillRaw[3] * opacity] : [0, 0, 0, 0]

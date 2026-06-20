@@ -30,7 +30,7 @@ import { hexToRgba, featureAnchor } from '../../feature-helpers'
 import { type ShowCommand } from '../renderer'
 import type { FrameContext } from '../frame-context'
 import type { SceneView } from '../scene-view'
-import type { RenderPass, PassHost } from './pass'
+import type { RenderPass, LabelPassHost } from './pass'
 
 /** Cross-tile line-label dedupe predicate. A named road stamped across N
  *  tile boundaries collapses to a single label via its (unique) resolved
@@ -101,7 +101,7 @@ class LabelPass implements RenderPass {
   // the body, so this pass is always "run" from the chain.
   shouldRun(): boolean { return true }
 
-  execute(ctx: FrameContext, _scene: SceneView, host: PassHost): void {
+  execute(ctx: FrameContext, _scene: SceneView, host: LabelPassHost): void {
     // Phase 2 PR 2d.4: `projType`/`centerLon`/`centerLat` no longer
     // destructured — the projType-conditional label projector branches
     // collapsed to a single ECEF-based projector. Other passes still
@@ -434,10 +434,10 @@ class LabelPass implements RenderPass {
           // that feature's properties. Pulls AST from
           // `def.shapes.size.expr` / `def.shapes.color.expr` — the
           // LabelShapes bundle is the single source of truth post-L2.
-          const sizeExprAst = shapes && shapes.size.kind === 'data-driven'
-            ? shapes.size.expr.ast : null
-          const colorExprAst = shapes && shapes.color !== null && shapes.color.kind === 'data-driven'
-            ? shapes.color.expr.ast : null
+          const sizeExprAst = shapes && shapes.textLayout.size.kind === 'data-driven'
+            ? shapes.textLayout.size.expr.ast : null
+          const colorExprAst = shapes && shapes.textPaint.color !== null && shapes.textPaint.color.kind === 'data-driven'
+            ? shapes.textPaint.color.expr.ast : null
           // Per-feature icon-image expression. Compiler emits this
           // when Mapbox `icon-image: ["match", ["get", "subclass"], …]`
           // is present (OFM POI layers). Runtime evaluates the AST

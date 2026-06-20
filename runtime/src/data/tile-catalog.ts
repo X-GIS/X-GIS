@@ -709,14 +709,6 @@ export class TileCatalog {
   // 2 s TTL) lives in TileEvictionPolicy (this.eviction); prefetchTiles
   // populates it, evictTiles honours + drains it.
 
-  /** Test escape-hatch alias for the eviction policy's shield map.
-   *  tile-catalog-skeleton / -lifecycle reach `(catalog as …)
-   *  ._evictShield` to assert the shield drains / never piggybacks the
-   *  skeleton; keep the same name pointing at the same Map post-split. */
-  private get _evictShield(): Map<number, number> {
-    return this.eviction.shieldMap
-  }
-
   /** Prefetch variant of requestTiles: forwards to the same dispatch
    *  path but also adds the keys to `_prefetchKeys` so this frame's
    *  cancelStale won't abort them. Use this from background-fetch

@@ -122,8 +122,8 @@ describe('TileCatalog lifecycle (BUG 13: evict-shield drains under budget)', () 
     vi.setSystemTime(0)
     const catalog = new TileCatalog()
     const shield = (catalog as unknown as {
-      _evictShield: Map<number, number>
-    })._evictShield
+      eviction: { shieldMap: Map<number, number> }
+    }).eviction.shieldMap
 
     // Stay well under MAX_CACHED_TILES the whole time, but keep
     // prefetching distinct keys whose shield TTL keeps expiring. Each

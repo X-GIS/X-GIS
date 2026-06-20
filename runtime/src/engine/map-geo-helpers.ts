@@ -36,11 +36,11 @@ export function sceneHasAnyAnimation(shows: {
     k === 'time-interpolated' || k === 'zoom-time'
   return shows.some(s => {
     const p = s.paintShapes
-    return isTimeAnimated(p.opacity.kind)
-      || isTimeAnimated(p.strokeWidth.kind)
-      || (p.fill !== null && isTimeAnimated(p.fill.kind))
-      || (p.stroke !== null && isTimeAnimated(p.stroke.kind))
-      || (p.size !== null && isTimeAnimated(p.size.kind))
+    return isTimeAnimated(p.common.opacity.kind)
+      || isTimeAnimated(p.line.strokeWidth.kind)
+      || (p.fill.fill !== null && isTimeAnimated(p.fill.fill.kind))
+      || (p.line.stroke !== null && isTimeAnimated(p.line.stroke.kind))
+      || (p.circle.size !== null && isTimeAnimated(p.circle.size.kind))
       || (s.dashOffsetShape !== null && s.dashOffsetShape !== undefined && isTimeAnimated(s.dashOffsetShape.kind))
   })
 }
@@ -62,16 +62,16 @@ export function labelsHaveTimeAnimation(shows: {
   return shows.some(s => {
     const sh = s.label?.shapes
     if (!sh) return false
-    return isTimeAnimated(sh.size)
-      || isTimeAnimated(sh.color)
-      || isTimeAnimated(sh.haloWidth)
-      || isTimeAnimated(sh.haloColor)
-      || isTimeAnimated(sh.haloBlur)
-      || isTimeAnimated(sh.fontWeight)
-      || isTimeAnimated(sh.iconSize)
-      || isTimeAnimated(sh.opacity)
-      || isTimeAnimated(sh.iconOpacity)
-      || isTimeAnimated(sh.iconColor)
+    return isTimeAnimated(sh.textLayout.size)
+      || isTimeAnimated(sh.textPaint.color)
+      || isTimeAnimated(sh.textPaint.haloWidth)
+      || isTimeAnimated(sh.textPaint.haloColor)
+      || isTimeAnimated(sh.textPaint.haloBlur)
+      || isTimeAnimated(sh.textLayout.fontWeight)
+      || isTimeAnimated(sh.icon.iconSize)
+      || isTimeAnimated(sh.textPaint.opacity)
+      || isTimeAnimated(sh.icon.iconOpacity)
+      || isTimeAnimated(sh.icon.iconColor)
   })
 }
 

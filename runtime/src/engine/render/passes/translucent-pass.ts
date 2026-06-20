@@ -11,14 +11,14 @@
 import { DEBUG_OVERDRAW } from '../../debug-flags'
 import type { FrameContext } from '../frame-context'
 import type { SceneView } from '../scene-view'
-import type { RenderPass, PassHost } from './pass'
+import type { RenderPass, TranslucentPassHost } from './pass'
 
 class TranslucentPass implements RenderPass {
   readonly label = 'translucent'
 
   shouldRun(scene: SceneView): boolean { return scene.hasTranslucent && !DEBUG_OVERDRAW }
 
-  execute(ctx: FrameContext, scene: SceneView, host: PassHost): void {
+  execute(ctx: FrameContext, scene: SceneView, host: TranslucentPassHost): void {
     const encoder = ctx.encoder
     for (let li = 0; li < scene.translucent.length; li++) {
       const cs = scene.translucent[li]

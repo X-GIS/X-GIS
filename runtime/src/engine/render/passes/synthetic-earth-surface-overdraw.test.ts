@@ -138,8 +138,8 @@ describe('AC2c.3.7 — buildSyntheticEarthSurfaceShow routes through ground (2D)
     expect(show.visible).toBe(true)
   })
 
-  it('paintShapes.fill is a constant shape matching the constructed RGBA', () => {
-    const fill = show.paintShapes?.fill
+  it('paintShapes.fill.fill is a constant shape matching the constructed RGBA', () => {
+    const fill = show.paintShapes?.fill.fill
     expect(fill).toBeDefined()
     expect(fill!.kind).toBe('constant')
     expect((fill as { kind: 'constant'; value: readonly number[] }).value[0]).toBeCloseTo(rgba[0])
@@ -153,7 +153,7 @@ describe('AC2c.3.7 — buildSyntheticEarthSurfaceShow routes through ground (2D)
     // show has no per-feature data and must bind to the BASE layout,
     // selecting fillPipelineOverdraw — both share fs_overdraw and the
     // same r16float accumulation semantics.
-    const opacity = show.paintShapes?.opacity
+    const opacity = show.paintShapes?.common.opacity
     expect(opacity).toBeDefined()
     expect(opacity!.kind).toBe('constant')
     expect((opacity as { kind: 'constant'; value: number }).value).toBe(1)

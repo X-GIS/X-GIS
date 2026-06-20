@@ -225,11 +225,13 @@ function show(targetName: string, extras: Record<string, unknown> = {}): any {
     geometryExpr: extras.geometryExpr ?? null,
     shaderVariant: extras.shaderVariant ?? null,
     paintShapes: {
-      opacity: { kind: 'constant', value: 1 },
-      strokeWidth: { kind: 'constant', value: 1 },
-      size: (extras.sizeShape as unknown) ?? null,
-      fill: null,
-      stroke: null,
+      fill: { fill: null },
+      line: {
+        stroke: null,
+        strokeWidth: { kind: 'constant', value: 1 },
+      },
+      circle: { size: (extras.sizeShape as unknown) ?? null },
+      common: { opacity: { kind: 'constant', value: 1 } },
     },
     ...extras,
   }

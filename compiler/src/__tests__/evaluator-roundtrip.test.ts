@@ -136,10 +136,10 @@ function runRoundtrip(name: string, style: unknown): void {
       const minor = shows.find(s => s.layerName === 'highway_minor')
       if (!minor) return
       // Width can now flow through EITHER strokeWidthExpr (per-feature
-      // worker bake) OR paintShapes.strokeWidth ZoomShape (per-frame
+      // worker bake) OR paintShapes.line.strokeWidth ZoomShape (per-frame
       // renderer interp). The latter is the common case for pure zoom
       // curves like OFM Bright's highway-minor.
-      const swShape = minor.paintShapes.strokeWidth
+      const swShape = minor.paintShapes.line.strokeWidth
       const stops = swShape.kind === 'zoom-interpolated' ? swShape.stops : null
       let widths: number[]
       if (stops !== null && stops.length >= 2) {

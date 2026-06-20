@@ -128,7 +128,7 @@ describe('TileCatalog skeleton (Cesium permanent-root pattern)', () => {
     // Sanity: shield is empty here (we never called prefetchTiles), so
     // the only thing standing between this key and eviction is the
     // skeleton filter.
-    const shield = (catalog as unknown as { _evictShield: Map<number, number> })._evictShield
+    const shield = (catalog as unknown as { eviction: { shieldMap: Map<number, number> } }).eviction.shieldMap
     expect(shield.has(k)).toBe(false)
     catalog.evictTiles(new Set())
     expect(catalog.hasTileData(k),

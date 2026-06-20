@@ -107,7 +107,7 @@ function resolveSourceFillRgba(
   for (const show of shows) {
     if (show.targetName !== sourceName) continue
     if (show.resolvedFillRgba) return show.resolvedFillRgba
-    const ps = show.paintShapes?.fill
+    const ps = show.paintShapes?.fill.fill
     if (ps && ps.kind === 'constant') return ps.value as [number, number, number, number]
     if (show.fill) return parseHexColor(show.fill)
   }
@@ -135,11 +135,13 @@ export function buildGeoJSONPolarCapShow(
     extrudeBase: { kind: 'none' },
     resolvedFillRgba: rgba,
     paintShapes: {
-      fill: { kind: 'constant', value: rgba },
-      stroke: null,
-      opacity: { kind: 'constant', value: 1 },
-      strokeWidth: { kind: 'constant', value: 0 },
-      size: null,
+      fill: { fill: { kind: 'constant', value: rgba } },
+      line: {
+        stroke: null,
+        strokeWidth: { kind: 'constant', value: 0 },
+      },
+      circle: { size: null },
+      common: { opacity: { kind: 'constant', value: 1 } },
     },
   }
 }
@@ -155,7 +157,7 @@ export function updateGeoJSONPolarCapShowFill(
   show.resolvedFillRgba = rgba
   show.paintShapes = {
     ...show.paintShapes,
-    fill: { kind: 'constant', value: rgba },
+    fill: { fill: { kind: 'constant', value: rgba } },
   }
 }
 

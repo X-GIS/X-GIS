@@ -12,7 +12,7 @@ import { describe, it, expect } from 'vitest'
 import { convertMapboxStyle, Lexer, Parser, lower, emitCommands } from '../index'
 
 function compileShow(paint: Record<string, unknown>): {
-  show: { label?: { iconOpacity?: number; shapes?: { iconOpacity?: { kind: string } | null } } }
+  show: { label?: { iconOpacity?: number; shapes?: { icon?: { iconOpacity?: { kind: string } | null } } } }
   warnings: string
 } {
   const style = {
@@ -34,7 +34,7 @@ function compileShow(paint: Record<string, unknown>): {
   const cmds = emitCommands(lower(new Parser(new Lexer(xgis).tokenize()).parse()))
   return {
     show: cmds.shows[0] as unknown as {
-      label?: { iconOpacity?: number; shapes?: { iconOpacity?: { kind: string } | null } }
+      label?: { iconOpacity?: number; shapes?: { icon?: { iconOpacity?: { kind: string } | null } } }
     },
     warnings: warnings.join('\n'),
   }
@@ -85,8 +85,8 @@ describe('icon-opacity — iter 492 edge cases', () => {
       'icon-opacity': ['interpolate', ['linear'], ['zoom'], 10, 0, 14, 1],
     })
     // PropertyShape supersedes the constant `iconOpacity` field for
-    // non-constant forms — runtime resolves per frame via shapes.iconOpacity.
-    expect(show.label?.shapes?.iconOpacity?.kind).toBe('zoom-interpolated')
+    // non-constant forms — runtime resolves per frame via shapes.icon.iconOpacity.
+    expect(show.label?.shapes?.icon?.iconOpacity?.kind).toBe('zoom-interpolated')
     expect(warnings).not.toContain('icon-opacity non-constant form not yet supported')
   })
 
@@ -94,7 +94,7 @@ describe('icon-opacity — iter 492 edge cases', () => {
     const { show, warnings } = compileShow({
       'icon-opacity': ['match', ['get', 'class'], 'shop', 0.6, 1],
     })
-    expect(show.label?.shapes?.iconOpacity?.kind).toBe('data-driven')
+    expect(show.label?.shapes?.icon?.iconOpacity?.kind).toBe('data-driven')
     expect(warnings).not.toContain('icon-opacity non-constant form not yet supported')
   })
 
