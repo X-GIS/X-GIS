@@ -181,3 +181,76 @@ describe('fill-extrusion-translate-anchor=map — reuses fill-translate slot', (
     expect(shows[0]!.fillTranslateY).toBe(4)
   })
 })
+
+// ── Phase S Batch 3: SYMBOL path (text + icon) ──
+// text-/icon-translate-anchor=map land on ShowCommand.label.{translate,
+// icon}AnchorMap; the runtime (text-stage / label-pass dispatchIcon)
+// rotates the [dx,dy] offset by the map bearing. DEFAULT (absent /
+// viewport) leaves the flag undefined → byte-identical screen-space.
+
+function symbolLayer(paint: Record<string, unknown>, layout: Record<string, unknown>): unknown {
+  return {
+    version: 8,
+    sprite: 'https://example/sprites/foo',
+    sources: { t: { type: 'vector', tiles: ['x'] } },
+    layers: [{ id: 's', type: 'symbol', source: 't', 'source-layer': 'p', layout, paint }],
+  }
+}
+
+describe('text-translate-anchor=map → ShowCommand.label.translateAnchorMap', () => {
+  it('anchor=map WITH text-translate → emits label-translate-anchor-map utility', () => {
+    const src = convert(symbolLayer(
+      { 'text-color': '#000', 'text-translate': [2, -8], 'text-translate-anchor': 'map' },
+      { 'text-field': '{name}' }))
+    expect(src).toContain('label-translate-anchor-map')
+  })
+
+  it('anchor=map → label.translateAnchorMap === true (offset carried)', () => {
+    const shows = compileToShows(symbolLayer(
+      { 'text-color': '#000', 'text-translate': [2, -8], 'text-translate-anchor': 'map' },
+      { 'text-field': '{name}' }))
+    expect(shows[0]!.label!.translateAnchorMap).toBe(true)
+    expect(shows[0]!.label!.translate).toEqual([2, -8])
+  })
+
+  it('DEFAULT (no anchor) → translateAnchorMap undefined — byte-identical screen-space', () => {
+    const shows = compileToShows(symbolLayer(
+      { 'text-color': '#000', 'text-translate': [2, -8] },
+      { 'text-field': '{name}' }))
+    expect(shows[0]!.label!.translateAnchorMap).toBeUndefined()
+    expect(shows[0]!.label!.translate).toEqual([2, -8])
+  })
+
+  it('anchor=map WITHOUT text-translate → no utility (anchor no-op)', () => {
+    const src = convert(symbolLayer(
+      { 'text-color': '#000', 'text-translate-anchor': 'map' },
+      { 'text-field': '{name}' }))
+    expect(src).not.toContain('label-translate-anchor-map')
+  })
+})
+
+describe('icon-translate-anchor=map → ShowCommand.label.iconTranslateAnchorMap', () => {
+  it('anchor=map WITH icon-translate → emits label-icon-translate-anchor-map utility', () => {
+    const src = convert(symbolLayer(
+      { 'icon-translate': [4, 2], 'icon-translate-anchor': 'map' },
+      { 'icon-image': 'marker' }))
+    expect(src).toContain('label-icon-translate-anchor-map')
+  })
+
+  it('anchor=map → label.iconTranslateAnchorMap === true (offset carried)', () => {
+    const shows = compileToShows(symbolLayer(
+      { 'icon-translate': [4, 2], 'icon-translate-anchor': 'map' },
+      { 'icon-image': 'marker' }))
+    expect(shows[0]!.label!.iconTranslateAnchorMap).toBe(true)
+    expect(shows[0]!.label!.iconTranslateX).toBe(4)
+    expect(shows[0]!.label!.iconTranslateY).toBe(2)
+  })
+
+  it('DEFAULT (no anchor) → iconTranslateAnchorMap undefined — byte-identical', () => {
+    const shows = compileToShows(symbolLayer(
+      { 'icon-translate': [4, 2] },
+      { 'icon-image': 'marker' }))
+    expect(shows[0]!.label!.iconTranslateAnchorMap).toBeUndefined()
+    expect(shows[0]!.label!.iconTranslateX).toBe(4)
+  })
+})

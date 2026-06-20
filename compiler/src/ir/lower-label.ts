@@ -81,6 +81,9 @@ export function lowerLabelProps(
   let labelOffsetY: number | undefined
   let labelTranslateX: number | undefined
   let labelTranslateY: number | undefined
+  // Mapbox `text-translate-anchor: map` — world-space (bearing-rotated)
+  // text-translate. Default (undefined) = viewport/screen-space.
+  let labelTranslateAnchorMap: boolean | undefined
   let labelRadialOffset: number | undefined
   // `text-variable-anchor-offset` em offsets, keyed by pair index;
   // zipped onto the ordered anchor candidates at assembly time.
@@ -121,6 +124,9 @@ export function lowerLabelProps(
   // shield + caption style can offset icon vs text independently).
   let labelIconTranslateX: number | undefined
   let labelIconTranslateY: number | undefined
+  // Mapbox `icon-translate-anchor: map` — world-space (bearing-rotated)
+  // icon-translate. Default (undefined) = viewport/screen-space.
+  let labelIconTranslateAnchorMap: boolean | undefined
   let labelIconRotate: number | undefined
   let labelIconOpacity: number | undefined
   // iter 113 — text/icon-opacity PropertyShape accumulators (zoom-interp
@@ -345,6 +351,8 @@ export function lowerLabelProps(
       // matching the local tangent.
       if (name === 'label-along-path') { labelPlacement = 'line'; continue }
       if (name === 'label-line-center') { labelPlacement = 'line-center'; continue }
+      if (name === 'label-translate-anchor-map') { labelTranslateAnchorMap = true; continue }
+      if (name === 'label-icon-translate-anchor-map') { labelIconTranslateAnchorMap = true; continue }
       if (name === 'label-rotation-alignment-map') { labelRotationAlignment = 'map'; continue }
       if (name === 'label-rotation-alignment-viewport') { labelRotationAlignment = 'viewport'; continue }
       if (name === 'label-rotation-alignment-auto') { labelRotationAlignment = 'auto'; continue }
@@ -597,7 +605,7 @@ export function lowerLabelProps(
   return foldLabelKnobs(label, {
     labelSize, labelColor, labelHaloWidth, labelHaloColor, labelHaloBlur,
     labelAnchor, labelTransform, labelOffsetX, labelOffsetY,
-    labelTranslateX, labelTranslateY, labelRadialOffset,
+    labelTranslateX, labelTranslateY, labelTranslateAnchorMap, labelRadialOffset,
     labelVariableAnchorOffset,
     labelSizeZoomStops: labelSizeZoomStops.length > 0 ? labelSizeZoomStops : undefined,
     labelSizeZoomStopsBase,
@@ -614,7 +622,7 @@ export function lowerLabelProps(
     labelMaxWidth, labelLineHeight, labelJustify,
     labelPlacement, labelSpacing,
     labelRotationAlignment, labelPitchAlignment, labelKeepUpright, labelMaxAngle,
-    labelIconImage, labelIconImageExpr, labelIconSize, labelIconAnchor, labelIconOffset, labelIconTranslateX, labelIconTranslateY, labelIconRotate, labelIconOpacity, labelIconRotationAlignment,
+    labelIconImage, labelIconImageExpr, labelIconSize, labelIconAnchor, labelIconOffset, labelIconTranslateX, labelIconTranslateY, labelIconTranslateAnchorMap, labelIconRotate, labelIconOpacity, labelIconRotationAlignment,
     labelIconSizeZoomStops: labelIconSizeZoomStops.length > 0 ? labelIconSizeZoomStops : undefined,
     labelIconSizeZoomStopsBase,
     labelOpacityZoomStops: labelOpacityZoomStops.length > 0 ? labelOpacityZoomStops : undefined,
@@ -651,6 +659,7 @@ function foldLabelKnobs(
     labelOffsetY?: number
     labelTranslateX?: number
     labelTranslateY?: number
+    labelTranslateAnchorMap?: boolean
     labelRadialOffset?: number
     labelVariableAnchorOffset?: import('./render-node').LabelDef['variableAnchorOffset']
     labelSizeZoomStops?: ZoomStop<number>[]
@@ -692,6 +701,7 @@ function foldLabelKnobs(
     labelIconOffset?: [number, number]
     labelIconTranslateX?: number
     labelIconTranslateY?: number
+    labelIconTranslateAnchorMap?: boolean
     labelIconRotate?: number
     labelIconOpacity?: number
     labelIconRotationAlignment?: 'map'
@@ -747,6 +757,7 @@ function foldLabelKnobs(
     ...(knobs.labelTransform !== undefined ? { transform: knobs.labelTransform } : {}),
     ...(offset !== undefined ? { offset } : {}),
     ...(translate !== undefined ? { translate } : {}),
+    ...(knobs.labelTranslateAnchorMap !== undefined ? { translateAnchorMap: knobs.labelTranslateAnchorMap } : {}),
     ...(knobs.labelRadialOffset !== undefined ? { radialOffset: knobs.labelRadialOffset } : {}),
     ...(knobs.labelVariableAnchorOffset !== undefined && knobs.labelVariableAnchorOffset.length > 0
       ? { variableAnchorOffset: knobs.labelVariableAnchorOffset } : {}),
@@ -777,6 +788,7 @@ function foldLabelKnobs(
     ...(knobs.labelIconOffset !== undefined ? { iconOffset: knobs.labelIconOffset } : {}),
     ...(knobs.labelIconTranslateX !== undefined ? { iconTranslateX: knobs.labelIconTranslateX } : {}),
     ...(knobs.labelIconTranslateY !== undefined ? { iconTranslateY: knobs.labelIconTranslateY } : {}),
+    ...(knobs.labelIconTranslateAnchorMap !== undefined ? { iconTranslateAnchorMap: knobs.labelIconTranslateAnchorMap } : {}),
     ...(knobs.labelIconRotate !== undefined ? { iconRotate: knobs.labelIconRotate } : {}),
     ...(knobs.labelIconOpacity !== undefined ? { iconOpacity: knobs.labelIconOpacity } : {}),
     ...(knobs.labelIconColor !== undefined ? { iconColor: knobs.labelIconColor } : {}),

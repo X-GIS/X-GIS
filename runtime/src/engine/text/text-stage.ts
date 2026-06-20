@@ -118,6 +118,22 @@ const DEFAULTS: Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'in
   defaultFont: CJK_FALLBACK_CHAIN,
 }
 
+/** Mapbox `text-translate-anchor`: viewport (default) returns the
+ *  [dx,dy] CSS-px offset unchanged (screen-space, historical behaviour);
+ *  map rotates it by the map bearing so it tracks the MAP world axes
+ *  (MapLibre map-anchor). Pure 2D rotation; mirror of the VTR
+ *  `rotateTranslateForAnchor` used for the fill/line clip-space bake
+ *  (Phase S Batch 2). No work when the offset is zero or anchor is
+ *  viewport. */
+function rotateLabelTranslate(
+  dx: number, dy: number, anchorMap: boolean | undefined, bearingDeg: number,
+): [number, number] {
+  if (!anchorMap || (dx === 0 && dy === 0)) return [dx, dy]
+  const r = (bearingDeg * Math.PI) / 180
+  const c = Math.cos(r), s = Math.sin(r)
+  return [dx * c - dy * s, dx * s + dy * c]
+}
+
 export class TextStage {
   readonly host: GlyphAtlasHost
   readonly gpu: GlyphAtlasGPU
@@ -389,6 +405,17 @@ export class TextStage {
     this.cameraZoom = zoom
   }
   private cameraZoom: number | undefined
+
+  /** Map bearing in degrees for `text-translate-anchor: map` (world-
+   *  anchored text-translate). When a label's `translateAnchorMap` flag
+   *  is set, prepare() rotates its `translate` [dx,dy] by this bearing
+   *  (mirror of the fill/line clip-space bake rotation). Default 0 →
+   *  no rotation, so the viewport (screen-space) path is byte-identical.
+   *  Call once per frame BEFORE addLabel submissions. */
+  setBearing(bearingDeg: number): void {
+    this.bearingDeg = bearingDeg
+  }
+  private bearingDeg = 0
 
   /** Optional render-trace recorder. When non-null, every addLabel /
    *  addCurvedLineLabel call pushes a rich `TraceLabel` (text, colour,
@@ -814,6 +841,17 @@ export class TextStage {
             ...(p.def.halo.blur !== undefined ? { blur: p.def.halo.blur * dpr } : {}),
           }
         : undefined
+      // text-translate-anchor: viewport (default) leaves [dx,dy]
+      // screen-space (byte-identical); map rotates it by the map bearing
+      // (mirror of the fill/line clip-space bake). Resolve ONCE here so
+      // the rotated value flows into BOTH the layout-cache key and the
+      // per-anchor dx/dy add below — a bearing change re-keys the cache
+      // (the rotated tx/ty differ) so a cached entry never goes stale.
+      const [txRaw, tyRaw] = p.def.translate
+        ? rotateLabelTranslate(
+            p.def.translate[0], p.def.translate[1],
+            p.def.translateAnchorMap, this.bearingDeg)
+        : [0, 0]
 
       // iter-168 Phase A slice 2 — layout cache (single-anchor static).
       // Variable-anchor / radialOffset / multi-candidate / rotated
@@ -850,8 +888,7 @@ export class TextStage {
           lineHeightPx,
           justify, anchorStr,
           p.def.offset ? p.def.offset[0] : 0, p.def.offset ? p.def.offset[1] : 0,
-          p.def.translate ? p.def.translate[0] : 0,
-          p.def.translate ? p.def.translate[1] : 0,
+          txRaw, tyRaw,
           padding,
           haloOut ? haloOut.width : 0,
           haloOut?.blur ?? 0,
@@ -958,9 +995,11 @@ export class TextStage {
         if (p.def.translate) {
           // text-translate is in pixels (Mapbox paint property), not
           // em-units, so it scales by DPR alone — independent of the
-          // current font size. Stacks on top of text-offset.
-          dx += p.def.translate[0] * dpr
-          dy += p.def.translate[1] * dpr
+          // current font size. Stacks on top of text-offset. txRaw/tyRaw
+          // already carry the text-translate-anchor:map bearing rotation
+          // (viewport default = unrotated [dx,dy]).
+          dx += txRaw * dpr
+          dy += tyRaw * dpr
         }
         const drawX = p.anchorX + dx
         const drawY = p.anchorY + dy

@@ -437,10 +437,11 @@ export interface LabelDef {
   >
   /** Mapbox `text-offset` in em units `[dx, dy]`. */
   offset?: [number, number]
-  /** Mapbox `text-translate` in display pixels `[dx, dy]`. Applied
-   *  on top of `offset`; differs from offset only by unit (pixels
-   *  vs em-units) and by Mapbox spec's "paint" vs "layout" category. */
+  /** Mapbox `text-translate` in display pixels `[dx, dy]`. Applied on top
+   *  of `offset`; differs only by unit (px vs em) + paint-vs-layout category. */
   translate?: [number, number]
+  /** Mapbox `text-translate-anchor`="map": runtime rotates `translate` by the map bearing (Phase S Batch 3). Default = screen-space, byte-identical. */
+  translateAnchorMap?: boolean
   /** Mapbox `text-radial-offset` in em units. Only meaningful with
    *  variable placement (`anchorCandidates`): the runtime offsets the
    *  text away from the anchor point by this radius in the direction
@@ -542,6 +543,8 @@ export interface LabelDef {
    *  is the only honoured mode. */
   iconTranslateX?: number
   iconTranslateY?: number
+  /** Mapbox `icon-translate-anchor`="map": dispatchIcon rotates the icon translate by the map bearing. Default = screen-space, byte-identical. */
+  iconTranslateAnchorMap?: boolean
   /** Mapbox `icon-rotate` in degrees clockwise. Default 0. */
   iconRotate?: number
   /** Mapbox `icon-opacity` alpha multiplier on icon fragments. 0..1

@@ -634,6 +634,16 @@ export function convertTextLayoutProperties(
     if (translate[0] !== 0) utils.push(`label-translate-x-${fmtSigned(translate[0])}`)
     if (translate[1] !== 0) utils.push(`label-translate-y-${fmtSigned(translate[1])}`)
   }
+  // text-translate-anchor: viewport (default) keeps text-translate in
+  // screen space (byte-identical historical path) — emit nothing. "map"
+  // anchors the offset in world space; the runtime rotates [dx,dy] by
+  // the map bearing (mirror of fill/line Phase S Batch 2). No-op without
+  // a parent text-translate, so only emit the flag when both are present.
+  const textTranslateAnchor = unwrapLiteralScalar(paint['text-translate-anchor'])
+  if (textTranslateAnchor === 'map'
+      && paint['text-translate'] !== undefined && paint['text-translate'] !== null) {
+    utils.push('label-translate-anchor-map')
+  }
   // icon-translate (paint) — CSS-px viewport offset that applies ONLY
   // to the icon (e.g. shift a POI icon up 4px while keeping the label
   // centred). Distinct from text-translate; the runtime threads it
@@ -658,11 +668,15 @@ export function convertTextLayoutProperties(
   } else if (paint['icon-translate'] !== undefined && paint['icon-translate'] !== null) {
     warnings.push(`Symbol layer "${layer.id}" — icon-translate non-constant form (expression / interpolate) not yet supported; the constant [dx, dy] form is. Offset dropped.`)
   }
-  // icon-translate-anchor: only "viewport" (the spec default) is
-  // honoured; "map" would offset in world space (not implemented).
+  // icon-translate-anchor: viewport (default) keeps icon-translate in
+  // screen space (byte-identical) — emit nothing. "map" anchors the
+  // offset in world space; dispatchIcon rotates [dx,dy] by the map
+  // bearing before the anchor add (mirror of text-translate-anchor /
+  // fill/line Phase S Batch 2). No-op without a parent icon-translate.
   const iconTranslateAnchor = unwrapLiteralScalar(paint['icon-translate-anchor'])
-  if (iconTranslateAnchor === 'map') {
-    warnings.push(`Symbol layer "${layer.id}" — icon-translate-anchor "map" not implemented; icon-translate is applied in viewport (screen) space.`)
+  if (iconTranslateAnchor === 'map'
+      && paint['icon-translate'] !== undefined && paint['icon-translate'] !== null) {
+    utils.push('label-icon-translate-anchor-map')
   }
   // text-radial-offset (em) → label-radial-offset-N. Only meaningful
   // alongside text-variable-anchor: the runtime pushes the label away
