@@ -331,7 +331,7 @@ describe('3b. Evaluator differential — our evaluate() vs MapLibre createExpres
       // Pick the right AST / stops source on the compiled show.
       const valueAt = (z: number): number => {
         if (c.propertyName === 'line-width') {
-          const sw = show.paintShapes.strokeWidth
+          const sw = show.paintShapes.line.strokeWidth
           if (sw.kind === 'zoom-interpolated' && sw.stops.length >= 2) {
             return interpolateNumberStops(sw.stops, z, sw.base ?? 1)
           }
@@ -343,7 +343,7 @@ describe('3b. Evaluator differential — our evaluate() vs MapLibre createExpres
         }
         if (c.propertyName === 'text-size') {
           const lbl = show.label!
-          const sz = lbl.shapes?.size
+          const sz = lbl.shapes?.textLayout.size
           if (sz?.kind === 'zoom-interpolated') {
             return interpolateNumberStops(sz.stops, z, sz.base ?? 1)
           }
@@ -400,7 +400,7 @@ describe('3b. Evaluator differential — our evaluate() vs MapLibre createExpres
         }
         for (const z of ZOOMS) {
           let ours: number
-          const sw = show.paintShapes.strokeWidth
+          const sw = show.paintShapes.line.strokeWidth
           if (sw.kind === 'zoom-interpolated' && sw.stops.length >= 2) {
             ours = interpolateNumberStops(sw.stops, z, sw.base ?? 1)
           } else if (show.strokeWidthExpr) {

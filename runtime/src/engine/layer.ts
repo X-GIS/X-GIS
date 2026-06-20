@@ -165,7 +165,7 @@ export class XGISLayerStyle {
     // flat `show.opacity` field. Update both so the WebGPU draw path
     // picks up the imperative override. (Was silently ineffective
     // post-Step-1d before this commit.)
-    this.host.show.paintShapes.opacity = { kind: 'constant', value: clamped }
+    this.host.show.paintShapes.common.opacity = { kind: 'constant', value: clamped }
     this.host.invalidate()
   }
 
@@ -183,10 +183,10 @@ export class XGISLayerStyle {
     // paintShapes.fill is the truth-of-record for the WebGPU draw path.
     // Hex → RGBA tuple; `null` clears the shape.
     if (v === null) {
-      this.host.show.paintShapes.fill = null
+      this.host.show.paintShapes.fill.fill = null
     } else {
       const rgba = parseHexColor(v)!
-      this.host.show.paintShapes.fill = { kind: 'constant', value: rgba }
+      this.host.show.paintShapes.fill.fill = { kind: 'constant', value: rgba }
     }
     this.host.invalidate()
   }
@@ -199,10 +199,10 @@ export class XGISLayerStyle {
     this.snapshot('stroke', this.host.show.stroke)
     this.host.show.stroke = v
     if (v === null) {
-      this.host.show.paintShapes.stroke = null
+      this.host.show.paintShapes.line.stroke = null
     } else {
       const rgba = parseHexColor(v)!
-      this.host.show.paintShapes.stroke = { kind: 'constant', value: rgba }
+      this.host.show.paintShapes.line.stroke = { kind: 'constant', value: rgba }
     }
     this.host.invalidate()
   }
@@ -214,7 +214,7 @@ export class XGISLayerStyle {
     const clamped = Math.max(0, v)
     this.snapshot('strokeWidth', this.host.show.strokeWidth)
     this.host.show.strokeWidth = clamped
-    this.host.show.paintShapes.strokeWidth = { kind: 'constant', value: clamped }
+    this.host.show.paintShapes.line.strokeWidth = { kind: 'constant', value: clamped }
     this.host.invalidate()
   }
 

@@ -363,7 +363,10 @@ describe('buildShowSourceMaps — featurePropKeys field-filter', () => {
         targetName: 'places',
         label: {
           text: { kind: 'expr', expr: { ast: fld('name') } },
-          shapes: { size: { kind: 'data-driven', expr: { ast: fld('rank') } }, color: null },
+          shapes: {
+            textLayout: { size: { kind: 'data-driven', expr: { ast: fld('rank') } } },
+            textPaint: { color: null },
+          },
         },
       }),
     ])
@@ -379,8 +382,8 @@ describe('buildShowSourceMaps — featurePropKeys field-filter', () => {
         label: {
           text: { kind: 'expr', expr: { ast: fld('name') } },
           shapes: {
-            size: { kind: 'constant', value: 14 },
-            color: { kind: 'data-driven', expr: { ast: fld('category') } },
+            textLayout: { size: { kind: 'constant', value: 14 } },
+            textPaint: { color: { kind: 'data-driven', expr: { ast: fld('category') } } },
           },
         },
       }),

@@ -50,7 +50,7 @@ describe('stroke binding routing — paint.line-width interpolate-by-zoom', () =
     expect(node!.stroke.width.base).toBeCloseTo(1.2, 4)
   })
 
-  it('Mapbox line-width interpolate(zoom) threads through paintShapes.strokeWidth', () => {
+  it('Mapbox line-width interpolate(zoom) threads through paintShapes.line.strokeWidth', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
@@ -69,8 +69,8 @@ describe('stroke binding routing — paint.line-width interpolate-by-zoom', () =
     const xgis = convertMapboxStyle(style as never)
     const cmds = emitCommands(lower(new Parser(new Lexer(xgis).tokenize()).parse()))
     const s = cmds.shows[0]!
-    expect(s.paintShapes.strokeWidth.kind).toBe('zoom-interpolated')
-    expect((s.paintShapes.strokeWidth as { stops: unknown[] }).stops).toHaveLength(2)
+    expect(s.paintShapes.line.strokeWidth.kind).toBe('zoom-interpolated')
+    expect((s.paintShapes.line.strokeWidth as { stops: unknown[] }).stops).toHaveLength(2)
     expect(s.strokeWidthExpr).toBeUndefined()
   })
 
@@ -291,7 +291,7 @@ describe('stroke binding routing — paint.line-width interpolate-by-zoom', () =
       if (s.layerName.includes('name')) continue
       if (s.layerName.includes('area')) continue
       const hasExpr = s.strokeWidthExpr !== undefined
-      const swShape = s.paintShapes.strokeWidth
+      const swShape = s.paintShapes.line.strokeWidth
       const hasStops = swShape.kind === 'zoom-interpolated' && swShape.stops.length >= 2
       if (!hasExpr && !hasStops && s.strokeWidth === 1) {
         offenders.push(s.layerName)

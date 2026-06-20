@@ -126,7 +126,12 @@ function synthesizePaintShapes(show: LegacyShowFixture): PaintShapes {
     size = { kind: 'zoom-interpolated', stops: sz, base: show.zoomSizeStopsBase ?? 1 }
   }
 
-  return { fill, stroke, opacity, strokeWidth, size }
+  return {
+    fill: { fill },
+    line: { stroke, strokeWidth },
+    circle: { size },
+    common: { opacity },
+  }
 }
 
 // ── Stub helpers ───────────────────────────────────────────────────

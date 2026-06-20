@@ -21,11 +21,13 @@ function show(ps: PartialPaintShapes, extras: Record<string, unknown> = {}): any
     targetName: 'src',
     layerName: 'L1',
     paintShapes: {
-      opacity: ps.opacity ?? { kind: 'constant', value: 1 },
-      strokeWidth: ps.strokeWidth ?? { kind: 'constant', value: 1 },
-      size: ps.size ?? null,
-      fill: ps.fill ?? null,
-      stroke: ps.stroke ?? null,
+      fill: { fill: ps.fill ?? null },
+      line: {
+        stroke: ps.stroke ?? null,
+        strokeWidth: ps.strokeWidth ?? { kind: 'constant', value: 1 },
+      },
+      circle: { size: ps.size ?? null },
+      common: { opacity: ps.opacity ?? { kind: 'constant', value: 1 } },
     },
     ...extras,
   }

@@ -127,14 +127,14 @@ function checkPaint(layer: MapboxLayer, show: ShowSample | undefined): string[] 
         }
       } else {
         // interpolate / expression — must land in EITHER strokeWidthExpr
-        // (per-feature worker bake) or paintShapes.strokeWidth as a zoom-
+        // (per-feature worker bake) or paintShapes.line.strokeWidth as a zoom-
         // interpolated shape (per-frame renderer interp for pure zoom-
         // driven widths).
         const hasExpr = show.strokeWidthExpr !== undefined
-        const sw = show.paintShapes.strokeWidth
+        const sw = show.paintShapes.line.strokeWidth
         const hasStops = sw.kind === 'zoom-interpolated' && sw.stops.length >= 2
         if (!hasExpr && !hasStops && show.strokeWidth === 1) {
-          fails.push(`[${layer.id}] line-width is non-constant but neither strokeWidthExpr nor paintShapes.strokeWidth zoom-stops is set AND strokeWidth is the default 1`)
+          fails.push(`[${layer.id}] line-width is non-constant but neither strokeWidthExpr nor paintShapes.line.strokeWidth zoom-stops is set AND strokeWidth is the default 1`)
         }
       }
     }
@@ -175,11 +175,11 @@ function checkPaint(layer: MapboxLayer, show: ShowSample | undefined): string[] 
           fails.push(`[${layer.id}] circle-radius=${r} but show.size=${show.size}`)
         }
       } else {
-        // non-constant → paintShapes.size zoom-stops or sizeExpr
-        const sz = show.paintShapes.size
+        // non-constant → paintShapes.circle.size zoom-stops or sizeExpr
+        const sz = show.paintShapes.circle.size
         const hasSizeStops = sz !== null && sz.kind === 'zoom-interpolated' && sz.stops.length > 0
         if (!hasSizeStops && show.size === null) {
-          fails.push(`[${layer.id}] circle-radius is non-constant but no paintShapes.size zoom-stops and size=null`)
+          fails.push(`[${layer.id}] circle-radius is non-constant but no paintShapes.circle.size zoom-stops and size=null`)
         }
       }
     }

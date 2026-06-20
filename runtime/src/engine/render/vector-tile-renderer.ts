@@ -3409,7 +3409,7 @@ export class VectorTileRenderer {
     // fixture_size_zoom surfaced this with `size-[interpolate(zoom,
     // 0, 30, 20, 80)]`. Keep `show.shape` in the OR — shapes can carry
     // point intent independent of a declared size.
-    const hasPointStyle = show.paintShapes?.size != null || show.shape !== null
+    const hasPointStyle = show.paintShapes?.circle.size != null || show.shape !== null
     if (hasPointStyle && pointRenderer && typeof pointRenderer.addTilePoint === 'function') {
       // Phase 2 PR 2d.2 — read ECEF DSFUN stride-9:
       // [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, feat_id, abs_lon, abs_lat]

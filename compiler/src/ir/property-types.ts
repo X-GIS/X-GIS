@@ -86,22 +86,53 @@ export type PropertyShape<T> =
    *  AST against {feature props + camera-zoom prop}). */
   | { kind: 'data-driven'; expr: DataExpr }
 
-/** PropertyShape bundle for a polygon / line ShowCommand. `null`
- *  fields mean the layer didn't author that axis — callers branch
- *  on null, not on a `kind: 'none'` sentinel. `opacity` and
- *  `strokeWidth` are non-null because they always resolve to a
- *  numeric value (lower.ts seeds defaults if the source omits them). */
-export interface PaintShapes {
+// ─── PaintShapes sub-bundles (Tier-B B1, row 15) ───────────────────
+//
+// PaintShapes was a flat record where every layer-type's paint axis
+// sat side-by-side, so a fill-axis change and a line-axis change both
+// edited the same single-authority bundle (a serialization chokepoint
+// on the parity path). It is now sub-bundled BY LAYER TYPE so those
+// edits land in different sub-groups → parallel-safe. This is PURE
+// grouping: the same PropertyShape values, the same field names, just
+// nested one level under the layer type they belong to.
+
+/** Polygon fill paint axes. */
+export interface FillShapes {
   /** Polygon fill colour. */
   fill: PropertyShape<RGBA> | null
+}
+
+/** Line / polygon-outline paint axes. */
+export interface LineShapes {
   /** Line / polygon outline colour. */
   stroke: PropertyShape<RGBA> | null
-  /** Layer-wide opacity multiplier (0..1). */
-  opacity: PropertyShape<number>
   /** Line / outline width in CSS pixels. */
   strokeWidth: PropertyShape<number>
+}
+
+/** Circle / point-marker paint axes. */
+export interface CircleShapes {
   /** Point / symbol size in CSS pixels. */
   size: PropertyShape<number> | null
+}
+
+/** Layer-wide paint axes shared across every layer type. */
+export interface CommonPaintShapes {
+  /** Layer-wide opacity multiplier (0..1). */
+  opacity: PropertyShape<number>
+}
+
+/** PropertyShape bundle for a polygon / line ShowCommand, sub-bundled
+ *  per layer type. `null` fields mean the layer didn't author that
+ *  axis — callers branch on null, not on a `kind: 'none'` sentinel.
+ *  `common.opacity` and `line.strokeWidth` are non-null because they
+ *  always resolve to a numeric value (lower.ts seeds defaults if the
+ *  source omits them). */
+export interface PaintShapes {
+  fill: FillShapes
+  line: LineShapes
+  circle: CircleShapes
+  common: CommonPaintShapes
 }
 
 /** PropertyShape bundle for one label's eight paint axes. The
@@ -121,9 +152,16 @@ export interface PaintShapes {
  *  hands a resolved `effectiveDef` to text-stage. Downstream code
  *  (text-stage, curved-label paths, trace recorder) reads
  *  `effectiveDef.*` only. */
-export interface LabelShapes {
-  /** Font size in CSS pixels. */
-  size: PropertyShape<number>
+// ─── LabelShapes sub-bundles (Tier-B B1, row 15) ───────────────────
+//
+// LabelShapes' eight text axes + three icon axes are now sub-bundled
+// BY CONCERN — text-paint vs text-layout vs icon — so a text-paint
+// change and an icon change touch different sub-groups. PURE grouping:
+// same PropertyShape values, same field names, nested under their
+// concern.
+
+/** Text PAINT axes (colour / halo / opacity). */
+export interface TextPaintShapes {
   /** Text fill colour. */
   color: PropertyShape<RGBA> | null
   /** Halo (outline) width in CSS pixels. */
@@ -132,6 +170,20 @@ export interface LabelShapes {
   haloColor: PropertyShape<RGBA> | null
   /** Halo edge softness in CSS pixels (Gaussian-style feathering). */
   haloBlur: PropertyShape<number> | null
+  /** Mapbox `text-opacity` 0..1 alpha multiplier on the resolved
+   *  text fill colour. `null` = no author input. The constant form
+   *  is still folded into `color`'s alpha at convert-time
+   *  (applyAlphaMultiplier — single label-color hex carries both).
+   *  Zoom-interp / data-driven forms land here and the runtime
+   *  multiplies `resolvedColor.a` (+ halo colour alpha) per frame.
+   *  Iter 113. */
+  opacity: PropertyShape<number> | null
+}
+
+/** Text LAYOUT axes (size / font). */
+export interface TextLayoutShapes {
+  /** Font size in CSS pixels. */
+  size: PropertyShape<number>
   /** Font family stack (analogous to CSS font-family — first
    *  available wins). Family names only; embedded weight / style
    *  suffixes are split into the parallel `fontWeight` / `fontStyle`
@@ -141,19 +193,15 @@ export interface LabelShapes {
   fontWeight: PropertyShape<number> | null
   /** CSS font-style. */
   fontStyle: PropertyShape<'normal' | 'italic'> | null
+}
+
+/** Sprite ICON axes (size / opacity / colour). */
+export interface IconShapes {
   /** Mapbox `icon-size` scale factor on the sprite's design size.
    *  `null` = no author input → runtime falls back to LabelDef.iconSize
    *  (constant) or the spec default 1. Constant + zoom-interp both
    *  resolve to a number; data-driven not yet supported (iter 523). */
   iconSize: PropertyShape<number> | null
-  /** Mapbox `text-opacity` 0..1 alpha multiplier on the resolved
-   *  text fill colour. `null` = no author input. The constant form
-   *  is still folded into `color`'s alpha at convert-time
-   *  (applyAlphaMultiplier — single label-color hex carries both).
-   *  Zoom-interp / data-driven forms land here and the runtime
-   *  multiplies `resolvedColor.a` (+ halo colour alpha) per frame.
-   *  Iter 113. */
-  opacity: PropertyShape<number> | null
   /** Mapbox `icon-opacity` 0..1 alpha multiplier on the sprite quad.
    *  `null` = no author input → runtime falls back to LabelDef.iconOpacity
    *  (constant) or the spec default 1. Iter 113. */
@@ -164,4 +212,10 @@ export interface LabelShapes {
    *  "#000000" but renderer only tints SDF, identity = white).
    *  iter 138. */
   iconColor: PropertyShape<readonly [number, number, number, number]> | null
+}
+
+export interface LabelShapes {
+  textPaint: TextPaintShapes
+  textLayout: TextLayoutShapes
+  icon: IconShapes
 }

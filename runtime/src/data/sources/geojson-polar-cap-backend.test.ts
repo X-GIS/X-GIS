@@ -175,7 +175,7 @@ describe('cap show builder', () => {
     const show = buildGeoJSONPolarCapShow(name, [0, 0, 1, 1])
     expect(show.targetName).toBe(name)
     expect(show.resolvedFillRgba).toEqual([0, 0, 1, 1])
-    expect(show.paintShapes.fill).toEqual({ kind: 'constant', value: [0, 0, 1, 1] })
+    expect(show.paintShapes.fill.fill).toEqual({ kind: 'constant', value: [0, 0, 1, 1] })
     expect(name).toBe('ocean__polar_cap')
   })
 
@@ -183,6 +183,6 @@ describe('cap show builder', () => {
     const show = buildGeoJSONPolarCapShow(capSourceName('land'), [0, 0, 1, 1])
     updateGeoJSONPolarCapShowFill(show, [0, 0.5, 0, 1])
     expect(show.resolvedFillRgba).toEqual([0, 0.5, 0, 1])
-    expect(show.paintShapes.fill).toEqual({ kind: 'constant', value: [0, 0.5, 0, 1] })
+    expect(show.paintShapes.fill.fill).toEqual({ kind: 'constant', value: [0, 0.5, 0, 1] })
   })
 })

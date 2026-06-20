@@ -434,10 +434,10 @@ class LabelPass implements RenderPass {
           // that feature's properties. Pulls AST from
           // `def.shapes.size.expr` / `def.shapes.color.expr` — the
           // LabelShapes bundle is the single source of truth post-L2.
-          const sizeExprAst = shapes && shapes.size.kind === 'data-driven'
-            ? shapes.size.expr.ast : null
-          const colorExprAst = shapes && shapes.color !== null && shapes.color.kind === 'data-driven'
-            ? shapes.color.expr.ast : null
+          const sizeExprAst = shapes && shapes.textLayout.size.kind === 'data-driven'
+            ? shapes.textLayout.size.expr.ast : null
+          const colorExprAst = shapes && shapes.textPaint.color !== null && shapes.textPaint.color.kind === 'data-driven'
+            ? shapes.textPaint.color.expr.ast : null
           // Per-feature icon-image expression. Compiler emits this
           // when Mapbox `icon-image: ["match", ["get", "subclass"], …]`
           // is present (OFM POI layers). Runtime evaluates the AST

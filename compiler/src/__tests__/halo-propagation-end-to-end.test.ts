@@ -138,7 +138,7 @@ describe('text-halo propagation — Mapbox style → ShowCommand.label.halo', ()
     expect(Number.isFinite(shows[0]!.label!.halo!.blur)).toBe(true)
   })
 
-  it('PaintShapes mirror — halo also lives in shapes.haloWidth / haloColor / haloBlur', () => {
+  it('PaintShapes mirror — halo also lives in shapes.textPaint.haloWidth / haloColor / haloBlur', () => {
     // The shapes.* parallel structure carries the same per-zoom /
     // per-feature awareness the runtime uses for per-frame paint
     // resolution. Static halo authoring should populate BOTH the
@@ -151,8 +151,8 @@ describe('text-halo propagation — Mapbox style → ShowCommand.label.halo', ()
     })]))
     const shapes = shows[0]!.label!.shapes
     expect(shapes).toBeDefined()
-    expect(shapes!.haloWidth).toEqual({ kind: 'constant', value: 1 })
-    expect(shapes!.haloBlur).toEqual({ kind: 'constant', value: 0.5 })
-    expect(shapes!.haloColor).toEqual({ kind: 'constant', value: [1, 1, 1, 1] })
+    expect(shapes!.textPaint.haloWidth).toEqual({ kind: 'constant', value: 1 })
+    expect(shapes!.textPaint.haloBlur).toEqual({ kind: 'constant', value: 0.5 })
+    expect(shapes!.textPaint.haloColor).toEqual({ kind: 'constant', value: [1, 1, 1, 1] })
   })
 })

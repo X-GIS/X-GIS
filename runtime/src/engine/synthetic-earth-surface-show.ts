@@ -50,11 +50,13 @@ export function buildSyntheticEarthSurfaceShow(
     extrudeBase: { kind: 'none' },
     resolvedFillRgba: rgba,
     paintShapes: {
-      fill: fillShape ?? { kind: 'constant', value: rgba },
-      stroke: null,
-      opacity: { kind: 'constant', value: 1 },
-      strokeWidth: { kind: 'constant', value: 0 },
-      size: null,
+      fill: { fill: fillShape ?? { kind: 'constant', value: rgba } },
+      line: {
+        stroke: null,
+        strokeWidth: { kind: 'constant', value: 0 },
+      },
+      circle: { size: null },
+      common: { opacity: { kind: 'constant', value: 1 } },
     },
   }
 }
@@ -73,7 +75,7 @@ export function updateSyntheticEarthSurfaceShowFill(
   // identity-based resolveShow caches invalidate cleanly.
   show.paintShapes = {
     ...show.paintShapes,
-    fill: { kind: 'constant', value: rgba },
+    fill: { fill: { kind: 'constant', value: rgba } },
   }
 }
 

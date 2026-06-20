@@ -38,11 +38,13 @@ function synthesizeConstantPaintShapes(args: {
     ? { kind: 'constant', value: strokeRgba as PropertyRGBA }
     : null
   return {
-    fill,
-    stroke,
-    opacity: { kind: 'constant', value: args.opacity },
-    strokeWidth: { kind: 'constant', value: args.strokeWidth },
-    size: null,
+    fill: { fill },
+    line: {
+      stroke,
+      strokeWidth: { kind: 'constant', value: args.strokeWidth },
+    },
+    circle: { size: null },
+    common: { opacity: { kind: 'constant', value: args.opacity } },
   }
 }
 

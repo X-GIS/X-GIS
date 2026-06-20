@@ -43,7 +43,7 @@ describe('LabelShapes inference on OFM Bright', () => {
     expect(layer, 'label_country_2 should be in scene').toBeDefined()
     expect(layer!.label, 'label_country_2 should have label def').toBeDefined()
     expect(layer!.label!.shapes, 'label_country_2 should have shapes bundle').toBeDefined()
-    const size = layer!.label!.shapes!.size
+    const size = layer!.label!.shapes!.textLayout.size
     expect(size.kind).toBe('zoom-interpolated')
     if (size.kind === 'zoom-interpolated') {
       expect(size.stops.length).toBeGreaterThanOrEqual(2)
@@ -60,7 +60,7 @@ describe('LabelShapes inference on OFM Bright', () => {
     const layer = findLayer(scene, /water_name/)
     expect(layer, 'water_name should be in scene').toBeDefined()
     expect(layer!.label?.shapes, 'water_name should have shapes bundle').toBeDefined()
-    const color = layer!.label!.shapes!.color
+    const color = layer!.label!.shapes!.textPaint.color
     expect(color).not.toBeNull()
     expect(color!.kind).toBe('constant')
     if (color !== null && color.kind === 'constant') {
@@ -86,12 +86,12 @@ describe('LabelShapes inference on OFM Bright', () => {
 describe('LabelShapes inference on MapLibre demotiles', () => {
   const scene = compileFixture('maplibre-demotiles.json')
 
-  it('countries-label fontWeight bakes onto shapes.size as constant', () => {
+  it('countries-label fontWeight bakes onto shapes.textLayout.size as constant', () => {
     // Source: "text-size": {stops: [[2, 11], [4, 13], [6, 16]]}
     const layer = findLayer(scene, /countries[_-]label/)
     if (!layer) return  // optional — depends on demotiles version
     expect(layer.label?.shapes).toBeDefined()
-    const size = layer.label!.shapes!.size
+    const size = layer.label!.shapes!.textLayout.size
     // Old-style {stops:[…]} → linear interpolate
     expect(['zoom-interpolated', 'constant']).toContain(size.kind)
   })
@@ -105,8 +105,8 @@ describe('LabelShapes inference on MapLibre demotiles', () => {
     // `if (color?.kind === 'constant')` wrapper ran ZERO assertions whenever the
     // color dropped or routed non-constant — a vacuous green that masked the
     // exact regression the title claims to cover.
-    const color = layer.label?.shapes?.color
-    expect(color, 'geolines-label must have a shapes.color').toBeDefined()
+    const color = layer.label?.shapes?.textPaint.color
+    expect(color, 'geolines-label must have a shapes.textPaint.color').toBeDefined()
     expect(color).not.toBeNull()
     expect(color!.kind).toBe('constant')
     if (color?.kind === 'constant') {

@@ -32,11 +32,13 @@ function makeShow(name: string): ShowCommand {
     visible: true,
     pointerEvents: 'auto',
     paintShapes: {
-      fill: { kind: 'constant', value: [1, 0, 0, 1] },
-      stroke: { kind: 'constant', value: [0, 0, 0, 1] },
-      opacity: { kind: 'constant', value: 1 },
-      strokeWidth: { kind: 'constant', value: 1 },
-      size: null,
+      fill: { fill: { kind: 'constant', value: [1, 0, 0, 1] } },
+      line: {
+        stroke: { kind: 'constant', value: [0, 0, 0, 1] },
+        strokeWidth: { kind: 'constant', value: 1 },
+      },
+      circle: { size: null },
+      common: { opacity: { kind: 'constant', value: 1 } },
     },
     shaderVariant: null,
     filterExpr: null,
@@ -60,25 +62,25 @@ function injectLayer(map: XGISMap, name: string): { show: ShowCommand; layer: XG
 }
 
 describe('XGISMap.setPaintProperty — recognised properties', () => {
-  it('fill-color: hex string → updates paintShapes.fill', () => {
+  it('fill-color: hex string → updates paintShapes.fill.fill', () => {
     const map = new XGISMap(mockCanvas())
     const { show } = injectLayer(map, 'borders')
     const ok = map.setPaintProperty('borders', 'fill-color', '#00ff00')
     expect(ok).toBe(true)
     expect(show.fill).toBe('#00ff00')
-    expect(show.paintShapes.fill).toEqual({
+    expect(show.paintShapes.fill.fill).toEqual({
       kind: 'constant',
       value: [0, 1, 0, 1],
     })
   })
 
-  it('line-color: hex string → updates paintShapes.stroke', () => {
+  it('line-color: hex string → updates paintShapes.line.stroke', () => {
     const map = new XGISMap(mockCanvas())
     const { show } = injectLayer(map, 'roads')
     const ok = map.setPaintProperty('roads', 'line-color', '#0000ff')
     expect(ok).toBe(true)
     expect(show.stroke).toBe('#0000ff')
-    expect(show.paintShapes.stroke).toEqual({
+    expect(show.paintShapes.line.stroke).toEqual({
       kind: 'constant',
       value: [0, 0, 1, 1],
     })
@@ -90,29 +92,29 @@ describe('XGISMap.setPaintProperty — recognised properties', () => {
     const ok = map.setPaintProperty('borders', 'fill-color', null)
     expect(ok).toBe(true)
     expect(show.fill).toBeNull()
-    expect(show.paintShapes.fill).toBeNull()
+    expect(show.paintShapes.fill.fill).toBeNull()
   })
 
   it.each([
     ['fill-opacity', 0.5],
     ['line-opacity', 0.25],
     ['opacity',      0.75],
-  ])('%s: number → updates paintShapes.opacity', (prop, value) => {
+  ])('%s: number → updates paintShapes.common.opacity', (prop, value) => {
     const map = new XGISMap(mockCanvas())
     const { show } = injectLayer(map, 'L')
     const ok = map.setPaintProperty('L', prop, value)
     expect(ok).toBe(true)
     expect(show.opacity).toBe(value)
-    expect(show.paintShapes.opacity).toEqual({ kind: 'constant', value })
+    expect(show.paintShapes.common.opacity).toEqual({ kind: 'constant', value })
   })
 
-  it('line-width: number → updates paintShapes.strokeWidth', () => {
+  it('line-width: number → updates paintShapes.line.strokeWidth', () => {
     const map = new XGISMap(mockCanvas())
     const { show } = injectLayer(map, 'roads')
     const ok = map.setPaintProperty('roads', 'line-width', 4)
     expect(ok).toBe(true)
     expect(show.strokeWidth).toBe(4)
-    expect(show.paintShapes.strokeWidth).toEqual({ kind: 'constant', value: 4 })
+    expect(show.paintShapes.line.strokeWidth).toEqual({ kind: 'constant', value: 4 })
   })
 
   it.each([

@@ -513,19 +513,21 @@ function emitShow(
     fillExtrusionVerticalGradient: node.fillExtrusionVerticalGradient,
     label: node.label,
     paintShapes: {
-      fill: colorValueToShape(node.fill),
-      stroke: colorValueToShape(node.stroke.color),
-      // Stroke-width is the only paint property whose spatial
-      // dependency (constant / zoom-stops / per-feature) and temporal
-      // dependency (timeWidthStops on the parent StrokeValue) live
-      // apart. Compose them here so paintShapes.strokeWidth is the
-      // single authoritative shape — `zoom-time` if both exist,
-      // `time-interpolated` if only time, otherwise the bare spatial
-      // shape. Composition rule mirrors what bucket-scheduler does
-      // today for opacity.
-      strokeWidth: composeStrokeWidthShape(node.stroke.width, node.stroke.timeWidthStops, meta),
-      opacity: node.opacity,
-      size: sizeValueToShape(node.size),
+      fill: { fill: colorValueToShape(node.fill) },
+      line: {
+        stroke: colorValueToShape(node.stroke.color),
+        // Stroke-width is the only paint property whose spatial
+        // dependency (constant / zoom-stops / per-feature) and temporal
+        // dependency (timeWidthStops on the parent StrokeValue) live
+        // apart. Compose them here so paintShapes.line.strokeWidth is
+        // the single authoritative shape — `zoom-time` if both exist,
+        // `time-interpolated` if only time, otherwise the bare spatial
+        // shape. Composition rule mirrors what bucket-scheduler does
+        // today for opacity.
+        strokeWidth: composeStrokeWidthShape(node.stroke.width, node.stroke.timeWidthStops, meta),
+      },
+      circle: { size: sizeValueToShape(node.size) },
+      common: { opacity: node.opacity },
     },
   }
 }

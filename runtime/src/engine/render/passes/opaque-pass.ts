@@ -129,7 +129,7 @@ class OpaquePass implements RenderPass {
           // renderer's uniform.
           if (host._rasterShow) {
             const op = resolveNumberShape(
-              host._rasterShow.paintShapes.opacity,
+              host._rasterShow.paintShapes.common.opacity,
               host.camera.zoom, host._elapsedMs,
             ).value
             host.rasterRenderer.setOpacity(op)

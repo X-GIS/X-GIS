@@ -64,15 +64,15 @@ function collectLabelFields(label: LabelDef | undefined): Set<string> | null {
 
   // ── 3. shapes.size when data-driven ─────────────────────────────────
   const shapes = label.shapes
-  if (shapes?.size.kind === 'data-driven') {
-    const r = collectFieldsStrict(shapes.size.expr.ast)
+  if (shapes?.textLayout.size.kind === 'data-driven') {
+    const r = collectFieldsStrict(shapes.textLayout.size.expr.ast)
     if (r === null) return null
     for (const f of r) acc.add(f)
   }
 
   // ── 4. shapes.color when data-driven ────────────────────────────────
-  if (shapes?.color?.kind === 'data-driven') {
-    const r = collectFieldsStrict(shapes.color.expr.ast)
+  if (shapes?.textPaint.color?.kind === 'data-driven') {
+    const r = collectFieldsStrict(shapes.textPaint.color.expr.ast)
     if (r === null) return null
     for (const f of r) acc.add(f)
   }

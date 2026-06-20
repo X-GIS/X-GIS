@@ -32,11 +32,13 @@ function makeShow(extrude: ShowCommand['extrude'] = { kind: 'none' }): ShowComma
     extrude,
     extrudeBase: { kind: 'none' },
     paintShapes: {
-      fill: { kind: 'constant', value: [0, 0, 0, 1] as never },
-      stroke: { kind: 'constant', value: [0, 0, 0, 1] as never },
-      opacity: { kind: 'constant', value: 1 },
-      strokeWidth: { kind: 'constant', value: 1 },
-      size: { kind: 'constant', value: 0 },
+      fill: { fill: { kind: 'constant', value: [0, 0, 0, 1] as never } },
+      line: {
+        stroke: { kind: 'constant', value: [0, 0, 0, 1] as never },
+        strokeWidth: { kind: 'constant', value: 1 },
+      },
+      circle: { size: { kind: 'constant', value: 0 } },
+      common: { opacity: { kind: 'constant', value: 1 } },
     },
   } as unknown as ShowCommand
 }

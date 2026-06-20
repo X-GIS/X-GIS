@@ -12,8 +12,20 @@ const zoom = { kind: 'zoom-interpolated' } as never
 const time = { kind: 'time-interpolated' } as never
 const zoomTime = { kind: 'zoom-time' } as never
 
+// Distribute the flat test-fixture keys into the per-concern sub-bundles
+// the LabelShapes type now nests them under (textLayout / textPaint / icon).
 function show(shapes: Record<string, unknown> | null) {
-  return { label: shapes === null ? null : { shapes: shapes as never } }
+  if (shapes === null) return { label: null }
+  const f = shapes as Record<string, unknown>
+  const nested = {
+    textLayout: { size: f.size, font: f.font, fontWeight: f.fontWeight, fontStyle: f.fontStyle },
+    textPaint: {
+      color: f.color, haloWidth: f.haloWidth, haloColor: f.haloColor,
+      haloBlur: f.haloBlur, opacity: f.opacity,
+    },
+    icon: { iconSize: f.iconSize, iconOpacity: f.iconOpacity, iconColor: f.iconColor },
+  }
+  return { label: { shapes: nested as never } }
 }
 
 describe('labelsHaveTimeAnimation', () => {
