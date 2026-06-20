@@ -254,8 +254,10 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
   }
 
   // circle-translate → circle-translate-x-N circle-translate-y-M.
-  // Constant [dx, dy] only; zoom-interp on vec2 deferred (same constraint
-  // as fill-translate in paint.ts:addFillTranslate). Default [0,0] → silent.
+  // Constant [dx, dy] folds to scalar utilities; zoom-interp on the vec2
+  // splits per-axis into circle-translate-{x,y}-[interpolate(zoom,…)]
+  // bracket bindings resolved per frame (WS-1 part 5, mirrors
+  // addFillTranslate in paint.ts). Default [0,0] → silent.
   const circleTranslate = paint['circle-translate']
   if (circleTranslate !== undefined && circleTranslate !== null) {
     let tv: unknown = circleTranslate
@@ -271,23 +273,29 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
       if (tv[0] !== 0) utils.push(`circle-translate-x-${fmt(tv[0] as number)}`)
       if (tv[1] !== 0) utils.push(`circle-translate-y-${fmt(tv[1] as number)}`)
     } else if (Array.isArray(tv) && tv.length >= 4 && tv[0] === 'interpolate') {
-      // WS-1 note: fill/line translate resolve per frame, but circle
-      // translate stays a last-stop approximation — the GeoJSON point
-      // addLayer path (map.ts) does not thread circle-translate into the
-      // point frame uniform at all, so a per-axis circle PropertyShape
-      // would be dropped. The IR carries circleTranslate{X,Y}Shape as
-      // ready scaffolding for when the point path is wired; until then
-      // keep the functional last-stop approx (no regression).
-      let last: unknown = null
-      for (let i = 3; i + 1 < tv.length; i += 2) last = tv[i + 1]
-      while (Array.isArray(last) && last.length === 2 && last[0] === 'literal') last = last[1]
-      if (Array.isArray(last) && last.length === 2
-          && typeof last[0] === 'number' && Number.isFinite(last[0])
-          && typeof last[1] === 'number' && Number.isFinite(last[1])) {
-        const fmt = (n: number): string => n < 0 ? `[${n}]` : `${n}`
-        if (last[0] !== 0) utils.push(`circle-translate-x-${fmt(last[0] as number)}`)
-        if (last[1] !== 0) utils.push(`circle-translate-y-${fmt(last[1] as number)}`)
-        warnings.push(`Layer "${layer.id}" — circle-translate: zoom-interpolated form not yet fully supported — using last stop value as constant approximation.`)
+      // WS-1 (part 5) — per-frame zoom-interp on the vec2, mirroring
+      // addFillTranslate in paint.ts. Split into scalar x and y
+      // zoom-interpolates and emit `circle-translate-x-[…]` +
+      // `circle-translate-y-[…]` bracket bindings. lower.ts parses each
+      // into RenderNode.circleTranslate{X,Y}Shape → emit threads them to
+      // ShowCommand → PointRenderer.updateDynamicSizes resolves per frame
+      // into the point frame uniform (circle_params.xy). Replaces the old
+      // last-stop approximation.
+      const axisInterp = (idx: 0 | 1): string | null =>
+        interpolateZoomCall(tv, warnings, (val) => {
+          let inner: unknown = val
+          while (Array.isArray(inner) && inner.length === 2 && inner[0] === 'literal') inner = inner[1]
+          if (Array.isArray(inner) && inner.length === 2
+              && typeof inner[idx] === 'number' && Number.isFinite(inner[idx])) {
+            return String(inner[idx])
+          }
+          return null
+        })
+      const ix = axisInterp(0)
+      const iy = axisInterp(1)
+      if (ix !== null && iy !== null) {
+        utils.push(`circle-translate-x-[${ix}]`)
+        utils.push(`circle-translate-y-[${iy}]`)
       } else {
         warnings.push(`Layer "${layer.id}" — circle-translate: non-constant form not yet supported — value dropped.`)
       }

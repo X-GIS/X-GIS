@@ -20,8 +20,9 @@ const CASES: Case[] = [
   // fill-extrusion-translate is SUPPORTED iter-180 — routed through
   // the same addFillTranslate helper since the fill-extrusion vertex
   // shaders apply u.fill_translate_x/y already. Both omitted here.
-  // circle-translate is SUPPORTED (constant + last-stop zoom-interp) via
-  // circle_params.xy in the point uniform — omitted (see circle-translate-blur-emit.test.ts).
+  // circle-translate is SUPPORTED (constant + per-frame zoom-interp, WS-1
+  // part 5) via circle_params.xy in the point uniform — omitted (see
+  // circle-translate-blur-emit.test.ts).
   // line-translate is SUPPORTED — addLineTranslate emits stroke-translate-x/y;
   // runtime wires u.line_translate_x/y — omitted (see line-translate-warn.test.ts).
   // icon-translate is now SUPPORTED — layers-symbol.ts emits

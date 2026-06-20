@@ -392,7 +392,14 @@ const LOC_CEILINGS: Record<string, number> = {
   // loop in updateDynamicSizes (separate from the size loop because a layer
   // may author stroke-opacity without a size) + contract comments. Irreducible
   // additive plumbing; decomposition stays a tracked follow-up.
-  'runtime/src/engine/render/point-renderer.ts': 834,
+  // Bumped 834→868 (WS-1 circle-translate, part 5): the two addLayer
+  // circleTranslate{X,Y}Shape params + the five PointLayer fields (the two
+  // shapes / baseCircleTranslate{X,Y} / lastDynTranslateZoom) baked at
+  // construction + the per-frame resolve loop in updateDynamicSizes (separate
+  // from the size / stroke-opacity loops because a layer may author a
+  // translate shape without either) + contract comments. Same irreducible
+  // additive plumbing class; decomposition stays a tracked follow-up.
+  'runtime/src/engine/render/point-renderer.ts': 868,
   // Baselined at 820 (mbx_batch2): lower-label.ts is the label-knob lowering
   // sub-pass extracted from lower.ts; crossed 800 here for the icon-translate
   // accumulators + parse arms + knobs-interface + merge wiring. Cohesive

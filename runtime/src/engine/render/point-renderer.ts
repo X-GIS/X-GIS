@@ -472,6 +472,8 @@ export class PointRenderer {
     circleTranslateY?: number,
     circleBlur?: number,
     strokeOpacityShape?: import('@xgis/compiler').PropertyShape<number> | null,
+    circleTranslateXShape?: import('@xgis/compiler').PropertyShape<number> | null,
+    circleTranslateYShape?: import('@xgis/compiler').PropertyShape<number> | null,
   ): void {
     const points: { lon: number; lat: number }[] = []
 
@@ -597,6 +599,14 @@ export class PointRenderer {
       // opacity) — the per-frame resolved stroke-opacity multiplies THIS.
       baseStrokeAlphaSlot8: stroke ? stroke[3] * opacity : 0,
       lastDynStrokeOpacityZoom: Number.NaN,
+      // WS-1 — per-frame zoom-interp circle-translate. The constant
+      // fallback lives in base*; updateDynamicSizes resolves the shape
+      // (when animated) into circleTranslateX/Y each frame.
+      circleTranslateXShape: circleTranslateXShape ?? null,
+      circleTranslateYShape: circleTranslateYShape ?? null,
+      baseCircleTranslateX: circleTranslateX ?? 0,
+      baseCircleTranslateY: circleTranslateY ?? 0,
+      lastDynTranslateZoom: Number.NaN,
     })
 
     console.log(`[X-GIS] SDF point layer: ${points.length} points`)
@@ -653,6 +663,30 @@ export class PointRenderer {
         layer.featData[i * STRIDE + 8] = alpha
       }
       layer.lastDynStrokeOpacityZoom = cameraZoom
+    }
+    // WS-1 — per-frame zoom-interp circle-translate. Resolves the x / y
+    // shapes and writes the result into layer.circleTranslateX / Y — the
+    // fields writePointFrameUniform bakes to NDC (uf 32/33) when render()
+    // draws the layer next. Not feat_data: circle-translate is a frame
+    // uniform, not a per-vertex attribute. A separate loop (not folded
+    // into the size loop) because a layer may author a translate shape
+    // without a size shape.
+    for (const layer of this.layers) {
+      const sx = layer.circleTranslateXShape
+      const sy = layer.circleTranslateYShape
+      const animatedX = sx !== null
+        && (sx.kind === 'zoom-interpolated' || sx.kind === 'time-interpolated' || sx.kind === 'zoom-time')
+      const animatedY = sy !== null
+        && (sy.kind === 'zoom-interpolated' || sy.kind === 'time-interpolated' || sy.kind === 'zoom-time')
+      if (!animatedX && !animatedY) continue
+      const rx = animatedX ? resolveNumberShape(sx, cameraZoom, elapsedMs) : null
+      const ry = animatedY ? resolveNumberShape(sy, cameraZoom, elapsedMs) : null
+      const hasTime = (rx?.hasTime ?? false) || (ry?.hasTime ?? false)
+      // Zoom-only optimization — skip when the camera hasn't moved.
+      if (!hasTime && Math.abs(layer.lastDynTranslateZoom - cameraZoom) < 0.001) continue
+      if (rx !== null) layer.circleTranslateX = rx.value
+      if (ry !== null) layer.circleTranslateY = ry.value
+      layer.lastDynTranslateZoom = cameraZoom
     }
   }
 

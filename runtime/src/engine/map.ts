@@ -2506,13 +2506,16 @@ export class XGISMap {
           shapeId,
           show.anchor,
           show.paintShapes.size,
-          // circleTranslateX/Y + circleBlur are not threaded through the
-          // GeoJSON point path yet (separate gap — see layers-circle.ts);
-          // pass undefined so circleStrokeOpacityShape lands in its slot.
-          undefined,
-          undefined,
-          undefined,
+          // WS-1 (part 5) — circle-translate now threads through the
+          // GeoJSON point path: constant fallbacks here, per-frame
+          // zoom-interp shapes in the trailing slots (resolved by
+          // PointRenderer.updateDynamicSizes into the point frame uniform).
+          show.circleTranslateX ?? 0,
+          show.circleTranslateY ?? 0,
+          show.circleBlur ?? 0,
           show.circleStrokeOpacityShape ?? null,
+          show.circleTranslateXShape ?? null,
+          show.circleTranslateYShape ?? null,
         )
         continue
       }
