@@ -23,9 +23,9 @@ Properties where the runtime currently degrades or drops a specific value-form.
 
 | Status | Count |
 |---|---:|
-| supported | 161 |
+| supported | 155 |
 | partial | 18 |
-| unsupported | 56 |
+| unsupported | 62 |
 | na | 7 |
 | **total** | **242** |
 

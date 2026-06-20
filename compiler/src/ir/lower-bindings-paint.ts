@@ -196,6 +196,15 @@ export const circleTranslateConstUtilHandlers: BindingHandler[] = [
     match: (c) => c.name.startsWith('circle-blur-'),
     apply: (c) => { const num = parseFloat(c.name.slice('circle-blur-'.length)); if (!isNaN(num)) c.acc.circleBlur = num; return true },
   },
+  {
+    // Mapbox circle-pitch-scale=map → perspective radius-scale flag. The
+    // converter emits this ONLY for the "map" mode (viewport is the
+    // byte-identical default that emits nothing). Runtime scales the
+    // circle's screen radius by camera_to_center / clip.w so circles
+    // foreshorten with pitch/distance. Mirror of fill-translate-anchor-map.
+    match: (c) => c.name === 'circle-pitch-scale-map',
+    apply: (c) => { c.acc.circlePitchScaleMap = true; return true },
+  },
 ]
 
 export const strokeTranslateConstUtilHandlers: BindingHandler[] = [

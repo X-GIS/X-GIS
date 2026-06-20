@@ -169,6 +169,9 @@ export interface RenderNodeCirclePaint {
   /** Mapbox `paint.circle-blur` — extends the point fragment's
    *  smoothstep AA band. 0 = crisp edge (default/no-op). */
   circleBlur?: number
+  /** Mapbox `paint.circle-pitch-scale`="map". Undefined/false="viewport"
+   *  (spec default, byte-identical). True scales radius by w_ref/clip.w. */
+  circlePitchScaleMap?: boolean
 }
 
 /** 3D extrusion paint axes (Mapbox `fill-extrusion-*`). */

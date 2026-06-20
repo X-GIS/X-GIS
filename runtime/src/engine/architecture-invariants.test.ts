@@ -423,7 +423,13 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 868→881 (WS-1 review fix): flushTilePoints (vector-tile circle
   // path) now resolves circle-translate + circle-stroke-opacity shapes per
   // frame, mirroring the GeoJSON updateDynamicSizes path.
-  'runtime/src/engine/render/point-renderer.ts': 881,
+  // Bumped 881→888 (Phase S Batch 3 circle-pitch-scale): the
+  // circlePitchScaleMap param threaded through writePointFrameUniform (packed
+  // into circle_params.w) + addLayer + flushTilePoints + drawLayer, plus the
+  // PointLayer.circlePitchScaleMap field. Same irreducible additive plumbing
+  // class as the WS-1 circle-translate/stroke-opacity bumps above;
+  // decomposition stays a tracked follow-up.
+  'runtime/src/engine/render/point-renderer.ts': 888,
   // Baselined at 820 (mbx_batch2): lower-label.ts is the label-knob lowering
   // sub-pass extracted from lower.ts; crossed 800 here for the icon-translate
   // accumulators + parse arms + knobs-interface + merge wiring. Cohesive

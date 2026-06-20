@@ -289,6 +289,10 @@ function lowerLayer(
   let circleTranslateX: number | undefined
   let circleTranslateY: number | undefined
   let circleBlur: number | undefined
+  /** Mapbox `paint.circle-pitch-scale` = "map". Undefined / false =
+   *  "viewport" (spec default — radius constant in screen px; byte-identical
+   *  to historical X-GIS). True = "map" (radius scales with perspective). */
+  let circlePitchScaleMap: boolean | undefined
   /** Mapbox `paint.line-translate` x — viewport pixel offset, +right.
    *  Mirror of fillTranslateX for line layers. */
   let strokeTranslateX: number | undefined
@@ -479,7 +483,7 @@ function lowerLayer(
     fill, extrude, extrudeBase,
     fillPattern, linePattern,
     fillTranslateX, fillTranslateY, fillAntialias, fillExtrusionVerticalGradient,
-    circleTranslateX, circleTranslateY, circleBlur,
+    circleTranslateX, circleTranslateY, circleBlur, circlePitchScaleMap,
     strokeTranslateX, strokeTranslateY,
     fillTranslateAnchorMap, strokeTranslateAnchorMap,
     fillTranslateXShape, fillTranslateYShape,
@@ -580,6 +584,7 @@ function lowerLayer(
   circleTranslateX = acc.circleTranslateX
   circleTranslateY = acc.circleTranslateY
   circleBlur = acc.circleBlur
+  circlePitchScaleMap = acc.circlePitchScaleMap
   strokeTranslateX = acc.strokeTranslateX
   strokeTranslateY = acc.strokeTranslateY
   fillTranslateAnchorMap = acc.fillTranslateAnchorMap
@@ -819,6 +824,7 @@ function lowerLayer(
     circleTranslateX,
     circleTranslateY,
     circleBlur,
+    circlePitchScaleMap,
     strokeTranslateX,
     strokeTranslateY,
     fillTranslateAnchorMap,

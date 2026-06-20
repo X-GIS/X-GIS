@@ -177,6 +177,11 @@ export interface CirclePaint {
   /** Mapbox `paint.circle-blur` — extends the point fragment smoothstep
    *  AA band. Default 0 / undefined = crisp edge (no-op). */
   circleBlur?: number
+  /** Mapbox `paint.circle-pitch-scale` = "map". Undefined / false =
+   *  "viewport" (spec default — radius constant in screen px; byte-identical).
+   *  True = "map" (radius scales with the map perspective). PointRenderer
+   *  packs the flag into the point uniform's circle_params.w. */
+  circlePitchScaleMap?: boolean
 }
 
 /** 3D extrusion paint axes (Mapbox `fill-extrusion-*`). */
@@ -632,6 +637,7 @@ function emitCircleFields(node: RenderNode): CirclePaint {
     circleTranslateXShape: node.circleTranslateXShape,
     circleTranslateYShape: node.circleTranslateYShape,
     circleBlur: node.circleBlur,
+    circlePitchScaleMap: node.circlePitchScaleMap,
   }
 }
 

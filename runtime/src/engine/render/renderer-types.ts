@@ -223,6 +223,12 @@ export interface CirclePaint {
   /** Mapbox `paint.circle-blur` — CSS-px feathering added to the
    *  smoothstep AA band in the point fragment shader. Default 0 = crisp. */
   circleBlur?: number
+  /** Mapbox `paint.circle-pitch-scale` = "map". Undefined / false =
+   *  "viewport" (spec default — radius constant in screen px; byte-identical).
+   *  True = "map": PointRenderer packs the flag into circle_params.w and the
+   *  point VS scales the quad expansion by camera_to_center / clip.w so
+   *  circles foreshorten with pitch/distance. */
+  circlePitchScaleMap?: boolean
 }
 
 /** 3D extrusion paint axes (Mapbox `fill-extrusion-*`). */
