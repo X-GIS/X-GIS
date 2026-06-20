@@ -20,7 +20,7 @@ import type { RenderLoopHost } from '../render-loop'
 /** Which pass owns the MSAA `resolveTarget` — precisely the last pass
  *  that writes the colour target. Priority: dedicated points > last
  *  translucent composite > last opaque sub-pass. */
-export type ResolveOwner = 'points' | 'composite' | 'opaque'
+type ResolveOwner = 'points' | 'composite' | 'opaque'
 
 /** Per-frame scene classification the render passes read from. */
 export interface SceneView {

@@ -14,7 +14,7 @@ import type { InterpolateZoomShape } from './paint-types'
  *  and reject the wrapper as "not the shape I expected"; unwrapping
  *  eagerly lets a uniform code path handle both the bare and v8-
  *  strict forms. */
-export function unwrapStopLiteral(v: unknown): unknown {
+function unwrapStopLiteral(v: unknown): unknown {
   // Loop unwrap so double-wraps like `["literal", ["literal", 0.5]]`
   // (rare, but emitted by some v8 strict preprocessor chains) peel
   // down to the inner scalar/array in one pass. Mirror of the loop
@@ -57,7 +57,7 @@ export function unwrapLiteralScalarLocal(v: unknown): unknown {
  *
  *  Cubic-bezier curves fall back to linear with a warning — xgis has
  *  no per-stop control-point evaluator yet. */
-export function interpolateZoomStops(
+function interpolateZoomStops(
   v: unknown,
   warnings?: string[],
 ): InterpolateZoomShape | null {

@@ -56,7 +56,7 @@ import {
 /** The pass entry point. Walks `scene.renderNodes` once, accumulating
  *  contiguous mergeable groups; emits a single compound node for any
  *  group of size ≥ 2 and passes everything else through verbatim. */
-export function mergeLayers(scene: Scene): Scene {
+function mergeLayers(scene: Scene): Scene {
   const nodes = scene.renderNodes
   const out: RenderNode[] = []
 

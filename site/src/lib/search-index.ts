@@ -7,7 +7,7 @@
 import { referenceSections } from '../content/reference-sections'
 import { galleryCategories, runIdOf } from '../content/gallery-demos'
 
-export interface SearchRecord {
+interface SearchRecord {
   /** Stable identifier used as React-style key in the result list. */
   id: string
   /** Section / page / demo title. */
@@ -28,7 +28,7 @@ export interface SearchRecord {
  * Build the search index. Pure — pass a `base` so call-sites can use
  * Astro's `import.meta.env.BASE_URL` instead of hard-coding.
  */
-export function buildSearchIndex(base: string): SearchRecord[] {
+function buildSearchIndex(base: string): SearchRecord[] {
   const out: SearchRecord[] = []
 
   // ─── Top-level docs pages ───

@@ -53,7 +53,7 @@ export interface QualityConfig {
   picking: boolean
 }
 
-export const QUALITY_PRESETS = {
+const QUALITY_PRESETS = {
   /** Default — render at the device's native pixel density (capped at
    *  3 to bound fragment work on hypothetical 4×+ monitors). Anchored
    *  here AFTER the DPR-invariance fixes (tile budget / mobile
@@ -103,7 +103,7 @@ export const QUALITY_PRESETS = {
   },
 } as const satisfies Record<string, QualityConfig>
 
-export type QualityPreset = keyof typeof QUALITY_PRESETS
+type QualityPreset = keyof typeof QUALITY_PRESETS
 
 function readURL(): URLSearchParams | null {
   if (typeof window === 'undefined') return null

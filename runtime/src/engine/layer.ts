@@ -383,12 +383,12 @@ export type XGISFeatureListener = (event: XGISFeatureEvent) => void
 //     quality preset ships picking:false, so listeners never fire.
 
 /** Canonical feature/pointer event names (mirrors XGISFeatureEventType). */
-export const FEATURE_EVENT_TYPES: ReadonlySet<string> = new Set([
+const FEATURE_EVENT_TYPES: ReadonlySet<string> = new Set([
   'click', 'mouseenter', 'mouseleave', 'mousemove', 'pointerdown', 'pointerup', 'wheel',
 ])
 /** Canonical lifecycle/camera event names (mirrors XGISMapEventType below).
  *  XGISMap.on/off/once route through this membership test. */
-export const MAP_EVENT_TYPES: ReadonlySet<string> = new Set([
+const MAP_EVENT_TYPES: ReadonlySet<string> = new Set([
   'load', 'idle', 'movestart', 'move', 'moveend', 'zoomstart', 'zoom', 'zoomend',
 ])
 export function isMapEventType(type: string): type is XGISMapEventType {

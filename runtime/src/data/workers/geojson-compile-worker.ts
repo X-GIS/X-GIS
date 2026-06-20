@@ -63,7 +63,7 @@ export interface SerializedTile {
   polygons?: { rings: number[][][]; featId: number }[]
 }
 
-export interface SerializedTileLevel {
+interface SerializedTileLevel {
   zoom: number
   /** Pairs of [tileKey, tile] so the receiver can rebuild Map<number, CompiledTile>. */
   tiles: [number, SerializedTile][]

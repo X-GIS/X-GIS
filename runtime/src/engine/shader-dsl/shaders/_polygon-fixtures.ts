@@ -31,7 +31,7 @@ import { emitPolygonWgsl } from './polygon'
 // the runtime test's import graph (which would create a cycle through
 // the back-compat adapter).
 
-export interface FixtureVariant {
+interface FixtureVariant {
   readonly key: string
   readonly preamble: string
   readonly fillExpr: string

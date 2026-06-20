@@ -24,7 +24,7 @@ const compute_log_frag_depth = fn('compute_log_frag_depth', { view_w: f32T, fc: 
   b.ret(log2(max(f32(1e-6), view_w.add(1))).mul(fc))
 })
 
-export const LOG_DEPTH_FUNCS: FuncDecl[] = [apply_log_depth, compute_log_frag_depth]
+const LOG_DEPTH_FUNCS: FuncDecl[] = [apply_log_depth, compute_log_frag_depth]
 
 export const LOG_DEPTH_MODULE: ModuleDecl = module({ funcs: LOG_DEPTH_FUNCS })
 

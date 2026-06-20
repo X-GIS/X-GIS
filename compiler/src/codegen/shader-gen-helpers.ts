@@ -104,7 +104,7 @@ export function resolveColorFromAST(node: import('../parser/ast').Expr): [number
  *  0)" or "hsl(120deg, 50%, 50%)") from a parsed FnCall AST. Numeric
  *  literals and identifiers are emitted verbatim; anything else
  *  yields null so resolveColorFromAST falls through. */
-export function reconstructCssFnCall(call: { callee: import('../parser/ast').Expr; args: import('../parser/ast').Expr[] }): string | null {
+function reconstructCssFnCall(call: { callee: import('../parser/ast').Expr; args: import('../parser/ast').Expr[] }): string | null {
   if (call.callee.kind !== 'Identifier') return null
   const parts: string[] = []
   for (const a of call.args) {
@@ -115,7 +115,7 @@ export function reconstructCssFnCall(call: { callee: import('../parser/ast').Exp
   return `${call.callee.name}(${parts.join(', ')})`
 }
 
-export function exprToCssArg(node: import('../parser/ast').Expr): string | null {
+function exprToCssArg(node: import('../parser/ast').Expr): string | null {
   if (node.kind === 'NumberLiteral') return String(node.value)
   // `50%` parses as Identifier("%") preceded by a number? No — the
   // lexer doesn't produce a `%` token. CSS percent literals can't be

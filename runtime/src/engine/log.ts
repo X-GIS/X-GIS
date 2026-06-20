@@ -1,7 +1,7 @@
 // Structured, host-routable engine log. Default sink mirrors the previous
 // raw console.* behavior; hosts call setLogSink() to capture/route logs
 // (telemetry, in-app overlay, test assertions) instead of the console.
-export type LogLevel = 'debug' | 'warn' | 'error'
+type LogLevel = 'debug' | 'warn' | 'error'
 export type LogSink = (level: LogLevel, message: string, ...args: unknown[]) => void
 
 let sink: LogSink = (level, message, ...args) => {

@@ -261,24 +261,6 @@ export const MSAA_STATE: GPUMultisampleState = { count: SAMPLE_COUNT }
  *  for back-compat with existing imports. */
 export const MSAA_4X = MSAA_STATE
 
-// ── Buffer Helpers ──
-
-/** Create a GPU buffer, write data, return the buffer */
-export function uploadBuffer(
-  device: GPUDevice,
-  data: Float32Array | Uint32Array | Uint8Array,
-  usage: GPUBufferUsageFlags,
-  label?: string,
-): GPUBuffer {
-  const buf = device.createBuffer({
-    size: Math.max(data.byteLength, 4),
-    usage: usage | GPUBufferUsage.COPY_DST,
-    label,
-  })
-  device.queue.writeBuffer(buf, 0, data)
-  return buf
-}
-
 // ── World Wrapping ──
 
 /** Earth circumference in Mercator meters */
@@ -307,12 +289,3 @@ export {
   enumerateWorldCopies,
   routeToSphereSelector,
 } from "../projection/projections-table"
-
-/** Create an empty uniform buffer */
-export function createUniformBuffer(device: GPUDevice, size: number, label?: string): GPUBuffer {
-  return device.createBuffer({
-    size,
-    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    label,
-  })
-}

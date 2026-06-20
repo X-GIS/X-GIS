@@ -139,7 +139,7 @@ function formatLocaleNumber(value: number, spec: FormatSpec): string {
 
 /** Insert grouping separators into a numeric string. Handles a
  *  leading sign and an optional decimal portion. */
-export function applyGrouping(s: string, sep: ',' | '_'): string {
+function applyGrouping(s: string, sep: ',' | '_'): string {
   let sign = ''
   let body = s
   if (body[0] === '-' || body[0] === '+') { sign = body[0]; body = body.slice(1) }

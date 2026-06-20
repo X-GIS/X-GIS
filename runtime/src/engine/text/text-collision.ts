@@ -15,7 +15,7 @@
 // rebuild the label at the picked anchor's offset. Single-candidate
 // labels use a one-element array.
 
-export interface CollisionBbox {
+interface CollisionBbox {
   minX: number
   minY: number
   maxX: number

@@ -70,7 +70,7 @@ export const COMPUTE_WORKGROUP_SIZE = 64
  *  fixtures have no surviving match()'s above 8 arms so 16 is well
  *  past anything observed there. Adjust if profiling shows a
  *  different crossover. */
-export const MATCH_LUT_THRESHOLD = 16
+const MATCH_LUT_THRESHOLD = 16
 
 /** Runtime override for the LUT threshold. Set
  *  `globalThis.__XGIS_MATCH_LUT_THRESHOLD = N` BEFORE the scene

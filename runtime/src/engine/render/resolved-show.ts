@@ -70,7 +70,7 @@ function shapeIsTimeDep(s: ShapeRef): boolean {
 /** RGBA tuple in straight-alpha sRGB unit floats (0..1 per channel).
  *  Matches the convention used throughout the runtime — the GPU
  *  conversion to premultiplied sRGB happens in the shader. */
-export type RGBA = readonly [number, number, number, number]
+type RGBA = readonly [number, number, number, number]
 
 /** Per-frame snapshot of a ShowCommand's paint state. Every field is
  *  `readonly` — downstream callers should never mutate a ResolvedShow.

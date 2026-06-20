@@ -58,7 +58,7 @@ import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile
 
 // Re-export the previously-`export`ed types so the public surface of
 // this module stays byte-identical after the text-stage-types.ts split.
-export type { MlVerticalLayout, TextStageOptions } from './text-stage-types'
+export type { TextStageOptions } from './text-stage-types'
 // Re-export the pure typography helper (moved to text-stage-helpers.ts)
 // so existing `import { resolveTypography } from './text-stage'` works.
 export { resolveTypography } from './text-stage-helpers'

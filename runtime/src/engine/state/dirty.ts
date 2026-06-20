@@ -12,7 +12,6 @@ export const DirtyDomain = {
   LABEL: 1 << 6,
   CLOCK: 1 << 7,
 } as const
-export type DirtyDomainKey = keyof typeof DirtyDomain
 /** All domains set — the conservative "rebuild everything" mask (== current
  *  always-render behavior when every invalidate() tags ALL). */
 export const DIRTY_ALL = 0xff

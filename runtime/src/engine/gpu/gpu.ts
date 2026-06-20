@@ -1,17 +1,5 @@
 // ═══ WebGPU Context — 디바이스 초기화 ═══
 
-/** Crude mobile / low-power detection.
- *  Coarse pointer + narrow viewport is the strongest signal for a phone or
- *  tablet. On mobile we drop MSAA and clamp DPR to keep fragment-shader load
- *  within a sane envelope — otherwise the line SDF shader (pattern loops,
- *  SDF math, dash phase) at DPR 3 × 4 samples saturates mobile tile units. */
-export function isMobile(): boolean {
-  if (typeof window === 'undefined') return false
-  const coarse = window.matchMedia?.('(pointer: coarse)').matches ?? false
-  const narrow = (window.innerWidth || 0) <= 900
-  return coarse && narrow
-}
-
 /** `?safe=1` URL flag — user-facing fallback for debugging.
  *  Disables the translucent line offscreen composite path (the most
  *  invasive recent code path). MSAA / DPR clamps moved into the quality
