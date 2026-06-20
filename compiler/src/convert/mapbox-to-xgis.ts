@@ -44,10 +44,16 @@
 import type { MapboxStyle, MapboxLayer } from './types'
 import { convertSource, type ConvertSourceOptions } from './sources'
 import { convertLayer } from './layers'
-import { colorToXgis } from './colors'
-import { interpolateZoomCall } from './paint'
 import { expandPerFeatureColorMatch } from './expand-color-match'
 import { sanitizeId } from './utils'
+import { validateSourceZoom, validateSourceIdCollisions } from './validate-sources'
+import {
+  validateLayerZoom,
+  validateLayerSourceLayer,
+  validateLayerSourceRefs,
+  validateLayerIdCollisions,
+} from './validate-layers'
+import { convertBackgroundLayer } from './convert-background-layer'
 
 /** Per-source record emitted into the optional `coverage` collector.
  *  `reasons` holds warnings pushed during that source's conversion
@@ -220,48 +226,11 @@ export function convertMapboxStyle(
     && !Array.isArray(stylesSources)
     ? stylesSources
     : {}
-  // Pre-walk: source minzoom > maxzoom inversion. Mirror of the
-  // per-layer zoom-inversion check below. A source declaring
-  // `{ minzoom: 10, maxzoom: 4 }` has an empty servable-zoom range;
-  // every tile request to it produces a 404 / empty payload and the
-  // dependent layers stay blank. Common typo when copying source
-  // definitions between styles.
-  for (const [sid, src] of Object.entries(sourcesObj)) {
-    if (src === null || typeof src !== 'object' || Array.isArray(src)) continue
-    const mn = (src as { minzoom?: unknown }).minzoom
-    const mx = (src as { maxzoom?: unknown }).maxzoom
-    if (typeof mn === 'number' && typeof mx === 'number' && mn > mx) {
-      warnings.push(`Source "${sid.slice(0, 60)}" has minzoom=${mn} > maxzoom=${mx} — empty servable-zoom range; every dependent layer will render blank.`)
-    }
-    // Out-of-range source zoom mirrors the per-layer check below. A
-    // typo'd `maxzoom: 30` here would make the tile selector clamp
-    // silently; surface so the author sees the gap.
-    if (typeof mn === 'number' && (mn < 0 || mn > 24)) {
-      warnings.push(`Source "${sid.slice(0, 60)}" minzoom=${mn} is outside Mapbox spec range [0, 24]; tile selector clamps so the source serves as if minzoom=${Math.max(0, Math.min(24, mn))}.`)
-    }
-    if (typeof mx === 'number' && (mx < 0 || mx > 24)) {
-      warnings.push(`Source "${sid.slice(0, 60)}" maxzoom=${mx} is outside Mapbox spec range [0, 24]; tile selector clamps so the source serves as if maxzoom=${Math.max(0, Math.min(24, mx))}.`)
-    }
-  }
+  // Pre-walk: source minzoom > maxzoom inversion + out-of-range bounds.
+  validateSourceZoom(sourcesObj as Record<string, unknown>, warnings)
 
-  // Pre-walk for source-id sanitization collisions. Raw-id duplicates
-  // are impossible (Object.entries dedups by key), but `sanitizeId`
-  // can collapse distinct raw ids (`world-tiles` / `world_tiles` both
-  // become `world_tiles`); the emitted xgis carries two `source
-  // world_tiles { … }` blocks and runtime registers only the last —
-  // every layer referencing the FIRST raw id falls back to the
-  // overriding second source's tiles silently. Mirror of the layer-id
-  // collision pre-walk above.
-  const seenSourceSanitized = new Map<string, string>()
-  for (const id of Object.keys(sourcesObj)) {
-    const sanitized = sanitizeId(id)
-    const collidedWith = seenSourceSanitized.get(sanitized)
-    if (collidedWith !== undefined && collidedWith !== id) {
-      warnings.push(`Source id "${id.slice(0, 60)}" sanitizes to "${sanitized}" — collides with another source "${collidedWith.slice(0, 60)}"; emitted blocks will share an identifier and later wins.`)
-    } else {
-      seenSourceSanitized.set(sanitized, id)
-    }
-  }
+  // Pre-walk for source-id sanitization collisions.
+  validateSourceIdCollisions(sourcesObj as Record<string, unknown>, warnings)
 
   // iter-198 — dead-source drop. Build the set of source ids actually
   // referenced by layers; sources declared but unused get warned + skipped
@@ -367,245 +336,20 @@ export function convertMapboxStyle(
     l => l !== null && typeof l === 'object' && (l as { type?: unknown }).type === 'background',
   )
   if (bgLayer) {
-    const before = warnings.length
-    // Respect `layout.visibility: 'none'` on background layers per
-    // Mapbox spec — without this gate a hidden background emitted a
-    // fill anyway and over-painted whatever canvas-clear / underlying
-    // colour the host expected to show through. Same v8 literal-wrap
-    // unwrap as the visibility gate on other layer types.
-    // Loop peel for multi-level wraps mirror of unwrapLiteralScalar
-    // (0532bc3). Pre-fix only single-level ['literal', 'none'] was
-    // recognised; ['literal', ['literal', 'none']] from preprocessor
-    // chains left the layer rendering despite the author's hide.
-    let bgVisibility: unknown = bgLayer.layout?.visibility
-    while (Array.isArray(bgVisibility) && bgVisibility.length === 2
-        && bgVisibility[0] === 'literal') {
-      bgVisibility = bgVisibility[1]
-    }
-    const bgVisibilityNone = bgVisibility === 'none'
-    // Mapbox spec: visibility must be 'visible' | 'none'. Warn on
-    // typo'd values that silently fell to default 'visible'.
-    if (typeof bgVisibility === 'string' && bgVisibility !== 'visible' && bgVisibility !== 'none') {
-      warnings.push(`Background layer "${bgLayer.id}" — visibility "${bgVisibility.slice(0, 40)}" is not a valid enum; expected 'visible' | 'none'.`)
-    }
-    const color = bgLayer.paint?.['background-color']
-    // Probe the constant-colour conversion into a scratch warnings
-    // buffer so a zoom-interp `background-color` (which colorToXgis
-    // declines with a "Color expression not converted" note) doesn't
-    // leak that note when the WS-1 interpolate path below DOES convert
-    // it. The scratch warnings are committed to the real list only when
-    // we keep the constant result.
-    const colorProbeWarnings: string[] = []
-    let colorStr = bgVisibilityNone ? null : colorToXgis(color, colorProbeWarnings)
-    // WS-1 — zoom-interpolated background-color. When `background-color`
-    // is `["interpolate", ["linear"], ["zoom"], …]`, emit the colour as
-    // an `interpolate(zoom, …)` fill value so map.ts resolves the RGBA
-    // per frame (flat: background-pass clear; sphere: synthetic earth-
-    // surface show paintShapes.fill). The constant path keeps emitting a
-    // hex via `colorStr`. colorToXgis returns null on the interpolate
-    // shape, so this only fires when the constant path already declined.
-    const colorInterp = (colorStr === null && !bgVisibilityNone)
-      ? interpolateZoomCall(color, warnings, (val, w) => colorToXgis(val, w))
-      : null
-    // Commit the constant-colour probe diagnostics unless the interpolate
-    // path claimed the value (then the "not converted" note is spurious).
-    if (colorInterp === null) warnings.push(...colorProbeWarnings)
-    // Defensive: coerce non-object bgLayer.paint to {} (mirror of the
-    // layers.ts safePropsBag guard). A string paint value previously
-    // let bgPaint['background-opacity'] index a char and the warning
-    // list leaked garbage property names.
-    const rawBgPaint = bgLayer.paint
-    const bgPaint = (rawBgPaint !== null && rawBgPaint !== undefined
-      && typeof rawBgPaint === 'object' && !Array.isArray(rawBgPaint))
-      ? rawBgPaint as Record<string, unknown>
-      : {}
-    // Background-opacity constant fold (same pattern as
-    // circle-stroke-opacity iter 4 partial landing). When both
-    // background-color hex AND a constant numeric background-opacity
-    // < 1 are authored, fold the opacity into the hex alpha channel.
-    // Zoom-interp / data-driven forms fall through to the opacity:
-    // interpolate emit below (WS-1).
-    {
-      let bgOpRaw: unknown = bgPaint['background-opacity']
-      while (Array.isArray(bgOpRaw) && bgOpRaw.length === 2 && bgOpRaw[0] === 'literal') bgOpRaw = bgOpRaw[1]
-      if (colorStr && typeof bgOpRaw === 'number' && Number.isFinite(bgOpRaw) && bgOpRaw < 0.999) {
-        const a = Math.max(0, Math.min(1, bgOpRaw))
-        const baseAlpha = colorStr.length === 9
-          ? parseInt(colorStr.slice(7, 9), 16) / 255
-          : 1
-        const ai = Math.round(baseAlpha * a * 255)
-        const aHex = ai.toString(16).padStart(2, '0')
-        colorStr = colorStr.slice(0, 7) + aHex
-      }
-    }
-    const bgOpacity = bgPaint['background-opacity']
-    // WS-1 — zoom-interpolated background-opacity. Emit an `opacity:`
-    // style property (0..100, like circle-opacity) that map.ts lexes
-    // back into a PropertyShape<number> and multiplies into the clear
-    // alpha per frame. Constant numeric opacity already folded into the
-    // hex above; only the non-constant interpolate form lands here.
-    const bgOpacityIsConstant = (() => {
-      let v: unknown = bgOpacity
-      while (Array.isArray(v) && v.length === 2 && v[0] === 'literal') v = v[1]
-      return typeof v === 'number' && Number.isFinite(v)
-    })()
-    const opacityInterp = !bgOpacityIsConstant
-      ? interpolateZoomCall(bgOpacity, warnings, (val) =>
-          typeof val === 'number' && Number.isFinite(val)
-            ? String(Math.round(Math.max(0, Math.min(1, val)) * 100))
-            : null)
-      : null
-    // Emit the background block from the resolved fill (constant hex OR
-    // zoom-interp) + the optional zoom-interp opacity. The xgis
-    // `background { … }` directive parses both `fill:` and `opacity:`
-    // style properties (parser.isStylePropertyStart).
-    const fillStr = colorStr ?? colorInterp
-    if (fillStr) {
-      const body = opacityInterp
-        ? `fill: ${fillStr} opacity: ${opacityInterp}`
-        : `fill: ${fillStr}`
-      lines.push(`background { ${body} }`)
-      lines.push('')
-    }
-    // Surface dropped background paint props. background-pattern is
-    // the bitmap-atlas equivalent (Batch 2 follow-up). Constant
-    // background-opacity folds into the hex; zoom-interp opacity emits
-    // an `opacity:` property above — neither surfaces here. A
-    // data-driven (non-zoom) opacity that interpolateZoomCall declined
-    // (opacityInterp === null) is still a real gap.
-    const bgIgnored: string[] = []
-    if (bgOpacity !== undefined && bgOpacity !== null
-        && !bgOpacityIsConstant && opacityInterp === null) {
-      bgIgnored.push('background-opacity (non-constant)')
-    }
-    const bgPattern = bgPaint['background-pattern']
-    if (bgPattern !== undefined && bgPattern !== null) bgIgnored.push('background-pattern (Batch 2)')
-    if (bgIgnored.length > 0) {
-      warnings.push(`Background layer "${bgLayer.id}" — ignored properties: ${bgIgnored.join(', ')}`)
-    }
-    if (options?.coverage) {
-      const reasons = warnings.slice(before)
-      options.coverage.layers.push({
-        layerId: bgLayer.id,
-        type: 'background',
-        action: fillStr ? (reasons.length > 0 ? 'lossy' : 'converted') : 'skipped',
-        reasons,
-      })
-    }
+    convertBackgroundLayer(bgLayer, lines, warnings, options?.coverage)
   }
 
-  // ── Pre-walk: detect minzoom > maxzoom inversions ──────────────────
-  // Mapbox spec doesn't explicitly forbid `minzoom > maxzoom` but
-  // the runtime tile-selector treats the range as `[min, max]` so an
-  // inverted range produces an empty visible-zoom set — the layer
-  // NEVER renders. Common typo source (swapped min/max, off-by-one
-  // when copying between zoom-band-segmented styles). Pre-fix the
-  // layer dropped silently with no diagnostic.
-  for (const l of layersArr) {
-    if (l === null || typeof l !== 'object' || Array.isArray(l)) continue
-    const mn = (l as { minzoom?: unknown }).minzoom
-    const mx = (l as { maxzoom?: unknown }).maxzoom
-    const lid = (l as { id?: unknown }).id ?? '<unknown>'
-    if (typeof mn === 'number' && typeof mx === 'number' && mn > mx) {
-      warnings.push(`Layer "${String(lid).slice(0, 60)}" has minzoom=${mn} > maxzoom=${mx} — the layer never renders. Swap the values or remove one.`)
-    }
-    // Mapbox spec: zoom values ∈ [0, 24]. Out-of-range usually
-    // indicates a typo. The tile selector silently clamps, so the
-    // layer renders the same as if the bound were the nearest valid
-    // value — no visual difference but the authored intent is lost.
-    if (typeof mn === 'number' && (mn < 0 || mn > 24)) {
-      warnings.push(`Layer "${String(lid).slice(0, 60)}" minzoom=${mn} is outside Mapbox spec range [0, 24]; tile selector clamps so the layer renders as if minzoom=${Math.max(0, Math.min(24, mn))}.`)
-    }
-    if (typeof mx === 'number' && (mx < 0 || mx > 24)) {
-      warnings.push(`Layer "${String(lid).slice(0, 60)}" maxzoom=${mx} is outside Mapbox spec range [0, 24]; tile selector clamps so the layer renders as if maxzoom=${Math.max(0, Math.min(24, mx))}.`)
-    }
-  }
+  // ── Pre-walk: detect layer minzoom > maxzoom inversions + range ────
+  validateLayerZoom(layersArr, warnings)
 
   // ── Pre-walk: vector-source layers require source-layer ────────────
-  // Mapbox spec: every layer reading from a vector source (vector /
-  // pmtiles / tilejson backends) MUST declare `source-layer`. Without
-  // it the runtime tile decoder has no MVT layer to read from and
-  // emits zero features → blank layer with no diagnostic. The omission
-  // is one of the top-3 "my layer doesn't render" support cases for
-  // hand-edited styles.
-  // Background / raster / raster-dem / image / video / geojson don't
-  // need source-layer (the source itself is the data).
-  const vectorSourceIds = new Set<string>()
-  for (const [sid, src] of Object.entries(sourcesObj)) {
-    if (src === null || typeof src !== 'object' || Array.isArray(src)) continue
-    const t = (src as { type?: unknown }).type
-    if (t === 'vector' || t === 'pmtiles' || t === 'tilejson') {
-      vectorSourceIds.add(sid)
-    }
-  }
-  for (const l of layersArr) {
-    if (l === null || typeof l !== 'object' || Array.isArray(l)) continue
-    const ltype = (l as { type?: unknown }).type
-    if (ltype === 'background' || ltype === 'raster' || ltype === 'hillshade') continue
-    const lsrc = (l as { source?: unknown }).source
-    if (typeof lsrc !== 'string' || lsrc.length === 0) continue
-    if (!vectorSourceIds.has(lsrc)) continue
-    const slayer = (l as { 'source-layer'?: unknown })['source-layer']
-    if (typeof slayer !== 'string' || slayer.length === 0) {
-      const lid = (l as { id?: unknown }).id ?? '<unknown>'
-      warnings.push(`Layer "${String(lid).slice(0, 60)}" reads from vector source "${lsrc.slice(0, 60)}" but has no source-layer; the runtime decoder will return zero features and the layer renders blank.`)
-    }
-  }
+  validateLayerSourceLayer(layersArr, sourcesObj as Record<string, unknown>, warnings)
 
   // ── Pre-walk: detect layers referencing undeclared sources ─────────
-  // Mapbox spec: every non-background layer's `source` field MUST
-  // reference a declared source in `style.sources`. Real-world failure
-  // mode: a layer copied between styles drags a `source: "osm"`
-  // reference but the destination style has no `osm` source; the
-  // runtime falls back to an empty source / no tiles and the layer
-  // renders blank with no diagnostic.
-  const declaredSourceIds = new Set(Object.keys(sourcesObj))
-  for (const l of layersArr) {
-    if (l === null || typeof l !== 'object' || Array.isArray(l)) continue
-    const layerType = (l as { type?: unknown }).type
-    if (layerType === 'background') continue
-    const layerSource = (l as { source?: unknown }).source
-    if (typeof layerSource !== 'string' || layerSource.length === 0) continue
-    if (!declaredSourceIds.has(layerSource)) {
-      const lid = (l as { id?: unknown }).id ?? '<unknown>'
-      warnings.push(`Layer "${String(lid).slice(0, 60)}" references undeclared source "${layerSource.slice(0, 60)}"; runtime will see no tiles and the layer renders blank.`)
-    }
-  }
+  validateLayerSourceRefs(layersArr, sourcesObj as Record<string, unknown>, warnings)
 
-  // ── Pre-walk: detect id collisions ─────────────────────────────────
-  // Two failure modes Mapbox styles trip on in the wild:
-  //   1. Duplicate raw id — Mapbox spec requires unique layer ids
-  //      but partial / hand-edited JSON breaks this. The second
-  //      layer's emitted block silently overrides the first in the
-  //      runtime's id-keyed registry.
-  //   2. Sanitization collision — distinct raw ids that collapse to
-  //      the same sanitized identifier (`a-b` and `a_b` both become
-  //      `a_b`; `1km` and `_1km` collide once digit-leading prefix
-  //      runs). The emitted xgis has two identical `layer foo { … }`
-  //      blocks; downstream lower / IR keys by sanitized id so the
-  //      later block wins silently.
-  // Warn at convert time so the user sees the problem instead of a
-  // mystery missing layer.
-  const seenRaw = new Set<unknown>()
-  const seenSanitized = new Map<string, unknown>()
-  for (const l of layersArr) {
-    if (l === null || typeof l !== 'object' || Array.isArray(l)) continue
-    if ((l as { type?: unknown }).type === 'background') continue
-    const rawId = (l as { id?: unknown }).id
-    if (rawId === undefined || rawId === null) continue
-    if (seenRaw.has(rawId)) {
-      warnings.push(`Duplicate layer id "${String(rawId).slice(0, 60)}" — Mapbox spec requires unique layer ids; later block overrides earlier in the runtime registry.`)
-    } else {
-      seenRaw.add(rawId)
-      const sanitized = sanitizeId(typeof rawId === 'string' ? rawId : String(rawId))
-      const collidedWith = seenSanitized.get(sanitized)
-      if (collidedWith !== undefined && collidedWith !== rawId) {
-        warnings.push(`Layer id "${String(rawId).slice(0, 60)}" sanitizes to "${sanitized}" — collides with another layer "${String(collidedWith).slice(0, 60)}"; emitted blocks will share an identifier and later wins.`)
-      } else {
-        seenSanitized.set(sanitized, rawId)
-      }
-    }
-  }
+  // ── Pre-walk: detect layer id collisions ───────────────────────────
+  validateLayerIdCollisions(layersArr, warnings)
 
   // ── Layers ─────────────────────────────────────────────────────────
   for (const layer of layersArr) {

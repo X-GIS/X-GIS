@@ -29,18 +29,20 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const CONVERT_DIR = join(HERE, '..', 'convert')
 
 function readConverterSource(): string {
-  // Tier-A parallel-axis registry split relocated the emit/case references
-  // out of the old god-files into per-concern modules — scan them all so a
+  // Tier-A + C5 parallel-axis split relocated the emit/case references out
+  // of the old god-files into per-concern modules — scan them all so a
   // relocated reference is never mistaken for a dropped one:
   //  - expr-registry + expr-* clusters (A3) hold the op→handler refs
   //  - paint-* emitters (A2) hold the per-layer-type paint refs
   //  - layer-converters/* (A4) hold `.type === 'circle'`, line cap/join/miter
   //    layout, and symbol text-field/icon-image refs that lived in layers.ts
+  //  - convert-background-layer.ts (C5) holds the background-* paint refs
+  //    lifted out of mapbox-to-xgis.ts
   const files = [
     'expressions.ts', 'expr-registry.ts', 'expr-arithmetic.ts', 'expr-logic.ts', 'expr-lookup.ts', 'expr-string.ts',
     'layers.ts', 'layers-circle.ts', 'layers-symbol.ts',
     'paint.ts', 'paint-fill.ts', 'paint-line.ts', 'paint-fill-extrusion.ts', 'paint-raster.ts', 'paint-helpers.ts',
-    'sources.ts', 'colors.ts', 'mapbox-to-xgis.ts',
+    'sources.ts', 'colors.ts', 'mapbox-to-xgis.ts', 'convert-background-layer.ts',
     'layer-converters/line.ts', 'layer-converters/circle.ts', 'layer-converters/symbol.ts', 'layer-converters/generic.ts',
   ]
   return files.map(f => readFileSync(join(CONVERT_DIR, f), 'utf8')).join('\n\n')
