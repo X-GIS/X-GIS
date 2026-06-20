@@ -11,14 +11,14 @@
 import { DEBUG_OVERDRAW } from '../../debug-flags'
 import type { FrameContext } from '../frame-context'
 import type { SceneView } from '../scene-view'
-import type { RenderPass, PassHost } from './pass'
+import type { RenderPass, OitPassHost } from './pass'
 
 class OitPass implements RenderPass {
   readonly label = 'oit'
 
   shouldRun(scene: SceneView): boolean { return scene.hasOit && !DEBUG_OVERDRAW }
 
-  execute(ctx: FrameContext, scene: SceneView, host: PassHost): void {
+  execute(ctx: FrameContext, scene: SceneView, host: OitPassHost): void {
     const encoder = ctx.encoder
     ctx.passScope('oit-fill', () => {
       // OIT pass shares the opaque pass's MSAA depth-stencil

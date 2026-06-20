@@ -31,7 +31,7 @@ import { worldBandForProjType } from '../../projection/projections-table'
 import { resolveColorShape, resolveNumberShape } from '../paint-shape-resolve'
 import type { FrameContext } from '../frame-context'
 import type { SceneView } from '../scene-view'
-import type { RenderPass, PassHost } from './pass'
+import type { RenderPass, BackgroundPassHost } from './pass'
 
 /** RGBA in straight-alpha unit floats (0..1), as `XGISMap._backgroundColor`
  *  stores it. */
@@ -64,7 +64,7 @@ class BackgroundPass implements RenderPass {
   // no layers, exactly as the opaque first sub-pass did before.
   shouldRun(): boolean { return true }
 
-  execute(ctx: FrameContext, _scene: SceneView, host: PassHost): void {
+  execute(ctx: FrameContext, _scene: SceneView, host: BackgroundPassHost): void {
     // WS-1 — resolve a zoom-interpolated background-color / -opacity to
     // this frame's RGBA before picking the clear colour. `backgroundClearValue`
     // stays a pure function: it receives the already-resolved RGBA. Constant

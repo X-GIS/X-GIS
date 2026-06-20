@@ -30,7 +30,7 @@ import { hexToRgba, featureAnchor } from '../../feature-helpers'
 import { type ShowCommand } from '../renderer'
 import type { FrameContext } from '../frame-context'
 import type { SceneView } from '../scene-view'
-import type { RenderPass, PassHost } from './pass'
+import type { RenderPass, LabelPassHost } from './pass'
 
 /** Cross-tile line-label dedupe predicate. A named road stamped across N
  *  tile boundaries collapses to a single label via its (unique) resolved
@@ -101,7 +101,7 @@ class LabelPass implements RenderPass {
   // the body, so this pass is always "run" from the chain.
   shouldRun(): boolean { return true }
 
-  execute(ctx: FrameContext, _scene: SceneView, host: PassHost): void {
+  execute(ctx: FrameContext, _scene: SceneView, host: LabelPassHost): void {
     // Phase 2 PR 2d.4: `projType`/`centerLon`/`centerLat` no longer
     // destructured — the projType-conditional label projector branches
     // collapsed to a single ECEF-based projector. Other passes still

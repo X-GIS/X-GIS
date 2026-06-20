@@ -12,14 +12,14 @@
 import { DEBUG_OVERDRAW } from '../../debug-flags'
 import type { FrameContext } from '../frame-context'
 import type { SceneView } from '../scene-view'
-import type { RenderPass, PassHost } from './pass'
+import type { RenderPass, PointsPassHost } from './pass'
 
 class PointsPass implements RenderPass {
   readonly label = 'points'
 
   shouldRun(scene: SceneView): boolean { return scene.hasPoints && !DEBUG_OVERDRAW }
 
-  execute(ctx: FrameContext, _scene: SceneView, host: PassHost): void {
+  execute(ctx: FrameContext, _scene: SceneView, host: PointsPassHost): void {
     const encoder = ctx.encoder
     ctx.passScope('points', () => {
       const ptPass = encoder.beginRenderPass({

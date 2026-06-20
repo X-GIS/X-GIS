@@ -9,7 +9,7 @@
 import { DEBUG_OVERDRAW } from '../../debug-flags'
 import type { FrameContext } from '../frame-context'
 import type { SceneView } from '../scene-view'
-import type { RenderPass, PassHost } from './pass'
+import type { RenderPass, OverdrawComposePassHost } from './pass'
 
 class OverdrawComposePass implements RenderPass {
   readonly label = 'overdraw-compose'
@@ -18,7 +18,7 @@ class OverdrawComposePass implements RenderPass {
   // accumulator texture (only present when DEBUG_OVERDRAW provisioned it).
   shouldRun(): boolean { return DEBUG_OVERDRAW }
 
-  execute(ctx: FrameContext, _scene: SceneView, host: PassHost): void {
+  execute(ctx: FrameContext, _scene: SceneView, host: OverdrawComposePassHost): void {
     if (!ctx.rt.overdrawAccumTexture) return
     const encoder = ctx.encoder
     ctx.passScope('overdraw-compose', () => {
