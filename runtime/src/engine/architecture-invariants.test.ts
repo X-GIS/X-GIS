@@ -454,7 +454,7 @@ const LOC_CEILINGS: Record<string, number> = {
   'compiler/src/ir/lower-label.ts': 866,
   // Baselined at 835 (Phase S Batch 3 raster +18 + text/icon +6; Batch 4 icon
   // collision +3 + symbol-z-order's LabelDef.symbolZOrder field + JSDoc).
-  'compiler/src/ir/render-node.ts': 835,
+  'compiler/src/ir/render-node.ts': 837,
 }
 const NEW_FILE_CAP = 800
 

@@ -177,6 +177,28 @@ export const propertiesHandler: ExprHandler = (v, warnings) => {
   return 'properties()'
 }
 
+export const isSupportedScriptHandler: ExprHandler = (v, warnings) => {
+  // Mapbox ["is-supported-script", string] returns true when every
+  // character in the string belongs to a script the renderer can
+  // shape. X-GIS rasterises glyphs through Canvas2D / the MapLibre
+  // PBF atlas with a CJK + Latin + Arabic-capable fallback chain and
+  // makes no per-script capability distinction — it treats the whole
+  // Unicode BMP as renderable. So the faithful lowering of this
+  // accessor for X-GIS' actual capability is the constant `true`:
+  // styles use it as `["case", ["is-supported-script", text], text,
+  // <fallback>]` to pick a renderable label, and X-GIS always takes
+  // the supported branch. We emit the bare `true` identifier (the
+  // evaluator's boolean literal) rather than evaluating the string
+  // argument — there is no script-coverage table to consult, and the
+  // result is invariant. One arg expected; surface a malformed call
+  // (`["is-supported-script"]` with no string) so it isn't silently
+  // treated as a recognised accessor.
+  if (v.length !== 2) {
+    warnings.push(`Malformed ["is-supported-script"] expression: expected 1 string argument, got ${v.length - 1}.`)
+  }
+  return 'true'
+}
+
 export const geometryTypeHandler: ExprHandler = (v, warnings) => {
   // Mapbox ["geometry-type"] resolves to "Point" / "LineString" /
   // "Polygon" (or their Multi* variants) per feature. xgis has no
