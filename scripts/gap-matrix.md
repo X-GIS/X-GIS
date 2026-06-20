@@ -17,15 +17,14 @@ Properties where the runtime currently degrades or drops a specific value-form.
 | symbol | icon-size | data-driven | Worker per-feature evaluator pending |
 | symbol | symbol-sort-key | data-driven | Expression flattens to 0; per-feature key plumbing pending |
 | fill-extrusion | fill-extrusion-pattern | data-driven | Expression form not threaded through IR |
-| background | background-opacity | zoom-interp | Per-frame uniform path pending |
 | raster | raster-opacity | data-driven | Data-driven not applicable to raster tiles |
 
 ## Spec-coverage status breakdown
 
 | Status | Count |
 |---|---:|
-| supported | 146 |
-| partial | 20 |
+| supported | 148 |
+| partial | 18 |
 | unsupported | 69 |
 | na | 7 |
 | **total** | **242** |
@@ -52,8 +51,6 @@ Properties marked `partial` — converter accepts but runtime degrades. These ne
 | icon-allow-overlap | medium | No icon collision queue yet — every icon places (matches `true` semantics). OFM label_city/town/village/city_capital authoring `true` (4 layers per fixture) renders correctly. `false` would suppress overlapping icons; not implemented (would need icon-side collision bboxes). Iter 495 status review. |
 | icon-overlap | medium | MapLibre overlap-policy enum. `always` matches X-GIS default (every icon places). `never`/`cooperative` need icon collision bboxes (deferred). Iter 495 status review. |
 | icon-optional | low | Default `false` (icon required for label placement) is X-GIS' current contract — labels with iconImage place when both fit. OFM label_city/town/etc. all author the default. `true` (label may place icon-less) needs icon-side collision arbitration; not implemented. |
-| background-color | low | Constant + CSS form only — interpolate-by-zoom of background falls through (rare). |
-| background-opacity | low | Constant numeric form folds into background-color hex alpha (iter 47, mirror of circle-stroke-opacity iter 4). Zoom-interp / data-driven still warn — would need a per-frame uniform on the background-fill emit path. |
 | fill-antialias | low | Default `true` byte-identical (current render path). Geometric fill-edge AA in X-GIS comes from pipeline MSAA, not a per-fragment coverage smoothstep, so it is not per-layer disable-able. The `false` opt-out IS now wired: the converter emits a `fill-antialias-false` flag (paint.ts) → ShowCommand.fillAntialias → the polygon uniform's spare cam_ecef_off_h.w lane → the fs_fill fragment gates the only fill-alpha smoothstep it has (the sphere-rim hemisphere fade, polygon_rim_alpha) on the flag, giving a hard rim edge. On flat-Mercator the rim factor is already 1.0 so `false` is visually inert there; it bites on the curved-globe/azimuthal rim. OFM liberty `landcover_wood`/`grass`/`ice` set `false`. |
 | line-translate-anchor | low | viewport (default) is honoured (matches X-GIS behaviour). map coordinate space for line-translate deferred (no OFM uses). |
 | icon-translate | low | CSS-px viewport offset for icons (independent of text-translate). Constant [dx, dy] form wired end-to-end: converter emits `label-icon-translate-{x,y}-N` (layers-symbol.ts) → LabelDef.iconTranslateX/Y → dispatchIcon adds it (× dpr) to the icon anchor before IconStage.addIcon (label-pass.ts), alongside icon-offset. Default [0,0] = no-op. Non-constant (expression / interpolate) form still warns + drops. |

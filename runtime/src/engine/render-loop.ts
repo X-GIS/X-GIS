@@ -59,6 +59,8 @@ const FLICKER_LOG_CAP = 32
  *  `groupOpaqueBySource` remain on the map and are reached via this view. */
 export type RenderLoopHost = Pick<XGISMap,
   | '_backgroundColor'
+  | '_backgroundColorShape'
+  | '_backgroundOpacityShape'
   | '_light'
   | '_elapsedMs'
   | '_featureExprsCache'

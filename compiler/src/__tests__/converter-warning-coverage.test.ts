@@ -343,7 +343,10 @@ describe('converter warning coverage', () => {
     expect(note).toContain('background-pattern')
   })
 
-  it('background-opacity zoom-interp → still surfaces as non-constant gap', () => {
+  it('background-opacity zoom-interp → emits opacity: interpolate, no warning (WS-1)', () => {
+    // WS-1: a zoom-interpolated background-opacity is now emitted as an
+    // `opacity: interpolate(zoom, …)` style property the runtime resolves
+    // per frame — it no longer surfaces as a non-constant gap.
     const w = warningsOf({
       version: 8,
       sources: {},
@@ -357,8 +360,7 @@ describe('converter warning coverage', () => {
       }],
     })
     const note = w.find(s => s.includes('"bg"') && s.includes('background-opacity'))
-    expect(note).toBeDefined()
-    expect(note).toContain('non-constant')
+    expect(note, `expected no background-opacity warning, got: ${JSON.stringify(w)}`).toBeUndefined()
   })
 
   it('GeoJSON promoteId → reserved-id warning', () => {

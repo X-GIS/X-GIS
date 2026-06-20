@@ -6,6 +6,11 @@ export { serializeXGB, deserializeXGB, type BinaryScene } from './binary/format'
 export { resolveColor } from './tokens/colors'
 export { resolveUtilities, type ResolvedProperties } from './ir/utility-resolver'
 export { lower } from './ir/lower'
+// Zoom-stop extractors (WS-1 background zoom-interp). The runtime re-parses
+// a `background { fill: interpolate(zoom, …) }` / `opacity: interpolate(…)`
+// styleProperty string into an AST.Expr and pulls its (zoom, value) stops so
+// the background colour / opacity resolves per frame. Defs in lower-helpers.ts.
+export { extractInterpolateZoomColorStops, extractInterpolateZoomStops } from './ir/lower-helpers'
 export { emitCommands } from './ir/emit-commands'
 export type { SceneCommands, LoadCommand, ShowCommand } from './ir/emit-commands'
 export type { Scene, SourceDef, RenderNode, ColorValue, StrokeValue, OpacityValue, SizeValue, DataExpr, ZoomStop, ConditionalBranch } from './ir/render-node'

@@ -167,8 +167,8 @@ const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
 
 // ─── 5. Paint properties ──────────────────────────────────────────────
 const PAINT_BACKGROUND: readonly CoverageEntry[] = [
-  { name: 'background-color',   status: 'partial', impact: 'low', note: 'Constant + CSS form only — interpolate-by-zoom of background falls through (rare).' },
-  { name: 'background-opacity', status: 'partial', impact: 'low', note: 'Constant numeric form folds into background-color hex alpha (iter 47, mirror of circle-stroke-opacity iter 4). Zoom-interp / data-driven still warn — would need a per-frame uniform on the background-fill emit path.' },
+  { name: 'background-color',   status: 'supported', impact: 'low', note: 'Constant + CSS form fold to a hex; interpolate-by-zoom resolves per frame (WS-1) — flat via the background-pass clear, sphere via the synthetic earth-surface show paintShapes.fill.' },
+  { name: 'background-opacity', status: 'supported', impact: 'low', note: 'Constant numeric form folds into background-color hex alpha (iter 47, mirror of circle-stroke-opacity iter 4). Interpolate-by-zoom emits an opacity: style property that resolves per frame (WS-1) and multiplies into the background clear alpha.' },
   { name: 'background-pattern', status: 'unsupported', impact: 'low', note: 'Needs sprite atlas + tiled fragment. Batch 2 dependency.' },
 ]
 
