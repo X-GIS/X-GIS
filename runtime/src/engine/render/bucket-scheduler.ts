@@ -116,7 +116,7 @@ export interface ClassifierShowEntry {
  *  pick-attachment variants used when `show.pointerEvents === 'none'`;
  *  callers may omit them (the classifier falls back to the pickable
  *  pipeline + a console warning). */
-export interface ClassifierVariantPipelines {
+interface ClassifierVariantPipelines {
   fillPipeline: GPURenderPipeline
   fillPipelineGround?: GPURenderPipeline
   linePipeline: GPURenderPipeline
@@ -136,7 +136,7 @@ export interface ClassifierVariantPipelines {
  *  mirrors carry the writeMask:0 pick-attachment variants for
  *  `pointer-events: none` layers — when picking is globally off they
  *  alias the pickable pipelines. */
-export interface ClassifierRendererDefaults {
+interface ClassifierRendererDefaults {
   fillPipeline: GPURenderPipeline
   fillPipelineGround?: GPURenderPipeline
   linePipeline: GPURenderPipeline

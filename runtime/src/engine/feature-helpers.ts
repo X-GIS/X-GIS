@@ -123,7 +123,7 @@ export function featureAnchor(geom: import('../loader/geojson').GeoJSONGeometry 
 
 /** Bounding-box centre of a ring of [lon, lat] points. Returns null
  *  for empty rings. */
-export function ringBboxCentre(ring: [number, number][]): [number, number] | null {
+function ringBboxCentre(ring: [number, number][]): [number, number] | null {
   if (!ring || ring.length === 0) return null
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
   for (const pt of ring) {

@@ -7,6 +7,7 @@
 //
 // Recognised reference shapes (regex-grep, not AST):
 //   - `case 'X':`              inside expression / filter switches
+//   - `['X', handler]`         inside the expr-registry handler Map
 //   - `layout['X']`            inside symbol layer extraction
 //   - `paint['X']`             inside paint-to-utilities extraction
 //   - `=== 'X'` after `layer.type` / `placement` / `anchor`-shaped vars
@@ -28,7 +29,22 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const CONVERT_DIR = join(HERE, '..', 'convert')
 
 function readConverterSource(): string {
-  const files = ['expressions.ts', 'layers.ts', 'layers-circle.ts', 'layers-symbol.ts', 'paint.ts', 'sources.ts', 'colors.ts', 'mapbox-to-xgis.ts']
+  // Tier-A + C5 parallel-axis split relocated the emit/case references out
+  // of the old god-files into per-concern modules — scan them all so a
+  // relocated reference is never mistaken for a dropped one:
+  //  - expr-registry + expr-* clusters (A3) hold the op→handler refs
+  //  - paint-* emitters (A2) hold the per-layer-type paint refs
+  //  - layer-converters/* (A4) hold `.type === 'circle'`, line cap/join/miter
+  //    layout, and symbol text-field/icon-image refs that lived in layers.ts
+  //  - convert-background-layer.ts (C5) holds the background-* paint refs
+  //    lifted out of mapbox-to-xgis.ts
+  const files = [
+    'expressions.ts', 'expr-registry.ts', 'expr-arithmetic.ts', 'expr-logic.ts', 'expr-lookup.ts', 'expr-string.ts',
+    'layers.ts', 'layers-circle.ts', 'layers-symbol.ts',
+    'paint.ts', 'paint-fill.ts', 'paint-line.ts', 'paint-fill-extrusion.ts', 'paint-raster.ts', 'paint-helpers.ts',
+    'sources.ts', 'colors.ts', 'mapbox-to-xgis.ts', 'convert-background-layer.ts',
+    'layer-converters/line.ts', 'layer-converters/circle.ts', 'layer-converters/symbol.ts', 'layer-converters/generic.ts',
+  ]
   return files.map(f => readFileSync(join(CONVERT_DIR, f), 'utf8')).join('\n\n')
 }
 
@@ -41,6 +57,16 @@ function extractReferencedNames(src: string): Set<string> {
   // `case 'X':` — expression / filter switches. Captures any string
   // content so non-alpha ops (==, !=, +, ^, !in, …) get picked up.
   for (const m of src.matchAll(/case\s+['"]([^'"]+)['"]/g)) {
+    names.add(m[1]!)
+  }
+  // `['X', handler]` — the expr-registry op→handler Map tuples. Since
+  // the per-op switch arms were relocated into per-cluster handler
+  // modules behind a dispatcher, the op string now lives as the first
+  // element of a registration tuple (`['get', getHandler]`) instead of
+  // a `case 'get':` arm. Captures any string content so non-alpha ops
+  // (==, !=, +, ^, !has, …) get picked up the same way the `case`
+  // shape did.
+  for (const m of src.matchAll(/\[\s*['"]([^'"]+)['"]\s*,\s*\w+Handler\s*\]/g)) {
     names.add(m[1]!)
   }
   // `op === 'X'` — handler-by-if pattern (e.g. `if (op === '!in')`
@@ -63,6 +89,12 @@ function extractReferencedNames(src: string): Set<string> {
   // non-hyphenated key (e.g. `layout['visibility']`). The namespace
   // restriction keeps this from matching `obj['type']` noise.
   for (const m of src.matchAll(/(?:layout|paint)\[['"]([a-z][a-z0-9_]*)['"]\]/g)) {
+    names.add(m[1]!)
+  }
+  // `registerLayerConverter('X', …)` — the A4 per-layer-type registry
+  // shape that replaced the former `layer.type === 'X'` dispatch chain
+  // (e.g. `registerLayerConverter('circle', …)`).
+  for (const m of src.matchAll(/registerLayerConverter\(\s*['"]([a-z][a-z0-9-]+)['"]/g)) {
     names.add(m[1]!)
   }
   // SKIP_REASONS table — `circle: '…'`, `heatmap: '…'`, `hillshade: '…'`.

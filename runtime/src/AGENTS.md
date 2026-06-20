@@ -31,7 +31,7 @@ Root of the `@xgis/runtime` source tree. The four top-level source files are the
 ## For AI Agents
 
 ### Working In This Directory
-- Any new paint/layout property runtime support must add a matching row to `capabilities.ts` (`layerType`, `property`, `variant`, `supported`). The `__tests__/spec-coverage-runtime-drift.test.ts` gate fails on missing or stale entries.
+- Any new paint/layout property runtime support must add a matching row to the per-layer-type descriptor under `capabilities/` (e.g. `capabilities/circle.ts`, `capabilities/background.ts`) — NOT the assembler `capabilities.ts`, which just spreads the descriptors. Splitting the table by layer type keeps independent axes (e.g. a circle change vs a background change) in different files, so they never conflict and can be implemented in parallel. The `__tests__/spec-coverage-runtime-drift.test.ts` gate fails on missing or stale entries.
 - New public symbols must be added to `index.ts`; `playground/` and `site/` import exclusively from `@xgis/runtime`, never via deep paths.
 - `vite-shims.ts` must stay as a `.ts` file (not `.d.ts`) — `.gitignore` excludes `*.d.ts` in this tree as build artifacts.
 - `earcut.d.ts` is hand-authored; do not delete it. The actual `earcut` package has no bundled types.

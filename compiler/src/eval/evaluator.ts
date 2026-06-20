@@ -333,6 +333,5 @@ function evaluateMatch(expr: AST.MatchBlock, props: FeatureProps, fnEnv?: FnEnv)
 
 // ═══ Built-in functions + type coercion helpers ═══
 // Moved verbatim to ./evaluator-helpers.ts (pure, no eval-tree
-// coupling). toNumber / toBool re-exported here to preserve the
-// pre-existing public surface (`export { toNumber, toBool }`).
-export { toNumber, toBool } from './evaluator-helpers'
+// coupling). Imported above for internal use; no longer re-exported
+// here (no external consumer of the evaluator-level re-export).

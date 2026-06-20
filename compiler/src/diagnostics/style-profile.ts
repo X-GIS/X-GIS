@@ -30,7 +30,7 @@ import type { Scene } from '../ir/render-node'
 import type { Expr } from '../parser/ast'
 import { analyzeCSE } from '../ir/passes/cse'
 import { annotateDeps } from '../ir/passes/annotate-deps'
-import { Dep, formatDeps, type DepBits } from '../ir/deps'
+import { Dep, type DepBits } from '../ir/deps'
 import { collectPalette } from '../codegen/palette'
 import { planComputeKernels } from '../codegen/compute-plan'
 
@@ -243,7 +243,3 @@ export function formatStyleProfile(p: StyleProfile): string {
   }
   return lines.join('\n')
 }
-
-// Re-export Dep label helper so callers building custom views can
-// label DepBits without re-importing from `../ir/deps`.
-export { formatDeps }

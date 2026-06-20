@@ -23,8 +23,6 @@ import type { GPUContext } from './gpu/gpu'
 import { parseHexColor } from './feature-helpers'
 import type { GeoJSONFeatureCollection } from '../loader/geojson'
 
-export { capSourceName }
-
 /** Host hooks the per-source polar-cap install/detach needs from XGISMap. The
  *  `vtSources` / `rawDatasets` Maps are shared by reference; `showCommands` is
  *  read + replaced through the accessor pair so the host's field stays the
@@ -102,7 +100,7 @@ export function detachGeoJSONPolarCaps(host: PolarCapInstallHost): void {
  *  constant `paintShapes.fill`, then the static `fill` hex. Picks the first
  *  show targeting `sourceName` that carries a fill (the polygon fill layer); a
  *  stroke-only layer has `fill === null` and is skipped. Null when none. */
-export function resolveSourceFillRgba(
+function resolveSourceFillRgba(
   shows: readonly ShowCommand[],
   sourceName: string,
 ): [number, number, number, number] | null {

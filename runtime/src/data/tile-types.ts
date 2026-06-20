@@ -109,6 +109,43 @@ export interface TileData {
   originBackend?: TileSource
 }
 
+/** Descriptor bundling the (formerly ~18 positional) arguments of
+ *  `TileCatalog.cacheTileData`. Struct-ified so the four call sites
+ *  (acceptResult, createFullCoverTileData, loadFromTileSet, addTileLevel)
+ *  name each field instead of threading a long line of `undefined`
+ *  placeholders. Field semantics are unchanged from the old positional
+ *  signature — see the per-field docs and the `TileData` interface above.
+ *  Layer slot defaults to '' and dequant to the identity when omitted,
+ *  matching the prior parameter defaults. */
+export interface CacheTileDataDescriptor {
+  key: number
+  polygons?: RingPolygon[]
+  vertices: Float32Array
+  indices: Uint32Array
+  lineVertices: Float32Array
+  lineIndices: Uint32Array
+  pointVertices?: Float32Array
+  outlineIndices?: Uint32Array
+  outlineVertices?: Float32Array
+  outlineLineIndices?: Uint32Array
+  prebuiltLineSegments?: Float32Array
+  prebuiltOutlineSegments?: Float32Array
+  /** MVT layer slot. '' (default) for single-layer sources;
+   *  layer name for per-MVT-layer slices. */
+  sourceLayer?: string
+  heights?: ReadonlyMap<number, number>
+  bases?: ReadonlyMap<number, number>
+  featureProps?: ReadonlyMap<number, Record<string, unknown>>
+  /** Backend that produced this tile — captured by the per-backend
+   *  sink closure in makeSink and threaded here so TileData carries
+   *  its origin for per-backend eviction (PR 2c.5). */
+  originBackend?: TileSource
+  /** PR 2f per-tile quantized-position dequant params for `vertices`.
+   *  Defaults to the identity (scale 1, half 0) for empty / synthetic
+   *  full-cover tiles whose `vertices` are zero-length. */
+  dequant?: { scale: number; half: number }
+}
+
 // Stride constants (exported for tests + VTR upload paths).
 // #398: polygon fill vertices are the quantized ECEF layout — stride 28
 // bytes = 7 floats (uint16×6 position + f32 fid/abs_lon/abs_lat/true_lat).

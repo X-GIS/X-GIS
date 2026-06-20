@@ -9,7 +9,8 @@ The intermediate representation — the heart of the compiler. Sits between the 
 ## Key Files
 | File | Description |
 |------|-------------|
-| `lower.ts` | AST → IR lowering. Builds the `Scene` tree; handles legacy + new syntax, utility-class resolution, text-template re-parsing. Re-exports `LowerOptions` and `ZoomStopsWithBase` from `lower-types.ts`. |
+| `lower.ts` | AST → IR lowering. Builds the `Scene` tree; legacy + new syntax, utility-class resolution, text-template re-parsing. The per-binding `lowerLayer` ladder is now a thin driver over a BindingHandler registry (`lower-bindings*.ts`) — same cascade (named→inline→utilities) + X-GIS0005 catch-all. Re-exports `LowerOptions` / `ZoomStopsWithBase` from `lower-types.ts`. |
+| `lower-bindings.ts` (+ `lower-bindings-fill.ts` / `-line.ts` / `-paint.ts` / `lower-bindings-registry.ts`) | Per-concern BindingHandler descriptor registry split out of `lowerLayer`'s binding ladder. Each handler applies one binding to the shared mutable LayerAccumulator; `dispatch()` honours a handler returning `false` (matched-but-not-consumed) to reproduce the original fall-through. A new paint/layout binding handler goes HERE, not in the `lower.ts` driver. |
 | `lower-types.ts` | Shared types for the lowering pipeline: `LowerOptions` (bypass flags for match-collapse) and `ZoomStopsWithBase<T>`. Extracted from `lower.ts` to keep logic and types separate. |
 | `lower-helpers.ts` | Pure binding helpers used by `lower.ts`: `bindingToTextValue`, `bindingAsConstantNumber`, `extractMatchDefaultColor`, `extractInterpolateZoomStops`, `extractInterpolateZoomColorStops`. No side effects; operate solely on `AST.Expr`. |
 | `render-node.ts` | Core IR types: `Scene`, `SourceDef`, `RenderNode`, `ColorValue`, `StrokeValue`, `OpacityValue`, `SizeValue`, `DataExpr`, `ZoomStop`, `LabelDef`, `TextValue`, `Diagnostic`, `SymbolDef`, `ExtrudeValue`, `FormatSpec`. Re-exports constructors from `render-node-helpers.ts`. |
@@ -38,7 +39,7 @@ The intermediate representation — the heart of the compiler. Sits between the 
 - `classify.ts` + `deps.ts` decide where an expression evaluates; getting the dependency bitset wrong silently changes whether a value folds, becomes a uniform, or hits WGSL codegen.
 - `Scene.cseAnnotation` and `Scene.exprAnalysis` both use `WeakMap` — do NOT include them in JSON fixtures or snapshot serialisers. The fixture-ir-snapshot serialiser already excludes them; maintain that gate.
 - NaN-guard pattern in `optimize.ts`: `constFold` can produce `NaN` for numeric folding; always check `Number.isFinite` before emitting `opacityConstant` / `sizeConstant` to prevent degenerate GPU geometry.
-- `lower-helpers.ts` and `render-node-helpers.ts` are the designated homes for pure helpers extracted from their parent files — add new helpers there, not back into `lower.ts` or `render-node.ts`.
+- `lower-helpers.ts` and `render-node-helpers.ts` are the designated homes for pure helpers extracted from their parent files — add new helpers there, not back into `lower.ts` or `render-node.ts`. A new per-binding handler goes in a `lower-bindings-*.ts` module + the registry, NOT the `lowerLayer` driver.
 - The `PIPELINE` in `optimize.ts` is a module-level singleton built once. Pass registration order follows: merge-layers → fold-trivial-stops → fold-trivial-case → dce-fixpoint (dead-layer-elim + dead-source-elim, max 4 iterations) → cse-annotate → expr-analyze.
 
 ### Testing Requirements

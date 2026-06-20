@@ -35,8 +35,6 @@ const RAD2DEG = 180 / Math.PI
  *  and every projType 0..6 path stay byte-identical. */
 export const GLOBE_PROJ_TYPE = 7
 
-export const GLOBE_NAME = 'globe'
-
 type Vec3 = [number, number, number]
 
 // ── small vec3 helpers (local; the engine has no shared vec3 lib) ──

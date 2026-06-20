@@ -4,7 +4,7 @@
 
 import type { NodeType } from './types'
 
-export interface PaletteItem {
+interface PaletteItem {
   type: NodeType
   title: string
   blurb: string

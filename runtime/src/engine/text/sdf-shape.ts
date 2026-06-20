@@ -4,7 +4,7 @@
 
 // ═══ Types ═══
 
-export type PathCmd =
+type PathCmd =
   | { type: 'M'; x: number; y: number }
   | { type: 'L'; x: number; y: number }
   | { type: 'C'; x1: number; y1: number; x2: number; y2: number; x: number; y: number }
@@ -36,7 +36,7 @@ export interface SegmentData {
 // ═══ SVG Path Parser ═══
 
 /** Parse SVG path d-string into PathCmd array (M, L, C, Q, Z absolute only) */
-export function parseSVGPath(d: string): PathCmd[] {
+function parseSVGPath(d: string): PathCmd[] {
   const cmds: PathCmd[] = []
   // Tokenize: split by command letters and extract numbers
   const tokens: (string | number)[] = []
@@ -90,7 +90,7 @@ export function parseSVGPath(d: string): PathCmd[] {
  *  before segments are emitted. This gives `size N` a consistent meaning
  *  ("longest dimension renders at N units") regardless of how the path's
  *  source coords were authored. CSS `object-fit: contain` semantics. */
-export function pathToSegments(cmds: PathCmd[]): { segments: SegmentData[]; bbox: [number, number, number, number] } {
+function pathToSegments(cmds: PathCmd[]): { segments: SegmentData[]; bbox: [number, number, number, number] } {
   // Pass 1: scan AABB from raw command coords to derive the normalization scale.
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
   const updateBBox = (x: number, y: number) => {
@@ -218,7 +218,7 @@ function starPath(points: number, outerR: number, innerR: number): string {
  *  lookup order in `getShapeId` is user → built-in so user definitions win
  *  when they share a name with a built-in. The prefix is never exposed to
  *  DSL authors — they reference shapes by their bare name. */
-export const USER_SHAPE_PREFIX = 'user:'
+const USER_SHAPE_PREFIX = 'user:'
 
 /** Built-in symbols, all authored at max(|coord|) = 1.0 so the source
  *  matches what `pathToSegments` produces post-normalization. Editing a

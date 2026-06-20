@@ -101,7 +101,7 @@ export function analyzeFilter(filter: DataExpr | null): FilterAnalysis | null {
   return { field, values }
 }
 
-export function extractField(expr: AST.Expr): string | null {
+function extractField(expr: AST.Expr): string | null {
   if (expr.kind === 'FieldAccess') return expr.field
   return null
 }
@@ -112,7 +112,7 @@ export function extractField(expr: AST.Expr): string | null {
  *  the unmerged layer had. Pre-fix this returned a bare string for
  *  both and `buildOrFilter` re-guessed the type via `Number()`,
  *  silently converting `.class == "1"` into `.class == 1`. */
-export function extractLiteral(expr: AST.Expr): FilterValue | null {
+function extractLiteral(expr: AST.Expr): FilterValue | null {
   if (expr.kind === 'StringLiteral') return { raw: expr.value, wasString: true }
   if (expr.kind === 'NumberLiteral') return { raw: String(expr.value), wasString: false }
   return null
@@ -331,7 +331,7 @@ export function buildWidthMatchAst(
   } as unknown as AST.Expr
 }
 
-export function rgbaToHex(rgba: import('../property-types').RGBA): string {
+function rgbaToHex(rgba: import('../property-types').RGBA): string {
   const r = Math.round(rgba[0] * 255).toString(16).padStart(2, '0')
   const g = Math.round(rgba[1] * 255).toString(16).padStart(2, '0')
   const b = Math.round(rgba[2] * 255).toString(16).padStart(2, '0')

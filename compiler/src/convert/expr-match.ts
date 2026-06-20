@@ -227,7 +227,7 @@ export function matchToBooleanFilter(
  *  because match() requires a field-access input. Falls back to a
  *  chain of `input == key ? value : …`. Less efficient but always
  *  expressible. */
-export function matchToTernary(
+function matchToTernary(
   input: unknown,
   args: unknown[],
   warnings: string[],

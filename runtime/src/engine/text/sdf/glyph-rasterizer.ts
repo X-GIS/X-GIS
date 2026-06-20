@@ -60,7 +60,7 @@ export function parseFontKey(fontKey: string): { style: string; weight: string; 
  *  distinct slot per (font, size) for free. `\x1f` (Unit Separator) is
  *  non-printable + can never appear in a CSS family name, and — unlike the
  *  `\x01` FONT_KEY_SENTINEL — does not collide with parseFontKey's split. */
-export const FONT_KEY_SIZE_MARKER = '\x1f'
+const FONT_KEY_SIZE_MARKER = '\x1f'
 
 /** Append a display-size bucket to a fontKey (ideograph glyphs only). */
 export function cjkSizedFontKey(fontKey: string, bucketPx: number): string {
@@ -143,7 +143,7 @@ export interface GlyphRasterizer {
  *  and worker (OffscreenCanvas) — both share the same 2D context API.
  *  Pass a canvas + ctx the constructor caches; per-glyph allocation
  *  is the alpha buffer + SDF buffer only. */
-export class Canvas2DRasterizer implements GlyphRasterizer {
+class Canvas2DRasterizer implements GlyphRasterizer {
   private readonly canvas: OffscreenCanvas | HTMLCanvasElement
   private readonly ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D
 
@@ -241,7 +241,7 @@ export class Canvas2DRasterizer implements GlyphRasterizer {
 // not in OFM PBF). Without the upgrade, those glyphs would stay
 // blank forever; with it, we pay the one-time SDF cost only when
 // PBF truly can't help.
-export class Canvas2DMetricsRasterizer implements GlyphRasterizer {
+class Canvas2DMetricsRasterizer implements GlyphRasterizer {
   private readonly canvas: OffscreenCanvas | HTMLCanvasElement
   private readonly ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D
   private readonly fullFallback: GlyphRasterizer

@@ -38,7 +38,7 @@ export interface SimulationOptions {
   canvasH?: number
 }
 
-export interface FrameReport {
+interface FrameReport {
   /** 0-indexed frame number in the simulation. */
   frame: number
   /** Tiles the frustum wants this frame. Same number as
