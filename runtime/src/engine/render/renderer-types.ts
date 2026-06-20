@@ -91,6 +91,10 @@ export interface FillPaint {
    *  ResolvedShow.fillTranslate{X,Y}. Prefer over the constant. */
   fillTranslateXShape?: import('@xgis/compiler').PropertyShape<number>
   fillTranslateYShape?: import('@xgis/compiler').PropertyShape<number>
+  /** Mapbox `paint.fill-translate-anchor` = map → world/Merc-space offset
+   *  (rotates with bearing) vs default viewport (undefined/false) screen-space.
+   *  Read by VTR at the fill translate bake; default byte-identical. */
+  fillTranslateAnchorMap?: boolean
   /** Mapbox `paint.fill-antialias` opt-out. Default (undefined / true)
    *  keeps the current fill render path; `false` is packed into the
    *  polygon uniform's cam_ecef_off_h.w lane (f32 slot 55) so the fill
@@ -188,6 +192,12 @@ export interface LinePaint {
    *  ResolvedShow.strokeTranslate{X,Y}. Prefer over the constant. */
   strokeTranslateXShape?: import('@xgis/compiler').PropertyShape<number>
   strokeTranslateYShape?: import('@xgis/compiler').PropertyShape<number>
+  /** Mapbox `paint.line-translate-anchor` = map → world-space offset (rotates
+   *  with bearing) vs default viewport screen-space. Default byte-identical. */
+  strokeTranslateAnchorMap?: boolean
+  /** Mapbox `layout.line-round-limit` (default 1.05) — round-join→bevel
+   *  threshold threaded into the line geometry; default reproduces today. */
+  roundLimit?: number
 }
 
 /** Circle / point-marker paint axes. */

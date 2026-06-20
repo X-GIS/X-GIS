@@ -101,6 +101,20 @@ const TWO_PI_R_EARTH = 2 * Math.PI * 6378137
  *  available fallback before the pinned skeleton at z=0..2/3. */
 const ANCESTOR_PROTECT_DEPTH = 22
 
+/** Mapbox `*-translate-anchor`: viewport (default) returns the [dx,dy]
+ *  CSS-px offset unchanged (screen-space, historical behaviour); map
+ *  rotates it by the map bearing so it tracks the MAP world axes
+ *  (MapLibre map-anchor). Pure 2D rotation; no allocation when the
+ *  offset is zero or anchor is viewport. */
+function rotateTranslateForAnchor(
+  dx: number, dy: number, anchorMap: boolean | undefined, bearingDeg: number,
+): [number, number] {
+  if (!anchorMap || (dx === 0 && dy === 0)) return [dx, dy]
+  const r = (bearingDeg * Math.PI) / 180
+  const c = Math.cos(r), s = Math.sin(r)
+  return [dx * c - dy * s, dx * s + dy * c]
+}
+
 // Polygon extruded wall + roof mesh generation lives in core/
 // polygon-mesh.ts so the math is unit-testable independent of GPU
 // state. See `generateWallMeshExtrudedECEF`. (The Mercator-DSFUN
@@ -2279,21 +2293,24 @@ export class VectorTileRenderer {
     } else {
       this.currentExtrudeBase = 0
     }
-    // Mapbox fill-translate (viewport anchor) — bake CSS px → NDC-
-    // per-pixel here so the per-tile uniform write below is a
-    // straight scalar copy. `2 / canvasDim` is the NDC-per-px
-    // ratio; vertex shader multiplies by clip.w so the offset
-    // stays pixel-constant after the perspective divide.
-    // WS-1 — read the PER-FRAME resolved translate from ResolvedShow
-    // (zoom-interp shapes already collapsed to a scalar; constant forms
-    // pass straight through). Was `show.fillTranslateX` (static).
-    const ftx = resolvedShow.fillTranslateX
-    const fty = resolvedShow.fillTranslateY
+    // Mapbox fill-/line-translate — bake CSS px → NDC-per-pixel (`2 /
+    // canvasDim`); vertex shader multiplies by clip.w so the offset stays
+    // pixel-constant after the perspective divide. WS-1 reads the PER-FRAME
+    // resolved offset from ResolvedShow (zoom-interp shapes already collapsed
+    // to a scalar; constant forms pass through). translate-anchor=map:
+    // rotateTranslateForAnchor rotates (dx,dy) by the map bearing so the
+    // offset tracks the MAP world axes (MapLibre map-anchor). Default
+    // anchor=viewport returns (dx,dy) untouched → byte-identical historical
+    // screen-space path. (Pitch foreshortening of a map-anchored offset is
+    // not reproduced by this clip-space bake; bearing rotation is the flat
+    // behaviour.)
+    const bearingDeg = camera.bearing ?? 0
+    const [ftx, fty] = rotateTranslateForAnchor(
+      resolvedShow.fillTranslateX, resolvedShow.fillTranslateY, show.fillTranslateAnchorMap, bearingDeg)
     this.currentFillTranslateNdcX = ftx !== 0 ? (ftx * 2) / canvasWidth : 0
     this.currentFillTranslateNdcY = fty !== 0 ? (fty * 2) / canvasHeight : 0
-    // Mapbox line-translate (viewport anchor) — same bake as fill-translate.
-    const ltx = resolvedShow.strokeTranslateX
-    const lty = resolvedShow.strokeTranslateY
+    const [ltx, lty] = rotateTranslateForAnchor(
+      resolvedShow.strokeTranslateX, resolvedShow.strokeTranslateY, show.strokeTranslateAnchorMap, bearingDeg)
     this.currentStrokeTranslateNdcX = ltx !== 0 ? (ltx * 2) / canvasWidth : 0
     this.currentStrokeTranslateNdcY = lty !== 0 ? (lty * 2) / canvasHeight : 0
     // Mapbox fill-antialias / fill-extrusion-vertical-gradient opt-outs.
@@ -2425,6 +2442,11 @@ export class VectorTileRenderer {
       const cap = capMap[show.linecap ?? 'butt']
       const join = joinMap[show.linejoin ?? 'miter']
       const miterLimit = show.miterlimit ?? 2.0
+      // Mapbox line-round-limit (default 1.05). Unset → 0, which the line
+      // shader reads as "use the historical round-join fold threshold"
+      // (byte-identical to pre-feature behaviour); a positive value scales
+      // that threshold by round_limit / 1.05.
+      const roundLimit = show.roundLimit ?? 0
       // Dash values are in LINE-WIDTH UNITS (Mapbox spec:
       // "The lengths are later multiplied by the line width").
       // A `[2, 3]` dash on a 4-px line is 8 px dash + 12 px gap;
@@ -2524,6 +2546,7 @@ export class VectorTileRenderer {
         dpr,
         this.currentStrokeTranslateNdcX,
         this.currentStrokeTranslateNdcY,
+        roundLimit,
       )
       if (gapWidth > 0) {
         lineLayerOffsetGap = this.lineRenderer.writeLayerSlot(
@@ -2542,6 +2565,7 @@ export class VectorTileRenderer {
           dpr,
           this.currentStrokeTranslateNdcX,
           this.currentStrokeTranslateNdcY,
+          roundLimit,
         )
       }
     }

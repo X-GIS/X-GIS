@@ -71,6 +71,7 @@ export function lowerLabelProps(
   let labelRotationAlignment: 'map' | 'viewport' | 'auto' | undefined
   let labelPitchAlignment: 'map' | 'viewport' | 'auto' | undefined
   let labelKeepUpright: boolean | undefined
+  let labelMaxAngle: number | undefined
   let labelAnchor: import('./render-node').LabelDef['anchor'] | undefined
   // Every label-anchor-X seen, in priority order (Mapbox text-variable-
   // anchor). Runtime tries each on collision; first non-colliding wins.
@@ -352,6 +353,11 @@ export function lowerLabelProps(
       if (name === 'label-pitch-alignment-auto') { labelPitchAlignment = 'auto'; continue }
       if (name === 'label-keep-upright-true') { labelKeepUpright = true; continue }
       if (name === 'label-keep-upright-false') { labelKeepUpright = false; continue }
+      if (name.startsWith('label-max-angle-')) {
+        const num = parseFloat(name.slice('label-max-angle-'.length))
+        if (!isNaN(num)) labelMaxAngle = num
+        continue
+      }
       if (name === 'label-justify-auto') { labelJustify = 'auto'; continue }
       if (name === 'label-justify-left') { labelJustify = 'left'; continue }
       if (name === 'label-justify-center') { labelJustify = 'center'; continue }
@@ -607,7 +613,7 @@ export function lowerLabelProps(
     labelRotate, labelLetterSpacing, labelFontStack, labelFontWeight, labelFontStyle,
     labelMaxWidth, labelLineHeight, labelJustify,
     labelPlacement, labelSpacing,
-    labelRotationAlignment, labelPitchAlignment, labelKeepUpright,
+    labelRotationAlignment, labelPitchAlignment, labelKeepUpright, labelMaxAngle,
     labelIconImage, labelIconImageExpr, labelIconSize, labelIconAnchor, labelIconOffset, labelIconTranslateX, labelIconTranslateY, labelIconRotate, labelIconOpacity, labelIconRotationAlignment,
     labelIconSizeZoomStops: labelIconSizeZoomStops.length > 0 ? labelIconSizeZoomStops : undefined,
     labelIconSizeZoomStopsBase,
@@ -676,6 +682,7 @@ function foldLabelKnobs(
     labelRotationAlignment?: 'map' | 'viewport' | 'auto'
     labelPitchAlignment?: 'map' | 'viewport' | 'auto'
     labelKeepUpright?: boolean
+    labelMaxAngle?: number
     labelIconImage?: string
     labelIconImageExpr?: { ast: unknown }
     labelIconSize?: number
@@ -761,6 +768,7 @@ function foldLabelKnobs(
     ...(knobs.labelRotationAlignment !== undefined ? { rotationAlignment: knobs.labelRotationAlignment } : {}),
     ...(knobs.labelPitchAlignment !== undefined ? { pitchAlignment: knobs.labelPitchAlignment } : {}),
     ...(knobs.labelKeepUpright !== undefined ? { keepUpright: knobs.labelKeepUpright } : {}),
+    ...(knobs.labelMaxAngle !== undefined ? { maxAngle: knobs.labelMaxAngle } : {}),
     // Batch 2 — sprite icon fields
     ...(knobs.labelIconImage !== undefined ? { iconImage: knobs.labelIconImage } : {}),
     ...(knobs.labelIconImageExpr !== undefined ? { iconImageExpr: knobs.labelIconImageExpr } : {}),

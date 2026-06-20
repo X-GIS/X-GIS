@@ -271,6 +271,22 @@ function evaluateFnCall(expr: AST.FnCall, props: FeatureProps, fnEnv?: FnEnv): u
     return null
   }
 
+  // Mapbox `["properties"]` → `properties()` builtin (converter:
+  // convert/expr-lookup.ts propertiesHandler). Returns the whole
+  // feature.properties object. Special-cased here (not in callBuiltin)
+  // because it needs the live `props` bag, exactly like `get` above.
+  // Strip the reserved $-sigil keys ($zoom / $pitch / $featureId /
+  // $geometryType) the runtime injects — Mapbox's accessor returns only
+  // the feature's own properties, not the camera/feature-meta sidecars.
+  if (name === 'properties' && expr.args.length === 0) {
+    const out: Record<string, unknown> = {}
+    for (const k in props) {
+      if (k.charCodeAt(0) === 0x24 /* '$' */) continue
+      out[k] = props[k]
+    }
+    return out
+  }
+
   if (name === 'match' && expr.matchBlock && expr.args.length === 1) {
     const key = evaluate(expr.args[0], props, fnEnv)
     const keyStr = key === null || key === undefined ? null : String(key)

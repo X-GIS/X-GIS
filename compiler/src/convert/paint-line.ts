@@ -11,6 +11,7 @@ import {
   unwrapLiteralNumeric,
   interpolateZoomCall,
   addOpacity,
+  addTranslateAnchor,
   vec2AxisZoomInterp,
   surfaceIgnoredPaint,
 } from './paint-helpers'
@@ -53,9 +54,15 @@ export function emitLinePaint(
     warnings.push(`Layer "${layer.id}" — line-gradient set but requires the line-progress accessor + per-fragment arc-length varying through the line renderer; not implemented (Plan §4 deferred). Layer falls back to solid line-color.`)
   }
   addLineTranslate(out, p['line-translate'], warnings)
+  // line-translate-anchor: viewport (default) = screen-space (today's
+  // behaviour). map → world-space offset rotating with map bearing.
+  // The line layer's translate rides the `stroke-translate-*` utility
+  // namespace, so the anchor flag uses the 'stroke' prefix too.
+  addTranslateAnchor(out, 'stroke', p['line-translate-anchor'], p['line-translate'], warnings)
   surfaceIgnoredPaint(layer.id, p, warnings, [
-    'line-translate-anchor', 'line-sort-key',
-    'line-round-limit',
+    // line-round-limit + line-translate-anchor are now implemented (Phase S
+    // Batch 2); line-sort-key remains the only ignored line paint prop.
+    'line-sort-key',
   ])
 }
 

@@ -23,7 +23,8 @@
 //   [46]    dpr                      — device-pixel ratio (CSS→device scale)
 //   [47]    line_translate_x         — NDC-per-pixel x offset (Mapbox line-translate)
 //   [48]    line_translate_y         — NDC-per-pixel y offset (Mapbox line-translate)
-//   [49-51] pad                      — 16-byte alignment (208 bytes total)
+//   [49]    round_limit              — Mapbox line-round-limit (0 = shader historical fold)
+//   [50-51] pad                      — 16-byte alignment (208 bytes total)
 // Total = 52 f32 = 208 bytes.
 
 export const LINE_UNIFORM_SIZE = 208
@@ -207,6 +208,10 @@ export function packLineLayerUniform(
   /** Mapbox `paint.line-translate` y — pre-baked NDC-per-pixel offset
    *  (caller computes `px * 2 / canvasHeight`). Default 0 = no offset. */
   lineTranslateY: number = 0,
+  /** Mapbox `line-round-limit` (default 1.05). Written to slot [49];
+   *  0 = no override (the shader falls back to its historical round-join
+   *  fold constant, byte-identical default). */
+  roundLimit: number = 0,
 ): Float32Array {
   const buf = _lineUniformScratchF32
   const u32 = _lineUniformScratchU32
@@ -285,6 +290,7 @@ export function packLineLayerUniform(
   buf[46] = dpr
   buf[47] = lineTranslateX
   buf[48] = lineTranslateY
-  // buf[49-51] remain 0 (pad for 16-byte alignment)
+  buf[49] = roundLimit // Mapbox line-round-limit; 0 = shader uses historical fold
+  // buf[50-51] remain 0 (pad for 16-byte alignment)
   return buf
 }

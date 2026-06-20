@@ -42,6 +42,17 @@ export function convertLineLayer(layer: MapboxLayer, warnings: string[]): string
     }
     layoutUtils.push(`stroke-miterlimit-${Math.max(0, miter)}`)
   }
+  // line-round-limit (Mapbox default 1.05) — threshold that controls when
+  // round joins fold. Threaded to the line layer uniform; the shader scales
+  // its round-join acute-fold threshold by `round-limit / 1.05`, so the
+  // default reproduces today's geometry byte-for-byte. Emit only when
+  // authored AND > 0 (a non-positive value would zero the uniform slot,
+  // which the shader reads as "use the historical constant"). Constant
+  // literal only — expression forms pass through unhandled.
+  const roundLimit = unwrapLiteralScalar(layout['line-round-limit'])
+  if (typeof roundLimit === 'number' && Number.isFinite(roundLimit) && roundLimit > 0) {
+    layoutUtils.push(`stroke-roundlimit-${roundLimit}`)
+  }
 
   return convertGenericLayer(layer, warnings, layoutUtils)
 }

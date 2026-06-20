@@ -426,14 +426,9 @@ export function convertGapWarnings(
       && !(writingModeRaw.length === 1 && writingModeRaw[0] === 'horizontal')) {
     warnings.push(`Symbol layer "${layer.id}" — text-writing-mode set but X-GIS' TextStage walks glyph advances horizontally only; CJK / Arabic vertical text needs per-glyph rotation + advance flip (Plan §4 deferred).`)
   }
-  // text-max-angle: per-glyph orientation clamp on line-placed labels
-  // (default 45°). X-GIS' line-label path emits labels at segment
-  // tangents without clamping the inter-glyph angular delta. Surface
-  // specific gap.
-  const maxAngleRaw = unwrapLiteralScalar(layout['text-max-angle'])
-  if (typeof maxAngleRaw === 'number' && Number.isFinite(maxAngleRaw) && maxAngleRaw !== 45) {
-    warnings.push(`Symbol layer "${layer.id}" — text-max-angle ${maxAngleRaw} set but X-GIS' line-label path doesn't clamp per-glyph orientation deltas yet (Plan §4 deferred — labels follow segment tangents without the angular gate). Default 45° matches X-GIS behaviour silently.`)
-  }
+  // text-max-angle is now threaded end-to-end (label-max-angle-N →
+  // LabelDef.maxAngle → curved-label angular gate). Emit handled in
+  // convertTextLayoutProperties; no gap warning.
   // symbol-z-order: per-feature draw-order override (`auto` default /
   // `viewport-y` / `source`). X-GIS uses symbol-sort-key for ordering;
   // symbol-z-order would need a separate sort pass after collision.
@@ -1068,4 +1063,16 @@ export function convertTextLayoutProperties(
   const keepUpright = unwrapLiteralScalar(layout['text-keep-upright'])
   if (keepUpright === false) utils.push('label-keep-upright-false')
   else if (keepUpright === true) utils.push('label-keep-upright-true')
+
+  // text-max-angle — max angle (degrees) between adjacent glyphs on a
+  // line-placed label (Mapbox default 45). Emit only when authored: an
+  // absent value leaves LabelDef.maxAngle undefined so the runtime
+  // curved-label path keeps its historical no-clamp behaviour (a style
+  // that doesn't set text-max-angle renders byte-identically). A finite
+  // value (including the spec default 45) turns on the runtime angular
+  // gate. Negative / non-finite ignored.
+  const maxAngle = unwrapLiteralScalar(layout['text-max-angle'])
+  if (typeof maxAngle === 'number' && Number.isFinite(maxAngle) && maxAngle >= 0) {
+    utils.push(`label-max-angle-${maxAngle}`)
+  }
 }

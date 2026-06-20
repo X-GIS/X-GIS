@@ -132,7 +132,13 @@ const LOC_CEILINGS: Record<string, number> = {
   // setLight() + the per-tile light-colour/intensity pack (slots 50/63),
   // plus reading the per-frame resolved fill/line translate off ResolvedShow.
   // Bumped 4051→4054 (WS-1 line-dasharray): prefer ResolvedShow.dashArray.
-  'runtime/src/engine/render/vector-tile-renderer.ts': 4054,
+  // Bumped 4054→4078 (Phase S Batch 2, two features): line-round-limit
+  // (+7: show.roundLimit read threaded to both writeLayerSlot calls) AND
+  // *-translate-anchor:map (+17: rotateTranslateForAnchor 2D bearing-rotation
+  // helper + the two map-anchor flags at the fill/line translate bake;
+  // fill-extrusion inherits via the shared fill_translate slot 46/47).
+  // Default viewport/round-limit byte-identical; additive, no struct growth.
+  'runtime/src/engine/render/vector-tile-renderer.ts': 4078,
   // Bumped 3361→3393 for the destroy()-completeness fix: cancelling the
   // EventDispatcher move-rAF + the pending-flush rAF, clearing _pendingPatches,
   // and removing the run()-installed window globals (__xgisReady/snapshot/
@@ -204,7 +210,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // labelItalic = (def.fontStyle==='italic') per loop (point + curved) + the
   // `italic:` field on the three TextDraw build sites so the renderer shears
   // CJK/Hangul glyphs (the italic glyph PBF serves ideographs upright).
-  'runtime/src/engine/text/text-stage.ts': 1465,
+  // Bumped 1465→1489 (Phase S Batch 2 text-max-angle): the curved-label
+  // angular gate — maxAngleRad/prevGlyphAngle setup, the per-glyph wrapped
+  // tangent-delta check, the post-loop `continue`, plus the comments tying
+  // it to Mapbox's drop-kinked-label semantics. Default (maxAngle unset) is
+  // a single guarded branch ⇒ byte-identical no-clamp behaviour preserved.
+  'runtime/src/engine/text/text-stage.ts': 1489,
   // Bumped 1509→1517 for the GeometryCollection decompose fix (RFC 7946
   // §3.1.8): decomposeFeatures' per-type switch is wrapped in an inner
   // recursive helper so a GeometryCollection member-decomposes under the
@@ -249,7 +260,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 1052→1071 (mbx_batch2) for the icon-translate emit: the constant
   // [dx, dy] unwrap + the label-icon-translate-{x,y}-N split + the
   // icon-translate-anchor "map" warn (replacing the old single-line gap warn).
-  'compiler/src/convert/layers-symbol.ts': 1071,
+  // Bumped 1071→1078 (Phase S Batch 2 text-max-angle): the layout->utility
+  // emit (`label-max-angle-N`) in convertTextLayoutProperties + comment; net
+  // of removing the old deferred-gap warning block in convertGapWarnings.
+  'compiler/src/convert/layers-symbol.ts': 1078,
   // Bumped 1534→1574 for the arithmetic-arity fix (expr-arith-coalesce): the
   // variadic +/*, unary/binary -, and exact-2 //% forms each need a distinct
   // branch (was one over-strict shared comparison branch). Irreducible.
@@ -289,7 +303,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 1212→1217 (#412 stray-`continue` line-pattern reachability fix, +5
   // rationale comment) then 1217→1233 (mbx line-translate: LineLayer struct
   // gains line_translate_x/y + 2 pads + the vs_line translate apply block).
-  'runtime/src/engine/shader-dsl/shaders/line.ts': 1233,
+  // Bumped 1233→1246 (Phase S Batch 2 line-round-limit): the LineLayer
+  // `round_limit` field (re-using a former pad slot, struct size unchanged)
+  // + the `acute_fold_bis` select() that scales the round-join fold
+  // threshold by round_limit/1.05 (0 = historical JOIN_ACUTE_BIS) + comments.
+  'runtime/src/engine/shader-dsl/shaders/line.ts': 1246,
   // Bumped 1171→1176 (#274 CSS color-fn whitespace), then 1176→1178 (#317) for
   // the two irreducible numeric match()-label arm-pattern cases (Number, and
   // Minus+Number). Lowered 1178→50 (Tier-C5): the Parser god-file was split
@@ -410,7 +428,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // sub-pass extracted from lower.ts; crossed 800 here for the icon-translate
   // accumulators + parse arms + knobs-interface + merge wiring. Cohesive
   // sub-lowerer, not a god-file; baselined, shrink as it converges.
-  'compiler/src/ir/lower-label.ts': 820,
+  // Bumped 820→828 (Phase S Batch 2 text-max-angle): the labelMaxAngle local
+  // + the `label-max-angle-N` parse arm + the knobs-interface field + the
+  // foldLabelKnobs spread + comment. Same additive label-knob plumbing class.
+  'compiler/src/ir/lower-label.ts': 828,
 }
 const NEW_FILE_CAP = 800
 

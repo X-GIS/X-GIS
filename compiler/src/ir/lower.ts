@@ -294,6 +294,11 @@ function lowerLayer(
   let strokeTranslateX: number | undefined
   /** Mapbox `paint.line-translate` y — viewport pixel offset, +down. */
   let strokeTranslateY: number | undefined
+  /** Mapbox `paint.{fill,line}-translate-anchor` = "map". Undefined /
+   *  false = viewport (screen-space, historical default). True = the
+   *  runtime rotates the offset by the map bearing (world-space anchor). */
+  let fillTranslateAnchorMap: boolean | undefined
+  let strokeTranslateAnchorMap: boolean | undefined
   // WS-1 — per-frame zoom-interp translate (per-axis scalar shape).
   // Inline stop type (structurally a ZoomStop<number>[]) keeps lower.ts
   // free of a ZoomStop import dependency.
@@ -329,6 +334,7 @@ function lowerLayer(
   let linecap: 'butt' | 'round' | 'square' | 'arrow' | undefined
   let linejoin: 'miter' | 'round' | 'bevel' | undefined
   let miterlimit: number | undefined
+  let roundLimit: number | undefined
   let dashArray: number[] | undefined
   let dashOffset: number | undefined
   let strokeOffset: number | undefined
@@ -466,12 +472,13 @@ function lowerLayer(
     fillTranslateX, fillTranslateY, fillAntialias, fillExtrusionVerticalGradient,
     circleTranslateX, circleTranslateY, circleBlur,
     strokeTranslateX, strokeTranslateY,
+    fillTranslateAnchorMap, strokeTranslateAnchorMap,
     fillTranslateXShape, fillTranslateYShape,
     circleTranslateXShape, circleTranslateYShape,
     strokeTranslateXShape, strokeTranslateYShape,
     strokeColor, strokeWidth, strokeWidthExpr, strokeColorExpr,
     strokeWidthZoomStops, strokeWidthZoomStopsBase,
-    linecap, linejoin, miterlimit, dashArray, dashOffset, strokeOffset, strokeAlign,
+    linecap, linejoin, miterlimit, roundLimit, dashArray, dashOffset, strokeOffset, strokeAlign,
     strokeBlur, dashArrayShape, strokeOpacityShape, strokeGapWidth,
     patternSlots, patternDirty, parsePatternAttr,
     opacity, size, projection, visible, pointerEvents, billboard, anchor, shape,
@@ -564,6 +571,8 @@ function lowerLayer(
   circleBlur = acc.circleBlur
   strokeTranslateX = acc.strokeTranslateX
   strokeTranslateY = acc.strokeTranslateY
+  fillTranslateAnchorMap = acc.fillTranslateAnchorMap
+  strokeTranslateAnchorMap = acc.strokeTranslateAnchorMap
   fillTranslateXShape = acc.fillTranslateXShape
   fillTranslateYShape = acc.fillTranslateYShape
   circleTranslateXShape = acc.circleTranslateXShape
@@ -579,6 +588,7 @@ function lowerLayer(
   linecap = acc.linecap
   linejoin = acc.linejoin
   miterlimit = acc.miterlimit
+  roundLimit = acc.roundLimit
   dashArray = acc.dashArray
   dashOffset = acc.dashOffset
   strokeOffset = acc.strokeOffset
@@ -754,7 +764,7 @@ function lowerLayer(
         color: strokeColor,
         width: widthSource,
         ...(strokeColorExpr !== undefined ? { colorExpr: strokeColorExpr } : {}),
-        linecap, linejoin, miterlimit,
+        linecap, linejoin, miterlimit, roundLimit,
         dashArray, dashArrayShape, dashOffset,
         strokeOpacityShape,
         patterns: validPatterns.length > 0 ? validPatterns : undefined,
@@ -794,6 +804,8 @@ function lowerLayer(
     circleBlur,
     strokeTranslateX,
     strokeTranslateY,
+    fillTranslateAnchorMap,
+    strokeTranslateAnchorMap,
     fillTranslateXShape,
     fillTranslateYShape,
     circleTranslateXShape,

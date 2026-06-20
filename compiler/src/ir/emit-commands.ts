@@ -73,6 +73,11 @@ export interface FillPaint {
    *  fillTranslateX/Y, resolving the offset each frame. */
   fillTranslateXShape?: PropertyShape<number>
   fillTranslateYShape?: PropertyShape<number>
+  /** Mapbox `paint.fill-translate-anchor` = "map". Default (undefined /
+   *  "viewport") = screen-space offset, byte-identical to today. When
+   *  true the runtime rotates the [dx,dy] offset by the map bearing so
+   *  it tracks the map world axes (map/world-space anchor). */
+  fillTranslateAnchorMap?: boolean
   /** Mapbox `paint.fill-antialias` opt-out. Default (undefined / true)
    *  preserves the current fill render path byte-for-byte; only `false`
    *  is passed through to disable the rim-alpha smoothstep at runtime. */
@@ -103,6 +108,9 @@ export interface LinePaint {
   linecap?: 'butt' | 'round' | 'square' | 'arrow'
   linejoin?: 'miter' | 'round' | 'bevel'
   miterlimit?: number
+  /** Mapbox `line-round-limit` (default 1.05). Scales the line shader's
+   *  round-join fold threshold; unset = no override (today's geometry). */
+  roundLimit?: number
   dashArray?: number[]
   /** WS-1 — per-frame zoom-interp dasharray (STEP — Mapbox line-dasharray
    *  is `interpolated: false`). `null` = constant-only; the runtime prefers
@@ -144,6 +152,9 @@ export interface LinePaint {
    *  strokeTranslateX/Y, resolving the offset each frame. */
   strokeTranslateXShape?: PropertyShape<number>
   strokeTranslateYShape?: PropertyShape<number>
+  /** Mapbox `paint.line-translate-anchor` = "map". Mirror of
+   *  fillTranslateAnchorMap for the line pipeline; default byte-identical. */
+  strokeTranslateAnchorMap?: boolean
 }
 
 /** Circle / point-marker paint axes. */
@@ -560,6 +571,7 @@ function emitFillFields(node: RenderNode): FillPaint {
     fillTranslateY: node.fillTranslateY,
     fillTranslateXShape: node.fillTranslateXShape,
     fillTranslateYShape: node.fillTranslateYShape,
+    fillTranslateAnchorMap: node.fillTranslateAnchorMap,
     fillAntialias: node.fillAntialias,
   }
 }
@@ -584,6 +596,7 @@ function emitLineFields(
     linecap: node.stroke.linecap,
     linejoin: node.stroke.linejoin,
     miterlimit: node.stroke.miterlimit,
+    roundLimit: node.stroke.roundLimit,
     dashArray: node.stroke.dashArray,
     dashArrayShape: node.stroke.dashArrayShape ?? null,
     dashOffsetShape,
@@ -596,6 +609,7 @@ function emitLineFields(
     strokeTranslateY: node.strokeTranslateY,
     strokeTranslateXShape: node.strokeTranslateXShape,
     strokeTranslateYShape: node.strokeTranslateYShape,
+    strokeTranslateAnchorMap: node.strokeTranslateAnchorMap,
   }
 }
 

@@ -5,6 +5,7 @@ import type { RuntimeCapability } from './types'
 export const lineCapabilities: readonly RuntimeCapability[] = [
   { property: 'line-translate',      layerType: 'line', variant: 'constant',    supported: true },
   { property: 'line-translate',      layerType: 'line', variant: 'zoom-interp', supported: true,  note: 'WS-1 — per-frame via strokeTranslate{X,Y}Shape (mirrors fill-translate, resolved in resolveShow).' },
+  { property: 'line-translate-anchor', layerType: 'line', variant: 'constant',  supported: true,  note: 'viewport (default) = screen-space; map = world-space: VTR rotates the [dx,dy] offset by camera.bearing before the px→NDC bake (show.strokeTranslateAnchorMap). Pitch foreshortening of the offset not reproduced.' },
   { property: 'line-color',          layerType: 'line', variant: 'constant',    supported: true },
   { property: 'line-color',          layerType: 'line', variant: 'zoom-interp', supported: true },
   { property: 'line-color',          layerType: 'line', variant: 'data-driven', supported: true },
@@ -27,4 +28,5 @@ export const lineCapabilities: readonly RuntimeCapability[] = [
   { property: 'line-cap',            layerType: 'line', variant: 'constant',    supported: true,  note: 'butt / round / square literal only' },
   { property: 'line-join',           layerType: 'line', variant: 'constant',    supported: true,  note: 'miter / round / bevel literal only' },
   { property: 'line-miter-limit',    layerType: 'line', variant: 'constant',    supported: true },
+  { property: 'line-round-limit',    layerType: 'line', variant: 'constant',    supported: true,  note: 'ShowCommand.roundLimit → line uniform round_limit; scales the shader round-join fold threshold. 0/unset = historical fold (default).' },
 ]

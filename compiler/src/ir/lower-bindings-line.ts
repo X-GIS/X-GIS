@@ -180,6 +180,10 @@ export const lineCapJoinUtilHandlers: BindingHandler[] = [
     apply: (c) => { const num = parseFloat(c.name.slice('stroke-miterlimit-'.length)); if (!isNaN(num)) c.acc.miterlimit = num; return true },
   },
   {
+    match: (c) => c.name.startsWith('stroke-roundlimit-'),
+    apply: (c) => { const num = parseFloat(c.name.slice('stroke-roundlimit-'.length)); if (!isNaN(num)) c.acc.roundLimit = num; return true },
+  },
+  {
     match: (c) => c.name.startsWith('stroke-dasharray-'),
     apply: (c) => {
       // e.g. stroke-dasharray-10-5 or stroke-dasharray-6-2-1-2.

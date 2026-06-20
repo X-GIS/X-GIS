@@ -45,7 +45,7 @@ export const EXPRESSIONS: readonly CoverageEntry[] = [
   // Feature meta
   { name: 'geometry-type',   status: 'supported', note: 'Routes via synthetic `$geometryType` prop injected at filter-eval time.', source: 'expressions.ts:263' },
   { name: 'id',              status: 'supported', note: 'Routes via synthetic `$featureId` prop injected from `feature.id` (GeoJSON RFC 7946 §3.2; MVT feature.id) at every filter-eval site. Same pattern as `geometry-type`.', source: 'expressions.ts:278' },
-  { name: 'properties',      status: 'unsupported', impact: 'low', note: 'Returns whole feature properties object — X-GIS expressions access by field name (`.field` / `["get","field"]`); no object literal accessor.' },
+  { name: 'properties',      status: 'supported', note: 'Mapbox `["properties"]` lowers to a `properties()` builtin (mirror of the `geometry-type` / `id` accessor pattern). The evaluator special-cases it (eval/evaluator.ts evaluateFnCall) — it holds the live props bag and returns a shallow copy of feature.properties with the reserved $-sigil keys ($zoom / $pitch / $featureId / $geometryType) stripped, matching Mapbox\'s "the feature\'s own properties" semantic. Useful as the whole-object operand to a downstream comparison; per-field access still prefers `.field` / `get("field")`.', source: 'expr-lookup.ts propertiesHandler' },
   { name: 'feature-state',   status: 'na', note: 'Mapbox v8 dynamic property setter — no xgis equivalent.' },
   // Formatting / advanced
   { name: 'typeof',          status: 'supported', note: 'Returns Mapbox-shaped strings ("string" / "number" / "boolean" / "object" / "null").', source: 'expressions.ts:237' },

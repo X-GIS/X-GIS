@@ -64,6 +64,8 @@ export interface LayerAccumulator {
   circleBlur: number | undefined
   strokeTranslateX: number | undefined
   strokeTranslateY: number | undefined
+  fillTranslateAnchorMap: boolean | undefined
+  strokeTranslateAnchorMap: boolean | undefined
   fillTranslateXShape: TranslateShape | undefined
   fillTranslateYShape: TranslateShape | undefined
   circleTranslateXShape: TranslateShape | undefined
@@ -79,6 +81,7 @@ export interface LayerAccumulator {
   linecap: 'butt' | 'round' | 'square' | 'arrow' | undefined
   linejoin: 'miter' | 'round' | 'bevel' | undefined
   miterlimit: number | undefined
+  roundLimit: number | undefined
   dashArray: number[] | undefined
   dashOffset: number | undefined
   strokeOffset: number | undefined

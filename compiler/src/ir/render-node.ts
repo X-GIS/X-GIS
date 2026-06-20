@@ -109,6 +109,11 @@ export interface RenderNodeFillPaint {
    *  property-types.ts). */
   fillTranslateXShape?: { kind: 'zoom-interpolated'; stops: ZoomStop<number>[]; base?: number }
   fillTranslateYShape?: { kind: 'zoom-interpolated'; stops: ZoomStop<number>[]; base?: number }
+  /** Mapbox `paint.fill-translate-anchor` = "map". Default (unauthored /
+   *  "viewport") = screen-space offset (today's behaviour, byte-identical).
+   *  When true the runtime rotates the [dx,dy] offset by the map bearing
+   *  so it tracks the map's world axes (map/world-space anchor). */
+  fillTranslateAnchorMap?: boolean
   /** Mapbox `paint.fill-antialias` opt-out. Default (unauthored / true)
    *  = current behavior (the fill fragment multiplies in the sphere-rim
    *  smoothstep AA fade). Only `false` changes anything: the runtime
@@ -138,6 +143,10 @@ export interface RenderNodeLinePaint {
    *  import — see RenderNodeFillPaint). */
   strokeTranslateXShape?: { kind: 'zoom-interpolated'; stops: ZoomStop<number>[]; base?: number }
   strokeTranslateYShape?: { kind: 'zoom-interpolated'; stops: ZoomStop<number>[]; base?: number }
+  /** Mapbox `paint.line-translate-anchor` = "map". Mirror of
+   *  fillTranslateAnchorMap for the line pipeline; default
+   *  ("viewport") is byte-identical screen-space. */
+  strokeTranslateAnchorMap?: boolean
   /** iter-178 Mapbox `paint.line-pattern` Stage 1 — stroke-side
    *  mirror of fillPattern. Runtime samples the sprite centre pixel
    *  as the line colour; Stage 2 (real repeating-sprite stroke
@@ -459,6 +468,15 @@ export interface LabelDef {
   /** When true (default), flip labels along curves so they read
    *  upright. `placement: line` only. Batch 1d. */
   keepUpright?: boolean
+  /** Mapbox `text-max-angle` — maximum angle (DEGREES) between two
+   *  adjacent glyphs along a line-placed label. Default 45. When the
+   *  cumulative per-glyph tangent deflection of a curved label exceeds
+   *  this, Mapbox drops the label rather than render it kinked. Only
+   *  meaningful with `placement: line` / `line-center`. UNSET = no
+   *  clamp (X-GIS' historical behaviour — labels follow segment
+   *  tangents without an angular gate); a style that doesn't author
+   *  text-max-angle renders byte-identically. Batch 2. */
+  maxAngle?: number
   /** Horizontal (default) or vertical. CJK vertical text. Batch 1g+. */
   writingMode?: 'horizontal' | 'vertical'
 
@@ -625,6 +643,14 @@ export interface StrokeValue {
   linecap?: 'butt' | 'round' | 'square' | 'arrow'
   linejoin?: 'miter' | 'round' | 'bevel'
   miterlimit?: number
+  /** Mapbox `line-round-limit` — the threshold controlling when round
+   *  joins fold (default 1.05). Threaded to the line layer uniform; the
+   *  shader scales its round-join acute-fold threshold by
+   *  `roundLimit / 1.05`, so the default reproduces today's geometry
+   *  byte-for-byte and a larger value folds more joins to a round point.
+   *  UNSET = default (no uniform override). Only meaningful with
+   *  `linejoin: round`. */
+  roundLimit?: number
   /** Dash array in meters (even indices = on, odd = off). */
   dashArray?: number[]
   /** WS-1 — per-frame zoom-interp dasharray. Inline zoom-interpolated form

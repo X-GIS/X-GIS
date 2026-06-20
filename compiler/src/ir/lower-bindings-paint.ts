@@ -164,6 +164,14 @@ export const translateConstUtilHandlers: BindingHandler[] = [
     match: (c) => c.name.startsWith('fill-translate-y-'),
     apply: (c) => { const num = parseFloat(c.name.slice('fill-translate-y-'.length)); if (!isNaN(num)) c.acc.fillTranslateY = num; return true },
   },
+  {
+    // Mapbox fill-translate-anchor=map → world-space anchor flag. The
+    // converter emits this ONLY for anchor=map (viewport is the
+    // byte-identical default that emits nothing). Runtime rotates the
+    // [dx,dy] offset by the map bearing at the per-tile bake.
+    match: (c) => c.name === 'fill-translate-anchor-map',
+    apply: (c) => { c.acc.fillTranslateAnchorMap = true; return true },
+  },
 ]
 
 export const circleTranslateConstUtilHandlers: BindingHandler[] = [
@@ -189,6 +197,12 @@ export const strokeTranslateConstUtilHandlers: BindingHandler[] = [
   {
     match: (c) => c.name.startsWith('stroke-translate-y-'),
     apply: (c) => { const num = parseFloat(c.name.slice('stroke-translate-y-'.length)); if (!isNaN(num)) c.acc.strokeTranslateY = num; return true },
+  },
+  {
+    // Mapbox line-translate-anchor=map → world-space anchor flag for
+    // the line pipeline. Emitted by the converter only for anchor=map.
+    match: (c) => c.name === 'stroke-translate-anchor-map',
+    apply: (c) => { c.acc.strokeTranslateAnchorMap = true; return true },
   },
 ]
 

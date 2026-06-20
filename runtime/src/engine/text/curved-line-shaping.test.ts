@@ -236,3 +236,59 @@ describe('curved-line label shaping (addCurvedLineLabel → prepare line-loop)',
     }
   })
 })
+
+// Phase S Batch 2 — Mapbox `text-max-angle` (LabelDef.maxAngle, DEGREES).
+// A 90°-corner polyline puts glyph 0 on the horizontal segment (tangent 0°)
+// and glyph 1 on the vertical segment (tangent 90°), so the per-glyph
+// tangent delta is 90°. With maxAngle=45 the label is dropped; UNSET (the
+// historical default) places it exactly as before — proving no regression
+// for styles that don't author text-max-angle.
+describe('curved-line label text-max-angle angular gate', () => {
+  // polyline: (0,100)→(50,100)→(50,150). seg0 horizontal len 50 (0°),
+  // seg1 vertical len 50 (90°). centerOffsetPx 56 → startS 44.
+  //   g0 sampleAt(44) → seg0, tangent 0°.
+  //   g1 sampleAt(56) → seg1 (cumLen[1]=50<56), tangent 90°.
+  // Δ = 90° between adjacent glyphs.
+  const cornerPx = () => new Float32Array([0, 50, 50])
+  const cornerPy = () => new Float32Array([100, 100, 150])
+  const CENTER = 56
+
+  it('maxAngle 45: 90° corner exceeds threshold → label dropped (no draw)', () => {
+    const { stage, captured } = makeStage()
+    stage.beginFrame()
+    stage.addCurvedLineLabel(litValue('AB'), {}, cornerPx(), cornerPy(), CENTER, curvedDef({ maxAngle: 45 }))
+    stage.prepare()
+    expect(captured.length).toBe(1)
+    expect(captured[0]!.length).toBe(0)
+  })
+
+  it('DEFAULT (maxAngle unset): same 90° corner still places — historical no-clamp behaviour', () => {
+    const { stage, captured } = makeStage()
+    stage.beginFrame()
+    stage.addCurvedLineLabel(litValue('AB'), {}, cornerPx(), cornerPy(), CENTER, curvedDef())
+    stage.prepare()
+    const draw = captured[0]!.find(d => d.glyphRotations !== undefined)
+    expect(draw, 'curved draw should still be emitted when maxAngle is unset').toBeDefined()
+    expect(draw!.glyphs.length).toBe(2)
+  })
+
+  it('maxAngle 120: 90° corner is within threshold → label still placed', () => {
+    const { stage, captured } = makeStage()
+    stage.beginFrame()
+    stage.addCurvedLineLabel(litValue('AB'), {}, cornerPx(), cornerPy(), CENTER, curvedDef({ maxAngle: 120 }))
+    stage.prepare()
+    const draw = captured[0]!.find(d => d.glyphRotations !== undefined)
+    expect(draw, 'label within the angle threshold should place').toBeDefined()
+  })
+
+  it('maxAngle 45 on a STRAIGHT line → no deflection, label places (gate only drops kinks)', () => {
+    const { stage, captured } = makeStage()
+    const px = new Float32Array([0, 1000])
+    const py = new Float32Array([100, 100])
+    stage.beginFrame()
+    stage.addCurvedLineLabel(litValue('AB'), {}, px, py, 500, curvedDef({ maxAngle: 45 }))
+    stage.prepare()
+    const draw = captured[0]!.find(d => d.glyphRotations !== undefined)
+    expect(draw, 'straight-line label must not be dropped by the angle gate').toBeDefined()
+  })
+})
