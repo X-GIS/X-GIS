@@ -5,15 +5,10 @@
 import type * as AST from '../parser/ast'
 import { resolveColor } from '../tokens/colors'
 import type { LowerOptions } from './lower-types'
-import {
-  bindingAsConstantNumber,
-  extractMatchDefaultColor,
-  extractInterpolateZoomStops,
-  extractInterpolateZoomArrayStops,
-  extractInterpolateZoomColorStops,
-} from './lower-helpers'
 import { lowerLabelProps } from './lower-label'
 import { expandKeyframeTimeStops } from './lower-animation'
+import { dispatch, type LayerAccumulator, type BindingCtx } from './lower-bindings'
+import { MODIFIER_HANDLERS, BINDING_HANDLERS, UTILITY_HANDLERS } from './lower-bindings-registry'
 // Re-export public types so importers of './lower' keep their surface.
 export type { LowerOptions, ZoomStopsWithBase } from './lower-types'
 import {
@@ -30,7 +25,6 @@ import {
   colorConstant,
   opacityConstant,
   sizeNone,
-  sizeConstant,
   shapeNone,
   hexToRgba,
   type ShapeRef,
@@ -461,32 +455,63 @@ function lowerLayer(
   let animationDelayMs = 0
   let animationLoop = false
 
+  // Assemble the mutable LayerAccumulator from the post-cascade locals
+  // (named style → inline CSS already applied above) plus fresh per-loop
+  // collectors. The binding/utility handlers mutate THIS; lowerLayer reads
+  // it back into the locals after the loop so the promotion + return literal
+  // below stay byte-identical. See lower-bindings.ts for the registry design.
+  const acc: LayerAccumulator = {
+    fill, extrude, extrudeBase,
+    fillPattern, linePattern,
+    fillTranslateX, fillTranslateY, fillAntialias, fillExtrusionVerticalGradient,
+    circleTranslateX, circleTranslateY, circleBlur,
+    strokeTranslateX, strokeTranslateY,
+    fillTranslateXShape, fillTranslateYShape,
+    circleTranslateXShape, circleTranslateYShape,
+    strokeTranslateXShape, strokeTranslateYShape,
+    strokeColor, strokeWidth, strokeWidthExpr, strokeColorExpr,
+    strokeWidthZoomStops, strokeWidthZoomStopsBase,
+    linecap, linejoin, miterlimit, dashArray, dashOffset, strokeOffset, strokeAlign,
+    strokeBlur, dashArrayShape, strokeOpacityShape, strokeGapWidth,
+    patternSlots, patternDirty, parsePatternAttr,
+    opacity, size, projection, visible, pointerEvents, billboard, anchor, shape,
+    fillBranches, opacityZoomStops, sizeZoomStops, opacityZoomStopsBase, sizeZoomStopsBase,
+    animationName, animationDurationMs, animationEasing, animationDelayMs, animationLoop,
+  }
+
   for (const line of expandedUtilities) {
     for (const item of line.items) {
-      const name = item.name
-      const mod = item.modifier
+      const ctx: BindingCtx = {
+        name: item.name,
+        mod: item.modifier,
+        item,
+        stmt,
+        diagnostics,
+        options,
+        acc,
+      }
 
       // ── Modifier items ──
-      if (mod) {
+      if (ctx.mod) {
         // STRICT: detect the deprecated `z<N>:` zoom-modifier shape.
         // Until f2f8929 this meant "apply at zoom N"; afterwards `z8`
         // is just an identifier the lower pass treats as a feature-
         // property predicate, which silently always-fails on real
         // data. We fail loud here so the issue surfaces in CI / on
         // the /convert page instead of producing wrong output.
-        if (/^z\d+$/.test(mod)) {
-          const zoomLevel = mod.slice(1)
+        if (/^z\d+$/.test(ctx.mod)) {
+          const zoomLevel = ctx.mod.slice(1)
           diagnostics.push({
             severity: 'warn',
             code: 'X-GIS0001',
             line: stmt.line,
             message:
-              `Deprecated zoom modifier "${mod}:" — replaced by ` +
+              `Deprecated zoom modifier "${ctx.mod}:" — replaced by ` +
               `\`<utility>-[interpolate(zoom, …)]\`. e.g. ` +
-              `\`${mod}:opacity-40\` → ` +
+              `\`${ctx.mod}:opacity-40\` → ` +
               `\`opacity-[interpolate(zoom, ${zoomLevel}, 40)]\`. ` +
               `Without the migration, the modifier is treated as a ` +
-              `feature-property predicate (\`feat.${mod}\`), is ` +
+              `feature-property predicate (\`feat.${ctx.mod}\`), is ` +
               `always falsy on real data, and the utility never applies.`,
           })
           continue
@@ -494,499 +519,89 @@ function lowerLayer(
         // Data modifier: friendly:fill-green-500
         // (Zoom-driven values used to live behind `zN:opacity-…`
         // modifiers; they're now expressed as `opacity-[interpolate(
-        // zoom, …)]` and lowered below in the binding handler.)
-        if (name.startsWith('fill-')) {
-          const hex = resolveColor(name.slice(5))
-          if (hex) {
-            fillBranches.push({ field: mod, value: colorConstant(...hexToRgba(hex)) })
-          }
-        }
+        // zoom, …)]` and lowered in the binding handler.)
+        dispatch(MODIFIER_HANDLERS, ctx)
         continue
       }
 
-      // ── Unmodified items ──
-
-      // Data binding: fill-[expr], size-[expr], opacity-[expr],
-      // fill-extrusion-height-[expr], fill-extrusion-base-[expr].
-      // Zoom-driven path: an `interpolate(zoom, k1, v1, k2, v2, …)`
-      // call with all-numeric stops lowers to the existing
-      // ZoomStop<number>[] mechanism for opacity / size. Other
-      // utilities and non-numeric stops fall through to the generic
-      // data-driven branch (the runtime evaluator handles `zoom`
-      // and `interpolate` as builtins).
-      if (item.binding) {
-        const zoomStops = extractInterpolateZoomStops(item.binding)
-        // WS-1 — zoom-interp dasharray (array-valued stops). Steps at
-        // runtime (Mapbox line-dasharray is interpolated:false).
-        if (name === 'stroke-dasharray') {
-          const arrStops = extractInterpolateZoomArrayStops(item.binding)
-          if (arrStops) {
-            dashArrayShape = { kind: 'zoom-interpolated', stops: arrStops.stops, base: arrStops.base }
-            continue
-          }
-        }
-        if (zoomStops && name === 'opacity') {
-          for (const s of zoomStops.stops) {
-            opacityZoomStops.push({
-              zoom: s.zoom,
-              // opacity-<N> is the 0..100 scale; divide always (the old
-              // `<=1?:/100` heuristic mis-read opacity-1 = Mapbox 0.01 as 1.0).
-              value: s.value / 100,
-            })
-          }
-          if (zoomStops.base !== 1) opacityZoomStopsBase = zoomStops.base
+      // ── Binding-form items: fill-[expr], stroke-[expr], opacity-[expr],
+      //    fill-extrusion-*-[expr], the per-axis zoom-translate shapes, etc.
+      //    All `label-*` binding items are owned by lowerLabelProps and
+      //    skipped here so they never reach the X-GIS0005 catch-all.
+      if (ctx.item.binding) {
+        if (ctx.name === 'label' || ctx.name === 'label-icon-image' || ctx.name.startsWith('label-')) {
           continue
         }
-        if (zoomStops && name === 'size') {
-          for (const s of zoomStops.stops) sizeZoomStops.push({ zoom: s.zoom, value: s.value })
-          if (zoomStops.base !== 1) sizeZoomStopsBase = zoomStops.base
-          continue
-        }
-        if (zoomStops && name === 'stroke-gap') {
-          // Mapbox `line-gap-width` zoom-interp. Full per-frame
-          // resolve is the right path (needs StrokeValue.gapWidth →
-          // PropertyShape<number>); not yet wired. Use last-stop
-          // approximation — same pattern as iter 508's fill-translate
-          // and iter 488's text-opacity zoom-interp drops. OFM Liberty
-          // waterway_tunnel stops at z=12 (0) → z=20 (6); last stop
-          // = 6 px so the runtime renders the double-line at full
-          // intended gap at the highest zoom; lower zooms render
-          // wider-than-spec but the visual is close.
-          const last = zoomStops.stops[zoomStops.stops.length - 1]
-          if (last && last.value > 0) strokeGapWidth = last.value
-          continue
-        }
-        // WS-1 — per-frame zoom-interp translate (per-axis). The converter
-        // splits the Mapbox vec2 interpolate into scalar x/y bracket
-        // bindings; each lowers to a zoom-interpolated PropertyShape the
-        // runtime resolves per frame (resolveShow → resolveNumberShape).
-        if (zoomStops && name === 'fill-translate-x') { fillTranslateXShape = { kind: 'zoom-interpolated', stops: zoomStops.stops, base: zoomStops.base }; continue }
-        if (zoomStops && name === 'fill-translate-y') { fillTranslateYShape = { kind: 'zoom-interpolated', stops: zoomStops.stops, base: zoomStops.base }; continue }
-        if (zoomStops && name === 'circle-translate-x') { circleTranslateXShape = { kind: 'zoom-interpolated', stops: zoomStops.stops, base: zoomStops.base }; continue }
-        if (zoomStops && name === 'circle-translate-y') { circleTranslateYShape = { kind: 'zoom-interpolated', stops: zoomStops.stops, base: zoomStops.base }; continue }
-        if (zoomStops && name === 'stroke-translate-x') { strokeTranslateXShape = { kind: 'zoom-interpolated', stops: zoomStops.stops, base: zoomStops.base }; continue }
-        if (zoomStops && name === 'stroke-translate-y') { strokeTranslateYShape = { kind: 'zoom-interpolated', stops: zoomStops.stops, base: zoomStops.base }; continue }
-        // WS-1 — circle-stroke-opacity zoom-interp. Converter emits the
-        // 0..100 opacity scale (mirror of circle-opacity); divide each stop
-        // back to 0..1 so the runtime multiplies a plain alpha into the
-        // point's baked stroke alpha (feat_data slot 8) each frame.
-        if (zoomStops && name === 'stroke-opacity') { strokeOpacityShape = { kind: 'zoom-interpolated', stops: zoomStops.stops.map(s => ({ zoom: s.zoom, value: s.value / 100 })), base: zoomStops.base }; continue }
-        // ── label-* / label-icon-* binding arms moved to lowerLabelProps
-        //    (lower-label.ts). The second pass there owns the label/icon
-        //    zoom-stops, exprs, text, and negative-numeric label arms.
-        if (name === 'fill') {
-          // Mapbox `paint.fill-color: ["interpolate", curve, ["zoom"], …]`
-          // converts to `fill-[interpolate(zoom, z1, #hex, …)]`. The
-          // converter emits hex literals at each stop; we extract them
-          // into the zoom-interpolated ColorValue here. The runtime
-          // (renderer.ts:render-loop) reads `zoomFillStops` if present
-          // and recomputes the fill RGBA per frame from the camera
-          // zoom. PR #97's earlier "last-stop only" heuristic collapsed
-          // landuse-suburb to alpha=0 (Mapbox intentionally fades it
-          // out at z=10) — every suburb polygon rendered invisible
-          // regardless of viewing zoom; full preservation prevents
-          // that regression class.
-          const colorInterp = extractInterpolateZoomColorStops(item.binding)
-          if (colorInterp && colorInterp.stops.length > 0) {
-            const rgbaStops: ZoomStop<[number, number, number, number]>[] = []
-            for (const s of colorInterp.stops) {
-              const hex = resolveColor(s.value)
-              if (hex) rgbaStops.push({ zoom: s.zoom, value: hexToRgba(hex) })
-            }
-            if (rgbaStops.length > 0) {
-              fill = colorInterp.base !== 1
-                ? { kind: 'zoom-interpolated', stops: rgbaStops, base: colorInterp.base }
-                : { kind: 'zoom-interpolated', stops: rgbaStops }
-              continue
-            }
-          }
-          // Per-feature `match(.field) { …, _ -> #color }` (Mapbox
-          // `["match", ["get", "X"], …, default]`). Extract the
-          // default arm as a constant fallback fill so the polygon
-          // renders SOMETHING — without this, every country in the
-          // MapLibre demo's `countries-fill` rendered as no-fill.
-          // Per-feature distinct colours (the country-by-country
-          // palette) await a `fillExpr` plumbing PR that threads the
-          // full AST through ShowCommand for the worker to evaluate
-          // per feature, mirroring the existing strokeColorExpr path.
-          // The default-arm collapse is gated by
-          // `LowerOptions.bypassExtractMatchDefaultColor` — when true
-          // (P4 runtime opt-in), match() falls through to data-driven
-          // even when an explicit `_` arm exists. The compute path
-          // then evaluates every arm GPU-side.
-          if (!options.bypassExtractMatchDefaultColor) {
-            const defaultHex = extractMatchDefaultColor(item.binding)
-            if (defaultHex) {
-              const rgba = hexToRgba(defaultHex)
-              fill = colorConstant(rgba[0], rgba[1], rgba[2], rgba[3])
-              continue
-            }
-          }
-          fill = { kind: 'data-driven', expr: { ast: item.binding } }
-        } else if (name === 'stroke') {
-          // `stroke-[<expr>]` carries either a colour expression (Mapbox
-          // `paint.line-color: ["interpolate", …]`) or a width
-          // expression (`paint.line-width: ["interpolate", …]`). The
-          // converter emits the same shape for both because the
-          // utility-name grammar can't tell them apart at the lex
-          // stage. Disambiguate by inspecting the lowered expression:
-          //   - `interpolate(zoom, z, color, …)`  → colour stops
-          //   - `interpolate_exp(zoom, base, z, n, …)` → numeric stops
-          //   - everything else → per-feature `widthExpr` (numeric
-          //     case/match dominate; per-feature colour-only goes
-          //     through `colorExpr` once that path lands).
-          // Pre-fix this whole branch was missing — every OFM Bright
-          // road's `stroke-[interpolate_exp(…)]` width silently
-          // collapsed to the default 1 px, so the entire highway
-          // network rendered as hair-thin lines.
-          const colorInterp = extractInterpolateZoomColorStops(item.binding)
-          if (colorInterp && colorInterp.stops.length > 0) {
-            // Last stop is the constant fallback. ColorValue doesn't
-            // (yet) have a `zoom-interpolated` variant for stroke; a
-            // proper per-frame stroke colour update path is parallel
-            // to the fill follow-up (see `name === 'fill'` arm).
-            // For now picking the highest-zoom colour gives the right
-            // appearance at typical viewing zoom and prevents the
-            // silent null-stroke drop. (base would land here once
-            // stroke-color gets the per-frame interp path.)
-            const last = colorInterp.stops[colorInterp.stops.length - 1]!
-            const hex = resolveColor(last.value)
-            if (hex) {
-              const rgba = hexToRgba(hex)
-              strokeColor = colorConstant(rgba[0], rgba[1], rgba[2], rgba[3])
-            }
-          } else {
-            // Disambiguate WIDTH vs COLOUR expression. Numeric zoom
-            // stops (`interpolate_exp(zoom, base, z, n, …)` or
-            // `interpolate(zoom, z, n, …)`) take the width path. A
-            // colour-valued `match(.field) { v -> #rrggbb, …, _ ->
-            // #default }` (Mapbox `paint.line-color: ["match", …]`)
-            // walks the default-arm color extractor — if it yields a
-            // hex, the binding is colour-shaped → route through the
-            // strokeColorExpr field (mirror of the fill data-driven
-            // arm above) so the runtime can evaluate per feature via
-            // the line segment buffer's color_packed slot. Without
-            // this branch a standalone data-driven stroke colour fell
-            // straight through to `strokeWidthExpr`, the layer gained
-            // no resolved colour, and dead-layer-elim dropped it.
-            const widthStops = extractInterpolateZoomStops(item.binding)
-            if (widthStops) {
-              // Pure zoom-only width — hoist as zoom stops on the
-              // stroke value. The renderer recomputes `layer.width_px`
-              // per frame from camera.zoom, so the line widens
-              // continuously as the user zooms (vs. the widthExpr
-              // path which bakes a single width per tile at decode
-              // time and only updates on tile-zoom boundary crosses).
-              strokeWidthZoomStops = widthStops.stops
-              strokeWidthZoomStopsBase = widthStops.base
-            } else {
-              const defaultHex = extractMatchDefaultColor(item.binding)
-              if (defaultHex) {
-                // Colour-shaped per-feature expression. Bake the
-                // default arm as a constant fallback (so the layer
-                // renders SOMETHING even before the per-feature
-                // packer runs) and stash the full AST in
-                // strokeColorExpr. Mirror of merge-layers' synthetic
-                // strokeColorExpr emission.
-                const rgba = hexToRgba(defaultHex)
-                strokeColor = colorConstant(rgba[0], rgba[1], rgba[2], rgba[3])
-                strokeColorExpr = { ast: item.binding }
-              } else {
-                // Per-feature `case` / `match` expression on width.
-                strokeWidthExpr = { ast: item.binding }
-              }
-            }
-          }
-        } else if (name === 'size') {
-          size = { kind: 'data-driven', expr: { ast: item.binding }, unit: item.bindingUnit ?? null }
-        } else if (name === 'opacity') {
-          opacity = { kind: 'data-driven', expr: { ast: item.binding } }
-        } else if (name === 'fill-extrusion-height') {
-          extrude = { kind: 'feature', expr: { ast: item.binding }, fallback: 0 }
-        } else if (name === 'fill-extrusion-base') {
-          extrudeBase = { kind: 'feature', expr: { ast: item.binding }, fallback: 0 }
-        } else if (name === 'label' || name === 'label-icon-image' || name.startsWith('label-')) {
-          // All `label-*` / `label-icon-*` binding items (text, icon-image,
-          // and the negative-numeric label arms) are owned by
-          // lowerLabelProps (lower-label.ts) in its own pass. Skip them
-          // here so they never reach the X-GIS0005 catch-all below.
-        } else {
-          // Numeric paint utilities that allow negative values use
-          // bracket-binding form since the utility-name grammar treats
-          // `-` as a segment separator. We only accept literal-number
-          // (or unary-minus literal) bindings here.
-          const n = bindingAsConstantNumber(item.binding)
-          if (n !== null) {
-            if (name === 'fill-translate-x') { fillTranslateX = n; continue }
-            if (name === 'fill-translate-y') { fillTranslateY = n; continue }
-            if (name === 'circle-translate-x') { circleTranslateX = n; continue }
-            if (name === 'circle-translate-y') { circleTranslateY = n; continue }
-            if (name === 'circle-blur') { circleBlur = n; continue }
-            if (name === 'stroke-translate-x') { strokeTranslateX = n; continue }
-            if (name === 'stroke-translate-y') { strokeTranslateY = n; continue }
-          }
-          // Bracket-binding form with a name that's not in any of the
-          // handled arms above. Pre-fix this was the silent-drop hole that
-          // hid the `stroke-[interpolate_exp(zoom, …)]` regression — a
-          // `name: "stroke"` binding falls through every named handler
-          // and gets dropped without a peep, so every Mapbox
-          // `paint.line-width: ["interpolate", …]` reverted to a 1 px
-          // hairline. Surface every unhandled binding as a warn-level
-          // diagnostic so the next regression of this shape fails CI
-          // instead of shipping silently.
-          diagnostics.push({
-            severity: 'warn',
-            code: 'X-GIS0005',
-            line: stmt.line,
-            message:
-              `Bracket-binding utility "${name}-[…]" has no handler in lower.ts — ` +
-              `the expression is being dropped. Add a name==="${name}" arm in the ` +
-              `binding-form handler to thread the value into the appropriate IR field.`,
-          })
-        }
+        // The registry walks the binding ladder first-match-wins and ends
+        // with the numeric-const + X-GIS0005 fallthrough, so it always
+        // consumes the item — the X-GIS0005 catch-all fires identically.
+        dispatch(BINDING_HANDLERS, ctx)
         continue
       }
 
-      // ── label-* / label-icon-* visual knob utilities ──
-      // All resolved by lowerLabelProps (lower-label.ts) in its own
-      // pass. The two PAINT `fill-translate-*` numeric arms that used to
-      // sit interleaved with the label arms stay here.
-      if (name.startsWith('fill-translate-x-')) {
-        // Mapbox `paint.fill-translate` x component in CSS pixels.
-        // Bracket-wrap form for negatives (`fill-translate-x-[-2]`)
-        // is handled by the bracket binding parser above. Plain
-        // numeric form lands here.
-        const num = parseFloat(name.slice('fill-translate-x-'.length))
-        if (!isNaN(num)) fillTranslateX = num
-        continue
-      }
-      if (name.startsWith('fill-translate-y-')) {
-        const num = parseFloat(name.slice('fill-translate-y-'.length))
-        if (!isNaN(num)) fillTranslateY = num
-        continue
-      }
-      // Mapbox `paint.fill-antialias: false` opt-out — single-token
-      // utility (only the false case is emitted by the converter).
-      if (name === 'fill-antialias-false') { fillAntialias = false; continue }
-      // Mapbox `paint.fill-extrusion-vertical-gradient: false` opt-out.
-      if (name === 'fill-extrusion-vertical-gradient-false') { fillExtrusionVerticalGradient = false; continue }
-      if (name.startsWith('circle-translate-x-')) {
-        const num = parseFloat(name.slice('circle-translate-x-'.length))
-        if (!isNaN(num)) circleTranslateX = num
-        continue
-      }
-      if (name.startsWith('circle-translate-y-')) {
-        const num = parseFloat(name.slice('circle-translate-y-'.length))
-        if (!isNaN(num)) circleTranslateY = num
-        continue
-      }
-      if (name.startsWith('circle-blur-')) {
-        const num = parseFloat(name.slice('circle-blur-'.length))
-        if (!isNaN(num)) circleBlur = num
-        continue
-      }
-      if (name.startsWith('stroke-translate-x-')) {
-        const num = parseFloat(name.slice('stroke-translate-x-'.length))
-        if (!isNaN(num)) strokeTranslateX = num
-        continue
-      }
-      if (name.startsWith('stroke-translate-y-')) {
-        const num = parseFloat(name.slice('stroke-translate-y-'.length))
-        if (!isNaN(num)) strokeTranslateY = num
-        continue
-      }
-      // ── label-* / label-icon-* constant + X-GIS0006 catch-all moved
-      //    to lowerLabelProps (lower-label.ts). Any constant `label-*`
-      //    utility is owned by that pass; skip it here so it never trips
-      //    a paint arm or the X-GIS0005 net below.
-      if (name.startsWith('label-')) continue
-
-      if (name.startsWith('fill-extrusion-height-')) {
-        // Mapbox `fill-extrusion-height` paint property as a tailwind-
-        // shaped utility. Value is a static metres count; data-driven
-        // form is handled higher up via the `-[expr]` binding branch.
-        const num = parseFloat(name.slice('fill-extrusion-height-'.length))
-        if (!isNaN(num)) extrude = { kind: 'constant', value: num }
-      } else if (name.startsWith('fill-extrusion-base-')) {
-        // Mapbox `fill-extrusion-base` paint property — z of the
-        // wall BOTTOM (default 0). Combined with the height utility
-        // it carves out a `min_height`-style podium for tall
-        // buildings. Static-value form; data-driven goes through
-        // the `-[expr]` branch above.
-        const num = parseFloat(name.slice('fill-extrusion-base-'.length))
-        if (!isNaN(num)) extrudeBase = { kind: 'constant', value: num }
-      } else if (name.startsWith('fill-pattern-')) {
-        // iter-177 Mapbox `fill-pattern` Stage 1. Sprite name segment
-        // after `fill-pattern-`; the runtime samples that sprite's
-        // centre pixel for the layer fill colour. Must precede the
-        // generic `fill-<color>` branch below.
-        const sprite = name.slice('fill-pattern-'.length)
-        if (sprite.length > 0) fillPattern = sprite
-      } else if (name.startsWith('fill-')) {
-        const hex = resolveColor(name.slice(5))
-        if (hex) fill = colorConstant(...hexToRgba(hex))
-      } else if (name === 'stroke-butt-cap') {
-        linecap = 'butt'
-      } else if (name === 'stroke-round-cap') {
-        linecap = 'round'
-      } else if (name === 'stroke-square-cap') {
-        linecap = 'square'
-      } else if (name === 'stroke-arrow-cap') {
-        linecap = 'arrow'
-      } else if (name === 'stroke-miter-join') {
-        linejoin = 'miter'
-      } else if (name === 'stroke-round-join') {
-        linejoin = 'round'
-      } else if (name === 'stroke-bevel-join') {
-        linejoin = 'bevel'
-      } else if (name.startsWith('stroke-miterlimit-')) {
-        const num = parseFloat(name.slice('stroke-miterlimit-'.length))
-        if (!isNaN(num)) miterlimit = num
-      } else if (name.startsWith('stroke-dasharray-')) {
-        // e.g. stroke-dasharray-10-5 or stroke-dasharray-6-2-1-2.
-        // The lexer splits `20_10` into Number + Identifier which breaks
-        // the utility-name accumulator — hyphen is the only separator that
-        // stays inside a single utility token via parseUtilityName.
-        const parts = name.slice('stroke-dasharray-'.length).split('-')
-        const nums = parts.map(parseFloat).filter(n => !isNaN(n))
-        if (nums.length >= 2) dashArray = nums
-      } else if (name.startsWith('stroke-dashoffset-')) {
-        const num = parseFloat(name.slice('stroke-dashoffset-'.length))
-        if (!isNaN(num)) dashOffset = num
-      } else if (name === 'stroke-inset') {
-        // GDI+-style alignment: shift the centerline inward by half the
-        // stroke width so the stroke sits entirely on the left of travel.
-        // Resolved at runtime against the current strokeWidth.
-        strokeAlign = 'inset'
-      } else if (name === 'stroke-outset') {
-        strokeAlign = 'outset'
-      } else if (name === 'stroke-center') {
-        strokeAlign = 'center'
-      } else if (name.startsWith('stroke-offset-right-')) {
-        // Right-hand parallel offset: same magnitude, negative sign convention.
-        const num = parseFloat(name.slice('stroke-offset-right-'.length))
-        if (!isNaN(num)) strokeOffset = -num
-      } else if (name.startsWith('stroke-offset-left-')) {
-        const num = parseFloat(name.slice('stroke-offset-left-'.length))
-        if (!isNaN(num)) strokeOffset = num
-      } else if (name.startsWith('stroke-offset-')) {
-        // Bare stroke-offset-N → positive (left of travel) by default.
-        const num = parseFloat(name.slice('stroke-offset-'.length))
-        if (!isNaN(num)) strokeOffset = num
-      } else if (name.startsWith('stroke-pattern-1-')) {
-        parsePatternAttr(name.slice('stroke-pattern-1-'.length), 1)
-      } else if (name.startsWith('stroke-pattern-2-')) {
-        parsePatternAttr(name.slice('stroke-pattern-2-'.length), 2)
-      } else if (name.startsWith('stroke-pattern-')) {
-        parsePatternAttr(name.slice('stroke-pattern-'.length), 0)
-      } else if (name.startsWith('stroke-blur-')) {
-        // Mapbox `paint.line-blur` — edge feathering in CSS px.
-        const num = parseFloat(name.slice('stroke-blur-'.length))
-        if (!isNaN(num)) strokeBlur = num
-      } else if (name.startsWith('stroke-gap-')) {
-        // Mapbox `paint.line-gap-width` — px gap between two parallel
-        // strokes that make up a "double line" casing. Constant form
-        // here; zoom-interp emits the bracket binding form which is
-        // currently dropped (lower.ts has no binding-form arm for it).
-        const num = parseFloat(name.slice('stroke-gap-'.length))
-        if (!isNaN(num) && num > 0) strokeGapWidth = num
-      } else if (name.startsWith('stroke-image-')) {
-        // iter-178 Mapbox `line-pattern` Stage 1 → linePattern. Uses the
-        // DISTINCT `stroke-image-` namespace (NOT `stroke-pattern-`, which the
-        // native SDF dash arms above own, else the sprite is mis-routed into
-        // the dash path). Must precede the generic `stroke-` branch below.
-        const sprite = name.slice('stroke-image-'.length)
-        if (sprite.length > 0) linePattern = sprite
-      } else if (name.startsWith('stroke-')) {
-        const rest = name.slice(7)
-        const num = parseFloat(rest)
-        if (!isNaN(num) && rest === String(num)) {
-          strokeWidth = num
-        } else {
-          const hex = resolveColor(rest)
-          if (hex) strokeColor = colorConstant(...hexToRgba(hex))
-        }
-      } else if (name.startsWith('opacity-')) {
-        const num = parseFloat(name.slice(8))
-        if (!isNaN(num)) {
-          const val = num / 100 // 0..100 scale (see opacity zoom-stop arm)
-          opacity = opacityConstant(val)
-        }
-      } else if (name.startsWith('size-')) {
-        const sizeStr = name.slice(5)
-        const unitMatch = sizeStr.match(/^([\d.]+)(px|m|km|nm|deg)?$/)
-        if (unitMatch) {
-          const num = parseFloat(unitMatch[1])
-          const unit = unitMatch[2] || null  // null = px default
-          if (!isNaN(num)) size = sizeConstant(num, unit)
-        }
-      } else if (name.startsWith('projection-')) {
-        projection = name.slice(11)
-      } else if (name === 'hidden') {
-        visible = false
-      } else if (name === 'flat') {
-        billboard = false
-      } else if (name === 'billboard') {
-        billboard = true
-      } else if (name === 'anchor-center') {
-        anchor = 'center'
-      } else if (name === 'anchor-bottom') {
-        anchor = 'bottom'
-      } else if (name === 'anchor-top') {
-        anchor = 'top'
-      } else if (name.startsWith('shape-')) {
-        const shapeName = name.slice(6)
-        if (item.binding) {
-          shape = { kind: 'data-driven', expr: { ast: item.binding } }
-        } else {
-          shape = { kind: 'named', name: shapeName }
-        }
-      } else if (name === 'visible') {
-        visible = true
-      } else if (name === 'pointer-events-none') {
-        pointerEvents = 'none'
-      } else if (name === 'pointer-events-auto') {
-        pointerEvents = 'auto'
-      } else if (name.startsWith('animation-')) {
-        // All animation-related utilities carry the `animation-` prefix so
-        // they're visually grouped and can't collide with non-animation
-        // modifiers. The sub-prefix discriminator decides whether this is
-        // a lifecycle setting or a keyframes reference:
-        //
-        //   animation-duration-<ms>   → duration in milliseconds
-        //   animation-delay-<ms>      → delay in ms (negative allowed)
-        //   animation-ease-{linear|in|out|in-out}
-        //                             → easing function
-        //   animation-infinite        → loop forever (PR 2 will add
-        //                               animation-iteration-<N> for finite)
-        //   animation-<anything else> → keyframes reference by name
-        //
-        // This means `duration`, `delay`, `ease-*`, and `infinite` are
-        // reserved as keyframes names — using them in `keyframes <name>`
-        // makes them unreachable here.
-        const rest = name.slice('animation-'.length)
-        if (rest.startsWith('duration-')) {
-          const num = parseFloat(rest.slice('duration-'.length))
-          if (!isNaN(num)) animationDurationMs = num
-        } else if (rest.startsWith('delay-')) {
-          const num = parseFloat(rest.slice('delay-'.length))
-          if (!isNaN(num)) animationDelayMs = num
-        } else if (rest === 'ease-linear') {
-          animationEasing = 'linear'
-        } else if (rest === 'ease-in') {
-          animationEasing = 'ease-in'
-        } else if (rest === 'ease-out') {
-          animationEasing = 'ease-out'
-        } else if (rest === 'ease-in-out') {
-          animationEasing = 'ease-in-out'
-        } else if (rest === 'infinite') {
-          animationLoop = true
-        } else {
-          animationName = rest
-        }
-      }
+      // ── Utility-form items (no binding). All `label-*` constants + the
+      //    X-GIS0006 label catch-all are owned by lowerLabelProps; skip any
+      //    label utility here so it never trips a paint arm or the X-GIS0005
+      //    net (which only fires on binding-form items anyway).
+      if (ctx.name.startsWith('label-')) continue
+      dispatch(UTILITY_HANDLERS, ctx)
     }
   }
+
+  // Copy the accumulator back into the locals the promotion + return literal
+  // below read. (Pure relocation — same values the inline ladder produced.)
+  fill = acc.fill
+  extrude = acc.extrude
+  extrudeBase = acc.extrudeBase
+  fillPattern = acc.fillPattern
+  linePattern = acc.linePattern
+  fillTranslateX = acc.fillTranslateX
+  fillTranslateY = acc.fillTranslateY
+  fillAntialias = acc.fillAntialias
+  fillExtrusionVerticalGradient = acc.fillExtrusionVerticalGradient
+  circleTranslateX = acc.circleTranslateX
+  circleTranslateY = acc.circleTranslateY
+  circleBlur = acc.circleBlur
+  strokeTranslateX = acc.strokeTranslateX
+  strokeTranslateY = acc.strokeTranslateY
+  fillTranslateXShape = acc.fillTranslateXShape
+  fillTranslateYShape = acc.fillTranslateYShape
+  circleTranslateXShape = acc.circleTranslateXShape
+  circleTranslateYShape = acc.circleTranslateYShape
+  strokeTranslateXShape = acc.strokeTranslateXShape
+  strokeTranslateYShape = acc.strokeTranslateYShape
+  strokeColor = acc.strokeColor
+  strokeWidth = acc.strokeWidth
+  strokeWidthExpr = acc.strokeWidthExpr
+  strokeColorExpr = acc.strokeColorExpr
+  strokeWidthZoomStops = acc.strokeWidthZoomStops
+  strokeWidthZoomStopsBase = acc.strokeWidthZoomStopsBase
+  linecap = acc.linecap
+  linejoin = acc.linejoin
+  miterlimit = acc.miterlimit
+  dashArray = acc.dashArray
+  dashOffset = acc.dashOffset
+  strokeOffset = acc.strokeOffset
+  strokeAlign = acc.strokeAlign
+  strokeBlur = acc.strokeBlur
+  dashArrayShape = acc.dashArrayShape
+  strokeOpacityShape = acc.strokeOpacityShape
+  strokeGapWidth = acc.strokeGapWidth
+  opacity = acc.opacity
+  size = acc.size
+  projection = acc.projection
+  visible = acc.visible
+  pointerEvents = acc.pointerEvents
+  billboard = acc.billboard
+  anchor = acc.anchor
+  shape = acc.shape
+  opacityZoomStopsBase = acc.opacityZoomStopsBase
+  sizeZoomStopsBase = acc.sizeZoomStopsBase
+  animationName = acc.animationName
+  animationDurationMs = acc.animationDurationMs
+  animationEasing = acc.animationEasing
+  animationDelayMs = acc.animationDelayMs
+  animationLoop = acc.animationLoop
 
   // Expand referenced keyframes into per-property time stops. Pure
   // sub-pass (lower-animation.ts): reads only the animation meta set in
