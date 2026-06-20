@@ -62,7 +62,7 @@ export const RUNTIME_CAPABILITIES: readonly RuntimeCapability[] = [
   { property: 'text-color',          layerType: 'symbol', variant: 'zoom-interp', supported: true },
   { property: 'text-color',          layerType: 'symbol', variant: 'data-driven', supported: true },
   { property: 'text-opacity',        layerType: 'symbol', variant: 'constant',    supported: true },
-  { property: 'text-opacity',        layerType: 'symbol', variant: 'zoom-interp', supported: false, note: 'Fast-path resolves constant only' },
+  { property: 'text-opacity',        layerType: 'symbol', variant: 'zoom-interp', supported: true,  note: 'WS-1 — LabelShapes.opacity PropertyShape resolved per frame in render-loop-helpers (resolveNumberShape into resolvedColor.a + halo.a). Iter 113.' },
   { property: 'text-opacity',        layerType: 'symbol', variant: 'data-driven', supported: false, note: 'Per-feature alpha path deferred' },
   { property: 'text-halo-color',     layerType: 'symbol', variant: 'constant',    supported: true },
   { property: 'text-halo-color',     layerType: 'symbol', variant: 'zoom-interp', supported: true },

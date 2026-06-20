@@ -12,7 +12,6 @@ Properties where the runtime currently degrades or drops a specific value-form.
 | fill | fill-pattern | data-driven | Expression form of fill-pattern (per-feature sprite name) not threaded through IR |
 | line | line-dasharray | zoom-interp | PropertyShape<array> variant pending |
 | line | line-pattern | data-driven | Expression form not threaded through IR |
-| symbol | text-opacity | zoom-interp | Fast-path resolves constant only |
 | symbol | text-opacity | data-driven | Per-feature alpha path deferred |
 | symbol | text-pitch-alignment | constant | Runtime never projects labels onto ground plane |
 | symbol | icon-opacity | zoom-interp | Per-feature alpha attr path deferred |
