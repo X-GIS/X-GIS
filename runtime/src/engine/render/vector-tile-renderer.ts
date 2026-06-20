@@ -2284,13 +2284,16 @@ export class VectorTileRenderer {
     // straight scalar copy. `2 / canvasDim` is the NDC-per-px
     // ratio; vertex shader multiplies by clip.w so the offset
     // stays pixel-constant after the perspective divide.
-    const ftx = show.fillTranslateX ?? 0
-    const fty = show.fillTranslateY ?? 0
+    // WS-1 — read the PER-FRAME resolved translate from ResolvedShow
+    // (zoom-interp shapes already collapsed to a scalar; constant forms
+    // pass straight through). Was `show.fillTranslateX` (static).
+    const ftx = resolvedShow.fillTranslateX
+    const fty = resolvedShow.fillTranslateY
     this.currentFillTranslateNdcX = ftx !== 0 ? (ftx * 2) / canvasWidth : 0
     this.currentFillTranslateNdcY = fty !== 0 ? (fty * 2) / canvasHeight : 0
     // Mapbox line-translate (viewport anchor) — same bake as fill-translate.
-    const ltx = show.strokeTranslateX ?? 0
-    const lty = show.strokeTranslateY ?? 0
+    const ltx = resolvedShow.strokeTranslateX
+    const lty = resolvedShow.strokeTranslateY
     this.currentStrokeTranslateNdcX = ltx !== 0 ? (ltx * 2) / canvasWidth : 0
     this.currentStrokeTranslateNdcY = lty !== 0 ? (lty * 2) / canvasHeight : 0
     // Mapbox fill-antialias / fill-extrusion-vertical-gradient opt-outs.

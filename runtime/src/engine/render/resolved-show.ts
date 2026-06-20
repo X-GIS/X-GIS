@@ -107,6 +107,15 @@ export interface ResolvedShow {
 
   /** RGBA stroke when the layer declared one. */
   readonly stroke: RGBA | null
+
+  /** WS-1 — per-frame zoom-interp viewport translate in CSS px for
+   *  fill / line. Falls back to the constant ShowCommand.*TranslateX/Y
+   *  when no shape was authored. Circle translate resolves in the
+   *  point-renderer (it doesn't flow through ResolvedShow). */
+  readonly fillTranslateX: number
+  readonly fillTranslateY: number
+  readonly strokeTranslateX: number
+  readonly strokeTranslateY: number
 }
 
 /** Per-frame camera + clock context the resolver needs. Keeps the
@@ -178,6 +187,23 @@ export function resolveShow(show: ShowCommand, env: ResolveEnv): ResolvedShow {
     ? resolveNumberShape(show.dashOffsetShape, cameraZoom, elapsedMs).value
     : 0
 
+  // WS-1 — per-frame zoom-interp translate (fill / line). Prefer the
+  // shape; fall back to the constant ShowCommand field. These are
+  // zoom-only, so the resolve-cache (keyed on zoom) keeps them fresh
+  // automatically — no extra cache-ref tracking needed.
+  const fillTranslateX = show.fillTranslateXShape
+    ? resolveNumberShape(show.fillTranslateXShape, cameraZoom, elapsedMs).value
+    : (show.fillTranslateX ?? 0)
+  const fillTranslateY = show.fillTranslateYShape
+    ? resolveNumberShape(show.fillTranslateYShape, cameraZoom, elapsedMs).value
+    : (show.fillTranslateY ?? 0)
+  const strokeTranslateX = show.strokeTranslateXShape
+    ? resolveNumberShape(show.strokeTranslateXShape, cameraZoom, elapsedMs).value
+    : (show.strokeTranslateX ?? 0)
+  const strokeTranslateY = show.strokeTranslateYShape
+    ? resolveNumberShape(show.strokeTranslateYShape, cameraZoom, elapsedMs).value
+    : (show.strokeTranslateY ?? 0)
+
   // Fill / stroke colour — `null` from the resolver means "the
   // ShowCommand's static `fill` hex is authoritative this frame".
   //
@@ -217,6 +243,7 @@ export function resolveShow(show: ShowCommand, env: ResolveEnv): ResolvedShow {
     layerName: show.layerName ?? show.sourceLayer ?? show.targetName ?? '',
     opacity, strokeWidth, size, dashOffset,
     fill, stroke,
+    fillTranslateX, fillTranslateY, strokeTranslateX, strokeTranslateY,
   }
 
   const hasTimeDep =

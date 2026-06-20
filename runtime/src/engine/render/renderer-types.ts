@@ -243,6 +243,16 @@ export interface ShowCommand {
    *  lines, +down. Runtime bakes (px * 2 / canvasHeight) into
    *  line_translate_y slot (buf[48]); shader negates for NDC y. */
   strokeTranslateY?: number
+  /** WS-1 — per-frame zoom-interp translate (per-axis scalar
+   *  PropertyShape). resolveShow resolves fill/line each frame into
+   *  ResolvedShow.{fill,stroke}Translate{X,Y}; circle resolves in the
+   *  point-renderer. Prefer the shape over the constant *TranslateX/Y. */
+  fillTranslateXShape?: import('@xgis/compiler').PropertyShape<number>
+  fillTranslateYShape?: import('@xgis/compiler').PropertyShape<number>
+  circleTranslateXShape?: import('@xgis/compiler').PropertyShape<number>
+  circleTranslateYShape?: import('@xgis/compiler').PropertyShape<number>
+  strokeTranslateXShape?: import('@xgis/compiler').PropertyShape<number>
+  strokeTranslateYShape?: import('@xgis/compiler').PropertyShape<number>
   // Stable u16 layer ID assigned by `XGISMap` via `LayerIdRegistry` after
   // the compiler emits this command. Threaded into every per-tile uniform
   // write so the fragment shader can stamp the pick texture's G channel

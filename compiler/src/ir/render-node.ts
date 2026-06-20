@@ -144,6 +144,18 @@ export interface RenderNode {
    *  Mirror of fillTranslateX/Y for the line pipeline. */
   strokeTranslateX?: number
   strokeTranslateY?: number
+  /** WS-1 — per-frame zoom-interp translate (per-axis scalar shape).
+   *  When set, the runtime resolves the offset each frame
+   *  (resolveNumberShape) instead of the constant *TranslateX/Y above.
+   *  Inline zoom-interpolated form (only kind emitted) to avoid a
+   *  circular import on PropertyShape (defined downstream in
+   *  property-types.ts). */
+  fillTranslateXShape?: { kind: 'zoom-interpolated'; stops: ZoomStop<number>[]; base?: number }
+  fillTranslateYShape?: { kind: 'zoom-interpolated'; stops: ZoomStop<number>[]; base?: number }
+  circleTranslateXShape?: { kind: 'zoom-interpolated'; stops: ZoomStop<number>[]; base?: number }
+  circleTranslateYShape?: { kind: 'zoom-interpolated'; stops: ZoomStop<number>[]; base?: number }
+  strokeTranslateXShape?: { kind: 'zoom-interpolated'; stops: ZoomStop<number>[]; base?: number }
+  strokeTranslateYShape?: { kind: 'zoom-interpolated'; stops: ZoomStop<number>[]; base?: number }
   /** Mapbox `paint.fill-antialias` opt-out. Default (unauthored / true)
    *  = current behavior (the fill fragment multiplies in the sphere-rim
    *  smoothstep AA fade). Only `false` changes anything: the runtime

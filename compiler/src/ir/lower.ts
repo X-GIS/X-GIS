@@ -299,6 +299,16 @@ function lowerLayer(
   let strokeTranslateX: number | undefined
   /** Mapbox `paint.line-translate` y — viewport pixel offset, +down. */
   let strokeTranslateY: number | undefined
+  // WS-1 — per-frame zoom-interp translate (per-axis scalar shape).
+  // Inline stop type (structurally a ZoomStop<number>[]) keeps lower.ts
+  // free of a ZoomStop import dependency.
+  type TranslateShape = { kind: 'zoom-interpolated'; stops: { zoom: number; value: number }[]; base?: number }
+  let fillTranslateXShape: TranslateShape | undefined
+  let fillTranslateYShape: TranslateShape | undefined
+  let circleTranslateXShape: TranslateShape | undefined
+  let circleTranslateYShape: TranslateShape | undefined
+  let strokeTranslateXShape: TranslateShape | undefined
+  let strokeTranslateYShape: TranslateShape | undefined
   let strokeColor: ColorValue = colorNone()
   let strokeWidth = 1
   /** Per-feature / zoom-interpolated stroke-width AST. Populated from
@@ -530,6 +540,16 @@ function lowerLayer(
           if (last && last.value > 0) strokeGapWidth = last.value
           continue
         }
+        // WS-1 — per-frame zoom-interp translate (per-axis). The converter
+        // splits the Mapbox vec2 interpolate into scalar x/y bracket
+        // bindings; each lowers to a zoom-interpolated PropertyShape the
+        // runtime resolves per frame (resolveShow → resolveNumberShape).
+        if (zoomStops && name === 'fill-translate-x') { fillTranslateXShape = { kind: 'zoom-interpolated', stops: zoomStops.stops, base: zoomStops.base }; continue }
+        if (zoomStops && name === 'fill-translate-y') { fillTranslateYShape = { kind: 'zoom-interpolated', stops: zoomStops.stops, base: zoomStops.base }; continue }
+        if (zoomStops && name === 'circle-translate-x') { circleTranslateXShape = { kind: 'zoom-interpolated', stops: zoomStops.stops, base: zoomStops.base }; continue }
+        if (zoomStops && name === 'circle-translate-y') { circleTranslateYShape = { kind: 'zoom-interpolated', stops: zoomStops.stops, base: zoomStops.base }; continue }
+        if (zoomStops && name === 'stroke-translate-x') { strokeTranslateXShape = { kind: 'zoom-interpolated', stops: zoomStops.stops, base: zoomStops.base }; continue }
+        if (zoomStops && name === 'stroke-translate-y') { strokeTranslateYShape = { kind: 'zoom-interpolated', stops: zoomStops.stops, base: zoomStops.base }; continue }
         // ── label-* / label-icon-* binding arms moved to lowerLabelProps
         //    (lower-label.ts). The second pass there owns the label/icon
         //    zoom-stops, exprs, text, and negative-numeric label arms.
@@ -1137,6 +1157,12 @@ function lowerLayer(
     circleBlur,
     strokeTranslateX,
     strokeTranslateY,
+    fillTranslateXShape,
+    fillTranslateYShape,
+    circleTranslateXShape,
+    circleTranslateYShape,
+    strokeTranslateXShape,
+    strokeTranslateYShape,
     fillPattern: fillPattern ?? undefined,
     linePattern: linePattern ?? undefined,
     label: lowerLabelProps(expandedUtilities, diagnostics, stmt.line),

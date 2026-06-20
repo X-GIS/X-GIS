@@ -30,7 +30,11 @@ export const RUNTIME_CAPABILITIES: readonly RuntimeCapability[] = [
   { property: 'fill-opacity',        layerType: 'fill', variant: 'data-driven', supported: false, note: 'Per-feature opacity not threaded through renderer' },
   { property: 'fill-antialias',      layerType: 'fill', variant: 'constant',    supported: false, note: 'false branch not implemented; pipeline always uses MSAA' },
   { property: 'fill-translate',      layerType: 'fill', variant: 'constant',    supported: true },
-  { property: 'fill-translate',      layerType: 'fill', variant: 'zoom-interp', supported: false, note: 'Per-frame zoom-interp deferred; last-stop approx only' },
+  { property: 'fill-translate',      layerType: 'fill', variant: 'zoom-interp', supported: true,  note: 'WS-1 — per-frame: fillTranslate{X,Y}Shape resolved each frame in resolveShow (resolveNumberShape) → VTR NDC bake.' },
+  { property: 'line-translate',      layerType: 'line', variant: 'constant',    supported: true },
+  { property: 'line-translate',      layerType: 'line', variant: 'zoom-interp', supported: true,  note: 'WS-1 — per-frame via strokeTranslate{X,Y}Shape (mirrors fill-translate, resolved in resolveShow).' },
+  { property: 'fill-extrusion-translate', layerType: 'fill-extrusion', variant: 'constant',    supported: true },
+  { property: 'fill-extrusion-translate', layerType: 'fill-extrusion', variant: 'zoom-interp', supported: true,  note: 'WS-1 — routes through the fill-translate path; same per-frame resolve, applied in the extrude VS u.fill_translate.' },
   // iter-181/182/183/184 Stage 2 — UV-tiled sprite atlas sampled in
   // fs_fill_pattern with world-anchored UV. Constant string sprite
   // name only; expression form still warns at convert.

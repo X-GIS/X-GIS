@@ -86,15 +86,13 @@ describe('fill-translate — Mapbox → ShowCommand.fillTranslateX/Y', () => {
     expect(shows[0]!.fillTranslateY).toBe(3)
   })
 
-  it('zoom-interp form (OFM building-top) — last-stop approximation (iter 508)', () => {
-    // Iter 508 added last-stop approximation for vec2 zoom-interp.
-    // OFM building-top stops at z=14 [0,0] → z=16 [-2,-2]; last
-    // stop is [-2,-2]. Full per-axis per-frame resolve is the
-    // deferred follow-up, but the approximation gets the visual
-    // close: at z=16 (the most visible authoring) the offset is
-    // exact; at lower zooms the layer is mostly faded by the
-    // accompanying fill-opacity ramp so the position mismatch
-    // hides.
+  it('zoom-interp form (OFM building-top) — per-frame PropertyShape (WS-1)', () => {
+    // WS-1 — vec2 zoom-interp now resolves PER FRAME (was a last-stop
+    // approximation, iter 508). The converter splits the [x,y]
+    // interpolate into scalar x/y bracket bindings; lower builds
+    // fillTranslate{X,Y}Shape; the runtime resolves each frame
+    // (resolveShow → resolveNumberShape → VTR NDC bake). OFM
+    // building-top: z=14 [0,0] → z=16 [-2,-2].
     const shows = compileToShows(fillLayer('zinterp', {
       'fill-color': '#f2eae2',
       'fill-translate': [
@@ -103,8 +101,21 @@ describe('fill-translate — Mapbox → ShowCommand.fillTranslateX/Y', () => {
         16, ['literal', [-2, -2]],
       ],
     }))
-    expect(shows[0]!.fillTranslateX).toBe(-2)
-    expect(shows[0]!.fillTranslateY).toBe(-2)
+    // The constant scalar fields stay undefined — the shape carries the
+    // value now (resolved per frame, not folded to the last stop).
+    expect(shows[0]!.fillTranslateX).toBeUndefined()
+    expect(shows[0]!.fillTranslateY).toBeUndefined()
+    // Per-axis zoom-interpolated PropertyShapes with the authored stops.
+    expect(shows[0]!.fillTranslateXShape).toEqual({
+      kind: 'zoom-interpolated',
+      stops: [{ zoom: 14, value: 0 }, { zoom: 16, value: -2 }],
+      base: 1,
+    })
+    expect(shows[0]!.fillTranslateYShape).toEqual({
+      kind: 'zoom-interpolated',
+      stops: [{ zoom: 14, value: 0 }, { zoom: 16, value: -2 }],
+      base: 1,
+    })
   })
 
   it('fill-translate does NOT appear in ignored-paint warning list (iter 501 removed it)', () => {

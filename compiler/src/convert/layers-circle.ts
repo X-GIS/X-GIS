@@ -251,8 +251,13 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
       if (tv[0] !== 0) utils.push(`circle-translate-x-${fmt(tv[0] as number)}`)
       if (tv[1] !== 0) utils.push(`circle-translate-y-${fmt(tv[1] as number)}`)
     } else if (Array.isArray(tv) && tv.length >= 4 && tv[0] === 'interpolate') {
-      // Zoom-interp on vec2: approximate by last stop (same pattern as
-      // addFillTranslate in paint.ts).
+      // WS-1 note: fill/line translate resolve per frame, but circle
+      // translate stays a last-stop approximation — the GeoJSON point
+      // addLayer path (map.ts) does not thread circle-translate into the
+      // point frame uniform at all, so a per-axis circle PropertyShape
+      // would be dropped. The IR carries circleTranslate{X,Y}Shape as
+      // ready scaffolding for when the point path is wired; until then
+      // keep the functional last-stop approx (no regression).
       let last: unknown = null
       for (let i = 3; i + 1 < tv.length; i += 2) last = tv[i + 1]
       while (Array.isArray(last) && last.length === 2 && last[0] === 'literal') last = last[1]

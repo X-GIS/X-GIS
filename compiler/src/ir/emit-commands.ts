@@ -4,7 +4,7 @@
 
 import type { Scene, RenderNode, ColorValue, TimeStop, Easing, DataExpr } from './render-node'
 import { rgbaToHex } from './render-node'
-import type { PaintShapes } from './property-types'
+import type { PaintShapes, PropertyShape } from './property-types'
 import {
   colorValueToShape,
   sizeValueToShape,
@@ -167,6 +167,15 @@ export interface ShowCommand {
    *  Runtime bakes CSS px → NDC-per-pixel into u.line_translate_x/y. */
   strokeTranslateX?: number
   strokeTranslateY?: number
+  /** WS-1 — per-frame zoom-interp translate (per-axis scalar
+   *  PropertyShape). Runtime prefers the shape over the constant
+   *  *TranslateX/Y, resolving the offset each frame. */
+  fillTranslateXShape?: PropertyShape<number>
+  fillTranslateYShape?: PropertyShape<number>
+  circleTranslateXShape?: PropertyShape<number>
+  circleTranslateYShape?: PropertyShape<number>
+  strokeTranslateXShape?: PropertyShape<number>
+  strokeTranslateYShape?: PropertyShape<number>
   /** Mapbox `paint.fill-antialias` opt-out. Default (undefined / true)
    *  preserves the current fill render path byte-for-byte; only `false`
    *  is passed through to disable the rim-alpha smoothstep at runtime. */
@@ -482,6 +491,12 @@ function emitShow(
     circleBlur: node.circleBlur,
     strokeTranslateX: node.strokeTranslateX,
     strokeTranslateY: node.strokeTranslateY,
+    fillTranslateXShape: node.fillTranslateXShape,
+    fillTranslateYShape: node.fillTranslateYShape,
+    circleTranslateXShape: node.circleTranslateXShape,
+    circleTranslateYShape: node.circleTranslateYShape,
+    strokeTranslateXShape: node.strokeTranslateXShape,
+    strokeTranslateYShape: node.strokeTranslateYShape,
     fillAntialias: node.fillAntialias,
     fillExtrusionVerticalGradient: node.fillExtrusionVerticalGradient,
     label: node.label,
