@@ -79,10 +79,115 @@ export interface SourceDef {
   crs?: string
 }
 
-/**
- * A single renderable unit — one layer referencing one source.
- */
-export interface RenderNode {
+// ─── RenderNode paint sub-bundles (Tier-B B2, row 5) ───────────────
+//
+// The flat OPTIONAL scalar paint fields on RenderNode were grouped PER
+// CONCERN into the four interfaces below; `RenderNode` then `extends`
+// them. (The core required value fields — `fill: ColorValue`,
+// `stroke: StrokeValue` (which already bundles most line styling),
+// `opacity`, `size` — stay on RenderNode itself.) This is a TYPE-level
+// grouping only: interface extension is structurally transparent, so
+// every wire key stays where it was and the lower / emit / runtime
+// readers are untouched. The inline `*TranslateXShape` zoom-interp
+// types are preserved verbatim — they are deliberately NOT
+// `PropertyShape<number>` so render-node.ts doesn't take a circular
+// import on property-types.ts.
+
+/** Polygon fill paint axes. */
+export interface RenderNodeFillPaint {
+  /** Mapbox `paint.fill-translate` — fill shifted by [dx, dy] CSS px
+   *  in screen space (positive dx = right, positive dy = down).
+   *  Default [0,0]. Constant form here; zoom-interp on vec2 needs
+   *  per-axis decomposition (deferred). The runtime WGSL applies
+   *  the offset post-MVP so the visual shift stays constant in
+   *  pixels regardless of camera zoom. */
+  fillTranslateX?: number
+  fillTranslateY?: number
+  /** WS-1 — per-frame zoom-interp fill translate (per-axis scalar shape).
+   *  Inline zoom-interpolated form (only kind emitted) to avoid a
+   *  circular import on PropertyShape (defined downstream in
+   *  property-types.ts). */
+  fillTranslateXShape?: { kind: 'zoom-interpolated'; stops: ZoomStop<number>[]; base?: number }
+  fillTranslateYShape?: { kind: 'zoom-interpolated'; stops: ZoomStop<number>[]; base?: number }
+  /** Mapbox `paint.fill-antialias` opt-out. Default (unauthored / true)
+   *  = current behavior (the fill fragment multiplies in the sphere-rim
+   *  smoothstep AA fade). Only `false` changes anything: the runtime
+   *  drops the rim-alpha smoothstep so fill edges stay hard, honouring
+   *  the spec's pixel-art intent. (Geometric edge AA from pipeline MSAA
+   *  is not per-layer-disable-able and is left untouched.) */
+  fillAntialias?: boolean
+  /** iter-177 Mapbox `paint.fill-pattern` Stage 1 — constant sprite
+   *  name. Runtime resolves against sprite atlas at draw time and
+   *  uses sprite centre pixel as fill colour. Stage 2 (real
+   *  UV-tiled fragment shader) deferred. undefined = no pattern. */
+  fillPattern?: string
+}
+
+/** Line / polygon-outline paint axes (the bulk of line styling lives
+ *  on `RenderNode.stroke: StrokeValue`; only the flat optional fields
+ *  group here). */
+export interface RenderNodeLinePaint {
+  /** Mapbox `paint.line-translate` — line layer shifted by [dx, dy]
+   *  CSS px in screen space (positive dx = right, positive dy = down).
+   *  Default [0,0]. Constant + zoom-interp last-stop approximation.
+   *  Mirror of fillTranslateX/Y for the line pipeline. */
+  strokeTranslateX?: number
+  strokeTranslateY?: number
+  /** WS-1 — per-frame zoom-interp line translate (per-axis scalar shape).
+   *  Inline zoom-interpolated form (avoids the circular PropertyShape
+   *  import — see RenderNodeFillPaint). */
+  strokeTranslateXShape?: { kind: 'zoom-interpolated'; stops: ZoomStop<number>[]; base?: number }
+  strokeTranslateYShape?: { kind: 'zoom-interpolated'; stops: ZoomStop<number>[]; base?: number }
+  /** iter-178 Mapbox `paint.line-pattern` Stage 1 — stroke-side
+   *  mirror of fillPattern. Runtime samples the sprite centre pixel
+   *  as the line colour; Stage 2 (real repeating-sprite stroke
+   *  renderer) deferred. undefined = no pattern. */
+  linePattern?: string
+}
+
+/** Circle / point-marker paint axes. */
+export interface RenderNodeCirclePaint {
+  /** Mapbox `paint.circle-translate` — CSS-px viewport offset for
+   *  circle layers. Same sign convention as fill-translate: +x=right,
+   *  +y=down (screen-space). Default [0,0] → no-op. */
+  circleTranslateX?: number
+  circleTranslateY?: number
+  /** WS-1 — per-frame zoom-interp circle translate (per-axis scalar shape).
+   *  Inline zoom-interpolated form (avoids the circular PropertyShape
+   *  import — see RenderNodeFillPaint). */
+  circleTranslateXShape?: { kind: 'zoom-interpolated'; stops: ZoomStop<number>[]; base?: number }
+  circleTranslateYShape?: { kind: 'zoom-interpolated'; stops: ZoomStop<number>[]; base?: number }
+  /** Mapbox `paint.circle-blur` — extends the point fragment's
+   *  smoothstep AA band. 0 = crisp edge (default/no-op). */
+  circleBlur?: number
+}
+
+/** 3D extrusion paint axes (Mapbox `fill-extrusion-*`). */
+export interface RenderNodeExtrudePaint {
+  /** 3D extrusion height. Lifts polygon roof faces to z=value (metres)
+   *  and emits side walls. `none` = flat (default). `constant` = every
+   *  feature gets the same height. `feature` = look up a per-feature
+   *  property (e.g. `extrude: .height` → ExtrudeValue with field
+   *  'height'); the runtime asks the MVT decoder to preserve that
+   *  field at decode time. */
+  extrude: ExtrudeValue
+  /** 3D extrusion base — the z value of the BOTTOM of the side walls
+   *  (default 0, ground). Mapbox `fill-extrusion-base` semantic:
+   *  combined with `extrude` (= top) it carves out a "min_height"
+   *  for buildings whose footprint sits on a podium. Same value
+   *  shapes as `extrude` (none / constant / feature). When `extrude`
+   *  is `none`, this field is irrelevant and ignored. */
+  extrudeBase: ExtrudeValue
+  /** Mapbox `paint.fill-extrusion-vertical-gradient` opt-out. Default
+   *  (unauthored / true) = current behavior (the extrude vertex shader
+   *  applies the 0.7→1.0 vertical-gradient wall ramp). Only `false`
+   *  changes anything: the runtime skips the gradient ramp so walls
+   *  shade flat. */
+  fillExtrusionVerticalGradient?: boolean
+}
+
+export interface RenderNode
+  extends RenderNodeFillPaint, RenderNodeLinePaint, RenderNodeCirclePaint, RenderNodeExtrudePaint {
   name: string
   sourceRef: string  // references SourceDef.name
   /** Optional MVT layer slice within the referenced source. When set,
@@ -108,77 +213,6 @@ export interface RenderNode {
   stroke: StrokeValue
   opacity: OpacityValue
   size: SizeValue
-  /** 3D extrusion height. Lifts polygon roof faces to z=value (metres)
-   *  and emits side walls. `none` = flat (default). `constant` = every
-   *  feature gets the same height. `feature` = look up a per-feature
-   *  property (e.g. `extrude: .height` → ExtrudeValue with field
-   *  'height'); the runtime asks the MVT decoder to preserve that
-   *  field at decode time. */
-  extrude: ExtrudeValue
-  /** 3D extrusion base — the z value of the BOTTOM of the side walls
-   *  (default 0, ground). Mapbox `fill-extrusion-base` semantic:
-   *  combined with `extrude` (= top) it carves out a "min_height"
-   *  for buildings whose footprint sits on a podium. Same value
-   *  shapes as `extrude` (none / constant / feature). When `extrude`
-   *  is `none`, this field is irrelevant and ignored. */
-  extrudeBase: ExtrudeValue
-  /** Mapbox `paint.fill-translate` — fill shifted by [dx, dy] CSS px
-   *  in screen space (positive dx = right, positive dy = down).
-   *  Default [0,0]. Constant form here; zoom-interp on vec2 needs
-   *  per-axis decomposition (deferred). The runtime WGSL applies
-   *  the offset post-MVP so the visual shift stays constant in
-   *  pixels regardless of camera zoom. */
-  fillTranslateX?: number
-  fillTranslateY?: number
-  /** Mapbox `paint.circle-translate` — CSS-px viewport offset for
-   *  circle layers. Same sign convention as fill-translate: +x=right,
-   *  +y=down (screen-space). Default [0,0] → no-op. */
-  circleTranslateX?: number
-  circleTranslateY?: number
-  /** Mapbox `paint.circle-blur` — extends the point fragment's
-   *  smoothstep AA band. 0 = crisp edge (default/no-op). */
-  circleBlur?: number
-  /** Mapbox `paint.line-translate` — line layer shifted by [dx, dy]
-   *  CSS px in screen space (positive dx = right, positive dy = down).
-   *  Default [0,0]. Constant + zoom-interp last-stop approximation.
-   *  Mirror of fillTranslateX/Y for the line pipeline. */
-  strokeTranslateX?: number
-  strokeTranslateY?: number
-  /** WS-1 — per-frame zoom-interp translate (per-axis scalar shape).
-   *  When set, the runtime resolves the offset each frame
-   *  (resolveNumberShape) instead of the constant *TranslateX/Y above.
-   *  Inline zoom-interpolated form (only kind emitted) to avoid a
-   *  circular import on PropertyShape (defined downstream in
-   *  property-types.ts). */
-  fillTranslateXShape?: { kind: 'zoom-interpolated'; stops: ZoomStop<number>[]; base?: number }
-  fillTranslateYShape?: { kind: 'zoom-interpolated'; stops: ZoomStop<number>[]; base?: number }
-  circleTranslateXShape?: { kind: 'zoom-interpolated'; stops: ZoomStop<number>[]; base?: number }
-  circleTranslateYShape?: { kind: 'zoom-interpolated'; stops: ZoomStop<number>[]; base?: number }
-  strokeTranslateXShape?: { kind: 'zoom-interpolated'; stops: ZoomStop<number>[]; base?: number }
-  strokeTranslateYShape?: { kind: 'zoom-interpolated'; stops: ZoomStop<number>[]; base?: number }
-  /** Mapbox `paint.fill-antialias` opt-out. Default (unauthored / true)
-   *  = current behavior (the fill fragment multiplies in the sphere-rim
-   *  smoothstep AA fade). Only `false` changes anything: the runtime
-   *  drops the rim-alpha smoothstep so fill edges stay hard, honouring
-   *  the spec's pixel-art intent. (Geometric edge AA from pipeline MSAA
-   *  is not per-layer-disable-able and is left untouched.) */
-  fillAntialias?: boolean
-  /** Mapbox `paint.fill-extrusion-vertical-gradient` opt-out. Default
-   *  (unauthored / true) = current behavior (the extrude vertex shader
-   *  applies the 0.7→1.0 vertical-gradient wall ramp). Only `false`
-   *  changes anything: the runtime skips the gradient ramp so walls
-   *  shade flat. */
-  fillExtrusionVerticalGradient?: boolean
-  /** iter-177 Mapbox `paint.fill-pattern` Stage 1 — constant sprite
-   *  name. Runtime resolves against sprite atlas at draw time and
-   *  uses sprite centre pixel as fill colour. Stage 2 (real
-   *  UV-tiled fragment shader) deferred. undefined = no pattern. */
-  fillPattern?: string
-  /** iter-178 Mapbox `paint.line-pattern` Stage 1 — stroke-side
-   *  mirror of fillPattern. Runtime samples the sprite centre pixel
-   *  as the line colour; Stage 2 (real repeating-sprite stroke
-   *  renderer) deferred. undefined = no pattern. */
-  linePattern?: string
   projection: string
   visible: boolean
   /** CSS-style pointer interactivity. 'none' tells the runtime to skip
