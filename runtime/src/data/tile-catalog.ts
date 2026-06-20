@@ -39,13 +39,15 @@ import {
 // runtime state. Re-exported below for back-compat with external callers
 // (loadPMTilesSource etc. import these from xgvt-source.ts today).
 import {
-  type TileData, type TileState,
+  type TileData, type TileState, type CacheTileDataDescriptor,
   DSFUN_POLY_STRIDE, DSFUN_LINE_STRIDE,
-  MAX_CACHED_TILES, maxCachedBytes, maxConcurrentLoads, defaultSkeletonDepth,
+  maxConcurrentLoads, defaultSkeletonDepth,
   type VirtualCatalog, type VirtualTileFetcher,
 } from './tile-types'
 import { unionBounds } from './tile-catalog-helpers'
 import { TileDataCache } from './tile-data-cache'
+import { CompileBudget } from './tile-compile-budget'
+import { TileEvictionPolicy } from './tile-eviction-policy'
 
 export {
   type TileData, type TileState,
@@ -98,20 +100,18 @@ export class TileCatalog {
    *  (test harnesses, hot reload) don't spam the log. */
   private _layoutMismatchWarned = new WeakSet<TileSource>()
 
-  /** Permanently-pinned keys: the global low-zoom skeleton that
-   *  guarantees `classifyFallback`'s ancestor walk always succeeds
-   *  during fast-pan. Mirrors Cesium `QuadtreePrimitive`'s
-   *  `_doNotDestroySubtree` (root-tile permanent retention) and
-   *  NASA-AMMOS 3D Tiles Renderer's protected `lruCache` anchors —
-   *  fast-pan to a brand-new region on the globe used to drop into
-   *  the `pending` decision (no fallback geometry pushed) and the
-   *  canvas cleared white through the gap. With a pinned z=0..N
-   *  skeleton the walk hits a cached ancestor in ≤ N hops every
-   *  time. Populated lazily by {@link markSkeleton} (called by the
-   *  PMTiles / TileJSON attach path); honoured by `evictTiles` and
-   *  `cancelStale` so it survives both LRU pressure AND backend-fetch
-   *  cancellation between prewarm pump retries. */
-  private _skeletonKeys = new Set<number>()
+  /** Cache-retention policy: owns the permanently-pinned low-zoom
+   *  skeleton key set, the transient just-prefetched evict-shield, and
+   *  the LRU + byte-cap eviction sweep. Extracted to TileEvictionPolicy
+   *  (C5 split); the catalog delegates markSkeleton / evictTiles /
+   *  prefetch-shield + reads the skeleton set for cancelStale. */
+  private eviction = new TileEvictionPolicy()
+
+  /** Per-frame compile + sub-tile scheduling budget (hybrid count-floor
+   *  + time-ceiling). Extracted to CompileBudget (C5 split); the catalog
+   *  decides WHEN to reset (resetCompileBudget, which also ticks
+   *  backends) and the budget owns the counting + gate. */
+  private budget = new CompileBudget()
 
   /** Pending timer handle for the prewarmSkeleton retry pump + a
    *  hard-stop latch. The pump self-reschedules every 250 ms until
@@ -334,7 +334,10 @@ export class TileCatalog {
     if (!result) {
       const empty = new Float32Array(0)
       const emptyI = new Uint32Array(0)
-      this.cacheTileData(key, undefined, empty, emptyI, empty, emptyI, undefined, undefined, undefined, undefined, undefined, undefined, sourceLayer, undefined, undefined, undefined, backend)
+      this.cacheTileData({
+        key, vertices: empty, indices: emptyI, lineVertices: empty, lineIndices: emptyI,
+        sourceLayer, originBackend: backend,
+      })
       return
     }
     // Synthesise an XGVTIndex entry (idempotent — skip if already
@@ -362,23 +365,24 @@ export class TileCatalog {
         return
       }
     }
-    this.cacheTileData(
-      key, result.polygons,
-      result.vertices, result.indices,
-      result.lineVertices, result.lineIndices,
-      result.pointVertices,
-      result.outlineIndices,
-      result.outlineVertices,
-      result.outlineLineIndices,
-      result.prebuiltLineSegments,
-      result.prebuiltOutlineSegments,
+    this.cacheTileData({
+      key,
+      polygons: result.polygons,
+      vertices: result.vertices, indices: result.indices,
+      lineVertices: result.lineVertices, lineIndices: result.lineIndices,
+      pointVertices: result.pointVertices,
+      outlineIndices: result.outlineIndices,
+      outlineVertices: result.outlineVertices,
+      outlineLineIndices: result.outlineLineIndices,
+      prebuiltLineSegments: result.prebuiltLineSegments,
+      prebuiltOutlineSegments: result.prebuiltOutlineSegments,
       sourceLayer,
-      result.heights,
-      result.bases,
-      result.featureProps,
-      backend,
-      { scale: result.dequantScale, half: result.dequantHalf },
-    )
+      heights: result.heights,
+      bases: result.bases,
+      featureProps: result.featureProps,
+      originBackend: backend,
+      dequant: { scale: result.dequantScale, half: result.dequantHalf },
+    })
   }
 
   /** Store raw geometry parts for on-demand compilation (GeoJSON sources).
@@ -416,55 +420,16 @@ export class TileCatalog {
 
   // ── Per-frame budget (hybrid count-floor + time-ceiling) ──
   //
-  // Industry-standard approach adapted for our two cost regimes:
-  //
-  //   (1) Heavy raw-parts compiles (z=3, countries) — 5–100 ms each.
-  //       A pure time budget would allow only 1 per frame (the first
-  //       call always blows the deadline), regressing convergence
-  //       from 4/frame to 1/frame. A pure count cap was the old
-  //       design.
-  //   (2) Light sub-tile clips (z=15 at high pitch) — microseconds
-  //       each. A pure count cap of 8 throttles 270-tile bursts to
-  //       60 frames when the same work fits easily in 6 ms total.
-  //
-  // Hybrid policy (both regimes get the best of each):
-  //   • GUARANTEED FLOOR: always process up to `countFloor` calls
-  //     per frame regardless of time — preserves the old count-based
-  //     behaviour under heavy compiles and never starves progress.
-  //   • TIME-BUDGETED HEADROOM: beyond the floor, keep going until
-  //     the per-frame wall-clock deadline (6 ms) is hit. Light bursts
-  //     (sub-tile) can land 50+ per frame; heavy bursts stop at the
-  //     floor.
-  //   • HARD SAFETY CAP: `_MAX_PER_FRAME` blocks runaway timer bugs.
-  //
-  // Matches Mapbox GL's `MAX_PARALLEL_IMAGERY_REQUESTS` + frame-time
-  // scheduling in spirit; MapLibre and Deck.gl use analogous tile-
-  // budget patterns.
-  private _budgetDeadlineMs = 0
-  private _compileCountThisFrame = 0
-  private _subTileCountThisFrame = 0
-  // Per-CALL budgets restored to original tuning. The earlier "tiles
-  // disappear at over-zoom" symptom had two compounded root causes
-  // BOTH inside generateSubTile (not in the budgets):
-  //   1. _subTileCountThisFrame was incremented TWICE per call
-  //      (once at line ~814 + once at line ~1061). Per-call cap
-  //      effectively halved → late layers starved.
-  //   2. Budget knobs were over-tightened in chase mitigations.
-  // Fix 1 is in generateSubTile; restoring 1's worth of headroom
-  // here returns single-source convergence speed to baseline
-  // (matches the throughput-test targets).
-  private static readonly _BUDGET_MS = 6
-  private static readonly _COMPILE_FLOOR = 4
-  private static readonly _SUBTILE_FLOOR = 8
-  private static readonly _MAX_PER_FRAME = 128
+  // The budget state machine (deadline, counters, floor/ceiling gate)
+  // lives in CompileBudget (this.budget). The catalog owns WHEN to
+  // reset it (per frame, also ticking backends) and gates compile /
+  // sub-tile calls through it.
 
   /** Reset per-frame budget. The frameId arg is reserved for future
    *  frame-shared budget work (currently unused — each layer gets
    *  its own sliced budget per the constants above). */
   resetCompileBudget(_frameId: number = -1): void {
-    this._budgetDeadlineMs = this._now() + TileCatalog._BUDGET_MS
-    this._compileCountThisFrame = 0
-    this._subTileCountThisFrame = 0
+    this.budget.reset()
     // Drain backend deferred-compile queues (PMTiles raw bytes →
     // compileSingleTile). Backends that compile inline don't
     // implement tick. _PMTILES_TICK_BUDGET picks how many tiles are
@@ -481,24 +446,6 @@ export class TileCatalog {
   // matching the visible-tile pipeline as a single producer→consumer
   // chain. Real fix for sub-frame work is a compile worker pool.
   private static readonly _TICK_BUDGET = 2
-
-  /** Wall-clock reader. Uses performance.now when available (browser +
-   *  modern Node) and falls back to Date.now otherwise. */
-  private _now(): number {
-    return typeof performance !== 'undefined' && typeof performance.now === 'function'
-      ? performance.now()
-      : Date.now()
-  }
-
-  /** Hybrid budget gate. `countFloor` calls are always permitted per
-   *  frame (no-starvation guarantee); beyond that, calls proceed only
-   *  while the wall-clock deadline has not been reached. Upper safety
-   *  cap at `_MAX_PER_FRAME` blocks degenerate timer states. */
-  private _budgetExceeded(callsThisFrame: number, countFloor: number): boolean {
-    if (callsThisFrame >= TileCatalog._MAX_PER_FRAME) return true
-    if (callsThisFrame < countFloor) return false // always allow under floor
-    return this._now() > this._budgetDeadlineMs
-  }
 
   /** Synchronous on-demand compile path. Walks attached backends and
    *  uses the first one that supports compileSync (GeoJSON-runtime
@@ -584,8 +531,8 @@ export class TileCatalog {
   /** Diagnostic accessors — let inspectPipeline() + CPU debug tests
    *  read the budget/queue state without reaching into private fields.
    *  Not part of the public API.  */
-  getSubTileBudgetUsed(): number { return this._subTileCountThisFrame }
-  getCompileBudgetUsed(): number { return this._compileCountThisFrame }
+  getSubTileBudgetUsed(): number { return this.budget.subTileCountThisFrame }
+  getCompileBudgetUsed(): number { return this.budget.compileCountThisFrame }
   getPendingLoadCount(): number { return this.loadingTiles.size }
 
   hasEntryInIndex(key: number): boolean {
@@ -647,7 +594,13 @@ export class TileCatalog {
           const polygons: RingPolygon[] | undefined = tile.polygons?.map(p => ({
             rings: p.rings, featId: p.featId,
           }))
-          this.cacheTileData(key, polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, tile.pointVertices, tile.outlineIndices, undefined, undefined, undefined, undefined, '', undefined, undefined, undefined, undefined, { scale: tile.dequantScale, half: tile.dequantHalf })
+          this.cacheTileData({
+            key, polygons,
+            vertices: tile.vertices, indices: tile.indices,
+            lineVertices: tile.lineVertices, lineIndices: tile.lineIndices,
+            pointVertices: tile.pointVertices, outlineIndices: tile.outlineIndices,
+            dequant: { scale: tile.dequantScale, half: tile.dequantHalf },
+          })
         }
         tileCount++
       }
@@ -721,7 +674,13 @@ export class TileCatalog {
         this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
       } else {
         const polygons: RingPolygon[] | undefined = tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId }))
-        this.cacheTileData(key, polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, tile.pointVertices, tile.outlineIndices, undefined, undefined, undefined, undefined, '', undefined, undefined, undefined, undefined, { scale: tile.dequantScale, half: tile.dequantHalf })
+        this.cacheTileData({
+          key, polygons,
+          vertices: tile.vertices, indices: tile.indices,
+          lineVertices: tile.lineVertices, lineIndices: tile.lineIndices,
+          pointVertices: tile.pointVertices, outlineIndices: tile.outlineIndices,
+          dequant: { scale: tile.dequantScale, half: tile.dequantHalf },
+        })
       }
     }
   }
@@ -746,25 +705,17 @@ export class TileCatalog {
    *  cancelled — e.g., camera direction reverses and the previously-
    *  intended next-LOD is no longer interesting. */
   private _prefetchAge: number = 0
-  /** Eviction shield for just-prefetched keys: key → expiresAt ms.
-   *  Distinct from `_prefetchKeys` (cancel-shield, frame-counted
-   *  age-out) — eviction happens against the catalog's MAX_CACHED_
-   *  TILES cap, which on world-scale pan can fire many times per
-   *  second. Without an evict shield the readiness gate's just-
-   *  fetched target-LOD bytes get evicted next frame because the
-   *  held cz's stableKeys don't include them yet, and the gate
-   *  re-fetches forever (regression:
-   *  _zoom-transition-blank-tiles.spec.ts zoom-in 13 → 16). 5 s is
-   *  long enough to bridge gate hold → cz advance → tile becomes
-   *  part of the new neededKeys (and thus protectedKeys). */
-  private _evictShield: Map<number, number> = new Map()
-  // Reduced 5 s → 2 s after real-device inspector (iPhone) showed
-  // 62 keys still protected by the shield while catalog cache sat
-  // at 296 MB. With 5 s TTL + a steady stream of prefetch the shield
-  // population grew faster than the natural eviction churn could
-  // drain it. 2 s still bridges the prefetch → cz-advance gap on
-  // mobile (typical step LOD fetch settles in 0.5-1 s).
-  private static readonly EVICT_SHIELD_TTL_MS = 2_000
+  // The eviction shield for just-prefetched keys (key → expiresAt ms,
+  // 2 s TTL) lives in TileEvictionPolicy (this.eviction); prefetchTiles
+  // populates it, evictTiles honours + drains it.
+
+  /** Test escape-hatch alias for the eviction policy's shield map.
+   *  tile-catalog-skeleton / -lifecycle reach `(catalog as …)
+   *  ._evictShield` to assert the shield drains / never piggybacks the
+   *  skeleton; keep the same name pointing at the same Map post-split. */
+  private get _evictShield(): Map<number, number> {
+    return this.eviction.shieldMap
+  }
 
   /** Prefetch variant of requestTiles: forwards to the same dispatch
    *  path but also adds the keys to `_prefetchKeys` so this frame's
@@ -774,10 +725,10 @@ export class TileCatalog {
   prefetchTiles(keys: number[]): void {
     if (keys.length === 0) return
     this.requestTiles(keys)
-    const expiresAt = Date.now() + TileCatalog.EVICT_SHIELD_TTL_MS
+    const expiresAt = Date.now() + TileEvictionPolicy.EVICT_SHIELD_TTL_MS
     for (const k of keys) {
       this._prefetchKeys.add(k)
-      this._evictShield.set(k, expiresAt)
+      this.eviction.shield(k, expiresAt)
     }
     this._prefetchAge = 0
   }
@@ -794,7 +745,7 @@ export class TileCatalog {
    *  pump terminates by polling `hasTileData(key)` — no separate
    *  predicate needed. */
   markSkeleton(keys: Iterable<number>): void {
-    for (const k of keys) this._skeletonKeys.add(k)
+    this.eviction.markSkeleton(keys)
   }
 
   /** Pre-fetch and pin the global low-zoom quadtree skeleton. Mirrors
@@ -888,7 +839,7 @@ export class TileCatalog {
    *  without a cancellation hook (XGVT-binary, GeoJSON-runtime) are
    *  no-ops here. */
   cancelStale(activeKeys: Set<number>): void {
-    const needsCopy = this._prefetchKeys.size > 0 || this._skeletonKeys.size > 0
+    const needsCopy = this._prefetchKeys.size > 0 || this.eviction.hasSkeleton
     // Iter 131 perf: reuse a single Set across frames when copy needed.
     // Pre-fix allocated `new Set(activeKeys)` per frame — at z=14 OFM
     // Liberty Seoul activeKeys has ~300 entries, ~600 Set ops + GC on
@@ -912,8 +863,8 @@ export class TileCatalog {
     // next cancelStale wipes in-flight skeleton fetches, and the pump
     // has to re-issue them on the next tick. Pinning here closes the
     // window completely.
-    if (this._skeletonKeys.size > 0) {
-      for (const k of this._skeletonKeys) merged.add(k)
+    if (this.eviction.hasSkeleton) {
+      for (const k of this.eviction.skeletonKeys) merged.add(k)
     }
     for (const b of this.backends) {
       b.cancelStale?.(merged)
@@ -984,9 +935,9 @@ export class TileCatalog {
    *  the backend produced (and budget was charged). */
   private tryCompileSync(key: number, backend: TileSource): boolean {
     if (!backend.compileSync) return false
-    if (this._budgetExceeded(this._compileCountThisFrame, TileCatalog._COMPILE_FLOOR)) return false
+    if (this.budget.compileExceeded()) return false
     const ok = backend.compileSync(key)
-    if (ok) this._compileCountThisFrame++
+    if (ok) this.budget.chargeCompile()
     return ok
   }
 
@@ -1041,40 +992,22 @@ export class TileCatalog {
     const vertices = quant.vertices
     const indices = new Uint32Array([0, 1, 2, 0, 2, 3])
 
-    this.cacheTileData(
-      key, undefined, vertices, indices, lineVertices, lineIndices,
-      undefined, undefined, undefined, undefined, undefined, undefined,
-      sourceLayer, undefined, undefined, undefined, originBackend,
-      { scale: quant.dequantScale, half: quant.dequantHalf },
-    )
+    this.cacheTileData({
+      key, vertices, indices, lineVertices, lineIndices,
+      sourceLayer, originBackend,
+      dequant: { scale: quant.dequantScale, half: quant.dequantHalf },
+    })
   }
 
-  private cacheTileData(
-    key: number,
-    polygons: RingPolygon[] | undefined,
-    vertices: Float32Array, indices: Uint32Array,
-    lineVertices: Float32Array, lineIndices: Uint32Array,
-    pointVertices?: Float32Array,
-    outlineIndices?: Uint32Array,
-    outlineVertices?: Float32Array,
-    outlineLineIndices?: Uint32Array,
-    prebuiltLineSegments?: Float32Array,
-    prebuiltOutlineSegments?: Float32Array,
-    /** MVT layer slot. '' (default) for single-layer sources;
-     *  layer name for per-MVT-layer slices. */
-    sourceLayer = '',
-    heights?: ReadonlyMap<number, number>,
-    bases?: ReadonlyMap<number, number>,
-    featureProps?: ReadonlyMap<number, Record<string, unknown>>,
-    /** Backend that produced this tile — captured by the per-backend
-     *  sink closure in makeSink and threaded here so TileData carries
-     *  its origin for per-backend eviction (PR 2c.5). */
-    originBackend?: TileSource,
-    /** PR 2f per-tile quantized-position dequant params for `vertices`.
-     *  Defaults to the identity (scale 1, half 0) for empty / synthetic
-     *  full-cover tiles whose `vertices` are zero-length. */
-    dequant: { scale: number; half: number } = { scale: 1, half: 0 },
-  ): void {
+  /** Build + store a TileData from a {@link CacheTileDataDescriptor}.
+   *  The descriptor struct-ifies what used to be ~18 positional args;
+   *  field semantics + defaults (sourceLayer '', dequant identity) are
+   *  unchanged. Computes the tile's degree bounds from its key, assembles
+   *  the TileData, sets the slice, and fires onTileLoaded. */
+  private cacheTileData(d: CacheTileDataDescriptor): void {
+    const key = d.key
+    const sourceLayer = d.sourceLayer ?? ''
+    const dequant = d.dequant ?? { scale: 1, half: 0 }
     const [tz, tx, ty] = tileKeyUnpack(key)
     const tn = Math.pow(2, tz)
     const tileWest = tx / tn * 360 - 180
@@ -1083,25 +1016,25 @@ export class TileCatalog {
     const tileSouth = Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + 1) / tn))) * 180 / Math.PI
 
     const data: TileData = {
-      vertices,
+      vertices: d.vertices,
       dequantScale: dequant.scale,
       dequantHalf: dequant.half,
-      indices, lineVertices, lineIndices,
-      outlineIndices: outlineIndices ?? new Uint32Array(0),
-      outlineVertices: outlineVertices && outlineVertices.length > 0 ? outlineVertices : undefined,
-      outlineLineIndices: outlineLineIndices && outlineLineIndices.length > 0 ? outlineLineIndices : undefined,
-      pointVertices,
-      prebuiltLineSegments: prebuiltLineSegments && prebuiltLineSegments.length > 0 ? prebuiltLineSegments : undefined,
-      prebuiltOutlineSegments: prebuiltOutlineSegments && prebuiltOutlineSegments.length > 0 ? prebuiltOutlineSegments : undefined,
+      indices: d.indices, lineVertices: d.lineVertices, lineIndices: d.lineIndices,
+      outlineIndices: d.outlineIndices ?? new Uint32Array(0),
+      outlineVertices: d.outlineVertices && d.outlineVertices.length > 0 ? d.outlineVertices : undefined,
+      outlineLineIndices: d.outlineLineIndices && d.outlineLineIndices.length > 0 ? d.outlineLineIndices : undefined,
+      pointVertices: d.pointVertices,
+      prebuiltLineSegments: d.prebuiltLineSegments && d.prebuiltLineSegments.length > 0 ? d.prebuiltLineSegments : undefined,
+      prebuiltOutlineSegments: d.prebuiltOutlineSegments && d.prebuiltOutlineSegments.length > 0 ? d.prebuiltOutlineSegments : undefined,
       tileWest, tileSouth,
       tileWidth: tileEast - tileWest,
       tileHeight: tileNorth - tileSouth,
       tileZoom: tz,
-      polygons,
-      heights,
-      bases,
-      featureProps,
-      originBackend,
+      polygons: d.polygons,
+      heights: d.heights,
+      bases: d.bases,
+      featureProps: d.featureProps,
+      originBackend: d.originBackend,
     }
 
     this.setSlice(key, sourceLayer, data)
@@ -1125,7 +1058,7 @@ export class TileCatalog {
     // the 8-call floor so low-zoom heavy parent geometry still self-
     // throttles, while letting µs-scale high-zoom bursts fill the 6 ms
     // wall-clock budget (typically 50+ sub-tiles per frame at z ≥ 10).
-    if (this._budgetExceeded(this._subTileCountThisFrame, TileCatalog._SUBTILE_FLOOR)) return false
+    if (this.budget.subTileExceeded()) return false
 
     // Per-slice clip: parent stores one TileData per MVT source-layer
     // (PMTiles 'water', 'roads', …) plus the '' slot for single-layer
@@ -1140,7 +1073,7 @@ export class TileCatalog {
     if (!subData) return false
 
     this.setSlice(subKey, sourceLayer, subData)
-    this._subTileCountThisFrame++
+    this.budget.chargeSubTile()
     try { this.onTileLoaded?.(subKey, subData, sourceLayer) }
     catch (e) { xlog.error('[onTileLoaded sub]', (e as Error)?.stack ?? e) }
     return true
@@ -1235,109 +1168,7 @@ export class TileCatalog {
   // ── Cache eviction ──
 
   evictTiles(protectedKeys: Set<number>): void {
-    this.cache.assertByteAccountingInvariant('evictTiles-entry')
-    // Snapshot the protected keys that ARE in catalog pre-eviction —
-    // these must survive the eviction call (Cesium replacement
-    // invariant). Only takes effect when invariants are enabled.
-    const _inv = (globalThis as { __XGIS_INVARIANTS?: boolean }).__XGIS_INVARIANTS
-    // Both protectedKeys (frame-scoped: stableKeys + ancestors) and
-    // _skeletonKeys (permanent low-zoom base) must survive eviction.
-    // Union them into the invariant snapshot so a regression that
-    // accidentally drops a skeleton key fires the same audit error
-    // as a frame-protected drop — single failure mode, single
-    // diagnostic.
-    const _protectedPresent = _inv
-      ? new Set(
-          [...protectedKeys, ...this._skeletonKeys]
-            .filter(k => this.cache.has(k)),
-        )
-      : null
-    // Two caps: byte-based (tight, accurate) and count-based
-    // (loose safety net). Either tripping is enough to trigger
-    // eviction; the loop runs until BOTH are under their limits.
-    const _byteCap = maxCachedBytes()
-    // Sweep expired evict-shield entries on EVERY call, before the
-    // under-budget early-return below. The shield's only removal path
-    // used to sit after that return, so a map that stays under the cap
-    // while still prefetching never drained the shield — it grew
-    // monotonically (JS-heap growth + progressively slower has()).
-    const _now = Date.now()
-    for (const [k, exp] of this._evictShield) {
-      if (exp <= _now) this._evictShield.delete(k)
-    }
-    if (this.cache.size <= MAX_CACHED_TILES
-        && this.cache.cachedBytes <= _byteCap) {
-      // Nothing to do — but still verify the protected set wasn't
-      // accidentally dropped by some prior code path.
-      if (_inv && _protectedPresent) {
-        for (const k of _protectedPresent) {
-          if (!this.cache.has(k)) {
-            throw new Error(`[XGIS INVARIANT] protected key ${k} missing from catalog at evictTiles entry — replacement invariant violated by a prior code path`)
-          }
-        }
-      }
-      return
-    }
-
-    // Eviction: anything not in `protectedKeys` (visible + fallback
-    // ancestors for the current frame) is fair game. The previous
-    // policy ALSO blanket-protected every z ≤ maxLevel ancestor
-    // archive-wide so over-zoom sub-tile gen could re-clip from a
-    // surviving ancestor — but that protection scaled with the
-    // number of regions the user pans through, and on world-scale
-    // navigation it grew without bound (multi-GB heap → OOM the
-    // user reported on the live PMTiles archive, repro:
-    // _pmtiles-stress-leak.spec.ts).
-    //
-    // The visible-frame protection (caller passes stableKeys =
-    // neededKeys ∪ fallbackKeys) covers every ancestor sub-tile
-    // gen actually needs THIS frame; ancestors for non-visible
-    // regions are recoverable by re-fetching when the camera
-    // returns to them — at the cost of a brief load shimmer, which
-    // is far preferable to OOM.
-    // (Expired evict-shield entries were already swept above the
-    // early-return guard so the shield drains every call.)
-    // Also protect keys the catalog prefetched within the last
-    // EVICT_SHIELD_TTL_MS (5 s). The held-cz step prefetch lives
-    // here for long enough to bridge the gap between fetch
-    // completing and the cz advance that puts the key into
-    // stableKeys — without that bridge the gate stalls forever
-    // (regression: _zoom-transition-blank-tiles.spec.ts).
-    // Skeleton keys (Cesium-style permanent base layer) are
-    // unconditionally protected — see `_skeletonKeys` doc.
-    const entries = [...this.cache.entries()]
-      .filter(([key]) => !protectedKeys.has(key)
-                      && !this._evictShield.has(key)
-                      && !this._skeletonKeys.has(key))
-
-    // Insertion order ≈ LRU (Map iteration order is insertion order;
-    // re-inserts on access would yield true LRU but cacheTileData
-    // / setSlice doesn't re-insert).
-    let i = 0
-    while (i < entries.length
-           && (this.cache.size > MAX_CACHED_TILES
-               || this.cache.cachedBytes > _byteCap)) {
-      this.deleteCacheEntry(entries[i][0])
-      i++
-    }
-    this.cache.assertByteAccountingInvariant('evictTiles-exit')
-
-    // Cesium replacement-invariant audit: every protected key that
-    // was present pre-eviction must still be present post-eviction.
-    // The filter at line 1333 skipped these so the loop above
-    // shouldn't have touched them — this catches future regressions
-    // where the filter is altered.
-    if (_inv && _protectedPresent) {
-      for (const k of _protectedPresent) {
-        if (!this.cache.has(k)) {
-          throw new Error(
-            `[XGIS INVARIANT] protected key ${k} was evicted despite being in `
-            + `protectedKeys — replacement invariant violated. The eviction `
-            + `filter at evictTiles must skip every key in protectedKeys.`,
-          )
-        }
-      }
-    }
+    this.eviction.evictTiles(this.cache, protectedKeys)
   }
 }
 
