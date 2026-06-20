@@ -1258,6 +1258,16 @@ export class TextStage {
       // visible on demotiles Tropic of Cancer / Equator labels and
       // on OFM road labels that fall inside the road carriageway.
       const verticalOffsetPx = sizePx * 0.4
+      // Mapbox `text-max-angle` (LabelDef.maxAngle, DEGREES). When set,
+      // drop the label if the tangent deflection between any two adjacent
+      // glyphs exceeds the threshold — matches Mapbox dropping kinked
+      // line labels rather than rendering them folded. UNSET = no gate
+      // (X-GIS' historical behaviour); a label whose style doesn't author
+      // text-max-angle still places exactly as before. Compared in
+      // radians against the wrapped per-glyph rotation delta.
+      const maxAngleRad = p.def.maxAngle !== undefined ? p.def.maxAngle * Math.PI / 180 : undefined
+      let prevGlyphAngle = NaN
+      let angleGateRejected = false
       let cursor = startS
       let gminX = Infinity, gmaxX = -Infinity, gminY = Infinity, gmaxY = -Infinity
       for (let gi = 0; gi < glyphs.length; gi++) {
@@ -1282,12 +1292,26 @@ export class TextStage {
         glyphOffsets[gi * 2] = sx + perpX
         glyphOffsets[gi * 2 + 1] = sy + perpY
         glyphRotations[gi] = sAngle
+        if (maxAngleRad !== undefined) {
+          if (!Number.isNaN(prevGlyphAngle)) {
+            // Wrap the tangent delta into [-π, π] before |·| so a seam
+            // crossing ±π (e.g. 179°→-179°) reads as a small 2° turn,
+            // not a spurious ~358° one.
+            let d = sAngle - prevGlyphAngle
+            d = Math.atan2(Math.sin(d), Math.cos(d))
+            if (Math.abs(d) > maxAngleRad) { angleGateRejected = true; break }
+          }
+          prevGlyphAngle = sAngle
+        }
         if (sx < gminX) gminX = sx
         if (sx > gmaxX) gmaxX = sx
         if (sy < gminY) gminY = sy
         if (sy > gmaxY) gmaxY = sy
         cursor += adv + (gi < glyphs.length - 1 ? letterSpacingPx : 0)
       }
+      // text-max-angle: a glyph-to-glyph deflection exceeded the
+      // authored threshold — Mapbox drops the whole label.
+      if (angleGateRejected) continue
       // Line labels reference the polyline directly — anchor is at
       // origin (0,0); per-glyph offsets are absolute screen coords
       // already (the renderer computes baseX = anchorX + offset[0]

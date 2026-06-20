@@ -2425,6 +2425,11 @@ export class VectorTileRenderer {
       const cap = capMap[show.linecap ?? 'butt']
       const join = joinMap[show.linejoin ?? 'miter']
       const miterLimit = show.miterlimit ?? 2.0
+      // Mapbox line-round-limit (default 1.05). Unset → 0, which the line
+      // shader reads as "use the historical round-join fold threshold"
+      // (byte-identical to pre-feature behaviour); a positive value scales
+      // that threshold by round_limit / 1.05.
+      const roundLimit = show.roundLimit ?? 0
       // Dash values are in LINE-WIDTH UNITS (Mapbox spec:
       // "The lengths are later multiplied by the line width").
       // A `[2, 3]` dash on a 4-px line is 8 px dash + 12 px gap;
@@ -2524,6 +2529,7 @@ export class VectorTileRenderer {
         dpr,
         this.currentStrokeTranslateNdcX,
         this.currentStrokeTranslateNdcY,
+        roundLimit,
       )
       if (gapWidth > 0) {
         lineLayerOffsetGap = this.lineRenderer.writeLayerSlot(
@@ -2542,6 +2548,7 @@ export class VectorTileRenderer {
           dpr,
           this.currentStrokeTranslateNdcX,
           this.currentStrokeTranslateNdcY,
+          roundLimit,
         )
       }
     }

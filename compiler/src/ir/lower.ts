@@ -329,6 +329,7 @@ function lowerLayer(
   let linecap: 'butt' | 'round' | 'square' | 'arrow' | undefined
   let linejoin: 'miter' | 'round' | 'bevel' | undefined
   let miterlimit: number | undefined
+  let roundLimit: number | undefined
   let dashArray: number[] | undefined
   let dashOffset: number | undefined
   let strokeOffset: number | undefined
@@ -471,7 +472,7 @@ function lowerLayer(
     strokeTranslateXShape, strokeTranslateYShape,
     strokeColor, strokeWidth, strokeWidthExpr, strokeColorExpr,
     strokeWidthZoomStops, strokeWidthZoomStopsBase,
-    linecap, linejoin, miterlimit, dashArray, dashOffset, strokeOffset, strokeAlign,
+    linecap, linejoin, miterlimit, roundLimit, dashArray, dashOffset, strokeOffset, strokeAlign,
     strokeBlur, dashArrayShape, strokeOpacityShape, strokeGapWidth,
     patternSlots, patternDirty, parsePatternAttr,
     opacity, size, projection, visible, pointerEvents, billboard, anchor, shape,
@@ -579,6 +580,7 @@ function lowerLayer(
   linecap = acc.linecap
   linejoin = acc.linejoin
   miterlimit = acc.miterlimit
+  roundLimit = acc.roundLimit
   dashArray = acc.dashArray
   dashOffset = acc.dashOffset
   strokeOffset = acc.strokeOffset
@@ -754,7 +756,7 @@ function lowerLayer(
         color: strokeColor,
         width: widthSource,
         ...(strokeColorExpr !== undefined ? { colorExpr: strokeColorExpr } : {}),
-        linecap, linejoin, miterlimit,
+        linecap, linejoin, miterlimit, roundLimit,
         dashArray, dashArrayShape, dashOffset,
         strokeOpacityShape,
         patterns: validPatterns.length > 0 ? validPatterns : undefined,

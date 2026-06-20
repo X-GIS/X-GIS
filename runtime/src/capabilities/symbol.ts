@@ -56,6 +56,7 @@ export const symbolCapabilities: readonly RuntimeCapability[] = [
   { property: 'text-ignore-placement', layerType: 'symbol', variant: 'constant',  supported: true },
   { property: 'text-rotation-alignment', layerType: 'symbol', variant: 'constant', supported: true, note: 'map / viewport / auto literal' },
   { property: 'text-keep-upright',   layerType: 'symbol', variant: 'constant',    supported: true },
+  { property: 'text-max-angle',      layerType: 'symbol', variant: 'constant',    supported: true,  note: 'LabelDef.maxAngle drives the TextStage curved-label angular gate; unset = no clamp (historical behaviour)' },
   { property: 'text-translate',      layerType: 'symbol', variant: 'constant',    supported: true },
   { property: 'text-halo-blur',      layerType: 'symbol', variant: 'constant',    supported: true,  note: 'IR exposes PropertyShape; non-constant emits warn until shape-resolve lands' },
 

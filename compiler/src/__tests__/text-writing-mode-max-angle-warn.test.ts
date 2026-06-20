@@ -50,12 +50,10 @@ describe('text-writing-mode + text-max-angle specific gap warnings', () => {
     expect(w.some(s => s.includes('text-writing-mode'))).toBe(false)
   })
 
-  it('text-max-angle: 30 (non-default) → specific warn', () => {
+  it('text-max-angle: 30 (non-default) → wired, no gap warn', () => {
+    // Now threaded end-to-end (Phase S Batch 2) — no longer a deferred gap.
     const w = warningsOf(buildSymbol({ 'text-max-angle': 30 }))
-    expect(w.some(s =>
-      s.includes('text-max-angle')
-      && s.includes('Plan §4'),
-    )).toBe(true)
+    expect(w.some(s => s.includes('text-max-angle'))).toBe(false)
   })
 
   it('text-max-angle: 45 (spec default) does NOT warn', () => {

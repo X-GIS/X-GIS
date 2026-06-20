@@ -79,6 +79,7 @@ export interface LayerAccumulator {
   linecap: 'butt' | 'round' | 'square' | 'arrow' | undefined
   linejoin: 'miter' | 'round' | 'bevel' | undefined
   miterlimit: number | undefined
+  roundLimit: number | undefined
   dashArray: number[] | undefined
   dashOffset: number | undefined
   strokeOffset: number | undefined

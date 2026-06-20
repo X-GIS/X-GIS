@@ -103,6 +103,9 @@ export interface LinePaint {
   linecap?: 'butt' | 'round' | 'square' | 'arrow'
   linejoin?: 'miter' | 'round' | 'bevel'
   miterlimit?: number
+  /** Mapbox `line-round-limit` (default 1.05). Scales the line shader's
+   *  round-join fold threshold; unset = no override (today's geometry). */
+  roundLimit?: number
   dashArray?: number[]
   /** WS-1 — per-frame zoom-interp dasharray (STEP — Mapbox line-dasharray
    *  is `interpolated: false`). `null` = constant-only; the runtime prefers
@@ -584,6 +587,7 @@ function emitLineFields(
     linecap: node.stroke.linecap,
     linejoin: node.stroke.linejoin,
     miterlimit: node.stroke.miterlimit,
+    roundLimit: node.stroke.roundLimit,
     dashArray: node.stroke.dashArray,
     dashArrayShape: node.stroke.dashArrayShape ?? null,
     dashOffsetShape,

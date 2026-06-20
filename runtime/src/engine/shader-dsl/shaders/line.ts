@@ -140,7 +140,9 @@ const LineLayer: StructDecl = {
     // fill-translate's per-tile uniform path). Default 0 = no-op.
     { name: 'line_translate_x', type: f32T },
     { name: 'line_translate_y', type: f32T },
-    { name: '_pad_d', type: f32T },
+    // Mapbox line-round-limit (0 = use the historical JOIN_ACUTE_BIS fold
+    // constant, byte-identical default; >0 scales the fold threshold).
+    { name: 'round_limit', type: f32T },
     { name: '_pad_e', type: f32T },
   ],
 }
@@ -452,6 +454,17 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
 
   const joinFlags = b.let('join_flags', layerFlags.shr(u32(3)).bitAnd(u32(3)))
   const layerMiterLimit = layer.field('miter_limit', f32T)
+  // Mapbox line-round-limit → per-layer round-join fold threshold. The
+  // uniform carries the raw limit (default 1.05); 0 means "no override"
+  // and the shader keeps its historical JOIN_ACUTE_BIS constant exactly,
+  // so a layer that doesn't author line-round-limit is byte-identical.
+  // A positive value scales the fold threshold by round_limit / 1.05,
+  // so the spec default 1.05 also reproduces JOIN_ACUTE_BIS (1.05/1.05=1).
+  const layerRoundLimit = layer.field('round_limit', f32T)
+  const acuteFoldBis = b.let('acute_fold_bis',
+    select(layerRoundLimit.gt(f32(0)),
+      f32(JOIN_ACUTE_BIS).mul(layerRoundLimit.div(f32(1.05))),
+      f32(JOIN_ACUTE_BIS)))
 
   // ── Bisector clip + bevel-edge clip at p0 ──
   b.if(hasPrev, (c) => {
@@ -557,7 +570,7 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
       const bisLenJ = d.let('bis_len_j', length(bisP0j))
       // Acute fold → full round point (ML parity); moderate bends keep the
       // half-plane. #413; see JOIN_ACUTE_BIS + the select() combine below.
-      const acuteFoldP0 = d.let('acute_fold_p0', bisLenJ.le(JOIN_ACUTE_BIS))
+      const acuteFoldP0 = d.let('acute_fold_p0', bisLenJ.le(acuteFoldBis))
       const bisUnitJ = d.let('bis_unit_j', bisP0j.div(max(bisLenJ, f32(1e-6))))
       const alongJ = d.let('along_j', dot(segP.sub(p0JoinCenter), bisUnitJ))
       d.if(acuteFoldP0.or(alongJ.ge(0)), (f) => {
@@ -601,7 +614,7 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
     c.if(joinTypeP1.eq(u32(1)).and(distP1.gt(0)), (d) => {
       const bisP1j = d.let('bis_p1_j', dir.add(nextTan))
       const bisLenJ = d.let('bis_len_j', length(bisP1j))
-      const acuteFoldP1 = d.let('acute_fold_p1', bisLenJ.le(JOIN_ACUTE_BIS)) // #413, mirrors p0
+      const acuteFoldP1 = d.let('acute_fold_p1', bisLenJ.le(acuteFoldBis)) // #413, mirrors p0; threshold scaled by line-round-limit
       const bisUnitJ = d.let('bis_unit_j', bisP1j.div(max(bisLenJ, f32(1e-6))))
       const alongJ = d.let('along_j', dot(segP.sub(p1JoinCenter), bisUnitJ))
       d.if(acuteFoldP1.or(alongJ.le(0)), (f) => {

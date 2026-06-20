@@ -55,7 +55,6 @@ export function emitLinePaint(
   addLineTranslate(out, p['line-translate'], warnings)
   surfaceIgnoredPaint(layer.id, p, warnings, [
     'line-translate-anchor', 'line-sort-key',
-    'line-round-limit',
   ])
 }
 

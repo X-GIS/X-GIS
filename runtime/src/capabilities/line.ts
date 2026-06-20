@@ -27,4 +27,5 @@ export const lineCapabilities: readonly RuntimeCapability[] = [
   { property: 'line-cap',            layerType: 'line', variant: 'constant',    supported: true,  note: 'butt / round / square literal only' },
   { property: 'line-join',           layerType: 'line', variant: 'constant',    supported: true,  note: 'miter / round / bevel literal only' },
   { property: 'line-miter-limit',    layerType: 'line', variant: 'constant',    supported: true },
+  { property: 'line-round-limit',    layerType: 'line', variant: 'constant',    supported: true,  note: 'ShowCommand.roundLimit → line uniform round_limit; scales the shader round-join fold threshold. 0/unset = historical fold (default).' },
 ]

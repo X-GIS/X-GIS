@@ -22,7 +22,6 @@ describe('surfaceIgnoredPaint aggregation', () => {
           'line-color': '#fff',
           'line-translate-anchor': 'viewport',
           'line-sort-key': 5,
-          'line-round-limit': 1.5,
         },
       }],
     } as never, { coverage })
@@ -30,11 +29,12 @@ describe('surfaceIgnoredPaint aggregation', () => {
     const layerWarns = coverage.warnings.filter(w => w.includes('ignored paint properties'))
     // The anchor-parent dependency check suppresses
     // line-translate-anchor (parent line-translate is absent), so
-    // only the OTHER two ignored properties surface. Aggregation
-    // contract still holds: 1 warning total naming both.
+    // only line-sort-key surfaces. (line-round-limit is no longer an
+    // ignored-paint prop — Phase S Batch 2 threads it as a supported
+    // LAYOUT property, so it never reaches surfaceIgnoredPaint.)
+    // Aggregation contract still holds: 1 warning total.
     expect(layerWarns.length).toBe(1)
     expect(layerWarns[0]).toContain('line-sort-key')
-    expect(layerWarns[0]).toContain('line-round-limit')
   })
 
   it('multiple layers each get their own aggregated warning', () => {
