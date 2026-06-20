@@ -29,7 +29,20 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const CONVERT_DIR = join(HERE, '..', 'convert')
 
 function readConverterSource(): string {
-  const files = ['expressions.ts', 'expr-registry.ts', 'layers.ts', 'layers-circle.ts', 'layers-symbol.ts', 'paint.ts', 'sources.ts', 'colors.ts', 'mapbox-to-xgis.ts']
+  // Tier-A parallel-axis registry split relocated the emit/case references
+  // out of the old god-files into per-concern modules — scan them all so a
+  // relocated reference is never mistaken for a dropped one:
+  //  - expr-registry + expr-* clusters (A3) hold the op→handler refs
+  //  - paint-* emitters (A2) hold the per-layer-type paint refs
+  //  - layer-converters/* (A4) hold `.type === 'circle'`, line cap/join/miter
+  //    layout, and symbol text-field/icon-image refs that lived in layers.ts
+  const files = [
+    'expressions.ts', 'expr-registry.ts', 'expr-arithmetic.ts', 'expr-logic.ts', 'expr-lookup.ts', 'expr-string.ts',
+    'layers.ts', 'layers-circle.ts', 'layers-symbol.ts',
+    'paint.ts', 'paint-fill.ts', 'paint-line.ts', 'paint-fill-extrusion.ts', 'paint-raster.ts', 'paint-helpers.ts',
+    'sources.ts', 'colors.ts', 'mapbox-to-xgis.ts',
+    'layer-converters/line.ts', 'layer-converters/circle.ts', 'layer-converters/symbol.ts', 'layer-converters/generic.ts',
+  ]
   return files.map(f => readFileSync(join(CONVERT_DIR, f), 'utf8')).join('\n\n')
 }
 
@@ -74,6 +87,12 @@ function extractReferencedNames(src: string): Set<string> {
   // non-hyphenated key (e.g. `layout['visibility']`). The namespace
   // restriction keeps this from matching `obj['type']` noise.
   for (const m of src.matchAll(/(?:layout|paint)\[['"]([a-z][a-z0-9_]*)['"]\]/g)) {
+    names.add(m[1]!)
+  }
+  // `registerLayerConverter('X', …)` — the A4 per-layer-type registry
+  // shape that replaced the former `layer.type === 'X'` dispatch chain
+  // (e.g. `registerLayerConverter('circle', …)`).
+  for (const m of src.matchAll(/registerLayerConverter\(\s*['"]([a-z][a-z0-9-]+)['"]/g)) {
     names.add(m[1]!)
   }
   // SKIP_REASONS table — `circle: '…'`, `heatmap: '…'`, `hillshade: '…'`.
