@@ -146,6 +146,16 @@ export function lowerLabelProps(
   /** Mapbox `icon-rotation-alignment` — only "map" is carried (icon
    *  rotates with the line tangent); other values stay undefined. */
   let labelIconRotationAlignment: 'map' | undefined
+  /** Mapbox `icon-overlap`:'never'/'cooperative' or `icon-allow-overlap`:
+   *  false — the icon joins the IconStage collision queue and is dropped
+   *  on overlap. Absent = X-GIS' always-place default (Phase S Batch 4). */
+  let labelIconCollide: boolean | undefined
+  /** Mapbox `icon-ignore-placement`:true — icon places and does not block
+   *  others; overrides an explicit collide back to always-place. */
+  let labelIconIgnorePlacement: boolean | undefined
+  /** Mapbox `icon-optional`:true — a colliding icon may hide while its
+   *  paired text still shows (the icon's drop never cascades to text). */
+  let labelIconOptional: boolean | undefined
 
   for (const line of expandedUtilities) {
     for (const item of line.items) {
@@ -345,6 +355,9 @@ export function lowerLabelProps(
       if (name === 'label-none') { labelTransform = 'none'; continue }
       if (name === 'label-allow-overlap') { labelAllowOverlap = true; continue }
       if (name === 'label-ignore-placement') { labelIgnorePlacement = true; continue }
+      if (name === 'label-icon-collide') { labelIconCollide = true; continue }
+      if (name === 'label-icon-ignore-placement') { labelIconIgnorePlacement = true; continue }
+      if (name === 'label-icon-optional') { labelIconOptional = true; continue }
       // Mapbox `symbol-placement: line | line-center` — labels follow
       // line geometry instead of anchoring at a point. Runtime walks
       // the line's segments and emits a label per feature with rotation
@@ -623,6 +636,7 @@ export function lowerLabelProps(
     labelPlacement, labelSpacing,
     labelRotationAlignment, labelPitchAlignment, labelKeepUpright, labelMaxAngle,
     labelIconImage, labelIconImageExpr, labelIconSize, labelIconAnchor, labelIconOffset, labelIconTranslateX, labelIconTranslateY, labelIconTranslateAnchorMap, labelIconRotate, labelIconOpacity, labelIconRotationAlignment,
+    labelIconCollide, labelIconIgnorePlacement, labelIconOptional,
     labelIconSizeZoomStops: labelIconSizeZoomStops.length > 0 ? labelIconSizeZoomStops : undefined,
     labelIconSizeZoomStopsBase,
     labelOpacityZoomStops: labelOpacityZoomStops.length > 0 ? labelOpacityZoomStops : undefined,
@@ -705,6 +719,9 @@ function foldLabelKnobs(
     labelIconRotate?: number
     labelIconOpacity?: number
     labelIconRotationAlignment?: 'map'
+    labelIconCollide?: boolean
+    labelIconIgnorePlacement?: boolean
+    labelIconOptional?: boolean
     // iter 113 — opacity PropertyShape inputs (zoom-interp + expr).
     labelOpacityZoomStops?: ZoomStop<number>[]
     labelOpacityZoomStopsBase?: number
@@ -793,6 +810,9 @@ function foldLabelKnobs(
     ...(knobs.labelIconOpacity !== undefined ? { iconOpacity: knobs.labelIconOpacity } : {}),
     ...(knobs.labelIconColor !== undefined ? { iconColor: knobs.labelIconColor } : {}),
     ...(knobs.labelIconRotationAlignment !== undefined ? { iconRotationAlignment: knobs.labelIconRotationAlignment } : {}),
+    ...(knobs.labelIconCollide !== undefined ? { iconCollide: knobs.labelIconCollide } : {}),
+    ...(knobs.labelIconIgnorePlacement !== undefined ? { iconIgnorePlacement: knobs.labelIconIgnorePlacement } : {}),
+    ...(knobs.labelIconOptional !== undefined ? { iconOptional: knobs.labelIconOptional } : {}),
   }
   // Plan Label L3: build the unified shapes bundle from the knob inputs
   // + the merged label's static fallbacks.

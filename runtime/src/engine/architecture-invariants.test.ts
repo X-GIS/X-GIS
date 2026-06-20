@@ -269,12 +269,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 1071→1078 (Phase S Batch 2 text-max-angle): the layout->utility
   // emit (`label-max-angle-N`) in convertTextLayoutProperties + comment; net
   // of removing the old deferred-gap warning block in convertGapWarnings.
-  // Bumped 1078→1092 (Phase S Batch 3 text-/icon-translate-anchor:map): the
-  // text-translate-anchor read + `label-translate-anchor-map` emit, plus
-  // converting the icon-translate-anchor "map" warn into a
-  // `label-icon-translate-anchor-map` emit (both gated on the parent
-  // translate). Default viewport emits nothing ⇒ byte-identical.
-  'compiler/src/convert/layers-symbol.ts': 1092,
+  // Bumped 1078→1126 (Phase S Batch 3+4): text/icon-translate-anchor:map emits
+  // (+14) plus icon collision policy emits — label-icon-collide / icon-ignore-
+  // placement / icon-optional + precedence/default-semantics comments (+34).
+  'compiler/src/convert/layers-symbol.ts': 1126,
   // Bumped 1534→1574 for the arithmetic-arity fix (expr-arith-coalesce): the
   // variadic +/*, unary/binary -, and exact-2 //% forms each need a distinct
   // branch (was one over-strict shared comparison branch). Irreducible.
@@ -388,13 +386,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // Then 1157→1163 for #458 layer-order point-label dedup: the exported
   // shouldEmitPointDedup predicate + the show-index loop counter (the dedup now
   // lets a higher layer's duplicate win instead of first-emission-wins).
-  // Bumped 1163→1180 (Phase S Batch 3 icon-translate-anchor:map): the
-  // stage.setBearing(camera.bearing) wire + dispatchIcon rotating ONLY the
-  // icon-translate portion of the anchor offset by camera.bearing (icon-offset
-  // stays screen-space) + the iconTranslateAnchorMap def-type field + the
-  // contract comment. Default (viewport / flag unset) = unrotated, byte-
-  // identical. Additive, no struct growth.
-  'runtime/src/engine/render/passes/label-pass.ts': 1180,
+  // Bumped 1163→1192 (Phase S Batch 3+4): icon-translate-anchor:map setBearing +
+  // anchor rotation (+17) plus icon collision policy — dispatchIcon doCollide
+  // from LabelDef.iconCollide/iconIgnorePlacement on top of the #417 rule (+12).
+  'runtime/src/engine/render/passes/label-pass.ts': 1192,
   // VTR Unit-1 extraction (Cluster E-selection). The hysteresis +
   // readiness-gate logic was moved VERBATIM (plan §5 DO-NOT-SPLIT #2),
   // and its hard-won fix-history comments carry the bulk of the LOC —
@@ -454,15 +449,15 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 820→828 (Phase S Batch 2 text-max-angle): the labelMaxAngle local
   // + the `label-max-angle-N` parse arm + the knobs-interface field + the
   // foldLabelKnobs spread + comment. Same additive label-knob plumbing class.
-  // Bumped 828→840 (Phase S Batch 3 text-/icon-translate-anchor:map): the two
-  // anchor-map boolean locals + their `label-(icon-)translate-anchor-map`
-  // parse arms + the knobs-interface fields + the foldLabelKnobs call/spread.
-  'compiler/src/ir/lower-label.ts': 840,
-  // Baselined at 824 (Phase S Batch 3): render-node.ts crossed the 800 cap from
-  // the new RenderNodeRasterPaint concern interface (six raster-* fields +18,
-  // 800→818) plus the text/icon translate-anchor-map fields (+6, 818→824) added
-  // to the per-concern RenderNode extends chain. Cohesive paint-concern type.
-  'compiler/src/ir/render-node.ts': 824,
+  // Bumped 828→860 (Phase S Batch 3+4): text/icon-translate-anchor:map (+12,
+  // the anchor-map locals/parse-arms/knobs/fold) plus icon collision policy's
+  // three label-knob accumulators (labelIconCollide/IgnorePlacement/Optional,
+  // +20). Same additive label-knob plumbing class.
+  'compiler/src/ir/lower-label.ts': 860,
+  // Baselined at 827 (Phase S Batch 3 raster +18 + text/icon +6, then Batch 4
+  // icon collision's LabelDef.iconCollide/iconIgnorePlacement/iconOptional +3).
+  'compiler/src/ir/render-node.ts': 827,
+
 }
 const NEW_FILE_CAP = 800
 

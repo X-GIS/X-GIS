@@ -235,7 +235,19 @@ class LabelPass implements RenderPass {
           const resolvedText = collide && def.text !== undefined && def.text !== null
             ? resolveText(def.text, props ?? {}, host.camera.zoom)
             : ''
-          const doCollide = collide && resolvedText === ''
+          // Two independent collision triggers:
+          //  (1) the #417 line-icon rule — a text-LESS line icon (road_oneway
+          //      arrow) always collides so parallel chains dedupe.
+          //  (2) the Mapbox icon-overlap policy — `iconCollide` (set by
+          //      icon-overlap:'never' / icon-allow-overlap:false) opts this
+          //      icon into the queue regardless of placement mode. The
+          //      historical default (flag absent) leaves icons always-placed.
+          //  `icon-ignore-placement: true` overrides BOTH back to always-
+          //  place-and-don't-block (the icon never enters the collide queue).
+          const di = def as { iconCollide?: boolean; iconIgnorePlacement?: boolean }
+          const policyCollide = di.iconCollide === true && di.iconIgnorePlacement !== true
+          const lineCollide = collide && resolvedText === '' && di.iconIgnorePlacement !== true
+          const doCollide = lineCollide || policyCollide
           iStage.addIcon(ax + offDx, ay + offDy, def.iconImage, {
             sizeScale: def.iconSize ?? 1,
             rotateRad: ((def.iconRotate ?? 0) + tangent) * Math.PI / 180,

@@ -60,28 +60,26 @@ describe('text-optional / icon-optional warning gate — iter 519', () => {
     })
   })
 
+  // icon-optional is now implemented (Phase S Batch 4) — `true` emits the
+  // `label-icon-optional` utility instead of a deferral warning; the default
+  // `false` stays silent. (icon-side ARBITRATION coverage is asserted in
+  // icon-collision-policy.test.ts.)
   describe('icon-optional', () => {
     it('default false → no warning (OFM label_city/town shape)', () => {
       const warnings = compile({ 'icon-optional': false })
       expect(warnings.filter(w => w.includes('icon-optional'))).toEqual([])
     })
 
-    it('true → warning explaining missing arbitration', () => {
+    it('true → no warning (implemented; carried as label-icon-optional)', () => {
       const warnings = compile({ 'icon-optional': true })
-      const hits = warnings.filter(w => w.includes('icon-optional'))
-      expect(hits.length).toBe(1)
-      expect(hits[0]).toContain('icon-optional: true')
-    })
-
-    it('does NOT warn for text-optional (no message-pair confusion)', () => {
-      const warnings = compile({ 'icon-optional': true })
-      expect(warnings.filter(w => /\btext-optional\b/.test(w))).toEqual([])
+      expect(warnings.filter(w => w.includes('icon-optional'))).toEqual([])
     })
   })
 
-  it('both true → exactly two warnings', () => {
+  it('both true → exactly one warning (text-optional only; icon-optional implemented)', () => {
     const warnings = compile({ 'text-optional': true, 'icon-optional': true })
     const hits = warnings.filter(w => /optional/.test(w))
-    expect(hits.length).toBe(2)
+    expect(hits.length).toBe(1)
+    expect(hits[0]).toContain('text-optional: true')
   })
 })

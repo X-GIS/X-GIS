@@ -562,7 +562,10 @@ export interface LabelDef {
    *  to the icon's rotation so one-way arrows / similar follow the
    *  line direction (OFM road_oneway / road_oneway_opposite). */
   iconRotationAlignment?: 'map'
-
+  // Icon collision policy (Phase S Batch 4): iconCollide (icon-overlap 'never'/'cooperative' or icon-allow-overlap false → IconStage #417/#419 collide AABB; absent = always-place), iconIgnorePlacement (place + don't block; overrides iconCollide), iconOptional (drop colliding icon, keep paired text).
+  iconCollide?: boolean
+  iconIgnorePlacement?: boolean
+  iconOptional?: boolean
   /** Unified PropertyShape bundle for the four "shape-able" paint
    *  properties (text-size, text-color, text-halo-width,
    *  text-halo-color). Populated by lower.ts alongside the legacy

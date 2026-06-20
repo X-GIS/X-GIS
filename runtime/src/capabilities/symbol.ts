@@ -69,4 +69,8 @@ export const symbolCapabilities: readonly RuntimeCapability[] = [
   { property: 'icon-offset',         layerType: 'symbol', variant: 'constant',    supported: true },
   { property: 'icon-rotation-alignment', layerType: 'symbol', variant: 'constant', supported: true, note: 'map / viewport / auto literal (iter 506)' },
   { property: 'icon-translate-anchor', layerType: 'symbol', variant: 'constant',  supported: true,  note: 'viewport (default) = screen-space (byte-identical); map = world-space: dispatchIcon rotates ONLY the icon-translate portion of the icon anchor offset by camera.bearing (icon-offset stays screen-space). Pitch foreshortening not reproduced.' },
+  { property: 'icon-allow-overlap',  layerType: 'symbol', variant: 'constant',    supported: true,  note: 'false → LabelDef.iconCollide → IconStage collide AABB (#417/#419); absent/true = always-place (Phase S Batch 4)' },
+  { property: 'icon-overlap',        layerType: 'symbol', variant: 'constant',    supported: true,  note: "never → collide; cooperative ≈ never + warn; always = always-place (Phase S Batch 4)" },
+  { property: 'icon-ignore-placement', layerType: 'symbol', variant: 'constant',  supported: true,  note: 'true → LabelDef.iconIgnorePlacement: place + don\'t block (overrides iconCollide) (Phase S Batch 4)' },
+  { property: 'icon-optional',       layerType: 'symbol', variant: 'constant',    supported: true,  note: 'true → LabelDef.iconOptional: colliding icon may hide while paired text shows; default false reverse-arbitration deferred (Phase S Batch 4)' },
 ]
