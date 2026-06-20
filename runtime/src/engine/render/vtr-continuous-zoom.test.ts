@@ -74,6 +74,12 @@ function makeVtr(lastZoom: number, cameraZoom: number) {
   set('currentExtrudeMode', 'none')
   set('_skipFillDraw', false)
   set('_skipStrokeDrawForBundle', false)
+  // WS-9 — the per-tile uniform packer reads these light fields (the
+  // packer destructures _lightPosition). Object.create skips the class
+  // field initializers, so set them to the MapLibre defaults here.
+  set('_lightPosition', [1.15, 210, 30])
+  set('_lightIntensity', 0.5)
+  set('_lightColor', [1, 1, 1])
   set('lineRenderer', null)
   set('_linePatternActiveForShow', false)
   set('_drawStats', { hasDrawn: () => false, markDrawn: () => {} })

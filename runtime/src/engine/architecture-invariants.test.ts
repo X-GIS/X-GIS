@@ -128,7 +128,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 3996→4011 (#420) for the light_dir_ecef pack: the camera-anchor
   // ENU→ECEF light rotation (camSinLon/camCosLon + 3 uniform writes) + the
   // basis-contract comment that ties it to polygon-mesh.ts's normals.
-  'runtime/src/engine/render/vector-tile-renderer.ts': 4011,
+  // Bumped 4011→4051 (WS-9 + WS-1): the fill-extrusion light state +
+  // setLight() + the per-tile light-colour/intensity pack (slots 50/63),
+  // plus reading the per-frame resolved fill/line translate off ResolvedShow.
+  'runtime/src/engine/render/vector-tile-renderer.ts': 4051,
   // Bumped 3361→3393 for the destroy()-completeness fix: cancelling the
   // EventDispatcher move-rAF + the pending-flush rAF, clearing _pendingPatches,
   // and removing the run()-installed window globals (__xgisReady/snapshot/
@@ -177,7 +180,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // fill-extrusion-vertical-gradient-false opt-out parse arms + the two
   // boolean accumulators + RenderNode return wiring. lower.ts decomposition
   // stays a tracked priority.
-  'compiler/src/ir/lower.ts': 1404,
+  // Bumped 1404→1430 (WS-1): per-axis zoom-interp translate shapes —
+  // fillTranslate{X,Y}Shape / strokeTranslate{X,Y}Shape / circleTranslate
+  // {X,Y}Shape declarations, the six bracket-binding parse arms, and the
+  // RenderNode return wiring.
+  'compiler/src/ir/lower.ts': 1430,
   // Bumped 1441→1449 for the CJK display-size floor on CURVED/line labels: the
   // point-loop floor (hasCjkIdeograph → Math.max(size, CJK_MIN_DISPLAY_PX*dpr))
   // mirrored onto the curved loop so dense Han road labels stop boxing out at
@@ -299,7 +306,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // its contract comment + the extrude VS reading it (the raw light moved to
   // the CPU pack, rotated into the face_normal's ECEF frame).
   // Bumped 1197→1198 (#399) for the +0.5° abs-lat discard margin's one-line note.
-  'runtime/src/engine/shader-dsl/shaders/polygon.ts': 1198,
+  // Bumped 1198→1211 (WS-9): the two light_color_packed / _pad_light_align
+  // Uniforms struct lanes + the extrude VS reading intensity from
+  // light_dir_ecef.w and colour from unpack4x8unorm(light_color_packed).
+  'runtime/src/engine/shader-dsl/shaders/polygon.ts': 1211,
   // Bumped 1067→1092 for the minZoom + setMaxBounds gesture-clamp correctness
   // fixes (#244/#248): the maxBounds clamp method + its 7 gesture-exit call
   // sites are irreducible. camera.ts decomposition remains a tracked priority.

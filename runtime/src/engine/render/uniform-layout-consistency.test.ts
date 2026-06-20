@@ -110,8 +110,14 @@ const EXPECTED_F32_OFFSET: Record<string, number> = {
   // Phase 2 PR 2f — per-tile quantized-position dequant params.
   tile_dequant_scale: 48,
   tile_dequant_half: 49,
+  // WS-9 — fill-extrusion light colour (RGBA8 packed u32) + a u32 pad that
+  // together fill the 8-byte gap (f32 50/51) WGSL otherwise inserts to
+  // 16-align cam_ecef_off_h. Struct size is unchanged (still 256). The
+  // extrude VS unpacks light_color_packed; intensity rides light_dir_ecef.w.
+  light_color_packed: 50,
+  _pad_light_align: 51,
   // Camera-relative RTC fix — DSFUN hi/lo offset (tileEcefCenter − cameraCenter),
-  // vec4 each, 16-byte aligned after the two dequant scalars (50/51 pad → 52).
+  // vec4 each, 16-byte aligned after the light-colour lanes (50/51 → 52).
   cam_ecef_off_h: 52,
   cam_ecef_off_l: 56,
   // #420 — fill-extrusion ECEF light dir (vec4, .xyz used). 16-byte aligned
