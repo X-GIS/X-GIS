@@ -471,6 +471,7 @@ export class PointRenderer {
     circleTranslateX?: number,
     circleTranslateY?: number,
     circleBlur?: number,
+    strokeOpacityShape?: import('@xgis/compiler').PropertyShape<number> | null,
   ): void {
     const points: { lon: number; lat: number }[] = []
 
@@ -591,6 +592,11 @@ export class PointRenderer {
       circleTranslateX: circleTranslateX ?? 0,
       circleTranslateY: circleTranslateY ?? 0,
       circleBlur: circleBlur ?? 0,
+      strokeOpacityShape: strokeOpacityShape ?? null,
+      // Base stroke alpha baked into feat_data slot 8 (stroke[3] × layer
+      // opacity) — the per-frame resolved stroke-opacity multiplies THIS.
+      baseStrokeAlphaSlot8: stroke ? stroke[3] * opacity : 0,
+      lastDynStrokeOpacityZoom: Number.NaN,
     })
 
     console.log(`[X-GIS] SDF point layer: ${points.length} points`)
@@ -624,6 +630,29 @@ export class PointRenderer {
         layer.featData[i * STRIDE + 0] = size
       }
       layer.lastDynZoom = cameraZoom
+    }
+    // WS-1 — per-frame zoom-interp circle-stroke-opacity. A separate loop
+    // (not folded into the size loop above) because a layer may author a
+    // stroke-opacity shape without a size shape — the size loop's early
+    // `continue`s would otherwise skip it. Resolves the shape and writes
+    // baseStrokeAlphaSlot8 × resolved into feat_data slot 8 (the stroke
+    // alpha); render() re-copies slots 0–10 each frame so it propagates.
+    for (const layer of this.layers) {
+      const shape = layer.strokeOpacityShape
+      if (shape === null) continue
+      // Only zoom/time kinds need per-frame re-resolution — constant /
+      // data-driven are already folded into the baked stroke colour.
+      if (shape.kind !== 'zoom-interpolated'
+          && shape.kind !== 'time-interpolated'
+          && shape.kind !== 'zoom-time') continue
+      const r = resolveNumberShape(shape, cameraZoom, elapsedMs)
+      // Zoom-only optimization — skip when the camera hasn't moved.
+      if (!r.hasTime && Math.abs(layer.lastDynStrokeOpacityZoom - cameraZoom) < 0.001) continue
+      const alpha = layer.baseStrokeAlphaSlot8 * Math.max(0, Math.min(1, r.value))
+      for (let i = 0; i < layer.pointCount; i++) {
+        layer.featData[i * STRIDE + 8] = alpha
+      }
+      layer.lastDynStrokeOpacityZoom = cameraZoom
     }
   }
 

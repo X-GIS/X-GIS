@@ -115,6 +115,12 @@ export interface ShowCommand {
    *  is `interpolated: false`). `null` = constant-only; the runtime prefers
    *  this over `dashArray` when present. */
   dashArrayShape: PropertyShape<number[]> | null
+  /** WS-1 — per-frame zoom-interp circle-stroke-opacity. `null` =
+   *  constant-only (folded into the stroke hex alpha at convert time).
+   *  When present, PointRenderer.updateDynamicSizes resolves it per frame
+   *  and multiplies it into the circle's baked stroke alpha. Only the
+   *  circle (point) layer path reads it. */
+  circleStrokeOpacityShape: PropertyShape<number> | null
   /** Dash offset as a PropertyShape — composed from the static
    *  `stroke.dashOffset` and any `time-interpolated` animation
    *  (`stroke.timeDashOffsetStops`) plus the layer-level lifecycle
@@ -481,6 +487,7 @@ function emitShow(
     miterlimit: node.stroke.miterlimit,
     dashArray: node.stroke.dashArray,
     dashArrayShape: node.stroke.dashArrayShape ?? null,
+    circleStrokeOpacityShape: node.stroke.strokeOpacityShape ?? null,
     dashOffsetShape,
     patterns: node.stroke.patterns,
     strokeOffset: node.stroke.offset,

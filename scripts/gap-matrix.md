@@ -17,7 +17,6 @@ Properties where the runtime currently degrades or drops a specific value-form.
 | symbol | icon-size | data-driven | Worker per-feature evaluator pending |
 | symbol | symbol-sort-key | data-driven | Expression flattens to 0; per-feature key plumbing pending |
 | fill-extrusion | fill-extrusion-pattern | data-driven | Expression form not threaded through IR |
-| circle | circle-stroke-opacity | zoom-interp | Per-frame uniform path pending |
 | background | background-opacity | zoom-interp | Per-frame uniform path pending |
 | raster | raster-opacity | data-driven | Data-driven not applicable to raster tiles |
 
@@ -25,8 +24,8 @@ Properties where the runtime currently degrades or drops a specific value-form.
 
 | Status | Count |
 |---|---:|
-| supported | 144 |
-| partial | 22 |
+| supported | 145 |
+| partial | 21 |
 | unsupported | 69 |
 | na | 7 |
 | **total** | **242** |
@@ -60,7 +59,6 @@ Properties marked `partial` — converter accepts but runtime degrades. These ne
 | icon-translate | low | CSS-px viewport offset for icons (independent of text-translate). Constant [dx, dy] form wired end-to-end: converter emits `label-icon-translate-{x,y}-N` (layers-symbol.ts) → LabelDef.iconTranslateX/Y → dispatchIcon adds it (× dpr) to the icon anchor before IconStage.addIcon (label-pass.ts), alongside icon-offset. Default [0,0] = no-op. Non-constant (expression / interpolate) form still warns + drops. |
 | icon-translate-anchor | low | Only `viewport` (the value matching X-GIS' screen-space icon-translate) is honoured. `map` (world-space offset on bearing) warns + is not implemented. |
 | circle-blur | low | Constant numeric form extends the point fragment smoothstep AA band via circle_params.z in the point uniform (layers-circle.ts). Zoom-interp / data-driven forms warn + drop — need a per-feature feat_data slot for per-feature blur. |
-| circle-stroke-opacity | low | Constant numeric form folds into stroke-color hex alpha (iter 4, Plan §4 partial landing — same pattern later applied to background-opacity in iter 47). Zoom-interp / data-driven forms still warn + drop — need a dedicated paint shape for per-frame uniform multiplication. |
 | circle-translate | low | Constant [dx, dy] vec2 + zoom-interp last-stop approximation supported. Emits circle-translate-x-N / circle-translate-y-M utilities; lower.ts threads to ShowCommand.circleTranslateX/Y; point uniform circle_params.xy baked to NDC-per-pixel by PointRenderer. Full per-frame zoom-interp deferred (same constraint as fill-translate). |
 | circle-translate-anchor | low | viewport (spec default) is the only honoured mode — X-GIS point renderer always applies the translate in viewport/NDC space. 'map'-anchor (world-space shift) is unsupported and warns + drops. The anchor no-op suppression (when circle-translate is absent) mirrors fill-translate-anchor behaviour. |
 | rgb / rgba | low | Constant channels only — hex-encoded at convert time. Per-channel v8 literal-wrap (`["literal", N]`) accepted. |

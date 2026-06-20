@@ -164,7 +164,7 @@ export const RUNTIME_CAPABILITIES: readonly RuntimeCapability[] = [
   { property: 'circle-stroke-width', layerType: 'circle', variant: 'constant',    supported: true },
   { property: 'circle-stroke-width', layerType: 'circle', variant: 'zoom-interp', supported: true },
   { property: 'circle-stroke-opacity', layerType: 'circle', variant: 'constant',  supported: true,  note: 'Folds into stroke-color hex alpha at compile time (iter 4)' },
-  { property: 'circle-stroke-opacity', layerType: 'circle', variant: 'zoom-interp', supported: false, note: 'Per-frame uniform path pending' },
+  { property: 'circle-stroke-opacity', layerType: 'circle', variant: 'zoom-interp', supported: true,  note: 'Resolved per frame by PointRenderer.updateDynamicSizes and multiplied into the baked stroke alpha (feat_data slot 8) — WS-1 part 4' },
 
   // Background (top-level directive in xgis)
   { property: 'background-color',    layerType: 'background', variant: 'constant',  supported: true },

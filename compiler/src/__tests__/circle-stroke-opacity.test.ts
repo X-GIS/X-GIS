@@ -54,13 +54,19 @@ describe('circle-stroke-opacity', () => {
     expect(xgis).toContain('stroke-#0000ff80')
   })
 
-  it('zoom-interp form warns + drops (not supported)', () => {
+  it('zoom-interp form emits a stroke-opacity-[…] binding (WS-1) — no drop warning', () => {
     const coverage = { sources: [], layers: [], warnings: [] as string[] }
-    convertMapboxStyle(buildStyle({
+    const xgis = convertMapboxStyle(buildStyle({
       'circle-stroke-opacity': ['interpolate', ['linear'], ['zoom'], 5, 0.2, 15, 1.0],
     }), { coverage })
-    // Expression form lands in the ignored bucket → at least one
-    // warning surfaces (per ignoredText list emission).
-    expect(coverage.warnings.length).toBeGreaterThan(0)
+    // Now resolved per frame — the converter emits a bracket binding on
+    // the 0..100 scale (mirror of circle-opacity) instead of warning + dropping.
+    expect(xgis).toContain('stroke-opacity-[interpolate(zoom, 5, 20, 15, 100)]')
+    // The stroke colour is left at base alpha (no fold) so the per-frame
+    // multiply isn't double-applied.
+    expect(xgis).toContain('stroke-#0000ff')
+    expect(xgis).not.toMatch(/stroke-#0000ff[0-9a-f]{2}/)
+    // No circle-stroke-opacity drop warning surfaces.
+    expect(coverage.warnings.some(w => w.includes('circle-stroke-opacity'))).toBe(false)
   })
 })

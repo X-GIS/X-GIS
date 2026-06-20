@@ -2506,6 +2506,13 @@ export class XGISMap {
           shapeId,
           show.anchor,
           show.paintShapes.size,
+          // circleTranslateX/Y + circleBlur are not threaded through the
+          // GeoJSON point path yet (separate gap — see layers-circle.ts);
+          // pass undefined so circleStrokeOpacityShape lands in its slot.
+          undefined,
+          undefined,
+          undefined,
+          show.circleStrokeOpacityShape ?? null,
         )
         continue
       }

@@ -187,7 +187,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // RenderNode return wiring.
   // Bumped 1430→1442 (WS-1 line-dasharray): dashArrayShape var + the
   // stroke-dasharray array-stop binding arm + StrokeValue return wiring.
-  'compiler/src/ir/lower.ts': 1442,
+  // Bumped 1442→1452 (WS-1 circle-stroke-opacity): strokeOpacityShape var +
+  // the stroke-opacity zoom-stop binding arm (÷100 back to 0..1) + the
+  // StrokeValue return wiring + contract comments. Irreducible additive
+  // plumbing (mirror of the dasharray arm); lower.ts decomposition stays
+  // a tracked priority.
+  'compiler/src/ir/lower.ts': 1452,
   // Bumped 1441→1449 for the CJK display-size floor on CURVED/line labels: the
   // point-loop floor (hasCjkIdeograph → Math.max(size, CJK_MIN_DISPLAY_PX*dpr))
   // mirrored onto the curved loop so dense Han road labels stop boxing out at
@@ -381,7 +386,13 @@ const LOC_CEILINGS: Record<string, number> = {
   // Baselined at 805 (mbx_batch2): point-renderer.ts crossed the 800 cap from
   // prior batch work (circle-translate / circle-blur). Not touched here;
   // baselined to keep the ratchet honest. Decomposition is a tracked follow-up.
-  'runtime/src/engine/render/point-renderer.ts': 805,
+  // Bumped 805→834 (WS-1 circle-stroke-opacity): the addLayer strokeOpacityShape
+  // param + the three PointLayer fields (shape / baseStrokeAlphaSlot8 /
+  // lastDynStrokeOpacityZoom) baked at construction + the per-frame resolve
+  // loop in updateDynamicSizes (separate from the size loop because a layer
+  // may author stroke-opacity without a size) + contract comments. Irreducible
+  // additive plumbing; decomposition stays a tracked follow-up.
+  'runtime/src/engine/render/point-renderer.ts': 834,
   // Baselined at 820 (mbx_batch2): lower-label.ts is the label-knob lowering
   // sub-pass extracted from lower.ts; crossed 800 here for the icon-translate
   // accumulators + parse arms + knobs-interface + merge wiring. Cohesive

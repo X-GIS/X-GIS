@@ -29,9 +29,12 @@ import {
  *    circle-stroke-color  → `stroke-<color>`
  *    circle-stroke-width  → `stroke-N`      (CSS px, single edge width)
  *
- *  Not yet honoured (warnings emitted): circle-blur, circle-translate
- *  + circle-translate-anchor, circle-pitch-scale, circle-pitch-alignment,
- *  circle-stroke-opacity (would need fold-into-stroke-alpha).
+ *  circle-stroke-opacity → constant folds into stroke hex alpha;
+ *  zoom-interp emits `stroke-opacity-[…]` resolved per frame.
+ *
+ *  Not yet honoured (warnings emitted): circle-translate-anchor,
+ *  circle-pitch-scale, circle-pitch-alignment, data-driven
+ *  circle-stroke-opacity.
  */
 export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
   const paint = safePropsBag((layer as { paint?: unknown }).paint)
@@ -155,17 +158,34 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
   // dropped (same regression class as the line-color fix).
   // Same null-as-omit treatment as circle-color above.
   //
-  // circle-stroke-opacity (Mapbox spec) folds into stroke-colour alpha
-  // when both are constant. Plan §4: stops short of a dedicated paint
-  // shape so non-constant opacity still warns + drops below. Constant
-  // alpha multiplication keeps the common case (e.g. `0.5`-alpha
-  // outline rings) correct without a per-frame uniform.
+  // circle-stroke-opacity (Mapbox spec). Constant form folds into the
+  // stroke-colour hex alpha (no per-frame uniform needed). The
+  // zoom-interp form (WS-1, part 4) emits a `stroke-opacity-[interpolate(
+  // zoom, …)]` bracket binding the runtime resolves per frame — it
+  // multiplies into the circle's baked stroke alpha (feat_data slot 8)
+  // in PointRenderer.updateDynamicSizes, mirroring circle-opacity above.
+  // In the zoom-interp case the stroke colour is left at its base alpha
+  // (no fold) so the per-frame multiply isn't double-applied.
   const strokeColor = paint['circle-stroke-color']
   const strokeOpacityRaw = unwrapLiteralScalar(paint['circle-stroke-opacity'])
   const strokeOpacityConst =
     typeof strokeOpacityRaw === 'number' && Number.isFinite(strokeOpacityRaw)
       ? Math.max(0, Math.min(1, strokeOpacityRaw))
       : null
+  // Zoom-interp stroke-opacity → bracket binding (0..100 scale, same as
+  // circle-opacity). Only attempt when the raw value is a non-constant
+  // object (interpolate call); a bare number stays on the constant fold
+  // path. When this is non-null the constant fold is skipped below.
+  const strokeOpacityInterp =
+    strokeOpacityConst === null
+      && typeof strokeOpacityRaw === 'object' && strokeOpacityRaw !== null
+      ? interpolateZoomCall(paint['circle-stroke-opacity'], warnings, (val) => {
+          if (typeof val !== 'number') return null
+          const c = Math.max(0, Math.min(1, val))
+          return String(Math.round(c * 100))
+        })
+      : null
+  if (strokeOpacityInterp !== null) utils.push(`stroke-opacity-[${strokeOpacityInterp}]`)
   if (!isOmittedValue(strokeColor)) {
     const interp = interpolateZoomCall(strokeColor, warnings, (val, w) => colorToXgis(val, w))
     if (interp !== null) {
@@ -295,11 +315,14 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
   for (const k of [
     'circle-translate-anchor',
     'circle-pitch-scale', 'circle-pitch-alignment',
-    // circle-stroke-opacity: only the constant form folds into stroke
-    // hex alpha above. Zoom-interp / data-driven still surface as
-    // ignored so the user sees the gap. Check the unwrapped value
-    // shape — if it's a scalar number we handled it; otherwise warn.
+    // circle-stroke-opacity: the constant form folds into stroke hex
+    // alpha and the zoom-interp form emits a `stroke-opacity-[…]`
+    // binding (both handled above). Only a non-interpolate data-driven
+    // form remains a gap — surface it so the user sees it. Check the
+    // unwrapped value shape: a scalar number OR a resolved zoom-interp
+    // (strokeOpacityInterp !== null) we handled; otherwise warn.
     ...(typeof strokeOpacityRaw === 'object' && strokeOpacityRaw !== null
+      && strokeOpacityInterp === null
       ? ['circle-stroke-opacity']
       : []),
     'circle-sort-key',

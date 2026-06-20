@@ -188,6 +188,11 @@ export interface ShowCommand {
   /** WS-1 — per-frame zoom-interp dasharray (STEP). resolveShow resolves it
    *  into ResolvedShow.dashArray; VTR prefers that over the constant. */
   dashArrayShape?: import('@xgis/compiler').PropertyShape<number[]> | null
+  /** WS-1 — per-frame zoom-interp circle-stroke-opacity. PointRenderer
+   *  resolves it per frame and multiplies it into the circle's baked
+   *  stroke alpha (feat_data slot 8). `null` = constant-only (folded into
+   *  the stroke hex alpha at convert time). */
+  circleStrokeOpacityShape?: import('@xgis/compiler').PropertyShape<number> | null
   patterns?: {
     shape: string
     spacing: number

@@ -597,6 +597,13 @@ export interface StrokeValue {
    *  (avoids a circular PropertyShape import); the runtime STEPs to the
    *  nearest zoom stop (Mapbox line-dasharray is `interpolated: false`). */
   dashArrayShape?: { kind: 'zoom-interpolated'; stops: { zoom: number; value: number[] }[]; base?: number }
+  /** WS-1 — per-frame zoom-interp circle-stroke-opacity. Inline
+   *  zoom-interpolated form (avoids a circular PropertyShape import); the
+   *  point renderer resolves it per frame and multiplies the result into
+   *  the circle's baked stroke alpha (feat_data slot 8). Only the circle
+   *  layer path consumes this — the line/VTR path ignores it. Stops carry
+   *  the 0..1 alpha (already divided from the converter's 0..100 scale). */
+  strokeOpacityShape?: { kind: 'zoom-interpolated'; stops: { zoom: number; value: number }[]; base?: number }
   dashOffset?: number
   /** Up to 3 pattern slots rendered along the line. */
   patterns?: StrokePattern[]

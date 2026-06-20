@@ -342,6 +342,10 @@ function lowerLayer(
   let strokeBlur: number | undefined
   // WS-1 — per-frame zoom-interp dasharray (PropertyShape<number[]>, STEP).
   let dashArrayShape: { kind: 'zoom-interpolated'; stops: { zoom: number; value: number[] }[]; base?: number } | undefined
+  // WS-1 — per-frame zoom-interp circle-stroke-opacity (PropertyShape<number>).
+  // The converter emits the 0..100 scale (same as opacity); divide back to
+  // 0..1 here so the runtime resolves a plain alpha multiplier.
+  let strokeOpacityShape: { kind: 'zoom-interpolated'; stops: { zoom: number; value: number }[]; base?: number } | undefined
   /** Mapbox `line-gap-width` — px gap between the two parallel
    *  strokes that make up a "double line" casing. Constant form
    *  only at the moment; zoom-interp lands later (the converter
@@ -562,6 +566,11 @@ function lowerLayer(
         if (zoomStops && name === 'circle-translate-y') { circleTranslateYShape = { kind: 'zoom-interpolated', stops: zoomStops.stops, base: zoomStops.base }; continue }
         if (zoomStops && name === 'stroke-translate-x') { strokeTranslateXShape = { kind: 'zoom-interpolated', stops: zoomStops.stops, base: zoomStops.base }; continue }
         if (zoomStops && name === 'stroke-translate-y') { strokeTranslateYShape = { kind: 'zoom-interpolated', stops: zoomStops.stops, base: zoomStops.base }; continue }
+        // WS-1 — circle-stroke-opacity zoom-interp. Converter emits the
+        // 0..100 opacity scale (mirror of circle-opacity); divide each stop
+        // back to 0..1 so the runtime multiplies a plain alpha into the
+        // point's baked stroke alpha (feat_data slot 8) each frame.
+        if (zoomStops && name === 'stroke-opacity') { strokeOpacityShape = { kind: 'zoom-interpolated', stops: zoomStops.stops.map(s => ({ zoom: s.zoom, value: s.value / 100 })), base: zoomStops.base }; continue }
         // ── label-* / label-icon-* binding arms moved to lowerLabelProps
         //    (lower-label.ts). The second pass there owns the label/icon
         //    zoom-stops, exprs, text, and negative-numeric label arms.
@@ -1132,6 +1141,7 @@ function lowerLayer(
         ...(strokeColorExpr !== undefined ? { colorExpr: strokeColorExpr } : {}),
         linecap, linejoin, miterlimit,
         dashArray, dashArrayShape, dashOffset,
+        strokeOpacityShape,
         patterns: validPatterns.length > 0 ? validPatterns : undefined,
         offset: strokeOffset,
         // Real fill+stroke → INSET (outline inside the fill, CSS border-box);
