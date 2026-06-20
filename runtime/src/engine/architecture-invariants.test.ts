@@ -131,7 +131,8 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 4011→4051 (WS-9 + WS-1): the fill-extrusion light state +
   // setLight() + the per-tile light-colour/intensity pack (slots 50/63),
   // plus reading the per-frame resolved fill/line translate off ResolvedShow.
-  'runtime/src/engine/render/vector-tile-renderer.ts': 4051,
+  // Bumped 4051→4054 (WS-1 line-dasharray): prefer ResolvedShow.dashArray.
+  'runtime/src/engine/render/vector-tile-renderer.ts': 4054,
   // Bumped 3361→3393 for the destroy()-completeness fix: cancelling the
   // EventDispatcher move-rAF + the pending-flush rAF, clearing _pendingPatches,
   // and removing the run()-installed window globals (__xgisReady/snapshot/
@@ -184,7 +185,9 @@ const LOC_CEILINGS: Record<string, number> = {
   // fillTranslate{X,Y}Shape / strokeTranslate{X,Y}Shape / circleTranslate
   // {X,Y}Shape declarations, the six bracket-binding parse arms, and the
   // RenderNode return wiring.
-  'compiler/src/ir/lower.ts': 1430,
+  // Bumped 1430→1442 (WS-1 line-dasharray): dashArrayShape var + the
+  // stroke-dasharray array-stop binding arm + StrokeValue return wiring.
+  'compiler/src/ir/lower.ts': 1442,
   // Bumped 1441→1449 for the CJK display-size floor on CURVED/line labels: the
   // point-loop floor (hasCjkIdeograph → Math.max(size, CJK_MIN_DISPLAY_PX*dpr))
   // mirrored onto the curved loop so dense Han road labels stop boxing out at

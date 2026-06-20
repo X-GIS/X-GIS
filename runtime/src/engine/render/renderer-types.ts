@@ -185,6 +185,9 @@ export interface ShowCommand {
   linejoin?: 'miter' | 'round' | 'bevel'
   miterlimit?: number
   dashArray?: number[]
+  /** WS-1 — per-frame zoom-interp dasharray (STEP). resolveShow resolves it
+   *  into ResolvedShow.dashArray; VTR prefers that over the constant. */
+  dashArrayShape?: import('@xgis/compiler').PropertyShape<number[]> | null
   patterns?: {
     shape: string
     spacing: number

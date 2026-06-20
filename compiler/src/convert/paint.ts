@@ -653,9 +653,24 @@ function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
     }
     // Otherwise fall through to the warning.
   }
-  // `["interpolate", curve, ["zoom"], z1, [a,b], …]` is the canonical
-  // zoom-interp dasharray shape; the IR currently has no binding-form
-  // arm for it (mirror of stroke-offset / line-blur). Drop with a
+  // WS-1 — zoom-interp dasharray: emit a bracket binding the runtime
+  // resolves per frame (PropertyShape<number[]>, STEPped — Mapbox
+  // line-dasharray is interpolated:false). Each stop value is a numeric
+  // array; format it back to an xgis array literal so lower.ts'
+  // extractInterpolateZoomArrayStops picks it up.
+  if (Array.isArray(v) && v.length >= 4 && (v[0] === 'interpolate' || v[0] === 'interpolate-exp')) {
+    const interp = interpolateZoomCall(v, warnings, (val) => {
+      let inner: unknown = val
+      while (Array.isArray(inner) && inner.length === 2 && inner[0] === 'literal') inner = inner[1]
+      if (Array.isArray(inner) && inner.length >= 2
+          && inner.every(n => typeof n === 'number' && Number.isFinite(n))) {
+        return '[' + (inner as number[]).map(n => Math.max(0, n)).join(', ') + ']'
+      }
+      return null
+    })
+    if (interp !== null) { out.push(`stroke-dasharray-[${interp}]`); return }
+  }
+  // Remaining non-constant shapes (data-driven, malformed) drop with a
   // warning so the gap is visible in conversion notes rather than
   // silently producing an undashed line — matches addLineOffset /
   // addLineBlur behaviour for the same not-yet-supported case.

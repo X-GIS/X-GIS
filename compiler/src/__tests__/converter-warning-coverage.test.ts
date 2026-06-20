@@ -638,10 +638,10 @@ describe('converter warning coverage', () => {
     expect(out).toMatch(/label-vao-1-y-1/)
   })
 
-  it('zoom-interp line-dasharray → non-constant warning', () => {
-    // Pins ccb126b — addStrokeDash warns on the non-array shape
-    // (interpolate-by-zoom dasharray that the IR has no consumer for
-    // today).
+  it('zoom-interp line-dasharray → bracket binding, no warning (WS-1)', () => {
+    // WS-1 — interpolate-by-zoom dasharray now lowers to a
+    // PropertyShape<number[]> (stroke-dasharray-[interpolate(zoom, …)])
+    // resolved per frame (STEP). No longer dropped/warned.
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
@@ -658,11 +658,9 @@ describe('converter warning coverage', () => {
         },
       }],
     })
-    // Post-iter-27 warning text distinguishes the specific gap
-    // shape (zoom-interp vs data-driven vs generic non-constant)
-    // so the user knows WHICH path is missing.
-    expect(w.some(s => s.includes('paint.line-dasharray')
-      && (s.includes('zoom-interp') || s.includes('non-constant')))).toBe(true)
+    // WS-1: the zoom-interp form is handled (bracket binding), so no
+    // line-dasharray warning is emitted.
+    expect(w.some(s => s.includes('paint.line-dasharray'))).toBe(false)
   })
 
   it('glyphs / sprite must NOT appear in the top-level warning (host-integration handled)', () => {

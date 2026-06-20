@@ -151,3 +151,36 @@ export function resolveSteppedShape<T>(
   }
   return null
 }
+
+/** Resolve a `PropertyShape<readonly number[]>` to a per-frame array
+ *  (line-dasharray). Mapbox `line-dasharray` is `interpolated: false`, so
+ *  this STEPS to the last stop whose `zoom <= cameraZoom` — element-wise
+ *  lerp is undefined for arrays of differing length and the spec forbids
+ *  it. `constant` returns its value; `zoom-time` picks the zoom step (dash
+ *  isn't time-animated on the target corpus). Returns `[]` for
+ *  `data-driven` (no per-feature dash path) — callers fall back. */
+export function resolveArrayShape(
+  shape: PropertyShape<readonly number[]>,
+  cameraZoom: number,
+): readonly number[] {
+  switch (shape.kind) {
+    case 'constant':
+      return shape.value
+    case 'zoom-interpolated': {
+      const stops = shape.stops
+      if (stops.length === 0) return []
+      let pick = stops[0]!.value
+      for (const s of stops) if (s.zoom <= cameraZoom) pick = s.value
+      return pick
+    }
+    case 'zoom-time': {
+      const stops = shape.zoomStops
+      if (stops.length === 0) return []
+      let pick = stops[0]!.value
+      for (const s of stops) if (s.zoom <= cameraZoom) pick = s.value
+      return pick
+    }
+    default:
+      return []
+  }
+}

@@ -111,6 +111,10 @@ export interface ShowCommand {
   linejoin?: 'miter' | 'round' | 'bevel'
   miterlimit?: number
   dashArray?: number[]
+  /** WS-1 — per-frame zoom-interp dasharray (STEP — Mapbox line-dasharray
+   *  is `interpolated: false`). `null` = constant-only; the runtime prefers
+   *  this over `dashArray` when present. */
+  dashArrayShape: PropertyShape<number[]> | null
   /** Dash offset as a PropertyShape — composed from the static
    *  `stroke.dashOffset` and any `time-interpolated` animation
    *  (`stroke.timeDashOffsetStops`) plus the layer-level lifecycle
@@ -476,6 +480,7 @@ function emitShow(
     linejoin: node.stroke.linejoin,
     miterlimit: node.stroke.miterlimit,
     dashArray: node.stroke.dashArray,
+    dashArrayShape: node.stroke.dashArrayShape ?? null,
     dashOffsetShape,
     patterns: node.stroke.patterns,
     strokeOffset: node.stroke.offset,

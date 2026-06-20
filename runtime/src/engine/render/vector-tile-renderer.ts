@@ -2435,9 +2435,12 @@ export class VectorTileRenderer {
       // the multiply, 1-px dashes against a 1-px line gave near-
       // continuous coverage and looked solid).
       const dashWidthScalePx = strokeWidthPx_h
-      const dash = (show.dashArray && show.dashArray.length >= 2)
+      // WS-1 — prefer the PER-FRAME resolved dash array (zoom-interp STEP)
+      // over the static one; constant dash falls through unchanged.
+      const dashSrc = resolvedShow.dashArray ?? show.dashArray
+      const dash = (dashSrc && dashSrc.length >= 2)
         ? {
-            array: show.dashArray.map(v => v * dashWidthScalePx * mpp),
+            array: dashSrc.map(v => v * dashWidthScalePx * mpp),
             offset: resolvedShow.dashOffset * dashWidthScalePx * mpp,
           }
         : null

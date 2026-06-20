@@ -9,6 +9,7 @@ import {
   bindingAsConstantNumber,
   extractMatchDefaultColor,
   extractInterpolateZoomStops,
+  extractInterpolateZoomArrayStops,
   extractInterpolateZoomColorStops,
 } from './lower-helpers'
 import { lowerLabelProps } from './lower-label'
@@ -339,6 +340,8 @@ function lowerLayer(
   let strokeOffset: number | undefined
   let strokeAlign: 'center' | 'inset' | 'outset' | undefined
   let strokeBlur: number | undefined
+  // WS-1 — per-frame zoom-interp dasharray (PropertyShape<number[]>, STEP).
+  let dashArrayShape: { kind: 'zoom-interpolated'; stops: { zoom: number; value: number[] }[]; base?: number } | undefined
   /** Mapbox `line-gap-width` — px gap between the two parallel
    *  strokes that make up a "double line" casing. Constant form
    *  only at the moment; zoom-interp lands later (the converter
@@ -509,6 +512,15 @@ function lowerLayer(
       // and `interpolate` as builtins).
       if (item.binding) {
         const zoomStops = extractInterpolateZoomStops(item.binding)
+        // WS-1 — zoom-interp dasharray (array-valued stops). Steps at
+        // runtime (Mapbox line-dasharray is interpolated:false).
+        if (name === 'stroke-dasharray') {
+          const arrStops = extractInterpolateZoomArrayStops(item.binding)
+          if (arrStops) {
+            dashArrayShape = { kind: 'zoom-interpolated', stops: arrStops.stops, base: arrStops.base }
+            continue
+          }
+        }
         if (zoomStops && name === 'opacity') {
           for (const s of zoomStops.stops) {
             opacityZoomStops.push({
@@ -1119,7 +1131,7 @@ function lowerLayer(
         width: widthSource,
         ...(strokeColorExpr !== undefined ? { colorExpr: strokeColorExpr } : {}),
         linecap, linejoin, miterlimit,
-        dashArray, dashOffset,
+        dashArray, dashArrayShape, dashOffset,
         patterns: validPatterns.length > 0 ? validPatterns : undefined,
         offset: strokeOffset,
         // Real fill+stroke → INSET (outline inside the fill, CSS border-box);

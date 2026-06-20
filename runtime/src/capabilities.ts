@@ -52,7 +52,7 @@ export const RUNTIME_CAPABILITIES: readonly RuntimeCapability[] = [
   { property: 'line-opacity',        layerType: 'line', variant: 'zoom-interp', supported: true },
   { property: 'line-blur',           layerType: 'line', variant: 'constant',    supported: true,  note: 'Strict-zero NOT honoured yet (1.5px soft fade at blur=0)' },
   { property: 'line-dasharray',      layerType: 'line', variant: 'constant',    supported: true },
-  { property: 'line-dasharray',      layerType: 'line', variant: 'zoom-interp', supported: false, note: 'PropertyShape<array> variant pending' },
+  { property: 'line-dasharray',      layerType: 'line', variant: 'zoom-interp', supported: true,  note: 'WS-1 — PropertyShape<number[]> resolved per frame (resolveArrayShape STEP, Mapbox dash is interpolated:false) in resolveShow → VTR prefers ResolvedShow.dashArray.' },
   { property: 'line-gap-width',      layerType: 'line', variant: 'constant',    supported: true },
   { property: 'line-gap-width',      layerType: 'line', variant: 'zoom-interp', supported: true },
   { property: 'line-offset',         layerType: 'line', variant: 'constant',    supported: true },

@@ -593,6 +593,10 @@ export interface StrokeValue {
   miterlimit?: number
   /** Dash array in meters (even indices = on, odd = off). */
   dashArray?: number[]
+  /** WS-1 — per-frame zoom-interp dasharray. Inline zoom-interpolated form
+   *  (avoids a circular PropertyShape import); the runtime STEPs to the
+   *  nearest zoom stop (Mapbox line-dasharray is `interpolated: false`). */
+  dashArrayShape?: { kind: 'zoom-interpolated'; stops: { zoom: number; value: number[] }[]; base?: number }
   dashOffset?: number
   /** Up to 3 pattern slots rendered along the line. */
   patterns?: StrokePattern[]

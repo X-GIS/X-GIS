@@ -178,6 +178,51 @@ export function extractInterpolateZoomStops(
   return stops.length >= 2 ? { base, stops } : null
 }
 
+/** Pull `(zoom, number[])` stops from `interpolate(zoom, z0, [a,b], z1,
+ *  [c,d], …)` — the line-dasharray zoom form. Returns null when the
+ *  expression isn't a zoom interpolate OR any stop value isn't a numeric
+ *  ArrayLiteral of length ≥ 2. Mapbox `line-dasharray` is
+ *  `interpolated: false`, so the runtime STEPS to the nearest stop
+ *  (resolveArrayShape) rather than lerping arrays of possibly-different
+ *  length. Dash values are non-negative (clamped here, same as the
+ *  constant addStrokeDash path). */
+export function extractInterpolateZoomArrayStops(
+  expr: AST.Expr,
+): { base: number; stops: Array<{ zoom: number; value: number[] }> } | null {
+  if (expr.kind !== 'FnCall') return null
+  if (expr.callee.kind !== 'Identifier') return null
+  const calleeName = expr.callee.name
+  const isExp = calleeName === 'interpolate_exp'
+  if (!isExp && calleeName !== 'interpolate') return null
+  const args = expr.args
+  let cursor = 0
+  const input = args[cursor++]
+  if (input === undefined || input.kind !== 'Identifier' || input.name !== 'zoom') return null
+  let base = 1
+  if (isExp) {
+    const baseArg = args[cursor++]
+    if (baseArg === undefined || baseArg.kind !== 'NumberLiteral') return null
+    base = baseArg.value
+  }
+  const remaining = args.length - cursor
+  if (remaining < 4 || remaining % 2 !== 0) return null
+  const stops: Array<{ zoom: number; value: number[] }> = []
+  for (let i = cursor; i + 1 < args.length; i += 2) {
+    const z = bindingAsConstantNumber(args[i]!)
+    const valExpr = args[i + 1]!
+    if (z === null || valExpr.kind !== 'ArrayLiteral') return null
+    const arr: number[] = []
+    for (const el of valExpr.elements) {
+      const n = bindingAsConstantNumber(el)
+      if (n === null) return null
+      arr.push(Math.max(0, n))
+    }
+    if (arr.length < 2) return null
+    stops.push({ zoom: z, value: arr })
+  }
+  return stops.length >= 2 ? { base, stops } : null
+}
+
 /** Pull the full set of `(zoom, color)` stops from an `interpolate(
  *  zoom, z0, c0, z1, c1, …)` binding. Returns null when the
  *  expression isn't an interpolate-by-zoom OR any value isn't a
