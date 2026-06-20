@@ -1,0 +1,183 @@
+// End-to-end propagation test for *-translate-anchor=map (Phase S
+// Batch 2). Mapbox style → convertMapboxStyle → Lexer → Parser →
+// lower → optimize → emitCommands → ShowCommand.{fill,stroke}
+// TranslateAnchorMap. The runtime (vector-tile-renderer) reads the
+// flag to rotate the [dx,dy] CSS-px offset by the map bearing before
+// the px → NDC bake (map/world-space anchor) instead of leaving it
+// screen-fixed (viewport anchor, the historical default).
+//
+// The DEFAULT (anchor absent or 'viewport') MUST leave the flag
+// undefined so styles that don't use map-anchor stay byte-identical
+// to today's render.
+
+import { describe, expect, it } from 'vitest'
+import { Lexer } from '../lexer/lexer'
+import { Parser } from '../parser/parser'
+import { lower } from '../ir/lower'
+import { optimize } from '../ir/optimize'
+import { emitCommands } from '../ir/emit-commands'
+import { convertMapboxStyle } from '../convert/mapbox-to-xgis'
+
+function convert(mapboxStyle: unknown): string {
+  return convertMapboxStyle(mapboxStyle as Parameters<typeof convertMapboxStyle>[0])
+}
+
+function compileToShows(mapboxStyle: unknown): ReturnType<typeof emitCommands>['shows'] {
+  const tokens = new Lexer(convert(mapboxStyle)).tokenize()
+  const ast = new Parser(tokens).parse()
+  return emitCommands(optimize(lower(ast), ast)).shows
+}
+
+function fillLayer(paint: Record<string, unknown>): unknown {
+  return {
+    version: 8,
+    sources: { t: { type: 'vector', tiles: ['x'] } },
+    layers: [{ id: 'f', type: 'fill', source: 't', 'source-layer': 'p', paint }],
+  }
+}
+
+function lineLayer(paint: Record<string, unknown>): unknown {
+  return {
+    version: 8,
+    sources: { t: { type: 'vector', tiles: ['x'] } },
+    layers: [{ id: 'l', type: 'line', source: 't', 'source-layer': 'p', paint }],
+  }
+}
+
+function fillExtrusionLayer(paint: Record<string, unknown>): unknown {
+  return {
+    version: 8,
+    sources: { t: { type: 'vector', tiles: ['x'] } },
+    layers: [{ id: 'e', type: 'fill-extrusion', source: 't', 'source-layer': 'p', paint }],
+  }
+}
+
+describe('fill-translate-anchor=map — converter emit', () => {
+  it("anchor=map WITH fill-translate → emits fill-translate-anchor-map utility", () => {
+    const src = convert(fillLayer({
+      'fill-color': '#888', 'fill-translate': [2, 3], 'fill-translate-anchor': 'map',
+    }))
+    expect(src).toContain('fill-translate-anchor-map')
+  })
+
+  it("anchor=viewport (explicit default) → NO anchor utility (byte-identical screen-space)", () => {
+    const src = convert(fillLayer({
+      'fill-color': '#888', 'fill-translate': [2, 3], 'fill-translate-anchor': 'viewport',
+    }))
+    expect(src).not.toContain('fill-translate-anchor')
+  })
+
+  it("anchor absent → NO anchor utility (byte-identical default)", () => {
+    const src = convert(fillLayer({ 'fill-color': '#888', 'fill-translate': [2, 3] }))
+    expect(src).not.toContain('fill-translate-anchor')
+  })
+
+  it("anchor=map WITHOUT a fill-translate → no-op, no utility (nothing to anchor)", () => {
+    const src = convert(fillLayer({ 'fill-color': '#888', 'fill-translate-anchor': 'map' }))
+    expect(src).not.toContain('fill-translate-anchor-map')
+  })
+
+  it('["literal", "map"] wrap → unwrapped + emits the flag', () => {
+    const src = convert(fillLayer({
+      'fill-color': '#888', 'fill-translate': [2, 3], 'fill-translate-anchor': ['literal', 'map'],
+    }))
+    expect(src).toContain('fill-translate-anchor-map')
+  })
+})
+
+describe('line-translate-anchor=map — converter emit (stroke namespace)', () => {
+  it("anchor=map WITH line-translate → emits stroke-translate-anchor-map utility", () => {
+    const src = convert(lineLayer({
+      'line-color': '#888', 'line-width': 2, 'line-translate': [4, 1], 'line-translate-anchor': 'map',
+    }))
+    expect(src).toContain('stroke-translate-anchor-map')
+  })
+
+  it("anchor=viewport → NO anchor utility (byte-identical)", () => {
+    const src = convert(lineLayer({
+      'line-color': '#888', 'line-width': 2, 'line-translate': [4, 1], 'line-translate-anchor': 'viewport',
+    }))
+    expect(src).not.toContain('translate-anchor')
+  })
+
+  it("anchor absent → NO anchor utility", () => {
+    const src = convert(lineLayer({ 'line-color': '#888', 'line-width': 2, 'line-translate': [4, 1] }))
+    expect(src).not.toContain('translate-anchor')
+  })
+})
+
+describe('translate-anchor=map → ShowCommand.{fill,stroke}TranslateAnchorMap', () => {
+  it('fill anchor=map → ShowCommand.fillTranslateAnchorMap === true (offset still carried)', () => {
+    const shows = compileToShows(fillLayer({
+      'fill-color': '#888', 'fill-translate': [2, 3], 'fill-translate-anchor': 'map',
+    }))
+    expect(shows[0]!.fillTranslateAnchorMap).toBe(true)
+    // The offset itself is unchanged — only its anchor space differs.
+    expect(shows[0]!.fillTranslateX).toBe(2)
+    expect(shows[0]!.fillTranslateY).toBe(3)
+  })
+
+  it('DEFAULT (no anchor) → fillTranslateAnchorMap undefined — byte-identical screen-space', () => {
+    const shows = compileToShows(fillLayer({
+      'fill-color': '#888', 'fill-translate': [2, 3],
+    }))
+    expect(shows[0]!.fillTranslateAnchorMap).toBeUndefined()
+    expect(shows[0]!.fillTranslateX).toBe(2)
+    expect(shows[0]!.fillTranslateY).toBe(3)
+  })
+
+  it('explicit viewport anchor → fillTranslateAnchorMap undefined (default render path)', () => {
+    const shows = compileToShows(fillLayer({
+      'fill-color': '#888', 'fill-translate': [2, 3], 'fill-translate-anchor': 'viewport',
+    }))
+    expect(shows[0]!.fillTranslateAnchorMap).toBeUndefined()
+  })
+
+  it('line anchor=map → ShowCommand.strokeTranslateAnchorMap === true', () => {
+    const shows = compileToShows(lineLayer({
+      'line-color': '#888', 'line-width': 2, 'line-translate': [4, 1], 'line-translate-anchor': 'map',
+    }))
+    expect(shows[0]!.strokeTranslateAnchorMap).toBe(true)
+    expect(shows[0]!.strokeTranslateX).toBe(4)
+    expect(shows[0]!.strokeTranslateY).toBe(1)
+  })
+
+  it('DEFAULT line (no anchor) → strokeTranslateAnchorMap undefined — byte-identical', () => {
+    const shows = compileToShows(lineLayer({
+      'line-color': '#888', 'line-width': 2, 'line-translate': [4, 1],
+    }))
+    expect(shows[0]!.strokeTranslateAnchorMap).toBeUndefined()
+    expect(shows[0]!.strokeTranslateX).toBe(4)
+    expect(shows[0]!.strokeTranslateY).toBe(1)
+  })
+})
+
+describe('fill-extrusion-translate-anchor=map — reuses fill-translate slot', () => {
+  it('anchor=map → fill-translate-anchor-map utility (extrude shares fill slot 46/47)', () => {
+    const src = convert(fillExtrusionLayer({
+      'fill-extrusion-color': '#888', 'fill-extrusion-height': 10,
+      'fill-extrusion-translate': [3, 4], 'fill-extrusion-translate-anchor': 'map',
+    }))
+    expect(src).toContain('fill-translate-anchor-map')
+  })
+
+  it('anchor=map → ShowCommand.fillTranslateAnchorMap === true + offset carried', () => {
+    const shows = compileToShows(fillExtrusionLayer({
+      'fill-extrusion-color': '#888', 'fill-extrusion-height': 10,
+      'fill-extrusion-translate': [3, 4], 'fill-extrusion-translate-anchor': 'map',
+    }))
+    expect(shows[0]!.fillTranslateAnchorMap).toBe(true)
+    expect(shows[0]!.fillTranslateX).toBe(3)
+    expect(shows[0]!.fillTranslateY).toBe(4)
+  })
+
+  it('DEFAULT (no anchor) → fillTranslateAnchorMap undefined — byte-identical extrude path', () => {
+    const shows = compileToShows(fillExtrusionLayer({
+      'fill-extrusion-color': '#888', 'fill-extrusion-height': 10,
+      'fill-extrusion-translate': [3, 4],
+    }))
+    expect(shows[0]!.fillTranslateAnchorMap).toBeUndefined()
+    expect(shows[0]!.fillTranslateX).toBe(3)
+    expect(shows[0]!.fillTranslateY).toBe(4)
+  })
+})

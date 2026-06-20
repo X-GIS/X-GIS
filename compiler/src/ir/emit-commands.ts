@@ -73,6 +73,11 @@ export interface FillPaint {
    *  fillTranslateX/Y, resolving the offset each frame. */
   fillTranslateXShape?: PropertyShape<number>
   fillTranslateYShape?: PropertyShape<number>
+  /** Mapbox `paint.fill-translate-anchor` = "map". Default (undefined /
+   *  "viewport") = screen-space offset, byte-identical to today. When
+   *  true the runtime rotates the [dx,dy] offset by the map bearing so
+   *  it tracks the map world axes (map/world-space anchor). */
+  fillTranslateAnchorMap?: boolean
   /** Mapbox `paint.fill-antialias` opt-out. Default (undefined / true)
    *  preserves the current fill render path byte-for-byte; only `false`
    *  is passed through to disable the rim-alpha smoothstep at runtime. */
@@ -147,6 +152,9 @@ export interface LinePaint {
    *  strokeTranslateX/Y, resolving the offset each frame. */
   strokeTranslateXShape?: PropertyShape<number>
   strokeTranslateYShape?: PropertyShape<number>
+  /** Mapbox `paint.line-translate-anchor` = "map". Mirror of
+   *  fillTranslateAnchorMap for the line pipeline; default byte-identical. */
+  strokeTranslateAnchorMap?: boolean
 }
 
 /** Circle / point-marker paint axes. */
@@ -563,6 +571,7 @@ function emitFillFields(node: RenderNode): FillPaint {
     fillTranslateY: node.fillTranslateY,
     fillTranslateXShape: node.fillTranslateXShape,
     fillTranslateYShape: node.fillTranslateYShape,
+    fillTranslateAnchorMap: node.fillTranslateAnchorMap,
     fillAntialias: node.fillAntialias,
   }
 }
@@ -600,6 +609,7 @@ function emitLineFields(
     strokeTranslateY: node.strokeTranslateY,
     strokeTranslateXShape: node.strokeTranslateXShape,
     strokeTranslateYShape: node.strokeTranslateYShape,
+    strokeTranslateAnchorMap: node.strokeTranslateAnchorMap,
   }
 }
 

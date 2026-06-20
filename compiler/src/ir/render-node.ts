@@ -109,6 +109,11 @@ export interface RenderNodeFillPaint {
    *  property-types.ts). */
   fillTranslateXShape?: { kind: 'zoom-interpolated'; stops: ZoomStop<number>[]; base?: number }
   fillTranslateYShape?: { kind: 'zoom-interpolated'; stops: ZoomStop<number>[]; base?: number }
+  /** Mapbox `paint.fill-translate-anchor` = "map". Default (unauthored /
+   *  "viewport") = screen-space offset (today's behaviour, byte-identical).
+   *  When true the runtime rotates the [dx,dy] offset by the map bearing
+   *  so it tracks the map's world axes (map/world-space anchor). */
+  fillTranslateAnchorMap?: boolean
   /** Mapbox `paint.fill-antialias` opt-out. Default (unauthored / true)
    *  = current behavior (the fill fragment multiplies in the sphere-rim
    *  smoothstep AA fade). Only `false` changes anything: the runtime
@@ -138,6 +143,10 @@ export interface RenderNodeLinePaint {
    *  import — see RenderNodeFillPaint). */
   strokeTranslateXShape?: { kind: 'zoom-interpolated'; stops: ZoomStop<number>[]; base?: number }
   strokeTranslateYShape?: { kind: 'zoom-interpolated'; stops: ZoomStop<number>[]; base?: number }
+  /** Mapbox `paint.line-translate-anchor` = "map". Mirror of
+   *  fillTranslateAnchorMap for the line pipeline; default
+   *  ("viewport") is byte-identical screen-space. */
+  strokeTranslateAnchorMap?: boolean
   /** iter-178 Mapbox `paint.line-pattern` Stage 1 — stroke-side
    *  mirror of fillPattern. Runtime samples the sprite centre pixel
    *  as the line colour; Stage 2 (real repeating-sprite stroke

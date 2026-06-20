@@ -660,6 +660,39 @@ export function addFillTranslate(out: string[], v: unknown, warnings: string[]):
   warnings.push(`paint.fill-translate: non-constant form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`)
 }
 
+/** Mapbox `*-translate-anchor` → optional `<prefix>-translate-anchor-map`
+ *  flag. anchor=viewport (the spec default for symbol props and X-GIS'
+ *  historical behaviour for fill/line) emits NOTHING — the runtime's
+ *  default viewport (screen-space) translate is byte-identical to today.
+ *  Only anchor=map emits the flag, which the runtime threads to the
+ *  per-tile bake so the [dx,dy] offset rotates with the map bearing
+ *  (map/world-space anchor) instead of staying screen-fixed.
+ *
+ *  prefix is the xgis utility namespace ('fill' or 'stroke' for the
+ *  line layer). Skipped entirely when the parent `*-translate` is
+ *  absent — the anchor is a no-op without an offset to anchor. */
+export function addTranslateAnchor(
+  out: string[],
+  prefix: 'fill' | 'stroke',
+  anchorRaw: unknown,
+  parentTranslate: unknown,
+  warnings: string[],
+): void {
+  if (isOmitted(anchorRaw)) return
+  // No-op without the parent translate (anchor only selects the
+  // offset's coordinate space). Mirror of surfaceIgnoredPaint's
+  // ANCHOR_PARENT skip.
+  if (isOmitted(parentTranslate)) return
+  let v: unknown = anchorRaw
+  while (Array.isArray(v) && v.length === 2 && v[0] === 'literal') v = v[1]
+  if (v === 'viewport') return // spec/X-GIS default — byte-identical, emit nothing
+  if (v === 'map') {
+    out.push(`${prefix}-translate-anchor-map`)
+    return
+  }
+  warnings.push(`paint.*-translate-anchor: unexpected value ${JSON.stringify(v)}; Mapbox spec allows only "map" | "viewport". Treated as viewport.`)
+}
+
 /** Build a scalar zoom-interpolate bracket-binding body for ONE axis
  *  (idx 0 = x, 1 = y) of a Mapbox vec2 `interpolate(zoom, …, [dx,dy], …)`.
  *  Returns the inner xgis interpolate string (no brackets) or null when

@@ -294,6 +294,11 @@ function lowerLayer(
   let strokeTranslateX: number | undefined
   /** Mapbox `paint.line-translate` y — viewport pixel offset, +down. */
   let strokeTranslateY: number | undefined
+  /** Mapbox `paint.{fill,line}-translate-anchor` = "map". Undefined /
+   *  false = viewport (screen-space, historical default). True = the
+   *  runtime rotates the offset by the map bearing (world-space anchor). */
+  let fillTranslateAnchorMap: boolean | undefined
+  let strokeTranslateAnchorMap: boolean | undefined
   // WS-1 — per-frame zoom-interp translate (per-axis scalar shape).
   // Inline stop type (structurally a ZoomStop<number>[]) keeps lower.ts
   // free of a ZoomStop import dependency.
@@ -467,6 +472,7 @@ function lowerLayer(
     fillTranslateX, fillTranslateY, fillAntialias, fillExtrusionVerticalGradient,
     circleTranslateX, circleTranslateY, circleBlur,
     strokeTranslateX, strokeTranslateY,
+    fillTranslateAnchorMap, strokeTranslateAnchorMap,
     fillTranslateXShape, fillTranslateYShape,
     circleTranslateXShape, circleTranslateYShape,
     strokeTranslateXShape, strokeTranslateYShape,
@@ -565,6 +571,8 @@ function lowerLayer(
   circleBlur = acc.circleBlur
   strokeTranslateX = acc.strokeTranslateX
   strokeTranslateY = acc.strokeTranslateY
+  fillTranslateAnchorMap = acc.fillTranslateAnchorMap
+  strokeTranslateAnchorMap = acc.strokeTranslateAnchorMap
   fillTranslateXShape = acc.fillTranslateXShape
   fillTranslateYShape = acc.fillTranslateYShape
   circleTranslateXShape = acc.circleTranslateXShape
@@ -796,6 +804,8 @@ function lowerLayer(
     circleBlur,
     strokeTranslateX,
     strokeTranslateY,
+    fillTranslateAnchorMap,
+    strokeTranslateAnchorMap,
     fillTranslateXShape,
     fillTranslateYShape,
     circleTranslateXShape,

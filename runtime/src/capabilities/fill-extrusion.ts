@@ -5,6 +5,7 @@ import type { RuntimeCapability } from './types'
 export const fillExtrusionCapabilities: readonly RuntimeCapability[] = [
   { property: 'fill-extrusion-translate', layerType: 'fill-extrusion', variant: 'constant',    supported: true },
   { property: 'fill-extrusion-translate', layerType: 'fill-extrusion', variant: 'zoom-interp', supported: true,  note: 'WS-1 — routes through the fill-translate path; same per-frame resolve, applied in the extrude VS u.fill_translate.' },
+  { property: 'fill-extrusion-translate-anchor', layerType: 'fill-extrusion', variant: 'constant', supported: true, note: 'viewport (default) = screen-space; map = world-space: shares fill\'s slot 46/47 uniform, so VTR rotates the [dx,dy] offset by camera.bearing before the px→NDC bake (show.fillTranslateAnchorMap) and the extrude VS inherits it. Pitch foreshortening not reproduced.' },
   { property: 'fill-extrusion-color',  layerType: 'fill-extrusion', variant: 'constant',    supported: true },
   { property: 'fill-extrusion-color',  layerType: 'fill-extrusion', variant: 'zoom-interp', supported: true },
   { property: 'fill-extrusion-height', layerType: 'fill-extrusion', variant: 'constant',    supported: true },

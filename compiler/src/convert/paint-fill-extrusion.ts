@@ -13,6 +13,7 @@ import {
   addFill,
   addOpacity,
   addFillTranslate,
+  addTranslateAnchor,
   surfaceIgnoredPaint,
 } from './paint-helpers'
 
@@ -54,6 +55,13 @@ export function emitFillExtrusionPaint(
   // to-end with zero runtime changes — the converter just needs to
   // stop dropping the value.
   addFillTranslate(out, p['fill-extrusion-translate'], warnings)
+  // fill-extrusion-translate-anchor: fill-extrusion-translate rides the
+  // SAME `fill-translate-{x,y}` utilities + slot 46/47 uniform as fill
+  // (the extrude vertex shaders apply u.fill_translate_x/y), so the
+  // anchor=map flag uses the 'fill' prefix and the VTR bearing-rotation
+  // applies to the extrude path for free. viewport (default) = byte-
+  // identical screen-space.
+  addTranslateAnchor(out, 'fill', p['fill-extrusion-translate-anchor'], p['fill-extrusion-translate'], warnings)
   // iter-179 — fill-extrusion-pattern Stage 1. Building walls are
   // drawn through the same fill RGBA channel as ground fills (the
   // extrude shader multiplies the colour by wall_shade in the
@@ -72,7 +80,6 @@ export function emitFillExtrusionPaint(
   // honoured + false opt-out emitted above), so it's no longer an
   // ignored property and is omitted from the candidates list.
   surfaceIgnoredPaint(layer.id, p, warnings, [
-    'fill-extrusion-translate-anchor',
     'fill-extrusion-ambient-occlusion-intensity',
     'fill-extrusion-ambient-occlusion-radius',
   ])

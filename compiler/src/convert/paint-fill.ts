@@ -11,6 +11,7 @@ import {
   addFill,
   addOpacity,
   addFillTranslate,
+  addTranslateAnchor,
   surfaceIgnoredPaint,
 } from './paint-helpers'
 
@@ -55,6 +56,10 @@ export function emitFillPaint(
     }
   }
   addFillTranslate(out, p['fill-translate'], warnings)
+  // fill-translate-anchor: viewport (default) is screen-space (today's
+  // behaviour, byte-identical). map → world-space offset that rotates
+  // with the map bearing; emitted as fill-translate-anchor-map.
+  addTranslateAnchor(out, 'fill', p['fill-translate-anchor'], p['fill-translate'], warnings)
   // fill-antialias: default `true` matches X-GIS runtime (the fill
   // fragment multiplies in the sphere-rim smoothstep AA fade). Only
   // the explicit `false` opt-out changes anything — emit a single
@@ -68,7 +73,7 @@ export function emitFillPaint(
     out.push('fill-antialias-false')
   }
   surfaceIgnoredPaint(layer.id, p, warnings, [
-    'fill-translate-anchor', 'fill-sort-key',
+    'fill-sort-key',
   ])
 }
 

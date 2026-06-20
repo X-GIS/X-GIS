@@ -132,10 +132,13 @@ const LOC_CEILINGS: Record<string, number> = {
   // setLight() + the per-tile light-colour/intensity pack (slots 50/63),
   // plus reading the per-frame resolved fill/line translate off ResolvedShow.
   // Bumped 4051→4054 (WS-1 line-dasharray): prefer ResolvedShow.dashArray.
-  // Bumped 4054→4061 (Phase S Batch 2 line-round-limit): reading
-  // show.roundLimit + threading it to both writeLayerSlot calls (main +
-  // gap stroke) + the explanatory comment.
-  'runtime/src/engine/render/vector-tile-renderer.ts': 4061,
+  // Bumped 4054→4078 (Phase S Batch 2, two features): line-round-limit
+  // (+7: show.roundLimit read threaded to both writeLayerSlot calls) AND
+  // *-translate-anchor:map (+17: rotateTranslateForAnchor 2D bearing-rotation
+  // helper + the two map-anchor flags at the fill/line translate bake;
+  // fill-extrusion inherits via the shared fill_translate slot 46/47).
+  // Default viewport/round-limit byte-identical; additive, no struct growth.
+  'runtime/src/engine/render/vector-tile-renderer.ts': 4078,
   // Bumped 3361→3393 for the destroy()-completeness fix: cancelling the
   // EventDispatcher move-rAF + the pending-flush rAF, clearing _pendingPatches,
   // and removing the run()-installed window globals (__xgisReady/snapshot/
