@@ -621,6 +621,11 @@ export class TextStage {
        *  `continue`-skips unshapeable labels, so shaped[] is NOT 1:1
        *  with pendingLine[] indices. The drop loop reads it directly. */
       pairKey?: string
+      /** Mapbox `symbol-z-order`. `viewport-y` orders this label by
+       *  screen Y (lower-on-screen placed first → drawn on top);
+       *  `source` forces source order. `auto` / undefined keeps the
+       *  legacy reverse-layer / sortKey ordering byte-for-byte. */
+      symbolZOrder?: 'auto' | 'viewport-y' | 'source'
     }
     const shaped: ShapedLabel[] = []
     const dpr = this.dpr
@@ -942,6 +947,7 @@ export class TextStage {
             allowOverlap: p.def.allowOverlap === true,
             ignorePlacement: p.def.ignorePlacement === true,
             sortKey: p.def.sortKey,
+            symbolZOrder: p.def.symbolZOrder,
           })
           continue
         }
@@ -1149,6 +1155,7 @@ export class TextStage {
         allowOverlap: p.def.allowOverlap === true,
         ignorePlacement: p.def.ignorePlacement === true,
         sortKey: p.def.sortKey,
+        symbolZOrder: p.def.symbolZOrder,
       })
     }
     perfMarkEnd('stage-prepare.point-loop')
@@ -1391,6 +1398,7 @@ export class TextStage {
         allowOverlap: p.def.allowOverlap === true,
         ignorePlacement: p.def.ignorePlacement === true,
         sortKey: p.def.sortKey,
+        symbolZOrder: p.def.symbolZOrder,
         pairKey: p.pairKey,
       })
     }
@@ -1441,18 +1449,75 @@ export class TextStage {
     // labels in front of low-sortKey ones. When no item sets sortKey,
     // keep the legacy reverse trick so "later layers win" behaviour
     // stays byte-identical for styles without symbol-sort-key.
+    // Mapbox `symbol-z-order` (LabelDef.symbolZOrder). Active ONLY when
+    // some shaped label explicitly authored `viewport-y` or `source`;
+    // `auto` / undefined fall through to the legacy ordering below so a
+    // style that doesn't set symbol-z-order renders BYTE-IDENTICALLY.
+    //   viewport-y — order labels by screen Y descending (lower-on-
+    //                screen placed first in collision → drawn last = on
+    //                top). Mirrors Mapbox's viewport-y painter order.
+    //   source     — keep source (feature / submission) order for both
+    //                collision and draw; suppress the reverse-layer trick.
+    // The chosen order drives BOTH the greedy collision priority AND the
+    // final draw (painter) order via `drawOrder` below. sortKey is not
+    // re-applied in these modes — the explicit z-order is authoritative
+    // (matches Mapbox: viewport-y/source override the sort-key ordering;
+    // sort-key only decides what `auto` resolves to, handled at convert).
+    let zOrderMode: 'legacy' | 'viewport-y' | 'source' = 'legacy'
+    for (const s of shaped) {
+      if (s.symbolZOrder === 'viewport-y') { zOrderMode = 'viewport-y'; break }
+      if (s.symbolZOrder === 'source') zOrderMode = 'source'
+    }
     let placements
-    let anySortKey = false
-    for (const s of shaped) if (s.sortKey !== undefined) { anySortKey = true; break }
-    if (anySortKey) {
-      placements = greedyPlaceBboxes(collisionInput)
+    // drawOrder[k] = original shaped index to emit k-th into draws (the
+    // painter order). Identity (forward source order) unless viewport-y
+    // re-sorts it. Built once and shared by collision + draw so the two
+    // never disagree.
+    let drawOrder: number[] | null = null
+    if (zOrderMode !== 'legacy') {
+      const order: number[] = new Array(shaped.length)
+      for (let i = 0; i < shaped.length; i++) order[i] = i
+      if (zOrderMode === 'viewport-y') {
+        // Stable sort by anchor screen-Y DESCENDING so the largest-Y
+        // (bottom / south) label iterates FIRST. Collision = first-wins,
+        // so the south label claims its bbox first (Mapbox viewport-y:
+        // south wins). Draw order is then the REVERSE of this collision
+        // order (south emitted LAST = drawn on top). Use layouts[0].
+        // draw.anchorY as the label's anchor screen Y.
+        order.sort((a, b) => {
+          const ya = shaped[a]!.layouts[0]!.draw.anchorY
+          const yb = shaped[b]!.layouts[0]!.draw.anchorY
+          if (ya !== yb) return yb - ya // descending: larger Y (south) first
+          return a - b // stable tie-break: source order
+        })
+      }
+      // Build the collision input in the chosen iteration order (drop
+      // sortKey so greedy doesn't re-reorder — the z-order is the
+      // authority). Map placements back to original shaped indices.
+      const orderedInput: CollisionItem[] = order.map(i => ({
+        bboxes: collisionInput[i]!.bboxes,
+        allowOverlap: collisionInput[i]!.allowOverlap,
+        ignorePlacement: collisionInput[i]!.ignorePlacement,
+      }))
+      const orderedPlacements = greedyPlaceBboxes(orderedInput)
+      placements = new Array(shaped.length) as typeof orderedPlacements
+      for (let k = 0; k < order.length; k++) placements[order[k]!] = orderedPlacements[k]!
+      // Painter order: viewport-y draws bottom-on-top (reverse of the
+      // ascending collision order); source draws in source order.
+      drawOrder = zOrderMode === 'viewport-y' ? [...order].reverse() : order
     } else {
-      const reversed: CollisionItem[] = []
-      for (let i = collisionInput.length - 1; i >= 0; i--) reversed.push(collisionInput[i]!)
-      const placementsReversed = greedyPlaceBboxes(reversed)
-      placements = new Array(shaped.length) as typeof placementsReversed
-      for (let i = 0; i < placementsReversed.length; i++) {
-        placements[shaped.length - 1 - i] = placementsReversed[i]!
+      let anySortKey = false
+      for (const s of shaped) if (s.sortKey !== undefined) { anySortKey = true; break }
+      if (anySortKey) {
+        placements = greedyPlaceBboxes(collisionInput)
+      } else {
+        const reversed: CollisionItem[] = []
+        for (let i = collisionInput.length - 1; i >= 0; i--) reversed.push(collisionInput[i]!)
+        const placementsReversed = greedyPlaceBboxes(reversed)
+        placements = new Array(shaped.length) as typeof placementsReversed
+        for (let i = 0; i < placementsReversed.length; i++) {
+          placements[shaped.length - 1 - i] = placementsReversed[i]!
+        }
       }
     }
     const draws: TextDraw[] = []
@@ -1467,7 +1532,16 @@ export class TextStage {
     // shaped[i] is built 1:1 from this.pending in iteration order
     // above (line ~941). The collision-input may reorder but each
     // ShapedLabel still references its source PendingLabel by index.
-    for (let i = 0; i < shaped.length; i++) {
+    // When symbol-z-order is active, `drawOrder` re-sequences which
+    // shaped index is emitted into `draws` (the painter order) — but
+    // `pending[i]` / `placements[i]` stay keyed by the ORIGINAL shaped
+    // index, so the pairKey + placement lookups are unchanged. The
+    // legacy path (drawOrder === null) iterates forward source order,
+    // byte-identical to before.
+    const emitOrder = drawOrder ?? null
+    const emitCount = emitOrder !== null ? emitOrder.length : shaped.length
+    for (let k = 0; k < emitCount; k++) {
+      const i = emitOrder !== null ? emitOrder[k]! : k
       const placement = placements[i]!
       // Point labels carry pairKey on their PendingLabel (shaped[] is
       // 1:1 with this.pending for the point range). Curved line shields

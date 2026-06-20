@@ -57,6 +57,7 @@ export const symbolCapabilities: readonly RuntimeCapability[] = [
   { property: 'text-rotation-alignment', layerType: 'symbol', variant: 'constant', supported: true, note: 'map / viewport / auto literal' },
   { property: 'text-keep-upright',   layerType: 'symbol', variant: 'constant',    supported: true },
   { property: 'text-max-angle',      layerType: 'symbol', variant: 'constant',    supported: true,  note: 'LabelDef.maxAngle drives the TextStage curved-label angular gate; unset = no clamp (historical behaviour)' },
+  { property: 'symbol-z-order',      layerType: 'symbol', variant: 'constant',    supported: true,  note: 'auto / viewport-y / source enum → LabelDef.symbolZOrder → TextStage.prepare() ordering pass. viewport-y orders by screen Y (south drawn on top); source keeps feature order; auto/unset = legacy reverse-layer / sortKey ordering (byte-identical default)' },
   { property: 'text-translate',      layerType: 'symbol', variant: 'constant',    supported: true },
   { property: 'text-translate-anchor', layerType: 'symbol', variant: 'constant',  supported: true,  note: 'viewport (default) = screen-space (byte-identical); map = world-space: TextStage.prepare rotates the [dx,dy] text-translate by camera.bearing (rotateLabelTranslate, mirror of the fill/line clip-space bake) and re-keys the layout cache. Pitch foreshortening not reproduced.' },
   { property: 'text-halo-blur',      layerType: 'symbol', variant: 'constant',    supported: true,  note: 'IR exposes PropertyShape; non-constant emits warn until shape-resolve lands' },

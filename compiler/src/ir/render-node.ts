@@ -504,6 +504,16 @@ export interface LabelDef {
   maxAngle?: number
   /** Horizontal (default) or vertical. CJK vertical text. Batch 1g+. */
   writingMode?: 'horizontal' | 'vertical'
+  /** Mapbox `symbol-z-order` — per-feature draw + collision ordering
+   *  policy. `auto` (default) resolves to `viewport-y` when no
+   *  symbol-sort-key is set, else `source`. `viewport-y` orders labels
+   *  by screen Y (lower-on-screen placed first in collision → drawn on
+   *  top). `source` keeps source (feature) order. UNSET / `auto` =
+   *  X-GIS' historical ordering byte-for-byte (the runtime prepare()
+   *  pass keeps its legacy reverse-layer / sortKey path); only an
+   *  explicit `viewport-y` / `source` (or `auto` resolving to `source`
+   *  via an authored sort-key) activates the new sort. Phase S Batch 4. */
+  symbolZOrder?: 'auto' | 'viewport-y' | 'source'
 
   // ── Icon (Batch 2 — sprite atlas) ──
   /** Mapbox `icon-image` name (sprite atlas lookup key). Constant

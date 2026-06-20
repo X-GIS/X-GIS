@@ -429,14 +429,9 @@ export function convertGapWarnings(
   // text-max-angle is now threaded end-to-end (label-max-angle-N →
   // LabelDef.maxAngle → curved-label angular gate). Emit handled in
   // convertTextLayoutProperties; no gap warning.
-  // symbol-z-order: per-feature draw-order override (`auto` default /
-  // `viewport-y` / `source`). X-GIS uses symbol-sort-key for ordering;
-  // symbol-z-order would need a separate sort pass after collision.
-  // Surface specific gap.
-  const zOrderRaw = unwrapLiteralScalar(layout['symbol-z-order'])
-  if (typeof zOrderRaw === 'string' && zOrderRaw !== 'auto') {
-    warnings.push(`Symbol layer "${layer.id}" — symbol-z-order "${zOrderRaw}" set but X-GIS uses symbol-sort-key for label ordering; symbol-z-order would need a separate sort pass after collision (Plan §4 deferred).`)
-  }
+  // symbol-z-order: now threaded end-to-end (label-z-order-<v> →
+  // LabelDef.symbolZOrder → TextStage.prepare() ordering pass). Emit
+  // handled in convertTextLayoutProperties; no gap warning here.
   // symbol-avoid-edges: skip labels whose bbox crosses tile boundaries.
   // X-GIS today uses cross-tile collision instead — symbol-avoid-edges
   // is moot for X-GIS' rendering model but the authored intent isn't
@@ -1122,5 +1117,28 @@ export function convertTextLayoutProperties(
   const maxAngle = unwrapLiteralScalar(layout['text-max-angle'])
   if (typeof maxAngle === 'number' && Number.isFinite(maxAngle) && maxAngle >= 0) {
     utils.push(`label-max-angle-${maxAngle}`)
+  }
+
+  // symbol-z-order (Mapbox layout) — per-feature draw + collision order
+  // override. Enum `auto` (default) / `viewport-y` / `source`:
+  //   auto       — viewport-y when no symbol-sort-key, else source.
+  //   viewport-y — order labels by screen Y (south / lower-on-screen
+  //                placed first in collision → drawn last = on top).
+  //   source     — keep source (feature) order; suppress X-GIS' implicit
+  //                reverse-layer ordering trick.
+  // Threaded end-to-end: layout `symbol-z-order` → `label-z-order-<v>`
+  // → LabelDef.symbolZOrder → TextStage.prepare() ordering pass. DEFAULT
+  // (unset) reproduces X-GIS' historical ordering BYTE-FOR-BYTE — the
+  // prepare() pass keeps its legacy reverse-layer / sortKey path unless a
+  // label opts into an explicit non-`auto` z-order. Authoring `auto`
+  // emits the utility too so the resolved policy is explicit in the IR;
+  // the runtime treats `auto` exactly like the unset default (legacy
+  // path) so it stays byte-identical. Enum-suffix utility, mirroring
+  // text-rotation-alignment above.
+  const zOrder = unwrapLiteralScalar(layout['symbol-z-order'])
+  if (zOrder === 'viewport-y' || zOrder === 'source' || zOrder === 'auto') {
+    utils.push(`label-z-order-${zOrder}`)
+  } else if (typeof zOrder === 'string') {
+    warnings.push(`Symbol layer "${layer.id}" — symbol-z-order "${zOrder.slice(0, 40)}" is not a valid enum; expected 'auto' | 'viewport-y' | 'source'.`)
   }
 }
