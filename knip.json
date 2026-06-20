@@ -1,0 +1,38 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": ["scripts/*.ts"],
+      "project": ["scripts/**/*.ts"]
+    },
+    "compiler": {
+      "entry": ["src/index.ts!", "bench-*.ts"],
+      "project": ["src/**/*.ts"]
+    },
+    "runtime": {
+      "entry": ["src/index.ts!", "scripts/*.ts"],
+      "project": ["src/**/*.ts"],
+      "ignore": ["src/vite-shims.ts", "src/earcut.d.ts"]
+    },
+    "playground": {
+      "entry": ["*.html", "render-verify/**/*.ts", "e2e/**/*.spec.ts", "e2e/**/*.ts", "scripts/*.ts"],
+      "project": ["src/**/*.ts", "render-verify/**/*.ts"]
+    },
+    "blueprint": {
+      "entry": ["src/index.ts!", "*.html"],
+      "project": ["src/**/*.ts"]
+    },
+    "site": {
+      "entry": ["src/pages/**/*.astro", "astro.config.*"],
+      "project": ["src/**/*.{ts,astro}"]
+    },
+    "shared": {
+      "entry": ["src/index.ts!"],
+      "project": ["src/**/*.ts"]
+    },
+    "vscode-xgis": {
+      "entry": ["src/**/*.ts"],
+      "project": ["src/**/*.ts"]
+    }
+  }
+}
