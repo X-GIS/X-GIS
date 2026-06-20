@@ -658,7 +658,7 @@ function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
   // line-dasharray is interpolated:false). Each stop value is a numeric
   // array; format it back to an xgis array literal so lower.ts'
   // extractInterpolateZoomArrayStops picks it up.
-  if (Array.isArray(v) && v.length >= 4 && (v[0] === 'interpolate' || v[0] === 'interpolate-exp')) {
+  if (Array.isArray(v) && v.length >= 4 && v[0] === 'interpolate') {
     const interp = interpolateZoomCall(v, warnings, (val) => {
       let inner: unknown = val
       while (Array.isArray(inner) && inner.length === 2 && inner[0] === 'literal') inner = inner[1]

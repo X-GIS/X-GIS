@@ -399,7 +399,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // from the size / stroke-opacity loops because a layer may author a
   // translate shape without either) + contract comments. Same irreducible
   // additive plumbing class; decomposition stays a tracked follow-up.
-  'runtime/src/engine/render/point-renderer.ts': 868,
+  // Bumped 868→881 (WS-1 review fix): flushTilePoints (vector-tile circle
+  // path) now resolves circle-translate + circle-stroke-opacity shapes per
+  // frame, mirroring the GeoJSON updateDynamicSizes path.
+  'runtime/src/engine/render/point-renderer.ts': 881,
   // Baselined at 820 (mbx_batch2): lower-label.ts is the label-knob lowering
   // sub-pass extracted from lower.ts; crossed 800 here for the icon-translate
   // accumulators + parse arms + knobs-interface + merge wiring. Cohesive
