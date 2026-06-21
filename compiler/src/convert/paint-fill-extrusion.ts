@@ -44,6 +44,13 @@ export function emitFillExtrusionPaint(
   const vg = Array.isArray(vgRaw) && vgRaw.length === 2 && vgRaw[0] === 'literal' ? vgRaw[1] : vgRaw
   if (vg === false) {
     out.push('fill-extrusion-vertical-gradient-false')
+  } else if (typeof vg === 'object' && vg !== null) {
+    // vg is a non-literal expression (zoom/data form). Only constant
+    // true/false is honoured — a zoom-expression form was SILENTLY
+    // dropped with no warning (mirror of the fill-antialias drop in
+    // paint-fill.ts). Surface the loss; full zoom-expr support is out
+    // of scope.
+    warnings.push(`Layer "${layer.id}" — fill-extrusion-vertical-gradient zoom/data expression not supported (only constant true/false) — dropped.`)
   }
   // iter-180 — fill-extrusion-translate Stage 1. The fill-extrusion
   // WGSL paths (vs_main_quantized + vs_main_quantized_extruded) already

@@ -19,12 +19,13 @@
 
 import type { MapboxLayer } from './types'
 import { sanitizeId } from './utils'
-import { filterToXgis, exprToXgis } from './expressions'
+import { exprToXgis } from './expressions'
 import { interpolateZoomCall } from './paint'
 import {
   unwrapLiteralScalar,
   safePropsBag,
   isOmittedValue,
+  filterLineOrFailClosed,
 } from './layers-helpers'
 
 export function convertHeatmapLayer(layer: MapboxLayer, warnings: string[]): string {
@@ -35,10 +36,10 @@ export function convertHeatmapLayer(layer: MapboxLayer, warnings: string[]): str
   if (layer['source-layer']) lines.push(`  sourceLayer: ${JSON.stringify(layer['source-layer'])}`)
   if (typeof layer.minzoom === 'number' && Number.isFinite(layer.minzoom)) lines.push(`  minzoom: ${layer.minzoom}`)
   if (typeof layer.maxzoom === 'number' && Number.isFinite(layer.maxzoom)) lines.push(`  maxzoom: ${layer.maxzoom}`)
-  if (layer.filter !== undefined) {
-    const f = filterToXgis(layer.filter, warnings)
-    if (f) lines.push(`  filter: ${f}`)
-  }
+  // Authored-but-unconvertible filter fails CLOSED (filter: false →
+  // match nothing), not open — see filterLineOrFailClosed.
+  const heatmapFilterLine = filterLineOrFailClosed(layer.filter, warnings)
+  if (heatmapFilterLine !== null) lines.push(heatmapFilterLine)
   const visibility = unwrapLiteralScalar(layout['visibility'])
   if (visibility === 'none') {
     lines.push(`  visible: false`)

@@ -94,14 +94,43 @@ await map.run(source, baseUrl)`,
       },
       {
         name: 'XGISMap.setProjection',
-        signature: 'map.setProjection(proj: Projection): void',
-        body: 'Switch the active projection. No re-tessellation; a single uniform write flips Mercator → Orthographic → Natural Earth.',
+        signature: 'map.setProjection(name: string): void',
+        body: 'Switch the active projection by name. No re-tessellation; a single uniform write flips Mercator → Orthographic → Natural Earth. An unknown name is dropped with a console warning and the current projection stays active.',
         params: [
-          { name: 'proj', type: 'Projection', body: 'A projection record from one of the seven built-in projections, or `getProjection(name, …)`.' },
+          { name: 'name', type: 'string', body: 'Projection name. One of: mercator, equirectangular, natural_earth, orthographic, azimuthal_equidistant, stereographic, oblique_mercator. Note: getProjection() returns a CPU math-mirror record, NOT an argument to this method.' },
         ],
+        example: 'map.setProjection("orthographic")',
         see: [
           { label: 'Projections (concept)', href: '../concepts/projections' },
           { label: 'getProjection', href: '#getprojection' },
+        ],
+      },
+      {
+        name: 'XGISMap.setSourceData',
+        signature: 'map.setSourceData(sourceId: string, data: GeoJSONFeatureCollection): void',
+        body: 'Replace the features of a GeoJSON source at runtime and retile. Use with an inline source declared without `url:` / `data:` (an empty placeholder the host fills), or to push fresh data into an existing GeoJSON source. Coalesces with `updateFeature` patches into one retile per source per frame.',
+        params: [
+          { name: 'sourceId', type: 'string', body: 'The `source` block id from the .xgis program.' },
+          { name: 'data', type: 'GeoJSONFeatureCollection', body: 'The replacement FeatureCollection. Reprojected from the source\'s declared CRS to WGS84 when one is set.' },
+        ],
+        see: [
+          { label: 'Sources reference', href: '../sources' },
+        ],
+      },
+      {
+        name: 'XGISMap.setGlyphsUrl',
+        signature: 'map.setGlyphsUrl(url: string | null): void',
+        body: 'Set the style\'s `glyphs` URL template (e.g. `https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf`) used by the HTTP glyph provider for SDF text. Call before the first label-producing frame to pre-stage the URL; pass `null` to clear it.',
+        params: [
+          { name: 'url', type: 'string | null', body: 'A `{fontstack}` / `{range}` PBF URL template, or `null` to clear.' },
+        ],
+      },
+      {
+        name: 'XGISMap.setInlineGlyphs',
+        signature: 'map.setInlineGlyphs(seed: InlineGlyphs | null): void',
+        body: 'Seed the glyph chain with pre-loaded PBF range bytes — keyed `{ fontstack: { rangeStart: Uint8Array } }`. Same chain semantics as `setGlyphsUrl`; for embedded / air-gapped deployments that ship glyph data inside their own bundle. Call before the first label frame.',
+        params: [
+          { name: 'seed', type: 'InlineGlyphs | null', body: 'Per-fontstack PBF range bytes, or `null` to clear.' },
         ],
       },
     ],
@@ -144,10 +173,12 @@ await map.run(source, baseUrl)`,
       {
         name: 'getProjection',
         signature: 'getProjection(name: string, ...args: number[]): Projection',
-        body: 'Look up a projection by name with optional center coordinates. Names: mercator, equirectangular, natural_earth, orthographic, azimuthal_equidistant, stereographic, oblique_mercator.',
+        body: 'Look up a projection by name with optional center coordinates. Names: mercator, equirectangular, natural_earth, orthographic, azimuthal_equidistant, stereographic, oblique_mercator. Returns a CPU math-mirror record for projecting coordinates on the host side — it is NOT an argument to `map.setProjection`. To switch the map\'s active projection, call `map.setProjection("orthographic")` with the name string instead.',
         example: `import { getProjection } from "@xgis/runtime"
+// CPU-side projection math (e.g. placing a custom overlay):
 const proj = getProjection("orthographic", 127, 37.5)
-map.setProjection(proj)`,
+// Switching the map's active projection is by NAME, not this record:
+map.setProjection("orthographic")`,
       },
     ],
   },
@@ -259,7 +290,7 @@ map.setProjection(proj)`,
 
     <RuntimeSupport rows={[
       { label: 'WebGPU',        state: 'yes',     body: 'Chrome 113+ · Safari 17.4+ · Firefox 130+ · Edge 113+' },
-      { label: 'Canvas 2D fallback', state: 'limited', body: 'Activates when no WebGPU adapter is present. GeoJSON paths only — PMTiles and extruded buildings unsupported.' },
+      { label: 'No WebGPU',     state: 'no',      body: 'WebGPU is required — there is no Canvas 2D fallback. When no adapter is present the map shows an "unavailable" message (the host\'s onWebGPUUnavailable hook, or a default in-container notice) and does not render — no degraded mode.' },
       { label: 'Mobile',        state: 'limited', body: 'iOS Safari 17.4+ · Android Chrome with WebGPU enabled. Heavier scenes may throttle.' },
       { label: 'Web workers',   state: 'yes',     body: 'Required — used for off-main-thread MVT decode + GeoJSON tessellation.' },
     ]} />

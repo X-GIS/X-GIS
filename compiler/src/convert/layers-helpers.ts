@@ -4,7 +4,48 @@
 // state. Kept here so layers.ts stays focused on the layer-emission logic.
 
 import type { MapboxLayer } from './types'
-import { exprToXgis } from './expressions'
+import { exprToXgis, filterToXgis } from './expressions'
+
+// ═══ Fail-CLOSED filter emission ═══
+// Every layer converter that honours `layer.filter` shared this body:
+//   if (layer.filter !== undefined) {
+//     const f = filterToXgis(layer.filter, warnings)
+//     if (f) lines.push(`  filter: ${f}`)
+//   }
+// The bug: when `layer.filter` IS authored but UNCONVERTIBLE (an op
+// filterToXgis can't lower — e.g. `["within", polygon]`, `["distance",
+// …]`), filterToXgis returns null, the `if (f)` gate skips the push,
+// and the layer emits NO filter line → it renders EVERY feature. That
+// is fail-OPEN: the exact opposite of the spec intent that an
+// unsatisfiable / unknown predicate EXCLUDES features.
+//
+// Fix: fail CLOSED. An authored-but-unconvertible filter emits the
+// literal `filter: false`, which both filter-eval paths (compiler
+// `evaluate` BoolLiteral → false; runtime applyFilter / evalFilterExpr
+// `typeof result === 'boolean' → return result`) resolve to "match
+// nothing" → the layer draws zero features rather than all of them.
+// filterToXgis still pushes its own "not supported" warning, so the
+// loss stays surfaced.
+//
+// CRUCIAL distinction: filterToXgis ALSO returns null for a "no filter"
+// value — a bare null/undefined OR a multi-wrapped `["literal", null]`
+// (Mapbox spec: a null filter ACCEPTS every feature). Those must stay
+// fail-OPEN (emit no filter line), NOT fail-closed. `isOmittedValue`
+// already encodes exactly that wrapped-null detection, so we gate on it
+// FIRST: an omitted/no-filter value returns null here (no filter line);
+// only a genuinely-authored predicate that filterToXgis can't lower
+// reaches the fail-closed `filter: false`.
+export function filterLineOrFailClosed(
+  filter: unknown,
+  warnings: string[],
+): string | null {
+  // No filter authored (bare or wrapped null) → accept all (no line).
+  if (isOmittedValue(filter)) return null
+  const f = filterToXgis(filter, warnings)
+  // Convertible → emit the lowered filter. Unconvertible (null, with a
+  // warning already pushed by filterToXgis) → fail closed.
+  return `  filter: ${f ?? 'false'}`
+}
 
 // Mapbox v8 wraps inline arrays in `["literal", […]]`. Symbol-layer
 // numeric-tuple knobs (text-offset, text-translate, icon-offset,

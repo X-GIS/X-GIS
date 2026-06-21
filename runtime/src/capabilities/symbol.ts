@@ -18,6 +18,9 @@ export const symbolCapabilities: readonly RuntimeCapability[] = [
   { property: 'text-pitch-alignment', layerType: 'symbol', variant: 'constant',   supported: false, note: 'Runtime never projects labels onto ground plane' },
 
   // Icon paint
+  { property: 'icon-color',          layerType: 'symbol', variant: 'constant',    supported: true,  note: 'SDF sprite tint — label-icon-color-<hex> → lower-label → IconStage per-vertex tint, sampled by the SDF branch of the icon FS (icon.ts:64-67). Raster sprites ignore it.' },
+  { property: 'icon-color',          layerType: 'symbol', variant: 'zoom-interp', supported: true,  note: 'label-icon-color-[interp] PropertyShape resolved per frame (lower-label iter 138).' },
+  { property: 'icon-color',          layerType: 'symbol', variant: 'data-driven', supported: true,  note: 'match/case → label-icon-color-[<expr>] per-feature binding (lower-label iter 138).' },
   { property: 'icon-opacity',        layerType: 'symbol', variant: 'constant',    supported: true },
   { property: 'icon-opacity',        layerType: 'symbol', variant: 'zoom-interp', supported: false, note: 'Per-feature alpha attr path deferred' },
   { property: 'icon-opacity',        layerType: 'symbol', variant: 'data-driven', supported: false, note: 'Per-feature alpha path deferred' },

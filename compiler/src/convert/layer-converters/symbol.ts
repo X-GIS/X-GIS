@@ -5,7 +5,6 @@
 
 import type { MapboxLayer } from '../types'
 import { sanitizeId } from '../utils'
-import { filterToXgis } from '../expressions'
 import type { SymbolLayerOverrides } from '../layers-types'
 import {
   convertTextPaintProperties,
@@ -19,6 +18,7 @@ import {
   isOmittedValue,
   textFieldToXgisExpr,
   parseSymbolPlacementStep,
+  filterLineOrFailClosed,
 } from '../layers-helpers'
 import { registerLayerConverter } from './types'
 
@@ -71,10 +71,10 @@ function convertSymbolLayer(
   const effectiveMax = overrides?.maxzoom !== undefined ? overrides.maxzoom : layer.maxzoom
   if (typeof effectiveMin === 'number' && Number.isFinite(effectiveMin)) lines.push(`  minzoom: ${effectiveMin}`)
   if (typeof effectiveMax === 'number' && Number.isFinite(effectiveMax)) lines.push(`  maxzoom: ${effectiveMax}`)
-  if (layer.filter !== undefined) {
-    const f = filterToXgis(layer.filter, warnings)
-    if (f) lines.push(`  filter: ${f}`)
-  }
+  // Authored-but-unconvertible filter fails CLOSED (filter: false →
+  // match nothing), not open — see filterLineOrFailClosed.
+  const symbolFilterLine = filterLineOrFailClosed(layer.filter, warnings)
+  if (symbolFilterLine !== null) lines.push(symbolFilterLine)
   // `layout.visibility: 'none'` applies to every Mapbox layer type per
   // spec — not just the generic convertLayer path. Without this gate
   // a hidden symbol layer (label / icon) rendered anyway because the

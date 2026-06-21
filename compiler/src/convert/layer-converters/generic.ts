@@ -10,9 +10,8 @@
 
 import type { MapboxLayer } from '../types'
 import { sanitizeId } from '../utils'
-import { filterToXgis } from '../expressions'
 import { paintToUtilities } from '../paint'
-import { unwrapLiteralScalar, safePropsBag } from '../layers-helpers'
+import { unwrapLiteralScalar, safePropsBag, filterLineOrFailClosed } from '../layers-helpers'
 import { registerLayerConverter } from './types'
 
 /** Emit the generic `layer { … }` block. `layoutUtils` seeds the
@@ -29,10 +28,10 @@ export function convertGenericLayer(
   if (layer['source-layer']) lines.push(`  sourceLayer: ${JSON.stringify(layer['source-layer'])}`)
   if (typeof layer.minzoom === 'number' && Number.isFinite(layer.minzoom)) lines.push(`  minzoom: ${layer.minzoom}`)
   if (typeof layer.maxzoom === 'number' && Number.isFinite(layer.maxzoom)) lines.push(`  maxzoom: ${layer.maxzoom}`)
-  if (layer.filter !== undefined) {
-    const f = filterToXgis(layer.filter, warnings)
-    if (f) lines.push(`  filter: ${f}`)
-  }
+  // Authored-but-unconvertible filter fails CLOSED (filter: false →
+  // match nothing), not open — see filterLineOrFailClosed.
+  const genericFilterLine = filterLineOrFailClosed(layer.filter, warnings)
+  if (genericFilterLine !== null) lines.push(genericFilterLine)
 
   // Mapbox layout properties → xgis equivalents.
   //
