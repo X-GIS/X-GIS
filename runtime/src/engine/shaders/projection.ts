@@ -29,6 +29,6 @@
 // `playground/e2e/_shader-math-parity.spec.ts` (executed WGSL vs cpu-f64).
 
 export {
-  PROJECTION_WGSL_CONSTS as WGSL_PROJECTION_CONSTS,
-  PROJECTION_WGSL_FNS as WGSL_PROJECTION_FNS,
+  getProjectionWgslConsts as WGSL_PROJECTION_CONSTS,
+  getProjectionWgslFns as WGSL_PROJECTION_FNS,
 } from '../shader-dsl'

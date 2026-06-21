@@ -25,7 +25,7 @@ import { emitModule } from '../core/backends/wgsl'
 import { ECEF_WGSL_CONSTS, ECEF_WGSL_FNS } from './ecef'
 import { RASTER_COLOR_WGSL_FNS } from './raster-color'
 import { LOG_DEPTH_WGSL_FNS } from './log-depth'
-import { PROJECTION_WGSL_CONSTS, PROJECTION_WGSL_FNS } from './projections'
+import { getProjectionWgslConsts, getProjectionWgslFns } from './projections'
 
 const Uniforms: StructDecl = {
   name: 'Uniforms',
@@ -188,8 +188,8 @@ const buildRasterModule = (pickEnabled: boolean): ModuleDecl => module({
  *  the raster module (structs + bindings + vs_tile + fs_tile).
  *  `pickEnabled` toggles the pick attachment field + write. */
 export const emitRasterWgsl = (pickEnabled: boolean): string => [
-  PROJECTION_WGSL_CONSTS,
-  PROJECTION_WGSL_FNS,
+  getProjectionWgslConsts(),
+  getProjectionWgslFns(),
   ECEF_WGSL_CONSTS,
   ECEF_WGSL_FNS,
   // After ECEF_WGSL_CONSTS — raster_color_adjust reads DEG2RAD_F from it.

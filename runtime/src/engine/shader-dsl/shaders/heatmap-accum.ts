@@ -33,7 +33,7 @@ import {
   type StructDecl, type ModuleDecl,
 } from '../core/ir'
 import { emitModule } from '../core/backends/wgsl'
-import { PROJECTION_WGSL_CONSTS, PROJECTION_WGSL_FNS } from './projections'
+import { getProjectionWgslConsts, getProjectionWgslFns } from './projections'
 
 const Uniforms: StructDecl = {
   name: 'Uniforms',
@@ -169,7 +169,7 @@ const HEATMAP_ACCUM_MODULE: ModuleDecl = module({
 /** Full heatmap accumulation shader: shared projection consts + fns, then
  *  the accum module (Uniforms + feat_data storage + vs_heatmap/fs_heatmap). */
 export const emitHeatmapAccumWgsl = (): string => [
-  PROJECTION_WGSL_CONSTS,
-  PROJECTION_WGSL_FNS,
+  getProjectionWgslConsts(),
+  getProjectionWgslFns(),
   emitModule(HEATMAP_ACCUM_MODULE),
 ].join('\n')

@@ -31,7 +31,7 @@ import {
   type StructDecl, type StructField, type ModuleDecl,
 } from '../core/ir'
 import { emitModule } from '../core/backends/wgsl'
-import { PROJECTION_WGSL_CONSTS, PROJECTION_WGSL_FNS } from './projections'
+import { getProjectionWgslConsts, getProjectionWgslFns } from './projections'
 import { ECEF_WGSL_CONSTS, ECEF_WGSL_FNS } from './ecef'
 import { LOG_DEPTH_WGSL_FNS } from './log-depth'
 import {
@@ -1160,9 +1160,9 @@ const buildLineModule = (pickEnabled: boolean): ModuleDecl => module({
  *  `pickEnabled` toggles the pick attachment field + writes (replaces the old
  *  __PICK_FIELD__ / __PICK_WRITE__ regex markers). */
 export const emitLineWgsl = (pickEnabled: boolean): string => [
-  PROJECTION_WGSL_CONSTS,
+  getProjectionWgslConsts(),
   LOG_DEPTH_WGSL_FNS,
-  PROJECTION_WGSL_FNS,
+  getProjectionWgslFns(),
   ECEF_WGSL_CONSTS,
   ECEF_WGSL_FNS,
   SDF_WGSL_DIST_TO_SEGMENT,

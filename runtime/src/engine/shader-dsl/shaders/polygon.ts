@@ -30,7 +30,7 @@ import {
   type StructDecl, type StructField, type ModuleDecl, type Stmt, type BindingDecl,
 } from '../core/ir'
 import { emitModule, emitFunc } from '../core/backends/wgsl'
-import { PROJECTION_WGSL_CONSTS, PROJECTION_WGSL_FNS } from './projections'
+import { getProjectionWgslConsts, getProjectionWgslFns } from './projections'
 import { LOG_DEPTH_WGSL_FNS } from './log-depth'
 
 // ── Struct declarations ──
@@ -1206,8 +1206,8 @@ export const emitPolygonWgsl = (
   variant: ShaderVariantInfo | null,
   pickEnabled: boolean,
 ): string => [
-  PROJECTION_WGSL_CONSTS,
+  getProjectionWgslConsts(),
   LOG_DEPTH_WGSL_FNS,
-  PROJECTION_WGSL_FNS,
+  getProjectionWgslFns(),
   emitModule(buildPolygonModule(variant, pickEnabled)),
 ].join('\n')

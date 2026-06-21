@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { emitModule } from './wgsl'
-import { PROJECTION_MODULE } from '../../shaders/projections'
+import { getPROJECTION_MODULE } from '../../shaders/projections'
 import { PROJECTIONS } from '../../../projection/projections-table'
 
 // US-P0-2: the WGSL backend regenerates the projection block. Byte-identity
@@ -8,7 +8,7 @@ import { PROJECTIONS } from '../../../projection/projections-table'
 // is structurally well-formed and carries every projection fn + the
 // table-generated dispatch ladder. Executed-on-GPU parity is US-P0-4 (e2e).
 describe('shader-dsl WGSL backend — projection module', () => {
-  const wgsl = emitModule(PROJECTION_MODULE)
+  const wgsl = emitModule(getPROJECTION_MODULE())
 
   it('emits the shader constants (truncated, matching the current shader)', () => {
     expect(wgsl).toContain('const PI: f32 = 3.14159265;')
