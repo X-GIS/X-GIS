@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  fn, Let, Var, If, Loop, Continue, Return, assign, addAssign,
+  fn, Let, Var, If, Loop, Continue, Return, ReturnIf, assign, addAssign,
   f32, f32T, i32, bool,
 } from './index'
 import { emitFunc } from '../backends/wgsl'
@@ -58,13 +58,13 @@ describe('builder — ambient free-function style (C2)', () => {
     expect(emitFunc(neo)).toBe(emitFunc(old))
   })
 
-  it('native `return` inside an If branch emits identically to c.ret (consistency)', () => {
+  it('ReturnIf(cond, value) emits identically to an explicit if-return guard', () => {
     const old = fn('k', { x: f32T }, f32T, (b, { x }) => {
       b.if(x.gt(f32(0)), (c) => { c.ret(x) })
       b.ret(f32(0))
     })
     const neo = fn('k', { x: f32T }, f32T, (_b, { x }) => {
-      If(x.gt(f32(0)), () => x) // native return in the branch — same `return` everywhere
+      ReturnIf(x.gt(f32(0)), x) // explicit guard — reads as "return x if x>0", not a fall-through
       return f32(0)
     })
     expect(emitFunc(neo)).toBe(emitFunc(old))

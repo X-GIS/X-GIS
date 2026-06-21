@@ -130,10 +130,10 @@ function withScope<T>(b: Builder, run: () => T): T {
 
 function subBody(fn: (b: Builder) => Node | void): Stmt[] {
   const b = new Builder()
-  // A control-flow body may `return value` (native TS) for an early return — the
-  // branch appends the ret Stmt, so `return` is the SAME everywhere (no Return()).
-  const result = withScope(b, () => fn(b))
-  if (result !== undefined) b.ret(result)
+  // A control-flow body does NOT capture a native `return value`: `If(c, () => x)` would
+  // then be an INVISIBLE early return that reads as fall-through. Early returns are
+  // explicit — `ReturnIf(cond, value)` (a guard clause) or `Return()` inside the branch.
+  withScope(b, () => fn(b))
   return b.stmts
 }
 
@@ -251,6 +251,12 @@ export const assign = <K extends string>(target: Node<K>, value: Node<K>): void 
 export const assignOp = <K extends string>(target: Node<K>, bop: BinOp, value: ArithArg<K>): void => currentBuilder().assignOp(target, bop, value)
 export const addAssign = <K extends string>(target: Node<K>, value: ArithArg<K>): void => currentBuilder().addAssign(target, value)
 export const Return = (value?: Node): void => currentBuilder().ret(value)
+/** Guard clause — `if (cond) { return value; }`. The readable, EXPLICIT early return:
+ *  reads as "return value if cond", unlike `If(cond, () => value)` which looks like a
+ *  fall-through. Emits identically to `If(cond, () => Return(value))`. */
+export const ReturnIf = (cond: Node<'bool'>, value?: Node): void => {
+  currentBuilder().if(cond, (b) => b.ret(value))
+}
 export const Continue = (): void => currentBuilder().continue()
 export const Break = (): void => currentBuilder().break()
 export const Discard = (): void => currentBuilder().discard()
