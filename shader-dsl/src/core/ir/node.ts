@@ -70,7 +70,14 @@ export class Node<K extends string = string> {
   get type(): ShaderType { return this.expr.type }
 
   private bin(bop: BinOp, o: NodeLike): Node {
-    const b = lift(o)
+    const t = this.type
+    // Typed lift: a bare number against a u32/i32 scalar LHS lifts to that
+    // scalar (so `u32node.add(1)` emits `+ 1u`, not naga-invalid `+ 1.0`);
+    // every other LHS (the f32-dominant projection/geometry math) keeps the
+    // f32 lift. Mirrors the bitwise path (bitBin).
+    const b = (typeof o === 'number' && t.kind === 'scalar' && (t.scalar === 'u32' || t.scalar === 'i32'))
+      ? (t.scalar === 'u32' ? u32(o) : i32(o))
+      : lift(o)
     return new Node({ op: 'binop', type: binResultType(this.type, b.type, bop), bop, a: this.expr, b: b.expr })
   }
   add(o: ArithArg<K>): Node<K> { return this.bin('+', o) as Node<K> }
@@ -227,10 +234,10 @@ export const dot = (a: Node<string>, b: Node<string>): Node<'f32'> => call('dot'
 export const pack4x8unorm = (v: Node<'vec4<f32>'>): Node<'u32'> => call('pack4x8unorm', u32T, v) as Node<'u32'>
 /** Unpack a u32 RGBA8 into a vec4<f32> (each component in [0,1]). */
 export const unpack4x8unorm = (v: Node<'u32'>): Node<'vec4<f32>'> => call('unpack4x8unorm', vec4fT, v) as Node<'vec4<f32>'>
-/** Reinterpret an f32's bit pattern as u32 — emits `bitcast<u32>(x)`. The
- *  `<u32>` is baked into the fn name string so the wgsl backend's call
- *  emit (`${fn}(${args})`) reproduces it verbatim. */
-export const bitcastU32 = (v: Node<'f32'>): Node<'u32'> => call('bitcast<u32>', u32T, v) as Node<'u32'>
+/** Reinterpret an f32's bit pattern as u32. Carries the NEUTRAL intrinsic id
+ *  `bitcastU32`; the registry (core/intrinsics.ts) spells it `bitcast<u32>(x)` on
+ *  WGSL and `floatBitsToUint(x)` on GLSL — no WGSL generic syntax in the IR. */
+export const bitcastU32 = (v: Node<'f32'>): Node<'u32'> => call('bitcastU32', u32T, v) as Node<'u32'>
 /** Sample a 2D texture → vec4<f32>. (CPU eval: nearest-texel stub.) */
 export const textureSample = (tex: Node, smp: Node, uv: NodeLike): Node<'vec4<f32>'> =>
   call('textureSample', vec4fT, tex, smp, uv) as Node<'vec4<f32>'>

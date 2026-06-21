@@ -10,16 +10,33 @@
 // — no entry-point IO, no bindings, no compute, no storage. Those raise
 // UnsupportedFeatureError (caps = none); struct-IO flatten + data-texture buffer
 // emulation are later steps.
+// ─── CAVEAT — string-shape-validated only; NEVER GPU-compiled ───
+//
+// This emitter has never run through a real GL driver. The "proves the IR is
+// target-neutral" claim above is bounded by what the tests actually assert:
+// glsl.test.ts checks the SHAPE of the emitted string (type spellings, intrinsic
+// renames, declaration fragments) — it does NOT invoke `gl.compileShader`, so a
+// string that is well-formed-looking but rejected by the GLSL ES 3.00 compiler
+// (precision-qualifier omissions, reserved-word collisions, version-pragma order,
+// implicit-conversion rules) would still pass today.
+//
+// Target-neutrality is therefore UNPROVEN until a headless-WebGL2 compile gate
+// (W2) lands: spin up an offscreen WebGL2 context, `compileShader` every emitted
+// module, and fail on the info-log. Until W2, treat GLSL output as a plausible
+// transcription, not a verified one.
 
 import type { ShaderType, ConstDecl, FuncDecl, ModuleDecl } from '../ir'
-import { Capabilities, type Backend } from '../backend'
+import { Capabilities, UnsupportedFeatureError, type Backend } from '../backend'
+import { assertCaps } from '../passes/required-caps'
+import { spellIntrinsic } from '../intrinsics'
 import { f32Lit } from './wgsl'
 import { emitBody } from '../emit'
 import { lowerModule } from '../passes/match-lower'
+import { validate } from '../passes/validate'
 
-export class UnsupportedFeatureError extends Error {
-  constructor(message: string) { super(message); this.name = 'UnsupportedFeatureError' }
-}
+// UnsupportedFeatureError now lives in the backend contract; re-exported here so
+// existing importers (`from './glsl'`) keep working.
+export { UnsupportedFeatureError } from '../backend'
 
 function glslType(t: ShaderType): string {
   switch (t.kind) {
@@ -46,29 +63,16 @@ function glslLit(value: number | boolean, t: ShaderType): string {
   return f32Lit(value)
 }
 
-// Divergent intrinsic spellings WGSL → GLSL ES 3.00. Anything not listed passes
-// through unchanged (the ~23 portable builtins + user-defined function calls).
-const GLSL_RENAME: Record<string, string> = {
-  atan2: 'atan',                  // GLSL overloads atan(y, x)
-  inverseSqrt: 'inversesqrt',
-  unpack4x8unorm: 'unpackUnorm4x8',
-  pack4x8unorm: 'packUnorm4x8',
-  'bitcast<u32>': 'floatBitsToUint',
-  'bitcast<f32>': 'uintBitsToFloat',
-  textureLoad: 'texelFetch',
-  textureDimensions: 'textureSize',
-}
-
+// Intrinsic spelling is owned by the neutral registry (core/intrinsics.ts) now —
+// the divergent WGSL→GLSL mappings (atan2→atan, bitcastU32→floatBitsToUint,
+// textureSample→texture, select→ternary, …) live there as the single SoT, so this
+// writer no longer needs its own rename table.
 export const glslEs300Backend: Backend = {
   id: 'glsl-es300',
   caps: new Capabilities(new Set()), // no storage buffers, no compute, no MSAA-load on WebGL2
   typeName: glslType,
   literal: glslLit,
-  intrinsic(name, args) {
-    if (name === 'select') return `(${args[2]} ? ${args[1]} : ${args[0]})` // (cond ? true : false)
-    if (name === 'textureSample') return `texture(${args[0]}, ${args[2]})`  // drop the separate sampler arg
-    return `${GLSL_RENAME[name] ?? name}(${args.join(', ')})`
-  },
+  intrinsic: (name, args) => spellIntrinsic('glsl', name, args),
   localLet: (name, type, init) => `${glslType(type)} ${name} = ${init}`,
   localVar: (name, type, init) => init !== undefined ? `${glslType(type)} ${name} = ${init}` : `${glslType(type)} ${name}`,
   constDecl: (name, type, value) => `const ${glslType(type)} ${name} = ${value};`,
@@ -94,6 +98,8 @@ function emitFunc(f: FuncDecl): string {
 /** Emit a pure-function ModuleDecl as GLSL ES 3.00 (version + precision header).
  *  Bindings/structs/entry-IO raise UnsupportedFeatureError. */
 export function emitGlslModule(m: ModuleDecl): string {
+  validate(m) // validate the authored module before any lowering
+  assertCaps(glslEs300Backend, m) // fail closed on storage/compute/MSAA (caps = none)
   const lowered = lowerModule(m)
   if (lowered.bindings.length) throw new UnsupportedFeatureError('glsl-es300: resource bindings — std140 UBO / data-texture lowering is a later step')
   if (lowered.structs.length) throw new UnsupportedFeatureError('glsl-es300: struct decls (IO/uniform) — std140 lowering is a later step')

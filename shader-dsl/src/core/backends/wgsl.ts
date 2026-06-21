@@ -13,6 +13,9 @@ import type {
 import { Capabilities, type Backend } from '../backend'
 import { emitExpr as emitExprNeutral, emitBody } from '../emit'
 import { lowerModule } from '../passes/match-lower'
+import { validate } from '../passes/validate'
+import { assertCaps } from '../passes/required-caps'
+import { spellIntrinsic } from '../intrinsics'
 
 export function wgslType(t: ShaderType): string {
   switch (t.kind) {
@@ -50,7 +53,7 @@ export const wgslBackend: Backend = {
   literal: lit,
   // WGSL spells every intrinsic / user call as `name(args)`; the reserved
   // `'select'` id is WGSL select(falseVal, trueVal, cond).
-  intrinsic: (name, args) => `${name}(${args.join(', ')})`,
+  intrinsic: (name, args) => spellIntrinsic('wgsl', name, args),
   localLet: (name, _type, init) => `let ${name} = ${init}`,
   localVar: (name, type, init) => init !== undefined ? `var ${name}: ${wgslType(type)} = ${init}` : `var ${name}: ${wgslType(type)}`,
   constDecl: (name, type, value) => `const ${name}: ${wgslType(type)} = ${value};`,
@@ -97,6 +100,10 @@ export function emitFunc(f: FuncDecl): string {
 }
 
 export function emitModule(m: ModuleDecl): string {
+  // Validate the AUTHORED module before any lowering (the rules reason about
+  // the pre-lower shape — e.g. matchExpr chains, placeholder swap sites).
+  validate(m)
+  assertCaps(wgslBackend, m) // principled fail-closed gate (wgslBackend covers all caps)
   // Run the matchExpr→{var slot, Stmt.switch} lowering first so the rest of the
   // emitter stays matchExpr-unaware (identity for modules with no matchExpr).
   const lowered = lowerModule(m)

@@ -13,8 +13,28 @@
 // Performance: tree-walk is ample for the tile-selection / raster / label
 // consumers (O(hundreds) calls/frame); the perf-critical js-source backend
 // (new Function) is a Phase-1 concern, not this.
+// ─── CAVEAT — this is an f64 ALGEBRA oracle, NOT an f32-precision oracle ───
+//
+// Every value here is a JS f64 evaluated with Math.* and NO `fround`. That makes
+// this backend structurally BLIND to the codebase's worst bug class: f32-precision
+// loss on the GPU. It validates that the IR's ALGEBRA is correct (the right ops in
+// the right order, matching the f64 mirror to ≤1mm), and nothing about what that
+// algebra does once it is rounded to 32-bit floats per-vertex on a real driver.
+//
+// Concretely, it CANNOT catch:
+//   • #392 (polygon fill displaced from outline) — fill arm fed f32 abs-degree
+//     positions; the displacement is purely an f32-rounding artifact, invisible in f64.
+//   • #360 (globe polar-cap black hole) — tail slot read as f32 garbage; the cull
+//     fires only under f32 truncation, never in this interpreter.
+// A CPU↔CPU pass here is therefore NOT evidence of GPU precision parity. The only
+// real f32 differential is a headless-GPU gate that runs the EXECUTED shader and
+// diffs it against this f64 result under an f32/truncated-const tolerance
+// (today: playground/_shader-math-parity.spec.ts, ~100m, requires a WebGPU adapter).
+// Treat this oracle as the ALGEBRA half of a two-oracle contract; the f32 half lives
+// on the GPU.
 
 import type { Expr, Stmt, ModuleDecl, BinOp } from './ir'
+import { validate } from './passes/validate'
 
 export type CpuValue = number | boolean | number[] | CpuStruct
 export interface CpuStruct { [k: string]: CpuValue }
@@ -36,7 +56,7 @@ const FIELD_IDX: Record<string, number> = { x: 0, y: 1, z: 2, w: 3, r: 0, g: 1, 
 
 const isArr = Array.isArray
 
-function scalarBin(bop: BinOp, a: number, b: number): number {
+function scalarBin(bop: BinOp, a: number, b: number, isI32 = false): number {
   switch (bop) {
     case '+': return a + b
     case '-': return a - b
@@ -51,15 +71,18 @@ function scalarBin(bop: BinOp, a: number, b: number): number {
     case '|': return (a | b) >>> 0
     case '^': return (a ^ b) >>> 0
     case '<<': return (a << b) >>> 0
-    case '>>': return a >>> b
+    // i32 uses arithmetic shift (sign-preserving JS `>>`); u32/untyped uses
+    // logical `>>>`. No current shader does an i32 shift, so the i32 branch is
+    // presently unreachable — this only removes the latent footgun.
+    case '>>': return isI32 ? (a >> b) : (a >>> b)
   }
 }
 
-function applyBin(bop: BinOp, a: CpuValue, b: CpuValue): CpuValue {
-  if (isArr(a) && isArr(b)) return a.map((x, i) => scalarBin(bop, x as number, b[i] as number))
-  if (isArr(a)) return a.map((x) => scalarBin(bop, x as number, b as number))
-  if (isArr(b)) return b.map((y) => scalarBin(bop, a as number, y as number))
-  return scalarBin(bop, a as number, b as number)
+function applyBin(bop: BinOp, a: CpuValue, b: CpuValue, isI32 = false): CpuValue {
+  if (isArr(a) && isArr(b)) return a.map((x, i) => scalarBin(bop, x as number, b[i] as number, isI32))
+  if (isArr(a)) return a.map((x) => scalarBin(bop, x as number, b as number, isI32))
+  if (isArr(b)) return b.map((y) => scalarBin(bop, a as number, y as number, isI32))
+  return scalarBin(bop, a as number, b as number, isI32)
 }
 
 // ── Builtins (vec-aware where WGSL is component-wise) ──
@@ -150,7 +173,8 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       if (e.bop === '*' && e.a.type.kind === 'mat' && e.b.type.kind === 'vec') {
         return matVec4(av as number[], bv as number[])
       }
-      return applyBin(e.bop, av, bv)
+      const i32Op = e.a.type.kind === 'scalar' && e.a.type.scalar === 'i32'
+      return applyBin(e.bop, av, bv, i32Op)
     }
     case 'unop': {
       const a = evalExpr(e.a, env, ctx)
@@ -158,13 +182,18 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
     }
     case 'compare': {
       const a = evalExpr(e.a, env, ctx) as number, b = evalExpr(e.b, env, ctx) as number
+      // == / != reflect f32 rounding when comparing f32 operands — the GPU
+      // computes f32, so exact f64 equality silently disagrees with it on
+      // equality branches (#13). Ordering ops keep f64 (rounding rarely flips an
+      // inequality, and f64 is the stricter mirror for thresholds).
+      const f32cmp = e.a.type.kind === 'scalar' && e.a.type.scalar === 'f32'
       switch (e.cop) {
         case '<': return a < b
         case '>': return a > b
         case '<=': return a <= b
         case '>=': return a >= b
-        case '==': return a === b
-        case '!=': return a !== b
+        case '==': return f32cmp ? Math.fround(a) === Math.fround(b) : a === b
+        case '!=': return f32cmp ? Math.fround(a) !== Math.fround(b) : a !== b
       }
     }
     // eslint-disable-next-line no-fallthrough
@@ -322,6 +351,9 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
 }
 
 export function compileModule(m: ModuleDecl): CpuModule {
+  // Same validation gate as the WGSL/GLSL writers — the oracle is the third
+  // backend over the same IR, so it must reject a structurally-invalid module.
+  validate(m)
   const ctx: Ctx = {
     consts: new Map(m.consts.map((c) => [c.name, c.cpuValue])),
     fns: {},
