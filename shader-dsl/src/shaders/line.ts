@@ -25,7 +25,7 @@ import {
   length, dot, min, max, smoothstep, abs, floor, select, textureSample,
   bitcastU32, unpack4x8unorm,
   atan, exp,
-  If, Loop, Let, Var, Continue, Discard, assign, madd, outsideRange,
+  If, Loop, Let, Var, Continue, Discard, Return, ReturnIf, assign, madd, outsideRange,
   structT, f32T, u32T, i32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   arrayT,
   type Node,
@@ -234,7 +234,7 @@ const sprite_samp = bindingRef('sprite_samp', samplerT)
 
 const lineEndpoint = fn('line_endpoint', { p_h: vec2fT, p_l: vec2fT }, vec2fT, (_b, p) => {
   const projParams = tile.field('proj_params', vec4fT)
-  If(projParams.x.lt(0.5), () => p.p_h.sub(tile.field('cam_h', vec2fT)).add(p.p_l.sub(tile.field('cam_l', vec2fT))))
+  ReturnIf(projParams.x.lt(0.5), p.p_h.sub(tile.field('cam_h', vec2fT)).add(p.p_l.sub(tile.field('cam_l', vec2fT))))
   return p.p_h.add(p.p_l)
 })
 
@@ -249,7 +249,7 @@ const lineEndpoint = fn('line_endpoint', { p_h: vec2fT, p_l: vec2fT }, vec2fT, (
 // proj_params.y/z). Output feeds the flat 2D-plane MVP.
 const finalizeCorner = fn('finalize_corner', { corner: vec2fT }, vec2fT, (_b, p) => {
   const projParams = tile.field('proj_params', vec4fT)
-  If(projParams.x.lt(0.5), () => p.corner)
+  ReturnIf(projParams.x.lt(0.5), p.corner)
   const tileOrigin = tile.field('tile_origin_merc', vec2fT)
   const absMerc = Let('abs_merc', p.corner.add(tileOrigin))
   const absLon = Let('abs_lon', absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R'))))
@@ -274,9 +274,9 @@ const endpointCosC = fn('endpoint_cos_c', { p_h: vec2fT, p_l: vec2fT }, f32T, (_
 
 const patternUnitToM = fn('pattern_unit_to_m', { v: f32T, unit: u32T, mpp: f32T }, f32T, (_b, p) => {
   // 0=m, 1=px, 2=km, 3=nm
-  If(p.unit.eq(u32(0)), () => p.v)
-    .elif(p.unit.eq(u32(1)), () => p.v.mul(p.mpp))
-    .elif(p.unit.eq(u32(2)), () => p.v.mul(1000))
+  If(p.unit.eq(u32(0)), () => Return(p.v))
+    .elif(p.unit.eq(u32(1)), () => Return(p.v.mul(p.mpp)))
+    .elif(p.unit.eq(u32(2)), () => Return(p.v.mul(1000)))
   return p.v.mul(1852) // nautical mile
 })
 
