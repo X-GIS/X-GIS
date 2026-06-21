@@ -72,13 +72,18 @@ export const caseHandler: ExprHandler = (v, warnings, recurse) => {
 export const allHandler: ExprHandler = (v, warnings, _recurse, recurseFilter) => {
   const rawCount = v.length - 1
   const parts = v.slice(1).map(a => recurseFilter(a, warnings)).filter((s): s is string => !!s)
-  // Surface partial-drop — pre-fix a sub-filter that couldn't
-  // convert (e.g. `["image", …]` head) silently disappeared
-  // from the AND chain, so `["all", real-filter, unsupported]`
-  // collapsed to just `real-filter` and the layer's authored
-  // AND constraint was lost.
+  // Fail CLOSED on a dropped conjunct. `all` means AND, so silently
+  // dropping a sub-filter that couldn't convert (e.g. an `["image", …]`
+  // / `["within", …]` head) WIDENS the predicate — `["all", real,
+  // unsupported]` would collapse to just `real` and the layer renders
+  // features the authored AND constraint was meant to exclude (flooding
+  // the layer). Append a `false` conjunct so the whole predicate can
+  // never be more permissive than authored — consistent with #482's
+  // unconvertible-filter fail-closed. (`any`/OR drops narrow the set
+  // instead, the safe direction, so anyHandler stays as-is.)
   if (parts.length < rawCount && rawCount > 0) {
-    warnings.push(`["all"] dropped ${rawCount - parts.length} of ${rawCount} sub-filter(s) that failed to convert; remaining AND chain is more permissive than the authored intent.`)
+    warnings.push(`["all"] dropped ${rawCount - parts.length} of ${rawCount} sub-filter(s) that failed to convert; fail-closed (AND-ed with false) so the predicate can't widen past the authored intent.`)
+    parts.push('false')
   }
   if (parts.length === 0) return 'true'
   return parts.map(parenthesize).join(' && ')

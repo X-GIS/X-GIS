@@ -131,6 +131,41 @@ function parseFillInterpolate(raw: string): AST.Expr | null {
   }
 }
 
+/** Extract a converted style's trailing "Conversion notes (review before
+ *  running)" block comment (emitted by `convertMapboxStyle` when the
+ *  conversion dropped / approximated anything) into the list of note
+ *  lines, or null when no block is present. The converter writes each
+ *  warning as a ` *   • <text>` line inside the block; we strip the
+ *  leading ` * ` / `•` decoration so the caller logs the bare messages.
+ *  Pure + exported for unit testing. */
+export function extractConversionNotes(source: string): string[] | null {
+  const start = source.indexOf('/* Conversion notes')
+  if (start === -1) return null
+  const end = source.indexOf('*/', start)
+  if (end === -1) return null
+  const body = source.slice(start, end)
+  const notes: string[] = []
+  for (const line of body.split('\n')) {
+    // Each warning line is ` *   • <text>`; the header line is
+    // `/* Conversion notes (review before running):`. Keep only bullet
+    // lines, stripped of their ` * ` + `•` decoration.
+    const m = /^\s*\*\s*•\s?(.*\S)\s*$/.exec(line)
+    if (m) notes.push(m[1]!)
+  }
+  return notes.length > 0 ? notes : null
+}
+
+/** Surface a converted style's conversion notes to the engine log once.
+ *  No-op when the source carries no notes block (hand-authored .xgis or a
+ *  clean conversion). Exported for the unit test (the full run() path
+ *  needs a GPU canvas; this is the loggable seam). */
+export function logConversionNotes(source: string): void {
+  const notes = extractConversionNotes(source)
+  if (!notes) return
+  xlog.warn(`[X-GIS convert] ${notes.length} conversion note(s) — the source was produced by convertMapboxStyle and dropped / approximated the following; the render may differ from the authored Mapbox style:`)
+  for (const n of notes) xlog.warn(`[X-GIS convert]   • ${n}`)
+}
+
 // ClassifiedShow + OpaqueGroup live in bucket-scheduler.ts so they're
 // importable by tests. Local aliases keep the rest of map.ts terse.
 type ClassifiedShow = ExternalClassifiedShow
@@ -819,6 +854,10 @@ export class XGISMap {
     // P4 opt-in for compute-driven paint evaluation. Stored as a
     // simple flag the run() method reads when invoking emitCommands.
     if (options.enableComputePath) this._enableComputePath = true
+    // Surface converter "Conversion notes" to the console at load —
+    // default-on so a silently-widened filter / dropped paint from
+    // convertMapboxStyle isn't invisible. Opt out with `false`.
+    if (options.logConversionNotes === false) this._logConversionNotes = false
     // Graticule default off (was implicitly on). Applied AFTER renderer
     // construction via setGraticuleEnabled — held on the viewport controller
     // until renderer exists (initGPU resolves in run()).
@@ -1154,6 +1193,10 @@ export class XGISMap {
    *  unconditional but no-op when the variant carries no
    *  computeBindings. */
   private _enableComputePath = false
+  /** When true (default), run() extracts a converted style's trailing
+   *  `Conversion notes` block comment from the raw source and console.warns
+   *  it once. Set via `XGISMapOptions.logConversionNotes: false`. */
+  private _logConversionNotes = true
   /** Cached compute plan from the last successful run() so non-run
    *  paths (rebuildLayers after setProjection, etc.) can hand it to
    *  VTR.setComputeContext. Undefined when the scene didn't go
@@ -1840,6 +1883,16 @@ export class XGISMap {
       // before step 2 awaits.
       return err as Error
     })
+
+    // Surface converter "Conversion notes" once at load. A style run
+    // through `convertMapboxStyle` carries every dropped / approximated
+    // filter / paint as a trailing `/* Conversion notes … */` block
+    // comment; the lexer discards comments, so without this the user who
+    // loads a converted .xgis got ZERO console output even when a filter
+    // was silently widened or a paint dropped (silent wrong render). Read
+    // straight off the raw `source` string before lexing so it fires once
+    // per load, independent of parse outcome.
+    if (this._logConversionNotes) logConversionNotes(source)
 
     // 1. Parse → resolve imports (async fetch) → IR → Commands
     const tokens = new Lexer(source).tokenize()

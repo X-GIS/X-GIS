@@ -134,6 +134,15 @@ export interface XGISMapOptions {
    *  Set a deployment-specific label (e.g. `"Seoul transit map"`) so the
    *  a11y tree distinguishes multiple maps on a page. */
   ariaLabel?: string
+  /** Surface a converted style's "Conversion notes" block to the console
+   *  once at load. `convertMapboxStyle` records every dropped / approximated
+   *  filter / paint in a trailing block comment in the emitted .xgis source;
+   *  the lexer discards it, so the user who loads the converted source saw
+   *  ZERO console output even when a filter was silently widened or a paint
+   *  property dropped. When `run()` finds the block it `console.warn`s the
+   *  extracted notes once. Default `true`; set `false` to silence (e.g. a
+   *  deployment shipping a hand-vetted converted style). */
+  logConversionNotes?: boolean
 }
 
 /** Map of CSS family name → per-font typography overrides. Built once
