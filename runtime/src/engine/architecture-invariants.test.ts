@@ -178,7 +178,13 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 3496→3511 (Phase R heatmap): heatmapRenderer field + import + two
   // init sites + the GeoJSON heatmap routing fork in rebuildLayers + two
   // teardown blocks. Irreducible host glue (mirror of the pointRenderer wiring).
-  'runtime/src/engine/map.ts': 3511,
+  // Bumped 3511→3544 (heatmap point-source fix): tiled geojson hid its points
+  // behind the `{ _vectorTile: true }` marker so HeatmapRenderer got zero
+  // layers. Added the `heatmapPointData` field + its SourceManager dep wiring,
+  // the inline-seed preservation block, and moved the heatmap routing fork to
+  // the loop top (reads heatmapPointData, unconditional `continue`) — net of
+  // deleting the old lower fork. Irreducible host glue (mirror of pointRenderer).
+  'runtime/src/engine/map.ts': 3544,
   // Bumped 1343→1344 for the opacity sub-1.5% round-trip fix (#274); comments
   // trimmed to the minimum, net +1 irreducible.
   // Bumped 1344→1348 for the polygon fill-stroke INSET default (US-002): a
