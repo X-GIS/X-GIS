@@ -3,7 +3,7 @@ import { validate, ValidationError } from './validate'
 import { compileModule } from '../oracle'
 import {
   module, fn, f32, param, callFn, constRef, bindingRef, structT,
-  f32T, vec4fT,
+  f32T, u32T, vec4fT,
   type ModuleDecl, type Stmt,
 } from '../ir'
 import { getPROJECTION_MODULE } from '../../shaders/projections'
@@ -98,6 +98,23 @@ describe('validate', () => {
       ],
     })
     expect(() => compileModule(bad)).toThrow(ValidationError)
+  })
+
+  // ── RULE t: mixed-scalar int/float binop (#5b) ──
+
+  it('throws on a mixed-scalar int/float binop (f32 + u32) — WGSL forbids implicit mixing', () => {
+    // WGSL has no implicit int↔float conversion; `a + b` with a:f32, b:u32 is a
+    // compile error there, so validate must reject it at authoring time rather
+    // than emit code the driver rejects. (The typed-lift only fixes the bare-NUMBER
+    // case; a Node-vs-Node scalar mismatch needs the validator.)
+    const bad = module({
+      funcs: [
+        fn('mixed', { a: f32T, b: u32T }, f32T, (bld, { a, b }) => {
+          bld.ret(a.add(b))
+        }),
+      ],
+    })
+    expect(() => validate(bad)).toThrow(ValidationError)
   })
 
   // ── SAFETY REGRESSION (must NOT throw) ──

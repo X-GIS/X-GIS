@@ -182,13 +182,18 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
     }
     case 'compare': {
       const a = evalExpr(e.a, env, ctx) as number, b = evalExpr(e.b, env, ctx) as number
+      // == / != reflect f32 rounding when comparing f32 operands — the GPU
+      // computes f32, so exact f64 equality silently disagrees with it on
+      // equality branches (#13). Ordering ops keep f64 (rounding rarely flips an
+      // inequality, and f64 is the stricter mirror for thresholds).
+      const f32cmp = e.a.type.kind === 'scalar' && e.a.type.scalar === 'f32'
       switch (e.cop) {
         case '<': return a < b
         case '>': return a > b
         case '<=': return a <= b
         case '>=': return a >= b
-        case '==': return a === b
-        case '!=': return a !== b
+        case '==': return f32cmp ? Math.fround(a) === Math.fround(b) : a === b
+        case '!=': return f32cmp ? Math.fround(a) !== Math.fround(b) : a !== b
       }
     }
     // eslint-disable-next-line no-fallthrough

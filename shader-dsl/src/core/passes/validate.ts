@@ -21,7 +21,8 @@
 // prepended raw consts); the Expr walker handles matchExpr (validate runs
 // pre-lowerModule, so polygon's match chains are still matchExpr Exprs).
 
-import type { ModuleDecl, FuncDecl, Stmt, Expr } from '../ir'
+import { typeKey } from '../ir'
+import type { ModuleDecl, FuncDecl, Stmt, Expr, ShaderType } from '../ir'
 
 export class ValidationError extends Error {
   constructor(msg: string) { super(msg); this.name = 'ValidationError' }
@@ -87,6 +88,12 @@ function validateFn(f: FuncDecl, bindingNames: ReadonlySet<string>): void {
   if (f.ret.kind !== 'void' && !alwaysReturns(f.body)) {
     throw new ValidationError(`fn '${f.name}' returns non-void but a code path falls through without return`)
   }
+
+  // RULE t — mixed-scalar binop (#5b). WGSL has no implicit int↔float (nor
+  // i32↔u32) conversion, so a binop whose two operands are scalars of DIFFERENT
+  // type is a driver compile error. Uses Expr.type only (never names), so it is
+  // safe even for raw-containing fns. Shifts are exempt (their RHS is u32 by spec).
+  for (const s of f.body) checkBinopScalars(s, f.name)
 }
 
 // ── RULE a' scope: pre-pass name collection ──
@@ -254,5 +261,79 @@ function stmtTerminates(s: Stmt): boolean {
     default:
       // let / var / assign / assignOp / for / break / continue / raw / placeholder
       return false
+  }
+}
+
+// ── RULE t: mixed-scalar binop type check (#5b) ──
+
+// Shift ops are exempt — WGSL allows `i32 << u32` (the shift amount is u32 by spec).
+const SHIFT_OPS = new Set(['<<', '>>'])
+
+/** True iff a and b are scalars of DIFFERENT type (an implicit WGSL mix error). */
+function mixedScalar(a: ShaderType, b: ShaderType): boolean {
+  if (a.kind !== 'scalar' || b.kind !== 'scalar') return false
+  if (a.scalar === 'bool' || b.scalar === 'bool') return false
+  return a.scalar !== b.scalar
+}
+
+function checkExprBinops(e: Expr, fnName: string): void {
+  if (e.op === 'binop' && !SHIFT_OPS.has(e.bop) && mixedScalar(e.a.type, e.b.type)) {
+    throw new ValidationError(
+      `mixed-scalar binop in fn '${fnName}': ${typeKey(e.a.type)} ${e.bop} ${typeKey(e.b.type)} — WGSL has no implicit int/float conversion`,
+    )
+  }
+  switch (e.op) {
+    case 'binop':
+    case 'compare':
+    case 'logical':
+      checkExprBinops(e.a, fnName); checkExprBinops(e.b, fnName); break
+    case 'unop':
+      checkExprBinops(e.a, fnName); break
+    case 'call':
+    case 'construct':
+      for (const a of e.args) checkExprBinops(a, fnName); break
+    case 'member':
+      checkExprBinops(e.base, fnName); break
+    case 'index':
+      checkExprBinops(e.base, fnName); checkExprBinops(e.idx, fnName); break
+    case 'select':
+      checkExprBinops(e.cond, fnName); checkExprBinops(e.ifTrue, fnName); checkExprBinops(e.ifFalse, fnName); break
+    case 'matchExpr':
+      checkExprBinops(e.scrutinee, fnName)
+      for (const [, v] of e.cases) checkExprBinops(v, fnName)
+      checkExprBinops(e.default, fnName); break
+    default:
+      break // lit / constref / param / varref
+  }
+}
+
+function checkBinopScalars(s: Stmt, fnName: string): void {
+  switch (s.s) {
+    case 'let': checkExprBinops(s.expr, fnName); break
+    case 'var': if (s.init) checkExprBinops(s.init, fnName); break
+    case 'assign':
+    case 'assignOp':
+      checkExprBinops(s.target, fnName); checkExprBinops(s.expr, fnName); break
+    case 'return': if (s.expr) checkExprBinops(s.expr, fnName); break
+    case 'if':
+      for (const arm of s.arms) {
+        checkExprBinops(arm.cond, fnName)
+        for (const b of arm.body) checkBinopScalars(b, fnName)
+      }
+      if (s.elseBody) for (const b of s.elseBody) checkBinopScalars(b, fnName)
+      break
+    case 'for':
+      checkBinopScalars(s.init, fnName)
+      checkExprBinops(s.cond, fnName)
+      checkBinopScalars(s.update, fnName)
+      for (const b of s.body) checkBinopScalars(b, fnName)
+      break
+    case 'switch':
+      checkExprBinops(s.scrut, fnName)
+      for (const c of s.cases) for (const b of c.body) checkBinopScalars(b, fnName)
+      if (s.defaultBody) for (const b of s.defaultBody) checkBinopScalars(b, fnName)
+      break
+    default:
+      break // break / continue / discard / raw / placeholder
   }
 }
