@@ -106,9 +106,31 @@ export class IfChain {
   }
 }
 
+// ── Ambient current-builder stack (C2) ──
+// The free functions below (Let / Var / If / Loop / assign / …) push onto the
+// INNERMOST active scope, so authoring no longer threads a `Builder` param per
+// nesting level (the cb→d→cb2→e proliferation that caused the documented
+// line.ts:721-726 shadowing bug). push/pop is exception-safe (try/finally) — a
+// throw mid-body must not leak the stack into the next shader. This is a pure
+// authoring-surface change: it emits the same Stmt[] as the passed-builder API.
+const scopeStack: Builder[] = []
+
+function currentBuilder(): Builder {
+  const b = scopeStack[scopeStack.length - 1]
+  if (b === undefined) {
+    throw new Error('shader-dsl: no active builder — call Let/Var/If/Loop/… inside an fn / If / Loop body')
+  }
+  return b
+}
+
+function withScope<T>(b: Builder, run: () => T): T {
+  scopeStack.push(b)
+  try { return run() } finally { scopeStack.pop() }
+}
+
 function subBody(fn: (b: Builder) => void): Stmt[] {
   const b = new Builder()
-  fn(b)
+  withScope(b, () => fn(b))
   return b.stmts
 }
 
@@ -125,7 +147,7 @@ export function fn<P extends ParamSpec>(
     paramList.map((p) => [p.name, new Node({ op: 'param', type: p.type, name: p.name })]),
   ) as ParamNodes<P>
   const b = new Builder()
-  body(b, paramNodes)
+  withScope(b, () => body(b, paramNodes))
   return { name, params: paramList, ret, body: b.stmts }
 }
 
@@ -140,7 +162,7 @@ export function computeFn(
 ): FuncDecl {
   const gid = new Node<'vec3<u32>'>({ op: 'param', type: vec3uT, name: gidName })
   const b = new Builder()
-  body(b, gid)
+  withScope(b, () => body(b, gid))
   return {
     name,
     params: [{ name: gidName, type: vec3uT, builtin: 'global_invocation_id' }],
@@ -170,7 +192,7 @@ export function entryFn<const P extends readonly EntryParam[]>(
   const paramNodes: Record<string, Node> = {}
   for (const p of params) paramNodes[p.name] = new Node({ op: 'param', type: p.type, name: p.name })
   const b = new Builder()
-  body(b, paramNodes as EntryParamNodes<P>)
+  withScope(b, () => body(b, paramNodes as EntryParamNodes<P>))
   return {
     name,
     params: params.map((p) => ({ name: p.name, type: p.type, builtin: p.builtin, location: p.location })),
@@ -190,3 +212,43 @@ export function module(parts: Partial<ModuleDecl>): ModuleDecl {
     funcs: parts.funcs ?? [],
   }
 }
+
+// ── Ambient free-function authoring surface (C2) ──
+// Capitalised to avoid JS keyword clashes (If/Loop/Let/Var/Return/Switch); each
+// routes to the INNERMOST active scope (currentBuilder), so no `Builder` param is
+// threaded per nesting level. The old `cb.let(...)` / `(b) => …` callback API still
+// works (both push the same Stmt[]), so shaders migrate function-by-function and the
+// emit stays byte-identical. IfChain.elif/.else accept a zero-arg `() => …` body
+// (a 0-arg fn is assignable where `(b) => void` is wanted), so chains read clean too.
+
+export const Let = <K extends string>(name: string, value: Node<K>): Node<K> => currentBuilder().let(name, value)
+export const Var = <T extends ShaderType>(name: string, type: T, init?: Node<KeyOf<T>>): Node<KeyOf<T>> => currentBuilder().var(name, type, init)
+export const assign = <K extends string>(target: Node<K>, value: Node<K>): void => currentBuilder().assign(target, value)
+export const assignOp = <K extends string>(target: Node<K>, bop: BinOp, value: ArithArg<K>): void => currentBuilder().assignOp(target, bop, value)
+export const addAssign = <K extends string>(target: Node<K>, value: ArithArg<K>): void => currentBuilder().addAssign(target, value)
+export const Return = (value?: Node): void => currentBuilder().ret(value)
+export const Continue = (): void => currentBuilder().continue()
+export const Break = (): void => currentBuilder().break()
+export const Discard = (): void => currentBuilder().discard()
+
+/** `if (cond) { body }` over the innermost scope; chain `.elif(c, () => …)` / `.else(() => …)`. */
+export const If = (cond: Node<'bool'>, body: () => void): IfChain => currentBuilder().if(cond, () => body())
+
+/** C-style for over the innermost scope; the body receives the typed counter Node. */
+export const Loop = <K extends string>(
+  name: string,
+  init: Node<K>,
+  cond: (i: Node<K>) => Node<'bool'>,
+  body: (i: Node<K>) => void,
+  step?: Node<ScalarKey> | number,
+): void => currentBuilder().forRange(name, init, cond, (_b, i) => body(i), step)
+
+export const Switch = (
+  scrut: Node<ScalarKey>,
+  cases: Array<[number, () => void]>,
+  defaultBody?: () => void,
+): void => currentBuilder().switch(
+  scrut,
+  cases.map(([v, f]) => [v, (_b: Builder) => f()] as [number, (b: Builder) => void]),
+  defaultBody ? (_b: Builder) => defaultBody() : undefined,
+)
