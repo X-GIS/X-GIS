@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { emitIconWgsl, ICON_MODULE } from './icon'
-import { compileModule } from '../core/backends/cpu'
+import { compileModule } from '../core/oracle'
 
 // Phase-2 icon shader — first TEXTURED render shader. The fragment stage uses
 // fwidth (screen-space, GPU-only) + textureSample, so it is not cpu-evaluated;

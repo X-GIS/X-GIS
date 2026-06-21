@@ -14,7 +14,7 @@
 // consumers (O(hundreds) calls/frame); the perf-critical js-source backend
 // (new Function) is a Phase-1 concern, not this.
 
-import type { Expr, Stmt, ModuleDecl, BinOp } from '../ir'
+import type { Expr, Stmt, ModuleDecl, BinOp } from './ir'
 
 export type CpuValue = number | boolean | number[] | CpuStruct
 export interface CpuStruct { [k: string]: CpuValue }

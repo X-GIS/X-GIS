@@ -5,7 +5,7 @@ import {
   type ConstDecl,
 } from './index'
 import { emitModule, emitFunc } from '../backends/wgsl'
-import { compileModule } from '../backends/cpu'
+import { compileModule } from '../oracle'
 
 const CONSTS: ConstDecl[] = [
   { name: 'PI', type: f32T, wgslValue: 3.14159265, cpuValue: Math.PI },

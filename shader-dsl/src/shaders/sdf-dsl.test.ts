@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compileModule } from '../core/backends/cpu'
+import { compileModule } from '../core/oracle'
 import { emitModule } from '../core/backends/wgsl'
 import { SDF_MODULE } from './sdf'
 

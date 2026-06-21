@@ -55,7 +55,7 @@ export function emitExpr(e: Expr): string {
     // WGSL select(falseVal, trueVal, cond)
     case 'select': return `select(${emitExpr(e.ifFalse)}, ${emitExpr(e.ifTrue)}, ${emitExpr(e.cond)})`
     case 'index': return `${emitExpr(e.base)}[${emitExpr(e.idx)}]`
-    // matchExpr is consumed by the pre-emit pass (wgsl-lower.ts) before
+    // matchExpr is consumed by the neutral pre-emit pass (passes/match-lower.ts) before
     // emitModule reaches emitExpr. If one leaks through, the pre-emit
     // pass was bypassed — fail loudly rather than emit garbage WGSL.
     case 'matchExpr': throw new Error('shader-dsl/wgsl: matchExpr Expr leaked into emitExpr — lowerModule should have hoisted it')
@@ -180,7 +180,7 @@ export function emitFunc(f: FuncDecl): string {
 
 // matchExpr lowering pre-emit pass (Phase 2.5 US-001).
 // Kept as a side-import so emitModule's body stays compact.
-import { lowerModule } from './wgsl-lower'
+import { lowerModule } from '../passes/match-lower'
 
 export function emitModule(m: ModuleDecl): string {
   // Phase 2.5 US-001: run the matchExpr→{var slot, Stmt.switch} lowering

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { emitMatchComputeKernel, type MatchEmitSpec } from '@xgis/compiler'
 import { emitModule } from '@xgis/shader-dsl/core/backends/wgsl'
-import { compileModule } from '@xgis/shader-dsl/core/backends/cpu'
+import { compileModule } from '@xgis/shader-dsl/core/oracle'
 import { matchComputeKernel, type MatchKernelSpec } from '@xgis/shader-dsl/shaders/compute-match'
 
 // US-P0-6 (PoC-C): the parameterized thesis. The data-driven compute path

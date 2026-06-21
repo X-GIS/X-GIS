@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { emitTextWgsl, TEXT_MODULE } from './text'
-import { compileModule } from '../core/backends/cpu'
+import { compileModule } from '../core/oracle'
 
 // Phase-2 text shader (SDF glyph + halo) — second texture-IR shader after icon.
 // The fragment samples a single-channel SDF atlas and antialiases with an

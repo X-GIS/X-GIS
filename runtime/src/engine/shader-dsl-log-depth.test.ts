@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { compileModule } from '@xgis/shader-dsl/core/backends/cpu'
+import { compileModule } from '@xgis/shader-dsl/core/oracle'
 import { LOG_DEPTH_MODULE, LOG_DEPTH_WGSL_FNS } from '@xgis/shader-dsl/shaders/log-depth'
 import { computeLogDepthFc, simulateLogDepthZ } from './shaders/log-depth'
 
