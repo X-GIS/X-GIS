@@ -184,7 +184,13 @@ const LOC_CEILINGS: Record<string, number> = {
   // the inline-seed preservation block, and moved the heatmap routing fork to
   // the loop top (reads heatmapPointData, unconditional `continue`) — net of
   // deleting the old lower fork. Irreducible host glue (mirror of pointRenderer).
-  'runtime/src/engine/map.ts': 3544,
+  // Bumped 3544→3597 (A2 conversion-notes surfacing): the extractConversionNotes
+  // + logConversionNotes helpers (parse the converter's trailing notes block
+  // off the raw source) + the `_logConversionNotes` field + its constructor
+  // gate + the run() once-per-load log call + contract comments. Irreducible
+  // additive load-path glue (the converter emits warnings as a discarded
+  // comment block; this is the runtime's only seam to surface them).
+  'runtime/src/engine/map.ts': 3597,
   // Bumped 1343→1344 for the opacity sub-1.5% round-trip fix (#274); comments
   // trimmed to the minimum, net +1 irreducible.
   // Bumped 1344→1348 for the polygon fill-stroke INSET default (US-002): a
