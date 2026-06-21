@@ -49,210 +49,94 @@ export interface CachedPipeline {
 /** Easing function used between adjacent time-interpolated stops. */
 export type Easing = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out'
 
-// ─── Paint sub-bundles (Tier-B B2, rows 3/5) ───────────────────────
+// ─── Paint sub-bundles — SINGLE SOURCE from @xgis/compiler ──────────
 //
-// The runtime ShowCommand's flat scalar PAINT fields were grouped PER
-// CONCERN into the four interfaces below (mirroring the compiler-side
-// FillPaint/LinePaint/CirclePaint/ExtrudePaint split); `ShowCommand`
-// then `extends` them, plus the runtime-only bake/resolve fields
-// (`fillPatternUV`, `resolvedFillRgba`, `zoomStrokeWidthStops`, …) that
-// live alongside each concern. This is a TYPE-level grouping only —
-// interface extension is structurally transparent, so every wire key
-// stays exactly where it was and the ~80 readers of `show.strokeBlur`
-// etc. are untouched. A fill-axis edit and a line-axis edit now land in
-// different interfaces (parallel-safe).
+// The four runtime paint-concern interfaces below `extends` the CANONICAL
+// compiler interfaces (`@xgis/compiler` FillPaint/LinePaint/CirclePaint/
+// ExtrudePaint), so a new paint property added on the compiler side flows
+// here AUTOMATICALLY — there is no hand-maintained mirror to drift. This
+// kills the recurring class where a compiler ShowCommand field read by the
+// runtime (VTR/point-renderer) wasn't mirrored here: `bun run build` (Vite,
+// runtime type-stripped) + vitest don't typecheck it, only CI `tsc --build`
+// did — so the drift shipped green and went red on CI. Same fix the codebase
+// already applied to `ShaderVariantInfo` above (line 16).
+//
+// Each interface adds ONLY the runtime-only bake/resolve fields (`fillPatternUV`,
+// `resolvedFillRgba`, `zoomStrokeWidthStops`, …) and `Omit`s + re-declares the
+// handful of fields whose RUNTIME optionality is deliberately looser than the
+// compiler's (compiler emits them required; synthetic / hand-built shows omit
+// them) — `fillPattern`, `linePattern`, `dashArrayShape`, `dashOffsetShape`,
+// `circleStrokeOpacityShape`, `extrude`, `extrudeBase`. Those few re-declared
+// fields are the only remaining manual surface; everything else is inherited.
 
-/** Polygon fill paint axes (+ runtime fill-pattern bake fields). */
-export interface FillPaint {
-  fill: string | null
-  /** iter-177 Mapbox `paint.fill-pattern` constant sprite name. Map.ts
-   *  resolves the sprite atlas centre pixel at frame time and writes
-   *  the colour into `resolvedFillRgba`; this string is the source. */
+/** Polygon fill paint axes. The compiler-emitted paint fields (fill,
+ *  fill-translate(+anchor/shape), fill-antialias, …) are INHERITED from the
+ *  canonical `@xgis/compiler` FillPaint — single source of truth, so a new
+ *  fill paint property added on the compiler side flows here automatically
+ *  with NO manual mirror to drift (the drift the old re-declaration caused).
+ *  This adds only the RUNTIME-ONLY bake/resolve fields and re-loosens the
+ *  one field whose runtime optionality differs (`fillPattern` — synthetic /
+ *  hand-built shows omit it). */
+export interface FillPaint extends Omit<import('@xgis/compiler').FillPaint, 'fillPattern'> {
+  /** Mapbox `paint.fill-pattern` constant sprite name. Runtime loosens the
+   *  compiler's required form to optional (synthetic shows omit it). */
   fillPattern?: string | null
-  /** iter-183 — fill-pattern Stage 2 per-show resolved data. Populated
-   *  by `map.ts._resolveFillPatterns` once the iconStage's sprite
-   *  atlas is loaded. VTR reads these and routes pattern shows to the
-   *  `fillPipelinePatternGround` pipeline with the values packed into
-   *  the per-tile uniform's `fill_color` / `fill_translate` slots.
-   *  Stays undefined while the atlas is still loading; the Stage 1
-   *  `resolvedFillRgba` centre-pixel colour remains as the fallback. */
+  /** Runtime-only — fill-pattern Stage 2 resolved data (map.ts._resolveFillPatterns):
+   *  VTR routes pattern shows to fillPipelinePatternGround with these packed
+   *  into the per-tile uniform. Undefined while the atlas loads. */
   fillPatternUV?: [number, number, number, number] | null  // (u0, v0, u1, v1)
   fillPatternRepeatM?: [number, number] | null             // metres per pattern tile
-  /** Mapbox `paint.fill-translate` x — CSS-px viewport offset on
-   *  fills, +right. Runtime baker writes (px * 2 / canvasWidth) into
-   *  uniformF32[46] so the vertex shader can apply post-MVP. */
-  fillTranslateX?: number
-  /** Mapbox `paint.fill-translate` y — CSS-px viewport offset on
-   *  fills, +down. Runtime baker writes (px * 2 / canvasHeight) into
-   *  uniformF32[47]; vertex shader negates internally for NDC y. */
-  fillTranslateY?: number
-  /** WS-1 — per-frame zoom-interp fill translate (per-axis scalar
-   *  PropertyShape). resolveShow resolves it each frame into
-   *  ResolvedShow.fillTranslate{X,Y}. Prefer over the constant. */
-  fillTranslateXShape?: import('@xgis/compiler').PropertyShape<number>
-  fillTranslateYShape?: import('@xgis/compiler').PropertyShape<number>
-  /** Mapbox `paint.fill-translate-anchor` = map → world/Merc-space offset
-   *  (rotates with bearing) vs default viewport (undefined/false) screen-space.
-   *  Read by VTR at the fill translate bake; default byte-identical. */
-  fillTranslateAnchorMap?: boolean
-  /** Mapbox `paint.fill-antialias` opt-out. Default (undefined / true)
-   *  keeps the current fill render path; `false` is packed into the
-   *  polygon uniform's cam_ecef_off_h.w lane (f32 slot 55) so the fill
-   *  fragment can skip the sphere-rim smoothstep AA fade (hard edges). */
-  fillAntialias?: boolean
-  /** Per-frame animated fill override. Populated by map.ts
-   *  classifyVectorTileShows() when an animation is active, so VTR and
-   *  line-renderer don't need to know about time stops — they just read
-   *  the pre-resolved value. Bypasses VTR's hex-string parse cache. */
+  /** Runtime-only — per-frame animated fill override (map.ts
+   *  classifyVectorTileShows), bypassing VTR's hex-string parse cache. */
   resolvedFillRgba?: [number, number, number, number] | null
 }
 
-/** Line / polygon-outline paint axes (+ runtime stroke bake fields). */
-export interface LinePaint {
-  /** iter-185 — line-pattern Stage 2 mirror. Populated by
-   *  `map.ts._resolveFillPatterns`; VTR routes pattern shows to
-   *  `linePipelinePattern` + writes UV bbox into stroke_color slot
-   *  and repeat metres into layer.color.r / .a. */
+/** Line / polygon-outline paint axes. The compiler-emitted stroke fields
+ *  (stroke, strokeWidth, lin{e}cap/join, dash*, strokeTranslate*, roundLimit,
+ *  patterns, …) are INHERITED from the canonical `@xgis/compiler` LinePaint —
+ *  single source, no manual mirror to drift. Adds only the RUNTIME-ONLY bake/
+ *  resolve fields + re-loosens `linePattern` (synthetic shows omit it). */
+export interface LinePaint extends Omit<import('@xgis/compiler').LinePaint, 'linePattern' | 'dashArrayShape' | 'dashOffsetShape'> {
+  /** Mapbox `paint.line-pattern` constant sprite name. Runtime loosens to optional. */
+  linePattern?: string | null
+  /** WS-1 dash shapes — compiler emits them required (`| null`); runtime loosens
+   *  to optional so synthetic / hand-built shows can omit them. */
+  dashArrayShape?: import('@xgis/compiler').PropertyShape<number[]> | null
+  dashOffsetShape?: import('@xgis/compiler').PropertyShape<number> | null
+  /** Runtime-only — line-pattern Stage 2 mirror (map.ts._resolveFillPatterns):
+   *  VTR routes pattern shows to linePipelinePattern with these packed in. */
   linePatternUV?: [number, number, number, number] | null
   linePatternRepeatM?: [number, number] | null
-  /** iter-178 Mapbox `paint.line-pattern` constant sprite name —
-   *  stroke-side mirror of fillPattern. Map.ts writes the resolved
-   *  sprite centre RGBA into `resolvedStrokeRgba`. */
-  linePattern?: string | null
-  stroke: string | null
-  strokeWidth: number
-  /** Optional per-feature stroke-width override AST. Set by the
-   *  compiler's mergeLayers pass when folding same-source-layer xgis
-   *  layers with different widths. The MVT worker evaluates this AST
-   *  against each feature's properties and writes the resolved width
-   *  into the line segment buffer's per-segment slot; the shader
-   *  picks `segment.width_px` over the layer uniform when non-zero. */
-  strokeWidthExpr?: { ast: unknown }
-  /** Mapbox `paint.line-width: ["interpolate", curve, ["zoom"], …]` —
-   *  pure zoom stops the renderer evaluates per frame against
-   *  camera.zoom. Lets the line widen smoothly inside one tile-zoom
-   *  bracket (vs. the strokeWidthExpr / worker bake which freezes
-   *  the width at tile-decode zoom). When present, overrides
-   *  `strokeWidth`. */
+  /** Runtime-only — per-frame animated stroke override. See `resolvedFillRgba`. */
+  resolvedStrokeRgba?: [number, number, number, number] | null
+  /** Runtime-only — line-width zoom stops the renderer evaluates per frame
+   *  against camera.zoom (vs the worker-baked strokeWidthExpr). Overrides
+   *  `strokeWidth` when present. */
   zoomStrokeWidthStops?: { zoom: number; value: number }[]
   zoomStrokeWidthStopsBase?: number
-  /** Optional per-feature stroke-colour override AST. Mirror of
-   *  strokeWidthExpr; the worker resolves per feature, packs RGBA8
-   *  into a u32, and writes it into the line segment buffer's
-   *  `color_packed` slot. Line shader unpacks and uses when alpha > 0. */
-  strokeColorExpr?: { ast: unknown }
-  /** Dash offset as a PropertyShape — composed by emit-commands from
-   *  the static `stroke.dashOffset` and any time-interpolated
-   *  animation plus the layer-level lifecycle metadata. `null` means
-   *  no offset authored. dashOffset is a STRUCTURAL stroke attribute
-   *  (drift of the dash pattern along the line), not a paint axis —
-   *  that's why it lives outside the PaintShapes bundle. */
-  dashOffsetShape?: import('@xgis/compiler').PropertyShape<number> | null
-  /** Per-frame animated stroke override. See `resolvedFillRgba`. */
-  resolvedStrokeRgba?: [number, number, number, number] | null
-  // Line styling (Phase 2+)
-  linecap?: 'butt' | 'round' | 'square' | 'arrow'
-  linejoin?: 'miter' | 'round' | 'bevel'
-  miterlimit?: number
-  dashArray?: number[]
-  /** WS-1 — per-frame zoom-interp dasharray (STEP). resolveShow resolves it
-   *  into ResolvedShow.dashArray; VTR prefers that over the constant. */
-  dashArrayShape?: import('@xgis/compiler').PropertyShape<number[]> | null
-  patterns?: {
-    shape: string
-    spacing: number
-    spacingUnit?: 'm' | 'px' | 'km' | 'nm'
-    size: number
-    sizeUnit?: 'm' | 'px' | 'km' | 'nm'
-    offset?: number
-    offsetUnit?: 'm' | 'px' | 'km' | 'nm'
-    startOffset?: number
-    anchor?: 'repeat' | 'start' | 'end' | 'center'
-  }[]
-  /** Lateral parallel offset in CSS px (Mapbox `paint.line-offset`). */
-  strokeOffset?: number
-  /** Stroke alignment ('inset' / 'outset' shifts by ±half-width). */
-  strokeAlign?: 'center' | 'inset' | 'outset'
-  /** Mapbox `paint.line-blur` — edge feathering in CSS px (0 = crisp). */
-  strokeBlur?: number
-  /** Mapbox `paint.line-gap-width` — px gap between two parallel
-   *  strokes composing a road casing. > 0 triggers the line renderer's
-   *  double-draw path with offsets ±(gap + stroke) / 2. */
-  strokeGapWidth?: number
-  /** Mapbox `paint.line-translate` x — CSS-px viewport offset on
-   *  lines, +right. Runtime bakes (px * 2 / canvasWidth) into the
-   *  line layer uniform's line_translate_x slot (buf[47]). */
-  strokeTranslateX?: number
-  /** Mapbox `paint.line-translate` y — CSS-px viewport offset on
-   *  lines, +down. Runtime bakes (px * 2 / canvasHeight) into
-   *  line_translate_y slot (buf[48]); shader negates for NDC y. */
-  strokeTranslateY?: number
-  /** WS-1 — per-frame zoom-interp line translate (per-axis scalar
-   *  PropertyShape). resolveShow resolves it each frame into
-   *  ResolvedShow.strokeTranslate{X,Y}. Prefer over the constant. */
-  strokeTranslateXShape?: import('@xgis/compiler').PropertyShape<number>
-  strokeTranslateYShape?: import('@xgis/compiler').PropertyShape<number>
-  /** Mapbox `paint.line-translate-anchor` = map → world-space offset (rotates
-   *  with bearing) vs default viewport screen-space. Default byte-identical. */
-  strokeTranslateAnchorMap?: boolean
-  /** Mapbox `layout.line-round-limit` (default 1.05) — round-join→bevel
-   *  threshold threaded into the line geometry; default reproduces today. */
-  roundLimit?: number
 }
 
-/** Circle / point-marker paint axes. */
-export interface CirclePaint {
-  /** WS-1 — per-frame zoom-interp circle-stroke-opacity. PointRenderer
-   *  resolves it per frame and multiplies it into the circle's baked
-   *  stroke alpha (feat_data slot 8). `null` = constant-only (folded into
-   *  the stroke hex alpha at convert time). */
+/** Circle / point-marker paint axes — INHERITED from the canonical
+ *  `@xgis/compiler` CirclePaint (single source of truth, no manual mirror);
+ *  runtime only re-loosens `circleStrokeOpacityShape` to optional (synthetic
+ *  shows omit it). */
+export interface CirclePaint extends Omit<import('@xgis/compiler').CirclePaint, 'circleStrokeOpacityShape'> {
   circleStrokeOpacityShape?: import('@xgis/compiler').PropertyShape<number> | null
-  /** Mapbox `paint.circle-translate` x — CSS-px viewport offset on
-   *  circles, +right. Point renderer writes into circle_params.x of
-   *  the point uniform; vertex shader applies post-MVP. Default 0. */
-  circleTranslateX?: number
-  /** Mapbox `paint.circle-translate` y — CSS-px viewport offset on
-   *  circles, +down. Point renderer writes into circle_params.y;
-   *  vertex shader negates for NDC y. Default 0. */
-  circleTranslateY?: number
-  /** WS-1 — per-frame zoom-interp circle translate (per-axis scalar
-   *  PropertyShape). The point-renderer resolves it each frame.
-   *  Prefer the shape over the constant circleTranslateX/Y. */
-  circleTranslateXShape?: import('@xgis/compiler').PropertyShape<number>
-  circleTranslateYShape?: import('@xgis/compiler').PropertyShape<number>
-  /** Mapbox `paint.circle-blur` — CSS-px feathering added to the
-   *  smoothstep AA band in the point fragment shader. Default 0 = crisp. */
-  circleBlur?: number
-  /** Mapbox `paint.circle-pitch-scale` = "map". Undefined / false =
-   *  "viewport" (spec default — radius constant in screen px; byte-identical).
-   *  True = "map": PointRenderer packs the flag into circle_params.w and the
-   *  point VS scales the quad expansion by camera_to_center / clip.w so
-   *  circles foreshorten with pitch/distance. */
-  circlePitchScaleMap?: boolean
 }
 
-/** 3D extrusion paint axes (Mapbox `fill-extrusion-*`). */
-export interface ExtrudePaint {
-  /** 3D extrusion height. Set by the compiler from the layer's
-   *  `extrude:` keyword; VTR branches its upload + fill draw onto
-   *  the extruded pipeline when `kind !== 'none'`. The feature form
-   *  carries an AST expression (any shape — field access, binary,
-   *  function call) that the MVT worker evaluates per feature. */
+/** 3D extrusion paint axes — INHERITED from the canonical `@xgis/compiler`
+ *  ExtrudePaint (single source, incl. fillExtrusionVerticalGradient); runtime
+ *  only re-loosens extrude / extrudeBase to optional (synthetic / flat-fill
+ *  shows omit them). The inline union is structurally the compiler's ExtrudeValue. */
+export interface ExtrudePaint extends Omit<import('@xgis/compiler').ExtrudePaint, 'extrude' | 'extrudeBase'> {
   extrude?:
     | { kind: 'none' }
     | { kind: 'constant'; value: number }
     | { kind: 'feature'; expr: { ast: unknown }; fallback: number }
-  /** Mapbox `fill-extrusion-base` — wall bottom z. Same shape as
-   *  `extrude`; default `none` (=> z=0 ground). */
   extrudeBase?:
     | { kind: 'none' }
     | { kind: 'constant'; value: number }
     | { kind: 'feature'; expr: { ast: unknown }; fallback: number }
-  /** Mapbox `paint.fill-extrusion-vertical-gradient` opt-out. Default
-   *  (undefined / true) keeps the gradient ramp; `false` is packed into
-   *  the polygon uniform's cam_ecef_off_l.w lane (f32 slot 59) so the
-   *  extrude vertex shader skips the vertical-gradient wall ramp. */
-  fillExtrusionVerticalGradient?: boolean
 }
 
 export interface ShowCommand extends FillPaint, LinePaint, CirclePaint, ExtrudePaint {

@@ -6,7 +6,7 @@ export { lower } from './lower'
 // the background colour / opacity resolves per frame. Defs in lower-helpers.ts.
 export { extractInterpolateZoomColorStops, extractInterpolateZoomStops } from './lower-helpers'
 export { emitCommands } from './emit-commands'
-export type { SceneCommands, LoadCommand, ShowCommand } from './emit-commands'
+export type { SceneCommands, LoadCommand, ShowCommand, FillPaint, LinePaint, CirclePaint, ExtrudePaint } from './emit-commands'
 export type { Scene, SourceDef, RenderNode, ColorValue, StrokeValue, OpacityValue, SizeValue, DataExpr, ZoomStop, ConditionalBranch } from './render-node'
 export type { PropertyShape, PaintShapes, RasterShapes, RGBA as PropertyRGBA } from './property-types'
 export { defaultRasterShapes } from './property-types'
