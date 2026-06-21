@@ -70,7 +70,14 @@ export class Node<K extends string = string> {
   get type(): ShaderType { return this.expr.type }
 
   private bin(bop: BinOp, o: NodeLike): Node {
-    const b = lift(o)
+    const t = this.type
+    // Typed lift: a bare number against a u32/i32 scalar LHS lifts to that
+    // scalar (so `u32node.add(1)` emits `+ 1u`, not naga-invalid `+ 1.0`);
+    // every other LHS (the f32-dominant projection/geometry math) keeps the
+    // f32 lift. Mirrors the bitwise path (bitBin).
+    const b = (typeof o === 'number' && t.kind === 'scalar' && (t.scalar === 'u32' || t.scalar === 'i32'))
+      ? (t.scalar === 'u32' ? u32(o) : i32(o))
+      : lift(o)
     return new Node({ op: 'binop', type: binResultType(this.type, b.type, bop), bop, a: this.expr, b: b.expr })
   }
   add(o: ArithArg<K>): Node<K> { return this.bin('+', o) as Node<K> }

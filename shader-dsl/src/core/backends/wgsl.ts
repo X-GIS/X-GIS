@@ -13,6 +13,7 @@ import type {
 import { Capabilities, type Backend } from '../backend'
 import { emitExpr as emitExprNeutral, emitBody } from '../emit'
 import { lowerModule } from '../passes/match-lower'
+import { validate } from '../passes/validate'
 
 export function wgslType(t: ShaderType): string {
   switch (t.kind) {
@@ -97,6 +98,9 @@ export function emitFunc(f: FuncDecl): string {
 }
 
 export function emitModule(m: ModuleDecl): string {
+  // Validate the AUTHORED module before any lowering (the rules reason about
+  // the pre-lower shape — e.g. matchExpr chains, placeholder swap sites).
+  validate(m)
   // Run the matchExpr→{var slot, Stmt.switch} lowering first so the rest of the
   // emitter stays matchExpr-unaware (identity for modules with no matchExpr).
   const lowered = lowerModule(m)

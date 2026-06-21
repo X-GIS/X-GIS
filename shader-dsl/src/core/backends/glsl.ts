@@ -10,12 +10,27 @@
 // — no entry-point IO, no bindings, no compute, no storage. Those raise
 // UnsupportedFeatureError (caps = none); struct-IO flatten + data-texture buffer
 // emulation are later steps.
+// ─── CAVEAT — string-shape-validated only; NEVER GPU-compiled ───
+//
+// This emitter has never run through a real GL driver. The "proves the IR is
+// target-neutral" claim above is bounded by what the tests actually assert:
+// glsl.test.ts checks the SHAPE of the emitted string (type spellings, intrinsic
+// renames, declaration fragments) — it does NOT invoke `gl.compileShader`, so a
+// string that is well-formed-looking but rejected by the GLSL ES 3.00 compiler
+// (precision-qualifier omissions, reserved-word collisions, version-pragma order,
+// implicit-conversion rules) would still pass today.
+//
+// Target-neutrality is therefore UNPROVEN until a headless-WebGL2 compile gate
+// (W2) lands: spin up an offscreen WebGL2 context, `compileShader` every emitted
+// module, and fail on the info-log. Until W2, treat GLSL output as a plausible
+// transcription, not a verified one.
 
 import type { ShaderType, ConstDecl, FuncDecl, ModuleDecl } from '../ir'
 import { Capabilities, type Backend } from '../backend'
 import { f32Lit } from './wgsl'
 import { emitBody } from '../emit'
 import { lowerModule } from '../passes/match-lower'
+import { validate } from '../passes/validate'
 
 export class UnsupportedFeatureError extends Error {
   constructor(message: string) { super(message); this.name = 'UnsupportedFeatureError' }
@@ -94,6 +109,7 @@ function emitFunc(f: FuncDecl): string {
 /** Emit a pure-function ModuleDecl as GLSL ES 3.00 (version + precision header).
  *  Bindings/structs/entry-IO raise UnsupportedFeatureError. */
 export function emitGlslModule(m: ModuleDecl): string {
+  validate(m) // validate the authored module before any lowering
   const lowered = lowerModule(m)
   if (lowered.bindings.length) throw new UnsupportedFeatureError('glsl-es300: resource bindings — std140 UBO / data-texture lowering is a later step')
   if (lowered.structs.length) throw new UnsupportedFeatureError('glsl-es300: struct decls (IO/uniform) — std140 lowering is a later step')
