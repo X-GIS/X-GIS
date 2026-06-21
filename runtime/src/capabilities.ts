@@ -29,6 +29,7 @@ import { circleCapabilities } from './capabilities/circle'
 import { fillExtrusionCapabilities } from './capabilities/fill-extrusion'
 import { backgroundCapabilities } from './capabilities/background'
 import { rasterCapabilities } from './capabilities/raster'
+import { heatmapCapabilities } from './capabilities/heatmap'
 
 export type { RuntimeCapability } from './capabilities/types'
 
@@ -40,6 +41,7 @@ export const RUNTIME_CAPABILITIES: readonly RuntimeCapability[] = [
   ...fillExtrusionCapabilities,
   ...backgroundCapabilities,
   ...rasterCapabilities,
+  ...heatmapCapabilities,
 ]
 
 /** Lookup a (layerType, property, variant) tuple. Returns undefined

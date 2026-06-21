@@ -32,6 +32,7 @@ import { oitPass } from './render/passes/oit-pass'
 import { translucentPass } from './render/passes/translucent-pass'
 import { pointsPass } from './render/passes/points-pass'
 import { labelPass } from './render/passes/label-pass'
+import { heatmapPass } from './render/passes/heatmap-pass'
 import { overdrawComposePass } from './render/passes/overdraw-compose-pass'
 import type { XGISMap } from './map'
 // Host ROLE views (Tier-B sub-bundle): the flat ~57-key `Pick<XGISMap>` is
@@ -450,6 +451,13 @@ export class RenderLoop {
 
       // ── Bucket 4: text overlays + per-feature labels ── (LabelPass — render/passes/label-pass.ts)
       labelPass.execute(ctx, scene, this.host)
+
+      // ── Bucket 5: heatmap (Phase R) ── (HeatmapPass — render/passes/heatmap-pass.ts)
+      // Runs AFTER labels (the MSAA resolve-owner) so it composites onto the
+      // resolved swapchain — same strategy as overdraw-compose. Gated off
+      // (no target alloc, no pass) when scene.hasHeatmap is false, so a style
+      // with no heatmap layer renders byte-identically.
+      if (heatmapPass.shouldRun(scene)) heatmapPass.execute(ctx, scene, this.host)
 
       // ── Debug overdraw compose ── (OverdrawComposePass — render/passes/overdraw-compose-pass.ts)
       // Runs as the LAST pass of the frame so it owns the swapchain attachment.

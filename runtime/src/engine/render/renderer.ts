@@ -119,6 +119,8 @@ export class MapRenderer {
   get oitComposeBindGroupLayout(): GPUBindGroupLayout { return this._pipelines.oitComposeBindGroupLayout }
   get overdrawComposePipeline(): GPURenderPipeline | null { return this._pipelines.overdrawComposePipeline }
   get overdrawComposeBindGroupLayout(): GPUBindGroupLayout { return this._pipelines.overdrawComposeBindGroupLayout }
+  get heatmapBlurBindGroupLayout(): GPUBindGroupLayout { return this._pipelines.heatmapBlurBindGroupLayout }
+  get heatmapComposeBindGroupLayout(): GPUBindGroupLayout { return this._pipelines.heatmapComposeBindGroupLayout }
   get fillPipelineOverdraw(): GPURenderPipeline | null { return this._pipelines.fillPipelineOverdraw }
   get fillPipelineOverdrawFeature(): GPURenderPipeline | null { return this._pipelines.fillPipelineOverdrawFeature }
   get linePipelineOverdraw(): GPURenderPipeline | null { return this._pipelines.linePipelineOverdraw }
@@ -390,6 +392,18 @@ export class MapRenderer {
    *  overdraw-compose-pass.ts:25 `host.renderer.ensureOverdrawCompose()`). */
   ensureOverdrawCompose(): GPURenderPipeline {
     return this._pipelines.ensureOverdrawCompose()
+  }
+
+  /** Lazy-build the heatmap blur pipeline (Phase R). Thin forwarder to the
+   *  factory; the external read site is heatmap-pass.ts. */
+  ensureHeatmapBlur(): GPURenderPipeline {
+    return this._pipelines.ensureHeatmapBlur()
+  }
+
+  /** Lazy-build the heatmap compose pipeline (Phase R). Thin forwarder to the
+   *  factory; the external read site is heatmap-pass.ts. */
+  ensureHeatmapCompose(): GPURenderPipeline {
+    return this._pipelines.ensureHeatmapCompose()
   }
 
   /** Rebuild the bind group(s) that reference the uniform ring. Invoked

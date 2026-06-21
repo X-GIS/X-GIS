@@ -118,6 +118,14 @@ export interface LayerAccumulator {
   rasterSaturation: number | undefined
   rasterContrast: number | undefined
   rasterResamplingNearest: boolean | undefined
+  // Heatmap paint axes (Phase R). isHeatmap is the marker the converter's
+  // `heatmap` utility sets; the rest carry the resolved scalars + ramp.
+  isHeatmap: boolean | undefined
+  heatmapRadius: number | undefined
+  heatmapWeight: number | undefined
+  heatmapIntensity: number | undefined
+  heatmapOpacity: number | undefined
+  heatmapColorStops: { offset: number; rgba: [number, number, number, number] }[] | undefined
 }
 
 /** Per-item lowering context handed to each BindingHandler. Bundles the

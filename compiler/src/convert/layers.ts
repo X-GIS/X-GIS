@@ -14,7 +14,6 @@ export { parseMapboxFontName } from './layers-helpers'
 // emits a `label-[<expr>]` utility so the IR carries the text
 // intent through compilation. Rendering arrives in Batch 1c.
 const SKIP_REASONS: Record<string, string> = {
-  heatmap: 'heatmap layer — Batch 3 (accumulation MRT + Gaussian blur)',
   hillshade: 'hillshade layer — Batch 4 (raster-dem + lighting shader)',
   sky: 'sky layer — gradient/atmospheric sky rendering not yet wired (would need a dome quad + per-fragment hue interpolation)',
 }
@@ -24,12 +23,12 @@ const SKIP_REASONS: Record<string, string> = {
  *  specially by `convertMapboxStyle`).
  *
  *  Dispatch authority (A4 registry): each emitting layer type
- *  (symbol / circle / fill / line / fill-extrusion / raster) self-
- *  registers a converter in `LAYER_CONVERTERS`; a registry hit returns
- *  its output directly. A miss (heatmap / hillshade / sky / unknown /
- *  missing / non-string type) falls through to the SKIP_REASONS +
- *  type-validation path below — the same order as the former branch
- *  chain, so the emitted blocks and warnings are byte-identical.
+ *  (symbol / circle / fill / line / fill-extrusion / raster / heatmap)
+ *  self-registers a converter in `LAYER_CONVERTERS`; a registry hit returns
+ *  its output directly. A miss (hillshade / sky / unknown / missing /
+ *  non-string type) falls through to the SKIP_REASONS + type-validation
+ *  path below — the same order as the former branch chain, so the emitted
+ *  blocks and warnings are byte-identical.
  *
  *  Skipped layer types emit a `// SKIPPED` comment that NAMES the
  *  roadmap batch they're waiting on — so users reading the output

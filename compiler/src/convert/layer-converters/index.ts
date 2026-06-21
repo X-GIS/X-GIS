@@ -9,5 +9,6 @@ import './generic' // fill, fill-extrusion, raster
 import './line'
 import './circle'
 import './symbol'
+import './heatmap'
 
 export { LAYER_CONVERTERS, type LayerConvertFn } from './types'

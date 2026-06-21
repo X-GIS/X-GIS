@@ -202,7 +202,24 @@ export interface ExtrudePaint {
   fillExtrusionVerticalGradient?: boolean
 }
 
-export interface ShowCommand extends FillPaint, LinePaint, CirclePaint, ExtrudePaint {
+/** Heatmap paint axes (Mapbox `heatmap-*`, Phase R). */
+export interface HeatmapPaint {
+  /** True when the layer is a Mapbox `heatmap` layer (the `heatmap` marker
+   *  utility). Routes the runtime to the HeatmapRenderer. */
+  isHeatmap?: boolean
+  /** heatmap-radius — Gaussian splat radius in CSS px. Default 30. */
+  heatmapRadius?: number
+  /** heatmap-weight — per-feature contribution multiplier. Default 1. */
+  heatmapWeight?: number
+  /** heatmap-intensity — overall density scale. Default 1. */
+  heatmapIntensity?: number
+  /** heatmap-opacity — layer alpha 0..1. Default 1. */
+  heatmapOpacity?: number
+  /** heatmap-color ramp stops (offset 0..1 over heatmap-density → RGBA). */
+  heatmapColorStops?: { offset: number; rgba: [number, number, number, number] }[]
+}
+
+export interface ShowCommand extends FillPaint, LinePaint, CirclePaint, ExtrudePaint, HeatmapPaint {
   /** Position of this show in `Scene.renderNodes` — the key the P4
    *  compute plan uses to route output buffers back to fragment-
    *  shader paint axes. Set at emit time; immutable from there.
@@ -530,6 +547,7 @@ function emitShow(
     ...emitLineFields(node, dashOffsetShape),
     ...emitCircleFields(node),
     ...emitExtrudeFields(node),
+    ...emitHeatmapFields(node),
     paintShapes: {
       fill: { fill: colorValueToShape(node.fill) },
       line: {
@@ -647,6 +665,18 @@ function emitExtrudeFields(node: RenderNode): ExtrudePaint {
     extrude: node.extrude,
     extrudeBase: node.extrudeBase,
     fillExtrusionVerticalGradient: node.fillExtrusionVerticalGradient,
+  }
+}
+
+/** Heatmap paint fields (Phase R). */
+function emitHeatmapFields(node: RenderNode): HeatmapPaint {
+  return {
+    isHeatmap: node.isHeatmap,
+    heatmapRadius: node.heatmapRadius,
+    heatmapWeight: node.heatmapWeight,
+    heatmapIntensity: node.heatmapIntensity,
+    heatmapOpacity: node.heatmapOpacity,
+    heatmapColorStops: node.heatmapColorStops,
   }
 }
 

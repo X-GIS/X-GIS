@@ -293,6 +293,14 @@ function lowerLayer(
    *  "viewport" (spec default — radius constant in screen px; byte-identical
    *  to historical X-GIS). True = "map" (radius scales with perspective). */
   let circlePitchScaleMap: boolean | undefined
+  /** Mapbox `heatmap-*` paint axes (Phase R). `isHeatmap` is the marker the
+   *  converter's `heatmap` utility sets; the rest carry the resolved scalars. */
+  let isHeatmap: boolean | undefined
+  let heatmapRadius: number | undefined
+  let heatmapWeight: number | undefined
+  let heatmapIntensity: number | undefined
+  let heatmapOpacity: number | undefined
+  let heatmapColorStops: { offset: number; rgba: [number, number, number, number] }[] | undefined
   /** Mapbox `paint.line-translate` x — viewport pixel offset, +right.
    *  Mirror of fillTranslateX for line layers. */
   let strokeTranslateX: number | undefined
@@ -499,6 +507,7 @@ function lowerLayer(
     animationName, animationDurationMs, animationEasing, animationDelayMs, animationLoop,
     rasterHueRotate, rasterBrightnessMin, rasterBrightnessMax, rasterSaturation, rasterContrast,
     rasterResamplingNearest,
+    isHeatmap, heatmapRadius, heatmapWeight, heatmapIntensity, heatmapOpacity, heatmapColorStops,
   }
 
   for (const line of expandedUtilities) {
@@ -634,6 +643,12 @@ function lowerLayer(
   rasterSaturation = acc.rasterSaturation
   rasterContrast = acc.rasterContrast
   rasterResamplingNearest = acc.rasterResamplingNearest
+  isHeatmap = acc.isHeatmap
+  heatmapRadius = acc.heatmapRadius
+  heatmapWeight = acc.heatmapWeight
+  heatmapIntensity = acc.heatmapIntensity
+  heatmapOpacity = acc.heatmapOpacity
+  heatmapColorStops = acc.heatmapColorStops
 
   // Expand referenced keyframes into per-property time stops. Pure
   // sub-pass (lower-animation.ts): reads only the animation meta set in
@@ -843,6 +858,12 @@ function lowerLayer(
     rasterSaturation,
     rasterContrast,
     rasterResamplingNearest,
+    isHeatmap,
+    heatmapRadius,
+    heatmapWeight,
+    heatmapIntensity,
+    heatmapOpacity,
+    heatmapColorStops,
     label: lowerLabelProps(expandedUtilities, diagnostics, stmt.line),
   }
 }

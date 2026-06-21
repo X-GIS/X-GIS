@@ -40,10 +40,11 @@ function readConverterSource(): string {
   //    lifted out of mapbox-to-xgis.ts
   const files = [
     'expressions.ts', 'expr-registry.ts', 'expr-arithmetic.ts', 'expr-logic.ts', 'expr-lookup.ts', 'expr-string.ts',
-    'layers.ts', 'layers-circle.ts', 'layers-symbol.ts',
+    'layers.ts', 'layers-circle.ts', 'layers-symbol.ts', 'layers-heatmap.ts',
     'paint.ts', 'paint-fill.ts', 'paint-line.ts', 'paint-fill-extrusion.ts', 'paint-raster.ts', 'paint-helpers.ts',
     'sources.ts', 'colors.ts', 'mapbox-to-xgis.ts', 'convert-background-layer.ts',
     'layer-converters/line.ts', 'layer-converters/circle.ts', 'layer-converters/symbol.ts', 'layer-converters/generic.ts',
+    'layer-converters/heatmap.ts',
   ]
   return files.map(f => readFileSync(join(CONVERT_DIR, f), 'utf8')).join('\n\n')
 }

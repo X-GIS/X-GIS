@@ -93,10 +93,19 @@ export type OverdrawComposePassHost = Pick<XGISMap,
   | 'renderer'
 >
 
+/** Heatmap pass (Phase R) — the 3-pass accum/blur/compose pipeline. */
+export type HeatmapPassHost = Pick<XGISMap,
+  | 'camera'
+  | 'ctx'
+  | 'heatmapRenderer'
+  | 'renderer'
+>
+
 /** Per-frame scene classification (consumed by `buildSceneView`). */
 export type SceneClassifyHost = Pick<XGISMap,
   | 'classifyVectorTileShows'
   | 'groupOpaqueBySource'
+  | 'heatmapRenderer'
 >
 
 /** Members only the RenderLoop body itself touches — the frame clock,
@@ -136,5 +145,6 @@ export type RenderLoopHost =
   & PointsPassHost
   & LabelPassHost
   & OverdrawComposePassHost
+  & HeatmapPassHost
   & SceneClassifyHost
   & FrameLoopHost

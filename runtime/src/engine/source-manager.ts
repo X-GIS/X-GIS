@@ -58,6 +58,12 @@ export interface SourceManagerDeps {
    *  F1) so XGISMap's polar-cap install can synthesise the right cap(s)
    *  without re-walking the (already-tiled) feature collection. */
   geojsonCapPoles: Map<string, CapPoles>
+  /** Shared with XGISMap — same Map instance, by reference. Holds the
+   *  reprojected Point/MultiPoint FC per geojson source so the heatmap fork
+   *  in `rebuildLayers` can read its points after this manager overwrites the
+   *  source's `rawDatasets` entry with the `{ _vectorTile: true }` marker
+   *  (tiled geojson moves its points into the tile backend). */
+  heatmapPointData: Map<string, GeoJSONFeatureCollection>
   /** The Camera instance (stable, created in XGISMap ctor). */
   camera: Camera
   /** The raw constructor canvas — `this.canvas` on the host (NOT
@@ -90,6 +96,7 @@ export class SourceManager {
   private readonly vtSources: Map<string, { source: TileCatalog; renderer: VectorTileRenderer }>
   private readonly sourceCRS: Map<string, string>
   private readonly geojsonCapPoles: Map<string, CapPoles>
+  private readonly heatmapPointData: Map<string, GeoJSONFeatureCollection>
   private readonly camera: Camera
   private readonly canvas: HTMLCanvasElement
   private readonly getCtx: () => GPUContext
@@ -114,6 +121,7 @@ export class SourceManager {
     this.vtSources = deps.vtSources
     this.sourceCRS = deps.sourceCRS
     this.geojsonCapPoles = deps.geojsonCapPoles
+    this.heatmapPointData = deps.heatmapPointData
     this.camera = deps.camera
     this.canvas = deps.canvas
     this.getCtx = deps.getCtx
@@ -442,6 +450,15 @@ export class SourceManager {
     source.attachBackend(backend)
 
     this.vtSources.set(sourceName, { source, renderer: vtRenderer })
+    // Preserve this geojson source's Point/MultiPoint features for the
+    // HeatmapRenderer BEFORE the next line overwrites `rawDatasets` with the
+    // `{ _vectorTile: true }` marker (points move into the tile backend). Use
+    // the reprojected `data` FC so the heatmap coords match the tiled output.
+    const heatmapPts = (data.features ?? []).filter(
+      (f) => f.geometry?.type === 'Point' || f.geometry?.type === 'MultiPoint',
+    )
+    if (heatmapPts.length) this.heatmapPointData.set(sourceName, { type: 'FeatureCollection', features: heatmapPts } as GeoJSONFeatureCollection)
+    else this.heatmapPointData.delete(sourceName)
     this.rawDatasets.set(sourceName, { _vectorTile: true } as unknown as GeoJSONFeatureCollection)
 
     // Camera-fit: derive bounds from the GeoJSON features themselves

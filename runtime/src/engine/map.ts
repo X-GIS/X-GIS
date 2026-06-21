@@ -44,6 +44,7 @@ import { interpret, type SceneCommands } from './interpreter'
 import { lonLatToMercator, type GeoJSONFeatureCollection } from '../loader/geojson'
 import { RasterRenderer } from './render/raster-renderer'
 import { PointRenderer } from './render/point-renderer'
+import { HeatmapRenderer } from './render/heatmap-renderer'
 import { ShapeRegistry } from './text/sdf-shape'
 import { LineRenderer } from './render/line-renderer'
 import { PanZoomController, type Controller } from './controller'
@@ -162,6 +163,10 @@ export class XGISMap {
    *  frame is timed; samples drain to `getGpuTimings()`. */
   gpuTimer: GPUTimer | null = null
   pointRenderer!: PointRenderer
+  /** Heatmap renderer (Phase R). Lazily constructed alongside pointRenderer;
+   *  GeoJSON-source Point/MultiPoint heatmap layers route here. Null until the
+   *  first run() builds it (or if construction fails). */
+  heatmapRenderer: HeatmapRenderer | null = null
   private shapeRegistry: ShapeRegistry | null = null
   lineRenderer: LineRenderer | null = null
   private running = false
@@ -232,6 +237,14 @@ export class XGISMap {
    *  install — both initially and on a projection change — so the cap
    *  backend can be (re-)synthesised without re-walking the feature data. */
   private geojsonCapPoles = new Map<string, CapPoles>()
+  /** GeoJSON Point/MultiPoint features preserved per source for the
+   *  HeatmapRenderer. A tiled geojson source overwrites its `rawDatasets`
+   *  entry with the `{ _vectorTile: true }` marker (points move into the
+   *  tile backend), so the heatmap fork in `rebuildLayers` can no longer
+   *  read its points from there. SourceManager (URL geojson) and the inline-
+   *  seed loop (inline geojson) write the reprojected/seeded point FC here
+   *  instead — the SINGLE uniform source the heatmap show reads from. */
+  heatmapPointData = new Map<string, GeoJSONFeatureCollection>()
   showCommands: SceneCommands['shows'] = []
 
   /** Stable u16 IDs assigned to each layer in `addLayer` order. Stamped
@@ -748,6 +761,7 @@ export class XGISMap {
       vtSources: this.vtSources,
       sourceCRS: this.sourceCRS,
       geojsonCapPoles: this.geojsonCapPoles,
+      heatmapPointData: this.heatmapPointData,
       camera: this.camera,
       canvas: this.canvas,
       getCtx: () => this.ctx,
@@ -2138,6 +2152,9 @@ export class XGISMap {
       this.shapeRegistry.uploadToGPU()
       this.pointRenderer.setShapeRegistry(this.shapeRegistry)
     } catch (e) { xlog.warn('[X-GIS] PointRenderer init failed:', e) }
+    // Heatmap renderer (Phase R) — owns the accum pipeline + per-layer
+    // density buffers; the blur/compose pipelines live in pipeline-factory.
+    try { this.heatmapRenderer = new HeatmapRenderer(this.ctx) } catch (e) { xlog.warn('[X-GIS] HeatmapRenderer init failed:', e) }
 
     // SDF line renderer (shared by all VTR instances)
     try {
@@ -2207,7 +2224,19 @@ export class XGISMap {
       if (this.rawDatasets.has(id)) {
         // Reproject declared-CRS input → WGS84 LL before tiling. Absent
         // CRS ⇒ EPSG:4326 / no-op (returns same ref). See reproject-fc.ts.
-        this.rawDatasets.set(id, this._reprojectIngest(id, fc as GeoJSONFeatureCollection))
+        const reprojected = this._reprojectIngest(id, fc as GeoJSONFeatureCollection)
+        this.rawDatasets.set(id, reprojected)
+        // Preserve Point/MultiPoint features for the HeatmapRenderer from the
+        // SAME reprojected FC so coords match the tiled backend. Inline geojson
+        // is not tiled by default, so its points survive in rawDatasets too —
+        // but keeping heatmapPointData the single uniform source the heatmap
+        // show reads from (inline + url) means the rebuildLayers fork has one
+        // code path. See `heatmapPointData` field + SourceManager mirror.
+        const pts = (reprojected.features ?? []).filter(
+          (f) => f.geometry?.type === 'Point' || f.geometry?.type === 'MultiPoint',
+        )
+        if (pts.length) this.heatmapPointData.set(id, { type: 'FeatureCollection', features: pts } as GeoJSONFeatureCollection)
+        else this.heatmapPointData.delete(id)
       } else {
         xlog.warn(`[X-GIS] Inline GeoJSON for unknown source "${id}" — dropping. (Mapbox style sources didn't emit a matching load command.)`)
       }
@@ -2392,6 +2421,7 @@ export class XGISMap {
     // GPU vertex shader applies projection via uniform
     this.renderer.clearLayers()
     this.pointRenderer?.clearLayers()
+    this.heatmapRenderer?.clearLayers()
     this.vectorTileShows = []
     // Reset layer-id registry so re-projection produces deterministic IDs
     // (same `addLayer` order → same IDs). pickAt callers that cached an ID
@@ -2413,6 +2443,40 @@ export class XGISMap {
     for (const show of this.showCommands) {
       const data = this.rawDatasets.get(show.targetName)
       if (!data) continue
+
+      // Heatmap (Phase R) → HeatmapRenderer, routed at LOOP TOP before the
+      // raster / `_vectorTile` / VT-reuse `continue`s: a tiled geojson source's
+      // rawDatasets entry is the `{ _vectorTile: true }` marker, so a heatmap
+      // show placed lower would hit the VT `continue` and never reach the
+      // density pipeline. Points come ONLY from `heatmapPointData` (the
+      // reprojected/seeded Point FC preserved at attach/seed time — see the
+      // field + SourceManager mirror); rawDatasets holds the marker, not the
+      // features. ALWAYS `continue`s so it never falls through to a VT path;
+      // heatmap layers were cleared above, so an empty map on the first pass
+      // (geojson still streaming) just no-ops and a later rebuild re-adds.
+      if (show.isHeatmap) {
+        const hmSource = this.heatmapPointData.get(show.targetName)
+        if (hmSource?.features?.length && this.heatmapRenderer) {
+          try {
+            const feats = applyFilter(hmSource, show.filterExpr, this.camera.zoom, this.camera.pitch).features
+            const t = feats[0]?.geometry?.type
+            if (t === 'Point' || t === 'MultiPoint') {
+              this.heatmapRenderer.addLayer(
+                feats as any,
+                show.heatmapRadius ?? 30,
+                show.heatmapWeight ?? 1,
+                show.heatmapIntensity ?? 1,
+                show.heatmapOpacity ?? 1,
+                show.heatmapColorStops as any,
+                null,
+              )
+            }
+          } catch (e) {
+            xlog.warn('[X-GIS] heatmap layer build failed:', e)
+          }
+        }
+        continue
+      }
 
       // Stamp this show with its stable layer ID so VTR's per-tile
       // uniform write picks it up for the pick texture's G channel.
@@ -2534,6 +2598,7 @@ export class XGISMap {
 
       // Point geometry → SDF point renderer (skip polygon tiling pipeline)
       const firstGeomType = filtered.features[0]?.geometry?.type
+
       if ((firstGeomType === 'Point' || firstGeomType === 'MultiPoint') && !show.geometryExpr && this.pointRenderer) {
         const fillHex = show.fill
         const strokeHex = show.stroke
@@ -2815,6 +2880,7 @@ export class XGISMap {
     this.rasterRenderer = new RasterRenderer(this.ctx)
     if (GPU_PROF) this.gpuTimer = new GPUTimer(this.ctx)
       try { this.pointRenderer = new PointRenderer(this.ctx) } catch (e) { xlog.warn('[X-GIS] PointRenderer init failed:', e) }
+      try { this.heatmapRenderer = new HeatmapRenderer(this.ctx) } catch (e) { xlog.warn('[X-GIS] HeatmapRenderer init failed:', e) }
 
     for (const load of commands.loads) {
       const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
@@ -3273,6 +3339,13 @@ export class XGISMap {
     this.iconStage?.destroy()
     this.iconStage = null
 
+    // Heatmap density targets + per-layer buffers (Phase R). The trailing
+    // device.destroy() frees the GPU memory; null the refs so a re-run
+    // reallocates cleanly.
+    this.heatmapRenderer?.clearLayers()
+    this.heatmapRenderer = null
+    this.renderTargets.destroyHeatmap()
+
     // Colour / scalar palette + gradient-atlas textures.
     if (this._paletteHandles) {
       this._paletteHandles.colorPalette.destroy()
@@ -3347,6 +3420,11 @@ export class XGISMap {
     this.textStage = null
     this.iconStage?.destroy()
     this.iconStage = null
+
+    // Heatmap density targets + per-layer buffers (Phase R).
+    this.heatmapRenderer?.clearLayers()
+    this.heatmapRenderer = null
+    this.renderTargets.destroyHeatmap()
 
     // DOM stats overlay element.
     this._statsPanel?.destroy()

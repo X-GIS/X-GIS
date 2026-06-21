@@ -89,6 +89,14 @@ function isDeadLayer(node: RenderNode, rasterSources: Set<string>): boolean {
   // silently dropped, leaving the base map without ne2_shaded.
   if (rasterSources.has(node.sourceRef)) return false
 
+  // Heatmap layers (Phase R) draw via the HeatmapRenderer's density
+  // pipeline — like raster, they declare NO fill / stroke / label, so the
+  // "nothing to draw" check below would falsely eliminate them and the
+  // heatmap ShowCommand (carrying isHeatmap + the radius/weight/intensity
+  // axes) would never reach the runtime → the HeatmapRenderer gets zero
+  // layers and nothing renders. Keep the node so its ShowCommand survives.
+  if (node.isHeatmap) return false
+
   // Nothing to draw. A layer must declare at least ONE of: a fill
   // colour, a stroke (colour or width), a label, or procedural
   // geometry. If every visual surface is `none` / absent, no

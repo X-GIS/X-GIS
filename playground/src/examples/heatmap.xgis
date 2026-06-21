@@ -1,0 +1,33 @@
+/* Population density heatmap — Phase R render subsystem.
+   The `heatmap` marker routes populated-places points through the 3-pass GPU
+   pipeline (accum Gaussian splat → separable blur → density→colour compose). */
+
+source ocean {
+  type: geojson
+  url: "ne_110m_ocean.geojson"
+}
+
+source land {
+  type: geojson
+  url: "ne_110m_land.geojson"
+}
+
+source cities {
+  type: geojson
+  url: "ne_110m_populated_places.geojson"
+}
+
+layer sea {
+  source: ocean
+  | fill-slate-900
+}
+
+layer ground {
+  source: land
+  | fill-slate-800 stroke-slate-700 stroke-0.5
+}
+
+layer population_heat {
+  source: cities
+  | heatmap heatmap-radius-22 heatmap-intensity-1 heatmap-opacity-0.9
+}

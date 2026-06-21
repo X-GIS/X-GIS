@@ -10,7 +10,7 @@ export const LAYER_TYPES: readonly CoverageEntry[] = [
   { name: 'fill-extrusion',     status: 'supported', note: 'Extruded polygon with per-vertex z.' },
   { name: 'raster',             status: 'supported' },
   { name: 'circle',             status: 'supported', note: 'Routes to the runtime PointRenderer (SDF disks). circle-radius/-color/-stroke-color/-stroke-width/-opacity all map onto the existing point utility surface, including interpolate-by-zoom + data-driven forms.', source: 'layers.ts:514' },
-  { name: 'heatmap',            status: 'unsupported', impact: 'medium', note: 'Batch 3 (accumulation MRT + Gaussian blur).', source: 'layers.ts:18' },
+  { name: 'heatmap',            status: 'supported', note: 'Phase R — 3-pass GPU pipeline (accum → Gaussian blur → density→colour compose) in HeatmapRenderer. Routes GeoJSON-source Point/MultiPoint heatmap layers to the renderer; heatmap-radius/-weight/-intensity/-color/-opacity supported. Tile-sourced heatmaps deferred.', source: 'layers-heatmap.ts' },
   { name: 'hillshade',          status: 'unsupported', impact: 'medium', note: 'Batch 4 (raster-dem + lighting shader).', source: 'layers.ts:19' },
   { name: 'sky',                status: 'unsupported', impact: 'low', note: 'Atmospheric sky dome (sky-color / sky-atmosphere-* / sky-type). Layer-level skip added to SKIP_REASONS so the converter emits an explicit // SKIPPED comment with diagnostic note rather than falling through to the generic handler.', source: 'layers.ts:SKIP_REASONS' },
 ]
