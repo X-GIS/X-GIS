@@ -22,7 +22,7 @@ A zero-dependency TypeScript shader DSL that eliminates hand-maintained GPU/CPU 
 | `core/schema.ts` | `struct(name, fields)` — declares a WGSL struct and returns a `StructHelper` with typed `get(node, field)` so a wrong field name is a TS compile error (AC4 mechanism). |
 | `shaders/projections.ts` | All 8 projection functions authored as a single `PROJECTION_MODULE` IR. Dispatch ladder generated from `projection/projections-table.ts`; cull thresholds read from the same table. Exports `PROJECTION_WGSL_CONSTS` and `PROJECTION_WGSL_FNS`. |
 | `shaders/cpu-projections.ts` | CPU-f64 dispatch generated from the same IR by the CPU backend. Exposes legacy mirror API names (`projectMercator`, `projectGlobe`, etc.) consumed by tile selection, raster `tile_rtc`, and label anchors. |
-| `shaders/polygon.ts` | Polygon shader (fill/stroke/extrude pipeline). `emitPolygonWgsl(variant, pickEnabled)` composes the 192-byte `Uniforms` struct, 3 vertex entries (`vs_main`/`vs_main_ecef`/`vs_main_ecef_extruded`), and 6 fragment entries. `placeholder` Stmts at `fill-return`/`stroke-return` sites are swapped per variant by the composer. Not in the barrel — imported directly by `vector-tile-renderer.ts`. |
+| `shaders/polygon.ts` | Polygon shader (fill/stroke/extrude pipeline). `emitPolygonWgsl(variant, pickEnabled)` composes the 256-byte `Uniforms` struct, 3 vertex entries (`vs_main`/`vs_main_ecef`/`vs_main_ecef_extruded`), and 6 fragment entries. `placeholder` Stmts at `fill-return`/`stroke-return` sites are swapped per variant by the composer. Not in the barrel — imported directly by `vector-tile-renderer.ts`. |
 | `shaders/line.ts` | Line shader graph. Emits `LINE_SHADER_WGSL`. Parallel pattern to `polygon.ts`. |
 | `shaders/point.ts` | Point shader graph, including per-feature flag dispatch via bitwise u32 ops. |
 | `shaders/icon.ts` | Icon/SDF-text shader graph. |
@@ -49,7 +49,7 @@ The `shaders/__polygon-variant-snapshots__/` subdirectory holds 8 committed `.wg
 - **`placeholder` Stmts must be swapped by the polygon composer before GPU emit.** An un-swapped placeholder emits a WGSL comment (no-op, silent) on the GPU side but throws on the CPU backend — the asymmetry is intentional and load-bearing.
 - **`raw` Stmts are GPU-only.** The CPU backend throws if it encounters one. Do not add `raw` Stmts on code paths that also run through `cpu-projections.ts` or compute evaluation.
 - **AC4 type safety is enforced by `tsc`, not by `bun run build`.** Gate phantom-type changes with `bunx tsc -p runtime/tsconfig.json --noEmit`.
-- **Polygon `Uniforms` struct is 192 bytes, field order is load-bearing.** Reordering fields silently mis-binds GPU reads in `vector-tile-renderer.ts` and every per-tile `writeBuffer` caller.
+- **Polygon `Uniforms` struct is 256 bytes (`UNIFORM_SIZE`/`UNIFORM_SLOT` in `vector-tile-renderer.ts`), field order is load-bearing.** Reordering fields silently mis-binds GPU reads in `vector-tile-renderer.ts` and every per-tile `writeBuffer` caller.
 - **Consumers import only from `../shader-dsl` (the barrel)** for the exported shaders. `polygon`, `frame-uniform`, `ecef`, `overdraw-*`, and `oit-compose` are consumed via direct internal imports — do not add them to the barrel without coordinating with all renderers.
 
 ### Testing Requirements
