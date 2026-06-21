@@ -34,15 +34,19 @@ describe('validate', () => {
 
   // ── FAIL-BEFORE (hand-built invalid modules) ──
 
-  it('throws on an unresolved varref', () => {
-    const bad = module({
+  // RULE a' (varref/param scope resolution) was REMOVED — it false-flagged the
+  // runtime polygon variant whose fs_fill references a compiler-injected name
+  // (`OPACITY`, prepended as raw WGSL outside m.consts). validate must ACCEPT a
+  // varref/param to a name it cannot see (regression guard, not a fail-before).
+  it('does NOT flag a varref/param to a compiler-injected name (OPACITY regression)', () => {
+    const m = module({
       funcs: [
-        fn('uses_ghost', { x: f32T }, f32T, (bld) => {
-          bld.ret(param('ghost', f32T)) // never declared
+        fn('fs_fill', {}, f32T, (bld) => {
+          bld.ret(param('OPACITY', f32T)) // injected outside m.consts; validate cannot know it
         }),
       ],
     })
-    expect(() => validate(bad)).toThrow(ValidationError)
+    expect(() => validate(m)).not.toThrow()
   })
 
   it('throws on a binding collision', () => {

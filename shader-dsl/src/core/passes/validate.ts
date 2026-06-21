@@ -3,23 +3,24 @@
 // A pre-emit static check over an AUTHORED ModuleDecl, run at the TOP of
 // emitModule / emitGlslModule / compileModule (BEFORE lowerModule). It catches
 // the structurally-invalid modules a composer / hand-author can produce —
-// duplicate struct/func names, colliding (group,binding) slots, an unresolved
-// function-local name, and a non-void fn whose every path falls through without
-// a return — and throws ValidationError so the failure surfaces at authoring
-// time instead of as opaque WGSL the driver later rejects.
+// duplicate struct/func names, colliding (group,binding) slots, a mixed-scalar
+// binop, and a non-void fn whose every path falls through without a return — and
+// throws ValidationError so the failure surfaces at authoring time instead of as
+// opaque WGSL the driver later rejects.
 //
-// SCOPE (the shipped spine): only the rules that PROVABLY hold for all 21 live
-// shaders are implemented (a' scope / c return / d binding / e dup-name). The
-// cross-module rules (constref-resolves, callee-exists+arity, member-field) are
-// DEFERRED — the live shaders prepend their consts/helpers as raw WGSL outside
-// m.consts / m.funcs, so those rules would false-flag every real shader. See the
-// validate task design for the per-rule risk table.
+// SCOPE (the shipped spine): only the rules that PROVABLY hold for every shader —
+// including the RUNTIME-composed variants — are implemented: dup-name (e), binding
+// collision (d), all-paths-return (c), mixed-scalar binop (t). Name-resolution
+// rules (varref/param scope, constref-resolves, callee-exists+arity, member-field)
+// are DEFERRED: the compiler / composer prepend consts and uniforms (PI, OPACITY,
+// …) as raw WGSL OUTSIDE m.consts / m.funcs and reference them by plain name, so a
+// name rule cannot distinguish a valid injected name from a typo and false-flags
+// real shaders (it once broke the polygon VT variant on `OPACITY` at runtime).
 //
-// HARD INVARIANTS: raw + placeholder Stmts are OPAQUE leaves (the polygon
-// composer injects returns via a raw/placeholder swap, so a body containing one
-// is treated as may-return); constref names are SKIPPED (they resolve to
-// prepended raw consts); the Expr walker handles matchExpr (validate runs
-// pre-lowerModule, so polygon's match chains are still matchExpr Exprs).
+// HARD INVARIANTS: raw + placeholder Stmts are OPAQUE leaves (the polygon composer
+// injects returns via a raw/placeholder swap, so a body containing one is treated
+// as may-return); RULE t walks matchExpr (validate runs pre-lowerModule, so
+// polygon's match chains are still matchExpr Exprs).
 
 import { typeKey } from '../ir'
 import type { ModuleDecl, FuncDecl, Stmt, Expr, ShaderType } from '../ir'
@@ -57,32 +58,18 @@ export function validate(m: ModuleDecl): void {
     slots.set(key, b.name)
   }
 
-  // Module bindings (uniform / storage / texture / sampler) are in scope in
-  // EVERY function — seed them so a `varref` to a binding (e.g. `u.field(...)`,
-  // `u` = `@group(0) @binding(0) var<uniform> u`) is not mis-flagged as an
-  // unresolved local. (Raw-prepended consts/helpers are handled separately:
-  // constref is skipped; raw/placeholder are opaque.)
-  const bindingNames = new Set<string>(m.bindings.map((b) => b.name))
-  for (const f of m.funcs) validateFn(f, bindingNames)
+  for (const f of m.funcs) validateFn(f)
 }
 
-function validateFn(f: FuncDecl, bindingNames: ReadonlySet<string>): void {
-  // RULE a' — function-local name resolution. Flat, lenient: every introduced
-  // name (param / let / var / for-counter) is collected across ALL nested
-  // bodies into ONE set, mirroring the oracle's one-flat-env-per-call reality
-  // (oracle.ts evalExpr: a single `env` Map per fn call), plus the module-level
-  // binding names (in scope everywhere). Then every leaf varref/param Expr must
-  // resolve to a collected name.
-  const declared = new Set<string>(bindingNames)
-  for (const p of f.params) declared.add(p.name)
-  for (const s of f.body) collectDeclared(s, declared)
-  // RULE a' is SKIPPED for any fn whose body contains a raw Stmt: raw WGSL can
-  // DECLARE names (the polygon composer injects `var _mcSS: vec4f = …` as a raw
-  // preamble) that a structured sibling `varref` then references, and validate
-  // cannot parse the raw string to learn those names. Same leniency as RULE c.
-  if (!bodyContainsRaw(f.body)) {
-    for (const s of f.body) checkStmtNames(s, declared, f.name)
-  }
+function validateFn(f: FuncDecl): void {
+  // NOTE: the former function-local varref/param SCOPE-RESOLUTION rule (RULE a')
+  // was REMOVED — it kept false-flagging live shaders. The compiler / composer
+  // prepend consts and uniforms (PI, OPACITY, …) as raw WGSL OUTSIDE m.consts and
+  // reference them by plain name in non-raw fn bodies; validate cannot distinguish
+  // such a valid injected name from a typo'd local, so the rule was net-negative
+  // (false-flagged `u`, `_mcSS`, `OPACITY` at runtime). The structurally-safe rules
+  // — dup-name, binding-collision, all-paths-return, mixed-scalar — remain and hold
+  // for every shader incl. the runtime-composed variants.
 
   // RULE c — a non-void fn must return on every path.
   if (f.ret.kind !== 'void' && !alwaysReturns(f.body)) {
@@ -94,142 +81,6 @@ function validateFn(f: FuncDecl, bindingNames: ReadonlySet<string>): void {
   // type is a driver compile error. Uses Expr.type only (never names), so it is
   // safe even for raw-containing fns. Shifts are exempt (their RHS is u32 by spec).
   for (const s of f.body) checkBinopScalars(s, f.name)
-}
-
-// ── RULE a' scope: pre-pass name collection ──
-
-/** Collect every name a Stmt (and its nested bodies) introduces into `out`.
- *  raw / placeholder Stmts are opaque — they introduce nothing. */
-function collectDeclared(s: Stmt, out: Set<string>): void {
-  switch (s.s) {
-    case 'let': out.add(s.name); break
-    case 'var': out.add(s.name); break
-    case 'if':
-      for (const arm of s.arms) for (const b of arm.body) collectDeclared(b, out)
-      if (s.elseBody) for (const b of s.elseBody) collectDeclared(b, out)
-      break
-    case 'for':
-      // The init Stmt is a `var` introducing the loop counter.
-      collectDeclared(s.init, out)
-      for (const b of s.body) collectDeclared(b, out)
-      break
-    case 'switch':
-      for (const c of s.cases) for (const b of c.body) collectDeclared(b, out)
-      if (s.defaultBody) for (const b of s.defaultBody) collectDeclared(b, out)
-      break
-    // assign / assignOp / return / break / continue / discard / raw / placeholder
-    // introduce no names (raw/placeholder are opaque leaves).
-    default: break
-  }
-}
-
-/** True iff any Stmt in `body` (recursively, through if/for/switch) is a raw
- *  WGSL Stmt — a fn with one may declare names validate cannot see. */
-function bodyContainsRaw(body: readonly Stmt[]): boolean {
-  for (const s of body) {
-    if (s.s === 'raw') return true
-    if (s.s === 'if') {
-      if (s.arms.some((a) => bodyContainsRaw(a.body))) return true
-      if (s.elseBody && bodyContainsRaw(s.elseBody)) return true
-    } else if (s.s === 'for') {
-      if (bodyContainsRaw(s.body)) return true
-    } else if (s.s === 'switch') {
-      if (s.cases.some((c) => bodyContainsRaw(c.body))) return true
-      if (s.defaultBody && bodyContainsRaw(s.defaultBody)) return true
-    }
-  }
-  return false
-}
-
-// ── RULE a' scope: leaf varref/param resolution ──
-
-function checkStmtNames(s: Stmt, declared: Set<string>, fnName: string): void {
-  switch (s.s) {
-    case 'let': checkExprNames(s.expr, declared, fnName); break
-    case 'var': if (s.init) checkExprNames(s.init, declared, fnName); break
-    case 'assign':
-      checkExprNames(s.target, declared, fnName)
-      checkExprNames(s.expr, declared, fnName)
-      break
-    case 'assignOp':
-      checkExprNames(s.target, declared, fnName)
-      checkExprNames(s.expr, declared, fnName)
-      break
-    case 'if':
-      for (const arm of s.arms) {
-        checkExprNames(arm.cond, declared, fnName)
-        for (const b of arm.body) checkStmtNames(b, declared, fnName)
-      }
-      if (s.elseBody) for (const b of s.elseBody) checkStmtNames(b, declared, fnName)
-      break
-    case 'return': if (s.expr) checkExprNames(s.expr, declared, fnName); break
-    case 'for':
-      checkStmtNames(s.init, declared, fnName)
-      checkExprNames(s.cond, declared, fnName)
-      checkStmtNames(s.update, declared, fnName)
-      for (const b of s.body) checkStmtNames(b, declared, fnName)
-      break
-    case 'switch':
-      checkExprNames(s.scrut, declared, fnName)
-      for (const c of s.cases) for (const b of c.body) checkStmtNames(b, declared, fnName)
-      if (s.defaultBody) for (const b of s.defaultBody) checkStmtNames(b, declared, fnName)
-      break
-    // break / continue / discard / raw / placeholder — opaque leaves, no Exprs to gate.
-    default: break
-  }
-}
-
-function checkExprNames(e: Expr, declared: Set<string>, fnName: string): void {
-  switch (e.op) {
-    case 'varref':
-    case 'param':
-      // The only gate-checked leaf. constref is deliberately NOT here — it
-      // resolves to a prepended raw const outside m.consts.
-      if (!declared.has(e.name)) {
-        throw new ValidationError(`unresolved name '${e.name}' in fn '${fnName}'`)
-      }
-      break
-    case 'lit':
-    case 'constref':
-      break
-    case 'binop':
-    case 'compare':
-      checkExprNames(e.a, declared, fnName)
-      checkExprNames(e.b, declared, fnName)
-      break
-    case 'logical':
-      checkExprNames(e.a, declared, fnName)
-      checkExprNames(e.b, declared, fnName)
-      break
-    case 'unop':
-      checkExprNames(e.a, declared, fnName)
-      break
-    case 'call':
-      for (const a of e.args) checkExprNames(a, declared, fnName)
-      break
-    case 'construct':
-      for (const a of e.args) checkExprNames(a, declared, fnName)
-      break
-    case 'member':
-      checkExprNames(e.base, declared, fnName)
-      break
-    case 'index':
-      checkExprNames(e.base, declared, fnName)
-      checkExprNames(e.idx, declared, fnName)
-      break
-    case 'select':
-      checkExprNames(e.cond, declared, fnName)
-      checkExprNames(e.ifTrue, declared, fnName)
-      checkExprNames(e.ifFalse, declared, fnName)
-      break
-    case 'matchExpr':
-      // validate runs BEFORE lowerModule, so polygon's match chains are still
-      // matchExpr Exprs — visit scrutinee / case values / default.
-      checkExprNames(e.scrutinee, declared, fnName)
-      for (const [, v] of e.cases) checkExprNames(v, declared, fnName)
-      checkExprNames(e.default, declared, fnName)
-      break
-  }
 }
 
 // ── RULE c: conservative all-paths-return analysis ──
