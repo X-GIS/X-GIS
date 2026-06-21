@@ -29,5 +29,5 @@ layer ground {
 
 layer population_heat {
   source: cities
-  | heatmap heatmap-radius-40 heatmap-intensity-3 heatmap-opacity-0.9
+  | heatmap heatmap-radius-22 heatmap-intensity-1 heatmap-opacity-0.9
 }
