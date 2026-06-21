@@ -32,7 +32,7 @@ const __dirname_eq = dirname(__filename_eq)
 // no-cycle rule we intentionally maintain.)
 const GALLERY_DEMOS = [
   // Basics
-  'minimal', 'ocean_land', 'dark', 'styled_world',
+  'minimal', 'ocean_land', 'dark', 'styled_world', 'inline_data',
   // PMTiles + MVT
   'pmtiles_source', 'pmtiles_layered', 'osm_style', 'pmtiles_only_landuse', 'pmtiles_v4',
   'openfreemap_bright',
@@ -47,7 +47,7 @@ const GALLERY_DEMOS = [
   'translucent_lines', 'multi_layer_line',
   // Symbols & points
   'custom_symbol', 'custom_shapes', 'gradient_points', 'populated_places',
-  'procedural_circles', 'sdf_points', 'shape_gallery',
+  'procedural_circles', 'sdf_points', 'shape_gallery', 'heatmap',
   // Animation
   'animation_pulse', 'animation_showcase',
   // Zoom behavior

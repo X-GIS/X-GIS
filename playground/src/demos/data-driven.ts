@@ -49,6 +49,13 @@ export const DEMOS_DATA_DRIVEN: Record<string, Demo> = {
     source: load('heatmap.xgis'),
   },
 
+  inline_data: {
+    name: 'Inline GeoJSON',
+    tag: 'data-driven',
+    description: 'GeoJSON embedded directly in the source via `data: { ... }` — no url fetch',
+    source: load('inline-data.xgis'),
+  },
+
   custom_shapes: {
     name: 'Custom Shapes',
     tag: 'point',

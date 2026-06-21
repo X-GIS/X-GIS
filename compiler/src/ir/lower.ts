@@ -70,7 +70,7 @@ export function lower(program: AST.Program, options: LowerOptions = {}): Scene {
       case 'KeyframesStatement':
         break // already processed in first pass
       case 'SourceStatement': {
-        const src = lowerSource(stmt)
+        const src = lowerSource(stmt, diagnostics)
         if (src) {
           sources.push(src)
           sourceMap.set(src.name, src)
@@ -110,17 +110,36 @@ export function lower(program: AST.Program, options: LowerOptions = {}): Scene {
 
 // ═══ New syntax lowering ═══
 
-function lowerSource(stmt: AST.SourceStatement): SourceDef | null {
+function lowerSource(
+  stmt: AST.SourceStatement,
+  diagnostics: import('./render-node').Diagnostic[],
+): SourceDef | null {
   let type = 'geojson'
   let url = ''
   let layers: string[] | undefined
   let crs: string | undefined
+  /** Inline GeoJSON embedded via `data: {...}`. Converted from the
+   *  ObjectLiteral AST to a plain JS object; the runtime seeds it
+   *  instead of fetching `url`. */
+  let inlineData: unknown
 
   for (const prop of stmt.properties) {
     if (prop.name === 'type' && prop.value.kind === 'Identifier') {
       type = prop.value.name
     } else if (prop.name === 'url' && prop.value.kind === 'StringLiteral') {
       url = prop.value.value
+    } else if (prop.name === 'data') {
+      // Inline GeoJSON — `data: { "type": "FeatureCollection", ... }`.
+      // Must be an object literal; convert the literal-only AST subtree to
+      // a plain JS object the runtime can seed directly (no url fetch).
+      if (prop.value.kind !== 'ObjectLiteral') {
+        throw new Error(
+          `Source '${stmt.name}' (line ${stmt.line}): 'data' must be an inline ` +
+          `GeoJSON object literal (e.g. \`data: { "type": "FeatureCollection", ` +
+          `"features": [...] }\`).`,
+        )
+      }
+      inlineData = astLiteralToJS(prop.value, stmt.name, stmt.line)
     } else if (prop.name === 'crs') {
       if (prop.value.kind === 'StringLiteral') {
         // Constant CRS is preserved in the AST by the generic
@@ -166,9 +185,71 @@ function lowerSource(stmt: AST.SourceStatement): SourceDef | null {
   // reprojection. Non-geojson sources without a crs leave it unset.
   const resolvedCrs = crs ?? (type === 'geojson' ? 'EPSG:4326' : undefined)
 
+  // `data:` and `url:` both set — prefer the inline data; warn so the
+  // dropped `url` fetch doesn't silently surprise the author.
+  if (inlineData !== undefined && url) {
+    diagnostics.push({
+      severity: 'warn',
+      code: 'X-GIS0007',
+      line: stmt.line,
+      message:
+        `Source "${stmt.name}" declares both \`data:\` (inline GeoJSON) and ` +
+        `\`url:\` — the inline \`data\` wins and the \`url\` fetch is ignored. ` +
+        `Remove one to silence this warning.`,
+    })
+  }
+
   // Inline source (no url) — runtime seeds with an empty FeatureCollection
-  // and the host fills it via setSourceData / setSourcePoints.
-  return { name: stmt.name, type, url, layers, crs: resolvedCrs }
+  // and the host fills it via setSourceData / setSourcePoints. An inline
+  // `data:` source carries its GeoJSON in `inlineData` for the runtime to seed.
+  return { name: stmt.name, type, url, layers, crs: resolvedCrs, inlineData }
+}
+
+/** Convert a literal-only AST expression subtree (the `data: {...}` inline
+ *  GeoJSON) into a plain JS value. Only JSON-shaped literals are allowed —
+ *  any expression (Identifier / FieldAccess / FnCall / BinaryExpr / …)
+ *  throws, since inline GeoJSON must be static data, not a computed value. */
+function astLiteralToJS(expr: AST.Expr, sourceName: string, line: number): unknown {
+  switch (expr.kind) {
+    case 'ObjectLiteral': {
+      const obj: Record<string, unknown> = {}
+      for (const { key, value } of expr.properties) {
+        obj[key] = astLiteralToJS(value, sourceName, line)
+      }
+      return obj
+    }
+    case 'ArrayLiteral':
+      return expr.elements.map((el) => astLiteralToJS(el, sourceName, line))
+    case 'NumberLiteral':
+      return expr.value
+    case 'StringLiteral':
+      return expr.value
+    case 'BoolLiteral':
+      return expr.value
+    case 'ColorLiteral':
+      return expr.value
+    case 'UnaryExpr': {
+      // GeoJSON coordinates are full of negatives; the parser tokenises
+      // `-160` as a unary-minus over NumberLiteral(160), NOT a negative
+      // literal. Fold unary +/- over a numeric literal back to a signed
+      // number so real-world geojson (W/S hemispheres) parses.
+      const inner = astLiteralToJS(expr.operand, sourceName, line)
+      if (typeof inner === 'number' && (expr.op === '-' || expr.op === '+')) {
+        return expr.op === '-' ? -inner : inner
+      }
+      throw new Error(
+        `Source '${sourceName}' (line ${line}): inline \`data\` unary '${expr.op}' ` +
+        `is only valid on a number literal.`,
+      )
+    }
+    default:
+      throw new Error(
+        `Source '${sourceName}' (line ${line}): inline \`data\` must be literal ` +
+        `GeoJSON — got a '${expr.kind}' expression. Only JSON literals ` +
+        `(objects, arrays, numbers, strings, booleans) are allowed; ` +
+        `field access, function calls, and other expressions are not.`,
+      )
+  }
 }
 
 function lowerLayer(

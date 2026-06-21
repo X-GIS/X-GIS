@@ -77,6 +77,9 @@ export interface SourceDef {
    *  reprojection). `type:vector` with a crs is rejected at lower time
    *  (MVT/PMTiles reprojection is out of scope). */
   crs?: string
+  /** Inline GeoJSON embedded in the source block via `data: {...}` —
+   *  runtime seeds this instead of fetching `url`. */
+  inlineData?: unknown
 }
 
 // ─── RenderNode paint sub-bundles (Tier-B B2, row 5) ───────────────

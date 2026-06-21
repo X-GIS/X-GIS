@@ -75,6 +75,14 @@ export interface LoadCommand {
   // which always routes through the IR pipeline (lower + emitCommands).
   // The legacy path therefore assumes EPSG:4326. The CRS-carrying field
   // lives on the compiler LoadCommand at emit-commands.ts instead.
+  /** Inline GeoJSON from a `source x { data: {...} }` block. Mirror of
+   *  the compiler-side LoadCommand field (emit-commands.ts) so the
+   *  runtime ingest path (`_attachOneSource`) can read `load.inlineData`
+   *  with a typed field on whichever LoadCommand the SceneCommands carry
+   *  — the two-sibling rule the runtime ShowCommand interfaces follow.
+   *  The legacy `interpret(ast)` path never sets it (no `data:` in the
+   *  old `let`/`show` grammar); it exists purely for the type contract. */
+  inlineData?: unknown
 }
 
 export interface SceneCommands {

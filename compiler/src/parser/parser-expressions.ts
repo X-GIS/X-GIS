@@ -243,6 +243,32 @@ export class ExpressionParser extends ParserCursor {
       return { kind: 'ArrayLiteral', elements }
     }
 
+    // Object literal: { "key": expr, key: expr, ... }
+    // Value-position only — a bare `{` here is unambiguous (match blocks
+    // are identifier-prefixed and parsed in parsePostfix / parseMatchBlock,
+    // never at the start of a primary). Used by `source x { data: {...} }`
+    // to embed inline GeoJSON. Keys may be a string- or identifier-literal.
+    if (token.type === TokenType.LBrace) {
+      this.advance()
+      const properties: { key: string; value: AST.Expr }[] = []
+      while (!this.check(TokenType.RBrace) && !this.check(TokenType.EOF)) {
+        let key: string
+        if (this.check(TokenType.String)) {
+          key = this.advance().value
+        } else if (this.check(TokenType.Identifier)) {
+          key = this.advance().value
+        } else {
+          this.error(`Expected object key (string or identifier), got ${TokenType[this.current().type]} ('${this.current().value}')`)
+        }
+        this.expect(TokenType.Colon)
+        const value = this.parseExpr()
+        properties.push({ key, value })
+        if (this.check(TokenType.Comma)) this.advance()
+      }
+      this.expect(TokenType.RBrace)
+      return { kind: 'ObjectLiteral', properties }
+    }
+
     // Grouped expression: ( expr )
     if (token.type === TokenType.LParen) {
       this.advance()

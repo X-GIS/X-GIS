@@ -170,6 +170,7 @@ export class SourceManager {
     }
   }
 
+
   /** Attach one declared `load:` from the parsed program — dispatches
    *  by URL/format into the four supported branches:
    *    1. raster tile template (`{z}/{x}/{y}` URL)        → store URL string
@@ -190,6 +191,19 @@ export class SourceManager {
     maps: ShowSourceMaps,
     cameraFitState: { fit: boolean },
   ): Promise<void> {
+    // Inline GeoJSON (`source x { data: {...} }`) — route through the SAME
+    // VirtualPMTiles geojson ingest the url path uses (reproject → tile via
+    // VirtualPMTilesBackend → VTR pipelines → camera-fit), just skipping the
+    // fetch. Seeding only `rawDatasets` is NOT enough to render: the source
+    // must be tiled with a backend exactly like url geojson, or it stays
+    // invisible (real-GPU verified — rawDatasets-only seed produced a blank
+    // frame even tiled+camera-fit). `data:` wins over `url:` (compiler warns).
+    if (load.inlineData !== undefined && load.inlineData !== null) {
+      await this._attachGeoJSONViaVirtualPMTiles(
+        load.name, load.inlineData as GeoJSONFeatureCollection, maps, cameraFitState,
+      )
+      return
+    }
     const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
     console.log(`[X-GIS] Loading: ${load.name} from ${url}`)
 
