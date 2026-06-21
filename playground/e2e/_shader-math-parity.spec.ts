@@ -58,8 +58,8 @@ const tolFor = (cpuVal: number): number =>
 // Compute WGSL: shared consts + the real projection block + a kernel that
 // calls the actual `project()` over the grid for one projType.
 const COMPUTE_WGSL = `
-${WGSL_PROJECTION_CONSTS}
-${WGSL_PROJECTION_FNS}
+${WGSL_PROJECTION_CONSTS()}
+${WGSL_PROJECTION_FNS()}
 struct In { lon: f32, lat: f32 }
 @group(0) @binding(0) var<storage, read> inp: array<In>;
 @group(0) @binding(1) var<storage, read_write> outp: array<vec2<f32>>;
@@ -183,8 +183,8 @@ test.describe('shader-math parity (executed WGSL vs TS mirror)', () => {
       ys.push(Math.log(Math.tan(Math.PI / 4 + (lat * (Math.PI / 180)) / 2)) * 6378137)
     }
     const wgsl = `
-${WGSL_PROJECTION_CONSTS}
-${WGSL_PROJECTION_FNS}
+${WGSL_PROJECTION_CONSTS()}
+${WGSL_PROJECTION_FNS()}
 @group(0) @binding(0) var<storage, read> inp: array<f32>;
 @group(0) @binding(1) var<storage, read_write> outp: array<f32>;
 @compute @workgroup_size(64)

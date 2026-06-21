@@ -43,7 +43,7 @@ function declaredIdentifiers(wgsl: string): string[] {
 
 describe('shader WGSL never declares an identifier that is a reserved word', () => {
   const sources: [string, string][] = [
-    ['WGSL_PROJECTION_FNS', WGSL_PROJECTION_FNS],
+    ['WGSL_PROJECTION_FNS', WGSL_PROJECTION_FNS()],
     ['emitPolygonWgsl', emitPolygonWgsl(null, true)],
     ['emitLineWgsl', emitLineWgsl(true)],
     ['emitRasterWgsl', emitRasterWgsl(true)],
@@ -56,6 +56,6 @@ describe('shader WGSL never declares an identifier that is a reserved word', () 
   }
 
   it('the `ref` regression specifically stays fixed', () => {
-    expect(WGSL_PROJECTION_FNS).not.toMatch(/\bref\s*:/)
+    expect(WGSL_PROJECTION_FNS()).not.toMatch(/\bref\s*:/)
   })
 })

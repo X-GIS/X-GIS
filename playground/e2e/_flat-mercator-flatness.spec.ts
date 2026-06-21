@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import {
-  PROJECTION_WGSL_CONSTS,
-  PROJECTION_WGSL_FNS,
+  getProjectionWgslConsts,
+  getProjectionWgslFns,
 } from '../../runtime/src/engine/shader-dsl/shaders/projections'
 
 // ═══ Flat display projection FLATNESS gate (minimal render → texture) ═══
@@ -118,7 +118,7 @@ test('flat display: same-latitude points share screen-Y (mercator / equirect / n
       for (const lon of args.lons) byProj[pt].push(await draw(pt, lon, args.lat))
     }
     return byProj
-  }, { consts: PROJECTION_WGSL_CONSTS, fns: PROJECTION_WGSL_FNS, mvp: setup.mvp, projTypes: SAME_Y_PROJ.map(p => p.projType), lons: LONS, lat: LAT })
+  }, { consts: getProjectionWgslConsts(), fns: getProjectionWgslFns(), mvp: setup.mvp, projTypes: SAME_Y_PROJ.map(p => p.projType), lons: LONS, lat: LAT })
 
   for (const { projType, name } of SAME_Y_PROJ) {
     const pts = out[projType]!

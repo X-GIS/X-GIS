@@ -25,7 +25,7 @@ import {
   type StructDecl, type ModuleDecl,
 } from '../core/ir'
 import { emitModule } from '../core/backends/wgsl'
-import { PROJECTION_WGSL_CONSTS, PROJECTION_WGSL_FNS } from './projections'
+import { getProjectionWgslConsts, getProjectionWgslFns } from './projections'
 import { LOG_DEPTH_WGSL_FNS } from './log-depth'
 
 const Uniforms: StructDecl = {
@@ -501,8 +501,8 @@ const POINT_MODULE: ModuleDecl = module({
 /** Full point shader: shared DSL-emitted projection consts + log-depth fns +
  *  projection fns, then the point module. No pick variant. */
 export const emitPointWgsl = (): string => [
-  PROJECTION_WGSL_CONSTS,
+  getProjectionWgslConsts(),
   LOG_DEPTH_WGSL_FNS,
-  PROJECTION_WGSL_FNS,
+  getProjectionWgslFns(),
   emitModule(POINT_MODULE),
 ].join('\n')

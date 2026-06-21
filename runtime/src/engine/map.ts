@@ -6,7 +6,8 @@ import { Lexer, Parser, lower, optimize, emitCommands, evaluate, makeEvalProps, 
 import { packPalette, uploadPalette, type PaletteTextures } from './gpu/palette-texture'
 import type * as AST from '@xgis/compiler'
 import { SyntheticEarthSurfaceBackend } from '../data/sources/synthetic-earth-surface-backend'
-import { PROJECTION_NAME_TO_TYPE } from './projection/projections-table'
+import { PROJECTION_NAME_TO_TYPE, PROJECTIONS } from './projection/projections-table'
+import { configureProjections } from './shader-dsl'
 import { worldBandForProjType } from './projection/earth-surface-fill'
 import { projectLonLatToScreenCss } from './render-loop-helpers'
 import {
@@ -741,6 +742,7 @@ export class XGISMap {
   }
 
   constructor(private canvas: HTMLCanvasElement, options: XGISMapOptions = {}) {
+    configureProjections(PROJECTIONS)
     this.camera = new Camera(0, 20, 2)
     this.cameraController = new CameraController(this.camera, {
       invalidate: () => this.invalidate(),

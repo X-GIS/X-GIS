@@ -50,6 +50,6 @@ describe('rim_alpha rollout coverage', () => {
   it('rim_alpha function is emitted into WGSL_PROJECTION_FNS', () => {
     // The projection block is now DSL-emitted (shader-dsl/projections.ts), so
     // check the emitted string carries the fn — not the source file text.
-    expect(WGSL_PROJECTION_FNS).toContain('fn rim_alpha(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>) -> f32')
+    expect(WGSL_PROJECTION_FNS()).toContain('fn rim_alpha(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>) -> f32')
   })
 })

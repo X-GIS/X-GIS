@@ -43,7 +43,7 @@ describe('projection threshold drift gate', () => {
     // DSL-emitted form: `select(-1.0, 1.0, (cc > -0.85))` (fully parenthesised),
     // azimuthal then stereo.
     const found = allMatches(
-      WGSL_PROJECTION_FNS,
+      WGSL_PROJECTION_FNS(),
       /select\(-1\.0, 1\.0, \(cc > (-?[\d.]+)\)\)/g,
     )
     expect(found).toEqual([AZIMUTHAL, STEREO])
@@ -53,7 +53,7 @@ describe('projection threshold drift gate', () => {
     // DSL emits `smoothstep(LO, HI, cc)` with bounds precomputed (RIM_FADE
     // inlined). In rim_alpha body order: ortho, azimuthal, stereo, globe.
     const found = allMatches(
-      WGSL_PROJECTION_FNS,
+      WGSL_PROJECTION_FNS(),
       /smoothstep\((-?[\d.]+), -?[\d.]+, cc\)/g,
     )
     expect(found).toEqual([ORTHO, AZIMUTHAL, STEREO, ORTHO])
@@ -96,7 +96,7 @@ describe('projection threshold drift gate', () => {
   it('RIM_FADE band width is 0.02 in the emitted WGSL and the raster shader', () => {
     // The DSL inlines RIM_FADE (no `let RIM_FADE`), so each emitted smoothstep
     // band must be exactly 0.02 wide (HI − LO).
-    const bands = [...WGSL_PROJECTION_FNS.matchAll(/smoothstep\((-?[\d.]+), (-?[\d.]+), cc\)/g)]
+    const bands = [...WGSL_PROJECTION_FNS().matchAll(/smoothstep\((-?[\d.]+), (-?[\d.]+), cc\)/g)]
       .map((m) => Math.round((parseFloat(m[2]!) - parseFloat(m[1]!)) * 1000) / 1000)
     expect(bands).toEqual([0.02, 0.02, 0.02, 0.02])
     const raster = emitRasterWgsl(false)

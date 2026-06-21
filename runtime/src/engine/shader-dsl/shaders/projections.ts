@@ -32,6 +32,24 @@ import {
 import { PROJECTIONS } from '../../projection/projections-table'
 import { emitConst, emitFunc } from '../core/backends/wgsl'
 
+// ── Backend-agnostic projection injection (standalone-package seam) ──
+// shader-dsl owns the projection MATH; the ordered spec list (projType index ==
+// array order, globe flag, cull thresholds) is INJECTED by the host so this
+// package keeps zero outbound dependency (future standalone repo / extra
+// backend). configureProjections() must run before the first emit / cpu-proj
+// use. Transitional: an unconfigured build falls back to the imported
+// PROJECTIONS table (identical data) — the import is dropped in the package split.
+export interface ProjectionSpec { name: string; projType: number; isGlobe: boolean; cullThreshold?: number | null }
+let _specs: ProjectionSpec[] | null = null
+let _artifacts: ReturnType<typeof buildProjectionArtifacts> | null = null
+export function configureProjections(specs: readonly ProjectionSpec[]): void { _specs = specs as ProjectionSpec[]; _artifacts = null }
+function artifacts(): ReturnType<typeof buildProjectionArtifacts> {
+  return (_artifacts ??= buildProjectionArtifacts(_specs ?? (PROJECTIONS as unknown as ProjectionSpec[])))
+}
+export const getPROJECTION_MODULE = (): ModuleDecl => artifacts().PROJECTION_MODULE
+export const getProjectionWgslConsts = (): string => artifacts().PROJECTION_WGSL_CONSTS
+export const getProjectionWgslFns = (): string => artifacts().PROJECTION_WGSL_FNS
+
 // ── Constants (WGSL value | CPU value) ──
 export const PROJECTION_CONSTS: ConstDecl[] = [
   { name: 'PI', type: f32T, wgslValue: 3.14159265, cpuValue: Math.PI },
@@ -45,14 +63,6 @@ const DEG2RAD = constRef('DEG2RAD')
 const EARTH_R = constRef('EARTH_R')
 const MERCATOR_LAT_LIMIT = constRef('MERCATOR_LAT_LIMIT')
 
-// Thresholds pulled from the table so dispatch + cull can never drift.
-const byName = (n: string) => {
-  const r = PROJECTIONS.find((p) => p.name === n)
-  if (!r) throw new Error(`projections-dsl: missing table entry ${n}`)
-  return r
-}
-const AZI_CULL = byName('azimuthal_equidistant').cullThreshold as number // -0.85
-const STEREO_CULL = byName('stereographic').cullThreshold as number // -0.8
 const RIM_FADE = 0.02
 
 // ── Leaf projections ──
@@ -219,7 +229,21 @@ const center_cos_c = fn('center_cos_c', { lon_deg: f32T, lat_deg: f32T, clon: f3
   b.ret(sin(p0).mul(sin(phi)).add(cos(p0).mul(cos(phi)).mul(cos(lam.sub(l0)))))
 })
 
-// ── Forward dispatch (GENERATED from PROJECTIONS) ──
+// ── Projection artifacts builder (table-injected via ProjectionSpec seam) ──
+// Every table-dependent declaration lives inside this function so the injected
+// spec list drives the dispatch ladder + cull thresholds. Built once, memoized
+// by artifacts(). Leaf projection fns + PROJECTION_CONSTS above are table-free
+// and stay eager (module scope, referenced here via closure).
+function buildProjectionArtifacts(specs: ProjectionSpec[]) {
+const byName = (n: string) => {
+  const r = specs.find((p) => p.name === n)
+  if (!r) throw new Error(`projections-dsl: missing spec entry ${n}`)
+  return r
+}
+const AZI_CULL = byName('azimuthal_equidistant').cullThreshold as number // -0.85
+const STEREO_CULL = byName('stereographic').cullThreshold as number // -0.8
+
+// ── Forward dispatch (GENERATED from the injected specs) ──
 
 // Build the forward call for a given table record (per-projection arity).
 function forwardCall(name: string, lon: Node, lat: Node, clon: Node, clat: Node): Node {
@@ -236,7 +260,7 @@ function forwardCall(name: string, lon: Node, lat: Node, clon: Node, clat: Node)
 }
 
 // 2D-dispatch projections, table-ordered (projType 0..6, globe excluded).
-const FLAT = PROJECTIONS.filter((p) => !p.isGlobe)
+const FLAT = specs.filter((p) => !p.isGlobe)
 
 // Generate the `if (t < n.5) … else …` ladder returning each projection's
 // forward — straight from the table order.
@@ -417,7 +441,7 @@ const inv_merc_lat_rad = fn('inv_merc_lat_rad', { merc_y_m: f32T }, f32T, (b, { 
 
 // ── Module assembly ──
 
-export const PROJECTION_FUNCS: FuncDecl[] = [
+const PROJECTION_FUNCS: FuncDecl[] = [
   proj_mercator, wrap_lon_delta, proj_equirectangular_d, proj_natural_earth_d,
   proj_equirectangular, proj_natural_earth, unwrap_lon_near, unwrap_lon_near_keep, unwrap_rad_near,
   proj_orthographic, proj_azimuthal_equidistant, proj_stereographic,
@@ -425,7 +449,7 @@ export const PROJECTION_FUNCS: FuncDecl[] = [
   center_cos_c, project, project_geom, project_geom_cpu, flat_rel, needs_backface_cull, rim_alpha, inv_merc_lat_rad,
 ]
 
-export const PROJECTION_MODULE: ModuleDecl = module({
+const PROJECTION_MODULE: ModuleDecl = module({
   consts: PROJECTION_CONSTS,
   funcs: PROJECTION_FUNCS,
 })
@@ -437,5 +461,8 @@ export const PROJECTION_MODULE: ModuleDecl = module({
 // WGSL_PROJECTION_FNS — so the polygon / line / point / raster shaders now
 // consume DSL-emitted WGSL from the SAME graph as the cpu-f64 lowering.
 const GPU_PROJECTION_FUNCS = PROJECTION_FUNCS.filter((f) => f.name !== 'project_geom_cpu')
-export const PROJECTION_WGSL_CONSTS = `${PROJECTION_CONSTS.map(emitConst).join('\n')}\n`
-export const PROJECTION_WGSL_FNS = `${GPU_PROJECTION_FUNCS.map(emitFunc).join('\n\n')}\n`
+const PROJECTION_WGSL_CONSTS = `${PROJECTION_CONSTS.map(emitConst).join('\n')}\n`
+const PROJECTION_WGSL_FNS = `${GPU_PROJECTION_FUNCS.map(emitFunc).join('\n\n')}\n`
+
+  return { PROJECTION_FUNCS, PROJECTION_MODULE, PROJECTION_WGSL_CONSTS, PROJECTION_WGSL_FNS }
+}
