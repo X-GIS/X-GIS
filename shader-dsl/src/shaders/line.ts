@@ -25,7 +25,7 @@ import {
   length, dot, min, max, smoothstep, abs, floor, select, textureSample,
   bitcastU32, unpack4x8unorm,
   atan, exp,
-  If, Loop, Let, Continue, assign, madd, outsideRange,
+  If, Loop, Let, Var, Continue, Discard, Return, assign, madd, outsideRange,
   structT, f32T, u32T, i32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   arrayT,
   type Node,
@@ -732,39 +732,39 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
 
       // START / END / CENTER — single instance.
       const lineLength = seg.field('line_length', f32T)
-      const centerArc = cb.var('center_arc', f32T)
-      cb.if(anchor.eq(u32(1)), (d) => { d.assign(centerArc, startM) })
-        .elif(anchor.eq(u32(2)), (d) => { d.assign(centerArc, lineLength.sub(startM)) })
-        .else((d) => { d.assign(centerArc, lineLength.mul(0.5)) })
+      const centerArc = Var('center_arc', f32T)
+      If(anchor.eq(u32(1)), () => { assign(centerArc, startM) })
+        .elif(anchor.eq(u32(2)), () => { assign(centerArc, lineLength.sub(startM)) })
+        .else(() => { assign(centerArc, lineLength.mul(0.5)) })
 
-      const arcOnSeg = cb.let('arc_on_seg', centerArc.sub(seg.field('arc_start', f32T)))
-      cb.if(arcOnSeg.lt(halfS.mul(-2)).or(arcOnSeg.gt(segLen.add(halfS.mul(2)))), (d) => { d.continue() })
-      const centerWorld = cb.let('center_world', p0.add(dir.mul(arcOnSeg)))
-      const localUv = cb.let('local', vec2(
+      const arcOnSeg = Let('arc_on_seg', centerArc.sub(seg.field('arc_start', f32T)))
+      If(outsideRange(arcOnSeg, halfS.mul(-2), segLen.add(halfS.mul(2))), () => Continue())
+      const centerWorld = Let('center_world', p0.add(dir.mul(arcOnSeg)))
+      const localUv = Let('local', vec2(
         dot(segP.sub(centerWorld), dir).div(halfS),
         dot(segP.sub(centerWorld), nrmFs).sub(offM).div(halfS),
       ))
-      cb.if(abs(localUv.x).gt(1.2).or(abs(localUv.y).gt(1.2)), (d) => { d.continue() })
+      If(abs(localUv.x).gt(1.2).or(abs(localUv.y).gt(1.2)), () => Continue())
 
-      const shapeV = cb.let('shape_v', callFn('sdf_shape', f32T, localUv, pat.field('id', u32T).sub(u32(1))))
-      const pd = cb.let('pd', shapeV.sub(1).mul(halfS))
-      cb.assign(patDm, min(patDm, pd))
+      const shapeV = Let('shape_v', callFn('sdf_shape', f32T, localUv, pat.field('id', u32T).sub(u32(1))))
+      const pd = Let('pd', shapeV.sub(1).mul(halfS))
+      assign(patDm, min(patDm, pd))
     })
   })
-  b.if(patDm.lt(1e9), (c) => { c.assign(dM, min(dM, patDm)) })
+  If(patDm.lt(1e9), () => { assign(dM, min(dM, patDm)) })
 
   // Convert to pixels + line-blur AA.
-  const dPx = b.let('d_px', dM.div(layerMpp))
-  const blurPx = b.let('blur_px', max(f32(0), layer.field('aa_width_px', f32T).sub(1)))
-  const aa = b.let('aa', f32(0.5).add(blurPx))
-  const alpha = b.let('alpha', f32(1).sub(smoothstep(aa.neg(), aa, dPx)))
-  b.if(alpha.lt(0.005), (c) => { c.discard() })
+  const dPx = Let('d_px', dM.div(layerMpp))
+  const blurPx = Let('blur_px', max(f32(0), layer.field('aa_width_px', f32T).sub(1)))
+  const aa = Let('aa', f32(0.5).add(blurPx))
+  const alpha = Let('alpha', f32(1).sub(smoothstep(aa.neg(), aa, dPx)))
+  If(alpha.lt(0.005), () => Discard())
 
   // Per-segment stroke colour override.
-  const segPacked = b.let('seg_packed', bitcastU32(seg.field('color_packed', f32T)))
-  const segColor = b.let('seg_color', unpack4x8unorm(segPacked))
-  const baseColor = b.let('base_color', select(segColor.a.gt(0), segColor, layer.field('color', vec4fT)))
-  b.ret(vec4(baseColor.rgb, baseColor.a.mul(alpha)))
+  const segPacked = Let('seg_packed', bitcastU32(seg.field('color_packed', f32T)))
+  const segColor = Let('seg_color', unpack4x8unorm(segPacked))
+  const baseColor = Let('base_color', select(segColor.a.gt(0), segColor, layer.field('color', vec4fT)))
+  Return(vec4(baseColor.rgb, baseColor.a.mul(alpha)))
 })
 
 // ── line_rim_alpha ──
