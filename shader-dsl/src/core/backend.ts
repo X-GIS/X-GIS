@@ -45,4 +45,25 @@ export interface Backend {
    *  select(f,t,c)→ternary) and passes the rest through. User-defined function
    *  calls also flow through here and pass through unchanged. */
   intrinsic(name: string, args: string[]): string
+
+  // ── Divergent statement/declaration fragments ──
+  // The control-flow walk (if/for/switch/return/assign/…) is shared in
+  // core/emit.ts; only these fragments differ between targets. Each returns the
+  // fragment WITHOUT leading indentation or trailing `;` (the walk adds those),
+  // except constDecl which is a full line.
+  /** `let n = init` (WGSL, type inferred) vs `T n = init` (GLSL). */
+  localLet(name: string, type: ShaderType, init: string): string
+  /** `var n: T[= init]` (WGSL) vs `T n[= init]` (GLSL). */
+  localVar(name: string, type: ShaderType, init?: string): string
+  /** A module-level const declaration line, incl. trailing `;`:
+   *  `const n: T = v;` (WGSL) vs `const T n = v;` (GLSL). */
+  constDecl(name: string, type: ShaderType, value: string): string
+  /** A `switch` case label: `${v}u` for a u32 scrutinee on WGSL; `${v}` on GLSL. */
+  caseLabel(value: number, scrutType: ShaderType): string
+  /** The `switch` head: `switch ${scrut} {` (WGSL) vs `switch (${scrut}) {` (GLSL). */
+  switchHead(scrut: string): string
+  /** A `raw` Stmt (raw WGSL string). WGSL returns it; non-WGSL fails closed. */
+  rawStmt(wgsl: string): string
+  /** An un-swapped `placeholder` Stmt. WGSL emits a defensive comment; non-WGSL fails closed. */
+  placeholderStmt(tag: string): string
 }
