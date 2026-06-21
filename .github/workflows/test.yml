@@ -222,6 +222,26 @@ jobs:
   #                           on from locally-validated to CI-enforced.
   #   - _dequant-parity     : same — the u16→f32 dequant kernel GPU-vs-CPU,
   #                           standalone compute pass, SwiftShader-safe.
+  #                           RED-BASELINE RESOLVED (#448, commit 7356ca38):
+  #                           _vs-clip-parity + _dequant-parity were RED on
+  #                           every main run with a GPU-vs-CPU delta ~1.23e4.
+  #                           Root cause was NOT SwiftShader fround drift and
+  #                           NOT a mis-set threshold — it was a TEST-SIDE
+  #                           stale stride: both specs packed their synthetic
+  #                           vertex buffer at a hardcoded 12 u16/vertex while
+  #                           the CPU mirror dequantVertexF32 strides by
+  #                           POLYGON_FILL_FORMAT.stride/2, which grew 24→28 B
+  #                           (12→14 u16) when a tail slot was added. The
+  #                           +2-u16 misread produced a clean +1-axis SHIFT
+  #                           (GPU.y==CPU.x, CPU.z==-half zero/OOB read), not
+  #                           precision noise. Fix: both specs now derive the
+  #                           synthetic stride from the single-source
+  #                           POLYGON_FILL_FORMAT — bit-exact, worst delta 0.0
+  #                           over 24000+72000 axes. Production GPU dequant and
+  #                           dequantVertexF32 already agreed on stride-28; only
+  #                           the synthetic gate was stale. These two are now
+  #                           green-when-good and should be REQUIRED once a
+  #                           ruleset is enabled (see CI-GATED summary below).
   #   - _polygon-fill-flat-parity : runs the polygon FILL flat-Mercator arm
   #                           (proj_params.x < 0.5 — the path _vs-clip-parity's
   #                           ECEF arm does NOT cover) in a compute pass and
@@ -241,9 +261,51 @@ jobs:
   #                            with the GPUArena OOM PR). Local / pre-push for now.
   #   - pixel survey         : SwiftShader can't raster X-GIS correctly →
   #                            false-positive diffs. Local / pre-push only.
+  #   - _render-verify / _render-verify-oracle-b : RASTER. _render-verify
+  #                            screenshots demos and counts painted pixels;
+  #                            _render-verify-oracle-b pixel-diffs the GPU frame
+  #                            vs a d3-geo Canvas2D reference and SELF-DECLARES
+  #                            "Real GPU headed (HEADED=1; do NOT set
+  #                            XGIS_SOFTWARE_GPU). ADR-0004: LOCAL, not CI."
+  #                            Both need a correct raster → SwiftShader-unsafe.
+  #   - _style-parity-diff   : RASTER. pixelmatch on real X-GIS vs MapLibre
+  #                            canvas screenshots — SwiftShader can't raster
+  #                            X-GIS, so every cell false-positives. Local only.
+  #   - _label-anchor-parity : full-engine RENDER. Boots compare.html (X-GIS +
+  #                            MapLibre side-by-side), fetches real tiles, places
+  #                            glyphs at z14, then reads getDumpedLabels(). Its
+  #                            "numeric anchor parity" signal is derived from a
+  #                            FULLY RENDERED frame, so it needs the same full
+  #                            render-pipeline init SwiftShader times out on
+  #                            (_projection-coverage). Header: "Real chromium
+  #                            WebGPU." Local / pre-push only.
+  #   - _ws8-projection-field / _matrix-gate : full-engine init / opt-in matrix
+  #                            (XGIS_MATRIX), both Real-GPU per their headers.
+  #                            Not SwiftShader-safe; _matrix-gate is also opt-in
+  #                            so a plain CI run skips it. Local only.
+  #
+  # ── CI-GATED vs LOCAL-ONLY render correctness (read before assuming a
+  #    non-render PR has render coverage) ────────────────────────────────────
+  # CI (this job, SwiftShader, render==true) GATES ONLY the 5 pure-COMPUTE /
+  # shader-COMPILE oracles below — these prove the COORDINATE/PROJECTION MATH
+  # and WGSL compilability, NOT the rendered pixel:
+  #   _shader-math-parity, _wgsl-compile-gate, _vs-clip-parity, _dequant-parity,
+  #   _polygon-fill-flat-parity.
+  # Everything that needs a RASTERIZED frame — pixel surveys, X-GIS↔MapLibre
+  # parity (_style-parity-diff, _label-anchor-parity), the d3-geo oracle
+  # (_render-verify-oracle-b), the visual-regression matrix (_matrix-gate), and
+  # full-engine init gates (_projection-coverage, _ws8-projection-field) — is
+  # LOCAL / pre-push ONLY, because SwiftShader (software WebGPU) cannot raster
+  # the X-GIS pipeline correctly and would false-positive. So: a green CI here
+  # means the projection/clip/dequant MATH did not regress; it does NOT mean the
+  # rendered output was visually verified. Visual/parity regressions are caught
+  # only on a hardware-GPU (headed) run — keep the local render matrix in the
+  # loop before shipping render changes.
   #
   # Blocking gate (validated green on run 26387561414): shader-math runs
-  # under SwiftShader and now fails CI on gross WGSL projection drift.
+  # under SwiftShader and now fails CI on gross WGSL projection drift. The
+  # dequant/clip parity pair (#448) is now green-when-good and root-caused;
+  # all 5 should be made REQUIRED once a branch-protection ruleset exists.
   #
   # SKIP-WHEN-IRRELEVANT: gated on the `changes` filter. When no render-
   # affecting code changed, every expensive step is `if:`-skipped but the JOB
