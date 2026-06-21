@@ -6,7 +6,7 @@
 
 import { type ShaderType, type KeyOf, type ScalarKey, vec3uT, voidT } from './types'
 import type { Stmt, Expr, BinOp, FuncDecl, ModuleDecl, EntryParam } from './nodes'
-import { Node, type ArithArg, lift, f32, i32, u32 } from './node'
+import { Node, type ArithArg, type NodeLike, lift, f32, i32, u32, callFn } from './node'
 
 export type ParamSpec = Record<string, ShaderType>
 type ParamNodes<P extends ParamSpec> = { [K in keyof P]: Node<KeyOf<P[K]>> }
@@ -153,6 +153,21 @@ export function fn<P extends ParamSpec>(
   const result = withScope(b, () => body(b, paramNodes))
   if (result !== undefined) b.ret(result)
   return { name, params: paramList, ret, body: b.stmts }
+}
+
+/** Define a function AND return a typed CALLABLE: `const f = defineFn(...)` then
+ *  `f(arg)` produces the call node (no string name at the call site, ret inferred),
+ *  and `f.decl` is the FuncDecl for the module. Byte-identical to a separate
+ *  `fn('name', …)` + `callFn('name', ret, …)`. */
+export function defineFn<P extends ParamSpec, R extends ShaderType>(
+  name: string,
+  params: P,
+  ret: R,
+  body: (b: Builder, p: ParamNodes<P>) => Node | void,
+): ((...args: NodeLike[]) => Node<KeyOf<R>>) & { readonly decl: FuncDecl } {
+  const decl = fn(name, params, ret, body)
+  const call = (...args: NodeLike[]): Node<KeyOf<R>> => callFn(name, ret, ...args)
+  return Object.assign(call, { decl })
 }
 
 /** Author a `@compute @workgroup_size(N)` entry point. The body callback
