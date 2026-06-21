@@ -325,3 +325,15 @@ export const transformMat4 = (m: Node<'mat4x4<f32>'>, v: Node<'vec4<f32>'>): Nod
 /** A fixed-length array literal — `array<elemKey, N>(...)`. */
 export const arrayLit = (elem: ShaderType, ...items: Node[]): Node =>
   new Node({ op: 'construct', type: arrayT(elem, items.length), args: items.map((n) => n.expr) })
+
+// ── Composite arithmetic sugar (readability killer #2) ──
+// JS has no infix operators, so plain math reads as `.mul().add()` chains. These
+// helpers NAME the common painful patterns. Each is a pure Node-method composition,
+// so it emits BYTE-IDENTICALLY to the manual chain — readability only, zero IR change.
+
+/** Fused multiply-add — `a*b + c`. */
+export const madd = <K extends string>(a: Node<K>, b: ArithArg<K>, c: ArithArg<K>): Node<K> => a.mul(b).add(c)
+/** Out-of-range predicate — `x < lo || x > hi`. */
+export const outsideRange = (x: Node<ScalarKey>, lo: Node<ScalarKey> | number, hi: Node<ScalarKey> | number): Node<'bool'> => x.lt(lo).or(x.gt(hi))
+/** In-range predicate — `x >= lo && x <= hi`. */
+export const insideRange = (x: Node<ScalarKey>, lo: Node<ScalarKey> | number, hi: Node<ScalarKey> | number): Node<'bool'> => x.ge(lo).and(x.le(hi))
