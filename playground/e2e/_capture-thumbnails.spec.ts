@@ -36,8 +36,6 @@ const GALLERY_DEMOS = [
   // PMTiles + MVT
   'pmtiles_source', 'pmtiles_layered', 'osm_style', 'pmtiles_only_landuse', 'pmtiles_v4',
   'openfreemap_bright',
-  // Vector tiles (XGVT binary)
-  'vector_tiles', 'vector_categorical', 'countries_categorical_xgvt', 'physical_map_xgvt',
   // Data-driven styling
   'continent_match', 'continent_outlines', 'filter_gdp', 'gdp_gradient',
   'income_match', 'population_gradient', 'megacities', 'categorical',

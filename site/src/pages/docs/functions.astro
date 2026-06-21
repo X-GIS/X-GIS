@@ -22,8 +22,12 @@ interface FnGroup {
   fns: Fn[]
 }
 
-// Ground truth: compiler/src/eval/evaluator.ts:245-348 (callBuiltin).
-// Every entry below corresponds to one switch-case branch there.
+// Ground truth: compiler/src/eval/evaluator-helpers.ts (callBuiltin).
+// Every entry below corresponds to one switch-case branch there. The
+// accessor-style builtins (get / properties) and the runtime
+// identifiers (zoom / pitch / .field) are resolved in
+// compiler/src/eval/evaluator.ts instead, before the callBuiltin
+// dispatch — they read the live props bag, not just evaluated args.
 const groups: FnGroup[] = [
   {
     title: 'Math',
@@ -84,6 +88,15 @@ const groups: FnGroup[] = [
           'size-[step(.rank, 0.5, 5, 0.7, 10, 1)]   // N-stop: default 0.5, jumps at rank 5 → 0.7, rank 10 → 1',
           'opacity-[step(zoom, 10, 30, 100)]        // legacy: < 10 → 30, else 100',
         ] },
+      { name: 'interpolate_exp', signature: 'interpolate_exp(input, base, x1, y1, x2, y2, …)',
+        body: 'Exponential-curve interpolation — Mapbox `["interpolate", ["exponential", base], …]`. Same stop shape as `interpolate` but with a leading `base` that shapes the between-stops curve; `base = 1` is mathematically linear (identical to `interpolate`).',
+        examples: ['size-[interpolate_exp(zoom, 1.5, 8, 2, 16, 20)]'] },
+      { name: 'interpolate_lab', signature: 'interpolate_lab(input, x1, color1, x2, color2, …)',
+        body: 'Colour interpolation in CIELAB space — Mapbox `["interpolate-lab", …]`. Stop values resolve to colours at eval time; blends perceptually (smoother than RGB lerp). Stop `xi` must be literal numbers. Curve is linear only.',
+        examples: ['fill-[interpolate_lab(.t, 0, blue-500, 1, red-500)]'] },
+      { name: 'interpolate_hcl', signature: 'interpolate_hcl(input, x1, color1, x2, color2, …)',
+        body: 'Colour interpolation in HCL (LCh) space — Mapbox `["interpolate-hcl", …]`. Like `interpolate_lab` but interpolates hue on the shortest arc, keeping chroma vivid through the blend.',
+        examples: ['fill-[interpolate_hcl(.t, 0, yellow-400, 1, purple-600)]'] },
     ],
   },
 
@@ -99,6 +112,37 @@ const groups: FnGroup[] = [
         ] },
       { name: 'downcase', signature: 'downcase(value)', body: 'Lowercase the string form of `value`. Coerces non-strings via `String()`.', examples: ['label-[downcase(.name)]'] },
       { name: 'upcase',   signature: 'upcase(value)',   body: 'Uppercase the string form of `value`. Same coercion.',                       examples: ['label-[upcase(.country_code)]'] },
+    ],
+  },
+
+  {
+    title: 'String / type ops',
+    body: 'String slicing, search, number formatting, and the Mapbox type-cast family. These round-trip the corresponding Mapbox expressions 1:1 — a converted style that calls them keeps working even though the converter usually rewrites the casts into a coalesce chain.',
+    fns: [
+      { name: 'typeof', signature: 'typeof(value)',
+        body: 'Mapbox `["typeof", value]`. Returns `"string"`, `"number"`, `"boolean"`, `"object"`, or `"null"`. Useful inside a `filter:` to branch on a property\'s shape.',
+        examples: ['filter: typeof(.name) == "string"'] },
+      { name: 'slice', signature: 'slice(input, start, end?)',
+        body: 'Substring (string input) or sub-array (array input) — Mapbox `["slice", …]`. Negative indices count from the end. Non-string / non-array input returns `null`.',
+        examples: ['label-[slice(.iso_code, 0, 2)]'] },
+      { name: 'index_of', signature: 'index_of(needle, haystack, from?)',
+        body: 'First index of `needle` in a string or array (Mapbox `["index-of", …]`; the hyphen form `index-of` also routes here). Returns `-1` when not found.',
+        examples: ['size-[index_of("toll", .tags) >= 0]'] },
+      { name: 'number_format', signature: 'number_format(input, minFrac?, maxFrac?, locale?, currency?)',
+        body: 'Locale-aware number formatting via `Intl.NumberFormat` — Mapbox `["number-format", …]`. Positional args (the form the converter emits) or an options-object second arg both work; `null` slots take spec defaults.',
+        examples: ['label-[number_format(.population, 0, 0, "en-US")]'] },
+      { name: 'to_number', signature: 'to_number(value, …fallbacks)',
+        body: 'Mapbox `["to-number", …]` (alias `number`). Returns the first arg that converts to a finite number — strings via `Number()`, booleans as 0/1 — else `null`. Use it to harden a string property before arithmetic.',
+        examples: ['size-[to_number(.height_str)]'] },
+      { name: 'to_string', signature: 'to_string(value)',
+        body: 'Mapbox `["to-string", value]` (alias `string`). Coerces to a string — numbers via `String()`, booleans to `"true"` / `"false"`, objects via `JSON.stringify`, null/undefined to `""`.',
+        examples: ['label-[to_string(.rank)]'] },
+      { name: 'to_boolean', signature: 'to_boolean(value)',
+        body: 'Mapbox `["to-boolean", value]` (alias `boolean`). Spec false-y values (`0`, `""`, `null`, `undefined`, `NaN`) become `false`; everything else `true`.',
+        examples: ['filter: to_boolean(.is_capital)'] },
+      { name: 'to_color', signature: 'to_color(value, …fallbacks)',
+        body: 'Mapbox `["to-color", …]`. Returns the first arg that parses as a hex colour (`#rgb` / `#rgba` / `#rrggbb` / `#rrggbbaa`), else `null`. Non-string args skip to the next fallback.',
+        examples: ['fill-[to_color(.color_hex, gray-400)]'] },
     ],
   },
 
@@ -144,17 +188,26 @@ const groups: FnGroup[] = [
 
   {
     title: 'Runtime accessors',
-    body: 'Identifiers the evaluator resolves against camera or feature state. Not function calls — just bare names.',
+    body: 'Names + accessor builtins the evaluator resolves against live camera / feature state (not the plain `callBuiltin` args). The bare identifiers (`zoom`, `pitch`, `.field`) and the `get` / `properties` accessor calls all read the live props bag.',
     fns: [
       { name: 'zoom', signature: 'zoom',
         body: 'Current camera zoom level (float). Sampled per-frame. Inject in any expression — most commonly inside `interpolate(zoom, …)`.',
         examples: ['opacity-[interpolate(zoom, 8, 40, 14, 100)]'] },
+      { name: 'pitch', signature: 'pitch',
+        body: 'Current camera pitch in degrees — Mapbox `["pitch"]`. Sampled per-frame on the render path; `null` at decode time. Bare name, like `zoom`.',
+        examples: ['opacity-[interpolate(pitch, 0, 100, 60, 30)]'] },
       { name: '.field', signature: '.field_name',
         body: 'Feature property accessor. `.height` reads the `height` property from the current feature\'s tags. Returns `null` when the property is missing — pair with `??` for a fallback.',
         examples: [
           'fill-extrusion-height-[.height ?? 5]',
           'filter: .class == "highway"',
         ] },
+      { name: 'get', signature: 'get("key")',
+        body: 'Feature property accessor for keys the bare-dot form can\'t name — Mapbox `["get", key]`. Use it for colon-bearing locale keys (`name:ko`, `name:latin`) or a dynamic key (`get(.field_name)`). Returns `null` when absent.',
+        examples: ['label-[get("name:ko") ?? get("name")]'] },
+      { name: 'properties', signature: 'properties()',
+        body: 'The whole feature-properties object — Mapbox `["properties"]`. Strips the reserved `$`-sigil camera/meta keys the runtime injects, returning only the feature\'s own properties.',
+        examples: ['filter: typeof(properties()) == "object"'] },
     ],
   },
 ]

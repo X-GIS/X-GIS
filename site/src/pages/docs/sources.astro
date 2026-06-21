@@ -20,19 +20,34 @@ const sourceTypes: SourceType[] = [
   {
     type: 'geojson',
     badge: 'Default',
-    short: 'Full GeoJSON file. Loaded once, tiled on-demand.',
-    body: 'Pulls the entire FeatureCollection over HTTP, then tiles it client-side in a worker (geojson-vt port) before routing per-tile MVT through the same compile pipeline PMTiles archives use. Best for moderate datasets (≤ ~50 MB) — countries, ports, points of interest. For larger worlds reach for PMTiles.',
+    short: 'GeoJSON from a URL, an embedded literal, or pushed at runtime. Tiled on-demand.',
+    body: 'Pulls (or reads) the entire FeatureCollection, then tiles it client-side in a worker (geojson-vt port) before routing per-tile MVT through the same compile pipeline PMTiles archives use. Best for moderate datasets (≤ ~50 MB) — countries, ports, points of interest. For larger worlds reach for PMTiles.',
     fields: [
-      { key: 'url',  required: true,  body: 'HTTP(S) URL of the .geojson file. Relative paths resolve against the playground / host page baseURL.' },
+      { key: 'url',  required: false, body: 'HTTP(S) URL of the .geojson file. Relative paths resolve against the playground / host page baseURL. Mutually exclusive with `data`.' },
+      { key: 'data', required: false, body: 'An embedded GeoJSON FeatureCollection object literal — no fetch, no separate file. The features are tiled immediately at compile time. Mutually exclusive with `url`.' },
     ],
     example: `source world {
   type: geojson
   url: "data/countries.geojson"
+}
+
+// Or embed the FeatureCollection directly:
+source pins {
+  type: geojson
+  data: {
+    "type": "FeatureCollection",
+    "features": [
+      { "type": "Feature",
+        "geometry": { "type": "Point", "coordinates": [127.0, 37.5] },
+        "properties": { "name": "Seoul" } }
+    ]
+  }
 }`,
     notes: [
-      'CORS-sensitive — the host must send `Access-Control-Allow-Origin`.',
+      'CORS-sensitive — the host must send `Access-Control-Allow-Origin` (the `url` form only).',
       'Tile generation runs on a Web Worker; main thread stays smooth.',
-      'Inline data (no `url`) yields an empty source the host populates via `map.setSourceData()`.',
+      'The embedded `data: { … }` form tiles the literal at compile time — no network round-trip, ideal for small fixed overlays.',
+      'Declaring neither `url` nor `data` yields an empty source the host populates at runtime via `map.setSourceData(sourceId, featureCollection)`.',
     ],
   },
 
