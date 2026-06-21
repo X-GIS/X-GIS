@@ -25,6 +25,7 @@ import {
   length, dot, min, max, smoothstep, abs, floor, select, textureSample,
   bitcastU32, unpack4x8unorm,
   atan, exp,
+  If, Loop, Let, Continue, assign, madd, outsideRange,
   structT, f32T, u32T, i32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   arrayT,
   type Node,
@@ -701,29 +702,32 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
       const startM = cb.let('start_m', pat.field('start_offset', f32T))
       const halfS = cb.let('half_s', sizeM.mul(0.5))
 
-      cb.if(anchor.eq(u32(0)), (d) => {
+      // CANARY (C2 readability): the ambient free-function surface — If/Loop/Let/
+      // Continue/assign route to the innermost scope, so no cb/d/cb2/e param
+      // threading; the composite helpers (madd / outsideRange) name the arithmetic.
+      // Emits byte-identically to the old passed-builder form (verified).
+      If(anchor.eq(u32(0)), () => {
         // PAT_ANCHOR_REPEAT — sample nearest instance + both neighbours.
-        const kCenter = d.let('k_center', floor(arcPos.sub(startM).div(spacingM).add(0.5)))
-        d.forRange('dk', i32(-1), (idk) => idk.le(i32(1)), (cb2, dk) => {
-          const centerArcK = cb2.let('center_arc_k', kCenter.add(toF32(dk)).mul(spacingM).add(startM))
-          const arcOnSegK = cb2.let('arc_on_seg_k', centerArcK.sub(seg.field('arc_start', f32T)))
-          cb2.if(arcOnSegK.lt(halfS.mul(-2)).or(arcOnSegK.gt(segLen.add(halfS.mul(2)))), (e) => { e.continue() })
-          const centerWorldK = cb2.let('center_world_k', p0.add(dir.mul(arcOnSegK)))
-          const localK = cb2.let('local_k', vec2(
+        const kCenter = Let('k_center', floor(arcPos.sub(startM).div(spacingM).add(0.5)))
+        Loop('dk', i32(-1), (idk) => idk.le(i32(1)), (dk) => {
+          const centerArcK = Let('center_arc_k', madd(kCenter.add(toF32(dk)), spacingM, startM))
+          const arcOnSegK = Let('arc_on_seg_k', centerArcK.sub(seg.field('arc_start', f32T)))
+          If(outsideRange(arcOnSegK, halfS.mul(-2), segLen.add(halfS.mul(2))), () => Continue())
+          const centerWorldK = Let('center_world_k', p0.add(dir.mul(arcOnSegK)))
+          const localK = Let('local_k', vec2(
             dot(segP.sub(centerWorldK), dir).div(halfS),
             dot(segP.sub(centerWorldK), nrmFs).sub(offM).div(halfS),
           ))
-          cb2.if(abs(localK.x).gt(1.2).or(abs(localK.y).gt(1.2)), (e) => { e.continue() })
-          const shapeVK = cb2.let('shape_v_k', callFn('sdf_shape', f32T, localK, pat.field('id', u32T).sub(u32(1))))
-          const pdK = cb2.let('pd_k', shapeVK.sub(1).mul(halfS))
-          cb2.assign(patDm, min(patDm, pdK))
+          If(abs(localK.x).gt(1.2).or(abs(localK.y).gt(1.2)), () => Continue())
+          const shapeVK = Let('shape_v_k', callFn('sdf_shape', f32T, localK, pat.field('id', u32T).sub(u32(1))))
+          const pdK = Let('pd_k', shapeVK.sub(1).mul(halfS))
+          assign(patDm, min(patDm, pdK))
         })
-        // REPEAT handled by the k-loop above; skip the single-instance
-        // block. Emit on `d` (the if-block), NOT the outer `cb` —
-        // `cb.continue()` put an UNCONDITIONAL `continue;` at the loop-body
-        // top: all pattern code dead (WGSL "unreachable" warning) + line
-        // patterns silently dropped.
-        d.continue()
+        // PAT_ANCHOR_REPEAT is fully handled by the k-loop; skip the single-instance
+        // block. Continue() targets the enclosing segment loop — the old cb/d/cb2/e
+        // wrong-builder footgun (which once silently dropped ALL line patterns) is now
+        // unrepresentable: there is no second builder to address.
+        Continue()
       })
 
       // START / END / CENTER — single instance.
