@@ -27,6 +27,9 @@ import { emitIconWgsl } from '../../runtime/src/engine/shader-dsl/shaders/icon'
 import { emitOverdrawComposeWgsl } from '../../runtime/src/engine/shader-dsl/shaders/overdraw-compose'
 import { emitOverdrawFsWgsl } from '../../runtime/src/engine/shader-dsl/shaders/overdraw-fs'
 import { emitTextWgsl } from '../../runtime/src/engine/shader-dsl/shaders/text'
+import { emitHeatmapAccumWgsl } from '../../runtime/src/engine/shader-dsl/shaders/heatmap-accum'
+import { emitHeatmapBlurWgsl } from '../../runtime/src/engine/shader-dsl/shaders/heatmap-blur'
+import { emitHeatmapComposeWgsl } from '../../runtime/src/engine/shader-dsl/shaders/heatmap-compose'
 
 /** Every WGSL string the DSL can hand to createShaderModule, labelled. */
 function allVariants(): Array<{ name: string; wgsl: string }> {
@@ -51,6 +54,9 @@ function allVariants(): Array<{ name: string; wgsl: string }> {
   out.push({ name: 'overdraw-compose', wgsl: emitOverdrawComposeWgsl() })
   out.push({ name: 'overdraw-fs', wgsl: emitOverdrawFsWgsl() })
   out.push({ name: 'text', wgsl: emitTextWgsl() })
+  out.push({ name: 'heatmap-accum', wgsl: emitHeatmapAccumWgsl() })
+  out.push({ name: 'heatmap-blur', wgsl: emitHeatmapBlurWgsl() })
+  out.push({ name: 'heatmap-compose', wgsl: emitHeatmapComposeWgsl() })
   return out
 }
 

@@ -130,6 +130,27 @@ export const bindingFallthroughHandler: BindingHandler = {
       if (ctx.name === 'raster-brightness-max') { a.rasterBrightnessMax = n; return true }
       if (ctx.name === 'raster-saturation') { a.rasterSaturation = n; return true }
       if (ctx.name === 'raster-contrast') { a.rasterContrast = n; return true }
+      // Heatmap scalars in bracket-binding form: a bare number (the converter
+      // emits the constant form as a utility; a `[N]` would only arise from a
+      // negative literal, which heatmap props never are).
+      if (ctx.name === 'heatmap-radius') { a.heatmapRadius = n; return true }
+      if (ctx.name === 'heatmap-weight') { a.heatmapWeight = n; return true }
+      if (ctx.name === 'heatmap-intensity') { a.heatmapIntensity = n; return true }
+      if (ctx.name === 'heatmap-opacity') { a.heatmapOpacity = n; return true }
+    }
+    // Heatmap zoom-interp scalars: `heatmap-radius-[interpolate(zoom, …)]`.
+    // Full per-zoom resolution isn't threaded; resolve to a representative
+    // constant (the LAST stop value, the value at the deepest declared zoom)
+    // so the layer still renders. Documented partial.
+    if (ctx.name === 'heatmap-radius' || ctx.name === 'heatmap-intensity' || ctx.name === 'heatmap-opacity') {
+      const zs = extractInterpolateZoomStops(ctx.item.binding!)
+      if (zs && zs.stops.length > 0) {
+        const v = zs.stops[zs.stops.length - 1]!.value
+        if (ctx.name === 'heatmap-radius') ctx.acc.heatmapRadius = v
+        else if (ctx.name === 'heatmap-intensity') ctx.acc.heatmapIntensity = v
+        else ctx.acc.heatmapOpacity = v
+        return true
+      }
     }
     // Bracket-binding form with a name that's not in any of the
     // handled arms above. Pre-fix this was the silent-drop hole that
@@ -204,6 +225,33 @@ export const circleTranslateConstUtilHandlers: BindingHandler[] = [
     // foreshorten with pitch/distance. Mirror of fill-translate-anchor-map.
     match: (c) => c.name === 'circle-pitch-scale-map',
     apply: (c) => { c.acc.circlePitchScaleMap = true; return true },
+  },
+]
+
+/** Heatmap utility-form constants + marker (Phase R). `heatmap` is the marker
+ *  that routes the layer to the runtime HeatmapRenderer; the rest carry the
+ *  resolved scalar paint axes. Zoom-interp forms arrive as bracket bindings
+ *  (handled by heatmapColorBindingHandler / the numeric binding fallthrough). */
+export const heatmapConstUtilHandlers: BindingHandler[] = [
+  {
+    match: (c) => c.name === 'heatmap',
+    apply: (c) => { c.acc.isHeatmap = true; return true },
+  },
+  {
+    match: (c) => c.name.startsWith('heatmap-radius-'),
+    apply: (c) => { const n = parseFloat(c.name.slice('heatmap-radius-'.length)); if (!isNaN(n)) c.acc.heatmapRadius = n; return true },
+  },
+  {
+    match: (c) => c.name.startsWith('heatmap-weight-'),
+    apply: (c) => { const n = parseFloat(c.name.slice('heatmap-weight-'.length)); if (!isNaN(n)) c.acc.heatmapWeight = n; return true },
+  },
+  {
+    match: (c) => c.name.startsWith('heatmap-intensity-'),
+    apply: (c) => { const n = parseFloat(c.name.slice('heatmap-intensity-'.length)); if (!isNaN(n)) c.acc.heatmapIntensity = n; return true },
+  },
+  {
+    match: (c) => c.name.startsWith('heatmap-opacity-'),
+    apply: (c) => { const n = parseFloat(c.name.slice('heatmap-opacity-'.length)); if (!isNaN(n)) c.acc.heatmapOpacity = n; return true },
   },
 ]
 

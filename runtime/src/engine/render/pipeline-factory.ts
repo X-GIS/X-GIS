@@ -35,6 +35,7 @@ import {
   STENCIL_WRITE_NO_DEPTH, STENCIL_TEST_NO_DEPTH,
   BLEND_OIT_ACCUM, BLEND_OIT_REVEALAGE,
   OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT,
+  HEATMAP_DENSITY_FORMAT,
 } from '../gpu/gpu-shared'
 import { isPickEnabled, getSampleCount } from '../gpu/gpu'
 import { POLYGON_FILL_FORMAT, POLYGON_EXTRUDED_FORMAT } from '@xgis/compiler'
@@ -43,6 +44,8 @@ import { LINE_FORMAT } from './line-vertex-format'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
 import { emitOverdrawComposeWgsl } from '../shader-dsl/shaders/overdraw-compose'
+import { emitHeatmapBlurWgsl } from '../shader-dsl/shaders/heatmap-blur'
+import { emitHeatmapComposeWgsl } from '../shader-dsl/shaders/heatmap-compose'
 import { emitOitComposeWgsl } from '../shader-dsl/shaders/oit-compose'
 import { emitPolygonWgsl } from '../shader-dsl/shaders/polygon'
 import { Node } from '../shader-dsl/core/ir'
@@ -189,6 +192,18 @@ export class PipelineFactory {
    *  to the swapchain. Built lazily on first call to ensureOverdrawCompose. */
   overdrawComposePipeline: GPURenderPipeline | null = null
   overdrawComposeBindGroupLayout!: GPUBindGroupLayout
+  /** Heatmap separable-Gaussian blur pipeline (Phase R). Fullscreen triangle
+   *  reads the r16float density (textureLoad) and writes the 9-tap blur back
+   *  to an r16float target; runs twice per frame (horizontal then vertical).
+   *  Built lazily on first call to ensureHeatmapBlur. */
+  heatmapBlurPipeline: GPURenderPipeline | null = null
+  heatmapBlurBindGroupLayout!: GPUBindGroupLayout
+  /** Heatmap compose pipeline (Phase R). Fullscreen triangle samples the
+   *  blurred density, maps it through the colour-ramp LUT × intensity ×
+   *  opacity, and alpha-blends over the scene. Built lazily on first call to
+   *  ensureHeatmapCompose. */
+  heatmapComposePipeline: GPURenderPipeline | null = null
+  heatmapComposeBindGroupLayout!: GPUBindGroupLayout
   /** `?debug=overdraw` — fill pipeline mirror (base bind group
    *  layout). FS replaced with `fs_overdraw`, color target r16float
    *  + additive. Variant shows that use the feature bind group
@@ -398,6 +413,83 @@ export class PipelineFactory {
       multisample: { count: 1 },
     })
     return this.overdrawComposePipeline
+  }
+
+  /** Lazy-build the heatmap separable-Gaussian blur pipeline (Phase R).
+   *  Fullscreen triangle samples the r16float density via textureLoad
+   *  (unfilterable-float — no sampler) and writes the 9-tap blur to an
+   *  r16float target. The `direction` uniform selects horizontal vs vertical;
+   *  the pass binds the same pipeline twice. Modelled on ensureOverdrawCompose
+   *  — single-sample, no MSAA variants. Idempotent. */
+  ensureHeatmapBlur(): GPURenderPipeline {
+    if (this.heatmapBlurPipeline) return this.heatmapBlurPipeline
+    const { device } = this.ctx
+    const code = emitHeatmapBlurWgsl()
+    const module = device.createShaderModule({ code, label: 'heatmap-blur-shader' })
+    this.heatmapBlurBindGroupLayout = device.createBindGroupLayout({
+      label: 'heatmap-blur-bgl',
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float', multisampled: false } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+      ],
+    })
+    this.heatmapBlurPipeline = device.createRenderPipeline({
+      label: 'heatmap-blur-pipeline',
+      layout: device.createPipelineLayout({ bindGroupLayouts: [this.heatmapBlurBindGroupLayout] }),
+      vertex: { module, entryPoint: 'vs_full' },
+      fragment: { module, entryPoint: 'fs_blur', targets: [{ format: HEATMAP_DENSITY_FORMAT }] },
+      primitive: { topology: 'triangle-list' },
+      multisample: { count: 1 },
+    })
+    return this.heatmapBlurPipeline
+  }
+
+  /** Lazy-build the heatmap compose pipeline (Phase R). Fullscreen triangle
+   *  samples the blurred density (textureLoad), maps it through the colour
+   *  ramp LUT (filterable rgba8, textureSample) × intensity × opacity, and
+   *  alpha-blends over the scene (src-alpha / one-minus-src-alpha). It runs as
+   *  the LAST colour pass — after the label pass has resolved MSAA to the
+   *  swapchain — and composites onto the resolved single-sample swapchain
+   *  (`ctx.screenView`), exactly like the overdraw-compose pass. This sidesteps
+   *  the MSAA resolve-ownership hazard entirely (the heatmap never has to share
+   *  the MSAA attachment). Single-sample; no MSAA variants. Idempotent.
+   *
+   *  NOTE: because it composites after labels, symbols draw UNDER the heatmap
+   *  rather than on top (Mapbox draws symbols above heatmap). For a density
+   *  overlay this is visually acceptable; threading the compose into the
+   *  pre-label MSAA chain (so symbols sit on top) is a deferred follow-up. */
+  ensureHeatmapCompose(): GPURenderPipeline {
+    if (this.heatmapComposePipeline) return this.heatmapComposePipeline
+    const { device, format } = this.ctx
+    const code = emitHeatmapComposeWgsl()
+    const module = device.createShaderModule({ code, label: 'heatmap-compose-shader' })
+    this.heatmapComposeBindGroupLayout = device.createBindGroupLayout({
+      label: 'heatmap-compose-bgl',
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float', multisampled: false } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', multisampled: false } },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+        { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+      ],
+    })
+    this.heatmapComposePipeline = device.createRenderPipeline({
+      label: 'heatmap-compose-pipeline',
+      layout: device.createPipelineLayout({ bindGroupLayouts: [this.heatmapComposeBindGroupLayout] }),
+      vertex: { module, entryPoint: 'vs_full' },
+      fragment: {
+        module, entryPoint: 'fs_compose',
+        targets: [{
+          format,
+          blend: {
+            color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+          },
+        }],
+      },
+      primitive: { topology: 'triangle-list' },
+      multisample: { count: 1 },
+    })
+    return this.heatmapComposePipeline
   }
 
   /** Build all bind-group layouts → base pipelines → atlas stub

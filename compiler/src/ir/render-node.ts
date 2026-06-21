@@ -219,8 +219,26 @@ export interface RenderNodeRasterPaint {
   rasterResamplingNearest?: boolean
 }
 
+/** Heatmap paint axes (Mapbox `heatmap-*`, Phase R). Present only on a layer
+ *  the converter marked with the `heatmap` utility. */
+export interface RenderNodeHeatmapPaint {
+  /** True when the layer is a Mapbox `heatmap` layer (the `heatmap` marker
+   *  utility). Routes the runtime to the HeatmapRenderer. */
+  isHeatmap?: boolean
+  /** heatmap-radius — Gaussian splat radius in CSS px. Default 30. */
+  heatmapRadius?: number
+  /** heatmap-weight — per-feature contribution multiplier. Default 1. */
+  heatmapWeight?: number
+  /** heatmap-intensity — overall density scale. Default 1. */
+  heatmapIntensity?: number
+  /** heatmap-opacity — layer alpha 0..1. Default 1. */
+  heatmapOpacity?: number
+  /** heatmap-color ramp stops (offset 0..1 over heatmap-density → RGBA). */
+  heatmapColorStops?: { offset: number; rgba: [number, number, number, number] }[]
+}
+
 export interface RenderNode
-  extends RenderNodeFillPaint, RenderNodeLinePaint, RenderNodeCirclePaint, RenderNodeExtrudePaint, RenderNodeRasterPaint {
+  extends RenderNodeFillPaint, RenderNodeLinePaint, RenderNodeCirclePaint, RenderNodeExtrudePaint, RenderNodeRasterPaint, RenderNodeHeatmapPaint {
   name: string
   sourceRef: string  // references SourceDef.name
   /** Optional MVT layer slice within the referenced source. When set,

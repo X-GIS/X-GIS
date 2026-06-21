@@ -39,13 +39,17 @@ export interface SceneView {
   readonly hasOit: boolean
   /** PointRenderer has direct-layer points to draw. */
   readonly hasPoints: boolean
+  /** HeatmapRenderer has direct-layer heatmap layers to draw. Gates the
+   *  heatmap pass + its density-target allocation — false (the default) keeps
+   *  the frame byte-identical (no target alloc, no pass). */
+  readonly hasHeatmap: boolean
   /** Which pass claims the MSAA resolveTarget this frame. */
   readonly resolveOwner: ResolveOwner
 }
 
 /** Members of the owning map that SceneView derivation reads. */
 type SceneHost = Pick<RenderLoopHost,
-  'classifyVectorTileShows' | 'groupOpaqueBySource' | 'lineRenderer' | 'pointRenderer'>
+  'classifyVectorTileShows' | 'groupOpaqueBySource' | 'lineRenderer' | 'pointRenderer' | 'heatmapRenderer'>
 
 /** Build the per-frame SceneView from the bucket scheduler. Mirrors the
  *  inline block formerly at render()'s bucket-scheduler section. */
@@ -55,12 +59,15 @@ export function buildSceneView(host: SceneHost, ctx: FrameContext): SceneView {
   const hasTranslucent = translucent.length > 0 && host.lineRenderer !== null
   const hasOit = oit.length > 0 && ctx.rt.oitAccumTexture !== null && ctx.rt.oitRevealageTexture !== null
   const hasPoints = host.pointRenderer?.hasLayers() ?? false
+  const hasHeatmap = host.heatmapRenderer?.hasLayers() ?? false
   // Which pass owns the MSAA resolveTarget? The last pass that writes the
   // color target. Priority: dedicated points > last composite > last opaque.
+  // The heatmap pass composites AFTER labels onto the resolved swapchain, so
+  // it does NOT participate in resolveOwner.
   const resolveOwner: ResolveOwner = hasPoints
     ? 'points'
     : hasTranslucent
       ? 'composite'
       : 'opaque'
-  return { opaque, translucent, oit, opaqueGroups, hasTranslucent, hasOit, hasPoints, resolveOwner }
+  return { opaque, translucent, oit, opaqueGroups, hasTranslucent, hasOit, hasPoints, hasHeatmap, resolveOwner }
 }

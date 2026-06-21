@@ -124,6 +124,14 @@ export interface CirclePaint extends Omit<import('@xgis/compiler').CirclePaint, 
   circleStrokeOpacityShape?: import('@xgis/compiler').PropertyShape<number> | null
 }
 
+/** Heatmap paint axes (Mapbox `heatmap-*`, Phase R) — INHERITED from the
+ *  canonical `@xgis/compiler` HeatmapPaint (single source, no mirror to drift).
+ *  `isHeatmap` routes the GeoJSON Point/MultiPoint fork in map.ts to the
+ *  HeatmapRenderer instead of the SDF point path. No runtime-only fields, so
+ *  a direct alias to the canonical compiler type (a bare `extends import(...)`
+ *  is a TS2499; an alias takes the inline import cleanly). */
+export type HeatmapPaint = import('@xgis/compiler').HeatmapPaint
+
 /** 3D extrusion paint axes — INHERITED from the canonical `@xgis/compiler`
  *  ExtrudePaint (single source, incl. fillExtrusionVerticalGradient); runtime
  *  only re-loosens extrude / extrudeBase to optional (synthetic / flat-fill
@@ -139,7 +147,7 @@ export interface ExtrudePaint extends Omit<import('@xgis/compiler').ExtrudePaint
     | { kind: 'feature'; expr: { ast: unknown }; fallback: number }
 }
 
-export interface ShowCommand extends FillPaint, LinePaint, CirclePaint, ExtrudePaint {
+export interface ShowCommand extends FillPaint, LinePaint, CirclePaint, ExtrudePaint, HeatmapPaint {
   /** Position of this show in the compiled Scene's renderNodes — the
    *  key the P4 compute plan uses to route output buffers back to
    *  fragment-shader paint axes. Compiler emits it; runtime callers

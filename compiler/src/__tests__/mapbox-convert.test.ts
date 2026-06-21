@@ -472,14 +472,16 @@ describe('Mapbox → xgis converter', () => {
     })
   })
 
-  // ─── Batch 0: clearer skipped-layer messages ───────────────────────
-  describe('Batch 0 — skipped layer reasons', () => {
-    it('heatmap layer skip mentions Batch 3', () => {
+  // ─── Phase R: heatmap layer now converts (was SKIPPED Batch 3) ──────
+  describe('Phase R — heatmap layer conversion', () => {
+    it('heatmap layer emits a heatmap layer body (no longer SKIPPED)', () => {
       const out = convertMapboxStyle({
         version: 8, sources: {},
         layers: [{ id: 'h', type: 'heatmap', source: 'x' } as never],
       })
-      expect(out).toContain('Batch 3')
+      expect(out).toContain('layer h {')
+      expect(out).toContain('heatmap ')
+      expect(out).not.toContain('SKIPPED')
       expect(parses(out)).toBe(true)
     })
   })

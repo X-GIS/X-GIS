@@ -22,6 +22,7 @@ import type {
   PointsPassHost,
   LabelPassHost,
   OverdrawComposePassHost,
+  HeatmapPassHost,
 } from './pass-hosts'
 // Re-export the per-pass role views so each concrete pass imports its role
 // alongside RenderPass from this one module (single import line per pass).
@@ -33,6 +34,7 @@ export type {
   PointsPassHost,
   LabelPassHost,
   OverdrawComposePassHost,
+  HeatmapPassHost,
 } from './pass-hosts'
 
 /** The owning-map view a pass reaches its renderers / stages / camera
@@ -49,6 +51,7 @@ export type PassHost =
   & PointsPassHost
   & LabelPassHost
   & OverdrawComposePassHost
+  & HeatmapPassHost
 
 /** One stage of the fixed render-pass chain. */
 export interface RenderPass {

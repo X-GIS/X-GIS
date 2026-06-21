@@ -18,14 +18,15 @@ Properties where the runtime currently degrades or drops a specific value-form.
 | symbol | symbol-sort-key | data-driven | Expression flattens to 0; per-feature key plumbing pending |
 | fill-extrusion | fill-extrusion-pattern | data-driven | Expression form not threaded through IR |
 | raster | raster-opacity | data-driven | Data-driven not applicable to raster tiles |
+| heatmap | heatmap-color | constant | Custom density→colour ramp not yet baked into the LUT; the runtime default Mapbox ramp is applied. |
 
 ## Spec-coverage status breakdown
 
 | Status | Count |
 |---|---:|
-| supported | 170 |
-| partial | 13 |
-| unsupported | 52 |
+| supported | 175 |
+| partial | 14 |
+| unsupported | 46 |
 | na | 7 |
 | **total** | **242** |
 
@@ -52,6 +53,7 @@ Properties marked `partial` — converter accepts but runtime degrades. These ne
 | icon-translate | low | CSS-px viewport offset for icons (independent of text-translate). Constant [dx, dy] form wired end-to-end: converter emits `label-icon-translate-{x,y}-N` (layers-symbol.ts) → LabelDef.iconTranslateX/Y → dispatchIcon adds it (× dpr) to the icon anchor before IconStage.addIcon (label-pass.ts), alongside icon-offset. Default [0,0] = no-op. Non-constant (expression / interpolate) form still warns + drops. |
 | circle-blur | low | Constant numeric form extends the point fragment smoothstep AA band via circle_params.z in the point uniform (layers-circle.ts). Zoom-interp / data-driven forms warn + drop — need a per-feature feat_data slot for per-feature blur. |
 | circle-translate-anchor | low | viewport (spec default) is the only honoured mode — X-GIS point renderer always applies the translate in viewport/NDC space. 'map'-anchor (world-space shift) is unsupported and warns + drops. The anchor no-op suppression (when circle-translate is absent) mirrors fill-translate-anchor behaviour. |
+| heatmap-color | medium | Density → colour ramp. The runtime applies its default Mapbox ramp; a custom `interpolate` over `heatmap-density` is not yet baked into the LUT (converter warns). |
 | rgb / rgba | low | Constant channels only — hex-encoded at convert time. Per-channel v8 literal-wrap (`["literal", N]`) accepted. |
 | hsl / hsla | low | Constant channels only — converted via CSS hsl()/hsla() and re-hexed at convert time. Per-channel v8 literal-wrap accepted. |
 | interpolate (cubic-bezier) | low | Numeric-valued zoom AND data-driven interpolates densify at compile time into a piecewise-linear approximation (6 samples per segment, CSS bezier-eased via Newton-Raphson). Runtime sees a longer linear stop list and visually approximates the bezier curve. Non-numeric values (colour stops) still warn and fold to pure linear. Iter 60-62 landings. |

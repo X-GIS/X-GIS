@@ -43,6 +43,7 @@ import {
   circleTranslateConstUtilHandlers,
   strokeTranslateConstUtilHandlers,
   fillExtrusionConstUtilHandlers,
+  heatmapConstUtilHandlers,
   miscUtilHandlers,
   modifierFillHandler,
 } from './lower-bindings-paint'
@@ -92,6 +93,7 @@ export const UTILITY_HANDLERS: BindingHandler[] = [
   ...circleTranslateConstUtilHandlers,
   ...strokeTranslateConstUtilHandlers,
   ...fillExtrusionConstUtilHandlers,
+  ...heatmapConstUtilHandlers,
   fillPatternUtilHandler,
   fillColorUtilHandler,
   ...lineCapJoinUtilHandlers,

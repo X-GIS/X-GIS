@@ -16,7 +16,7 @@
 // destroy → recreate order; setQuality() zeroes the size tracker the same
 // way (now via `invalidate()`).
 
-import { OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT } from '../gpu/gpu-shared'
+import { OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT, HEATMAP_DENSITY_FORMAT } from '../gpu/gpu-shared'
 import type { GPUContext } from '../gpu/gpu'
 
 /** Result of `RenderTargets.ensure` — the per-frame colour-attachment
@@ -49,9 +49,23 @@ export class RenderTargets {
   overdrawAccumTexture: GPUTexture | null = null
   /** Pick (GPU hover/click) RG32Uint single-sample colour attachment. */
   pickTexture: GPUTexture | null = null
+  /** Heatmap density accumulation target (r16float, single-sample). Lazily
+   *  allocated by `ensureHeatmap()` ONLY when a heatmap layer is present, so
+   *  a style with no heatmap allocates nothing here (byte-identical default).
+   *  Mirrors overdrawAccumTexture's lazy r16float pattern. */
+  heatmapAccumTexture: GPUTexture | null = null
+  /** Heatmap blur ping-pong target (r16float, single-sample). The separable
+   *  Gaussian writes accum→blur (horizontal) then blur→accum (vertical), so
+   *  the final blurred density lands back in heatmapAccumTexture. */
+  heatmapBlurTexture: GPUTexture | null = null
   /** Size the textures were last allocated at (recreate gate). */
   msaaWidth = 0
   msaaHeight = 0
+  /** Size the heatmap density textures were last allocated at — a separate
+   *  tracker so the heatmap targets resize independently of the main MSAA
+   *  block (they are never allocated in the default no-heatmap path). */
+  private heatmapWidth = 0
+  private heatmapHeight = 0
 
   private readonly getCtx: () => GPUContext
 
@@ -180,5 +194,48 @@ export class RenderTargets {
       : (useResolve ? this.msaaTexture!.createView() : screenView)
 
     return { useResolve, colorView }
+  }
+
+  /** Lazily (re)allocate the two heatmap density targets (accum + blur) at
+   *  canvas size. Called from the render loop ONLY when `scene.hasHeatmap` —
+   *  a style with no heatmap layer never invokes this, so the default render
+   *  path allocates nothing (byte-identical). Both targets are r16float
+   *  single-sample RENDER_ATTACHMENT | TEXTURE_BINDING (the accum pass draws
+   *  splats into accum; the blur passes ping-pong between them; the compose
+   *  pass samples accum). Recreates on resize via the dedicated size tracker
+   *  so it never disturbs the MSAA block's gate. No per-frame allocation. */
+  ensureHeatmap(w: number, h: number): void {
+    if (this.heatmapAccumTexture && this.heatmapWidth === w && this.heatmapHeight === h) return
+    const { device } = this.getCtx()
+    this.heatmapAccumTexture?.destroy()
+    this.heatmapBlurTexture?.destroy()
+    const usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+    this.heatmapAccumTexture = device.createTexture({
+      size: { width: w, height: h },
+      format: HEATMAP_DENSITY_FORMAT,
+      sampleCount: 1,
+      usage,
+      label: 'heatmap-accum',
+    })
+    this.heatmapBlurTexture = device.createTexture({
+      size: { width: w, height: h },
+      format: HEATMAP_DENSITY_FORMAT,
+      sampleCount: 1,
+      usage,
+      label: 'heatmap-blur',
+    })
+    this.heatmapWidth = w
+    this.heatmapHeight = h
+  }
+
+  /** Release the heatmap density targets (destroy + null). Called from the
+   *  map's destroy() path. Safe to call when nothing was allocated. */
+  destroyHeatmap(): void {
+    this.heatmapAccumTexture?.destroy()
+    this.heatmapBlurTexture?.destroy()
+    this.heatmapAccumTexture = null
+    this.heatmapBlurTexture = null
+    this.heatmapWidth = 0
+    this.heatmapHeight = 0
   }
 }

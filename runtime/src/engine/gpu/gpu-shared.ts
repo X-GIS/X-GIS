@@ -63,6 +63,12 @@ export const OIT_ACCUM_FORMAT: GPUTextureFormat = 'rgba16float'
  *  when many low-α layers stack. */
 export const OIT_REVEALAGE_FORMAT: GPUTextureFormat = 'r16float'
 
+/** Heatmap density-accumulation target format — single 16-bit float so the
+ *  additive sum of overlapping Gaussian splats can grow well past 1 without
+ *  saturating (the compose pass normalises by `heatmap-intensity`). Both the
+ *  accum target and the blur ping-pong target use this format. */
+export const HEATMAP_DENSITY_FORMAT: GPUTextureFormat = 'r16float'
+
 // ── Stencil States ──
 //
 // The polygon pipelines also write depth (`less-equal` test + write) so

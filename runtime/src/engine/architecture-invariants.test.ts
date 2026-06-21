@@ -175,7 +175,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 3494→3496 (mbx_batch2) for the Mapbox `["pitch"]` identifier:
   // the render-path eval sites (applyFilter + per-feature paint/size eval)
   // inject `this.camera.pitch` alongside cameraZoom (2 lines).
-  'runtime/src/engine/map.ts': 3496,
+  // Bumped 3496→3511 (Phase R heatmap): heatmapRenderer field + import + two
+  // init sites + the GeoJSON heatmap routing fork in rebuildLayers + two
+  // teardown blocks. Irreducible host glue (mirror of the pointRenderer wiring).
+  'runtime/src/engine/map.ts': 3511,
   // Bumped 1343→1344 for the opacity sub-1.5% round-trip fix (#274); comments
   // trimmed to the minimum, net +1 irreducible.
   // Bumped 1344→1348 for the polygon fill-stroke INSET default (US-002): a
@@ -248,7 +251,10 @@ const LOC_CEILINGS: Record<string, number> = {
   'compiler/src/tiler/vector-tiler.ts': 1570,
   // Bumped 915→917 (#420) for the UNIFORM_SIZE/SLOT 240→256 bump +
   // light_dir_ecef contract comment when the polygon Uniforms struct grew.
-  'runtime/src/engine/render/renderer.ts': 917,
+  // Bumped 917→931 (Phase R heatmap): ensureHeatmapBlur / ensureHeatmapCompose
+  // forwarders + the two heatmap bind-group-layout getters (thin delegates to
+  // the factory, mirror of ensureOverdrawCompose).
+  'runtime/src/engine/render/renderer.ts': 931,
   // Lowered 776→254: extracted the text-layout family (text-anchor /
   // variable-anchor[-offset] / transform / offset / translate / radial-offset /
   // collision / rotate / letter-spacing / max-width / line-height / justify /
@@ -403,7 +409,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // fix-history comments (OIT cull, iter-130/186/197 etc.) carry the LOC.
   // Baselined here; shrink as the three builders converge (descriptor
   // factory) + comments distil.
-  'runtime/src/engine/render/pipeline-factory.ts': 1193,
+  // Bumped 1193→1285 (Phase R heatmap): ensureHeatmapBlur + ensureHeatmapCompose
+  // lazy pipelines (modelled on ensureOverdrawCompose) + their bind-group-layout
+  // fields + the two emitter imports + the HEATMAP_DENSITY_FORMAT import.
+  'runtime/src/engine/render/pipeline-factory.ts': 1285,
   // GpuTileStore — VTR Cluster-A extraction (the resident-tile memory core:
   // gpuCache + the three GPUArenas + byte-aware eviction + OOM forced eviction
   // + deferred compaction/AUTO-GROW). Over the 800 cap because the verbatim
@@ -454,7 +463,9 @@ const LOC_CEILINGS: Record<string, number> = {
   'compiler/src/ir/lower-label.ts': 866,
   // Baselined at 835 (Phase S Batch 3 raster +18 + text/icon +6; Batch 4 icon
   // collision +3 + symbol-z-order's LabelDef.symbolZOrder field + JSDoc).
-  'compiler/src/ir/render-node.ts': 837,
+  // Bumped 837→855 (Phase R heatmap): the RenderNodeHeatmapPaint interface
+  // (isHeatmap + 5 heatmap-* axes) + its addition to the RenderNode extends list.
+  'compiler/src/ir/render-node.ts': 855,
 }
 const NEW_FILE_CAP = 800
 
@@ -550,6 +561,10 @@ const PROJTYPE_ALLOWLIST: Record<string, number> = {
   'runtime/src/engine/render/raster-renderer.ts': 2,
   'runtime/src/engine/render/prefetch-scheduler.ts': 1,
   'runtime/src/engine/render/point-renderer.ts': 1,
+  // HeatmapRenderer (Phase R) mirrors point-renderer's frame-uniform packer
+  // exactly: `if (projType === 0)` selects the 2D-Mercator camera-centre lane
+  // (cam_ecef_h/l.xy) over the ECEF anchor — the identical sibling branch.
+  'runtime/src/engine/render/heatmap-renderer.ts': 1,
   'runtime/src/data/tile-select.ts': 1,
 }
 

@@ -44,6 +44,7 @@ import { interpret, type SceneCommands } from './interpreter'
 import { lonLatToMercator, type GeoJSONFeatureCollection } from '../loader/geojson'
 import { RasterRenderer } from './render/raster-renderer'
 import { PointRenderer } from './render/point-renderer'
+import { HeatmapRenderer, type HeatmapColorStop } from './render/heatmap-renderer'
 import { ShapeRegistry } from './text/sdf-shape'
 import { LineRenderer } from './render/line-renderer'
 import { PanZoomController, type Controller } from './controller'
@@ -162,6 +163,10 @@ export class XGISMap {
    *  frame is timed; samples drain to `getGpuTimings()`. */
   gpuTimer: GPUTimer | null = null
   pointRenderer!: PointRenderer
+  /** Heatmap renderer (Phase R). Lazily constructed alongside pointRenderer;
+   *  GeoJSON-source Point/MultiPoint heatmap layers route here. Null until the
+   *  first run() builds it (or if construction fails). */
+  heatmapRenderer: HeatmapRenderer | null = null
   private shapeRegistry: ShapeRegistry | null = null
   lineRenderer: LineRenderer | null = null
   private running = false
@@ -2138,6 +2143,9 @@ export class XGISMap {
       this.shapeRegistry.uploadToGPU()
       this.pointRenderer.setShapeRegistry(this.shapeRegistry)
     } catch (e) { xlog.warn('[X-GIS] PointRenderer init failed:', e) }
+    // Heatmap renderer (Phase R) — owns the accum pipeline + per-layer
+    // density buffers; the blur/compose pipelines live in pipeline-factory.
+    try { this.heatmapRenderer = new HeatmapRenderer(this.ctx) } catch (e) { xlog.warn('[X-GIS] HeatmapRenderer init failed:', e) }
 
     // SDF line renderer (shared by all VTR instances)
     try {
@@ -2392,6 +2400,7 @@ export class XGISMap {
     // GPU vertex shader applies projection via uniform
     this.renderer.clearLayers()
     this.pointRenderer?.clearLayers()
+    this.heatmapRenderer?.clearLayers()
     this.vectorTileShows = []
     // Reset layer-id registry so re-projection produces deterministic IDs
     // (same `addLayer` order → same IDs). pickAt callers that cached an ID
@@ -2534,6 +2543,29 @@ export class XGISMap {
 
       // Point geometry → SDF point renderer (skip polygon tiling pipeline)
       const firstGeomType = filtered.features[0]?.geometry?.type
+
+      // Heatmap layer (Phase R) → HeatmapRenderer. Routes BEFORE the SDF
+      // point fork so a heatmap layer's points feed the density pipeline
+      // (accum → blur → compose) instead of drawing as circles. GeoJSON-
+      // source Point/MultiPoint only; tile-sourced heatmaps are deferred.
+      if (show.isHeatmap && (firstGeomType === 'Point' || firstGeomType === 'MultiPoint')
+          && !show.geometryExpr && this.heatmapRenderer) {
+        // Per-feature weight (heatmap-weight data-driven) — evaluate when the
+        // weight arrived as an expression. The scalar heatmapWeight is the
+        // global multiplier; perFeatureWeights carries the per-feature factor.
+        const ramp: HeatmapColorStop[] | undefined = show.heatmapColorStops as HeatmapColorStop[] | undefined
+        this.heatmapRenderer.addLayer(
+          filtered.features as any,
+          show.heatmapRadius ?? 30,
+          show.heatmapWeight ?? 1,
+          show.heatmapIntensity ?? 1,
+          show.heatmapOpacity ?? 1,
+          ramp,
+          null,
+        )
+        continue
+      }
+
       if ((firstGeomType === 'Point' || firstGeomType === 'MultiPoint') && !show.geometryExpr && this.pointRenderer) {
         const fillHex = show.fill
         const strokeHex = show.stroke
@@ -2815,6 +2847,7 @@ export class XGISMap {
     this.rasterRenderer = new RasterRenderer(this.ctx)
     if (GPU_PROF) this.gpuTimer = new GPUTimer(this.ctx)
       try { this.pointRenderer = new PointRenderer(this.ctx) } catch (e) { xlog.warn('[X-GIS] PointRenderer init failed:', e) }
+      try { this.heatmapRenderer = new HeatmapRenderer(this.ctx) } catch (e) { xlog.warn('[X-GIS] HeatmapRenderer init failed:', e) }
 
     for (const load of commands.loads) {
       const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
@@ -3273,6 +3306,13 @@ export class XGISMap {
     this.iconStage?.destroy()
     this.iconStage = null
 
+    // Heatmap density targets + per-layer buffers (Phase R). The trailing
+    // device.destroy() frees the GPU memory; null the refs so a re-run
+    // reallocates cleanly.
+    this.heatmapRenderer?.clearLayers()
+    this.heatmapRenderer = null
+    this.renderTargets.destroyHeatmap()
+
     // Colour / scalar palette + gradient-atlas textures.
     if (this._paletteHandles) {
       this._paletteHandles.colorPalette.destroy()
@@ -3347,6 +3387,11 @@ export class XGISMap {
     this.textStage = null
     this.iconStage?.destroy()
     this.iconStage = null
+
+    // Heatmap density targets + per-layer buffers (Phase R).
+    this.heatmapRenderer?.clearLayers()
+    this.heatmapRenderer = null
+    this.renderTargets.destroyHeatmap()
 
     // DOM stats overlay element.
     this._statsPanel?.destroy()
