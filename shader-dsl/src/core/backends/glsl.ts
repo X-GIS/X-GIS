@@ -28,6 +28,7 @@
 import type { ShaderType, ConstDecl, FuncDecl, ModuleDecl } from '../ir'
 import { Capabilities, UnsupportedFeatureError, type Backend } from '../backend'
 import { assertCaps } from '../passes/required-caps'
+import { spellIntrinsic } from '../intrinsics'
 import { f32Lit } from './wgsl'
 import { emitBody } from '../emit'
 import { lowerModule } from '../passes/match-lower'
@@ -62,29 +63,16 @@ function glslLit(value: number | boolean, t: ShaderType): string {
   return f32Lit(value)
 }
 
-// Divergent intrinsic spellings WGSL → GLSL ES 3.00. Anything not listed passes
-// through unchanged (the ~23 portable builtins + user-defined function calls).
-const GLSL_RENAME: Record<string, string> = {
-  atan2: 'atan',                  // GLSL overloads atan(y, x)
-  inverseSqrt: 'inversesqrt',
-  unpack4x8unorm: 'unpackUnorm4x8',
-  pack4x8unorm: 'packUnorm4x8',
-  'bitcast<u32>': 'floatBitsToUint',
-  'bitcast<f32>': 'uintBitsToFloat',
-  textureLoad: 'texelFetch',
-  textureDimensions: 'textureSize',
-}
-
+// Intrinsic spelling is owned by the neutral registry (core/intrinsics.ts) now —
+// the divergent WGSL→GLSL mappings (atan2→atan, bitcastU32→floatBitsToUint,
+// textureSample→texture, select→ternary, …) live there as the single SoT, so this
+// writer no longer needs its own rename table.
 export const glslEs300Backend: Backend = {
   id: 'glsl-es300',
   caps: new Capabilities(new Set()), // no storage buffers, no compute, no MSAA-load on WebGL2
   typeName: glslType,
   literal: glslLit,
-  intrinsic(name, args) {
-    if (name === 'select') return `(${args[2]} ? ${args[1]} : ${args[0]})` // (cond ? true : false)
-    if (name === 'textureSample') return `texture(${args[0]}, ${args[2]})`  // drop the separate sampler arg
-    return `${GLSL_RENAME[name] ?? name}(${args.join(', ')})`
-  },
+  intrinsic: (name, args) => spellIntrinsic('glsl', name, args),
   localLet: (name, type, init) => `${glslType(type)} ${name} = ${init}`,
   localVar: (name, type, init) => init !== undefined ? `${glslType(type)} ${name} = ${init}` : `${glslType(type)} ${name}`,
   constDecl: (name, type, value) => `const ${glslType(type)} ${name} = ${value};`,

@@ -15,6 +15,7 @@ import { emitExpr as emitExprNeutral, emitBody } from '../emit'
 import { lowerModule } from '../passes/match-lower'
 import { validate } from '../passes/validate'
 import { assertCaps } from '../passes/required-caps'
+import { spellIntrinsic } from '../intrinsics'
 
 export function wgslType(t: ShaderType): string {
   switch (t.kind) {
@@ -52,7 +53,7 @@ export const wgslBackend: Backend = {
   literal: lit,
   // WGSL spells every intrinsic / user call as `name(args)`; the reserved
   // `'select'` id is WGSL select(falseVal, trueVal, cond).
-  intrinsic: (name, args) => `${name}(${args.join(', ')})`,
+  intrinsic: (name, args) => spellIntrinsic('wgsl', name, args),
   localLet: (name, _type, init) => `let ${name} = ${init}`,
   localVar: (name, type, init) => init !== undefined ? `var ${name}: ${wgslType(type)} = ${init}` : `var ${name}: ${wgslType(type)}`,
   constDecl: (name, type, value) => `const ${name}: ${wgslType(type)} = ${value};`,
