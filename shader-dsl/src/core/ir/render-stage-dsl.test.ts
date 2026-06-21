@@ -5,7 +5,7 @@ import {
   type StructDecl,
 } from './index'
 import { emitModule } from '../backends/wgsl'
-import { compileModule } from '../backends/cpu'
+import { compileModule } from '../oracle'
 
 // Phase-2 render-stage IR proof: author a minimal render shader exercising the
 // new surface (uniform struct, @vertex/@fragment entries, @builtin params +

@@ -10,7 +10,7 @@
 // has no 2D forward, so a stray caller must fail loudly rather than silently
 // take the oblique-mercator else-arm.
 
-import { compileModule } from '../core/backends/cpu'
+import { compileModule } from '../core/oracle'
 import { getPROJECTION_MODULE } from './projections'
 
 // Lazy: the projection module is built from the host-injected ProjectionSpec

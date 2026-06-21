@@ -28,7 +28,7 @@ export type Expr =
   | { readonly op: 'select'; readonly type: ShaderType; readonly cond: Expr; readonly ifTrue: Expr; readonly ifFalse: Expr }
   | { readonly op: 'index'; readonly type: ShaderType; readonly base: Expr; readonly idx: Expr }
   // `match (scrutinee) { case v0: e0; ...; default: dflt }`. The WGSL backend
-  // pre-emit pass (core/backends/wgsl-lower.ts) lowers every matchExpr inside
+  // pre-emit pass (core/passes/match-lower.ts) lowers every matchExpr inside
   // an fn body into a hoisted `{ Stmt.var slot, Stmt.switch }` pair + a
   // varref to the slot; emitExpr never sees a `matchExpr` Expr post-lowering.
   // The CPU backend evaluates the scrutinee then returns the matched case's

@@ -254,7 +254,7 @@ export const select = <R extends string>(cond: Node<'bool'>, ifTrue: Node<R> | n
 /**
  * `match (scrutinee) { case v0: r0; ...; default: dflt }` — a typed multi-arm
  * dispatch over an integer/scalar scrutinee. The wgsl pre-emit pass
- * (core/backends/wgsl-lower.ts) lowers every matchExpr inside an fn body into
+ * (core/passes/match-lower.ts) lowers every matchExpr inside an fn body into
  * a hoisted `var _mr_N: <R>` slot + `Stmt.switch` writing each case's value
  * into the slot, and rewrites the matchExpr position into a varref. This
  * matches the production compiler's existing `var _mcSS = ...; if (...) { ... }`

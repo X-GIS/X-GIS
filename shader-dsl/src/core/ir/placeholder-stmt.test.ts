@@ -20,8 +20,8 @@ import { describe, it, expect } from 'vitest'
 import type { Stmt, FuncDecl, ModuleDecl } from './nodes'
 import { i32T, voidT } from './types'
 import { emitModule } from '../backends/wgsl'
-import { compileModule } from '../backends/cpu'
-import { lowerModule } from '../backends/wgsl-lower'
+import { compileModule } from '../oracle'
+import { lowerModule } from '../passes/match-lower'
 
 function moduleWithBody(body: Stmt[]): ModuleDecl {
   const fn: FuncDecl = {

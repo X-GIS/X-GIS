@@ -18,8 +18,8 @@ import { matchExpr, f32, i32, u32, vec4, type Node } from './node'
 import type { Expr, Stmt, FuncDecl, ModuleDecl } from './nodes'
 import { f32T, i32T, u32T, vec4fT } from './types'
 import { emitModule } from '../backends/wgsl'
-import { lowerModule } from '../backends/wgsl-lower'
-import { compileModule } from '../backends/cpu'
+import { lowerModule } from '../passes/match-lower'
+import { compileModule } from '../oracle'
 
 // ── Helpers — build IR fragments without the Builder (so tests stay
 // explicit about the Stmt/Expr shape each one asserts). ────────────────
