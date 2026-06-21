@@ -119,4 +119,24 @@ describe('source inline data lowering', () => {
       `),
     ).toThrow(/literal GeoJSON/i)
   })
+
+  it('preserves NEGATIVE coordinates (W/S hemispheres)', () => {
+    // The parser tokenises `-122.4` as a unary-minus over NumberLiteral, NOT
+    // a negative literal; astLiteralToJS must fold it back to a signed number.
+    // Real GeoJSON is full of negatives — without this, most data fails to
+    // parse (fail-before: threw "got a 'UnaryExpr' expression").
+    const ir = compile(`
+      source sf {
+        type: geojson
+        data: { "type": "FeatureCollection", "features": [
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-122.4, -37.8] }, "properties": {} }
+        ] }
+      }
+      layer l { source: sf | fill-red size-6 }
+    `)
+    const src = ir.sources.find((s) => s.name === 'sf')!
+    const coords = (src.inlineData as { features: { geometry: { coordinates: number[] } }[] })
+      .features[0].geometry.coordinates
+    expect(coords).toEqual([-122.4, -37.8])
+  })
 })

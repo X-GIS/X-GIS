@@ -26,7 +26,6 @@
 //   - `this.camera` / `this.canvas`  → injected (stable ctor-time instances).
 
 import { assertIngestBudget, readBodyCapped, safeFetch } from './safety'
-import { xlog } from './log'
 import type { Camera } from './projection/camera'
 import type { GPUContext } from './gpu/gpu'
 import { getMaxDpr } from './gpu/gpu'
@@ -171,25 +170,6 @@ export class SourceManager {
     }
   }
 
-  /** Seed an inline GeoJSON source (`source x { data: {...} }`) into
-   *  rawDatasets — the same path a programmatic / Mapbox-imported inline
-   *  FC takes (map.ts inline-seed loop). Reprojects declared-CRS input →
-   *  WGS84 LL and stores the FC in rawDatasets, the non-tiled geojson
-   *  render path `rebuildLayers` reads for fills / lines / points. Does
-   *  NOT call rebuildLayers — run() drives it unconditionally after the
-   *  parallel load batch (same contract as the inline-seed loop). Public
-   *  (underscore-prefixed) as a GPU-free test seam, mirroring
-   *  `_reprojectIngest`. */
-  _seedInlineGeoJSON(sourceName: string, fc: GeoJSONFeatureCollection): void {
-    if (!fc || typeof fc !== 'object' || !Array.isArray((fc as { features?: unknown }).features)) {
-      xlog.warn(`[X-GIS] Inline GeoJSON for source "${sourceName}" is not a FeatureCollection — dropping.`)
-      return
-    }
-    // Reproject declared-CRS input → WGS84 LL before it enters rawDatasets
-    // (and therefore before tiling / bounds / camera-fit). Absent CRS ⇒
-    // EPSG:4326 / no-op (returns the same ref). See reproject-fc.ts.
-    this.rawDatasets.set(sourceName, this._reprojectIngest(sourceName, fc))
-  }
 
   /** Attach one declared `load:` from the parsed program — dispatches
    *  by URL/format into the four supported branches:
@@ -211,15 +191,17 @@ export class SourceManager {
     maps: ShowSourceMaps,
     cameraFitState: { fit: boolean },
   ): Promise<void> {
-    // Inline GeoJSON (`source x { data: {...} }`) — seed directly through
-    // the same reproject + rawDatasets path a programmatic inline FC uses
-    // (map.ts inline-seed loop), bypassing any url fetch. This is the GeoJSON
-    // ingest path: rebuildLayers renders fills/lines/points from rawDatasets,
-    // so every paint kind works on an inline-data source. The `data:` form
-    // wins when both `data:` and `url:` are present (compiler warns at lower
-    // time).
+    // Inline GeoJSON (`source x { data: {...} }`) — route through the SAME
+    // VirtualPMTiles geojson ingest the url path uses (reproject → tile via
+    // VirtualPMTilesBackend → VTR pipelines → camera-fit), just skipping the
+    // fetch. Seeding only `rawDatasets` is NOT enough to render: the source
+    // must be tiled with a backend exactly like url geojson, or it stays
+    // invisible (real-GPU verified — rawDatasets-only seed produced a blank
+    // frame even tiled+camera-fit). `data:` wins over `url:` (compiler warns).
     if (load.inlineData !== undefined && load.inlineData !== null) {
-      this._seedInlineGeoJSON(load.name, load.inlineData as GeoJSONFeatureCollection)
+      await this._attachGeoJSONViaVirtualPMTiles(
+        load.name, load.inlineData as GeoJSONFeatureCollection, maps, cameraFitState,
+      )
       return
     }
     const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url

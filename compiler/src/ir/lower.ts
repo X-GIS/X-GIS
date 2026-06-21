@@ -228,6 +228,20 @@ function astLiteralToJS(expr: AST.Expr, sourceName: string, line: number): unkno
       return expr.value
     case 'ColorLiteral':
       return expr.value
+    case 'UnaryExpr': {
+      // GeoJSON coordinates are full of negatives; the parser tokenises
+      // `-160` as a unary-minus over NumberLiteral(160), NOT a negative
+      // literal. Fold unary +/- over a numeric literal back to a signed
+      // number so real-world geojson (W/S hemispheres) parses.
+      const inner = astLiteralToJS(expr.operand, sourceName, line)
+      if (typeof inner === 'number' && (expr.op === '-' || expr.op === '+')) {
+        return expr.op === '-' ? -inner : inner
+      }
+      throw new Error(
+        `Source '${sourceName}' (line ${line}): inline \`data\` unary '${expr.op}' ` +
+        `is only valid on a number literal.`,
+      )
+    }
     default:
       throw new Error(
         `Source '${sourceName}' (line ${line}): inline \`data\` must be literal ` +

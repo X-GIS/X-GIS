@@ -1,0 +1,22 @@
+/* Inline GeoJSON embedded directly in the source via `data: { ... }`
+   — no url fetch. Demonstrates the object-literal data form. */
+
+source inline_pts {
+  type: geojson
+  data: { "type": "FeatureCollection", "features": [
+    { "type": "Feature", "geometry": { "type": "Polygon", "coordinates": [[[-30, -30], [30, -30], [30, 30], [-30, 30], [-30, -30]]] }, "properties": { "n": "center-box" } },
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [0, 0] }, "properties": { "n": "origin" } },
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-60, 40] }, "properties": { "n": "nw" } },
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [60, -40] }, "properties": { "n": "se" } }
+  ] }
+}
+
+layer box {
+  source: inline_pts
+  | fill-sky-500 opacity-50 stroke-sky-300 stroke-1.5
+}
+
+layer dots {
+  source: inline_pts
+  | fill-amber-400 size-14 stroke-amber-200 stroke-2
+}
