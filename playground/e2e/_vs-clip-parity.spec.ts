@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { DEQUANT_ECEF_WGSL } from '../../runtime/src/engine/shader-dsl/shaders/polygon'
+import { DEQUANT_ECEF_WGSL } from '@xgis/shader-dsl/shaders/polygon'
 import { dequantVertexF32, mulMat4Vec4F32, POLYGON_FILL_FORMAT } from '@xgis/compiler'
 
 // ═══ vs_main_ecef clip-space parity: GPU f32 (dequant→MVP→clip) ≡ CPU fround ═══

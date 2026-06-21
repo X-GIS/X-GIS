@@ -25,7 +25,7 @@ import { lonLatToECEF } from '../projection/ecef'
 import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 import { getSampleCount } from '../gpu/gpu'
 import { FrameArena } from '../gpu/frame-arena'
-import { emitHeatmapAccumWgsl } from '../shader-dsl'
+import { emitHeatmapAccumWgsl } from '@xgis/shader-dsl'
 import { HEATMAP_DENSITY_FORMAT } from '../gpu/gpu-shared'
 
 /** A baked heatmap-color ramp stop — offset in [0,1] (heatmap-density) and a

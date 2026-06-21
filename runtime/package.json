@@ -30,6 +30,7 @@
   },
   "devDependencies": {
     "@xgis/compiler": "workspace:*",
+    "@xgis/shader-dsl": "workspace:*",
     "@xgis/shared": "workspace:*",
     "geojson-vt": "^4.0.2",
     "rollup": "^4.60.4",

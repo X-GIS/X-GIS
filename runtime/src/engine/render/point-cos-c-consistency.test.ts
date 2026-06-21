@@ -10,7 +10,7 @@
 // vice-versa.
 
 import { describe, expect, it } from 'vitest'
-import { cosC, needsBackfaceCullWgsl } from '../shader-dsl'
+import { cosC, needsBackfaceCullWgsl } from '@xgis/shader-dsl'
 
 const EARTH_R = 6378137
 const DEG2RAD = Math.PI / 180

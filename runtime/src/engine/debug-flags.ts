@@ -7,7 +7,7 @@
 // because most affect pipeline construction and would require
 // rebuilding every renderer. To change a flag, reload the page.
 
-import { emitOverdrawFsWgsl } from './shader-dsl/shaders/overdraw-fs'
+import { emitOverdrawFsWgsl } from '@xgis/shader-dsl/shaders/overdraw-fs'
 
 function readDebugFlag(): string | null {
   if (typeof window === 'undefined') return null

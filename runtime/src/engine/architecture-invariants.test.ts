@@ -190,7 +190,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // gate + the run() once-per-load log call + contract comments. Irreducible
   // additive load-path glue (the converter emits warnings as a discarded
   // comment block; this is the runtime's only seam to surface them).
-  'runtime/src/engine/map.ts': 3597,
+  // Bumped 3597→3599: configureProjections(PROJECTIONS) import + the constructor
+  // call that injects the projection spec list into @xgis/shader-dsl (the
+  // shader-dsl extraction seam — 2 irreducible wiring lines).
+  'runtime/src/engine/map.ts': 3599,
   // Bumped 1343→1344 for the opacity sub-1.5% round-trip fix (#274); comments
   // trimmed to the minimum, net +1 irreducible.
   // Bumped 1344→1348 for the polygon fill-stroke INSET default (US-002): a
@@ -333,7 +336,7 @@ const LOC_CEILINGS: Record<string, number> = {
   // `round_limit` field (re-using a former pad slot, struct size unchanged)
   // + the `acute_fold_bis` select() that scales the round-join fold
   // threshold by round_limit/1.05 (0 = historical JOIN_ACUTE_BIS) + comments.
-  'runtime/src/engine/shader-dsl/shaders/line.ts': 1246,
+  // line.ts moved to the @xgis/shader-dsl package — tracked there, not in runtime.
   // Bumped 1171→1176 (#274 CSS color-fn whitespace), then 1176→1178 (#317) for
   // the two irreducible numeric match()-label arm-pattern cases (Number, and
   // Minus+Number). Lowered 1178→50 (Tier-C5): the Parser god-file was split
@@ -364,7 +367,7 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 1198→1211 (WS-9): the two light_color_packed / _pad_light_align
   // Uniforms struct lanes + the extrude VS reading intensity from
   // light_dir_ecef.w and colour from unpack4x8unorm(light_color_packed).
-  'runtime/src/engine/shader-dsl/shaders/polygon.ts': 1211,
+  // polygon.ts moved to the @xgis/shader-dsl package — tracked there, not in runtime.
   // Bumped 1067→1092 for the minZoom + setMaxBounds gesture-clamp correctness
   // fixes (#244/#248): the maxBounds clamp method + its 7 gesture-exit call
   // sites are irreducible. camera.ts decomposition remains a tracked priority.
@@ -520,7 +523,6 @@ const LAYER_OF = (relPath: string): number | null => {
   if (p.startsWith('runtime/src/engine/projection/')) return 0
   if (p.startsWith('runtime/src/engine/gpu/')) return 1
   if (p.startsWith('runtime/src/engine/shaders/')) return 1
-  if (p.startsWith('runtime/src/engine/shader-dsl/')) return 1
   if (p.startsWith('runtime/src/data/')) return 2
   if (p.startsWith('runtime/src/loader/')) return 2
   if (p.startsWith('runtime/src/engine/render/')) return 3

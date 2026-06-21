@@ -10,8 +10,8 @@
 
 import { describe, expect, it } from 'vitest'
 import { WGSL_PROJECTION_FNS } from './projection'
-import { emitRasterWgsl, emitLineWgsl } from '../shader-dsl'
-import { emitPolygonWgsl } from '../shader-dsl/shaders/polygon'
+import { emitRasterWgsl, emitLineWgsl } from '@xgis/shader-dsl'
+import { emitPolygonWgsl } from '@xgis/shader-dsl/shaders/polygon'
 
 // WGSL spec reserved words (the high-value subset that realistically
 // collides with shader-author names; `ref` is the one that bit us).

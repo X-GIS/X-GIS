@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { DEQUANT_ECEF_WGSL } from '../../runtime/src/engine/shader-dsl/shaders/polygon'
+import { DEQUANT_ECEF_WGSL } from '@xgis/shader-dsl/shaders/polygon'
 
 // ═══ ECEF polygon-fill VERTEX POSITION gate (minimal render → texture) ═══
 //

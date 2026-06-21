@@ -14,7 +14,7 @@
 // stage just converts viewport-px → NDC.
 
 import { SpriteAtlasGPU } from './sprite-atlas-gpu'
-import { emitIconWgsl } from '../shader-dsl'
+import { emitIconWgsl } from '@xgis/shader-dsl'
 import type { SpriteInfo } from './sprite-atlas-host'
 import { vertexField } from '@xgis/compiler'
 import { ICON_FORMAT } from './icon-vertex-format'
