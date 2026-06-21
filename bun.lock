@@ -68,6 +68,7 @@
       },
       "devDependencies": {
         "@xgis/compiler": "workspace:*",
+        "@xgis/shader-dsl": "workspace:*",
         "@xgis/shared": "workspace:*",
         "geojson-vt": "^4.0.2",
         "rollup": "^4.60.4",
@@ -75,6 +76,10 @@
         "vite": "^7.3.3",
         "vt-pbf": "^3.1.3",
       },
+    },
+    "shader-dsl": {
+      "name": "@xgis/shader-dsl",
+      "version": "0.0.1",
     },
     "shared": {
       "name": "@xgis/shared",
@@ -476,6 +481,8 @@
     "@xgis/playground": ["@xgis/playground@workspace:playground"],
 
     "@xgis/runtime": ["@xgis/runtime@workspace:runtime"],
+
+    "@xgis/shader-dsl": ["@xgis/shader-dsl@workspace:shader-dsl"],
 
     "@xgis/shared": ["@xgis/shared@workspace:shared"],
 

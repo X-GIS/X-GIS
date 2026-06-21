@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { emitIconWgsl } from '../shader-dsl'
+import { emitIconWgsl } from '@xgis/shader-dsl'
 import { ICON_FORMAT } from './icon-vertex-format'
 import { specShaderMismatches } from '../render/__vertex-format-crosscheck'
 

@@ -43,7 +43,7 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    exclude: ['@xgis/compiler', '@xgis/blueprint', '@xgis/runtime'],
+    exclude: ['@xgis/compiler', '@xgis/blueprint', '@xgis/runtime', '@xgis/shader-dsl'],
   },
   build: {
     rollupOptions: {

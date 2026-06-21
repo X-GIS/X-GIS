@@ -1,0 +1,16 @@
+{
+  "name": "@xgis/shader-dsl",
+  "version": "0.0.1",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./core/ir": "./src/core/ir/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "build": "tsc --build"
+  }
+}

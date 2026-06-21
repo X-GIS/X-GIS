@@ -43,7 +43,7 @@ import { DEBUG_OVERDRAW } from '../debug-flags'
 import { asyncWriteBuffer, type StagingBufferPool } from '../gpu/staging-buffer-pool'
 import { xlog } from '../log'
 import { BLEND_ALPHA, BLEND_ALPHA_PREMULT, BLEND_MAX, DEPTH_READ_ONLY } from '../gpu/gpu-shared'
-import { emitLineWgsl, emitCompositeWgsl } from '../shader-dsl'
+import { emitLineWgsl, emitCompositeWgsl } from '@xgis/shader-dsl'
 import type { ShapeRegistry } from '../text/sdf-shape'
 import {
   LINE_UNIFORM_SIZE, PATTERN_SLOT_COUNT, PATTERN_SLOT_F32,

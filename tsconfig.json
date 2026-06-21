@@ -4,6 +4,7 @@
     { "path": "./shared" },
     { "path": "./compiler" },
     { "path": "./blueprint" },
+    { "path": "./shader-dsl" },
     { "path": "./runtime" }
   ]
 }

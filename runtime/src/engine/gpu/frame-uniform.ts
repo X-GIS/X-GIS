@@ -51,7 +51,7 @@ export const FRAME_UNIFORM_SIZE_BYTES = 128
  *  the renderer's chosen group+binding indices when concatenating.
  *  WGSL emitted from the polygon DSL — see shader-dsl/shaders/frame-
  *  uniform.ts for the StructDecl + emit helper. */
-import { emitFrameUniformWgsl } from '../shader-dsl/shaders/frame-uniform'
+import { emitFrameUniformWgsl } from '@xgis/shader-dsl/shaders/frame-uniform'
 export const WGSL_FRAME_UNIFORM = emitFrameUniformWgsl()
 
 export class FrameUniform {

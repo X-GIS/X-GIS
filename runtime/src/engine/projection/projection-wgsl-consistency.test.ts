@@ -20,7 +20,7 @@ import {
   unwrapLonNear,
   wrapLonDelta,
   needsBackfaceCullWgsl,
-} from '../shader-dsl'
+} from '@xgis/shader-dsl'
 import { globeForward } from './globe'
 
 // Phase 2-A: Cross-consistency between CPU canonical (projection.ts) and

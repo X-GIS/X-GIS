@@ -28,7 +28,7 @@
  *  Now EMITTED from the shader DSL (`shader-dsl/log-depth.ts`) — the CPU
  *  helpers below (computeLogDepthFc / simulateLogDepthZ) stay the canonical
  *  CPU reference, pinned against the emitted math by log-depth.test.ts. */
-export { LOG_DEPTH_WGSL_FNS as WGSL_LOG_DEPTH_FNS } from '../shader-dsl'
+export { LOG_DEPTH_WGSL_FNS as WGSL_LOG_DEPTH_FNS } from '@xgis/shader-dsl'
 
 /** CPU-side factor computation — exported for tests and for the uniform
  *  pack path in every renderer. Matches the shader exactly. */
