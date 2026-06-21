@@ -49,6 +49,7 @@ export const galleryCategories: Category[] = [
       { id: 'ocean-land',  title: 'Ocean & land', body: 'Two GeoJSON layers stacked — water under land.' },
       { id: 'dark',        title: 'Dark theme',   body: 'Same data, slate palette and translucent strokes.' },
       { id: 'styled-world', title: 'Styled world', body: 'Multi-layer composition with subtle gradients.' },
+      { id: 'inline-data', runId: 'inline_data', title: 'Inline GeoJSON', body: 'GeoJSON embedded directly in the source via `data: { … }` — no url fetch, no separate file.' },
     ],
   },
   {
@@ -117,6 +118,7 @@ export const galleryCategories: Category[] = [
       { id: 'procedural-circles',  title: 'Procedural circles',  body: 'Generated point grid with ramped colors.' },
       { id: 'sdf-points',          title: 'SDF points',          body: 'Signed-distance-field point rendering — crisp at any zoom.' },
       { id: 'shape-gallery',       title: 'Shape gallery',       body: 'Side-by-side comparison of every built-in symbol.' },
+      { id: 'heatmap',             title: 'Heatmap',             body: 'Population density heatmap — 3-pass GPU (additive Gaussian splat → separable blur → density→colour ramp).' },
     ],
   },
 
