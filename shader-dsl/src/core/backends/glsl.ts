@@ -26,15 +26,16 @@
 // transcription, not a verified one.
 
 import type { ShaderType, ConstDecl, FuncDecl, ModuleDecl } from '../ir'
-import { Capabilities, type Backend } from '../backend'
+import { Capabilities, UnsupportedFeatureError, type Backend } from '../backend'
+import { assertCaps } from '../passes/required-caps'
 import { f32Lit } from './wgsl'
 import { emitBody } from '../emit'
 import { lowerModule } from '../passes/match-lower'
 import { validate } from '../passes/validate'
 
-export class UnsupportedFeatureError extends Error {
-  constructor(message: string) { super(message); this.name = 'UnsupportedFeatureError' }
-}
+// UnsupportedFeatureError now lives in the backend contract; re-exported here so
+// existing importers (`from './glsl'`) keep working.
+export { UnsupportedFeatureError } from '../backend'
 
 function glslType(t: ShaderType): string {
   switch (t.kind) {
@@ -110,6 +111,7 @@ function emitFunc(f: FuncDecl): string {
  *  Bindings/structs/entry-IO raise UnsupportedFeatureError. */
 export function emitGlslModule(m: ModuleDecl): string {
   validate(m) // validate the authored module before any lowering
+  assertCaps(glslEs300Backend, m) // fail closed on storage/compute/MSAA (caps = none)
   const lowered = lowerModule(m)
   if (lowered.bindings.length) throw new UnsupportedFeatureError('glsl-es300: resource bindings — std140 UBO / data-texture lowering is a later step')
   if (lowered.structs.length) throw new UnsupportedFeatureError('glsl-es300: struct decls (IO/uniform) — std140 lowering is a later step')

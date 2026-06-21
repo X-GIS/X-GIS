@@ -67,3 +67,10 @@ export interface Backend {
   /** An un-swapped `placeholder` Stmt. WGSL emits a defensive comment; non-WGSL fails closed. */
   placeholderStmt(tag: string): string
 }
+
+/** Emitting a feature a target does not support is a typed error, never a silent
+ *  mis-emit. Thrown by the capability gate (assertCaps) and by individual backend
+ *  fragments that hit an unsupported construct. */
+export class UnsupportedFeatureError extends Error {
+  constructor(message: string) { super(message); this.name = 'UnsupportedFeatureError' }
+}
