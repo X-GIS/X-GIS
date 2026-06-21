@@ -1,19 +1,20 @@
 // ═══ Shader DSL — GLSL ES 3.00 backend (WebGL2) ═══
 //
-// The second writer — proves the IR is target-neutral. It reuses the neutral
-// expression walk (emitExprFor) and provides GLSL spelling (types, literals,
-// intrinsics) + GLSL declaration/statement syntax (which genuinely differs from
-// WGSL: `T name = e` vs `let name = e`, `R name(...)` vs `fn name(...) -> R`,
-// `const T name = v` vs `const name: T = v`).
+// The second writer — proves the IR is target-neutral. It reuses the SHARED
+// neutral walk (core/emit.ts) and provides GLSL spelling (types, literals,
+// intrinsics) + the divergent declaration fragments (`T name = e` vs `let name =
+// e`, GLSL `switch (x)` + int case labels, fail-closed raw/placeholder). The
+// control-flow walk is NOT duplicated here.
 //
-// SCOPE (walking skeleton): pure-function modules (the projection / log-depth
-// math graphs) — no entry-point IO, no bindings, no compute, no storage. Those
-// raise UnsupportedFeatureError (the GLSL writer declares caps = none); the
-// struct-IO flatten + data-texture buffer emulation are later steps.
+// SCOPE (walking skeleton): pure-function modules (projection / log-depth math)
+// — no entry-point IO, no bindings, no compute, no storage. Those raise
+// UnsupportedFeatureError (caps = none); struct-IO flatten + data-texture buffer
+// emulation are later steps.
 
-import type { ShaderType, Expr, Stmt, ConstDecl, FuncDecl, ModuleDecl } from '../ir'
+import type { ShaderType, ConstDecl, FuncDecl, ModuleDecl } from '../ir'
 import { Capabilities, type Backend } from '../backend'
-import { emitExprFor, f32Lit } from './wgsl'
+import { f32Lit } from './wgsl'
+import { emitBody } from '../emit'
 import { lowerModule } from '../passes/match-lower'
 
 export class UnsupportedFeatureError extends Error {
@@ -68,66 +69,17 @@ export const glslEs300Backend: Backend = {
     if (name === 'textureSample') return `texture(${args[0]}, ${args[2]})`  // drop the separate sampler arg
     return `${GLSL_RENAME[name] ?? name}(${args.join(', ')})`
   },
+  localLet: (name, type, init) => `${glslType(type)} ${name} = ${init}`,
+  localVar: (name, type, init) => init !== undefined ? `${glslType(type)} ${name} = ${init}` : `${glslType(type)} ${name}`,
+  constDecl: (name, type, value) => `const ${glslType(type)} ${name} = ${value};`,
+  caseLabel: (value) => `${value}`, // GLSL ES switch requires int labels (no `u` suffix)
+  switchHead: (scrut) => `switch (${scrut}) {`,
+  rawStmt: () => { throw new UnsupportedFeatureError('glsl-es300: raw WGSL Stmt cannot lower to GLSL (backendOnly:wgsl)') },
+  placeholderStmt: () => { throw new UnsupportedFeatureError('glsl-es300: un-swapped placeholder Stmt — composer must run first') },
 }
-
-// ── GLSL declaration / statement emit (the syntax that differs from WGSL) ──
-const pad = (d: number) => '  '.repeat(d)
-const ex = (e: Expr) => emitExprFor(e, glslEs300Backend)
-
-function emitStmt(s: Stmt, depth: number): string {
-  const p = pad(depth)
-  switch (s.s) {
-    case 'let': return `${p}${glslType(s.expr.type)} ${s.name} = ${ex(s.expr)};`
-    case 'var':
-      return s.init !== undefined
-        ? `${p}${glslType(s.type)} ${s.name} = ${ex(s.init)};`
-        : `${p}${glslType(s.type)} ${s.name};`
-    case 'assign': return `${p}${ex(s.target)} = ${ex(s.expr)};`
-    case 'assignOp': return `${p}${ex(s.target)} ${s.bop}= ${ex(s.expr)};`
-    case 'return': return s.expr !== undefined ? `${p}return ${ex(s.expr)};` : `${p}return;`
-    case 'break': return `${p}break;`
-    case 'continue': return `${p}continue;`
-    case 'discard': return `${p}discard;`
-    case 'if': {
-      const lines: string[] = []
-      s.arms.forEach((arm, i) => {
-        lines.push(`${i === 0 ? `${p}if` : `${p}} else if`} (${ex(arm.cond)}) {`)
-        lines.push(emitBody(arm.body, depth + 1))
-      })
-      if (s.elseBody) { lines.push(`${p}} else {`); lines.push(emitBody(s.elseBody, depth + 1)) }
-      lines.push(`${p}}`)
-      return lines.filter((l) => l.length > 0).join('\n')
-    }
-    case 'for': {
-      const head = (st: Stmt): string => {
-        if (st.s === 'var') return st.init !== undefined ? `${glslType(st.type)} ${st.name} = ${ex(st.init)}` : `${glslType(st.type)} ${st.name}`
-        if (st.s === 'assign') return `${ex(st.target)} = ${ex(st.expr)}`
-        if (st.s === 'assignOp') return `${ex(st.target)} ${st.bop}= ${ex(st.expr)}`
-        throw new UnsupportedFeatureError(`glsl-es300: bad for-header stmt ${st.s}`)
-      }
-      return `${p}for (${head(s.init)}; ${ex(s.cond)}; ${head(s.update)}) {\n${emitBody(s.body, depth + 1)}\n${p}}`
-    }
-    case 'placeholder': throw new UnsupportedFeatureError('glsl-es300: un-swapped placeholder Stmt — composer must run first')
-    case 'raw': throw new UnsupportedFeatureError('glsl-es300: raw WGSL Stmt cannot lower to GLSL (backendOnly:wgsl)')
-    case 'switch': {
-      const lines: string[] = [`${p}switch (${ex(s.scrut)}) {`]
-      for (const c of s.cases) {
-        lines.push(`${pad(depth + 1)}case ${c.value}: {`)
-        lines.push(emitBody(c.body, depth + 2))
-        lines.push(`${pad(depth + 1)}}`)
-      }
-      lines.push(`${pad(depth + 1)}default: {`)
-      if (s.defaultBody) lines.push(emitBody(s.defaultBody, depth + 2))
-      lines.push(`${pad(depth + 1)}}`)
-      lines.push(`${p}}`)
-      return lines.join('\n')
-    }
-  }
-}
-const emitBody = (body: readonly Stmt[], depth: number): string => body.map((s) => emitStmt(s, depth)).join('\n')
 
 function emitConst(c: ConstDecl): string {
-  return `const ${glslType(c.type)} ${c.name} = ${f32Lit(c.wgslValue)};`
+  return glslEs300Backend.constDecl(c.name, c.type, f32Lit(c.wgslValue))
 }
 function emitFunc(f: FuncDecl): string {
   if (f.attrs?.length) throw new UnsupportedFeatureError(`glsl-es300: entry-point function '${f.name}' (${f.attrs.join(' ')}) — struct-IO flatten is a later step`)
@@ -136,11 +88,11 @@ function emitFunc(f: FuncDecl): string {
       throw new UnsupportedFeatureError(`glsl-es300: function '${f.name}' has IO-attributed params — entry lowering is a later step`)
   }
   const params = f.params.map((p) => `${glslType(p.type)} ${p.name}`).join(', ')
-  return `${glslType(f.ret)} ${f.name}(${params}) {\n${emitBody(f.body, 1)}\n}`
+  return `${glslType(f.ret)} ${f.name}(${params}) {\n${emitBody(f.body, 1, glslEs300Backend)}\n}`
 }
 
-/** Emit a pure-function ModuleDecl as GLSL ES 3.00 (with the version + precision
- *  header). Bindings/structs/entry-IO raise UnsupportedFeatureError. */
+/** Emit a pure-function ModuleDecl as GLSL ES 3.00 (version + precision header).
+ *  Bindings/structs/entry-IO raise UnsupportedFeatureError. */
 export function emitGlslModule(m: ModuleDecl): string {
   const lowered = lowerModule(m)
   if (lowered.bindings.length) throw new UnsupportedFeatureError('glsl-es300: resource bindings — std140 UBO / data-texture lowering is a later step')
