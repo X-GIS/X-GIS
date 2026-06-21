@@ -51,7 +51,7 @@ export class Builder {
   /** if / else-if / else chain. Returns a chainer so `.elif().else()` reads
    *  top-to-bottom. The If stmt is pushed on the first call and mutated in
    *  place by subsequent .elif/.else. */
-  if(cond: Node<'bool'>, body: (b: Builder) => void): IfChain {
+  if(cond: Node<'bool'>, body: (b: Builder) => Node | void): IfChain {
     const arms: Array<{ cond: Expr; body: Stmt[] }> = [{ cond: cond.expr, body: subBody(body) }]
     const stmt = { s: 'if' as const, arms, elseBody: undefined as Stmt[] | undefined }
     // Push a mutable-shaped object; the readonly Stmt typing is a compile-time
@@ -67,7 +67,7 @@ export class Builder {
     name: string,
     init: Node<K>,
     cond: (i: Node<K>) => Node<'bool'>,
-    body: (b: Builder, i: Node<K>) => void,
+    body: (b: Builder, i: Node<K>) => Node | void,
     step?: Node<ScalarKey> | number,
   ): void {
     const i = new Node<K>({ op: 'varref', type: init.type, name })
@@ -82,7 +82,7 @@ export class Builder {
     this.push({ s: 'for', init: initStmt, cond: cond(i).expr, update: updateStmt, body: subBody((b) => body(b, i)) })
   }
 
-  switch(scrut: Node<ScalarKey>, cases: Array<[number, (b: Builder) => void]>, defaultBody?: (b: Builder) => void): void {
+  switch(scrut: Node<ScalarKey>, cases: Array<[number, (b: Builder) => Node | void]>, defaultBody?: (b: Builder) => Node | void): void {
     this.push({
       s: 'switch',
       scrut: scrut.expr,
@@ -97,11 +97,11 @@ export class IfChain {
     private readonly arms: Array<{ cond: Expr; body: Stmt[] }>,
     private readonly setElse: (body: Stmt[]) => void,
   ) {}
-  elif(cond: Node<'bool'>, body: (b: Builder) => void): IfChain {
+  elif(cond: Node<'bool'>, body: (b: Builder) => Node | void): IfChain {
     this.arms.push({ cond: cond.expr, body: subBody(body) })
     return this
   }
-  else(body: (b: Builder) => void): void {
+  else(body: (b: Builder) => Node | void): void {
     this.setElse(subBody(body))
   }
 }
@@ -128,9 +128,12 @@ function withScope<T>(b: Builder, run: () => T): T {
   try { return run() } finally { scopeStack.pop() }
 }
 
-function subBody(fn: (b: Builder) => void): Stmt[] {
+function subBody(fn: (b: Builder) => Node | void): Stmt[] {
   const b = new Builder()
-  withScope(b, () => fn(b))
+  // A control-flow body may `return value` (native TS) for an early return — the
+  // branch appends the ret Stmt, so `return` is the SAME everywhere (no Return()).
+  const result = withScope(b, () => fn(b))
+  if (result !== undefined) b.ret(result)
   return b.stmts
 }
 
@@ -252,24 +255,25 @@ export const Continue = (): void => currentBuilder().continue()
 export const Break = (): void => currentBuilder().break()
 export const Discard = (): void => currentBuilder().discard()
 
-/** `if (cond) { body }` over the innermost scope; chain `.elif(c, () => …)` / `.else(() => …)`. */
-export const If = (cond: Node<'bool'>, body: () => void): IfChain => currentBuilder().if(cond, () => body())
+/** `if (cond) { body }` over the innermost scope; a body may `return value` for an
+ *  early return (same `return` everywhere). Chain `.elif(c, () => …)` / `.else(() => …)`. */
+export const If = (cond: Node<'bool'>, body: () => Node | void): IfChain => currentBuilder().if(cond, () => body())
 
 /** C-style for over the innermost scope; the body receives the typed counter Node. */
 export const Loop = <K extends string>(
   name: string,
   init: Node<K>,
   cond: (i: Node<K>) => Node<'bool'>,
-  body: (i: Node<K>) => void,
+  body: (i: Node<K>) => Node | void,
   step?: Node<ScalarKey> | number,
 ): void => currentBuilder().forRange(name, init, cond, (_b, i) => body(i), step)
 
 export const Switch = (
   scrut: Node<ScalarKey>,
-  cases: Array<[number, () => void]>,
-  defaultBody?: () => void,
+  cases: Array<[number, () => Node | void]>,
+  defaultBody?: () => Node | void,
 ): void => currentBuilder().switch(
   scrut,
-  cases.map(([v, f]) => [v, (_b: Builder) => f()] as [number, (b: Builder) => void]),
+  cases.map(([v, f]) => [v, (_b: Builder) => f()] as [number, (b: Builder) => Node | void]),
   defaultBody ? (_b: Builder) => defaultBody() : undefined,
 )
