@@ -29,7 +29,6 @@ import {
   constRef, callFn, clamp, log, tan, sin, cos, asin, acos, atan, atan2, exp, floor, ceil, sign, smoothstep,
   type ConstDecl, type FuncDecl, type ModuleDecl, type Node, type Builder,
 } from '../core/ir'
-import { PROJECTIONS } from '../../projection/projections-table'
 import { emitConst, emitFunc } from '../core/backends/wgsl'
 
 // ── Backend-agnostic projection injection (standalone-package seam) ──
@@ -37,14 +36,15 @@ import { emitConst, emitFunc } from '../core/backends/wgsl'
 // array order, globe flag, cull thresholds) is INJECTED by the host so this
 // package keeps zero outbound dependency (future standalone repo / extra
 // backend). configureProjections() must run before the first emit / cpu-proj
-// use. Transitional: an unconfigured build falls back to the imported
-// PROJECTIONS table (identical data) — the import is dropped in the package split.
+// use (production: the XGISMap constructor; vitest: a setup file; Playwright
+// e2e: an explicit call) — an unconfigured access throws loudly.
 export interface ProjectionSpec { name: string; projType: number; isGlobe: boolean; cullThreshold?: number | null }
 let _specs: ProjectionSpec[] | null = null
 let _artifacts: ReturnType<typeof buildProjectionArtifacts> | null = null
 export function configureProjections(specs: readonly ProjectionSpec[]): void { _specs = specs as ProjectionSpec[]; _artifacts = null }
 function artifacts(): ReturnType<typeof buildProjectionArtifacts> {
-  return (_artifacts ??= buildProjectionArtifacts(_specs ?? (PROJECTIONS as unknown as ProjectionSpec[])))
+  if (_specs === null) throw new Error('shader-dsl: configureProjections() must be called before any projection emit / cpu-projection use')
+  return (_artifacts ??= buildProjectionArtifacts(_specs))
 }
 export const getPROJECTION_MODULE = (): ModuleDecl => artifacts().PROJECTION_MODULE
 export const getProjectionWgslConsts = (): string => artifacts().PROJECTION_WGSL_CONSTS
