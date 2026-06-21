@@ -42,6 +42,13 @@ export const DEMOS_DATA_DRIVEN: Record<string, Demo> = {
     source: load('gradient-points.xgis'),
   },
 
+  heatmap: {
+    name: 'Population Heatmap',
+    tag: 'point',
+    description: 'Density heatmap over populated places — Phase R 3-pass GPU (accum Gaussian splat → separable blur → density→colour compose)',
+    source: load('heatmap.xgis'),
+  },
+
   custom_shapes: {
     name: 'Custom Shapes',
     tag: 'point',
