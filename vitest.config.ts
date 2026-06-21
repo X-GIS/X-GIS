@@ -8,6 +8,9 @@ export default defineConfig({
       'blueprint/src/**/*.test.ts',
       'runtime/src/**/*.test.ts',
     ],
+    // shader-dsl projections are host-injected (configureProjections); configure
+    // once before any suite touches the projection emit / cpu-projection path.
+    setupFiles: ['./runtime/src/test-setup-projections.ts'],
     // Several real-data tests (tile-cross-path-invariants /
     // tile-pitch-throughput / tile-real-data-coverage) load the
     // 250-feature Natural Earth `countries.geojson` and run the full
