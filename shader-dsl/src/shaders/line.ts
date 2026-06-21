@@ -25,7 +25,7 @@ import {
   length, dot, min, max, smoothstep, abs, floor, select, textureSample,
   bitcastU32, unpack4x8unorm,
   atan, exp,
-  If, Loop, Let, Var, Continue, Discard, assign, madd, outsideRange,
+  If, Loop, Let, Var, Continue, Discard, Return, assign, madd, outsideRange,
   structT, f32T, u32T, i32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   arrayT,
   type Node,
@@ -232,12 +232,12 @@ const sprite_samp = bindingRef('sprite_samp', samplerT)
 
 // ── Helper fns ──
 
-const lineEndpoint = fn('line_endpoint', { p_h: vec2fT, p_l: vec2fT }, vec2fT, (b, p) => {
+const lineEndpoint = fn('line_endpoint', { p_h: vec2fT, p_l: vec2fT }, vec2fT, (_b, p) => {
   const projParams = tile.field('proj_params', vec4fT)
-  b.if(projParams.x.lt(0.5), (c) => {
-    c.ret(p.p_h.sub(tile.field('cam_h', vec2fT)).add(p.p_l.sub(tile.field('cam_l', vec2fT))))
+  If(projParams.x.lt(0.5), () => {
+    Return(p.p_h.sub(tile.field('cam_h', vec2fT)).add(p.p_l.sub(tile.field('cam_l', vec2fT))))
   })
-  b.ret(p.p_h.add(p.p_l))
+  return p.p_h.add(p.p_l)
 })
 
 // finalize_corner — flat-projection reprojection (projection-display-layer-
@@ -249,37 +249,37 @@ const lineEndpoint = fn('line_endpoint', { p_h: vec2fT, p_l: vec2fT }, vec2fT, (
 // corner, reproject via project_geom (world-copy aware; tileRefLon = tile-
 // centre lon), and subtract the camera's projected centre (in-shader from
 // proj_params.y/z). Output feeds the flat 2D-plane MVP.
-const finalizeCorner = fn('finalize_corner', { corner: vec2fT }, vec2fT, (b, p) => {
+const finalizeCorner = fn('finalize_corner', { corner: vec2fT }, vec2fT, (_b, p) => {
   const projParams = tile.field('proj_params', vec4fT)
-  b.if(projParams.x.lt(0.5), (c) => { c.ret(p.corner) })
+  If(projParams.x.lt(0.5), () => Return(p.corner))
   const tileOrigin = tile.field('tile_origin_merc', vec2fT)
-  const absMerc = b.let('abs_merc', p.corner.add(tileOrigin))
-  const absLon = b.let('abs_lon', absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R'))))
-  const latRad = b.let('lat_rad', callFn('inv_merc_lat_rad', f32T, absMerc.y))
-  const absLat = b.let('abs_lat', latRad.div(constRef('DEG2RAD')))
-  const tileRefLon = b.let('tile_ref_lon',
+  const absMerc = Let('abs_merc', p.corner.add(tileOrigin))
+  const absLon = Let('abs_lon', absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R'))))
+  const latRad = Let('lat_rad', callFn('inv_merc_lat_rad', f32T, absMerc.y))
+  const absLat = Let('abs_lat', latRad.div(constRef('DEG2RAD')))
+  const tileRefLon = Let('tile_ref_lon',
     tileOrigin.x.add(f32(0.5).mul(tile.field('tile_extent_m', f32T)))
       .div(constRef('DEG2RAD').mul(constRef('EARTH_R'))),
   )
-  b.ret(callFn('flat_rel', vec2fT, absLon, absLat, projParams, tileRefLon))
+  return callFn('flat_rel', vec2fT, absLon, absLat, projParams, tileRefLon)
 })
 
-const endpointCosC = fn('endpoint_cos_c', { p_h: vec2fT, p_l: vec2fT }, f32T, (b, p) => {
+const endpointCosC = fn('endpoint_cos_c', { p_h: vec2fT, p_l: vec2fT }, f32T, (_b, p) => {
   const tileOrigin = tile.field('tile_origin_merc', vec2fT)
-  const absMercX = b.let('abs_merc_x', p.p_h.x.add(p.p_l.x).add(tileOrigin.x))
-  const absMercY = b.let('abs_merc_y', p.p_h.y.add(p.p_l.y).add(tileOrigin.y))
-  const absLon = b.let('abs_lon', absMercX.div(constRef('DEG2RAD').mul(constRef('EARTH_R'))))
-  const latRad = b.let('lat_rad', callFn('inv_merc_lat_rad', f32T, absMercY))
-  const absLat = b.let('abs_lat', latRad.div(constRef('DEG2RAD')))
-  b.ret(callFn('needs_backface_cull', f32T, absLon, absLat, tile.field('proj_params', vec4fT)))
+  const absMercX = Let('abs_merc_x', p.p_h.x.add(p.p_l.x).add(tileOrigin.x))
+  const absMercY = Let('abs_merc_y', p.p_h.y.add(p.p_l.y).add(tileOrigin.y))
+  const absLon = Let('abs_lon', absMercX.div(constRef('DEG2RAD').mul(constRef('EARTH_R'))))
+  const latRad = Let('lat_rad', callFn('inv_merc_lat_rad', f32T, absMercY))
+  const absLat = Let('abs_lat', latRad.div(constRef('DEG2RAD')))
+  return callFn('needs_backface_cull', f32T, absLon, absLat, tile.field('proj_params', vec4fT))
 })
 
-const patternUnitToM = fn('pattern_unit_to_m', { v: f32T, unit: u32T, mpp: f32T }, f32T, (b, p) => {
+const patternUnitToM = fn('pattern_unit_to_m', { v: f32T, unit: u32T, mpp: f32T }, f32T, (_b, p) => {
   // 0=m, 1=px, 2=km, 3=nm
-  b.if(p.unit.eq(u32(0)), (c) => { c.ret(p.v) })
-    .elif(p.unit.eq(u32(1)), (c) => { c.ret(p.v.mul(p.mpp)) })
-    .elif(p.unit.eq(u32(2)), (c) => { c.ret(p.v.mul(1000)) })
-  b.ret(p.v.mul(1852)) // nautical mile
+  If(p.unit.eq(u32(0)), () => Return(p.v))
+    .elif(p.unit.eq(u32(1)), () => Return(p.v.mul(p.mpp)))
+    .elif(p.unit.eq(u32(2)), () => Return(p.v.mul(1000)))
+  return p.v.mul(1852) // nautical mile
 })
 
 // Inlined SDF shape sampler — uses our `shape_segments` (binding 3) instead
