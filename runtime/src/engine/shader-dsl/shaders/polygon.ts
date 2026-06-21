@@ -2,7 +2,7 @@
 //
 // Re-authors render/renderer-shaders.ts POLYGON_SHADER_SOURCE (826 LOC).
 // The polygon shader is the variant-codegen-heavy fill / stroke / extrude
-// pipeline: 1 Uniforms struct (192 bytes; reused by stroke + extrude paths
+// pipeline: 1 Uniforms struct (256 bytes; reused by stroke + extrude paths
 // via field aliasing), 3 fixed bindings (u, sprite_atlas, sprite_samp),
 // 3 vertex entries (vs_main / vs_main_ecef / vs_main_ecef_extruded)
 // and 6 fragment entries (fs_fill / fs_fill_pattern / fs_oit_translucent /
@@ -35,8 +35,9 @@ import { LOG_DEPTH_WGSL_FNS } from './log-depth'
 
 // ── Struct declarations ──
 //
-// Field order + names match POLYGON_SHADER_SOURCE byte-for-byte; the 192-byte
-// uniform layout is consumed by every polygon variant + by every per-tile
+// Field order + names match POLYGON_SHADER_SOURCE byte-for-byte; the 256-byte
+// uniform layout (UNIFORM_SIZE in vector-tile-renderer.ts) is consumed by every
+// polygon variant + by every per-tile
 // uniform writeBuffer caller in renderer.ts / vector-tile-renderer.ts, so any
 // reordering would silently mis-bind the GPU read.
 
@@ -46,7 +47,8 @@ const Uniforms: StructDecl = {
     // Phase 2 PR 2d.5 closeout: legacy Mercator-RTC `mvp` retired — `mvp`
     // now holds the ECEF-MVP from Camera.getECEFFrameView() (was previously
     // the second slot `mvp_ecef`). Every polygon VS consumes ECEF; the dual
-    // slot is gone (struct shrunk 256 → 192 bytes).
+    // slot is gone (that removal shrank the struct; later fields re-grew it to
+    // its current 256 bytes — UNIFORM_SIZE in vector-tile-renderer.ts).
     { name: 'mvp', type: mat4x4fT },
     { name: 'fill_color', type: vec4fT },
     { name: 'stroke_color', type: vec4fT },
