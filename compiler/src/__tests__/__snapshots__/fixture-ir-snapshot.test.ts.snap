@@ -13,10 +13,10 @@ exports[`Fixture conversion structural snapshot > maplibre-demotiles — convert
 exports[`Fixture conversion structural snapshot > openfreemap-bright — converted output fingerprint 1`] = `
 {
   "layerCount": 119,
-  "outputBytes": 40264,
-  "outputLines": 916,
-  "outputSha256": "225f47e86c9f808a4937e38bb0bb5bc4f8f79f4aa682fddf907540194587fdb7",
-  "warningCount": 2,
+  "outputBytes": 40384,
+  "outputLines": 917,
+  "outputSha256": "462d37941ae029228b5bbd01486c3765c2708683f252dc9ef9bd0054d367e0a8",
+  "warningCount": 3,
 }
 `;
 

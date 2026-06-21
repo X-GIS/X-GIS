@@ -4,13 +4,14 @@
 
 import type { MapboxLayer } from './types'
 import { sanitizeId } from './utils'
-import { filterToXgis, exprToXgis } from './expressions'
+import { exprToXgis } from './expressions'
 import { interpolateZoomCall } from './paint'
 import { colorToXgis } from './colors'
 import {
   unwrapLiteralScalar,
   safePropsBag,
   isOmittedValue,
+  filterLineOrFailClosed,
 } from './layers-helpers'
 
 /** Mapbox `circle` layer (Point/MultiPoint features rendered as
@@ -47,10 +48,10 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
   if (layer['source-layer']) lines.push(`  sourceLayer: ${JSON.stringify(layer['source-layer'])}`)
   if (typeof layer.minzoom === 'number' && Number.isFinite(layer.minzoom)) lines.push(`  minzoom: ${layer.minzoom}`)
   if (typeof layer.maxzoom === 'number' && Number.isFinite(layer.maxzoom)) lines.push(`  maxzoom: ${layer.maxzoom}`)
-  if (layer.filter !== undefined) {
-    const f = filterToXgis(layer.filter, warnings)
-    if (f) lines.push(`  filter: ${f}`)
-  }
+  // Authored-but-unconvertible filter fails CLOSED (filter: false →
+  // match nothing), not open — see filterLineOrFailClosed.
+  const circleFilterLine = filterLineOrFailClosed(layer.filter, warnings)
+  if (circleFilterLine !== null) lines.push(circleFilterLine)
   // `layout.visibility: 'none'` applies to circle layers per spec.
   // Same gap as convertSymbolLayer — without this a hidden circle
   // layer kept rendering. Mirror the v8 literal-wrap unwrap.

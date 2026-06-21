@@ -71,6 +71,14 @@ export function emitFillPaint(
   const aa = Array.isArray(aaRaw) && aaRaw.length === 2 && aaRaw[0] === 'literal' ? aaRaw[1] : aaRaw
   if (aa === false) {
     out.push('fill-antialias-false')
+  } else if (typeof aa === 'object' && aa !== null) {
+    // aa is a non-literal expression (e.g. `["step", ["zoom"], false,
+    // 9, true]` on OFM-bright landcover-wood). Only constant true/false
+    // is honoured — a zoom-expression form was SILENTLY dropped with no
+    // warning (the `=== false` test is false for an array, the unwrap
+    // only peels `["literal", …]`). Surface the loss instead of
+    // dropping it silently; full zoom-expr antialias is out of scope.
+    warnings.push(`Layer "${layer.id}" — fill-antialias zoom/data expression not supported (only constant true/false) — dropped.`)
   }
   surfaceIgnoredPaint(layer.id, p, warnings, [
     'fill-sort-key',

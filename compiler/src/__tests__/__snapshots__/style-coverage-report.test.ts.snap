@@ -144,9 +144,11 @@ exports[`style coverage > openfreemap-bright coverage matches snapshot 1`] = `
       "type": "fill",
     },
     {
-      "action": "converted",
+      "action": "lossy",
       "layerId": "landcover-wood",
-      "reasons": [],
+      "reasons": [
+        "Layer "landcover-wood" — fill-antialias zoom/data expression not supported (only constant true/false) — dropped.",
+      ],
       "type": "fill",
     },
     {
@@ -804,6 +806,7 @@ exports[`style coverage > openfreemap-bright coverage matches snapshot 1`] = `
   ],
   "warnings": [
     "Source "ne2_shaded" (type=raster) is declared but never referenced by any layer; dropped from emit (saves a tile fetch + IR slot). Layers may have been removed in the style but the source declaration was left behind.",
+    "Layer "landcover-wood" — fill-antialias zoom/data expression not supported (only constant true/false) — dropped.",
     "Symbol layer "airport" — text-optional: true declared but X-GIS' symbol placement always pairs text + icon (deferred — needs split text/icon collision arbitration). The label may be dropped at zoom levels where MapLibre would render icon-only.",
   ],
 }
