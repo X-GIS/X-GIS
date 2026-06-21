@@ -16,6 +16,10 @@ export interface StructHelper<F extends Record<string, ShaderType>> {
    *  keyed by the field's ShaderType, so a wrong field name (not in F) or a
    *  downstream type mismatch is a TS compile error (the AC4 gate). */
   get<K extends keyof F & string>(node: Node, field: K): Node<KeyOf<F[K]>>
+  /** Typed field ACCESSOR over a Node of this struct type — `Foo.of(node).bar` is
+   *  `node.field('bar', F['bar'])`, so the per-field string + ShaderType vanish and
+   *  a wrong field name is a TS error. Emit is byte-identical (same member Expr). */
+  of(node: Node): { readonly [K in keyof F]: Node<KeyOf<F[K]>> }
 }
 
 export function struct<F extends Record<string, ShaderType>>(name: string, fields: F): StructHelper<F> {
@@ -28,6 +32,15 @@ export function struct<F extends Record<string, ShaderType>>(name: string, field
     type: structT(name),
     get<K extends keyof F & string>(node: Node, field: K): Node<KeyOf<F[K]>> {
       return node.field(field, fields[field])
+    },
+    of(node: Node) {
+      return new Proxy({} as Record<string, Node>, {
+        get: (_t, prop) => {
+          const t = fields[prop as string]
+          if (t === undefined) throw new Error(`shader-dsl: struct '${name}' has no field '${String(prop)}'`)
+          return node.field(prop as string, t)
+        },
+      }) as { readonly [K in keyof F]: Node<KeyOf<F[K]>> }
     },
   }
 }
