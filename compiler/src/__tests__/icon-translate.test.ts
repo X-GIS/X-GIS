@@ -99,15 +99,33 @@ describe('Mapbox paint.icon-translate → LabelDef.iconTranslateX/Y', () => {
     expect((def as { translate?: [number, number] }).translate).toEqual([0, -10])
   })
 
-  it('icon-translate-anchor "map" warns (viewport-only honoured)', () => {
-    const coverage = { sources: [], layers: [], warnings: [] as string[] }
-    compileLabel({
+  it('icon-translate-anchor "map" → LabelDef.iconTranslateAnchorMap=true (world-anchored)', () => {
+    const def = compileLabel({
       id: 'poi', type: 'symbol', source: 'src', 'source-layer': 'poi',
       layout: { 'icon-image': 'x' },
       paint: { 'icon-translate': [2, 2], 'icon-translate-anchor': 'map' },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    }, { coverage } as any)
-    expect(coverage.warnings.some(w => w.includes('icon-translate-anchor') && w.includes('map'))).toBe(true)
+    }) as { iconTranslateX?: number; iconTranslateY?: number; iconTranslateAnchorMap?: boolean }
+    expect(def.iconTranslateX).toBe(2)
+    expect(def.iconTranslateY).toBe(2)
+    expect(def.iconTranslateAnchorMap).toBe(true)
+  })
+
+  it('icon-translate-anchor "map" WITHOUT icon-translate → flag undefined (anchor no-op)', () => {
+    const def = compileLabel({
+      id: 'poi', type: 'symbol', source: 'src', 'source-layer': 'poi',
+      layout: { 'icon-image': 'x' },
+      paint: { 'icon-translate-anchor': 'map' },
+    }) as { iconTranslateAnchorMap?: boolean }
+    expect(def.iconTranslateAnchorMap).toBeUndefined()
+  })
+
+  it('DEFAULT (no anchor) → iconTranslateAnchorMap undefined (viewport, byte-identical)', () => {
+    const def = compileLabel({
+      id: 'poi', type: 'symbol', source: 'src', 'source-layer': 'poi',
+      layout: { 'icon-image': 'x' },
+      paint: { 'icon-translate': [2, 2] },
+    }) as { iconTranslateAnchorMap?: boolean }
+    expect(def.iconTranslateAnchorMap).toBeUndefined()
   })
 
   it('no gap warning for the supported constant form', () => {

@@ -46,7 +46,11 @@ export class RasterRenderer {
   private globalBindGroupLayout: GPUBindGroupLayout
   private tileBindGroupLayout: GPUBindGroupLayout
   private uniformBuffer: GPUBuffer
+  // Active sampler for THIS frame's tile bind groups. Points at
+  // `linearSampler` (default) or `nearestSampler` per `raster-resampling`.
   private sampler: GPUSampler
+  private linearSampler!: GPUSampler
+  private nearestSampler!: GPUSampler
 
   // LRU tile cache
   private tileCache = new Map<string, CachedTile>()
@@ -67,6 +71,19 @@ export class RasterRenderer {
    *  the way MapLibre handles e.g. OFM Liberty's natural-earth
    *  shaded relief. */
   private _opacity = 1.0
+  /** Mapbox raster colour adjustments, resolved per frame by the
+   *  orchestrator (opaque-pass) from the active raster show's
+   *  `paintShapes.raster`. ALL defaults are a hard no-op (hue 0, brightness
+   *  range 0..1, saturation 0, contrast 0) so an un-authored raster show is
+   *  byte-identical to sampling the texel unchanged. */
+  private _hueRotate = 0
+  private _brightnessMin = 0
+  private _brightnessMax = 1
+  private _saturation = 0
+  private _contrast = 0
+  /** True when `raster-resampling: nearest` is active. Default false
+   *  (linear) is byte-identical to today's fixed-linear sampler. */
+  private _nearest = false
   // Pool of per-draw tile uniform buffers (avoids writeBuffer race with draw).
   // Each buffer has a matching pre-built bind group in `tileBindGroupPool` so
   // the hot path never calls createBindGroup — a major frame-time win when
@@ -97,13 +114,21 @@ export class RasterRenderer {
     this.pipeline = this.buildPipeline()
 
     this.uniformBuffer = ctx.device.createBuffer({
-      size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, label: 'raster-uniforms',
+      size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, label: 'raster-uniforms',
     })
 
-    this.sampler = ctx.device.createSampler({
+    this.linearSampler = ctx.device.createSampler({
       magFilter: 'linear', minFilter: 'linear',
       addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge',
     })
+    // Mapbox `raster-resampling: nearest` (pixel-art / DEM staircase) uses
+    // a NEAREST-filtered sampler instead of the default linear. Built once;
+    // `_nearest` selects between the two per render. Both are immutable.
+    this.nearestSampler = ctx.device.createSampler({
+      magFilter: 'nearest', minFilter: 'nearest',
+      addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge',
+    })
+    this.sampler = this.linearSampler
   }
 
   /** Recompile shader + pipeline using the current QUALITY (MSAA /
@@ -154,6 +179,33 @@ export class RasterRenderer {
     // every sampled texel by NaN and the whole layer disappeared.
     if (typeof opacity !== 'number' || !Number.isFinite(opacity)) return
     this._opacity = Math.max(0, Math.min(1, opacity))
+  }
+
+  /** Set the per-frame Mapbox raster colour adjustments. Caller resolves
+   *  each `paintShapes.raster.*` PropertyShape<number> before render().
+   *  Non-finite inputs fall back to the spec default (a no-op) so a
+   *  malformed value can't NaN-poison the texel like opacity used to. */
+  setColorAdjust(hueRotate: number, brightnessMin: number, brightnessMax: number, saturation: number, contrast: number): void {
+    const f = (v: number, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d)
+    this._hueRotate = f(hueRotate, 0)
+    // Mapbox spec ranges: brightness 0..1, saturation/contrast -1..1.
+    this._brightnessMin = Math.max(0, Math.min(1, f(brightnessMin, 0)))
+    this._brightnessMax = Math.max(0, Math.min(1, f(brightnessMax, 1)))
+    this._saturation = Math.max(-1, Math.min(1, f(saturation, 0)))
+    this._contrast = Math.max(-1, Math.min(1, f(contrast, 0)))
+  }
+
+  /** Select the sampler filter for `raster-resampling` ('linear' default |
+   *  'nearest'). Flipping invalidates the cached per-tile bind groups so
+   *  the next render rebuilds them against the new sampler. Default linear
+   *  is byte-identical to today. */
+  setResampling(nearest: boolean): void {
+    if (nearest === this._nearest) return
+    this._nearest = nearest
+    this.sampler = nearest ? this.nearestSampler : this.linearSampler
+    // Cached globalBG entries reference the OLD sampler — drop them so the
+    // render loop rebuilds each against `this.sampler`.
+    for (const tile of this.tileCache.values()) tile.globalBG = undefined
   }
 
   /** True while any tile fetch is still in flight. The map's render loop
@@ -253,19 +305,23 @@ export class RasterRenderer {
     // Write global uniforms. proj_params.w = log_depth_fc so the raster
     // grid shader can apply/read the log-depth transform uniformly with
     // the vector pipelines.
-    const uniformData = new ArrayBuffer(128)
+    const uniformData = new ArrayBuffer(160)
     new Float32Array(uniformData, 0, 16).set(mvp)
     new Float32Array(uniformData, 64, 4).set([projType, projCenterLon, projCenterLat, frame.logDepthFc])
     // raster_params at offset 80 — x = opacity, yzw reserved.
     new Float32Array(uniformData, 80, 4).set([this._opacity, 0, 0, 0])
-    // cam_ecef_center @96 — camera anchor (ellipsoid) for camera-relative RTC,
+    // raster_color0 @96 — (hueRotateDeg, brightnessMin, brightnessMax, saturation).
+    new Float32Array(uniformData, 96, 4).set([this._hueRotate, this._brightnessMin, this._brightnessMax, this._saturation])
+    // raster_color1 @112 — x = contrast, yzw reserved.
+    new Float32Array(uniformData, 112, 4).set([this._contrast, 0, 0, 0])
+    // cam_ecef_center @128 — camera anchor (ellipsoid) for camera-relative RTC,
     // mirroring polygon's cam_ecef_off. Subtracted in the raster VS so the ECEF
     // vertex projects vertex − cameraCenter through the camera-at-origin MVP.
     // Flat Mercator (projType 0): cam_ecef_center.xy carries the 2D Mercator
     // camera centre — the flat VS computes rel = project(lon,lat) − cam.xy and
     // the ECEF lanes are dead there. 3D / globe: the ECEF anchor (ellipsoid).
     if (projType === 0) {
-      new Float32Array(uniformData, 96, 4).set([camera.centerX, camera.centerY, 0, 0])
+      new Float32Array(uniformData, 128, 4).set([camera.centerX, camera.centerY, 0, 0])
     } else {
       // ELLIPSOID camera anchor — the raster VS reconstructs each vertex via
       // lonlat_to_ecef (WGS84, E2≠0), so the anchor it subtracts MUST be on the
@@ -275,7 +331,7 @@ export class RasterRenderer {
       // is the exact frame-consistency fix the vector tiler already applies to
       // cam_ecef_off (vector-tile-renderer.ts:3627-3638).
       const camC = rasterGlobeCamAnchor(projCenterLon, projCenterLat)
-      new Float32Array(uniformData, 96, 4).set([camC[0], camC[1], camC[2], 0])
+      new Float32Array(uniformData, 128, 4).set([camC[0], camC[1], camC[2], 0])
     }
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData)
 

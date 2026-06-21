@@ -215,7 +215,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // tangent-delta check, the post-loop `continue`, plus the comments tying
   // it to Mapbox's drop-kinked-label semantics. Default (maxAngle unset) is
   // a single guarded branch ⇒ byte-identical no-clamp behaviour preserved.
-  'runtime/src/engine/text/text-stage.ts': 1489,
+  // Bumped 1489→1602 (Phase S Batch 3+4): text-translate-anchor:map rotation
+  // helper + setBearing + per-label tx/ty resolve (+39), PLUS symbol-z-order's
+  // prepare() ordering pass (zOrderMode scan, viewport-y screen-Y sort +
+  // source-order branch, ordered greedy + drawOrder emit; legacy path preserved
+  // ⇒ DEFAULT byte-identical) + ShapedLabel.symbolZOrder field (+74).
+  'runtime/src/engine/text/text-stage.ts': 1602,
   // Bumped 1509→1517 for the GeometryCollection decompose fix (RFC 7946
   // §3.1.8): decomposeFeatures' per-type switch is wrapped in an inner
   // recursive helper so a GeometryCollection member-decomposes under the
@@ -263,7 +268,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 1071→1078 (Phase S Batch 2 text-max-angle): the layout->utility
   // emit (`label-max-angle-N`) in convertTextLayoutProperties + comment; net
   // of removing the old deferred-gap warning block in convertGapWarnings.
-  'compiler/src/convert/layers-symbol.ts': 1078,
+  // Bumped 1078→1144 (Phase S Batch 3+4): text/icon-translate-anchor:map emits
+  // (+14), icon collision policy emits — label-icon-collide/ignore-placement/
+  // optional (+34), and symbol-z-order's label-z-order-<v> emit + enum warn (+18).
+  'compiler/src/convert/layers-symbol.ts': 1144,
   // Bumped 1534→1574 for the arithmetic-arity fix (expr-arith-coalesce): the
   // variadic +/*, unary/binary -, and exact-2 //% forms each need a distinct
   // branch (was one over-strict shared comparison branch). Irreducible.
@@ -377,7 +385,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // Then 1157→1163 for #458 layer-order point-label dedup: the exported
   // shouldEmitPointDedup predicate + the show-index loop counter (the dedup now
   // lets a higher layer's duplicate win instead of first-emission-wins).
-  'runtime/src/engine/render/passes/label-pass.ts': 1163,
+  // Bumped 1163→1192 (Phase S Batch 3+4): icon-translate-anchor:map setBearing +
+  // anchor rotation (+17) plus icon collision policy — dispatchIcon doCollide
+  // from LabelDef.iconCollide/iconIgnorePlacement on top of the #417 rule (+12).
+  'runtime/src/engine/render/passes/label-pass.ts': 1192,
   // VTR Unit-1 extraction (Cluster E-selection). The hysteresis +
   // readiness-gate logic was moved VERBATIM (plan §5 DO-NOT-SPLIT #2),
   // and its hard-won fix-history comments carry the bulk of the LOC —
@@ -423,7 +434,13 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 868→881 (WS-1 review fix): flushTilePoints (vector-tile circle
   // path) now resolves circle-translate + circle-stroke-opacity shapes per
   // frame, mirroring the GeoJSON updateDynamicSizes path.
-  'runtime/src/engine/render/point-renderer.ts': 881,
+  // Bumped 881→888 (Phase S Batch 3 circle-pitch-scale): the
+  // circlePitchScaleMap param threaded through writePointFrameUniform (packed
+  // into circle_params.w) + addLayer + flushTilePoints + drawLayer, plus the
+  // PointLayer.circlePitchScaleMap field. Same irreducible additive plumbing
+  // class as the WS-1 circle-translate/stroke-opacity bumps above;
+  // decomposition stays a tracked follow-up.
+  'runtime/src/engine/render/point-renderer.ts': 888,
   // Baselined at 820 (mbx_batch2): lower-label.ts is the label-knob lowering
   // sub-pass extracted from lower.ts; crossed 800 here for the icon-translate
   // accumulators + parse arms + knobs-interface + merge wiring. Cohesive
@@ -431,7 +448,13 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 820→828 (Phase S Batch 2 text-max-angle): the labelMaxAngle local
   // + the `label-max-angle-N` parse arm + the knobs-interface field + the
   // foldLabelKnobs spread + comment. Same additive label-knob plumbing class.
-  'compiler/src/ir/lower-label.ts': 828,
+  // Bumped 828→866 (Phase S Batch 3+4): text/icon-translate-anchor:map (+12) +
+  // icon collision policy's three label-knob accumulators (+20) + symbol-z-order's
+  // labelSymbolZOrder local/parse-arms/knobs/fold (+6).
+  'compiler/src/ir/lower-label.ts': 866,
+  // Baselined at 835 (Phase S Batch 3 raster +18 + text/icon +6; Batch 4 icon
+  // collision +3 + symbol-z-order's LabelDef.symbolZOrder field + JSDoc).
+  'compiler/src/ir/render-node.ts': 837,
 }
 const NEW_FILE_CAP = 800
 

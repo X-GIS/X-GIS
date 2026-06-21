@@ -191,15 +191,27 @@ class LabelPass implements RenderPass {
         // doesn't call this (icon-along-curve is a Phase B+ feature);
         // point-anchored POI symbols (the demotiles + OFM Bright bus-
         // stop / school / amenity layers) flow through here.
-        const dispatchIcon = (def: { iconImage?: string; iconSize?: number; iconAnchor?: import('@xgis/compiler').LabelDef['iconAnchor']; iconOffset?: [number, number]; iconTranslateX?: number; iconTranslateY?: number; iconRotate?: number; iconOpacity?: number; iconColor?: [number, number, number, number]; iconRotationAlignment?: 'map'; text?: import('@xgis/compiler').LabelDef['text'] }, ax: number, ay: number, lineTangentDeg = 0, pairKey?: string, collide = false, props?: import('../../text/text-resolver').FeatureProps): void => {
+        const dispatchIcon = (def: { iconImage?: string; iconSize?: number; iconAnchor?: import('@xgis/compiler').LabelDef['iconAnchor']; iconOffset?: [number, number]; iconTranslateX?: number; iconTranslateY?: number; iconTranslateAnchorMap?: boolean; iconRotate?: number; iconOpacity?: number; iconColor?: [number, number, number, number]; iconRotationAlignment?: 'map'; text?: import('@xgis/compiler').LabelDef['text'] }, ax: number, ay: number, lineTangentDeg = 0, pairKey?: string, collide = false, props?: import('../../text/text-resolver').FeatureProps): void => {
           if (!iStage || def.iconImage === undefined) return
           // icon-offset (layout, em/px nudge baked before rotation) AND
           // icon-translate (paint, viewport screen shift) both land as a
           // CSS-px anchor offset here, scaled by dpr to physical px. Mapbox
           // applies icon-translate in screen space (positive y = down),
           // matching the +ay-down anchor convention, so a straight add.
-          const offDx = ((def.iconOffset?.[0] ?? 0) + (def.iconTranslateX ?? 0)) * dpr
-          const offDy = ((def.iconOffset?.[1] ?? 0) + (def.iconTranslateY ?? 0)) * dpr
+          // icon-translate-anchor:map rotates ONLY the icon-translate
+          // portion by the map bearing (world-anchored offset, mirror of
+          // text-translate-anchor / fill/line Phase S Batch 2); icon-offset
+          // is a layout nudge and stays screen-space. Default (viewport /
+          // unset) = unrotated, byte-identical.
+          let itx = def.iconTranslateX ?? 0
+          let ity = def.iconTranslateY ?? 0
+          if (def.iconTranslateAnchorMap && (itx !== 0 || ity !== 0)) {
+            const r = (host.camera.bearing * Math.PI) / 180
+            const c = Math.cos(r), s = Math.sin(r)
+            ;[itx, ity] = [itx * c - ity * s, itx * s + ity * c]
+          }
+          const offDx = ((def.iconOffset?.[0] ?? 0) + itx) * dpr
+          const offDy = ((def.iconOffset?.[1] ?? 0) + ity) * dpr
           // icon-rotation-alignment=map under symbol-placement=line
           // adds the per-segment tangent to the icon's authored
           // rotation. OFM road_oneway: icon-rotate=90 + tangent of
@@ -223,7 +235,19 @@ class LabelPass implements RenderPass {
           const resolvedText = collide && def.text !== undefined && def.text !== null
             ? resolveText(def.text, props ?? {}, host.camera.zoom)
             : ''
-          const doCollide = collide && resolvedText === ''
+          // Two independent collision triggers:
+          //  (1) the #417 line-icon rule — a text-LESS line icon (road_oneway
+          //      arrow) always collides so parallel chains dedupe.
+          //  (2) the Mapbox icon-overlap policy — `iconCollide` (set by
+          //      icon-overlap:'never' / icon-allow-overlap:false) opts this
+          //      icon into the queue regardless of placement mode. The
+          //      historical default (flag absent) leaves icons always-placed.
+          //  `icon-ignore-placement: true` overrides BOTH back to always-
+          //  place-and-don't-block (the icon never enters the collide queue).
+          const di = def as { iconCollide?: boolean; iconIgnorePlacement?: boolean }
+          const policyCollide = di.iconCollide === true && di.iconIgnorePlacement !== true
+          const lineCollide = collide && resolvedText === '' && di.iconIgnorePlacement !== true
+          const doCollide = lineCollide || policyCollide
           iStage.addIcon(ax + offDx, ay + offDy, def.iconImage, {
             sizeScale: def.iconSize ?? 1,
             rotateRad: ((def.iconRotate ?? 0) + tangent) * Math.PI / 180,
@@ -241,6 +265,11 @@ class LabelPass implements RenderPass {
         // → step()'s default arm forever, so country labels never
         // switched from "S. Kor" to "S. Korea" past z=4.
         stage.setCameraZoom(host.camera.zoom)
+        // text-translate-anchor:map — TextStage rotates a label's
+        // text-translate by the map bearing when its translateAnchorMap
+        // flag is set (mirror of the fill/line clip-space bake). Default
+        // (viewport) labels ignore the bearing → byte-identical.
+        stage.setBearing(host.camera.bearing)
         // Display-projection label anchors (projection-display-layer-restore).
         // The anchors must land on the SAME surface as their features:
         //  - Flat projTypes (0-6, untilted) reproject each anchor onto the 2D

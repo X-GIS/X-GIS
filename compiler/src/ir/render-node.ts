@@ -169,6 +169,9 @@ export interface RenderNodeCirclePaint {
   /** Mapbox `paint.circle-blur` — extends the point fragment's
    *  smoothstep AA band. 0 = crisp edge (default/no-op). */
   circleBlur?: number
+  /** Mapbox `paint.circle-pitch-scale`="map". Undefined/false="viewport"
+   *  (spec default, byte-identical). True scales radius by w_ref/clip.w. */
+  circlePitchScaleMap?: boolean
 }
 
 /** 3D extrusion paint axes (Mapbox `fill-extrusion-*`). */
@@ -195,8 +198,29 @@ export interface RenderNodeExtrudePaint {
   fillExtrusionVerticalGradient?: boolean
 }
 
+/** Raster fragment colour adjustments (Mapbox `raster-*`). All fields are
+ *  flat optional constants; an absent field means the layer didn't author
+ *  that axis and the runtime falls back to the spec default (a no-op). Only
+ *  the constant form is plumbed — non-constant raster colour params are
+ *  rare and warn at convert time. */
+export interface RenderNodeRasterPaint {
+  /** `raster-hue-rotate` — degrees of HSL hue rotation. Default 0. */
+  rasterHueRotate?: number
+  /** `raster-brightness-min` — lower bound of brightness remap. Default 0. */
+  rasterBrightnessMin?: number
+  /** `raster-brightness-max` — upper bound of brightness remap. Default 1. */
+  rasterBrightnessMax?: number
+  /** `raster-saturation` — HSL saturation multiplier (-1..1). Default 0. */
+  rasterSaturation?: number
+  /** `raster-contrast` — contrast scale (-1..1). Default 0. */
+  rasterContrast?: number
+  /** `raster-resampling: nearest` flag. Default (unauthored / 'linear')
+   *  = linear sampler, byte-identical to today. */
+  rasterResamplingNearest?: boolean
+}
+
 export interface RenderNode
-  extends RenderNodeFillPaint, RenderNodeLinePaint, RenderNodeCirclePaint, RenderNodeExtrudePaint {
+  extends RenderNodeFillPaint, RenderNodeLinePaint, RenderNodeCirclePaint, RenderNodeExtrudePaint, RenderNodeRasterPaint {
   name: string
   sourceRef: string  // references SourceDef.name
   /** Optional MVT layer slice within the referenced source. When set,
@@ -413,10 +437,11 @@ export interface LabelDef {
   >
   /** Mapbox `text-offset` in em units `[dx, dy]`. */
   offset?: [number, number]
-  /** Mapbox `text-translate` in display pixels `[dx, dy]`. Applied
-   *  on top of `offset`; differs from offset only by unit (pixels
-   *  vs em-units) and by Mapbox spec's "paint" vs "layout" category. */
+  /** Mapbox `text-translate` in display pixels `[dx, dy]`. Applied on top
+   *  of `offset`; differs only by unit (px vs em) + paint-vs-layout category. */
   translate?: [number, number]
+  /** Mapbox `text-translate-anchor`="map": runtime rotates `translate` by the map bearing (Phase S Batch 3). Default = screen-space, byte-identical. */
+  translateAnchorMap?: boolean
   /** Mapbox `text-radial-offset` in em units. Only meaningful with
    *  variable placement (`anchorCandidates`): the runtime offsets the
    *  text away from the anchor point by this radius in the direction
@@ -479,6 +504,16 @@ export interface LabelDef {
   maxAngle?: number
   /** Horizontal (default) or vertical. CJK vertical text. Batch 1g+. */
   writingMode?: 'horizontal' | 'vertical'
+  /** Mapbox `symbol-z-order` — per-feature draw + collision ordering
+   *  policy. `auto` (default) resolves to `viewport-y` when no
+   *  symbol-sort-key is set, else `source`. `viewport-y` orders labels
+   *  by screen Y (lower-on-screen placed first in collision → drawn on
+   *  top). `source` keeps source (feature) order. UNSET / `auto` =
+   *  X-GIS' historical ordering byte-for-byte (the runtime prepare()
+   *  pass keeps its legacy reverse-layer / sortKey path); only an
+   *  explicit `viewport-y` / `source` (or `auto` resolving to `source`
+   *  via an authored sort-key) activates the new sort. Phase S Batch 4. */
+  symbolZOrder?: 'auto' | 'viewport-y' | 'source'
 
   // ── Icon (Batch 2 — sprite atlas) ──
   /** Mapbox `icon-image` name (sprite atlas lookup key). Constant
@@ -518,6 +553,8 @@ export interface LabelDef {
    *  is the only honoured mode. */
   iconTranslateX?: number
   iconTranslateY?: number
+  /** Mapbox `icon-translate-anchor`="map": dispatchIcon rotates the icon translate by the map bearing. Default = screen-space, byte-identical. */
+  iconTranslateAnchorMap?: boolean
   /** Mapbox `icon-rotate` in degrees clockwise. Default 0. */
   iconRotate?: number
   /** Mapbox `icon-opacity` alpha multiplier on icon fragments. 0..1
@@ -535,7 +572,10 @@ export interface LabelDef {
    *  to the icon's rotation so one-way arrows / similar follow the
    *  line direction (OFM road_oneway / road_oneway_opposite). */
   iconRotationAlignment?: 'map'
-
+  // Icon collision policy (Phase S Batch 4): iconCollide (icon-overlap 'never'/'cooperative' or icon-allow-overlap false → IconStage #417/#419 collide AABB; absent = always-place), iconIgnorePlacement (place + don't block; overrides iconCollide), iconOptional (drop colliding icon, keep paired text).
+  iconCollide?: boolean
+  iconIgnorePlacement?: boolean
+  iconOptional?: boolean
   /** Unified PropertyShape bundle for the four "shape-able" paint
    *  properties (text-size, text-color, text-halo-width,
    *  text-halo-color). Populated by lower.ts alongside the legacy

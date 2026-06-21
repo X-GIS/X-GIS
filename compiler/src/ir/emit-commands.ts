@@ -177,6 +177,11 @@ export interface CirclePaint {
   /** Mapbox `paint.circle-blur` — extends the point fragment smoothstep
    *  AA band. Default 0 / undefined = crisp edge (no-op). */
   circleBlur?: number
+  /** Mapbox `paint.circle-pitch-scale` = "map". Undefined / false =
+   *  "viewport" (spec default — radius constant in screen px; byte-identical).
+   *  True = "map" (radius scales with the map perspective). PointRenderer
+   *  packs the flag into the point uniform's circle_params.w. */
+  circlePitchScaleMap?: boolean
 }
 
 /** 3D extrusion paint axes (Mapbox `fill-extrusion-*`). */
@@ -541,6 +546,16 @@ function emitShow(
       },
       circle: { size: sizeValueToShape(node.size) },
       common: { opacity: node.opacity },
+      // Raster colour adjustments — each field carries the spec default when
+      // the node didn't author it, so resolveNumberShape yields a no-op.
+      raster: {
+        hueRotate: { kind: 'constant', value: node.rasterHueRotate ?? 0 },
+        brightnessMin: { kind: 'constant', value: node.rasterBrightnessMin ?? 0 },
+        brightnessMax: { kind: 'constant', value: node.rasterBrightnessMax ?? 1 },
+        saturation: { kind: 'constant', value: node.rasterSaturation ?? 0 },
+        contrast: { kind: 'constant', value: node.rasterContrast ?? 0 },
+        resamplingNearest: node.rasterResamplingNearest ?? false,
+      },
     },
   }
 }
@@ -622,6 +637,7 @@ function emitCircleFields(node: RenderNode): CirclePaint {
     circleTranslateXShape: node.circleTranslateXShape,
     circleTranslateYShape: node.circleTranslateYShape,
     circleBlur: node.circleBlur,
+    circlePitchScaleMap: node.circlePitchScaleMap,
   }
 }
 

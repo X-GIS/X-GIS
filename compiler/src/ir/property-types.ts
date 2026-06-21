@@ -122,6 +122,35 @@ export interface CommonPaintShapes {
   opacity: PropertyShape<number>
 }
 
+/** Raster fragment colour adjustments (Mapbox `raster-*`). Each axis is a
+ *  numeric PropertyShape (constant in practice) carrying the spec default
+ *  when the layer didn't author it, so the runtime resolve is a hard no-op
+ *  by default. `resamplingNearest` is the only non-numeric axis (sampler
+ *  filter selector); false (default) = linear, byte-identical to today. */
+export interface RasterShapes {
+  hueRotate: PropertyShape<number>
+  brightnessMin: PropertyShape<number>
+  brightnessMax: PropertyShape<number>
+  saturation: PropertyShape<number>
+  contrast: PropertyShape<number>
+  resamplingNearest: boolean
+}
+
+/** Spec-default raster colour adjustments (all no-ops). Returned fresh on
+ *  each call so callers building a ShowCommand can't alias a shared mutable
+ *  literal. Used by every non-raster ShowCommand constructor (synthetic
+ *  shows / interpreter / tests) so adding a raster axis stays one-line. */
+export function defaultRasterShapes(): RasterShapes {
+  return {
+    hueRotate: { kind: 'constant', value: 0 },
+    brightnessMin: { kind: 'constant', value: 0 },
+    brightnessMax: { kind: 'constant', value: 1 },
+    saturation: { kind: 'constant', value: 0 },
+    contrast: { kind: 'constant', value: 0 },
+    resamplingNearest: false,
+  }
+}
+
 /** PropertyShape bundle for a polygon / line ShowCommand, sub-bundled
  *  per layer type. `null` fields mean the layer didn't author that
  *  axis — callers branch on null, not on a `kind: 'none'` sentinel.
@@ -133,6 +162,9 @@ export interface PaintShapes {
   line: LineShapes
   circle: CircleShapes
   common: CommonPaintShapes
+  /** Raster colour adjustments. Present on every ShowCommand (defaults are
+   *  no-ops); only the raster renderer reads it, via the active raster show. */
+  raster: RasterShapes
 }
 
 /** PropertyShape bundle for one label's eight paint axes. The

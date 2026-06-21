@@ -2609,6 +2609,9 @@ export class XGISMap {
           show.circleStrokeOpacityShape ?? null,
           show.circleTranslateXShape ?? null,
           show.circleTranslateYShape ?? null,
+          // circle-pitch-scale:map — perspective radius foreshortening.
+          // Default (viewport / false) is byte-identical to today.
+          show.circlePitchScaleMap ?? false,
         )
         continue
       }

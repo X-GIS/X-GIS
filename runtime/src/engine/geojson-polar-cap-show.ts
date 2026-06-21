@@ -8,6 +8,7 @@
 // surface seamlessly (blue ocean Arctic / green land Antarctica).
 
 import type { ShowCommand } from './render/renderer-types'
+import { defaultRasterShapes } from '@xgis/compiler'
 import {
   GeoJSONPolarCapBackend,
   capSourceName,
@@ -142,6 +143,7 @@ export function buildGeoJSONPolarCapShow(
       },
       circle: { size: null },
       common: { opacity: { kind: 'constant', value: 1 } },
+      raster: defaultRasterShapes(),
     },
   }
 }

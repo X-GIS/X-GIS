@@ -429,14 +429,9 @@ export function convertGapWarnings(
   // text-max-angle is now threaded end-to-end (label-max-angle-N →
   // LabelDef.maxAngle → curved-label angular gate). Emit handled in
   // convertTextLayoutProperties; no gap warning.
-  // symbol-z-order: per-feature draw-order override (`auto` default /
-  // `viewport-y` / `source`). X-GIS uses symbol-sort-key for ordering;
-  // symbol-z-order would need a separate sort pass after collision.
-  // Surface specific gap.
-  const zOrderRaw = unwrapLiteralScalar(layout['symbol-z-order'])
-  if (typeof zOrderRaw === 'string' && zOrderRaw !== 'auto') {
-    warnings.push(`Symbol layer "${layer.id}" — symbol-z-order "${zOrderRaw}" set but X-GIS uses symbol-sort-key for label ordering; symbol-z-order would need a separate sort pass after collision (Plan §4 deferred).`)
-  }
+  // symbol-z-order: now threaded end-to-end (label-z-order-<v> →
+  // LabelDef.symbolZOrder → TextStage.prepare() ordering pass). Emit
+  // handled in convertTextLayoutProperties; no gap warning here.
   // symbol-avoid-edges: skip labels whose bbox crosses tile boundaries.
   // X-GIS today uses cross-tile collision instead — symbol-avoid-edges
   // is moot for X-GIS' rendering model but the authored intent isn't
@@ -634,6 +629,16 @@ export function convertTextLayoutProperties(
     if (translate[0] !== 0) utils.push(`label-translate-x-${fmtSigned(translate[0])}`)
     if (translate[1] !== 0) utils.push(`label-translate-y-${fmtSigned(translate[1])}`)
   }
+  // text-translate-anchor: viewport (default) keeps text-translate in
+  // screen space (byte-identical historical path) — emit nothing. "map"
+  // anchors the offset in world space; the runtime rotates [dx,dy] by
+  // the map bearing (mirror of fill/line Phase S Batch 2). No-op without
+  // a parent text-translate, so only emit the flag when both are present.
+  const textTranslateAnchor = unwrapLiteralScalar(paint['text-translate-anchor'])
+  if (textTranslateAnchor === 'map'
+      && paint['text-translate'] !== undefined && paint['text-translate'] !== null) {
+    utils.push('label-translate-anchor-map')
+  }
   // icon-translate (paint) — CSS-px viewport offset that applies ONLY
   // to the icon (e.g. shift a POI icon up 4px while keeping the label
   // centred). Distinct from text-translate; the runtime threads it
@@ -658,11 +663,15 @@ export function convertTextLayoutProperties(
   } else if (paint['icon-translate'] !== undefined && paint['icon-translate'] !== null) {
     warnings.push(`Symbol layer "${layer.id}" — icon-translate non-constant form (expression / interpolate) not yet supported; the constant [dx, dy] form is. Offset dropped.`)
   }
-  // icon-translate-anchor: only "viewport" (the spec default) is
-  // honoured; "map" would offset in world space (not implemented).
+  // icon-translate-anchor: viewport (default) keeps icon-translate in
+  // screen space (byte-identical) — emit nothing. "map" anchors the
+  // offset in world space; dispatchIcon rotates [dx,dy] by the map
+  // bearing before the anchor add (mirror of text-translate-anchor /
+  // fill/line Phase S Batch 2). No-op without a parent icon-translate.
   const iconTranslateAnchor = unwrapLiteralScalar(paint['icon-translate-anchor'])
-  if (iconTranslateAnchor === 'map') {
-    warnings.push(`Symbol layer "${layer.id}" — icon-translate-anchor "map" not implemented; icon-translate is applied in viewport (screen) space.`)
+  if (iconTranslateAnchor === 'map'
+      && paint['icon-translate'] !== undefined && paint['icon-translate'] !== null) {
+    utils.push('label-icon-translate-anchor-map')
   }
   // text-radial-offset (em) → label-radial-offset-N. Only meaningful
   // alongside text-variable-anchor: the runtime pushes the label away
@@ -758,40 +767,61 @@ export function convertTextLayoutProperties(
   } else if (sortKey !== undefined && sortKey !== null) {
     warnings.push(`Symbol layer "${layer.id}" — symbol-sort-key expression form not supported yet; flattened to 0.`)
   }
-  // icon-overlap / icon-allow-overlap: ignored.
+  // icon-overlap / icon-allow-overlap / icon-ignore-placement —
+  // icon-side collision policy (Phase S Batch 4). Icon and text
+  // collision are INDEPENDENT in the Mapbox/MapLibre spec, so these
+  // drive the icon's own placement, NOT the text-allow-overlap path
+  // (the iter-12.21 regression where OFM `icon-allow-overlap: true`
+  // wrongly became "text always places" and clutter-bombed the
+  // pitched Positron view).
   //
-  // PREVIOUS BEHAVIOUR (regression source): we propagated these to
-  // `label-allow-overlap` on the rationale that "the engine routes
-  // both through the same per-label collision pass today". Mapbox /
-  // MapLibre spec is unambiguous that icon and text collision are
-  // INDEPENDENT — `icon-allow-overlap: true` means "icons place
-  // ignoring collision; text still obeys text-allow-overlap". OFM
-  // styles set `icon-allow-overlap: true` on label_city/town/village/
-  // city_capital to keep city dots visible, and the old code converted
-  // that to "text always places" — producing 60-70 % of point labels
-  // bypassing collision and the dense Korean-city-name clutter the
-  // user reported on the pitched Positron view (#12.21/37.19/127.27/
-  // 0/69). Now: we silently drop these flags. When icon rendering
-  // arrives a dedicated `icon-allow-overlap` IR field threads them
-  // through; until then they're no-ops for the text collision path.
+  //   icon-overlap: 'always'   / icon-allow-overlap: true   → place
+  //       ignoring collision. THIS IS X-GIS' HISTORICAL DEFAULT for
+  //       point icons; OFM label_city/town/village/city_capital all
+  //       author `icon-allow-overlap: true` to keep city dots visible.
+  //   icon-overlap: 'never'    / icon-allow-overlap: false  → the icon
+  //       JOINS the collision queue and is dropped when its padded box
+  //       overlaps an already-placed icon (the IconStage `collide`
+  //       AABB, #417/#419). Emitted as `label-icon-collide`.
+  //   icon-overlap: 'cooperative' → MapLibre's priority-aware variant;
+  //       X-GIS has no per-icon priority queue, so the conservative
+  //       faithful fallback is "collide" (drop on overlap) + a warning.
+  //
+  // DEFAULT SEMANTICS (deliberate, reported): the Mapbox spec default
+  // for icon-allow-overlap is `false` (= collide), but X-GIS' historical
+  // behaviour is always-place, and OFM relies on that for unflagged POI
+  // layers. Flipping the ABSENT default to collide regressed nothing in
+  // the converter but is real-GPU-sensitive label-density risk, so the
+  // ABSENT default stays always-place (byte-identical to today). Only an
+  // EXPLICIT `false` / `'never'` / `'cooperative'` opts a layer into the
+  // icon collision queue.
   const iconOverlap = unwrapLiteralScalar(layout['icon-overlap'])
+  const iconAllowOverlap = unwrapLiteralScalar(layout['icon-allow-overlap'])
   if (iconOverlap !== undefined && iconOverlap !== null
       && iconOverlap !== 'always' && iconOverlap !== 'never' && iconOverlap !== 'cooperative') {
     warnings.push(`Symbol layer "${layer.id}" — unrecognised icon-overlap value ${JSON.stringify(iconOverlap)}; ignored.`)
   }
-  // icon-overlap: 'never' / 'cooperative' and icon-allow-overlap: false
-  // are the REAL gaps: X-GIS has no icon-side collision queue, so
-  // icons always render regardless of overlap with other icons.
-  // Authors of dense POI layers (e.g. city dots at low zoom) won't
-  // see deduplication. Surface the gap so the lack of collision is
-  // diagnostic rather than mystery. 'always' / true match X-GIS
-  // default (place every icon) — silent.
-  if (iconOverlap === 'never' || iconOverlap === 'cooperative') {
-    warnings.push(`Symbol layer "${layer.id}" — icon-overlap "${iconOverlap}" set but X-GIS has no icon-side collision queue yet (Plan §3.1 deferred); icons place at every anchor regardless.`)
+  // icon-overlap (MapLibre enum) wins over the legacy icon-allow-overlap
+  // boolean when both are present, mirroring the text-overlap precedence
+  // rule above. 'cooperative' approximates to 'never' (collide) with a
+  // warning since X-GIS lacks priority-aware icon arbitration.
+  const iconCollides = iconOverlap === 'never' || iconOverlap === 'cooperative'
+    || (iconOverlap === undefined && iconAllowOverlap === false)
+  if (iconOverlap === 'cooperative') {
+    warnings.push(`Symbol layer "${layer.id}" — icon-overlap: "cooperative" approximated as "never" (priority-aware icon collision pending).`)
   }
-  const iconAllowOverlap = unwrapLiteralScalar(layout['icon-allow-overlap'])
-  if (iconAllowOverlap === false) {
-    warnings.push(`Symbol layer "${layer.id}" — icon-allow-overlap: false set but X-GIS has no icon-side collision queue yet (Plan §3.1 deferred); icons place at every anchor regardless.`)
+  if (iconCollides) {
+    utils.push('label-icon-collide')
+  }
+  // icon-ignore-placement: true → the icon is placed AND does not block
+  // other symbols (not added to the collision index). X-GIS' default
+  // for a non-colliding icon is already exactly that — always placed,
+  // never recorded as a blocker — so ignore-placement:true is honoured
+  // by NOT adding the icon to the collide queue (i.e. it overrides an
+  // explicit icon-overlap:'never'/icon-allow-overlap:false back to
+  // always-place-and-don't-block). false (the default) is a no-op.
+  if (unwrapLiteralScalar(layout['icon-ignore-placement']) === true) {
+    utils.push('label-icon-ignore-placement')
   }
   if (unwrapLiteralScalar(layout['text-ignore-placement']) === true) utils.push('label-ignore-placement')
   const padding = unwrapLiteralScalar(layout['text-padding'])
@@ -842,9 +872,22 @@ export function convertTextLayoutProperties(
   if (textOptional === true) {
     warnings.push(`Symbol layer "${layer.id}" — text-optional: true declared but X-GIS' symbol placement always pairs text + icon (deferred — needs split text/icon collision arbitration). The label may be dropped at zoom levels where MapLibre would render icon-only.`)
   }
+  // icon-optional: true — the icon may be hidden when it collides while
+  // its paired text still shows (Phase S Batch 4). When the icon joins
+  // the collision queue (icon-overlap:'never' / icon-allow-overlap:false)
+  // and loses, X-GIS already drops only the icon — the paired text is an
+  // independent TextStage symbol and survives — so `icon-optional: true`
+  // is honoured by carrying the flag onto the icon's collide dispatch so
+  // its drop never cascades to the text via the pairKey path.
+  //
+  // DEFERRED (reported): the spec DEFAULT icon-optional:false additionally
+  // requires the paired TEXT to drop when the ICON can't place — the
+  // reverse of X-GIS' existing text→icon droppedPairKeys signal. That
+  // reverse arbitration (icon-collision → suppress text) is not wired;
+  // emitting nothing for the `false` default keeps it byte-identical.
   const iconOptional = unwrapLiteralScalar(layout['icon-optional'])
   if (iconOptional === true) {
-    warnings.push(`Symbol layer "${layer.id}" — icon-optional: true declared but X-GIS' symbol placement always pairs text + icon (deferred — needs split text/icon collision arbitration). The icon may be dropped at zoom levels where MapLibre would render label-only.`)
+    utils.push('label-icon-optional')
   }
 
   // text-rotate (degrees clockwise) + text-letter-spacing (em-units).
@@ -1074,5 +1117,28 @@ export function convertTextLayoutProperties(
   const maxAngle = unwrapLiteralScalar(layout['text-max-angle'])
   if (typeof maxAngle === 'number' && Number.isFinite(maxAngle) && maxAngle >= 0) {
     utils.push(`label-max-angle-${maxAngle}`)
+  }
+
+  // symbol-z-order (Mapbox layout) — per-feature draw + collision order
+  // override. Enum `auto` (default) / `viewport-y` / `source`:
+  //   auto       — viewport-y when no symbol-sort-key, else source.
+  //   viewport-y — order labels by screen Y (south / lower-on-screen
+  //                placed first in collision → drawn last = on top).
+  //   source     — keep source (feature) order; suppress X-GIS' implicit
+  //                reverse-layer ordering trick.
+  // Threaded end-to-end: layout `symbol-z-order` → `label-z-order-<v>`
+  // → LabelDef.symbolZOrder → TextStage.prepare() ordering pass. DEFAULT
+  // (unset) reproduces X-GIS' historical ordering BYTE-FOR-BYTE — the
+  // prepare() pass keeps its legacy reverse-layer / sortKey path unless a
+  // label opts into an explicit non-`auto` z-order. Authoring `auto`
+  // emits the utility too so the resolved policy is explicit in the IR;
+  // the runtime treats `auto` exactly like the unset default (legacy
+  // path) so it stays byte-identical. Enum-suffix utility, mirroring
+  // text-rotation-alignment above.
+  const zOrder = unwrapLiteralScalar(layout['symbol-z-order'])
+  if (zOrder === 'viewport-y' || zOrder === 'source' || zOrder === 'auto') {
+    utils.push(`label-z-order-${zOrder}`)
+  } else if (typeof zOrder === 'string') {
+    warnings.push(`Symbol layer "${layer.id}" — symbol-z-order "${zOrder.slice(0, 40)}" is not a valid enum; expected 'auto' | 'viewport-y' | 'source'.`)
   }
 }

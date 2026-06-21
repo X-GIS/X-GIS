@@ -25,7 +25,9 @@ describe('unsupported op warnings — specific not generic', () => {
     // `pitch` was here — now SUPPORTED (lowers to a bare `pitch`
     // identifier, mirror of `zoom`); see expressions-pitch.test.ts.
     ['image', ['icon'], 'Image accessor'],
-    ['is-supported-script', ['x'], 'is-supported-script accessor'],
+    // `is-supported-script` was here — now SUPPORTED (lowers to the
+    // constant `true` identifier, matching X-GIS' all-Unicode-
+    // renderable capability); see is-supported-script.test.ts.
     // Iter 544 additions:
     // `properties` was here — now SUPPORTED (lowers to a `properties()`
     // builtin returning the feature.properties object, mirror of the

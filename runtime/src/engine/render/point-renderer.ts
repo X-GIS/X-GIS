@@ -50,6 +50,7 @@ function writePointFrameUniform(
   circleTranslateX = 0,
   circleTranslateY = 0,
   circleBlur = 0,
+  circlePitchScaleMap = false,
 ): void {
   uf.set(frame.matrix, 0)
   uf[16] = projType; uf[17] = projCenterLon; uf[18] = projCenterLat; uf[19] = 0
@@ -76,7 +77,11 @@ function writePointFrameUniform(
   uf[32] = canvasWidth  > 0 ? (circleTranslateX * 2) / canvasWidth  : 0
   uf[33] = canvasHeight > 0 ? -(circleTranslateY * 2) / canvasHeight : 0
   uf[34] = circleBlur
-  uf[35] = 0
+  // circle_params.w: circle-pitch-scale flag. 0 = viewport (default —
+  // radius constant in screen px, byte-identical). 1 = map (the point VS
+  // scales the quad expansion by w_ref/clip.w = mvp[3][3]/clip.w so circles
+  // foreshorten with pitch/distance, matching MapLibre's pitch-scale:map).
+  uf[35] = circlePitchScaleMap ? 1 : 0
 }
 
 // ═══ Renderer ═══
@@ -338,7 +343,7 @@ export class PointRenderer {
     projCenterLat: number,
     canvasWidth: number,
     canvasHeight: number,
-    show: { fill?: string | null; stroke?: string | null; strokeWidth?: number; size?: number | null; opacity?: number; circleTranslateX?: number; circleTranslateY?: number; circleBlur?: number; circleTranslateXShape?: import('@xgis/compiler').PropertyShape<number> | null; circleTranslateYShape?: import('@xgis/compiler').PropertyShape<number> | null; circleStrokeOpacityShape?: import('@xgis/compiler').PropertyShape<number> | null },
+    show: { fill?: string | null; stroke?: string | null; strokeWidth?: number; size?: number | null; opacity?: number; circleTranslateX?: number; circleTranslateY?: number; circleBlur?: number; circlePitchScaleMap?: boolean; circleTranslateXShape?: import('@xgis/compiler').PropertyShape<number> | null; circleTranslateYShape?: import('@xgis/compiler').PropertyShape<number> | null; circleStrokeOpacityShape?: import('@xgis/compiler').PropertyShape<number> | null },
     dpr: number = 1,
   ): void {
     if (this.tilePoints.length === 0) return
@@ -435,7 +440,7 @@ export class PointRenderer {
 
     const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
     const uf = this.uniformData
-    writePointFrameUniform(uf, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight, tileTranslateX, tileTranslateY, show.circleBlur ?? 0)
+    writePointFrameUniform(uf, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight, tileTranslateX, tileTranslateY, show.circleBlur ?? 0, show.circlePitchScaleMap ?? false)
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uf)
 
     // Pick the translucent (no depth write) pipeline when the effective
@@ -487,6 +492,7 @@ export class PointRenderer {
     strokeOpacityShape?: import('@xgis/compiler').PropertyShape<number> | null,
     circleTranslateXShape?: import('@xgis/compiler').PropertyShape<number> | null,
     circleTranslateYShape?: import('@xgis/compiler').PropertyShape<number> | null,
+    circlePitchScaleMap?: boolean,
   ): void {
     const points: { lon: number; lat: number }[] = []
 
@@ -620,6 +626,7 @@ export class PointRenderer {
       baseCircleTranslateX: circleTranslateX ?? 0,
       baseCircleTranslateY: circleTranslateY ?? 0,
       lastDynTranslateZoom: Number.NaN,
+      circlePitchScaleMap: circlePitchScaleMap ?? false,
     })
 
     console.log(`[X-GIS] SDF point layer: ${points.length} points`)
@@ -847,7 +854,7 @@ export class PointRenderer {
 
     const drawLayer = (layer: PointLayer, pipeline: GPURenderPipeline, totalPoints: number) => {
       // Write per-layer uniform (circle_params may differ between layers).
-      writePointFrameUniform(uf, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight, layer.circleTranslateX, layer.circleTranslateY, layer.circleBlur)
+      writePointFrameUniform(uf, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight, layer.circleTranslateX, layer.circleTranslateY, layer.circleBlur, layer.circlePitchScaleMap)
       this.device.queue.writeBuffer(this.uniformBuffer, 0, uf)
       pass.setPipeline(pipeline)
       pass.setBindGroup(0, layer._expandedBindGroup!)

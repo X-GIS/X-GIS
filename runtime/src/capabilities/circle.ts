@@ -19,4 +19,5 @@ export const circleCapabilities: readonly RuntimeCapability[] = [
   { property: 'circle-stroke-opacity', layerType: 'circle', variant: 'zoom-interp', supported: true,  note: 'Resolved per frame by PointRenderer.updateDynamicSizes and multiplied into the baked stroke alpha (feat_data slot 8) — WS-1 part 4' },
   { property: 'circle-translate',    layerType: 'circle', variant: 'constant',    supported: true },
   { property: 'circle-translate',    layerType: 'circle', variant: 'zoom-interp', supported: true,  note: 'WS-1 — per-frame via circleTranslate{X,Y}Shape resolved in PointRenderer.updateDynamicSizes into the point frame uniform.' },
+  { property: 'circle-pitch-scale',  layerType: 'circle', variant: 'constant',    supported: true,  note: "viewport (default, byte-identical) + map. circlePitchScaleMap → point uniform circle_params.w; the VS scales the screen radius by w_ref/clip.w (Phase S Batch 3)." },
 ]

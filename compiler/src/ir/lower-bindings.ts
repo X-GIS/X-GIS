@@ -62,6 +62,7 @@ export interface LayerAccumulator {
   circleTranslateX: number | undefined
   circleTranslateY: number | undefined
   circleBlur: number | undefined
+  circlePitchScaleMap: boolean | undefined
   strokeTranslateX: number | undefined
   strokeTranslateY: number | undefined
   fillTranslateAnchorMap: boolean | undefined
@@ -111,6 +112,12 @@ export interface LayerAccumulator {
   animationEasing: Easing
   animationDelayMs: number
   animationLoop: boolean
+  rasterHueRotate: number | undefined
+  rasterBrightnessMin: number | undefined
+  rasterBrightnessMax: number | undefined
+  rasterSaturation: number | undefined
+  rasterContrast: number | undefined
+  rasterResamplingNearest: boolean | undefined
 }
 
 /** Per-item lowering context handed to each BindingHandler. Bundles the

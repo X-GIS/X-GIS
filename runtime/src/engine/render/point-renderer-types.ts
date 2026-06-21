@@ -74,6 +74,11 @@ export interface PointLayer {
   /** Last zoom the dynamic circle-translate was resolved for — skips
    *  redundant work when the camera is idle (mirror of `lastDynZoom`). */
   lastDynTranslateZoom: number
+  /** Mapbox `paint.circle-pitch-scale` = "map". false = viewport (spec
+   *  default — radius constant in screen px, byte-identical). true = map:
+   *  `writePointFrameUniform` sets circle_params.w=1 and the point VS scales
+   *  the quad expansion by w_ref/clip.w so circles foreshorten with pitch. */
+  circlePitchScaleMap: boolean
   // Expanded buffers for 3× world copies (created on first render)
   _expandedVertBuf?: GPUBuffer
   _expandedIdxBuf?: GPUBuffer

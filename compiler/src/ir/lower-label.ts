@@ -72,6 +72,7 @@ export function lowerLabelProps(
   let labelPitchAlignment: 'map' | 'viewport' | 'auto' | undefined
   let labelKeepUpright: boolean | undefined
   let labelMaxAngle: number | undefined
+  let labelSymbolZOrder: 'auto' | 'viewport-y' | 'source' | undefined
   let labelAnchor: import('./render-node').LabelDef['anchor'] | undefined
   // Every label-anchor-X seen, in priority order (Mapbox text-variable-
   // anchor). Runtime tries each on collision; first non-colliding wins.
@@ -81,6 +82,9 @@ export function lowerLabelProps(
   let labelOffsetY: number | undefined
   let labelTranslateX: number | undefined
   let labelTranslateY: number | undefined
+  // Mapbox `text-translate-anchor: map` — world-space (bearing-rotated)
+  // text-translate. Default (undefined) = viewport/screen-space.
+  let labelTranslateAnchorMap: boolean | undefined
   let labelRadialOffset: number | undefined
   // `text-variable-anchor-offset` em offsets, keyed by pair index;
   // zipped onto the ordered anchor candidates at assembly time.
@@ -121,6 +125,9 @@ export function lowerLabelProps(
   // shield + caption style can offset icon vs text independently).
   let labelIconTranslateX: number | undefined
   let labelIconTranslateY: number | undefined
+  // Mapbox `icon-translate-anchor: map` — world-space (bearing-rotated)
+  // icon-translate. Default (undefined) = viewport/screen-space.
+  let labelIconTranslateAnchorMap: boolean | undefined
   let labelIconRotate: number | undefined
   let labelIconOpacity: number | undefined
   // iter 113 — text/icon-opacity PropertyShape accumulators (zoom-interp
@@ -140,6 +147,16 @@ export function lowerLabelProps(
   /** Mapbox `icon-rotation-alignment` — only "map" is carried (icon
    *  rotates with the line tangent); other values stay undefined. */
   let labelIconRotationAlignment: 'map' | undefined
+  /** Mapbox `icon-overlap`:'never'/'cooperative' or `icon-allow-overlap`:
+   *  false — the icon joins the IconStage collision queue and is dropped
+   *  on overlap. Absent = X-GIS' always-place default (Phase S Batch 4). */
+  let labelIconCollide: boolean | undefined
+  /** Mapbox `icon-ignore-placement`:true — icon places and does not block
+   *  others; overrides an explicit collide back to always-place. */
+  let labelIconIgnorePlacement: boolean | undefined
+  /** Mapbox `icon-optional`:true — a colliding icon may hide while its
+   *  paired text still shows (the icon's drop never cascades to text). */
+  let labelIconOptional: boolean | undefined
 
   for (const line of expandedUtilities) {
     for (const item of line.items) {
@@ -339,12 +356,17 @@ export function lowerLabelProps(
       if (name === 'label-none') { labelTransform = 'none'; continue }
       if (name === 'label-allow-overlap') { labelAllowOverlap = true; continue }
       if (name === 'label-ignore-placement') { labelIgnorePlacement = true; continue }
+      if (name === 'label-icon-collide') { labelIconCollide = true; continue }
+      if (name === 'label-icon-ignore-placement') { labelIconIgnorePlacement = true; continue }
+      if (name === 'label-icon-optional') { labelIconOptional = true; continue }
       // Mapbox `symbol-placement: line | line-center` — labels follow
       // line geometry instead of anchoring at a point. Runtime walks
       // the line's segments and emits a label per feature with rotation
       // matching the local tangent.
       if (name === 'label-along-path') { labelPlacement = 'line'; continue }
       if (name === 'label-line-center') { labelPlacement = 'line-center'; continue }
+      if (name === 'label-translate-anchor-map') { labelTranslateAnchorMap = true; continue }
+      if (name === 'label-icon-translate-anchor-map') { labelIconTranslateAnchorMap = true; continue }
       if (name === 'label-rotation-alignment-map') { labelRotationAlignment = 'map'; continue }
       if (name === 'label-rotation-alignment-viewport') { labelRotationAlignment = 'viewport'; continue }
       if (name === 'label-rotation-alignment-auto') { labelRotationAlignment = 'auto'; continue }
@@ -353,6 +375,9 @@ export function lowerLabelProps(
       if (name === 'label-pitch-alignment-auto') { labelPitchAlignment = 'auto'; continue }
       if (name === 'label-keep-upright-true') { labelKeepUpright = true; continue }
       if (name === 'label-keep-upright-false') { labelKeepUpright = false; continue }
+      if (name === 'label-z-order-auto') { labelSymbolZOrder = 'auto'; continue }
+      if (name === 'label-z-order-viewport-y') { labelSymbolZOrder = 'viewport-y'; continue }
+      if (name === 'label-z-order-source') { labelSymbolZOrder = 'source'; continue }
       if (name.startsWith('label-max-angle-')) {
         const num = parseFloat(name.slice('label-max-angle-'.length))
         if (!isNaN(num)) labelMaxAngle = num
@@ -597,7 +622,7 @@ export function lowerLabelProps(
   return foldLabelKnobs(label, {
     labelSize, labelColor, labelHaloWidth, labelHaloColor, labelHaloBlur,
     labelAnchor, labelTransform, labelOffsetX, labelOffsetY,
-    labelTranslateX, labelTranslateY, labelRadialOffset,
+    labelTranslateX, labelTranslateY, labelTranslateAnchorMap, labelRadialOffset,
     labelVariableAnchorOffset,
     labelSizeZoomStops: labelSizeZoomStops.length > 0 ? labelSizeZoomStops : undefined,
     labelSizeZoomStopsBase,
@@ -613,8 +638,9 @@ export function lowerLabelProps(
     labelRotate, labelLetterSpacing, labelFontStack, labelFontWeight, labelFontStyle,
     labelMaxWidth, labelLineHeight, labelJustify,
     labelPlacement, labelSpacing,
-    labelRotationAlignment, labelPitchAlignment, labelKeepUpright, labelMaxAngle,
-    labelIconImage, labelIconImageExpr, labelIconSize, labelIconAnchor, labelIconOffset, labelIconTranslateX, labelIconTranslateY, labelIconRotate, labelIconOpacity, labelIconRotationAlignment,
+    labelRotationAlignment, labelPitchAlignment, labelKeepUpright, labelMaxAngle, labelSymbolZOrder,
+    labelIconImage, labelIconImageExpr, labelIconSize, labelIconAnchor, labelIconOffset, labelIconTranslateX, labelIconTranslateY, labelIconTranslateAnchorMap, labelIconRotate, labelIconOpacity, labelIconRotationAlignment,
+    labelIconCollide, labelIconIgnorePlacement, labelIconOptional,
     labelIconSizeZoomStops: labelIconSizeZoomStops.length > 0 ? labelIconSizeZoomStops : undefined,
     labelIconSizeZoomStopsBase,
     labelOpacityZoomStops: labelOpacityZoomStops.length > 0 ? labelOpacityZoomStops : undefined,
@@ -651,6 +677,7 @@ function foldLabelKnobs(
     labelOffsetY?: number
     labelTranslateX?: number
     labelTranslateY?: number
+    labelTranslateAnchorMap?: boolean
     labelRadialOffset?: number
     labelVariableAnchorOffset?: import('./render-node').LabelDef['variableAnchorOffset']
     labelSizeZoomStops?: ZoomStop<number>[]
@@ -683,6 +710,7 @@ function foldLabelKnobs(
     labelPitchAlignment?: 'map' | 'viewport' | 'auto'
     labelKeepUpright?: boolean
     labelMaxAngle?: number
+    labelSymbolZOrder?: 'auto' | 'viewport-y' | 'source'
     labelIconImage?: string
     labelIconImageExpr?: { ast: unknown }
     labelIconSize?: number
@@ -692,9 +720,13 @@ function foldLabelKnobs(
     labelIconOffset?: [number, number]
     labelIconTranslateX?: number
     labelIconTranslateY?: number
+    labelIconTranslateAnchorMap?: boolean
     labelIconRotate?: number
     labelIconOpacity?: number
     labelIconRotationAlignment?: 'map'
+    labelIconCollide?: boolean
+    labelIconIgnorePlacement?: boolean
+    labelIconOptional?: boolean
     // iter 113 — opacity PropertyShape inputs (zoom-interp + expr).
     labelOpacityZoomStops?: ZoomStop<number>[]
     labelOpacityZoomStopsBase?: number
@@ -747,6 +779,7 @@ function foldLabelKnobs(
     ...(knobs.labelTransform !== undefined ? { transform: knobs.labelTransform } : {}),
     ...(offset !== undefined ? { offset } : {}),
     ...(translate !== undefined ? { translate } : {}),
+    ...(knobs.labelTranslateAnchorMap !== undefined ? { translateAnchorMap: knobs.labelTranslateAnchorMap } : {}),
     ...(knobs.labelRadialOffset !== undefined ? { radialOffset: knobs.labelRadialOffset } : {}),
     ...(knobs.labelVariableAnchorOffset !== undefined && knobs.labelVariableAnchorOffset.length > 0
       ? { variableAnchorOffset: knobs.labelVariableAnchorOffset } : {}),
@@ -769,6 +802,7 @@ function foldLabelKnobs(
     ...(knobs.labelPitchAlignment !== undefined ? { pitchAlignment: knobs.labelPitchAlignment } : {}),
     ...(knobs.labelKeepUpright !== undefined ? { keepUpright: knobs.labelKeepUpright } : {}),
     ...(knobs.labelMaxAngle !== undefined ? { maxAngle: knobs.labelMaxAngle } : {}),
+    ...(knobs.labelSymbolZOrder !== undefined ? { symbolZOrder: knobs.labelSymbolZOrder } : {}),
     // Batch 2 — sprite icon fields
     ...(knobs.labelIconImage !== undefined ? { iconImage: knobs.labelIconImage } : {}),
     ...(knobs.labelIconImageExpr !== undefined ? { iconImageExpr: knobs.labelIconImageExpr } : {}),
@@ -777,10 +811,14 @@ function foldLabelKnobs(
     ...(knobs.labelIconOffset !== undefined ? { iconOffset: knobs.labelIconOffset } : {}),
     ...(knobs.labelIconTranslateX !== undefined ? { iconTranslateX: knobs.labelIconTranslateX } : {}),
     ...(knobs.labelIconTranslateY !== undefined ? { iconTranslateY: knobs.labelIconTranslateY } : {}),
+    ...(knobs.labelIconTranslateAnchorMap !== undefined ? { iconTranslateAnchorMap: knobs.labelIconTranslateAnchorMap } : {}),
     ...(knobs.labelIconRotate !== undefined ? { iconRotate: knobs.labelIconRotate } : {}),
     ...(knobs.labelIconOpacity !== undefined ? { iconOpacity: knobs.labelIconOpacity } : {}),
     ...(knobs.labelIconColor !== undefined ? { iconColor: knobs.labelIconColor } : {}),
     ...(knobs.labelIconRotationAlignment !== undefined ? { iconRotationAlignment: knobs.labelIconRotationAlignment } : {}),
+    ...(knobs.labelIconCollide !== undefined ? { iconCollide: knobs.labelIconCollide } : {}),
+    ...(knobs.labelIconIgnorePlacement !== undefined ? { iconIgnorePlacement: knobs.labelIconIgnorePlacement } : {}),
+    ...(knobs.labelIconOptional !== undefined ? { iconOptional: knobs.labelIconOptional } : {}),
   }
   // Plan Label L3: build the unified shapes bundle from the knob inputs
   // + the merged label's static fallbacks.

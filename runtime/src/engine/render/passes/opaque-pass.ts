@@ -128,13 +128,27 @@ class OpaquePass implements RenderPass {
           // layer's opacity, just driving the global raster
           // renderer's uniform.
           if (host._rasterShow) {
-            const op = resolveNumberShape(
-              host._rasterShow.paintShapes.common.opacity,
-              host.camera.zoom, host._elapsedMs,
-            ).value
-            host.rasterRenderer.setOpacity(op)
+            const z = host.camera.zoom
+            const ms = host._elapsedMs
+            const rs = host._rasterShow.paintShapes.raster
+            host.rasterRenderer.setOpacity(
+              resolveNumberShape(host._rasterShow.paintShapes.common.opacity, z, ms).value,
+            )
+            // raster-* colour adjustments — resolved through the same
+            // PropertyShape path as opacity (constant today; zoom/time
+            // shapes resolve transparently if ever plumbed).
+            host.rasterRenderer.setColorAdjust(
+              resolveNumberShape(rs.hueRotate, z, ms).value,
+              resolveNumberShape(rs.brightnessMin, z, ms).value,
+              resolveNumberShape(rs.brightnessMax, z, ms).value,
+              resolveNumberShape(rs.saturation, z, ms).value,
+              resolveNumberShape(rs.contrast, z, ms).value,
+            )
+            host.rasterRenderer.setResampling(rs.resamplingNearest)
           } else {
             host.rasterRenderer.setOpacity(1)
+            host.rasterRenderer.setColorAdjust(0, 0, 1, 0, 0)
+            host.rasterRenderer.setResampling(false)
           }
           host.rasterRenderer.render(subPass, host.camera, ctx.projType, ctx.centerLon, ctx.centerLat, ctx.w, ctx.h, ctx.dpr)
           host.gpuTimer?.mark(subPass, 'after_raster')

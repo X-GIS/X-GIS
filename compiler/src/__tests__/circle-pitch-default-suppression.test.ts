@@ -1,9 +1,11 @@
 // circle-pitch-alignment + circle-pitch-scale default suppression.
 // Mirror of the translate-anchor pattern (iter 53). X-GIS uses
-// viewport-aligned, viewport-scaled circles — authors writing
-// 'viewport' (or 'auto' for pitch-alignment) match X-GIS behaviour
-// and should not see a spurious warning. 'map' is the real gap
-// (would project the disc onto the ground plane or scale with zoom).
+// viewport-aligned circles — authors writing 'viewport' (or 'auto'
+// for pitch-alignment) match X-GIS behaviour and should not see a
+// spurious warning. circle-pitch-scale 'map' is now SUPPORTED
+// (Phase S Batch 3 — emits the circle-pitch-scale-map flag).
+// circle-pitch-alignment 'map' remains the real gap (would project
+// the disc onto the ground plane) and still warns.
 
 import { describe, expect, it } from 'vitest'
 import { convertMapboxStyle } from '../convert/mapbox-to-xgis'
@@ -44,10 +46,10 @@ describe('circle pitch-alignment / pitch-scale default suppression', () => {
     expect(coverage.warnings.some(w => w.includes('circle-pitch-scale'))).toBe(false)
   })
 
-  it("circle-pitch-scale 'map' (spec default) → warns (real gap — X-GIS scales in viewport)", () => {
+  it("circle-pitch-scale 'map' → supported (emits circle-pitch-scale-map flag, no warning) [Phase S Batch 3]", () => {
     const coverage = { sources: [], layers: [], warnings: [] as string[] }
     convertMapboxStyle(build({ 'circle-pitch-scale': 'map' }) as never, { coverage })
-    expect(coverage.warnings.some(w => w.includes('circle-pitch-scale'))).toBe(true)
+    expect(coverage.warnings.some(w => w.includes('circle-pitch-scale'))).toBe(false)
   })
 
   it("['literal', 'viewport'] (v8 strict wrap) → unwrapped + suppressed", () => {

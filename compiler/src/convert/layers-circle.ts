@@ -32,9 +32,12 @@ import {
  *  circle-stroke-opacity → constant folds into stroke hex alpha;
  *  zoom-interp emits `stroke-opacity-[…]` resolved per frame.
  *
+ *  circle-pitch-scale → circle-pitch-scale-map flag (emitted only for
+ *  'map'; 'viewport' is the byte-identical default). 'map' scales the
+ *  circle radius with the map perspective (point VS divides by clip.w).
+ *
  *  Not yet honoured (warnings emitted): circle-translate-anchor,
- *  circle-pitch-scale, circle-pitch-alignment, data-driven
- *  circle-stroke-opacity.
+ *  circle-pitch-alignment, data-driven circle-stroke-opacity.
  */
 export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
   const paint = safePropsBag((layer as { paint?: unknown }).paint)
@@ -318,11 +321,27 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
     warnings.push(`Layer "${layer.id}" — circle-blur: non-constant form not yet supported — value dropped.`)
   }
 
+  // circle-pitch-scale → circle-pitch-scale-map flag (emitted ONLY for the
+  // 'map' mode; 'viewport' is the spec default and emits nothing so the
+  // render stays byte-identical). 'map' makes the circle radius scale with
+  // the map perspective (circles farther / under pitch shrink) — the point
+  // VS multiplies the screen radius by w_ref/clip.w. Mirror of the
+  // fill-translate-anchor=map flag convention.
+  {
+    let psv: unknown = paint['circle-pitch-scale']
+    while (Array.isArray(psv) && psv.length === 2 && psv[0] === 'literal') psv = psv[1]
+    if (psv === 'map') {
+      utils.push('circle-pitch-scale-map')
+    } else if (psv !== undefined && psv !== null && psv !== 'viewport') {
+      warnings.push(`Circle layer "${layer.id}" — circle-pitch-scale "${String(psv).slice(0, 40)}" is not a valid enum; expected 'map' | 'viewport'. Treated as 'viewport'.`)
+    }
+  }
+
   // Surface dropped properties so the user knows the gap.
   const ignored: string[] = []
   for (const k of [
     'circle-translate-anchor',
-    'circle-pitch-scale', 'circle-pitch-alignment',
+    'circle-pitch-alignment',
     // circle-stroke-opacity: the constant form folds into stroke hex
     // alpha and the zoom-interp form emits a `stroke-opacity-[…]`
     // binding (both handled above). Only a non-interpolate data-driven
@@ -363,14 +382,6 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
       let av: unknown = pv
       while (Array.isArray(av) && av.length === 2 && av[0] === 'literal') av = av[1]
       if (av === 'viewport' || av === 'auto') continue
-    }
-    // circle-pitch-scale='viewport' matches X-GIS (radius stays
-    // constant on screen). 'map' (Mapbox spec default — radius
-    // scales with zoom in map space) is the real gap.
-    if (k === 'circle-pitch-scale') {
-      let av: unknown = pv
-      while (Array.isArray(av) && av.length === 2 && av[0] === 'literal') av = av[1]
-      if (av === 'viewport') continue
     }
     ignored.push(k)
   }

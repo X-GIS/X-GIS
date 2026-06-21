@@ -335,6 +335,23 @@ const vs = entryFn('vs_point', 'vertex', [
     f32(0),
   )))
 
+  // circle-pitch-scale (Mapbox `paint.circle-pitch-scale`). circle_params.w
+  // is the mode flag: 0 = viewport (spec default — radius constant in screen
+  // px, byte-identical to the historical X-GIS path); 1 = map. In map mode
+  // the radius scales with the map perspective so circles farther from the
+  // camera / under pitch shrink. The scale factor is w_ref / clip.w where
+  // w_ref = mvp[3][3] = the perspective w at the recentered camera anchor
+  // (the camera-to-target eye distance in the MVP's vertex-space units; the
+  // anchor is the RTC origin so mvp·(0,0,0,1) yields its w directly). This
+  // mirrors MapLibre circle.vertex.glsl's `* (u_camera_to_center_distance /
+  // gl_Position.w)` for pitch-alignment:viewport + pitch-scale:map. =1 at the
+  // screen centre, <1 toward the horizon. Guard clip.w>0 to avoid div blow-up.
+  b.if(u.field('circle_params', vec4fT).w.gt(f32(0.5)), (c) => {
+    const wRef = c.let('w_ref', mvp.at(u32(3), vec4fT).w)
+    const wPt = c.let('w_pt', max(centerClip.w, f32(1e-4)))
+    c.assign(radiusPx, radiusPx.mul(wRef.div(wPt)))
+  })
+
   // bit 3 of packed10 = flat-quad mode.
   const isFlat = b.let('is_flat', packed10.bitAnd(u32(8)).ne(u32(0)))
   b.assign(radiusPx, max(radiusPx, f32(1)))
