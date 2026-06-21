@@ -140,14 +140,18 @@ export function fn<P extends ParamSpec>(
   name: string,
   params: P,
   ret: ShaderType,
-  body: (b: Builder, p: ParamNodes<P>) => void,
+  body: (b: Builder, p: ParamNodes<P>) => Node | void,
 ): FuncDecl {
   const paramList = Object.entries(params).map(([n, type]) => ({ name: n, type }))
   const paramNodes = Object.fromEntries(
     paramList.map((p) => [p.name, new Node({ op: 'param', type: p.type, name: p.name })]),
   ) as ParamNodes<P>
   const b = new Builder()
-  withScope(b, () => body(b, paramNodes))
+  // A body may `return value` (native TS) for its FINAL return — fn appends the
+  // ret Stmt, so authoring reads like a normal function. Early returns inside
+  // control flow still use Return() (a native return there only exits the closure).
+  const result = withScope(b, () => body(b, paramNodes))
+  if (result !== undefined) b.ret(result)
   return { name, params: paramList, ret, body: b.stmts }
 }
 
@@ -186,13 +190,15 @@ export function entryFn<const P extends readonly EntryParam[]>(
   stage: 'vertex' | 'fragment',
   params: P,
   ret: ShaderType,
-  body: (b: Builder, p: EntryParamNodes<P>) => void,
+  body: (b: Builder, p: EntryParamNodes<P>) => Node | void,
   retAttr?: string,
 ): FuncDecl {
   const paramNodes: Record<string, Node> = {}
   for (const p of params) paramNodes[p.name] = new Node({ op: 'param', type: p.type, name: p.name })
   const b = new Builder()
-  withScope(b, () => body(b, paramNodes as EntryParamNodes<P>))
+  // Native `return value` for the final return (see fn).
+  const result = withScope(b, () => body(b, paramNodes as EntryParamNodes<P>))
+  if (result !== undefined) b.ret(result)
   return {
     name,
     params: params.map((p) => ({ name: p.name, type: p.type, builtin: p.builtin, location: p.location })),

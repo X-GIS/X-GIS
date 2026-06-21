@@ -25,7 +25,7 @@ import {
   length, dot, min, max, smoothstep, abs, floor, select, textureSample,
   bitcastU32, unpack4x8unorm,
   atan, exp,
-  If, Loop, Let, Var, Continue, Discard, Return, assign, madd, outsideRange,
+  If, Loop, Let, Var, Continue, Discard, assign, madd, outsideRange,
   structT, f32T, u32T, i32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   arrayT,
   type Node,
@@ -764,7 +764,7 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
   const segPacked = Let('seg_packed', bitcastU32(seg.field('color_packed', f32T)))
   const segColor = Let('seg_color', unpack4x8unorm(segPacked))
   const baseColor = Let('base_color', select(segColor.a.gt(0), segColor, layer.field('color', vec4fT)))
-  Return(vec4(baseColor.rgb, baseColor.a.mul(alpha)))
+  return vec4(baseColor.rgb, baseColor.a.mul(alpha))
 })
 
 // ── line_rim_alpha ──

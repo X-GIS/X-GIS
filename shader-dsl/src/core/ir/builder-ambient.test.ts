@@ -46,6 +46,18 @@ describe('builder — ambient free-function style (C2)', () => {
     expect(emitFunc(f)).toMatch(/for[\s\S]*if[\s\S]*continue/)
   })
 
+  it('a native `return value` body emits identically to b.ret(value)', () => {
+    const old = fn('k', { x: f32T }, f32T, (b, { x }) => { b.ret(x.mul(2)) })
+    const neo = fn('k', { x: f32T }, f32T, (_b, { x }) => x.mul(2)) // native TS return
+    expect(emitFunc(neo)).toBe(emitFunc(old))
+  })
+
+  it('native return composes with ambient Let', () => {
+    const old = fn('k', { x: f32T }, f32T, (b, { x }) => { const t = b.let('t', x.mul(2)); b.ret(t.add(1)) })
+    const neo = fn('k', { x: f32T }, f32T, (_b, { x }) => { const t = Let('t', x.mul(2)); return t.add(1) })
+    expect(emitFunc(neo)).toBe(emitFunc(old))
+  })
+
   it('the ambient stack is exception-safe — a throw mid-If leaves it clean', () => {
     expect(() => fn('bad', {}, f32T, () => { If(bool(true), () => { throw new Error('boom') }) })).toThrow('boom')
     // after the throw, a fresh fn must still author + emit (stack not corrupted).
