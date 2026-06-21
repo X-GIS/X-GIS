@@ -14,20 +14,23 @@
 import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir'
 import {
   keyOf, isCompound, eachExpr, mapChildren, forEachTopExpr, mapStmtTop,
-  bodyHasRaw, collectLocals, refsLocal,
+  bodyHasRaw, collectLocals, collectMutatedRoots, refsLocal,
 } from './expr-utils'
 
 function cseFn(f: FuncDecl): FuncDecl {
   if (bodyHasRaw(f.body)) return f
-  const locals = new Set<string>()
-  collectLocals(f.body, locals)
+  // Non-invariant names: function locals AND any mutated name (incl. a read_write
+  // binding written in this fn). A read of a mutated name is not safely shareable.
+  const noHoist = new Set<string>()
+  collectLocals(f.body, noHoist)
+  collectMutatedRoots(f.body, noHoist)
 
   // Count occurrences of every compound, input-only subexpression.
   const counts = new Map<string, number>()
   const exemplar = new Map<string, Expr>()
   for (const s of f.body) {
     forEachTopExpr(s, (e) => {
-      if (!isCompound(e) || refsLocal(e, locals)) return
+      if (!isCompound(e) || refsLocal(e, noHoist)) return
       const k = keyOf(e)
       counts.set(k, (counts.get(k) ?? 0) + 1)
       if (!exemplar.has(k)) exemplar.set(k, e)

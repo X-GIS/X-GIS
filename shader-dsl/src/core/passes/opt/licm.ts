@@ -11,7 +11,7 @@
 // pinned by oracle value-equality.
 
 import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir'
-import { keyOf, isCompound, refsLocal, mapChildren, mapStmtTop, bodyHasRaw, collectLocals } from './expr-utils'
+import { keyOf, isCompound, refsLocal, mapChildren, mapStmtTop, bodyHasRaw, collectLocals, collectMutatedRoots } from './expr-utils'
 
 /** Collect the MAXIMAL input-only compound subexpressions of `e` into `out`. */
 function gatherExpr(e: Expr, locals: ReadonlySet<string>, out: Map<string, Expr>): void {
@@ -57,11 +57,14 @@ function gatherStmt(s: Stmt, inLoop: boolean, locals: ReadonlySet<string>, out: 
 
 function licmFn(f: FuncDecl): FuncDecl {
   if (bodyHasRaw(f.body)) return f
-  const locals = new Set<string>()
-  collectLocals(f.body, locals)
+  // Non-invariant names: function locals AND any mutated name (incl. a read_write
+  // binding written anywhere in the fn). A read of a mutated name is not loop-invariant.
+  const noHoist = new Set<string>()
+  collectLocals(f.body, noHoist)
+  collectMutatedRoots(f.body, noHoist)
 
   const invariants = new Map<string, Expr>()
-  for (const s of f.body) gatherStmt(s, false, locals, invariants)
+  for (const s of f.body) gatherStmt(s, false, noHoist, invariants)
   if (invariants.size === 0) return f
 
   const temp = new Map<string, string>()

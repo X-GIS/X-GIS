@@ -143,3 +143,24 @@ export function refsLocal(e: Expr, locals: ReadonlySet<string>): boolean {
   eachExpr(e, (x) => { if (x.op === 'varref' && locals.has(x.name)) yes = true })
   return yes
 }
+
+/** The root varref name written by an assignment lvalue (`buf.v`/`arr[i]` -> `buf`/`arr`). */
+function targetRoot(e: Expr): string | undefined {
+  if (e.op === 'varref') return e.name
+  if (e.op === 'member') return targetRoot(e.base)
+  if (e.op === 'index') return targetRoot(e.base)
+  return undefined
+}
+
+/** Collect every name MUTATED by an assignment in `body` (the assign-target roots).
+ *  A read of a mutated name — including a `read_write` storage binding — is NOT
+ *  invariant, so CSE / LICM must exclude any expr that references one (else they
+ *  hoist a changing value and rewrite the store target into an immutable temp). */
+export function collectMutatedRoots(body: readonly Stmt[], out: Set<string>): void {
+  for (const s of body) {
+    if (s.s === 'assign' || s.s === 'assignOp') { const r = targetRoot(s.target); if (r !== undefined) out.add(r) }
+    else if (s.s === 'if') { for (const a of s.arms) collectMutatedRoots(a.body, out); if (s.elseBody) collectMutatedRoots(s.elseBody, out) }
+    else if (s.s === 'for') { collectMutatedRoots([s.init], out); collectMutatedRoots([s.update], out); collectMutatedRoots(s.body, out) }
+    else if (s.s === 'switch') { for (const c of s.cases) collectMutatedRoots(c.body, out); if (s.defaultBody) collectMutatedRoots(s.defaultBody, out) }
+  }
+}
