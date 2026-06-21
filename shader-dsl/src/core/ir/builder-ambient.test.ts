@@ -28,7 +28,7 @@ describe('builder — ambient free-function style (C2)', () => {
         addAssign(acc, a)
         If(i.eq(i32(1)), () => { assign(acc, a) })
       })
-      Return(acc)
+      return acc
     })
     expect(emitFunc(neo)).toBe(emitFunc(old))
   })
@@ -40,7 +40,7 @@ describe('builder — ambient free-function style (C2)', () => {
         If(i.eq(i32(1)), () => Continue())
         addAssign(acc, f32(1))
       })
-      Return(acc)
+      return acc
     })
     // the continue sits inside the if inside the for — not a stray top-level continue.
     expect(emitFunc(f)).toMatch(/for[\s\S]*if[\s\S]*continue/)
@@ -55,6 +55,18 @@ describe('builder — ambient free-function style (C2)', () => {
   it('native return composes with ambient Let', () => {
     const old = fn('k', { x: f32T }, f32T, (b, { x }) => { const t = b.let('t', x.mul(2)); b.ret(t.add(1)) })
     const neo = fn('k', { x: f32T }, f32T, (_b, { x }) => { const t = Let('t', x.mul(2)); return t.add(1) })
+    expect(emitFunc(neo)).toBe(emitFunc(old))
+  })
+
+  it('native `return` inside an If branch emits identically to c.ret (consistency)', () => {
+    const old = fn('k', { x: f32T }, f32T, (b, { x }) => {
+      b.if(x.gt(f32(0)), (c) => { c.ret(x) })
+      b.ret(f32(0))
+    })
+    const neo = fn('k', { x: f32T }, f32T, (_b, { x }) => {
+      If(x.gt(f32(0)), () => x) // native return in the branch — same `return` everywhere
+      return f32(0)
+    })
     expect(emitFunc(neo)).toBe(emitFunc(old))
   })
 
