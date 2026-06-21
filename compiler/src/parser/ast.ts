@@ -111,6 +111,7 @@ export type Expr =
   | FnCall
   | BinaryExpr
   | ArrayLiteral
+  | ObjectLiteral
   | ArrayAccess
   | ConditionalExpr
   | UnaryExpr
@@ -194,6 +195,15 @@ export type MatchArm = {
 export type ArrayLiteral = {
   kind: 'ArrayLiteral'
   elements: Expr[]
+}
+
+// { "type": "FeatureCollection", "features": [...] } — value-position
+// object literal (used by `source x { data: {...} }` to embed inline
+// GeoJSON). Keys may be string- or identifier-literal; values are any
+// Expr (lower.ts restricts to JSON-literal subtrees for `data:`).
+export type ObjectLiteral = {
+  kind: 'ObjectLiteral'
+  properties: { key: string; value: Expr }[]
 }
 
 export type ArrayAccess = {

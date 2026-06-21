@@ -469,9 +469,11 @@ const LOC_CEILINGS: Record<string, number> = {
   'compiler/src/ir/lower-label.ts': 866,
   // Baselined at 835 (Phase S Batch 3 raster +18 + text/icon +6; Batch 4 icon
   // collision +3 + symbol-z-order's LabelDef.symbolZOrder field + JSDoc).
-  // Bumped 837→855 (Phase R heatmap): the RenderNodeHeatmapPaint interface
-  // (isHeatmap + 5 heatmap-* axes) + its addition to the RenderNode extends list.
-  'compiler/src/ir/render-node.ts': 855,
+  // Bumped 837→858 (Phase R heatmap + inline-geojson): the RenderNodeHeatmapPaint
+  // interface (isHeatmap + 5 heatmap-* axes) + its RenderNode extends entry (+18),
+  // and SourceDef.inlineData field + JSDoc (+3, same additive source-field class
+  // as crs).
+  'compiler/src/ir/render-node.ts': 858,
 }
 const NEW_FILE_CAP = 800
 

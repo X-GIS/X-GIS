@@ -48,7 +48,7 @@
 
 import type {
   Expr, MatchBlock,
-  ArrayAccess, ArrayLiteral, BinaryExpr, BoolLiteral, ColorLiteral,
+  ArrayAccess, ArrayLiteral, ObjectLiteral, BinaryExpr, BoolLiteral, ColorLiteral,
   ConditionalExpr, FieldAccess, FnCall, Identifier, NumberLiteral,
   PipeExpr, StringLiteral, UnaryExpr,
 } from '../parser/ast'
@@ -71,6 +71,7 @@ export function canonicalExpr(expr: Expr): string {
     case 'PipeExpr':      return canonicalPipe(expr)
     case 'ConditionalExpr': return canonicalConditional(expr)
     case 'ArrayLiteral':  return canonicalArrayLit(expr)
+    case 'ObjectLiteral': return canonicalObjectLit(expr)
     case 'ArrayAccess':   return canonicalArrayAccess(expr)
     case 'MatchBlock':    return canonicalMatchBlock(expr)
   }
@@ -121,6 +122,17 @@ function canonicalConditional(c: ConditionalExpr): string {
 
 function canonicalArrayLit(a: ArrayLiteral): string {
   return `Arr([${a.elements.map(canonicalExpr).join(',')}])`
+}
+
+function canonicalObjectLit(o: ObjectLiteral): string {
+  // Keys are JSON-quoted so a key containing `;`/`:` can't collide via
+  // raw concat. ObjectLiteral only carries inline GeoJSON (`data: {...}`),
+  // which never reaches the evaluator — but canonicalExpr must stay
+  // exhaustive over the Expr union.
+  const props = o.properties
+    .map((p) => `${JSON.stringify(p.key)}:${canonicalExpr(p.value)}`)
+    .join(',')
+  return `Obj({${props}})`
 }
 
 function canonicalArrayAccess(a: ArrayAccess): string {

@@ -36,6 +36,11 @@ export interface LoadCommand {
    *  source's GeoJSON from this CRS to WGS84 LL once at registration.
    *  `"EPSG:4326"` (the geojson default) is a no-op. */
   crs?: string
+  /** Inline GeoJSON threaded from IR `SourceDef.inlineData` (the
+   *  `data: {...}` source-block form). When set, the runtime seeds this
+   *  through the geojson ingest path instead of fetching `url`. Mirror
+   *  field on the runtime `interpreter.ts` LoadCommand (two-sibling rule). */
+  inlineData?: unknown
 }
 
 // ─── Paint sub-bundles (Tier-B B2, rows 3/5) ───────────────────────
@@ -384,6 +389,7 @@ export function emitCommands(scene: Scene, opts?: EmitOptions): SceneCommands {
     type: src.type,
     layers: src.layers,
     crs: src.crs,
+    inlineData: src.inlineData,
   }))
 
   // Walk the IR once to collect every ZOOM-only paint literal /
