@@ -106,7 +106,7 @@ const ANCESTOR_PROTECT_DEPTH = 22
  *  rotates it by the map bearing so it tracks the MAP world axes
  *  (MapLibre map-anchor). Pure 2D rotation; no allocation when the
  *  offset is zero or anchor is viewport. */
-function rotateTranslateForAnchor(
+export function rotateTranslateForAnchor(
   dx: number, dy: number, anchorMap: boolean | undefined, bearingDeg: number,
 ): [number, number] {
   if (!anchorMap || (dx === 0 && dy === 0)) return [dx, dy]
