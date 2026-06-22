@@ -34,9 +34,9 @@ const rasterColorAdjust = fn('raster_color_adjust', { rgb_in: vec3fT, p0: vec4fT
   const contrast = p.p1.x
   const rgb = Var('rgb', vec3fT, p.rgb_in)
 
-  // Hue rotate — spin the RGB vector (w.xyz / w.zxy / w.yzx swizzles as explicit vec3s).
+  // Hue rotate — spin the RGB vector by the w.xyz / w.zxy / w.yzx swizzle weights.
   const w = Let('w', callFn('raster_spin_weights', vec3fT, hueDeg.mul(constRef('DEG2RAD_F'))))
-  assign(rgb, vec3(dot(rgb, w), dot(rgb, vec3(w.z, w.x, w.y)), dot(rgb, vec3(w.y, w.z, w.x))))
+  assign(rgb, vec3(dot(rgb, w), dot(rgb, w.zxy), dot(rgb, w.yzx)))
 
   // Brightness remap — low + (high-low)*rgb (per component). Expanded rather than mix()
   // because the DSL mix() interpolant is typed scalar, not a vec. f64-equivalent to WGSL

@@ -145,7 +145,19 @@ export class Node<K extends string = string> {
   get g(): Node<ElemKey<K>> { return this.comp('y') }
   get b(): Node<ElemKey<K>> { return this.comp('z') }
   get a(): Node<ElemKey<K>> { return this.comp('w') }
+
   get rgb(): Node<'vec3<f32>'> { return this.swizzle('rgb') as Node<'vec3<f32>'> }
+
+  // Common multi-component swizzle getters — `w.zxy` instead of vec3(w.z, w.x, w.y) or
+  // the untyped swizzle<'vec3<f32>'>('zxy'). Like .rgb, these assume an f32 source (the
+  // dominant case for position/colour vectors); for u32/i32 vectors use .swizzle<R>('...').
+  get xy(): Node<'vec2<f32>'> { return this.swizzle('xy') as Node<'vec2<f32>'> }
+  get xyz(): Node<'vec3<f32>'> { return this.swizzle('xyz') as Node<'vec3<f32>'> }
+  get zyx(): Node<'vec3<f32>'> { return this.swizzle('zyx') as Node<'vec3<f32>'> }
+  get zxy(): Node<'vec3<f32>'> { return this.swizzle('zxy') as Node<'vec3<f32>'> }
+  get yzx(): Node<'vec3<f32>'> { return this.swizzle('yzx') as Node<'vec3<f32>'> }
+  get bgr(): Node<'vec3<f32>'> { return this.swizzle('bgr') as Node<'vec3<f32>'> }
+  get bgra(): Node<'vec4<f32>'> { return this.swizzle('bgra') as Node<'vec4<f32>'> }
 
   /** Struct field access (key inferred from the field's ShaderType literal). */
   field<T extends ShaderType>(name: string, type: T): Node<KeyOf<T>> {
