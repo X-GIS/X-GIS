@@ -35,6 +35,7 @@
 
 import type { Expr, Stmt, ModuleDecl, BinOp, StructDecl } from './ir'
 import { validate } from './passes/validate'
+import { autoVars } from './passes/opt'
 
 export type CpuValue = number | boolean | number[] | CpuStruct
 export interface CpuStruct { [k: string]: CpuValue }
@@ -382,6 +383,9 @@ export function compileModule(m: ModuleDecl): CpuModule {
   // Same validation gate as the WGSL/GLSL writers — the oracle is the third
   // backend over the same IR, so it must reject a structurally-invalid module.
   validate(m)
+  // Materialise auto-vars (plain `const x = …; assign(x, …)`) into real `var` bindings, exactly
+  // as the WGSL backend does, so the CPU mirror evaluates the same assignable lvalues.
+  m = autoVars(m)
   const ctx: Ctx = {
     consts: new Map(m.consts.map((c) => [c.name, c.cpuValue])),
     fns: {},

@@ -159,8 +159,10 @@ describe('PoC-B: WGSL backend emits a structurally valid sdf shader', () => {
     expect(wgsl).toMatch(/for \(var i: u32 = [^;]+; \(i < [^;]+\); i = \(i \+ 1u\)\)/)
     expect(wgsl).toContain('switch ') // segment-kind dispatch
     expect(wgsl).toContain('case 0u: {')
-    expect(wgsl).toContain('min_dist = min(min_dist,') // assign + min builtin
-    expect(wgsl).toContain('winding += winding_line(') // compound assign
+    // min_dist + winding are authored as plain `const` (no Var); the auto-vars pass materialises
+    // them as vars with auto names (`_avN`), so pin the assign SHAPE, not the name.
+    expect(wgsl).toMatch(/(\w+) = min\(\1,/)        // acc = min(acc, …)  (min-fold accumulator)
+    expect(wgsl).toMatch(/\w+ \+= winding_line\(/)   // acc += winding_line(…)  (compound assign)
   })
   it('is structurally balanced', () => {
     expect((wgsl.match(/{/g) ?? []).length).toBe((wgsl.match(/}/g) ?? []).length)
