@@ -1139,7 +1139,7 @@ const fsLineMax = entryFn(
 
 // ── Module assembly ──
 
-const buildLineModule = (pickEnabled: boolean): ModuleDecl => module({
+export const buildLineModule = (pickEnabled: boolean): ModuleDecl => module({
   structs: [
     TileUniforms, PatternSlot, LineLayer, LineSegment,
     ShapeDesc, ShapeSegment, LineOut, lineFragmentOutput(pickEnabled),

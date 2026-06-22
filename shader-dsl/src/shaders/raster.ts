@@ -173,7 +173,7 @@ const buildFs = (pickEnabled: boolean) =>
     b.ret(out)
   })
 
-const buildRasterModule = (pickEnabled: boolean): ModuleDecl => module({
+export const buildRasterModule = (pickEnabled: boolean): ModuleDecl => module({
   structs: [Uniforms, TileUniforms, VsOut, rasterFragmentOutput(pickEnabled)],
   bindings: [
     { group: 0, binding: 0, name: 'u', space: 'uniform', type: structT('Uniforms') },

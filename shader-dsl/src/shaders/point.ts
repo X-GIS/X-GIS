@@ -477,7 +477,7 @@ const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: structT('PointOu
   b.ret(out)
 })
 
-const POINT_MODULE: ModuleDecl = module({
+export const POINT_MODULE: ModuleDecl = module({
   structs: [Uniforms, ShapeDesc, Segment, PointOut, PointFragmentOutput],
   bindings: [
     { group: 0, binding: 0, name: 'u', space: 'uniform', type: structT('Uniforms') },
