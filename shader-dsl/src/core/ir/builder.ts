@@ -207,30 +207,54 @@ function makeCallFactory<R extends ShaderType>(
   }
 }
 
+type FnOpts = { allowEarlyReturn?: boolean; lintDisable?: readonly string[] }
+type FnBody<P extends ParamSpec, R extends ShaderType> = (p: ParamNodes<P>, b: Builder) => Node<KeyOf<R>> | void
+
+// Auto-name counter for fn() calls that omit the name. Advanced ONLY on omission (explicit
+// names never consume it). It is process-global + advanced in fn()-call order — deterministic
+// for fns authored at module load (fixed ES evaluation order), which is the safe case.
+// ⚠️ NOT for snapshot-tested or dynamically re-authored fns: the byte-identical WGSL snapshots
+// are baked in one process and checked in another, and a fn referenced by a STRING name
+// (externFn('project', …) / a callFn('…') / a placeholder-swap funcs[] lookup) must keep its
+// explicit name — an opaque `_fn{n}` would not match. Omit the name only for a fn called
+// exclusively through its own imported handle.
+let fnAutoId = 0
+
 /** Author a function. The body receives the typed param Nodes FIRST (each keyed by its
  *  ShaderType); the Builder is the optional SECOND arg — TSL-style (three.js Fn passes the
  *  inputs then the node-builder), so a clean body is just `(p) => …` using the ambient
  *  surface (Let/Var/If/Loop/Return + native terminal return) and only reaches for `b` when
- *  it must. Single call signature, so the param types still infer. Returns an FnHandle —
- *  call it directly (`foo(a, b)`), list it in a module (`funcs: [foo]`), or take `foo.decl`. */
+ *  it must. The body's native `return` is type-checked against `ret` (`Node<KeyOf<R>>`), so a
+ *  wrong-typed return is a compile error. The name is OPTIONAL — omit it for an auto `_fn{n}`
+ *  (see fnAutoId caveat; keep it for string-referenced / snapshot-tested / re-authored fns).
+ *  Returns an FnHandle — call it directly (`foo(a, b)`), list it in a module (`funcs: [foo]`),
+ *  or take `foo.decl`. */
+export function fn<P extends ParamSpec, R extends ShaderType>(params: P, ret: R, body: FnBody<P, R>, opts?: FnOpts): FnHandle<P, R>
+export function fn<P extends ParamSpec, R extends ShaderType>(name: string, params: P, ret: R, body: FnBody<P, R>, opts?: FnOpts): FnHandle<P, R>
 export function fn<P extends ParamSpec, R extends ShaderType>(
-  name: string,
-  params: P,
-  ret: R,
-  body: (p: ParamNodes<P>, b: Builder) => Node | void,
-  opts?: { allowEarlyReturn?: boolean; lintDisable?: readonly string[] },
+  a: string | P,
+  b: P | R,
+  c: R | FnBody<P, R>,
+  d?: FnBody<P, R> | FnOpts,
+  e?: FnOpts,
 ): FnHandle<P, R> {
+  const named = typeof a === 'string'
+  const name = named ? a : `_fn${fnAutoId++}`
+  const params = (named ? b : a) as P
+  const ret = (named ? c : b) as R
+  const body = (named ? d : c) as FnBody<P, R>
+  const opts = (named ? e : d) as FnOpts | undefined
   const paramList = Object.entries(params).map(([n, type]) => ({ name: n, type }))
   const paramNodes = Object.fromEntries(
     paramList.map((p) => [p.name, new Node({ op: 'param', type: p.type, name: p.name })]),
   ) as ParamNodes<P>
-  const b = new Builder()
+  const bld = new Builder()
   // A body may `return value` (native TS) for its FINAL return — fn appends the
   // ret Stmt, so authoring reads like a normal function. Early returns inside
   // control flow still use Return() (a native return there only exits the closure).
-  const result = withScope(b, () => body(paramNodes, b))
-  if (result !== undefined) b.ret(result)
-  const decl: FuncDecl = { name, params: paramList, ret, body: b.stmts, allowEarlyReturn: opts?.allowEarlyReturn, lintDisable: opts?.lintDisable }
+  const result = withScope(bld, () => body(paramNodes, bld))
+  if (result !== undefined) bld.ret(result)
+  const decl: FuncDecl = { name, params: paramList, ret, body: bld.stmts, allowEarlyReturn: opts?.allowEarlyReturn, lintDisable: opts?.lintDisable }
   // The handle IS the call node factory (shared with externFn); the FuncDecl fields are mixed
   // onto it so it still duck-types as a FuncDecl in a module's funcs[]. `name` is a non-writable
   // function prop, so it is set via defineProperty (Object.assign would throw on it under strict).
