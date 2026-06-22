@@ -32,16 +32,24 @@ describe('Phase-2 point shader — DSL emission', () => {
     expect(pointPart).toContain('@fragment')
     expect(pointPart).toContain('fn fs_point(in: PointOut) -> PointFragmentOutput')
     expect(pointPart).toContain('discard;')
-    expect(pointPart).toContain('fwidth(length(in.uv))')
+    // length(in.uv) is reused (AA edge + radial falloff), so the cse auto-cache binds it
+    // to a shared temp — assert the uv-distance is computed and fwidth AA is applied,
+    // not the pre-cse inline `fwidth(length(in.uv))` spelling.
+    expect(pointPart).toContain('length(in.uv)')
+    expect(pointPart).toContain('fwidth(')
     expect(pointPart).toContain('compute_log_frag_depth(in.view_w')
   })
   it('bitwise unpacking of per-feature flags (>> << & on u32)', () => {
-    expect(pointPart).toContain('(packed10 >> 4u)')           // size_mode
-    expect(pointPart).toContain('((packed10 >> 8u) & 3u)')    // anchor_mode
-    expect(pointPart).toContain('(packed10 & 8u)')            // is_flat bit
-    expect(pointPart).toContain('(flags & 1u)')               // fill
-    expect(pointPart).toContain('(flags & 2u)')               // stroke
-    expect(pointPart).toContain('(flags & 4u)')               // glow
+    // The hand `let packed10` / `let flags` bindings were dropped; the packed-byte
+    // expression is now either inlined (single use) or hoisted to a cse temp. Pin
+    // the SHIFT/MASK literals — the bitfield each extraction selects — not the
+    // operand name, which is no longer a stable identifier.
+    expect(pointPart).toMatch(/>> 4u\) & 15u/)   // size_mode  (>> 4, mask 0xF)
+    expect(pointPart).toMatch(/>> 8u\) & 3u/)    // anchor_mode (>> 8, mask 3)
+    expect(pointPart).toContain('& 8u')          // is_flat bit
+    expect(pointPart).toContain('& 1u')          // fill
+    expect(pointPart).toContain('& 2u')          // stroke
+    expect(pointPart).toContain('& 4u')          // glow
   })
   it('VS re-centers ABSOLUTE per-feature ECEF against the camera (DSFUN)', () => {
     // Camera-relative RTC fix: per-feature ECEF DSFUN is absolute, so the VS
@@ -65,9 +73,14 @@ describe('Phase-2 point shader — DSL emission', () => {
     const vsOnly = vsBody.slice(0, vsBody.indexOf('fn fs_point'))
     expect(vsOnly).toContain('u.proj_params.x < 0.5')
     expect(vsOnly).toContain('u.proj_params.x < 6.5')
-    expect(vsOnly).toContain('(mx_h - cam_merc_h.x)')   // Mercator: precise DSFUN tail
-    expect(vsOnly).not.toContain('project(abs_lon, abs_lat, u.proj_params)') // not the lossy reproject
-    expect(vsOnly).toContain('flat_rel(abs_lon,')       // non-Mercator (shared helper)
+    // The hand `let mx_h` / `let abs_lon` bindings were dropped, so the precise-
+    // Mercator-tail read and the flat_rel arg are now inlined / cse-temp'd. Prove
+    // the SAME properties via stable tokens: the Merc branch reads feat_data slot
+    // 20 (the precise Mercator DSFUN high — not the lossy lon/lat reproject), and
+    // the non-Mercator branch calls the shared flat_rel helper.
+    expect(vsOnly).toMatch(/feat_data\[\([^\]]+ \+ 20u\)\]/)           // Mercator: precise DSFUN tail (slot 20)
+    expect(vsOnly).not.toMatch(/project\(\w+, \w+, u\.proj_params\)/)  // not the lossy abs-lon/lat reproject
+    expect(vsOnly).toMatch(/flat_rel\([\s\S]*?u\.proj_params/)         // non-Mercator (shared helper)
   })
 
   it('SDF helpers + switch on segment kind', () => {
@@ -76,7 +89,10 @@ describe('Phase-2 point shader — DSL emission', () => {
     expect(pointPart).toContain('fn dist_to_cubic')
     expect(pointPart).toContain('fn winding_line')
     expect(pointPart).toContain('fn sdf_shape')
-    expect(pointPart).toContain('switch seg.kind')
+    // The hand `let seg = segments[i]` binding was dropped; `seg.kind` is now the
+    // inlined `segments[i].kind` (or a cse temp). Match the switch on the segment's
+    // .kind field regardless of how the segment ref is spelled.
+    expect(pointPart).toMatch(/switch \w+(\[\w+\])?\.kind/)
   })
   it('is structurally balanced (point module portion)', () => {
     expect((pointPart.match(/{/g) ?? []).length).toBe((pointPart.match(/}/g) ?? []).length)

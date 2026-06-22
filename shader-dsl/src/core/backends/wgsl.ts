@@ -15,6 +15,7 @@ import { emitExpr as emitExprNeutral, emitBody } from '../emit'
 import { lowerModule } from '../passes/match-lower'
 import { validate } from '../passes/validate'
 import { assertCaps } from '../passes/required-caps'
+import { cse } from '../passes/opt'
 import { spellIntrinsic } from '../intrinsics'
 
 export function wgslType(t: ShaderType): string {
@@ -99,14 +100,26 @@ export function emitFunc(f: FuncDecl): string {
   return `${attrs}fn ${f.name}(${params})${ret} {\n${emitBody(f.body, 1, wgslBackend)}\n}`
 }
 
+/** Emit a bare list of funcs through the SAME lower+cse pipeline emitModule uses, so the
+ *  string-prepend exports (getProjectionWgslFns / ECEF_WGSL_FNS / LOG_DEPTH_WGSL_FNS / …)
+ *  stay byte-consistent with the decl-merged module emit — the auto-cache applies on BOTH
+ *  paths, so dropping a hand `Let` re-binds the reuse uniformly regardless of which emit
+ *  path a consumer takes. */
+export function emitFuncsCsed(funcs: readonly FuncDecl[]): string {
+  const lowered = cse(lowerModule({ consts: [], structs: [], bindings: [], funcs: [...funcs] }))
+  return lowered.funcs.map(emitFunc).join('\n\n')
+}
+
 export function emitModule(m: ModuleDecl): string {
   // Validate the AUTHORED module before any lowering (the rules reason about
   // the pre-lower shape — e.g. matchExpr chains, placeholder swap sites).
   validate(m)
   assertCaps(wgslBackend, m) // principled fail-closed gate (wgslBackend covers all caps)
   // Run the matchExpr→{var slot, Stmt.switch} lowering first so the rest of the
-  // emitter stays matchExpr-unaware (identity for modules with no matchExpr).
-  const lowered = lowerModule(m)
+  // emitter stays matchExpr-unaware (identity for modules with no matchExpr), then
+  // auto-cache: cse hoists any input-only subexpression reused ≥2x into one shared
+  // `let`, so authors write plain inline expressions and the reuse is bound for them.
+  const lowered = cse(lowerModule(m))
   const parts: string[] = []
   if (lowered.consts.length) parts.push(lowered.consts.map(emitConst).join('\n'))
   if (lowered.structs.length) parts.push(lowered.structs.map(emitStruct).join('\n\n'))

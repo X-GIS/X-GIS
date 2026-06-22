@@ -251,14 +251,12 @@ const lineEndpoint = fn('line_endpoint', { p_h: vec2fT, p_l: vec2fT }, vec2fT, (
 const finalizeCorner = fn('finalize_corner', { corner: vec2fT }, vec2fT, (p, _b) => {
   const projParams = tile.field('proj_params', vec4fT)
   const tileOrigin = tile.field('tile_origin_merc', vec2fT)
-  const absMerc = Let('abs_merc', p.corner.add(tileOrigin))
-  const absLon = Let('abs_lon', absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R'))))
-  const latRad = Let('lat_rad', inv_merc_lat_rad(absMerc.y))
-  const absLat = Let('abs_lat', latRad.div(constRef('DEG2RAD')))
-  const tileRefLon = Let('tile_ref_lon',
-    tileOrigin.x.add(f32(0.5).mul(tile.field('tile_extent_m', f32T)))
-      .div(constRef('DEG2RAD').mul(constRef('EARTH_R'))),
-  )
+  const absMerc = p.corner.add(tileOrigin)
+  const absLon = absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R')))
+  const latRad = inv_merc_lat_rad(absMerc.y)
+  const absLat = latRad.div(constRef('DEG2RAD'))
+  const tileRefLon = tileOrigin.x.add(f32(0.5).mul(tile.field('tile_extent_m', f32T)))
+      .div(constRef('DEG2RAD').mul(constRef('EARTH_R')))
   // single-exit: Mercator (proj<0.5) passes the corner through; else the reprojected
   // flat_rel. flat_rel is pure, so computing it on the Mercator path (selected away) is harmless.
   const flatRel = flat_rel(absLon, absLat, projParams, tileRefLon)
@@ -267,11 +265,11 @@ const finalizeCorner = fn('finalize_corner', { corner: vec2fT }, vec2fT, (p, _b)
 
 const endpointCosC = fn('endpoint_cos_c', { p_h: vec2fT, p_l: vec2fT }, f32T, (p, _b) => {
   const tileOrigin = tile.field('tile_origin_merc', vec2fT)
-  const absMercX = Let('abs_merc_x', p.p_h.x.add(p.p_l.x).add(tileOrigin.x))
-  const absMercY = Let('abs_merc_y', p.p_h.y.add(p.p_l.y).add(tileOrigin.y))
-  const absLon = Let('abs_lon', absMercX.div(constRef('DEG2RAD').mul(constRef('EARTH_R'))))
-  const latRad = Let('lat_rad', inv_merc_lat_rad(absMercY))
-  const absLat = Let('abs_lat', latRad.div(constRef('DEG2RAD')))
+  const absMercX = p.p_h.x.add(p.p_l.x).add(tileOrigin.x)
+  const absMercY = p.p_h.y.add(p.p_l.y).add(tileOrigin.y)
+  const absLon = absMercX.div(constRef('DEG2RAD').mul(constRef('EARTH_R')))
+  const latRad = inv_merc_lat_rad(absMercY)
+  const absLat = latRad.div(constRef('DEG2RAD'))
   return needs_backface_cull(absLon, absLat, tile.field('proj_params', vec4fT))
 })
 
@@ -286,8 +284,8 @@ const patternUnitToM = fn('pattern_unit_to_m', { v: f32T, unit: u32T, mpp: f32T 
 // of the shared SDF module's `segments` name (which would collide with the
 // line segment storage buffer on binding 1).
 const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (p, _b) => {
-  const uv = Let('uv', vec2(p.uv_in.x, p.uv_in.y.neg()))
-  const s = Let('s', shapes.at(p.shape_id, structT('ShapeDesc')))
+  const uv = vec2(p.uv_in.x, p.uv_in.y.neg())
+  const s = shapes.at(p.shape_id, structT('ShapeDesc'))
   const bMinX = s.field('bbox_min_x', f32T)
   const bMinY = s.field('bbox_min_y', f32T)
   const bMaxX = s.field('bbox_max_x', f32T)
@@ -300,9 +298,9 @@ const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (p, _b
   const winding = Var('winding', i32T, i32(0))
   const segStart = s.field('seg_start', u32T)
   const segCount = s.field('seg_count', u32T)
-  const end = Let('end', min(segStart.add(segCount), segStart.add(u32(32))))
+  const end = min(segStart.add(segCount), segStart.add(u32(32)))
   Loop('i', segStart, (i) => i.lt(end), (i) => {
-    const seg = Let('seg', shape_segments.at(i, structT('ShapeSegment')))
+    const seg = shape_segments.at(i, structT('ShapeSegment'))
     const p0 = seg.field('p0', vec2fT)
     const p1 = seg.field('p1', vec2fT)
     const p2 = seg.field('p2', vec2fT)
@@ -338,46 +336,40 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
 
   // Backface cull on non-Mercator (helper short-circuits to +1 for flat).
   b.if(projParams.x.ge(0.5), (c) => {
-    const absMerc = c.let('abs_merc', p.input.field('world_local', vec2fT).add(tileOrigin))
-    const absLon = c.let('abs_lon', absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R'))))
-    const latRad = c.let('lat_rad', inv_merc_lat_rad(absMerc.y))
-    const absLat = c.let('abs_lat', latRad.div(constRef('DEG2RAD')))
+    const absMerc = p.input.field('world_local', vec2fT).add(tileOrigin)
+    const absLon = absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R')))
+    const latRad = inv_merc_lat_rad(absMerc.y)
+    const absLat = latRad.div(constRef('DEG2RAD'))
     c.if(needs_backface_cull(absLon, absLat, projParams).lt(0), (d) => { d.discard() })
   })
 
   // Per-tile clip mask (sentinel -1e30 skips). Reconstruct absolute Mercator
   // depending on projection — Mercator branch is cam-relative, non-Merc is
   // tile-local source Mercator.
-  const clipValid = b.let('_clip_valid',
-    clipBounds.x.gt(-1e29)
+  const clipValid = clipBounds.x.gt(-1e29)
       .and(clipBounds.z.gt(clipBounds.x))
-      .and(clipBounds.w.gt(clipBounds.y)),
-  )
+      .and(clipBounds.w.gt(clipBounds.y))
   b.if(clipValid, (c) => {
-    const camOffset = c.let('cam_offset',
-      select(
+    const camOffset = select(
         projParams.x.lt(0.5),
         tile.field('cam_h', vec2fT).add(tile.field('cam_l', vec2fT)),
         vec2(f32(0), f32(0)),
-      ),
-    )
-    const absMercClip = c.let('abs_merc_clip',
-      p.input.field('world_local', vec2fT).add(camOffset).add(tileOrigin),
-    )
+      )
+    const absMercClip = p.input.field('world_local', vec2fT).add(camOffset).add(tileOrigin)
     c.if(absMercClip.x.lt(clipBounds.x), (d) => { d.discard() })
     c.if(absMercClip.x.gt(clipBounds.z), (d) => { d.discard() })
     c.if(absMercClip.y.lt(clipBounds.y), (d) => { d.discard() })
     c.if(absMercClip.y.gt(clipBounds.w), (d) => { d.discard() })
   })
 
-  const seg = b.let('seg', segments.at(p.input.field('seg_id', u32T), structT('LineSegment')))
-  const segP = b.let('p', p.input.field('world_local', vec2fT))
-  const p0 = b.let('p0', lineEndpoint(seg.field('p0_h', vec2fT), seg.field('p0_l', vec2fT)))
-  const p1 = b.let('p1', lineEndpoint(seg.field('p1_h', vec2fT), seg.field('p1_l', vec2fT)))
+  const seg = segments.at(p.input.field('seg_id', u32T), structT('LineSegment'))
+  const segP = p.input.field('world_local', vec2fT)
+  const p0 = lineEndpoint(seg.field('p0_h', vec2fT), seg.field('p0_l', vec2fT))
+  const p1 = lineEndpoint(seg.field('p1_h', vec2fT), seg.field('p1_l', vec2fT))
 
   // Segment direction / normal in tile-local meters.
-  const segVec = b.let('seg_vec', p1.sub(p0))
-  const segLen = b.let('seg_len', length(segVec))
+  const segVec = p1.sub(p0)
+  const segLen = length(segVec)
   const dir = b.var('dir', vec2fT)
   b.if(segLen.lt(1e-6), (c) => { c.assign(dir, vec2(f32(1), f32(0))) })
     .else((c) => { c.assign(dir, segVec.div(segLen)) })
@@ -388,37 +380,31 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
   const layerOffsetM = layer.field('offset_m', f32T)
   const layerFlags = layer.field('flags', u32T)
   const segWidthOv = seg.field('width_px_override', f32T)
-  const effectiveWidthPx = b.let('effective_width_px',
-    select(segWidthOv.gt(0), segWidthOv, layerWidthPx),
-  )
-  const halfWm = b.let('half_w_m', effectiveWidthPx.mul(0.5).mul(layerMpp))
+  const effectiveWidthPx = select(segWidthOv.gt(0), segWidthOv, layerWidthPx)
+  const halfWm = effectiveWidthPx.mul(0.5).mul(layerMpp)
 
   // 1. Main body distance.
   const nrmLine = b.let('nrm_line', vec2(dir.y.neg(), dir.x))
-  const signedPerp = b.let('signed_perp', dot(segP.sub(p0), nrmLine))
-  const perpM = b.let('perp_m', abs(signedPerp.sub(layerOffsetM)))
-  const bodyD = b.let('body_d', perpM.sub(halfWm))
+  const signedPerp = dot(segP.sub(p0), nrmLine)
+  const perpM = abs(signedPerp.sub(layerOffsetM))
+  const bodyD = perpM.sub(halfWm)
 
   // Offset-shifted endpoint cap centres + miter-shifted join centres.
-  const p0CapCenter = b.let('p0_cap_center', p0.add(nrmLine.mul(layerOffsetM)))
-  const p1CapCenter = b.let('p1_cap_center', p1.add(nrmLine.mul(layerOffsetM)))
+  const p0CapCenter = p0.add(nrmLine.mul(layerOffsetM))
+  const p1CapCenter = p1.add(nrmLine.mul(layerOffsetM))
 
   const prevTan = seg.field('prev_tangent', vec2fT)
   const nextTan = seg.field('next_tangent', vec2fT)
 
-  const nrmPrevOff = b.let('nrm_prev_off', vec2(prevTan.y.neg(), prevTan.x))
-  const miterVecP0 = b.let('miter_vec_p0', nrmLine.add(nrmPrevOff))
-  const projP0 = b.let('proj_p0', dot(miterVecP0, nrmLine))
-  const p0JoinCenter = b.let('p0_join_center',
-    p0.add(miterVecP0.mul(layerOffsetM.div(max(projP0, f32(1e-4))))),
-  )
+  const nrmPrevOff = vec2(prevTan.y.neg(), prevTan.x)
+  const miterVecP0 = nrmLine.add(nrmPrevOff)
+  const projP0 = dot(miterVecP0, nrmLine)
+  const p0JoinCenter = p0.add(miterVecP0.mul(layerOffsetM.div(max(projP0, f32(1e-4)))))
 
-  const nrmNextOff = b.let('nrm_next_off', vec2(nextTan.y.neg(), nextTan.x))
-  const miterVecP1 = b.let('miter_vec_p1', nrmLine.add(nrmNextOff))
-  const projP1 = b.let('proj_p1', dot(miterVecP1, nrmLine))
-  const p1JoinCenter = b.let('p1_join_center',
-    p1.add(miterVecP1.mul(layerOffsetM.div(max(projP1, f32(1e-4))))),
-  )
+  const nrmNextOff = vec2(nextTan.y.neg(), nextTan.x)
+  const miterVecP1 = nrmLine.add(nrmNextOff)
+  const projP1 = dot(miterVecP1, nrmLine)
+  const p1JoinCenter = p1.add(miterVecP1.mul(layerOffsetM.div(max(projP1, f32(1e-4)))))
 
   // Endpoint along-axis distances (negative on the segment interior).
   const distP0Vs = b.let('dist_p0_vs', dot(segP.sub(p0), dir).neg())
@@ -428,24 +414,24 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
   const patExtentFs = b.var('pat_extent_fs', f32T, f32(0))
   b.if(layerFlags.bitAnd(u32(64)).ne(u32(0)), (c) => {
     c.forRange('pk_fs', u32(0), (pk) => pk.lt(u32(3)), (cb, pk) => {
-      const patFs = cb.let('pat_fs', layer.field('patterns', arrayT(structT('PatternSlot'), 3)).at(pk, structT('PatternSlot')))
+      const patFs = layer.field('patterns', arrayT(structT('PatternSlot'), 3)).at(pk, structT('PatternSlot'))
       cb.if(patFs.field('id', u32T).eq(u32(0)), (d) => { d.continue() })
-      const szUnit = cb.let('sz_unit_fs', patFs.field('flags', u32T).shr(u32(2)).bitAnd(u32(3)))
-      const ofUnit = cb.let('off_unit_fs', patFs.field('flags', u32T).shr(u32(4)).bitAnd(u32(3)))
-      const sizeM = cb.let('size_m_fs', patternUnitToM(patFs.field('size', f32T), szUnit, layerMpp))
-      const offM = cb.let('off_m_fs', abs(patternUnitToM(patFs.field('offset', f32T), ofUnit, layerMpp)))
+      const szUnit = patFs.field('flags', u32T).shr(u32(2)).bitAnd(u32(3))
+      const ofUnit = patFs.field('flags', u32T).shr(u32(4)).bitAnd(u32(3))
+      const sizeM = patternUnitToM(patFs.field('size', f32T), szUnit, layerMpp)
+      const offM = abs(patternUnitToM(patFs.field('offset', f32T), ofUnit, layerMpp))
       cb.assign(patExtentFs, max(patExtentFs, sizeM.mul(0.5).add(offM)))
     })
   })
-  const aaMarginM = b.let('aa_margin_m', f32(2).mul(layer.field('aa_width_px', f32T)).mul(layerMpp))
+  const aaMarginM = f32(2).mul(layer.field('aa_width_px', f32T)).mul(layerMpp)
   const earlyPerpThresh = b.let('early_perp_thresh', max(halfWm, patExtentFs).add(aaMarginM))
   b.if(perpM.gt(earlyPerpThresh).and(distP0Vs.lt(0)).and(distP1Vs.lt(0)), (c) => { c.discard() })
 
   // 2. Cap/join feasibility flags + cap-type extraction.
-  const hasPrev = b.let('has_prev', length(prevTan).gt(0.001))
-  const hasNext = b.let('has_next', length(nextTan).gt(0.001))
-  const capType = b.let('cap_type', layerFlags.bitAnd(u32(7)))
-  const arrowL = b.let('arrow_L', halfWm.mul(4))
+  const hasPrev = length(prevTan).gt(0.001)
+  const hasNext = length(nextTan).gt(0.001)
+  const capType = layerFlags.bitAnd(u32(7))
+  const arrowL = halfWm.mul(4)
 
   // Aliases (the original WGSL re-binds these via `let dist_p0 = dist_p0_vs;`).
   const distP0 = distP0Vs
@@ -453,7 +439,7 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
 
   const dM = b.var('d_m', f32T, bodyD)
 
-  const joinFlags = b.let('join_flags', layerFlags.shr(u32(3)).bitAnd(u32(3)))
+  const joinFlags = layerFlags.shr(u32(3)).bitAnd(u32(3))
   const layerMiterLimit = layer.field('miter_limit', f32T)
   // Mapbox line-round-limit → per-layer round-join fold threshold. The
   // uniform carries the raw limit (default 1.05); 0 means "no override"
@@ -462,18 +448,17 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
   // A positive value scales the fold threshold by round_limit / 1.05,
   // so the spec default 1.05 also reproduces JOIN_ACUTE_BIS (1.05/1.05=1).
   const layerRoundLimit = layer.field('round_limit', f32T)
-  const acuteFoldBis = b.let('acute_fold_bis',
-    select(layerRoundLimit.gt(f32(0)),
+  const acuteFoldBis = select(layerRoundLimit.gt(f32(0)),
       f32(JOIN_ACUTE_BIS).mul(layerRoundLimit.div(f32(1.05))),
-      f32(JOIN_ACUTE_BIS)))
+      f32(JOIN_ACUTE_BIS))
 
   // ── Bisector clip + bevel-edge clip at p0 ──
   b.if(hasPrev, (c) => {
     const bisP0 = c.let('bis_p0', prevTan.add(dir))
-    const bisLenP0 = c.let('bis_len_p0', length(bisP0))
+    const bisLenP0 = length(bisP0)
     c.if(bisLenP0.gt(1e-6), (d) => {
-      const bisUnitP0 = d.let('bis_unit_p0', bisP0.div(bisLenP0))
-      const alongP0 = d.let('along_p0', dot(segP.sub(p0JoinCenter), bisUnitP0))
+      const bisUnitP0 = bisP0.div(bisLenP0)
+      const alongP0 = dot(segP.sub(p0JoinCenter), bisUnitP0)
       d.if(alongP0.lt(0), (e) => {
         e.assign(dM, max(dM, alongP0.neg().add(layerMpp)))
       })
@@ -481,23 +466,21 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
     // BEVEL / over-limit MITER edge clip at p0. Bevel when miter ratio
     // 1/cos(θ/2) > limit ⇒ bisMag = 2cos(θ/2) < 2/limit (#432; was sin, wrong).
     const bisMagP0 = c.let('bis_mag_p0', length(prevTan.add(dir)))
-    const miterOverP0 = c.let('miter_over_p0', bisMagP0.lt(f32(2).div(max(layerMiterLimit, f32(1e-4)))))
-    const applyBevelP0 = c.let('apply_bevel_p0',
-      joinFlags.eq(u32(2)).or(joinFlags.eq(u32(0)).and(miterOverP0)),
-    )
+    const miterOverP0 = bisMagP0.lt(f32(2).div(max(layerMiterLimit, f32(1e-4))))
+    const applyBevelP0 = joinFlags.eq(u32(2)).or(joinFlags.eq(u32(0)).and(miterOverP0))
     c.if(applyBevelP0, (d) => {
-      const prevNrm = d.let('prev_nrm', vec2(prevTan.y.neg(), prevTan.x))
+      const prevNrm = vec2(prevTan.y.neg(), prevTan.x)
       const crossP0 = d.let('cross_p0', prevTan.x.mul(dir.y).sub(prevTan.y.mul(dir.x)))
       d.if(abs(crossP0).gt(1e-6), (e) => {
-        const s0 = e.let('s0', sign(crossP0).neg())
-        const oc0 = e.let('oc0', p0.add(prevNrm.mul(layerOffsetM.add(halfWm.mul(s0)))))
-        const on0 = e.let('on0', p0.add(nrmLine.mul(layerOffsetM.add(halfWm.mul(s0)))))
-        const be0 = e.let('be0', on0.sub(oc0))
-        const bl0 = e.let('bl0', length(be0))
+        const s0 = sign(crossP0).neg()
+        const oc0 = p0.add(prevNrm.mul(layerOffsetM.add(halfWm.mul(s0))))
+        const on0 = p0.add(nrmLine.mul(layerOffsetM.add(halfWm.mul(s0))))
+        const be0 = on0.sub(oc0)
+        const bl0 = length(be0)
         e.if(bl0.gt(1e-6), (f) => {
-          const bd0 = f.let('bd0', be0.div(bl0))
-          const bo0 = f.let('bo0', vec2(bd0.y.neg(), bd0.x).mul(s0))
-          const bclip0 = f.let('bclip0', dot(segP.sub(oc0), bo0))
+          const bd0 = be0.div(bl0)
+          const bo0 = vec2(bd0.y.neg(), bd0.x).mul(s0)
+          const bclip0 = dot(segP.sub(oc0), bo0)
           f.if(bclip0.gt(0), (g) => { g.assign(dM, max(dM, bclip0)) })
         })
       })
@@ -507,33 +490,31 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
   // ── Bisector clip + bevel-edge clip at p1 ──
   b.if(hasNext, (c) => {
     const bisP1 = c.let('bis_p1', dir.add(nextTan))
-    const bisLenP1 = c.let('bis_len_p1', length(bisP1))
+    const bisLenP1 = length(bisP1)
     c.if(bisLenP1.gt(1e-6), (d) => {
-      const bisUnitP1 = d.let('bis_unit_p1', bisP1.div(bisLenP1))
-      const alongP1 = d.let('along_p1', dot(segP.sub(p1JoinCenter), bisUnitP1))
+      const bisUnitP1 = bisP1.div(bisLenP1)
+      const alongP1 = dot(segP.sub(p1JoinCenter), bisUnitP1)
       d.if(alongP1.gt(0), (e) => {
         e.assign(dM, max(dM, alongP1.add(layerMpp)))
       })
     })
     // Bevel when miter ratio 1/cos(θ/2) > limit ⇒ bisMag < 2/limit (#432).
     const bisMagP1 = c.let('bis_mag_p1', length(dir.add(nextTan)))
-    const miterOverP1 = c.let('miter_over_p1', bisMagP1.lt(f32(2).div(max(layerMiterLimit, f32(1e-4)))))
-    const applyBevelP1 = c.let('apply_bevel_p1',
-      joinFlags.eq(u32(2)).or(joinFlags.eq(u32(0)).and(miterOverP1)),
-    )
+    const miterOverP1 = bisMagP1.lt(f32(2).div(max(layerMiterLimit, f32(1e-4))))
+    const applyBevelP1 = joinFlags.eq(u32(2)).or(joinFlags.eq(u32(0)).and(miterOverP1))
     c.if(applyBevelP1, (d) => {
-      const nextNrmBv = d.let('next_nrm_bv', vec2(nextTan.y.neg(), nextTan.x))
+      const nextNrmBv = vec2(nextTan.y.neg(), nextTan.x)
       const crossP1 = d.let('cross_p1', dir.x.mul(nextTan.y).sub(dir.y.mul(nextTan.x)))
       d.if(abs(crossP1).gt(1e-6), (e) => {
-        const s1 = e.let('s1', sign(crossP1).neg())
-        const oc1 = e.let('oc1', p1.add(nrmLine.mul(layerOffsetM.add(halfWm.mul(s1)))))
-        const on1 = e.let('on1', p1.add(nextNrmBv.mul(layerOffsetM.add(halfWm.mul(s1)))))
-        const be1 = e.let('be1', on1.sub(oc1))
-        const bl1 = e.let('bl1', length(be1))
+        const s1 = sign(crossP1).neg()
+        const oc1 = p1.add(nrmLine.mul(layerOffsetM.add(halfWm.mul(s1))))
+        const on1 = p1.add(nextNrmBv.mul(layerOffsetM.add(halfWm.mul(s1))))
+        const be1 = on1.sub(oc1)
+        const bl1 = length(be1)
         e.if(bl1.gt(1e-6), (f) => {
-          const bd1 = f.let('bd1', be1.div(bl1))
-          const bo1 = f.let('bo1', vec2(bd1.y.neg(), bd1.x).mul(s1))
-          const bclip1 = f.let('bclip1', dot(segP.sub(oc1), bo1))
+          const bd1 = be1.div(bl1)
+          const bo1 = vec2(bd1.y.neg(), bd1.x).mul(s1)
+          const bclip1 = dot(segP.sub(oc1), bo1)
           f.if(bclip1.gt(0), (g) => { g.assign(dM, max(dM, bclip1)) })
         })
       })
@@ -543,8 +524,8 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
   // ── Handle p0 end (cap or join) ──
   // The DSL bool API has no `.not`, so the original `!has_prev` / `!has_next`
   // gates are recomputed positively as `length(tangent) <= eps`.
-  const noPrev = b.let('no_prev', length(prevTan).le(0.001))
-  const noNext = b.let('no_next', length(nextTan).le(0.001))
+  const noPrev = length(prevTan).le(0.001)
+  const noNext = length(nextTan).le(0.001)
 
   b.if(noPrev, (c) => {
     // CAP_BUTT
@@ -553,39 +534,39 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
       .elif(capType.eq(u32(3)), (d) => {
         // CAP_ARROW: analytical tapered half-width.
         d.if(distP0.gt(0), (e) => {
-          const t = e.let('t', clamp(distP0.div(arrowL), 0, 1))
-          const newW = e.let('new_w', halfWm.mul(f32(1).sub(t)))
+          const t = clamp(distP0.div(arrowL), 0, 1)
+          const newW = halfWm.mul(f32(1).sub(t))
           e.assign(dM, max(perpM.sub(newW), distP0.sub(arrowL)))
         })
       })
       .else((d) => {
         // CAP_ROUND
-        const circleD = d.let('circle_d', length(segP.sub(p0CapCenter)).sub(halfWm))
+        const circleD = length(segP.sub(p0CapCenter)).sub(halfWm)
         d.assign(dM, select(distP0.gt(0), circleD, dM))
       })
   }).else((c) => {
     // JOIN at p0 — round-join overlay; gated by forward bisector.
-    const joinType = c.let('join_type', layerFlags.shr(u32(3)).bitAnd(u32(3)))
+    const joinType = layerFlags.shr(u32(3)).bitAnd(u32(3))
     c.if(joinType.eq(u32(1)).and(distP0.gt(0)), (d) => {
       const bisP0j = d.let('bis_p0_j', prevTan.add(dir))
-      const bisLenJ = d.let('bis_len_j', length(bisP0j))
+      const bisLenJ = length(bisP0j)
       // Acute fold → full round point (ML parity); moderate bends keep the
       // half-plane. #413; see JOIN_ACUTE_BIS + the select() combine below.
-      const acuteFoldP0 = d.let('acute_fold_p0', bisLenJ.le(acuteFoldBis))
-      const bisUnitJ = d.let('bis_unit_j', bisP0j.div(max(bisLenJ, f32(1e-6))))
-      const alongJ = d.let('along_j', dot(segP.sub(p0JoinCenter), bisUnitJ))
+      const acuteFoldP0 = bisLenJ.le(acuteFoldBis)
+      const bisUnitJ = bisP0j.div(max(bisLenJ, f32(1e-6)))
+      const alongJ = dot(segP.sub(p0JoinCenter), bisUnitJ)
       d.if(acuteFoldP0.or(alongJ.ge(0)), (f) => {
-        const circleD = f.let('circle_d', length(segP.sub(p0JoinCenter)).sub(halfWm))
-        const alongExtendP0 = f.let('along_extend_p0', abs(layerOffsetM).mul(seg.field('pad_ratio_p0', f32T)))
+        const circleD = length(segP.sub(p0JoinCenter)).sub(halfWm)
+        const alongExtendP0 = abs(layerOffsetM).mul(seg.field('pad_ratio_p0', f32T))
         const currentD = f.var('current_d', f32T, dM)
         f.if(distP0.gt(alongExtendP0), (g) => {
           g.assign(currentD, max(dM, distP0.sub(alongExtendP0)))
         })
-        const prevNrm = f.let('prev_nrm', vec2(prevTan.y.neg(), prevTan.x))
-        const prevSignedPerp = f.let('prev_signed_perp', dot(segP.sub(p0), prevNrm))
-        const prevPerpM = f.let('prev_perp_m', abs(prevSignedPerp.sub(layerOffsetM)))
+        const prevNrm = vec2(prevTan.y.neg(), prevTan.x)
+        const prevSignedPerp = dot(segP.sub(p0), prevNrm)
+        const prevPerpM = abs(prevSignedPerp.sub(layerOffsetM))
         const neighborD = f.var('neighbor_d', f32T, prevPerpM.sub(halfWm))
-        const alongPastPrevEnd = f.let('along_past_prev_end', dot(segP.sub(p0), prevTan))
+        const alongPastPrevEnd = dot(segP.sub(p0), prevTan)
         f.if(alongPastPrevEnd.gt(alongExtendP0), (g) => {
           g.assign(neighborD, max(neighborD, alongPastPrevEnd.sub(alongExtendP0)))
         })
@@ -601,35 +582,35 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
       .elif(capType.eq(u32(2)), (d) => { d.assign(dM, max(dM, distP1.sub(halfWm))) })
       .elif(capType.eq(u32(3)), (d) => {
         d.if(distP1.gt(0), (e) => {
-          const t = e.let('t', clamp(distP1.div(arrowL), 0, 1))
-          const newW = e.let('new_w', halfWm.mul(f32(1).sub(t)))
+          const t = clamp(distP1.div(arrowL), 0, 1)
+          const newW = halfWm.mul(f32(1).sub(t))
           e.assign(dM, max(perpM.sub(newW), distP1.sub(arrowL)))
         })
       })
       .else((d) => {
-        const circleD = d.let('circle_d', length(segP.sub(p1CapCenter)).sub(halfWm))
+        const circleD = length(segP.sub(p1CapCenter)).sub(halfWm)
         d.assign(dM, select(distP1.gt(0), circleD, dM))
       })
   }).else((c) => {
-    const joinTypeP1 = c.let('join_type_p1', layerFlags.shr(u32(3)).bitAnd(u32(3)))
+    const joinTypeP1 = layerFlags.shr(u32(3)).bitAnd(u32(3))
     c.if(joinTypeP1.eq(u32(1)).and(distP1.gt(0)), (d) => {
       const bisP1j = d.let('bis_p1_j', dir.add(nextTan))
-      const bisLenJ = d.let('bis_len_j', length(bisP1j))
-      const acuteFoldP1 = d.let('acute_fold_p1', bisLenJ.le(acuteFoldBis)) // #413, mirrors p0; threshold scaled by line-round-limit
-      const bisUnitJ = d.let('bis_unit_j', bisP1j.div(max(bisLenJ, f32(1e-6))))
-      const alongJ = d.let('along_j', dot(segP.sub(p1JoinCenter), bisUnitJ))
+      const bisLenJ = length(bisP1j)
+      const acuteFoldP1 = bisLenJ.le(acuteFoldBis) // #413, mirrors p0; threshold scaled by line-round-limit
+      const bisUnitJ = bisP1j.div(max(bisLenJ, f32(1e-6)))
+      const alongJ = dot(segP.sub(p1JoinCenter), bisUnitJ)
       d.if(acuteFoldP1.or(alongJ.le(0)), (f) => {
-        const circleD = f.let('circle_d', length(segP.sub(p1JoinCenter)).sub(halfWm))
-        const alongExtendP1 = f.let('along_extend_p1', abs(layerOffsetM).mul(seg.field('pad_ratio_p1', f32T)))
+        const circleD = length(segP.sub(p1JoinCenter)).sub(halfWm)
+        const alongExtendP1 = abs(layerOffsetM).mul(seg.field('pad_ratio_p1', f32T))
         const currentD = f.var('current_d', f32T, dM)
         f.if(distP1.gt(alongExtendP1), (g) => {
           g.assign(currentD, max(dM, distP1.sub(alongExtendP1)))
         })
-        const nextNrm = f.let('next_nrm', vec2(nextTan.y.neg(), nextTan.x))
-        const nextSignedPerp = f.let('next_signed_perp', dot(segP.sub(p1), nextNrm))
-        const nextPerpM = f.let('next_perp_m', abs(nextSignedPerp.sub(layerOffsetM)))
+        const nextNrm = vec2(nextTan.y.neg(), nextTan.x)
+        const nextSignedPerp = dot(segP.sub(p1), nextNrm)
+        const nextPerpM = abs(nextSignedPerp.sub(layerOffsetM))
         const neighborD = f.var('neighbor_d', f32T, nextPerpM.sub(halfWm))
-        const alongIntoNext = f.let('along_into_next', dot(segP.sub(p1), nextTan))
+        const alongIntoNext = dot(segP.sub(p1), nextTan)
         f.if(alongIntoNext.lt(alongExtendP1.neg()), (g) => {
           g.assign(neighborD, max(neighborD, alongIntoNext.neg().sub(alongExtendP1)))
         })
@@ -640,8 +621,8 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
 
   // Project fragment along segment axis (shared by dash + patterns).
   const tAlongUnclamped = b.let('t_along_unclamped', dot(segP.sub(p0), dir))
-  const tAlong = b.let('t_along', clamp(tAlongUnclamped, 0, segLen))
-  const arcPos = b.let('arc_pos', seg.field('arc_start', f32T).add(tAlong))
+  const tAlong = clamp(tAlongUnclamped, 0, segLen)
+  const arcPos = seg.field('arc_start', f32T).add(tAlong)
   const nrmFs = b.let('nrm_fs', vec2(dir.y.neg(), dir.x))
 
   // ── Dash array ──
@@ -649,27 +630,23 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
   //         =  (hasPrev || distP0<=0) && (hasNext || distP1<=0)
   // — boolean DSL has no `.not`, so the original `!in_cap_region` gate is
   // emitted as the De Morgan-converted positive form.
-  const notInCap = b.let('not_in_cap',
-    hasPrev.or(distP0.le(0)).and(hasNext.or(distP1.le(0))),
-  )
+  const notInCap = hasPrev.or(distP0.le(0)).and(hasNext.or(distP1.le(0)))
   const dashCount = layer.field('dash_count', u32T)
   const dashCycleM = layer.field('dash_cycle_m', f32T)
   const dashOffsetM = layer.field('dash_offset_m', f32T)
-  const dashEnabled = b.let('dash_enabled',
-    layerFlags.shr(u32(5)).bitAnd(u32(1)).eq(u32(1))
+  const dashEnabled = layerFlags.shr(u32(5)).bitAnd(u32(1)).eq(u32(1))
       .and(dashCount.gt(u32(0)))
       .and(dashCycleM.gt(1e-6))
-      .and(notInCap),
-  )
+      .and(notInCap)
   b.if(dashEnabled, (c) => {
-    const phase0 = c.let('phase0', arcPos.add(dashOffsetM).div(dashCycleM))
+    const phase0 = arcPos.add(dashOffsetM).div(dashCycleM)
     const phase = c.var('phase', f32T, phase0.sub(floor(phase0)).mul(dashCycleM))
     const acc = c.var('acc', f32T, f32(0))
     const visible = c.var('visible', f32T, f32(0)) // 0=hidden, 1=visible — bool via f32
     c.forRange('i', u32(0), (i) => i.lt(dashCount), (cb, i) => {
-      const idx = cb.let('idx', i.div(u32(4)))
-      const sub = cb.let('sub', i.mod(u32(4)))
-      const segV = cb.let('seg_v', layer.field('dash_array', arrayT(vec4fT, 2)).at(idx, vec4fT))
+      const idx = i.div(u32(4))
+      const sub = i.mod(u32(4))
+      const segV = layer.field('dash_array', arrayT(vec4fT, 2)).at(idx, vec4fT)
       const lenV = cb.var('len', f32T, f32(0))
       cb.if(sub.eq(u32(0)), (d) => { d.assign(lenV, segV.x) })
         .elif(sub.eq(u32(1)), (d) => { d.assign(lenV, segV.y) })
@@ -688,19 +665,19 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
   const patDm = b.var('pat_d_m', f32T, f32(1e10))
   b.if(layerFlags.bitAnd(u32(64)).ne(u32(0)), (c) => {
     c.forRange('k', u32(0), (k) => k.lt(u32(3)), (cb, k) => {
-      const pat = cb.let('pat', layer.field('patterns', arrayT(structT('PatternSlot'), 3)).at(k, structT('PatternSlot')))
+      const pat = layer.field('patterns', arrayT(structT('PatternSlot'), 3)).at(k, structT('PatternSlot'))
       cb.if(pat.field('id', u32T).eq(u32(0)), (d) => { d.continue() })
 
       const patF = pat.field('flags', u32T)
-      const spUnit = cb.let('sp_unit', patF.bitAnd(u32(3)))
-      const szUnit = cb.let('sz_unit', patF.shr(u32(2)).bitAnd(u32(3)))
-      const ofUnit = cb.let('of_unit', patF.shr(u32(4)).bitAnd(u32(3)))
-      const anchor = cb.let('anchor', patF.shr(u32(6)).bitAnd(u32(3)))
-      const spacingM = cb.let('spacing_m', max(patternUnitToM(pat.field('spacing', f32T), spUnit, layerMpp), f32(1e-3)))
-      const sizeM = cb.let('size_m', max(patternUnitToM(pat.field('size', f32T), szUnit, layerMpp), f32(1e-3)))
-      const offM = cb.let('off_m', patternUnitToM(pat.field('offset', f32T), ofUnit, layerMpp))
-      const startM = cb.let('start_m', pat.field('start_offset', f32T))
-      const halfS = cb.let('half_s', sizeM.mul(0.5))
+      const spUnit = patF.bitAnd(u32(3))
+      const szUnit = patF.shr(u32(2)).bitAnd(u32(3))
+      const ofUnit = patF.shr(u32(4)).bitAnd(u32(3))
+      const anchor = patF.shr(u32(6)).bitAnd(u32(3))
+      const spacingM = max(patternUnitToM(pat.field('spacing', f32T), spUnit, layerMpp), f32(1e-3))
+      const sizeM = max(patternUnitToM(pat.field('size', f32T), szUnit, layerMpp), f32(1e-3))
+      const offM = patternUnitToM(pat.field('offset', f32T), ofUnit, layerMpp)
+      const startM = pat.field('start_offset', f32T)
+      const halfS = sizeM.mul(0.5)
 
       // CANARY (C2 readability): the ambient free-function surface — If/Loop/Let/
       // Continue/assign route to the innermost scope, so no cb/d/cb2/e param
@@ -708,10 +685,10 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
       // Emits byte-identically to the old passed-builder form (verified).
       If(anchor.eq(u32(0)), () => {
         // PAT_ANCHOR_REPEAT — sample nearest instance + both neighbours.
-        const kCenter = Let('k_center', floor(arcPos.sub(startM).div(spacingM).add(0.5)))
+        const kCenter = floor(arcPos.sub(startM).div(spacingM).add(0.5))
         Loop('dk', i32(-1), (idk) => idk.le(i32(1)), (dk) => {
-          const centerArcK = Let('center_arc_k', madd(kCenter.add(toF32(dk)), spacingM, startM))
-          const arcOnSegK = Let('arc_on_seg_k', centerArcK.sub(seg.field('arc_start', f32T)))
+          const centerArcK = madd(kCenter.add(toF32(dk)), spacingM, startM)
+          const arcOnSegK = centerArcK.sub(seg.field('arc_start', f32T))
           If(outsideRange(arcOnSegK, halfS.mul(-2), segLen.add(halfS.mul(2))), () => Continue())
           const centerWorldK = Let('center_world_k', p0.add(dir.mul(arcOnSegK)))
           const localK = Let('local_k', vec2(
@@ -719,8 +696,8 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
             dot(segP.sub(centerWorldK), nrmFs).sub(offM).div(halfS),
           ))
           If(abs(localK.x).gt(1.2).or(abs(localK.y).gt(1.2)), () => Continue())
-          const shapeVK = Let('shape_v_k', sdfShape(localK, pat.field('id', u32T).sub(u32(1))))
-          const pdK = Let('pd_k', shapeVK.sub(1).mul(halfS))
+          const shapeVK = sdfShape(localK, pat.field('id', u32T).sub(u32(1)))
+          const pdK = shapeVK.sub(1).mul(halfS)
           assign(patDm, min(patDm, pdK))
         })
         // PAT_ANCHOR_REPEAT is fully handled by the k-loop; skip the single-instance
@@ -746,8 +723,8 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
       ))
       If(abs(localUv.x).gt(1.2).or(abs(localUv.y).gt(1.2)), () => Continue())
 
-      const shapeV = Let('shape_v', sdfShape(localUv, pat.field('id', u32T).sub(u32(1))))
-      const pd = Let('pd', shapeV.sub(1).mul(halfS))
+      const shapeV = sdfShape(localUv, pat.field('id', u32T).sub(u32(1)))
+      const pd = shapeV.sub(1).mul(halfS)
       assign(patDm, min(patDm, pd))
     })
   })
@@ -755,25 +732,25 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
 
   // Convert to pixels + line-blur AA.
   const dPx = Let('d_px', dM.div(layerMpp))
-  const blurPx = Let('blur_px', max(f32(0), layer.field('aa_width_px', f32T).sub(1)))
-  const aa = Let('aa', f32(0.5).add(blurPx))
-  const alpha = Let('alpha', f32(1).sub(smoothstep(aa.neg(), aa, dPx)))
+  const blurPx = max(f32(0), layer.field('aa_width_px', f32T).sub(1))
+  const aa = f32(0.5).add(blurPx)
+  const alpha = f32(1).sub(smoothstep(aa.neg(), aa, dPx))
   If(alpha.lt(0.005), () => Discard())
 
   // Per-segment stroke colour override.
-  const segPacked = Let('seg_packed', bitcastU32(seg.field('color_packed', f32T)))
-  const segColor = Let('seg_color', unpack4x8unorm(segPacked))
-  const baseColor = Let('base_color', select(segColor.a.gt(0), segColor, layer.field('color', vec4fT)))
+  const segPacked = bitcastU32(seg.field('color_packed', f32T))
+  const segColor = unpack4x8unorm(segPacked)
+  const baseColor = select(segColor.a.gt(0), segColor, layer.field('color', vec4fT))
   return vec4(baseColor.rgb, baseColor.a.mul(alpha))
 })
 
 // ── line_rim_alpha ──
 const lineRimAlpha = fn('line_rim_alpha', { input: structT('LineOut') }, f32T, (p, _b) => {
   const tileOrigin = tile.field('tile_origin_merc', vec2fT)
-  const absMerc = Let('abs_merc', p.input.field('world_local', vec2fT).add(tileOrigin))
-  const absLon = Let('abs_lon', absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R'))))
-  const latRad = Let('lat_rad', inv_merc_lat_rad(absMerc.y))
-  const absLat = Let('abs_lat', latRad.div(constRef('DEG2RAD')))
+  const absMerc = p.input.field('world_local', vec2fT).add(tileOrigin)
+  const absLon = absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R')))
+  const latRad = inv_merc_lat_rad(absMerc.y)
+  const absLat = latRad.div(constRef('DEG2RAD'))
   return rim_alpha(absLon, absLat, tile.field('proj_params', vec4fT))
 })
 
@@ -783,12 +760,12 @@ const vsLine = entryFn('vs_line', 'vertex', [
   { name: 'seg_id', type: u32T, builtin: 'instance_index' },
   { name: 'vi', type: u32T, builtin: 'vertex_index' },
 ], structT('LineOut'), (p, b) => {
-  const seg = b.let('seg', segments.at(p.seg_id, structT('LineSegment')))
-  const p0 = b.let('p0', lineEndpoint(seg.field('p0_h', vec2fT), seg.field('p0_l', vec2fT)))
-  const p1 = b.let('p1', lineEndpoint(seg.field('p1_h', vec2fT), seg.field('p1_l', vec2fT)))
+  const seg = segments.at(p.seg_id, structT('LineSegment'))
+  const p0 = lineEndpoint(seg.field('p0_h', vec2fT), seg.field('p0_l', vec2fT))
+  const p1 = lineEndpoint(seg.field('p1_h', vec2fT), seg.field('p1_l', vec2fT))
 
-  const segVec = b.let('seg_vec', p1.sub(p0))
-  const segLen = b.let('seg_len', length(segVec))
+  const segVec = p1.sub(p0)
+  const segLen = length(segVec)
   const dir = b.var('dir', vec2fT)
   b.if(segLen.lt(1e-6), (c) => { c.assign(dir, vec2(f32(1), f32(0))) })
     .else((c) => { c.assign(dir, segVec.div(segLen)) })
@@ -803,10 +780,8 @@ const vsLine = entryFn('vs_line', 'vertex', [
   const layerDpr = layer.field('dpr', f32T)
 
   const segWidthOv = seg.field('width_px_override', f32T)
-  const effectiveWidthPx = b.let('effective_width_px',
-    select(segWidthOv.gt(0), segWidthOv, layerWidthPx),
-  )
-  const halfWm = b.let('half_w_m', effectiveWidthPx.mul(0.5).add(layerAaPx).mul(layerMpp))
+  const effectiveWidthPx = select(segWidthOv.gt(0), segWidthOv, layerWidthPx)
+  const halfWm = effectiveWidthPx.mul(0.5).add(layerAaPx).mul(layerMpp)
 
   // Per-endpoint pad ratios (precomputed CPU side).
   const padP0m = b.var('pad_p0_m', f32T, seg.field('pad_ratio_p0', f32T).mul(halfWm))
@@ -816,19 +791,19 @@ const vsLine = entryFn('vs_line', 'vertex', [
   const patExtentM = b.var('pat_extent_m', f32T, f32(0))
   b.if(layerFlags.bitAnd(u32(64)).ne(u32(0)), (c) => {
     c.forRange('pk', u32(0), (pk) => pk.lt(u32(3)), (cb, pk) => {
-      const pat = cb.let('pat', layer.field('patterns', arrayT(structT('PatternSlot'), 3)).at(pk, structT('PatternSlot')))
+      const pat = layer.field('patterns', arrayT(structT('PatternSlot'), 3)).at(pk, structT('PatternSlot'))
       cb.if(pat.field('id', u32T).eq(u32(0)), (d) => { d.continue() })
-      const szUnit = cb.let('sz_unit', pat.field('flags', u32T).shr(u32(2)).bitAnd(u32(3)))
-      const offUnit = cb.let('off_unit', pat.field('flags', u32T).shr(u32(4)).bitAnd(u32(3)))
-      const sizeM = cb.let('size_m', patternUnitToM(pat.field('size', f32T), szUnit, layerMpp))
-      const offM = cb.let('off_m', abs(patternUnitToM(pat.field('offset', f32T), offUnit, layerMpp)))
+      const szUnit = pat.field('flags', u32T).shr(u32(2)).bitAnd(u32(3))
+      const offUnit = pat.field('flags', u32T).shr(u32(4)).bitAnd(u32(3))
+      const sizeM = patternUnitToM(pat.field('size', f32T), szUnit, layerMpp)
+      const offM = abs(patternUnitToM(pat.field('offset', f32T), offUnit, layerMpp))
       cb.assign(patExtentM, max(patExtentM, sizeM.mul(0.5).add(offM)))
     })
   })
 
   // Arrow cap pad.
-  const capTypeVs = b.let('cap_type_vs', layerFlags.bitAnd(u32(7)))
-  const arrowLen = b.let('arrow_len', halfWm.mul(4))
+  const capTypeVs = layerFlags.bitAnd(u32(7))
+  const arrowLen = halfWm.mul(4)
   const acrossM = b.var('across_m', f32T, max(halfWm, patExtentM))
   b.assign(padP0m, max(padP0m, patExtentM))
   b.assign(padP1m, max(padP1m, patExtentM))
@@ -854,14 +829,14 @@ const vsLine = entryFn('vs_line', 'vertex', [
   ], () => { /* default: empty */ })
 
   const isStart = b.let('is_start', along.lt(0))
-  const base = b.let('base', select(isStart, p0, p1))
+  const base = select(isStart, p0, p1)
   const perpCur = b.let('perp_cur', nrm.mul(across))
 
   const prevTan = seg.field('prev_tangent', vec2fT)
   const nextTan = seg.field('next_tangent', vec2fT)
-  const hasPrev = b.let('has_prev', length(prevTan).gt(0.001))
-  const hasNext = b.let('has_next', length(nextTan).gt(0.001))
-  const hasNeighbor = b.let('has_neighbor', select(isStart, hasPrev, hasNext))
+  const hasPrev = length(prevTan).gt(0.001)
+  const hasNext = length(nextTan).gt(0.001)
+  const hasNeighbor = select(isStart, hasPrev, hasNext)
 
   // Pattern across scale.
   const acrossScale = b.let('across_scale', max(f32(1), acrossM.div(max(halfWm, f32(1e-6)))))
@@ -871,11 +846,11 @@ const vsLine = entryFn('vs_line', 'vertex', [
 
   const offset = b.var('offset', vec2fT, perpCur.mul(halfWside).mul(acrossScale))
   b.if(hasNeighbor, (c) => {
-    const padRatio = c.let('pad_ratio', select(isStart, seg.field('pad_ratio_p0', f32T), seg.field('pad_ratio_p1', f32T)))
+    const padRatio = select(isStart, seg.field('pad_ratio_p0', f32T), seg.field('pad_ratio_p1', f32T))
     const basePad = c.let('base_pad', select(isStart, padP0m, padP1m))
-    const offsetExtentM = c.let('offset_extent_m', halfWm.add(abs(layerOffsetM)))
-    const endpointPad = c.let('endpoint_pad', max(basePad, padRatio.mul(offsetExtentM)))
-    const joinTypeVs = c.let('join_type_vs', layerFlags.shr(u32(3)).bitAnd(u32(3)))
+    const offsetExtentM = halfWm.add(abs(layerOffsetM))
+    const endpointPad = max(basePad, padRatio.mul(offsetExtentM))
+    const joinTypeVs = layerFlags.shr(u32(3)).bitAnd(u32(3))
     const joinPad = c.var('join_pad', f32T, halfWm.add(abs(layerOffsetM).mul(padRatio)))
     c.if(joinTypeVs.eq(u32(0)), (d) => { d.assign(joinPad, endpointPad) })
     c.assign(joinPad, joinPad.add(f32(0.5).mul(layerMpp)))
@@ -928,19 +903,15 @@ const vsLine = entryFn('vs_line', 'vertex', [
   // outlines h·cos(lat) north + h·(1−sin lat) below the roof (~37 px at z16).
   type FNode = Node<'f32'>
   const ecefFromMerc = (
-    builder: typeof b,
-    name: string,
+    _builder: typeof b,
+    _name: string,
     absMercX: FNode,
     absMercY: FNode,
     height: FNode = f32(0),
   ): Node<'vec3<f32>'> => {
-    const lonRad = builder.let(`${name}_lon_rad`, toF32(absMercX.div(earthR)))
-    const latRad = builder.let(`${name}_lat_rad`,
-      toF32(f32(2).mul(atan(exp(absMercY.div(earthR)))).sub(pi.div(f32(2)))),
-    )
-    return builder.let(`${name}_ecef`,
-      lonlatToEcef(lonRad, latRad, height),
-    ) as Node<'vec3<f32>'>
+    const lonRad = toF32(absMercX.div(earthR))
+    const latRad = toF32(f32(2).mul(atan(exp(absMercY.div(earthR)))).sub(pi.div(f32(2))))
+    return lonlatToEcef(lonRad, latRad, height) as Node<'vec3<f32>'>
   }
 
   // Camera-relative RTC offset (tileEcefCenter − cameraCenter), DSFUN hi+lo,
@@ -970,36 +941,36 @@ const vsLine = entryFn('vs_line', 'vertex', [
       // camera-relative) and reprojects the other flat forms (project_geom −
       // projected camera centre). Same flat 2D-plane MVP for center +
       // candidate so the screen-space width estimate matches the final clip.
-      const baseFc = d.let('base_fc', finalizeCorner(base))
+      const baseFc = finalizeCorner(base)
       const cornerFc = d.let('corner_fc', finalizeCorner(cornerLocal))
       d.assign(centerClip, transformMat4(mvp, vec4(baseFc.x, baseFc.y, zLift, f32(1))))
       d.assign(cornerClip, transformMat4(mvp, vec4(cornerFc.x, cornerFc.y, zLift, f32(1))))
     }).else((d) => {
       // 3D ECEF round-trip on the candidate corner (matches polygon convention).
       const tileOrigin = tile.field('tile_origin_merc', vec2fT)
-      const tileAbsX = d.let('tile_abs_x', toF32(tileOrigin.x))
-      const tileAbsY = d.let('tile_abs_y', toF32(tileOrigin.y))
+      const tileAbsX = toF32(tileOrigin.x)
+      const tileAbsY = toF32(tileOrigin.y)
       const tileEcef = ecefFromMerc(d, 'clamp_tile', tileAbsX, tileAbsY)
-      const baseAbsX = d.let('base_abs_x', toF32(base.x.add(tileOrigin.x)))
-      const baseAbsY = d.let('base_abs_y', toF32(base.y.add(tileOrigin.y)))
+      const baseAbsX = toF32(base.x.add(tileOrigin.x))
+      const baseAbsY = toF32(base.y.add(tileOrigin.y))
       // z_lift rides INTO lonlat_to_ecef as geodetic height (tileEcef anchor
       // stays height-0 = the polygon tile_ecef_center RTC frame).
       const baseEcef = ecefFromMerc(d, 'clamp_base', baseAbsX, baseAbsY, zLift)
-      const baseRtc = d.let('base_rtc', baseEcef.sub(tileEcef))
+      const baseRtc = baseEcef.sub(tileEcef)
       d.assign(centerClip, transformMat4(mvp, vec4(addCamOff(baseRtc as Node<'vec3<f32>'>), f32(1))))
       const cornerAbsX = d.let('corner_abs_x', toF32(cornerLocal.x.add(tileOrigin.x)))
       const cornerAbsY = d.let('corner_abs_y', toF32(cornerLocal.y.add(tileOrigin.y)))
       const cornerEcef = ecefFromMerc(d, 'clamp_corner', cornerAbsX, cornerAbsY, zLift)
-      const cornerRtc = d.let('corner_rtc', cornerEcef.sub(tileEcef))
+      const cornerRtc = cornerEcef.sub(tileEcef)
       d.assign(cornerClip, transformMat4(mvp, vec4(addCamOff(cornerRtc as Node<'vec3<f32>'>), f32(1))))
     })
     const centerXY = c.let('center_xy', vec2(centerClip.x, centerClip.y))
     const cornerXY = c.let('corner_xy', vec2(cornerClip.x, cornerClip.y))
     const centerNdc = c.let('center_ndc', centerXY.div(max(abs(centerClip.w), f32(1e-6))).mul(sign(centerClip.w)))
     const cornerNdc = c.let('corner_ndc', cornerXY.div(max(abs(cornerClip.w), f32(1e-6))).mul(sign(cornerClip.w)))
-    const screenDist = c.let('screen_dist', length(cornerNdc.sub(centerNdc)))
+    const screenDist = length(cornerNdc.sub(centerNdc))
     // width target is CSS px; viewport_height is DEVICE px → scale by dpr.
-    const targetNdc = c.let('target_ndc', effectiveWidthPx.add(f32(2).mul(layerAaPx)).mul(layerDpr).div(layerVpH))
+    const targetNdc = effectiveWidthPx.add(f32(2).mul(layerAaPx)).mul(layerDpr).div(layerVpH)
     // The screen-width clamp may only GROW the quad to counter projection
     // foreshortening — never SHRINK it below the base quad. The base offset is
     // (w/2+aa)·mpp tile-local metres, which the FS distance field (world_local
@@ -1010,7 +981,7 @@ const vsLine = entryFn('vs_line', 'vertex', [
     // fraction of its width. Capping at 1 restores the correct base width and
     // keeps the legitimate grow-for-foreshortening path.)
     c.if(screenDist.gt(1e-8), (d) => {
-      const scale = d.let('scale', max(targetNdc.div(screenDist), f32(1)))
+      const scale = max(targetNdc.div(screenDist), f32(1))
       d.assign(cornerLocal, base.add(offset.mul(scale)))
     })
   })
@@ -1035,18 +1006,18 @@ const vsLine = entryFn('vs_line', 'vertex', [
     const cornerFc = c.let('corner_fc_final', finalizeCorner(cornerLocal))
     c.assign(clip, transformMat4(mvp, vec4(cornerFc.x, cornerFc.y, zLift, f32(1))))
   }).else((c) => {
-    const tileAbsX = c.let('tile_abs_x_f', toF32(tileOrigin2.x))
-    const tileAbsY = c.let('tile_abs_y_f', toF32(tileOrigin2.y))
+    const tileAbsX = toF32(tileOrigin2.x)
+    const tileAbsY = toF32(tileOrigin2.y)
     const tileEcef = ecefFromMerc(c, 'final_tile', tileAbsX, tileAbsY)
     const cornerAbsX = c.let('corner_abs_x_f', toF32(cornerLocal.x.add(tileOrigin2.x)))
     const cornerAbsY = c.let('corner_abs_y_f', toF32(cornerLocal.y.add(tileOrigin2.y)))
     // z_lift = geodetic height inside lonlat_to_ecef (matches the CPU
     // lonLatToECEF roof-ring lift); the tile anchor stays height-0.
     const cornerEcef = ecefFromMerc(c, 'final_corner', cornerAbsX, cornerAbsY, zLift)
-    const ecefRtc = c.let('ecef_rtc', cornerEcef.sub(tileEcef))
+    const ecefRtc = cornerEcef.sub(tileEcef)
     // Camera-relative RTC — without addCamOff, line projects vertex−
     // tileEcefCenter and collapses toward each tile's origin.
-    const ecefCam = c.let('ecef_cam', addCamOff(ecefRtc as Node<'vec3<f32>'>))
+    const ecefCam = addCamOff(ecefRtc as Node<'vec3<f32>'>)
     c.assign(clip, transformMat4(mvp, vec4(ecefCam, f32(1))))
   })
   // Mapbox fill-translate for POLYGON OUTLINES: a fill's outline draws through
@@ -1055,7 +1026,7 @@ const vsLine = entryFn('vs_line', 'vertex', [
   // offset the polygon VS does (polygon.ts:345) so an outline stays glued to a
   // translated fill (OFM building-top roof) — MapLibre parity. Standalone lines
   // write 0 → no-op; the <0.25 guard skips the pattern-repeat-metres overload.
-  const fillT = b.let('fill_translate_ndc', tile.field('_pad_tail0', vec4fT))
+  const fillT = tile.field('_pad_tail0', vec4fT)
   b.if(fillT.z.mul(fillT.z).add(fillT.w.mul(fillT.w)).lt(f32(0.25)), (c) => {
     c.assign(clip.x, clip.x.add(fillT.z.mul(clip.w)))
     c.assign(clip.y, clip.y.sub(fillT.w.mul(clip.w)))
@@ -1063,8 +1034,8 @@ const vsLine = entryFn('vs_line', 'vertex', [
   // Mapbox line-translate viewport offset — applied post-MVP so the pixel
   // shift stays constant regardless of depth (mirrors fill-translate logic).
   // Default 0 → no-op; non-zero shifts the entire line layer in screen space.
-  const ltx = b.let('line_translate_x', layer.field('line_translate_x', f32T))
-  const lty = b.let('line_translate_y', layer.field('line_translate_y', f32T))
+  const ltx = layer.field('line_translate_x', f32T)
+  const lty = layer.field('line_translate_y', f32T)
   b.if(ltx.mul(ltx).add(lty.mul(lty)).gt(f32(0)), (c) => {
     c.assign(clip.x, clip.x.add(ltx.mul(clip.w)))
     c.assign(clip.y, clip.y.sub(lty.mul(clip.w)))
@@ -1073,8 +1044,8 @@ const vsLine = entryFn('vs_line', 'vertex', [
   b.assign(out.field('view_w', f32T), clip.w)
   b.assign(out.field('world_local', vec2fT), cornerLocal)
   b.assign(out.field('seg_id', u32T), p.seg_id)
-  const cosCp0 = b.let('cos_c_p0', endpointCosC(seg.field('p0_h', vec2fT), seg.field('p0_l', vec2fT)))
-  const cosCp1 = b.let('cos_c_p1', endpointCosC(seg.field('p1_h', vec2fT), seg.field('p1_l', vec2fT)))
+  const cosCp0 = endpointCosC(seg.field('p0_h', vec2fT), seg.field('p0_l', vec2fT))
+  const cosCp1 = endpointCosC(seg.field('p1_h', vec2fT), seg.field('p1_l', vec2fT))
   b.assign(out.field('cos_c', f32T), select(isStart, cosCp0, cosCp1))
   b.ret(out)
 })
@@ -1084,8 +1055,8 @@ const vsLine = entryFn('vs_line', 'vertex', [
 const buildFsLine = (pickEnabled: boolean) =>
   entryFn('fs_line', 'fragment', [{ name: 'input', type: structT('LineOut') }], structT('LineFragmentOutput'), (p, _b) => {
     const out = Var('out', structT('LineFragmentOutput'))
-    const color = Let('color', computeLineColor(p.input))
-    const rim = Let('rim', lineRimAlpha(p.input))
+    const color = computeLineColor(p.input)
+    const rim = lineRimAlpha(p.input)
     assign(out.field('color', vec4fT), vec4(color.rgb, color.a.mul(rim)))
     if (pickEnabled) assign(out.field('pick', vec2uT), vec2u(u32(0), u32(0)))
     assign(out.field('depth', f32T), compute_log_frag_depth(p.input.field('view_w', f32T), tile.field('log_depth_fc', f32T)))
@@ -1094,26 +1065,26 @@ const buildFsLine = (pickEnabled: boolean) =>
 
 const buildFsLinePattern = (pickEnabled: boolean) =>
   entryFn('fs_line_pattern', 'fragment', [{ name: 'input', type: structT('LineOut') }], structT('LineFragmentOutput'), (p, _b) => {
-    const base = Let('base', computeLineColor(p.input))
+    const base = computeLineColor(p.input)
     const tileOrigin = tile.field('tile_origin_merc', vec2fT)
-    const absMerc = Let('abs_merc', p.input.field('world_local', vec2fT).add(tileOrigin))
-    const repeatX = Let('repeat_x', max(layer.field('color', vec4fT).r, f32(1)))
-    const repeatY = Let('repeat_y', max(layer.field('color', vec4fT).a, f32(1)))
-    const uvLocal = Let('uv_local', vec2(
+    const absMerc = p.input.field('world_local', vec2fT).add(tileOrigin)
+    const repeatX = max(layer.field('color', vec4fT).r, f32(1))
+    const repeatY = max(layer.field('color', vec4fT).a, f32(1))
+    const uvLocal = vec2(
       fract(absMerc.x.div(repeatX)),
       fract(absMerc.y.div(repeatY)),
-    ))
+    )
     const sc = tile.field('stroke_color', vec4fT)
-    const u0 = Let('u0', sc.r)
-    const v0 = Let('v0', sc.g)
-    const u1 = Let('u1', sc.b)
-    const v1 = Let('v1', sc.a)
-    const atlasUv = Let('atlas_uv', vec2(
+    const u0 = sc.r
+    const v0 = sc.g
+    const u1 = sc.b
+    const v1 = sc.a
+    const atlasUv = vec2(
       u0.add(uvLocal.x.mul(u1.sub(u0))),
       v0.add(uvLocal.y.mul(v1.sub(v0))),
-    ))
-    const sampled = Let('sampled', textureSample(sprite_atlas, sprite_samp, atlasUv))
-    const rim = Let('rim', lineRimAlpha(p.input))
+    )
+    const sampled = textureSample(sprite_atlas, sprite_samp, atlasUv)
+    const rim = lineRimAlpha(p.input)
     const out = Var('out', structT('LineFragmentOutput'))
     assign(out.field('color', vec4fT), vec4(sampled.rgb, sampled.a.mul(base.a).mul(rim)))
     if (pickEnabled) assign(out.field('pick', vec2uT), vec2u(u32(0), u32(0)))
@@ -1129,7 +1100,7 @@ const fsLineMax = entryFn(
   vec4fT,
   (p, _b) => {
     const c = Var('c', vec4fT, computeLineColor(p.input))
-    const rim = Let('rim', lineRimAlpha(p.input))
+    const rim = lineRimAlpha(p.input)
     assign(c.field('a', f32T), c.field('a', f32T).mul(rim))
     return c
   },
@@ -1221,8 +1192,8 @@ const fsFull = entryFn('fs_full', 'fragment',
   [{ name: 'input', type: structT('VsFullOut') }],
   vec4fT,
   (p, _b) => {
-    const c = Let('c', textureSample(compSrc, compSamp, p.input.field('uv', vec2fT)))
-    const op = Let('op', compCu.field('opacity', f32T))
+    const c = textureSample(compSrc, compSamp, p.input.field('uv', vec2fT))
+    const op = compCu.field('opacity', f32T)
     // MAX-blend offscreen stores non-premultiplied (rgb, a_aa); premultiply here.
     return vec4(c.rgb.mul(c.a).mul(op), c.a.mul(op))
   },

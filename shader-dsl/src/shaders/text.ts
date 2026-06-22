@@ -20,7 +20,7 @@
 import {
   entryFn, vec4, f32, max, smoothstep, textureSample, select,
   module, f32T, vec2fT, vec4fT, texture2dfT, samplerT,
-  Let, Var, assign,
+  Var, assign,
   type ModuleDecl,
 } from '../core/ir'
 import { ioStruct, builtin, location, uniformStruct, resource } from '../core/sot'
@@ -47,8 +47,8 @@ const vs = entryFn('vs', 'vertex', [
   { name: 'uv', type: vec2fT, location: 1 },
 ], VsOut.type, (p, _b) => {
   const vp = U.field.viewport
-  const ndc_x = Let('ndc_x', p.pos_px.x.div(vp.x).mul(2).sub(1))
-  const ndc_y = Let('ndc_y', f32(1).sub(p.pos_px.y.div(vp.y).mul(2)))
+  const ndc_x = p.pos_px.x.div(vp.x).mul(2).sub(1)
+  const ndc_y = f32(1).sub(p.pos_px.y.div(vp.y).mul(2))
   const out = Var('out', VsOut.type)
   const o = VsOut.of(out)
   assign(o.clip_pos, vec4(ndc_x, ndc_y, f32(0), f32(1)))
@@ -57,20 +57,20 @@ const vs = entryFn('vs', 'vertex', [
 })
 
 const fs = entryFn('fs', 'fragment', [{ name: 'in', type: VsOut.type }], vec4fT, (p, _b) => {
-  const sdf = Let('sdf', textureSample(atlasTex.node, atlasSmp.node, VsOut.of(p.in).uv).r)
+  const sdf = textureSample(atlasTex.node, atlasSmp.node, VsOut.of(p.in).uv).r
   const fill = U.field.fill_color
   const halo = U.field.halo_color
-  const edge = Let('edge', f32(0.75))
-  const soft = Let('soft', max(f32(2.52).div(max(U.field.font_size_px, f32(1))), f32(1).div(255)))
-  const fillA = Let('fill_a', smoothstep(edge.sub(soft), edge.add(soft), sdf))
+  const edge = f32(0.75)
+  const soft = max(f32(2.52).div(max(U.field.font_size_px, f32(1))), f32(1).div(255))
+  const fillA = smoothstep(edge.sub(soft), edge.add(soft), sdf)
   const fillOnly = vec4(fill.rgb, fill.a.mul(fillA))
   // Halo behind fill: smoothstep at the inward-shifted halo edge, then the
   // (1 - fill_w) factor masks the region the fill already covers.
-  const haloEdge = Let('halo_edge', edge.sub(U.field.halo_width))
-  const aaHalo = Let('aa_halo', U.field.halo_blur.add(soft))
-  const haloA = Let('halo_a', smoothstep(haloEdge.sub(aaHalo), haloEdge.add(aaHalo), sdf))
-  const fillW = Let('fill_w', fill.a.mul(fillA))
-  const haloW = Let('halo_w', halo.a.mul(haloA).mul(f32(1).sub(fillW)))
+  const haloEdge = edge.sub(U.field.halo_width)
+  const aaHalo = U.field.halo_blur.add(soft)
+  const haloA = smoothstep(haloEdge.sub(aaHalo), haloEdge.add(aaHalo), sdf)
+  const fillW = fill.a.mul(fillA)
+  const haloW = halo.a.mul(haloA).mul(f32(1).sub(fillW))
   const withHalo = vec4(fill.rgb.mul(fillW).add(halo.rgb.mul(haloW)), fillW.add(haloW))
   // single-exit: no halo (halo_width<=0) → fill only; else halo behind fill.
   return select(U.field.halo_width.le(0), fillOnly, withHalo)

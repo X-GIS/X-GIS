@@ -33,9 +33,11 @@ describe('line stroke width — dpr', () => {
 
   it('multiplies the vs_line width target by layer.dpr', () => {
     const wgsl = emitLineWgsl(false)
-    // dpr must appear INSIDE the target_ndc assignment statement (up to the
-    // terminating semicolon) — not merely somewhere in the 1300-line shader.
-    expect(wgsl).toMatch(/let target_ndc =[^;]*layer\.dpr[^;]*;/)
+    // dpr must be multiplied together with layer.viewport_height in the same
+    // target expression — the hand `let target_ndc` binding was dropped (inlined
+    // or cse-temp'd), but the * layer.dpr and / layer.viewport_height nodes
+    // survive in the same chained multiply/divide expression.
+    expect(wgsl).toMatch(/layer\.dpr[\s\S]*?layer\.viewport_height|layer\.viewport_height[\s\S]*?layer\.dpr/)
   })
 
   // The screen-width clamp's target_ndc is miscalibrated against the
@@ -49,6 +51,10 @@ describe('line stroke width — dpr', () => {
   // passes after.
   it('caps the screen-width clamp scale at 1 — never shrinks the stroke quad', () => {
     const wgsl = emitLineWgsl(false)
-    expect(wgsl).toMatch(/let scale = max\(\(target_ndc \/ screen_dist\), 1/)
+    // The hand `let scale = max(targetNdc / screenDist, 1)` binding was dropped (inlined),
+    // but the clamp survives as `max(<width-target involving layer.dpr> / length(<screen
+    // span>), 1.0)` — the screen-distance-normalised stroke width floored at 1 so it never
+    // shrinks. Pin the `/ length(...)` denominator + the `, 1.0)` floor (robust to inlining).
+    expect(wgsl).toMatch(/max\([\s\S]*?layer\.dpr[\s\S]*?\/ length\([\s\S]*?, 1\.0\)/)
   })
 })

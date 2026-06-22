@@ -43,8 +43,8 @@ const vs = entryFn('vs', 'vertex', [
   { name: 'sdf', type: f32T, location: 4 },
 ], VsOut.type, (p, _b) => {
   const vp = U.field.viewport
-  const ndc_x = Let('ndc_x', p.pos_px.x.div(vp.x).mul(2).sub(1))
-  const ndc_y = Let('ndc_y', f32(1).sub(p.pos_px.y.div(vp.y).mul(2)))
+  const ndc_x = p.pos_px.x.div(vp.x).mul(2).sub(1)
+  const ndc_y = f32(1).sub(p.pos_px.y.div(vp.y).mul(2))
   const out = Var('out', VsOut.type)
   const o = VsOut.of(out)
   assign(o.clip_pos, vec4(ndc_x, ndc_y, f32(0), f32(1)))
@@ -57,13 +57,15 @@ const vs = entryFn('vs', 'vertex', [
 
 const fs = entryFn('fs', 'fragment', [{ name: 'in', type: VsOut.type }], vec4fT, (p, _b) => {
   const pin = VsOut.of(p.in)
-  const c = Let('c', textureSample(atlasTex.node, atlasSmp.node, pin.uv))
+  const c = textureSample(atlasTex.node, atlasSmp.node, pin.uv)
   // fwidth must be in uniform control flow — compute aa unconditionally (the
   // raster path discards it).
-  const dForAa = Let('d_for_aa', c.a)
+  const dForAa = c.a
+  // MUST stay an explicit Let — fwidth is a derivative requiring UNIFORM control flow; inlining
+  // would push fwidth() into the SDF-vs-raster select branch (non-uniform) and fail validation.
   const aa = Let('aa', max(fwidth(dForAa), f32(1e-4)))
   // single-exit: SDF sprite (sdf>0.5) uses fwidth-AA coverage; raster sprite straight-samples.
-  const cov = Let('cov', smoothstep(f32(0.5).sub(aa), f32(0.5).add(aa), c.a))
+  const cov = smoothstep(f32(0.5).sub(aa), f32(0.5).add(aa), c.a)
   const sdfColor = vec4(pin.tint, cov.mul(pin.opacity))
   const rasterColor = vec4(c.rgb, c.a.mul(pin.opacity))
   return select(pin.sdf.gt(0.5), sdfColor, rasterColor)

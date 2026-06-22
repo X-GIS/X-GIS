@@ -24,7 +24,7 @@
 
 import {
   entryFn, module, callFn, fn,
-  Let, Var, assign, If,
+  Var, assign, If,
   f32, u32, vec2, vec4, toF32, toI32, clamp,
   textureLoad, textureSample, textureDimensions, vec2i,
   f32T, u32T, vec2fT, vec4fT, texture2dfT, samplerT,
@@ -72,12 +72,12 @@ const vsFull = entryFn(
 
 // load_density — fetch the blurred density at this pixel's texel coord.
 const loadDensity = fn('load_density', { uv: vec2fT }, f32T, (p, _b) => {
-  const dimU = Let('dim_u', textureDimensions(densityTex.node))
-  const dim = Let('dim', vec2(toF32(dimU.x), toF32(dimU.y)))
-  const coord = Let('coord', vec2i(
+  const dimU = textureDimensions(densityTex.node)
+  const dim = vec2(toF32(dimU.x), toF32(dimU.y))
+  const coord = vec2i(
     toI32(p.uv.x.mul(dim.x)),
     toI32(p.uv.y.mul(dim.y)),
-  ))
+  )
   return textureLoad(densityTex.node, coord, u32(0)).x
 })
 
@@ -86,15 +86,15 @@ const fsCompose = entryFn(
   [{ name: 'in', type: VsOut.type }],
   vec4fT,
   (p, _b) => {
-    const density = Let('density', callFn('load_density', f32T, VsOut.of(p.in).uv))
-    const intensity = Let('intensity', U.field.params.x)
-    const opacity = Let('opacity', U.field.params.y)
+    const density = callFn('load_density', f32T, VsOut.of(p.in).uv)
+    const intensity = U.field.params.x
+    const opacity = U.field.params.y
     // Normalise density → ramp coordinate (0..1) via intensity scale.
-    const t = Let('t', clamp(density.mul(intensity), f32(0), f32(1)))
+    const t = clamp(density.mul(intensity), f32(0), f32(1))
     // Sample the colour ramp LUT at (t, 0.5). The ramp's own alpha encodes
     // the per-density transparency (Mapbox ramp starts transparent at 0).
-    const ramp = Let('ramp', textureSample(rampTex.node, rampSampler.node, vec2(t, f32(0.5))))
-    const a = Let('a', ramp.a.mul(opacity))
+    const ramp = textureSample(rampTex.node, rampSampler.node, vec2(t, f32(0.5)))
+    const a = ramp.a.mul(opacity)
     return vec4(ramp.rgb, a)
   },
   '@location(0)',

@@ -34,13 +34,11 @@ const accumTex = resource('accum_tex', texture2dfT, { group: 0, binding: 0 })
 // yellow → red.
 
 const colormap = fn('colormap', { t: f32T }, vec3fT, (p, b) => {
-  const s = b.let('s', clamp(p.t, f32(0), f32(1)))
-  const r = b.let('r', clamp(s.mul(f32(3)).sub(f32(0.5)), f32(0), f32(1)))
-  const g = b.let('g',
-    clamp(s.mul(f32(2.5)), f32(0), f32(1))
-      .mul(clamp(f32(2).sub(s.mul(f32(2))), f32(0), f32(1))),
-  )
-  const blue = b.let('b', clamp(f32(0.6).sub(s.mul(f32(1.5))), f32(0), f32(1)))
+  const s = clamp(p.t, f32(0), f32(1))
+  const r = clamp(s.mul(f32(3)).sub(f32(0.5)), f32(0), f32(1))
+  const g = clamp(s.mul(f32(2.5)), f32(0), f32(1))
+      .mul(clamp(f32(2).sub(s.mul(f32(2))), f32(0), f32(1)))
+  const blue = clamp(f32(0.6).sub(s.mul(f32(1.5))), f32(0), f32(1))
   b.ret(vec3(r, g, blue))
 })
 
@@ -84,16 +82,16 @@ const fsCompose = entryFn(
     // uv → texel-coord multiply. WGSL doesn't auto-convert across
     // signed/unsigned/float in vec construction, so the conversion is
     // explicit.
-    const dimU = b.let('dim_u', textureDimensions(accumTex.node))
-    const dim = b.let('dim', vec2(toF32(dimU.x), toF32(dimU.y)))
-    const uv = b.let('uv', vec2i(toI32(pin.uv.x.mul(dim.x)), toI32(pin.uv.y.mul(dim.y))))
-    const count = b.let('count', textureLoad(accumTex.node, uv, u32(0)).x)
+    const dimU = textureDimensions(accumTex.node)
+    const dim = vec2(toF32(dimU.x), toF32(dimU.y))
+    const uv = vec2i(toI32(pin.uv.x.mul(dim.x)), toI32(pin.uv.y.mul(dim.y)))
+    const count = textureLoad(accumTex.node, uv, u32(0)).x
     b.if(count.lt(f32(0.5)), (c) => {
       // No fragments → empty pixel; leave dark to distinguish from "1 draw".
       c.ret(vec4(f32(0.02), f32(0.02), f32(0.04), f32(1)))
     })
     // Exposure: 16 overdraws → fully saturated.
-    const t = b.let('t', count.div(f32(16)))
+    const t = count.div(f32(16))
     b.ret(vec4(callFn('colormap', vec3fT, t), f32(1)))
   },
   '@location(0)',

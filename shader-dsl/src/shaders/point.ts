@@ -136,21 +136,21 @@ const pointRimAlpha = fn('point_rim_alpha', { abs_lon: f32T, abs_lat: f32T }, f3
 })
 
 const distToLine = fn('dist_to_line', { p: vec2fT, a: vec2fT, b: vec2fT }, f32T, (pp, _b) => {
-  const ab = Let('ab', pp.b.sub(pp.a))
-  const len2 = Let('len2', dot(ab, ab))
+  const ab = pp.b.sub(pp.a)
+  const len2 = dot(ab, ab)
   // single-exit: max() guards the degenerate (len2≈0) divide; select picks the point dist.
-  const t = Let('t', clamp(dot(pp.p.sub(pp.a), ab).div(max(len2, 1e-10)), 0, 1))
-  const segDist = Let('seg_dist', length(pp.p.sub(pp.a).sub(ab.mul(t))))
+  const t = clamp(dot(pp.p.sub(pp.a), ab).div(max(len2, 1e-10)), 0, 1)
+  const segDist = length(pp.p.sub(pp.a).sub(ab.mul(t)))
   return select(len2.lt(1e-10), length(pp.p.sub(pp.a)), segDist)
 })
 
 const distToQuadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT }, f32T, (pp, _b) => {
   const bestD = Var('best_d', f32T, f32(1e10))
   Loop('i', u32(0), (i) => i.le(u32(16)), (i) => {
-    const t = Let('t', toF32(i).div(16))
-    const ab = Let('ab', mix(pp.a, pp.b, t))
-    const bc = Let('bc', mix(pp.b, pp.c, t))
-    const q = Let('q', mix(ab, bc, t))
+    const t = toF32(i).div(16)
+    const ab = mix(pp.a, pp.b, t)
+    const bc = mix(pp.b, pp.c, t)
+    const q = mix(ab, bc, t)
     assign(bestD, min(bestD, length(pp.p.sub(q))))
   })
   return bestD
@@ -159,13 +159,13 @@ const distToQuadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2f
 const distToCubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT, d: vec2fT }, f32T, (pp, _b) => {
   const bestD = Var('best_d', f32T, f32(1e10))
   Loop('i', u32(0), (i) => i.le(u32(24)), (i) => {
-    const t = Let('t', toF32(i).div(24))
-    const ab = Let('ab', mix(pp.a, pp.b, t))
-    const bc = Let('bc', mix(pp.b, pp.c, t))
-    const cd = Let('cd', mix(pp.c, pp.d, t))
-    const abc = Let('abc', mix(ab, bc, t))
-    const bcd = Let('bcd', mix(bc, cd, t))
-    const q = Let('q', mix(abc, bcd, t))
+    const t = toF32(i).div(24)
+    const ab = mix(pp.a, pp.b, t)
+    const bc = mix(pp.b, pp.c, t)
+    const cd = mix(pp.c, pp.d, t)
+    const abc = mix(ab, bc, t)
+    const bcd = mix(bc, cd, t)
+    const q = mix(abc, bcd, t)
     assign(bestD, min(bestD, length(pp.p.sub(q))))
   })
   return bestD
@@ -173,7 +173,7 @@ const distToCubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: ve
 
 const windingLine = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT }, i32T, (pp, _b) => {
   // single-exit: signed winding contribution of edge a→b across the +y ray from p.
-  const cross = Let('cross_val', pp.b.x.sub(pp.a.x).mul(pp.p.y.sub(pp.a.y)).sub(pp.p.x.sub(pp.a.x).mul(pp.b.y.sub(pp.a.y))))
+  const cross = pp.b.x.sub(pp.a.x).mul(pp.p.y.sub(pp.a.y)).sub(pp.p.x.sub(pp.a.x).mul(pp.b.y.sub(pp.a.y)))
   const up = pp.a.y.le(pp.p.y).and(pp.b.y.gt(pp.p.y)).and(cross.gt(0))
   const down = pp.a.y.gt(pp.p.y).and(pp.b.y.le(pp.p.y)).and(cross.lt(0))
   return select(up, i32(1), select(down, i32(-1), i32(0)))
@@ -181,8 +181,8 @@ const windingLine = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT }, i32T
 
 const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (pp, bld) => {
   // Flip Y: NDC Y-up → SVG/path Y-down convention.
-  const uv = bld.let('uv', vec2(pp.uv_in.x, pp.uv_in.y.neg()))
-  const s = bld.let('s', shapes.at(pp.shape_id, structT('ShapeDesc')))
+  const uv = vec2(pp.uv_in.x, pp.uv_in.y.neg())
+  const s = shapes.at(pp.shape_id, structT('ShapeDesc'))
   const bMinX = s.field('bbox_min_x', f32T)
   const bMinY = s.field('bbox_min_y', f32T)
   const bMaxX = s.field('bbox_max_x', f32T)
@@ -197,9 +197,9 @@ const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (pp, b
   const segStart = s.field('seg_start', u32T)
   const segCount = s.field('seg_count', u32T)
   // Hard-cap at 32 segments per shape (paste from original).
-  const end = bld.let('end', min(segStart.add(segCount), segStart.add(u32(32))))
+  const end = min(segStart.add(segCount), segStart.add(u32(32)))
   bld.forRange('i', segStart, (i) => i.lt(end), (cb, i) => {
-    const seg = cb.let('seg', segments.at(i, structT('Segment')))
+    const seg = segments.at(i, structT('Segment'))
     const p0 = seg.field('p0', vec2fT)
     const p1 = seg.field('p1', vec2fT)
     const p2 = seg.field('p2', vec2fT)
@@ -233,18 +233,18 @@ const vs = entryFn('vs_point', 'vertex', [
   { name: 'quad_id', type: u32T, location: 1 },
   { name: 'feat_id', type: f32T, location: 2 },
 ], PointOut.type, (p, _b) => {
-  const offsets = Let('offsets', arrayLit(vec2fT,
+  const offsets = arrayLit(vec2fT,
     vec2(f32(-1), f32(-1)),
     vec2(f32(1), f32(-1)),
     vec2(f32(1), f32(1)),
     vec2(f32(-1), f32(1)),
-  ))
-  const fid = Let('fid', toU32(p.feat_id))
-  const rawRadius = Let('raw_radius', featData.at(fid.mul(STRIDE).add(u32(0)), f32T))
+  )
+  const fid = toU32(p.feat_id)
+  const rawRadius = featData.at(fid.mul(STRIDE).add(u32(0)), f32T)
   // Pack-byte at offset 10: bit 0..3 reserved, bits 4..7 = size_mode,
   // bit 3 = is_flat, bits 8..9 = anchor_mode.
-  const packed10 = Let('packed10', toU32(featData.at(fid.mul(STRIDE).add(u32(10)), f32T)))
-  const sizeMode = Let('size_mode', packed10.shr(u32(4)).bitAnd(u32(0xF)))
+  const packed10 = toU32(featData.at(fid.mul(STRIDE).add(u32(10)), f32T))
+  const sizeMode = packed10.shr(u32(4)).bitAnd(u32(0xF))
   // Size mode: 0=px, 1=m, 2=km, 3=deg (equator approx), 4=nm.
   const radiusPx = Var('radius_px', f32T)
   const viewport = U.field.viewport
@@ -259,23 +259,23 @@ const vs = entryFn('vs_point', 'vertex', [
   // (pos_h.xyz + pos_l.xyz) for the point's centre; slots 17..18 carry
   // the absolute lon/lat in degrees for the fragment-side hemisphere
   // cull. The single `u.mvp` slot is the ECEF-MVP (post PR 2d.5).
-  const ecefH = Let('ecef_h', vec3(
+  const ecefH = vec3(
     featData.at(fid.mul(STRIDE).add(u32(11)), f32T),
     featData.at(fid.mul(STRIDE).add(u32(12)), f32T),
     featData.at(fid.mul(STRIDE).add(u32(13)), f32T),
-  ))
-  const ecefL = Let('ecef_l', vec3(
+  )
+  const ecefL = vec3(
     featData.at(fid.mul(STRIDE).add(u32(14)), f32T),
     featData.at(fid.mul(STRIDE).add(u32(15)), f32T),
     featData.at(fid.mul(STRIDE).add(u32(16)), f32T),
-  ))
+  )
   // Camera-relative RTC: subtract the camera anchor in DSFUN space so the
   // big absolute ECEF magnitude cancels before the residual reaches f32 math.
-  const camH = Let('cam_h', U.field.cam_ecef_h.swizzle<'vec3<f32>'>('xyz'))
-  const camL = Let('cam_l', U.field.cam_ecef_l.swizzle<'vec3<f32>'>('xyz'))
-  const ecefRtc = Let('ecef_rtc', ecefH.sub(camH).add(ecefL.sub(camL)))
-  const absLon = Let('abs_lon', featData.at(fid.mul(STRIDE).add(u32(17)), f32T))
-  const absLat = Let('abs_lat', featData.at(fid.mul(STRIDE).add(u32(18)), f32T))
+  const camH = U.field.cam_ecef_h.swizzle<'vec3<f32>'>('xyz')
+  const camL = U.field.cam_ecef_l.swizzle<'vec3<f32>'>('xyz')
+  const ecefRtc = ecefH.sub(camH).add(ecefL.sub(camL))
+  const absLon = featData.at(fid.mul(STRIDE).add(u32(17)), f32T)
+  const absLat = featData.at(fid.mul(STRIDE).add(u32(18)), f32T)
   const mvp = U.field.mvp
   // Display projection (projection-display-layer-restore): flat Mercator
   // (proj_params.x < 0.5) reprojects the absolute lon/lat onto the 2D plane
@@ -290,22 +290,22 @@ const vs = entryFn('vs_point', 'vertex', [
     // Precise absolute Mercator DSFUN (slots 20-23), camera-recentered in DSFUN
     // space — `(mx_h−camH)+(mx_l−camL)` — exactly like ecef_rtc. The old path
     // reprojected the lossy f32 abs_lon/abs_lat (~1.35 m → ~5.7 px @ z20).
-    const mxH = Let('mx_h', featData.at(fid.mul(STRIDE).add(u32(20)), f32T))
-    const mxL = Let('mx_l', featData.at(fid.mul(STRIDE).add(u32(21)), f32T))
-    const myH = Let('my_h', featData.at(fid.mul(STRIDE).add(u32(22)), f32T))
-    const myL = Let('my_l', featData.at(fid.mul(STRIDE).add(u32(23)), f32T))
-    const camMercH = Let('cam_merc_h', U.field.cam_ecef_h.swizzle<'vec2<f32>'>('xy'))
-    const camMercL = Let('cam_merc_l', U.field.cam_ecef_l.swizzle<'vec2<f32>'>('xy'))
-    const relX = Let('rel_x', mxH.sub(camMercH.x).add(mxL.sub(camMercL.x)))
-    const relY = Let('rel_y', myH.sub(camMercH.y).add(myL.sub(camMercL.y)))
+    const mxH = featData.at(fid.mul(STRIDE).add(u32(20)), f32T)
+    const mxL = featData.at(fid.mul(STRIDE).add(u32(21)), f32T)
+    const myH = featData.at(fid.mul(STRIDE).add(u32(22)), f32T)
+    const myL = featData.at(fid.mul(STRIDE).add(u32(23)), f32T)
+    const camMercH = U.field.cam_ecef_h.swizzle<'vec2<f32>'>('xy')
+    const camMercL = U.field.cam_ecef_l.swizzle<'vec2<f32>'>('xy')
+    const relX = mxH.sub(camMercH.x).add(mxL.sub(camMercL.x))
+    const relY = myH.sub(camMercH.y).add(myL.sub(camMercL.y))
     assign(centerClip, transformMat4(mvp, vec4(relX, relY, f32(0), f32(1))))
   }).elif(U.field.proj_params.x.lt(6.5), () => {
     // FLAT non-Mercator (1-6): the shared flat_rel — reproject the marker's
     // lon/lat minus the in-shader projected camera centre. ref_lon = the
     // marker's own lon (self) so it lands in its nearest world copy; for an
     // individual marker project_geom collapses to plain project. Same flat MVP.
-    const pp = Let('pp', U.field.proj_params)
-    const relG = Let('rel2d_geom', flat_rel(absLon, absLat, pp, absLon))
+    const pp = U.field.proj_params
+    const relG = flat_rel(absLon, absLat, pp, absLon)
     assign(centerClip, transformMat4(mvp, vec4(relG.x, relG.y, f32(0), f32(1))))
   }).else(() => {
     assign(centerClip, transformMat4(mvp, vec4(ecefRtc, f32(1))))
@@ -316,7 +316,7 @@ const vs = entryFn('vs_point', 'vertex', [
   // (circle_params.xy). Multiply by clip.w to keep the shift pixel-
   // constant regardless of depth — same approach as polygon fill-translate.
   // Default [0,0] → no-op.
-  const circleParams = Let('circle_params', U.field.circle_params)
+  const circleParams = U.field.circle_params
   assign(centerClip, centerClip.add(vec4(
     circleParams.x.mul(centerClip.w),
     circleParams.y.mul(centerClip.w),
@@ -336,13 +336,13 @@ const vs = entryFn('vs_point', 'vertex', [
   // gl_Position.w)` for pitch-alignment:viewport + pitch-scale:map. =1 at the
   // screen centre, <1 toward the horizon. Guard clip.w>0 to avoid div blow-up.
   If(U.field.circle_params.w.gt(f32(0.5)), () => {
-    const wRef = Let('w_ref', mvp.at(u32(3), vec4fT).w)
+    const wRef = mvp.at(u32(3), vec4fT).w
     const wPt = Let('w_pt', max(centerClip.w, f32(1e-4)))
     assign(radiusPx, radiusPx.mul(wRef.div(wPt)))
   })
 
   // bit 3 of packed10 = flat-quad mode.
-  const isFlat = Let('is_flat', packed10.bitAnd(u32(8)).ne(u32(0)))
+  const isFlat = packed10.bitAnd(u32(8)).ne(u32(0))
   assign(radiusPx, max(radiusPx, f32(1)))
   const expand = Let('expand', radiusPx.add(2))
 
@@ -351,7 +351,7 @@ const vs = entryFn('vs_point', 'vertex', [
   // All four corners share the centre's view_w (point markers occupy a
   // near-zero depth range; per-corner depth divergence would over-strict
   // the log-depth interpolation).
-  const fc = Let('fc', viewport.w)
+  const fc = viewport.w
   assign(o.view_w, centerClip.w)
 
   If(isFlat, () => {
@@ -363,14 +363,14 @@ const vs = entryFn('vs_point', 'vertex', [
     // marker's centre", a screen-space NDC offset around centerClip is
     // visually equivalent and metric-correct under the ECEF MVP.
     // Anchor (bits 8..9): 0=center, 1=bottom, 2=top.
-    const anchorMode = Let('anchor_mode', packed10.shr(u32(8)).bitAnd(u32(3)))
+    const anchorMode = packed10.shr(u32(8)).bitAnd(u32(3))
     const yShiftPx = Var('y_shift_px', f32T, f32(0))
     If(anchorMode.eq(u32(1)), () => { assign(yShiftPx, expand) })
       .elif(anchorMode.eq(u32(2)), () => { assign(yShiftPx, expand.neg()) })
-    const pxToNdc = Let('px_to_ndc', vec2(f32(2).div(viewport.x), f32(2).div(viewport.y)))
+    const pxToNdc = vec2(f32(2).div(viewport.x), f32(2).div(viewport.y))
     const offXY = offsets.at(p.quad_id, vec2fT)
     const offsetPx = Let('offset_px', vec2(offXY.x.mul(expand), offXY.y.mul(expand).add(yShiftPx)))
-    const offsetNdc = Let('offset_ndc', offsetPx.mul(pxToNdc))
+    const offsetNdc = offsetPx.mul(pxToNdc)
     const flatClip = Let('flat_clip', centerClip.add(vec4(offsetNdc.mul(centerClip.w), f32(0), f32(0))))
     assign(o.position, apply_log_depth(flatClip, fc))
     assign(o.uv, offXY)
@@ -378,14 +378,14 @@ const vs = entryFn('vs_point', 'vertex', [
     // BILLBOARD: expand in screen-space (NDC), perspective-corrected. Anchor
     // (bits 8..9): 0=center, 1=bottom (lifts up by one extent so the bottom
     // edge sits on the projected ground point), 2=top.
-    const anchorMode = Let('anchor_mode', packed10.shr(u32(8)).bitAnd(u32(3)))
+    const anchorMode = packed10.shr(u32(8)).bitAnd(u32(3))
     const yShiftPx = Var('y_shift_px', f32T, f32(0))
     If(anchorMode.eq(u32(1)), () => { assign(yShiftPx, expand) })
       .elif(anchorMode.eq(u32(2)), () => { assign(yShiftPx, expand.neg()) })
-    const pxToNdc = Let('px_to_ndc', vec2(f32(2).div(viewport.x), f32(2).div(viewport.y)))
+    const pxToNdc = vec2(f32(2).div(viewport.x), f32(2).div(viewport.y))
     const offXY = offsets.at(p.quad_id, vec2fT)
     const offsetPx = Let('offset_px', vec2(offXY.x.mul(expand), offXY.y.mul(expand).add(yShiftPx)))
-    const offsetNdc = Let('offset_ndc', offsetPx.mul(pxToNdc))
+    const offsetNdc = offsetPx.mul(pxToNdc)
     const billboardClip = Let('billboard_clip', centerClip.add(vec4(offsetNdc.mul(centerClip.w), f32(0), f32(0))))
     assign(o.position, apply_log_depth(billboardClip, fc))
     // UV stays centered so the SDF shape renders unchanged; only the on-
@@ -403,17 +403,20 @@ const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: PointOut.type }]
   const pin = PointOut.of(p.in)
   // Backface cull for globe projections — cos_c is +1 for flat projections.
   If(pin.cos_c.lt(0), () => { Discard() })
-  const fid = Let('fid', pin.feat_id)
+  const fid = pin.feat_id
   // shape_id moved to slot 19 in PR 2d.2's stride-20 layout (was slot 13).
-  const shapeId = Let('shape_id', toU32(featData.at(fid.mul(STRIDE).add(u32(19)), f32T)))
+  const shapeId = toU32(featData.at(fid.mul(STRIDE).add(u32(19)), f32T))
 
   // AA from UV (always smooth) — not from SDF dist (AABB discontinuities).
+  // MUST stay an explicit Let: fwidth is a derivative and WGSL requires it be evaluated in
+  // UNIFORM control flow. Inlining it would re-emit fwidth() inside the per-flag fill/stroke
+  // `if` branches (non-uniform) → "fwidth must only be called from uniform control flow".
   const aa = Let('aa', fwidth(length(pin.uv)).mul(1.5))
   // circle-blur: widen the AA band by blur_px converted to UV units.
   // blur_uv = blur_px / radius_px. Default 0 → band unchanged (no-op).
-  const blurPx = Let('blur_px', U.field.circle_params.z)
-  const blurUv = Let('blur_uv', blurPx.div(max(pin.radius_px, f32(1))))
-  const halfBand = Let('half_band', aa.add(blurUv))
+  const blurPx = U.field.circle_params.z
+  const blurUv = blurPx.div(max(pin.radius_px, f32(1)))
+  const halfBand = aa.add(blurUv)
 
   const dist = Var('dist', f32T)
   If(shapeId.eq(u32(0)), () => {
@@ -423,23 +426,23 @@ const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: PointOut.type }]
   })
 
   // Per-feature style.
-  const fillColor = Let('fill_color', vec4(
+  const fillColor = vec4(
     featData.at(fid.mul(STRIDE).add(u32(1)), f32T),
     featData.at(fid.mul(STRIDE).add(u32(2)), f32T),
     featData.at(fid.mul(STRIDE).add(u32(3)), f32T),
     featData.at(fid.mul(STRIDE).add(u32(4)), f32T),
-  ))
-  const strokeColor = Let('stroke_color', vec4(
+  )
+  const strokeColor = vec4(
     featData.at(fid.mul(STRIDE).add(u32(5)), f32T),
     featData.at(fid.mul(STRIDE).add(u32(6)), f32T),
     featData.at(fid.mul(STRIDE).add(u32(7)), f32T),
     featData.at(fid.mul(STRIDE).add(u32(8)), f32T),
-  ))
-  const strokeWPx = Let('stroke_w_px', featData.at(fid.mul(STRIDE).add(u32(9)), f32T))
-  const flags = Let('flags', toU32(featData.at(fid.mul(STRIDE).add(u32(10)), f32T)))
+  )
+  const strokeWPx = featData.at(fid.mul(STRIDE).add(u32(9)), f32T)
+  const flags = toU32(featData.at(fid.mul(STRIDE).add(u32(10)), f32T))
 
   // stroke_w in UV space using the actual rendered radius.
-  const strokeW = Let('stroke_w', strokeWPx.div(max(pin.radius_px, f32(1))))
+  const strokeW = strokeWPx.div(max(pin.radius_px, f32(1)))
 
   const color = Var('color', vec4fT, vec4(f32(0), f32(0), f32(0), f32(0)))
 
@@ -451,7 +454,7 @@ const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: PointOut.type }]
 
   // Stroke (bit 1).
   If(flags.bitAnd(u32(2)).ne(u32(0)), () => {
-    const inner = Let('inner', f32(1).sub(strokeW))
+    const inner = f32(1).sub(strokeW)
     const strokeAlpha = Let('stroke_alpha',
       smoothstep(inner.sub(aa), inner.add(aa), dist)
         .mul(f32(1).sub(smoothstep(f32(1).sub(halfBand), f32(1).add(halfBand), dist))),

@@ -24,7 +24,7 @@ import {
   f32, u32, vec2, vec4, toF32, toI32, clamp,
   textureLoad, textureDimensions, vec2i,
   u32T, vec2fT, vec4fT, texture2dfT,
-  Var, Let, assign, If,
+  Var, assign, If,
   type ModuleDecl,
 } from '../core/ir'
 import { ioStruct, builtin, location, uniformStruct, resource } from '../core/sot'
@@ -72,24 +72,21 @@ const fsBlur = entryFn(
   [{ name: 'in', type: VsOut.type }],
   vec4fT,
   (p, _b) => {
-    const dimU = Let('dim_u', textureDimensions(srcTex.node))
-    const dim = Let('dim', vec2(toF32(dimU.x), toF32(dimU.y)))
-    const baseUv = Let('base_uv', VsOut.of(p.in).uv)
-    const baseX = Let('base_x', baseUv.x.mul(dim.x))
-    const baseY = Let('base_y', baseUv.y.mul(dim.y))
-    const dir = Let('dir', Params.field.direction)
-    const maxX = Let('max_x', toF32(dimU.x).sub(f32(1)))
-    const maxY = Let('max_y', toF32(dimU.y).sub(f32(1)))
+    const dimU = textureDimensions(srcTex.node)
+    const dim = vec2(toF32(dimU.x), toF32(dimU.y))
+    const baseUv = VsOut.of(p.in).uv
+    const baseX = baseUv.x.mul(dim.x)
+    const baseY = baseUv.y.mul(dim.y)
+    const dir = Params.field.direction
+    const maxX = toF32(dimU.x).sub(f32(1))
+    const maxY = toF32(dimU.y).sub(f32(1))
 
     // sample(offset) — load one texel at +offset texels along `direction`,
     // clamped to the texture extent.
     const sampleAt = (offset: number) => {
-      const sx = Let(`sx_${offset < 0 ? 'm' : 'p'}${Math.abs(offset)}`,
-        clamp(baseX.add(dir.x.mul(f32(offset))), f32(0), maxX))
-      const sy = Let(`sy_${offset < 0 ? 'm' : 'p'}${Math.abs(offset)}`,
-        clamp(baseY.add(dir.y.mul(f32(offset))), f32(0), maxY))
-      const coord = Let(`c_${offset < 0 ? 'm' : 'p'}${Math.abs(offset)}`,
-        vec2i(toI32(sx), toI32(sy)))
+      const sx = clamp(baseX.add(dir.x.mul(f32(offset))), f32(0), maxX)
+      const sy = clamp(baseY.add(dir.y.mul(f32(offset))), f32(0), maxY)
+      const coord = vec2i(toI32(sx), toI32(sy))
       return textureLoad(srcTex.node, coord, u32(0)).x
     }
 
@@ -100,8 +97,7 @@ const fsBlur = entryFn(
     const w3 = 0.0540540541
     const w4 = 0.0162162162
 
-    const acc = Let('acc',
-      sampleAt(0).mul(f32(w0))
+    const acc = sampleAt(0).mul(f32(w0))
         .add(sampleAt(1).mul(f32(w1)))
         .add(sampleAt(-1).mul(f32(w1)))
         .add(sampleAt(2).mul(f32(w2)))
@@ -109,8 +105,7 @@ const fsBlur = entryFn(
         .add(sampleAt(3).mul(f32(w3)))
         .add(sampleAt(-3).mul(f32(w3)))
         .add(sampleAt(4).mul(f32(w4)))
-        .add(sampleAt(-4).mul(f32(w4))),
-    )
+        .add(sampleAt(-4).mul(f32(w4)))
     return vec4(acc, f32(0), f32(0), f32(1))
   },
   '@location(0)',

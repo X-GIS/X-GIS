@@ -76,21 +76,21 @@ const buildFsCompose = (sampleCount: number, texType: ShaderType) => {
       // uv → texel-coord multiply. WGSL doesn't auto-convert across
       // signed/unsigned/float in vec construction, so the conversion is
       // explicit.
-      const dimU = b.let('dim_u', textureDimensions(accumTex))
-      const dim = b.let('dim', vec2(toF32(dimU.x), toF32(dimU.y)))
+      const dimU = textureDimensions(accumTex)
+      const dim = vec2(toF32(dimU.x), toF32(dimU.y))
       const inUv = VsOut.of(p.in).uv
-      const uv = b.let('uv', vec2i(toI32(inUv.x.mul(dim.x)), toI32(inUv.y.mul(dim.y))))
+      const uv = vec2i(toI32(inUv.x.mul(dim.x)), toI32(inUv.y.mul(dim.y)))
       const accumSum = b.var('accum_sum', vec4fT, vec4(f32(0), f32(0), f32(0), f32(0)))
       const revSum = b.var('rev_sum', f32T, f32(0))
       b.forRange('s', i32(0), (s) => s.lt(i32(sampleCount)), (cb, s) => {
         cb.assignOp(accumSum, '+', textureLoad(accumTex, uv, s))
         cb.assignOp(revSum, '+', textureLoad(revealageTex, uv, s).x)
       })
-      const inv = b.let('inv', f32(1).div(f32(sampleCount)))
+      const inv = f32(1).div(f32(sampleCount))
       const accum = b.let('accum', accumSum.mul(inv))
       const revealage = b.let('revealage', revSum.mul(inv))
-      const avg = b.let('avg', accum.rgb.div(max(accum.w, f32(1e-5))))
-      const alpha = b.let('alpha', f32(1).sub(revealage))
+      const avg = accum.rgb.div(max(accum.w, f32(1e-5)))
+      const alpha = f32(1).sub(revealage)
       b.ret(vec4(avg, alpha))
     },
     '@location(0)',

@@ -59,8 +59,15 @@ describe('Phase-2 raster shader — DSL emission (ECEF VS, PR 2d.3)', () => {
     const vsOnly = vsEnd > 0 ? vsBody.slice(0, vsEnd) : vsBody
     expect(vsOnly).toContain('u.proj_params.x < 0.5')              // Mercator fast path
     expect(vsOnly).toContain('u.proj_params.x < 6.5')              // non-Mercator flat
-    expect(vsOnly).toContain('project(lon, lat_deg, u.proj_params)')        // Mercator
-    expect(vsOnly).toContain('flat_rel(lon,')                                // non-Mercator (shared helper)
+    // Mercator branch CALLS project() with the reconstructed lon/lat and
+    // u.proj_params. The lon/lat args are no longer hand `let` names (lon /
+    // lat_deg) — the cse auto-cache hoists the reused input-only exprs into
+    // shared temps (or inlines a single use), so generalize the first two args
+    // to \w+ and pin the call + the stable u.proj_params operand.
+    expect(vsOnly).toMatch(/\bproject\([\s\S]*?, u\.proj_params\)/)          // Mercator
+    // non-Mercator branch CALLS the shared flat_rel() helper with u.proj_params
+    // as the projType arg; the leading lon/lat args are likewise cse/inlined.
+    expect(vsOnly).toMatch(/\bflat_rel\([\s\S]*?, u\.proj_params,/)           // non-Mercator (shared helper)
     expect(noPick).toContain('fn flat_rel(')
     expect(noPick).toContain('fn project_geom(')
   })

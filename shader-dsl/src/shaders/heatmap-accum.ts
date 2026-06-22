@@ -69,53 +69,53 @@ const vs = entryFn('vs_heatmap', 'vertex', [
   { name: 'quad_id', type: u32T, location: 1 },
   { name: 'feat_id', type: f32T, location: 2 },
 ], HeatOut.type, (p, _b) => {
-  const offsets = Let('offsets', arrayLit(vec2fT,
+  const offsets = arrayLit(vec2fT,
     vec2(f32(-1), f32(-1)),
     vec2(f32(1), f32(-1)),
     vec2(f32(1), f32(1)),
     vec2(f32(-1), f32(1)),
-  ))
-  const fid = Let('fid', toU32(p.feat_id))
-  const radiusPx = Let('radius_px', max(featData.at(fid.mul(STRIDE).add(u32(0)), f32T), f32(1)))
-  const weight = Let('weight', featData.at(fid.mul(STRIDE).add(u32(1)), f32T))
+  )
+  const fid = toU32(p.feat_id)
+  const radiusPx = max(featData.at(fid.mul(STRIDE).add(u32(0)), f32T), f32(1))
+  const weight = featData.at(fid.mul(STRIDE).add(u32(1)), f32T)
   const viewport = U.field.viewport
   const mvp = U.field.mvp
 
   // Per-feature ECEF DSFUN centre (slots 11..16) + abs lon/lat (17/18).
-  const ecefH = Let('ecef_h', vec3(
+  const ecefH = vec3(
     featData.at(fid.mul(STRIDE).add(u32(11)), f32T),
     featData.at(fid.mul(STRIDE).add(u32(12)), f32T),
     featData.at(fid.mul(STRIDE).add(u32(13)), f32T),
-  ))
-  const ecefL = Let('ecef_l', vec3(
+  )
+  const ecefL = vec3(
     featData.at(fid.mul(STRIDE).add(u32(14)), f32T),
     featData.at(fid.mul(STRIDE).add(u32(15)), f32T),
     featData.at(fid.mul(STRIDE).add(u32(16)), f32T),
-  ))
-  const camH = Let('cam_h', U.field.cam_ecef_h.swizzle<'vec3<f32>'>('xyz'))
-  const camL = Let('cam_l', U.field.cam_ecef_l.swizzle<'vec3<f32>'>('xyz'))
-  const ecefRtc = Let('ecef_rtc', ecefH.sub(camH).add(ecefL.sub(camL)))
-  const absLon = Let('abs_lon', featData.at(fid.mul(STRIDE).add(u32(17)), f32T))
-  const absLat = Let('abs_lat', featData.at(fid.mul(STRIDE).add(u32(18)), f32T))
+  )
+  const camH = U.field.cam_ecef_h.swizzle<'vec3<f32>'>('xyz')
+  const camL = U.field.cam_ecef_l.swizzle<'vec3<f32>'>('xyz')
+  const ecefRtc = ecefH.sub(camH).add(ecefL.sub(camL))
+  const absLon = featData.at(fid.mul(STRIDE).add(u32(17)), f32T)
+  const absLat = featData.at(fid.mul(STRIDE).add(u32(18)), f32T)
 
   // Three-way projType branch — faithful clone of the point VS.
   const centerClip = Var('center_clip', vec4fT)
   If(U.field.proj_params.x.lt(0.5), () => {
     // Flat Mercator: precise absolute-Mercator DSFUN tail (slots 20..23),
     // camera-recentered in DSFUN space.
-    const mxH = Let('mx_h', featData.at(fid.mul(STRIDE).add(u32(20)), f32T))
-    const mxL = Let('mx_l', featData.at(fid.mul(STRIDE).add(u32(21)), f32T))
-    const myH = Let('my_h', featData.at(fid.mul(STRIDE).add(u32(22)), f32T))
-    const myL = Let('my_l', featData.at(fid.mul(STRIDE).add(u32(23)), f32T))
-    const camMercH = Let('cam_merc_h', U.field.cam_ecef_h.swizzle<'vec2<f32>'>('xy'))
-    const camMercL = Let('cam_merc_l', U.field.cam_ecef_l.swizzle<'vec2<f32>'>('xy'))
-    const relX = Let('rel_x', mxH.sub(camMercH.x).add(mxL.sub(camMercL.x)))
-    const relY = Let('rel_y', myH.sub(camMercH.y).add(myL.sub(camMercL.y)))
+    const mxH = featData.at(fid.mul(STRIDE).add(u32(20)), f32T)
+    const mxL = featData.at(fid.mul(STRIDE).add(u32(21)), f32T)
+    const myH = featData.at(fid.mul(STRIDE).add(u32(22)), f32T)
+    const myL = featData.at(fid.mul(STRIDE).add(u32(23)), f32T)
+    const camMercH = U.field.cam_ecef_h.swizzle<'vec2<f32>'>('xy')
+    const camMercL = U.field.cam_ecef_l.swizzle<'vec2<f32>'>('xy')
+    const relX = mxH.sub(camMercH.x).add(mxL.sub(camMercL.x))
+    const relY = myH.sub(camMercH.y).add(myL.sub(camMercL.y))
     assign(centerClip, transformMat4(mvp, vec4(relX, relY, f32(0), f32(1))))
   }).elif(U.field.proj_params.x.lt(6.5), () => {
     // Flat non-Mercator (1..6): shared flat_rel (self-ref lon for nearest copy).
-    const pp = Let('pp', U.field.proj_params)
-    const relG = Let('rel2d_geom', flat_rel(absLon, absLat, pp, absLon))
+    const pp = U.field.proj_params
+    const relG = flat_rel(absLon, absLat, pp, absLon)
     assign(centerClip, transformMat4(mvp, vec4(relG.x, relG.y, f32(0), f32(1))))
   }).else(() => {
     assign(centerClip, transformMat4(mvp, vec4(ecefRtc, f32(1))))
@@ -123,10 +123,10 @@ const vs = entryFn('vs_heatmap', 'vertex', [
 
   // Expand a screen-space billboard quad of `radius_px` (NDC-corrected by
   // clip.w). uv runs −1..1 across the quad; the FS Gaussian is radial in uv.
-  const offXY = Let('off_xy', offsets.at(p.quad_id, vec2fT))
-  const pxToNdc = Let('px_to_ndc', vec2(f32(2).div(viewport.x), f32(2).div(viewport.y)))
-  const offsetPx = Let('offset_px', vec2(offXY.x.mul(radiusPx), offXY.y.mul(radiusPx)))
-  const offsetNdc = Let('offset_ndc', offsetPx.mul(pxToNdc))
+  const offXY = offsets.at(p.quad_id, vec2fT)
+  const pxToNdc = vec2(f32(2).div(viewport.x), f32(2).div(viewport.y))
+  const offsetPx = vec2(offXY.x.mul(radiusPx), offXY.y.mul(radiusPx))
+  const offsetNdc = offsetPx.mul(pxToNdc)
   const quadClip = Let('quad_clip', centerClip.add(vec4(offsetNdc.mul(centerClip.w), f32(0), f32(0))))
 
   const out = Var('out', HeatOut.type)
@@ -146,11 +146,11 @@ const vs = entryFn('vs_heatmap', 'vertex', [
 // the disc contributes ~0 (continuous falloff to the quad boundary).
 const fs = entryFn('fs_heatmap', 'fragment', [{ name: 'in', type: HeatOut.type }], vec4fT, (p, _b) => {
   const pin = HeatOut.of(p.in)
-  const uv = Let('uv', pin.uv)
-  const d2 = Let('d2', uv.x.mul(uv.x).add(uv.y.mul(uv.y)))
+  const uv = pin.uv
+  const d2 = uv.x.mul(uv.x).add(uv.y.mul(uv.y))
   const ZERO = f32(0.22313016) // exp(-1.5)
-  const gauss = Let('gauss', max(exp(d2.mul(-1.5)).sub(ZERO), f32(0)))
-  const density = Let('density', gauss.mul(pin.weight))
+  const gauss = max(exp(d2.mul(-1.5)).sub(ZERO), f32(0))
+  const density = gauss.mul(pin.weight)
   // R16Float target — only .r carries density; gba unused.
   return vec4(density, f32(0), f32(0), f32(1))
 }, '@location(0)')
