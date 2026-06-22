@@ -99,7 +99,9 @@ const BUILTINS: Record<string, Builtin> = {
   max: (a, b) => (isArr(a) || isArr(b) ? applyMinMax(Math.max, a, b) : Math.max(a as number, b as number)),
   // clamp ordering mirrors projection-wgsl-mirror.ts: max(lo, min(hi, x)).
   clamp: (x, lo, hi) => clampVal(x, lo, hi),
-  mix: (a, b, t) => mixVal(a, b, t as number),
+  mix: (a, b, t) => mixVal(a, b, t),
+  // smoothstep is type-enforced scalar by the builder (node.ts:230 — all args + result
+  // Node<ScalarKey>|number|f32), so no vector path is reachable here.
   smoothstep: (e0, e1, x) => {
     const t = clampVal((x as number - (e0 as number)) / ((e1 as number) - (e0 as number)), 0, 1) as number
     return t * t * (3 - 2 * t)
@@ -140,9 +142,15 @@ function clampVal(x: CpuValue, lo: CpuValue, hi: CpuValue): CpuValue {
   }
   return Math.max(lo as number, Math.min(hi as number, x as number))
 }
-function mixVal(a: CpuValue, b: CpuValue, t: number): CpuValue {
-  if (isArr(a) && isArr(b)) return a.map((x, i) => (x as number) + ((b[i] as number) - (x as number)) * t)
-  return (a as number) + ((b as number) - (a as number)) * t
+// Component-wise — any of a/b/t may be a scalar (broadcast) or a per-component vector,
+// matching WGSL mix() semantics (including a vector interpolant t).
+function mixVal(a: CpuValue, b: CpuValue, t: CpuValue): CpuValue {
+  if (isArr(a) || isArr(b) || isArr(t)) {
+    const n = (isArr(a) ? a : isArr(b) ? b : (t as number[])).length
+    const at = (v: CpuValue, i: number): number => (isArr(v) ? (v[i] as number) : (v as number))
+    return Array.from({ length: n }, (_, i) => at(a, i) + (at(b, i) - at(a, i)) * at(t, i))
+  }
+  return (a as number) + ((b as number) - (a as number)) * (t as number)
 }
 
 function zeroOf(type: { kind: string; n?: number }): CpuValue {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { compileModule } from './oracle'
-import { module, fn, f32, f32T, vec3, vec3fT, clamp } from './ir'
+import { module, fn, f32, f32T, vec3, vec3fT, clamp, mix } from './ir'
 
 // #13 (remaining half) — the oracle is the CPU half of a two-oracle contract; the
 // GPU computes f32. Its `==` / `!=` must therefore reflect f32 rounding, not exact
@@ -62,5 +62,18 @@ describe('oracle — vecN(scalar) splat matches WGSL', () => {
   it('clamp(vecN, vecLo, vecHi) clamps component-wise (was scalar-only → null on vec bounds)', () => {
     const m = module({ funcs: [fn('cl', { v: vec3fT }, vec3fT, (_b, { v }) => clamp(v, vec3(f32(0)), vec3(f32(1))))] })
     expect(compileModule(m).fns.cl([-0.5, 1.5, 0.5])).toEqual([0, 1, 0.5])
+  })
+
+  // mix(vec a, scalar b) is type-legal (ArithArg broadcast) — the old mixVal only handled
+  // (vec,vec) and (scalar,scalar), so a scalar endpoint against a vec fell to the scalar
+  // path and did array+number arithmetic → NaN. Now broadcasts component-wise.
+  it('mix(vec a, vec b, scalar t) interpolates component-wise', () => {
+    const m = module({ funcs: [fn('mx', { a: vec3fT, b: vec3fT }, vec3fT, (_b, { a, b }) => mix(a, b, f32(0.25)))] })
+    expect(compileModule(m).fns.mx([0, 0, 0], [4, 8, 100])).toEqual([1, 2, 25])
+  })
+
+  it('mix(vec a, scalar b, scalar t) broadcasts the scalar endpoint (was NaN on the scalar branch)', () => {
+    const m = module({ funcs: [fn('mxb', { a: vec3fT }, vec3fT, (_b, { a }) => mix(a, f32(1), f32(0.5)))] })
+    expect(compileModule(m).fns.mxb([0, 0.5, 1])).toEqual([0.5, 0.75, 1])
   })
 })

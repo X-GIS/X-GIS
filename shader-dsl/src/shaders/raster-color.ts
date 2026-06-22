@@ -38,8 +38,10 @@ const rasterColorAdjust = fn('raster_color_adjust', { rgb_in: vec3fT, p0: vec4fT
   const w = Let('w', callFn('raster_spin_weights', vec3fT, hueDeg.mul(constRef('DEG2RAD_F'))))
   assign(rgb, vec3(dot(rgb, w), dot(rgb, vec3(w.z, w.x, w.y)), dot(rgb, vec3(w.y, w.z, w.x))))
 
-  // Brightness remap — mix(low, high, rgb) per component = low + (high-low)*rgb.
-  // (Expanded rather than mix(): the DSL mix() interpolant is scalar, not a vec.)
+  // Brightness remap — low + (high-low)*rgb (per component). Expanded rather than mix()
+  // because the DSL mix() interpolant is typed scalar, not a vec. f64-equivalent to WGSL
+  // mix(low,high,rgb); the f32 result may differ by <1 ulp (mix may fma), far below the
+  // 1/255 framebuffer quantization floor, so it cannot move a rendered pixel.
   assign(rgb, vec3(brightnessLow).add(vec3(brightnessHigh).sub(vec3(brightnessLow)).mul(rgb)))
 
   // Saturation — rgb += (average - rgb) * factor; factor 0 (default) is the identity.
