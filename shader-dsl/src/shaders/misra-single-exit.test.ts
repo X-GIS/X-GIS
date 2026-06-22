@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { checkSingleExit } from '../core/passes/single-exit'
-import { validate, ValidationError } from '../core/passes/validate'
+import { lintModule } from '../core/passes/validate'
 import { fn, module, f32T, f32 } from '../core/ir'
 import { getPROJECTION_MODULE } from './projections'
 import { ICON_MODULE } from './icon'
@@ -32,7 +32,10 @@ describe('MISRA single-exit — shader static analysis', () => {
     })
   }
 
-  it('validate() is the live gate — an un-deviated early return throws ValidationError', () => {
+  // single-exit is a LINT rule (lintModule / full ruleset), NOT an emit-time validate()
+  // gate — validate runs only CORE_RULES so it never false-flags a legitimately
+  // early-returning compute kernel (e.g. eval_match).
+  it('lintModule flags an un-deviated early return as a single-exit error', () => {
     const bad = module({
       funcs: [
         fn('bad', { x: f32T }, f32T, (b, { x }) => {
@@ -41,11 +44,12 @@ describe('MISRA single-exit — shader static analysis', () => {
         }),
       ],
     })
-    expect(() => validate(bad)).toThrow(ValidationError)
-    expect(() => validate(bad)).toThrow(/single-exit/)
+    const errs = lintModule(bad).filter((d) => d.ruleId === 'single-exit')
+    expect(errs.length).toBeGreaterThan(0)
+    expect(errs[0].severity).toBe('error')
   })
 
-  it('the same fn with a documented deviation passes', () => {
+  it('the same fn with a documented deviation has no single-exit diagnostic', () => {
     const ok = module({
       funcs: [
         fn('ok', { x: f32T }, f32T, (b, { x }) => {
@@ -54,6 +58,6 @@ describe('MISRA single-exit — shader static analysis', () => {
         }, { allowEarlyReturn: true }),
       ],
     })
-    expect(() => validate(ok)).not.toThrow()
+    expect(lintModule(ok).filter((d) => d.ruleId === 'single-exit')).toEqual([])
   })
 })

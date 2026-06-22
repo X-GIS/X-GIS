@@ -52,3 +52,16 @@ export {
   noRecursion, noUnreachable, noFloatEq, cyclomaticComplexity, paramCount, namingConvention, maxNesting,
   noSelfAssign, noEmptyFunction, maxFunctionLength, preferLetOverVar, noDeadBinding,
 }
+
+/** The subset run by validate() at EVERY emit (incl. runtime-composed + compute modules
+ *  like eval_match): only the structural invariants that PROVABLY hold for any valid WGSL
+ *  module — no opinionated style/control-flow rules. single-exit and the rest are
+ *  LINT-ONLY (the shader static-analysis tests gate the shader modules), so an
+ *  emit-time gate never false-flags a legitimately early-returning kernel. */
+export const CORE_RULES: readonly LintRule[] = [
+  dupStruct,
+  dupFunc,
+  bindingCollision,
+  allPathsReturn,
+  mixedScalarRule,
+]

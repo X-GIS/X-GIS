@@ -16,7 +16,7 @@
 
 import type { ModuleDecl } from '../ir'
 import { lint, type Diagnostic, type LintConfig } from './lint/engine'
-import { RULES } from './lint/rules'
+import { RULES, CORE_RULES } from './lint/rules'
 
 export class ValidationError extends Error {
   constructor(msg: string) { super(msg); this.name = 'ValidationError' }
@@ -28,9 +28,13 @@ export function lintModule(m: ModuleDecl, config?: LintConfig): Diagnostic[] {
   return lint(m, RULES, config)
 }
 
-/** Validate an authored module. Throws ValidationError on the first error-severity
- *  diagnostic; returns silently otherwise (and never mutates — emit stays byte-identical). */
+/** Validate an authored module at EMIT time. Runs only CORE_RULES — the structural
+ *  invariants that hold for EVERY module, including runtime-composed variants and compute
+ *  kernels (e.g. eval_match) that legitimately early-return. Throws ValidationError on the
+ *  first error. The opinionated rules (single-exit, etc.) are LINT-ONLY: the shader
+ *  static-analysis tests gate the shader modules via lintModule(), so an emit-time gate
+ *  never false-flags non-shader code (cf. the OPACITY / single-exit-on-eval_match regressions). */
 export function validate(m: ModuleDecl): void {
-  const err = lint(m, RULES).find((d) => d.severity === 'error')
+  const err = lint(m, CORE_RULES).find((d) => d.severity === 'error')
   if (err) throw new ValidationError(err.message)
 }
