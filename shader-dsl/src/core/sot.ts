@@ -101,3 +101,17 @@ export function resource(name: string, type: ShaderType, at: { group: number; bi
     node: bindingRef(name, type),
   }
 }
+
+/** A storage buffer binding (e.g. `array<f32>` feature data): derive its binding decl
+ *  (space 'storage' + the access mode) + access node from one place. Closes the gap
+ *  resource() left — resource is uniform-only. */
+export function storageBuffer(
+  name: string,
+  type: ShaderType,
+  at: { group: number; binding: number; access: 'read' | 'read_write' },
+): Resource {
+  return {
+    binding: { group: at.group, binding: at.binding, name, space: 'storage', access: at.access, type },
+    node: bindingRef(name, type),
+  }
+}
