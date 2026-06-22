@@ -27,13 +27,13 @@
 // density is the heatmap signal.
 
 import {
-  entryFn, module, bindingRef, callFn, transformMat4, arrayLit,
+  entryFn, module, callFn, transformMat4, arrayLit,
   f32, u32, toU32, vec2, vec3, vec4, exp, max,
   Let, Var, assign, If,
   f32T, u32T, vec2fT, vec4fT, mat4x4fT, arrayT,
   type ModuleDecl,
 } from '../core/ir'
-import { ioStruct, builtin, location, uniformStruct } from '../core/sot'
+import { ioStruct, builtin, location, uniformStruct, storageBuffer } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
 import { getProjectionWgslConsts, getProjectionWgslFns } from './projections'
 
@@ -57,7 +57,8 @@ const HeatOut = ioStruct('HeatOut', {
   weight: location(1, f32T, 'flat'),
 })
 
-const featData = bindingRef('feat_data', arrayT(f32T))
+const featDataB = storageBuffer('feat_data', arrayT(f32T), { group: 0, binding: 1, access: 'read' })
+const featData = featDataB.node
 
 // Per-feature stride — matches the point renderer's pack so HeatmapRenderer
 // can reuse the same ECEF / Mercator DSFUN expansion.
@@ -158,7 +159,7 @@ const HEATMAP_ACCUM_MODULE: ModuleDecl = module({
   structs: [U.struct, HeatOut.decl],
   bindings: [
     U.binding,
-    { group: 0, binding: 1, name: 'feat_data', space: 'storage', access: 'read', type: arrayT(f32T) },
+    featDataB.binding,
   ],
   funcs: [vs, fs],
 })
