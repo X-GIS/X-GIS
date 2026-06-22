@@ -9,6 +9,7 @@
 import {
   entryFn, bindingRef, vec4, f32, max, smoothstep, fwidth, textureSample, select,
   module, structT, f32T, vec2fT, vec3fT, vec4fT, texture2dfT, samplerT,
+  Let, Var, assign,
   type StructDecl, type ModuleDecl,
 } from '../core/ir'
 import { emitModule } from '../core/backends/wgsl'
@@ -42,27 +43,27 @@ const vs = entryFn('vs', 'vertex', [
   { name: 'opacity', type: f32T, location: 2 },
   { name: 'tint', type: vec3fT, location: 3 },
   { name: 'sdf', type: f32T, location: 4 },
-], structT('VsOut'), (b, p) => {
+], structT('VsOut'), (_b, p) => {
   const vp = u.field('viewport', vec2fT)
-  const ndc_x = b.let('ndc_x', p.pos_px.x.div(vp.x).mul(2).sub(1))
-  const ndc_y = b.let('ndc_y', f32(1).sub(p.pos_px.y.div(vp.y).mul(2)))
-  const out = b.var('out', structT('VsOut'))
-  b.assign(out.field('clip_pos', vec4fT), vec4(ndc_x, ndc_y, f32(0), f32(1)))
-  b.assign(out.field('uv', vec2fT), p.uv)
-  b.assign(out.field('opacity', f32T), p.opacity)
-  b.assign(out.field('tint', vec3fT), p.tint)
-  b.assign(out.field('sdf', f32T), p.sdf)
-  b.ret(out)
+  const ndc_x = Let('ndc_x', p.pos_px.x.div(vp.x).mul(2).sub(1))
+  const ndc_y = Let('ndc_y', f32(1).sub(p.pos_px.y.div(vp.y).mul(2)))
+  const out = Var('out', structT('VsOut'))
+  assign(out.field('clip_pos', vec4fT), vec4(ndc_x, ndc_y, f32(0), f32(1)))
+  assign(out.field('uv', vec2fT), p.uv)
+  assign(out.field('opacity', f32T), p.opacity)
+  assign(out.field('tint', vec3fT), p.tint)
+  assign(out.field('sdf', f32T), p.sdf)
+  return out
 })
 
-const fs = entryFn('fs', 'fragment', [{ name: 'in', type: structT('VsOut') }], vec4fT, (b, p) => {
-  const c = b.let('c', textureSample(atlasTex, atlasSmp, p.in.field('uv', vec2fT)))
+const fs = entryFn('fs', 'fragment', [{ name: 'in', type: structT('VsOut') }], vec4fT, (_b, p) => {
+  const c = Let('c', textureSample(atlasTex, atlasSmp, p.in.field('uv', vec2fT)))
   // fwidth must be in uniform control flow — compute aa unconditionally (the
   // raster path discards it).
-  const dForAa = b.let('d_for_aa', c.a)
-  const aa = b.let('aa', max(fwidth(dForAa), f32(1e-4)))
+  const dForAa = Let('d_for_aa', c.a)
+  const aa = Let('aa', max(fwidth(dForAa), f32(1e-4)))
   // single-exit: SDF sprite (sdf>0.5) uses fwidth-AA coverage; raster sprite straight-samples.
-  const cov = b.let('cov', smoothstep(f32(0.5).sub(aa), f32(0.5).add(aa), c.a))
+  const cov = Let('cov', smoothstep(f32(0.5).sub(aa), f32(0.5).add(aa), c.a))
   const sdfColor = vec4(p.in.field('tint', vec3fT), cov.mul(p.in.field('opacity', f32T)))
   const rasterColor = vec4(c.rgb, c.a.mul(p.in.field('opacity', f32T)))
   return select(p.in.field('sdf', f32T).gt(0.5), sdfColor, rasterColor)
