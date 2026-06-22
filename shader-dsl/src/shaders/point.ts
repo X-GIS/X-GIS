@@ -22,7 +22,7 @@ import {
   f32, u32, i32, toF32, toU32, vec2, vec3, vec4, mix, exp, clamp,
   length, dot, min, max, smoothstep, fwidth, select,
   f32T, u32T, i32T, vec2fT, vec4fT, mat4x4fT,
-  Let, Var, assign, assignOp, If, Loop, reduce, ifExpr, condExpr, Switch, Return, Discard,
+  Let, Var, If, Loop, reduce, ifExpr, condExpr, Switch, Return, Discard,
   type ModuleDecl,
 } from '../core/ir'
 import { ioStruct, builtin, location, uniformStruct, structDecl, storageBuffer } from '../core/sot'
@@ -194,18 +194,18 @@ const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (pp) =
     const p3 = sg.p3
     Switch(sg.kind)
       .case(0, () => {
-        assign(minDist, min(minDist, distToLine(uv, p0, p1)))
-        assignOp(winding, '+', windingLine(uv, p0, p1))
+        minDist.set(min(minDist, distToLine(uv, p0, p1)))
+        winding.set(winding.add(windingLine(uv, p0, p1)))
       })
       .case(1, () => {
-        assign(minDist, min(minDist, distToQuadratic(uv, p0, p1, p2)))
+        minDist.set(min(minDist, distToQuadratic(uv, p0, p1, p2)))
         // Approximate winding with chord.
-        assignOp(winding, '+', windingLine(uv, p0, p2))
+        winding.set(winding.add(windingLine(uv, p0, p2)))
       })
       .case(2, () => {
-        assign(minDist, min(minDist, distToCubic(uv, p0, p1, p2, p3)))
+        minDist.set(min(minDist, distToCubic(uv, p0, p1, p2, p3)))
         // Approximate winding with chord.
-        assignOp(winding, '+', windingLine(uv, p0, p3))
+        winding.set(winding.add(windingLine(uv, p0, p3)))
       })
       .default(() => { /* default: empty */ })
   })
@@ -237,10 +237,10 @@ const vs = fn('vs_point', {
   const viewport = U.field.viewport
   const radiusPx = Var(rawRadius) // default; the size_mode switch overrides per case
   Switch(sizeMode)
-    .case(1, () => assign(radiusPx, rawRadius.div(viewport.z)))
-    .case(2, () => assign(radiusPx, rawRadius.mul(1000).div(viewport.z)))
-    .case(3, () => assign(radiusPx, rawRadius.mul(111320).div(viewport.z)))
-    .case(4, () => assign(radiusPx, rawRadius.mul(1852).div(viewport.z)))
+    .case(1, () => radiusPx.set(rawRadius.div(viewport.z)))
+    .case(2, () => radiusPx.set(rawRadius.mul(1000).div(viewport.z)))
+    .case(3, () => radiusPx.set(rawRadius.mul(111320).div(viewport.z)))
+    .case(4, () => radiusPx.set(rawRadius.mul(1852).div(viewport.z)))
     .default(() => {})
 
   // Phase 2 PR 2d.2 — ECEF DSFUN per-feature centre.
@@ -308,7 +308,7 @@ const vs = fn('vs_point', {
   // constant regardless of depth — same approach as polygon fill-translate.
   // Default [0,0] → no-op.
   const circleParams = U.field.circle_params
-  assign(centerClip, centerClip.add(vec4(
+  centerClip.set(centerClip.add(vec4(
     circleParams.x.mul(centerClip.w),
     circleParams.y.mul(centerClip.w),
     f32(0),
@@ -329,12 +329,12 @@ const vs = fn('vs_point', {
   If(U.field.circle_params.w.gt(0.5), () => {
     const wRef = mvp.at(u32(3), vec4fT).w
     const wPt = Let(max(centerClip.w, f32(1e-4)))
-    assign(radiusPx, radiusPx.mul(wRef.div(wPt)))
+    radiusPx.set(radiusPx.mul(wRef.div(wPt)))
   })
 
   // bit 3 of packed10 = flat-quad mode.
   const isFlat = packed10.bitAnd(u32(8)).ne(0)
-  assign(radiusPx, max(radiusPx, f32(1)))
+  radiusPx.set(max(radiusPx, f32(1)))
   const expand = Let(radiusPx.add(2))
 
   const out = Var(PointOut.type)
@@ -343,7 +343,7 @@ const vs = fn('vs_point', {
   // near-zero depth range; per-corner depth divergence would over-strict
   // the log-depth interpolation).
   const fc = viewport.w
-  assign(o.view_w, centerClip.w)
+  o.view_w.set(centerClip.w)
 
   If(isFlat, () => {
     // FLAT: expand in screen-space NDC (perspective-corrected via
@@ -356,37 +356,37 @@ const vs = fn('vs_point', {
     // Anchor (bits 8..9): 0=center, 1=bottom, 2=top.
     const anchorMode = packed10.shr(u32(8)).bitAnd(u32(3))
     const yShiftPx = f32(0)
-    If(anchorMode.eq(1), () => { assign(yShiftPx, expand) })
-      .elif(anchorMode.eq(2), () => { assign(yShiftPx, expand.neg()) })
+    If(anchorMode.eq(1), () => { yShiftPx.set(expand) })
+      .elif(anchorMode.eq(2), () => { yShiftPx.set(expand.neg()) })
     const pxToNdc = vec2(f32(2).div(viewport.x), f32(2).div(viewport.y))
     const offXY = offsets.at(p.quad_id, vec2fT)
     const offsetPx = Let(vec2(offXY.x.mul(expand), offXY.y.mul(expand).add(yShiftPx)))
     const offsetNdc = offsetPx.mul(pxToNdc)
     const flatClip = Let(centerClip.add(vec4(offsetNdc.mul(centerClip.w), f32(0), f32(0))))
-    assign(o.position, apply_log_depth(flatClip, fc))
-    assign(o.uv, offXY)
+    o.position.set(apply_log_depth(flatClip, fc))
+    o.uv.set(offXY)
   }).else(() => {
     // BILLBOARD: expand in screen-space (NDC), perspective-corrected. Anchor
     // (bits 8..9): 0=center, 1=bottom (lifts up by one extent so the bottom
     // edge sits on the projected ground point), 2=top.
     const anchorMode = packed10.shr(u32(8)).bitAnd(u32(3))
     const yShiftPx = f32(0)
-    If(anchorMode.eq(1), () => { assign(yShiftPx, expand) })
-      .elif(anchorMode.eq(2), () => { assign(yShiftPx, expand.neg()) })
+    If(anchorMode.eq(1), () => { yShiftPx.set(expand) })
+      .elif(anchorMode.eq(2), () => { yShiftPx.set(expand.neg()) })
     const pxToNdc = vec2(f32(2).div(viewport.x), f32(2).div(viewport.y))
     const offXY = offsets.at(p.quad_id, vec2fT)
     const offsetPx = Let(vec2(offXY.x.mul(expand), offXY.y.mul(expand).add(yShiftPx)))
     const offsetNdc = offsetPx.mul(pxToNdc)
     const billboardClip = Let(centerClip.add(vec4(offsetNdc.mul(centerClip.w), f32(0), f32(0))))
-    assign(o.position, apply_log_depth(billboardClip, fc))
+    o.position.set(apply_log_depth(billboardClip, fc))
     // UV stays centered so the SDF shape renders unchanged; only the on-
     // screen placement is shifted.
-    assign(o.uv, offXY.mul(expand).div(max(radiusPx, f32(1))))
+    o.uv.set(offXY.mul(expand).div(max(radiusPx, f32(1))))
   })
-  assign(o.feat_id, fid)
-  assign(o.radius_px, radiusPx)
-  assign(o.cos_c, pointCosC(absLon, absLat))
-  assign(o.rim_a, pointRimAlpha(absLon, absLat))
+  o.feat_id.set(fid)
+  o.radius_px.set(radiusPx)
+  o.cos_c.set(pointCosC(absLon, absLat))
+  o.rim_a.set(pointRimAlpha(absLon, absLat))
   return out
 }, { stage: 'vertex' })
 
@@ -438,7 +438,7 @@ const fs = fn('fs_point', { in: PointOut.type }, PointFragmentOutput.type, (p) =
   // Fill (bit 0).
   If(flags.bitAnd(u32(1)).ne(0), () => {
     const fillAlpha = Let(f32(1).sub(smoothstep(f32(1).sub(halfBand), f32(1).add(halfBand), dist)))
-    assign(color, vec4(fillColor.rgb, fillColor.a.mul(fillAlpha)))
+    color.set(vec4(fillColor.rgb, fillColor.a.mul(fillAlpha)))
   })
 
   // Stroke (bit 1).
@@ -448,17 +448,17 @@ const fs = fn('fs_point', { in: PointOut.type }, PointFragmentOutput.type, (p) =
       smoothstep(inner.sub(aa), inner.add(aa), dist)
         .mul(f32(1).sub(smoothstep(f32(1).sub(halfBand), f32(1).add(halfBand), dist))),
     )
-    assign(color, mix(color, vec4(strokeColor.rgb, strokeColor.a), strokeAlpha))
+    color.set(mix(color, vec4(strokeColor.rgb, strokeColor.a), strokeAlpha))
   })
 
   // Glow (bit 2).
   If(flags.bitAnd(u32(4)).ne(0), () => {
     const glow = Let(exp(dist.mul(dist).mul(-2)).mul(0.4))
-    assignOp(color, '+', vec4(fillColor.rgb.mul(glow), glow))
+    color.set(color.add(vec4(fillColor.rgb.mul(glow), glow)))
   })
 
   // Rim fade — flat / cylindrical projections receive rim_a=1.0.
-  assignOp(color.a, '*', pin.rim_a)
+  color.a.set(color.a.mul(pin.rim_a))
   If(color.a.lt(0.005), () => { Discard() })
   return PointFragmentOutput.construct({
     color,

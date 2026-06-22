@@ -6,7 +6,7 @@
 
 import { type ShaderType, type KeyOf, type ScalarKey } from './types'
 import type { Stmt, Expr, BinOp, FuncDecl, ModuleDecl } from './nodes'
-import { Node, type ArithArg, type NodeLike, lift, f32, i32, u32, callFn } from './node'
+import { Node, type ArithArg, type NodeLike, lift, f32, i32, u32, callFn, installStmtSink } from './node'
 
 export type ParamSpec = Record<string, ShaderType>
 /** An entry-point param carrying a stage attribute — `builtin('vertex_index', u32T)` /
@@ -190,6 +190,12 @@ function withScope<T>(b: Builder, run: () => T): T {
   scopeStack.push(b)
   try { return run() } finally { scopeStack.pop() }
 }
+
+// Wire the Node lvalue method (`x.set(v)`) to the current scope — installed here so node.ts stays free
+// of a builder import.
+installStmtSink({
+  assign: (target, value) => currentBuilder().assign(target, value),
+})
 
 function subBody(parent: Builder, fn: (b: Builder) => Node | void): Stmt[] {
   // child() shares the parent's auto-name counter, so an omitted binding name inside this

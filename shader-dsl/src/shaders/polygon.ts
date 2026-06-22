@@ -23,7 +23,7 @@
 
 import {
   fn, module, constRef, callFn,
-  Let, Var, If, Return, assign, Discard,
+  Let, Var, If, Return, Discard,
   f32, u32, vec2, vec2u, vec3, vec4, toF32, toU32, transformMat4, clamp, select,
   abs, fract, max, min, mix, pow, sqrt, dot, log, tan, floor, textureSample, unpack4x8unorm,
   f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, vec4uT, mat4x4fT, texture2dfT, samplerT,
@@ -276,7 +276,7 @@ const emitPolygonProjectionLadder = (
       // the absolute-degree project() path below (~1.35 m at |lon|≈127° → the
       // ~10 px fill/outline split at deep over-zoom this fixes).
       const relLocal = localMerc.sub(U.field.cam_h).sub(U.field.cam_l)
-      assign(clip, transformMat4(mvp, vec4(relLocal.x, relLocal.y, zPlane, f32(1))))
+      clip.set(transformMat4(mvp, vec4(relLocal.x, relLocal.y, zPlane, f32(1))))
       return
     }
     const p2d = project(absLon, absLat, projParamsV)
@@ -300,7 +300,7 @@ const emitPolygonProjectionLadder = (
         .div(deg2rad.mul(earthR))
     const wo = floor(tileRefLon.add(180).div(360))
     const worldOffM = wo.mul(2).mul(pi).mul(earthR)
-    assign(clip, transformMat4(mvp, vec4(rel2d.x.add(worldOffM), rel2d.y, zPlane, f32(1))))
+    clip.set(transformMat4(mvp, vec4(rel2d.x.add(worldOffM), rel2d.y, zPlane, f32(1))))
   }).elif(projParamsV.x.lt(6.5), () => {
     const tileRefLon =
       U.field.tile_origin_merc.x
@@ -310,7 +310,7 @@ const emitPolygonProjectionLadder = (
     // polar caps to the 85.05 ring. Extruded VS → absLat (discLat undefined).
     const relG = flat_rel(absLon, discLat ?? absLat, projParamsV, tileRefLon)
     const zG = extruded ? wallHeight!.mul(isTop!) : f32(0)
-    assign(clip, transformMat4(mvp, vec4(relG.x, relG.y, zG, f32(1))))
+    clip.set(transformMat4(mvp, vec4(relG.x, relG.y, zG, f32(1))))
   }).else(() => {
     // 3D ECEF: recentre ecef_rtc (= vertex − tileEcefCenter) by
     // (tileEcefCenter − cameraCenter), hi + lo, so the camera-at-ENU-origin
@@ -324,7 +324,7 @@ const emitPolygonProjectionLadder = (
     const camOffL = U.field.cam_ecef_off_l
     const ecefCam =
       ecefRtc.add(vec3(camOffH.x, camOffH.y, camOffH.z)).add(vec3(camOffL.x, camOffL.y, camOffL.z))
-    assign(clip, transformMat4(mvp, vec4(ecefCam, f32(1))))
+    clip.set(transformMat4(mvp, vec4(ecefCam, f32(1))))
   })
 }
 
@@ -375,8 +375,8 @@ const vsMain = fn(
     emitPolygonProjectionLadder({ projParamsV, mvp, absLon: p.abs_lon, absLat: p.abs_lat, ecefRtc, clip, extruded: false })
     // Mapbox fill-translate viewport-anchor — runtime pre-bakes
     // (px*2/canvasDim) so the shader just multiplies by clip.w.
-    assign(clip.x, clip.x.add(fillTx.mul(clip.w)))
-    assign(clip.y, clip.y.sub(fillTy.mul(clip.w)))
+    clip.x.set(clip.x.add(fillTx.mul(clip.w)))
+    clip.y.set(clip.y.sub(fillTy.mul(clip.w)))
     // Log-depth rewrite + per-layer NDC-z bias (z = z − offset·w, computed inline).
     const pos0 = apply_log_depth(clip, logDepthFc)
     return VertexOutputIO.construct({
@@ -499,8 +499,8 @@ const vsMainEcef = fn(
     })
     // Mapbox fill-translate viewport-anchor — runtime pre-bakes
     // (px*2/canvasDim) so the shader just multiplies by clip.w.
-    assign(clip.x, clip.x.add(fillTx.mul(clip.w)))
-    assign(clip.y, clip.y.sub(fillTy.mul(clip.w)))
+    clip.x.set(clip.x.add(fillTx.mul(clip.w)))
+    clip.y.set(clip.y.sub(fillTy.mul(clip.w)))
     // Log-depth rewrite + per-layer NDC-z bias (z = z − offset·w, computed inline).
     const pos0 = apply_log_depth(clip, logDepthFc)
     return VertexOutputIO.construct({
@@ -592,8 +592,8 @@ const vsMainEcefExtruded = fn(
       projParamsV, mvp, absLon: p.abs_lon, absLat: p.abs_lat, ecefRtc, clip,
       extruded: true, isTop: p.is_top, wallHeight: p.wall_height,
     })
-    assign(clip.x, clip.x.add(fillTx.mul(clip.w)))
-    assign(clip.y, clip.y.sub(fillTy.mul(clip.w)))
+    clip.x.set(clip.x.add(fillTx.mul(clip.w)))
+    clip.y.set(clip.y.sub(fillTy.mul(clip.w)))
     // Log-depth rewrite + per-layer NDC-z bias (z = z − offset·w, computed inline).
     const pos0 = apply_log_depth(clip, logDepthFc)
 
@@ -619,7 +619,7 @@ const vsMainEcefExtruded = fn(
     const lightIntensity = U.field.light_dir_ecef.w
     const lightColor = unpack4x8unorm(U.field.light_color_packed).swizzle<'vec3<f32>'>('xyz')
     const directional = clamp(dot(p.face_normal, lightPos), f32(0), f32(1))
-    assign(directional, mix(
+    directional.set(mix(
       f32(1).sub(lightIntensity),
       max(f32(1).sub(colorValue).add(lightIntensity), f32(1)),
       directional,
@@ -641,7 +641,7 @@ const vsMainEcefExtruded = fn(
         mix(f32(0.7), f32(0.98), f32(1).sub(lightIntensity)),
         f32(1),
       )
-      assign(directional, directional.mul(vgrad))
+      directional.set(directional.mul(vgrad))
     })
     const shadedRgb = Let(
       clamp(litColorRgb.mul(directional).mul(lightColor), vec3(f32(0)), vec3(f32(1))),
@@ -712,7 +712,7 @@ const emitLogDepthJitter = (input: Node, out: Node): void => {
     toF32(mixed).sub(512).mul(1.5e-8),
     f32(0),
   )
-  assign(polygonFragmentOutput(false).of(out).depth, baseDepth.add(jitter))
+  polygonFragmentOutput(false).of(out).depth.set(baseDepth.add(jitter))
 }
 
 // Pick attachment write (RG32Uint) — only emits when pickEnabled. The readback
@@ -725,7 +725,7 @@ const emitLogDepthJitter = (input: Node, out: Node): void => {
 const emitPickWrite = (input: Node, out: Node, pickEnabled: boolean): void => {
   if (!pickEnabled) return
   const i = VertexOutputIO.of(input)
-  assign(polygonFragmentOutput(pickEnabled).of(out).pick, vec2u(i.feat_id, U.field.pick_id))
+  polygonFragmentOutput(pickEnabled).of(out).pick.set(vec2u(i.feat_id, U.field.pick_id))
 }
 
 // ── Fragment entries ──
@@ -776,7 +776,7 @@ const buildFsFill = (pickEnabled: boolean) =>
       If(U.field.cam_ecef_off_h.w.ne(0), () => {
         const rimA = callFn('polygon_rim_alpha', f32T, i.abs_merc_x, i.abs_merc_y)
         const o = polygonFragmentOutput(pickEnabled).of(out)
-        assign(o.color.a, o.color.a.mul(rimA))
+        o.color.a.set(o.color.a.mul(rimA))
       })
       emitPickWrite(input, out, pickEnabled)
       emitLogDepthJitter(input, out)
@@ -819,9 +819,9 @@ const buildFsFillPattern = (pickEnabled: boolean) =>
       const sampled = textureSample(spriteAtlas, spriteSamp, atlasUv)
       // Layer opacity multiplies sprite alpha so fill-opacity still works.
       const o = polygonFragmentOutput(pickEnabled).of(out)
-      assign(o.color, vec4(sampled.rgb, sampled.a.mul(U.field.opacity)))
+      o.color.set(vec4(sampled.rgb, sampled.a.mul(U.field.opacity)))
       const rimA = callFn('polygon_rim_alpha', f32T, i.abs_merc_x, i.abs_merc_y)
-      assign(o.color.a, o.color.a.mul(rimA))
+      o.color.a.set(o.color.a.mul(rimA))
       emitPickWrite(input, out, pickEnabled)
       emitLogDepthJitter(input, out)
       Return(out)
@@ -897,7 +897,7 @@ const buildFsFillExtrude = (pickEnabled: boolean) =>
       // and alpha by the rim factor so the building still fades at sphere
       // edges on globe / azimuthal projections.
       const rim = callFn('polygon_rim_alpha', f32T, i.abs_merc_x, i.abs_merc_y)
-      assign(polygonFragmentOutput(pickEnabled).of(out).color, i.v_color.mul(rim))
+      polygonFragmentOutput(pickEnabled).of(out).color.set(i.v_color.mul(rim))
       emitPickWrite(input, out, pickEnabled)
       emitLogDepthJitter(input, out)
       Return(out)
@@ -935,10 +935,10 @@ const buildFsStroke = (pickEnabled: boolean) =>
       b.placeholder('stroke-return')
       const rimA = callFn('polygon_rim_alpha', f32T, i.abs_merc_x, i.abs_merc_y)
       const o = polygonFragmentOutput(pickEnabled).of(out)
-      assign(o.color.a, o.color.a.mul(rimA))
+      o.color.a.set(o.color.a.mul(rimA))
       emitPickWrite(input, out, pickEnabled)
       // Stroke depth: bare log-depth, no per-feature jitter.
-      assign(o.depth, compute_log_frag_depth(i.view_w, U.field.log_depth_fc))
+      o.depth.set(compute_log_frag_depth(i.view_w, U.field.log_depth_fc))
       Return(out)
     },
     { stage: 'fragment' },

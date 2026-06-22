@@ -24,7 +24,7 @@
 
 import {
   module, callFn, fn,
-  Var, assign, If,
+  Var, If,
   f32, u32, vec2, vec4, toF32, toI32, clamp,
   textureLoad, textureSample, textureDimensions, vec2i,
   f32T, u32T, vec2fT, vec4fT, texture2dfT, samplerT,
@@ -52,18 +52,16 @@ const vsFull = fn(
   'vs_full', { idx: builtin('vertex_index', u32T) }, VsOut.type,
   (p, _b) => {
     const pos = Var(vec2(f32(-1), f32(-1)))
-    If(p.idx.eq(1), () => { assign(pos, vec2(f32(3), f32(-1))) })
-      .elif(p.idx.eq(2), () => { assign(pos, vec2(f32(-1), f32(3))) })
+    If(p.idx.eq(1), () => { pos.set(vec2(f32(3), f32(-1))) })
+      .elif(p.idx.eq(2), () => { pos.set(vec2(f32(-1), f32(3))) })
     const out = Var(VsOut.type)
     const o = VsOut.of(out)
-    assign(o.pos, vec4(pos, f32(0), f32(1)))
+    o.pos.set(vec4(pos, f32(0), f32(1)))
     // y-flip — texture origin top-left, NDC origin bottom-left.
-    assign(o.uv,
-      vec2(
+    o.uv.set(vec2(
         pos.x.add(1).mul(0.5),
         f32(1).sub(pos.y.add(1).mul(0.5)),
-      ),
-    )
+      ))
     return out
   },
   { stage: 'vertex' },

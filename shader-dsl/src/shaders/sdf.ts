@@ -12,8 +12,7 @@ import {
   fn, module, f32, i32, u32, vec2,
   f32T, i32T, u32T, vec2fT,
   clamp, min, max, length, dot, mix, toF32, select,
-  Loop, reduce, If, Switch, Return, assign, addAssign,
-  type FuncDecl, type ModuleDecl,
+  Loop, reduce, If, Switch, Return, type FuncDecl, type ModuleDecl,
 } from '../core/ir'
 import { structDecl, storageBuffer } from '../core/sot'
 import { emitFuncsCsed, emitStruct } from '../core/backends/wgsl'
@@ -101,16 +100,16 @@ const sdf_shape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, ({ uv
     const seg = segmentsB.at(i)
     Switch(seg.kind)
       .case(0, () => {
-        assign(min_dist, min(min_dist, dist_to_segment(uv, seg.p0, seg.p1)))
-        addAssign(winding, winding_line(uv, seg.p0, seg.p1))
+        min_dist.set(min(min_dist, dist_to_segment(uv, seg.p0, seg.p1)))
+        winding.set(winding.add(winding_line(uv, seg.p0, seg.p1)))
       })
       .case(1, () => {
-        assign(min_dist, min(min_dist, dist_to_quadratic(uv, seg.p0, seg.p1, seg.p2)))
-        addAssign(winding, winding_line(uv, seg.p0, seg.p2))
+        min_dist.set(min(min_dist, dist_to_quadratic(uv, seg.p0, seg.p1, seg.p2)))
+        winding.set(winding.add(winding_line(uv, seg.p0, seg.p2)))
       })
       .case(2, () => {
-        assign(min_dist, min(min_dist, dist_to_cubic(uv, seg.p0, seg.p1, seg.p2, seg.p3)))
-        addAssign(winding, winding_line(uv, seg.p0, seg.p3))
+        min_dist.set(min(min_dist, dist_to_cubic(uv, seg.p0, seg.p1, seg.p2, seg.p3)))
+        winding.set(winding.add(winding_line(uv, seg.p0, seg.p3)))
       })
       .default(() => { /* default: {} */ })
   }, u32(1))

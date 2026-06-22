@@ -14,8 +14,7 @@ import {
   fn, module, vec4, f32, pack4x8unorm,
   f32T, u32T, vec4fT, vec4uT, voidT, vec3uT,
   type ModuleDecl,
-  If, Var, Return, assign,
-} from '../core/ir'
+  If, Var, Return, } from '../core/ir'
 import { storageBuffer, resource, builtin } from '../core/sot'
 
 export interface MatchArm { pattern: string; colorHex: string }
@@ -72,16 +71,16 @@ export function matchComputeKernel(spec: MatchKernelSpec): ModuleDecl {
 
     // Parameterized if-else ladder — one arm per sorted pattern.
     const chain = If(v.eq(0), () => {
-      assign(color, colorVec(armByPattern.get(sortedPatterns[0]!)!.colorHex))
+      color.set(colorVec(armByPattern.get(sortedPatterns[0]!)!.colorHex))
     })
     for (let i = 1; i < sortedPatterns.length; i++) {
       chain.elif(v.eq(f32(i)), () => {
-        assign(color, colorVec(armByPattern.get(sortedPatterns[i]!)!.colorHex))
+        color.set(colorVec(armByPattern.get(sortedPatterns[i]!)!.colorHex))
       })
     }
-    chain.else(() => { assign(color, colorVec(spec.defaultColorHex)) })
+    chain.else(() => { color.set(colorVec(spec.defaultColorHex)) })
 
-    assign(outColor.at(fid, u32T), pack4x8unorm(color))
+    outColor.at(fid, u32T).set(pack4x8unorm(color))
   }, { stage: 'compute', workgroupSize: COMPUTE_WORKGROUP_SIZE })
 
   return module({
