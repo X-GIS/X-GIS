@@ -95,7 +95,7 @@ const sdf_shape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, ({ uv
   // later assign/addAssign and materialises each as a WGSL `var`.
   const min_dist = f32(1e10)
   const winding = i32(0)
-  const end = min(s.seg_start.add(s.seg_count), s.seg_start.add(u32(32)))
+  const end = min(s.seg_start.add(s.seg_count), s.seg_start.add(32))
 
   Loop(s.seg_start, (i) => i.lt(end), (i) => {
     const seg = segmentsB.at(i)
@@ -115,7 +115,7 @@ const sdf_shape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, ({ uv
     ], () => { /* default: {} */ })
   }, u32(1))
 
-  If(winding.ne(i32(0)), () => { Return(f32(1).sub(min_dist)) })
+  If(winding.ne(0), () => { Return(f32(1).sub(min_dist)) })
   Return(f32(1).add(min_dist))
 }, { allowEarlyReturn: true }) // MISRA single-exit DEVIATION — the out-of-bbox guard skips a 32-iter segment loop (perf)
 

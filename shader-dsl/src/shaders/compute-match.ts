@@ -71,7 +71,7 @@ export function matchComputeKernel(spec: MatchKernelSpec): ModuleDecl {
     const color = Var(vec4fT)
 
     // Parameterized if-else ladder — one arm per sorted pattern.
-    const chain = If(v.eq(f32(0)), () => {
+    const chain = If(v.eq(0), () => {
       assign(color, colorVec(armByPattern.get(sortedPatterns[0]!)!.colorHex))
     })
     for (let i = 1; i < sortedPatterns.length; i++) {

@@ -69,15 +69,21 @@ export class Node<K extends string = string> {
   constructor(readonly expr: Expr) {}
   get type(): ShaderType { return this.expr.type }
 
-  private bin(bop: BinOp, o: NodeLike): Node {
+  /** Typed lift of a bare-number operand against THIS node's scalar context: a number against a
+   *  u32/i32 scalar LHS lifts to that scalar (`u32node.add(1)` → `+ 1u`, not naga-invalid `+ 1.0`);
+   *  a vec LHS (or any f32-dominant geometry/projection math) keeps the f32 lift (WGSL broadcasts
+   *  `vec + scalar`). So the author drops the `f32()`/`u32()`/`i32()` wrapper in every arithmetic,
+   *  comparison, and bitwise op — the context types the literal. */
+  private liftArg(o: NodeLike): Node {
     const t = this.type
-    // Typed lift: a bare number against a u32/i32 scalar LHS lifts to that
-    // scalar (so `u32node.add(1)` emits `+ 1u`, not naga-invalid `+ 1.0`);
-    // every other LHS (the f32-dominant projection/geometry math) keeps the
-    // f32 lift. Mirrors the bitwise path (bitBin).
-    const b = (typeof o === 'number' && t.kind === 'scalar' && (t.scalar === 'u32' || t.scalar === 'i32'))
-      ? (t.scalar === 'u32' ? u32(o) : i32(o))
-      : lift(o)
+    if (typeof o === 'number' && t.kind === 'scalar' && (t.scalar === 'u32' || t.scalar === 'i32')) {
+      return t.scalar === 'u32' ? u32(o) : i32(o)
+    }
+    return lift(o)
+  }
+
+  private bin(bop: BinOp, o: NodeLike): Node {
+    const b = this.liftArg(o)
     return new Node({ op: 'binop', type: binResultType(this.type, b.type, bop), bop, a: this.expr, b: b.expr })
   }
   add(o: ArithArg<K>): Node<K> { return this.bin('+', o) as Node<K> }
@@ -88,7 +94,7 @@ export class Node<K extends string = string> {
   neg(): Node<K> { return new Node<K>({ op: 'unop', type: this.type, a: this.expr }) }
 
   private cmp(cop: CmpOp, o: NodeLike): Node<'bool'> {
-    return new Node<'bool'>({ op: 'compare', type: boolT, cop, a: this.expr, b: lift(o).expr })
+    return new Node<'bool'>({ op: 'compare', type: boolT, cop, a: this.expr, b: this.liftArg(o).expr })
   }
   lt(o: Node<ScalarKey> | number): Node<'bool'> { return this.cmp('<', o) }
   gt(o: Node<ScalarKey> | number): Node<'bool'> { return this.cmp('>', o) }

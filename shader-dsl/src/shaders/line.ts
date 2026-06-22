@@ -256,9 +256,9 @@ const endpointCosC = fn('endpoint_cos_c', { p_h: vec2fT, p_l: vec2fT }, f32T, (p
 
 const patternUnitToM = fn('pattern_unit_to_m', { v: f32T, unit: u32T, mpp: f32T }, f32T, (p) => {
   // single-exit, 0=m 1=px 2=km 3=nm — nested select from the default (nm) up.
-  const km = select(p.unit.eq(u32(2)), p.v.mul(1000), p.v.mul(1852))
-  const px = select(p.unit.eq(u32(1)), p.v.mul(p.mpp), km)
-  return select(p.unit.eq(u32(0)), p.v, px)
+  const km = select(p.unit.eq(2), p.v.mul(1000), p.v.mul(1852))
+  const px = select(p.unit.eq(1), p.v.mul(p.mpp), km)
+  return select(p.unit.eq(0), p.v, px)
 })
 
 // Inlined SDF shape sampler — uses our `shape_segments` (binding 3) instead
@@ -279,7 +279,7 @@ const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (p) =>
   const winding = i32(0)
   const segStart = so.seg_start
   const segCount = so.seg_count
-  const end = min(segStart.add(segCount), segStart.add(u32(32)))
+  const end = min(segStart.add(segCount), segStart.add(32))
   Loop(segStart, (i) => i.lt(end), (i) => {
     const sseg = shapeSegmentsB.at(i)
     const p0 = sseg.p0
@@ -301,7 +301,7 @@ const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (p) =>
       }],
     ], () => { /* default: empty */ })
   })
-  ReturnIf(winding.ne(i32(0)), f32(1).sub(minDist))
+  ReturnIf(winding.ne(0), f32(1).sub(minDist))
   return f32(1).add(minDist)
 }, { allowEarlyReturn: true }) // MISRA single-exit DEVIATION — the out-of-bbox guard skips a 32-iter segment loop (perf)
 
@@ -393,10 +393,10 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
 
   // Early-discard guard: outside the body AND inside segment range.
   const patExtentFs = f32(0)
-  If(layerFlags.bitAnd(u32(64)).ne(u32(0)), () => {
-    Loop(u32(0), (pk) => pk.lt(u32(3)), (pk) => {
+  If(layerFlags.bitAnd(u32(64)).ne(0), () => {
+    Loop(u32(0), (pk) => pk.lt(3), (pk) => {
       const patFs = PatternSlot.of(LAYER.field.patterns.at(pk, PatternSlot.type))
-      If(patFs.id.eq(u32(0)), () => { Continue() })
+      If(patFs.id.eq(0), () => { Continue() })
       const szUnit = patFs.flags.shr(u32(2)).bitAnd(u32(3))
       const ofUnit = patFs.flags.shr(u32(4)).bitAnd(u32(3))
       const sizeM = patternUnitToM(patFs.size, szUnit, layerMpp)
@@ -429,8 +429,8 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
   // A positive value scales the fold threshold by round_limit / 1.05,
   // so the spec default 1.05 also reproduces JOIN_ACUTE_BIS (1.05/1.05=1).
   const layerRoundLimit = LAYER.field.round_limit
-  const acuteFoldBis = select(layerRoundLimit.gt(f32(0)),
-      f32(JOIN_ACUTE_BIS).mul(layerRoundLimit.div(f32(1.05))),
+  const acuteFoldBis = select(layerRoundLimit.gt(0),
+      f32(JOIN_ACUTE_BIS).mul(layerRoundLimit.div(1.05)),
       f32(JOIN_ACUTE_BIS))
 
   // ── Bisector clip + bevel-edge clip at p0 ──
@@ -448,7 +448,7 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
     // 1/cos(θ/2) > limit ⇒ bisMag = 2cos(θ/2) < 2/limit (#432; was sin, wrong).
     const bisMagP0 = Let(length(prevTan.add(dir)))
     const miterOverP0 = bisMagP0.lt(f32(2).div(max(layerMiterLimit, f32(1e-4))))
-    const applyBevelP0 = joinFlags.eq(u32(2)).or(joinFlags.eq(u32(0)).and(miterOverP0))
+    const applyBevelP0 = joinFlags.eq(2).or(joinFlags.eq(0).and(miterOverP0))
     If(applyBevelP0, () => {
       const prevNrm = vec2(prevTan.y.neg(), prevTan.x)
       const crossP0 = Let(prevTan.x.mul(dir.y).sub(prevTan.y.mul(dir.x)))
@@ -482,7 +482,7 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
     // Bevel when miter ratio 1/cos(θ/2) > limit ⇒ bisMag < 2/limit (#432).
     const bisMagP1 = Let(length(dir.add(nextTan)))
     const miterOverP1 = bisMagP1.lt(f32(2).div(max(layerMiterLimit, f32(1e-4))))
-    const applyBevelP1 = joinFlags.eq(u32(2)).or(joinFlags.eq(u32(0)).and(miterOverP1))
+    const applyBevelP1 = joinFlags.eq(2).or(joinFlags.eq(0).and(miterOverP1))
     If(applyBevelP1, () => {
       const nextNrmBv = vec2(nextTan.y.neg(), nextTan.x)
       const crossP1 = Let(dir.x.mul(nextTan.y).sub(dir.y.mul(nextTan.x)))
@@ -510,9 +510,9 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
 
   If(noPrev, () => {
     // CAP_BUTT
-    If(capType.eq(u32(0)), () => { assign(dM, max(dM, distP0)) })
-      .elif(capType.eq(u32(2)), () => { assign(dM, max(dM, distP0.sub(halfWm))) })
-      .elif(capType.eq(u32(3)), () => {
+    If(capType.eq(0), () => { assign(dM, max(dM, distP0)) })
+      .elif(capType.eq(2), () => { assign(dM, max(dM, distP0.sub(halfWm))) })
+      .elif(capType.eq(3), () => {
         // CAP_ARROW: analytical tapered half-width.
         If(distP0.gt(0), () => {
           const t = clamp(distP0.div(arrowL), 0, 1)
@@ -528,7 +528,7 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
   }).else(() => {
     // JOIN at p0 — round-join overlay; gated by forward bisector.
     const joinType = layerFlags.shr(u32(3)).bitAnd(u32(3))
-    If(joinType.eq(u32(1)).and(distP0.gt(0)), () => {
+    If(joinType.eq(1).and(distP0.gt(0)), () => {
       const bisP0j = Let(prevTan.add(dir))
       const bisLenJ = length(bisP0j)
       // Acute fold → full round point (ML parity); moderate bends keep the
@@ -559,9 +559,9 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
 
   // ── Handle p1 end (cap or join) — symmetric ──
   If(noNext, () => {
-    If(capType.eq(u32(0)), () => { assign(dM, max(dM, distP1)) })
-      .elif(capType.eq(u32(2)), () => { assign(dM, max(dM, distP1.sub(halfWm))) })
-      .elif(capType.eq(u32(3)), () => {
+    If(capType.eq(0), () => { assign(dM, max(dM, distP1)) })
+      .elif(capType.eq(2), () => { assign(dM, max(dM, distP1.sub(halfWm))) })
+      .elif(capType.eq(3), () => {
         If(distP1.gt(0), () => {
           const t = clamp(distP1.div(arrowL), 0, 1)
           const newW = halfWm.mul(f32(1).sub(t))
@@ -574,7 +574,7 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
       })
   }).else(() => {
     const joinTypeP1 = layerFlags.shr(u32(3)).bitAnd(u32(3))
-    If(joinTypeP1.eq(u32(1)).and(distP1.gt(0)), () => {
+    If(joinTypeP1.eq(1).and(distP1.gt(0)), () => {
       const bisP1j = Let(dir.add(nextTan))
       const bisLenJ = length(bisP1j)
       const acuteFoldP1 = bisLenJ.le(acuteFoldBis) // #413, mirrors p0; threshold scaled by line-round-limit
@@ -615,8 +615,8 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
   const dashCount = LAYER.field.dash_count
   const dashCycleM = LAYER.field.dash_cycle_m
   const dashOffsetM = LAYER.field.dash_offset_m
-  const dashEnabled = layerFlags.shr(u32(5)).bitAnd(u32(1)).eq(u32(1))
-      .and(dashCount.gt(u32(0)))
+  const dashEnabled = layerFlags.shr(u32(5)).bitAnd(u32(1)).eq(1)
+      .and(dashCount.gt(0))
       .and(dashCycleM.gt(1e-6))
       .and(notInCap)
   If(dashEnabled, () => {
@@ -625,16 +625,16 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
     const acc = f32(0)
     const visible = f32(0) // 0=hidden, 1=visible — bool via f32
     Loop(u32(0), (i) => i.lt(dashCount), (i) => {
-      const idx = i.div(u32(4))
-      const sub = i.mod(u32(4))
+      const idx = i.div(4)
+      const sub = i.mod(4)
       const segV = LAYER.field.dash_array.at(idx, vec4fT)
       const lenV = f32(0)
-      If(sub.eq(u32(0)), () => { assign(lenV, segV.x) })
-        .elif(sub.eq(u32(1)), () => { assign(lenV, segV.y) })
-        .elif(sub.eq(u32(2)), () => { assign(lenV, segV.z) })
+      If(sub.eq(0), () => { assign(lenV, segV.x) })
+        .elif(sub.eq(1), () => { assign(lenV, segV.y) })
+        .elif(sub.eq(2), () => { assign(lenV, segV.z) })
         .else(() => { assign(lenV, segV.w) })
       If(phase.ge(acc).and(phase.lt(acc.add(lenV))), () => {
-        assign(visible, select(i.bitAnd(u32(1)).eq(u32(0)), f32(1), f32(0)))
+        assign(visible, select(i.bitAnd(u32(1)).eq(0), f32(1), f32(0)))
         Break()
       })
       assign(acc, acc.add(lenV))
@@ -644,10 +644,10 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
 
   // ── Pattern stack ──
   const patDm = f32(1e10)
-  If(layerFlags.bitAnd(u32(64)).ne(u32(0)), () => {
-    Loop(u32(0), (k) => k.lt(u32(3)), (k) => {
+  If(layerFlags.bitAnd(u32(64)).ne(0), () => {
+    Loop(u32(0), (k) => k.lt(3), (k) => {
       const pat = PatternSlot.of(LAYER.field.patterns.at(k, PatternSlot.type))
-      If(pat.id.eq(u32(0)), () => { Continue() })
+      If(pat.id.eq(0), () => { Continue() })
 
       const patF = pat.flags
       const spUnit = patF.bitAnd(u32(3))
@@ -664,10 +664,10 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
       // Continue/assign route to the innermost scope, so no cb/d/cb2/e param
       // threading; the composite helpers (madd / outsideRange) name the arithmetic.
       // Emits byte-identically to the old passed-builder form (verified).
-      If(anchor.eq(u32(0)), () => {
+      If(anchor.eq(0), () => {
         // PAT_ANCHOR_REPEAT — sample nearest instance + both neighbours.
         const kCenter = floor(arcPos.sub(startM).div(spacingM).add(0.5))
-        Loop(i32(-1), (idk) => idk.le(i32(1)), (dk) => {
+        Loop(i32(-1), (idk) => idk.le(1), (dk) => {
           const centerArcK = madd(kCenter.add(toF32(dk)), spacingM, startM)
           const arcOnSegK = centerArcK.sub(sego.arc_start)
           If(outsideRange(arcOnSegK, halfS.mul(-2), segLen.add(halfS.mul(2))), () => Continue())
@@ -677,7 +677,7 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
             dot(segP.sub(centerWorldK), nrmFs).sub(offM).div(halfS),
           ))
           If(abs(localK.x).gt(1.2).or(abs(localK.y).gt(1.2)), () => Continue())
-          const shapeVK = sdfShape(localK, pat.id.sub(u32(1)))
+          const shapeVK = sdfShape(localK, pat.id.sub(1))
           const pdK = shapeVK.sub(1).mul(halfS)
           assign(patDm, min(patDm, pdK))
         })
@@ -691,8 +691,8 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
       // START / END / CENTER — single instance.
       const lineLength = sego.line_length
       const centerArc = condExpr([
-        [anchor.eq(u32(1)), () => startM],
-        [anchor.eq(u32(2)), () => lineLength.sub(startM)],
+        [anchor.eq(1), () => startM],
+        [anchor.eq(2), () => lineLength.sub(startM)],
       ], () => lineLength.mul(0.5))
 
       const arcOnSeg = Let(centerArc.sub(sego.arc_start))
@@ -704,7 +704,7 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
       ))
       If(abs(localUv.x).gt(1.2).or(abs(localUv.y).gt(1.2)), () => Continue())
 
-      const shapeV = sdfShape(localUv, pat.id.sub(u32(1)))
+      const shapeV = sdfShape(localUv, pat.id.sub(1))
       const pd = shapeV.sub(1).mul(halfS)
       assign(patDm, min(patDm, pd))
     })
@@ -768,10 +768,10 @@ const vsLine = fn('vs_line', {
 
   // Pattern extent scan.
   const patExtentM = f32(0)
-  If(layerFlags.bitAnd(u32(64)).ne(u32(0)), () => {
-    Loop(u32(0), (pk) => pk.lt(u32(3)), (pk) => {
+  If(layerFlags.bitAnd(u32(64)).ne(0), () => {
+    Loop(u32(0), (pk) => pk.lt(3), (pk) => {
       const pat = PatternSlot.of(LAYER.field.patterns.at(pk, PatternSlot.type))
-      If(pat.id.eq(u32(0)), () => { Continue() })
+      If(pat.id.eq(0), () => { Continue() })
       const szUnit = pat.flags.shr(u32(2)).bitAnd(u32(3))
       const offUnit = pat.flags.shr(u32(4)).bitAnd(u32(3))
       const sizeM = patternUnitToM(pat.size, szUnit, layerMpp)
@@ -786,7 +786,7 @@ const vsLine = fn('vs_line', {
   const acrossM = max(halfWm, patExtentM)
   assign(padP0m, max(padP0m, patExtentM))
   assign(padP1m, max(padP1m, patExtentM))
-  If(capTypeVs.eq(u32(3)), () => {
+  If(capTypeVs.eq(3), () => {
     If(length(sego.prev_tangent).lt(0.001), () => {
       assign(padP0m, max(padP0m, arrowLen))
     })
@@ -831,7 +831,7 @@ const vsLine = fn('vs_line', {
     const endpointPad = max(basePad, padRatio.mul(offsetExtentM))
     const joinTypeVs = layerFlags.shr(u32(3)).bitAnd(u32(3))
     const joinPad = halfWm.add(abs(layerOffsetM).mul(padRatio))
-    If(joinTypeVs.eq(u32(0)), () => { assign(joinPad, endpointPad) })
+    If(joinTypeVs.eq(0), () => { assign(joinPad, endpointPad) })
     assign(joinPad, joinPad.add(f32(0.5).mul(layerMpp)))
     const alongPad = Let(max(halfWside, joinPad))
     assign(offset, offset.add(dir.mul(along).mul(alongPad).mul(acrossScale)))
@@ -889,7 +889,7 @@ const vsLine = fn('vs_line', {
     height: FNode = f32(0),
   ): Node<'vec3<f32>'> => {
     const lonRad = toF32(absMercX.div(earthR))
-    const latRad = toF32(f32(2).mul(atan(exp(absMercY.div(earthR)))).sub(pi.div(f32(2))))
+    const latRad = toF32(f32(2).mul(atan(exp(absMercY.div(earthR)))).sub(pi.div(2)))
     return lonlatToEcef(lonRad, latRad, height) as Node<'vec3<f32>'>
   }
 
@@ -1005,7 +1005,7 @@ const vsLine = fn('vs_line', {
   // translated fill (OFM building-top roof) — MapLibre parity. Standalone lines
   // write 0 → no-op; the <0.25 guard skips the pattern-repeat-metres overload.
   const fillT = TILE.field._pad_tail0
-  If(fillT.z.mul(fillT.z).add(fillT.w.mul(fillT.w)).lt(f32(0.25)), () => {
+  If(fillT.z.mul(fillT.z).add(fillT.w.mul(fillT.w)).lt(0.25), () => {
     assign(clip.x, clip.x.add(fillT.z.mul(clip.w)))
     assign(clip.y, clip.y.sub(fillT.w.mul(clip.w)))
   })
@@ -1014,7 +1014,7 @@ const vsLine = fn('vs_line', {
   // Default 0 → no-op; non-zero shifts the entire line layer in screen space.
   const ltx = LAYER.field.line_translate_x
   const lty = LAYER.field.line_translate_y
-  If(ltx.mul(ltx).add(lty.mul(lty)).gt(f32(0)), () => {
+  If(ltx.mul(ltx).add(lty.mul(lty)).gt(0), () => {
     assign(clip.x, clip.x.add(ltx.mul(clip.w)))
     assign(clip.y, clip.y.sub(lty.mul(clip.w)))
   })
@@ -1151,11 +1151,11 @@ const vsFull = fn('vs_full',
   (p) => {
     const pos = vec2(f32(-1), f32(-1))
     const uv = vec2(f32(0), f32(1))
-    If(p.vi.eq(u32(1)), () => {
+    If(p.vi.eq(1), () => {
       assign(pos, vec2(f32(3), f32(-1)))
       assign(uv, vec2(f32(2), f32(1)))
     })
-    If(p.vi.eq(u32(2)), () => {
+    If(p.vi.eq(2), () => {
       assign(pos, vec2(f32(-1), f32(3)))
       assign(uv, vec2(f32(0), f32(-1)))
     })

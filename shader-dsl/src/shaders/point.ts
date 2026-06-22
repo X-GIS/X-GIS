@@ -137,7 +137,7 @@ const distToLine = fn('dist_to_line', { p: vec2fT, a: vec2fT, b: vec2fT }, f32T,
 })
 
 const distToQuadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT }, f32T, (pp) =>
-  reduce(f32(1e10), u32(0), (i) => i.le(u32(16)), (best, i) => {
+  reduce(f32(1e10), u32(0), (i) => i.le(16), (best, i) => {
     const t = toF32(i).div(16)
     const ab = mix(pp.a, pp.b, t)
     const bc = mix(pp.b, pp.c, t)
@@ -147,7 +147,7 @@ const distToQuadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2f
 )
 
 const distToCubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT, d: vec2fT }, f32T, (pp) =>
-  reduce(f32(1e10), u32(0), (i) => i.le(u32(24)), (best, i) => {
+  reduce(f32(1e10), u32(0), (i) => i.le(24), (best, i) => {
     const t = toF32(i).div(24)
     const ab = mix(pp.a, pp.b, t)
     const bc = mix(pp.b, pp.c, t)
@@ -185,7 +185,7 @@ const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (pp) =
   const segStart = sd.seg_start
   const segCount = sd.seg_count
   // Hard-cap at 32 segments per shape (paste from original).
-  const end = min(segStart.add(segCount), segStart.add(u32(32)))
+  const end = min(segStart.add(segCount), segStart.add(32))
   Loop(segStart, (i) => i.lt(end), (i) => {
     const sg = segmentsB.at(i)
     const p0 = sg.p0
@@ -210,7 +210,7 @@ const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (pp) =
     ], () => { /* default: empty */ })
   })
   // Inside (winding != 0): dist=1 at boundary; outside: dist=1+min_dist.
-  If(winding.ne(i32(0)), () => { Return(f32(1).sub(minDist)) })
+  If(winding.ne(0), () => { Return(f32(1).sub(minDist)) })
     .else(() => { Return(f32(1).add(minDist)) })
 }, { allowEarlyReturn: true }) // MISRA single-exit DEVIATION — the AABB early-out skips a 32-segment loop (perf)
 
@@ -228,18 +228,18 @@ const vs = fn('vs_point', {
     vec2(f32(-1), f32(1)),
   )
   const fid = toU32(p.feat_id)
-  const rawRadius = featData.at(fid.mul(STRIDE).add(u32(0)), f32T)
+  const rawRadius = featData.at(fid.mul(STRIDE).add(0), f32T)
   // Pack-byte at offset 10: bit 0..3 reserved, bits 4..7 = size_mode,
   // bit 3 = is_flat, bits 8..9 = anchor_mode.
-  const packed10 = toU32(featData.at(fid.mul(STRIDE).add(u32(10)), f32T))
+  const packed10 = toU32(featData.at(fid.mul(STRIDE).add(10), f32T))
   const sizeMode = packed10.shr(u32(4)).bitAnd(u32(0xF))
   // Size mode: 0=px, 1=m, 2=km, 3=deg (equator approx), 4=nm.
   const viewport = U.field.viewport
   const radiusPx = condExpr([
-    [sizeMode.eq(u32(1)), () => rawRadius.div(viewport.z)],
-    [sizeMode.eq(u32(2)), () => rawRadius.mul(1000).div(viewport.z)],
-    [sizeMode.eq(u32(3)), () => rawRadius.mul(111320).div(viewport.z)],
-    [sizeMode.eq(u32(4)), () => rawRadius.mul(1852).div(viewport.z)],
+    [sizeMode.eq(1), () => rawRadius.div(viewport.z)],
+    [sizeMode.eq(2), () => rawRadius.mul(1000).div(viewport.z)],
+    [sizeMode.eq(3), () => rawRadius.mul(111320).div(viewport.z)],
+    [sizeMode.eq(4), () => rawRadius.mul(1852).div(viewport.z)],
   ], () => rawRadius)
 
   // Phase 2 PR 2d.2 — ECEF DSFUN per-feature centre.
@@ -248,22 +248,22 @@ const vs = fn('vs_point', {
   // the absolute lon/lat in degrees for the fragment-side hemisphere
   // cull. The single `u.mvp` slot is the ECEF-MVP (post PR 2d.5).
   const ecefH = vec3(
-    featData.at(fid.mul(STRIDE).add(u32(11)), f32T),
-    featData.at(fid.mul(STRIDE).add(u32(12)), f32T),
-    featData.at(fid.mul(STRIDE).add(u32(13)), f32T),
+    featData.at(fid.mul(STRIDE).add(11), f32T),
+    featData.at(fid.mul(STRIDE).add(12), f32T),
+    featData.at(fid.mul(STRIDE).add(13), f32T),
   )
   const ecefL = vec3(
-    featData.at(fid.mul(STRIDE).add(u32(14)), f32T),
-    featData.at(fid.mul(STRIDE).add(u32(15)), f32T),
-    featData.at(fid.mul(STRIDE).add(u32(16)), f32T),
+    featData.at(fid.mul(STRIDE).add(14), f32T),
+    featData.at(fid.mul(STRIDE).add(15), f32T),
+    featData.at(fid.mul(STRIDE).add(16), f32T),
   )
   // Camera-relative RTC: subtract the camera anchor in DSFUN space so the
   // big absolute ECEF magnitude cancels before the residual reaches f32 math.
   const camH = U.field.cam_ecef_h.swizzle<'vec3<f32>'>('xyz')
   const camL = U.field.cam_ecef_l.swizzle<'vec3<f32>'>('xyz')
   const ecefRtc = ecefH.sub(camH).add(ecefL.sub(camL))
-  const absLon = featData.at(fid.mul(STRIDE).add(u32(17)), f32T)
-  const absLat = featData.at(fid.mul(STRIDE).add(u32(18)), f32T)
+  const absLon = featData.at(fid.mul(STRIDE).add(17), f32T)
+  const absLat = featData.at(fid.mul(STRIDE).add(18), f32T)
   const mvp = U.field.mvp
   // Display projection (projection-display-layer-restore): flat Mercator
   // (proj_params.x < 0.5) reprojects the absolute lon/lat onto the 2D plane
@@ -278,10 +278,10 @@ const vs = fn('vs_point', {
     // Precise absolute Mercator DSFUN (slots 20-23), camera-recentered in DSFUN
     // space — `(mx_h−camH)+(mx_l−camL)` — exactly like ecef_rtc. The old path
     // reprojected the lossy f32 abs_lon/abs_lat (~1.35 m → ~5.7 px @ z20).
-    const mxH = featData.at(fid.mul(STRIDE).add(u32(20)), f32T)
-    const mxL = featData.at(fid.mul(STRIDE).add(u32(21)), f32T)
-    const myH = featData.at(fid.mul(STRIDE).add(u32(22)), f32T)
-    const myL = featData.at(fid.mul(STRIDE).add(u32(23)), f32T)
+    const mxH = featData.at(fid.mul(STRIDE).add(20), f32T)
+    const mxL = featData.at(fid.mul(STRIDE).add(21), f32T)
+    const myH = featData.at(fid.mul(STRIDE).add(22), f32T)
+    const myL = featData.at(fid.mul(STRIDE).add(23), f32T)
     const camMercH = U.field.cam_ecef_h.swizzle<'vec2<f32>'>('xy')
     const camMercL = U.field.cam_ecef_l.swizzle<'vec2<f32>'>('xy')
     const relX = mxH.sub(camMercH.x).add(mxL.sub(camMercL.x))
@@ -325,14 +325,14 @@ const vs = fn('vs_point', {
   // mirrors MapLibre circle.vertex.glsl's `* (u_camera_to_center_distance /
   // gl_Position.w)` for pitch-alignment:viewport + pitch-scale:map. =1 at the
   // screen centre, <1 toward the horizon. Guard clip.w>0 to avoid div blow-up.
-  If(U.field.circle_params.w.gt(f32(0.5)), () => {
+  If(U.field.circle_params.w.gt(0.5), () => {
     const wRef = mvp.at(u32(3), vec4fT).w
     const wPt = Let(max(centerClip.w, f32(1e-4)))
     assign(radiusPx, radiusPx.mul(wRef.div(wPt)))
   })
 
   // bit 3 of packed10 = flat-quad mode.
-  const isFlat = packed10.bitAnd(u32(8)).ne(u32(0))
+  const isFlat = packed10.bitAnd(u32(8)).ne(0)
   assign(radiusPx, max(radiusPx, f32(1)))
   const expand = Let(radiusPx.add(2))
 
@@ -355,8 +355,8 @@ const vs = fn('vs_point', {
     // Anchor (bits 8..9): 0=center, 1=bottom, 2=top.
     const anchorMode = packed10.shr(u32(8)).bitAnd(u32(3))
     const yShiftPx = f32(0)
-    If(anchorMode.eq(u32(1)), () => { assign(yShiftPx, expand) })
-      .elif(anchorMode.eq(u32(2)), () => { assign(yShiftPx, expand.neg()) })
+    If(anchorMode.eq(1), () => { assign(yShiftPx, expand) })
+      .elif(anchorMode.eq(2), () => { assign(yShiftPx, expand.neg()) })
     const pxToNdc = vec2(f32(2).div(viewport.x), f32(2).div(viewport.y))
     const offXY = offsets.at(p.quad_id, vec2fT)
     const offsetPx = Let(vec2(offXY.x.mul(expand), offXY.y.mul(expand).add(yShiftPx)))
@@ -370,8 +370,8 @@ const vs = fn('vs_point', {
     // edge sits on the projected ground point), 2=top.
     const anchorMode = packed10.shr(u32(8)).bitAnd(u32(3))
     const yShiftPx = f32(0)
-    If(anchorMode.eq(u32(1)), () => { assign(yShiftPx, expand) })
-      .elif(anchorMode.eq(u32(2)), () => { assign(yShiftPx, expand.neg()) })
+    If(anchorMode.eq(1), () => { assign(yShiftPx, expand) })
+      .elif(anchorMode.eq(2), () => { assign(yShiftPx, expand.neg()) })
     const pxToNdc = vec2(f32(2).div(viewport.x), f32(2).div(viewport.y))
     const offXY = offsets.at(p.quad_id, vec2fT)
     const offsetPx = Let(vec2(offXY.x.mul(expand), offXY.y.mul(expand).add(yShiftPx)))
@@ -395,7 +395,7 @@ const fs = fn('fs_point', { in: PointOut.type }, PointFragmentOutput.type, (p) =
   If(pin.cos_c.lt(0), () => { Discard() })
   const fid = pin.feat_id
   // shape_id moved to slot 19 in PR 2d.2's stride-20 layout (was slot 13).
-  const shapeId = toU32(featData.at(fid.mul(STRIDE).add(u32(19)), f32T))
+  const shapeId = toU32(featData.at(fid.mul(STRIDE).add(19), f32T))
 
   // AA from UV (always smooth) — not from SDF dist (AABB discontinuities).
   // MUST stay an explicit Let: fwidth is a derivative and WGSL requires it be evaluated in
@@ -408,26 +408,26 @@ const fs = fn('fs_point', { in: PointOut.type }, PointFragmentOutput.type, (p) =
   const blurUv = blurPx.div(max(pin.radius_px, f32(1)))
   const halfBand = aa.add(blurUv)
 
-  const dist = ifExpr(shapeId.eq(u32(0)),
+  const dist = ifExpr(shapeId.eq(0),
     () => length(pin.uv),   // analytical circle (fast path)
-    () => sdfShape(pin.uv, shapeId.sub(u32(1))),
+    () => sdfShape(pin.uv, shapeId.sub(1)),
   )
 
   // Per-feature style.
   const fillColor = vec4(
-    featData.at(fid.mul(STRIDE).add(u32(1)), f32T),
-    featData.at(fid.mul(STRIDE).add(u32(2)), f32T),
-    featData.at(fid.mul(STRIDE).add(u32(3)), f32T),
-    featData.at(fid.mul(STRIDE).add(u32(4)), f32T),
+    featData.at(fid.mul(STRIDE).add(1), f32T),
+    featData.at(fid.mul(STRIDE).add(2), f32T),
+    featData.at(fid.mul(STRIDE).add(3), f32T),
+    featData.at(fid.mul(STRIDE).add(4), f32T),
   )
   const strokeColor = vec4(
-    featData.at(fid.mul(STRIDE).add(u32(5)), f32T),
-    featData.at(fid.mul(STRIDE).add(u32(6)), f32T),
-    featData.at(fid.mul(STRIDE).add(u32(7)), f32T),
-    featData.at(fid.mul(STRIDE).add(u32(8)), f32T),
+    featData.at(fid.mul(STRIDE).add(5), f32T),
+    featData.at(fid.mul(STRIDE).add(6), f32T),
+    featData.at(fid.mul(STRIDE).add(7), f32T),
+    featData.at(fid.mul(STRIDE).add(8), f32T),
   )
-  const strokeWPx = featData.at(fid.mul(STRIDE).add(u32(9)), f32T)
-  const flags = toU32(featData.at(fid.mul(STRIDE).add(u32(10)), f32T))
+  const strokeWPx = featData.at(fid.mul(STRIDE).add(9), f32T)
+  const flags = toU32(featData.at(fid.mul(STRIDE).add(10), f32T))
 
   // stroke_w in UV space using the actual rendered radius.
   const strokeW = strokeWPx.div(max(pin.radius_px, f32(1)))
@@ -435,13 +435,13 @@ const fs = fn('fs_point', { in: PointOut.type }, PointFragmentOutput.type, (p) =
   const color = vec4(f32(0), f32(0), f32(0), f32(0))
 
   // Fill (bit 0).
-  If(flags.bitAnd(u32(1)).ne(u32(0)), () => {
+  If(flags.bitAnd(u32(1)).ne(0), () => {
     const fillAlpha = Let(f32(1).sub(smoothstep(f32(1).sub(halfBand), f32(1).add(halfBand), dist)))
     assign(color, vec4(fillColor.rgb, fillColor.a.mul(fillAlpha)))
   })
 
   // Stroke (bit 1).
-  If(flags.bitAnd(u32(2)).ne(u32(0)), () => {
+  If(flags.bitAnd(u32(2)).ne(0), () => {
     const inner = f32(1).sub(strokeW)
     const strokeAlpha = Let(
       smoothstep(inner.sub(aa), inner.add(aa), dist)
@@ -451,7 +451,7 @@ const fs = fn('fs_point', { in: PointOut.type }, PointFragmentOutput.type, (p) =
   })
 
   // Glow (bit 2).
-  If(flags.bitAnd(u32(4)).ne(u32(0)), () => {
+  If(flags.bitAnd(u32(4)).ne(0), () => {
     const glow = Let(exp(dist.mul(dist).mul(-2)).mul(0.4))
     assignOp(color, '+', vec4(fillColor.rgb.mul(glow), glow))
   })

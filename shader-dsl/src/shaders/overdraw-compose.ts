@@ -36,10 +36,10 @@ const accumTex = resource('accum_tex', texture2dfT, { group: 0, binding: 0 })
 
 const colormap = fn('colormap', { t: f32T }, vec3fT, (p) => {
   const s = clamp(p.t, f32(0), f32(1))
-  const r = clamp(s.mul(f32(3)).sub(f32(0.5)), f32(0), f32(1))
-  const g = clamp(s.mul(f32(2.5)), f32(0), f32(1))
-      .mul(clamp(f32(2).sub(s.mul(f32(2))), f32(0), f32(1)))
-  const blue = clamp(f32(0.6).sub(s.mul(f32(1.5))), f32(0), f32(1))
+  const r = clamp(s.mul(3).sub(0.5), f32(0), f32(1))
+  const g = clamp(s.mul(2.5), f32(0), f32(1))
+      .mul(clamp(f32(2).sub(s.mul(2)), f32(0), f32(1)))
+  const blue = clamp(f32(0.6).sub(s.mul(1.5)), f32(0), f32(1))
   Return(vec3(r, g, blue))
 })
 
@@ -52,14 +52,14 @@ const vsFull = fn(
   VsOut.type,
   (p) => {
     const pos = vec2(f32(-1), f32(-1))
-    If(p.idx.eq(u32(1)), () => { assign(pos, vec2(f32(3), f32(-1))) })
-      .elif(p.idx.eq(u32(2)), () => { assign(pos, vec2(f32(-1), f32(3))) })
+    If(p.idx.eq(1), () => { assign(pos, vec2(f32(3), f32(-1))) })
+      .elif(p.idx.eq(2), () => { assign(pos, vec2(f32(-1), f32(3))) })
     // y-flip — texture origin top-left, NDC origin bottom-left.
     return VsOut.construct({
       pos: vec4(pos, f32(0), f32(1)),
       uv: vec2(
-        pos.x.add(f32(1)).mul(f32(0.5)),
-        f32(1).sub(pos.y.add(f32(1)).mul(f32(0.5))),
+        pos.x.add(1).mul(0.5),
+        f32(1).sub(pos.y.add(1).mul(0.5)),
       ),
     })
   },
@@ -83,12 +83,12 @@ const fsCompose = fn(
     const dim = vec2(toF32(dimU.x), toF32(dimU.y))
     const uv = vec2i(toI32(pin.uv.x.mul(dim.x)), toI32(pin.uv.y.mul(dim.y)))
     const count = textureLoad(accumTex.node, uv, u32(0)).x
-    If(count.lt(f32(0.5)), () => {
+    If(count.lt(0.5), () => {
       // No fragments → empty pixel; leave dark to distinguish from "1 draw".
       Return(vec4(f32(0.02), f32(0.02), f32(0.04), f32(1)))
     })
     // Exposure: 16 overdraws → fully saturated.
-    const t = count.div(f32(16))
+    const t = count.div(16)
     Return(vec4(callFn('colormap', vec3fT, t), f32(1)))
   },
   { stage: 'fragment', retAttr: '@location(0)' },

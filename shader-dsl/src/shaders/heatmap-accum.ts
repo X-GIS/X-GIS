@@ -76,37 +76,37 @@ const vs = fn('vs_heatmap', {
     vec2(f32(-1), f32(1)),
   )
   const fid = toU32(p.feat_id)
-  const radiusPx = max(featData.at(fid.mul(STRIDE).add(u32(0)), f32T), f32(1))
-  const weight = featData.at(fid.mul(STRIDE).add(u32(1)), f32T)
+  const radiusPx = max(featData.at(fid.mul(STRIDE).add(0), f32T), f32(1))
+  const weight = featData.at(fid.mul(STRIDE).add(1), f32T)
   const viewport = U.field.viewport
   const mvp = U.field.mvp
 
   // Per-feature ECEF DSFUN centre (slots 11..16) + abs lon/lat (17/18).
   const ecefH = vec3(
-    featData.at(fid.mul(STRIDE).add(u32(11)), f32T),
-    featData.at(fid.mul(STRIDE).add(u32(12)), f32T),
-    featData.at(fid.mul(STRIDE).add(u32(13)), f32T),
+    featData.at(fid.mul(STRIDE).add(11), f32T),
+    featData.at(fid.mul(STRIDE).add(12), f32T),
+    featData.at(fid.mul(STRIDE).add(13), f32T),
   )
   const ecefL = vec3(
-    featData.at(fid.mul(STRIDE).add(u32(14)), f32T),
-    featData.at(fid.mul(STRIDE).add(u32(15)), f32T),
-    featData.at(fid.mul(STRIDE).add(u32(16)), f32T),
+    featData.at(fid.mul(STRIDE).add(14), f32T),
+    featData.at(fid.mul(STRIDE).add(15), f32T),
+    featData.at(fid.mul(STRIDE).add(16), f32T),
   )
   const camH = U.field.cam_ecef_h.swizzle<'vec3<f32>'>('xyz')
   const camL = U.field.cam_ecef_l.swizzle<'vec3<f32>'>('xyz')
   const ecefRtc = ecefH.sub(camH).add(ecefL.sub(camL))
-  const absLon = featData.at(fid.mul(STRIDE).add(u32(17)), f32T)
-  const absLat = featData.at(fid.mul(STRIDE).add(u32(18)), f32T)
+  const absLon = featData.at(fid.mul(STRIDE).add(17), f32T)
+  const absLat = featData.at(fid.mul(STRIDE).add(18), f32T)
 
   // Three-way projType branch — faithful clone of the point VS.
   const centerClip = condExpr([
     [U.field.proj_params.x.lt(0.5), () => {
       // Flat Mercator: precise absolute-Mercator DSFUN tail (slots 20..23),
       // camera-recentered in DSFUN space.
-      const mxH = featData.at(fid.mul(STRIDE).add(u32(20)), f32T)
-      const mxL = featData.at(fid.mul(STRIDE).add(u32(21)), f32T)
-      const myH = featData.at(fid.mul(STRIDE).add(u32(22)), f32T)
-      const myL = featData.at(fid.mul(STRIDE).add(u32(23)), f32T)
+      const mxH = featData.at(fid.mul(STRIDE).add(20), f32T)
+      const mxL = featData.at(fid.mul(STRIDE).add(21), f32T)
+      const myH = featData.at(fid.mul(STRIDE).add(22), f32T)
+      const myL = featData.at(fid.mul(STRIDE).add(23), f32T)
       const camMercH = U.field.cam_ecef_h.swizzle<'vec2<f32>'>('xy')
       const camMercL = U.field.cam_ecef_l.swizzle<'vec2<f32>'>('xy')
       const relX = mxH.sub(camMercH.x).add(mxL.sub(camMercL.x))

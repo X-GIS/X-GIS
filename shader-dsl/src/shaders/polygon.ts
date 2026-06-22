@@ -357,7 +357,7 @@ const vsMain = fn(
     const absMercX = p.abs_lon.mul(deg2rad).mul(earthR)
     const absLatClamped = clamp(p.abs_lat, mercLatLim.neg(), mercLatLim)
     const absMercY =
-      log(tan(pi.div(f32(4)).add(absLatClamped.mul(deg2rad).div(f32(2))))).mul(earthR)
+      log(tan(pi.div(4).add(absLatClamped.mul(deg2rad).div(2)))).mul(earthR)
 
     // Display projection (projection-display-layer-restore): flat Mercator
     // (proj_params.x < 0.5) reprojects each vertex onto the 2D plane and
@@ -420,9 +420,9 @@ const dequantEcefFn = fn(
   { q_xy: vec4uT, q_z: vec2uT, scale: f32T, half: f32T },
   vec3fT,
   ({ q_xy, q_z, scale, half }) => {
-    const qx = toF32(q_xy.x).mul(f32(65536)).add(toF32(q_xy.y))
-    const qy = toF32(q_xy.z).mul(f32(65536)).add(toF32(q_xy.w))
-    const qz = toF32(q_z.x).mul(f32(65536)).add(toF32(q_z.y))
+    const qx = toF32(q_xy.x).mul(65536).add(toF32(q_xy.y))
+    const qy = toF32(q_xy.z).mul(65536).add(toF32(q_xy.w))
+    const qz = toF32(q_z.x).mul(65536).add(toF32(q_z.y))
     return vec3(
       qx.mul(scale).sub(half),
       qy.mul(scale).sub(half),
@@ -569,7 +569,7 @@ const vsMainEcefExtruded = fn(
     const absMercX = p.abs_lon.mul(deg2rad).mul(earthR)
     const absLatClamped = clamp(p.abs_lat, mercLatLim.neg(), mercLatLim)
     const absMercY =
-      log(tan(pi.div(f32(4)).add(absLatClamped.mul(deg2rad).div(f32(2))))).mul(earthR)
+      log(tan(pi.div(4).add(absLatClamped.mul(deg2rad).div(2)))).mul(earthR)
 
     // Display projection (see vs_main_ecef): flat Mercator reprojects onto
     // the 2D plane with the extrude lift applied as plane-z; 3D keeps the
@@ -629,7 +629,7 @@ const vsMainEcefExtruded = fn(
     // cam_ecef_off_l.w uniform lane (1 = default = ramp on, 0 = off). AND
     // it into the wall test so `false` skips the ramp (flat wall shading);
     // at the default the branch is taken exactly as before (no-op gate).
-    const vgGradOn = U.field.cam_ecef_off_l.w.ne(f32(0))
+    const vgGradOn = U.field.cam_ecef_off_l.w.ne(0)
     const isWall = abs(p.face_normal.z).lt(0.5).and(vgGradOn)
     const tTop = p.is_top
     If(isWall, () => {
@@ -637,7 +637,7 @@ const vsMainEcefExtruded = fn(
       // so the bottom lip still computes a sensible gradient value.
       const hForGrad = max(p.wall_height, f32(1))
       const vgrad = clamp(
-        tTop.mul(sqrt(hForGrad.div(f32(150)))),
+        tTop.mul(sqrt(hForGrad.div(150))),
         mix(f32(0.7), f32(0.98), f32(1).sub(lightIntensity)),
         f32(1),
       )
@@ -677,12 +677,12 @@ const vsMainEcefExtruded = fn(
 const emitPolygonFragmentDiscards = (input: Node): void => {
   const i = VertexOutputIO.of(input)
   const cosC = callFn('polygon_cos_c_fragment', f32T, i.abs_merc_x, i.abs_merc_y)
-  If(cosC.lt(f32(0)), () => { Discard() })
+  If(cosC.lt(0), () => { Discard() })
   // #399 +0.5° margin: cap abs_lat is VS-clamped to exactly ±LIMIT, so a bare `>LIMIT` flips per MSAA sample at the pole fan (speckle); loosen-only ⇒ #360-hole-safe.
-  If(abs(i.abs_lat).gt(constRef('MERCATOR_LAT_LIMIT').add(f32(0.5))), () => { Discard() })
+  If(abs(i.abs_lat).gt(constRef('MERCATOR_LAT_LIMIT').add(0.5)), () => { Discard() })
   const clipBounds = U.field.clip_bounds
   const clipValid =
-    clipBounds.x.gt(f32(-1e29))
+    clipBounds.x.gt(-1e29)
       .and(clipBounds.z.gt(clipBounds.x))
       .and(clipBounds.w.gt(clipBounds.y))
   If(clipValid, () => {
@@ -708,8 +708,8 @@ const emitLogDepthJitter = (input: Node, out: Node): void => {
   const mixed =
     idLo.bitXor(idLo.shr(u32(7))).bitXor(idLo.shl(u32(3))).bitAnd(u32(0x3FF))
   const jitter = select(
-    i.feat_id.ne(u32(0)),
-    toF32(mixed).sub(f32(512)).mul(f32(1.5e-8)),
+    i.feat_id.ne(0),
+    toF32(mixed).sub(512).mul(1.5e-8),
     f32(0),
   )
   assign(polygonFragmentOutput(false).of(out).depth, baseDepth.add(jitter))
@@ -752,7 +752,7 @@ const buildFsFill = (pickEnabled: boolean) =>
       // in POLYGON_SHADER_SOURCE for the rationale.
       const wallBlend = i.wall_blend
       const vShade = f32(0.6).add(f32(0.4).mul(wallBlend))
-      const roofBonus = select(wallBlend.ge(f32(0.999)), f32(0.05), f32(0))
+      const roofBonus = select(wallBlend.ge(0.999), f32(0.05), f32(0))
       const wallShade = Let('wall_shade', min(f32(1), vShade.add(roofBonus))) // named: the composer default-fill return Stmt references `wall_shade` by literal varref
       // wall_shade reference kept live for the composer's default-path
       // assign emit (defaultFillReturnStmts constructs a `{op:'varref',
@@ -773,7 +773,7 @@ const buildFsFill = (pickEnabled: boolean) =>
       // `fill-antialias: false` gates it off → hard edges. The flag rides
       // the spare cam_ecef_off_h.w uniform lane (1 = default, 0 = off);
       // at the default the multiply runs exactly as before (no-op gate).
-      If(U.field.cam_ecef_off_h.w.ne(f32(0)), () => {
+      If(U.field.cam_ecef_off_h.w.ne(0), () => {
         const rimA = callFn('polygon_rim_alpha', f32T, i.abs_merc_x, i.abs_merc_y)
         const o = polygonFragmentOutput(pickEnabled).of(out)
         assign(o.color.a, o.color.a.mul(rimA))
@@ -849,20 +849,20 @@ const fsOitTranslucent = fn(
     // Same fill-extrusion shading as fs_fill.
     const wallBlend = i.wall_blend
     const vShade = f32(0.6).add(f32(0.4).mul(wallBlend))
-    const roofBonus = select(wallBlend.ge(f32(0.999)), f32(0.05), f32(0))
+    const roofBonus = select(wallBlend.ge(0.999), f32(0.05), f32(0))
     const wallShade = min(f32(1), vShade.add(roofBonus))
     const fillColor = U.field.fill_color
     const rgb = fillColor.rgb.mul(wallShade)
     // Rim alpha fade (multiplies into alpha so OIT accumulation respects it).
     const rimA = callFn('polygon_rim_alpha', f32T, i.abs_merc_x, i.abs_merc_y)
     const a = fillColor.a.mul(rimA)
-    If(a.le(f32(0.001)), () => { Discard() })
+    If(a.le(0.001), () => { Discard() })
     // McGuire-Bavoil weight: large for closer + smaller alpha contributions,
     // capped to avoid fp16 overflow. iter-192 set weight=1; reverted in
     // iter-193 alongside the depth-write change.
     const z = max(i.view_w, f32(1e-3))
     const w = clamp(
-      f32(0.03).div(f32(1e-5).add(pow(z.div(f32(200)), f32(4)))),
+      f32(0.03).div(f32(1e-5).add(pow(z.div(200), f32(4)))),
       f32(1e-2),
       f32(3.0e3),
     )
@@ -926,7 +926,7 @@ const buildFsStroke = (pickEnabled: boolean) =>
       // `void` keeps tsc satisfied — defaultStrokeReturnStmts builds a
       // `{op:'varref', name:'alpha_scale'}` Expr that resolves to this
       // let-bound name at emit time (composer's default-path assign).
-      const alphaScale = Let('alpha_scale', select(i.feat_id.gt(u32(0)), f32(1), f32(0.4))) // named: the composer default-stroke return Stmt references `alpha_scale` by literal varref
+      const alphaScale = Let('alpha_scale', select(i.feat_id.gt(0), f32(1), f32(0.4))) // named: the composer default-stroke return Stmt references `alpha_scale` by literal varref
       void alphaScale
       const out = Var('out', polygonFragmentOutput(pickEnabled).type)
       // ▼ Composer-swap point — variant.strokeExpr replaces this OR the

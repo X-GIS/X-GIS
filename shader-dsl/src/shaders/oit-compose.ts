@@ -15,7 +15,7 @@
 
 import {
   fn, module,
-  f32, u32, i32, vec2, vec4, toF32, toI32,
+  f32, i32, vec2, vec4, toF32, toI32,
   textureLoad, textureDimensions, vec2i,
   u32T, vec2fT, vec4fT,
   texture2dfT, texture2dMsfT,
@@ -43,15 +43,15 @@ const vsFull = fn(
   VsOut.type,
   (p) => {
     const pos = vec2(f32(-1), f32(-1))
-    If(p.idx.eq(u32(1)), () => { assign(pos, vec2(f32(3), f32(-1))) })
-      .elif(p.idx.eq(u32(2)), () => { assign(pos, vec2(f32(-1), f32(3))) })
+    If(p.idx.eq(1), () => { assign(pos, vec2(f32(3), f32(-1))) })
+      .elif(p.idx.eq(2), () => { assign(pos, vec2(f32(-1), f32(3))) })
     // Texture coords are sample-load coords (integer pixels) computed from clip-space NDC:
     // uv = (pos + 1) / 2, y flipped because the texture origin is top-left while NDC's is bottom-left.
     return VsOut.construct({
       pos: vec4(pos, f32(0), f32(1)),
       uv: vec2(
-        pos.x.add(f32(1)).mul(f32(0.5)),
-        f32(1).sub(pos.y.add(f32(1)).mul(f32(0.5))),
+        pos.x.add(1).mul(0.5),
+        f32(1).sub(pos.y.add(1).mul(0.5)),
       ),
     })
   },
