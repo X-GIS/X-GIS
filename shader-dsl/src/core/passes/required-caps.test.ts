@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { requiredCaps, assertCaps } from './required-caps'
 import { wgslBackend } from '../backends/wgsl'
 import { glslEs300Backend, UnsupportedFeatureError } from '../backends/glsl'
-import { module, fn, f32, f32T, arrayT, computeFn } from '../ir'
+import { module, fn, f32, f32T, arrayT, vec3uT, voidT } from '../ir'
+import { builtin } from '../sot'
 
 // #9 — the capability model wired into emit. A module declares the GPU features
 // it needs (requiredCaps); emit asserts the target backend covers them and fails
@@ -17,7 +18,7 @@ describe('capabilities — requiredCaps + assertCaps (#9)', () => {
   })
 
   it('a @compute entry requires compute', () => {
-    const m = module({ funcs: [computeFn('cs', 64, 'gid', () => { /* empty */ })] })
+    const m = module({ funcs: [fn('cs', { gid: builtin('global_invocation_id', vec3uT) }, voidT, () => { /* empty */ }, { stage: 'compute', workgroupSize: 64 })] })
     expect(requiredCaps(m)).toContain('compute')
   })
 

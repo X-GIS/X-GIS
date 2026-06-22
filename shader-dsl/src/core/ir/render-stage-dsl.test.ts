@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
-  entryFn, bindingRef, member, arrayLit, transformMat4, vec2, vec4, f32, module,
+  fn, bindingRef, member, arrayLit, transformMat4, vec2, vec4, f32, module,
   structT, mat4x4fT, vec2fT, vec4fT, u32T,
   type StructDecl,
 } from './index'
+import { builtin } from '../sot'
 import { emitModule } from '../backends/wgsl'
 import { compileModule } from '../oracle'
 
@@ -33,20 +34,20 @@ const FOut: StructDecl = {
 
 const u = bindingRef('u', structT('U'))
 
-const vs = entryFn('vs', 'vertex', [{ name: 'idx', type: u32T, builtin: 'vertex_index' }], structT('VOut'), ({ idx }, b) => {
+const vs = fn('vs', { idx: builtin('vertex_index', u32T) }, structT('VOut'), ({ idx }, b) => {
   const p = b.let('p', arrayLit(vec2fT,
     vec2(f32(-1), f32(-1)), vec2(f32(1), f32(-1)), vec2(f32(0), f32(1))))
   const local = b.let('local', p.at(idx, vec2fT).sub(member(u, 'cam', vec2fT)))
   const out = b.var('out', structT('VOut'))
   b.assign(member(out, 'pos', vec4fT), transformMat4(member(u, 'mvp', mat4x4fT), vec4(local, f32(0), f32(1))))
   b.ret(out)
-})
+}, { stage: 'vertex' })
 
-const fs = entryFn('fs', 'fragment', [{ name: 'in', type: structT('VOut') }], structT('FOut'), (_p, b) => {
+const fs = fn('fs', { in: structT('VOut') }, structT('FOut'), (_p, b) => {
   const out = b.var('out', structT('FOut'))
   b.assign(member(out, 'color', vec4fT), member(u, 'color', vec4fT))
   b.ret(out)
-})
+}, { stage: 'fragment' })
 
 const MOD = module({
   structs: [U, VOut, FOut],

@@ -11,7 +11,7 @@
 // emit helper that returns the compose pipeline's WGSL.
 
 import {
-  entryFn, fn, module, callFn,
+  fn, module, callFn,
   f32, u32, vec2, vec3, vec4, toF32, toI32,
   clamp,
   textureLoad, textureDimensions, vec2i,
@@ -47,9 +47,8 @@ const colormap = fn('colormap', { t: f32T }, vec3fT, (p) => {
 // Same trick as the OIT compose pass — covers the screen with no vertex
 // buffer + a single triangle.
 
-const vsFull = entryFn(
-  'vs_full', 'vertex',
-  [{ name: 'idx', type: u32T, builtin: 'vertex_index' }],
+const vsFull = fn(
+  'vs_full', { idx: builtin('vertex_index', u32T) },
   VsOut.type,
   (p) => {
     const pos = vec2(f32(-1), f32(-1))
@@ -64,15 +63,15 @@ const vsFull = entryFn(
       ),
     })
   },
+  { stage: 'vertex' },
 )
 
 // fs_compose — query the overdraw accumulator at this pixel's texel
 // coord, exposure-map count → colormap. 16 overdraws fully saturate;
 // tunable in 8..32 range (label-heavy ↔ extruded-building scenes).
 
-const fsCompose = entryFn(
-  'fs_compose', 'fragment',
-  [{ name: 'in', type: VsOut.type }],
+const fsCompose = fn(
+  'fs_compose', { in: VsOut.type },
   vec4fT,
   (p) => {
     const pin = VsOut.of(p.in)
@@ -92,7 +91,7 @@ const fsCompose = entryFn(
     const t = count.div(f32(16))
     Return(vec4(callFn('colormap', vec3fT, t), f32(1)))
   },
-  '@location(0)',
+  { stage: 'fragment', retAttr: '@location(0)' },
 )
 
 const overdrawComposeModule: ModuleDecl = module({

@@ -20,7 +20,7 @@
 // sampling the offscreen RT) is emitted alongside via emitCompositeWgsl().
 
 import {
-  entryFn, fn, module, constRef, transformMat4,
+  fn, module, constRef, transformMat4,
   f32, i32, u32, toF32, vec2, vec3, vec4, vec2u, clamp, fract, sign,
   length, dot, min, max, smoothstep, abs, floor, select, textureSample,
   bitcastU32, unpack4x8unorm,
@@ -737,10 +737,10 @@ const lineRimAlpha = fn('line_rim_alpha', { input: LineOut.type }, f32T, (p) => 
 
 // ── vs_line ──
 
-const vsLine = entryFn('vs_line', 'vertex', [
-  { name: 'seg_id', type: u32T, builtin: 'instance_index' },
-  { name: 'vi', type: u32T, builtin: 'vertex_index' },
-], LineOut.type, (p) => {
+const vsLine = fn('vs_line', {
+  seg_id: builtin('instance_index', u32T),
+  vi: builtin('vertex_index', u32T),
+}, LineOut.type, (p) => {
   const sego = segmentsB.at(p.seg_id)
   const p0 = lineEndpoint(sego.p0_h, sego.p0_l)
   const p1 = lineEndpoint(sego.p1_h, sego.p1_l)
@@ -1027,12 +1027,12 @@ const vsLine = entryFn('vs_line', 'vertex', [
     view_w: clip.w,
     cos_c: select(isStart, cosCp0, cosCp1),
   })
-})
+}, { stage: 'vertex' })
 
 // ── Fragment entries (3 variants share compute_line_color) ──
 
 const buildFsLine = (pickEnabled: boolean) =>
-  entryFn('fs_line', 'fragment', [{ name: 'input', type: LineOut.type }], lineFragmentOutput(pickEnabled).type, (p) => {
+  fn('fs_line', { input: LineOut.type }, lineFragmentOutput(pickEnabled).type, (p) => {
     const color = computeLineColor(p.input)
     const rim = lineRimAlpha(p.input)
     return lineFragmentOutput(pickEnabled).construct({
@@ -1040,10 +1040,10 @@ const buildFsLine = (pickEnabled: boolean) =>
       ...(pickEnabled ? { pick: vec2u(u32(0), u32(0)) } : {}),
       depth: compute_log_frag_depth(LineOut.of(p.input).view_w, TILE.field.log_depth_fc),
     })
-  })
+  }, { stage: 'fragment' })
 
 const buildFsLinePattern = (pickEnabled: boolean) =>
-  entryFn('fs_line_pattern', 'fragment', [{ name: 'input', type: LineOut.type }], lineFragmentOutput(pickEnabled).type, (p) => {
+  fn('fs_line_pattern', { input: LineOut.type }, lineFragmentOutput(pickEnabled).type, (p) => {
     const inp = LineOut.of(p.input)
     const base = computeLineColor(p.input)
     const tileOrigin = TILE.field.tile_origin_merc
@@ -1070,13 +1070,13 @@ const buildFsLinePattern = (pickEnabled: boolean) =>
       ...(pickEnabled ? { pick: vec2u(u32(0), u32(0)) } : {}),
       depth: compute_log_frag_depth(inp.view_w, TILE.field.log_depth_fc),
     })
-  })
+  }, { stage: 'fragment' })
 
 // Max-blend offscreen path: bare @location(0) vec4 return, no log-depth (the
 // offscreen RT has no depth attachment).
-const fsLineMax = entryFn(
-  'fs_line_max', 'fragment',
-  [{ name: 'input', type: LineOut.type }],
+const fsLineMax = fn(
+  'fs_line_max',
+  { input: LineOut.type },
   vec4fT,
   (p) => {
     const c = computeLineColor(p.input)
@@ -1084,7 +1084,7 @@ const fsLineMax = entryFn(
     assign(c.a, c.a.mul(rim))
     return c
   },
-  '@location(0)',
+  { stage: 'fragment', retAttr: '@location(0)' },
 )
 
 // ── Module assembly ──
@@ -1145,8 +1145,8 @@ const compSamp = compSampB.node
 const compSrcB = resource('src', texture2dfT, { group: 0, binding: 1 })
 const compSrc = compSrcB.node
 
-const vsFull = entryFn('vs_full', 'vertex',
-  [{ name: 'vi', type: u32T, builtin: 'vertex_index' }],
+const vsFull = fn('vs_full',
+  { vi: builtin('vertex_index', u32T) },
   VsFullOut.type,
   (p) => {
     const pos = vec2(f32(-1), f32(-1))
@@ -1164,10 +1164,11 @@ const vsFull = entryFn('vs_full', 'vertex',
       uv,
     })
   },
+  { stage: 'vertex' },
 )
 
-const fsFull = entryFn('fs_full', 'fragment',
-  [{ name: 'input', type: VsFullOut.type }],
+const fsFull = fn('fs_full',
+  { input: VsFullOut.type },
   vec4fT,
   (p) => {
     const c = textureSample(compSrc, compSamp, VsFullOut.of(p.input).uv)
@@ -1175,7 +1176,7 @@ const fsFull = entryFn('fs_full', 'fragment',
     // MAX-blend offscreen stores non-premultiplied (rgb, a_aa); premultiply here.
     return vec4(c.rgb.mul(c.a).mul(op), c.a.mul(op))
   },
-  '@location(0)',
+  { stage: 'fragment', retAttr: '@location(0)' },
 )
 
 const compositeModule: ModuleDecl = module({

@@ -20,7 +20,7 @@
 // ~σ2 blur per pass; two separable passes compose to a 2-D Gaussian.
 
 import {
-  entryFn, module,
+  fn, module,
   f32, u32, vec2, vec4, toF32, toI32, clamp,
   textureLoad, textureDimensions, vec2i,
   u32T, vec2fT, vec4fT, texture2dfT,
@@ -43,9 +43,8 @@ const VsOut = ioStruct('VsOut', {
 const srcTex = resource('src_tex', texture2dfT, { group: 0, binding: 0 })
 
 // Oversized fullscreen triangle (NDC −1..3) — same trick as overdraw-compose.
-const vsFull = entryFn(
-  'vs_full', 'vertex',
-  [{ name: 'idx', type: u32T, builtin: 'vertex_index' }],
+const vsFull = fn(
+  'vs_full', { idx: builtin('vertex_index', u32T) },
   VsOut.type,
   (p, _b) => {
     const pos = Var('pos', vec2fT, vec2(f32(-1), f32(-1)))
@@ -63,13 +62,13 @@ const vsFull = entryFn(
     )
     return out
   },
+  { stage: 'vertex' },
 )
 
 // fs_blur — 9-tap separable Gaussian along `direction`. Reads the R16Float
 // density with textureLoad (clamped to the texture extent at the edges).
-const fsBlur = entryFn(
-  'fs_blur', 'fragment',
-  [{ name: 'in', type: VsOut.type }],
+const fsBlur = fn(
+  'fs_blur', { in: VsOut.type },
   vec4fT,
   (p, _b) => {
     const dimU = textureDimensions(srcTex.node)
@@ -108,7 +107,7 @@ const fsBlur = entryFn(
         .add(sampleAt(-4).mul(f32(w4)))
     return vec4(acc, f32(0), f32(0), f32(1))
   },
-  '@location(0)',
+  { stage: 'fragment', retAttr: '@location(0)' },
 )
 
 const HEATMAP_BLUR_MODULE: ModuleDecl = module({

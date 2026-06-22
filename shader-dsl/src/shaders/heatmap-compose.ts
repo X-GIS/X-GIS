@@ -23,7 +23,7 @@
 // by the layer-level heatmap-opacity.
 
 import {
-  entryFn, module, callFn, fn,
+  module, callFn, fn,
   Var, assign, If,
   f32, u32, vec2, vec4, toF32, toI32, clamp,
   textureLoad, textureSample, textureDimensions, vec2i,
@@ -48,10 +48,8 @@ const rampTex = resource('ramp_tex', texture2dfT, { group: 0, binding: 1 })
 const rampSampler = resource('ramp_sampler', samplerT, { group: 0, binding: 2 })
 
 // Oversized fullscreen triangle (NDC −1..3) — same trick as overdraw-compose.
-const vsFull = entryFn(
-  'vs_full', 'vertex',
-  [{ name: 'idx', type: u32T, builtin: 'vertex_index' }],
-  VsOut.type,
+const vsFull = fn(
+  'vs_full', { idx: builtin('vertex_index', u32T) }, VsOut.type,
   (p, _b) => {
     const pos = Var('pos', vec2fT, vec2(f32(-1), f32(-1)))
     If(p.idx.eq(u32(1)), () => { assign(pos, vec2(f32(3), f32(-1))) })
@@ -68,6 +66,7 @@ const vsFull = entryFn(
     )
     return out
   },
+  { stage: 'vertex' },
 )
 
 // load_density — fetch the blurred density at this pixel's texel coord.
@@ -81,10 +80,8 @@ const loadDensity = fn('load_density', { uv: vec2fT }, f32T, (p, _b) => {
   return textureLoad(densityTex.node, coord, u32(0)).x
 })
 
-const fsCompose = entryFn(
-  'fs_compose', 'fragment',
-  [{ name: 'in', type: VsOut.type }],
-  vec4fT,
+const fsCompose = fn(
+  'fs_compose', { in: VsOut.type }, vec4fT,
   (p, _b) => {
     const density = callFn('load_density', f32T, VsOut.of(p.in).uv)
     const intensity = U.field.params.x
@@ -97,7 +94,7 @@ const fsCompose = entryFn(
     const a = ramp.a.mul(opacity)
     return vec4(ramp.rgb, a)
   },
-  '@location(0)',
+  { stage: 'fragment', retAttr: '@location(0)' },
 )
 
 const HEATMAP_COMPOSE_MODULE: ModuleDecl = module({

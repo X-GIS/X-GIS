@@ -12,7 +12,7 @@
 // table, attr string, or `.field('name', type)` that must agree by hand.
 
 import {
-  entryFn, vec4, f32, max, smoothstep, fwidth, textureSample, select,
+  fn, vec4, f32, max, smoothstep, fwidth, textureSample, select,
   module, f32T, vec2fT, vec3fT, vec4fT, texture2dfT, samplerT,
   Let,
   type ModuleDecl,
@@ -35,13 +35,13 @@ const VsOut = ioStruct('VsOut', {
 const atlasTex = resource('atlas_tex', texture2dfT, { group: 0, binding: 1 })
 const atlasSmp = resource('atlas_smp', samplerT, { group: 0, binding: 2 })
 
-const vs = entryFn('vs', 'vertex', [
-  { name: 'pos_px', type: vec2fT, location: 0 },
-  { name: 'uv', type: vec2fT, location: 1 },
-  { name: 'opacity', type: f32T, location: 2 },
-  { name: 'tint', type: vec3fT, location: 3 },
-  { name: 'sdf', type: f32T, location: 4 },
-], VsOut.type, (p, _b) => {
+const vs = fn('vs', {
+  pos_px: location(0, vec2fT),
+  uv: location(1, vec2fT),
+  opacity: location(2, f32T),
+  tint: location(3, vec3fT),
+  sdf: location(4, f32T),
+}, VsOut.type, (p, _b) => {
   const vp = U.field.viewport
   const ndc_x = p.pos_px.x.div(vp.x).mul(2).sub(1)
   const ndc_y = f32(1).sub(p.pos_px.y.div(vp.y).mul(2))
@@ -52,9 +52,9 @@ const vs = entryFn('vs', 'vertex', [
     tint: p.tint,
     sdf: p.sdf,
   })
-})
+}, { stage: 'vertex' })
 
-const fs = entryFn('fs', 'fragment', [{ name: 'in', type: VsOut.type }], vec4fT, (p, _b) => {
+const fs = fn('fs', { in: VsOut.type }, vec4fT, (p, _b) => {
   const pin = VsOut.of(p.in)
   const c = textureSample(atlasTex.node, atlasSmp.node, pin.uv)
   // fwidth must be in uniform control flow — compute aa unconditionally (the
@@ -68,7 +68,7 @@ const fs = entryFn('fs', 'fragment', [{ name: 'in', type: VsOut.type }], vec4fT,
   const sdfColor = vec4(pin.tint, cov.mul(pin.opacity))
   const rasterColor = vec4(c.rgb, c.a.mul(pin.opacity))
   return select(pin.sdf.gt(0.5), sdfColor, rasterColor)
-}, '@location(0)')
+}, { stage: 'fragment', retAttr: '@location(0)' })
 
 export const ICON_MODULE: ModuleDecl = module({
   structs: [U.struct, VsOut.decl],

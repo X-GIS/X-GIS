@@ -87,7 +87,8 @@ export function emitBinding(b: BindingDecl): string {
   return `@group(${b.group}) @binding(${b.binding}) var<${space}> ${b.name}: ${wgslType(b.type)};`
 }
 
-function paramAttr(p: { builtin?: string; location?: number }): string {
+function paramAttr(p: { builtin?: string; location?: number; attr?: string }): string {
+  if (p.attr) return `${p.attr} `
   if (p.builtin) return `@builtin(${p.builtin}) `
   if (p.location !== undefined) return `@location(${p.location}) `
   return ''
