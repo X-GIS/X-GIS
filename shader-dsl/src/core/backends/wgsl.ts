@@ -15,6 +15,7 @@ import { emitExpr as emitExprNeutral, emitBody } from '../emit'
 import { lowerModule } from '../passes/match-lower'
 import { validate } from '../passes/validate'
 import { assertCaps } from '../passes/required-caps'
+import { cse } from '../passes/opt'
 import { spellIntrinsic } from '../intrinsics'
 
 export function wgslType(t: ShaderType): string {
@@ -105,8 +106,10 @@ export function emitModule(m: ModuleDecl): string {
   validate(m)
   assertCaps(wgslBackend, m) // principled fail-closed gate (wgslBackend covers all caps)
   // Run the matchExpr→{var slot, Stmt.switch} lowering first so the rest of the
-  // emitter stays matchExpr-unaware (identity for modules with no matchExpr).
-  const lowered = lowerModule(m)
+  // emitter stays matchExpr-unaware (identity for modules with no matchExpr), then
+  // auto-cache: cse hoists any input-only subexpression reused ≥2x into one shared
+  // `let`, so authors write plain inline expressions and the reuse is bound for them.
+  const lowered = cse(lowerModule(m))
   const parts: string[] = []
   if (lowered.consts.length) parts.push(lowered.consts.map(emitConst).join('\n'))
   if (lowered.structs.length) parts.push(lowered.structs.map(emitStruct).join('\n\n'))

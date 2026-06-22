@@ -32,7 +32,11 @@ describe('Phase-2 point shader — DSL emission', () => {
     expect(pointPart).toContain('@fragment')
     expect(pointPart).toContain('fn fs_point(in: PointOut) -> PointFragmentOutput')
     expect(pointPart).toContain('discard;')
-    expect(pointPart).toContain('fwidth(length(in.uv))')
+    // length(in.uv) is reused (AA edge + radial falloff), so the cse auto-cache binds it
+    // to a shared temp — assert the uv-distance is computed and fwidth AA is applied,
+    // not the pre-cse inline `fwidth(length(in.uv))` spelling.
+    expect(pointPart).toContain('length(in.uv)')
+    expect(pointPart).toContain('fwidth(')
     expect(pointPart).toContain('compute_log_frag_depth(in.view_w')
   })
   it('bitwise unpacking of per-feature flags (>> << & on u32)', () => {
