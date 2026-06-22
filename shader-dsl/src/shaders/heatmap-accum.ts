@@ -27,7 +27,7 @@
 // density is the heatmap signal.
 
 import {
-  entryFn, module, callFn, transformMat4, arrayLit,
+  entryFn, module, transformMat4, arrayLit,
   f32, u32, toU32, vec2, vec3, vec4, exp, max,
   Let, Var, assign, If,
   f32T, u32T, vec2fT, vec4fT, mat4x4fT, arrayT,
@@ -35,7 +35,7 @@ import {
 } from '../core/ir'
 import { ioStruct, builtin, location, uniformStruct, storageBuffer } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
-import { PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
+import { flat_rel, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
 
 const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
   // ECEF-MVP (Camera.getECEFFrameView) for globe / 3D; the matching
@@ -115,7 +115,7 @@ const vs = entryFn('vs_heatmap', 'vertex', [
   }).elif(U.field.proj_params.x.lt(6.5), () => {
     // Flat non-Mercator (1..6): shared flat_rel (self-ref lon for nearest copy).
     const pp = Let('pp', U.field.proj_params)
-    const relG = Let('rel2d_geom', callFn('flat_rel', vec2fT, absLon, absLat, pp, absLon))
+    const relG = Let('rel2d_geom', flat_rel(absLon, absLat, pp, absLon))
     assign(centerClip, transformMat4(mvp, vec4(relG.x, relG.y, f32(0), f32(1))))
   }).else(() => {
     assign(centerClip, transformMat4(mvp, vec4(ecefRtc, f32(1))))

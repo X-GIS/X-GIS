@@ -18,7 +18,7 @@
 // hand shader exactly).
 
 import {
-  entryFn, fn, module, callFn, transformMat4, arrayLit,
+  entryFn, fn, module, transformMat4, arrayLit,
   f32, u32, i32, toF32, toU32, vec2, vec3, vec4, mix, exp, clamp,
   length, dot, min, max, smoothstep, fwidth, select,
   structT, f32T, u32T, i32T, vec2fT, vec4fT, mat4x4fT, arrayT,
@@ -27,7 +27,7 @@ import {
 } from '../core/ir'
 import { ioStruct, builtin, location, uniformStruct, storageBuffer } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
-import { PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
+import { needs_backface_cull, rim_alpha, flat_rel, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
 
 const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
@@ -128,11 +128,11 @@ const STRIDE = u32(24)
 // mirroring polygon_cos_c_fragment + polygon_rim_alpha in polygon.ts.
 
 const pointCosC = fn('point_cos_c', { abs_lon: f32T, abs_lat: f32T }, f32T, (p, _b) => {
-  return callFn('needs_backface_cull', f32T, p.abs_lon, p.abs_lat, U.field.proj_params)
+  return needs_backface_cull(p.abs_lon, p.abs_lat, U.field.proj_params)
 })
 
 const pointRimAlpha = fn('point_rim_alpha', { abs_lon: f32T, abs_lat: f32T }, f32T, (p, _b) => {
-  return callFn('rim_alpha', f32T, p.abs_lon, p.abs_lat, U.field.proj_params)
+  return rim_alpha(p.abs_lon, p.abs_lat, U.field.proj_params)
 })
 
 const distToLine = fn('dist_to_line', { p: vec2fT, a: vec2fT, b: vec2fT }, f32T, (pp, _b) => {
@@ -305,7 +305,7 @@ const vs = entryFn('vs_point', 'vertex', [
     // marker's own lon (self) so it lands in its nearest world copy; for an
     // individual marker project_geom collapses to plain project. Same flat MVP.
     const pp = Let('pp', U.field.proj_params)
-    const relG = Let('rel2d_geom', callFn('flat_rel', vec2fT, absLon, absLat, pp, absLon))
+    const relG = Let('rel2d_geom', flat_rel(absLon, absLat, pp, absLon))
     assign(centerClip, transformMat4(mvp, vec4(relG.x, relG.y, f32(0), f32(1))))
   }).else(() => {
     assign(centerClip, transformMat4(mvp, vec4(ecefRtc, f32(1))))
