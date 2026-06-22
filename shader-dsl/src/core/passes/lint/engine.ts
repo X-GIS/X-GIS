@@ -147,3 +147,13 @@ export function lint(m: ModuleDecl, rules: readonly LintRule[], config?: LintCon
   const byName = new Map(m.funcs.map((f) => [f.name, f]))
   return diags.filter((d) => !(d.fn && byName.get(d.fn)?.lintDisable?.includes(d.ruleId)))
 }
+
+/** Human-readable one-line-per-diagnostic report (errors first). */
+export function formatDiagnostics(diags: readonly Diagnostic[]): string {
+  if (diags.length === 0) return 'no lint diagnostics'
+  const order = { error: 0, warning: 1 } as const
+  return [...diags]
+    .sort((a, b) => order[a.severity] - order[b.severity])
+    .map((d) => `[${d.severity}] ${d.ruleId}${d.fn ? ` (fn ${d.fn})` : ''}: ${d.message}`)
+    .join('\n')
+}

@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { lint, type LintRule } from './engine'
+import { lint, formatDiagnostics, type LintRule } from './engine'
 import { RULES } from './rules'
+import { STRICT, LENIENT } from './presets'
 import { module, fn, f32T, f32 } from '../../ir'
+
+const wide7 = () => module({
+  funcs: [fn('wide', { a: f32T, b: f32T, c: f32T, d: f32T, e: f32T, g: f32T, h: f32T }, f32T, (_b, { a }) => a)],
+})
 
 // A throwaway rule, to prove adding one is trivial (write a LintRule, run it).
 const noUpperFnName: LintRule = {
@@ -43,5 +48,25 @@ describe('lint engine — scalable rule framework', () => {
     expect(ids).toContain('single-exit')
     expect(ids).toContain('mixed-scalar')
     expect(ids).toContain('binding-collision')
+  })
+
+  it('formatDiagnostics renders a report (empty + non-empty, errors first)', () => {
+    expect(formatDiagnostics([])).toBe('no lint diagnostics')
+    const out = formatDiagnostics([
+      { ruleId: 'w', severity: 'warning', message: 'mw', fn: 'f' },
+      { ruleId: 'e', severity: 'error', message: 'me' },
+    ])
+    expect(out.split('\n')[0]).toContain('[error] e: me')
+    expect(out).toContain('[warning] w (fn f): mw')
+  })
+
+  it('STRICT promotes a warning rule to error', () => {
+    const m = wide7() // 7 params > default 6 → param-count
+    expect(lint(m, RULES).find((d) => d.ruleId === 'param-count')?.severity).toBe('warning')
+    expect(lint(m, RULES, STRICT).find((d) => d.ruleId === 'param-count')?.severity).toBe('error')
+  })
+
+  it('LENIENT turns off style/perf rules', () => {
+    expect(lint(wide7(), RULES, LENIENT).map((d) => d.ruleId)).not.toContain('param-count')
   })
 })
