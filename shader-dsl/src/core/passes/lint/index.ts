@@ -1,7 +1,8 @@
 // Shader DSL lint engine — public surface.
 export {
-  lint, formatDiagnostics,
-  type LintRule, type RuleContext, type RuleVisitor, type Diagnostic, type Severity, type RuleCategory, type LintConfig,
+  lint, formatDiagnostics, summarize, unusedDeviations,
+  type LintRule, type RuleContext, type RuleVisitor, type Diagnostic, type Severity, type RuleCategory,
+  type LintConfig, type LintSummary,
 } from './engine'
 export { RULES } from './rules'
 export { STRICT, LENIENT } from './presets'
