@@ -137,18 +137,27 @@ function subBody(fn: (b: Builder) => Node | void): Stmt[] {
   return b.stmts
 }
 
+/** A function authored with fn(): it IS a typed CALLABLE — `foo(a, b)` produces the call
+ *  node (ret inferred, no string name) — AND it carries the FuncDecl shape (name/params/
+ *  ret/body), so it drops straight into `module({ funcs: [foo] })` and `foo.decl` is the
+ *  plain FuncDecl. This is the three.js-TSL `Fn` shape (callable + the function node in one
+ *  value), so there is no separate callFn('name', …) string call. */
+export type FnHandle<R extends ShaderType> =
+  FuncDecl & ((...args: NodeLike[]) => Node<KeyOf<R>>) & { readonly decl: FuncDecl }
+
 /** Author a function. The body receives the typed param Nodes FIRST (each keyed by its
  *  ShaderType); the Builder is the optional SECOND arg — TSL-style (three.js Fn passes the
  *  inputs then the node-builder), so a clean body is just `(p) => …` using the ambient
  *  surface (Let/Var/If/Loop/Return + native terminal return) and only reaches for `b` when
- *  it must. Single call signature, so the param types still infer. Returns a FuncDecl. */
-export function fn<P extends ParamSpec>(
+ *  it must. Single call signature, so the param types still infer. Returns an FnHandle —
+ *  call it directly (`foo(a, b)`), list it in a module (`funcs: [foo]`), or take `foo.decl`. */
+export function fn<P extends ParamSpec, R extends ShaderType>(
   name: string,
   params: P,
-  ret: ShaderType,
+  ret: R,
   body: (p: ParamNodes<P>, b: Builder) => Node | void,
   opts?: { allowEarlyReturn?: boolean; lintDisable?: readonly string[] },
-): FuncDecl {
+): FnHandle<R> {
   const paramList = Object.entries(params).map(([n, type]) => ({ name: n, type }))
   const paramNodes = Object.fromEntries(
     paramList.map((p) => [p.name, new Node({ op: 'param', type: p.type, name: p.name })]),
@@ -159,23 +168,20 @@ export function fn<P extends ParamSpec>(
   // control flow still use Return() (a native return there only exits the closure).
   const result = withScope(b, () => body(paramNodes, b))
   if (result !== undefined) b.ret(result)
-  return { name, params: paramList, ret, body: b.stmts, allowEarlyReturn: opts?.allowEarlyReturn, lintDisable: opts?.lintDisable }
+  const decl: FuncDecl = { name, params: paramList, ret, body: b.stmts, allowEarlyReturn: opts?.allowEarlyReturn, lintDisable: opts?.lintDisable }
+  // The handle IS the call node factory; the FuncDecl fields are mixed onto it so it still
+  // duck-types as a FuncDecl in a module's funcs[]. `name` is a non-writable function prop,
+  // so it is set via defineProperty (Object.assign would throw on it under strict mode).
+  const handle = ((...args: NodeLike[]): Node<KeyOf<R>> => callFn(name, ret, ...args)) as FnHandle<R>
+  // enumerable so `{ ...handle }` (e.g. the projection-fn spread) carries the name; a
+  // function's own `name` is non-enumerable by default, which would drop it from a spread.
+  Object.defineProperty(handle, 'name', { value: name, configurable: true, enumerable: true })
+  Object.assign(handle, { params: paramList, ret, body: decl.body, allowEarlyReturn: decl.allowEarlyReturn, lintDisable: decl.lintDisable, decl })
+  return handle
 }
 
-/** Define a function AND return a typed CALLABLE: `const f = defineFn(...)` then
- *  `f(arg)` produces the call node (no string name at the call site, ret inferred),
- *  and `f.decl` is the FuncDecl for the module. Byte-identical to a separate
- *  `fn('name', …)` + `callFn('name', ret, …)`. */
-export function defineFn<P extends ParamSpec, R extends ShaderType>(
-  name: string,
-  params: P,
-  ret: R,
-  body: (p: ParamNodes<P>, b: Builder) => Node | void,
-): ((...args: NodeLike[]) => Node<KeyOf<R>>) & { readonly decl: FuncDecl } {
-  const decl = fn(name, params, ret, body)
-  const call = (...args: NodeLike[]): Node<KeyOf<R>> => callFn(name, ret, ...args)
-  return Object.assign(call, { decl })
-}
+/** @deprecated fn() now returns a callable FnHandle directly — use fn(). Kept as an alias. */
+export const defineFn = fn
 
 /** Author a `@compute @workgroup_size(N)` entry point. The body callback
  *  receives the builder + the `@builtin(global_invocation_id)` Node (vec3<u32>).
