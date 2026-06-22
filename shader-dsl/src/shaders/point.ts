@@ -192,22 +192,22 @@ const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (pp) =
     const p1 = sg.p1
     const p2 = sg.p2
     const p3 = sg.p3
-    Switch(sg.kind, [
-      [0, () => {
+    Switch(sg.kind)
+      .case(0, () => {
         assign(minDist, min(minDist, distToLine(uv, p0, p1)))
         assignOp(winding, '+', windingLine(uv, p0, p1))
-      }],
-      [1, () => {
+      })
+      .case(1, () => {
         assign(minDist, min(minDist, distToQuadratic(uv, p0, p1, p2)))
         // Approximate winding with chord.
         assignOp(winding, '+', windingLine(uv, p0, p2))
-      }],
-      [2, () => {
+      })
+      .case(2, () => {
         assign(minDist, min(minDist, distToCubic(uv, p0, p1, p2, p3)))
         // Approximate winding with chord.
         assignOp(winding, '+', windingLine(uv, p0, p3))
-      }],
-    ], () => { /* default: empty */ })
+      })
+      .default(() => { /* default: empty */ })
   })
   // Inside (winding != 0): dist=1 at boundary; outside: dist=1+min_dist.
   If(winding.ne(0), () => { Return(f32(1).sub(minDist)) })
@@ -235,12 +235,13 @@ const vs = fn('vs_point', {
   const sizeMode = packed10.shr(u32(4)).bitAnd(u32(0xF))
   // Size mode: 0=px, 1=m, 2=km, 3=deg (equator approx), 4=nm.
   const viewport = U.field.viewport
-  const radiusPx = condExpr([
-    [sizeMode.eq(1), () => rawRadius.div(viewport.z)],
-    [sizeMode.eq(2), () => rawRadius.mul(1000).div(viewport.z)],
-    [sizeMode.eq(3), () => rawRadius.mul(111320).div(viewport.z)],
-    [sizeMode.eq(4), () => rawRadius.mul(1852).div(viewport.z)],
-  ], () => rawRadius)
+  const radiusPx = Var(rawRadius) // default; the size_mode switch overrides per case
+  Switch(sizeMode)
+    .case(1, () => assign(radiusPx, rawRadius.div(viewport.z)))
+    .case(2, () => assign(radiusPx, rawRadius.mul(1000).div(viewport.z)))
+    .case(3, () => assign(radiusPx, rawRadius.mul(111320).div(viewport.z)))
+    .case(4, () => assign(radiusPx, rawRadius.mul(1852).div(viewport.z)))
+    .default(() => {})
 
   // Phase 2 PR 2d.2 — ECEF DSFUN per-feature centre.
   // featData slots 11..16 carry the tile-anchored ECEF DSFUN split

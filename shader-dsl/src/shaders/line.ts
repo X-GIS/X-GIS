@@ -25,7 +25,7 @@ import {
   length, dot, min, max, smoothstep, abs, floor, select, textureSample,
   bitcastU32, unpack4x8unorm,
   atan, exp,
-  If, ifExpr, condExpr, Loop, Let, Continue, Break, Discard, assign, assignOp, madd, outsideRange,
+  If, ifExpr, Loop, Let, Var, Continue, Break, Discard, assign, assignOp, madd, outsideRange,
   ReturnIf, Switch,
   f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   arrayT,
@@ -286,20 +286,20 @@ const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (p) =>
     const p1 = sseg.p1
     const p2 = sseg.p2
     const p3 = sseg.p3
-    Switch(sseg.kind, [
-      [0, () => {
+    Switch(sseg.kind)
+      .case(0, () => {
         assign(minDist, min(minDist, dist_to_segment(uv, p0, p1)))
         assignOp(winding, '+', winding_line(uv, p0, p1))
-      }],
-      [1, () => {
+      })
+      .case(1, () => {
         assign(minDist, min(minDist, dist_to_quadratic(uv, p0, p1, p2)))
         assignOp(winding, '+', winding_line(uv, p0, p2))
-      }],
-      [2, () => {
+      })
+      .case(2, () => {
         assign(minDist, min(minDist, dist_to_cubic(uv, p0, p1, p2, p3)))
         assignOp(winding, '+', winding_line(uv, p0, p3))
-      }],
-    ], () => { /* default: empty */ })
+      })
+      .default(() => { /* default: empty */ })
   })
   ReturnIf(winding.ne(0), f32(1).sub(minDist))
   return f32(1).add(minDist)
@@ -690,10 +690,11 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
 
       // START / END / CENTER — single instance.
       const lineLength = sego.line_length
-      const centerArc = condExpr([
-        [anchor.eq(1), () => startM],
-        [anchor.eq(2), () => lineLength.sub(startM)],
-      ], () => lineLength.mul(0.5))
+      const centerArc = Var(lineLength.mul(0.5)) // default (anchor 0 / other)
+      Switch(anchor)
+        .case(1, () => assign(centerArc, startM))
+        .case(2, () => assign(centerArc, lineLength.sub(startM)))
+        .default(() => {})
 
       const arcOnSeg = Let(centerArc.sub(sego.arc_start))
       If(outsideRange(arcOnSeg, halfS.mul(-2), segLen.add(halfS.mul(2))), () => Continue())
@@ -798,14 +799,14 @@ const vsLine = fn('vs_line', {
   // 6-vert quad → along/across.
   const along = f32(0)
   const across = f32(0)
-  Switch(p.vi, [
-    [0, () => { assign(along, f32(-1)); assign(across, f32(-1)) }],
-    [1, () => { assign(along, f32(1));  assign(across, f32(-1)) }],
-    [2, () => { assign(along, f32(1));  assign(across, f32(1)) }],
-    [3, () => { assign(along, f32(-1)); assign(across, f32(-1)) }],
-    [4, () => { assign(along, f32(1));  assign(across, f32(1)) }],
-    [5, () => { assign(along, f32(-1)); assign(across, f32(1)) }],
-  ], () => { /* default: empty */ })
+  Switch(p.vi)
+    .case(0, () => { assign(along, f32(-1)); assign(across, f32(-1)) })
+    .case(1, () => { assign(along, f32(1));  assign(across, f32(-1)) })
+    .case(2, () => { assign(along, f32(1));  assign(across, f32(1)) })
+    .case(3, () => { assign(along, f32(-1)); assign(across, f32(-1)) })
+    .case(4, () => { assign(along, f32(1));  assign(across, f32(1)) })
+    .case(5, () => { assign(along, f32(-1)); assign(across, f32(1)) })
+    .default(() => { /* default: empty */ })
 
   const isStart = Let(along.lt(0))
   const base = select(isStart, p0, p1)

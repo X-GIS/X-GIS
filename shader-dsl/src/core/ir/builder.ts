@@ -70,13 +70,16 @@ export class Builder {
    *  Returns the auto-named varref factory (typed once known) + a `commit(type)` that patches the
    *  emitted decl. The Stmt is pushed NOW (before the branches), patched before the build returns,
    *  so the emit always sees a fully-typed var — the typeless window is internal + synchronous. */
-  inferredVar(): { ref: (type: ShaderType) => Node; commit: (type: ShaderType) => void } {
+  inferredVar(): { ref: (type: ShaderType) => Node; commit: (type: ShaderType) => void; cancel: () => void } {
     const name = this.autoName()
     const stmt = { s: 'var' as const, name, type: undefined as unknown as ShaderType, init: undefined }
     this.push(stmt as Stmt)
     return {
       ref: (type) => new Node({ op: 'varref', type, name }),
       commit: (type) => { stmt.type = type },
+      // Drop the pushed decl — for a Switch used as a STATEMENT (no case returned a value), the
+      // reserved var is unused; removing it keeps the emit free of a stray typeless `var`.
+      cancel: () => { const i = this.stmts.indexOf(stmt as Stmt); if (i >= 0) this.stmts.splice(i, 1) },
     }
   }
 
@@ -467,12 +470,33 @@ export function condExpr<K extends string>(
   return iv.ref(vt!) as Node<K>
 }
 
-export const Switch = (
-  scrut: Node<ScalarKey>,
-  cases: Array<[number, () => Node | void]>,
-  defaultBody?: () => Node | void,
-): void => currentBuilder().switch(
-  scrut,
-  cases.map(([v, f]) => [v, (_b: Builder) => f()] as [number, (b: Builder) => Node | void]),
-  defaultBody ? (_b: Builder) => defaultBody() : undefined,
-)
+/** `switch (scrut) { case n: …; default: … }` as a chainable statement BUILDER — mirrors the
+ *  If(…).elif(…).else(…) surface so dispatch reads the known imperative way: forward-declare a
+ *  `Var(default)`, then assign it inside the case arms.
+ *    const radiusPx = Var(rawRadius)
+ *    Switch(sizeMode)
+ *      .case(1, () => assign(radiusPx, rawRadius.div(viewport.z)))
+ *      .case(2, () => assign(radiusPx, …))
+ *      .default(() => {})
+ *  Lowers to a real WGSL `switch`. `.case(n, body)` ~ a case label, `.default(body?)` ~ the default arm
+ *  (optional) + the terminator. */
+export class SwitchChain {
+  private readonly cases: Array<[number, () => void]> = []
+  constructor(private readonly scrut: Node<ScalarKey>) {}
+  case(value: number, body: () => void): SwitchChain {
+    this.cases.push([value, body])
+    return this
+  }
+  default(body?: () => void): void {
+    currentBuilder().switch(
+      this.scrut,
+      this.cases.map(([v, f]) => [v, (_b: Builder) => f()] as [number, (bb: Builder) => Node | void]),
+      body ? (_b: Builder) => body() : undefined,
+    )
+  }
+}
+
+/** Open a `switch (scrut)` chain — `Switch(scrut).case(n, body)….default(body)`. */
+export function Switch(scrut: Node<ScalarKey>): SwitchChain {
+  return new SwitchChain(scrut)
+}

@@ -99,20 +99,20 @@ const sdf_shape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, ({ uv
 
   Loop(s.seg_start, (i) => i.lt(end), (i) => {
     const seg = segmentsB.at(i)
-    Switch(seg.kind, [
-      [0, () => {
+    Switch(seg.kind)
+      .case(0, () => {
         assign(min_dist, min(min_dist, dist_to_segment(uv, seg.p0, seg.p1)))
         addAssign(winding, winding_line(uv, seg.p0, seg.p1))
-      }],
-      [1, () => {
+      })
+      .case(1, () => {
         assign(min_dist, min(min_dist, dist_to_quadratic(uv, seg.p0, seg.p1, seg.p2)))
         addAssign(winding, winding_line(uv, seg.p0, seg.p2))
-      }],
-      [2, () => {
+      })
+      .case(2, () => {
         assign(min_dist, min(min_dist, dist_to_cubic(uv, seg.p0, seg.p1, seg.p2, seg.p3)))
         addAssign(winding, winding_line(uv, seg.p0, seg.p3))
-      }],
-    ], () => { /* default: {} */ })
+      })
+      .default(() => { /* default: {} */ })
   }, u32(1))
 
   If(winding.ne(0), () => { Return(f32(1).sub(min_dist)) })
