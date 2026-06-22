@@ -18,6 +18,11 @@ import { cyclomaticComplexity } from './cyclomatic-complexity'
 import { paramCount } from './param-count'
 import { namingConvention } from './naming-convention'
 import { maxNesting } from './max-nesting-depth'
+import { noSelfAssign } from './no-self-assign'
+import { noEmptyFunction } from './no-empty-function'
+import { maxFunctionLength } from './max-function-length'
+import { preferLetOverVar } from './prefer-let-over-var'
+import { noDeadBinding } from './no-dead-binding'
 
 /** The registered ruleset. Order is the diagnostic order (module checks, then per-fn in
  *  declaration order). Append new rules here. */
@@ -35,9 +40,15 @@ export const RULES: readonly LintRule[] = [
   paramCount,
   namingConvention,
   maxNesting,
+  noSelfAssign,
+  noEmptyFunction,
+  maxFunctionLength,
+  preferLetOverVar,
+  noDeadBinding,
 ]
 
 export {
   dupStruct, dupFunc, bindingCollision, allPathsReturn, singleExit, mixedScalarRule,
   noRecursion, noUnreachable, noFloatEq, cyclomaticComplexity, paramCount, namingConvention, maxNesting,
+  noSelfAssign, noEmptyFunction, maxFunctionLength, preferLetOverVar, noDeadBinding,
 }
