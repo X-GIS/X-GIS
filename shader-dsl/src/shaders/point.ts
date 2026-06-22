@@ -25,41 +25,39 @@ import {
   Let, Var, assign, assignOp, If, Loop, Discard,
   type StructDecl, type ModuleDecl,
 } from '../core/ir'
+import { ioStruct, builtin, location, uniformStruct } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
 import { getProjectionWgslConsts, getProjectionWgslFns } from './projections'
 import { LOG_DEPTH_WGSL_FNS } from './log-depth'
 
-const Uniforms: StructDecl = {
-  name: 'Uniforms',
-  fields: [
-    // Phase 2 PR 2d.2 — POINT VS ECEF migration. `mvp` holds the ECEF-MVP
-    // (Camera.getECEFFrameView), not the legacy Mercator-RTC MVP. Post
-    // PR 2d.5 closeout, all polygon/line/raster/point shaders use the
-    // single `mvp` slot for the ECEF-MVP — the dual-slot Mercator+ECEF
-    // layout was retired (polygon Uniforms shrunk 256 → 192 bytes).
-    { name: 'mvp', type: mat4x4fT },
-    // proj_params: x=projType, y=centerLon, z=centerLat. Retained for the
-    // fragment-side hemisphere-cull (needs_backface_cull + rim_alpha)
-    // which still branches on projType to short-circuit flat projections.
-    { name: 'proj_params', type: vec4fT },
-    // tile_rtc deleted (Phase 2 PR 2d.2) — the camera-relative anchor used
-    // to live here for the Mercator-DSFUN VS; ECEF VS computes the clip
-    // position directly from per-feature ECEF DSFUN, no per-tile offset.
-    { name: 'viewport', type: vec4fT },      // xy = w/h, z = meters/px, w = log_depth_fc
-    // Camera-relative RTC fix: the per-feature ECEF DSFUN is now ABSOLUTE, but
-    // the MVP (Camera.getECEFFrameView) is camera-at-ENU-origin. Subtract the
-    // camera anchor (getECEFCenter, sphere) — split DSFUN hi/lo to preserve
-    // sub-mm precision: ecef_rtc = (ecefH − camH) + (ecefL − camL). xyz used,
-    // w unused.
-    { name: 'cam_ecef_h', type: vec4fT },
-    { name: 'cam_ecef_l', type: vec4fT },
-    // circle_params: x=translate_x_ndc, y=translate_y_ndc, z=blur_px, w=unused.
-    // translate_x/y are pre-baked to NDC-per-pixel (px * 2 / w/h) by the
-    // renderer — same convention as fill_translate_x/y in polygon.ts.
-    // Default [0,0,0,0] → no-op (existing rendering byte-identical).
-    { name: 'circle_params', type: vec4fT },
-  ],
-}
+const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
+  // Phase 2 PR 2d.2 — POINT VS ECEF migration. `mvp` holds the ECEF-MVP
+  // (Camera.getECEFFrameView), not the legacy Mercator-RTC MVP. Post
+  // PR 2d.5 closeout, all polygon/line/raster/point shaders use the
+  // single `mvp` slot for the ECEF-MVP — the dual-slot Mercator+ECEF
+  // layout was retired (polygon Uniforms shrunk 256 → 192 bytes).
+  mvp: mat4x4fT,
+  // proj_params: x=projType, y=centerLon, z=centerLat. Retained for the
+  // fragment-side hemisphere-cull (needs_backface_cull + rim_alpha)
+  // which still branches on projType to short-circuit flat projections.
+  proj_params: vec4fT,
+  // tile_rtc deleted (Phase 2 PR 2d.2) — the camera-relative anchor used
+  // to live here for the Mercator-DSFUN VS; ECEF VS computes the clip
+  // position directly from per-feature ECEF DSFUN, no per-tile offset.
+  viewport: vec4fT,      // xy = w/h, z = meters/px, w = log_depth_fc
+  // Camera-relative RTC fix: the per-feature ECEF DSFUN is now ABSOLUTE, but
+  // the MVP (Camera.getECEFFrameView) is camera-at-ENU-origin. Subtract the
+  // camera anchor (getECEFCenter, sphere) — split DSFUN hi/lo to preserve
+  // sub-mm precision: ecef_rtc = (ecefH − camH) + (ecefL − camL). xyz used,
+  // w unused.
+  cam_ecef_h: vec4fT,
+  cam_ecef_l: vec4fT,
+  // circle_params: x=translate_x_ndc, y=translate_y_ndc, z=blur_px, w=unused.
+  // translate_x/y are pre-baked to NDC-per-pixel (px * 2 / w/h) by the
+  // renderer — same convention as fill_translate_x/y in polygon.ts.
+  // Default [0,0,0,0] → no-op (existing rendering byte-identical).
+  circle_params: vec4fT,
+})
 const ShapeDesc: StructDecl = {
   name: 'ShapeDesc',
   fields: [
@@ -86,27 +84,20 @@ const Segment: StructDecl = {
     { name: 'p3', type: vec2fT },
   ],
 }
-const PointOut: StructDecl = {
-  name: 'PointOut',
-  fields: [
-    { name: 'position', type: vec4fT, attr: '@builtin(position)' },
-    { name: 'uv', type: vec2fT, attr: '@location(0)' },
-    { name: 'feat_id', type: u32T, attr: '@location(1) @interpolate(flat)' },
-    { name: 'radius_px', type: f32T, attr: '@location(2) @interpolate(flat)' },
-    { name: 'view_w', type: f32T, attr: '@location(3)' },
-    { name: 'cos_c', type: f32T, attr: '@location(4) @interpolate(flat)' },
-    { name: 'rim_a', type: f32T, attr: '@location(5) @interpolate(flat)' },
-  ],
-}
-const PointFragmentOutput: StructDecl = {
-  name: 'PointFragmentOutput',
-  fields: [
-    { name: 'color', type: vec4fT, attr: '@location(0)' },
-    { name: 'depth', type: f32T, attr: '@builtin(frag_depth)' },
-  ],
-}
+const PointOut = ioStruct('PointOut', {
+  position: builtin('position', vec4fT),
+  uv: location(0, vec2fT),
+  feat_id: location(1, u32T, 'flat'),
+  radius_px: location(2, f32T, 'flat'),
+  view_w: location(3, f32T),
+  cos_c: location(4, f32T, 'flat'),
+  rim_a: location(5, f32T, 'flat'),
+})
+const PointFragmentOutput = ioStruct('PointFragmentOutput', {
+  color: location(0, vec4fT),
+  depth: builtin('frag_depth', f32T),
+})
 
-const u = bindingRef('u', structT('Uniforms'))
 const featData = bindingRef('feat_data', arrayT(f32T))
 const shapes = bindingRef('shapes', arrayT(structT('ShapeDesc')))
 const segments = bindingRef('segments', arrayT(structT('Segment')))
@@ -134,11 +125,11 @@ const STRIDE = u32(24)
 // mirroring polygon_cos_c_fragment + polygon_rim_alpha in polygon.ts.
 
 const pointCosC = fn('point_cos_c', { abs_lon: f32T, abs_lat: f32T }, f32T, (_b, p) => {
-  return callFn('needs_backface_cull', f32T, p.abs_lon, p.abs_lat, u.field('proj_params', vec4fT))
+  return callFn('needs_backface_cull', f32T, p.abs_lon, p.abs_lat, U.field.proj_params)
 })
 
 const pointRimAlpha = fn('point_rim_alpha', { abs_lon: f32T, abs_lat: f32T }, f32T, (_b, p) => {
-  return callFn('rim_alpha', f32T, p.abs_lon, p.abs_lat, u.field('proj_params', vec4fT))
+  return callFn('rim_alpha', f32T, p.abs_lon, p.abs_lat, U.field.proj_params)
 })
 
 const distToLine = fn('dist_to_line', { p: vec2fT, a: vec2fT, b: vec2fT }, f32T, (_b, pp) => {
@@ -238,7 +229,7 @@ const vs = entryFn('vs_point', 'vertex', [
   { name: 'center', type: vec2fT, location: 0 },
   { name: 'quad_id', type: u32T, location: 1 },
   { name: 'feat_id', type: f32T, location: 2 },
-], structT('PointOut'), (_b, p) => {
+], PointOut.type, (_b, p) => {
   const offsets = Let('offsets', arrayLit(vec2fT,
     vec2(f32(-1), f32(-1)),
     vec2(f32(1), f32(-1)),
@@ -253,7 +244,7 @@ const vs = entryFn('vs_point', 'vertex', [
   const sizeMode = Let('size_mode', packed10.shr(u32(4)).bitAnd(u32(0xF)))
   // Size mode: 0=px, 1=m, 2=km, 3=deg (equator approx), 4=nm.
   const radiusPx = Var('radius_px', f32T)
-  const viewport = u.field('viewport', vec4fT)
+  const viewport = U.field.viewport
   If(sizeMode.eq(u32(1)), () => { assign(radiusPx, rawRadius.div(viewport.z)) })
     .elif(sizeMode.eq(u32(2)), () => { assign(radiusPx, rawRadius.mul(1000).div(viewport.z)) })
     .elif(sizeMode.eq(u32(3)), () => { assign(radiusPx, rawRadius.mul(111320).div(viewport.z)) })
@@ -277,12 +268,12 @@ const vs = entryFn('vs_point', 'vertex', [
   ))
   // Camera-relative RTC: subtract the camera anchor in DSFUN space so the
   // big absolute ECEF magnitude cancels before the residual reaches f32 math.
-  const camH = Let('cam_h', u.field('cam_ecef_h', vec4fT).swizzle<'vec3<f32>'>('xyz'))
-  const camL = Let('cam_l', u.field('cam_ecef_l', vec4fT).swizzle<'vec3<f32>'>('xyz'))
+  const camH = Let('cam_h', U.field.cam_ecef_h.swizzle<'vec3<f32>'>('xyz'))
+  const camL = Let('cam_l', U.field.cam_ecef_l.swizzle<'vec3<f32>'>('xyz'))
   const ecefRtc = Let('ecef_rtc', ecefH.sub(camH).add(ecefL.sub(camL)))
   const absLon = Let('abs_lon', featData.at(fid.mul(STRIDE).add(u32(17)), f32T))
   const absLat = Let('abs_lat', featData.at(fid.mul(STRIDE).add(u32(18)), f32T))
-  const mvp = u.field('mvp', mat4x4fT)
+  const mvp = U.field.mvp
   // Display projection (projection-display-layer-restore): flat Mercator
   // (proj_params.x < 0.5) reprojects the absolute lon/lat onto the 2D plane
   // and feeds the flat Mercator-metre MVP; 3D / globe keeps the ECEF-RTC
@@ -292,7 +283,7 @@ const vs = entryFn('vs_point', 'vertex', [
   // (Camera.getViewForProjection). Quad expansion below consumes centerClip
   // identically for both paths.
   const centerClip = Var('center_clip', vec4fT)
-  If(u.field('proj_params', vec4fT).x.lt(0.5), () => {
+  If(U.field.proj_params.x.lt(0.5), () => {
     // Precise absolute Mercator DSFUN (slots 20-23), camera-recentered in DSFUN
     // space — `(mx_h−camH)+(mx_l−camL)` — exactly like ecef_rtc. The old path
     // reprojected the lossy f32 abs_lon/abs_lat (~1.35 m → ~5.7 px @ z20).
@@ -300,17 +291,17 @@ const vs = entryFn('vs_point', 'vertex', [
     const mxL = Let('mx_l', featData.at(fid.mul(STRIDE).add(u32(21)), f32T))
     const myH = Let('my_h', featData.at(fid.mul(STRIDE).add(u32(22)), f32T))
     const myL = Let('my_l', featData.at(fid.mul(STRIDE).add(u32(23)), f32T))
-    const camMercH = Let('cam_merc_h', u.field('cam_ecef_h', vec4fT).swizzle<'vec2<f32>'>('xy'))
-    const camMercL = Let('cam_merc_l', u.field('cam_ecef_l', vec4fT).swizzle<'vec2<f32>'>('xy'))
+    const camMercH = Let('cam_merc_h', U.field.cam_ecef_h.swizzle<'vec2<f32>'>('xy'))
+    const camMercL = Let('cam_merc_l', U.field.cam_ecef_l.swizzle<'vec2<f32>'>('xy'))
     const relX = Let('rel_x', mxH.sub(camMercH.x).add(mxL.sub(camMercL.x)))
     const relY = Let('rel_y', myH.sub(camMercH.y).add(myL.sub(camMercL.y)))
     assign(centerClip, transformMat4(mvp, vec4(relX, relY, f32(0), f32(1))))
-  }).elif(u.field('proj_params', vec4fT).x.lt(6.5), () => {
+  }).elif(U.field.proj_params.x.lt(6.5), () => {
     // FLAT non-Mercator (1-6): the shared flat_rel — reproject the marker's
     // lon/lat minus the in-shader projected camera centre. ref_lon = the
     // marker's own lon (self) so it lands in its nearest world copy; for an
     // individual marker project_geom collapses to plain project. Same flat MVP.
-    const pp = Let('pp', u.field('proj_params', vec4fT))
+    const pp = Let('pp', U.field.proj_params)
     const relG = Let('rel2d_geom', callFn('flat_rel', vec2fT, absLon, absLat, pp, absLon))
     assign(centerClip, transformMat4(mvp, vec4(relG.x, relG.y, f32(0), f32(1))))
   }).else(() => {
@@ -322,7 +313,7 @@ const vs = entryFn('vs_point', 'vertex', [
   // (circle_params.xy). Multiply by clip.w to keep the shift pixel-
   // constant regardless of depth — same approach as polygon fill-translate.
   // Default [0,0] → no-op.
-  const circleParams = Let('circle_params', u.field('circle_params', vec4fT))
+  const circleParams = Let('circle_params', U.field.circle_params)
   assign(centerClip, centerClip.add(vec4(
     circleParams.x.mul(centerClip.w),
     circleParams.y.mul(centerClip.w),
@@ -341,7 +332,7 @@ const vs = entryFn('vs_point', 'vertex', [
   // mirrors MapLibre circle.vertex.glsl's `* (u_camera_to_center_distance /
   // gl_Position.w)` for pitch-alignment:viewport + pitch-scale:map. =1 at the
   // screen centre, <1 toward the horizon. Guard clip.w>0 to avoid div blow-up.
-  If(u.field('circle_params', vec4fT).w.gt(f32(0.5)), () => {
+  If(U.field.circle_params.w.gt(f32(0.5)), () => {
     const wRef = Let('w_ref', mvp.at(u32(3), vec4fT).w)
     const wPt = Let('w_pt', max(centerClip.w, f32(1e-4)))
     assign(radiusPx, radiusPx.mul(wRef.div(wPt)))
@@ -352,12 +343,13 @@ const vs = entryFn('vs_point', 'vertex', [
   assign(radiusPx, max(radiusPx, f32(1)))
   const expand = Let('expand', radiusPx.add(2))
 
-  const out = Var('out', structT('PointOut'))
+  const out = Var('out', PointOut.type)
+  const o = PointOut.of(out)
   // All four corners share the centre's view_w (point markers occupy a
   // near-zero depth range; per-corner depth divergence would over-strict
   // the log-depth interpolation).
   const fc = Let('fc', viewport.w)
-  assign(out.field('view_w', f32T), centerClip.w)
+  assign(o.view_w, centerClip.w)
 
   If(isFlat, () => {
     // FLAT: expand in screen-space NDC (perspective-corrected via
@@ -377,8 +369,8 @@ const vs = entryFn('vs_point', 'vertex', [
     const offsetPx = Let('offset_px', vec2(offXY.x.mul(expand), offXY.y.mul(expand).add(yShiftPx)))
     const offsetNdc = Let('offset_ndc', offsetPx.mul(pxToNdc))
     const flatClip = Let('flat_clip', centerClip.add(vec4(offsetNdc.mul(centerClip.w), f32(0), f32(0))))
-    assign(out.field('position', vec4fT), callFn('apply_log_depth', vec4fT, flatClip, fc))
-    assign(out.field('uv', vec2fT), offXY)
+    assign(o.position, callFn('apply_log_depth', vec4fT, flatClip, fc))
+    assign(o.uv, offXY)
   }).else(() => {
     // BILLBOARD: expand in screen-space (NDC), perspective-corrected. Anchor
     // (bits 8..9): 0=center, 1=bottom (lifts up by one extent so the bottom
@@ -392,38 +384,39 @@ const vs = entryFn('vs_point', 'vertex', [
     const offsetPx = Let('offset_px', vec2(offXY.x.mul(expand), offXY.y.mul(expand).add(yShiftPx)))
     const offsetNdc = Let('offset_ndc', offsetPx.mul(pxToNdc))
     const billboardClip = Let('billboard_clip', centerClip.add(vec4(offsetNdc.mul(centerClip.w), f32(0), f32(0))))
-    assign(out.field('position', vec4fT), callFn('apply_log_depth', vec4fT, billboardClip, fc))
+    assign(o.position, callFn('apply_log_depth', vec4fT, billboardClip, fc))
     // UV stays centered so the SDF shape renders unchanged; only the on-
     // screen placement is shifted.
-    assign(out.field('uv', vec2fT), offXY.mul(expand).div(max(radiusPx, f32(1))))
+    assign(o.uv, offXY.mul(expand).div(max(radiusPx, f32(1))))
   })
-  assign(out.field('feat_id', u32T), fid)
-  assign(out.field('radius_px', f32T), radiusPx)
-  assign(out.field('cos_c', f32T), callFn('point_cos_c', f32T, absLon, absLat))
-  assign(out.field('rim_a', f32T), callFn('point_rim_alpha', f32T, absLon, absLat))
+  assign(o.feat_id, fid)
+  assign(o.radius_px, radiusPx)
+  assign(o.cos_c, callFn('point_cos_c', f32T, absLon, absLat))
+  assign(o.rim_a, callFn('point_rim_alpha', f32T, absLon, absLat))
   return out
 })
 
-const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: structT('PointOut') }], structT('PointFragmentOutput'), (_b, p) => {
+const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: PointOut.type }], PointFragmentOutput.type, (_b, p) => {
+  const pin = PointOut.of(p.in)
   // Backface cull for globe projections — cos_c is +1 for flat projections.
-  If(p.in.field('cos_c', f32T).lt(0), () => { Discard() })
-  const fid = Let('fid', p.in.field('feat_id', u32T))
+  If(pin.cos_c.lt(0), () => { Discard() })
+  const fid = Let('fid', pin.feat_id)
   // shape_id moved to slot 19 in PR 2d.2's stride-20 layout (was slot 13).
   const shapeId = Let('shape_id', toU32(featData.at(fid.mul(STRIDE).add(u32(19)), f32T)))
 
   // AA from UV (always smooth) — not from SDF dist (AABB discontinuities).
-  const aa = Let('aa', fwidth(length(p.in.field('uv', vec2fT))).mul(1.5))
+  const aa = Let('aa', fwidth(length(pin.uv)).mul(1.5))
   // circle-blur: widen the AA band by blur_px converted to UV units.
   // blur_uv = blur_px / radius_px. Default 0 → band unchanged (no-op).
-  const blurPx = Let('blur_px', u.field('circle_params', vec4fT).z)
-  const blurUv = Let('blur_uv', blurPx.div(max(p.in.field('radius_px', f32T), f32(1))))
+  const blurPx = Let('blur_px', U.field.circle_params.z)
+  const blurUv = Let('blur_uv', blurPx.div(max(pin.radius_px, f32(1))))
   const halfBand = Let('half_band', aa.add(blurUv))
 
   const dist = Var('dist', f32T)
   If(shapeId.eq(u32(0)), () => {
-    assign(dist, length(p.in.field('uv', vec2fT)))   // analytical circle (fast path)
+    assign(dist, length(pin.uv))   // analytical circle (fast path)
   }).else(() => {
-    assign(dist, callFn('sdf_shape', f32T, p.in.field('uv', vec2fT), shapeId.sub(u32(1))))
+    assign(dist, callFn('sdf_shape', f32T, pin.uv, shapeId.sub(u32(1))))
   })
 
   // Per-feature style.
@@ -443,7 +436,7 @@ const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: structT('PointOu
   const flags = Let('flags', toU32(featData.at(fid.mul(STRIDE).add(u32(10)), f32T)))
 
   // stroke_w in UV space using the actual rendered radius.
-  const strokeW = Let('stroke_w', strokeWPx.div(max(p.in.field('radius_px', f32T), f32(1))))
+  const strokeW = Let('stroke_w', strokeWPx.div(max(pin.radius_px, f32(1))))
 
   const color = Var('color', vec4fT, vec4(f32(0), f32(0), f32(0), f32(0)))
 
@@ -470,18 +463,19 @@ const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: structT('PointOu
   })
 
   // Rim fade — flat / cylindrical projections receive rim_a=1.0.
-  assignOp(color.field('a', f32T), '*', p.in.field('rim_a', f32T))
+  assignOp(color.field('a', f32T), '*', pin.rim_a)
   If(color.field('a', f32T).lt(0.005), () => { Discard() })
-  const out = Var('out', structT('PointFragmentOutput'))
-  assign(out.field('color', vec4fT), color)
-  assign(out.field('depth', f32T), callFn('compute_log_frag_depth', f32T, p.in.field('view_w', f32T), u.field('viewport', vec4fT).w))
+  const out = Var('out', PointFragmentOutput.type)
+  const o = PointFragmentOutput.of(out)
+  assign(o.color, color)
+  assign(o.depth, callFn('compute_log_frag_depth', f32T, pin.view_w, U.field.viewport.w))
   return out
 })
 
 export const POINT_MODULE: ModuleDecl = module({
-  structs: [Uniforms, ShapeDesc, Segment, PointOut, PointFragmentOutput],
+  structs: [U.struct, ShapeDesc, Segment, PointOut.decl, PointFragmentOutput.decl],
   bindings: [
-    { group: 0, binding: 0, name: 'u', space: 'uniform', type: structT('Uniforms') },
+    U.binding,
     { group: 0, binding: 1, name: 'feat_data', space: 'storage', access: 'read', type: arrayT(f32T) },
     { group: 0, binding: 2, name: 'shapes', space: 'storage', access: 'read', type: arrayT(structT('ShapeDesc')) },
     { group: 0, binding: 3, name: 'segments', space: 'storage', access: 'read', type: arrayT(structT('Segment')) },

@@ -20,48 +20,42 @@
 // ~σ2 blur per pass; two separable passes compose to a 2-D Gaussian.
 
 import {
-  entryFn, module, bindingRef,
+  entryFn, module,
   f32, u32, vec2, vec4, toF32, toI32, clamp,
   textureLoad, textureDimensions, vec2i,
   u32T, vec2fT, vec4fT, texture2dfT,
-  structT,
   Var, Let, assign, If,
-  type StructDecl, type ModuleDecl,
+  type ModuleDecl,
 } from '../core/ir'
+import { ioStruct, builtin, location, uniformStruct, resource } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
 
-const Params: StructDecl = {
-  name: 'BlurParams',
-  fields: [
-    // direction: (1,0) horizontal pass, (0,1) vertical pass. zw unused.
-    { name: 'direction', type: vec4fT },
-  ],
-}
+const Params = uniformStruct('BlurParams', { group: 0, binding: 1, as: 'p' }, {
+  // direction: (1,0) horizontal pass, (0,1) vertical pass. zw unused.
+  direction: vec4fT,
+})
 
-const VsOut: StructDecl = {
-  name: 'VsOut',
-  fields: [
-    { name: 'pos', type: vec4fT, attr: '@builtin(position)' },
-    { name: 'uv', type: vec2fT, attr: '@location(0)' },
-  ],
-}
+const VsOut = ioStruct('VsOut', {
+  pos: builtin('position', vec4fT),
+  uv: location(0, vec2fT),
+})
 
-const srcTex = bindingRef('src_tex', texture2dfT)
-const params = bindingRef('p', structT('BlurParams'))
+const srcTex = resource('src_tex', texture2dfT, { group: 0, binding: 0 })
 
 // Oversized fullscreen triangle (NDC −1..3) — same trick as overdraw-compose.
 const vsFull = entryFn(
   'vs_full', 'vertex',
   [{ name: 'idx', type: u32T, builtin: 'vertex_index' }],
-  structT('VsOut'),
+  VsOut.type,
   (_b, p) => {
     const pos = Var('pos', vec2fT, vec2(f32(-1), f32(-1)))
     If(p.idx.eq(u32(1)), () => { assign(pos, vec2(f32(3), f32(-1))) })
       .elif(p.idx.eq(u32(2)), () => { assign(pos, vec2(f32(-1), f32(3))) })
-    const out = Var('out', structT('VsOut'))
-    assign(out.field('pos', vec4fT), vec4(pos, f32(0), f32(1)))
+    const out = Var('out', VsOut.type)
+    const o = VsOut.of(out)
+    assign(o.pos, vec4(pos, f32(0), f32(1)))
     // y-flip — texture origin top-left, NDC origin bottom-left.
-    assign(out.field('uv', vec2fT),
+    assign(o.uv,
       vec2(
         pos.x.add(f32(1)).mul(f32(0.5)),
         f32(1).sub(pos.y.add(f32(1)).mul(f32(0.5))),
@@ -75,15 +69,15 @@ const vsFull = entryFn(
 // density with textureLoad (clamped to the texture extent at the edges).
 const fsBlur = entryFn(
   'fs_blur', 'fragment',
-  [{ name: 'in', type: structT('VsOut') }],
+  [{ name: 'in', type: VsOut.type }],
   vec4fT,
   (_b, p) => {
-    const dimU = Let('dim_u', textureDimensions(srcTex))
+    const dimU = Let('dim_u', textureDimensions(srcTex.node))
     const dim = Let('dim', vec2(toF32(dimU.x), toF32(dimU.y)))
-    const baseUv = Let('base_uv', p.in.field('uv', vec2fT))
+    const baseUv = Let('base_uv', VsOut.of(p.in).uv)
     const baseX = Let('base_x', baseUv.x.mul(dim.x))
     const baseY = Let('base_y', baseUv.y.mul(dim.y))
-    const dir = Let('dir', params.field('direction', vec4fT))
+    const dir = Let('dir', Params.field.direction)
     const maxX = Let('max_x', toF32(dimU.x).sub(f32(1)))
     const maxY = Let('max_y', toF32(dimU.y).sub(f32(1)))
 
@@ -96,7 +90,7 @@ const fsBlur = entryFn(
         clamp(baseY.add(dir.y.mul(f32(offset))), f32(0), maxY))
       const coord = Let(`c_${offset < 0 ? 'm' : 'p'}${Math.abs(offset)}`,
         vec2i(toI32(sx), toI32(sy)))
-      return textureLoad(srcTex, coord, u32(0)).x
+      return textureLoad(srcTex.node, coord, u32(0)).x
     }
 
     // 9-tap binomial Gaussian weights (sum = 1).
@@ -123,11 +117,8 @@ const fsBlur = entryFn(
 )
 
 const HEATMAP_BLUR_MODULE: ModuleDecl = module({
-  structs: [Params, VsOut],
-  bindings: [
-    { group: 0, binding: 0, name: 'src_tex', space: 'uniform', type: texture2dfT },
-    { group: 0, binding: 1, name: 'p', space: 'uniform', type: structT('BlurParams') },
-  ],
+  structs: [Params.struct, VsOut.decl],
+  bindings: [srcTex.binding, Params.binding],
   funcs: [vsFull, fsBlur],
 })
 

@@ -16,57 +16,49 @@
 // raster always writes (0,0) since a basemap tile carries no feature id.
 
 import {
-  entryFn, module, bindingRef, constRef, callFn, transformMat4, arrayLit,
+  entryFn, module, constRef, callFn, transformMat4, arrayLit,
   f32, u32, toF32, vec2, vec3, vec4, vec2u, mix, atan, exp, smoothstep, textureSample,
   structT, f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   Let, Var, assign, If, Discard,
   type StructDecl, type StructField, type ModuleDecl,
 } from '../core/ir'
+import { ioStruct, builtin, location, uniformStruct, resource } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
 import { ECEF_WGSL_CONSTS, ECEF_WGSL_FNS } from './ecef'
 import { RASTER_COLOR_WGSL_FNS } from './raster-color'
 import { LOG_DEPTH_WGSL_FNS } from './log-depth'
 import { getProjectionWgslConsts, getProjectionWgslFns } from './projections'
 
-const Uniforms: StructDecl = {
-  name: 'Uniforms',
-  fields: [
-    { name: 'mvp', type: mat4x4fT },
-    // proj_params: x=type, y=centerLon, z=centerLat, w=log_depth_fc
-    { name: 'proj_params', type: vec4fT },
-    // raster_params: x=opacity (0..1), yzw reserved
-    { name: 'raster_params', type: vec4fT },
-    // raster-* colour adjustments (Mapbox paint). raster_color0 =
-    // (hueRotateDeg, brightnessMin, brightnessMax, saturation);
-    // raster_color1.x = contrast. ALL defaults (0,0,1,0)/(0,…) are a hard
-    // no-op so an un-authored raster show samples the texel unchanged.
-    { name: 'raster_color0', type: vec4fT },
-    { name: 'raster_color1', type: vec4fT },
-    // Camera-relative RTC (same fix as polygon's cam_ecef_off): the vertex ecef
-    // is absolute, so subtract cameraCenter to feed the camera-at-ENU-origin
-    // MVP. xyz = getECEFCenter (sphere); w unused. Raster is texture-grade, so
-    // plain f32 (no DSFUN) is sufficient.
-    { name: 'cam_ecef_center', type: vec4fT },
-  ],
-}
-const TileUniforms: StructDecl = {
-  name: 'TileUniforms',
-  fields: [
-    { name: 'bounds', type: vec4fT },          // west, south, east, north (degrees); x/z shifted per world-copy
-    { name: 'tile_ecef_center', type: vec4fT }, // xyz = ECEF of tile SW corner (world-copy unshifted); w = 0
-    { name: 'merc_y', type: vec2fT },           // x = merc_south (abs), y = merc_diff (north - south)
-    { name: '_pad', type: vec2fT },
-  ],
-}
-const VsOut: StructDecl = {
-  name: 'VsOut',
-  fields: [
-    { name: 'pos', type: vec4fT, attr: '@builtin(position)' },
-    { name: 'uv', type: vec2fT, attr: '@location(0)' },
-    { name: 'vis', type: f32T, attr: '@location(1)' },
-    { name: 'view_w', type: f32T, attr: '@location(2)' },
-  ],
-}
+const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
+  mvp: mat4x4fT,
+  // proj_params: x=type, y=centerLon, z=centerLat, w=log_depth_fc
+  proj_params: vec4fT,
+  // raster_params: x=opacity (0..1), yzw reserved
+  raster_params: vec4fT,
+  // raster-* colour adjustments (Mapbox paint). raster_color0 =
+  // (hueRotateDeg, brightnessMin, brightnessMax, saturation);
+  // raster_color1.x = contrast. ALL defaults (0,0,1,0)/(0,…) are a hard
+  // no-op so an un-authored raster show samples the texel unchanged.
+  raster_color0: vec4fT,
+  raster_color1: vec4fT,
+  // Camera-relative RTC (same fix as polygon's cam_ecef_off): the vertex ecef
+  // is absolute, so subtract cameraCenter to feed the camera-at-ENU-origin
+  // MVP. xyz = getECEFCenter (sphere); w unused. Raster is texture-grade, so
+  // plain f32 (no DSFUN) is sufficient.
+  cam_ecef_center: vec4fT,
+})
+const Tile = uniformStruct('TileUniforms', { group: 1, binding: 0, as: 'tile' }, {
+  bounds: vec4fT,          // west, south, east, north (degrees); x/z shifted per world-copy
+  tile_ecef_center: vec4fT, // xyz = ECEF of tile SW corner (world-copy unshifted); w = 0
+  merc_y: vec2fT,           // x = merc_south (abs), y = merc_diff (north - south)
+  _pad: vec2fT,
+})
+const VsOut = ioStruct('VsOut', {
+  pos: builtin('position', vec4fT),
+  uv: location(0, vec2fT),
+  vis: location(1, f32T),
+  view_w: location(2, f32T),
+})
 const rasterFragmentOutput = (pickEnabled: boolean): StructDecl => {
   const fields: StructField[] = [{ name: 'color', type: vec4fT, attr: '@location(0)' }]
   if (pickEnabled) fields.push({ name: 'pick', type: vec2uT, attr: '@location(1) @interpolate(flat)' })
@@ -74,14 +66,12 @@ const rasterFragmentOutput = (pickEnabled: boolean): StructDecl => {
   return { name: 'RasterFragmentOutput', fields }
 }
 
-const u = bindingRef('u', structT('Uniforms'))
-const tex = bindingRef('tex', texture2dfT)
-const texSampler = bindingRef('tex_sampler', samplerT)
-const tile = bindingRef('tile', structT('TileUniforms'))
+const tex = resource('tex', texture2dfT, { group: 0, binding: 1 })
+const texSampler = resource('tex_sampler', samplerT, { group: 0, binding: 2 })
 
 // GRID_N = 8 (an 8×8 subdivided grid, 6 verts/cell = 384; the draw count lives
 // in the renderer). Inlined where used.
-const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 'vertex_index' }], structT('VsOut'), (_b, p) => {
+const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 'vertex_index' }], VsOut.type, (_b, p) => {
   const cell = Let('cell', p.vid.div(u32(6)))
   const tri = Let('tri', p.vid.mod(u32(6)))
   const cx = Let('cx', cell.mod(u32(8)))
@@ -95,10 +85,10 @@ const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 've
   const uu = Let('uu', toF32(gx).div(8))
   const vv = Let('vv', toF32(gy).div(8))
 
-  const mercY = tile.field('merc_y', vec2fT)
-  const bounds = tile.field('bounds', vec4fT)
-  const camEcef = u.field('cam_ecef_center', vec4fT)
-  const projParams = u.field('proj_params', vec4fT)
+  const mercY = Tile.field.merc_y
+  const bounds = Tile.field.bounds
+  const camEcef = U.field.cam_ecef_center
+  const projParams = U.field.proj_params
 
   // vv=0 → north (offset=diff), vv=1 → south (offset=0). Local offset from tileSouth.
   const mercYOffset = Let('merc_y_offset', f32(1).sub(vv).mul(mercY.y))
@@ -118,7 +108,8 @@ const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 've
   const camEcefVec = Let('cam_ecef_vec', vec3(camEcef.x, camEcef.y, camEcef.z))
   const ecefRtc = Let('ecef_rtc', ecef.sub(camEcefVec))
 
-  const out = Var('out', structT('VsOut'))
+  const out = Var('out', VsOut.type)
+  const o = VsOut.of(out)
   // Display projection (projection-display-layer-restore): flat Mercator
   // (proj_params.x < 0.5) reprojects the reconstructed lon/lat onto the 2D
   // plane and feeds the flat Mercator-metre MVP; 3D / globe keeps the ECEF
@@ -132,7 +123,7 @@ const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 've
     const latDeg = Let('lat_deg', latRad.div(constRef('DEG2RAD')))
     const p2d = Let('p2d', callFn('project', vec2fT, lon, latDeg, projParams))
     const rel2d = Let('rel2d', p2d.sub(vec2(camEcef.x, camEcef.y)))
-    assign(clip, transformMat4(u.field('mvp', mat4x4fT), vec4(rel2d.x, rel2d.y, f32(0), f32(1))))
+    assign(clip, transformMat4(U.field.mvp, vec4(rel2d.x, rel2d.y, f32(0), f32(1))))
   }).elif(projParams.x.lt(6.5), () => {
     // FLAT non-Mercator (1-6): reproject the reconstructed lon/lat via
     // project_geom (world-copy aware; tileRefLon = tile-centre lon from the
@@ -141,47 +132,43 @@ const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 've
     const latDeg = Let('lat_deg_g', latRad.div(constRef('DEG2RAD')))
     const tileRefLon = Let('tile_ref_lon', bounds.x.add(bounds.z).mul(0.5))
     const relG = Let('rel2d_geom', callFn('flat_rel', vec2fT, lon, latDeg, projParams, tileRefLon))
-    assign(clip, transformMat4(u.field('mvp', mat4x4fT), vec4(relG.x, relG.y, f32(0), f32(1))))
+    assign(clip, transformMat4(U.field.mvp, vec4(relG.x, relG.y, f32(0), f32(1))))
   }).else(() => {
-    assign(clip, transformMat4(u.field('mvp', mat4x4fT), vec4(ecefRtc, f32(1))))
+    assign(clip, transformMat4(U.field.mvp, vec4(ecefRtc, f32(1))))
   })
-  assign(out.field('pos', vec4fT), callFn('apply_log_depth', vec4fT, clip, projParams.w))
-  assign(out.field('view_w', f32T), clip.w)
-  assign(out.field('uv', vec2fT), vec2(uu, vv))
-  assign(out.field('vis', f32T), f32(1))
+  assign(o.pos, callFn('apply_log_depth', vec4fT, clip, projParams.w))
+  assign(o.view_w, clip.w)
+  assign(o.uv, vec2(uu, vv))
+  assign(o.vis, f32(1))
   return out
 })
 
 const buildFs = (pickEnabled: boolean) =>
-  entryFn('fs_tile', 'fragment', [{ name: 'input', type: structT('VsOut') }], structT('RasterFragmentOutput'), (_b, p) => {
-    If(p.input.field('vis', f32T).lt(0), () => { Discard() })
+  entryFn('fs_tile', 'fragment', [{ name: 'input', type: VsOut.type }], structT('RasterFragmentOutput'), (_b, p) => {
+    const pin = VsOut.of(p.input)
+    If(pin.vis.lt(0), () => { Discard() })
     const out = Var('out', structT('RasterFragmentOutput'))
-    const c = Let('c', textureSample(tex, texSampler, p.input.field('uv', vec2fT)))
+    const c = Let('c', textureSample(tex.node, texSampler.node, pin.uv))
     // Rim alpha fade — input.vis carries (cos_c - threshold); Mercator writes
     // vis=1 so smoothstep is a no-op on flat/cylindrical projections.
-    const rim = Let('rim', smoothstep(0, 0.02, p.input.field('vis', f32T)))
+    const rim = Let('rim', smoothstep(0, 0.02, pin.vis))
     // raster-* colour adjustments (hue-rotate / brightness / saturation /
     // contrast). Defaults are a hard no-op so an un-authored show is
     // byte-identical to the raw texel rgb.
     const adjRgb = Let('adj_rgb', callFn('raster_color_adjust', vec3fT,
-      c.rgb, u.field('raster_color0', vec4fT), u.field('raster_color1', vec4fT)))
+      c.rgb, U.field.raster_color0, U.field.raster_color1))
     // raster-opacity multiplies alpha only (premultiplied blend keeps RGB at
     // texel value, so a half-opacity raster fades rather than darkens).
-    assign(out.field('color', vec4fT), vec4(adjRgb, c.a.mul(u.field('raster_params', vec4fT).x).mul(rim)))
+    assign(out.field('color', vec4fT), vec4(adjRgb, c.a.mul(U.field.raster_params.x).mul(rim)))
     // Basemap tile carries no feature id → always (0,0).
     if (pickEnabled) assign(out.field('pick', vec2uT), vec2u(u32(0), u32(0)))
-    assign(out.field('depth', f32T), callFn('compute_log_frag_depth', f32T, p.input.field('view_w', f32T), u.field('proj_params', vec4fT).w))
+    assign(out.field('depth', f32T), callFn('compute_log_frag_depth', f32T, pin.view_w, U.field.proj_params.w))
     return out
   })
 
 export const buildRasterModule = (pickEnabled: boolean): ModuleDecl => module({
-  structs: [Uniforms, TileUniforms, VsOut, rasterFragmentOutput(pickEnabled)],
-  bindings: [
-    { group: 0, binding: 0, name: 'u', space: 'uniform', type: structT('Uniforms') },
-    { group: 0, binding: 1, name: 'tex', space: 'uniform', type: texture2dfT },
-    { group: 0, binding: 2, name: 'tex_sampler', space: 'uniform', type: samplerT },
-    { group: 1, binding: 0, name: 'tile', space: 'uniform', type: structT('TileUniforms') },
-  ],
+  structs: [U.struct, Tile.struct, VsOut.decl, rasterFragmentOutput(pickEnabled)],
+  bindings: [U.binding, tex.binding, texSampler.binding, Tile.binding],
   funcs: [vs, buildFs(pickEnabled)],
 })
 

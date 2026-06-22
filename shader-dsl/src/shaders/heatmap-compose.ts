@@ -23,50 +23,44 @@
 // by the layer-level heatmap-opacity.
 
 import {
-  entryFn, module, bindingRef, callFn, fn,
+  entryFn, module, callFn, fn,
   Let, Var, assign, If,
   f32, u32, vec2, vec4, toF32, toI32, clamp,
   textureLoad, textureSample, textureDimensions, vec2i,
   f32T, u32T, vec2fT, vec4fT, texture2dfT, samplerT,
-  structT,
-  type StructDecl, type ModuleDecl,
+  type ModuleDecl,
 } from '../core/ir'
+import { ioStruct, builtin, location, uniformStruct, resource } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
 
-const ComposeParams: StructDecl = {
-  name: 'ComposeParams',
-  fields: [
-    // x = intensity (heatmap-intensity), y = opacity (heatmap-opacity), zw pad.
-    { name: 'params', type: vec4fT },
-  ],
-}
+const U = uniformStruct('ComposeParams', { group: 0, binding: 3, as: 'u' }, {
+  // x = intensity (heatmap-intensity), y = opacity (heatmap-opacity), zw pad.
+  params: vec4fT,
+})
 
-const VsOut: StructDecl = {
-  name: 'VsOut',
-  fields: [
-    { name: 'pos', type: vec4fT, attr: '@builtin(position)' },
-    { name: 'uv', type: vec2fT, attr: '@location(0)' },
-  ],
-}
+const VsOut = ioStruct('VsOut', {
+  pos: builtin('position', vec4fT),
+  uv: location(0, vec2fT),
+})
 
-const densityTex = bindingRef('density_tex', texture2dfT)
-const rampTex = bindingRef('ramp_tex', texture2dfT)
-const rampSampler = bindingRef('ramp_sampler', samplerT)
-const u = bindingRef('u', structT('ComposeParams'))
+const densityTex = resource('density_tex', texture2dfT, { group: 0, binding: 0 })
+const rampTex = resource('ramp_tex', texture2dfT, { group: 0, binding: 1 })
+const rampSampler = resource('ramp_sampler', samplerT, { group: 0, binding: 2 })
 
 // Oversized fullscreen triangle (NDC −1..3) — same trick as overdraw-compose.
 const vsFull = entryFn(
   'vs_full', 'vertex',
   [{ name: 'idx', type: u32T, builtin: 'vertex_index' }],
-  structT('VsOut'),
+  VsOut.type,
   (_b, p) => {
     const pos = Var('pos', vec2fT, vec2(f32(-1), f32(-1)))
     If(p.idx.eq(u32(1)), () => { assign(pos, vec2(f32(3), f32(-1))) })
       .elif(p.idx.eq(u32(2)), () => { assign(pos, vec2(f32(-1), f32(3))) })
-    const out = Var('out', structT('VsOut'))
-    assign(out.field('pos', vec4fT), vec4(pos, f32(0), f32(1)))
+    const out = Var('out', VsOut.type)
+    const o = VsOut.of(out)
+    assign(o.pos, vec4(pos, f32(0), f32(1)))
     // y-flip — texture origin top-left, NDC origin bottom-left.
-    assign(out.field('uv', vec2fT),
+    assign(o.uv,
       vec2(
         pos.x.add(f32(1)).mul(f32(0.5)),
         f32(1).sub(pos.y.add(f32(1)).mul(f32(0.5))),
@@ -78,28 +72,28 @@ const vsFull = entryFn(
 
 // load_density — fetch the blurred density at this pixel's texel coord.
 const loadDensity = fn('load_density', { uv: vec2fT }, f32T, (_b, p) => {
-  const dimU = Let('dim_u', textureDimensions(densityTex))
+  const dimU = Let('dim_u', textureDimensions(densityTex.node))
   const dim = Let('dim', vec2(toF32(dimU.x), toF32(dimU.y)))
   const coord = Let('coord', vec2i(
     toI32(p.uv.x.mul(dim.x)),
     toI32(p.uv.y.mul(dim.y)),
   ))
-  return textureLoad(densityTex, coord, u32(0)).x
+  return textureLoad(densityTex.node, coord, u32(0)).x
 })
 
 const fsCompose = entryFn(
   'fs_compose', 'fragment',
-  [{ name: 'in', type: structT('VsOut') }],
+  [{ name: 'in', type: VsOut.type }],
   vec4fT,
   (_b, p) => {
-    const density = Let('density', callFn('load_density', f32T, p.in.field('uv', vec2fT)))
-    const intensity = Let('intensity', u.field('params', vec4fT).x)
-    const opacity = Let('opacity', u.field('params', vec4fT).y)
+    const density = Let('density', callFn('load_density', f32T, VsOut.of(p.in).uv))
+    const intensity = Let('intensity', U.field.params.x)
+    const opacity = Let('opacity', U.field.params.y)
     // Normalise density → ramp coordinate (0..1) via intensity scale.
     const t = Let('t', clamp(density.mul(intensity), f32(0), f32(1)))
     // Sample the colour ramp LUT at (t, 0.5). The ramp's own alpha encodes
     // the per-density transparency (Mapbox ramp starts transparent at 0).
-    const ramp = Let('ramp', textureSample(rampTex, rampSampler, vec2(t, f32(0.5))))
+    const ramp = Let('ramp', textureSample(rampTex.node, rampSampler.node, vec2(t, f32(0.5))))
     const a = Let('a', ramp.a.mul(opacity))
     return vec4(ramp.rgb, a)
   },
@@ -107,13 +101,8 @@ const fsCompose = entryFn(
 )
 
 const HEATMAP_COMPOSE_MODULE: ModuleDecl = module({
-  structs: [ComposeParams, VsOut],
-  bindings: [
-    { group: 0, binding: 0, name: 'density_tex', space: 'uniform', type: texture2dfT },
-    { group: 0, binding: 1, name: 'ramp_tex', space: 'uniform', type: texture2dfT },
-    { group: 0, binding: 2, name: 'ramp_sampler', space: 'uniform', type: samplerT },
-    { group: 0, binding: 3, name: 'u', space: 'uniform', type: structT('ComposeParams') },
-  ],
+  structs: [U.struct, VsOut.decl],
+  bindings: [densityTex.binding, rampTex.binding, rampSampler.binding, U.binding],
   funcs: [loadDensity, vsFull, fsCompose],
 })
 
