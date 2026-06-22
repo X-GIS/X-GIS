@@ -41,7 +41,8 @@ describe('rim_alpha rollout coverage', () => {
     // the fs colour is a plain `const` materialised as an auto-var (`_avN`), so pin the
     // rim apply by shape, not the var name. Alpha is the 4th component — emitted as `.w`
     // (the swizzle getter normalises rgba→xyzw); `.a`/`.w` are the same lane, accept either.
-    expect(src).toMatch(/\w+\.[aw] \*= in\.rim_a/)
+    // Compound `*=` is now `x = (x * …)` via `.set(.mul())`.
+    expect(src).toMatch(/(\w+\.[aw]) = \(\1 \* in\.rim_a\)/)
   })
 
   it('raster shader applies smoothstep rim fade in fs_tile', () => {

@@ -20,7 +20,7 @@ import {
   u32T, vec2fT, vec4fT,
   texture2dfT, texture2dMsfT,
   max,
-  Let, assign, assignOp, If, Loop, Return,
+  Let, If, Loop, Return,
   type Node, type ModuleDecl,
 } from '../core/ir'
 import { ioStruct, builtin, location, resource } from '../core/sot'
@@ -43,8 +43,8 @@ const vsFull = fn(
   VsOut.type,
   (p) => {
     const pos = vec2(f32(-1), f32(-1))
-    If(p.idx.eq(1), () => { assign(pos, vec2(f32(3), f32(-1))) })
-      .elif(p.idx.eq(2), () => { assign(pos, vec2(f32(-1), f32(3))) })
+    If(p.idx.eq(1), () => { pos.set(vec2(f32(3), f32(-1))) })
+      .elif(p.idx.eq(2), () => { pos.set(vec2(f32(-1), f32(3))) })
     // Texture coords are sample-load coords (integer pixels) computed from clip-space NDC:
     // uv = (pos + 1) / 2, y flipped because the texture origin is top-left while NDC's is bottom-left.
     return VsOut.construct({
@@ -79,8 +79,8 @@ const buildFsCompose = (sampleCount: number, accumTex: Node, revealageTex: Node)
       const accumSum = vec4(f32(0), f32(0), f32(0), f32(0))
       const revSum = f32(0)
       Loop(i32(0), (s) => s.lt(i32(sampleCount)), (s) => {
-        assignOp(accumSum, '+', textureLoad(accumTex, uv, s))
-        assignOp(revSum, '+', textureLoad(revealageTex, uv, s).x)
+        accumSum.set(accumSum.add(textureLoad(accumTex, uv, s)))
+        revSum.set(revSum.add(textureLoad(revealageTex, uv, s).x))
       })
       const inv = f32(1).div(f32(sampleCount))
       const accum = Let(accumSum.mul(inv))

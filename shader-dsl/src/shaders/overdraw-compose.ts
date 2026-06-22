@@ -16,8 +16,7 @@ import {
   clamp,
   textureLoad, textureDimensions, vec2i,
   f32T, u32T, vec2fT, vec3fT, vec4fT, texture2dfT,
-  If, Return, assign,
-  type ModuleDecl,
+  If, Return, type ModuleDecl,
 } from '../core/ir'
 import { ioStruct, builtin, location, resource } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
@@ -52,8 +51,8 @@ const vsFull = fn(
   VsOut.type,
   (p) => {
     const pos = vec2(f32(-1), f32(-1))
-    If(p.idx.eq(1), () => { assign(pos, vec2(f32(3), f32(-1))) })
-      .elif(p.idx.eq(2), () => { assign(pos, vec2(f32(-1), f32(3))) })
+    If(p.idx.eq(1), () => { pos.set(vec2(f32(3), f32(-1))) })
+      .elif(p.idx.eq(2), () => { pos.set(vec2(f32(-1), f32(3))) })
     // y-flip — texture origin top-left, NDC origin bottom-left.
     return VsOut.construct({
       pos: vec4(pos, f32(0), f32(1)),

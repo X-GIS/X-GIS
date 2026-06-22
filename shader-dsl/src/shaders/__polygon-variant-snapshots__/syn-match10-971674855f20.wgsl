@@ -1,4 +1,4 @@
-// baseline: ea63f3a8a548530d61e15e4611ac8b8a40ed5889
+// baseline: b8f978b1af3eae70c409855ede44565ea26e5416
 // fixture: syn-match10
 // variant.key: syn-match10
 // pick: false

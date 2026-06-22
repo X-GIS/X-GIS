@@ -25,8 +25,7 @@
 
 import {
   fn, externFn, module, f32, vec2, vec3,
-  ReturnIf, If, Var, Return, assign,
-  f32T, vec2fT, vec3fT, vec4fT,
+  ReturnIf, If, Var, Return, f32T, vec2fT, vec3fT, vec4fT,
   constRef, clamp, log, tan, sin, cos, asin, acos, atan, atan2, exp, floor, ceil, sign, smoothstep,
   type ConstDecl, type FuncDecl, type ModuleDecl, type Node,
 } from '../core/ir'
@@ -336,7 +335,7 @@ const project_geom = fn('project_geom', LLPR_PARAMS, vec2fT, ({ lon_deg, lat_deg
     const d = lon_rel_ref.add(ref_d)
     const world_off_m = wo.mul(2).mul(PI).mul(EARTH_R)
     const p = Var(vec2fT)
-    If(t.lt(1.5), () => { assign(p, proj_equirectangular_d(d, lat_deg)) })
+    If(t.lt(1.5), () => { p.set(proj_equirectangular_d(d, lat_deg)) })
       .else(() => {
         // NE-lobe wrap (antimeridian black-wedge fix): proj_natural_earth_d's
         // 6th-order polynomial is valid ONLY for d ∈ [−180,180]; an out-of-lobe
@@ -349,10 +348,10 @@ const project_geom = fn('project_geom', LLPR_PARAMS, vec2fT, ({ lon_deg, lat_deg
         // by world_off_m — it keeps the shared d path (byte-identical WGSL).
         const dw = wrap_lon_delta(d)
         const k = floor(d.sub(dw).div(360).add(0.5))
-        assign(p, proj_natural_earth_d(dw, lat_deg))
-        assign(p.x, p.x.add(k.mul(2).mul(PI).mul(EARTH_R)))
+        p.set(proj_natural_earth_d(dw, lat_deg))
+        p.x.set(p.x.add(k.mul(2).mul(PI).mul(EARTH_R)))
       })
-    assign(p.x, p.x.add(world_off_m))
+    p.x.set(p.x.add(world_off_m))
     Return(p)
   })
   // oblique_mercator (6): rotated-frame world-copy unwrap.
@@ -364,7 +363,7 @@ const project_geom = fn('project_geom', LLPR_PARAMS, vec2fT, ({ lon_deg, lat_deg
     const ref_r = oblique_rot(ref_primary, clat, clon, clat)
     const lam_u = unwrap_rad_near(r.x, ref_r.x)
     const p = Var(proj_oblique_mercator_d(lam_u, r.y))
-    assign(p.x, p.x.add(wo.mul(2).mul(PI).mul(EARTH_R)))
+    p.x.set(p.x.add(wo.mul(2).mul(PI).mul(EARTH_R)))
     Return(p)
   })
   Return(project(lon_deg, lat_deg, proj_params))
@@ -408,7 +407,7 @@ const project_geom_cpu = fn('project_geom_cpu', LLPR_PARAMS, vec2fT, ({ lon_deg,
         const dw = wrap_lon_delta(d)
         const k = floor(d.sub(dw).div(360).add(0.5))
         const p = Var(proj_natural_earth_d(dw, lat_deg))
-        assign(p.x, p.x.add(k.mul(2).mul(PI).mul(EARTH_R)))
+        p.x.set(p.x.add(k.mul(2).mul(PI).mul(EARTH_R)))
         Return(p)
       })
   })

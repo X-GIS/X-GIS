@@ -30,6 +30,17 @@ export function lift(x: NodeLike): Node {
   return typeof x === 'number' ? new Node({ op: 'lit', type: f32T, value: x }) : x
 }
 
+/** Statement sink — the builder installs how `node.set(v)` / `node.addAssign(v)` push their Stmt to the
+ *  current scope. Injected (not imported) so the Node lvalue methods can route to the builder without a
+ *  node ↔ builder import cycle. */
+type StmtSink = { assign(target: Node, value: Node): void }
+let _stmtSink: StmtSink | undefined
+export const installStmtSink = (s: StmtSink): void => { _stmtSink = s }
+const stmtSink = (): StmtSink => {
+  if (!_stmtSink) throw new Error('shader-dsl: statement sink not installed — import @xgis/shader-dsl from its entry, not a deep path')
+  return _stmtSink
+}
+
 /** Result type of a binary arithmetic op given operand types. vec op scalar
  *  (or vec op same-vec) → vec; scalar op scalar → f32>i32>u32 promotion. A
  *  vec op a different vec is a type error (returned as a poisoned mismatch
@@ -169,6 +180,11 @@ export class Node<K extends string = string> {
   at<T extends ShaderType>(idx: Node<ScalarKey> | number, elem: T): Node<KeyOf<T>> {
     return new Node<KeyOf<T>>({ op: 'index', type: elem, base: this.expr, idx: lift(idx).expr })
   }
+
+  /** `this = value;` — the ONE lvalue-mutation method (the rest of the Node API is methods too, so
+   *  assignment reads `x.set(v)`, not `assign(x, v)`). There is no compound `addAssign`: `add` is the
+   *  pure expression, so `x += v` is just `x.set(x.add(v))`. The value lifts to this lvalue's scalar. */
+  set(value: ArithArg<K>): void { stmtSink().assign(this, this.liftArg(value)) }
 
   /** `this ? a : b` (only valid on a bool node — enforced via `this:`).
    *  Both branches must share a key. Mirrors WGSL select(b, a, this). */
