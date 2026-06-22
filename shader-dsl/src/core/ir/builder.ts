@@ -418,6 +418,23 @@ export function reduce<K extends string, J extends string>(
   return acc
 }
 
+/** Immutable if-expression — the functional spelling of `var v; if (cond) { v = then } else { v =
+ *  else }`. Each branch RETURNS its value (no `Var` + `assign` at the call site); ifExpr materialises
+ *  the var + if/else internally, so the emit is byte-identical (it does NOT lower to `select`, which
+ *  would change the WGSL). Use for a branch-INITIALISED value, not for genuine multi-step mutation. */
+export function ifExpr<T extends ShaderType>(
+  name: string,
+  type: T,
+  cond: Node<'bool'>,
+  thenVal: () => Node<KeyOf<T>>,
+  elseVal: () => Node<KeyOf<T>>,
+): Node<KeyOf<T>> {
+  const v = currentBuilder().var(name, type) as Node<KeyOf<T>>
+  currentBuilder().if(cond, () => currentBuilder().assign(v, thenVal()))
+    .else(() => currentBuilder().assign(v, elseVal()))
+  return v
+}
+
 export const Switch = (
   scrut: Node<ScalarKey>,
   cases: Array<[number, () => Node | void]>,

@@ -25,7 +25,7 @@ import {
   length, dot, min, max, smoothstep, abs, floor, select, textureSample,
   bitcastU32, unpack4x8unorm,
   atan, exp,
-  If, Loop, Let, Var, Continue, Break, Discard, assign, assignOp, madd, outsideRange,
+  If, ifExpr, Loop, Let, Var, Continue, Break, Discard, assign, assignOp, madd, outsideRange,
   Return, ReturnIf, Switch,
   f32T, u32T, i32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   arrayT,
@@ -354,9 +354,7 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
   // Segment direction / normal in tile-local meters.
   const segVec = p1.sub(p0)
   const segLen = length(segVec)
-  const dir = Var('dir', vec2fT)
-  If(segLen.lt(1e-6), () => { assign(dir, vec2(f32(1), f32(0))) })
-    .else(() => { assign(dir, segVec.div(segLen)) })
+  const dir = ifExpr('dir', vec2fT, segLen.lt(1e-6), () => vec2(f32(1), f32(0)), () => segVec.div(segLen))
 
   // Per-segment width override falls through to layer.width_px when 0.
   const layerWidthPx = LAYER.field.width_px
@@ -750,9 +748,7 @@ const vsLine = entryFn('vs_line', 'vertex', [
 
   const segVec = p1.sub(p0)
   const segLen = length(segVec)
-  const dir = Var('dir', vec2fT)
-  If(segLen.lt(1e-6), () => { assign(dir, vec2(f32(1), f32(0))) })
-    .else(() => { assign(dir, segVec.div(segLen)) })
+  const dir = ifExpr('dir', vec2fT, segLen.lt(1e-6), () => vec2(f32(1), f32(0)), () => segVec.div(segLen))
   const nrm = Let('nrm', vec2(dir.y.neg(), dir.x))
 
   const layerWidthPx = LAYER.field.width_px
