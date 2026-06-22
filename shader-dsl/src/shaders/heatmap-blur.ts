@@ -25,6 +25,7 @@ import {
   textureLoad, textureDimensions, vec2i,
   u32T, vec2fT, vec4fT, texture2dfT,
   structT,
+  Var, Let, assign, If,
   type StructDecl, type ModuleDecl,
 } from '../core/ir'
 import { emitModule } from '../core/backends/wgsl'
@@ -53,20 +54,20 @@ const vsFull = entryFn(
   'vs_full', 'vertex',
   [{ name: 'idx', type: u32T, builtin: 'vertex_index' }],
   structT('VsOut'),
-  (b, p) => {
-    const pos = b.var('pos', vec2fT, vec2(f32(-1), f32(-1)))
-    b.if(p.idx.eq(u32(1)), (c) => { c.assign(pos, vec2(f32(3), f32(-1))) })
-      .elif(p.idx.eq(u32(2)), (c) => { c.assign(pos, vec2(f32(-1), f32(3))) })
-    const out = b.var('out', structT('VsOut'))
-    b.assign(out.field('pos', vec4fT), vec4(pos, f32(0), f32(1)))
+  (_b, p) => {
+    const pos = Var('pos', vec2fT, vec2(f32(-1), f32(-1)))
+    If(p.idx.eq(u32(1)), () => { assign(pos, vec2(f32(3), f32(-1))) })
+      .elif(p.idx.eq(u32(2)), () => { assign(pos, vec2(f32(-1), f32(3))) })
+    const out = Var('out', structT('VsOut'))
+    assign(out.field('pos', vec4fT), vec4(pos, f32(0), f32(1)))
     // y-flip — texture origin top-left, NDC origin bottom-left.
-    b.assign(out.field('uv', vec2fT),
+    assign(out.field('uv', vec2fT),
       vec2(
         pos.x.add(f32(1)).mul(f32(0.5)),
         f32(1).sub(pos.y.add(f32(1)).mul(f32(0.5))),
       ),
     )
-    b.ret(out)
+    return out
   },
 )
 
@@ -76,24 +77,24 @@ const fsBlur = entryFn(
   'fs_blur', 'fragment',
   [{ name: 'in', type: structT('VsOut') }],
   vec4fT,
-  (b, p) => {
-    const dimU = b.let('dim_u', textureDimensions(srcTex))
-    const dim = b.let('dim', vec2(toF32(dimU.x), toF32(dimU.y)))
-    const baseUv = b.let('base_uv', p.in.field('uv', vec2fT))
-    const baseX = b.let('base_x', baseUv.x.mul(dim.x))
-    const baseY = b.let('base_y', baseUv.y.mul(dim.y))
-    const dir = b.let('dir', params.field('direction', vec4fT))
-    const maxX = b.let('max_x', toF32(dimU.x).sub(f32(1)))
-    const maxY = b.let('max_y', toF32(dimU.y).sub(f32(1)))
+  (_b, p) => {
+    const dimU = Let('dim_u', textureDimensions(srcTex))
+    const dim = Let('dim', vec2(toF32(dimU.x), toF32(dimU.y)))
+    const baseUv = Let('base_uv', p.in.field('uv', vec2fT))
+    const baseX = Let('base_x', baseUv.x.mul(dim.x))
+    const baseY = Let('base_y', baseUv.y.mul(dim.y))
+    const dir = Let('dir', params.field('direction', vec4fT))
+    const maxX = Let('max_x', toF32(dimU.x).sub(f32(1)))
+    const maxY = Let('max_y', toF32(dimU.y).sub(f32(1)))
 
     // sample(offset) — load one texel at +offset texels along `direction`,
     // clamped to the texture extent.
-    const sampleAt = (b2: typeof b, offset: number) => {
-      const sx = b2.let(`sx_${offset < 0 ? 'm' : 'p'}${Math.abs(offset)}`,
+    const sampleAt = (offset: number) => {
+      const sx = Let(`sx_${offset < 0 ? 'm' : 'p'}${Math.abs(offset)}`,
         clamp(baseX.add(dir.x.mul(f32(offset))), f32(0), maxX))
-      const sy = b2.let(`sy_${offset < 0 ? 'm' : 'p'}${Math.abs(offset)}`,
+      const sy = Let(`sy_${offset < 0 ? 'm' : 'p'}${Math.abs(offset)}`,
         clamp(baseY.add(dir.y.mul(f32(offset))), f32(0), maxY))
-      const coord = b2.let(`c_${offset < 0 ? 'm' : 'p'}${Math.abs(offset)}`,
+      const coord = Let(`c_${offset < 0 ? 'm' : 'p'}${Math.abs(offset)}`,
         vec2i(toI32(sx), toI32(sy)))
       return textureLoad(srcTex, coord, u32(0)).x
     }
@@ -105,18 +106,18 @@ const fsBlur = entryFn(
     const w3 = 0.0540540541
     const w4 = 0.0162162162
 
-    const acc = b.let('acc',
-      sampleAt(b, 0).mul(f32(w0))
-        .add(sampleAt(b, 1).mul(f32(w1)))
-        .add(sampleAt(b, -1).mul(f32(w1)))
-        .add(sampleAt(b, 2).mul(f32(w2)))
-        .add(sampleAt(b, -2).mul(f32(w2)))
-        .add(sampleAt(b, 3).mul(f32(w3)))
-        .add(sampleAt(b, -3).mul(f32(w3)))
-        .add(sampleAt(b, 4).mul(f32(w4)))
-        .add(sampleAt(b, -4).mul(f32(w4))),
+    const acc = Let('acc',
+      sampleAt(0).mul(f32(w0))
+        .add(sampleAt(1).mul(f32(w1)))
+        .add(sampleAt(-1).mul(f32(w1)))
+        .add(sampleAt(2).mul(f32(w2)))
+        .add(sampleAt(-2).mul(f32(w2)))
+        .add(sampleAt(3).mul(f32(w3)))
+        .add(sampleAt(-3).mul(f32(w3)))
+        .add(sampleAt(4).mul(f32(w4)))
+        .add(sampleAt(-4).mul(f32(w4))),
     )
-    b.ret(vec4(acc, f32(0), f32(0), f32(1)))
+    return vec4(acc, f32(0), f32(0), f32(1))
   },
   '@location(0)',
 )

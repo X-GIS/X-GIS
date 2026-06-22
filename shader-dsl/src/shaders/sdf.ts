@@ -12,6 +12,7 @@ import {
   fn, module, f32, i32, u32, vec2,
   f32T, i32T, u32T, vec2fT, arrayT, bindingRef,
   callFn, clamp, min, max, length, dot, mix, toF32, select,
+  Let, Var, Loop, assign,
   type FuncDecl, type ModuleDecl,
 } from '../core/ir'
 import { struct } from '../core/schema'
@@ -38,47 +39,47 @@ const segments = bindingRef('segments', arrayT(ShapeSegment.type))
 
 // ── dist_to_segment / quadratic / cubic / winding_line ──
 
-const dist_to_segment = fn('dist_to_segment', { p: vec2fT, a: vec2fT, b: vec2fT }, f32T, (bld, { p, a, b }) => {
-  const ab = bld.let('ab', b.sub(a))
-  const len2 = bld.let('len2', dot(ab, ab))
+const dist_to_segment = fn('dist_to_segment', { p: vec2fT, a: vec2fT, b: vec2fT }, f32T, (_b, { p, a, b }) => {
+  const ab = Let('ab', b.sub(a))
+  const len2 = Let('len2', dot(ab, ab))
   // single-exit: max() guards the degenerate (len2≈0) divide; select picks the point dist.
-  const t = bld.let('t', clamp(dot(p.sub(a), ab).div(max(len2, 1e-10)), f32(0), f32(1)))
-  const segDist = bld.let('seg_dist', length(p.sub(a).sub(ab.mul(t))))
+  const t = Let('t', clamp(dot(p.sub(a), ab).div(max(len2, 1e-10)), f32(0), f32(1)))
+  const segDist = Let('seg_dist', length(p.sub(a).sub(ab.mul(t))))
   return select(len2.lt(1e-10), length(p.sub(a)), segDist)
 })
 
-const dist_to_quadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT }, f32T, (bld, { p, a, b, c }) => {
-  const best_d = bld.var('best_d', f32T, f32(1e10))
-  const STEPS = bld.let('STEPS', u32(16))
-  bld.forRange('i', u32(0), (i) => i.le(STEPS), (loop, i) => {
-    const t = loop.let('t', toF32(i).div(toF32(STEPS)))
-    const ab = loop.let('ab', mix(a, b, t))
-    const bc = loop.let('bc', mix(b, c, t))
-    const q = loop.let('q', mix(ab, bc, t))
-    loop.assign(best_d, min(best_d, length(p.sub(q))))
+const dist_to_quadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT }, f32T, (_b, { p, a, b, c }) => {
+  const best_d = Var('best_d', f32T, f32(1e10))
+  const STEPS = Let('STEPS', u32(16))
+  Loop('i', u32(0), (i) => i.le(STEPS), (i) => {
+    const t = Let('t', toF32(i).div(toF32(STEPS)))
+    const ab = Let('ab', mix(a, b, t))
+    const bc = Let('bc', mix(b, c, t))
+    const q = Let('q', mix(ab, bc, t))
+    assign(best_d, min(best_d, length(p.sub(q))))
   }, u32(1))
-  bld.ret(best_d)
+  return best_d
 })
 
-const dist_to_cubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT, d: vec2fT }, f32T, (bld, { p, a, b, c, d }) => {
-  const best_d = bld.var('best_d', f32T, f32(1e10))
-  const STEPS = bld.let('STEPS', u32(24))
-  bld.forRange('i', u32(0), (i) => i.le(STEPS), (loop, i) => {
-    const t = loop.let('t', toF32(i).div(toF32(STEPS)))
-    const ab = loop.let('ab', mix(a, b, t))
-    const bc = loop.let('bc', mix(b, c, t))
-    const cd = loop.let('cd', mix(c, d, t))
-    const abc = loop.let('abc', mix(ab, bc, t))
-    const bcd = loop.let('bcd', mix(bc, cd, t))
-    const q = loop.let('q', mix(abc, bcd, t))
-    loop.assign(best_d, min(best_d, length(p.sub(q))))
+const dist_to_cubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT, d: vec2fT }, f32T, (_b, { p, a, b, c, d }) => {
+  const best_d = Var('best_d', f32T, f32(1e10))
+  const STEPS = Let('STEPS', u32(24))
+  Loop('i', u32(0), (i) => i.le(STEPS), (i) => {
+    const t = Let('t', toF32(i).div(toF32(STEPS)))
+    const ab = Let('ab', mix(a, b, t))
+    const bc = Let('bc', mix(b, c, t))
+    const cd = Let('cd', mix(c, d, t))
+    const abc = Let('abc', mix(ab, bc, t))
+    const bcd = Let('bcd', mix(bc, cd, t))
+    const q = Let('q', mix(abc, bcd, t))
+    assign(best_d, min(best_d, length(p.sub(q))))
   }, u32(1))
-  bld.ret(best_d)
+  return best_d
 })
 
-const winding_line = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT }, i32T, (bld, { p, a, b }) => {
+const winding_line = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT }, i32T, (_b, { p, a, b }) => {
   // single-exit: signed winding contribution of edge a→b across the +y ray from p.
-  const cross = bld.let('cross_val', b.x.sub(a.x).mul(p.y.sub(a.y)).sub(p.x.sub(a.x).mul(b.y.sub(a.y))))
+  const cross = Let('cross_val', b.x.sub(a.x).mul(p.y.sub(a.y)).sub(p.x.sub(a.x).mul(b.y.sub(a.y))))
   const up = a.y.le(p.y).and(b.y.gt(p.y)).and(cross.gt(0))
   const down = a.y.gt(p.y).and(b.y.le(p.y)).and(cross.lt(0))
   return select(up, i32(1), select(down, i32(-1), i32(0)))
