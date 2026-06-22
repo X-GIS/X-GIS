@@ -7,7 +7,7 @@ import { SDF_MODULE } from './sdf'
 import { LOG_DEPTH_MODULE } from './log-depth'
 import { buildLineModule } from './line'
 import { buildRasterModule } from './raster'
-import { POINT_MODULE } from './point'
+import { buildPointModule } from './point'
 
 // The full lint ruleset run over every DSL module we can reach directly — including the
 // big render shaders (line / point / raster). The error gate is what validate() already
@@ -22,7 +22,7 @@ const modules = (): Record<string, ReturnType<typeof getPROJECTION_MODULE>> => (
   'log-depth': LOG_DEPTH_MODULE,
   line: buildLineModule(false),
   raster: buildRasterModule(false),
-  point: POINT_MODULE,
+  point: buildPointModule(),
 })
 
 describe('shader static analysis — full lint ruleset', () => {

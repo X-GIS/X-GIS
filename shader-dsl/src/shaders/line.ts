@@ -8,12 +8,12 @@
 // the only build-time variant is the pick attachment (replacing the old
 // __PICK_FIELD__ / __PICK_WRITE__ string markers).
 //
-// Pattern (raster sibling): emitLineWgsl(pickEnabled) PREPENDS the shared
-// DSL-emitted strings (PROJECTION_WGSL_CONSTS / FNS + LOG_DEPTH_WGSL_FNS +
-// the SDF dist/winding helper WGSL) so vs/fs callFn proj_globe / project /
-// project_geom / inv_merc_lat_rad / needs_backface_cull / rim_alpha /
-// apply_log_depth / compute_log_frag_depth / dist_to_segment / dist_to_quadratic
-// / dist_to_cubic / winding_line by name + constRef PI / DEG2RAD / EARTH_R.
+// Pattern (raster sibling): emitLineWgsl(pickEnabled) MERGES the shared dependency
+// decls (PROJECTION_CONSTS + ECEF_CONSTS + getGpuProjectionFuncs() + ECEF_FUNCS +
+// log-depth + SDF dist/winding handles) into buildLineModule and emits ONE module —
+// no WGSL-string prepend. vs/fs reach proj_globe / project / project_geom /
+// inv_merc_lat_rad / needs_backface_cull / rim_alpha / apply_log_depth /
+// compute_log_frag_depth / dist_to_segment / … by name; consts PI / DEG2RAD / EARTH_R.
 //
 // Bitwise IR ops (& | ^ << >>, added with the point shader) drive cap / join /
 // flag / dash / anchor unpacking. The compositor shader (fullscreen-triangle
@@ -34,14 +34,10 @@ import {
 } from '../core/ir'
 import { ioStruct, builtin, location } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
-import { getProjectionWgslConsts, getProjectionWgslFns } from './projections'
-import { ECEF_WGSL_CONSTS, ECEF_WGSL_FNS, lonlatToEcef } from './ecef'
-import { LOG_DEPTH_WGSL_FNS, apply_log_depth, compute_log_frag_depth } from './log-depth'
+import { PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
+import { ECEF_CONSTS, ECEF_FUNCS, lonlatToEcef } from './ecef'
+import { apply_log_depth, compute_log_frag_depth } from './log-depth'
 import {
-  SDF_WGSL_DIST_TO_SEGMENT,
-  SDF_WGSL_DIST_TO_QUADRATIC,
-  SDF_WGSL_DIST_TO_CUBIC,
-  SDF_WGSL_WINDING_LINE,
   dist_to_segment,
   dist_to_quadratic,
   dist_to_cubic,
@@ -1143,6 +1139,9 @@ const fsLineMax = entryFn(
 // ── Module assembly ──
 
 export const buildLineModule = (pickEnabled: boolean): ModuleDecl => module({
+  // Shared projection + ecef constants merged in (was the getProjectionWgslConsts() /
+  // ECEF_WGSL_CONSTS string prepend in emitLineWgsl). emitModule hoists them above all funcs.
+  consts: [...PROJECTION_CONSTS, ...ECEF_CONSTS],
   structs: [
     TileUniforms, PatternSlot, LineLayer, LineSegment,
     ShapeDesc, ShapeSegment, LineOut, lineFragmentOutput(pickEnabled),
@@ -1157,6 +1156,12 @@ export const buildLineModule = (pickEnabled: boolean): ModuleDecl => module({
     { group: 1, binding: 3, name: 'shape_segments', space: 'storage', access: 'read', type: arrayT(structT('ShapeSegment')) },
   ],
   funcs: [
+    // Shared dependency decls, callees first (was the LOG_DEPTH / projection / ECEF / SDF
+    // WGSL-string prepend): log-depth → projection → ecef → sdf, then line's own funcs.
+    apply_log_depth, compute_log_frag_depth,
+    ...getGpuProjectionFuncs(),
+    ...ECEF_FUNCS,
+    dist_to_segment, dist_to_quadratic, dist_to_cubic, winding_line,
     lineEndpoint, finalizeCorner, endpointCosC, patternUnitToM, sdfShape,
     computeLineColor, lineRimAlpha, vsLine,
     buildFsLine(pickEnabled), buildFsLinePattern(pickEnabled), fsLineMax,
@@ -1167,18 +1172,7 @@ export const buildLineModule = (pickEnabled: boolean): ModuleDecl => module({
  *  projection fns + SDF distance/winding helpers, then the line module.
  *  `pickEnabled` toggles the pick attachment field + writes (replaces the old
  *  __PICK_FIELD__ / __PICK_WRITE__ regex markers). */
-export const emitLineWgsl = (pickEnabled: boolean): string => [
-  getProjectionWgslConsts(),
-  LOG_DEPTH_WGSL_FNS,
-  getProjectionWgslFns(),
-  ECEF_WGSL_CONSTS,
-  ECEF_WGSL_FNS,
-  SDF_WGSL_DIST_TO_SEGMENT,
-  SDF_WGSL_DIST_TO_QUADRATIC,
-  SDF_WGSL_DIST_TO_CUBIC,
-  SDF_WGSL_WINDING_LINE,
-  emitModule(buildLineModule(pickEnabled)),
-].join('\n')
+export const emitLineWgsl = (pickEnabled: boolean): string => emitModule(buildLineModule(pickEnabled))
 
 // ── Compositor (fullscreen-triangle sampling the translucent offscreen RT) ──
 //

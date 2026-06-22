@@ -8,11 +8,11 @@
 // segments). Bitwise unpacking of per-feature flags / size mode / anchor mode
 // exercises the IR's bitwise op extension (& | ^ << >>).
 //
-// emitPointWgsl prepends the shared DSL strings (PROJECTION_WGSL_CONSTS +
-// LOG_DEPTH_WGSL_FNS + PROJECTION_WGSL_FNS) so vs/fs callFn project /
-// inv_merc_lat_rad / needs_backface_cull / rim_alpha / proj_globe /
-// apply_log_depth / compute_log_frag_depth by name and constRef PI /
-// DEG2RAD / EARTH_R / MERCATOR_LAT_LIMIT.
+// emitPointWgsl MERGES the shared dependency decls (PROJECTION_CONSTS +
+// log-depth + getGpuProjectionFuncs()) into buildPointModule and emits ONE
+// module — no WGSL-string prepend. vs/fs reach project / inv_merc_lat_rad /
+// needs_backface_cull / rim_alpha / proj_globe / apply_log_depth /
+// compute_log_frag_depth by name and constRef PI / DEG2RAD / EARTH_R / MERCATOR_LAT_LIMIT.
 //
 // No pick variant — the point fragment carries no pick channel (matches the
 // hand shader exactly).
@@ -27,8 +27,8 @@ import {
 } from '../core/ir'
 import { ioStruct, builtin, location, uniformStruct, storageBuffer } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
-import { getProjectionWgslConsts, getProjectionWgslFns } from './projections'
-import { LOG_DEPTH_WGSL_FNS, apply_log_depth, compute_log_frag_depth } from './log-depth'
+import { PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
+import { apply_log_depth, compute_log_frag_depth } from './log-depth'
 
 const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
   // Phase 2 PR 2d.2 — POINT VS ECEF migration. `mvp` holds the ECEF-MVP
@@ -475,7 +475,11 @@ const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: PointOut.type }]
   return out
 })
 
-export const POINT_MODULE: ModuleDecl = module({
+// A build-fn (not a top-level const) so the injection-deferred getGpuProjectionFuncs() is
+// gathered at emit time, post-configureProjections() — same reason buildLineModule is a fn.
+export const buildPointModule = (): ModuleDecl => module({
+  // Shared projection constants merged in (was the getProjectionWgslConsts() string prepend).
+  consts: [...PROJECTION_CONSTS],
   structs: [U.struct, ShapeDesc, Segment, PointOut.decl, PointFragmentOutput.decl],
   bindings: [
     U.binding,
@@ -484,17 +488,16 @@ export const POINT_MODULE: ModuleDecl = module({
     segmentsB.binding,
   ],
   funcs: [
+    // Shared dependency decls, callees first (was the LOG_DEPTH / projection WGSL-string
+    // prepend): log-depth → projection, then point's own funcs (its SDF helpers are local).
+    apply_log_depth, compute_log_frag_depth,
+    ...getGpuProjectionFuncs(),
     pointCosC, pointRimAlpha,
     distToLine, distToQuadratic, distToCubic, windingLine, sdfShape,
     vs, fs,
   ],
 })
 
-/** Full point shader: shared DSL-emitted projection consts + log-depth fns +
- *  projection fns, then the point module. No pick variant. */
-export const emitPointWgsl = (): string => [
-  getProjectionWgslConsts(),
-  LOG_DEPTH_WGSL_FNS,
-  getProjectionWgslFns(),
-  emitModule(POINT_MODULE),
-].join('\n')
+/** Full point shader: one module — shared projection consts + log-depth + projection fns
+ *  merged ahead of the point structs / bindings / helpers. No pick variant. */
+export const emitPointWgsl = (): string => emitModule(buildPointModule())

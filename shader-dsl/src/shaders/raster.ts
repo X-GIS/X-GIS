@@ -24,10 +24,10 @@ import {
 } from '../core/ir'
 import { ioStruct, builtin, location, uniformStruct, resource } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
-import { ECEF_WGSL_CONSTS, ECEF_WGSL_FNS, lonlatToEcef } from './ecef'
-import { RASTER_COLOR_WGSL_FNS } from './raster-color'
-import { LOG_DEPTH_WGSL_FNS, apply_log_depth, compute_log_frag_depth } from './log-depth'
-import { getProjectionWgslConsts, getProjectionWgslFns } from './projections'
+import { ECEF_CONSTS, ECEF_FUNCS, lonlatToEcef } from './ecef'
+import { RASTER_COLOR_FUNCS } from './raster-color'
+import { apply_log_depth, compute_log_frag_depth } from './log-depth'
+import { PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
 
 const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
   mvp: mat4x4fT,
@@ -167,21 +167,24 @@ const buildFs = (pickEnabled: boolean) =>
   })
 
 export const buildRasterModule = (pickEnabled: boolean): ModuleDecl => module({
+  // Shared projection + ecef constants merged in (was the getProjectionWgslConsts() /
+  // ECEF_WGSL_CONSTS string prepend). emitModule hoists all consts above all funcs, so
+  // raster_color_adjust still sees DEG2RAD_F (from ECEF_CONSTS) before its own body.
+  consts: [...PROJECTION_CONSTS, ...ECEF_CONSTS],
   structs: [U.struct, Tile.struct, VsOut.decl, rasterFragmentOutput(pickEnabled)],
   bindings: [U.binding, tex.binding, texSampler.binding, Tile.binding],
-  funcs: [vs, buildFs(pickEnabled)],
+  funcs: [
+    // Shared dependency decls, callees first (was the projection / ECEF / raster-color /
+    // log-depth WGSL-string prepend): projection → ecef → raster-color → log-depth, then raster.
+    ...getGpuProjectionFuncs(),
+    ...ECEF_FUNCS,
+    ...RASTER_COLOR_FUNCS,
+    apply_log_depth, compute_log_frag_depth,
+    vs, buildFs(pickEnabled),
+  ],
 })
 
-/** Full raster shader: ECEF consts + lonlat_to_ecef fn + log-depth fns, then
- *  the raster module (structs + bindings + vs_tile + fs_tile).
+/** Full raster shader: one module — shared projection + ecef + raster-color + log-depth
+ *  decls merged ahead of the raster structs / bindings / vs_tile / fs_tile.
  *  `pickEnabled` toggles the pick attachment field + write. */
-export const emitRasterWgsl = (pickEnabled: boolean): string => [
-  getProjectionWgslConsts(),
-  getProjectionWgslFns(),
-  ECEF_WGSL_CONSTS,
-  ECEF_WGSL_FNS,
-  // After ECEF_WGSL_CONSTS — raster_color_adjust reads DEG2RAD_F from it.
-  RASTER_COLOR_WGSL_FNS,
-  LOG_DEPTH_WGSL_FNS,
-  emitModule(buildRasterModule(pickEnabled)),
-].join('\n')
+export const emitRasterWgsl = (pickEnabled: boolean): string => emitModule(buildRasterModule(pickEnabled))
