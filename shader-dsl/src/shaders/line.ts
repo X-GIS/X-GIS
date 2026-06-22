@@ -25,7 +25,8 @@ import {
   length, dot, min, max, smoothstep, abs, floor, select, textureSample,
   bitcastU32, unpack4x8unorm,
   atan, exp,
-  If, Loop, Let, Var, Continue, Discard, assign, madd, outsideRange,
+  If, Loop, Let, Var, Continue, Discard, assign, assignOp, madd, outsideRange,
+  ReturnIf, Switch,
   structT, f32T, u32T, i32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   arrayT,
   type Node,
@@ -284,45 +285,45 @@ const patternUnitToM = fn('pattern_unit_to_m', { v: f32T, unit: u32T, mpp: f32T 
 // Inlined SDF shape sampler — uses our `shape_segments` (binding 3) instead
 // of the shared SDF module's `segments` name (which would collide with the
 // line segment storage buffer on binding 1).
-const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (b, p) => {
-  const uv = b.let('uv', vec2(p.uv_in.x, p.uv_in.y.neg()))
-  const s = b.let('s', shapes.at(p.shape_id, structT('ShapeDesc')))
+const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (_b, p) => {
+  const uv = Let('uv', vec2(p.uv_in.x, p.uv_in.y.neg()))
+  const s = Let('s', shapes.at(p.shape_id, structT('ShapeDesc')))
   const bMinX = s.field('bbox_min_x', f32T)
   const bMinY = s.field('bbox_min_y', f32T)
   const bMaxX = s.field('bbox_max_x', f32T)
   const bMaxY = s.field('bbox_max_y', f32T)
-  b.if(
+  ReturnIf(
     uv.x.lt(bMinX).or(uv.x.gt(bMaxX)).or(uv.y.lt(bMinY)).or(uv.y.gt(bMaxY)),
-    (c) => { c.ret(f32(2)) },
+    f32(2),
   )
-  const minDist = b.var('min_dist', f32T, f32(1e10))
-  const winding = b.var('winding', i32T, i32(0))
+  const minDist = Var('min_dist', f32T, f32(1e10))
+  const winding = Var('winding', i32T, i32(0))
   const segStart = s.field('seg_start', u32T)
   const segCount = s.field('seg_count', u32T)
-  const end = b.let('end', min(segStart.add(segCount), segStart.add(u32(32))))
-  b.forRange('i', segStart, (i) => i.lt(end), (cb, i) => {
-    const seg = cb.let('seg', shape_segments.at(i, structT('ShapeSegment')))
+  const end = Let('end', min(segStart.add(segCount), segStart.add(u32(32))))
+  Loop('i', segStart, (i) => i.lt(end), (i) => {
+    const seg = Let('seg', shape_segments.at(i, structT('ShapeSegment')))
     const p0 = seg.field('p0', vec2fT)
     const p1 = seg.field('p1', vec2fT)
     const p2 = seg.field('p2', vec2fT)
     const p3 = seg.field('p3', vec2fT)
-    cb.switch(seg.field('kind', u32T), [
-      [0, (d) => {
-        d.assign(minDist, min(minDist, callFn('dist_to_segment', f32T, uv, p0, p1)))
-        d.assignOp(winding, '+', callFn('winding_line', i32T, uv, p0, p1))
+    Switch(seg.field('kind', u32T), [
+      [0, () => {
+        assign(minDist, min(minDist, callFn('dist_to_segment', f32T, uv, p0, p1)))
+        assignOp(winding, '+', callFn('winding_line', i32T, uv, p0, p1))
       }],
-      [1, (d) => {
-        d.assign(minDist, min(minDist, callFn('dist_to_quadratic', f32T, uv, p0, p1, p2)))
-        d.assignOp(winding, '+', callFn('winding_line', i32T, uv, p0, p2))
+      [1, () => {
+        assign(minDist, min(minDist, callFn('dist_to_quadratic', f32T, uv, p0, p1, p2)))
+        assignOp(winding, '+', callFn('winding_line', i32T, uv, p0, p2))
       }],
-      [2, (d) => {
-        d.assign(minDist, min(minDist, callFn('dist_to_cubic', f32T, uv, p0, p1, p2, p3)))
-        d.assignOp(winding, '+', callFn('winding_line', i32T, uv, p0, p3))
+      [2, () => {
+        assign(minDist, min(minDist, callFn('dist_to_cubic', f32T, uv, p0, p1, p2, p3)))
+        assignOp(winding, '+', callFn('winding_line', i32T, uv, p0, p3))
       }],
     ], () => { /* default: empty */ })
   })
-  b.if(winding.ne(i32(0)), (c) => { c.ret(f32(1).sub(minDist)) })
-  b.ret(f32(1).add(minDist))
+  ReturnIf(winding.ne(i32(0)), f32(1).sub(minDist))
+  return f32(1).add(minDist)
 }, { allowEarlyReturn: true }) // MISRA single-exit DEVIATION — the out-of-bbox guard skips a 32-iter segment loop (perf)
 
 // ── compute_line_color: shared body for fs_line / fs_line_max / fs_line_pattern ──
@@ -767,13 +768,13 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
 })
 
 // ── line_rim_alpha ──
-const lineRimAlpha = fn('line_rim_alpha', { input: structT('LineOut') }, f32T, (b, p) => {
+const lineRimAlpha = fn('line_rim_alpha', { input: structT('LineOut') }, f32T, (_b, p) => {
   const tileOrigin = tile.field('tile_origin_merc', vec2fT)
-  const absMerc = b.let('abs_merc', p.input.field('world_local', vec2fT).add(tileOrigin))
-  const absLon = b.let('abs_lon', absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R'))))
-  const latRad = b.let('lat_rad', callFn('inv_merc_lat_rad', f32T, absMerc.y))
-  const absLat = b.let('abs_lat', latRad.div(constRef('DEG2RAD')))
-  b.ret(callFn('rim_alpha', f32T, absLon, absLat, tile.field('proj_params', vec4fT)))
+  const absMerc = Let('abs_merc', p.input.field('world_local', vec2fT).add(tileOrigin))
+  const absLon = Let('abs_lon', absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R'))))
+  const latRad = Let('lat_rad', callFn('inv_merc_lat_rad', f32T, absMerc.y))
+  const absLat = Let('abs_lat', latRad.div(constRef('DEG2RAD')))
+  return callFn('rim_alpha', f32T, absLon, absLat, tile.field('proj_params', vec4fT))
 })
 
 // ── vs_line ──
@@ -1081,43 +1082,43 @@ const vsLine = entryFn('vs_line', 'vertex', [
 // ── Fragment entries (3 variants share compute_line_color) ──
 
 const buildFsLine = (pickEnabled: boolean) =>
-  entryFn('fs_line', 'fragment', [{ name: 'input', type: structT('LineOut') }], structT('LineFragmentOutput'), (b, p) => {
-    const out = b.var('out', structT('LineFragmentOutput'))
-    const color = b.let('color', callFn('compute_line_color', vec4fT, p.input))
-    const rim = b.let('rim', callFn('line_rim_alpha', f32T, p.input))
-    b.assign(out.field('color', vec4fT), vec4(color.rgb, color.a.mul(rim)))
-    if (pickEnabled) b.assign(out.field('pick', vec2uT), vec2u(u32(0), u32(0)))
-    b.assign(out.field('depth', f32T), callFn('compute_log_frag_depth', f32T, p.input.field('view_w', f32T), tile.field('log_depth_fc', f32T)))
-    b.ret(out)
+  entryFn('fs_line', 'fragment', [{ name: 'input', type: structT('LineOut') }], structT('LineFragmentOutput'), (_b, p) => {
+    const out = Var('out', structT('LineFragmentOutput'))
+    const color = Let('color', callFn('compute_line_color', vec4fT, p.input))
+    const rim = Let('rim', callFn('line_rim_alpha', f32T, p.input))
+    assign(out.field('color', vec4fT), vec4(color.rgb, color.a.mul(rim)))
+    if (pickEnabled) assign(out.field('pick', vec2uT), vec2u(u32(0), u32(0)))
+    assign(out.field('depth', f32T), callFn('compute_log_frag_depth', f32T, p.input.field('view_w', f32T), tile.field('log_depth_fc', f32T)))
+    return out
   })
 
 const buildFsLinePattern = (pickEnabled: boolean) =>
-  entryFn('fs_line_pattern', 'fragment', [{ name: 'input', type: structT('LineOut') }], structT('LineFragmentOutput'), (b, p) => {
-    const base = b.let('base', callFn('compute_line_color', vec4fT, p.input))
+  entryFn('fs_line_pattern', 'fragment', [{ name: 'input', type: structT('LineOut') }], structT('LineFragmentOutput'), (_b, p) => {
+    const base = Let('base', callFn('compute_line_color', vec4fT, p.input))
     const tileOrigin = tile.field('tile_origin_merc', vec2fT)
-    const absMerc = b.let('abs_merc', p.input.field('world_local', vec2fT).add(tileOrigin))
-    const repeatX = b.let('repeat_x', max(layer.field('color', vec4fT).r, f32(1)))
-    const repeatY = b.let('repeat_y', max(layer.field('color', vec4fT).a, f32(1)))
-    const uvLocal = b.let('uv_local', vec2(
+    const absMerc = Let('abs_merc', p.input.field('world_local', vec2fT).add(tileOrigin))
+    const repeatX = Let('repeat_x', max(layer.field('color', vec4fT).r, f32(1)))
+    const repeatY = Let('repeat_y', max(layer.field('color', vec4fT).a, f32(1)))
+    const uvLocal = Let('uv_local', vec2(
       fract(absMerc.x.div(repeatX)),
       fract(absMerc.y.div(repeatY)),
     ))
     const sc = tile.field('stroke_color', vec4fT)
-    const u0 = b.let('u0', sc.r)
-    const v0 = b.let('v0', sc.g)
-    const u1 = b.let('u1', sc.b)
-    const v1 = b.let('v1', sc.a)
-    const atlasUv = b.let('atlas_uv', vec2(
+    const u0 = Let('u0', sc.r)
+    const v0 = Let('v0', sc.g)
+    const u1 = Let('u1', sc.b)
+    const v1 = Let('v1', sc.a)
+    const atlasUv = Let('atlas_uv', vec2(
       u0.add(uvLocal.x.mul(u1.sub(u0))),
       v0.add(uvLocal.y.mul(v1.sub(v0))),
     ))
-    const sampled = b.let('sampled', textureSample(sprite_atlas, sprite_samp, atlasUv))
-    const rim = b.let('rim', callFn('line_rim_alpha', f32T, p.input))
-    const out = b.var('out', structT('LineFragmentOutput'))
-    b.assign(out.field('color', vec4fT), vec4(sampled.rgb, sampled.a.mul(base.a).mul(rim)))
-    if (pickEnabled) b.assign(out.field('pick', vec2uT), vec2u(u32(0), u32(0)))
-    b.assign(out.field('depth', f32T), callFn('compute_log_frag_depth', f32T, p.input.field('view_w', f32T), tile.field('log_depth_fc', f32T)))
-    b.ret(out)
+    const sampled = Let('sampled', textureSample(sprite_atlas, sprite_samp, atlasUv))
+    const rim = Let('rim', callFn('line_rim_alpha', f32T, p.input))
+    const out = Var('out', structT('LineFragmentOutput'))
+    assign(out.field('color', vec4fT), vec4(sampled.rgb, sampled.a.mul(base.a).mul(rim)))
+    if (pickEnabled) assign(out.field('pick', vec2uT), vec2u(u32(0), u32(0)))
+    assign(out.field('depth', f32T), callFn('compute_log_frag_depth', f32T, p.input.field('view_w', f32T), tile.field('log_depth_fc', f32T)))
+    return out
   })
 
 // Max-blend offscreen path: bare @location(0) vec4 return, no log-depth (the
@@ -1126,11 +1127,11 @@ const fsLineMax = entryFn(
   'fs_line_max', 'fragment',
   [{ name: 'input', type: structT('LineOut') }],
   vec4fT,
-  (b, p) => {
-    const c = b.var('c', vec4fT, callFn('compute_line_color', vec4fT, p.input))
-    const rim = b.let('rim', callFn('line_rim_alpha', f32T, p.input))
-    b.assign(c.field('a', f32T), c.field('a', f32T).mul(rim))
-    b.ret(c)
+  (_b, p) => {
+    const c = Var('c', vec4fT, callFn('compute_line_color', vec4fT, p.input))
+    const rim = Let('rim', callFn('line_rim_alpha', f32T, p.input))
+    assign(c.field('a', f32T), c.field('a', f32T).mul(rim))
+    return c
   },
   '@location(0)',
 )
@@ -1200,32 +1201,32 @@ const compCu = bindingRef('cu', structT('CompUniform'))
 const vsFull = entryFn('vs_full', 'vertex',
   [{ name: 'vi', type: u32T, builtin: 'vertex_index' }],
   structT('VsFullOut'),
-  (b, p) => {
-    const pos = b.var('p', vec2fT, vec2(f32(-1), f32(-1)))
-    const uv = b.var('uv', vec2fT, vec2(f32(0), f32(1)))
-    b.if(p.vi.eq(u32(1)), (c) => {
-      c.assign(pos, vec2(f32(3), f32(-1)))
-      c.assign(uv, vec2(f32(2), f32(1)))
+  (_b, p) => {
+    const pos = Var('p', vec2fT, vec2(f32(-1), f32(-1)))
+    const uv = Var('uv', vec2fT, vec2(f32(0), f32(1)))
+    If(p.vi.eq(u32(1)), () => {
+      assign(pos, vec2(f32(3), f32(-1)))
+      assign(uv, vec2(f32(2), f32(1)))
     })
-    b.if(p.vi.eq(u32(2)), (c) => {
-      c.assign(pos, vec2(f32(-1), f32(3)))
-      c.assign(uv, vec2(f32(0), f32(-1)))
+    If(p.vi.eq(u32(2)), () => {
+      assign(pos, vec2(f32(-1), f32(3)))
+      assign(uv, vec2(f32(0), f32(-1)))
     })
-    const out = b.var('out', structT('VsFullOut'))
-    b.assign(out.field('pos', vec4fT), vec4(pos, f32(0), f32(1)))
-    b.assign(out.field('uv', vec2fT), uv)
-    b.ret(out)
+    const out = Var('out', structT('VsFullOut'))
+    assign(out.field('pos', vec4fT), vec4(pos, f32(0), f32(1)))
+    assign(out.field('uv', vec2fT), uv)
+    return out
   },
 )
 
 const fsFull = entryFn('fs_full', 'fragment',
   [{ name: 'input', type: structT('VsFullOut') }],
   vec4fT,
-  (b, p) => {
-    const c = b.let('c', textureSample(compSrc, compSamp, p.input.field('uv', vec2fT)))
-    const op = b.let('op', compCu.field('opacity', f32T))
+  (_b, p) => {
+    const c = Let('c', textureSample(compSrc, compSamp, p.input.field('uv', vec2fT)))
+    const op = Let('op', compCu.field('opacity', f32T))
     // MAX-blend offscreen stores non-premultiplied (rgb, a_aa); premultiply here.
-    b.ret(vec4(c.rgb.mul(c.a).mul(op), c.a.mul(op)))
+    return vec4(c.rgb.mul(c.a).mul(op), c.a.mul(op))
   },
   '@location(0)',
 )
