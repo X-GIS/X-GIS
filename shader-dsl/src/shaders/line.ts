@@ -35,13 +35,17 @@ import {
 import { ioStruct, builtin, location } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
 import { getProjectionWgslConsts, getProjectionWgslFns } from './projections'
-import { ECEF_WGSL_CONSTS, ECEF_WGSL_FNS } from './ecef'
-import { LOG_DEPTH_WGSL_FNS } from './log-depth'
+import { ECEF_WGSL_CONSTS, ECEF_WGSL_FNS, lonlatToEcef } from './ecef'
+import { LOG_DEPTH_WGSL_FNS, apply_log_depth, compute_log_frag_depth } from './log-depth'
 import {
   SDF_WGSL_DIST_TO_SEGMENT,
   SDF_WGSL_DIST_TO_QUADRATIC,
   SDF_WGSL_DIST_TO_CUBIC,
   SDF_WGSL_WINDING_LINE,
+  dist_to_segment,
+  dist_to_quadratic,
+  dist_to_cubic,
+  winding_line,
 } from './sdf'
 
 // Round-join acute-fold threshold on |prevTan + dir| (unit vectors → length is
@@ -309,16 +313,16 @@ const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (p, _b
     const p3 = seg.field('p3', vec2fT)
     Switch(seg.field('kind', u32T), [
       [0, () => {
-        assign(minDist, min(minDist, callFn('dist_to_segment', f32T, uv, p0, p1)))
-        assignOp(winding, '+', callFn('winding_line', i32T, uv, p0, p1))
+        assign(minDist, min(minDist, dist_to_segment(uv, p0, p1)))
+        assignOp(winding, '+', winding_line(uv, p0, p1))
       }],
       [1, () => {
-        assign(minDist, min(minDist, callFn('dist_to_quadratic', f32T, uv, p0, p1, p2)))
-        assignOp(winding, '+', callFn('winding_line', i32T, uv, p0, p2))
+        assign(minDist, min(minDist, dist_to_quadratic(uv, p0, p1, p2)))
+        assignOp(winding, '+', winding_line(uv, p0, p2))
       }],
       [2, () => {
-        assign(minDist, min(minDist, callFn('dist_to_cubic', f32T, uv, p0, p1, p2, p3)))
-        assignOp(winding, '+', callFn('winding_line', i32T, uv, p0, p3))
+        assign(minDist, min(minDist, dist_to_cubic(uv, p0, p1, p2, p3)))
+        assignOp(winding, '+', winding_line(uv, p0, p3))
       }],
     ], () => { /* default: empty */ })
   })
@@ -939,7 +943,7 @@ const vsLine = entryFn('vs_line', 'vertex', [
       toF32(f32(2).mul(atan(exp(absMercY.div(earthR)))).sub(pi.div(f32(2)))),
     )
     return builder.let(`${name}_ecef`,
-      callFn('lonlat_to_ecef', vec3fT, lonRad, latRad, height),
+      lonlatToEcef(lonRad, latRad, height),
     ) as Node<'vec3<f32>'>
   }
 
@@ -1069,7 +1073,7 @@ const vsLine = entryFn('vs_line', 'vertex', [
     c.assign(clip.x, clip.x.add(ltx.mul(clip.w)))
     c.assign(clip.y, clip.y.sub(lty.mul(clip.w)))
   })
-  b.assign(out.field('position', vec4fT), callFn('apply_log_depth', vec4fT, clip, tile.field('log_depth_fc', f32T)))
+  b.assign(out.field('position', vec4fT), apply_log_depth(clip, tile.field('log_depth_fc', f32T)))
   b.assign(out.field('view_w', f32T), clip.w)
   b.assign(out.field('world_local', vec2fT), cornerLocal)
   b.assign(out.field('seg_id', u32T), p.seg_id)
@@ -1088,7 +1092,7 @@ const buildFsLine = (pickEnabled: boolean) =>
     const rim = Let('rim', lineRimAlpha(p.input))
     assign(out.field('color', vec4fT), vec4(color.rgb, color.a.mul(rim)))
     if (pickEnabled) assign(out.field('pick', vec2uT), vec2u(u32(0), u32(0)))
-    assign(out.field('depth', f32T), callFn('compute_log_frag_depth', f32T, p.input.field('view_w', f32T), tile.field('log_depth_fc', f32T)))
+    assign(out.field('depth', f32T), compute_log_frag_depth(p.input.field('view_w', f32T), tile.field('log_depth_fc', f32T)))
     return out
   })
 
@@ -1117,7 +1121,7 @@ const buildFsLinePattern = (pickEnabled: boolean) =>
     const out = Var('out', structT('LineFragmentOutput'))
     assign(out.field('color', vec4fT), vec4(sampled.rgb, sampled.a.mul(base.a).mul(rim)))
     if (pickEnabled) assign(out.field('pick', vec2uT), vec2u(u32(0), u32(0)))
-    assign(out.field('depth', f32T), callFn('compute_log_frag_depth', f32T, p.input.field('view_w', f32T), tile.field('log_depth_fc', f32T)))
+    assign(out.field('depth', f32T), compute_log_frag_depth(p.input.field('view_w', f32T), tile.field('log_depth_fc', f32T)))
     return out
   })
 

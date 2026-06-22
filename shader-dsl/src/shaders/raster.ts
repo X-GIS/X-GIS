@@ -24,9 +24,9 @@ import {
 } from '../core/ir'
 import { ioStruct, builtin, location, uniformStruct, resource } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
-import { ECEF_WGSL_CONSTS, ECEF_WGSL_FNS } from './ecef'
+import { ECEF_WGSL_CONSTS, ECEF_WGSL_FNS, lonlatToEcef } from './ecef'
 import { RASTER_COLOR_WGSL_FNS } from './raster-color'
-import { LOG_DEPTH_WGSL_FNS } from './log-depth'
+import { LOG_DEPTH_WGSL_FNS, apply_log_depth, compute_log_frag_depth } from './log-depth'
 import { getProjectionWgslConsts, getProjectionWgslFns } from './projections'
 
 const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
@@ -103,7 +103,7 @@ const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 've
   // Works for every projection because the MVP is always the ECEF frame view
   // (Camera.getECEFFrameView). No per-projection branches needed.
   const lonRad = Let('lon_rad', lon.mul(constRef('DEG2RAD')))
-  const ecef = Let('ecef', callFn('lonlat_to_ecef', vec3fT, lonRad, latRad, f32(0)))
+  const ecef = Let('ecef', lonlatToEcef(lonRad, latRad, f32(0)))
   // Camera-relative: ecef − cameraCenter (the MVP is camera-at-ENU-origin).
   const camEcefVec = Let('cam_ecef_vec', vec3(camEcef.x, camEcef.y, camEcef.z))
   const ecefRtc = Let('ecef_rtc', ecef.sub(camEcefVec))
@@ -136,7 +136,7 @@ const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 've
   }).else(() => {
     assign(clip, transformMat4(U.field.mvp, vec4(ecefRtc, f32(1))))
   })
-  assign(o.pos, callFn('apply_log_depth', vec4fT, clip, projParams.w))
+  assign(o.pos, apply_log_depth(clip, projParams.w))
   assign(o.view_w, clip.w)
   assign(o.uv, vec2(uu, vv))
   assign(o.vis, f32(1))
@@ -162,7 +162,7 @@ const buildFs = (pickEnabled: boolean) =>
     assign(out.field('color', vec4fT), vec4(adjRgb, c.a.mul(U.field.raster_params.x).mul(rim)))
     // Basemap tile carries no feature id → always (0,0).
     if (pickEnabled) assign(out.field('pick', vec2uT), vec2u(u32(0), u32(0)))
-    assign(out.field('depth', f32T), callFn('compute_log_frag_depth', f32T, pin.view_w, U.field.proj_params.w))
+    assign(out.field('depth', f32T), compute_log_frag_depth(pin.view_w, U.field.proj_params.w))
     return out
   })
 

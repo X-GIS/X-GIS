@@ -32,7 +32,7 @@ import {
 import { ioStruct, builtin, location, uniformStruct, resource } from '../core/sot'
 import { emitModule, emitFunc } from '../core/backends/wgsl'
 import { getProjectionWgslConsts, getProjectionWgslFns } from './projections'
-import { LOG_DEPTH_WGSL_FNS } from './log-depth'
+import { LOG_DEPTH_WGSL_FNS, apply_log_depth, compute_log_frag_depth } from './log-depth'
 
 // ── Struct declarations ──
 //
@@ -382,7 +382,7 @@ const vsMain = entryFn(
     b.assign(clip.x, clip.x.add(fillTx.mul(clip.w)))
     b.assign(clip.y, clip.y.sub(fillTy.mul(clip.w)))
     // Log-depth rewrite + per-layer NDC-z bias.
-    b.assign(out.field('position', vec4fT), callFn('apply_log_depth', vec4fT, clip, logDepthFc))
+    b.assign(out.field('position', vec4fT), apply_log_depth(clip, logDepthFc))
     b.assign(out.field('position', vec4fT).z, out.field('position', vec4fT).z.sub(layerDepthOff.mul(out.field('position', vec4fT).w)))
     b.assign(out.field('view_w', f32T), clip.w)
     // cos_c placeholder — fragments recompute per-pixel.
@@ -508,7 +508,7 @@ const vsMainEcef = entryFn(
     b.assign(clip.x, clip.x.add(fillTx.mul(clip.w)))
     b.assign(clip.y, clip.y.sub(fillTy.mul(clip.w)))
     // Log-depth rewrite + per-layer NDC-z bias.
-    b.assign(out.field('position', vec4fT), callFn('apply_log_depth', vec4fT, clip, logDepthFc))
+    b.assign(out.field('position', vec4fT), apply_log_depth(clip, logDepthFc))
     b.assign(out.field('position', vec4fT).z, out.field('position', vec4fT).z.sub(layerDepthOff.mul(out.field('position', vec4fT).w)))
     b.assign(out.field('view_w', f32T), clip.w)
     // cos_c placeholder — fragments recompute per-pixel.
@@ -603,7 +603,7 @@ const vsMainEcefExtruded = entryFn(
     })
     b.assign(clip.x, clip.x.add(fillTx.mul(clip.w)))
     b.assign(clip.y, clip.y.sub(fillTy.mul(clip.w)))
-    b.assign(out.field('position', vec4fT), callFn('apply_log_depth', vec4fT, clip, logDepthFc))
+    b.assign(out.field('position', vec4fT), apply_log_depth(clip, logDepthFc))
     b.assign(out.field('position', vec4fT).z, out.field('position', vec4fT).z.sub(layerDepthOff.mul(out.field('position', vec4fT).w)))
     b.assign(out.field('view_w', f32T), clip.w)
     b.assign(out.field('cos_c', f32T), f32(0))
@@ -712,7 +712,7 @@ const emitPolygonFragmentDiscards = (b: Builder, input: Node): void => {
 
 const emitLogDepthJitter = (b: Builder, input: Node, out: Node): void => {
   const baseDepth = b.let('base_depth',
-    callFn('compute_log_frag_depth', f32T, input.field('view_w', f32T), u.field('log_depth_fc', f32T)),
+    compute_log_frag_depth(input.field('view_w', f32T), u.field('log_depth_fc', f32T)),
   )
   const idLo = b.let('id_lo', input.field('feat_id', u32T).bitAnd(u32(0xFFFF)))
   const mixed = b.let('mixed',
@@ -936,7 +936,7 @@ const buildFsStroke = (pickEnabled: boolean) =>
       b.assign(out.field('color', vec4fT).a, out.field('color', vec4fT).a.mul(rimA))
       emitPickWrite(b, input, out, pickEnabled)
       // Stroke depth: bare log-depth, no per-feature jitter.
-      b.assign(out.field('depth', f32T), callFn('compute_log_frag_depth', f32T, input.field('view_w', f32T), u.field('log_depth_fc', f32T)))
+      b.assign(out.field('depth', f32T), compute_log_frag_depth(input.field('view_w', f32T), u.field('log_depth_fc', f32T)))
       b.ret(out)
     },
   )

@@ -28,7 +28,7 @@ import {
 import { ioStruct, builtin, location, uniformStruct, storageBuffer } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
 import { getProjectionWgslConsts, getProjectionWgslFns } from './projections'
-import { LOG_DEPTH_WGSL_FNS } from './log-depth'
+import { LOG_DEPTH_WGSL_FNS, apply_log_depth, compute_log_frag_depth } from './log-depth'
 
 const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
   // Phase 2 PR 2d.2 — POINT VS ECEF migration. `mvp` holds the ECEF-MVP
@@ -372,7 +372,7 @@ const vs = entryFn('vs_point', 'vertex', [
     const offsetPx = Let('offset_px', vec2(offXY.x.mul(expand), offXY.y.mul(expand).add(yShiftPx)))
     const offsetNdc = Let('offset_ndc', offsetPx.mul(pxToNdc))
     const flatClip = Let('flat_clip', centerClip.add(vec4(offsetNdc.mul(centerClip.w), f32(0), f32(0))))
-    assign(o.position, callFn('apply_log_depth', vec4fT, flatClip, fc))
+    assign(o.position, apply_log_depth(flatClip, fc))
     assign(o.uv, offXY)
   }).else(() => {
     // BILLBOARD: expand in screen-space (NDC), perspective-corrected. Anchor
@@ -387,7 +387,7 @@ const vs = entryFn('vs_point', 'vertex', [
     const offsetPx = Let('offset_px', vec2(offXY.x.mul(expand), offXY.y.mul(expand).add(yShiftPx)))
     const offsetNdc = Let('offset_ndc', offsetPx.mul(pxToNdc))
     const billboardClip = Let('billboard_clip', centerClip.add(vec4(offsetNdc.mul(centerClip.w), f32(0), f32(0))))
-    assign(o.position, callFn('apply_log_depth', vec4fT, billboardClip, fc))
+    assign(o.position, apply_log_depth(billboardClip, fc))
     // UV stays centered so the SDF shape renders unchanged; only the on-
     // screen placement is shifted.
     assign(o.uv, offXY.mul(expand).div(max(radiusPx, f32(1))))
@@ -471,7 +471,7 @@ const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: PointOut.type }]
   const out = Var('out', PointFragmentOutput.type)
   const o = PointFragmentOutput.of(out)
   assign(o.color, color)
-  assign(o.depth, callFn('compute_log_frag_depth', f32T, pin.view_w, U.field.viewport.w))
+  assign(o.depth, compute_log_frag_depth(pin.view_w, U.field.viewport.w))
   return out
 })
 
