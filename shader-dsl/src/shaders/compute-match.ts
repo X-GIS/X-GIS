@@ -14,6 +14,7 @@ import {
   computeFn, module, vec4, f32, pack4x8unorm,
   f32T, u32T, vec4fT, vec4uT, arrayT,
   type ModuleDecl,
+  If, Var, Return, assign,
 } from '../core/ir'
 import { storageBuffer, resource } from '../core/sot'
 
@@ -63,24 +64,24 @@ export function matchComputeKernel(spec: MatchKernelSpec): ModuleDecl {
   const outColor = outColorB.node
   const uCount = uCountB.node
 
-  const entry = computeFn('eval_match', COMPUTE_WORKGROUP_SIZE, 'gid', (gid, b) => {
+  const entry = computeFn('eval_match', COMPUTE_WORKGROUP_SIZE, 'gid', (gid) => {
     const fid = gid.x
-    b.if(fid.ge(uCount.x), (c) => { c.ret() })
+    If(fid.ge(uCount.x), () => { Return() })
     const v = featData.at(fid, f32T)
-    const color = b.var('color', vec4fT)
+    const color = Var('color', vec4fT)
 
     // Parameterized if-else ladder — one arm per sorted pattern.
-    const chain = b.if(v.eq(f32(0)), (c) => {
-      c.assign(color, colorVec(armByPattern.get(sortedPatterns[0]!)!.colorHex))
+    const chain = If(v.eq(f32(0)), () => {
+      assign(color, colorVec(armByPattern.get(sortedPatterns[0]!)!.colorHex))
     })
     for (let i = 1; i < sortedPatterns.length; i++) {
-      chain.elif(v.eq(f32(i)), (c) => {
-        c.assign(color, colorVec(armByPattern.get(sortedPatterns[i]!)!.colorHex))
+      chain.elif(v.eq(f32(i)), () => {
+        assign(color, colorVec(armByPattern.get(sortedPatterns[i]!)!.colorHex))
       })
     }
-    chain.else((c) => { c.assign(color, colorVec(spec.defaultColorHex)) })
+    chain.else(() => { assign(color, colorVec(spec.defaultColorHex)) })
 
-    b.assign(outColor.at(fid, u32T), pack4x8unorm(color))
+    assign(outColor.at(fid, u32T), pack4x8unorm(color))
   })
 
   return module({

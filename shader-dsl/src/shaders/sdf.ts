@@ -12,7 +12,7 @@ import {
   fn, module, f32, i32, u32, vec2,
   f32T, i32T, u32T, vec2fT, arrayT,
   clamp, min, max, length, dot, mix, toF32, select,
-  Var, Loop, assign,
+  Var, Loop, If, Switch, Return, assign, addAssign,
   type FuncDecl, type ModuleDecl,
 } from '../core/ir'
 import { structDecl, storageBuffer } from '../core/sot'
@@ -41,7 +41,7 @@ const segments = segmentsB.node
 
 // ── dist_to_segment / quadratic / cubic / winding_line ──
 
-export const dist_to_segment = fn('dist_to_segment', { p: vec2fT, a: vec2fT, b: vec2fT }, f32T, ({ p, a, b }, _b) => {
+export const dist_to_segment = fn('dist_to_segment', { p: vec2fT, a: vec2fT, b: vec2fT }, f32T, ({ p, a, b }) => {
   const ab = b.sub(a)
   const len2 = dot(ab, ab)
   // single-exit: max() guards the degenerate (len2≈0) divide; select picks the point dist.
@@ -50,7 +50,7 @@ export const dist_to_segment = fn('dist_to_segment', { p: vec2fT, a: vec2fT, b: 
   return select(len2.lt(1e-10), length(p.sub(a)), segDist)
 })
 
-export const dist_to_quadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT }, f32T, ({ p, a, b, c }, _b) => {
+export const dist_to_quadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT }, f32T, ({ p, a, b, c }) => {
   const best_d = Var('best_d', f32T, f32(1e10))
   const STEPS = u32(16)
   Loop('i', u32(0), (i) => i.le(STEPS), (i) => {
@@ -63,7 +63,7 @@ export const dist_to_quadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT,
   return best_d
 })
 
-export const dist_to_cubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT, d: vec2fT }, f32T, ({ p, a, b, c, d }, _b) => {
+export const dist_to_cubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT, d: vec2fT }, f32T, ({ p, a, b, c, d }) => {
   const best_d = Var('best_d', f32T, f32(1e10))
   const STEPS = u32(24)
   Loop('i', u32(0), (i) => i.le(STEPS), (i) => {
@@ -79,7 +79,7 @@ export const dist_to_cubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2
   return best_d
 })
 
-export const winding_line = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT }, i32T, ({ p, a, b }, _b) => {
+export const winding_line = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT }, i32T, ({ p, a, b }) => {
   // single-exit: signed winding contribution of edge a→b across the +y ray from p.
   const cross = b.x.sub(a.x).mul(p.y.sub(a.y)).sub(p.x.sub(a.x).mul(b.y.sub(a.y)))
   const up = a.y.le(p.y).and(b.y.gt(p.y)).and(cross.gt(0))
@@ -89,40 +89,40 @@ export const winding_line = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT
 
 // ── sdf_shape (the imperative core: bbox cull + segment loop + switch) ──
 
-const sdf_shape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, ({ uv_in, shape_id }, bld) => {
+const sdf_shape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, ({ uv_in, shape_id }) => {
   const uv = vec2(uv_in.x, uv_in.y.neg())
   const s = shapes.at(shape_id, ShapeDesc.type)
 
-  bld.if(
+  If(
     uv.x.lt(sd(s, 'bbox_min_x')).or(uv.x.gt(sd(s, 'bbox_max_x')))
       .or(uv.y.lt(sd(s, 'bbox_min_y'))).or(uv.y.gt(sd(s, 'bbox_max_y'))),
-    (c) => { c.ret(f32(2)) },
+    () => { Return(f32(2)) },
   )
 
-  const min_dist = bld.var('min_dist', f32T, f32(1e10))
-  const winding = bld.var('winding', i32T, i32(0))
+  const min_dist = Var('min_dist', f32T, f32(1e10))
+  const winding = Var('winding', i32T, i32(0))
   const end = min(sd(s, 'seg_start').add(sd(s, 'seg_count')), sd(s, 'seg_start').add(u32(32)))
 
-  bld.forRange('i', sd(s, 'seg_start'), (i) => i.lt(end), (loop, i) => {
+  Loop('i', sd(s, 'seg_start'), (i) => i.lt(end), (i) => {
     const seg = segments.at(i, ShapeSegment.type)
-    loop.switch(sg(seg, 'kind'), [
-      [0, (c) => {
-        c.assign(min_dist, min(min_dist, dist_to_segment(uv, sg(seg, 'p0'), sg(seg, 'p1'))))
-        c.addAssign(winding, winding_line(uv, sg(seg, 'p0'), sg(seg, 'p1')))
+    Switch(sg(seg, 'kind'), [
+      [0, () => {
+        assign(min_dist, min(min_dist, dist_to_segment(uv, sg(seg, 'p0'), sg(seg, 'p1'))))
+        addAssign(winding, winding_line(uv, sg(seg, 'p0'), sg(seg, 'p1')))
       }],
-      [1, (c) => {
-        c.assign(min_dist, min(min_dist, dist_to_quadratic(uv, sg(seg, 'p0'), sg(seg, 'p1'), sg(seg, 'p2'))))
-        c.addAssign(winding, winding_line(uv, sg(seg, 'p0'), sg(seg, 'p2')))
+      [1, () => {
+        assign(min_dist, min(min_dist, dist_to_quadratic(uv, sg(seg, 'p0'), sg(seg, 'p1'), sg(seg, 'p2'))))
+        addAssign(winding, winding_line(uv, sg(seg, 'p0'), sg(seg, 'p2')))
       }],
-      [2, (c) => {
-        c.assign(min_dist, min(min_dist, dist_to_cubic(uv, sg(seg, 'p0'), sg(seg, 'p1'), sg(seg, 'p2'), sg(seg, 'p3'))))
-        c.addAssign(winding, winding_line(uv, sg(seg, 'p0'), sg(seg, 'p3')))
+      [2, () => {
+        assign(min_dist, min(min_dist, dist_to_cubic(uv, sg(seg, 'p0'), sg(seg, 'p1'), sg(seg, 'p2'), sg(seg, 'p3'))))
+        addAssign(winding, winding_line(uv, sg(seg, 'p0'), sg(seg, 'p3')))
       }],
     ], () => { /* default: {} */ })
   }, u32(1))
 
-  bld.if(winding.ne(i32(0)), (c) => { c.ret(f32(1).sub(min_dist)) })
-  bld.ret(f32(1).add(min_dist))
+  If(winding.ne(i32(0)), () => { Return(f32(1).sub(min_dist)) })
+  Return(f32(1).add(min_dist))
 }, { allowEarlyReturn: true }) // MISRA single-exit DEVIATION — the out-of-bbox guard skips a 32-iter segment loop (perf)
 
 // ── Module assembly ──
