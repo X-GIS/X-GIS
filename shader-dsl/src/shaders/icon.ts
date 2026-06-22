@@ -12,6 +12,7 @@ import {
   Let, Var, assign,
   type StructDecl, type ModuleDecl,
 } from '../core/ir'
+import { ioStruct, builtin, location } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
 
 const Uniforms: StructDecl = {
@@ -22,16 +23,14 @@ const Uniforms: StructDecl = {
     { name: '_pad1', type: f32T },
   ],
 }
-const VsOut: StructDecl = {
-  name: 'VsOut',
-  fields: [
-    { name: 'clip_pos', type: vec4fT, attr: '@builtin(position)' },
-    { name: 'uv', type: vec2fT, attr: '@location(0)' },
-    { name: 'opacity', type: f32T, attr: '@location(1)' },
-    { name: 'tint', type: vec3fT, attr: '@location(2)' },
-    { name: 'sdf', type: f32T, attr: '@location(3) @interpolate(flat)' },
-  ],
-}
+// SoT: one declaration → the StructDecl (with attrs), the type, and typed field access.
+const VsOut = ioStruct('VsOut', {
+  clip_pos: builtin('position', vec4fT),
+  uv: location(0, vec2fT),
+  opacity: location(1, f32T),
+  tint: location(2, vec3fT),
+  sdf: location(3, f32T, 'flat'),
+})
 
 const u = bindingRef('u', structT('Uniforms'))
 const atlasTex = bindingRef('atlas_tex', texture2dfT)
@@ -43,34 +42,36 @@ const vs = entryFn('vs', 'vertex', [
   { name: 'opacity', type: f32T, location: 2 },
   { name: 'tint', type: vec3fT, location: 3 },
   { name: 'sdf', type: f32T, location: 4 },
-], structT('VsOut'), (_b, p) => {
+], VsOut.type, (_b, p) => {
   const vp = u.field('viewport', vec2fT)
   const ndc_x = Let('ndc_x', p.pos_px.x.div(vp.x).mul(2).sub(1))
   const ndc_y = Let('ndc_y', f32(1).sub(p.pos_px.y.div(vp.y).mul(2)))
-  const out = Var('out', structT('VsOut'))
-  assign(out.field('clip_pos', vec4fT), vec4(ndc_x, ndc_y, f32(0), f32(1)))
-  assign(out.field('uv', vec2fT), p.uv)
-  assign(out.field('opacity', f32T), p.opacity)
-  assign(out.field('tint', vec3fT), p.tint)
-  assign(out.field('sdf', f32T), p.sdf)
+  const out = Var('out', VsOut.type)
+  const o = VsOut.of(out)
+  assign(o.clip_pos, vec4(ndc_x, ndc_y, f32(0), f32(1)))
+  assign(o.uv, p.uv)
+  assign(o.opacity, p.opacity)
+  assign(o.tint, p.tint)
+  assign(o.sdf, p.sdf)
   return out
 })
 
-const fs = entryFn('fs', 'fragment', [{ name: 'in', type: structT('VsOut') }], vec4fT, (_b, p) => {
-  const c = Let('c', textureSample(atlasTex, atlasSmp, p.in.field('uv', vec2fT)))
+const fs = entryFn('fs', 'fragment', [{ name: 'in', type: VsOut.type }], vec4fT, (_b, p) => {
+  const pin = VsOut.of(p.in)
+  const c = Let('c', textureSample(atlasTex, atlasSmp, pin.uv))
   // fwidth must be in uniform control flow — compute aa unconditionally (the
   // raster path discards it).
   const dForAa = Let('d_for_aa', c.a)
   const aa = Let('aa', max(fwidth(dForAa), f32(1e-4)))
   // single-exit: SDF sprite (sdf>0.5) uses fwidth-AA coverage; raster sprite straight-samples.
   const cov = Let('cov', smoothstep(f32(0.5).sub(aa), f32(0.5).add(aa), c.a))
-  const sdfColor = vec4(p.in.field('tint', vec3fT), cov.mul(p.in.field('opacity', f32T)))
-  const rasterColor = vec4(c.rgb, c.a.mul(p.in.field('opacity', f32T)))
-  return select(p.in.field('sdf', f32T).gt(0.5), sdfColor, rasterColor)
+  const sdfColor = vec4(pin.tint, cov.mul(pin.opacity))
+  const rasterColor = vec4(c.rgb, c.a.mul(pin.opacity))
+  return select(pin.sdf.gt(0.5), sdfColor, rasterColor)
 }, '@location(0)')
 
 export const ICON_MODULE: ModuleDecl = module({
-  structs: [Uniforms, VsOut],
+  structs: [Uniforms, VsOut.decl],
   bindings: [
     { group: 0, binding: 0, name: 'u', space: 'uniform', type: structT('Uniforms') },
     { group: 0, binding: 1, name: 'atlas_tex', space: 'uniform', type: texture2dfT },
