@@ -20,7 +20,7 @@
 import {
   entryFn, fn, module, bindingRef, callFn, transformMat4, arrayLit,
   f32, u32, i32, toF32, toU32, vec2, vec3, vec4, mix, exp, clamp,
-  length, dot, min, max, smoothstep, fwidth,
+  length, dot, min, max, smoothstep, fwidth, select,
   structT, f32T, u32T, i32T, vec2fT, vec4fT, mat4x4fT, arrayT,
   type StructDecl, type ModuleDecl,
 } from '../core/ir'
@@ -143,9 +143,10 @@ const pointRimAlpha = fn('point_rim_alpha', { abs_lon: f32T, abs_lat: f32T }, f3
 const distToLine = fn('dist_to_line', { p: vec2fT, a: vec2fT, b: vec2fT }, f32T, (bld, pp) => {
   const ab = bld.let('ab', pp.b.sub(pp.a))
   const len2 = bld.let('len2', dot(ab, ab))
-  bld.if(len2.lt(1e-10), (c) => { c.ret(length(pp.p.sub(pp.a))) })
-  const t = bld.let('t', clamp(dot(pp.p.sub(pp.a), ab).div(len2), 0, 1))
-  bld.ret(length(pp.p.sub(pp.a).sub(ab.mul(t))))
+  // single-exit: max() guards the degenerate (len2≈0) divide; select picks the point dist.
+  const t = bld.let('t', clamp(dot(pp.p.sub(pp.a), ab).div(max(len2, 1e-10)), 0, 1))
+  const segDist = bld.let('seg_dist', length(pp.p.sub(pp.a).sub(ab.mul(t))))
+  return select(len2.lt(1e-10), length(pp.p.sub(pp.a)), segDist)
 })
 
 const distToQuadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT }, f32T, (bld, pp) => {
@@ -176,18 +177,11 @@ const distToCubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: ve
 })
 
 const windingLine = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT }, i32T, (bld, pp) => {
-  bld.if(pp.a.y.le(pp.p.y), (c) => {
-    c.if(pp.b.y.gt(pp.p.y), (d) => {
-      const crossVal = d.let('cross_val', pp.b.x.sub(pp.a.x).mul(pp.p.y.sub(pp.a.y)).sub(pp.p.x.sub(pp.a.x).mul(pp.b.y.sub(pp.a.y))))
-      d.if(crossVal.gt(0), (e) => { e.ret(i32(1)) })
-    })
-  }).else((c) => {
-    c.if(pp.b.y.le(pp.p.y), (d) => {
-      const crossVal = d.let('cross_val', pp.b.x.sub(pp.a.x).mul(pp.p.y.sub(pp.a.y)).sub(pp.p.x.sub(pp.a.x).mul(pp.b.y.sub(pp.a.y))))
-      d.if(crossVal.lt(0), (e) => { e.ret(i32(-1)) })
-    })
-  })
-  bld.ret(i32(0))
+  // single-exit: signed winding contribution of edge a→b across the +y ray from p.
+  const cross = bld.let('cross_val', pp.b.x.sub(pp.a.x).mul(pp.p.y.sub(pp.a.y)).sub(pp.p.x.sub(pp.a.x).mul(pp.b.y.sub(pp.a.y))))
+  const up = pp.a.y.le(pp.p.y).and(pp.b.y.gt(pp.p.y)).and(cross.gt(0))
+  const down = pp.a.y.gt(pp.p.y).and(pp.b.y.le(pp.p.y)).and(cross.lt(0))
+  return select(up, i32(1), select(down, i32(-1), i32(0)))
 })
 
 const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (bld, pp) => {
@@ -235,7 +229,7 @@ const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (bld, 
   // Inside (winding != 0): dist=1 at boundary; outside: dist=1+min_dist.
   bld.if(winding.ne(i32(0)), (c) => { c.ret(f32(1).sub(minDist)) })
     .else((c) => { c.ret(f32(1).add(minDist)) })
-})
+}, { allowEarlyReturn: true }) // MISRA single-exit DEVIATION — the AABB early-out skips a 32-segment loop (perf)
 
 // ── Entry points ──
 

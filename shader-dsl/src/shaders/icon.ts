@@ -7,7 +7,7 @@
 // a straight sample. No pick variant (the icon shader has no __PICK__ markers).
 
 import {
-  entryFn, bindingRef, vec4, f32, max, smoothstep, fwidth, textureSample,
+  entryFn, bindingRef, vec4, f32, max, smoothstep, fwidth, textureSample, select,
   module, structT, f32T, vec2fT, vec3fT, vec4fT, texture2dfT, samplerT,
   type StructDecl, type ModuleDecl,
 } from '../core/ir'
@@ -61,13 +61,11 @@ const fs = entryFn('fs', 'fragment', [{ name: 'in', type: structT('VsOut') }], v
   // raster path discards it).
   const dForAa = b.let('d_for_aa', c.a)
   const aa = b.let('aa', max(fwidth(dForAa), f32(1e-4)))
-  b.if(p.in.field('sdf', f32T).gt(0.5), (c2) => {
-    // SDF sprite: alpha is an unsigned distance field; fwidth-based AA.
-    const cov = c2.let('cov', smoothstep(f32(0.5).sub(aa), f32(0.5).add(aa), c.a))
-    c2.ret(vec4(p.in.field('tint', vec3fT), cov.mul(p.in.field('opacity', f32T))))
-  })
-  // Raster sprite: straight sample, opacity-scaled alpha (icon-color ignored).
-  b.ret(vec4(c.rgb, c.a.mul(p.in.field('opacity', f32T))))
+  // single-exit: SDF sprite (sdf>0.5) uses fwidth-AA coverage; raster sprite straight-samples.
+  const cov = b.let('cov', smoothstep(f32(0.5).sub(aa), f32(0.5).add(aa), c.a))
+  const sdfColor = vec4(p.in.field('tint', vec3fT), cov.mul(p.in.field('opacity', f32T)))
+  const rasterColor = vec4(c.rgb, c.a.mul(p.in.field('opacity', f32T)))
+  return select(p.in.field('sdf', f32T).gt(0.5), sdfColor, rasterColor)
 }, '@location(0)')
 
 export const ICON_MODULE: ModuleDecl = module({
