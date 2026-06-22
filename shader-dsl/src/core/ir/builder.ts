@@ -185,6 +185,28 @@ export type FnHandle<P extends ParamSpec, R extends ShaderType> =
   }
   & { readonly decl: FuncDecl }
 
+/** The call-node factory shared by fn()'s handle and externFn(): dispatches the typed
+ *  object-param form `f({ a, b })` to positional callFn args (names → declared order), else
+ *  passes positional args straight through. ONE implementation guarantees that an extern call
+ *  and the real fn's call emit the identical call-by-name node. */
+function makeCallFactory<R extends ShaderType>(
+  name: string,
+  ret: R,
+  paramList: ReadonlyArray<{ name: string; type: ShaderType }>,
+): (...args: NodeLike[]) => Node<KeyOf<R>> {
+  return (...args: NodeLike[]): Node<KeyOf<R>> => {
+    // Typed object-param call `f({ lon, lat })` — map the named args to positional order.
+    // Distinguished from a single positional Node arg: a params object is a plain object, a
+    // Node is a class instance. (callFn then builds the identical call-by-name node.)
+    const a0 = args[0]
+    if (args.length === 1 && a0 != null && !(a0 instanceof Node) && typeof a0 === 'object' && !Array.isArray(a0)) {
+      const obj = a0 as Record<string, NodeLike>
+      return callFn(name, ret, ...paramList.map((p) => obj[p.name]))
+    }
+    return callFn(name, ret, ...args)
+  }
+}
+
 /** Author a function. The body receives the typed param Nodes FIRST (each keyed by its
  *  ShaderType); the Builder is the optional SECOND arg — TSL-style (three.js Fn passes the
  *  inputs then the node-builder), so a clean body is just `(p) => …` using the ambient
@@ -209,25 +231,33 @@ export function fn<P extends ParamSpec, R extends ShaderType>(
   const result = withScope(b, () => body(paramNodes, b))
   if (result !== undefined) b.ret(result)
   const decl: FuncDecl = { name, params: paramList, ret, body: b.stmts, allowEarlyReturn: opts?.allowEarlyReturn, lintDisable: opts?.lintDisable }
-  // The handle IS the call node factory; the FuncDecl fields are mixed onto it so it still
-  // duck-types as a FuncDecl in a module's funcs[]. `name` is a non-writable function prop,
-  // so it is set via defineProperty (Object.assign would throw on it under strict mode).
-  const handle = ((...args: NodeLike[]): Node<KeyOf<R>> => {
-    // Typed object-param call `foo({ lon, lat })` — map the named args to positional order.
-    // Distinguished from a single positional Node arg: a params object is a plain object, a
-    // Node is a class instance. (callFn then builds the identical call-by-name node.)
-    const a0 = args[0]
-    if (args.length === 1 && a0 != null && !(a0 instanceof Node) && typeof a0 === 'object' && !Array.isArray(a0)) {
-      const obj = a0 as Record<string, NodeLike>
-      return callFn(name, ret, ...paramList.map((p) => obj[p.name]))
-    }
-    return callFn(name, ret, ...args)
-  }) as FnHandle<P, R>
+  // The handle IS the call node factory (shared with externFn); the FuncDecl fields are mixed
+  // onto it so it still duck-types as a FuncDecl in a module's funcs[]. `name` is a non-writable
+  // function prop, so it is set via defineProperty (Object.assign would throw on it under strict).
+  const handle = makeCallFactory(name, ret, paramList) as FnHandle<P, R>
   // enumerable so `{ ...handle }` (e.g. the projection-fn spread) carries the name; a
   // function's own `name` is non-enumerable by default, which would drop it from a spread.
   Object.defineProperty(handle, 'name', { value: name, configurable: true, enumerable: true })
   Object.assign(handle, { params: paramList, ret, body: decl.body, allowEarlyReturn: decl.allowEarlyReturn, lintDisable: decl.lintDisable, decl })
   return handle
+}
+
+/** A typed CALL-ONLY handle for a function whose DEFINITION is provided elsewhere — the
+ *  forward-declaration ("extern") counterpart to fn(). Use it when the callee cannot be an
+ *  importable FnHandle at the CALLER's module-load time. The projection fns (project /
+ *  flat_rel / needs_backface_cull / rim_alpha / inv_merc_lat_rad) are built inside
+ *  buildProjectionArtifacts AFTER configureProjections() — too late for consumer shader
+ *  modules that author their bodies eagerly at import. externFn carries only the SIGNATURE
+ *  (name + param types + ret), so a consumer makes a TYPED call now (object-param `f({a,b})`
+ *  or positional `f(a,b)`); the body is linked in at emit via the projection module. The
+ *  emitted node is callFn(name, ret, …) — byte-identical to the old string call. */
+export type ExternFn<P extends ParamSpec, R extends ShaderType> = {
+  (args: { readonly [K in keyof P]: Node<KeyOf<P[K]>> }): Node<KeyOf<R>>
+  (...args: NodeLike[]): Node<KeyOf<R>>
+}
+export function externFn<P extends ParamSpec, R extends ShaderType>(name: string, params: P, ret: R): ExternFn<P, R> {
+  const paramList = Object.entries(params).map(([n, type]) => ({ name: n, type }))
+  return makeCallFactory(name, ret, paramList) as ExternFn<P, R>
 }
 
 /** @deprecated fn() now returns a callable FnHandle directly — use fn(). Kept as an alias. */

@@ -27,7 +27,7 @@ import { emitModule } from '../core/backends/wgsl'
 import { ECEF_WGSL_CONSTS, ECEF_WGSL_FNS, lonlatToEcef } from './ecef'
 import { RASTER_COLOR_WGSL_FNS } from './raster-color'
 import { LOG_DEPTH_WGSL_FNS, apply_log_depth, compute_log_frag_depth } from './log-depth'
-import { getProjectionWgslConsts, getProjectionWgslFns } from './projections'
+import { getProjectionWgslConsts, getProjectionWgslFns, project, flat_rel } from './projections'
 
 const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
   mvp: mat4x4fT,
@@ -121,7 +121,7 @@ const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 've
   const clip = Var('clip', vec4fT)
   If(projParams.x.lt(0.5), () => {
     const latDeg = Let('lat_deg', latRad.div(constRef('DEG2RAD')))
-    const p2d = Let('p2d', callFn('project', vec2fT, lon, latDeg, projParams))
+    const p2d = Let('p2d', project(lon, latDeg, projParams))
     const rel2d = Let('rel2d', p2d.sub(vec2(camEcef.x, camEcef.y)))
     assign(clip, transformMat4(U.field.mvp, vec4(rel2d.x, rel2d.y, f32(0), f32(1))))
   }).elif(projParams.x.lt(6.5), () => {
@@ -131,7 +131,7 @@ const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 've
     // proj_params.y/z = clon/clat). Same flat MVP; cam_ecef_center unused here.
     const latDeg = Let('lat_deg_g', latRad.div(constRef('DEG2RAD')))
     const tileRefLon = Let('tile_ref_lon', bounds.x.add(bounds.z).mul(0.5))
-    const relG = Let('rel2d_geom', callFn('flat_rel', vec2fT, lon, latDeg, projParams, tileRefLon))
+    const relG = Let('rel2d_geom', flat_rel(lon, latDeg, projParams, tileRefLon))
     assign(clip, transformMat4(U.field.mvp, vec4(relG.x, relG.y, f32(0), f32(1))))
   }).else(() => {
     assign(clip, transformMat4(U.field.mvp, vec4(ecefRtc, f32(1))))
