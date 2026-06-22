@@ -115,7 +115,7 @@ const vs = fn('vs_tile', { vid: builtin('vertex_index', u32T) }, VsOut.type, (p,
   // there. u.mvp is the matching matrix (Camera.getViewForProjection). f32
   // reprojection ≈ 1 m at extreme zoom (P1), sub-pixel for texture-grade
   // raster.
-  const clip = condExpr('clip', vec4fT, [
+  const clip = condExpr(vec4fT, [
     [projParams.x.lt(0.5), () => {
       const latDeg = latRad.div(constRef('DEG2RAD'))
       const p2d = project(lon, latDeg, projParams)

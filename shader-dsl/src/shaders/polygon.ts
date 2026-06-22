@@ -643,7 +643,7 @@ const vsMainEcefExtruded = fn(
       )
       assign(directional, directional.mul(vgrad))
     })
-    const shadedRgb = Let('shaded_rgb',
+    const shadedRgb = Let(
       clamp(litColorRgb.mul(directional).mul(lightColor), vec3(f32(0)), vec3(f32(1))),
     )
     // Non-premultiplied output — see vs_main_quantized_extruded's removed
@@ -753,7 +753,7 @@ const buildFsFill = (pickEnabled: boolean) =>
       const wallBlend = i.wall_blend
       const vShade = f32(0.6).add(f32(0.4).mul(wallBlend))
       const roofBonus = select(wallBlend.ge(f32(0.999)), f32(0.05), f32(0))
-      const wallShade = Let('wall_shade', min(f32(1), vShade.add(roofBonus)))
+      const wallShade = Let('wall_shade', min(f32(1), vShade.add(roofBonus))) // named: the composer default-fill return Stmt references `wall_shade` by literal varref
       // wall_shade reference kept live for the composer's default-path
       // assign emit (defaultFillReturnStmts constructs a `{op:'varref',
       // name:'wall_shade'}` Expr that resolves to the let-bound name at
@@ -926,7 +926,7 @@ const buildFsStroke = (pickEnabled: boolean) =>
       // `void` keeps tsc satisfied — defaultStrokeReturnStmts builds a
       // `{op:'varref', name:'alpha_scale'}` Expr that resolves to this
       // let-bound name at emit time (composer's default-path assign).
-      const alphaScale = Let('alpha_scale', select(i.feat_id.gt(u32(0)), f32(1), f32(0.4)))
+      const alphaScale = Let('alpha_scale', select(i.feat_id.gt(u32(0)), f32(1), f32(0.4))) // named: the composer default-stroke return Stmt references `alpha_scale` by literal varref
       void alphaScale
       const out = Var('out', polygonFragmentOutput(pickEnabled).type)
       // ▼ Composer-swap point — variant.strokeExpr replaces this OR the

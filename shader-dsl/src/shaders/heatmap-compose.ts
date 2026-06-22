@@ -51,10 +51,10 @@ const rampSampler = resource('ramp_sampler', samplerT, { group: 0, binding: 2 })
 const vsFull = fn(
   'vs_full', { idx: builtin('vertex_index', u32T) }, VsOut.type,
   (p, _b) => {
-    const pos = Var('pos', vec2fT, vec2(f32(-1), f32(-1)))
+    const pos = Var(vec2fT, vec2(f32(-1), f32(-1)))
     If(p.idx.eq(u32(1)), () => { assign(pos, vec2(f32(3), f32(-1))) })
       .elif(p.idx.eq(u32(2)), () => { assign(pos, vec2(f32(-1), f32(3))) })
-    const out = Var('out', VsOut.type)
+    const out = Var(VsOut.type)
     const o = VsOut.of(out)
     assign(o.pos, vec4(pos, f32(0), f32(1)))
     // y-flip — texture origin top-left, NDC origin bottom-left.

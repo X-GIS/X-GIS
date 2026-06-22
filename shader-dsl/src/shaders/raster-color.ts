@@ -31,7 +31,7 @@ const rasterColorAdjust = fn('raster_color_adjust', { rgb_in: vec3fT, p0: vec4fT
   const brightnessHigh = p.p0.z
   const saturation = p.p0.w
   const contrast = p.p1.x
-  const rgb = Var('rgb', vec3fT, p.rgb_in)
+  const rgb = Var(vec3fT, p.rgb_in)
 
   // Hue rotate — spin the RGB vector by the w.xyz / w.zxy / w.yzx swizzle weights.
   const w = callFn('raster_spin_weights', vec3fT, hueDeg.mul(constRef('DEG2RAD_F')))
@@ -45,7 +45,7 @@ const rasterColorAdjust = fn('raster_color_adjust', { rgb_in: vec3fT, p0: vec4fT
 
   // Saturation — rgb += (average - rgb) * factor; factor 0 (default) is the identity.
   const satFactor = select(saturation.gt(0), f32(1).sub(f32(1).div(f32(1.001).sub(saturation))), saturation.neg())
-  const avg = Let('avg', rgb.x.add(rgb.y).add(rgb.z).div(3))
+  const avg = Let(rgb.x.add(rgb.y).add(rgb.z).div(3))
   assign(rgb, rgb.add(vec3(avg).sub(rgb).mul(satFactor)))
 
   // Contrast — factor 1 (default) is the identity.

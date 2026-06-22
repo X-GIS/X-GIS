@@ -151,12 +151,11 @@ describe('PoC-B: WGSL backend emits a structurally valid sdf shader', () => {
   })
   it('emits the imperative constructs (for / switch / compound assign)', () => {
     expect(wgsl).toContain('fn sdf_shape(uv_in: vec2<f32>, shape_id: u32) -> f32')
-    // for-counter `i` (u32) iterating up to a bound with step 1u. The old hand
-    // `let end = …` was dropped in the inline migration, so the loop bound is now
-    // an inlined/cse'd expr — generalize the RHS of `(i < …)` to any non-`;` expr
-    // while still pinning the for-construct, the u32 counter, the `i < bound`
-    // comparison, and the increment-by-1u update.
-    expect(wgsl).toMatch(/for \(var i: u32 = [^;]+; \(i < [^;]+\); i = \(i \+ 1u\)\)/)
+    // for-counter (u32, auto-named _vN now) iterating up to a bound with step 1u. The loop
+    // bound is an inlined/cse'd expr — generalize the RHS of `(i < …)` to any non-`;` expr,
+    // and the counter name to a backref'd \w+, while pinning the for-construct + the `< bound`
+    // comparison + the increment-by-1u update.
+    expect(wgsl).toMatch(/for \(var (\w+): u32 = [^;]+; \(\1 < [^;]+\); \1 = \(\1 \+ 1u\)\)/)
     expect(wgsl).toContain('switch ') // segment-kind dispatch
     expect(wgsl).toContain('case 0u: {')
     // min_dist + winding are authored as plain `const` (no Var); the auto-vars pass materialises
