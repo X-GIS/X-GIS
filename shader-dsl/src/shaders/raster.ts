@@ -16,7 +16,7 @@
 // raster always writes (0,0) since a basemap tile carries no feature id.
 
 import {
-  entryFn, module, constRef, callFn, transformMat4, arrayLit,
+  fn, module, constRef, callFn, transformMat4, arrayLit,
   f32, u32, toF32, vec2, vec3, vec4, vec2u, mix, atan, exp, smoothstep, textureSample,
   f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   If, condExpr, Discard,
@@ -70,7 +70,7 @@ const texSampler = resource('tex_sampler', samplerT, { group: 0, binding: 2 })
 
 // GRID_N = 8 (an 8×8 subdivided grid, 6 verts/cell = 384; the draw count lives
 // in the renderer). Inlined where used.
-const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 'vertex_index' }], VsOut.type, (p, _b) => {
+const vs = fn('vs_tile', { vid: builtin('vertex_index', u32T) }, VsOut.type, (p, _b) => {
   const cell = p.vid.div(u32(6))
   const tri = p.vid.mod(u32(6))
   const cx = cell.mod(u32(8))
@@ -139,11 +139,11 @@ const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 've
     vis: f32(1),
     view_w: clip.w,
   })
-})
+}, { stage: 'vertex' })
 
 const buildFs = (pickEnabled: boolean) => {
   const RasterFragmentOutput = rasterFragmentOutput(pickEnabled)
-  return entryFn('fs_tile', 'fragment', [{ name: 'input', type: VsOut.type }], RasterFragmentOutput.type, (p, _b) => {
+  return fn('fs_tile', { input: VsOut.type }, RasterFragmentOutput.type, (p, _b) => {
     const pin = VsOut.of(p.input)
     If(pin.vis.lt(0), () => { Discard() })
     const c = textureSample(tex.node, texSampler.node, pin.uv)
@@ -163,7 +163,7 @@ const buildFs = (pickEnabled: boolean) => {
       ...(pickEnabled ? { pick: vec2u(u32(0), u32(0)) } : {}),
       depth: compute_log_frag_depth(pin.view_w, U.field.proj_params.w),
     })
-  })
+  }, { stage: 'fragment' })
 }
 
 export const buildRasterModule = (pickEnabled: boolean): ModuleDecl => module({

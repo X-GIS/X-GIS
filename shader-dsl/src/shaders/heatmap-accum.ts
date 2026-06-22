@@ -27,7 +27,7 @@
 // density is the heatmap signal.
 
 import {
-  entryFn, module, transformMat4, arrayLit,
+  fn, module, transformMat4, arrayLit,
   f32, u32, toU32, vec2, vec3, vec4, exp, max,
   Let, condExpr,
   f32T, u32T, vec2fT, vec4fT, mat4x4fT,
@@ -64,11 +64,11 @@ const featData = featDataB.node
 // can reuse the same ECEF / Mercator DSFUN expansion.
 const STRIDE = u32(24)
 
-const vs = entryFn('vs_heatmap', 'vertex', [
-  { name: 'center', type: vec2fT, location: 0 },
-  { name: 'quad_id', type: u32T, location: 1 },
-  { name: 'feat_id', type: f32T, location: 2 },
-], HeatOut.type, (p, _b) => {
+const vs = fn('vs_heatmap', {
+  center: location(0, vec2fT),
+  quad_id: location(1, u32T),
+  feat_id: location(2, f32T),
+}, HeatOut.type, (p, _b) => {
   const offsets = arrayLit(vec2fT,
     vec2(f32(-1), f32(-1)),
     vec2(f32(1), f32(-1)),
@@ -130,7 +130,7 @@ const vs = entryFn('vs_heatmap', 'vertex', [
   const quadClip = Let('quad_clip', centerClip.add(vec4(offsetNdc.mul(centerClip.w), f32(0), f32(0))))
 
   return HeatOut.construct({ position: quadClip, uv: offXY, weight })
-})
+}, { stage: 'vertex' })
 
 // Fragment: radial Gaussian falloff × weight → R channel. The accum pipeline
 // uses additive blend so the writes sum across overlapping splats.
@@ -139,7 +139,7 @@ const vs = entryFn('vs_heatmap', 'vertex', [
 // contribution = weight · (exp(GAUSS_COEF · d²) − ZERO) over the unit disc
 // d=|uv|, with GAUSS_COEF = −1.5 and ZERO = exp(GAUSS_COEF) so the edge of
 // the disc contributes ~0 (continuous falloff to the quad boundary).
-const fs = entryFn('fs_heatmap', 'fragment', [{ name: 'in', type: HeatOut.type }], vec4fT, (p, _b) => {
+const fs = fn('fs_heatmap', { in: HeatOut.type }, vec4fT, (p, _b) => {
   const pin = HeatOut.of(p.in)
   const uv = pin.uv
   const d2 = uv.x.mul(uv.x).add(uv.y.mul(uv.y))
@@ -148,7 +148,7 @@ const fs = entryFn('fs_heatmap', 'fragment', [{ name: 'in', type: HeatOut.type }
   const density = gauss.mul(pin.weight)
   // R16Float target — only .r carries density; gba unused.
   return vec4(density, f32(0), f32(0), f32(1))
-}, '@location(0)')
+}, { stage: 'fragment', retAttr: '@location(0)' })
 
 // A build-fn (not a top-level const) so the injection-deferred getGpuProjectionFuncs() is
 // gathered at emit time, post-configureProjections().

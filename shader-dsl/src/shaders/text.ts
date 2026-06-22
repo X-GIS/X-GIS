@@ -18,7 +18,7 @@
 // at 0, fill_color at 16 (vec4 alignment pads the 8 B gap after viewport).
 
 import {
-  entryFn, vec4, f32, max, smoothstep, textureSample, select,
+  fn, vec4, f32, max, smoothstep, textureSample, select,
   module, f32T, vec2fT, vec4fT, texture2dfT, samplerT,
   type ModuleDecl,
 } from '../core/ir'
@@ -41,10 +41,10 @@ const VsOut = ioStruct('VsOut', {
 const atlasTex = resource('atlas_tex', texture2dfT, { group: 0, binding: 1 })
 const atlasSmp = resource('atlas_smp', samplerT, { group: 0, binding: 2 })
 
-const vs = entryFn('vs', 'vertex', [
-  { name: 'pos_px', type: vec2fT, location: 0 },
-  { name: 'uv', type: vec2fT, location: 1 },
-], VsOut.type, (p, _b) => {
+const vs = fn('vs', {
+  pos_px: location(0, vec2fT),
+  uv: location(1, vec2fT),
+}, VsOut.type, (p, _b) => {
   const vp = U.field.viewport
   const ndc_x = p.pos_px.x.div(vp.x).mul(2).sub(1)
   const ndc_y = f32(1).sub(p.pos_px.y.div(vp.y).mul(2))
@@ -52,9 +52,9 @@ const vs = entryFn('vs', 'vertex', [
     clip_pos: vec4(ndc_x, ndc_y, f32(0), f32(1)),
     uv: p.uv,
   })
-})
+}, { stage: 'vertex' })
 
-const fs = entryFn('fs', 'fragment', [{ name: 'in', type: VsOut.type }], vec4fT, (p, _b) => {
+const fs = fn('fs', { in: VsOut.type }, vec4fT, (p, _b) => {
   const sdf = textureSample(atlasTex.node, atlasSmp.node, VsOut.of(p.in).uv).r
   const fill = U.field.fill_color
   const halo = U.field.halo_color
@@ -72,7 +72,7 @@ const fs = entryFn('fs', 'fragment', [{ name: 'in', type: VsOut.type }], vec4fT,
   const withHalo = vec4(fill.rgb.mul(fillW).add(halo.rgb.mul(haloW)), fillW.add(haloW))
   // single-exit: no halo (halo_width<=0) → fill only; else halo behind fill.
   return select(U.field.halo_width.le(0), fillOnly, withHalo)
-}, '@location(0)')
+}, { stage: 'fragment', retAttr: '@location(0)' })
 
 export const TEXT_MODULE: ModuleDecl = module({
   structs: [U.struct, VsOut.decl],

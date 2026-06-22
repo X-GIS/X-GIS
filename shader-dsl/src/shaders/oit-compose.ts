@@ -14,7 +14,7 @@
 // Non-polygon-variant — independent emit; no ShaderVariant fields touched.
 
 import {
-  entryFn, module,
+  fn, module,
   f32, u32, i32, vec2, vec4, toF32, toI32,
   textureLoad, textureDimensions, vec2i,
   u32T, vec2fT, vec4fT,
@@ -37,9 +37,9 @@ const VsOut = ioStruct('VsOut', {
 // outside the viewport). Avoids the off-by-vertex bug of the bit-
 // packed 6-vertex quad pattern.
 
-const vsFull = entryFn(
-  'vs_full', 'vertex',
-  [{ name: 'idx', type: u32T, builtin: 'vertex_index' }],
+const vsFull = fn(
+  'vs_full',
+  { idx: builtin('vertex_index', u32T) },
   VsOut.type,
   (p) => {
     const pos = vec2(f32(-1), f32(-1))
@@ -55,6 +55,7 @@ const vsFull = entryFn(
       ),
     })
   },
+  { stage: 'vertex' },
 )
 
 // Build fs_compose with the sample-count loop trip-count baked in as
@@ -62,9 +63,9 @@ const vsFull = entryFn(
 // directly — no module-level const needed.
 
 const buildFsCompose = (sampleCount: number, accumTex: Node, revealageTex: Node) => {
-  return entryFn(
-    'fs_compose', 'fragment',
-    [{ name: 'in', type: VsOut.type }],
+  return fn(
+    'fs_compose',
+    { in: VsOut.type },
     vec4fT,
     (p) => {
       // textureDimensions returns vec2<u32>; toF32 each component for the
@@ -88,7 +89,7 @@ const buildFsCompose = (sampleCount: number, accumTex: Node, revealageTex: Node)
       const alpha = f32(1).sub(revealage)
       Return(vec4(avg, alpha))
     },
-    '@location(0)',
+    { stage: 'fragment', retAttr: '@location(0)' },
   )
 }
 

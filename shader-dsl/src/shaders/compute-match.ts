@@ -11,12 +11,12 @@
 // it when compute-gen re-targets onto this builder (one parser, no drift).
 
 import {
-  computeFn, module, vec4, f32, pack4x8unorm,
-  f32T, u32T, vec4fT, vec4uT,
+  fn, module, vec4, f32, pack4x8unorm,
+  f32T, u32T, vec4fT, vec4uT, voidT, vec3uT,
   type ModuleDecl,
   If, Var, Return, assign,
 } from '../core/ir'
-import { storageBuffer, resource } from '../core/sot'
+import { storageBuffer, resource, builtin } from '../core/sot'
 
 export interface MatchArm { pattern: string; colorHex: string }
 export interface MatchKernelSpec {
@@ -64,7 +64,7 @@ export function matchComputeKernel(spec: MatchKernelSpec): ModuleDecl {
   const outColor = outColorB.node
   const uCount = uCountB.node
 
-  const entry = computeFn('eval_match', COMPUTE_WORKGROUP_SIZE, 'gid', (gid) => {
+  const entry = fn('eval_match', { gid: builtin('global_invocation_id', vec3uT) }, voidT, ({ gid }, _b) => {
     const fid = gid.x
     If(fid.ge(uCount.x), () => { Return() })
     const v = featData.at(fid, f32T)
@@ -82,7 +82,7 @@ export function matchComputeKernel(spec: MatchKernelSpec): ModuleDecl {
     chain.else(() => { assign(color, colorVec(spec.defaultColorHex)) })
 
     assign(outColor.at(fid, u32T), pack4x8unorm(color))
-  })
+  }, { stage: 'compute', workgroupSize: COMPUTE_WORKGROUP_SIZE })
 
   return module({
     bindings: [

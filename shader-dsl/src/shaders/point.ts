@@ -18,7 +18,7 @@
 // hand shader exactly).
 
 import {
-  entryFn, fn, module, transformMat4, arrayLit,
+  fn, module, transformMat4, arrayLit,
   f32, u32, i32, toF32, toU32, vec2, vec3, vec4, mix, exp, clamp,
   length, dot, min, max, smoothstep, fwidth, select,
   f32T, u32T, i32T, vec2fT, vec4fT, mat4x4fT,
@@ -216,11 +216,11 @@ const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (pp) =
 
 // ── Entry points ──
 
-const vs = entryFn('vs_point', 'vertex', [
-  { name: 'center', type: vec2fT, location: 0 },
-  { name: 'quad_id', type: u32T, location: 1 },
-  { name: 'feat_id', type: f32T, location: 2 },
-], PointOut.type, (p) => {
+const vs = fn('vs_point', {
+  center: location(0, vec2fT),
+  quad_id: location(1, u32T),
+  feat_id: location(2, f32T),
+}, PointOut.type, (p) => {
   const offsets = arrayLit(vec2fT,
     vec2(f32(-1), f32(-1)),
     vec2(f32(1), f32(-1)),
@@ -387,9 +387,9 @@ const vs = entryFn('vs_point', 'vertex', [
   assign(o.cos_c, pointCosC(absLon, absLat))
   assign(o.rim_a, pointRimAlpha(absLon, absLat))
   return out
-})
+}, { stage: 'vertex' })
 
-const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: PointOut.type }], PointFragmentOutput.type, (p) => {
+const fs = fn('fs_point', { in: PointOut.type }, PointFragmentOutput.type, (p) => {
   const pin = PointOut.of(p.in)
   // Backface cull for globe projections — cos_c is +1 for flat projections.
   If(pin.cos_c.lt(0), () => { Discard() })
@@ -463,7 +463,7 @@ const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: PointOut.type }]
     color,
     depth: compute_log_frag_depth(pin.view_w, U.field.viewport.w),
   })
-})
+}, { stage: 'fragment' })
 
 // A build-fn (not a top-level const) so the injection-deferred getGpuProjectionFuncs() is
 // gathered at emit time, post-configureProjections() — same reason buildLineModule is a fn.

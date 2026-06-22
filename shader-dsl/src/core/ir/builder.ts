@@ -4,12 +4,19 @@
 // let/var/assign/if/for/switch/ret/…), the IfChain helper, and the fn /
 // computeFn / entryFn / module assemblers. Imports types + nodes + node.
 
-import { type ShaderType, type KeyOf, type ScalarKey, vec3uT, voidT } from './types'
-import type { Stmt, Expr, BinOp, FuncDecl, ModuleDecl, EntryParam } from './nodes'
+import { type ShaderType, type KeyOf, type ScalarKey } from './types'
+import type { Stmt, Expr, BinOp, FuncDecl, ModuleDecl } from './nodes'
 import { Node, type ArithArg, type NodeLike, lift, f32, i32, u32, callFn } from './node'
 
 export type ParamSpec = Record<string, ShaderType>
-type ParamNodes<P extends ParamSpec> = { [K in keyof P]: Node<KeyOf<P[K]>> }
+/** An entry-point param carrying a stage attribute — `builtin('vertex_index', u32T)` /
+ *  `location(0, vec4fT)` (the SAME FieldSpec the ioStruct fields use). A plain ShaderType value is
+ *  an ordinary param. Lets one `fn()` author both helpers and `@vertex`/`@fragment`/`@compute`
+ *  entries from a single param record. */
+type ParamAttr = { readonly type: ShaderType; readonly attr: string }
+export type FnParamSpec = Record<string, ShaderType | ParamAttr>
+type ParamTypeOf<E> = E extends ParamAttr ? E['type'] : E extends ShaderType ? E : never
+type ParamNodes<P extends FnParamSpec> = { [K in keyof P]: Node<KeyOf<ParamTypeOf<P[K]>>> }
 
 export class Builder {
   readonly stmts: Stmt[] = []
@@ -177,10 +184,10 @@ function subBody(parent: Builder, fn: (b: Builder) => Node | void): Stmt[] {
  *     autocompletes the params (positional args can't be typed: an object spec is not an
  *     ordered tuple in TS). The args are mapped to positional order at the call.
  *   - positional `foo(a, b)` — loose (NodeLike), the legacy form; still supported. */
-export type FnHandle<P extends ParamSpec, R extends ShaderType> =
+export type FnHandle<P extends FnParamSpec, R extends ShaderType> =
   FuncDecl
   & {
-    (args: { readonly [K in keyof P]: Node<KeyOf<P[K]>> }): Node<KeyOf<R>>
+    (args: { readonly [K in keyof P]: Node<KeyOf<ParamTypeOf<P[K]>>> }): Node<KeyOf<R>>
     (...args: NodeLike[]): Node<KeyOf<R>>
   }
   & { readonly decl: FuncDecl }
@@ -207,8 +214,18 @@ function makeCallFactory<R extends ShaderType>(
   }
 }
 
-type FnOpts = { allowEarlyReturn?: boolean; lintDisable?: readonly string[] }
-type FnBody<P extends ParamSpec, R extends ShaderType> = (p: ParamNodes<P>, b: Builder) => Node<KeyOf<R>> | void
+type FnOpts = {
+  allowEarlyReturn?: boolean
+  lintDisable?: readonly string[]
+  /** Stage — turns this into a pipeline entry point (`@vertex` / `@fragment` /
+   *  `@compute @workgroup_size(...)`). Omit for an ordinary helper fn. */
+  stage?: 'vertex' | 'fragment' | 'compute'
+  /** Workgroup size for a `stage: 'compute'` entry (defaults to 64). */
+  workgroupSize?: number
+  /** Return-value attribute for a bare (non-struct) stage output — `-> @location(0) vec4<f32>`. */
+  retAttr?: string
+}
+type FnBody<P extends FnParamSpec, R extends ShaderType> = (p: ParamNodes<P>, b: Builder) => Node<KeyOf<R>> | void
 
 // Auto-name counter for fn() calls that omit the name. Advanced ONLY on omission (explicit
 // names never consume it). It is process-global + advanced in fn()-call order — deterministic
@@ -229,9 +246,9 @@ let fnAutoId = 0
  *  (see fnAutoId caveat; keep it for string-referenced / snapshot-tested / re-authored fns).
  *  Returns an FnHandle — call it directly (`foo(a, b)`), list it in a module (`funcs: [foo]`),
  *  or take `foo.decl`. */
-export function fn<P extends ParamSpec, R extends ShaderType>(params: P, ret: R, body: FnBody<P, R>, opts?: FnOpts): FnHandle<P, R>
-export function fn<P extends ParamSpec, R extends ShaderType>(name: string, params: P, ret: R, body: FnBody<P, R>, opts?: FnOpts): FnHandle<P, R>
-export function fn<P extends ParamSpec, R extends ShaderType>(
+export function fn<P extends FnParamSpec, R extends ShaderType>(params: P, ret: R, body: FnBody<P, R>, opts?: FnOpts): FnHandle<P, R>
+export function fn<P extends FnParamSpec, R extends ShaderType>(name: string, params: P, ret: R, body: FnBody<P, R>, opts?: FnOpts): FnHandle<P, R>
+export function fn<P extends FnParamSpec, R extends ShaderType>(
   a: string | P,
   b: P | R,
   c: R | FnBody<P, R>,
@@ -244,7 +261,13 @@ export function fn<P extends ParamSpec, R extends ShaderType>(
   const ret = (named ? c : b) as R
   const body = (named ? d : c) as FnBody<P, R>
   const opts = (named ? e : d) as FnOpts | undefined
-  const paramList = Object.entries(params).map(([n, type]) => ({ name: n, type }))
+  // A param value is either a plain ShaderType or a FieldSpec `{ type, attr }` (builtin/location)
+  // for an entry-point param — the `attr` flows straight to the emitted `@builtin(…)`/`@location(…)`.
+  const paramList = Object.entries(params).map(([n, spec]) =>
+    'attr' in spec
+      ? { name: n, type: spec.type, attr: spec.attr }
+      : { name: n, type: spec as ShaderType },
+  )
   const paramNodes = Object.fromEntries(
     paramList.map((p) => [p.name, new Node({ op: 'param', type: p.type, name: p.name })]),
   ) as ParamNodes<P>
@@ -254,7 +277,13 @@ export function fn<P extends ParamSpec, R extends ShaderType>(
   // control flow still use Return() (a native return there only exits the closure).
   const result = withScope(bld, () => body(paramNodes, bld))
   if (result !== undefined) bld.ret(result)
-  const decl: FuncDecl = { name, params: paramList, ret, body: bld.stmts, allowEarlyReturn: opts?.allowEarlyReturn, lintDisable: opts?.lintDisable }
+  // stage → pipeline attrs (@vertex / @fragment / @compute @workgroup_size(N)).
+  const attrs = opts?.stage === 'compute'
+    ? ['@compute', `@workgroup_size(${opts.workgroupSize ?? 64})`]
+    : opts?.stage
+      ? [`@${opts.stage}`]
+      : undefined
+  const decl: FuncDecl = { name, params: paramList, ret, body: bld.stmts, attrs, retAttr: opts?.retAttr, allowEarlyReturn: opts?.allowEarlyReturn, lintDisable: opts?.lintDisable }
   // The handle IS the call node factory (shared with externFn); the FuncDecl fields are mixed
   // onto it so it still duck-types as a FuncDecl in a module's funcs[]. `name` is a non-writable
   // function prop, so it is set via defineProperty (Object.assign would throw on it under strict).
@@ -262,7 +291,7 @@ export function fn<P extends ParamSpec, R extends ShaderType>(
   // enumerable so `{ ...handle }` (e.g. the projection-fn spread) carries the name; a
   // function's own `name` is non-enumerable by default, which would drop it from a spread.
   Object.defineProperty(handle, 'name', { value: name, configurable: true, enumerable: true })
-  Object.assign(handle, { params: paramList, ret, body: decl.body, allowEarlyReturn: decl.allowEarlyReturn, lintDisable: decl.lintDisable, decl })
+  Object.assign(handle, { params: paramList, ret, body: decl.body, attrs: decl.attrs, retAttr: decl.retAttr, allowEarlyReturn: decl.allowEarlyReturn, lintDisable: decl.lintDisable, decl })
   return handle
 }
 
@@ -287,59 +316,6 @@ export function externFn<P extends ParamSpec, R extends ShaderType>(name: string
 /** @deprecated fn() now returns a callable FnHandle directly — use fn(). Kept as an alias. */
 export const defineFn = fn
 
-/** Author a `@compute @workgroup_size(N)` entry point. The body callback
- *  receives the builder + the `@builtin(global_invocation_id)` Node (vec3<u32>).
- *  Compute entries return void; output is via storage bindings. */
-export function computeFn(
-  name: string,
-  workgroupSize: number,
-  gidName: string,
-  body: (gid: Node<'vec3<u32>'>, b: Builder) => void,
-): FuncDecl {
-  const gid = new Node<'vec3<u32>'>({ op: 'param', type: vec3uT, name: gidName })
-  const b = new Builder()
-  withScope(b, () => body(gid, b))
-  return {
-    name,
-    params: [{ name: gidName, type: vec3uT, builtin: 'global_invocation_id' }],
-    ret: voidT,
-    body: b.stmts,
-    attrs: ['@compute', `@workgroup_size(${workgroupSize})`],
-  }
-}
-
-/** Maps an entry's param tuple to a name→keyed-Node record, so a `@builtin`
- *  scalar param (e.g. vertex_index: u32) is `Node<'u32'>`, usable as an index. */
-type EntryParamNodes<P extends readonly EntryParam[]> = {
-  [K in P[number]['name']]: Node<KeyOf<Extract<P[number], { name: K }>['type']>>
-}
-
-/** Author a `@vertex` / `@fragment` entry point. Params may carry a `@builtin`
- *  (vertex_index, etc.) or be an I/O struct (the interpolated vertex output);
- *  the body returns the stage's output struct. */
-export function entryFn<const P extends readonly EntryParam[]>(
-  name: string,
-  stage: 'vertex' | 'fragment',
-  params: P,
-  ret: ShaderType,
-  body: (p: EntryParamNodes<P>, b: Builder) => Node | void,
-  retAttr?: string,
-): FuncDecl {
-  const paramNodes: Record<string, Node> = {}
-  for (const p of params) paramNodes[p.name] = new Node({ op: 'param', type: p.type, name: p.name })
-  const b = new Builder()
-  // Native `return value` for the final return (see fn).
-  const result = withScope(b, () => body(paramNodes as EntryParamNodes<P>, b))
-  if (result !== undefined) b.ret(result)
-  return {
-    name,
-    params: params.map((p) => ({ name: p.name, type: p.type, builtin: p.builtin, location: p.location })),
-    ret,
-    body: b.stmts,
-    attrs: [`@${stage}`],
-    retAttr,
-  }
-}
 
 /** Assemble a module from its declarations. */
 export function module(parts: Partial<ModuleDecl>): ModuleDecl {

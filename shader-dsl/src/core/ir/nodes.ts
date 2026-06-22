@@ -103,7 +103,7 @@ export interface BindingDecl {
 
 export interface FuncDecl {
   readonly name: string
-  readonly params: readonly { name: string; type: ShaderType; builtin?: string; location?: number }[]
+  readonly params: readonly { name: string; type: ShaderType; builtin?: string; location?: number; attr?: string }[]
   readonly ret: ShaderType
   readonly body: readonly Stmt[]
   /** Stage / pipeline attributes emitted before `fn` (e.g. `@compute`,

@@ -22,7 +22,7 @@
 // old __PICK_FIELD__ / __PICK_WRITE__ regex markers in POLYGON_SHADER_SOURCE).
 
 import {
-  entryFn, fn, module, constRef, callFn,
+  fn, module, constRef, callFn,
   Let, Var, If, Return, assign, Discard,
   f32, u32, vec2, vec2u, vec3, vec4, toF32, toU32, transformMat4, clamp, select,
   abs, fract, max, min, mix, pow, sqrt, dot, log, tan, floor, textureSample, unpack4x8unorm,
@@ -328,15 +328,15 @@ const emitPolygonProjectionLadder = (
   })
 }
 
-const vsMain = entryFn(
-  'vs_main', 'vertex',
-  [
-    { name: 'pos_h', type: vec3fT, location: 0 },
-    { name: 'pos_l', type: vec3fT, location: 1 },
-    { name: 'feature_id', type: f32T, location: 2 },
-    { name: 'abs_lon', type: f32T, location: 3 },
-    { name: 'abs_lat', type: f32T, location: 4 },
-  ],
+const vsMain = fn(
+  'vs_main',
+  {
+    pos_h: location(0, vec3fT),
+    pos_l: location(1, vec3fT),
+    feature_id: location(2, f32T),
+    abs_lon: location(3, f32T),
+    abs_lat: location(4, f32T),
+  },
   VertexOutputIO.type,
   (p) => {
     const mvp = U.field.mvp
@@ -392,6 +392,7 @@ const vsMain = entryFn(
       v_color: vec4(f32(0), f32(0), f32(0), f32(0)), // only the extrude path emits non-zero
     })
   },
+  { stage: 'vertex' },
 )
 
 // vs_main_ecef — Phase 2 PR 2c.2 polygon flat-fill ECEF vertex entry.
@@ -435,19 +436,19 @@ const dequantEcefFn = fn(
 // and its f32 output is checked against the CPU fround mirror (dequantVertexF32).
 export const DEQUANT_ECEF_WGSL = emitFunc(dequantEcefFn)
 
-const vsMainEcef = entryFn(
-  'vs_main_ecef', 'vertex',
-  [
+const vsMainEcef = fn(
+  'vs_main_ecef',
+  {
     // PR 2f quantized position: uint16x4 (qx_hi,qx_lo,qy_hi,qy_lo) at loc 0,
     // uint16x2 (qz_hi,qz_lo) at loc 1. WebGPU widens uint16 → u32 lanes.
-    { name: 'q_xy', type: vec4uT, location: 0 },
-    { name: 'q_z', type: vec2uT, location: 1 },
-    { name: 'feature_id', type: f32T, location: 2 },
-    { name: 'abs_lon', type: f32T, location: 3 },
-    { name: 'abs_lat', type: f32T, location: 4 },
+    q_xy: location(0, vec4uT),
+    q_z: location(1, vec2uT),
+    feature_id: location(2, f32T),
+    abs_lon: location(3, f32T),
+    abs_lat: location(4, f32T),
     // #398: TRUE unclamped lat (deg) — disc arm projects the ±90 caps from this.
-    { name: 'true_lat', type: f32T, location: 5 },
-  ],
+    true_lat: location(5, f32T),
+  },
   VertexOutputIO.type,
   (p) => {
     const mvp = U.field.mvp
@@ -515,6 +516,7 @@ const vsMainEcef = entryFn(
       v_color: vec4(f32(0), f32(0), f32(0), f32(0)), // per-feature variants override via composer
     })
   },
+  { stage: 'vertex' },
 )
 
 // vs_main_ecef_extruded — Phase 2 PR 2c.2 polygon extruded ECEF vertex.
@@ -529,21 +531,21 @@ const vsMainEcef = entryFn(
 // vertical gradient) is preserved verbatim from vs_main_quantized_extruded;
 // only the position math changes.
 
-const vsMainEcefExtruded = entryFn(
-  'vs_main_ecef_extruded', 'vertex',
-  [
+const vsMainEcefExtruded = fn(
+  'vs_main_ecef_extruded',
+  {
     // PR 2f quantized position (same split as vs_main_ecef): uint16x4 +
     // uint16x2. The f32 tail (fid/abs_lon/abs_lat/face_normal/wall_height/
     // is_top) shifts down accordingly in @location.
-    { name: 'q_xy', type: vec4uT, location: 0 },
-    { name: 'q_z', type: vec2uT, location: 1 },
-    { name: 'feature_id', type: f32T, location: 2 },
-    { name: 'abs_lon', type: f32T, location: 3 },
-    { name: 'abs_lat', type: f32T, location: 4 },
-    { name: 'face_normal', type: vec3fT, location: 5 },
-    { name: 'wall_height', type: f32T, location: 6 },
-    { name: 'is_top', type: f32T, location: 7 },
-  ],
+    q_xy: location(0, vec4uT),
+    q_z: location(1, vec2uT),
+    feature_id: location(2, f32T),
+    abs_lon: location(3, f32T),
+    abs_lat: location(4, f32T),
+    face_normal: location(5, vec3fT),
+    wall_height: location(6, f32T),
+    is_top: location(7, f32T),
+  },
   VertexOutputIO.type,
   (p) => {
     const mvp = U.field.mvp
@@ -659,6 +661,7 @@ const vsMainEcefExtruded = entryFn(
       v_color: vec4(shadedRgb, opacity),
     })
   },
+  { stage: 'vertex' },
 )
 
 // ── Fragment-entry shared sub-builders ──
@@ -735,9 +738,9 @@ const emitPickWrite = (input: Node, out: Node, pickEnabled: boolean): void => {
 // is the seam US-007's emitPolygonWgsl composer rewrites.
 
 const buildFsFill = (pickEnabled: boolean) =>
-  entryFn(
-    'fs_fill', 'fragment',
-    [{ name: 'input', type: VertexOutputIO.type }],
+  fn(
+    'fs_fill',
+    { input: VertexOutputIO.type },
     polygonFragmentOutput(pickEnabled).type,
     (p, b) => {
       const input = p.input
@@ -779,6 +782,7 @@ const buildFsFill = (pickEnabled: boolean) =>
       emitLogDepthJitter(input, out)
       Return(out)
     },
+    { stage: 'fragment' },
   )
 
 // fs_fill_pattern — iter-181/182 fill-pattern Stage 2 fragment. World-anchored
@@ -788,9 +792,9 @@ const buildFsFill = (pickEnabled: boolean) =>
 // pattern-fill layers can't also use a solid colour or a translate offset).
 
 const buildFsFillPattern = (pickEnabled: boolean) =>
-  entryFn(
-    'fs_fill_pattern', 'fragment',
-    [{ name: 'input', type: VertexOutputIO.type }],
+  fn(
+    'fs_fill_pattern',
+    { input: VertexOutputIO.type },
     polygonFragmentOutput(pickEnabled).type,
     (p) => {
       const input = p.input
@@ -822,6 +826,7 @@ const buildFsFillPattern = (pickEnabled: boolean) =>
       emitLogDepthJitter(input, out)
       Return(out)
     },
+    { stage: 'fragment' },
   )
 
 // fs_oit_translucent — Weighted Blended OIT (McGuire-Bavoil 2013) output.
@@ -833,9 +838,9 @@ const buildFsFillPattern = (pickEnabled: boolean) =>
 // dominate (matching painter's order for clear front-most geometry);
 // clamps prevent fp16 running-sum overflow.
 
-const fsOitTranslucent = entryFn(
-  'fs_oit_translucent', 'fragment',
-  [{ name: 'input', type: VertexOutputIO.type }],
+const fsOitTranslucent = fn(
+  'fs_oit_translucent',
+  { input: VertexOutputIO.type },
   OitFragmentOutput.type,
   (p) => {
     const input = p.input
@@ -866,6 +871,7 @@ const fsOitTranslucent = entryFn(
       revealage: a,
     })
   },
+  { stage: 'fragment' },
 )
 
 // fs_fill_extrude — iter-194 MapLibre-equivalent fill-extrusion fragment.
@@ -878,9 +884,9 @@ const fsOitTranslucent = entryFn(
 // path does.
 
 const buildFsFillExtrude = (pickEnabled: boolean) =>
-  entryFn(
-    'fs_fill_extrude', 'fragment',
-    [{ name: 'input', type: VertexOutputIO.type }],
+  fn(
+    'fs_fill_extrude',
+    { input: VertexOutputIO.type },
     polygonFragmentOutput(pickEnabled).type,
     (p) => {
       const input = p.input
@@ -896,6 +902,7 @@ const buildFsFillExtrude = (pickEnabled: boolean) =>
       emitLogDepthJitter(input, out)
       Return(out)
     },
+    { stage: 'fragment' },
   )
 
 // fs_stroke — main polygon stroke fragment. Same 3 discards as fs_fill,
@@ -907,9 +914,9 @@ const buildFsFillExtrude = (pickEnabled: boolean) =>
 // are thin enough that the coplanar fight class doesn't apply).
 
 const buildFsStroke = (pickEnabled: boolean) =>
-  entryFn(
-    'fs_stroke', 'fragment',
-    [{ name: 'input', type: VertexOutputIO.type }],
+  fn(
+    'fs_stroke',
+    { input: VertexOutputIO.type },
     polygonFragmentOutput(pickEnabled).type,
     (p, b) => {
       const input = p.input
@@ -934,6 +941,7 @@ const buildFsStroke = (pickEnabled: boolean) =>
       assign(o.depth, compute_log_frag_depth(i.view_w, U.field.log_depth_fc))
       Return(out)
     },
+    { stage: 'fragment' },
   )
 
 // fs_overdraw — debug=overdraw single constant-output entry shared by every
@@ -943,12 +951,12 @@ const buildFsStroke = (pickEnabled: boolean) =>
 // accumulator. NO @builtin(frag_depth) write — debug overdraw doesn't
 // participate in the variant marker substitution.
 
-const fsOverdraw = entryFn(
-  'fs_overdraw', 'fragment', [], vec4fT,
+const fsOverdraw = fn(
+  'fs_overdraw', {}, vec4fT,
   (_p) => {
     return vec4(f32(1), f32(0), f32(0), f32(0))
   },
-  '@location(0)',
+  { stage: 'fragment', retAttr: '@location(0)' },
 )
 
 // ── ShaderVariantInfo ──
