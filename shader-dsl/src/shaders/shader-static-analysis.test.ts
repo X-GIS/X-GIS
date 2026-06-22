@@ -1,0 +1,38 @@
+import { describe, it, expect } from 'vitest'
+import { lintModule } from '../core/passes/validate'
+import { getPROJECTION_MODULE } from './projections'
+import { ICON_MODULE } from './icon'
+import { TEXT_MODULE } from './text'
+import { SDF_MODULE } from './sdf'
+import { LOG_DEPTH_MODULE } from './log-depth'
+
+// The full lint ruleset run over every DSL module we can reach directly. The error
+// gate is what validate() already enforces at emit; this centralises it + surfaces the
+// warning inventory (style/perf findings) for the real shaders. (Modules built inline
+// inside emit*Wgsl — line/polygon/point/raster/… — are still gated by validate there.)
+const modules = (): Record<string, ReturnType<typeof getPROJECTION_MODULE>> => ({
+  projection: getPROJECTION_MODULE(),
+  icon: ICON_MODULE,
+  text: TEXT_MODULE,
+  sdf: SDF_MODULE,
+  'log-depth': LOG_DEPTH_MODULE,
+})
+
+describe('shader static analysis — full lint ruleset', () => {
+  it('no reachable module has an error-severity diagnostic', () => {
+    for (const [name, m] of Object.entries(modules())) {
+      const errors = lintModule(m).filter((d) => d.severity === 'error')
+      expect(errors, `${name}: ${errors.map((e) => `${e.ruleId} ${e.message}`).join(' | ')}`).toEqual([])
+    }
+  })
+
+  it('surfaces the warning inventory (informational, not asserted)', () => {
+    const warnings = Object.entries(modules()).flatMap(([name, m]) =>
+      lintModule(m)
+        .filter((d) => d.severity === 'warning')
+        .map((d) => `${name}/${d.fn ?? '-'}: ${d.ruleId} — ${d.message}`),
+    )
+    console.log(`[shader-lint] ${warnings.length} warning(s) across reachable modules:\n${warnings.join('\n')}`)
+    expect(Array.isArray(warnings)).toBe(true)
+  })
+})

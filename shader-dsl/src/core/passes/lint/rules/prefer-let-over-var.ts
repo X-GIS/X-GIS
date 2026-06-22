@@ -1,11 +1,26 @@
-import type { Stmt } from '../../../ir'
+import type { Stmt, Expr } from '../../../ir'
 import type { LintRule } from '../engine'
 
-/** Collect the names targeted by an 'assign'/'assignOp' whose target is a plain
- *  varref, recursing into nested blocks (if / for / switch). */
+/** Peel member/index access to the root varref name — so `out.pos = x` and `v[i] = x`
+ *  both count as mutating `out` / `v` (a struct/vector var with field mutation MUST
+ *  stay a var; it cannot be a let). Returns undefined if the target is not var-rooted. */
+function rootVarref(e: Expr): string | undefined {
+  let cur: Expr = e
+  for (;;) {
+    if (cur.op === 'varref') return cur.name
+    if (cur.op === 'member' || cur.op === 'index') { cur = cur.base; continue }
+    return undefined
+  }
+}
+
+/** Collect the names mutated by an 'assign'/'assignOp' — direct (`v = …`) or via a
+ *  member/index target (`v.x = …`) — recursing into nested blocks (if / for / switch). */
 function collectReassigned(body: readonly Stmt[], names: Set<string>): void {
   for (const s of body) {
-    if ((s.s === 'assign' || s.s === 'assignOp') && s.target.op === 'varref') names.add(s.target.name)
+    if (s.s === 'assign' || s.s === 'assignOp') {
+      const r = rootVarref(s.target)
+      if (r) names.add(r)
+    }
     if (s.s === 'if') {
       for (const arm of s.arms) collectReassigned(arm.body, names)
       if (s.elseBody) collectReassigned(s.elseBody, names)
