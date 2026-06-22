@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { lint, formatDiagnostics, type LintRule } from './engine'
+import { lint, formatDiagnostics, summarize, unusedDeviations, type LintRule } from './engine'
 import { RULES } from './rules'
 import { STRICT, LENIENT } from './presets'
-import { module, fn, f32T, f32 } from '../../ir'
+import { module, fn, callFn, f32T, f32 } from '../../ir'
 
 const wide7 = () => module({
   funcs: [fn('wide', { a: f32T, b: f32T, c: f32T, d: f32T, e: f32T, g: f32T, h: f32T }, f32T, (_b, { a }) => a)],
@@ -68,5 +68,22 @@ describe('lint engine — scalable rule framework', () => {
 
   it('LENIENT turns off style/perf rules', () => {
     expect(lint(wide7(), RULES, LENIENT).map((d) => d.ruleId)).not.toContain('param-count')
+  })
+
+  it('summarize counts by severity and by rule', () => {
+    const s = summarize([
+      { ruleId: 'a', severity: 'error', message: '' },
+      { ruleId: 'a', severity: 'warning', message: '' },
+      { ruleId: 'b', severity: 'warning', message: '' },
+    ])
+    expect(s).toMatchObject({ total: 3, errors: 1, warnings: 2, byRule: { a: 2, b: 1 } })
+  })
+
+  it('unusedDeviations flags a lintDisable that never fires (and not one that does)', () => {
+    const used = module({ funcs: [fn('rec', { x: f32T }, f32T, (_b, { x }) => callFn('rec', f32T, x), { lintDisable: ['no-recursion'] })] })
+    expect(unusedDeviations(used, RULES)).toEqual([]) // no-recursion DOES fire → deviation is used
+
+    const stale = module({ funcs: [fn('ok', { x: f32T }, f32T, (_b, { x }) => x.mul(2), { lintDisable: ['no-recursion'] })] })
+    expect(unusedDeviations(stale, RULES).map((d) => d.ruleId)).toEqual(['unused-lint-disable'])
   })
 })
