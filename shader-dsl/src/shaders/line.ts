@@ -372,8 +372,8 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
 
   const seg = b.let('seg', segments.at(p.input.field('seg_id', u32T), structT('LineSegment')))
   const segP = b.let('p', p.input.field('world_local', vec2fT))
-  const p0 = b.let('p0', callFn('line_endpoint', vec2fT, seg.field('p0_h', vec2fT), seg.field('p0_l', vec2fT)))
-  const p1 = b.let('p1', callFn('line_endpoint', vec2fT, seg.field('p1_h', vec2fT), seg.field('p1_l', vec2fT)))
+  const p0 = b.let('p0', lineEndpoint(seg.field('p0_h', vec2fT), seg.field('p0_l', vec2fT)))
+  const p1 = b.let('p1', lineEndpoint(seg.field('p1_h', vec2fT), seg.field('p1_l', vec2fT)))
 
   // Segment direction / normal in tile-local meters.
   const segVec = b.let('seg_vec', p1.sub(p0))
@@ -432,8 +432,8 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
       cb.if(patFs.field('id', u32T).eq(u32(0)), (d) => { d.continue() })
       const szUnit = cb.let('sz_unit_fs', patFs.field('flags', u32T).shr(u32(2)).bitAnd(u32(3)))
       const ofUnit = cb.let('off_unit_fs', patFs.field('flags', u32T).shr(u32(4)).bitAnd(u32(3)))
-      const sizeM = cb.let('size_m_fs', callFn('pattern_unit_to_m', f32T, patFs.field('size', f32T), szUnit, layerMpp))
-      const offM = cb.let('off_m_fs', abs(callFn('pattern_unit_to_m', f32T, patFs.field('offset', f32T), ofUnit, layerMpp)))
+      const sizeM = cb.let('size_m_fs', patternUnitToM(patFs.field('size', f32T), szUnit, layerMpp))
+      const offM = cb.let('off_m_fs', abs(patternUnitToM(patFs.field('offset', f32T), ofUnit, layerMpp)))
       cb.assign(patExtentFs, max(patExtentFs, sizeM.mul(0.5).add(offM)))
     })
   })
@@ -696,9 +696,9 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
       const szUnit = cb.let('sz_unit', patF.shr(u32(2)).bitAnd(u32(3)))
       const ofUnit = cb.let('of_unit', patF.shr(u32(4)).bitAnd(u32(3)))
       const anchor = cb.let('anchor', patF.shr(u32(6)).bitAnd(u32(3)))
-      const spacingM = cb.let('spacing_m', max(callFn('pattern_unit_to_m', f32T, pat.field('spacing', f32T), spUnit, layerMpp), f32(1e-3)))
-      const sizeM = cb.let('size_m', max(callFn('pattern_unit_to_m', f32T, pat.field('size', f32T), szUnit, layerMpp), f32(1e-3)))
-      const offM = cb.let('off_m', callFn('pattern_unit_to_m', f32T, pat.field('offset', f32T), ofUnit, layerMpp))
+      const spacingM = cb.let('spacing_m', max(patternUnitToM(pat.field('spacing', f32T), spUnit, layerMpp), f32(1e-3)))
+      const sizeM = cb.let('size_m', max(patternUnitToM(pat.field('size', f32T), szUnit, layerMpp), f32(1e-3)))
+      const offM = cb.let('off_m', patternUnitToM(pat.field('offset', f32T), ofUnit, layerMpp))
       const startM = cb.let('start_m', pat.field('start_offset', f32T))
       const halfS = cb.let('half_s', sizeM.mul(0.5))
 
@@ -719,7 +719,7 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
             dot(segP.sub(centerWorldK), nrmFs).sub(offM).div(halfS),
           ))
           If(abs(localK.x).gt(1.2).or(abs(localK.y).gt(1.2)), () => Continue())
-          const shapeVK = Let('shape_v_k', callFn('sdf_shape', f32T, localK, pat.field('id', u32T).sub(u32(1))))
+          const shapeVK = Let('shape_v_k', sdfShape(localK, pat.field('id', u32T).sub(u32(1))))
           const pdK = Let('pd_k', shapeVK.sub(1).mul(halfS))
           assign(patDm, min(patDm, pdK))
         })
@@ -746,7 +746,7 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
       ))
       If(abs(localUv.x).gt(1.2).or(abs(localUv.y).gt(1.2)), () => Continue())
 
-      const shapeV = Let('shape_v', callFn('sdf_shape', f32T, localUv, pat.field('id', u32T).sub(u32(1))))
+      const shapeV = Let('shape_v', sdfShape(localUv, pat.field('id', u32T).sub(u32(1))))
       const pd = Let('pd', shapeV.sub(1).mul(halfS))
       assign(patDm, min(patDm, pd))
     })
@@ -784,8 +784,8 @@ const vsLine = entryFn('vs_line', 'vertex', [
   { name: 'vi', type: u32T, builtin: 'vertex_index' },
 ], structT('LineOut'), (p, b) => {
   const seg = b.let('seg', segments.at(p.seg_id, structT('LineSegment')))
-  const p0 = b.let('p0', callFn('line_endpoint', vec2fT, seg.field('p0_h', vec2fT), seg.field('p0_l', vec2fT)))
-  const p1 = b.let('p1', callFn('line_endpoint', vec2fT, seg.field('p1_h', vec2fT), seg.field('p1_l', vec2fT)))
+  const p0 = b.let('p0', lineEndpoint(seg.field('p0_h', vec2fT), seg.field('p0_l', vec2fT)))
+  const p1 = b.let('p1', lineEndpoint(seg.field('p1_h', vec2fT), seg.field('p1_l', vec2fT)))
 
   const segVec = b.let('seg_vec', p1.sub(p0))
   const segLen = b.let('seg_len', length(segVec))
@@ -820,8 +820,8 @@ const vsLine = entryFn('vs_line', 'vertex', [
       cb.if(pat.field('id', u32T).eq(u32(0)), (d) => { d.continue() })
       const szUnit = cb.let('sz_unit', pat.field('flags', u32T).shr(u32(2)).bitAnd(u32(3)))
       const offUnit = cb.let('off_unit', pat.field('flags', u32T).shr(u32(4)).bitAnd(u32(3)))
-      const sizeM = cb.let('size_m', callFn('pattern_unit_to_m', f32T, pat.field('size', f32T), szUnit, layerMpp))
-      const offM = cb.let('off_m', abs(callFn('pattern_unit_to_m', f32T, pat.field('offset', f32T), offUnit, layerMpp)))
+      const sizeM = cb.let('size_m', patternUnitToM(pat.field('size', f32T), szUnit, layerMpp))
+      const offM = cb.let('off_m', abs(patternUnitToM(pat.field('offset', f32T), offUnit, layerMpp)))
       cb.assign(patExtentM, max(patExtentM, sizeM.mul(0.5).add(offM)))
     })
   })
@@ -970,8 +970,8 @@ const vsLine = entryFn('vs_line', 'vertex', [
       // camera-relative) and reprojects the other flat forms (project_geom −
       // projected camera centre). Same flat 2D-plane MVP for center +
       // candidate so the screen-space width estimate matches the final clip.
-      const baseFc = d.let('base_fc', callFn('finalize_corner', vec2fT, base))
-      const cornerFc = d.let('corner_fc', callFn('finalize_corner', vec2fT, cornerLocal))
+      const baseFc = d.let('base_fc', finalizeCorner(base))
+      const cornerFc = d.let('corner_fc', finalizeCorner(cornerLocal))
       d.assign(centerClip, transformMat4(mvp, vec4(baseFc.x, baseFc.y, zLift, f32(1))))
       d.assign(cornerClip, transformMat4(mvp, vec4(cornerFc.x, cornerFc.y, zLift, f32(1))))
     }).else((d) => {
@@ -1032,7 +1032,7 @@ const vsLine = entryFn('vs_line', 'vertex', [
   b.if(projParamsF.x.lt(6.5), (c) => {
     // FLAT (0-6): finalize_corner (Mercator pass-through + non-Mercator
     // project_geom reproject − projected camera centre) → flat 2D-plane MVP.
-    const cornerFc = c.let('corner_fc_final', callFn('finalize_corner', vec2fT, cornerLocal))
+    const cornerFc = c.let('corner_fc_final', finalizeCorner(cornerLocal))
     c.assign(clip, transformMat4(mvp, vec4(cornerFc.x, cornerFc.y, zLift, f32(1))))
   }).else((c) => {
     const tileAbsX = c.let('tile_abs_x_f', toF32(tileOrigin2.x))
@@ -1073,8 +1073,8 @@ const vsLine = entryFn('vs_line', 'vertex', [
   b.assign(out.field('view_w', f32T), clip.w)
   b.assign(out.field('world_local', vec2fT), cornerLocal)
   b.assign(out.field('seg_id', u32T), p.seg_id)
-  const cosCp0 = b.let('cos_c_p0', callFn('endpoint_cos_c', f32T, seg.field('p0_h', vec2fT), seg.field('p0_l', vec2fT)))
-  const cosCp1 = b.let('cos_c_p1', callFn('endpoint_cos_c', f32T, seg.field('p1_h', vec2fT), seg.field('p1_l', vec2fT)))
+  const cosCp0 = b.let('cos_c_p0', endpointCosC(seg.field('p0_h', vec2fT), seg.field('p0_l', vec2fT)))
+  const cosCp1 = b.let('cos_c_p1', endpointCosC(seg.field('p1_h', vec2fT), seg.field('p1_l', vec2fT)))
   b.assign(out.field('cos_c', f32T), select(isStart, cosCp0, cosCp1))
   b.ret(out)
 })
@@ -1084,8 +1084,8 @@ const vsLine = entryFn('vs_line', 'vertex', [
 const buildFsLine = (pickEnabled: boolean) =>
   entryFn('fs_line', 'fragment', [{ name: 'input', type: structT('LineOut') }], structT('LineFragmentOutput'), (p, _b) => {
     const out = Var('out', structT('LineFragmentOutput'))
-    const color = Let('color', callFn('compute_line_color', vec4fT, p.input))
-    const rim = Let('rim', callFn('line_rim_alpha', f32T, p.input))
+    const color = Let('color', computeLineColor(p.input))
+    const rim = Let('rim', lineRimAlpha(p.input))
     assign(out.field('color', vec4fT), vec4(color.rgb, color.a.mul(rim)))
     if (pickEnabled) assign(out.field('pick', vec2uT), vec2u(u32(0), u32(0)))
     assign(out.field('depth', f32T), callFn('compute_log_frag_depth', f32T, p.input.field('view_w', f32T), tile.field('log_depth_fc', f32T)))
@@ -1094,7 +1094,7 @@ const buildFsLine = (pickEnabled: boolean) =>
 
 const buildFsLinePattern = (pickEnabled: boolean) =>
   entryFn('fs_line_pattern', 'fragment', [{ name: 'input', type: structT('LineOut') }], structT('LineFragmentOutput'), (p, _b) => {
-    const base = Let('base', callFn('compute_line_color', vec4fT, p.input))
+    const base = Let('base', computeLineColor(p.input))
     const tileOrigin = tile.field('tile_origin_merc', vec2fT)
     const absMerc = Let('abs_merc', p.input.field('world_local', vec2fT).add(tileOrigin))
     const repeatX = Let('repeat_x', max(layer.field('color', vec4fT).r, f32(1)))
@@ -1113,7 +1113,7 @@ const buildFsLinePattern = (pickEnabled: boolean) =>
       v0.add(uvLocal.y.mul(v1.sub(v0))),
     ))
     const sampled = Let('sampled', textureSample(sprite_atlas, sprite_samp, atlasUv))
-    const rim = Let('rim', callFn('line_rim_alpha', f32T, p.input))
+    const rim = Let('rim', lineRimAlpha(p.input))
     const out = Var('out', structT('LineFragmentOutput'))
     assign(out.field('color', vec4fT), vec4(sampled.rgb, sampled.a.mul(base.a).mul(rim)))
     if (pickEnabled) assign(out.field('pick', vec2uT), vec2u(u32(0), u32(0)))
@@ -1128,8 +1128,8 @@ const fsLineMax = entryFn(
   [{ name: 'input', type: structT('LineOut') }],
   vec4fT,
   (p, _b) => {
-    const c = Var('c', vec4fT, callFn('compute_line_color', vec4fT, p.input))
-    const rim = Let('rim', callFn('line_rim_alpha', f32T, p.input))
+    const c = Var('c', vec4fT, computeLineColor(p.input))
+    const rim = Let('rim', lineRimAlpha(p.input))
     assign(c.field('a', f32T), c.field('a', f32T).mul(rim))
     return c
   },

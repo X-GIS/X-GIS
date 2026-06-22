@@ -11,7 +11,7 @@
 import {
   fn, module, f32, i32, u32, vec2,
   f32T, i32T, u32T, vec2fT, arrayT, bindingRef,
-  callFn, clamp, min, max, length, dot, mix, toF32, select,
+  clamp, min, max, length, dot, mix, toF32, select,
   Let, Var, Loop, assign,
   type FuncDecl, type ModuleDecl,
 } from '../core/ir'
@@ -105,16 +105,16 @@ const sdf_shape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, ({ uv
     const seg = loop.let('seg', segments.at(i, ShapeSegment.type))
     loop.switch(sg(seg, 'kind'), [
       [0, (c) => {
-        c.assign(min_dist, min(min_dist, callFn('dist_to_segment', f32T, uv, sg(seg, 'p0'), sg(seg, 'p1'))))
-        c.addAssign(winding, callFn('winding_line', i32T, uv, sg(seg, 'p0'), sg(seg, 'p1')))
+        c.assign(min_dist, min(min_dist, dist_to_segment(uv, sg(seg, 'p0'), sg(seg, 'p1'))))
+        c.addAssign(winding, winding_line(uv, sg(seg, 'p0'), sg(seg, 'p1')))
       }],
       [1, (c) => {
-        c.assign(min_dist, min(min_dist, callFn('dist_to_quadratic', f32T, uv, sg(seg, 'p0'), sg(seg, 'p1'), sg(seg, 'p2'))))
-        c.addAssign(winding, callFn('winding_line', i32T, uv, sg(seg, 'p0'), sg(seg, 'p2')))
+        c.assign(min_dist, min(min_dist, dist_to_quadratic(uv, sg(seg, 'p0'), sg(seg, 'p1'), sg(seg, 'p2'))))
+        c.addAssign(winding, winding_line(uv, sg(seg, 'p0'), sg(seg, 'p2')))
       }],
       [2, (c) => {
-        c.assign(min_dist, min(min_dist, callFn('dist_to_cubic', f32T, uv, sg(seg, 'p0'), sg(seg, 'p1'), sg(seg, 'p2'), sg(seg, 'p3'))))
-        c.addAssign(winding, callFn('winding_line', i32T, uv, sg(seg, 'p0'), sg(seg, 'p3')))
+        c.assign(min_dist, min(min_dist, dist_to_cubic(uv, sg(seg, 'p0'), sg(seg, 'p1'), sg(seg, 'p2'), sg(seg, 'p3'))))
+        c.addAssign(winding, winding_line(uv, sg(seg, 'p0'), sg(seg, 'p3')))
       }],
     ], () => { /* default: {} */ })
   }, u32(1))

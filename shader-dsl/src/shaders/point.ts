@@ -206,18 +206,18 @@ const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (pp, b
     const p3 = seg.field('p3', vec2fT)
     cb.switch(seg.field('kind', u32T), [
       [0, (d) => {
-        d.assign(minDist, min(minDist, callFn('dist_to_line', f32T, uv, p0, p1)))
-        d.assignOp(winding, '+', callFn('winding_line', i32T, uv, p0, p1))
+        d.assign(minDist, min(minDist, distToLine(uv, p0, p1)))
+        d.assignOp(winding, '+', windingLine(uv, p0, p1))
       }],
       [1, (d) => {
-        d.assign(minDist, min(minDist, callFn('dist_to_quadratic', f32T, uv, p0, p1, p2)))
+        d.assign(minDist, min(minDist, distToQuadratic(uv, p0, p1, p2)))
         // Approximate winding with chord.
-        d.assignOp(winding, '+', callFn('winding_line', i32T, uv, p0, p2))
+        d.assignOp(winding, '+', windingLine(uv, p0, p2))
       }],
       [2, (d) => {
-        d.assign(minDist, min(minDist, callFn('dist_to_cubic', f32T, uv, p0, p1, p2, p3)))
+        d.assign(minDist, min(minDist, distToCubic(uv, p0, p1, p2, p3)))
         // Approximate winding with chord.
-        d.assignOp(winding, '+', callFn('winding_line', i32T, uv, p0, p3))
+        d.assignOp(winding, '+', windingLine(uv, p0, p3))
       }],
     ], () => { /* default: empty */ })
   })
@@ -394,8 +394,8 @@ const vs = entryFn('vs_point', 'vertex', [
   })
   assign(o.feat_id, fid)
   assign(o.radius_px, radiusPx)
-  assign(o.cos_c, callFn('point_cos_c', f32T, absLon, absLat))
-  assign(o.rim_a, callFn('point_rim_alpha', f32T, absLon, absLat))
+  assign(o.cos_c, pointCosC(absLon, absLat))
+  assign(o.rim_a, pointRimAlpha(absLon, absLat))
   return out
 })
 
@@ -419,7 +419,7 @@ const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: PointOut.type }]
   If(shapeId.eq(u32(0)), () => {
     assign(dist, length(pin.uv))   // analytical circle (fast path)
   }).else(() => {
-    assign(dist, callFn('sdf_shape', f32T, pin.uv, shapeId.sub(u32(1))))
+    assign(dist, sdfShape(pin.uv, shapeId.sub(u32(1))))
   })
 
   // Per-feature style.
