@@ -14,17 +14,46 @@ type ParamNodes<P extends ParamSpec> = { [K in keyof P]: Node<KeyOf<P[K]>> }
 export class Builder {
   readonly stmts: Stmt[] = []
 
+  // The auto-name counter is SHARED across a function's nested sub-builders (see
+  // child()), so an omitted binding name gets a function-unique `_v{n}`. A per-block
+  // counter would restart at _v0 inside each If/Loop body, letting an inner _v0 shadow
+  // an outer one — and the outer binding's varref (captured at author time) would then
+  // mis-resolve to the inner shadow. Function-scoped uniqueness rules that out. The
+  // counter is per-function (reset on each root Builder), so the emit stays deterministic
+  // across rebuilds — required by the byte-identical WGSL snapshot gates.
+  constructor(private readonly autoNames: { n: number } = { n: 0 }) {}
+
+  /** A nested-scope (If/Loop/Switch body) builder that SHARES this builder's
+   *  auto-name counter, keeping `_v{n}` unique across the whole function. */
+  child(): Builder { return new Builder(this.autoNames) }
+
+  private autoName(): string { return `_v${this.autoNames.n++}` }
+
   private push(s: Stmt): void { this.stmts.push(s) }
 
-  /** Immutable binding — `let name = expr;`. Returns a varref Node of the
-   *  bound value's key. */
-  let<K extends string>(name: string, value: Node<K>): Node<K> {
+  /** Immutable binding — `let name = expr;`. The name is OPTIONAL: omit it and the
+   *  binding takes a function-unique auto name (`_v0`, `_v1`, …) — for when the JS
+   *  const already carries the meaning (`const lon = let(expr)`) and repeating it as a
+   *  string is redundant; the tradeoff is an opaque WGSL name. Returns a varref Node
+   *  of the bound value's key. */
+  let<K extends string>(value: Node<K>): Node<K>
+  let<K extends string>(name: string, value: Node<K>): Node<K>
+  let<K extends string>(nameOrValue: string | Node<K>, maybeValue?: Node<K>): Node<K> {
+    const named = typeof nameOrValue === 'string'
+    const name = named ? nameOrValue : this.autoName()
+    const value = (named ? maybeValue : nameOrValue) as Node<K>
     this.push({ s: 'let', name, expr: value.expr })
     return new Node<K>({ op: 'varref', type: value.type, name })
   }
 
-  /** Mutable binding — `var name: T = init?;`. Returns a varref Node. */
-  var<T extends ShaderType>(name: string, type: T, init?: Node<KeyOf<T>>): Node<KeyOf<T>> {
+  /** Mutable binding — `var name: T = init?;`. The name is OPTIONAL (see let). */
+  var<T extends ShaderType>(type: T, init?: Node<KeyOf<T>>): Node<KeyOf<T>>
+  var<T extends ShaderType>(name: string, type: T, init?: Node<KeyOf<T>>): Node<KeyOf<T>>
+  var<T extends ShaderType>(nameOrType: string | T, typeOrInit?: T | Node<KeyOf<T>>, maybeInit?: Node<KeyOf<T>>): Node<KeyOf<T>> {
+    const named = typeof nameOrType === 'string'
+    const name = named ? nameOrType : this.autoName()
+    const type = (named ? typeOrInit : nameOrType) as T
+    const init = (named ? maybeInit : typeOrInit) as Node<KeyOf<T>> | undefined
     this.push({ s: 'var', name, type, init: init?.expr })
     return new Node<KeyOf<T>>({ op: 'varref', type, name })
   }
@@ -52,12 +81,12 @@ export class Builder {
    *  top-to-bottom. The If stmt is pushed on the first call and mutated in
    *  place by subsequent .elif/.else. */
   if(cond: Node<'bool'>, body: (b: Builder) => Node | void): IfChain {
-    const arms: Array<{ cond: Expr; body: Stmt[] }> = [{ cond: cond.expr, body: subBody(body) }]
+    const arms: Array<{ cond: Expr; body: Stmt[] }> = [{ cond: cond.expr, body: subBody(this, body) }]
     const stmt = { s: 'if' as const, arms, elseBody: undefined as Stmt[] | undefined }
     // Push a mutable-shaped object; the readonly Stmt typing is a compile-time
     // view only — the builder owns construction.
     this.push(stmt as unknown as Stmt)
-    return new IfChain(arms, (e) => { stmt.elseBody = e })
+    return new IfChain(this, arms, (e) => { stmt.elseBody = e })
   }
 
   /** C-style for: `for (var name = init; name <cond>; name = name+step)`.
@@ -79,30 +108,31 @@ export class Builder {
     const stepNode = step === undefined ? litOf(1) : typeof step === 'number' ? litOf(step) : step
     const initStmt: Stmt = { s: 'var', name, type: init.type, init: init.expr }
     const updateStmt: Stmt = { s: 'assign', target: i.expr, expr: i.add(stepNode as ArithArg<K>).expr }
-    this.push({ s: 'for', init: initStmt, cond: cond(i).expr, update: updateStmt, body: subBody((b) => body(b, i)) })
+    this.push({ s: 'for', init: initStmt, cond: cond(i).expr, update: updateStmt, body: subBody(this, (b) => body(b, i)) })
   }
 
   switch(scrut: Node<ScalarKey>, cases: Array<[number, (b: Builder) => Node | void]>, defaultBody?: (b: Builder) => Node | void): void {
     this.push({
       s: 'switch',
       scrut: scrut.expr,
-      cases: cases.map(([value, fn]) => ({ value, body: subBody(fn) })),
-      defaultBody: defaultBody ? subBody(defaultBody) : undefined,
+      cases: cases.map(([value, fn]) => ({ value, body: subBody(this, fn) })),
+      defaultBody: defaultBody ? subBody(this, defaultBody) : undefined,
     })
   }
 }
 
 export class IfChain {
   constructor(
+    private readonly parent: Builder,
     private readonly arms: Array<{ cond: Expr; body: Stmt[] }>,
     private readonly setElse: (body: Stmt[]) => void,
   ) {}
   elif(cond: Node<'bool'>, body: (b: Builder) => Node | void): IfChain {
-    this.arms.push({ cond: cond.expr, body: subBody(body) })
+    this.arms.push({ cond: cond.expr, body: subBody(this.parent, body) })
     return this
   }
   else(body: (b: Builder) => Node | void): void {
-    this.setElse(subBody(body))
+    this.setElse(subBody(this.parent, body))
   }
 }
 
@@ -128,8 +158,10 @@ function withScope<T>(b: Builder, run: () => T): T {
   try { return run() } finally { scopeStack.pop() }
 }
 
-function subBody(fn: (b: Builder) => Node | void): Stmt[] {
-  const b = new Builder()
+function subBody(parent: Builder, fn: (b: Builder) => Node | void): Stmt[] {
+  // child() shares the parent's auto-name counter, so an omitted binding name inside this
+  // nested scope keeps incrementing the same `_v{n}` sequence (no inner-shadows-outer).
+  const b = parent.child()
   // A control-flow body does NOT capture a native `return value`: `If(c, () => x)` would
   // then be an INVISIBLE early return that reads as fall-through. Early returns are
   // explicit — `ReturnIf(cond, value)` (a guard clause) or `Return()` inside the branch.
@@ -152,6 +184,28 @@ export type FnHandle<P extends ParamSpec, R extends ShaderType> =
     (...args: NodeLike[]): Node<KeyOf<R>>
   }
   & { readonly decl: FuncDecl }
+
+/** The call-node factory shared by fn()'s handle and externFn(): dispatches the typed
+ *  object-param form `f({ a, b })` to positional callFn args (names → declared order), else
+ *  passes positional args straight through. ONE implementation guarantees that an extern call
+ *  and the real fn's call emit the identical call-by-name node. */
+function makeCallFactory<R extends ShaderType>(
+  name: string,
+  ret: R,
+  paramList: ReadonlyArray<{ name: string; type: ShaderType }>,
+): (...args: NodeLike[]) => Node<KeyOf<R>> {
+  return (...args: NodeLike[]): Node<KeyOf<R>> => {
+    // Typed object-param call `f({ lon, lat })` — map the named args to positional order.
+    // Distinguished from a single positional Node arg: a params object is a plain object, a
+    // Node is a class instance. (callFn then builds the identical call-by-name node.)
+    const a0 = args[0]
+    if (args.length === 1 && a0 != null && !(a0 instanceof Node) && typeof a0 === 'object' && !Array.isArray(a0)) {
+      const obj = a0 as Record<string, NodeLike>
+      return callFn(name, ret, ...paramList.map((p) => obj[p.name]))
+    }
+    return callFn(name, ret, ...args)
+  }
+}
 
 /** Author a function. The body receives the typed param Nodes FIRST (each keyed by its
  *  ShaderType); the Builder is the optional SECOND arg — TSL-style (three.js Fn passes the
@@ -177,25 +231,33 @@ export function fn<P extends ParamSpec, R extends ShaderType>(
   const result = withScope(b, () => body(paramNodes, b))
   if (result !== undefined) b.ret(result)
   const decl: FuncDecl = { name, params: paramList, ret, body: b.stmts, allowEarlyReturn: opts?.allowEarlyReturn, lintDisable: opts?.lintDisable }
-  // The handle IS the call node factory; the FuncDecl fields are mixed onto it so it still
-  // duck-types as a FuncDecl in a module's funcs[]. `name` is a non-writable function prop,
-  // so it is set via defineProperty (Object.assign would throw on it under strict mode).
-  const handle = ((...args: NodeLike[]): Node<KeyOf<R>> => {
-    // Typed object-param call `foo({ lon, lat })` — map the named args to positional order.
-    // Distinguished from a single positional Node arg: a params object is a plain object, a
-    // Node is a class instance. (callFn then builds the identical call-by-name node.)
-    const a0 = args[0]
-    if (args.length === 1 && a0 != null && !(a0 instanceof Node) && typeof a0 === 'object' && !Array.isArray(a0)) {
-      const obj = a0 as Record<string, NodeLike>
-      return callFn(name, ret, ...paramList.map((p) => obj[p.name]))
-    }
-    return callFn(name, ret, ...args)
-  }) as FnHandle<P, R>
+  // The handle IS the call node factory (shared with externFn); the FuncDecl fields are mixed
+  // onto it so it still duck-types as a FuncDecl in a module's funcs[]. `name` is a non-writable
+  // function prop, so it is set via defineProperty (Object.assign would throw on it under strict).
+  const handle = makeCallFactory(name, ret, paramList) as FnHandle<P, R>
   // enumerable so `{ ...handle }` (e.g. the projection-fn spread) carries the name; a
   // function's own `name` is non-enumerable by default, which would drop it from a spread.
   Object.defineProperty(handle, 'name', { value: name, configurable: true, enumerable: true })
   Object.assign(handle, { params: paramList, ret, body: decl.body, allowEarlyReturn: decl.allowEarlyReturn, lintDisable: decl.lintDisable, decl })
   return handle
+}
+
+/** A typed CALL-ONLY handle for a function whose DEFINITION is provided elsewhere — the
+ *  forward-declaration ("extern") counterpart to fn(). Use it when the callee cannot be an
+ *  importable FnHandle at the CALLER's module-load time. The projection fns (project /
+ *  flat_rel / needs_backface_cull / rim_alpha / inv_merc_lat_rad) are built inside
+ *  buildProjectionArtifacts AFTER configureProjections() — too late for consumer shader
+ *  modules that author their bodies eagerly at import. externFn carries only the SIGNATURE
+ *  (name + param types + ret), so a consumer makes a TYPED call now (object-param `f({a,b})`
+ *  or positional `f(a,b)`); the body is linked in at emit via the projection module. The
+ *  emitted node is callFn(name, ret, …) — byte-identical to the old string call. */
+export type ExternFn<P extends ParamSpec, R extends ShaderType> = {
+  (args: { readonly [K in keyof P]: Node<KeyOf<P[K]>> }): Node<KeyOf<R>>
+  (...args: NodeLike[]): Node<KeyOf<R>>
+}
+export function externFn<P extends ParamSpec, R extends ShaderType>(name: string, params: P, ret: R): ExternFn<P, R> {
+  const paramList = Object.entries(params).map(([n, type]) => ({ name: n, type }))
+  return makeCallFactory(name, ret, paramList) as ExternFn<P, R>
 }
 
 /** @deprecated fn() now returns a callable FnHandle directly — use fn(). Kept as an alias. */
@@ -273,8 +335,18 @@ export function module(parts: Partial<ModuleDecl>): ModuleDecl {
 // emit stays byte-identical. IfChain.elif/.else accept a zero-arg `() => …` body
 // (a 0-arg fn is assignable where `(b) => void` is wanted), so chains read clean too.
 
-export const Let = <K extends string>(name: string, value: Node<K>): Node<K> => currentBuilder().let(name, value)
-export const Var = <T extends ShaderType>(name: string, type: T, init?: Node<KeyOf<T>>): Node<KeyOf<T>> => currentBuilder().var(name, type, init)
+export function Let<K extends string>(value: Node<K>): Node<K>
+export function Let<K extends string>(name: string, value: Node<K>): Node<K>
+export function Let<K extends string>(nameOrValue: string | Node<K>, maybeValue?: Node<K>): Node<K> {
+  return typeof nameOrValue === 'string' ? currentBuilder().let(nameOrValue, maybeValue!) : currentBuilder().let(nameOrValue)
+}
+export function Var<T extends ShaderType>(type: T, init?: Node<KeyOf<T>>): Node<KeyOf<T>>
+export function Var<T extends ShaderType>(name: string, type: T, init?: Node<KeyOf<T>>): Node<KeyOf<T>>
+export function Var<T extends ShaderType>(nameOrType: string | T, typeOrInit?: T | Node<KeyOf<T>>, maybeInit?: Node<KeyOf<T>>): Node<KeyOf<T>> {
+  return typeof nameOrType === 'string'
+    ? currentBuilder().var(nameOrType, typeOrInit as T, maybeInit)
+    : currentBuilder().var(nameOrType, typeOrInit as Node<KeyOf<T>> | undefined)
+}
 export const assign = <K extends string>(target: Node<K>, value: Node<K>): void => currentBuilder().assign(target, value)
 export const assignOp = <K extends string>(target: Node<K>, bop: BinOp, value: ArithArg<K>): void => currentBuilder().assignOp(target, bop, value)
 export const addAssign = <K extends string>(target: Node<K>, value: ArithArg<K>): void => currentBuilder().addAssign(target, value)

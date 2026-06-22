@@ -24,7 +24,7 @@
 // emitted WGSL stays byte-faithful to the current shader's constants.
 
 import {
-  fn, module, f32, vec2, vec3,
+  fn, externFn, module, f32, vec2, vec3,
   Let, ReturnIf,
   f32T, vec2fT, vec3fT, vec4fT,
   constRef, clamp, log, tan, sin, cos, asin, acos, atan, atan2, exp, floor, ceil, sign, smoothstep,
@@ -235,6 +235,30 @@ const center_cos_c = fn('center_cos_c', { lon_deg: f32T, lat_deg: f32T, clon: f3
   return sin(p0).mul(sin(phi)).add(cos(p0).mul(cos(phi)).mul(cos(lam.sub(l0))))
 })
 
+// ── Injection-deferred projection call handles (consumer-facing externs) ──
+// project / flat_rel / needs_backface_cull / rim_alpha / inv_merc_lat_rad have
+// table-DEPENDENT bodies (dispatch ladder + cull thresholds), so their definitions are
+// built inside buildProjectionArtifacts and only exist post-configureProjections(). That
+// is too late for the polygon / line / point / raster / heatmap shader modules, which
+// author their bodies eagerly at import — so those consumers fell back to raw
+// callFn('project', …) string calls. These externs give them a TYPED, importable call
+// handle now; the real bodies are linked in at emit via getPROJECTION_MODULE() /
+// getProjectionWgslFns(). The SIGNATURE (params + ret) is table-INDEPENDENT, so each spec
+// const is SHARED with the real fn() below — the extern can never drift from its
+// definition — and the emitted node is the same call-by-name as before (byte-identical).
+const LLP_PARAMS = { lon_deg: f32T, lat_deg: f32T, proj_params: vec4fT }
+const LLPR_PARAMS = { lon_deg: f32T, lat_deg: f32T, proj_params: vec4fT, ref_lon: f32T }
+const INV_MERC_PARAMS = { merc_y_m: f32T }
+// snake_case to MATCH the WGSL fn name (the log-depth / sdf GPU-handle convention) and to
+// avoid colliding with cpu-projections' camelCase `invMercLatRad` (the f64 CPU helper). Each
+// shadows its real fn() definition inside buildProjectionArtifacts — benign: an extern call
+// and the real handle's call both emit the same callFn-by-name node.
+export const project = externFn('project', LLP_PARAMS, vec2fT)
+export const flat_rel = externFn('flat_rel', LLPR_PARAMS, vec2fT)
+export const needs_backface_cull = externFn('needs_backface_cull', LLP_PARAMS, f32T)
+export const rim_alpha = externFn('rim_alpha', LLP_PARAMS, f32T)
+export const inv_merc_lat_rad = externFn('inv_merc_lat_rad', INV_MERC_PARAMS, f32T)
+
 // ── Projection artifacts builder (table-injected via ProjectionSpec seam) ──
 // Every table-dependent declaration lives inside this function so the injected
 // spec list drives the dispatch ladder + cull thresholds. Built once, memoized
@@ -279,14 +303,14 @@ function emitForwardLadder(b: Builder, t: Node, lon: Node, lat: Node, clon: Node
   chain.else((bb) => { bb.ret(forwardCall(FLAT[last].name, lon, lat, clon, clat)) })
 }
 
-const project = fn('project', { lon_deg: f32T, lat_deg: f32T, proj_params: vec4fT }, vec2fT, ({ lon_deg, lat_deg, proj_params }, b) => {
+const project = fn('project', LLP_PARAMS, vec2fT, ({ lon_deg, lat_deg, proj_params }, b) => {
   const t = b.let('t', proj_params.x)
   const clon = b.let('clon', proj_params.y)
   const clat = b.let('clat', proj_params.z)
   emitForwardLadder(b, t, lon_deg, lat_deg, clon, clat)
 })
 
-const project_geom = fn('project_geom', { lon_deg: f32T, lat_deg: f32T, proj_params: vec4fT, ref_lon: f32T }, vec2fT, ({ lon_deg, lat_deg, proj_params, ref_lon }, b) => {
+const project_geom = fn('project_geom', LLPR_PARAMS, vec2fT, ({ lon_deg, lat_deg, proj_params, ref_lon }, b) => {
   const t = b.let('t', proj_params.x)
   const clon = b.let('clon', proj_params.y)
   const clat = b.let('clat', proj_params.z)
@@ -352,7 +376,7 @@ const project_geom = fn('project_geom', { lon_deg: f32T, lat_deg: f32T, proj_par
 // position (no whole-world jump) when the camera sits near ±180°. The GPU
 // per-vertex path keeps the offset to place adjacent world copies. These are
 // genuinely different functions, so they are authored separately.
-const project_geom_cpu = fn('project_geom_cpu', { lon_deg: f32T, lat_deg: f32T, proj_params: vec4fT, ref_lon: f32T }, vec2fT, ({ lon_deg, lat_deg, proj_params, ref_lon }, b) => {
+const project_geom_cpu = fn('project_geom_cpu', LLPR_PARAMS, vec2fT, ({ lon_deg, lat_deg, proj_params, ref_lon }, b) => {
   const t = b.let('t', proj_params.x)
   const clon = b.let('clon', proj_params.y)
   const clat = b.let('clat', proj_params.z)
@@ -404,13 +428,13 @@ const project_geom_cpu = fn('project_geom_cpu', { lon_deg: f32T, lat_deg: f32T, 
 // (proj_params.y/z = clon/clat). ref_lon selects the world copy — tile-centre
 // lon for tiled sources, the vertex's own lon for individual points. Restores
 // the per-shader pre-ECEF finalize_corner body as ONE reusable fn.
-const flat_rel = fn('flat_rel', { lon_deg: f32T, lat_deg: f32T, proj_params: vec4fT, ref_lon: f32T }, vec2fT, ({ lon_deg, lat_deg, proj_params, ref_lon }, _b) => {
+const flat_rel = fn('flat_rel', LLPR_PARAMS, vec2fT, ({ lon_deg, lat_deg, proj_params, ref_lon }, _b) => {
   const pv = Let('pv', project_geom(lon_deg, lat_deg, proj_params, ref_lon))
   const cv = Let('cv', project(proj_params.y, proj_params.z, proj_params))
   return pv.sub(cv)
 })
 
-const needs_backface_cull = fn('needs_backface_cull', { lon_deg: f32T, lat_deg: f32T, proj_params: vec4fT }, f32T, ({ lon_deg, lat_deg, proj_params }, b) => {
+const needs_backface_cull = fn('needs_backface_cull', LLP_PARAMS, f32T, ({ lon_deg, lat_deg, proj_params }, b) => {
   const t = b.let('t', proj_params.x)
   const clon = b.let('clon', proj_params.y)
   const clat = b.let('clat', proj_params.z)
@@ -425,7 +449,7 @@ const needs_backface_cull = fn('needs_backface_cull', { lon_deg: f32T, lat_deg: 
   b.ret(f32(1)) // flat projections — no culling
 })
 
-const rim_alpha = fn('rim_alpha', { lon_deg: f32T, lat_deg: f32T, proj_params: vec4fT }, f32T, ({ lon_deg, lat_deg, proj_params }, b) => {
+const rim_alpha = fn('rim_alpha', LLP_PARAMS, f32T, ({ lon_deg, lat_deg, proj_params }, b) => {
   const t = b.let('t', proj_params.x)
   const clon = b.let('clon', proj_params.y)
   const clat = b.let('clat', proj_params.z)
@@ -441,7 +465,7 @@ const rim_alpha = fn('rim_alpha', { lon_deg: f32T, lat_deg: f32T, proj_params: v
   b.ret(f32(1)) // flat projections — no rim
 })
 
-const inv_merc_lat_rad = fn('inv_merc_lat_rad', { merc_y_m: f32T }, f32T, ({ merc_y_m }, _b) => {
+const inv_merc_lat_rad = fn('inv_merc_lat_rad', INV_MERC_PARAMS, f32T, ({ merc_y_m }, _b) => {
   return f32(2).mul(atan(exp(merc_y_m.div(EARTH_R)))).sub(PI.div(2))
 })
 
