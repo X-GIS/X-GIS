@@ -1,5 +1,5 @@
 import type { Stmt, Expr } from '../../../ir'
-import type { LintRule } from '../engine'
+import { mapStmts, type LintRule } from '../engine'
 
 /** Peel member/index access to the root varref name — so `out.pos = x` and `v[i] = x`
  *  both count as mutating `out` / `v` (a struct/vector var with field mutation MUST
@@ -71,4 +71,21 @@ export const preferLetOverVar: LintRule = {
       }
     },
   }),
+  // auto-fix: rewrite each never-reassigned `var name = init` to `let name = init`.
+  fix(m) {
+    let changed = false
+    const funcs = m.funcs.map((f) => {
+      const reassigned = new Set<string>()
+      collectReassigned(f.body, reassigned)
+      const body = mapStmts(f.body, (s) => {
+        if (s.s === 'var' && s.init !== undefined && !reassigned.has(s.name)) {
+          changed = true
+          return { s: 'let', name: s.name, expr: s.init }
+        }
+        return s
+      })
+      return { ...f, body }
+    })
+    return changed ? { ...m, funcs } : null
+  },
 }
