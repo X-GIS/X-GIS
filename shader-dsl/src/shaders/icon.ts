@@ -14,7 +14,7 @@
 import {
   entryFn, vec4, f32, max, smoothstep, fwidth, textureSample, select,
   module, f32T, vec2fT, vec3fT, vec4fT, texture2dfT, samplerT,
-  Var, assign,
+  Let, Var, assign,
   type ModuleDecl,
 } from '../core/ir'
 import { ioStruct, builtin, location, uniformStruct, resource } from '../core/sot'
@@ -61,7 +61,9 @@ const fs = entryFn('fs', 'fragment', [{ name: 'in', type: VsOut.type }], vec4fT,
   // fwidth must be in uniform control flow — compute aa unconditionally (the
   // raster path discards it).
   const dForAa = c.a
-  const aa = max(fwidth(dForAa), f32(1e-4))
+  // MUST stay an explicit Let — fwidth is a derivative requiring UNIFORM control flow; inlining
+  // would push fwidth() into the SDF-vs-raster select branch (non-uniform) and fail validation.
+  const aa = Let('aa', max(fwidth(dForAa), f32(1e-4)))
   // single-exit: SDF sprite (sdf>0.5) uses fwidth-AA coverage; raster sprite straight-samples.
   const cov = smoothstep(f32(0.5).sub(aa), f32(0.5).add(aa), c.a)
   const sdfColor = vec4(pin.tint, cov.mul(pin.opacity))

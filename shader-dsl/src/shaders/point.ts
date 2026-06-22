@@ -408,7 +408,10 @@ const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: PointOut.type }]
   const shapeId = toU32(featData.at(fid.mul(STRIDE).add(u32(19)), f32T))
 
   // AA from UV (always smooth) — not from SDF dist (AABB discontinuities).
-  const aa = fwidth(length(pin.uv)).mul(1.5)
+  // MUST stay an explicit Let: fwidth is a derivative and WGSL requires it be evaluated in
+  // UNIFORM control flow. Inlining it would re-emit fwidth() inside the per-flag fill/stroke
+  // `if` branches (non-uniform) → "fwidth must only be called from uniform control flow".
+  const aa = Let('aa', fwidth(length(pin.uv)).mul(1.5))
   // circle-blur: widen the AA band by blur_px converted to UV units.
   // blur_uv = blur_px / radius_px. Default 0 → band unchanged (no-op).
   const blurPx = U.field.circle_params.z
