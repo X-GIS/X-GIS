@@ -11,7 +11,7 @@
 import {
   fn, module, f32, i32, u32, vec2,
   f32T, i32T, u32T, vec2fT, arrayT, bindingRef,
-  callFn, clamp, min, length, dot, mix, toF32,
+  callFn, clamp, min, max, length, dot, mix, toF32, select,
   type FuncDecl, type ModuleDecl,
 } from '../core/ir'
 import { struct } from '../core/schema'
@@ -41,9 +41,10 @@ const segments = bindingRef('segments', arrayT(ShapeSegment.type))
 const dist_to_segment = fn('dist_to_segment', { p: vec2fT, a: vec2fT, b: vec2fT }, f32T, (bld, { p, a, b }) => {
   const ab = bld.let('ab', b.sub(a))
   const len2 = bld.let('len2', dot(ab, ab))
-  bld.if(len2.lt(1e-10), (c) => { c.ret(length(p.sub(a))) })
-  const t = bld.let('t', clamp(dot(p.sub(a), ab).div(len2), f32(0), f32(1)))
-  bld.ret(length(p.sub(a).sub(ab.mul(t))))
+  // single-exit: max() guards the degenerate (len2≈0) divide; select picks the point dist.
+  const t = bld.let('t', clamp(dot(p.sub(a), ab).div(max(len2, 1e-10)), f32(0), f32(1)))
+  const segDist = bld.let('seg_dist', length(p.sub(a).sub(ab.mul(t))))
+  return select(len2.lt(1e-10), length(p.sub(a)), segDist)
 })
 
 const dist_to_quadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT }, f32T, (bld, { p, a, b, c }) => {
@@ -76,18 +77,11 @@ const dist_to_cubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: 
 })
 
 const winding_line = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT }, i32T, (bld, { p, a, b }) => {
-  bld.if(a.y.le(p.y), (c) => {
-    c.if(b.y.gt(p.y), (d) => {
-      const cross_val = d.let('cross_val', b.x.sub(a.x).mul(p.y.sub(a.y)).sub(p.x.sub(a.x).mul(b.y.sub(a.y))))
-      d.if(cross_val.gt(0), (e) => { e.ret(i32(1)) })
-    })
-  }).else((c) => {
-    c.if(b.y.le(p.y), (d) => {
-      const cross_val = d.let('cross_val', b.x.sub(a.x).mul(p.y.sub(a.y)).sub(p.x.sub(a.x).mul(b.y.sub(a.y))))
-      d.if(cross_val.lt(0), (e) => { e.ret(i32(-1)) })
-    })
-  })
-  bld.ret(i32(0))
+  // single-exit: signed winding contribution of edge a→b across the +y ray from p.
+  const cross = bld.let('cross_val', b.x.sub(a.x).mul(p.y.sub(a.y)).sub(p.x.sub(a.x).mul(b.y.sub(a.y))))
+  const up = a.y.le(p.y).and(b.y.gt(p.y)).and(cross.gt(0))
+  const down = a.y.gt(p.y).and(b.y.le(p.y)).and(cross.lt(0))
+  return select(up, i32(1), select(down, i32(-1), i32(0)))
 })
 
 // ── sdf_shape (the imperative core: bbox cull + segment loop + switch) ──
@@ -126,7 +120,7 @@ const sdf_shape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (bld,
 
   bld.if(winding.ne(i32(0)), (c) => { c.ret(f32(1).sub(min_dist)) })
   bld.ret(f32(1).add(min_dist))
-})
+}, { allowEarlyReturn: true }) // MISRA single-exit DEVIATION — the out-of-bbox guard skips a 32-iter segment loop (perf)
 
 // ── Module assembly ──
 

@@ -25,7 +25,7 @@ import {
   length, dot, min, max, smoothstep, abs, floor, select, textureSample,
   bitcastU32, unpack4x8unorm,
   atan, exp,
-  If, Loop, Let, Var, Continue, Discard, Return, ReturnIf, assign, madd, outsideRange,
+  If, Loop, Let, Var, Continue, Discard, assign, madd, outsideRange,
   structT, f32T, u32T, i32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   arrayT,
   type Node,
@@ -234,8 +234,10 @@ const sprite_samp = bindingRef('sprite_samp', samplerT)
 
 const lineEndpoint = fn('line_endpoint', { p_h: vec2fT, p_l: vec2fT }, vec2fT, (_b, p) => {
   const projParams = tile.field('proj_params', vec4fT)
-  ReturnIf(projParams.x.lt(0.5), p.p_h.sub(tile.field('cam_h', vec2fT)).add(p.p_l.sub(tile.field('cam_l', vec2fT))))
-  return p.p_h.add(p.p_l)
+  // single-exit: Mercator (proj<0.5) subtracts the camera; else hi+lo. select() is
+  // branchless — both arms are pure reads, computing both is free of side effects.
+  const mercRel = p.p_h.sub(tile.field('cam_h', vec2fT)).add(p.p_l.sub(tile.field('cam_l', vec2fT)))
+  return select(projParams.x.lt(0.5), mercRel, p.p_h.add(p.p_l))
 })
 
 // finalize_corner — flat-projection reprojection (projection-display-layer-
@@ -249,7 +251,6 @@ const lineEndpoint = fn('line_endpoint', { p_h: vec2fT, p_l: vec2fT }, vec2fT, (
 // proj_params.y/z). Output feeds the flat 2D-plane MVP.
 const finalizeCorner = fn('finalize_corner', { corner: vec2fT }, vec2fT, (_b, p) => {
   const projParams = tile.field('proj_params', vec4fT)
-  ReturnIf(projParams.x.lt(0.5), p.corner)
   const tileOrigin = tile.field('tile_origin_merc', vec2fT)
   const absMerc = Let('abs_merc', p.corner.add(tileOrigin))
   const absLon = Let('abs_lon', absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R'))))
@@ -259,7 +260,10 @@ const finalizeCorner = fn('finalize_corner', { corner: vec2fT }, vec2fT, (_b, p)
     tileOrigin.x.add(f32(0.5).mul(tile.field('tile_extent_m', f32T)))
       .div(constRef('DEG2RAD').mul(constRef('EARTH_R'))),
   )
-  return callFn('flat_rel', vec2fT, absLon, absLat, projParams, tileRefLon)
+  // single-exit: Mercator (proj<0.5) passes the corner through; else the reprojected
+  // flat_rel. flat_rel is pure, so computing it on the Mercator path (selected away) is harmless.
+  const flatRel = callFn('flat_rel', vec2fT, absLon, absLat, projParams, tileRefLon)
+  return select(projParams.x.lt(0.5), p.corner, flatRel)
 })
 
 const endpointCosC = fn('endpoint_cos_c', { p_h: vec2fT, p_l: vec2fT }, f32T, (_b, p) => {
@@ -273,11 +277,10 @@ const endpointCosC = fn('endpoint_cos_c', { p_h: vec2fT, p_l: vec2fT }, f32T, (_
 })
 
 const patternUnitToM = fn('pattern_unit_to_m', { v: f32T, unit: u32T, mpp: f32T }, f32T, (_b, p) => {
-  // 0=m, 1=px, 2=km, 3=nm
-  If(p.unit.eq(u32(0)), () => Return(p.v))
-    .elif(p.unit.eq(u32(1)), () => Return(p.v.mul(p.mpp)))
-    .elif(p.unit.eq(u32(2)), () => Return(p.v.mul(1000)))
-  return p.v.mul(1852) // nautical mile
+  // single-exit, 0=m 1=px 2=km 3=nm — nested select from the default (nm) up.
+  const km = select(p.unit.eq(u32(2)), p.v.mul(1000), p.v.mul(1852))
+  const px = select(p.unit.eq(u32(1)), p.v.mul(p.mpp), km)
+  return select(p.unit.eq(u32(0)), p.v, px)
 })
 
 // Inlined SDF shape sampler — uses our `shape_segments` (binding 3) instead
@@ -322,7 +325,7 @@ const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (b, p)
   })
   b.if(winding.ne(i32(0)), (c) => { c.ret(f32(1).sub(minDist)) })
   b.ret(f32(1).add(minDist))
-})
+}, { allowEarlyReturn: true }) // MISRA single-exit DEVIATION — the out-of-bbox guard skips a 32-iter segment loop (perf)
 
 // ── compute_line_color: shared body for fs_line / fs_line_max / fs_line_pattern ──
 //

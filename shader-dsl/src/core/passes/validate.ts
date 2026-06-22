@@ -24,6 +24,7 @@
 
 import { typeKey } from '../ir'
 import type { ModuleDecl, FuncDecl, Stmt, Expr, ShaderType } from '../ir'
+import { checkSingleExit } from './single-exit'
 
 export class ValidationError extends Error {
   constructor(msg: string) { super(msg); this.name = 'ValidationError' }
@@ -75,6 +76,12 @@ function validateFn(f: FuncDecl): void {
   if (f.ret.kind !== 'void' && !alwaysReturns(f.body)) {
     throw new ValidationError(`fn '${f.name}' returns non-void but a code path falls through without return`)
   }
+
+  // RULE s — single point of exit (MISRA-C Rule 15.5). Exactly one return, as the
+  // final statement (no early returns); early returns become select() or a result
+  // var. Composer-injected variants (raw/placeholder) are skipped (see checkSingleExit).
+  const seErrs = checkSingleExit(f)
+  if (seErrs.length > 0) throw new ValidationError(seErrs[0])
 
   // RULE t — mixed-scalar binop (#5b). WGSL has no implicit int↔float (nor
   // i32↔u32) conversion, so a binop whose two operands are scalars of DIFFERENT

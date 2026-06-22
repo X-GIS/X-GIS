@@ -18,7 +18,7 @@
 // at 0, fill_color at 16 (vec4 alignment pads the 8 B gap after viewport).
 
 import {
-  entryFn, bindingRef, vec4, f32, max, smoothstep, textureSample,
+  entryFn, bindingRef, vec4, f32, max, smoothstep, textureSample, select,
   module, structT, f32T, vec2fT, vec4fT, texture2dfT, samplerT,
   type StructDecl, type ModuleDecl,
 } from '../core/ir'
@@ -68,10 +68,7 @@ const fs = entryFn('fs', 'fragment', [{ name: 'in', type: structT('VsOut') }], v
   const edge = b.let('edge', f32(0.75))
   const soft = b.let('soft', max(f32(2.52).div(max(u.field('font_size_px', f32T), f32(1))), f32(1).div(255)))
   const fillA = b.let('fill_a', smoothstep(edge.sub(soft), edge.add(soft), sdf))
-  // No halo: fill only (premultiplied).
-  b.if(u.field('halo_width', f32T).le(0), (c) => {
-    c.ret(vec4(fill.rgb, fill.a.mul(fillA)))
-  })
+  const fillOnly = vec4(fill.rgb, fill.a.mul(fillA))
   // Halo behind fill: smoothstep at the inward-shifted halo edge, then the
   // (1 - fill_w) factor masks the region the fill already covers.
   const haloEdge = b.let('halo_edge', edge.sub(u.field('halo_width', f32T)))
@@ -79,7 +76,9 @@ const fs = entryFn('fs', 'fragment', [{ name: 'in', type: structT('VsOut') }], v
   const haloA = b.let('halo_a', smoothstep(haloEdge.sub(aaHalo), haloEdge.add(aaHalo), sdf))
   const fillW = b.let('fill_w', fill.a.mul(fillA))
   const haloW = b.let('halo_w', halo.a.mul(haloA).mul(f32(1).sub(fillW)))
-  b.ret(vec4(fill.rgb.mul(fillW).add(halo.rgb.mul(haloW)), fillW.add(haloW)))
+  const withHalo = vec4(fill.rgb.mul(fillW).add(halo.rgb.mul(haloW)), fillW.add(haloW))
+  // single-exit: no halo (halo_width<=0) → fill only; else halo behind fill.
+  return select(u.field('halo_width', f32T).le(0), fillOnly, withHalo)
 }, '@location(0)')
 
 export const TEXT_MODULE: ModuleDecl = module({

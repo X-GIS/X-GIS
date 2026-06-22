@@ -447,7 +447,10 @@ const PROJECTION_FUNCS: FuncDecl[] = [
   proj_orthographic, proj_azimuthal_equidistant, proj_stereographic,
   oblique_rot, proj_oblique_mercator_d, proj_oblique_mercator, proj_globe,
   center_cos_c, project, project_geom, project_geom_cpu, flat_rel, needs_backface_cull, rim_alpha, inv_merc_lat_rad,
-]
+  // MISRA single-exit DEVIATION (whole module) — projection is the perf-critical dispatch
+  // hotspot (project / project_geom select projection-by-type via early return; single-exit
+  // would compute every projection per vertex) + the highest-bug-density code. Byte-identical.
+].map((f) => ({ ...f, allowEarlyReturn: true }))
 
 const PROJECTION_MODULE: ModuleDecl = module({
   consts: PROJECTION_CONSTS,

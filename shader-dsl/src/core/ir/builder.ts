@@ -144,6 +144,7 @@ export function fn<P extends ParamSpec>(
   params: P,
   ret: ShaderType,
   body: (b: Builder, p: ParamNodes<P>) => Node | void,
+  opts?: { allowEarlyReturn?: boolean },
 ): FuncDecl {
   const paramList = Object.entries(params).map(([n, type]) => ({ name: n, type }))
   const paramNodes = Object.fromEntries(
@@ -155,7 +156,7 @@ export function fn<P extends ParamSpec>(
   // control flow still use Return() (a native return there only exits the closure).
   const result = withScope(b, () => body(b, paramNodes))
   if (result !== undefined) b.ret(result)
-  return { name, params: paramList, ret, body: b.stmts }
+  return { name, params: paramList, ret, body: b.stmts, allowEarlyReturn: opts?.allowEarlyReturn }
 }
 
 /** Define a function AND return a typed CALLABLE: `const f = defineFn(...)` then
