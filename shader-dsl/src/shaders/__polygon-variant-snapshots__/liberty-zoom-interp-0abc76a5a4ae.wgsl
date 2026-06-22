@@ -1,4 +1,4 @@
-// baseline: 3576e61298e1c83db40496a4ef053417c7057deb
+// baseline: 0bc5e1e7f747d19247229d45ff3d9a38324b7c25
 // fixture: liberty-zoom-interp
 // variant.key: liberty-zoom-interp
 // pick: false
@@ -280,7 +280,6 @@ fn vs_main(@location(0) pos_h: vec3<f32>, @location(1) pos_l: vec3<f32>, @locati
   let _cse0 = (((project(abs_lon, abs_lat, u.proj_params) - u.tile_origin_merc) - u.cam_h) - u.cam_l);
   let _cse1 = flat_rel(abs_lon, abs_lat, u.proj_params, ((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R)));
   let _cse2 = clamp(abs_lat, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT);
-  var out: VertexOutput;
   var clip: vec4<f32>;
   if ((u.proj_params.x < 0.5)) {
     clip = (u.mvp * vec4<f32>((_cse0.x + (((floor(((((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R)) + 180.0) / 360.0)) * 2.0) * PI) * EARTH_R)), _cse0.y, 0.0, 1.0));
@@ -291,18 +290,7 @@ fn vs_main(@location(0) pos_h: vec3<f32>, @location(1) pos_l: vec3<f32>, @locati
   }
   clip.x = (clip.x + (u.fill_translate_x * clip.w));
   clip.y = (clip.y - (u.fill_translate_y * clip.w));
-  out.position = apply_log_depth(clip, u.log_depth_fc);
-  out.position.z = (out.position.z - (u.layer_depth_offset * out.position.w));
-  out.view_w = clip.w;
-  out.cos_c = 0.0;
-  out.feat_id = u32(feature_id);
-  out.abs_lat = _cse2;
-  out.wall_blend = 1.0;
-  out.abs_merc_x = ((abs_lon * DEG2RAD) * EARTH_R);
-  out.abs_merc_y = (log(tan(((PI / 4.0) + ((_cse2 * DEG2RAD) / 2.0)))) * EARTH_R);
-  out.world_z = 0.0;
-  out.v_color = vec4<f32>(0.0, 0.0, 0.0, 0.0);
-  return out;
+  return VertexOutput(vec4<f32>(apply_log_depth(clip, u.log_depth_fc).x, apply_log_depth(clip, u.log_depth_fc).y, (apply_log_depth(clip, u.log_depth_fc).z - (u.layer_depth_offset * apply_log_depth(clip, u.log_depth_fc).w)), apply_log_depth(clip, u.log_depth_fc).w), 0.0, u32(feature_id), _cse2, clip.w, 1.0, ((abs_lon * DEG2RAD) * EARTH_R), (log(tan(((PI / 4.0) + ((_cse2 * DEG2RAD) / 2.0)))) * EARTH_R), 0.0, vec4<f32>(0.0, 0.0, 0.0, 0.0));
 }
 
 @vertex
@@ -310,7 +298,6 @@ fn vs_main_ecef(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u32>, @loca
   let _cse0 = ((vec2<f32>(abs_lon, abs_lat) - u.cam_h) - u.cam_l);
   let _cse1 = flat_rel(((abs_lon + u.tile_origin_merc.x) / (DEG2RAD * EARTH_R)), true_lat, u.proj_params, ((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R)));
   let _cse2 = (abs_lat + u.tile_origin_merc.y);
-  var out: VertexOutput;
   var clip: vec4<f32>;
   if ((u.proj_params.x < 0.5)) {
     clip = (u.mvp * vec4<f32>(_cse0.x, _cse0.y, 0.0, 1.0));
@@ -321,18 +308,7 @@ fn vs_main_ecef(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u32>, @loca
   }
   clip.x = (clip.x + (u.fill_translate_x * clip.w));
   clip.y = (clip.y - (u.fill_translate_y * clip.w));
-  out.position = apply_log_depth(clip, u.log_depth_fc);
-  out.position.z = (out.position.z - (u.layer_depth_offset * out.position.w));
-  out.view_w = clip.w;
-  out.cos_c = 0.0;
-  out.feat_id = u32(feature_id);
-  out.abs_lat = clamp((inv_merc_lat_rad(_cse2) / DEG2RAD), (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT);
-  out.wall_blend = 1.0;
-  out.abs_merc_x = (abs_lon + u.tile_origin_merc.x);
-  out.abs_merc_y = _cse2;
-  out.world_z = 0.0;
-  out.v_color = vec4<f32>(0.0, 0.0, 0.0, 0.0);
-  return out;
+  return VertexOutput(vec4<f32>(apply_log_depth(clip, u.log_depth_fc).x, apply_log_depth(clip, u.log_depth_fc).y, (apply_log_depth(clip, u.log_depth_fc).z - (u.layer_depth_offset * apply_log_depth(clip, u.log_depth_fc).w)), apply_log_depth(clip, u.log_depth_fc).w), 0.0, u32(feature_id), clamp((inv_merc_lat_rad(_cse2) / DEG2RAD), (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT), clip.w, 1.0, (abs_lon + u.tile_origin_merc.x), _cse2, 0.0, vec4<f32>(0.0, 0.0, 0.0, 0.0));
 }
 
 @vertex
