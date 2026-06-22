@@ -48,16 +48,16 @@ const vsFull = fn(
   VsOut.type,
   (p, _b) => {
     const pos = Var(vec2(f32(-1), f32(-1)))
-    If(p.idx.eq(u32(1)), () => { assign(pos, vec2(f32(3), f32(-1))) })
-      .elif(p.idx.eq(u32(2)), () => { assign(pos, vec2(f32(-1), f32(3))) })
+    If(p.idx.eq(1), () => { assign(pos, vec2(f32(3), f32(-1))) })
+      .elif(p.idx.eq(2), () => { assign(pos, vec2(f32(-1), f32(3))) })
     const out = Var(VsOut.type)
     const o = VsOut.of(out)
     assign(o.pos, vec4(pos, f32(0), f32(1)))
     // y-flip — texture origin top-left, NDC origin bottom-left.
     assign(o.uv,
       vec2(
-        pos.x.add(f32(1)).mul(f32(0.5)),
-        f32(1).sub(pos.y.add(f32(1)).mul(f32(0.5))),
+        pos.x.add(1).mul(0.5),
+        f32(1).sub(pos.y.add(1).mul(0.5)),
       ),
     )
     return out
@@ -77,8 +77,8 @@ const fsBlur = fn(
     const baseX = baseUv.x.mul(dim.x)
     const baseY = baseUv.y.mul(dim.y)
     const dir = Params.field.direction
-    const maxX = toF32(dimU.x).sub(f32(1))
-    const maxY = toF32(dimU.y).sub(f32(1))
+    const maxX = toF32(dimU.x).sub(1)
+    const maxY = toF32(dimU.y).sub(1)
 
     // sample(offset) — load one texel at +offset texels along `direction`,
     // clamped to the texture extent.

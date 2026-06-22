@@ -71,10 +71,10 @@ const texSampler = resource('tex_sampler', samplerT, { group: 0, binding: 2 })
 // GRID_N = 8 (an 8×8 subdivided grid, 6 verts/cell = 384; the draw count lives
 // in the renderer). Inlined where used.
 const vs = fn('vs_tile', { vid: builtin('vertex_index', u32T) }, VsOut.type, (p, _b) => {
-  const cell = p.vid.div(u32(6))
-  const tri = p.vid.mod(u32(6))
-  const cx = cell.mod(u32(8))
-  const cy = cell.div(u32(8))
+  const cell = p.vid.div(6)
+  const tri = p.vid.mod(6)
+  const cx = cell.mod(8)
+  const cy = cell.div(8)
 
   const duArr = arrayLit(u32T, u32(0), u32(1), u32(0), u32(1), u32(1), u32(0))
   const dvArr = arrayLit(u32T, u32(0), u32(0), u32(1), u32(0), u32(1), u32(1))
