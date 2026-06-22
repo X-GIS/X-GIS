@@ -58,4 +58,20 @@ describe('lint rules — correctness checks + deviations', () => {
     expect(ruleIds(m, { options: { 'param-count': { max: 2 } } })).toContain('param-count')
     expect(ruleIds(m, { options: { 'param-count': { max: 6 } } })).not.toContain('param-count')
   })
+
+  it('naming-convention flags a non-snake_case fn name', () => {
+    const m = module({ funcs: [fn('fooBar', { x: f32T }, f32T, (_b, { x }) => x)] })
+    expect(ruleIds(m)).toContain('naming-convention')
+  })
+
+  it('max-nesting-depth fires past the configured threshold', () => {
+    const m = module({
+      funcs: [fn('nested', { x: f32T }, f32T, (b, { x }) => {
+        b.if(x.gt(f32(0)), (c) => { c.if(x.lt(f32(1)), () => {}) }) // depth 2
+        b.ret(x)
+      })],
+    })
+    expect(ruleIds(m, { options: { 'max-nesting-depth': { max: 1 } } })).toContain('max-nesting-depth')
+    expect(ruleIds(m, { options: { 'max-nesting-depth': { max: 9 } } })).not.toContain('max-nesting-depth')
+  })
 })
