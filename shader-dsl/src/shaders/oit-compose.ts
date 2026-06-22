@@ -19,18 +19,16 @@ import {
   textureLoad, textureDimensions, vec2i,
   f32T, u32T, vec2fT, vec4fT,
   texture2dfT, texture2dMsfT,
-  structT, max,
-  type ShaderType, type StructDecl, type ModuleDecl,
+  max,
+  type ShaderType, type ModuleDecl,
 } from '../core/ir'
+import { ioStruct, builtin, location } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
 
-const VsOut: StructDecl = {
-  name: 'VsOut',
-  fields: [
-    { name: 'pos', type: vec4fT, attr: '@builtin(position)' },
-    { name: 'uv', type: vec2fT, attr: '@location(0)' },
-  ],
-}
+const VsOut = ioStruct('VsOut', {
+  pos: builtin('position', vec4fT),
+  uv: location(0, vec2fT),
+})
 
 // Oversized fullscreen triangle (3 vertices, NDC −1..3 in each axis).
 // Same trick as the overdraw compose pass — covers the whole screen
@@ -41,17 +39,18 @@ const VsOut: StructDecl = {
 const vsFull = entryFn(
   'vs_full', 'vertex',
   [{ name: 'idx', type: u32T, builtin: 'vertex_index' }],
-  structT('VsOut'),
+  VsOut.type,
   (b, p) => {
     const pos = b.var('pos', vec2fT, vec2(f32(-1), f32(-1)))
     b.if(p.idx.eq(u32(1)), (c) => { c.assign(pos, vec2(f32(3), f32(-1))) })
       .elif(p.idx.eq(u32(2)), (c) => { c.assign(pos, vec2(f32(-1), f32(3))) })
-    const out = b.var('out', structT('VsOut'))
-    b.assign(out.field('pos', vec4fT), vec4(pos, f32(0), f32(1)))
+    const out = b.var('out', VsOut.type)
+    const o = VsOut.of(out)
+    b.assign(o.pos, vec4(pos, f32(0), f32(1)))
     // Texture coords are sample-load coords (integer pixels) computed
     // from clip-space NDC: uv = (pos + 1) / 2, y flipped because the
     // texture origin is top-left while NDC's is bottom-left.
-    b.assign(out.field('uv', vec2fT),
+    b.assign(o.uv,
       vec2(
         pos.x.add(f32(1)).mul(f32(0.5)),
         f32(1).sub(pos.y.add(f32(1)).mul(f32(0.5))),
@@ -70,7 +69,7 @@ const buildFsCompose = (sampleCount: number, texType: ShaderType) => {
   const revealageTex = bindingRef('revealage_tex', texType)
   return entryFn(
     'fs_compose', 'fragment',
-    [{ name: 'in', type: structT('VsOut') }],
+    [{ name: 'in', type: VsOut.type }],
     vec4fT,
     (b, p) => {
       // textureDimensions returns vec2<u32>; toF32 each component for the
@@ -79,7 +78,7 @@ const buildFsCompose = (sampleCount: number, texType: ShaderType) => {
       // explicit.
       const dimU = b.let('dim_u', textureDimensions(accumTex))
       const dim = b.let('dim', vec2(toF32(dimU.x), toF32(dimU.y)))
-      const inUv = p.in.field('uv', vec2fT)
+      const inUv = VsOut.of(p.in).uv
       const uv = b.let('uv', vec2i(toI32(inUv.x.mul(dim.x)), toI32(inUv.y.mul(dim.y))))
       const accumSum = b.var('accum_sum', vec4fT, vec4(f32(0), f32(0), f32(0), f32(0)))
       const revSum = b.var('rev_sum', f32T, f32(0))
@@ -108,7 +107,7 @@ const buildFsCompose = (sampleCount: number, texType: ShaderType) => {
 export const emitOitComposeWgsl = (sampleCount: number, isMsaa: boolean): string => {
   const texType = isMsaa ? texture2dMsfT : texture2dfT
   const oitComposeModule: ModuleDecl = module({
-    structs: [VsOut],
+    structs: [VsOut.decl],
     bindings: [
       { group: 0, binding: 0, name: 'accum_tex', space: 'uniform', type: texType },
       { group: 0, binding: 1, name: 'revealage_tex', space: 'uniform', type: texType },
