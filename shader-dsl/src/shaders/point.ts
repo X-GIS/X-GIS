@@ -22,7 +22,7 @@ import {
   f32, u32, i32, toF32, toU32, vec2, vec3, vec4, mix, exp, clamp,
   length, dot, min, max, smoothstep, fwidth, select,
   f32T, u32T, i32T, vec2fT, vec4fT, mat4x4fT, arrayT,
-  Let, Var, assign, assignOp, If, Loop, reduce, Switch, Return, Discard,
+  Let, Var, assign, assignOp, If, Loop, reduce, ifExpr, Switch, Return, Discard,
   type ModuleDecl,
 } from '../core/ir'
 import { ioStruct, builtin, location, uniformStruct, structDecl, storageBuffer } from '../core/sot'
@@ -408,12 +408,10 @@ const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: PointOut.type }]
   const blurUv = blurPx.div(max(pin.radius_px, f32(1)))
   const halfBand = aa.add(blurUv)
 
-  const dist = Var('dist', f32T)
-  If(shapeId.eq(u32(0)), () => {
-    assign(dist, length(pin.uv))   // analytical circle (fast path)
-  }).else(() => {
-    assign(dist, sdfShape(pin.uv, shapeId.sub(u32(1))))
-  })
+  const dist = ifExpr('dist', f32T, shapeId.eq(u32(0)),
+    () => length(pin.uv),   // analytical circle (fast path)
+    () => sdfShape(pin.uv, shapeId.sub(u32(1))),
+  )
 
   // Per-feature style.
   const fillColor = vec4(
