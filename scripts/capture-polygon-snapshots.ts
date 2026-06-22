@@ -36,14 +36,19 @@ import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
 import { execSync } from 'node:child_process'
-import { FIXTURES, emitForFixture } from '../runtime/src/engine/shader-dsl/shaders/_polygon-fixtures'
+import { FIXTURES, emitForFixture } from '../shader-dsl/src/shaders/_polygon-fixtures'
+// The projection graph is host-injected (configureProjections); the polygon emit reaches it
+// via getGpuProjectionFuncs(), so configure before any emitForFixture (mirrors the vitest setup).
+import { configureProjections } from '../shader-dsl/src/shaders/projections'
+import { PROJECTIONS } from '../runtime/src/engine/projection/projections-table'
+configureProjections(PROJECTIONS)
 
 const argBaseline = process.argv.find(a => a.startsWith('--baseline='))?.split('=')[1]
 const baselineSha = argBaseline ?? execSync('git rev-parse HEAD').toString().trim()
 
 const __filename = fileURLToPath(import.meta.url)
 const repoRoot = resolve(dirname(__filename), '..')
-const dir = join(repoRoot, 'runtime/src/engine/shader-dsl/shaders/__polygon-variant-snapshots__')
+const dir = join(repoRoot, 'shader-dsl/src/shaders/__polygon-variant-snapshots__')
 mkdirSync(dir, { recursive: true })
 
 let written = 0

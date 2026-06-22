@@ -8,10 +8,11 @@
 // and 6 fragment entries (fs_fill / fs_fill_pattern / fs_oit_translucent /
 // fs_fill_extrude / fs_stroke / fs_overdraw).
 //
-// Pattern (line.ts sibling): emitPolygonWgsl(variant, pickEnabled) PREPENDS
-// the shared DSL-emitted strings (WGSL_PROJECTION_CONSTS + WGSL_LOG_DEPTH_FNS
-// + WGSL_PROJECTION_FNS), then composes the polygon ModuleDecl with the
-// variant's preamble + fill/stroke exprs. fs_fill / fs_stroke contain
+// Pattern: emitPolygonWgsl(variant, pickEnabled) MERGES the shared projection +
+// log-depth dependency decls (PROJECTION_CONSTS + getGpuProjectionFuncs() +
+// apply_log_depth/compute_log_frag_depth) into the polygon ModuleDecl and emits it as
+// ONE module — no string prepend (the old WGSL_PROJECTION_CONSTS/FNS + LOG_DEPTH string
+// concat). The variant's preamble + fill/stroke exprs compose on top. fs_fill / fs_stroke contain
 // placeholder Stmts (tags 'fill-return' / 'stroke-return') that the composer
 // swaps with `[...preamble, return expr]` when the variant injects custom
 // fill/stroke logic; bare placeholders survive as `// __placeholder: ...`
@@ -31,8 +32,8 @@ import {
 } from '../core/ir'
 import { ioStruct, builtin, location, uniformStruct, resource } from '../core/sot'
 import { emitModule, emitFunc } from '../core/backends/wgsl'
-import { getProjectionWgslConsts, getProjectionWgslFns } from './projections'
-import { LOG_DEPTH_WGSL_FNS, apply_log_depth, compute_log_frag_depth } from './log-depth'
+import { PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
+import { apply_log_depth, compute_log_frag_depth } from './log-depth'
 
 // ── Struct declarations ──
 //
@@ -1172,21 +1173,27 @@ const buildPolygonModule = (
     }
   }
 
+  // Shared projection + log-depth dependencies are MERGED into this module (was: the three
+  // getProjectionWgslConsts() / LOG_DEPTH_WGSL_FNS / getProjectionWgslFns() strings that
+  // emitPolygonWgsl used to prepend). emitModule emits funcs in array order, callees before
+  // callers, so the shared fns lead: log-depth → projection → polygon's own. PROJECTION_CONSTS
+  // join the const block, which emitModule hoists ABOVE all funcs — that hoist is the only
+  // reorder vs the old prepend (same consts, same fns, same fn order), so the emit is
+  // semantically identical but NOT byte-identical (the polygon-variant snapshots are rebaked).
   return module({
-    consts: [...base.consts, ...(variant?.preamble?.consts ?? [])],
+    consts: [...PROJECTION_CONSTS, ...base.consts, ...(variant?.preamble?.consts ?? [])],
     structs: base.structs,
     bindings: [...base.bindings, ...extraBindings, ...(variant?.preamble?.bindings ?? [])],
-    funcs: [...composedFuncs, ...(variant?.preamble?.funcs ?? [])],
+    funcs: [apply_log_depth, compute_log_frag_depth, ...getGpuProjectionFuncs(), ...composedFuncs, ...(variant?.preamble?.funcs ?? [])],
   })
 }
 
 /** Polygon shader emit entry point.
  *
- *  Phase 2.5 US-007b SKELETON — emits the prepended projection consts +
- *  log-depth fns + projection fns, then the polygon base module (structs +
- *  fixed bindings + helpers + fs_overdraw). The 3 vertex + 5 main fragment
- *  entries + the placeholder Stmt swap + the pick attachment conditional
- *  land in subsequent iters.
+ *  Emits ONE module: the shared projection consts + log-depth fns + projection
+ *  fns are merged into buildPolygonModule's consts/funcs (callees first), then
+ *  the polygon structs + bindings + helpers + entries + fs_overdraw. No string
+ *  prepend — emitModule lays the whole graph down in dependency order.
  *
  *  `pickEnabled` toggles the pick attachment field + writes in the
  *  fragment output struct (replaces the old __PICK_FIELD__ / __PICK_WRITE__
@@ -1200,9 +1207,4 @@ const buildPolygonModule = (
 export const emitPolygonWgsl = (
   variant: ShaderVariantInfo | null,
   pickEnabled: boolean,
-): string => [
-  getProjectionWgslConsts(),
-  LOG_DEPTH_WGSL_FNS,
-  getProjectionWgslFns(),
-  emitModule(buildPolygonModule(variant, pickEnabled)),
-].join('\n')
+): string => emitModule(buildPolygonModule(variant, pickEnabled))
