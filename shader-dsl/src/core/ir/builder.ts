@@ -137,13 +137,21 @@ function subBody(fn: (b: Builder) => Node | void): Stmt[] {
   return b.stmts
 }
 
-/** A function authored with fn(): it IS a typed CALLABLE — `foo(a, b)` produces the call
- *  node (ret inferred, no string name) — AND it carries the FuncDecl shape (name/params/
- *  ret/body), so it drops straight into `module({ funcs: [foo] })` and `foo.decl` is the
- *  plain FuncDecl. This is the three.js-TSL `Fn` shape (callable + the function node in one
- *  value), so there is no separate callFn('name', …) string call. */
-export type FnHandle<R extends ShaderType> =
-  FuncDecl & ((...args: NodeLike[]) => Node<KeyOf<R>>) & { readonly decl: FuncDecl }
+/** A function authored with fn(): it IS a typed CALLABLE — AND it carries the FuncDecl shape
+ *  (name/params/ret/body), so it drops straight into `module({ funcs: [foo] })` and `foo.decl`
+ *  is the plain FuncDecl. This is the three.js-TSL `Fn` shape (callable + the function node in
+ *  one value), so there is no separate callFn('name', …) string call. Two call forms:
+ *   - TYPED object-param `foo({ lon, lat })` — TS checks arg names + types + completeness, and
+ *     autocompletes the params (positional args can't be typed: an object spec is not an
+ *     ordered tuple in TS). The args are mapped to positional order at the call.
+ *   - positional `foo(a, b)` — loose (NodeLike), the legacy form; still supported. */
+export type FnHandle<P extends ParamSpec, R extends ShaderType> =
+  FuncDecl
+  & {
+    (args: { readonly [K in keyof P]: Node<KeyOf<P[K]>> }): Node<KeyOf<R>>
+    (...args: NodeLike[]): Node<KeyOf<R>>
+  }
+  & { readonly decl: FuncDecl }
 
 /** Author a function. The body receives the typed param Nodes FIRST (each keyed by its
  *  ShaderType); the Builder is the optional SECOND arg — TSL-style (three.js Fn passes the
@@ -157,7 +165,7 @@ export function fn<P extends ParamSpec, R extends ShaderType>(
   ret: R,
   body: (p: ParamNodes<P>, b: Builder) => Node | void,
   opts?: { allowEarlyReturn?: boolean; lintDisable?: readonly string[] },
-): FnHandle<R> {
+): FnHandle<P, R> {
   const paramList = Object.entries(params).map(([n, type]) => ({ name: n, type }))
   const paramNodes = Object.fromEntries(
     paramList.map((p) => [p.name, new Node({ op: 'param', type: p.type, name: p.name })]),
@@ -172,7 +180,17 @@ export function fn<P extends ParamSpec, R extends ShaderType>(
   // The handle IS the call node factory; the FuncDecl fields are mixed onto it so it still
   // duck-types as a FuncDecl in a module's funcs[]. `name` is a non-writable function prop,
   // so it is set via defineProperty (Object.assign would throw on it under strict mode).
-  const handle = ((...args: NodeLike[]): Node<KeyOf<R>> => callFn(name, ret, ...args)) as FnHandle<R>
+  const handle = ((...args: NodeLike[]): Node<KeyOf<R>> => {
+    // Typed object-param call `foo({ lon, lat })` — map the named args to positional order.
+    // Distinguished from a single positional Node arg: a params object is a plain object, a
+    // Node is a class instance. (callFn then builds the identical call-by-name node.)
+    const a0 = args[0]
+    if (args.length === 1 && a0 != null && !(a0 instanceof Node) && typeof a0 === 'object' && !Array.isArray(a0)) {
+      const obj = a0 as Record<string, NodeLike>
+      return callFn(name, ret, ...paramList.map((p) => obj[p.name]))
+    }
+    return callFn(name, ret, ...args)
+  }) as FnHandle<P, R>
   // enumerable so `{ ...handle }` (e.g. the projection-fn spread) carries the name; a
   // function's own `name` is non-enumerable by default, which would drop it from a spread.
   Object.defineProperty(handle, 'name', { value: name, configurable: true, enumerable: true })
