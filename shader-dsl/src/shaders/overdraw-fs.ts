@@ -16,7 +16,7 @@ import { emitModule } from '../core/backends/wgsl'
 
 const fsOverdraw = entryFn(
   'fs_overdraw', 'fragment', [], vec4fT,
-  (b) => { b.ret(vec4(f32(1), f32(0), f32(0), f32(0))) },
+  (_p, b) => { b.ret(vec4(f32(1), f32(0), f32(0), f32(0))) },
   '@location(0)',
 )
 

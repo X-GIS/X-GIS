@@ -59,7 +59,7 @@ export function matchComputeKernel(spec: MatchKernelSpec): ModuleDecl {
   const outColor = bindingRef('out_color', arrayT(u32T))
   const uCount = bindingRef('u_count', vec4uT)
 
-  const entry = computeFn('eval_match', COMPUTE_WORKGROUP_SIZE, 'gid', (b, gid) => {
+  const entry = computeFn('eval_match', COMPUTE_WORKGROUP_SIZE, 'gid', (gid, b) => {
     const fid = b.let('fid', gid.x)
     b.if(fid.ge(uCount.x), (c) => { c.ret() })
     const v = b.let(`v_${spec.fieldName}`, featData.at(fid, f32T))

@@ -13,7 +13,7 @@ describe('max-function-length', () => {
   // the nested ones only count if the helper recurses into if/for/switch bodies.
   const m = module({
     funcs: [
-      fn('busy', { x: f32T }, f32T, (b, { x }) => {
+      fn('busy', { x: f32T }, f32T, ({ x }, b) => {
         b.let('y', x.mul(2)) // 1
         b.if(x.gt(f32(0)), (c) => { c.let('z', x.add(1)) }) // if = 1; then-arm let = 1 (needs recursion)
           .else((e) => { e.let('w', x.sub(1)) }) // else let = 1 (needs recursion)
@@ -31,7 +31,7 @@ describe('max-function-length', () => {
   })
 
   it('a tiny clean fn is silent at the default threshold', () => {
-    const ok = module({ funcs: [fn('ok', { x: f32T }, f32T, (_b, { x }) => x.mul(2))] })
+    const ok = module({ funcs: [fn('ok', { x: f32T }, f32T, ({ x }, _b) => x.mul(2))] })
     expect(ruleIds(ok)).toEqual([])
   })
 })

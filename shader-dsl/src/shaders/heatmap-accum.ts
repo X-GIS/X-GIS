@@ -68,7 +68,7 @@ const vs = entryFn('vs_heatmap', 'vertex', [
   { name: 'center', type: vec2fT, location: 0 },
   { name: 'quad_id', type: u32T, location: 1 },
   { name: 'feat_id', type: f32T, location: 2 },
-], HeatOut.type, (_b, p) => {
+], HeatOut.type, (p, _b) => {
   const offsets = Let('offsets', arrayLit(vec2fT,
     vec2(f32(-1), f32(-1)),
     vec2(f32(1), f32(-1)),
@@ -144,7 +144,7 @@ const vs = entryFn('vs_heatmap', 'vertex', [
 // contribution = weight · (exp(GAUSS_COEF · d²) − ZERO) over the unit disc
 // d=|uv|, with GAUSS_COEF = −1.5 and ZERO = exp(GAUSS_COEF) so the edge of
 // the disc contributes ~0 (continuous falloff to the quad boundary).
-const fs = entryFn('fs_heatmap', 'fragment', [{ name: 'in', type: HeatOut.type }], vec4fT, (_b, p) => {
+const fs = entryFn('fs_heatmap', 'fragment', [{ name: 'in', type: HeatOut.type }], vec4fT, (p, _b) => {
   const pin = HeatOut.of(p.in)
   const uv = Let('uv', pin.uv)
   const d2 = Let('d2', uv.x.mul(uv.x).add(uv.y.mul(uv.y)))

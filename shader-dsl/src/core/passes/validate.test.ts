@@ -22,7 +22,7 @@ describe('validate', () => {
   it('passes a hand-built good module (params + lets + return)', () => {
     const good = module({
       funcs: [
-        fn('add_scaled', { a: f32T, b: f32T }, f32T, (bld, { a, b }) => {
+        fn('add_scaled', { a: f32T, b: f32T }, f32T, ({ a, b }, bld) => {
           const s = bld.let('s', a.add(b))
           const t = bld.let('t', s.mul(2))
           bld.ret(t)
@@ -41,7 +41,7 @@ describe('validate', () => {
   it('does NOT flag a varref/param to a compiler-injected name (OPACITY regression)', () => {
     const m = module({
       funcs: [
-        fn('fs_fill', {}, f32T, (bld) => {
+        fn('fs_fill', {}, f32T, (_p, bld) => {
           bld.ret(param('OPACITY', f32T)) // injected outside m.consts; validate cannot know it
         }),
       ],
@@ -72,8 +72,8 @@ describe('validate', () => {
   it('throws on a duplicate func name', () => {
     const bad = module({
       funcs: [
-        fn('foo', {}, f32T, (bld) => { bld.ret(f32(1)) }),
-        fn('foo', {}, f32T, (bld) => { bld.ret(f32(2)) }),
+        fn('foo', {}, f32T, (_p, bld) => { bld.ret(f32(1)) }),
+        fn('foo', {}, f32T, (_p, bld) => { bld.ret(f32(2)) }),
       ],
     })
     expect(() => validate(bad)).toThrow(ValidationError)
@@ -82,7 +82,7 @@ describe('validate', () => {
   it('throws on a non-void fn that never returns', () => {
     const bad = module({
       funcs: [
-        fn('no_return', {}, f32T, (bld) => {
+        fn('no_return', {}, f32T, (_p, bld) => {
           bld.let('unused', f32(1)) // a let, no return → falls through
         }),
       ],
@@ -97,8 +97,8 @@ describe('validate', () => {
     // WGSL/GLSL writers reject (here: a duplicate function name).
     const bad = module({
       funcs: [
-        fn('dup', {}, f32T, (b) => { b.ret(f32(1)) }),
-        fn('dup', {}, f32T, (b) => { b.ret(f32(2)) }),
+        fn('dup', {}, f32T, (_p, b) => { b.ret(f32(1)) }),
+        fn('dup', {}, f32T, (_p, b) => { b.ret(f32(2)) }),
       ],
     })
     expect(() => compileModule(bad)).toThrow(ValidationError)
@@ -113,7 +113,7 @@ describe('validate', () => {
     // case; a Node-vs-Node scalar mismatch needs the validator.)
     const bad = module({
       funcs: [
-        fn('mixed', { a: f32T, b: u32T }, f32T, (bld, { a, b }) => {
+        fn('mixed', { a: f32T, b: u32T }, f32T, ({ a, b }, bld) => {
           bld.ret(a.add(b))
         }),
       ],
@@ -150,7 +150,7 @@ describe('validate', () => {
   it('does not throw on a constref not in module.consts', () => {
     const m = module({
       funcs: [
-        fn('uses_const', {}, f32T, (bld) => {
+        fn('uses_const', {}, f32T, (_p, bld) => {
           // PI is prepended as raw WGSL, never in m.consts — must be skipped.
           bld.ret(constRef('PI').mul(2))
         }),
@@ -166,7 +166,7 @@ describe('validate', () => {
       structs: [{ name: 'Uniforms', fields: [{ name: 'k', type: f32T }] }],
       bindings: [{ group: 0, binding: 0, name: 'u', space: 'uniform', type: structT('Uniforms') }],
       funcs: [
-        fn('uses_binding', {}, f32T, (bld) => {
+        fn('uses_binding', {}, f32T, (_p, bld) => {
           bld.ret(bindingRef('u', structT('Uniforms')).field('k', f32T))
         }),
       ],
@@ -195,7 +195,7 @@ describe('validate', () => {
   it('does not throw on a cross-module callFn target not in module.funcs', () => {
     const m = module({
       funcs: [
-        fn('caller', { lon: f32T, lat: f32T }, vec4fT, (bld, { lon, lat }) => {
+        fn('caller', { lon: f32T, lat: f32T }, vec4fT, ({ lon, lat }, bld) => {
           // proj_globe is prepended as raw WGSL, never in m.funcs.
           bld.ret(callFn('proj_globe', vec4fT, lon, lat))
         }),

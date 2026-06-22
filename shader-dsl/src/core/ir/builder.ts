@@ -137,13 +137,16 @@ function subBody(fn: (b: Builder) => Node | void): Stmt[] {
   return b.stmts
 }
 
-/** Author a function. The body callback receives the builder + typed param
- *  Nodes (each keyed by its ShaderType). Returns a FuncDecl for the module. */
+/** Author a function. The body receives the typed param Nodes FIRST (each keyed by its
+ *  ShaderType); the Builder is the optional SECOND arg — TSL-style (three.js Fn passes the
+ *  inputs then the node-builder), so a clean body is just `(p) => …` using the ambient
+ *  surface (Let/Var/If/Loop/Return + native terminal return) and only reaches for `b` when
+ *  it must. Single call signature, so the param types still infer. Returns a FuncDecl. */
 export function fn<P extends ParamSpec>(
   name: string,
   params: P,
   ret: ShaderType,
-  body: (b: Builder, p: ParamNodes<P>) => Node | void,
+  body: (p: ParamNodes<P>, b: Builder) => Node | void,
   opts?: { allowEarlyReturn?: boolean; lintDisable?: readonly string[] },
 ): FuncDecl {
   const paramList = Object.entries(params).map(([n, type]) => ({ name: n, type }))
@@ -154,7 +157,7 @@ export function fn<P extends ParamSpec>(
   // A body may `return value` (native TS) for its FINAL return — fn appends the
   // ret Stmt, so authoring reads like a normal function. Early returns inside
   // control flow still use Return() (a native return there only exits the closure).
-  const result = withScope(b, () => body(b, paramNodes))
+  const result = withScope(b, () => body(paramNodes, b))
   if (result !== undefined) b.ret(result)
   return { name, params: paramList, ret, body: b.stmts, allowEarlyReturn: opts?.allowEarlyReturn, lintDisable: opts?.lintDisable }
 }
@@ -167,7 +170,7 @@ export function defineFn<P extends ParamSpec, R extends ShaderType>(
   name: string,
   params: P,
   ret: R,
-  body: (b: Builder, p: ParamNodes<P>) => Node | void,
+  body: (p: ParamNodes<P>, b: Builder) => Node | void,
 ): ((...args: NodeLike[]) => Node<KeyOf<R>>) & { readonly decl: FuncDecl } {
   const decl = fn(name, params, ret, body)
   const call = (...args: NodeLike[]): Node<KeyOf<R>> => callFn(name, ret, ...args)
@@ -181,11 +184,11 @@ export function computeFn(
   name: string,
   workgroupSize: number,
   gidName: string,
-  body: (b: Builder, gid: Node<'vec3<u32>'>) => void,
+  body: (gid: Node<'vec3<u32>'>, b: Builder) => void,
 ): FuncDecl {
   const gid = new Node<'vec3<u32>'>({ op: 'param', type: vec3uT, name: gidName })
   const b = new Builder()
-  withScope(b, () => body(b, gid))
+  withScope(b, () => body(gid, b))
   return {
     name,
     params: [{ name: gidName, type: vec3uT, builtin: 'global_invocation_id' }],
@@ -209,14 +212,14 @@ export function entryFn<const P extends readonly EntryParam[]>(
   stage: 'vertex' | 'fragment',
   params: P,
   ret: ShaderType,
-  body: (b: Builder, p: EntryParamNodes<P>) => Node | void,
+  body: (p: EntryParamNodes<P>, b: Builder) => Node | void,
   retAttr?: string,
 ): FuncDecl {
   const paramNodes: Record<string, Node> = {}
   for (const p of params) paramNodes[p.name] = new Node({ op: 'param', type: p.type, name: p.name })
   const b = new Builder()
   // Native `return value` for the final return (see fn).
-  const result = withScope(b, () => body(b, paramNodes as EntryParamNodes<P>))
+  const result = withScope(b, () => body(paramNodes as EntryParamNodes<P>, b))
   if (result !== undefined) b.ret(result)
   return {
     name,

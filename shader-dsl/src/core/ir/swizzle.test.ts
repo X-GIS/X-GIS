@@ -26,9 +26,9 @@ describe('ir — multi-component swizzle getters', () => {
   it('CPU eval reorders components per the swizzle', () => {
     const m = compileModule(module({
       funcs: [
-        fn('zxy', { p: vec3fT }, vec3fT, (_b, { p }) => p.zxy),
-        fn('yzx', { p: vec3fT }, vec3fT, (_b, { p }) => p.yzx),
-        fn('xy', { p: vec3fT }, vec2fT, (_b, { p }) => p.xy),
+        fn('zxy', { p: vec3fT }, vec3fT, ({ p }, _b) => p.zxy),
+        fn('yzx', { p: vec3fT }, vec3fT, ({ p }, _b) => p.yzx),
+        fn('xy', { p: vec3fT }, vec2fT, ({ p }, _b) => p.xy),
       ],
     }))
     expect(m.fns.zxy([1, 2, 3])).toEqual([3, 1, 2]) // [z,x,y]

@@ -45,7 +45,7 @@ const atlasSmp = resource('atlas_smp', samplerT, { group: 0, binding: 2 })
 const vs = entryFn('vs', 'vertex', [
   { name: 'pos_px', type: vec2fT, location: 0 },
   { name: 'uv', type: vec2fT, location: 1 },
-], VsOut.type, (_b, p) => {
+], VsOut.type, (p, _b) => {
   const vp = U.field.viewport
   const ndc_x = Let('ndc_x', p.pos_px.x.div(vp.x).mul(2).sub(1))
   const ndc_y = Let('ndc_y', f32(1).sub(p.pos_px.y.div(vp.y).mul(2)))
@@ -56,7 +56,7 @@ const vs = entryFn('vs', 'vertex', [
   return out
 })
 
-const fs = entryFn('fs', 'fragment', [{ name: 'in', type: VsOut.type }], vec4fT, (_b, p) => {
+const fs = entryFn('fs', 'fragment', [{ name: 'in', type: VsOut.type }], vec4fT, (p, _b) => {
   const sdf = Let('sdf', textureSample(atlasTex.node, atlasSmp.node, VsOut.of(p.in).uv).r)
   const fill = U.field.fill_color
   const halo = U.field.halo_color

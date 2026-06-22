@@ -40,7 +40,7 @@ const vsFull = entryFn(
   'vs_full', 'vertex',
   [{ name: 'idx', type: u32T, builtin: 'vertex_index' }],
   VsOut.type,
-  (b, p) => {
+  (p, b) => {
     const pos = b.var('pos', vec2fT, vec2(f32(-1), f32(-1)))
     b.if(p.idx.eq(u32(1)), (c) => { c.assign(pos, vec2(f32(3), f32(-1))) })
       .elif(p.idx.eq(u32(2)), (c) => { c.assign(pos, vec2(f32(-1), f32(3))) })
@@ -71,7 +71,7 @@ const buildFsCompose = (sampleCount: number, texType: ShaderType) => {
     'fs_compose', 'fragment',
     [{ name: 'in', type: VsOut.type }],
     vec4fT,
-    (b, p) => {
+    (p, b) => {
       // textureDimensions returns vec2<u32>; toF32 each component for the
       // uv → texel-coord multiply. WGSL doesn't auto-convert across
       // signed/unsigned/float in vec construction, so the conversion is

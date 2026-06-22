@@ -14,7 +14,7 @@ const buf = bindingRef('buf', structT('Buf'))
 const cseWitness = (): ModuleDecl => module({
   structs: [{ name: 'Buf', fields: [{ name: 'v', type: f32T }] }],
   bindings: [{ group: 0, binding: 0, name: 'buf', space: 'storage' as const, access: 'read_write' as const, type: structT('Buf') }],
-  funcs: [fn('k', {}, f32T, (b) => {
+  funcs: [fn('k', {}, f32T, (_p, b) => {
     const a = b.let('a', buf.field('v', f32T).add(buf.field('v', f32T))) // buf.v read 2x
     b.assign(buf.field('v', f32T), f32(7)) // store to buf.v
     b.ret(a)
@@ -24,7 +24,7 @@ const cseWitness = (): ModuleDecl => module({
 const licmWitness = (): ModuleDecl => module({
   structs: [{ name: 'Buf', fields: [{ name: 'v', type: f32T }] }],
   bindings: [{ group: 0, binding: 0, name: 'buf', space: 'storage' as const, access: 'read_write' as const, type: structT('Buf') }],
-  funcs: [fn('k', {}, f32T, (b) => {
+  funcs: [fn('k', {}, f32T, (_p, b) => {
     const acc = b.var('acc', f32T, f32(0))
     b.forRange('i', i32(0), (i) => i.lt(i32(4)), (cb) => {
       cb.addAssign(acc, buf.field('v', f32T)) // read buf.v in the loop

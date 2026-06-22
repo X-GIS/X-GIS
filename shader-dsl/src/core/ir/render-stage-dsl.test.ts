@@ -33,7 +33,7 @@ const FOut: StructDecl = {
 
 const u = bindingRef('u', structT('U'))
 
-const vs = entryFn('vs', 'vertex', [{ name: 'idx', type: u32T, builtin: 'vertex_index' }], structT('VOut'), (b, { idx }) => {
+const vs = entryFn('vs', 'vertex', [{ name: 'idx', type: u32T, builtin: 'vertex_index' }], structT('VOut'), ({ idx }, b) => {
   const p = b.let('p', arrayLit(vec2fT,
     vec2(f32(-1), f32(-1)), vec2(f32(1), f32(-1)), vec2(f32(0), f32(1))))
   const local = b.let('local', p.at(idx, vec2fT).sub(u.field('cam', vec2fT)))
@@ -42,7 +42,7 @@ const vs = entryFn('vs', 'vertex', [{ name: 'idx', type: u32T, builtin: 'vertex_
   b.ret(out)
 })
 
-const fs = entryFn('fs', 'fragment', [{ name: 'in', type: structT('VOut') }], structT('FOut'), (b) => {
+const fs = entryFn('fs', 'fragment', [{ name: 'in', type: structT('VOut') }], structT('FOut'), (_p, b) => {
   const out = b.var('out', structT('FOut'))
   b.assign(out.field('color', vec4fT), u.field('color', vec4fT))
   b.ret(out)
