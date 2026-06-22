@@ -1,43 +1,42 @@
-// ═══ Shader DSL — ECEF helpers (Phase 2 PR 2a scaffolding) ═══
+// ═══ Shader DSL — ECEF helpers (DSL-authored) ═══
 //
-// WGSL helpers for ECEF (Earth-Centered Earth-Fixed) Cartesian math, used by
-// the Tier 3 vertex pipeline once polygon/line/point/raster VSes drop their
-// non-linear `project_geom` call and become `mvp * vec4(ecef_rtc, 1)`.
-//
-// Phase 2 PR 2a ships the WGSL source strings; no shader currently inlines
-// them. PR 2c (polygon VS migration) is the first consumer.
-//
-// CPU mirror lives in `runtime/src/engine/projection/ecef.ts` — same
-// constants, same formulas. Cross-validation tests at
-// `runtime/src/engine/projection/ecef.test.ts`.
+// ECEF (Earth-Centered Earth-Fixed) Cartesian math for the Tier-3 vertex pipeline.
+// Authored as DSL functions (not raw WGSL strings) so the math is type-checked,
+// CPU-evaluable (cross-validated against runtime/src/engine/projection/ecef.ts), and
+// backend-portable. The ECEF_WGSL_* exports are now DERIVED by emitting these DSL
+// fns/consts — line.ts / raster.ts still import the same names, so they pick up the
+// DSL-emitted WGSL with no call-site change. (Was: hand-written WGSL template literals.)
+
+import {
+  fn, f32, f32T, vec3, vec3fT, sin, cos, sqrt, constRef, Let,
+  type ConstDecl, type FuncDecl,
+} from '../core/ir'
+import { emitConst, emitFunc } from '../core/backends/wgsl'
 
 /** WGS84 ellipsoid constants — semi-major axis (m) + eccentricity² (= 2f - f²
- *  with f = 1/298.257223563). Inlined as f32 literals; the polygon VS
- *  already has the WORLD_MERC / EARTH_R constant inlining pattern. */
-export const ECEF_WGSL_CONSTS = /* wgsl */`
-const WGS84_A: f32 = 6378137.0;
-const WGS84_E2: f32 = 0.0066943799901975955;  // 2f - f² for f = 1/298.257223563
-const DEG2RAD_F: f32 = 0.017453292519943295;
-`
+ *  with f = 1/298.257223563), and degrees→radians. */
+export const ECEF_CONSTS: ConstDecl[] = [
+  { name: 'WGS84_A', type: f32T, wgslValue: 6378137.0, cpuValue: 6378137.0 },
+  { name: 'WGS84_E2', type: f32T, wgslValue: 0.0066943799901975955, cpuValue: 0.0066943799901975955 },
+  { name: 'DEG2RAD_F', type: f32T, wgslValue: 0.017453292519943295, cpuValue: 0.017453292519943295 },
+]
 
-/** WGSL function: lon/lat (radians) + height (m) → ECEF (m).
- *  Mirrors `lonLatToECEF` on the CPU side. Caller converts lon/lat from
- *  degrees up front if needed. */
-export const ECEF_WGSL_FNS = /* wgsl */`
-fn lonlat_to_ecef(lon_rad: f32, lat_rad: f32, height: f32) -> vec3<f32> {
-  let sin_lat: f32 = sin(lat_rad);
-  let cos_lat: f32 = cos(lat_rad);
-  let n: f32 = WGS84_A / sqrt(1.0 - WGS84_E2 * sin_lat * sin_lat);
-  let x: f32 = (n + height) * cos_lat * cos(lon_rad);
-  let y: f32 = (n + height) * cos_lat * sin(lon_rad);
-  let z: f32 = (n * (1.0 - WGS84_E2) + height) * sin_lat;
-  return vec3<f32>(x, y, z);
-}
+/** lon/lat (radians) + height (m) → ECEF (m). Mirrors lonLatToECEF on the CPU side. */
+const lonlatToEcef = fn('lonlat_to_ecef', { lon_rad: f32T, lat_rad: f32T, height: f32T }, vec3fT, (_b, p) => {
+  const sinLat = Let('sin_lat', sin(p.lat_rad))
+  const cosLat = Let('cos_lat', cos(p.lat_rad))
+  const n = Let('n', constRef('WGS84_A').div(sqrt(f32(1).sub(constRef('WGS84_E2').mul(sinLat).mul(sinLat)))))
+  const x = Let('x', n.add(p.height).mul(cosLat).mul(cos(p.lon_rad)))
+  const y = Let('y', n.add(p.height).mul(cosLat).mul(sin(p.lon_rad)))
+  const z = Let('z', n.mul(f32(1).sub(constRef('WGS84_E2'))).add(p.height).mul(sinLat))
+  return vec3(x, y, z)
+})
 
-// DSFUN reconstruction: rtc = hi + lo. The polygon VS in Phase 2 PR 2c
-// will read pos_h + pos_l as ECEF-RTC pairs and sum them as the first
-// line of the VS body, matching the Mercator pos_h + pos_l pattern.
-fn ecef_rtc_reconstruct(pos_h: vec3<f32>, pos_l: vec3<f32>) -> vec3<f32> {
-  return pos_h + pos_l;
-}
-`
+/** DSFUN reconstruction: rtc = hi + lo (the VS sums the ECEF-RTC pair). */
+const ecefRtcReconstruct = fn('ecef_rtc_reconstruct', { pos_h: vec3fT, pos_l: vec3fT }, vec3fT, (_b, p) => p.pos_h.add(p.pos_l))
+
+export const ECEF_FUNCS: FuncDecl[] = [lonlatToEcef, ecefRtcReconstruct]
+
+// Derived WGSL — the same export names line.ts / raster.ts already import.
+export const ECEF_WGSL_CONSTS = `${ECEF_CONSTS.map(emitConst).join('\n')}\n`
+export const ECEF_WGSL_FNS = `${ECEF_FUNCS.map(emitFunc).join('\n\n')}\n`
