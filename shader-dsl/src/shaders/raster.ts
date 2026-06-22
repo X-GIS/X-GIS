@@ -19,7 +19,7 @@ import {
   entryFn, module, constRef, callFn, transformMat4, arrayLit,
   f32, u32, toF32, vec2, vec3, vec4, vec2u, mix, atan, exp, smoothstep, textureSample,
   f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
-  Var, assign, If, Discard,
+  Var, assign, If, condExpr, Discard,
   type ModuleDecl,
 } from '../core/ir'
 import { ioStruct, builtin, location, uniformStruct, resource } from '../core/sot'
@@ -117,24 +117,24 @@ const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 've
   // there. u.mvp is the matching matrix (Camera.getViewForProjection). f32
   // reprojection ≈ 1 m at extreme zoom (P1), sub-pixel for texture-grade
   // raster.
-  const clip = Var('clip', vec4fT)
-  If(projParams.x.lt(0.5), () => {
-    const latDeg = latRad.div(constRef('DEG2RAD'))
-    const p2d = project(lon, latDeg, projParams)
-    const rel2d = p2d.sub(vec2(camEcef.x, camEcef.y))
-    assign(clip, transformMat4(U.field.mvp, vec4(rel2d.x, rel2d.y, f32(0), f32(1))))
-  }).elif(projParams.x.lt(6.5), () => {
-    // FLAT non-Mercator (1-6): reproject the reconstructed lon/lat via
-    // project_geom (world-copy aware; tileRefLon = tile-centre lon from the
-    // tile bounds) minus the camera's projected centre (in-shader from
-    // proj_params.y/z = clon/clat). Same flat MVP; cam_ecef_center unused here.
-    const latDeg = latRad.div(constRef('DEG2RAD'))
-    const tileRefLon = bounds.x.add(bounds.z).mul(0.5)
-    const relG = flat_rel(lon, latDeg, projParams, tileRefLon)
-    assign(clip, transformMat4(U.field.mvp, vec4(relG.x, relG.y, f32(0), f32(1))))
-  }).else(() => {
-    assign(clip, transformMat4(U.field.mvp, vec4(ecefRtc, f32(1))))
-  })
+  const clip = condExpr('clip', vec4fT, [
+    [projParams.x.lt(0.5), () => {
+      const latDeg = latRad.div(constRef('DEG2RAD'))
+      const p2d = project(lon, latDeg, projParams)
+      const rel2d = p2d.sub(vec2(camEcef.x, camEcef.y))
+      return transformMat4(U.field.mvp, vec4(rel2d.x, rel2d.y, f32(0), f32(1)))
+    }],
+    [projParams.x.lt(6.5), () => {
+      // FLAT non-Mercator (1-6): reproject the reconstructed lon/lat via
+      // project_geom (world-copy aware; tileRefLon = tile-centre lon from the
+      // tile bounds) minus the camera's projected centre (in-shader from
+      // proj_params.y/z = clon/clat). Same flat MVP; cam_ecef_center unused here.
+      const latDeg = latRad.div(constRef('DEG2RAD'))
+      const tileRefLon = bounds.x.add(bounds.z).mul(0.5)
+      const relG = flat_rel(lon, latDeg, projParams, tileRefLon)
+      return transformMat4(U.field.mvp, vec4(relG.x, relG.y, f32(0), f32(1)))
+    }],
+  ], () => transformMat4(U.field.mvp, vec4(ecefRtc, f32(1))))
   assign(o.pos, apply_log_depth(clip, projParams.w))
   assign(o.view_w, clip.w)
   assign(o.uv, vec2(uu, vv))

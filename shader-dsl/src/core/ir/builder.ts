@@ -435,6 +435,25 @@ export function ifExpr<T extends ShaderType>(
   return v
 }
 
+/** N-arm immutable if-expression — `var v; if (c0) { v = e0 } else if (c1) { v = e1 } ... else
+ *  { v = eN }`. Each arm RETURNS its value (arms may have intermediate const/Let before the
+ *  return); the materialised var + if/elif/else chain is byte-identical to the hand form. The
+ *  2-arm `ifExpr` is the single-arm case of this. */
+export function condExpr<T extends ShaderType>(
+  name: string,
+  type: T,
+  arms: ReadonlyArray<readonly [Node<'bool'>, () => Node<KeyOf<T>>]>,
+  elseVal: () => Node<KeyOf<T>>,
+): Node<KeyOf<T>> {
+  const v = currentBuilder().var(name, type) as Node<KeyOf<T>>
+  let chain = currentBuilder().if(arms[0][0], () => currentBuilder().assign(v, arms[0][1]()))
+  for (let k = 1; k < arms.length; k++) {
+    chain = chain.elif(arms[k][0], () => currentBuilder().assign(v, arms[k][1]()))
+  }
+  chain.else(() => currentBuilder().assign(v, elseVal()))
+  return v
+}
+
 export const Switch = (
   scrut: Node<ScalarKey>,
   cases: Array<[number, () => Node | void]>,
