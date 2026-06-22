@@ -20,7 +20,7 @@
 // sampling the offscreen RT) is emitted alongside via emitCompositeWgsl().
 
 import {
-  entryFn, fn, module, bindingRef, constRef, callFn, transformMat4,
+  entryFn, fn, module, bindingRef, constRef, transformMat4,
   f32, i32, u32, toF32, vec2, vec3, vec4, vec2u, clamp, fract, sign,
   length, dot, min, max, smoothstep, abs, floor, select, textureSample,
   bitcastU32, unpack4x8unorm,
@@ -34,7 +34,7 @@ import {
 } from '../core/ir'
 import { ioStruct, builtin, location } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
-import { getProjectionWgslConsts, getProjectionWgslFns } from './projections'
+import { getProjectionWgslConsts, getProjectionWgslFns, inv_merc_lat_rad, flat_rel, needs_backface_cull, rim_alpha } from './projections'
 import { ECEF_WGSL_CONSTS, ECEF_WGSL_FNS, lonlatToEcef } from './ecef'
 import { LOG_DEPTH_WGSL_FNS, apply_log_depth, compute_log_frag_depth } from './log-depth'
 import {
@@ -257,7 +257,7 @@ const finalizeCorner = fn('finalize_corner', { corner: vec2fT }, vec2fT, (p, _b)
   const tileOrigin = tile.field('tile_origin_merc', vec2fT)
   const absMerc = Let('abs_merc', p.corner.add(tileOrigin))
   const absLon = Let('abs_lon', absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R'))))
-  const latRad = Let('lat_rad', callFn('inv_merc_lat_rad', f32T, absMerc.y))
+  const latRad = Let('lat_rad', inv_merc_lat_rad(absMerc.y))
   const absLat = Let('abs_lat', latRad.div(constRef('DEG2RAD')))
   const tileRefLon = Let('tile_ref_lon',
     tileOrigin.x.add(f32(0.5).mul(tile.field('tile_extent_m', f32T)))
@@ -265,7 +265,7 @@ const finalizeCorner = fn('finalize_corner', { corner: vec2fT }, vec2fT, (p, _b)
   )
   // single-exit: Mercator (proj<0.5) passes the corner through; else the reprojected
   // flat_rel. flat_rel is pure, so computing it on the Mercator path (selected away) is harmless.
-  const flatRel = callFn('flat_rel', vec2fT, absLon, absLat, projParams, tileRefLon)
+  const flatRel = flat_rel(absLon, absLat, projParams, tileRefLon)
   return select(projParams.x.lt(0.5), p.corner, flatRel)
 })
 
@@ -274,9 +274,9 @@ const endpointCosC = fn('endpoint_cos_c', { p_h: vec2fT, p_l: vec2fT }, f32T, (p
   const absMercX = Let('abs_merc_x', p.p_h.x.add(p.p_l.x).add(tileOrigin.x))
   const absMercY = Let('abs_merc_y', p.p_h.y.add(p.p_l.y).add(tileOrigin.y))
   const absLon = Let('abs_lon', absMercX.div(constRef('DEG2RAD').mul(constRef('EARTH_R'))))
-  const latRad = Let('lat_rad', callFn('inv_merc_lat_rad', f32T, absMercY))
+  const latRad = Let('lat_rad', inv_merc_lat_rad(absMercY))
   const absLat = Let('abs_lat', latRad.div(constRef('DEG2RAD')))
-  return callFn('needs_backface_cull', f32T, absLon, absLat, tile.field('proj_params', vec4fT))
+  return needs_backface_cull(absLon, absLat, tile.field('proj_params', vec4fT))
 })
 
 const patternUnitToM = fn('pattern_unit_to_m', { v: f32T, unit: u32T, mpp: f32T }, f32T, (p, _b) => {
@@ -344,9 +344,9 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
   b.if(projParams.x.ge(0.5), (c) => {
     const absMerc = c.let('abs_merc', p.input.field('world_local', vec2fT).add(tileOrigin))
     const absLon = c.let('abs_lon', absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R'))))
-    const latRad = c.let('lat_rad', callFn('inv_merc_lat_rad', f32T, absMerc.y))
+    const latRad = c.let('lat_rad', inv_merc_lat_rad(absMerc.y))
     const absLat = c.let('abs_lat', latRad.div(constRef('DEG2RAD')))
-    c.if(callFn('needs_backface_cull', f32T, absLon, absLat, projParams).lt(0), (d) => { d.discard() })
+    c.if(needs_backface_cull(absLon, absLat, projParams).lt(0), (d) => { d.discard() })
   })
 
   // Per-tile clip mask (sentinel -1e30 skips). Reconstruct absolute Mercator
@@ -776,9 +776,9 @@ const lineRimAlpha = fn('line_rim_alpha', { input: structT('LineOut') }, f32T, (
   const tileOrigin = tile.field('tile_origin_merc', vec2fT)
   const absMerc = Let('abs_merc', p.input.field('world_local', vec2fT).add(tileOrigin))
   const absLon = Let('abs_lon', absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R'))))
-  const latRad = Let('lat_rad', callFn('inv_merc_lat_rad', f32T, absMerc.y))
+  const latRad = Let('lat_rad', inv_merc_lat_rad(absMerc.y))
   const absLat = Let('abs_lat', latRad.div(constRef('DEG2RAD')))
-  return callFn('rim_alpha', f32T, absLon, absLat, tile.field('proj_params', vec4fT))
+  return rim_alpha(absLon, absLat, tile.field('proj_params', vec4fT))
 })
 
 // ── vs_line ──

@@ -31,7 +31,7 @@ import {
 } from '../core/ir'
 import { ioStruct, builtin, location, uniformStruct, resource } from '../core/sot'
 import { emitModule, emitFunc } from '../core/backends/wgsl'
-import { getProjectionWgslConsts, getProjectionWgslFns } from './projections'
+import { getProjectionWgslConsts, getProjectionWgslFns, project, flat_rel, needs_backface_cull, rim_alpha, inv_merc_lat_rad } from './projections'
 import { LOG_DEPTH_WGSL_FNS, apply_log_depth, compute_log_frag_depth } from './log-depth'
 
 // ── Struct declarations ──
@@ -166,9 +166,9 @@ const polygonCosCFragment = fn(
     const deg2rad = constRef('DEG2RAD')
     const earthR = constRef('EARTH_R')
     const absLon = Let('abs_lon', p.abs_merc_x.div(deg2rad.mul(earthR)))
-    const latRad = Let('lat_rad', callFn('inv_merc_lat_rad', f32T, p.abs_merc_y))
+    const latRad = Let('lat_rad', inv_merc_lat_rad(p.abs_merc_y))
     const absLat = Let('abs_lat', latRad.div(deg2rad))
-    return callFn('needs_backface_cull', f32T, absLon, absLat, u.field('proj_params', vec4fT))
+    return needs_backface_cull(absLon, absLat, u.field('proj_params', vec4fT))
   },
 )
 
@@ -185,9 +185,9 @@ const polygonRimAlpha = fn(
     const deg2rad = constRef('DEG2RAD')
     const earthR = constRef('EARTH_R')
     const absLon = Let('abs_lon', p.abs_merc_x.div(deg2rad.mul(earthR)))
-    const latRad = Let('lat_rad', callFn('inv_merc_lat_rad', f32T, p.abs_merc_y))
+    const latRad = Let('lat_rad', inv_merc_lat_rad(p.abs_merc_y))
     const absLat = Let('abs_lat', latRad.div(deg2rad))
-    return callFn('rim_alpha', f32T, absLon, absLat, u.field('proj_params', vec4fT))
+    return rim_alpha(absLon, absLat, u.field('proj_params', vec4fT))
   },
 )
 
@@ -281,7 +281,7 @@ const emitPolygonProjectionLadder = (
       c.assign(clip, transformMat4(mvp, vec4(relLocal.x, relLocal.y, zPlane, f32(1))))
       return
     }
-    const p2d = c.let('p2d', callFn('project', vec2fT, absLon, absLat, projParamsV))
+    const p2d = c.let('p2d', project(absLon, absLat, projParamsV))
     const rel2d = c.let('rel2d',
       p2d.sub(u.field('tile_origin_merc', vec2fT)).sub(u.field('cam_h', vec2fT)).sub(u.field('cam_l', vec2fT)))
     // World-copy offset (world-copy fill-gap fix): project() returns the
@@ -310,7 +310,7 @@ const emitPolygonProjectionLadder = (
         .div(deg2rad.mul(earthR)))
     // #398: project from discLat (TRUE lat) when supplied; absLat would pin the
     // polar caps to the 85.05 ring. Extruded VS → absLat (discLat undefined).
-    const relG = c.let('rel2d_geom', callFn('flat_rel', vec2fT, absLon, discLat ?? absLat, projParamsV, tileRefLon))
+    const relG = c.let('rel2d_geom', flat_rel(absLon, discLat ?? absLat, projParamsV, tileRefLon))
     const zG = extruded ? c.let('z_plane_geom', wallHeight!.mul(isTop!)) : f32(0)
     c.assign(clip, transformMat4(mvp, vec4(relG.x, relG.y, zG, f32(1))))
   }).else((c) => {
@@ -479,7 +479,7 @@ const vsMainEcef = entryFn(
     const absMercX = b.let('abs_merc_x', p.abs_lon.add(tileOriginM.x))
     const absMercY = b.let('abs_merc_y', p.abs_lat.add(tileOriginM.y))
     const absLatClamped = b.let('abs_lat_clamped',
-      clamp(callFn('inv_merc_lat_rad', f32T, absMercY).div(deg2rad), mercLatLim.neg(), mercLatLim))
+      clamp(inv_merc_lat_rad(absMercY).div(deg2rad), mercLatLim.neg(), mercLatLim))
 
     const out = b.var('out', structT('VertexOutput'))
     // Display projection (projection-display-layer-restore): flat Mercator
