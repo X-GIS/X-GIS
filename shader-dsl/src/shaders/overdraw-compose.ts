@@ -11,25 +11,22 @@
 // emit helper that returns the compose pipeline's WGSL.
 
 import {
-  entryFn, fn, module, bindingRef, callFn,
+  entryFn, fn, module, callFn,
   f32, u32, vec2, vec3, vec4, toF32, toI32,
   clamp,
   textureLoad, textureDimensions, vec2i,
   f32T, u32T, vec2fT, vec3fT, vec4fT, texture2dfT,
-  structT,
-  type StructDecl, type ModuleDecl,
+  type ModuleDecl,
 } from '../core/ir'
+import { ioStruct, builtin, location, resource } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
 
-const VsOut: StructDecl = {
-  name: 'VsOut',
-  fields: [
-    { name: 'pos', type: vec4fT, attr: '@builtin(position)' },
-    { name: 'uv', type: vec2fT, attr: '@location(0)' },
-  ],
-}
+const VsOut = ioStruct('VsOut', {
+  pos: builtin('position', vec4fT),
+  uv: location(0, vec2fT),
+})
 
-const accumTex = bindingRef('accum_tex', texture2dfT)
+const accumTex = resource('accum_tex', texture2dfT, { group: 0, binding: 0 })
 
 // Heat colormap — black → blue → green → yellow → red → white. Tuned
 // so 1-2 overdraws are visibly cool, 8 mid-warm, 16+ saturated red.
@@ -54,15 +51,16 @@ const colormap = fn('colormap', { t: f32T }, vec3fT, (b, p) => {
 const vsFull = entryFn(
   'vs_full', 'vertex',
   [{ name: 'idx', type: u32T, builtin: 'vertex_index' }],
-  structT('VsOut'),
+  VsOut.type,
   (b, p) => {
     const pos = b.var('pos', vec2fT, vec2(f32(-1), f32(-1)))
     b.if(p.idx.eq(u32(1)), (c) => { c.assign(pos, vec2(f32(3), f32(-1))) })
       .elif(p.idx.eq(u32(2)), (c) => { c.assign(pos, vec2(f32(-1), f32(3))) })
-    const out = b.var('out', structT('VsOut'))
-    b.assign(out.field('pos', vec4fT), vec4(pos, f32(0), f32(1)))
+    const out = b.var('out', VsOut.type)
+    const o = VsOut.of(out)
+    b.assign(o.pos, vec4(pos, f32(0), f32(1)))
     // y-flip — texture origin top-left, NDC origin bottom-left.
-    b.assign(out.field('uv', vec2fT),
+    b.assign(o.uv,
       vec2(
         pos.x.add(f32(1)).mul(f32(0.5)),
         f32(1).sub(pos.y.add(f32(1)).mul(f32(0.5))),
@@ -78,17 +76,18 @@ const vsFull = entryFn(
 
 const fsCompose = entryFn(
   'fs_compose', 'fragment',
-  [{ name: 'in', type: structT('VsOut') }],
+  [{ name: 'in', type: VsOut.type }],
   vec4fT,
   (b, p) => {
+    const pin = VsOut.of(p.in)
     // textureDimensions returns vec2<u32>; toF32 each component for the
     // uv → texel-coord multiply. WGSL doesn't auto-convert across
     // signed/unsigned/float in vec construction, so the conversion is
     // explicit.
-    const dimU = b.let('dim_u', textureDimensions(accumTex))
+    const dimU = b.let('dim_u', textureDimensions(accumTex.node))
     const dim = b.let('dim', vec2(toF32(dimU.x), toF32(dimU.y)))
-    const uv = b.let('uv', vec2i(toI32(p.in.field('uv', vec2fT).x.mul(dim.x)), toI32(p.in.field('uv', vec2fT).y.mul(dim.y))))
-    const count = b.let('count', textureLoad(accumTex, uv, u32(0)).x)
+    const uv = b.let('uv', vec2i(toI32(pin.uv.x.mul(dim.x)), toI32(pin.uv.y.mul(dim.y))))
+    const count = b.let('count', textureLoad(accumTex.node, uv, u32(0)).x)
     b.if(count.lt(f32(0.5)), (c) => {
       // No fragments → empty pixel; leave dark to distinguish from "1 draw".
       c.ret(vec4(f32(0.02), f32(0.02), f32(0.04), f32(1)))
@@ -101,10 +100,8 @@ const fsCompose = entryFn(
 )
 
 const overdrawComposeModule: ModuleDecl = module({
-  structs: [VsOut],
-  bindings: [
-    { group: 0, binding: 0, name: 'accum_tex', space: 'uniform', type: texture2dfT },
-  ],
+  structs: [VsOut.decl],
+  bindings: [accumTex.binding],
   funcs: [colormap, vsFull, fsCompose],
 })
 
