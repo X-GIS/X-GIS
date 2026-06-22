@@ -1,4 +1,4 @@
-// baseline: b9d2b4035a1957ae55db8157eb10b4f82a555ddf
+// baseline: 3576e61298e1c83db40496a4ef053417c7057deb
 // fixture: syn-match10
 // variant.key: syn-match10
 // pick: false
@@ -471,10 +471,7 @@ fn fs_oit_translucent(input: VertexOutput) -> OitFragmentOutput {
   if ((_cse0 <= 0.001)) {
     discard;
   }
-  var out: OitFragmentOutput;
-  out.accum = (vec4<f32>(((u.fill_color.rgb * min(1.0, ((0.6 + (0.4 * input.wall_blend)) + select(0.0, 0.05, (input.wall_blend >= 0.999))))) * _cse0), _cse0) * clamp((0.03 / (0.00001 + pow((max(input.view_w, 0.001) / 200.0), 4.0))), 0.01, 3000.0));
-  out.revealage = _cse0;
-  return out;
+  return OitFragmentOutput((vec4<f32>(((u.fill_color.rgb * min(1.0, ((0.6 + (0.4 * input.wall_blend)) + select(0.0, 0.05, (input.wall_blend >= 0.999))))) * _cse0), _cse0) * clamp((0.03 / (0.00001 + pow((max(input.view_w, 0.001) / 200.0), 4.0))), 0.01, 3000.0)), _cse0);
 }
 
 @fragment

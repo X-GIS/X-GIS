@@ -33,7 +33,7 @@
 // Treat this oracle as the ALGEBRA half of a two-oracle contract; the f32 half lives
 // on the GPU.
 
-import type { Expr, Stmt, ModuleDecl, BinOp } from './ir'
+import type { Expr, Stmt, ModuleDecl, BinOp, StructDecl } from './ir'
 import { validate } from './passes/validate'
 
 export type CpuValue = number | boolean | number[] | CpuStruct
@@ -43,6 +43,7 @@ interface Ctx {
   consts: Map<string, number>
   fns: Record<string, (...args: CpuValue[]) => CpuValue>
   bindings: Record<string, CpuValue>
+  structs: Map<string, StructDecl>
 }
 
 export interface CpuModule {
@@ -238,6 +239,15 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
     case 'construct': {
       // Array literal: keep each element intact (array<vec2,N> → [[x,y],…]).
       if (e.type.kind === 'array') return e.args.map((a) => evalExpr(a, env, ctx)) as CpuValue
+      // Struct constructor: `MyStruct(a, b, …)` → a field-keyed object in decl order (the
+      // same shape the field-by-field `assign(out.f, …)` build produces).
+      if (e.type.kind === 'struct') {
+        const decl = ctx.structs.get(e.type.name)
+        if (decl === undefined) throw new Error(`oracle: struct '${e.type.name}' not declared`)
+        const obj: Record<string, CpuValue> = {}
+        decl.fields.forEach((f, i) => { obj[f.name] = evalExpr(e.args[i]!, env, ctx) })
+        return obj as CpuValue
+      }
       // Vector constructor: flatten scalar/vec args into one component list.
       const out: number[] = []
       for (const a of e.args) {
@@ -376,6 +386,7 @@ export function compileModule(m: ModuleDecl): CpuModule {
     consts: new Map(m.consts.map((c) => [c.name, c.cpuValue])),
     fns: {},
     bindings: {},
+    structs: new Map(m.structs.map((s) => [s.name, s])),
   }
   for (const f of m.funcs) {
     ctx.fns[f.name] = (...args: CpuValue[]): CpuValue => {

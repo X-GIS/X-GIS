@@ -125,9 +125,10 @@ describe('Phase-2 line shader — DSL emission', () => {
     expect(noPick).not.toContain('pick: vec2<u32>')
     expect(noPick).not.toContain('out.pick')
     expect(pick).toContain('@location(1) @interpolate(flat) pick: vec2<u32>,')
-    // Both fs_line + fs_line_pattern emit the pick write (fs_line_max returns
-    // a bare vec4, no pick attachment).
-    const writes = (pick.match(/out\.pick = vec2<u32>\(0u, 0u\);/g) ?? []).length
+    // Both fs_line + fs_line_pattern carry the pick value — now a field in the
+    // LineFragmentOutput(...) constructor (not an `out.pick =` write); fs_line_max
+    // returns a bare vec4, no pick attachment.
+    const writes = (pick.match(/vec2<u32>\(0u, 0u\)/g) ?? []).length
     expect(writes).toBe(2)
   })
   it('VS applies the camera-relative ECEF offset (line↔fill alignment)', () => {

@@ -867,10 +867,10 @@ const fsOitTranslucent = entryFn(
       f32(1e-2),
       f32(3.0e3),
     )
-    const out = Var('out', OitFragmentOutput.type)
-    assign(out.field('accum', vec4fT), vec4(rgb.mul(a), a).mul(w))
-    assign(out.field('revealage', f32T), a)
-    Return(out)
+    return OitFragmentOutput.construct({
+      accum: vec4(rgb.mul(a), a).mul(w),
+      revealage: a,
+    })
   },
 )
 

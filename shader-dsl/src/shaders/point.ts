@@ -461,11 +461,10 @@ const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: PointOut.type }]
   // Rim fade — flat / cylindrical projections receive rim_a=1.0.
   assignOp(color.field('a', f32T), '*', pin.rim_a)
   If(color.field('a', f32T).lt(0.005), () => { Discard() })
-  const out = Var('out', PointFragmentOutput.type)
-  const o = PointFragmentOutput.of(out)
-  assign(o.color, color)
-  assign(o.depth, compute_log_frag_depth(pin.view_w, U.field.viewport.w))
-  return out
+  return PointFragmentOutput.construct({
+    color,
+    depth: compute_log_frag_depth(pin.view_w, U.field.viewport.w),
+  })
 })
 
 // A build-fn (not a top-level const) so the injection-deferred getGpuProjectionFuncs() is

@@ -14,7 +14,7 @@
 import {
   entryFn, vec4, f32, max, smoothstep, fwidth, textureSample, select,
   module, f32T, vec2fT, vec3fT, vec4fT, texture2dfT, samplerT,
-  Let, Var, assign,
+  Let,
   type ModuleDecl,
 } from '../core/ir'
 import { ioStruct, builtin, location, uniformStruct, resource } from '../core/sot'
@@ -45,14 +45,13 @@ const vs = entryFn('vs', 'vertex', [
   const vp = U.field.viewport
   const ndc_x = p.pos_px.x.div(vp.x).mul(2).sub(1)
   const ndc_y = f32(1).sub(p.pos_px.y.div(vp.y).mul(2))
-  const out = Var('out', VsOut.type)
-  const o = VsOut.of(out)
-  assign(o.clip_pos, vec4(ndc_x, ndc_y, f32(0), f32(1)))
-  assign(o.uv, p.uv)
-  assign(o.opacity, p.opacity)
-  assign(o.tint, p.tint)
-  assign(o.sdf, p.sdf)
-  return out
+  return VsOut.construct({
+    clip_pos: vec4(ndc_x, ndc_y, f32(0), f32(1)),
+    uv: p.uv,
+    opacity: p.opacity,
+    tint: p.tint,
+    sdf: p.sdf,
+  })
 })
 
 const fs = entryFn('fs', 'fragment', [{ name: 'in', type: VsOut.type }], vec4fT, (p, _b) => {

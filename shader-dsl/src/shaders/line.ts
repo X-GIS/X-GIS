@@ -26,7 +26,7 @@ import {
   bitcastU32, unpack4x8unorm,
   atan, exp,
   If, ifExpr, Loop, Let, Var, Continue, Break, Discard, assign, assignOp, madd, outsideRange,
-  Return, ReturnIf, Switch,
+  ReturnIf, Switch,
   f32T, u32T, i32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   arrayT,
   type Node,
@@ -973,7 +973,6 @@ const vsLine = entryFn('vs_line', 'vertex', [
   // is tile-local there). u.mvp is the matching matrix (getViewForProjection);
   // zLift is the outline/extrude lift. world_local stays cornerLocal so the
   // FS distance / clip-bounds math is unchanged.
-  const out = Var('out', LineOut.type)
   const tileOrigin2 = TILE.field.tile_origin_merc
   const mvp = TILE.field.mvp
   const zLift = seg.field('z_lift_m', f32T)
@@ -1020,27 +1019,28 @@ const vsLine = entryFn('vs_line', 'vertex', [
     assign(clip.x, clip.x.add(ltx.mul(clip.w)))
     assign(clip.y, clip.y.sub(lty.mul(clip.w)))
   })
-  assign(out.field('position', vec4fT), apply_log_depth(clip, TILE.field.log_depth_fc))
-  assign(out.field('view_w', f32T), clip.w)
-  assign(out.field('world_local', vec2fT), cornerLocal)
-  assign(out.field('seg_id', u32T), p.seg_id)
   const cosCp0 = endpointCosC(seg.field('p0_h', vec2fT), seg.field('p0_l', vec2fT))
   const cosCp1 = endpointCosC(seg.field('p1_h', vec2fT), seg.field('p1_l', vec2fT))
-  assign(out.field('cos_c', f32T), select(isStart, cosCp0, cosCp1))
-  Return(out)
+  return LineOut.construct({
+    position: apply_log_depth(clip, TILE.field.log_depth_fc),
+    world_local: cornerLocal,
+    seg_id: p.seg_id,
+    view_w: clip.w,
+    cos_c: select(isStart, cosCp0, cosCp1),
+  })
 })
 
 // ── Fragment entries (3 variants share compute_line_color) ──
 
 const buildFsLine = (pickEnabled: boolean) =>
   entryFn('fs_line', 'fragment', [{ name: 'input', type: LineOut.type }], lineFragmentOutput(pickEnabled).type, (p) => {
-    const out = Var('out', lineFragmentOutput(pickEnabled).type)
     const color = computeLineColor(p.input)
     const rim = lineRimAlpha(p.input)
-    assign(out.field('color', vec4fT), vec4(color.rgb, color.a.mul(rim)))
-    if (pickEnabled) assign(out.field('pick', vec2uT), vec2u(u32(0), u32(0)))
-    assign(out.field('depth', f32T), compute_log_frag_depth(p.input.field('view_w', f32T), TILE.field.log_depth_fc))
-    return out
+    return lineFragmentOutput(pickEnabled).construct({
+      color: vec4(color.rgb, color.a.mul(rim)),
+      ...(pickEnabled ? { pick: vec2u(u32(0), u32(0)) } : {}),
+      depth: compute_log_frag_depth(p.input.field('view_w', f32T), TILE.field.log_depth_fc),
+    })
   })
 
 const buildFsLinePattern = (pickEnabled: boolean) =>
@@ -1065,11 +1065,11 @@ const buildFsLinePattern = (pickEnabled: boolean) =>
     )
     const sampled = textureSample(sprite_atlas, sprite_samp, atlasUv)
     const rim = lineRimAlpha(p.input)
-    const out = Var('out', lineFragmentOutput(pickEnabled).type)
-    assign(out.field('color', vec4fT), vec4(sampled.rgb, sampled.a.mul(base.a).mul(rim)))
-    if (pickEnabled) assign(out.field('pick', vec2uT), vec2u(u32(0), u32(0)))
-    assign(out.field('depth', f32T), compute_log_frag_depth(p.input.field('view_w', f32T), TILE.field.log_depth_fc))
-    return out
+    return lineFragmentOutput(pickEnabled).construct({
+      color: vec4(sampled.rgb, sampled.a.mul(base.a).mul(rim)),
+      ...(pickEnabled ? { pick: vec2u(u32(0), u32(0)) } : {}),
+      depth: compute_log_frag_depth(p.input.field('view_w', f32T), TILE.field.log_depth_fc),
+    })
   })
 
 // Max-blend offscreen path: bare @location(0) vec4 return, no log-depth (the
@@ -1159,10 +1159,10 @@ const vsFull = entryFn('vs_full', 'vertex',
       assign(pos, vec2(f32(-1), f32(3)))
       assign(uv, vec2(f32(0), f32(-1)))
     })
-    const out = Var('out', VsFullOut.type)
-    assign(out.field('pos', vec4fT), vec4(pos, f32(0), f32(1)))
-    assign(out.field('uv', vec2fT), uv)
-    return out
+    return VsFullOut.construct({
+      pos: vec4(pos, f32(0), f32(1)),
+      uv,
+    })
   },
 )
 
