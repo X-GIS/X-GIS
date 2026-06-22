@@ -7,7 +7,7 @@
 // family, OPACITY). The SoT helpers declare a layout ONCE and DERIVE the rest, so the
 // pieces cannot disagree and the type checker covers field names + types.
 
-import { Node, structT, bindingRef, type ShaderType, type StructDecl, type KeyOf, type BindingDecl, type AddressSpace } from './ir'
+import { Node, structT, bindingRef, construct, type ShaderType, type StructDecl, type KeyOf, type BindingDecl, type AddressSpace } from './ir'
 
 export interface FieldSpec<T extends ShaderType = ShaderType> {
   readonly type: T
@@ -35,6 +35,10 @@ export interface IoStruct<F extends Record<string, FieldSpec>> {
    *  conditional-field spread (`...(cond ? { pick } : {})`) introduces, so optional
    *  output fields stay `Node`, not `Node | undefined`. */
   of(node: Node): { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> }
+  /** Build a value of this struct in ONE expression — `LineOut(f0, f1, …)` — instead of a
+   *  mutable `var out; out.f0 = …; return out`. Args are taken in field-declaration order, so a
+   *  wrong/missing field is a TS error. Replaces the imperative field-by-field output build. */
+  construct(values: { readonly [K in keyof F]: Node<KeyOf<NonNullable<F[K]>['type']>> }): Node
 }
 
 /** Declare an IO struct (vertex/fragment in/out) from one field map; derive the
@@ -55,6 +59,9 @@ export function ioStruct<F extends Record<string, FieldSpec>>(name: string, fiel
           return node.field(prop as string, spec.type)
         },
       }) as { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> }
+    },
+    construct(values: Record<string, Node>) {
+      return construct(structT(name), decl.fields.map((f) => values[f.name]))
     },
   }
 }

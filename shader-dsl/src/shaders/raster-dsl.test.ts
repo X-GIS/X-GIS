@@ -81,7 +81,8 @@ describe('Phase-2 raster shader — DSL emission (ECEF VS, PR 2d.3)', () => {
     expect(noPick).not.toContain('pick: vec2<u32>')
     expect(noPick).not.toContain('out.pick')
     expect(pick).toContain('@location(1) @interpolate(flat) pick: vec2<u32>,')
-    expect(pick).toContain('out.pick = vec2<u32>(0u, 0u);')
+    // pick value is now a field in the RasterFragmentOutput(...) constructor, not an `out.pick =` write.
+    expect(pick).toContain('vec2<u32>(0u, 0u)')
   })
   it('both variants are structurally balanced (raster module portion)', () => {
     for (const w of [rasterPart(noPick), rasterPart(pick)]) {

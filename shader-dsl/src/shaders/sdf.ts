@@ -12,7 +12,7 @@ import {
   fn, module, f32, i32, u32, vec2,
   f32T, i32T, u32T, vec2fT, arrayT,
   clamp, min, max, length, dot, mix, toF32, select,
-  Var, Loop, reduce, If, Switch, Return, assign, addAssign,
+  Loop, reduce, If, Switch, Return, assign, addAssign,
   type FuncDecl, type ModuleDecl,
 } from '../core/ir'
 import { structDecl, storageBuffer } from '../core/sot'
@@ -95,8 +95,10 @@ const sdf_shape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, ({ uv
     () => { Return(f32(2)) },
   )
 
-  const min_dist = Var('min_dist', f32T, f32(1e10))
-  const winding = Var('winding', i32T, i32(0))
+  // No Var ceremony — written as plain consts; the auto-vars emit pass sees the
+  // later assign/addAssign and materialises each as a WGSL `var`.
+  const min_dist = f32(1e10)
+  const winding = i32(0)
   const end = min(sd(s, 'seg_start').add(sd(s, 'seg_count')), sd(s, 'seg_start').add(u32(32)))
 
   Loop('i', sd(s, 'seg_start'), (i) => i.lt(end), (i) => {

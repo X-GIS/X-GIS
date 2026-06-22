@@ -15,7 +15,7 @@ import { emitExpr as emitExprNeutral, emitBody } from '../emit'
 import { lowerModule } from '../passes/match-lower'
 import { validate } from '../passes/validate'
 import { assertCaps } from '../passes/required-caps'
-import { cse } from '../passes/opt'
+import { cse, autoVars } from '../passes/opt'
 import { spellIntrinsic } from '../intrinsics'
 
 export function wgslType(t: ShaderType): string {
@@ -106,7 +106,7 @@ export function emitFunc(f: FuncDecl): string {
  *  paths, so dropping a hand `Let` re-binds the reuse uniformly regardless of which emit
  *  path a consumer takes. */
 export function emitFuncsCsed(funcs: readonly FuncDecl[]): string {
-  const lowered = cse(lowerModule({ consts: [], structs: [], bindings: [], funcs: [...funcs] }))
+  const lowered = cse(lowerModule(autoVars({ consts: [], structs: [], bindings: [], funcs: [...funcs] })))
   return lowered.funcs.map(emitFunc).join('\n\n')
 }
 
@@ -119,7 +119,7 @@ export function emitModule(m: ModuleDecl): string {
   // emitter stays matchExpr-unaware (identity for modules with no matchExpr), then
   // auto-cache: cse hoists any input-only subexpression reused ≥2x into one shared
   // `let`, so authors write plain inline expressions and the reuse is bound for them.
-  const lowered = cse(lowerModule(m))
+  const lowered = cse(lowerModule(autoVars(m)))
   const parts: string[] = []
   if (lowered.consts.length) parts.push(lowered.consts.map(emitConst).join('\n'))
   if (lowered.structs.length) parts.push(lowered.structs.map(emitStruct).join('\n\n'))

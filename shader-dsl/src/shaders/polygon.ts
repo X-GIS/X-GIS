@@ -359,14 +359,13 @@ const vsMain = entryFn(
     const absMercY =
       log(tan(pi.div(f32(4)).add(absLatClamped.mul(deg2rad).div(f32(2))))).mul(earthR)
 
-    const out = Var('out', VertexOutputIO.type)
     // Display projection (projection-display-layer-restore): flat Mercator
     // (proj_params.x < 0.5) reprojects each vertex onto the 2D plane and
     // feeds the flat Mercator-metre MVP; 3D / globe keeps the ECEF-RTC path.
     // The renderer writes the matching u.mvp (Camera.getViewForProjection),
     // so only the live branch's matrix is consumed.
     const projParamsV = U.field.proj_params
-    const clip = Var('clip', vec4fT)
+    const clip = vec4(f32(0), f32(0), f32(0), f32(0))
     // FLAT Mercator (proj_params.x < 0.5): rel = project(abs_lon, abs_lat) −
     // cam_merc, with cam_merc = tile_origin_merc + (cam_h + cam_l); z = 0
     // (flat fill has no height). FLAT non-Mercator (< 6.5): project_geom-style
@@ -378,22 +377,20 @@ const vsMain = entryFn(
     // (px*2/canvasDim) so the shader just multiplies by clip.w.
     assign(clip.x, clip.x.add(fillTx.mul(clip.w)))
     assign(clip.y, clip.y.sub(fillTy.mul(clip.w)))
-    // Log-depth rewrite + per-layer NDC-z bias.
-    assign(out.field('position', vec4fT), apply_log_depth(clip, logDepthFc))
-    assign(out.field('position', vec4fT).z, out.field('position', vec4fT).z.sub(layerDepthOff.mul(out.field('position', vec4fT).w)))
-    assign(out.field('view_w', f32T), clip.w)
-    // cos_c placeholder — fragments recompute per-pixel.
-    assign(out.field('cos_c', f32T), f32(0))
-    assign(out.field('feat_id', u32T), toU32(p.feature_id))
-    assign(out.field('abs_lat', f32T), absLatClamped)
-    // Line path is not extruded; full brightness.
-    assign(out.field('wall_blend', f32T), f32(1))
-    assign(out.field('abs_merc_x', f32T), absMercX)
-    assign(out.field('abs_merc_y', f32T), absMercY)
-    assign(out.field('world_z', f32T), f32(0))
-    // Only the extrude path emits a non-zero v_color.
-    assign(out.field('v_color', vec4fT), vec4(f32(0), f32(0), f32(0), f32(0)))
-    Return(out)
+    // Log-depth rewrite + per-layer NDC-z bias (z = z − offset·w, computed inline).
+    const pos0 = apply_log_depth(clip, logDepthFc)
+    return VertexOutputIO.construct({
+      position: vec4(pos0.x, pos0.y, pos0.z.sub(layerDepthOff.mul(pos0.w)), pos0.w),
+      view_w: clip.w,
+      cos_c: f32(0), // placeholder — fragments recompute per-pixel
+      feat_id: toU32(p.feature_id),
+      abs_lat: absLatClamped,
+      wall_blend: f32(1), // line path is not extruded; full brightness
+      abs_merc_x: absMercX,
+      abs_merc_y: absMercY,
+      world_z: f32(0),
+      v_color: vec4(f32(0), f32(0), f32(0), f32(0)), // only the extrude path emits non-zero
+    })
   },
 )
 
@@ -478,14 +475,13 @@ const vsMainEcef = entryFn(
     const absLatClamped =
       clamp(inv_merc_lat_rad(absMercY).div(deg2rad), mercLatLim.neg(), mercLatLim)
 
-    const out = Var('out', VertexOutputIO.type)
     // Display projection (projection-display-layer-restore): flat Mercator
     // (proj_params.x < 0.5) reprojects each vertex onto the 2D plane and
     // feeds the flat Mercator-metre MVP; 3D / globe keeps the ECEF-RTC path.
     // The renderer writes the matching u.mvp (Camera.getViewForProjection),
     // so only the live branch's matrix is consumed.
     const projParamsV = U.field.proj_params
-    const clip = Var('clip', vec4fT)
+    const clip = vec4(f32(0), f32(0), f32(0), f32(0))
     // Same flat/3D ladder as vs_main (see emitPolygonProjectionLadder): flat
     // Mercator reproject + recentre / flat non-Mercator flat_rel / 3D ECEF-RTC
     // re-centred by (tileEcefCenter − cameraCenter). Only ecef_rtc is sourced
@@ -504,22 +500,20 @@ const vsMainEcef = entryFn(
     // (px*2/canvasDim) so the shader just multiplies by clip.w.
     assign(clip.x, clip.x.add(fillTx.mul(clip.w)))
     assign(clip.y, clip.y.sub(fillTy.mul(clip.w)))
-    // Log-depth rewrite + per-layer NDC-z bias.
-    assign(out.field('position', vec4fT), apply_log_depth(clip, logDepthFc))
-    assign(out.field('position', vec4fT).z, out.field('position', vec4fT).z.sub(layerDepthOff.mul(out.field('position', vec4fT).w)))
-    assign(out.field('view_w', f32T), clip.w)
-    // cos_c placeholder — fragments recompute per-pixel.
-    assign(out.field('cos_c', f32T), f32(0))
-    assign(out.field('feat_id', u32T), toU32(p.feature_id))
-    assign(out.field('abs_lat', f32T), absLatClamped)
-    // Flat-fill = full brightness (no wall shading).
-    assign(out.field('wall_blend', f32T), f32(1))
-    assign(out.field('abs_merc_x', f32T), absMercX)
-    assign(out.field('abs_merc_y', f32T), absMercY)
-    assign(out.field('world_z', f32T), f32(0))
-    // Per-feature variants override v_color via the composer; default 0.
-    assign(out.field('v_color', vec4fT), vec4(f32(0), f32(0), f32(0), f32(0)))
-    Return(out)
+    // Log-depth rewrite + per-layer NDC-z bias (z = z − offset·w, computed inline).
+    const pos0 = apply_log_depth(clip, logDepthFc)
+    return VertexOutputIO.construct({
+      position: vec4(pos0.x, pos0.y, pos0.z.sub(layerDepthOff.mul(pos0.w)), pos0.w),
+      view_w: clip.w,
+      cos_c: f32(0), // placeholder — fragments recompute per-pixel
+      feat_id: toU32(p.feature_id),
+      abs_lat: absLatClamped,
+      wall_blend: f32(1), // flat-fill = full brightness (no wall shading)
+      abs_merc_x: absMercX,
+      abs_merc_y: absMercY,
+      world_z: f32(0),
+      v_color: vec4(f32(0), f32(0), f32(0), f32(0)), // per-feature variants override via composer
+    })
   },
 )
 
@@ -575,7 +569,6 @@ const vsMainEcefExtruded = entryFn(
     const absMercY =
       log(tan(pi.div(f32(4)).add(absLatClamped.mul(deg2rad).div(f32(2))))).mul(earthR)
 
-    const out = Var('out', VertexOutputIO.type)
     // Display projection (see vs_main_ecef): flat Mercator reprojects onto
     // the 2D plane with the extrude lift applied as plane-z; 3D keeps the
     // pre-lifted ECEF-RTC. world_z = wall_height × is_top is the per-vertex
@@ -586,7 +579,7 @@ const vsMainEcefExtruded = entryFn(
     // Known approximation under f32 P1 — revisit with a per-projection vertical
     // scale if extruded walls look wrong away from the equator.
     const projParamsV = U.field.proj_params
-    const clip = Var('clip', vec4fT)
+    const clip = vec4(f32(0), f32(0), f32(0), f32(0))
     // Same flat/3D ladder as vs_main_ecef but extruded: the FLAT arms add a
     // `z_plane[_geom] = wall_height * is_top` plane-lift; the 3D (else) arm is
     // identical to the flat-fill path (pre-lifted ecef_rtc + cam_ecef_off
@@ -599,19 +592,8 @@ const vsMainEcefExtruded = entryFn(
     })
     assign(clip.x, clip.x.add(fillTx.mul(clip.w)))
     assign(clip.y, clip.y.sub(fillTy.mul(clip.w)))
-    assign(out.field('position', vec4fT), apply_log_depth(clip, logDepthFc))
-    assign(out.field('position', vec4fT).z, out.field('position', vec4fT).z.sub(layerDepthOff.mul(out.field('position', vec4fT).w)))
-    assign(out.field('view_w', f32T), clip.w)
-    assign(out.field('cos_c', f32T), f32(0))
-    assign(out.field('feat_id', u32T), toU32(p.feature_id))
-    assign(out.field('abs_lat', f32T), absLatClamped)
-    // is_top doubles as wall_blend (legacy contract: 1.0 roof, 0.0 wall
-    // bottom). World-z carries the wall_height for the wall-blend
-    // discriminator + downstream fs_fill_extrude consumers.
-    assign(out.field('wall_blend', f32T), p.is_top)
-    assign(out.field('abs_merc_x', f32T), absMercX)
-    assign(out.field('abs_merc_y', f32T), absMercY)
-    assign(out.field('world_z', f32T), p.wall_height.mul(p.is_top))
+    // Log-depth rewrite + per-layer NDC-z bias (z = z − offset·w, computed inline).
+    const pos0 = apply_log_depth(clip, logDepthFc)
 
     // MapLibre-equivalent face-normal directional lighting (preserved
     // verbatim from vs_main_quantized_extruded). Default light style:
@@ -634,7 +616,7 @@ const vsMainEcefExtruded = entryFn(
     // channel — ample for a light tint).
     const lightIntensity = U.field.light_dir_ecef.w
     const lightColor = unpack4x8unorm(U.field.light_color_packed).swizzle<'vec3<f32>'>('xyz')
-    const directional = Var('directional', f32T, clamp(dot(p.face_normal, lightPos), f32(0), f32(1)))
+    const directional = clamp(dot(p.face_normal, lightPos), f32(0), f32(1))
     assign(directional, mix(
       f32(1).sub(lightIntensity),
       max(f32(1).sub(colorValue).add(lightIntensity), f32(1)),
@@ -664,8 +646,18 @@ const vsMainEcefExtruded = entryFn(
     )
     // Non-premultiplied output — see vs_main_quantized_extruded's removed
     // header for the BLEND_ALPHA vs BLEND_ALPHA_PREMULT equivalence proof.
-    assign(out.field('v_color', vec4fT), vec4(shadedRgb, opacity))
-    Return(out)
+    return VertexOutputIO.construct({
+      position: vec4(pos0.x, pos0.y, pos0.z.sub(layerDepthOff.mul(pos0.w)), pos0.w),
+      view_w: clip.w,
+      cos_c: f32(0),
+      feat_id: toU32(p.feature_id),
+      abs_lat: absLatClamped,
+      wall_blend: p.is_top, // is_top doubles as wall_blend (1.0 roof, 0.0 wall bottom)
+      abs_merc_x: absMercX,
+      abs_merc_y: absMercY,
+      world_z: p.wall_height.mul(p.is_top), // world-z carries wall_height for the wall-blend discriminator
+      v_color: vec4(shadedRgb, opacity),
+    })
   },
 )
 
@@ -867,10 +859,10 @@ const fsOitTranslucent = entryFn(
       f32(1e-2),
       f32(3.0e3),
     )
-    const out = Var('out', OitFragmentOutput.type)
-    assign(out.field('accum', vec4fT), vec4(rgb.mul(a), a).mul(w))
-    assign(out.field('revealage', f32T), a)
-    Return(out)
+    return OitFragmentOutput.construct({
+      accum: vec4(rgb.mul(a), a).mul(w),
+      revealage: a,
+    })
   },
 )
 

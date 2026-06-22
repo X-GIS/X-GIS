@@ -25,9 +25,9 @@ import {
   length, dot, min, max, smoothstep, abs, floor, select, textureSample,
   bitcastU32, unpack4x8unorm,
   atan, exp,
-  If, Loop, Let, Var, Continue, Break, Discard, assign, assignOp, madd, outsideRange,
-  Return, ReturnIf, Switch,
-  f32T, u32T, i32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
+  If, ifExpr, condExpr, Loop, Let, Continue, Break, Discard, assign, assignOp, madd, outsideRange,
+  ReturnIf, Switch,
+  f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   arrayT,
   type Node,
   type ModuleDecl,
@@ -278,8 +278,8 @@ const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (p) =>
     uv.x.lt(bMinX).or(uv.x.gt(bMaxX)).or(uv.y.lt(bMinY)).or(uv.y.gt(bMaxY)),
     f32(2),
   )
-  const minDist = Var('min_dist', f32T, f32(1e10))
-  const winding = Var('winding', i32T, i32(0))
+  const minDist = f32(1e10)
+  const winding = i32(0)
   const segStart = s.field('seg_start', u32T)
   const segCount = s.field('seg_count', u32T)
   const end = min(segStart.add(segCount), segStart.add(u32(32)))
@@ -354,9 +354,7 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
   // Segment direction / normal in tile-local meters.
   const segVec = p1.sub(p0)
   const segLen = length(segVec)
-  const dir = Var('dir', vec2fT)
-  If(segLen.lt(1e-6), () => { assign(dir, vec2(f32(1), f32(0))) })
-    .else(() => { assign(dir, segVec.div(segLen)) })
+  const dir = ifExpr('dir', vec2fT, segLen.lt(1e-6), () => vec2(f32(1), f32(0)), () => segVec.div(segLen))
 
   // Per-segment width override falls through to layer.width_px when 0.
   const layerWidthPx = LAYER.field.width_px
@@ -395,7 +393,7 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
   const distP1Vs = Let('dist_p1_vs', dot(segP.sub(p1), dir))
 
   // Early-discard guard: outside the body AND inside segment range.
-  const patExtentFs = Var('pat_extent_fs', f32T, f32(0))
+  const patExtentFs = f32(0)
   If(layerFlags.bitAnd(u32(64)).ne(u32(0)), () => {
     Loop('pk_fs', u32(0), (pk) => pk.lt(u32(3)), (pk) => {
       const patFs = LAYER.field.patterns.at(pk, PatternSlot.type)
@@ -421,7 +419,7 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
   const distP0 = distP0Vs
   const distP1 = distP1Vs
 
-  const dM = Var('d_m', f32T, bodyD)
+  const dM = bodyD
 
   const joinFlags = layerFlags.shr(u32(3)).bitAnd(u32(3))
   const layerMiterLimit = LAYER.field.miter_limit
@@ -542,14 +540,14 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
       If(acuteFoldP0.or(alongJ.ge(0)), () => {
         const circleD = length(segP.sub(p0JoinCenter)).sub(halfWm)
         const alongExtendP0 = abs(layerOffsetM).mul(seg.field('pad_ratio_p0', f32T))
-        const currentD = Var('current_d', f32T, dM)
+        const currentD = dM
         If(distP0.gt(alongExtendP0), () => {
           assign(currentD, max(dM, distP0.sub(alongExtendP0)))
         })
         const prevNrm = vec2(prevTan.y.neg(), prevTan.x)
         const prevSignedPerp = dot(segP.sub(p0), prevNrm)
         const prevPerpM = abs(prevSignedPerp.sub(layerOffsetM))
-        const neighborD = Var('neighbor_d', f32T, prevPerpM.sub(halfWm))
+        const neighborD = prevPerpM.sub(halfWm)
         const alongPastPrevEnd = dot(segP.sub(p0), prevTan)
         If(alongPastPrevEnd.gt(alongExtendP0), () => {
           assign(neighborD, max(neighborD, alongPastPrevEnd.sub(alongExtendP0)))
@@ -586,14 +584,14 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
       If(acuteFoldP1.or(alongJ.le(0)), () => {
         const circleD = length(segP.sub(p1JoinCenter)).sub(halfWm)
         const alongExtendP1 = abs(layerOffsetM).mul(seg.field('pad_ratio_p1', f32T))
-        const currentD = Var('current_d', f32T, dM)
+        const currentD = dM
         If(distP1.gt(alongExtendP1), () => {
           assign(currentD, max(dM, distP1.sub(alongExtendP1)))
         })
         const nextNrm = vec2(nextTan.y.neg(), nextTan.x)
         const nextSignedPerp = dot(segP.sub(p1), nextNrm)
         const nextPerpM = abs(nextSignedPerp.sub(layerOffsetM))
-        const neighborD = Var('neighbor_d', f32T, nextPerpM.sub(halfWm))
+        const neighborD = nextPerpM.sub(halfWm)
         const alongIntoNext = dot(segP.sub(p1), nextTan)
         If(alongIntoNext.lt(alongExtendP1.neg()), () => {
           assign(neighborD, max(neighborD, alongIntoNext.neg().sub(alongExtendP1)))
@@ -624,14 +622,14 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
       .and(notInCap)
   If(dashEnabled, () => {
     const phase0 = arcPos.add(dashOffsetM).div(dashCycleM)
-    const phase = Var('phase', f32T, phase0.sub(floor(phase0)).mul(dashCycleM))
-    const acc = Var('acc', f32T, f32(0))
-    const visible = Var('visible', f32T, f32(0)) // 0=hidden, 1=visible — bool via f32
+    const phase = phase0.sub(floor(phase0)).mul(dashCycleM)
+    const acc = f32(0)
+    const visible = f32(0) // 0=hidden, 1=visible — bool via f32
     Loop('i', u32(0), (i) => i.lt(dashCount), (i) => {
       const idx = i.div(u32(4))
       const sub = i.mod(u32(4))
       const segV = LAYER.field.dash_array.at(idx, vec4fT)
-      const lenV = Var('len', f32T, f32(0))
+      const lenV = f32(0)
       If(sub.eq(u32(0)), () => { assign(lenV, segV.x) })
         .elif(sub.eq(u32(1)), () => { assign(lenV, segV.y) })
         .elif(sub.eq(u32(2)), () => { assign(lenV, segV.z) })
@@ -646,7 +644,7 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
   })
 
   // ── Pattern stack ──
-  const patDm = Var('pat_d_m', f32T, f32(1e10))
+  const patDm = f32(1e10)
   If(layerFlags.bitAnd(u32(64)).ne(u32(0)), () => {
     Loop('k', u32(0), (k) => k.lt(u32(3)), (k) => {
       const pat = LAYER.field.patterns.at(k, PatternSlot.type)
@@ -693,10 +691,10 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
 
       // START / END / CENTER — single instance.
       const lineLength = seg.field('line_length', f32T)
-      const centerArc = Var('center_arc', f32T)
-      If(anchor.eq(u32(1)), () => { assign(centerArc, startM) })
-        .elif(anchor.eq(u32(2)), () => { assign(centerArc, lineLength.sub(startM)) })
-        .else(() => { assign(centerArc, lineLength.mul(0.5)) })
+      const centerArc = condExpr('center_arc', f32T, [
+        [anchor.eq(u32(1)), () => startM],
+        [anchor.eq(u32(2)), () => lineLength.sub(startM)],
+      ], () => lineLength.mul(0.5))
 
       const arcOnSeg = Let('arc_on_seg', centerArc.sub(seg.field('arc_start', f32T)))
       If(outsideRange(arcOnSeg, halfS.mul(-2), segLen.add(halfS.mul(2))), () => Continue())
@@ -750,9 +748,7 @@ const vsLine = entryFn('vs_line', 'vertex', [
 
   const segVec = p1.sub(p0)
   const segLen = length(segVec)
-  const dir = Var('dir', vec2fT)
-  If(segLen.lt(1e-6), () => { assign(dir, vec2(f32(1), f32(0))) })
-    .else(() => { assign(dir, segVec.div(segLen)) })
+  const dir = ifExpr('dir', vec2fT, segLen.lt(1e-6), () => vec2(f32(1), f32(0)), () => segVec.div(segLen))
   const nrm = Let('nrm', vec2(dir.y.neg(), dir.x))
 
   const layerWidthPx = LAYER.field.width_px
@@ -768,11 +764,11 @@ const vsLine = entryFn('vs_line', 'vertex', [
   const halfWm = effectiveWidthPx.mul(0.5).add(layerAaPx).mul(layerMpp)
 
   // Per-endpoint pad ratios (precomputed CPU side).
-  const padP0m = Var('pad_p0_m', f32T, seg.field('pad_ratio_p0', f32T).mul(halfWm))
-  const padP1m = Var('pad_p1_m', f32T, seg.field('pad_ratio_p1', f32T).mul(halfWm))
+  const padP0m = seg.field('pad_ratio_p0', f32T).mul(halfWm)
+  const padP1m = seg.field('pad_ratio_p1', f32T).mul(halfWm)
 
   // Pattern extent scan.
-  const patExtentM = Var('pat_extent_m', f32T, f32(0))
+  const patExtentM = f32(0)
   If(layerFlags.bitAnd(u32(64)).ne(u32(0)), () => {
     Loop('pk', u32(0), (pk) => pk.lt(u32(3)), (pk) => {
       const pat = LAYER.field.patterns.at(pk, PatternSlot.type)
@@ -788,7 +784,7 @@ const vsLine = entryFn('vs_line', 'vertex', [
   // Arrow cap pad.
   const capTypeVs = layerFlags.bitAnd(u32(7))
   const arrowLen = halfWm.mul(4)
-  const acrossM = Var('across_m', f32T, max(halfWm, patExtentM))
+  const acrossM = max(halfWm, patExtentM)
   assign(padP0m, max(padP0m, patExtentM))
   assign(padP1m, max(padP1m, patExtentM))
   If(capTypeVs.eq(u32(3)), () => {
@@ -801,8 +797,8 @@ const vsLine = entryFn('vs_line', 'vertex', [
   })
 
   // 6-vert quad → along/across.
-  const along = Var('along', f32T, f32(0))
-  const across = Var('across', f32T, f32(0))
+  const along = f32(0)
+  const across = f32(0)
   Switch(p.vi, [
     [0, () => { assign(along, f32(-1)); assign(across, f32(-1)) }],
     [1, () => { assign(along, f32(1));  assign(across, f32(-1)) }],
@@ -828,14 +824,14 @@ const vsLine = entryFn('vs_line', 'vertex', [
   // Lateral parallel offset.
   const halfWside = Let('half_w_side', halfWm.add(layerOffsetM.mul(across)))
 
-  const offset = Var('offset', vec2fT, perpCur.mul(halfWside).mul(acrossScale))
+  const offset = perpCur.mul(halfWside).mul(acrossScale)
   If(hasNeighbor, () => {
     const padRatio = select(isStart, seg.field('pad_ratio_p0', f32T), seg.field('pad_ratio_p1', f32T))
     const basePad = Let('base_pad', select(isStart, padP0m, padP1m))
     const offsetExtentM = halfWm.add(abs(layerOffsetM))
     const endpointPad = max(basePad, padRatio.mul(offsetExtentM))
     const joinTypeVs = layerFlags.shr(u32(3)).bitAnd(u32(3))
-    const joinPad = Var('join_pad', f32T, halfWm.add(abs(layerOffsetM).mul(padRatio)))
+    const joinPad = halfWm.add(abs(layerOffsetM).mul(padRatio))
     If(joinTypeVs.eq(u32(0)), () => { assign(joinPad, endpointPad) })
     assign(joinPad, joinPad.add(f32(0.5).mul(layerMpp)))
     const alongPad = Let('along_pad', max(halfWside, joinPad))
@@ -845,7 +841,7 @@ const vsLine = entryFn('vs_line', 'vertex', [
     assign(offset, offset.add(dir.mul(along).mul(endpointPad)))
   })
 
-  const cornerLocal = Var('corner_local', vec2fT, base.add(offset))
+  const cornerLocal = base.add(offset)
 
   // ── ECEF-RTC corner reconstruction (Phase 2 PR 2d.1C) ────────────────
   //
@@ -918,8 +914,8 @@ const vsLine = entryFn('vs_line', 'vertex', [
     const projParamsW = TILE.field.proj_params
     // Same MVP transform for center (base) + candidate (cornerLocal) so the
     // screen-space width estimate matches the final clip exactly.
-    const centerClip = Var('center_clip', vec4fT)
-    const cornerClip = Var('corner_clip', vec4fT)
+    const centerClip = vec4(f32(0), f32(0), f32(0), f32(0))
+    const cornerClip = vec4(f32(0), f32(0), f32(0), f32(0))
     If(projParamsW.x.lt(6.5), () => {
       // FLAT (projType 0-6): finalize_corner passes Mercator through (already
       // camera-relative) and reprojects the other flat forms (project_geom −
@@ -977,13 +973,12 @@ const vsLine = entryFn('vs_line', 'vertex', [
   // is tile-local there). u.mvp is the matching matrix (getViewForProjection);
   // zLift is the outline/extrude lift. world_local stays cornerLocal so the
   // FS distance / clip-bounds math is unchanged.
-  const out = Var('out', LineOut.type)
   const tileOrigin2 = TILE.field.tile_origin_merc
   const mvp = TILE.field.mvp
   const zLift = seg.field('z_lift_m', f32T)
   const projParamsF = TILE.field.proj_params
 
-  const clip = Var('clip', vec4fT)
+  const clip = vec4(f32(0), f32(0), f32(0), f32(0))
   If(projParamsF.x.lt(6.5), () => {
     // FLAT (0-6): finalize_corner (Mercator pass-through + non-Mercator
     // project_geom reproject − projected camera centre) → flat 2D-plane MVP.
@@ -1024,27 +1019,28 @@ const vsLine = entryFn('vs_line', 'vertex', [
     assign(clip.x, clip.x.add(ltx.mul(clip.w)))
     assign(clip.y, clip.y.sub(lty.mul(clip.w)))
   })
-  assign(out.field('position', vec4fT), apply_log_depth(clip, TILE.field.log_depth_fc))
-  assign(out.field('view_w', f32T), clip.w)
-  assign(out.field('world_local', vec2fT), cornerLocal)
-  assign(out.field('seg_id', u32T), p.seg_id)
   const cosCp0 = endpointCosC(seg.field('p0_h', vec2fT), seg.field('p0_l', vec2fT))
   const cosCp1 = endpointCosC(seg.field('p1_h', vec2fT), seg.field('p1_l', vec2fT))
-  assign(out.field('cos_c', f32T), select(isStart, cosCp0, cosCp1))
-  Return(out)
+  return LineOut.construct({
+    position: apply_log_depth(clip, TILE.field.log_depth_fc),
+    world_local: cornerLocal,
+    seg_id: p.seg_id,
+    view_w: clip.w,
+    cos_c: select(isStart, cosCp0, cosCp1),
+  })
 })
 
 // ── Fragment entries (3 variants share compute_line_color) ──
 
 const buildFsLine = (pickEnabled: boolean) =>
   entryFn('fs_line', 'fragment', [{ name: 'input', type: LineOut.type }], lineFragmentOutput(pickEnabled).type, (p) => {
-    const out = Var('out', lineFragmentOutput(pickEnabled).type)
     const color = computeLineColor(p.input)
     const rim = lineRimAlpha(p.input)
-    assign(out.field('color', vec4fT), vec4(color.rgb, color.a.mul(rim)))
-    if (pickEnabled) assign(out.field('pick', vec2uT), vec2u(u32(0), u32(0)))
-    assign(out.field('depth', f32T), compute_log_frag_depth(p.input.field('view_w', f32T), TILE.field.log_depth_fc))
-    return out
+    return lineFragmentOutput(pickEnabled).construct({
+      color: vec4(color.rgb, color.a.mul(rim)),
+      ...(pickEnabled ? { pick: vec2u(u32(0), u32(0)) } : {}),
+      depth: compute_log_frag_depth(p.input.field('view_w', f32T), TILE.field.log_depth_fc),
+    })
   })
 
 const buildFsLinePattern = (pickEnabled: boolean) =>
@@ -1069,11 +1065,11 @@ const buildFsLinePattern = (pickEnabled: boolean) =>
     )
     const sampled = textureSample(sprite_atlas, sprite_samp, atlasUv)
     const rim = lineRimAlpha(p.input)
-    const out = Var('out', lineFragmentOutput(pickEnabled).type)
-    assign(out.field('color', vec4fT), vec4(sampled.rgb, sampled.a.mul(base.a).mul(rim)))
-    if (pickEnabled) assign(out.field('pick', vec2uT), vec2u(u32(0), u32(0)))
-    assign(out.field('depth', f32T), compute_log_frag_depth(p.input.field('view_w', f32T), TILE.field.log_depth_fc))
-    return out
+    return lineFragmentOutput(pickEnabled).construct({
+      color: vec4(sampled.rgb, sampled.a.mul(base.a).mul(rim)),
+      ...(pickEnabled ? { pick: vec2u(u32(0), u32(0)) } : {}),
+      depth: compute_log_frag_depth(p.input.field('view_w', f32T), TILE.field.log_depth_fc),
+    })
   })
 
 // Max-blend offscreen path: bare @location(0) vec4 return, no log-depth (the
@@ -1083,7 +1079,7 @@ const fsLineMax = entryFn(
   [{ name: 'input', type: LineOut.type }],
   vec4fT,
   (p) => {
-    const c = Var('c', vec4fT, computeLineColor(p.input))
+    const c = computeLineColor(p.input)
     const rim = lineRimAlpha(p.input)
     assign(c.field('a', f32T), c.field('a', f32T).mul(rim))
     return c
@@ -1153,8 +1149,8 @@ const vsFull = entryFn('vs_full', 'vertex',
   [{ name: 'vi', type: u32T, builtin: 'vertex_index' }],
   VsFullOut.type,
   (p) => {
-    const pos = Var('p', vec2fT, vec2(f32(-1), f32(-1)))
-    const uv = Var('uv', vec2fT, vec2(f32(0), f32(1)))
+    const pos = vec2(f32(-1), f32(-1))
+    const uv = vec2(f32(0), f32(1))
     If(p.vi.eq(u32(1)), () => {
       assign(pos, vec2(f32(3), f32(-1)))
       assign(uv, vec2(f32(2), f32(1)))
@@ -1163,10 +1159,10 @@ const vsFull = entryFn('vs_full', 'vertex',
       assign(pos, vec2(f32(-1), f32(3)))
       assign(uv, vec2(f32(0), f32(-1)))
     })
-    const out = Var('out', VsFullOut.type)
-    assign(out.field('pos', vec4fT), vec4(pos, f32(0), f32(1)))
-    assign(out.field('uv', vec2fT), uv)
-    return out
+    return VsFullOut.construct({
+      pos: vec4(pos, f32(0), f32(1)),
+      uv,
+    })
   },
 )
 

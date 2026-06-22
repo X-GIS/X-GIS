@@ -319,8 +319,8 @@ export function callFn<T extends ShaderType>(name: string, ret: T, ...args: Node
   return new Node<KeyOf<T>>({ op: 'call', type: ret, fn: name, args: args.map((a) => lift(a).expr) })
 }
 
-// Vector constructors
-const construct = (type: ShaderType, args: NodeLike[]): Node =>
+// Vector / struct constructors — `TypeName(arg0, arg1, …)`.
+export const construct = (type: ShaderType, args: NodeLike[]): Node =>
   new Node({ op: 'construct', type, args: args.map((a) => lift(a).expr) })
 export const vec2 = (...a: NodeLike[]): Node<'vec2<f32>'> => construct(vec2fT, a) as Node<'vec2<f32>'>
 export const vec3 = (...a: NodeLike[]): Node<'vec3<f32>'> => construct(vec3fT, a) as Node<'vec3<f32>'>

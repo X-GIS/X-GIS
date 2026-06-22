@@ -22,7 +22,7 @@ import {
   f32, u32, i32, toF32, toU32, vec2, vec3, vec4, mix, exp, clamp,
   length, dot, min, max, smoothstep, fwidth, select,
   f32T, u32T, i32T, vec2fT, vec4fT, mat4x4fT, arrayT,
-  Let, Var, assign, assignOp, If, Loop, reduce, Switch, Return, Discard,
+  Let, Var, assign, assignOp, If, Loop, reduce, ifExpr, condExpr, Switch, Return, Discard,
   type ModuleDecl,
 } from '../core/ir'
 import { ioStruct, builtin, location, uniformStruct, structDecl, storageBuffer } from '../core/sot'
@@ -182,8 +182,8 @@ const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (pp) =
     uv.x.lt(bMinX).or(uv.x.gt(bMaxX)).or(uv.y.lt(bMinY)).or(uv.y.gt(bMaxY)),
     () => { Return(f32(2)) },
   )
-  const minDist = Var('min_dist', f32T, f32(1e10))
-  const winding = Var('winding', i32T, i32(0))
+  const minDist = f32(1e10)
+  const winding = i32(0)
   const segStart = s.field('seg_start', u32T)
   const segCount = s.field('seg_count', u32T)
   // Hard-cap at 32 segments per shape (paste from original).
@@ -236,13 +236,13 @@ const vs = entryFn('vs_point', 'vertex', [
   const packed10 = toU32(featData.at(fid.mul(STRIDE).add(u32(10)), f32T))
   const sizeMode = packed10.shr(u32(4)).bitAnd(u32(0xF))
   // Size mode: 0=px, 1=m, 2=km, 3=deg (equator approx), 4=nm.
-  const radiusPx = Var('radius_px', f32T)
   const viewport = U.field.viewport
-  If(sizeMode.eq(u32(1)), () => { assign(radiusPx, rawRadius.div(viewport.z)) })
-    .elif(sizeMode.eq(u32(2)), () => { assign(radiusPx, rawRadius.mul(1000).div(viewport.z)) })
-    .elif(sizeMode.eq(u32(3)), () => { assign(radiusPx, rawRadius.mul(111320).div(viewport.z)) })
-    .elif(sizeMode.eq(u32(4)), () => { assign(radiusPx, rawRadius.mul(1852).div(viewport.z)) })
-    .else(() => { assign(radiusPx, rawRadius) })
+  const radiusPx = condExpr('radius_px', f32T, [
+    [sizeMode.eq(u32(1)), () => rawRadius.div(viewport.z)],
+    [sizeMode.eq(u32(2)), () => rawRadius.mul(1000).div(viewport.z)],
+    [sizeMode.eq(u32(3)), () => rawRadius.mul(111320).div(viewport.z)],
+    [sizeMode.eq(u32(4)), () => rawRadius.mul(1852).div(viewport.z)],
+  ], () => rawRadius)
 
   // Phase 2 PR 2d.2 — ECEF DSFUN per-feature centre.
   // featData slots 11..16 carry the tile-anchored ECEF DSFUN split
@@ -275,8 +275,8 @@ const vs = entryFn('vs_point', 'vertex', [
   // ECEF lanes are dead on the flat path. u.mvp is the matching matrix
   // (Camera.getViewForProjection). Quad expansion below consumes centerClip
   // identically for both paths.
-  const centerClip = Var('center_clip', vec4fT)
-  If(U.field.proj_params.x.lt(0.5), () => {
+  const centerClip = condExpr('center_clip', vec4fT, [
+    [U.field.proj_params.x.lt(0.5), () => {
     // Precise absolute Mercator DSFUN (slots 20-23), camera-recentered in DSFUN
     // space — `(mx_h−camH)+(mx_l−camL)` — exactly like ecef_rtc. The old path
     // reprojected the lossy f32 abs_lon/abs_lat (~1.35 m → ~5.7 px @ z20).
@@ -288,17 +288,19 @@ const vs = entryFn('vs_point', 'vertex', [
     const camMercL = U.field.cam_ecef_l.swizzle<'vec2<f32>'>('xy')
     const relX = mxH.sub(camMercH.x).add(mxL.sub(camMercL.x))
     const relY = myH.sub(camMercH.y).add(myL.sub(camMercL.y))
-    assign(centerClip, transformMat4(mvp, vec4(relX, relY, f32(0), f32(1))))
-  }).elif(U.field.proj_params.x.lt(6.5), () => {
+    return transformMat4(mvp, vec4(relX, relY, f32(0), f32(1)))
+  }],
+    [U.field.proj_params.x.lt(6.5), () => {
     // FLAT non-Mercator (1-6): the shared flat_rel — reproject the marker's
     // lon/lat minus the in-shader projected camera centre. ref_lon = the
     // marker's own lon (self) so it lands in its nearest world copy; for an
     // individual marker project_geom collapses to plain project. Same flat MVP.
     const pp = U.field.proj_params
     const relG = flat_rel(absLon, absLat, pp, absLon)
-    assign(centerClip, transformMat4(mvp, vec4(relG.x, relG.y, f32(0), f32(1))))
-  }).else(() => {
-    assign(centerClip, transformMat4(mvp, vec4(ecefRtc, f32(1))))
+    return transformMat4(mvp, vec4(relG.x, relG.y, f32(0), f32(1)))
+  }],
+  ], () => {
+    return transformMat4(mvp, vec4(ecefRtc, f32(1)))
   })
 
   // circle-translate: apply viewport-space offset post-MVP.
@@ -354,7 +356,7 @@ const vs = entryFn('vs_point', 'vertex', [
     // visually equivalent and metric-correct under the ECEF MVP.
     // Anchor (bits 8..9): 0=center, 1=bottom, 2=top.
     const anchorMode = packed10.shr(u32(8)).bitAnd(u32(3))
-    const yShiftPx = Var('y_shift_px', f32T, f32(0))
+    const yShiftPx = f32(0)
     If(anchorMode.eq(u32(1)), () => { assign(yShiftPx, expand) })
       .elif(anchorMode.eq(u32(2)), () => { assign(yShiftPx, expand.neg()) })
     const pxToNdc = vec2(f32(2).div(viewport.x), f32(2).div(viewport.y))
@@ -369,7 +371,7 @@ const vs = entryFn('vs_point', 'vertex', [
     // (bits 8..9): 0=center, 1=bottom (lifts up by one extent so the bottom
     // edge sits on the projected ground point), 2=top.
     const anchorMode = packed10.shr(u32(8)).bitAnd(u32(3))
-    const yShiftPx = Var('y_shift_px', f32T, f32(0))
+    const yShiftPx = f32(0)
     If(anchorMode.eq(u32(1)), () => { assign(yShiftPx, expand) })
       .elif(anchorMode.eq(u32(2)), () => { assign(yShiftPx, expand.neg()) })
     const pxToNdc = vec2(f32(2).div(viewport.x), f32(2).div(viewport.y))
@@ -408,12 +410,10 @@ const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: PointOut.type }]
   const blurUv = blurPx.div(max(pin.radius_px, f32(1)))
   const halfBand = aa.add(blurUv)
 
-  const dist = Var('dist', f32T)
-  If(shapeId.eq(u32(0)), () => {
-    assign(dist, length(pin.uv))   // analytical circle (fast path)
-  }).else(() => {
-    assign(dist, sdfShape(pin.uv, shapeId.sub(u32(1))))
-  })
+  const dist = ifExpr('dist', f32T, shapeId.eq(u32(0)),
+    () => length(pin.uv),   // analytical circle (fast path)
+    () => sdfShape(pin.uv, shapeId.sub(u32(1))),
+  )
 
   // Per-feature style.
   const fillColor = vec4(
@@ -434,7 +434,7 @@ const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: PointOut.type }]
   // stroke_w in UV space using the actual rendered radius.
   const strokeW = strokeWPx.div(max(pin.radius_px, f32(1)))
 
-  const color = Var('color', vec4fT, vec4(f32(0), f32(0), f32(0), f32(0)))
+  const color = vec4(f32(0), f32(0), f32(0), f32(0))
 
   // Fill (bit 0).
   If(flags.bitAnd(u32(1)).ne(u32(0)), () => {
@@ -461,11 +461,10 @@ const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: PointOut.type }]
   // Rim fade — flat / cylindrical projections receive rim_a=1.0.
   assignOp(color.field('a', f32T), '*', pin.rim_a)
   If(color.field('a', f32T).lt(0.005), () => { Discard() })
-  const out = Var('out', PointFragmentOutput.type)
-  const o = PointFragmentOutput.of(out)
-  assign(o.color, color)
-  assign(o.depth, compute_log_frag_depth(pin.view_w, U.field.viewport.w))
-  return out
+  return PointFragmentOutput.construct({
+    color,
+    depth: compute_log_frag_depth(pin.view_w, U.field.viewport.w),
+  })
 })
 
 // A build-fn (not a top-level const) so the injection-deferred getGpuProjectionFuncs() is

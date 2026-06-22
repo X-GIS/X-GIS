@@ -19,7 +19,7 @@ import {
   entryFn, module, constRef, callFn, transformMat4, arrayLit,
   f32, u32, toF32, vec2, vec3, vec4, vec2u, mix, atan, exp, smoothstep, textureSample,
   f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
-  Var, assign, If, Discard,
+  If, condExpr, Discard,
   type ModuleDecl,
 } from '../core/ir'
 import { ioStruct, builtin, location, uniformStruct, resource } from '../core/sot'
@@ -107,8 +107,6 @@ const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 've
   const camEcefVec = vec3(camEcef.x, camEcef.y, camEcef.z)
   const ecefRtc = ecef.sub(camEcefVec)
 
-  const out = Var('out', VsOut.type)
-  const o = VsOut.of(out)
   // Display projection (projection-display-layer-restore): flat Mercator
   // (proj_params.x < 0.5) reprojects the reconstructed lon/lat onto the 2D
   // plane and feeds the flat Mercator-metre MVP; 3D / globe keeps the ECEF
@@ -117,29 +115,30 @@ const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 've
   // there. u.mvp is the matching matrix (Camera.getViewForProjection). f32
   // reprojection ≈ 1 m at extreme zoom (P1), sub-pixel for texture-grade
   // raster.
-  const clip = Var('clip', vec4fT)
-  If(projParams.x.lt(0.5), () => {
-    const latDeg = latRad.div(constRef('DEG2RAD'))
-    const p2d = project(lon, latDeg, projParams)
-    const rel2d = p2d.sub(vec2(camEcef.x, camEcef.y))
-    assign(clip, transformMat4(U.field.mvp, vec4(rel2d.x, rel2d.y, f32(0), f32(1))))
-  }).elif(projParams.x.lt(6.5), () => {
-    // FLAT non-Mercator (1-6): reproject the reconstructed lon/lat via
-    // project_geom (world-copy aware; tileRefLon = tile-centre lon from the
-    // tile bounds) minus the camera's projected centre (in-shader from
-    // proj_params.y/z = clon/clat). Same flat MVP; cam_ecef_center unused here.
-    const latDeg = latRad.div(constRef('DEG2RAD'))
-    const tileRefLon = bounds.x.add(bounds.z).mul(0.5)
-    const relG = flat_rel(lon, latDeg, projParams, tileRefLon)
-    assign(clip, transformMat4(U.field.mvp, vec4(relG.x, relG.y, f32(0), f32(1))))
-  }).else(() => {
-    assign(clip, transformMat4(U.field.mvp, vec4(ecefRtc, f32(1))))
+  const clip = condExpr('clip', vec4fT, [
+    [projParams.x.lt(0.5), () => {
+      const latDeg = latRad.div(constRef('DEG2RAD'))
+      const p2d = project(lon, latDeg, projParams)
+      const rel2d = p2d.sub(vec2(camEcef.x, camEcef.y))
+      return transformMat4(U.field.mvp, vec4(rel2d.x, rel2d.y, f32(0), f32(1)))
+    }],
+    [projParams.x.lt(6.5), () => {
+      // FLAT non-Mercator (1-6): reproject the reconstructed lon/lat via
+      // project_geom (world-copy aware; tileRefLon = tile-centre lon from the
+      // tile bounds) minus the camera's projected centre (in-shader from
+      // proj_params.y/z = clon/clat). Same flat MVP; cam_ecef_center unused here.
+      const latDeg = latRad.div(constRef('DEG2RAD'))
+      const tileRefLon = bounds.x.add(bounds.z).mul(0.5)
+      const relG = flat_rel(lon, latDeg, projParams, tileRefLon)
+      return transformMat4(U.field.mvp, vec4(relG.x, relG.y, f32(0), f32(1)))
+    }],
+  ], () => transformMat4(U.field.mvp, vec4(ecefRtc, f32(1))))
+  return VsOut.construct({
+    pos: apply_log_depth(clip, projParams.w),
+    uv: vec2(uu, vv),
+    vis: f32(1),
+    view_w: clip.w,
   })
-  assign(o.pos, apply_log_depth(clip, projParams.w))
-  assign(o.view_w, clip.w)
-  assign(o.uv, vec2(uu, vv))
-  assign(o.vis, f32(1))
-  return out
 })
 
 const buildFs = (pickEnabled: boolean) => {
@@ -147,8 +146,6 @@ const buildFs = (pickEnabled: boolean) => {
   return entryFn('fs_tile', 'fragment', [{ name: 'input', type: VsOut.type }], RasterFragmentOutput.type, (p, _b) => {
     const pin = VsOut.of(p.input)
     If(pin.vis.lt(0), () => { Discard() })
-    const out = Var('out', RasterFragmentOutput.type)
-    const o = RasterFragmentOutput.of(out)
     const c = textureSample(tex.node, texSampler.node, pin.uv)
     // Rim alpha fade — input.vis carries (cos_c - threshold); Mercator writes
     // vis=1 so smoothstep is a no-op on flat/cylindrical projections.
@@ -160,11 +157,12 @@ const buildFs = (pickEnabled: boolean) => {
       c.rgb, U.field.raster_color0, U.field.raster_color1)
     // raster-opacity multiplies alpha only (premultiplied blend keeps RGB at
     // texel value, so a half-opacity raster fades rather than darkens).
-    assign(o.color, vec4(adjRgb, c.a.mul(U.field.raster_params.x).mul(rim)))
     // Basemap tile carries no feature id → always (0,0).
-    if (pickEnabled) assign(o.pick, vec2u(u32(0), u32(0)))
-    assign(o.depth, compute_log_frag_depth(pin.view_w, U.field.proj_params.w))
-    return out
+    return RasterFragmentOutput.construct({
+      color: vec4(adjRgb, c.a.mul(U.field.raster_params.x).mul(rim)),
+      ...(pickEnabled ? { pick: vec2u(u32(0), u32(0)) } : {}),
+      depth: compute_log_frag_depth(pin.view_w, U.field.proj_params.w),
+    })
   })
 }
 
