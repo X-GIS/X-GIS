@@ -39,7 +39,7 @@ describe('shader-dsl IR — type inference', () => {
 })
 
 // A trivial projection-shaped function exercising let/return/builtins/consts.
-const merc = fn('merc', { lon: f32T, lat: f32T }, vec2fT, (b, p) => {
+const merc = fn('merc', { lon: f32T, lat: f32T }, vec2fT, (p, b) => {
   const PI = constRef('PI'), DEG2RAD = constRef('DEG2RAD'), EARTH_R = constRef('EARTH_R')
   const clamped = b.let('clamped', clamp(p.lat, f32(-85.051129), f32(85.051129)))
   const x = b.let('x', p.lon.mul(DEG2RAD).mul(EARTH_R))
@@ -85,7 +85,7 @@ describe('shader-dsl CPU backend', () => {
 
   it('imperative control flow: if/var/assign/for/min round-trips', () => {
     // sum of min(i, 3) for i in [0,5) via a for-loop + compound assign.
-    const f = fn('acc', {}, f32T, (b) => {
+    const f = fn('acc', {}, f32T, (_p, b) => {
       const total = b.var('total', f32T, f32(0))
       b.forRange('i', f32(0), (i) => i.lt(f32(5)), (b, i) => {
         b.addAssign(total, min(i, f32(3)))
@@ -99,7 +99,7 @@ describe('shader-dsl CPU backend', () => {
 
   it('a default-step u32 loop emits an integer increment (i + 1u), not i + 1.0', () => {
     // Guards the naga/tint trap: a u32 counter must not increment by an f32.
-    const f = fn('count', {}, u32T, (b) => {
+    const f = fn('count', {}, u32T, (_p, b) => {
       const n = b.var('n', u32T, u32(0))
       b.forRange('i', u32(0), (i) => i.lt(u32(4)), (loop) => { loop.addAssign(n, u32(1)) })
       b.ret(n)

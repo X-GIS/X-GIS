@@ -11,7 +11,7 @@ import { compileModule } from '../../oracle'
 describe('optimize — dead-code elimination', () => {
   it('removes an unused let binding', () => {
     const m = module({
-      funcs: [fn('k', { x: f32T }, f32T, (b, { x }) => {
+      funcs: [fn('k', { x: f32T }, f32T, ({ x }, b) => {
         b.let('dead', f32(99)) // never read
         b.ret(x.mul(2))
       })],
@@ -23,7 +23,7 @@ describe('optimize — dead-code elimination', () => {
 
   it('keeps a used let binding', () => {
     const m = module({
-      funcs: [fn('k', { x: f32T }, f32T, (b, { x }) => {
+      funcs: [fn('k', { x: f32T }, f32T, ({ x }, b) => {
         const t = b.let('t', x.mul(2))
         b.ret(t.add(1))
       })],
@@ -33,7 +33,7 @@ describe('optimize — dead-code elimination', () => {
 
   it('preserves oracle value-equality', () => {
     const m = module({
-      funcs: [fn('k', { x: f32T }, f32T, (b, { x }) => {
+      funcs: [fn('k', { x: f32T }, f32T, ({ x }, b) => {
         b.let('dead', f32(99))
         b.ret(x.mul(2))
       })],

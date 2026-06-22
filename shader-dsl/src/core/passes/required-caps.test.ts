@@ -22,7 +22,7 @@ describe('capabilities — requiredCaps + assertCaps (#9)', () => {
   })
 
   it('a pure module requires nothing', () => {
-    const m = module({ funcs: [fn('k', {}, f32T, (b) => { b.ret(f32(1)) })] })
+    const m = module({ funcs: [fn('k', {}, f32T, (_p, b) => { b.ret(f32(1)) })] })
     expect(requiredCaps(m)).toHaveLength(0)
   })
 

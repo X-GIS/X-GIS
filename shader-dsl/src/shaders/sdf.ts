@@ -39,7 +39,7 @@ const segments = bindingRef('segments', arrayT(ShapeSegment.type))
 
 // ── dist_to_segment / quadratic / cubic / winding_line ──
 
-const dist_to_segment = fn('dist_to_segment', { p: vec2fT, a: vec2fT, b: vec2fT }, f32T, (_b, { p, a, b }) => {
+const dist_to_segment = fn('dist_to_segment', { p: vec2fT, a: vec2fT, b: vec2fT }, f32T, ({ p, a, b }, _b) => {
   const ab = Let('ab', b.sub(a))
   const len2 = Let('len2', dot(ab, ab))
   // single-exit: max() guards the degenerate (len2≈0) divide; select picks the point dist.
@@ -48,7 +48,7 @@ const dist_to_segment = fn('dist_to_segment', { p: vec2fT, a: vec2fT, b: vec2fT 
   return select(len2.lt(1e-10), length(p.sub(a)), segDist)
 })
 
-const dist_to_quadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT }, f32T, (_b, { p, a, b, c }) => {
+const dist_to_quadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT }, f32T, ({ p, a, b, c }, _b) => {
   const best_d = Var('best_d', f32T, f32(1e10))
   const STEPS = Let('STEPS', u32(16))
   Loop('i', u32(0), (i) => i.le(STEPS), (i) => {
@@ -61,7 +61,7 @@ const dist_to_quadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec
   return best_d
 })
 
-const dist_to_cubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT, d: vec2fT }, f32T, (_b, { p, a, b, c, d }) => {
+const dist_to_cubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT, d: vec2fT }, f32T, ({ p, a, b, c, d }, _b) => {
   const best_d = Var('best_d', f32T, f32(1e10))
   const STEPS = Let('STEPS', u32(24))
   Loop('i', u32(0), (i) => i.le(STEPS), (i) => {
@@ -77,7 +77,7 @@ const dist_to_cubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: 
   return best_d
 })
 
-const winding_line = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT }, i32T, (_b, { p, a, b }) => {
+const winding_line = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT }, i32T, ({ p, a, b }, _b) => {
   // single-exit: signed winding contribution of edge a→b across the +y ray from p.
   const cross = Let('cross_val', b.x.sub(a.x).mul(p.y.sub(a.y)).sub(p.x.sub(a.x).mul(b.y.sub(a.y))))
   const up = a.y.le(p.y).and(b.y.gt(p.y)).and(cross.gt(0))
@@ -87,7 +87,7 @@ const winding_line = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT }, i32
 
 // ── sdf_shape (the imperative core: bbox cull + segment loop + switch) ──
 
-const sdf_shape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (bld, { uv_in, shape_id }) => {
+const sdf_shape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, ({ uv_in, shape_id }, bld) => {
   const uv = bld.let('uv', vec2(uv_in.x, uv_in.y.neg()))
   const s = bld.let('s', shapes.at(shape_id, ShapeDesc.type))
 

@@ -11,7 +11,7 @@ import { compileModule } from '../../oracle'
 describe('optimize — loop-invariant code motion (uniform hoisting)', () => {
   it('hoists a loop-invariant input-only expr out of the loop', () => {
     const m = module({
-      funcs: [fn('k', { x: f32T }, f32T, (b, { x }) => {
+      funcs: [fn('k', { x: f32T }, f32T, ({ x }, b) => {
         const acc = b.var('acc', f32T, f32(0))
         b.forRange('i', i32(0), (i) => i.lt(i32(4)), (cb) => { cb.addAssign(acc, sin(x)) })
         b.ret(acc)
@@ -24,7 +24,7 @@ describe('optimize — loop-invariant code motion (uniform hoisting)', () => {
 
   it('does not hoist a loop-variant expr (depends on the counter)', () => {
     const m = module({
-      funcs: [fn('k', {}, f32T, (b) => {
+      funcs: [fn('k', {}, f32T, (_p, b) => {
         const acc = b.var('acc', f32T, f32(0))
         b.forRange('i', i32(0), (i) => i.lt(i32(4)), (cb, i) => { cb.addAssign(acc, sin(toF32(i))) })
         b.ret(acc)
@@ -35,7 +35,7 @@ describe('optimize — loop-invariant code motion (uniform hoisting)', () => {
 
   it('preserves oracle value-equality', () => {
     const m = module({
-      funcs: [fn('k', { x: f32T }, f32T, (b, { x }) => {
+      funcs: [fn('k', { x: f32T }, f32T, ({ x }, b) => {
         const acc = b.var('acc', f32T, f32(0))
         b.forRange('i', i32(0), (i) => i.lt(i32(4)), (cb) => { cb.addAssign(acc, sin(x)) })
         b.ret(acc)

@@ -5,7 +5,7 @@ import { STRICT, LENIENT } from './presets'
 import { module, fn, callFn, f32T, f32 } from '../../ir'
 
 const wide7 = () => module({
-  funcs: [fn('wide', { a: f32T, b: f32T, c: f32T, d: f32T, e: f32T, g: f32T, h: f32T }, f32T, (_b, { a }) => a)],
+  funcs: [fn('wide', { a: f32T, b: f32T, c: f32T, d: f32T, e: f32T, g: f32T, h: f32T }, f32T, ({ a }, _b) => a)],
 })
 
 // A throwaway rule, to prove adding one is trivial (write a LintRule, run it).
@@ -38,7 +38,7 @@ describe('lint engine — scalable rule framework', () => {
     const counter: LintRule = {
       id: 'count', description: '', severity: 'warning', create: () => ({ Expr() { exprVisits++ } }),
     }
-    const m = module({ funcs: [fn('k', { x: f32T }, f32T, (_b, { x }) => x.mul(2).add(1))] })
+    const m = module({ funcs: [fn('k', { x: f32T }, f32T, ({ x }, _b) => x.mul(2).add(1))] })
     lint(m, [counter])
     expect(exprVisits).toBeGreaterThan(0) // x, 2, x*2, 1, (x*2)+1 … all visited
   })
@@ -80,10 +80,10 @@ describe('lint engine — scalable rule framework', () => {
   })
 
   it('unusedDeviations flags a lintDisable that never fires (and not one that does)', () => {
-    const used = module({ funcs: [fn('rec', { x: f32T }, f32T, (_b, { x }) => callFn('rec', f32T, x), { lintDisable: ['no-recursion'] })] })
+    const used = module({ funcs: [fn('rec', { x: f32T }, f32T, ({ x }, _b) => callFn('rec', f32T, x), { lintDisable: ['no-recursion'] })] })
     expect(unusedDeviations(used, RULES)).toEqual([]) // no-recursion DOES fire → deviation is used
 
-    const stale = module({ funcs: [fn('ok', { x: f32T }, f32T, (_b, { x }) => x.mul(2), { lintDisable: ['no-recursion'] })] })
+    const stale = module({ funcs: [fn('ok', { x: f32T }, f32T, ({ x }, _b) => x.mul(2), { lintDisable: ['no-recursion'] })] })
     expect(unusedDeviations(stale, RULES).map((d) => d.ruleId)).toEqual(['unused-lint-disable'])
   })
 })

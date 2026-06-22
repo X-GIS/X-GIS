@@ -12,7 +12,7 @@ describe('no-empty-function', () => {
   })
 
   it('is silent for a fn with a body', () => {
-    const m = module({ funcs: [fn('ok', { x: f32T }, f32T, (_b, { x }) => x.mul(2))] })
+    const m = module({ funcs: [fn('ok', { x: f32T }, f32T, ({ x }, _b) => x.mul(2))] })
     expect(ruleIds(m)).toEqual([])
   })
 })

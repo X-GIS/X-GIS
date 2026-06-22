@@ -231,7 +231,7 @@ const sprite_samp = bindingRef('sprite_samp', samplerT)
 
 // ── Helper fns ──
 
-const lineEndpoint = fn('line_endpoint', { p_h: vec2fT, p_l: vec2fT }, vec2fT, (_b, p) => {
+const lineEndpoint = fn('line_endpoint', { p_h: vec2fT, p_l: vec2fT }, vec2fT, (p, _b) => {
   const projParams = tile.field('proj_params', vec4fT)
   // single-exit: Mercator (proj<0.5) subtracts the camera; else hi+lo. select() is
   // branchless — both arms are pure reads, computing both is free of side effects.
@@ -248,7 +248,7 @@ const lineEndpoint = fn('line_endpoint', { p_h: vec2fT, p_l: vec2fT }, vec2fT, (
 // corner, reproject via project_geom (world-copy aware; tileRefLon = tile-
 // centre lon), and subtract the camera's projected centre (in-shader from
 // proj_params.y/z). Output feeds the flat 2D-plane MVP.
-const finalizeCorner = fn('finalize_corner', { corner: vec2fT }, vec2fT, (_b, p) => {
+const finalizeCorner = fn('finalize_corner', { corner: vec2fT }, vec2fT, (p, _b) => {
   const projParams = tile.field('proj_params', vec4fT)
   const tileOrigin = tile.field('tile_origin_merc', vec2fT)
   const absMerc = Let('abs_merc', p.corner.add(tileOrigin))
@@ -265,7 +265,7 @@ const finalizeCorner = fn('finalize_corner', { corner: vec2fT }, vec2fT, (_b, p)
   return select(projParams.x.lt(0.5), p.corner, flatRel)
 })
 
-const endpointCosC = fn('endpoint_cos_c', { p_h: vec2fT, p_l: vec2fT }, f32T, (_b, p) => {
+const endpointCosC = fn('endpoint_cos_c', { p_h: vec2fT, p_l: vec2fT }, f32T, (p, _b) => {
   const tileOrigin = tile.field('tile_origin_merc', vec2fT)
   const absMercX = Let('abs_merc_x', p.p_h.x.add(p.p_l.x).add(tileOrigin.x))
   const absMercY = Let('abs_merc_y', p.p_h.y.add(p.p_l.y).add(tileOrigin.y))
@@ -275,7 +275,7 @@ const endpointCosC = fn('endpoint_cos_c', { p_h: vec2fT, p_l: vec2fT }, f32T, (_
   return callFn('needs_backface_cull', f32T, absLon, absLat, tile.field('proj_params', vec4fT))
 })
 
-const patternUnitToM = fn('pattern_unit_to_m', { v: f32T, unit: u32T, mpp: f32T }, f32T, (_b, p) => {
+const patternUnitToM = fn('pattern_unit_to_m', { v: f32T, unit: u32T, mpp: f32T }, f32T, (p, _b) => {
   // single-exit, 0=m 1=px 2=km 3=nm — nested select from the default (nm) up.
   const km = select(p.unit.eq(u32(2)), p.v.mul(1000), p.v.mul(1852))
   const px = select(p.unit.eq(u32(1)), p.v.mul(p.mpp), km)
@@ -285,7 +285,7 @@ const patternUnitToM = fn('pattern_unit_to_m', { v: f32T, unit: u32T, mpp: f32T 
 // Inlined SDF shape sampler — uses our `shape_segments` (binding 3) instead
 // of the shared SDF module's `segments` name (which would collide with the
 // line segment storage buffer on binding 1).
-const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (_b, p) => {
+const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (p, _b) => {
   const uv = Let('uv', vec2(p.uv_in.x, p.uv_in.y.neg()))
   const s = Let('s', shapes.at(p.shape_id, structT('ShapeDesc')))
   const bMinX = s.field('bbox_min_x', f32T)
@@ -331,7 +331,7 @@ const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (_b, p
 // Backface cull → clip-bounds → segment-frame distance → bisector clip → bevel
 // edge → endpoint cap/join → dash → 3-slot pattern stack → alpha + per-segment
 // colour override. Faithful port of the WGSL helper (renderer-shaders.ts L661-1234).
-const computeLineColor = fn('compute_line_color', { input: structT('LineOut') }, vec4fT, (b, p) => {
+const computeLineColor = fn('compute_line_color', { input: structT('LineOut') }, vec4fT, (p, b) => {
   const projParams = tile.field('proj_params', vec4fT)
   const tileOrigin = tile.field('tile_origin_merc', vec2fT)
   const clipBounds = tile.field('clip_bounds', vec4fT)
@@ -768,7 +768,7 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
 })
 
 // ── line_rim_alpha ──
-const lineRimAlpha = fn('line_rim_alpha', { input: structT('LineOut') }, f32T, (_b, p) => {
+const lineRimAlpha = fn('line_rim_alpha', { input: structT('LineOut') }, f32T, (p, _b) => {
   const tileOrigin = tile.field('tile_origin_merc', vec2fT)
   const absMerc = Let('abs_merc', p.input.field('world_local', vec2fT).add(tileOrigin))
   const absLon = Let('abs_lon', absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R'))))
@@ -782,7 +782,7 @@ const lineRimAlpha = fn('line_rim_alpha', { input: structT('LineOut') }, f32T, (
 const vsLine = entryFn('vs_line', 'vertex', [
   { name: 'seg_id', type: u32T, builtin: 'instance_index' },
   { name: 'vi', type: u32T, builtin: 'vertex_index' },
-], structT('LineOut'), (b, p) => {
+], structT('LineOut'), (p, b) => {
   const seg = b.let('seg', segments.at(p.seg_id, structT('LineSegment')))
   const p0 = b.let('p0', callFn('line_endpoint', vec2fT, seg.field('p0_h', vec2fT), seg.field('p0_l', vec2fT)))
   const p1 = b.let('p1', callFn('line_endpoint', vec2fT, seg.field('p1_h', vec2fT), seg.field('p1_l', vec2fT)))
@@ -1082,7 +1082,7 @@ const vsLine = entryFn('vs_line', 'vertex', [
 // ── Fragment entries (3 variants share compute_line_color) ──
 
 const buildFsLine = (pickEnabled: boolean) =>
-  entryFn('fs_line', 'fragment', [{ name: 'input', type: structT('LineOut') }], structT('LineFragmentOutput'), (_b, p) => {
+  entryFn('fs_line', 'fragment', [{ name: 'input', type: structT('LineOut') }], structT('LineFragmentOutput'), (p, _b) => {
     const out = Var('out', structT('LineFragmentOutput'))
     const color = Let('color', callFn('compute_line_color', vec4fT, p.input))
     const rim = Let('rim', callFn('line_rim_alpha', f32T, p.input))
@@ -1093,7 +1093,7 @@ const buildFsLine = (pickEnabled: boolean) =>
   })
 
 const buildFsLinePattern = (pickEnabled: boolean) =>
-  entryFn('fs_line_pattern', 'fragment', [{ name: 'input', type: structT('LineOut') }], structT('LineFragmentOutput'), (_b, p) => {
+  entryFn('fs_line_pattern', 'fragment', [{ name: 'input', type: structT('LineOut') }], structT('LineFragmentOutput'), (p, _b) => {
     const base = Let('base', callFn('compute_line_color', vec4fT, p.input))
     const tileOrigin = tile.field('tile_origin_merc', vec2fT)
     const absMerc = Let('abs_merc', p.input.field('world_local', vec2fT).add(tileOrigin))
@@ -1127,7 +1127,7 @@ const fsLineMax = entryFn(
   'fs_line_max', 'fragment',
   [{ name: 'input', type: structT('LineOut') }],
   vec4fT,
-  (_b, p) => {
+  (p, _b) => {
     const c = Var('c', vec4fT, callFn('compute_line_color', vec4fT, p.input))
     const rim = Let('rim', callFn('line_rim_alpha', f32T, p.input))
     assign(c.field('a', f32T), c.field('a', f32T).mul(rim))
@@ -1201,7 +1201,7 @@ const compCu = bindingRef('cu', structT('CompUniform'))
 const vsFull = entryFn('vs_full', 'vertex',
   [{ name: 'vi', type: u32T, builtin: 'vertex_index' }],
   structT('VsFullOut'),
-  (_b, p) => {
+  (p, _b) => {
     const pos = Var('p', vec2fT, vec2(f32(-1), f32(-1)))
     const uv = Var('uv', vec2fT, vec2(f32(0), f32(1)))
     If(p.vi.eq(u32(1)), () => {
@@ -1222,7 +1222,7 @@ const vsFull = entryFn('vs_full', 'vertex',
 const fsFull = entryFn('fs_full', 'fragment',
   [{ name: 'input', type: structT('VsFullOut') }],
   vec4fT,
-  (_b, p) => {
+  (p, _b) => {
     const c = Let('c', textureSample(compSrc, compSamp, p.input.field('uv', vec2fT)))
     const op = Let('op', compCu.field('opacity', f32T))
     // MAX-blend offscreen stores non-premultiplied (rgb, a_aa); premultiply here.

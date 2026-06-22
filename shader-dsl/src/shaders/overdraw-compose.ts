@@ -33,7 +33,7 @@ const accumTex = resource('accum_tex', texture2dfT, { group: 0, binding: 0 })
 // 4-stop piecewise (polynomial fit, no branching): dark navy → cyan →
 // yellow → red.
 
-const colormap = fn('colormap', { t: f32T }, vec3fT, (b, p) => {
+const colormap = fn('colormap', { t: f32T }, vec3fT, (p, b) => {
   const s = b.let('s', clamp(p.t, f32(0), f32(1)))
   const r = b.let('r', clamp(s.mul(f32(3)).sub(f32(0.5)), f32(0), f32(1)))
   const g = b.let('g',
@@ -52,7 +52,7 @@ const vsFull = entryFn(
   'vs_full', 'vertex',
   [{ name: 'idx', type: u32T, builtin: 'vertex_index' }],
   VsOut.type,
-  (b, p) => {
+  (p, b) => {
     const pos = b.var('pos', vec2fT, vec2(f32(-1), f32(-1)))
     b.if(p.idx.eq(u32(1)), (c) => { c.assign(pos, vec2(f32(3), f32(-1))) })
       .elif(p.idx.eq(u32(2)), (c) => { c.assign(pos, vec2(f32(-1), f32(3))) })
@@ -78,7 +78,7 @@ const fsCompose = entryFn(
   'fs_compose', 'fragment',
   [{ name: 'in', type: VsOut.type }],
   vec4fT,
-  (b, p) => {
+  (p, b) => {
     const pin = VsOut.of(p.in)
     // textureDimensions returns vec2<u32>; toF32 each component for the
     // uv → texel-coord multiply. WGSL doesn't auto-convert across

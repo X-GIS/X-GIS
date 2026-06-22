@@ -11,7 +11,7 @@ describe('oracle — f32-faithful equality (#13 fround compare)', () => {
     // (f32 ulp at 1.0 ≈ 1.19e-7 ≫ 2^-30 ≈ 9.3e-10). The GPU sees them equal.
     const m = module({
       funcs: [
-        fn('eq1', { a: f32T, b: f32T }, f32T, (bld, { a, b }) => {
+        fn('eq1', { a: f32T, b: f32T }, f32T, ({ a, b }, bld) => {
           bld.ret(a.eq(b).select(f32(1), f32(0)))
         }),
       ],
@@ -23,7 +23,7 @@ describe('oracle — f32-faithful equality (#13 fround compare)', () => {
   it('!= returns false for the same f32-equal pair', () => {
     const m = module({
       funcs: [
-        fn('ne1', { a: f32T, b: f32T }, f32T, (bld, { a, b }) => {
+        fn('ne1', { a: f32T, b: f32T }, f32T, ({ a, b }, bld) => {
           bld.ret(a.ne(b).select(f32(1), f32(0)))
         }),
       ],
@@ -35,7 +35,7 @@ describe('oracle — f32-faithful equality (#13 fround compare)', () => {
   it('== still distinguishes values that differ at f32 resolution', () => {
     const m = module({
       funcs: [
-        fn('eq2', { a: f32T, b: f32T }, f32T, (bld, { a, b }) => {
+        fn('eq2', { a: f32T, b: f32T }, f32T, ({ a, b }, bld) => {
           bld.ret(a.eq(b).select(f32(1), f32(0)))
         }),
       ],
@@ -60,7 +60,7 @@ describe('oracle — vecN(scalar) splat matches WGSL', () => {
   })
 
   it('clamp(vecN, vecLo, vecHi) clamps component-wise (was scalar-only → null on vec bounds)', () => {
-    const m = module({ funcs: [fn('cl', { v: vec3fT }, vec3fT, (_b, { v }) => clamp(v, vec3(f32(0)), vec3(f32(1))))] })
+    const m = module({ funcs: [fn('cl', { v: vec3fT }, vec3fT, ({ v }, _b) => clamp(v, vec3(f32(0)), vec3(f32(1))))] })
     expect(compileModule(m).fns.cl([-0.5, 1.5, 0.5])).toEqual([0, 1, 0.5])
   })
 
@@ -68,12 +68,12 @@ describe('oracle — vecN(scalar) splat matches WGSL', () => {
   // (vec,vec) and (scalar,scalar), so a scalar endpoint against a vec fell to the scalar
   // path and did array+number arithmetic → NaN. Now broadcasts component-wise.
   it('mix(vec a, vec b, scalar t) interpolates component-wise', () => {
-    const m = module({ funcs: [fn('mx', { a: vec3fT, b: vec3fT }, vec3fT, (_b, { a, b }) => mix(a, b, f32(0.25)))] })
+    const m = module({ funcs: [fn('mx', { a: vec3fT, b: vec3fT }, vec3fT, ({ a, b }, _b) => mix(a, b, f32(0.25)))] })
     expect(compileModule(m).fns.mx([0, 0, 0], [4, 8, 100])).toEqual([1, 2, 25])
   })
 
   it('mix(vec a, scalar b, scalar t) broadcasts the scalar endpoint (was NaN on the scalar branch)', () => {
-    const m = module({ funcs: [fn('mxb', { a: vec3fT }, vec3fT, (_b, { a }) => mix(a, f32(1), f32(0.5)))] })
+    const m = module({ funcs: [fn('mxb', { a: vec3fT }, vec3fT, ({ a }, _b) => mix(a, f32(1), f32(0.5)))] })
     expect(compileModule(m).fns.mxb([0, 0.5, 1])).toEqual([0.5, 0.75, 1])
   })
 })

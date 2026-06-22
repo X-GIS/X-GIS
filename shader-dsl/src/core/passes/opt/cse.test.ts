@@ -11,19 +11,19 @@ import { compileModule } from '../../oracle'
 // raw Stmt is skipped (raw WGSL is opaque).
 describe('optimize — common-subexpression elimination', () => {
   it('hoists a repeated compound subexpr into one shared temp', () => {
-    const m = module({ funcs: [fn('k', { x: f32T }, f32T, (b, { x }) => { b.ret(sin(x).add(sin(x))) })] })
+    const m = module({ funcs: [fn('k', { x: f32T }, f32T, ({ x }, b) => { b.ret(sin(x).add(sin(x))) })] })
     const wgsl = emitModule(cse(m))
     expect(wgsl).toContain('_cse') // a hoisted temp was introduced
     expect((wgsl.match(/sin\(x\)/g) ?? []).length).toBe(1) // sin(x) computed once
   })
 
   it('does not hoist a non-repeated expr', () => {
-    const m = module({ funcs: [fn('k', { x: f32T }, f32T, (b, { x }) => { b.ret(sin(x).add(1)) })] })
+    const m = module({ funcs: [fn('k', { x: f32T }, f32T, ({ x }, b) => { b.ret(sin(x).add(1)) })] })
     expect(emitModule(cse(m))).not.toContain('_cse')
   })
 
   it('preserves oracle value-equality', () => {
-    const m = module({ funcs: [fn('k', { x: f32T }, f32T, (b, { x }) => { b.ret(sin(x).add(sin(x))) })] })
+    const m = module({ funcs: [fn('k', { x: f32T }, f32T, ({ x }, b) => { b.ret(sin(x).add(sin(x))) })] })
     expect(compileModule(cse(m)).fns.k(0.5)).toBeCloseTo(compileModule(m).fns.k(0.5) as number, 10)
   })
 

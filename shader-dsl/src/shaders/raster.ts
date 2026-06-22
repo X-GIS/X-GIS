@@ -71,7 +71,7 @@ const texSampler = resource('tex_sampler', samplerT, { group: 0, binding: 2 })
 
 // GRID_N = 8 (an 8×8 subdivided grid, 6 verts/cell = 384; the draw count lives
 // in the renderer). Inlined where used.
-const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 'vertex_index' }], VsOut.type, (_b, p) => {
+const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 'vertex_index' }], VsOut.type, (p, _b) => {
   const cell = Let('cell', p.vid.div(u32(6)))
   const tri = Let('tri', p.vid.mod(u32(6)))
   const cx = Let('cx', cell.mod(u32(8)))
@@ -144,7 +144,7 @@ const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 've
 })
 
 const buildFs = (pickEnabled: boolean) =>
-  entryFn('fs_tile', 'fragment', [{ name: 'input', type: VsOut.type }], structT('RasterFragmentOutput'), (_b, p) => {
+  entryFn('fs_tile', 'fragment', [{ name: 'input', type: VsOut.type }], structT('RasterFragmentOutput'), (p, _b) => {
     const pin = VsOut.of(p.input)
     If(pin.vis.lt(0), () => { Discard() })
     const out = Var('out', structT('RasterFragmentOutput'))

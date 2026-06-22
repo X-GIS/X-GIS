@@ -52,7 +52,7 @@ const vsFull = entryFn(
   'vs_full', 'vertex',
   [{ name: 'idx', type: u32T, builtin: 'vertex_index' }],
   VsOut.type,
-  (_b, p) => {
+  (p, _b) => {
     const pos = Var('pos', vec2fT, vec2(f32(-1), f32(-1)))
     If(p.idx.eq(u32(1)), () => { assign(pos, vec2(f32(3), f32(-1))) })
       .elif(p.idx.eq(u32(2)), () => { assign(pos, vec2(f32(-1), f32(3))) })
@@ -71,7 +71,7 @@ const vsFull = entryFn(
 )
 
 // load_density — fetch the blurred density at this pixel's texel coord.
-const loadDensity = fn('load_density', { uv: vec2fT }, f32T, (_b, p) => {
+const loadDensity = fn('load_density', { uv: vec2fT }, f32T, (p, _b) => {
   const dimU = Let('dim_u', textureDimensions(densityTex.node))
   const dim = Let('dim', vec2(toF32(dimU.x), toF32(dimU.y)))
   const coord = Let('coord', vec2i(
@@ -85,7 +85,7 @@ const fsCompose = entryFn(
   'fs_compose', 'fragment',
   [{ name: 'in', type: VsOut.type }],
   vec4fT,
-  (_b, p) => {
+  (p, _b) => {
     const density = Let('density', callFn('load_density', f32T, VsOut.of(p.in).uv))
     const intensity = Let('intensity', U.field.params.x)
     const opacity = Let('opacity', U.field.params.y)

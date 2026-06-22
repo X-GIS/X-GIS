@@ -16,7 +16,7 @@ import {
 } from '../core/ir'
 import { emitFunc } from '../core/backends/wgsl'
 
-const rasterSpinWeights = fn('raster_spin_weights', { angle_rad: f32T }, vec3fT, (_b, p) => {
+const rasterSpinWeights = fn('raster_spin_weights', { angle_rad: f32T }, vec3fT, (p, _b) => {
   const s = Let('s', sin(p.angle_rad))
   const c = Let('c', cos(p.angle_rad))
   const sqrt3 = Let('sqrt3', f32(1.7320508075688772))
@@ -26,7 +26,7 @@ const rasterSpinWeights = fn('raster_spin_weights', { angle_rad: f32T }, vec3fT,
   return vec3(w0, w1, w2)
 })
 
-const rasterColorAdjust = fn('raster_color_adjust', { rgb_in: vec3fT, p0: vec4fT, p1: vec4fT }, vec3fT, (_b, p) => {
+const rasterColorAdjust = fn('raster_color_adjust', { rgb_in: vec3fT, p0: vec4fT, p1: vec4fT }, vec3fT, (p, _b) => {
   const hueDeg = p.p0.x
   const brightnessLow = p.p0.y
   const brightnessHigh = p.p0.z

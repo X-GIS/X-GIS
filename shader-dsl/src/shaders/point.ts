@@ -127,15 +127,15 @@ const STRIDE = u32(24)
 // branches on projType via proj_params to short-circuit flat projections,
 // mirroring polygon_cos_c_fragment + polygon_rim_alpha in polygon.ts.
 
-const pointCosC = fn('point_cos_c', { abs_lon: f32T, abs_lat: f32T }, f32T, (_b, p) => {
+const pointCosC = fn('point_cos_c', { abs_lon: f32T, abs_lat: f32T }, f32T, (p, _b) => {
   return callFn('needs_backface_cull', f32T, p.abs_lon, p.abs_lat, U.field.proj_params)
 })
 
-const pointRimAlpha = fn('point_rim_alpha', { abs_lon: f32T, abs_lat: f32T }, f32T, (_b, p) => {
+const pointRimAlpha = fn('point_rim_alpha', { abs_lon: f32T, abs_lat: f32T }, f32T, (p, _b) => {
   return callFn('rim_alpha', f32T, p.abs_lon, p.abs_lat, U.field.proj_params)
 })
 
-const distToLine = fn('dist_to_line', { p: vec2fT, a: vec2fT, b: vec2fT }, f32T, (_b, pp) => {
+const distToLine = fn('dist_to_line', { p: vec2fT, a: vec2fT, b: vec2fT }, f32T, (pp, _b) => {
   const ab = Let('ab', pp.b.sub(pp.a))
   const len2 = Let('len2', dot(ab, ab))
   // single-exit: max() guards the degenerate (len2≈0) divide; select picks the point dist.
@@ -144,7 +144,7 @@ const distToLine = fn('dist_to_line', { p: vec2fT, a: vec2fT, b: vec2fT }, f32T,
   return select(len2.lt(1e-10), length(pp.p.sub(pp.a)), segDist)
 })
 
-const distToQuadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT }, f32T, (_b, pp) => {
+const distToQuadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT }, f32T, (pp, _b) => {
   const bestD = Var('best_d', f32T, f32(1e10))
   Loop('i', u32(0), (i) => i.le(u32(16)), (i) => {
     const t = Let('t', toF32(i).div(16))
@@ -156,7 +156,7 @@ const distToQuadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2f
   return bestD
 })
 
-const distToCubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT, d: vec2fT }, f32T, (_b, pp) => {
+const distToCubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT, d: vec2fT }, f32T, (pp, _b) => {
   const bestD = Var('best_d', f32T, f32(1e10))
   Loop('i', u32(0), (i) => i.le(u32(24)), (i) => {
     const t = Let('t', toF32(i).div(24))
@@ -171,7 +171,7 @@ const distToCubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: ve
   return bestD
 })
 
-const windingLine = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT }, i32T, (_b, pp) => {
+const windingLine = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT }, i32T, (pp, _b) => {
   // single-exit: signed winding contribution of edge a→b across the +y ray from p.
   const cross = Let('cross_val', pp.b.x.sub(pp.a.x).mul(pp.p.y.sub(pp.a.y)).sub(pp.p.x.sub(pp.a.x).mul(pp.b.y.sub(pp.a.y))))
   const up = pp.a.y.le(pp.p.y).and(pp.b.y.gt(pp.p.y)).and(cross.gt(0))
@@ -179,7 +179,7 @@ const windingLine = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT }, i32T
   return select(up, i32(1), select(down, i32(-1), i32(0)))
 })
 
-const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (bld, pp) => {
+const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (pp, bld) => {
   // Flip Y: NDC Y-up → SVG/path Y-down convention.
   const uv = bld.let('uv', vec2(pp.uv_in.x, pp.uv_in.y.neg()))
   const s = bld.let('s', shapes.at(pp.shape_id, structT('ShapeDesc')))
@@ -232,7 +232,7 @@ const vs = entryFn('vs_point', 'vertex', [
   { name: 'center', type: vec2fT, location: 0 },
   { name: 'quad_id', type: u32T, location: 1 },
   { name: 'feat_id', type: f32T, location: 2 },
-], PointOut.type, (_b, p) => {
+], PointOut.type, (p, _b) => {
   const offsets = Let('offsets', arrayLit(vec2fT,
     vec2(f32(-1), f32(-1)),
     vec2(f32(1), f32(-1)),
@@ -399,7 +399,7 @@ const vs = entryFn('vs_point', 'vertex', [
   return out
 })
 
-const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: PointOut.type }], PointFragmentOutput.type, (_b, p) => {
+const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: PointOut.type }], PointFragmentOutput.type, (p, _b) => {
   const pin = PointOut.of(p.in)
   // Backface cull for globe projections — cos_c is +1 for flat projections.
   If(pin.cos_c.lt(0), () => { Discard() })

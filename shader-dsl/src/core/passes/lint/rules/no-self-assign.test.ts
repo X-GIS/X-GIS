@@ -9,7 +9,7 @@ describe('no-self-assign', () => {
   it('flags a self-assignment (v = v)', () => {
     const m = module({
       funcs: [
-        fn('selfassign', { x: f32T }, f32T, (b, { x }) => {
+        fn('selfassign', { x: f32T }, f32T, ({ x }, b) => {
           const v = b.var('v', f32T, f32(0))
           b.assign(v, v) // self-assign = no-op, likely typo
           b.ret(x)
@@ -22,7 +22,7 @@ describe('no-self-assign', () => {
   it('does not flag a normal assignment', () => {
     const m = module({
       funcs: [
-        fn('ok', { x: f32T }, f32T, (b, { x }) => {
+        fn('ok', { x: f32T }, f32T, ({ x }, b) => {
           const v = b.var('v', f32T, f32(0))
           b.assign(v, x) // distinct target/value
           b.ret(v)
@@ -34,7 +34,7 @@ describe('no-self-assign', () => {
 
   it('auto-fix deletes the no-op self-assignment', () => {
     const m = module({
-      funcs: [fn('selfassign', { x: f32T }, f32T, (b, { x }) => {
+      funcs: [fn('selfassign', { x: f32T }, f32T, ({ x }, b) => {
         const v = b.var('v', f32T, f32(0))
         b.assign(v, v)
         b.ret(x)

@@ -7,14 +7,14 @@ import { emitFunc, emitExpr } from '../backends/wgsl'
 // f32T, y)`. The const IS the function; `.decl` is the FuncDecl. Byte-identical.
 describe('defineFn — typed callable (#2 DX)', () => {
   it('the call site emits identically to callFn(name, ret, ...args)', () => {
-    const dbl = defineFn('dbl', { x: f32T }, f32T, (_b, { x }) => x.mul(2))
+    const dbl = defineFn('dbl', { x: f32T }, f32T, ({ x }, _b) => x.mul(2))
     const arg = param('a', f32T)
     expect(emitExpr(dbl(arg).expr)).toBe(emitExpr(callFn('dbl', f32T, arg).expr))
   })
 
   it('.decl is the FuncDecl, emit-identical to a bare fn()', () => {
-    const dbl = defineFn('dbl', { x: f32T }, f32T, (_b, { x }) => x.mul(2))
-    const bare = fn('dbl', { x: f32T }, f32T, (_b, { x }) => x.mul(2))
+    const dbl = defineFn('dbl', { x: f32T }, f32T, ({ x }, _b) => x.mul(2))
+    const bare = fn('dbl', { x: f32T }, f32T, ({ x }, _b) => x.mul(2))
     expect(dbl.decl.name).toBe('dbl')
     expect(emitFunc(dbl.decl)).toBe(emitFunc(bare))
   })

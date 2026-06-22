@@ -47,7 +47,7 @@ const vsFull = entryFn(
   'vs_full', 'vertex',
   [{ name: 'idx', type: u32T, builtin: 'vertex_index' }],
   VsOut.type,
-  (_b, p) => {
+  (p, _b) => {
     const pos = Var('pos', vec2fT, vec2(f32(-1), f32(-1)))
     If(p.idx.eq(u32(1)), () => { assign(pos, vec2(f32(3), f32(-1))) })
       .elif(p.idx.eq(u32(2)), () => { assign(pos, vec2(f32(-1), f32(3))) })
@@ -71,7 +71,7 @@ const fsBlur = entryFn(
   'fs_blur', 'fragment',
   [{ name: 'in', type: VsOut.type }],
   vec4fT,
-  (_b, p) => {
+  (p, _b) => {
     const dimU = Let('dim_u', textureDimensions(srcTex.node))
     const dim = Let('dim', vec2(toF32(dimU.x), toF32(dimU.y)))
     const baseUv = Let('base_uv', VsOut.of(p.in).uv)

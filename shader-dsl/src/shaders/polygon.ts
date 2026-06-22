@@ -162,7 +162,7 @@ const polygonCosCFragment = fn(
   'polygon_cos_c_fragment',
   { abs_merc_x: f32T, abs_merc_y: f32T },
   f32T,
-  (_b, p) => {
+  (p, _b) => {
     const deg2rad = constRef('DEG2RAD')
     const earthR = constRef('EARTH_R')
     const absLon = Let('abs_lon', p.abs_merc_x.div(deg2rad.mul(earthR)))
@@ -181,7 +181,7 @@ const polygonRimAlpha = fn(
   'polygon_rim_alpha',
   { abs_merc_x: f32T, abs_merc_y: f32T },
   f32T,
-  (_b, p) => {
+  (p, _b) => {
     const deg2rad = constRef('DEG2RAD')
     const earthR = constRef('EARTH_R')
     const absLon = Let('abs_lon', p.abs_merc_x.div(deg2rad.mul(earthR)))
@@ -340,7 +340,7 @@ const vsMain = entryFn(
     { name: 'abs_lat', type: f32T, location: 4 },
   ],
   structT('VertexOutput'),
-  (b, p) => {
+  (p, b) => {
     const mvp = u.field('mvp', mat4x4fT)
     const logDepthFc = u.field('log_depth_fc', f32T)
     const layerDepthOff = u.field('layer_depth_offset', f32T)
@@ -424,7 +424,7 @@ const dequantEcefFn = fn(
   'dequant_ecef',
   { q_xy: vec4uT, q_z: vec2uT, scale: f32T, half: f32T },
   vec3fT,
-  (_b, { q_xy, q_z, scale, half }) => {
+  ({ q_xy, q_z, scale, half }, _b) => {
     const qx = Let('qx', toF32(q_xy.x).mul(f32(65536)).add(toF32(q_xy.y)))
     const qy = Let('qy', toF32(q_xy.z).mul(f32(65536)).add(toF32(q_xy.w)))
     const qz = Let('qz', toF32(q_z.x).mul(f32(65536)).add(toF32(q_z.y)))
@@ -455,7 +455,7 @@ const vsMainEcef = entryFn(
     { name: 'true_lat', type: f32T, location: 5 },
   ],
   structT('VertexOutput'),
-  (b, p) => {
+  (p, b) => {
     const mvp = u.field('mvp', mat4x4fT)
     const logDepthFc = u.field('log_depth_fc', f32T)
     const layerDepthOff = u.field('layer_depth_offset', f32T)
@@ -554,7 +554,7 @@ const vsMainEcefExtruded = entryFn(
     { name: 'is_top', type: f32T, location: 7 },
   ],
   structT('VertexOutput'),
-  (b, p) => {
+  (p, b) => {
     const mvp = u.field('mvp', mat4x4fT)
     const logDepthFc = u.field('log_depth_fc', f32T)
     const layerDepthOff = u.field('layer_depth_offset', f32T)
@@ -752,7 +752,7 @@ const buildFsFill = (pickEnabled: boolean) =>
     'fs_fill', 'fragment',
     [{ name: 'input', type: structT('VertexOutput') }],
     structT('FragmentOutput'),
-    (b, p) => {
+    (p, b) => {
       const input = p.input
       emitPolygonFragmentDiscards(b, input)
       const out = b.var('out', structT('FragmentOutput'))
@@ -803,7 +803,7 @@ const buildFsFillPattern = (pickEnabled: boolean) =>
     'fs_fill_pattern', 'fragment',
     [{ name: 'input', type: structT('VertexOutput') }],
     structT('FragmentOutput'),
-    (b, p) => {
+    (p, b) => {
       const input = p.input
       emitPolygonFragmentDiscards(b, input)
       const out = b.var('out', structT('FragmentOutput'))
@@ -846,7 +846,7 @@ const fsOitTranslucent = entryFn(
   'fs_oit_translucent', 'fragment',
   [{ name: 'input', type: structT('VertexOutput') }],
   structT('OitFragmentOutput'),
-  (b, p) => {
+  (p, b) => {
     const input = p.input
     emitPolygonFragmentDiscards(b, input)
     // Same fill-extrusion shading as fs_fill.
@@ -890,7 +890,7 @@ const buildFsFillExtrude = (pickEnabled: boolean) =>
     'fs_fill_extrude', 'fragment',
     [{ name: 'input', type: structT('VertexOutput') }],
     structT('FragmentOutput'),
-    (b, p) => {
+    (p, b) => {
       const input = p.input
       emitPolygonFragmentDiscards(b, input)
       const out = b.var('out', structT('FragmentOutput'))
@@ -918,7 +918,7 @@ const buildFsStroke = (pickEnabled: boolean) =>
     'fs_stroke', 'fragment',
     [{ name: 'input', type: structT('VertexOutput') }],
     structT('FragmentOutput'),
-    (b, p) => {
+    (p, b) => {
       const input = p.input
       emitPolygonFragmentDiscards(b, input)
       // feat_id > 0 = major grid line (brighter); 0 = minor (dimmer).
@@ -950,7 +950,7 @@ const buildFsStroke = (pickEnabled: boolean) =>
 
 const fsOverdraw = entryFn(
   'fs_overdraw', 'fragment', [], vec4fT,
-  () => {
+  (_p) => {
     return vec4(f32(1), f32(0), f32(0), f32(0))
   },
   '@location(0)',

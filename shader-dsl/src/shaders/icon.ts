@@ -41,7 +41,7 @@ const vs = entryFn('vs', 'vertex', [
   { name: 'opacity', type: f32T, location: 2 },
   { name: 'tint', type: vec3fT, location: 3 },
   { name: 'sdf', type: f32T, location: 4 },
-], VsOut.type, (_b, p) => {
+], VsOut.type, (p, _b) => {
   const vp = U.field.viewport
   const ndc_x = Let('ndc_x', p.pos_px.x.div(vp.x).mul(2).sub(1))
   const ndc_y = Let('ndc_y', f32(1).sub(p.pos_px.y.div(vp.y).mul(2)))
@@ -55,7 +55,7 @@ const vs = entryFn('vs', 'vertex', [
   return out
 })
 
-const fs = entryFn('fs', 'fragment', [{ name: 'in', type: VsOut.type }], vec4fT, (_b, p) => {
+const fs = entryFn('fs', 'fragment', [{ name: 'in', type: VsOut.type }], vec4fT, (p, _b) => {
   const pin = VsOut.of(p.in)
   const c = Let('c', textureSample(atlasTex.node, atlasSmp.node, pin.uv))
   // fwidth must be in uniform control flow — compute aa unconditionally (the
