@@ -88,14 +88,16 @@ export function uniformStruct<F extends Record<string, ShaderType>>(
   }
 }
 
-export interface Resource {
+export interface Resource<T extends ShaderType = ShaderType> {
   readonly binding: BindingDecl
-  readonly node: Node
+  readonly node: Node<KeyOf<T>>
 }
 
 /** A non-struct bound resource (texture / sampler): derive its binding decl + access
- *  node from one place. Space defaults to 'uniform' (the texture/sampler convention). */
-export function resource(name: string, type: ShaderType, at: { group: number; binding: number; space?: AddressSpace }): Resource {
+ *  node from one place. Generic over the resource type, so `r.node` keeps the SPECIFIC key
+ *  (`Node<'texture_2d<f32>'>`, `Node<'sampler'>`) and texture/sampler ops are type-checked —
+ *  not the widened `Node`. Space defaults to 'uniform' (the texture/sampler convention). */
+export function resource<T extends ShaderType>(name: string, type: T, at: { group: number; binding: number; space?: AddressSpace }): Resource<T> {
   return {
     binding: { group: at.group, binding: at.binding, name, space: at.space ?? 'uniform', type },
     node: bindingRef(name, type),

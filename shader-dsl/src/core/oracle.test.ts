@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { compileModule } from './oracle'
-import { module, fn, f32, f32T, vec3, vec3fT, clamp, mix } from './ir'
+import { module, fn, f32, f32T, vec3, vec3fT, clamp, mix, type Node } from './ir'
 
 // #13 (remaining half) — the oracle is the CPU half of a two-oracle contract; the
 // GPU computes f32. Its `==` / `!=` must therefore reflect f32 rounding, not exact
@@ -73,7 +73,10 @@ describe('oracle — vecN(scalar) splat matches WGSL', () => {
   })
 
   it('mix(vec a, scalar b, scalar t) broadcasts the scalar endpoint (was NaN on the scalar branch)', () => {
-    const m = module({ funcs: [fn('mxb', { a: vec3fT }, vec3fT, ({ a }, _b) => mix(a, f32(1), f32(0.5)))] })
+    // mix(vec, scalar, scalar) broadcasts the scalar endpoint to the vec — TS types mix's
+    // return as the f32|vec3 union (it can't prove the broadcast), so assert the vec3 the
+    // ret demands; the new fn() return-type enforcement requires this be explicit.
+    const m = module({ funcs: [fn('mxb', { a: vec3fT }, vec3fT, ({ a }, _b) => mix(a, f32(1), f32(0.5)) as Node<'vec3<f32>'>)] })
     expect(compileModule(m).fns.mxb([0, 0.5, 1])).toEqual([0.5, 0.75, 1])
   })
 })
