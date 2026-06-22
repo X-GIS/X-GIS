@@ -5,25 +5,26 @@
 // @location inputs, a bare @location(0) fragment return, and .rgb/.a swizzles.
 // SDF sprites antialias via fwidth (screen-space, GPU-only); raster sprites are
 // a straight sample. No pick variant (the icon shader has no __PICK__ markers).
+//
+// Single-source-of-truth: every struct + binding is declared ONCE (ioStruct /
+// uniformStruct / resource) and the StructDecl, binding decl, access node, attrs,
+// and typed field access are all derived — no hand-written StructDecl, binding
+// table, attr string, or `.field('name', type)` that must agree by hand.
 
 import {
-  entryFn, bindingRef, vec4, f32, max, smoothstep, fwidth, textureSample, select,
-  module, structT, f32T, vec2fT, vec3fT, vec4fT, texture2dfT, samplerT,
+  entryFn, vec4, f32, max, smoothstep, fwidth, textureSample, select,
+  module, f32T, vec2fT, vec3fT, vec4fT, texture2dfT, samplerT,
   Let, Var, assign,
-  type StructDecl, type ModuleDecl,
+  type ModuleDecl,
 } from '../core/ir'
-import { ioStruct, builtin, location } from '../core/sot'
+import { ioStruct, builtin, location, uniformStruct, resource } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
 
-const Uniforms: StructDecl = {
-  name: 'Uniforms',
-  fields: [
-    { name: 'viewport', type: vec2fT },
-    { name: '_pad0', type: f32T },
-    { name: '_pad1', type: f32T },
-  ],
-}
-// SoT: one declaration → the StructDecl (with attrs), the type, and typed field access.
+const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
+  viewport: vec2fT,
+  _pad0: f32T,
+  _pad1: f32T,
+})
 const VsOut = ioStruct('VsOut', {
   clip_pos: builtin('position', vec4fT),
   uv: location(0, vec2fT),
@@ -31,10 +32,8 @@ const VsOut = ioStruct('VsOut', {
   tint: location(2, vec3fT),
   sdf: location(3, f32T, 'flat'),
 })
-
-const u = bindingRef('u', structT('Uniforms'))
-const atlasTex = bindingRef('atlas_tex', texture2dfT)
-const atlasSmp = bindingRef('atlas_smp', samplerT)
+const atlasTex = resource('atlas_tex', texture2dfT, { group: 0, binding: 1 })
+const atlasSmp = resource('atlas_smp', samplerT, { group: 0, binding: 2 })
 
 const vs = entryFn('vs', 'vertex', [
   { name: 'pos_px', type: vec2fT, location: 0 },
@@ -43,7 +42,7 @@ const vs = entryFn('vs', 'vertex', [
   { name: 'tint', type: vec3fT, location: 3 },
   { name: 'sdf', type: f32T, location: 4 },
 ], VsOut.type, (_b, p) => {
-  const vp = u.field('viewport', vec2fT)
+  const vp = U.field.viewport
   const ndc_x = Let('ndc_x', p.pos_px.x.div(vp.x).mul(2).sub(1))
   const ndc_y = Let('ndc_y', f32(1).sub(p.pos_px.y.div(vp.y).mul(2)))
   const out = Var('out', VsOut.type)
@@ -58,7 +57,7 @@ const vs = entryFn('vs', 'vertex', [
 
 const fs = entryFn('fs', 'fragment', [{ name: 'in', type: VsOut.type }], vec4fT, (_b, p) => {
   const pin = VsOut.of(p.in)
-  const c = Let('c', textureSample(atlasTex, atlasSmp, pin.uv))
+  const c = Let('c', textureSample(atlasTex.node, atlasSmp.node, pin.uv))
   // fwidth must be in uniform control flow — compute aa unconditionally (the
   // raster path discards it).
   const dForAa = Let('d_for_aa', c.a)
@@ -71,12 +70,8 @@ const fs = entryFn('fs', 'fragment', [{ name: 'in', type: VsOut.type }], vec4fT,
 }, '@location(0)')
 
 export const ICON_MODULE: ModuleDecl = module({
-  structs: [Uniforms, VsOut.decl],
-  bindings: [
-    { group: 0, binding: 0, name: 'u', space: 'uniform', type: structT('Uniforms') },
-    { group: 0, binding: 1, name: 'atlas_tex', space: 'uniform', type: texture2dfT },
-    { group: 0, binding: 2, name: 'atlas_smp', space: 'uniform', type: samplerT },
-  ],
+  structs: [U.struct, VsOut.decl],
+  bindings: [U.binding, atlasTex.binding, atlasSmp.binding],
   funcs: [vs, fs],
 })
 

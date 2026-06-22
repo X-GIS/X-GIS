@@ -7,7 +7,7 @@
 // family, OPACITY). The SoT helpers declare a layout ONCE and DERIVE the rest, so the
 // pieces cannot disagree and the type checker covers field names + types.
 
-import { Node, structT, type ShaderType, type StructDecl, type KeyOf } from './ir'
+import { Node, structT, bindingRef, type ShaderType, type StructDecl, type KeyOf, type BindingDecl, type AddressSpace } from './ir'
 
 export interface FieldSpec<T extends ShaderType = ShaderType> {
   readonly type: T
@@ -54,5 +54,50 @@ export function ioStruct<F extends Record<string, FieldSpec>>(name: string, fiel
         },
       }) as { readonly [K in keyof F]: Node<KeyOf<F[K]['type']>> }
     },
+  }
+}
+
+export interface UniformStruct<F extends Record<string, ShaderType>> {
+  readonly struct: StructDecl
+  readonly binding: BindingDecl
+  readonly node: Node
+  readonly field: { readonly [K in keyof F]: Node<KeyOf<F[K]>> }
+}
+
+/** Declare a uniform-buffer struct + its binding from one place; derive the StructDecl,
+ *  the binding decl, the access node, and typed field access. `at.as` is the WGSL var name. */
+export function uniformStruct<F extends Record<string, ShaderType>>(
+  typeName: string,
+  at: { group: number; binding: number; as: string },
+  fields: F,
+): UniformStruct<F> {
+  const struct: StructDecl = { name: typeName, fields: Object.entries(fields).map(([n, type]) => ({ name: n, type })) }
+  const type = structT(typeName)
+  const node = bindingRef(at.as, type)
+  return {
+    struct,
+    binding: { group: at.group, binding: at.binding, name: at.as, space: 'uniform', type },
+    node,
+    field: new Proxy({} as Record<string, Node>, {
+      get: (_t, prop) => {
+        const t = fields[prop as string]
+        if (t === undefined) throw new Error(`sot: uniformStruct '${typeName}' has no field '${String(prop)}'`)
+        return node.field(prop as string, t)
+      },
+    }) as { readonly [K in keyof F]: Node<KeyOf<F[K]>> },
+  }
+}
+
+export interface Resource {
+  readonly binding: BindingDecl
+  readonly node: Node
+}
+
+/** A non-struct bound resource (texture / sampler): derive its binding decl + access
+ *  node from one place. Space defaults to 'uniform' (the texture/sampler convention). */
+export function resource(name: string, type: ShaderType, at: { group: number; binding: number; space?: AddressSpace }): Resource {
+  return {
+    binding: { group: at.group, binding: at.binding, name, space: at.space ?? 'uniform', type },
+    node: bindingRef(name, type),
   }
 }
