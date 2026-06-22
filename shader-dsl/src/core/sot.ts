@@ -31,8 +31,10 @@ export interface IoStruct<F extends Record<string, FieldSpec>> {
   readonly type: ShaderType
   /** Typed field access on a value of this struct — `VsOut.of(node).uv` is
    *  `node.field('uv', <its type>)`, so the field name + type are checked and the
-   *  emitted member Expr is byte-identical. */
-  of(node: Node): { readonly [K in keyof F]: Node<KeyOf<F[K]['type']>> }
+   *  emitted member Expr is byte-identical. NonNullable strips the `| undefined` a
+   *  conditional-field spread (`...(cond ? { pick } : {})`) introduces, so optional
+   *  output fields stay `Node`, not `Node | undefined`. */
+  of(node: Node): { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> }
 }
 
 /** Declare an IO struct (vertex/fragment in/out) from one field map; derive the
@@ -52,7 +54,44 @@ export function ioStruct<F extends Record<string, FieldSpec>>(name: string, fiel
           if (spec === undefined) throw new Error(`sot: ioStruct '${name}' has no field '${String(prop)}'`)
           return node.field(prop as string, spec.type)
         },
-      }) as { readonly [K in keyof F]: Node<KeyOf<F[K]['type']>> }
+      }) as { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> }
+    },
+  }
+}
+
+export interface PlainStruct<F extends Record<string, ShaderType>> {
+  readonly decl: StructDecl
+  readonly type: ShaderType
+  /** Typed field access for a value of this struct — e.g. an array<T> storage element
+   *  read via `Seg.of(segments.at(i)).p0_h`; replaces `node.field('p0_h', vec2fT)`. */
+  of(node: Node): { readonly [K in keyof F]: Node<KeyOf<F[K]>> }
+  /** Positional field access — `Seg.get(node, 'p0_h')` is `node.field('p0_h', <type>)`,
+   *  a wrong field name a TS error. Same as `.of(node).p0_h`; kept for call sites that
+   *  read many fields off a shared shorthand (`const g = Seg.get`). */
+  get<K extends keyof F & string>(node: Node, field: K): Node<KeyOf<F[K]>>
+}
+
+/** Declare a plain (non-binding, non-IO) struct — a storage-buffer element type used in
+ *  `array<T>`, or a nested struct — from one field map; derive the StructDecl, the struct
+ *  type (`.type` replaces every `structT('Name')` string), and typed field access. The one
+ *  struct kind the binding/IO helpers don't cover, so a layout has exactly ONE declaration. */
+export function structDecl<F extends Record<string, ShaderType>>(name: string, fields: F): PlainStruct<F> {
+  const decl: StructDecl = { name, fields: Object.entries(fields).map(([n, type]) => ({ name: n, type })) }
+  const type = structT(name)
+  return {
+    decl,
+    type,
+    get<K extends keyof F & string>(node: Node, field: K): Node<KeyOf<F[K]>> {
+      return node.field(field, fields[field])
+    },
+    of(node: Node) {
+      return new Proxy({} as Record<string, Node>, {
+        get: (_t, prop) => {
+          const t = fields[prop as string]
+          if (t === undefined) throw new Error(`sot: structDecl '${name}' has no field '${String(prop)}'`)
+          return node.field(prop as string, t)
+        },
+      }) as { readonly [K in keyof F]: Node<KeyOf<F[K]>> }
     },
   }
 }

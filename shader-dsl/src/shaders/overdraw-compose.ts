@@ -16,6 +16,7 @@ import {
   clamp,
   textureLoad, textureDimensions, vec2i,
   f32T, u32T, vec2fT, vec3fT, vec4fT, texture2dfT,
+  Var, If, Return, assign,
   type ModuleDecl,
 } from '../core/ir'
 import { ioStruct, builtin, location, resource } from '../core/sot'
@@ -33,13 +34,13 @@ const accumTex = resource('accum_tex', texture2dfT, { group: 0, binding: 0 })
 // 4-stop piecewise (polynomial fit, no branching): dark navy → cyan →
 // yellow → red.
 
-const colormap = fn('colormap', { t: f32T }, vec3fT, (p, b) => {
+const colormap = fn('colormap', { t: f32T }, vec3fT, (p) => {
   const s = clamp(p.t, f32(0), f32(1))
   const r = clamp(s.mul(f32(3)).sub(f32(0.5)), f32(0), f32(1))
   const g = clamp(s.mul(f32(2.5)), f32(0), f32(1))
       .mul(clamp(f32(2).sub(s.mul(f32(2))), f32(0), f32(1)))
   const blue = clamp(f32(0.6).sub(s.mul(f32(1.5))), f32(0), f32(1))
-  b.ret(vec3(r, g, blue))
+  Return(vec3(r, g, blue))
 })
 
 // Oversized fullscreen triangle (3 vertices, NDC −1..3 in each axis).
@@ -50,21 +51,21 @@ const vsFull = entryFn(
   'vs_full', 'vertex',
   [{ name: 'idx', type: u32T, builtin: 'vertex_index' }],
   VsOut.type,
-  (p, b) => {
-    const pos = b.var('pos', vec2fT, vec2(f32(-1), f32(-1)))
-    b.if(p.idx.eq(u32(1)), (c) => { c.assign(pos, vec2(f32(3), f32(-1))) })
-      .elif(p.idx.eq(u32(2)), (c) => { c.assign(pos, vec2(f32(-1), f32(3))) })
-    const out = b.var('out', VsOut.type)
+  (p) => {
+    const pos = Var('pos', vec2fT, vec2(f32(-1), f32(-1)))
+    If(p.idx.eq(u32(1)), () => { assign(pos, vec2(f32(3), f32(-1))) })
+      .elif(p.idx.eq(u32(2)), () => { assign(pos, vec2(f32(-1), f32(3))) })
+    const out = Var('out', VsOut.type)
     const o = VsOut.of(out)
-    b.assign(o.pos, vec4(pos, f32(0), f32(1)))
+    assign(o.pos, vec4(pos, f32(0), f32(1)))
     // y-flip — texture origin top-left, NDC origin bottom-left.
-    b.assign(o.uv,
+    assign(o.uv,
       vec2(
         pos.x.add(f32(1)).mul(f32(0.5)),
         f32(1).sub(pos.y.add(f32(1)).mul(f32(0.5))),
       ),
     )
-    b.ret(out)
+    Return(out)
   },
 )
 
@@ -76,7 +77,7 @@ const fsCompose = entryFn(
   'fs_compose', 'fragment',
   [{ name: 'in', type: VsOut.type }],
   vec4fT,
-  (p, b) => {
+  (p) => {
     const pin = VsOut.of(p.in)
     // textureDimensions returns vec2<u32>; toF32 each component for the
     // uv → texel-coord multiply. WGSL doesn't auto-convert across
@@ -86,13 +87,13 @@ const fsCompose = entryFn(
     const dim = vec2(toF32(dimU.x), toF32(dimU.y))
     const uv = vec2i(toI32(pin.uv.x.mul(dim.x)), toI32(pin.uv.y.mul(dim.y)))
     const count = textureLoad(accumTex.node, uv, u32(0)).x
-    b.if(count.lt(f32(0.5)), (c) => {
+    If(count.lt(f32(0.5)), () => {
       // No fragments → empty pixel; leave dark to distinguish from "1 draw".
-      c.ret(vec4(f32(0.02), f32(0.02), f32(0.04), f32(1)))
+      Return(vec4(f32(0.02), f32(0.02), f32(0.04), f32(1)))
     })
     // Exposure: 16 overdraws → fully saturated.
     const t = count.div(f32(16))
-    b.ret(vec4(callFn('colormap', vec3fT, t), f32(1)))
+    Return(vec4(callFn('colormap', vec3fT, t), f32(1)))
   },
   '@location(0)',
 )

@@ -11,10 +11,12 @@
 // it when compute-gen re-targets onto this builder (one parser, no drift).
 
 import {
-  computeFn, module, bindingRef, vec4, f32, pack4x8unorm,
+  computeFn, module, vec4, f32, pack4x8unorm,
   f32T, u32T, vec4fT, vec4uT, arrayT,
   type ModuleDecl,
+  If, Var, Return, assign,
 } from '../core/ir'
+import { storageBuffer, resource } from '../core/sot'
 
 export interface MatchArm { pattern: string; colorHex: string }
 export interface MatchKernelSpec {
@@ -55,35 +57,38 @@ export function matchComputeKernel(spec: MatchKernelSpec): ModuleDecl {
   const sortedPatterns = [...spec.arms.map((a) => a.pattern)].sort()
   const armByPattern = new Map(spec.arms.map((a) => [a.pattern, a]))
 
-  const featData = bindingRef('feat_data', arrayT(f32T))
-  const outColor = bindingRef('out_color', arrayT(u32T))
-  const uCount = bindingRef('u_count', vec4uT)
+  const featDataB = storageBuffer('feat_data', arrayT(f32T), { group: 0, binding: 0, access: 'read' })
+  const outColorB = storageBuffer('out_color', arrayT(u32T), { group: 0, binding: 1, access: 'read_write' })
+  const uCountB = resource('u_count', vec4uT, { group: 0, binding: 2 })
+  const featData = featDataB.node
+  const outColor = outColorB.node
+  const uCount = uCountB.node
 
-  const entry = computeFn('eval_match', COMPUTE_WORKGROUP_SIZE, 'gid', (gid, b) => {
+  const entry = computeFn('eval_match', COMPUTE_WORKGROUP_SIZE, 'gid', (gid) => {
     const fid = gid.x
-    b.if(fid.ge(uCount.x), (c) => { c.ret() })
+    If(fid.ge(uCount.x), () => { Return() })
     const v = featData.at(fid, f32T)
-    const color = b.var('color', vec4fT)
+    const color = Var('color', vec4fT)
 
     // Parameterized if-else ladder — one arm per sorted pattern.
-    const chain = b.if(v.eq(f32(0)), (c) => {
-      c.assign(color, colorVec(armByPattern.get(sortedPatterns[0]!)!.colorHex))
+    const chain = If(v.eq(f32(0)), () => {
+      assign(color, colorVec(armByPattern.get(sortedPatterns[0]!)!.colorHex))
     })
     for (let i = 1; i < sortedPatterns.length; i++) {
-      chain.elif(v.eq(f32(i)), (c) => {
-        c.assign(color, colorVec(armByPattern.get(sortedPatterns[i]!)!.colorHex))
+      chain.elif(v.eq(f32(i)), () => {
+        assign(color, colorVec(armByPattern.get(sortedPatterns[i]!)!.colorHex))
       })
     }
-    chain.else((c) => { c.assign(color, colorVec(spec.defaultColorHex)) })
+    chain.else(() => { assign(color, colorVec(spec.defaultColorHex)) })
 
-    b.assign(outColor.at(fid, u32T), pack4x8unorm(color))
+    assign(outColor.at(fid, u32T), pack4x8unorm(color))
   })
 
   return module({
     bindings: [
-      { group: 0, binding: 0, name: 'feat_data', space: 'storage', access: 'read', type: arrayT(f32T) },
-      { group: 0, binding: 1, name: 'out_color', space: 'storage', access: 'read_write', type: arrayT(u32T) },
-      { group: 0, binding: 2, name: 'u_count', space: 'uniform', type: vec4uT },
+      featDataB.binding,
+      outColorB.binding,
+      uCountB.binding,
     ],
     funcs: [entry],
   })

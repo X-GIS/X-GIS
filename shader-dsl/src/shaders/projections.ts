@@ -25,10 +25,10 @@
 
 import {
   fn, externFn, module, f32, vec2, vec3,
-  ReturnIf,
+  ReturnIf, If, Var, Return, assign,
   f32T, vec2fT, vec3fT, vec4fT,
   constRef, clamp, log, tan, sin, cos, asin, acos, atan, atan2, exp, floor, ceil, sign, smoothstep,
-  type ConstDecl, type FuncDecl, type ModuleDecl, type Node, type Builder,
+  type ConstDecl, type FuncDecl, type ModuleDecl, type Node,
 } from '../core/ir'
 import { emitConst, emitFuncsCsed } from '../core/backends/wgsl'
 
@@ -48,7 +48,9 @@ function artifacts(): ReturnType<typeof buildProjectionArtifacts> {
   return (_artifacts ??= buildProjectionArtifacts(_specs))
 }
 export const getPROJECTION_MODULE = (): ModuleDecl => artifacts().PROJECTION_MODULE
+/** @deprecated String-prepend emit path — being phased out for decl-array merge: consume the fn decls (getGpuProjectionFuncs / ECEF_FUNCS / LOG_DEPTH_FUNCS / the sdf fn decls) and let emitModule stitch + auto-cache them. */
 export const getProjectionWgslConsts = (): string => artifacts().PROJECTION_WGSL_CONSTS
+/** @deprecated String-prepend emit path — being phased out for decl-array merge: consume the fn decls (getGpuProjectionFuncs / ECEF_FUNCS / LOG_DEPTH_FUNCS / the sdf fn decls) and let emitModule stitch + auto-cache them. */
 export const getProjectionWgslFns = (): string => artifacts().PROJECTION_WGSL_FNS
 /** The GPU projection fn DECLS (project_geom_cpu excluded — CPU-only). Consumers that merge
  *  the projection graph into their own module() (instead of prepending getProjectionWgslFns()
@@ -73,14 +75,14 @@ const RIM_FADE = 0.02
 
 // ── Leaf projections ──
 
-const proj_mercator = fn('proj_mercator', { lon_deg: f32T, lat_deg: f32T }, vec2fT, ({ lon_deg, lat_deg }, _b) => {
+const proj_mercator = fn('proj_mercator', { lon_deg: f32T, lat_deg: f32T }, vec2fT, ({ lon_deg, lat_deg }) => {
   const lat = clamp(lat_deg, MERCATOR_LAT_LIMIT.neg(), MERCATOR_LAT_LIMIT)
   const x = lon_deg.mul(DEG2RAD).mul(EARTH_R)
   const y = log(tan(PI.div(4).add(lat.mul(DEG2RAD).div(2)))).mul(EARTH_R)
   return vec2(x, y)
 })
 
-const wrap_lon_delta = fn('wrap_lon_delta', { d: f32T }, f32T, ({ d }, _b) => {
+const wrap_lon_delta = fn('wrap_lon_delta', { d: f32T }, f32T, ({ d }) => {
   ReturnIf(d.gt(180), d.sub(ceil(d.sub(180).div(360)).mul(360)))
   ReturnIf(d.lt(-180), d.add(ceil(d.neg().sub(180).div(360)).mul(360)))
   return d
@@ -88,11 +90,11 @@ const wrap_lon_delta = fn('wrap_lon_delta', { d: f32T }, f32T, ({ d }, _b) => {
 
 // proj_equirectangular_d / proj_natural_earth_d operate on an already-resolved
 // recentred longitude delta.
-const proj_equirectangular_d = fn('proj_equirectangular_d', { lon_rel: f32T, lat_deg: f32T }, vec2fT, ({ lon_rel, lat_deg }, _b) => {
+const proj_equirectangular_d = fn('proj_equirectangular_d', { lon_rel: f32T, lat_deg: f32T }, vec2fT, ({ lon_rel, lat_deg }) => {
   return vec2(lon_rel.mul(DEG2RAD).mul(EARTH_R), lat_deg.mul(DEG2RAD).mul(EARTH_R))
 })
 
-const proj_natural_earth_d = fn('proj_natural_earth_d', { lon_rel: f32T, lat_deg: f32T }, vec2fT, ({ lon_rel, lat_deg }, _b) => {
+const proj_natural_earth_d = fn('proj_natural_earth_d', { lon_rel: f32T, lat_deg: f32T }, vec2fT, ({ lon_rel, lat_deg }) => {
   const lat = lat_deg.mul(DEG2RAD)
   const lat2 = lat.mul(lat)
   const lat4 = lat2.mul(lat2)
@@ -106,15 +108,15 @@ const proj_natural_earth_d = fn('proj_natural_earth_d', { lon_rel: f32T, lat_deg
   return vec2(lon_rel.mul(DEG2RAD).mul(x_scale).mul(EARTH_R), y_val.mul(EARTH_R))
 })
 
-const proj_equirectangular = fn('proj_equirectangular', { lon_deg: f32T, lat_deg: f32T, clon: f32T }, vec2fT, ({ lon_deg, lat_deg, clon }, _b) => {
+const proj_equirectangular = fn('proj_equirectangular', { lon_deg: f32T, lat_deg: f32T, clon: f32T }, vec2fT, ({ lon_deg, lat_deg, clon }) => {
   return proj_equirectangular_d(wrap_lon_delta(lon_deg.sub(clon)), lat_deg)
 })
 
-const proj_natural_earth = fn('proj_natural_earth', { lon_deg: f32T, lat_deg: f32T, clon: f32T }, vec2fT, ({ lon_deg, lat_deg, clon }, _b) => {
+const proj_natural_earth = fn('proj_natural_earth', { lon_deg: f32T, lat_deg: f32T, clon: f32T }, vec2fT, ({ lon_deg, lat_deg, clon }) => {
   return proj_natural_earth_d(wrap_lon_delta(lon_deg.sub(clon)), lat_deg)
 })
 
-const unwrap_lon_near = fn('unwrap_lon_near', { value: f32T, ref_v: f32T }, f32T, ({ value, ref_v }, _b) => {
+const unwrap_lon_near = fn('unwrap_lon_near', { value: f32T, ref_v: f32T }, f32T, ({ value, ref_v }) => {
   return value.sub(floor(value.sub(ref_v).add(180).div(360)).mul(360))
 })
 
@@ -135,16 +137,16 @@ const unwrap_lon_near = fn('unwrap_lon_near', { value: f32T, ref_v: f32T }, f32T
 // unwrap_lon_near for every interior vertex |lon|<180 (the bias never crosses a
 // 360° step there) — it fires ONLY at the exact ±180 seam wall.
 const SEAM_KEEP_EPS = f32(1e-4)
-const unwrap_lon_near_keep = fn('unwrap_lon_near_keep', { value: f32T, ref_v: f32T, keep_sign: f32T }, f32T, ({ value, ref_v, keep_sign }, _b) => {
+const unwrap_lon_near_keep = fn('unwrap_lon_near_keep', { value: f32T, ref_v: f32T, keep_sign: f32T }, f32T, ({ value, ref_v, keep_sign }) => {
   return value.sub(floor(value.sub(ref_v).add(180).sub(keep_sign.mul(SEAM_KEEP_EPS)).div(360)).mul(360))
 })
 
-const unwrap_rad_near = fn('unwrap_rad_near', { value: f32T, ref_v: f32T }, f32T, ({ value, ref_v }, _b) => {
+const unwrap_rad_near = fn('unwrap_rad_near', { value: f32T, ref_v: f32T }, f32T, ({ value, ref_v }) => {
   const two_pi = PI.mul(2)
   return value.sub(floor(value.sub(ref_v).add(PI).div(two_pi)).mul(two_pi))
 })
 
-const proj_orthographic = fn('proj_orthographic', { lon_deg: f32T, lat_deg: f32T, clon: f32T, clat: f32T }, vec2fT, ({ lon_deg, lat_deg, clon, clat }, _b) => {
+const proj_orthographic = fn('proj_orthographic', { lon_deg: f32T, lat_deg: f32T, clon: f32T, clat: f32T }, vec2fT, ({ lon_deg, lat_deg, clon, clat }) => {
   const lam = lon_deg.mul(DEG2RAD)
   const phi = lat_deg.mul(DEG2RAD)
   const l0 = clon.mul(DEG2RAD)
@@ -154,7 +156,7 @@ const proj_orthographic = fn('proj_orthographic', { lon_deg: f32T, lat_deg: f32T
   return vec2(x, y)
 })
 
-const proj_azimuthal_equidistant = fn('proj_azimuthal_equidistant', { lon_deg: f32T, lat_deg: f32T, clon: f32T, clat: f32T }, vec2fT, ({ lon_deg, lat_deg, clon, clat }, _b) => {
+const proj_azimuthal_equidistant = fn('proj_azimuthal_equidistant', { lon_deg: f32T, lat_deg: f32T, clon: f32T, clat: f32T }, vec2fT, ({ lon_deg, lat_deg, clon, clat }) => {
   const lam = lon_deg.mul(DEG2RAD)
   const phi = lat_deg.mul(DEG2RAD)
   const l0 = clon.mul(DEG2RAD)
@@ -168,7 +170,7 @@ const proj_azimuthal_equidistant = fn('proj_azimuthal_equidistant', { lon_deg: f
   return vec2(x, y)
 })
 
-const proj_stereographic = fn('proj_stereographic', { lon_deg: f32T, lat_deg: f32T, clon: f32T, clat: f32T }, vec2fT, ({ lon_deg, lat_deg, clon, clat }, _b) => {
+const proj_stereographic = fn('proj_stereographic', { lon_deg: f32T, lat_deg: f32T, clon: f32T, clat: f32T }, vec2fT, ({ lon_deg, lat_deg, clon, clat }) => {
   const lam = lon_deg.mul(DEG2RAD)
   const phi = lat_deg.mul(DEG2RAD)
   const l0 = clon.mul(DEG2RAD)
@@ -181,7 +183,7 @@ const proj_stereographic = fn('proj_stereographic', { lon_deg: f32T, lat_deg: f3
   return vec2(x, y)
 })
 
-const oblique_rot = fn('oblique_rot', { lon_deg: f32T, lat_deg: f32T, clon: f32T, clat: f32T }, vec2fT, ({ lon_deg, lat_deg, clon, clat }, _b) => {
+const oblique_rot = fn('oblique_rot', { lon_deg: f32T, lat_deg: f32T, clon: f32T, clat: f32T }, vec2fT, ({ lon_deg, lat_deg, clon, clat }) => {
   const lam = lon_deg.mul(DEG2RAD)
   const phi = lat_deg.mul(DEG2RAD)
   const l0 = clon.mul(DEG2RAD)
@@ -196,7 +198,7 @@ const oblique_rot = fn('oblique_rot', { lon_deg: f32T, lat_deg: f32T, clon: f32T
   return vec2(lam_rot, phi_rot)
 })
 
-const proj_oblique_mercator_d = fn('proj_oblique_mercator_d', { lam_rot: f32T, phi_rot: f32T }, vec2fT, ({ lam_rot, phi_rot }, _b) => {
+const proj_oblique_mercator_d = fn('proj_oblique_mercator_d', { lam_rot: f32T, phi_rot: f32T }, vec2fT, ({ lam_rot, phi_rot }) => {
   // Singularity-only clamp (NOT the 85.05° Web-Mercator clamp).
   // log(tan(π/4+phi/2)) is finite over |phi|<π/2 and diverges at the
   // pole; the plain Mercator clamp collapses every distinct phi_rot
@@ -211,12 +213,12 @@ const proj_oblique_mercator_d = fn('proj_oblique_mercator_d', { lam_rot: f32T, p
   return vec2(x, y)
 })
 
-const proj_oblique_mercator = fn('proj_oblique_mercator', { lon_deg: f32T, lat_deg: f32T, clon: f32T, clat: f32T }, vec2fT, ({ lon_deg, lat_deg, clon, clat }, _b) => {
+const proj_oblique_mercator = fn('proj_oblique_mercator', { lon_deg: f32T, lat_deg: f32T, clon: f32T, clat: f32T }, vec2fT, ({ lon_deg, lat_deg, clon, clat }) => {
   const r = oblique_rot(lon_deg, lat_deg, clon, clat)
   return proj_oblique_mercator_d(r.x, r.y)
 })
 
-const proj_globe = fn('proj_globe', { lon_deg: f32T, lat_deg: f32T }, vec3fT, ({ lon_deg, lat_deg }, _b) => {
+const proj_globe = fn('proj_globe', { lon_deg: f32T, lat_deg: f32T }, vec3fT, ({ lon_deg, lat_deg }) => {
   const lam = lon_deg.mul(DEG2RAD)
   const phi = lat_deg.mul(DEG2RAD)
   const cphi = cos(phi)
@@ -227,7 +229,7 @@ const proj_globe = fn('proj_globe', { lon_deg: f32T, lat_deg: f32T }, vec3fT, ({
   )
 })
 
-const center_cos_c = fn('center_cos_c', { lon_deg: f32T, lat_deg: f32T, clon: f32T, clat: f32T }, f32T, ({ lon_deg, lat_deg, clon, clat }, _b) => {
+const center_cos_c = fn('center_cos_c', { lon_deg: f32T, lat_deg: f32T, clon: f32T, clat: f32T }, f32T, ({ lon_deg, lat_deg, clon, clat }) => {
   const lam = lon_deg.mul(DEG2RAD)
   const phi = lat_deg.mul(DEG2RAD)
   const l0 = clon.mul(DEG2RAD)
@@ -294,28 +296,28 @@ const FLAT = specs.filter((p) => !p.isGlobe)
 
 // Generate the `if (t < n.5) … else …` ladder returning each projection's
 // forward — straight from the table order.
-function emitForwardLadder(b: Builder, t: Node, lon: Node, lat: Node, clon: Node, clat: Node): void {
+function emitForwardLadder(t: Node, lon: Node, lat: Node, clon: Node, clat: Node): void {
   const last = FLAT.length - 1
-  const chain = b.if(t.lt(FLAT[0].projType + 0.5), (bb) => { bb.ret(forwardCall(FLAT[0].name, lon, lat, clon, clat)) })
+  const chain = If(t.lt(FLAT[0].projType + 0.5), () => { Return(forwardCall(FLAT[0].name, lon, lat, clon, clat)) })
   for (let i = 1; i < last; i++) {
-    chain.elif(t.lt(FLAT[i].projType + 0.5), (bb) => { bb.ret(forwardCall(FLAT[i].name, lon, lat, clon, clat)) })
+    chain.elif(t.lt(FLAT[i].projType + 0.5), () => { Return(forwardCall(FLAT[i].name, lon, lat, clon, clat)) })
   }
-  chain.else((bb) => { bb.ret(forwardCall(FLAT[last].name, lon, lat, clon, clat)) })
+  chain.else(() => { Return(forwardCall(FLAT[last].name, lon, lat, clon, clat)) })
 }
 
-const project = fn('project', LLP_PARAMS, vec2fT, ({ lon_deg, lat_deg, proj_params }, b) => {
+const project = fn('project', LLP_PARAMS, vec2fT, ({ lon_deg, lat_deg, proj_params }) => {
   const t = proj_params.x
   const clon = proj_params.y
   const clat = proj_params.z
-  emitForwardLadder(b, t, lon_deg, lat_deg, clon, clat)
+  emitForwardLadder(t, lon_deg, lat_deg, clon, clat)
 })
 
-const project_geom = fn('project_geom', LLPR_PARAMS, vec2fT, ({ lon_deg, lat_deg, proj_params, ref_lon }, b) => {
+const project_geom = fn('project_geom', LLPR_PARAMS, vec2fT, ({ lon_deg, lat_deg, proj_params, ref_lon }) => {
   const t = proj_params.x
   const clon = proj_params.y
   const clat = proj_params.z
   // equirect (1) / natural_earth (2): pseudocylindrical world-copy unwrap.
-  b.if(t.gt(0.5).and(t.lt(2.5)), (bb) => {
+  If(t.gt(0.5).and(t.lt(2.5)), () => {
     const wo = floor(ref_lon.sub(clon).add(180).div(360))
     const lon_primary = lon_deg.sub(wo.mul(360))
     const ref_primary = ref_lon.sub(wo.mul(360))
@@ -333,9 +335,9 @@ const project_geom = fn('project_geom', LLPR_PARAMS, vec2fT, ({ lon_deg, lat_deg
     const lon_rel_ref = unwrap_lon_near_keep(lon_primary.sub(ref_primary), f32(0), sign(lon_primary))
     const d = lon_rel_ref.add(ref_d)
     const world_off_m = wo.mul(2).mul(PI).mul(EARTH_R)
-    const p = bb.var('p', vec2fT)
-    bb.if(t.lt(1.5), (c) => { c.assign(p, proj_equirectangular_d(d, lat_deg)) })
-      .else((c) => {
+    const p = Var('p', vec2fT)
+    If(t.lt(1.5), () => { assign(p, proj_equirectangular_d(d, lat_deg)) })
+      .else(() => {
         // NE-lobe wrap (antimeridian black-wedge fix): proj_natural_earth_d's
         // 6th-order polynomial is valid ONLY for d ∈ [−180,180]; an out-of-lobe
         // d (e.g. −360 when the camera sits on the antimeridian and a world-copy
@@ -347,25 +349,25 @@ const project_geom = fn('project_geom', LLPR_PARAMS, vec2fT, ({ lon_deg, lat_deg
         // by world_off_m — it keeps the shared d path (byte-identical WGSL).
         const dw = wrap_lon_delta(d)
         const k = floor(d.sub(dw).div(360).add(0.5))
-        c.assign(p, proj_natural_earth_d(dw, lat_deg))
-        c.assign(p.x, p.x.add(k.mul(2).mul(PI).mul(EARTH_R)))
+        assign(p, proj_natural_earth_d(dw, lat_deg))
+        assign(p.x, p.x.add(k.mul(2).mul(PI).mul(EARTH_R)))
       })
-    bb.assign(p.x, p.x.add(world_off_m))
-    bb.ret(p)
+    assign(p.x, p.x.add(world_off_m))
+    Return(p)
   })
   // oblique_mercator (6): rotated-frame world-copy unwrap.
-  b.if(t.gt(5.5), (bb) => {
+  If(t.gt(5.5), () => {
     const wo = floor(ref_lon.sub(clon).add(180).div(360))
     const lon_primary = lon_deg.sub(wo.mul(360))
     const ref_primary = ref_lon.sub(wo.mul(360))
     const r = oblique_rot(lon_primary, lat_deg, clon, clat)
     const ref_r = oblique_rot(ref_primary, clat, clon, clat)
     const lam_u = unwrap_rad_near(r.x, ref_r.x)
-    const p = bb.var('p', vec2fT, proj_oblique_mercator_d(lam_u, r.y))
-    bb.assign(p.x, p.x.add(wo.mul(2).mul(PI).mul(EARTH_R)))
-    bb.ret(p)
+    const p = Var('p', vec2fT, proj_oblique_mercator_d(lam_u, r.y))
+    assign(p.x, p.x.add(wo.mul(2).mul(PI).mul(EARTH_R)))
+    Return(p)
   })
-  b.ret(project(lon_deg, lat_deg, proj_params))
+  Return(project(lon_deg, lat_deg, proj_params))
 })
 
 // CPU-side project_geom — mirrors the (now-deleted) projection-wgsl-mirror.ts
@@ -376,11 +378,11 @@ const project_geom = fn('project_geom', LLPR_PARAMS, vec2fT, ({ lon_deg, lat_deg
 // position (no whole-world jump) when the camera sits near ±180°. The GPU
 // per-vertex path keeps the offset to place adjacent world copies. These are
 // genuinely different functions, so they are authored separately.
-const project_geom_cpu = fn('project_geom_cpu', LLPR_PARAMS, vec2fT, ({ lon_deg, lat_deg, proj_params, ref_lon }, b) => {
+const project_geom_cpu = fn('project_geom_cpu', LLPR_PARAMS, vec2fT, ({ lon_deg, lat_deg, proj_params, ref_lon }) => {
   const t = proj_params.x
   const clon = proj_params.y
   const clat = proj_params.z
-  b.if(t.gt(0.5).and(t.lt(2.5)), (bb) => {
+  If(t.gt(0.5).and(t.lt(2.5)), () => {
     const ref_d = wrap_lon_delta(ref_lon.sub(clon))
     // Ref-relative composition — mirrors the GPU project_geom seam-flicker fix
     // (no world offset here; ref_lon plays ref_primary, lon_deg plays
@@ -388,8 +390,8 @@ const project_geom_cpu = fn('project_geom_cpu', LLPR_PARAMS, vec2fT, ({ lon_deg,
     // cross-copy cancellation cannot reappear if a consumer rounds to f32.
     const lon_rel_ref = unwrap_lon_near_keep(lon_deg.sub(ref_lon), f32(0), sign(lon_deg))
     const d = lon_rel_ref.add(ref_d)
-    bb.if(t.lt(1.5), (c) => { c.ret(proj_equirectangular_d(d, lat_deg)) })
-      .else((c) => {
+    If(t.lt(1.5), () => { Return(proj_equirectangular_d(d, lat_deg)) })
+      .else(() => {
         // NE-lobe wrap — CPU mirror of the GPU project_geom black-wedge fix.
         // proj_natural_earth_d is a polynomial valid only for d ∈ [−180,180];
         // fold d into one lobe (dw) before the forward, then re-add the
@@ -405,18 +407,18 @@ const project_geom_cpu = fn('project_geom_cpu', LLPR_PARAMS, vec2fT, ({ lon_deg,
         // equirect is linear and keeps the shared d path.
         const dw = wrap_lon_delta(d)
         const k = floor(d.sub(dw).div(360).add(0.5))
-        const p = c.var('p', vec2fT, proj_natural_earth_d(dw, lat_deg))
-        c.assign(p.x, p.x.add(k.mul(2).mul(PI).mul(EARTH_R)))
-        c.ret(p)
+        const p = Var('p', vec2fT, proj_natural_earth_d(dw, lat_deg))
+        assign(p.x, p.x.add(k.mul(2).mul(PI).mul(EARTH_R)))
+        Return(p)
       })
   })
-  b.if(t.gt(5.5), (bb) => {
+  If(t.gt(5.5), () => {
     const r = oblique_rot(lon_deg, lat_deg, clon, clat)
     const ref_r = oblique_rot(ref_lon, clat, clon, clat)
     const lam_u = unwrap_rad_near(r.x, ref_r.x)
-    bb.ret(proj_oblique_mercator_d(lam_u, r.y))
+    Return(proj_oblique_mercator_d(lam_u, r.y))
   })
-  b.ret(project(lon_deg, lat_deg, proj_params))
+  Return(project(lon_deg, lat_deg, proj_params))
 })
 
 // flat_rel — camera-relative projected 2D position for the flat DISPLAY path
@@ -428,44 +430,44 @@ const project_geom_cpu = fn('project_geom_cpu', LLPR_PARAMS, vec2fT, ({ lon_deg,
 // (proj_params.y/z = clon/clat). ref_lon selects the world copy — tile-centre
 // lon for tiled sources, the vertex's own lon for individual points. Restores
 // the per-shader pre-ECEF finalize_corner body as ONE reusable fn.
-const flat_rel = fn('flat_rel', LLPR_PARAMS, vec2fT, ({ lon_deg, lat_deg, proj_params, ref_lon }, _b) => {
+const flat_rel = fn('flat_rel', LLPR_PARAMS, vec2fT, ({ lon_deg, lat_deg, proj_params, ref_lon }) => {
   const pv = project_geom(lon_deg, lat_deg, proj_params, ref_lon)
   const cv = project(proj_params.y, proj_params.z, proj_params)
   return pv.sub(cv)
 })
 
-const needs_backface_cull = fn('needs_backface_cull', LLP_PARAMS, f32T, ({ lon_deg, lat_deg, proj_params }, b) => {
+const needs_backface_cull = fn('needs_backface_cull', LLP_PARAMS, f32T, ({ lon_deg, lat_deg, proj_params }) => {
   const t = proj_params.x
   const clon = proj_params.y
   const clat = proj_params.z
-  b.if(t.gt(2.5), (bb) => {
+  If(t.gt(2.5), () => {
     const cc = center_cos_c(lon_deg, lat_deg, clon, clat)
-    bb.if(t.lt(3.5), (c) => { c.ret(cc) }) // ortho — strict hemisphere
-    bb.if(t.lt(4.5), (c) => { c.ret(cc.gt(AZI_CULL).select(f32(1), f32(-1))) }) // azimuthal
-    bb.if(t.lt(5.5), (c) => { c.ret(cc.gt(STEREO_CULL).select(f32(1), f32(-1))) }) // stereographic
-    bb.if(t.lt(6.5), (c) => { c.ret(f32(1)) }) // oblique_mercator — cylindrical
-    bb.ret(cc) // globe (7) — strict hemisphere like ortho
+    If(t.lt(3.5), () => { Return(cc) }) // ortho — strict hemisphere
+    If(t.lt(4.5), () => { Return(cc.gt(AZI_CULL).select(f32(1), f32(-1))) }) // azimuthal
+    If(t.lt(5.5), () => { Return(cc.gt(STEREO_CULL).select(f32(1), f32(-1))) }) // stereographic
+    If(t.lt(6.5), () => { Return(f32(1)) }) // oblique_mercator — cylindrical
+    Return(cc) // globe (7) — strict hemisphere like ortho
   })
-  b.ret(f32(1)) // flat projections — no culling
+  Return(f32(1)) // flat projections — no culling
 })
 
-const rim_alpha = fn('rim_alpha', LLP_PARAMS, f32T, ({ lon_deg, lat_deg, proj_params }, b) => {
+const rim_alpha = fn('rim_alpha', LLP_PARAMS, f32T, ({ lon_deg, lat_deg, proj_params }) => {
   const t = proj_params.x
   const clon = proj_params.y
   const clat = proj_params.z
   const RIM = f32(RIM_FADE)
-  b.if(t.gt(2.5), (bb) => {
+  If(t.gt(2.5), () => {
     const cc = center_cos_c(lon_deg, lat_deg, clon, clat)
-    bb.if(t.lt(3.5), (c) => { c.ret(smoothstep(f32(0), RIM, cc)) }) // ortho
-    bb.if(t.lt(4.5), (c) => { c.ret(smoothstep(f32(AZI_CULL), f32(AZI_CULL + RIM_FADE), cc)) }) // azimuthal
-    bb.if(t.lt(5.5), (c) => { c.ret(smoothstep(f32(STEREO_CULL), f32(STEREO_CULL + RIM_FADE), cc)) }) // stereographic
-    bb.if(t.lt(6.5), (c) => { c.ret(f32(1)) }) // oblique_mercator — no rim
-    bb.ret(smoothstep(f32(0), RIM, cc)) // globe (7)
+    If(t.lt(3.5), () => { Return(smoothstep(f32(0), RIM, cc)) }) // ortho
+    If(t.lt(4.5), () => { Return(smoothstep(f32(AZI_CULL), f32(AZI_CULL + RIM_FADE), cc)) }) // azimuthal
+    If(t.lt(5.5), () => { Return(smoothstep(f32(STEREO_CULL), f32(STEREO_CULL + RIM_FADE), cc)) }) // stereographic
+    If(t.lt(6.5), () => { Return(f32(1)) }) // oblique_mercator — no rim
+    Return(smoothstep(f32(0), RIM, cc)) // globe (7)
   })
-  b.ret(f32(1)) // flat projections — no rim
+  Return(f32(1)) // flat projections — no rim
 })
 
-const inv_merc_lat_rad = fn('inv_merc_lat_rad', INV_MERC_PARAMS, f32T, ({ merc_y_m }, _b) => {
+const inv_merc_lat_rad = fn('inv_merc_lat_rad', INV_MERC_PARAMS, f32T, ({ merc_y_m }) => {
   return f32(2).mul(atan(exp(merc_y_m.div(EARTH_R)))).sub(PI.div(2))
 })
 

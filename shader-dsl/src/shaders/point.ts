@@ -21,11 +21,11 @@ import {
   entryFn, fn, module, transformMat4, arrayLit,
   f32, u32, i32, toF32, toU32, vec2, vec3, vec4, mix, exp, clamp,
   length, dot, min, max, smoothstep, fwidth, select,
-  structT, f32T, u32T, i32T, vec2fT, vec4fT, mat4x4fT, arrayT,
-  Let, Var, assign, assignOp, If, Loop, Discard,
-  type StructDecl, type ModuleDecl,
+  f32T, u32T, i32T, vec2fT, vec4fT, mat4x4fT, arrayT,
+  Let, Var, assign, assignOp, If, Loop, Switch, Return, Discard,
+  type ModuleDecl,
 } from '../core/ir'
-import { ioStruct, builtin, location, uniformStruct, storageBuffer } from '../core/sot'
+import { ioStruct, builtin, location, uniformStruct, structDecl, storageBuffer } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
 import { needs_backface_cull, rim_alpha, flat_rel, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
@@ -58,32 +58,26 @@ const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
   // Default [0,0,0,0] → no-op (existing rendering byte-identical).
   circle_params: vec4fT,
 })
-const ShapeDesc: StructDecl = {
-  name: 'ShapeDesc',
-  fields: [
-    { name: 'seg_start', type: u32T },
-    { name: 'seg_count', type: u32T },
-    { name: 'bbox_min_x', type: f32T },
-    { name: 'bbox_min_y', type: f32T },
-    { name: 'bbox_max_x', type: f32T },
-    { name: 'bbox_max_y', type: f32T },
-    { name: '_pad0', type: f32T },
-    { name: '_pad1', type: f32T },
-  ],
-}
-const Segment: StructDecl = {
-  name: 'Segment',
-  fields: [
-    { name: 'kind', type: u32T },          // 0=line 1=quad 2=cubic
-    { name: 'color_idx', type: u32T },
-    { name: 'flags', type: u32T },
-    { name: '_pad', type: u32T },
-    { name: 'p0', type: vec2fT },
-    { name: 'p1', type: vec2fT },
-    { name: 'p2', type: vec2fT },
-    { name: 'p3', type: vec2fT },
-  ],
-}
+const ShapeDesc = structDecl('ShapeDesc', {
+  seg_start: u32T,
+  seg_count: u32T,
+  bbox_min_x: f32T,
+  bbox_min_y: f32T,
+  bbox_max_x: f32T,
+  bbox_max_y: f32T,
+  _pad0: f32T,
+  _pad1: f32T,
+})
+const Segment = structDecl('Segment', {
+  kind: u32T,          // 0=line 1=quad 2=cubic
+  color_idx: u32T,
+  flags: u32T,
+  _pad: u32T,
+  p0: vec2fT,
+  p1: vec2fT,
+  p2: vec2fT,
+  p3: vec2fT,
+})
 const PointOut = ioStruct('PointOut', {
   position: builtin('position', vec4fT),
   uv: location(0, vec2fT),
@@ -99,8 +93,8 @@ const PointFragmentOutput = ioStruct('PointFragmentOutput', {
 })
 
 const featDataB = storageBuffer('feat_data', arrayT(f32T), { group: 0, binding: 1, access: 'read' })
-const shapesB = storageBuffer('shapes', arrayT(structT('ShapeDesc')), { group: 0, binding: 2, access: 'read' })
-const segmentsB = storageBuffer('segments', arrayT(structT('Segment')), { group: 0, binding: 3, access: 'read' })
+const shapesB = storageBuffer('shapes', arrayT(ShapeDesc.type), { group: 0, binding: 2, access: 'read' })
+const segmentsB = storageBuffer('segments', arrayT(Segment.type), { group: 0, binding: 3, access: 'read' })
 const featData = featDataB.node
 const shapes = shapesB.node
 const segments = segmentsB.node
@@ -127,15 +121,15 @@ const STRIDE = u32(24)
 // branches on projType via proj_params to short-circuit flat projections,
 // mirroring polygon_cos_c_fragment + polygon_rim_alpha in polygon.ts.
 
-const pointCosC = fn('point_cos_c', { abs_lon: f32T, abs_lat: f32T }, f32T, (p, _b) => {
+const pointCosC = fn('point_cos_c', { abs_lon: f32T, abs_lat: f32T }, f32T, (p) => {
   return needs_backface_cull(p.abs_lon, p.abs_lat, U.field.proj_params)
 })
 
-const pointRimAlpha = fn('point_rim_alpha', { abs_lon: f32T, abs_lat: f32T }, f32T, (p, _b) => {
+const pointRimAlpha = fn('point_rim_alpha', { abs_lon: f32T, abs_lat: f32T }, f32T, (p) => {
   return rim_alpha(p.abs_lon, p.abs_lat, U.field.proj_params)
 })
 
-const distToLine = fn('dist_to_line', { p: vec2fT, a: vec2fT, b: vec2fT }, f32T, (pp, _b) => {
+const distToLine = fn('dist_to_line', { p: vec2fT, a: vec2fT, b: vec2fT }, f32T, (pp) => {
   const ab = pp.b.sub(pp.a)
   const len2 = dot(ab, ab)
   // single-exit: max() guards the degenerate (len2≈0) divide; select picks the point dist.
@@ -144,7 +138,7 @@ const distToLine = fn('dist_to_line', { p: vec2fT, a: vec2fT, b: vec2fT }, f32T,
   return select(len2.lt(1e-10), length(pp.p.sub(pp.a)), segDist)
 })
 
-const distToQuadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT }, f32T, (pp, _b) => {
+const distToQuadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT }, f32T, (pp) => {
   const bestD = Var('best_d', f32T, f32(1e10))
   Loop('i', u32(0), (i) => i.le(u32(16)), (i) => {
     const t = toF32(i).div(16)
@@ -156,7 +150,7 @@ const distToQuadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2f
   return bestD
 })
 
-const distToCubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT, d: vec2fT }, f32T, (pp, _b) => {
+const distToCubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT, d: vec2fT }, f32T, (pp) => {
   const bestD = Var('best_d', f32T, f32(1e10))
   Loop('i', u32(0), (i) => i.le(u32(24)), (i) => {
     const t = toF32(i).div(24)
@@ -171,7 +165,7 @@ const distToCubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: ve
   return bestD
 })
 
-const windingLine = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT }, i32T, (pp, _b) => {
+const windingLine = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT }, i32T, (pp) => {
   // single-exit: signed winding contribution of edge a→b across the +y ray from p.
   const cross = pp.b.x.sub(pp.a.x).mul(pp.p.y.sub(pp.a.y)).sub(pp.p.x.sub(pp.a.x).mul(pp.b.y.sub(pp.a.y)))
   const up = pp.a.y.le(pp.p.y).and(pp.b.y.gt(pp.p.y)).and(cross.gt(0))
@@ -179,51 +173,51 @@ const windingLine = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT }, i32T
   return select(up, i32(1), select(down, i32(-1), i32(0)))
 })
 
-const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (pp, bld) => {
+const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (pp) => {
   // Flip Y: NDC Y-up → SVG/path Y-down convention.
   const uv = vec2(pp.uv_in.x, pp.uv_in.y.neg())
-  const s = shapes.at(pp.shape_id, structT('ShapeDesc'))
+  const s = shapes.at(pp.shape_id, ShapeDesc.type)
   const bMinX = s.field('bbox_min_x', f32T)
   const bMinY = s.field('bbox_min_y', f32T)
   const bMaxX = s.field('bbox_max_x', f32T)
   const bMaxY = s.field('bbox_max_y', f32T)
   // AABB early-out.
-  bld.if(
+  If(
     uv.x.lt(bMinX).or(uv.x.gt(bMaxX)).or(uv.y.lt(bMinY)).or(uv.y.gt(bMaxY)),
-    (c) => { c.ret(f32(2)) },
+    () => { Return(f32(2)) },
   )
-  const minDist = bld.var('min_dist', f32T, f32(1e10))
-  const winding = bld.var('winding', i32T, i32(0))
+  const minDist = Var('min_dist', f32T, f32(1e10))
+  const winding = Var('winding', i32T, i32(0))
   const segStart = s.field('seg_start', u32T)
   const segCount = s.field('seg_count', u32T)
   // Hard-cap at 32 segments per shape (paste from original).
   const end = min(segStart.add(segCount), segStart.add(u32(32)))
-  bld.forRange('i', segStart, (i) => i.lt(end), (cb, i) => {
-    const seg = segments.at(i, structT('Segment'))
+  Loop('i', segStart, (i) => i.lt(end), (i) => {
+    const seg = segments.at(i, Segment.type)
     const p0 = seg.field('p0', vec2fT)
     const p1 = seg.field('p1', vec2fT)
     const p2 = seg.field('p2', vec2fT)
     const p3 = seg.field('p3', vec2fT)
-    cb.switch(seg.field('kind', u32T), [
-      [0, (d) => {
-        d.assign(minDist, min(minDist, distToLine(uv, p0, p1)))
-        d.assignOp(winding, '+', windingLine(uv, p0, p1))
+    Switch(seg.field('kind', u32T), [
+      [0, () => {
+        assign(minDist, min(minDist, distToLine(uv, p0, p1)))
+        assignOp(winding, '+', windingLine(uv, p0, p1))
       }],
-      [1, (d) => {
-        d.assign(minDist, min(minDist, distToQuadratic(uv, p0, p1, p2)))
+      [1, () => {
+        assign(minDist, min(minDist, distToQuadratic(uv, p0, p1, p2)))
         // Approximate winding with chord.
-        d.assignOp(winding, '+', windingLine(uv, p0, p2))
+        assignOp(winding, '+', windingLine(uv, p0, p2))
       }],
-      [2, (d) => {
-        d.assign(minDist, min(minDist, distToCubic(uv, p0, p1, p2, p3)))
+      [2, () => {
+        assign(minDist, min(minDist, distToCubic(uv, p0, p1, p2, p3)))
         // Approximate winding with chord.
-        d.assignOp(winding, '+', windingLine(uv, p0, p3))
+        assignOp(winding, '+', windingLine(uv, p0, p3))
       }],
     ], () => { /* default: empty */ })
   })
   // Inside (winding != 0): dist=1 at boundary; outside: dist=1+min_dist.
-  bld.if(winding.ne(i32(0)), (c) => { c.ret(f32(1).sub(minDist)) })
-    .else((c) => { c.ret(f32(1).add(minDist)) })
+  If(winding.ne(i32(0)), () => { Return(f32(1).sub(minDist)) })
+    .else(() => { Return(f32(1).add(minDist)) })
 }, { allowEarlyReturn: true }) // MISRA single-exit DEVIATION — the AABB early-out skips a 32-segment loop (perf)
 
 // ── Entry points ──
@@ -232,7 +226,7 @@ const vs = entryFn('vs_point', 'vertex', [
   { name: 'center', type: vec2fT, location: 0 },
   { name: 'quad_id', type: u32T, location: 1 },
   { name: 'feat_id', type: f32T, location: 2 },
-], PointOut.type, (p, _b) => {
+], PointOut.type, (p) => {
   const offsets = arrayLit(vec2fT,
     vec2(f32(-1), f32(-1)),
     vec2(f32(1), f32(-1)),
@@ -399,7 +393,7 @@ const vs = entryFn('vs_point', 'vertex', [
   return out
 })
 
-const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: PointOut.type }], PointFragmentOutput.type, (p, _b) => {
+const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: PointOut.type }], PointFragmentOutput.type, (p) => {
   const pin = PointOut.of(p.in)
   // Backface cull for globe projections — cos_c is +1 for flat projections.
   If(pin.cos_c.lt(0), () => { Discard() })
@@ -483,7 +477,7 @@ const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: PointOut.type }]
 export const buildPointModule = (): ModuleDecl => module({
   // Shared projection constants merged in (was the getProjectionWgslConsts() string prepend).
   consts: [...PROJECTION_CONSTS],
-  structs: [U.struct, ShapeDesc, Segment, PointOut.decl, PointFragmentOutput.decl],
+  structs: [U.struct, ShapeDesc.decl, Segment.decl, PointOut.decl, PointFragmentOutput.decl],
   bindings: [
     U.binding,
     featDataB.binding,

@@ -18,9 +18,9 @@
 import {
   entryFn, module, constRef, callFn, transformMat4, arrayLit,
   f32, u32, toF32, vec2, vec3, vec4, vec2u, mix, atan, exp, smoothstep, textureSample,
-  structT, f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
+  f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   Var, assign, If, Discard,
-  type StructDecl, type StructField, type ModuleDecl,
+  type ModuleDecl,
 } from '../core/ir'
 import { ioStruct, builtin, location, uniformStruct, resource } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
@@ -59,12 +59,11 @@ const VsOut = ioStruct('VsOut', {
   vis: location(1, f32T),
   view_w: location(2, f32T),
 })
-const rasterFragmentOutput = (pickEnabled: boolean): StructDecl => {
-  const fields: StructField[] = [{ name: 'color', type: vec4fT, attr: '@location(0)' }]
-  if (pickEnabled) fields.push({ name: 'pick', type: vec2uT, attr: '@location(1) @interpolate(flat)' })
-  fields.push({ name: 'depth', type: f32T, attr: '@builtin(frag_depth)' })
-  return { name: 'RasterFragmentOutput', fields }
-}
+const rasterFragmentOutput = (pickEnabled: boolean) => ioStruct('RasterFragmentOutput', {
+  color: location(0, vec4fT),
+  ...(pickEnabled ? { pick: location(1, vec2uT, 'flat') } : {}),
+  depth: builtin('frag_depth', f32T),
+})
 
 const tex = resource('tex', texture2dfT, { group: 0, binding: 1 })
 const texSampler = resource('tex_sampler', samplerT, { group: 0, binding: 2 })
@@ -143,11 +142,13 @@ const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 've
   return out
 })
 
-const buildFs = (pickEnabled: boolean) =>
-  entryFn('fs_tile', 'fragment', [{ name: 'input', type: VsOut.type }], structT('RasterFragmentOutput'), (p, _b) => {
+const buildFs = (pickEnabled: boolean) => {
+  const RasterFragmentOutput = rasterFragmentOutput(pickEnabled)
+  return entryFn('fs_tile', 'fragment', [{ name: 'input', type: VsOut.type }], RasterFragmentOutput.type, (p, _b) => {
     const pin = VsOut.of(p.input)
     If(pin.vis.lt(0), () => { Discard() })
-    const out = Var('out', structT('RasterFragmentOutput'))
+    const out = Var('out', RasterFragmentOutput.type)
+    const o = RasterFragmentOutput.of(out)
     const c = textureSample(tex.node, texSampler.node, pin.uv)
     // Rim alpha fade — input.vis carries (cos_c - threshold); Mercator writes
     // vis=1 so smoothstep is a no-op on flat/cylindrical projections.
@@ -159,19 +160,20 @@ const buildFs = (pickEnabled: boolean) =>
       c.rgb, U.field.raster_color0, U.field.raster_color1)
     // raster-opacity multiplies alpha only (premultiplied blend keeps RGB at
     // texel value, so a half-opacity raster fades rather than darkens).
-    assign(out.field('color', vec4fT), vec4(adjRgb, c.a.mul(U.field.raster_params.x).mul(rim)))
+    assign(o.color, vec4(adjRgb, c.a.mul(U.field.raster_params.x).mul(rim)))
     // Basemap tile carries no feature id → always (0,0).
-    if (pickEnabled) assign(out.field('pick', vec2uT), vec2u(u32(0), u32(0)))
-    assign(out.field('depth', f32T), compute_log_frag_depth(pin.view_w, U.field.proj_params.w))
+    if (pickEnabled) assign(o.pick, vec2u(u32(0), u32(0)))
+    assign(o.depth, compute_log_frag_depth(pin.view_w, U.field.proj_params.w))
     return out
   })
+}
 
 export const buildRasterModule = (pickEnabled: boolean): ModuleDecl => module({
   // Shared projection + ecef constants merged in (was the getProjectionWgslConsts() /
   // ECEF_WGSL_CONSTS string prepend). emitModule hoists all consts above all funcs, so
   // raster_color_adjust still sees DEG2RAD_F (from ECEF_CONSTS) before its own body.
   consts: [...PROJECTION_CONSTS, ...ECEF_CONSTS],
-  structs: [U.struct, Tile.struct, VsOut.decl, rasterFragmentOutput(pickEnabled)],
+  structs: [U.struct, Tile.struct, VsOut.decl, rasterFragmentOutput(pickEnabled).decl],
   bindings: [U.binding, tex.binding, texSampler.binding, Tile.binding],
   funcs: [
     // Shared dependency decls, callees first (was the projection / ECEF / raster-color /
