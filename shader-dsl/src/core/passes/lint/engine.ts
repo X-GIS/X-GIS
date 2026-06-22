@@ -19,9 +19,11 @@ export interface Diagnostic {
   readonly fn?: string
 }
 
-/** What a rule is handed: the module under analysis + a `report` bound to this rule. */
+/** What a rule is handed: the module under analysis, a `report` bound to this rule,
+ *  and this rule's options (from LintConfig.options[ruleId]) — e.g. a threshold. */
 export interface RuleContext {
   readonly module: ModuleDecl
+  readonly options?: Readonly<Record<string, unknown>>
   report(message: string, opts?: { fn?: string }): void
 }
 
@@ -49,6 +51,8 @@ export interface LintRule {
 export interface LintConfig {
   /** Per-rule severity override (e.g. demote a rule to 'warning' or 'off'). */
   readonly severity?: Readonly<Record<string, Severity>>
+  /** Per-rule options, keyed by rule id (e.g. `{ 'param-count': { max: 8 } }`). */
+  readonly options?: Readonly<Record<string, Readonly<Record<string, unknown>>>>
 }
 
 // ── Single-pass IR traversal (depth-first; statements then their sub-expressions) ──
@@ -117,6 +121,7 @@ export function lint(m: ModuleDecl, rules: readonly LintRule[], config?: LintCon
     if (sev === 'off') return []
     const ctx: RuleContext = {
       module: m,
+      options: config?.options?.[r.id],
       report: (message, opts) => diags.push({ ruleId: r.id, severity: sev, message, fn: opts?.fn }),
     }
     return [r.create(ctx)]
