@@ -21,7 +21,7 @@
 // old __PICK_FIELD__ / __PICK_WRITE__ regex markers in POLYGON_SHADER_SOURCE).
 
 import {
-  entryFn, fn, module, bindingRef, constRef, callFn,
+  entryFn, fn, module, constRef, callFn,
   f32, u32, vec2, vec2u, vec3, vec4, toF32, toU32, transformMat4, clamp, select,
   abs, fract, max, min, mix, pow, sqrt, dot, log, tan, floor, textureSample, unpack4x8unorm,
   f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, vec4uT, mat4x4fT, texture2dfT, samplerT,
@@ -29,6 +29,7 @@ import {
   Node, Builder, arrayT,
   type StructDecl, type StructField, type ModuleDecl, type Stmt, type BindingDecl,
 } from '../core/ir'
+import { ioStruct, builtin, location, uniformStruct, resource } from '../core/sot'
 import { emitModule, emitFunc } from '../core/backends/wgsl'
 import { getProjectionWgslConsts, getProjectionWgslFns } from './projections'
 import { LOG_DEPTH_WGSL_FNS } from './log-depth'
@@ -41,89 +42,81 @@ import { LOG_DEPTH_WGSL_FNS } from './log-depth'
 // uniform writeBuffer caller in renderer.ts / vector-tile-renderer.ts, so any
 // reordering would silently mis-bind the GPU read.
 
-const Uniforms: StructDecl = {
-  name: 'Uniforms',
-  fields: [
-    // Phase 2 PR 2d.5 closeout: legacy Mercator-RTC `mvp` retired — `mvp`
-    // now holds the ECEF-MVP from Camera.getECEFFrameView() (was previously
-    // the second slot `mvp_ecef`). Every polygon VS consumes ECEF; the dual
-    // slot is gone (that removal shrank the struct; later fields re-grew it to
-    // its current 256 bytes — UNIFORM_SIZE in vector-tile-renderer.ts).
-    { name: 'mvp', type: mat4x4fT },
-    { name: 'fill_color', type: vec4fT },
-    { name: 'stroke_color', type: vec4fT },
-    { name: 'proj_params', type: vec4fT },
-    { name: 'cam_h', type: vec2fT },
-    { name: 'cam_l', type: vec2fT },
-    { name: 'tile_origin_merc', type: vec2fT },
-    { name: 'opacity', type: f32T },
-    { name: 'log_depth_fc', type: f32T },
-    { name: 'pick_id', type: u32T },
-    { name: 'layer_depth_offset', type: f32T },
-    { name: 'tile_extent_m', type: f32T },
-    { name: 'extrude_height_m', type: f32T },
-    { name: 'clip_bounds', type: vec4fT },
-    { name: 'zoom', type: f32T },
-    { name: 'extrude_base_m', type: f32T },
-    { name: 'fill_translate_x', type: f32T },
-    { name: 'fill_translate_y', type: f32T },
-    // Phase 2 PR 2f — per-tile quantized-position dequant. The VS decodes
-    // ecef_rtc per axis as `q = f32(hi)*65536 + f32(lo);
-    // axis = q*tile_dequant_scale - tile_dequant_half`. Written per tile
-    // alongside cam_h/tile_origin_merc in vector-tile-renderer.
-    { name: 'tile_dequant_scale', type: f32T },
-    { name: 'tile_dequant_half', type: f32T },
-    // WS-9 — fill-extrusion light colour packed RGBA8 (offset 200, slot 50).
-    // These two u32 lanes exactly fill the 8-byte pad WGSL otherwise inserts
-    // here to 16-align the cam_ecef_off_h vec4 below, so the struct size —
-    // and thus UNIFORM_SIZE / UNIFORM_SLOT — stay 256 (no buffer growth).
-    // The extrude VS unpacks light_color_packed + reads intensity from
-    // light_dir_ecef.w; every other polygon variant ignores both fields.
-    { name: 'light_color_packed', type: u32T },
-    { name: '_pad_light_align', type: u32T },
-    // Camera-relative RTC re-centering (ECEF), DSFUN hi/lo. dequant yields
-    // ecef_rtc = vertex − tileEcefCenter, but getECEFFrameView's MVP is
-    // camera-at-ENU-origin (no cameraCenter translate), so the VS must feed
-    // vertex − cameraCenter. off = tileEcefCenter − cameraCenter, split hi/lo;
-    // ecef_rtc + off = vertex − cameraCenter. Without it every tile collapses
-    // to the camera origin (verified by _ecef-render-position). The ECEF
-    // analogue of line.ts's cam_h/cam_l.
-    { name: 'cam_ecef_off_h', type: vec4fT },
-    { name: 'cam_ecef_off_l', type: vec4fT },
-    // #420 — fill-extrusion directional light in ECEF (.xyz; .w spare). The
-    // extrude VS dots it against the per-vertex ECEF face_normal, so it must
-    // share that frame. The raw MapLibre light (0.288,-0.498,0.996) is a
-    // tile/viewport-frame constant; dotting it against an ECEF normal gave
-    // arbitrary per-face brightness. The CPU packs it as (East,North,Up)
-    // rotated by the camera-anchor ENU→ECEF basis (vector-tile-renderer),
-    // matching polygon-mesh.ts's normal basis.
-    { name: 'light_dir_ecef', type: vec4fT },
-  ],
-}
+const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
+  // Phase 2 PR 2d.5 closeout: legacy Mercator-RTC `mvp` retired — `mvp`
+  // now holds the ECEF-MVP from Camera.getECEFFrameView() (was previously
+  // the second slot `mvp_ecef`). Every polygon VS consumes ECEF; the dual
+  // slot is gone (that removal shrank the struct; later fields re-grew it to
+  // its current 256 bytes — UNIFORM_SIZE in vector-tile-renderer.ts).
+  mvp: mat4x4fT,
+  fill_color: vec4fT,
+  stroke_color: vec4fT,
+  proj_params: vec4fT,
+  cam_h: vec2fT,
+  cam_l: vec2fT,
+  tile_origin_merc: vec2fT,
+  opacity: f32T,
+  log_depth_fc: f32T,
+  pick_id: u32T,
+  layer_depth_offset: f32T,
+  tile_extent_m: f32T,
+  extrude_height_m: f32T,
+  clip_bounds: vec4fT,
+  zoom: f32T,
+  extrude_base_m: f32T,
+  fill_translate_x: f32T,
+  fill_translate_y: f32T,
+  // Phase 2 PR 2f — per-tile quantized-position dequant. The VS decodes
+  // ecef_rtc per axis as `q = f32(hi)*65536 + f32(lo);
+  // axis = q*tile_dequant_scale - tile_dequant_half`. Written per tile
+  // alongside cam_h/tile_origin_merc in vector-tile-renderer.
+  tile_dequant_scale: f32T,
+  tile_dequant_half: f32T,
+  // WS-9 — fill-extrusion light colour packed RGBA8 (offset 200, slot 50).
+  // These two u32 lanes exactly fill the 8-byte pad WGSL otherwise inserts
+  // here to 16-align the cam_ecef_off_h vec4 below, so the struct size —
+  // and thus UNIFORM_SIZE / UNIFORM_SLOT — stay 256 (no buffer growth).
+  // The extrude VS unpacks light_color_packed + reads intensity from
+  // light_dir_ecef.w; every other polygon variant ignores both fields.
+  light_color_packed: u32T,
+  _pad_light_align: u32T,
+  // Camera-relative RTC re-centering (ECEF), DSFUN hi/lo. dequant yields
+  // ecef_rtc = vertex − tileEcefCenter, but getECEFFrameView's MVP is
+  // camera-at-ENU-origin (no cameraCenter translate), so the VS must feed
+  // vertex − cameraCenter. off = tileEcefCenter − cameraCenter, split hi/lo;
+  // ecef_rtc + off = vertex − cameraCenter. Without it every tile collapses
+  // to the camera origin (verified by _ecef-render-position). The ECEF
+  // analogue of line.ts's cam_h/cam_l.
+  cam_ecef_off_h: vec4fT,
+  cam_ecef_off_l: vec4fT,
+  // #420 — fill-extrusion directional light in ECEF (.xyz; .w spare). The
+  // extrude VS dots it against the per-vertex ECEF face_normal, so it must
+  // share that frame. The raw MapLibre light (0.288,-0.498,0.996) is a
+  // tile/viewport-frame constant; dotting it against an ECEF normal gave
+  // arbitrary per-face brightness. The CPU packs it as (East,North,Up)
+  // rotated by the camera-anchor ENU→ECEF basis (vector-tile-renderer),
+  // matching polygon-mesh.ts's normal basis.
+  light_dir_ecef: vec4fT,
+})
+const Uniforms = U.struct
 
-const VertexOutput: StructDecl = {
-  name: 'VertexOutput',
-  fields: [
-    { name: 'position', type: vec4fT, attr: '@builtin(position)' },
-    { name: 'cos_c', type: f32T, attr: '@location(0)' },
-    { name: 'feat_id', type: u32T, attr: '@location(1) @interpolate(flat)' },
-    { name: 'abs_lat', type: f32T, attr: '@location(2)' },
-    { name: 'view_w', type: f32T, attr: '@location(3)' },
-    { name: 'wall_blend', type: f32T, attr: '@location(4)' },
-    { name: 'abs_merc_x', type: f32T, attr: '@location(5)' },
-    { name: 'abs_merc_y', type: f32T, attr: '@location(6)' },
-    { name: 'world_z', type: f32T, attr: '@location(7)' },
-    { name: 'v_color', type: vec4fT, attr: '@location(8)' },
-  ],
-}
+const VertexOutput = ioStruct('VertexOutput', {
+  position: builtin('position', vec4fT),
+  cos_c: location(0, f32T),
+  feat_id: location(1, u32T, 'flat'),
+  abs_lat: location(2, f32T),
+  view_w: location(3, f32T),
+  wall_blend: location(4, f32T),
+  abs_merc_x: location(5, f32T),
+  abs_merc_y: location(6, f32T),
+  world_z: location(7, f32T),
+  v_color: location(8, vec4fT),
+}).decl
 
-const OitFragmentOutput: StructDecl = {
-  name: 'OitFragmentOutput',
-  fields: [
-    { name: 'accum', type: vec4fT, attr: '@location(0)' },
-    { name: 'revealage', type: f32T, attr: '@location(1)' },
-  ],
-}
+const OitFragmentOutput = ioStruct('OitFragmentOutput', {
+  accum: location(0, vec4fT),
+  revealage: location(1, f32T),
+}).decl
 
 /** FragmentOutput's `pick` field is conditional on the polygon pipeline carrying
  *  a pick attachment — same plumbing as line.ts's lineFragmentOutput. */
@@ -144,9 +137,11 @@ const polygonFragmentOutput = (pickEnabled: boolean): StructDecl => {
 // compute output buffers via @group(2), feat_data via @group(1) @binding(0))
 // land via the variant's `preamble.bindings` array.
 
-const u = bindingRef('u', structT('Uniforms'))
-const spriteAtlas = bindingRef('sprite_atlas', texture2dfT)
-const spriteSamp = bindingRef('sprite_samp', samplerT)
+const u = U.node
+const spriteAtlasRes = resource('sprite_atlas', texture2dfT, { group: 0, binding: 5 })
+const spriteSampRes = resource('sprite_samp', samplerT, { group: 0, binding: 6 })
+const spriteAtlas = spriteAtlasRes.node
+const spriteSamp = spriteSampRes.node
 
 // ── Helper fns ──
 //
@@ -1116,9 +1111,9 @@ const buildPolygonModule = (
   const base = module({
     structs: [Uniforms, VertexOutput, OitFragmentOutput, polygonFragmentOutput(pickEnabled)],
     bindings: [
-      { group: 0, binding: 0, name: 'u', space: 'uniform', type: structT('Uniforms') },
-      { group: 0, binding: 5, name: 'sprite_atlas', space: 'uniform', type: texture2dfT },
-      { group: 0, binding: 6, name: 'sprite_samp', space: 'uniform', type: samplerT },
+      U.binding,
+      spriteAtlasRes.binding,
+      spriteSampRes.binding,
     ],
     funcs: [
       dequantEcefFn,
