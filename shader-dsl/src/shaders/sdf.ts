@@ -10,21 +10,21 @@
 
 import {
   fn, module, f32, i32, u32, vec2,
-  f32T, i32T, u32T, vec2fT, arrayT, bindingRef,
+  f32T, i32T, u32T, vec2fT, arrayT,
   clamp, min, max, length, dot, mix, toF32, select,
   Var, Loop, assign,
   type FuncDecl, type ModuleDecl,
 } from '../core/ir'
-import { struct } from '../core/schema'
+import { structDecl, storageBuffer } from '../core/sot'
 import { emitFuncsCsed, emitStruct } from '../core/backends/wgsl'
 
 // Storage structs (match sdf-shape.ts byte layout; field types drive access).
-export const ShapeDesc = struct('ShapeDesc', {
+export const ShapeDesc = structDecl('ShapeDesc', {
   seg_start: u32T, seg_count: u32T,
   bbox_min_x: f32T, bbox_min_y: f32T, bbox_max_x: f32T, bbox_max_y: f32T,
   _pad0: f32T, _pad1: f32T,
 })
-export const ShapeSegment = struct('ShapeSegment', {
+export const ShapeSegment = structDecl('ShapeSegment', {
   kind: u32T, color_idx: u32T, flags: u32T, _pad: u32T,
   p0: vec2fT, p1: vec2fT, p2: vec2fT, p3: vec2fT,
 })
@@ -34,8 +34,10 @@ const sg = ShapeSegment.get
 
 // Storage bindings the sdf_shape reads (group 0; bindings illustrative — the
 // real layout is wired at migration time, Phase 2).
-const shapes = bindingRef('shapes', arrayT(ShapeDesc.type))
-const segments = bindingRef('segments', arrayT(ShapeSegment.type))
+const shapesB = storageBuffer('shapes', arrayT(ShapeDesc.type), { group: 0, binding: 8, access: 'read' })
+const shapes = shapesB.node
+const segmentsB = storageBuffer('segments', arrayT(ShapeSegment.type), { group: 0, binding: 9, access: 'read' })
+const segments = segmentsB.node
 
 // ── dist_to_segment / quadratic / cubic / winding_line ──
 
@@ -131,10 +133,7 @@ export const SDF_FUNCS: FuncDecl[] = [
 
 export const SDF_MODULE: ModuleDecl = module({
   structs: [ShapeDesc.decl, ShapeSegment.decl],
-  bindings: [
-    { group: 0, binding: 8, name: 'shapes', space: 'storage', access: 'read', type: arrayT(ShapeDesc.type) },
-    { group: 0, binding: 9, name: 'segments', space: 'storage', access: 'read', type: arrayT(ShapeSegment.type) },
-  ],
+  bindings: [shapesB.binding, segmentsB.binding],
   funcs: SDF_FUNCS,
 })
 
@@ -146,7 +145,11 @@ const fnByName = (name: string): FuncDecl => {
   if (!f) throw new Error(`sdf-dsl: missing fn ${name}`)
   return f
 }
+/** @deprecated String-prepend emit path — being phased out for decl-array merge: consume the fn decls (getGpuProjectionFuncs / ECEF_FUNCS / LOG_DEPTH_FUNCS / the sdf fn decls) and let emitModule stitch + auto-cache them. */
 export const SDF_WGSL_DIST_TO_QUADRATIC = `${emitFuncsCsed([fnByName('dist_to_quadratic')])}\n`
+/** @deprecated String-prepend emit path — being phased out for decl-array merge: consume the fn decls (getGpuProjectionFuncs / ECEF_FUNCS / LOG_DEPTH_FUNCS / the sdf fn decls) and let emitModule stitch + auto-cache them. */
 export const SDF_WGSL_DIST_TO_CUBIC = `${emitFuncsCsed([fnByName('dist_to_cubic')])}\n`
+/** @deprecated String-prepend emit path — being phased out for decl-array merge: consume the fn decls (getGpuProjectionFuncs / ECEF_FUNCS / LOG_DEPTH_FUNCS / the sdf fn decls) and let emitModule stitch + auto-cache them. */
 export const SDF_WGSL_SHAPE = `${emitFuncsCsed([fnByName('sdf_shape')])}\n`
+/** @deprecated String-prepend emit path — being phased out for decl-array merge: consume the fn decls (getGpuProjectionFuncs / ECEF_FUNCS / LOG_DEPTH_FUNCS / the sdf fn decls) and let emitModule stitch + auto-cache them. */
 export const SDF_WGSL_SHAPE_STRUCTS = `${emitStruct(ShapeDesc.decl)}\n\n${emitStruct(ShapeSegment.decl)}\n`

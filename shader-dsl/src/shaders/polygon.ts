@@ -26,9 +26,8 @@ import {
   f32, u32, vec2, vec2u, vec3, vec4, toF32, toU32, transformMat4, clamp, select,
   abs, fract, max, min, mix, pow, sqrt, dot, log, tan, floor, textureSample, unpack4x8unorm,
   f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, vec4uT, mat4x4fT, texture2dfT, samplerT,
-  structT,
   Node, Builder, arrayT,
-  type StructDecl, type StructField, type ModuleDecl, type Stmt, type BindingDecl,
+  type ModuleDecl, type Stmt, type BindingDecl,
 } from '../core/ir'
 import { ioStruct, builtin, location, uniformStruct, resource } from '../core/sot'
 import { emitModule, emitFunc } from '../core/backends/wgsl'
@@ -118,16 +117,15 @@ const VertexOutput = VertexOutputIO.decl
 const OitFragmentOutput = ioStruct('OitFragmentOutput', {
   accum: location(0, vec4fT),
   revealage: location(1, f32T),
-}).decl
+})
 
 /** FragmentOutput's `pick` field is conditional on the polygon pipeline carrying
  *  a pick attachment — same plumbing as line.ts's lineFragmentOutput. */
-const polygonFragmentOutput = (pickEnabled: boolean): StructDecl => {
-  const fields: StructField[] = [{ name: 'color', type: vec4fT, attr: '@location(0)' }]
-  if (pickEnabled) fields.push({ name: 'pick', type: vec2uT, attr: '@location(1) @interpolate(flat)' })
-  fields.push({ name: 'depth', type: f32T, attr: '@builtin(frag_depth)' })
-  return { name: 'FragmentOutput', fields }
-}
+const polygonFragmentOutput = (pickEnabled: boolean) => ioStruct('FragmentOutput', {
+  color: location(0, vec4fT),
+  ...(pickEnabled ? { pick: location(1, vec2uT, 'flat') } : {}),
+  depth: builtin('frag_depth', f32T),
+})
 
 // ── Binding refs ──
 //
@@ -339,7 +337,7 @@ const vsMain = entryFn(
     { name: 'abs_lon', type: f32T, location: 3 },
     { name: 'abs_lat', type: f32T, location: 4 },
   ],
-  structT('VertexOutput'),
+  VertexOutputIO.type,
   (p, b) => {
     const mvp = U.field.mvp
     const logDepthFc = U.field.log_depth_fc
@@ -361,7 +359,7 @@ const vsMain = entryFn(
     const absMercY =
       log(tan(pi.div(f32(4)).add(absLatClamped.mul(deg2rad).div(f32(2))))).mul(earthR)
 
-    const out = b.var('out', structT('VertexOutput'))
+    const out = b.var('out', VertexOutputIO.type)
     // Display projection (projection-display-layer-restore): flat Mercator
     // (proj_params.x < 0.5) reprojects each vertex onto the 2D plane and
     // feeds the flat Mercator-metre MVP; 3D / globe keeps the ECEF-RTC path.
@@ -453,7 +451,7 @@ const vsMainEcef = entryFn(
     // #398: TRUE unclamped lat (deg) — disc arm projects the ±90 caps from this.
     { name: 'true_lat', type: f32T, location: 5 },
   ],
-  structT('VertexOutput'),
+  VertexOutputIO.type,
   (p, b) => {
     const mvp = U.field.mvp
     const logDepthFc = U.field.log_depth_fc
@@ -480,7 +478,7 @@ const vsMainEcef = entryFn(
     const absLatClamped =
       clamp(inv_merc_lat_rad(absMercY).div(deg2rad), mercLatLim.neg(), mercLatLim)
 
-    const out = b.var('out', structT('VertexOutput'))
+    const out = b.var('out', VertexOutputIO.type)
     // Display projection (projection-display-layer-restore): flat Mercator
     // (proj_params.x < 0.5) reprojects each vertex onto the 2D plane and
     // feeds the flat Mercator-metre MVP; 3D / globe keeps the ECEF-RTC path.
@@ -552,7 +550,7 @@ const vsMainEcefExtruded = entryFn(
     { name: 'wall_height', type: f32T, location: 6 },
     { name: 'is_top', type: f32T, location: 7 },
   ],
-  structT('VertexOutput'),
+  VertexOutputIO.type,
   (p, b) => {
     const mvp = U.field.mvp
     const logDepthFc = U.field.log_depth_fc
@@ -577,7 +575,7 @@ const vsMainEcefExtruded = entryFn(
     const absMercY =
       log(tan(pi.div(f32(4)).add(absLatClamped.mul(deg2rad).div(f32(2))))).mul(earthR)
 
-    const out = b.var('out', structT('VertexOutput'))
+    const out = b.var('out', VertexOutputIO.type)
     // Display projection (see vs_main_ecef): flat Mercator reprojects onto
     // the 2D plane with the extrude lift applied as plane-z; 3D keeps the
     // pre-lifted ECEF-RTC. world_z = wall_height × is_top is the per-vertex
@@ -747,13 +745,13 @@ const emitPickWrite = (b: Builder, input: Node, out: Node, pickEnabled: boolean)
 const buildFsFill = (pickEnabled: boolean) =>
   entryFn(
     'fs_fill', 'fragment',
-    [{ name: 'input', type: structT('VertexOutput') }],
-    structT('FragmentOutput'),
+    [{ name: 'input', type: VertexOutputIO.type }],
+    polygonFragmentOutput(pickEnabled).type,
     (p, b) => {
       const input = p.input
       const i = VertexOutputIO.of(input)
       emitPolygonFragmentDiscards(b, input)
-      const out = b.var('out', structT('FragmentOutput'))
+      const out = b.var('out', polygonFragmentOutput(pickEnabled).type)
       // Fill-extrusion shading via wall_blend varying. Iter 129 final after
       // the derivative-normal experiment was reverted — see fs_fill comment
       // in POLYGON_SHADER_SOURCE for the rationale.
@@ -799,13 +797,13 @@ const buildFsFill = (pickEnabled: boolean) =>
 const buildFsFillPattern = (pickEnabled: boolean) =>
   entryFn(
     'fs_fill_pattern', 'fragment',
-    [{ name: 'input', type: structT('VertexOutput') }],
-    structT('FragmentOutput'),
+    [{ name: 'input', type: VertexOutputIO.type }],
+    polygonFragmentOutput(pickEnabled).type,
     (p, b) => {
       const input = p.input
       const i = VertexOutputIO.of(input)
       emitPolygonFragmentDiscards(b, input)
-      const out = b.var('out', structT('FragmentOutput'))
+      const out = b.var('out', polygonFragmentOutput(pickEnabled).type)
       const repeatX = max(U.field.fill_translate_x, f32(1))
       const repeatY = max(U.field.fill_translate_y, f32(1))
       const uvLocal = vec2(
@@ -843,8 +841,8 @@ const buildFsFillPattern = (pickEnabled: boolean) =>
 
 const fsOitTranslucent = entryFn(
   'fs_oit_translucent', 'fragment',
-  [{ name: 'input', type: structT('VertexOutput') }],
-  structT('OitFragmentOutput'),
+  [{ name: 'input', type: VertexOutputIO.type }],
+  OitFragmentOutput.type,
   (p, b) => {
     const input = p.input
     const i = VertexOutputIO.of(input)
@@ -869,7 +867,7 @@ const fsOitTranslucent = entryFn(
       f32(1e-2),
       f32(3.0e3),
     )
-    const out = b.var('out', structT('OitFragmentOutput'))
+    const out = b.var('out', OitFragmentOutput.type)
     b.assign(out.field('accum', vec4fT), vec4(rgb.mul(a), a).mul(w))
     b.assign(out.field('revealage', f32T), a)
     b.ret(out)
@@ -888,13 +886,13 @@ const fsOitTranslucent = entryFn(
 const buildFsFillExtrude = (pickEnabled: boolean) =>
   entryFn(
     'fs_fill_extrude', 'fragment',
-    [{ name: 'input', type: structT('VertexOutput') }],
-    structT('FragmentOutput'),
+    [{ name: 'input', type: VertexOutputIO.type }],
+    polygonFragmentOutput(pickEnabled).type,
     (p, b) => {
       const input = p.input
       const i = VertexOutputIO.of(input)
       emitPolygonFragmentDiscards(b, input)
-      const out = b.var('out', structT('FragmentOutput'))
+      const out = b.var('out', polygonFragmentOutput(pickEnabled).type)
       // Rim alpha — operates on the premultiplied colour: scales both rgb
       // and alpha by the rim factor so the building still fades at sphere
       // edges on globe / azimuthal projections.
@@ -917,8 +915,8 @@ const buildFsFillExtrude = (pickEnabled: boolean) =>
 const buildFsStroke = (pickEnabled: boolean) =>
   entryFn(
     'fs_stroke', 'fragment',
-    [{ name: 'input', type: structT('VertexOutput') }],
-    structT('FragmentOutput'),
+    [{ name: 'input', type: VertexOutputIO.type }],
+    polygonFragmentOutput(pickEnabled).type,
     (p, b) => {
       const input = p.input
       const i = VertexOutputIO.of(input)
@@ -929,7 +927,7 @@ const buildFsStroke = (pickEnabled: boolean) =>
       // let-bound name at emit time (composer's default-path assign).
       const alphaScale = b.let('alpha_scale', select(i.feat_id.gt(u32(0)), f32(1), f32(0.4)))
       void alphaScale
-      const out = b.var('out', structT('FragmentOutput'))
+      const out = b.var('out', polygonFragmentOutput(pickEnabled).type)
       // ▼ Composer-swap point — variant.strokeExpr replaces this OR the
       //   composer inserts the base default-uniform path:
       //     out.color = vec4<f32>(u.stroke_color.rgb, u.stroke_color.a * alpha_scale);
@@ -1010,7 +1008,7 @@ export interface ShaderVariantInfo {
 
 const defaultFillReturnStmts = (): readonly Stmt[] => {
   const b = new Builder()
-  const out = new Node({ op: 'varref', type: structT('FragmentOutput'), name: 'out' })
+  const out = new Node({ op: 'varref', type: polygonFragmentOutput(false).type, name: 'out' })
   const wallShade = new Node<'f32'>({ op: 'varref', type: f32T, name: 'wall_shade' })
   const fillColor = U.field.fill_color
   b.assign(out.field('color', vec4fT), vec4(fillColor.rgb.mul(wallShade), fillColor.a))
@@ -1019,7 +1017,7 @@ const defaultFillReturnStmts = (): readonly Stmt[] => {
 
 const defaultStrokeReturnStmts = (): readonly Stmt[] => {
   const b = new Builder()
-  const out = new Node({ op: 'varref', type: structT('FragmentOutput'), name: 'out' })
+  const out = new Node({ op: 'varref', type: polygonFragmentOutput(false).type, name: 'out' })
   const alphaScale = new Node<'f32'>({ op: 'varref', type: f32T, name: 'alpha_scale' })
   const strokeColor = U.field.stroke_color
   b.assign(out.field('color', vec4fT), vec4(strokeColor.rgb, strokeColor.a.mul(alphaScale)))
@@ -1041,7 +1039,7 @@ const variantReturnStmts = (
     return axis === 'fill' ? defaultFillReturnStmts() : defaultStrokeReturnStmts()
   }
   const b = new Builder()
-  const out = new Node({ op: 'varref', type: structT('FragmentOutput'), name: 'out' })
+  const out = new Node({ op: 'varref', type: polygonFragmentOutput(false).type, name: 'out' })
   b.assign(out.field('color', vec4fT), expr)
   return [...(preamble ?? []), ...b.stmts]
 }
@@ -1111,7 +1109,7 @@ const buildPolygonModule = (
   pickEnabled: boolean,
 ): ModuleDecl => {
   const base = module({
-    structs: [Uniforms, VertexOutput, OitFragmentOutput, polygonFragmentOutput(pickEnabled)],
+    structs: [Uniforms, VertexOutput, OitFragmentOutput.decl, polygonFragmentOutput(pickEnabled).decl],
     bindings: [
       U.binding,
       spriteAtlasRes.binding,

@@ -20,19 +20,19 @@
 // sampling the offscreen RT) is emitted alongside via emitCompositeWgsl().
 
 import {
-  entryFn, fn, module, bindingRef, constRef, transformMat4,
+  entryFn, fn, module, constRef, transformMat4,
   f32, i32, u32, toF32, vec2, vec3, vec4, vec2u, clamp, fract, sign,
   length, dot, min, max, smoothstep, abs, floor, select, textureSample,
   bitcastU32, unpack4x8unorm,
   atan, exp,
   If, Loop, Let, Var, Continue, Discard, assign, assignOp, madd, outsideRange,
   ReturnIf, Switch,
-  structT, f32T, u32T, i32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
+  f32T, u32T, i32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   arrayT,
   type Node,
-  type StructDecl, type StructField, type ModuleDecl,
+  type ModuleDecl,
 } from '../core/ir'
-import { ioStruct, builtin, location, uniformStruct } from '../core/sot'
+import { ioStruct, builtin, location, uniformStruct, structDecl, storageBuffer, resource } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
 import { inv_merc_lat_rad, flat_rel, needs_backface_cull, rim_alpha, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
 import { ECEF_CONSTS, ECEF_FUNCS, lonlatToEcef } from './ecef'
@@ -99,19 +99,16 @@ const TILE = uniformStruct('TileUniforms', { group: 0, binding: 0, as: 'tile' },
   cam_ecef_off_l: vec4fT,
 })
 
-const PatternSlot: StructDecl = {
-  name: 'PatternSlot',
-  fields: [
-    { name: 'id', type: u32T },
-    { name: 'flags', type: u32T },
-    { name: 'spacing', type: f32T },
-    { name: 'size', type: f32T },
-    { name: 'offset', type: f32T },
-    { name: 'start_offset', type: f32T },
-    { name: '_pad0', type: f32T },
-    { name: '_pad1', type: f32T },
-  ],
-}
+const PatternSlot = structDecl('PatternSlot', {
+  id: u32T,
+  flags: u32T,
+  spacing: f32T,
+  size: f32T,
+  offset: f32T,
+  start_offset: f32T,
+  _pad0: f32T,
+  _pad1: f32T,
+})
 
 const LAYER = uniformStruct('LineLayer', { group: 1, binding: 0, as: 'layer' }, {
   color: vec4fT,
@@ -125,7 +122,7 @@ const LAYER = uniformStruct('LineLayer', { group: 1, binding: 0, as: 'layer' }, 
   dash_cycle_m: f32T,
   dash_offset_m: f32T,
   dash_array: arrayT(vec4fT, 2),
-  patterns: arrayT(structT('PatternSlot'), 3),
+  patterns: arrayT(PatternSlot.type, 3),
   offset_m: f32T,
   viewport_height: f32T,
   // Device-pixel ratio. The screen-width clamp (vs_line) divides the
@@ -144,82 +141,77 @@ const LAYER = uniformStruct('LineLayer', { group: 1, binding: 0, as: 'layer' }, 
   _pad_e: f32T,
 })
 
-const LineSegment: StructDecl = {
-  name: 'LineSegment',
-  fields: [
-    // DSFUN endpoint pairs in tile-local Mercator meters.
-    { name: 'p0_h', type: vec2fT },
-    { name: 'p1_h', type: vec2fT },
-    { name: 'p0_l', type: vec2fT },
-    { name: 'p1_l', type: vec2fT },
-    { name: 'prev_tangent', type: vec2fT },
-    { name: 'next_tangent', type: vec2fT },
-    { name: 'arc_start', type: f32T },
-    { name: 'line_length', type: f32T },
-    // Per-endpoint quad pad ratios (multiples of half_w).
-    { name: 'pad_ratio_p0', type: f32T },
-    { name: 'pad_ratio_p1', type: f32T },
-    // Per-segment 3D extrude height in metres.
-    { name: 'z_lift_m', type: f32T },
-    // Per-segment stroke width override (px). 0 = use layer.width_px.
-    { name: 'width_px_override', type: f32T },
-    // Per-segment stroke colour override (RGBA8 packed in an f32 slot;
-    // shader bit-casts to u32 + unpack4x8unorm). Alpha=0 → use layer.color.
-    { name: 'color_packed', type: f32T },
-    { name: '_pad19', type: f32T },
-  ],
-}
+const LineSegment = structDecl('LineSegment', {
+  // DSFUN endpoint pairs in tile-local Mercator meters.
+  p0_h: vec2fT,
+  p1_h: vec2fT,
+  p0_l: vec2fT,
+  p1_l: vec2fT,
+  prev_tangent: vec2fT,
+  next_tangent: vec2fT,
+  arc_start: f32T,
+  line_length: f32T,
+  // Per-endpoint quad pad ratios (multiples of half_w).
+  pad_ratio_p0: f32T,
+  pad_ratio_p1: f32T,
+  // Per-segment 3D extrude height in metres.
+  z_lift_m: f32T,
+  // Per-segment stroke width override (px). 0 = use layer.width_px.
+  width_px_override: f32T,
+  // Per-segment stroke colour override (RGBA8 packed in an f32 slot;
+  // shader bit-casts to u32 + unpack4x8unorm). Alpha=0 → use layer.color.
+  color_packed: f32T,
+  _pad19: f32T,
+})
 
-const ShapeDesc: StructDecl = {
-  name: 'ShapeDesc',
-  fields: [
-    { name: 'seg_start', type: u32T },
-    { name: 'seg_count', type: u32T },
-    { name: 'bbox_min_x', type: f32T },
-    { name: 'bbox_min_y', type: f32T },
-    { name: 'bbox_max_x', type: f32T },
-    { name: 'bbox_max_y', type: f32T },
-    { name: '_pad0', type: f32T },
-    { name: '_pad1', type: f32T },
-  ],
-}
+const ShapeDesc = structDecl('ShapeDesc', {
+  seg_start: u32T,
+  seg_count: u32T,
+  bbox_min_x: f32T,
+  bbox_min_y: f32T,
+  bbox_max_x: f32T,
+  bbox_max_y: f32T,
+  _pad0: f32T,
+  _pad1: f32T,
+})
 
-const ShapeSegment: StructDecl = {
-  name: 'ShapeSegment',
-  fields: [
-    { name: 'kind', type: u32T },
-    { name: 'color_idx', type: u32T },
-    { name: 'flags', type: u32T },
-    { name: '_pad', type: u32T },
-    { name: 'p0', type: vec2fT },
-    { name: 'p1', type: vec2fT },
-    { name: 'p2', type: vec2fT },
-    { name: 'p3', type: vec2fT },
-  ],
-}
+const ShapeSegment = structDecl('ShapeSegment', {
+  kind: u32T,
+  color_idx: u32T,
+  flags: u32T,
+  _pad: u32T,
+  p0: vec2fT,
+  p1: vec2fT,
+  p2: vec2fT,
+  p3: vec2fT,
+})
 
-const LineOut: StructDecl = ioStruct('LineOut', {
+const LineOut = ioStruct('LineOut', {
   position: builtin('position', vec4fT),
   world_local: location(0, vec2fT),
   seg_id: location(1, u32T, 'flat'),
   view_w: location(2, f32T),
   cos_c: location(3, f32T),
-}).decl
+})
 
-const lineFragmentOutput = (pickEnabled: boolean): StructDecl => {
-  const fields: StructField[] = [{ name: 'color', type: vec4fT, attr: '@location(0)' }]
-  if (pickEnabled) fields.push({ name: 'pick', type: vec2uT, attr: '@location(1) @interpolate(flat)' })
-  fields.push({ name: 'depth', type: f32T, attr: '@builtin(frag_depth)' })
-  return { name: 'LineFragmentOutput', fields }
-}
+const lineFragmentOutput = (pickEnabled: boolean) => ioStruct('LineFragmentOutput', {
+  color: location(0, vec4fT),
+  ...(pickEnabled ? { pick: location(1, vec2uT, 'flat') } : {}),
+  depth: builtin('frag_depth', f32T),
+})
 
 // ── Binding refs ──
 
-const segments = bindingRef('segments', arrayT(structT('LineSegment')))
-const shapes = bindingRef('shapes', arrayT(structT('ShapeDesc')))
-const shape_segments = bindingRef('shape_segments', arrayT(structT('ShapeSegment')))
-const sprite_atlas = bindingRef('sprite_atlas', texture2dfT)
-const sprite_samp = bindingRef('sprite_samp', samplerT)
+const segmentsB = storageBuffer('segments', arrayT(LineSegment.type), { group: 1, binding: 1, access: 'read' })
+const segments = segmentsB.node
+const shapesB = storageBuffer('shapes', arrayT(ShapeDesc.type), { group: 1, binding: 2, access: 'read' })
+const shapes = shapesB.node
+const shapeSegmentsB = storageBuffer('shape_segments', arrayT(ShapeSegment.type), { group: 1, binding: 3, access: 'read' })
+const shape_segments = shapeSegmentsB.node
+const spriteAtlasB = resource('sprite_atlas', texture2dfT, { group: 0, binding: 5 })
+const sprite_atlas = spriteAtlasB.node
+const spriteSampB = resource('sprite_samp', samplerT, { group: 0, binding: 6 })
+const sprite_samp = spriteSampB.node
 
 // ── Helper fns ──
 
@@ -277,7 +269,7 @@ const patternUnitToM = fn('pattern_unit_to_m', { v: f32T, unit: u32T, mpp: f32T 
 // line segment storage buffer on binding 1).
 const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (p, _b) => {
   const uv = vec2(p.uv_in.x, p.uv_in.y.neg())
-  const s = shapes.at(p.shape_id, structT('ShapeDesc'))
+  const s = shapes.at(p.shape_id, ShapeDesc.type)
   const bMinX = s.field('bbox_min_x', f32T)
   const bMinY = s.field('bbox_min_y', f32T)
   const bMaxX = s.field('bbox_max_x', f32T)
@@ -292,7 +284,7 @@ const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (p, _b
   const segCount = s.field('seg_count', u32T)
   const end = min(segStart.add(segCount), segStart.add(u32(32)))
   Loop('i', segStart, (i) => i.lt(end), (i) => {
-    const seg = shape_segments.at(i, structT('ShapeSegment'))
+    const seg = shape_segments.at(i, ShapeSegment.type)
     const p0 = seg.field('p0', vec2fT)
     const p1 = seg.field('p1', vec2fT)
     const p2 = seg.field('p2', vec2fT)
@@ -321,7 +313,7 @@ const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (p, _b
 // Backface cull → clip-bounds → segment-frame distance → bisector clip → bevel
 // edge → endpoint cap/join → dash → 3-slot pattern stack → alpha + per-segment
 // colour override. Faithful port of the WGSL helper (renderer-shaders.ts L661-1234).
-const computeLineColor = fn('compute_line_color', { input: structT('LineOut') }, vec4fT, (p, b) => {
+const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4fT, (p, b) => {
   const projParams = TILE.field.proj_params
   const tileOrigin = TILE.field.tile_origin_merc
   const clipBounds = TILE.field.clip_bounds
@@ -354,7 +346,7 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
     c.if(absMercClip.y.gt(clipBounds.w), (d) => { d.discard() })
   })
 
-  const seg = segments.at(p.input.field('seg_id', u32T), structT('LineSegment'))
+  const seg = segments.at(p.input.field('seg_id', u32T), LineSegment.type)
   const segP = p.input.field('world_local', vec2fT)
   const p0 = lineEndpoint(seg.field('p0_h', vec2fT), seg.field('p0_l', vec2fT))
   const p1 = lineEndpoint(seg.field('p1_h', vec2fT), seg.field('p1_l', vec2fT))
@@ -406,7 +398,7 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
   const patExtentFs = b.var('pat_extent_fs', f32T, f32(0))
   b.if(layerFlags.bitAnd(u32(64)).ne(u32(0)), (c) => {
     c.forRange('pk_fs', u32(0), (pk) => pk.lt(u32(3)), (cb, pk) => {
-      const patFs = LAYER.field.patterns.at(pk, structT('PatternSlot'))
+      const patFs = LAYER.field.patterns.at(pk, PatternSlot.type)
       cb.if(patFs.field('id', u32T).eq(u32(0)), (d) => { d.continue() })
       const szUnit = patFs.field('flags', u32T).shr(u32(2)).bitAnd(u32(3))
       const ofUnit = patFs.field('flags', u32T).shr(u32(4)).bitAnd(u32(3))
@@ -657,7 +649,7 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
   const patDm = b.var('pat_d_m', f32T, f32(1e10))
   b.if(layerFlags.bitAnd(u32(64)).ne(u32(0)), (c) => {
     c.forRange('k', u32(0), (k) => k.lt(u32(3)), (cb, k) => {
-      const pat = LAYER.field.patterns.at(k, structT('PatternSlot'))
+      const pat = LAYER.field.patterns.at(k, PatternSlot.type)
       cb.if(pat.field('id', u32T).eq(u32(0)), (d) => { d.continue() })
 
       const patF = pat.field('flags', u32T)
@@ -737,7 +729,7 @@ const computeLineColor = fn('compute_line_color', { input: structT('LineOut') },
 })
 
 // ── line_rim_alpha ──
-const lineRimAlpha = fn('line_rim_alpha', { input: structT('LineOut') }, f32T, (p, _b) => {
+const lineRimAlpha = fn('line_rim_alpha', { input: LineOut.type }, f32T, (p, _b) => {
   const tileOrigin = TILE.field.tile_origin_merc
   const absMerc = p.input.field('world_local', vec2fT).add(tileOrigin)
   const absLon = absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R')))
@@ -751,8 +743,8 @@ const lineRimAlpha = fn('line_rim_alpha', { input: structT('LineOut') }, f32T, (
 const vsLine = entryFn('vs_line', 'vertex', [
   { name: 'seg_id', type: u32T, builtin: 'instance_index' },
   { name: 'vi', type: u32T, builtin: 'vertex_index' },
-], structT('LineOut'), (p, b) => {
-  const seg = segments.at(p.seg_id, structT('LineSegment'))
+], LineOut.type, (p, b) => {
+  const seg = segments.at(p.seg_id, LineSegment.type)
   const p0 = lineEndpoint(seg.field('p0_h', vec2fT), seg.field('p0_l', vec2fT))
   const p1 = lineEndpoint(seg.field('p1_h', vec2fT), seg.field('p1_l', vec2fT))
 
@@ -783,7 +775,7 @@ const vsLine = entryFn('vs_line', 'vertex', [
   const patExtentM = b.var('pat_extent_m', f32T, f32(0))
   b.if(layerFlags.bitAnd(u32(64)).ne(u32(0)), (c) => {
     c.forRange('pk', u32(0), (pk) => pk.lt(u32(3)), (cb, pk) => {
-      const pat = LAYER.field.patterns.at(pk, structT('PatternSlot'))
+      const pat = LAYER.field.patterns.at(pk, PatternSlot.type)
       cb.if(pat.field('id', u32T).eq(u32(0)), (d) => { d.continue() })
       const szUnit = pat.field('flags', u32T).shr(u32(2)).bitAnd(u32(3))
       const offUnit = pat.field('flags', u32T).shr(u32(4)).bitAnd(u32(3))
@@ -985,7 +977,7 @@ const vsLine = entryFn('vs_line', 'vertex', [
   // is tile-local there). u.mvp is the matching matrix (getViewForProjection);
   // zLift is the outline/extrude lift. world_local stays cornerLocal so the
   // FS distance / clip-bounds math is unchanged.
-  const out = b.var('out', structT('LineOut'))
+  const out = b.var('out', LineOut.type)
   const tileOrigin2 = TILE.field.tile_origin_merc
   const mvp = TILE.field.mvp
   const zLift = seg.field('z_lift_m', f32T)
@@ -1045,8 +1037,8 @@ const vsLine = entryFn('vs_line', 'vertex', [
 // ── Fragment entries (3 variants share compute_line_color) ──
 
 const buildFsLine = (pickEnabled: boolean) =>
-  entryFn('fs_line', 'fragment', [{ name: 'input', type: structT('LineOut') }], structT('LineFragmentOutput'), (p, _b) => {
-    const out = Var('out', structT('LineFragmentOutput'))
+  entryFn('fs_line', 'fragment', [{ name: 'input', type: LineOut.type }], lineFragmentOutput(pickEnabled).type, (p, _b) => {
+    const out = Var('out', lineFragmentOutput(pickEnabled).type)
     const color = computeLineColor(p.input)
     const rim = lineRimAlpha(p.input)
     assign(out.field('color', vec4fT), vec4(color.rgb, color.a.mul(rim)))
@@ -1056,7 +1048,7 @@ const buildFsLine = (pickEnabled: boolean) =>
   })
 
 const buildFsLinePattern = (pickEnabled: boolean) =>
-  entryFn('fs_line_pattern', 'fragment', [{ name: 'input', type: structT('LineOut') }], structT('LineFragmentOutput'), (p, _b) => {
+  entryFn('fs_line_pattern', 'fragment', [{ name: 'input', type: LineOut.type }], lineFragmentOutput(pickEnabled).type, (p, _b) => {
     const base = computeLineColor(p.input)
     const tileOrigin = TILE.field.tile_origin_merc
     const absMerc = p.input.field('world_local', vec2fT).add(tileOrigin)
@@ -1077,7 +1069,7 @@ const buildFsLinePattern = (pickEnabled: boolean) =>
     )
     const sampled = textureSample(sprite_atlas, sprite_samp, atlasUv)
     const rim = lineRimAlpha(p.input)
-    const out = Var('out', structT('LineFragmentOutput'))
+    const out = Var('out', lineFragmentOutput(pickEnabled).type)
     assign(out.field('color', vec4fT), vec4(sampled.rgb, sampled.a.mul(base.a).mul(rim)))
     if (pickEnabled) assign(out.field('pick', vec2uT), vec2u(u32(0), u32(0)))
     assign(out.field('depth', f32T), compute_log_frag_depth(p.input.field('view_w', f32T), TILE.field.log_depth_fc))
@@ -1088,7 +1080,7 @@ const buildFsLinePattern = (pickEnabled: boolean) =>
 // offscreen RT has no depth attachment).
 const fsLineMax = entryFn(
   'fs_line_max', 'fragment',
-  [{ name: 'input', type: structT('LineOut') }],
+  [{ name: 'input', type: LineOut.type }],
   vec4fT,
   (p, _b) => {
     const c = Var('c', vec4fT, computeLineColor(p.input))
@@ -1106,17 +1098,17 @@ export const buildLineModule = (pickEnabled: boolean): ModuleDecl => module({
   // ECEF_WGSL_CONSTS string prepend in emitLineWgsl). emitModule hoists them above all funcs.
   consts: [...PROJECTION_CONSTS, ...ECEF_CONSTS],
   structs: [
-    TILE.struct, PatternSlot, LAYER.struct, LineSegment,
-    ShapeDesc, ShapeSegment, LineOut, lineFragmentOutput(pickEnabled),
+    TILE.struct, PatternSlot.decl, LAYER.struct, LineSegment.decl,
+    ShapeDesc.decl, ShapeSegment.decl, LineOut.decl, lineFragmentOutput(pickEnabled).decl,
   ],
   bindings: [
     TILE.binding,
-    { group: 0, binding: 5, name: 'sprite_atlas', space: 'uniform', type: texture2dfT },
-    { group: 0, binding: 6, name: 'sprite_samp', space: 'uniform', type: samplerT },
+    spriteAtlasB.binding,
+    spriteSampB.binding,
     LAYER.binding,
-    { group: 1, binding: 1, name: 'segments', space: 'storage', access: 'read', type: arrayT(structT('LineSegment')) },
-    { group: 1, binding: 2, name: 'shapes', space: 'storage', access: 'read', type: arrayT(structT('ShapeDesc')) },
-    { group: 1, binding: 3, name: 'shape_segments', space: 'storage', access: 'read', type: arrayT(structT('ShapeSegment')) },
+    segmentsB.binding,
+    shapesB.binding,
+    shapeSegmentsB.binding,
   ],
   funcs: [
     // Shared dependency decls, callees first (was the LOG_DEPTH / projection / ECEF / SDF
@@ -1142,26 +1134,24 @@ export const emitLineWgsl = (pickEnabled: boolean): string => emitModule(buildLi
 // Standalone — different bind group + a single uniform (opacity). Pairs with
 // pipelineMax in line-renderer.ts.
 
-const CompUniform: StructDecl = {
-  name: 'CompUniform',
-  fields: [
-    { name: 'opacity', type: f32T },
-    { name: '_pad', type: vec3fT },
-  ],
-}
+const CompUniform = uniformStruct('CompUniform', { group: 0, binding: 2, as: 'cu' }, {
+  opacity: f32T,
+  _pad: vec3fT,
+})
 
-const VsFullOut: StructDecl = ioStruct('VsFullOut', {
+const VsFullOut = ioStruct('VsFullOut', {
   pos: builtin('position', vec4fT),
   uv: location(0, vec2fT),
-}).decl
+})
 
-const compSamp = bindingRef('samp', samplerT)
-const compSrc = bindingRef('src', texture2dfT)
-const compCu = bindingRef('cu', structT('CompUniform'))
+const compSampB = resource('samp', samplerT, { group: 0, binding: 0 })
+const compSamp = compSampB.node
+const compSrcB = resource('src', texture2dfT, { group: 0, binding: 1 })
+const compSrc = compSrcB.node
 
 const vsFull = entryFn('vs_full', 'vertex',
   [{ name: 'vi', type: u32T, builtin: 'vertex_index' }],
-  structT('VsFullOut'),
+  VsFullOut.type,
   (p, _b) => {
     const pos = Var('p', vec2fT, vec2(f32(-1), f32(-1)))
     const uv = Var('uv', vec2fT, vec2(f32(0), f32(1)))
@@ -1173,7 +1163,7 @@ const vsFull = entryFn('vs_full', 'vertex',
       assign(pos, vec2(f32(-1), f32(3)))
       assign(uv, vec2(f32(0), f32(-1)))
     })
-    const out = Var('out', structT('VsFullOut'))
+    const out = Var('out', VsFullOut.type)
     assign(out.field('pos', vec4fT), vec4(pos, f32(0), f32(1)))
     assign(out.field('uv', vec2fT), uv)
     return out
@@ -1181,11 +1171,11 @@ const vsFull = entryFn('vs_full', 'vertex',
 )
 
 const fsFull = entryFn('fs_full', 'fragment',
-  [{ name: 'input', type: structT('VsFullOut') }],
+  [{ name: 'input', type: VsFullOut.type }],
   vec4fT,
   (p, _b) => {
     const c = textureSample(compSrc, compSamp, p.input.field('uv', vec2fT))
-    const op = compCu.field('opacity', f32T)
+    const op = CompUniform.field.opacity
     // MAX-blend offscreen stores non-premultiplied (rgb, a_aa); premultiply here.
     return vec4(c.rgb.mul(c.a).mul(op), c.a.mul(op))
   },
@@ -1193,11 +1183,11 @@ const fsFull = entryFn('fs_full', 'fragment',
 )
 
 const compositeModule: ModuleDecl = module({
-  structs: [CompUniform, VsFullOut],
+  structs: [CompUniform.struct, VsFullOut.decl],
   bindings: [
-    { group: 0, binding: 0, name: 'samp', space: 'uniform', type: samplerT },
-    { group: 0, binding: 1, name: 'src', space: 'uniform', type: texture2dfT },
-    { group: 0, binding: 2, name: 'cu', space: 'uniform', type: structT('CompUniform') },
+    compSampB.binding,
+    compSrcB.binding,
+    CompUniform.binding,
   ],
   funcs: [vsFull, fsFull],
 })

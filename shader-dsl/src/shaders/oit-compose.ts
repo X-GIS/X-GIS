@@ -14,15 +14,15 @@
 // Non-polygon-variant — independent emit; no ShaderVariant fields touched.
 
 import {
-  entryFn, module, bindingRef,
+  entryFn, module,
   f32, u32, i32, vec2, vec4, toF32, toI32,
   textureLoad, textureDimensions, vec2i,
   f32T, u32T, vec2fT, vec4fT,
   texture2dfT, texture2dMsfT,
   max,
-  type ShaderType, type ModuleDecl,
+  type Node, type ModuleDecl,
 } from '../core/ir'
-import { ioStruct, builtin, location } from '../core/sot'
+import { ioStruct, builtin, location, resource } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
 
 const VsOut = ioStruct('VsOut', {
@@ -64,9 +64,7 @@ const vsFull = entryFn(
 // an integer literal. WGSL accepts an i32 literal as the loop bound
 // directly — no module-level const needed.
 
-const buildFsCompose = (sampleCount: number, texType: ShaderType) => {
-  const accumTex = bindingRef('accum_tex', texType)
-  const revealageTex = bindingRef('revealage_tex', texType)
+const buildFsCompose = (sampleCount: number, accumTex: Node, revealageTex: Node) => {
   return entryFn(
     'fs_compose', 'fragment',
     [{ name: 'in', type: VsOut.type }],
@@ -106,13 +104,12 @@ const buildFsCompose = (sampleCount: number, texType: ShaderType) => {
  *  when true, `texture_2d` when false. */
 export const emitOitComposeWgsl = (sampleCount: number, isMsaa: boolean): string => {
   const texType = isMsaa ? texture2dMsfT : texture2dfT
+  const accumTexB = resource('accum_tex', texType, { group: 0, binding: 0 })
+  const revealageTexB = resource('revealage_tex', texType, { group: 0, binding: 1 })
   const oitComposeModule: ModuleDecl = module({
     structs: [VsOut.decl],
-    bindings: [
-      { group: 0, binding: 0, name: 'accum_tex', space: 'uniform', type: texType },
-      { group: 0, binding: 1, name: 'revealage_tex', space: 'uniform', type: texType },
-    ],
-    funcs: [vsFull, buildFsCompose(sampleCount, texType)],
+    bindings: [accumTexB.binding, revealageTexB.binding],
+    funcs: [vsFull, buildFsCompose(sampleCount, accumTexB.node, revealageTexB.node)],
   })
   return emitModule(oitComposeModule)
 }

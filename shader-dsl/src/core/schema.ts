@@ -22,6 +22,12 @@ export interface StructHelper<F extends Record<string, ShaderType>> {
   of(node: Node): { readonly [K in keyof F]: Node<KeyOf<F[K]>> }
 }
 
+/**
+ * @deprecated Superseded by `structDecl` in `core/sot` — the single home for the SoT
+ * struct/binding helpers (uniformStruct / ioStruct / structDecl / storageBuffer / resource).
+ * `structDecl` is a byte-identical superset (same `.decl` / `.type` / `.of` / `.get`). This
+ * `struct()` has no remaining consumers; kept only for the deprecation window before removal.
+ */
 export function struct<F extends Record<string, ShaderType>>(name: string, fields: F): StructHelper<F> {
   const decl: StructDecl = {
     name,

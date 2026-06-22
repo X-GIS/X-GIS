@@ -48,7 +48,9 @@ function artifacts(): ReturnType<typeof buildProjectionArtifacts> {
   return (_artifacts ??= buildProjectionArtifacts(_specs))
 }
 export const getPROJECTION_MODULE = (): ModuleDecl => artifacts().PROJECTION_MODULE
+/** @deprecated String-prepend emit path — being phased out for decl-array merge: consume the fn decls (getGpuProjectionFuncs / ECEF_FUNCS / LOG_DEPTH_FUNCS / the sdf fn decls) and let emitModule stitch + auto-cache them. */
 export const getProjectionWgslConsts = (): string => artifacts().PROJECTION_WGSL_CONSTS
+/** @deprecated String-prepend emit path — being phased out for decl-array merge: consume the fn decls (getGpuProjectionFuncs / ECEF_FUNCS / LOG_DEPTH_FUNCS / the sdf fn decls) and let emitModule stitch + auto-cache them. */
 export const getProjectionWgslFns = (): string => artifacts().PROJECTION_WGSL_FNS
 /** The GPU projection fn DECLS (project_geom_cpu excluded — CPU-only). Consumers that merge
  *  the projection graph into their own module() (instead of prepending getProjectionWgslFns()

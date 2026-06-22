@@ -28,5 +28,9 @@ const LOG_DEPTH_FUNCS: FuncDecl[] = [apply_log_depth, compute_log_frag_depth]
 
 export const LOG_DEPTH_MODULE: ModuleDecl = module({ funcs: LOG_DEPTH_FUNCS })
 
-/** Emitted WGSL — re-exported as WGSL_LOG_DEPTH_FNS by shaders/log-depth.ts. */
+/**
+ * Emitted WGSL — re-exported as WGSL_LOG_DEPTH_FNS by shaders/log-depth.ts.
+ * @deprecated String-prepend emit path — being phased out for decl-array merge: consume
+ * `LOG_DEPTH_FUNCS` (the fn decls) and let emitModule stitch + auto-cache them.
+ */
 export const LOG_DEPTH_WGSL_FNS = `${emitFuncsCsed(LOG_DEPTH_FUNCS)}\n`

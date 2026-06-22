@@ -21,11 +21,11 @@ import {
   entryFn, fn, module, transformMat4, arrayLit,
   f32, u32, i32, toF32, toU32, vec2, vec3, vec4, mix, exp, clamp,
   length, dot, min, max, smoothstep, fwidth, select,
-  structT, f32T, u32T, i32T, vec2fT, vec4fT, mat4x4fT, arrayT,
+  f32T, u32T, i32T, vec2fT, vec4fT, mat4x4fT, arrayT,
   Let, Var, assign, assignOp, If, Loop, Discard,
-  type StructDecl, type ModuleDecl,
+  type ModuleDecl,
 } from '../core/ir'
-import { ioStruct, builtin, location, uniformStruct, storageBuffer } from '../core/sot'
+import { ioStruct, builtin, location, uniformStruct, structDecl, storageBuffer } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
 import { needs_backface_cull, rim_alpha, flat_rel, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
@@ -58,32 +58,26 @@ const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
   // Default [0,0,0,0] → no-op (existing rendering byte-identical).
   circle_params: vec4fT,
 })
-const ShapeDesc: StructDecl = {
-  name: 'ShapeDesc',
-  fields: [
-    { name: 'seg_start', type: u32T },
-    { name: 'seg_count', type: u32T },
-    { name: 'bbox_min_x', type: f32T },
-    { name: 'bbox_min_y', type: f32T },
-    { name: 'bbox_max_x', type: f32T },
-    { name: 'bbox_max_y', type: f32T },
-    { name: '_pad0', type: f32T },
-    { name: '_pad1', type: f32T },
-  ],
-}
-const Segment: StructDecl = {
-  name: 'Segment',
-  fields: [
-    { name: 'kind', type: u32T },          // 0=line 1=quad 2=cubic
-    { name: 'color_idx', type: u32T },
-    { name: 'flags', type: u32T },
-    { name: '_pad', type: u32T },
-    { name: 'p0', type: vec2fT },
-    { name: 'p1', type: vec2fT },
-    { name: 'p2', type: vec2fT },
-    { name: 'p3', type: vec2fT },
-  ],
-}
+const ShapeDesc = structDecl('ShapeDesc', {
+  seg_start: u32T,
+  seg_count: u32T,
+  bbox_min_x: f32T,
+  bbox_min_y: f32T,
+  bbox_max_x: f32T,
+  bbox_max_y: f32T,
+  _pad0: f32T,
+  _pad1: f32T,
+})
+const Segment = structDecl('Segment', {
+  kind: u32T,          // 0=line 1=quad 2=cubic
+  color_idx: u32T,
+  flags: u32T,
+  _pad: u32T,
+  p0: vec2fT,
+  p1: vec2fT,
+  p2: vec2fT,
+  p3: vec2fT,
+})
 const PointOut = ioStruct('PointOut', {
   position: builtin('position', vec4fT),
   uv: location(0, vec2fT),
@@ -99,8 +93,8 @@ const PointFragmentOutput = ioStruct('PointFragmentOutput', {
 })
 
 const featDataB = storageBuffer('feat_data', arrayT(f32T), { group: 0, binding: 1, access: 'read' })
-const shapesB = storageBuffer('shapes', arrayT(structT('ShapeDesc')), { group: 0, binding: 2, access: 'read' })
-const segmentsB = storageBuffer('segments', arrayT(structT('Segment')), { group: 0, binding: 3, access: 'read' })
+const shapesB = storageBuffer('shapes', arrayT(ShapeDesc.type), { group: 0, binding: 2, access: 'read' })
+const segmentsB = storageBuffer('segments', arrayT(Segment.type), { group: 0, binding: 3, access: 'read' })
 const featData = featDataB.node
 const shapes = shapesB.node
 const segments = segmentsB.node
@@ -182,7 +176,7 @@ const windingLine = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT }, i32T
 const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (pp, bld) => {
   // Flip Y: NDC Y-up → SVG/path Y-down convention.
   const uv = vec2(pp.uv_in.x, pp.uv_in.y.neg())
-  const s = shapes.at(pp.shape_id, structT('ShapeDesc'))
+  const s = shapes.at(pp.shape_id, ShapeDesc.type)
   const bMinX = s.field('bbox_min_x', f32T)
   const bMinY = s.field('bbox_min_y', f32T)
   const bMaxX = s.field('bbox_max_x', f32T)
@@ -199,7 +193,7 @@ const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (pp, b
   // Hard-cap at 32 segments per shape (paste from original).
   const end = min(segStart.add(segCount), segStart.add(u32(32)))
   bld.forRange('i', segStart, (i) => i.lt(end), (cb, i) => {
-    const seg = segments.at(i, structT('Segment'))
+    const seg = segments.at(i, Segment.type)
     const p0 = seg.field('p0', vec2fT)
     const p1 = seg.field('p1', vec2fT)
     const p2 = seg.field('p2', vec2fT)
@@ -483,7 +477,7 @@ const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: PointOut.type }]
 export const buildPointModule = (): ModuleDecl => module({
   // Shared projection constants merged in (was the getProjectionWgslConsts() string prepend).
   consts: [...PROJECTION_CONSTS],
-  structs: [U.struct, ShapeDesc, Segment, PointOut.decl, PointFragmentOutput.decl],
+  structs: [U.struct, ShapeDesc.decl, Segment.decl, PointOut.decl, PointFragmentOutput.decl],
   bindings: [
     U.binding,
     featDataB.binding,
