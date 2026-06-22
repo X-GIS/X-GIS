@@ -46,16 +46,16 @@ describe('Phase-2 line shader — DSL emission', () => {
       // binding, so the value now appears either inlined as `tile._pad_tail0` or
       // via a `_cseN` temp — match the slot field plus the stable clip transform.
       expect(w).toContain('tile._pad_tail0')
-      // clip.x += translate.z * clip.w  (translate = a `_cseN` temp or `tile._pad_tail0`)
-      expect(w).toMatch(/clip\.x = \(clip\.x \+ \([\w.]+\.z \* clip\.w\)\)/)
+      // clip.x += translate.z * clip.w  (clip is now an auto-var `_avN`, translate a `_cseN`/`tile._pad_tail0`)
+      expect(w).toMatch(/(\w+)\.x = \(\1\.x \+ \([\w.]+\.z \* \1\.w\)\)/)
       // clip.y -= translate.w * clip.w
-      expect(w).toMatch(/clip\.y = \(clip\.y - \([\w.]+\.w \* clip\.w\)\)/)
+      expect(w).toMatch(/(\w+)\.y = \(\1\.y - \([\w.]+\.w \* \1\.w\)\)/)
       expect(w).toContain('< 0.25')  // NDC≪0.5 applied; pattern-repeat metres≫0.5 skipped
       // applied to `clip` BEFORE log-depth finalises the position: the fill-translate
       // clip mutation precedes apply_log_depth in the VS body. (Anchor on the
       // `clip.x = (clip.x + ...)` mutation, not the struct field decl, so the
       // ordering is the real before/after — not trivially true.)
-      expect(linePart(w)).toMatch(/clip\.x = \(clip\.x \+ \([\w.]+\.z \* clip\.w\)\)[\s\S]*?apply_log_depth/)
+      expect(linePart(w)).toMatch(/(\w+)\.x = \(\1\.x \+ \([\w.]+\.z \* \1\.w\)\)[\s\S]*?apply_log_depth/)
     }
   })
   it('globe arm lifts z_lift along the GEODETIC NORMAL, not the ECEF polar axis', () => {

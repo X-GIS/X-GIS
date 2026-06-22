@@ -25,7 +25,7 @@ import {
   length, dot, min, max, smoothstep, abs, floor, select, textureSample,
   bitcastU32, unpack4x8unorm,
   atan, exp,
-  If, ifExpr, Loop, Let, Var, Continue, Break, Discard, assign, assignOp, madd, outsideRange,
+  If, ifExpr, condExpr, Loop, Let, Continue, Break, Discard, assign, assignOp, madd, outsideRange,
   ReturnIf, Switch,
   f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   arrayT,
@@ -691,10 +691,10 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
 
       // START / END / CENTER — single instance.
       const lineLength = seg.field('line_length', f32T)
-      const centerArc = Var('center_arc', f32T)
-      If(anchor.eq(u32(1)), () => { assign(centerArc, startM) })
-        .elif(anchor.eq(u32(2)), () => { assign(centerArc, lineLength.sub(startM)) })
-        .else(() => { assign(centerArc, lineLength.mul(0.5)) })
+      const centerArc = condExpr('center_arc', f32T, [
+        [anchor.eq(u32(1)), () => startM],
+        [anchor.eq(u32(2)), () => lineLength.sub(startM)],
+      ], () => lineLength.mul(0.5))
 
       const arcOnSeg = Let('arc_on_seg', centerArc.sub(seg.field('arc_start', f32T)))
       If(outsideRange(arcOnSeg, halfS.mul(-2), segLen.add(halfS.mul(2))), () => Continue())
@@ -914,8 +914,8 @@ const vsLine = entryFn('vs_line', 'vertex', [
     const projParamsW = TILE.field.proj_params
     // Same MVP transform for center (base) + candidate (cornerLocal) so the
     // screen-space width estimate matches the final clip exactly.
-    const centerClip = Var('center_clip', vec4fT)
-    const cornerClip = Var('corner_clip', vec4fT)
+    const centerClip = vec4(f32(0), f32(0), f32(0), f32(0))
+    const cornerClip = vec4(f32(0), f32(0), f32(0), f32(0))
     If(projParamsW.x.lt(6.5), () => {
       // FLAT (projType 0-6): finalize_corner passes Mercator through (already
       // camera-relative) and reprojects the other flat forms (project_geom −
@@ -978,7 +978,7 @@ const vsLine = entryFn('vs_line', 'vertex', [
   const zLift = seg.field('z_lift_m', f32T)
   const projParamsF = TILE.field.proj_params
 
-  const clip = Var('clip', vec4fT)
+  const clip = vec4(f32(0), f32(0), f32(0), f32(0))
   If(projParamsF.x.lt(6.5), () => {
     // FLAT (0-6): finalize_corner (Mercator pass-through + non-Mercator
     // project_geom reproject − projected camera centre) → flat 2D-plane MVP.

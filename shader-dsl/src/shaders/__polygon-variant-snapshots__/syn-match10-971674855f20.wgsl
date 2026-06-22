@@ -1,4 +1,4 @@
-// baseline: 7380ff7e2714e60a4d459ba4492ff315cacb870f
+// baseline: 4d27379137fb3a7957104cea176dc13b06bf8329
 // fixture: syn-match10
 // variant.key: syn-match10
 // pick: false
@@ -274,38 +274,40 @@ fn polygon_rim_alpha(abs_merc_x: f32, abs_merc_y: f32) -> f32 {
 
 @vertex
 fn vs_main(@location(0) pos_h: vec3<f32>, @location(1) pos_l: vec3<f32>, @location(2) feature_id: f32, @location(3) abs_lon: f32, @location(4) abs_lat: f32) -> VertexOutput {
-  let _cse0 = (((project(abs_lon, abs_lat, u.proj_params) - u.tile_origin_merc) - u.cam_h) - u.cam_l);
-  let _cse1 = flat_rel(abs_lon, abs_lat, u.proj_params, ((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R)));
-  let _cse2 = clamp(abs_lat, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT);
-  var clip: vec4<f32>;
+  let _cse0 = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+  let _cse1 = (((project(abs_lon, abs_lat, u.proj_params) - u.tile_origin_merc) - u.cam_h) - u.cam_l);
+  let _cse2 = flat_rel(abs_lon, abs_lat, u.proj_params, ((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R)));
+  let _cse3 = clamp(abs_lat, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT);
+  var _av0: vec4<f32> = _cse0;
   if ((u.proj_params.x < 0.5)) {
-    clip = (u.mvp * vec4<f32>((_cse0.x + (((floor(((((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R)) + 180.0) / 360.0)) * 2.0) * PI) * EARTH_R)), _cse0.y, 0.0, 1.0));
+    _av0 = (u.mvp * vec4<f32>((_cse1.x + (((floor(((((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R)) + 180.0) / 360.0)) * 2.0) * PI) * EARTH_R)), _cse1.y, 0.0, 1.0));
   } else if ((u.proj_params.x < 6.5)) {
-    clip = (u.mvp * vec4<f32>(_cse1.x, _cse1.y, 0.0, 1.0));
+    _av0 = (u.mvp * vec4<f32>(_cse2.x, _cse2.y, 0.0, 1.0));
   } else {
-    clip = (u.mvp * vec4<f32>((((pos_h + pos_l) + vec3<f32>(u.cam_ecef_off_h.x, u.cam_ecef_off_h.y, u.cam_ecef_off_h.z)) + vec3<f32>(u.cam_ecef_off_l.x, u.cam_ecef_off_l.y, u.cam_ecef_off_l.z)), 1.0));
+    _av0 = (u.mvp * vec4<f32>((((pos_h + pos_l) + vec3<f32>(u.cam_ecef_off_h.x, u.cam_ecef_off_h.y, u.cam_ecef_off_h.z)) + vec3<f32>(u.cam_ecef_off_l.x, u.cam_ecef_off_l.y, u.cam_ecef_off_l.z)), 1.0));
   }
-  clip.x = (clip.x + (u.fill_translate_x * clip.w));
-  clip.y = (clip.y - (u.fill_translate_y * clip.w));
-  return VertexOutput(vec4<f32>(apply_log_depth(clip, u.log_depth_fc).x, apply_log_depth(clip, u.log_depth_fc).y, (apply_log_depth(clip, u.log_depth_fc).z - (u.layer_depth_offset * apply_log_depth(clip, u.log_depth_fc).w)), apply_log_depth(clip, u.log_depth_fc).w), 0.0, u32(feature_id), _cse2, clip.w, 1.0, ((abs_lon * DEG2RAD) * EARTH_R), (log(tan(((PI / 4.0) + ((_cse2 * DEG2RAD) / 2.0)))) * EARTH_R), 0.0, vec4<f32>(0.0, 0.0, 0.0, 0.0));
+  _av0.x = (_av0.x + (u.fill_translate_x * _av0.w));
+  _av0.y = (_av0.y - (u.fill_translate_y * _av0.w));
+  return VertexOutput(vec4<f32>(apply_log_depth(_av0, u.log_depth_fc).x, apply_log_depth(_av0, u.log_depth_fc).y, (apply_log_depth(_av0, u.log_depth_fc).z - (u.layer_depth_offset * apply_log_depth(_av0, u.log_depth_fc).w)), apply_log_depth(_av0, u.log_depth_fc).w), 0.0, u32(feature_id), _cse3, _av0.w, 1.0, ((abs_lon * DEG2RAD) * EARTH_R), (log(tan(((PI / 4.0) + ((_cse3 * DEG2RAD) / 2.0)))) * EARTH_R), 0.0, _cse0);
 }
 
 @vertex
 fn vs_main_ecef(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u32>, @location(2) feature_id: f32, @location(3) abs_lon: f32, @location(4) abs_lat: f32, @location(5) true_lat: f32) -> VertexOutput {
-  let _cse0 = ((vec2<f32>(abs_lon, abs_lat) - u.cam_h) - u.cam_l);
-  let _cse1 = flat_rel(((abs_lon + u.tile_origin_merc.x) / (DEG2RAD * EARTH_R)), true_lat, u.proj_params, ((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R)));
-  let _cse2 = (abs_lat + u.tile_origin_merc.y);
-  var clip: vec4<f32>;
+  let _cse0 = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+  let _cse1 = ((vec2<f32>(abs_lon, abs_lat) - u.cam_h) - u.cam_l);
+  let _cse2 = flat_rel(((abs_lon + u.tile_origin_merc.x) / (DEG2RAD * EARTH_R)), true_lat, u.proj_params, ((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R)));
+  let _cse3 = (abs_lat + u.tile_origin_merc.y);
+  var _av0: vec4<f32> = _cse0;
   if ((u.proj_params.x < 0.5)) {
-    clip = (u.mvp * vec4<f32>(_cse0.x, _cse0.y, 0.0, 1.0));
+    _av0 = (u.mvp * vec4<f32>(_cse1.x, _cse1.y, 0.0, 1.0));
   } else if ((u.proj_params.x < 6.5)) {
-    clip = (u.mvp * vec4<f32>(_cse1.x, _cse1.y, 0.0, 1.0));
+    _av0 = (u.mvp * vec4<f32>(_cse2.x, _cse2.y, 0.0, 1.0));
   } else {
-    clip = (u.mvp * vec4<f32>(((dequant_ecef(q_xy, q_z, u.tile_dequant_scale, u.tile_dequant_half) + vec3<f32>(u.cam_ecef_off_h.x, u.cam_ecef_off_h.y, u.cam_ecef_off_h.z)) + vec3<f32>(u.cam_ecef_off_l.x, u.cam_ecef_off_l.y, u.cam_ecef_off_l.z)), 1.0));
+    _av0 = (u.mvp * vec4<f32>(((dequant_ecef(q_xy, q_z, u.tile_dequant_scale, u.tile_dequant_half) + vec3<f32>(u.cam_ecef_off_h.x, u.cam_ecef_off_h.y, u.cam_ecef_off_h.z)) + vec3<f32>(u.cam_ecef_off_l.x, u.cam_ecef_off_l.y, u.cam_ecef_off_l.z)), 1.0));
   }
-  clip.x = (clip.x + (u.fill_translate_x * clip.w));
-  clip.y = (clip.y - (u.fill_translate_y * clip.w));
-  return VertexOutput(vec4<f32>(apply_log_depth(clip, u.log_depth_fc).x, apply_log_depth(clip, u.log_depth_fc).y, (apply_log_depth(clip, u.log_depth_fc).z - (u.layer_depth_offset * apply_log_depth(clip, u.log_depth_fc).w)), apply_log_depth(clip, u.log_depth_fc).w), 0.0, u32(feature_id), clamp((inv_merc_lat_rad(_cse2) / DEG2RAD), (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT), clip.w, 1.0, (abs_lon + u.tile_origin_merc.x), _cse2, 0.0, vec4<f32>(0.0, 0.0, 0.0, 0.0));
+  _av0.x = (_av0.x + (u.fill_translate_x * _av0.w));
+  _av0.y = (_av0.y - (u.fill_translate_y * _av0.w));
+  return VertexOutput(vec4<f32>(apply_log_depth(_av0, u.log_depth_fc).x, apply_log_depth(_av0, u.log_depth_fc).y, (apply_log_depth(_av0, u.log_depth_fc).z - (u.layer_depth_offset * apply_log_depth(_av0, u.log_depth_fc).w)), apply_log_depth(_av0, u.log_depth_fc).w), 0.0, u32(feature_id), clamp((inv_merc_lat_rad(_cse3) / DEG2RAD), (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT), _av0.w, 1.0, (abs_lon + u.tile_origin_merc.x), _cse3, 0.0, _cse0);
 }
 
 @vertex
@@ -313,37 +315,25 @@ fn vs_main_ecef_extruded(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u3
   let _cse0 = (((project(abs_lon, abs_lat, u.proj_params) - u.tile_origin_merc) - u.cam_h) - u.cam_l);
   let _cse1 = (wall_height * is_top);
   let _cse2 = flat_rel(abs_lon, abs_lat, u.proj_params, ((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R)));
-  let _cse3 = clamp(abs_lat, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT);
-  let _cse4 = (1.0 - u.light_dir_ecef.w);
-  var out: VertexOutput;
-  var clip: vec4<f32>;
+  let _cse3 = (1.0 - u.light_dir_ecef.w);
+  let _cse4 = clamp(abs_lat, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT);
+  var _av0: vec4<f32> = vec4<f32>(0.0, 0.0, 0.0, 0.0);
   if ((u.proj_params.x < 0.5)) {
-    clip = (u.mvp * vec4<f32>((_cse0.x + (((floor(((((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R)) + 180.0) / 360.0)) * 2.0) * PI) * EARTH_R)), _cse0.y, _cse1, 1.0));
+    _av0 = (u.mvp * vec4<f32>((_cse0.x + (((floor(((((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R)) + 180.0) / 360.0)) * 2.0) * PI) * EARTH_R)), _cse0.y, _cse1, 1.0));
   } else if ((u.proj_params.x < 6.5)) {
-    clip = (u.mvp * vec4<f32>(_cse2.x, _cse2.y, _cse1, 1.0));
+    _av0 = (u.mvp * vec4<f32>(_cse2.x, _cse2.y, _cse1, 1.0));
   } else {
-    clip = (u.mvp * vec4<f32>(((dequant_ecef(q_xy, q_z, u.tile_dequant_scale, u.tile_dequant_half) + vec3<f32>(u.cam_ecef_off_h.x, u.cam_ecef_off_h.y, u.cam_ecef_off_h.z)) + vec3<f32>(u.cam_ecef_off_l.x, u.cam_ecef_off_l.y, u.cam_ecef_off_l.z)), 1.0));
+    _av0 = (u.mvp * vec4<f32>(((dequant_ecef(q_xy, q_z, u.tile_dequant_scale, u.tile_dequant_half) + vec3<f32>(u.cam_ecef_off_h.x, u.cam_ecef_off_h.y, u.cam_ecef_off_h.z)) + vec3<f32>(u.cam_ecef_off_l.x, u.cam_ecef_off_l.y, u.cam_ecef_off_l.z)), 1.0));
   }
-  clip.x = (clip.x + (u.fill_translate_x * clip.w));
-  clip.y = (clip.y - (u.fill_translate_y * clip.w));
-  out.position = apply_log_depth(clip, u.log_depth_fc);
-  out.position.z = (out.position.z - (u.layer_depth_offset * out.position.w));
-  out.view_w = clip.w;
-  out.cos_c = 0.0;
-  out.feat_id = u32(feature_id);
-  out.abs_lat = _cse3;
-  out.wall_blend = is_top;
-  out.abs_merc_x = ((abs_lon * DEG2RAD) * EARTH_R);
-  out.abs_merc_y = (log(tan(((PI / 4.0) + ((_cse3 * DEG2RAD) / 2.0)))) * EARTH_R);
-  out.world_z = _cse1;
-  var _av0: f32 = clamp(dot(face_normal, u.light_dir_ecef.xyz), 0.0, 1.0);
-  _av0 = mix(_cse4, max(((1.0 - (((u.fill_color.rgb.x * 0.2126) + (u.fill_color.rgb.y * 0.7152)) + (u.fill_color.rgb.z * 0.0722))) + u.light_dir_ecef.w), 1.0), _av0);
+  _av0.x = (_av0.x + (u.fill_translate_x * _av0.w));
+  _av0.y = (_av0.y - (u.fill_translate_y * _av0.w));
+  var _av1: f32 = clamp(dot(face_normal, u.light_dir_ecef.xyz), 0.0, 1.0);
+  _av1 = mix(_cse3, max(((1.0 - (((u.fill_color.rgb.x * 0.2126) + (u.fill_color.rgb.y * 0.7152)) + (u.fill_color.rgb.z * 0.0722))) + u.light_dir_ecef.w), 1.0), _av1);
   if (((abs(face_normal.z) < 0.5) && (u.cam_ecef_off_l.w != 0.0))) {
-    _av0 = (_av0 * clamp((is_top * sqrt((max(wall_height, 1.0) / 150.0))), mix(0.7, 0.98, _cse4), 1.0));
+    _av1 = (_av1 * clamp((is_top * sqrt((max(wall_height, 1.0) / 150.0))), mix(0.7, 0.98, _cse3), 1.0));
   }
-  let shaded_rgb = clamp((((u.fill_color.rgb + vec3<f32>(0.03)) * _av0) * unpack4x8unorm(u.light_color_packed).xyz), vec3<f32>(0.0), vec3<f32>(1.0));
-  out.v_color = vec4<f32>(shaded_rgb, u.fill_color.w);
-  return out;
+  let shaded_rgb = clamp((((u.fill_color.rgb + vec3<f32>(0.03)) * _av1) * unpack4x8unorm(u.light_color_packed).xyz), vec3<f32>(0.0), vec3<f32>(1.0));
+  return VertexOutput(vec4<f32>(apply_log_depth(_av0, u.log_depth_fc).x, apply_log_depth(_av0, u.log_depth_fc).y, (apply_log_depth(_av0, u.log_depth_fc).z - (u.layer_depth_offset * apply_log_depth(_av0, u.log_depth_fc).w)), apply_log_depth(_av0, u.log_depth_fc).w), 0.0, u32(feature_id), _cse4, _av0.w, is_top, ((abs_lon * DEG2RAD) * EARTH_R), (log(tan(((PI / 4.0) + ((_cse4 * DEG2RAD) / 2.0)))) * EARTH_R), _cse1, vec4<f32>(shaded_rgb, u.fill_color.w));
 }
 
 @fragment

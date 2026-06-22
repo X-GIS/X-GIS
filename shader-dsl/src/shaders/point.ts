@@ -236,13 +236,13 @@ const vs = entryFn('vs_point', 'vertex', [
   const packed10 = toU32(featData.at(fid.mul(STRIDE).add(u32(10)), f32T))
   const sizeMode = packed10.shr(u32(4)).bitAnd(u32(0xF))
   // Size mode: 0=px, 1=m, 2=km, 3=deg (equator approx), 4=nm.
-  const radiusPx = Var('radius_px', f32T)
   const viewport = U.field.viewport
-  If(sizeMode.eq(u32(1)), () => { assign(radiusPx, rawRadius.div(viewport.z)) })
-    .elif(sizeMode.eq(u32(2)), () => { assign(radiusPx, rawRadius.mul(1000).div(viewport.z)) })
-    .elif(sizeMode.eq(u32(3)), () => { assign(radiusPx, rawRadius.mul(111320).div(viewport.z)) })
-    .elif(sizeMode.eq(u32(4)), () => { assign(radiusPx, rawRadius.mul(1852).div(viewport.z)) })
-    .else(() => { assign(radiusPx, rawRadius) })
+  const radiusPx = condExpr('radius_px', f32T, [
+    [sizeMode.eq(u32(1)), () => rawRadius.div(viewport.z)],
+    [sizeMode.eq(u32(2)), () => rawRadius.mul(1000).div(viewport.z)],
+    [sizeMode.eq(u32(3)), () => rawRadius.mul(111320).div(viewport.z)],
+    [sizeMode.eq(u32(4)), () => rawRadius.mul(1852).div(viewport.z)],
+  ], () => rawRadius)
 
   // Phase 2 PR 2d.2 — ECEF DSFUN per-feature centre.
   // featData slots 11..16 carry the tile-anchored ECEF DSFUN split
