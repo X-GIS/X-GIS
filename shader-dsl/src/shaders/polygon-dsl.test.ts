@@ -79,8 +79,11 @@ describe('emitPolygonWgsl — skeleton', () => {
     const wgsl = emitPolygonWgsl(null, false)
     expect(wgsl).toContain('textureSample(sprite_atlas')
     expect(wgsl).toContain('fract(')
-    expect(wgsl).toContain('uv_local')
-    expect(wgsl).toContain('atlas_uv')
+    // World-anchored repeating UV: fract() over abs_merc / repeat-metre on each
+    // axis (the local-UV value is inlined / cse-hoisted, so assert the stable
+    // structure that built it, not the dropped hand-`let` names uv_local/atlas_uv).
+    expect(wgsl).toMatch(/fract\(\s*\(?\s*input\.abs_merc_x\s*\/\s*max\(\s*u\.fill_translate_x/)
+    expect(wgsl).toMatch(/fract\(\s*\(?\s*input\.abs_merc_y\s*\/\s*max\(\s*u\.fill_translate_y/)
   })
 
   it('fs_oit_translucent emits dual MRT (accum + revealage) with McGuire-Bavoil weight', () => {
@@ -97,18 +100,28 @@ describe('emitPolygonWgsl — skeleton', () => {
   it('emits fs_fill fragment with placeholder Stmt + wall_shade + log-depth jitter', () => {
     const wgsl = emitPolygonWgsl(null, false)
     expect(wgsl).toContain('fn fs_fill')
-    // Wall-shading (iter 129 final).
-    expect(wgsl).toContain('v_shade')
+    // Wall-shading (iter 129 final). wall_shade stays a let; the v_shade /
+    // roof_bonus hand-`let`s were dropped (inlined / cse-hoisted), so assert
+    // the stable shading structure they expanded to: base 0.6 + 0.4*wall_blend
+    // and the select(.,0.05,wall_blend>=0.999) roof bonus, summed into wall_shade.
     expect(wgsl).toContain('wall_shade')
-    expect(wgsl).toContain('roof_bonus')
+    expect(wgsl).toMatch(/0\.6\s*\+\s*\(?\s*0\.4\s*\*\s*input\.wall_blend/)
+    expect(wgsl).toMatch(/select\(\s*0\.0,\s*0\.05,\s*\(?\s*input\.wall_blend\s*>=\s*0\.999/)
     // Null-variant composer substitutes the default-uniform fill-return
     // assign (legacy POLYGON_SHADER_SOURCE:565 line). No bare placeholder
     // comment leaks past the composer in the standard emit path.
     expect(wgsl).not.toContain('// __placeholder: fill-return')
     // Per-feature log-depth jitter (xor-shift mix on low 16 bits of feat_id).
-    expect(wgsl).toContain('id_lo')
-    expect(wgsl).toContain('mixed')
-    expect(wgsl).toContain('jitter')
+    // The id_lo / mixed / jitter hand-`let`s were dropped (inlined / cse-hoisted),
+    // so assert the stable xor-shift structure: low-16-bit mask, the >>7 / <<3
+    // xor-shift mix, the −512 centering on the masked value, and the jitter scale,
+    // gated on feat_id != 0u — not the dropped binding names.
+    expect(wgsl).toMatch(/&\s*65535u/)            // low 16 bits of feat_id
+    expect(wgsl).toMatch(/\^\s*\(\s*\w+\s*>>\s*7u\s*\)/) // xor-shift >> 7
+    expect(wgsl).toMatch(/\^\s*\(\s*\w+\s*<<\s*3u\s*\)/) // xor-shift << 3
+    expect(wgsl).toMatch(/-\s*512\.0/)            // centre the 0..1023 masked value
+    expect(wgsl).toContain('1.5e-8')              // jitter scale
+    expect(wgsl).toMatch(/input\.feat_id\s*!=\s*0u/) // jitter gated on real feat_id
     // Mask + shift constants in the WGSL emit.
     expect(wgsl).toContain('65535u') // 0xFFFF
     expect(wgsl).toContain('1023u')  // 0x3FF
@@ -159,9 +172,14 @@ describe('emitPolygonWgsl — skeleton', () => {
     expect(wgsl).toContain('65536')
     expect(wgsl).toContain('u.tile_dequant_scale')
     expect(wgsl).toContain('u.tile_dequant_half')
-    // Linear ECEF MVP transform: u.mvp * vec4(ecef_rtc, 1.0).
+    // Linear ECEF MVP transform: u.mvp * vec4(ecef_rtc, 1.0). The ecef_rtc
+    // hand-`let` was dropped — the RTC position is sourced from the shared
+    // dequant_ecef() decode and inlined / cse-hoisted into the mvp multiply.
+    // Assert the dequant call + the u.mvp * vec4<f32>(...) transform structure
+    // rather than the dropped binding name.
     expect(wgsl).toContain('u.mvp')
-    expect(wgsl).toContain('ecef_rtc')
+    expect(wgsl).toContain('dequant_ecef(')
+    expect(wgsl).toMatch(/u\.mvp\s*\*\s*vec4<f32>\(/)
   })
 
   it('emits vs_main vertex entry with stride-9 ECEF DSFUN attributes (post PR 2d.1D)', () => {

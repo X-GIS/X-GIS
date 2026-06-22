@@ -19,7 +19,7 @@ import {
   entryFn, module, constRef, callFn, transformMat4, arrayLit,
   f32, u32, toF32, vec2, vec3, vec4, vec2u, mix, atan, exp, smoothstep, textureSample,
   structT, f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
-  Let, Var, assign, If, Discard,
+  Var, assign, If, Discard,
   type StructDecl, type StructField, type ModuleDecl,
 } from '../core/ir'
 import { ioStruct, builtin, location, uniformStruct, resource } from '../core/sot'
@@ -72,18 +72,18 @@ const texSampler = resource('tex_sampler', samplerT, { group: 0, binding: 2 })
 // GRID_N = 8 (an 8×8 subdivided grid, 6 verts/cell = 384; the draw count lives
 // in the renderer). Inlined where used.
 const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 'vertex_index' }], VsOut.type, (p, _b) => {
-  const cell = Let('cell', p.vid.div(u32(6)))
-  const tri = Let('tri', p.vid.mod(u32(6)))
-  const cx = Let('cx', cell.mod(u32(8)))
-  const cy = Let('cy', cell.div(u32(8)))
+  const cell = p.vid.div(u32(6))
+  const tri = p.vid.mod(u32(6))
+  const cx = cell.mod(u32(8))
+  const cy = cell.div(u32(8))
 
-  const duArr = Let('du_arr', arrayLit(u32T, u32(0), u32(1), u32(0), u32(1), u32(1), u32(0)))
-  const dvArr = Let('dv_arr', arrayLit(u32T, u32(0), u32(0), u32(1), u32(0), u32(1), u32(1)))
-  const gx = Let('gx', cx.add(duArr.at(tri, u32T)))
-  const gy = Let('gy', cy.add(dvArr.at(tri, u32T)))
+  const duArr = arrayLit(u32T, u32(0), u32(1), u32(0), u32(1), u32(1), u32(0))
+  const dvArr = arrayLit(u32T, u32(0), u32(0), u32(1), u32(0), u32(1), u32(1))
+  const gx = cx.add(duArr.at(tri, u32T))
+  const gy = cy.add(dvArr.at(tri, u32T))
 
-  const uu = Let('uu', toF32(gx).div(8))
-  const vv = Let('vv', toF32(gy).div(8))
+  const uu = toF32(gx).div(8)
+  const vv = toF32(gy).div(8)
 
   const mercY = Tile.field.merc_y
   const bounds = Tile.field.bounds
@@ -91,22 +91,22 @@ const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 've
   const projParams = U.field.proj_params
 
   // vv=0 → north (offset=diff), vv=1 → south (offset=0). Local offset from tileSouth.
-  const mercYOffset = Let('merc_y_offset', f32(1).sub(vv).mul(mercY.y))
-  const mercYAbs = Let('merc_y_abs', mercY.x.add(mercYOffset))
+  const mercYOffset = f32(1).sub(vv).mul(mercY.y)
+  const mercYAbs = mercY.x.add(mercYOffset)
 
   // bounds.x/z are world-copy-shifted (west+wo*360, east+wo*360) so lon
   // naturally lands in the correct world copy. merc_y is copy-independent.
-  const lon = Let('lon', mix(bounds.x, bounds.z, uu))
-  const latRad = Let('lat_rad', f32(2).mul(atan(exp(mercYAbs))).sub(constRef('PI').div(2)))
+  const lon = mix(bounds.x, bounds.z, uu)
+  const latRad = f32(2).mul(atan(exp(mercYAbs))).sub(constRef('PI').div(2))
 
   // ECEF path: lon/lat → WGS84 ECEF → subtract tile SW-corner anchor (RTC).
   // Works for every projection because the MVP is always the ECEF frame view
   // (Camera.getECEFFrameView). No per-projection branches needed.
-  const lonRad = Let('lon_rad', lon.mul(constRef('DEG2RAD')))
-  const ecef = Let('ecef', lonlatToEcef(lonRad, latRad, f32(0)))
+  const lonRad = lon.mul(constRef('DEG2RAD'))
+  const ecef = lonlatToEcef(lonRad, latRad, f32(0))
   // Camera-relative: ecef − cameraCenter (the MVP is camera-at-ENU-origin).
-  const camEcefVec = Let('cam_ecef_vec', vec3(camEcef.x, camEcef.y, camEcef.z))
-  const ecefRtc = Let('ecef_rtc', ecef.sub(camEcefVec))
+  const camEcefVec = vec3(camEcef.x, camEcef.y, camEcef.z)
+  const ecefRtc = ecef.sub(camEcefVec)
 
   const out = Var('out', VsOut.type)
   const o = VsOut.of(out)
@@ -120,18 +120,18 @@ const vs = entryFn('vs_tile', 'vertex', [{ name: 'vid', type: u32T, builtin: 've
   // raster.
   const clip = Var('clip', vec4fT)
   If(projParams.x.lt(0.5), () => {
-    const latDeg = Let('lat_deg', latRad.div(constRef('DEG2RAD')))
-    const p2d = Let('p2d', project(lon, latDeg, projParams))
-    const rel2d = Let('rel2d', p2d.sub(vec2(camEcef.x, camEcef.y)))
+    const latDeg = latRad.div(constRef('DEG2RAD'))
+    const p2d = project(lon, latDeg, projParams)
+    const rel2d = p2d.sub(vec2(camEcef.x, camEcef.y))
     assign(clip, transformMat4(U.field.mvp, vec4(rel2d.x, rel2d.y, f32(0), f32(1))))
   }).elif(projParams.x.lt(6.5), () => {
     // FLAT non-Mercator (1-6): reproject the reconstructed lon/lat via
     // project_geom (world-copy aware; tileRefLon = tile-centre lon from the
     // tile bounds) minus the camera's projected centre (in-shader from
     // proj_params.y/z = clon/clat). Same flat MVP; cam_ecef_center unused here.
-    const latDeg = Let('lat_deg_g', latRad.div(constRef('DEG2RAD')))
-    const tileRefLon = Let('tile_ref_lon', bounds.x.add(bounds.z).mul(0.5))
-    const relG = Let('rel2d_geom', flat_rel(lon, latDeg, projParams, tileRefLon))
+    const latDeg = latRad.div(constRef('DEG2RAD'))
+    const tileRefLon = bounds.x.add(bounds.z).mul(0.5)
+    const relG = flat_rel(lon, latDeg, projParams, tileRefLon)
     assign(clip, transformMat4(U.field.mvp, vec4(relG.x, relG.y, f32(0), f32(1))))
   }).else(() => {
     assign(clip, transformMat4(U.field.mvp, vec4(ecefRtc, f32(1))))
@@ -148,15 +148,15 @@ const buildFs = (pickEnabled: boolean) =>
     const pin = VsOut.of(p.input)
     If(pin.vis.lt(0), () => { Discard() })
     const out = Var('out', structT('RasterFragmentOutput'))
-    const c = Let('c', textureSample(tex.node, texSampler.node, pin.uv))
+    const c = textureSample(tex.node, texSampler.node, pin.uv)
     // Rim alpha fade — input.vis carries (cos_c - threshold); Mercator writes
     // vis=1 so smoothstep is a no-op on flat/cylindrical projections.
-    const rim = Let('rim', smoothstep(0, 0.02, pin.vis))
+    const rim = smoothstep(0, 0.02, pin.vis)
     // raster-* colour adjustments (hue-rotate / brightness / saturation /
     // contrast). Defaults are a hard no-op so an un-authored show is
     // byte-identical to the raw texel rgb.
-    const adjRgb = Let('adj_rgb', callFn('raster_color_adjust', vec3fT,
-      c.rgb, U.field.raster_color0, U.field.raster_color1))
+    const adjRgb = callFn('raster_color_adjust', vec3fT,
+      c.rgb, U.field.raster_color0, U.field.raster_color1)
     // raster-opacity multiplies alpha only (premultiplied blend keeps RGB at
     // texel value, so a half-opacity raster fades rather than darkens).
     assign(out.field('color', vec4fT), vec4(adjRgb, c.a.mul(U.field.raster_params.x).mul(rim)))

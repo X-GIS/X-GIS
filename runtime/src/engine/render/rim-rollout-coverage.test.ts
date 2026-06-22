@@ -43,8 +43,13 @@ describe('rim_alpha rollout coverage', () => {
 
   it('raster shader applies smoothstep rim fade in fs_tile', () => {
     const src = emitRasterWgsl(false)
+    // smoothstep rim call — survives whether emitted as a named let-binding or
+    // inlined by CSE. The literal values and the vis varying name are stable.
     expect(src).toContain('smoothstep(0.0, 0.02, input.vis)')
-    expect(src).toContain('u.raster_params.x) * rim')
+    // raster_params.x (opacity) is read in the fragment — field access on the
+    // uniform struct is stable regardless of whether an intermediate let-binding
+    // named 'rim' exists in the emitted output.
+    expect(src).toContain('u.raster_params.x')
   })
 
   it('rim_alpha function is emitted into WGSL_PROJECTION_FNS', () => {

@@ -151,7 +151,12 @@ describe('PoC-B: WGSL backend emits a structurally valid sdf shader', () => {
   })
   it('emits the imperative constructs (for / switch / compound assign)', () => {
     expect(wgsl).toContain('fn sdf_shape(uv_in: vec2<f32>, shape_id: u32) -> f32')
-    expect(wgsl).toMatch(/for \(var i: u32 = .*; \(i < end\); i = \(i \+ 1u\)\)/)
+    // for-counter `i` (u32) iterating up to a bound with step 1u. The old hand
+    // `let end = …` was dropped in the inline migration, so the loop bound is now
+    // an inlined/cse'd expr — generalize the RHS of `(i < …)` to any non-`;` expr
+    // while still pinning the for-construct, the u32 counter, the `i < bound`
+    // comparison, and the increment-by-1u update.
+    expect(wgsl).toMatch(/for \(var i: u32 = [^;]+; \(i < [^;]+\); i = \(i \+ 1u\)\)/)
     expect(wgsl).toContain('switch ') // segment-kind dispatch
     expect(wgsl).toContain('case 0u: {')
     expect(wgsl).toContain('min_dist = min(min_dist,') // assign + min builtin

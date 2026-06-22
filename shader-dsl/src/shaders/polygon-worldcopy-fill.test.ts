@@ -200,21 +200,59 @@ describe('Mercator world-copy fill-gap — emitted WGSL string companion', () =>
   const wgsl = emitPolygonWgsl(null, false)
 
   it('emits the world-copy offset derivation in the Mercator fill arm', () => {
-    expect(wgsl).toContain('let world_off_m =')
-    // Camera-independent copy-index floor (NOT clon-relative).
-    expect(wgsl).toMatch(/let wo = floor\(\(\(tile_ref_lon \+ 180\.0\) \/ 360\.0\)\)/)
+    // The CSE auto-cache inlines/renames the hand `let world_off_m` and
+    // `let wo`/`tile_ref_lon`, so assert the SEMANTIC structure of the
+    // Mercator FILL arm's world-copy offset instead of the binding names.
+    //
+    // The fill arm's copy index is a CAMERA-INDEPENDENT floor over the
+    // tile_ref_lon = (tile_origin_merc.x + 0.5·tile_extent_m)/(DEG2RAD·R)
+    // term — the `tile_extent_m` operand is what distinguishes it from the
+    // clon-RELATIVE floors in the flat_rel/project_geom helper bodies
+    // (which subtract proj_params.y before +180). Match that specific
+    // ref-lon floor (the ref-lon term may be inlined as below or hoisted to
+    // a \w+ cse temp), proving the +180/360 copy-index floor survives.
+    expect(wgsl).toMatch(
+      /floor\(\(\(\(\(u\.tile_origin_merc\.x \+ \(0\.5 \* u\.tile_extent_m\)\) \/ \(DEG2RAD \* EARTH_R\)\) \+ 180\.0\) \/ 360\.0\)\)/,
+    )
+    // world_off_m = wo · 2π · EARTH_R: the floored copy index multiplied by
+    // the world circumference (`... floor(...)) * 2.0) * PI) * EARTH_R`).
+    // Anchored to the same tile_ref_lon floor so it pins the FILL arm's add,
+    // not the clon-relative helper's circumference term.
+    expect(wgsl).toMatch(
+      /floor\(\(\(\(\(u\.tile_origin_merc\.x \+ \(0\.5 \* u\.tile_extent_m\)\) \/ \(DEG2RAD \* EARTH_R\)\) \+ 180\.0\) \/ 360\.0\)\) \* 2\.0\) \* PI\) \* EARTH_R\)/,
+    )
   })
 
   it('adds world_off_m to rel2d.x before the MVP transform (fill + extrude)', () => {
     // Both the flat fill (z=0.0) and the extruded (z=z_plane) Mercator
-    // arms apply the shift.
-    expect(wgsl).toContain('vec4<f32>((rel2d.x + world_off_m), rel2d.y, 0.0, 1.0)')
-    expect(wgsl).toContain('vec4<f32>((rel2d.x + world_off_m), rel2d.y, z_plane, 1.0)')
+    // arms apply the shift. CSE renames `rel2d` to a \w+ cse temp and
+    // inlines `world_off_m` (the floor·circumference term) plus, for the
+    // extruded arm, the `z_plane` wall-height into a \w+ cse temp. Assert
+    // the shifted vec4: (<rel>.x + <world_off_m add>), <rel>.y, <z>, 1.0 —
+    // generalizing only the bound NAMES, keeping the x-add + structure.
+    // The world_off_m add is the same `... * 2.0) * PI) * EARTH_R)` term
+    // pinned above, so the x-channel really carries the world-copy offset.
+    const worldOff = String.raw`\(\(\(floor\([^;]*\) \* 2\.0\) \* PI\) \* EARTH_R\)`
+    // x channel: vec4<f32>(( <rel>.x + <world_off_m> ), <rel>.y, <z>, 1.0)
+    // — the vec4 arg-list paren + the x-group paren wrap the shifted x.
+    // Flat fill: z slot is the literal 0.0.
+    expect(wgsl).toMatch(
+      new RegExp(String.raw`vec4<f32>\(\((\w+)\.x \+ ${worldOff}\), \1\.y, 0\.0, 1\.0\)`),
+    )
+    // Extruded: z slot is the wall-height z_plane (a \w+ cse temp / inlined
+    // expression), NOT the literal 0.0 — so match a non-0.0 z channel.
+    expect(wgsl).toMatch(
+      new RegExp(String.raw`vec4<f32>\(\((\w+)\.x \+ ${worldOff}\), \1\.y, \w+, 1\.0\)`),
+    )
   })
 
   it('does NOT perturb the non-Mercator (flat_rel) arm', () => {
     // The non-Mercator sibling keeps its own world-copy handling inside
-    // project_geom — the fix must not touch it.
-    expect(wgsl).toContain('let rel2d_geom = flat_rel(abs_lon, abs_lat, u.proj_params, tile_ref_lon);')
+    // project_geom — the fix must not touch it. CSE renames the `rel2d_geom`
+    // binding to a \w+ cse temp and inlines the `tile_ref_lon` arg, so assert
+    // the flat_rel CALL with its stable leading operands (abs_lon, abs_lat,
+    // u.proj_params) — the same shared-helper invocation, unchanged by the
+    // Mercator-arm fix.
+    expect(wgsl).toMatch(/flat_rel\(abs_lon, abs_lat, u\.proj_params,/)
   })
 })

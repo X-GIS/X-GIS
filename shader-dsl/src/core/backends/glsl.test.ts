@@ -27,7 +27,11 @@ describe('glsl-es300 backend — backend-neutral emit', () => {
     const wgsl = emitModule(LOG_DEPTH_MODULE)
     expect(wgsl).toContain('fn apply_log_depth(pos: vec4<f32>, fc: f32) -> vec4<f32>')
     expect(wgsl).toContain('vec4<f32>')
-    expect(wgsl).toContain('let z =')
+    // The z value (log2(max(...)) * fc * w) is emitted in WGSL spelling. Post-CSE-migration
+    // a single-use value is inlined rather than hand-bound to `let z`, so assert the SEMANTIC
+    // content of the z computation (the log2/max call structure × the `fc` multiply) — robust
+    // to the let-vs-inline shape and to any `_cseN` temp name.
+    expect(wgsl).toMatch(/log2\(max\([\s\S]*\*\s*fc\b/)
   })
 
   it('lowers the divergent intrinsics on the projection graph (select→ternary, atan2→atan, consts)', () => {

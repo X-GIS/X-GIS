@@ -44,19 +44,24 @@ describe('projection threshold drift gate', () => {
     // azimuthal then stereo.
     const found = allMatches(
       WGSL_PROJECTION_FNS(),
-      /select\(-1\.0, 1\.0, \(cc > (-?[\d.]+)\)\)/g,
+      /select\(-1\.0, 1\.0, \(\w+ > (-?[\d.]+)\)\)/g,
     )
     expect(found).toEqual([AZIMUTHAL, STEREO])
   })
 
   it('WGSL rim_alpha smoothstep lower bounds == table', () => {
-    // DSL emits `smoothstep(LO, HI, cc)` with bounds precomputed (RIM_FADE
-    // inlined). In rim_alpha body order: ortho, azimuthal, stereo, globe.
+    // DSL emits `smoothstep(LO, HI, center_cos_c(...))` with bounds precomputed
+    // (RIM_FADE inlined). The migration dropped the hand `let cc`, so the cos_c value
+    // is the inlined `center_cos_c(...)` call. Body order: ortho, azimuthal, stereo, globe.
     const found = allMatches(
       WGSL_PROJECTION_FNS(),
-      /smoothstep\((-?[\d.]+), -?[\d.]+, cc\)/g,
+      /smoothstep\((-?[\d.]+), -?[\d.]+, center_cos_c\(/g,
     )
-    expect(found).toEqual([ORTHO, AZIMUTHAL, STEREO, ORTHO])
+    // globe's rim is the SAME `smoothstep(0, RIM, cc)` as ortho, so the cse auto-cache
+    // dedups them into one shared temp — 3 distinct smoothstep calls emit (ortho/globe
+    // share, azimuthal, stereographic). The globe=0 threshold is still verified via that
+    // shared temp + the behavioral cpu cull test below.
+    expect(found).toEqual([ORTHO, AZIMUTHAL, STEREO])
   })
 
   it('generated cpu needs_backface_cull follows the table thresholds (behavioral)', () => {
@@ -96,9 +101,9 @@ describe('projection threshold drift gate', () => {
   it('RIM_FADE band width is 0.02 in the emitted WGSL and the raster shader', () => {
     // The DSL inlines RIM_FADE (no `let RIM_FADE`), so each emitted smoothstep
     // band must be exactly 0.02 wide (HI − LO).
-    const bands = [...WGSL_PROJECTION_FNS().matchAll(/smoothstep\((-?[\d.]+), (-?[\d.]+), cc\)/g)]
+    const bands = [...WGSL_PROJECTION_FNS().matchAll(/smoothstep\((-?[\d.]+), (-?[\d.]+), center_cos_c\(/g)]
       .map((m) => Math.round((parseFloat(m[2]!) - parseFloat(m[1]!)) * 1000) / 1000)
-    expect(bands).toEqual([0.02, 0.02, 0.02, 0.02])
+    expect(bands).toEqual([0.02, 0.02, 0.02]) // ortho/globe share one cse'd smoothstep
     const raster = emitRasterWgsl(false)
     // raster applies `smoothstep(0.0, 0.02, input.vis)` — same fade width.
     expect(raster).toContain('smoothstep(0.0, 0.02,')

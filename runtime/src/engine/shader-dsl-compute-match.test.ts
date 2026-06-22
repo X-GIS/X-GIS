@@ -26,7 +26,9 @@ const extractVec4s = (wgsl: string): number[][] =>
   [...wgsl.matchAll(/vec4<f32>\(([^)]*)\)/g)].map((m) =>
     m[1]!.split(',').map((s) => parseFloat(s.trim())))
 const extractCmpIds = (wgsl: string): number[] =>
-  [...wgsl.matchAll(/v_class == (\d+)\.0/g)].map((m) => parseInt(m[1]!, 10))
+  // LHS-agnostic: the matched value was a hand `let v_class`, now inlined as
+  // `feat_data[…]` or a cse temp `_cseN` — pin the `== <id>.0` comparison, not the operand.
+  [...wgsl.matchAll(/==\s*(\d+)\.0/g)].map((m) => parseInt(m[1]!, 10))
 
 const pack = (r: number, g: number, b: number, a: number): number => {
   const q = (x: number): number => Math.round(Math.max(0, Math.min(1, x)) * 255) & 0xff

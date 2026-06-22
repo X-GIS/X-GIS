@@ -41,12 +41,21 @@ describe('Phase-2 line shader — DSL emission', () => {
     // Standalone line layers write 0 here → no-op; the squared-magnitude < 0.25
     // guard skips the pattern-repeat-METRES overload of these same slots.
     for (const w of [noPick, pick]) {
-      expect(w).toContain('let fill_translate_ndc = tile._pad_tail0;')
-      expect(w).toContain('clip.x = (clip.x + (fill_translate_ndc.z * clip.w))')
-      expect(w).toContain('clip.y = (clip.y - (fill_translate_ndc.w * clip.w))')
+      // The fill-translate value is `tile._pad_tail0` (slots 46/47 carry it in
+      // `.zw`). The cse/inline migration dropped the hand `let fill_translate_ndc`
+      // binding, so the value now appears either inlined as `tile._pad_tail0` or
+      // via a `_cseN` temp — match the slot field plus the stable clip transform.
+      expect(w).toContain('tile._pad_tail0')
+      // clip.x += translate.z * clip.w  (translate = a `_cseN` temp or `tile._pad_tail0`)
+      expect(w).toMatch(/clip\.x = \(clip\.x \+ \([\w.]+\.z \* clip\.w\)\)/)
+      // clip.y -= translate.w * clip.w
+      expect(w).toMatch(/clip\.y = \(clip\.y - \([\w.]+\.w \* clip\.w\)\)/)
       expect(w).toContain('< 0.25')  // NDC≪0.5 applied; pattern-repeat metres≫0.5 skipped
-      // applied to `clip` BEFORE log-depth finalises the position
-      expect(linePart(w)).toMatch(/fill_translate_ndc[\s\S]*?apply_log_depth/)
+      // applied to `clip` BEFORE log-depth finalises the position: the fill-translate
+      // clip mutation precedes apply_log_depth in the VS body. (Anchor on the
+      // `clip.x = (clip.x + ...)` mutation, not the struct field decl, so the
+      // ordering is the real before/after — not trivially true.)
+      expect(linePart(w)).toMatch(/clip\.x = \(clip\.x \+ \([\w.]+\.z \* clip\.w\)\)[\s\S]*?apply_log_depth/)
     }
   })
   it('globe arm lifts z_lift along the GEODETIC NORMAL, not the ECEF polar axis', () => {
@@ -57,12 +66,18 @@ describe('Phase-2 line shader — DSL emission', () => {
     // h·(1−sin lat) below) the fill roof edge on globe (~44 m / ~37 px at z16
     // for h=50 at Seoul) — the user-visible fill-vs-outline offset.
     for (const w of [noPick, pick]) {
-      // final clip arm + both width-clamp draft corners take the height arg
-      expect(w).toContain('lonlat_to_ecef(final_corner_lon_rad, final_corner_lat_rad, seg.z_lift_m)')
-      expect(w).toContain('lonlat_to_ecef(clamp_base_lon_rad, clamp_base_lat_rad, seg.z_lift_m)')
-      expect(w).toContain('lonlat_to_ecef(clamp_corner_lon_rad, clamp_corner_lat_rad, seg.z_lift_m)')
+      // final clip arm + both width-clamp draft corners take the height arg.
+      // The cse/inline migration dropped the hand `let <name>_lon_rad/_lat_rad`
+      // bindings, so the lon/lat args are now inlined exprs (or `_cseN` temps) —
+      // pin the call + the HEIGHT arg ending in `z_lift_m`, which is what proves
+      // z_lift rides INTO lonlat_to_ecef. The segment accessor may emit as
+      // `seg.z_lift_m` or `segments[...].z_lift_m`, so match the trailing field.
+      // (`[^\n]*?` stays within one emitted stmt line → cannot span calls.)
+      // 3 lifted call sites (clamp_base, clamp_corner, final_corner):
+      const liftedCalls = (w.match(/lonlat_to_ecef\([^\n]*?\.z_lift_m\)/g) ?? []).length
+      expect(liftedCalls).toBeGreaterThanOrEqual(3)
       // the RTC anchor stays height-0 (polygon tile_ecef_center parity)
-      expect(w).toContain('lonlat_to_ecef(final_tile_lon_rad, final_tile_lat_rad, 0.0)')
+      expect(w).toMatch(/lonlat_to_ecef\([^\n]*?, 0\.0\)/)
       // the polar-axis post-add form must NOT come back
       expect(w).not.toContain('ecef_rtc_lifted')
       expect(w).not.toContain('base_rtc_lifted')

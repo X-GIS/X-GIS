@@ -21,7 +21,10 @@ describe('Phase-2 icon shader — DSL emission (texture IR surface)', () => {
     expect(w).toContain('@fragment\nfn fs(in: VsOut) -> @location(0) vec4<f32>')
     expect(w).toContain('textureSample(atlas_tex, atlas_smp, in.uv)')
     expect(w).toContain('fwidth(')
-    expect(w).toContain('c.rgb')
+    // raster path reads the .rgb swizzle off the sampled texel — robust to the
+    // texel being inlined (`textureSample(...).rgb`) or bound to a cse temp
+    // (`_cseN.rgb`) now the hand `let c` is dropped.
+    expect(w).toMatch(/(?:textureSample\(atlas_tex, atlas_smp, in\.uv\)|\w+)\.rgb\b/)
     expect(w).toContain('smoothstep(')
   })
   it('is structurally balanced', () => {
