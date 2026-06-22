@@ -709,7 +709,7 @@ const emitLogDepthJitter = (input: Node, out: Node): void => {
     toF32(mixed).sub(f32(512)).mul(f32(1.5e-8)),
     f32(0),
   )
-  assign(out.field('depth', f32T), baseDepth.add(jitter))
+  assign(polygonFragmentOutput(false).of(out).depth, baseDepth.add(jitter))
 }
 
 // Pick attachment write (RG32Uint) — only emits when pickEnabled. The readback
@@ -722,7 +722,7 @@ const emitLogDepthJitter = (input: Node, out: Node): void => {
 const emitPickWrite = (input: Node, out: Node, pickEnabled: boolean): void => {
   if (!pickEnabled) return
   const i = VertexOutputIO.of(input)
-  assign(out.field('pick', vec2uT), vec2u(i.feat_id, U.field.pick_id))
+  assign(polygonFragmentOutput(pickEnabled).of(out).pick, vec2u(i.feat_id, U.field.pick_id))
 }
 
 // ── Fragment entries ──
@@ -772,7 +772,8 @@ const buildFsFill = (pickEnabled: boolean) =>
       // at the default the multiply runs exactly as before (no-op gate).
       If(U.field.cam_ecef_off_h.w.ne(f32(0)), () => {
         const rimA = callFn('polygon_rim_alpha', f32T, i.abs_merc_x, i.abs_merc_y)
-        assign(out.field('color', vec4fT).a, out.field('color', vec4fT).a.mul(rimA))
+        const o = polygonFragmentOutput(pickEnabled).of(out)
+        assign(o.color.a, o.color.a.mul(rimA))
       })
       emitPickWrite(input, out, pickEnabled)
       emitLogDepthJitter(input, out)
@@ -813,9 +814,10 @@ const buildFsFillPattern = (pickEnabled: boolean) =>
       )
       const sampled = textureSample(spriteAtlas, spriteSamp, atlasUv)
       // Layer opacity multiplies sprite alpha so fill-opacity still works.
-      assign(out.field('color', vec4fT), vec4(sampled.rgb, sampled.a.mul(U.field.opacity)))
+      const o = polygonFragmentOutput(pickEnabled).of(out)
+      assign(o.color, vec4(sampled.rgb, sampled.a.mul(U.field.opacity)))
       const rimA = callFn('polygon_rim_alpha', f32T, i.abs_merc_x, i.abs_merc_y)
-      assign(out.field('color', vec4fT).a, out.field('color', vec4fT).a.mul(rimA))
+      assign(o.color.a, o.color.a.mul(rimA))
       emitPickWrite(input, out, pickEnabled)
       emitLogDepthJitter(input, out)
       Return(out)
@@ -889,7 +891,7 @@ const buildFsFillExtrude = (pickEnabled: boolean) =>
       // and alpha by the rim factor so the building still fades at sphere
       // edges on globe / azimuthal projections.
       const rim = callFn('polygon_rim_alpha', f32T, i.abs_merc_x, i.abs_merc_y)
-      assign(out.field('color', vec4fT), i.v_color.mul(rim))
+      assign(polygonFragmentOutput(pickEnabled).of(out).color, i.v_color.mul(rim))
       emitPickWrite(input, out, pickEnabled)
       emitLogDepthJitter(input, out)
       Return(out)
@@ -925,10 +927,11 @@ const buildFsStroke = (pickEnabled: boolean) =>
       //     out.color = vec4<f32>(u.stroke_color.rgb, u.stroke_color.a * alpha_scale);
       b.placeholder('stroke-return')
       const rimA = callFn('polygon_rim_alpha', f32T, i.abs_merc_x, i.abs_merc_y)
-      assign(out.field('color', vec4fT).a, out.field('color', vec4fT).a.mul(rimA))
+      const o = polygonFragmentOutput(pickEnabled).of(out)
+      assign(o.color.a, o.color.a.mul(rimA))
       emitPickWrite(input, out, pickEnabled)
       // Stroke depth: bare log-depth, no per-feature jitter.
-      assign(out.field('depth', f32T), compute_log_frag_depth(i.view_w, U.field.log_depth_fc))
+      assign(o.depth, compute_log_frag_depth(i.view_w, U.field.log_depth_fc))
       Return(out)
     },
   )
@@ -1003,7 +1006,7 @@ const defaultFillReturnStmts = (): readonly Stmt[] => {
   const out = new Node({ op: 'varref', type: polygonFragmentOutput(false).type, name: 'out' })
   const wallShade = new Node<'f32'>({ op: 'varref', type: f32T, name: 'wall_shade' })
   const fillColor = U.field.fill_color
-  b.assign(out.field('color', vec4fT), vec4(fillColor.rgb.mul(wallShade), fillColor.a))
+  b.assign(polygonFragmentOutput(false).of(out).color, vec4(fillColor.rgb.mul(wallShade), fillColor.a))
   return b.stmts
 }
 
@@ -1012,7 +1015,7 @@ const defaultStrokeReturnStmts = (): readonly Stmt[] => {
   const out = new Node({ op: 'varref', type: polygonFragmentOutput(false).type, name: 'out' })
   const alphaScale = new Node<'f32'>({ op: 'varref', type: f32T, name: 'alpha_scale' })
   const strokeColor = U.field.stroke_color
-  b.assign(out.field('color', vec4fT), vec4(strokeColor.rgb, strokeColor.a.mul(alphaScale)))
+  b.assign(polygonFragmentOutput(false).of(out).color, vec4(strokeColor.rgb, strokeColor.a.mul(alphaScale)))
   return b.stmts
 }
 
@@ -1032,7 +1035,7 @@ const variantReturnStmts = (
   }
   const b = new Builder()
   const out = new Node({ op: 'varref', type: polygonFragmentOutput(false).type, name: 'out' })
-  b.assign(out.field('color', vec4fT), expr)
+  b.assign(polygonFragmentOutput(false).of(out).color, expr)
   return [...(preamble ?? []), ...b.stmts]
 }
 

@@ -10,7 +10,7 @@
 
 import {
   fn, module, f32, i32, u32, vec2,
-  f32T, i32T, u32T, vec2fT, arrayT,
+  f32T, i32T, u32T, vec2fT,
   clamp, min, max, length, dot, mix, toF32, select,
   Loop, reduce, If, Switch, Return, assign, addAssign,
   type FuncDecl, type ModuleDecl,
@@ -29,15 +29,11 @@ export const ShapeSegment = structDecl('ShapeSegment', {
   p0: vec2fT, p1: vec2fT, p2: vec2fT, p3: vec2fT,
 })
 
-const sd = ShapeDesc.get
-const sg = ShapeSegment.get
 
 // Storage bindings the sdf_shape reads (group 0; bindings illustrative — the
 // real layout is wired at migration time, Phase 2).
-const shapesB = storageBuffer('shapes', arrayT(ShapeDesc.type), { group: 0, binding: 8, access: 'read' })
-const shapes = shapesB.node
-const segmentsB = storageBuffer('segments', arrayT(ShapeSegment.type), { group: 0, binding: 9, access: 'read' })
-const segments = segmentsB.node
+const shapesB = storageBuffer('shapes', ShapeDesc, { group: 0, binding: 8, access: 'read' })
+const segmentsB = storageBuffer('segments', ShapeSegment, { group: 0, binding: 9, access: 'read' })
 
 // ── dist_to_segment / quadratic / cubic / winding_line ──
 
@@ -87,11 +83,11 @@ export const winding_line = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT
 
 const sdf_shape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, ({ uv_in, shape_id }) => {
   const uv = vec2(uv_in.x, uv_in.y.neg())
-  const s = shapes.at(shape_id, ShapeDesc.type)
+  const s = shapesB.at(shape_id)
 
   If(
-    uv.x.lt(sd(s, 'bbox_min_x')).or(uv.x.gt(sd(s, 'bbox_max_x')))
-      .or(uv.y.lt(sd(s, 'bbox_min_y'))).or(uv.y.gt(sd(s, 'bbox_max_y'))),
+    uv.x.lt(s.bbox_min_x).or(uv.x.gt(s.bbox_max_x))
+      .or(uv.y.lt(s.bbox_min_y)).or(uv.y.gt(s.bbox_max_y)),
     () => { Return(f32(2)) },
   )
 
@@ -99,22 +95,22 @@ const sdf_shape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, ({ uv
   // later assign/addAssign and materialises each as a WGSL `var`.
   const min_dist = f32(1e10)
   const winding = i32(0)
-  const end = min(sd(s, 'seg_start').add(sd(s, 'seg_count')), sd(s, 'seg_start').add(u32(32)))
+  const end = min(s.seg_start.add(s.seg_count), s.seg_start.add(u32(32)))
 
-  Loop('i', sd(s, 'seg_start'), (i) => i.lt(end), (i) => {
-    const seg = segments.at(i, ShapeSegment.type)
-    Switch(sg(seg, 'kind'), [
+  Loop('i', s.seg_start, (i) => i.lt(end), (i) => {
+    const seg = segmentsB.at(i)
+    Switch(seg.kind, [
       [0, () => {
-        assign(min_dist, min(min_dist, dist_to_segment(uv, sg(seg, 'p0'), sg(seg, 'p1'))))
-        addAssign(winding, winding_line(uv, sg(seg, 'p0'), sg(seg, 'p1')))
+        assign(min_dist, min(min_dist, dist_to_segment(uv, seg.p0, seg.p1)))
+        addAssign(winding, winding_line(uv, seg.p0, seg.p1))
       }],
       [1, () => {
-        assign(min_dist, min(min_dist, dist_to_quadratic(uv, sg(seg, 'p0'), sg(seg, 'p1'), sg(seg, 'p2'))))
-        addAssign(winding, winding_line(uv, sg(seg, 'p0'), sg(seg, 'p2')))
+        assign(min_dist, min(min_dist, dist_to_quadratic(uv, seg.p0, seg.p1, seg.p2)))
+        addAssign(winding, winding_line(uv, seg.p0, seg.p2))
       }],
       [2, () => {
-        assign(min_dist, min(min_dist, dist_to_cubic(uv, sg(seg, 'p0'), sg(seg, 'p1'), sg(seg, 'p2'), sg(seg, 'p3'))))
-        addAssign(winding, winding_line(uv, sg(seg, 'p0'), sg(seg, 'p3')))
+        assign(min_dist, min(min_dist, dist_to_cubic(uv, seg.p0, seg.p1, seg.p2, seg.p3)))
+        addAssign(winding, winding_line(uv, seg.p0, seg.p3))
       }],
     ], () => { /* default: {} */ })
   }, u32(1))
