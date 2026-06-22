@@ -1,66 +1,59 @@
-// ═══ Shader DSL — raster colour-adjustment helpers ═══
+// ═══ Shader DSL — raster colour-adjustment helpers (DSL-authored) ═══
 //
-// WGSL implementation of Mapbox's `raster-*` colour paint properties applied
-// to the sampled tile texel: hue-rotate, brightness-min/max, saturation, and
-// contrast. The math is byte-for-byte MapLibre's `raster.fragment.glsl`
-// (spinWeights + brightness mix + saturation + contrast), but the per-show
-// FACTORS are derived on the GPU from the RAW Mapbox param values so the
-// renderer's uniform carries `[hueRotateDeg, brightnessMin, brightnessMax,
-// saturation]` + `[contrast, …]` directly — no CPU-side factor precompute.
-//
-// DEFAULTS are a hard no-op: hue=0 (spin weights = identity), bmin=0/bmax=1
-// (mix(0,1,rgb) == rgb), saturation=0 (factor 0 → rgb unchanged), contrast=0
-// (factor 1 → rgb unchanged). So a raster show that authors none of these
-// produces a result byte-identical to sampling the texel directly.
+// Mapbox `raster-*` colour paint applied to the sampled texel: hue-rotate,
+// brightness min/max, saturation, contrast. Math mirrors MapLibre's
+// raster.fragment.glsl; the per-show FACTORS are derived on the GPU from the raw
+// param values (uniform carries [hueDeg, bMin, bMax, saturation] + [contrast]).
+// DEFAULTS are a hard no-op (hue=0 / bmin=0,bmax=1 / sat=0 / contrast=0 → texel
+// unchanged). Authored as DSL fns (was hand-written WGSL); RASTER_COLOR_WGSL_FNS is
+// now derived by emitting them — raster.ts imports the same name, no call-site change.
+// Reads DEG2RAD_F (declared by ECEF_CONSTS, emitted before this block in raster.ts).
 
-/** WGSL fn: apply Mapbox raster colour adjustments to an RGB texel.
- *
- *  `p0 = vec4(hueRotateDeg, brightnessMin, brightnessMax, saturation)`
- *  `p1.x = contrast`
- *
- *  Order mirrors MapLibre: hue spin → brightness remap → saturation →
- *  contrast. Result is clamped to [0,1] like MapLibre's final fragment. */
-export const RASTER_COLOR_WGSL_FNS = /* wgsl */`
-fn raster_spin_weights(angle_rad: f32) -> vec3<f32> {
-  let s: f32 = sin(angle_rad);
-  let c: f32 = cos(angle_rad);
-  let sqrt3: f32 = 1.7320508075688772;
-  let w0: f32 = (2.0 * c + 1.0) / 3.0;
-  let w1: f32 = (-sqrt3 * s - c + 1.0) / 3.0;
-  let w2: f32 = (sqrt3 * s - c + 1.0) / 3.0;
-  return vec3<f32>(w0, w1, w2);
-}
+import {
+  fn, f32, f32T, vec3, vec3fT, vec4fT, sin, cos, dot, select, clamp, constRef,
+  Let, Var, assign, callFn,
+  type FuncDecl,
+} from '../core/ir'
+import { emitFunc } from '../core/backends/wgsl'
 
-fn raster_color_adjust(rgb_in: vec3<f32>, p0: vec4<f32>, p1: vec4<f32>) -> vec3<f32> {
-  let hue_deg: f32 = p0.x;
-  let brightness_low: f32 = p0.y;
-  let brightness_high: f32 = p0.z;
-  let saturation: f32 = p0.w;
-  let contrast: f32 = p1.x;
+const rasterSpinWeights = fn('raster_spin_weights', { angle_rad: f32T }, vec3fT, (_b, p) => {
+  const s = Let('s', sin(p.angle_rad))
+  const c = Let('c', cos(p.angle_rad))
+  const sqrt3 = Let('sqrt3', f32(1.7320508075688772))
+  const w0 = Let('w0', f32(2).mul(c).add(1).div(3))
+  const w1 = Let('w1', sqrt3.neg().mul(s).sub(c).add(1).div(3))
+  const w2 = Let('w2', sqrt3.mul(s).sub(c).add(1).div(3))
+  return vec3(w0, w1, w2)
+})
 
-  var rgb: vec3<f32> = rgb_in;
+const rasterColorAdjust = fn('raster_color_adjust', { rgb_in: vec3fT, p0: vec4fT, p1: vec4fT }, vec3fT, (_b, p) => {
+  const hueDeg = p.p0.x
+  const brightnessLow = p.p0.y
+  const brightnessHigh = p.p0.z
+  const saturation = p.p0.w
+  const contrast = p.p1.x
+  const rgb = Var('rgb', vec3fT, p.rgb_in)
 
-  // Hue rotate — spin the RGB vector by hue_deg (MapLibre spinWeights).
-  let w: vec3<f32> = raster_spin_weights(hue_deg * DEG2RAD_F);
-  rgb = vec3<f32>(
-    dot(rgb, w.xyz),
-    dot(rgb, w.zxy),
-    dot(rgb, w.yzx),
-  );
+  // Hue rotate — spin the RGB vector (w.xyz / w.zxy / w.yzx swizzles as explicit vec3s).
+  const w = Let('w', callFn('raster_spin_weights', vec3fT, hueDeg.mul(constRef('DEG2RAD_F'))))
+  assign(rgb, vec3(dot(rgb, w), dot(rgb, vec3(w.z, w.x, w.y)), dot(rgb, vec3(w.y, w.z, w.x))))
 
-  // Brightness remap — mix(low, high, rgb). Default (0,1) is the identity.
-  rgb = mix(vec3<f32>(brightness_low), vec3<f32>(brightness_high), rgb);
+  // Brightness remap — mix(low, high, rgb) per component = low + (high-low)*rgb.
+  // (Expanded rather than mix(): the DSL mix() interpolant is scalar, not a vec.)
+  assign(rgb, vec3(brightnessLow).add(vec3(brightnessHigh).sub(vec3(brightnessLow)).mul(rgb)))
 
-  // Saturation — MapLibre: rgb += (average - rgb) * factor. factor 0
-  // (default) leaves rgb unchanged.
-  let sat_factor: f32 = select(-saturation, 1.0 - 1.0 / (1.001 - saturation), saturation > 0.0);
-  let avg: f32 = (rgb.r + rgb.g + rgb.b) / 3.0;
-  rgb = rgb + (vec3<f32>(avg) - rgb) * sat_factor;
+  // Saturation — rgb += (average - rgb) * factor; factor 0 (default) is the identity.
+  const satFactor = Let('sat_factor', select(saturation.gt(0), f32(1).sub(f32(1).div(f32(1.001).sub(saturation))), saturation.neg()))
+  const avg = Let('avg', rgb.x.add(rgb.y).add(rgb.z).div(3))
+  assign(rgb, rgb.add(vec3(avg).sub(rgb).mul(satFactor)))
 
-  // Contrast — factor 1 (default) leaves rgb unchanged.
-  let contrast_factor: f32 = select(1.0 + contrast, 1.0 / (1.0 - contrast), contrast > 0.0);
-  rgb = (rgb - vec3<f32>(0.5)) * contrast_factor + vec3<f32>(0.5);
+  // Contrast — factor 1 (default) is the identity.
+  const contrastFactor = Let('contrast_factor', select(contrast.gt(0), f32(1).div(f32(1).sub(contrast)), f32(1).add(contrast)))
+  assign(rgb, rgb.sub(vec3(f32(0.5))).mul(contrastFactor).add(vec3(f32(0.5))))
 
-  return clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0));
-}
-`
+  return clamp(rgb, vec3(f32(0)), vec3(f32(1)))
+})
+
+export const RASTER_COLOR_FUNCS: FuncDecl[] = [rasterSpinWeights, rasterColorAdjust]
+
+export const RASTER_COLOR_WGSL_FNS = `${RASTER_COLOR_FUNCS.map(emitFunc).join('\n\n')}\n`
