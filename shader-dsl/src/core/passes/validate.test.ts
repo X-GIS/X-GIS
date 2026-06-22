@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { validate, ValidationError } from './validate'
 import { compileModule } from '../oracle'
 import {
-  module, fn, f32, param, callFn, constRef, bindingRef, structT,
+  module, fn, f32, param, callFn, constRef, bindingRef, member, structT,
   f32T, u32T, vec4fT,
   type ModuleDecl, type Stmt,
 } from '../ir'
@@ -167,7 +167,7 @@ describe('validate', () => {
       bindings: [{ group: 0, binding: 0, name: 'u', space: 'uniform', type: structT('Uniforms') }],
       funcs: [
         fn('uses_binding', {}, f32T, (_p, bld) => {
-          bld.ret(bindingRef('u', structT('Uniforms')).field('k', f32T))
+          bld.ret(member(bindingRef('u', structT('Uniforms')), 'k', f32T))
         }),
       ],
     })

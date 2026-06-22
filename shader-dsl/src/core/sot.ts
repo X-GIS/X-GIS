@@ -7,7 +7,7 @@
 // family, OPACITY). The SoT helpers declare a layout ONCE and DERIVE the rest, so the
 // pieces cannot disagree and the type checker covers field names + types.
 
-import { Node, structT, bindingRef, construct, type ShaderType, type StructDecl, type KeyOf, type BindingDecl, type AddressSpace } from './ir'
+import { Node, structT, bindingRef, construct, member, type ShaderType, type StructDecl, type KeyOf, type BindingDecl, type AddressSpace } from './ir'
 
 export interface FieldSpec<T extends ShaderType = ShaderType> {
   readonly type: T
@@ -56,7 +56,7 @@ export function ioStruct<F extends Record<string, FieldSpec>>(name: string, fiel
         get: (_t, prop) => {
           const spec = fields[prop as string]
           if (spec === undefined) throw new Error(`sot: ioStruct '${name}' has no field '${String(prop)}'`)
-          return node.field(prop as string, spec.type)
+          return member(node, prop as string, spec.type)
         },
       }) as { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> }
     },
@@ -89,14 +89,14 @@ export function structDecl<F extends Record<string, ShaderType>>(name: string, f
     decl,
     type,
     get<K extends keyof F & string>(node: Node, field: K): Node<KeyOf<F[K]>> {
-      return node.field(field, fields[field])
+      return member(node, field, fields[field])
     },
     of(node: Node) {
       return new Proxy({} as Record<string, Node>, {
         get: (_t, prop) => {
           const t = fields[prop as string]
           if (t === undefined) throw new Error(`sot: structDecl '${name}' has no field '${String(prop)}'`)
-          return node.field(prop as string, t)
+          return member(node, prop as string, t)
         },
       }) as { readonly [K in keyof F]: Node<KeyOf<F[K]>> }
     },
@@ -128,7 +128,7 @@ export function uniformStruct<F extends Record<string, ShaderType>>(
       get: (_t, prop) => {
         const t = fields[prop as string]
         if (t === undefined) throw new Error(`sot: uniformStruct '${typeName}' has no field '${String(prop)}'`)
-        return node.field(prop as string, t)
+        return member(node, prop as string, t)
       },
     }) as { readonly [K in keyof F]: Node<KeyOf<F[K]>> },
   }

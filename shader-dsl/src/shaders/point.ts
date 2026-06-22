@@ -173,10 +173,11 @@ const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (pp) =
   // Flip Y: NDC Y-up → SVG/path Y-down convention.
   const uv = vec2(pp.uv_in.x, pp.uv_in.y.neg())
   const s = shapes.at(pp.shape_id, ShapeDesc.type)
-  const bMinX = s.field('bbox_min_x', f32T)
-  const bMinY = s.field('bbox_min_y', f32T)
-  const bMaxX = s.field('bbox_max_x', f32T)
-  const bMaxY = s.field('bbox_max_y', f32T)
+  const sd = ShapeDesc.of(s)
+  const bMinX = sd.bbox_min_x
+  const bMinY = sd.bbox_min_y
+  const bMaxX = sd.bbox_max_x
+  const bMaxY = sd.bbox_max_y
   // AABB early-out.
   If(
     uv.x.lt(bMinX).or(uv.x.gt(bMaxX)).or(uv.y.lt(bMinY)).or(uv.y.gt(bMaxY)),
@@ -184,17 +185,18 @@ const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (pp) =
   )
   const minDist = f32(1e10)
   const winding = i32(0)
-  const segStart = s.field('seg_start', u32T)
-  const segCount = s.field('seg_count', u32T)
+  const segStart = sd.seg_start
+  const segCount = sd.seg_count
   // Hard-cap at 32 segments per shape (paste from original).
   const end = min(segStart.add(segCount), segStart.add(u32(32)))
   Loop('i', segStart, (i) => i.lt(end), (i) => {
     const seg = segments.at(i, Segment.type)
-    const p0 = seg.field('p0', vec2fT)
-    const p1 = seg.field('p1', vec2fT)
-    const p2 = seg.field('p2', vec2fT)
-    const p3 = seg.field('p3', vec2fT)
-    Switch(seg.field('kind', u32T), [
+    const sg = Segment.of(seg)
+    const p0 = sg.p0
+    const p1 = sg.p1
+    const p2 = sg.p2
+    const p3 = sg.p3
+    Switch(sg.kind, [
       [0, () => {
         assign(minDist, min(minDist, distToLine(uv, p0, p1)))
         assignOp(winding, '+', windingLine(uv, p0, p1))
@@ -459,8 +461,8 @@ const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: PointOut.type }]
   })
 
   // Rim fade — flat / cylindrical projections receive rim_a=1.0.
-  assignOp(color.field('a', f32T), '*', pin.rim_a)
-  If(color.field('a', f32T).lt(0.005), () => { Discard() })
+  assignOp(color.a, '*', pin.rim_a)
+  If(color.a.lt(0.005), () => { Discard() })
   return PointFragmentOutput.construct({
     color,
     depth: compute_log_frag_depth(pin.view_w, U.field.viewport.w),

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  entryFn, bindingRef, arrayLit, transformMat4, vec2, vec4, f32, module,
+  entryFn, bindingRef, member, arrayLit, transformMat4, vec2, vec4, f32, module,
   structT, mat4x4fT, vec2fT, vec4fT, u32T,
   type StructDecl,
 } from './index'
@@ -36,15 +36,15 @@ const u = bindingRef('u', structT('U'))
 const vs = entryFn('vs', 'vertex', [{ name: 'idx', type: u32T, builtin: 'vertex_index' }], structT('VOut'), ({ idx }, b) => {
   const p = b.let('p', arrayLit(vec2fT,
     vec2(f32(-1), f32(-1)), vec2(f32(1), f32(-1)), vec2(f32(0), f32(1))))
-  const local = b.let('local', p.at(idx, vec2fT).sub(u.field('cam', vec2fT)))
+  const local = b.let('local', p.at(idx, vec2fT).sub(member(u, 'cam', vec2fT)))
   const out = b.var('out', structT('VOut'))
-  b.assign(out.field('pos', vec4fT), transformMat4(u.field('mvp', mat4x4fT), vec4(local, f32(0), f32(1))))
+  b.assign(member(out, 'pos', vec4fT), transformMat4(member(u, 'mvp', mat4x4fT), vec4(local, f32(0), f32(1))))
   b.ret(out)
 })
 
 const fs = entryFn('fs', 'fragment', [{ name: 'in', type: structT('VOut') }], structT('FOut'), (_p, b) => {
   const out = b.var('out', structT('FOut'))
-  b.assign(out.field('color', vec4fT), u.field('color', vec4fT))
+  b.assign(member(out, 'color', vec4fT), member(u, 'color', vec4fT))
   b.ret(out)
 })
 

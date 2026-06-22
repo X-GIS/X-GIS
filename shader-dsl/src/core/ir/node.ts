@@ -159,11 +159,6 @@ export class Node<K extends string = string> {
   get bgr(): Node<'vec3<f32>'> { return this.swizzle('bgr') as Node<'vec3<f32>'> }
   get bgra(): Node<'vec4<f32>'> { return this.swizzle('bgra') as Node<'vec4<f32>'> }
 
-  /** Struct field access (key inferred from the field's ShaderType literal). */
-  field<T extends ShaderType>(name: string, type: T): Node<KeyOf<T>> {
-    return new Node<KeyOf<T>>({ op: 'member', type, base: this.expr, field: name })
-  }
-
   /** Array index — base[idx]. Key inferred from the element ShaderType. */
   at<T extends ShaderType>(idx: Node<ScalarKey> | number, elem: T): Node<KeyOf<T>> {
     return new Node<KeyOf<T>>({ op: 'index', type: elem, base: this.expr, idx: lift(idx).expr })
@@ -322,6 +317,11 @@ export function callFn<T extends ShaderType>(name: string, ret: T, ...args: Node
 // Vector / struct constructors — `TypeName(arg0, arg1, …)`.
 export const construct = (type: ShaderType, args: NodeLike[]): Node =>
   new Node({ op: 'construct', type, args: args.map((a) => lift(a).expr) })
+
+/** Low-level struct member access — `base.name`. NOT for authoring: shaders read fields through the
+ *  SoT getters (`Handle.of(node).name`, `U.field.name`); this is the primitive those getters build on. */
+export const member = <T extends ShaderType>(base: Node, name: string, type: T): Node<KeyOf<T>> =>
+  new Node<KeyOf<T>>({ op: 'member', type, base: base.expr, field: name })
 export const vec2 = (...a: NodeLike[]): Node<'vec2<f32>'> => construct(vec2fT, a) as Node<'vec2<f32>'>
 export const vec3 = (...a: NodeLike[]): Node<'vec3<f32>'> => construct(vec3fT, a) as Node<'vec3<f32>'>
 export const vec4 = (...a: NodeLike[]): Node<'vec4<f32>'> => construct(vec4fT, a) as Node<'vec4<f32>'>
