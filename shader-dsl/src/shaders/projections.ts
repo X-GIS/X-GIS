@@ -50,6 +50,11 @@ function artifacts(): ReturnType<typeof buildProjectionArtifacts> {
 export const getPROJECTION_MODULE = (): ModuleDecl => artifacts().PROJECTION_MODULE
 export const getProjectionWgslConsts = (): string => artifacts().PROJECTION_WGSL_CONSTS
 export const getProjectionWgslFns = (): string => artifacts().PROJECTION_WGSL_FNS
+/** The GPU projection fn DECLS (project_geom_cpu excluded — CPU-only). Consumers that merge
+ *  the projection graph into their own module() (instead of prepending getProjectionWgslFns()
+ *  as a string) take these directly; emitModule then emits them in array order, callees before
+ *  callers. Injection-deferred like the rest of artifacts() — call post-configureProjections. */
+export const getGpuProjectionFuncs = (): FuncDecl[] => artifacts().GPU_PROJECTION_FUNCS
 
 // ── Constants (WGSL value | CPU value) ──
 export const PROJECTION_CONSTS: ConstDecl[] = [
@@ -492,5 +497,5 @@ const GPU_PROJECTION_FUNCS = PROJECTION_FUNCS.filter((f) => f.name !== 'project_
 const PROJECTION_WGSL_CONSTS = `${PROJECTION_CONSTS.map(emitConst).join('\n')}\n`
 const PROJECTION_WGSL_FNS = `${GPU_PROJECTION_FUNCS.map(emitFunc).join('\n\n')}\n`
 
-  return { PROJECTION_FUNCS, PROJECTION_MODULE, PROJECTION_WGSL_CONSTS, PROJECTION_WGSL_FNS }
+  return { PROJECTION_FUNCS, GPU_PROJECTION_FUNCS, PROJECTION_MODULE, PROJECTION_WGSL_CONSTS, PROJECTION_WGSL_FNS }
 }

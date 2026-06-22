@@ -1,4 +1,4 @@
-// baseline: 72c6293f4fde3d88f9454e06ced4958e022a6612
+// baseline: ed22dd6066de49b624aad719a5a149852949a5a7
 // fixture: bright-landuse-match13
 // variant.key: bright-landuse-match13
 // pick: false
@@ -7,6 +7,63 @@ const PI: f32 = 3.14159265;
 const DEG2RAD: f32 = 0.01745329;
 const EARTH_R: f32 = 6378137.0;
 const MERCATOR_LAT_LIMIT: f32 = 85.051129;
+
+struct Uniforms {
+  mvp: mat4x4<f32>,
+  fill_color: vec4<f32>,
+  stroke_color: vec4<f32>,
+  proj_params: vec4<f32>,
+  cam_h: vec2<f32>,
+  cam_l: vec2<f32>,
+  tile_origin_merc: vec2<f32>,
+  opacity: f32,
+  log_depth_fc: f32,
+  pick_id: u32,
+  layer_depth_offset: f32,
+  tile_extent_m: f32,
+  extrude_height_m: f32,
+  clip_bounds: vec4<f32>,
+  zoom: f32,
+  extrude_base_m: f32,
+  fill_translate_x: f32,
+  fill_translate_y: f32,
+  tile_dequant_scale: f32,
+  tile_dequant_half: f32,
+  light_color_packed: u32,
+  _pad_light_align: u32,
+  cam_ecef_off_h: vec4<f32>,
+  cam_ecef_off_l: vec4<f32>,
+  light_dir_ecef: vec4<f32>,
+}
+
+struct VertexOutput {
+  @builtin(position) position: vec4<f32>,
+  @location(0) cos_c: f32,
+  @location(1) @interpolate(flat) feat_id: u32,
+  @location(2) abs_lat: f32,
+  @location(3) view_w: f32,
+  @location(4) wall_blend: f32,
+  @location(5) abs_merc_x: f32,
+  @location(6) abs_merc_y: f32,
+  @location(7) world_z: f32,
+  @location(8) v_color: vec4<f32>,
+}
+
+struct OitFragmentOutput {
+  @location(0) accum: vec4<f32>,
+  @location(1) revealage: f32,
+}
+
+struct FragmentOutput {
+  @location(0) color: vec4<f32>,
+  @builtin(frag_depth) depth: f32,
+}
+
+@group(0) @binding(0) var<uniform> u: Uniforms;
+@group(0) @binding(5) var sprite_atlas: texture_2d<f32>;
+@group(0) @binding(6) var sprite_samp: sampler;
+
+@group(0) @binding(1) var<storage, read> feat_data: array<f32>;
 
 fn apply_log_depth(pos: vec4<f32>, fc: f32) -> vec4<f32> {
   let z = ((log2(max(0.000001, (pos.w + 1.0))) * fc) * pos.w);
@@ -262,63 +319,6 @@ fn rim_alpha(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>) -> f32 {
 fn inv_merc_lat_rad(merc_y_m: f32) -> f32 {
   return ((2.0 * atan(exp((merc_y_m / EARTH_R)))) - (PI / 2.0));
 }
-
-struct Uniforms {
-  mvp: mat4x4<f32>,
-  fill_color: vec4<f32>,
-  stroke_color: vec4<f32>,
-  proj_params: vec4<f32>,
-  cam_h: vec2<f32>,
-  cam_l: vec2<f32>,
-  tile_origin_merc: vec2<f32>,
-  opacity: f32,
-  log_depth_fc: f32,
-  pick_id: u32,
-  layer_depth_offset: f32,
-  tile_extent_m: f32,
-  extrude_height_m: f32,
-  clip_bounds: vec4<f32>,
-  zoom: f32,
-  extrude_base_m: f32,
-  fill_translate_x: f32,
-  fill_translate_y: f32,
-  tile_dequant_scale: f32,
-  tile_dequant_half: f32,
-  light_color_packed: u32,
-  _pad_light_align: u32,
-  cam_ecef_off_h: vec4<f32>,
-  cam_ecef_off_l: vec4<f32>,
-  light_dir_ecef: vec4<f32>,
-}
-
-struct VertexOutput {
-  @builtin(position) position: vec4<f32>,
-  @location(0) cos_c: f32,
-  @location(1) @interpolate(flat) feat_id: u32,
-  @location(2) abs_lat: f32,
-  @location(3) view_w: f32,
-  @location(4) wall_blend: f32,
-  @location(5) abs_merc_x: f32,
-  @location(6) abs_merc_y: f32,
-  @location(7) world_z: f32,
-  @location(8) v_color: vec4<f32>,
-}
-
-struct OitFragmentOutput {
-  @location(0) accum: vec4<f32>,
-  @location(1) revealage: f32,
-}
-
-struct FragmentOutput {
-  @location(0) color: vec4<f32>,
-  @builtin(frag_depth) depth: f32,
-}
-
-@group(0) @binding(0) var<uniform> u: Uniforms;
-@group(0) @binding(5) var sprite_atlas: texture_2d<f32>;
-@group(0) @binding(6) var sprite_samp: sampler;
-
-@group(0) @binding(1) var<storage, read> feat_data: array<f32>;
 
 fn dequant_ecef(q_xy: vec4<u32>, q_z: vec2<u32>, scale: f32, half: f32) -> vec3<f32> {
   let qx = ((f32(q_xy.x) * 65536.0) + f32(q_xy.y));
