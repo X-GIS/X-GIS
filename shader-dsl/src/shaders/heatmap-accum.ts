@@ -29,7 +29,7 @@
 import {
   entryFn, module, transformMat4, arrayLit,
   f32, u32, toU32, vec2, vec3, vec4, exp, max,
-  Let, Var, assign, condExpr,
+  Let, condExpr,
   f32T, u32T, vec2fT, vec4fT, mat4x4fT, arrayT,
   type ModuleDecl,
 } from '../core/ir'
@@ -129,12 +129,7 @@ const vs = entryFn('vs_heatmap', 'vertex', [
   const offsetNdc = offsetPx.mul(pxToNdc)
   const quadClip = Let('quad_clip', centerClip.add(vec4(offsetNdc.mul(centerClip.w), f32(0), f32(0))))
 
-  const out = Var('out', HeatOut.type)
-  const o = HeatOut.of(out)
-  assign(o.position, quadClip)
-  assign(o.uv, offXY)
-  assign(o.weight, weight)
-  return out
+  return HeatOut.construct({ position: quadClip, uv: offXY, weight })
 })
 
 // Fragment: radial Gaussian falloff × weight → R channel. The accum pipeline
