@@ -22,7 +22,7 @@ import {
   f32, u32, i32, toF32, toU32, vec2, vec3, vec4, mix, exp, clamp,
   length, dot, min, max, smoothstep, fwidth, select,
   f32T, u32T, i32T, vec2fT, vec4fT, mat4x4fT, arrayT,
-  Let, Var, assign, assignOp, If, Loop, Switch, Return, Discard,
+  Let, Var, assign, assignOp, If, Loop, reduce, Switch, Return, Discard,
   type ModuleDecl,
 } from '../core/ir'
 import { ioStruct, builtin, location, uniformStruct, structDecl, storageBuffer } from '../core/sot'
@@ -138,21 +138,18 @@ const distToLine = fn('dist_to_line', { p: vec2fT, a: vec2fT, b: vec2fT }, f32T,
   return select(len2.lt(1e-10), length(pp.p.sub(pp.a)), segDist)
 })
 
-const distToQuadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT }, f32T, (pp) => {
-  const bestD = Var('best_d', f32T, f32(1e10))
-  Loop('i', u32(0), (i) => i.le(u32(16)), (i) => {
+const distToQuadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT }, f32T, (pp) =>
+  reduce('best_d', f32(1e10), 'i', u32(0), (i) => i.le(u32(16)), (best, i) => {
     const t = toF32(i).div(16)
     const ab = mix(pp.a, pp.b, t)
     const bc = mix(pp.b, pp.c, t)
     const q = mix(ab, bc, t)
-    assign(bestD, min(bestD, length(pp.p.sub(q))))
-  })
-  return bestD
-})
+    return min(best, length(pp.p.sub(q)))
+  }),
+)
 
-const distToCubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT, d: vec2fT }, f32T, (pp) => {
-  const bestD = Var('best_d', f32T, f32(1e10))
-  Loop('i', u32(0), (i) => i.le(u32(24)), (i) => {
+const distToCubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT, d: vec2fT }, f32T, (pp) =>
+  reduce('best_d', f32(1e10), 'i', u32(0), (i) => i.le(u32(24)), (best, i) => {
     const t = toF32(i).div(24)
     const ab = mix(pp.a, pp.b, t)
     const bc = mix(pp.b, pp.c, t)
@@ -160,10 +157,9 @@ const distToCubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: ve
     const abc = mix(ab, bc, t)
     const bcd = mix(bc, cd, t)
     const q = mix(abc, bcd, t)
-    assign(bestD, min(bestD, length(pp.p.sub(q))))
-  })
-  return bestD
-})
+    return min(best, length(pp.p.sub(q)))
+  }),
+)
 
 const windingLine = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT }, i32T, (pp) => {
   // single-exit: signed winding contribution of edge a→b across the +y ray from p.

@@ -12,7 +12,7 @@ import {
   fn, module, f32, i32, u32, vec2,
   f32T, i32T, u32T, vec2fT, arrayT,
   clamp, min, max, length, dot, mix, toF32, select,
-  Var, Loop, If, Switch, Return, assign, addAssign,
+  Var, Loop, reduce, If, Switch, Return, assign, addAssign,
   type FuncDecl, type ModuleDecl,
 } from '../core/ir'
 import { structDecl, storageBuffer } from '../core/sot'
@@ -51,22 +51,19 @@ export const dist_to_segment = fn('dist_to_segment', { p: vec2fT, a: vec2fT, b: 
 })
 
 export const dist_to_quadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT }, f32T, ({ p, a, b, c }) => {
-  const best_d = Var('best_d', f32T, f32(1e10))
   const STEPS = u32(16)
-  Loop('i', u32(0), (i) => i.le(STEPS), (i) => {
+  return reduce('best_d', f32(1e10), 'i', u32(0), (i) => i.le(STEPS), (best, i) => {
     const t = toF32(i).div(toF32(STEPS))
     const ab = mix(a, b, t)
     const bc = mix(b, c, t)
     const q = mix(ab, bc, t)
-    assign(best_d, min(best_d, length(p.sub(q))))
+    return min(best, length(p.sub(q)))
   }, u32(1))
-  return best_d
 })
 
 export const dist_to_cubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT, d: vec2fT }, f32T, ({ p, a, b, c, d }) => {
-  const best_d = Var('best_d', f32T, f32(1e10))
   const STEPS = u32(24)
-  Loop('i', u32(0), (i) => i.le(STEPS), (i) => {
+  return reduce('best_d', f32(1e10), 'i', u32(0), (i) => i.le(STEPS), (best, i) => {
     const t = toF32(i).div(toF32(STEPS))
     const ab = mix(a, b, t)
     const bc = mix(b, c, t)
@@ -74,9 +71,8 @@ export const dist_to_cubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2
     const abc = mix(ab, bc, t)
     const bcd = mix(bc, cd, t)
     const q = mix(abc, bcd, t)
-    assign(best_d, min(best_d, length(p.sub(q))))
+    return min(best, length(p.sub(q)))
   }, u32(1))
-  return best_d
 })
 
 export const winding_line = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT }, i32T, ({ p, a, b }) => {

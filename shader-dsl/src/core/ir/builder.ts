@@ -398,6 +398,26 @@ export const Loop = <K extends string>(
   step?: Node<ScalarKey> | number,
 ): void => currentBuilder().forRange(name, init, cond, (_b, i) => body(i), step)
 
+/** Immutable fold over a C-style loop — the functional spelling of the `var acc = init; for
+ *  (...) { acc = f(acc, i) }` accumulator. The body RETURNS the next accumulator value (no
+ *  `Var` + `assign` at the call site); reduce materialises the var + loop + assign internally,
+ *  so the emit is byte-identical. Returns the accumulator Node for use after the loop. */
+export function reduce<K extends string, J extends string>(
+  name: string,
+  init: Node<K>,
+  loopVar: string,
+  loopInit: Node<J>,
+  cond: (i: Node<J>) => Node<'bool'>,
+  body: (acc: Node<K>, i: Node<J>) => Node<K>,
+  step?: Node<ScalarKey> | number,
+): Node<K> {
+  const acc = currentBuilder().var(name, init.type, init) as Node<K>
+  currentBuilder().forRange(loopVar, loopInit, cond, (_b, i) => {
+    currentBuilder().assign(acc, body(acc, i))
+  }, step)
+  return acc
+}
+
 export const Switch = (
   scrut: Node<ScalarKey>,
   cases: Array<[number, () => Node | void]>,
