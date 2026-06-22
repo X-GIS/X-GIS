@@ -26,7 +26,7 @@ import {
   abs, fract, max, min, mix, pow, sqrt, dot, log, tan, floor, textureSample, unpack4x8unorm,
   f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, vec4uT, mat4x4fT, texture2dfT, samplerT,
   structT,
-  Node, Builder, arrayT,
+  Node, Builder, arrayT, Let,
   type StructDecl, type StructField, type ModuleDecl, type Stmt, type BindingDecl,
 } from '../core/ir'
 import { ioStruct, builtin, location, uniformStruct, resource } from '../core/sot'
@@ -162,13 +162,13 @@ const polygonCosCFragment = fn(
   'polygon_cos_c_fragment',
   { abs_merc_x: f32T, abs_merc_y: f32T },
   f32T,
-  (b, p) => {
+  (_b, p) => {
     const deg2rad = constRef('DEG2RAD')
     const earthR = constRef('EARTH_R')
-    const absLon = b.let('abs_lon', p.abs_merc_x.div(deg2rad.mul(earthR)))
-    const latRad = b.let('lat_rad', callFn('inv_merc_lat_rad', f32T, p.abs_merc_y))
-    const absLat = b.let('abs_lat', latRad.div(deg2rad))
-    b.ret(callFn('needs_backface_cull', f32T, absLon, absLat, u.field('proj_params', vec4fT)))
+    const absLon = Let('abs_lon', p.abs_merc_x.div(deg2rad.mul(earthR)))
+    const latRad = Let('lat_rad', callFn('inv_merc_lat_rad', f32T, p.abs_merc_y))
+    const absLat = Let('abs_lat', latRad.div(deg2rad))
+    return callFn('needs_backface_cull', f32T, absLon, absLat, u.field('proj_params', vec4fT))
   },
 )
 
@@ -181,13 +181,13 @@ const polygonRimAlpha = fn(
   'polygon_rim_alpha',
   { abs_merc_x: f32T, abs_merc_y: f32T },
   f32T,
-  (b, p) => {
+  (_b, p) => {
     const deg2rad = constRef('DEG2RAD')
     const earthR = constRef('EARTH_R')
-    const absLon = b.let('abs_lon', p.abs_merc_x.div(deg2rad.mul(earthR)))
-    const latRad = b.let('lat_rad', callFn('inv_merc_lat_rad', f32T, p.abs_merc_y))
-    const absLat = b.let('abs_lat', latRad.div(deg2rad))
-    b.ret(callFn('rim_alpha', f32T, absLon, absLat, u.field('proj_params', vec4fT)))
+    const absLon = Let('abs_lon', p.abs_merc_x.div(deg2rad.mul(earthR)))
+    const latRad = Let('lat_rad', callFn('inv_merc_lat_rad', f32T, p.abs_merc_y))
+    const absLat = Let('abs_lat', latRad.div(deg2rad))
+    return callFn('rim_alpha', f32T, absLon, absLat, u.field('proj_params', vec4fT))
   },
 )
 
@@ -424,15 +424,15 @@ const dequantEcefFn = fn(
   'dequant_ecef',
   { q_xy: vec4uT, q_z: vec2uT, scale: f32T, half: f32T },
   vec3fT,
-  (b, { q_xy, q_z, scale, half }) => {
-    const qx = b.let('qx', toF32(q_xy.x).mul(f32(65536)).add(toF32(q_xy.y)))
-    const qy = b.let('qy', toF32(q_xy.z).mul(f32(65536)).add(toF32(q_xy.w)))
-    const qz = b.let('qz', toF32(q_z.x).mul(f32(65536)).add(toF32(q_z.y)))
-    b.ret(vec3(
+  (_b, { q_xy, q_z, scale, half }) => {
+    const qx = Let('qx', toF32(q_xy.x).mul(f32(65536)).add(toF32(q_xy.y)))
+    const qy = Let('qy', toF32(q_xy.z).mul(f32(65536)).add(toF32(q_xy.w)))
+    const qz = Let('qz', toF32(q_z.x).mul(f32(65536)).add(toF32(q_z.y)))
+    return vec3(
       qx.mul(scale).sub(half),
       qy.mul(scale).sub(half),
       qz.mul(scale).sub(half),
-    ))
+    )
   },
 )
 
@@ -950,8 +950,8 @@ const buildFsStroke = (pickEnabled: boolean) =>
 
 const fsOverdraw = entryFn(
   'fs_overdraw', 'fragment', [], vec4fT,
-  (b) => {
-    b.ret(vec4(f32(1), f32(0), f32(0), f32(0)))
+  () => {
+    return vec4(f32(1), f32(0), f32(0), f32(0))
   },
   '@location(0)',
 )
