@@ -31,6 +31,7 @@ import {
   type Node,
   type StructDecl, type StructField, type ModuleDecl,
 } from '../core/ir'
+import { ioStruct, builtin, location } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
 import { getProjectionWgslConsts, getProjectionWgslFns } from './projections'
 import { ECEF_WGSL_CONSTS, ECEF_WGSL_FNS } from './ecef'
@@ -202,16 +203,13 @@ const ShapeSegment: StructDecl = {
   ],
 }
 
-const LineOut: StructDecl = {
-  name: 'LineOut',
-  fields: [
-    { name: 'position', type: vec4fT, attr: '@builtin(position)' },
-    { name: 'world_local', type: vec2fT, attr: '@location(0)' },
-    { name: 'seg_id', type: u32T, attr: '@location(1) @interpolate(flat)' },
-    { name: 'view_w', type: f32T, attr: '@location(2)' },
-    { name: 'cos_c', type: f32T, attr: '@location(3)' },
-  ],
-}
+const LineOut: StructDecl = ioStruct('LineOut', {
+  position: builtin('position', vec4fT),
+  world_local: location(0, vec2fT),
+  seg_id: location(1, u32T, 'flat'),
+  view_w: location(2, f32T),
+  cos_c: location(3, f32T),
+}).decl
 
 const lineFragmentOutput = (pickEnabled: boolean): StructDecl => {
   const fields: StructField[] = [{ name: 'color', type: vec4fT, attr: '@location(0)' }]
@@ -1190,13 +1188,10 @@ const CompUniform: StructDecl = {
   ],
 }
 
-const VsFullOut: StructDecl = {
-  name: 'VsFullOut',
-  fields: [
-    { name: 'pos', type: vec4fT, attr: '@builtin(position)' },
-    { name: 'uv', type: vec2fT, attr: '@location(0)' },
-  ],
-}
+const VsFullOut: StructDecl = ioStruct('VsFullOut', {
+  pos: builtin('position', vec4fT),
+  uv: location(0, vec2fT),
+}).decl
 
 const compSamp = bindingRef('samp', samplerT)
 const compSrc = bindingRef('src', texture2dfT)
