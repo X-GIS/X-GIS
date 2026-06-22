@@ -5,8 +5,7 @@
 // raster.fragment.glsl; the per-show FACTORS are derived on the GPU from the raw
 // param values (uniform carries [hueDeg, bMin, bMax, saturation] + [contrast]).
 // DEFAULTS are a hard no-op (hue=0 / bmin=0,bmax=1 / sat=0 / contrast=0 → texel
-// unchanged). Authored as DSL fns (was hand-written WGSL); RASTER_COLOR_WGSL_FNS is
-// now derived by emitting them — raster.ts imports the same name, no call-site change.
+// unchanged). Authored as DSL fns (was hand-written WGSL); emit via emitFuncsCsed(RASTER_COLOR_FUNCS).
 // Reads DEG2RAD_F (declared by ECEF_CONSTS, emitted before this block in raster.ts).
 
 import {
@@ -14,7 +13,7 @@ import {
   Let, Var, assign, callFn,
   type FuncDecl,
 } from '../core/ir'
-import { emitFuncsCsed } from '../core/backends/wgsl'
+
 
 const rasterSpinWeights = fn('raster_spin_weights', { angle_rad: f32T }, vec3fT, (p, _b) => {
   const s = sin(p.angle_rad)
@@ -57,5 +56,3 @@ const rasterColorAdjust = fn('raster_color_adjust', { rgb_in: vec3fT, p0: vec4fT
 })
 
 export const RASTER_COLOR_FUNCS: FuncDecl[] = [rasterSpinWeights, rasterColorAdjust]
-
-export const RASTER_COLOR_WGSL_FNS = `${emitFuncsCsed(RASTER_COLOR_FUNCS)}\n`

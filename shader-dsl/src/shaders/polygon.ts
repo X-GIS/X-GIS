@@ -101,7 +101,7 @@ const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
 })
 const Uniforms = U.struct
 
-const VertexOutput = ioStruct('VertexOutput', {
+const VertexOutputIO = ioStruct('VertexOutput', {
   position: builtin('position', vec4fT),
   cos_c: location(0, f32T),
   feat_id: location(1, u32T, 'flat'),
@@ -112,7 +112,8 @@ const VertexOutput = ioStruct('VertexOutput', {
   abs_merc_y: location(6, f32T),
   world_z: location(7, f32T),
   v_color: location(8, vec4fT),
-}).decl
+})
+const VertexOutput = VertexOutputIO.decl
 
 const OitFragmentOutput = ioStruct('OitFragmentOutput', {
   accum: location(0, vec4fT),
@@ -138,7 +139,6 @@ const polygonFragmentOutput = (pickEnabled: boolean): StructDecl => {
 // compute output buffers via @group(2), feat_data via @group(1) @binding(0))
 // land via the variant's `preamble.bindings` array.
 
-const u = U.node
 const spriteAtlasRes = resource('sprite_atlas', texture2dfT, { group: 0, binding: 5 })
 const spriteSampRes = resource('sprite_samp', samplerT, { group: 0, binding: 6 })
 const spriteAtlas = spriteAtlasRes.node
@@ -169,7 +169,7 @@ const polygonCosCFragment = fn(
     const absLon = p.abs_merc_x.div(deg2rad.mul(earthR))
     const latRad = inv_merc_lat_rad(p.abs_merc_y)
     const absLat = latRad.div(deg2rad)
-    return needs_backface_cull(absLon, absLat, u.field('proj_params', vec4fT))
+    return needs_backface_cull(absLon, absLat, U.field.proj_params)
   },
 )
 
@@ -188,7 +188,7 @@ const polygonRimAlpha = fn(
     const absLon = p.abs_merc_x.div(deg2rad.mul(earthR))
     const latRad = inv_merc_lat_rad(p.abs_merc_y)
     const absLat = latRad.div(deg2rad)
-    return rim_alpha(absLon, absLat, u.field('proj_params', vec4fT))
+    return rim_alpha(absLon, absLat, U.field.proj_params)
   },
 )
 
@@ -277,13 +277,13 @@ const emitPolygonProjectionLadder = (
       // single f32 but sub-mm at every zoom (magnitude ≤ tile extent), unlike
       // the absolute-degree project() path below (~1.35 m at |lon|≈127° → the
       // ~10 px fill/outline split at deep over-zoom this fixes).
-      const relLocal = localMerc.sub(u.field('cam_h', vec2fT)).sub(u.field('cam_l', vec2fT))
+      const relLocal = localMerc.sub(U.field.cam_h).sub(U.field.cam_l)
       c.assign(clip, transformMat4(mvp, vec4(relLocal.x, relLocal.y, zPlane, f32(1))))
       return
     }
     const p2d = project(absLon, absLat, projParamsV)
     const rel2d =
-      p2d.sub(u.field('tile_origin_merc', vec2fT)).sub(u.field('cam_h', vec2fT)).sub(u.field('cam_l', vec2fT))
+      p2d.sub(U.field.tile_origin_merc).sub(U.field.cam_h).sub(U.field.cam_l)
     // World-copy offset (world-copy fill-gap fix): project() returns the
     // PRIMARY-world absolute X (abs_lon ∈ [−180,180], worldOff-blind), and
     // tile_origin_merc carries (tileWest+worldOff)·DEG2RAD·R while cam_h+cam_l
@@ -297,16 +297,16 @@ const emitPolygonProjectionLadder = (
     // the true copy index for any clon incl. the ±180 antimeridian) and
     // wo=0 ⇒ +0 for single-copy city views (byte-identical fill).
     const tileRefLon =
-      u.field('tile_origin_merc', vec2fT).x
-        .add(f32(0.5).mul(u.field('tile_extent_m', f32T)))
+      U.field.tile_origin_merc.x
+        .add(f32(0.5).mul(U.field.tile_extent_m))
         .div(deg2rad.mul(earthR))
     const wo = floor(tileRefLon.add(180).div(360))
     const worldOffM = wo.mul(2).mul(pi).mul(earthR)
     c.assign(clip, transformMat4(mvp, vec4(rel2d.x.add(worldOffM), rel2d.y, zPlane, f32(1))))
   }).elif(projParamsV.x.lt(6.5), (c) => {
     const tileRefLon =
-      u.field('tile_origin_merc', vec2fT).x
-        .add(f32(0.5).mul(u.field('tile_extent_m', f32T)))
+      U.field.tile_origin_merc.x
+        .add(f32(0.5).mul(U.field.tile_extent_m))
         .div(deg2rad.mul(earthR))
     // #398: project from discLat (TRUE lat) when supplied; absLat would pin the
     // polar caps to the 85.05 ring. Extruded VS → absLat (discLat undefined).
@@ -322,8 +322,8 @@ const emitPolygonProjectionLadder = (
     // recentre applies unchanged — the z-lift is baked into ecef_rtc and a
     // translation commutes with it. Without it every extruded tile collapses
     // to the camera-origin tile on projType 7 globe pitch>0.
-    const camOffH = u.field('cam_ecef_off_h', vec4fT)
-    const camOffL = u.field('cam_ecef_off_l', vec4fT)
+    const camOffH = U.field.cam_ecef_off_h
+    const camOffL = U.field.cam_ecef_off_l
     const ecefCam =
       ecefRtc.add(vec3(camOffH.x, camOffH.y, camOffH.z)).add(vec3(camOffL.x, camOffL.y, camOffL.z))
     c.assign(clip, transformMat4(mvp, vec4(ecefCam, f32(1))))
@@ -341,11 +341,11 @@ const vsMain = entryFn(
   ],
   structT('VertexOutput'),
   (p, b) => {
-    const mvp = u.field('mvp', mat4x4fT)
-    const logDepthFc = u.field('log_depth_fc', f32T)
-    const layerDepthOff = u.field('layer_depth_offset', f32T)
-    const fillTx = u.field('fill_translate_x', f32T)
-    const fillTy = u.field('fill_translate_y', f32T)
+    const mvp = U.field.mvp
+    const logDepthFc = U.field.log_depth_fc
+    const layerDepthOff = U.field.layer_depth_offset
+    const fillTx = U.field.fill_translate_x
+    const fillTy = U.field.fill_translate_y
     const deg2rad = constRef('DEG2RAD')
     const earthR = constRef('EARTH_R')
     const pi = constRef('PI')
@@ -367,7 +367,7 @@ const vsMain = entryFn(
     // feeds the flat Mercator-metre MVP; 3D / globe keeps the ECEF-RTC path.
     // The renderer writes the matching u.mvp (Camera.getViewForProjection),
     // so only the live branch's matrix is consumed.
-    const projParamsV = u.field('proj_params', vec4fT)
+    const projParamsV = U.field.proj_params
     const clip = b.var('clip', vec4fT)
     // FLAT Mercator (proj_params.x < 0.5): rel = project(abs_lon, abs_lat) −
     // cam_merc, with cam_merc = tile_origin_merc + (cam_h + cam_l); z = 0
@@ -455,13 +455,13 @@ const vsMainEcef = entryFn(
   ],
   structT('VertexOutput'),
   (p, b) => {
-    const mvp = u.field('mvp', mat4x4fT)
-    const logDepthFc = u.field('log_depth_fc', f32T)
-    const layerDepthOff = u.field('layer_depth_offset', f32T)
-    const fillTx = u.field('fill_translate_x', f32T)
-    const fillTy = u.field('fill_translate_y', f32T)
-    const dqScale = u.field('tile_dequant_scale', f32T)
-    const dqHalf = u.field('tile_dequant_half', f32T)
+    const mvp = U.field.mvp
+    const logDepthFc = U.field.log_depth_fc
+    const layerDepthOff = U.field.layer_depth_offset
+    const fillTx = U.field.fill_translate_x
+    const fillTy = U.field.fill_translate_y
+    const dqScale = U.field.tile_dequant_scale
+    const dqHalf = U.field.tile_dequant_half
     const deg2rad = constRef('DEG2RAD')
     const earthR = constRef('EARTH_R')
     const mercLatLim = constRef('MERCATOR_LAT_LIMIT')
@@ -474,7 +474,7 @@ const vsMainEcef = entryFn(
     // ABSOLUTE Mercator (+ tile_origin_merc) for the fragment hemisphere-cull
     // varyings — f32 (~1 m), which polygonCosCFragment + polygonRimAlpha
     // tolerate. The precise position uses local_merc directly in the ladder.
-    const tileOriginM = u.field('tile_origin_merc', vec2fT)
+    const tileOriginM = U.field.tile_origin_merc
     const absMercX = p.abs_lon.add(tileOriginM.x)
     const absMercY = p.abs_lat.add(tileOriginM.y)
     const absLatClamped =
@@ -486,7 +486,7 @@ const vsMainEcef = entryFn(
     // feeds the flat Mercator-metre MVP; 3D / globe keeps the ECEF-RTC path.
     // The renderer writes the matching u.mvp (Camera.getViewForProjection),
     // so only the live branch's matrix is consumed.
-    const projParamsV = u.field('proj_params', vec4fT)
+    const projParamsV = U.field.proj_params
     const clip = b.var('clip', vec4fT)
     // Same flat/3D ladder as vs_main (see emitPolygonProjectionLadder): flat
     // Mercator reproject + recentre / flat non-Mercator flat_rel / 3D ECEF-RTC
@@ -554,14 +554,14 @@ const vsMainEcefExtruded = entryFn(
   ],
   structT('VertexOutput'),
   (p, b) => {
-    const mvp = u.field('mvp', mat4x4fT)
-    const logDepthFc = u.field('log_depth_fc', f32T)
-    const layerDepthOff = u.field('layer_depth_offset', f32T)
-    const fillTx = u.field('fill_translate_x', f32T)
-    const fillTy = u.field('fill_translate_y', f32T)
-    const fillColor = u.field('fill_color', vec4fT)
-    const dqScale = u.field('tile_dequant_scale', f32T)
-    const dqHalf = u.field('tile_dequant_half', f32T)
+    const mvp = U.field.mvp
+    const logDepthFc = U.field.log_depth_fc
+    const layerDepthOff = U.field.layer_depth_offset
+    const fillTx = U.field.fill_translate_x
+    const fillTy = U.field.fill_translate_y
+    const fillColor = U.field.fill_color
+    const dqScale = U.field.tile_dequant_scale
+    const dqHalf = U.field.tile_dequant_half
     const deg2rad = constRef('DEG2RAD')
     const earthR = constRef('EARTH_R')
     const pi = constRef('PI')
@@ -587,7 +587,7 @@ const vsMainEcefExtruded = entryFn(
     // for the other flat projTypes the plane↔height metric differs again.
     // Known approximation under f32 P1 — revisit with a per-projection vertical
     // scale if extruded walls look wrong away from the equator.
-    const projParamsV = u.field('proj_params', vec4fT)
+    const projParamsV = U.field.proj_params
     const clip = b.var('clip', vec4fT)
     // Same flat/3D ladder as vs_main_ecef but extruded: the FLAT arms add a
     // `z_plane[_geom] = wall_height * is_top` plane-lift; the 3D (else) arm is
@@ -628,14 +628,14 @@ const vsMainEcefExtruded = entryFn(
     // #420 — ECEF-frame light dir (raw 0.288,-0.498,0.996 rotated by the
     // camera-anchor ENU→ECEF basis on the CPU). Same frame as face_normal →
     // fixes the dark side/back walls.
-    const lightPos = u.field('light_dir_ecef', vec4fT).swizzle<'vec3<f32>'>('xyz')
+    const lightPos = U.field.light_dir_ecef.swizzle<'vec3<f32>'>('xyz')
     // WS-9 — intensity + colour are uniforms now (were baked consts). The CPU
     // packs the MapLibre default (intensity 0.5, white) when no custom `light`
     // is authored, so the default render stays byte-identical. Intensity rides
     // light_dir_ecef.w; colour is RGBA8 in light_color_packed (8-bit per
     // channel — ample for a light tint).
-    const lightIntensity = u.field('light_dir_ecef', vec4fT).w
-    const lightColor = unpack4x8unorm(u.field('light_color_packed', u32T)).swizzle<'vec3<f32>'>('xyz')
+    const lightIntensity = U.field.light_dir_ecef.w
+    const lightColor = unpack4x8unorm(U.field.light_color_packed).swizzle<'vec3<f32>'>('xyz')
     const directional = b.var('directional', f32T, clamp(dot(p.face_normal, lightPos), f32(0), f32(1)))
     b.assign(directional, mix(
       f32(1).sub(lightIntensity),
@@ -647,7 +647,7 @@ const vsMainEcefExtruded = entryFn(
     // cam_ecef_off_l.w uniform lane (1 = default = ramp on, 0 = off). AND
     // it into the wall test so `false` skips the ramp (flat wall shading);
     // at the default the branch is taken exactly as before (no-op gate).
-    const vgGradOn = u.field('cam_ecef_off_l', vec4fT).w.ne(f32(0))
+    const vgGradOn = U.field.cam_ecef_off_l.w.ne(f32(0))
     const isWall = abs(p.face_normal.z).lt(0.5).and(vgGradOn)
     const tTop = p.is_top
     b.if(isWall, (c) => {
@@ -682,20 +682,21 @@ const vsMainEcefExtruded = entryFn(
 // shape byte-identical to POLYGON_SHADER_SOURCE.
 
 const emitPolygonFragmentDiscards = (b: Builder, input: Node): void => {
-  const cosC = callFn('polygon_cos_c_fragment', f32T, input.field('abs_merc_x', f32T), input.field('abs_merc_y', f32T))
+  const i = VertexOutputIO.of(input)
+  const cosC = callFn('polygon_cos_c_fragment', f32T, i.abs_merc_x, i.abs_merc_y)
   b.if(cosC.lt(f32(0)), (c) => { c.discard() })
   // #399 +0.5° margin: cap abs_lat is VS-clamped to exactly ±LIMIT, so a bare `>LIMIT` flips per MSAA sample at the pole fan (speckle); loosen-only ⇒ #360-hole-safe.
-  b.if(abs(input.field('abs_lat', f32T)).gt(constRef('MERCATOR_LAT_LIMIT').add(f32(0.5))), (c) => { c.discard() })
-  const clipBounds = u.field('clip_bounds', vec4fT)
+  b.if(abs(i.abs_lat).gt(constRef('MERCATOR_LAT_LIMIT').add(f32(0.5))), (c) => { c.discard() })
+  const clipBounds = U.field.clip_bounds
   const clipValid =
     clipBounds.x.gt(f32(-1e29))
       .and(clipBounds.z.gt(clipBounds.x))
       .and(clipBounds.w.gt(clipBounds.y))
   b.if(clipValid, (c) => {
-    c.if(input.field('abs_merc_x', f32T).lt(clipBounds.x), (d) => { d.discard() })
-    c.if(input.field('abs_merc_x', f32T).gt(clipBounds.z), (d) => { d.discard() })
-    c.if(input.field('abs_merc_y', f32T).lt(clipBounds.y), (d) => { d.discard() })
-    c.if(input.field('abs_merc_y', f32T).gt(clipBounds.w), (d) => { d.discard() })
+    c.if(i.abs_merc_x.lt(clipBounds.x), (d) => { d.discard() })
+    c.if(i.abs_merc_x.gt(clipBounds.z), (d) => { d.discard() })
+    c.if(i.abs_merc_y.lt(clipBounds.y), (d) => { d.discard() })
+    c.if(i.abs_merc_y.gt(clipBounds.w), (d) => { d.discard() })
   })
 }
 
@@ -707,13 +708,14 @@ const emitPolygonFragmentDiscards = (b: Builder, input: Node): void => {
 // keep the canonical un-jittered depth.
 
 const emitLogDepthJitter = (b: Builder, input: Node, out: Node): void => {
+  const i = VertexOutputIO.of(input)
   const baseDepth =
-    compute_log_frag_depth(input.field('view_w', f32T), u.field('log_depth_fc', f32T))
-  const idLo = input.field('feat_id', u32T).bitAnd(u32(0xFFFF))
+    compute_log_frag_depth(i.view_w, U.field.log_depth_fc)
+  const idLo = i.feat_id.bitAnd(u32(0xFFFF))
   const mixed =
     idLo.bitXor(idLo.shr(u32(7))).bitXor(idLo.shl(u32(3))).bitAnd(u32(0x3FF))
   const jitter = select(
-    input.field('feat_id', u32T).ne(u32(0)),
+    i.feat_id.ne(u32(0)),
     toF32(mixed).sub(f32(512)).mul(f32(1.5e-8)),
     f32(0),
   )
@@ -729,7 +731,8 @@ const emitLogDepthJitter = (b: Builder, input: Node, out: Node): void => {
 
 const emitPickWrite = (b: Builder, input: Node, out: Node, pickEnabled: boolean): void => {
   if (!pickEnabled) return
-  b.assign(out.field('pick', vec2uT), vec2u(input.field('feat_id', u32T), u.field('pick_id', u32T)))
+  const i = VertexOutputIO.of(input)
+  b.assign(out.field('pick', vec2uT), vec2u(i.feat_id, U.field.pick_id))
 }
 
 // ── Fragment entries ──
@@ -748,12 +751,13 @@ const buildFsFill = (pickEnabled: boolean) =>
     structT('FragmentOutput'),
     (p, b) => {
       const input = p.input
+      const i = VertexOutputIO.of(input)
       emitPolygonFragmentDiscards(b, input)
       const out = b.var('out', structT('FragmentOutput'))
       // Fill-extrusion shading via wall_blend varying. Iter 129 final after
       // the derivative-normal experiment was reverted — see fs_fill comment
       // in POLYGON_SHADER_SOURCE for the rationale.
-      const wallBlend = input.field('wall_blend', f32T)
+      const wallBlend = i.wall_blend
       const vShade = f32(0.6).add(f32(0.4).mul(wallBlend))
       const roofBonus = select(wallBlend.ge(f32(0.999)), f32(0.05), f32(0))
       const wallShade = b.let('wall_shade', min(f32(1), vShade.add(roofBonus)))
@@ -776,8 +780,8 @@ const buildFsFill = (pickEnabled: boolean) =>
       // `fill-antialias: false` gates it off → hard edges. The flag rides
       // the spare cam_ecef_off_h.w uniform lane (1 = default, 0 = off);
       // at the default the multiply runs exactly as before (no-op gate).
-      b.if(u.field('cam_ecef_off_h', vec4fT).w.ne(f32(0)), (c) => {
-        const rimA = callFn('polygon_rim_alpha', f32T, input.field('abs_merc_x', f32T), input.field('abs_merc_y', f32T))
+      b.if(U.field.cam_ecef_off_h.w.ne(f32(0)), (c) => {
+        const rimA = callFn('polygon_rim_alpha', f32T, i.abs_merc_x, i.abs_merc_y)
         c.assign(out.field('color', vec4fT).a, out.field('color', vec4fT).a.mul(rimA))
       })
       emitPickWrite(b, input, out, pickEnabled)
@@ -799,15 +803,16 @@ const buildFsFillPattern = (pickEnabled: boolean) =>
     structT('FragmentOutput'),
     (p, b) => {
       const input = p.input
+      const i = VertexOutputIO.of(input)
       emitPolygonFragmentDiscards(b, input)
       const out = b.var('out', structT('FragmentOutput'))
-      const repeatX = max(u.field('fill_translate_x', f32T), f32(1))
-      const repeatY = max(u.field('fill_translate_y', f32T), f32(1))
+      const repeatX = max(U.field.fill_translate_x, f32(1))
+      const repeatY = max(U.field.fill_translate_y, f32(1))
       const uvLocal = vec2(
-        fract(input.field('abs_merc_x', f32T).div(repeatX)),
-        fract(input.field('abs_merc_y', f32T).div(repeatY)),
+        fract(i.abs_merc_x.div(repeatX)),
+        fract(i.abs_merc_y.div(repeatY)),
       )
-      const fillColor = u.field('fill_color', vec4fT)
+      const fillColor = U.field.fill_color
       const u0 = fillColor.r
       const v0 = fillColor.g
       const u1 = fillColor.b
@@ -818,8 +823,8 @@ const buildFsFillPattern = (pickEnabled: boolean) =>
       )
       const sampled = textureSample(spriteAtlas, spriteSamp, atlasUv)
       // Layer opacity multiplies sprite alpha so fill-opacity still works.
-      b.assign(out.field('color', vec4fT), vec4(sampled.rgb, sampled.a.mul(u.field('opacity', f32T))))
-      const rimA = callFn('polygon_rim_alpha', f32T, input.field('abs_merc_x', f32T), input.field('abs_merc_y', f32T))
+      b.assign(out.field('color', vec4fT), vec4(sampled.rgb, sampled.a.mul(U.field.opacity)))
+      const rimA = callFn('polygon_rim_alpha', f32T, i.abs_merc_x, i.abs_merc_y)
       b.assign(out.field('color', vec4fT).a, out.field('color', vec4fT).a.mul(rimA))
       emitPickWrite(b, input, out, pickEnabled)
       emitLogDepthJitter(b, input, out)
@@ -842,22 +847,23 @@ const fsOitTranslucent = entryFn(
   structT('OitFragmentOutput'),
   (p, b) => {
     const input = p.input
+    const i = VertexOutputIO.of(input)
     emitPolygonFragmentDiscards(b, input)
     // Same fill-extrusion shading as fs_fill.
-    const wallBlend = input.field('wall_blend', f32T)
+    const wallBlend = i.wall_blend
     const vShade = f32(0.6).add(f32(0.4).mul(wallBlend))
     const roofBonus = select(wallBlend.ge(f32(0.999)), f32(0.05), f32(0))
     const wallShade = min(f32(1), vShade.add(roofBonus))
-    const fillColor = u.field('fill_color', vec4fT)
+    const fillColor = U.field.fill_color
     const rgb = fillColor.rgb.mul(wallShade)
     // Rim alpha fade (multiplies into alpha so OIT accumulation respects it).
-    const rimA = callFn('polygon_rim_alpha', f32T, input.field('abs_merc_x', f32T), input.field('abs_merc_y', f32T))
+    const rimA = callFn('polygon_rim_alpha', f32T, i.abs_merc_x, i.abs_merc_y)
     const a = fillColor.a.mul(rimA)
     b.if(a.le(f32(0.001)), (c) => { c.discard() })
     // McGuire-Bavoil weight: large for closer + smaller alpha contributions,
     // capped to avoid fp16 overflow. iter-192 set weight=1; reverted in
     // iter-193 alongside the depth-write change.
-    const z = max(input.field('view_w', f32T), f32(1e-3))
+    const z = max(i.view_w, f32(1e-3))
     const w = clamp(
       f32(0.03).div(f32(1e-5).add(pow(z.div(f32(200)), f32(4)))),
       f32(1e-2),
@@ -886,13 +892,14 @@ const buildFsFillExtrude = (pickEnabled: boolean) =>
     structT('FragmentOutput'),
     (p, b) => {
       const input = p.input
+      const i = VertexOutputIO.of(input)
       emitPolygonFragmentDiscards(b, input)
       const out = b.var('out', structT('FragmentOutput'))
       // Rim alpha — operates on the premultiplied colour: scales both rgb
       // and alpha by the rim factor so the building still fades at sphere
       // edges on globe / azimuthal projections.
-      const rim = callFn('polygon_rim_alpha', f32T, input.field('abs_merc_x', f32T), input.field('abs_merc_y', f32T))
-      b.assign(out.field('color', vec4fT), input.field('v_color', vec4fT).mul(rim))
+      const rim = callFn('polygon_rim_alpha', f32T, i.abs_merc_x, i.abs_merc_y)
+      b.assign(out.field('color', vec4fT), i.v_color.mul(rim))
       emitPickWrite(b, input, out, pickEnabled)
       emitLogDepthJitter(b, input, out)
       b.ret(out)
@@ -914,23 +921,24 @@ const buildFsStroke = (pickEnabled: boolean) =>
     structT('FragmentOutput'),
     (p, b) => {
       const input = p.input
+      const i = VertexOutputIO.of(input)
       emitPolygonFragmentDiscards(b, input)
       // feat_id > 0 = major grid line (brighter); 0 = minor (dimmer).
       // `void` keeps tsc satisfied — defaultStrokeReturnStmts builds a
       // `{op:'varref', name:'alpha_scale'}` Expr that resolves to this
       // let-bound name at emit time (composer's default-path assign).
-      const alphaScale = b.let('alpha_scale', select(input.field('feat_id', u32T).gt(u32(0)), f32(1), f32(0.4)))
+      const alphaScale = b.let('alpha_scale', select(i.feat_id.gt(u32(0)), f32(1), f32(0.4)))
       void alphaScale
       const out = b.var('out', structT('FragmentOutput'))
       // ▼ Composer-swap point — variant.strokeExpr replaces this OR the
       //   composer inserts the base default-uniform path:
       //     out.color = vec4<f32>(u.stroke_color.rgb, u.stroke_color.a * alpha_scale);
       b.placeholder('stroke-return')
-      const rimA = callFn('polygon_rim_alpha', f32T, input.field('abs_merc_x', f32T), input.field('abs_merc_y', f32T))
+      const rimA = callFn('polygon_rim_alpha', f32T, i.abs_merc_x, i.abs_merc_y)
       b.assign(out.field('color', vec4fT).a, out.field('color', vec4fT).a.mul(rimA))
       emitPickWrite(b, input, out, pickEnabled)
       // Stroke depth: bare log-depth, no per-feature jitter.
-      b.assign(out.field('depth', f32T), compute_log_frag_depth(input.field('view_w', f32T), u.field('log_depth_fc', f32T)))
+      b.assign(out.field('depth', f32T), compute_log_frag_depth(i.view_w, U.field.log_depth_fc))
       b.ret(out)
     },
   )
@@ -1004,7 +1012,7 @@ const defaultFillReturnStmts = (): readonly Stmt[] => {
   const b = new Builder()
   const out = new Node({ op: 'varref', type: structT('FragmentOutput'), name: 'out' })
   const wallShade = new Node<'f32'>({ op: 'varref', type: f32T, name: 'wall_shade' })
-  const fillColor = u.field('fill_color', vec4fT)
+  const fillColor = U.field.fill_color
   b.assign(out.field('color', vec4fT), vec4(fillColor.rgb.mul(wallShade), fillColor.a))
   return b.stmts
 }
@@ -1013,7 +1021,7 @@ const defaultStrokeReturnStmts = (): readonly Stmt[] => {
   const b = new Builder()
   const out = new Node({ op: 'varref', type: structT('FragmentOutput'), name: 'out' })
   const alphaScale = new Node<'f32'>({ op: 'varref', type: f32T, name: 'alpha_scale' })
-  const strokeColor = u.field('stroke_color', vec4fT)
+  const strokeColor = U.field.stroke_color
   b.assign(out.field('color', vec4fT), vec4(strokeColor.rgb, strokeColor.a.mul(alphaScale)))
   return b.stmts
 }

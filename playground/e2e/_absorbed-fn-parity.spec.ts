@@ -9,14 +9,15 @@
 // different) with every unit test still green.
 //
 // This spec closes that gap exactly like _shader-math-parity does for project(): it EXECUTES
-// the real emitted ECEF_WGSL_FNS / RASTER_COLOR_WGSL_FNS in a WebGPU compute pass and diffs
+// the real emitted ECEF_WGSL_FNS / emitFuncsCsed(RASTER_COLOR_FUNCS) in a WebGPU compute pass and diffs
 // against the CPU f64 oracle (compileModule). Compute is SwiftShader-viable, so it is a CI gate.
 
 import { test, expect } from '@playwright/test'
 import { compileModule } from '../../shader-dsl/src/core/oracle'
 import { module } from '../../shader-dsl/src/core/ir'
 import { ECEF_WGSL_CONSTS, ECEF_WGSL_FNS, ECEF_CONSTS, ECEF_FUNCS } from '../../shader-dsl/src/shaders/ecef'
-import { RASTER_COLOR_WGSL_FNS, RASTER_COLOR_FUNCS } from '../../shader-dsl/src/shaders/raster-color'
+import { RASTER_COLOR_FUNCS } from '../../shader-dsl/src/shaders/raster-color'
+import { emitFuncsCsed } from '../../shader-dsl/src/core/backends/wgsl'
 
 const SOFTWARE_GPU = process.env.XGIS_SOFTWARE_GPU === '1'
 
@@ -130,7 +131,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     const inData = cases.flatMap((cs) => [...cs.rgb, ...cs.p0, ...cs.p1])
     const wgsl = `
 ${ECEF_WGSL_CONSTS}
-${RASTER_COLOR_WGSL_FNS}
+${emitFuncsCsed(RASTER_COLOR_FUNCS)}
 @group(0) @binding(0) var<storage, read> inp: array<f32>;
 @group(0) @binding(1) var<storage, read_write> outp: array<f32>;
 @compute @workgroup_size(64)
