@@ -30,7 +30,7 @@ import {
   constRef, clamp, log, tan, sin, cos, asin, acos, atan, atan2, exp, floor, ceil, sign, smoothstep,
   type ConstDecl, type FuncDecl, type ModuleDecl, type Node, type Builder,
 } from '../core/ir'
-import { emitConst, emitFunc } from '../core/backends/wgsl'
+import { emitConst, emitFuncsCsed } from '../core/backends/wgsl'
 
 // ── Backend-agnostic projection injection (standalone-package seam) ──
 // shader-dsl owns the projection MATH; the ordered spec list (projType index ==
@@ -495,7 +495,7 @@ const PROJECTION_MODULE: ModuleDecl = module({
 // consume DSL-emitted WGSL from the SAME graph as the cpu-f64 lowering.
 const GPU_PROJECTION_FUNCS = PROJECTION_FUNCS.filter((f) => f.name !== 'project_geom_cpu')
 const PROJECTION_WGSL_CONSTS = `${PROJECTION_CONSTS.map(emitConst).join('\n')}\n`
-const PROJECTION_WGSL_FNS = `${GPU_PROJECTION_FUNCS.map(emitFunc).join('\n\n')}\n`
+const PROJECTION_WGSL_FNS = `${emitFuncsCsed(GPU_PROJECTION_FUNCS)}\n`
 
   return { PROJECTION_FUNCS, GPU_PROJECTION_FUNCS, PROJECTION_MODULE, PROJECTION_WGSL_CONSTS, PROJECTION_WGSL_FNS }
 }

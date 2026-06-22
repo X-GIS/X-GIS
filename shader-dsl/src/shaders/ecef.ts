@@ -11,7 +11,7 @@ import {
   fn, f32, f32T, vec3, vec3fT, sin, cos, sqrt, constRef, Let,
   type ConstDecl, type FuncDecl,
 } from '../core/ir'
-import { emitConst, emitFunc } from '../core/backends/wgsl'
+import { emitConst, emitFuncsCsed } from '../core/backends/wgsl'
 
 /** WGS84 ellipsoid constants — semi-major axis (m) + eccentricity² (= 2f - f²
  *  with f = 1/298.257223563), and degrees→radians. */
@@ -39,4 +39,4 @@ export const ECEF_FUNCS: FuncDecl[] = [lonlatToEcef, ecefRtcReconstruct]
 
 // Derived WGSL — the same export names line.ts / raster.ts already import.
 export const ECEF_WGSL_CONSTS = `${ECEF_CONSTS.map(emitConst).join('\n')}\n`
-export const ECEF_WGSL_FNS = `${ECEF_FUNCS.map(emitFunc).join('\n\n')}\n`
+export const ECEF_WGSL_FNS = `${emitFuncsCsed(ECEF_FUNCS)}\n`

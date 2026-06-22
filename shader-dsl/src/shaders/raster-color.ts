@@ -14,7 +14,7 @@ import {
   Let, Var, assign, callFn,
   type FuncDecl,
 } from '../core/ir'
-import { emitFunc } from '../core/backends/wgsl'
+import { emitFuncsCsed } from '../core/backends/wgsl'
 
 const rasterSpinWeights = fn('raster_spin_weights', { angle_rad: f32T }, vec3fT, (p, _b) => {
   const s = Let('s', sin(p.angle_rad))
@@ -58,4 +58,4 @@ const rasterColorAdjust = fn('raster_color_adjust', { rgb_in: vec3fT, p0: vec4fT
 
 export const RASTER_COLOR_FUNCS: FuncDecl[] = [rasterSpinWeights, rasterColorAdjust]
 
-export const RASTER_COLOR_WGSL_FNS = `${RASTER_COLOR_FUNCS.map(emitFunc).join('\n\n')}\n`
+export const RASTER_COLOR_WGSL_FNS = `${emitFuncsCsed(RASTER_COLOR_FUNCS)}\n`

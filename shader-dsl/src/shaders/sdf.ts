@@ -16,7 +16,7 @@ import {
   type FuncDecl, type ModuleDecl,
 } from '../core/ir'
 import { struct } from '../core/schema'
-import { emitFunc, emitStruct } from '../core/backends/wgsl'
+import { emitFuncsCsed, emitStruct } from '../core/backends/wgsl'
 
 // Storage structs (match sdf-shape.ts byte layout; field types drive access).
 export const ShapeDesc = struct('ShapeDesc', {
@@ -146,9 +146,9 @@ const fnByName = (name: string): FuncDecl => {
   if (!f) throw new Error(`sdf-dsl: missing fn ${name}`)
   return f
 }
-export const SDF_WGSL_DIST_TO_SEGMENT = `${emitFunc(fnByName('dist_to_segment'))}\n`
-export const SDF_WGSL_DIST_TO_QUADRATIC = `${emitFunc(fnByName('dist_to_quadratic'))}\n`
-export const SDF_WGSL_DIST_TO_CUBIC = `${emitFunc(fnByName('dist_to_cubic'))}\n`
-export const SDF_WGSL_WINDING_LINE = `${emitFunc(fnByName('winding_line'))}\n`
-export const SDF_WGSL_SHAPE = `${emitFunc(fnByName('sdf_shape'))}\n`
+export const SDF_WGSL_DIST_TO_SEGMENT = `${emitFuncsCsed([fnByName('dist_to_segment')])}\n`
+export const SDF_WGSL_DIST_TO_QUADRATIC = `${emitFuncsCsed([fnByName('dist_to_quadratic')])}\n`
+export const SDF_WGSL_DIST_TO_CUBIC = `${emitFuncsCsed([fnByName('dist_to_cubic')])}\n`
+export const SDF_WGSL_WINDING_LINE = `${emitFuncsCsed([fnByName('winding_line')])}\n`
+export const SDF_WGSL_SHAPE = `${emitFuncsCsed([fnByName('sdf_shape')])}\n`
 export const SDF_WGSL_SHAPE_STRUCTS = `${emitStruct(ShapeDesc.decl)}\n\n${emitStruct(ShapeSegment.decl)}\n`
