@@ -22,7 +22,7 @@ import {
   f32, u32, i32, toF32, toU32, vec2, vec3, vec4, mix, exp, clamp,
   length, dot, min, max, smoothstep, fwidth, select,
   f32T, u32T, i32T, vec2fT, vec4fT, mat4x4fT, arrayT,
-  Let, Var, assign, assignOp, If, Loop, reduce, ifExpr, Switch, Return, Discard,
+  Let, Var, assign, assignOp, If, Loop, reduce, ifExpr, condExpr, Switch, Return, Discard,
   type ModuleDecl,
 } from '../core/ir'
 import { ioStruct, builtin, location, uniformStruct, structDecl, storageBuffer } from '../core/sot'
@@ -275,8 +275,8 @@ const vs = entryFn('vs_point', 'vertex', [
   // ECEF lanes are dead on the flat path. u.mvp is the matching matrix
   // (Camera.getViewForProjection). Quad expansion below consumes centerClip
   // identically for both paths.
-  const centerClip = Var('center_clip', vec4fT)
-  If(U.field.proj_params.x.lt(0.5), () => {
+  const centerClip = condExpr('center_clip', vec4fT, [
+    [U.field.proj_params.x.lt(0.5), () => {
     // Precise absolute Mercator DSFUN (slots 20-23), camera-recentered in DSFUN
     // space — `(mx_h−camH)+(mx_l−camL)` — exactly like ecef_rtc. The old path
     // reprojected the lossy f32 abs_lon/abs_lat (~1.35 m → ~5.7 px @ z20).
@@ -288,17 +288,19 @@ const vs = entryFn('vs_point', 'vertex', [
     const camMercL = U.field.cam_ecef_l.swizzle<'vec2<f32>'>('xy')
     const relX = mxH.sub(camMercH.x).add(mxL.sub(camMercL.x))
     const relY = myH.sub(camMercH.y).add(myL.sub(camMercL.y))
-    assign(centerClip, transformMat4(mvp, vec4(relX, relY, f32(0), f32(1))))
-  }).elif(U.field.proj_params.x.lt(6.5), () => {
+    return transformMat4(mvp, vec4(relX, relY, f32(0), f32(1)))
+  }],
+    [U.field.proj_params.x.lt(6.5), () => {
     // FLAT non-Mercator (1-6): the shared flat_rel — reproject the marker's
     // lon/lat minus the in-shader projected camera centre. ref_lon = the
     // marker's own lon (self) so it lands in its nearest world copy; for an
     // individual marker project_geom collapses to plain project. Same flat MVP.
     const pp = U.field.proj_params
     const relG = flat_rel(absLon, absLat, pp, absLon)
-    assign(centerClip, transformMat4(mvp, vec4(relG.x, relG.y, f32(0), f32(1))))
-  }).else(() => {
-    assign(centerClip, transformMat4(mvp, vec4(ecefRtc, f32(1))))
+    return transformMat4(mvp, vec4(relG.x, relG.y, f32(0), f32(1)))
+  }],
+  ], () => {
+    return transformMat4(mvp, vec4(ecefRtc, f32(1)))
   })
 
   // circle-translate: apply viewport-space offset post-MVP.

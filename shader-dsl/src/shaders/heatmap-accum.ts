@@ -29,7 +29,7 @@
 import {
   entryFn, module, transformMat4, arrayLit,
   f32, u32, toU32, vec2, vec3, vec4, exp, max,
-  Let, Var, assign, If,
+  Let, Var, assign, condExpr,
   f32T, u32T, vec2fT, vec4fT, mat4x4fT, arrayT,
   type ModuleDecl,
 } from '../core/ir'
@@ -99,27 +99,27 @@ const vs = entryFn('vs_heatmap', 'vertex', [
   const absLat = featData.at(fid.mul(STRIDE).add(u32(18)), f32T)
 
   // Three-way projType branch — faithful clone of the point VS.
-  const centerClip = Var('center_clip', vec4fT)
-  If(U.field.proj_params.x.lt(0.5), () => {
-    // Flat Mercator: precise absolute-Mercator DSFUN tail (slots 20..23),
-    // camera-recentered in DSFUN space.
-    const mxH = featData.at(fid.mul(STRIDE).add(u32(20)), f32T)
-    const mxL = featData.at(fid.mul(STRIDE).add(u32(21)), f32T)
-    const myH = featData.at(fid.mul(STRIDE).add(u32(22)), f32T)
-    const myL = featData.at(fid.mul(STRIDE).add(u32(23)), f32T)
-    const camMercH = U.field.cam_ecef_h.swizzle<'vec2<f32>'>('xy')
-    const camMercL = U.field.cam_ecef_l.swizzle<'vec2<f32>'>('xy')
-    const relX = mxH.sub(camMercH.x).add(mxL.sub(camMercL.x))
-    const relY = myH.sub(camMercH.y).add(myL.sub(camMercL.y))
-    assign(centerClip, transformMat4(mvp, vec4(relX, relY, f32(0), f32(1))))
-  }).elif(U.field.proj_params.x.lt(6.5), () => {
-    // Flat non-Mercator (1..6): shared flat_rel (self-ref lon for nearest copy).
-    const pp = U.field.proj_params
-    const relG = flat_rel(absLon, absLat, pp, absLon)
-    assign(centerClip, transformMat4(mvp, vec4(relG.x, relG.y, f32(0), f32(1))))
-  }).else(() => {
-    assign(centerClip, transformMat4(mvp, vec4(ecefRtc, f32(1))))
-  })
+  const centerClip = condExpr('center_clip', vec4fT, [
+    [U.field.proj_params.x.lt(0.5), () => {
+      // Flat Mercator: precise absolute-Mercator DSFUN tail (slots 20..23),
+      // camera-recentered in DSFUN space.
+      const mxH = featData.at(fid.mul(STRIDE).add(u32(20)), f32T)
+      const mxL = featData.at(fid.mul(STRIDE).add(u32(21)), f32T)
+      const myH = featData.at(fid.mul(STRIDE).add(u32(22)), f32T)
+      const myL = featData.at(fid.mul(STRIDE).add(u32(23)), f32T)
+      const camMercH = U.field.cam_ecef_h.swizzle<'vec2<f32>'>('xy')
+      const camMercL = U.field.cam_ecef_l.swizzle<'vec2<f32>'>('xy')
+      const relX = mxH.sub(camMercH.x).add(mxL.sub(camMercL.x))
+      const relY = myH.sub(camMercH.y).add(myL.sub(camMercL.y))
+      return transformMat4(mvp, vec4(relX, relY, f32(0), f32(1)))
+    }],
+    [U.field.proj_params.x.lt(6.5), () => {
+      // Flat non-Mercator (1..6): shared flat_rel (self-ref lon for nearest copy).
+      const pp = U.field.proj_params
+      const relG = flat_rel(absLon, absLat, pp, absLon)
+      return transformMat4(mvp, vec4(relG.x, relG.y, f32(0), f32(1)))
+    }],
+  ], () => transformMat4(mvp, vec4(ecefRtc, f32(1))))
 
   // Expand a screen-space billboard quad of `radius_px` (NDC-corrected by
   // clip.w). uv runs −1..1 across the quad; the FS Gaussian is radial in uv.
