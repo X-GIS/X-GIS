@@ -18,14 +18,14 @@
 // hand shader exactly).
 
 import {
-  entryFn, fn, module, bindingRef, callFn, transformMat4, arrayLit,
+  entryFn, fn, module, callFn, transformMat4, arrayLit,
   f32, u32, i32, toF32, toU32, vec2, vec3, vec4, mix, exp, clamp,
   length, dot, min, max, smoothstep, fwidth, select,
   structT, f32T, u32T, i32T, vec2fT, vec4fT, mat4x4fT, arrayT,
   Let, Var, assign, assignOp, If, Loop, Discard,
   type StructDecl, type ModuleDecl,
 } from '../core/ir'
-import { ioStruct, builtin, location, uniformStruct } from '../core/sot'
+import { ioStruct, builtin, location, uniformStruct, storageBuffer } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
 import { getProjectionWgslConsts, getProjectionWgslFns } from './projections'
 import { LOG_DEPTH_WGSL_FNS } from './log-depth'
@@ -98,9 +98,12 @@ const PointFragmentOutput = ioStruct('PointFragmentOutput', {
   depth: builtin('frag_depth', f32T),
 })
 
-const featData = bindingRef('feat_data', arrayT(f32T))
-const shapes = bindingRef('shapes', arrayT(structT('ShapeDesc')))
-const segments = bindingRef('segments', arrayT(structT('Segment')))
+const featDataB = storageBuffer('feat_data', arrayT(f32T), { group: 0, binding: 1, access: 'read' })
+const shapesB = storageBuffer('shapes', arrayT(structT('ShapeDesc')), { group: 0, binding: 2, access: 'read' })
+const segmentsB = storageBuffer('segments', arrayT(structT('Segment')), { group: 0, binding: 3, access: 'read' })
+const featData = featDataB.node
+const shapes = shapesB.node
+const segments = segmentsB.node
 
 // STRIDE — per-feature feat_data stride (matches the renderer's f32 pack order).
 // Phase 2 PR 2d.2 — bumped 14 → 20 to carry per-feature ECEF DSFUN center
@@ -476,9 +479,9 @@ export const POINT_MODULE: ModuleDecl = module({
   structs: [U.struct, ShapeDesc, Segment, PointOut.decl, PointFragmentOutput.decl],
   bindings: [
     U.binding,
-    { group: 0, binding: 1, name: 'feat_data', space: 'storage', access: 'read', type: arrayT(f32T) },
-    { group: 0, binding: 2, name: 'shapes', space: 'storage', access: 'read', type: arrayT(structT('ShapeDesc')) },
-    { group: 0, binding: 3, name: 'segments', space: 'storage', access: 'read', type: arrayT(structT('Segment')) },
+    featDataB.binding,
+    shapesB.binding,
+    segmentsB.binding,
   ],
   funcs: [
     pointCosC, pointRimAlpha,
