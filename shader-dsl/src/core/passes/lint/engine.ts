@@ -34,11 +34,15 @@ export interface RuleVisitor {
   Expr?(e: Expr, fn: FuncDecl): void
 }
 
+export type RuleCategory = 'correctness' | 'style' | 'perf'
+
 export interface LintRule {
   readonly id: string
   readonly description: string
   /** Default severity; overridable per-run via LintConfig. */
   readonly severity: 'error' | 'warning'
+  /** Grouping for presets / reporting (default 'correctness'). */
+  readonly category?: RuleCategory
   create(ctx: RuleContext): RuleVisitor
 }
 
@@ -133,5 +137,8 @@ export function lint(m: ModuleDecl, rules: readonly LintRule[], config?: LintCon
       }
     }
   }
-  return diags
+
+  // Documented deviations — drop diagnostics a fn opts out of via `lintDisable`.
+  const byName = new Map(m.funcs.map((f) => [f.name, f]))
+  return diags.filter((d) => !(d.fn && byName.get(d.fn)?.lintDisable?.includes(d.ruleId)))
 }

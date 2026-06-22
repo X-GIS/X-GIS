@@ -116,6 +116,10 @@ export interface FuncDecl {
    *  rule skips this fn (it has an intentional early return, e.g. a guard that
    *  skips an expensive loop). Use sparingly, with a comment stating why. */
   readonly allowEarlyReturn?: boolean
+  /** Documented lint DEVIATIONS — rule ids whose diagnostics are suppressed for this
+   *  fn (the general form of allowEarlyReturn; the engine drops matching diagnostics).
+   *  Use sparingly, with a comment stating why. */
+  readonly lintDisable?: readonly string[]
 }
 
 export interface ModuleDecl {

@@ -135,6 +135,47 @@ const mixedScalarRule: LintRule = {
   }),
 }
 
+// ── no-recursion — WGSL has no call stack; a fn must not (directly) call itself ──
+const noRecursion: LintRule = {
+  id: 'no-recursion',
+  description: 'WGSL forbids recursion — a function must not call itself',
+  severity: 'error',
+  category: 'correctness',
+  create: (ctx) => ({
+    Expr(e, fn) {
+      if (e.op === 'call' && e.fn === fn.name) {
+        ctx.report(`fn '${fn.name}' calls itself — WGSL has no recursion`, { fn: fn.name })
+      }
+    },
+  }),
+}
+
+// ── no-unreachable-code — a statement after a block terminator is dead ──
+function reportUnreachable(body: readonly Stmt[], fnName: string, report: (m: string, o?: { fn?: string }) => void): void {
+  body.forEach((s, i) => {
+    const terminator = s.s === 'return' || s.s === 'discard' || s.s === 'break' || s.s === 'continue'
+    if (terminator && i < body.length - 1) {
+      report(`unreachable statement after '${s.s}' in fn '${fnName}'`, { fn: fnName })
+    }
+    if (s.s === 'if') {
+      for (const arm of s.arms) reportUnreachable(arm.body, fnName, report)
+      if (s.elseBody) reportUnreachable(s.elseBody, fnName, report)
+    } else if (s.s === 'for') {
+      reportUnreachable(s.body, fnName, report)
+    } else if (s.s === 'switch') {
+      for (const c of s.cases) reportUnreachable(c.body, fnName, report)
+      if (s.defaultBody) reportUnreachable(s.defaultBody, fnName, report)
+    }
+  })
+}
+const noUnreachable: LintRule = {
+  id: 'no-unreachable-code',
+  description: 'no statements after a return / discard / break / continue in the same block',
+  severity: 'error',
+  category: 'correctness',
+  create: (ctx) => ({ Func(f) { reportUnreachable(f.body, f.name, ctx.report) } }),
+}
+
 /** The registered ruleset. Order is the diagnostic order (module checks, then per-fn
  *  in declaration order). Append new rules here. */
 export const RULES: readonly LintRule[] = [
@@ -144,4 +185,6 @@ export const RULES: readonly LintRule[] = [
   allPathsReturn,
   singleExit,
   mixedScalarRule,
+  noRecursion,
+  noUnreachable,
 ]
