@@ -7,7 +7,7 @@
 // family, OPACITY). The SoT helpers declare a layout ONCE and DERIVE the rest, so the
 // pieces cannot disagree and the type checker covers field names + types.
 
-import { Node, structT, bindingRef, construct, member, type ShaderType, type StructDecl, type KeyOf, type BindingDecl, type AddressSpace } from './ir'
+import { Node, structT, bindingRef, construct, member, arrayT, type ShaderType, type StructDecl, type KeyOf, type ScalarKey, type BindingDecl, type AddressSpace } from './ir'
 
 export interface FieldSpec<T extends ShaderType = ShaderType> {
   readonly type: T
@@ -150,16 +150,37 @@ export function resource<T extends ShaderType>(name: string, type: T, at: { grou
   }
 }
 
-/** A storage buffer binding (e.g. `array<f32>` feature data): derive its binding decl
- *  (space 'storage' + the access mode) + access node from one place. Closes the gap
- *  resource() left — resource is uniform-only. */
+/** A bound `array<Element>` storage buffer. `.at(i)` is the element accessor: for a struct ELEMENT
+ *  (a structDecl / ioStruct handle) it returns the TYPED field proxy — `buf.at(i).p0_h`, no `.of()`,
+ *  no element-type argument; for a scalar element (f32T) it returns the element Node. */
+export interface StorageBuffer<A> {
+  readonly binding: BindingDecl
+  readonly node: Node
+  at(i: Node<ScalarKey> | number): A
+}
+
+/** A struct ELEMENT handle (structDecl / ioStruct) — has a `.type` and a typed `.of(node)` proxy. */
+type StructHandle = { readonly type: ShaderType; of(node: Node): object }
+
+/** A storage buffer binding declared from its ELEMENT (a struct handle or a scalar type) in one place;
+ *  derives the binding decl (space 'storage' + access), the access node, AND `.at(i)` element access. */
+export function storageBuffer<H extends StructHandle>(
+  name: string, element: H, at: { group: number; binding: number; access: 'read' | 'read_write' },
+): StorageBuffer<ReturnType<H['of']>>
 export function storageBuffer(
-  name: string,
-  type: ShaderType,
+  name: string, element: ShaderType, at: { group: number; binding: number; access: 'read' | 'read_write' },
+): StorageBuffer<Node<KeyOf<ShaderType>>>
+export function storageBuffer(
+  name: string, element: StructHandle | ShaderType,
   at: { group: number; binding: number; access: 'read' | 'read_write' },
-): Resource {
+): StorageBuffer<unknown> {
+  const handle = typeof element === 'object' && 'of' in element ? element : undefined
+  const elemType = handle ? handle.type : (element as ShaderType)
+  const arr = arrayT(elemType)
+  const node = bindingRef(name, arr)
   return {
-    binding: { group: at.group, binding: at.binding, name, space: 'storage', access: at.access, type },
-    node: bindingRef(name, type),
+    binding: { group: at.group, binding: at.binding, name, space: 'storage', access: at.access, type: arr },
+    node,
+    at: (i) => (handle ? handle.of(node.at(i, elemType)) : node.at(i, elemType)),
   }
 }

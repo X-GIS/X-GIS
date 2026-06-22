@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ioStruct, builtin, location, uniformStruct, resource, storageBuffer } from './sot'
+import { ioStruct, builtin, location, uniformStruct, resource, storageBuffer, structDecl } from './sot'
 import { member, param, bindingRef, structT, vec4fT, vec2fT, vec3fT, f32T, texture2dfT, arrayT } from './ir'
 import { emitExpr } from './backends/wgsl'
 
@@ -55,9 +55,18 @@ describe('sot — uniformStruct + resource (single source of truth for bindings)
     expect(emitExpr(tex.node.expr)).toBe(emitExpr(bindingRef('atlas_tex', texture2dfT).expr))
   })
 
-  it('storageBuffer derives a storage binding with the access mode', () => {
-    const buf = storageBuffer('feat_data', arrayT(f32T), { group: 0, binding: 0, access: 'read' })
+  it('storageBuffer derives an array<element> storage binding + .at(i) reads the scalar element', () => {
+    const buf = storageBuffer('feat_data', f32T, { group: 0, binding: 0, access: 'read' })
     expect(buf.binding).toEqual({ group: 0, binding: 0, name: 'feat_data', space: 'storage', access: 'read', type: arrayT(f32T) })
     expect(emitExpr(buf.node.expr)).toBe(emitExpr(bindingRef('feat_data', arrayT(f32T)).expr))
+    expect(emitExpr(buf.at(3).expr)).toBe(emitExpr(bindingRef('feat_data', arrayT(f32T)).at(3, f32T).expr))
+  })
+
+  it('storageBuffer .at(i) on a struct element gives the typed field proxy (no .of/.field)', () => {
+    const Seg = structDecl('Seg', { a: f32T, b: vec2fT })
+    const buf = storageBuffer('segs', Seg, { group: 0, binding: 1, access: 'read' })
+    expect(buf.binding.type).toEqual(arrayT(structT('Seg')))
+    // buf.at(i).a  emits  segs[i].a  — same member Expr the old `Seg.of(segs.at(i)).a` produced.
+    expect(emitExpr(buf.at(2).a.expr)).toBe(emitExpr(member(bindingRef('segs', arrayT(structT('Seg'))).at(2, structT('Seg')), 'a', f32T).expr))
   })
 })

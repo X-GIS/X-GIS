@@ -12,7 +12,7 @@
 
 import {
   computeFn, module, vec4, f32, pack4x8unorm,
-  f32T, u32T, vec4fT, vec4uT, arrayT,
+  f32T, u32T, vec4fT, vec4uT,
   type ModuleDecl,
   If, Var, Return, assign,
 } from '../core/ir'
@@ -57,8 +57,8 @@ export function matchComputeKernel(spec: MatchKernelSpec): ModuleDecl {
   const sortedPatterns = [...spec.arms.map((a) => a.pattern)].sort()
   const armByPattern = new Map(spec.arms.map((a) => [a.pattern, a]))
 
-  const featDataB = storageBuffer('feat_data', arrayT(f32T), { group: 0, binding: 0, access: 'read' })
-  const outColorB = storageBuffer('out_color', arrayT(u32T), { group: 0, binding: 1, access: 'read_write' })
+  const featDataB = storageBuffer('feat_data', f32T, { group: 0, binding: 0, access: 'read' })
+  const outColorB = storageBuffer('out_color', u32T, { group: 0, binding: 1, access: 'read_write' })
   const uCountB = resource('u_count', vec4uT, { group: 0, binding: 2 })
   const featData = featDataB.node
   const outColor = outColorB.node

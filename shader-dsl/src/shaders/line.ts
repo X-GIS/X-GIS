@@ -202,12 +202,9 @@ const lineFragmentOutput = (pickEnabled: boolean) => ioStruct('LineFragmentOutpu
 
 // ── Binding refs ──
 
-const segmentsB = storageBuffer('segments', arrayT(LineSegment.type), { group: 1, binding: 1, access: 'read' })
-const segments = segmentsB.node
-const shapesB = storageBuffer('shapes', arrayT(ShapeDesc.type), { group: 1, binding: 2, access: 'read' })
-const shapes = shapesB.node
-const shapeSegmentsB = storageBuffer('shape_segments', arrayT(ShapeSegment.type), { group: 1, binding: 3, access: 'read' })
-const shape_segments = shapeSegmentsB.node
+const segmentsB = storageBuffer('segments', LineSegment, { group: 1, binding: 1, access: 'read' })
+const shapesB = storageBuffer('shapes', ShapeDesc, { group: 1, binding: 2, access: 'read' })
+const shapeSegmentsB = storageBuffer('shape_segments', ShapeSegment, { group: 1, binding: 3, access: 'read' })
 const spriteAtlasB = resource('sprite_atlas', texture2dfT, { group: 0, binding: 5 })
 const sprite_atlas = spriteAtlasB.node
 const spriteSampB = resource('sprite_samp', samplerT, { group: 0, binding: 6 })
@@ -269,8 +266,7 @@ const patternUnitToM = fn('pattern_unit_to_m', { v: f32T, unit: u32T, mpp: f32T 
 // line segment storage buffer on binding 1).
 const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (p) => {
   const uv = vec2(p.uv_in.x, p.uv_in.y.neg())
-  const s = shapes.at(p.shape_id, ShapeDesc.type)
-  const so = ShapeDesc.of(s)
+  const so = shapesB.at(p.shape_id)
   const bMinX = so.bbox_min_x
   const bMinY = so.bbox_min_y
   const bMaxX = so.bbox_max_x
@@ -285,8 +281,7 @@ const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (p) =>
   const segCount = so.seg_count
   const end = min(segStart.add(segCount), segStart.add(u32(32)))
   Loop('i', segStart, (i) => i.lt(end), (i) => {
-    const seg = shape_segments.at(i, ShapeSegment.type)
-    const sseg = ShapeSegment.of(seg)
+    const sseg = shapeSegmentsB.at(i)
     const p0 = sseg.p0
     const p1 = sseg.p1
     const p2 = sseg.p2
@@ -350,8 +345,7 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
     If(absMercClip.y.gt(clipBounds.w), () => { Discard() })
   })
 
-  const seg = segments.at(inp.seg_id, LineSegment.type)
-  const sego = LineSegment.of(seg)
+  const sego = segmentsB.at(inp.seg_id)
   const segP = inp.world_local
   const p0 = lineEndpoint(sego.p0_h, sego.p0_l)
   const p1 = lineEndpoint(sego.p1_h, sego.p1_l)
@@ -747,8 +741,7 @@ const vsLine = entryFn('vs_line', 'vertex', [
   { name: 'seg_id', type: u32T, builtin: 'instance_index' },
   { name: 'vi', type: u32T, builtin: 'vertex_index' },
 ], LineOut.type, (p) => {
-  const seg = segments.at(p.seg_id, LineSegment.type)
-  const sego = LineSegment.of(seg)
+  const sego = segmentsB.at(p.seg_id)
   const p0 = lineEndpoint(sego.p0_h, sego.p0_l)
   const p1 = lineEndpoint(sego.p1_h, sego.p1_l)
 
