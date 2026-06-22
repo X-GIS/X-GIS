@@ -176,6 +176,68 @@ const noUnreachable: LintRule = {
   create: (ctx) => ({ Func(f) { reportUnreachable(f.body, f.name, ctx.report) } }),
 }
 
+// ── no-float-eq — exact == / != on floats is unreliable (rounding) ──
+const isFloat = (t: ShaderType): boolean => t.kind === 'scalar' && t.scalar === 'f32'
+const noFloatEq: LintRule = {
+  id: 'no-float-eq',
+  description: 'exact == / != on f32 is unreliable — compare within an epsilon',
+  severity: 'warning',
+  category: 'correctness',
+  create: (ctx) => ({
+    Expr(e, fn) {
+      if (e.op === 'compare' && (e.cop === '==' || e.cop === '!=') && (isFloat(e.a.type) || isFloat(e.b.type))) {
+        ctx.report(`f32 '${e.cop}' in fn '${fn.name}' — exact float equality is unreliable`, { fn: fn.name })
+      }
+    },
+  }),
+}
+
+// ── cyclomatic-complexity — decision points + 1, warn over a threshold ──
+function decisionPoints(body: readonly Stmt[]): number {
+  let n = 0
+  for (const s of body) {
+    if (s.s === 'if') {
+      n += s.arms.length
+      for (const a of s.arms) n += decisionPoints(a.body)
+      if (s.elseBody) n += decisionPoints(s.elseBody)
+    } else if (s.s === 'for') {
+      n += 1 + decisionPoints(s.body)
+    } else if (s.s === 'switch') {
+      n += s.cases.length
+      for (const c of s.cases) n += decisionPoints(c.body)
+      if (s.defaultBody) n += decisionPoints(s.defaultBody)
+    }
+  }
+  return n
+}
+const cyclomaticComplexity: LintRule = {
+  id: 'cyclomatic-complexity',
+  description: 'a function with too many branches is hard to verify',
+  severity: 'warning',
+  category: 'perf',
+  create: (ctx) => ({
+    Func(f) {
+      const max = (ctx.options?.max as number) ?? 20
+      const c = decisionPoints(f.body) + 1
+      if (c > max) ctx.report(`fn '${f.name}' cyclomatic complexity ${c} > ${max}`, { fn: f.name })
+    },
+  }),
+}
+
+// ── param-count — too many parameters ──
+const paramCount: LintRule = {
+  id: 'param-count',
+  description: 'a function with too many parameters is hard to call correctly',
+  severity: 'warning',
+  category: 'style',
+  create: (ctx) => ({
+    Func(f) {
+      const max = (ctx.options?.max as number) ?? 6
+      if (f.params.length > max) ctx.report(`fn '${f.name}' has ${f.params.length} parameters > ${max}`, { fn: f.name })
+    },
+  }),
+}
+
 /** The registered ruleset. Order is the diagnostic order (module checks, then per-fn
  *  in declaration order). Append new rules here. */
 export const RULES: readonly LintRule[] = [
@@ -187,4 +249,7 @@ export const RULES: readonly LintRule[] = [
   mixedScalarRule,
   noRecursion,
   noUnreachable,
+  noFloatEq,
+  cyclomaticComplexity,
+  paramCount,
 ]

@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { lint } from './engine'
 import { RULES } from './rules'
-import { module, fn, callFn, f32T, f32 } from '../../ir'
+import { module, fn, callFn, f32T, f32, boolT } from '../../ir'
+import type { LintConfig } from './engine'
 
-const ruleIds = (m: ReturnType<typeof module>) => lint(m, RULES).map((d) => d.ruleId)
+const ruleIds = (m: ReturnType<typeof module>, cfg?: LintConfig) => lint(m, RULES, cfg).map((d) => d.ruleId)
 
 describe('lint rules — correctness checks + deviations', () => {
   it('no-recursion flags a direct self-call (WGSL has no recursion)', () => {
@@ -33,5 +34,28 @@ describe('lint rules — correctness checks + deviations', () => {
   it('a clean fn produces no diagnostics', () => {
     const m = module({ funcs: [fn('ok', { x: f32T }, f32T, (_b, { x }) => x.mul(2))] })
     expect(ruleIds(m)).toEqual([])
+  })
+
+  it('no-float-eq flags exact float equality (warning)', () => {
+    const m = module({ funcs: [fn('cmp', { x: f32T }, boolT, (_b, { x }) => x.eq(f32(0)))] })
+    expect(ruleIds(m)).toContain('no-float-eq')
+  })
+
+  it('cyclomatic-complexity fires past the configured threshold', () => {
+    const m = module({
+      funcs: [fn('branchy', { x: f32T }, f32T, (b, { x }) => {
+        b.if(x.gt(f32(0)), () => {})
+        b.if(x.lt(f32(0)), () => {})
+        b.ret(x)
+      })],
+    })
+    expect(ruleIds(m, { options: { 'cyclomatic-complexity': { max: 1 } } })).toContain('cyclomatic-complexity')
+    expect(ruleIds(m, { options: { 'cyclomatic-complexity': { max: 99 } } })).not.toContain('cyclomatic-complexity')
+  })
+
+  it('param-count fires past the configured threshold', () => {
+    const m = module({ funcs: [fn('wide', { a: f32T, b: f32T, c: f32T }, f32T, (_b, { a }) => a)] })
+    expect(ruleIds(m, { options: { 'param-count': { max: 2 } } })).toContain('param-count')
+    expect(ruleIds(m, { options: { 'param-count': { max: 6 } } })).not.toContain('param-count')
   })
 })
