@@ -99,13 +99,21 @@ export class Builder {
   /** C-style for: `for (var name = init; name <cond>; name = name+step)`.
    *  A numeric / omitted step is typed to the loop var's scalar so a u32/i32
    *  counter emits `i + 1u` / `i + 1` (not `i + 1.0`, which naga/tint reject). */
+  forRange<K extends string>(init: Node<K>, cond: (i: Node<K>) => Node<'bool'>, body: (b: Builder, i: Node<K>) => Node | void, step?: Node<ScalarKey> | number): void
+  forRange<K extends string>(name: string, init: Node<K>, cond: (i: Node<K>) => Node<'bool'>, body: (b: Builder, i: Node<K>) => Node | void, step?: Node<ScalarKey> | number): void
   forRange<K extends string>(
-    name: string,
-    init: Node<K>,
-    cond: (i: Node<K>) => Node<'bool'>,
-    body: (b: Builder, i: Node<K>) => Node | void,
-    step?: Node<ScalarKey> | number,
+    a: string | Node<K>,
+    b: Node<K> | ((i: Node<K>) => Node<'bool'>),
+    c: ((i: Node<K>) => Node<'bool'>) | ((b: Builder, i: Node<K>) => Node | void),
+    d?: ((b: Builder, i: Node<K>) => Node | void) | Node<ScalarKey> | number,
+    e?: Node<ScalarKey> | number,
   ): void {
+    const named = typeof a === 'string'
+    const name = named ? a : this.autoName()
+    const init = (named ? b : a) as Node<K>
+    const cond = (named ? c : b) as (i: Node<K>) => Node<'bool'>
+    const body = (named ? d : c) as (b: Builder, i: Node<K>) => Node | void
+    const step = (named ? e : d) as Node<ScalarKey> | number | undefined
     const i = new Node<K>({ op: 'varref', type: init.type, name })
     const litOf = (v: number): Node => {
       if (init.type.kind === 'scalar' && init.type.scalar === 'u32') return u32(v)
@@ -366,29 +374,37 @@ export const Discard = (): void => currentBuilder().discard()
 export const If = (cond: Node<'bool'>, body: () => Node | void): IfChain => currentBuilder().if(cond, () => body())
 
 /** C-style for over the innermost scope; the body receives the typed counter Node. */
-export const Loop = <K extends string>(
-  name: string,
-  init: Node<K>,
-  cond: (i: Node<K>) => Node<'bool'>,
-  body: (i: Node<K>) => Node | void,
-  step?: Node<ScalarKey> | number,
-): void => currentBuilder().forRange(name, init, cond, (_b, i) => body(i), step)
+export function Loop<K extends string>(init: Node<K>, cond: (i: Node<K>) => Node<'bool'>, body: (i: Node<K>) => Node | void, step?: Node<ScalarKey> | number): void
+export function Loop<K extends string>(name: string, init: Node<K>, cond: (i: Node<K>) => Node<'bool'>, body: (i: Node<K>) => Node | void, step?: Node<ScalarKey> | number): void
+export function Loop<K extends string>(
+  a: string | Node<K>,
+  b: Node<K> | ((i: Node<K>) => Node<'bool'>),
+  c: ((i: Node<K>) => Node<'bool'>) | ((i: Node<K>) => Node | void),
+  d?: ((i: Node<K>) => Node | void) | Node<ScalarKey> | number,
+  e?: Node<ScalarKey> | number,
+): void {
+  const named = typeof a === 'string'
+  const init = (named ? b : a) as Node<K>
+  const cond = (named ? c : b) as (i: Node<K>) => Node<'bool'>
+  const body = (named ? d : c) as (i: Node<K>) => Node | void
+  const step = (named ? e : d) as Node<ScalarKey> | number | undefined
+  if (named) currentBuilder().forRange(a as string, init, cond, (_b, i) => body(i), step)
+  else currentBuilder().forRange(init, cond, (_b, i) => body(i), step)
+}
 
 /** Immutable fold over a C-style loop — the functional spelling of the `var acc = init; for
  *  (...) { acc = f(acc, i) }` accumulator. The body RETURNS the next accumulator value (no
  *  `Var` + `assign` at the call site); reduce materialises the var + loop + assign internally,
  *  so the emit is byte-identical. Returns the accumulator Node for use after the loop. */
 export function reduce<K extends string, J extends string>(
-  name: string,
   init: Node<K>,
-  loopVar: string,
   loopInit: Node<J>,
   cond: (i: Node<J>) => Node<'bool'>,
   body: (acc: Node<K>, i: Node<J>) => Node<K>,
   step?: Node<ScalarKey> | number,
 ): Node<K> {
-  const acc = currentBuilder().var(name, init.type, init) as Node<K>
-  currentBuilder().forRange(loopVar, loopInit, cond, (_b, i) => {
+  const acc = currentBuilder().var(init.type, init) as Node<K>
+  currentBuilder().forRange(loopInit, cond, (_b, i) => {
     currentBuilder().assign(acc, body(acc, i))
   }, step)
   return acc
@@ -399,13 +415,12 @@ export function reduce<K extends string, J extends string>(
  *  the var + if/else internally, so the emit is byte-identical (it does NOT lower to `select`, which
  *  would change the WGSL). Use for a branch-INITIALISED value, not for genuine multi-step mutation. */
 export function ifExpr<T extends ShaderType>(
-  name: string,
   type: T,
   cond: Node<'bool'>,
   thenVal: () => Node<KeyOf<T>>,
   elseVal: () => Node<KeyOf<T>>,
 ): Node<KeyOf<T>> {
-  const v = currentBuilder().var(name, type) as Node<KeyOf<T>>
+  const v = currentBuilder().var(type) as Node<KeyOf<T>>
   currentBuilder().if(cond, () => currentBuilder().assign(v, thenVal()))
     .else(() => currentBuilder().assign(v, elseVal()))
   return v
@@ -416,12 +431,11 @@ export function ifExpr<T extends ShaderType>(
  *  return); the materialised var + if/elif/else chain is byte-identical to the hand form. The
  *  2-arm `ifExpr` is the single-arm case of this. */
 export function condExpr<T extends ShaderType>(
-  name: string,
   type: T,
   arms: ReadonlyArray<readonly [Node<'bool'>, () => Node<KeyOf<T>>]>,
   elseVal: () => Node<KeyOf<T>>,
 ): Node<KeyOf<T>> {
-  const v = currentBuilder().var(name, type) as Node<KeyOf<T>>
+  const v = currentBuilder().var(type) as Node<KeyOf<T>>
   let chain = currentBuilder().if(arms[0][0], () => currentBuilder().assign(v, arms[0][1]()))
   for (let k = 1; k < arms.length; k++) {
     chain = chain.elif(arms[k][0], () => currentBuilder().assign(v, arms[k][1]()))

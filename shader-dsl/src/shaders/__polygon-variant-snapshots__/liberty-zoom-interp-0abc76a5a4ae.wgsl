@@ -1,4 +1,4 @@
-// baseline: 4d27379137fb3a7957104cea176dc13b06bf8329
+// baseline: ea63f3a8a548530d61e15e4611ac8b8a40ed5889
 // fixture: liberty-zoom-interp
 // variant.key: liberty-zoom-interp
 // pick: false
@@ -197,20 +197,20 @@ fn project_geom(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>, ref_lon: f32
   let _cse1 = (((floor((((ref_lon - proj_params.y) + 180.0) / 360.0)) * 2.0) * PI) * EARTH_R);
   let _cse2 = oblique_rot((lon_deg - (floor((((ref_lon - proj_params.y) + 180.0) / 360.0)) * 360.0)), lat_deg, proj_params.y, proj_params.z);
   if (((proj_params.x > 0.5) && (proj_params.x < 2.5))) {
-    var p: vec2<f32>;
+    var _v0: vec2<f32>;
     if ((proj_params.x < 1.5)) {
-      p = proj_equirectangular_d((unwrap_lon_near_keep(((lon_deg - (floor((((ref_lon - proj_params.y) + 180.0) / 360.0)) * 360.0)) - (ref_lon - (floor((((ref_lon - proj_params.y) + 180.0) / 360.0)) * 360.0))), 0.0, sign((lon_deg - (floor((((ref_lon - proj_params.y) + 180.0) / 360.0)) * 360.0)))) + wrap_lon_delta(((ref_lon - (floor((((ref_lon - proj_params.y) + 180.0) / 360.0)) * 360.0)) - proj_params.y))), lat_deg);
+      _v0 = proj_equirectangular_d((unwrap_lon_near_keep(((lon_deg - (floor((((ref_lon - proj_params.y) + 180.0) / 360.0)) * 360.0)) - (ref_lon - (floor((((ref_lon - proj_params.y) + 180.0) / 360.0)) * 360.0))), 0.0, sign((lon_deg - (floor((((ref_lon - proj_params.y) + 180.0) / 360.0)) * 360.0)))) + wrap_lon_delta(((ref_lon - (floor((((ref_lon - proj_params.y) + 180.0) / 360.0)) * 360.0)) - proj_params.y))), lat_deg);
     } else {
-      p = proj_natural_earth_d(_cse0, lat_deg);
-      p.x = (p.x + (((floor(((((unwrap_lon_near_keep(((lon_deg - (floor((((ref_lon - proj_params.y) + 180.0) / 360.0)) * 360.0)) - (ref_lon - (floor((((ref_lon - proj_params.y) + 180.0) / 360.0)) * 360.0))), 0.0, sign((lon_deg - (floor((((ref_lon - proj_params.y) + 180.0) / 360.0)) * 360.0)))) + wrap_lon_delta(((ref_lon - (floor((((ref_lon - proj_params.y) + 180.0) / 360.0)) * 360.0)) - proj_params.y))) - _cse0) / 360.0) + 0.5)) * 2.0) * PI) * EARTH_R));
+      _v0 = proj_natural_earth_d(_cse0, lat_deg);
+      _v0.x = (_v0.x + (((floor(((((unwrap_lon_near_keep(((lon_deg - (floor((((ref_lon - proj_params.y) + 180.0) / 360.0)) * 360.0)) - (ref_lon - (floor((((ref_lon - proj_params.y) + 180.0) / 360.0)) * 360.0))), 0.0, sign((lon_deg - (floor((((ref_lon - proj_params.y) + 180.0) / 360.0)) * 360.0)))) + wrap_lon_delta(((ref_lon - (floor((((ref_lon - proj_params.y) + 180.0) / 360.0)) * 360.0)) - proj_params.y))) - _cse0) / 360.0) + 0.5)) * 2.0) * PI) * EARTH_R));
     }
-    p.x = (p.x + _cse1);
-    return p;
+    _v0.x = (_v0.x + _cse1);
+    return _v0;
   }
   if ((proj_params.x > 5.5)) {
-    var p: vec2<f32> = proj_oblique_mercator_d(unwrap_rad_near(_cse2.x, oblique_rot((ref_lon - (floor((((ref_lon - proj_params.y) + 180.0) / 360.0)) * 360.0)), proj_params.z, proj_params.y, proj_params.z).x), _cse2.y);
-    p.x = (p.x + _cse1);
-    return p;
+    var _v1: vec2<f32> = proj_oblique_mercator_d(unwrap_rad_near(_cse2.x, oblique_rot((ref_lon - (floor((((ref_lon - proj_params.y) + 180.0) / 360.0)) * 360.0)), proj_params.z, proj_params.y, proj_params.z).x), _cse2.y);
+    _v1.x = (_v1.x + _cse1);
+    return _v1;
   }
   return project(lon_deg, lat_deg, proj_params);
 }
@@ -335,8 +335,8 @@ fn vs_main_ecef_extruded(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u3
   if (((abs(face_normal.z) < 0.5) && (u.cam_ecef_off_l.w != 0.0))) {
     _av1 = (_av1 * clamp((is_top * sqrt((max(wall_height, 1.0) / 150.0))), mix(0.7, 0.98, _cse3), 1.0));
   }
-  let shaded_rgb = clamp((((u.fill_color.rgb + vec3<f32>(0.03)) * _av1) * unpack4x8unorm(u.light_color_packed).xyz), vec3<f32>(0.0), vec3<f32>(1.0));
-  return VertexOutput(vec4<f32>(apply_log_depth(_av0, u.log_depth_fc).x, apply_log_depth(_av0, u.log_depth_fc).y, (apply_log_depth(_av0, u.log_depth_fc).z - (u.layer_depth_offset * apply_log_depth(_av0, u.log_depth_fc).w)), apply_log_depth(_av0, u.log_depth_fc).w), 0.0, u32(feature_id), _cse4, _av0.w, is_top, ((abs_lon * DEG2RAD) * EARTH_R), (log(tan(((PI / 4.0) + ((_cse4 * DEG2RAD) / 2.0)))) * EARTH_R), _cse1, vec4<f32>(shaded_rgb, u.fill_color.w));
+  let _v0 = clamp((((u.fill_color.rgb + vec3<f32>(0.03)) * _av1) * unpack4x8unorm(u.light_color_packed).xyz), vec3<f32>(0.0), vec3<f32>(1.0));
+  return VertexOutput(vec4<f32>(apply_log_depth(_av0, u.log_depth_fc).x, apply_log_depth(_av0, u.log_depth_fc).y, (apply_log_depth(_av0, u.log_depth_fc).z - (u.layer_depth_offset * apply_log_depth(_av0, u.log_depth_fc).w)), apply_log_depth(_av0, u.log_depth_fc).w), 0.0, u32(feature_id), _cse4, _av0.w, is_top, ((abs_lon * DEG2RAD) * EARTH_R), (log(tan(((PI / 4.0) + ((_cse4 * DEG2RAD) / 2.0)))) * EARTH_R), _cse1, vec4<f32>(_v0, u.fill_color.w));
 }
 
 @fragment

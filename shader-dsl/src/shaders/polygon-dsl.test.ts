@@ -130,9 +130,9 @@ describe('emitPolygonWgsl — skeleton', () => {
   it('fs_fill pick attachment write is conditional on pickEnabled', () => {
     const wgslOff = emitPolygonWgsl(null, false)
     const wgslOn = emitPolygonWgsl(null, true)
-    // pick write touches out.pick — only present when pickEnabled.
-    expect(wgslOff).not.toContain('out.pick')
-    expect(wgslOn).toContain('out.pick')
+    // pick write touches the out var's .pick field (out is auto-named _vN now) — only when pickEnabled.
+    expect(wgslOff).not.toMatch(/\w+\.pick\b/)
+    expect(wgslOn).toMatch(/\w+\.pick\b/)
   })
 
   it('emits vs_main_ecef_extruded vertex entry with iter-194 per-vertex lighting', () => {
@@ -455,8 +455,8 @@ describe('emitPolygonWgsl — skeleton', () => {
     }
     const wgsl = emitPolygonWgsl(variant, true) // pickEnabled
     // All three composition axes appear in the output.
-    expect(wgsl).toContain('out.pick')               // pick attachment write
-    expect(wgsl).toMatch(/out\.color\s*=\s*vec4<f32>\(0\.5,\s*0\.5/)  // variant fillExpr
+    expect(wgsl).toMatch(/\w+\.pick\b/)               // pick attachment write (out is auto-named _vN)
+    expect(wgsl).toMatch(/\w+\.color\s*=\s*vec4<f32>\(0\.5,\s*0\.5/)  // variant fillExpr
     expect(wgsl).toMatch(/@group\(0\)\s*@binding\(1\).*feat_data/)    // feat_data binding
   })
 

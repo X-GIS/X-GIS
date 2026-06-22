@@ -335,7 +335,7 @@ const project_geom = fn('project_geom', LLPR_PARAMS, vec2fT, ({ lon_deg, lat_deg
     const lon_rel_ref = unwrap_lon_near_keep(lon_primary.sub(ref_primary), f32(0), sign(lon_primary))
     const d = lon_rel_ref.add(ref_d)
     const world_off_m = wo.mul(2).mul(PI).mul(EARTH_R)
-    const p = Var('p', vec2fT)
+    const p = Var(vec2fT)
     If(t.lt(1.5), () => { assign(p, proj_equirectangular_d(d, lat_deg)) })
       .else(() => {
         // NE-lobe wrap (antimeridian black-wedge fix): proj_natural_earth_d's
@@ -363,7 +363,7 @@ const project_geom = fn('project_geom', LLPR_PARAMS, vec2fT, ({ lon_deg, lat_deg
     const r = oblique_rot(lon_primary, lat_deg, clon, clat)
     const ref_r = oblique_rot(ref_primary, clat, clon, clat)
     const lam_u = unwrap_rad_near(r.x, ref_r.x)
-    const p = Var('p', vec2fT, proj_oblique_mercator_d(lam_u, r.y))
+    const p = Var(vec2fT, proj_oblique_mercator_d(lam_u, r.y))
     assign(p.x, p.x.add(wo.mul(2).mul(PI).mul(EARTH_R)))
     Return(p)
   })
@@ -407,7 +407,7 @@ const project_geom_cpu = fn('project_geom_cpu', LLPR_PARAMS, vec2fT, ({ lon_deg,
         // equirect is linear and keeps the shared d path.
         const dw = wrap_lon_delta(d)
         const k = floor(d.sub(dw).div(360).add(0.5))
-        const p = Var('p', vec2fT, proj_natural_earth_d(dw, lat_deg))
+        const p = Var(vec2fT, proj_natural_earth_d(dw, lat_deg))
         assign(p.x, p.x.add(k.mul(2).mul(PI).mul(EARTH_R)))
         Return(p)
       })

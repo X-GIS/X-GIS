@@ -137,7 +137,7 @@ const distToLine = fn('dist_to_line', { p: vec2fT, a: vec2fT, b: vec2fT }, f32T,
 })
 
 const distToQuadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT }, f32T, (pp) =>
-  reduce('best_d', f32(1e10), 'i', u32(0), (i) => i.le(u32(16)), (best, i) => {
+  reduce(f32(1e10), u32(0), (i) => i.le(u32(16)), (best, i) => {
     const t = toF32(i).div(16)
     const ab = mix(pp.a, pp.b, t)
     const bc = mix(pp.b, pp.c, t)
@@ -147,7 +147,7 @@ const distToQuadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2f
 )
 
 const distToCubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT, d: vec2fT }, f32T, (pp) =>
-  reduce('best_d', f32(1e10), 'i', u32(0), (i) => i.le(u32(24)), (best, i) => {
+  reduce(f32(1e10), u32(0), (i) => i.le(u32(24)), (best, i) => {
     const t = toF32(i).div(24)
     const ab = mix(pp.a, pp.b, t)
     const bc = mix(pp.b, pp.c, t)
@@ -186,7 +186,7 @@ const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (pp) =
   const segCount = sd.seg_count
   // Hard-cap at 32 segments per shape (paste from original).
   const end = min(segStart.add(segCount), segStart.add(u32(32)))
-  Loop('i', segStart, (i) => i.lt(end), (i) => {
+  Loop(segStart, (i) => i.lt(end), (i) => {
     const sg = segmentsB.at(i)
     const p0 = sg.p0
     const p1 = sg.p1
@@ -235,7 +235,7 @@ const vs = fn('vs_point', {
   const sizeMode = packed10.shr(u32(4)).bitAnd(u32(0xF))
   // Size mode: 0=px, 1=m, 2=km, 3=deg (equator approx), 4=nm.
   const viewport = U.field.viewport
-  const radiusPx = condExpr('radius_px', f32T, [
+  const radiusPx = condExpr(f32T, [
     [sizeMode.eq(u32(1)), () => rawRadius.div(viewport.z)],
     [sizeMode.eq(u32(2)), () => rawRadius.mul(1000).div(viewport.z)],
     [sizeMode.eq(u32(3)), () => rawRadius.mul(111320).div(viewport.z)],
@@ -273,7 +273,7 @@ const vs = fn('vs_point', {
   // ECEF lanes are dead on the flat path. u.mvp is the matching matrix
   // (Camera.getViewForProjection). Quad expansion below consumes centerClip
   // identically for both paths.
-  const centerClip = condExpr('center_clip', vec4fT, [
+  const centerClip = condExpr(vec4fT, [
     [U.field.proj_params.x.lt(0.5), () => {
     // Precise absolute Mercator DSFUN (slots 20-23), camera-recentered in DSFUN
     // space — `(mx_h−camH)+(mx_l−camL)` — exactly like ecef_rtc. The old path
@@ -327,16 +327,16 @@ const vs = fn('vs_point', {
   // screen centre, <1 toward the horizon. Guard clip.w>0 to avoid div blow-up.
   If(U.field.circle_params.w.gt(f32(0.5)), () => {
     const wRef = mvp.at(u32(3), vec4fT).w
-    const wPt = Let('w_pt', max(centerClip.w, f32(1e-4)))
+    const wPt = Let(max(centerClip.w, f32(1e-4)))
     assign(radiusPx, radiusPx.mul(wRef.div(wPt)))
   })
 
   // bit 3 of packed10 = flat-quad mode.
   const isFlat = packed10.bitAnd(u32(8)).ne(u32(0))
   assign(radiusPx, max(radiusPx, f32(1)))
-  const expand = Let('expand', radiusPx.add(2))
+  const expand = Let(radiusPx.add(2))
 
-  const out = Var('out', PointOut.type)
+  const out = Var(PointOut.type)
   const o = PointOut.of(out)
   // All four corners share the centre's view_w (point markers occupy a
   // near-zero depth range; per-corner depth divergence would over-strict
@@ -359,9 +359,9 @@ const vs = fn('vs_point', {
       .elif(anchorMode.eq(u32(2)), () => { assign(yShiftPx, expand.neg()) })
     const pxToNdc = vec2(f32(2).div(viewport.x), f32(2).div(viewport.y))
     const offXY = offsets.at(p.quad_id, vec2fT)
-    const offsetPx = Let('offset_px', vec2(offXY.x.mul(expand), offXY.y.mul(expand).add(yShiftPx)))
+    const offsetPx = Let(vec2(offXY.x.mul(expand), offXY.y.mul(expand).add(yShiftPx)))
     const offsetNdc = offsetPx.mul(pxToNdc)
-    const flatClip = Let('flat_clip', centerClip.add(vec4(offsetNdc.mul(centerClip.w), f32(0), f32(0))))
+    const flatClip = Let(centerClip.add(vec4(offsetNdc.mul(centerClip.w), f32(0), f32(0))))
     assign(o.position, apply_log_depth(flatClip, fc))
     assign(o.uv, offXY)
   }).else(() => {
@@ -374,9 +374,9 @@ const vs = fn('vs_point', {
       .elif(anchorMode.eq(u32(2)), () => { assign(yShiftPx, expand.neg()) })
     const pxToNdc = vec2(f32(2).div(viewport.x), f32(2).div(viewport.y))
     const offXY = offsets.at(p.quad_id, vec2fT)
-    const offsetPx = Let('offset_px', vec2(offXY.x.mul(expand), offXY.y.mul(expand).add(yShiftPx)))
+    const offsetPx = Let(vec2(offXY.x.mul(expand), offXY.y.mul(expand).add(yShiftPx)))
     const offsetNdc = offsetPx.mul(pxToNdc)
-    const billboardClip = Let('billboard_clip', centerClip.add(vec4(offsetNdc.mul(centerClip.w), f32(0), f32(0))))
+    const billboardClip = Let(centerClip.add(vec4(offsetNdc.mul(centerClip.w), f32(0), f32(0))))
     assign(o.position, apply_log_depth(billboardClip, fc))
     // UV stays centered so the SDF shape renders unchanged; only the on-
     // screen placement is shifted.
@@ -401,14 +401,14 @@ const fs = fn('fs_point', { in: PointOut.type }, PointFragmentOutput.type, (p) =
   // MUST stay an explicit Let: fwidth is a derivative and WGSL requires it be evaluated in
   // UNIFORM control flow. Inlining it would re-emit fwidth() inside the per-flag fill/stroke
   // `if` branches (non-uniform) → "fwidth must only be called from uniform control flow".
-  const aa = Let('aa', fwidth(length(pin.uv)).mul(1.5))
+  const aa = Let(fwidth(length(pin.uv)).mul(1.5))
   // circle-blur: widen the AA band by blur_px converted to UV units.
   // blur_uv = blur_px / radius_px. Default 0 → band unchanged (no-op).
   const blurPx = U.field.circle_params.z
   const blurUv = blurPx.div(max(pin.radius_px, f32(1)))
   const halfBand = aa.add(blurUv)
 
-  const dist = ifExpr('dist', f32T, shapeId.eq(u32(0)),
+  const dist = ifExpr(f32T, shapeId.eq(u32(0)),
     () => length(pin.uv),   // analytical circle (fast path)
     () => sdfShape(pin.uv, shapeId.sub(u32(1))),
   )
@@ -436,14 +436,14 @@ const fs = fn('fs_point', { in: PointOut.type }, PointFragmentOutput.type, (p) =
 
   // Fill (bit 0).
   If(flags.bitAnd(u32(1)).ne(u32(0)), () => {
-    const fillAlpha = Let('fill_alpha', f32(1).sub(smoothstep(f32(1).sub(halfBand), f32(1).add(halfBand), dist)))
+    const fillAlpha = Let(f32(1).sub(smoothstep(f32(1).sub(halfBand), f32(1).add(halfBand), dist)))
     assign(color, vec4(fillColor.rgb, fillColor.a.mul(fillAlpha)))
   })
 
   // Stroke (bit 1).
   If(flags.bitAnd(u32(2)).ne(u32(0)), () => {
     const inner = f32(1).sub(strokeW)
-    const strokeAlpha = Let('stroke_alpha',
+    const strokeAlpha = Let(
       smoothstep(inner.sub(aa), inner.add(aa), dist)
         .mul(f32(1).sub(smoothstep(f32(1).sub(halfBand), f32(1).add(halfBand), dist))),
     )
@@ -452,7 +452,7 @@ const fs = fn('fs_point', { in: PointOut.type }, PointFragmentOutput.type, (p) =
 
   // Glow (bit 2).
   If(flags.bitAnd(u32(4)).ne(u32(0)), () => {
-    const glow = Let('glow', exp(dist.mul(dist).mul(-2)).mul(0.4))
+    const glow = Let(exp(dist.mul(dist).mul(-2)).mul(0.4))
     assignOp(color, '+', vec4(fillColor.rgb.mul(glow), glow))
   })
 

@@ -68,7 +68,7 @@ export function matchComputeKernel(spec: MatchKernelSpec): ModuleDecl {
     const fid = gid.x
     If(fid.ge(uCount.x), () => { Return() })
     const v = featData.at(fid, f32T)
-    const color = Var('color', vec4fT)
+    const color = Var(vec4fT)
 
     // Parameterized if-else ladder — one arm per sorted pattern.
     const chain = If(v.eq(f32(0)), () => {

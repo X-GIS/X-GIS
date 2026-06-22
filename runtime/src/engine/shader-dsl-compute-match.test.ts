@@ -62,7 +62,7 @@ describe('PoC-C: parameterized match kernel ↔ compute-gen (2 distinct arm coun
         '@group(0) @binding(2) var<uniform> u_count: vec4<u32>;',
         '@compute @workgroup_size(64)',
         'fn eval_match(@builtin(global_invocation_id) gid: vec3<u32>)',
-        'pack4x8unorm(color)',
+        'pack4x8unorm(', // colour var is auto-named (_vN) in the DSL emit — pin the pack call, not the name
       ]) {
         expect(dsl, `dsl missing ${line}`).toContain(line)
         expect(ref, `ref missing ${line}`).toContain(line)

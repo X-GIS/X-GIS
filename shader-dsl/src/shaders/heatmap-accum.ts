@@ -99,7 +99,7 @@ const vs = fn('vs_heatmap', {
   const absLat = featData.at(fid.mul(STRIDE).add(u32(18)), f32T)
 
   // Three-way projType branch — faithful clone of the point VS.
-  const centerClip = condExpr('center_clip', vec4fT, [
+  const centerClip = condExpr(vec4fT, [
     [U.field.proj_params.x.lt(0.5), () => {
       // Flat Mercator: precise absolute-Mercator DSFUN tail (slots 20..23),
       // camera-recentered in DSFUN space.
@@ -127,7 +127,7 @@ const vs = fn('vs_heatmap', {
   const pxToNdc = vec2(f32(2).div(viewport.x), f32(2).div(viewport.y))
   const offsetPx = vec2(offXY.x.mul(radiusPx), offXY.y.mul(radiusPx))
   const offsetNdc = offsetPx.mul(pxToNdc)
-  const quadClip = Let('quad_clip', centerClip.add(vec4(offsetNdc.mul(centerClip.w), f32(0), f32(0))))
+  const quadClip = Let(centerClip.add(vec4(offsetNdc.mul(centerClip.w), f32(0), f32(0))))
 
   return HeatOut.construct({ position: quadClip, uv: offXY, weight })
 }, { stage: 'vertex' })

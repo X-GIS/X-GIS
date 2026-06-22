@@ -48,7 +48,7 @@ export const dist_to_segment = fn('dist_to_segment', { p: vec2fT, a: vec2fT, b: 
 
 export const dist_to_quadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT }, f32T, ({ p, a, b, c }) => {
   const STEPS = u32(16)
-  return reduce('best_d', f32(1e10), 'i', u32(0), (i) => i.le(STEPS), (best, i) => {
+  return reduce(f32(1e10), u32(0), (i) => i.le(STEPS), (best, i) => {
     const t = toF32(i).div(toF32(STEPS))
     const ab = mix(a, b, t)
     const bc = mix(b, c, t)
@@ -59,7 +59,7 @@ export const dist_to_quadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT,
 
 export const dist_to_cubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT, d: vec2fT }, f32T, ({ p, a, b, c, d }) => {
   const STEPS = u32(24)
-  return reduce('best_d', f32(1e10), 'i', u32(0), (i) => i.le(STEPS), (best, i) => {
+  return reduce(f32(1e10), u32(0), (i) => i.le(STEPS), (best, i) => {
     const t = toF32(i).div(toF32(STEPS))
     const ab = mix(a, b, t)
     const bc = mix(b, c, t)
@@ -97,7 +97,7 @@ const sdf_shape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, ({ uv
   const winding = i32(0)
   const end = min(s.seg_start.add(s.seg_count), s.seg_start.add(u32(32)))
 
-  Loop('i', s.seg_start, (i) => i.lt(end), (i) => {
+  Loop(s.seg_start, (i) => i.lt(end), (i) => {
     const seg = segmentsB.at(i)
     Switch(seg.kind, [
       [0, () => {
