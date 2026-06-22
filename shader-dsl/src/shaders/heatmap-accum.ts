@@ -35,7 +35,7 @@ import {
 } from '../core/ir'
 import { ioStruct, builtin, location, uniformStruct, storageBuffer } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
-import { getProjectionWgslConsts, getProjectionWgslFns, flat_rel } from './projections'
+import { flat_rel, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
 
 const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
   // ECEF-MVP (Camera.getECEFFrameView) for globe / 3D; the matching
@@ -155,19 +155,20 @@ const fs = entryFn('fs_heatmap', 'fragment', [{ name: 'in', type: HeatOut.type }
   return vec4(density, f32(0), f32(0), f32(1))
 }, '@location(0)')
 
-const HEATMAP_ACCUM_MODULE: ModuleDecl = module({
+// A build-fn (not a top-level const) so the injection-deferred getGpuProjectionFuncs() is
+// gathered at emit time, post-configureProjections().
+const buildHeatmapAccumModule = (): ModuleDecl => module({
+  // Shared projection constants merged in (was the getProjectionWgslConsts() string prepend).
+  consts: [...PROJECTION_CONSTS],
   structs: [U.struct, HeatOut.decl],
   bindings: [
     U.binding,
     featDataB.binding,
   ],
-  funcs: [vs, fs],
+  // Projection fn decls lead (was the getProjectionWgslFns() prepend), then the accum funcs.
+  funcs: [...getGpuProjectionFuncs(), vs, fs],
 })
 
-/** Full heatmap accumulation shader: shared projection consts + fns, then
- *  the accum module (Uniforms + feat_data storage + vs_heatmap/fs_heatmap). */
-export const emitHeatmapAccumWgsl = (): string => [
-  getProjectionWgslConsts(),
-  getProjectionWgslFns(),
-  emitModule(HEATMAP_ACCUM_MODULE),
-].join('\n')
+/** Full heatmap accumulation shader: one module — shared projection consts + fns merged
+ *  ahead of the accum module (Uniforms + feat_data storage + vs_heatmap/fs_heatmap). */
+export const emitHeatmapAccumWgsl = (): string => emitModule(buildHeatmapAccumModule())
