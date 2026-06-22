@@ -98,7 +98,7 @@ const BUILTINS: Record<string, Builtin> = {
   min: (a, b) => (isArr(a) || isArr(b) ? applyMinMax(Math.min, a, b) : Math.min(a as number, b as number)),
   max: (a, b) => (isArr(a) || isArr(b) ? applyMinMax(Math.max, a, b) : Math.max(a as number, b as number)),
   // clamp ordering mirrors projection-wgsl-mirror.ts: max(lo, min(hi, x)).
-  clamp: (x, lo, hi) => clampVal(x, lo as number, hi as number),
+  clamp: (x, lo, hi) => clampVal(x, lo, hi),
   mix: (a, b, t) => mixVal(a, b, t as number),
   smoothstep: (e0, e1, x) => {
     const t = clampVal((x as number - (e0 as number)) / ((e1 as number) - (e0 as number)), 0, 1) as number
@@ -129,8 +129,16 @@ function applyMinMax(f: (a: number, b: number) => number, a: CpuValue, b: CpuVal
   if (isArr(a)) return a.map((x) => f(x as number, b as number))
   return (b as number[]).map((y) => f(a as number, y as number))
 }
-function clampVal(x: CpuValue, lo: number, hi: number): CpuValue {
-  return isArr(x) ? x.map((v) => Math.max(lo, Math.min(hi, v as number))) : Math.max(lo, Math.min(hi, x as number))
+function clampVal(x: CpuValue, lo: CpuValue, hi: CpuValue): CpuValue {
+  // Component-wise — lo/hi may be scalars (broadcast) or per-component vectors.
+  if (isArr(x)) {
+    const loA = isArr(lo) ? (lo as number[]) : null
+    const hiA = isArr(hi) ? (hi as number[]) : null
+    return (x as number[]).map((v, i) =>
+      Math.max(loA ? (loA[i] as number) : (lo as number), Math.min(hiA ? (hiA[i] as number) : (hi as number), v as number)),
+    )
+  }
+  return Math.max(lo as number, Math.min(hi as number, x as number))
 }
 function mixVal(a: CpuValue, b: CpuValue, t: number): CpuValue {
   if (isArr(a) && isArr(b)) return a.map((x, i) => (x as number) + ((b[i] as number) - (x as number)) * t)
@@ -229,6 +237,8 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
         if (isArr(v)) out.push(...(v as number[]))
         else out.push(v as number)
       }
+      // WGSL splat: vecN<T>(singleScalar) fills all N components (e.g. vec3(0.5) = [0.5,0.5,0.5]).
+      if (e.type.kind === 'vec' && out.length === 1) return new Array(e.type.n as number).fill(out[0])
       return out
     }
     case 'select': {
