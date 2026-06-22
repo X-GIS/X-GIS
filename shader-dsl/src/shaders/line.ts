@@ -353,7 +353,7 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
   // Segment direction / normal in tile-local meters.
   const segVec = p1.sub(p0)
   const segLen = length(segVec)
-  const dir = ifExpr(vec2fT, segLen.lt(1e-6), () => vec2(f32(1), f32(0)), () => segVec.div(segLen))
+  const dir = ifExpr(segLen.lt(1e-6), () => vec2(f32(1), f32(0)), () => segVec.div(segLen))
 
   // Per-segment width override falls through to layer.width_px when 0.
   const layerWidthPx = LAYER.field.width_px
@@ -690,7 +690,7 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
 
       // START / END / CENTER — single instance.
       const lineLength = sego.line_length
-      const centerArc = condExpr(f32T, [
+      const centerArc = condExpr([
         [anchor.eq(u32(1)), () => startM],
         [anchor.eq(u32(2)), () => lineLength.sub(startM)],
       ], () => lineLength.mul(0.5))
@@ -747,7 +747,7 @@ const vsLine = fn('vs_line', {
 
   const segVec = p1.sub(p0)
   const segLen = length(segVec)
-  const dir = ifExpr(vec2fT, segLen.lt(1e-6), () => vec2(f32(1), f32(0)), () => segVec.div(segLen))
+  const dir = ifExpr(segLen.lt(1e-6), () => vec2(f32(1), f32(0)), () => segVec.div(segLen))
   const nrm = Let(vec2(dir.y.neg(), dir.x))
 
   const layerWidthPx = LAYER.field.width_px

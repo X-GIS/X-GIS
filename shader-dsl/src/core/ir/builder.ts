@@ -65,6 +65,21 @@ export class Builder {
     return new Node<KeyOf<T>>({ op: 'varref', type, name })
   }
 
+  /** A `var` whose WGSL type is filled in AFTER its branch-assignments are authored — used by
+   *  ifExpr/condExpr, where the type is the arms' value type (so the caller writes no type token).
+   *  Returns the auto-named varref factory (typed once known) + a `commit(type)` that patches the
+   *  emitted decl. The Stmt is pushed NOW (before the branches), patched before the build returns,
+   *  so the emit always sees a fully-typed var — the typeless window is internal + synchronous. */
+  inferredVar(): { ref: (type: ShaderType) => Node; commit: (type: ShaderType) => void } {
+    const name = this.autoName()
+    const stmt = { s: 'var' as const, name, type: undefined as unknown as ShaderType, init: undefined }
+    this.push(stmt as Stmt)
+    return {
+      ref: (type) => new Node({ op: 'varref', type, name }),
+      commit: (type) => { stmt.type = type },
+    }
+  }
+
   assign<K extends string>(target: Node<K>, value: Node<K>): void {
     this.push({ s: 'assign', target: target.expr, expr: value.expr })
   }
@@ -348,12 +363,15 @@ export function Let<K extends string>(name: string, value: Node<K>): Node<K>
 export function Let<K extends string>(nameOrValue: string | Node<K>, maybeValue?: Node<K>): Node<K> {
   return typeof nameOrValue === 'string' ? currentBuilder().let(nameOrValue, maybeValue!) : currentBuilder().let(nameOrValue)
 }
+export function Var<K extends string>(init: Node<K>): Node<K>
 export function Var<T extends ShaderType>(type: T, init?: Node<KeyOf<T>>): Node<KeyOf<T>>
 export function Var<T extends ShaderType>(name: string, type: T, init?: Node<KeyOf<T>>): Node<KeyOf<T>>
-export function Var<T extends ShaderType>(nameOrType: string | T, typeOrInit?: T | Node<KeyOf<T>>, maybeInit?: Node<KeyOf<T>>): Node<KeyOf<T>> {
-  return typeof nameOrType === 'string'
-    ? currentBuilder().var(nameOrType, typeOrInit as T, maybeInit)
-    : currentBuilder().var(nameOrType, typeOrInit as Node<KeyOf<T>> | undefined)
+export function Var<T extends ShaderType>(nameOrTypeOrInit: string | T | Node, typeOrInit?: T | Node<KeyOf<T>>, maybeInit?: Node<KeyOf<T>>): Node<KeyOf<T>> {
+  // Var(init) — a mutable var seeded from a value infers its WGSL type from that value.
+  if (nameOrTypeOrInit instanceof Node) return currentBuilder().var(nameOrTypeOrInit.type, nameOrTypeOrInit) as Node<KeyOf<T>>
+  return typeof nameOrTypeOrInit === 'string'
+    ? currentBuilder().var(nameOrTypeOrInit, typeOrInit as T, maybeInit)
+    : currentBuilder().var(nameOrTypeOrInit, typeOrInit as Node<KeyOf<T>> | undefined)
 }
 export const assign = <K extends string>(target: Node<K>, value: Node<K>): void => currentBuilder().assign(target, value)
 export const assignOp = <K extends string>(target: Node<K>, bop: BinOp, value: ArithArg<K>): void => currentBuilder().assignOp(target, bop, value)
@@ -414,34 +432,39 @@ export function reduce<K extends string, J extends string>(
  *  else }`. Each branch RETURNS its value (no `Var` + `assign` at the call site); ifExpr materialises
  *  the var + if/else internally, so the emit is byte-identical (it does NOT lower to `select`, which
  *  would change the WGSL). Use for a branch-INITIALISED value, not for genuine multi-step mutation. */
-export function ifExpr<T extends ShaderType>(
-  type: T,
+export function ifExpr<K extends string>(
   cond: Node<'bool'>,
-  thenVal: () => Node<KeyOf<T>>,
-  elseVal: () => Node<KeyOf<T>>,
-): Node<KeyOf<T>> {
-  const v = currentBuilder().var(type) as Node<KeyOf<T>>
-  currentBuilder().if(cond, () => currentBuilder().assign(v, thenVal()))
-    .else(() => currentBuilder().assign(v, elseVal()))
-  return v
+  thenVal: () => Node<K>,
+  elseVal: () => Node<K>,
+): Node<K> {
+  const b = currentBuilder()
+  const iv = b.inferredVar()
+  let vt: ShaderType | undefined
+  b.if(cond, () => { const val = thenVal(); vt ??= val.type; b.assign(iv.ref(val.type) as Node<K>, val) })
+    .else(() => { const val = elseVal(); vt ??= val.type; b.assign(iv.ref(val.type) as Node<K>, val) })
+  iv.commit(vt!)
+  return iv.ref(vt!) as Node<K>
 }
 
 /** N-arm immutable if-expression — `var v; if (c0) { v = e0 } else if (c1) { v = e1 } ... else
  *  { v = eN }`. Each arm RETURNS its value (arms may have intermediate const/Let before the
  *  return); the materialised var + if/elif/else chain is byte-identical to the hand form. The
  *  2-arm `ifExpr` is the single-arm case of this. */
-export function condExpr<T extends ShaderType>(
-  type: T,
-  arms: ReadonlyArray<readonly [Node<'bool'>, () => Node<KeyOf<T>>]>,
-  elseVal: () => Node<KeyOf<T>>,
-): Node<KeyOf<T>> {
-  const v = currentBuilder().var(type) as Node<KeyOf<T>>
-  let chain = currentBuilder().if(arms[0][0], () => currentBuilder().assign(v, arms[0][1]()))
+export function condExpr<K extends string>(
+  arms: ReadonlyArray<readonly [Node<'bool'>, () => Node<K>]>,
+  elseVal: () => Node<K>,
+): Node<K> {
+  const b = currentBuilder()
+  const iv = b.inferredVar()
+  let vt: ShaderType | undefined
+  const arm = (v: () => Node<K>) => () => { const val = v(); vt ??= val.type; b.assign(iv.ref(val.type) as Node<K>, val) }
+  let chain = b.if(arms[0][0], arm(arms[0][1]))
   for (let k = 1; k < arms.length; k++) {
-    chain = chain.elif(arms[k][0], () => currentBuilder().assign(v, arms[k][1]()))
+    chain = chain.elif(arms[k][0], arm(arms[k][1]))
   }
-  chain.else(() => currentBuilder().assign(v, elseVal()))
-  return v
+  chain.else(arm(elseVal))
+  iv.commit(vt!)
+  return iv.ref(vt!) as Node<K>
 }
 
 export const Switch = (

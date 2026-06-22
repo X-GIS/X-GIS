@@ -235,7 +235,7 @@ const vs = fn('vs_point', {
   const sizeMode = packed10.shr(u32(4)).bitAnd(u32(0xF))
   // Size mode: 0=px, 1=m, 2=km, 3=deg (equator approx), 4=nm.
   const viewport = U.field.viewport
-  const radiusPx = condExpr(f32T, [
+  const radiusPx = condExpr([
     [sizeMode.eq(u32(1)), () => rawRadius.div(viewport.z)],
     [sizeMode.eq(u32(2)), () => rawRadius.mul(1000).div(viewport.z)],
     [sizeMode.eq(u32(3)), () => rawRadius.mul(111320).div(viewport.z)],
@@ -273,7 +273,7 @@ const vs = fn('vs_point', {
   // ECEF lanes are dead on the flat path. u.mvp is the matching matrix
   // (Camera.getViewForProjection). Quad expansion below consumes centerClip
   // identically for both paths.
-  const centerClip = condExpr(vec4fT, [
+  const centerClip = condExpr([
     [U.field.proj_params.x.lt(0.5), () => {
     // Precise absolute Mercator DSFUN (slots 20-23), camera-recentered in DSFUN
     // space — `(mx_h−camH)+(mx_l−camL)` — exactly like ecef_rtc. The old path
@@ -408,7 +408,7 @@ const fs = fn('fs_point', { in: PointOut.type }, PointFragmentOutput.type, (p) =
   const blurUv = blurPx.div(max(pin.radius_px, f32(1)))
   const halfBand = aa.add(blurUv)
 
-  const dist = ifExpr(f32T, shapeId.eq(u32(0)),
+  const dist = ifExpr(shapeId.eq(u32(0)),
     () => length(pin.uv),   // analytical circle (fast path)
     () => sdfShape(pin.uv, shapeId.sub(u32(1))),
   )
