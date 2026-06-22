@@ -14,16 +14,25 @@
 import type { Expr, Stmt, FuncDecl, ModuleDecl, ShaderType } from '../../ir'
 import { eachExpr, mapChildren, mapStmtTop } from './expr-utils'
 
-// A whole-value lvalue — the target of `assign`/`assignOp` that is a plain value the author held in
-// a `const`, NOT a field/element access (`out.x` / `arr[i]`) which mutates an existing var in place.
-function isWholeValueTarget(t: Expr): boolean {
-  return t.op !== 'varref' && t.op !== 'member' && t.op !== 'index'
+// The ROOT of an assign/assignOp target — peel any `.field` / `[i]` access so a member-assign
+// (`c.a = …` / `m[i] = …`) materialises the underlying value `c` / `m`, not the access expr.
+function targetRoot(t: Expr): Expr {
+  let e = t
+  while (e.op === 'member' || e.op === 'index') e = e.base
+  return e
+}
+
+// A materialisable root — a plain value the author held in a `const` (a literal / call / construct /
+// select / arith), NOT one that is already a named binding (varref) or an input (param / constref).
+function isMaterialisable(e: Expr): boolean {
+  return e.op !== 'varref' && e.op !== 'param' && e.op !== 'constref'
 }
 
 function collectTargets(body: readonly Stmt[], out: Map<Expr, { name: string; type: ShaderType }>, next: { n: number }): void {
   for (const s of body) {
-    if ((s.s === 'assign' || s.s === 'assignOp') && isWholeValueTarget(s.target) && !out.has(s.target)) {
-      out.set(s.target, { name: `_av${next.n++}`, type: s.target.type })
+    if (s.s === 'assign' || s.s === 'assignOp') {
+      const root = targetRoot(s.target)
+      if (isMaterialisable(root) && !out.has(root)) out.set(root, { name: `_av${next.n++}`, type: root.type })
     }
     // recurse nested bodies
     if (s.s === 'if') { for (const a of s.arms) collectTargets(a.body, out, next); if (s.elseBody) collectTargets(s.elseBody, out, next) }

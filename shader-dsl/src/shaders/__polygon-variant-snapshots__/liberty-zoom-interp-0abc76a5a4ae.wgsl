@@ -1,4 +1,4 @@
-// baseline: 0bc5e1e7f747d19247229d45ff3d9a38324b7c25
+// baseline: 7380ff7e2714e60a4d459ba4492ff315cacb870f
 // fixture: liberty-zoom-interp
 // variant.key: liberty-zoom-interp
 // pick: false
@@ -339,12 +339,12 @@ fn vs_main_ecef_extruded(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u3
   out.abs_merc_x = ((abs_lon * DEG2RAD) * EARTH_R);
   out.abs_merc_y = (log(tan(((PI / 4.0) + ((_cse3 * DEG2RAD) / 2.0)))) * EARTH_R);
   out.world_z = _cse1;
-  var directional: f32 = clamp(dot(face_normal, u.light_dir_ecef.xyz), 0.0, 1.0);
-  directional = mix(_cse4, max(((1.0 - (((u.fill_color.rgb.x * 0.2126) + (u.fill_color.rgb.y * 0.7152)) + (u.fill_color.rgb.z * 0.0722))) + u.light_dir_ecef.w), 1.0), directional);
+  var _av0: f32 = clamp(dot(face_normal, u.light_dir_ecef.xyz), 0.0, 1.0);
+  _av0 = mix(_cse4, max(((1.0 - (((u.fill_color.rgb.x * 0.2126) + (u.fill_color.rgb.y * 0.7152)) + (u.fill_color.rgb.z * 0.0722))) + u.light_dir_ecef.w), 1.0), _av0);
   if (((abs(face_normal.z) < 0.5) && (u.cam_ecef_off_l.w != 0.0))) {
-    directional = (directional * clamp((is_top * sqrt((max(wall_height, 1.0) / 150.0))), mix(0.7, 0.98, _cse4), 1.0));
+    _av0 = (_av0 * clamp((is_top * sqrt((max(wall_height, 1.0) / 150.0))), mix(0.7, 0.98, _cse4), 1.0));
   }
-  let shaded_rgb = clamp((((u.fill_color.rgb + vec3<f32>(0.03)) * directional) * unpack4x8unorm(u.light_color_packed).xyz), vec3<f32>(0.0), vec3<f32>(1.0));
+  let shaded_rgb = clamp((((u.fill_color.rgb + vec3<f32>(0.03)) * _av0) * unpack4x8unorm(u.light_color_packed).xyz), vec3<f32>(0.0), vec3<f32>(1.0));
   out.v_color = vec4<f32>(shaded_rgb, u.fill_color.w);
   return out;
 }

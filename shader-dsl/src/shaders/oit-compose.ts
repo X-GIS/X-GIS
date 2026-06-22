@@ -17,7 +17,7 @@ import {
   entryFn, module,
   f32, u32, i32, vec2, vec4, toF32, toI32,
   textureLoad, textureDimensions, vec2i,
-  f32T, u32T, vec2fT, vec4fT,
+  u32T, vec2fT, vec4fT,
   texture2dfT, texture2dMsfT,
   max,
   Let, Var, assign, assignOp, If, Loop, Return,
@@ -42,7 +42,7 @@ const vsFull = entryFn(
   [{ name: 'idx', type: u32T, builtin: 'vertex_index' }],
   VsOut.type,
   (p) => {
-    const pos = Var('pos', vec2fT, vec2(f32(-1), f32(-1)))
+    const pos = vec2(f32(-1), f32(-1))
     If(p.idx.eq(u32(1)), () => { assign(pos, vec2(f32(3), f32(-1))) })
       .elif(p.idx.eq(u32(2)), () => { assign(pos, vec2(f32(-1), f32(3))) })
     const out = Var('out', VsOut.type)
@@ -79,8 +79,8 @@ const buildFsCompose = (sampleCount: number, accumTex: Node, revealageTex: Node)
       const dim = vec2(toF32(dimU.x), toF32(dimU.y))
       const inUv = VsOut.of(p.in).uv
       const uv = vec2i(toI32(inUv.x.mul(dim.x)), toI32(inUv.y.mul(dim.y)))
-      const accumSum = Var('accum_sum', vec4fT, vec4(f32(0), f32(0), f32(0), f32(0)))
-      const revSum = Var('rev_sum', f32T, f32(0))
+      const accumSum = vec4(f32(0), f32(0), f32(0), f32(0))
+      const revSum = f32(0)
       Loop('s', i32(0), (s) => s.lt(i32(sampleCount)), (s) => {
         assignOp(accumSum, '+', textureLoad(accumTex, uv, s))
         assignOp(revSum, '+', textureLoad(revealageTex, uv, s).x)

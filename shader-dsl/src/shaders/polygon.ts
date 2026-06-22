@@ -628,7 +628,7 @@ const vsMainEcefExtruded = entryFn(
     // channel — ample for a light tint).
     const lightIntensity = U.field.light_dir_ecef.w
     const lightColor = unpack4x8unorm(U.field.light_color_packed).swizzle<'vec3<f32>'>('xyz')
-    const directional = Var('directional', f32T, clamp(dot(p.face_normal, lightPos), f32(0), f32(1)))
+    const directional = clamp(dot(p.face_normal, lightPos), f32(0), f32(1))
     assign(directional, mix(
       f32(1).sub(lightIntensity),
       max(f32(1).sub(colorValue).add(lightIntensity), f32(1)),

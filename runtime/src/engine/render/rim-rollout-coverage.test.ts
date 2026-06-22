@@ -38,7 +38,9 @@ describe('rim_alpha rollout coverage', () => {
     // WGSL moved to point-renderer-shaders.ts (renderer re-exports POINT_SHADER).
     const src = emitPointWgsl()
     expect(src).toContain('point_rim_alpha')
-    expect(src).toContain('color.a *= in.rim_a')
+    // the fs colour is a plain `const` materialised as an auto-var (`_avN`), so pin the
+    // `.a *= in.rim_a` rim apply by shape, not the var name.
+    expect(src).toMatch(/\w+\.a \*= in\.rim_a/)
   })
 
   it('raster shader applies smoothstep rim fade in fs_tile', () => {

@@ -52,7 +52,7 @@ const vsFull = entryFn(
   [{ name: 'idx', type: u32T, builtin: 'vertex_index' }],
   VsOut.type,
   (p) => {
-    const pos = Var('pos', vec2fT, vec2(f32(-1), f32(-1)))
+    const pos = vec2(f32(-1), f32(-1))
     If(p.idx.eq(u32(1)), () => { assign(pos, vec2(f32(3), f32(-1))) })
       .elif(p.idx.eq(u32(2)), () => { assign(pos, vec2(f32(-1), f32(3))) })
     const out = Var('out', VsOut.type)

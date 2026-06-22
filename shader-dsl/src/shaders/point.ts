@@ -182,8 +182,8 @@ const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (pp) =
     uv.x.lt(bMinX).or(uv.x.gt(bMaxX)).or(uv.y.lt(bMinY)).or(uv.y.gt(bMaxY)),
     () => { Return(f32(2)) },
   )
-  const minDist = Var('min_dist', f32T, f32(1e10))
-  const winding = Var('winding', i32T, i32(0))
+  const minDist = f32(1e10)
+  const winding = i32(0)
   const segStart = s.field('seg_start', u32T)
   const segCount = s.field('seg_count', u32T)
   // Hard-cap at 32 segments per shape (paste from original).
@@ -356,7 +356,7 @@ const vs = entryFn('vs_point', 'vertex', [
     // visually equivalent and metric-correct under the ECEF MVP.
     // Anchor (bits 8..9): 0=center, 1=bottom, 2=top.
     const anchorMode = packed10.shr(u32(8)).bitAnd(u32(3))
-    const yShiftPx = Var('y_shift_px', f32T, f32(0))
+    const yShiftPx = f32(0)
     If(anchorMode.eq(u32(1)), () => { assign(yShiftPx, expand) })
       .elif(anchorMode.eq(u32(2)), () => { assign(yShiftPx, expand.neg()) })
     const pxToNdc = vec2(f32(2).div(viewport.x), f32(2).div(viewport.y))
@@ -371,7 +371,7 @@ const vs = entryFn('vs_point', 'vertex', [
     // (bits 8..9): 0=center, 1=bottom (lifts up by one extent so the bottom
     // edge sits on the projected ground point), 2=top.
     const anchorMode = packed10.shr(u32(8)).bitAnd(u32(3))
-    const yShiftPx = Var('y_shift_px', f32T, f32(0))
+    const yShiftPx = f32(0)
     If(anchorMode.eq(u32(1)), () => { assign(yShiftPx, expand) })
       .elif(anchorMode.eq(u32(2)), () => { assign(yShiftPx, expand.neg()) })
     const pxToNdc = vec2(f32(2).div(viewport.x), f32(2).div(viewport.y))
@@ -434,7 +434,7 @@ const fs = entryFn('fs_point', 'fragment', [{ name: 'in', type: PointOut.type }]
   // stroke_w in UV space using the actual rendered radius.
   const strokeW = strokeWPx.div(max(pin.radius_px, f32(1)))
 
-  const color = Var('color', vec4fT, vec4(f32(0), f32(0), f32(0), f32(0)))
+  const color = vec4(f32(0), f32(0), f32(0), f32(0))
 
   // Fill (bit 0).
   If(flags.bitAnd(u32(1)).ne(u32(0)), () => {
