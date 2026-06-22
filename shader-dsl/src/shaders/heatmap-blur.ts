@@ -47,7 +47,7 @@ const vsFull = fn(
   'vs_full', { idx: builtin('vertex_index', u32T) },
   VsOut.type,
   (p, _b) => {
-    const pos = Var(vec2fT, vec2(f32(-1), f32(-1)))
+    const pos = Var(vec2(f32(-1), f32(-1)))
     If(p.idx.eq(u32(1)), () => { assign(pos, vec2(f32(3), f32(-1))) })
       .elif(p.idx.eq(u32(2)), () => { assign(pos, vec2(f32(-1), f32(3))) })
     const out = Var(VsOut.type)

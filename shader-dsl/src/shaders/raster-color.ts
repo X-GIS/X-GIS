@@ -31,7 +31,7 @@ const rasterColorAdjust = fn('raster_color_adjust', { rgb_in: vec3fT, p0: vec4fT
   const brightnessHigh = p.p0.z
   const saturation = p.p0.w
   const contrast = p.p1.x
-  const rgb = Var(vec3fT, p.rgb_in)
+  const rgb = Var(p.rgb_in)
 
   // Hue rotate — spin the RGB vector by the w.xyz / w.zxy / w.yzx swizzle weights.
   const w = callFn('raster_spin_weights', vec3fT, hueDeg.mul(constRef('DEG2RAD_F')))

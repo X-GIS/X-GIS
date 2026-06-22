@@ -99,7 +99,7 @@ const vs = fn('vs_heatmap', {
   const absLat = featData.at(fid.mul(STRIDE).add(u32(18)), f32T)
 
   // Three-way projType branch — faithful clone of the point VS.
-  const centerClip = condExpr(vec4fT, [
+  const centerClip = condExpr([
     [U.field.proj_params.x.lt(0.5), () => {
       // Flat Mercator: precise absolute-Mercator DSFUN tail (slots 20..23),
       // camera-recentered in DSFUN space.
