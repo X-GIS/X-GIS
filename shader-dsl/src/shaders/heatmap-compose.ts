@@ -27,7 +27,7 @@ import {
   Var, If,
   f32, u32, vec2, vec4, toF32, toI32, clamp,
   textureLoad, textureSample, textureDimensions, vec2i,
-  f32T, u32T, vec2fT, vec4fT, texture2dfT, samplerT,
+  u32T, vec2fT, vec4fT, texture2dfT, samplerT,
   type ModuleDecl,
 } from '../core/ir'
 import { ioStruct, builtin, location, uniformStruct, resource } from '../core/sot'
@@ -49,7 +49,7 @@ const rampSampler = resource('ramp_sampler', samplerT, { group: 0, binding: 2 })
 
 // Oversized fullscreen triangle (NDC −1..3) — same trick as overdraw-compose.
 const vsFull = fn(
-  'vs_full', { idx: builtin('vertex_index', u32T) }, VsOut.type,
+  'vs_full', { idx: builtin('vertex_index', u32T) },
   (p, _b) => {
     const pos = Var(vec2(-1, -1))
     If(p.idx.eq(1), () => { pos.assign(vec2(3, -1)) })
@@ -68,7 +68,7 @@ const vsFull = fn(
 )
 
 // load_density — fetch the blurred density at this pixel's texel coord.
-const loadDensity = fn('load_density', { uv: vec2fT }, f32T, (p, _b) => {
+const loadDensity = fn('load_density', { uv: vec2fT }, (p, _b) => {
   const dimU = textureDimensions(densityTex.node)
   const dim = vec2(toF32(dimU.x), toF32(dimU.y))
   const coord = vec2i(
@@ -79,7 +79,7 @@ const loadDensity = fn('load_density', { uv: vec2fT }, f32T, (p, _b) => {
 })
 
 const fsCompose = fn(
-  'fs_compose', { in: VsOut.type }, vec4fT,
+  'fs_compose', { in: VsOut.type },
   (p, _b) => {
     const density = loadDensity(VsOut.of(p.in).uv)
     const intensity = U.field.params.x

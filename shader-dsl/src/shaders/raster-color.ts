@@ -15,7 +15,7 @@ import {
 } from '../core/ir'
 
 
-const rasterSpinWeights = fn('raster_spin_weights', { angle_rad: f32T }, vec3fT, (p, _b) => {
+const rasterSpinWeights = fn('raster_spin_weights', { angle_rad: f32T }, (p, _b) => {
   const s = sin(p.angle_rad)
   const c = cos(p.angle_rad)
   const sqrt3 = f32(1.7320508075688772)
@@ -25,7 +25,7 @@ const rasterSpinWeights = fn('raster_spin_weights', { angle_rad: f32T }, vec3fT,
   return vec3(w0, w1, w2)
 })
 
-export const rasterColorAdjust = fn('raster_color_adjust', { rgb_in: vec3fT, p0: vec4fT, p1: vec4fT }, vec3fT, (p, _b) => {
+export const rasterColorAdjust = fn('raster_color_adjust', { rgb_in: vec3fT, p0: vec4fT, p1: vec4fT }, (p, _b) => {
   const hueDeg = p.p0.x
   const brightnessLow = p.p0.y
   const brightnessHigh = p.p0.z

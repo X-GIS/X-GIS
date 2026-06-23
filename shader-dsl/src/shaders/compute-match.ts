@@ -12,7 +12,7 @@
 
 import {
   fn, module, vec4, f32, pack4x8unorm,
-  f32T, u32T, vec4fT, vec4uT, voidT, vec3uT,
+  f32T, u32T, vec4fT, vec4uT, vec3uT,
   type ModuleDecl,
   If, Var, Return, } from '../core/ir'
 import { storageBuffer, resource, builtin } from '../core/sot'
@@ -63,7 +63,7 @@ export function matchComputeKernel(spec: MatchKernelSpec): ModuleDecl {
   const outColor = outColorB.node
   const uCount = uCountB.node
 
-  const entry = fn('eval_match', { gid: builtin('global_invocation_id', vec3uT) }, voidT, ({ gid }, _b) => {
+  const entry = fn('eval_match', { gid: builtin('global_invocation_id', vec3uT) }, ({ gid }, _b) => {
     const fid = gid.x
     If(fid.ge(uCount.x), () => { Return() })
     const v = featData.at(fid, f32T)

@@ -10,7 +10,7 @@
 
 import {
   fn, module, f32, i32, u32, vec2,
-  f32T, i32T, u32T, vec2fT,
+  f32T, u32T, vec2fT,
   clamp, min, max, length, dot, mix, toF32, select,
   Loop, reduce, If, Switch, Return, type FuncDecl, type ModuleDecl,
 } from '../core/ir'
@@ -36,7 +36,7 @@ const segmentsB = storageBuffer('segments', ShapeSegment, { group: 0, binding: 9
 
 // ── dist_to_segment / quadratic / cubic / winding_line ──
 
-export const dist_to_segment = fn('dist_to_segment', { p: vec2fT, a: vec2fT, b: vec2fT }, f32T, ({ p, a, b }) => {
+export const dist_to_segment = fn('dist_to_segment', { p: vec2fT, a: vec2fT, b: vec2fT }, ({ p, a, b }) => {
   const ab = b.sub(a)
   const len2 = dot(ab, ab)
   // single-exit: max() guards the degenerate (len2≈0) divide; select picks the point dist.
@@ -45,7 +45,7 @@ export const dist_to_segment = fn('dist_to_segment', { p: vec2fT, a: vec2fT, b: 
   return select(len2.lt(1e-10), length(p.sub(a)), segDist)
 })
 
-export const dist_to_quadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT }, f32T, ({ p, a, b, c }) => {
+export const dist_to_quadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT }, ({ p, a, b, c }) => {
   const STEPS = u32(16)
   return reduce(f32(1e10), u32(0), (i) => i.le(STEPS), (best, i) => {
     const t = toF32(i).div(toF32(STEPS))
@@ -56,7 +56,7 @@ export const dist_to_quadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT,
   }, u32(1))
 })
 
-export const dist_to_cubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT, d: vec2fT }, f32T, ({ p, a, b, c, d }) => {
+export const dist_to_cubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT, d: vec2fT }, ({ p, a, b, c, d }) => {
   const STEPS = u32(24)
   return reduce(f32(1e10), u32(0), (i) => i.le(STEPS), (best, i) => {
     const t = toF32(i).div(toF32(STEPS))
@@ -70,7 +70,7 @@ export const dist_to_cubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2
   }, u32(1))
 })
 
-export const winding_line = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT }, i32T, ({ p, a, b }) => {
+export const winding_line = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT }, ({ p, a, b }) => {
   // single-exit: signed winding contribution of edge a→b across the +y ray from p.
   const cross = b.x.sub(a.x).mul(p.y.sub(a.y)).sub(p.x.sub(a.x).mul(b.y.sub(a.y)))
   const up = a.y.le(p.y).and(b.y.gt(p.y)).and(cross.gt(0))
@@ -80,7 +80,7 @@ export const winding_line = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT
 
 // ── sdf_shape (the imperative core: bbox cull + segment loop + switch) ──
 
-const sdf_shape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, ({ uv_in, shape_id }) => {
+const sdf_shape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, ({ uv_in, shape_id }) => {
   const uv = vec2(uv_in.x, uv_in.y.neg())
   const s = shapesB.at(shape_id)
 

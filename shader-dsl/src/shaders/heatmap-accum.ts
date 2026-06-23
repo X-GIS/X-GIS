@@ -68,7 +68,7 @@ const vs = fn('vs_heatmap', {
   center: location(0, vec2fT),
   quad_id: location(1, u32T),
   feat_id: location(2, f32T),
-}, HeatOut.type, (p, _b) => {
+}, (p, _b) => {
   const offsets = arrayLit(vec2fT,
     vec2(-1, -1),
     vec2(1, -1),
@@ -139,7 +139,7 @@ const vs = fn('vs_heatmap', {
 // contribution = weight · (exp(GAUSS_COEF · d²) − ZERO) over the unit disc
 // d=|uv|, with GAUSS_COEF = −1.5 and ZERO = exp(GAUSS_COEF) so the edge of
 // the disc contributes ~0 (continuous falloff to the quad boundary).
-const fs = fn('fs_heatmap', { in: HeatOut.type }, vec4fT, (p, _b) => {
+const fs = fn('fs_heatmap', { in: HeatOut.type }, (p, _b) => {
   const pin = HeatOut.of(p.in)
   const uv = pin.uv
   const d2 = uv.x.mul(uv.x).add(uv.y.mul(uv.y))

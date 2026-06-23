@@ -40,7 +40,6 @@ const VsOut = ioStruct('VsOut', {
 const vsFull = fn(
   'vs_full',
   { idx: builtin('vertex_index', u32T) },
-  VsOut.type,
   (p) => {
     const pos = vec2(-1, -1)
     If(p.idx.eq(1), () => { pos.assign(vec2(3, -1)) })
@@ -66,7 +65,6 @@ const buildFsCompose = (sampleCount: number, accumTex: Node, revealageTex: Node)
   return fn(
     'fs_compose',
     { in: VsOut.type },
-    vec4fT,
     (p) => {
       // textureDimensions returns vec2<u32>; toF32 each component for the
       // uv → texel-coord multiply. WGSL doesn't auto-convert across
