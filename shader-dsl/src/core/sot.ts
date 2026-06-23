@@ -167,9 +167,9 @@ type StructHandle = { readonly type: ShaderType; of(node: Node): object }
 export function storageBuffer<H extends StructHandle>(
   name: string, element: H, at: { group: number; binding: number; access: 'read' | 'read_write' },
 ): StorageBuffer<ReturnType<H['of']>>
-export function storageBuffer(
-  name: string, element: ShaderType, at: { group: number; binding: number; access: 'read' | 'read_write' },
-): StorageBuffer<Node<KeyOf<ShaderType>>>
+export function storageBuffer<T extends ShaderType>(
+  name: string, element: T, at: { group: number; binding: number; access: 'read' | 'read_write' },
+): StorageBuffer<Node<KeyOf<T>>>
 export function storageBuffer(
   name: string, element: StructHandle | ShaderType,
   at: { group: number; binding: number; access: 'read' | 'read_write' },
