@@ -15,8 +15,8 @@
 import { test, expect } from '@playwright/test'
 import { compileModule } from '../../shader-dsl/src/core/oracle'
 import { module } from '../../shader-dsl/src/core/ir'
-import { ECEF_WGSL_CONSTS, ECEF_WGSL_FNS, ECEF_CONSTS, ECEF_FUNCS } from '../../shader-dsl/src/shaders/ecef'
-import { RASTER_COLOR_FUNCS } from '../../shader-dsl/src/shaders/raster-color'
+import { ECEF_WGSL_CONSTS, ECEF_WGSL_FNS, ECEF_CONSTS, ECEF_FUNCS } from '../../runtime/src/engine/shaders/dsl/ecef'
+import { RASTER_COLOR_FUNCS } from '../../runtime/src/engine/shaders/dsl/raster-color'
 import { emitFuncsCsed } from '../../shader-dsl/src/core/backends/wgsl'
 
 const SOFTWARE_GPU = process.env.XGIS_SOFTWARE_GPU === '1'

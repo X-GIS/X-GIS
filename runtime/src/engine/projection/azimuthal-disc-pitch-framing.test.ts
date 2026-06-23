@@ -23,7 +23,7 @@ import { Camera } from './camera'
 import { buildGlobeMatrix, globeForward, globeAltitude } from './globe'
 import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 import { flatViewHeightCapM } from './projections-table'
-import { projectGeomCpu, projectCpu } from '@xgis/shader-dsl/shaders/cpu-projections'
+import { projectGeomCpu, projectCpu } from '../shaders/dsl/cpu-projections'
 
 const W = 800, H = 800, DPR = 1
 const FOV_RAD = 0.6435011087932844 // == Camera.FOV

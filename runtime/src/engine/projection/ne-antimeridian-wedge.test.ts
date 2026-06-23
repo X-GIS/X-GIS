@@ -33,7 +33,7 @@ import {
   projNaturalEarthDWgsl,
   projectGeomWgsl,
   wrapLonDelta,
-} from '@xgis/shader-dsl'
+} from '../shaders/dsl'
 
 const DEG2RAD = Math.PI / 180
 const EARTH_R = 6378137

@@ -10,7 +10,7 @@
 // outlined polygons) while fills correctly discard, or vice-versa.
 
 import { describe, expect, it } from 'vitest'
-import { cosC, needsBackfaceCullWgsl } from '@xgis/shader-dsl'
+import { cosC, needsBackfaceCullWgsl } from '../shaders/dsl'
 
 const EARTH_R = 6378137
 const DEG2RAD = Math.PI / 180

@@ -8,7 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./core/ir": "./src/core/ir/index.ts",
-    "./*": "./src/*.ts"
+    "./core/*": "./src/core/*.ts"
   },
   "scripts": {
     "build": "tsc --build"

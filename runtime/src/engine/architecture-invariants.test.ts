@@ -337,6 +337,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // + the `acute_fold_bis` select() that scales the round-join fold
   // threshold by round_limit/1.05 (0 = historical JOIN_ACUTE_BIS) + comments.
   // line.ts moved to the @xgis/shader-dsl package — tracked there, not in runtime.
+  // Moved BACK into runtime (shader-dsl is now a content-free DSL framework; the
+  // X-GIS shader graphs live under runtime/src/engine/shaders/dsl/). Re-baselined
+  // at its current size — a behavior-preserving relocation, not new growth;
+  // decomposition stays the same tracked priority it was in the package.
+  'runtime/src/engine/shaders/dsl/line.ts': 1194,
   // Bumped 1171→1176 (#274 CSS color-fn whitespace), then 1176→1178 (#317) for
   // the two irreducible numeric match()-label arm-pattern cases (Number, and
   // Minus+Number). Lowered 1178→50 (Tier-C5): the Parser god-file was split
@@ -368,6 +373,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // Uniforms struct lanes + the extrude VS reading intensity from
   // light_dir_ecef.w and colour from unpack4x8unorm(light_color_packed).
   // polygon.ts moved to the @xgis/shader-dsl package — tracked there, not in runtime.
+  // Moved BACK into runtime (shader-dsl is now a content-free DSL framework; the
+  // X-GIS shader graphs live under runtime/src/engine/shaders/dsl/). Re-baselined
+  // at its current size — a behavior-preserving relocation, not new growth;
+  // decomposition stays the same tracked priority it was in the package.
+  'runtime/src/engine/shaders/dsl/polygon.ts': 1198,
   // Bumped 1067→1092 for the minZoom + setMaxBounds gesture-clamp correctness
   // fixes (#244/#248): the maxBounds clamp method + its 7 gesture-exit call
   // sites are irreducible. camera.ts decomposition remains a tracked priority.

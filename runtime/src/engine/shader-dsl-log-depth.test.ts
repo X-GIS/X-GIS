@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { compileModule } from '@xgis/shader-dsl/core/oracle'
-import { LOG_DEPTH_MODULE, LOG_DEPTH_WGSL_FNS } from '@xgis/shader-dsl/shaders/log-depth'
+import { compileModule } from '@xgis/shader-dsl'
+import { LOG_DEPTH_MODULE, LOG_DEPTH_WGSL_FNS } from './shaders/dsl/log-depth'
 import { computeLogDepthFc, simulateLogDepthZ } from './shaders/log-depth'
 
 // Phase-2 first wiring: log-depth WGSL is now emitted from the DSL. The cpu

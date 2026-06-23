@@ -6,7 +6,7 @@
 // at the rim of the projection disc.
 
 import { describe, expect, it } from 'vitest'
-import { cosC, needsBackfaceCullWgsl } from '@xgis/shader-dsl'
+import { cosC, needsBackfaceCullWgsl } from '../shaders/dsl'
 
 const PROJECTIONS = [
   { name: 'orthographic',         type: 3, threshold: 0 },      // strict hemisphere

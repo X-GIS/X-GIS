@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { emitMatchComputeKernel, type MatchEmitSpec } from '@xgis/compiler'
-import { emitModule } from '@xgis/shader-dsl/core/backends/wgsl'
-import { compileModule } from '@xgis/shader-dsl/core/oracle'
-import { matchComputeKernel, type MatchKernelSpec } from '@xgis/shader-dsl/shaders/compute-match'
+import { emitModule } from '@xgis/shader-dsl'
+import { compileModule } from '@xgis/shader-dsl'
+import { matchComputeKernel, type MatchKernelSpec } from './shaders/dsl/compute-match'
 
 // US-P0-6 (PoC-C): the parameterized thesis. The data-driven compute path
 // emits a per-scene kernel whose branch ladder length == the scene's arm

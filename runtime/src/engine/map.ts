@@ -7,7 +7,7 @@ import { packPalette, uploadPalette, type PaletteTextures } from './gpu/palette-
 import type * as AST from '@xgis/compiler'
 import { SyntheticEarthSurfaceBackend } from '../data/sources/synthetic-earth-surface-backend'
 import { PROJECTION_NAME_TO_TYPE, PROJECTIONS } from './projection/projections-table'
-import { configureProjections } from '@xgis/shader-dsl'
+import { configureProjections } from './shaders/dsl'
 import { worldBandForProjType } from './projection/earth-surface-fill'
 import { projectLonLatToScreenCss } from './render-loop-helpers'
 import {
