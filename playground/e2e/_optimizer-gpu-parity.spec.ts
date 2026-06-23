@@ -10,9 +10,15 @@
 // Imports shader-dsl via RELATIVE path (not the `@xgis/shader-dsl` package name)
 // so the Playwright/node runner resolves it without the workspace symlink.
 //
-// Tolerance: 100 m absolute (hardware). The GPU is f32 + truncated WGSL consts;
-// the oracle is f64 + full-precision consts — they diverge ~5-10 m at Mercator
-// scale (±2e7 m). A real optimizer miscompile is km+, far outside 100 m.
+// Tolerance, by GPU class (mirrors _shader-math-parity, same compute pass):
+//   Hardware (local / pre-push): 100 m absolute. f32 + truncated WGSL consts
+//   diverge only ~5-10 m at Mercator scale (±2e7 m); a real optimizer miscompile
+//   is km+, far outside 100 m — full sensitivity.
+//   SwiftShader (CI software WebGPU, XGIS_SOFTWARE_GPU=1): its software
+//   transcendentals are weaker (~3e-4 relative; stereographic amplifies to ~2.7 km),
+//   so CI uses 2e-3 relative (+3 km floor) — well below any gross optimizer
+//   miscompile, which is whole-percent. This lets the optimizer gate run in CI
+//   alongside _shader-math-parity (both pure compute, SwiftShader-safe).
 
 import { test, expect } from '@playwright/test'
 import { emitModule } from '../../shader-dsl/src/core/backends/wgsl'
@@ -29,6 +35,10 @@ const PROJ_NAMES = ['mercator', 'equirectangular', 'natural_earth', 'orthographi
 const CLON = 0, CLAT = 0
 const GRID: Array<[number, number]> = []
 for (let lon = -75; lon <= 75; lon += 15) for (let lat = -75; lat <= 75; lat += 15) GRID.push([lon, lat])
+
+const SOFTWARE_GPU = process.env.XGIS_SOFTWARE_GPU === '1'
+const tolFor = (cpuVal: number): number =>
+  SOFTWARE_GPU ? Math.max(3000, Math.abs(cpuVal) * 2e-3) : 100
 
 // Build the optimized module ONCE; emit it + keep its oracle for the diff.
 const optMod = optimize(getPROJECTION_MODULE())
@@ -103,12 +113,12 @@ test.describe('optimizer GPU parity (executed optimized WGSL vs CPU oracle)', ()
         const cx = c[0], cy = c[1]
         if (![gx, gy, cx, cy].every(Number.isFinite)) continue
         compared++
-        if (Math.abs(gx - cx) > 100 || Math.abs(gy - cy) > 100) {
+        if (Math.abs(gx - cx) > tolFor(cx) || Math.abs(gy - cy) > tolFor(cy)) {
           failures.push(`${PROJ_NAMES[projType]} (${lon},${lat}): GPU=(${gx.toFixed(1)},${gy.toFixed(1)}) oracle=(${cx.toFixed(1)},${cy.toFixed(1)})`)
         }
       }
     }
     expect(compared, 'no finite point pairs compared — kernel produced no output').toBeGreaterThan(300)
-    expect(failures, `optimized WGSL drifted from the optimized-module oracle beyond 100 m:\n${failures.slice(0, 20).join('\n')}`).toEqual([])
+    expect(failures, `optimized WGSL drifted from the optimized-module oracle beyond tolerance (${SOFTWARE_GPU ? 'software' : 'hardware'} GPU):\n${failures.slice(0, 20).join('\n')}`).toEqual([])
   })
 })

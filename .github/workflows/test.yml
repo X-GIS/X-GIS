@@ -249,6 +249,15 @@ jobs:
   #                           coincides with the f64 outline, while the pre-#392
   #                           f32-degree arm provably splits. Guards the bug
   #                           that recurred #387→#389→#392. SwiftShader-safe.
+  #   - _optimizer-gpu-parity : runs optimize(PROJECTION_MODULE)'s emitted WGSL in
+  #                           a compute pass and diffs project() vs the OPTIMIZED
+  #                           module's f64 oracle. Proves the IR optimizer
+  #                           (const/copy-prop, const-fold, dead-branch, cse, licm,
+  #                           dce) preserves results through emit → real-GPU exec,
+  #                           not just oracle-to-oracle. Pure compute, SwiftShader-
+  #                           safe (software-GPU tolerance, same as _shader-math-
+  #                           parity). Gates optimize() so the emit-path activation
+  #                           of the pipeline can be trusted.
   # NOT here, by evidence from earlier runs:
   #   - _projection-coverage : needs the full engine (render pipelines) to
   #                            initialise; SwiftShader can't, so cells time
@@ -361,4 +370,4 @@ jobs:
         env:
           XGIS_SOFTWARE_GPU: '1'
           HEADED: '0'
-        run: ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts
+        run: ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _optimizer-gpu-parity.spec.ts

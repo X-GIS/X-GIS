@@ -73,11 +73,24 @@ function cseFn(f: FuncDecl): FuncDecl {
   const maximal = [...repeated].filter((k) => !nestedInside.has(k))
   if (maximal.length === 0) return f
 
+  // Seed the temp index past any existing `_cseN` binding so a SECOND cse pass
+  // cannot redeclare `_cse0`. cse runs TWICE on the optimize()->emitModule() path
+  // (optimize includes cse; the WGSL backend's emit-time `optimize` is cse again),
+  // and the maximal-only filter can leave a nested repeat un-hoisted when it ALSO
+  // occurs standalone — the next pass then hoists it, and a per-call counter reset
+  // would emit a colliding `let _cse0`. (noHoist already holds every local, incl.
+  // the prior pass's _cseN, via collectLocals.)
+  let base = 0
+  for (const n of noHoist) {
+    const mm = /^_cse(\d+)$/.exec(n)
+    if (mm) base = Math.max(base, Number(mm[1]) + 1)
+  }
+
   // Assign a temp per maximal key; build the hoisted lets + replacement map.
   const temp = new Map<string, string>()
   const lets: Stmt[] = []
   maximal.forEach((k, i) => {
-    const name = `_cse${i}`
+    const name = `_cse${base + i}`
     temp.set(k, name)
     lets.push({ s: 'let', name, expr: exemplar.get(k)! })
   })

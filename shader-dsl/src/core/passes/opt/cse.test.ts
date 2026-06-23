@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { cse } from './index'
-import { module, fn, f32T, sin, type Stmt, type ModuleDecl } from '../../ir'
+import { module, fn, f32T, sin, cos, type Stmt, type ModuleDecl } from '../../ir'
 import { emitModule } from '../../backends/wgsl'
 import { compileModule } from '../../oracle'
 
@@ -36,5 +36,19 @@ describe('optimize — common-subexpression elimination', () => {
     })
     expect(() => emitModule(cse(m))).not.toThrow()
     expect(emitModule(cse(m))).not.toContain('_cse')
+  })
+
+  it('a second cse pass does not redeclare _cse0 (idempotent temp naming)', () => {
+    // sin(cos(x)) twice + cos(x) once: cse#1 hoists the maximal sin(cos(x)) to
+    // _cse0 but leaves cos(x) repeated (it occurs nested AND standalone); cse#2
+    // must hoist cos(x) as _cse1, never a colliding _cse0. Guards the
+    // optimize()->emitModule() double-cse path the optimizer GPU-parity gate runs.
+    const m = module({ funcs: [fn('k', { x: f32T }, f32T, ({ x }, b) => {
+      b.ret(sin(cos(x)).add(sin(cos(x))).add(cos(x)))
+    })] })
+    const twice = cse(cse(m))
+    const wgsl = emitModule(twice)
+    expect((wgsl.match(/let _cse0\b/g) ?? []).length).toBe(1) // _cse0 declared exactly once
+    expect(compileModule(twice).fns.k(0.5)).toBeCloseTo(compileModule(m).fns.k(0.5) as number, 10)
   })
 })
