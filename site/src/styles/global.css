@@ -110,18 +110,9 @@
 
 /* ═══ Shader DSL mini-site — shared bits (these render in slotted page
  *    content, so they must be global, not scoped to a layout) ═══ */
-.shader-code {
-  margin: 0;
-  padding: 1rem 1.1rem;
-  max-height: 520px;
-  overflow: auto;
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  line-height: 1.65;
-  color: var(--color-fg-dim);
-  white-space: pre;
-  tab-size: 2;
-}
+/* Cap the height of the expressive-code blocks on the shader-dsl pages so a long
+ * shader / reflection scrolls inside its frame instead of running the page. */
+.sd-code .expressive-code pre { max-height: 520px; }
 .no-scrollbar { scrollbar-width: none; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .line-clamp-3 {

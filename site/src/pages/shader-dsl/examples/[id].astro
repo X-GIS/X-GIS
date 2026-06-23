@@ -1,5 +1,6 @@
 ---
 import ShaderDsl from '../../../layouts/ShaderDsl.astro'
+import { Code } from 'astro-expressive-code/components'
 import { shaderCards } from '../../../lib/shader-examples.ts'
 
 export function getStaticPaths() {
@@ -86,11 +87,11 @@ const tabs = [
         </button>
       ))}
     </div>
-    <div class="rounded-xl bg-bg-elev border border-line overflow-hidden">
-      <pre data-panel="dsl" class="shader-code"><code>{card.source}</code></pre>
-      <pre data-panel="wgsl" hidden class="shader-code"><code>{card.wgsl}</code></pre>
-      {card.glsl && <pre data-panel="glsl" hidden class="shader-code"><code>{card.glsl}</code></pre>}
-      <pre data-panel="reflect" hidden class="shader-code"><code>{card.reflectionJson}</code></pre>
+    <div class="sd-code">
+      <div data-panel="dsl"><Code code={card.source} lang="ts" /></div>
+      <div data-panel="wgsl" hidden><Code code={card.wgsl} lang="wgsl" /></div>
+      {card.glsl && <div data-panel="glsl" hidden><Code code={card.glsl} lang="glsl" /></div>}
+      <div data-panel="reflect" hidden><Code code={card.reflectionJson} lang="json" /></div>
     </div>
   </section>
 

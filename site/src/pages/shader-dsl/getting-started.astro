@@ -1,8 +1,12 @@
 ---
 import ShaderDsl from '../../layouts/ShaderDsl.astro'
+import { Code } from 'astro-expressive-code/components'
 
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const root = `${base}/shader-dsl`
+
+const installSnippet = `bun install
+bun run build          # tsc --build → dist/ + .d.ts`
 
 const authorSnippet = `import {
   fn, module, uniformStruct, ioStruct, builtin, location,
@@ -38,6 +42,9 @@ emitModule(m)                  // → WGSL string (WebGPU)
 emitGlslModule(m, 'vertex')    // → GLSL ES 3.00 vertex (WebGL2)
 emitGlslModule(m, 'fragment')  // → GLSL ES 3.00 fragment (WebGL2)
 reflect(m)                     // → { bindGroups, uniforms (std140), storage (std430), entries }`
+
+const runSnippet = `npx tsx examples/print.ts            # every example
+npx tsx examples/print.ts hillshade  # just one, by id`
 ---
 
 <ShaderDsl
@@ -54,14 +61,10 @@ reflect(m)                     // → { bindGroups, uniforms (std140), storage (
   <h2 class="text-[20px] font-medium text-fg tracking-[-0.02em] mt-12 mb-3">Install</h2>
   <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-[680px]">
     Today <code class="font-mono text-[13px] text-fg">@xgis/shader-dsl</code> is a workspace package
-    inside the X-GIS monorepo (build-to-tarball; not yet published to npm). Consume it from a checkout:
+    inside the X-GIS monorepo (build-to-tarball; not yet published to npm). Consume it from a checkout —
+    then <code class="font-mono text-[13px] text-fg">import {'{'} fn, module, emitModule, reflect {'}'} from '@xgis/shader-dsl'</code>.
   </p>
-  <div class="mt-4 rounded-xl bg-bg-elev border border-line overflow-hidden">
-    <pre class="shader-code"><code>bun install
-bun run build          # tsc --build → dist/ + .d.ts
-# then, from a workspace package:
-import {'{'} fn, module, emitModule, reflect {'}'} from '@xgis/shader-dsl'</code></pre>
-  </div>
+  <div class="sd-code mt-4"><Code code={installSnippet} lang="bash" /></div>
 
   <h2 class="text-[20px] font-medium text-fg tracking-[-0.02em] mt-12 mb-3">1. Author a shader</h2>
   <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-[680px]">
@@ -70,18 +73,14 @@ import {'{'} fn, module, emitModule, reflect {'}'} from '@xgis/shader-dsl'</code
     <code class="font-mono text-[13px] text-fg">ioStruct</code>). A wrong-typed field or return is a
     compile error.
   </p>
-  <div class="mt-4 rounded-xl bg-bg-elev border border-line overflow-hidden">
-    <pre class="shader-code"><code>{authorSnippet}</code></pre>
-  </div>
+  <div class="sd-code mt-4"><Code code={authorSnippet} lang="ts" /></div>
 
   <h2 class="text-[20px] font-medium text-fg tracking-[-0.02em] mt-12 mb-3">2. Emit + reflect</h2>
   <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-[680px]">
     The same module produces both backends and its own reflection. The reflection gives the host the
     std140 byte offsets to pack the uniform buffer — the exact packing the live examples use.
   </p>
-  <div class="mt-4 rounded-xl bg-bg-elev border border-line overflow-hidden">
-    <pre class="shader-code"><code>{emitSnippet}</code></pre>
-  </div>
+  <div class="sd-code mt-4"><Code code={emitSnippet} lang="ts" /></div>
 
   <h2 class="text-[20px] font-medium text-fg tracking-[-0.02em] mt-12 mb-3">3. Run the examples</h2>
   <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-[680px]">
@@ -89,8 +88,5 @@ import {'{'} fn, module, emitModule, reflect {'}'} from '@xgis/shader-dsl'</code
     open one in the <a href={`${root}/examples`} class="text-accent hover:text-accent-hover transition-colors">gallery</a>
     to run it live on a WebGL2 canvas.
   </p>
-  <div class="mt-4 rounded-xl bg-bg-elev border border-line overflow-hidden">
-    <pre class="shader-code"><code>npx tsx examples/print.ts            # every example
-npx tsx examples/print.ts hillshade  # just one, by id</code></pre>
-  </div>
+  <div class="sd-code mt-4"><Code code={runSnippet} lang="bash" /></div>
 </ShaderDsl>
