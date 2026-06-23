@@ -24,7 +24,7 @@ import {
   f32, i32, u32, toF32, vec2, vec3, vec4, vec2u, clamp, fract, sign,
   length, dot, min, max, smoothstep, abs, floor, select, textureSample,
   bitcastU32, unpack4x8unorm,
-  atan, exp,
+  atan, exp, degrees,
   If, ifExpr, Loop, Let, Var, Continue, Break, Discard, madd, outsideRange,
   ReturnIf, Switch,
   f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
@@ -235,7 +235,7 @@ const finalizeCorner = fn('finalize_corner', { corner: vec2fT }, vec2fT, (p) => 
   const absMerc = p.corner.add(tileOrigin)
   const absLon = absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R')))
   const latRad = inv_merc_lat_rad(absMerc.y)
-  const absLat = latRad.div(constRef('DEG2RAD'))
+  const absLat = degrees(latRad)
   const tileRefLon = tileOrigin.x.add(f32(0.5).mul(TILE.field.tile_extent_m))
       .div(constRef('DEG2RAD').mul(constRef('EARTH_R')))
   // single-exit: Mercator (proj<0.5) passes the corner through; else the reprojected
@@ -250,7 +250,7 @@ const endpointCosC = fn('endpoint_cos_c', { p_h: vec2fT, p_l: vec2fT }, f32T, (p
   const absMercY = p.p_h.y.add(p.p_l.y).add(tileOrigin.y)
   const absLon = absMercX.div(constRef('DEG2RAD').mul(constRef('EARTH_R')))
   const latRad = inv_merc_lat_rad(absMercY)
-  const absLat = latRad.div(constRef('DEG2RAD'))
+  const absLat = degrees(latRad)
   return needs_backface_cull(absLon, absLat, TILE.field.proj_params)
 })
 
@@ -322,7 +322,7 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
     const absMerc = inp.world_local.add(tileOrigin)
     const absLon = absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R')))
     const latRad = inv_merc_lat_rad(absMerc.y)
-    const absLat = latRad.div(constRef('DEG2RAD'))
+    const absLat = degrees(latRad)
     If(needs_backface_cull(absLon, absLat, projParams).lt(0), () => { Discard() })
   })
 
@@ -732,7 +732,7 @@ const lineRimAlpha = fn('line_rim_alpha', { input: LineOut.type }, f32T, (p) => 
   const absMerc = LineOut.of(p.input).world_local.add(tileOrigin)
   const absLon = absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R')))
   const latRad = inv_merc_lat_rad(absMerc.y)
-  const absLat = latRad.div(constRef('DEG2RAD'))
+  const absLat = degrees(latRad)
   return rim_alpha(absLon, absLat, TILE.field.proj_params)
 })
 

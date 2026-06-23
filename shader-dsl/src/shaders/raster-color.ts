@@ -6,10 +6,10 @@
 // param values (uniform carries [hueDeg, bMin, bMax, saturation] + [contrast]).
 // DEFAULTS are a hard no-op (hue=0 / bmin=0,bmax=1 / sat=0 / contrast=0 → texel
 // unchanged). Authored as DSL fns (was hand-written WGSL); emit via emitFuncsCsed(RASTER_COLOR_FUNCS).
-// Reads DEG2RAD_F (declared by ECEF_CONSTS, emitted before this block in raster.ts).
+// hue→radians via the radians() built-in (the DEG2RAD_F const it once read is gone).
 
 import {
-  fn, f32, f32T, vec3, vec3fT, vec4fT, sin, cos, dot, select, clamp, constRef,
+  fn, f32, f32T, vec3, vec3fT, vec4fT, sin, cos, dot, select, clamp, radians,
   Let, Var, callFn,
   type FuncDecl,
 } from '../core/ir'
@@ -34,7 +34,7 @@ const rasterColorAdjust = fn('raster_color_adjust', { rgb_in: vec3fT, p0: vec4fT
   const rgb = Var(p.rgb_in)
 
   // Hue rotate — spin the RGB vector by the w.xyz / w.zxy / w.yzx swizzle weights.
-  const w = callFn('raster_spin_weights', vec3fT, hueDeg.mul(constRef('DEG2RAD_F')))
+  const w = callFn('raster_spin_weights', vec3fT, radians(hueDeg))
   rgb.assign(vec3(dot(rgb, w), dot(rgb, w.zxy), dot(rgb, w.yzx)))
 
   // Brightness remap — low + (high-low)*rgb (per component). Expanded rather than mix()
