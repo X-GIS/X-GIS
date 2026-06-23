@@ -10,19 +10,30 @@
     "check": "astro check"
   },
   "dependencies": {
+    "@astrojs/react": "^4.2.0",
     "@astrojs/sitemap": "^3.7.2",
     "@fontsource-variable/archivo": "^5.2.8",
     "@fontsource-variable/big-shoulders-display": "^5.2.5",
     "@fontsource-variable/spline-sans-mono": "^5.2.8",
+    "@radix-ui/react-slot": "^1.1.2",
     "@tailwindcss/vite": "^4.0.0",
     "@xgis/blueprint": "workspace:*",
     "@xgis/compiler": "workspace:*",
     "@xgis/runtime": "workspace:*",
     "astro": "^5.1.0",
     "astro-expressive-code": "^0.42.0",
-    "tailwindcss": "^4.0.0"
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.469.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^2.6.0",
+    "tailwindcss": "^4.0.0",
+    "tw-animate-css": "^1.0.0"
   },
   "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-basic-ssl": "^2.3.0"
   }
 }

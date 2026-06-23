@@ -32,7 +32,7 @@ const detailHref = (id: string) => `${base}/shader-dsl/examples/${id}`
                   {c.thumb ? (
                     <img src={c.thumb} alt={`${c.title} preview`} width="640" height="400" loading="lazy" class="w-full h-full object-cover" />
                   ) : (
-                    <div class="w-full h-full flex items-center justify-center" style="background: linear-gradient(135deg, #14141a, #0a0a0a);">
+                    <div class="w-full h-full flex items-center justify-center" style="background: linear-gradient(135deg, var(--color-bg-card), var(--color-bg));">
                       <span class="font-mono text-[11px] text-fg-mute uppercase tracking-[0.16em]">WGSL · compute</span>
                     </div>
                   )}
