@@ -1,20 +1,21 @@
 // ═══ @xgis/shader-dsl example — compute reduction kernel ═══
 //
-// A self-contained compute pass: each invocation reduces a fixed-size WINDOW of
-// an input storage array into one output element (a segmented sum). Exercises
-// two storage buffers (read + read_write), a uniform count, a `@workgroup_size`
-// compute entry, and the `reduce()` loop-fold combinator. Emits WGSL and prints
-// the pipeline reflection (std430 storage layouts + the compute entry's
-// workgroup size).
+// A self-contained compute pass: each invocation reduces a fixed-size WINDOW of an input
+// storage array into one output element (a segmented sum). Exercises two storage buffers
+// (read + read_write), a uniform count, a `@workgroup_size` compute entry, and the
+// `reduce()` loop-fold combinator. Emits WGSL + the std430 storage layouts.
 //
-// Run WITHOUT the X-GIS runtime:  npx tsx examples/compute-reduction.ts
+// NOT WebGL2-renderable (`renderable: false`): GLSL ES 3.00 has no compute / SSBO, so the
+// GLSL backend fails-closed on this module. The site shows its WGSL + Reflection only —
+// this is the WebGPU/compute face of the same DSL.
 
 import {
   fn, module, f32, u32, reduce,
   f32T, u32T, vec3uT, vec4uT,
-  If, Return, reflect, emitModule,
+  If, Return,
   storageBuffer, resource, builtin,
 } from '../src/index.ts'
+import type { ShaderExample } from './_shared.ts'
 
 // Each invocation sums WINDOW consecutive input elements.
 const WINDOW = u32(8)
@@ -41,8 +42,12 @@ const reductionModule = module({
   funcs: [reduceKernel],
 })
 
-console.log('=== WGSL ===')
-console.log(emitModule(reductionModule))
-
-console.log('\n=== Reflection ===')
-console.log(JSON.stringify(reflect(reductionModule), null, 2))
+export const computeReduction: ShaderExample = {
+  id: 'compute-reduction',
+  title: 'Compute reduction',
+  blurb: 'A @workgroup_size compute kernel folding a window of an input storage buffer into one output element with reduce(). WebGPU-only — GLSL ES 3.00 has no compute, so this shows WGSL + reflection.',
+  category: 'compute',
+  file: 'compute-reduction.ts',
+  module: reductionModule,
+  renderable: false,
+}

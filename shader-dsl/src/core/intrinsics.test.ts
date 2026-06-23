@@ -14,6 +14,15 @@ describe('intrinsics — neutral registry (#3a)', () => {
     expect(spellIntrinsic('glsl', 'bitcastU32', ['f'])).toBe('floatBitsToUint(f)')
   })
 
+  it('scalar conversions: f32/i32/u32 cast on wgsl, float/int/uint on glsl', () => {
+    expect(spellIntrinsic('wgsl', 'f32', ['x'])).toBe('f32(x)')
+    expect(spellIntrinsic('glsl', 'f32', ['x'])).toBe('float(x)')
+    expect(spellIntrinsic('wgsl', 'i32', ['x'])).toBe('i32(x)')
+    expect(spellIntrinsic('glsl', 'i32', ['x'])).toBe('int(x)')
+    expect(spellIntrinsic('wgsl', 'u32', ['x'])).toBe('u32(x)')
+    expect(spellIntrinsic('glsl', 'u32', ['x'])).toBe('uint(x)')
+  })
+
   it('select: WGSL select(f,t,c) vs GLSL ternary', () => {
     expect(spellIntrinsic('wgsl', 'select', ['F', 'T', 'C'])).toBe('select(F, T, C)')
     expect(spellIntrinsic('glsl', 'select', ['F', 'T', 'C'])).toBe('(C ? T : F)')
