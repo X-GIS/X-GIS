@@ -73,8 +73,6 @@ export const shaderCards: ShaderCard[] = examples.map((ex) => {
   }
 })
 
-export const cardById = (id: string): ShaderCard | undefined => shaderCards.find((c) => c.id === id)
-
 export const categoryGroups = [
   {
     key: 'cartographic' as const,

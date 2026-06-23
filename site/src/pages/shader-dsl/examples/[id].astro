@@ -82,16 +82,16 @@ const tabs = [
   <section class="mt-10">
     <div data-tabs role="tablist" class="flex gap-1 overflow-x-auto no-scrollbar mb-2 -mx-1 px-1">
       {tabs.map((tab, i) => (
-        <button type="button" role="tab" data-tab={tab.id} aria-selected={i === 0 ? 'true' : 'false'} class="shrink-0 text-[12.5px] font-medium px-3 py-1.5 rounded-md transition-colors">
+        <button type="button" role="tab" id={`tab-${tab.id}`} data-tab={tab.id} aria-controls={`panel-${tab.id}`} aria-selected={i === 0 ? 'true' : 'false'} tabindex={i === 0 ? 0 : -1} class="shrink-0 text-[12.5px] font-medium px-3 py-1.5 rounded-md transition-colors">
           {tab.label}
         </button>
       ))}
     </div>
     <div class="sd-code">
-      <div data-panel="dsl"><Code code={card.source} lang="ts" /></div>
-      <div data-panel="wgsl" hidden><Code code={card.wgsl} lang="wgsl" /></div>
-      {card.glsl && <div data-panel="glsl" hidden><Code code={card.glsl} lang="glsl" /></div>}
-      <div data-panel="reflect" hidden><Code code={card.reflectionJson} lang="json" /></div>
+      <div data-panel="dsl" id="panel-dsl" role="tabpanel" aria-labelledby="tab-dsl" tabindex="0"><Code code={card.source} lang="ts" /></div>
+      <div data-panel="wgsl" id="panel-wgsl" role="tabpanel" aria-labelledby="tab-wgsl" tabindex="0" hidden><Code code={card.wgsl} lang="wgsl" /></div>
+      {card.glsl && <div data-panel="glsl" id="panel-glsl" role="tabpanel" aria-labelledby="tab-glsl" tabindex="0" hidden><Code code={card.glsl} lang="glsl" /></div>}
+      <div data-panel="reflect" id="panel-reflect" role="tabpanel" aria-labelledby="tab-reflect" tabindex="0" hidden><Code code={card.reflectionJson} lang="json" /></div>
     </div>
   </section>
 
@@ -129,11 +129,29 @@ const tabs = [
   if (tablist) {
     const buttons = Array.from(tablist.querySelectorAll<HTMLButtonElement>('button[data-tab]'))
     const panels = Array.from(document.querySelectorAll<HTMLElement>('[data-panel]'))
-    const select = (tab: string): void => {
-      buttons.forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)))
+    const select = (tab: string, focus = false): void => {
+      buttons.forEach((b) => {
+        const on = b.dataset.tab === tab
+        b.setAttribute('aria-selected', String(on))
+        b.tabIndex = on ? 0 : -1
+        if (on && focus) b.focus()
+      })
       panels.forEach((p) => { p.hidden = p.dataset.panel !== tab })
     }
     buttons.forEach((b) => b.addEventListener('click', () => select(b.dataset.tab!)))
+    // Roving-tabindex keyboard nav (WAI-ARIA tabs pattern).
+    tablist.addEventListener('keydown', (e) => {
+      const i = buttons.findIndex((b) => b.getAttribute('aria-selected') === 'true')
+      if (i < 0) return
+      let j = i
+      if (e.key === 'ArrowRight') j = (i + 1) % buttons.length
+      else if (e.key === 'ArrowLeft') j = (i - 1 + buttons.length) % buttons.length
+      else if (e.key === 'Home') j = 0
+      else if (e.key === 'End') j = buttons.length - 1
+      else return
+      e.preventDefault()
+      select(buttons[j].dataset.tab!, true)
+    })
   }
 
   const raw = document.getElementById('shader-spec')?.textContent
