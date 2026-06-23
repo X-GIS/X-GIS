@@ -25,15 +25,11 @@
 // module, and fail on the info-log. Until W2, treat GLSL output as a plausible
 // transcription, not a verified one.
 
-import type { ShaderType, ConstDecl, FuncDecl, ModuleDecl } from '../ir'
+import type { ShaderType, ModuleDecl } from '../ir'
 import { Capabilities, UnsupportedFeatureError, type Backend } from '../backend'
-import { assertCaps } from '../passes/required-caps'
 import { spellIntrinsic } from '../intrinsics'
 import { f32Lit } from './wgsl'
-import { emitBody } from '../emit'
-import { lowerModule } from '../passes/match-lower'
-import { autoVars } from '../passes/opt'
-import { validate } from '../passes/validate'
+import { emitBody, lowerForBackend } from '../emit'
 
 // UnsupportedFeatureError now lives in the backend contract; re-exported here so
 // existing importers (`from './glsl'`) keep working.
@@ -81,36 +77,41 @@ export const glslEs300Backend: Backend = {
   switchHead: (scrut) => `switch (${scrut}) {`,
   rawStmt: () => { throw new UnsupportedFeatureError('glsl-es300: raw WGSL Stmt cannot lower to GLSL (backendOnly:wgsl)') },
   placeholderStmt: () => { throw new UnsupportedFeatureError('glsl-es300: un-swapped placeholder Stmt — composer must run first') },
-}
-
-function emitConst(c: ConstDecl): string {
-  return glslEs300Backend.constDecl(c.name, c.type, f32Lit(c.wgslValue))
-}
-function emitFunc(f: FuncDecl): string {
-  if (f.attrs?.length) throw new UnsupportedFeatureError(`glsl-es300: entry-point function '${f.name}' (${f.attrs.join(' ')}) — struct-IO flatten is a later step`)
-  for (const p of f.params) {
-    if (p.builtin !== undefined || p.location !== undefined)
-      throw new UnsupportedFeatureError(`glsl-es300: function '${f.name}' has IO-attributed params — entry lowering is a later step`)
-  }
-  const params = f.params.map((p) => `${glslType(p.type)} ${p.name}`).join(', ')
-  return `${glslType(f.ret)} ${f.name}(${params}) {\n${emitBody(f.body, 1, glslEs300Backend)}\n}`
+  // ── Module-decl surface ──
+  emitConst: (c) => glslEs300Backend.constDecl(c.name, c.type, f32Lit(c.wgslValue)),
+  // struct / binding emission is a later step (std140 UBO / data-texture lowering); fail closed.
+  emitStruct: () => { throw new UnsupportedFeatureError('glsl-es300: struct decls (IO/uniform) — std140 lowering is a later step') },
+  emitBinding: () => { throw new UnsupportedFeatureError('glsl-es300: resource bindings — std140 UBO / data-texture lowering is a later step') },
+  emitFunc: (f) => {
+    if (f.attrs?.length) throw new UnsupportedFeatureError(`glsl-es300: entry-point function '${f.name}' (${f.attrs.join(' ')}) — struct-IO flatten is a later step`)
+    for (const p of f.params) {
+      if (p.builtin !== undefined || p.location !== undefined)
+        throw new UnsupportedFeatureError(`glsl-es300: function '${f.name}' has IO-attributed params — entry lowering is a later step`)
+    }
+    const params = f.params.map((p) => `${glslType(p.type)} ${p.name}`).join(', ')
+    return `${glslType(f.ret)} ${f.name}(${params}) {\n${emitBody(f.body, 1, glslEs300Backend)}\n}`
+  },
+  // GLSL has no emit-time auto-cache (cse stays WGSL-only so byte-identity holds); identity.
+  optimize: (lowered) => lowered,
 }
 
 /** Emit a pure-function ModuleDecl as GLSL ES 3.00 (version + precision header).
- *  Bindings/structs/entry-IO raise UnsupportedFeatureError. */
+ *  Bindings/structs/entry-IO raise UnsupportedFeatureError. The shared preamble
+ *  (lowerForBackend) runs validate → assertCaps → optimize(lowerModule(autoVars)) — with
+ *  GLSL's `optimize` being identity, so the lowered shape (and emit bytes) are unchanged;
+ *  the version/precision header + `\n`-join + binding/struct fail-closed framing is the
+ *  GLSL-specific part that stays here. */
 export function emitGlslModule(m: ModuleDecl): string {
-  validate(m) // validate the authored module before any lowering
-  assertCaps(glslEs300Backend, m) // fail closed on storage/compute/MSAA (caps = none)
-  // autoVars BEFORE lowerModule, same order as the WGSL backend / CPU oracle. Materialising
-  // assigned plain-value bindings (the `const x = expr; x.assign(…)` auto-var pattern) into
-  // real vars is BACKEND-NEUTRAL — skipping it here let such a module emit invalid
-  // `(expr) = …;` GLSL. Identity for modules that don't use the pattern (e.g. projection,
-  // which holds mutated values in explicit Var()), so existing GLSL output is unchanged.
-  const lowered = lowerModule(autoVars(m))
+  // autoVars BEFORE lowerModule (inside lowerForBackend), same order as the WGSL backend /
+  // CPU oracle. Materialising assigned plain-value bindings (the `const x = expr; x.assign(…)`
+  // auto-var pattern) into real vars is BACKEND-NEUTRAL — skipping it would let such a module
+  // emit invalid `(expr) = …;` GLSL. Identity for modules that don't use the pattern (e.g.
+  // projection, which holds mutated values in explicit Var()), so existing GLSL output is unchanged.
+  const lowered = lowerForBackend(m, glslEs300Backend)
   if (lowered.bindings.length) throw new UnsupportedFeatureError('glsl-es300: resource bindings — std140 UBO / data-texture lowering is a later step')
   if (lowered.structs.length) throw new UnsupportedFeatureError('glsl-es300: struct decls (IO/uniform) — std140 lowering is a later step')
   const parts: string[] = ['#version 300 es', 'precision highp float;', '']
-  if (lowered.consts.length) parts.push(lowered.consts.map(emitConst).join('\n'))
-  if (lowered.funcs.length) parts.push(lowered.funcs.map(emitFunc).join('\n\n'))
+  if (lowered.consts.length) parts.push(lowered.consts.map((c) => glslEs300Backend.emitConst(c)).join('\n'))
+  if (lowered.funcs.length) parts.push(lowered.funcs.map((f) => glslEs300Backend.emitFunc(f)).join('\n\n'))
   return parts.join('\n') + '\n'
 }

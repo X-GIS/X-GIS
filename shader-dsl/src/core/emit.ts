@@ -7,7 +7,11 @@
 // the control-flow walk (no duplicated if/for/switch/return logic that can drift).
 
 import type { Backend } from './backend'
-import type { Expr, Stmt } from './ir'
+import type { Expr, Stmt, ModuleDecl } from './ir'
+import { validate } from './passes/validate'
+import { assertCaps } from './passes/required-caps'
+import { lowerModule } from './passes/match-lower'
+import { autoVars } from './passes/opt'
 
 const pad = (depth: number): string => '  '.repeat(depth)
 
@@ -91,4 +95,42 @@ export function forHeader(s: Stmt, be: Backend): string {
   if (s.s === 'assign') return `${r(s.target)} = ${r(s.expr)}`
   if (s.s === 'assignOp') return `${r(s.target)} ${s.bop}= ${r(s.expr)}`
   throw new Error(`shader-dsl: bad for-header stmt ${s.s}`)
+}
+
+// ── Module-level emit (shared driver) ──
+// The module assembly pipeline, parameterised by the Backend, lives here ONCE so a
+// new backend does not copy it. Per-target spelling (const/struct/binding/func) and
+// the emit-time optimisation (`optimize`: WGSL = cse, GLSL = identity) are delegated
+// to the Backend; the validate → assertCaps → autoVars → lowerModule → optimize
+// preamble is identical for every target.
+
+/** Run the authored module through the shared pre-emit pipeline for a backend:
+ *  validate the AUTHORED shape, fail-closed on unsupported caps, then
+ *  `optimize(lowerModule(autoVars(m)))`. Returns the lowered module ready for
+ *  per-declaration spelling. (autoVars BEFORE lowerModule — var materialisation is
+ *  backend-neutral; cse runs only inside the WGSL backend's `optimize`.) */
+export function lowerForBackend(m: ModuleDecl, be: Backend): ModuleDecl {
+  // Validate the AUTHORED module before any lowering (the rules reason about the
+  // pre-lower shape — e.g. matchExpr chains, placeholder swap sites).
+  validate(m)
+  assertCaps(be, m) // principled fail-closed gate
+  // matchExpr→{var slot, Stmt.switch} lowering first so the rest of the emitter stays
+  // matchExpr-unaware (identity for modules with no matchExpr); auto-cache (cse, in the
+  // WGSL backend's optimize) then hoists any input-only subexpression reused ≥2x into one
+  // shared `let`, so authors write plain inline expressions and the reuse is bound for them.
+  return be.optimize(lowerModule(autoVars(m)))
+}
+
+/** Emit a ModuleDecl to a target string: shared preamble (`lowerForBackend`) then the
+ *  declaration assembly (consts → structs → bindings → funcs, only non-empty sections),
+ *  joined `\n\n` with a trailing newline. Each backend's public module entry
+ *  (`emitModule` for WGSL) routes through here, so the assembly lives once. */
+export function emitModule(m: ModuleDecl, be: Backend): string {
+  const lowered = lowerForBackend(m, be)
+  const parts: string[] = []
+  if (lowered.consts.length) parts.push(lowered.consts.map((c) => be.emitConst(c)).join('\n'))
+  if (lowered.structs.length) parts.push(lowered.structs.map((s) => be.emitStruct(s)).join('\n\n'))
+  if (lowered.bindings.length) parts.push(lowered.bindings.map((b) => be.emitBinding(b)).join('\n'))
+  if (lowered.funcs.length) parts.push(lowered.funcs.map((f) => be.emitFunc(f)).join('\n\n'))
+  return parts.join('\n\n') + '\n'
 }
