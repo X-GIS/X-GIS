@@ -199,10 +199,22 @@ export class Node<K extends string = string> {
 
 // ── Literal / ref constructors ──
 
-export const f32 = (v: number): Node<'f32'> => new Node<'f32'>({ op: 'lit', type: f32T, value: v })
-export const i32 = (v: number): Node<'i32'> => new Node<'i32'>({ op: 'lit', type: i32T, value: v })
-export const u32 = (v: number): Node<'u32'> => new Node<'u32'>({ op: 'lit', type: u32T, value: v })
-export const bool = (v: boolean): Node<'bool'> => new Node<'bool'>({ op: 'lit', type: boolT, value: v })
+// A scalar-literal ctor takes a JS NUMBER/BOOLEAN. Passing a Node (a common slip when you
+// mean to CAST — `f32(intNode)`) would silently bake the object into the lit (emitting
+// `[object Object]`), so guard it with a message that points at the cast helpers.
+const litNum = (v: number, fn: string): number => {
+  if (typeof v !== 'number') {
+    throw new TypeError(`shader-dsl: ${fn}() takes a numeric literal, got ${typeof v} — to CONVERT a Node use a cast (toF32/toI32/toU32), not ${fn}(node)`)
+  }
+  return v
+}
+export const f32 = (v: number): Node<'f32'> => new Node<'f32'>({ op: 'lit', type: f32T, value: litNum(v, 'f32') })
+export const i32 = (v: number): Node<'i32'> => new Node<'i32'>({ op: 'lit', type: i32T, value: litNum(v, 'i32') })
+export const u32 = (v: number): Node<'u32'> => new Node<'u32'>({ op: 'lit', type: u32T, value: litNum(v, 'u32') })
+export const bool = (v: boolean): Node<'bool'> => {
+  if (typeof v !== 'boolean') throw new TypeError(`shader-dsl: bool() takes a boolean literal, got ${typeof v}`)
+  return new Node<'bool'>({ op: 'lit', type: boolT, value: v })
+}
 
 /** A reference to a module-level const (PI, DEG2RAD, EARTH_R, …). Defaults to
  *  an f32 const (every projection const is f32). */
