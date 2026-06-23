@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-23 -->
 
 # diagnostics
 
@@ -9,6 +9,7 @@ Compile-time optimisation profile for a compiled `Scene`. Composes four analysis
 ## Key Files
 | File | Description |
 |------|-------------|
+| `index.ts` | Barrel re-export of the module's public API: `getStyleProfile`, `formatStyleProfile`, and TypeScript types (`StyleProfile`, `DepHistogramRow`, `CSESummary`, `ComputePlanSummary`, `PaletteSummary`, `MatchArmBand`). |
 | `style-profile.ts` | Exports `getStyleProfile(scene): StyleProfile` and `formatStyleProfile(p): string`. Defines `StyleProfile`, `DepHistogramRow`, `CSESummary` (redundancy %, top-8 dup candidates), `ComputePlanSummary` (entries + unique kernel count after WGSL-fingerprint dedup), `PaletteSummary` (colors/scalars/gradients), and `MatchArmBand` (arm-count histogram bucketed at 1-3/4-7/8-15/16-31/32+). Also re-exports `formatDeps` from `ir/deps`. |
 
 No subdirectories.

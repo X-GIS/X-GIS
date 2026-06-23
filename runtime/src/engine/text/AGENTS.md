@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-06-03 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-06-03 | Updated: 2026-06-23 -->
 
 # text
 
@@ -17,6 +17,8 @@ The SDF text/label pipeline for X-GIS. Given a layer's `LabelDef` and a feature'
 | `text-vertex-format.ts` | Single-source-of-truth `TEXT_FORMAT` (`VertexFormat`): `pos_px` (float32x2, loc 0) + `uv` (float32x2, loc 1), stride 16. Both the GPU buffer layout and the glyph packer derive from this — they cannot drift. |
 | `text-resolver.ts` | IR `TextValue` + feature props → display string. Handles `kind:'expr'` (evaluate AST) and `kind:'template'` (fold literal + interp parts). Injects cameraZoom + geometry-type + featureId into the eval context; returns empty string on null/undefined (matches Mapbox `text-field: null` skip). |
 | `text-collision.ts` | Greedy axis-aligned bbox collision. First claimer wins; stable `symbol-sort-key` ordering (lower wins); `allowOverlap`/`ignorePlacement` semantics mirror Mapbox exactly. Variable-anchor: tries each candidate bbox in priority order. Along-line `minLineSpacingPx` suppresses crowded same-road labels via `lineId`+`anchorDistancePx`. |
+| `text-wrap.ts` | Knuth-Plass line breaking over shaped glyph advances, with module-level 1024-entry LRU wrap-result cache (cache key: FNV-1a hash of glyph sequence + font + size + letter-spacing + maxWidth). Exports `wrapWithKnuthPlass()` and CJK ideograph utilities (`cjkBucketFor()`, `hasCjkIdeograph()`, `codePointIsIdeographic()`); cache survives across TextStage instances and camera zoom drift. |
+| `text-stage-diagnostics.ts` | Bounded observability for the text pipeline: dispatched label texts (256 entry set), submitted vs. drawn label counters (pre- vs. post-collision), z0 halo normalisation probe (fontSize / rasterFontSize / haloWidth / normalized), and live glyph-placement dump (x/y offsets per label when filter is set). All methods are side-channels; zero influence on renders. |
 | `sdf-shape.ts` | SVG path → GPU storage-buffer SDF shapes. Parses M/L/C/Q/Z commands into `SegmentData` (48 B, kind 0/1/2 for line/quadratic/cubic). Fragment shader computes SDF live from the storage buffer — no atlas slot needed. Used for vector shield outlines and marker shapes. |
 
 ## Subdirectories

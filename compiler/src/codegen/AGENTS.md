@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-06-03 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-06-03 | Updated: 2026-06-23 -->
 
 # codegen
 
@@ -21,6 +21,7 @@ subdirectory holds DSL node-builder helpers (`node-builders.ts`) and a canonical
 
 | File | Description |
 |---|---|
+| `index.ts` | Barrel re-export. Public API surface: exports `ShaderVariant` type, core DSL vocabulary (`NodeLike`, `wgslRaw`), field extraction (`collectFields`, `collectFieldsStrict`), palette/compute infra, and runtime-facing builders (`buildPerShowMergedVariant`). |
 | `shader-gen.ts` | Core variant generator. `generateShaderVariant(node, fnEnv?, palette?, scalarPaletteMode?)` processes fill/stroke/opacity `ColorValue`/`OpacityValue` across constant, time-interpolated, data-driven (`categorical`, `match`, `gradient`, `scale`), and zoom-interpolated (palette-atlas) arms. Builds the `ShaderVariant` cache key and returns typed `NodeLike<'vec4<f32>'>` fill/stroke expressions alongside legacy WGSL strings during the US-005 Node migration. |
 | `shader-gen-types.ts` | Type declarations for `ShaderVariant`, `ColorResult`, and `OpacityResult`. `ShaderVariant` carries `fillExpr`/`strokeExpr` as `NodeLike<'vec4<f32>'>\|null`, palette gradient index lists (`paletteColorGradients`, `paletteScalarGradients`), `fillUsesPalette`/`strokeUsesPalette`/`opacityUsesPalette` flags, `categoryOrder` for match-arm ID alignment, `fillIsDefault`/`strokeIsDefault` typed sentinels, and `computeBindings` for P4 output buffers. |
 | `node-types.ts` | Permanent compiler-side DSL vocabulary: the `Expr` union (lit, constref, param, varref, unop, binop, compare, logical, call, member, construct, select, index, matchExpr, rawString ops), the `ShaderType` union, and the `NodeLike<K>` seam interface with phantom WGSL-key brand. Must stay structurally in lock-step with `runtime/src/engine/shader-dsl/core/ir/nodes.ts`. `rawString` is a back-compat wrapper that carries a pre-built WGSL string; new emit sites use `_util/node-builders.ts` instead. |

@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-23 -->
 
 # playground/src
 
@@ -13,6 +13,7 @@ TypeScript entry-point modules for the four Vite HTML pages (`index.html`, `demo
 | `demos.ts` | `DEMOS` registry — maps ~100 demo ID strings to `{ name, tag, description, source, picking? }`. Loads `.xgis` source text via `import.meta.glob('*.xgis', { eager:true, query:'?raw' })`. Handles production URL rewrites: dev `/pmtiles-proxy/protomaps/v4.pmtiles` → protomaps API TileJSON endpoint (keyed to `x-gis.github.io` CORS origin). |
 | `gallery.ts` | `TAG_COLORS` / `TAG_LABELS` / `TAG_ORDER` display maps; builds category-section DOM for `index.html` with inline search filtering. Imports `DEMOS` from `demos.ts`. |
 | `demo-runner.ts` | Full interactive demo runner for `demo.html`: Monaco editor with XGIS language support, projection selector, prev/next navigation, snapshot copy button (`__xgisSnapshot`), mobile editor toggle, in-page log overlay (captures `console.error`/`console.warn`/uncaptured WebGPU errors), `?debug=labels` label-anchor visualiser overlay, `?profile=1` inspector activation, `?safe=1` MSAA bypass toggle, Mapbox-import flow (`__xgisImportMapbox` / sessionStorage `__xgisImportSource`), camera hash serialisation (`#z/lat/lon/bearing/pitch`), and `window.__xgisMap` / `window.__xgisReady` exposure for e2e tests. |
+| `mapbox-projection.ts` | Extracts host-applicable Mapbox style-spec fields (`projection` type name and `light` block) for use by `demo-runner.ts` and `compare-runner.ts`; provides `extractMapboxProjectionName` and `extractMapboxLight` utilities with CSS colour parsing. |
 | `compare-runner.ts` | `compare.html` runner: mounts MapLibre GL JS and X-GIS side-by-side on the same parsed `style.json` (X-GIS via `convertMapboxStyle`), synchronises camera via last-write-wins rAF poll and `history.replaceState`. Style catalogue: MapLibre demotiles, OFM Bright/Liberty/Positron, isolated buildings-only style. |
 | `debug-labels.ts` | `debug-labels.html` runner: single touch-interactive OFM Bright map with per-glyph placement dump panel (`map.setLabelDumpFilter` / `getDumpedLabels`). Renders intra-line monotonicity, render-Y spread, rfs-mixing, and cross-line overlap diagnostics (Korean/CJK label debugging). Includes icon-dump pairing for shield text-vs-box alignment check. |
 | `monaco-xgis.ts` | Monaco language registration: Monarch tokenizer, bracket/comment config, completion provider (field access, utility pipe, Tailwind color/shape completions, source/layer snippet templates, GeoJSON+PMTiles per-source-layer `discoverFields`), go-to-definition, document symbols outline, hover docs, and `validateSource` (real-time Lexer+Parser errors with line/col markers). |
