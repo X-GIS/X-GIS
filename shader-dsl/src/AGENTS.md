@@ -6,6 +6,11 @@
 ## Purpose
 A zero-dependency TypeScript shader DSL that eliminates hand-maintained GPU/CPU drift. Shaders are authored once as typed node graphs (the IR); the IR is then emitted by THREE backends over ONE shared tree-walk: a **WGSL** writer (production strings for `device.createShaderModule`), a **GLSL ES 3.00** writer (a target-neutrality proof — string-shape-validated only, never GPU-compiled yet), and a **CPU f64 oracle** that tree-walks the same IR on the host for projection math (the generated replacement for the deleted `projection-wgsl-mirror.ts`). Split into `core/` (IR, the neutral emitter + backend contract, the pass pipeline, the SoT layer — all private) and `shaders/` (concrete shader graphs). Consumers outside this directory import only from `index.ts`; `core/` is never imported directly.
 
+**Authoring a shader? Read `../AUTHORING.md`** (the package-level guide) — it documents the current
+ceremony-free surface (`fn(name, params, body)` with inferred return type, `const x = expr` + `.assign()`,
+`If`/`Switch`, the SoT helpers). Several older patterns named below in passing (`Let`/`Var`, `condExpr`) still
+exist as primitives, but the guide shows the form to author NEW shaders in.
+
 ## Key Files
 
 ### IR (`core/ir/`)
