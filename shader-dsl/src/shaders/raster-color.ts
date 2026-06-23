@@ -10,7 +10,7 @@
 
 import {
   fn, f32, f32T, vec3, vec3fT, vec4fT, sin, cos, dot, select, clamp, radians,
-  Let, Var, callFn,
+  Let, Var,
   type FuncDecl,
 } from '../core/ir'
 
@@ -25,7 +25,7 @@ const rasterSpinWeights = fn('raster_spin_weights', { angle_rad: f32T }, vec3fT,
   return vec3(w0, w1, w2)
 })
 
-const rasterColorAdjust = fn('raster_color_adjust', { rgb_in: vec3fT, p0: vec4fT, p1: vec4fT }, vec3fT, (p, _b) => {
+export const rasterColorAdjust = fn('raster_color_adjust', { rgb_in: vec3fT, p0: vec4fT, p1: vec4fT }, vec3fT, (p, _b) => {
   const hueDeg = p.p0.x
   const brightnessLow = p.p0.y
   const brightnessHigh = p.p0.z
@@ -34,7 +34,7 @@ const rasterColorAdjust = fn('raster_color_adjust', { rgb_in: vec3fT, p0: vec4fT
   const rgb = Var(p.rgb_in)
 
   // Hue rotate — spin the RGB vector by the w.xyz / w.zxy / w.yzx swizzle weights.
-  const w = callFn('raster_spin_weights', vec3fT, radians(hueDeg))
+  const w = rasterSpinWeights(radians(hueDeg))
   rgb.assign(vec3(dot(rgb, w), dot(rgb, w.zxy), dot(rgb, w.yzx)))
 
   // Brightness remap — low + (high-low)*rgb (per component). Expanded rather than mix()

@@ -11,7 +11,7 @@
 // emit helper that returns the compose pipeline's WGSL.
 
 import {
-  fn, module, callFn,
+  fn, module,
   f32, u32, vec2, vec3, vec4, toF32, toI32,
   clamp,
   textureLoad, textureDimensions, vec2i,
@@ -88,7 +88,7 @@ const fsCompose = fn(
     })
     // Exposure: 16 overdraws → fully saturated.
     const t = count.div(16)
-    Return(vec4(callFn('colormap', vec3fT, t), 1))
+    Return(vec4(colormap(t), 1))
   },
   { stage: 'fragment', retAttr: '@location(0)' },
 )
