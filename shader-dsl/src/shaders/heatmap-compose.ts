@@ -23,7 +23,7 @@
 // by the layer-level heatmap-opacity.
 
 import {
-  module, callFn, fn,
+  module, fn,
   Var, If,
   f32, u32, vec2, vec4, toF32, toI32, clamp,
   textureLoad, textureSample, textureDimensions, vec2i,
@@ -81,7 +81,7 @@ const loadDensity = fn('load_density', { uv: vec2fT }, f32T, (p, _b) => {
 const fsCompose = fn(
   'fs_compose', { in: VsOut.type }, vec4fT,
   (p, _b) => {
-    const density = callFn('load_density', f32T, VsOut.of(p.in).uv)
+    const density = loadDensity(VsOut.of(p.in).uv)
     const intensity = U.field.params.x
     const opacity = U.field.params.y
     // Normalise density → ramp coordinate (0..1) via intensity scale.

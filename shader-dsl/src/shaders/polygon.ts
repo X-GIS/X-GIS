@@ -22,7 +22,7 @@
 // old __PICK_FIELD__ / __PICK_WRITE__ regex markers in POLYGON_SHADER_SOURCE).
 
 import {
-  fn, module, callFn,
+  fn, module,
   Let, Var, If, Return, Discard,
   f32, u32, vec2, vec2u, vec3, vec4, toF32, toU32, transformMat4, clamp, select,
   abs, fract, max, min, mix, pow, sqrt, dot, log, tan, floor, textureSample, unpack4x8unorm,
@@ -462,7 +462,7 @@ const vsMainEcef = fn(
 
     // PR 2f dequant via the shared dequant_ecef fn (single source; also run
     // standalone in the compute parity harness vs the CPU fround mirror).
-    const ecefRtc = callFn('dequant_ecef', vec3fT, p.q_xy, p.q_z, dqScale, dqHalf)
+    const ecefRtc = dequantEcefFn(p.q_xy, p.q_z, dqScale, dqHalf)
     // The f32 tail slots (abs_lon/abs_lat) now carry TILE-LOCAL Mercator
     // (local_merc = vertex_merc − tile_origin_merc), NOT degrees. Reconstruct
     // ABSOLUTE Mercator (+ tile_origin_merc) for the fragment hemisphere-cull
@@ -562,7 +562,7 @@ const vsMainEcefExtruded = fn(
     // vs_main_ecef). Both wall-bottom + wall-top + roof vertices are
     // pre-positioned + quantized in ECEF metres by the runtime wall-mesh
     // (half-range computed post-lift), so the VS just decodes + transforms.
-    const ecefRtc = callFn('dequant_ecef', vec3fT, p.q_xy, p.q_z, dqScale, dqHalf)
+    const ecefRtc = dequantEcefFn(p.q_xy, p.q_z, dqScale, dqHalf)
     const absMercX = radians(p.abs_lon).mul(earthR)
     const absLatClamped = clamp(p.abs_lat, mercLatLim.neg(), mercLatLim)
     const absMercY =
@@ -673,7 +673,7 @@ const vsMainEcefExtruded = fn(
 
 const emitPolygonFragmentDiscards = (input: Node): void => {
   const i = VertexOutputIO.of(input)
-  const cosC = callFn('polygon_cos_c_fragment', f32T, i.abs_merc_x, i.abs_merc_y)
+  const cosC = polygonCosCFragment(i.abs_merc_x, i.abs_merc_y)
   If(cosC.lt(0), () => { Discard() })
   // #399 +0.5° margin: cap abs_lat is VS-clamped to exactly ±LIMIT, so a bare `>LIMIT` flips per MSAA sample at the pole fan (speckle); loosen-only ⇒ #360-hole-safe.
   If(abs(i.abs_lat).gt(MERCATOR_LAT_LIMIT.add(0.5)), () => { Discard() })
@@ -771,7 +771,7 @@ const buildFsFill = (pickEnabled: boolean) =>
       // the spare cam_ecef_off_h.w uniform lane (1 = default, 0 = off);
       // at the default the multiply runs exactly as before (no-op gate).
       If(U.field.cam_ecef_off_h.w.ne(0), () => {
-        const rimA = callFn('polygon_rim_alpha', f32T, i.abs_merc_x, i.abs_merc_y)
+        const rimA = polygonRimAlpha(i.abs_merc_x, i.abs_merc_y)
         const o = polygonFragmentOutput(pickEnabled).of(out)
         o.color.a.assign(o.color.a.mul(rimA))
       })
@@ -817,7 +817,7 @@ const buildFsFillPattern = (pickEnabled: boolean) =>
       // Layer opacity multiplies sprite alpha so fill-opacity still works.
       const o = polygonFragmentOutput(pickEnabled).of(out)
       o.color.assign(vec4(sampled.rgb, sampled.a.mul(U.field.opacity)))
-      const rimA = callFn('polygon_rim_alpha', f32T, i.abs_merc_x, i.abs_merc_y)
+      const rimA = polygonRimAlpha(i.abs_merc_x, i.abs_merc_y)
       o.color.a.assign(o.color.a.mul(rimA))
       emitPickWrite(input, out, pickEnabled)
       emitLogDepthJitter(input, out)
@@ -851,7 +851,7 @@ const fsOitTranslucent = fn(
     const fillColor = U.field.fill_color
     const rgb = fillColor.rgb.mul(wallShade)
     // Rim alpha fade (multiplies into alpha so OIT accumulation respects it).
-    const rimA = callFn('polygon_rim_alpha', f32T, i.abs_merc_x, i.abs_merc_y)
+    const rimA = polygonRimAlpha(i.abs_merc_x, i.abs_merc_y)
     const a = fillColor.a.mul(rimA)
     If(a.le(0.001), () => { Discard() })
     // McGuire-Bavoil weight: large for closer + smaller alpha contributions,
@@ -893,7 +893,7 @@ const buildFsFillExtrude = (pickEnabled: boolean) =>
       // Rim alpha — operates on the premultiplied colour: scales both rgb
       // and alpha by the rim factor so the building still fades at sphere
       // edges on globe / azimuthal projections.
-      const rim = callFn('polygon_rim_alpha', f32T, i.abs_merc_x, i.abs_merc_y)
+      const rim = polygonRimAlpha(i.abs_merc_x, i.abs_merc_y)
       polygonFragmentOutput(pickEnabled).of(out).color.assign(i.v_color.mul(rim))
       emitPickWrite(input, out, pickEnabled)
       emitLogDepthJitter(input, out)
@@ -930,7 +930,7 @@ const buildFsStroke = (pickEnabled: boolean) =>
       //   composer inserts the base default-uniform path:
       //     out.color = vec4<f32>(u.stroke_color.rgb, u.stroke_color.a * alpha_scale);
       b.placeholder('stroke-return')
-      const rimA = callFn('polygon_rim_alpha', f32T, i.abs_merc_x, i.abs_merc_y)
+      const rimA = polygonRimAlpha(i.abs_merc_x, i.abs_merc_y)
       const o = polygonFragmentOutput(pickEnabled).of(out)
       o.color.a.assign(o.color.a.mul(rimA))
       emitPickWrite(input, out, pickEnabled)

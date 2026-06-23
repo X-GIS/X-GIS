@@ -16,16 +16,16 @@
 // raster always writes (0,0) since a basemap tile carries no feature id.
 
 import {
-  fn, module, callFn, transformMat4, arrayLit,
+  fn, module, transformMat4, arrayLit,
   f32, u32, toF32, vec2, vec3, vec4, vec2u, mix, atan, exp, smoothstep, textureSample, radians, degrees,
-  f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
+  f32T, u32T, vec2fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   If, condExpr, Discard,
   type ModuleDecl,
 } from '../core/ir'
 import { ioStruct, builtin, location, uniformStruct, resource } from '../core/sot'
 import { emitModule } from '../core/backends/wgsl'
 import { ECEF_CONSTS, ECEF_FUNCS, lonlatToEcef } from './ecef'
-import { RASTER_COLOR_FUNCS } from './raster-color'
+import { RASTER_COLOR_FUNCS, rasterColorAdjust } from './raster-color'
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
 import { project, flat_rel, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
 import { PI } from './consts'
@@ -154,8 +154,7 @@ const buildFs = (pickEnabled: boolean) => {
     // raster-* colour adjustments (hue-rotate / brightness / saturation /
     // contrast). Defaults are a hard no-op so an un-authored show is
     // byte-identical to the raw texel rgb.
-    const adjRgb = callFn('raster_color_adjust', vec3fT,
-      c.rgb, U.field.raster_color0, U.field.raster_color1)
+    const adjRgb = rasterColorAdjust(c.rgb, U.field.raster_color0, U.field.raster_color1)
     // raster-opacity multiplies alpha only (premultiplied blend keeps RGB at
     // texel value, so a half-opacity raster fades rather than darkens).
     // Basemap tile carries no feature id → always (0,0).
