@@ -2,21 +2,22 @@
 import Base from '../layouts/Base.astro'
 import Graticule from '../components/Graticule.astro'
 import Header from '../components/Header.astro'
-import Hero from '../components/Hero.astro'
+import Hero from '../components/react/Hero.tsx'
 import Why from '../components/Why.astro'
 import QuickStart from '../components/QuickStart.astro'
 import Footer from '../components/Footer.astro'
-// "Chart Room" landing — the lat/lon graticule backs the whole page;
-// the hero's live map morphs across projections to show "one source,
-// any view." Hero + the four "Beyond the library" pillars + install:
-// the fastest path from "what is X-GIS" to "clone it and see a map."
+// "Drafting Table" landing — warm-ink survey surface, single sienna
+// accent. The hero is a hydrated React island (shadcn/ui) whose live map
+// morphs across projections to show "one source, any view." Why + install
+// stay static Astro and inherit the palette through the shared tokens.
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 ---
 
 <Base>
   <Graticule />
   <Header />
   <main>
-    <Hero />
+    <Hero client:load docsUrl={`${base}/docs`} examplesUrl={`${base}/examples`} convertUrl={`${base}/convert`} />
     <Why />
     <QuickStart />
   </main>

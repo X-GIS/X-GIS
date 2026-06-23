@@ -1,6 +1,7 @@
 import { defineConfig } from 'astro/config'
 import { fileURLToPath, URL } from 'node:url'
 import sitemap from '@astrojs/sitemap'
+import react from '@astrojs/react'
 import tailwindcss from '@tailwindcss/vite'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 import expressiveCode from 'astro-expressive-code'
@@ -38,6 +39,9 @@ export default defineConfig({
       },
     }),
     sitemap(),
+    // React islands — shadcn/ui components render as hydrated islands;
+    // expressive-code stays build-time, Astro pages stay static.
+    react(),
   ],
   vite: {
     plugins: [tailwindcss(), basicSsl()],
@@ -50,6 +54,7 @@ export default defineConfig({
     resolve: {
       alias: {
         '@xgis/runtime': fileURLToPath(new URL('../runtime/src/index.ts', import.meta.url)),
+        '@': fileURLToPath(new URL('./src', import.meta.url)),
       },
     },
     // Workspace packages must skip Vite's pre-bundle (it can't crawl

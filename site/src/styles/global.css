@@ -1,65 +1,137 @@
-/* Self-hosted variable fonts via @fontsource — no third-party DNS,
- * no extra round trips, cached behind the same hash-busted /_astro
- * URLs as the JS/CSS bundles (see the package rationale below).
- *
- *   Big Shoulders Display — condensed, drafted letterforms. The chart
- *     title-block / survey-stamp face. DISPLAY ONLY (hero + section heads).
- *   Archivo               — the body grotesque. Quiet, legible, neutral.
- *   Spline Sans Mono      — the language face: .xgis code, coordinate
- *     ticks, legends, data. Mono is brand here — X-GIS *is* a language.
+/* Self-hosted variable fonts via @fontsource — no third-party DNS.
+ *   Big Shoulders Display — condensed survey-stamp display face (titles).
+ *   Archivo               — body grotesque.
+ *   Spline Sans Mono      — code / labels / coordinate data.
  */
 @import "@fontsource-variable/big-shoulders-display";
 @import "@fontsource-variable/archivo";
 @import "@fontsource-variable/spline-sans-mono";
 @import "tailwindcss";
+@import "tw-animate-css";
 
-/* ═══ Tokens — "Chart Room" ═══════════════════════════════════════════
- * A nautical/topographic chart rendered on a screen. The ground is deep
- * chart-water ink, the text is chart paper (bone). Two accents, two
- * jobs: phosphor cyan is the GPU output (links, controls, the rendered
- * map) — the workhorse; surveyor's vermilion is the cartographer's pen,
- * spent in exactly one place (the live projection marker). The graticule
- * — the lat/lon grid — is the page's structural grid, not decoration.
- * Token NAMES are unchanged from the previous palette so every existing
- * page inherits this identity through the shared chrome.
+/* ═══ Palette — "Drafting Table" ══════════════════════════════════════
+ * The previous palette failed: a 68%-saturated navy ground reads muddy,
+ * an acid cyan + vermilion landed on the generic "dark + bright accent"
+ * default, and warm text on cool ground clashed. This fixes all three:
+ *   · the ground is a WARM near-neutral ink (very low saturation) — it
+ *     reads as black-with-warmth, not as a colour;
+ *   · real value steps separate ground / panel / card;
+ *   · ONE grounded accent — a muted surveyor's sienna (the cartographer's
+ *     ink), never a screen-cyan — and warm paper text, so the whole page
+ *     sits at one temperature.
+ *
+ * Two token vocabularies coexist:
+ *   1. shadcn/ui semantic tokens (`--background`, `--primary`, …) in :root,
+ *      exposed as utilities via `@theme inline` — used by the React/shadcn
+ *      components.
+ *   2. the project's own aliases (`--color-bg`, `--color-accent`, …) in the
+ *      `@theme` block — used by the existing Astro markup during migration.
+ *   Both resolve to the same source swatches below, so the site is one
+ *   coherent theme regardless of which layer renders a given element.
  */
+:root {
+  /* source swatches — a deliberately WIDE value ladder so panels and
+   * cards lift clearly off the ground (the prior palette's steps were
+   * too small and the page read flat). */
+  --ink:      #14110c;   /* warm ink ground (val ~7%) */
+  --ink-2:    #1e1a13;   /* raised panel  (val ~12%) */
+  --ink-3:    #29231a;   /* card          (val ~16%) */
+  --ink-4:    #352e21;   /* hover / subtle fill (val ~20%) */
+  --paper:    #efe8da;   /* warm paper text */
+  --paper-2:  #b8ad99;   /* dim */
+  --paper-3:  #8c8169;   /* muted */
+  --paper-4:  #524a3a;   /* faint */
+  --hair:     rgba(239, 232, 218, 0.09);
+  --hair-2:   rgba(239, 232, 218, 0.16);
+  --sienna:        #cb6a3c;   /* surveyor's ink — the one accent */
+  --sienna-hover:  #df8052;
+  --sienna-press:  #ab5530;
+  --sienna-deep:   #9c4a28;
+  --on-sienna:     #1b140d;
+
+  /* shadcn semantic tokens */
+  --background: var(--ink);
+  --foreground: var(--paper);
+  --card: var(--ink-3);
+  --card-foreground: var(--paper);
+  --popover: var(--ink-4);
+  --popover-foreground: var(--paper);
+  --primary: var(--sienna);
+  --primary-foreground: var(--on-sienna);
+  --secondary: var(--ink-3);
+  --secondary-foreground: var(--paper);
+  --muted: var(--ink-3);
+  --muted-foreground: var(--paper-3);
+  --destructive: #b4452b;
+  --destructive-foreground: var(--paper);
+  --border: var(--hair);
+  --input: var(--hair-2);
+  --ring: var(--sienna);
+  --radius: 0.625rem;
+}
+
+/* Expose the shadcn tokens as Tailwind utilities (bg-background, text-
+ * primary, border-border, …). `inline` resolves the var at build time. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+/* Project aliases for the existing Astro markup. Same swatches, warm
+ * values. `--color-accent` stays the BRAND accent (now sienna, not cyan);
+ * shadcn components use `--color-primary` for the same swatch, so there is
+ * no `accent`-token collision. */
 @theme {
-  --color-bg: #0b1722;       /* deep chart water — the ground */
-  --color-bg-elev: #0e1e2b;
-  --color-bg-card: #122636;
-  --color-bg-hover: #17313f;
+  --color-bg: var(--ink);
+  --color-bg-elev: var(--ink-2);
+  --color-bg-card: var(--ink-3);
+  --color-bg-hover: var(--ink-4);
 
-  --color-fg: #eae6da;       /* chart paper */
-  --color-fg-dim: #aab4b7;
-  --color-fg-mute: #6e7c83;
-  --color-fg-faint: #3c4b55;
+  --color-fg: var(--paper);
+  --color-fg-dim: var(--paper-2);
+  --color-fg-mute: var(--paper-3);
+  --color-fg-faint: var(--paper-4);
 
-  --color-line: rgba(234, 230, 218, 0.08);
-  --color-line-strong: rgba(234, 230, 218, 0.16);
+  --color-line: var(--hair);
+  --color-line-strong: var(--hair-2);
+  --color-graticule: rgba(239, 232, 218, 0.06);
+  --color-graticule-strong: rgba(239, 232, 218, 0.13);
 
-  /* The graticule — faint lat/lon rules that structure the page. The
-   * "strong" tier draws the major meridians/parallels (every 4th line),
-   * the way a real chart weights its 10° graticule heavier. */
-  --color-graticule: rgba(234, 230, 218, 0.055);
-  --color-graticule-strong: rgba(234, 230, 218, 0.10);
+  --color-accent: var(--sienna);
+  --color-accent-hover: var(--sienna-hover);
+  --color-accent-press: var(--sienna-press);
 
-  /* Phosphor cyan — the rendered/GPU accent. Workhorse. */
-  --color-accent: #45dbd2;
-  --color-accent-hover: #74efe6;
-  --color-accent-press: #34c2ba;
+  /* legacy "vermilion" ticks → a deeper rust of the same ink. */
+  --color-vermilion: var(--sienna-deep);
+  --color-vermilion-dim: #7e3c20;
 
-  /* Surveyor's vermilion — the cartographer's pen. Signature only. */
-  --color-vermilion: #ff5a36;
-  --color-vermilion-dim: #c7472b;
-
-  /* Big Shoulders Display — DISPLAY only. Archivo is the body fallback
-   * so a failed display load degrades to a sane grotesque, not Times. */
   --font-display: "Big Shoulders Display Variable", "Archivo Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-sans: "Archivo Variable", "Archivo", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: "Spline Sans Mono Variable", "Spline Sans Mono", "SF Mono", "JetBrains Mono", ui-monospace, monospace;
 }
 
 @layer base {
+  * { border-color: var(--border); }
+
   html {
     background: var(--color-bg);
     color: var(--color-fg);
@@ -77,48 +149,23 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* Selection in phosphor cyan — ink text keeps it legible. */
-  ::selection {
-    background: var(--color-accent);
-    color: var(--color-bg);
-  }
+  ::selection { background: var(--color-accent); color: var(--on-sienna); }
 
   a { color: inherit; text-decoration: none; }
 
-  /* Focus ring — cyan, Tab-only. */
   :focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 3px;
-    border-radius: 2px;
+    border-radius: 3px;
   }
 }
 
-/* ═══ Motion ══════════════════════════════════════════════════════════
- * One orchestrated reveal on first paint. The graticule draws on like a
- * plotter pen; content rises after it. Everything respects reduced-motion.
- */
-@keyframes fade-up {
-  from { opacity: 0; transform: translateY(24px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-@keyframes fade-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-@keyframes scale-fade {
-  from { opacity: 0; transform: scale(0.97); }
-  to   { opacity: 1; transform: scale(1); }
-}
-/* Plotter pen — the graticule strokes itself in on load. */
-@keyframes draw-grid {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-/* The vermilion projection marker breathes — alive, not blinking. */
-@keyframes marker-pulse {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.45; }
-}
+/* ═══ Motion ═══ */
+@keyframes fade-up   { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes fade-in   { from { opacity: 0; } to { opacity: 1; } }
+@keyframes scale-fade{ from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: scale(1); } }
+@keyframes draw-grid { from { opacity: 0; } to { opacity: 1; } }
+@keyframes marker-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 
 @utility fade-up   { animation: fade-up 1s cubic-bezier(0.16, 0.84, 0.32, 1) both; }
 @utility fade-in   { animation: fade-in 1.3s ease-out both; }
@@ -131,59 +178,26 @@
   html { scroll-behavior: auto; }
 }
 
-/* ═══ Graticule ═══════════════════════════════════════════════════════
- * The lat/lon grid that backs the page. A repeating-linear-gradient
- * mesh — cheap, GPU-composited, no DOM. Meridians + parallels at a fixed
- * spacing; the component layer adds the edge coordinate ticks.
- */
+/* ═══ Graticule mesh ═══ */
 @utility graticule-field {
   background-image:
     repeating-linear-gradient(to right,  var(--color-graticule) 0 1px, transparent 1px var(--grid-step, 88px)),
     repeating-linear-gradient(to bottom, var(--color-graticule) 0 1px, transparent 1px var(--grid-step, 88px));
 }
 
-/* ═══ Shader-DSL mini-site — shared bits (render in slotted page
- *    content, so they must be global, not scoped to a layout) ═══ */
+/* ═══ Shader-DSL shared bits ═══ */
 .sd-code .expressive-code pre { max-height: 520px; }
 .no-scrollbar { scrollbar-width: none; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
-.line-clamp-3 {
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
+.line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 
-/* Code-view tabs */
 [role="tab"] { color: var(--color-fg-mute); cursor: pointer; }
 [role="tab"]:hover { color: var(--color-fg-dim); }
 [role="tab"][aria-selected="true"] {
   color: var(--color-accent);
-  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
 }
 
-/* Range slider — large touch target, accent thumb */
-.shader-range {
-  -webkit-appearance: none;
-  appearance: none;
-  height: 4px;
-  border-radius: 999px;
-  background: var(--color-line-strong);
-  outline: none;
-}
-.shader-range::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 20px; height: 20px;
-  border-radius: 50%;
-  background: var(--color-accent);
-  cursor: pointer;
-  border: 3px solid var(--color-bg-card);
-}
-.shader-range::-moz-range-thumb {
-  width: 20px; height: 20px;
-  border-radius: 50%;
-  background: var(--color-accent);
-  cursor: pointer;
-  border: 3px solid var(--color-bg-card);
-}
+.shader-range { -webkit-appearance: none; appearance: none; height: 4px; border-radius: 999px; background: var(--color-line-strong); outline: none; }
+.shader-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 20px; height: 20px; border-radius: 50%; background: var(--color-accent); cursor: pointer; border: 3px solid var(--color-bg-card); }
+.shader-range::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; background: var(--color-accent); cursor: pointer; border: 3px solid var(--color-bg-card); }
