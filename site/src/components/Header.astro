@@ -15,6 +15,19 @@ const examplesUrl = `${base}/examples`
 const convertUrl = `${base}/convert`
 const blueprintUrl = `${base}/blueprint`
 const shaderUrl = `${base}/shader-dsl`
+
+// Active top-nav highlight. Checked by path substring (base-prefix agnostic); shader-dsl is
+// tested BEFORE examples so /shader-dsl/examples lights "Shaders", not "Examples".
+const path = Astro.url.pathname
+const activeSeg =
+  path.includes('/shader-dsl') ? 'shaders'
+  : path.includes('/docs') ? 'docs'
+  : path.includes('/examples') ? 'examples'
+  : path.includes('/blueprint') ? 'blueprint'
+  : path.includes('/convert') ? 'convert'
+  : ''
+const navCls = (key: string): string =>
+  key === activeSeg ? 'text-fg font-medium' : 'hover:text-fg transition-colors'
 ---
 
 <header class="fixed top-0 inset-x-0 z-50 backdrop-blur-2xl bg-bg/72 border-b border-line">
@@ -31,11 +44,11 @@ const shaderUrl = `${base}/shader-dsl`
 
     <!-- Desktop nav (≥ sm) -->
     <nav class="ml-auto hidden sm:flex items-center gap-7 text-fg-dim">
-      <a href={docsUrl} class="hover:text-fg transition-colors">Docs</a>
-      <a href={examplesUrl} class="hover:text-fg transition-colors">Examples</a>
-      <a href={shaderUrl} class="hover:text-fg transition-colors">Shaders</a>
-      <a href={blueprintUrl} class="hover:text-fg transition-colors">Blueprint</a>
-      <a href={convertUrl} class="hover:text-fg transition-colors">Convert</a>
+      <a href={docsUrl} class={navCls('docs')}>Docs</a>
+      <a href={examplesUrl} class={navCls('examples')}>Examples</a>
+      <a href={shaderUrl} class={navCls('shaders')}>Shaders</a>
+      <a href={blueprintUrl} class={navCls('blueprint')}>Blueprint</a>
+      <a href={convertUrl} class={navCls('convert')}>Convert</a>
       <a href={`${home}#install`} class="hover:text-fg transition-colors">Install</a>
       <a href={githubUrl} target="_blank" rel="noopener" class="hover:text-fg transition-colors">GitHub</a>
     </nav>
