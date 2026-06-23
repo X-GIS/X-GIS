@@ -1719,7 +1719,7 @@ export class XGISMap {
         onPointerUp: (x, y, e) => { this._pointerActive = false; void dispatcher.handlePointerUp(x, y, e) },
         // OS/gesture steal (capture loss) ends the drag without a clean
         // pointerup — clear the flag so a later hover can't re-pin low DPR.
-        onPointerCancel: () => { this._pointerActive = false },
+        onPointerCancel: (e) => { this._pointerActive = false; dispatcher.handlePointerLeave(e) },
         onWheel: (x, y, e) => {
           this._cameraExplicitlyPositioned = true
           this.markInteracting()

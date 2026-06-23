@@ -105,8 +105,14 @@ export class EventDispatcher {
 
   /** Pointer left the canvas entirely. Force a `mouseleave` on whatever
    *  was hovered so layers don't get stuck thinking the cursor is still
-   *  over them. */
+   *  over them. Cancel any pending move-coalescing rAF so its callback
+   *  cannot fire spurious mouseenter/mousemove after the leave. */
   handlePointerLeave(ev: PointerEvent): void {
+    if (this.moveRafHandle !== null) {
+      cancelAnimationFrame(this.moveRafHandle)
+      this.moveRafHandle = null
+    }
+    this.moveLatest = null
     const prev = this.hoverPrev
     this.hoverPrev = null
     if (!prev) return

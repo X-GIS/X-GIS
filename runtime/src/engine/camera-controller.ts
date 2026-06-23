@@ -256,11 +256,20 @@ export class CameraController {
     // dpr first (matches map.ts's canonical `this.canvas.width / dpr`). The
     // 800 fallback (no ctx yet) is already a CSS-notional default — leave
     // it un-divided. THEN subtract padding (CSS px per Mapbox) in CSS space.
-    const ctxW = this.getCtxCanvas()?.width
-    const cssCanvasW = ctxW !== undefined ? ctxW / this._dpr() : 800
-    const canvasW = cssCanvasW - (opts.padding ?? 0) * 2
+    const ctxCanvas = this.getCtxCanvas()
+    const dpr = this._dpr()
+    const ctxW = ctxCanvas?.width
+    const ctxH = ctxCanvas?.height
+    const cssCanvasW = ctxW !== undefined ? ctxW / dpr : 800
+    const cssCanvasH = ctxH !== undefined ? ctxH / dpr : 600
+    const padding = opts.padding ?? 0
+    const canvasW = cssCanvasW - padding * 2
+    const canvasH = cssCanvasH - padding * 2
     const cssWidthPx = canvasW > 0 ? canvasW : 800
-    const zoom = this._fitZoomToLonSpan(lonSpan, cssWidthPx)
+    const cssHeightPx = canvasH > 0 ? canvasH : 600
+    const lonFitZoom = this._fitZoomToLonSpan(lonSpan, cssWidthPx)
+    const latFitZoom = this._fitZoomToMercYSpan(s, n, cssHeightPx)
+    const zoom = Math.min(lonFitZoom, latFitZoom)
     this.jumpTo({
       center: [centerLon, centerLat],
       zoom,
@@ -320,9 +329,15 @@ export class CameraController {
       this.setCenter(newLon, newLat)
     } else {
       this.camera.centerX += dxMap
+      // Wrap X to ±WORLD_MERC/2 — mirrors Camera.pan to prevent antimeridian drift.
+      const halfWorld = WORLD_MERC / 2
+      if (this.camera.centerX > halfWorld) this.camera.centerX -= WORLD_MERC
+      else if (this.camera.centerX < -halfWorld) this.camera.centerX += WORLD_MERC
       this.camera.centerY -= dyMap
-      // This fast-path never exceeds ±85.05 (no pole-ward placement), so keep
-      // centerLatDeg synced from the final Mercator centerY.
+      // Clamp Y to ±MAX_Y (Mercator limit ≈ ±85.051129°) — mirrors Camera.pan.
+      const MAX_Y = WORLD_MERC / 2 // 20037508.34m = mercator(±85.051129°)
+      this.camera.centerY = Math.max(-MAX_Y, Math.min(MAX_Y, this.camera.centerY))
+      // Keep centerLatDeg synced from the final Mercator centerY.
       this.camera.syncCenterLat()
       this.invalidate()
     }
@@ -476,6 +491,22 @@ export class CameraController {
     if (!(lonSpan > 1e-9) || !(cssWidthPx > 0)) return 4
     const degPerPx = lonSpan / cssWidthPx
     return Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
+  }
+
+  /** Map a latitude bbox [s, n] to the fit zoom for the Y axis.
+   *  Projects s and n to Mercator-Y meters, takes the Y span, and
+   *  inverts the mpp formula: mpp = WORLD_MERC/TILE_PX/2^z, so
+   *  2^z = WORLD_MERC * cssHeightPx / (TILE_PX * ySpan).
+   *  Used by fitBounds to pick the MORE CONSTRAINING axis (lon vs lat). */
+  _fitZoomToMercYSpan(latS: number, latN: number, cssHeightPx: number): number {
+    if (!(cssHeightPx > 0)) return 4
+    const EARTH = 6378137, D2R = Math.PI / 180, LAT_LIMIT = 85.051129
+    const clampS = Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, latS))
+    const clampN = Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, latN))
+    const yS = Math.log(Math.tan(Math.PI / 4 + (clampS * D2R) / 2)) * EARTH
+    const yN = Math.log(Math.tan(Math.PI / 4 + (clampN * D2R) / 2)) * EARTH
+    const ySpan = Math.max(1e-9, yN - yS)
+    return Math.max(0.5, Math.log2((WORLD_MERC * cssHeightPx) / (TILE_PX * ySpan)))
   }
 
   /** Device-pixel-ratio used to convert the canvas device-pixel buffer

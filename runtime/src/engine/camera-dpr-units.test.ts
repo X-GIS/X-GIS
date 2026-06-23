@@ -113,20 +113,20 @@ describe('camera API DPR unit-correctness (panBy / fitBounds / getBounds)', () =
       expect(zoom2).toBeCloseTo(zoom1, 6)
     })
 
-    it('the requested lon span fits within the viewport after fitBounds (DPR=2)', () => {
+    it('the requested bbox fits within the viewport after fitBounds (DPR=2)', () => {
       const bounds: [[number, number], [number, number]] = [[120, 30], [130, 40]]
       const requestedLonSpan = 130 - 120
 
       const m2 = makeMap(2)
       m2.fitBounds(bounds)
-      // After the fit, getBounds (also DPR-corrected) recovers the
-      // requested lon span — fit-zoom and getBounds are exact inverses, so
-      // the visible span equals the request to within FP epsilon (it must
-      // NOT be cropped to ~half). Before the fix the over-high zoom made
-      // the visible span ~half the request → requested bounds cropped.
+      // After the fit, getBounds recovers the viewport extent. The viewport
+      // lon span must be AT LEAST the requested lon span (the bbox fits inside,
+      // not cropped). It may be wider when the lat axis is the tighter
+      // constraint (fitBounds now picks min(lonFitZoom, latFitZoom)), but
+      // it must NOT be narrower (bbox cropped). Before the DPR fix the
+      // over-high zoom made the visible span ~half the request → cropped.
       const [[w], [e]] = m2.getBounds()
-      expect(e - w).toBeCloseTo(requestedLonSpan, 6)
-      expect(e - w).toBeGreaterThan(requestedLonSpan * 0.9) // not cropped to ~half
+      expect(e - w).toBeGreaterThanOrEqual(requestedLonSpan * 0.999)
     })
   })
 
