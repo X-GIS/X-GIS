@@ -364,7 +364,7 @@ const vs = fn('vs_point', {
     const offsetNdc = offsetPx.mul(pxToNdc)
     const flatClip = Let(centerClip.add(vec4(offsetNdc.mul(centerClip.w), 0, 0)))
     o.position.assign(apply_log_depth(flatClip, fc))
-    o.uv.assign(offXY)
+    o.uv.assign(offXY.mul(expand).div(max(radiusPx, 1)))
   }).else(() => {
     // BILLBOARD: expand in screen-space (NDC), perspective-corrected. Anchor
     // (bits 8..9): 0=center, 1=bottom (lifts up by one extent so the bottom

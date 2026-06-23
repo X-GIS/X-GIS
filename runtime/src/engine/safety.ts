@@ -240,7 +240,7 @@ export async function safeFetch(
  *  matching here. A bare single-label intranet name is NOT treated as
  *  private — only the well-known reserved ranges + `localhost`. */
 function isPrivateHost(hostname: string): boolean {
-  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '') // strip IPv6 brackets
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '') // strip IPv6 brackets; strip trailing DNS dot
   if (h === 'localhost' || h.endsWith('.localhost')) return true
   if (h === '::1' || h === '::') return true
   if (/^f[cd][0-9a-f]{2}:/.test(h)) return true // fc00::/7 unique-local

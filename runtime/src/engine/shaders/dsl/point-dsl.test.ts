@@ -98,4 +98,34 @@ describe('Phase-2 point shader — DSL emission', () => {
     expect((pointPart.match(/{/g) ?? []).length).toBe((pointPart.match(/}/g) ?? []).length)
     expect((pointPart.match(/\(/g) ?? []).length).toBe((pointPart.match(/\)/g) ?? []).length)
   })
+
+  it('flat-branch uv assignment scales by expand/max(radiusPx,1) — same contract as billboard branch', () => {
+    // BUG: flat branch used to emit `out.uv = off_xy` (bare ±1 corners),
+    // making length(uv)==1 land at radiusPx+2 px instead of radiusPx px.
+    // Both branches must divide by max(radiusPx,1) so the fragment-shader
+    // `length(uv)==1` edge maps to exactly radiusPx px in both modes.
+    //
+    // We gate on the VS body only (before fs_point) to avoid false positives
+    // from the fragment or helper functions.
+    const vsBody = pointPart.slice(pointPart.indexOf('fn vs_point'))
+    const vsOnly = vsBody.slice(0, vsBody.indexOf('fn fs_point'))
+
+    // The flat branch must NOT assign the bare offset without scaling.
+    // The CSE pass may hoist the sub-expression, so we check that a raw
+    // uv = <var> (no multiply/divide) assignment does NOT appear.
+    // (The CSE optimizer renames offXY to _cse* / _v* temps; we match
+    //  the general pattern of "uv = <single-token>" with no operator.)
+    expect(vsOnly).not.toMatch(/\.uv\s*=\s*[_a-zA-Z]\w*\s*;/)
+
+    // Both the flat and billboard paths must emit a division by max(..., 1.0)
+    // when writing .uv. The CSE optimizer emits `1.0` (not `1` / `1u` / `1f`).
+    // Each branch emits its own assignment so there must be at least 2
+    // occurrences of the uv-scaling division in the VS body.
+    const uvLines = vsOnly.split('\n').filter(l => /\.uv\s*=/.test(l))
+    expect(uvLines.length).toBeGreaterThanOrEqual(2)
+    for (const line of uvLines) {
+      // Every uv assignment must divide by max(..., 1.0) — no bare assignment.
+      expect(line).toMatch(/\/\s*max\(/)
+    }
+  })
 })

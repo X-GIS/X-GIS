@@ -34,7 +34,7 @@ import { enumerateWorldCopies, routeToSphereSelector } from '../gpu/gpu-shared'
 import {
   mercator as mercatorProj, getProjection, type Projection, mercatorYToLat,
 } from '../projection/projection'
-import { SELECTOR_PROJ_NAMES, promotesToGlobeWhenTilted } from '../projection/projections-table'
+import { SELECTOR_PROJ_NAMES, promotesToGlobeWhenTilted, representsCenterAs } from '../projection/projections-table'
 import type { TileCatalog } from '../../data/tile-catalog'
 import type { FrameDrawStats } from './frame-draw-stats'
 
@@ -602,7 +602,10 @@ export class TileSelectionCache {
         // camera faces the antimeridian.
         const R = 6378137
         const lon = camera.centerX / R * (180 / Math.PI)
-        const lat = mercatorYToLat(camera.centerY)
+        // Sphere family reads the true centre latitude (centerLatDeg reaches the
+        // pole; mercatorYToLat(centerY) saturates at ±85.051, diverging from the
+        // rendered sphere past that). Mirrors buildGlobeFrame/getECEFCenter.
+        const lat = representsCenterAs(projType) === 'lat-deg' ? camera.centerLatDeg : mercatorYToLat(camera.centerY)
         const cssW = canvasWidth / dpr
         const cssH = canvasHeight / dpr
         // Disc projections (ortho/azi/stereo) fill the viewport even at low

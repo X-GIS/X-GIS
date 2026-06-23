@@ -424,7 +424,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // readiness-gate logic was moved VERBATIM (plan §5 DO-NOT-SPLIT #2),
   // and its hard-won fix-history comments carry the bulk of the LOC —
   // just over the 800 cap. Baselined here; shrink as comments distil.
-  'runtime/src/engine/render/tile-selection-cache.ts': 858,
+  // Bumped 858→861 (globe pole-tile fix): sphere-family selection now reads the
+  // true centerLatDeg instead of the Mercator-saturated centerY so the selected
+  // tile set matches the rendered sphere past ±85.051° — a 3-line rationale
+  // comment (the ternary itself is net-zero over the prior single line).
+  'runtime/src/engine/render/tile-selection-cache.ts': 861,
   // renderer.ts Unit-1 extraction (PipelineFactory) — the pipeline /
   // bind-group-layout / atlas-stub construction + the three per-variant
   // builders (createVariantPipelines + createVariantPipelinesAsync +
