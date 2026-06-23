@@ -43,8 +43,8 @@ const vsFull = fn(
   VsOut.type,
   (p) => {
     const pos = vec2(f32(-1), f32(-1))
-    If(p.idx.eq(1), () => { pos.set(vec2(f32(3), f32(-1))) })
-      .elif(p.idx.eq(2), () => { pos.set(vec2(f32(-1), f32(3))) })
+    If(p.idx.eq(1), () => { pos.assign(vec2(f32(3), f32(-1))) })
+      .elif(p.idx.eq(2), () => { pos.assign(vec2(f32(-1), f32(3))) })
     // Texture coords are sample-load coords (integer pixels) computed from clip-space NDC:
     // uv = (pos + 1) / 2, y flipped because the texture origin is top-left while NDC's is bottom-left.
     return VsOut.construct({
@@ -79,8 +79,8 @@ const buildFsCompose = (sampleCount: number, accumTex: Node, revealageTex: Node)
       const accumSum = vec4(f32(0), f32(0), f32(0), f32(0))
       const revSum = f32(0)
       Loop(i32(0), (s) => s.lt(i32(sampleCount)), (s) => {
-        accumSum.set(accumSum.add(textureLoad(accumTex, uv, s)))
-        revSum.set(revSum.add(textureLoad(revealageTex, uv, s).x))
+        accumSum.assign(accumSum.add(textureLoad(accumTex, uv, s)))
+        revSum.assign(revSum.add(textureLoad(revealageTex, uv, s).x))
       })
       const inv = f32(1).div(f32(sampleCount))
       const accum = Let(accumSum.mul(inv))

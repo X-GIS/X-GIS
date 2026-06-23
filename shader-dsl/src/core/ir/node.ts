@@ -181,10 +181,11 @@ export class Node<K extends string = string> {
     return new Node<KeyOf<T>>({ op: 'index', type: elem, base: this.expr, idx: lift(idx).expr })
   }
 
-  /** `this = value;` — the ONE lvalue-mutation method (the rest of the Node API is methods too, so
-   *  assignment reads `x.set(v)`, not `assign(x, v)`). There is no compound `addAssign`: `add` is the
-   *  pure expression, so `x += v` is just `x.set(x.add(v))`. The value lifts to this lvalue's scalar. */
-  set(value: ArithArg<K>): void { stmtSink().assign(this, this.liftArg(value)) }
+  /** `this = value;` — the ONE lvalue-mutation method (matches three.js TSL's `.assign()`). JS can't
+   *  overload `=` (`x = v` would just rebind the JS variable, not emit a store), so mutation is a method.
+   *  There is no compound `addAssign`: `add` is the pure expression, so `x += v` is `x.assign(x.add(v))`.
+   *  The value lifts to this lvalue's scalar context. */
+  assign(value: ArithArg<K>): void { stmtSink().assign(this, this.liftArg(value)) }
 
   /** `this ? a : b` (only valid on a bool node — enforced via `this:`).
    *  Both branches must share a key. Mirrors WGSL select(b, a, this). */

@@ -191,7 +191,7 @@ function withScope<T>(b: Builder, run: () => T): T {
   try { return run() } finally { scopeStack.pop() }
 }
 
-// Wire the Node lvalue method (`x.set(v)`) to the current scope — installed here so node.ts stays free
+// Wire the Node lvalue method (`x.assign(v)`) to the current scope — installed here so node.ts stays free
 // of a builder import.
 installStmtSink({
   assign: (target, value) => currentBuilder().assign(target, value),
@@ -382,9 +382,6 @@ export function Var<T extends ShaderType>(nameOrTypeOrInit: string | T | Node, t
     ? currentBuilder().var(nameOrTypeOrInit, typeOrInit as T, maybeInit)
     : currentBuilder().var(nameOrTypeOrInit, typeOrInit as Node<KeyOf<T>> | undefined)
 }
-export const assign = <K extends string>(target: Node<K>, value: Node<K>): void => currentBuilder().assign(target, value)
-export const assignOp = <K extends string>(target: Node<K>, bop: BinOp, value: ArithArg<K>): void => currentBuilder().assignOp(target, bop, value)
-export const addAssign = <K extends string>(target: Node<K>, value: ArithArg<K>): void => currentBuilder().addAssign(target, value)
 export const Return = (value?: Node): void => currentBuilder().ret(value)
 /** Guard clause — `if (cond) { return value; }`. The readable, EXPLICIT early return:
  *  reads as "return value if cond", unlike `If(cond, () => value)` which looks like a
@@ -481,8 +478,8 @@ export function condExpr<K extends string>(
  *  `Var(default)`, then assign it inside the case arms.
  *    const radiusPx = Var(rawRadius)
  *    Switch(sizeMode)
- *      .case(1, () => assign(radiusPx, rawRadius.div(viewport.z)))
- *      .case(2, () => assign(radiusPx, …))
+ *      .case(1, () => radiusPx.assign(rawRadius.div(viewport.z)))
+ *      .case(2, () => radiusPx.assign(…))
  *      .default(() => {})
  *  Lowers to a real WGSL `switch`. `.case(n, body)` ~ a case label, `.default(body?)` ~ the default arm
  *  (optional) + the terminator. */
