@@ -2,6 +2,7 @@
 
 import type { Camera } from './projection/camera'
 import { unprojectGlobeFromCamera } from './projection/globe-anchor'
+import { promotesToGlobeWhenTilted } from './projection/projections-table'
 import { getMaxDpr } from './gpu/gpu'
 import { xlog } from './log'
 
@@ -13,8 +14,6 @@ export interface Controller {
 
 export interface ControllerState {
   projectionName: string
-  /** For orthographic: update center lon/lat and rebuild */
-  setProjectionCenter?: (lon: number, lat: number) => void
 }
 
 /** Optional event callbacks the map wires into the controller so the
@@ -73,11 +72,23 @@ export class PanZoomController implements Controller {
       }) as T
 
     let isDragging = false
-    // World anchor for perspective-correct pan — captured at drag
-    // start, used by camera.panToScreenAnchor each pointermove.
-    let dragAnchor: [number, number] | null = null
+    // World anchor for perspective-correct pan — captured at drag start.
+    // For projType 3/4/5 (disc projections) this is a GEOGRAPHIC lon/lat
+    // (tag: kind='disc') consumed by camera.panDiscToScreenAnchor.
+    // For all other paths it is a Mercator-metres absolute point (tag:
+    // kind='merc') consumed by camera.panToScreenAnchor, OR null when the
+    // ray missed the ground plane (fallback to delta-based pan).
+    type DiscAnchor = { kind: 'disc'; lon: number; lat: number }
+    type MercAnchor = { kind: 'merc'; x: number; y: number }
+    let dragAnchor: DiscAnchor | MercAnchor | null = null
     let lastX = 0
     let lastY = 0
+    // #7: last unprojected world position for world-space inertia velocity.
+    // panVelX/Y are world metres per ~16ms frame instead of raw screen pixels.
+    // At pitch>0 screen-px velocity over-estimates world speed (foreshortening
+    // near the horizon causes a glide jump on release).
+    // null = ray missed ground (high pitch) → fall back to screen-px velocity.
+    let curWorldX: number | null = null, curWorldY: number | null = null
 
     // Touch state for pinch-to-zoom
     const activePointers = new Map<number, { x: number; y: number }>()
@@ -107,8 +118,14 @@ export class PanZoomController implements Controller {
     let lastTapY = 0
 
     const onPointerDown = (e: PointerEvent) => {
+      // #12: register pointer BEFORE any early-return so every pointerdown
+      // has a paired setPointerCapture + activePointers entry, keeping
+      // down/up symmetric even when we bail early (e.g. double-tap zoom).
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      canvas.setPointerCapture(e.pointerId)
+
       // Double-tap detection (single finger only)
-      if (activePointers.size === 0) {
+      if (activePointers.size === 1) {
         const now = performance.now()
         const dt = now - lastTapTime
         const dist = Math.hypot(e.clientX - lastTapX, e.clientY - lastTapY)
@@ -124,9 +141,6 @@ export class PanZoomController implements Controller {
         lastTapY = e.clientY
       }
       events?.onPointerDown?.(e.clientX, e.clientY, e)
-
-      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
-      canvas.setPointerCapture(e.pointerId)
 
       if (activePointers.size === 1) {
         // Click eligibility: only single-pointer left-button presses
@@ -167,30 +181,49 @@ export class PanZoomController implements Controller {
           const dprNow = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
           const r0 = canvas.getBoundingClientRect()
           const sxA = (e.clientX - r0.left) * dprNow, syA = (e.clientY - r0.top) * dprNow
+          // Reset world-position tracker for #7 world-space inertia.
+          curWorldX = null; curWorldY = null
           if (camera.globeMode) {
-            // Globe (#11): anchor the GEOGRAPHIC point under the cursor on the
+            // Globe: anchor the GEOGRAPHIC point under the cursor on the
             // RENDERED SPHERE (ray↔sphere inverse) — panToScreenAnchor's globe
             // branch rotates the centre so this lon/lat stays under the cursor.
-            // null = pressed off the limb → the delta-pan fallback below
-            // (camera.pan's globe nudge) keeps the drag usable.
-            dragAnchor = unprojectGlobeFromCamera(camera, sxA, syA, canvas.width, canvas.height, dprNow)
+            // null = pressed off the limb → delta-pan fallback.
+            const gAnchor = unprojectGlobeFromCamera(camera, sxA, syA, canvas.width, canvas.height, dprNow)
+            dragAnchor = gAnchor ? { kind: 'merc', x: gAnchor[0], y: gAnchor[1] } : null
+          } else if (promotesToGlobeWhenTilted(camera.projType)) {
+            // #2 Disc projections (orthographic/azimuthal-eq/stereographic):
+            // unproject to GEOGRAPHIC lon/lat via the disc inverse so the
+            // grabbed point stays under the cursor through panDiscToScreenAnchor.
+            const geoAnchor = camera.discDragAnchorAt(sxA, syA, canvas.width, canvas.height, dprNow)
+            dragAnchor = geoAnchor ? { kind: 'disc', lon: geoAnchor.lon, lat: geoAnchor.lat } : null
           } else if (camera.projType === 1 || camera.projType === 2 || camera.projType === 6) {
             // Flat non-merc (#8): the drag anchor must be the Mercator metres of
             // the TRUE geographic point under the cursor, not `mercCentre +
             // nonMercRel` (which mixes spaces). panToScreenAnchor consumes
             // Mercator metres and composes the cursor through the same inverse.
-            dragAnchor = camera.unprojectToMercatorAnchor(sxA, syA, canvas.width, canvas.height, dprNow)
+            const mAnchor = camera.unprojectToMercatorAnchor(sxA, syA, canvas.width, canvas.height, dprNow)
+            dragAnchor = mAnchor ? { kind: 'merc', x: mAnchor[0], y: mAnchor[1] } : null
           } else {
+            // Mercator (projType 0) and globe (projType 7 when globeMode=false edge cases)
             const rel = camera.unprojectToZ0(sxA, syA, canvas.width, canvas.height, dprNow)
             dragAnchor = rel
-              ? [camera.centerX + rel[0], camera.centerY + rel[1]]
+              ? { kind: 'merc', x: camera.centerX + rel[0], y: camera.centerY + rel[1] }
               : null
           }
         }
       } else if (activePointers.size === 2) {
+        // #4: entering two-pointer mode must clear any pending rotate state
+        // so lifting back to one finger does not wrongly activate rotation.
         isDragging = false
         isRotating = false
+        isRotatePending = false
+        rotateActivated = false
         lastPinchDist = getPinchDistance(activePointers)
+        // Seed angle/centerY with the real current pose so the FIRST two-pointer
+        // move computes a delta against it (no wasted seed frame). #13: NaN is
+        // the "no prior frame" sentinel only at declaration + size 0/1 reset —
+        // never here — so a real value of 0 (fingers horizontal / at top edge)
+        // is processed by the !isNaN() guards rather than skipped.
         lastPinchAngle = getPinchAngle(activePointers)
         lastPinchCenterY = getPinchCenter(activePointers).y
       }
@@ -229,8 +262,10 @@ export class PanZoomController implements Controller {
     let rotateStartY = 0
     let lastRotateX = 0
     let lastRotateY = 0
-    let lastPinchAngle = 0
-    let lastPinchCenterY = 0
+    // #13: NaN = "no prior frame" sentinel; 0 is a valid real value
+    // (fingers horizontal / centre at top edge) and must not be skipped.
+    let lastPinchAngle = NaN
+    let lastPinchCenterY = NaN
 
     const onPointerMove = (e: PointerEvent) => {
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
@@ -291,7 +326,9 @@ export class PanZoomController implements Controller {
         // = bearing+) because a single contact point reads as
         // pointing an indicator, not grabbing the surface.
         const angle = getPinchAngle(activePointers)
-        if (lastPinchAngle !== 0) {
+        // #13: use !isNaN() to distinguish "no prior frame" (NaN) from a
+        // real value of 0 (fingers perfectly horizontal).
+        if (!isNaN(lastPinchAngle)) {
           let delta = angle - lastPinchAngle
           if (delta > 180) delta -= 360
           if (delta < -180) delta += 360
@@ -308,8 +345,12 @@ export class PanZoomController implements Controller {
         const prevDist = lastPinchDist
         const dist = getPinchDistance(activePointers)
         if (lastPinchDist > 0) {
-          const scale = dist / lastPinchDist
-          const delta = (scale - 1) * 3
+          // #11: use log2 so pinch-out then pinch-back returns to original
+          // zoom. Linear (scale-1)*k is asymmetric: out by 2× gives +k but
+          // back by 0.5× gives -k/2 → net +k/2. log2 is symmetric by
+          // definition: log2(2) + log2(0.5) = 1 - 1 = 0.
+          const SENS = 1.5  // log2 units feel ~comparable to old (scale-1)*3
+          const delta = Math.log2(dist / lastPinchDist) * SENS
           const center = getPinchCenter(activePointers)
           const rPin = canvas.getBoundingClientRect()
           camera.zoomAt(delta, center.x - rPin.left, center.y - rPin.top, canvas.width, canvas.height)
@@ -320,7 +361,9 @@ export class PanZoomController implements Controller {
         // Only apply when both fingers move in same direction (parallel drag),
         // not during pinch-to-zoom (distance change dominates)
         const center = getPinchCenter(activePointers)
-        if (lastPinchCenterY !== 0 && prevDist > 0) {
+        // #13: NaN sentinel for lastPinchCenterY (set at two-pointer entry)
+        // so a real center.y of 0 (fingers at canvas top) is not skipped.
+        if (!isNaN(lastPinchCenterY) && prevDist > 0) {
           const dy = center.y - lastPinchCenterY
           const distChange = Math.abs(dist - prevDist)
           const centerMove = Math.abs(dy)
@@ -336,30 +379,69 @@ export class PanZoomController implements Controller {
         const now = performance.now()
         const dt = Math.max(1, now - lastMoveTime)
 
-        // Track velocity for inertia (CSS pixels per frame at 60fps)
-        panVelX = dx * (16 / dt)
-        panVelY = dy * (16 / dt)
-
         lastX = e.clientX
         lastY = e.clientY
         lastMoveTime = now
+
+        const r1 = canvas.getBoundingClientRect()
+        const dprMove = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+        const sxM = (e.clientX - r1.left) * dprMove, syM = (e.clientY - r1.top) * dprMove
+
         if (dragAnchor) {
-          // Perspective-correct pan: keep the world point captured at
-          // drag start under the cursor. unprojectToZ0 walks the live
-          // MVP, so pitch + bearing are both honoured. Fast cursor
-          // moves at high pitch correctly translate more world meters
-          // per cursor pixel near the horizon.
-          const r1 = canvas.getBoundingClientRect()
-          camera.panToScreenAnchor(
-            dragAnchor[0], dragAnchor[1],
-            e.clientX - r1.left, e.clientY - r1.top,
-            canvas.width, canvas.height,
-          )
+          if (dragAnchor.kind === 'disc') {
+            // #2 Disc projections: keep the grabbed geo point under the cursor
+            // via the iterative disc inverse (mirrors zoomAt's converge loop).
+            camera.panDiscToScreenAnchor(
+              dragAnchor.lon, dragAnchor.lat,
+              sxM, syM, canvas.width, canvas.height, dprMove,
+            )
+          } else {
+            // Perspective-correct pan: keep the world point captured at
+            // drag start under the cursor. unprojectToZ0 walks the live
+            // MVP, so pitch + bearing are both honoured.
+            camera.panToScreenAnchor(
+              dragAnchor.x, dragAnchor.y,
+              e.clientX - r1.left, e.clientY - r1.top,
+              canvas.width, canvas.height,
+            )
+          }
+
+          // #7: capture inertia velocity in world space so that pitch>0
+          // glide speed matches the drag's actual world movement rather
+          // than raw screen pixels (which over-estimates world speed at
+          // high pitch due to perspective foreshortening).
+          // Unproject the current cursor to a world point; diff with the
+          // previous frame's world point → world metres per frame at 60fps.
+          // Disc path skips world-velocity (disc inverse is expensive and
+          // inertia on disc projections is a secondary concern — fall back
+          // to screen-px velocity there).
+          if (dragAnchor.kind !== 'disc') {
+            const worldNow = camera.unprojectToZ0(sxM, syM, canvas.width, canvas.height, dprMove)
+            if (worldNow && curWorldX !== null && curWorldY !== null) {
+              // world delta per this frame → scale to ~60fps
+              const wdx = (worldNow[0] - curWorldX) * (16 / dt)
+              const wdy = (worldNow[1] - curWorldY) * (16 / dt)
+              // Only update if world velocity is non-trivial (avoids NaN/Inf
+              // when dt is very small or world jump on anchor recapture).
+              if (isFinite(wdx) && isFinite(wdy)) {
+                panVelX = wdx
+                panVelY = wdy
+              }
+            }
+            curWorldX = worldNow ? worldNow[0] : null
+            curWorldY = worldNow ? worldNow[1] : null
+          } else {
+            // Disc: fall back to screen-px velocity (cheaper, acceptable)
+            panVelX = dx * (16 / dt)
+            panVelY = dy * (16 / dt)
+          }
         } else {
           // Anchor missed ground (cursor above horizon at drag start)
           // — fall back to delta-based pan so the user can still drag
           // out of the no-ray-hit region.
           camera.pan(dx, dy, canvas.width, canvas.height)
+          panVelX = dx * (16 / dt)
+          panVelY = dy * (16 / dt)
         }
       }
     }
@@ -408,17 +490,25 @@ export class PanZoomController implements Controller {
         isRotatePending = false
         isRotating = false
         rotateActivated = false
+        pressEligible = false
         lastPinchDist = 0
-        lastPinchAngle = 0
-        lastPinchCenterY = 0
+        lastPinchAngle = NaN
+        lastPinchCenterY = NaN
       } else if (activePointers.size === 1) {
+        // #4: lifting back to one finger after a two-pointer gesture must
+        // clear pending/active rotate state so the remaining finger pans
+        // instead of activating rotation on the next move.
         isDragging = true
         isRotating = false
+        isRotatePending = false
+        rotateActivated = false
         const remaining = activePointers.values().next().value!
         lastX = remaining.x
         lastY = remaining.y
         lastMoveTime = performance.now()
         lastPinchDist = 0
+        lastPinchAngle = NaN
+        lastPinchCenterY = NaN
         panVelX = 0; panVelY = 0
         // Re-capture the world anchor under the remaining finger.
         // Without this, dragAnchor is whatever was captured at the
@@ -429,16 +519,24 @@ export class PanZoomController implements Controller {
         const dprUp = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
         const rUp = canvas.getBoundingClientRect()
         const sxU = (remaining.x - rUp.left) * dprUp, syU = (remaining.y - rUp.top) * dprUp
+        // Reset world-position tracker for #7 world-space inertia.
+        curWorldX = null; curWorldY = null
         if (camera.globeMode) {
-          // Same globe lon/lat anchor space as the drag-start capture.
-          dragAnchor = unprojectGlobeFromCamera(camera, sxU, syU, canvas.width, canvas.height, dprUp)
+          // Same globe anchor space as the drag-start capture.
+          const gAnchorUp = unprojectGlobeFromCamera(camera, sxU, syU, canvas.width, canvas.height, dprUp)
+          dragAnchor = gAnchorUp ? { kind: 'merc', x: gAnchorUp[0], y: gAnchorUp[1] } : null
+        } else if (promotesToGlobeWhenTilted(camera.projType)) {
+          // Disc projections: same geo-anchor space as drag-start.
+          const geoUp = camera.discDragAnchorAt(sxU, syU, canvas.width, canvas.height, dprUp)
+          dragAnchor = geoUp ? { kind: 'disc', lon: geoUp.lon, lat: geoUp.lat } : null
         } else if (camera.projType === 1 || camera.projType === 2 || camera.projType === 6) {
           // Same flat non-merc (#8) anchor space as the drag-start capture.
-          dragAnchor = camera.unprojectToMercatorAnchor(sxU, syU, canvas.width, canvas.height, dprUp)
+          const mAnchorUp = camera.unprojectToMercatorAnchor(sxU, syU, canvas.width, canvas.height, dprUp)
+          dragAnchor = mAnchorUp ? { kind: 'merc', x: mAnchorUp[0], y: mAnchorUp[1] } : null
         } else {
           const relUp = camera.unprojectToZ0(sxU, syU, canvas.width, canvas.height, dprUp)
           dragAnchor = relUp
-            ? [camera.centerX + relUp[0], camera.centerY + relUp[1]]
+            ? { kind: 'merc', x: camera.centerX + relUp[0], y: camera.centerY + relUp[1] }
             : null
         }
       }
@@ -447,8 +545,18 @@ export class PanZoomController implements Controller {
     const onPointerCancel = (e: PointerEvent) => {
       activePointers.delete(e.pointerId)
       if (activePointers.size === 0) {
+        // #3: mirror onPointerUp's full reset so an OS gesture-steal does not
+        // leave rotateActivated=true, which would suppress the next click via
+        // the `!rotateActivated` gate in onPointerUp's click-dispatch block.
         isDragging = false
+        dragAnchor = null
+        isRotatePending = false
+        isRotating = false
+        rotateActivated = false
+        pressEligible = false
         lastPinchDist = 0
+        lastPinchAngle = NaN
+        lastPinchCenterY = NaN
       }
       events?.onPointerCancel?.(e)
     }
@@ -579,126 +687,3 @@ function getPinchCenter(pointers: Map<number, { x: number; y: number }>): { x: n
   return { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 }
 }
 
-// ═══ Trackball Controller — 지구본용 (Orthographic) ═══
-
-export class TrackballController implements Controller {
-  name = 'trackball'
-  private cleanup: (() => void) | null = null
-  private centerLon = 0
-  private centerLat = 20
-
-  attach(canvas: HTMLCanvasElement, camera: Camera, getState: () => ControllerState, _events?: ControllerEvents): void {
-    let isDragging = false
-    let lastX = 0
-    let lastY = 0
-
-    const activePointers = new Map<number, { x: number; y: number }>()
-    let lastPinchDist = 0
-
-    const onPointerDown = (e: PointerEvent) => {
-      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
-      canvas.setPointerCapture(e.pointerId)
-
-      if (activePointers.size === 1) {
-        isDragging = true
-        lastX = e.clientX
-        lastY = e.clientY
-      } else if (activePointers.size === 2) {
-        isDragging = false
-        lastPinchDist = getPinchDistance(activePointers)
-      }
-    }
-
-    const onPointerMove = (e: PointerEvent) => {
-      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
-
-      if (activePointers.size === 2) {
-        const dist = getPinchDistance(activePointers)
-        if (lastPinchDist > 0) {
-          const scale = dist / lastPinchDist
-          const delta = (scale - 1) * 2
-          const center = getPinchCenter(activePointers)
-          const rPi2 = canvas.getBoundingClientRect()
-          camera.zoomAt(delta, center.x - rPi2.left, center.y - rPi2.top, canvas.width, canvas.height)
-        }
-        lastPinchDist = dist
-      } else if (isDragging && activePointers.size === 1) {
-        const dx = e.clientX - lastX
-        const dy = e.clientY - lastY
-        lastX = e.clientX
-        lastY = e.clientY
-
-        const sensitivity = 0.4
-        this.centerLon -= dx * sensitivity
-        this.centerLat += dy * sensitivity
-        this.centerLat = Math.max(-89, Math.min(89, this.centerLat))
-        if (this.centerLon > 180) this.centerLon -= 360
-        if (this.centerLon < -180) this.centerLon += 360
-
-        const state = getState()
-        state.setProjectionCenter?.(this.centerLon, this.centerLat)
-      }
-    }
-
-    const onPointerUp = (e: PointerEvent) => {
-      activePointers.delete(e.pointerId)
-      if (activePointers.size === 0) {
-        isDragging = false
-        lastPinchDist = 0
-        const state = getState()
-        state.setProjectionCenter?.(this.centerLon, this.centerLat)
-      } else if (activePointers.size === 1) {
-        isDragging = true
-        const remaining = activePointers.values().next().value!
-        lastX = remaining.x
-        lastY = remaining.y
-        lastPinchDist = 0
-      }
-    }
-
-    const onPointerCancel = (e: PointerEvent) => {
-      activePointers.delete(e.pointerId)
-      if (activePointers.size === 0) {
-        isDragging = false
-        lastPinchDist = 0
-      }
-    }
-
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault()
-      const delta = e.deltaY > 0 ? -0.3 : 0.3
-      const rW = canvas.getBoundingClientRect()
-      camera.zoomAt(delta, e.clientX - rW.left, e.clientY - rW.top, canvas.width, canvas.height)
-    }
-
-    canvas.addEventListener('pointerdown', onPointerDown)
-    canvas.addEventListener('pointermove', onPointerMove)
-    canvas.addEventListener('pointerup', onPointerUp)
-    canvas.addEventListener('pointercancel', onPointerCancel)
-    canvas.addEventListener('wheel', onWheel, { passive: false })
-
-    this.cleanup = () => {
-      canvas.removeEventListener('pointerdown', onPointerDown)
-      canvas.removeEventListener('pointermove', onPointerMove)
-      canvas.removeEventListener('pointerup', onPointerUp)
-      canvas.removeEventListener('pointercancel', onPointerCancel)
-      canvas.removeEventListener('wheel', onWheel)
-    }
-  }
-
-  detach(): void {
-    this.cleanup?.()
-    this.cleanup = null
-  }
-}
-
-// ═══ 프로젝션에 따라 자동 선택 ═══
-
-export function controllerForProjection(projName: string): Controller {
-  switch (projName) {
-    case 'orthographic':
-      return new TrackballController()
-    default:
-      return new PanZoomController()
-  }
-}

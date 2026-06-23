@@ -390,7 +390,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // the screen delta by Rot(−bearing) instead of Rot(+bearing) (off by 2·θ, so
   // inertia flung the wrong way on a rotated map). The 6 added lines are the
   // contract comment tying the sign to panToScreenAnchor's MVP inverse.
-  'runtime/src/engine/projection/camera.ts': 1114,
+  // Bumped 1114→1128 for the disc-drag anchor fix (#2): two new public methods
+  // discDragAnchorAt + panDiscToScreenAnchor mirror zoomAt's disc geo-anchor
+  // converge loop so a single-finger drag on an ortho/azi/stereo disc keeps the
+  // grabbed point under the cursor (the drag path previously subtracted disc-
+  // plane metres in Mercator space). Irreducible new surface, not bloat.
+  'runtime/src/engine/projection/camera.ts': 1128,
   // Bumped 1065→1067 for the curved-text early-return perf-mark balance fix:
   // the `total < spacingPx*0.5` curved branch was missing the two matching
   // perfMarkEnd('…line.emit')/('…line.polyline') calls its sibling returns

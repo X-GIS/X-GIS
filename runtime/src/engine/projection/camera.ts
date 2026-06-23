@@ -772,8 +772,13 @@ export class Camera {
       const mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, this.zoom)
       const rb = this.bearing * Math.PI / 180
       const cb = Math.cos(rb), sb = Math.sin(rb)
-      const gdx = dx * cb + dy * sb
-      const gdy = -dx * sb + dy * cb
+      // Rot(+θ) — matches the flat pan path (camera.ts ~819-823) and the
+      // anchored panGlobeToScreenAnchor ground-truth.  The prior Rot(−θ) form
+      // gave gdy = −dx·sin(θ) which flings the globe the wrong N/S direction
+      // on a rotated bearing (mirror of the flat-path fix recorded in the
+      // comment below at ~814-818).
+      const gdx = dx * cb - dy * sb
+      const gdy = dx * sb + dy * cb
       const degPerPx = (mpp / R) * (180 / Math.PI)
       let lon = this.centerX / R * (180 / Math.PI) - gdx * degPerPx
       // Read the TRUE centre latitude (centerLatDeg), NOT mercatorYToLat(centerY)
@@ -929,7 +934,20 @@ export class Camera {
       }
       const maxYO = this.maxCameraY(canvasHeight)
       this.centerY = Math.max(-maxYO, Math.min(maxYO, this.centerY))
-      this._carryCenterLatThroughZoom(_latPreserve, _mercLatPreserve)
+      // For the disc/sphere family (projType 3/4/5) centerLatDeg is the
+      // pole-reaching authority — do NOT feed the Mercator-saturated centerY
+      // through _carryCenterLatThroughZoom here.  That helper derives the
+      // post-clamp Mercator lat (capped at ±85.051129) and applies its delta to
+      // centerLatDeg; when the centre is near a pole (e.g. lat=88°) the clamp
+      // pushes the Mercator lat down ~3°, which _carry then subtracts from the
+      // true centerLatDeg — drifting it ~4° equatorward per zoom step (bug #6).
+      // Instead: preserve the TRUE centre latitude through the zoom unchanged,
+      // exactly as the globe branch does (it returns before this block).
+      // centerY already carries the Mercator-bounded mirror written by the
+      // iteration loop above; we just keep centerLatDeg == _latPreserve
+      // (clamped to poleLimit so a bounds call cannot overshoot).
+      const plDisc = poleLimit(this.projType)
+      this.centerLatDeg = Math.max(-plDisc, Math.min(plDisc, _latPreserve))
       this.clampCenterToBounds()
       return
     }
@@ -1032,6 +1050,78 @@ export class Camera {
     else if (this.centerX < -halfWorld) this.centerX += WORLD_MERC
     const maxY = this.maxCameraY(canvasHeight)
     this.centerY = Math.max(-maxY, Math.min(maxY, this.centerY))
+    this._syncCenterLatFromMercator()
+    this.clampCenterToBounds()
+  }
+
+  /** Unproject a cursor pixel to a GEOGRAPHIC lon/lat anchor for the disc
+   *  projType family (ortho 3 / azimuthal_equidistant 4 / stereographic 5).
+   *  Returns null for any other projType (caller must use a different anchor
+   *  space).  `cursorX/Y` and `canvasWidth/Height` must all be in DEVICE px
+   *  (multiply CSS coords by dpr before calling — mirrors the zoomAt disc arm).
+   *
+   *  Mirrors the disc anchor capture in zoomAt (~line 893-899): fetches the
+   *  disc inverse for the projType, checks the cursor is inside the safe
+   *  radius, and applies the inverse to recover [lon, lat] radians, then
+   *  converts to degrees for the controller's anchor store. */
+  discDragAnchorAt(
+    cursorX: number, cursorY: number,
+    canvasWidth: number, canvasHeight: number,
+    dpr: number,
+  ): { lon: number; lat: number } | null {
+    if (!promotesToGlobeWhenTilted(this.projType)) return null
+    const R = EARTH_R
+    const disc = discAnchorFor(this.projType)
+    const rel = this.unprojectToZ0(cursorX, cursorY, canvasWidth, canvasHeight, dpr)
+    if (!rel || Math.hypot(rel[0], rel[1]) >= disc.safeRho) return null
+    const lon0 = this.centerX / R
+    const lat0 = mercatorYToLatRad(this.centerY)
+    const geo = disc.inv(rel[0], rel[1], lon0, lat0)
+    return { lon: geo[0] * (180 / Math.PI), lat: geo[1] * (180 / Math.PI) }
+  }
+
+  /** Iterate the disc centre so the GEOGRAPHIC anchor (lon/lat DEGREES,
+   *  captured by discDragAnchorAt at drag start) re-projects back under the
+   *  cursor pixel.  No-op for any projType outside {3, 4, 5}.
+   *  `cursorX/Y` and `canvasWidth/Height` must all be in DEVICE px.
+   *
+   *  Mirrors the converge loop in zoomAt's disc arm (~line 913-928): at each
+   *  pass, unproject the cursor to the current disc-plane rel, inverse-project
+   *  to geographic, compute the (dLon, dLat) residual, clamp and apply. The
+   *  STEP_LIM / LAT_LIM + lon-wrap logic is byte-identical to that loop so the
+   *  two gestures cannot drift apart. */
+  panDiscToScreenAnchor(
+    lon: number, lat: number,
+    cursorX: number, cursorY: number,
+    canvasWidth: number, canvasHeight: number,
+    dpr: number,
+  ): void {
+    if (!promotesToGlobeWhenTilted(this.projType)) return
+    const R = EARTH_R
+    const disc = discAnchorFor(this.projType)
+    const onDisc = (p: [number, number] | null): boolean =>
+      !!p && Math.hypot(p[0], p[1]) < disc.safeRho
+    const anchorLon = lon * (Math.PI / 180)
+    const anchorLat = lat * (Math.PI / 180)
+    const lon0 = this.centerX / R
+    const lat0 = mercatorYToLatRad(this.centerY)
+    const STEP_LIM = 0.12 // rad ≈ 6.9° — mirrors zoomAt disc loop
+    const LAT_LIM = 85.051129 * Math.PI / 180
+    const lim = (v: number) => Math.max(-STEP_LIM, Math.min(STEP_LIM, v))
+    for (let iter = 0; iter < 6; iter++) {
+      const q = this.unprojectToZ0(cursorX, cursorY, canvasWidth, canvasHeight, dpr)
+      const lonC = this.centerX / R, latC = mercatorYToLatRad(this.centerY)
+      const cur = onDisc(q) ? disc.inv(q![0], q![1], lonC, latC) : null
+      if (!cur) break
+      const dLon = anchorLon - cur[0], dLat = anchorLat - cur[1]
+      const tot = ((lonC + dLon - lon0 + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI
+      let newLon = lon0 + lim(tot)
+      const newLat = Math.max(-LAT_LIM, Math.min(LAT_LIM, lat0 + lim(latC + dLat - lat0)))
+      newLon = ((newLon + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI
+      this.centerX = newLon * R
+      this.centerY = R * Math.log(Math.tan(Math.PI / 4 + newLat / 2))
+      if (Math.abs(dLon) < 1e-9 && Math.abs(dLat) < 1e-9) break
+    }
     this._syncCenterLatFromMercator()
     this.clampCenterToBounds()
   }
