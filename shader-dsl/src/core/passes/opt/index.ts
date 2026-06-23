@@ -1,7 +1,10 @@
 // ═══ Shader DSL — Optimization context barrel ═══
 
-export { optimize, DEFAULT_PASSES, type OptPass } from './optimize'
+export { optimize, fixpoint, DEFAULT_PASSES, type OptPass } from './optimize'
 export { constFold } from './const-fold'
+export { constProp } from './const-prop'
+export { copyProp } from './copy-prop'
+export { deadBranch } from './dead-branch'
 export { dce } from './dce'
 export { algebraicSimplify } from './algebraic'
 export { cse } from './cse'
