@@ -66,22 +66,22 @@ const impactBadge = (i?: CoverageImpact): { label: string; cls: string } | null 
     </h2>
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
       <div class="rounded-lg border border-line bg-bg-elev p-4">
-        <div class="text-[11px] uppercase tracking-wider text-emerald-300 font-medium mb-1.5">Supported</div>
+        <div class="text-[11px] uppercase tracking-[0.16em] text-emerald-300 font-mono mb-1.5">Supported</div>
         <div class="text-[28px] font-medium text-fg leading-none">{totals.supported}</div>
         <div class="text-[11px] text-fg-mute mt-1.5">{Math.round(totals.supported / total * 100)}% of {total}</div>
       </div>
       <div class="rounded-lg border border-line bg-bg-elev p-4">
-        <div class="text-[11px] uppercase tracking-wider text-amber-300 font-medium mb-1.5">Partial</div>
+        <div class="text-[11px] uppercase tracking-[0.16em] text-amber-300 font-mono mb-1.5">Partial</div>
         <div class="text-[28px] font-medium text-fg leading-none">{totals.partial}</div>
         <div class="text-[11px] text-fg-mute mt-1.5">Lossy or runtime gap</div>
       </div>
       <div class="rounded-lg border border-line bg-bg-elev p-4">
-        <div class="text-[11px] uppercase tracking-wider text-rose-300 font-medium mb-1.5">Unsupported</div>
+        <div class="text-[11px] uppercase tracking-[0.16em] text-rose-300 font-mono mb-1.5">Unsupported</div>
         <div class="text-[28px] font-medium text-fg leading-none">{totals.unsupported}</div>
         <div class="text-[11px] text-fg-mute mt-1.5">Dropped on convert</div>
       </div>
       <div class="rounded-lg border border-line bg-bg-elev p-4">
-        <div class="text-[11px] uppercase tracking-wider text-fg-mute font-medium mb-1.5">N/A</div>
+        <div class="text-[11px] uppercase tracking-[0.16em] text-fg-mute font-mono mb-1.5">N/A</div>
         <div class="text-[28px] font-medium text-fg leading-none">{totals.na}</div>
         <div class="text-[11px] text-fg-mute mt-1.5">No xgis equivalent</div>
       </div>
@@ -115,12 +115,12 @@ const impactBadge = (i?: CoverageImpact): { label: string; cls: string } | null 
       <div class="overflow-x-auto -mx-2 px-2">
         <table class="w-full text-[12.5px] border-collapse">
           <thead>
-            <tr class="text-left text-[11px] uppercase tracking-wider text-fg-mute">
-              <th class="font-medium pb-2 pr-3 align-bottom whitespace-nowrap">Property</th>
-              <th class="font-medium pb-2 pr-3 align-bottom whitespace-nowrap">Status</th>
-              <th class="font-medium pb-2 pr-3 align-bottom whitespace-nowrap">Impact</th>
-              <th class="font-medium pb-2 pr-3 align-bottom w-full">Note</th>
-              <th class="font-medium pb-2 align-bottom whitespace-nowrap">Source</th>
+            <tr class="text-left text-[11px] uppercase tracking-[0.16em] text-fg-mute">
+              <th class="font-mono pb-2 pr-3 align-bottom whitespace-nowrap">Property</th>
+              <th class="font-mono pb-2 pr-3 align-bottom whitespace-nowrap">Status</th>
+              <th class="font-mono pb-2 pr-3 align-bottom whitespace-nowrap">Impact</th>
+              <th class="font-mono pb-2 pr-3 align-bottom w-full">Note</th>
+              <th class="font-mono pb-2 align-bottom whitespace-nowrap">Source</th>
             </tr>
           </thead>
           <tbody>

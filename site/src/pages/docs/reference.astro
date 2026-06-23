@@ -36,7 +36,7 @@ const playUrl = (s: ReferenceSection) => {
   <article class="space-y-20">
     {referenceSections.map((s, i) => (
       <section id={s.id} class="scroll-mt-20">
-        <p class="font-mono text-[12px] text-fg-mute uppercase tracking-wider mb-3">
+        <p class="font-mono text-[12px] text-fg-mute uppercase tracking-[0.16em] mb-3">
           — {String(i + 1).padStart(2, '0')}
         </p>
         <h2 class="text-[26px] sm:text-[32px] font-medium text-fg leading-[1.15] tracking-[-0.02em] mb-4 pb-4 border-b border-line">
@@ -48,7 +48,7 @@ const playUrl = (s: ReferenceSection) => {
         {s.code && (
           <div class="rounded-2xl bg-bg-card border border-line overflow-hidden">
             <div class="flex items-center justify-between px-5 py-2.5 border-b border-line bg-bg-elev">
-              <p class="font-mono text-[11px] text-fg-mute uppercase tracking-wider">
+              <p class="font-mono text-[11px] text-fg-mute uppercase tracking-[0.16em]">
                 {s.id}.xgis
               </p>
               {s.demoId && (

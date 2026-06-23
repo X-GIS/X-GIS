@@ -320,7 +320,7 @@ map.setProjection("orthographic")`,
 
               {e.params && e.params.length > 0 && (
                 <div class="mt-4">
-                  <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-2">Parameters</p>
+                  <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-2">Parameters</p>
                   <div class="overflow-x-auto rounded-lg border border-line">
                     <table class="w-full text-[13px] text-fg-dim">
                       <thead class="bg-bg-elev text-fg">
@@ -349,7 +349,7 @@ map.setProjection("orthographic")`,
 
               {e.returns && (
                 <div class="mt-4">
-                  <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-2">Returns</p>
+                  <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-2">Returns</p>
                   <div class="rounded-lg border border-line px-3 py-2.5 bg-bg-elev">
                     <code class="font-mono text-[12.5px] text-accent">{e.returns.type}</code>
                     <span class="text-fg-dim text-[13px] leading-[1.55]"> — {e.returns.body}</span>
@@ -359,14 +359,14 @@ map.setProjection("orthographic")`,
 
               {e.example && (
                 <div class="mt-4">
-                  <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-2">Example</p>
+                  <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-2">Example</p>
                   <Code code={e.example} lang="js" />
                 </div>
               )}
 
               {e.see && e.see.length > 0 && (
                 <div class="mt-4">
-                  <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-2">See also</p>
+                  <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-2">See also</p>
                   <ul class="flex flex-wrap gap-x-4 gap-y-1.5 text-[13px]">
                     {e.see.map(s => (
                       <li>
