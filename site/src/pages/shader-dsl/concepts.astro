@@ -1,0 +1,68 @@
+---
+import ShaderDsl from '../../layouts/ShaderDsl.astro'
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const root = `${base}/shader-dsl`
+
+const sections = [
+  {
+    id: 'ir',
+    title: 'One typed IR',
+    body: 'You build a tree of typed value-nodes (each carries a compile-time key like <code>vec3&lt;f32&gt;</code>) and imperative statements. Because the key is part of the TypeScript type, mixing a vec2 where a vec3 is wanted, or returning the wrong field, is a compile error — caught before any shader compiler runs. The IR is the single source every backend, the reflection, and the CPU oracle read from.',
+  },
+  {
+    id: 'backends',
+    title: 'Two backends, one source',
+    body: 'A backend is a writer over the shared IR walk. The <strong>WGSL</strong> backend is the canonical one (byte-stable output, the full validate → caps → optimize pipeline) for WebGPU. The <strong>GLSL ES 3.00</strong> backend targets WebGL2: a uniform struct lowers to a std140 UBO block, <code>@vertex</code>/<code>@fragment</code> entry-IO lowers to <code>in</code>/<code>out</code> varyings + a synthesised <code>main()</code>, and the divergent spellings (a scalar cast <code>f32(x)</code>→<code>float(x)</code>, <code>atan2</code>→<code>atan</code>, an integer builtin cast for <code>gl_VertexID</code>) come from one neutral intrinsic registry.',
+  },
+  {
+    id: 'fail-closed',
+    title: 'Fail-closed capabilities',
+    body: 'GLSL ES 3.00 has no compute, no SSBO, no multisampled-texture load. Rather than emit invalid GLSL, the GLSL backend’s capability set is empty for those, and a capability gate throws <code>UnsupportedFeatureError</code> up front. That is why the compute example shows WGSL + reflection only — the DSL refuses to pretend.',
+  },
+  {
+    id: 'reflection',
+    title: 'Reflection',
+    body: '<code>reflect(module)</code> is additive and read-only over the IR — it never runs on the emit path, so it cannot change an emitted byte. It recovers the bind-group entries, the std140 / std430 struct byte layouts, and the entry-point signatures. The host packs its uniform buffer straight from those offsets; the live examples on this site do exactly that.',
+  },
+  {
+    id: 'oracle',
+    title: 'CPU f64 oracle',
+    body: 'The same module compiles to an f64 CPU function. Running the GPU shader and the CPU mirror on the same inputs and comparing is how X-GIS catches the sibling-path divergences (fill vs outline, CPU vs GPU projection) that hide sub-pixel until a zoom or projection axis amplifies them.',
+  },
+  {
+    id: 'optimize',
+    title: 'Optimize + lint',
+    body: 'Before emit, a pass pipeline runs CSE, DCE, LICM, const-fold, algebraic simplification, and auto-var/auto-let materialisation, plus a 20-rule lint engine (no-float-eq, single-exit, naming, dead-binding, …). The optimizer is WGSL-side so the byte-stable WGSL stays canonical; GLSL emit is an identity pass over the lowered tree.',
+  },
+]
+---
+
+<ShaderDsl
+  current="concepts"
+  title="X-GIS Shader DSL — Concepts"
+  description="How the shader DSL works: one typed IR, two backends (WGSL + GLSL ES 3.00), reflection, a CPU f64 oracle, and an optimizer + lint pipeline."
+>
+  <h1 class="text-[30px] sm:text-[38px] font-medium text-fg leading-[1.1] tracking-[-0.03em]">Concepts</h1>
+  <p class="mt-4 text-[16px] leading-[1.6] text-fg-dim max-w-[680px]">
+    The DSL is a TSL-style graph with a real type checker, two backends, a reflection layer, a CPU
+    oracle, and an optimizer — all over one intermediate representation.
+  </p>
+
+  <div class="mt-10 space-y-10">
+    {sections.map((s) => (
+      <section id={s.id}>
+        <h2 class="text-[20px] font-medium text-fg tracking-[-0.02em] mb-2">{s.title}</h2>
+        <p class="text-[14.5px] leading-[1.65] text-fg-dim max-w-[700px]" set:html={s.body}></p>
+      </section>
+    ))}
+  </div>
+
+  <div class="mt-12 rounded-2xl border border-line p-5 bg-bg-card">
+    <p class="text-[14px] leading-[1.6] text-fg-dim">
+      Each <a href={`${root}/examples`} class="text-accent hover:text-accent-hover transition-colors">example</a>
+      shows these concepts end to end: the DSL source, the emitted WGSL and GLSL, and the reflection JSON —
+      next to the frame they produce.
+    </p>
+  </div>
+</ShaderDsl>

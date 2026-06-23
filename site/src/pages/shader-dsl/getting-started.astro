@@ -1,0 +1,96 @@
+---
+import ShaderDsl from '../../layouts/ShaderDsl.astro'
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const root = `${base}/shader-dsl`
+
+const authorSnippet = `import {
+  fn, module, uniformStruct, ioStruct, builtin, location,
+  vec2, vec3, vec4, sin, toF32, u32, f32T, vec2fT, vec4fT, u32T,
+} from '@xgis/shader-dsl'
+
+// 1 — declare a uniform block ONCE; its std140 layout is derived, not hand-written.
+const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'U' }, { time: f32T })
+
+// 2 — the vertex→fragment interface struct.
+const VsOut = ioStruct('VsOut', { pos: builtin('position', vec4fT), uv: location(0, vec2fT) })
+
+// 3 — a fullscreen-triangle vertex stage (position from the vertex index, no buffer).
+const vs = fn('vs', { vi: builtin('vertex_index', u32T) }, ({ vi }) => {
+  const x = toF32(vi.bitAnd(u32(1))).mul(4).sub(1)
+  const y = toF32(vi.shr(u32(1))).mul(4).sub(1)
+  return VsOut.construct({ pos: vec4(x, y, 0, 1), uv: vec2(x.mul(0.5).add(0.5), y.mul(0.5).add(0.5)) })
+}, { stage: 'vertex' })
+
+// 4 — a fragment stage, animated by the time uniform.
+const fs = fn('fs', { vo: VsOut.type }, ({ vo }) => {
+  const v = sin(VsOut.of(vo).uv.x.mul(10).add(U.field.time))
+  return vec4(vec3(v).mul(0.5).add(0.5), 1)
+}, { stage: 'fragment', retAttr: '@location(0)' })
+
+// 5 — assemble the module.
+export const m = module({ structs: [U.struct, VsOut.decl], bindings: [U.binding], funcs: [vs, fs] })`
+
+const emitSnippet = `import { emitModule, emitGlslModule, reflect } from '@xgis/shader-dsl'
+import { m } from './my-shader'
+
+emitModule(m)                  // → WGSL string (WebGPU)
+emitGlslModule(m, 'vertex')    // → GLSL ES 3.00 vertex (WebGL2)
+emitGlslModule(m, 'fragment')  // → GLSL ES 3.00 fragment (WebGL2)
+reflect(m)                     // → { bindGroups, uniforms (std140), storage (std430), entries }`
+---
+
+<ShaderDsl
+  current="getting-started"
+  title="X-GIS Shader DSL — Getting started"
+  description="Install @xgis/shader-dsl, author a typed shader, and emit WGSL + GLSL + reflection from one source."
+>
+  <h1 class="text-[30px] sm:text-[38px] font-medium text-fg leading-[1.1] tracking-[-0.03em]">Getting started</h1>
+  <p class="mt-4 text-[16px] leading-[1.6] text-fg-dim max-w-[680px]">
+    Author a typed shader in TypeScript, then emit both backends and the pipeline reflection from
+    the same module. No GPU is needed to author or emit — only to run the result.
+  </p>
+
+  <h2 class="text-[20px] font-medium text-fg tracking-[-0.02em] mt-12 mb-3">Install</h2>
+  <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-[680px]">
+    Today <code class="font-mono text-[13px] text-fg">@xgis/shader-dsl</code> is a workspace package
+    inside the X-GIS monorepo (build-to-tarball; not yet published to npm). Consume it from a checkout:
+  </p>
+  <div class="mt-4 rounded-xl bg-bg-elev border border-line overflow-hidden">
+    <pre class="shader-code"><code>bun install
+bun run build          # tsc --build → dist/ + .d.ts
+# then, from a workspace package:
+import {'{'} fn, module, emitModule, reflect {'}'} from '@xgis/shader-dsl'</code></pre>
+  </div>
+
+  <h2 class="text-[20px] font-medium text-fg tracking-[-0.02em] mt-12 mb-3">1. Author a shader</h2>
+  <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-[680px]">
+    The whole surface is plain TypeScript — typed value-expressions, control-flow combinators, and
+    single-source layout declarators (<code class="font-mono text-[13px] text-fg">uniformStruct</code>,
+    <code class="font-mono text-[13px] text-fg">ioStruct</code>). A wrong-typed field or return is a
+    compile error.
+  </p>
+  <div class="mt-4 rounded-xl bg-bg-elev border border-line overflow-hidden">
+    <pre class="shader-code"><code>{authorSnippet}</code></pre>
+  </div>
+
+  <h2 class="text-[20px] font-medium text-fg tracking-[-0.02em] mt-12 mb-3">2. Emit + reflect</h2>
+  <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-[680px]">
+    The same module produces both backends and its own reflection. The reflection gives the host the
+    std140 byte offsets to pack the uniform buffer — the exact packing the live examples use.
+  </p>
+  <div class="mt-4 rounded-xl bg-bg-elev border border-line overflow-hidden">
+    <pre class="shader-code"><code>{emitSnippet}</code></pre>
+  </div>
+
+  <h2 class="text-[20px] font-medium text-fg tracking-[-0.02em] mt-12 mb-3">3. Run the examples</h2>
+  <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-[680px]">
+    The repo ships runnable examples. Print their emitted WGSL / GLSL / reflection in a terminal, or
+    open one in the <a href={`${root}/examples`} class="text-accent hover:text-accent-hover transition-colors">gallery</a>
+    to run it live on a WebGL2 canvas.
+  </p>
+  <div class="mt-4 rounded-xl bg-bg-elev border border-line overflow-hidden">
+    <pre class="shader-code"><code>npx tsx examples/print.ts            # every example
+npx tsx examples/print.ts hillshade  # just one, by id</code></pre>
+  </div>
+</ShaderDsl>

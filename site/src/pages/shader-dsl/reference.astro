@@ -1,0 +1,125 @@
+---
+import ShaderDsl from '../../layouts/ShaderDsl.astro'
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const root = `${base}/shader-dsl`
+
+interface Row { sig: string; desc: string }
+interface Group { title: string; note?: string; rows: Row[] }
+
+const groups: Group[] = [
+  {
+    title: 'Module & functions',
+    rows: [
+      { sig: 'fn(name, params, body, opts?)', desc: 'Declare a function. opts.stage = "vertex" | "fragment" | "compute" makes it a pipeline entry; opts.retAttr / workgroupSize for bare-return / compute. Returns a callable handle that also IS the FuncDecl.' },
+      { sig: 'module({ structs, bindings, funcs, consts? })', desc: 'Assemble a module from its declarations.' },
+      { sig: 'callFn(name, ret, ...args)', desc: 'Call an authored function by name.' },
+    ],
+  },
+  {
+    title: 'Layout declarators (single source of truth)',
+    note: 'Declare a layout ONCE; the struct, the binding, the access node, and typed field access are all derived — they cannot drift.',
+    rows: [
+      { sig: 'uniformStruct(name, { group, binding, as }, fields)', desc: 'A uniform block + its binding. .field.x is typed access; .struct / .binding go into module().' },
+      { sig: 'ioStruct(name, fields)', desc: 'A vertex/fragment IO struct. .decl, .type, .of(node).field, .construct({…}).' },
+      { sig: 'structDecl(name, fields)', desc: 'A plain / storage-element struct.' },
+      { sig: 'storageBuffer(name, element, { group, binding, access })', desc: 'An array<Element> storage buffer; .at(i) is the typed element accessor.' },
+      { sig: 'resource(name, type, { group, binding })', desc: 'A non-struct bound resource (texture / sampler).' },
+      { sig: 'builtin(name, type)  ·  location(n, type, interpolate?)', desc: 'IO field specs: @builtin(name) / @location(n).' },
+    ],
+  },
+  {
+    title: 'Values & constructors',
+    rows: [
+      { sig: 'f32(v)  i32(v)  u32(v)  bool(v)', desc: 'Scalar literals (take a JS number / boolean).' },
+      { sig: 'vec2/vec3/vec4(...)  ·  vec2u  vec2i', desc: 'Vector constructors; accept nodes, numbers, and sub-vectors (vec4(rgb, 1)).' },
+      { sig: 'toF32(x)  toI32(x)  toU32(x)', desc: 'Scalar casts (emit float()/int()/uint() on GLSL).' },
+    ],
+  },
+  {
+    title: 'Operators (methods on a value node)',
+    rows: [
+      { sig: '.add .sub .mul .div .mod .neg()', desc: 'Arithmetic, with WGSL vec∘scalar broadcast. A vec2∘vec3 mismatch is a TS error.' },
+      { sig: '.lt .gt .le .ge .eq .ne', desc: 'Comparisons → bool.' },
+      { sig: '.and .or  ·  .bitAnd .bitOr .bitXor .shl .shr', desc: 'Logical (bool) and bitwise (u32/i32).' },
+      { sig: '.x .y .z .w  ·  .rgb .xy .xyz …  ·  .swizzle<R>("…")', desc: 'Component access and swizzles.' },
+      { sig: '.assign(v)  ·  .select(a, b)', desc: 'lvalue store; condition ? a : b (on a bool node).' },
+    ],
+  },
+  {
+    title: 'Built-in functions',
+    rows: [
+      { sig: 'sin cos tan asin acos atan atan2', desc: 'Trigonometry.' },
+      { sig: 'exp log log2 pow sqrt', desc: 'Exponential / power.' },
+      { sig: 'floor ceil fract abs sign min max clamp mix smoothstep', desc: 'Common math / interpolation.' },
+      { sig: 'length dot radians degrees fwidth', desc: 'Geometry, angle conversion, screen-space derivative (GPU-only).' },
+      { sig: 'textureSample textureLoad textureDimensions', desc: 'Texture access (GLSL fuses sampler into the combined sampler2D).' },
+      { sig: 'bitcastU32 pack4x8unorm unpack4x8unorm', desc: 'Bit-level helpers.' },
+    ],
+  },
+  {
+    title: 'Control flow',
+    rows: [
+      { sig: 'If(cond, () => …).elif(cond, …).else(…)', desc: 'Conditional statement blocks.' },
+      { sig: 'Return(value?)  ·  ReturnIf(cond, value)', desc: 'Explicit / guard-clause returns.' },
+      { sig: 'reduce(init, i0, cond, step, inc)', desc: 'Loop-fold combinator (accumulate over a range).' },
+      { sig: 'matchExpr(scrutinee, cases, default)', desc: 'Typed multi-arm dispatch over an integer/scalar.' },
+    ],
+  },
+  {
+    title: 'Types',
+    rows: [
+      { sig: 'f32T i32T u32T boolT', desc: 'Scalar types.' },
+      { sig: 'vec2fT vec3fT vec4fT  ·  vec2uT vec3uT vec4uT  ·  vec2iT vec4iT', desc: 'Vector types.' },
+      { sig: 'mat4x4fT  ·  texture2dfT texture2dMsfT  ·  arrayT(elem) structT(name)', desc: 'Matrix, texture, and composite types.' },
+    ],
+  },
+  {
+    title: 'Emit & reflect',
+    rows: [
+      { sig: 'emitModule(m)', desc: '→ WGSL string (WebGPU). Byte-stable.' },
+      { sig: 'emitGlslModule(m, "vertex" | "fragment")', desc: '→ GLSL ES 3.00 string (WebGL2). Throws on compute / SSBO / MSAA-load.' },
+      { sig: 'emitModuleWithReflection(m, backend)', desc: '→ { code, reflection } (code byte-identical to emitModule).' },
+      { sig: 'reflect(m)', desc: '→ { bindGroups, uniforms (std140), storage (std430), entries }. Read-only over the IR.' },
+      { sig: 'wgslLayout(struct, "std140" | "std430")', desc: 'The standalone offset engine reflect() uses.' },
+    ],
+  },
+  {
+    title: 'Validation passes',
+    rows: [
+      { sig: 'validate(m)  ·  lintModule(m)', desc: 'Type/structure validation and the 20-rule lint engine.' },
+      { sig: 'requiredCaps(m)  ·  assertCaps(caps, backend)', desc: 'Compute the capabilities a module needs; assert a backend supports them.' },
+    ],
+  },
+]
+---
+
+<ShaderDsl
+  current="reference"
+  title="X-GIS Shader DSL — API reference"
+  description="The @xgis/shader-dsl authoring + emit surface: functions, layout declarators, value constructors, operators, built-ins, control flow, types, and emit/reflect."
+>
+  <h1 class="text-[30px] sm:text-[38px] font-medium text-fg leading-[1.1] tracking-[-0.03em]">API reference</h1>
+  <p class="mt-4 text-[16px] leading-[1.6] text-fg-dim max-w-[680px]">
+    A selected tour of the surface exported from <code class="font-mono text-[14px] text-fg">@xgis/shader-dsl</code>.
+    See the <a href="https://github.com/X-GIS/X-GIS/blob/main/shader-dsl/src/index.ts" target="_blank" rel="noopener" class="text-accent hover:text-accent-hover transition-colors">barrel</a>
+    and <a href={`${root}/examples`} class="text-accent hover:text-accent-hover transition-colors">examples</a> for the rest.
+  </p>
+
+  <div class="mt-10 space-y-10">
+    {groups.map((g) => (
+      <section>
+        <h2 class="text-[19px] font-medium text-fg tracking-[-0.015em] mb-1.5">{g.title}</h2>
+        {g.note && <p class="text-[13.5px] leading-[1.55] text-fg-mute mb-3 max-w-[680px]">{g.note}</p>}
+        <div class="rounded-xl border border-line overflow-hidden divide-y divide-[var(--color-line)]">
+          {g.rows.map((r) => (
+            <div class="grid sm:grid-cols-[minmax(0,42%)_minmax(0,58%)] gap-x-5 gap-y-1 px-4 py-3">
+              <code class="font-mono text-[12.5px] text-fg leading-[1.5] break-words">{r.sig}</code>
+              <p class="text-[13px] leading-[1.5] text-fg-dim">{r.desc}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+    ))}
+  </div>
+</ShaderDsl>
