@@ -22,7 +22,7 @@ export const ECEF_CONSTS: ConstDecl[] = [
 ]
 
 /** lon/lat (radians) + height (m) → ECEF (m). Mirrors lonLatToECEF on the CPU side. */
-export const lonlatToEcef = fn('lonlat_to_ecef', { lon_rad: f32T, lat_rad: f32T, height: f32T }, (p, _b) => {
+export const lonlatToEcef = fn('lonlat_to_ecef', { lon_rad: f32T, lat_rad: f32T, height: f32T }, (p) => {
   const sinLat = sin(p.lat_rad)
   const cosLat = cos(p.lat_rad)
   const n = WGS84_A.div(sqrt(f32(1).sub(WGS84_E2.mul(sinLat).mul(sinLat))))
@@ -33,7 +33,7 @@ export const lonlatToEcef = fn('lonlat_to_ecef', { lon_rad: f32T, lat_rad: f32T,
 })
 
 /** DSFUN reconstruction: rtc = hi + lo (the VS sums the ECEF-RTC pair). */
-export const ecefRtcReconstruct = fn('ecef_rtc_reconstruct', { pos_h: vec3fT, pos_l: vec3fT }, (p, _b) => p.pos_h.add(p.pos_l))
+export const ecefRtcReconstruct = fn('ecef_rtc_reconstruct', { pos_h: vec3fT, pos_l: vec3fT }, (p) => p.pos_h.add(p.pos_l))
 
 export const ECEF_FUNCS: FuncDecl[] = [lonlatToEcef, ecefRtcReconstruct]
 

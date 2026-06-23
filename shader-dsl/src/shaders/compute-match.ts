@@ -63,7 +63,7 @@ export function matchComputeKernel(spec: MatchKernelSpec): ModuleDecl {
   const outColor = outColorB.node
   const uCount = uCountB.node
 
-  const entry = fn('eval_match', { gid: builtin('global_invocation_id', vec3uT) }, ({ gid }, _b) => {
+  const entry = fn('eval_match', { gid: builtin('global_invocation_id', vec3uT) }, ({ gid }) => {
     const fid = gid.x
     If(fid.ge(uCount.x), () => { Return() })
     const v = featData.at(fid, f32T)

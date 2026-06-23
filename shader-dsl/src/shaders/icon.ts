@@ -41,7 +41,7 @@ const vs = fn('vs', {
   opacity: location(2, f32T),
   tint: location(3, vec3fT),
   sdf: location(4, f32T),
-}, (p, _b) => {
+}, (p) => {
   const vp = U.field.viewport
   const ndc_x = p.pos_px.x.div(vp.x).mul(2).sub(1)
   const ndc_y = f32(1).sub(p.pos_px.y.div(vp.y).mul(2))
@@ -54,7 +54,7 @@ const vs = fn('vs', {
   })
 }, { stage: 'vertex' })
 
-const fs = fn('fs', { in: VsOut.type }, (p, _b) => {
+const fs = fn('fs', { in: VsOut.type }, (p) => {
   const pin = VsOut.of(p.in)
   const c = textureSample(atlasTex.node, atlasSmp.node, pin.uv)
   // fwidth must be in uniform control flow — compute aa unconditionally (the
