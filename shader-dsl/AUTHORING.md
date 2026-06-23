@@ -9,15 +9,22 @@ The goal of the recent work was to remove ceremony. You no longer hand-write WGS
 names, return-type tokens, `callFn('name', …)` strings, `.field('name', type)` accessors,
 or `f32()` wrappers around literals. This guide documents the surface that landed.
 
-> **Import paths.** Shader modules live in `shader-dsl/src/shaders/*.ts` and author from
-> two internal entry points:
+> **Import paths.** Author from the package's public barrel — it re-exports the whole
+> `core/**` authoring + emit surface (the IR, the SoT layout declarators, the WGSL/GLSL
+> backends, the lint passes, the CPU oracle, and `reflect()`):
 > ```ts
-> import { fn, module, vec4, If, Switch, condExpr, … } from '../core/ir'
-> import { ioStruct, uniformStruct, structDecl, builtin, location, storageBuffer, resource } from '../core/sot'
+> import { fn, module, vec4, If, Switch, condExpr, emitModule, reflect, … } from '@xgis/shader-dsl'
+> import { ioStruct, uniformStruct, structDecl, builtin, location, storageBuffer, resource } from '@xgis/shader-dsl'
 > ```
-> The package's public barrel (`src/index.ts`) re-exports only the finished shader graphs;
-> the authoring layer is internal. Always import the IR via the `core/ir` barrel, never a
-> deep file.
+> The X-GIS-specific shader graphs that used to live in `shader-dsl/src/shaders/*.ts`
+> moved to the runtime (`runtime/src/engine/shaders/dsl/`); they author through this same
+> barrel like any other consumer. Inside the package, the barrel re-exports the IR via the
+> `core/ir` barrel and the layout helpers via `core/sot` — never import a deep file directly.
+>
+> **Reflection.** `reflect(module)` recovers the pipeline metadata (bind groups, std140/std430
+> struct byte layouts, vertex attributes, entry signatures) as a target-neutral object; the
+> std140/std430 offset engine is also exposed standalone as `wgslLayout(struct, kind)`. Both
+> are read-only over the IR and never run on the emit path. See `core/reflect.ts`.
 
 ---
 

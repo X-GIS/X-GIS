@@ -36,18 +36,15 @@ export * from './core/intrinsics'
 // CPU f64 oracle (compileModule + CpuModule types).
 export * from './core/oracle'
 
+// Pipeline reflection (additive, read-only over the IR — never on the emit path):
+// reflect(module) → target-neutral bind-group / std140-std430 layout / entry metadata,
+// plus the standalone wgslLayout(struct, kind) offset engine.
+export * from './core/reflect'
+
 // Neutral emit tree-walk — non-colliding members only (emitModule / emitExpr
 // are owned by the WGSL backend above). emitModuleWithReflection is the reflection-
 // carrying sibling of emitModule (its `.code` is byte-identical to the WGSL emitModule).
 export { emitStmt, emitBody, forHeader, lowerForBackend, emitModuleWithReflection } from './core/emit'
-
-// Pipeline reflection (additive, never on the emit path): the neutral `Reflection`
-// metadata + the std140/std430 `wgslLayout` offset engine + the `reflect(module)` walker.
-export { reflect, wgslLayout } from './core/reflect'
-export type {
-  Reflection, StructLayout, FieldLayout, BindEntry, BindGroup,
-  VertexAttr, VertexLayout, EntryInfo, ResourceKind, LayoutKind,
-} from './core/reflect'
 
 // Pre-emit passes used by authors / consumers.
 export { lowerModule } from './core/passes/match-lower'
