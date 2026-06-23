@@ -12,6 +12,7 @@ import { validate } from './passes/validate'
 import { assertCaps } from './passes/required-caps'
 import { lowerModule } from './passes/match-lower'
 import { autoVars } from './passes/opt'
+import { reflect, type Reflection } from './reflect'
 
 const pad = (depth: number): string => '  '.repeat(depth)
 
@@ -121,16 +122,34 @@ export function lowerForBackend(m: ModuleDecl, be: Backend): ModuleDecl {
   return be.optimize(lowerModule(autoVars(m)))
 }
 
-/** Emit a ModuleDecl to a target string: shared preamble (`lowerForBackend`) then the
- *  declaration assembly (consts → structs → bindings → funcs, only non-empty sections),
- *  joined `\n\n` with a trailing newline. Each backend's public module entry
- *  (`emitModule` for WGSL) routes through here, so the assembly lives once. */
-export function emitModule(m: ModuleDecl, be: Backend): string {
-  const lowered = lowerForBackend(m, be)
+/** Assemble an ALREADY-lowered module into a target string: the declaration assembly
+ *  (consts → structs → bindings → funcs, only non-empty sections), joined `\n\n` with a
+ *  trailing newline. Split out of `emitModule` so the string and the reflection can be
+ *  derived from the SAME lowered module (see `emitModuleWithReflection`). */
+function assembleLowered(lowered: ModuleDecl, be: Backend): string {
   const parts: string[] = []
   if (lowered.consts.length) parts.push(lowered.consts.map((c) => be.emitConst(c)).join('\n'))
   if (lowered.structs.length) parts.push(lowered.structs.map((s) => be.emitStruct(s)).join('\n\n'))
   if (lowered.bindings.length) parts.push(lowered.bindings.map((b) => be.emitBinding(b)).join('\n'))
   if (lowered.funcs.length) parts.push(lowered.funcs.map((f) => be.emitFunc(f)).join('\n\n'))
   return parts.join('\n\n') + '\n'
+}
+
+/** Emit a ModuleDecl to a target string: shared preamble (`lowerForBackend`) then the
+ *  declaration assembly (consts → structs → bindings → funcs, only non-empty sections),
+ *  joined `\n\n` with a trailing newline. Each backend's public module entry
+ *  (`emitModule` for WGSL) routes through here, so the assembly lives once. */
+export function emitModule(m: ModuleDecl, be: Backend): string {
+  return assembleLowered(lowerForBackend(m, be), be)
+}
+
+/** Emit a ModuleDecl AND recover its pipeline reflection, BOTH derived from the SAME
+ *  lowered module (`lowerForBackend(m, be)`) so the emitted string and the reflection
+ *  metadata cannot desync. `.code` is byte-identical to `emitModule(m, be)`; `.reflection`
+ *  is `reflect()` of the lowered module — equal to `reflect(m)` because the pre-emit passes
+ *  (autoVars/lowerModule/cse) rewrite only function BODIES, never the structs / bindings /
+ *  func signatures that reflection reads. */
+export function emitModuleWithReflection(m: ModuleDecl, be: Backend): { code: string; reflection: Reflection } {
+  const lowered = lowerForBackend(m, be)
+  return { code: assembleLowered(lowered, be), reflection: reflect(lowered) }
 }
