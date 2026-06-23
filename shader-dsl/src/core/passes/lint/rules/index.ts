@@ -19,6 +19,7 @@ import { paramCount } from './param-count'
 import { namingConvention } from './naming-convention'
 import { maxNesting } from './max-nesting-depth'
 import { noSelfAssign } from './no-self-assign'
+import { noAssignToLet } from './no-assign-to-let'
 import { noEmptyFunction } from './no-empty-function'
 import { maxFunctionLength } from './max-function-length'
 import { preferLetOverVar } from './prefer-let-over-var'
@@ -41,6 +42,7 @@ export const RULES: readonly LintRule[] = [
   namingConvention,
   maxNesting,
   noSelfAssign,
+  noAssignToLet,
   noEmptyFunction,
   maxFunctionLength,
   preferLetOverVar,
@@ -50,7 +52,7 @@ export const RULES: readonly LintRule[] = [
 export {
   dupStruct, dupFunc, bindingCollision, allPathsReturn, singleExit, mixedScalarRule,
   noRecursion, noUnreachable, noFloatEq, cyclomaticComplexity, paramCount, namingConvention, maxNesting,
-  noSelfAssign, noEmptyFunction, maxFunctionLength, preferLetOverVar, noDeadBinding,
+  noSelfAssign, noAssignToLet, noEmptyFunction, maxFunctionLength, preferLetOverVar, noDeadBinding,
 }
 
 /** The subset run by validate() at EVERY emit (incl. runtime-composed + compute modules
