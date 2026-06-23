@@ -98,10 +98,10 @@ const cards: PageCard[] = [
 <Docs current="" title="X-GIS — Documentation" description="Documentation for X-GIS — language reference, concept guides, JavaScript API, and the Tailwind-style utility catalog.">
 
   <header class="mb-16">
-    <p class="text-[13px] font-medium text-accent mb-3 tracking-[-0.01em]">
+    <p class="font-mono text-[11px] tracking-[0.2em] uppercase text-accent mb-3">
       Documentation
     </p>
-    <h1 class="text-[40px] sm:text-[52px] lg:text-[60px] font-medium text-fg leading-[1.05] tracking-[-0.035em]">
+    <h1 class="font-display font-semibold uppercase text-fg leading-[0.95] tracking-[0.01em] text-[38px] sm:text-[52px] lg:text-[64px]">
       Learn X-GIS.
     </h1>
     <p class="mt-6 text-[17px] sm:text-[19px] leading-[1.55] text-fg-dim max-w-[680px]">
@@ -112,10 +112,10 @@ const cards: PageCard[] = [
     <div class="mt-8 flex flex-wrap items-center gap-3">
       <a
         href={playUrl}
-        class="inline-flex items-center gap-2 px-5 h-10 rounded-full
-               bg-accent hover:bg-accent-hover text-white text-[14px] font-medium transition-colors"
+        class="inline-flex items-center gap-2 px-5 h-10 rounded-md
+               bg-accent hover:bg-accent-hover text-bg font-semibold text-[14px] transition-colors"
       >
-        <span class="w-1.5 h-1.5 rounded-full bg-white/90 inline-block animate-pulse"></span>
+        <span class="w-1.5 h-1.5 rounded-full bg-bg/80 inline-block animate-pulse"></span>
         Try the Quick start
         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M9 6l6 6-6 6"/>
@@ -123,7 +123,7 @@ const cards: PageCard[] = [
       </a>
       <a
         href={`${base}/docs/reference`}
-        class="inline-flex items-center gap-2 px-5 h-10 rounded-full
+        class="inline-flex items-center gap-2 px-5 h-10 rounded-md
                text-accent hover:text-accent-hover text-[14px] font-medium transition-colors"
       >
         Read the reference
@@ -146,7 +146,7 @@ const cards: PageCard[] = [
           class="docs-card group block rounded-2xl bg-bg-card border border-line
                  hover:border-line-strong hover:bg-bg-hover p-6"
         >
-          <p class="text-[11px] font-medium text-accent uppercase tracking-wider mb-2">
+          <p class="font-mono text-[11px] text-accent uppercase tracking-[0.16em] mb-2">
             {c.eyebrow}
           </p>
           <h3 class="text-[18px] font-medium text-fg leading-[1.25] tracking-[-0.015em] mb-2">

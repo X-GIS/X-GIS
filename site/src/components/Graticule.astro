@@ -1,0 +1,37 @@
+---
+// The graticule — the lat/lon grid that structures the page. A fixed,
+// full-bleed mesh behind all content (the "chart") plus faint coordinate
+// ticks down the left margin (the chart's frame annotation). Decorative
+// but TRUE: the tick labels are real latitude notation, not invented
+// ornament. Desktop-only margin ticks (they need clearance from the
+// centered content column); the mesh itself shows at every width.
+const latTicks = ['60°N', '45°N', '30°N', '15°N', '0°', '15°S', '30°S']
+---
+
+<div class="pointer-events-none fixed inset-0 -z-10 overflow-hidden" aria-hidden="true">
+  <!-- Fine graticule + heavier major lines every 4th step (the chart's
+       10° rules). draw-grid fades both in like a plotter pen on load. -->
+  <div class="graticule-field draw-grid absolute inset-0" style="--grid-step: 92px;"></div>
+  <div
+    class="draw-grid absolute inset-0"
+    style="background-image:
+      repeating-linear-gradient(to right,  var(--color-graticule-strong) 0 1px, transparent 1px 368px),
+      repeating-linear-gradient(to bottom, var(--color-graticule-strong) 0 1px, transparent 1px 368px);"
+  ></div>
+
+  <!-- Edge vignette: the chart fades at the margins so the grid reads as
+       paper under a lamp, not a flat blueprint — but the core stays lit. -->
+  <div
+    class="absolute inset-0"
+    style="background:
+      radial-gradient(125% 110% at 50% 12%, transparent 58%, var(--color-bg) 100%),
+      radial-gradient(100% 120% at 50% 100%, transparent 55%, color-mix(in srgb, var(--color-bg) 80%, transparent) 100%);"
+  ></div>
+
+  <!-- Left-margin latitude ticks — chart frame annotation. xl-only. -->
+  <div class="hidden xl:flex absolute left-6 top-0 bottom-0 flex-col justify-around py-20">
+    {latTicks.map(t => (
+      <span class="font-mono text-[10px] tracking-[0.12em] text-fg-faint tabular-nums">{t}</span>
+    ))}
+  </div>
+</div>

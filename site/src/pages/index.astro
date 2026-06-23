@@ -1,19 +1,19 @@
 ---
 import Base from '../layouts/Base.astro'
+import Graticule from '../components/Graticule.astro'
 import Header from '../components/Header.astro'
 import Hero from '../components/Hero.astro'
 import Why from '../components/Why.astro'
 import QuickStart from '../components/QuickStart.astro'
 import Footer from '../components/Footer.astro'
-// Hero + the four "Beyond the library" pillars + install — the
-// fastest path from "what is X-GIS" to "type three commands and
-// see a map." Capabilities / Stats moved off the home page (their
-// content overlapped with Why; Stats was marketing-y and went
-// stale fast). The dedicated /why URL doesn't exist yet — the
-// pillars stay inline because they ARE the elevator pitch.
+// "Chart Room" landing — the lat/lon graticule backs the whole page;
+// the hero's live map morphs across projections to show "one source,
+// any view." Hero + the four "Beyond the library" pillars + install:
+// the fastest path from "what is X-GIS" to "clone it and see a map."
 ---
 
 <Base>
+  <Graticule />
   <Header />
   <main>
     <Hero />

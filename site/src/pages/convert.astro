@@ -1,5 +1,6 @@
 ---
 import Base from '../layouts/Base.astro'
+import Graticule from '../components/Graticule.astro'
 import Header from '../components/Header.astro'
 import Footer from '../components/Footer.astro'
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
@@ -41,17 +42,24 @@ const presets: Preset[] = [
 ---
 
 <Base title="Mapbox style → xgis converter">
+  <Graticule />
   <Header />
   <main class="max-w-[1100px] mx-auto px-6 pt-20 pb-24 text-[14px]">
-    <h1 class="text-[22px] font-medium tracking-tight">Mapbox style → xgis</h1>
-    <p class="mt-2 text-fg-dim">
+    <p class="font-mono text-[11px] tracking-[0.2em] uppercase text-accent mb-4">
+      Converter
+    </p>
+    <h1 class="font-display font-semibold uppercase text-fg leading-[0.95] tracking-[0.01em]
+               text-[38px] sm:text-[52px] lg:text-[64px]">
+      Mapbox style → xgis
+    </h1>
+    <p class="mt-4 text-fg-dim text-[16px]">
       Paste a Mapbox Style Spec JSON, or drop in a URL pointing at a
       <code>style.json</code>. The result drops straight into the playground.
     </p>
 
     <!-- ── Preset chips ── -->
     <section class="mt-6">
-      <div class="text-fg-mute text-[11px] uppercase tracking-wider mb-2">Try a public style</div>
+      <div class="font-mono text-fg-mute text-[11px] uppercase tracking-[0.16em] mb-2">Try a public style</div>
       <div class="flex flex-wrap gap-2">
         {presets.map(p => (
           <button
@@ -69,7 +77,7 @@ const presets: Preset[] = [
 
     <!-- ── URL form (primary) ── -->
     <section class="mt-8 border border-line rounded-md p-4 bg-bg-elev">
-      <label for="mapbox-url" class="block text-fg text-[12px] tracking-wide uppercase">URL</label>
+      <label for="mapbox-url" class="block font-mono text-fg text-[12px] tracking-[0.16em] uppercase">URL</label>
       <div class="mt-2 flex flex-wrap gap-2 items-center">
         <input
           id="mapbox-url"
@@ -93,7 +101,7 @@ const presets: Preset[] = [
 
     <!-- ── Paste form (secondary, hidden until requested) ── -->
     <section id="paste-section" class="mt-4 border border-line rounded-md p-4 bg-bg-elev hidden">
-      <label for="mapbox-json" class="block text-fg text-[12px] tracking-wide uppercase">Paste JSON</label>
+      <label for="mapbox-json" class="block font-mono text-fg text-[12px] tracking-[0.16em] uppercase">Paste JSON</label>
       <textarea
         id="mapbox-json"
         rows="6"
@@ -114,7 +122,7 @@ const presets: Preset[] = [
          single line into their xgis instead of the converted block. -->
     <section id="import-shortcut" class="mt-6 border border-accent/30 rounded-md p-4 bg-accent/5 hidden">
       <div class="flex items-center gap-2 flex-wrap">
-        <span class="text-accent text-[11px] uppercase tracking-wider font-medium">1-line import</span>
+        <span class="font-mono text-accent text-[11px] uppercase tracking-[0.16em]">1-line import</span>
         <span class="text-fg-dim text-[11px]">
           Skip the paste step — the runtime fetches + converts on load.
         </span>
@@ -129,8 +137,8 @@ const presets: Preset[] = [
     <!-- ── Output ── -->
     <section class="mt-8" data-playground-url={playgroundUrl}>
       <div class="flex items-center gap-2 flex-wrap">
-        <label for="xgis-out" class="text-fg text-[12px] tracking-wide uppercase">xgis source</label>
-        <span id="warn-badge" class="hidden text-[11px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 cursor-pointer hover:bg-amber-500/25"></span>
+        <label for="xgis-out" class="font-mono text-fg text-[12px] tracking-[0.16em] uppercase">xgis source</label>
+        <span id="warn-badge" class="hidden text-[11px] px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/30 cursor-pointer hover:bg-amber-500/25"></span>
         <div class="ml-auto flex gap-2">
           <button id="copy-btn" class="px-3 py-1 bg-bg border border-line rounded text-[11px] text-fg-dim hover:text-fg hover:border-fg-dim transition-colors">Copy</button>
           <button id="open-btn" class="px-3 py-1 bg-accent/15 border border-accent text-accent rounded text-[11px] hover:bg-accent/25 transition-colors">Open in playground</button>
@@ -161,7 +169,7 @@ const presets: Preset[] = [
       </p>
       <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4 text-[12px]">
         <div class="border border-line rounded-md p-3 bg-bg-elev">
-          <div class="text-emerald-300 text-[11px] uppercase tracking-wider mb-2">Supported</div>
+          <div class="font-mono text-emerald-300 text-[11px] uppercase tracking-[0.16em] mb-2">Supported</div>
           <ul class="text-fg-dim space-y-1">
             <li>• Sources: vector (PMTiles + TileJSON), raster, GeoJSON</li>
             <li>• Layers: background, fill, line, fill-extrusion</li>
@@ -172,7 +180,7 @@ const presets: Preset[] = [
           </ul>
         </div>
         <div class="border border-line rounded-md p-3 bg-bg-elev">
-          <div class="text-amber-300 text-[11px] uppercase tracking-wider mb-2">Lossy / heuristic</div>
+          <div class="font-mono text-amber-300 text-[11px] uppercase tracking-[0.16em] mb-2">Lossy / heuristic</div>
           <ul class="text-fg-dim space-y-1">
             <li>• <code>interpolate</code> curve type (exponential / cubic-bezier) folded to linear</li>
             <li>• <code>fill-translate</code>, <code>line-translate</code> dropped</li>
@@ -182,7 +190,7 @@ const presets: Preset[] = [
           </ul>
         </div>
         <div class="border border-line rounded-md p-3 bg-bg-elev">
-          <div class="text-rose-300 text-[11px] uppercase tracking-wider mb-2">Unsupported (engine)</div>
+          <div class="font-mono text-rose-300 text-[11px] uppercase tracking-[0.16em] mb-2">Unsupported (engine)</div>
           <ul class="text-fg-dim space-y-1">
             <li>• Symbol layers (text + icons) — SDF font + glyph atlas pending</li>
             <li>• Circle, heatmap, hillshade, sky layers</li>

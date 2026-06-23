@@ -41,7 +41,7 @@ const tabs = [
     <span class="font-mono text-[10px] text-fg-mute uppercase tracking-wider px-1.5 py-0.5 rounded bg-bg-elev border border-line">{card.category}</span>
     <span class="font-mono text-[11px] text-fg-mute">{card.file}</span>
   </div>
-  <h1 class="text-[30px] sm:text-[40px] font-medium text-fg leading-[1.1] tracking-[-0.03em]">{card.title}</h1>
+  <h1 class="font-display font-semibold uppercase text-fg leading-[0.95] tracking-[0.01em] text-[38px] sm:text-[52px] lg:text-[64px]">{card.title}</h1>
   <p class="mt-4 text-[15.5px] sm:text-[16px] leading-[1.55] text-fg-dim max-w-[680px]">{card.blurb}</p>
 
   {card.renderable && card.spec && (
@@ -107,13 +107,13 @@ const tabs = [
   <nav class="mt-12 pt-8 border-t border-line grid sm:grid-cols-2 gap-3">
     {prev ? (
       <a href={detailHref(prev.id)} class="group block rounded-xl border border-line px-5 py-4 hover:border-line-strong transition-colors">
-        <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-1.5">← Previous</p>
+        <p class="font-mono text-[11px] text-fg-mute uppercase tracking-[0.16em] mb-1.5">← Previous</p>
         <p class="text-[15px] font-medium text-fg group-hover:text-accent transition-colors">{prev.title}</p>
       </a>
     ) : <div></div>}
     {next && (
       <a href={detailHref(next.id)} class="group block rounded-xl border border-line px-5 py-4 hover:border-line-strong transition-colors text-right">
-        <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-1.5">Next →</p>
+        <p class="font-mono text-[11px] text-fg-mute uppercase tracking-[0.16em] mb-1.5">Next →</p>
         <p class="text-[15px] font-medium text-fg group-hover:text-accent transition-colors">{next.title}</p>
       </a>
     )}

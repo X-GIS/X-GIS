@@ -1,5 +1,6 @@
 ---
 import Base from './Base.astro'
+import Graticule from '../components/Graticule.astro'
 import Header from '../components/Header.astro'
 import Footer from '../components/Footer.astro'
 import OnThisPage from '../components/OnThisPage.astro'
@@ -111,6 +112,7 @@ const navGroups: NavGroup[] = [
 ---
 
 <Base title={title ?? 'X-GIS — Documentation'} description={description}>
+  <Graticule />
   <Header />
 
   <main class="pt-20 pb-32">
@@ -124,7 +126,7 @@ const navGroups: NavGroup[] = [
           {navGroups.map(group => (
             <div class="mb-7">
               {group.title && (
-                <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-3">
+                <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-3">
                   {group.title}
                 </p>
               )}
@@ -206,7 +208,7 @@ const navGroups: NavGroup[] = [
                 <div class={`grid gap-3 ${prev && next ? 'sm:grid-cols-2' : 'sm:grid-cols-1'}`}>
                   {prev && (
                     <a href={prev.href} class="docs-pagenav group block rounded-xl border border-line px-5 py-4 hover:border-line-strong hover:bg-bg-hover transition-colors text-left">
-                      <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                      <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-1.5 flex items-center gap-1.5">
                         <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                           <path d="M15 6l-6 6 6 6"/>
                         </svg>
@@ -217,7 +219,7 @@ const navGroups: NavGroup[] = [
                   )}
                   {next && (
                     <a href={next.href} class={`docs-pagenav group block rounded-xl border border-line px-5 py-4 hover:border-line-strong hover:bg-bg-hover transition-colors text-right ${!prev ? 'sm:col-start-2' : ''}`}>
-                      <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-1.5 flex items-center gap-1.5 justify-end">
+                      <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-1.5 flex items-center gap-1.5 justify-end">
                         Next
                         <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                           <path d="M9 6l6 6-6 6"/>

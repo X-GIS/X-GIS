@@ -29,15 +29,16 @@ const shaderUrl = `${base}/shader-dsl`
       <span class="font-medium tracking-tight text-fg">X-GIS</span>
     </a>
 
-    <!-- Desktop nav (≥ sm) -->
+    <!-- Desktop nav (≥ sm) — hover lights the link in the chart's active
+         cyan, like a selected instrument readout. -->
     <nav class="ml-auto hidden sm:flex items-center gap-7 text-fg-dim">
-      <a href={docsUrl} class="hover:text-fg transition-colors">Docs</a>
-      <a href={examplesUrl} class="hover:text-fg transition-colors">Examples</a>
-      <a href={shaderUrl} class="hover:text-fg transition-colors">Shaders</a>
-      <a href={blueprintUrl} class="hover:text-fg transition-colors">Blueprint</a>
-      <a href={convertUrl} class="hover:text-fg transition-colors">Convert</a>
-      <a href={`${home}#install`} class="hover:text-fg transition-colors">Install</a>
-      <a href={githubUrl} target="_blank" rel="noopener" class="hover:text-fg transition-colors">GitHub</a>
+      <a href={docsUrl} class="hover:text-accent transition-colors">Docs</a>
+      <a href={examplesUrl} class="hover:text-accent transition-colors">Examples</a>
+      <a href={shaderUrl} class="hover:text-accent transition-colors">Shaders</a>
+      <a href={blueprintUrl} class="hover:text-accent transition-colors">Blueprint</a>
+      <a href={convertUrl} class="hover:text-accent transition-colors">Convert</a>
+      <a href={`${home}#install`} class="hover:text-accent transition-colors">Install</a>
+      <a href={githubUrl} target="_blank" rel="noopener" class="hover:text-accent transition-colors">GitHub</a>
     </nav>
 
     <!-- Search (desktop) — sits between nav links and the trailing
