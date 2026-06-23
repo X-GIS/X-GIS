@@ -1,0 +1,62 @@
+---
+// Breadth reassurance — the language is not a toy. Each group lists the
+// real, shipped surface (sources / layer types / projections / expressions
+// / animation / interop), so a skeptical engineer can scan what's covered.
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+
+const groups = [
+  { tag: 'Sources',     items: ['GeoJSON', 'PMTiles (MVT)', 'Raster XYZ', 'Inline data'] },
+  { tag: 'Layer types', items: ['fill', 'line', 'symbol', 'circle', 'text (SDF)', 'heatmap', 'fill-extrusion (3D)'] },
+  { tag: 'Projections', items: ['Mercator', 'Natural Earth', 'Orthographic', 'Equirectangular', 'Stereographic', 'Azimuthal eq.', 'Oblique Mercator'] },
+  { tag: 'Expressions', items: ['interpolate(zoom)', 'interpolate(.prop)', 'match()', 'filter:', 'preset / apply'] },
+  { tag: 'Motion',      items: ['keyframes', 'easing curves', 'per-property tweens'] },
+  { tag: 'Interop',     items: ['Mapbox Style import', 'WebGPU + Canvas 2D', 'MIT licensed'] },
+]
+---
+
+<section id="covers" class="relative py-28 sm:py-36 lg:py-44 border-t border-line">
+  <span class="absolute -top-[9px] left-6 xl:left-[136px] px-2 bg-bg font-mono text-[10px] tracking-[0.18em] uppercase text-fg-faint">
+    What It Covers
+  </span>
+
+  <div class="max-w-[1100px] mx-auto px-6">
+    <div class="max-w-[840px] mb-12 lg:mb-16">
+      <h2 class="font-display font-semibold uppercase text-fg leading-[0.92] tracking-[0.01em]
+                 text-[36px] sm:text-[56px] lg:text-[76px]">
+        Not a toy.
+      </h2>
+      <p class="mt-6 text-[17px] sm:text-[19px] leading-[1.55] text-fg-dim max-w-[640px]">
+        The whole cartographic surface — vector and raster sources, every common layer type,
+        seven projections, data-driven expressions, and a converter that imports real Mapbox
+        styles. It renders OpenFreeMap's 93-layer basemap today.
+      </p>
+    </div>
+
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-x-10 gap-y-10">
+      {groups.map(g => (
+        <div class="border-t border-line pt-5">
+          <div class="flex items-center gap-2 mb-4">
+            <span class="inline-block w-1.5 h-1.5 rotate-45 bg-vermilion"></span>
+            <span class="font-mono text-[10.5px] tracking-[0.18em] uppercase text-fg-mute">{g.tag}</span>
+          </div>
+          <ul class="space-y-2">
+            {g.items.map(item => (
+              <li class="font-mono text-[13.5px] text-fg-dim">{item}</li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+
+    <div class="mt-12 flex flex-wrap gap-x-6 gap-y-2">
+      <a href={`${base}/docs/mapbox-spec`} class="inline-flex items-center gap-2 text-accent hover:text-accent-hover text-[15px] font-medium transition-colors">
+        Mapbox coverage matrix
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+      </a>
+      <a href={`${base}/convert`} class="inline-flex items-center gap-2 text-fg-mute hover:text-fg text-[15px] font-medium transition-colors">
+        Convert a Mapbox style
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+      </a>
+    </div>
+  </div>
+</section>
