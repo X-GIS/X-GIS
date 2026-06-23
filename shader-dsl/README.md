@@ -22,7 +22,7 @@ package like any other consumer.)
 | **CPU-oracle parity** (compile the same module to an f64 CPU fn for cross-checking) | **DISTINCTIVE** |
 | **Reflect** (`reflect(module)` → bind-groups + std140/std430 layouts + entry signatures) | **NEW** |
 | **WGSL backend** | real, byte-stable |
-| **GLSL backend** | **STUB** (writer exists; std140 UBO + entry-IO not wired) |
+| **GLSL backend** | **real for render pipelines** — vertex+fragment entry-IO + std140 UBO, WebGL2 compile+render-verified (see `examples/`); compute/SSBO/MSAA-load fail closed |
 | **Multi-target** (SPIR-V / MSL / HLSL) | **aspirational** — mono-target (WGSL) but credible for v1 |
 
 ## Install / build
@@ -128,12 +128,17 @@ cannot change an emitted byte. The std140/std430 offset engine is also exposed s
 
 ## Examples
 
-Runnable, runtime-free shaders live in [`examples/`](./examples):
+Runnable, runtime-free shaders live in [`examples/`](./examples) — three cartographic
+(graticule, hillshade, choropleth ramp), two generic (plasma, gradient), and one compute
+kernel. Each emits WGSL + GLSL ES 3.00 + reflection from one source:
 
 ```bash
-npx tsx examples/gradient-pass.ts        # fullscreen gradient render pass
-npx tsx examples/compute-reduction.ts    # @workgroup_size compute kernel
+npx tsx examples/print.ts            # print WGSL / GLSL / reflection for every example
+npx tsx examples/print.ts hillshade  # just one, by id
 ```
+
+The renderable ones run live on a WebGL2 canvas on the **/shader-dsl** site page (they are
+exported from `examples/index.ts`, which the page imports). See [`examples/README.md`](./examples/README.md).
 
 ## Authoring guide
 

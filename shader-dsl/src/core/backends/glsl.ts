@@ -108,6 +108,20 @@ function builtinOut(b: string): string {
   return g
 }
 
+// gl_VertexID / gl_InstanceID are `int` in GLSL ES 3.00, but the DSL types
+// vertex_index/instance_index as u32 (the WGSL convention). GLSL ES will NOT match a
+// `uint` param/field against an `int` arg (overload resolution applies no implicit
+// int→uint here), so the read is wrapped in the declared scalar's ctor — `uint(gl_VertexID)`.
+// (Declared as i32 → no cast; vec/bool builtins like gl_FragCoord/gl_FrontFacing already match.)
+const INT_INPUT_BUILTINS: ReadonlySet<string> = new Set(['vertex_index', 'instance_index'])
+function builtinInRead(b: string, target: ShaderType): string {
+  const g = builtinIn(b)
+  if (INT_INPUT_BUILTINS.has(b) && target.kind === 'scalar' && target.scalar !== 'i32') {
+    return `${glslType(target)}(${g})` // uint(gl_VertexID) / float(gl_VertexID)
+  }
+  return g
+}
+
 function structByName(structs: ReadonlyMap<string, StructDecl>, name: string): StructDecl {
   const s = structs.get(name)
   if (!s) throw new UnsupportedFeatureError(`glsl-es300: struct '${name}' not found in module`)
@@ -245,12 +259,12 @@ function emitGlslEntry(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): s
       body.push(`  ${glslType(p.type)} ${p.name};`)
       for (const sf of s.fields) {
         const { builtin } = parseAttr(sf.attr)
-        body.push(`  ${p.name}.${sf.name} = ${builtin ? builtinIn(builtin) : inName(sf.name)};`)
+        body.push(`  ${p.name}.${sf.name} = ${builtin ? builtinInRead(builtin, sf.type) : inName(sf.name)};`)
       }
       args.push(p.name)
     } else {
       const bi = p.builtin ?? parseAttr(p.attr).builtin
-      args.push(bi ? builtinIn(bi) : inName(p.name))
+      args.push(bi ? builtinInRead(bi, p.type) : inName(p.name))
     }
   }
   const call = `${impl}(${args.join(', ')})`

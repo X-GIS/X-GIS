@@ -1,21 +1,19 @@
 // ═══ @xgis/shader-dsl example — fullscreen gradient pass ═══
 //
-// A self-contained render pass authored with the DSL: an oversized fullscreen
-// triangle (no vertex buffer) feeds a fragment stage that mixes two colours by
-// the screen-space UV, modulated by a uniform. Emits WGSL and prints the
-// pipeline reflection (bind groups + std140 uniform layout + entry signatures).
-//
-// Run WITHOUT the X-GIS runtime:  npx tsx examples/gradient-pass.ts
+// A self-contained render pass: an oversized fullscreen triangle (no vertex buffer)
+// feeds a fragment stage that mixes two colours by the screen-space UV, modulated by a
+// uniform. Shows the std140 uniform block + the `If/elif` control-flow combinator. The
+// /shader-dsl site page packs `top`/`bottom`/`mix_bias` into the UBO from reflect().
 
 import {
   fn, module, vec2, vec4, f32, mix,
   f32T, u32T, vec2fT, vec4fT,
-  If, reflect, emitModule,
-  ioStruct, builtin, location, uniformStruct,
+  If, ioStruct, builtin, location, uniformStruct,
 } from '../src/index.ts'
+import type { ShaderExample } from './_shared.ts'
 
-// Uniform block — std140-laid-out by reflect().  `top`/`bottom` are the two
-// gradient endpoints; `mix_bias` shifts the blend.
+// Uniform block — std140-laid-out by reflect(). `top`/`bottom` are the two gradient
+// endpoints; `mix_bias` shifts the blend up or down.
 const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
   top: vec4fT,
   bottom: vec4fT,
@@ -28,8 +26,8 @@ const VsOut = ioStruct('VsOut', {
   uv: location(0, vec2fT),
 })
 
-// Oversized fullscreen triangle (3 verts, NDC −1..3) — covers the screen from a
-// single non-indexed draw with no vertex buffer.
+// Oversized fullscreen triangle (3 verts, NDC −1..3) — covers the screen from a single
+// non-indexed draw with no vertex buffer.
 const vsFull = fn('vs_full', { idx: builtin('vertex_index', u32T) }, (p) => {
   const pos = vec2(-1, -1)
   If(p.idx.eq(1), () => { pos.assign(vec2(3, -1)) })
@@ -40,9 +38,10 @@ const vsFull = fn('vs_full', { idx: builtin('vertex_index', u32T) }, (p) => {
   })
 }, { stage: 'vertex' })
 
-// Fragment — vertical gradient between the two uniform colours, biased.
-const fsGradient = fn('fs_gradient', { in: VsOut.type }, (p) => {
-  const pin = VsOut.of(p.in)
+// Fragment — vertical gradient between the two uniform colours, biased. `vo` (not `in`,
+// a GLSL reserved word) is the fragment input.
+const fsGradient = fn('fs_gradient', { vo: VsOut.type }, (p) => {
+  const pin = VsOut.of(p.vo)
   const t = pin.uv.y.add(U.field.mix_bias)
   const rgb = mix(U.field.bottom.swizzle<'vec3<f32>'>('rgb'), U.field.top.swizzle<'vec3<f32>'>('rgb'), t)
   return vec4(rgb, f32(1))
@@ -54,8 +53,17 @@ const gradientModule = module({
   funcs: [vsFull, fsGradient],
 })
 
-console.log('=== WGSL ===')
-console.log(emitModule(gradientModule))
-
-console.log('\n=== Reflection ===')
-console.log(JSON.stringify(reflect(gradientModule), null, 2))
+export const gradient: ShaderExample = {
+  id: 'gradient',
+  title: 'Gradient pass',
+  blurb: 'A two-colour vertical gradient with a biasable blend — the minimal render pass. `top`/`bottom`/`mix_bias` are packed into one std140 uniform block recovered from reflect().',
+  category: 'generic',
+  file: 'gradient-pass.ts',
+  module: gradientModule,
+  renderable: true,
+  controls: {
+    top: { kind: 'const', value: [0.16, 0.5, 0.95, 1] },     // sky blue
+    bottom: { kind: 'const', value: [0.02, 0.03, 0.09, 1] }, // near-black
+    mix_bias: { kind: 'slider', label: 'Mix bias', min: -0.5, max: 0.5, step: 0.01, value: 0 },
+  },
+}

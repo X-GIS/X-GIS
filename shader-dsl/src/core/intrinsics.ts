@@ -18,6 +18,13 @@ const join = (args: readonly string[]): string => args.join(', ')
 
 /** Neutral intrinsic id -> per-target spelling. Absent = identity passthrough. */
 export const INTRINSICS: Readonly<Record<string, Spelling>> = {
+  // Scalar conversions — toF32/toI32/toU32 (node.ts) emit calls named f32/i32/u32 (the WGSL
+  // cast spelling). GLSL spells the same cast `float(x)`/`int(x)`/`uint(x)`; without these
+  // entries the writer would leak `f32(...)` verbatim into GLSL (no such GLSL function — a
+  // hard compile error). Vector conversions go through `construct` (typeName-spelled), not here.
+  f32: { wgsl: (a) => `f32(${join(a)})`, glsl: (a) => `float(${join(a)})` },
+  i32: { wgsl: (a) => `i32(${join(a)})`, glsl: (a) => `int(${join(a)})` },
+  u32: { wgsl: (a) => `u32(${join(a)})`, glsl: (a) => `uint(${join(a)})` },
   // select(falseVal, trueVal, cond) — WGSL builtin vs GLSL ternary.
   select: { wgsl: (a) => `select(${join(a)})`, glsl: (a) => `(${a[2]} ? ${a[1]} : ${a[0]})` },
   // textureSample(tex, samp, uv) — GLSL fuses tex+samp, so drop the sampler arg.
