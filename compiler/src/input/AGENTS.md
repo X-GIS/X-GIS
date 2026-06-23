@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-23 -->
 
 # input
 
@@ -9,6 +9,7 @@ Decode side of the vector-tile pipeline: reads a single MVT (`.pbf`) tile and em
 ## Key Files
 | File | Description |
 |------|-------------|
+| `index.ts` | Barrel re-export: exports `decodeMvtTile` and `MvtDecodeOptions` from `mvt-decoder.ts`. |
 | `mvt-decoder.ts` | `decodeMvtTile(buf, z, x, y, opts)` + `MvtDecodeOptions`. Parses MVT/PBF via `@mapbox/vector-tile` + `pbf`, un-quantizes all layers, merges into one `GeoJSONFeature[]`. Contains `clampGeometryToPlanet` which clamps every vertex to `[-180,180]` / `[-85.0511287, 85.0511287]` — critical NaN guard (iter-296): MVT buffer-zone vertices near antimeridian/poles un-quantize to out-of-range values that would poison f32 tile meshes downstream. |
 
 No subdirectories exist in this directory.

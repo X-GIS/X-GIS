@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-06-03 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-06-03 | Updated: 2026-06-23 -->
 
 # runtime (@xgis/runtime)
 
@@ -11,6 +11,7 @@
 |------|-------------|
 | `package.json` | `@xgis/runtime` workspace package (`private: true`, ESM). Deps: `@xgis/compiler`, `@xgis/shared`, `pmtiles`, `@chenglou/pretext`, `proj4`. Dev: `geojson-vt`, `vt-pbf`. |
 | `tsconfig.json` | TypeScript project-reference config. Resolves `@xgis/compiler` and `@xgis/shared` via `../compiler/dist/index.d.ts` and `../shared/dist/index.d.ts`; also resolves `@xgis/compiler/tiler/geodesic`; emits to `./dist`; adds `@webgpu/types`. |
+| `vite.config.ts` | Library build config for `@xgis/runtime`. Bundles `@xgis/shared` and `@xgis/compiler` sources; externalises third-party deps (earcut, proj4, pmtiles, pbf, @mapbox/vector-tile); configures worker chunks and asset paths for ESM consumers and re-bundlers. |
 | `src/index.ts` | Public barrel. Re-exports: `XGISMap`, `Camera`, `MapRenderer`, `StatsPanel`/`StatsTracker`, `loadGeoJSON`/`lonLatToMercator`, projection factories (`mercator`, `equirectangular`, `naturalEarth`, `orthographic`, `getProjection`), polar-cap helpers, `VectorTileLoader`/`VectorTileSource`/`PMTilesArchiveSource`/`TileJSONSource`, `XGISMapElement`/`registerXGISElement`, `ComputeDispatcher`, `createColorRampTexture`/`createRampSampler`/`availableRamps`, `RUNTIME_CAPABILITIES`/`runtimeCapability`/`runtimeGaps`. |
 | `src/capabilities.ts` | `RUNTIME_CAPABILITIES` matrix — per `(layerType, property, variant)` flags what the renderer actually honours, paired with the compiler's spec-coverage table to surface silent drops. |
 | `src/vite-shims.ts` | Ambient `declare module '*?worker'` shim for Vite's worker-bundle query suffix. Kept as `.ts` (not `.d.ts`) so it is tracked by git. |

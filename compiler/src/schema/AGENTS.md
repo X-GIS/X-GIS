@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-23 -->
 
 # schema
 
@@ -9,6 +9,7 @@ Declarative machine-readable catalogue of the 8 real X-GIS language constructs (
 ## Key Files
 | File | Description |
 |------|-------------|
+| `index.ts` | Barrel re-export of `language.ts` — exports `LANGUAGE_SCHEMA`, `SOURCE_TYPES`, `ANCHORS`, and type definitions (`ConstructDef`, `SchemaProperty`, `SchemaRef`, `SchemaValueKind`, `SchemaPinType`). |
 | `language.ts` | Exports `LANGUAGE_SCHEMA: Record<string, ConstructDef>` — 8 construct entries keyed by keyword. Also exports `SOURCE_TYPES` (7 accepted `source { type: … }` values), `ANCHORS` (9 accepted `symbol { anchor: … }` values), and the supporting types `ConstructDef`, `SchemaProperty`, `SchemaRef`, `SchemaValueKind`, `SchemaPinType`. Each `ConstructDef` carries `keyword`, `astKind` (mirrors `parser/ast.ts` Statement kind), `category` (`Data`/`Style`/`Render`/`Logic`), optional `produces` (output pin type), `properties: SchemaProperty[]`, and optional `refs: SchemaRef[]` for typed cross-block input pins. |
 
 ## For AI Agents

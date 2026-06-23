@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-06-03 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-06-03 | Updated: 2026-06-23 -->
 
 # render
 
@@ -10,7 +10,15 @@ All GPU draw-call renderers, per-frame scheduling, and paint-resolution glue for
 | File | Description |
 |------|-------------|
 | `renderer.ts` | `MapRenderer` — WebGPU renderer for compiled GeoJSON meshes: polygon DSL emit via `emitPolygonWgsl`, OIT/overdraw-compose pipelines, graticule, `UniformRing`, `ComputeLayerRegistry`. |
+| `viewport-mode-controller.ts` | Projection-mode switch + graticule overlay toggle — handles `setProjection`, `setGraticuleEnabled`, camera zoom adjustment on projection change. |
 | `vector-tile-renderer.ts` | VTR — tile selection + GPUArena eviction + GPU buffer/bind-group lifecycle + draw loop over `TileCatalog`. The tile-path hot loop; #1 debt file (~5600 LOC). |
+| `tile-selection-cache.ts` | Per-frame visible-tile selection memo, zoom-transition hysteresis, readiness gate, camera-idle detection. Extracted from VTR (Cluster E). |
+| `gpu-tile-store.ts` | Resident GPU tile cache (nested map), three GPUArenas (poly vertex/index/z-buffer), buffer pool, LRU + byte-aware eviction, arena compaction/growth. Extracted from VTR (Cluster A). |
+| `bind-group-registry.ts` | Source-level bind groups + fill-pipeline field pairs + palette/sprite atlas resources. Extracted from VTR (Cluster C). |
+| `feature-data-binder.ts` | Per-feature GPU storage buffer, per-tile feature bind-group construction, compute-paint dispatch, `ComputeLayerHandle` lifetime. Extracted from VTR (Cluster D). |
+| `pipeline-factory.ts` | Render-pipeline construction + caching per shader-variant; base/feature/ground/pattern/OIT/overdraw pipelines + lazy-build heatmap/compose pipelines. |
+| `graticule-renderer.ts` | Lat/lon grid overlay — GPU buffer lifecycle, zoom-bucket regeneration, per-frame uniform write (reuses layer's 240-byte struct layout). |
+| `heatmap-renderer.ts` | Heatmap layer accumulation pass — per-point feature storage, colour-ramp LUT baking, per-layer GPU buffers + bind groups. GeoJSON-source only. |
 | `frame-context.ts` | `FrameContext` interface — single reused per-frame value object holding device, encoder, camera, projType, w/h/dpr, sampleCount, elapsedMs, frameCount. Mutated in place (allocation-paranoid). |
 | `render-targets.ts` | `RenderTargets` — owns GPU render-target texture lifecycle (MSAA, stencil, OIT accum/revealage, offscreen-extrude depth, overdraw accumulator, pick RG32Uint); recreates on resize. |
 | `scene-view.ts` | `SceneView` interface + builder — per-frame read-only classification of opaque/translucent/OIT shows and `resolveOwner` (which pass claims the MSAA resolveTarget). |

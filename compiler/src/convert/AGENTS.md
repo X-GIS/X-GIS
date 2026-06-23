@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-23 -->
 
 # convert
 
@@ -16,6 +16,7 @@ The Mapbox/MapLibre style importer: converts a Mapbox v8 style JSON into xgis so
 | `layers.ts` | Per-layer conversion incl. symbol-placement step expansion (splits one Mapbox layer into zoom-range sublayers for road shields), delegating to `layers-helpers.ts`. |
 | `layers-helpers.ts` | Pure helpers extracted from `layers.ts`: `unwrapLiteralTuple`, `unwrapLiteralScalar`, `applyAlphaMultiplier`, `safePropsBag`, `isOmittedValue`, `parseMapboxFontName`, `textFieldToXgisExpr`, `parseSymbolPlacementStep`. None close over module state. |
 | `layers-types.ts` | `SymbolLayerOverrides` interface — internal type for zoom-step symbol-placement expansion; not part of the public export surface. |
+| `layers-heatmap.ts` | Mapbox `heatmap` layer converter (Phase R): converts heatmap paint properties (radius, weight, intensity, opacity, color ramp) to xgis utility markers, delegating to `interpolateZoomCall` and `exprToXgis` for zoom-stepped and data-driven forms. |
 | `paint.ts` | Thin per-layer-type dispatcher (Tier-A registry split). Delegates each group to a per-type emitter module — `paint-fill.ts` / `paint-line.ts` / `paint-fill-extrusion.ts` / `paint-raster.ts` (each exporting its `add*` emitters) — and shared math to `paint-helpers.ts`. A new property's `add*` goes in the matching per-type module, NOT here. |
 | `expr-registry.ts` (+ `expr-arithmetic.ts` / `expr-logic.ts` / `expr-lookup.ts` / `expr-string.ts` / `expr-interpolate.ts` / `expr-match.ts`) | Per-cluster expression handler registry (Tier-A split of `exprToXgis`). `expressions.ts` is the thin dispatcher over `Map<op, handler>` and keeps the central `_exprDepth` recursion guard; a new operator goes in the matching cluster module + the registry. |
 | `layer-converters/` | Per-layer-type converter registry (Tier-A split of `convertLayer`): `line.ts` / `circle.ts` / `symbol.ts` / `generic.ts` self-register via `registerLayerConverter()`; `layers.ts` is the thin dispatcher. A new layer type registers its converter here. |

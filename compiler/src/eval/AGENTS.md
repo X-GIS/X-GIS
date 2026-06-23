@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-23 -->
 
 # eval
 
@@ -9,6 +9,7 @@ The expression evaluator: runs AST `Expr` trees against a feature-property bag a
 ## Key Files
 | File | Description |
 |------|-------------|
+| `index.ts` | Barrel re-export: public module surface. Exports `evaluate` and `FeatureProps` from `evaluator.ts`, and reserved-key constants/utilities (`CAMERA_ZOOM_KEY`, `FEATURE_ID_KEY`, `GEOMETRY_TYPE_KEY`, `makeEvalProps`, `normalizeGeometryType`, `ReservedKey`) from `reserved-keys.ts`. |
 | `evaluator.ts` | Public entry point: exports `evaluate(expr, props, fnEnv?)`. Walks the full AST dispatching to sub-evaluators for binary/unary/field-access/fn-call/pipe/match/conditional/array. Handles `get()`, `match()` with `matchBlock`, short-circuit `&&`/`||`/`??`, Mapbox-spec ordered-comparison null/NaN/mixed-type rejection, user-defined function dispatch via `FnEnv`, and statement execution (`executeBody` with `let`/`for`/`if`/`return`). Re-exports `FeatureProps`, `FnEnv`, `toNumber`, `toBool` to preserve the public surface. |
 | `evaluator-helpers.ts` | Pure helpers extracted from `evaluator.ts`. `callBuiltin(name, args)` dispatches all named builtins (math, string, interpolate/interpolate_exp/interpolate_lab/interpolate_hcl, step, concat, slice, index_of, number_format, geometry generators, type-conversion). `toNumber` and `toBool` leaf coercions. No AST imports; no mutable module state — safe to call from workers. |
 | `evaluator-types.ts` | Shared type declarations: `FeatureProps = Record<string, unknown>` and `FnEnv = Map<string, AST.FnStatement>`. Extracted from `evaluator.ts` to keep the logic module focused; re-exported from `evaluator.ts`. |

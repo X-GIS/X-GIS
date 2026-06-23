@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-23 -->
 
 # module
 
@@ -9,6 +9,7 @@ The `.xgis` import resolver. Given a parsed `AST.Program`, it walks every `Impor
 ## Key Files
 | File | Description |
 |------|-------------|
+| `index.ts` | Barrel re-export of `resolveImports`, `resolveImportsAsync`, `FileReader`, `AsyncFileReader`, and `ResolveImportsOptions` from `resolver.ts`. |
 | `resolver.ts` | Exports `resolveImports` (sync) and `resolveImportsAsync` (async), plus the `FileReader`, `AsyncFileReader`, and `ResolveImportsOptions` types. Implements two import modes: cherry-pick (`import { name } from "path"`) and splice (`import "path"` with no names, inlines the entire file). Auto-detects Mapbox style JSON via `looksLikeMapboxStyle` heuristic; passes `options.inlineGeoJSON` map to `convertMapboxStyle` so inline `source.data` FeatureCollections are captured for the runtime to seed without a manual `setSourceData()` call. Deduplicates repeated imports from the same resolved path. |
 
 ## For AI Agents

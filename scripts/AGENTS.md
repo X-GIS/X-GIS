@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-06-03 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-06-03 | Updated: 2026-06-23 -->
 
 # scripts/
 
@@ -13,6 +13,8 @@ Developer tooling scripts and generated artefacts for the X-GIS repository. Cont
 | `mutate.ts` | Zero-dependency hand-rolled mutation tester. Applies 14 operator-flip / boolean-negate / Math.max↔min mutations one at a time to a target source file, runs the specified vitest filter after each, and reports mutation score (killed / survived). Skips mutations inside comments and string literals. Usage: `bun scripts/mutate.ts <target-file> <vitest-filter>`. |
 | `capture-polygon-snapshots.ts` | Polygon shader DSL baseline capture (Phase 2.5 US-010). Imports `FIXTURES` and `emitForFixture` from the runtime shader-DSL test fixtures, emits each variant's WGSL, and writes SHA-256-keyed `.wgsl` snapshot files to `runtime/src/engine/shader-dsl/shaders/__polygon-variant-snapshots__/`. `polygon-variant-diff.test.ts` byte-diffs current emit against these snapshots to detect unintentional composer drift. Re-run after intentional DSL composer changes. |
 | `emit-gap-matrix.ts` | Generates `gap-matrix.md` by cross-referencing `compiler/src/convert/spec-coverage.ts` and `runtime/src/capabilities.ts`. Produces four sections: runtime capability gaps, spec-coverage status breakdown, high-impact unsupported entries, and partial entries. Run: `bun scripts/emit-gap-matrix.ts > scripts/gap-matrix.md`. |
+| `matrix-accept.ts` | Human-approved baseline acceptance gate for render-verify oracle. Copies a reviewed candidate screenshot from `playground/e2e/__matrix__/<id>.png` into the committed baseline corpus at `playground/render-verify/baselines/<id>.png`, stamps provenance metadata, and guides the user to flip the manifest status from 'candidate' to 'green'. Enforces explicit review: refuses to silently overwrite existing baselines without `--force`. |
+| `matrix-report.ts` | Pretty-printer for render-verify matrix test results. Reads the cached report JSON from `playground/e2e/__matrix__/report.json` (written by `_matrix-gate.spec.ts`) and displays per-cell verdicts (PASS/FAIL/SOFT/SKIP/CANDIDATE) in a table with measured values, thresholds, and detail. Read-only; no side effects. |
 | `gap-matrix.md` | Committed snapshot of the Mapbox/MapLibre spec support gap matrix. Regenerate after changing spec-coverage or capabilities tables. |
 | `MUTATION_REPORT.md` | Output from a past mutation-testing session — records mutation score per target file. Session artefact; may be stale. |
 | `MOBILE_LOW_ZOOM_BUG.md` | Debug observation notes for the mobile low-zoom water render failure (FLICKER class). Session artefact. |

@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-06-03 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-06-03 | Updated: 2026-06-23 -->
 
 # src
 
@@ -14,6 +14,7 @@ Root of the `@xgis/runtime` source tree. The four top-level source files are the
 | `capabilities.test.ts` | Top-level unit test for the capability table itself (coverage of `runtimeCapability` lookup and `runtimeGaps` output shape). Lives at root level, not under `__tests__/`. |
 | `vite-shims.ts` | Ambient `declare module '*?worker'` shim for Vite's worker-query import suffix. Kept as `.ts` (not `.d.ts`) because `.gitignore` excludes `runtime/src/**/*.d.ts` as build artifacts. |
 | `earcut.d.ts` | Hand-authored ambient type declaration for the `earcut` polygon-tessellation package (no bundled types in the package itself). |
+| `test-setup-projections.ts` | Vitest global setup file that configures the shader-dsl projection graph via `configureProjections(PROJECTIONS)` before any test suite runs; ensures projection emit and CPU-projection access work across the entire test suite. |
 
 ## Subdirectories
 | Directory | Purpose |

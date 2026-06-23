@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-06-03 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-06-03 | Updated: 2026-06-23 -->
 
 # lexer
 
@@ -10,6 +10,7 @@ Contains the tokenizer for the `.xgis` style language. `lexer.ts` scans raw sour
 
 | File | Description |
 |------|-------------|
+| `index.ts` | Barrel re-export for this module. Exports `Lexer` from `lexer.ts` and `TokenType`, `Token` from `tokens.ts`. |
 | `tokens.ts` | Defines `TokenType` enum (80 members), the `Token` interface (`type`, `value`, `line`, `col`), and the `KEYWORDS` and `UNITS` lookup tables. Exports `lookupKeyword` (resolves identifier strings to keyword token types or falls back to `Identifier`) and `lookupUnit` (resolves unit suffix strings or returns `null`). Each enum member carries an inline comment with its literal string. |
 | `lexer.ts` | `Lexer` class with a single public `tokenize(): Token[]` method. Hand-written single-pass scanner: skips horizontal whitespace and `\r` (preserves `\n` as `TokenType.Newline`), handles `//` line comments and `/* */` block comments (tracking line/col through newlines inside blocks), reads double-quoted strings with `\n \t \\ \"` escapes, validates `#RGB` / `#RRGGBB` / `#RRGGBBAA` color literals at lex time, reads integers and decimals, handles scientific-notation exponents (`1.5e-7`) to avoid emitting a stray identifier for JSON-origin numbers (iter 542), reads identifiers and resolves them against `KEYWORDS` then `UNITS`, disambiguates `.` vs `..` and all 2-char operators (`==`, `!=`, `<=`, `>=`, `&&`, `\|\|`, `??`, `->`) before 1-char fallback. Throws `[Lexer] … at line N, col N` on any unexpected character or unterminated string. |
 

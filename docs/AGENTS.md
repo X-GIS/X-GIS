@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-06-03 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-06-03 | Updated: 2026-06-23 -->
 
 # docs/
 
@@ -16,6 +16,7 @@ Internal engineering documentation for X-GIS: coordinate-system contracts, archi
 | `WEBGPU_ROADMAP.md` | Phase-by-phase plan to exploit WebGPU compute/indirect features. Phase 1 (sampled frustum tile selector) done at commit `2b37674`. Phases 2-6 pending: GPU-compute culling, indirect draw, compute sub-tile clipping, and GPU-resident tile cache. Explains why the current "upload+draw" path is functionally WebGL2-equivalent and what structural bug classes each phase eliminates. |
 | `ROADMAP-3D-TEXT.md` | Phased plan for 3D polygon extrusion (side walls, per-feature heights, Lambert lighting) and the full text/symbol pipeline (SDF atlas, glyph layout, collision). Records the Phase 1 extrusion MVP state at commit `64b847c`. Early planning doc; superseded in execution by shipped work, but still useful for scope context. |
 | `dsfun-refactor-plan.md` | Full vertex-format refactor: `f32 lon/lat` → tile-local Mercator-meter hi/lo f32-pair (DSFUN). Eliminates the intrinsic f32 precision ceiling at high zoom. Status: designed; Phases A (preload staging) and B (Worker parse pool) shipped; vertex format change not yet implemented. Atomic refactor — do not start partial implementation. |
+| `MAPLIBRE-PARITY-PLAN.md` | MapLibre/Mapbox style-spec parity roadmap: 16 workstreams (WS-1 through WS-16) targeting 114 open spec items (~69 unsupported, ~28 partial, ~17 runtime value-form gaps). Organized by shared mechanism leverage; each workstream lists closes, current state, approach, verify method. Authority: `compiler/src/convert/spec-coverage.ts` + `runtime/src/capabilities.ts`. Updated with appendix mapping all spec entries to workstreams. |
 
 ## Subdirectories
 
