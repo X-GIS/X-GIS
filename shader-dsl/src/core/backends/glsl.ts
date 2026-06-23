@@ -205,7 +205,9 @@ function emitGlslEntry(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): s
   for (const p of f.params) {
     const fields = p.type.kind === 'struct'
       ? structByName(structs, p.type.name).fields.map((sf) => ({ name: sf.name, type: sf.type, ...parseAttr(sf.attr) }))
-      : [{ name: p.name, type: p.type, location: p.location, builtin: p.builtin }]
+      // A bare entry param carries its stage attr as `attr` (the `@location(n)`/`@builtin(...)`
+      // string the location()/builtin() helpers emit) OR as direct location/builtin fields (raw IR).
+      : [{ name: p.name, type: p.type, location: p.location ?? parseAttr(p.attr).location, builtin: p.builtin ?? parseAttr(p.attr).builtin }]
     for (const s of fields) {
       if (s.builtin) continue
       if (s.location === undefined) throw new UnsupportedFeatureError(`glsl-es300: entry '${f.name}' input '${s.name}' has neither @location nor @builtin`)
@@ -247,7 +249,8 @@ function emitGlslEntry(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): s
       }
       args.push(p.name)
     } else {
-      args.push(p.builtin ? builtinIn(p.builtin) : inName(p.name))
+      const bi = p.builtin ?? parseAttr(p.attr).builtin
+      args.push(bi ? builtinIn(bi) : inName(p.name))
     }
   }
   const call = `${impl}(${args.join(', ')})`
