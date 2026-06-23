@@ -120,7 +120,7 @@ const vs = fn('vs_tile', { vid: builtin('vertex_index', u32T) }, VsOut.type, (p,
       const latDeg = latRad.div(constRef('DEG2RAD'))
       const p2d = project(lon, latDeg, projParams)
       const rel2d = p2d.sub(vec2(camEcef.x, camEcef.y))
-      return transformMat4(U.field.mvp, vec4(rel2d.x, rel2d.y, f32(0), f32(1)))
+      return transformMat4(U.field.mvp, vec4(rel2d.x, rel2d.y, 0, 1))
     }],
     [projParams.x.lt(6.5), () => {
       // FLAT non-Mercator (1-6): reproject the reconstructed lon/lat via
@@ -130,9 +130,9 @@ const vs = fn('vs_tile', { vid: builtin('vertex_index', u32T) }, VsOut.type, (p,
       const latDeg = latRad.div(constRef('DEG2RAD'))
       const tileRefLon = bounds.x.add(bounds.z).mul(0.5)
       const relG = flat_rel(lon, latDeg, projParams, tileRefLon)
-      return transformMat4(U.field.mvp, vec4(relG.x, relG.y, f32(0), f32(1)))
+      return transformMat4(U.field.mvp, vec4(relG.x, relG.y, 0, 1))
     }],
-  ], () => transformMat4(U.field.mvp, vec4(ecefRtc, f32(1))))
+  ], () => transformMat4(U.field.mvp, vec4(ecefRtc, 1)))
   return VsOut.construct({
     pos: apply_log_depth(clip, projParams.w),
     uv: vec2(uu, vv),
@@ -160,7 +160,7 @@ const buildFs = (pickEnabled: boolean) => {
     // Basemap tile carries no feature id → always (0,0).
     return RasterFragmentOutput.construct({
       color: vec4(adjRgb, c.a.mul(U.field.raster_params.x).mul(rim)),
-      ...(pickEnabled ? { pick: vec2u(u32(0), u32(0)) } : {}),
+      ...(pickEnabled ? { pick: vec2u(0, 0) } : {}),
       depth: compute_log_frag_depth(pin.view_w, U.field.proj_params.w),
     })
   }, { stage: 'fragment' })

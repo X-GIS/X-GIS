@@ -51,12 +51,12 @@ const rampSampler = resource('ramp_sampler', samplerT, { group: 0, binding: 2 })
 const vsFull = fn(
   'vs_full', { idx: builtin('vertex_index', u32T) }, VsOut.type,
   (p, _b) => {
-    const pos = Var(vec2(f32(-1), f32(-1)))
-    If(p.idx.eq(1), () => { pos.assign(vec2(f32(3), f32(-1))) })
-      .elif(p.idx.eq(2), () => { pos.assign(vec2(f32(-1), f32(3))) })
+    const pos = Var(vec2(-1, -1))
+    If(p.idx.eq(1), () => { pos.assign(vec2(3, -1)) })
+      .elif(p.idx.eq(2), () => { pos.assign(vec2(-1, 3)) })
     const out = Var(VsOut.type)
     const o = VsOut.of(out)
-    o.pos.assign(vec4(pos, f32(0), f32(1)))
+    o.pos.assign(vec4(pos, 0, 1))
     // y-flip — texture origin top-left, NDC origin bottom-left.
     o.uv.assign(vec2(
         pos.x.add(1).mul(0.5),
@@ -85,10 +85,10 @@ const fsCompose = fn(
     const intensity = U.field.params.x
     const opacity = U.field.params.y
     // Normalise density → ramp coordinate (0..1) via intensity scale.
-    const t = clamp(density.mul(intensity), f32(0), f32(1))
+    const t = clamp(density.mul(intensity), 0, 1)
     // Sample the colour ramp LUT at (t, 0.5). The ramp's own alpha encodes
     // the per-density transparency (Mapbox ramp starts transparent at 0).
-    const ramp = textureSample(rampTex.node, rampSampler.node, vec2(t, f32(0.5)))
+    const ramp = textureSample(rampTex.node, rampSampler.node, vec2(t, 0.5))
     const a = ramp.a.mul(opacity)
     return vec4(ramp.rgb, a)
   },

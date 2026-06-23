@@ -276,7 +276,7 @@ const emitPolygonProjectionLadder = (
       // the absolute-degree project() path below (~1.35 m at |lon|≈127° → the
       // ~10 px fill/outline split at deep over-zoom this fixes).
       const relLocal = localMerc.sub(U.field.cam_h).sub(U.field.cam_l)
-      clip.assign(transformMat4(mvp, vec4(relLocal.x, relLocal.y, zPlane, f32(1))))
+      clip.assign(transformMat4(mvp, vec4(relLocal.x, relLocal.y, zPlane, 1)))
       return
     }
     const p2d = project(absLon, absLat, projParamsV)
@@ -300,7 +300,7 @@ const emitPolygonProjectionLadder = (
         .div(deg2rad.mul(earthR))
     const wo = floor(tileRefLon.add(180).div(360))
     const worldOffM = wo.mul(2).mul(pi).mul(earthR)
-    clip.assign(transformMat4(mvp, vec4(rel2d.x.add(worldOffM), rel2d.y, zPlane, f32(1))))
+    clip.assign(transformMat4(mvp, vec4(rel2d.x.add(worldOffM), rel2d.y, zPlane, 1)))
   }).elif(projParamsV.x.lt(6.5), () => {
     const tileRefLon =
       U.field.tile_origin_merc.x
@@ -310,7 +310,7 @@ const emitPolygonProjectionLadder = (
     // polar caps to the 85.05 ring. Extruded VS → absLat (discLat undefined).
     const relG = flat_rel(absLon, discLat ?? absLat, projParamsV, tileRefLon)
     const zG = extruded ? wallHeight!.mul(isTop!) : f32(0)
-    clip.assign(transformMat4(mvp, vec4(relG.x, relG.y, zG, f32(1))))
+    clip.assign(transformMat4(mvp, vec4(relG.x, relG.y, zG, 1)))
   }).else(() => {
     // 3D ECEF: recentre ecef_rtc (= vertex − tileEcefCenter) by
     // (tileEcefCenter − cameraCenter), hi + lo, so the camera-at-ENU-origin
@@ -324,7 +324,7 @@ const emitPolygonProjectionLadder = (
     const camOffL = U.field.cam_ecef_off_l
     const ecefCam =
       ecefRtc.add(vec3(camOffH.x, camOffH.y, camOffH.z)).add(vec3(camOffL.x, camOffL.y, camOffL.z))
-    clip.assign(transformMat4(mvp, vec4(ecefCam, f32(1))))
+    clip.assign(transformMat4(mvp, vec4(ecefCam, 1)))
   })
 }
 
@@ -365,7 +365,7 @@ const vsMain = fn(
     // The renderer writes the matching u.mvp (Camera.getViewForProjection),
     // so only the live branch's matrix is consumed.
     const projParamsV = U.field.proj_params
-    const clip = vec4(f32(0), f32(0), f32(0), f32(0))
+    const clip = vec4(0, 0, 0, 0)
     // FLAT Mercator (proj_params.x < 0.5): rel = project(abs_lon, abs_lat) −
     // cam_merc, with cam_merc = tile_origin_merc + (cam_h + cam_l); z = 0
     // (flat fill has no height). FLAT non-Mercator (< 6.5): project_geom-style
@@ -389,7 +389,7 @@ const vsMain = fn(
       abs_merc_x: absMercX,
       abs_merc_y: absMercY,
       world_z: f32(0),
-      v_color: vec4(f32(0), f32(0), f32(0), f32(0)), // only the extrude path emits non-zero
+      v_color: vec4(0, 0, 0, 0), // only the extrude path emits non-zero
     })
   },
   { stage: 'vertex' },
@@ -482,7 +482,7 @@ const vsMainEcef = fn(
     // The renderer writes the matching u.mvp (Camera.getViewForProjection),
     // so only the live branch's matrix is consumed.
     const projParamsV = U.field.proj_params
-    const clip = vec4(f32(0), f32(0), f32(0), f32(0))
+    const clip = vec4(0, 0, 0, 0)
     // Same flat/3D ladder as vs_main (see emitPolygonProjectionLadder): flat
     // Mercator reproject + recentre / flat non-Mercator flat_rel / 3D ECEF-RTC
     // re-centred by (tileEcefCenter − cameraCenter). Only ecef_rtc is sourced
@@ -513,7 +513,7 @@ const vsMainEcef = fn(
       abs_merc_x: absMercX,
       abs_merc_y: absMercY,
       world_z: f32(0),
-      v_color: vec4(f32(0), f32(0), f32(0), f32(0)), // per-feature variants override via composer
+      v_color: vec4(0, 0, 0, 0), // per-feature variants override via composer
     })
   },
   { stage: 'vertex' },
@@ -581,7 +581,7 @@ const vsMainEcefExtruded = fn(
     // Known approximation under f32 P1 — revisit with a per-projection vertical
     // scale if extruded walls look wrong away from the equator.
     const projParamsV = U.field.proj_params
-    const clip = vec4(f32(0), f32(0), f32(0), f32(0))
+    const clip = vec4(0, 0, 0, 0)
     // Same flat/3D ladder as vs_main_ecef but extruded: the FLAT arms add a
     // `z_plane[_geom] = wall_height * is_top` plane-lift; the 3D (else) arm is
     // identical to the flat-fill path (pre-lifted ecef_rtc + cam_ecef_off
@@ -605,7 +605,7 @@ const vsMainEcefExtruded = fn(
     const opacity = fillColor.a
     const colorValue =
       colorRgb.r.mul(0.2126).add(colorRgb.g.mul(0.7152)).add(colorRgb.b.mul(0.0722))
-    const ambient = vec3(f32(0.03))
+    const ambient = vec3(0.03)
     const litColorRgb = colorRgb.add(ambient)
     // #420 — ECEF-frame light dir (raw 0.288,-0.498,0.996 rotated by the
     // camera-anchor ENU→ECEF basis on the CPU). Same frame as face_normal →
@@ -618,10 +618,10 @@ const vsMainEcefExtruded = fn(
     // channel — ample for a light tint).
     const lightIntensity = U.field.light_dir_ecef.w
     const lightColor = unpack4x8unorm(U.field.light_color_packed).swizzle<'vec3<f32>'>('xyz')
-    const directional = clamp(dot(p.face_normal, lightPos), f32(0), f32(1))
+    const directional = clamp(dot(p.face_normal, lightPos), 0, 1)
     directional.assign(mix(
       f32(1).sub(lightIntensity),
-      max(f32(1).sub(colorValue).add(lightIntensity), f32(1)),
+      max(f32(1).sub(colorValue).add(lightIntensity), 1),
       directional,
     ))
     // Vertical gradient — walls only (|nz| < 0.5). Mapbox
@@ -635,16 +635,16 @@ const vsMainEcefExtruded = fn(
     If(isWall, () => {
       // (t_top + base) * sqrt(height/150). h_for_grad = max(wall_height, 1)
       // so the bottom lip still computes a sensible gradient value.
-      const hForGrad = max(p.wall_height, f32(1))
+      const hForGrad = max(p.wall_height, 1)
       const vgrad = clamp(
         tTop.mul(sqrt(hForGrad.div(150))),
-        mix(f32(0.7), f32(0.98), f32(1).sub(lightIntensity)),
-        f32(1),
+        mix(f32(0.7), 0.98, f32(1).sub(lightIntensity)),
+        1,
       )
       directional.assign(directional.mul(vgrad))
     })
     const shadedRgb = Let(
-      clamp(litColorRgb.mul(directional).mul(lightColor), vec3(f32(0)), vec3(f32(1))),
+      clamp(litColorRgb.mul(directional).mul(lightColor), vec3(0), vec3(1)),
     )
     // Non-premultiplied output — see vs_main_quantized_extruded's removed
     // header for the BLEND_ALPHA vs BLEND_ALPHA_PREMULT equivalence proof.
@@ -801,8 +801,8 @@ const buildFsFillPattern = (pickEnabled: boolean) =>
       const i = VertexOutputIO.of(input)
       emitPolygonFragmentDiscards(input)
       const out = Var('out', polygonFragmentOutput(pickEnabled).type)
-      const repeatX = max(U.field.fill_translate_x, f32(1))
-      const repeatY = max(U.field.fill_translate_y, f32(1))
+      const repeatX = max(U.field.fill_translate_x, 1)
+      const repeatY = max(U.field.fill_translate_y, 1)
       const uvLocal = vec2(
         fract(i.abs_merc_x.div(repeatX)),
         fract(i.abs_merc_y.div(repeatY)),
@@ -860,11 +860,11 @@ const fsOitTranslucent = fn(
     // McGuire-Bavoil weight: large for closer + smaller alpha contributions,
     // capped to avoid fp16 overflow. iter-192 set weight=1; reverted in
     // iter-193 alongside the depth-write change.
-    const z = max(i.view_w, f32(1e-3))
+    const z = max(i.view_w, 1e-3)
     const w = clamp(
-      f32(0.03).div(f32(1e-5).add(pow(z.div(200), f32(4)))),
-      f32(1e-2),
-      f32(3.0e3),
+      f32(0.03).div(f32(1e-5).add(pow(z.div(200), 4))),
+      1e-2,
+      3.0e3,
     )
     return OitFragmentOutput.construct({
       accum: vec4(rgb.mul(a), a).mul(w),
@@ -954,7 +954,7 @@ const buildFsStroke = (pickEnabled: boolean) =>
 const fsOverdraw = fn(
   'fs_overdraw', {}, vec4fT,
   (_p) => {
-    return vec4(f32(1), f32(0), f32(0), f32(0))
+    return vec4(1, 0, 0, 0)
   },
   { stage: 'fragment', retAttr: '@location(0)' },
 )

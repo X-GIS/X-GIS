@@ -46,7 +46,7 @@ const vs = fn('vs', {
   const ndc_x = p.pos_px.x.div(vp.x).mul(2).sub(1)
   const ndc_y = f32(1).sub(p.pos_px.y.div(vp.y).mul(2))
   return VsOut.construct({
-    clip_pos: vec4(ndc_x, ndc_y, f32(0), f32(1)),
+    clip_pos: vec4(ndc_x, ndc_y, 0, 1),
     uv: p.uv,
     opacity: p.opacity,
     tint: p.tint,
@@ -62,7 +62,7 @@ const fs = fn('fs', { in: VsOut.type }, vec4fT, (p, _b) => {
   const dForAa = c.a
   // MUST stay an explicit Let — fwidth is a derivative requiring UNIFORM control flow; inlining
   // would push fwidth() into the SDF-vs-raster select branch (non-uniform) and fail validation.
-  const aa = Let(max(fwidth(dForAa), f32(1e-4)))
+  const aa = Let(max(fwidth(dForAa), 1e-4))
   // single-exit: SDF sprite (sdf>0.5) uses fwidth-AA coverage; raster sprite straight-samples.
   const cov = smoothstep(f32(0.5).sub(aa), f32(0.5).add(aa), c.a)
   const sdfColor = vec4(pin.tint, cov.mul(pin.opacity))

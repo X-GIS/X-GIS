@@ -50,9 +50,9 @@ const rasterColorAdjust = fn('raster_color_adjust', { rgb_in: vec3fT, p0: vec4fT
 
   // Contrast — factor 1 (default) is the identity.
   const contrastFactor = select(contrast.gt(0), f32(1).div(f32(1).sub(contrast)), f32(1).add(contrast))
-  rgb.assign(rgb.sub(vec3(f32(0.5))).mul(contrastFactor).add(vec3(f32(0.5))))
+  rgb.assign(rgb.sub(vec3(0.5)).mul(contrastFactor).add(vec3(0.5)))
 
-  return clamp(rgb, vec3(f32(0)), vec3(f32(1)))
+  return clamp(rgb, vec3(0), vec3(1))
 })
 
 export const RASTER_COLOR_FUNCS: FuncDecl[] = [rasterSpinWeights, rasterColorAdjust]
