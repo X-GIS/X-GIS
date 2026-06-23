@@ -45,7 +45,7 @@ const srcTex = resource('src_tex', texture2dfT, { group: 0, binding: 0 })
 // Oversized fullscreen triangle (NDC −1..3) — same trick as overdraw-compose.
 const vsFull = fn(
   'vs_full', { idx: builtin('vertex_index', u32T) },
-  (p, _b) => {
+  (p) => {
     const pos = Var(vec2(-1, -1))
     If(p.idx.eq(1), () => { pos.assign(vec2(3, -1)) })
       .elif(p.idx.eq(2), () => { pos.assign(vec2(-1, 3)) })
@@ -66,7 +66,7 @@ const vsFull = fn(
 // density with textureLoad (clamped to the texture extent at the edges).
 const fsBlur = fn(
   'fs_blur', { in: VsOut.type },
-  (p, _b) => {
+  (p) => {
     const dimU = textureDimensions(srcTex.node)
     const dim = vec2(toF32(dimU.x), toF32(dimU.y))
     const baseUv = VsOut.of(p.in).uv
