@@ -21,7 +21,7 @@ import {
   fn, module, transformMat4, arrayLit,
   f32, u32, i32, toF32, toU32, vec2, vec3, vec4, mix, exp, clamp,
   length, dot, min, max, smoothstep, fwidth, select,
-  f32T, u32T, i32T, vec2fT, vec4fT, mat4x4fT,
+  f32T, u32T, vec2fT, vec4fT, mat4x4fT,
   Let, Var, If, Loop, reduce, ifExpr, condExpr, Switch, Return, Discard,
   type ModuleDecl,
 } from '../core/ir'
@@ -119,15 +119,15 @@ const STRIDE = u32(24)
 // branches on projType via proj_params to short-circuit flat projections,
 // mirroring polygon_cos_c_fragment + polygon_rim_alpha in polygon.ts.
 
-const pointCosC = fn('point_cos_c', { abs_lon: f32T, abs_lat: f32T }, f32T, (p) => {
+const pointCosC = fn('point_cos_c', { abs_lon: f32T, abs_lat: f32T }, (p) => {
   return needs_backface_cull(p.abs_lon, p.abs_lat, U.field.proj_params)
 })
 
-const pointRimAlpha = fn('point_rim_alpha', { abs_lon: f32T, abs_lat: f32T }, f32T, (p) => {
+const pointRimAlpha = fn('point_rim_alpha', { abs_lon: f32T, abs_lat: f32T }, (p) => {
   return rim_alpha(p.abs_lon, p.abs_lat, U.field.proj_params)
 })
 
-const distToLine = fn('dist_to_line', { p: vec2fT, a: vec2fT, b: vec2fT }, f32T, (pp) => {
+const distToLine = fn('dist_to_line', { p: vec2fT, a: vec2fT, b: vec2fT }, (pp) => {
   const ab = pp.b.sub(pp.a)
   const len2 = dot(ab, ab)
   // single-exit: max() guards the degenerate (len2≈0) divide; select picks the point dist.
@@ -136,7 +136,7 @@ const distToLine = fn('dist_to_line', { p: vec2fT, a: vec2fT, b: vec2fT }, f32T,
   return select(len2.lt(1e-10), length(pp.p.sub(pp.a)), segDist)
 })
 
-const distToQuadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT }, f32T, (pp) =>
+const distToQuadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT }, (pp) =>
   reduce(f32(1e10), u32(0), (i) => i.le(16), (best, i) => {
     const t = toF32(i).div(16)
     const ab = mix(pp.a, pp.b, t)
@@ -146,7 +146,7 @@ const distToQuadratic = fn('dist_to_quadratic', { p: vec2fT, a: vec2fT, b: vec2f
   }),
 )
 
-const distToCubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT, d: vec2fT }, f32T, (pp) =>
+const distToCubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: vec2fT, d: vec2fT }, (pp) =>
   reduce(f32(1e10), u32(0), (i) => i.le(24), (best, i) => {
     const t = toF32(i).div(24)
     const ab = mix(pp.a, pp.b, t)
@@ -159,7 +159,7 @@ const distToCubic = fn('dist_to_cubic', { p: vec2fT, a: vec2fT, b: vec2fT, c: ve
   }),
 )
 
-const windingLine = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT }, i32T, (pp) => {
+const windingLine = fn('winding_line', { p: vec2fT, a: vec2fT, b: vec2fT }, (pp) => {
   // single-exit: signed winding contribution of edge a→b across the +y ray from p.
   const cross = pp.b.x.sub(pp.a.x).mul(pp.p.y.sub(pp.a.y)).sub(pp.p.x.sub(pp.a.x).mul(pp.b.y.sub(pp.a.y)))
   const up = pp.a.y.le(pp.p.y).and(pp.b.y.gt(pp.p.y)).and(cross.gt(0))
@@ -220,7 +220,7 @@ const vs = fn('vs_point', {
   center: location(0, vec2fT),
   quad_id: location(1, u32T),
   feat_id: location(2, f32T),
-}, PointOut.type, (p) => {
+}, (p) => {
   const offsets = arrayLit(vec2fT,
     vec2(-1, -1),
     vec2(1, -1),
@@ -390,7 +390,7 @@ const vs = fn('vs_point', {
   return out
 }, { stage: 'vertex' })
 
-const fs = fn('fs_point', { in: PointOut.type }, PointFragmentOutput.type, (p) => {
+const fs = fn('fs_point', { in: PointOut.type }, (p) => {
   const pin = PointOut.of(p.in)
   // Backface cull for globe projections — cos_c is +1 for flat projections.
   If(pin.cos_c.lt(0), () => { Discard() })

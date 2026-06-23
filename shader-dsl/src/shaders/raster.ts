@@ -71,7 +71,7 @@ const texSampler = resource('tex_sampler', samplerT, { group: 0, binding: 2 })
 
 // GRID_N = 8 (an 8×8 subdivided grid, 6 verts/cell = 384; the draw count lives
 // in the renderer). Inlined where used.
-const vs = fn('vs_tile', { vid: builtin('vertex_index', u32T) }, VsOut.type, (p, _b) => {
+const vs = fn('vs_tile', { vid: builtin('vertex_index', u32T) }, (p, _b) => {
   const cell = p.vid.div(6)
   const tri = p.vid.mod(6)
   const cx = cell.mod(8)
@@ -144,7 +144,7 @@ const vs = fn('vs_tile', { vid: builtin('vertex_index', u32T) }, VsOut.type, (p,
 
 const buildFs = (pickEnabled: boolean) => {
   const RasterFragmentOutput = rasterFragmentOutput(pickEnabled)
-  return fn('fs_tile', { input: VsOut.type }, RasterFragmentOutput.type, (p, _b) => {
+  return fn('fs_tile', { input: VsOut.type }, (p, _b) => {
     const pin = VsOut.of(p.input)
     If(pin.vis.lt(0), () => { Discard() })
     const c = textureSample(tex.node, texSampler.node, pin.uv)

@@ -163,7 +163,6 @@ const spriteSamp = spriteSampRes.node
 const polygonCosCFragment = fn(
   'polygon_cos_c_fragment',
   { abs_merc_x: f32T, abs_merc_y: f32T },
-  f32T,
   (p) => {
     const earthR = EARTH_R
     const absLon = p.abs_merc_x.div(DEG2RAD.mul(earthR))
@@ -181,7 +180,6 @@ const polygonCosCFragment = fn(
 const polygonRimAlpha = fn(
   'polygon_rim_alpha',
   { abs_merc_x: f32T, abs_merc_y: f32T },
-  f32T,
   (p) => {
     const earthR = EARTH_R
     const absLon = p.abs_merc_x.div(DEG2RAD.mul(earthR))
@@ -337,7 +335,6 @@ const vsMain = fn(
     abs_lon: location(3, f32T),
     abs_lat: location(4, f32T),
   },
-  VertexOutputIO.type,
   (p) => {
     const mvp = U.field.mvp
     const logDepthFc = U.field.log_depth_fc
@@ -417,7 +414,6 @@ const vsMain = fn(
 const dequantEcefFn = fn(
   'dequant_ecef',
   { q_xy: vec4uT, q_z: vec2uT, scale: f32T, half: f32T },
-  vec3fT,
   ({ q_xy, q_z, scale, half }) => {
     const qx = toF32(q_xy.x).mul(65536).add(toF32(q_xy.y))
     const qy = toF32(q_xy.z).mul(65536).add(toF32(q_xy.w))
@@ -448,7 +444,6 @@ const vsMainEcef = fn(
     // #398: TRUE unclamped lat (deg) — disc arm projects the ±90 caps from this.
     true_lat: location(5, f32T),
   },
-  VertexOutputIO.type,
   (p) => {
     const mvp = U.field.mvp
     const logDepthFc = U.field.log_depth_fc
@@ -544,7 +539,6 @@ const vsMainEcefExtruded = fn(
     wall_height: location(6, f32T),
     is_top: location(7, f32T),
   },
-  VertexOutputIO.type,
   (p) => {
     const mvp = U.field.mvp
     const logDepthFc = U.field.log_depth_fc
@@ -738,7 +732,6 @@ const buildFsFill = (pickEnabled: boolean) =>
   fn(
     'fs_fill',
     { input: VertexOutputIO.type },
-    polygonFragmentOutput(pickEnabled).type,
     (p, b) => {
       const input = p.input
       const i = VertexOutputIO.of(input)
@@ -792,7 +785,6 @@ const buildFsFillPattern = (pickEnabled: boolean) =>
   fn(
     'fs_fill_pattern',
     { input: VertexOutputIO.type },
-    polygonFragmentOutput(pickEnabled).type,
     (p) => {
       const input = p.input
       const i = VertexOutputIO.of(input)
@@ -838,7 +830,6 @@ const buildFsFillPattern = (pickEnabled: boolean) =>
 const fsOitTranslucent = fn(
   'fs_oit_translucent',
   { input: VertexOutputIO.type },
-  OitFragmentOutput.type,
   (p) => {
     const input = p.input
     const i = VertexOutputIO.of(input)
@@ -884,7 +875,6 @@ const buildFsFillExtrude = (pickEnabled: boolean) =>
   fn(
     'fs_fill_extrude',
     { input: VertexOutputIO.type },
-    polygonFragmentOutput(pickEnabled).type,
     (p) => {
       const input = p.input
       const i = VertexOutputIO.of(input)
@@ -914,7 +904,6 @@ const buildFsStroke = (pickEnabled: boolean) =>
   fn(
     'fs_stroke',
     { input: VertexOutputIO.type },
-    polygonFragmentOutput(pickEnabled).type,
     (p, b) => {
       const input = p.input
       const i = VertexOutputIO.of(input)
@@ -949,7 +938,7 @@ const buildFsStroke = (pickEnabled: boolean) =>
 // participate in the variant marker substitution.
 
 const fsOverdraw = fn(
-  'fs_overdraw', {}, vec4fT,
+  'fs_overdraw', {},
   (_p) => {
     return vec4(1, 0, 0, 0)
   },

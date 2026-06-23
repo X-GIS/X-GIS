@@ -15,7 +15,7 @@ import {
   f32, u32, vec2, vec3, vec4, toF32, toI32,
   clamp,
   textureLoad, textureDimensions, vec2i,
-  f32T, u32T, vec2fT, vec3fT, vec4fT, texture2dfT,
+  f32T, u32T, vec2fT, vec4fT, texture2dfT,
   If, Return, type ModuleDecl,
 } from '../core/ir'
 import { ioStruct, builtin, location, resource } from '../core/sot'
@@ -33,7 +33,7 @@ const accumTex = resource('accum_tex', texture2dfT, { group: 0, binding: 0 })
 // 4-stop piecewise (polynomial fit, no branching): dark navy → cyan →
 // yellow → red.
 
-const colormap = fn('colormap', { t: f32T }, vec3fT, (p) => {
+const colormap = fn('colormap', { t: f32T }, (p) => {
   const s = clamp(p.t, 0, 1)
   const r = clamp(s.mul(3).sub(0.5), 0, 1)
   const g = clamp(s.mul(2.5), 0, 1)
@@ -48,7 +48,6 @@ const colormap = fn('colormap', { t: f32T }, vec3fT, (p) => {
 
 const vsFull = fn(
   'vs_full', { idx: builtin('vertex_index', u32T) },
-  VsOut.type,
   (p) => {
     const pos = vec2(-1, -1)
     If(p.idx.eq(1), () => { pos.assign(vec2(3, -1)) })
@@ -71,7 +70,6 @@ const vsFull = fn(
 
 const fsCompose = fn(
   'fs_compose', { in: VsOut.type },
-  vec4fT,
   (p) => {
     const pin = VsOut.of(p.in)
     // textureDimensions returns vec2<u32>; toF32 each component for the

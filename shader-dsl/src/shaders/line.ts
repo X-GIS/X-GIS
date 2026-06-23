@@ -213,7 +213,7 @@ const sprite_samp = spriteSampB.node
 
 // ── Helper fns ──
 
-const lineEndpoint = fn('line_endpoint', { p_h: vec2fT, p_l: vec2fT }, vec2fT, (p) => {
+const lineEndpoint = fn('line_endpoint', { p_h: vec2fT, p_l: vec2fT }, (p) => {
   const projParams = TILE.field.proj_params
   // single-exit: Mercator (proj<0.5) subtracts the camera; else hi+lo. select() is
   // branchless — both arms are pure reads, computing both is free of side effects.
@@ -230,7 +230,7 @@ const lineEndpoint = fn('line_endpoint', { p_h: vec2fT, p_l: vec2fT }, vec2fT, (
 // corner, reproject via project_geom (world-copy aware; tileRefLon = tile-
 // centre lon), and subtract the camera's projected centre (in-shader from
 // proj_params.y/z). Output feeds the flat 2D-plane MVP.
-const finalizeCorner = fn('finalize_corner', { corner: vec2fT }, vec2fT, (p) => {
+const finalizeCorner = fn('finalize_corner', { corner: vec2fT }, (p) => {
   const projParams = TILE.field.proj_params
   const tileOrigin = TILE.field.tile_origin_merc
   const absMerc = p.corner.add(tileOrigin)
@@ -245,7 +245,7 @@ const finalizeCorner = fn('finalize_corner', { corner: vec2fT }, vec2fT, (p) => 
   return select(projParams.x.lt(0.5), p.corner, flatRel)
 })
 
-const endpointCosC = fn('endpoint_cos_c', { p_h: vec2fT, p_l: vec2fT }, f32T, (p) => {
+const endpointCosC = fn('endpoint_cos_c', { p_h: vec2fT, p_l: vec2fT }, (p) => {
   const tileOrigin = TILE.field.tile_origin_merc
   const absMercX = p.p_h.x.add(p.p_l.x).add(tileOrigin.x)
   const absMercY = p.p_h.y.add(p.p_l.y).add(tileOrigin.y)
@@ -255,7 +255,7 @@ const endpointCosC = fn('endpoint_cos_c', { p_h: vec2fT, p_l: vec2fT }, f32T, (p
   return needs_backface_cull(absLon, absLat, TILE.field.proj_params)
 })
 
-const patternUnitToM = fn('pattern_unit_to_m', { v: f32T, unit: u32T, mpp: f32T }, f32T, (p) => {
+const patternUnitToM = fn('pattern_unit_to_m', { v: f32T, unit: u32T, mpp: f32T }, (p) => {
   // single-exit, 0=m 1=px 2=km 3=nm — nested select from the default (nm) up.
   const km = select(p.unit.eq(2), p.v.mul(1000), p.v.mul(1852))
   const px = select(p.unit.eq(1), p.v.mul(p.mpp), km)
@@ -265,7 +265,7 @@ const patternUnitToM = fn('pattern_unit_to_m', { v: f32T, unit: u32T, mpp: f32T 
 // Inlined SDF shape sampler — uses our `shape_segments` (binding 3) instead
 // of the shared SDF module's `segments` name (which would collide with the
 // line segment storage buffer on binding 1).
-const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (p) => {
+const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, (p) => {
   const uv = vec2(p.uv_in.x, p.uv_in.y.neg())
   const so = shapesB.at(p.shape_id)
   const bMinX = so.bbox_min_x
@@ -311,7 +311,7 @@ const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, (p) =>
 // Backface cull → clip-bounds → segment-frame distance → bisector clip → bevel
 // edge → endpoint cap/join → dash → 3-slot pattern stack → alpha + per-segment
 // colour override. Faithful port of the WGSL helper (renderer-shaders.ts L661-1234).
-const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4fT, (p) => {
+const computeLineColor = fn('compute_line_color', { input: LineOut.type }, (p) => {
   const projParams = TILE.field.proj_params
   const tileOrigin = TILE.field.tile_origin_merc
   const clipBounds = TILE.field.clip_bounds
@@ -728,7 +728,7 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
 })
 
 // ── line_rim_alpha ──
-const lineRimAlpha = fn('line_rim_alpha', { input: LineOut.type }, f32T, (p) => {
+const lineRimAlpha = fn('line_rim_alpha', { input: LineOut.type }, (p) => {
   const tileOrigin = TILE.field.tile_origin_merc
   const absMerc = LineOut.of(p.input).world_local.add(tileOrigin)
   const absLon = absMerc.x.div(DEG2RAD.mul(EARTH_R))
@@ -742,7 +742,7 @@ const lineRimAlpha = fn('line_rim_alpha', { input: LineOut.type }, f32T, (p) => 
 const vsLine = fn('vs_line', {
   seg_id: builtin('instance_index', u32T),
   vi: builtin('vertex_index', u32T),
-}, LineOut.type, (p) => {
+}, (p) => {
   const sego = segmentsB.at(p.seg_id)
   const p0 = lineEndpoint(sego.p0_h, sego.p0_l)
   const p1 = lineEndpoint(sego.p1_h, sego.p1_l)
@@ -1034,7 +1034,7 @@ const vsLine = fn('vs_line', {
 // ── Fragment entries (3 variants share compute_line_color) ──
 
 const buildFsLine = (pickEnabled: boolean) =>
-  fn('fs_line', { input: LineOut.type }, lineFragmentOutput(pickEnabled).type, (p) => {
+  fn('fs_line', { input: LineOut.type }, (p) => {
     const color = computeLineColor(p.input)
     const rim = lineRimAlpha(p.input)
     return lineFragmentOutput(pickEnabled).construct({
@@ -1045,7 +1045,7 @@ const buildFsLine = (pickEnabled: boolean) =>
   }, { stage: 'fragment' })
 
 const buildFsLinePattern = (pickEnabled: boolean) =>
-  fn('fs_line_pattern', { input: LineOut.type }, lineFragmentOutput(pickEnabled).type, (p) => {
+  fn('fs_line_pattern', { input: LineOut.type }, (p) => {
     const inp = LineOut.of(p.input)
     const base = computeLineColor(p.input)
     const tileOrigin = TILE.field.tile_origin_merc
@@ -1079,7 +1079,6 @@ const buildFsLinePattern = (pickEnabled: boolean) =>
 const fsLineMax = fn(
   'fs_line_max',
   { input: LineOut.type },
-  vec4fT,
   (p) => {
     const c = computeLineColor(p.input)
     const rim = lineRimAlpha(p.input)
@@ -1149,7 +1148,6 @@ const compSrc = compSrcB.node
 
 const vsFull = fn('vs_full',
   { vi: builtin('vertex_index', u32T) },
-  VsFullOut.type,
   (p) => {
     const pos = vec2(-1, -1)
     const uv = vec2(0, 1)
@@ -1171,7 +1169,6 @@ const vsFull = fn('vs_full',
 
 const fsFull = fn('fs_full',
   { input: VsFullOut.type },
-  vec4fT,
   (p) => {
     const c = textureSample(compSrc, compSamp, VsFullOut.of(p.input).uv)
     const op = CompUniform.field.opacity
