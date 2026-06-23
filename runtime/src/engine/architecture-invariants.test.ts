@@ -474,7 +474,18 @@ const LOC_CEILINGS: Record<string, number> = {
   // PointLayer.circlePitchScaleMap field. Same irreducible additive plumbing
   // class as the WS-1 circle-translate/stroke-opacity bumps above;
   // decomposition stays a tracked follow-up.
-  'runtime/src/engine/render/point-renderer.ts': 888,
+  // Bumped 888→946 (shader-dsl reflection Phase 3): the renderer now SOURCES its
+  // bind-group-layout entries + uniform field f32 slots from
+  // reflect(buildPointModule()) instead of a hand-coded entries[] literal + slot
+  // literals — a LAZY+memoized reflection accessor (pointReflection /
+  // pointUniformSlots / buildPointBglEntries) replaces the inline literals.
+  // Lazy because buildPointModule() gathers the injection-deferred projection
+  // funcs, which require configureProjections() first — so reflection is
+  // computed on first use, not at module load. This RETIRES the hand-maintained
+  // drift the file used to carry (viewport @20 vs @24); the growth is the
+  // one-time reflection-wiring header, not new feature surface. Decomposition
+  // stays a tracked follow-up.
+  'runtime/src/engine/render/point-renderer.ts': 946,
   // Baselined at 820 (mbx_batch2): lower-label.ts is the label-knob lowering
   // sub-pass extracted from lower.ts; crossed 800 here for the icon-translate
   // accumulators + parse arms + knobs-interface + merge wiring. Cohesive

@@ -12,10 +12,12 @@ import { parseHexColor } from '../feature-helpers'
 import { resolveNumberShape } from './paint-shape-resolve'
 import { FrameArena } from '../gpu/frame-arena'
 import type { PointLayer } from './point-renderer-types'
-import { emitPointWgsl } from '../shaders/dsl'
+import { emitPointWgsl, buildPointModule } from '../shaders/dsl'
+import { reflect } from '@xgis/shader-dsl'
 import { vertexField } from '@xgis/compiler'
 import { POINT_FORMAT } from './point-vertex-format'
 import { toVertexBufferLayout } from './vertex-buffer-layout'
+import { reflectionToBindGroupLayoutEntries, uniformFieldSlots } from './reflection-to-webgpu'
 
 // Float-slot indices derived from the single-source POINT_FORMAT spec so the
 // packer cannot drift from the GPUVertexBufferLayout / vs_point @location.
@@ -23,6 +25,57 @@ const POINT_FLOATS_PER_VERT = POINT_FORMAT.stride / 4                        // 
 const POINT_CENTER_FLOAT = vertexField(POINT_FORMAT, 'center').offset / 4    // 0 (x,y = 0,1)
 const POINT_QUADID_FLOAT = vertexField(POINT_FORMAT, 'quad_id').offset / 4   // 2
 const POINT_FEATID_FLOAT = vertexField(POINT_FORMAT, 'feat_id').offset / 4   // 3
+
+// ── Reflection-driven bind-group layout + uniform field offsets ──
+// reflect(buildPointModule()) recovers, from the SAME IR the WGSL is emitted
+// from, the @group(0) bind entries and the std140 `Uniforms` struct byte
+// layout. Sourcing the layout entries + the per-field f32 slots from there makes
+// the hand-maintained drift that the point path once carried (viewport @20 vs
+// @24) structurally impossible — the packer writes each field at its reflected
+// slot.
+//
+// LAZY + memoized: buildPointModule() gathers the injection-deferred projection
+// funcs (getGpuProjectionFuncs), which require configureProjections() to have
+// run first. Reflecting at module-load time would fire that emit before the app
+// configures projections (the same reason buildPointModule is a build-fn). So
+// the reflection is computed on first use (constructor / first frame), by which
+// point configureProjections() has run.
+interface PointUniformSlots {
+  readonly mvp: number; readonly proj: number; readonly viewport: number
+  readonly camH: number; readonly camL: number; readonly circle: number
+  readonly slots: number
+}
+let _pointReflection: ReturnType<typeof reflect> | null = null
+let _pointSlots: PointUniformSlots | null = null
+function pointReflection(): ReturnType<typeof reflect> {
+  return (_pointReflection ??= reflect(buildPointModule()))
+}
+/** Memoized std140 `Uniforms` field → f32 slot (byteOffset / 4) + slot count. */
+function pointUniformSlots(): PointUniformSlots {
+  if (_pointSlots) return _pointSlots
+  const u = uniformFieldSlots(pointReflection(), 'Uniforms')
+  return (_pointSlots = {
+    mvp: u.slot.mvp, proj: u.slot.proj_params, viewport: u.slot.viewport,
+    camH: u.slot.cam_ecef_h, camL: u.slot.cam_ecef_l, circle: u.slot.circle_params,
+    slots: u.slots,
+  })
+}
+// Build the @group(0) bind-group-layout entries from the reflection. Visibility
+// is the renderer's own knowledge (which stages read each binding); reflection
+// records structure, not stage usage. uniform + feat_data are read by both
+// stages; the SDF shape/segment storage buffers are FRAGMENT-only. Called from
+// the constructor (post-configureProjections, where GPUShaderStage exists).
+function buildPointBglEntries(): GPUBindGroupLayoutEntry[] {
+  return reflectionToBindGroupLayoutEntries(
+    pointReflection(),
+    new Map([
+      [0, GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT],
+      [1, GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT],
+      [2, GPUShaderStage.FRAGMENT],
+      [3, GPUShaderStage.FRAGMENT],
+    ]),
+  )
+}
 
 /** Pack the point frame uniform (shared by render() and flushTilePoints()).
  *  Layout (f32 slots): mvp 0..15, proj_params 16..19, viewport 20..23,
@@ -52,10 +105,14 @@ function writePointFrameUniform(
   circleBlur = 0,
   circlePitchScaleMap = false,
 ): void {
-  uf.set(frame.matrix, 0)
-  uf[16] = projType; uf[17] = projCenterLon; uf[18] = projCenterLat; uf[19] = 0
+  // Field base slots are sourced from reflect(buildPointModule()) (the std140
+  // Uniforms struct), not hand-counted — so the packer cannot drift from the
+  // WGSL struct it shares an IR with.
+  const { mvp: U_MVP, proj: U_PROJ, viewport: U_VIEWPORT, camH: U_CAM_H, camL: U_CAM_L, circle: U_CIRCLE } = pointUniformSlots()
+  uf.set(frame.matrix, U_MVP)
+  uf[U_PROJ] = projType; uf[U_PROJ + 1] = projCenterLon; uf[U_PROJ + 2] = projCenterLat; uf[U_PROJ + 3] = 0
   const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, camera.zoom)
-  uf[20] = canvasWidth; uf[21] = canvasHeight; uf[22] = metersPerPixel; uf[23] = frame.logDepthFc
+  uf[U_VIEWPORT] = canvasWidth; uf[U_VIEWPORT + 1] = canvasHeight; uf[U_VIEWPORT + 2] = metersPerPixel; uf[U_VIEWPORT + 3] = frame.logDepthFc
   // Camera centre for the per-vertex re-centring. Flat Mercator (projType 0)
   // uses the 2D Mercator centre (camera.centerX/Y) split DSFUN into the .xy
   // lanes — the flat VS does rel = project(abs) − (cam_ecef_h.xy + cam_ecef_l.xy)
@@ -63,25 +120,25 @@ function writePointFrameUniform(
   if (projType === 0) {
     const cmx = camera.centerX, cmy = camera.centerY
     const cmxH = Math.fround(cmx), cmyH = Math.fround(cmy)
-    uf[24] = cmxH; uf[25] = cmyH; uf[26] = 0; uf[27] = 0
-    uf[28] = cmx - cmxH; uf[29] = cmy - cmyH; uf[30] = 0; uf[31] = 0
+    uf[U_CAM_H] = cmxH; uf[U_CAM_H + 1] = cmyH; uf[U_CAM_H + 2] = 0; uf[U_CAM_H + 3] = 0
+    uf[U_CAM_L] = cmx - cmxH; uf[U_CAM_L + 1] = cmy - cmyH; uf[U_CAM_L + 2] = 0; uf[U_CAM_L + 3] = 0
   } else {
     const camC = camera.getECEFCenter()
     const cxH = Math.fround(camC[0]); const cyH = Math.fround(camC[1]); const czH = Math.fround(camC[2])
-    uf[24] = cxH; uf[25] = cyH; uf[26] = czH; uf[27] = 0
-    uf[28] = camC[0] - cxH; uf[29] = camC[1] - cyH; uf[30] = camC[2] - czH; uf[31] = 0
+    uf[U_CAM_H] = cxH; uf[U_CAM_H + 1] = cyH; uf[U_CAM_H + 2] = czH; uf[U_CAM_H + 3] = 0
+    uf[U_CAM_L] = camC[0] - cxH; uf[U_CAM_L + 1] = camC[1] - cyH; uf[U_CAM_L + 2] = camC[2] - czH; uf[U_CAM_L + 3] = 0
   }
   // circle_params @32-35: translate_x_ndc, translate_y_ndc, blur_px, _unused.
   // Bake translate from CSS-px to NDC-per-pixel (multiply by clip.w in VS).
   // Negate y because NDC y is UP (screen y is DOWN).
-  uf[32] = canvasWidth  > 0 ? (circleTranslateX * 2) / canvasWidth  : 0
-  uf[33] = canvasHeight > 0 ? -(circleTranslateY * 2) / canvasHeight : 0
-  uf[34] = circleBlur
+  uf[U_CIRCLE] = canvasWidth  > 0 ? (circleTranslateX * 2) / canvasWidth  : 0
+  uf[U_CIRCLE + 1] = canvasHeight > 0 ? -(circleTranslateY * 2) / canvasHeight : 0
+  uf[U_CIRCLE + 2] = circleBlur
   // circle_params.w: circle-pitch-scale flag. 0 = viewport (default —
   // radius constant in screen px, byte-identical). 1 = map (the point VS
   // scales the quad expansion by w_ref/clip.w = mvp[3][3]/clip.w so circles
   // foreshorten with pitch/distance, matching MapLibre's pitch-scale:map).
-  uf[35] = circlePitchScaleMap ? 1 : 0
+  uf[U_CIRCLE + 3] = circlePitchScaleMap ? 1 : 0
 }
 
 // ═══ Renderer ═══
@@ -104,7 +161,10 @@ export class PointRenderer {
   // DSFUN is ABSOLUTE, so cam_ecef_h/l carry the camera anchor (getECEFCenter,
   // sphere) split DSFUN; the VS re-centers via (ecefH−camH)+(ecefL−camL).
   // circle_params @32-35: translate_x_ndc, translate_y_ndc, blur_px, _unused.
-  private uniformData = new Float32Array(36)
+  // Sized from the reflected std140 Uniforms slot count (36) — not hand-counted.
+  // (Field init runs at construction, post-configureProjections, so the lazy
+  // reflection is safe here.)
+  private uniformData = new Float32Array(pointUniformSlots().slots)
   /** iter-249 (Plan AAA B.2) — per-flush arena. Each flush*() call
    *  allocates 3 large typed arrays (verts / indices / featData)
    *  sized to per-call vertex count. On flush entry, beginFrame()
@@ -127,12 +187,10 @@ export class PointRenderer {
     const shaderModule = device.createShaderModule({ code: emitPointWgsl(), label: 'sdf-point-shader' })
 
     this.bindGroupLayout = device.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
-        { binding: 1, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
-        { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
-        { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
-      ],
+      // Entries sourced from reflect(buildPointModule()) — binding numbers +
+      // buffer types come from the shader's own IR (see buildPointBglEntries);
+      // the renderer supplies only the per-binding stage visibility.
+      entries: buildPointBglEntries(),
     })
 
     this.format = ctx.format
@@ -209,7 +267,7 @@ export class PointRenderer {
     })
 
     this.uniformBuffer = device.createBuffer({
-      size: 144, // 36 floats × 4 = 144 (mvp+proj_params+viewport+cam_ecef_h/l+circle_params)
+      size: pointUniformSlots().slots * 4, // reflected std140 Uniforms size (36 slots × 4 = 144 bytes)
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     })
   }
