@@ -9,7 +9,9 @@
 // threaded in later steps; until then the WGSL writer keeps its inline spelling
 // and remains byte-identical.
 
-import type { ShaderType } from './ir'
+import type {
+  ShaderType, ConstDecl, StructDecl, BindingDecl, FuncDecl, ModuleDecl,
+} from './ir'
 
 /** GPU features a target may or may not support; emit of an unsupported feature
  *  must be a typed error, never silent mis-emit. */
@@ -66,6 +68,24 @@ export interface Backend {
   rawStmt(wgsl: string): string
   /** An un-swapped `placeholder` Stmt. WGSL emits a defensive comment; non-WGSL fails closed. */
   placeholderStmt(tag: string): string
+
+  // ── Module-level declaration surface ──
+  // The module assembly walk (validate → assertCaps → autoVars → lowerModule →
+  // optimize → assemble) is shared in core/emit.ts (`emitModule`); only these
+  // per-declaration spellings differ between targets. A backend that does not
+  // support a declaration (e.g. GLSL ES bindings/structs) fails closed here.
+  /** A module-level const declaration line, incl. trailing `;`. */
+  emitConst(c: ConstDecl): string
+  /** A struct declaration block. */
+  emitStruct(s: StructDecl): string
+  /** A resource binding declaration line. */
+  emitBinding(b: BindingDecl): string
+  /** A function declaration block (signature + emitted body). */
+  emitFunc(f: FuncDecl): string
+  /** The backend's emit-time optimization of the lowered module (WGSL = `cse`,
+   *  GLSL = identity). Kept per-backend so cse stays WGSL-only and byte-identity
+   *  holds. Runs after lowerModule(autoVars(m)), before assembly. */
+  optimize(lowered: ModuleDecl): ModuleDecl
 }
 
 /** Emitting a feature a target does not support is a typed error, never a silent
