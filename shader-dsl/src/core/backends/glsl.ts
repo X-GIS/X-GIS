@@ -32,6 +32,7 @@ import { spellIntrinsic } from '../intrinsics'
 import { f32Lit } from './wgsl'
 import { emitBody } from '../emit'
 import { lowerModule } from '../passes/match-lower'
+import { autoVars } from '../passes/opt'
 import { validate } from '../passes/validate'
 
 // UnsupportedFeatureError now lives in the backend contract; re-exported here so
@@ -100,7 +101,12 @@ function emitFunc(f: FuncDecl): string {
 export function emitGlslModule(m: ModuleDecl): string {
   validate(m) // validate the authored module before any lowering
   assertCaps(glslEs300Backend, m) // fail closed on storage/compute/MSAA (caps = none)
-  const lowered = lowerModule(m)
+  // autoVars BEFORE lowerModule, same order as the WGSL backend / CPU oracle. Materialising
+  // assigned plain-value bindings (the `const x = expr; x.assign(…)` auto-var pattern) into
+  // real vars is BACKEND-NEUTRAL — skipping it here let such a module emit invalid
+  // `(expr) = …;` GLSL. Identity for modules that don't use the pattern (e.g. projection,
+  // which holds mutated values in explicit Var()), so existing GLSL output is unchanged.
+  const lowered = lowerModule(autoVars(m))
   if (lowered.bindings.length) throw new UnsupportedFeatureError('glsl-es300: resource bindings — std140 UBO / data-texture lowering is a later step')
   if (lowered.structs.length) throw new UnsupportedFeatureError('glsl-es300: struct decls (IO/uniform) — std140 lowering is a later step')
   const parts: string[] = ['#version 300 es', 'precision highp float;', '']
