@@ -33,10 +33,10 @@ const detailHref = (id: string) => `${base}/shader-dsl/examples/${id}`
                     <img src={c.thumb} alt={`${c.title} preview`} width="640" height="400" loading="lazy" class="w-full h-full object-cover" />
                   ) : (
                     <div class="w-full h-full flex items-center justify-center" style="background: linear-gradient(135deg, #14141a, #0a0a0a);">
-                      <span class="font-mono text-[11px] text-fg-mute uppercase tracking-widest">WGSL · compute</span>
+                      <span class="font-mono text-[11px] text-fg-mute uppercase tracking-[0.16em]">WGSL · compute</span>
                     </div>
                   )}
-                  <span class="absolute top-2.5 left-2.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-bg/80 backdrop-blur text-fg-dim text-[10px] font-medium tracking-wide uppercase">{c.category}</span>
+                  <span class="absolute top-2.5 left-2.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-bg/80 backdrop-blur text-fg-dim text-[10px] font-mono tracking-[0.16em] uppercase">{c.category}</span>
                 </div>
                 <div class="p-5">
                   <p class="font-mono text-[11px] text-fg-mute mb-2 truncate">{c.id}.ts</p>

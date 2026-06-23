@@ -38,7 +38,7 @@ const tabs = [
   </a>
 
   <div class="flex items-center gap-2 mb-3">
-    <span class="font-mono text-[10px] text-fg-mute uppercase tracking-wider px-1.5 py-0.5 rounded bg-bg-elev border border-line">{card.category}</span>
+    <span class="font-mono text-[10px] text-fg-mute uppercase tracking-[0.16em] px-1.5 py-0.5 rounded bg-bg-elev border border-line">{card.category}</span>
     <span class="font-mono text-[11px] text-fg-mute">{card.file}</span>
   </div>
   <h1 class="font-display font-semibold uppercase text-fg leading-[0.95] tracking-[0.01em] text-[38px] sm:text-[52px] lg:text-[64px]">{card.title}</h1>
@@ -48,7 +48,7 @@ const tabs = [
     <section class="mt-7">
       <div class="relative rounded-2xl overflow-hidden bg-bg-elev border border-line" style="aspect-ratio: 16 / 10;">
         <canvas data-shader={card.id} class="block w-full h-full" style="touch-action: none;"></canvas>
-        <span class="absolute top-3 left-3 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-bg/80 backdrop-blur text-accent text-[10px] font-medium tracking-wide uppercase pointer-events-none">
+        <span class="absolute top-3 left-3 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-bg/80 backdrop-blur text-accent text-[10px] font-mono tracking-[0.16em] uppercase pointer-events-none">
           <span class="w-1.5 h-1.5 rounded-full bg-accent inline-block animate-pulse"></span>
           Live · WebGL2
         </span>

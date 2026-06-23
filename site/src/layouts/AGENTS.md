@@ -9,7 +9,7 @@ Page-level chrome wrappers for the Astro docs site. `Base.astro` is the root HTM
 ## Key Files
 | File | Description |
 |------|-------------|
-| `Base.astro` | HTML shell: canonical URL + GH Pages `BASE_URL` prefix handling, OG/Twitter meta, JSON-LD (`SoftwareSourceCode` + `WebSite`), `theme-color`, favicon, Geist font comment (self-hosted via `@fontsource-variable/geist`), body with `<slot>` + `MobileNavDrawer` |
+| `Base.astro` | HTML shell: canonical URL + GH Pages `BASE_URL` prefix handling, OG/Twitter meta, JSON-LD (`SoftwareSourceCode` + `WebSite`), ink `theme-color`, favicon, self-hosted-font comment (Big Shoulders Display / Archivo / Spline Sans Mono via `@fontsource-variable`), body with `<slot>` + `MobileNavDrawer` |
 | `Docs.astro` | Docs layout: wraps `Base` with sticky desktop sidebar (`navGroups` hard-coded Diátaxis order), mobile breadcrumb nav (group + page label, no horizontal strip), article slot, `PageFeedback`, prev/next pagination derived from flattened `navGroups`, "Edit on GitHub" + "Report an issue" links, `gitMeta` last-updated + contributor count, `OnThisPage` TOC; props: `current` (slug after `/docs/`), `title`, `description`, `headings?` |
 
 ## For AI Agents
@@ -40,6 +40,6 @@ Page-level chrome wrappers for the Astro docs site. `Base.astro` is the root HTM
 - `src/styles/global.css` — imported by `Base.astro`
 
 ### External
-- `@fontsource-variable/geist`, `@fontsource-variable/geist-mono` (self-hosted fonts, referenced in global CSS)
+- `@fontsource-variable/big-shoulders-display`, `@fontsource-variable/archivo`, `@fontsource-variable/spline-sans-mono` (self-hosted fonts, referenced in global CSS)
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->

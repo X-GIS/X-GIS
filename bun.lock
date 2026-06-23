@@ -92,8 +92,6 @@
         "@astrojs/sitemap": "^3.7.2",
         "@fontsource-variable/archivo": "^5.2.8",
         "@fontsource-variable/big-shoulders-display": "^5.2.5",
-        "@fontsource-variable/geist": "^5.2.8",
-        "@fontsource-variable/geist-mono": "^5.2.7",
         "@fontsource-variable/spline-sans-mono": "^5.2.8",
         "@tailwindcss/vite": "^4.0.0",
         "@xgis/blueprint": "workspace:*",
@@ -204,10 +202,6 @@
     "@fontsource-variable/archivo": ["@fontsource-variable/archivo@5.2.8", "", {}, "sha512-R8EotpKHEsKv7d7oiUyjyPENRi2gtAlwdTlzDCOs5BfX/LJP7jvUYJ4fF/qyd3rnbgk3r1xp33g1P57bYJfhzQ=="],
 
     "@fontsource-variable/big-shoulders-display": ["@fontsource-variable/big-shoulders-display@5.2.5", "", {}, "sha512-ZH2w9u6018xbSf8vPZ42P/KxpQHfIsKnxSnMtLFgwui1zIS05vzlijAWRcaRQoY2pXu4Z3SVa88OANsmq6mkvA=="],
-
-    "@fontsource-variable/geist": ["@fontsource-variable/geist@5.2.9", "", {}, "sha512-TP+QSBG3wxKGPE33CbMy/L0Nu3qvJ6Fy81Yc4LnQ95xH+i+cfEp8fyU8/kfV14YwszxIFPhnoMTbjL71waVpyQ=="],
-
-    "@fontsource-variable/geist-mono": ["@fontsource-variable/geist-mono@5.2.8", "", {}, "sha512-KI5bj+hkkRiHttYHmccotUZ80ZuZyai+RwI1d7UId0clkx/jXxlo8qYK8j54WzmpBjtMoEMPyllV7faDcj+6RA=="],
 
     "@fontsource-variable/spline-sans-mono": ["@fontsource-variable/spline-sans-mono@5.2.8", "", {}, "sha512-Z1yYiEtP+8Gll5BJaR9dICK/ZTxoTWH+ZBH6rOTMWajPSOxwl7IZplkwX2J1QhMxqulhhdMrkRx6SkkLM+jLQw=="],
 

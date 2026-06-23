@@ -50,7 +50,7 @@ const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 
       <div class="grid sm:grid-cols-2 gap-5">
         <div class="rounded-xl border border-line bg-bg-elev p-5">
-          <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-3">Mapbox</p>
+          <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-3">Mapbox</p>
           <ul class="space-y-2 text-[13px] leading-[1.55] text-fg-dim">
             <li>• Imperative API — <code class="font-mono text-fg">map.addLayer({})</code></li>
             <li>• JSON style spec parsed at runtime</li>
@@ -60,7 +60,7 @@ const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
           </ul>
         </div>
         <div class="rounded-xl border border-line bg-bg-elev p-5">
-          <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-3">xgis</p>
+          <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-3">xgis</p>
           <ul class="space-y-2 text-[13px] leading-[1.55] text-fg-dim">
             <li>• Declarative — <code class="font-mono text-fg">layer x &#123; … &#125;</code></li>
             <li>• Compile-time IR + WGSL codegen</li>
@@ -143,7 +143,7 @@ const xgis = convertMapboxStyle(style)
       </h2>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-[12.5px]">
         <div class="border border-line rounded-md p-4 bg-bg-elev">
-          <div class="text-emerald-300 text-[11px] uppercase tracking-wider mb-2 font-medium">Supported</div>
+          <div class="text-emerald-300 text-[11px] uppercase tracking-[0.16em] mb-2 font-mono">Supported</div>
           <ul class="space-y-1.5 text-fg-dim leading-[1.55]">
             <li>• Sources: vector (PMTiles + TileJSON), raster, GeoJSON</li>
             <li>• Layers: background, fill, line, fill-extrusion, symbol (text)</li>
@@ -155,7 +155,7 @@ const xgis = convertMapboxStyle(style)
           </ul>
         </div>
         <div class="border border-line rounded-md p-4 bg-bg-elev">
-          <div class="text-amber-300 text-[11px] uppercase tracking-wider mb-2 font-medium">Lossy / heuristic</div>
+          <div class="text-amber-300 text-[11px] uppercase tracking-[0.16em] mb-2 font-mono">Lossy / heuristic</div>
           <ul class="space-y-1.5 text-fg-dim leading-[1.55]">
             <li>• <code class="font-mono">interpolate</code> curve type (exponential / cubic-bezier) folded to linear</li>
             <li>• <code class="font-mono">fill-translate</code>, <code class="font-mono">line-translate</code> dropped</li>
@@ -167,7 +167,7 @@ const xgis = convertMapboxStyle(style)
           </ul>
         </div>
         <div class="border border-line rounded-md p-4 bg-bg-elev">
-          <div class="text-rose-300 text-[11px] uppercase tracking-wider mb-2 font-medium">Unsupported (engine)</div>
+          <div class="text-rose-300 text-[11px] uppercase tracking-[0.16em] mb-2 font-mono">Unsupported (engine)</div>
           <ul class="space-y-1.5 text-fg-dim leading-[1.55]">
             <li>• Icon symbols + sprite atlas (icon-image / icon-size / icon-color)</li>
             <li>• <code class="font-mono">text-keep-upright</code> per-glyph flip on curves</li>
@@ -193,7 +193,7 @@ const xgis = convertMapboxStyle(style)
       </p>
       <div class="space-y-5">
         <div>
-          <p class="text-[12px] font-medium text-fg-mute uppercase tracking-wider mb-2">Zoom-driven width</p>
+          <p class="text-[12px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-2">Zoom-driven width</p>
           <div class="grid md:grid-cols-2 gap-3">
             <Code lang="json" title="Mapbox" code={`"line-width": [
   "interpolate", ["linear"],
@@ -206,7 +206,7 @@ const xgis = convertMapboxStyle(style)
         </div>
 
         <div>
-          <p class="text-[12px] font-medium text-fg-mute uppercase tracking-wider mb-2">Property-driven color</p>
+          <p class="text-[12px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-2">Property-driven color</p>
           <div class="grid md:grid-cols-2 gap-3">
             <Code lang="json" title="Mapbox" code={`"fill-color": [
   "match",
@@ -224,7 +224,7 @@ const xgis = convertMapboxStyle(style)
         </div>
 
         <div>
-          <p class="text-[12px] font-medium text-fg-mute uppercase tracking-wider mb-2">Coalesce fallback</p>
+          <p class="text-[12px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-2">Coalesce fallback</p>
           <div class="grid md:grid-cols-2 gap-3">
             <Code lang="json" title="Mapbox" code={`"fill-extrusion-height": [
   "coalesce",
@@ -237,7 +237,7 @@ const xgis = convertMapboxStyle(style)
         </div>
 
         <div>
-          <p class="text-[12px] font-medium text-fg-mute uppercase tracking-wider mb-2">Filter — legacy form</p>
+          <p class="text-[12px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-2">Filter — legacy form</p>
           <div class="grid md:grid-cols-2 gap-3">
             <Code lang="json" title="Mapbox" code={`"filter": [
   "all",

@@ -13,8 +13,6 @@
     "@astrojs/sitemap": "^3.7.2",
     "@fontsource-variable/archivo": "^5.2.8",
     "@fontsource-variable/big-shoulders-display": "^5.2.5",
-    "@fontsource-variable/geist": "^5.2.8",
-    "@fontsource-variable/geist-mono": "^5.2.7",
     "@fontsource-variable/spline-sans-mono": "^5.2.8",
     "@tailwindcss/vite": "^4.0.0",
     "@xgis/blueprint": "workspace:*",
