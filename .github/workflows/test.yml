@@ -110,6 +110,11 @@ jobs:
           # NOT rebalance by merging legs back together.
           - id: compiler-blueprint
             args: compiler/src blueprint/src
+          # shader-dsl unit suite (emit/intrinsics/cast gates + examples emit-gate). Pure
+          # vitest, no GPU — its own leg so a GLSL-backend or example regression fails CI
+          # (it was previously local-only). ~40 files, well under the ~110-file RPC threshold.
+          - id: shader-dsl
+            args: shader-dsl/src shader-dsl/examples
           - id: engine-render
             args: runtime/src/engine/render
           - id: engine-proj-text
