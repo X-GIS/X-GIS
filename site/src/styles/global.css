@@ -107,3 +107,51 @@
   .fade-up, .fade-in, .scale-fade { animation: none; }
   html { scroll-behavior: auto; }
 }
+
+/* ═══ Shader DSL mini-site — shared bits (these render in slotted page
+ *    content, so they must be global, not scoped to a layout) ═══ */
+/* Cap the height of the expressive-code blocks on the shader-dsl pages so a long
+ * shader / reflection scrolls inside its frame instead of running the page. */
+.sd-code .expressive-code pre { max-height: 520px; }
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Code-view tabs */
+[role="tab"] { color: var(--color-fg-mute); cursor: pointer; }
+[role="tab"]:hover { color: var(--color-fg-dim); }
+[role="tab"][aria-selected="true"] {
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
+/* Range slider — large touch target, accent thumb */
+.shader-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--color-line-strong);
+  outline: none;
+}
+.shader-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  cursor: pointer;
+  border: 3px solid var(--color-bg-card);
+}
+.shader-range::-moz-range-thumb {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  cursor: pointer;
+  border: 3px solid var(--color-bg-card);
+}

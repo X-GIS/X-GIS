@@ -1,0 +1,63 @@
+---
+import ShaderDsl from '../../../layouts/ShaderDsl.astro'
+import { shaderCards, categoryGroups } from '../../../lib/shader-examples.ts'
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const detailHref = (id: string) => `${base}/shader-dsl/examples/${id}`
+---
+
+<ShaderDsl
+  current="examples"
+  title="X-GIS Shader DSL — Examples"
+  description="A gallery of shader-DSL examples — cartographic (graticule, hillshade, colour ramp), generic, and compute. Open one to run it live on a WebGL2 canvas."
+>
+  <h1 class="text-[30px] sm:text-[38px] font-medium text-fg leading-[1.1] tracking-[-0.03em]">Examples</h1>
+  <p class="mt-4 text-[16px] leading-[1.6] text-fg-dim max-w-[680px]">
+    Open any card to view it on its own page — a live WebGL2 render, sliders, and the emitted
+    WGSL / GLSL / reflection, all from one DSL source.
+  </p>
+
+  <div class="mt-10 space-y-14">
+    {categoryGroups.map((group) => {
+      const cards = shaderCards.filter((c) => c.category === group.key)
+      if (cards.length === 0) return null
+      return (
+        <section>
+          <h2 class="text-[20px] font-medium text-fg tracking-[-0.015em] mb-1.5">{group.title}</h2>
+          <p class="text-[14px] leading-[1.55] text-fg-dim mb-6 max-w-[680px]">{group.body}</p>
+          <div class="grid sm:grid-cols-2 gap-4">
+            {cards.map((c) => (
+              <a href={detailHref(c.id)} class="shader-card group block rounded-2xl bg-bg-card border border-line hover:border-line-strong overflow-hidden">
+                <div class="aspect-[16/10] bg-bg-elev relative overflow-hidden">
+                  {c.thumb ? (
+                    <img src={c.thumb} alt={`${c.title} preview`} width="640" height="400" loading="lazy" class="w-full h-full object-cover" />
+                  ) : (
+                    <div class="w-full h-full flex items-center justify-center" style="background: linear-gradient(135deg, #14141a, #0a0a0a);">
+                      <span class="font-mono text-[11px] text-fg-mute uppercase tracking-widest">WGSL · compute</span>
+                    </div>
+                  )}
+                  <span class="absolute top-2.5 left-2.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-bg/80 backdrop-blur text-fg-dim text-[10px] font-medium tracking-wide uppercase">{c.category}</span>
+                </div>
+                <div class="p-5">
+                  <p class="font-mono text-[11px] text-fg-mute mb-2 truncate">{c.id}.ts</p>
+                  <h3 class="text-[16px] font-medium text-fg leading-[1.3] tracking-[-0.01em] mb-2">{c.title}</h3>
+                  <p class="text-[13px] leading-[1.5] text-fg-dim line-clamp-3">{c.blurb}</p>
+                  <p class="mt-4 inline-flex items-center gap-1.5 text-[13px] font-medium text-accent group-hover:text-accent-hover transition-colors">
+                    {c.renderable ? 'Open & run' : 'View source'}
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+                  </p>
+                </div>
+              </a>
+            ))}
+          </div>
+        </section>
+      )
+    })}
+  </div>
+
+  <style>
+    .shader-card { transition: transform 400ms cubic-bezier(0.16,0.84,0.32,1), border-color 300ms ease; }
+    .shader-card:hover { transform: translateY(-2px); }
+    @media (prefers-reduced-motion: reduce) { .shader-card, .shader-card:hover { transition: none; transform: none; } }
+  </style>
+</ShaderDsl>

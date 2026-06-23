@@ -1,0 +1,64 @@
+---
+import ShaderDsl from '../../layouts/ShaderDsl.astro'
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const root = `${base}/shader-dsl`
+
+const capabilities = [
+  { label: 'One source → many targets', body: 'Author once; emit WGSL for WebGPU and GLSL ES 3.00 for WebGL2. The WGSL is byte-stable.' },
+  { label: 'Type-checked', body: 'Nodes carry compile-time keys — a wrong-typed field or return is a TypeScript error, not a shader-compile surprise.' },
+  { label: 'Reflection', body: 'reflect(module) recovers bind groups, std140/std430 layouts, and entry signatures — the host binds without hand-derived offsets.' },
+  { label: 'Optimize + lint', body: 'CSE, DCE, LICM, const-fold and auto-vars, plus a 20-rule lint engine and a capability gate.' },
+  { label: 'CPU f64 oracle', body: 'Compile the same module to an f64 CPU function to cross-check the GPU result — the parity gate X-GIS rendering relies on.' },
+  { label: 'Content-free', body: 'It ships the authoring + emit surface, not any app’s shaders. X-GIS authors its own map shaders through it.' },
+]
+---
+
+<ShaderDsl
+  current=""
+  title="X-GIS — Shader DSL"
+  description="A TypeScript shader DSL: author a typed shader once, compile to WGSL (WebGPU) and GLSL ES 3.00 (WebGL2), reflect the pipeline, and cross-check on a CPU f64 oracle."
+>
+  <p class="text-[13px] font-medium tracking-[-0.01em] text-accent mb-3">@xgis/shader-dsl</p>
+  <h1 class="text-[34px] sm:text-[44px] font-medium text-fg leading-[1.08] tracking-[-0.03em]">
+    Shaders, authored in <span class="font-mono">TypeScript</span>.
+  </h1>
+  <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[680px]">
+    <code class="font-mono text-[15px] text-fg">@xgis/shader-dsl</code> is the engine that draws every
+    X-GIS map. You author a typed shader once; a single IR emits <span class="text-fg font-medium">WGSL</span>
+    for WebGPU and <span class="text-fg font-medium">GLSL ES 3.00</span> for WebGL2 — plus a reflection of
+    the pipeline and a CPU f64 oracle for parity checks.
+  </p>
+
+  <div class="mt-7 flex flex-wrap gap-3">
+    <a href={`${root}/getting-started`} class="inline-flex items-center gap-2 px-5 h-10 rounded-full bg-accent hover:bg-accent-hover text-white text-[14px] font-medium transition-colors">
+      Get started
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+    </a>
+    <a href={`${root}/examples`} class="inline-flex items-center gap-2 px-5 h-10 rounded-full border border-line hover:border-line-strong text-fg text-[14px] font-medium transition-colors">
+      Browse examples
+    </a>
+  </div>
+
+  <h2 class="text-[20px] sm:text-[22px] font-medium text-fg tracking-[-0.02em] mt-14 mb-5">What it gives you</h2>
+  <div class="grid sm:grid-cols-2 gap-4">
+    {capabilities.map((cap) => (
+      <div class="rounded-2xl bg-bg-card border border-line p-5">
+        <h3 class="text-[15px] font-medium text-fg mb-1.5">{cap.label}</h3>
+        <p class="text-[13.5px] leading-[1.55] text-fg-dim">{cap.body}</p>
+      </div>
+    ))}
+  </div>
+
+  <div class="mt-12 rounded-2xl border border-line p-5 bg-bg-card">
+    <p class="text-[14px] leading-[1.6] text-fg-dim">
+      <span class="text-fg font-medium">New here?</span> Start with
+      <a href={`${root}/getting-started`} class="text-accent hover:text-accent-hover transition-colors">Getting started</a>
+      for the author → emit → reflect flow, read
+      <a href={`${root}/concepts`} class="text-accent hover:text-accent-hover transition-colors">Concepts</a>
+      for the why, then open an
+      <a href={`${root}/examples`} class="text-accent hover:text-accent-hover transition-colors">example</a>
+      to run it live in your browser.
+    </p>
+  </div>
+</ShaderDsl>

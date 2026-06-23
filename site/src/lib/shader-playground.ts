@@ -80,6 +80,10 @@ export function mountShader(
   const start = performance.now()
   let raf = 0
   let visible = true
+  // Respect prefers-reduced-motion: freeze the `time` uniform so nothing animates,
+  // while sliders + resolution stay live. (Re-evaluated each frame so an OS toggle applies.)
+  const reduceMotion = (): boolean =>
+    typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches
 
   const resize = (): void => {
     const dpr = Math.min(window.devicePixelRatio || 1, 2)
@@ -90,7 +94,7 @@ export function mountShader(
 
   const packUniforms = (): void => {
     if (!block || !f32) return
-    const tSec = (performance.now() - start) / 1000
+    const tSec = reduceMotion() ? 3 : (performance.now() - start) / 1000
     for (const field of block.fields) {
       const c = spec.controls[field.name]
       let v: number[]

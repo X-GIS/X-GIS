@@ -1,0 +1,124 @@
+---
+// Sidebar layout for the @xgis/shader-dsl mini-site (/shader-dsl/*). Gives the section its
+// own library-docs shell — a sticky left nav on desktop, a horizontal scroll-strip on
+// mobile — distinct from the X-GIS cartography docs (those use Docs.astro).
+import Base from './Base.astro'
+import Header from '../components/Header.astro'
+import Footer from '../components/Footer.astro'
+
+interface Props {
+  title?: string
+  description?: string
+  /** Active page slug: '' (overview), 'getting-started', 'concepts', 'examples', 'reference'. */
+  current: string
+  /** Detail pages (an example) supply their own prev/next, so suppress the section one. */
+  hideSectionNav?: boolean
+}
+const { title, description, current, hideSectionNav = false } = Astro.props
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+
+interface NavItem { label: string; slug: string; href: string }
+interface NavGroup { title?: string; items: NavItem[] }
+
+const root = `${base}/shader-dsl`
+const navGroups: NavGroup[] = [
+  { items: [{ label: 'Overview', slug: '', href: root }] },
+  {
+    title: 'Learn',
+    items: [
+      { label: 'Getting started', slug: 'getting-started', href: `${root}/getting-started` },
+      { label: 'Concepts',        slug: 'concepts',        href: `${root}/concepts` },
+    ],
+  },
+  {
+    title: 'Examples',
+    items: [{ label: 'Gallery', slug: 'examples', href: `${root}/examples` }],
+  },
+  {
+    title: 'Reference',
+    items: [{ label: 'API reference', slug: 'reference', href: `${root}/reference` }],
+  },
+]
+const flat = navGroups.flatMap((g) => g.items)
+---
+
+<Base title={title ?? 'X-GIS — Shader DSL'} description={description}>
+  <Header />
+
+  <main class="pt-20 pb-32">
+    <div class="max-w-[1280px] mx-auto px-6 grid gap-x-12 lg:grid-cols-[220px_minmax(0,1fr)]">
+      <!-- Desktop sidebar -->
+      <aside class="hidden lg:block">
+        <nav class="sticky top-20 text-[13px] leading-[1.7]">
+          <p class="text-[11px] font-medium text-accent uppercase tracking-wider mb-4">Shader DSL</p>
+          {navGroups.map((group) => (
+            <div class="mb-7">
+              {group.title && (
+                <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-3">{group.title}</p>
+              )}
+              <ul class="space-y-1.5">
+                {group.items.map((item) => {
+                  const active = item.slug === current
+                  return (
+                    <li>
+                      <a href={item.href} class={`block transition-colors ${active ? 'text-accent font-medium' : 'text-fg-dim hover:text-fg'}`} aria-current={active ? 'page' : undefined}>
+                        {item.label}
+                      </a>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          ))}
+        </nav>
+      </aside>
+
+      <!-- Mobile section strip -->
+      <nav class="lg:hidden mb-6 -mx-6 px-6 py-3 border-b border-line flex items-center gap-4 overflow-x-auto whitespace-nowrap no-scrollbar text-[13px]">
+        {flat.map((item) => {
+          const active = item.slug === current
+          return (
+            <a href={item.href} class={`flex-shrink-0 transition-colors ${active ? 'text-accent font-medium' : 'text-fg-dim hover:text-fg'}`} aria-current={active ? 'page' : undefined}>
+              {item.label}
+            </a>
+          )
+        })}
+      </nav>
+
+      <article class="min-w-0">
+        <slot />
+
+        {/* Prev / next across the flattened section order */}
+        {!hideSectionNav && (() => {
+          const idx = flat.findIndex((i) => i.slug === current)
+          const prev = idx > 0 ? flat[idx - 1] : null
+          const next = idx >= 0 && idx < flat.length - 1 ? flat[idx + 1] : null
+          if (!prev && !next) return null
+          return (
+            <div class={`mt-16 pt-8 border-t border-line grid gap-3 ${prev && next ? 'sm:grid-cols-2' : 'sm:grid-cols-1'}`}>
+              {prev && (
+                <a href={prev.href} class="group block rounded-xl border border-line px-5 py-4 hover:border-line-strong transition-colors">
+                  <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-1.5">← Previous</p>
+                  <p class="text-[15px] font-medium text-fg group-hover:text-accent transition-colors">{prev.label}</p>
+                </a>
+              )}
+              {next && (
+                <a href={next.href} class={`group block rounded-xl border border-line px-5 py-4 hover:border-line-strong transition-colors text-right ${!prev ? 'sm:col-start-2' : ''}`}>
+                  <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-1.5">Next →</p>
+                  <p class="text-[15px] font-medium text-fg group-hover:text-accent transition-colors">{next.label}</p>
+                </a>
+              )}
+            </div>
+          )
+        })()}
+      </article>
+    </div>
+  </main>
+
+  <Footer />
+</Base>
+
+<style>
+  .no-scrollbar { scrollbar-width: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+</style>
