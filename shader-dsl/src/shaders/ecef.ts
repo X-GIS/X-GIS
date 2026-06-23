@@ -8,10 +8,11 @@
 // DSL-emitted WGSL with no call-site change. (Was: hand-written WGSL template literals.)
 
 import {
-  fn, f32, f32T, vec3, vec3fT, sin, cos, sqrt, constRef,
+  fn, f32, f32T, vec3, vec3fT, sin, cos, sqrt,
   type ConstDecl, type FuncDecl,
 } from '../core/ir'
 import { emitConst, emitFuncsCsed } from '../core/backends/wgsl'
+import { WGS84_A, WGS84_E2 } from './consts'
 
 /** WGS84 ellipsoid constants — semi-major axis (m) + eccentricity² (= 2f - f²
  *  with f = 1/298.257223563), and degrees→radians. */
@@ -24,10 +25,10 @@ export const ECEF_CONSTS: ConstDecl[] = [
 export const lonlatToEcef = fn('lonlat_to_ecef', { lon_rad: f32T, lat_rad: f32T, height: f32T }, vec3fT, (p, _b) => {
   const sinLat = sin(p.lat_rad)
   const cosLat = cos(p.lat_rad)
-  const n = constRef('WGS84_A').div(sqrt(f32(1).sub(constRef('WGS84_E2').mul(sinLat).mul(sinLat))))
+  const n = WGS84_A.div(sqrt(f32(1).sub(WGS84_E2.mul(sinLat).mul(sinLat))))
   const x = n.add(p.height).mul(cosLat).mul(cos(p.lon_rad))
   const y = n.add(p.height).mul(cosLat).mul(sin(p.lon_rad))
-  const z = n.mul(f32(1).sub(constRef('WGS84_E2'))).add(p.height).mul(sinLat)
+  const z = n.mul(f32(1).sub(WGS84_E2)).add(p.height).mul(sinLat)
   return vec3(x, y, z)
 })
 

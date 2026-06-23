@@ -20,7 +20,7 @@
 // sampling the offscreen RT) is emitted alongside via emitCompositeWgsl().
 
 import {
-  fn, module, constRef, transformMat4,
+  fn, module, transformMat4,
   f32, i32, u32, toF32, vec2, vec3, vec4, vec2u, clamp, fract, sign,
   length, dot, min, max, smoothstep, abs, floor, select, textureSample,
   bitcastU32, unpack4x8unorm,
@@ -37,6 +37,7 @@ import { emitModule } from '../core/backends/wgsl'
 import { inv_merc_lat_rad, flat_rel, needs_backface_cull, rim_alpha, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
 import { ECEF_CONSTS, ECEF_FUNCS, lonlatToEcef } from './ecef'
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
+import { PI, EARTH_R, DEG2RAD } from './consts'
 import {
   dist_to_segment,
   dist_to_quadratic,
@@ -233,11 +234,11 @@ const finalizeCorner = fn('finalize_corner', { corner: vec2fT }, vec2fT, (p) => 
   const projParams = TILE.field.proj_params
   const tileOrigin = TILE.field.tile_origin_merc
   const absMerc = p.corner.add(tileOrigin)
-  const absLon = absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R')))
+  const absLon = absMerc.x.div(DEG2RAD.mul(EARTH_R))
   const latRad = inv_merc_lat_rad(absMerc.y)
   const absLat = degrees(latRad)
   const tileRefLon = tileOrigin.x.add(f32(0.5).mul(TILE.field.tile_extent_m))
-      .div(constRef('DEG2RAD').mul(constRef('EARTH_R')))
+      .div(DEG2RAD.mul(EARTH_R))
   // single-exit: Mercator (proj<0.5) passes the corner through; else the reprojected
   // flat_rel. flat_rel is pure, so computing it on the Mercator path (selected away) is harmless.
   const flatRel = flat_rel(absLon, absLat, projParams, tileRefLon)
@@ -248,7 +249,7 @@ const endpointCosC = fn('endpoint_cos_c', { p_h: vec2fT, p_l: vec2fT }, f32T, (p
   const tileOrigin = TILE.field.tile_origin_merc
   const absMercX = p.p_h.x.add(p.p_l.x).add(tileOrigin.x)
   const absMercY = p.p_h.y.add(p.p_l.y).add(tileOrigin.y)
-  const absLon = absMercX.div(constRef('DEG2RAD').mul(constRef('EARTH_R')))
+  const absLon = absMercX.div(DEG2RAD.mul(EARTH_R))
   const latRad = inv_merc_lat_rad(absMercY)
   const absLat = degrees(latRad)
   return needs_backface_cull(absLon, absLat, TILE.field.proj_params)
@@ -320,7 +321,7 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
   // Backface cull on non-Mercator (helper short-circuits to +1 for flat).
   If(projParams.x.ge(0.5), () => {
     const absMerc = inp.world_local.add(tileOrigin)
-    const absLon = absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R')))
+    const absLon = absMerc.x.div(DEG2RAD.mul(EARTH_R))
     const latRad = inv_merc_lat_rad(absMerc.y)
     const absLat = degrees(latRad)
     If(needs_backface_cull(absLon, absLat, projParams).lt(0), () => { Discard() })
@@ -730,7 +731,7 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, vec4f
 const lineRimAlpha = fn('line_rim_alpha', { input: LineOut.type }, f32T, (p) => {
   const tileOrigin = TILE.field.tile_origin_merc
   const absMerc = LineOut.of(p.input).world_local.add(tileOrigin)
-  const absLon = absMerc.x.div(constRef('DEG2RAD').mul(constRef('EARTH_R')))
+  const absLon = absMerc.x.div(DEG2RAD.mul(EARTH_R))
   const latRad = inv_merc_lat_rad(absMerc.y)
   const absLat = degrees(latRad)
   return rim_alpha(absLon, absLat, TILE.field.proj_params)
@@ -872,8 +873,8 @@ const vsLine = fn('vs_line', {
   // 2 sin + 2 cos + 1 sqrt (inside lonlat_to_ecef) + 1 tan + 1 exp — modest on
   // modern GPUs and isolated to the line VS.
 
-  const earthR = constRef('EARTH_R')
-  const pi = constRef('PI')
+  const earthR = EARTH_R
+  const pi = PI
 
   // Helper: build local ECEF for an absolute Mercator (x_m, y_m) input via the
   // shared `lonlat_to_ecef(lon, lat, height)` (same as the raster VS path).
