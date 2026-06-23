@@ -22,13 +22,10 @@
 // camera's far plane and packs it into the existing uniform ring (reusing
 // the old DSFUN _pad0 slot — no layout growth).
 
-/** WGSL snippet: log-depth helper functions (apply_log_depth +
- *  compute_log_frag_depth). Embed via template literal in every
- *  perspective-projected shader (POLYGON, LINE, POINT, RASTER).
- *  Now EMITTED from the shader DSL (`shader-dsl/log-depth.ts`) — the CPU
- *  helpers below (computeLogDepthFc / simulateLogDepthZ) stay the canonical
- *  CPU reference, pinned against the emitted math by log-depth.test.ts. */
-export { LOG_DEPTH_WGSL_FNS as WGSL_LOG_DEPTH_FNS } from '@xgis/shader-dsl'
+// The log-depth WGSL helpers (apply_log_depth + compute_log_frag_depth) are EMITTED from the shader DSL
+// (`shader-dsl/log-depth.ts`); the CPU helpers below (computeLogDepthFc / simulateLogDepthZ) stay the
+// canonical CPU reference, pinned against the emitted math by log-depth.test.ts. (The dead
+// `WGSL_LOG_DEPTH_FNS` re-export was removed — it had zero consumers; tests deep-import LOG_DEPTH_WGSL_FNS.)
 
 /** CPU-side factor computation — exported for tests and for the uniform
  *  pack path in every renderer. Matches the shader exactly. */

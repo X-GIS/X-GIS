@@ -48,9 +48,9 @@ function artifacts(): ReturnType<typeof buildProjectionArtifacts> {
   return (_artifacts ??= buildProjectionArtifacts(_specs))
 }
 export const getPROJECTION_MODULE = (): ModuleDecl => artifacts().PROJECTION_MODULE
-/** @deprecated String-prepend emit path — being phased out for decl-array merge: consume the fn decls (getGpuProjectionFuncs / ECEF_FUNCS / LOG_DEPTH_FUNCS / the sdf fn decls) and let emitModule stitch + auto-cache them. */
+/** Emitted-WGSL accessor for the parity/structure test harnesses — they splice this exact WGSL into a standalone test shader to verify CPU↔GPU parity. NOT a production path (runtime shaders are built via emitModule, not string-prepend); the emit layer is private, so this string accessor is the sanctioned public surface for those harnesses. */
 export const getProjectionWgslConsts = (): string => artifacts().PROJECTION_WGSL_CONSTS
-/** @deprecated String-prepend emit path — being phased out for decl-array merge: consume the fn decls (getGpuProjectionFuncs / ECEF_FUNCS / LOG_DEPTH_FUNCS / the sdf fn decls) and let emitModule stitch + auto-cache them. */
+/** Emitted-WGSL accessor for the parity/structure test harnesses — they splice this exact WGSL into a standalone test shader to verify CPU↔GPU parity. NOT a production path (runtime shaders are built via emitModule, not string-prepend); the emit layer is private, so this string accessor is the sanctioned public surface for those harnesses. */
 export const getProjectionWgslFns = (): string => artifacts().PROJECTION_WGSL_FNS
 /** The GPU projection fn DECLS (project_geom_cpu excluded — CPU-only). Consumers that merge
  *  the projection graph into their own module() (instead of prepending getProjectionWgslFns()
