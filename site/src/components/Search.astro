@@ -239,7 +239,7 @@ const indexJson = buildSearchIndexJSON(base)
         }).join('')
         return `
           <li class="search-group pt-2 pb-1">
-            <p class="px-5 pb-1.5 text-[10px] font-medium text-fg-mute uppercase tracking-wider">${escapeHtml(groupTag)} <span class="text-fg-faint">·</span> <span class="text-fg-faint">${arr.length}</span></p>
+            <p class="px-5 pb-1.5 font-mono text-[10px] text-fg-mute uppercase tracking-[0.16em]">${escapeHtml(groupTag)} <span class="text-fg-faint">·</span> <span class="text-fg-faint">${arr.length}</span></p>
             <ul>${rowsHtml}</ul>
           </li>`
       }).join('')

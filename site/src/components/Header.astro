@@ -27,7 +27,7 @@ const activeSeg =
   : path.includes('/convert') ? 'convert'
   : ''
 const navCls = (key: string): string =>
-  key === activeSeg ? 'text-fg font-medium' : 'hover:text-fg transition-colors'
+  key === activeSeg ? 'text-accent font-medium' : 'hover:text-accent transition-colors'
 ---
 
 <header class="fixed top-0 inset-x-0 z-50 backdrop-blur-2xl bg-bg/72 border-b border-line">
@@ -42,15 +42,16 @@ const navCls = (key: string): string =>
       <span class="font-medium tracking-tight text-fg">X-GIS</span>
     </a>
 
-    <!-- Desktop nav (≥ sm) -->
+    <!-- Desktop nav (≥ sm) — hover lights the link in the chart's active
+         cyan, like a selected instrument readout. -->
     <nav class="ml-auto hidden sm:flex items-center gap-7 text-fg-dim">
       <a href={docsUrl} class={navCls('docs')}>Docs</a>
       <a href={examplesUrl} class={navCls('examples')}>Examples</a>
       <a href={shaderUrl} class={navCls('shaders')}>Shaders</a>
       <a href={blueprintUrl} class={navCls('blueprint')}>Blueprint</a>
       <a href={convertUrl} class={navCls('convert')}>Convert</a>
-      <a href={`${home}#install`} class="hover:text-fg transition-colors">Install</a>
-      <a href={githubUrl} target="_blank" rel="noopener" class="hover:text-fg transition-colors">GitHub</a>
+      <a href={`${home}#install`} class="hover:text-accent transition-colors">Install</a>
+      <a href={githubUrl} target="_blank" rel="noopener" class="hover:text-accent transition-colors">GitHub</a>
     </nav>
 
     <!-- Search (desktop) — sits between nav links and the trailing

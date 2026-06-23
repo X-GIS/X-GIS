@@ -6,75 +6,67 @@ const examplesUrl = `${base}/examples`
 const convertUrl = `${base}/convert`
 ---
 
-<section class="relative min-h-[100svh] flex items-center justify-center overflow-hidden pt-24 pb-16">
-  <!-- Single subtle radial — the only "atmosphere" on the page. -->
-  <div
-    class="absolute inset-0 pointer-events-none"
-    aria-hidden="true"
-    style="background: radial-gradient(ellipse 80% 60% at 50% 30%, rgba(41, 151, 255, 0.10) 0%, rgba(41, 151, 255, 0) 60%);"
-  ></div>
+<section class="relative min-h-[100svh] flex items-center justify-center overflow-hidden pt-24 pb-20">
+  <div class="relative w-full max-w-[1080px] mx-auto px-6 text-center">
 
-  <div class="relative w-full max-w-[1100px] mx-auto px-6 text-center">
-
-    <p class="fade-up text-[13px] font-medium tracking-[-0.01em] text-accent mb-5"
-       style="animation-delay: 100ms">
+    <!-- Eyebrow: a chart legend tag. The vermilion lozenge is the same
+         pen that marks the live projection below — one accent, one story. -->
+    <p class="fade-up inline-flex items-center gap-2.5 font-mono text-[11px] tracking-[0.22em] text-fg-mute uppercase mb-7"
+       style="animation-delay: 80ms">
+      <span class="inline-block w-2 h-2 rotate-45 bg-vermilion"></span>
       Introducing X-GIS
     </p>
 
-    <h1 class="fade-up font-sans font-medium text-fg leading-[0.96] tracking-[-0.045em]
-               text-[52px] sm:text-[76px] lg:text-[96px] xl:text-[112px]"
-        style="animation-delay: 240ms">
-      A language for<br />
-      <span class="bg-gradient-to-b from-fg to-fg-dim bg-clip-text text-transparent">cartography.</span>
+    <!-- The thesis, set in the chart title-block face. Condensed, so it
+         goes big. The subject's own headline — said plainly, drawn large. -->
+    <h1 class="fade-up font-display font-semibold uppercase text-fg leading-[0.88] tracking-[0.005em]
+               text-[44px] sm:text-[80px] md:text-[104px] lg:text-[132px] xl:text-[150px]"
+        style="animation-delay: 200ms">
+      A language for<br />cartography
     </h1>
 
-    <p class="fade-up mt-7 mx-auto max-w-[620px] text-[18px] sm:text-[21px] leading-[1.4] text-fg-dim"
-       style="animation-delay: 380ms">
-      Declare what your map should look like.
-      The compiler emits the WGSL shaders, buffer layouts, and projection math.
+    <p class="fade-up mt-8 mx-auto max-w-[600px] text-[17px] sm:text-[20px] leading-[1.5] text-fg-dim"
+       style="animation-delay: 340ms">
+      Declare what your map should look like. The compiler emits the
+      WGSL shaders, buffer layouts, and projection math.
     </p>
 
-    <div class="fade-up mt-10 flex flex-wrap items-center justify-center gap-4"
-         style="animation-delay: 520ms">
+    <div class="fade-up mt-10 flex flex-wrap items-center justify-center gap-3.5"
+         style="animation-delay: 480ms">
       <a
         href={docsUrl}
-        class="inline-flex items-center gap-2 px-6 h-11 rounded-full
+        class="inline-flex items-center gap-2 px-6 h-11 rounded-md
                bg-accent hover:bg-accent-hover active:bg-accent-press
-               text-white text-[15px] font-medium transition-colors"
+               text-bg text-[15px] font-semibold transition-colors"
       >
         Read the docs
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 6l6 6-6 6"/>
-        </svg>
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
       </a>
       <a
         href={examplesUrl}
-        class="inline-flex items-center gap-2 px-6 h-11 rounded-full
-               text-accent hover:text-accent-hover text-[15px] font-medium transition-colors"
+        class="inline-flex items-center gap-2 px-5 h-11 rounded-md border border-line-strong
+               text-fg hover:border-accent hover:text-accent text-[15px] font-medium transition-colors"
       >
         View examples
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 6l6 6-6 6"/>
-        </svg>
       </a>
       <a
         href={convertUrl}
-        class="inline-flex items-center gap-2 px-6 h-11 rounded-full
-               text-fg-dim hover:text-fg text-[15px] font-medium transition-colors"
+        class="inline-flex items-center gap-1.5 px-3 h-11
+               text-fg-mute hover:text-fg text-[15px] font-medium transition-colors"
       >
         Convert from Mapbox
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 6l6 6-6 6"/>
-        </svg>
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
       </a>
     </div>
 
-    <!-- Code (read-only) + the live map it renders. Not editable here —
-         the playground is the surface for trying things. -->
+    <!-- The signature: one source, rendered live across projections. The
+         .xgis above never changes; the chart below morphs globe → flat →
+         globe while the legend reads out the active view. "One source,
+         any view" — shown, not claimed. -->
     <div class="scale-fade mt-16 sm:mt-20 mx-auto max-w-[680px] text-left"
-         style="animation-delay: 700ms">
-      <div class="rounded-2xl bg-bg-card border border-line overflow-hidden">
-        <pre class="m-0 px-7 py-7 font-mono text-[14px] sm:text-[15px] leading-[1.85] text-fg whitespace-pre overflow-x-auto"
+         style="animation-delay: 640ms">
+      <div class="rounded-xl bg-bg-card border border-line overflow-hidden shadow-[0_24px_60px_-24px_rgba(0,0,0,0.7)]">
+        <pre class="m-0 px-7 py-6 font-mono text-[13.5px] sm:text-[14.5px] leading-[1.8] text-fg whitespace-pre overflow-x-auto"
 ><code><span class="kw">source</span> <span class="id">land</span> {`{`}
   <span class="kw">type</span><span class="pun">:</span> <span class="lit">geojson</span>
   <span class="kw">url</span><span class="pun">:</span> <span class="str">"data/land.geojson"</span>
@@ -90,82 +82,119 @@ const convertUrl = `${base}/convert`
         <div class="relative bg-bg">
           <canvas
             id="hero-map"
-            class="block w-full opacity-0 transition-opacity duration-700"
-            style="height: 320px; touch-action: none;"
+            class="block w-full opacity-0 transition-opacity duration-300"
+            style="height: 300px; touch-action: none;"
           ></canvas>
           <div
             id="hero-map-fallback"
-            class="absolute inset-0 flex items-center justify-center text-fg-mute text-[13px] font-mono pointer-events-none"
+            class="absolute inset-0 flex items-center justify-center text-fg-mute text-[12px] font-mono uppercase tracking-[0.16em] pointer-events-none"
           >
-            Loading…
+            Compiling…
           </div>
+        </div>
+
+        <!-- Title block / legend: the chart's frame metadata. -->
+        <div class="flex items-center justify-between gap-4 border-t border-line px-5 py-2.5 font-mono text-[10.5px] uppercase tracking-[0.16em] text-fg-mute">
+          <span>Source · land.geojson</span>
+          <span class="inline-flex items-center gap-2">
+            Projection
+            <span id="hero-proj-marker" class="marker-pulse inline-block w-1.5 h-1.5 rounded-full bg-vermilion"></span>
+            <span id="hero-proj-name" class="text-fg-dim w-[92px] text-left">Globe</span>
+          </span>
         </div>
       </div>
 
       <p class="mt-5 text-center text-[12px] text-fg-mute">
-        Want to tweak it? &nbsp;
-        <a
-          href={examplesUrl}
-          class="text-accent hover:text-accent-hover transition-colors inline-flex items-center gap-1"
-        >
+        Drag, zoom, explore. &nbsp;
+        <a href={examplesUrl} class="text-accent hover:text-accent-hover transition-colors inline-flex items-center gap-1">
           See more examples
-          <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M9 6l6 6-6 6"/>
-          </svg>
+          <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
         </a>
       </p>
     </div>
 
-    <p class="fade-up mt-10 text-[12px] text-fg-mute font-mono"
-       style="animation-delay: 900ms">
+    <p class="fade-up mt-10 font-mono text-[11px] tracking-[0.16em] uppercase text-fg-faint"
+       style="animation-delay: 820ms">
       WebGPU&nbsp; · &nbsp;Seven projections&nbsp; · &nbsp;MIT
     </p>
   </div>
 </section>
 
 <script>
-  // The hero map mount is deferred until either (a) the canvas
-  // intersects the viewport or (b) the user interacts with it. Eager
-  // mount loaded ~397 KB of `@xgis/runtime` synchronously on first
-  // paint and dominated the landing-page LCP. Lazy mount keeps the
-  // landing route lightweight while the map still appears the moment
-  // the user reaches it (typical scroll lag is fast enough that the
-  // canvas is still visible by the time it lights up).
+  // Lazy-mount @xgis/runtime (~397 KB) off the landing-route critical
+  // path: mount when the canvas nears the viewport / the user touches it,
+  // never on first paint. Once mounted, the chart auto-cycles projections
+  // to demonstrate "one source, any view" — paused on user interaction
+  // (they're exploring) and when the tab is hidden.
   type XGISMapType = import('@xgis/runtime').XGISMap
 
   const canvas = document.getElementById('hero-map') as HTMLCanvasElement | null
   const fallback = document.getElementById('hero-map-fallback')
+  const projName = document.getElementById('hero-proj-name')
+
+  // [projection id, display label] — a visually distinct quartet that
+  // takes the same land source from sphere to plane and back.
+  const CYCLE: [string, string][] = [
+    ['globe', 'Globe'],
+    ['natural_earth', 'Natural Earth'],
+    ['mercator', 'Mercator'],
+    ['orthographic', 'Orthographic'],
+  ]
 
   if (canvas) {
     let mountedMap: XGISMapType | null = null
     let mountStarted = false
+    let cycleTimer: ReturnType<typeof setTimeout> | null = null
+    let cycleIdx = 0
+    let userTookOver = false
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+    const stopCycle = (): void => {
+      if (cycleTimer) { clearTimeout(cycleTimer); cycleTimer = null }
+    }
+
+    // Cross-fade the canvas, swap projection at the dark point, fade back.
+    const advance = (): void => {
+      if (!mountedMap || userTookOver || document.hidden) return
+      cycleIdx = (cycleIdx + 1) % CYCLE.length
+      const [id, label] = CYCLE[cycleIdx]
+      canvas.style.opacity = '0'
+      window.setTimeout(() => {
+        if (!mountedMap || userTookOver) return
+        mountedMap.setProjection(id)
+        // Re-center so each view frames the whole world the same way.
+        const c = mountedMap.getCamera()
+        c.zoom = 1; c.centerX = 0; c.centerY = 0
+        mountedMap.markCameraPositioned()
+        mountedMap.invalidate()
+        if (projName) projName.textContent = label
+        canvas.style.opacity = '1'
+        cycleTimer = window.setTimeout(advance, 3600)
+      }, 280)
+    }
 
     const startMount = async (): Promise<void> => {
       if (mountStarted) return
       mountStarted = true
       try {
-        // Dynamic import — splits @xgis/runtime + @xgis/compiler out of
-        // the landing-route bundle. Loaded only when the map needs to
-        // render, not on every page view.
         const { XGISMap } = await import('@xgis/runtime')
 
-        // Wheel-zoom fix: the runtime's controller passes WheelEvent
-        // .clientX/Y straight into Camera.zoomAt which expects canvas-
-        // local CSS pixels. For a centered hero canvas that puts the
-        // focal point off by canvasLeft/Top pixels. Capture phase +
-        // stopImmediatePropagation blocks the runtime's listener, then
-        // we call zoomAt with corrected coords.
+        // Wheel-zoom focal-point fix: the runtime feeds WheelEvent
+        // clientX/Y straight into zoomAt, which wants canvas-local CSS
+        // px. For a centered hero canvas that is off by canvasLeft/Top.
+        // Capture + stopImmediatePropagation blocks the runtime listener;
+        // we re-dispatch with corrected coords. Touching the canvas also
+        // hands control to the user — the auto-cycle stops.
         canvas.addEventListener('wheel', (e) => {
           e.preventDefault()
           e.stopImmediatePropagation()
           if (!mountedMap) return
+          userTookOver = true; stopCycle()
           const rect = canvas.getBoundingClientRect()
-          const canvasX = e.clientX - rect.left
-          const canvasY = e.clientY - rect.top
           const delta = -e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.003)
           mountedMap.getCamera().zoomAt(
             Math.max(-1, Math.min(1, delta)),
-            canvasX, canvasY,
+            e.clientX - rect.left, e.clientY - rect.top,
             canvas.width, canvas.height,
           )
         }, { capture: true, passive: false })
@@ -186,57 +215,52 @@ layer continents {
 
         mountedMap = new XGISMap(canvas)
         await mountedMap.run(source, baseUrl)
-        // Center the hero at (lon=0, lat=0) zoom=1 so the whole
-        // globe fits the canvas. bounds-fit would otherwise pick
-        // (lon=0, lat=-3) (centroid of the land bounds — Antarctica
-        // pulls the average south) which puts the equator slightly
-        // above centre and looks lopsided.
+        mountedMap.setProjection(CYCLE[0][0])
         const c = mountedMap.getCamera()
-        c.zoom = 1
-        c.centerX = 0
-        c.centerY = 0
+        c.zoom = 1; c.centerX = 0; c.centerY = 0
         mountedMap.markCameraPositioned()
         mountedMap.invalidate()
         canvas.style.opacity = '1'
         if (fallback) fallback.style.display = 'none'
+        if (projName) projName.textContent = CYCLE[0][1]
+
+        // Auto-cycle unless the user prefers reduced motion (then the
+        // chart sits still on the globe — the readout still labels it).
+        if (!reduceMotion) cycleTimer = window.setTimeout(advance, 3600)
+        document.addEventListener('visibilitychange', () => {
+          if (document.hidden) stopCycle()
+          else if (!userTookOver && !reduceMotion && !cycleTimer) cycleTimer = window.setTimeout(advance, 1200)
+        })
       } catch (err) {
         console.warn('[hero-map]', err)
         if (fallback) fallback.textContent = 'Map preview unavailable'
       }
     }
 
-    // Defer @xgis/runtime import past the entrance-animation tail.
-    // The fade-up cascade ends ~2000-2100ms in (last keyframe at 900ms
-    // delay × 1100ms duration; scale-fade on the map card at 700ms ×
-    // 1400ms). Eagerly mounting during this window puts a ~400-500ms
-    // parse-and-init long task right on top of the animations and
-    // drops 20+ frames at 4× CPU throttle. `requestIdleCallback` alone
-    // wasn't enough — idle gaps DO open between animation frames, so
-    // the runtime import slotted into one and still blocked the
-    // composite. Belt-and-braces: a setTimeout floor at 2200ms (after
-    // animations) + requestIdleCallback ceiling to pick the actual
-    // dispatch moment. User interaction (pointerdown / focus) still
-    // shortcuts both — once the user touches the canvas the animation
-    // budget doesn't matter.
+    // Defer the runtime import past the entrance-animation tail (~2.2s),
+    // with requestIdleCallback to pick the actual dispatch moment.
+    // Interaction shortcuts both.
     const requestIdle = (window as { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => void }).requestIdleCallback
       ?? ((cb: () => void) => setTimeout(cb, 0))
     setTimeout(() => requestIdle(() => { startMount() }, { timeout: 1500 }), 2200)
 
     const onInteract = (): void => {
+      userTookOver = true; stopCycle()
       canvas.removeEventListener('pointerdown', onInteract)
-      canvas.removeEventListener('focus', onInteract)
       startMount()
     }
     canvas.addEventListener('pointerdown', onInteract, { once: true, passive: true })
-    canvas.addEventListener('focus', onInteract, { once: true })
+    canvas.addEventListener('focus', () => startMount(), { once: true })
   }
 </script>
 
 <style>
-  /* Token coloring — same palette as before. */
-  pre .kw   { color: #ff7ab2; }
-  pre .id   { color: var(--color-fg); font-weight: 500; }
-  pre .util { color: #a8c6fa; }
-  pre .lit, pre .str { color: #d6c08a; }
+  /* .xgis token coloring — tuned to the Chart Room palette. Keywords in
+   * the surveyor's pen, utilities in phosphor cyan, literals in chart
+   * annotation sand. */
+  pre .kw   { color: #ff8a6b; }
+  pre .id   { color: var(--color-fg); font-weight: 600; }
+  pre .util { color: #6fe3da; }
+  pre .lit, pre .str { color: #d8c79a; }
   pre .pun  { color: var(--color-fg-faint); }
 </style>

@@ -148,10 +148,10 @@ const initialPreset = presets[0]
   description="Live compile-graph viewer. Type xgis source, watch the lexer / parser / IR / paint-routing / compute plan / WGSL kernel update in place."
 >
   <header class="mb-10">
-    <p class="text-[13px] font-medium text-accent mb-3 tracking-[-0.01em]">
+    <p class="font-mono text-[11px] tracking-[0.2em] uppercase text-accent mb-3">
       Concept · interactive
     </p>
-    <h1 class="text-[36px] sm:text-[44px] lg:text-[52px] font-medium text-fg leading-[1.1] tracking-[-0.035em]">
+    <h1 class="font-display font-semibold uppercase text-fg leading-[0.95] tracking-[0.01em] text-[38px] sm:text-[52px] lg:text-[64px]">
       Compile graph — live.
     </h1>
     <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[720px]">
@@ -164,7 +164,7 @@ const initialPreset = presets[0]
 
   <!-- Preset chips -->
   <div class="mb-3 flex flex-wrap gap-2 items-center">
-    <span class="text-fg-mute text-[11px] uppercase tracking-wider mr-1">Preset</span>
+    <span class="text-fg-mute text-[11px] font-mono uppercase tracking-[0.16em] mr-1">Preset</span>
     {presets.map(p => (
       <button type="button" data-preset-id={p.id}
               class:list={[
@@ -189,7 +189,7 @@ const initialPreset = presets[0]
          visible. Scroll position is kept in sync on input + scroll. -->
     <div class="flex flex-col">
       <div class="flex items-center justify-between mb-2">
-        <label for="xgis-src" class="text-fg-mute text-[11px] uppercase tracking-wider">xgis source</label>
+        <label for="xgis-src" class="text-fg-mute text-[11px] font-mono uppercase tracking-[0.16em]">xgis source</label>
         <span id="compile-status" class="text-[11px] text-fg-mute tabular-nums"></span>
       </div>
       <div class="xgis-editor flex-1 min-h-[420px] bg-bg-card border border-line rounded-md focus-within:border-accent">
@@ -202,31 +202,31 @@ const initialPreset = presets[0]
     <!-- Summary stats -->
     <div class="flex flex-col">
       <div class="flex items-center mb-2">
-        <span class="text-fg-mute text-[11px] uppercase tracking-wider">Summary</span>
-        <span id="err-badge" class="hidden ml-2 px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-300 border border-rose-500/30 text-[10px]"></span>
+        <span class="text-fg-mute text-[11px] font-mono uppercase tracking-[0.16em]">Summary</span>
+        <span id="err-badge" class="hidden ml-2 px-2 py-0.5 rounded-md bg-rose-500/15 text-rose-300 border border-rose-500/30 text-[10px]"></span>
       </div>
       <div class="grid grid-cols-2 gap-3 mb-3">
         <div class="border border-line rounded-md p-3 bg-bg-elev">
-          <div class="text-fg-mute text-[10px] uppercase tracking-wider">Tokens</div>
+          <div class="text-fg-mute text-[10px] font-mono uppercase tracking-[0.16em]">Tokens</div>
           <div id="stat-tokens" class="text-fg text-[20px] font-medium tabular-nums">—</div>
         </div>
         <div class="border border-line rounded-md p-3 bg-bg-elev">
-          <div class="text-fg-mute text-[10px] uppercase tracking-wider">Render nodes</div>
+          <div class="text-fg-mute text-[10px] font-mono uppercase tracking-[0.16em]">Render nodes</div>
           <div id="stat-nodes" class="text-fg text-[20px] font-medium tabular-nums">—</div>
         </div>
         <div class="border border-line rounded-md p-3 bg-bg-elev">
-          <div class="text-fg-mute text-[10px] uppercase tracking-wider">Optimised</div>
+          <div class="text-fg-mute text-[10px] font-mono uppercase tracking-[0.16em]">Optimised</div>
           <div id="stat-optimised" class="text-fg text-[20px] font-medium tabular-nums">—</div>
         </div>
         <div class="border border-line rounded-md p-3 bg-bg-elev">
-          <div class="text-fg-mute text-[10px] uppercase tracking-wider">Compute entries</div>
+          <div class="text-fg-mute text-[10px] font-mono uppercase tracking-[0.16em]">Compute entries</div>
           <div id="stat-entries" class="text-fg text-[20px] font-medium tabular-nums">—</div>
         </div>
       </div>
 
       <!-- Paint axis routing — horizontal bar -->
       <div class="border border-line rounded-md p-3 bg-bg-elev flex-1">
-        <div class="text-fg-mute text-[10px] uppercase tracking-wider mb-2">Paint axis routing</div>
+        <div class="text-fg-mute text-[10px] font-mono uppercase tracking-[0.16em] mb-2">Paint axis routing</div>
         <div id="route-bars" class="space-y-1.5"></div>
       </div>
     </div>
@@ -383,7 +383,7 @@ const initialPreset = presets[0]
         </div>
         <div id="gpu-bench-panel" class="hidden">
           <div class="flex items-center gap-3 mb-3 flex-wrap">
-            <label class="text-fg-mute text-[11px] uppercase tracking-wider">Synthetic features</label>
+            <label class="text-fg-mute text-[11px] font-mono uppercase tracking-[0.16em]">Synthetic features</label>
             <select id="gpu-bench-count" class="bg-bg border border-line rounded px-2 py-1 text-[12px] text-fg focus:outline-none focus:border-accent">
               <option value="256">256</option>
               <option value="1024">1024</option>
@@ -469,7 +469,7 @@ const initialPreset = presets[0]
       overflow: hidden;
     }
     .stage-card[open] {
-      border-color: rgba(56, 189, 248, 0.35);
+      border-color: rgba(69, 219, 210, 0.35);
     }
     .stage-summary {
       display: flex;
@@ -486,8 +486,8 @@ const initialPreset = presets[0]
       display: inline-flex;
       align-items: center; justify-content: center;
       border-radius: 11px;
-      background: rgba(56, 189, 248, 0.12);
-      color: #38bdf8;
+      background: rgba(69, 219, 210, 0.12);
+      color: #45dbd2;
       font: 600 11px/1 'DM Mono', monospace;
       flex-shrink: 0;
     }
@@ -533,15 +533,16 @@ const initialPreset = presets[0]
       overflow-y: auto;
     }
 
-    /* Light syntax highlighting for emitted WGSL — same colour set the
-       expressive-code default theme uses so the page reads consistent. */
-    .tok-kw    { color: #c084fc; }
-    .tok-type  { color: #38bdf8; }
-    .tok-fn    { color: #fde68a; }
+    /* Light syntax highlighting for emitted WGSL — recoloured to the
+       Chart Room palette: keywords in the surveyor's pen (vermilion-ish),
+       types/utils in phosphor cyan, strings in chart-annotation sand. */
+    .tok-kw    { color: #ff8a6b; }
+    .tok-type  { color: #6fe3da; }
+    .tok-fn    { color: #d8c79a; }
     .tok-num   { color: #fb923c; }
-    .tok-str   { color: #86efac; }
+    .tok-str   { color: #d8c79a; }
     .tok-cmt   { color: #5a6a7e; font-style: italic; }
-    .tok-attr  { color: #f9a8d4; }
+    .tok-attr  { color: #6fe3da; }
 
     .kernel-tab {
       padding: 4px 10px;
@@ -555,12 +556,12 @@ const initialPreset = presets[0]
     }
     .kernel-tab:hover {
       color: var(--color-fg, #c8d3e0);
-      border-color: rgba(56, 189, 248, 0.35);
+      border-color: rgba(69, 219, 210, 0.35);
     }
     .kernel-tab.active {
-      color: #38bdf8;
-      border-color: #38bdf8;
-      background: rgba(56, 189, 248, 0.08);
+      color: #45dbd2;
+      border-color: #45dbd2;
+      background: rgba(69, 219, 210, 0.08);
     }
 
     .route-bar-row {
@@ -607,8 +608,8 @@ const initialPreset = presets[0]
       display: flex; flex-wrap: wrap; gap: 8px;
     }
     .ir-source-card {
-      border: 1px solid rgba(56, 189, 248, 0.35);
-      background: rgba(56, 189, 248, 0.07);
+      border: 1px solid rgba(69, 219, 210, 0.35);
+      background: rgba(69, 219, 210, 0.07);
       border-radius: 6px;
       padding: 8px 12px;
       min-width: 160px;
@@ -617,7 +618,7 @@ const initialPreset = presets[0]
     }
     .ir-source-card .ir-card-title {
       font-weight: 600;
-      color: #38bdf8;
+      color: #45dbd2;
       font-size: 12px;
     }
     .ir-source-card .ir-card-meta {
@@ -777,18 +778,18 @@ const initialPreset = presets[0]
          force a visible selection background. */
     }
     .xgis-editor-input::selection {
-      background: rgba(56, 189, 248, 0.30);
+      background: rgba(69, 219, 210, 0.30);
     }
     /* Token classes for the xgis source highlight. Mirror the WGSL
        tokeniser palette so the two code views read consistently. */
-    .xs-kw       { color: #c084fc; }   /* source / layer / type / filter / … */
-    .xs-builtin  { color: #fde68a; }   /* match / interpolate / get / …      */
-    .xs-str      { color: #86efac; }
+    .xs-kw       { color: #ff8a6b; }   /* source / layer / type / filter / … */
+    .xs-builtin  { color: #d8c79a; }   /* match / interpolate / get / …      */
+    .xs-str      { color: #d8c79a; }
     .xs-num      { color: #fb923c; }
     .xs-cmt      { color: #5a6a7e; font-style: italic; }
-    .xs-prop     { color: #38bdf8; }   /* property names: filter / source / … */
-    .xs-util     { color: #a8c6fa; }   /* | fill-... stroke-... utilities    */
-    .xs-op       { color: #f9a8d4; }   /* -> | == != …                       */
+    .xs-prop     { color: #6fe3da; }   /* property names: filter / source / … */
+    .xs-util     { color: #6fe3da; }   /* | fill-... stroke-... utilities    */
+    .xs-op       { color: #ff8a6b; }   /* -> | == != …                       */
 
     /* ── Palette atlas viz ── */
     .palette-section-label {
@@ -892,7 +893,7 @@ const initialPreset = presets[0]
     }
     .route-tag.inline-constant { background: rgba(120,140,160,0.18); color: #cbd5e1; }
     .route-tag.palette-zoom    { background: rgba(99,102,241,0.18);  color: #a5b4fc; }
-    .route-tag.compute-feature { background: rgba(56,189,248,0.20);  color: #38bdf8; }
+    .route-tag.compute-feature { background: rgba(69,219,210,0.20);  color: #45dbd2; }
     .route-tag.cpu-uniform     { background: rgba(245,158,11,0.18);  color: #fbbf24; }
 
     .strategy-tag {
@@ -932,12 +933,12 @@ const initialPreset = presets[0]
       letter-spacing: 0.05em;
     }
     .bench-name { color: #c8d3e0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .bench-num  { text-align: right; color: #38bdf8; tabular-nums: tabular-nums; }
+    .bench-num  { text-align: right; color: #45dbd2; tabular-nums: tabular-nums; }
     .bench-num.muted { color: #9ca3af; }
     .bench-bar {
       position: relative;
       height: 4px;
-      background: rgba(56,189,248,0.08);
+      background: rgba(69,219,210,0.08);
       border-radius: 2px;
       margin-top: 6px;
       grid-column: 1 / -1;
@@ -946,7 +947,7 @@ const initialPreset = presets[0]
     .bench-bar > span {
       display: block;
       height: 100%;
-      background: linear-gradient(90deg, #38bdf8 0%, #818cf8 100%);
+      background: linear-gradient(90deg, #45dbd2 0%, #818cf8 100%);
       border-radius: 2px;
       transition: width 0.18s;
     }
@@ -1826,7 +1827,7 @@ const initialPreset = presets[0]
           { count: routeCounts['palette-zoom'],    key: 'palette-zoom',
             label: 'PaletteZoom',    color: 'rgba(99,102,241,0.65)'  },
           { count: routeCounts['compute-feature'], key: 'compute-feature',
-            label: 'ComputeFeature', color: 'rgba(56,189,248,0.75)'  },
+            label: 'ComputeFeature', color: 'rgba(69,219,210,0.75)'  },
           { count: routeCounts['cpu-uniform'],     key: 'cpu-uniform',
             label: 'CpuUniform',     color: 'rgba(245,158,11,0.65)'  },
         ])

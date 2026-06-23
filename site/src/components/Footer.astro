@@ -67,7 +67,7 @@ const columns = [
     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-y-10 gap-x-8 mb-14">
       {columns.map(col => (
         <div>
-          <p class="text-[12px] font-medium text-fg uppercase tracking-wider mb-4">
+          <p class="font-mono text-[10.5px] text-fg-dim uppercase tracking-[0.16em] mb-4">
             {col.title}
           </p>
           <ul class="space-y-2.5 text-[13px] text-fg-mute">
@@ -77,7 +77,7 @@ const columns = [
                   href={link.href}
                   target={link.external ? '_blank' : undefined}
                   rel={link.external ? 'noopener' : undefined}
-                  class="hover:text-fg transition-colors"
+                  class="hover:text-accent transition-colors"
                 >
                   {link.label}
                 </a>
@@ -90,7 +90,8 @@ const columns = [
 
     <!-- Bottom row: brand + version + copyright -->
     <div class="flex flex-col sm:flex-row sm:items-center gap-4 pt-8 border-t border-line text-[12px] text-fg-faint">
-      <p class="flex items-center gap-3">
+      <p class="flex items-center gap-3 font-mono tracking-[0.06em]">
+        <span class="inline-block w-1.5 h-1.5 rotate-45 bg-vermilion"></span>
         <span class="font-medium text-fg-dim">X-GIS</span>
         <span class="text-fg-faint">·</span>
         <span>v0.0.1</span>

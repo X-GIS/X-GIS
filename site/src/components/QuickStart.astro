@@ -4,15 +4,16 @@ const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const docsUrl = `${base}/docs`
 ---
 
-<section id="install" class="relative py-32 sm:py-40 lg:py-56 border-t border-line">
-  <div class="max-w-[1024px] mx-auto px-6">
+<section id="install" class="relative py-28 sm:py-36 lg:py-48 border-t border-line">
+  <span class="absolute -top-[9px] left-6 xl:left-[136px] px-2 bg-bg font-mono text-[10px] tracking-[0.18em] uppercase text-fg-faint">
+    Get Started
+  </span>
 
-    <div class="text-center max-w-[820px] mx-auto mb-16 lg:mb-20">
-      <p class="text-[13px] font-medium tracking-[-0.01em] text-accent mb-5">
-        Get Started
-      </p>
-      <h2 class="font-medium text-fg leading-[1.05] tracking-[-0.035em]
-                 text-[40px] sm:text-[56px] lg:text-[72px]">
+  <div class="max-w-[1000px] mx-auto px-6">
+
+    <div class="max-w-[840px] mb-12 lg:mb-16">
+      <h2 class="font-display font-semibold uppercase text-fg leading-[0.92] tracking-[0.01em]
+                 text-[36px] sm:text-[60px] lg:text-[88px]">
         Clone, install, run.
       </h2>
       <p class="mt-5 text-[15px] text-fg-mute">
@@ -20,13 +21,13 @@ const docsUrl = `${base}/docs`
       </p>
     </div>
 
-    <!-- Clone + install + dev server in one block. The package isn't on
-         npm yet, so this is the only working install path right now. -->
-    <div class="max-w-[720px] mx-auto">
-      <div class="rounded-2xl bg-bg-card border border-line p-1.5">
-        <div class="rounded-xl bg-bg px-6 py-5 flex items-start gap-4">
-          <span class="text-fg-mute font-mono text-[15px] select-none pt-px">$</span>
-          <code class="flex-1 font-mono text-[14px] sm:text-[15px] text-fg whitespace-pre-wrap break-words leading-[1.6]"
+    <!-- Clone + install + dev in one block — the only working install
+         path until the package lands on npm. -->
+    <div class="max-w-[720px]">
+      <div class="rounded-xl bg-bg-card border border-line p-1.5">
+        <div class="rounded-lg bg-bg px-6 py-5 flex items-start gap-4">
+          <span class="text-vermilion font-mono text-[15px] select-none pt-px">$</span>
+          <code class="flex-1 font-mono text-[13.5px] sm:text-[14.5px] text-fg whitespace-pre-wrap break-words leading-[1.65]"
 >git clone <span class="text-accent">https://github.com/X-GIS/X-GIS</span>
 cd X-GIS
 bun install
@@ -48,36 +49,33 @@ bun run dev</code>
         </div>
       </div>
 
-      <p class="mt-5 text-center text-[13px] text-fg-mute">
-        Bun workspace. The dev server boots the playground at localhost:3000.
+      <p class="mt-4 font-mono text-[11px] tracking-[0.08em] text-fg-mute">
+        Bun workspace · dev server boots the playground at localhost:3000
       </p>
     </div>
 
-    <!-- Then a tiny code sample showing the actual public API. -->
-    <div class="max-w-[720px] mx-auto mt-16">
-      <div class="rounded-2xl bg-bg-card border border-line overflow-hidden">
-        <pre class="px-7 py-6 font-mono text-[14px] leading-[1.85] text-fg overflow-x-auto"
+    <!-- The actual public API, two lines. -->
+    <div class="max-w-[720px] mt-12">
+      <div class="rounded-xl bg-bg-card border border-line overflow-hidden">
+        <pre class="px-7 py-6 font-mono text-[13.5px] sm:text-[14.5px] leading-[1.8] text-fg overflow-x-auto"
 ><code><span class="cs-kw">import</span> {`{`} XGISMap {`}`} <span class="cs-kw">from</span> <span class="cs-str">"@xgis/runtime"</span>
 
 <span class="cs-kw">const</span> map = <span class="cs-kw">new</span> <span class="cs-fn">XGISMap</span>(canvas)
 <span class="cs-kw">await</span> map.<span class="cs-fn">run</span>(source, baseUrl)</code></pre>
       </div>
 
-      <p class="mt-5 text-center text-[13px] text-fg-mute">
-        WebGPU when available. Canvas 2D fallback when not.
+      <p class="mt-4 font-mono text-[11px] tracking-[0.08em] text-fg-mute">
+        WebGPU when available · Canvas 2D fallback when not
       </p>
     </div>
 
-    <!-- Secondary CTA — links to docs page -->
-    <div class="mt-16 text-center">
+    <div class="mt-14">
       <a
         href={docsUrl}
         class="inline-flex items-center gap-2 text-accent hover:text-accent-hover text-[15px] font-medium transition-colors"
       >
         Read the documentation
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 6l6 6-6 6"/>
-        </svg>
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
       </a>
     </div>
   </div>
@@ -106,7 +104,7 @@ bun run dev</code>
 </script>
 
 <style>
-  pre .cs-kw  { color: #ff7ab2; }
-  pre .cs-str { color: #d6c08a; }
+  pre .cs-kw  { color: #ff8a6b; }
+  pre .cs-str { color: #d8c79a; }
   pre .cs-fn  { color: var(--color-accent); }
 </style>

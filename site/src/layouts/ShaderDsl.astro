@@ -3,6 +3,7 @@
 // own library-docs shell — a sticky left nav on desktop, a horizontal scroll-strip on
 // mobile — distinct from the X-GIS cartography docs (those use Docs.astro).
 import Base from './Base.astro'
+import Graticule from '../components/Graticule.astro'
 import Header from '../components/Header.astro'
 import Footer from '../components/Footer.astro'
 
@@ -43,6 +44,7 @@ const flat = navGroups.flatMap((g) => g.items)
 ---
 
 <Base title={title ?? 'X-GIS — Shader DSL'} description={description}>
+  <Graticule />
   <Header />
 
   <main class="pt-20 pb-32">
@@ -50,11 +52,11 @@ const flat = navGroups.flatMap((g) => g.items)
       <!-- Desktop sidebar -->
       <aside class="hidden lg:block">
         <nav class="sticky top-20 text-[13px] leading-[1.7]">
-          <p class="text-[11px] font-medium text-accent uppercase tracking-wider mb-4">Shader DSL</p>
+          <p class="text-[11px] font-mono text-accent uppercase tracking-[0.16em] mb-4">Shader DSL</p>
           {navGroups.map((group) => (
             <div class="mb-7">
               {group.title && (
-                <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-3">{group.title}</p>
+                <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-3">{group.title}</p>
               )}
               <ul class="space-y-1.5">
                 {group.items.map((item) => {
@@ -98,13 +100,13 @@ const flat = navGroups.flatMap((g) => g.items)
             <div class={`mt-16 pt-8 border-t border-line grid gap-3 ${prev && next ? 'sm:grid-cols-2' : 'sm:grid-cols-1'}`}>
               {prev && (
                 <a href={prev.href} class="group block rounded-xl border border-line px-5 py-4 hover:border-line-strong transition-colors">
-                  <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-1.5">← Previous</p>
+                  <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-1.5">← Previous</p>
                   <p class="text-[15px] font-medium text-fg group-hover:text-accent transition-colors">{prev.label}</p>
                 </a>
               )}
               {next && (
                 <a href={next.href} class={`group block rounded-xl border border-line px-5 py-4 hover:border-line-strong transition-colors text-right ${!prev ? 'sm:col-start-2' : ''}`}>
-                  <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-1.5">Next →</p>
+                  <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-1.5">Next →</p>
                   <p class="text-[15px] font-medium text-fg group-hover:text-accent transition-colors">{next.label}</p>
                 </a>
               )}

@@ -1,5 +1,6 @@
 ---
 import Base from '../layouts/Base.astro'
+import Graticule from '../components/Graticule.astro'
 import Header from '../components/Header.astro'
 import Footer from '../components/Footer.astro'
 import '@xgis/blueprint/blueprint.css'
@@ -14,10 +15,17 @@ const playgroundUrl = `${base}/play/demo.html`
   title="X-GIS — Blueprint"
   description="Compose X-GIS maps visually: a node-based blueprint editor that generates .xgis source and opens it in the playground."
 >
+  <Graticule />
   <Header />
   <main class="max-w-[1400px] mx-auto px-6 pt-20 pb-16">
-    <div class="flex items-baseline justify-between flex-wrap gap-2">
-      <h1 class="text-[22px] font-medium tracking-tight">Blueprint</h1>
+    <p class="font-mono text-[11px] tracking-[0.2em] uppercase text-accent mb-4">
+      Visual editor
+    </p>
+    <div class="flex items-baseline justify-between flex-wrap gap-3">
+      <h1 class="font-display font-semibold uppercase text-fg leading-[0.95] tracking-[0.01em]
+                 text-[38px] sm:text-[52px] lg:text-[64px]">
+        Blueprint
+      </h1>
       <p class="text-fg-dim text-[12px]">
         Drag canvas to pan · <kbd class="px-1 border border-line rounded">⇧</kbd>+drag to box-select ·
         right-click to add · drag a pin to connect ·
@@ -62,7 +70,7 @@ const playgroundUrl = `${base}/play/demo.html`
         class="px-3 py-2 bg-bg-elev border border-line rounded text-fg-dim hover:text-fg hover:border-fg-dim transition-colors"
         >New</button
       >
-      <span id="bp-status" class="ml-auto text-[11px] px-2 py-1 rounded-full border"></span>
+      <span id="bp-status" class="ml-auto text-[11px] px-2 py-1 rounded-md border"></span>
     </div>
 
     <!-- ── Import an existing style → nodes ── -->
@@ -132,7 +140,7 @@ const playgroundUrl = `${base}/play/demo.html`
         <!-- Live preview -->
         <div class="flex flex-col rounded-md border border-line bg-bg-elev overflow-hidden">
           <div class="flex items-center gap-2 px-3 py-2 border-b border-line">
-            <span class="text-fg text-[11px] tracking-wide uppercase">live preview</span>
+            <span class="font-mono text-fg text-[11px] tracking-[0.16em] uppercase">live preview</span>
             <label class="ml-auto flex items-center gap-1.5 text-[11px] text-fg-dim cursor-pointer select-none">
               <input id="bp-live" type="checkbox" checked class="accent-accent" />
               live
@@ -154,7 +162,7 @@ const playgroundUrl = `${base}/play/demo.html`
 
         <!-- Inspector -->
         <div class="flex flex-col rounded-md border border-line bg-bg-elev overflow-hidden">
-          <div class="px-3 py-2 border-b border-line text-fg text-[11px] tracking-wide uppercase">
+          <div class="px-3 py-2 border-b border-line font-mono text-fg text-[11px] tracking-[0.16em] uppercase">
             inspector
           </div>
           <div
@@ -167,7 +175,7 @@ const playgroundUrl = `${base}/play/demo.html`
         <!-- Source -->
         <div class="flex flex-col flex-1 min-h-0 rounded-md border border-line bg-bg-elev">
           <div class="flex items-center gap-2 px-3 py-2 border-b border-line">
-            <span class="text-fg text-[11px] tracking-wide uppercase">xgis source</span>
+            <span class="font-mono text-fg text-[11px] tracking-[0.16em] uppercase">xgis source</span>
             <div class="ml-auto flex gap-2">
               <button
                 id="bp-copy"

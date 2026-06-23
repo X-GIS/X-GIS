@@ -27,10 +27,10 @@ const projections = [
   description="Seven projections, one source. How X-GIS switches via a single GPU uniform write — no re-tessellation, no re-render of source data."
 >
   <header class="mb-12">
-    <p class="text-[13px] font-medium text-accent mb-3 tracking-[-0.01em]">
+    <p class="font-mono text-[11px] tracking-[0.2em] uppercase text-accent mb-3">
       Concept
     </p>
-    <h1 class="text-[36px] sm:text-[44px] lg:text-[52px] font-medium text-fg leading-[1.1] tracking-[-0.035em]">
+    <h1 class="font-display font-semibold uppercase text-fg leading-[0.95] tracking-[0.01em] text-[38px] sm:text-[52px] lg:text-[64px]">
       Projection switching.
     </h1>
     <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[700px]">
@@ -65,7 +65,7 @@ const projections = [
           <g>
             <rect x="20" y="40" width="200" height="80" rx="8" fill="#1a2233" stroke="#2a3a52" stroke-width="1"/>
             <text x="120" y="68" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="12" font-weight="500" fill="#c8d3e0">Tile vertices</text>
-            <text x="120" y="86" text-anchor="middle" font-family="DM Mono, monospace" font-size="11" fill="#38bdf8">Mercator meters</text>
+            <text x="120" y="86" text-anchor="middle" font-family="DM Mono, monospace" font-size="11" fill="#45dbd2">Mercator meters</text>
             <text x="120" y="104" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="10" fill="#5a6a7e">stored once · never re-tiled</text>
           </g>
 
@@ -76,9 +76,9 @@ const projections = [
             <rect x="260" y="20" width="280" height="120" rx="8" fill="#0f1825" stroke="#2a3a52" stroke-width="1"/>
             <text x="400" y="44" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="12" font-weight="500" fill="#c8d3e0">WGSL vertex shader</text>
             <line x1="280" y1="56" x2="520" y2="56" stroke="#2a3a52" stroke-width="1"/>
-            <text x="280" y="76" font-family="DM Mono, monospace" font-size="10.5" fill="#38bdf8">mercator_inverse(mm)</text>
+            <text x="280" y="76" font-family="DM Mono, monospace" font-size="10.5" fill="#45dbd2">mercator_inverse(mm)</text>
             <text x="280" y="92" font-family="DM Sans, sans-serif" font-size="10.5" fill="#5a6a7e">→ lon, lat</text>
-            <text x="280" y="112" font-family="DM Mono, monospace" font-size="10.5" fill="#FF7B72">project(lonlat, type)</text>
+            <text x="280" y="112" font-family="DM Mono, monospace" font-size="10.5" fill="#ff8a6b">project(lonlat, type)</text>
             <text x="280" y="128" font-family="DM Sans, sans-serif" font-size="10.5" fill="#5a6a7e">→ projected x, y</text>
           </g>
 
@@ -87,7 +87,7 @@ const projections = [
           <g>
             <rect x="280" y="200" width="240" height="56" rx="8" fill="#1a2233" stroke="#2a3a52" stroke-width="1"/>
             <text x="400" y="222" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="11" font-weight="500" fill="#c8d3e0">setProjection() →</text>
-            <text x="400" y="240" text-anchor="middle" font-family="DM Mono, monospace" font-size="11" fill="#FF7B72">u.projection_type</text>
+            <text x="400" y="240" text-anchor="middle" font-family="DM Mono, monospace" font-size="11" fill="#ff8a6b">u.projection_type</text>
           </g>
 
           <!-- Output -->
@@ -95,7 +95,7 @@ const projections = [
           <g>
             <rect x="580" y="40" width="280" height="80" rx="8" fill="#1a2233" stroke="#2a3a52" stroke-width="1"/>
             <text x="720" y="68" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="12" font-weight="500" fill="#c8d3e0">Clip-space position</text>
-            <text x="720" y="86" text-anchor="middle" font-family="DM Mono, monospace" font-size="11" fill="#79C0FF">u.mvp · vec4(projected, 0, 1)</text>
+            <text x="720" y="86" text-anchor="middle" font-family="DM Mono, monospace" font-size="11" fill="#6fe3da">u.mvp · vec4(projected, 0, 1)</text>
             <text x="720" y="104" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="10" fill="#5a6a7e">7 projections · same GeoJSON</text>
           </g>
         </svg>
