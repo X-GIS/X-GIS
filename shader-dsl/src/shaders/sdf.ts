@@ -15,7 +15,6 @@ import {
   Loop, reduce, If, Switch, Return, type FuncDecl, type ModuleDecl,
 } from '../core/ir'
 import { structDecl, storageBuffer } from '../core/sot'
-import { emitFuncsCsed, emitStruct } from '../core/backends/wgsl'
 
 // Storage structs (match sdf-shape.ts byte layout; field types drive access).
 export const ShapeDesc = structDecl('ShapeDesc', {
@@ -130,19 +129,6 @@ export const SDF_MODULE: ModuleDecl = module({
   funcs: SDF_FUNCS,
 })
 
-// ── Emitted WGSL (Phase 2: shaders/sdf.ts re-exports these) ──
-// line-renderer-shaders.ts inlines the individual dist/winding fns + the
-// shape structs. Emitted from the same IR PoC-B verified.
-const fnByName = (name: string): FuncDecl => {
-  const f = SDF_FUNCS.find((x) => x.name === name)
-  if (!f) throw new Error(`sdf-dsl: missing fn ${name}`)
-  return f
-}
-/** @deprecated String-prepend emit path — being phased out for decl-array merge: consume the fn decls (getGpuProjectionFuncs / ECEF_FUNCS / LOG_DEPTH_FUNCS / the sdf fn decls) and let emitModule stitch + auto-cache them. */
-export const SDF_WGSL_DIST_TO_QUADRATIC = `${emitFuncsCsed([fnByName('dist_to_quadratic')])}\n`
-/** @deprecated String-prepend emit path — being phased out for decl-array merge: consume the fn decls (getGpuProjectionFuncs / ECEF_FUNCS / LOG_DEPTH_FUNCS / the sdf fn decls) and let emitModule stitch + auto-cache them. */
-export const SDF_WGSL_DIST_TO_CUBIC = `${emitFuncsCsed([fnByName('dist_to_cubic')])}\n`
-/** @deprecated String-prepend emit path — being phased out for decl-array merge: consume the fn decls (getGpuProjectionFuncs / ECEF_FUNCS / LOG_DEPTH_FUNCS / the sdf fn decls) and let emitModule stitch + auto-cache them. */
-export const SDF_WGSL_SHAPE = `${emitFuncsCsed([fnByName('sdf_shape')])}\n`
-/** @deprecated String-prepend emit path — being phased out for decl-array merge: consume the fn decls (getGpuProjectionFuncs / ECEF_FUNCS / LOG_DEPTH_FUNCS / the sdf fn decls) and let emitModule stitch + auto-cache them. */
-export const SDF_WGSL_SHAPE_STRUCTS = `${emitStruct(ShapeDesc.decl)}\n\n${emitStruct(ShapeSegment.decl)}\n`
+// (Removed the dead SDF_WGSL_DIST_TO_QUADRATIC / _CUBIC / _SHAPE / _SHAPE_STRUCTS string accessors +
+// their fnByName helper —
+// zero consumers repo-wide. The sdf fns ship via the sdf MODULE; no harness splices them standalone.)

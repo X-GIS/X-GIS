@@ -101,8 +101,8 @@ export function emitFunc(f: FuncDecl): string {
   return `${attrs}fn ${f.name}(${params})${ret} {\n${emitBody(f.body, 1, wgslBackend)}\n}`
 }
 
-/** Emit a bare list of funcs through the SAME lower+cse pipeline emitModule uses, so the
- *  string-prepend exports (getProjectionWgslFns / ECEF_WGSL_FNS / LOG_DEPTH_WGSL_FNS / …)
+/** Emit a bare list of funcs through the SAME lower+cse pipeline emitModule uses, so the parity-harness
+ *  emitted-WGSL accessors (getProjectionWgslFns / ECEF_WGSL_FNS / LOG_DEPTH_WGSL_FNS / …)
  *  stay byte-consistent with the decl-merged module emit — the auto-cache applies on BOTH
  *  paths, so dropping a hand `Let` re-binds the reuse uniformly regardless of which emit
  *  path a consumer takes. */

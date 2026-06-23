@@ -38,7 +38,7 @@ export const ecefRtcReconstruct = fn('ecef_rtc_reconstruct', { pos_h: vec3fT, po
 export const ECEF_FUNCS: FuncDecl[] = [lonlatToEcef, ecefRtcReconstruct]
 
 // Derived WGSL — the same export names line.ts / raster.ts already import.
-/** @deprecated String-prepend emit path — being phased out for decl-array merge: consume the fn decls (getGpuProjectionFuncs / ECEF_FUNCS / LOG_DEPTH_FUNCS / the sdf fn decls) and let emitModule stitch + auto-cache them. */
+/** Emitted-WGSL accessor for the parity/structure test harnesses — they splice this exact WGSL into a standalone test shader to verify CPU↔GPU parity. NOT a production path (runtime shaders are built via emitModule, not string-prepend); the emit layer is private, so this string accessor is the sanctioned public surface for those harnesses. */
 export const ECEF_WGSL_CONSTS = `${ECEF_CONSTS.map(emitConst).join('\n')}\n`
-/** @deprecated String-prepend emit path — being phased out for decl-array merge: consume the fn decls (getGpuProjectionFuncs / ECEF_FUNCS / LOG_DEPTH_FUNCS / the sdf fn decls) and let emitModule stitch + auto-cache them. */
+/** Emitted-WGSL accessor for the parity/structure test harnesses — they splice this exact WGSL into a standalone test shader to verify CPU↔GPU parity. NOT a production path (runtime shaders are built via emitModule, not string-prepend); the emit layer is private, so this string accessor is the sanctioned public surface for those harnesses. */
 export const ECEF_WGSL_FNS = `${emitFuncsCsed(ECEF_FUNCS)}\n`
