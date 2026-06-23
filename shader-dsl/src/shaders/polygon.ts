@@ -22,7 +22,7 @@
 // old __PICK_FIELD__ / __PICK_WRITE__ regex markers in POLYGON_SHADER_SOURCE).
 
 import {
-  fn, module, constRef, callFn,
+  fn, module, callFn,
   Let, Var, If, Return, Discard,
   f32, u32, vec2, vec2u, vec3, vec4, toF32, toU32, transformMat4, clamp, select,
   abs, fract, max, min, mix, pow, sqrt, dot, log, tan, floor, textureSample, unpack4x8unorm,
@@ -35,6 +35,7 @@ import { ioStruct, builtin, location, uniformStruct, resource } from '../core/so
 import { emitModule, emitFunc } from '../core/backends/wgsl'
 import { project, flat_rel, needs_backface_cull, rim_alpha, inv_merc_lat_rad, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
+import { PI, EARTH_R, MERCATOR_LAT_LIMIT, DEG2RAD } from './consts'
 
 // ── Struct declarations ──
 //
@@ -164,8 +165,8 @@ const polygonCosCFragment = fn(
   { abs_merc_x: f32T, abs_merc_y: f32T },
   f32T,
   (p) => {
-    const earthR = constRef('EARTH_R')
-    const absLon = p.abs_merc_x.div(constRef('DEG2RAD').mul(earthR))
+    const earthR = EARTH_R
+    const absLon = p.abs_merc_x.div(DEG2RAD.mul(earthR))
     const latRad = inv_merc_lat_rad(p.abs_merc_y)
     const absLat = degrees(latRad)
     return needs_backface_cull(absLon, absLat, U.field.proj_params)
@@ -182,8 +183,8 @@ const polygonRimAlpha = fn(
   { abs_merc_x: f32T, abs_merc_y: f32T },
   f32T,
   (p) => {
-    const earthR = constRef('EARTH_R')
-    const absLon = p.abs_merc_x.div(constRef('DEG2RAD').mul(earthR))
+    const earthR = EARTH_R
+    const absLon = p.abs_merc_x.div(DEG2RAD.mul(earthR))
     const latRad = inv_merc_lat_rad(p.abs_merc_y)
     const absLat = degrees(latRad)
     return rim_alpha(absLon, absLat, U.field.proj_params)
@@ -260,9 +261,9 @@ const emitPolygonProjectionLadder = (
   },
 ): void => {
   const { projParamsV, mvp, absLon, absLat, ecefRtc, clip, extruded, isTop, wallHeight, localMerc, discLat } = args
-  const deg2rad = constRef('DEG2RAD')
-  const earthR = constRef('EARTH_R')
-  const pi = constRef('PI')
+  const deg2rad = DEG2RAD
+  const earthR = EARTH_R
+  const pi = PI
   If(projParamsV.x.lt(0.5), () => {
     const zPlane = extruded ? wallHeight!.mul(isTop!) : f32(0)
     if (localMerc) {
@@ -343,9 +344,9 @@ const vsMain = fn(
     const layerDepthOff = U.field.layer_depth_offset
     const fillTx = U.field.fill_translate_x
     const fillTy = U.field.fill_translate_y
-    const earthR = constRef('EARTH_R')
-    const pi = constRef('PI')
-    const mercLatLim = constRef('MERCATOR_LAT_LIMIT')
+    const earthR = EARTH_R
+    const pi = PI
+    const mercLatLim = MERCATOR_LAT_LIMIT
 
     // DSFUN reconstruction in true ECEF metres (camera-relative tile-local).
     const ecefRtc = p.pos_h.add(p.pos_l)
@@ -456,8 +457,8 @@ const vsMainEcef = fn(
     const fillTy = U.field.fill_translate_y
     const dqScale = U.field.tile_dequant_scale
     const dqHalf = U.field.tile_dequant_half
-    const earthR = constRef('EARTH_R')
-    const mercLatLim = constRef('MERCATOR_LAT_LIMIT')
+    const earthR = EARTH_R
+    const mercLatLim = MERCATOR_LAT_LIMIT
 
     // PR 2f dequant via the shared dequant_ecef fn (single source; also run
     // standalone in the compute parity harness vs the CPU fround mirror).
@@ -488,7 +489,7 @@ const vsMainEcef = fn(
       projParamsV, mvp,
       // local_merc (f32 tail) drives the PRECISE flat-Mercator position;
       // absLon/absLat feed only flat_rel; discLat (#398) gives it the TRUE lat.
-      absLon: absMercX.div(constRef('DEG2RAD').mul(earthR)),
+      absLon: absMercX.div(DEG2RAD.mul(earthR)),
       absLat: absLatClamped,
       discLat: p.true_lat,
       localMerc: vec2(p.abs_lon, p.abs_lat),
@@ -553,9 +554,9 @@ const vsMainEcefExtruded = fn(
     const fillColor = U.field.fill_color
     const dqScale = U.field.tile_dequant_scale
     const dqHalf = U.field.tile_dequant_half
-    const earthR = constRef('EARTH_R')
-    const pi = constRef('PI')
-    const mercLatLim = constRef('MERCATOR_LAT_LIMIT')
+    const earthR = EARTH_R
+    const pi = PI
+    const mercLatLim = MERCATOR_LAT_LIMIT
 
     // PR 2f dequant via the shared dequant_ecef fn (same single source as
     // vs_main_ecef). Both wall-bottom + wall-top + roof vertices are
@@ -675,7 +676,7 @@ const emitPolygonFragmentDiscards = (input: Node): void => {
   const cosC = callFn('polygon_cos_c_fragment', f32T, i.abs_merc_x, i.abs_merc_y)
   If(cosC.lt(0), () => { Discard() })
   // #399 +0.5° margin: cap abs_lat is VS-clamped to exactly ±LIMIT, so a bare `>LIMIT` flips per MSAA sample at the pole fan (speckle); loosen-only ⇒ #360-hole-safe.
-  If(abs(i.abs_lat).gt(constRef('MERCATOR_LAT_LIMIT').add(0.5)), () => { Discard() })
+  If(abs(i.abs_lat).gt(MERCATOR_LAT_LIMIT.add(0.5)), () => { Discard() })
   const clipBounds = U.field.clip_bounds
   const clipValid =
     clipBounds.x.gt(-1e29)

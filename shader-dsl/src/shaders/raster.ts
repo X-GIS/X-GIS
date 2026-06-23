@@ -16,7 +16,7 @@
 // raster always writes (0,0) since a basemap tile carries no feature id.
 
 import {
-  fn, module, constRef, callFn, transformMat4, arrayLit,
+  fn, module, callFn, transformMat4, arrayLit,
   f32, u32, toF32, vec2, vec3, vec4, vec2u, mix, atan, exp, smoothstep, textureSample, radians, degrees,
   f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   If, condExpr, Discard,
@@ -28,6 +28,7 @@ import { ECEF_CONSTS, ECEF_FUNCS, lonlatToEcef } from './ecef'
 import { RASTER_COLOR_FUNCS } from './raster-color'
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
 import { project, flat_rel, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
+import { PI } from './consts'
 
 const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
   mvp: mat4x4fT,
@@ -96,7 +97,7 @@ const vs = fn('vs_tile', { vid: builtin('vertex_index', u32T) }, VsOut.type, (p,
   // bounds.x/z are world-copy-shifted (west+wo*360, east+wo*360) so lon
   // naturally lands in the correct world copy. merc_y is copy-independent.
   const lon = mix(bounds.x, bounds.z, uu)
-  const latRad = f32(2).mul(atan(exp(mercYAbs))).sub(constRef('PI').div(2))
+  const latRad = f32(2).mul(atan(exp(mercYAbs))).sub(PI.div(2))
 
   // ECEF path: lon/lat → WGS84 ECEF → subtract tile SW-corner anchor (RTC).
   // Works for every projection because the MVP is always the ECEF frame view

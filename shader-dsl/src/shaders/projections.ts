@@ -26,10 +26,11 @@
 import {
   fn, externFn, module, f32, vec2, vec3,
   ReturnIf, If, Var, Return, f32T, vec2fT, vec3fT, vec4fT,
-  constRef, radians, clamp, log, tan, sin, cos, asin, acos, atan, atan2, exp, floor, ceil, sign, smoothstep,
+  radians, clamp, log, tan, sin, cos, asin, acos, atan, atan2, exp, floor, ceil, sign, smoothstep,
   type ConstDecl, type FuncDecl, type ModuleDecl, type Node,
 } from '../core/ir'
 import { emitConst, emitFuncsCsed } from '../core/backends/wgsl'
+import { PI, EARTH_R, MERCATOR_LAT_LIMIT } from './consts'
 
 // ── Backend-agnostic projection injection (standalone-package seam) ──
 // shader-dsl owns the projection MATH; the ordered spec list (projType index ==
@@ -69,9 +70,6 @@ export const PROJECTION_CONSTS: ConstDecl[] = [
   { name: 'DEG2RAD', type: f32T, wgslValue: 0.01745329, cpuValue: Math.PI / 180 },
 ]
 
-const PI = constRef('PI')
-const EARTH_R = constRef('EARTH_R')
-const MERCATOR_LAT_LIMIT = constRef('MERCATOR_LAT_LIMIT')
 
 const RIM_FADE = 0.02
 
