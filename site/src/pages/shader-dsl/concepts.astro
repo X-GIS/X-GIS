@@ -1,8 +1,13 @@
 ---
 import ShaderDsl from '../../layouts/ShaderDsl.astro'
+import { Code } from 'astro-expressive-code/components'
+import { shaderCards } from '../../lib/shader-examples.ts'
 
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const root = `${base}/shader-dsl`
+
+// A concrete dual-backend contrast: the gradient example, emitted both ways from one module.
+const gradient = shaderCards.find((c) => c.id === 'gradient')!
 
 const sections = [
   {
@@ -57,6 +62,26 @@ const sections = [
       </section>
     ))}
   </div>
+
+  <section class="mt-14">
+    <h2 class="text-[20px] font-medium text-fg tracking-[-0.02em] mb-2">See it both ways</h2>
+    <p class="text-[14.5px] leading-[1.65] text-fg-dim max-w-[700px] mb-5">
+      The <a href={`${root}/examples/gradient`} class="text-accent hover:text-accent-hover transition-colors">gradient</a>
+      example, emitted from one module. Note the divergences the DSL handles: <code class="font-mono text-[13px] text-fg">vec4&lt;f32&gt;</code> →
+      <code class="font-mono text-[13px] text-fg">vec4</code>, the std140 <code class="font-mono text-[13px] text-fg">uniform</code> block,
+      and the entry-IO lowering to <code class="font-mono text-[13px] text-fg">in</code>/<code class="font-mono text-[13px] text-fg">out</code> varyings + <code class="font-mono text-[13px] text-fg">main()</code>.
+    </p>
+    <div class="sd-code grid lg:grid-cols-2 gap-4 items-start">
+      <div>
+        <p class="text-[11px] font-mono text-fg-mute uppercase tracking-wider mb-2">WGSL — emitModule(m)</p>
+        <Code code={gradient.wgsl} lang="wgsl" />
+      </div>
+      <div>
+        <p class="text-[11px] font-mono text-fg-mute uppercase tracking-wider mb-2">GLSL ES 3.00 — emitGlslModule(m, …)</p>
+        <Code code={gradient.glsl ?? ''} lang="glsl" />
+      </div>
+    </div>
+  </section>
 
   <div class="mt-12 rounded-2xl border border-line p-5 bg-bg-card">
     <p class="text-[14px] leading-[1.6] text-fg-dim">
