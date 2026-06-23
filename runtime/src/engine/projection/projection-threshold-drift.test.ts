@@ -50,12 +50,13 @@ describe('projection threshold drift gate', () => {
   })
 
   it('WGSL rim_alpha smoothstep lower bounds == table', () => {
-    // DSL emits `smoothstep(LO, HI, center_cos_c(...))` with bounds precomputed
-    // (RIM_FADE inlined). The migration dropped the hand `let cc`, so the cos_c value
-    // is the inlined `center_cos_c(...)` call. Body order: ortho, azimuthal, stereo, globe.
+    // DSL emits `smoothstep(LO, HI, <cos_c>)` with bounds precomputed (RIM_FADE
+    // inlined). The optimizer cse-hoists the repeated center_cos_c(...) into a shared
+    // temp, so the 3rd arg is now a \w+ temp, not the inline call — match only the
+    // LO/HI bounds, which is what this gate pins. Order: ortho, azimuthal, stereo, globe.
     const found = allMatches(
       WGSL_PROJECTION_FNS(),
-      /smoothstep\((-?[\d.]+), -?[\d.]+, center_cos_c\(/g,
+      /smoothstep\((-?[\d.]+), -?[\d.]+, /g,
     )
     // globe's rim is the SAME `smoothstep(0, RIM, cc)` as ortho, so the cse auto-cache
     // dedups them into one shared temp — 3 distinct smoothstep calls emit (ortho/globe
@@ -100,8 +101,9 @@ describe('projection threshold drift gate', () => {
 
   it('RIM_FADE band width is 0.02 in the emitted WGSL and the raster shader', () => {
     // The DSL inlines RIM_FADE (no `let RIM_FADE`), so each emitted smoothstep
-    // band must be exactly 0.02 wide (HI − LO).
-    const bands = [...WGSL_PROJECTION_FNS().matchAll(/smoothstep\((-?[\d.]+), (-?[\d.]+), center_cos_c\(/g)]
+    // band must be exactly 0.02 wide (HI − LO). (3rd arg is the cse-hoisted cos_c
+    // temp; match only the LO/HI bounds.)
+    const bands = [...WGSL_PROJECTION_FNS().matchAll(/smoothstep\((-?[\d.]+), (-?[\d.]+), /g)]
       .map((m) => Math.round((parseFloat(m[2]!) - parseFloat(m[1]!)) * 1000) / 1000)
     expect(bands).toEqual([0.02, 0.02, 0.02]) // ortho/globe share one cse'd smoothstep
     const raster = emitRasterWgsl(false)

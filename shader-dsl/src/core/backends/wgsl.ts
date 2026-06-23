@@ -13,7 +13,7 @@ import type {
 import { Capabilities, type Backend } from '../backend'
 import { emitExpr as emitExprNeutral, emitBody, emitModule as emitModuleDriver } from '../emit'
 import { lowerModule } from '../passes/match-lower'
-import { cse, autoVars } from '../passes/opt'
+import { fixpoint, autoVars } from '../passes/opt'
 import { spellIntrinsic } from '../intrinsics'
 
 export function wgslType(t: ShaderType): string {
@@ -87,9 +87,15 @@ export const wgslBackend: Backend = {
     const attrs = f.attrs && f.attrs.length ? `${f.attrs.join(' ')}\n` : ''
     return `${attrs}fn ${f.name}(${params})${ret} {\n${emitBody(f.body, 1, wgslBackend)}\n}`
   },
-  // WGSL's emit-time auto-cache: cse hoists any input-only subexpression reused ≥2x
-  // into one shared `let`, so authors write plain inline exprs and reuse is bound for them.
-  optimize: cse,
+  // WGSL's emit-time optimizer: the full pipeline run to a fixed point — const/copy
+  // propagation, const-fold (incl. literal compare/logical/select), algebraic
+  // identities, dead-branch elim, cse auto-cache, licm, dce. Authors write plain
+  // inline exprs; the optimizer folds constants, drops dead code, and binds reuse for
+  // them. Correctness: oracle value-equality (unit) + the real-GPU optimizer-parity
+  // gate (_optimizer-gpu-parity). Every pass skips a fn containing a raw Stmt (the
+  // polygon composer's _mcSS fill/stroke), so those precision-critical paths are
+  // emitted verbatim, untouched.
+  optimize: (m) => fixpoint(m),
 }
 
 /** Single-arg WGSL-bound expr emit. The compiler keeps a structural copy
@@ -105,15 +111,16 @@ export const emitStruct = (s: StructDecl): string => wgslBackend.emitStruct(s)
 export const emitBinding = (b: BindingDecl): string => wgslBackend.emitBinding(b)
 export const emitFunc = (f: FuncDecl): string => wgslBackend.emitFunc(f)
 
-/** Emit a bare list of funcs through the SAME lower+cse pipeline emitModule uses, so the parity-harness
- *  emitted-WGSL accessors (getProjectionWgslFns / ECEF_WGSL_FNS / LOG_DEPTH_WGSL_FNS / …)
- *  stay byte-consistent with the decl-merged module emit — the auto-cache applies on BOTH
- *  paths, so dropping a hand `Let` re-binds the reuse uniformly regardless of which emit
- *  path a consumer takes. (Skips the validate/assertCaps preamble on purpose — a bare func
- *  list is not a complete authored module — so it runs only the lower+cse the spelling needs;
- *  `wgslBackend.optimize` IS cse, so this stays byte-identical to the func section of emitModule.) */
+/** Emit a bare list of funcs through the SAME lower+optimize pipeline emitModule uses, so the
+ *  parity-harness emitted-WGSL accessors (getProjectionWgslFns / ECEF_WGSL_FNS / LOG_DEPTH_WGSL_FNS / …)
+ *  stay byte-consistent with the decl-merged module emit — the optimizer applies on BOTH paths, so
+ *  folding / dead-code / reuse-binding happen uniformly regardless of which emit path a consumer takes.
+ *  (Skips the validate/assertCaps preamble on purpose — a bare func list is not a complete authored
+ *  module — so it runs only the lower+optimize the spelling needs; it mirrors `wgslBackend.optimize`
+ *  (fixpoint) so this stays byte-identical to the func section of emitModule.) The name is historical
+ *  (the pipeline was once cse-only). */
 export function emitFuncsCsed(funcs: readonly FuncDecl[]): string {
-  const lowered = cse(lowerModule(autoVars({ consts: [], structs: [], bindings: [], funcs: [...funcs] })))
+  const lowered = fixpoint(lowerModule(autoVars({ consts: [], structs: [], bindings: [], funcs: [...funcs] })))
   return lowered.funcs.map((f) => wgslBackend.emitFunc(f)).join('\n\n')
 }
 

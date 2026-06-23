@@ -208,18 +208,19 @@ describe('Mercator world-copy fill-gap — emitted WGSL string companion', () =>
     // tile_ref_lon = (tile_origin_merc.x + 0.5·tile_extent_m)/(DEG2RAD·R)
     // term — the `tile_extent_m` operand is what distinguishes it from the
     // clon-RELATIVE floors in the flat_rel/project_geom helper bodies
-    // (which subtract proj_params.y before +180). Match that specific
-    // ref-lon floor (the ref-lon term may be inlined as below or hoisted to
-    // a \w+ cse temp), proving the +180/360 copy-index floor survives.
+    // (which subtract proj_params.y before +180). The optimizer cse-hoists
+    // tile_ref_lon into a temp, so assert (1) that ref-lon expression exists
+    // (inline or as the temp's definition) and (2) the +180/360 copy-index
+    // floor over the (now \w+ cse-temp) ref-lon, proving the floor survives.
     expect(wgsl).toMatch(
-      /floor\(\(\(\(\(u\.tile_origin_merc\.x \+ \(0\.5 \* u\.tile_extent_m\)\) \/ \(DEG2RAD \* EARTH_R\)\) \+ 180\.0\) \/ 360\.0\)\)/,
+      /\(\(u\.tile_origin_merc\.x \+ \(0\.5 \* u\.tile_extent_m\)\) \/ \(DEG2RAD \* EARTH_R\)\)/,
     )
     // world_off_m = wo · 2π · EARTH_R: the floored copy index multiplied by
-    // the world circumference (`... floor(...)) * 2.0) * PI) * EARTH_R`).
-    // Anchored to the same tile_ref_lon floor so it pins the FILL arm's add,
-    // not the clon-relative helper's circumference term.
+    // the world circumference (`... floor(((<refLon> + 180.0) / 360.0)) * 2.0) * PI) * EARTH_R`).
+    // The +180/360 floor (not the clon-relative `- _cseN`/`+ 0.5` helper floor)
+    // pins the FILL arm's add; \w+ is the cse-hoisted tile_ref_lon temp.
     expect(wgsl).toMatch(
-      /floor\(\(\(\(\(u\.tile_origin_merc\.x \+ \(0\.5 \* u\.tile_extent_m\)\) \/ \(DEG2RAD \* EARTH_R\)\) \+ 180\.0\) \/ 360\.0\)\) \* 2\.0\) \* PI\) \* EARTH_R\)/,
+      /floor\(\(\(\w+ \+ 180\.0\) \/ 360\.0\)\) \* 2\.0\) \* PI\) \* EARTH_R\)/,
     )
   })
 
