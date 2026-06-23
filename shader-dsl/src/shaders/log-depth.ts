@@ -13,7 +13,7 @@ import {
 } from '../core/ir'
 import { emitFuncsCsed } from '../core/backends/wgsl'
 
-// apply_log_depth(pos, fc): write z = log2(max(1e-6, w+1)) * fc * w, keeping
+// apply_log_depth(pos, fc): write z = log2(max(f32(1e-6), w+1)) * fc * w, keeping
 // x/y/w. The *w pre-cancels the later perspective division.
 export const apply_log_depth = fn('apply_log_depth', { pos: vec4fT, fc: f32T }, vec4fT, ({ pos, fc }) => {
   const z = log2(max(f32(1e-6), pos.w.add(1))).mul(fc).mul(pos.w)

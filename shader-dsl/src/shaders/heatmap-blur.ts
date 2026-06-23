@@ -47,12 +47,12 @@ const vsFull = fn(
   'vs_full', { idx: builtin('vertex_index', u32T) },
   VsOut.type,
   (p, _b) => {
-    const pos = Var(vec2(f32(-1), f32(-1)))
-    If(p.idx.eq(1), () => { pos.assign(vec2(f32(3), f32(-1))) })
-      .elif(p.idx.eq(2), () => { pos.assign(vec2(f32(-1), f32(3))) })
+    const pos = Var(vec2(-1, -1))
+    If(p.idx.eq(1), () => { pos.assign(vec2(3, -1)) })
+      .elif(p.idx.eq(2), () => { pos.assign(vec2(-1, 3)) })
     const out = Var(VsOut.type)
     const o = VsOut.of(out)
-    o.pos.assign(vec4(pos, f32(0), f32(1)))
+    o.pos.assign(vec4(pos, 0, 1))
     // y-flip — texture origin top-left, NDC origin bottom-left.
     o.uv.assign(vec2(
         pos.x.add(1).mul(0.5),
@@ -81,8 +81,8 @@ const fsBlur = fn(
     // sample(offset) — load one texel at +offset texels along `direction`,
     // clamped to the texture extent.
     const sampleAt = (offset: number) => {
-      const sx = clamp(baseX.add(dir.x.mul(f32(offset))), f32(0), maxX)
-      const sy = clamp(baseY.add(dir.y.mul(f32(offset))), f32(0), maxY)
+      const sx = clamp(baseX.add(dir.x.mul(f32(offset))), 0, maxX)
+      const sy = clamp(baseY.add(dir.y.mul(f32(offset))), 0, maxY)
       const coord = vec2i(toI32(sx), toI32(sy))
       return textureLoad(srcTex.node, coord, u32(0)).x
     }
@@ -103,7 +103,7 @@ const fsBlur = fn(
         .add(sampleAt(-3).mul(f32(w3)))
         .add(sampleAt(4).mul(f32(w4)))
         .add(sampleAt(-4).mul(f32(w4)))
-    return vec4(acc, f32(0), f32(0), f32(1))
+    return vec4(acc, 0, 0, 1)
   },
   { stage: 'fragment', retAttr: '@location(0)' },
 )

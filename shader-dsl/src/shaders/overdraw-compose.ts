@@ -34,11 +34,11 @@ const accumTex = resource('accum_tex', texture2dfT, { group: 0, binding: 0 })
 // yellow → red.
 
 const colormap = fn('colormap', { t: f32T }, vec3fT, (p) => {
-  const s = clamp(p.t, f32(0), f32(1))
-  const r = clamp(s.mul(3).sub(0.5), f32(0), f32(1))
-  const g = clamp(s.mul(2.5), f32(0), f32(1))
-      .mul(clamp(f32(2).sub(s.mul(2)), f32(0), f32(1)))
-  const blue = clamp(f32(0.6).sub(s.mul(1.5)), f32(0), f32(1))
+  const s = clamp(p.t, 0, 1)
+  const r = clamp(s.mul(3).sub(0.5), 0, 1)
+  const g = clamp(s.mul(2.5), 0, 1)
+      .mul(clamp(f32(2).sub(s.mul(2)), 0, 1))
+  const blue = clamp(f32(0.6).sub(s.mul(1.5)), 0, 1)
   Return(vec3(r, g, blue))
 })
 
@@ -50,12 +50,12 @@ const vsFull = fn(
   'vs_full', { idx: builtin('vertex_index', u32T) },
   VsOut.type,
   (p) => {
-    const pos = vec2(f32(-1), f32(-1))
-    If(p.idx.eq(1), () => { pos.assign(vec2(f32(3), f32(-1))) })
-      .elif(p.idx.eq(2), () => { pos.assign(vec2(f32(-1), f32(3))) })
+    const pos = vec2(-1, -1)
+    If(p.idx.eq(1), () => { pos.assign(vec2(3, -1)) })
+      .elif(p.idx.eq(2), () => { pos.assign(vec2(-1, 3)) })
     // y-flip — texture origin top-left, NDC origin bottom-left.
     return VsOut.construct({
-      pos: vec4(pos, f32(0), f32(1)),
+      pos: vec4(pos, 0, 1),
       uv: vec2(
         pos.x.add(1).mul(0.5),
         f32(1).sub(pos.y.add(1).mul(0.5)),
@@ -84,11 +84,11 @@ const fsCompose = fn(
     const count = textureLoad(accumTex.node, uv, u32(0)).x
     If(count.lt(0.5), () => {
       // No fragments → empty pixel; leave dark to distinguish from "1 draw".
-      Return(vec4(f32(0.02), f32(0.02), f32(0.04), f32(1)))
+      Return(vec4(0.02, 0.02, 0.04, 1))
     })
     // Exposure: 16 overdraws → fully saturated.
     const t = count.div(16)
-    Return(vec4(callFn('colormap', vec3fT, t), f32(1)))
+    Return(vec4(callFn('colormap', vec3fT, t), 1))
   },
   { stage: 'fragment', retAttr: '@location(0)' },
 )

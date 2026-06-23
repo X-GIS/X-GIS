@@ -70,13 +70,13 @@ const vs = fn('vs_heatmap', {
   feat_id: location(2, f32T),
 }, HeatOut.type, (p, _b) => {
   const offsets = arrayLit(vec2fT,
-    vec2(f32(-1), f32(-1)),
-    vec2(f32(1), f32(-1)),
-    vec2(f32(1), f32(1)),
-    vec2(f32(-1), f32(1)),
+    vec2(-1, -1),
+    vec2(1, -1),
+    vec2(1, 1),
+    vec2(-1, 1),
   )
   const fid = toU32(p.feat_id)
-  const radiusPx = max(featData.at(fid.mul(STRIDE).add(0), f32T), f32(1))
+  const radiusPx = max(featData.at(fid.mul(STRIDE).add(0), f32T), 1)
   const weight = featData.at(fid.mul(STRIDE).add(1), f32T)
   const viewport = U.field.viewport
   const mvp = U.field.mvp
@@ -111,15 +111,15 @@ const vs = fn('vs_heatmap', {
       const camMercL = U.field.cam_ecef_l.swizzle<'vec2<f32>'>('xy')
       const relX = mxH.sub(camMercH.x).add(mxL.sub(camMercL.x))
       const relY = myH.sub(camMercH.y).add(myL.sub(camMercL.y))
-      return transformMat4(mvp, vec4(relX, relY, f32(0), f32(1)))
+      return transformMat4(mvp, vec4(relX, relY, 0, 1))
     }],
     [U.field.proj_params.x.lt(6.5), () => {
       // Flat non-Mercator (1..6): shared flat_rel (self-ref lon for nearest copy).
       const pp = U.field.proj_params
       const relG = flat_rel(absLon, absLat, pp, absLon)
-      return transformMat4(mvp, vec4(relG.x, relG.y, f32(0), f32(1)))
+      return transformMat4(mvp, vec4(relG.x, relG.y, 0, 1))
     }],
-  ], () => transformMat4(mvp, vec4(ecefRtc, f32(1))))
+  ], () => transformMat4(mvp, vec4(ecefRtc, 1)))
 
   // Expand a screen-space billboard quad of `radius_px` (NDC-corrected by
   // clip.w). uv runs −1..1 across the quad; the FS Gaussian is radial in uv.
@@ -127,7 +127,7 @@ const vs = fn('vs_heatmap', {
   const pxToNdc = vec2(f32(2).div(viewport.x), f32(2).div(viewport.y))
   const offsetPx = vec2(offXY.x.mul(radiusPx), offXY.y.mul(radiusPx))
   const offsetNdc = offsetPx.mul(pxToNdc)
-  const quadClip = Let(centerClip.add(vec4(offsetNdc.mul(centerClip.w), f32(0), f32(0))))
+  const quadClip = Let(centerClip.add(vec4(offsetNdc.mul(centerClip.w), 0, 0)))
 
   return HeatOut.construct({ position: quadClip, uv: offXY, weight })
 }, { stage: 'vertex' })
@@ -144,10 +144,10 @@ const fs = fn('fs_heatmap', { in: HeatOut.type }, vec4fT, (p, _b) => {
   const uv = pin.uv
   const d2 = uv.x.mul(uv.x).add(uv.y.mul(uv.y))
   const ZERO = f32(0.22313016) // exp(-1.5)
-  const gauss = max(exp(d2.mul(-1.5)).sub(ZERO), f32(0))
+  const gauss = max(exp(d2.mul(-1.5)).sub(ZERO), 0)
   const density = gauss.mul(pin.weight)
   // R16Float target — only .r carries density; gba unused.
-  return vec4(density, f32(0), f32(0), f32(1))
+  return vec4(density, 0, 0, 1)
 }, { stage: 'fragment', retAttr: '@location(0)' })
 
 // A build-fn (not a top-level const) so the injection-deferred getGpuProjectionFuncs() is

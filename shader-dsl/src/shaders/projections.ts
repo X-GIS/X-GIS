@@ -161,8 +161,8 @@ const proj_azimuthal_equidistant = fn('proj_azimuthal_equidistant', { lon_deg: f
   const l0 = clon.mul(DEG2RAD)
   const p0 = clat.mul(DEG2RAD)
   const cos_c = sin(p0).mul(sin(phi)).add(cos(p0).mul(cos(phi)).mul(cos(lam.sub(l0))))
-  const c = acos(clamp(cos_c, f32(-1), f32(1)))
-  ReturnIf(c.lt(0.0001), vec2(f32(0), f32(0)))
+  const c = acos(clamp(cos_c, -1, 1))
+  ReturnIf(c.lt(0.0001), vec2(0, 0))
   const k = c.div(sin(c))
   const x = EARTH_R.mul(k).mul(cos(phi)).mul(sin(lam.sub(l0)))
   const y = EARTH_R.mul(k).mul(cos(p0).mul(sin(phi)).sub(sin(p0).mul(cos(phi)).mul(cos(lam.sub(l0)))))
@@ -175,7 +175,7 @@ const proj_stereographic = fn('proj_stereographic', { lon_deg: f32T, lat_deg: f3
   const l0 = clon.mul(DEG2RAD)
   const p0 = clat.mul(DEG2RAD)
   const cos_c = sin(p0).mul(sin(phi)).add(cos(p0).mul(cos(phi)).mul(cos(lam.sub(l0))))
-  ReturnIf(cos_c.lt(-0.9), vec2(f32(1e15), f32(1e15)))
+  ReturnIf(cos_c.lt(-0.9), vec2(1e15, 1e15))
   const k = f32(2).div(f32(1).add(cos_c))
   const x = EARTH_R.mul(k).mul(cos(phi)).mul(sin(lam.sub(l0)))
   const y = EARTH_R.mul(k).mul(cos(p0).mul(sin(phi)).sub(sin(p0).mul(cos(phi)).mul(cos(lam.sub(l0)))))
@@ -190,7 +190,7 @@ const oblique_rot = fn('oblique_rot', { lon_deg: f32T, lat_deg: f32T, clon: f32T
   const d_lam = lam.sub(l0)
   const phi_rot = asin(clamp(
     sin(phi).mul(cos(p0)).sub(cos(phi).mul(sin(p0)).mul(cos(d_lam))),
-    f32(-1), f32(1)))
+    -1, 1))
   const lam_rot = atan2(
     cos(phi).mul(sin(d_lam)),
     sin(phi).mul(sin(p0)).add(cos(phi).mul(cos(p0)).mul(cos(d_lam))))
@@ -457,11 +457,11 @@ const rim_alpha = fn('rim_alpha', LLP_PARAMS, f32T, ({ lon_deg, lat_deg, proj_pa
   const RIM = f32(RIM_FADE)
   If(t.gt(2.5), () => {
     const cc = center_cos_c(lon_deg, lat_deg, clon, clat)
-    If(t.lt(3.5), () => { Return(smoothstep(f32(0), RIM, cc)) }) // ortho
+    If(t.lt(3.5), () => { Return(smoothstep(0, RIM, cc)) }) // ortho
     If(t.lt(4.5), () => { Return(smoothstep(f32(AZI_CULL), f32(AZI_CULL + RIM_FADE), cc)) }) // azimuthal
     If(t.lt(5.5), () => { Return(smoothstep(f32(STEREO_CULL), f32(STEREO_CULL + RIM_FADE), cc)) }) // stereographic
     If(t.lt(6.5), () => { Return(f32(1)) }) // oblique_mercator — no rim
-    Return(smoothstep(f32(0), RIM, cc)) // globe (7)
+    Return(smoothstep(0, RIM, cc)) // globe (7)
   })
   Return(f32(1)) // flat projections — no rim
 })

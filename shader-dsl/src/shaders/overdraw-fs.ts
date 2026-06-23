@@ -11,12 +11,12 @@
 // initialised by calling `emitOverdrawFsWgsl()`, so consumers
 // (background-renderer + every other debug pipeline) need no change.
 
-import { fn, module, f32, vec4, vec4fT, Return, type ModuleDecl } from '../core/ir'
+import { fn, module, vec4, vec4fT, Return, type ModuleDecl } from '../core/ir'
 import { emitModule } from '../core/backends/wgsl'
 
 const fsOverdraw = fn(
   'fs_overdraw', {}, vec4fT,
-  (_p) => { Return(vec4(f32(1), f32(0), f32(0), f32(0))) },
+  (_p) => { Return(vec4(1, 0, 0, 0)) },
   { stage: 'fragment', retAttr: '@location(0)' },
 )
 

@@ -49,7 +49,7 @@ const vs = fn('vs', {
   const ndc_x = p.pos_px.x.div(vp.x).mul(2).sub(1)
   const ndc_y = f32(1).sub(p.pos_px.y.div(vp.y).mul(2))
   return VsOut.construct({
-    clip_pos: vec4(ndc_x, ndc_y, f32(0), f32(1)),
+    clip_pos: vec4(ndc_x, ndc_y, 0, 1),
     uv: p.uv,
   })
 }, { stage: 'vertex' })
@@ -59,7 +59,7 @@ const fs = fn('fs', { in: VsOut.type }, vec4fT, (p, _b) => {
   const fill = U.field.fill_color
   const halo = U.field.halo_color
   const edge = f32(0.75)
-  const soft = max(f32(2.52).div(max(U.field.font_size_px, f32(1))), f32(1).div(255))
+  const soft = max(f32(2.52).div(max(U.field.font_size_px, 1)), f32(1).div(255))
   const fillA = smoothstep(edge.sub(soft), edge.add(soft), sdf)
   const fillOnly = vec4(fill.rgb, fill.a.mul(fillA))
   // Halo behind fill: smoothstep at the inward-shifted halo edge, then the

@@ -338,8 +338,20 @@ export function callFn<T extends ShaderType>(name: string, ret: T, ...args: Node
 }
 
 // Vector / struct constructors — `TypeName(arg0, arg1, …)`.
-export const construct = (type: ShaderType, args: NodeLike[]): Node =>
-  new Node({ op: 'construct', type, args: args.map((a) => lift(a).expr) })
+export const construct = (type: ShaderType, args: NodeLike[]): Node => {
+  // A bare-number component lifts to the constructed type's ELEMENT scalar — so `vec4(pos, 0, 1)` emits
+  // f32 components and `vec2u(0, 1)` emits u32 ones, dropping the f32()/u32() wrapper. Non-vec (struct)
+  // args are typed field Nodes already, so the f32 fallback never lifts a stray number.
+  const elem = type.kind === 'vec' ? type.elem
+    : type.kind === 'array' && type.elem.kind === 'scalar' ? type.elem.scalar
+    : 'f32'
+  const elemT = elem === 'u32' ? u32T : elem === 'i32' ? i32T : f32T
+  return new Node({
+    op: 'construct',
+    type,
+    args: args.map((a) => (typeof a === 'number' ? new Node({ op: 'lit', type: elemT, value: a }) : a).expr),
+  })
+}
 
 /** Low-level struct member access — `base.name`. NOT for authoring: shaders read fields through the
  *  SoT getters (`Handle.of(node).name`, `U.field.name`); this is the primitive those getters build on. */

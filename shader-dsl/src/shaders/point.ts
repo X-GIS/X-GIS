@@ -222,10 +222,10 @@ const vs = fn('vs_point', {
   feat_id: location(2, f32T),
 }, PointOut.type, (p) => {
   const offsets = arrayLit(vec2fT,
-    vec2(f32(-1), f32(-1)),
-    vec2(f32(1), f32(-1)),
-    vec2(f32(1), f32(1)),
-    vec2(f32(-1), f32(1)),
+    vec2(-1, -1),
+    vec2(1, -1),
+    vec2(1, 1),
+    vec2(-1, 1),
   )
   const fid = toU32(p.feat_id)
   const rawRadius = featData.at(fid.mul(STRIDE).add(0), f32T)
@@ -287,7 +287,7 @@ const vs = fn('vs_point', {
     const camMercL = U.field.cam_ecef_l.swizzle<'vec2<f32>'>('xy')
     const relX = mxH.sub(camMercH.x).add(mxL.sub(camMercL.x))
     const relY = myH.sub(camMercH.y).add(myL.sub(camMercL.y))
-    return transformMat4(mvp, vec4(relX, relY, f32(0), f32(1)))
+    return transformMat4(mvp, vec4(relX, relY, 0, 1))
   }],
     [U.field.proj_params.x.lt(6.5), () => {
     // FLAT non-Mercator (1-6): the shared flat_rel — reproject the marker's
@@ -296,10 +296,10 @@ const vs = fn('vs_point', {
     // individual marker project_geom collapses to plain project. Same flat MVP.
     const pp = U.field.proj_params
     const relG = flat_rel(absLon, absLat, pp, absLon)
-    return transformMat4(mvp, vec4(relG.x, relG.y, f32(0), f32(1)))
+    return transformMat4(mvp, vec4(relG.x, relG.y, 0, 1))
   }],
   ], () => {
-    return transformMat4(mvp, vec4(ecefRtc, f32(1)))
+    return transformMat4(mvp, vec4(ecefRtc, 1))
   })
 
   // circle-translate: apply viewport-space offset post-MVP.
@@ -311,8 +311,8 @@ const vs = fn('vs_point', {
   centerClip.assign(centerClip.add(vec4(
     circleParams.x.mul(centerClip.w),
     circleParams.y.mul(centerClip.w),
-    f32(0),
-    f32(0),
+    0,
+    0,
   )))
 
   // circle-pitch-scale (Mapbox `paint.circle-pitch-scale`). circle_params.w
@@ -328,13 +328,13 @@ const vs = fn('vs_point', {
   // screen centre, <1 toward the horizon. Guard clip.w>0 to avoid div blow-up.
   If(U.field.circle_params.w.gt(0.5), () => {
     const wRef = mvp.at(u32(3), vec4fT).w
-    const wPt = Let(max(centerClip.w, f32(1e-4)))
+    const wPt = Let(max(centerClip.w, 1e-4))
     radiusPx.assign(radiusPx.mul(wRef.div(wPt)))
   })
 
   // bit 3 of packed10 = flat-quad mode.
   const isFlat = packed10.bitAnd(u32(8)).ne(0)
-  radiusPx.assign(max(radiusPx, f32(1)))
+  radiusPx.assign(max(radiusPx, 1))
   const expand = Let(radiusPx.add(2))
 
   const out = Var(PointOut.type)
@@ -362,7 +362,7 @@ const vs = fn('vs_point', {
     const offXY = offsets.at(p.quad_id, vec2fT)
     const offsetPx = Let(vec2(offXY.x.mul(expand), offXY.y.mul(expand).add(yShiftPx)))
     const offsetNdc = offsetPx.mul(pxToNdc)
-    const flatClip = Let(centerClip.add(vec4(offsetNdc.mul(centerClip.w), f32(0), f32(0))))
+    const flatClip = Let(centerClip.add(vec4(offsetNdc.mul(centerClip.w), 0, 0)))
     o.position.assign(apply_log_depth(flatClip, fc))
     o.uv.assign(offXY)
   }).else(() => {
@@ -377,11 +377,11 @@ const vs = fn('vs_point', {
     const offXY = offsets.at(p.quad_id, vec2fT)
     const offsetPx = Let(vec2(offXY.x.mul(expand), offXY.y.mul(expand).add(yShiftPx)))
     const offsetNdc = offsetPx.mul(pxToNdc)
-    const billboardClip = Let(centerClip.add(vec4(offsetNdc.mul(centerClip.w), f32(0), f32(0))))
+    const billboardClip = Let(centerClip.add(vec4(offsetNdc.mul(centerClip.w), 0, 0)))
     o.position.assign(apply_log_depth(billboardClip, fc))
     // UV stays centered so the SDF shape renders unchanged; only the on-
     // screen placement is shifted.
-    o.uv.assign(offXY.mul(expand).div(max(radiusPx, f32(1))))
+    o.uv.assign(offXY.mul(expand).div(max(radiusPx, 1)))
   })
   o.feat_id.assign(fid)
   o.radius_px.assign(radiusPx)
@@ -406,7 +406,7 @@ const fs = fn('fs_point', { in: PointOut.type }, PointFragmentOutput.type, (p) =
   // circle-blur: widen the AA band by blur_px converted to UV units.
   // blur_uv = blur_px / radius_px. Default 0 → band unchanged (no-op).
   const blurPx = U.field.circle_params.z
-  const blurUv = blurPx.div(max(pin.radius_px, f32(1)))
+  const blurUv = blurPx.div(max(pin.radius_px, 1))
   const halfBand = aa.add(blurUv)
 
   const dist = ifExpr(shapeId.eq(0),
@@ -431,9 +431,9 @@ const fs = fn('fs_point', { in: PointOut.type }, PointFragmentOutput.type, (p) =
   const flags = toU32(featData.at(fid.mul(STRIDE).add(10), f32T))
 
   // stroke_w in UV space using the actual rendered radius.
-  const strokeW = strokeWPx.div(max(pin.radius_px, f32(1)))
+  const strokeW = strokeWPx.div(max(pin.radius_px, 1))
 
-  const color = vec4(f32(0), f32(0), f32(0), f32(0))
+  const color = vec4(0, 0, 0, 0)
 
   // Fill (bit 0).
   If(flags.bitAnd(u32(1)).ne(0), () => {

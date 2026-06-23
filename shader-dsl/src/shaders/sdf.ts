@@ -40,7 +40,7 @@ export const dist_to_segment = fn('dist_to_segment', { p: vec2fT, a: vec2fT, b: 
   const ab = b.sub(a)
   const len2 = dot(ab, ab)
   // single-exit: max() guards the degenerate (len2≈0) divide; select picks the point dist.
-  const t = clamp(dot(p.sub(a), ab).div(max(len2, 1e-10)), f32(0), f32(1))
+  const t = clamp(dot(p.sub(a), ab).div(max(len2, 1e-10)), 0, 1)
   const segDist = length(p.sub(a).sub(ab.mul(t)))
   return select(len2.lt(1e-10), length(p.sub(a)), segDist)
 })
