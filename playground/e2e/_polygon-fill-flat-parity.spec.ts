@@ -259,11 +259,14 @@ test.describe('polygon fill flat-Mercator arm parity (GPU position ≡ outline)'
   test('emitted polygon fill arm still reads tile-local Mercator (arm-revert pin)', () => {
     // Pins the FILL arm against a shader-only revert to `project(abs_lon,
     // abs_lat)` (packing unchanged): the regenerated snapshots would drop the
-    // tile-local-Mercator token. `rel2d_local` is unique to vs_main_ecef — the
-    // stroke arm uses `rel2d` + `project(`.
+    // tile-local-Mercator token. The token is the BARE-vec2 tile-local form
+    // `(vec2<f32>(abs_lon, abs_lat) - cam_h) - cam_l`, unique to vs_main_ecef —
+    // the stroke arm wraps it in `project(`. Var-name-agnostic on purpose: the
+    // auto-var/CSE pass binds it to a generated name (`_cseN`), not a fixed one,
+    // so pin the expression, not the binding name.
     const here = dirname(fileURLToPath(import.meta.url))
     const snapDir = join(here, '..', '..', 'runtime', 'src', 'engine', 'shaders', 'dsl', '__polygon-variant-snapshots__')
-    const TOKEN = 'rel2d_local = ((vec2<f32>(abs_lon, abs_lat) - u.cam_h) - u.cam_l)'
+    const TOKEN = '= ((vec2<f32>(abs_lon, abs_lat) - u.cam_h) - u.cam_l)'
     const files = readdirSync(snapDir).filter((f) => f.endsWith('.wgsl'))
     expect(files.length, `no polygon snapshots in ${snapDir}`).toBeGreaterThan(0)
     const withToken = files.filter((f) => readFileSync(join(snapDir, f), 'utf8').includes(TOKEN))
