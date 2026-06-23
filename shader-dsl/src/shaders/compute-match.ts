@@ -71,16 +71,16 @@ export function matchComputeKernel(spec: MatchKernelSpec): ModuleDecl {
 
     // Parameterized if-else ladder — one arm per sorted pattern.
     const chain = If(v.eq(0), () => {
-      color.set(colorVec(armByPattern.get(sortedPatterns[0]!)!.colorHex))
+      color.assign(colorVec(armByPattern.get(sortedPatterns[0]!)!.colorHex))
     })
     for (let i = 1; i < sortedPatterns.length; i++) {
       chain.elif(v.eq(f32(i)), () => {
-        color.set(colorVec(armByPattern.get(sortedPatterns[i]!)!.colorHex))
+        color.assign(colorVec(armByPattern.get(sortedPatterns[i]!)!.colorHex))
       })
     }
-    chain.else(() => { color.set(colorVec(spec.defaultColorHex)) })
+    chain.else(() => { color.assign(colorVec(spec.defaultColorHex)) })
 
-    outColor.at(fid, u32T).set(pack4x8unorm(color))
+    outColor.at(fid, u32T).assign(pack4x8unorm(color))
   }, { stage: 'compute', workgroupSize: COMPUTE_WORKGROUP_SIZE })
 
   return module({

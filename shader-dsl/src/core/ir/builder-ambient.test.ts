@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  fn, Let, Var, If, Loop, Continue, Return, ReturnIf, assign, addAssign,
+  fn, Let, Var, If, Loop, Continue, Return, ReturnIf,
   f32, f32T, i32, bool,
 } from './index'
 import { emitFunc } from '../backends/wgsl'
@@ -16,8 +16,8 @@ describe('builder — ambient free-function style (C2)', () => {
       const a = b.let('a', x.mul(2))
       const acc = b.var('acc', f32T, f32(0))
       b.forRange('i', i32(0), (i) => i.lt(i32(3)), (cb, i) => {
-        cb.addAssign(acc, a)
-        cb.if(i.eq(i32(1)), (d) => { d.assign(acc, a) })
+        acc.assign(acc.add(a))
+        cb.if(i.eq(i32(1)), () => { acc.assign(a) })
       })
       b.ret(acc)
     })
@@ -25,8 +25,8 @@ describe('builder — ambient free-function style (C2)', () => {
       const a = Let('a', x.mul(2))
       const acc = Var('acc', f32T, f32(0))
       Loop('i', i32(0), (i) => i.lt(i32(3)), (i) => {
-        addAssign(acc, a)
-        If(i.eq(i32(1)), () => { assign(acc, a) })
+        acc.assign(acc.add(a))
+        If(i.eq(i32(1)), () => { acc.assign(a) })
       })
       return acc
     })
@@ -38,7 +38,7 @@ describe('builder — ambient free-function style (C2)', () => {
       const acc = Var('acc', f32T, f32(0))
       Loop('i', i32(0), (i) => i.lt(i32(3)), (i) => {
         If(i.eq(i32(1)), () => Continue())
-        addAssign(acc, f32(1))
+        acc.assign(acc.add(f32(1)))
       })
       return acc
     })

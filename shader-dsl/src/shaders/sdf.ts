@@ -100,16 +100,16 @@ const sdf_shape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, f32T, ({ uv
     const seg = segmentsB.at(i)
     Switch(seg.kind)
       .case(0, () => {
-        min_dist.set(min(min_dist, dist_to_segment(uv, seg.p0, seg.p1)))
-        winding.set(winding.add(winding_line(uv, seg.p0, seg.p1)))
+        min_dist.assign(min(min_dist, dist_to_segment(uv, seg.p0, seg.p1)))
+        winding.assign(winding.add(winding_line(uv, seg.p0, seg.p1)))
       })
       .case(1, () => {
-        min_dist.set(min(min_dist, dist_to_quadratic(uv, seg.p0, seg.p1, seg.p2)))
-        winding.set(winding.add(winding_line(uv, seg.p0, seg.p2)))
+        min_dist.assign(min(min_dist, dist_to_quadratic(uv, seg.p0, seg.p1, seg.p2)))
+        winding.assign(winding.add(winding_line(uv, seg.p0, seg.p2)))
       })
       .case(2, () => {
-        min_dist.set(min(min_dist, dist_to_cubic(uv, seg.p0, seg.p1, seg.p2, seg.p3)))
-        winding.set(winding.add(winding_line(uv, seg.p0, seg.p3)))
+        min_dist.assign(min(min_dist, dist_to_cubic(uv, seg.p0, seg.p1, seg.p2, seg.p3)))
+        winding.assign(winding.add(winding_line(uv, seg.p0, seg.p3)))
       })
       .default(() => { /* default: {} */ })
   }, u32(1))
