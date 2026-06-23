@@ -20,6 +20,8 @@ const SOURCE = `source land {
   url: "data/land.geojson"
 }
 
+background { fill: #14110c }
+
 layer continents {
   source: land
   | fill-zinc-200
