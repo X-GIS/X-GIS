@@ -9,6 +9,9 @@
       "entry": ["src/index.ts!", "bench-*.ts"],
       "project": ["src/**/*.ts"]
     },
+    "shader-dsl": {
+      "project": ["src/**/*.ts"]
+    },
     "runtime": {
       "entry": ["src/index.ts!", "scripts/*.ts"],
       "project": ["src/**/*.ts"],
