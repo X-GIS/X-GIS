@@ -46,14 +46,9 @@ const plasma = module({ structs: [U.struct, VsOut.decl], bindings: [U.binding], 
 const { code: wgsl, reflection } = emitModuleWithReflection(plasma, wgslBackend)
 console.log('=== WGSL (WebGPU) ===\n' + wgsl)
 
-console.log('\n=== GLSL ES 3.00 (WebGL2) ===')
-try {
-  console.log(emitGlslModule(plasma))
-} catch (e) {
-  // Known gap: the GLSL backend does not yet lower a @builtin VERTEX INPUT
-  // (here `@builtin(vertex_index)`) to its gl_* global in the body. A fullscreen
-  // triangle needs gl_VertexID, so this shader emits WGSL today but not GLSL.
-  console.log(`(GLSL not emitted — ${(e as Error).message})`)
-}
+// GLSL ES is single-main()-per-compilation-unit, so emit the vertex + fragment
+// stages SEPARATELY — same DSL source, two WebGL2-compilable shaders.
+console.log('\n=== GLSL ES 3.00 — VERTEX (WebGL2) ===\n' + emitGlslModule(plasma, 'vertex'))
+console.log('\n=== GLSL ES 3.00 — FRAGMENT (WebGL2) ===\n' + emitGlslModule(plasma, 'fragment'))
 
 console.log('\n=== Reflection (the host binds from this) ===\n' + JSON.stringify(reflection, null, 2))
