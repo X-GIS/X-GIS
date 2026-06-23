@@ -12,6 +12,7 @@ import {
   safePropsBag,
   isOmittedValue,
   filterLineOrFailClosed,
+  applyAlphaMultiplier,
 } from './layers-helpers'
 
 /** Mapbox `circle` layer (Point/MultiPoint features rendered as
@@ -203,14 +204,12 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
         // append. Skip when no opacity declared (1.0 default ==
         // 6-char hex stays).
         if (strokeOpacityConst !== null && strokeOpacityConst < 0.999) {
-          // c is `#rrggbb` or `#rrggbbaa`. Replace alpha byte.
-          const baseAlpha = c.length === 9
-            ? parseInt(c.slice(7, 9), 16) / 255
-            : 1
-          const a = Math.round(baseAlpha * strokeOpacityConst * 255)
-          const aHex = a.toString(16).padStart(2, '0')
-          const rgb = c.slice(0, 7) // `#rrggbb`
-          utils.push(`stroke-${rgb}${aHex}`)
+          // applyAlphaMultiplier handles #rgb / #rgba / #rrggbb / #rrggbbaa,
+          // expanding short-form hex before folding the opacity into the alpha
+          // channel. Pre-fix this site assumed c was always #rrggbb (7 chars)
+          // or #rrggbbaa (9 chars): for "#abc" it emitted "#abc80" (5 digits)
+          // which the runtime hex regex rejected → stroke silently dropped.
+          utils.push(`stroke-${applyAlphaMultiplier(c, strokeOpacityConst)}`)
         } else {
           utils.push(`stroke-${c}`)
         }

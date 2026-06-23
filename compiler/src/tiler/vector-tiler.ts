@@ -251,7 +251,7 @@ function lonToTileX(lon: number, z: number): number {
 
 function latToTileY(lat: number, z: number): number {
   const n = Math.pow(2, z)
-  const clamped = Math.max(-85, Math.min(85, lat))
+  const clamped = Math.max(-85.0511287, Math.min(85.0511287, lat))
   return Math.max(0, Math.min(n - 1,
     Math.floor((1 - Math.log(Math.tan(clamped * Math.PI / 180) + 1 / Math.cos(clamped * Math.PI / 180)) / Math.PI) / 2 * n)
   ))

@@ -171,6 +171,16 @@ describe('assertSafeRemoteUrl', () => {
     expect(() => assertSafeRemoteUrl('http://2130706433/x')).toThrow(XGISSecurityError) // 127.0.0.1
     expect(() => assertSafeRemoteUrl('http://0x7f000001/x')).toThrow(XGISSecurityError)
   })
+
+  it('blocks trailing-dot hostnames (SSRF bypass via DNS absolute label)', () => {
+    // WHATWG URL parser preserves the trailing dot on non-numeric hosts,
+    // so "localhost." !== "localhost" and the old guard returned false.
+    // After normalization, these must be treated identically to the bare forms.
+    expect(() => assertSafeRemoteUrl('http://localhost./x')).toThrow(XGISSecurityError)
+    expect(() => assertSafeRemoteUrl('http://foo.localhost./x')).toThrow(XGISSecurityError)
+    // Control: a public host with a trailing dot must NOT be blocked.
+    expect(() => assertSafeRemoteUrl('http://example.com./x')).not.toThrow()
+  })
 })
 
 describe('assertIngestBudget DoS-nesting hardening', () => {

@@ -164,6 +164,10 @@ export class InteractionController {
 
     try {
       await slot.buf.mapAsync(GPUMapMode.READ, 0, 8)
+      // Re-check: destroy() may have landed during the ~1-frame mapAsync
+      // window. If so, getCtx() now returns null (map.ts closes over
+      // `_destroyed`). Bail before touching the dead buffer.
+      if (!this.getCtx()) return null
       const view = new Uint32Array(slot.buf.getMappedRange(0, 8))
       const featureId = view[0]
       // G channel packs (instanceId << 16) | layerId — see LayerIdRegistry.

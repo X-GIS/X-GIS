@@ -103,6 +103,12 @@ export function expandPerFeatureColorMatch(layer: MapboxLayer, warnings?: string
 
   const byColour = new Map<string, (string | number)[]>()
   const allVals: (string | number)[] = []
+  // Track values already assigned to an earlier colour arm so that a
+  // duplicate key (which violates the Mapbox spec but must be handled
+  // gracefully) only ever appears under the FIRST arm that claims it,
+  // preserving match's first-arm-wins ordering. Also prevents the same
+  // value from appearing twice in allVals (the default NOT-IN filter).
+  const seen = new Set<string | number>()
   for (let i = 0; i + 1 < args.length - 1; i += 2) {
     // Mapbox v8 strict tooling can wrap the keys-array form
     // (`["literal", ["v1", "v2"]]`) — same case the main match handler
@@ -142,6 +148,9 @@ export function expandPerFeatureColorMatch(layer: MapboxLayer, warnings?: string
         warnings?.push(`Layer "${layer.id}" — fill-color match contains a non-scalar key value (${typeof v}); per-feature colour expand bailed and the layer will render with a single fallback colour.`)
         return null
       }
+      // Skip values already claimed by an earlier arm — first-arm-wins.
+      if (seen.has(v)) continue
+      seen.add(v)
       allVals.push(v)
       const bucket = byColour.get(out) ?? []
       bucket.push(v)

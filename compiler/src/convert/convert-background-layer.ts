@@ -10,6 +10,7 @@
 import type { MapboxLayer } from './types'
 import { colorToXgis } from './colors'
 import { interpolateZoomCall } from './paint'
+import { applyAlphaMultiplier } from './layers-helpers'
 import type { StyleCoverage } from './mapbox-to-xgis'
 
 /** Convert the `background` layer (already located by the orchestrator)
@@ -84,12 +85,12 @@ export function convertBackgroundLayer(
     while (Array.isArray(bgOpRaw) && bgOpRaw.length === 2 && bgOpRaw[0] === 'literal') bgOpRaw = bgOpRaw[1]
     if (colorStr && typeof bgOpRaw === 'number' && Number.isFinite(bgOpRaw) && bgOpRaw < 0.999) {
       const a = Math.max(0, Math.min(1, bgOpRaw))
-      const baseAlpha = colorStr.length === 9
-        ? parseInt(colorStr.slice(7, 9), 16) / 255
-        : 1
-      const ai = Math.round(baseAlpha * a * 255)
-      const aHex = ai.toString(16).padStart(2, '0')
-      colorStr = colorStr.slice(0, 7) + aHex
+      // applyAlphaMultiplier handles #rgb / #rgba / #rrggbb / #rrggbbaa,
+      // expanding short-form hex before folding the opacity into the alpha
+      // channel. Pre-fix this site assumed colorStr was always #rrggbb (7
+      // chars) or #rrggbbaa (9 chars): for "#abc" it emitted "#abc80" (5
+      // digits) which the runtime hex regex rejected → background dropped.
+      colorStr = applyAlphaMultiplier(colorStr, a)
     }
   }
   const bgOpacity = bgPaint['background-opacity']

@@ -78,6 +78,33 @@ function interpolateZoomStops(
     v !== null && typeof v === 'object' && !Array.isArray(v)
     && Array.isArray((v as { stops?: unknown }).stops)
   ) {
+    // FIX #9: Detect legacy Mapbox data-driven property functions before
+    // treating the object as a zoom-function. A property function carries
+    // a `property` key (the feature attribute to evaluate against). These
+    // are silently mishandled — if the stop keys happen to be numbers
+    // (e.g. {property:'height', type:'interval', stops:[[0,'#aaa'],…]})
+    // the zoom-function path treats them as zoom levels and produces a
+    // wrong interpolation with no warning. If the stop keys are strings
+    // (e.g. categorical), the typeof-number guard returns null — a silent
+    // drop. Either way the output is wrong and the user gets no signal.
+    // Emit a clear warning and bail; the caller will fall through to
+    // exprToXgis which will also not convert it, but the warning surfaces
+    // the loss instead of hiding it.
+    if (typeof (v as { property?: unknown }).property === 'string') {
+      const propName = (v as { property: string }).property
+      const propType = typeof (v as { type?: unknown }).type === 'string'
+        ? (v as { type: string }).type
+        : 'unknown'
+      warnings?.push(
+        `paint property uses a legacy Mapbox data-driven property function`
+        + ` (property: "${propName}", type: "${propType}"). Data-driven`
+        + ` property functions are not yet supported by the X-GIS converter;`
+        + ` the property falls back to its default. Use a modern Mapbox`
+        + ` expression (["match", ["get", "${propName}"], …] or`
+        + ` ["step", ["get", "${propName}"], …]) instead.`,
+      )
+      return null
+    }
     const rawStops = (v as { stops: unknown[] }).stops
     const legacyStops: Array<{ zoom: number; value: unknown }> = []
     for (const s of rawStops) {
@@ -581,10 +608,29 @@ export function addOpacity(out: string[], v: unknown, warnings: string[]): void 
     // typo'd negative or > 1 value doesn't produce a malformed
     // utility name (`opacity--50` lexes as an utility name with
     // double-dash that the parser splits on the wrong segment).
+    //
+    // FIX #6: Three-way classification for out-of-spec values:
+    //   v < 0         → clamp to 0 (existing behaviour, warn if v<0||v>100)
+    //   v in (1, 2]   → typo window: author almost certainly meant the 0..1
+    //                   range (e.g. fill-opacity: 1.2 instead of 1.0). Clamp
+    //                   to 1.0 and WARN. Pre-fix: silently divided by 100
+    //                   → 0.012 → opacity-1 (~1% = near-invisible layer).
+    //   v in (2, 100] → legacy 0..100 percent form: divide by 100 (heuristic,
+    //                   pre-existing behaviour, no change).
+    //   v > 100       → out-of-range even for percent form; clamp to 1 with
+    //                   existing warn (v<0||v>100 gate fires).
+    let clamped: number
     if (v < 0 || v > 100) {
       warnings.push(`paint.*opacity: value ${v} out of range; Mapbox spec requires [0, 1] (X-GIS auto-detects [0, 100] percent). Clamped to ${Math.max(0, Math.min(1, v <= 1 ? v : v / 100))}.`)
+      clamped = Math.max(0, Math.min(1, v <= 1 ? v : v / 100))
+    } else if (v > 1 && v <= 2) {
+      // Typo window: value slightly above 1 in the 0..1 range. Mapbox/MapLibre
+      // clamp to 1.0; pre-fix X-GIS divided by 100 → near-zero opacity.
+      warnings.push(`paint.*opacity: value ${v} is slightly above 1.0 — looks like a typo in the 0..1 range. Clamped to 1 (opacity-100). Use a value > 2 if you intended the legacy 0..100 percent form.`)
+      clamped = 1
+    } else {
+      clamped = Math.max(0, Math.min(1, v <= 1 ? v : v / 100))
     }
-    const clamped = Math.max(0, Math.min(1, v <= 1 ? v : v / 100))
     out.push(`opacity-${Math.round(clamped * 100)}`)
     return
   }

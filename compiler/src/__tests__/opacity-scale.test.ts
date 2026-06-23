@@ -145,13 +145,13 @@ describe('opacity scale conversion (Mapbox 0..1 → xgis 0..100)', () => {
     expect(emitFill(-0.5)).not.toContain('opacity--')
   })
 
-  it('fill-opacity: 1.5 clamps to opacity-100 (out-of-range guard)', () => {
-    // > 1 in the 0..1 mode falls to the legacy 0..100 interpretation
-    // (1.5 / 100 = 0.015 → 2). 0..1 fast path stops at 1; the legacy
-    // path scales. Both above-spec values should at least produce a
-    // valid utility name.
+  it('fill-opacity: 1.5 clamps to opacity-100 with warning (typo window fix)', () => {
+    // FIX #6: v in (1, 2] is the typo window — author almost certainly
+    // meant the 0..1 range. Pre-fix: 1.5 / 100 = 0.015 → opacity-2
+    // (near-invisible). Post-fix: clamped to 1 → opacity-100 + warning.
     const out = emitFill(1.5)
-    expect(out).toMatch(/opacity-\d+/)
+    expect(out).toContain('opacity-100')
+    expect(out).toContain('Conversion notes')
     expect(out).not.toMatch(/opacity--/)
   })
 

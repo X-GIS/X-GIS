@@ -821,7 +821,7 @@ export class XGISMap {
       xgisLayers: this.xgisLayers,
       rawDatasets: this.rawDatasets,
       featureIndex: this.featureUpdateQueue.featureIndex,
-      getCtx: () => this.ctx,
+      getCtx: () => this._destroyed ? null : this.ctx,
       getPickTexture: () => this.pickTexture,
       getProjectionName: () => this.projectionName,
       getVectorTileShows: () => this.vectorTileShows,

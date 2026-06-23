@@ -20,6 +20,7 @@ import type { Camera } from './projection/camera'
 import { type Projection, mercatorYToLat } from './projection/projection'
 import { routeToSphereSelector } from './gpu/gpu-shared'
 import { globeVisibleTiles } from './projection/globe'
+import { representsCenterAs } from './projection/projections-table'
 
 /** What to do with a visible tile this frame. Tagged union so the
  *  TypeScript exhaustiveness check covers every branch — adding a new
@@ -571,7 +572,13 @@ export function computeZoomDirectionPrefetchKeys(input: {
     ? (() => {
         const R = 6378137
         const lonPF = centerX / R * (180 / Math.PI)
-        const latPF = mercatorYToLat(centerY)
+        // For sphere-family projections read the true centre latitude from
+        // camera.centerLatDeg — it reaches the pole (±90°) past the Mercator
+        // saturation limit of ±85.051129.  Mirrors the same fix in
+        // tile-selection-cache.ts so prefetch and render stay in lockstep.
+        const latPF = representsCenterAs(projType) === 'lat-deg'
+          ? camera.centerLatDeg
+          : mercatorYToLat(centerY)
         const cssWPF = canvasWidth / dpr
         const cssHPF = canvasHeight / dpr
         return globeVisibleTiles(
