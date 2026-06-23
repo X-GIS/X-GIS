@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { emitPolygonWgsl } from '@xgis/shader-dsl/shaders/polygon'
+import { emitPolygonWgsl } from '../shaders/dsl/polygon'
 import { MapRenderer } from './renderer'
 import { GraticuleRenderer } from './graticule-renderer'
 

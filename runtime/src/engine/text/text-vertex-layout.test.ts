@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { emitTextWgsl } from '@xgis/shader-dsl'
+import { emitTextWgsl } from '../shaders/dsl'
 import { TEXT_FORMAT } from './text-vertex-format'
 import { specShaderMismatches } from '../render/__vertex-format-crosscheck'
 

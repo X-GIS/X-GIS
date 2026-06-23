@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { packLineLayerUniform } from './line-renderer'
-import { emitLineWgsl } from '@xgis/shader-dsl/shaders/line'
+import { emitLineWgsl } from '../shaders/dsl/line'
 
 // Regression: line stroke width must account for the device-pixel ratio.
 //

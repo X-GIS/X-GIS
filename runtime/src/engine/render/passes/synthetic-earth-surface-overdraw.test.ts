@@ -38,7 +38,7 @@ import {
   SYNTHETIC_EARTH_SURFACE_SOURCE,
   SYNTHETIC_EARTH_SURFACE_LAYER,
 } from '../../synthetic-earth-surface-show'
-import { emitPolygonWgsl } from '@xgis/shader-dsl/shaders/polygon'
+import { emitPolygonWgsl } from '../../shaders/dsl/polygon'
 // The whole-viewport colour/accumulator clear moved to the background pass
 // (bucket 0) — the coverage seam from VISION §5 gap #1. The overdraw
 // accumulator a:0 clear is now decided by its pure helper.

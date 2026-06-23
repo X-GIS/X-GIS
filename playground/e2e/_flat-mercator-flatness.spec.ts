@@ -2,8 +2,8 @@ import { test, expect } from '@playwright/test'
 import {
   getProjectionWgslConsts,
   getProjectionWgslFns,
-} from '@xgis/shader-dsl/shaders/projections'
-import { configureProjections } from '@xgis/shader-dsl'
+} from '../../runtime/src/engine/shaders/dsl/projections'
+import { configureProjections } from '../../runtime/src/engine/shaders/dsl'
 import { PROJECTIONS } from '../../runtime/src/engine/projection/projections-table'
 
 // shader-dsl projections are host-injected — configure before any emit / cpu use.

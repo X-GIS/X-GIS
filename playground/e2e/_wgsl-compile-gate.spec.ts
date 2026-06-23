@@ -19,17 +19,17 @@
 // so compiling the fixtures validates the production-equivalent WGSL.
 
 import { test, expect } from '@playwright/test'
-import { FIXTURES, emitForFixture } from '@xgis/shader-dsl/shaders/_polygon-fixtures'
-import { emitLineWgsl, emitCompositeWgsl } from '@xgis/shader-dsl/shaders/line'
-import { emitPointWgsl } from '@xgis/shader-dsl/shaders/point'
-import { emitRasterWgsl } from '@xgis/shader-dsl/shaders/raster'
-import { emitIconWgsl } from '@xgis/shader-dsl/shaders/icon'
-import { emitOverdrawComposeWgsl } from '@xgis/shader-dsl/shaders/overdraw-compose'
-import { emitOverdrawFsWgsl } from '@xgis/shader-dsl/shaders/overdraw-fs'
-import { emitTextWgsl } from '@xgis/shader-dsl/shaders/text'
-import { emitHeatmapAccumWgsl } from '@xgis/shader-dsl/shaders/heatmap-accum'
-import { emitHeatmapBlurWgsl } from '@xgis/shader-dsl/shaders/heatmap-blur'
-import { emitHeatmapComposeWgsl } from '@xgis/shader-dsl/shaders/heatmap-compose'
+import { FIXTURES, emitForFixture } from '../../runtime/src/engine/shaders/dsl/_polygon-fixtures'
+import { emitLineWgsl, emitCompositeWgsl } from '../../runtime/src/engine/shaders/dsl/line'
+import { emitPointWgsl } from '../../runtime/src/engine/shaders/dsl/point'
+import { emitRasterWgsl } from '../../runtime/src/engine/shaders/dsl/raster'
+import { emitIconWgsl } from '../../runtime/src/engine/shaders/dsl/icon'
+import { emitOverdrawComposeWgsl } from '../../runtime/src/engine/shaders/dsl/overdraw-compose'
+import { emitOverdrawFsWgsl } from '../../runtime/src/engine/shaders/dsl/overdraw-fs'
+import { emitTextWgsl } from '../../runtime/src/engine/shaders/dsl/text'
+import { emitHeatmapAccumWgsl } from '../../runtime/src/engine/shaders/dsl/heatmap-accum'
+import { emitHeatmapBlurWgsl } from '../../runtime/src/engine/shaders/dsl/heatmap-blur'
+import { emitHeatmapComposeWgsl } from '../../runtime/src/engine/shaders/dsl/heatmap-compose'
 
 /** Every WGSL string the DSL can hand to createShaderModule, labelled. */
 function allVariants(): Array<{ name: string; wgsl: string }> {

@@ -262,7 +262,7 @@ test.describe('polygon fill flat-Mercator arm parity (GPU position ≡ outline)'
     // tile-local-Mercator token. `rel2d_local` is unique to vs_main_ecef — the
     // stroke arm uses `rel2d` + `project(`.
     const here = dirname(fileURLToPath(import.meta.url))
-    const snapDir = join(here, '..', '..', 'runtime', 'src', 'engine', 'shader-dsl', 'shaders', '__polygon-variant-snapshots__')
+    const snapDir = join(here, '..', '..', 'runtime', 'src', 'engine', 'shaders', 'dsl', '__polygon-variant-snapshots__')
     const TOKEN = 'rel2d_local = ((vec2<f32>(abs_lon, abs_lat) - u.cam_h) - u.cam_l)'
     const files = readdirSync(snapDir).filter((f) => f.endsWith('.wgsl'))
     expect(files.length, `no polygon snapshots in ${snapDir}`).toBeGreaterThan(0)

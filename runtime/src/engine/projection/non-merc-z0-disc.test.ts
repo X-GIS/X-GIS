@@ -49,7 +49,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { Camera } from './camera'
-import { projectGeomCpu, projectCpu } from '@xgis/shader-dsl/shaders/cpu-projections'
+import { projectGeomCpu, projectCpu } from '../shaders/dsl/cpu-projections'
 
 const W = 800, H = 800, DPR = 1
 
