@@ -27,6 +27,7 @@ X-GIS is a domain-specific language and WebGPU rendering engine for GIS maps —
 | `compiler/` | `.xgis` lexer → parser → AST → IR passes (lower, optimize, merge-layers) → codegen (ShaderVariant[], SceneCommands, binary); pure TypeScript, no GPU deps (see `compiler/AGENTS.md`) |
 | `runtime/` | WebGPU engine: camera/projection math for 8 surfaces, GPU tile renderer, shader DSL emitting WGSL, SDF/PBF text pipeline, sprite atlas, PMTiles/TileJSON/GeoJSON sources + workers (see `runtime/AGENTS.md`) |
 | `shared/` | Shared TypeScript types and utility modules consumed by both compiler and runtime (see `shared/AGENTS.md`) |
+| `shader-dsl/` | `@xgis/shader-dsl` — zero-dep TypeScript shader DSL: author a shader once as a typed IR, emit it to WGSL + GLSL + a CPU f64 oracle over one shared tree-walk (closes GPU/CPU projection drift). Consumed by `runtime/` and `compiler/`; see `shader-dsl/AUTHORING.md` for the authoring guide (see `shader-dsl/AGENTS.md`) |
 | `blueprint/` | Visual node-editor concept for `.xgis` pipeline authoring (see `blueprint/AGENTS.md`) |
 | `playground/` | Vite dev app + Playwright e2e suites: pixel-match survey, perf, projection coverage (see `playground/AGENTS.md`) |
 | `site/` | Astro-based documentation/marketing site (see `site/AGENTS.md`) |
