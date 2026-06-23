@@ -372,10 +372,6 @@ export function externFn<P extends ParamSpec, R extends ShaderType>(name: string
   return makeCallFactory(name, ret, paramList) as ExternFn<P, R>
 }
 
-/** @deprecated fn() now returns a callable FnHandle directly — use fn(). Kept as an alias. */
-export const defineFn = fn
-
-
 /** Assemble a module from its declarations. */
 export function module(parts: Partial<ModuleDecl>): ModuleDecl {
   return {

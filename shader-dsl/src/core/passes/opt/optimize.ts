@@ -5,6 +5,13 @@
 // compiler, not a transliterator. Correctness is pinned by oracle value-equality
 // (every pass must leave compileModule(m) producing identical results) and, once
 // it lands (P3), the real-GPU f32 differential.
+//
+// STATUS — NOT wired into the emit path (intentionally deferred). emitModule
+// (backends/wgsl.ts) runs only autoVars + cse from this context; the full pipeline
+// (constFold / algebraicSimplify / licm / dce) stays off until the real-GPU f32
+// differential gate (P3) lands, because the f64 oracle alone cannot prove an
+// optimizer preserves f32 behaviour. Exercised today only by optimize.test.ts and
+// playground/e2e/_optimizer-gpu-parity.spec.ts.
 
 import type { ModuleDecl } from '../../ir'
 import { constFold } from './const-fold'
