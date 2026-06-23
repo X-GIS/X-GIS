@@ -4,7 +4,7 @@
 // let/var/assign/if/for/switch/ret/…), the IfChain helper, and the fn /
 // computeFn / entryFn / module assemblers. Imports types + nodes + node.
 
-import { type ShaderType, type KeyOf, type ScalarKey } from './types'
+import { type ShaderType, type KeyOf, type ScalarKey, voidT } from './types'
 import type { Stmt, Expr, BinOp, FuncDecl, ModuleDecl } from './nodes'
 import { Node, type ArithArg, type NodeLike, lift, f32, i32, u32, callFn, installStmtSink } from './node'
 
@@ -216,11 +216,13 @@ function subBody(parent: Builder, fn: (b: Builder) => Node | void): Stmt[] {
  *     autocompletes the params (positional args can't be typed: an object spec is not an
  *     ordered tuple in TS). The args are mapped to positional order at the call.
  *   - positional `foo(a, b)` — loose (NodeLike), the legacy form; still supported. */
-export type FnHandle<P extends FnParamSpec, R extends ShaderType> =
+// R is the RETURN KEY (e.g. 'f32', 'vec2<f32>') — inferred from the body's return Node, so a fn declares
+// no return type. The args mapped-type's own K is the PARAM key (unrelated).
+export type FnHandle<P extends FnParamSpec, R extends string> =
   FuncDecl
   & {
-    (args: { readonly [K in keyof P]: Node<KeyOf<ParamTypeOf<P[K]>>> }): Node<KeyOf<R>>
-    (...args: NodeLike[]): Node<KeyOf<R>>
+    (args: { readonly [K in keyof P]: Node<KeyOf<ParamTypeOf<P[K]>>> }): Node<R>
+    (...args: NodeLike[]): Node<R>
   }
   & { readonly decl: FuncDecl }
 
@@ -257,7 +259,24 @@ type FnOpts = {
   /** Return-value attribute for a bare (non-struct) stage output — `-> @location(0) vec4<f32>`. */
   retAttr?: string
 }
-type FnBody<P extends FnParamSpec, R extends ShaderType> = (p: ParamNodes<P>, b: Builder) => Node<KeyOf<R>> | void
+type FnBody<P extends FnParamSpec, R extends string> = (p: ParamNodes<P>, b: Builder) => Node<R> | void
+
+/** Infer a fn's WGSL return type from its body — the type of the value it returns. Used when the author
+ *  omits the explicit return-type token. Walks into nested if/for/switch for a body that returns only via
+ *  an early `Return(value)` (a guard). voidT when nothing is returned (statement / compute entry). */
+function inferReturnType(result: Node | void, stmts: readonly Stmt[]): ShaderType {
+  if (result !== undefined) return result.type
+  const scan = (ss: readonly Stmt[]): ShaderType | undefined => {
+    for (const s of ss) {
+      if (s.s === 'return' && s.expr) return s.expr.type
+      if (s.s === 'if') { for (const arm of s.arms) { const t = scan(arm.body); if (t) return t } if (s.elseBody) { const t = scan(s.elseBody); if (t) return t } }
+      else if (s.s === 'for') { const t = scan(s.body); if (t) return t }
+      else if (s.s === 'switch') { for (const c of s.cases) { const t = scan(c.body); if (t) return t } if (s.defaultBody) { const t = scan(s.defaultBody); if (t) return t } }
+    }
+    return undefined
+  }
+  return scan(stmts) ?? voidT
+}
 
 // Auto-name counter for fn() calls that omit the name. Advanced ONLY on omission (explicit
 // names never consume it). It is process-global + advanced in fn()-call order — deterministic
@@ -278,21 +297,27 @@ let fnAutoId = 0
  *  (see fnAutoId caveat; keep it for string-referenced / snapshot-tested / re-authored fns).
  *  Returns an FnHandle — call it directly (`foo(a, b)`), list it in a module (`funcs: [foo]`),
  *  or take `foo.decl`. */
-export function fn<P extends FnParamSpec, R extends ShaderType>(params: P, ret: R, body: FnBody<P, R>, opts?: FnOpts): FnHandle<P, R>
-export function fn<P extends FnParamSpec, R extends ShaderType>(name: string, params: P, ret: R, body: FnBody<P, R>, opts?: FnOpts): FnHandle<P, R>
-export function fn<P extends FnParamSpec, R extends ShaderType>(
-  a: string | P,
-  b: P | R,
-  c: R | FnBody<P, R>,
-  d?: FnBody<P, R> | FnOpts,
+export function fn<P extends FnParamSpec, R extends string>(params: P, body: FnBody<P, R>, opts?: FnOpts): FnHandle<P, R>
+export function fn<P extends FnParamSpec, R extends string>(name: string, params: P, body: FnBody<P, R>, opts?: FnOpts): FnHandle<P, R>
+export function fn<P extends FnParamSpec, T extends ShaderType>(params: P, ret: T, body: FnBody<P, KeyOf<T>>, opts?: FnOpts): FnHandle<P, KeyOf<T>>
+export function fn<P extends FnParamSpec, T extends ShaderType>(name: string, params: P, ret: T, body: FnBody<P, KeyOf<T>>, opts?: FnOpts): FnHandle<P, KeyOf<T>>
+export function fn(
+  a: string | FnParamSpec,
+  b: FnParamSpec | ShaderType | FnBody<FnParamSpec, string>,
+  c?: ShaderType | FnBody<FnParamSpec, string> | FnOpts,
+  d?: FnBody<FnParamSpec, string> | FnOpts,
   e?: FnOpts,
-): FnHandle<P, R> {
+): FnHandle<FnParamSpec, string> {
   const named = typeof a === 'string'
-  const name = named ? a : `_fn${fnAutoId++}`
-  const params = (named ? b : a) as P
-  const ret = (named ? c : b) as R
-  const body = (named ? d : c) as FnBody<P, R>
-  const opts = (named ? e : d) as FnOpts | undefined
+  const name = named ? (a as string) : `_fn${fnAutoId++}`
+  const params = (named ? b : a) as FnParamSpec
+  // The slot after params is either the EXPLICIT return type (a ShaderType) or the BODY (a function) when
+  // the return type is inferred. A ShaderType is a plain object; the body is a function — that tells them apart.
+  const retOrBody = named ? c : b
+  const explicitRet = typeof retOrBody === 'function' ? undefined : (retOrBody as ShaderType)
+  const inferred = explicitRet === undefined
+  const body = (inferred ? retOrBody : named ? d : c) as FnBody<FnParamSpec, string>
+  const opts = (named ? (inferred ? d : e) : (inferred ? c : d)) as FnOpts | undefined
   // A param value is either a plain ShaderType or a FieldSpec `{ type, attr }` (builtin/location)
   // for an entry-point param — the `attr` flows straight to the emitted `@builtin(…)`/`@location(…)`.
   const paramList = Object.entries(params).map(([n, spec]) =>
@@ -302,13 +327,15 @@ export function fn<P extends FnParamSpec, R extends ShaderType>(
   )
   const paramNodes = Object.fromEntries(
     paramList.map((p) => [p.name, new Node({ op: 'param', type: p.type, name: p.name })]),
-  ) as ParamNodes<P>
+  ) as ParamNodes<FnParamSpec>
   const bld = new Builder()
   // A body may `return value` (native TS) for its FINAL return — fn appends the
   // ret Stmt, so authoring reads like a normal function. Early returns inside
   // control flow still use Return() (a native return there only exits the closure).
   const result = withScope(bld, () => body(paramNodes, bld))
   if (result !== undefined) bld.ret(result)
+  // Return type: explicit token if given, else inferred from what the body returns.
+  const ret = explicitRet ?? inferReturnType(result, bld.stmts)
   // stage → pipeline attrs (@vertex / @fragment / @compute @workgroup_size(N)).
   const attrs = opts?.stage === 'compute'
     ? ['@compute', `@workgroup_size(${opts.workgroupSize ?? 64})`]
@@ -319,7 +346,7 @@ export function fn<P extends FnParamSpec, R extends ShaderType>(
   // The handle IS the call node factory (shared with externFn); the FuncDecl fields are mixed
   // onto it so it still duck-types as a FuncDecl in a module's funcs[]. `name` is a non-writable
   // function prop, so it is set via defineProperty (Object.assign would throw on it under strict).
-  const handle = makeCallFactory(name, ret, paramList) as FnHandle<P, R>
+  const handle = makeCallFactory(name, ret, paramList) as FnHandle<FnParamSpec, string>
   // enumerable so `{ ...handle }` (e.g. the projection-fn spread) carries the name; a
   // function's own `name` is non-enumerable by default, which would drop it from a spread.
   Object.defineProperty(handle, 'name', { value: name, configurable: true, enumerable: true })
