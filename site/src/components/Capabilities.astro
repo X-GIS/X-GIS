@@ -1,0 +1,121 @@
+---
+// "Show, don't tell." The four claims in Why are PROVEN here with real
+// .xgis code lifted from the reference sections — the page teaches the
+// language by example instead of asserting capabilities.
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const refUrl = `${base}/docs/reference`
+
+const cards = [
+  {
+    tag: 'Declarative',
+    caption: 'Utility classes <em class="not-italic text-fg">are</em> the style. The source reads like the map you see — no setter chains, no imperative API, no callback graph.',
+  },
+  {
+    tag: 'Data-driven',
+    caption: 'Bind a feature property to colour inline with <code class="text-accent">match()</code>. The compiler classifies each branch and routes the lookup to the GPU, per fragment.',
+  },
+  {
+    tag: 'Zoom-reactive',
+    caption: 'Wrap any value in <code class="text-accent">interpolate(zoom, …)</code> — sampled every frame and blended between stops. The same builtin reads feature data: <code class="text-accent">interpolate(.population, …)</code>.',
+  },
+  {
+    tag: 'Any projection',
+    caption: 'Seven projections ship in CPU <em class="not-italic text-fg">and</em> WGSL form. Switching is a uniform write — one source renders flat, on a globe, anywhere, with no re-tessellation.',
+  },
+]
+---
+
+<section id="language" class="relative py-28 sm:py-36 lg:py-44 border-t border-line">
+  <span class="absolute -top-[9px] left-6 xl:left-[136px] px-2 bg-bg font-mono text-[10px] tracking-[0.18em] uppercase text-fg-faint">
+    The Language
+  </span>
+
+  <div class="max-w-[1100px] mx-auto px-6">
+    <div class="max-w-[840px] mb-14 lg:mb-18">
+      <h2 class="font-display font-semibold uppercase text-fg leading-[0.92] tracking-[0.01em]
+                 text-[36px] sm:text-[56px] lg:text-[76px]">
+        Write the map.<br />Read the program.
+      </h2>
+      <p class="mt-6 text-[17px] sm:text-[19px] leading-[1.55] text-fg-dim max-w-[640px]">
+        Every map is two kinds of block — a <code class="text-fg font-mono text-[0.92em]">source</code> that
+        points at data and a <code class="text-fg font-mono text-[0.92em]">layer</code> that styles it.
+        Four pieces of real <code class="text-fg font-mono text-[0.92em]">.xgis</code>, four things the compiler does for you:
+      </p>
+    </div>
+
+    <div class="grid lg:grid-cols-2 gap-5 lg:gap-6">
+      <!-- 1 · Declarative -->
+      <article class="rounded-xl bg-bg-card border border-line overflow-hidden flex flex-col">
+        <div class="px-5 pt-4 pb-3 border-b border-line flex items-center gap-2">
+          <span class="inline-block w-1.5 h-1.5 rotate-45 bg-vermilion"></span>
+          <span class="font-mono text-[10.5px] tracking-[0.18em] uppercase text-fg-mute">{cards[0].tag}</span>
+        </div>
+        <pre class="m-0 px-5 py-4 font-mono text-[13px] leading-[1.7] text-fg overflow-x-auto"
+><code><span class="kw">layer</span> <span class="id">countries</span> {`{`}
+  <span class="kw">source</span><span class="pun">:</span> <span class="id">world</span>
+  <span class="pun">|</span> <span class="util">fill-stone-200 stroke-stone-400 stroke-1</span>
+{`}`}</code></pre>
+        <p class="px-5 pt-3 pb-5 text-[14px] leading-[1.6] text-fg-dim mt-auto" set:html={cards[0].caption}></p>
+      </article>
+
+      <!-- 2 · Data-driven -->
+      <article class="rounded-xl bg-bg-card border border-line overflow-hidden flex flex-col">
+        <div class="px-5 pt-4 pb-3 border-b border-line flex items-center gap-2">
+          <span class="inline-block w-1.5 h-1.5 rotate-45 bg-vermilion"></span>
+          <span class="font-mono text-[10.5px] tracking-[0.18em] uppercase text-fg-mute">{cards[1].tag}</span>
+        </div>
+        <pre class="m-0 px-5 py-4 font-mono text-[13px] leading-[1.7] text-fg overflow-x-auto"
+><code><span class="pun">|</span> <span class="util">fill</span> <span class="fn">match</span><span class="pun">(</span><span class="prop">.CONTINENT</span><span class="pun">) {`{`}</span>
+    <span class="str">"Africa"</span> <span class="op">-></span> <span class="util">amber-600</span><span class="pun">,</span>
+    <span class="str">"Asia"</span>   <span class="op">-></span> <span class="util">rose-500</span><span class="pun">,</span>
+    <span class="str">"Europe"</span> <span class="op">-></span> <span class="util">sky-500</span><span class="pun">,</span>
+    <span class="pun">_</span>        <span class="op">-></span> <span class="util">gray-400</span>
+  <span class="pun">{`}`}</span></code></pre>
+        <p class="px-5 pt-3 pb-5 text-[14px] leading-[1.6] text-fg-dim mt-auto" set:html={cards[1].caption}></p>
+      </article>
+
+      <!-- 3 · Zoom-reactive -->
+      <article class="rounded-xl bg-bg-card border border-line overflow-hidden flex flex-col">
+        <div class="px-5 pt-4 pb-3 border-b border-line flex items-center gap-2">
+          <span class="inline-block w-1.5 h-1.5 rotate-45 bg-vermilion"></span>
+          <span class="font-mono text-[10.5px] tracking-[0.18em] uppercase text-fg-mute">{cards[2].tag}</span>
+        </div>
+        <pre class="m-0 px-5 py-4 font-mono text-[13px] leading-[1.7] text-fg overflow-x-auto"
+><code><span class="pun">|</span> <span class="util">opacity-[</span><span class="fn">interpolate</span><span class="pun">(</span><span class="kw">zoom</span><span class="pun">,</span> <span class="num">2</span><span class="pun">,</span> <span class="num">30</span><span class="pun">,</span> <span class="num">5</span><span class="pun">,</span> <span class="num">60</span><span class="pun">,</span> <span class="num">8</span><span class="pun">,</span> <span class="num">90</span><span class="pun">)</span><span class="util">]</span></code></pre>
+        <p class="px-5 pt-3 pb-5 text-[14px] leading-[1.6] text-fg-dim mt-auto" set:html={cards[2].caption}></p>
+      </article>
+
+      <!-- 4 · Projections -->
+      <article class="rounded-xl bg-bg-card border border-line overflow-hidden flex flex-col">
+        <div class="px-5 pt-4 pb-3 border-b border-line flex items-center gap-2">
+          <span class="inline-block w-1.5 h-1.5 rotate-45 bg-vermilion"></span>
+          <span class="font-mono text-[10.5px] tracking-[0.18em] uppercase text-fg-mute">{cards[3].tag}</span>
+        </div>
+        <pre class="m-0 px-5 py-4 font-mono text-[13px] leading-[1.7] text-fg overflow-x-auto"
+><code><span class="fn">getProjection</span><span class="pun">(</span><span class="str">"orthographic"</span><span class="pun">,</span> <span class="id">lon</span><span class="pun">,</span> <span class="id">lat</span><span class="pun">)</span>
+<span class="cmt">// mercator · natural_earth · stereographic</span>
+<span class="cmt">// azimuthal_equidistant · oblique_mercator …</span></code></pre>
+        <p class="px-5 pt-3 pb-5 text-[14px] leading-[1.6] text-fg-dim mt-auto" set:html={cards[3].caption}></p>
+      </article>
+    </div>
+
+    <div class="mt-10">
+      <a href={refUrl} class="inline-flex items-center gap-2 text-accent hover:text-accent-hover text-[15px] font-medium transition-colors">
+        Full language reference
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+      </a>
+    </div>
+  </div>
+</section>
+
+<style>
+  pre .kw   { color: #d97f4d; }
+  pre .id   { color: var(--color-fg); font-weight: 600; }
+  pre .util { color: #c79a63; }
+  pre .fn   { color: var(--color-accent); }
+  pre .str, pre .num { color: #c9b489; }
+  pre .prop { color: #c79a63; }
+  pre .op   { color: #d97f4d; }
+  pre .pun  { color: var(--color-fg-faint); }
+  pre .cmt  { color: var(--color-fg-mute); font-style: italic; }
+</style>

@@ -1,0 +1,68 @@
+---
+import { featuredDemos, galleryCategories, runIdOf } from '../content/gallery-demos'
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const examplesUrl = `${base}/examples`
+
+const demoCount = galleryCategories.reduce((n, c) => n + c.demos.length, 0)
+const catCount = galleryCategories.length
+// A few category names as a quick scan of the gallery's breadth.
+const catNames = galleryCategories.map(c => c.title)
+---
+
+<section id="gallery" class="relative py-28 sm:py-36 lg:py-44 border-t border-line">
+  <span class="absolute -top-[9px] left-6 xl:left-[136px] px-2 bg-bg font-mono text-[10px] tracking-[0.18em] uppercase text-fg-faint">
+    Made With It
+  </span>
+
+  <div class="max-w-[1100px] mx-auto px-6">
+    <div class="max-w-[840px] mb-12 lg:mb-16">
+      <h2 class="font-display font-semibold uppercase text-fg leading-[0.92] tracking-[0.01em]
+                 text-[36px] sm:text-[56px] lg:text-[76px]">
+        Every example<br />is a live map.
+      </h2>
+      <p class="mt-6 text-[17px] sm:text-[19px] leading-[1.55] text-fg-dim max-w-[640px]">
+        Each gallery card runs the real engine in your browser — drag it, zoom it, read its
+        source. {demoCount}+ of them, from a five-line minimal map to a 93-layer OpenFreeMap
+        style imported straight from Mapbox.
+      </p>
+    </div>
+
+    <!-- Three featured maps. -->
+    <div class="grid sm:grid-cols-3 gap-4 lg:gap-5">
+      {featuredDemos.map(d => (
+        <a href={examplesUrl} class="group rounded-xl bg-bg-card border border-line overflow-hidden hover:border-line-strong transition-colors">
+          <div class="aspect-[4/3] overflow-hidden bg-bg-elev">
+            <img
+              src={`${base}/thumbnails/${runIdOf(d)}.jpg`}
+              alt={`${d.title} — X-GIS example map`}
+              width="480" height="360" loading="lazy"
+              class="w-full h-full object-cover opacity-90 group-hover:opacity-100 group-hover:scale-[1.02] transition-all duration-500"
+            />
+          </div>
+          <div class="px-5 py-4">
+            <h3 class="text-[16px] font-medium text-fg mb-1.5">{d.title}</h3>
+            <p class="text-[13.5px] leading-[1.55] text-fg-mute line-clamp-3">{d.body}</p>
+          </div>
+        </a>
+      ))}
+    </div>
+
+    <!-- Category scan + link to the full gallery. -->
+    <div class="mt-10 flex flex-wrap items-center gap-y-2 border-t border-line pt-6">
+      <span class="font-mono text-[10.5px] tracking-[0.16em] uppercase text-fg-faint mr-3">{catCount} categories</span>
+      {catNames.map((name, i) => (
+        <span class="font-mono text-[11px] text-fg-mute">
+          {name}{i < catNames.length - 1 && <span class="text-fg-faint mx-2">·</span>}
+        </span>
+      ))}
+    </div>
+
+    <div class="mt-8">
+      <a href={examplesUrl} class="inline-flex items-center gap-2 text-accent hover:text-accent-hover text-[15px] font-medium transition-colors">
+        Browse the gallery
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+      </a>
+    </div>
+  </div>
+</section>
