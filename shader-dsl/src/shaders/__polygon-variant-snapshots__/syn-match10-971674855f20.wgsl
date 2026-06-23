@@ -1,12 +1,12 @@
-// baseline: b8f978b1af3eae70c409855ede44565ea26e5416
+// baseline: 84d4752e7141d127b69ac765358392add7b3daf2
 // fixture: syn-match10
 // variant.key: syn-match10
 // pick: false
 // note: Synthetic — 10-arm match chain at the matchExpr ≥10-arm perf-gate boundary.
 const PI: f32 = 3.14159265;
-const DEG2RAD: f32 = 0.01745329;
 const EARTH_R: f32 = 6378137.0;
 const MERCATOR_LAT_LIMIT: f32 = 85.051129;
+const DEG2RAD: f32 = 0.01745329;
 
 struct Uniforms {
   mvp: mat4x4<f32>,
@@ -74,7 +74,7 @@ fn compute_log_frag_depth(view_w: f32, fc: f32) -> f32 {
 }
 
 fn proj_mercator(lon_deg: f32, lat_deg: f32) -> vec2<f32> {
-  return vec2<f32>(((lon_deg * DEG2RAD) * EARTH_R), (log(tan(((PI / 4.0) + ((clamp(lat_deg, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT) * DEG2RAD) / 2.0)))) * EARTH_R));
+  return vec2<f32>((radians(lon_deg) * EARTH_R), (log(tan(((PI / 4.0) + (radians(clamp(lat_deg, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT)) / 2.0)))) * EARTH_R));
 }
 
 fn wrap_lon_delta(d: f32) -> f32 {
@@ -88,12 +88,12 @@ fn wrap_lon_delta(d: f32) -> f32 {
 }
 
 fn proj_equirectangular_d(lon_rel: f32, lat_deg: f32) -> vec2<f32> {
-  return vec2<f32>(((lon_rel * DEG2RAD) * EARTH_R), ((lat_deg * DEG2RAD) * EARTH_R));
+  return vec2<f32>((radians(lon_rel) * EARTH_R), (radians(lat_deg) * EARTH_R));
 }
 
 fn proj_natural_earth_d(lon_rel: f32, lat_deg: f32) -> vec2<f32> {
-  let _cse0 = (((lat_deg * DEG2RAD) * (lat_deg * DEG2RAD)) * ((lat_deg * DEG2RAD) * (lat_deg * DEG2RAD)));
-  return vec2<f32>((((lon_rel * DEG2RAD) * (((0.8707 - (((lat_deg * DEG2RAD) * (lat_deg * DEG2RAD)) * 0.131979)) + (_cse0 * 0.013791)) - ((((lat_deg * DEG2RAD) * (lat_deg * DEG2RAD)) * _cse0) * 0.0081435))) * EARTH_R), (((lat_deg * DEG2RAD) * (1.007226 + (((lat_deg * DEG2RAD) * (lat_deg * DEG2RAD)) * (0.015085 + (((lat_deg * DEG2RAD) * (lat_deg * DEG2RAD)) * ((-0.044475 + (((lat_deg * DEG2RAD) * (lat_deg * DEG2RAD)) * 0.028874)) - (_cse0 * 0.005916))))))) * EARTH_R));
+  let _cse0 = ((radians(lat_deg) * radians(lat_deg)) * (radians(lat_deg) * radians(lat_deg)));
+  return vec2<f32>(((radians(lon_rel) * (((0.8707 - ((radians(lat_deg) * radians(lat_deg)) * 0.131979)) + (_cse0 * 0.013791)) - (((radians(lat_deg) * radians(lat_deg)) * _cse0) * 0.0081435))) * EARTH_R), ((radians(lat_deg) * (1.007226 + ((radians(lat_deg) * radians(lat_deg)) * (0.015085 + ((radians(lat_deg) * radians(lat_deg)) * ((-0.044475 + ((radians(lat_deg) * radians(lat_deg)) * 0.028874)) - (_cse0 * 0.005916))))))) * EARTH_R));
 }
 
 fn proj_equirectangular(lon_deg: f32, lat_deg: f32, clon: f32) -> vec2<f32> {
@@ -118,39 +118,39 @@ fn unwrap_rad_near(value: f32, ref_v: f32) -> f32 {
 }
 
 fn proj_orthographic(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> vec2<f32> {
-  let _cse0 = cos((lat_deg * DEG2RAD));
-  let _cse1 = ((lon_deg * DEG2RAD) - (clon * DEG2RAD));
-  let _cse2 = (clat * DEG2RAD);
-  return vec2<f32>(((EARTH_R * _cse0) * sin(_cse1)), (EARTH_R * ((cos(_cse2) * sin((lat_deg * DEG2RAD))) - ((sin(_cse2) * _cse0) * cos(_cse1)))));
+  let _cse0 = cos(radians(lat_deg));
+  let _cse1 = (radians(lon_deg) - radians(clon));
+  let _cse2 = radians(clat);
+  return vec2<f32>(((EARTH_R * _cse0) * sin(_cse1)), (EARTH_R * ((cos(_cse2) * sin(radians(lat_deg))) - ((sin(_cse2) * _cse0) * cos(_cse1)))));
 }
 
 fn proj_azimuthal_equidistant(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> vec2<f32> {
-  let _cse0 = (EARTH_R * (acos(clamp(((sin((clat * DEG2RAD)) * sin((lat_deg * DEG2RAD))) + ((cos((clat * DEG2RAD)) * cos((lat_deg * DEG2RAD))) * cos(((lon_deg * DEG2RAD) - (clon * DEG2RAD))))), -1.0, 1.0)) / sin(acos(clamp(((sin((clat * DEG2RAD)) * sin((lat_deg * DEG2RAD))) + ((cos((clat * DEG2RAD)) * cos((lat_deg * DEG2RAD))) * cos(((lon_deg * DEG2RAD) - (clon * DEG2RAD))))), -1.0, 1.0)))));
-  if ((acos(clamp(((sin((clat * DEG2RAD)) * sin((lat_deg * DEG2RAD))) + ((cos((clat * DEG2RAD)) * cos((lat_deg * DEG2RAD))) * cos(((lon_deg * DEG2RAD) - (clon * DEG2RAD))))), -1.0, 1.0)) < 0.0001)) {
+  let _cse0 = (EARTH_R * (acos(clamp(((sin(radians(clat)) * sin(radians(lat_deg))) + ((cos(radians(clat)) * cos(radians(lat_deg))) * cos((radians(lon_deg) - radians(clon))))), -1.0, 1.0)) / sin(acos(clamp(((sin(radians(clat)) * sin(radians(lat_deg))) + ((cos(radians(clat)) * cos(radians(lat_deg))) * cos((radians(lon_deg) - radians(clon))))), -1.0, 1.0)))));
+  if ((acos(clamp(((sin(radians(clat)) * sin(radians(lat_deg))) + ((cos(radians(clat)) * cos(radians(lat_deg))) * cos((radians(lon_deg) - radians(clon))))), -1.0, 1.0)) < 0.0001)) {
     return vec2<f32>(0.0, 0.0);
   }
-  return vec2<f32>(((_cse0 * cos((lat_deg * DEG2RAD))) * sin(((lon_deg * DEG2RAD) - (clon * DEG2RAD)))), (_cse0 * ((cos((clat * DEG2RAD)) * sin((lat_deg * DEG2RAD))) - ((sin((clat * DEG2RAD)) * cos((lat_deg * DEG2RAD))) * cos(((lon_deg * DEG2RAD) - (clon * DEG2RAD)))))));
+  return vec2<f32>(((_cse0 * cos(radians(lat_deg))) * sin((radians(lon_deg) - radians(clon)))), (_cse0 * ((cos(radians(clat)) * sin(radians(lat_deg))) - ((sin(radians(clat)) * cos(radians(lat_deg))) * cos((radians(lon_deg) - radians(clon)))))));
 }
 
 fn proj_stereographic(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> vec2<f32> {
-  let _cse0 = (EARTH_R * (2.0 / (1.0 + ((sin((clat * DEG2RAD)) * sin((lat_deg * DEG2RAD))) + ((cos((clat * DEG2RAD)) * cos((lat_deg * DEG2RAD))) * cos(((lon_deg * DEG2RAD) - (clon * DEG2RAD))))))));
-  if ((((sin((clat * DEG2RAD)) * sin((lat_deg * DEG2RAD))) + ((cos((clat * DEG2RAD)) * cos((lat_deg * DEG2RAD))) * cos(((lon_deg * DEG2RAD) - (clon * DEG2RAD))))) < -0.9)) {
+  let _cse0 = (EARTH_R * (2.0 / (1.0 + ((sin(radians(clat)) * sin(radians(lat_deg))) + ((cos(radians(clat)) * cos(radians(lat_deg))) * cos((radians(lon_deg) - radians(clon))))))));
+  if ((((sin(radians(clat)) * sin(radians(lat_deg))) + ((cos(radians(clat)) * cos(radians(lat_deg))) * cos((radians(lon_deg) - radians(clon))))) < -0.9)) {
     return vec2<f32>(1000000000000000.0, 1000000000000000.0);
   }
-  return vec2<f32>(((_cse0 * cos((lat_deg * DEG2RAD))) * sin(((lon_deg * DEG2RAD) - (clon * DEG2RAD)))), (_cse0 * ((cos((clat * DEG2RAD)) * sin((lat_deg * DEG2RAD))) - ((sin((clat * DEG2RAD)) * cos((lat_deg * DEG2RAD))) * cos(((lon_deg * DEG2RAD) - (clon * DEG2RAD)))))));
+  return vec2<f32>(((_cse0 * cos(radians(lat_deg))) * sin((radians(lon_deg) - radians(clon)))), (_cse0 * ((cos(radians(clat)) * sin(radians(lat_deg))) - ((sin(radians(clat)) * cos(radians(lat_deg))) * cos((radians(lon_deg) - radians(clon)))))));
 }
 
 fn oblique_rot(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> vec2<f32> {
-  let _cse0 = cos((lat_deg * DEG2RAD));
-  let _cse1 = sin((lat_deg * DEG2RAD));
-  let _cse2 = sin((clat * DEG2RAD));
-  let _cse3 = cos((clat * DEG2RAD));
-  let _cse4 = cos(((lon_deg * DEG2RAD) - (clon * DEG2RAD)));
-  return vec2<f32>(atan2((_cse0 * sin(((lon_deg * DEG2RAD) - (clon * DEG2RAD)))), ((_cse1 * _cse2) + ((_cse0 * _cse3) * _cse4))), asin(clamp(((_cse1 * _cse3) - ((_cse0 * _cse2) * _cse4)), -1.0, 1.0)));
+  let _cse0 = cos(radians(lat_deg));
+  let _cse1 = sin(radians(lat_deg));
+  let _cse2 = sin(radians(clat));
+  let _cse3 = cos(radians(clat));
+  let _cse4 = cos((radians(lon_deg) - radians(clon)));
+  return vec2<f32>(atan2((_cse0 * sin((radians(lon_deg) - radians(clon)))), ((_cse1 * _cse2) + ((_cse0 * _cse3) * _cse4))), asin(clamp(((_cse1 * _cse3) - ((_cse0 * _cse2) * _cse4)), -1.0, 1.0)));
 }
 
 fn proj_oblique_mercator_d(lam_rot: f32, phi_rot: f32) -> vec2<f32> {
-  let _cse0 = (89.9999 * DEG2RAD);
+  let _cse0 = radians(89.9999);
   return vec2<f32>((EARTH_R * lam_rot), (EARTH_R * log(tan(((PI / 4.0) + (clamp(phi_rot, (-_cse0), _cse0) / 2.0))))));
 }
 
@@ -160,15 +160,15 @@ fn proj_oblique_mercator(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> ve
 }
 
 fn proj_globe(lon_deg: f32, lat_deg: f32) -> vec3<f32> {
-  let _cse0 = (EARTH_R * cos((lat_deg * DEG2RAD)));
-  let _cse1 = (lon_deg * DEG2RAD);
-  return vec3<f32>((_cse0 * cos(_cse1)), (_cse0 * sin(_cse1)), (EARTH_R * sin((lat_deg * DEG2RAD))));
+  let _cse0 = (EARTH_R * cos(radians(lat_deg)));
+  let _cse1 = radians(lon_deg);
+  return vec3<f32>((_cse0 * cos(_cse1)), (_cse0 * sin(_cse1)), (EARTH_R * sin(radians(lat_deg))));
 }
 
 fn center_cos_c(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> f32 {
-  let _cse0 = (clat * DEG2RAD);
-  let _cse1 = (lat_deg * DEG2RAD);
-  return ((sin(_cse0) * sin(_cse1)) + ((cos(_cse0) * cos(_cse1)) * cos(((lon_deg * DEG2RAD) - (clon * DEG2RAD)))));
+  let _cse0 = radians(clat);
+  let _cse1 = radians(lat_deg);
+  return ((sin(_cse0) * sin(_cse1)) + ((cos(_cse0) * cos(_cse1)) * cos((radians(lon_deg) - radians(clon)))));
 }
 
 fn project(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>) -> vec2<f32> {
@@ -265,11 +265,11 @@ fn dequant_ecef(q_xy: vec4<u32>, q_z: vec2<u32>, scale: f32, half: f32) -> vec3<
 }
 
 fn polygon_cos_c_fragment(abs_merc_x: f32, abs_merc_y: f32) -> f32 {
-  return needs_backface_cull((abs_merc_x / (DEG2RAD * EARTH_R)), (inv_merc_lat_rad(abs_merc_y) / DEG2RAD), u.proj_params);
+  return needs_backface_cull((abs_merc_x / (DEG2RAD * EARTH_R)), degrees(inv_merc_lat_rad(abs_merc_y)), u.proj_params);
 }
 
 fn polygon_rim_alpha(abs_merc_x: f32, abs_merc_y: f32) -> f32 {
-  return rim_alpha((abs_merc_x / (DEG2RAD * EARTH_R)), (inv_merc_lat_rad(abs_merc_y) / DEG2RAD), u.proj_params);
+  return rim_alpha((abs_merc_x / (DEG2RAD * EARTH_R)), degrees(inv_merc_lat_rad(abs_merc_y)), u.proj_params);
 }
 
 @vertex
@@ -288,7 +288,7 @@ fn vs_main(@location(0) pos_h: vec3<f32>, @location(1) pos_l: vec3<f32>, @locati
   }
   _av0.x = (_av0.x + (u.fill_translate_x * _av0.w));
   _av0.y = (_av0.y - (u.fill_translate_y * _av0.w));
-  return VertexOutput(vec4<f32>(apply_log_depth(_av0, u.log_depth_fc).x, apply_log_depth(_av0, u.log_depth_fc).y, (apply_log_depth(_av0, u.log_depth_fc).z - (u.layer_depth_offset * apply_log_depth(_av0, u.log_depth_fc).w)), apply_log_depth(_av0, u.log_depth_fc).w), 0.0, u32(feature_id), _cse3, _av0.w, 1.0, ((abs_lon * DEG2RAD) * EARTH_R), (log(tan(((PI / 4.0) + ((_cse3 * DEG2RAD) / 2.0)))) * EARTH_R), 0.0, _cse0);
+  return VertexOutput(vec4<f32>(apply_log_depth(_av0, u.log_depth_fc).x, apply_log_depth(_av0, u.log_depth_fc).y, (apply_log_depth(_av0, u.log_depth_fc).z - (u.layer_depth_offset * apply_log_depth(_av0, u.log_depth_fc).w)), apply_log_depth(_av0, u.log_depth_fc).w), 0.0, u32(feature_id), _cse3, _av0.w, 1.0, (radians(abs_lon) * EARTH_R), (log(tan(((PI / 4.0) + (radians(_cse3) / 2.0)))) * EARTH_R), 0.0, _cse0);
 }
 
 @vertex
@@ -307,7 +307,7 @@ fn vs_main_ecef(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u32>, @loca
   }
   _av0.x = (_av0.x + (u.fill_translate_x * _av0.w));
   _av0.y = (_av0.y - (u.fill_translate_y * _av0.w));
-  return VertexOutput(vec4<f32>(apply_log_depth(_av0, u.log_depth_fc).x, apply_log_depth(_av0, u.log_depth_fc).y, (apply_log_depth(_av0, u.log_depth_fc).z - (u.layer_depth_offset * apply_log_depth(_av0, u.log_depth_fc).w)), apply_log_depth(_av0, u.log_depth_fc).w), 0.0, u32(feature_id), clamp((inv_merc_lat_rad(_cse3) / DEG2RAD), (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT), _av0.w, 1.0, (abs_lon + u.tile_origin_merc.x), _cse3, 0.0, _cse0);
+  return VertexOutput(vec4<f32>(apply_log_depth(_av0, u.log_depth_fc).x, apply_log_depth(_av0, u.log_depth_fc).y, (apply_log_depth(_av0, u.log_depth_fc).z - (u.layer_depth_offset * apply_log_depth(_av0, u.log_depth_fc).w)), apply_log_depth(_av0, u.log_depth_fc).w), 0.0, u32(feature_id), clamp(degrees(inv_merc_lat_rad(_cse3)), (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT), _av0.w, 1.0, (abs_lon + u.tile_origin_merc.x), _cse3, 0.0, _cse0);
 }
 
 @vertex
@@ -333,7 +333,7 @@ fn vs_main_ecef_extruded(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u3
     _av1 = (_av1 * clamp((is_top * sqrt((max(wall_height, 1.0) / 150.0))), mix(0.7, 0.98, _cse3), 1.0));
   }
   let _v0 = clamp((((u.fill_color.rgb + vec3<f32>(0.03)) * _av1) * unpack4x8unorm(u.light_color_packed).xyz), vec3<f32>(0.0), vec3<f32>(1.0));
-  return VertexOutput(vec4<f32>(apply_log_depth(_av0, u.log_depth_fc).x, apply_log_depth(_av0, u.log_depth_fc).y, (apply_log_depth(_av0, u.log_depth_fc).z - (u.layer_depth_offset * apply_log_depth(_av0, u.log_depth_fc).w)), apply_log_depth(_av0, u.log_depth_fc).w), 0.0, u32(feature_id), _cse4, _av0.w, is_top, ((abs_lon * DEG2RAD) * EARTH_R), (log(tan(((PI / 4.0) + ((_cse4 * DEG2RAD) / 2.0)))) * EARTH_R), _cse1, vec4<f32>(_v0, u.fill_color.w));
+  return VertexOutput(vec4<f32>(apply_log_depth(_av0, u.log_depth_fc).x, apply_log_depth(_av0, u.log_depth_fc).y, (apply_log_depth(_av0, u.log_depth_fc).z - (u.layer_depth_offset * apply_log_depth(_av0, u.log_depth_fc).w)), apply_log_depth(_av0, u.log_depth_fc).w), 0.0, u32(feature_id), _cse4, _av0.w, is_top, (radians(abs_lon) * EARTH_R), (log(tan(((PI / 4.0) + (radians(_cse4) / 2.0)))) * EARTH_R), _cse1, vec4<f32>(_v0, u.fill_color.w));
 }
 
 @fragment

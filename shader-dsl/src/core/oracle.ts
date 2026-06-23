@@ -96,6 +96,7 @@ const BUILTINS: Record<string, Builtin> = {
   asin: map1(Math.asin), acos: map1(Math.acos), atan: map1(Math.atan),
   exp: map1(Math.exp), log: map1(Math.log), log2: map1(Math.log2), sqrt: map1(Math.sqrt),
   floor: map1(Math.floor), ceil: map1(Math.ceil), abs: map1(Math.abs), sign: map1(Math.sign),
+  radians: map1((d) => (d * Math.PI) / 180), degrees: map1((r) => (r * 180) / Math.PI),
   atan2: (y, x) => Math.atan2(y as number, x as number),
   min: (a, b) => (isArr(a) || isArr(b) ? applyMinMax(Math.min, a, b) : Math.min(a as number, b as number)),
   max: (a, b) => (isArr(a) || isArr(b) ? applyMinMax(Math.max, a, b) : Math.max(a as number, b as number)),

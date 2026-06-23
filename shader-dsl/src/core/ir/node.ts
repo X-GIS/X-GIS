@@ -244,6 +244,10 @@ export const ceil = genType1('ceil')
 export const abs = genType1('abs')
 export const sqrt = genType1('sqrt')
 export const fract = genType1('fract')
+/** `radians(deg)` / `degrees(rad)` — WGSL built-ins (exact π/180), replacing a `*`/`/` by a rounded
+ *  DEG2RAD constant. `x.mul(DEG2RAD)` → `radians(x)`, `x.div(DEG2RAD)` → `degrees(x)`. */
+export const radians = genType1('radians')
+export const degrees = genType1('degrees')
 export const sign = genType1('sign')
 
 export const atan2 = <K extends string>(y: Node<K>, x: ArithArg<K>): Node<K> => call('atan2', y.type, y, x) as Node<K>

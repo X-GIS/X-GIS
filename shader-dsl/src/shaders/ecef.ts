@@ -18,7 +18,6 @@ import { emitConst, emitFuncsCsed } from '../core/backends/wgsl'
 export const ECEF_CONSTS: ConstDecl[] = [
   { name: 'WGS84_A', type: f32T, wgslValue: 6378137.0, cpuValue: 6378137.0 },
   { name: 'WGS84_E2', type: f32T, wgslValue: 0.0066943799901975955, cpuValue: 0.0066943799901975955 },
-  { name: 'DEG2RAD_F', type: f32T, wgslValue: 0.017453292519943295, cpuValue: 0.017453292519943295 },
 ]
 
 /** lon/lat (radians) + height (m) → ECEF (m). Mirrors lonLatToECEF on the CPU side. */

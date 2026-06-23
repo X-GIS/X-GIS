@@ -26,6 +26,7 @@ import {
   Let, Var, If, Return, Discard,
   f32, u32, vec2, vec2u, vec3, vec4, toF32, toU32, transformMat4, clamp, select,
   abs, fract, max, min, mix, pow, sqrt, dot, log, tan, floor, textureSample, unpack4x8unorm,
+  radians, degrees,
   f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, vec4uT, mat4x4fT, texture2dfT, samplerT,
   Node, Builder, arrayT,
   type ModuleDecl, type Stmt, type BindingDecl,
@@ -163,11 +164,10 @@ const polygonCosCFragment = fn(
   { abs_merc_x: f32T, abs_merc_y: f32T },
   f32T,
   (p) => {
-    const deg2rad = constRef('DEG2RAD')
     const earthR = constRef('EARTH_R')
-    const absLon = p.abs_merc_x.div(deg2rad.mul(earthR))
+    const absLon = p.abs_merc_x.div(constRef('DEG2RAD').mul(earthR))
     const latRad = inv_merc_lat_rad(p.abs_merc_y)
-    const absLat = latRad.div(deg2rad)
+    const absLat = degrees(latRad)
     return needs_backface_cull(absLon, absLat, U.field.proj_params)
   },
 )
@@ -182,11 +182,10 @@ const polygonRimAlpha = fn(
   { abs_merc_x: f32T, abs_merc_y: f32T },
   f32T,
   (p) => {
-    const deg2rad = constRef('DEG2RAD')
     const earthR = constRef('EARTH_R')
-    const absLon = p.abs_merc_x.div(deg2rad.mul(earthR))
+    const absLon = p.abs_merc_x.div(constRef('DEG2RAD').mul(earthR))
     const latRad = inv_merc_lat_rad(p.abs_merc_y)
-    const absLat = latRad.div(deg2rad)
+    const absLat = degrees(latRad)
     return rim_alpha(absLon, absLat, U.field.proj_params)
   },
 )
@@ -344,7 +343,6 @@ const vsMain = fn(
     const layerDepthOff = U.field.layer_depth_offset
     const fillTx = U.field.fill_translate_x
     const fillTy = U.field.fill_translate_y
-    const deg2rad = constRef('DEG2RAD')
     const earthR = constRef('EARTH_R')
     const pi = constRef('PI')
     const mercLatLim = constRef('MERCATOR_LAT_LIMIT')
@@ -354,10 +352,10 @@ const vsMain = fn(
     // Reconstruct Mercator absolute coords for the fragment-side
     // hemisphere-cull recompute (polygon_cos_c_fragment + polygon_rim_alpha
     // consume abs_merc_x + abs_merc_y).
-    const absMercX = p.abs_lon.mul(deg2rad).mul(earthR)
+    const absMercX = radians(p.abs_lon).mul(earthR)
     const absLatClamped = clamp(p.abs_lat, mercLatLim.neg(), mercLatLim)
     const absMercY =
-      log(tan(pi.div(4).add(absLatClamped.mul(deg2rad).div(2)))).mul(earthR)
+      log(tan(pi.div(4).add(radians(absLatClamped).div(2)))).mul(earthR)
 
     // Display projection (projection-display-layer-restore): flat Mercator
     // (proj_params.x < 0.5) reprojects each vertex onto the 2D plane and
@@ -458,7 +456,6 @@ const vsMainEcef = fn(
     const fillTy = U.field.fill_translate_y
     const dqScale = U.field.tile_dequant_scale
     const dqHalf = U.field.tile_dequant_half
-    const deg2rad = constRef('DEG2RAD')
     const earthR = constRef('EARTH_R')
     const mercLatLim = constRef('MERCATOR_LAT_LIMIT')
 
@@ -474,7 +471,7 @@ const vsMainEcef = fn(
     const absMercX = p.abs_lon.add(tileOriginM.x)
     const absMercY = p.abs_lat.add(tileOriginM.y)
     const absLatClamped =
-      clamp(inv_merc_lat_rad(absMercY).div(deg2rad), mercLatLim.neg(), mercLatLim)
+      clamp(degrees(inv_merc_lat_rad(absMercY)), mercLatLim.neg(), mercLatLim)
 
     // Display projection (projection-display-layer-restore): flat Mercator
     // (proj_params.x < 0.5) reprojects each vertex onto the 2D plane and
@@ -491,7 +488,7 @@ const vsMainEcef = fn(
       projParamsV, mvp,
       // local_merc (f32 tail) drives the PRECISE flat-Mercator position;
       // absLon/absLat feed only flat_rel; discLat (#398) gives it the TRUE lat.
-      absLon: absMercX.div(deg2rad.mul(earthR)),
+      absLon: absMercX.div(constRef('DEG2RAD').mul(earthR)),
       absLat: absLatClamped,
       discLat: p.true_lat,
       localMerc: vec2(p.abs_lon, p.abs_lat),
@@ -556,7 +553,6 @@ const vsMainEcefExtruded = fn(
     const fillColor = U.field.fill_color
     const dqScale = U.field.tile_dequant_scale
     const dqHalf = U.field.tile_dequant_half
-    const deg2rad = constRef('DEG2RAD')
     const earthR = constRef('EARTH_R')
     const pi = constRef('PI')
     const mercLatLim = constRef('MERCATOR_LAT_LIMIT')
@@ -566,10 +562,10 @@ const vsMainEcefExtruded = fn(
     // pre-positioned + quantized in ECEF metres by the runtime wall-mesh
     // (half-range computed post-lift), so the VS just decodes + transforms.
     const ecefRtc = callFn('dequant_ecef', vec3fT, p.q_xy, p.q_z, dqScale, dqHalf)
-    const absMercX = p.abs_lon.mul(deg2rad).mul(earthR)
+    const absMercX = radians(p.abs_lon).mul(earthR)
     const absLatClamped = clamp(p.abs_lat, mercLatLim.neg(), mercLatLim)
     const absMercY =
-      log(tan(pi.div(4).add(absLatClamped.mul(deg2rad).div(2)))).mul(earthR)
+      log(tan(pi.div(4).add(radians(absLatClamped).div(2)))).mul(earthR)
 
     // Display projection (see vs_main_ecef): flat Mercator reprojects onto
     // the 2D plane with the extrude lift applied as plane-z; 3D keeps the

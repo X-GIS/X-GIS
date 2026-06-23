@@ -17,7 +17,7 @@
 
 import {
   fn, module, constRef, callFn, transformMat4, arrayLit,
-  f32, u32, toF32, vec2, vec3, vec4, vec2u, mix, atan, exp, smoothstep, textureSample,
+  f32, u32, toF32, vec2, vec3, vec4, vec2u, mix, atan, exp, smoothstep, textureSample, radians, degrees,
   f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   If, condExpr, Discard,
   type ModuleDecl,
@@ -101,7 +101,7 @@ const vs = fn('vs_tile', { vid: builtin('vertex_index', u32T) }, VsOut.type, (p,
   // ECEF path: lon/lat → WGS84 ECEF → subtract tile SW-corner anchor (RTC).
   // Works for every projection because the MVP is always the ECEF frame view
   // (Camera.getECEFFrameView). No per-projection branches needed.
-  const lonRad = lon.mul(constRef('DEG2RAD'))
+  const lonRad = radians(lon)
   const ecef = lonlatToEcef(lonRad, latRad, f32(0))
   // Camera-relative: ecef − cameraCenter (the MVP is camera-at-ENU-origin).
   const camEcefVec = vec3(camEcef.x, camEcef.y, camEcef.z)
@@ -117,7 +117,7 @@ const vs = fn('vs_tile', { vid: builtin('vertex_index', u32T) }, VsOut.type, (p,
   // raster.
   const clip = condExpr([
     [projParams.x.lt(0.5), () => {
-      const latDeg = latRad.div(constRef('DEG2RAD'))
+      const latDeg = degrees(latRad)
       const p2d = project(lon, latDeg, projParams)
       const rel2d = p2d.sub(vec2(camEcef.x, camEcef.y))
       return transformMat4(U.field.mvp, vec4(rel2d.x, rel2d.y, 0, 1))
@@ -127,7 +127,7 @@ const vs = fn('vs_tile', { vid: builtin('vertex_index', u32T) }, VsOut.type, (p,
       // project_geom (world-copy aware; tileRefLon = tile-centre lon from the
       // tile bounds) minus the camera's projected centre (in-shader from
       // proj_params.y/z = clon/clat). Same flat MVP; cam_ecef_center unused here.
-      const latDeg = latRad.div(constRef('DEG2RAD'))
+      const latDeg = degrees(latRad)
       const tileRefLon = bounds.x.add(bounds.z).mul(0.5)
       const relG = flat_rel(lon, latDeg, projParams, tileRefLon)
       return transformMat4(U.field.mvp, vec4(relG.x, relG.y, 0, 1))
