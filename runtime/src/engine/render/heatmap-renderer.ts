@@ -26,6 +26,8 @@ import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 import { getSampleCount } from '../gpu/gpu'
 import { FrameArena } from '../gpu/frame-arena'
 import { emitHeatmapAccumWgsl } from '../shaders/dsl'
+import { WebGpuDevice, wrapWebGpuPass } from './rhi/rhi-webgpu'
+import { HeatmapDraper } from './material/heatmap-material'
 import { HEATMAP_DENSITY_FORMAT } from '../gpu/gpu-shared'
 
 /** A baked heatmap-color ramp stop — offset in [0,1] (heatmap-density) and a
@@ -408,11 +410,26 @@ export class HeatmapRenderer {
     this.device.queue.writeBuffer(layer._idxBuf!, 0, indices)
     this.device.queue.writeBuffer(layer._featBuf!, 0, featData)
 
-    pass.setPipeline(this.pipeline)
-    pass.setBindGroup(0, layer._bindGroup!)
-    pass.setVertexBuffer(0, layer._vertBuf!)
-    pass.setIndexBuffer(layer._idxBuf!, 'uint32')
-    pass.drawIndexed(N * 6)
+    if ((globalThis as { __xgisHeatmapViaRhi?: boolean }).__xgisHeatmapViaRhi === true) {
+      this.ensureHeatmapDraper()
+      if (!this._heatRhiLogged) { this._heatRhiLogged = true; console.warn(`[HEATRHI] accum draw via RHI seam (idx=${N * 6})`) }
+      this._heatmapDraper!.draw(wrapWebGpuPass(pass), {
+        bindGroup: layer._bindGroup!, vertBuf: layer._vertBuf!, idxBuf: layer._idxBuf!, indexCount: N * 6,
+      })
+    } else {
+      pass.setPipeline(this.pipeline)
+      pass.setBindGroup(0, layer._bindGroup!)
+      pass.setVertexBuffer(0, layer._vertBuf!)
+      pass.setIndexBuffer(layer._idxBuf!, 'uint32')
+      pass.drawIndexed(N * 6)
+    }
+  }
+
+  private _heatmapDraper?: HeatmapDraper
+  private _heatRhiLogged = false
+  private ensureHeatmapDraper(): void {
+    if (this._heatmapDraper) return
+    this._heatmapDraper = new HeatmapDraper(new WebGpuDevice(this.device), this.bindGroupLayout)
   }
 
   /** Rebuild the accum pipeline for a quality change. Heatmap accum is always

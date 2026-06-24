@@ -39,7 +39,7 @@ export interface MaterialDesc {
   /** Per-group bind layout: entries to CREATE a layout, OR an existing layout to
    *  REUSE (line shares the VTR tile bind-group layout). */
   groups: Array<RhiBindLayoutEntry[] | RhiBindGroupLayout>
-  colorTargets: ReadonlyArray<{ format: RhiTextureFormat; blend?: 'alpha' | 'premult' | 'none' }>
+  colorTargets: ReadonlyArray<{ format: RhiTextureFormat; blend?: 'alpha' | 'premult' | 'additive' | 'none' }>
   depthFormat?: RhiTextureFormat
   vertexBuffers?: ReadonlyArray<{ stride: number; attributes: ReadonlyArray<{ location: number; offset: number; format: string }> }>
   /** 1+ pipeline variants (depth differs). */

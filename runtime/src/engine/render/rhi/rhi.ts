@@ -34,7 +34,7 @@ export interface RhiBufferDesc {
 }
 
 /** Semantic texture formats — impl maps to backend (e.g. swapchain bgra8). */
-export type RhiTextureFormat = 'rgba8unorm' | 'bgra8unorm' | 'depth24plus-stencil8' | 'rg32uint'
+export type RhiTextureFormat = 'rgba8unorm' | 'bgra8unorm' | 'depth24plus-stencil8' | 'rg32uint' | 'r16float'
 
 export interface RhiTextureDesc {
   width: number
@@ -76,7 +76,7 @@ export interface RhiPipelineDesc {
   vsEntry: string
   fsEntry: string
   bindGroupLayouts: RhiBindGroupLayout[]
-  colorTargets: ReadonlyArray<{ format: RhiTextureFormat; blend?: 'alpha' | 'premult' | 'none' }>
+  colorTargets: ReadonlyArray<{ format: RhiTextureFormat; blend?: 'alpha' | 'premult' | 'additive' | 'none' }>
   depthStencil?: {
     format: RhiTextureFormat; write: boolean; compare: 'always' | 'less' | 'less-equal'
     /** Polygon-offset depth bias (point markers pull toward camera). */

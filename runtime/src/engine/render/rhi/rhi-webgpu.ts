@@ -28,6 +28,11 @@ const BLEND_ALPHA_PREMULT: GPUBlendState = {
   color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
   alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
 }
+// Additive (heatmap accum — overlapping splats SUM).
+const BLEND_ADDITIVE: GPUBlendState = {
+  color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+  alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+}
 
 function bufUsage(usage: RhiBufferDesc['usage'], writable: boolean): GPUBufferUsageFlags {
   const base = usage === 'uniform' ? GPUBufferUsage.UNIFORM
@@ -169,7 +174,7 @@ export class WebGpuDevice implements RhiDevice {
         module, entryPoint: desc.fsEntry,
         targets: desc.colorTargets.map((t): GPUColorTargetState => ({
           format: t.format as GPUTextureFormat,
-          blend: t.blend === 'alpha' ? BLEND_ALPHA : t.blend === 'premult' ? BLEND_ALPHA_PREMULT : undefined,
+          blend: t.blend === 'alpha' ? BLEND_ALPHA : t.blend === 'premult' ? BLEND_ALPHA_PREMULT : t.blend === 'additive' ? BLEND_ADDITIVE : undefined,
           writeMask: t.format === 'rg32uint' ? 0 : GPUColorWrite.ALL,
         })),
       },
