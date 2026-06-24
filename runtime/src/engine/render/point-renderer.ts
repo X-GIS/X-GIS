@@ -13,6 +13,8 @@ import { resolveNumberShape } from './paint-shape-resolve'
 import { FrameArena } from '../gpu/frame-arena'
 import type { PointLayer } from './point-renderer-types'
 import { emitPointWgsl, buildPointModule } from '../shaders/dsl'
+import { WebGpuDevice, wrapWebGpuPass } from './rhi/rhi-webgpu'
+import { PointDraper } from './material/point-material'
 import { reflect } from '@xgis/shader-dsl'
 import { vertexField } from '@xgis/compiler'
 import { POINT_FORMAT } from './point-vertex-format'
@@ -337,6 +339,23 @@ export class PointRenderer {
   }
   private _emptyStorageBuf: GPUBuffer | null = null
 
+  // ── RHI pilot (behind __xgisPointViaRhi) — second-primitive proof ──
+  // The tile-point draw routed through the RHI seam (storage buffers + vertex/
+  // index + drawIndexed): builds the RHI pipelines once, then per-frame wraps the
+  // native uniform/feature/shape/seg/vertex/index buffers + draws. Legacy default.
+  private _pointDraper?: PointDraper
+  private _pointRhiLogged = false
+
+  private ensurePointDraper(): void {
+    if (this._pointDraper) return
+    const vbl = this.vertexBufferLayout!
+    const vertexBuffers = [{
+      stride: vbl.arrayStride,
+      attributes: [...vbl.attributes].map((a) => ({ location: a.shaderLocation, offset: a.offset, format: a.format as string })),
+    }]
+    this._pointDraper = new PointDraper(new WebGpuDevice(this.device), this.format, getSampleCount(), vertexBuffers)
+  }
+
   clearLayers(): void {
     for (const layer of this.layers) {
       layer.vertexBuffer.destroy()
@@ -510,12 +529,27 @@ export class PointRenderer {
     const strokeA = stroke ? stroke[3] * opacity * tileStrokeOpacity : 1
     const tileIsTranslucent = opacity < EPS || fillA < EPS || strokeA < EPS
 
-    // Single draw call for all tile points
-    pass.setPipeline(tileIsTranslucent ? this.pipelineTranslucent : this.pipeline)
-    pass.setBindGroup(0, this.tilePointBindGroup)
-    pass.setVertexBuffer(0, this.tilePointBuffer)
-    pass.setIndexBuffer(this.tilePointIndexBuffer, 'uint32')
-    pass.drawIndexed(totalN * 6)
+    // Single draw call for all tile points. RHI pilot path (non-default): same
+    // draw through the backend seam, wrapping the native buffers.
+    if ((globalThis as { __xgisPointViaRhi?: boolean }).__xgisPointViaRhi === true) {
+      this.ensurePointDraper()
+      const shapeBuf = this.shapeRegistry?.shapeBuffer
+      const segBuf = this.shapeRegistry?.segmentBuffer
+      const emptyBuf = this._emptyStorageBuf ??= this.device.createBuffer({ size: 64, usage: GPUBufferUsage.STORAGE, label: 'empty-shape-buf' })
+      if (!this._pointRhiLogged) { this._pointRhiLogged = true; console.warn(`[POINTRHI] tile-point draw via RHI seam (totalN=${totalN})`) }
+      this._pointDraper!.draw(wrapWebGpuPass(pass), {
+        uniform: this.uniformBuffer, feat: this.tilePointFeatBuffer!,
+        shape: shapeBuf ?? emptyBuf, seg: segBuf ?? emptyBuf,
+        vertex: this.tilePointBuffer!, index: this.tilePointIndexBuffer!,
+        indexCount: totalN * 6, translucent: tileIsTranslucent,
+      })
+    } else {
+      pass.setPipeline(tileIsTranslucent ? this.pipelineTranslucent : this.pipeline)
+      pass.setBindGroup(0, this.tilePointBindGroup)
+      pass.setVertexBuffer(0, this.tilePointBuffer)
+      pass.setIndexBuffer(this.tilePointIndexBuffer, 'uint32')
+      pass.drawIndexed(totalN * 6)
+    }
 
     // Clear for next frame
     this.tilePoints = []
