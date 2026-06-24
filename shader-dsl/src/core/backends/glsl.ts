@@ -23,12 +23,91 @@
 // glsl.test.ts (string-shape: version pragma, std140 block + engine-matched
 // offsets, in/out varyings, main()) + the headless-WebGL2 gate cover the emit.
 
-import type { ShaderType, ModuleDecl, StructDecl, BindingDecl, FuncDecl } from '../ir'
+import type { ShaderType, ModuleDecl, StructDecl, BindingDecl, FuncDecl, Expr, Stmt } from '../ir'
+import { texture2dfT, u32T, f32T } from '../ir'
 import { Capabilities, UnsupportedFeatureError, type Backend } from '../backend'
 import { spellIntrinsic } from '../intrinsics'
 import { f32Lit } from './wgsl'
 import { emitBody, lowerForBackend } from '../emit'
 import { wgslLayout } from '../reflect'
+
+// ── GLSL ES 3.00 reserved-word identifier sanitisation ──
+// WGSL and GLSL have DIFFERENT reserved-word sets, so a perfectly legal DSL
+// identifier (an entry param named `input`, `in`, an `out` local) is a GLSL
+// compile error ("Illegal use of reserved word"). The WGSL backend emits these
+// names verbatim (legal there); the GLSL backend must RENAME any param/local-var
+// whose name collides with a GLSL ES reserved word — consistently across the
+// declaration AND every reference. This pass is GLSL-LOCAL (only emitGlslModule
+// calls it), so WGSL emit stays byte-identical. Struct FIELD names are left alone
+// (they are the std140 host-offset + cross-stage varying linkage contract, and are
+// accessed as `.field`, not bare identifiers).
+const GLSL_RESERVED: ReadonlySet<string> = new Set([
+  'input', 'output', 'in', 'out', 'inout', 'attribute', 'varying', 'uniform', 'buffer', 'shared',
+  'coherent', 'volatile', 'restrict', 'readonly', 'writeonly', 'atomic_uint', 'layout', 'centroid',
+  'flat', 'smooth', 'noperspective', 'patch', 'sample', 'subroutine', 'precision', 'invariant',
+  'precise', 'common', 'partition', 'active', 'asm', 'class', 'union', 'enum', 'typedef', 'template',
+  'this', 'packed', 'resource', 'goto', 'inline', 'noinline', 'public', 'static', 'extern', 'external',
+  'interface', 'long', 'short', 'half', 'fixed', 'unsigned', 'superp', 'filter', 'sizeof', 'cast',
+  'namespace', 'using', 'sampler', 'sampler2D', 'sampler3D', 'samplerCube', 'texture',
+])
+
+/** Rename any param/local-var identifier that collides with a GLSL reserved word
+ *  (and every reference to it), per-function, returning a new module. Identity for
+ *  a module with no collisions. Struct fields + binding names are untouched. */
+function sanitizeReservedIdents(m: ModuleDecl): ModuleDecl {
+  const collectDeclNames = (body: readonly Stmt[], acc: Set<string>): void => {
+    for (const s of body) {
+      if (s.s === 'let' || s.s === 'var') acc.add(s.name)
+      if (s.s === 'for') { collectDeclNames([s.init], acc); collectDeclNames(s.body, acc) }
+      if (s.s === 'if') { s.arms.forEach((a) => collectDeclNames(a.body, acc)); if (s.elseBody) collectDeclNames(s.elseBody, acc) }
+      if (s.s === 'switch') { s.cases.forEach((c) => collectDeclNames(c.body, acc)); if (s.defaultBody) collectDeclNames(s.defaultBody, acc) }
+    }
+  }
+  const rewriteFunc = (f: FuncDecl): FuncDecl => {
+    const names = new Set<string>(f.params.map((p) => p.name))
+    collectDeclNames(f.body, names)
+    const map = new Map<string, string>()
+    for (const n of names) {
+      if (!GLSL_RESERVED.has(n)) continue
+      let safe = n + '_'
+      while (GLSL_RESERVED.has(safe) || names.has(safe) || [...map.values()].includes(safe)) safe += '_'
+      map.set(n, safe)
+    }
+    if (map.size === 0) return f
+    const rn = (n: string) => map.get(n) ?? n
+    const rE = (e: Expr): Expr => {
+      switch (e.op) {
+        case 'param': case 'varref': return map.has(e.name) ? { ...e, name: rn(e.name) } : e
+        case 'binop': return { ...e, a: rE(e.a), b: rE(e.b) }
+        case 'compare': return { ...e, a: rE(e.a), b: rE(e.b) }
+        case 'logical': return { ...e, a: rE(e.a), b: rE(e.b) }
+        case 'unop': return { ...e, a: rE(e.a) }
+        case 'call': return { ...e, args: e.args.map(rE) }
+        case 'construct': return { ...e, args: e.args.map(rE) }
+        case 'member': return { ...e, base: rE(e.base) }
+        case 'index': return { ...e, base: rE(e.base), idx: rE(e.idx) }
+        case 'select': return { ...e, cond: rE(e.cond), ifTrue: rE(e.ifTrue), ifFalse: rE(e.ifFalse) }
+        case 'matchExpr': return { ...e, scrutinee: rE(e.scrutinee), cases: e.cases.map(([v, x]) => [v, rE(x)] as const), default: rE(e.default) }
+        default: return e // lit / constref
+      }
+    }
+    const rS = (s: Stmt): Stmt => {
+      switch (s.s) {
+        case 'let': return { ...s, name: rn(s.name), expr: rE(s.expr) }
+        case 'var': return { ...s, name: rn(s.name), init: s.init !== undefined ? rE(s.init) : undefined }
+        case 'assign': return { ...s, target: rE(s.target), expr: rE(s.expr) }
+        case 'assignOp': return { ...s, target: rE(s.target), expr: rE(s.expr) }
+        case 'return': return s.expr !== undefined ? { ...s, expr: rE(s.expr) } : s
+        case 'if': return { ...s, arms: s.arms.map((a) => ({ cond: rE(a.cond), body: a.body.map(rS) })), elseBody: s.elseBody?.map(rS) }
+        case 'for': return { ...s, init: rS(s.init), cond: rE(s.cond), update: rS(s.update), body: s.body.map(rS) }
+        case 'switch': return { ...s, scrut: rE(s.scrut), cases: s.cases.map((c) => ({ value: c.value, body: c.body.map(rS) })), defaultBody: s.defaultBody?.map(rS) }
+        default: return s // break / continue / discard / placeholder / raw
+      }
+    }
+    return { ...f, params: f.params.map((p) => (map.has(p.name) ? { ...p, name: rn(p.name) } : p)), body: f.body.map(rS) }
+  }
+  return { ...m, funcs: m.funcs.map(rewriteFunc) }
+}
 
 // UnsupportedFeatureError now lives in the backend contract; re-exported here so
 // existing importers (`from './glsl'`) keep working.
@@ -50,6 +129,12 @@ function glslType(t: ShaderType): string {
     case 'sampler': throw new UnsupportedFeatureError('glsl-es300: standalone sampler — fused into the combined sampler2D')
     case 'void': return 'void'
   }
+}
+
+// An integer scalar/vector — GLSL ES requires `flat` interpolation on such inter-stage varyings.
+function isIntType(t: ShaderType): boolean {
+  return (t.kind === 'scalar' && (t.scalar === 'i32' || t.scalar === 'u32')) ||
+    (t.kind === 'vec' && (t.elem === 'i32' || t.elem === 'u32'))
 }
 
 function glslLit(value: number | boolean, t: ShaderType): string {
@@ -141,7 +226,9 @@ export const glslEs300Backend: Backend = {
   localLet: (name, type, init) => `${glslType(type)} ${name} = ${init}`,
   localVar: (name, type, init) => init !== undefined ? `${glslType(type)} ${name} = ${init}` : `${glslType(type)} ${name}`,
   constDecl: (name, type, value) => `const ${glslType(type)} ${name} = ${value};`,
-  caseLabel: (value) => `${value}`, // GLSL ES switch requires int labels (no `u` suffix)
+  // GLSL ES requires the case label type to MATCH the switch scrutinee: a u32 scrutinee
+  // needs `${value}u` labels (an int label is a compile error), an i32/int one stays bare.
+  caseLabel: (value, scrutType) => scrutType.kind === 'scalar' && scrutType.scalar === 'u32' ? `${value}u` : `${value}`,
   switchHead: (scrut) => `switch (${scrut}) {`,
   rawStmt: () => { throw new UnsupportedFeatureError('glsl-es300: raw WGSL Stmt cannot lower to GLSL (backendOnly:wgsl)') },
   placeholderStmt: () => { throw new UnsupportedFeatureError('glsl-es300: un-swapped placeholder Stmt — composer must run first') },
@@ -227,7 +314,10 @@ function emitGlslEntry(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): s
       if (s.location === undefined) throw new UnsupportedFeatureError(`glsl-es300: entry '${f.name}' input '${s.name}' has neither @location nor @builtin`)
       // location qualifier ONLY on a vertex attribute; a fragment input varying drops it.
       const qual = stage === 'vertex' ? `layout(location = ${s.location}) ` : ''
-      lines.push(`${qual}in ${glslType(s.type)} ${inName(s.name)};`)
+      // GLSL ES requires `flat` on an integer inter-stage varying (a fragment-IN that carries
+      // an int/uint can't be interpolated). Vertex attributes (vertex-IN) are not varyings → no flat.
+      const flat = stage === 'fragment' && isIntType(s.type) ? 'flat ' : ''
+      lines.push(`${qual}${flat}in ${glslType(s.type)} ${inName(s.name)};`)
     }
   }
   // `out` varyings: the return struct's @location fields (or a bare @location return).
@@ -240,7 +330,10 @@ function emitGlslEntry(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): s
     if (s.location === undefined) throw new UnsupportedFeatureError(`glsl-es300: entry '${f.name}' output '${s.name}' has neither @location nor @builtin`)
     // location qualifier ONLY on a fragment draw buffer; a vertex output varying drops it.
     const qual = stage === 'fragment' ? `layout(location = ${s.location}) ` : ''
-    lines.push(`${qual}out ${glslType(s.type)} ${s.name};`)
+    // `flat` on an integer VERTEX-OUT varying (matches the fragment-IN above). A fragment draw
+    // buffer (fragment-OUT) is not interpolated → no flat.
+    const flat = stage === 'vertex' && isIntType(s.type) ? 'flat ' : ''
+    lines.push(`${qual}${flat}out ${glslType(s.type)} ${s.name};`)
   }
 
   // The authored entry, emitted as a regular GLSL function over its IO structs.
@@ -306,10 +399,132 @@ function emitGlslEntry(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): s
  *  module string — the existing pure-math callers (LOG_DEPTH_MODULE, PROJECTION_MODULE)
  *  have no entries, so they are unaffected; a module with BOTH entries and no stage emits
  *  both main()s (a string-shape artifact, NOT a compilable unit). */
-export function emitGlslModule(m: ModuleDecl, stage?: 'vertex' | 'fragment'): string {
+// ── storage-buffer → data-texture emulation (WebGL2 has no SSBO) ──
+// GLSL ES 3.00 has no storage buffers, so a `var<storage, read> data: array<f32>`
+// can't emit directly (and the caps gate fail-closes it). This GLSL-LOCAL pre-pass —
+// run BEFORE the standard pipeline, ONLY when emitGlslModule({emulateStorage}) opts in —
+// rewrites the IR so the standard pipeline never sees a storage binding:
+//   • the storage `array<f32>` binding becomes a `sampler2D` (a 2D-TILED R32F DATA TEXTURE)
+//   • a read `data[i]` becomes `storageFetchF32(data, i)` → texelFetch at (i % W, i / W) where
+//     W = textureSize(data,0).x (the device-chosen width), so an array wider than one texture
+//     row (>maxTextureSize) wraps across rows; the 1-row case is W=N → (i, 0).
+// Because the rewritten module has NO storage binding, assertCaps (which keys on
+// space==='storage') passes with the normal empty-caps backend — no caps loosening, so
+// compute/MSAA stay fail-closed, and the DEFAULT emitGlslModule (no opt-in) still
+// fail-closes storage. WGSL is untouched (only emitGlslModule calls this).
+//
+// SCOPE: array<f32> (any size, 2D-tiled) — covers the real feat_data path (indexed / strided
+// feat_data[base*STRIDE+lane] / bitcast<u32> lanes). The RESIDUAL (fail-closed below):
+// array<u32/i32/vecN/struct> — shapes/segments are array<Struct> and need a typed-texture /
+// multi-lane scheme (a documented follow-on, NOT yet implemented).
+// Struct-array storage layout: the std430 f32-lane offset of each field + the element stride
+// (f32 lanes). A scalar field is one lane (u32 lanes are bitcast back); a vecN<f32> field is N
+// consecutive lanes recombined with a vec ctor. mat / vec<u32> fields are excluded (throw on
+// access). The CPU packs the struct in std430, so lane = byteOffset/4 reads the same field.
+type StructField = { lane: number; kind: 'scalar'; isU32: boolean } | { lane: number; kind: 'vec'; n: number }
+interface StructStorage { stride: number; fields: Map<string, StructField> }
+
+function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
+  const structsMap = new Map(m.structs.map((s) => [s.name, s]))
+  const f32Names = new Set<string>()                       // array<f32> storage
+  const structStorage = new Map<string, StructStorage>()   // array<Struct> storage
+  for (const b of m.bindings) {
+    if (b.space !== 'storage') continue
+    if (b.type.kind !== 'array') throw new UnsupportedFeatureError(`glsl-es300 storage-emul: binding '${b.name}' is not an array`)
+    const elem = b.type.elem
+    if (elem.kind === 'scalar' && elem.scalar === 'f32') { f32Names.add(b.name); continue }
+    if (elem.kind === 'struct') {
+      const sd = structsMap.get(elem.name)
+      if (!sd) throw new UnsupportedFeatureError(`glsl-es300 storage-emul: struct '${elem.name}' for binding '${b.name}' not in module`)
+      const layout = wgslLayout(sd, 'std430', structsMap) // the same std430 the host packs against
+      const fields = new Map<string, StructField>()
+      for (const f of sd.fields) {
+        const fl = layout.fields.find((x) => x.name === f.name)!
+        if (fl.offset % 4 !== 0) continue // not f32-lane-aligned → unreadable (throws on access)
+        const lane = fl.offset / 4
+        if (f.type.kind === 'scalar') {
+          if (f.type.scalar === 'i32') throw new UnsupportedFeatureError(`glsl-es300 storage-emul: i32 struct field '${f.name}' — only f32/u32 lanes supported`)
+          fields.set(f.name, { lane, kind: 'scalar', isU32: f.type.scalar === 'u32' })
+        } else if (f.type.kind === 'vec' && f.type.elem === 'f32') {
+          fields.set(f.name, { lane, kind: 'vec', n: f.type.n })
+        } // else mat / vec<u32> → not in map → throws on access
+      }
+      structStorage.set(b.name, { stride: layout.size / 4, fields })
+      continue
+    }
+    throw new UnsupportedFeatureError(`glsl-es300 storage-emul: binding '${b.name}' — array<f32> and array<Struct(scalar fields)> supported; a top-level array<u32/i32/vecN> needs typed packing`)
+  }
+  if (f32Names.size === 0 && structStorage.size === 0) return m
+  const allNames = new Set<string>([...f32Names, ...structStorage.keys()])
+  // every storage binding → a sampler2D (R32F data texture) uniform; same name/group/binding.
+  const bindings = m.bindings.map((b): BindingDecl => allNames.has(b.name) ? { ...b, space: 'uniform', type: texture2dfT } : b)
+  const u32lit = (value: number): Expr => ({ op: 'lit', type: u32T, value })
+  const fetch = (name: string, lane: Expr): Expr => ({ op: 'call', type: f32T, fn: 'storageFetchF32', args: [{ op: 'varref', type: texture2dfT, name }, lane] })
+  const rE = (e: Expr): Expr => {
+    switch (e.op) {
+      case 'member': {
+        // shapes[i].field → storageFetchF32(shapes, i*STRIDE + laneOf(field)) [+ bitcast for u32].
+        const b = e.base
+        if (b.op === 'index' && b.base.op === 'varref' && structStorage.has(b.base.name)) {
+          const ss = structStorage.get(b.base.name)!
+          const fl = ss.fields.get(e.field)
+          if (!fl) throw new UnsupportedFeatureError(`glsl-es300 storage-emul: '${b.base.name}[i].${e.field}' — mat / vec<u32> / nested-struct fields not supported (only scalar + vecN<f32> lanes)`)
+          // baseLane = i*STRIDE + field-lane; a scalar reads it, a vecN reads N consecutive lanes.
+          const baseLane: Expr = { op: 'binop', type: u32T, bop: '+', a: { op: 'binop', type: u32T, bop: '*', a: rE(b.idx), b: u32lit(ss.stride) }, b: u32lit(fl.lane) }
+          if (fl.kind === 'scalar') {
+            const f = fetch(b.base.name, baseLane)
+            return fl.isU32 ? { op: 'call', type: e.type, fn: 'bitcastU32', args: [f] } : f
+          }
+          // vecN<f32> field → vecN(fetch(base), fetch(base+1), …, fetch(base+N-1))
+          const comps: Expr[] = []
+          for (let k = 0; k < fl.n; k++) {
+            const lane: Expr = k === 0 ? baseLane : { op: 'binop', type: u32T, bop: '+', a: baseLane, b: u32lit(k) }
+            comps.push(fetch(b.base.name, lane))
+          }
+          return { op: 'construct', type: e.type, args: comps }
+        }
+        return { ...e, base: rE(e.base) }
+      }
+      case 'index':
+        if (e.base.op === 'varref' && f32Names.has(e.base.name)) return fetch(e.base.name, rE(e.idx))
+        if (e.base.op === 'varref' && structStorage.has(e.base.name)) throw new UnsupportedFeatureError(`glsl-es300 storage-emul: storage struct element '${e.base.name}[i]' used without a .field access`)
+        return { ...e, base: rE(e.base), idx: rE(e.idx) }
+      case 'binop': return { ...e, a: rE(e.a), b: rE(e.b) }
+      case 'compare': return { ...e, a: rE(e.a), b: rE(e.b) }
+      case 'logical': return { ...e, a: rE(e.a), b: rE(e.b) }
+      case 'unop': return { ...e, a: rE(e.a) }
+      case 'call': return { ...e, args: e.args.map(rE) }
+      case 'construct': return { ...e, args: e.args.map(rE) }
+      case 'select': return { ...e, cond: rE(e.cond), ifTrue: rE(e.ifTrue), ifFalse: rE(e.ifFalse) }
+      case 'matchExpr': return { ...e, scrutinee: rE(e.scrutinee), cases: e.cases.map(([v, x]) => [v, rE(x)] as const), default: rE(e.default) }
+      default: return e // lit / constref / param / varref
+    }
+  }
+  const rS = (s: Stmt): Stmt => {
+    switch (s.s) {
+      case 'let': return { ...s, expr: rE(s.expr) }
+      case 'var': return { ...s, init: s.init !== undefined ? rE(s.init) : undefined }
+      case 'assign': return { ...s, target: rE(s.target), expr: rE(s.expr) }
+      case 'assignOp': return { ...s, target: rE(s.target), expr: rE(s.expr) }
+      case 'return': return s.expr !== undefined ? { ...s, expr: rE(s.expr) } : s
+      case 'if': return { ...s, arms: s.arms.map((a) => ({ cond: rE(a.cond), body: a.body.map(rS) })), elseBody: s.elseBody?.map(rS) }
+      case 'for': return { ...s, init: rS(s.init), cond: rE(s.cond), update: rS(s.update), body: s.body.map(rS) }
+      case 'switch': return { ...s, scrut: rE(s.scrut), cases: s.cases.map((c) => ({ value: c.value, body: c.body.map(rS) })), defaultBody: s.defaultBody?.map(rS) }
+      default: return s
+    }
+  }
+  return { ...m, bindings, funcs: m.funcs.map((f) => ({ ...f, body: f.body.map(rS) })) }
+}
+
+export function emitGlslModule(m: ModuleDecl, stage?: 'vertex' | 'fragment', opts?: { emulateStorage?: boolean }): string {
   // autoVars BEFORE lowerModule (inside lowerForBackend), same order as the WGSL backend /
   // CPU oracle — materialising assigned plain-value bindings into real vars is BACKEND-NEUTRAL.
-  const lowered = lowerForBackend(m, glslEs300Backend)
+  // Opt-in storage→data-texture emulation runs FIRST so the rewritten module carries no
+  // storage binding (assertCaps then passes with the normal empty-caps backend).
+  const src = opts?.emulateStorage ? lowerStorageToDataTexture(m) : m
+  // GLSL-local: rename any param/var identifier colliding with a GLSL reserved word
+  // (e.g. an entry param `input` / `in`) — does NOT affect the WGSL backend.
+  const lowered = sanitizeReservedIdents(lowerForBackend(src, glslEs300Backend))
   const structs = new Map(lowered.structs.map((s) => [s.name, s]))
 
   const stageAttr = stage === 'vertex' ? '@vertex' : stage === 'fragment' ? '@fragment' : undefined
@@ -337,7 +552,12 @@ export function emitGlslModule(m: ModuleDecl, stage?: 'vertex' | 'fragment'): st
   // Uniform UBO blocks (std140, reflection-fed) + texture/sampler uniforms.
   const bindingLines: string[] = []
   for (const b of lowered.bindings) {
-    if (b.type.kind === 'texture' || b.type.kind === 'sampler') bindingLines.push(`uniform ${glslType(b.type)} ${b.name};`)
+    if (b.type.kind === 'texture') bindingLines.push(`uniform ${glslType(b.type)} ${b.name};`)
+    // A standalone WGSL sampler binding is FUSED into the texture's combined
+    // sampler2D (textureSample(tex,samp,uv) → texture(tex,uv)), so it emits no
+    // separate GLSL uniform. The host reflection maps the texture binding to a
+    // texture unit and drops the sampler binding to match.
+    else if (b.type.kind === 'sampler') { /* fused into the texture's sampler2D — skip */ }
     else if (b.space === 'storage') throw new UnsupportedFeatureError('glsl-es300: storage buffer (SSBO) — GLSL ES 3.00 has no SSBO; fail-closed')
     else if (b.type.kind === 'struct') bindingLines.push(emitGlslUbo(b, structByName(structs, b.type.name)))
     else throw new UnsupportedFeatureError(`glsl-es300: uniform binding '${b.name}' must be a struct (a std140 UBO block)`)

@@ -36,8 +36,20 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // bitcast<u32>(f) on WGSL; floatBitsToUint(f) on GLSL. The neutral id drops the
   // WGSL generic-call syntax that used to live in the IR.
   bitcastU32: { wgsl: (a) => `bitcast<u32>(${join(a)})`, glsl: (a) => `floatBitsToUint(${join(a)})` },
-  textureLoad: { wgsl: (a) => `textureLoad(${join(a)})`, glsl: (a) => `texelFetch(${join(a)})` },
-  textureDimensions: { wgsl: (a) => `textureDimensions(${join(a)})`, glsl: (a) => `textureSize(${join(a)})` },
+  // GLSL texelFetch's lod/sample arg is `int` (WGSL passes a u32 level) → wrap the
+  // 3rd arg in int(); GLSL has no implicit u32→int here. (2-arg form passes through.)
+  textureLoad: { wgsl: (a) => `textureLoad(${join(a)})`, glsl: (a) => a.length >= 3 ? `texelFetch(${a[0]}, ${a[1]}, int(${a[2]}))` : `texelFetch(${join(a)})` },
+  // GLSL textureSize REQUIRES an int lod (WGSL textureDimensions(t) defaults to base
+  // level 0); supply 0 when absent, else cast the given level to int.
+  textureDimensions: { wgsl: (a) => `textureDimensions(${join(a)})`, glsl: (a) => a.length >= 2 ? `textureSize(${a[0]}, int(${a[1]}))` : `textureSize(${a[0]}, 0)` },
+  // Storage-buffer emulation (WebGL2 has no SSBO): GLSL-only synthetic. A storage read
+  // data[i] lowers to a fetch from a DATA TEXTURE — a[0]=the sampler, a[1]=the element index.
+  // 2D-TILED: the linear index maps to (i % W, i / W) where W = the texture's own width
+  // (textureSize(t,0).x), so an array wider than one texture row (>maxTextureSize) wraps
+  // across rows AND the 1-row case is unchanged (W=N → i%N=i, i/N=0). The shader reads the
+  // device-chosen width, so no compile-time width constant needs syncing. Only the GLSL
+  // backend sees this call (the pre-pass creates it); the wgsl spelling is unused.
+  storageFetchF32: { wgsl: (a) => `storageFetchF32(${join(a)})`, glsl: (a) => `texelFetch(${a[0]}, ivec2(int(${a[1]}) % textureSize(${a[0]}, 0).x, int(${a[1]}) / textureSize(${a[0]}, 0).x), 0).r` },
 }
 
 /** Spell an intrinsic / call for a target. Registry id -> mapped spelling;
