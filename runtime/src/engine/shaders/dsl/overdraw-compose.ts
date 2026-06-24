@@ -91,7 +91,9 @@ const fsCompose = fn(
   { stage: 'fragment', retAttr: '@location(0)' },
 )
 
-const overdrawComposeModule: ModuleDecl = module({
+// Exported so the WebGL2 RHI render gate can emit this REAL shader's GLSL (the
+// browser can't reach the emit-only string export with a backend choice). Additive.
+export const overdrawComposeModule: ModuleDecl = module({
   structs: [VsOut.decl],
   bindings: [accumTex.binding],
   funcs: [colormap, vsFull, fsCompose],

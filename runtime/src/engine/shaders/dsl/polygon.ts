@@ -1093,7 +1093,7 @@ const swapPlaceholders = (
 // Stmt swap + pick attachment conditional lands in the iter alongside
 // the polygon-dsl.test.ts (US-007c) 14 AC3 combination tests.
 
-const buildPolygonModule = (
+export const buildPolygonModule = (
   variant: ShaderVariantInfo | null,
   pickEnabled: boolean,
 ): ModuleDecl => {

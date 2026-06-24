@@ -152,7 +152,7 @@ const fs = fn('fs_heatmap', { in: HeatOut.type }, (p) => {
 
 // A build-fn (not a top-level const) so the injection-deferred getGpuProjectionFuncs() is
 // gathered at emit time, post-configureProjections().
-const buildHeatmapAccumModule = (): ModuleDecl => module({
+export const buildHeatmapAccumModule = (): ModuleDecl => module({
   // Shared projection constants merged in (was the getProjectionWgslConsts() string prepend).
   consts: [...PROJECTION_CONSTS],
   structs: [U.struct, HeatOut.decl],

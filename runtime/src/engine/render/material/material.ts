@@ -31,9 +31,15 @@ export interface PipelineVariant {
 }
 
 export interface MaterialDesc {
+  /** WGSL module source (the WebGPU backend's pipeline `code`). */
   shader: string
   vsEntry: string
   fsEntry: string
+  /** Split GLSL ES 3.00 source for a WebGL2 backend (emitGlslModule per stage). Optional +
+   *  additive: the WebGPU impl ignores it; WebGl2Device requires it. Lets the generic Material
+   *  build a pipeline on either backend so every primitive can run on the WebGL2 fallback. */
+  vsCode?: string
+  fsCode?: string
   format: RhiTextureFormat
   sampleCount: number
   /** Per-group bind layout: entries to CREATE a layout, OR an existing layout to
@@ -87,6 +93,7 @@ export class Material {
     this.layouts = desc.groups.map((g) => Array.isArray(g) ? rhi.createBindGroupLayout(g) : g)
     this.pipelines = desc.variants.map((v) => rhi.createPipeline({
       code: desc.shader, vsEntry: desc.vsEntry, fsEntry: v.fsEntry ?? desc.fsEntry,
+      vsCode: desc.vsCode, fsCode: desc.fsCode,
       bindGroupLayouts: this.layouts,
       colorTargets: desc.colorTargets,
       depthStencil: v.depthCompare

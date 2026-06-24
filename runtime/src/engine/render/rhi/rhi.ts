@@ -58,6 +58,13 @@ export interface RhiBindLayoutEntry {
   kind: 'uniform' | 'texture' | 'sampler' | 'storage'
   /** Uniform bound with a per-draw dynamic offset (per-tile slot pattern). */
   dynamic?: boolean
+  /** The shader's reflection NAME for this binding (from the DSL). A WebGL2
+   *  backend reflects the linked program BY NAME with it — a `uniform` block's
+   *  tag = the struct name, a `texture`'s sampler-uniform name = the binding
+   *  name — so multi-resource groups bind correctly regardless of declaration
+   *  order. Optional + additive: WebGPU ignores it; WebGL2 falls back to
+   *  by-order pairing when it is absent. */
+  name?: string
 }
 
 /** A concrete resource bound at a slot when building a bind GROUP. */
@@ -75,6 +82,13 @@ export interface RhiPipelineDesc {
   /** Shader entry points (WGSL single module). The DSL knows these per shader. */
   vsEntry: string
   fsEntry: string
+  /** Split GLSL ES 3.00 source for split-source backends (WebGL2). DIVERGENCE:
+   *  WGSL is ONE module (`code` + vsEntry/fsEntry pick the two entries); GLSL ES is
+   *  single-`main()`-per-compilation-unit, so the GLSL backend emits TWO strings —
+   *  emitGlslModule(m,'vertex') / (m,'fragment'). Optional + additive: the WebGPU
+   *  impl ignores these (uses `code`); the WebGL2 impl requires them. */
+  vsCode?: string
+  fsCode?: string
   bindGroupLayouts: RhiBindGroupLayout[]
   colorTargets: ReadonlyArray<{ format: RhiTextureFormat; blend?: 'alpha' | 'premult' | 'additive' | 'none' }>
   depthStencil?: {
