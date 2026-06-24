@@ -76,7 +76,7 @@ export interface RhiPipelineDesc {
   vsEntry: string
   fsEntry: string
   bindGroupLayouts: RhiBindGroupLayout[]
-  colorTargets: ReadonlyArray<{ format: RhiTextureFormat; blend?: 'alpha' | 'none' }>
+  colorTargets: ReadonlyArray<{ format: RhiTextureFormat; blend?: 'alpha' | 'premult' | 'none' }>
   depthStencil?: {
     format: RhiTextureFormat; write: boolean; compare: 'always' | 'less' | 'less-equal'
     /** Polygon-offset depth bias (point markers pull toward camera). */
@@ -97,7 +97,7 @@ export interface RhiRenderPass {
   setBindGroup(index: number, group: RhiBindGroup, dynamicOffsets?: number[]): void
   setVertexBuffer(slot: number, buffer: RhiBuffer): void
   setIndexBuffer(buffer: RhiBuffer, format: 'uint16' | 'uint32'): void
-  draw(vertexCount: number, instanceCount?: number): void
+  draw(vertexCount: number, instanceCount?: number, firstVertex?: number): void
   drawIndexed(indexCount: number, instanceCount?: number): void
 }
 

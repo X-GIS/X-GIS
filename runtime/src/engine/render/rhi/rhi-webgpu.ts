@@ -23,6 +23,11 @@ const BLEND_ALPHA: GPUBlendState = {
   color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
   alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
 }
+// Premultiplied (shader emits rgb*a, a) — text/some overlays. srcFactor=one.
+const BLEND_ALPHA_PREMULT: GPUBlendState = {
+  color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+  alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+}
 
 function bufUsage(usage: RhiBufferDesc['usage'], writable: boolean): GPUBufferUsageFlags {
   const base = usage === 'uniform' ? GPUBufferUsage.UNIFORM
@@ -51,7 +56,7 @@ class WebGpuRenderPass implements RhiRenderPass {
   }
   setVertexBuffer(slot: number, buffer: RhiBuffer): void { this.enc.setVertexBuffer(slot, u<GPUBuffer>(buffer)) }
   setIndexBuffer(buffer: RhiBuffer, format: 'uint16' | 'uint32'): void { this.enc.setIndexBuffer(u<GPUBuffer>(buffer), format) }
-  draw(vertexCount: number, instanceCount = 1): void { this.enc.draw(vertexCount, instanceCount) }
+  draw(vertexCount: number, instanceCount = 1, firstVertex = 0): void { this.enc.draw(vertexCount, instanceCount, firstVertex) }
   drawIndexed(indexCount: number, instanceCount = 1): void { this.enc.drawIndexed(indexCount, instanceCount) }
 }
 
@@ -164,7 +169,7 @@ export class WebGpuDevice implements RhiDevice {
         module, entryPoint: desc.fsEntry,
         targets: desc.colorTargets.map((t): GPUColorTargetState => ({
           format: t.format as GPUTextureFormat,
-          blend: t.blend === 'alpha' ? BLEND_ALPHA : undefined,
+          blend: t.blend === 'alpha' ? BLEND_ALPHA : t.blend === 'premult' ? BLEND_ALPHA_PREMULT : undefined,
           writeMask: t.format === 'rg32uint' ? 0 : GPUColorWrite.ALL,
         })),
       },

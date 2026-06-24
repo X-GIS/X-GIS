@@ -21,8 +21,9 @@ import type {
  *  primitive's variants (line: fs_line vs fs_line_pattern; point: opaque vs
  *  translucent depth). */
 export interface PipelineVariant {
-  depthWrite: boolean
-  depthCompare: 'always' | 'less' | 'less-equal'
+  /** Omit depthCompare for NO depth-stencil (icon — pure 2D overlay). */
+  depthWrite?: boolean
+  depthCompare?: 'always' | 'less' | 'less-equal'
   depthBias?: { constant: number; slopeScale: number; clamp: number }
   /** Override the material's fsEntry for this variant (line pattern). */
   fsEntry?: string
@@ -38,7 +39,7 @@ export interface MaterialDesc {
   /** Per-group bind layout: entries to CREATE a layout, OR an existing layout to
    *  REUSE (line shares the VTR tile bind-group layout). */
   groups: Array<RhiBindLayoutEntry[] | RhiBindGroupLayout>
-  colorTargets: ReadonlyArray<{ format: RhiTextureFormat; blend?: 'alpha' | 'none' }>
+  colorTargets: ReadonlyArray<{ format: RhiTextureFormat; blend?: 'alpha' | 'premult' | 'none' }>
   depthFormat?: RhiTextureFormat
   vertexBuffers?: ReadonlyArray<{ stride: number; attributes: ReadonlyArray<{ location: number; offset: number; format: string }> }>
   /** 1+ pipeline variants (depth differs). */
@@ -69,6 +70,8 @@ export interface DrawItem {
   indexed: boolean
   /** Instance count (line: draw(6, segmentCount)). Default 1. */
   instanceCount?: number
+  /** First vertex (text: per-slice draw(count, 1, first, 0)). Default 0. */
+  firstVertex?: number
 }
 
 export class Material {
@@ -86,7 +89,9 @@ export class Material {
       code: desc.shader, vsEntry: desc.vsEntry, fsEntry: v.fsEntry ?? desc.fsEntry,
       bindGroupLayouts: this.layouts,
       colorTargets: desc.colorTargets,
-      depthStencil: { format: desc.depthFormat ?? 'depth24plus-stencil8', write: v.depthWrite, compare: v.depthCompare, bias: v.depthBias },
+      depthStencil: v.depthCompare
+        ? { format: desc.depthFormat ?? 'depth24plus-stencil8', write: v.depthWrite ?? false, compare: v.depthCompare, bias: v.depthBias }
+        : undefined,
       sampleCount: desc.sampleCount,
       vertexBuffers: desc.vertexBuffers,
       label: v.label,
@@ -131,6 +136,6 @@ export function executeItems(material: Material, pass: RhiRenderPass, items: Rea
     if (it.vertex) pass.setVertexBuffer(0, it.vertex)
     const instances = it.instanceCount ?? 1
     if (it.index) { pass.setIndexBuffer(it.index.buffer, it.index.format); pass.drawIndexed(it.count, instances) }
-    else pass.draw(it.count, instances)
+    else pass.draw(it.count, instances, it.firstVertex ?? 0)
   }
 }

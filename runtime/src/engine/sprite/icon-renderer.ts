@@ -15,6 +15,8 @@
 
 import { SpriteAtlasGPU } from './sprite-atlas-gpu'
 import { emitIconWgsl } from '../shaders/dsl'
+import { WebGpuDevice, wrapWebGpuPass } from '../render/rhi/rhi-webgpu'
+import { IconDraper } from '../render/material/icon-material'
 import type { SpriteInfo } from './sprite-atlas-host'
 import { vertexField } from '@xgis/compiler'
 import { ICON_FORMAT } from './icon-vertex-format'
@@ -132,12 +134,29 @@ export class IconRenderer {
    *  new atlas texture. */
   private bindGroup: GPUBindGroup | null = null
 
+  // RHI pilot (behind __xgisIconViaRhi). Same draw through the generic seam.
+  private _iconFmt!: GPUTextureFormat
+  private _iconSamples!: number
+  private _iconDraper?: IconDraper
+  private _iconRhiLogged = false
+  private ensureIconDraper(): void {
+    if (this._iconDraper) return
+    const vbl = toVertexBufferLayout(ICON_FORMAT)
+    const vertexBuffers = [{
+      stride: vbl.arrayStride,
+      attributes: [...vbl.attributes].map((a) => ({ location: a.shaderLocation, offset: a.offset, format: a.format as string })),
+    }]
+    this._iconDraper = new IconDraper(new WebGpuDevice(this.device), this._iconFmt, this._iconSamples, this.bgLayout, vertexBuffers)
+  }
+
   constructor(
     device: GPUDevice, atlas: SpriteAtlasGPU,
     presentationFormat: GPUTextureFormat, sampleCount: number = 1,
   ) {
     this.device = device
     this.atlas = atlas
+    this._iconFmt = presentationFormat
+    this._iconSamples = sampleCount
 
     this.bgLayout = device.createBindGroupLayout({
       label: 'icon-renderer-bgl',
@@ -350,10 +369,16 @@ export class IconRenderer {
     this.device.queue.writeBuffer(this.uniformBuf, 0, u.buffer)
     // Iter 538 — capture for the diagnostic.
     this.lastDrawViewport = { width: viewport.width, height: viewport.height }
-    pass.setPipeline(this.pipeline)
-    pass.setVertexBuffer(0, this.vertexBuf)
-    pass.setBindGroup(0, this.bindGroup)
-    pass.draw(this.vertexCount, 1, 0, 0)
+    if ((globalThis as { __xgisIconViaRhi?: boolean }).__xgisIconViaRhi === true) {
+      this.ensureIconDraper()
+      if (!this._iconRhiLogged) { this._iconRhiLogged = true; console.warn(`[ICONRHI] icon draw via RHI seam (verts=${this.vertexCount})`) }
+      this._iconDraper!.draw(wrapWebGpuPass(pass), { bindGroup: this.bindGroup, vertexBuf: this.vertexBuf, vertexCount: this.vertexCount })
+    } else {
+      pass.setPipeline(this.pipeline)
+      pass.setVertexBuffer(0, this.vertexBuf)
+      pass.setBindGroup(0, this.bindGroup)
+      pass.draw(this.vertexCount, 1, 0, 0)
+    }
   }
 
   destroy(): void {
