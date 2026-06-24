@@ -23,6 +23,21 @@ import type { RenderPass, OpaquePassHost } from './pass'
 class OpaquePass implements RenderPass {
   readonly label = 'opaque'
 
+  // PoC US-S3 — baked tile texture + its geo bounds, cached across frames so
+  // the bake runs ONCE (not every frame). Only populated behind
+  // `globalThis.__xgisDebugBakeDrape`. See .omc/progress.txt.
+  private _bakeDrapeTex: GPUTexture | null = null
+  private _bakeDrapeBounds: { west: number; south: number; east: number; north: number } | null = null
+
+  // PoC multi-tile drape — one baked texture per resident tile key, baked once
+  // and reused across frames. Only populated behind `__xgisDebugMultiDrape`.
+  private _multiDrapeTex = new Map<string, GPUTexture>()
+
+  // ISOLATION: ONE tile baked once + frozen, drawn via drawDrape OR the surface
+  // quadtree (same tile, same bake) so the two paths are compared with zero
+  // tile-set / timing confound. Behind __xgisDebugIso.
+  private _isoTile: { tex: GPUTexture; west: number; south: number; east: number; north: number; z: number } | null = null
+
   // Always emits at least the synthetic first sub-pass (raster + canvas
   // background + screen clear), even with no opaque vector layers.
   shouldRun(): boolean { return true }
@@ -151,6 +166,38 @@ class OpaquePass implements RenderPass {
             host.rasterRenderer.setResampling(false)
           }
           host.rasterRenderer.render(subPass, host.camera, ctx.projType, ctx.centerLon, ctx.centerLat, ctx.w, ctx.h, ctx.dpr)
+          // PoC S1 (approach B): debug-flag-gated globe texture-drape proof.
+          if ((globalThis as { __xgisDebugDrape?: boolean }).__xgisDebugDrape) {
+            host.rasterRenderer.drawDrape(subPass, host.camera, ctx.projType, ctx.centerLon, ctx.centerLat, ctx.w, ctx.h, ctx.dpr)
+          }
+          // PoC S2+S3: bake ONE cached vector tile to a texture, then drape it
+          // over the tile's TRUE geo extent. Bake once + cache across frames.
+          if ((globalThis as { __xgisDebugBakeDrape?: boolean }).__xgisDebugBakeDrape) {
+            if (!this._bakeDrapeTex) {
+              for (const { renderer: vtr } of host.vtSources.values()) {
+                const pick = vtr.firstNonEmptyCachedTile(ctx.centerLon, ctx.centerLat)
+                if (!pick) continue
+                // Composite ALL layers at the picked z/x/y so the bake shows the
+                // full map tile (bold), not one sparse layer.
+                const tex = vtr.bakeTileToTexture(vtr.cachedLayersAt(pick.z, pick.x, pick.y), pick.z, 512)
+                if (!tex) continue
+                // Tile geo bounds from z/x/y (standard slippy formula;
+                // mirrors raster-renderer.ts:407-414).
+                const n = Math.pow(2, pick.z)
+                const west = (pick.x / n) * 360 - 180
+                const east = ((pick.x + 1) / n) * 360 - 180
+                const north = (Math.atan(Math.sinh(Math.PI * (1 - 2 * pick.y / n))) * 180) / Math.PI
+                const south = (Math.atan(Math.sinh(Math.PI * (1 - 2 * (pick.y + 1) / n))) * 180) / Math.PI
+                this._bakeDrapeTex = tex
+                this._bakeDrapeBounds = { west, south, east, north }
+                console.warn(`[BAKEDRAPE] baked z${pick.z}/${pick.x}/${pick.y} bounds W${west.toFixed(1)} S${south.toFixed(1)} E${east.toFixed(1)} N${north.toFixed(1)}`)
+                break
+              }
+            }
+            // The drawDrape call is emitted AFTER the vector tile shows below
+            // (PoC: approach B replaces fills with the drape, so it must paint
+            // ON TOP, not get covered by the same source's vector fills).
+          }
           host.gpuTimer?.mark(subPass, 'after_raster')
           host.renderer.renderToPass(subPass, host.camera, ctx.projType, ctx.centerLon, ctx.centerLat, host._elapsedMs)
           host.gpuTimer?.mark(subPass, 'after_legacy')
@@ -226,6 +273,178 @@ class OpaquePass implements RenderPass {
           }
           for (let si = 0; si < group.shows.length; si++) {
             if (isExtruded(group.shows[si])) drawShow(group.shows[si])
+          }
+        }
+
+        // PoC S2+S3: paint the baked-tile drape ON TOP of the vector fills (only
+        // the first sub-pass; gated). approach B's end state replaces the fills.
+        if (isFirst && (globalThis as { __xgisDebugBakeDrape?: boolean }).__xgisDebugBakeDrape
+            && this._bakeDrapeTex && this._bakeDrapeBounds) {
+          // Probe: __xgisDrapeCheckerBounds drapes the OPAQUE checkerboard (texture
+          // = undefined) over the SAME bounds, to isolate bounds-projection from
+          // texture-alpha. If the checker rectangle warps onto the globe at the
+          // tile region, projection is fine and the green-loss is texture/alpha.
+          const useChecker = (globalThis as { __xgisDrapeCheckerBounds?: boolean }).__xgisDrapeCheckerBounds
+          host.rasterRenderer.drawDrape(
+            subPass, host.camera, ctx.projType, ctx.centerLon, ctx.centerLat, ctx.w, ctx.h, ctx.dpr,
+            useChecker ? undefined : this._bakeDrapeTex, this._bakeDrapeBounds,
+          )
+        }
+
+        // PoC multi-tile drape (approach B integration): bake EVERY resident
+        // vector tile to a texture (once, cached per key) and drape each over its
+        // true geo bounds — the real approach-B path replacing the direct vector
+        // draw on the globe. Gated on __xgisDebugMultiDrape; inert when off.
+        if (isFirst && (globalThis as { __xgisDebugMultiDrape?: boolean }).__xgisDebugMultiDrape) {
+          // One-shot cache clear → re-bake every resident tile from its CURRENT
+          // (fully-loaded) data, so stale sparse bakes (baked mid-load) are dropped.
+          const gt = globalThis as { __xgisClearMultiDrapeCache?: boolean }
+          if (gt.__xgisClearMultiDrapeCache) {
+            for (const t of this._multiDrapeTex.values()) t.destroy()
+            this._multiDrapeTex.clear()
+            gt.__xgisClearMultiDrapeCache = false
+          }
+          const mdCurZoom = host.camera.zoom
+          const mdBakeSize = (tileZoom: number) =>
+            Math.min(1024, Math.max(256, Math.round(256 * Math.pow(2, Math.max(0, mdCurZoom - tileZoom)))))
+          for (const { renderer: vtr } of host.vtSources.values()) {
+            for (const k of vtr.residentTileKeys()) {
+              const sz = mdBakeSize(k.z)
+              const id = `${k.z}/${k.x}/${k.y}@${sz}`
+              let tex = this._multiDrapeTex.get(id)
+              if (!tex) {
+                const baked = vtr.bakeTileToTexture(vtr.cachedLayersAt(k.z, k.x, k.y), k.z, sz)
+                if (!baked) continue
+                tex = baked
+                this._multiDrapeTex.set(id, tex)
+              }
+              const n = Math.pow(2, k.z)
+              const west = (k.x / n) * 360 - 180
+              const east = ((k.x + 1) / n) * 360 - 180
+              const north = (Math.atan(Math.sinh(Math.PI * (1 - 2 * k.y / n))) * 180) / Math.PI
+              const south = (Math.atan(Math.sinh(Math.PI * (1 - 2 * (k.y + 1) / n))) * 180) / Math.PI
+              const dd = host.rasterRenderer
+              if ((globalThis as { __xgisDebugSubRect?: boolean }).__xgisDebugSubRect) {
+                // M2-1 verify: draw the tile as LEFT + RIGHT halves via uv-subrect
+                // (lon is linear in u, so the split is exact). Seamless reassembly
+                // proves the surface-patch sub-rect sampling is correct.
+                const mid = (west + east) / 2
+                dd.drawDrape(subPass, host.camera, ctx.projType, ctx.centerLon, ctx.centerLat, ctx.w, ctx.h, ctx.dpr,
+                  tex, { west, south, east: mid, north }, [0, 0, 0.5, 1])
+                dd.drawDrape(subPass, host.camera, ctx.projType, ctx.centerLon, ctx.centerLat, ctx.w, ctx.h, ctx.dpr,
+                  tex, { west: mid, south, east, north }, [0.5, 0, 1, 1])
+              } else {
+                dd.drawDrape(subPass, host.camera, ctx.projType, ctx.centerLon, ctx.centerLat, ctx.w, ctx.h, ctx.dpr,
+                  tex, { west, south, east, north })
+              }
+            }
+          }
+        }
+
+        // PoC M2-2: adaptive SSE surface quadtree drape. Bake every resident tile
+        // (cached) then drape via a screen-space-error-refined quadtree so the limb
+        // refines deeper than the centre. Gated on __xgisDebugSurfaceQuadtree.
+        // Real opt-in path: experimentalGlobeDrape + a NON-Mercator projection
+        // (3/4/5/7 = ortho/azimuthal/stereographic/globe). The debug flag still
+        // forces it on for any projection.
+        const nonMercDrape = ctx.projType === 3 || ctx.projType === 4 || ctx.projType === 5 || ctx.projType === 7
+        const drapeOn = !!((host._experimentalGlobeDrape && nonMercDrape)
+          || (globalThis as { __xgisDebugSurfaceQuadtree?: boolean }).__xgisDebugSurfaceQuadtree)
+        // Track fill-colour capture to the drape state (once/frame, BEFORE next
+        // frame's fills run): on while draping, off the frame after it stops — so
+        // a non-draping session pays zero capture cost. Must persist across the
+        // frame boundary because the capture happens during the fill render, which
+        // precedes this hook.
+        if (isFirst) {
+          for (const { renderer: vtr } of host.vtSources.values()) vtr.captureBakeColors = drapeOn
+        }
+        if (isFirst && drapeOn) {
+          // Gather the CURRENTLY-resident tiles (bake-on-demand, cached), z-ascending
+          // so finer tiles draw on top, then ONE quadtree call (per-leaf slot pool is
+          // per-call, so multiple calls/frame would clobber each other pre-submit).
+          // Adaptive bake resolution: an over-zoomed tile (curZoom > tileZoom) is
+          // stretched on screen, so bake it bigger to keep it crisp — base × 2^Δ,
+          // clamped [256, 1024]. Cache key includes the size so a zoom change re-bakes.
+          const curZoom = host.camera.zoom
+          const force256 = (globalThis as { __xgisDrapeForce256?: boolean }).__xgisDrapeForce256
+          const bakeSize = (tileZoom: number) =>
+            force256 ? 256 : Math.min(1024, Math.max(256, Math.round(256 * Math.pow(2, Math.max(0, curZoom - tileZoom)))))
+          const dataTiles: Array<{ tex: GPUTexture; west: number; south: number; east: number; north: number; z: number }> = []
+          for (const { renderer: vtr } of host.vtSources.values()) {
+            // Faithful bake: per-layer fill colours were captured this frame
+            // (captureBakeColors set above) so the bake paints real colours.
+            for (const k of vtr.residentTileKeys()) {
+              const sz = bakeSize(k.z)
+              const id = `${k.z}/${k.x}/${k.y}@${sz}@${vtr.bakeColorGen}`
+              let tex = this._multiDrapeTex.get(id)
+              if (!tex) {
+                const lc = vtr.cachedLayersWithColorAt(k.z, k.x, k.y)
+                const baked = vtr.bakeTileToTexture(lc.map((e) => e.tile), k.z, sz, lc.map((e) => e.color))
+                if (!baked) continue
+                tex = baked
+                this._multiDrapeTex.set(id, tex)
+              }
+              const n = Math.pow(2, k.z)
+              dataTiles.push({
+                tex,
+                west: (k.x / n) * 360 - 180,
+                east: ((k.x + 1) / n) * 360 - 180,
+                north: (Math.atan(Math.sinh(Math.PI * (1 - 2 * k.y / n))) * 180) / Math.PI,
+                south: (Math.atan(Math.sinh(Math.PI * (1 - 2 * (k.y + 1) / n))) * 180) / Math.PI,
+                z: k.z,
+              })
+            }
+          }
+          dataTiles.sort((a, b) => a.z - b.z)
+          if (dataTiles.length) {
+            const stats = host.rasterRenderer.drawSurfaceQuadtree(
+              subPass, host.camera, ctx.projType, ctx.centerLon, ctx.centerLat, ctx.w, ctx.h, ctx.dpr, dataTiles,
+            )
+            if ((globalThis as { __xgisDebugSurfaceQuadtree?: boolean }).__xgisDebugSurfaceQuadtree)
+              console.warn(`[SURFQT] tiles=${dataTiles.length} leaves=${stats.leaves} maxDepth=${stats.maxDepth} curZoom=${curZoom.toFixed(2)} bakeSz=${bakeSize(0)}..${bakeSize(99)}`)
+          }
+        }
+
+        // ISOLATION: bake ONE tile near the view centre once, then draw it via
+        // drawDrape (default) OR the surface quadtree (__xgisIsoQuadtree). Same
+        // tile + bake → any green-coverage diff is purely the render path.
+        if (isFirst && (globalThis as { __xgisDebugIso?: boolean }).__xgisDebugIso) {
+          if (!this._isoTile) {
+            for (const { renderer: vtr } of host.vtSources.values()) {
+              const keys = vtr.residentTileKeys()
+              let best: { z: number; x: number; y: number } | null = null
+              let bestD = Infinity
+              for (const k of keys) {
+                const n = Math.pow(2, k.z)
+                const cLon = ((k.x + 0.5) / n) * 360 - 180
+                const cLat = (Math.atan(Math.sinh(Math.PI * (1 - 2 * (k.y + 0.5) / n))) * 180) / Math.PI
+                const d = (cLon - ctx.centerLon) ** 2 + (cLat - ctx.centerLat) ** 2
+                if (d < bestD) { bestD = d; best = k }
+              }
+              if (!best) continue
+              const baked = vtr.bakeTileToTexture(vtr.cachedLayersAt(best.z, best.x, best.y), best.z, 256)
+              if (!baked) continue
+              const n = Math.pow(2, best.z)
+              this._isoTile = {
+                tex: baked,
+                west: (best.x / n) * 360 - 180,
+                east: ((best.x + 1) / n) * 360 - 180,
+                north: (Math.atan(Math.sinh(Math.PI * (1 - 2 * best.y / n))) * 180) / Math.PI,
+                south: (Math.atan(Math.sinh(Math.PI * (1 - 2 * (best.y + 1) / n))) * 180) / Math.PI,
+                z: best.z,
+              }
+              console.warn(`[ISO] tile z${best.z}/${best.x}/${best.y} bounds W${this._isoTile.west.toFixed(0)} S${this._isoTile.south.toFixed(0)} E${this._isoTile.east.toFixed(0)} N${this._isoTile.north.toFixed(0)}`)
+              break
+            }
+          }
+          if (this._isoTile) {
+            const t = this._isoTile
+            const b = { west: t.west, south: t.south, east: t.east, north: t.north }
+            if ((globalThis as { __xgisIsoQuadtree?: boolean }).__xgisIsoQuadtree) {
+              host.rasterRenderer.drawSurfaceQuadtree(subPass, host.camera, ctx.projType, ctx.centerLon, ctx.centerLat, ctx.w, ctx.h, ctx.dpr, [{ tex: t.tex, ...b }])
+            } else {
+              host.rasterRenderer.drawDrape(subPass, host.camera, ctx.projType, ctx.centerLon, ctx.centerLat, ctx.w, ctx.h, ctx.dpr, t.tex, b)
+            }
           }
         }
 

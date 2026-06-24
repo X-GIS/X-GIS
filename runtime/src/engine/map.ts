@@ -856,6 +856,7 @@ export class XGISMap {
     // P4 opt-in for compute-driven paint evaluation. Stored as a
     // simple flag the run() method reads when invoking emitCommands.
     if (options.enableComputePath) this._enableComputePath = true
+    if (options.experimentalGlobeDrape) this._experimentalGlobeDrape = true
     // Surface converter "Conversion notes" to the console at load —
     // default-on so a silently-widened filter / dropped paint from
     // convertMapboxStyle isn't invisible. Opt out with `false`.
@@ -1195,6 +1196,13 @@ export class XGISMap {
    *  unconditional but no-op when the variant carries no
    *  computeBindings. */
   private _enableComputePath = false
+  /** EXPERIMENTAL (approach B): on non-Mercator projections, render vector
+   *  content by baking each tile to a texture and draping it on the globe via
+   *  an SSE surface quadtree (drawSurfaceQuadtree) — closes the inner-sphere /
+   *  tessellation-gap / over-zoom-jitter artifacts of the direct globe vector
+   *  draw. Opt-in (XGISMapOptions.experimentalGlobeDrape / setExperimentalGlobe
+   *  Drape). Package-internal (no `private`) so OpaquePassHost can read it. */
+  _experimentalGlobeDrape = false
   /** When true (default), run() extracts a converted style's trailing
    *  `Conversion notes` block comment from the raw source and console.warns
    *  it once. Set via `XGISMapOptions.logConversionNotes: false`. */
@@ -1397,6 +1405,13 @@ export class XGISMap {
   setProjection(name: string): void {
     if (!this._viewport.setProjection(name)) return
     this._dirty.tag(DirtyDomain.PROJECTION)
+    this.invalidate()
+  }
+
+  /** EXPERIMENTAL — toggle the approach-B globe vector drape at runtime (see
+   *  `_experimentalGlobeDrape`). Only affects non-Mercator projections. */
+  setExperimentalGlobeDrape(on: boolean): void {
+    this._experimentalGlobeDrape = on
     this.invalidate()
   }
 

@@ -17,7 +17,7 @@
 
 import {
   fn, module, transformMat4, arrayLit,
-  f32, u32, toF32, vec2, vec3, vec4, vec2u, mix, atan, exp, smoothstep, textureSample, radians, degrees,
+  f32, u32, toF32, toU32, vec2, vec3, vec4, vec2u, mix, atan, exp, smoothstep, textureSample, radians, degrees, dot, select,
   f32T, u32T, vec2fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   If, condExpr, Discard,
   type ModuleDecl,
@@ -53,12 +53,21 @@ const Tile = uniformStruct('TileUniforms', { group: 1, binding: 0, as: 'tile' },
   tile_ecef_center: vec4fT, // xyz = ECEF of tile SW corner (world-copy unshifted); w = 0
   merc_y: vec2fT,           // x = merc_south (abs), y = merc_diff (north - south)
   _pad: vec2fT,
+  // Texture sub-rectangle this patch samples (uMin, vMin, uMax, vMax). Default
+  // (0,0,1,1) = the whole texture (normal raster + full-tile drape). A SURFACE
+  // patch that covers only PART of a coarser data tile passes its sub-rect here
+  // (decoupled mesh — M2). uv = mix(uv_rect.xy, uv_rect.zw, gridPos).
+  uv_rect: vec4fT,
 })
 const VsOut = ioStruct('VsOut', {
   pos: builtin('position', vec4fT),
   uv: location(0, vec2fT),
   vis: location(1, f32T),
   view_w: location(2, f32T),
+  // Hemisphere sign for the globe back-face debug colour: dot(ecef, camEcef) > 0
+  // ⇒ same hemisphere as the camera (front), < 0 ⇒ back. Only consumed when the
+  // back-face debug flag (raster_params.y) is set; a hard no-op otherwise.
+  cos_c: location(3, f32T),
 })
 const rasterFragmentOutput = (pickEnabled: boolean) => ioStruct('RasterFragmentOutput', {
   color: location(0, vec4fT),
@@ -69,21 +78,25 @@ const rasterFragmentOutput = (pickEnabled: boolean) => ioStruct('RasterFragmentO
 const tex = resource('tex', texture2dfT, { group: 0, binding: 1 })
 const texSampler = resource('tex_sampler', samplerT, { group: 0, binding: 2 })
 
-// GRID_N = 8 (an 8×8 subdivided grid, 6 verts/cell = 384; the draw count lives
-// in the renderer). Inlined where used.
+// GRID_N is dynamic — raster_params.w carries the subdivision per draw (8 for
+// normal raster tiles; SSE/curvature-driven up to ~32 for the globe drape so the
+// limb silhouette is smooth, not faceted). The renderer's draw count MUST be
+// gridN*gridN*6 to match.
 const vs = fn('vs_tile', { vid: builtin('vertex_index', u32T) }, (p) => {
+  const gridNu = toU32(U.field.raster_params.w)
+  const gridNf = U.field.raster_params.w
   const cell = p.vid.div(6)
   const tri = p.vid.mod(6)
-  const cx = cell.mod(8)
-  const cy = cell.div(8)
+  const cx = cell.mod(gridNu)
+  const cy = cell.div(gridNu)
 
   const duArr = arrayLit(u32T, u32(0), u32(1), u32(0), u32(1), u32(1), u32(0))
   const dvArr = arrayLit(u32T, u32(0), u32(0), u32(1), u32(0), u32(1), u32(1))
   const gx = cx.add(duArr.at(tri, u32T))
   const gy = cy.add(dvArr.at(tri, u32T))
 
-  const uu = toF32(gx).div(8)
-  const vv = toF32(gy).div(8)
+  const uu = toF32(gx).div(gridNf)
+  const vv = toF32(gy).div(gridNf)
 
   const mercY = Tile.field.merc_y
   const bounds = Tile.field.bounds
@@ -107,6 +120,10 @@ const vs = fn('vs_tile', { vid: builtin('vertex_index', u32T) }, (p) => {
   // Camera-relative: ecef − cameraCenter (the MVP is camera-at-ENU-origin).
   const camEcefVec = vec3(camEcef.x, camEcef.y, camEcef.z)
   const ecefRtc = ecef.sub(camEcefVec)
+  // Hemisphere sign (front/back) for the back-face debug colour. dot of the two
+  // absolute ECEF positions: > 0 when the surface point and the camera anchor are
+  // on the same side of Earth-centre. No normalise needed — only the SIGN matters.
+  const cosc = dot(ecef, camEcefVec)
 
   // Display projection (projection-display-layer-restore): flat Mercator
   // (proj_params.x < 0.5) reprojects the reconstructed lon/lat onto the 2D
@@ -134,11 +151,28 @@ const vs = fn('vs_tile', { vid: builtin('vertex_index', u32T) }, (p) => {
       return transformMat4(U.field.mvp, vec4(relG.x, relG.y, 0, 1))
     }],
   ], () => transformMat4(U.field.mvp, vec4(ecefRtc, 1)))
+  // Hemisphere cull for the DRAPE (raster_params.z > 0.5): vis = cos_c so
+  // back-facing fragments (cos_c < 0) hit the fs `If(vis < 0) discard` and the
+  // far-side drape no longer leaks through onto the front (inner-sphere artifact).
+  // EXCEPTION: when the back-face DEBUG colour is on (raster_params.y > 0.5) we
+  // keep vis = 1 so the back is NOT culled and the fs can paint it red (otherwise
+  // the diagnostic would have nothing to show). Normal raster tiles (z = 0) → 1.
+  const visOut = select(
+    U.field.raster_params.y.gt(0.5),
+    f32(1),
+    select(U.field.raster_params.z.gt(0.5), cosc, f32(1)),
+  )
+  // Texture coords: map the grid position into the patch's texture sub-rect
+  // (default (0,0,1,1) = whole texture). Lets a surface patch sample part of a
+  // coarser data tile (decoupled mesh). uv = mix(uvMin, uvMax, gridPos).
+  const uvRect = Tile.field.uv_rect
+  const uvOut = vec2(mix(uvRect.x, uvRect.z, uu), mix(uvRect.y, uvRect.w, vv))
   return VsOut.construct({
     pos: apply_log_depth(clip, projParams.w),
-    uv: vec2(uu, vv),
-    vis: f32(1),
+    uv: uvOut,
+    vis: visOut,
     view_w: clip.w,
+    cos_c: cosc,
   })
 }, { stage: 'vertex' })
 
@@ -158,8 +192,24 @@ const buildFs = (pickEnabled: boolean) => {
     // raster-opacity multiplies alpha only (premultiplied blend keeps RGB at
     // texel value, so a half-opacity raster fades rather than darkens).
     // Basemap tile carries no feature id → always (0,0).
+    const baseColor = vec4(adjRgb, c.a.mul(U.field.raster_params.x).mul(rim))
+    // Back-face DEBUG colour (raster_params.y > 0.5): paint fragments on the
+    // FAR hemisphere (cos_c < 0) solid RED so a drape that wraps around the back
+    // of the globe is instantly visible by colour. Front fragments keep their
+    // texel. raster_params.y defaults to 0 → a hard no-op for normal rendering.
+    const redCol = vec4(f32(1), f32(0), f32(0), f32(1))
+    const debugColor = select(pin.cos_c.lt(0), redCol, baseColor)
+    const backDbgOut = select(U.field.raster_params.y.gt(0.5), debugColor, baseColor)
+    // UV-delivery DEBUG (raster_color1.y > 0.5): output the sampled uv as colour
+    // (r=u, g=v). A SMOOTH gradient across the globe ⇒ each draw got its own slot
+    // uniform; garbage/discontinuous ⇒ per-draw uniform delivery is broken.
+    // raster_color1.y > 0.5: show the SAMPLED TEXTURE rgb opaque (green where the
+    // texture has content, black where transparent) — reveals what each leaf
+    // actually samples, independent of the alpha blend.
+    const uvCol = vec4(c.rgb, f32(1))
+    const outColor = select(U.field.raster_color1.y.gt(0.5), uvCol, backDbgOut)
     return RasterFragmentOutput.construct({
-      color: vec4(adjRgb, c.a.mul(U.field.raster_params.x).mul(rim)),
+      color: outColor,
       ...(pickEnabled ? { pick: vec2u(0, 0) } : {}),
       depth: compute_log_frag_depth(pin.view_w, U.field.proj_params.w),
     })

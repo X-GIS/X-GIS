@@ -1,0 +1,35 @@
+/* Shaded-relief hillshade over a raster-dem (terrarium) elevation source.
+   The hillshade layer decodes the DEM heights, builds a surface gradient,
+   and lights it from the NW (335°) — Batch-4 Phase-R render subsystem.
+   View the Alps: demo.html?id=hillshade#6/46.5/9 */
+
+source ocean {
+  type: geojson
+  url: "ne_110m_ocean.geojson"
+}
+
+source land {
+  type: geojson
+  url: "ne_110m_land.geojson"
+}
+
+source dem {
+  type: raster-dem
+  url: "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
+  encoding: terrarium
+}
+
+layer sea {
+  source: ocean
+  | fill-slate-800
+}
+
+layer ground {
+  source: land
+  | fill-slate-500
+}
+
+layer relief {
+  source: dem
+  | hillshade hillshade-illumination-direction-335 hillshade-illumination-altitude-45 hillshade-exaggeration-1 hillshade-opacity-0.9
+}
