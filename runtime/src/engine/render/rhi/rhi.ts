@@ -115,8 +115,27 @@ export interface RhiRenderPass {
   drawIndexed(indexCount: number, instanceCount?: number): void
 }
 
+/** A backbuffer screen-pass request — the screen render target + how to load it.
+ *  Slice-1 (forced-WebGL2): an ISOLATED single-sample pass that clears then presents
+ *  (the shared opaque-pass MSAA topology is Story-5). */
+export interface RhiScreenPassDesc {
+  /** Backbuffer size in physical px (WebGL2 `gl.viewport`; WebGPU derives from the view). */
+  width: number
+  height: number
+  /** Clear colour applied at load (RGBA 0..1). Omit to load/preserve existing contents. */
+  clear?: readonly [number, number, number, number]
+  /** WebGPU only: the swapchain texture view to render into (the loop builds it via
+   *  `context.getCurrentTexture().createView()`). WebGL2 ignores it (renders to FBO 0).
+   *  Optional + additive. */
+  screenView?: RhiTextureView
+}
+
 /** The device — creates resources + pipelines. One impl per backend. */
 export interface RhiDevice {
+  /** Which backend this device is — a POSITIVE marker so a forced-WebGL2 path can be
+   *  asserted to have actually run on WebGL2 (on a WebGPU-equipped box a silently-ignored
+   *  toggle would otherwise look like a pass). 'webgpu' (WebGpuDevice) | 'webgl2' (WebGl2Device). */
+  readonly backend: 'webgpu' | 'webgl2'
   createBuffer(desc: RhiBufferDesc): RhiBuffer
   writeBuffer(buffer: RhiBuffer, byteOffset: number, data: BufferSource): void
   createTexture(desc: RhiTextureDesc): RhiTexture
@@ -126,4 +145,21 @@ export interface RhiDevice {
   createBindGroupLayout(entries: RhiBindLayoutEntry[]): RhiBindGroupLayout
   createBindGroup(layout: RhiBindGroupLayout, entries: RhiBindEntry[]): RhiBindGroup
   createPipeline(desc: RhiPipelineDesc): RhiPipeline
+
+  // ── Screen-pass lifecycle (additive, OPTIONAL) ───────────────────────────────
+  // The render loop does device-creation / swapchain-acquire / begin-pass / submit
+  // RAW today (render-loop.ts:199-200/484). To originate a frame on WebGL2 the RHI
+  // must own that lifecycle. These are OPTIONAL + additive: `WebGl2Device` implements
+  // them (the forced-WebGL2 slice-1 frame renders through here); `WebGpuDevice` OMITS
+  // them in slice-1 (the WebGPU path keeps its raw render-loop lifecycle, byte-
+  // identical). Full WebGPU-via-RHI lifecycle is Story-7 convergence scope.
+
+  /** Begin the backbuffer screen pass; record draws against the returned pass, then
+   *  `endScreenPass`. WebGL2: bind FBO 0 + set viewport + optional clear. */
+  beginScreenPass?(desc: RhiScreenPassDesc): RhiRenderPass
+  /** Finish + present the screen pass. WebGL2: `gl.flush()` + drain `gl.getError()`. */
+  endScreenPass?(pass: RhiRenderPass): void
+  /** Drain accumulated GL errors (WebGL2) so the loop can surface them into the same
+   *  `_validationErrors` sink the WebGPU path uses. Returns + clears the queue. */
+  takeGlErrors?(): string[]
 }

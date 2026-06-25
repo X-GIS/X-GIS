@@ -21,6 +21,8 @@ export const SAFE_MODE: boolean = readSafeFlag()
 // dispatches rebuilds; these exports stay as thin getters so every read
 // site sees the current value (no stale snapshots).
 import { QUALITY } from './quality'
+import type { RhiDevice } from '../render/rhi/rhi'
+import { WebGl2Device } from '../render/rhi/rhi-webgl2'
 
 // Function-accessor form for values that change at runtime. A plain
 // `export const X = QUALITY.msaa` would snapshot at module load and
@@ -47,6 +49,11 @@ export interface GPUContext {
   format: GPUTextureFormat
   canvas: HTMLCanvasElement
   sampleCount: number
+  /** Forced-WebGL2 fallback (the `?forcegl2=1` toggle): the RHI device the renderers +
+   *  render loop route through INSTEAD of the raw GPUDevice. Present ONLY under the toggle;
+   *  undefined on the normal WebGPU path (then the engine uses `device` directly, unchanged).
+   *  A WebGl2Device here (backend==='webgl2') is how a real layer renders on WebGL2. */
+  rhi?: RhiDevice
   /** True when the device was created with the `timestamp-query`
    *  feature enabled. Gated by `?gpuprof=1` so production users don't
    *  pay the always-on adapter feature requirement. Consumers (`GPUTimer`)
@@ -96,6 +103,19 @@ function readGpuProfFlag(): boolean {
 }
 export const GPU_PROF: boolean = readGpuProfFlag()
 
+/** `?forcegl2=1` — boot-time forced-WebGL2 fallback toggle (OFF by default).
+ *  Canvas context type is sticky (a canvas that handed out `getContext('webgpu')`
+ *  refuses `getContext('webgl2')`), so this MUST be a boot flag + reload, not a
+ *  runtime switch — mirroring `?safe=1` (gpu.ts:10) / `?gpuprof=1` precedent. When
+ *  set, `initGPU` builds a WebGL2-backed context whose renderers + render loop route
+ *  through `host.ctx.rhi` (a `WebGl2Device`) instead of the raw `GPUDevice`. */
+function readForceGl2Flag(): boolean {
+  if (typeof window === 'undefined') return false
+  try { return new URL(window.location.href).searchParams.get('forcegl2') === '1' }
+  catch { return false }
+}
+export const FORCE_GL2: boolean = readForceGl2Flag()
+
 /** Inspect the validation error queue without mutating it. */
 export function getValidationErrors(ctx: GPUContext): { message: string; t: number }[] {
   return [...ctx._validationErrors]
@@ -120,6 +140,12 @@ export class WebGPUUnavailableError extends Error {
 }
 
 export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
+  // Forced-WebGL2 boot path (`?forcegl2=1`). Additive EARLY RETURN — the WebGPU
+  // body below stays byte-identical (Principle 1 / S2: the sacred path is untouched
+  // when the flag is off). Bypasses the WebGPU adapter entirely so the produced frame
+  // provably originates on `WebGl2Device` (the gate asserts `host.ctx.rhi.backend`).
+  if (FORCE_GL2) return initGPUForcedWebGL2(canvas)
+
   if (typeof navigator === 'undefined' || !navigator.gpu) {
     throw new WebGPUUnavailableError('WebGPU is not supported in this browser')
   }
@@ -229,6 +255,49 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
   return ctx
 }
 
+/** Forced-WebGL2 boot (`?forcegl2=1`) — build a WebGL2-backed `GPUContext`.
+ *
+ *  The canvas yields `getContext('webgl2')` (NO WebGPU context — sticky per Decision
+ *  Driver 1) and the renderers/render-loop route through `host.ctx.rhi` (a
+ *  `WebGl2Device`). The WebGPU-only fields (`device`/`context`) are STUBBED, not real:
+ *  the forced frame never touches them (it flows through the `frameCtx.useRhi` branch),
+ *  and the `device.lost` / `context.configure` machinery (gpu.ts ~208/263) is SKIPPED
+ *  (there is no WebGPU device to wire). Stubbing rather than widening the field TYPES
+ *  honors Principle 3 — `GPUContext.device` stays `GPUDevice` so none of the 1074 raw
+ *  `GPU*` read sites recompile. Slice-1 topology is single-sample + isolated (S4): the
+ *  shared opaque-pass MSAA path is Story-5 scope, so `sampleCount` is 1 here.
+ *  Exported for the unit gate (context-shape + backend-marker ACs); production
+ *  reaches it only via `initGPU`'s `FORCE_GL2` early return. */
+export function initGPUForcedWebGL2(canvas: HTMLCanvasElement): GPUContext {
+  const gl = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: true })
+  if (!gl) throw new WebGPUUnavailableError('?forcegl2=1 set but canvas.getContext("webgl2") returned null')
+  const rhi = new WebGl2Device(gl)
+
+  if (typeof window !== 'undefined') {
+    // Page-readable backend marker for the e2e gate (mirrors the interface-member
+    // truth `host.ctx.rhi.backend`; the gate reads this from the page).
+    ;(window as unknown as { __xgisActiveBackend?: string }).__xgisActiveBackend = 'webgl2'
+    console.warn('[X-GIS] forced WebGL2 backend active (?forcegl2=1) — single-sample isolated raster slice')
+  }
+
+  return {
+    // Stubs: the forced-WebGL2 frame routes through `rhi`, never these (see doc above).
+    // `as unknown as` keeps the field types unwidened (Principle 3); init does NOT call
+    // any method on them (R5 — device.lost/context.configure are skipped on this path).
+    device: undefined as unknown as GPUDevice,
+    context: undefined as unknown as GPUCanvasContext,
+    format: 'rgba8unorm',
+    canvas,
+    sampleCount: 1,
+    rhi,
+    timestampQuerySupported: false,
+    timestampInsidePassesSupported: false,
+    float32FilterableSupported: false,
+    _validationErrors: [],
+    deviceLost: false,
+  }
+}
+
 /** The devicePixelRatio the swapchain is (re)sized to. During an
  *  interaction `resizeCanvas` drops to `QUALITY.interactionDpr` (when set),
  *  otherwise it uses the full `getMaxDpr()` cap. The render loop MUST derive
@@ -254,6 +323,9 @@ export function resizeCanvas(ctx: GPUContext, interacting = false): void {
   if (ctx.canvas.width !== w || ctx.canvas.height !== h) {
     ctx.canvas.width = w
     ctx.canvas.height = h
+    // Forced-WebGL2 path has no GPUCanvasContext to reconfigure — the gl viewport is
+    // set per-frame in the RHI screen pass. Resize the backing buffer, skip configure.
+    if (ctx.rhi?.backend === 'webgl2') return
     ctx.context.configure({ device: ctx.device, format: ctx.format, alphaMode: 'premultiplied' })
   }
 }

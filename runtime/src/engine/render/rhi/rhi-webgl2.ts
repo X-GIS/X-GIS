@@ -45,6 +45,7 @@ import type {
   RhiDevice, RhiBuffer, RhiTexture, RhiTextureView, RhiSampler, RhiBindGroup,
   RhiBindGroupLayout, RhiPipeline, RhiRenderPass, RhiBufferDesc, RhiTextureDesc,
   RhiSamplerDesc, RhiBindLayoutEntry, RhiBindEntry, RhiPipelineDesc, RhiTextureFormat, RhiBufferUsage,
+  RhiScreenPassDesc,
 } from './rhi'
 
 // Each opaque RHI handle stores a rich GL record (cast both ways inside this
@@ -228,12 +229,54 @@ export function wrapWebGl2Pass(device: WebGl2Device): RhiRenderPass {
 }
 
 export class WebGl2Device implements RhiDevice {
+  readonly backend = 'webgl2' as const
+  /** GL errors drained at endScreenPass (the WebGPU `_validationErrors` analog —
+   *  WebGL2 has no async validation queue, so we poll `gl.getError()` per frame). */
+  private _glErrors: string[] = []
   constructor(public readonly gl: WebGL2RenderingContext) {
     if (SAMPLER_TYPES.size === 0) {
       // sampler GLSL types (for createPipeline reflection); collected once per ctx kind.
       SAMPLER_TYPES.add(gl.SAMPLER_2D); SAMPLER_TYPES.add(gl.SAMPLER_CUBE)
       SAMPLER_TYPES.add(gl.SAMPLER_3D); SAMPLER_TYPES.add(gl.SAMPLER_2D_ARRAY)
     }
+  }
+
+  /** Begin the backbuffer screen pass: target FBO 0 (the default framebuffer the
+   *  canvas presents), set the viewport, optionally clear. Slice-1 is single-sample
+   *  + isolated — NO MSAA renderbuffer, NO shared depth (that is Story-5). The caller
+   *  records draws against the returned pass, then calls endScreenPass. */
+  beginScreenPass(desc: RhiScreenPassDesc): RhiRenderPass {
+    const gl = this.gl
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+    gl.viewport(0, 0, desc.width, desc.height)
+    gl.disable(gl.SCISSOR_TEST)
+    if (desc.clear) {
+      const [r, g, b, a] = desc.clear
+      gl.clearColor(r, g, b, a)
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+    }
+    return new WebGl2RenderPass(gl)
+  }
+
+  /** Finish + present the screen pass. WebGL2 presents the default framebuffer
+   *  implicitly at the end of the rAF turn; `gl.flush()` pushes the recorded commands.
+   *  Drains `gl.getError()` into the queue so the loop can surface any fault (R4). */
+  endScreenPass(_pass: RhiRenderPass): void {
+    const gl = this.gl
+    gl.flush()
+    let err = gl.getError()
+    while (err !== gl.NO_ERROR) {
+      this._glErrors.push(`gl.getError 0x${err.toString(16)}`)
+      err = gl.getError()
+    }
+  }
+
+  /** Return + clear the accumulated GL errors (the loop pushes them into the shared
+   *  `_validationErrors` sink the tests already assert empty). */
+  takeGlErrors(): string[] {
+    const out = this._glErrors
+    this._glErrors = []
+    return out
   }
 
   createBuffer(desc: RhiBufferDesc): RhiBuffer {

@@ -98,6 +98,7 @@ export function wrapWebGpuBindGroup(group: GPUBindGroup): RhiBindGroup {
 }
 
 export class WebGpuDevice implements RhiDevice {
+  readonly backend = 'webgpu' as const
   constructor(private readonly device: GPUDevice) {}
 
   createBuffer(desc: RhiBufferDesc): RhiBuffer {
