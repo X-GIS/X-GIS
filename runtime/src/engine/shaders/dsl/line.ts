@@ -230,36 +230,19 @@ const lineEndpoint = fn('line_endpoint', { p_h: vec2fT, p_l: vec2fT }, (p) => {
 // corner, reproject via project_geom (world-copy aware; tileRefLon = tile-
 // centre lon), and subtract the camera's projected centre (in-shader from
 // proj_params.y/z). Output feeds the flat 2D-plane MVP.
-//
-// #598 — DSFUN precision fix: accept the endpoint DSFUN split (p_h, p_l,
-// tile-local) plus a small local offset separately instead of a pre-summed
-// corner. Non-Mercator: reconstruct absMerc as
-//   (p_h + tileOrigin) + p_l + offset
-// so the large tileOrigin adds to p_h (both are large f32, compatible
-// magnitude) while p_l (the sub-mm correction) is added AFTER, keeping it
-// significant in f32.  The old path summed p_h+p_l first then added
-// tileOrigin, silently discarding p_l (magnitude ~tile_extent/2^23 ≈ 1 mm
-// at z20) before the inverse-Mercator conversion — causing visible jitter in
-// non-Mercator projections at high zoom. Mercator arm is recomputed from the
-// same split for consistency (cam_h/cam_l subtraction in the same order).
-const finalizeCorner = fn('finalize_corner', { p_h: vec2fT, p_l: vec2fT, offset: vec2fT }, (p) => {
+const finalizeCorner = fn('finalize_corner', { corner: vec2fT }, (p) => {
   const projParams = TILE.field.proj_params
   const tileOrigin = TILE.field.tile_origin_merc
-  // DSFUN reconstruct absolute Mercator: add tileOrigin to p_h first (both
-  // large f32, result representable), then p_l correction, then small offset.
-  const absMercX = p.p_h.x.add(tileOrigin.x).add(p.p_l.x).add(p.offset.x)
-  const absMercY = p.p_h.y.add(tileOrigin.y).add(p.p_l.y).add(p.offset.y)
-  const absLon = absMercX.div(DEG2RAD.mul(EARTH_R))
-  const latRad = inv_merc_lat_rad(absMercY)
+  const absMerc = p.corner.add(tileOrigin)
+  const absLon = absMerc.x.div(DEG2RAD.mul(EARTH_R))
+  const latRad = inv_merc_lat_rad(absMerc.y)
   const absLat = degrees(latRad)
   const tileRefLon = tileOrigin.x.add(f32(0.5).mul(TILE.field.tile_extent_m))
       .div(DEG2RAD.mul(EARTH_R))
-  // Mercator camera-relative corner: recompute from the DSFUN split.
-  const mercCorner = p.p_h.sub(TILE.field.cam_h).add(p.p_l.sub(TILE.field.cam_l)).add(p.offset)
-  // single-exit: Mercator (proj<0.5) uses mercCorner; else the reprojected
+  // single-exit: Mercator (proj<0.5) passes the corner through; else the reprojected
   // flat_rel. flat_rel is pure, so computing it on the Mercator path (selected away) is harmless.
   const flatRel = flat_rel(absLon, absLat, projParams, tileRefLon)
-  return select(projParams.x.lt(0.5), mercCorner, flatRel)
+  return select(projParams.x.lt(0.5), p.corner, flatRel)
 })
 
 const endpointCosC = fn('endpoint_cos_c', { p_h: vec2fT, p_l: vec2fT }, (p) => {
@@ -828,11 +811,6 @@ const vsLine = fn('vs_line', {
 
   const isStart = Let(along.lt(0))
   const base = select(isStart, p0, p1)
-  // #598 — DSFUN split for finalize_corner: select raw hi/lo without cam
-  // subtraction so finalize_corner can reconstruct absolute Mercator with
-  // full precision (p_h + tileOrigin first, then p_l, then offset).
-  const baseH = Let(select(isStart, sego.p0_h, sego.p1_h))
-  const baseL = Let(select(isStart, sego.p0_l, sego.p1_l))
   const perpCur = Let(nrm.mul(across))
 
   const prevTan = sego.prev_tangent
@@ -944,10 +922,8 @@ const vsLine = fn('vs_line', {
       // camera-relative) and reprojects the other flat forms (project_geom −
       // projected camera centre). Same flat 2D-plane MVP for center +
       // candidate so the screen-space width estimate matches the final clip.
-      // #598: pass DSFUN split (baseH, baseL) + offset separately so
-      // finalize_corner can reconstruct absMerc with full precision.
-      const baseFc = finalizeCorner(baseH, baseL, vec2(0, 0))
-      const cornerFc = Let(finalizeCorner(baseH, baseL, cornerLocal.sub(base)))
+      const baseFc = finalizeCorner(base)
+      const cornerFc = Let(finalizeCorner(cornerLocal))
       centerClip.assign(transformMat4(mvp, vec4(baseFc.x, baseFc.y, zLift, 1)))
       cornerClip.assign(transformMat4(mvp, vec4(cornerFc.x, cornerFc.y, zLift, 1)))
     }).else(() => {
@@ -1007,8 +983,7 @@ const vsLine = fn('vs_line', {
   If(projParamsF.x.lt(6.5), () => {
     // FLAT (0-6): finalize_corner (Mercator pass-through + non-Mercator
     // project_geom reproject − projected camera centre) → flat 2D-plane MVP.
-    // #598: pass DSFUN split + offset for full-precision absMerc reconstruction.
-    const cornerFc = Let(finalizeCorner(baseH, baseL, cornerLocal.sub(base)))
+    const cornerFc = Let(finalizeCorner(cornerLocal))
     clip.assign(transformMat4(mvp, vec4(cornerFc.x, cornerFc.y, zLift, 1)))
   }).else(() => {
     const tileAbsX = toF32(tileOrigin2.x)
