@@ -1061,44 +1061,30 @@ export class TextStage {
           const effectiveJustify = justify === 'auto'
             ? (isLeftAnchor ? 'left' : isRightAnchor ? 'right' : 'center')
             : justify
-          // iter-344/345 — centre-anchor ink fix. X-GIS's bearingY is a
-          // baseline-relative POSITIVE ascent (incl. the pbf-rasterizer
-          // recovery that flips ascender-relative latin `top` to a true
-          // ascent), but `vlay`'s SHAPING_DEFAULT_OFFSET baseline is the
-          // ascender-relative value from the MapLibre port. For vAlign=0.5
-          // those two conventions don't cancel, leaving the ink ~1em
-          // ABOVE the anchor — the user-reported "shield number floats
-          // over its white box" (debug-labels box gap was a constant
-          // +11px at fs10). For the centre case, shift the line's baseline
-          // so its INK BAND centres on the line point. Computed PER LINE
-          // from the line's max ascent/descent (NOT per glyph — that
-          // de-aligned baselines within a mixed-height line e.g. 여(h22)
-          // vs 도(h17), splitting "여의도" into staggered glyphs). All
-          // glyphs in the line keep a SHARED baseline (correct typography)
-          // and the band centres. Top/bottom (vAlign 0/1) keep the
-          // MapLibre port untouched. Baked into glyphOffsets so the layout
-          // cache + dump both see the corrected position.
-          // One CONSTANT block shift (not per-line) so multi-line labels
-          // keep their lineHeight spacing while the whole ink BLOCK
-          // centres on the anchor. Drop the SHAPING baseline term and add
-          // the block's ink-band half-offset (max ascent/descent over the
-          // label). Per-line centring (iter-345) compressed 2-line spacing
-          // into an overlap; a uniform shift preserves it.
+          // #608 — vertical-placement parity with MapLibre. MapLibre's
+          // `SHAPING_DEFAULT_OFFSET = -17` baseline term exists to convert
+          // from its glyph-metric origin (MapLibre `metrics.top` is
+          // ASCENDER-relative — `glyphTop - topAdjustment`, negative for a
+          // normal cap) down to the alphabetic baseline. X-GIS's `bearingY`
+          // is ALREADY a true baseline ascent (the pbf-rasterizer recovers a
+          // positive ascent from the ascender-relative PBF `top`), so the
+          // renderer's `y0 = baseline - bearingY*sc` places ink correctly
+          // relative to the baseline on its own. Re-applying the -17 SHAPING
+          // term in the baseline DOUBLE-COUNTS the origin shift, lifting the
+          // ink ~17/24-em ABOVE where MapLibre puts it (measured: Houston z12
+          // ink ~19px too HIGH; confirmed for center + bottom anchors). Cancel
+          // the SHAPING term (`-shapingBaselineOff`) so the per-line baseline
+          // is just MapLibre's `align` shiftY (li·LH spacing preserved); the
+          // ink then hangs from that baseline by the glyph's own
+          // metrics (-bearingY + height/2), exactly as MapLibre — a
+          // GLYPH-METRIC-DEPENDENT offset (all-caps vs mixed-case vs CJK
+          // differ), NOT a constant. Applies to ALL vAlign (center/top/bottom)
+          // — the earlier iter-344/345 ink-band recentre (`(maxAsc-maxDesc)/2`,
+          // center-only) instead pinned the ink CENTROID onto the anchor, which
+          // diverged from MapLibre (MapLibre lets Latin ink hang, ascent≫
+          // descent) and left bottom/top untouched and still ~1em too high.
           const shapingBaselineOff = (SHAPING_DEFAULT_OFFSET * sizePx) / ONE_EM
-          let centreShift = 0
-          if (vAlign === 0.5) {
-            let maxAsc = 0, maxDesc = 0
-            for (let gi = 0; gi < glyphs.length; gi++) {
-              const g = glyphs[gi]!
-              if (g.height <= 0) continue  // skip blanks (junk metrics)
-              const sc = sizePx / (g.rasterFontSize ?? this.opts.rasterFontSize)
-              const asc = g.bearingY * sc
-              const desc = (g.height - g.bearingY) * sc
-              if (asc > maxAsc) maxAsc = asc
-              if (desc > maxDesc) maxDesc = desc
-            }
-            centreShift = -shapingBaselineOff + (maxAsc - maxDesc) / 2
-          }
+          const centreShift = -shapingBaselineOff
           for (let li = 0; li < lines.length; li++) {
             const ln = lines[li]!
             let lineX = 0
