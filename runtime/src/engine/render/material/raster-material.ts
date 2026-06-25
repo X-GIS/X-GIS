@@ -8,7 +8,8 @@
 import type { RhiDevice, RhiBindGroup, RhiTexture, RhiTextureView } from '../rhi/rhi'
 import { wrapWebGpuTextureView } from '../rhi/rhi-webgpu'
 import { Material, executeItems, type DrawItem } from './material'
-import { emitRasterWgsl } from '../../shaders/dsl'
+import { emitRasterWgsl, buildRasterModule } from '../../shaders/dsl'
+import { emitGlslModule } from '@xgis/shader-dsl'
 
 /** One raster tile to draw: its texture + 64-byte per-tile uniform. The texture is
  *  backend-agnostic: a raw `GPUTexture` (the WebGPU pilot — bridged to a view here)
@@ -25,8 +26,15 @@ export class RasterDraper {
   private readonly viewByTex = new Map<GPUTexture | RhiTexture, RhiTextureView>()
 
   constructor(private readonly rhi: RhiDevice, format: string, sampleCount: number) {
+    // WGSL for WebGPU; split GLSL ES for WebGl2Device (createPipeline picks by backend).
+    // Raster is texture-only (uniform + texture + sampler) — no storage buffers — so the
+    // GLSL emit needs no data-texture emulation, and group 0's single UBO + single texture
+    // bind correctly by ORDER (no reflection name needed).
+    const rasterModule = buildRasterModule(false)
     this.material = new Material(rhi, {
       shader: emitRasterWgsl(false), vsEntry: 'vs_tile', fsEntry: 'fs_tile',
+      vsCode: emitGlslModule(rasterModule, 'vertex'),
+      fsCode: emitGlslModule(rasterModule, 'fragment'),
       format: format as 'bgra8unorm', sampleCount,
       groups: [
         [{ binding: 0, kind: 'uniform' }, { binding: 1, kind: 'texture' }, { binding: 2, kind: 'sampler' }],
