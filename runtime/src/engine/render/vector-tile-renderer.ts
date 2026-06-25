@@ -8,7 +8,7 @@ import { DEBUG_OVERDRAW } from '../debug-flags'
 import { Camera } from '../projection/camera'
 import type { ShowCommand } from './renderer'
 import { variantProducesFill } from './renderer-helpers'
-import { polygonUniformSlots, polygonUniformBytes } from './polygon-uniform-slots'
+import { polygonUniformSlots, polygonUniformBytes, polygonUniformStride } from './polygon-uniform-slots'
 import { xlog } from '../log'
 
 // f32 slot indices of the polygon 'Uniforms' struct, sourced from reflect() of the SAME
@@ -83,13 +83,13 @@ export type { LayerDrawPhase }
 
 // ═══ Renderer ═══
 
-// Dynamic-offset stride: next 256-multiple ≥ the struct byte size (WebGPU
-// minUniformBufferOffsetAlignment = 256). Derived so it tracks the struct.
-const UNIFORM_SLOT = Math.ceil(polygonUniformBytes() / 256) * 256
-// Bind-group binding range size = polygon Uniforms struct byte count.
-// Derived from reflect() so a struct change propagates automatically.
-// Must be ≥ every shader that reads this binding (polygon, line, raster).
-const UNIFORM_SIZE = polygonUniformBytes()
+// Polygon Uniforms byte size / dynamic-offset stride are read LAZILY via
+// polygonUniformBytes() / polygonUniformStride() (memoised) at ctor/draw time —
+// NOT module-level `const`s. polygonUniformBytes() reflects the polygon module =
+// a projection emit, which throws until configureProjections() has run (post-GPU-
+// init); a module-level const evaluated at IMPORT and crashed the whole map init
+// ("configureProjections() must be called before any projection emit"). The bind
+// range must be ≥ every shader that reads binding 0 (polygon, line, raster).
 
 /** 2π × Earth radius (m). One full mercator wrap. tile_extent_m at
  *  any zoom z is this constant divided by 2^z (vs_main_quantized
@@ -251,7 +251,7 @@ export class VectorTileRenderer {
   // Out-of-bounds typed-array writes are silent no-ops in JS, so a
   // mismatch here = uniform never reaches the GPU = shader reads
   // garbage at the new offset. Keep this in lockstep with WGSL.
-  private uniformDataBuf = new ArrayBuffer(UNIFORM_SIZE)
+  private uniformDataBuf = new ArrayBuffer(polygonUniformBytes())
   private uniformF32 = new Float32Array(this.uniformDataBuf) // reusable view over full uniform
   /** Reusable u32 view over the same uniform buffer — used to write
    *  `pick_id` (u32). After PR 2d.5 closeout the field sits at f32 slot
@@ -535,7 +535,7 @@ export class VectorTileRenderer {
 
   private ensureUniformRing(): void {
     if (this.uniformRing) return
-    this.uniformRing = new UniformRing(this.device, UNIFORM_SLOT, 1024, 'vtr-uniform-ring', () => this._onUniformRingGrow())
+    this.uniformRing = new UniformRing(this.device, polygonUniformStride(), 1024, 'vtr-uniform-ring', () => this._onUniformRingGrow())
     this.uniformRing.ensure()
   }
 

@@ -37,11 +37,18 @@ export interface GraticuleFrame {
 }
 
 export class GraticuleRenderer {
-  // Polygon Uniforms struct byte size — derived from reflect() so it tracks the
-  // struct automatically. The borrowed linePipeline's shader references u up to
-  // the last field, so the bound range must cover the full struct size.
-  // RTC fields and light_dir_ecef stay zero (graticule lines never extrude).
-  private static readonly UNIFORM_SIZE = polygonUniformBytes()
+  // Polygon Uniforms struct byte size is read LAZILY at draw time via
+  // polygonUniformBytes() (memoised) — see drawGraticule below. It is derived
+  // from reflect() so it tracks the struct automatically (the borrowed
+  // linePipeline's shader references u up to the last field, so the bound range
+  // must cover the full struct size; RTC fields + light_dir_ecef stay zero —
+  // graticule lines never extrude).
+  // MUST stay lazy: polygonUniformBytes() → polygonUniformSlots() →
+  // reflect(buildPolygonModule) EMITS the projection fns, which throws until
+  // configureProjections() has run (post-GPU-init). A `static readonly` field
+  // evaluates at class-definition (import) time — before configureProjections —
+  // and crashed the entire map init ("configureProjections() must be called
+  // before any projection emit"); the map never left "Initializing…".
 
   private graticuleBuffer: GPUBuffer | null = null
   private graticuleVertexCount = 0
@@ -142,7 +149,7 @@ export class GraticuleRenderer {
       // shift needed. Draw once per frame (ECEF world-copy = same geometry).
       // Previously iterated worldCopiesFor(projType) for Mercator cam_h shift.
       for (let wi = 0; wi < 1; wi++) {
-        const gratData = new ArrayBuffer(GraticuleRenderer.UNIFORM_SIZE)
+        const gratData = new ArrayBuffer(polygonUniformBytes())
         // ── 240-byte Uniforms struct layout (matches VTR + WGSL; post PR 2d.5
         // closeout: legacy Mercator `mvp` slot retired; `mvp` IS the ECEF-MVP).
         // byte   0: mvp        (16 f32 = 64 B) — ECEF-MVP (was `mvp_ecef`)

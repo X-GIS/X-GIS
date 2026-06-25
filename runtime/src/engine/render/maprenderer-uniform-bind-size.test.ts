@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { emitPolygonWgsl } from '../shaders/dsl/polygon'
-import { MapRenderer } from './renderer'
-import { GraticuleRenderer } from './graticule-renderer'
-import { polygonUniformBytes } from './polygon-uniform-slots'
+import { polygonUniformBytes, polygonUniformStride } from './polygon-uniform-slots'
 
 // ── Bug maprenderer-uniform-240 (MED, webgpu-validation) ──
 //
@@ -82,28 +80,24 @@ describe('MapRenderer uniform bind size (bug maprenderer-uniform-240)', () => {
     expect(polygonUniformBytes()).toBe(required)
   })
 
-  it('MapRenderer.UNIFORM_SIZE === polygonUniformBytes() (reflect-derived)', () => {
-    const used = (MapRenderer as unknown as { UNIFORM_SIZE: number }).UNIFORM_SIZE
-    // The bind `size` for binding 0 MUST be >= the pipeline's minimum binding
-    // size (= the shared shader's Uniforms struct size), or WebGPU rejects the
-    // draw. After this PR it is derived from polygonUniformBytes() — so the
-    // assertion is exact equality, not just ≥.
-    expect(used).toBe(polygonUniformBytes())
-    expect(used).toBeGreaterThanOrEqual(required)
+  it('polygonUniformStride() holds the bind size and is 256-aligned', () => {
+    // MapRenderer + VTR size their dynamic-offset uniform ring SLOT to
+    // polygonUniformStride(). It must be a 256-multiple (WebGPU
+    // minUniformBufferOffsetAlignment) AND cover the full struct, so a
+    // dynamic-offset draw never under-binds binding 0.
+    expect(polygonUniformStride()).toBeGreaterThanOrEqual(polygonUniformBytes())
+    expect(polygonUniformStride() % 256).toBe(0)
   })
 
-  it('the uniform slot stride holds the bind size', () => {
-    const used = (MapRenderer as unknown as { UNIFORM_SIZE: number }).UNIFORM_SIZE
-    const slot = (MapRenderer as unknown as { UNIFORM_SLOT: number }).UNIFORM_SLOT
-    expect(slot).toBeGreaterThanOrEqual(used)
-    expect(slot % 256).toBe(0) // must be a 256-multiple for WebGPU alignment
-  })
-
-  it('GraticuleRenderer.UNIFORM_SIZE === polygonUniformBytes() (borrows same pipeline+bindGroup)', () => {
-    // The graticule draws with MapRenderer's linePipeline + base bindGroup, so
-    // its gratData must fill the same struct-sized bound range.
-    const grat = (GraticuleRenderer as unknown as { UNIFORM_SIZE: number }).UNIFORM_SIZE
-    expect(grat).toBe(polygonUniformBytes())
-    expect(grat).toBe(required)
-  })
+  // NOTE (2026-06-26): MapRenderer / GraticuleRenderer / VTR no longer expose
+  // UNIFORM_SIZE / UNIFORM_SLOT static (or module-level const) fields. Those eager
+  // `= polygonUniformBytes()` initializers evaluated at class-definition / module-
+  // IMPORT time — BEFORE configureProjections() — so reflect(buildPolygonModule())
+  // threw ("configureProjections() must be called before any projection emit") and
+  // crashed the entire map init (it hung at "Initializing…"; a stale .vite cache had
+  // masked it through review). The bind sites now call polygonUniformBytes() /
+  // polygonUniformStride() LAZILY (ctor/draw time), so the bound range IS the
+  // reflect-derived size by construction — the identity the removed assertions
+  // checked is now structural. The gate above (polygonUniformBytes() === the emitted
+  // WGSL struct size) is what keeps the bind size from drifting.
 })

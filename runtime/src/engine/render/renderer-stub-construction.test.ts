@@ -13,6 +13,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
 import { initGPU } from '../gpu/gpu'
 import { MapRenderer } from './renderer'
+import { polygonUniformBytes } from './polygon-uniform-slots'
 
 let stub: StubInstallation
 
@@ -69,24 +70,21 @@ describe('MapRenderer construction (stub)', () => {
       .toBeGreaterThan(0)
   })
 
-  it('uniform buffer struct size matches UNIFORM_SIZE constant', async () => {
-    // Regression guard for the "Polygon Uniforms struct grew from 160
-    // to 176 bytes" class — when WGSL grows a field the TS-side
-    // `UNIFORM_SIZE` constant must move with it or out-of-bounds
-    // typed-array writes silently no-op and the uniform never reaches
-    // the GPU. Stub captures every createBuffer call; the uniform
-    // buffer is the largest one MapRenderer creates at init.
+  it('uniform bind size is reflect-derived (no stale UNIFORM_SIZE constant)', async () => {
+    // Regression guard for the "Polygon Uniforms struct grew" class — when WGSL
+    // grows a field the TS-side bind size must move with it or out-of-bounds
+    // typed-array writes silently no-op and the uniform never reaches the GPU.
+    // It is now derived from reflect(buildPolygonModule()) via polygonUniformBytes()
+    // at every bind site — there is NO `UNIFORM_SIZE` static/const to drift (removed
+    // 2026-06-26: an eager `static = polygonUniformBytes()` evaluated at IMPORT,
+    // before configureProjections(), and crashed the whole map init). The exact
+    // polygonUniformBytes() === emitted-WGSL-struct-size gate lives in
+    // maprenderer-uniform-bind-size.test.ts.
     const ctx = await makeCtx()
-    new MapRenderer(ctx)
-    // UNIFORM_SIZE = 272 bytes: grew 192 → 240 (#297, cam_ecef_off_h/_l) →
-    // 256 (#420, light_dir_ecef @ byte 240) → 272 (#600, globe_eye @ byte 256)
-    // so MapRenderer's binding meets the polygon/line pipeline's minimum binding
-    // size; a smaller bind range is below the shader-derived minimum and a real
-    // GPU rejects the fill/line (and graticule) draws. (Historically 256 → 192
-    // in PR 2d.5 when the legacy Mercator `mvp` slot was retired.)
-    // Bump this assertion when the struct legitimately grows.
-    expect((MapRenderer as unknown as { UNIFORM_SIZE: number }).UNIFORM_SIZE)
-      .toBe(272)
+    expect(() => new MapRenderer(ctx)).not.toThrow()
+    const bytes = polygonUniformBytes()
+    expect(bytes).toBeGreaterThan(0)
+    expect(bytes % 16).toBe(0) // valid WGSL uniform struct alignment
   })
 
   it('bindGroupLayout descriptor declares the polygon Uniforms binding', async () => {
