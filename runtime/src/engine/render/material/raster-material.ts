@@ -50,13 +50,15 @@ export class RasterDraper {
 
   /** Resolve a tile texture to an RHI view, once per texture. A WebGPU `GPUTexture`
    *  is bridged via `wrapWebGpuTextureView(createView())`; an `RhiTexture` (forced-
-   *  WebGL2) goes through `rhi.createView`. Discriminated by the opaque RHI brand. */
+   *  WebGL2) goes through `rhi.createView`. Discriminated by the presence of the native
+   *  `.createView` method — the `__rhi` brand is COMPILE-TIME only (the runtime WebGl2Device
+   *  handle has no such property), so `'__rhi' in texture` is always false at runtime. */
   private viewOf(texture: GPUTexture | RhiTexture): RhiTextureView {
     let view = this.viewByTex.get(texture)
     if (!view) {
-      view = '__rhi' in texture
-        ? this.rhi.createView(texture)
-        : wrapWebGpuTextureView(texture.createView())
+      view = typeof (texture as { createView?: unknown }).createView === 'function'
+        ? wrapWebGpuTextureView((texture as GPUTexture).createView())
+        : this.rhi.createView(texture as RhiTexture)
       this.viewByTex.set(texture, view)
     }
     return view

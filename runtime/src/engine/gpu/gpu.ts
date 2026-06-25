@@ -280,12 +280,23 @@ export function initGPUForcedWebGL2(canvas: HTMLCanvasElement): GPUContext {
     console.warn('[X-GIS] forced WebGL2 backend active (?forcegl2=1) — single-sample isolated raster slice')
   }
 
+  // Recursive no-op stub for the WebGPU device/context. The renderer CONSTRUCTORS build
+  // pipelines/buffers/layouts from `ctx.device` (createShaderModule / createBindGroupLayout
+  // / createBuffer …) at map-init time, BEFORE any frame — so an `undefined` device crashes
+  // the boot. This proxy makes every property access AND call return itself, so the
+  // constructors get harmless dummies they store but never use: the forced-WebGL2 frame
+  // renders through `rhi` via the render loop's early return, and the WebGPU multi-pass that
+  // would consume these never runs. (Principle 3: the field types stay GPUDevice/GPUCanvasContext.)
+  // `then` MUST return undefined: otherwise the proxy looks like a thenable (its `.then`
+  // is a function) and `await device.createRenderPipelineAsync(…)` hangs forever (the fake
+  // `.then` never calls resolve). Returning undefined for `then` makes the proxy a plain
+  // value, so `await noop` resolves to it immediately.
+  const noop = new Proxy(function () { /* no-op */ }, {
+    get: (_t, p) => (p === 'then' ? undefined : noop), apply: () => noop,
+  }) as unknown
   return {
-    // Stubs: the forced-WebGL2 frame routes through `rhi`, never these (see doc above).
-    // `as unknown as` keeps the field types unwidened (Principle 3); init does NOT call
-    // any method on them (R5 — device.lost/context.configure are skipped on this path).
-    device: undefined as unknown as GPUDevice,
-    context: undefined as unknown as GPUCanvasContext,
+    device: noop as GPUDevice,
+    context: noop as GPUCanvasContext,
     format: 'rgba8unorm',
     canvas,
     sampleCount: 1,

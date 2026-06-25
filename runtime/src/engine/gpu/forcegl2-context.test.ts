@@ -27,12 +27,14 @@ describe('initGPUForcedWebGL2 — forced-WebGL2 boot context (US-001)', () => {
     expect(ctx.sampleCount).toBe(1)
   })
 
-  it('stubs the WebGPU-only device/context (the forced frame never touches them)', () => {
+  it('stubs the WebGPU device/context as a no-op proxy (renderer constructors must not crash)', () => {
     const ctx = initGPUForcedWebGL2(fakeCanvas({} as WebGL2RenderingContext))
-    // Stubbed so GPUContext.device stays `GPUDevice`-typed (Principle 3) without a
-    // real WebGPU device; init must not have called device.lost / context.configure.
-    expect(ctx.device).toBeUndefined()
-    expect(ctx.context).toBeUndefined()
+    // device/context are a recursive no-op proxy (not undefined) so the WebGPU renderer
+    // constructors can build their dummy resources at map-init without crashing; the forced
+    // frame routes through ctx.rhi and never uses them. Any access/call no-ops.
+    expect(() => ctx.device.createShaderModule({ code: '' })).not.toThrow()
+    expect(() => ctx.device.queue.writeBuffer({} as GPUBuffer, 0, new Uint8Array())).not.toThrow()
+    expect(() => ctx.context.configure({ device: ctx.device, format: ctx.format })).not.toThrow()
     expect(ctx.deviceLost).toBe(false)
     expect(ctx._validationErrors).toEqual([])
   })
