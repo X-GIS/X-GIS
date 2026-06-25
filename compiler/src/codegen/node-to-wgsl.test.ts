@@ -2,14 +2,12 @@
 // nodeToWgslString — Expr → WGSL emit oracle round-trip
 // ═══════════════════════════════════════════════════════════════════
 //
-// NOTE: despite the name, this does NOT pin against the live `@xgis/shader-dsl`
-// emitter — every fixture below is HAND-TYPED to the local `node-types.ts` Expr
-// shape (so the test stays inside the compiler workspace). It pins
-// `nodeToWgslString` to ITSELF; it cannot catch drift from the package emitter.
-// Relocated out of `_back-compat/` in PR 2e.B.2 with the adapter when its
-// production splice-point retired; it survives as a self-consistency oracle for
-// the emit shape used across the test suite. (Dedup tracked: see
-// docs/architecture/package-responsibilities.md §5.)
+// `nodeToWgslString` now DELEGATES to the package emitter (`emitExpr` from
+// `@xgis/shader-dsl`); the fixtures below are hand-typed IR exercised THROUGH it,
+// so this asserts the package's WGSL emit for the shared ops (plus the
+// compiler-local `rawString` unwrap). Relocated out of `_back-compat/` in PR 2e.B.2
+// when its production splice-point retired; it survives as the emit-shape oracle
+// used across the test suite. (Tier-2 dedup: docs/architecture/package-responsibilities.md §5.)
 
 import { describe, it, expect } from 'vitest'
 import { nodeToWgslString } from './node-to-wgsl'
@@ -84,6 +82,6 @@ describe('nodeToWgslString — Expr → WGSL oracle', () => {
         default: f32Lit(-1).expr,
       },
     }
-    expect(() => nodeToWgslString(leak)).toThrow(/matchExpr is fn-body-only/)
+    expect(() => nodeToWgslString(leak)).toThrow(/matchExpr Expr leaked into emitExpr/)
   })
 })
