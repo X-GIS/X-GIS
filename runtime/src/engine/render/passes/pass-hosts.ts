@@ -30,16 +30,11 @@ export type BackgroundPassHost = Pick<XGISMap,
 export type OpaquePassHost = Pick<XGISMap,
   | '_elapsedMs'
   | '_rasterShow'
-  // EXPERIMENTAL approach-B globe vector drape opt-in (non-Mercator only).
-  | '_experimentalGlobeDrape'
   | 'camera'
   | 'gpuTimer'
   | 'pointRenderer'
   | 'rasterRenderer'
   | 'renderer'
-  // PoC US-S3 (bake-drape debug hook) — read a VectorTileRenderer to bake a
-  // cached tile. Only touched behind `globalThis.__xgisDebugBakeDrape`.
-  | 'vtSources'
 >
 
 /** Order-independent-transparency composite pass. */

@@ -124,13 +124,6 @@ export interface XGISMapOptions {
    *  match() expressions pre-expanded by `expand-color-match` so
    *  the compute path sees 0 entries on them — still safe to enable. */
   enableComputePath?: boolean
-  /** EXPERIMENTAL (approach B): on NON-Mercator projections (globe / ortho /
-   *  azimuthal / stereographic), render vector content by baking each tile to a
-   *  texture and draping it on the surface via an SSE quadtree, instead of (on
-   *  top of) the direct globe vector draw — closes the inner-sphere, tessellation
-   *  -gap and over-zoom-jitter artifacts. Flat Mercator is unaffected. Default
-   *  `false`. Toggle at runtime via `map.setExperimentalGlobeDrape(true)`. */
-  experimentalGlobeDrape?: boolean
   /** Show the lat/lon graticule grid lines. Default `false` — the
    *  graticule was a debugging aid that shipped on by default; for
    *  basemap-quality output it should opt in. Toggle at runtime via
