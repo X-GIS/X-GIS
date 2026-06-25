@@ -77,7 +77,7 @@ class WebGpuRenderPass implements RhiRenderPass {
   setBindGroup(index: number, group: RhiBindGroup, dynamicOffsets?: number[]): void {
     this.enc.setBindGroup(index, u<GPUBindGroup>(group), dynamicOffsets)
   }
-  setVertexBuffer(slot: number, buffer: RhiBuffer): void { this.enc.setVertexBuffer(slot, u<GPUBuffer>(buffer)) }
+  setVertexBuffer(slot: number, buffer: RhiBuffer, offset?: number, size?: number): void { this.enc.setVertexBuffer(slot, u<GPUBuffer>(buffer), offset, size) }
   setIndexBuffer(buffer: RhiBuffer, format: 'uint16' | 'uint32'): void { this.enc.setIndexBuffer(u<GPUBuffer>(buffer), format) }
   draw(vertexCount: number, instanceCount = 1, firstVertex = 0): void { this.enc.draw(vertexCount, instanceCount, firstVertex) }
   drawIndexed(indexCount: number, instanceCount = 1): void { this.enc.drawIndexed(indexCount, instanceCount) }

@@ -114,7 +114,12 @@ export interface RhiPipelineDesc {
 export interface RhiRenderPass {
   setPipeline(p: RhiPipeline): void
   setBindGroup(index: number, group: RhiBindGroup, dynamicOffsets?: number[]): void
-  setVertexBuffer(slot: number, buffer: RhiBuffer): void
+  /** Bind a vertex buffer, optionally a byte sub-range (the per-tile slice of a
+   *  shared arena buffer). `offset`/`size` default to the whole buffer (offset 0)
+   *  — byte-identical to the no-offset bind. WebGPU: native setVertexBuffer offset/
+   *  size; WebGL2: `offset` is added to each attribute's `vertexAttribPointer` byte
+   *  offset (`size` is implied by the draw count). */
+  setVertexBuffer(slot: number, buffer: RhiBuffer, offset?: number, size?: number): void
   setIndexBuffer(buffer: RhiBuffer, format: 'uint16' | 'uint32'): void
   draw(vertexCount: number, instanceCount?: number, firstVertex?: number): void
   drawIndexed(indexCount: number, instanceCount?: number): void

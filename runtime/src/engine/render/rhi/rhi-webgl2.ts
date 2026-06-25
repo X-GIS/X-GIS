@@ -131,6 +131,7 @@ const GROUP_BINDING_STRIDE = 8
 class WebGl2RenderPass implements RhiRenderPass {
   private cur?: Gl2Pipeline
   private vbuf?: Gl2Buffer
+  private vbufOffset = 0
   private ibuf?: { buf: Gl2Buffer; type: GLenum }
   constructor(private readonly gl: WebGL2RenderingContext) {}
 
@@ -197,7 +198,7 @@ class WebGl2RenderPass implements RhiRenderPass {
     }
   }
 
-  setVertexBuffer(_slot: number, buffer: RhiBuffer): void { this.vbuf = un<Gl2Buffer>(buffer) }
+  setVertexBuffer(_slot: number, buffer: RhiBuffer, offset = 0): void { this.vbuf = un<Gl2Buffer>(buffer); this.vbufOffset = offset }
   setIndexBuffer(buffer: RhiBuffer, format: 'uint16' | 'uint32'): void {
     this.ibuf = { buf: un<Gl2Buffer>(buffer), type: format === 'uint16' ? this.gl.UNSIGNED_SHORT : this.gl.UNSIGNED_INT }
   }
@@ -212,7 +213,9 @@ class WebGl2RenderPass implements RhiRenderPass {
         const fmt = VFMT[a.format]
         if (!fmt) throw new Error(`webgl2: unsupported vertex format '${a.format}'`)
         gl.enableVertexAttribArray(a.location)
-        gl.vertexAttribPointer(a.location, fmt.size, fmt.type === 'f32' ? gl.FLOAT : gl.UNSIGNED_BYTE, fmt.normalized, vb.stride, a.offset)
+        // `vbufOffset` (default 0) shifts the per-tile arena sub-range start into the
+        // attribute byte offset — default 0 is byte-identical to the no-offset bind.
+        gl.vertexAttribPointer(a.location, fmt.size, fmt.type === 'f32' ? gl.FLOAT : gl.UNSIGNED_BYTE, fmt.normalized, vb.stride, a.offset + this.vbufOffset)
       }
     }
   }
