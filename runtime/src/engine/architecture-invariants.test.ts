@@ -520,7 +520,9 @@ const LOC_CEILINGS: Record<string, number> = {
   // visible Mercator world-copies (flat-Merc only, gated via isWebMercator) +
   // apply the per-copy wo*360° Mercator offset — so points render in every world
   // repeat like labels/fills. Additive loop; decomposition stays a tracked follow-up.
-  'runtime/src/engine/render/point-renderer.ts': 991,
+  // Bumped 991→1022 (#594-test): extracted pointWorldCopies + worldCopyMercX as
+  // exported pure helpers so the discriminating unit test can import real source.
+  'runtime/src/engine/render/point-renderer.ts': 1022,
   // Baselined at 820 (mbx_batch2): lower-label.ts is the label-knob lowering
   // sub-pass extracted from lower.ts; crossed 800 here for the icon-translate
   // accumulators + parse arms + knobs-interface + merge wiring. Cohesive

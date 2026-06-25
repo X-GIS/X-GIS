@@ -144,6 +144,39 @@ function writePointFrameUniform(
   uf[U_CIRCLE + 3] = circlePitchScaleMap ? 1 : 0
 }
 
+// ── World-copy helpers (exported for unit tests) ──────────────────────────
+
+const _DEG2RAD = Math.PI / 180
+const _R_MERC  = 6378137 // web-Mercator sphere radius (matches the tiler packer)
+
+/**
+ * Returns the world-copy offset array the renderer uses for a given projType.
+ * Flat Mercator (projType 0) fans out to all visible world copies via
+ * `camera.getVisibleWorldCopies`; all other projTypes return `[0]` (single
+ * absolute ECEF world, no wrap).
+ */
+export function pointWorldCopies(
+  projType: number,
+  camera: Camera,
+  canvasWidth: number,
+  canvasHeight: number,
+  dpr: number,
+): readonly number[] {
+  return isWebMercator(projType)
+    ? camera.getVisibleWorldCopies(canvasWidth, canvasHeight, dpr)
+    : [0]
+}
+
+/**
+ * Returns the Mercator x (in metres) for a point at `lon` (degrees) in
+ * world-copy `wo`.  `wo = 0` is the primary world; `wo = ±1, ±2, …` shift
+ * by one full world-width (360° × DEG2RAD × R_MERC) each.
+ * The caller is responsible for splitting into hi/lo f32 DSFUN slots.
+ */
+export function worldCopyMercX(lon: number, wo: number): number {
+  return lon * _DEG2RAD * _R_MERC + wo * 360 * _DEG2RAD * _R_MERC
+}
+
 // ═══ Renderer ═══
 
 export class PointRenderer {
@@ -826,9 +859,7 @@ export class PointRenderer {
     // GeoJSON points appear in every repeated world at low zoom — matching
     // the label and fill behaviour.  All other projection paths use a single
     // absolute world (ECEF globe / hemisphere projections have no world-wrap).
-    const COPIES: readonly number[] = isWebMercator(projType)
-      ? camera.getVisibleWorldCopies(canvasWidth, canvasHeight, dpr)
-      : [0]
+    const COPIES = pointWorldCopies(projType, camera, canvasWidth, canvasHeight, dpr)
 
     // View-forward projection onto the ground plane, used to sort
     // translucent instances back-to-front. Pitch=0 gives a zero vector
@@ -891,7 +922,7 @@ export class PointRenderer {
           // world repeat.  The ECEF/abs_lon branches above are copy-independent
           // (absolute 3D position) and are left unchanged.
           const wo = COPIES[w]
-          const mx = lon * DEG2RAD * R_MERC + wo * 360 * DEG2RAD * R_MERC
+          const mx = worldCopyMercX(lon, wo)
           const myClamp = Math.max(-85.051129, Math.min(85.051129, lat))
           const my = Math.log(Math.tan(Math.PI / 4 + myClamp * DEG2RAD / 2)) * R_MERC
           const mxH = Math.fround(mx); const myH = Math.fround(my)
