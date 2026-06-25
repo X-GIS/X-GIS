@@ -122,6 +122,12 @@ function compile(gl: WebGL2RenderingContext, type: GLenum, src: string): WebGLSh
 
 const SAMPLER_TYPES = new Set<number>()
 
+// UBO binding-point namespace stride: a uniform's GL binding point is `group * STRIDE +
+// binding`, so two bind groups can each use binding 0 without colliding on point 0. group 0
+// maps to its raw binding (single-group gates unchanged). 8 = max bindings/group, well clear
+// of WebGL2's MAX_UNIFORM_BUFFER_BINDINGS (≥ 24).
+const GROUP_BINDING_STRIDE = 8
+
 class WebGl2RenderPass implements RhiRenderPass {
   private cur?: Gl2Pipeline
   private vbuf?: Gl2Buffer
@@ -150,7 +156,7 @@ class WebGl2RenderPass implements RhiRenderPass {
   // texture unit are the RHI binding NUMBER (the proof's single bind-group keeps
   // them distinct + small); a multi-group impl would namespace by group. A sampler
   // binds to the most-recent texture unit seen in this group (the fused-sampler pair).
-  setBindGroup(_index: number, group: RhiBindGroup, dynamicOffsets?: number[]): void {
+  setBindGroup(index: number, group: RhiBindGroup, dynamicOffsets?: number[]): void {
     const gl = this.gl
     const bg = un<Gl2BindGroup>(group)
     const kindOf = (binding: number) => bg.layout.entries.find((e) => e.binding === binding)
@@ -163,7 +169,12 @@ class WebGl2RenderPass implements RhiRenderPass {
       const r = e.resource
       if (le?.kind === 'uniform' && 'buffer' in r) {
         const ubo = un<Gl2Buffer>(r.buffer)
-        const bp = e.binding
+        // UBO binding point is namespaced BY GROUP — two groups can each have binding 0
+        // (raster: global UBO @group0/binding0 + per-tile UBO @group1/binding0). Without the
+        // group stride both would bind to point 0 and collide, making the larger block read a
+        // too-small buffer → INVALID_OPERATION at draw. group 0 maps to its raw binding, so
+        // the single-group gates are unchanged. createPipeline assigns the matching points.
+        const bp = index * GROUP_BINDING_STRIDE + e.binding
         const dyn = le.dynamic ? (dynamicOffsets?.[dynIdx++] ?? 0) : 0
         const offset = (r.offset ?? 0) + dyn
         const size = r.size ?? ubo.size - offset
@@ -399,7 +410,10 @@ export class WebGl2Device implements RhiDevice {
     // correctly regardless of declaration order. Falls back to BY ORDER for an
     // un-named entry (the single-texture proof shape, exact for 1 of each).
     const layouts = desc.bindGroupLayouts.map((l) => un<Gl2BindGroupLayout>(l))
-    const uniformEntries = layouts.flatMap((l) => l.entries.filter((e) => e.kind === 'uniform'))
+    // Carry the GROUP index so the uniform-block binding point is namespaced the SAME way
+    // setBindGroup binds the buffer (group * stride + binding) — else two groups' binding-0
+    // blocks both map to point 0 and collide (INVALID_OPERATION at draw, raster's 2 UBOs).
+    const uniformEntries = layouts.flatMap((l, g) => l.entries.filter((e) => e.kind === 'uniform').map((e) => ({ name: e.name, point: g * GROUP_BINDING_STRIDE + e.binding })))
     // a 'storage' binding emits as a sampler2D (data-texture emulation), so it reflects +
     // binds like a texture (its sampler uniform = the binding name → a texture unit).
     const textureEntries = layouts.flatMap((l) => l.entries.filter((e) => e.kind === 'texture' || e.kind === 'storage'))
@@ -410,9 +424,9 @@ export class WebGl2Device implements RhiDevice {
     for (const ue of uniformEntries) {
       if (ue.name !== undefined) {
         const idx = gl.getUniformBlockIndex(program, ue.name)
-        if (idx !== gl.INVALID_INDEX) gl.uniformBlockBinding(program, idx, ue.binding)
+        if (idx !== gl.INVALID_INDEX) gl.uniformBlockBinding(program, idx, ue.point)
       } else if (blockOrder < numBlocks) {
-        gl.uniformBlockBinding(program, blockOrder++, ue.binding)
+        gl.uniformBlockBinding(program, blockOrder++, ue.point)
       }
     }
     // collect active sampler-uniform locations in GL order (the by-order fallback).

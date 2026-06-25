@@ -269,7 +269,10 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
  *  Exported for the unit gate (context-shape + backend-marker ACs); production
  *  reaches it only via `initGPU`'s `FORCE_GL2` early return. */
 export function initGPUForcedWebGL2(canvas: HTMLCanvasElement): GPUContext {
-  const gl = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: true })
+  // preserveDrawingBuffer keeps the rendered frame readable via gl.readPixels after the
+  // rAF turn — the US-004 live-render gate reads the checker pixels back. (This slice is a
+  // dev/test path; the minor compositor cost is acceptable.)
+  const gl = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: true, preserveDrawingBuffer: true })
   if (!gl) throw new WebGPUUnavailableError('?forcegl2=1 set but canvas.getContext("webgl2") returned null')
   const rhi = new WebGl2Device(gl)
 
