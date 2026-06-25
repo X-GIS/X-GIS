@@ -45,14 +45,16 @@ describe('rim_alpha rollout coverage', () => {
     expect(src).toMatch(/(\w+\.[aw]) = \(\1 \* in\.rim_a\)/)
   })
 
-  it('raster shader applies smoothstep rim fade in fs_tile', () => {
+  it('raster shader applies rim_alpha per-fragment in fs_tile', () => {
     const src = emitRasterWgsl(false)
-    // smoothstep rim call — survives whether emitted as a named let-binding or
-    // inlined by CSE. The literal values and the vis varying name are stable.
-    expect(src).toContain('smoothstep(0.0, 0.02, input.vis)')
-    // raster_params.x (opacity) is read in the fragment — field access on the
-    // uniform struct is stable regardless of whether an intermediate let-binding
-    // named 'rim' exists in the emitted output.
+    // #595: raster now recomputes the rim PER-FRAGMENT via rim_alpha(abs_lon,
+    // latDeg, proj_params) — mirroring polygon/line/point — instead of the old
+    // smoothstep(0,0.02,interpolated vis), whose linear interpolation of the
+    // nonlinear cos_c across a large tile leaked the back hemisphere as a chord
+    // at low zoom. This brings raster into the rim_alpha rollout the other
+    // primitives already follow.
+    expect(src).toContain('rim_alpha(')
+    // raster_params.x (opacity) is still read in the fragment.
     expect(src).toContain('u.raster_params.x')
   })
 

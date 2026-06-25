@@ -133,7 +133,7 @@ describe('raster globe tile selection routes through globeVisibleTiles (#596)', 
 
   it('globe camera draws exactly the globeVisibleTiles set, not the flat frustum set', async () => {
     const ctx = await makeCtx()
-    const W = 1280, H = 720, DPR = 1
+    const W = 1280, H = 720
     const DPR_ = 1
     const cssW = W / DPR_, cssH = H / DPR_
     const R = 6378137
