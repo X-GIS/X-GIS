@@ -469,8 +469,8 @@ export function ifExpr<K extends string>(
   const b = currentBuilder()
   const iv = b.inferredVar()
   let vt: ShaderType | undefined
-  b.if(cond, () => { const val = thenVal(); vt ??= val.type; b.assign(iv.ref(val.type) as Node<K>, val) })
-    .else(() => { const val = elseVal(); vt ??= val.type; b.assign(iv.ref(val.type) as Node<K>, val) })
+  b.if(cond, () => { const val = thenVal(); vt ??= val.type; currentBuilder().assign(iv.ref(val.type) as Node<K>, val) })
+    .else(() => { const val = elseVal(); vt ??= val.type; currentBuilder().assign(iv.ref(val.type) as Node<K>, val) })
   iv.commit(vt!)
   return iv.ref(vt!) as Node<K>
 }
@@ -486,7 +486,7 @@ export function condExpr<K extends string>(
   const b = currentBuilder()
   const iv = b.inferredVar()
   let vt: ShaderType | undefined
-  const arm = (v: () => Node<K>) => () => { const val = v(); vt ??= val.type; b.assign(iv.ref(val.type) as Node<K>, val) }
+  const arm = (v: () => Node<K>) => () => { const val = v(); vt ??= val.type; currentBuilder().assign(iv.ref(val.type) as Node<K>, val) }
   let chain = b.if(arms[0][0], arm(arms[0][1]))
   for (let k = 1; k < arms.length; k++) {
     chain = chain.elif(arms[k][0], arm(arms[k][1]))
