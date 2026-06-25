@@ -88,15 +88,17 @@ function defOf(size: number, anchor: string): LabelDef {
 }
 
 /** Drive real prepare(); return the ink-block centroid relative to the anchor
- *  (screen-down +, computed via the renderer's quad geometry). */
-function inkCentroidRel(text: string, size: number, anchor: string): number {
+ *  (screen-down +, computed via the renderer's quad geometry). `pairKey`
+ *  marks the label icon-paired (a shield) — #608-scope routes that through the
+ *  box-centred ink recentre instead of the standalone hang-below. */
+function inkCentroidRel(text: string, size: number, anchor: string, pairKey?: string): number {
   const stage = new TextStage(stubDevice(), 'bgra8unorm', { rasterizer: new LatinMetricsRasterizer() })
   const captured: TextDraw[][] = []
   ;(stage as unknown as { renderer: { setDraws(d: TextDraw[]): void } }).renderer.setDraws =
     (d: TextDraw[]) => { captured.push(d) }
   stage.setCameraZoom(12)
   stage.beginFrame()
-  stage.addLabel(litValue(text), {}, 400, 300, defOf(size, anchor))
+  stage.addLabel(litValue(text), {}, 400, 300, defOf(size, anchor), undefined, 'highway-shield', pairKey)
   stage.prepare()
   const draws = captured[0]!
   const d = draws.find(dd => dd.glyphs.some(g => g.codepoint !== 10 && g.codepoint !== 32))
@@ -159,5 +161,48 @@ describe('#608 — point-label ink hangs metric-dependently from the anchor (Map
     const c16 = inkCentroidRel('Houston', 16, 'center')
     const c32 = inkCentroidRel('Houston', 32, 'center')
     expect(Math.abs(c32)).toBeGreaterThan(Math.abs(c16) * 1.5)
+  })
+})
+
+// #608-scope — icon-paired (shield) text must stay BOX-CENTRED while a
+// standalone center-anchored place label HANGS below. The #608 fix applied the
+// hang-below to ALL center-anchored labels, which moved the route-ref digits
+// LOW inside their white shield box (visually confirmed at z19, "82" off-centre).
+// The scope gate restores the prior shield-text-box-align ink recentre for
+// labels that carry a pairKey (paired with an icon), keeping standalone labels
+// on the #608 hang-below. Both cases share font/text/size/anchor here, so the
+// only variable is the pairKey — proving the gate distinguishes them.
+describe('#608-scope — shield (icon-paired) text is box-centred; standalone hangs below', () => {
+  it('DISCRIMINATING: same center-anchored text, icon-paired centroid ≈ anchor while standalone hangs ABOVE', () => {
+    // Identical inputs except the pairKey. The shield case (paired) pins the
+    // ink centroid onto the shared icon/box anchor (≈0); the standalone case
+    // lets it hang above (meaningfully negative). With the gate REMOVED (current
+    // all-vAlign #608 behaviour) the shield case would also hang — i.e. this
+    // assertion fails — which is the regression the scope gate repairs.
+    const shield = inkCentroidRel('82', 16, 'center', 'shield-seq-0')
+    const standalone = inkCentroidRel('82', 16, 'center')
+    // (a) shield ink is CENTRED on the anchor/box (≈0, like pre-#608).
+    expect(Math.abs(shield)).toBeLessThan(0.75)
+    // (b) standalone ink HANGS above the anchor (the #608 behaviour).
+    expect(standalone).toBeLessThan(-1.5)
+    // And the two conventions are clearly distinct.
+    expect(Math.abs(standalone - shield)).toBeGreaterThan(1.5)
+  })
+
+  it('shield ink stays box-centred independent of glyph metrics (caps vs lowercase both ≈ anchor)', () => {
+    // The box-centred recentre pins the ink BAND centroid onto the anchor
+    // regardless of ascent/descent, so an all-caps ref and a lowercase ref both
+    // sit centred — exactly what keeps differing route refs aligned in the box.
+    const caps = inkCentroidRel('HOUSTON', 16, 'center', 'shield-seq-1')
+    const lower = inkCentroidRel('xnwmuosv', 16, 'center', 'shield-seq-2')
+    expect(Math.abs(caps)).toBeLessThan(0.75)
+    expect(Math.abs(lower)).toBeLessThan(0.75)
+  })
+
+  it('the pairKey gate does not touch standalone labels (Houston still hangs metric-dependently)', () => {
+    // Guard against the gate accidentally flipping every label back to box-
+    // centred: a label with NO pairKey keeps the #608 metric-dependent hang.
+    const standalone = inkCentroidRel('Houston', 16, 'center')
+    expect(Math.abs(standalone)).toBeGreaterThan(1.5)
   })
 })

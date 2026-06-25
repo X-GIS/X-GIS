@@ -161,6 +161,11 @@ export function layoutCacheKey(
   translateX: number, translateY: number,
   padding: number,
   haloWidth: number, haloBlur: number,
+  // #608-scope — whether the label is icon-paired (a shield). Paired center-
+  // anchored text recentres its ink BAND onto the anchor (box-centred); a
+  // standalone label hangs the ink below. Same font/text/size/anchor but
+  // different glyphOffsets, so the two must NOT share a cache entry.
+  paired: boolean,
 ): number {
   let h = glyphsKey | 0
   h = Math.imul(h ^ ((sizePx * 10) | 0), 0x01000193)
@@ -176,6 +181,7 @@ export function layoutCacheKey(
   h = Math.imul(h ^ ((padding * 10) | 0), 0x01000193)
   h = Math.imul(h ^ ((haloWidth * 10) | 0), 0x01000193)
   h = Math.imul(h ^ ((haloBlur * 10) | 0), 0x01000193)
+  h = Math.imul(h ^ (paired ? 1 : 0), 0x01000193)
   return h | 0
 }
 

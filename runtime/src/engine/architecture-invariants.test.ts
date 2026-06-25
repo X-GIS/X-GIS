@@ -259,7 +259,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // the MIN_LINE_SPACING_PX (= 250 CSS px × dpr) constant, and minLineSpacingPx passed
   // to all three greedyPlaceBboxes calls (legacy / sortKey / z-order branches).
   // greedyPlaceBboxes already implemented the gate; this is the wiring + its rationale.
-  'runtime/src/engine/text/text-stage.ts': 1652,
+  // Bumped 1652→1673 (#608-scope): the #608 hang-below regressed shield text (route
+  // ref low/off-centre in its box). Gate the centreShift on pairKey — icon-paired
+  // center-anchored text restores the box-centred ink-band recentre (the maxAsc/
+  // maxDesc per-block loop, ~12 lines), standalone keeps the hang. Plus the layout-
+  // cache `paired` key term so the two conventions don't alias to one cached layout.
+  'runtime/src/engine/text/text-stage.ts': 1673,
   // Bumped 1509→1517 for the GeometryCollection decompose fix (RFC 7946
   // §3.1.8): decomposeFeatures' per-type switch is wrapped in an inner
   // recursive helper so a GeometryCollection member-decomposes under the

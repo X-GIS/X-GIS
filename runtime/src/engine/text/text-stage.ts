@@ -933,6 +933,9 @@ export class TextStage {
           padding,
           haloOut ? haloOut.width : 0,
           haloOut?.blur ?? 0,
+          // #608-scope — paired (shield) vs standalone produce different
+          // glyphOffsets for identical font/text/size/anchor; key them apart.
+          p.pairKey !== undefined,
         )
         const hit = this._layoutCache.get(_layoutKey)
         // iter-190 generation guard + Audit ④ B1 text-identity guard.
@@ -1089,13 +1092,31 @@ export class TextStage {
           // ink then hangs from that baseline by the glyph's own
           // metrics (-bearingY + height/2), exactly as MapLibre — a
           // GLYPH-METRIC-DEPENDENT offset (all-caps vs mixed-case vs CJK
-          // differ), NOT a constant. Applies to ALL vAlign (center/top/bottom)
-          // — the earlier iter-344/345 ink-band recentre (`(maxAsc-maxDesc)/2`,
-          // center-only) instead pinned the ink CENTROID onto the anchor, which
-          // diverged from MapLibre (MapLibre lets Latin ink hang, ascent≫
-          // descent) and left bottom/top untouched and still ~1em too high.
+          // differ), NOT a constant. This is the STANDALONE place-label hang.
+          //
+          // #608-scope EXCEPTION — ICON-PAIRED / SHIELD text (`pairKey` set,
+          // e.g. ref "82" inside a highway shield) must sit CENTRED on the
+          // shared icon anchor, not hang below: the box is drawn symmetrically
+          // about that anchor, so a hung band reads LOW/off-centre in the box.
+          // For paired center-anchored text restore the prior shield-text-box-
+          // align ink recentre — pin the band CENTROID via (maxAsc-maxDesc)/2
+          // (one shared per-block shift). Standalone labels keep the hang.
           const shapingBaselineOff = (SHAPING_DEFAULT_OFFSET * sizePx) / ONE_EM
-          const centreShift = -shapingBaselineOff
+          const isIconPaired = p.pairKey !== undefined
+          let centreShift = -shapingBaselineOff
+          if (isIconPaired && vAlign === 0.5) {
+            let maxAsc = 0, maxDesc = 0
+            for (let gi = 0; gi < glyphs.length; gi++) {
+              const g = glyphs[gi]!
+              if (g.height <= 0) continue  // skip blanks (junk metrics)
+              const sc = sizePx / (g.rasterFontSize ?? this.opts.rasterFontSize)
+              const asc = g.bearingY * sc
+              const desc = (g.height - g.bearingY) * sc
+              if (asc > maxAsc) maxAsc = asc
+              if (desc > maxDesc) maxDesc = desc
+            }
+            centreShift = -shapingBaselineOff + (maxAsc - maxDesc) / 2
+          }
           for (let li = 0; li < lines.length; li++) {
             const ln = lines[li]!
             let lineX = 0
