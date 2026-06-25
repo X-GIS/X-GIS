@@ -658,7 +658,7 @@ export class PipelineFactory {
         layout: pipelineLayout,
         vertex: { module: shaderModule, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_fill', targets },
-        primitive: { topology: 'triangle-list', cullMode: 'none' },
+        primitive: { topology: 'triangle-list', cullMode: 'back' }, // GPU back-cull far hemisphere on sphere; inert on flat (#587)
         depthStencil: STENCIL_WRITE_NO_DEPTH, multisample: msaaState,
         label: `fill-pipeline-ground${suffix}`,
       }),
@@ -694,7 +694,7 @@ export class PipelineFactory {
         layout: pipelineLayout,
         vertex: { module: shaderModule, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_fill', targets },
-        primitive: { topology: 'triangle-list', cullMode: 'none' },
+        primitive: { topology: 'triangle-list', cullMode: 'back' }, // GPU back-cull far hemisphere (#587, see fillGround)
         depthStencil: STENCIL_TEST_NO_DEPTH, multisample: msaaState,
         label: `fill-pipeline-ground-fallback${suffix}`,
       }),
