@@ -412,10 +412,16 @@ export class PanZoomController implements Controller {
           // high pitch due to perspective foreshortening).
           // Unproject the current cursor to a world point; diff with the
           // previous frame's world point → world metres per frame at 60fps.
-          // Disc path skips world-velocity (disc inverse is expensive and
-          // inertia on disc projections is a secondary concern — fall back
-          // to screen-px velocity there).
-          if (dragAnchor.kind !== 'disc') {
+          // Disc AND globe skip world-velocity → screen-px velocity. The
+          // world-velocity path below unprojects via `unprojectToZ0`, the FLAT
+          // Mercator plane, which is a PHANTOM in globe mode (the recovered point
+          // is not on the rendered sphere) — and `camera.pan` consumes its result
+          // as CSS PIXELS, not the Mercator METRES that path produces, so a globe
+          // release flung the camera tens of degrees of inertia (issue #582). The
+          // px-velocity branch feeds `camera.pan` the pixels it expects; the globe
+          // arm of `camera.pan` converts px→deg correctly. (Disc inverse is also
+          // expensive + a secondary concern, the original reason it lives here.)
+          if (dragAnchor.kind !== 'disc' && !camera.globeMode) {
             const worldNow = camera.unprojectToZ0(sxM, syM, canvas.width, canvas.height, dprMove)
             if (worldNow && curWorldX !== null && curWorldY !== null) {
               // world delta per this frame → scale to ~60fps
@@ -431,7 +437,7 @@ export class PanZoomController implements Controller {
             curWorldX = worldNow ? worldNow[0] : null
             curWorldY = worldNow ? worldNow[1] : null
           } else {
-            // Disc: fall back to screen-px velocity (cheaper, acceptable)
+            // Disc / globe: screen-px velocity (camera.pan converts px→world/deg).
             panVelX = dx * (16 / dt)
             panVelY = dy * (16 / dt)
           }
