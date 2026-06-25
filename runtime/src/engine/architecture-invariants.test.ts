@@ -247,7 +247,9 @@ const LOC_CEILINGS: Record<string, number> = {
   // ⇒ DEFAULT byte-identical) + ShapedLabel.symbolZOrder field (+74).
   // Bumped 1602→1615 (#609): prepare() accepts iconObstacles param + CollisionObstacle
   // import + groupKey wired into collisionInput + obstacles passed to all greedy calls.
-  'runtime/src/engine/text/text-stage.ts': 1615,
+  // Bumped 1615→1624 (#608): computeCentreShift call + maxSlotHalf tracking for the
+  // center-anchor ink-band fix (the +9 is the corrected baseline math).
+  'runtime/src/engine/text/text-stage.ts': 1624,
   // Bumped 1509→1517 for the GeometryCollection decompose fix (RFC 7946
   // §3.1.8): decomposeFeatures' per-type switch is wrapped in an inner
   // recursive helper so a GeometryCollection member-decomposes under the
@@ -350,7 +352,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // X-GIS shader graphs live under runtime/src/engine/shaders/dsl/). Re-baselined
   // at its current size — a behavior-preserving relocation, not new growth;
   // decomposition stays the same tracked priority it was in the package.
-  'runtime/src/engine/shaders/dsl/line.ts': 1194,
+  // Bumped 1194→1219 (#598): finalize_corner threads the (p_h, p_l) DSFUN split
+  // through all three call sites to kill the high-zoom f32 jitter (the lossy
+  // pre-summed corner is replaced by the precise hi/lo reconstruction).
+  'runtime/src/engine/shaders/dsl/line.ts': 1219,
   // Bumped 1171→1176 (#274 CSS color-fn whitespace), then 1176→1178 (#317) for
   // the two irreducible numeric match()-label arm-pattern cases (Number, and
   // Minus+Number). Lowered 1178→50 (Tier-C5): the Parser god-file was split
@@ -511,7 +516,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // pipeline so a point layer can render on either backend. Additive — the WebGPU
   // path is byte-identical when the RHI seam is off; the +34 is backend-seam
   // plumbing. Decomposition stays a tracked follow-up.
-  'runtime/src/engine/render/point-renderer.ts': 980,
+  // Bumped 980→991 (#594): the GeoJSON point world-copy loop — enumerate the
+  // visible Mercator world-copies (flat-Merc only, gated via isWebMercator) +
+  // apply the per-copy wo*360° Mercator offset — so points render in every world
+  // repeat like labels/fills. Additive loop; decomposition stays a tracked follow-up.
+  'runtime/src/engine/render/point-renderer.ts': 991,
   // Baselined at 820 (mbx_batch2): lower-label.ts is the label-knob lowering
   // sub-pass extracted from lower.ts; crossed 800 here for the icon-translate
   // accumulators + parse arms + knobs-interface + merge wiring. Cohesive

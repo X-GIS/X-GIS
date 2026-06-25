@@ -5,6 +5,7 @@
 
 import type { Camera } from '../projection/camera'
 import { lonLatToECEF } from '../projection/ecef'
+import { isWebMercator } from '../projection/projections-table'
 import { BLEND_ALPHA, DEPTH_TEST_WRITE, WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 import { getSampleCount } from '../gpu/gpu'
 import type { ShapeRegistry } from '../text/sdf-shape'
@@ -825,7 +826,7 @@ export class PointRenderer {
     // GeoJSON points appear in every repeated world at low zoom — matching
     // the label and fill behaviour.  All other projection paths use a single
     // absolute world (ECEF globe / hemisphere projections have no world-wrap).
-    const COPIES: readonly number[] = projType === 0
+    const COPIES: readonly number[] = isWebMercator(projType)
       ? camera.getVisibleWorldCopies(canvasWidth, canvasHeight, dpr)
       : [0]
 
