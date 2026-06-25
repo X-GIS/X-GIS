@@ -190,10 +190,12 @@ export function extractInterpolateZoomStops(
  *
  *  Represented in the existing zoom-interpolated infrastructure by
  *  emitting each boundary as two adjacent stops:
- *    [{zoom: z1, value: def}, {zoom: z1 + ε, value: v1}, …]
- *  Before z1 the function clamps to `def`; at z1+ε it snaps to the new
- *  value. ε = 0.0001 zoom units is imperceptible but forces the linear
- *  interpolator to pass through the step boundary cleanly. */
+ *    [{zoom: z1 - ε, value: def}, {zoom: z1, value: v1}, …]
+ *  The interpolateZoom clamp (zoom <= stops[0].zoom → stops[0].value) means
+ *  zoom==z1 resolves to `v1` (the second stop), matching Mapbox's `>=`
+ *  semantics and the X-GIS step evaluator (input >= stop → val).
+ *  ε = 0.0001 zoom units is imperceptible. Values are returned raw (0..1);
+ *  the caller is responsible for any scale conversion. */
 export function extractStepZoomStops(
   expr: AST.Expr,
 ): ZoomStopsWithBase<number> | null {
@@ -214,8 +216,10 @@ export function extractStepZoomStops(
     const z = bindingAsConstantNumber(args[i])
     const v = bindingAsConstantNumber(args[i + 1])
     if (z === null || v === null) return null
-    stops.push({ zoom: z, value: prevValue })
-    stops.push({ zoom: z + STEP_EPSILON, value: v })
+    // Emit {z-ε, def} then {z, v} so zoom==z yields the >= value (v),
+    // matching Mapbox step semantics and the X-GIS evaluator (input >= stop).
+    stops.push({ zoom: z - STEP_EPSILON, value: prevValue })
+    stops.push({ zoom: z, value: v })
     prevValue = v
   }
   return stops.length >= 2 ? { base: 1, stops } : null
