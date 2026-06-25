@@ -1698,7 +1698,7 @@ export class XGISMap {
       this.canvas, this.camera,
       () => ({ projectionName: this.projectionName }),
       {
-        onClick: (x, y, e) => { void dispatcher.handleClick(x, y, e) },
+        onClick: (x, y, e) => { dispatcher.handleClick(x, y, e).catch(() => {}) },
         onPointerMove: (x, y, e) => {
           // Continuous drag (pointer held) is an active gesture; a bare
           // hover is not — gate the interaction flag on _pointerActive.
@@ -1714,16 +1714,16 @@ export class XGISMap {
           this._cameraExplicitlyPositioned = true
           this._pointerActive = true
           this.markInteracting()
-          void dispatcher.handlePointerDown(x, y, e)
+          dispatcher.handlePointerDown(x, y, e).catch(() => {})
         },
-        onPointerUp: (x, y, e) => { this._pointerActive = false; void dispatcher.handlePointerUp(x, y, e) },
+        onPointerUp: (x, y, e) => { this._pointerActive = false; dispatcher.handlePointerUp(x, y, e).catch(() => {}) },
         // OS/gesture steal (capture loss) ends the drag without a clean
         // pointerup — clear the flag so a later hover can't re-pin low DPR.
         onPointerCancel: (e) => { this._pointerActive = false; dispatcher.handlePointerLeave(e) },
         onWheel: (x, y, e) => {
           this._cameraExplicitlyPositioned = true
           this.markInteracting()
-          void dispatcher.handleWheel(x, y, e)
+          dispatcher.handleWheel(x, y, e).catch(() => {})
         },
       },
     )

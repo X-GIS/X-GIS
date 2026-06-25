@@ -176,6 +176,11 @@ export class InteractionController {
       const layerId = packed & 0xffff
       const instanceId = (packed >>> 16) & 0xffff
       return this.resolvePick(featureId, layerId, instanceId)
+    } catch {
+      // mapAsync rejects when the buffer is still mapped (rapid re-pick) or
+      // the device is lost. Swallow — the slot is freed in finally, and the
+      // caller gets null (no-pick) rather than an unhandled rejection.
+      return null
     } finally {
       slot.inUse = false
     }
