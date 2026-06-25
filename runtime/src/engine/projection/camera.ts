@@ -761,13 +761,13 @@ export class Camera {
 
   /** Pan by CSS pixels (clientX/clientY delta), accounting for map rotation */
   pan(dx: number, dy: number, _canvasWidth: number, canvasHeight: number): void {
-    if (this.globeMode) {
-      // Globe: drag rotates the sphere (content follows the cursor).
-      // Pixel delta → lon/lat at the same per-pixel feel as the 2D map
-      // (meters-per-pixel converted to degrees on the surface), bearing-
-      // rotated. Not a pixel-exact arcball, but Cesium-style drag-to-
-      // rotate; centerX/Y stay Mercator so the rest of the camera and
-      // tile selection keep working unchanged.
+    // Surface-degree pan for the sphere-family centre representation
+    // (representsCenterAs==='lat-deg'): globe 7 AND the untilted discs 3/4/5.
+    // Their screen scale is the projType's own plane (flat_rel), scale-true to
+    // the SURFACE at the centre — the Mercator-metre flat branch below would
+    // under-move them by 1/cos(lat), drifting the inertia glide + grab-outside-
+    // disc fallback off the cursor (the anchored drag was already correct, #602).
+    if (representsCenterAs(this.projType) === 'lat-deg') {
       const R = EARTH_R
       const mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, this.zoom)
       const rb = this.bearing * Math.PI / 180

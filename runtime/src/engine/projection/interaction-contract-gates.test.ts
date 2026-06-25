@@ -1014,3 +1014,110 @@ describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a+G3b dis
     expect(globe!, `globe(7) drift ${globe}px — expected sub-px (ray↔sphere anchored)`).toBeLessThan(1.0)
   })
 })
+
+// ════════════════════════════════════════════════════════════════════════
+// G10 — disc delta-pan (camera.pan) moves the SURFACE, not the Mercator plane
+// (#602 lock).
+//
+// THE BUG: the anchored disc drag (panDiscToScreenAnchor) keeps the grabbed
+// point under the cursor exactly. But `camera.pan(dx,dy)` — the DELTA path used
+// by the inertia glide (controller applyInertia) and the grab-outside-the-disc
+// fallback (controller onPointerMove), the only two camera.pan callers — drove
+// the untilted azimuthal discs (ortho 3 / azimuthal_eq 4 / stereographic 5)
+// through the MERCATOR-METRE branch: it moved centerY by Δpx · (Mercator
+// metres-per-pixel). But a disc's on-screen scale is its OWN projected plane
+// (the shader flat_rel), which is scale-true to the SURFACE at the projection
+// centre — so the Mercator-Y stretch (1/cos(lat)) made a vertical drag
+// UNDER-move the camera by that factor (a 10-px vertical drag rotated the
+// centre 0.437° at lat 60° where the correct surface motion is 0.879° — a 2×
+// under-move), and the disc slid off the cursor, worsening with latitude (#602
+// "disc-drag drifts"). The fix routes the sphere-family centre representation
+// (representsCenterAs === 'lat-deg': discs 3/4/5 + globe 7) through the SAME
+// surface-degree pan the globe uses.
+//
+// THE INVARIANT (metamorphic — discriminating, fails on the pre-fix code): the
+// untilted disc and the globe are two representations of the SAME sphere, so an
+// identical screen delta must rotate the centre by the IDENTICAL geographic
+// amount. Pre-fix, disc Δlat at lat 60° was HALF the globe's; post-fix they are
+// byte-equal at every latitude. Mercator (0) + flat cylindrical (1/2/6) keep
+// the Mercator-metre delta unchanged (regression guard).
+// ════════════════════════════════════════════════════════════════════════
+describe('G10 — disc camera.pan moves the surface (matches globe), not the Mercator plane (#602)', () => {
+  const G6_W = 800, G6_H = 800
+  const EARTH_R_G6 = 6378137
+  const RAD2DEG_G6 = 180 / Math.PI
+
+  /** Centre [lon°, lat°] move produced by one `camera.pan(dx,dy)` from a fresh
+   *  camera at (lon0=20, lat0) zoom 3. globeMode is set true only for projType
+   *  7; the discs stay untilted (globeMode=false, pitch 0). */
+  function panCentreDelta(projType: number, lat0: number, dx: number, dy: number): { dLon: number; dLat: number } {
+    const cam = new Camera(20, lat0, 3)
+    cam.projType = projType
+    cam.globeMode = projType === 7
+    cam.bearing = 0
+    if (projType === 3 || projType === 4 || projType === 5) {
+      cam.pitchLocked = true
+      cam.pitch = 0
+    }
+    const lon0 = cam.centerX / EARTH_R_G6 * RAD2DEG_G6
+    const lat0Deg = cam.centerLatDeg
+    cam.pan(dx, dy, G6_W, G6_H)
+    return {
+      dLon: cam.centerX / EARTH_R_G6 * RAD2DEG_G6 - lon0,
+      dLat: cam.centerLatDeg - lat0Deg,
+    }
+  }
+
+  const DISC_G6: Array<[number, string]> = [
+    [3, 'orthographic'], [4, 'azimuthal_equidistant'], [5, 'stereographic'],
+  ]
+
+  // The decisive case: a VERTICAL drag at HIGH latitude. The Mercator-Y stretch
+  // (1/cos lat) only shows in the vertical (centerY) component, and only away
+  // from the equator. lat 60° → the pre-fix disc moved HALF the globe's Δlat.
+  for (const [projType, name] of DISC_G6) {
+    for (const lat0 of [0, 60]) {
+      it(`${name} (${projType}) lat=${lat0}: vertical delta-pan rotates the centre the SAME as the globe`, () => {
+        const disc = panCentreDelta(projType, lat0, 0, 10)
+        const globe = panCentreDelta(7, lat0, 0, 10)
+        // Two representations of the same sphere: identical screen delta →
+        // identical geographic centre motion. (Pre-fix: disc.dLat ≈ globe.dLat
+        // · cos(lat0) — half at 60° — so this asserts the fix.)
+        expect(Math.abs(disc.dLat - globe.dLat),
+          `${name} lat=${lat0}: disc Δlat ${disc.dLat.toFixed(5)}° vs globe ${globe.dLat.toFixed(5)}° — disc-pan still on the Mercator plane`).toBeLessThan(1e-4)
+        expect(Math.abs(disc.dLon - globe.dLon),
+          `${name} lat=${lat0}: disc Δlon ${disc.dLon.toFixed(5)}° vs globe ${globe.dLon.toFixed(5)}°`).toBeLessThan(1e-4)
+      })
+    }
+  }
+
+  // Discriminating sanity: at lat 60° a vertical drag MUST rotate the centre by
+  // the FULL surface amount, NOT the Mercator-stretched half. The pre-fix code
+  // returned ~0.437° here; the surface-correct value is ~0.879° (== the lat-0
+  // value, since surface degPerPx is latitude-independent).
+  it('ortho(3) lat=60 vertical drag is the full surface rotation, not the 1/cos(lat) Mercator under-move', () => {
+    const at0 = panCentreDelta(3, 0, 0, 10).dLat
+    const at60 = panCentreDelta(3, 60, 0, 10).dLat
+    expect(at0, `lat-0 Δlat ${at0}`).toBeGreaterThan(0.5)
+    // Surface pan is latitude-independent; pre-fix at60 ≈ at0·cos(60°) = at0/2.
+    expect(Math.abs(at60 - at0),
+      `ortho lat=60 Δlat ${at60.toFixed(5)}° != lat=0 Δlat ${at0.toFixed(5)}° → still Mercator-stretched`).toBeLessThan(1e-4)
+  })
+
+  // Regression guard: Mercator (0) + flat cylindrical (1/2/6) keep the legacy
+  // Mercator-metre delta — their centre representation is 'mercator-y', so the
+  // new branch must NOT touch them. A vertical drag at lat 60° on these moves
+  // centerY by Δpx·mpp (the Mercator stretch is INTENDED for the flat plane),
+  // so their Δlat is the Mercator-derived value and DIFFERS from the globe's
+  // surface value — assert that difference persists (i.e. unchanged behaviour).
+  for (const [projType, name] of [[0, 'mercator'], [1, 'equirectangular'], [2, 'natural_earth'], [6, 'oblique_mercator']] as Array<[number, string]>) {
+    it(`${name} (${projType}) lat=60 keeps the Mercator-metre delta pan (unchanged)`, () => {
+      const flat = panCentreDelta(projType, 60, 0, 10)
+      const globe = panCentreDelta(7, 60, 0, 10)
+      // Flat pan moves the Mercator plane → Δlat ≠ the globe's surface Δlat at
+      // high latitude (the existing, correct behaviour for these projTypes).
+      expect(Math.abs(flat.dLat - globe.dLat),
+        `${name} lat=60: Δlat ${flat.dLat.toFixed(5)}° unexpectedly equals globe ${globe.dLat.toFixed(5)}° — the flat branch was altered`).toBeGreaterThan(1e-3)
+    })
+  }
+})
