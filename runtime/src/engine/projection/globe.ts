@@ -247,7 +247,19 @@ export function buildGlobeMatrix(
   // +R)*1.5` would strand the whole sphere in a sliver of the depth
   // range and re-open the front/back z-fight — bracket it tightly to the
   // shell (within R of the limb-tangent, ±1.5 R headroom) instead.
-  const near = ortho ? Math.max(1, eyeDist - EARTH_R * 1.5) : Math.max(1, alt * 0.01)
+  // Near plane for the perspective globe: the old `alt * 0.01` formula is
+  // too large when pitch is extreme (≥~70°) at low zoom.  At high pitch the
+  // eye sits nearly on the horizon; the limb-tangent distance from the eye to
+  // the sphere — `eyeDist − √(eyeDist²−R²)` — is much smaller than `alt*0.01`
+  // in that configuration, so the near plane clips the front cap (#600).
+  //
+  // Fix: bound near by half the limb-tangent distance so the front cap is
+  // always inside the frustum, while keeping `alt*0.01` for normal low-pitch
+  // views where it is already tight (smaller near → less z-fighting).
+  const limbTangentDist = eyeDist - Math.sqrt(Math.max(0, eyeDist * eyeDist - EARTH_R * EARTH_R))
+  const near = ortho
+    ? Math.max(1, eyeDist - EARTH_R * 1.5)
+    : Math.max(1, Math.min(alt * 0.01, limbTangentDist * 0.5))
   const far = ortho ? eyeDist + EARTH_R * 1.5 : (eyeDist + EARTH_R) * 1.5
   // Perspective — identical convention to Camera._buildRTCMatrix. With
   // the telephoto f/eye this is visually parallel yet keeps a varying

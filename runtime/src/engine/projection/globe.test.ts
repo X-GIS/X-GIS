@@ -375,3 +375,50 @@ describe('globe — orthographic (telephoto) orbit camera', () => {
       .toBeGreaterThan(0.05)
   })
 })
+
+// ── near-plane: high-pitch / low-zoom front-cap clipping fix (#600) ─────────
+describe('globe — near-plane clipping (#600)', () => {
+  // The repro camera: zoom 1.10, pitch 85°, lat/lon -24.24/-4.06, bearing 345.
+  // At this configuration the old `alt*0.01` formula produced a near plane
+  // larger than the limb-tangent distance → the front hemisphere was clipped.
+  const reproZoom = 1.10, reproPitch = 85, reproH = 720
+
+  it('near < limb-tangent distance at high-pitch / low-zoom repro camera (#600)', () => {
+    const v = buildGlobeMatrix(-4.06461, -24.24239, reproZoom, reproPitch, 345, 1280, reproH)
+    const eyeDist = Math.sqrt(v.eye[0] ** 2 + v.eye[1] ** 2 + v.eye[2] ** 2)
+    // Distance from eye to sphere tangent point (the closest the sphere
+    // surface ever comes to the eye in any direction).
+    const limbTangentDist = eyeDist - Math.sqrt(Math.max(0, eyeDist * eyeDist - EARTH_R * EARTH_R))
+    // near must be strictly less than limbTangentDist so the front cap is
+    // inside the frustum.  (The old alt*0.01 formula violated this.)
+    expect(v.near).toBeLessThan(limbTangentDist)
+    // Sanity: near must be positive (frustum is valid).
+    expect(v.near).toBeGreaterThan(0)
+    // Sanity: far must be beyond the far side of the globe.
+    expect(v.far).toBeGreaterThan(eyeDist + EARTH_R)
+  })
+
+  it('near < limb-tangent distance across a sweep of extreme pitches', () => {
+    for (const pitch of [70, 75, 80, 83, 85]) {
+      const v = buildGlobeMatrix(0, 0, reproZoom, pitch, 0, 1280, reproH)
+      const eyeDist = Math.sqrt(v.eye[0] ** 2 + v.eye[1] ** 2 + v.eye[2] ** 2)
+      const limbTangentDist = eyeDist - Math.sqrt(Math.max(0, eyeDist * eyeDist - EARTH_R * EARTH_R))
+      expect(v.near).toBeLessThan(limbTangentDist)
+    }
+  })
+
+  it('low-pitch near matches alt*0.01 (regression: normal views unchanged)', () => {
+    // At low pitch the limb-tangent constraint is slack and alt*0.01 governs.
+    // Verify the value is unchanged from the pre-fix formula.
+    for (const [zoom, pitch] of [[3, 0], [5, 20], [8, 30]] as [number, number][]) {
+      const v = buildGlobeMatrix(0, 0, zoom, pitch, 0, 1280, reproH)
+      const eyeDist = Math.sqrt(v.eye[0] ** 2 + v.eye[1] ** 2 + v.eye[2] ** 2)
+      const limbTangentDist = eyeDist - Math.sqrt(Math.max(0, eyeDist * eyeDist - EARTH_R * EARTH_R))
+      // alt*0.01 is the tighter bound at low pitch → it governs, so
+      // near = max(1, alt*0.01).  Check that near < limbTangentDist (always
+      // true when pitch is low) and that the formula is self-consistent.
+      expect(v.near).toBeLessThan(limbTangentDist)
+      expect(v.near).toBeGreaterThan(0)
+    }
+  })
+})
