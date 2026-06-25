@@ -32,7 +32,7 @@ import { InlineGlyphProvider } from './sdf/pbf/inline-glyph-provider'
 import type { GlyphProvider } from './sdf/pbf/glyph-provider'
 import { PbfRasterizer } from './sdf/pbf-rasterizer'
 import { TextRenderer, type TextDraw } from './text-renderer'
-import { greedyPlaceBboxes, type CollisionItem } from './text-collision'
+import { greedyPlaceBboxes, type CollisionItem, type CollisionObstacle } from './text-collision'
 import {
   applyTextTransform, stripCurveLineExtraScripts,
   evaluateVariableOffsetEm, variableAnchorOffsetEm,
@@ -469,6 +469,8 @@ export class TextStage {
     fontKey?: string,
     layerName?: string,
     pairKey?: string,
+    lineId?: string,
+    anchorDistancePx?: number,
   ): void {
     const text = resolveText(value, props, this.cameraZoom)
     if (text.length === 0) return
@@ -498,6 +500,8 @@ export class TextStage {
       def,
       fontKey: fontKey ?? composeFontKey(def, this.opts.defaultFont),
       pairKey,
+      lineId,
+      anchorDistancePx,
     })
   }
 
@@ -550,6 +554,25 @@ export class TextStage {
    *  run AFTER TextStage. */
   getDroppedPairKeys(): ReadonlySet<string> { return this.droppedPairKeys }
 
+  /** #609 — pair-keys of labels with a LIVE text bbox queued for the
+   *  current frame (point + curved-line). Read by IconStage.computeObstacles
+   *  BEFORE prepare() so a paired icon whose text already participates in the
+   *  collision pass does NOT also seed a separate obstacle box: if the text
+   *  wins, its own bbox blocks other labels; if it loses, the icon is dropped
+   *  via droppedPairKeys — either way the icon's box is redundant-or-harmful
+   *  (the phantom-obstacle over-drop). addLabel / addCurvedLineLabel both
+   *  early-return on empty resolved text, so every pairKey present here is
+   *  backed by a real text bbox; an icon-only / empty-text paired symbol is
+   *  absent and keeps seeding its obstacle (preserving #609's separate-feature
+   *  blocking). Must be queried before prepare() since reset() clears the
+   *  pending queues for the next frame. */
+  getActiveTextPairKeys(): ReadonlySet<string> {
+    const out = new Set<string>()
+    for (const p of this.pending) if (p.pairKey !== undefined) out.add(p.pairKey)
+    for (const p of this.pendingLine) if (p.pairKey !== undefined) out.add(p.pairKey)
+    return out
+  }
+
   addLabel(
     value: TextValue,
     props: FeatureProps,
@@ -586,8 +609,14 @@ export class TextStage {
   /** Realize queued labels into atlas + GPU + draw list. Caller
    *  invokes this once per frame after all addLabel() calls and
    *  before encoding the render pass; render() then encodes the
-   *  draws onto the supplied pass. */
-  prepare(): void {
+   *  draws onto the supplied pass.
+   *
+   *  `iconObstacles` are the dispatched icons' screen boxes (from
+   *  IconStage.computeObstacles()). They seed the collision grid so a
+   *  label that overlaps a separate collide-icon is dropped — MapLibre
+   *  inserts placed icon boxes into the same grid every label hit-tests
+   *  against. A label is exempt from its OWN paired icon via groupKey. */
+  prepare(iconObstacles: readonly CollisionObstacle[] = []): void {
     // iter-285 — snapshot submitted count BEFORE collision pass.
     // pendingLine entries each may yield 1+ placements; counted as 1
     // per submission for a coarse but useful diagnostic.
@@ -626,6 +655,13 @@ export class TextStage {
        *  `source` forces source order. `auto` / undefined keeps the
        *  legacy reverse-layer / sortKey ordering byte-for-byte. */
       symbolZOrder?: 'auto' | 'viewport-y' | 'source'
+      /** #605 — tile-stable line identity + along-line anchor offset for
+       *  curved line labels, forwarded to the collision pass's lineId /
+       *  anchorDistancePx so same-route shields within symbol-spacing
+       *  collide (caps cross-tile repeats in screen space). Point labels
+       *  leave both undefined. */
+      lineId?: string
+      anchorDistancePx?: number
     }
     const shaped: ShapedLabel[] = []
     const dpr = this.dpr
@@ -897,6 +933,9 @@ export class TextStage {
           padding,
           haloOut ? haloOut.width : 0,
           haloOut?.blur ?? 0,
+          // #608-scope — paired (shield) vs standalone produce different
+          // glyphOffsets for identical font/text/size/anchor; key them apart.
+          p.pairKey !== undefined,
         )
         const hit = this._layoutCache.get(_layoutKey)
         // iter-190 generation guard + Audit ④ B1 text-identity guard.
@@ -1036,32 +1075,36 @@ export class TextStage {
           const effectiveJustify = justify === 'auto'
             ? (isLeftAnchor ? 'left' : isRightAnchor ? 'right' : 'center')
             : justify
-          // iter-344/345 — centre-anchor ink fix. X-GIS's bearingY is a
-          // baseline-relative POSITIVE ascent (incl. the pbf-rasterizer
-          // recovery that flips ascender-relative latin `top` to a true
-          // ascent), but `vlay`'s SHAPING_DEFAULT_OFFSET baseline is the
-          // ascender-relative value from the MapLibre port. For vAlign=0.5
-          // those two conventions don't cancel, leaving the ink ~1em
-          // ABOVE the anchor — the user-reported "shield number floats
-          // over its white box" (debug-labels box gap was a constant
-          // +11px at fs10). For the centre case, shift the line's baseline
-          // so its INK BAND centres on the line point. Computed PER LINE
-          // from the line's max ascent/descent (NOT per glyph — that
-          // de-aligned baselines within a mixed-height line e.g. 여(h22)
-          // vs 도(h17), splitting "여의도" into staggered glyphs). All
-          // glyphs in the line keep a SHARED baseline (correct typography)
-          // and the band centres. Top/bottom (vAlign 0/1) keep the
-          // MapLibre port untouched. Baked into glyphOffsets so the layout
-          // cache + dump both see the corrected position.
-          // One CONSTANT block shift (not per-line) so multi-line labels
-          // keep their lineHeight spacing while the whole ink BLOCK
-          // centres on the anchor. Drop the SHAPING baseline term and add
-          // the block's ink-band half-offset (max ascent/descent over the
-          // label). Per-line centring (iter-345) compressed 2-line spacing
-          // into an overlap; a uniform shift preserves it.
+          // #608 — vertical-placement parity with MapLibre. MapLibre's
+          // `SHAPING_DEFAULT_OFFSET = -17` baseline term exists to convert
+          // from its glyph-metric origin (MapLibre `metrics.top` is
+          // ASCENDER-relative — `glyphTop - topAdjustment`, negative for a
+          // normal cap) down to the alphabetic baseline. X-GIS's `bearingY`
+          // is ALREADY a true baseline ascent (the pbf-rasterizer recovers a
+          // positive ascent from the ascender-relative PBF `top`), so the
+          // renderer's `y0 = baseline - bearingY*sc` places ink correctly
+          // relative to the baseline on its own. Re-applying the -17 SHAPING
+          // term in the baseline DOUBLE-COUNTS the origin shift, lifting the
+          // ink ~17/24-em ABOVE where MapLibre puts it (measured: Houston z12
+          // ink ~19px too HIGH; confirmed for center + bottom anchors). Cancel
+          // the SHAPING term (`-shapingBaselineOff`) so the per-line baseline
+          // is just MapLibre's `align` shiftY (li·LH spacing preserved); the
+          // ink then hangs from that baseline by the glyph's own
+          // metrics (-bearingY + height/2), exactly as MapLibre — a
+          // GLYPH-METRIC-DEPENDENT offset (all-caps vs mixed-case vs CJK
+          // differ), NOT a constant. This is the STANDALONE place-label hang.
+          //
+          // #608-scope EXCEPTION — ICON-PAIRED / SHIELD text (`pairKey` set,
+          // e.g. ref "82" inside a highway shield) must sit CENTRED on the
+          // shared icon anchor, not hang below: the box is drawn symmetrically
+          // about that anchor, so a hung band reads LOW/off-centre in the box.
+          // For paired center-anchored text restore the prior shield-text-box-
+          // align ink recentre — pin the band CENTROID via (maxAsc-maxDesc)/2
+          // (one shared per-block shift). Standalone labels keep the hang.
           const shapingBaselineOff = (SHAPING_DEFAULT_OFFSET * sizePx) / ONE_EM
-          let centreShift = 0
-          if (vAlign === 0.5) {
+          const isIconPaired = p.pairKey !== undefined
+          let centreShift = -shapingBaselineOff
+          if (isIconPaired && vAlign === 0.5) {
             let maxAsc = 0, maxDesc = 0
             for (let gi = 0; gi < glyphs.length; gi++) {
               const g = glyphs[gi]!
@@ -1400,6 +1443,8 @@ export class TextStage {
         sortKey: p.def.sortKey,
         symbolZOrder: p.def.symbolZOrder,
         pairKey: p.pairKey,
+        lineId: p.lineId,
+        anchorDistancePx: p.anchorDistancePx,
       })
     }
     perfMarkEnd('stage-prepare.line-loop')
@@ -1432,15 +1477,36 @@ export class TextStage {
     // order stays in original `shaped` order so
     // the layered rendering effect (country text on top of water
     // halo) is preserved — only the collision dedup priority flips.
+    // #605 — symbol-spacing window (physical px) for the same-route along-
+    // line spacing gate. MapLibre `symbol-spacing` default is 250 CSS px;
+    // anchorDistancePx + the polyline are in PHYSICAL px, so scale by dpr.
+    // The gate uses a strict `<`, and the label pass emits along-line stops
+    // at exact multiples of the layer's spacingPx (default 250*dpr), so a
+    // window of 250*dpr keeps legitimately-spaced repeats inside ONE polyline
+    // (|stride| == window is NOT dropped) while collapsing cross-tile copies,
+    // which share the same spacing phase and so alias to ~0 separation.
+    const MIN_LINE_SPACING_PX = 250 * dpr
     // iter-265 — sub-phase drill. Collision = CollisionItem.map +
     // greedyPlaceBboxes + per-shape place loop. greedy is O(N²) so
     // dense-label scenes (low-z world view) spend a chunk here.
     perfMarkStart('stage-prepare.collision')
-    const collisionInput: CollisionItem[] = shaped.map(s => ({
+    const collisionInput: CollisionItem[] = shaped.map((s, idx) => ({
       bboxes: s.layouts.map(l => l.bbox),
       allowOverlap: s.allowOverlap,
       ignorePlacement: s.ignorePlacement,
       sortKey: s.sortKey,
+      // groupKey = this label's pairKey so a paired icon obstacle cannot
+      // block its OWN text (they share the anchor by design, #609).
+      groupKey: this.pending[idx]?.pairKey ?? s.pairKey,
+      // #605 — same-route along-line spacing. lineId is the TILE-STABLE
+      // route/road identity (set only on curved line labels); anchorDistancePx
+      // is the anchor's along-polyline screen offset. greedyPlaceBboxes' min-
+      // line-spacing gate then drops a same-lineId shield within MIN_LINE_SPACING_PX
+      // of an already-placed one, so the same "82" route — sliced into per-tile
+      // polylines by PMTiles — stops repeating once per tile and caps at MapLibre's
+      // ~one-per-symbol-spacing screen cadence. Point labels leave both undefined.
+      lineId: s.lineId,
+      anchorDistancePx: s.anchorDistancePx,
     }))
     // When ANY shaped item carries an explicit sortKey, greedy­Place­
     // Bboxes handles priority via stable sort by sortKey ascending —
@@ -1494,12 +1560,17 @@ export class TextStage {
       // Build the collision input in the chosen iteration order (drop
       // sortKey so greedy doesn't re-reorder — the z-order is the
       // authority). Map placements back to original shaped indices.
+      // #605 — carry lineId/anchorDistancePx through so same-route along-line
+      // spacing still applies under an explicit symbol-z-order.
       const orderedInput: CollisionItem[] = order.map(i => ({
         bboxes: collisionInput[i]!.bboxes,
         allowOverlap: collisionInput[i]!.allowOverlap,
         ignorePlacement: collisionInput[i]!.ignorePlacement,
+        groupKey: collisionInput[i]!.groupKey,
+        lineId: collisionInput[i]!.lineId,
+        anchorDistancePx: collisionInput[i]!.anchorDistancePx,
       }))
-      const orderedPlacements = greedyPlaceBboxes(orderedInput)
+      const orderedPlacements = greedyPlaceBboxes(orderedInput, { obstacles: iconObstacles, minLineSpacingPx: MIN_LINE_SPACING_PX })
       placements = new Array(shaped.length) as typeof orderedPlacements
       for (let k = 0; k < order.length; k++) placements[order[k]!] = orderedPlacements[k]!
       // Painter order: viewport-y draws bottom-on-top (reverse of the
@@ -1509,11 +1580,11 @@ export class TextStage {
       let anySortKey = false
       for (const s of shaped) if (s.sortKey !== undefined) { anySortKey = true; break }
       if (anySortKey) {
-        placements = greedyPlaceBboxes(collisionInput)
+        placements = greedyPlaceBboxes(collisionInput, { obstacles: iconObstacles, minLineSpacingPx: MIN_LINE_SPACING_PX })
       } else {
         const reversed: CollisionItem[] = []
         for (let i = collisionInput.length - 1; i >= 0; i--) reversed.push(collisionInput[i]!)
-        const placementsReversed = greedyPlaceBboxes(reversed)
+        const placementsReversed = greedyPlaceBboxes(reversed, { obstacles: iconObstacles, minLineSpacingPx: MIN_LINE_SPACING_PX })
         placements = new Array(shaped.length) as typeof placementsReversed
         for (let i = 0; i < placementsReversed.length; i++) {
           placements[shaped.length - 1 - i] = placementsReversed[i]!

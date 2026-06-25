@@ -13,6 +13,7 @@ import { parseColor } from './renderer-helpers'
 import { UniformRing } from './uniform-ring'
 import { GraticuleRenderer } from './graticule-renderer'
 import { PipelineFactory } from './pipeline-factory'
+import { polygonUniformBytes } from './polygon-uniform-slots'
 
 // Re-export the extracted types so this module's public surface stays
 // byte-identical (external consumers import these from './renderer').
@@ -83,22 +84,20 @@ export class StyleProperties {
 
 export class MapRenderer {
   private ctx: GPUContext
-  // Cached per-frame allocation (avoid GC pressure in render loop)
-  // Must equal MapRenderer.UNIFORM_SIZE (256). Inlined because
-  // class-field init can't reference static-readonly fields declared
-  // later in the same class. Grew 192 → 240 (camera-relative RTC) → 256 when
-  // #420 appended light_dir_ecef @240 to the shared polygon/line Uniforms
-  // struct. Out-of-bounds typed-array writes are silent no-ops so a mismatch
-  // here = uniform never reaches the GPU.
-  private uniformDataBuf = new ArrayBuffer(256)
-  // Dynamic-offset uniform ring (see docs: multi-layer uniform slots).
-  // 256-byte slot also satisfies WebGPU minUniformBufferOffsetAlignment.
-  private static readonly UNIFORM_SLOT = 256
-  // Polygon Uniforms struct = 256 bytes — matches VTR + WGSL (the shared
-  // fill/line shaders statically reference u up to light_dir_ecef @240).
-  // The BGL omits minBindingSize, so WebGPU uses the shader-derived 256-byte
-  // minimum at draw time; a smaller bind `size` fails draw-time validation.
-  private static readonly UNIFORM_SIZE = 256
+  // Cached per-frame allocation (avoid GC pressure in render loop). Sized to
+  // the polygon Uniforms struct byte count (reflect-derived via
+  // polygonUniformBytes()). Out-of-bounds typed-array writes are silent no-ops
+  // so a mismatch here = uniform never reaches the GPU.
+  private uniformDataBuf = new ArrayBuffer(polygonUniformBytes())
+  // Dynamic-offset uniform ring (see docs: multi-layer uniform slots). The slot
+  // STRIDE must be a multiple of WebGPU minUniformBufferOffsetAlignment (256);
+  // derived as the next 256-multiple ≥ the struct byte size.
+  private static readonly UNIFORM_SLOT = Math.ceil(polygonUniformBytes() / 256) * 256
+  // Polygon Uniforms struct byte size — bind-range `size` for binding 0.
+  // Derived from reflect() so a struct change propagates automatically.
+  // The BGL omits minBindingSize, so WebGPU uses the shader-derived minimum at
+  // draw time; a smaller bind `size` fails draw-time validation.
+  private static readonly UNIFORM_SIZE = polygonUniformBytes()
   /** Pipeline-construction collaborator (Unit 1 of
    *  renderer-decomposition-2026-06-09). Owns every render pipeline +
    *  bind-group layout + the atlas STUB textures + the shared sampler +

@@ -53,8 +53,9 @@ describe('uniformFieldSlots', () => {
     const u = uniformFieldSlots(reflect(buildPointModule()), 'Uniforms')
     expect(u.slot).toEqual({
       mvp: 0, proj_params: 16, viewport: 20, cam_ecef_h: 24, cam_ecef_l: 28, circle_params: 32,
+      globe_eye: 36, // #600 — globe(7) eye-horizon cull dir
     })
-    expect(u.slots).toBe(36)
+    expect(u.slots).toBe(40) // #600 — grew 36→40 (globe_eye vec4)
   })
 
   it('throws for an unknown struct name', () => {

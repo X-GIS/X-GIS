@@ -30,10 +30,12 @@ describe('shader-dsl WGSL backend — projection module', () => {
       'fn proj_oblique_mercator_d(lam_rot: f32, phi_rot: f32) -> vec2<f32>',
       'fn proj_globe(lon_deg: f32, lat_deg: f32) -> vec3<f32>',
       'fn center_cos_c(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> f32',
+      // #600 — globe(7) eye-horizon cull helper + the extra globe_eye vec4 on cull/rim.
+      'fn globe_eye_horizon_cos(lon_deg: f32, lat_deg: f32, globe_eye: vec4<f32>) -> f32',
       'fn project(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>) -> vec2<f32>',
       'fn project_geom(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>, ref_lon: f32) -> vec2<f32>',
-      'fn needs_backface_cull(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>) -> f32',
-      'fn rim_alpha(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>) -> f32',
+      'fn needs_backface_cull(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>, globe_eye: vec4<f32>) -> f32',
+      'fn rim_alpha(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>, globe_eye: vec4<f32>) -> f32',
       'fn inv_merc_lat_rad(merc_y_m: f32) -> f32',
     ]) {
       expect(wgsl, `missing ${sig}`).toContain(sig)

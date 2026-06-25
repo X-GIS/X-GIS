@@ -46,9 +46,10 @@ const FILL: [number, number, number, number] = [1, 0, 0, 1]
 const W = 1024
 const H = 768
 
-// The point uniform is a Float32Array(36) → 144-byte buffer; circle_params.w
-// is f32 slot 35. (See point-uniform-layout.test.ts for the byte contract.)
-const UNIFORM_BYTES = 144
+// The point uniform is a Float32Array(40) → 160-byte buffer (#600 grew it
+// 144→160 for globe_eye); circle_params.w is f32 slot 35, unchanged (globe_eye
+// is appended AFTER circle_params). (See point-uniform-layout.test.ts.)
+const UNIFORM_BYTES = 160
 const CIRCLE_PARAMS_W = 35
 
 /** Add a single opaque circle layer with the given pitch-scale mode, run
@@ -75,7 +76,7 @@ function capturedPitchScaleFlag(ctx: GPUContext, pitchScaleMap: boolean): number
     if ((buf as { size?: number })?.size !== UNIFORM_BYTES) return
     const f32 = data instanceof ArrayBuffer
       ? new Float32Array(data)
-      : new Float32Array((data as ArrayBufferView).buffer, (data as ArrayBufferView).byteOffset, 36)
+      : new Float32Array((data as ArrayBufferView).buffer, (data as ArrayBufferView).byteOffset, 40)
     flag = f32[CIRCLE_PARAMS_W]
   }
 

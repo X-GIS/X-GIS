@@ -31,12 +31,15 @@ describe('uniform byte-layout consistency (CPU pack ↔ DSL struct, via reflect(
     expect(slot.light_dir_ecef).toBe(60)
   })
 
-  it('every slot is f32-aligned and within the 256-byte uniform-ring slot', () => {
+  it('every slot is f32-aligned and within the uniform-ring slot stride', () => {
     for (const [name, s] of Object.entries(slot)) {
       expect(Number.isInteger(s), `${name} slot ${s} not integer`).toBe(true)
     }
-    // 256 bytes / 4 = 64 f32 slots (the ring-slot allocation).
-    expect(slots).toBeLessThanOrEqual(64)
+    // #600 — the struct grew to 272 bytes (globe_eye @256), so the ring slot
+    // stride stepped 256 → 512 (next 256-multiple ≥ 272). 512/4 = 128 f32 slots.
+    // The struct itself is 272/4 = 68 f32 slots; assert it fits the 128 stride.
+    expect(slots).toBe(68)
+    expect(slots).toBeLessThanOrEqual(128)
   })
 
   it('the CPU packer (vector-tile-renderer) sources its slots from reflect(), not magic numbers', () => {

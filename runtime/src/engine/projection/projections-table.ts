@@ -195,6 +195,15 @@ export function representsCenterAs(projType: number): CenterRepr {
   return worldBandForProjType(projType) === 'sphere-full' ? 'lat-deg' : 'mercator-y'
 }
 
+/** True only for the flat Web-Mercator projection (projType 0) — the single
+ *  projection whose POINT vertex path packs a Mercator-DSFUN position and so
+ *  enumerates Mercator world-copies at low zoom. Keeps the projType literal in
+ *  the table, not in the renderers (the arch-ratchet routes projType branching
+ *  through projections-table membership accessors). */
+export function isWebMercator(projType: number): boolean {
+  return projType === 0
+}
+
 const EARTH_R_M = 6378137
 
 /** Flat-path z0 view-height cap (metres) for a projType. The flat MVP

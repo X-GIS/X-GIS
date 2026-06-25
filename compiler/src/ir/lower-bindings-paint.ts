@@ -9,26 +9,44 @@ import { colorConstant, hexToRgba, sizeConstant } from './render-node'
 import {
   bindingAsConstantNumber,
   extractInterpolateZoomStops,
+  extractStepZoomStops,
 } from './lower-helpers'
 import type { BindingHandler } from './lower-bindings'
 
 // ── Binding-form arms (item.binding present) ──
 
-/** `opacity-[interpolate(zoom, …)]` — 0..100 scale, divide each stop. */
+/** `opacity-[interpolate(zoom, …)]` or `opacity-[step(zoom, …)]`. */
 export const opacityZoomBindingHandler: BindingHandler = {
   match: (ctx) => ctx.name === 'opacity',
   apply: (ctx) => {
-    const zoomStops = extractInterpolateZoomStops(ctx.item.binding!)
-    if (zoomStops) {
-      for (const s of zoomStops.stops) {
+    // Try interpolate first, then step.
+    // Scale difference: the converter's addOpacity pre-scales interpolate
+    // stop values 0..1 → 0..100 (the emitValue callback multiplies by 100),
+    // so the lowerer must divide by 100 to recover 0..1. The step path goes
+    // through exprToXgis which passes numeric literals as-is, so step stop
+    // values are already 0..1 — no division needed.
+    const interpStops = extractInterpolateZoomStops(ctx.item.binding!)
+    if (interpStops) {
+      for (const s of interpStops.stops) {
         ctx.acc.opacityZoomStops.push({
           zoom: s.zoom,
-          // opacity-<N> is the 0..100 scale; divide always (the old
-          // `<=1?:/100` heuristic mis-read opacity-1 = Mapbox 0.01 as 1.0).
+          // Interpolate stops are 0..100 (pre-scaled by the converter).
           value: s.value / 100,
         })
       }
-      if (zoomStops.base !== 1) ctx.acc.opacityZoomStopsBase = zoomStops.base
+      if (interpStops.base !== 1) ctx.acc.opacityZoomStopsBase = interpStops.base
+      return true
+    }
+    const stepStops = extractStepZoomStops(ctx.item.binding!)
+    if (stepStops) {
+      for (const s of stepStops.stops) {
+        ctx.acc.opacityZoomStops.push({
+          zoom: s.zoom,
+          // Step stops are raw 0..1 (the converter does not pre-scale them).
+          value: s.value,
+        })
+      }
+      // step always returns base:1; no base override needed.
       return true
     }
     // Non-zoom opacity binding — fall through to the named `opacity` arm

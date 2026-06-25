@@ -178,6 +178,53 @@ export function extractInterpolateZoomStops(
   return stops.length >= 2 ? { base, stops } : null
 }
 
+/** Detect the `step(zoom, default, z1, v1, z2, v2, …)` call shape and
+ *  extract numeric zoom stops. Returns null when the AST isn't that exact
+ *  shape — other inputs (feature properties, etc.) or non-numeric values
+ *  fall through to the generic data-driven path.
+ *
+ *  Mapbox `["step", ["zoom"], def, z1, v1, z2, v2, …]` semantics:
+ *    zoom < z1  → def
+ *    zoom ≥ z1  → v1
+ *    zoom ≥ z2  → v2   … etc.
+ *
+ *  Represented in the existing zoom-interpolated infrastructure by
+ *  emitting each boundary as two adjacent stops:
+ *    [{zoom: z1 - ε, value: def}, {zoom: z1, value: v1}, …]
+ *  The interpolateZoom clamp (zoom <= stops[0].zoom → stops[0].value) means
+ *  zoom==z1 resolves to `v1` (the second stop), matching Mapbox's `>=`
+ *  semantics and the X-GIS step evaluator (input >= stop → val).
+ *  ε = 0.0001 zoom units is imperceptible. Values are returned raw (0..1);
+ *  the caller is responsible for any scale conversion. */
+export function extractStepZoomStops(
+  expr: AST.Expr,
+): ZoomStopsWithBase<number> | null {
+  if (expr.kind !== 'FnCall') return null
+  if (expr.callee.kind !== 'Identifier') return null
+  if (expr.callee.name !== 'step') return null
+  const args = expr.args
+  // step(zoom, default, z1, v1, …) — even arg count, at least 4.
+  if (args.length < 4 || args.length % 2 !== 0) return null
+  const input = args[0]
+  if (input.kind !== 'Identifier' || input.name !== 'zoom') return null
+  const defVal = bindingAsConstantNumber(args[1])
+  if (defVal === null) return null
+  const STEP_EPSILON = 0.0001
+  const stops: Array<{ zoom: number; value: number }> = []
+  let prevValue = defVal
+  for (let i = 2; i + 1 < args.length; i += 2) {
+    const z = bindingAsConstantNumber(args[i])
+    const v = bindingAsConstantNumber(args[i + 1])
+    if (z === null || v === null) return null
+    // Emit {z-ε, def} then {z, v} so zoom==z yields the >= value (v),
+    // matching Mapbox step semantics and the X-GIS evaluator (input >= stop).
+    stops.push({ zoom: z - STEP_EPSILON, value: prevValue })
+    stops.push({ zoom: z, value: v })
+    prevValue = v
+  }
+  return stops.length >= 2 ? { base: 1, stops } : null
+}
+
 /** Pull `(zoom, number[])` stops from `interpolate(zoom, z0, [a,b], z1,
  *  [c,d], …)` — the line-dasharray zoom form. Returns null when the
  *  expression isn't a zoom interpolate OR any stop value isn't a numeric

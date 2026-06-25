@@ -5,6 +5,7 @@
 
 import type { Camera } from '../projection/camera'
 import { lonLatToECEF } from '../projection/ecef'
+import { isWebMercator } from '../projection/projections-table'
 import { BLEND_ALPHA, DEPTH_TEST_WRITE, WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 import { getSampleCount } from '../gpu/gpu'
 import type { ShapeRegistry } from '../text/sdf-shape'
@@ -20,6 +21,7 @@ import { vertexField } from '@xgis/compiler'
 import { POINT_FORMAT } from './point-vertex-format'
 import { toVertexBufferLayout } from './vertex-buffer-layout'
 import { reflectionToBindGroupLayoutEntries, uniformFieldSlots } from './reflection-to-webgpu'
+import { globeEyeUniform } from './globe-eye-uniform'
 
 // Float-slot indices derived from the single-source POINT_FORMAT spec so the
 // packer cannot drift from the GPUVertexBufferLayout / vs_point @location.
@@ -45,6 +47,8 @@ const POINT_FEATID_FLOAT = vertexField(POINT_FORMAT, 'feat_id').offset / 4   // 
 interface PointUniformSlots {
   readonly mvp: number; readonly proj: number; readonly viewport: number
   readonly camH: number; readonly camL: number; readonly circle: number
+  // #600 — globe(7) eye-horizon cull dir (normalize(eye), R/|eye|).
+  readonly eye: number
   readonly slots: number
 }
 let _pointReflection: ReturnType<typeof reflect> | null = null
@@ -59,6 +63,7 @@ function pointUniformSlots(): PointUniformSlots {
   return (_pointSlots = {
     mvp: u.slot.mvp, proj: u.slot.proj_params, viewport: u.slot.viewport,
     camH: u.slot.cam_ecef_h, camL: u.slot.cam_ecef_l, circle: u.slot.circle_params,
+    eye: u.slot.globe_eye,
     slots: u.slots,
   })
 }
@@ -95,7 +100,9 @@ function buildPointBglEntries(): GPUBindGroupLayoutEntry[] {
  *  convention as fill_translate in polygon.ts. Default [0,0,0,0] = no-op. */
 function writePointFrameUniform(
   uf: Float32Array,
-  frame: { matrix: Float32Array; logDepthFc: number },
+  // #600 — frame.eye is the absolute sphere-ECEF camera position (globe/ECEF
+  // branch only; undefined on flat) for the globe(7) eye-horizon cull.
+  frame: { matrix: Float32Array; logDepthFc: number; eye?: readonly [number, number, number] },
   camera: Camera,
   projType: number,
   projCenterLon: number,
@@ -110,7 +117,7 @@ function writePointFrameUniform(
   // Field base slots are sourced from reflect(buildPointModule()) (the std140
   // Uniforms struct), not hand-counted — so the packer cannot drift from the
   // WGSL struct it shares an IR with.
-  const { mvp: U_MVP, proj: U_PROJ, viewport: U_VIEWPORT, camH: U_CAM_H, camL: U_CAM_L, circle: U_CIRCLE } = pointUniformSlots()
+  const { mvp: U_MVP, proj: U_PROJ, viewport: U_VIEWPORT, camH: U_CAM_H, camL: U_CAM_L, circle: U_CIRCLE, eye: U_EYE } = pointUniformSlots()
   uf.set(frame.matrix, U_MVP)
   uf[U_PROJ] = projType; uf[U_PROJ + 1] = projCenterLon; uf[U_PROJ + 2] = projCenterLat; uf[U_PROJ + 3] = 0
   const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, camera.zoom)
@@ -141,6 +148,44 @@ function writePointFrameUniform(
   // scales the quad expansion by w_ref/clip.w = mvp[3][3]/clip.w so circles
   // foreshorten with pitch/distance, matching MapLibre's pitch-scale:map).
   uf[U_CIRCLE + 3] = circlePitchScaleMap ? 1 : 0
+  // #600 — globe_eye: (normalize(eye), R/|eye|) for the globe(7) eye-horizon
+  // cull (point_cos_c, VS-side). frame.eye is set only on the globe/ECEF
+  // branch → all-zero on flat (the flat/disc cull arm ignores it).
+  const ge = globeEyeUniform(frame.eye)
+  uf[U_EYE] = ge[0]; uf[U_EYE + 1] = ge[1]; uf[U_EYE + 2] = ge[2]; uf[U_EYE + 3] = ge[3]
+}
+
+// ── World-copy helpers (exported for unit tests) ──────────────────────────
+
+const _DEG2RAD = Math.PI / 180
+const _R_MERC  = 6378137 // web-Mercator sphere radius (matches the tiler packer)
+
+/**
+ * Returns the world-copy offset array the renderer uses for a given projType.
+ * Flat Mercator (projType 0) fans out to all visible world copies via
+ * `camera.getVisibleWorldCopies`; all other projTypes return `[0]` (single
+ * absolute ECEF world, no wrap).
+ */
+export function pointWorldCopies(
+  projType: number,
+  camera: Camera,
+  canvasWidth: number,
+  canvasHeight: number,
+  dpr: number,
+): readonly number[] {
+  return isWebMercator(projType)
+    ? camera.getVisibleWorldCopies(canvasWidth, canvasHeight, dpr)
+    : [0]
+}
+
+/**
+ * Returns the Mercator x (in metres) for a point at `lon` (degrees) in
+ * world-copy `wo`.  `wo = 0` is the primary world; `wo = ±1, ±2, …` shift
+ * by one full world-width (360° × DEG2RAD × R_MERC) each.
+ * The caller is responsible for splitting into hi/lo f32 DSFUN slots.
+ */
+export function worldCopyMercX(lon: number, wo: number): number {
+  return lon * _DEG2RAD * _R_MERC + wo * 360 * _DEG2RAD * _R_MERC
 }
 
 // ═══ Renderer ═══
@@ -269,7 +314,7 @@ export class PointRenderer {
     })
 
     this.uniformBuffer = device.createBuffer({
-      size: pointUniformSlots().slots * 4, // reflected std140 Uniforms size (36 slots × 4 = 144 bytes)
+      size: pointUniformSlots().slots * 4, // reflected std140 Uniforms size (40 slots × 4 = 160 bytes after #600 globe_eye)
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     })
   }
@@ -820,9 +865,12 @@ export class PointRenderer {
     const DEG2RAD = Math.PI / 180
     const R_MERC = 6378137 // web-Mercator sphere radius (matches the tiler packer)
 
-    // ECEF DSFUN: one world copy (absolute ECEF, no Mercator world-wrapping).
     const STRIDE = 24
-    const COPIES = [0]
+    // Flat Mercator (projType 0) fans out to all visible world copies so
+    // GeoJSON points appear in every repeated world at low zoom — matching
+    // the label and fill behaviour.  All other projection paths use a single
+    // absolute world (ECEF globe / hemisphere projections have no world-wrap).
+    const COPIES = pointWorldCopies(projType, camera, canvasWidth, canvasHeight, dpr)
 
     // View-forward projection onto the ground plane, used to sort
     // translucent instances back-to-front. Pitch=0 gives a zero vector
@@ -880,7 +928,12 @@ export class PointRenderer {
           expandedFeat[dstOff + 17] = lon; expandedFeat[dstOff + 18] = lat
           expandedFeat[dstOff + 19] = layer.featData[srcOff + 19] // shape_id
           // Absolute Mercator DSFUN (20-23) — precise flat-Mercator position.
-          const mx = lon * DEG2RAD * R_MERC
+          // For world copies (projType 0) apply a per-copy longitude offset
+          // of wo*360° in Mercator metres so the point appears in every visible
+          // world repeat.  The ECEF/abs_lon branches above are copy-independent
+          // (absolute 3D position) and are left unchanged.
+          const wo = COPIES[w]
+          const mx = worldCopyMercX(lon, wo)
           const myClamp = Math.max(-85.051129, Math.min(85.051129, lat))
           const my = Math.log(Math.tan(Math.PI / 4 + myClamp * DEG2RAD / 2)) * R_MERC
           const mxH = Math.fround(mx); const myH = Math.fround(my)

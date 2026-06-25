@@ -141,8 +141,10 @@ describe('Phase-2 line shader — DSL emission', () => {
     const tu = noPick.match(/struct TileUniforms \{([\s\S]*?)\n\}/)![1]!
     expect(tu).toContain('cam_ecef_off_h')
     expect(tu).toContain('cam_ecef_off_l')
-    // WGSL std140 offsets (f32 slots): cam_ecef_off_h at 52, _l at 56, so the
-    // struct is 240 bytes — identical to polygon Uniforms (UNIFORM_SIZE).
+    // WGSL std140 offsets (f32 slots): cam_ecef_off_h at 52, _l at 56. #600
+    // appended _pad_light_dir (mirrors polygon's light_dir_ecef @240) + globe_eye
+    // @256 (slot 64), so the struct is 272 bytes — identical to polygon Uniforms
+    // (UNIFORM_SIZE), which it MUST be (shared VTR group(0) buffer).
     const T: Record<string, [number, number]> = {
       'mat4x4<f32>': [64, 16], 'vec4<f32>': [16, 16], 'vec2<f32>': [8, 8], 'f32': [4, 4], 'u32': [4, 4],
     }
@@ -154,7 +156,8 @@ describe('Phase-2 line shader — DSL emission', () => {
     }
     expect(off.cam_ecef_off_h).toBe(52)
     expect(off.cam_ecef_off_l).toBe(56)
-    expect(Math.ceil(cur / maxA) * maxA).toBe(240)
+    expect(off.globe_eye).toBe(64) // #600 — MUST equal polygon Uniforms.globe_eye (shared buffer)
+    expect(Math.ceil(cur / maxA) * maxA).toBe(272)
     // The final clip transform feeds vertex+offset through the MVP.
     const vs = noPick.slice(noPick.indexOf('fn vs_line'), noPick.indexOf('fn fs_line'))
     expect(vs).toContain('tile.cam_ecef_off_h')

@@ -46,6 +46,23 @@ export interface CollisionItem {
    *  symbol-spacing window of a higher-priority same-line label.
    *  Undefined → unused. */
   anchorDistancePx?: number
+  /** Collision group — MapLibre `collisionGroupID`. A blocker with
+   *  the SAME groupKey never blocks this item, so a paired icon
+   *  obstacle never collides with its own text label (they share the
+   *  same anchor by design). Undefined → blocked by every overlapper. */
+  groupKey?: string
+}
+
+/** A pre-placed collision blocker seeded into the grid BEFORE the greedy
+ *  pass runs. MapLibre inserts each placed icon box into the shared collision
+ *  grid so later labels avoid it. X-GIS runs text + icon stages separately,
+ *  so the label pass seeds the dispatched icon boxes here; every label is
+ *  then tested against them (except an icon's own paired text via groupKey).
+ *  Obstacles always block and are never themselves dropped. */
+export interface CollisionObstacle {
+  bbox: CollisionBbox
+  /** Same-group items (the icon's own paired text) are not blocked. */
+  groupKey?: string
 }
 
 export interface CollisionPlacement {
@@ -63,6 +80,14 @@ export interface GreedyOptions {
    *  default 250 px per spec. Set to 0 (or undefined) to disable.
    *  Items without lineId / anchorDistancePx are unaffected. */
   minLineSpacingPx?: number
+  /** Pre-placed blockers seeded into the grid BEFORE any item is
+   *  tested — MapLibre inserts each placed symbol's icon box into the
+   *  shared collision grid so subsequent labels avoid it. X-GIS runs
+   *  text collision separately from icons, so the caller passes the
+   *  dispatched icons' screen boxes here; every label is then tested
+   *  against them (except an icon's own paired text via groupKey).
+   *  Obstacles always block and are never dropped. */
+  obstacles?: readonly CollisionObstacle[]
 }
 
 /** Run the greedy pass. Returns one `CollisionPlacement` per item
@@ -85,7 +110,14 @@ export function greedyPlaceBboxes(
   opts: GreedyOptions = {},
 ): CollisionPlacement[] {
   const out: CollisionPlacement[] = new Array(items.length)
-  const blocking: CollisionBbox[] = []
+  // Each blocker carries its groupKey so an item is never blocked by a
+  // blocker of its OWN collision group (a paired symbol's icon vs its text).
+  const blocking: { bbox: CollisionBbox; groupKey?: string }[] = []
+  // Seed the icon obstacles first (MapLibre: placed icon boxes live in the
+  // same grid every later label hit-tests against). They always block.
+  if (opts.obstacles) {
+    for (const o of opts.obstacles) blocking.push({ bbox: o.bbox, groupKey: o.groupKey })
+  }
   // Per-lineId list of along-line distances already claimed by a
   // placed label. Same-line check is O(items-per-line) but items
   // per line is small in real styles (highway labels every ~250px).
@@ -126,8 +158,11 @@ export function greedyPlaceBboxes(
       if (it.allowOverlap) { pickedIdx = c; break }
       let collides = false
       for (const b of blocking) {
-        if (bbox.minX < b.maxX && bbox.maxX > b.minX
-            && bbox.minY < b.maxY && bbox.maxY > b.minY) {
+        // Same collision group (icon ↔ its own paired text) never collides.
+        if (it.groupKey !== undefined && b.groupKey === it.groupKey) continue
+        const bb = b.bbox
+        if (bbox.minX < bb.maxX && bbox.maxX > bb.minX
+            && bbox.minY < bb.maxY && bbox.maxY > bb.minY) {
           collides = true
           break
         }
@@ -139,7 +174,7 @@ export function greedyPlaceBboxes(
       continue
     }
     out[i] = { placed: true, chosen: pickedIdx }
-    if (!it.ignorePlacement) blocking.push(it.bboxes[pickedIdx]!)
+    if (!it.ignorePlacement) blocking.push({ bbox: it.bboxes[pickedIdx]!, groupKey: it.groupKey })
     if (it.lineId !== undefined && it.anchorDistancePx !== undefined) {
       let arr = placedByLine.get(it.lineId)
       if (!arr) { arr = []; placedByLine.set(it.lineId, arr) }

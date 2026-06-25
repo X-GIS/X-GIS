@@ -19,9 +19,21 @@
 
 import { describe, expect, it } from 'vitest'
 import { cosC, needsBackfaceCullWgsl } from '../shaders/dsl'
+import { globeEyeUniform } from './globe-eye-uniform'
 
 const EARTH_R = 6378137
 const DEG2RAD = Math.PI / 180
+
+// #600 — a FAR NADIR eye over (clon, clat): the globe arm now uses the
+// eye-horizon cap, but with the eye on the centre normal at large altitude the
+// horizon → the strict hemisphere (horizonCos → 0), so the cull sign still
+// matches the cosC ground truth this file asserts. (A pitched eye is exercised
+// by back-face-cull-comprehensive's #600 discriminating block.)
+function nadirEye(clon: number, clat: number): readonly [number, number, number] {
+  const lam = clon * DEG2RAD, phi = clat * DEG2RAD, c = Math.cos(phi)
+  const s = EARTH_R * 1e6 // far altitude → horizonCos ≈ 0 ≈ strict hemisphere
+  return [s * c * Math.cos(lam), s * c * Math.sin(lam), s * Math.sin(phi)]
+}
 
 // CPU port of WGSL `polygon_cos_c_fragment`. Inverts Web Mercator
 // to lon/lat, returns the same back-face signal the GPU computes.
@@ -32,7 +44,10 @@ function polygonCosCFragmentCpu(
   const absLon = absMercX / (DEG2RAD * EARTH_R)
   const latRad = 2 * Math.atan(Math.exp(absMercY / EARTH_R)) - Math.PI / 2
   const absLat = latRad / DEG2RAD
-  return needsBackfaceCullWgsl(projType, absLon, absLat, clon, clat)
+  // #600 — globe(7) needs globe_eye (far nadir eye ⇒ horizon ≈ strict
+  // hemisphere). Disc arms ignore it (pass a real eye anyway, harmless).
+  const eye = nadirEye(clon, clat)
+  return needsBackfaceCullWgsl(projType, absLon, absLat, clon, clat, globeEyeUniform(eye) as [number, number, number, number])
 }
 
 function lonLatToMerc(lon: number, lat: number): [number, number] {

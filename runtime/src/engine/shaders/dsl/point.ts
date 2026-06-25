@@ -57,6 +57,13 @@ const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
   // renderer — same convention as fill_translate_x/y in polygon.ts.
   // Default [0,0,0,0] → no-op (existing rendering byte-identical).
   circle_params: vec4fT,
+  // #600 — globe(7) eye-horizon cull. xyz = normalize(eye_ecef), w =
+  // EARTH_R/|eye_ecef| (= horizonCos). point_cos_c passes this to
+  // needs_backface_cull (VS-side cull): globe arm keeps the vertex iff
+  // dot(normalize(P_ecef), globe_eye.xyz) > globe_eye.w — the eye-horizon cap,
+  // not the pitch-invariant centre hemisphere. Written by point-renderer's
+  // writePointFrameUniform; ALL-ZERO on flat / disc paths (arms ignore it).
+  globe_eye: vec4fT,
 })
 const ShapeDesc = structDecl('ShapeDesc', {
   seg_start: u32T,
@@ -120,11 +127,11 @@ const STRIDE = u32(24)
 // mirroring polygon_cos_c_fragment + polygon_rim_alpha in polygon.ts.
 
 const pointCosC = fn('point_cos_c', { abs_lon: f32T, abs_lat: f32T }, (p) => {
-  return needs_backface_cull(p.abs_lon, p.abs_lat, U.field.proj_params)
+  return needs_backface_cull(p.abs_lon, p.abs_lat, U.field.proj_params, U.field.globe_eye)
 })
 
 const pointRimAlpha = fn('point_rim_alpha', { abs_lon: f32T, abs_lat: f32T }, (p) => {
-  return rim_alpha(p.abs_lon, p.abs_lat, U.field.proj_params)
+  return rim_alpha(p.abs_lon, p.abs_lat, U.field.proj_params, U.field.globe_eye)
 })
 
 const distToLine = fn('dist_to_line', { p: vec2fT, a: vec2fT, b: vec2fT }, (pp) => {

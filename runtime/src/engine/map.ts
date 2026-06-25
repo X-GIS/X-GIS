@@ -408,6 +408,11 @@ export class XGISMap {
    *  HIGHER layer's duplicate can supersede a lower one's per Mapbox
    *  layer-order precedence (#458). */
   readonly _scratchEmittedPointNames = new Map<string, number>()
+  /** #603 — cross-tile dedup for text-less line-placed icons (road_oneway
+   *  arrows, shields with no text). Keyed by bucketed screen position so
+   *  two tile segments' icons at the same on-screen location collapse.
+   *  Cleared per show entry (same lifetime as _scratchEmittedTextNames). */
+  readonly _scratchEmittedLineIconKeys = new Set<string>()
   /** iter-259 (Plan AAA B.7) — applyFeatureExprs cache. Keyed on
    *  props ref via WeakMap so per-feature LabelDef survives across
    *  frames + auto-GCs when source data drops the feature. Per
@@ -1698,7 +1703,7 @@ export class XGISMap {
       this.canvas, this.camera,
       () => ({ projectionName: this.projectionName }),
       {
-        onClick: (x, y, e) => { void dispatcher.handleClick(x, y, e) },
+        onClick: (x, y, e) => { dispatcher.handleClick(x, y, e).catch(() => {}) },
         onPointerMove: (x, y, e) => {
           // Continuous drag (pointer held) is an active gesture; a bare
           // hover is not — gate the interaction flag on _pointerActive.
@@ -1714,16 +1719,16 @@ export class XGISMap {
           this._cameraExplicitlyPositioned = true
           this._pointerActive = true
           this.markInteracting()
-          void dispatcher.handlePointerDown(x, y, e)
+          dispatcher.handlePointerDown(x, y, e).catch(() => {})
         },
-        onPointerUp: (x, y, e) => { this._pointerActive = false; void dispatcher.handlePointerUp(x, y, e) },
+        onPointerUp: (x, y, e) => { this._pointerActive = false; dispatcher.handlePointerUp(x, y, e).catch(() => {}) },
         // OS/gesture steal (capture loss) ends the drag without a clean
         // pointerup — clear the flag so a later hover can't re-pin low DPR.
         onPointerCancel: (e) => { this._pointerActive = false; dispatcher.handlePointerLeave(e) },
         onWheel: (x, y, e) => {
           this._cameraExplicitlyPositioned = true
           this.markInteracting()
-          void dispatcher.handleWheel(x, y, e)
+          dispatcher.handleWheel(x, y, e).catch(() => {})
         },
       },
     )

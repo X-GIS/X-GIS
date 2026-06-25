@@ -42,13 +42,15 @@
 // 2 palette atlas, 4 palette sampler, 5 sprite atlas, 6 sprite sampler).
 
 import { Epoch } from '../_cache/versioned-state'
+import { polygonUniformSlots } from './polygon-uniform-slots'
 
-// Bind-group binding range size for binding 0 (the uniform ring). Mirrors
-// the VTR module-local `UNIFORM_SIZE` (the WGSL `Uniforms` struct size) —
-// the source-level bind groups bind the ring at this size, exactly as the
-// in-VTR rebuild did. Kept in lockstep with VTR's constant by value (256
-// after #420 added light_dir_ecef vec4 to the camera-relative RTC layout).
-const UNIFORM_SIZE = 256
+// Bind-group binding range size for binding 0 (the uniform ring). Derived
+// lazily from reflect(buildPolygonModule()) — the SAME IR the shader is emitted
+// from — so a struct change reflows the bind size automatically. NOT a hand
+// constant: hand constants silently diverge when the DSL struct grows.
+// LAZY: polygonUniformSlots() requires configureProjections() to have run,
+// which is post-GPU-init. The size is computed on first rebuildBase() call.
+function uniformSize(): number { return polygonUniformSlots().slots * 4 }
 
 export class BindGroupRegistry {
   private device: GPUDevice
@@ -236,7 +238,7 @@ export class BindGroupRegistry {
       label: 'vtr-tileBg-default',
       layout: this.baseBindGroupLayout,
       entries: [
-        { binding: 0, resource: { buffer: ringBuf, offset: 0, size: UNIFORM_SIZE } },
+        { binding: 0, resource: { buffer: ringBuf, offset: 0, size: uniformSize() } },
         { binding: 2, resource: this.paletteColorAtlasView },
         { binding: 4, resource: this.paletteSampler },
         { binding: 5, resource: this.spriteAtlasView },
@@ -248,7 +250,7 @@ export class BindGroupRegistry {
         label: 'vtr-tileBg-feature',
         layout: featureLayout,
         entries: [
-          { binding: 0, resource: { buffer: ringBuf, offset: 0, size: UNIFORM_SIZE } },
+          { binding: 0, resource: { buffer: ringBuf, offset: 0, size: uniformSize() } },
           { binding: 1, resource: { buffer: featureDataBuffer } },
           { binding: 2, resource: this.paletteColorAtlasView },
           { binding: 4, resource: this.paletteSampler },

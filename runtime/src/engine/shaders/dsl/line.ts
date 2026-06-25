@@ -98,6 +98,17 @@ const TILE = uniformStruct('TileUniforms', { group: 0, binding: 0, as: 'tile' },
   // position mismatch, since line was projecting vertex−tileEcefCenter).
   cam_ecef_off_h: vec4fT,
   cam_ecef_off_l: vec4fT,
+  // Pad to mirror polygon Uniforms' light_dir_ecef @240 (the extrude light;
+  // the line shader never extrudes, so this is dead padding) — so the shared
+  // VTR uniform buffer's globe_eye lands at the SAME byte offset (256) for both
+  // the line and polygon shaders. The line VS/FS doesn't read this pad.
+  _pad_light_dir: vec4fT,
+  // #600 — globe(7) eye-horizon cull. xyz = normalize(eye_ecef), w =
+  // EARTH_R/|eye_ecef|. endpoint_cos_c + compute_line_color's per-fragment cull
+  // pass this to needs_backface_cull (globe arm uses the eye-horizon cap, not
+  // the pitch-invariant centre hemisphere). MUST sit at byte 256 = polygon
+  // Uniforms.globe_eye (shared VTR buffer). Struct grows 240→272.
+  globe_eye: vec4fT,
 })
 
 const PatternSlot = structDecl('PatternSlot', {
@@ -252,7 +263,7 @@ const endpointCosC = fn('endpoint_cos_c', { p_h: vec2fT, p_l: vec2fT }, (p) => {
   const absLon = absMercX.div(DEG2RAD.mul(EARTH_R))
   const latRad = inv_merc_lat_rad(absMercY)
   const absLat = degrees(latRad)
-  return needs_backface_cull(absLon, absLat, TILE.field.proj_params)
+  return needs_backface_cull(absLon, absLat, TILE.field.proj_params, TILE.field.globe_eye)
 })
 
 const patternUnitToM = fn('pattern_unit_to_m', { v: f32T, unit: u32T, mpp: f32T }, (p) => {
@@ -324,7 +335,7 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, (p) =
     const absLon = absMerc.x.div(DEG2RAD.mul(EARTH_R))
     const latRad = inv_merc_lat_rad(absMerc.y)
     const absLat = degrees(latRad)
-    If(needs_backface_cull(absLon, absLat, projParams).lt(0), () => { Discard() })
+    If(needs_backface_cull(absLon, absLat, projParams, TILE.field.globe_eye).lt(0), () => { Discard() })
   })
 
   // Per-tile clip mask (sentinel -1e30 skips). Reconstruct absolute Mercator
@@ -713,11 +724,11 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, (p) =
   })
   If(patDm.lt(1e9), () => { dM.assign(min(dM, patDm)) })
 
-  // Convert to pixels + line-blur AA.
+  // Convert to pixels + dpr-aware edge AA: half-band 0.5/dpr outer + blur inner (#606; line-thin-width-dpr.test).
   const dPx = Let(dM.div(layerMpp))
   const blurPx = max(f32(0), LAYER.field.aa_width_px.sub(1))
-  const aa = f32(0.5).add(blurPx)
-  const alpha = f32(1).sub(smoothstep(aa.neg(), aa, dPx))
+  const halfAa = f32(0.5).div(LAYER.field.dpr)
+  const alpha = f32(1).sub(smoothstep(halfAa.add(blurPx).neg(), halfAa, dPx))
   If(alpha.lt(0.005), () => Discard())
 
   // Per-segment stroke colour override.
@@ -734,7 +745,7 @@ const lineRimAlpha = fn('line_rim_alpha', { input: LineOut.type }, (p) => {
   const absLon = absMerc.x.div(DEG2RAD.mul(EARTH_R))
   const latRad = inv_merc_lat_rad(absMerc.y)
   const absLat = degrees(latRad)
-  return rim_alpha(absLon, absLat, TILE.field.proj_params)
+  return rim_alpha(absLon, absLat, TILE.field.proj_params, TILE.field.globe_eye)
 })
 
 // ── vs_line ──

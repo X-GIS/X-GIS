@@ -29,14 +29,13 @@ import { ComputeDispatcher } from '../gpu/compute'
 import { ComputeLayerHandle } from './compute-layer-handle'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { GPUTile } from './vector-tile-renderer-types'
+import { polygonUniformSlots } from './polygon-uniform-slots'
 
-// Bind-group binding range size for binding 0 (the uniform ring). Mirrors
-// the VTR module-local `UNIFORM_SIZE` (the WGSL `Uniforms` struct size) —
-// every per-tile + source-level feature bind group binds the ring at this
-// size, exactly as the in-VTR rebuild did. Kept in lockstep with VTR's
-// constant by value (256 after #420 added light_dir_ecef vec4 to the
-// camera-relative RTC layout).
-const UNIFORM_SIZE = 256
+// Bind-group binding range size for binding 0 (the uniform ring). Derived
+// lazily from reflect(buildPolygonModule()) — the SAME IR the shader is emitted
+// from — so a struct change reflows the bind size automatically. NOT a hand
+// constant: hand constants silently diverge when the DSL struct grows.
+function uniformSize(): number { return polygonUniformSlots().slots * 4 }
 
 /** Palette / sprite atlas resources passed per-call into the per-tile
  *  rebuild + carried at `buildPerTileFeatureData` time. These live on VTR
@@ -177,7 +176,7 @@ export class FeatureDataBinder {
           label: 'per-tile-feature-bg',
           layout: this._featureBindGroupLayout,
           entries: [
-            { binding: 0, resource: { buffer: ringBuf, offset: 0, size: UNIFORM_SIZE } },
+            { binding: 0, resource: { buffer: ringBuf, offset: 0, size: uniformSize() } },
             { binding: 1, resource: { buffer: tile.featureDataBuffer } },
             { binding: 2, resource: palette.paletteColorAtlasView },
             { binding: 4, resource: palette.paletteSampler },
@@ -455,7 +454,7 @@ export class FeatureDataBinder {
       label: 'per-tile-feature-bg',
       layout: this._featureBindGroupLayout,
       entries: [
-        { binding: 0, resource: { buffer: ringBuf, offset: 0, size: UNIFORM_SIZE } },
+        { binding: 0, resource: { buffer: ringBuf, offset: 0, size: uniformSize() } },
         { binding: 1, resource: { buffer } },
         { binding: 2, resource: palette.paletteColorAtlasView },
         { binding: 4, resource: palette.paletteSampler },

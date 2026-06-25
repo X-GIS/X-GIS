@@ -17,7 +17,7 @@
 
 import {
   fn, module, transformMat4, arrayLit,
-  f32, u32, toF32, vec2, vec3, vec4, vec2u, mix, atan, exp, smoothstep, textureSample, radians, degrees,
+  f32, u32, toF32, vec2, vec3, vec4, vec2u, mix, atan, exp, textureSample, radians, degrees,
   f32T, u32T, vec2fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   If, condExpr, Discard,
   type ModuleDecl,
@@ -27,7 +27,7 @@ import { emitModule } from '@xgis/shader-dsl'
 import { ECEF_CONSTS, ECEF_FUNCS, lonlatToEcef } from './ecef'
 import { RASTER_COLOR_FUNCS, rasterColorAdjust } from './raster-color'
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
-import { project, flat_rel, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
+import { project, flat_rel, needs_backface_cull, rim_alpha, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
 import { PI } from './consts'
 
 const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
@@ -47,6 +47,13 @@ const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
   // MVP. xyz = getECEFCenter (sphere); w unused. Raster is texture-grade, so
   // plain f32 (no DSFUN) is sufficient.
   cam_ecef_center: vec4fT,
+  // #600 — globe(7) eye-horizon cull. xyz = normalize(eye_ecef), w =
+  // EARTH_R/|eye_ecef|. The per-fragment cull (#595) passes this to
+  // needs_backface_cull / rim_alpha; the globe arm uses the eye-horizon cap
+  // (not the pitch-invariant centre hemisphere) — at high pitch the centre cull
+  // wrongly dropped eye-visible far-cap raster around the limb. Written by
+  // raster-renderer; ALL-ZERO on flat / disc paths (those arms ignore it).
+  globe_eye: vec4fT,
 })
 const Tile = uniformStruct('TileUniforms', { group: 1, binding: 0, as: 'tile' }, {
   bounds: vec4fT,          // west, south, east, north (degrees); x/z shifted per world-copy
@@ -59,6 +66,8 @@ const VsOut = ioStruct('VsOut', {
   uv: location(0, vec2fT),
   vis: location(1, f32T),
   view_w: location(2, f32T),
+  abs_lon: location(3, f32T),
+  abs_merc_y: location(4, f32T),
 })
 const rasterFragmentOutput = (pickEnabled: boolean) => ioStruct('RasterFragmentOutput', {
   color: location(0, vec4fT),
@@ -108,6 +117,8 @@ const vs = fn('vs_tile', { vid: builtin('vertex_index', u32T) }, (p) => {
   const camEcefVec = vec3(camEcef.x, camEcef.y, camEcef.z)
   const ecefRtc = ecef.sub(camEcefVec)
 
+  const latDeg = degrees(latRad)
+
   // Display projection (projection-display-layer-restore): flat Mercator
   // (proj_params.x < 0.5) reprojects the reconstructed lon/lat onto the 2D
   // plane and feeds the flat Mercator-metre MVP; 3D / globe keeps the ECEF
@@ -118,7 +129,6 @@ const vs = fn('vs_tile', { vid: builtin('vertex_index', u32T) }, (p) => {
   // raster.
   const clip = condExpr([
     [projParams.x.lt(0.5), () => {
-      const latDeg = degrees(latRad)
       const p2d = project(lon, latDeg, projParams)
       const rel2d = p2d.sub(vec2(camEcef.x, camEcef.y))
       return transformMat4(U.field.mvp, vec4(rel2d.x, rel2d.y, 0, 1))
@@ -128,17 +138,22 @@ const vs = fn('vs_tile', { vid: builtin('vertex_index', u32T) }, (p) => {
       // project_geom (world-copy aware; tileRefLon = tile-centre lon from the
       // tile bounds) minus the camera's projected centre (in-shader from
       // proj_params.y/z = clon/clat). Same flat MVP; cam_ecef_center unused here.
-      const latDeg = degrees(latRad)
       const tileRefLon = bounds.x.add(bounds.z).mul(0.5)
       const relG = flat_rel(lon, latDeg, projParams, tileRefLon)
       return transformMat4(U.field.mvp, vec4(relG.x, relG.y, 0, 1))
     }],
   ], () => transformMat4(U.field.mvp, vec4(ecefRtc, 1)))
+
+  // Pass lon (degrees) + mercYAbs (radians) to the fragment stage so it can
+  // recompute cos_c per-fragment (#595 fix). vis is a sentinel 1.0; the FS
+  // recomputes the true per-fragment cull signal from abs_lon/abs_merc_y.
   return VsOut.construct({
     pos: apply_log_depth(clip, projParams.w),
     uv: vec2(uu, vv),
     vis: f32(1),
     view_w: clip.w,
+    abs_lon: lon,
+    abs_merc_y: mercYAbs,
   })
 }, { stage: 'vertex' })
 
@@ -146,11 +161,30 @@ const buildFs = (pickEnabled: boolean) => {
   const RasterFragmentOutput = rasterFragmentOutput(pickEnabled)
   return fn('fs_tile', { input: VsOut.type }, (p) => {
     const pin = VsOut.of(p.input)
-    If(pin.vis.lt(0), () => { Discard() })
+
+    // Per-fragment hemisphere cull (#595): recompute cos_c from the abs_lon /
+    // abs_merc_y varyings rather than relying on the linearly-interpolated vis.
+    // cos_c is nonlinear (cosine of a great-circle arc), so bilinear
+    // interpolation across a tile corner is a chord — at low zoom (z≤3 tiles
+    // span up to 90° lon) the chord error is large enough to leak back-hemisphere
+    // raster around the limb. Recomputing per-fragment eliminates that leak.
+    // abs_merc_y is the Mercator Y in radians (log(tan(π/4 + lat/2))); the same
+    // atan/exp formula the VS uses recovers the geodetic latitude exactly.
+    //
+    // Mirrors polygon_cos_c_fragment + point_cos_c + line fs_strip recompute.
+    // Flat projections (proj_params.x < 2.5) short-circuit inside
+    // needs_backface_cull to +1, so there is no per-pixel cost on Mercator /
+    // equirect / natural-earth.
+    const latRad = f32(2).mul(atan(exp(pin.abs_merc_y))).sub(PI.div(2))
+    const latDeg = degrees(latRad)
+    const cosC = needs_backface_cull(pin.abs_lon, latDeg, U.field.proj_params, U.field.globe_eye)
+    If(cosC.lt(0), () => { Discard() })
+
     const c = textureSample(tex.node, texSampler.node, pin.uv)
-    // Rim alpha fade — input.vis carries (cos_c - threshold); Mercator writes
-    // vis=1 so smoothstep is a no-op on flat/cylindrical projections.
-    const rim = smoothstep(0, 0.02, pin.vis)
+    // Rim alpha fade — use the per-fragment rim_alpha so the fade tracks the
+    // true cos_c arc rather than the interpolated chord. Returns 1.0 on flat
+    // projections (no regression).
+    const rim = rim_alpha(pin.abs_lon, latDeg, U.field.proj_params, U.field.globe_eye)
     // raster-* colour adjustments (hue-rotate / brightness / saturation /
     // contrast). Defaults are a hard no-op so an un-authored show is
     // byte-identical to the raw texel rgb.

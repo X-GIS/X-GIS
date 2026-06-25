@@ -45,20 +45,24 @@ describe('rim_alpha rollout coverage', () => {
     expect(src).toMatch(/(\w+\.[aw]) = \(\1 \* in\.rim_a\)/)
   })
 
-  it('raster shader applies smoothstep rim fade in fs_tile', () => {
+  it('raster shader applies rim_alpha per-fragment in fs_tile', () => {
     const src = emitRasterWgsl(false)
-    // smoothstep rim call — survives whether emitted as a named let-binding or
-    // inlined by CSE. The literal values and the vis varying name are stable.
-    expect(src).toContain('smoothstep(0.0, 0.02, input.vis)')
-    // raster_params.x (opacity) is read in the fragment — field access on the
-    // uniform struct is stable regardless of whether an intermediate let-binding
-    // named 'rim' exists in the emitted output.
+    // #595: raster now recomputes the rim PER-FRAGMENT via rim_alpha(abs_lon,
+    // latDeg, proj_params) — mirroring polygon/line/point — instead of the old
+    // smoothstep(0,0.02,interpolated vis), whose linear interpolation of the
+    // nonlinear cos_c across a large tile leaked the back hemisphere as a chord
+    // at low zoom. This brings raster into the rim_alpha rollout the other
+    // primitives already follow.
+    expect(src).toContain('rim_alpha(')
+    // raster_params.x (opacity) is still read in the fragment.
     expect(src).toContain('u.raster_params.x')
   })
 
   it('rim_alpha function is emitted into WGSL_PROJECTION_FNS', () => {
     // The projection block is now DSL-emitted (runtime/src/engine/shaders/dsl/projections.ts), so
     // check the emitted string carries the fn — not the source file text.
-    expect(WGSL_PROJECTION_FNS()).toContain('fn rim_alpha(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>) -> f32')
+    // #600 — rim_alpha gained a globe_eye vec4 param (the globe arm fades across
+    // the eye-horizon boundary, matching the eye-horizon cull).
+    expect(WGSL_PROJECTION_FNS()).toContain('fn rim_alpha(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>, globe_eye: vec4<f32>) -> f32')
   })
 })

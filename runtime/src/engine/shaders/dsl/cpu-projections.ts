@@ -54,8 +54,16 @@ export function projectGeomCpu(projType: number, lon: number, lat: number, clon:
   return vec2(M().fns.project_geom_cpu(lon, lat, pp(projType, clon, clat), refLon))
 }
 
-export function needsBackfaceCullCpu(projType: number, lon: number, lat: number, clon: number, clat: number): number {
-  return M().fns.needs_backface_cull(lon, lat, pp(projType, clon, clat)) as number
+// #600 — needs_backface_cull gained a globe_eye vec4 (= normalize(eye_ecef),
+// EARTH_R/|eye_ecef|) so the globe(7) arm culls by the EYE-HORIZON cap instead
+// of the pitch-invariant centre hemisphere. globeEye is OPTIONAL: the disc arms
+// (ortho/azimuthal/stereographic 3/4/5) IGNORE it, and the production CPU
+// callers of this mirror are the FLAT label path (projType 0-6, never globe-7 —
+// globe labels use the dedicated eye-horizon cull in render-loop-helpers.ts) +
+// the parity tests. Default (0,0,0,0) leaves the globe arm at the horizon
+// boundary, never exercised by a disc/flat caller.
+export function needsBackfaceCullCpu(projType: number, lon: number, lat: number, clon: number, clat: number, globeEye: readonly [number, number, number, number] = [0, 0, 0, 0]): number {
+  return M().fns.needs_backface_cull(lon, lat, pp(projType, clon, clat), [...globeEye]) as number
 }
 
 // ── Legacy mirror-API names ──

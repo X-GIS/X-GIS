@@ -46,6 +46,62 @@ export function lineLabelDeduped(resolvedText: string, emitted: ReadonlySet<stri
   return emitted.has(resolvedText)
 }
 
+/** #603 — does a line-placed symbol render NO text (icon-only)? Gates the
+ *  cross-tile icon dedup (isLineIconDuplicate): only TEXT-LESS line icons
+ *  (OFM `road_oneway` arrows, icon-only shields) need it — a text+icon pair
+ *  is already deduped by its text name and must not drop its icon out from
+ *  under its number.
+ *
+ *  The predicate is the RESOLVED text being empty, NOT `text === undefined`:
+ *  the compiler emits `text: '""'` for an icon-only symbol (symbol.ts
+ *  `labelExpr = '""'`), so `LabelDef.text` is a non-null empty template and
+ *  a `text !== undefined` test is ALWAYS true → the dedup never armed and
+ *  road_oneway arrows duplicated at tile seams (#603). Resolve `text` here so
+ *  an empty-rendering symbol is correctly detected. Exported for coverage —
+ *  the placement walk is an anon callback. */
+export function lineIconIsIconOnly(
+  text: import('@xgis/compiler').TextValue | undefined,
+  props: import('../../text/text-resolver').FeatureProps,
+  cameraZoom: number,
+): boolean {
+  if (text === undefined || text === null) return true
+  return resolveText(text, props, cameraZoom) === ''
+}
+
+/** #605 — the cross-tile dedupe key for a tangent-rotated (curved) line label.
+ *  Caps repeated along-line placements to one per route per ShowCommand pass
+ *  (via isTooCloseToSameText / lineLabelDeduped), so the choice of key decides
+ *  what counts as "the same route".
+ *
+ *  A route-number SHIELD (text+icon line symbol — OFM highway-shield-*, whose
+ *  text-field is the route `ref`, e.g. "82") is identified by its REF, NOT the
+ *  road `name`: a national route overlays many differently-named OSM road
+ *  segments (some carry a street `name`, some only `ref`), so a `name`-keyed
+ *  dedupe diverges per segment and stamps the same "82" shield once per distinct
+ *  name across the tiles the route fills — ~6× at z19 vs MapLibre's ~1× (the ref
+ *  is the same on every segment, so resolving the drawn text collapses the whole
+ *  route to one shield). The ref is monolingual so the bilingual-divergence
+ *  concern below does not apply to it.
+ *
+ *  A plain road-NAME label (no paired icon) keeps the `name` → `name_en` →
+ *  resolved-text precedence: resolveText() varies across segments when one
+ *  carries `name:nonlatin` and the next doesn't (the bilingual concat returns
+ *  different strings for the same road), so the raw name field is the stabler
+ *  cross-segment key there. Exported for coverage — the placement walk is an
+ *  anon callback. */
+export function lineLabelDedupeKey(
+  pairedWithIcon: boolean,
+  text: import('@xgis/compiler').TextValue,
+  props: import('../../text/text-resolver').FeatureProps,
+  cameraZoom: number,
+): string {
+  if (pairedWithIcon) return resolveText(text, props, cameraZoom)
+  const p = props as Record<string, unknown>
+  if (typeof p.name === 'string') return p.name
+  if (typeof p.name_en === 'string') return p.name_en
+  return resolveText(text, props, cameraZoom)
+}
+
 /** Stable per-instance pair key for a POINT label's text+icon (the place-name
  *  dot). Keyed on a monotonic per-show sequence index — NOT the rounded screen
  *  position the pre-#419 code used, whose sub-pixel-drift rounding flipped so a
@@ -653,6 +709,12 @@ class LabelPass implements RenderPass {
               // different seqs; deterministic across frames as long as
               // the polyline walk is (iter-169 cache makes it so).
               let _lineLabelSeq = 0
+              // #603 — cross-tile dedup for text-less line icons. Declared here
+              // so emitLabelAlongSegment (defined below) can close over it.
+              // Assigned inside the spacingPx > 0 block where the dedup Set is
+              // set up; before that block it is a no-op (single-feature paths
+              // have no cross-tile ambiguity). Never-duplicate by default.
+              let isLineIconDuplicate: (sx: number, sy: number) => boolean = () => false
               const emitLabelAlongSegment = (
                 pax: number, pay: number, pbx: number, pby: number,
                 t: number, props: Record<string, unknown>,
@@ -697,6 +759,19 @@ class LabelPass implements RenderPass {
                 const pairKey = pairedWithIcon
                   ? `${labelLayerName ?? ''}:seq${_lineLabelSeq++}`
                   : undefined
+                // #603 — cross-tile dedup for text-less line icons. When
+                // there is no text (road_oneway arrows), the text-name
+                // dedup doesn't gate the icon. Two tiles' polyline walks
+                // can place icons at nearby but non-overlapping screen
+                // positions at a tile seam. Gate via bucketed screen pos.
+                // Predicate is the RESOLVED text being empty (lineIconIsIconOnly),
+                // NOT featDef.text === undefined: an icon-only symbol emits
+                // text === '""' (compiler symbol.ts labelExpr), so featDef.text
+                // is a non-null empty template — the old `featDef.text !==
+                // undefined` test was ALWAYS true and this dedup never fired for
+                // road_oneway arrows (#603).
+                if (lineIconIsIconOnly(featDef.text, props, host.camera.zoom)
+                    && pairedWithIcon && isLineIconDuplicate(x, y)) return
                 if (useTangentRotation) {
                   let angleDeg = rawTangentDeg
                   if (angleDeg > 90 || angleDeg < -90) angleDeg += 180
@@ -758,6 +833,27 @@ class LabelPass implements RenderPass {
                 }
                 const recordTextPosition = (resolvedText: string, _sx: number, _sy: number): void => {
                   emittedTextNames.add(resolvedText)
+                }
+                // #603 — cross-tile dedup for text-less line-placed icons
+                // (road_oneway arrows, shields with empty text). Two adjacent
+                // tiles each emit a polyline for the same road; the icon-
+                // spacing walk places icons at slightly different positions
+                // along each segment, so the same screen position gets two
+                // icons from two tiles — AABB collision in icon-stage collapses
+                // touching pairs but misses non-overlapping near-duplicates at
+                // tile seams. Mirror the text-name dedup with a bucketed screen-
+                // position key: snap to the icon-spacing grid (~spacingPx) so
+                // two placements within half a spacing step share the same key.
+                // Assigned to the outer `let` so emitLabelAlongSegment can close
+                // over the real function (it's defined before this block).
+                const emittedLineIconKeys = host._scratchEmittedLineIconKeys
+                emittedLineIconKeys.clear()
+                const iconSpacingBucket = spacingPx
+                isLineIconDuplicate = (sx: number, sy: number): boolean => {
+                  const key = `${Math.round(sx / iconSpacingBucket)},${Math.round(sy / iconSpacingBucket)}`
+                  if (emittedLineIconKeys.has(key)) return true
+                  emittedLineIconKeys.add(key)
+                  return false
                 }
                 const SUBDIVS_PER_SEG = 32
                 // Polyline projection scratch — sized once per show, big
@@ -884,18 +980,54 @@ class LabelPass implements RenderPass {
                   const curvePairedWithIcon = featDef.iconImage !== undefined
                     && featDef.iconImage !== null
                     && featDef.iconImage !== ''
-                  // Cross-tile dedupe key. resolveText() varies across
-                  // road segments when one segment carries
-                  // `name:nonlatin` and the next doesn't — the concat
-                  // expression returns different strings even though
-                  // the road is the same. Prefer the most stable name
-                  // field (`name` → `name_en` → resolved fallback) so
-                  // the dedupe matches across heterogeneous segments.
-                  const propsRec = props as Record<string, unknown>
-                  const stableName = typeof propsRec.name === 'string' ? propsRec.name
-                    : typeof propsRec.name_en === 'string' ? propsRec.name_en
-                    : resolveText(featDef.text, props, host.camera.zoom)
-                  const resolvedTextForDedupe = stableName
+                  // Cross-tile dedupe key.
+                  //
+                  // #605 — a route-number SHIELD (text+icon line symbol,
+                  // OFM highway-shield-*: text-field = ["to-string",["get",
+                  // "ref"]]) is identified by its REF ("82"), not the road
+                  // `name`. A national route overlays many differently-named
+                  // OSM road segments — some carry a street `name`, some only
+                  // `ref` — so the `name`-preferring key below diverges per
+                  // segment and the same "82" shield stamps once PER distinct
+                  // name across the tiles a route fills at high zoom (~6× at
+                  // z19 vs MapLibre ~1×). Key shields on the RESOLVED drawn
+                  // text (the ref) instead, which is stable across every
+                  // segment of one route, so the existing along-walk dedupe
+                  // (isTooCloseToSameText, checked at each screen-space spacing
+                  // stop) collapses the whole route to one shield — MapLibre's
+                  // per-route cadence. The ref is monolingual, so the
+                  // bilingual-divergence concern that motivates the `name`
+                  // path does not apply to shields.
+                  //
+                  // For a plain road-NAME label (no paired icon) resolveText()
+                  // DOES vary across segments when one carries `name:nonlatin`
+                  // and the next doesn't — the concat expression returns
+                  // different strings even though the road is the same. Prefer
+                  // the most stable name field (`name` → `name_en` → resolved
+                  // fallback) so the dedupe matches across heterogeneous
+                  // segments. See lineLabelDedupeKey for the full rationale.
+                  const resolvedTextForDedupe = lineLabelDedupeKey(
+                    curvePairedWithIcon, featDef.text, props, host.camera.zoom,
+                  )
+                  // #605 — TILE-STABLE lineId for the screen-space along-line
+                  // collision (greedyPlaceBboxes minLineSpacingPx). The
+                  // dispatch-side `isTooCloseToSameText` cap (c5064d3a) collapses
+                  // repeats WITHIN one ShowCommand's polyline walk, but PMTiles
+                  // slices a long route into a SEPARATE per-tile featId/polyline,
+                  // so at z19 each tile's dispatch re-emits the same "82" shield —
+                  // ~one per tile survives on screen. The collision pass caps that
+                  // in SCREEN space: same-lineId anchors within MIN_LINE_SPACING_PX
+                  // collide/drop regardless of which tile dispatched them. The id
+                  // must be stable ACROSS tiles, so it is the route identity
+                  // (resolvedTextForDedupe — the ref for a shield, the name for a
+                  // plain label), NOT the tile; qualified by layer (NUL-joined, a
+                  // char no ref/name contains) so two layers' identical refs stay
+                  // independent lines. Empty key (icon-only symbols render no text,
+                  // so addCurvedLineLabel no-ops anyway) ⇒ undefined: not subject
+                  // to same-line spacing, exactly like a point label.
+                  const lineId = resolvedTextForDedupe !== ''
+                    ? `${labelLayerName ?? ''}\u0000${resolvedTextForDedupe}`
+                    : undefined
                   // Walk the polyline and compute the screen-pixel
                   // position for an offset s along it. Used by the
                   // cross-tile dedupe to evaluate "is this position
@@ -933,11 +1065,28 @@ class LabelPass implements RenderPass {
                     const polyX = _pxScratch.slice(0, pn)
                     const polyY = _pyScratch.slice(0, pn)
                     // No fontKey override — see note at line ~2370.
+                    // #603 — text-less line icons (road_oneway, icon-only
+                    // shields) render no text, so isTooCloseToSameText
+                    // (keyed on resolvedTextForDedupe) doesn't gate them. Apply
+                    // the position-bucket dedup so two adjacent tiles' polylines
+                    // don't emit duplicate icons at the same screen spot.
+                    // Gate on the symbol's OWN resolved text-field being
+                    // empty (lineIconIsIconOnly): an icon-only symbol emits
+                    // text === '""', so featDef.text is never undefined — the
+                    // old `featDef.text !== undefined` test was always true and
+                    // the dedup never fired (#603). NB resolvedTextForDedupe
+                    // can't be reused for icon-only symbols: for a plain label
+                    // it falls back to the feature's `name` prop, which a
+                    // road_oneway arrow may carry from its source road even
+                    // though it renders no text — that would make the icon-only
+                    // test a false negative.
+                    const curveIsIconOnly = lineIconIsIconOnly(featDef.text, props, host.camera.zoom)
                     if (total < spacingPx * 0.5) {
                       if (samplePosAt(total * 0.5)) {
                         const sx = _samplePosOut[0], sy = _samplePosOut[1]
                         const tang = _samplePosOut[2]
-                        if (!isTooCloseToSameText(resolvedTextForDedupe, sx, sy)) {
+                        if (!isTooCloseToSameText(resolvedTextForDedupe, sx, sy)
+                            && (!(curveIsIconOnly && curvePairedWithIcon) || !isLineIconDuplicate(sx, sy))) {
                           const pairKey = curvePairedWithIcon
                             ? `${labelLayerName ?? ''}:seq${_lineLabelSeq++}`
                             : undefined
@@ -946,6 +1095,10 @@ class LabelPass implements RenderPass {
                             polyX, polyY, total * 0.5,
                             featDef,
                             undefined, labelLayerName, pairKey,
+                            // #605 — same-route screen-space cap: lineId is the
+                            // tile-stable route identity; anchorDistancePx is the
+                            // anchor's along-polyline screen offset.
+                            lineId, total * 0.5,
                           )
                           // OFM road shield + similar: icon-along-line
                           // approximation. Dispatch the icon at the
@@ -972,7 +1125,8 @@ class LabelPass implements RenderPass {
                       if (samplePosAt(nextStop)) {
                         const sx = _samplePosOut[0], sy = _samplePosOut[1]
                         const tang = _samplePosOut[2]
-                        if (!isTooCloseToSameText(resolvedTextForDedupe, sx, sy)) {
+                        if (!isTooCloseToSameText(resolvedTextForDedupe, sx, sy)
+                            && (!(curveIsIconOnly && curvePairedWithIcon) || !isLineIconDuplicate(sx, sy))) {
                           const pairKey = curvePairedWithIcon
                             ? `${labelLayerName ?? ''}:seq${_lineLabelSeq++}`
                             : undefined
@@ -981,6 +1135,8 @@ class LabelPass implements RenderPass {
                             polyX, polyY, nextStop,
                             featDef,
                             undefined, labelLayerName, pairKey,
+                            // #605 — see the short-line call above.
+                            lineId, nextStop,
                           )
                           dispatchIcon(featDef, sx, sy, tang, pairKey, true, props)
                           recordTextPosition(resolvedTextForDedupe, sx, sy)
@@ -1154,7 +1310,25 @@ class LabelPass implements RenderPass {
         // (stage.render below replays them); skipping the collision + upload is
         // the measurable payload (see getLabelDispatchStats hitRate).
         if (!canSkipLabelPrepare) {
-          stage.prepare()
+          // #609 — seed text collision with icon boxes BEFORE TextStage.prepare
+          // so a label can't draw over a collide-icon from a separate feature.
+          // MapLibre puts placed icon boxes in the shared collision grid every
+          // label hit-tests against; we replicate that by passing them as
+          // obstacles. computeObstacles() reads the pending queue (pre-prepare)
+          // so it must run BEFORE iStage.prepare() clears it. A paired icon's
+          // own text is exempted via matching groupKey.
+          //
+          // #609 over-drop fix — pass the pairKeys whose text label has a live
+          // bbox in THIS pass (getActiveTextPairKeys, valid here because
+          // stage.prepare hasn't run / reset hasn't cleared the queues). A
+          // paired icon with live text is skipped as an obstacle: its text
+          // bbox already blocks, and if the text loses collision the icon is
+          // dropped (droppedPairKeys) — so its box must not phantom-block a
+          // different-group label. Empty-text / icon-only paired symbols are
+          // absent from the set and still seed obstacles.
+          const activeTextPairKeys = iStage ? stage.getActiveTextPairKeys() : new Set<string>()
+          const iconObstacles = iStage ? iStage.computeObstacles(activeTextPairKeys) : []
+          stage.prepare(iconObstacles)
           if (iStage) iStage.setDroppedPairKeys(stage.getDroppedPairKeys())
           iStage?.prepare()
         }

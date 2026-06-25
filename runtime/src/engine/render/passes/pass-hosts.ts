@@ -67,6 +67,7 @@ export type LabelPassHost = Pick<XGISMap,
   | '_pendingLabelDebugHook'
   | '_pendingTraceRecorder'
   | '_prevLabelDispatchSig'
+  | '_scratchEmittedLineIconKeys'
   | '_scratchEmittedPointNames'
   | '_scratchEmittedTextNames'
   | 'camera'

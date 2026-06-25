@@ -1,4 +1,4 @@
-// baseline: 963d5957f1fa9b57e5bb2152cad1cae024290ab5
+// baseline: ed0f9fade09ed7a74cf49d7dfbdd80d396895af5
 // fixture: liberty-zoom-interp
 // variant.key: liberty-zoom-interp
 // pick: false
@@ -34,6 +34,7 @@ struct Uniforms {
   cam_ecef_off_h: vec4<f32>,
   cam_ecef_off_l: vec4<f32>,
   light_dir_ecef: vec4<f32>,
+  globe_eye: vec4<f32>,
 }
 
 struct VertexOutput {
@@ -199,6 +200,11 @@ fn center_cos_c(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> f32 {
   return ((sin(_cse0) * sin(_cse1)) + ((cos(_cse0) * cos(_cse1)) * cos((radians(lon_deg) - radians(clon)))));
 }
 
+fn globe_eye_horizon_cos(lon_deg: f32, lat_deg: f32, globe_eye: vec4<f32>) -> f32 {
+  let _cse0 = proj_globe(lon_deg, lat_deg);
+  return (dot((_cse0 / length(_cse0)), globe_eye.xyz) - globe_eye.w);
+}
+
 fn project(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>) -> vec2<f32> {
   if ((proj_params.x < 0.5)) {
     return proj_mercator(lon_deg, lat_deg);
@@ -249,7 +255,7 @@ fn flat_rel(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>, ref_lon: f32) ->
   return (project_geom(lon_deg, lat_deg, proj_params, ref_lon) - project(proj_params.y, proj_params.z, proj_params));
 }
 
-fn needs_backface_cull(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>) -> f32 {
+fn needs_backface_cull(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>, globe_eye: vec4<f32>) -> f32 {
   let _cse0 = center_cos_c(lon_deg, lat_deg, proj_params.y, proj_params.z);
   if ((proj_params.x > 2.5)) {
     if ((proj_params.x < 3.5)) {
@@ -264,28 +270,27 @@ fn needs_backface_cull(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>) -> f3
     if ((proj_params.x < 6.5)) {
       return 1.0;
     }
-    return _cse0;
+    return globe_eye_horizon_cos(lon_deg, lat_deg, globe_eye);
   }
   return 1.0;
 }
 
-fn rim_alpha(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>) -> f32 {
-  let _cse1 = center_cos_c(lon_deg, lat_deg, proj_params.y, proj_params.z);
-  let _cse0 = smoothstep(0.0, 0.02, _cse1);
+fn rim_alpha(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>, globe_eye: vec4<f32>) -> f32 {
+  let _cse0 = center_cos_c(lon_deg, lat_deg, proj_params.y, proj_params.z);
   if ((proj_params.x > 2.5)) {
     if ((proj_params.x < 3.5)) {
-      return _cse0;
+      return smoothstep(0.0, 0.02, _cse0);
     }
     if ((proj_params.x < 4.5)) {
-      return smoothstep(-0.85, -0.83, _cse1);
+      return smoothstep(-0.85, -0.83, _cse0);
     }
     if ((proj_params.x < 5.5)) {
-      return smoothstep(-0.8, -0.78, _cse1);
+      return smoothstep(-0.8, -0.78, _cse0);
     }
     if ((proj_params.x < 6.5)) {
       return 1.0;
     }
-    return _cse0;
+    return smoothstep(0.0, 0.02, globe_eye_horizon_cos(lon_deg, lat_deg, globe_eye));
   }
   return 1.0;
 }
@@ -299,11 +304,11 @@ fn dequant_ecef(q_xy: vec4<u32>, q_z: vec2<u32>, scale: f32, half: f32) -> vec3<
 }
 
 fn polygon_cos_c_fragment(abs_merc_x: f32, abs_merc_y: f32) -> f32 {
-  return needs_backface_cull((abs_merc_x / (DEG2RAD * EARTH_R)), degrees(inv_merc_lat_rad(abs_merc_y)), u.proj_params);
+  return needs_backface_cull((abs_merc_x / (DEG2RAD * EARTH_R)), degrees(inv_merc_lat_rad(abs_merc_y)), u.proj_params, u.globe_eye);
 }
 
 fn polygon_rim_alpha(abs_merc_x: f32, abs_merc_y: f32) -> f32 {
-  return rim_alpha((abs_merc_x / (DEG2RAD * EARTH_R)), degrees(inv_merc_lat_rad(abs_merc_y)), u.proj_params);
+  return rim_alpha((abs_merc_x / (DEG2RAD * EARTH_R)), degrees(inv_merc_lat_rad(abs_merc_y)), u.proj_params, u.globe_eye);
 }
 
 @vertex

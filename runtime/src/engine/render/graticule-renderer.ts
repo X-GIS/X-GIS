@@ -15,6 +15,7 @@
 import type { GPUContext } from '../gpu/gpu'
 import { generateGraticule } from '../graticule'
 import type { UniformRing } from './uniform-ring'
+import { polygonUniformBytes } from './polygon-uniform-slots'
 
 /** Per-frame data the graticule draw needs from the coordinator. The
  *  graticule reuses the SAME 240-byte uniform struct offsets as the layer
@@ -36,12 +37,11 @@ export interface GraticuleFrame {
 }
 
 export class GraticuleRenderer {
-  // Polygon Uniforms struct = 256 bytes (matches VTR + WGSL + MapRenderer's
-  // UNIFORM_SIZE; the borrowed linePipeline's shader references u up to
-  // light_dir_ecef @240, so the bound range must cover 256). Out-of-bounds
-  // typed-array writes are silent no-ops; the RTC fields 192-239 +
-  // light_dir_ecef 240-255 stay zero (graticule lines never extrude).
-  private static readonly UNIFORM_SIZE = 256
+  // Polygon Uniforms struct byte size — derived from reflect() so it tracks the
+  // struct automatically. The borrowed linePipeline's shader references u up to
+  // the last field, so the bound range must cover the full struct size.
+  // RTC fields and light_dir_ecef stay zero (graticule lines never extrude).
+  private static readonly UNIFORM_SIZE = polygonUniformBytes()
 
   private graticuleBuffer: GPUBuffer | null = null
   private graticuleVertexCount = 0

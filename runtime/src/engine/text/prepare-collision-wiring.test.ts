@@ -84,6 +84,23 @@ function atAnchor(d: TextDraw, x: number, y: number): boolean {
   return Math.abs(d.anchorX - x) < 1e-6 && Math.abs(d.anchorY - y) < 1e-6
 }
 
+/** A straight horizontal polyline [x0,x1] at constant y (screen px). */
+function hLine(x0: number, x1: number, y: number): [Float32Array, Float32Array] {
+  return [new Float32Array([x0, x1]), new Float32Array([y, y])]
+}
+
+/** Curved (tangent-rotated) line-label def — placement 'line'. */
+function lineDef(extra: Partial<LabelDef> = {}): LabelDef {
+  return {
+    text: litValue(''),
+    size: 20,
+    letterSpacing: 0,
+    font: ['Noto Sans Bold'],
+    placement: 'line',
+    ...extra,
+  } as LabelDef
+}
+
 describe('prepare() collision wiring (text-stage.ts:1915-1968)', () => {
   it('no sortKey: later-submitted label wins overlap; un-reverse maps each placement to its OWN label', () => {
     // Three labels in submission (shaped) order: A(0), B(1), C(2).
@@ -188,5 +205,100 @@ describe('prepare() collision wiring (text-stage.ts:1915-1968)', () => {
     small.stage.prepare()
     expect(small.stage.wasLastPrepareFullyResolved(),
       'overflow-dropped label leaves prepare not-fully-resolved').toBe(false)
+  })
+})
+
+// #605 — cross-tile route-shield over-duplication. greedyPlaceBboxes has a
+// same-line min-spacing gate (lineId + anchorDistancePx + minLineSpacingPx,
+// unit-tested in line-label-collision.test.ts) but prepare() never WIRED it:
+// addCurvedLineLabel didn't carry lineId/anchorDistancePx and prepare() called
+// greedyPlaceBboxes without minLineSpacingPx. So a long route — sliced into a
+// SEPARATE per-tile polyline by PMTiles — re-emitted the same shield once per
+// tile (~4-6 on screen at z19) because each tile's bbox sits at a distinct
+// screen position and the AABB pass alone can't collapse non-overlapping
+// near-duplicates across tiles.
+//
+// These drive the REAL TextStage.prepare() via addCurvedLineLabel. Each tile's
+// shield is on its OWN horizontal polyline at a DIFFERENT screen Y (so the bbox
+// AABB pass never merges them — the cross-tile-seam geometry) but carries the
+// SAME tile-stable lineId (the route ref) and an anchorDistancePx within the
+// 250 px symbol-spacing window. WITH the wiring only one survives; WITHOUT it
+// (no minLineSpacingPx / no lineId threaded) all of them place — the fail-before
+// the cross-tile count this issue is about. dpr defaults to 1 → window 250 px.
+describe('#605 cross-tile shield same-line screen-space cap (prepare wiring)', () => {
+  // anchorDistancePx within the 250 px window must be passed for each
+  // — this mirrors the label-pass passing nextStop along each tile polyline.
+  const SAME_REF = 'roads_shield 82' // layer ref, the tile-stable lineId
+
+  it('caps repeats of one route to ~1 across tiles (fail-before: per-tile count)', () => {
+    const { stage, captured } = makeStage()
+    stage.beginFrame()
+    // Six tiles each emit the "82" shield on their own seam-offset polyline.
+    // Distinct Y rows ⇒ NO bbox overlap (AABB alone keeps all six). Same lineId
+    // + anchorDistancePx all inside one 250 px window ⇒ the line-spacing gate
+    // keeps exactly the first-iterated one.
+    const anchors = [40, 80, 120, 160, 200, 240]
+    anchors.forEach((aDist, i) => {
+      const [px, py] = hLine(0, 600, 1000 + i * 30) // row per tile, well separated in Y
+      stage.addCurvedLineLabel(
+        litValue('82'), {}, px, py, aDist, lineDef(),
+        undefined, 'roads_shield', undefined, SAME_REF, aDist,
+      )
+    })
+    stage.prepare()
+    const draws = captured[0]!
+    // WITHOUT the wiring this is 6 (one shield per tile). WITH it, the same-line
+    // spacing gate collapses the window to one survivor.
+    expect(draws.length, 'one route shield repeated within symbol-spacing collapses to 1').toBe(1)
+  })
+
+  it('keeps shields that are MORE than symbol-spacing apart along the route', () => {
+    const { stage, captured } = makeStage()
+    stage.beginFrame()
+    // Same route, but anchors 300 px apart (> 250 window) on distinct rows.
+    const anchors = [40, 340, 640]
+    anchors.forEach((aDist, i) => {
+      const [px, py] = hLine(0, 900, 2000 + i * 30)
+      stage.addCurvedLineLabel(
+        litValue('82'), {}, px, py, aDist, lineDef(),
+        undefined, 'roads_shield', undefined, SAME_REF, aDist,
+      )
+    })
+    stage.prepare()
+    expect(captured[0]!.length, 'spaced-out repeats of the same route all place').toBe(3)
+  })
+
+  it('distinct refs (e.g. Texas interstates) each place independently', () => {
+    const { stage, captured } = makeStage()
+    stage.beginFrame()
+    // Three DIFFERENT route refs, anchors within the window but DIFFERENT lineId.
+    // The interstate case the prior fix preserved: distinct refs never merge.
+    const refs = ['10', '35', '45']
+    refs.forEach((ref, i) => {
+      const [px, py] = hLine(0, 600, 3000 + i * 30)
+      stage.addCurvedLineLabel(
+        litValue(ref), {}, px, py, 100, lineDef(),
+        undefined, 'roads_shield', undefined, `roads_shield ${ref}`, 100,
+      )
+    })
+    stage.prepare()
+    expect(captured[0]!.length, 'distinct route refs each survive (interstate parity)').toBe(3)
+  })
+
+  it('a curved label WITHOUT lineId is never subject to the gate (legacy path)', () => {
+    const { stage, captured } = makeStage()
+    stage.beginFrame()
+    // No lineId/anchorDistancePx (undefined) — e.g. a plain along-line label on
+    // a layer the dedupe doesn't key. Distinct Y rows ⇒ AABB keeps all three;
+    // the spacing gate must not touch lineId-less items.
+    ;[0, 1, 2].forEach((i) => {
+      const [px, py] = hLine(0, 600, 4000 + i * 30)
+      stage.addCurvedLineLabel(
+        litValue('Main St'), {}, px, py, 100, lineDef(),
+        undefined, 'roads', undefined, undefined, undefined,
+      )
+    })
+    stage.prepare()
+    expect(captured[0]!.length, 'lineId-less curved labels unaffected by min-line spacing').toBe(3)
   })
 })

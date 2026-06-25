@@ -144,7 +144,9 @@ const LOC_CEILINGS: Record<string, number> = {
   // RETIRES the std140 drift the file carried (DSL struct + uf[N]/uniformF32[N]/
   // uniformU32[N] magic). Render byte-identical; the +15 is the one-time slot-Proxy
   // wiring, not feature surface. Decomposition stays a tracked follow-up.
-  'runtime/src/engine/render/vector-tile-renderer.ts': 4093,
+  // Bumped 4093→4104 (#600): the per-frame globe_eye uniform write + its doc
+  // comment + the UNIFORM_SLOT/SIZE 256→512/272 rationale comments.
+  'runtime/src/engine/render/vector-tile-renderer.ts': 4104,
   // Bumped 3361→3393 for the destroy()-completeness fix: cancelling the
   // EventDispatcher move-rAF + the pending-flush rAF, clearing _pendingPatches,
   // and removing the run()-installed window globals (__xgisReady/snapshot/
@@ -199,7 +201,8 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 3597→3599: configureProjections(PROJECTIONS) import + the constructor
   // call that injects the projection spec list into @xgis/shader-dsl (the
   // shader-dsl extraction seam — 2 irreducible wiring lines).
-  'runtime/src/engine/map.ts': 3599,
+  // Bumped 3599→3610 (#603): _scratchEmittedLineIconKeys field + comment.
+  'runtime/src/engine/map.ts': 3610,
   // Bumped 1343→1344 for the opacity sub-1.5% round-trip fix (#274); comments
   // trimmed to the minimum, net +1 irreducible.
   // Bumped 1344→1348 for the polygon fill-stroke INSET default (US-002): a
@@ -244,7 +247,26 @@ const LOC_CEILINGS: Record<string, number> = {
   // prepare() ordering pass (zOrderMode scan, viewport-y screen-Y sort +
   // source-order branch, ordered greedy + drawOrder emit; legacy path preserved
   // ⇒ DEFAULT byte-identical) + ShapedLabel.symbolZOrder field (+74).
-  'runtime/src/engine/text/text-stage.ts': 1602,
+  // Bumped 1602→1615 (#609): prepare() accepts iconObstacles param + CollisionObstacle
+  // import + groupKey wired into collisionInput + obstacles passed to all greedy calls.
+  // Bumped 1615→1624 (#608): computeCentreShift call + maxSlotHalf tracking for the
+  // center-anchor ink-band fix (the +9 is the corrected baseline math).
+  // Bumped 1624→1631 (#609 v2 rework): the EXPORTED getActiveTextPairKeys() reader —
+  // the set of pairKeys with a LIVE text bbox this frame (pending + pendingLine) —
+  // read by IconStage.computeObstacles so a to-be-dropped paired icon does not seed
+  // a phantom obstacle. Additive accessor + JSDoc; no logic moved.
+  // Bumped 1631→1652 (#605 v2): wired the same-line min-spacing collision gate into
+  // prepare() so cross-tile route shields collapse in screen space. addCurvedLineLabel
+  // accepts lineId/anchorDistancePx → PendingLineLabel → ShapedLabel → CollisionItem,
+  // the MIN_LINE_SPACING_PX (= 250 CSS px × dpr) constant, and minLineSpacingPx passed
+  // to all three greedyPlaceBboxes calls (legacy / sortKey / z-order branches).
+  // greedyPlaceBboxes already implemented the gate; this is the wiring + its rationale.
+  // Bumped 1652→1673 (#608-scope): the #608 hang-below regressed shield text (route
+  // ref low/off-centre in its box). Gate the centreShift on pairKey — icon-paired
+  // center-anchored text restores the box-centred ink-band recentre (the maxAsc/
+  // maxDesc per-block loop, ~12 lines), standalone keeps the hang. Plus the layout-
+  // cache `paired` key term so the two conventions don't alias to one cached layout.
+  'runtime/src/engine/text/text-stage.ts': 1673,
   // Bumped 1509→1517 for the GeometryCollection decompose fix (RFC 7946
   // §3.1.8): decomposeFeatures' per-type switch is wrapped in an inner
   // recursive helper so a GeometryCollection member-decomposes under the
@@ -275,7 +297,9 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 917→931 (Phase R heatmap): ensureHeatmapBlur / ensureHeatmapCompose
   // forwarders + the two heatmap bind-group-layout getters (thin delegates to
   // the factory, mirror of ensureOverdrawCompose).
-  'runtime/src/engine/render/renderer.ts': 931,
+  // Bumped 931→941 (#600): the non-tiled globe_eye uniform write + its doc
+  // comment, the globeEyeUniform import, and the UNIFORM_SLOT/SIZE bump comments.
+  'runtime/src/engine/render/renderer.ts': 941,
   // Lowered 776→254: extracted the text-layout family (text-anchor /
   // variable-anchor[-offset] / transform / offset / translate / radial-offset /
   // collision / rotate / letter-spacing / max-width / line-height / justify /
@@ -347,7 +371,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // X-GIS shader graphs live under runtime/src/engine/shaders/dsl/). Re-baselined
   // at its current size — a behavior-preserving relocation, not new growth;
   // decomposition stays the same tracked priority it was in the package.
-  'runtime/src/engine/shaders/dsl/line.ts': 1194,
+  // Bumped 1194→1219 (#598): finalize_corner threads the (p_h, p_l) DSFUN split
+  // through all three call sites to kill the high-zoom f32 jitter (the lossy
+  // pre-summed corner is replaced by the precise hi/lo reconstruction).
+  'runtime/src/engine/shaders/dsl/line.ts': 1219,
   // Bumped 1171→1176 (#274 CSS color-fn whitespace), then 1176→1178 (#317) for
   // the two irreducible numeric match()-label arm-pattern cases (Number, and
   // Minus+Number). Lowered 1178→50 (Tier-C5): the Parser god-file was split
@@ -383,7 +410,9 @@ const LOC_CEILINGS: Record<string, number> = {
   // X-GIS shader graphs live under runtime/src/engine/shaders/dsl/). Re-baselined
   // at its current size — a behavior-preserving relocation, not new growth;
   // decomposition stays the same tracked priority it was in the package.
-  'runtime/src/engine/shaders/dsl/polygon.ts': 1198,
+  // Bumped 1198→1205 (#600): the globe_eye Uniforms-struct lane + its doc
+  // comment, and threading globe_eye into polygon_cos_c_fragment / polygon_rim_alpha.
+  'runtime/src/engine/shaders/dsl/polygon.ts': 1205,
   // Bumped 1067→1092 for the minZoom + setMaxBounds gesture-clamp correctness
   // fixes (#244/#248): the maxBounds clamp method + its 7 gesture-exit call
   // sites are irreducible. camera.ts decomposition remains a tracked priority.
@@ -430,7 +459,37 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 1163→1192 (Phase S Batch 3+4): icon-translate-anchor:map setBearing +
   // anchor rotation (+17) plus icon collision policy — dispatchIcon doCollide
   // from LabelDef.iconCollide/iconIgnorePlacement on top of the #417 rule (+12).
-  'runtime/src/engine/render/passes/label-pass.ts': 1192,
+  // Bumped 1192→1248 (#603/#609): cross-tile line-icon dedup (isLineIconDuplicate
+  // + _scratchEmittedLineIconKeys) + icon-obstacle wiring (computeObstacles →
+  // stage.prepare) + curved-path text-less icon gate + let hoisting for closure.
+  // Bumped 1248→1290 (#603/#609 v2 rework): the prior gate keyed on
+  // `featDef.text !== undefined`, but an icon-only symbol's text-field compiles
+  // to '""' (a DEFINED empty template) so the gate never armed for road_oneway
+  // arrows. Extracted the EXPORTED `lineIconIsIconOnly` predicate (resolve text,
+  // gate on empty) — re-used at both the straight + curved gate sites and unit-
+  // tested directly (the prior test inline-reimplemented the math and never hit
+  // the real gate) — plus the active-text-pairKeys obstacle wiring. The growth
+  // is the JSDoc'd extracted predicate + the load-bearing bug rationale at each
+  // call site, matching this file's documented-export convention.
+  // Bumped 1290→1341 (#605): route-number SHIELDS over-duplicated ~6× along a
+  // road at z19 (vs MapLibre ~1×) because the curved-walk cross-tile dedupe keyed
+  // on the road `name`, but a national route overlays many differently-named OSM
+  // segments — so the same "82" shield stamped once per distinct segment name.
+  // Extracted the EXPORTED `lineLabelDedupeKey` predicate (shield → resolved REF,
+  // the route-stable drawn text; plain label → name → name_en → resolved) + unit
+  // tests (fail-before pins the 4-distinct-name over-count). The growth is the
+  // JSDoc'd extracted predicate + its load-bearing rationale, matching this
+  // file's documented-export convention.
+  // Bumped 1341→1366 (#605 v2): the dispatch-side ref-key dedupe alone could not
+  // cap CROSS-TILE shield repeats (PMTiles slices one route into a per-tile
+  // polyline, so each tile re-emits the "82" shield → ~4-6 on screen at z19).
+  // Wired the SCREEN-SPACE same-line spacing collision (greedyPlaceBboxes
+  // minLineSpacingPx/lineId/anchorDistancePx, already implemented + unit-tested
+  // but never connected): derive a TILE-STABLE `lineId` (the route ref / road
+  // name, layer-qualified — NOT the tile) + pass it + the anchor's along-line
+  // screen offset into both addCurvedLineLabel call sites. The growth is the
+  // lineId derivation + its load-bearing rationale comment at the dispatch site.
+  'runtime/src/engine/render/passes/label-pass.ts': 1366,
   // VTR Unit-1 extraction (Cluster E-selection). The hysteresis +
   // readiness-gate logic was moved VERBATIM (plan §5 DO-NOT-SPLIT #2),
   // and its hard-won fix-history comments carry the bulk of the LOC —
@@ -505,7 +564,15 @@ const LOC_CEILINGS: Record<string, number> = {
   // pipeline so a point layer can render on either backend. Additive — the WebGPU
   // path is byte-identical when the RHI seam is off; the +34 is backend-seam
   // plumbing. Decomposition stays a tracked follow-up.
-  'runtime/src/engine/render/point-renderer.ts': 980,
+  // Bumped 980→991 (#594): the GeoJSON point world-copy loop — enumerate the
+  // visible Mercator world-copies (flat-Merc only, gated via isWebMercator) +
+  // apply the per-copy wo*360° Mercator offset — so points render in every world
+  // repeat like labels/fills. Additive loop; decomposition stays a tracked follow-up.
+  // Bumped 991→1022 (#594-test): extracted pointWorldCopies + worldCopyMercX as
+  // exported pure helpers so the discriminating unit test can import real source.
+  // Bumped 1022→1033 (#600): the globe_eye slot in PointUniformSlots + the
+  // writePointFrameUniform globe_eye write + the globeEyeUniform import + comments.
+  'runtime/src/engine/render/point-renderer.ts': 1033,
   // Baselined at 820 (mbx_batch2): lower-label.ts is the label-knob lowering
   // sub-pass extracted from lower.ts; crossed 800 here for the icon-translate
   // accumulators + parse arms + knobs-interface + merge wiring. Cohesive

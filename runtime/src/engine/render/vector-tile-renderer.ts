@@ -8,7 +8,7 @@ import { DEBUG_OVERDRAW } from '../debug-flags'
 import { Camera } from '../projection/camera'
 import type { ShowCommand } from './renderer'
 import { variantProducesFill } from './renderer-helpers'
-import { polygonUniformSlots } from './polygon-uniform-slots'
+import { polygonUniformSlots, polygonUniformBytes } from './polygon-uniform-slots'
 import { xlog } from '../log'
 
 // f32 slot indices of the polygon 'Uniforms' struct, sourced from reflect() of the SAME
@@ -83,18 +83,13 @@ export type { LayerDrawPhase }
 
 // ═══ Renderer ═══
 
-const UNIFORM_SLOT = 256
-// Bind-group binding range size. Must be ≥ the WGSL Uniforms struct
-// size of every shader that reads this binding (polygon, line, point,
-// raster — see renderer.ts / line-renderer.ts / point-renderer.ts).
-// Polygon Uniforms is 208 bytes (50 floats: 16 mvp + 32 trailing fields
-// incl. clip_bounds + zoom block + the 2 PR-2f tile_dequant_* slots,
-// rounded up by the 16-byte struct alignment). PR 2d.5 closeout had
-// shrunk this 256 → 192 when the legacy Mercator `mvp` slot was retired; PR
-// 2f re-grew it to 208; the camera-relative RTC fix adds cam_ecef_off_h/l
-// (vec4×2 = 32B) → 240; #420 adds light_dir_ecef (vec4 = 16B) → 256 (== the
-// 256-byte UNIFORM_SLOT). WGSL spec requires a multiple of 16.
-const UNIFORM_SIZE = 256
+// Dynamic-offset stride: next 256-multiple ≥ the struct byte size (WebGPU
+// minUniformBufferOffsetAlignment = 256). Derived so it tracks the struct.
+const UNIFORM_SLOT = Math.ceil(polygonUniformBytes() / 256) * 256
+// Bind-group binding range size = polygon Uniforms struct byte count.
+// Derived from reflect() so a struct change propagates automatically.
+// Must be ≥ every shader that reads this binding (polygon, line, raster).
+const UNIFORM_SIZE = polygonUniformBytes()
 
 /** 2π × Earth radius (m). One full mercator wrap. tile_extent_m at
  *  any zoom z is this constant divided by 2^z (vs_main_quantized

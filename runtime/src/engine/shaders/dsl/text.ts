@@ -64,8 +64,19 @@ const fs = fn('fs', { in: VsOut.type }, (p) => {
   const fillOnly = vec4(fill.rgb, fill.a.mul(fillA))
   // Halo behind fill: smoothstep at the inward-shifted halo edge, then the
   // (1 - fill_w) factor masks the region the fill already covers.
-  const haloEdge = edge.sub(U.field.halo_width)
   const aaHalo = U.field.halo_blur.add(soft)
+  // #601 — bound the halo edge so it cannot descend into the background SDF.
+  // halo_width is packed per-fontScale (text-renderer.ts: halo.width*3/fontSize),
+  // so at SMALL text it inflates and pushes (edge - halo_width) far below the
+  // 0.75 glyph edge; combined with the AA half-width (aaHalo, which also grows
+  // ~1/fontSize via `soft`), the lower smoothstep edge (haloEdge - aaHalo) drops
+  // to <= 0 and the halo smoothstep covers the whole glyph cell's background
+  // (sdf~0) — the user-reported opaque WHITE BOX behind small country labels at
+  // z0. Flooring haloEdge at aaHalo keeps (haloEdge - aaHalo) >= 0 (never reaches
+  // the sdf=0 background), so the halo stays a thin outline that naturally thins
+  // as text shrinks — matching MapLibre, whose halo band is likewise bounded to
+  // the SDF radius. No effect on normal/large text (there haloEdge >> aaHalo).
+  const haloEdge = max(edge.sub(U.field.halo_width), aaHalo)
   const haloA = smoothstep(haloEdge.sub(aaHalo), haloEdge.add(aaHalo), sdf)
   const fillW = fill.a.mul(fillA)
   const haloW = halo.a.mul(haloA).mul(f32(1).sub(fillW))

@@ -28,14 +28,14 @@
 
 import {
   fn, module, transformMat4, arrayLit,
-  f32, u32, toU32, vec2, vec3, vec4, exp, max,
+  f32, u32, toU32, vec2, vec3, vec4, exp, max, select,
   Let, condExpr,
   f32T, u32T, vec2fT, vec4fT, mat4x4fT,
   type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, storageBuffer } from '@xgis/shader-dsl'
 import { emitModule } from '@xgis/shader-dsl'
-import { flat_rel, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
+import { flat_rel, needs_backface_cull, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
 
 const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
   // ECEF-MVP (Camera.getECEFFrameView) for globe / 3D; the matching
@@ -49,6 +49,12 @@ const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
   // Mercator centre in .xy on the flat path. Mirrors the point uniform.
   cam_ecef_h: vec4fT,
   cam_ecef_l: vec4fT,
+  // #600 — globe(7) eye-horizon cull. xyz = normalize(eye_ecef), w =
+  // EARTH_R/|eye_ecef|. The VS back-hemisphere cull (#595) passes this to
+  // needs_backface_cull; the globe arm uses the eye-horizon cap (not the
+  // pitch-invariant centre hemisphere). Written by heatmap-renderer; ALL-ZERO
+  // on flat / disc paths (those arms ignore globe_eye).
+  globe_eye: vec4fT,
 })
 
 const HeatOut = ioStruct('HeatOut', {
@@ -121,13 +127,25 @@ const vs = fn('vs_heatmap', {
     }],
   ], () => transformMat4(mvp, vec4(ecefRtc, 1)))
 
+  // Back-hemisphere cull for globe/sphere projections (#595): collapse the
+  // entire splat quad to a degenerate clip position (w=0) so the GPU discards
+  // it before rasterisation. needs_backface_cull returns negative cos_c on the
+  // back hemisphere for globe (projType ≥ 6.5) and returns +1 for flat
+  // projections (no regression). Degenerate w=0 is outside NDC on every
+  // implementation so no accum contribution lands from a back-facing point.
+  const cosC = needs_backface_cull(absLon, absLat, U.field.proj_params, U.field.globe_eye)
+  const isVisible = cosC.ge(0)
+
   // Expand a screen-space billboard quad of `radius_px` (NDC-corrected by
   // clip.w). uv runs −1..1 across the quad; the FS Gaussian is radial in uv.
   const offXY = offsets.at(p.quad_id, vec2fT)
   const pxToNdc = vec2(f32(2).div(viewport.x), f32(2).div(viewport.y))
   const offsetPx = vec2(offXY.x.mul(radiusPx), offXY.y.mul(radiusPx))
   const offsetNdc = offsetPx.mul(pxToNdc)
-  const quadClip = Let(centerClip.add(vec4(offsetNdc.mul(centerClip.w), 0, 0)))
+  const expandedClip = centerClip.add(vec4(offsetNdc.mul(centerClip.w), 0, 0))
+  // Degenerate clip (all zeros, w=0) is outside NDC — GPU discards entirely.
+  // select(cond, ifTrue, ifFalse): front-facing → expanded; back-facing → degenerate.
+  const quadClip = Let(select(isVisible, expandedClip, vec4(0, 0, 0, 0)))
 
   return HeatOut.construct({ position: quadClip, uv: offXY, weight })
 }, { stage: 'vertex' })
