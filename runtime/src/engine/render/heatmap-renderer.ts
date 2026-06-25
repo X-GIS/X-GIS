@@ -26,7 +26,19 @@ import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 import { getSampleCount } from '../gpu/gpu'
 import { FrameArena } from '../gpu/frame-arena'
 import { emitHeatmapAccumWgsl } from '../shaders/dsl'
+import { WebGpuDevice, wrapWebGpuPass } from './rhi/rhi-webgpu'
+import { HeatmapDraper } from './material/heatmap-material'
 import { HEATMAP_DENSITY_FORMAT } from '../gpu/gpu-shared'
+import { heatmapUniformSlots } from './heatmap-uniform-slots'
+
+// f32 slots of the heatmap-accum 'Uniforms' struct, from reflect() (NOT hand-coded magic
+// offsets — those drift from heatmap-accum.ts). The `uf[...]` packer writes at HS.<field>.
+// LAZY memoising Proxy: heatmapUniformSlots() reflects a module that needs configureProjections()
+// (run later in init), so the reflect() is deferred to the first HS.<field> read (a render).
+let _hsSlots: Readonly<Record<string, number>> | null = null
+const HS = new Proxy({} as Record<string, number>, {
+  get: (_t, k: string) => (_hsSlots ??= heatmapUniformSlots().slot)[k],
+})
 
 /** A baked heatmap-color ramp stop — offset in [0,1] (heatmap-density) and a
  *  normalised RGBA colour. The renderer interpolates between stops to fill
@@ -95,20 +107,20 @@ function writeHeatmapFrameUniform(
   canvasWidth: number,
   canvasHeight: number,
 ): void {
-  uf.set(frame.matrix, 0)
-  uf[16] = projType; uf[17] = projCenterLon; uf[18] = projCenterLat; uf[19] = 0
+  uf.set(frame.matrix, HS.mvp)
+  uf[HS.proj_params] = projType; uf[HS.proj_params + 1] = projCenterLon; uf[HS.proj_params + 2] = projCenterLat; uf[HS.proj_params + 3] = 0
   const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, camera.zoom)
-  uf[20] = canvasWidth; uf[21] = canvasHeight; uf[22] = metersPerPixel; uf[23] = 0
+  uf[HS.viewport] = canvasWidth; uf[HS.viewport + 1] = canvasHeight; uf[HS.viewport + 2] = metersPerPixel; uf[HS.viewport + 3] = 0
   if (projType === 0) {
     const cmx = camera.centerX, cmy = camera.centerY
     const cmxH = Math.fround(cmx), cmyH = Math.fround(cmy)
-    uf[24] = cmxH; uf[25] = cmyH; uf[26] = 0; uf[27] = 0
-    uf[28] = cmx - cmxH; uf[29] = cmy - cmyH; uf[30] = 0; uf[31] = 0
+    uf[HS.cam_ecef_h] = cmxH; uf[HS.cam_ecef_h + 1] = cmyH; uf[HS.cam_ecef_h + 2] = 0; uf[HS.cam_ecef_h + 3] = 0
+    uf[HS.cam_ecef_l] = cmx - cmxH; uf[HS.cam_ecef_l + 1] = cmy - cmyH; uf[HS.cam_ecef_l + 2] = 0; uf[HS.cam_ecef_l + 3] = 0
   } else {
     const camC = camera.getECEFCenter()
     const cxH = Math.fround(camC[0]); const cyH = Math.fround(camC[1]); const czH = Math.fround(camC[2])
-    uf[24] = cxH; uf[25] = cyH; uf[26] = czH; uf[27] = 0
-    uf[28] = camC[0] - cxH; uf[29] = camC[1] - cyH; uf[30] = camC[2] - czH; uf[31] = 0
+    uf[HS.cam_ecef_h] = cxH; uf[HS.cam_ecef_h + 1] = cyH; uf[HS.cam_ecef_h + 2] = czH; uf[HS.cam_ecef_h + 3] = 0
+    uf[HS.cam_ecef_l] = camC[0] - cxH; uf[HS.cam_ecef_l + 1] = camC[1] - cyH; uf[HS.cam_ecef_l + 2] = camC[2] - czH; uf[HS.cam_ecef_l + 3] = 0
   }
 }
 
@@ -408,11 +420,26 @@ export class HeatmapRenderer {
     this.device.queue.writeBuffer(layer._idxBuf!, 0, indices)
     this.device.queue.writeBuffer(layer._featBuf!, 0, featData)
 
-    pass.setPipeline(this.pipeline)
-    pass.setBindGroup(0, layer._bindGroup!)
-    pass.setVertexBuffer(0, layer._vertBuf!)
-    pass.setIndexBuffer(layer._idxBuf!, 'uint32')
-    pass.drawIndexed(N * 6)
+    if ((globalThis as { __xgisHeatmapViaRhi?: boolean }).__xgisHeatmapViaRhi === true) {
+      this.ensureHeatmapDraper()
+      if (!this._heatRhiLogged) { this._heatRhiLogged = true; console.warn(`[HEATRHI] accum draw via RHI seam (idx=${N * 6})`) }
+      this._heatmapDraper!.draw(wrapWebGpuPass(pass), {
+        bindGroup: layer._bindGroup!, vertBuf: layer._vertBuf!, idxBuf: layer._idxBuf!, indexCount: N * 6,
+      })
+    } else {
+      pass.setPipeline(this.pipeline)
+      pass.setBindGroup(0, layer._bindGroup!)
+      pass.setVertexBuffer(0, layer._vertBuf!)
+      pass.setIndexBuffer(layer._idxBuf!, 'uint32')
+      pass.drawIndexed(N * 6)
+    }
+  }
+
+  private _heatmapDraper?: HeatmapDraper
+  private _heatRhiLogged = false
+  private ensureHeatmapDraper(): void {
+    if (this._heatmapDraper) return
+    this._heatmapDraper = new HeatmapDraper(new WebGpuDevice(this.device), this.bindGroupLayout)
   }
 
   /** Rebuild the accum pipeline for a quality change. Heatmap accum is always

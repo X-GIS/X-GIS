@@ -15,7 +15,7 @@
 import { describe, it, expect } from 'vitest'
 import { emitGlslModule, wgslLayout, UnsupportedFeatureError } from '@xgis/shader-dsl'
 import {
-  mat4x4fT, vec4fT, vec2fT, vec3fT, f32T, structT,
+  mat4x4fT, vec4fT, vec2fT, vec3fT, f32T, u32T, structT,
   type ShaderType, type Expr, type ModuleDecl, type StructDecl,
 } from '@xgis/shader-dsl'
 
@@ -182,6 +182,123 @@ describe('glsl-es300 — @vertex / @fragment entry-IO lowering', () => {
     expect((emitGlslModule(module, 'fragment').match(/void main\(\)/g) ?? []).length).toBe(1)
     // whole-module (no stage) emits BOTH main()s — a string-shape artifact, not a unit.
     expect((emitGlslModule(module).match(/void main\(\)/g) ?? []).length).toBe(2)
+  })
+})
+
+describe('glsl-es300 — reserved-word identifier sanitisation', () => {
+  // A GLSL ES reserved word (`input`, `in`, `out`, …) is a legal WGSL identifier but a
+  // GLSL compile error. The backend renames any param/local-var that collides (and every
+  // reference) so a real shader whose entry param is named `input` (raster) / `in`
+  // (overdraw) links. Struct fields + binding names are left alone.
+  const ReservedIn: StructDecl = { name: 'ReservedIn', fields: [{ name: 'uv', type: vec2fT, attr: '@location(0)' }] }
+  const reservedMod: ModuleDecl = {
+    consts: [], structs: [ReservedIn, FsOut], bindings: [],
+    funcs: [{
+      name: 'fs', attrs: ['@fragment'],
+      params: [{ name: 'input', type: structT('ReservedIn') }], // `input` is GLSL-reserved
+      ret: structT('FsOut'),
+      body: [
+        // a local var named `sample` (also reserved) initialised from the reserved param.
+        { s: 'let', name: 'sample', expr: fld(fld(param('input', structT('ReservedIn')), 'uv', vec2fT), 'x', f32T) },
+        { s: 'return', expr: { op: 'construct', type: structT('FsOut'), args: [v4(varref('sample', f32T), lit(0), lit(0), lit(1))] } },
+      ],
+    }],
+  }
+
+  it('renames a reserved-word entry param + every reference consistently', () => {
+    const fs = emitGlslModule(reservedMod, 'fragment')
+    // the reserved param `input` is renamed (to `input_`) at the decl AND every reference.
+    expect(fs).toMatch(/\binput_\b/)
+    expect(fs).not.toMatch(/\binput\b(?!_)/) // no bare reserved `input` left
+    expect(fs).toContain('fs_impl(input_)') // the call site uses the renamed name
+  })
+
+  it('renames a reserved-word local var (`sample`) consistently', () => {
+    const fs = emitGlslModule(reservedMod, 'fragment')
+    expect(fs).toMatch(/\bsample_\b/)
+    expect(fs).not.toMatch(/\bsample\b(?!_)/)
+  })
+
+  it('does NOT touch struct field names (the std140 / varying-linkage contract)', () => {
+    const fs = emitGlslModule(reservedMod, 'fragment')
+    expect(fs).toMatch(/\.uv\b/) // the `uv` field is still accessed as `.uv`, not renamed
+  })
+})
+
+describe('glsl-es300 — GLSL ES integer rules (u32 switch labels, flat varyings)', () => {
+  it('a u32 switch emits u-suffixed case labels (label type must match the scrutinee)', () => {
+    const mod: ModuleDecl = {
+      consts: [], structs: [], bindings: [],
+      funcs: [{
+        name: 'pick', params: [{ name: 'k', type: u32T }], ret: f32T,
+        body: [
+          { s: 'var', name: 'o', type: f32T, init: lit(0) },
+          { s: 'switch', scrut: { op: 'param', type: u32T, name: 'k' },
+            cases: [{ value: 1, body: [{ s: 'assign', target: { op: 'varref', type: f32T, name: 'o' }, expr: lit(1) }] }],
+            defaultBody: [] },
+          { s: 'return', expr: { op: 'varref', type: f32T, name: 'o' } },
+        ],
+      }],
+    }
+    const glsl = emitGlslModule(mod)
+    expect(glsl).toMatch(/switch \(k\)/)
+    expect(glsl).toMatch(/case 1u:/)        // u32 scrutinee → u-suffixed label
+    expect(glsl).not.toMatch(/case 1:/)     // a bare int label is a GLSL ES type-mismatch error
+  })
+
+  it('an integer inter-stage varying is `flat` (vertex-OUT + fragment-IN), an int vertex attribute is NOT', () => {
+    const IntIn: StructDecl = { name: 'IntIn', fields: [{ name: 'idx', type: u32T, attr: '@location(0)' }] }
+    const IntOut: StructDecl = { name: 'IntOut', fields: [
+      { name: 'position', type: vec4fT, attr: '@builtin(position)' },
+      { name: 'tag', type: u32T, attr: '@location(0)' },
+    ] }
+    const vmod: ModuleDecl = {
+      consts: [], structs: [IntIn, IntOut], bindings: [],
+      funcs: [{
+        name: 'vs', attrs: ['@vertex'], params: [{ name: 'inp', type: structT('IntIn') }], ret: structT('IntOut'),
+        body: [
+          { s: 'var', name: 'o', type: structT('IntOut') },
+          { s: 'assign', target: fld(varref('o', structT('IntOut')), 'position', vec4fT), expr: v4(lit(0), lit(0), lit(0), lit(1)) },
+          { s: 'assign', target: fld(varref('o', structT('IntOut')), 'tag', u32T), expr: fld(param('inp', structT('IntIn')), 'idx', u32T) },
+          { s: 'return', expr: varref('o', structT('IntOut')) },
+        ],
+      }],
+    }
+    const vs = emitGlslModule(vmod, 'vertex')
+    expect(vs).toMatch(/flat out uint tag;/)                       // integer vertex-OUT varying → flat
+    expect(vs).toMatch(/layout\(location = 0\) in uint a_idx;/)    // integer vertex attribute → NOT flat
+    expect(vs).not.toMatch(/flat (?:layout|in)/)                   // no flat on the attribute
+  })
+})
+
+describe('glsl-es300 — storage → data-texture emulation (opt-in)', () => {
+  const arrF32 = { kind: 'array', elem: f32T } as ShaderType // runtime-sized storage array<f32>
+  const storageMod: ModuleDecl = {
+    consts: [], structs: [FsOut],
+    bindings: [{ group: 0, binding: 0, name: 'data', space: 'storage', access: 'read', type: arrF32 }],
+    funcs: [{
+      name: 'fs', attrs: ['@fragment'], params: [], ret: structT('FsOut'),
+      body: [{
+        s: 'return',
+        expr: {
+          op: 'construct', type: structT('FsOut'),
+          // data[2] read → its value as the red channel.
+          args: [v4({ op: 'index', type: f32T, base: varref('data', arrF32), idx: { op: 'lit', type: u32T, value: 2 } }, lit(0), lit(0), lit(1))],
+        },
+      }],
+    }],
+  }
+
+  it('emulateStorage lowers a storage array<f32> to a sampler2D + texelFetch (no SSBO)', () => {
+    const fs = emitGlslModule(storageMod, 'fragment', { emulateStorage: true })
+    expect(fs).toContain('uniform sampler2D data;')   // storage binding → data texture
+    // data[i] → 2D-tiled fetch: ivec2(i % textureSize(data,0).x, i / textureSize(data,0).x)
+    expect(fs).toMatch(/texelFetch\(data, ivec2\(int\(.*\) % textureSize\(data, 0\)\.x, int\(.*\) \/ textureSize\(data, 0\)\.x\), 0\)\.r/)
+    expect(fs).not.toContain('data[') // no raw array indexing survives
+  })
+
+  it('storage still FAILS CLOSED without the opt-in (default contract preserved)', () => {
+    expect(() => emitGlslModule(storageMod, 'fragment')).toThrow(UnsupportedFeatureError)
   })
 })
 

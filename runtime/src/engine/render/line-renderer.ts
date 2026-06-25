@@ -44,6 +44,8 @@ import { asyncWriteBuffer, type StagingBufferPool } from '../gpu/staging-buffer-
 import { xlog } from '../log'
 import { BLEND_ALPHA, BLEND_ALPHA_PREMULT, BLEND_MAX, DEPTH_READ_ONLY } from '../gpu/gpu-shared'
 import { emitLineWgsl, emitCompositeWgsl } from '../shaders/dsl'
+import { WebGpuDevice, wrapWebGpuPass } from './rhi/rhi-webgpu'
+import { LineDraper } from './material/line-material'
 import type { ShapeRegistry } from '../text/sdf-shape'
 import {
   LINE_UNIFORM_SIZE, PATTERN_SLOT_COUNT, PATTERN_SLOT_F32,
@@ -631,10 +633,30 @@ export class LineRenderer {
     // don't contribute to the v1 heatmap. Phase 2 adds an additive
     // r16float variant so line overdraw counts too.
     if (DEBUG_OVERDRAW) return
-    pass.setPipeline(this.getDrawPipeline(translucent, patternActive))
-    pass.setBindGroup(0, tileBindGroup, [tileOffset])
-    pass.setBindGroup(1, layerBindGroup, [layerOffset])
-    pass.draw(6, segmentCount)
+    // RHI pilot (main pass, non-pick, direct render pass — bundles + the
+    // translucent MAX pass stay legacy): same draw through the generic seam.
+    const lineRhi = (globalThis as { __xgisLineViaRhi?: boolean }).__xgisLineViaRhi === true
+      && !translucent && !isPickEnabled() && typeof (pass as { end?: unknown }).end === 'function'
+    if (lineRhi) {
+      this.ensureLineDraper()
+      if (!this._lineRhiLogged) { this._lineRhiLogged = true; console.warn(`[LINERHI] segment draw via RHI seam (segments=${segmentCount})`) }
+      this._lineDraper!.draw(wrapWebGpuPass(pass as GPURenderPassEncoder), {
+        tileBG: tileBindGroup, layerBG: layerBindGroup, tileOffset, layerOffset,
+        pattern: patternActive, segmentCount,
+      })
+    } else {
+      pass.setPipeline(this.getDrawPipeline(translucent, patternActive))
+      pass.setBindGroup(0, tileBindGroup, [tileOffset])
+      pass.setBindGroup(1, layerBindGroup, [layerOffset])
+      pass.draw(6, segmentCount)
+    }
+  }
+
+  private _lineDraper?: LineDraper
+  private _lineRhiLogged = false
+  private ensureLineDraper(): void {
+    if (this._lineDraper) return
+    this._lineDraper = new LineDraper(new WebGpuDevice(this.device), this.format, getSampleCount(), this.tileBindGroupLayout, this.layerBindGroupLayout)
   }
 
   clearLayers(): void {

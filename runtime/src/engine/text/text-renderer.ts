@@ -21,6 +21,8 @@ import { bumpAlloc } from '../__profile__/alloc-counter'
 import type { TextDraw } from './text-renderer-types'
 import { codePointIsIdeographic } from './text-wrap'
 import { emitTextWgsl } from '../shaders/dsl'
+import { WebGpuDevice, wrapWebGpuPass } from '../render/rhi/rhi-webgpu'
+import { TextDraper, type TextSlice } from '../render/material/text-material'
 import { vertexField } from '@xgis/compiler'
 import { TEXT_FORMAT } from './text-vertex-format'
 import { toVertexBufferLayout } from '../render/vertex-buffer-layout'
@@ -91,12 +93,29 @@ export class TextRenderer {
    *  reallocated. */
   private bindGroupsByPage: GPUBindGroup[] = []
 
+  // RHI pilot (behind __xgisTextViaRhi). Same per-slice draws through the seam.
+  private _textFmt!: GPUTextureFormat
+  private _textSamples!: number
+  private _textDraper?: TextDraper
+  private _textRhiLogged = false
+  private ensureTextDraper(): void {
+    if (this._textDraper) return
+    const vbl = toVertexBufferLayout(TEXT_FORMAT)
+    const vertexBuffers = [{
+      stride: vbl.arrayStride,
+      attributes: [...vbl.attributes].map((a) => ({ location: a.shaderLocation, offset: a.offset, format: a.format as string })),
+    }]
+    this._textDraper = new TextDraper(new WebGpuDevice(this.device), this._textFmt, this._textSamples, this.bgLayout, vertexBuffers)
+  }
+
   constructor(
     device: GPUDevice, atlas: GlyphAtlasGPU, presentationFormat: GPUTextureFormat,
     sampleCount: number = 1,
   ) {
     this.device = device
     this.atlas = atlas
+    this._textFmt = presentationFormat
+    this._textSamples = sampleCount
 
     this.bgLayout = device.createBindGroupLayout({
       label: 'text-renderer-bgl',
@@ -403,9 +422,13 @@ export class TextRenderer {
       this.allUniforms.buffer, this.allUniforms.byteOffset,
       numSlices * UNIFORM_STRIDE)
 
-    pass.setPipeline(this.pipeline)
-    pass.setVertexBuffer(0, this.vertexBuf)
-
+    // RHI pilot: collect per-slice draw items + issue via the generic seam.
+    const useTextRhi = (globalThis as { __xgisTextViaRhi?: boolean }).__xgisTextViaRhi === true
+    const rhiSlices: TextSlice[] = []
+    if (!useTextRhi) {
+      pass.setPipeline(this.pipeline)
+      pass.setVertexBuffer(0, this.vertexBuf)
+    }
     for (const slice of this.drawSlices) {
       const page = this.atlas.getPage(slice.page)
       if (!page) continue  // page evicted between flush and draw — skip
@@ -425,8 +448,17 @@ export class TextRenderer {
         })
         this.bindGroupsByPage[slice.page] = bg
       }
-      pass.setBindGroup(0, bg, [slice.dynamicOffset])
-      pass.draw(slice.count, 1, slice.first, 0)
+      if (useTextRhi) {
+        rhiSlices.push({ bg, dynamicOffset: slice.dynamicOffset, count: slice.count, first: slice.first })
+      } else {
+        pass.setBindGroup(0, bg, [slice.dynamicOffset])
+        pass.draw(slice.count, 1, slice.first, 0)
+      }
+    }
+    if (useTextRhi && rhiSlices.length > 0) {
+      this.ensureTextDraper()
+      if (!this._textRhiLogged) { this._textRhiLogged = true; console.warn(`[TEXTRHI] ${rhiSlices.length} glyph slices via RHI seam`) }
+      this._textDraper!.draw(wrapWebGpuPass(pass), this.vertexBuf!, rhiSlices)
     }
   }
 

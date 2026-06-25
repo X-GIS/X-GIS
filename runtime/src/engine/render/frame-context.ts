@@ -67,4 +67,11 @@ export interface FrameContext {
    *  textures (stencil / oitAccum / oitRevealage / pick / overdrawAccum)
    *  for their render-pass attachments. */
   rt: RenderTargets
+  /** True under the forced-WebGL2 boot (`?forcegl2=1` → `host.ctx.rhi != null`).
+   *  Selects the RHI screen-pass lifecycle for the raster slice instead of the raw
+   *  WebGPU encoder path. Populated at the FrameContext build site from
+   *  `host.ctx.rhi != null`; undefined/false on the normal WebGPU path (the loop then
+   *  takes the unchanged raw-WebGPU branch). The handle itself is reached as
+   *  `host.ctx.rhi`; this flag is only the per-frame branch predicate. */
+  useRhi?: boolean
 }

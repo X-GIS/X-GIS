@@ -37,4 +37,19 @@ describe('intrinsics — neutral registry (#3a)', () => {
     expect(spellIntrinsic('wgsl', 'sin', ['x'])).toBe('sin(x)')
     expect(spellIntrinsic('glsl', 'proj_mercator', ['a', 'b'])).toBe('proj_mercator(a, b)')
   })
+
+  // GLSL texelFetch/textureSize REQUIRE an `int` lod; WGSL textureLoad passes a u32
+  // level and textureDimensions(t) omits it. The glsl spelling supplies/casts to int;
+  // the wgsl spelling stays untouched (WGSL byte-identity).
+  it('textureLoad: WGSL unchanged; GLSL texelFetch wraps the lod in int()', () => {
+    expect(spellIntrinsic('wgsl', 'textureLoad', ['t', 'c', 'lvl'])).toBe('textureLoad(t, c, lvl)')
+    expect(spellIntrinsic('glsl', 'textureLoad', ['t', 'c', 'lvl'])).toBe('texelFetch(t, c, int(lvl))')
+  })
+
+  it('textureDimensions: WGSL unchanged; GLSL textureSize supplies an int lod (0 when absent)', () => {
+    expect(spellIntrinsic('wgsl', 'textureDimensions', ['t'])).toBe('textureDimensions(t)')
+    expect(spellIntrinsic('glsl', 'textureDimensions', ['t'])).toBe('textureSize(t, 0)')
+    // explicit level form casts the given level to int.
+    expect(spellIntrinsic('glsl', 'textureDimensions', ['t', 'lvl'])).toBe('textureSize(t, int(lvl))')
+  })
 })

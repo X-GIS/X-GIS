@@ -25,6 +25,7 @@ import { WORLD_MERC, TILE_PX } from './gpu/gpu-shared'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { reportErrorScope } from './render-loop-helpers'
 import { type FrameContext } from './render/frame-context'
+import type { RhiDevice } from './render/rhi/rhi'
 import { buildSceneView } from './render/scene-view'
 import { backgroundPass } from './render/passes/background-pass'
 import { opaquePass } from './render/passes/opaque-pass'
@@ -195,6 +196,22 @@ export class RenderLoop {
     ))
 
     perfMarkEnd('frame.prep')
+
+    // ── Forced-WebGL2 slice-1 lifecycle (?forcegl2=1) ──────────────────────────
+    // Additive EARLY RETURN: when host.ctx.rhi exposes the screen-pass lifecycle (only
+    // WebGl2Device does — the `?forcegl2=1` boot), render this frame through an ISOLATED
+    // single-sample WebGL2 screen pass and bypass the WebGPU encoder / compute / multi-
+    // pass / submit machinery below (storage buffers + MSAA fail-closed on WebGL2 —
+    // Story-5/6 scope). device/context are stubbed-undefined on this path
+    // (gpu.ts initGPUForcedWebGL2), so the raw calls at :199-200 must NOT run. The WebGPU
+    // path below is UNTOUCHED — this is a pure pre-guard. Rollback = delete this block.
+    const rhi = this.host.ctx.rhi
+    if (rhi?.beginScreenPass && rhi.endScreenPass) {
+      this.renderFrameViaRhi(rhi, w, h, projType, centerLon, centerLat, dpr)
+      requestAnimationFrame(this.host.renderLoop)
+      return
+    }
+
     perfMarkStart('frame.encode')
     const encoder = device.createCommandEncoder()
     const screenView = context.getCurrentTexture().createView()
@@ -620,6 +637,25 @@ export class RenderLoop {
     }
 
     requestAnimationFrame(this.host.renderLoop)
+  }
+
+  /** Forced-WebGL2 slice frame (?forcegl2=1): an isolated single-sample WebGL2 screen
+   *  pass that clears, draws the analytic raster checker tile on the WebGl2Device (US-003),
+   *  then presents. gl.getError is drained into the shared `_validationErrors` sink (R4)
+   *  so a forced-WebGL2 frame is held to the no-error bar the WebGPU tests already assert.
+   *  This is the WHOLE forced-WebGL2 hot path — none of the WebGPU multi-pass machinery runs
+   *  (storage/MSAA renderers are Story-5/6). */
+  private renderFrameViaRhi(
+    rhi: RhiDevice, w: number, h: number,
+    projType: number, centerLon: number, centerLat: number, dpr: number,
+  ): void {
+    const pass = rhi.beginScreenPass!({ width: w, height: h, clear: [0, 0, 0, 1] })
+    this.host.rasterRenderer.renderRhiChecker(rhi, pass, this.host.camera, projType, centerLon, centerLat, w, h, dpr)
+    rhi.endScreenPass!(pass)
+    const errs = rhi.takeGlErrors?.() ?? []
+    for (const message of errs) {
+      this.host.ctx._validationErrors.push({ message, t: Date.now() })
+    }
   }
 
   private _resolveFillPatterns(): void {

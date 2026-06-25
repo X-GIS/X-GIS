@@ -6,6 +6,8 @@ import { visibleTilesFrustum, tileUrl, loadImageTexture } from '../../data/tile-
 import { mercator as mercatorProj } from '../projection/projection'
 import { lonLatToECEF, type ECEF } from '../projection/ecef'
 import { emitRasterWgsl } from '../shaders/dsl'
+import type { RhiDevice, RhiRenderPass, RhiTexture } from './rhi/rhi'
+import { RasterDraper } from './material/raster-material'
 import { BLEND_ALPHA, STENCIL_DISABLED } from '../gpu/gpu-shared'
 import { isPickEnabled, getSampleCount } from '../gpu/gpu'
 import { DEBUG_OVERDRAW } from '../debug-flags'
@@ -92,6 +94,14 @@ export class RasterRenderer {
   private tileBindGroupPool: GPUBindGroup[] = []
   private tileUniformIdx = 0
   private drawTileF32 = new Float32Array(12) // bounds(4) + tile_ecef_center(4) + merc_y(2) + pad(2)
+
+  // ── Forced-WebGL2 raster slice (US-003) ──
+  // A SECOND draper backed by the WebGl2Device (host.ctx.rhi), drawing an analytic
+  // checker tile through the engine's RHI screen pass — the milestone proof that a real
+  // layer renders on the WebGL2 backend, not just offscreen. Distinct from `_rasterDraper`
+  // (the WebGPU pilot). Created lazily on the first forced-WebGL2 frame.
+  private _rhiDraper?: RasterDraper
+  private _rhiChecker?: RhiTexture
 
   constructor(ctx: GPUContext) {
     this.device = ctx.device
@@ -214,6 +224,66 @@ export class RasterRenderer {
    *  today, so we just keep the loop warm until the queue drains. */
   hasPendingLoads(): boolean {
     return this.loadingTiles.size > 0
+  }
+
+  /** Lazily build the 256×256 RGBA checker as an RHI texture (WebGl2Device path). */
+  private ensureRhiChecker(rhi: RhiDevice): RhiTexture {
+    if (this._rhiChecker) return this._rhiChecker
+    const N = 256, C = 32
+    const data = new Uint8Array(N * N * 4)
+    for (let y = 0; y < N; y++) {
+      for (let x = 0; x < N; x++) {
+        const on = (((x / C) | 0) + ((y / C) | 0)) % 2 === 0
+        const i = (y * N + x) * 4
+        data[i] = on ? 240 : 30; data[i + 1] = on ? 80 : 30; data[i + 2] = on ? 40 : 120; data[i + 3] = 255
+      }
+    }
+    const tex = rhi.createTexture({ width: N, height: N, format: 'rgba8unorm', usage: ['sample', 'copy-dst'], label: 'rhi-raster-checker' })
+    rhi.writeTexture(tex, data, N * 4, N, N)
+    this._rhiChecker = tex
+    return tex
+  }
+
+  /** US-003: render the analytic checker tile on WebGl2Device through the engine's RHI
+   *  screen pass — a real raster tile (a z0 world tile, AA-free, asymmetric for the
+   *  orientation gate) drawn via the SAME RasterDraper the WebGPU pilot uses, now backed
+   *  by the WebGl2Device. globalBytes/tileBytes mirror the live render() packing. */
+  renderRhiChecker(
+    rhi: RhiDevice, pass: RhiRenderPass, camera: Camera,
+    projType: number, projCenterLon: number, projCenterLat: number,
+    w: number, h: number, dpr: number,
+  ): void {
+    this._rhiDraper ??= new RasterDraper(rhi, 'rgba8unorm', 1)
+    const checker = this.ensureRhiChecker(rhi)
+    const frame = camera.getViewForProjection(projType, w, h, dpr)
+
+    // Global uniform (160 B) — Float32 element offsets: mvp@0, proj@16, raster_params@20,
+    // color0@24, color1@28, cam_ecef_center@32. Mirrors render()'s layout.
+    const globalBytes = new ArrayBuffer(160)
+    const gf = new Float32Array(globalBytes)
+    gf.set(frame.matrix, 0)
+    gf.set([projType, projCenterLon, projCenterLat, frame.logDepthFc], 16)
+    gf.set([this._opacity, 0, 0, 8], 20)
+    gf.set([this._hueRotate, this._brightnessMin, this._brightnessMax, this._saturation], 24)
+    gf.set([this._contrast, 0, 0, 0], 28)
+    // cam_ecef_center: the slice renders a FLAT z0 tile (single-sample, projType-0 scope —
+    // the globe/ECEF anchor is Story-5/6), so pack the 2D Mercator camera centre. No projType
+    // branch here keeps the forced-WebGL2 path off the projType-comparison arch ratchet.
+    gf.set([camera.centerX, camera.centerY, 0, 0], 32)
+
+    // One z0 world tile (whole Mercator band), uv_rect = whole texture.
+    const west = -180, south = -85.051129, east = 180, north = 85.051129
+    const swEcef = lonLatToECEF(west, south)
+    const DEG2RAD = Math.PI / 180
+    const mercSouth = Math.log(Math.tan(Math.PI / 4 + south * DEG2RAD / 2))
+    const mercNorth = Math.log(Math.tan(Math.PI / 4 + north * DEG2RAD / 2))
+    const tf = new Float32Array(16)
+    tf[0] = west; tf[1] = south; tf[2] = east; tf[3] = north
+    tf[4] = swEcef[0]; tf[5] = swEcef[1]; tf[6] = swEcef[2]
+    tf[8] = mercSouth; tf[9] = mercNorth - mercSouth
+    tf[12] = 0; tf[13] = 0; tf[14] = 1; tf[15] = 1
+
+    this._rhiDraper.draw(pass, globalBytes, [{ texture: checker, tileBytes: tf }])
   }
 
   render(
