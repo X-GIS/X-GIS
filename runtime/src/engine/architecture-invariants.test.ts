@@ -138,7 +138,13 @@ const LOC_CEILINGS: Record<string, number> = {
   // helper + the two map-anchor flags at the fill/line translate bake;
   // fill-extrusion inherits via the shared fill_translate slot 46/47).
   // Default viewport/round-limit byte-identical; additive, no struct growth.
-  'runtime/src/engine/render/vector-tile-renderer.ts': 4078,
+  // Bumped 4078→4093 (uniform-from-reflect, #581): the polygon uniform slots are
+  // now SOURCED from reflect(buildPolygonModule()) via a lazy `US` slot Proxy
+  // (polygon-uniform-slots.ts) instead of three hand-maintained byte-offset copies —
+  // RETIRES the std140 drift the file carried (DSL struct + uf[N]/uniformF32[N]/
+  // uniformU32[N] magic). Render byte-identical; the +15 is the one-time slot-Proxy
+  // wiring, not feature surface. Decomposition stays a tracked follow-up.
+  'runtime/src/engine/render/vector-tile-renderer.ts': 4093,
   // Bumped 3361→3393 for the destroy()-completeness fix: cancelling the
   // EventDispatcher move-rAF + the pending-flush rAF, clearing _pendingPatches,
   // and removing the run()-installed window globals (__xgisReady/snapshot/
@@ -494,7 +500,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // drift the file used to carry (viewport @20 vs @24); the growth is the
   // one-time reflection-wiring header, not new feature surface. Decomposition
   // stays a tracked follow-up.
-  'runtime/src/engine/render/point-renderer.ts': 946,
+  // Bumped 946→980 (RHI backend seam, #581): the generic Material/RHI path (point
+  // pilot) threads vsCode/fsCode + an RhiDevice draw branch alongside the WebGPU
+  // pipeline so a point layer can render on either backend. Additive — the WebGPU
+  // path is byte-identical when the RHI seam is off; the +34 is backend-seam
+  // plumbing. Decomposition stays a tracked follow-up.
+  'runtime/src/engine/render/point-renderer.ts': 980,
   // Baselined at 820 (mbx_batch2): lower-label.ts is the label-knob lowering
   // sub-pass extracted from lower.ts; crossed 800 here for the icon-translate
   // accumulators + parse arms + knobs-interface + merge wiring. Cohesive

@@ -22,7 +22,6 @@ export const SAFE_MODE: boolean = readSafeFlag()
 // site sees the current value (no stale snapshots).
 import { QUALITY } from './quality'
 import type { RhiDevice } from '../render/rhi/rhi'
-import { WebGl2Device } from '../render/rhi/rhi-webgl2'
 
 // Function-accessor form for values that change at runtime. A plain
 // `export const X = QUALITY.msaa` would snapshot at module load and
@@ -144,7 +143,14 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
   // body below stays byte-identical (Principle 1 / S2: the sacred path is untouched
   // when the flag is off). Bypasses the WebGPU adapter entirely so the produced frame
   // provably originates on `WebGl2Device` (the gate asserts `host.ctx.rhi.backend`).
-  if (FORCE_GL2) return initGPUForcedWebGL2(canvas)
+  if (FORCE_GL2) {
+    // Lazy-load the WebGL2 backend: only the rare `?forcegl2=1` boot pays for rhi-webgl2,
+    // and it keeps gpu.ts (layer 1) off a STATIC upward import edge to the render layer
+    // (rhi-webgl2 is L3). The device is injected as a factory so the arch spine stays
+    // downward-only; the WebGPU body below is unreached on this path.
+    const { WebGl2Device } = await import('../render/rhi/rhi-webgl2')
+    return initGPUForcedWebGL2(canvas, (gl) => new WebGl2Device(gl))
+  }
 
   if (typeof navigator === 'undefined' || !navigator.gpu) {
     throw new WebGPUUnavailableError('WebGPU is not supported in this browser')
@@ -267,14 +273,19 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
  *  `GPU*` read sites recompile. Slice-1 topology is single-sample + isolated (S4): the
  *  shared opaque-pass MSAA path is Story-5 scope, so `sampleCount` is 1 here.
  *  Exported for the unit gate (context-shape + backend-marker ACs); production
- *  reaches it only via `initGPU`'s `FORCE_GL2` early return. */
-export function initGPUForcedWebGL2(canvas: HTMLCanvasElement): GPUContext {
+ *  reaches it only via `initGPU`'s `FORCE_GL2` early return. The RHI device is
+ *  INJECTED (`makeRhi`) — `initGPU` lazy-imports `WebGl2Device` and passes the
+ *  factory, so this layer-1 module never statically depends on the render layer. */
+export function initGPUForcedWebGL2(
+  canvas: HTMLCanvasElement,
+  makeRhi: (gl: WebGL2RenderingContext) => RhiDevice,
+): GPUContext {
   // preserveDrawingBuffer keeps the rendered frame readable via gl.readPixels after the
   // rAF turn — the US-004 live-render gate reads the checker pixels back. (This slice is a
   // dev/test path; the minor compositor cost is acceptable.)
   const gl = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: true, preserveDrawingBuffer: true })
   if (!gl) throw new WebGPUUnavailableError('?forcegl2=1 set but canvas.getContext("webgl2") returned null')
-  const rhi = new WebGl2Device(gl)
+  const rhi = makeRhi(gl)
 
   if (typeof window !== 'undefined') {
     // Page-readable backend marker for the e2e gate (mirrors the interface-member
