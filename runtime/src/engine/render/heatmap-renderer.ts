@@ -30,6 +30,7 @@ import { WebGpuDevice, wrapWebGpuPass } from './rhi/rhi-webgpu'
 import { HeatmapDraper } from './material/heatmap-material'
 import { HEATMAP_DENSITY_FORMAT } from '../gpu/gpu-shared'
 import { heatmapUniformSlots } from './heatmap-uniform-slots'
+import { globeEyeUniform } from './globe-eye-uniform'
 
 // f32 slots of the heatmap-accum 'Uniforms' struct, from reflect() (NOT hand-coded magic
 // offsets — those drift from heatmap-accum.ts). The `uf[...]` packer writes at HS.<field>.
@@ -99,7 +100,9 @@ export const DEFAULT_HEATMAP_RAMP: readonly HeatmapColorStop[] = [
  *  2D camera centre (DSFUN hi/lo) into cam_ecef_h.xy / cam_ecef_l.xy. */
 function writeHeatmapFrameUniform(
   uf: Float32Array,
-  frame: { matrix: Float32Array },
+  // #600 — frame.eye is the absolute sphere-ECEF camera position (globe/ECEF
+  // branch only) for the globe(7) eye-horizon cull.
+  frame: { matrix: Float32Array; eye?: readonly [number, number, number] },
   camera: Camera,
   projType: number,
   projCenterLon: number,
@@ -122,6 +125,11 @@ function writeHeatmapFrameUniform(
     uf[HS.cam_ecef_h] = cxH; uf[HS.cam_ecef_h + 1] = cyH; uf[HS.cam_ecef_h + 2] = czH; uf[HS.cam_ecef_h + 3] = 0
     uf[HS.cam_ecef_l] = camC[0] - cxH; uf[HS.cam_ecef_l + 1] = camC[1] - cyH; uf[HS.cam_ecef_l + 2] = camC[2] - czH; uf[HS.cam_ecef_l + 3] = 0
   }
+  // #600 — globe_eye: (normalize(eye), R/|eye|) for the globe(7) eye-horizon
+  // cull (heatmap VS back-hemisphere cull, #595). frame.eye is set only on the
+  // globe/ECEF branch → all-zero on flat (the flat/disc cull arm ignores it).
+  const ge = globeEyeUniform(frame.eye)
+  uf[HS.globe_eye] = ge[0]; uf[HS.globe_eye + 1] = ge[1]; uf[HS.globe_eye + 2] = ge[2]; uf[HS.globe_eye + 3] = ge[3]
 }
 
 export class HeatmapRenderer {
@@ -129,7 +137,7 @@ export class HeatmapRenderer {
   private pipeline: GPURenderPipeline
   private bindGroupLayout: GPUBindGroupLayout
   private uniformBuffer: GPUBuffer
-  private uniformData = new Float32Array(32)
+  private uniformData = new Float32Array(36) // mvp16+proj4+viewport4+cam_h4+cam_l4+globe_eye4 (#600)
   private readonly _frameArena = new FrameArena(64 * 1024)
   private layers: HeatmapLayer[] = []
   /** Blur direction uniforms (allocated once; the heatmap pass picks H/V).
@@ -186,7 +194,7 @@ export class HeatmapRenderer {
     })
 
     this.uniformBuffer = device.createBuffer({
-      size: 128, // 32 f32 × 4
+      size: 144, // 36 f32 × 4 (#600 globe_eye)
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     })
 

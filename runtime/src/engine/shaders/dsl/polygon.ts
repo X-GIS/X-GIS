@@ -100,6 +100,13 @@ const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
   // rotated by the camera-anchor ENU→ECEF basis (vector-tile-renderer),
   // matching polygon-mesh.ts's normal basis.
   light_dir_ecef: vec4fT,
+  // #600 — globe(7) eye-horizon cull. xyz = normalize(eye_ecef), w =
+  // EARTH_R/|eye_ecef| (= horizonCos). polygon_cos_c_fragment passes this to
+  // needs_backface_cull, whose globe arm keeps a fragment iff
+  // dot(normalize(P_ecef), globe_eye.xyz) > globe_eye.w. Written per frame by
+  // vector-tile-renderer / renderer (non-tiled) / graticule. ALL-ZERO on the
+  // flat / disc paths (those arms ignore globe_eye). Grows the struct 256→272.
+  globe_eye: vec4fT,
 })
 const Uniforms = U.struct
 
@@ -168,7 +175,7 @@ const polygonCosCFragment = fn(
     const absLon = p.abs_merc_x.div(DEG2RAD.mul(earthR))
     const latRad = inv_merc_lat_rad(p.abs_merc_y)
     const absLat = degrees(latRad)
-    return needs_backface_cull(absLon, absLat, U.field.proj_params)
+    return needs_backface_cull(absLon, absLat, U.field.proj_params, U.field.globe_eye)
   },
 )
 
@@ -185,7 +192,7 @@ const polygonRimAlpha = fn(
     const absLon = p.abs_merc_x.div(DEG2RAD.mul(earthR))
     const latRad = inv_merc_lat_rad(p.abs_merc_y)
     const absLat = degrees(latRad)
-    return rim_alpha(absLon, absLat, U.field.proj_params)
+    return rim_alpha(absLon, absLat, U.field.proj_params, U.field.globe_eye)
   },
 )
 

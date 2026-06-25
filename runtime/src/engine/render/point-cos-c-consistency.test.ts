@@ -11,6 +11,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { cosC, needsBackfaceCullWgsl } from '../shaders/dsl'
+import { globeEyeUniform } from './globe-eye-uniform'
 
 const EARTH_R = 6378137
 const DEG2RAD = Math.PI / 180
@@ -23,6 +24,16 @@ function lonLatToMerc(lon: number, lat: number): [number, number] {
   return [x, y]
 }
 
+// #600 — far NADIR eye over the camera centre: the globe arm now uses the
+// eye-horizon cap, but a far on-axis eye gives horizonCos ≈ 0 ≈ the strict
+// hemisphere, so the point cull sign still matches the cosC ground truth this
+// file pins. The pitched eye is exercised in the comprehensive test's #600 block.
+function nadirEye(clon: number, clat: number): readonly [number, number, number] {
+  const lam = clon * DEG2RAD, phi = clat * DEG2RAD, c = Math.cos(phi)
+  const s = EARTH_R * 1e6
+  return [s * c * Math.cos(lam), s * c * Math.sin(lam), s * Math.sin(phi)]
+}
+
 // CPU port of WGSL point_cos_c.
 function pointCosCCpu(rtcMercX: number, rtcMercY: number, projType: number, camLon: number, camLat: number): number {
   const clampedCamLat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, camLat))
@@ -33,7 +44,8 @@ function pointCosCCpu(rtcMercX: number, rtcMercY: number, projType: number, camL
   const absLon = absMercX / (DEG2RAD * EARTH_R)
   const latRad = 2 * Math.atan(Math.exp(absMercY / EARTH_R)) - Math.PI / 2
   const absLat = latRad / DEG2RAD
-  return needsBackfaceCullWgsl(projType, absLon, absLat, camLon, camLat)
+  // #600 — globe(7) needs globe_eye (far nadir eye over the camera centre).
+  return needsBackfaceCullWgsl(projType, absLon, absLat, camLon, camLat, globeEyeUniform(nadirEye(camLon, camLat)) as [number, number, number, number])
 }
 
 describe('point_cos_c vs polygon/line fragment-cull parity (workflow #2)', () => {

@@ -67,9 +67,10 @@ function wgslStructSize(src: string, name: string): number {
 describe('MapRenderer uniform bind size (bug maprenderer-uniform-240)', () => {
   const required = wgslStructSize(emitPolygonWgsl(null, false), 'Uniforms')
 
-  it('polygon Uniforms std140 size is 256 (#420 light_dir_ecef @240)', () => {
+  it('polygon Uniforms std140 size is 272 (#600 globe_eye @256)', () => {
     // Pins the canonical figure asserted by uniform-layout-consistency.test.ts.
-    expect(required).toBe(256)
+    // #420 grew it to 256 (light_dir_ecef @240); #600 to 272 (globe_eye @256).
+    expect(required).toBe(272)
   })
 
   it('MapRenderer.UNIFORM_SIZE >= the polygon Uniforms std140 size', () => {
@@ -78,7 +79,7 @@ describe('MapRenderer uniform bind size (bug maprenderer-uniform-240)', () => {
     // size (= the shared shader's Uniforms struct size), or WebGPU rejects the
     // draw. Pre-fix used=240 < required=256 → the draw-time validation error.
     expect(used).toBeGreaterThanOrEqual(required)
-    expect(used).toBe(256)
+    expect(used).toBe(272)
   })
 
   it('the uniform slot stride holds the bind size', () => {

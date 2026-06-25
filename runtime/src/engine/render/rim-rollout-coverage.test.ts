@@ -61,6 +61,8 @@ describe('rim_alpha rollout coverage', () => {
   it('rim_alpha function is emitted into WGSL_PROJECTION_FNS', () => {
     // The projection block is now DSL-emitted (runtime/src/engine/shaders/dsl/projections.ts), so
     // check the emitted string carries the fn — not the source file text.
-    expect(WGSL_PROJECTION_FNS()).toContain('fn rim_alpha(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>) -> f32')
+    // #600 — rim_alpha gained a globe_eye vec4 param (the globe arm fades across
+    // the eye-horizon boundary, matching the eye-horizon cull).
+    expect(WGSL_PROJECTION_FNS()).toContain('fn rim_alpha(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>, globe_eye: vec4<f32>) -> f32')
   })
 })

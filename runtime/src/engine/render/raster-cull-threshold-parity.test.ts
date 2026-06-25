@@ -17,6 +17,11 @@ const PROJECTIONS = [
 // Post-fix raster vis matches needsBackfaceCullWgsl exactly (vis >= 1 →
 // keep, < 0 → discard). Pre-fix would have used `Math.sign(cosC(...))`
 // → cull at cosC < 0 for all three projections.
+//
+// #600 — this file pins ONLY the DISC projections (ortho/azimuthal/
+// stereographic 3/4/5), which keep the pitch-invariant center_cos_c cull and
+// IGNORE globe_eye. So the new globe_eye arg is left at its all-zero default
+// (the globe(7) eye-horizon arm is covered by back-face-cull-comprehensive).
 function rasterCullPost(pt: number, lon: number, lat: number, clon: number, clat: number): number {
   return needsBackfaceCullWgsl(pt, lon, lat, clon, clat)
 }

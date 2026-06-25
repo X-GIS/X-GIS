@@ -11,16 +11,27 @@
 
 import { describe, expect, it } from 'vitest'
 import { cosC, needsBackfaceCullWgsl } from '../shaders/dsl'
+import { globeEyeUniform } from './globe-eye-uniform'
 
 const EARTH_R = 6378137
 const DEG2RAD = Math.PI / 180
+
+// #600 — far NADIR eye over (clon, clat): the globe arm uses the eye-horizon
+// cap, but a far on-axis eye gives horizonCos ≈ 0 ≈ the strict hemisphere, so
+// the line/polygon cull SIGNS this file pins still agree with cosC. The pitched
+// eye is exercised in back-face-cull-comprehensive's #600 discriminating block.
+function nadirEye(clon: number, clat: number): readonly [number, number, number] {
+  const lam = clon * DEG2RAD, phi = clat * DEG2RAD, c = Math.cos(phi)
+  const s = EARTH_R * 1e6
+  return [s * c * Math.cos(lam), s * c * Math.sin(lam), s * Math.sin(phi)]
+}
 
 // Polygon path: abs_merc_x/y forwarded as varying.
 function polygonCull(absMercX: number, absMercY: number, pt: number, clon: number, clat: number): number {
   const absLon = absMercX / (DEG2RAD * EARTH_R)
   const latRad = 2 * Math.atan(Math.exp(absMercY / EARTH_R)) - Math.PI / 2
   const absLat = latRad / DEG2RAD
-  return needsBackfaceCullWgsl(pt, absLon, absLat, clon, clat)
+  return needsBackfaceCullWgsl(pt, absLon, absLat, clon, clat, globeEyeUniform(nadirEye(clon, clat)) as [number, number, number, number])
 }
 
 // Line path: tile-local world plus tile origin.
@@ -30,7 +41,7 @@ function lineCull(worldLocalX: number, worldLocalY: number, tileOriginX: number,
   const absLon = absMercX / (DEG2RAD * EARTH_R)
   const latRad = 2 * Math.atan(Math.exp(absMercY / EARTH_R)) - Math.PI / 2
   const absLat = latRad / DEG2RAD
-  return needsBackfaceCullWgsl(pt, absLon, absLat, clon, clat)
+  return needsBackfaceCullWgsl(pt, absLon, absLat, clon, clat, globeEyeUniform(nadirEye(clon, clat)) as [number, number, number, number])
 }
 
 function lonLatToMerc(lon: number, lat: number): [number, number] {

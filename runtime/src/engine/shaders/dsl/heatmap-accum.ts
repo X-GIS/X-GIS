@@ -49,6 +49,12 @@ const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
   // Mercator centre in .xy on the flat path. Mirrors the point uniform.
   cam_ecef_h: vec4fT,
   cam_ecef_l: vec4fT,
+  // #600 — globe(7) eye-horizon cull. xyz = normalize(eye_ecef), w =
+  // EARTH_R/|eye_ecef|. The VS back-hemisphere cull (#595) passes this to
+  // needs_backface_cull; the globe arm uses the eye-horizon cap (not the
+  // pitch-invariant centre hemisphere). Written by heatmap-renderer; ALL-ZERO
+  // on flat / disc paths (those arms ignore globe_eye).
+  globe_eye: vec4fT,
 })
 
 const HeatOut = ioStruct('HeatOut', {
@@ -127,7 +133,7 @@ const vs = fn('vs_heatmap', {
   // back hemisphere for globe (projType ≥ 6.5) and returns +1 for flat
   // projections (no regression). Degenerate w=0 is outside NDC on every
   // implementation so no accum contribution lands from a back-facing point.
-  const cosC = needs_backface_cull(absLon, absLat, U.field.proj_params)
+  const cosC = needs_backface_cull(absLon, absLat, U.field.proj_params, U.field.globe_eye)
   const isVisible = cosC.ge(0)
 
   // Expand a screen-space billboard quad of `radius_px` (NDC-corrected by

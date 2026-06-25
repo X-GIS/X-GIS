@@ -47,6 +47,13 @@ const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
   // MVP. xyz = getECEFCenter (sphere); w unused. Raster is texture-grade, so
   // plain f32 (no DSFUN) is sufficient.
   cam_ecef_center: vec4fT,
+  // #600 — globe(7) eye-horizon cull. xyz = normalize(eye_ecef), w =
+  // EARTH_R/|eye_ecef|. The per-fragment cull (#595) passes this to
+  // needs_backface_cull / rim_alpha; the globe arm uses the eye-horizon cap
+  // (not the pitch-invariant centre hemisphere) — at high pitch the centre cull
+  // wrongly dropped eye-visible far-cap raster around the limb. Written by
+  // raster-renderer; ALL-ZERO on flat / disc paths (those arms ignore it).
+  globe_eye: vec4fT,
 })
 const Tile = uniformStruct('TileUniforms', { group: 1, binding: 0, as: 'tile' }, {
   bounds: vec4fT,          // west, south, east, north (degrees); x/z shifted per world-copy
@@ -170,14 +177,14 @@ const buildFs = (pickEnabled: boolean) => {
     // equirect / natural-earth.
     const latRad = f32(2).mul(atan(exp(pin.abs_merc_y))).sub(PI.div(2))
     const latDeg = degrees(latRad)
-    const cosC = needs_backface_cull(pin.abs_lon, latDeg, U.field.proj_params)
+    const cosC = needs_backface_cull(pin.abs_lon, latDeg, U.field.proj_params, U.field.globe_eye)
     If(cosC.lt(0), () => { Discard() })
 
     const c = textureSample(tex.node, texSampler.node, pin.uv)
     // Rim alpha fade — use the per-fragment rim_alpha so the fade tracks the
     // true cos_c arc rather than the interpolated chord. Returns 1.0 on flat
     // projections (no regression).
-    const rim = rim_alpha(pin.abs_lon, latDeg, U.field.proj_params)
+    const rim = rim_alpha(pin.abs_lon, latDeg, U.field.proj_params, U.field.globe_eye)
     // raster-* colour adjustments (hue-rotate / brightness / saturation /
     // contrast). Defaults are a hard no-op so an un-authored show is
     // byte-identical to the raw texel rgb.

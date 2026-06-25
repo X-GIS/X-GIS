@@ -406,7 +406,9 @@ const LOC_CEILINGS: Record<string, number> = {
   // X-GIS shader graphs live under runtime/src/engine/shaders/dsl/). Re-baselined
   // at its current size — a behavior-preserving relocation, not new growth;
   // decomposition stays the same tracked priority it was in the package.
-  'runtime/src/engine/shaders/dsl/polygon.ts': 1198,
+  // Bumped 1198→1205 (#600): the globe_eye Uniforms-struct lane + its doc
+  // comment, and threading globe_eye into polygon_cos_c_fragment / polygon_rim_alpha.
+  'runtime/src/engine/shaders/dsl/polygon.ts': 1205,
   // Bumped 1067→1092 for the minZoom + setMaxBounds gesture-clamp correctness
   // fixes (#244/#248): the maxBounds clamp method + its 7 gesture-exit call
   // sites are irreducible. camera.ts decomposition remains a tracked priority.

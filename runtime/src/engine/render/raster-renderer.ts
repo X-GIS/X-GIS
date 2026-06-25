@@ -12,6 +12,7 @@ import { BLEND_ALPHA, STENCIL_DISABLED, routeToSphereSelector, enumerateWorldCop
 import { isPickEnabled, getSampleCount } from '../gpu/gpu'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import { globeVisibleTiles } from '../projection/globe'
+import { globeEyeUniform } from './globe-eye-uniform'
 
 /** Camera RTC anchor for the raster VS on the globe / 3D surfaces.
  *
@@ -424,6 +425,14 @@ export class RasterRenderer {
       const camC = rasterGlobeCamAnchor(projCenterLon, projCenterLat)
       new Float32Array(uniformData, 128, 4).set([camC[0], camC[1], camC[2], 0])
     }
+    // #600 — globe_eye @144: (normalize(eye), R/|eye|) for the globe(7)
+    // eye-horizon cull (raster FS, #595). frame.eye is the absolute sphere-ECEF
+    // camera position on the globe/ECEF branch (undefined on flat → all-zero;
+    // the flat/disc cull arm ignores it). Fixes the same high-pitch far-cap drop
+    // the vector path had: the centre-hemisphere cull discarded eye-visible
+    // raster around the limb.
+    const ge = globeEyeUniform(frame.eye)
+    new Float32Array(uniformData, 144, 4).set([ge[0], ge[1], ge[2], ge[3]])
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData)
 
     pass.setPipeline(this.pipeline)

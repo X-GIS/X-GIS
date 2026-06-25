@@ -15,6 +15,7 @@
 import type { GPUContext } from '../gpu/gpu'
 import { generateGraticule } from '../graticule'
 import type { UniformRing } from './uniform-ring'
+import { globeEyeUniform } from './globe-eye-uniform'
 
 /** Per-frame data the graticule draw needs from the coordinator. The
  *  graticule reuses the SAME 240-byte uniform struct offsets as the layer
@@ -33,15 +34,20 @@ export interface GraticuleFrame {
   projCenterLat: number
   /** camera.zoom — drives zoom-bucket regeneration. */
   zoom: number
+  /** #600 — absolute sphere-ECEF camera position (GlobeView.eye) for the
+   *  globe(7) eye-horizon cull. Present only on the globe/ECEF branch;
+   *  undefined on flat (→ globe_eye all-zero, ignored by the flat cull arm). */
+  eye?: readonly [number, number, number]
 }
 
 export class GraticuleRenderer {
-  // Polygon Uniforms struct = 256 bytes (matches VTR + WGSL + MapRenderer's
+  // Polygon Uniforms struct = 272 bytes (matches VTR + WGSL + MapRenderer's
   // UNIFORM_SIZE; the borrowed linePipeline's shader references u up to
-  // light_dir_ecef @240, so the bound range must cover 256). Out-of-bounds
-  // typed-array writes are silent no-ops; the RTC fields 192-239 +
-  // light_dir_ecef 240-255 stay zero (graticule lines never extrude).
-  private static readonly UNIFORM_SIZE = 256
+  // globe_eye @256, so the bound range must cover 272). #600 grew it 256→272
+  // for globe_eye (the eye-horizon cull dir). RTC fields 192-239 +
+  // light_dir_ecef 240-255 stay zero (graticule lines never extrude); globe_eye
+  // @256 IS written (globe grid lines cull at the eye horizon like tiles).
+  private static readonly UNIFORM_SIZE = 272
 
   private graticuleBuffer: GPUBuffer | null = null
   private graticuleVertexCount = 0
@@ -172,6 +178,13 @@ export class GraticuleRenderer {
         new Uint32Array(gratData, 144, 4).set([0, 0, 0, 0])
         // clip_bounds sentinel — same rationale as the polygon path.
         new Float32Array(gratData, 160, 4).set([-1e30, 0, 0, 0])
+        // #600 — globe_eye @256: (normalize(eye), R/|eye|) for the globe(7)
+        // eye-horizon cull. Grid lines are drawn over the whole sphere, so the
+        // line FS cull needs the eye or back-hemisphere grid lines render
+        // through the globe. frame.eye is undefined on flat → all-zero (the
+        // flat cull arm ignores it).
+        const ge = globeEyeUniform(frame.eye)
+        new Float32Array(gratData, 256, 4).set([ge[0], ge[1], ge[2], ge[3]])
         const gratOff = ring.allocSlot()
         ring.stageSlot(gratOff, gratData)
 

@@ -47,6 +47,7 @@ import { GPUArena } from '../gpu/gpu-arena'
 import { BundleCache, type BundleEncodeDescriptor } from './bundle-cache'
 import { isPickEnabled, getSampleCount } from '../gpu/gpu'
 import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
+import { globeEyeUniform } from './globe-eye-uniform'
 import { PriorityQueue, PriorityQueueItemRemovedError } from '../../core/priority-queue'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog } from '../../data/tile-catalog'
@@ -83,18 +84,21 @@ export type { LayerDrawPhase }
 
 // ═══ Renderer ═══
 
-const UNIFORM_SLOT = 256
-// Bind-group binding range size. Must be ≥ the WGSL Uniforms struct
-// size of every shader that reads this binding (polygon, line, point,
+// Per-tile dynamic-offset STRIDE for the uniform ring. WebGPU requires a
+// dynamic uniform-buffer offset to be a multiple of minUniformBufferOffsetAlignment
+// (256 on essentially all hardware), so this is the struct size rounded UP to
+// 256. #600 grew the struct past 256 (globe_eye vec4 → 272), so the stride
+// steps 256 → 512 (the next 256-multiple ≥ 272); each tile still gets its own
+// 256-aligned slot, just 512 bytes apart.
+const UNIFORM_SLOT = 512
+// Bind-group binding range size = the WGSL Uniforms struct size. Must be ≥ the
+// struct size of every shader that reads this binding (polygon, line, point,
 // raster — see renderer.ts / line-renderer.ts / point-renderer.ts).
-// Polygon Uniforms is 208 bytes (50 floats: 16 mvp + 32 trailing fields
-// incl. clip_bounds + zoom block + the 2 PR-2f tile_dequant_* slots,
-// rounded up by the 16-byte struct alignment). PR 2d.5 closeout had
-// shrunk this 256 → 192 when the legacy Mercator `mvp` slot was retired; PR
-// 2f re-grew it to 208; the camera-relative RTC fix adds cam_ecef_off_h/l
-// (vec4×2 = 32B) → 240; #420 adds light_dir_ecef (vec4 = 16B) → 256 (== the
-// 256-byte UNIFORM_SLOT). WGSL spec requires a multiple of 16.
-const UNIFORM_SIZE = 256
+// PR 2d.5 closeout shrank this 256 → 192 (legacy Mercator `mvp` retired); PR 2f
+// → 208; camera-relative RTC adds cam_ecef_off_h/l (vec4×2 = 32B) → 240; #420
+// adds light_dir_ecef (vec4 = 16B) → 256; #600 adds globe_eye (vec4 = 16B) →
+// 272 (the eye-horizon cull dir). WGSL spec requires a multiple of 16.
+const UNIFORM_SIZE = 272
 
 /** 2π × Earth radius (m). One full mercator wrap. tile_extent_m at
  *  any zoom z is this constant divided by 2^z (vs_main_quantized
@@ -2426,6 +2430,13 @@ export class VectorTileRenderer {
       uf[US.stroke_color + 2] = this.cachedStrokeColor[2]; uf[US.stroke_color + 3] = this.cachedStrokeColor[3] * this.currentOpacity
     }
     uf[US.proj_params] = projType; uf[US.proj_params + 1] = projCenterLon; uf[US.proj_params + 2] = projCenterLat; uf[US.proj_params + 3] = 0
+    // #600 — globe_eye = (normalize(eye_ecef), EARTH_R/|eye_ecef|) for the
+    // globe(7) eye-horizon cull (polygon + line fragment cull). frame.eye is the
+    // absolute sphere-ECEF camera position on the globe/ECEF branch (undefined
+    // on the flat 2D branch → all-zero; the flat/disc cull arms ignore it).
+    // Per-frame constant, so written here with proj_params (not per-tile).
+    const ge = globeEyeUniform(frame.eye)
+    uf[US.globe_eye] = ge[0]; uf[US.globe_eye + 1] = ge[1]; uf[US.globe_eye + 2] = ge[2]; uf[US.globe_eye + 3] = ge[3]
 
     // Allocate + write SDF line layer slot for this render() call. All
     // drawSegments() calls below will use this same byte offset.

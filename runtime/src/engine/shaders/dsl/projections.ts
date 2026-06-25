@@ -27,6 +27,7 @@ import {
   fn, externFn, module, f32, vec2, vec3,
   ReturnIf, If, Var, Return, f32T, vec2fT, vec4fT,
   radians, clamp, log, tan, sin, cos, asin, acos, atan, atan2, exp, floor, ceil, sign, smoothstep,
+  dot, length,
   type ConstDecl, type FuncDecl, type ModuleDecl, type Node,
 } from '@xgis/shader-dsl'
 import { emitConst, emitFuncsCsed } from '@xgis/shader-dsl'
@@ -250,6 +251,18 @@ const center_cos_c = fn('center_cos_c', { lon_deg: f32T, lat_deg: f32T, clon: f3
 // definition — and the emitted node is the same call-by-name as before (byte-identical).
 const LLP_PARAMS = { lon_deg: f32T, lat_deg: f32T, proj_params: vec4fT }
 const LLPR_PARAMS = { lon_deg: f32T, lat_deg: f32T, proj_params: vec4fT, ref_lon: f32T }
+// #600 — needs_backface_cull / rim_alpha take an extra globe_eye vec4: the
+// globe(7) arm switched from the PITCH-INVARIANT center-hemisphere cull
+// (great-circle angle from clon/clat) to the EYE-HORIZON cap. The perspective
+// globe eye tilts off the centre normal at high pitch + looks across the sphere
+// toward the limb, so the visible region is the eye-horizon cap, NOT the centre
+// hemisphere — center_cos_c wrongly discarded ~30% of the eye-visible far cap.
+// globe_eye = (normalize(eye_ecef).xyz, EARTH_R/|eye_ecef|): the SAME sphere
+// horizon model the globe TILE selector (globe.ts) + label projector
+// (render-loop-helpers.ts) already use. The DISC arms (ortho/azimuthal/
+// stereographic 3/4/5) IGNORE globe_eye — they are flat discs whose visible
+// region IS the centre hemisphere (pitch-invariant), so they keep center_cos_c.
+const LLPE_PARAMS = { lon_deg: f32T, lat_deg: f32T, proj_params: vec4fT, globe_eye: vec4fT }
 const INV_MERC_PARAMS = { merc_y_m: f32T }
 // snake_case to MATCH the WGSL fn name (the log-depth / sdf GPU-handle convention) and to
 // avoid colliding with cpu-projections' camelCase `invMercLatRad` (the f64 CPU helper). Each
@@ -257,8 +270,8 @@ const INV_MERC_PARAMS = { merc_y_m: f32T }
 // and the real handle's call both emit the same callFn-by-name node.
 export const project = externFn('project', LLP_PARAMS, vec2fT)
 export const flat_rel = externFn('flat_rel', LLPR_PARAMS, vec2fT)
-export const needs_backface_cull = externFn('needs_backface_cull', LLP_PARAMS, f32T)
-export const rim_alpha = externFn('rim_alpha', LLP_PARAMS, f32T)
+export const needs_backface_cull = externFn('needs_backface_cull', LLPE_PARAMS, f32T)
+export const rim_alpha = externFn('rim_alpha', LLPE_PARAMS, f32T)
 export const inv_merc_lat_rad = externFn('inv_merc_lat_rad', INV_MERC_PARAMS, f32T)
 
 // ── Projection artifacts builder (table-injected via ProjectionSpec seam) ──
@@ -436,22 +449,41 @@ const flat_rel = fn('flat_rel', LLPR_PARAMS, ({ lon_deg, lat_deg, proj_params, r
   return pv.sub(cv)
 })
 
-const needs_backface_cull = fn('needs_backface_cull', LLP_PARAMS, ({ lon_deg, lat_deg, proj_params }) => {
+// globe_eye_horizon_cos — #600 eye-horizon visibility signal for the globe (7)
+// arm, in COSINE units (directly comparable to center_cos_c, so it slots into
+// the same cull-sign + RIM_FADE smoothstep the centre-hemisphere arm used).
+// Reconstruct the surface point P on the SPHERE (proj_globe; |P| = EARTH_R) and
+// return dot(normalize(P), eye_dir) − horizonCos, where globe_eye = (eye_dir,
+// horizonCos) = (normalize(eye_ecef), EARTH_R/|eye_ecef|). A point faces the eye
+// iff dot(normalize(P), normalize(eye)) > EARTH_R/|eye| (the sphere horizon cut),
+// so this is > 0 on the visible eye-horizon cap and < 0 on the far cap. SPHERE P
+// (not the ellipsoid lonLatToECEF) keeps the test self-consistent with the
+// EARTH_R/|eye| threshold and byte-matches the globe.ts tile selector's model.
+const globe_eye_horizon_cos = fn('globe_eye_horizon_cos', { lon_deg: f32T, lat_deg: f32T, globe_eye: vec4fT }, ({ lon_deg, lat_deg, globe_eye }) => {
+  const p = proj_globe(lon_deg, lat_deg)
+  const pn = p.div(length(p))
+  return dot(pn, globe_eye.swizzle<'vec3<f32>'>('xyz')).sub(globe_eye.w)
+})
+
+const needs_backface_cull = fn('needs_backface_cull', LLPE_PARAMS, ({ lon_deg, lat_deg, proj_params, globe_eye }) => {
   const t = proj_params.x
   const clon = proj_params.y
   const clat = proj_params.z
   If(t.gt(2.5), () => {
     const cc = center_cos_c(lon_deg, lat_deg, clon, clat)
-    If(t.lt(3.5), () => { Return(cc) }) // ortho — strict hemisphere
+    If(t.lt(3.5), () => { Return(cc) }) // ortho — strict hemisphere (flat disc, pitch-invariant)
     If(t.lt(4.5), () => { Return(cc.gt(AZI_CULL).select(f32(1), f32(-1))) }) // azimuthal
     If(t.lt(5.5), () => { Return(cc.gt(STEREO_CULL).select(f32(1), f32(-1))) }) // stereographic
     If(t.lt(6.5), () => { Return(f32(1)) }) // oblique_mercator — cylindrical
-    Return(cc) // globe (7) — strict hemisphere like ortho
+    // globe (7) — #600 EYE-HORIZON cap (NOT the pitch-invariant centre
+    // hemisphere): the perspective eye tilts off the centre normal at high
+    // pitch, so the visible region is the eye-horizon cap. > 0 = visible.
+    Return(globe_eye_horizon_cos(lon_deg, lat_deg, globe_eye))
   })
   return f32(1) // flat projections — no culling
 })
 
-const rim_alpha = fn('rim_alpha', LLP_PARAMS, ({ lon_deg, lat_deg, proj_params }) => {
+const rim_alpha = fn('rim_alpha', LLPE_PARAMS, ({ lon_deg, lat_deg, proj_params, globe_eye }) => {
   const t = proj_params.x
   const clon = proj_params.y
   const clat = proj_params.z
@@ -462,7 +494,10 @@ const rim_alpha = fn('rim_alpha', LLP_PARAMS, ({ lon_deg, lat_deg, proj_params }
     If(t.lt(4.5), () => { Return(smoothstep(f32(AZI_CULL), f32(AZI_CULL + RIM_FADE), cc)) }) // azimuthal
     If(t.lt(5.5), () => { Return(smoothstep(f32(STEREO_CULL), f32(STEREO_CULL + RIM_FADE), cc)) }) // stereographic
     If(t.lt(6.5), () => { Return(f32(1)) }) // oblique_mercator — no rim
-    Return(smoothstep(0, RIM, cc)) // globe (7)
+    // globe (7) — #600: fade across the EYE-HORIZON boundary (same signal the
+    // cull uses) so the far cap kept by the eye-horizon cull is NOT faded to 0
+    // by a centre-hemisphere rim (which would re-hide it via alpha).
+    Return(smoothstep(0, RIM, globe_eye_horizon_cos(lon_deg, lat_deg, globe_eye)))
   })
   return f32(1) // flat projections — no rim
 })
@@ -478,7 +513,7 @@ const PROJECTION_FUNCS: FuncDecl[] = [
   proj_equirectangular, proj_natural_earth, unwrap_lon_near, unwrap_lon_near_keep, unwrap_rad_near,
   proj_orthographic, proj_azimuthal_equidistant, proj_stereographic,
   oblique_rot, proj_oblique_mercator_d, proj_oblique_mercator, proj_globe,
-  center_cos_c, project, project_geom, project_geom_cpu, flat_rel, needs_backface_cull, rim_alpha, inv_merc_lat_rad,
+  center_cos_c, globe_eye_horizon_cos, project, project_geom, project_geom_cpu, flat_rel, needs_backface_cull, rim_alpha, inv_merc_lat_rad,
   // MISRA single-exit DEVIATION (whole module) — projection is the perf-critical dispatch
   // hotspot (project / project_geom select projection-by-type via early return; single-exit
   // would compute every projection per vertex) + the highest-bug-density code. Byte-identical.

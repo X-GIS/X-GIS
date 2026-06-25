@@ -21,6 +21,7 @@ import { vertexField } from '@xgis/compiler'
 import { POINT_FORMAT } from './point-vertex-format'
 import { toVertexBufferLayout } from './vertex-buffer-layout'
 import { reflectionToBindGroupLayoutEntries, uniformFieldSlots } from './reflection-to-webgpu'
+import { globeEyeUniform } from './globe-eye-uniform'
 
 // Float-slot indices derived from the single-source POINT_FORMAT spec so the
 // packer cannot drift from the GPUVertexBufferLayout / vs_point @location.
@@ -46,6 +47,8 @@ const POINT_FEATID_FLOAT = vertexField(POINT_FORMAT, 'feat_id').offset / 4   // 
 interface PointUniformSlots {
   readonly mvp: number; readonly proj: number; readonly viewport: number
   readonly camH: number; readonly camL: number; readonly circle: number
+  // #600 — globe(7) eye-horizon cull dir (normalize(eye), R/|eye|).
+  readonly eye: number
   readonly slots: number
 }
 let _pointReflection: ReturnType<typeof reflect> | null = null
@@ -60,6 +63,7 @@ function pointUniformSlots(): PointUniformSlots {
   return (_pointSlots = {
     mvp: u.slot.mvp, proj: u.slot.proj_params, viewport: u.slot.viewport,
     camH: u.slot.cam_ecef_h, camL: u.slot.cam_ecef_l, circle: u.slot.circle_params,
+    eye: u.slot.globe_eye,
     slots: u.slots,
   })
 }
@@ -96,7 +100,9 @@ function buildPointBglEntries(): GPUBindGroupLayoutEntry[] {
  *  convention as fill_translate in polygon.ts. Default [0,0,0,0] = no-op. */
 function writePointFrameUniform(
   uf: Float32Array,
-  frame: { matrix: Float32Array; logDepthFc: number },
+  // #600 — frame.eye is the absolute sphere-ECEF camera position (globe/ECEF
+  // branch only; undefined on flat) for the globe(7) eye-horizon cull.
+  frame: { matrix: Float32Array; logDepthFc: number; eye?: readonly [number, number, number] },
   camera: Camera,
   projType: number,
   projCenterLon: number,
@@ -111,7 +117,7 @@ function writePointFrameUniform(
   // Field base slots are sourced from reflect(buildPointModule()) (the std140
   // Uniforms struct), not hand-counted — so the packer cannot drift from the
   // WGSL struct it shares an IR with.
-  const { mvp: U_MVP, proj: U_PROJ, viewport: U_VIEWPORT, camH: U_CAM_H, camL: U_CAM_L, circle: U_CIRCLE } = pointUniformSlots()
+  const { mvp: U_MVP, proj: U_PROJ, viewport: U_VIEWPORT, camH: U_CAM_H, camL: U_CAM_L, circle: U_CIRCLE, eye: U_EYE } = pointUniformSlots()
   uf.set(frame.matrix, U_MVP)
   uf[U_PROJ] = projType; uf[U_PROJ + 1] = projCenterLon; uf[U_PROJ + 2] = projCenterLat; uf[U_PROJ + 3] = 0
   const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, camera.zoom)
@@ -142,6 +148,11 @@ function writePointFrameUniform(
   // scales the quad expansion by w_ref/clip.w = mvp[3][3]/clip.w so circles
   // foreshorten with pitch/distance, matching MapLibre's pitch-scale:map).
   uf[U_CIRCLE + 3] = circlePitchScaleMap ? 1 : 0
+  // #600 — globe_eye: (normalize(eye), R/|eye|) for the globe(7) eye-horizon
+  // cull (point_cos_c, VS-side). frame.eye is set only on the globe/ECEF
+  // branch → all-zero on flat (the flat/disc cull arm ignores it).
+  const ge = globeEyeUniform(frame.eye)
+  uf[U_EYE] = ge[0]; uf[U_EYE + 1] = ge[1]; uf[U_EYE + 2] = ge[2]; uf[U_EYE + 3] = ge[3]
 }
 
 // ── World-copy helpers (exported for unit tests) ──────────────────────────
@@ -303,7 +314,7 @@ export class PointRenderer {
     })
 
     this.uniformBuffer = device.createBuffer({
-      size: pointUniformSlots().slots * 4, // reflected std140 Uniforms size (36 slots × 4 = 144 bytes)
+      size: pointUniformSlots().slots * 4, // reflected std140 Uniforms size (40 slots × 4 = 160 bytes after #600 globe_eye)
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     })
   }
