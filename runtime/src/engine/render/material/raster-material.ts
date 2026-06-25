@@ -5,18 +5,24 @@
 // builder that turns visible tiles into generic DrawItems. The pipeline/layouts/
 // pool/global-uniform + the draw loop are the shared generic core (material.ts).
 
-import type { RhiDevice, RhiBindGroup } from '../rhi/rhi'
+import type { RhiDevice, RhiBindGroup, RhiTexture, RhiTextureView } from '../rhi/rhi'
 import { wrapWebGpuTextureView } from '../rhi/rhi-webgpu'
 import { Material, executeItems, type DrawItem } from './material'
 import { emitRasterWgsl } from '../../shaders/dsl'
 
-/** One raster tile to draw: its texture + 64-byte per-tile uniform. */
-export interface RasterTile { texture: GPUTexture; tileBytes: Float32Array }
+/** One raster tile to draw: its texture + 64-byte per-tile uniform. The texture is
+ *  backend-agnostic: a raw `GPUTexture` (the WebGPU pilot — bridged to a view here)
+ *  or an `RhiTexture` (the forced-WebGL2 path — built via `rhi.createTexture`). The
+ *  draper resolves either to an `RhiTextureView` once per texture (cached). */
+export interface RasterTile { texture: GPUTexture | RhiTexture; tileBytes: Float32Array }
 
 export class RasterDraper {
   private readonly material: Material
   private readonly samplerEntry
-  private readonly globalBGByTex = new Map<GPUTexture, RhiBindGroup>()
+  private readonly globalBGByTex = new Map<GPUTexture | RhiTexture, RhiBindGroup>()
+  /** View cache keyed on the (stable) texture handle — a `GPUTexture.createView()`
+   *  or `rhi.createView(rhiTex)` is made ONCE per texture, not per frame. */
+  private readonly viewByTex = new Map<GPUTexture | RhiTexture, RhiTextureView>()
 
   constructor(private readonly rhi: RhiDevice, format: string, sampleCount: number) {
     this.material = new Material(rhi, {
@@ -34,12 +40,26 @@ export class RasterDraper {
     this.samplerEntry = { sampler: rhi.createSampler({ mag: 'linear', min: 'linear' }) }
   }
 
-  private globalBG(texture: GPUTexture): RhiBindGroup {
+  /** Resolve a tile texture to an RHI view, once per texture. A WebGPU `GPUTexture`
+   *  is bridged via `wrapWebGpuTextureView(createView())`; an `RhiTexture` (forced-
+   *  WebGL2) goes through `rhi.createView`. Discriminated by the opaque RHI brand. */
+  private viewOf(texture: GPUTexture | RhiTexture): RhiTextureView {
+    let view = this.viewByTex.get(texture)
+    if (!view) {
+      view = '__rhi' in texture
+        ? this.rhi.createView(texture)
+        : wrapWebGpuTextureView(texture.createView())
+      this.viewByTex.set(texture, view)
+    }
+    return view
+  }
+
+  private globalBG(texture: GPUTexture | RhiTexture): RhiBindGroup {
     let bg = this.globalBGByTex.get(texture)
     if (!bg) {
       bg = this.rhi.createBindGroup(this.material.layout(0), [
         { binding: 0, resource: { buffer: this.material.globalUniform! } },
-        { binding: 1, resource: { view: wrapWebGpuTextureView(texture.createView()) } },
+        { binding: 1, resource: { view: this.viewOf(texture) } },
         { binding: 2, resource: this.samplerEntry },
       ])
       this.globalBGByTex.set(texture, bg)
