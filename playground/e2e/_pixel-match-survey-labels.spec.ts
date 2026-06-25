@@ -113,6 +113,23 @@ const VIEWS: ViewSpec[] = [
     style: 'openfreemap-bright',
     hash: '#19.31/37.12621/126.93016',
     description: 'OFM Bright, Seoul z=19.31 — road artifact investigation (user-flagged 2026-05-19)' },
+  // QA-sweep verification views (2026-06-25): user-flagged repros.
+  { id: 'bright-world-z0',
+    style: 'openfreemap-bright',
+    hash: '#0/20/0',
+    description: 'OFM Bright z=0 — #601 white-box behind city/country labels (low-zoom only)' },
+  { id: 'bright-seoul-z22-icons',
+    style: 'openfreemap-bright',
+    hash: '#22.00/37.53613/126.88191/345.0/0.0',
+    description: 'OFM Bright Seoul z=22 — #603 road-interior icons duplicate/off-road (user repro)' },
+  { id: 'bright-eu-z4',
+    style: 'openfreemap-bright',
+    hash: '#4/50/10',
+    description: 'OFM Bright EU z=4 — #606 admin/country outline width + #601 city dots' },
+  { id: 'demotiles-world-z0',
+    style: 'maplibre-demotiles',
+    hash: '#0/20/0',
+    description: 'MapLibre demotiles z=0 — #606 coastline outline width (user-flagged thick)' },
 ]
 
 interface Buckets {
