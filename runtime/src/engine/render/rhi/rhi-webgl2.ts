@@ -223,6 +223,13 @@ class WebGl2RenderPass implements RhiRenderPass {
     else this.gl.drawArrays(this.gl.TRIANGLES, firstVertex, vertexCount)
   }
 
+  setStencilReference(_ref: number): void {
+    // WebGL2 stencil-state binding is deferred to the WebGL2 full-frame phase. The
+    // WebGL2 pipeline does not enable GL_STENCIL_TEST yet, so the ref is inert; and
+    // createPipeline fail-CLOSES on a stencil-configured pipeline, so a clip-mask
+    // pipeline can never silently reach this path without its stencil.
+  }
+
   drawIndexed(indexCount: number, instanceCount = 1): void {
     this.bindAttributes()
     if (!this.ibuf) throw new Error('webgl2: drawIndexed without an index buffer')
@@ -390,6 +397,12 @@ export class WebGl2Device implements RhiDevice {
   createPipeline(desc: RhiPipelineDesc): RhiPipeline {
     if (!desc.vsCode || !desc.fsCode) {
       throw new Error('webgl2: createPipeline requires GLSL vsCode/fsCode (emitGlslModule m,"vertex"/"fragment"); desc.code is WGSL — the single-module vs split-source divergence')
+    }
+    if (desc.depthStencil?.stencil) {
+      // Fail-CLOSED: stencil pipeline state (the per-tile clip mask) has no WebGL2
+      // path yet — deferred to the WebGL2 full-frame phase. A clip-mask pipeline
+      // therefore never silently runs without its stencil on WebGL2.
+      throw new Error('webgl2: stencil pipeline state not yet supported (deferred to the WebGL2 full-frame phase)')
     }
     const gl = this.gl
     const vs = compile(gl, gl.VERTEX_SHADER, desc.vsCode)
