@@ -34,6 +34,24 @@ const BLEND_ADDITIVE: GPUBlendState = {
   alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
 }
 
+/** Map the RHI stencil config (or its absence) to the `GPUDepthStencilState`
+ *  stencil fields. Absent → the inert STENCIL_DISABLED shape (compare always,
+ *  passOp keep, masks 0x00) byte-for-byte. Only compare + passOp vary; failOp /
+ *  depthFailOp stay default 'keep' — matching gpu-shared STENCIL_WRITE / _TEST /
+ *  _CLIPMASK_*. Pure (no GPUDevice) so the byte-identity is unit-testable. */
+export function rhiStencilToGpu(
+  s?: { compare: 'always' | 'equal'; passOp: 'keep' | 'replace'; writeMask: number; readMask: number },
+): Pick<GPUDepthStencilState, 'stencilFront' | 'stencilBack' | 'stencilWriteMask' | 'stencilReadMask'> {
+  const compare: GPUCompareFunction = s?.compare ?? 'always'
+  const passOp: GPUStencilOperation = s?.passOp ?? 'keep'
+  return {
+    stencilFront: { compare, passOp },
+    stencilBack: { compare, passOp },
+    stencilWriteMask: s?.writeMask ?? 0x00,
+    stencilReadMask: s?.readMask ?? 0x00,
+  }
+}
+
 function bufUsage(usage: RhiBufferDesc['usage'], writable: boolean): GPUBufferUsageFlags {
   const base = usage === 'uniform' ? GPUBufferUsage.UNIFORM
     : usage === 'vertex' ? GPUBufferUsage.VERTEX
@@ -63,6 +81,7 @@ class WebGpuRenderPass implements RhiRenderPass {
   setIndexBuffer(buffer: RhiBuffer, format: 'uint16' | 'uint32'): void { this.enc.setIndexBuffer(u<GPUBuffer>(buffer), format) }
   draw(vertexCount: number, instanceCount = 1, firstVertex = 0): void { this.enc.draw(vertexCount, instanceCount, firstVertex) }
   drawIndexed(indexCount: number, instanceCount = 1): void { this.enc.drawIndexed(indexCount, instanceCount) }
+  setStencilReference(ref: number): void { this.enc.setStencilReference(ref) }
 }
 
 /** Wrap a live GPURenderPassEncoder (created by the render loop) as an RHI pass
@@ -188,11 +207,9 @@ export class WebGpuDevice implements RhiDevice {
           depthBiasSlopeScale: desc.depthStencil.bias.slopeScale,
           depthBiasClamp: desc.depthStencil.bias.clamp,
         } : {}),
-        // Match the renderers' STENCIL_DISABLED (inert stencil) byte-for-byte.
-        stencilFront: { compare: 'always', passOp: 'keep' },
-        stencilBack: { compare: 'always', passOp: 'keep' },
-        stencilWriteMask: 0x00,
-        stencilReadMask: 0x00,
+        // Stencil: config-driven (per-tile clip mask) or inert STENCIL_DISABLED by
+        // default — rhiStencilToGpu maps byte-for-byte to the gpu-shared states.
+        ...rhiStencilToGpu(desc.depthStencil.stencil),
       } : undefined,
       multisample: { count: desc.sampleCount ?? 1 },
       primitive: { topology: 'triangle-list' },

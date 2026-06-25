@@ -95,6 +95,11 @@ export interface RhiPipelineDesc {
     format: RhiTextureFormat; write: boolean; compare: 'always' | 'less' | 'less-equal'
     /** Polygon-offset depth bias (point markers pull toward camera). */
     bias?: { constant: number; slopeScale: number; clamp: number }
+    /** Per-tile clip-mask stencil state. Absent = inert stencil (byte-identical
+     *  to the renderers' STENCIL_DISABLED). `compare`/`passOp` + the masks mirror
+     *  the gpu-shared STENCIL_WRITE / STENCIL_TEST / STENCIL_CLIPMASK_* states;
+     *  the runtime sets the reference per-draw via `setStencilReference`. */
+    stencil?: { compare: 'always' | 'equal'; passOp: 'keep' | 'replace'; writeMask: number; readMask: number }
   }
   sampleCount?: number
   /** Procedural-grid draws (raster/drape) have no vertex buffers. */
@@ -113,6 +118,11 @@ export interface RhiRenderPass {
   setIndexBuffer(buffer: RhiBuffer, format: 'uint16' | 'uint32'): void
   draw(vertexCount: number, instanceCount?: number, firstVertex?: number): void
   drawIndexed(indexCount: number, instanceCount?: number): void
+  /** Per-draw stencil reference value (the per-tile clip-mask ID). Inert on a
+   *  pipeline built without a `depthStencil.stencil` config. WebGPU maps to
+   *  `GPURenderPassEncoder.setStencilReference`; WebGL2 stencil-state binding is
+   *  deferred to the WebGL2 full-frame phase (see rhi-webgl2.ts). */
+  setStencilReference(ref: number): void
 }
 
 /** A backbuffer screen-pass request — the screen render target + how to load it.
