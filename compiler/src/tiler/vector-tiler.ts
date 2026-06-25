@@ -465,6 +465,44 @@ function subdivideTriangleMM(
   subdivideTriangleMM(i01, i12, i20, featureId, outVerts, outIdx, dedupMap, depth + 1)
 }
 
+/** Densify a polygon-OUTLINE MM chain by inserting linear-MM midpoints on any
+ *  segment whose lon/lat angular span exceeds MAX_TRI_DEGREES_FOR_PROJ — the SAME
+ *  gate `subdivideTriangleMM` applies to the FILL's triangle edges. The clipped-ring
+ *  outline is stroked as straight chords (`augmentChainWithArc` inserts no vertices),
+ *  so on globe / non-Mercator projections a long low-zoom edge cuts straight across the
+ *  sphere while the densified fill boundary curves (issue #585). Densifying the outline
+ *  with the fill's gate makes the stroke follow the same curve as the fill it traces.
+ *  Linear midpoints are collinear with the parent segment, so fill/outline coincidence
+ *  (the d34aed2 invariant) is preserved. This revives the densification cc497884 added
+ *  and #387's parallel outline path silently dropped on merge.
+ *
+ *  Returns the densified chain; the original endpoints are always preserved in order. */
+function subdivideChainMM(chain: number[][]): number[][] {
+  if (chain.length < 2) return chain
+  // 50 km MM is below 0.45° lon / 0.5° lat at any latitude < 85 — mirrors
+  // subdivideTriangleMM's FAST_SKIP so a short segment skips the projection entirely.
+  const FAST_SKIP_MM = 50_000
+  const out: number[][] = [chain[0]]
+  const emit = (ax: number, ay: number, bx: number, by: number, depth: number): void => {
+    if (depth < MAX_TRI_SUBDIVIDE_DEPTH &&
+        (Math.abs(bx - ax) >= FAST_SKIP_MM || Math.abs(by - ay) >= FAST_SKIP_MM)) {
+      const [lonA, latA] = mmToLonLatDeg(ax, ay)
+      const [lonB, latB] = mmToLonLatDeg(bx, by)
+      if (Math.max(Math.abs(lonB - lonA), Math.abs(latB - latA)) > MAX_TRI_DEGREES_FOR_PROJ) {
+        const mx = (ax + bx) * 0.5, my = (ay + by) * 0.5
+        emit(ax, ay, mx, my, depth + 1)
+        emit(mx, my, bx, by, depth + 1)
+        return
+      }
+    }
+    out.push([bx, by])
+  }
+  for (let i = 1; i < chain.length; i++) {
+    emit(chain[i - 1][0], chain[i - 1][1], chain[i][0], chain[i][1], 0)
+  }
+  return out
+}
+
 /** Detect whether Sutherland-Hodgman's clipped output ring would cause
  *  earcut to produce overlapping triangles — the failure mode the
  *  `splitBoundaryBacktracks` repair was written for. The test runs a
@@ -1162,7 +1200,11 @@ function processZoomLevelShared(
                 const isClosed = arc.length >= 3 && arc === ring
                 const clean = dropConsecutiveDuplicates(arc)
                 if (clean.length < 2) continue
-                const chain = augmentChainWithArc(clean, isClosed, { mmInput: true })
+                // Densify the outline to the FILL's angular gate so a long low-zoom edge
+                // curves on globe/non-Mercator instead of stroking a straight chord across
+                // the sphere (#585). Collinear midpoints keep fill/outline coincidence.
+                const densified = subdivideChainMM(clean)
+                const chain = augmentChainWithArc(densified, isClosed, { mmInput: true })
                 if (chain.length >= 2) tessellateLineToArrays(chain, fid, scratch.olv, scratch.oli)
               }
             }
