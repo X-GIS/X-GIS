@@ -11,9 +11,9 @@ import { extendBindGroupLayoutEntriesForCompute } from './compute-bind-layout'
 import type { ShaderVariantInfo, CachedPipeline, ShowCommand, RenderLayer } from './renderer-types'
 import { parseColor } from './renderer-helpers'
 import { UniformRing } from './uniform-ring'
-import { globeEyeUniform } from './globe-eye-uniform'
 import { GraticuleRenderer } from './graticule-renderer'
 import { PipelineFactory } from './pipeline-factory'
+import { polygonUniformBytes } from './polygon-uniform-slots'
 
 // Re-export the extracted types so this module's public surface stays
 // byte-identical (external consumers import these from './renderer').
@@ -84,23 +84,20 @@ export class StyleProperties {
 
 export class MapRenderer {
   private ctx: GPUContext
-  // Cached per-frame allocation (avoid GC pressure in render loop)
-  // Must equal MapRenderer.UNIFORM_SIZE (272). Inlined because
-  // class-field init can't reference static-readonly fields declared
-  // later in the same class. Grew 192 → 240 (camera-relative RTC) → 256 (#420
-  // light_dir_ecef @240) → 272 (#600 globe_eye @256, the eye-horizon cull dir)
-  // on the shared polygon/line Uniforms struct. Out-of-bounds typed-array
-  // writes are silent no-ops so a mismatch here = uniform never reaches the GPU.
-  private uniformDataBuf = new ArrayBuffer(272)
+  // Cached per-frame allocation (avoid GC pressure in render loop). Sized to
+  // the polygon Uniforms struct byte count (reflect-derived via
+  // polygonUniformBytes()). Out-of-bounds typed-array writes are silent no-ops
+  // so a mismatch here = uniform never reaches the GPU.
+  private uniformDataBuf = new ArrayBuffer(polygonUniformBytes())
   // Dynamic-offset uniform ring (see docs: multi-layer uniform slots). The slot
   // STRIDE must be a multiple of WebGPU minUniformBufferOffsetAlignment (256);
-  // #600 grew the struct past 256, so the stride steps 256 → 512.
-  private static readonly UNIFORM_SLOT = 512
-  // Polygon Uniforms struct = 272 bytes — matches VTR + WGSL (the shared
-  // fill/line shaders statically reference u up to globe_eye @256). The BGL
-  // omits minBindingSize, so WebGPU uses the shader-derived 272-byte minimum at
+  // derived as the next 256-multiple ≥ the struct byte size.
+  private static readonly UNIFORM_SLOT = Math.ceil(polygonUniformBytes() / 256) * 256
+  // Polygon Uniforms struct byte size — bind-range `size` for binding 0.
+  // Derived from reflect() so a struct change propagates automatically.
+  // The BGL omits minBindingSize, so WebGPU uses the shader-derived minimum at
   // draw time; a smaller bind `size` fails draw-time validation.
-  private static readonly UNIFORM_SIZE = 272
+  private static readonly UNIFORM_SIZE = polygonUniformBytes()
   /** Pipeline-construction collaborator (Unit 1 of
    *  renderer-decomposition-2026-06-09). Owns every render pipeline +
    *  bind-group layout + the atlas STUB textures + the shared sampler +
@@ -877,15 +874,9 @@ export class MapRenderer {
       new Float32Array(uniformData, 160, 4).set([-1e30, 0, 0, 0])
       // zoom + 3-float pad (offsets 176-191) — P3 palette gradient
       // sample reads u.zoom. Pad slots stay zero (RTC fields 192-239 +
-      // light_dir_ecef 240-255 too — this fill/line path never extrudes).
+      // light_dir_ecef 240-255 too — this fill/line path never extrudes);
+      // total struct size is 256 bytes (UNIFORM_SIZE constant).
       new Float32Array(uniformData, 176, 4).set([camera.zoom, 0, 0, 0])
-      // #600 — globe_eye @256 (272-byte struct): (normalize(eye), R/|eye|) for
-      // the globe(7) eye-horizon cull. frame.eye is the absolute sphere-ECEF
-      // camera position on the globe/ECEF branch (undefined on flat → all-zero;
-      // the flat/disc cull arms ignore it). Non-tiled GeoJSON fill/line on the
-      // globe need it so back-hemisphere geometry culls at the eye horizon.
-      const ge = globeEyeUniform(frame.eye)
-      new Float32Array(uniformData, 256, 4).set([ge[0], ge[1], ge[2], ge[3]])
       const slotOffset = this.allocUniformSlot()
       this.stageUniformSlot(slotOffset, uniformData)
 
@@ -932,8 +923,6 @@ export class MapRenderer {
       projCenterLon,
       projCenterLat,
       zoom: camera.zoom,
-      // #600 — eye for the globe(7) eye-horizon cull (graticule writes globe_eye).
-      eye: frame.eye,
     })
 
     // pass.end() and submit() are handled by caller

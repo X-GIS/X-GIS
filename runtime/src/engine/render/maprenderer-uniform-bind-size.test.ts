@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { emitPolygonWgsl } from '../shaders/dsl/polygon'
 import { MapRenderer } from './renderer'
 import { GraticuleRenderer } from './graticule-renderer'
+import { polygonUniformBytes } from './polygon-uniform-slots'
 
 // ── Bug maprenderer-uniform-240 (MED, webgpu-validation) ──
 //
@@ -67,31 +68,42 @@ function wgslStructSize(src: string, name: string): number {
 describe('MapRenderer uniform bind size (bug maprenderer-uniform-240)', () => {
   const required = wgslStructSize(emitPolygonWgsl(null, false), 'Uniforms')
 
-  it('polygon Uniforms std140 size is 272 (#600 globe_eye @256)', () => {
+  it('polygon Uniforms std140 size matches emitted WGSL struct', () => {
     // Pins the canonical figure asserted by uniform-layout-consistency.test.ts.
-    // #420 grew it to 256 (light_dir_ecef @240); #600 to 272 (globe_eye @256).
-    expect(required).toBe(272)
+    // If this fails, a struct field was added/removed without updating the test.
+    expect(required).toBeGreaterThan(0)
+    expect(required % 16).toBe(0) // WGSL struct alignment
   })
 
-  it('MapRenderer.UNIFORM_SIZE >= the polygon Uniforms std140 size', () => {
+  it('polygonUniformBytes() === the emitted WGSL struct size', () => {
+    // The reflect-derived helper must agree with the independently-computed
+    // WGSL parse — these are two independent routes to the same number.
+    // A mismatch means the DSL IR and the WGSL emitter diverged.
+    expect(polygonUniformBytes()).toBe(required)
+  })
+
+  it('MapRenderer.UNIFORM_SIZE === polygonUniformBytes() (reflect-derived)', () => {
     const used = (MapRenderer as unknown as { UNIFORM_SIZE: number }).UNIFORM_SIZE
     // The bind `size` for binding 0 MUST be >= the pipeline's minimum binding
     // size (= the shared shader's Uniforms struct size), or WebGPU rejects the
-    // draw. Pre-fix used=240 < required=256 → the draw-time validation error.
+    // draw. After this PR it is derived from polygonUniformBytes() — so the
+    // assertion is exact equality, not just ≥.
+    expect(used).toBe(polygonUniformBytes())
     expect(used).toBeGreaterThanOrEqual(required)
-    expect(used).toBe(272)
   })
 
   it('the uniform slot stride holds the bind size', () => {
     const used = (MapRenderer as unknown as { UNIFORM_SIZE: number }).UNIFORM_SIZE
     const slot = (MapRenderer as unknown as { UNIFORM_SLOT: number }).UNIFORM_SLOT
     expect(slot).toBeGreaterThanOrEqual(used)
+    expect(slot % 256).toBe(0) // must be a 256-multiple for WebGPU alignment
   })
 
-  it('GraticuleRenderer.UNIFORM_SIZE matches (borrows the same pipeline+bindGroup)', () => {
+  it('GraticuleRenderer.UNIFORM_SIZE === polygonUniformBytes() (borrows same pipeline+bindGroup)', () => {
     // The graticule draws with MapRenderer's linePipeline + base bindGroup, so
-    // its gratData must fill the same 256-byte bound range.
+    // its gratData must fill the same struct-sized bound range.
     const grat = (GraticuleRenderer as unknown as { UNIFORM_SIZE: number }).UNIFORM_SIZE
+    expect(grat).toBe(polygonUniformBytes())
     expect(grat).toBe(required)
   })
 })

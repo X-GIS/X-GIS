@@ -25,3 +25,11 @@ let _slots: UniformFieldSlots | undefined
 export function polygonUniformSlots(): UniformFieldSlots {
   return (_slots ??= uniformFieldSlots(reflect(buildPolygonModule(null, false)), 'Uniforms'))
 }
+
+/** Canonical polygon Uniforms struct byte size, derived from reflect().
+ *  = polygonUniformSlots().slots * 4.  Use this wherever code needs the
+ *  bind-range `size` or an ArrayBuffer sized to the struct — so a future
+ *  struct change propagates automatically without touching every call-site. */
+export function polygonUniformBytes(): number {
+  return polygonUniformSlots().slots * 4
+}
