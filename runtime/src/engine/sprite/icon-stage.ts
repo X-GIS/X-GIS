@@ -225,6 +225,40 @@ export class IconStage {
     this.renderer.draw(pass, viewport)
   }
 
+  /** Screen bboxes of the pending icons, for the text-collision pass (#609).
+   *  MapLibre inserts every placed icon box into the shared collision grid
+   *  (placement.ts placeCollisionBox) so later labels avoid it; X-GIS runs
+   *  text + icon stages separately, so the label pass calls this BEFORE
+   *  TextStage.prepare and seeds the boxes as collision obstacles.
+   *  Mirrors prepare()'s sprite + drawW/drawH/anchor math.
+   *  groupKey = pairKey so a paired icon never blocks its OWN text.
+   *  Icons whose sprite isn't resolved yet are omitted (they don't draw,
+   *  so they don't block). Only icons with collide=true act as obstacles
+   *  (matching the icons that participate in the collision grid). */
+  computeObstacles(): { bbox: { minX: number; minY: number; maxX: number; maxY: number }; groupKey?: string }[] {
+    const out: { bbox: { minX: number; minY: number; maxX: number; maxY: number }; groupKey?: string }[] = []
+    for (const p of this.pending) {
+      if (!p.collide) continue
+      const sprite = this.host.get(p.iconName)
+      if (!sprite) continue
+      const sizeScale = p.sizeScale * this.dpr
+      const drawW = (sprite.width / sprite.pixelRatio) * sizeScale
+      const drawH = (sprite.height / sprite.pixelRatio) * sizeScale
+      const a = p.anchor ?? 'center'
+      const cx = a === 'left' || a === 'top-left' || a === 'bottom-left' ? p.anchorX + drawW / 2
+        : a === 'right' || a === 'top-right' || a === 'bottom-right' ? p.anchorX - drawW / 2
+        : p.anchorX
+      const cy = a === 'top' || a === 'top-left' || a === 'top-right' ? p.anchorY + drawH / 2
+        : a === 'bottom' || a === 'bottom-left' || a === 'bottom-right' ? p.anchorY - drawH / 2
+        : p.anchorY
+      out.push({
+        bbox: { minX: cx - drawW / 2, minY: cy - drawH / 2, maxX: cx + drawW / 2, maxY: cy + drawH / 2 },
+        groupKey: p.pairKey,
+      })
+    }
+    return out
+  }
+
   /** Drop the pending icon queue without preparing. `prepare()` normally
    *  clears `pending` at its tail; the label pass calls this every frame so a
    *  frame that SKIPS `prepare()` (S16 collision skip) cannot leak dispatched

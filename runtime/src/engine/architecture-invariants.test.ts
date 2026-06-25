@@ -199,7 +199,8 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 3597→3599: configureProjections(PROJECTIONS) import + the constructor
   // call that injects the projection spec list into @xgis/shader-dsl (the
   // shader-dsl extraction seam — 2 irreducible wiring lines).
-  'runtime/src/engine/map.ts': 3599,
+  // Bumped 3599→3610 (#603): _scratchEmittedLineIconKeys field + comment.
+  'runtime/src/engine/map.ts': 3610,
   // Bumped 1343→1344 for the opacity sub-1.5% round-trip fix (#274); comments
   // trimmed to the minimum, net +1 irreducible.
   // Bumped 1344→1348 for the polygon fill-stroke INSET default (US-002): a
@@ -244,7 +245,9 @@ const LOC_CEILINGS: Record<string, number> = {
   // prepare() ordering pass (zOrderMode scan, viewport-y screen-Y sort +
   // source-order branch, ordered greedy + drawOrder emit; legacy path preserved
   // ⇒ DEFAULT byte-identical) + ShapedLabel.symbolZOrder field (+74).
-  'runtime/src/engine/text/text-stage.ts': 1602,
+  // Bumped 1602→1615 (#609): prepare() accepts iconObstacles param + CollisionObstacle
+  // import + groupKey wired into collisionInput + obstacles passed to all greedy calls.
+  'runtime/src/engine/text/text-stage.ts': 1615,
   // Bumped 1509→1517 for the GeometryCollection decompose fix (RFC 7946
   // §3.1.8): decomposeFeatures' per-type switch is wrapped in an inner
   // recursive helper so a GeometryCollection member-decomposes under the
@@ -430,7 +433,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 1163→1192 (Phase S Batch 3+4): icon-translate-anchor:map setBearing +
   // anchor rotation (+17) plus icon collision policy — dispatchIcon doCollide
   // from LabelDef.iconCollide/iconIgnorePlacement on top of the #417 rule (+12).
-  'runtime/src/engine/render/passes/label-pass.ts': 1192,
+  // Bumped 1192→1248 (#603/#609): cross-tile line-icon dedup (isLineIconDuplicate
+  // + _scratchEmittedLineIconKeys) + icon-obstacle wiring (computeObstacles →
+  // stage.prepare) + curved-path text-less icon gate + let hoisting for closure.
+  'runtime/src/engine/render/passes/label-pass.ts': 1248,
   // VTR Unit-1 extraction (Cluster E-selection). The hysteresis +
   // readiness-gate logic was moved VERBATIM (plan §5 DO-NOT-SPLIT #2),
   // and its hard-won fix-history comments carry the bulk of the LOC —

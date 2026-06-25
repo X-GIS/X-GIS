@@ -32,7 +32,7 @@ import { InlineGlyphProvider } from './sdf/pbf/inline-glyph-provider'
 import type { GlyphProvider } from './sdf/pbf/glyph-provider'
 import { PbfRasterizer } from './sdf/pbf-rasterizer'
 import { TextRenderer, type TextDraw } from './text-renderer'
-import { greedyPlaceBboxes, type CollisionItem } from './text-collision'
+import { greedyPlaceBboxes, type CollisionItem, type CollisionObstacle } from './text-collision'
 import {
   applyTextTransform, stripCurveLineExtraScripts,
   evaluateVariableOffsetEm, variableAnchorOffsetEm,
@@ -587,8 +587,14 @@ export class TextStage {
   /** Realize queued labels into atlas + GPU + draw list. Caller
    *  invokes this once per frame after all addLabel() calls and
    *  before encoding the render pass; render() then encodes the
-   *  draws onto the supplied pass. */
-  prepare(): void {
+   *  draws onto the supplied pass.
+   *
+   *  `iconObstacles` are the dispatched icons' screen boxes (from
+   *  IconStage.computeObstacles()). They seed the collision grid so a
+   *  label that overlaps a separate collide-icon is dropped — MapLibre
+   *  inserts placed icon boxes into the same grid every label hit-tests
+   *  against. A label is exempt from its OWN paired icon via groupKey. */
+  prepare(iconObstacles: readonly CollisionObstacle[] = []): void {
     // iter-285 — snapshot submitted count BEFORE collision pass.
     // pendingLine entries each may yield 1+ placements; counted as 1
     // per submission for a coarse but useful diagnostic.
@@ -1448,11 +1454,14 @@ export class TextStage {
     // greedyPlaceBboxes + per-shape place loop. greedy is O(N²) so
     // dense-label scenes (low-z world view) spend a chunk here.
     perfMarkStart('stage-prepare.collision')
-    const collisionInput: CollisionItem[] = shaped.map(s => ({
+    const collisionInput: CollisionItem[] = shaped.map((s, idx) => ({
       bboxes: s.layouts.map(l => l.bbox),
       allowOverlap: s.allowOverlap,
       ignorePlacement: s.ignorePlacement,
       sortKey: s.sortKey,
+      // groupKey = this label's pairKey so a paired icon obstacle cannot
+      // block its OWN text (they share the anchor by design, #609).
+      groupKey: this.pending[idx]?.pairKey ?? s.pairKey,
     }))
     // When ANY shaped item carries an explicit sortKey, greedy­Place­
     // Bboxes handles priority via stable sort by sortKey ascending —
@@ -1510,8 +1519,9 @@ export class TextStage {
         bboxes: collisionInput[i]!.bboxes,
         allowOverlap: collisionInput[i]!.allowOverlap,
         ignorePlacement: collisionInput[i]!.ignorePlacement,
+        groupKey: collisionInput[i]!.groupKey,
       }))
-      const orderedPlacements = greedyPlaceBboxes(orderedInput)
+      const orderedPlacements = greedyPlaceBboxes(orderedInput, { obstacles: iconObstacles })
       placements = new Array(shaped.length) as typeof orderedPlacements
       for (let k = 0; k < order.length; k++) placements[order[k]!] = orderedPlacements[k]!
       // Painter order: viewport-y draws bottom-on-top (reverse of the
@@ -1521,11 +1531,11 @@ export class TextStage {
       let anySortKey = false
       for (const s of shaped) if (s.sortKey !== undefined) { anySortKey = true; break }
       if (anySortKey) {
-        placements = greedyPlaceBboxes(collisionInput)
+        placements = greedyPlaceBboxes(collisionInput, { obstacles: iconObstacles })
       } else {
         const reversed: CollisionItem[] = []
         for (let i = collisionInput.length - 1; i >= 0; i--) reversed.push(collisionInput[i]!)
-        const placementsReversed = greedyPlaceBboxes(reversed)
+        const placementsReversed = greedyPlaceBboxes(reversed, { obstacles: iconObstacles })
         placements = new Array(shaped.length) as typeof placementsReversed
         for (let i = 0; i < placementsReversed.length; i++) {
           placements[shaped.length - 1 - i] = placementsReversed[i]!

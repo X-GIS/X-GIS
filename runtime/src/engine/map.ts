@@ -408,6 +408,11 @@ export class XGISMap {
    *  HIGHER layer's duplicate can supersede a lower one's per Mapbox
    *  layer-order precedence (#458). */
   readonly _scratchEmittedPointNames = new Map<string, number>()
+  /** #603 — cross-tile dedup for text-less line-placed icons (road_oneway
+   *  arrows, shields with no text). Keyed by bucketed screen position so
+   *  two tile segments' icons at the same on-screen location collapse.
+   *  Cleared per show entry (same lifetime as _scratchEmittedTextNames). */
+  readonly _scratchEmittedLineIconKeys = new Set<string>()
   /** iter-259 (Plan AAA B.7) — applyFeatureExprs cache. Keyed on
    *  props ref via WeakMap so per-feature LabelDef survives across
    *  frames + auto-GCs when source data drops the feature. Per

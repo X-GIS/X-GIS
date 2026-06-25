@@ -653,6 +653,12 @@ class LabelPass implements RenderPass {
               // different seqs; deterministic across frames as long as
               // the polyline walk is (iter-169 cache makes it so).
               let _lineLabelSeq = 0
+              // #603 — cross-tile dedup for text-less line icons. Declared here
+              // so emitLabelAlongSegment (defined below) can close over it.
+              // Assigned inside the spacingPx > 0 block where the dedup Set is
+              // set up; before that block it is a no-op (single-feature paths
+              // have no cross-tile ambiguity). Never-duplicate by default.
+              let isLineIconDuplicate: (sx: number, sy: number) => boolean = () => false
               const emitLabelAlongSegment = (
                 pax: number, pay: number, pbx: number, pby: number,
                 t: number, props: Record<string, unknown>,
@@ -697,6 +703,13 @@ class LabelPass implements RenderPass {
                 const pairKey = pairedWithIcon
                   ? `${labelLayerName ?? ''}:seq${_lineLabelSeq++}`
                   : undefined
+                // #603 — cross-tile dedup for text-less line icons. When
+                // there is no text (road_oneway arrows), the text-name
+                // dedup doesn't gate the icon. Two tiles' polyline walks
+                // can place icons at nearby but non-overlapping screen
+                // positions at a tile seam. Gate via bucketed screen pos.
+                const hasText = featDef.text !== undefined && featDef.text !== null
+                if (!hasText && pairedWithIcon && isLineIconDuplicate(x, y)) return
                 if (useTangentRotation) {
                   let angleDeg = rawTangentDeg
                   if (angleDeg > 90 || angleDeg < -90) angleDeg += 180
@@ -758,6 +771,27 @@ class LabelPass implements RenderPass {
                 }
                 const recordTextPosition = (resolvedText: string, _sx: number, _sy: number): void => {
                   emittedTextNames.add(resolvedText)
+                }
+                // #603 — cross-tile dedup for text-less line-placed icons
+                // (road_oneway arrows, shields with empty text). Two adjacent
+                // tiles each emit a polyline for the same road; the icon-
+                // spacing walk places icons at slightly different positions
+                // along each segment, so the same screen position gets two
+                // icons from two tiles — AABB collision in icon-stage collapses
+                // touching pairs but misses non-overlapping near-duplicates at
+                // tile seams. Mirror the text-name dedup with a bucketed screen-
+                // position key: snap to the icon-spacing grid (~spacingPx) so
+                // two placements within half a spacing step share the same key.
+                // Assigned to the outer `let` so emitLabelAlongSegment can close
+                // over the real function (it's defined before this block).
+                const emittedLineIconKeys = host._scratchEmittedLineIconKeys
+                emittedLineIconKeys.clear()
+                const iconSpacingBucket = spacingPx
+                isLineIconDuplicate = (sx: number, sy: number): boolean => {
+                  const key = `${Math.round(sx / iconSpacingBucket)},${Math.round(sy / iconSpacingBucket)}`
+                  if (emittedLineIconKeys.has(key)) return true
+                  emittedLineIconKeys.add(key)
+                  return false
                 }
                 const SUBDIVS_PER_SEG = 32
                 // Polyline projection scratch — sized once per show, big
@@ -933,11 +967,18 @@ class LabelPass implements RenderPass {
                     const polyX = _pxScratch.slice(0, pn)
                     const polyY = _pyScratch.slice(0, pn)
                     // No fontKey override — see note at line ~2370.
+                    // #603 — text-less line icons (road_oneway, icon-only
+                    // shields) have resolvedTextForDedupe='' which never
+                    // fires isTooCloseToSameText. Apply the position-bucket
+                    // dedup so two adjacent tiles' polylines don't emit
+                    // duplicate icons at the same screen spot.
+                    const curveHasText = featDef.text !== undefined && featDef.text !== null
                     if (total < spacingPx * 0.5) {
                       if (samplePosAt(total * 0.5)) {
                         const sx = _samplePosOut[0], sy = _samplePosOut[1]
                         const tang = _samplePosOut[2]
-                        if (!isTooCloseToSameText(resolvedTextForDedupe, sx, sy)) {
+                        if (!isTooCloseToSameText(resolvedTextForDedupe, sx, sy)
+                            && (!(!curveHasText && curvePairedWithIcon) || !isLineIconDuplicate(sx, sy))) {
                           const pairKey = curvePairedWithIcon
                             ? `${labelLayerName ?? ''}:seq${_lineLabelSeq++}`
                             : undefined
@@ -972,7 +1013,8 @@ class LabelPass implements RenderPass {
                       if (samplePosAt(nextStop)) {
                         const sx = _samplePosOut[0], sy = _samplePosOut[1]
                         const tang = _samplePosOut[2]
-                        if (!isTooCloseToSameText(resolvedTextForDedupe, sx, sy)) {
+                        if (!isTooCloseToSameText(resolvedTextForDedupe, sx, sy)
+                            && (!(!curveHasText && curvePairedWithIcon) || !isLineIconDuplicate(sx, sy))) {
                           const pairKey = curvePairedWithIcon
                             ? `${labelLayerName ?? ''}:seq${_lineLabelSeq++}`
                             : undefined
@@ -1154,7 +1196,15 @@ class LabelPass implements RenderPass {
         // (stage.render below replays them); skipping the collision + upload is
         // the measurable payload (see getLabelDispatchStats hitRate).
         if (!canSkipLabelPrepare) {
-          stage.prepare()
+          // #609 — seed text collision with icon boxes BEFORE TextStage.prepare
+          // so a label can't draw over a collide-icon from a separate feature.
+          // MapLibre puts placed icon boxes in the shared collision grid every
+          // label hit-tests against; we replicate that by passing them as
+          // obstacles. computeObstacles() reads the pending queue (pre-prepare)
+          // so it must run BEFORE iStage.prepare() clears it. A paired icon's
+          // own text is exempted via matching groupKey.
+          const iconObstacles = iStage ? iStage.computeObstacles() : []
+          stage.prepare(iconObstacles)
           if (iStage) iStage.setDroppedPairKeys(stage.getDroppedPairKeys())
           iStage?.prepare()
         }
