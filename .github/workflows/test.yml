@@ -115,8 +115,19 @@ jobs:
           # (it was previously local-only). ~40 files, well under the ~110-file RPC threshold.
           - id: shader-dsl
             args: shader-dsl/src shader-dsl/examples
-          - id: engine-render
-            args: runtime/src/engine/render
+          # SPLIT 2026-06-26: #610 demo-QA sweep grew engine-render to 122 test
+          # files (render uniform/bind-size/tile + #595/#606/#608), back over the
+          # ~110 onTaskUpdate RPC threshold — main push run 28186666263: every
+          # test PASSED, the job failed on 'Timeout calling "onTaskUpdate"'. Per
+          # the playbook above, SPLIT this id (do NOT merge). Uses vitest --shard
+          # to halve the file count per worker pool — deterministic, disjoint and
+          # complete (no glob guessing): 122 files → 2 pools of ~61, each a fresh
+          # pool well under the ~110 threshold. If render/ later doubles again,
+          # bump to --shard=1/3../3/3 rather than merging back.
+          - id: engine-render-a
+            args: runtime/src/engine/render --shard=1/2
+          - id: engine-render-b
+            args: runtime/src/engine/render --shard=2/2
           - id: engine-proj-text
             args: runtime/src/engine/projection runtime/src/engine/text
           - id: engine-rest
@@ -130,7 +141,7 @@ jobs:
               runtime/src
               --exclude "runtime/src/engine/**"
     # Distinct per-leg check name in the GitHub UI / status API, e.g.
-    # "test (engine-render)". The single stable context for branch protection
+    # "test (engine-render-a)". The single stable context for branch protection
     # is `test-result` below — require THAT, not these per-leg names.
     name: test (${{ matrix.id }})
     steps:

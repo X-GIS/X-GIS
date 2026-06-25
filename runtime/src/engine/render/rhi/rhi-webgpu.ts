@@ -8,6 +8,7 @@ import type {
   RhiDevice, RhiBuffer, RhiTexture, RhiTextureView, RhiSampler, RhiBindGroup,
   RhiBindGroupLayout, RhiPipeline, RhiRenderPass, RhiBufferDesc, RhiTextureDesc,
   RhiSamplerDesc, RhiBindLayoutEntry, RhiBindEntry, RhiPipelineDesc,
+  RhiRenderPassDesc, RhiCommandEncoder,
 } from './rhi'
 
 // Each opaque handle carries its native object on a `native` field (hidden from
@@ -52,6 +53,39 @@ export function rhiStencilToGpu(
   }
 }
 
+/** Map an `RhiRenderPassDesc` to a `GPURenderPassDescriptor` BYTE-IDENTICALLY to
+ *  the inline descriptors the passes/ bodies build today — opaque pick MRT,
+ *  OIT accum+revealage MRT, MSAA-resolve, the offscreen line pass, the heatmap
+ *  r16float 3-pass. Pure: only unwraps view handles, copies the load/store enums,
+ *  and converts the RGBA clear array to the `{r,g,b,a}` GPUColor the raw passes
+ *  write — no GPUDevice, so the byte-identity is unit-testable (no real GPU),
+ *  exactly like rhiStencilToGpu. Optional attachment fields are OMITTED when
+ *  undefined so the result matches the raw inline shape field-for-field:
+ *  `resolveTarget: undefined` (no MSAA resolve here) and an absent `clearValue`
+ *  (load attachment) both map to the same omitted/undefined the raw path uses. */
+export function rhiRenderPassToGpu(desc: RhiRenderPassDesc): GPURenderPassDescriptor {
+  const dsa = desc.depthStencilAttachment
+  return {
+    label: desc.label,
+    colorAttachments: desc.colorAttachments.map((a): GPURenderPassColorAttachment => ({
+      view: u<GPUTextureView>(a.view),
+      resolveTarget: a.resolveTarget ? u<GPUTextureView>(a.resolveTarget) : undefined,
+      loadOp: a.loadOp,
+      storeOp: a.storeOp,
+      ...(a.clearValue ? { clearValue: { r: a.clearValue[0], g: a.clearValue[1], b: a.clearValue[2], a: a.clearValue[3] } } : {}),
+    })),
+    depthStencilAttachment: dsa ? {
+      view: u<GPUTextureView>(dsa.view),
+      ...(dsa.depthLoadOp !== undefined ? { depthLoadOp: dsa.depthLoadOp } : {}),
+      ...(dsa.depthStoreOp !== undefined ? { depthStoreOp: dsa.depthStoreOp } : {}),
+      ...(dsa.depthClearValue !== undefined ? { depthClearValue: dsa.depthClearValue } : {}),
+      ...(dsa.stencilLoadOp !== undefined ? { stencilLoadOp: dsa.stencilLoadOp } : {}),
+      ...(dsa.stencilStoreOp !== undefined ? { stencilStoreOp: dsa.stencilStoreOp } : {}),
+      ...(dsa.stencilClearValue !== undefined ? { stencilClearValue: dsa.stencilClearValue } : {}),
+    } : undefined,
+  }
+}
+
 function bufUsage(usage: RhiBufferDesc['usage'], writable: boolean): GPUBufferUsageFlags {
   const base = usage === 'uniform' ? GPUBufferUsage.UNIFORM
     : usage === 'vertex' ? GPUBufferUsage.VERTEX
@@ -82,6 +116,7 @@ class WebGpuRenderPass implements RhiRenderPass {
   draw(vertexCount: number, instanceCount = 1, firstVertex = 0): void { this.enc.draw(vertexCount, instanceCount, firstVertex) }
   drawIndexed(indexCount: number, instanceCount = 1): void { this.enc.drawIndexed(indexCount, instanceCount) }
   setStencilReference(ref: number): void { this.enc.setStencilReference(ref) }
+  end(): void { this.enc.end() }
 }
 
 /** Wrap a live GPURenderPassEncoder (created by the render loop) as an RHI pass
@@ -116,9 +151,24 @@ export function wrapWebGpuBindGroup(group: GPUBindGroup): RhiBindGroup {
   return wrap(group) as unknown as RhiBindGroup
 }
 
+/** Wrap a native `GPUCommandEncoder` so offscreen / MRT passes record + submit
+ *  through the RHI. begin-pass goes through the byte-identical rhiRenderPassToGpu
+ *  mapper; finish submits this encoder's single command buffer (one encoder →
+ *  one submit, matching the render loop's per-frame submit). */
+class WebGpuCommandEncoder implements RhiCommandEncoder {
+  private readonly enc: GPUCommandEncoder
+  constructor(private readonly device: GPUDevice) { this.enc = device.createCommandEncoder() }
+  beginRenderPass(desc: RhiRenderPassDesc): RhiRenderPass {
+    return new WebGpuRenderPass(this.enc.beginRenderPass(rhiRenderPassToGpu(desc)))
+  }
+  finish(): void { this.device.queue.submit([this.enc.finish()]) }
+}
+
 export class WebGpuDevice implements RhiDevice {
   readonly backend = 'webgpu' as const
   constructor(private readonly device: GPUDevice) {}
+
+  createCommandEncoder(): RhiCommandEncoder { return new WebGpuCommandEncoder(this.device) }
 
   createBuffer(desc: RhiBufferDesc): RhiBuffer {
     return wrap(this.device.createBuffer({

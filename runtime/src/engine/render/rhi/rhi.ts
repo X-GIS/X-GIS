@@ -33,8 +33,11 @@ export interface RhiBufferDesc {
   label?: string
 }
 
-/** Semantic texture formats — impl maps to backend (e.g. swapchain bgra8). */
-export type RhiTextureFormat = 'rgba8unorm' | 'bgra8unorm' | 'depth24plus-stencil8' | 'rg32uint' | 'r16float'
+/** Semantic texture formats — impl maps to backend (e.g. swapchain bgra8).
+ *  `rgba16float` is the OIT weighted-blend accum target (gpu-shared
+ *  OIT_ACCUM_FORMAT); WebGL2 fail-closes on it (rendering to it needs
+ *  EXT_color_buffer_float — deferred to the WebGL2 full-frame phase). */
+export type RhiTextureFormat = 'rgba8unorm' | 'bgra8unorm' | 'depth24plus-stencil8' | 'rg32uint' | 'r16float' | 'rgba16float'
 
 export interface RhiTextureDesc {
   width: number
@@ -128,6 +131,11 @@ export interface RhiRenderPass {
    *  `GPURenderPassEncoder.setStencilReference`; WebGL2 stencil-state binding is
    *  deferred to the WebGL2 full-frame phase (see rhi-webgl2.ts). */
   setStencilReference(ref: number): void
+  /** Finish this render pass. WebGPU maps to `GPURenderPassEncoder.end()` (the
+   *  raw `subPass.end()` every pass body calls); WebGL2 is immediate-mode so
+   *  ending is a no-op (the next pass rebinds its FBO / viewport). A screen pass
+   *  obtained via `beginScreenPass` is instead finished through `endScreenPass`. */
+  end(): void
 }
 
 /** A backbuffer screen-pass request — the screen render target + how to load it.
@@ -143,6 +151,82 @@ export interface RhiScreenPassDesc {
    *  `context.getCurrentTexture().createView()`). WebGL2 ignores it (renders to FBO 0).
    *  Optional + additive. */
   screenView?: RhiTextureView
+}
+
+// ═══ Offscreen / MRT render-pass topology (passes/ — gap #2) ═══
+//
+// `beginScreenPass` covers ONLY the single-sample backbuffer. The whole
+// passes/ topology (opaque pick `@location1` MRT, OIT accum+revealage MRT,
+// MSAA-resolve, the offscreen MAX line pass, the heatmap r16float 3-pass)
+// runs RAW `encoder.beginRenderPass(GPURenderPassDescriptor)` today. These
+// descriptors express that topology backend-agnostically so passes can
+// originate through `RhiCommandEncoder.beginRenderPass` instead at P1.
+//
+// The WebGPU impl maps these to a `GPURenderPassDescriptor` BYTE-IDENTICALLY
+// to the inline descriptors each pass builds (rhiRenderPassToGpu, gated by
+// rhi-renderpass-parity.test.ts) — so the migration is byte-for-byte the raw
+// path, no topology drift. WebGL2 fail-closes (MRT / offscreen FBOs are the
+// WebGL2 full-frame phase). Additive + inert: nothing in the live render loop
+// builds these yet (the loop keeps its raw `GPUCommandEncoder`).
+
+/** One colour attachment of an offscreen / MRT pass. `clearValue` is RGBA in
+ *  straight-alpha unit floats (the array form the rest of the RHI uses, e.g.
+ *  RhiScreenPassDesc.clear); the WebGPU impl converts it to the `{r,g,b,a}`
+ *  GPUColor the raw passes write. Required only when `loadOp === 'clear'`.
+ *  `resolveTarget` is the MSAA→single-sample resolve view (the swapchain) — set
+ *  only on the pass that owns the resolve (the resolveOwner chain); absent =
+ *  no resolve, byte-identical to the raw `resolveTarget: undefined`. */
+export interface RhiColorAttachment {
+  view: RhiTextureView
+  resolveTarget?: RhiTextureView
+  loadOp: 'load' | 'clear'
+  storeOp: 'store' | 'discard'
+  clearValue?: readonly [number, number, number, number]
+}
+
+/** The depth-stencil attachment of an offscreen pass. Every op is OPTIONAL so
+ *  the descriptor reproduces each pass's exact shape: the opaque pass carries
+ *  depth + stencil clear values even on a load sub-pass (they are ignored but
+ *  present in the raw descriptor); the OIT-fill pass OMITS the clear values
+ *  (pure load). A field left undefined is omitted from the mapped GPU
+ *  descriptor — byte-identical to the raw inline form. */
+export interface RhiDepthStencilAttachment {
+  view: RhiTextureView
+  depthLoadOp?: 'load' | 'clear'
+  depthStoreOp?: 'store' | 'discard'
+  depthClearValue?: number
+  stencilLoadOp?: 'load' | 'clear'
+  stencilStoreOp?: 'store' | 'discard'
+  stencilClearValue?: number
+}
+
+/** A backend-agnostic offscreen / MRT render-pass request. Up to N colour
+ *  attachments (the map's topology uses 1, or 2 for the opaque-pick and
+ *  OIT-fill MRT pairs) + an optional depth-stencil. Timestamp profiling is
+ *  intentionally NOT modelled here — it is a WebGPU-encoder concern layered at
+ *  the migration call-site (the gpuTimer seam), not part of the topology. */
+export interface RhiRenderPassDesc {
+  colorAttachments: ReadonlyArray<RhiColorAttachment>
+  depthStencilAttachment?: RhiDepthStencilAttachment
+  label?: string
+}
+
+/** A command encoder — the scope offscreen passes are recorded into and
+ *  submitted from. WebGPU wraps `GPUCommandEncoder` (begin-pass + finish→
+ *  queue.submit). WebGL2 fail-closes: `createCommandEncoder` throws (slice-1
+ *  WebGL2 is screen-pass only; MRT + offscreen FBOs are the full-frame phase).
+ *  Additive + inert: the render loop keeps creating + submitting its RAW
+ *  `GPUCommandEncoder` today — this seam is what P1 adopts to route the passes
+ *  through the RHI. */
+export interface RhiCommandEncoder {
+  /** Begin an offscreen / MRT render pass; record draws against the returned
+   *  pass, then call `pass.end()` (mirroring the raw `subPass.end()` every
+   *  pass body already calls). */
+  beginRenderPass(desc: RhiRenderPassDesc): RhiRenderPass
+  /** Finish recording + submit this encoder's work (WebGPU: queue.submit of
+   *  encoder.finish()). One encoder → one submit, matching the loop's single
+   *  per-frame submit. */
+  finish(): void
 }
 
 /** The device — creates resources + pipelines. One impl per backend. */
@@ -177,4 +261,16 @@ export interface RhiDevice {
   /** Drain accumulated GL errors (WebGL2) so the loop can surface them into the same
    *  `_validationErrors` sink the WebGPU path uses. Returns + clears the queue. */
   takeGlErrors?(): string[]
+
+  // ── Offscreen / MRT command encoder (additive, OPTIONAL) ─────────────────────
+  // The render loop creates + submits its command encoder RAW today
+  // (render-loop.ts:216/501). To originate the passes/ offscreen + MRT topology
+  // through the RHI the encoder must come from here. OPTIONAL + additive +
+  // INERT: `WebGpuDevice` returns a wrapper over a native `GPUCommandEncoder`
+  // (begin-pass via the byte-identical rhiRenderPassToGpu mapper); `WebGl2Device`
+  // FAIL-CLOSES (throws) — MRT + offscreen FBOs are the WebGL2 full-frame phase.
+  // The live loop does NOT call this yet; it is the seam P1 adopts.
+
+  /** Create a command encoder for offscreen / MRT passes. WebGL2 throws. */
+  createCommandEncoder?(): RhiCommandEncoder
 }

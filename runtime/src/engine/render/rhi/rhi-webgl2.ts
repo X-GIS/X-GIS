@@ -45,7 +45,7 @@ import type {
   RhiDevice, RhiBuffer, RhiTexture, RhiTextureView, RhiSampler, RhiBindGroup,
   RhiBindGroupLayout, RhiPipeline, RhiRenderPass, RhiBufferDesc, RhiTextureDesc,
   RhiSamplerDesc, RhiBindLayoutEntry, RhiBindEntry, RhiPipelineDesc, RhiTextureFormat, RhiBufferUsage,
-  RhiScreenPassDesc,
+  RhiScreenPassDesc, RhiCommandEncoder,
 } from './rhi'
 
 // Each opaque RHI handle stores a rich GL record (cast both ways inside this
@@ -83,6 +83,11 @@ function texFmt(gl: WebGL2RenderingContext, f: RhiTextureFormat): { internal: GL
     case 'r16float': return { internal: gl.R16F, format: gl.RED, type: gl.HALF_FLOAT }
     case 'rg32uint': return { internal: gl.RG32UI, format: gl.RG_INTEGER, type: gl.UNSIGNED_INT }
     case 'depth24plus-stencil8': return { internal: gl.DEPTH24_STENCIL8, format: gl.DEPTH_STENCIL, type: gl.UNSIGNED_INT_24_8 }
+    case 'rgba16float':
+      // Fail-CLOSED: the OIT weighted-blend accum target. Rendering TO rgba16float
+      // needs EXT_color_buffer_float, and the OIT MRT topology is offscreen anyway —
+      // both are the WebGL2 full-frame phase, not slice-1.
+      throw new Error('webgl2: rgba16float (OIT accum) not yet supported (needs EXT_color_buffer_float; deferred to the WebGL2 full-frame phase)')
   }
 }
 
@@ -240,6 +245,11 @@ class WebGl2RenderPass implements RhiRenderPass {
     if (instanceCount > 1) this.gl.drawElementsInstanced(this.gl.TRIANGLES, indexCount, this.ibuf.type, 0, instanceCount)
     else this.gl.drawElements(this.gl.TRIANGLES, indexCount, this.ibuf.type, 0)
   }
+
+  // WebGL2 is immediate-mode: there is no pass object to close, so ending is a
+  // no-op (the next pass rebinds its FBO + viewport). The screen pass is finished
+  // via WebGl2Device.endScreenPass instead.
+  end(): void {}
 }
 
 /** Begin an RHI render pass over the gl context's CURRENTLY-bound framebuffer
@@ -298,6 +308,16 @@ export class WebGl2Device implements RhiDevice {
     const out = this._glErrors
     this._glErrors = []
     return out
+  }
+
+  /** Fail-CLOSED: the offscreen / MRT command-encoder topology (opaque pick MRT,
+   *  OIT accum+revealage MRT, the offscreen line + heatmap r16float passes) has
+   *  no WebGL2 path in slice-1 — multi-attachment FBOs + EXT_color_buffer_float
+   *  targets are the WebGL2 full-frame phase. Throwing here means a pass that
+   *  tries to originate through the RHI on WebGL2 can never silently fall back to
+   *  the screen pass and corrupt the frame. (Slice-1 WebGL2 = `beginScreenPass`.) */
+  createCommandEncoder(): RhiCommandEncoder {
+    throw new Error('webgl2: offscreen/MRT render passes (createCommandEncoder) not yet supported (slice-1 WebGL2 is screen-pass only; deferred to the WebGL2 full-frame phase)')
   }
 
   createBuffer(desc: RhiBufferDesc): RhiBuffer {
