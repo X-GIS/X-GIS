@@ -454,7 +454,16 @@ const LOC_CEILINGS: Record<string, number> = {
   // the real gate) — plus the active-text-pairKeys obstacle wiring. The growth
   // is the JSDoc'd extracted predicate + the load-bearing bug rationale at each
   // call site, matching this file's documented-export convention.
-  'runtime/src/engine/render/passes/label-pass.ts': 1290,
+  // Bumped 1290→1341 (#605): route-number SHIELDS over-duplicated ~6× along a
+  // road at z19 (vs MapLibre ~1×) because the curved-walk cross-tile dedupe keyed
+  // on the road `name`, but a national route overlays many differently-named OSM
+  // segments — so the same "82" shield stamped once per distinct segment name.
+  // Extracted the EXPORTED `lineLabelDedupeKey` predicate (shield → resolved REF,
+  // the route-stable drawn text; plain label → name → name_en → resolved) + unit
+  // tests (fail-before pins the 4-distinct-name over-count). The growth is the
+  // JSDoc'd extracted predicate + its load-bearing rationale, matching this
+  // file's documented-export convention.
+  'runtime/src/engine/render/passes/label-pass.ts': 1341,
   // VTR Unit-1 extraction (Cluster E-selection). The hysteresis +
   // readiness-gate logic was moved VERBATIM (plan §5 DO-NOT-SPLIT #2),
   // and its hard-won fix-history comments carry the bulk of the LOC —

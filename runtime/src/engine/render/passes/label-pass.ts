@@ -68,6 +68,40 @@ export function lineIconIsIconOnly(
   return resolveText(text, props, cameraZoom) === ''
 }
 
+/** #605 — the cross-tile dedupe key for a tangent-rotated (curved) line label.
+ *  Caps repeated along-line placements to one per route per ShowCommand pass
+ *  (via isTooCloseToSameText / lineLabelDeduped), so the choice of key decides
+ *  what counts as "the same route".
+ *
+ *  A route-number SHIELD (text+icon line symbol — OFM highway-shield-*, whose
+ *  text-field is the route `ref`, e.g. "82") is identified by its REF, NOT the
+ *  road `name`: a national route overlays many differently-named OSM road
+ *  segments (some carry a street `name`, some only `ref`), so a `name`-keyed
+ *  dedupe diverges per segment and stamps the same "82" shield once per distinct
+ *  name across the tiles the route fills — ~6× at z19 vs MapLibre's ~1× (the ref
+ *  is the same on every segment, so resolving the drawn text collapses the whole
+ *  route to one shield). The ref is monolingual so the bilingual-divergence
+ *  concern below does not apply to it.
+ *
+ *  A plain road-NAME label (no paired icon) keeps the `name` → `name_en` →
+ *  resolved-text precedence: resolveText() varies across segments when one
+ *  carries `name:nonlatin` and the next doesn't (the bilingual concat returns
+ *  different strings for the same road), so the raw name field is the stabler
+ *  cross-segment key there. Exported for coverage — the placement walk is an
+ *  anon callback. */
+export function lineLabelDedupeKey(
+  pairedWithIcon: boolean,
+  text: import('@xgis/compiler').TextValue,
+  props: import('../../text/text-resolver').FeatureProps,
+  cameraZoom: number,
+): string {
+  if (pairedWithIcon) return resolveText(text, props, cameraZoom)
+  const p = props as Record<string, unknown>
+  if (typeof p.name === 'string') return p.name
+  if (typeof p.name_en === 'string') return p.name_en
+  return resolveText(text, props, cameraZoom)
+}
+
 /** Stable per-instance pair key for a POINT label's text+icon (the place-name
  *  dot). Keyed on a monotonic per-show sequence index — NOT the rounded screen
  *  position the pre-#419 code used, whose sub-pixel-drift rounding flipped so a
@@ -946,18 +980,35 @@ class LabelPass implements RenderPass {
                   const curvePairedWithIcon = featDef.iconImage !== undefined
                     && featDef.iconImage !== null
                     && featDef.iconImage !== ''
-                  // Cross-tile dedupe key. resolveText() varies across
-                  // road segments when one segment carries
-                  // `name:nonlatin` and the next doesn't — the concat
-                  // expression returns different strings even though
-                  // the road is the same. Prefer the most stable name
-                  // field (`name` → `name_en` → resolved fallback) so
-                  // the dedupe matches across heterogeneous segments.
-                  const propsRec = props as Record<string, unknown>
-                  const stableName = typeof propsRec.name === 'string' ? propsRec.name
-                    : typeof propsRec.name_en === 'string' ? propsRec.name_en
-                    : resolveText(featDef.text, props, host.camera.zoom)
-                  const resolvedTextForDedupe = stableName
+                  // Cross-tile dedupe key.
+                  //
+                  // #605 — a route-number SHIELD (text+icon line symbol,
+                  // OFM highway-shield-*: text-field = ["to-string",["get",
+                  // "ref"]]) is identified by its REF ("82"), not the road
+                  // `name`. A national route overlays many differently-named
+                  // OSM road segments — some carry a street `name`, some only
+                  // `ref` — so the `name`-preferring key below diverges per
+                  // segment and the same "82" shield stamps once PER distinct
+                  // name across the tiles a route fills at high zoom (~6× at
+                  // z19 vs MapLibre ~1×). Key shields on the RESOLVED drawn
+                  // text (the ref) instead, which is stable across every
+                  // segment of one route, so the existing along-walk dedupe
+                  // (isTooCloseToSameText, checked at each screen-space spacing
+                  // stop) collapses the whole route to one shield — MapLibre's
+                  // per-route cadence. The ref is monolingual, so the
+                  // bilingual-divergence concern that motivates the `name`
+                  // path does not apply to shields.
+                  //
+                  // For a plain road-NAME label (no paired icon) resolveText()
+                  // DOES vary across segments when one carries `name:nonlatin`
+                  // and the next doesn't — the concat expression returns
+                  // different strings even though the road is the same. Prefer
+                  // the most stable name field (`name` → `name_en` → resolved
+                  // fallback) so the dedupe matches across heterogeneous
+                  // segments. See lineLabelDedupeKey for the full rationale.
+                  const resolvedTextForDedupe = lineLabelDedupeKey(
+                    curvePairedWithIcon, featDef.text, props, host.camera.zoom,
+                  )
                   // Walk the polyline and compute the screen-pixel
                   // position for an offset s along it. Used by the
                   // cross-tile dedupe to evaluate "is this position
@@ -997,19 +1048,19 @@ class LabelPass implements RenderPass {
                     // No fontKey override — see note at line ~2370.
                     // #603 — text-less line icons (road_oneway, icon-only
                     // shields) render no text, so isTooCloseToSameText
-                    // (keyed on stableName) doesn't gate them. Apply the
-                    // position-bucket dedup so two adjacent tiles' polylines
+                    // (keyed on resolvedTextForDedupe) doesn't gate them. Apply
+                    // the position-bucket dedup so two adjacent tiles' polylines
                     // don't emit duplicate icons at the same screen spot.
                     // Gate on the symbol's OWN resolved text-field being
                     // empty (lineIconIsIconOnly): an icon-only symbol emits
                     // text === '""', so featDef.text is never undefined — the
                     // old `featDef.text !== undefined` test was always true and
                     // the dedup never fired (#603). NB resolvedTextForDedupe
-                    // (stableName) can't be reused: it falls back to the
-                    // feature's `name` prop, which a road_oneway arrow may
-                    // carry from its source road even though it renders no
-                    // text — that would make the icon-only test a false
-                    // negative.
+                    // can't be reused for icon-only symbols: for a plain label
+                    // it falls back to the feature's `name` prop, which a
+                    // road_oneway arrow may carry from its source road even
+                    // though it renders no text — that would make the icon-only
+                    // test a false negative.
                     const curveIsIconOnly = lineIconIsIconOnly(featDef.text, props, host.camera.zoom)
                     if (total < spacingPx * 0.5) {
                       if (samplePosAt(total * 0.5)) {
