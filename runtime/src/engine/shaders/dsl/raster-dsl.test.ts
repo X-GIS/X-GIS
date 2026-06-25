@@ -90,4 +90,65 @@ describe('Phase-2 raster shader — DSL emission (ECEF VS, PR 2d.3)', () => {
       expect((w.match(/\(/g) ?? []).length).toBe((w.match(/\)/g) ?? []).length)
     }
   })
+
+  // ── #595: back-hemisphere raster cull ──
+  it('vs_tile threads needs_backface_cull through vis (#595)', () => {
+    // needs_backface_cull must be DEFINED (merged from the projection module)
+    // and CALLED in the VS body so back-facing raster tile vertices get vis<0.
+    expect(noPick).toContain('fn needs_backface_cull(')
+    const vsBody = noPick.slice(noPick.indexOf('@vertex\nfn vs_tile'))
+    const vsEnd = vsBody.indexOf('\n@fragment')
+    const vsOnly = vsEnd > 0 ? vsBody.slice(0, vsEnd) : vsBody
+    expect(vsOnly).toContain('needs_backface_cull(')
+  })
+  it('fs_tile discards when vis < 0 (hemisphere-cull gate for #595)', () => {
+    // The FS already had the vis < 0 discard; verify it is still present.
+    const fsBody = noPick.slice(noPick.indexOf('@fragment\nfn fs_tile'))
+    expect(fsBody).toContain('input.vis < 0.0')
+    expect(fsBody).toContain('discard')
+  })
+})
+
+// ── #595: analytic back-face predicate ──
+// Verifies needs_backface_cull(projType, lon, lat, clon, clat) returns the
+// correct sign via the CPU mirror — the same function the WGSL shader calls.
+// This is the ONLY GPU-free gate for the hemisphere predicate; the visual
+// confirmation (back hemisphere hidden) is done via headed Chrome.
+import { needsBackfaceCullCpu } from './cpu-projections'
+
+describe('back-face predicate — analytic (CPU mirror, #595)', () => {
+  const GLOBE = 7
+  const MERCATOR = 0
+  const ORTHO = 3
+
+  it('globe: point at camera centre (face-on) → positive', () => {
+    // Camera at (lon=0, lat=0); point directly facing → cos_c = +1
+    const result = needsBackfaceCullCpu(GLOBE, 0, 0, 0, 0)
+    expect(result).toBeGreaterThan(0)
+  })
+
+  it('globe: point at antipode (back-facing) → negative', () => {
+    // Camera at (lon=0, lat=0); point at (lon=180, lat=0) → cos_c = -1
+    const result = needsBackfaceCullCpu(GLOBE, 180, 0, 0, 0)
+    expect(result).toBeLessThan(0)
+  })
+
+  it('globe: point at ~90° off-axis (near limb) → near zero', () => {
+    // lon=90 from camera at lon=0, same lat → cos_c ≈ 0
+    const result = needsBackfaceCullCpu(GLOBE, 90, 0, 0, 0)
+    expect(Math.abs(result)).toBeLessThan(0.01)
+  })
+
+  it('mercator (flat): any point → always +1 (no cull)', () => {
+    // Flat projections return +1 so the discard is inert there.
+    expect(needsBackfaceCullCpu(MERCATOR, 0, 0, 0, 0)).toBeCloseTo(1, 5)
+    expect(needsBackfaceCullCpu(MERCATOR, 180, 45, 0, 0)).toBeCloseTo(1, 5)
+    expect(needsBackfaceCullCpu(MERCATOR, -90, -60, 20, 10)).toBeCloseTo(1, 5)
+  })
+
+  it('orthographic (disc): back hemisphere → negative, front → positive', () => {
+    // Ortho uses strict cos_c cull — same semantics as globe.
+    expect(needsBackfaceCullCpu(ORTHO, 0, 0, 0, 0)).toBeGreaterThan(0)   // face-on
+    expect(needsBackfaceCullCpu(ORTHO, 180, 0, 0, 0)).toBeLessThan(0)    // antipode
+  })
 })

@@ -27,7 +27,7 @@ import { emitModule } from '@xgis/shader-dsl'
 import { ECEF_CONSTS, ECEF_FUNCS, lonlatToEcef } from './ecef'
 import { RASTER_COLOR_FUNCS, rasterColorAdjust } from './raster-color'
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
-import { project, flat_rel, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
+import { project, flat_rel, needs_backface_cull, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
 import { PI } from './consts'
 
 const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
@@ -108,6 +108,10 @@ const vs = fn('vs_tile', { vid: builtin('vertex_index', u32T) }, (p) => {
   const camEcefVec = vec3(camEcef.x, camEcef.y, camEcef.z)
   const ecefRtc = ecef.sub(camEcefVec)
 
+  // lon/lat in degrees — needed for both projection branches and for the
+  // hemisphere cull below, so hoisted outside the condExpr.
+  const latDeg = degrees(latRad)
+
   // Display projection (projection-display-layer-restore): flat Mercator
   // (proj_params.x < 0.5) reprojects the reconstructed lon/lat onto the 2D
   // plane and feeds the flat Mercator-metre MVP; 3D / globe keeps the ECEF
@@ -118,7 +122,6 @@ const vs = fn('vs_tile', { vid: builtin('vertex_index', u32T) }, (p) => {
   // raster.
   const clip = condExpr([
     [projParams.x.lt(0.5), () => {
-      const latDeg = degrees(latRad)
       const p2d = project(lon, latDeg, projParams)
       const rel2d = p2d.sub(vec2(camEcef.x, camEcef.y))
       return transformMat4(U.field.mvp, vec4(rel2d.x, rel2d.y, 0, 1))
@@ -128,16 +131,22 @@ const vs = fn('vs_tile', { vid: builtin('vertex_index', u32T) }, (p) => {
       // project_geom (world-copy aware; tileRefLon = tile-centre lon from the
       // tile bounds) minus the camera's projected centre (in-shader from
       // proj_params.y/z = clon/clat). Same flat MVP; cam_ecef_center unused here.
-      const latDeg = degrees(latRad)
       const tileRefLon = bounds.x.add(bounds.z).mul(0.5)
       const relG = flat_rel(lon, latDeg, projParams, tileRefLon)
       return transformMat4(U.field.mvp, vec4(relG.x, relG.y, 0, 1))
     }],
   ], () => transformMat4(U.field.mvp, vec4(ecefRtc, 1)))
+
+  // Back-hemisphere cull for globe/sphere projections (#595): on globe (projType
+  // ≥ 6.5) needs_backface_cull returns the cos_c value (negative = back-facing);
+  // the FS discards fragments where vis < 0. Flat projections return +1 so the
+  // discard is inert there (no regression).
+  const vis = needs_backface_cull(lon, latDeg, projParams)
+
   return VsOut.construct({
     pos: apply_log_depth(clip, projParams.w),
     uv: vec2(uu, vv),
-    vis: f32(1),
+    vis,
     view_w: clip.w,
   })
 }, { stage: 'vertex' })

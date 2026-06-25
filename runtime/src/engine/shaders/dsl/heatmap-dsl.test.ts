@@ -14,6 +14,18 @@ describe('heatmap accum shader — DSL emission', () => {
     expect(w).toContain('fn project')
     expect(w).toContain('fn flat_rel')
   })
+  // ── #595: back-hemisphere heatmap cull ──
+  it('vs_heatmap calls needs_backface_cull + select to discard back-facing splats (#595)', () => {
+    // needs_backface_cull must be DEFINED and CALLED in the VS so back-facing
+    // splat quads are collapsed to the degenerate position (w=0, discarded).
+    expect(w).toContain('fn needs_backface_cull(')
+    const vsBody = w.slice(w.indexOf('@vertex\nfn vs_heatmap'))
+    const vsEnd = vsBody.indexOf('\n@fragment')
+    const vsOnly = vsEnd > 0 ? vsBody.slice(0, vsEnd) : vsBody
+    expect(vsOnly).toContain('needs_backface_cull(')
+    // select(cond, ifTrue, ifFalse) collapses back-facing quad to vec4(0,0,0,0)
+    expect(vsOnly).toContain('select(')
+  })
   it('uniform + feat_data storage binding', () => {
     expect(w).toContain('@group(0) @binding(0) var<uniform> u: Uniforms;')
     expect(w).toContain('@group(0) @binding(1) var<storage, read> feat_data: array<f32>;')
