@@ -3,14 +3,15 @@
 import type { GPUContext } from '../gpu/gpu'
 import type { Camera } from '../projection/camera'
 import { visibleTilesFrustum, tileUrl, loadImageTexture } from '../../data/tile-select'
-import { mercator as mercatorProj } from '../projection/projection'
+import { mercator as mercatorProj, mercatorYToLat } from '../projection/projection'
 import { lonLatToECEF, type ECEF } from '../projection/ecef'
 import { emitRasterWgsl } from '../shaders/dsl'
 import type { RhiDevice, RhiRenderPass, RhiTexture } from './rhi/rhi'
 import { RasterDraper } from './material/raster-material'
-import { BLEND_ALPHA, STENCIL_DISABLED } from '../gpu/gpu-shared'
+import { BLEND_ALPHA, STENCIL_DISABLED, routeToSphereSelector, enumerateWorldCopies } from '../gpu/gpu-shared'
 import { isPickEnabled, getSampleCount } from '../gpu/gpu'
 import { DEBUG_OVERDRAW } from '../debug-flags'
+import { globeVisibleTiles } from '../projection/globe'
 
 /** Camera RTC anchor for the raster VS on the globe / 3D surfaces.
  *
@@ -325,20 +326,40 @@ export class RasterRenderer {
       this.lastZoom = currentZ
     }
 
-    // Quadtree-based frustum selection works at every pitch, including 0.
-    // The legacy AABB path (`visibleTiles`) diverged over time and broke
-    // at low pitch for the VT pipeline, so we unify on the frustum path.
-    //
-    // Pass projection name through so the selector's world-copy gate
-    // (worldCopiesFor()) picks single-world for non-Mercator. Hardcoding
-    // mercatorProj here previously caused 5× raster tile fan-out around
-    // the orthographic disk because every copy projected to a different
-    // wrong hemisphere. visibleTilesFrustum only reads `.name` on the
-    // projection arg, so a `{ name }` shim is sufficient.
-    const selectorProj = projType === 0
-      ? mercatorProj
-      : { name: 'non-mercator', forward: mercatorProj.forward, inverse: mercatorProj.inverse }
-    const tiles = visibleTilesFrustum(camera, selectorProj, currentZ, canvasWidth, canvasHeight, 0, dpr)
+    // Tile selection: mirror the vector path (tile-selection-cache.ts ~594).
+    // Globe / sphere projTypes (routeToSphereSelector) use globeVisibleTiles,
+    // which culls by sphere visibility. The flat frustum selector is blind to
+    // the sphere cap — it produces a 2D rect cull that misses cap-edge tiles,
+    // causing blank coverage gaps on the globe (#596).
+    const R = 6378137
+    const centerLon = camera.centerX / R * (180 / Math.PI)
+    const centerLat = mercatorYToLat(camera.centerY)
+    const cssW = canvasWidth / dpr
+    const cssH = canvasHeight / dpr
+    let tiles: ReturnType<typeof visibleTilesFrustum>
+    if (routeToSphereSelector(projType, camera.globeMode)) {
+      const globeTiles = globeVisibleTiles(
+        centerLon, centerLat, camera.zoom, currentZ, cssW, cssH,
+        camera.pitch ?? 0, camera.bearing ?? 0,
+      )
+      if (enumerateWorldCopies(projType, camera.zoom)) {
+        tiles = []
+        for (const wc of [-2, -1, 0, 1, 2]) {
+          for (const t of globeTiles) {
+            tiles.push({ z: t.z, x: t.x, y: t.y, ox: t.x + wc * (1 << t.z) })
+          }
+        }
+      } else {
+        tiles = globeTiles.map(t => ({ z: t.z, x: t.x, y: t.y, ox: t.ox }))
+      }
+    } else {
+      // Flat projections: pass projection name so the selector's world-copy
+      // gate (worldCopiesFor()) picks single-world for non-Mercator.
+      const selectorProj = projType === 0
+        ? mercatorProj
+        : { name: 'non-mercator', forward: mercatorProj.forward, inverse: mercatorProj.inverse }
+      tiles = visibleTilesFrustum(camera, selectorProj, currentZ, canvasWidth, canvasHeight, 0, dpr)
+    }
 
     // Sort: lower zoom first (draw background), higher zoom on top (sharp near tiles)
     tiles.sort((a, b) => {
