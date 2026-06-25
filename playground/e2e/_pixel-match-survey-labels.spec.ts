@@ -223,7 +223,11 @@ for (const view of VIEWS) {
         const w = window as unknown as { __xgisReady?: boolean; __mlReady?: boolean }
         return w.__xgisReady === true && w.__mlReady === true
       },
-      null, { timeout: 90_000 },
+      // #600/z22 diag: __xgisReady is decoupled from tile load + over-zoom uses
+      // parent fallback (no render hang); a fresh compare.html cold-start (GPU
+      // init + worker/glyph/sprite atlas) at extreme cameras (e.g. z22) can
+      // exceed 90s. Bumped to 150s (within the 180s per-test budget).
+      null, { timeout: 150_000 },
     )
     // Intentionally NO hideSymbolLayers — that's the whole point of
     // this spec. Both sides keep labels + icons visible so the diff
