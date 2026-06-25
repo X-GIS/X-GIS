@@ -820,9 +820,14 @@ export class PointRenderer {
     const DEG2RAD = Math.PI / 180
     const R_MERC = 6378137 // web-Mercator sphere radius (matches the tiler packer)
 
-    // ECEF DSFUN: one world copy (absolute ECEF, no Mercator world-wrapping).
     const STRIDE = 24
-    const COPIES = [0]
+    // Flat Mercator (projType 0) fans out to all visible world copies so
+    // GeoJSON points appear in every repeated world at low zoom — matching
+    // the label and fill behaviour.  All other projection paths use a single
+    // absolute world (ECEF globe / hemisphere projections have no world-wrap).
+    const COPIES: readonly number[] = projType === 0
+      ? camera.getVisibleWorldCopies(canvasWidth, canvasHeight, dpr)
+      : [0]
 
     // View-forward projection onto the ground plane, used to sort
     // translucent instances back-to-front. Pitch=0 gives a zero vector
@@ -880,7 +885,12 @@ export class PointRenderer {
           expandedFeat[dstOff + 17] = lon; expandedFeat[dstOff + 18] = lat
           expandedFeat[dstOff + 19] = layer.featData[srcOff + 19] // shape_id
           // Absolute Mercator DSFUN (20-23) — precise flat-Mercator position.
-          const mx = lon * DEG2RAD * R_MERC
+          // For world copies (projType 0) apply a per-copy longitude offset
+          // of wo*360° in Mercator metres so the point appears in every visible
+          // world repeat.  The ECEF/abs_lon branches above are copy-independent
+          // (absolute 3D position) and are left unchanged.
+          const wo = COPIES[w]
+          const mx = lon * DEG2RAD * R_MERC + wo * 360 * DEG2RAD * R_MERC
           const myClamp = Math.max(-85.051129, Math.min(85.051129, lat))
           const my = Math.log(Math.tan(Math.PI / 4 + myClamp * DEG2RAD / 2)) * R_MERC
           const mxH = Math.fround(mx); const myH = Math.fround(my)
