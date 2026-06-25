@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@mapbox/vector-tile": "^2.0.4",
+    "@xgis/shader-dsl": "workspace:*",
     "@xgis/shared": "workspace:*",
     "pbf": "^4.0.1"
   },

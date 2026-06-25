@@ -26,65 +26,20 @@
 // `array<T,N>` spacing. Reachable only if a non-identity intrinsic spelling or a
 // multisampled texture type flows through here (neither does today).
 
-import type { Expr, ShaderType, NodeLike } from './node-types'
+import type { NodeLike } from './node-types'
+import { emitExpr } from '@xgis/shader-dsl'
 
-// ── emitExpr copy ──
-//
-// A near-copy of the package `wgsl.ts:emitExpr` (plus the compiler-local
-// `rawString` op; see the drift note above). The matchExpr case throws —
-// the runtime's pre-emit lowerModule pass owns matchExpr-to-Stmt.switch
-// hoisting; if a matchExpr reaches THIS path, the caller forgot to wrap the
-// Node in a fn body first.
-
-function f32Lit(v: number): string {
-  if (Number.isInteger(v)) return `${v.toFixed(1)}`
-  return `${v}`
-}
-
-function wgslType(t: ShaderType): string {
-  switch (t.kind) {
-    case 'scalar': return t.scalar
-    case 'vec': return `vec${t.n}<${t.elem}>`
-    case 'mat': return `mat${t.n}x${t.n}<${t.elem}>`
-    case 'struct': return t.name
-    case 'array': return t.size !== undefined ? `array<${wgslType(t.elem)},${t.size}>` : `array<${wgslType(t.elem)}>`
-    case 'texture': return `texture_${t.dim}<${t.elem}>`
-    case 'sampler': return 'sampler'
-    case 'void': return 'void'
-  }
-}
-
-function lit(value: number | boolean, t: ShaderType): string {
-  if (typeof value === 'boolean') return value ? 'true' : 'false'
-  if (t.kind === 'scalar' && t.scalar === 'u32') return `${value}u`
-  if (t.kind === 'scalar' && t.scalar === 'i32') return `${value}`
-  return f32Lit(value)
-}
-
-function emit(e: Expr): string {
-  switch (e.op) {
-    case 'lit': return lit(e.value, e.type)
-    case 'constref':
-    case 'param':
-    case 'varref': return e.name
-    case 'binop': return `(${emit(e.a)} ${e.bop} ${emit(e.b)})`
-    case 'unop': return `(-${emit(e.a)})`
-    case 'compare': return `(${emit(e.a)} ${e.cop} ${emit(e.b)})`
-    case 'logical': return `(${emit(e.a)} ${e.lop} ${emit(e.b)})`
-    case 'call': return `${e.fn}(${e.args.map(emit).join(', ')})`
-    case 'member': return `${emit(e.base)}.${e.field}`
-    case 'construct': return `${wgslType(e.type)}(${e.args.map(emit).join(', ')})`
-    case 'select': return `select(${emit(e.ifFalse)}, ${emit(e.ifTrue)}, ${emit(e.cond)})`
-    case 'index': return `${emit(e.base)}[${emit(e.idx)}]`
-    case 'matchExpr': throw new Error('compiler/node-to-wgsl: matchExpr is fn-body-only — wrap the Node in an fn before stringifying')
-    case 'rawString': return e.value
-  }
-}
+// `nodeToWgslString` lowers a compiler `NodeLike` to its WGSL string by DELEGATING
+// to the package emitter (`emitExpr` from `@xgis/shader-dsl` — the single neutral
+// tree-walk + the WGSL backend's spelling). The only compiler-local op is
+// `rawString` (a pre-built WGSL string), unwrapped verbatim here; everything else is
+// the package IR `Expr`. A `matchExpr` that reaches the emitter throws (the pre-emit
+// `lowerModule` pass should have hoisted it into a `Stmt.switch` first).
 
 /**
  * Convert a DSL `Node`-shaped value (`{ expr: Expr }`) to its WGSL string
  * representation. Emit-shape equality oracle for compiler + runtime tests.
  */
 export function nodeToWgslString(node: NodeLike): string {
-  return emit(node.expr)
+  return node.expr.op === 'rawString' ? node.expr.value : emitExpr(node.expr)
 }
