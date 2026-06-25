@@ -74,7 +74,6 @@ describe('Phase-2 raster shader — DSL emission (ECEF VS, PR 2d.3)', () => {
   it('fragment samples the tile + rim fade + log-depth', () => {
     expect(noPick).toContain('@fragment\nfn fs_tile(input: VsOut) -> RasterFragmentOutput')
     expect(noPick).toContain('textureSample(tex, tex_sampler, input.uv)')
-    expect(noPick).toContain('smoothstep(0.0, 0.02, input.vis)')
     expect(noPick).toContain('compute_log_frag_depth(input.view_w')
   })
   it('pick variant toggles the pick field + write', () => {
@@ -91,21 +90,42 @@ describe('Phase-2 raster shader — DSL emission (ECEF VS, PR 2d.3)', () => {
     }
   })
 
-  // ── #595: back-hemisphere raster cull ──
-  it('vs_tile threads needs_backface_cull through vis (#595)', () => {
-    // needs_backface_cull must be DEFINED (merged from the projection module)
-    // and CALLED in the VS body so back-facing raster tile vertices get vis<0.
-    expect(noPick).toContain('fn needs_backface_cull(')
+  // ── #595: back-hemisphere raster cull — per-fragment recompute ──
+  it('VsOut carries abs_lon + abs_merc_y varyings for per-fragment cos_c (#595)', () => {
+    // The VS must pass lon (degrees) and mercYAbs (radians) to the FS so the
+    // fragment can recompute cos_c from them rather than interpolating vis
+    // across the tile — the interpolated value is a chord not an arc.
+    expect(noPick).toContain('abs_lon: f32')
+    expect(noPick).toContain('abs_merc_y: f32')
+  })
+  it('vs_tile does NOT call needs_backface_cull (cull moved to FS, #595)', () => {
+    // The per-vertex path is the bug — VS must NOT compute vis via
+    // needs_backface_cull; the FS recomputes it per-fragment.
     const vsBody = noPick.slice(noPick.indexOf('@vertex\nfn vs_tile'))
     const vsEnd = vsBody.indexOf('\n@fragment')
     const vsOnly = vsEnd > 0 ? vsBody.slice(0, vsEnd) : vsBody
-    expect(vsOnly).toContain('needs_backface_cull(')
+    expect(vsOnly).not.toContain('needs_backface_cull(')
   })
-  it('fs_tile discards when vis < 0 (hemisphere-cull gate for #595)', () => {
-    // The FS already had the vis < 0 discard; verify it is still present.
+  it('fs_tile recomputes cos_c per-fragment via needs_backface_cull + discards < 0 (#595)', () => {
+    // The FS must call needs_backface_cull with the per-fragment lon/lat
+    // (recovered from the abs_lon / abs_merc_y varyings) and discard when < 0.
+    expect(noPick).toContain('fn needs_backface_cull(')
     const fsBody = noPick.slice(noPick.indexOf('@fragment\nfn fs_tile'))
-    expect(fsBody).toContain('input.vis < 0.0')
+    expect(fsBody).toContain('needs_backface_cull(')
     expect(fsBody).toContain('discard')
+    // Verify the FS recovers latitude from abs_merc_y via atan/exp (same
+    // formula the VS uses to reconstruct latRad from the raster-unit mercYAbs).
+    expect(fsBody).toContain('input.abs_merc_y')
+    expect(fsBody).toContain('input.abs_lon')
+  })
+  it('fs_tile uses rim_alpha (per-fragment) not smoothstep(0,0.02,vis) (#595)', () => {
+    // After the fix the rim fade is per-fragment via rim_alpha() so it tracks
+    // the true cos_c arc; the old smoothstep-on-interpolated-vis is gone.
+    expect(noPick).toContain('fn rim_alpha(')
+    const fsBody = noPick.slice(noPick.indexOf('@fragment\nfn fs_tile'))
+    expect(fsBody).toContain('rim_alpha(')
+    // The old interpolated-vis rim path must not survive.
+    expect(fsBody).not.toContain('smoothstep(0.0, 0.02, input.vis)')
   })
 })
 
@@ -150,5 +170,46 @@ describe('back-face predicate — analytic (CPU mirror, #595)', () => {
     // Ortho uses strict cos_c cull — same semantics as globe.
     expect(needsBackfaceCullCpu(ORTHO, 0, 0, 0, 0)).toBeGreaterThan(0)   // face-on
     expect(needsBackfaceCullCpu(ORTHO, 180, 0, 0, 0)).toBeLessThan(0)    // antipode
+  })
+
+  // ── DISCRIMINATING counterexample: per-vertex interpolation leak (#595 v2) ──
+  //
+  // Tile z=2, lon -180..-90, lat 0..66.51°N; camera clon=0, clat=30, globe (7).
+  // The 4 tile corners have cos_c: SW(−180,0)=−0.499, SE(−90,0)=+0.500,
+  // NW(−180,66.51)=−0.095, NE(−90,66.51)=+0.750.
+  // Bilinear interpolation at the interior point lon=−137.25, lat=41.57
+  // (uu=0.375, vv=0.375 within the tile) gives ≈+0.0029 (positive → NOT culled).
+  // But the true per-fragment cos_c at that point is ≈−0.144 (negative → CULL).
+  // This proves the per-vertex interpolation LEAKS back-hemisphere raster.
+  // The per-fragment fix catches it; the per-vertex approach cannot.
+  it('DISCRIMINATING counterexample: interior fragment lon=−137.25 lat=41.57 camera clon=0 clat=30 globe → per-fragment cos_c < 0 (must cull), per-vertex bilinear ≈ +0.0029 (would NOT cull)', () => {
+    // Per-fragment result (the fix): must be negative → discard.
+    const perFragment = needsBackfaceCullCpu(GLOBE, -137.25, 41.57, 0, 30)
+    expect(perFragment).toBeLessThan(0)
+    // Verify the value is approximately −0.144 as computed analytically.
+    expect(perFragment).toBeCloseTo(-0.144, 2)
+
+    // Per-vertex bilinear interpolation (the bug): compute cos_c at the 4
+    // tile corners and bilinearly interpolate to the interior point.
+    const sw = needsBackfaceCullCpu(GLOBE, -180,    0,     0, 30)  // uu=0, vv=1 (south)
+    const se = needsBackfaceCullCpu(GLOBE, -90,     0,     0, 30)  // uu=1, vv=1
+    const nw = needsBackfaceCullCpu(GLOBE, -180,    66.51, 0, 30)  // uu=0, vv=0 (north)
+    const ne = needsBackfaceCullCpu(GLOBE, -90,     66.51, 0, 30)  // uu=1, vv=0
+
+    // uu = (−137.25 − (−180)) / (−90 − (−180)) = 42.75/90 = 0.475
+    // vv = 0 → north, 1 → south. lat=41.57 in [0..66.51] → vv = (66.51−41.57)/66.51 = 0.375
+    const uu = ((-137.25) - (-180)) / ((-90) - (-180))  // 0.475
+    const vv = (66.51 - 41.57) / 66.51                  // 0.375 (north=0, south=1)
+    const bilinear = nw * (1 - uu) * (1 - vv)
+                   + ne * uu       * (1 - vv)
+                   + sw * (1 - uu) * vv
+                   + se * uu       * vv
+    // The bilinear result is positive (the bug: would NOT discard).
+    expect(bilinear).toBeGreaterThan(0)
+
+    // The gap between them proves the interpolation error:
+    // per-fragment says CULL; per-vertex says KEEP → limb leak confirmed.
+    expect(perFragment).toBeLessThan(0)
+    expect(bilinear).toBeGreaterThan(0)
   })
 })
