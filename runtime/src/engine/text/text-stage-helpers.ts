@@ -273,33 +273,6 @@ export function verticalLayoutForTesting(
   return mlVerticalLayout(vAlign, lineCount, lineHeightPx, sizePx)
 }
 
-/** Compute the uniform per-label baseline shift that centres the ink
- *  block on the anchor point for vAlign === 0.5 (center anchor).
- *
- *  The renderer places each glyph's ink quad at (text-renderer.ts:290):
- *    y0 = lineY - bearingY*sc - (slotSize - height)*sc/2
- *  so the ink center relative to the anchor is:
- *    inkCenter = lineY + descent*sc - slotSize*sc/2
- *  For inkCenter === 0 (anchor):
- *    lineY = slotSize*sc/2 - descent*sc
- *  The dominant glyph (max ascent) determines the ink-block top and
- *  supplies slotSize. The glyph with max descent determines the bottom.
- *
- *  Parameters are pre-computed from the glyph loop to avoid a second
- *  allocation — callers iterate glyphs once and pass the results here.
- *  `shapingBaselineOff` = (SHAPING_DEFAULT_OFFSET * sizePx) / ONE_EM,
- *  i.e. the base offset already baked into `vlay.baselineY` that must
- *  be cancelled before applying the ink-centering shift.
- *
- *  Exported for unit testing. Production use: text-stage.ts. */
-export function computeCentreShift(
-  shapingBaselineOff: number,
-  maxSlotHalf: number,
-  maxDesc: number,
-): number {
-  return -shapingBaselineOff + maxSlotHalf - maxDesc
-}
-
 // Slot must fit (rasterFontSize + 2*sdfRadius). PBF arrives at 24 px
 // native (MapLibre's ONE_EM). Setting rasterFontSize to match means
 // PBF→atlas is a 1:1 byte copy with no bilinear resample — every

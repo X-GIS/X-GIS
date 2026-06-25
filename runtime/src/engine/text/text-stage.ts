@@ -40,7 +40,6 @@ import {
   layoutCacheKey, textKeyFor, layoutCacheEntryValid,
   mlVerticalLayout, composeFontKey,
   ONE_EM, SHAPING_DEFAULT_OFFSET, CJK_FALLBACK_CHAIN,
-  computeCentreShift,
   type LabelAnchor,
 } from './text-stage-helpers'
 import type {
@@ -75,7 +74,7 @@ export { wrapForTesting } from './text-wrap'
 // bilingual-label-placement-repro.test.ts).
 export {
   layoutCacheEntryValid, mlVerticalLayout, verticalLayoutForTesting,
-  composeFontKey, computeCentreShift,
+  composeFontKey,
 } from './text-stage-helpers'
 
 // Slot must fit (rasterFontSize + 2*sdfRadius). PBF arrives at 24 px
@@ -1066,31 +1065,20 @@ export class TextStage {
           // the block's ink-band half-offset (max ascent/descent over the
           // label). Per-line centring (iter-345) compressed 2-line spacing
           // into an overlap; a uniform shift preserves it.
-          // Compute the uniform baseline shift that centres the ink block
-          // on the anchor point for vAlign=0.5 (issue #608). The renderer
-          // places ink at y0 = lineY - bearingY*sc - (slotSize-height)*sc/2,
-          // so inkCenter = lineY + descent*sc - slotSize*sc/2. For
-          // inkCenter=0: lineY = slotSize*sc/2 - descent*sc. The old
-          // formula (maxAsc-maxDesc)/2 lacked the slotSize/2 term, placing
-          // labels too high by (slotSize-height)*sc/2. See computeCentreShift
-          // in text-stage-helpers.ts for the exported test-seam version.
           const shapingBaselineOff = (SHAPING_DEFAULT_OFFSET * sizePx) / ONE_EM
           let centreShift = 0
           if (vAlign === 0.5) {
-            let maxDesc = 0, maxSlotHalf = 0, maxAsc = 0
+            let maxAsc = 0, maxDesc = 0
             for (let gi = 0; gi < glyphs.length; gi++) {
               const g = glyphs[gi]!
               if (g.height <= 0) continue  // skip blanks (junk metrics)
               const sc = sizePx / (g.rasterFontSize ?? this.opts.rasterFontSize)
               const asc = g.bearingY * sc
               const desc = (g.height - g.bearingY) * sc
-              if (asc > maxAsc) {
-                maxAsc = asc
-                maxSlotHalf = g.slot.size * sc / 2
-              }
+              if (asc > maxAsc) maxAsc = asc
               if (desc > maxDesc) maxDesc = desc
             }
-            centreShift = computeCentreShift(shapingBaselineOff, maxSlotHalf, maxDesc)
+            centreShift = -shapingBaselineOff + (maxAsc - maxDesc) / 2
           }
           for (let li = 0; li < lines.length; li++) {
             const ln = lines[li]!
