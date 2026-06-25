@@ -687,3 +687,39 @@ export function lchToLab(L: number, C: number, h: number): [number, number, numb
   const hr = h * Math.PI / 180
   return [L, C * Math.cos(hr), C * Math.sin(hr)]
 }
+
+/**
+ * Resolve a colour spec (CSS named colour or `#`-hex with optional alpha) to a
+ * normalised RGBA tuple in [0,1]. Named colours route through `resolveColor`;
+ * non-hex / malformed input fails closed to opaque black `[0,0,0,1]` so a bad
+ * value can't propagate `NaN` into a GPU colour branch. The canonical resolver
+ * the compute-kernel emitter (codegen/compute-gen.ts) uses for arm/default
+ * colours — colour resolution is `tokens/`'s job (charter §g), not codegen's.
+ */
+export function resolveColorToRgba(hex: string): [number, number, number, number] {
+  const resolved = hex.startsWith('#') ? hex : (resolveColor(hex) ?? hex)
+  let r = 0, g = 0, b = 0, a = 1
+  if (!/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(resolved)) {
+    return [0, 0, 0, 1]
+  }
+  if (resolved.length === 4) {
+    r = parseInt(resolved[1]! + resolved[1]!, 16) / 255
+    g = parseInt(resolved[2]! + resolved[2]!, 16) / 255
+    b = parseInt(resolved[3]! + resolved[3]!, 16) / 255
+  } else if (resolved.length === 5) {
+    r = parseInt(resolved[1]! + resolved[1]!, 16) / 255
+    g = parseInt(resolved[2]! + resolved[2]!, 16) / 255
+    b = parseInt(resolved[3]! + resolved[3]!, 16) / 255
+    a = parseInt(resolved[4]! + resolved[4]!, 16) / 255
+  } else if (resolved.length === 7) {
+    r = parseInt(resolved.slice(1, 3), 16) / 255
+    g = parseInt(resolved.slice(3, 5), 16) / 255
+    b = parseInt(resolved.slice(5, 7), 16) / 255
+  } else if (resolved.length === 9) {
+    r = parseInt(resolved.slice(1, 3), 16) / 255
+    g = parseInt(resolved.slice(3, 5), 16) / 255
+    b = parseInt(resolved.slice(5, 7), 16) / 255
+    a = parseInt(resolved.slice(7, 9), 16) / 255
+  }
+  return [r, g, b, a]
+}
