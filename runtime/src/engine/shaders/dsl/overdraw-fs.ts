@@ -2,7 +2,7 @@
 //
 // Single fragment entry that every debug-overdraw pipeline appends to
 // its vertex stage. Each fragment writes 1.0 to the red channel; the
-// compose pass (shader-dsl/shaders/overdraw-compose.ts) divides by an
+// compose pass (runtime/src/engine/shaders/dsl/overdraw-compose.ts) divides by an
 // exposure constant before applying the colormap.
 //
 // Previously inlined in runtime/src/engine/debug-flags.ts as the

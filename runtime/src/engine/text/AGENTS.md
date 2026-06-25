@@ -52,7 +52,7 @@ Run with `vitest` (no GPU — all text-layer tests are CPU/pure). Relevant test 
 
 ### Internal
 - `engine/gpu` (device, `FrameArena`, uniform ring)
-- `engine/shader-dsl` (`emitTextWgsl`, `vertexField`, `buildFormat`)
+- `engine/shaders/dsl` (`emitTextWgsl`, `vertexField`, `buildFormat`)
 - `engine/render/vertex-buffer-layout` (`toVertexBufferLayout`)
 - `engine/__profile__` (alloc counter, perf marks — never ship-critical)
 - `@xgis/compiler` (`LabelDef`, `TextValue`, `evaluate`, `formatValue`, `makeEvalProps`, `vertexField`, `buildFormat`)

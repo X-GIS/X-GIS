@@ -42,7 +42,7 @@ export const OVERDRAW_ACCUM_FORMAT: GPUTextureFormat = 'r16float'
 /** Constant fragment-shader output for additive accumulation. Every
  *  fragment writes 1.0 to the red channel; the compose pass divides
  *  by an exposure constant before applying the colormap. WGSL emitted
- *  from the polygon DSL — see shader-dsl/shaders/overdraw-fs.ts. */
+ *  from the polygon DSL — see runtime/src/engine/shaders/dsl/overdraw-fs.ts. */
 export const OVERDRAW_FS_SOURCE = emitOverdrawFsWgsl()
 
 /** Blend state — pure additive on the red channel. Alpha is also

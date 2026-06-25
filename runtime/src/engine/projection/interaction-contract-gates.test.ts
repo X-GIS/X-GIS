@@ -53,7 +53,7 @@
 //        e2e harness, not a CPU unit assertion.
 //
 //   G7 — extruded-globe position (#4) is ALREADY authored in PR-B (#198,
-//        shader-dsl/shaders/polygon-dsl.test.ts) — not duplicated here.
+//        runtime/src/engine/shaders/dsl/polygon-dsl.test.ts) — not duplicated here.
 // ───────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect } from 'vitest'

@@ -23,7 +23,7 @@
 // the old DSFUN _pad0 slot — no layout growth).
 
 // The log-depth WGSL helpers (apply_log_depth + compute_log_frag_depth) are EMITTED from the shader DSL
-// (`shader-dsl/log-depth.ts`); the CPU helpers below (computeLogDepthFc / simulateLogDepthZ) stay the
+// (`runtime/src/engine/shaders/dsl/log-depth.ts`); the CPU helpers below (computeLogDepthFc / simulateLogDepthZ) stay the
 // canonical CPU reference, pinned against the emitted math by log-depth.test.ts. (The dead
 // `WGSL_LOG_DEPTH_FNS` re-export was removed — it had zero consumers; tests deep-import LOG_DEPTH_WGSL_FNS.)
 

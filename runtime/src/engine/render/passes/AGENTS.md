@@ -52,7 +52,7 @@ Contains the fixed linear render-pass chain that structures every GPU frame in X
 - `../../render-loop` — `RenderLoopHost`: typed Pick of the map exposing renderers, camera, and GPU context
 - `../../debug-flags` — `DEBUG_OVERDRAW` build-time constant
 - `../../projection/projections-table` — `worldBandForProjType`, `isGlobeProj` (projection classification)
-- `../../shader-dsl/shaders/cpu-projections` — `projMercatorCpu` (clamped CPU Mercator mirror for label anchors)
+- `runtime/src/engine/shaders/dsl/cpu-projections` — `projMercatorCpu` (clamped CPU Mercator mirror for label anchors)
 - `../../render-loop-helpers` — `makeLabelProjectors`, `resolveLabelEffectiveDef`
 - `../../text/text-stage`, `../../sprite/icon-stage` — glyph/SDF and icon atlas flush
 - `@xgis/compiler` — `evaluate`, `makeEvalProps`, `resolveColor` (per-feature expression evaluation)

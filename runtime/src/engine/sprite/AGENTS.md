@@ -44,7 +44,7 @@ Sprite/icon rendering — the icon counterpart to the SDF text pipeline. Impleme
 
 ### Internal
 - `engine/safety` — `assertSafeRemoteUrl`, `readBodyCapped` (SSRF + size-bomb guards)
-- `engine/shader-dsl` — `emitIconWgsl()` (icon WGSL shader emitted from the DSL)
+- `engine/shaders/dsl` — `emitIconWgsl()` (icon WGSL shader emitted from the DSL)
 - `engine/render/vertex-buffer-layout` — `toVertexBufferLayout()` (converts `VertexFormat` to `GPUVertexBufferLayout`)
 - `@xgis/compiler` — `buildFormat`, `vertexField` (vertex format DSL)
 - Shares conventions with `engine/text` (`TextStage` lifecycle, SDF AA, paired-symbol collision)

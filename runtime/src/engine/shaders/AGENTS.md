@@ -4,19 +4,19 @@
 # shaders
 
 ## Purpose
-Thin re-export layer that surfaces DSL-emitted WGSL snippets and CPU-side GPU math helpers under stable names. All three files delegate their WGSL strings to `engine/shader-dsl` — the actual WGSL is generated from the shader-DSL IR graphs (`shader-dsl/projections.ts`, `shader-dsl/log-depth.ts`, `shader-dsl/sdf.ts`). Renderers in `engine/render/*` string-concatenate these exports into their inline pipeline shaders at build time.
+Thin re-export layer that surfaces DSL-emitted WGSL snippets and CPU-side GPU math helpers under stable names. All three files delegate their WGSL strings to the DSL graphs in `./dsl/` — the actual WGSL is generated from `@xgis/shader-dsl` IR graphs (`dsl/projections.ts`, `dsl/log-depth.ts`, `dsl/sdf.ts`). Renderers in `engine/render/*` string-concatenate these exports into their inline pipeline shaders at build time.
 
 ## Key Files
 | File | Description |
 |------|-------------|
-| `projection.ts` | Re-exports `WGSL_PROJECTION_CONSTS` / `WGSL_PROJECTION_FNS` from `shader-dsl`. WGSL is DSL-emitted (Phase 0, US-P0-4b) from `shader-dsl/projections.ts`, eliminating the former hand-written ~310-line template. Encodes projTypes 0–7 (mercator/equirect/natural_earth/ortho/azimuthal/stereo/oblique/globe). `project()`, `project_geom()`, `needs_backface_cull()`, `rim_alpha()` all accept `proj_params: vec4<f32>`. |
+| `projection.ts` | Re-exports `WGSL_PROJECTION_CONSTS` / `WGSL_PROJECTION_FNS` from `shader-dsl`. WGSL is DSL-emitted (Phase 0, US-P0-4b) from `runtime/src/engine/shaders/dsl/projections.ts`, eliminating the former hand-written ~310-line template. Encodes projTypes 0–7 (mercator/equirect/natural_earth/ortho/azimuthal/stereo/oblique/globe). `project()`, `project_geom()`, `needs_backface_cull()`, `rim_alpha()` all accept `proj_params: vec4<f32>`. |
 | `log-depth.ts` | Re-exports `WGSL_LOG_DEPTH_FNS` from `shader-dsl` plus the CPU helpers `computeLogDepthFc(far)` and `simulateLogDepthZ(viewW, far)`. Log-depth vertex formula: `z_clip = log2(w+1) * fc * w`; fragment overrides `@builtin(frag_depth)`. `fc` is packed into the uniform ring once per frame (reuses former DSFUN `_pad0` slot). |
 | `sdf.ts` | Re-exports six named DSL-emitted SDF snippets (`WGSL_DIST_TO_SEGMENT`, `WGSL_DIST_TO_QUADRATIC`, `WGSL_DIST_TO_CUBIC`, `WGSL_WINDING_LINE`, `WGSL_SDF_SHAPE`, `WGSL_SHAPE_STRUCTS`) plus the convenience aggregate `WGSL_SDF_ALL`. Consumed by `line-renderer-shaders.ts` for shield / shape rendering. |
 
 ## For AI Agents
 
 ### Working In This Directory
-- **Do not edit WGSL here.** These files are re-export shims. Projection math lives in `shader-dsl/projections.ts` (regenerates both the WGSL and the cpu-f64 lowering `shader-dsl/cpu-projections.ts`). Log-depth WGSL lives in `shader-dsl/log-depth.ts`. SDF WGSL lives in `shader-dsl/sdf.ts`.
+- **Do not edit WGSL here.** These files are re-export shims. Projection math lives in `dsl/projections.ts` (regenerates both the WGSL and the cpu-f64 lowering `dsl/cpu-projections.ts`). Log-depth WGSL lives in `dsl/log-depth.ts`. SDF WGSL lives in `dsl/sdf.ts`.
 - `computeLogDepthFc` and `simulateLogDepthZ` in `log-depth.ts` are the only CPU-side functions here; they are the canonical CPU reference pinned by `log-depth.test.ts`. Any change must preserve `fc = 1 / log2(far + 1)`.
 - projType dispatch encoding (`proj_params.x`) is authoritative in `projection/projections-table.ts` (index == projType). The WGSL `project()` switch must stay in sync with that table.
 - WGSL identifiers must be globally unique across all concatenated snippets — no reserved words. This is enforced by `wgsl-reserved-words.test.ts` in this directory.
@@ -35,7 +35,7 @@ Thin re-export layer that surfaces DSL-emitted WGSL snippets and CPU-side GPU ma
 ## Dependencies
 
 ### Internal
-- `../shader-dsl` — all WGSL string generation (DSL IR emit). No other internal imports.
+- `./dsl` — all WGSL string generation (graphs authored on `@xgis/shader-dsl`). No other internal imports.
 
 ### External
 - None.

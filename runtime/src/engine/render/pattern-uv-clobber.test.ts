@@ -3,7 +3,7 @@
 //
 // When a fill/line PATTERN is active, render() packs the sprite-atlas UV bbox
 // into the fill_color slot (uf[16..19], v1 = uf[19]) and the stroke_color slot
-// (uf[20..23], v1 = uf[23]). The fragment shader (shader-dsl/shaders/polygon
+// (uf[20..23], v1 = uf[23]). The fragment shader (runtime/src/engine/shaders/dsl/polygon
 // fs_fill_pattern) reads fill_color.a / stroke_color.a as the pattern's v1.
 //
 // The per-tile loop in renderTileKeys UNCONDITIONALLY overwrote those two

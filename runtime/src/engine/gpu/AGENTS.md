@@ -48,7 +48,7 @@ Test files in this directory: `gpu-arena.test.ts`, `frame-arena.test.ts`, `stagi
 ### Internal
 - `../projection/projections-table` — `WORLD_COPIES`, `worldCopiesFor`, `enumerateWorldCopies`, `routeToSphereSelector` (re-exported from `gpu-shared.ts`)
 - `../projection/camera` — `Camera` type consumed by `FrameUniform.setFrame`
-- `../shader-dsl/shaders/frame-uniform` — `emitFrameUniformWgsl()` used by `frame-uniform.ts`
+- `../shaders/dsl/frame-uniform` — `emitFrameUniformWgsl()` used by `frame-uniform.ts`
 
 ### External
 - `@xgis/compiler` — `ComputeKernel`, `Palette`, `ColorGradient`, `ScalarGradient` types consumed by `compute.ts` and `palette-texture.ts`

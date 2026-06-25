@@ -2,31 +2,36 @@
 // nodeToWgslString — Expr → WGSL string oracle
 // ═══════════════════════════════════════════════════════════════════
 //
-// Compiler-side copy of `runtime/src/engine/shader-dsl/core/backends/wgsl.ts:emitExpr`.
+// Compiler-side HAND COPY of `@xgis/shader-dsl`'s WGSL `emitExpr`, now at
+// `shader-dsl/src/core/backends/wgsl.ts` (the DSL was extracted out of `runtime/`).
 // Relocated out of `_back-compat/` in PR 2e.B.2 when its last production
 // consumer (the renderer polygon splice-point) retired: fill/stroke preambles
 // now flow into the polygon composer as raw-WGSL Stmts, so the runtime no
 // longer reconstructs the assign string via this adapter.
 //
-// It survives as the emit-shape equality ORACLE used across compiler + runtime
-// tests (`v.fillExpr ? nodeToWgslString(v.fillExpr) : …`) — asserting the WGSL
-// a Node lowers to. The round-trip test (`node-to-wgsl.test.ts`) pins it
-// against the runtime emit.
+// It survives as a test-only emit-shape oracle (`v.fillExpr ?
+// nodeToWgslString(v.fillExpr) : …`) — asserting the WGSL a Node lowers to.
 //
-// Implementation choice: self-contained `emit` copy rather than a
-// cross-workspace import. The compiler/tsconfig.json has `rootDir: ./src`, so
-// a relative import of the runtime wgsl.ts backend would push a runtime file
-// into the compiler's TypeScript program (outside rootDir → tsc error).
-// Adding `@xgis/runtime` as a compiler workspace dep would create a cycle.
+// NOT an import — extraction debt. The old reason ("a relative import of the
+// runtime wgsl.ts would push a runtime file outside compiler's rootDir; adding
+// `@xgis/runtime` would create a cycle") is STALE: emitExpr now lives in the
+// zero-dep `@xgis/shader-dsl`, so `compiler → @xgis/shader-dsl` is acyclic (the
+// same shape as `compiler → @xgis/shared`; runtime already imports it). Dedup is
+// tracked in docs/architecture/package-responsibilities.md (§5).
 //
-// Drift risk: the copy diverges from `runtime/.../wgsl.ts:emitExpr` if either
-// file changes. The round-trip test pins the boundary.
+// Drift risk is REAL and UNGUARDED: this copy diverges from the package emitter
+// if either changes, and `node-to-wgsl.test.ts` pins it only to ITSELF (hand-
+// typed fixtures) — it never imports the live emitter, so it cannot catch drift.
+// Known divergences: hardcoded `call`/`select` (vs the intrinsic registry) and
+// `array<T,N>` spacing. Reachable only if a non-identity intrinsic spelling or a
+// multisampled texture type flows through here (neither does today).
 
 import type { Expr, ShaderType, NodeLike } from './node-types'
 
 // ── emitExpr copy ──
 //
-// Verbatim copy of the runtime `wgsl.ts:emitExpr`. The matchExpr case throws —
+// A near-copy of the package `wgsl.ts:emitExpr` (plus the compiler-local
+// `rawString` op; see the drift note above). The matchExpr case throws —
 // the runtime's pre-emit lowerModule pass owns matchExpr-to-Stmt.switch
 // hoisting; if a matchExpr reaches THIS path, the caller forgot to wrap the
 // Node in a fn body first.

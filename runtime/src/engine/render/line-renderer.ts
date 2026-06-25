@@ -112,7 +112,7 @@ export { LINE_SEGMENT_STRIDE_F32, LINE_SEGMENT_STRIDE_BYTES, buildLineSegments }
 // (meters per pixel at camera center). This keeps the shader simple and
 // avoids per-fragment viewport-size math.
 
-// The line + compositor WGSL is now emitted from `shader-dsl/shaders/line.ts`
+// The line + compositor WGSL is now emitted from `runtime/src/engine/shaders/dsl/line.ts`
 // (`emitLineWgsl(pickEnabled)` / `emitCompositeWgsl()`). The pick variant is
 // emitted conditionally — there is no more `__PICK_FIELD__` / `__PICK_WRITE__`
 // regex marker. Consumers that used to scan `LINE_SHADER_SOURCE` now call the

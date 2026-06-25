@@ -45,7 +45,7 @@ const FLOATS_PER_GLYPH = VERTS_PER_GLYPH * FLOATS_PER_VERT
 const OBLIQUE_TAN = 0.21
 
 // The SDF-text shader (px->NDC quad + MapLibre symbol_sdf fill/halo fragment)
-// is EMITTED from the shader DSL: shader-dsl/shaders/text.ts (emitTextWgsl), used
+// is EMITTED from the shader DSL: runtime/src/engine/shaders/dsl/text.ts (emitTextWgsl), used
 // at createShaderModule below. No fwidth -- text uses a per-glyph-size analytic AA
 // half-width (soft = 2.52 / font_size_px). See packUniforms below for the matching
 // halo px->SDF-byte conversion.

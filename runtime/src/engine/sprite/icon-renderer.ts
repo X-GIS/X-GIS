@@ -72,7 +72,7 @@ const ICON_SDF_SLOT = vertexField(ICON_FORMAT, 'sdf').offset / 4    // 8
 const FLOATS_PER_QUAD = VERTS_PER_QUAD * FLOATS_PER_VERT
 
 // The icon shader (px→NDC quad + SDF/raster textured fragment) is EMITTED from
-// the shader DSL: shader-dsl/icon.ts (emitIconWgsl), used at createShaderModule
+// the shader DSL: runtime/src/engine/shaders/dsl/icon.ts (emitIconWgsl), used at createShaderModule
 // below. SDF sprites take an fwidth-based AA path; raster sprites a straight
 // sample; the per-vertex `sdf` flag selects the path (one batch can mix both).
 

@@ -57,7 +57,7 @@ All GPU draw-call renderers, per-frame scheduling, and paint-resolution glue for
 - `UniformRing` grows mid-frame; the iter-348 fix writes staged slots to the OLD buffer before retiring it (prevents stale-colour at high pitch / many draws). Re-run `uniform-ring*.test.ts` after any ring/bind-group/per-show buffer change.
 - Renderers consume `ResolvedShow` directly — never write back `cs.show.opacity = ...`. Add new animated paint via `paint-shape-resolve.ts`.
 - `FrameContext` is a single reused instance (`_ctx`) mutated in place each frame — do NOT cache field values across frames or allocate a new instance per frame.
-- Vertex-format files (`line-vertex-format.ts`, `point-vertex-format.ts`) must stay byte-identical to the corresponding WGSL `@location` bindings in `engine/shader-dsl/shaders/`.
+- Vertex-format files (`line-vertex-format.ts`, `point-vertex-format.ts`) must stay byte-identical to the corresponding WGSL `@location` bindings in `engine/shaders/dsl/`.
 - WGSL projection/log-depth blocks come from `engine/shaders` — keep them shared, not copy-pasted into inline template strings.
 - `background-renderer.ts` is gone; background is now `passes/background-pass.ts`. Do not reference the old file.
 - `point-renderer-types.ts` holds `PointLayer` which is internal (not re-exported); import it only inside `point-renderer.ts` and its tests.
@@ -74,7 +74,7 @@ Large suite in this dir: `bucket-scheduler.test.ts`, `bundle-cache.test.ts`, `un
 ## Dependencies
 
 ### Internal
-- `data/` (tile catalog, tile select, tile types), `core/` (line-segment build, polygon mesh), `engine/projection` (camera, projections-table, globe), `engine/gpu` (context, shared, uniform, staging, arena, compute, palette), `engine/shaders` (WGSL blocks), `engine/shader-dsl` (polygon/OIT/overdraw DSL emitters), `engine/text` + `engine/sprite` (label/icon stages), `engine/tile-decision`, `engine/render-loop`, `@xgis/compiler`.
+- `data/` (tile catalog, tile select, tile types), `core/` (line-segment build, polygon mesh), `engine/projection` (camera, projections-table, globe), `engine/gpu` (context, shared, uniform, staging, arena, compute, palette), `engine/shaders` (WGSL blocks), `engine/shaders/dsl` (polygon/OIT/overdraw DSL emitters), `engine/text` + `engine/sprite` (label/icon stages), `engine/tile-decision`, `engine/render-loop`, `@xgis/compiler`.
 
 ### External
 - `@webgpu/types`.

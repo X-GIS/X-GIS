@@ -54,7 +54,7 @@ import type { Stmt } from '@xgis/shader-dsl'
 // ═══ Polygon shader emit ═══
 //
 // Phase 2.5 US-008 — buildShader + pickShader route through the polygon
-// DSL composer (shader-dsl/shaders/polygon.ts). Variant.fillExpr/strokeExpr
+// DSL composer (runtime/src/engine/shaders/dsl/polygon.ts). Variant.fillExpr/strokeExpr
 // Nodes flow into the composer; variant.preamble + fillPreamble/
 // strokePreamble (still string-typed in the compiler-side ShaderVariant)
 // splice into the emit post-hoc until per-idiom preamble migration lands.
@@ -64,7 +64,7 @@ import type { Stmt } from '@xgis/shader-dsl'
 
 /**
  * Build a specialized WGSL shader for a polygon variant. Routes through the
- * polygon DSL composer (shader-dsl/shaders/polygon.ts):
+ * polygon DSL composer (runtime/src/engine/shaders/dsl/polygon.ts):
  *
  *   - `variant.fillExpr` / `strokeExpr` Nodes flow into the composer as
  *     ShaderVariantInfo.{fillExpr,strokeExpr}; the composer's placeholder
@@ -389,7 +389,7 @@ export class PipelineFactory {
     if (this.overdrawComposePipeline) return this.overdrawComposePipeline
     const { device, format } = this.ctx
     // Phase 4+ migration — WGSL was extracted to the polygon DSL in
-    // shader-dsl/shaders/overdraw-compose.ts. emit returns the same
+    // runtime/src/engine/shaders/dsl/overdraw-compose.ts. emit returns the same
     // shader text the inline template held; the pipeline's bind-group
     // layout + entryPoint names (vs_full / fs_compose) are unchanged.
     const code = emitOverdrawComposeWgsl()
