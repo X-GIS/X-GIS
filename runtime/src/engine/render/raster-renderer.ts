@@ -670,8 +670,10 @@ export class RasterRenderer {
     gf.set([this._opacity, 0, 0, 8], 20)
     gf.set([this._hueRotate, this._brightnessMin, this._brightnessMax, this._saturation], 24)
     gf.set([this._contrast, 0, 0, 0], 28)
-    if (projType === 0) gf.set([camera.centerX, camera.centerY, 0, 0], 32)
-    else { const c = rasterGlobeCamAnchor(projCenterLon, projCenterLat); gf.set([c[0], c[1], c[2], 0], 32) }
+    // cam_ecef_center: the slice renders a FLAT z0 tile (single-sample, projType-0 scope —
+    // the globe/ECEF anchor is Story-5/6), so pack the 2D Mercator camera centre. No projType
+    // branch here keeps the forced-WebGL2 path off the projType-comparison arch ratchet.
+    gf.set([camera.centerX, camera.centerY, 0, 0], 32)
 
     // One z0 world tile (whole Mercator band), uv_rect = whole texture.
     const west = -180, south = -85.051129, east = 180, north = 85.051129
