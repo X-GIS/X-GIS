@@ -46,6 +46,28 @@ export function lineLabelDeduped(resolvedText: string, emitted: ReadonlySet<stri
   return emitted.has(resolvedText)
 }
 
+/** #603 — does a line-placed symbol render NO text (icon-only)? Gates the
+ *  cross-tile icon dedup (isLineIconDuplicate): only TEXT-LESS line icons
+ *  (OFM `road_oneway` arrows, icon-only shields) need it — a text+icon pair
+ *  is already deduped by its text name and must not drop its icon out from
+ *  under its number.
+ *
+ *  The predicate is the RESOLVED text being empty, NOT `text === undefined`:
+ *  the compiler emits `text: '""'` for an icon-only symbol (symbol.ts
+ *  `labelExpr = '""'`), so `LabelDef.text` is a non-null empty template and
+ *  a `text !== undefined` test is ALWAYS true → the dedup never armed and
+ *  road_oneway arrows duplicated at tile seams (#603). Resolve `text` here so
+ *  an empty-rendering symbol is correctly detected. Exported for coverage —
+ *  the placement walk is an anon callback. */
+export function lineIconIsIconOnly(
+  text: import('@xgis/compiler').TextValue | undefined,
+  props: import('../../text/text-resolver').FeatureProps,
+  cameraZoom: number,
+): boolean {
+  if (text === undefined || text === null) return true
+  return resolveText(text, props, cameraZoom) === ''
+}
+
 /** Stable per-instance pair key for a POINT label's text+icon (the place-name
  *  dot). Keyed on a monotonic per-show sequence index — NOT the rounded screen
  *  position the pre-#419 code used, whose sub-pixel-drift rounding flipped so a
@@ -708,8 +730,14 @@ class LabelPass implements RenderPass {
                 // dedup doesn't gate the icon. Two tiles' polyline walks
                 // can place icons at nearby but non-overlapping screen
                 // positions at a tile seam. Gate via bucketed screen pos.
-                const hasText = featDef.text !== undefined && featDef.text !== null
-                if (!hasText && pairedWithIcon && isLineIconDuplicate(x, y)) return
+                // Predicate is the RESOLVED text being empty (lineIconIsIconOnly),
+                // NOT featDef.text === undefined: an icon-only symbol emits
+                // text === '""' (compiler symbol.ts labelExpr), so featDef.text
+                // is a non-null empty template — the old `featDef.text !==
+                // undefined` test was ALWAYS true and this dedup never fired for
+                // road_oneway arrows (#603).
+                if (lineIconIsIconOnly(featDef.text, props, host.camera.zoom)
+                    && pairedWithIcon && isLineIconDuplicate(x, y)) return
                 if (useTangentRotation) {
                   let angleDeg = rawTangentDeg
                   if (angleDeg > 90 || angleDeg < -90) angleDeg += 180
@@ -968,17 +996,27 @@ class LabelPass implements RenderPass {
                     const polyY = _pyScratch.slice(0, pn)
                     // No fontKey override — see note at line ~2370.
                     // #603 — text-less line icons (road_oneway, icon-only
-                    // shields) have resolvedTextForDedupe='' which never
-                    // fires isTooCloseToSameText. Apply the position-bucket
-                    // dedup so two adjacent tiles' polylines don't emit
-                    // duplicate icons at the same screen spot.
-                    const curveHasText = featDef.text !== undefined && featDef.text !== null
+                    // shields) render no text, so isTooCloseToSameText
+                    // (keyed on stableName) doesn't gate them. Apply the
+                    // position-bucket dedup so two adjacent tiles' polylines
+                    // don't emit duplicate icons at the same screen spot.
+                    // Gate on the symbol's OWN resolved text-field being
+                    // empty (lineIconIsIconOnly): an icon-only symbol emits
+                    // text === '""', so featDef.text is never undefined — the
+                    // old `featDef.text !== undefined` test was always true and
+                    // the dedup never fired (#603). NB resolvedTextForDedupe
+                    // (stableName) can't be reused: it falls back to the
+                    // feature's `name` prop, which a road_oneway arrow may
+                    // carry from its source road even though it renders no
+                    // text — that would make the icon-only test a false
+                    // negative.
+                    const curveIsIconOnly = lineIconIsIconOnly(featDef.text, props, host.camera.zoom)
                     if (total < spacingPx * 0.5) {
                       if (samplePosAt(total * 0.5)) {
                         const sx = _samplePosOut[0], sy = _samplePosOut[1]
                         const tang = _samplePosOut[2]
                         if (!isTooCloseToSameText(resolvedTextForDedupe, sx, sy)
-                            && (!(!curveHasText && curvePairedWithIcon) || !isLineIconDuplicate(sx, sy))) {
+                            && (!(curveIsIconOnly && curvePairedWithIcon) || !isLineIconDuplicate(sx, sy))) {
                           const pairKey = curvePairedWithIcon
                             ? `${labelLayerName ?? ''}:seq${_lineLabelSeq++}`
                             : undefined
@@ -1014,7 +1052,7 @@ class LabelPass implements RenderPass {
                         const sx = _samplePosOut[0], sy = _samplePosOut[1]
                         const tang = _samplePosOut[2]
                         if (!isTooCloseToSameText(resolvedTextForDedupe, sx, sy)
-                            && (!(!curveHasText && curvePairedWithIcon) || !isLineIconDuplicate(sx, sy))) {
+                            && (!(curveIsIconOnly && curvePairedWithIcon) || !isLineIconDuplicate(sx, sy))) {
                           const pairKey = curvePairedWithIcon
                             ? `${labelLayerName ?? ''}:seq${_lineLabelSeq++}`
                             : undefined
@@ -1203,7 +1241,17 @@ class LabelPass implements RenderPass {
           // obstacles. computeObstacles() reads the pending queue (pre-prepare)
           // so it must run BEFORE iStage.prepare() clears it. A paired icon's
           // own text is exempted via matching groupKey.
-          const iconObstacles = iStage ? iStage.computeObstacles() : []
+          //
+          // #609 over-drop fix — pass the pairKeys whose text label has a live
+          // bbox in THIS pass (getActiveTextPairKeys, valid here because
+          // stage.prepare hasn't run / reset hasn't cleared the queues). A
+          // paired icon with live text is skipped as an obstacle: its text
+          // bbox already blocks, and if the text loses collision the icon is
+          // dropped (droppedPairKeys) — so its box must not phantom-block a
+          // different-group label. Empty-text / icon-only paired symbols are
+          // absent from the set and still seed obstacles.
+          const activeTextPairKeys = iStage ? stage.getActiveTextPairKeys() : new Set<string>()
+          const iconObstacles = iStage ? iStage.computeObstacles(activeTextPairKeys) : []
           stage.prepare(iconObstacles)
           if (iStage) iStage.setDroppedPairKeys(stage.getDroppedPairKeys())
           iStage?.prepare()

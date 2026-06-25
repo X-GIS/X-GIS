@@ -550,6 +550,25 @@ export class TextStage {
    *  run AFTER TextStage. */
   getDroppedPairKeys(): ReadonlySet<string> { return this.droppedPairKeys }
 
+  /** #609 — pair-keys of labels with a LIVE text bbox queued for the
+   *  current frame (point + curved-line). Read by IconStage.computeObstacles
+   *  BEFORE prepare() so a paired icon whose text already participates in the
+   *  collision pass does NOT also seed a separate obstacle box: if the text
+   *  wins, its own bbox blocks other labels; if it loses, the icon is dropped
+   *  via droppedPairKeys — either way the icon's box is redundant-or-harmful
+   *  (the phantom-obstacle over-drop). addLabel / addCurvedLineLabel both
+   *  early-return on empty resolved text, so every pairKey present here is
+   *  backed by a real text bbox; an icon-only / empty-text paired symbol is
+   *  absent and keeps seeding its obstacle (preserving #609's separate-feature
+   *  blocking). Must be queried before prepare() since reset() clears the
+   *  pending queues for the next frame. */
+  getActiveTextPairKeys(): ReadonlySet<string> {
+    const out = new Set<string>()
+    for (const p of this.pending) if (p.pairKey !== undefined) out.add(p.pairKey)
+    for (const p of this.pendingLine) if (p.pairKey !== undefined) out.add(p.pairKey)
+    return out
+  }
+
   addLabel(
     value: TextValue,
     props: FeatureProps,

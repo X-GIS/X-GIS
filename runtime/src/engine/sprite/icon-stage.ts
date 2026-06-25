@@ -234,11 +234,28 @@ export class IconStage {
    *  groupKey = pairKey so a paired icon never blocks its OWN text.
    *  Icons whose sprite isn't resolved yet are omitted (they don't draw,
    *  so they don't block). Only icons with collide=true act as obstacles
-   *  (matching the icons that participate in the collision grid). */
-  computeObstacles(): { bbox: { minX: number; minY: number; maxX: number; maxY: number }; groupKey?: string }[] {
+   *  (matching the icons that participate in the collision grid).
+   *
+   *  #609 over-drop fix — `activeTextPairKeys` is the set of pairKeys whose
+   *  text label has a LIVE bbox in this frame's text-collision pass
+   *  (TextStage.getActiveTextPairKeys). A collide icon whose pairKey is in
+   *  that set is SKIPPED here: its paired text already represents the symbol
+   *  in the grid (and groupKey exempts the pair from each other). If the text
+   *  wins, its own bbox blocks other labels; if it loses, the icon is dropped
+   *  via droppedPairKeys. Seeding the icon's box too would let a to-be-dropped
+   *  paired icon block a different-group label — a valid label dropped to
+   *  avoid an icon that never renders. An icon-only / empty-text paired symbol
+   *  is ABSENT from the set (TextStage skips empty text), so it still seeds its
+   *  obstacle — preserving #609's separate-feature blocking. */
+  computeObstacles(
+    activeTextPairKeys: ReadonlySet<string> = new Set(),
+  ): { bbox: { minX: number; minY: number; maxX: number; maxY: number }; groupKey?: string }[] {
     const out: { bbox: { minX: number; minY: number; maxX: number; maxY: number }; groupKey?: string }[] = []
     for (const p of this.pending) {
       if (!p.collide) continue
+      // Skip icons whose paired text is live in the collision pass — that
+      // text bbox already blocks; the icon box would phantom-over-drop.
+      if (p.pairKey !== undefined && activeTextPairKeys.has(p.pairKey)) continue
       const sprite = this.host.get(p.iconName)
       if (!sprite) continue
       const sizeScale = p.sizeScale * this.dpr

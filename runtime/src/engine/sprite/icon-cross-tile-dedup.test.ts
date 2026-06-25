@@ -16,12 +16,14 @@
 //
 // This test drives lineLabelDeduped (the text-dedup predicate) and
 // IconStage.prepare() (the AABB dedup) to verify the pre-existing
-// behaviour is intact, then tests the NEW position-bucket helper inline.
+// behaviour is intact, then drives lineIconIsIconOnly — the REAL predicate
+// that arms the cross-tile icon dedup gate — for the icon-only line symbol.
 
 import { describe, it, expect } from 'vitest'
-import { lineLabelDeduped } from '../render/passes/label-pass'
+import { lineLabelDeduped, lineIconIsIconOnly } from '../render/passes/label-pass'
 import { IconStage } from './icon-stage'
 import type { IconDraw } from './icon-renderer'
+import type { TextValue } from '@xgis/compiler'
 
 // ─── lineLabelDeduped contract (unchanged, regression guard) ─────────────────
 
@@ -135,5 +137,85 @@ describe('#603 — cross-tile line-icon dedup (position-bucket gate)', () => {
     stage.prepare()
     expect(draws().length).toBe(1)
     expect(draws()[0]!.anchorX).toBe(100)
+  })
+})
+
+// ─── #603 REAL gate: lineIconIsIconOnly arms the dedup for icon-only symbols ──
+//
+// The previous #603 test inline-reimplemented the bucket math and NEVER invoked
+// the predicate the gate actually keys on, so it could not catch that the gate
+// armed off `featDef.text !== undefined`. An icon-only symbol's text-field is
+// compiled to `'""'` (compiler symbol.ts:56-57 labelExpr) → a TextValue that is
+// a non-null template with a single empty literal. `featDef.text !== undefined`
+// is therefore ALWAYS true → `!hasText` always false → isLineIconDuplicate
+// never fired → road_oneway arrows duplicated at tile seams.
+//
+// lineIconIsIconOnly resolves the text and gates on EMPTY, so it correctly
+// reports an icon-only symbol as a dedup candidate.
+
+// The exact runtime shape of a compiled `text: '""'` (icon-only symbol).
+const ICON_ONLY_TEXT = { kind: 'template', parts: [{ kind: 'literal', value: '' }] } as unknown as TextValue
+// A named road's text-field (single literal "Main St").
+const NAMED_TEXT = { kind: 'template', parts: [{ kind: 'literal', value: 'Main St' }] } as unknown as TextValue
+
+describe('#603 — lineIconIsIconOnly arms the cross-tile dedup gate (real predicate)', () => {
+  it('an icon-only symbol (text === "") IS a dedup candidate', () => {
+    // fail-before: the gate used `featDef.text !== undefined`; this template is
+    // DEFINED, so the old predicate reported "has text" and never deduped.
+    expect(lineIconIsIconOnly(ICON_ONLY_TEXT, {}, 14)).toBe(true)
+  })
+
+  it('a named line symbol (text === "Main St") is NOT a dedup candidate', () => {
+    // A text+icon pair (highway shield) must NOT be position-bucket deduped —
+    // its icon drops together with its number via the pairKey path instead.
+    expect(lineIconIsIconOnly(NAMED_TEXT, {}, 14)).toBe(false)
+  })
+
+  it('an undefined text-field is treated as icon-only (defensive)', () => {
+    expect(lineIconIsIconOnly(undefined, {}, 14)).toBe(true)
+  })
+
+  // Integration: the REAL gate = lineIconIsIconOnly && isLineIconDuplicate.
+  // Two adjacent tiles place an arrow at nearly the same screen spot at a seam.
+  // The gate must collapse them to ONE; the old hasText gate let BOTH through.
+  it('two seam-adjacent arrows collapse to one via the armed gate (was two)', () => {
+    const spacingPx = 64
+    const emitted = new Set<string>()
+    const isLineIconDuplicate = (sx: number, sy: number): boolean => {
+      const key = `${Math.round(sx / spacingPx)},${Math.round(sy / spacingPx)}`
+      if (emitted.has(key)) return true
+      emitted.add(key)
+      return false
+    }
+    // Real gate body (mirrors label-pass emitLabelAlongSegment):
+    //   if (lineIconIsIconOnly(text,…) && pairedWithIcon && isLineIconDuplicate) drop
+    const pairedWithIcon = true
+    const tryEmit = (sx: number, sy: number): boolean => {
+      if (lineIconIsIconOnly(ICON_ONLY_TEXT, {}, 14) && pairedWithIcon && isLineIconDuplicate(sx, sy)) return false
+      return true
+    }
+    // Tile A's polyline drops an arrow at (100,100).
+    expect(tryEmit(100, 100)).toBe(true)
+    // Tile B's polyline drops one at (105,102) — same seam, same bucket.
+    // fail-before (hasText gate never fires): this would ALSO emit → two arrows.
+    expect(tryEmit(105, 102)).toBe(false)
+  })
+
+  it('a NAMED line symbol is never position-bucket deduped (pair path owns it)', () => {
+    const spacingPx = 64
+    const emitted = new Set<string>()
+    const isLineIconDuplicate = (sx: number, sy: number): boolean => {
+      const key = `${Math.round(sx / spacingPx)},${Math.round(sy / spacingPx)}`
+      if (emitted.has(key)) return true
+      emitted.add(key)
+      return false
+    }
+    const tryEmit = (sx: number, sy: number): boolean => {
+      if (lineIconIsIconOnly(NAMED_TEXT, {}, 14) && true && isLineIconDuplicate(sx, sy)) return false
+      return true
+    }
+    // Both placements survive the position-bucket gate (named → not a candidate).
+    expect(tryEmit(100, 100)).toBe(true)
+    expect(tryEmit(105, 102)).toBe(true)
   })
 })

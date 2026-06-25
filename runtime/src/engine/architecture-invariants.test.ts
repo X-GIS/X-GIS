@@ -249,7 +249,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // import + groupKey wired into collisionInput + obstacles passed to all greedy calls.
   // Bumped 1615→1624 (#608): computeCentreShift call + maxSlotHalf tracking for the
   // center-anchor ink-band fix (the +9 is the corrected baseline math).
-  'runtime/src/engine/text/text-stage.ts': 1624,
+  // Bumped 1624→1631 (#609 v2 rework): the EXPORTED getActiveTextPairKeys() reader —
+  // the set of pairKeys with a LIVE text bbox this frame (pending + pendingLine) —
+  // read by IconStage.computeObstacles so a to-be-dropped paired icon does not seed
+  // a phantom obstacle. Additive accessor + JSDoc; no logic moved.
+  'runtime/src/engine/text/text-stage.ts': 1631,
   // Bumped 1509→1517 for the GeometryCollection decompose fix (RFC 7946
   // §3.1.8): decomposeFeatures' per-type switch is wrapped in an inner
   // recursive helper so a GeometryCollection member-decomposes under the
@@ -441,7 +445,16 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 1192→1248 (#603/#609): cross-tile line-icon dedup (isLineIconDuplicate
   // + _scratchEmittedLineIconKeys) + icon-obstacle wiring (computeObstacles →
   // stage.prepare) + curved-path text-less icon gate + let hoisting for closure.
-  'runtime/src/engine/render/passes/label-pass.ts': 1248,
+  // Bumped 1248→1290 (#603/#609 v2 rework): the prior gate keyed on
+  // `featDef.text !== undefined`, but an icon-only symbol's text-field compiles
+  // to '""' (a DEFINED empty template) so the gate never armed for road_oneway
+  // arrows. Extracted the EXPORTED `lineIconIsIconOnly` predicate (resolve text,
+  // gate on empty) — re-used at both the straight + curved gate sites and unit-
+  // tested directly (the prior test inline-reimplemented the math and never hit
+  // the real gate) — plus the active-text-pairKeys obstacle wiring. The growth
+  // is the JSDoc'd extracted predicate + the load-bearing bug rationale at each
+  // call site, matching this file's documented-export convention.
+  'runtime/src/engine/render/passes/label-pass.ts': 1290,
   // VTR Unit-1 extraction (Cluster E-selection). The hysteresis +
   // readiness-gate logic was moved VERBATIM (plan §5 DO-NOT-SPLIT #2),
   // and its hard-won fix-history comments carry the bulk of the LOC —
