@@ -1009,6 +1009,25 @@ class LabelPass implements RenderPass {
                   const resolvedTextForDedupe = lineLabelDedupeKey(
                     curvePairedWithIcon, featDef.text, props, host.camera.zoom,
                   )
+                  // #605 — TILE-STABLE lineId for the screen-space along-line
+                  // collision (greedyPlaceBboxes minLineSpacingPx). The
+                  // dispatch-side `isTooCloseToSameText` cap (c5064d3a) collapses
+                  // repeats WITHIN one ShowCommand's polyline walk, but PMTiles
+                  // slices a long route into a SEPARATE per-tile featId/polyline,
+                  // so at z19 each tile's dispatch re-emits the same "82" shield —
+                  // ~one per tile survives on screen. The collision pass caps that
+                  // in SCREEN space: same-lineId anchors within MIN_LINE_SPACING_PX
+                  // collide/drop regardless of which tile dispatched them. The id
+                  // must be stable ACROSS tiles, so it is the route identity
+                  // (resolvedTextForDedupe — the ref for a shield, the name for a
+                  // plain label), NOT the tile; qualified by layer (NUL-joined, a
+                  // char no ref/name contains) so two layers' identical refs stay
+                  // independent lines. Empty key (icon-only symbols render no text,
+                  // so addCurvedLineLabel no-ops anyway) ⇒ undefined: not subject
+                  // to same-line spacing, exactly like a point label.
+                  const lineId = resolvedTextForDedupe !== ''
+                    ? `${labelLayerName ?? ''}\u0000${resolvedTextForDedupe}`
+                    : undefined
                   // Walk the polyline and compute the screen-pixel
                   // position for an offset s along it. Used by the
                   // cross-tile dedupe to evaluate "is this position
@@ -1076,6 +1095,10 @@ class LabelPass implements RenderPass {
                             polyX, polyY, total * 0.5,
                             featDef,
                             undefined, labelLayerName, pairKey,
+                            // #605 — same-route screen-space cap: lineId is the
+                            // tile-stable route identity; anchorDistancePx is the
+                            // anchor's along-polyline screen offset.
+                            lineId, total * 0.5,
                           )
                           // OFM road shield + similar: icon-along-line
                           // approximation. Dispatch the icon at the
@@ -1112,6 +1135,8 @@ class LabelPass implements RenderPass {
                             polyX, polyY, nextStop,
                             featDef,
                             undefined, labelLayerName, pairKey,
+                            // #605 — see the short-line call above.
+                            lineId, nextStop,
                           )
                           dispatchIcon(featDef, sx, sy, tang, pairKey, true, props)
                           recordTextPosition(resolvedTextForDedupe, sx, sy)

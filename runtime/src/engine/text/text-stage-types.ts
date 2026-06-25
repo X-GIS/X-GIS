@@ -125,4 +125,19 @@ export interface PendingLineLabel {
    *  droppedPairKeys so IconStage drops the orphaned badge. Without it,
    *  curved highway shields render the box with no road number. */
   pairKey?: string
+  /** #605 — TILE-STABLE identity of the line this label follows (the
+   *  route ref for a shield, the road name for a plain label), qualified
+   *  by layer. Passed through to the collision pass's `lineId` so two
+   *  along-line symbols on the SAME route closer than `minLineSpacingPx`
+   *  collide — capping cross-tile shield repeats in SCREEN space (PMTiles
+   *  slices one route into per-tile polylines, so the dispatch-side
+   *  per-show dedup alone leaves ~one shield PER tile on screen). Stable
+   *  ACROSS tiles by construction: it is the ref/name, never the tile id.
+   *  Undefined → not subject to same-line spacing (the historical path). */
+  lineId?: string
+  /** #605 — the anchor's along-polyline screen offset (px), forwarded to
+   *  the collision pass's `anchorDistancePx`. Same-`lineId` anchors within
+   *  `minLineSpacingPx` of an already-placed one are dropped. Undefined →
+   *  unused. */
+  anchorDistancePx?: number
 }

@@ -253,7 +253,13 @@ const LOC_CEILINGS: Record<string, number> = {
   // the set of pairKeys with a LIVE text bbox this frame (pending + pendingLine) —
   // read by IconStage.computeObstacles so a to-be-dropped paired icon does not seed
   // a phantom obstacle. Additive accessor + JSDoc; no logic moved.
-  'runtime/src/engine/text/text-stage.ts': 1631,
+  // Bumped 1631→1652 (#605 v2): wired the same-line min-spacing collision gate into
+  // prepare() so cross-tile route shields collapse in screen space. addCurvedLineLabel
+  // accepts lineId/anchorDistancePx → PendingLineLabel → ShapedLabel → CollisionItem,
+  // the MIN_LINE_SPACING_PX (= 250 CSS px × dpr) constant, and minLineSpacingPx passed
+  // to all three greedyPlaceBboxes calls (legacy / sortKey / z-order branches).
+  // greedyPlaceBboxes already implemented the gate; this is the wiring + its rationale.
+  'runtime/src/engine/text/text-stage.ts': 1652,
   // Bumped 1509→1517 for the GeometryCollection decompose fix (RFC 7946
   // §3.1.8): decomposeFeatures' per-type switch is wrapped in an inner
   // recursive helper so a GeometryCollection member-decomposes under the
@@ -463,7 +469,16 @@ const LOC_CEILINGS: Record<string, number> = {
   // tests (fail-before pins the 4-distinct-name over-count). The growth is the
   // JSDoc'd extracted predicate + its load-bearing rationale, matching this
   // file's documented-export convention.
-  'runtime/src/engine/render/passes/label-pass.ts': 1341,
+  // Bumped 1341→1366 (#605 v2): the dispatch-side ref-key dedupe alone could not
+  // cap CROSS-TILE shield repeats (PMTiles slices one route into a per-tile
+  // polyline, so each tile re-emits the "82" shield → ~4-6 on screen at z19).
+  // Wired the SCREEN-SPACE same-line spacing collision (greedyPlaceBboxes
+  // minLineSpacingPx/lineId/anchorDistancePx, already implemented + unit-tested
+  // but never connected): derive a TILE-STABLE `lineId` (the route ref / road
+  // name, layer-qualified — NOT the tile) + pass it + the anchor's along-line
+  // screen offset into both addCurvedLineLabel call sites. The growth is the
+  // lineId derivation + its load-bearing rationale comment at the dispatch site.
+  'runtime/src/engine/render/passes/label-pass.ts': 1366,
   // VTR Unit-1 extraction (Cluster E-selection). The hysteresis +
   // readiness-gate logic was moved VERBATIM (plan §5 DO-NOT-SPLIT #2),
   // and its hard-won fix-history comments carry the bulk of the LOC —
