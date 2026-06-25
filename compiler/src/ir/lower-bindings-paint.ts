@@ -9,16 +9,19 @@ import { colorConstant, hexToRgba, sizeConstant } from './render-node'
 import {
   bindingAsConstantNumber,
   extractInterpolateZoomStops,
+  extractStepZoomStops,
 } from './lower-helpers'
 import type { BindingHandler } from './lower-bindings'
 
 // ── Binding-form arms (item.binding present) ──
 
-/** `opacity-[interpolate(zoom, …)]` — 0..100 scale, divide each stop. */
+/** `opacity-[interpolate(zoom, …)]` or `opacity-[step(zoom, …)]` — 0..100 scale. */
 export const opacityZoomBindingHandler: BindingHandler = {
   match: (ctx) => ctx.name === 'opacity',
   apply: (ctx) => {
+    // Try interpolate first, then step — both produce zoom stops.
     const zoomStops = extractInterpolateZoomStops(ctx.item.binding!)
+      ?? extractStepZoomStops(ctx.item.binding!)
     if (zoomStops) {
       for (const s of zoomStops.stops) {
         ctx.acc.opacityZoomStops.push({
