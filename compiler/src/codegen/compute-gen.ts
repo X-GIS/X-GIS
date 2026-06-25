@@ -49,7 +49,7 @@
 //     kernel emissions into one dispatched compute pass; this
 //     emitter ships one match() at a time.
 
-import { resolveColor } from '../tokens/colors'
+import { resolveColorToRgba } from '../tokens/colors'
 
 /** Workgroup size used by every emitted kernel. 64 is the WebGPU
  *  spec's lowest-common-denominator that maps cleanly to NVIDIA
@@ -489,47 +489,12 @@ export function emitInterpolateComputeKernel(spec: InterpolateEmitSpec): Compute
   }
 }
 
-/** Parse a hex color literal (`#rrggbb` / `#rrggbbaa` / `#rgb` /
- *  `#rgba` / named via `resolveColor`) into normalised RGBA floats.
- *  Mirrors shader-gen's `resolveColorFromAST` but takes raw hex
- *  since the compute emitter has already extracted the arm value.
- */
+/** Resolve an arm/default colour spec to normalised RGBA for the compute
+ *  kernels. Delegates to the canonical resolver in `tokens/` — colour
+ *  resolution is the compiler's `tokens/` layer's job, not codegen's
+ *  (charter §g, docs/architecture/package-responsibilities.md). */
 function colorHexToRGBA(hex: string): [number, number, number, number] {
-  // Accept named colors too — `resolveColor` returns null if the
-  // input is already a hex literal that the lookup can't match.
-  const resolved = hex.startsWith('#') ? hex : (resolveColor(hex) ?? hex)
-  let r = 0, g = 0, b = 0, a = 1
-  // Reject non-hex content — mirror of hexToRgba regex gate (d5c3e28).
-  // Without it parseInt('zz', 16) = NaN propagated through to the
-  // compute-shader colour branch and the GPU sampled undefined
-  // behaviour.
-  if (!/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(resolved)) {
-    return [0, 0, 0, 1]
-  }
-  if (resolved.length === 4) {
-    // #RGB
-    r = parseInt(resolved[1]! + resolved[1]!, 16) / 255
-    g = parseInt(resolved[2]! + resolved[2]!, 16) / 255
-    b = parseInt(resolved[3]! + resolved[3]!, 16) / 255
-  } else if (resolved.length === 5) {
-    // #RGBA
-    r = parseInt(resolved[1]! + resolved[1]!, 16) / 255
-    g = parseInt(resolved[2]! + resolved[2]!, 16) / 255
-    b = parseInt(resolved[3]! + resolved[3]!, 16) / 255
-    a = parseInt(resolved[4]! + resolved[4]!, 16) / 255
-  } else if (resolved.length === 7) {
-    // #RRGGBB
-    r = parseInt(resolved.slice(1, 3), 16) / 255
-    g = parseInt(resolved.slice(3, 5), 16) / 255
-    b = parseInt(resolved.slice(5, 7), 16) / 255
-  } else if (resolved.length === 9) {
-    // #RRGGBBAA
-    r = parseInt(resolved.slice(1, 3), 16) / 255
-    g = parseInt(resolved.slice(3, 5), 16) / 255
-    b = parseInt(resolved.slice(5, 7), 16) / 255
-    a = parseInt(resolved.slice(7, 9), 16) / 255
-  }
-  return [r, g, b, a]
+  return resolveColorToRgba(hex)
 }
 
 /** WGSL float literal — trims trailing zeros, ensures decimal point.
