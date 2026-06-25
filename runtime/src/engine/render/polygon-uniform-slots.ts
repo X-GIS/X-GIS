@@ -33,3 +33,12 @@ export function polygonUniformSlots(): UniformFieldSlots {
 export function polygonUniformBytes(): number {
   return polygonUniformSlots().slots * 4
 }
+
+/** Dynamic-offset stride for the polygon Uniforms ring: the next 256-multiple ≥
+ *  the struct byte size (WebGPU minUniformBufferOffsetAlignment = 256). Lazy +
+ *  memoised via polygonUniformBytes() — like it, callable only AFTER
+ *  configureProjections() (so NEVER from a module-level `const` / `static` field;
+ *  use it at ctor/draw time). */
+export function polygonUniformStride(): number {
+  return Math.ceil(polygonUniformBytes() / 256) * 256
+}

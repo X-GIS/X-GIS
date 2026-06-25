@@ -13,7 +13,7 @@ import { parseColor } from './renderer-helpers'
 import { UniformRing } from './uniform-ring'
 import { GraticuleRenderer } from './graticule-renderer'
 import { PipelineFactory } from './pipeline-factory'
-import { polygonUniformBytes } from './polygon-uniform-slots'
+import { polygonUniformBytes, polygonUniformStride } from './polygon-uniform-slots'
 
 // Re-export the extracted types so this module's public surface stays
 // byte-identical (external consumers import these from './renderer').
@@ -89,15 +89,13 @@ export class MapRenderer {
   // polygonUniformBytes()). Out-of-bounds typed-array writes are silent no-ops
   // so a mismatch here = uniform never reaches the GPU.
   private uniformDataBuf = new ArrayBuffer(polygonUniformBytes())
-  // Dynamic-offset uniform ring (see docs: multi-layer uniform slots). The slot
-  // STRIDE must be a multiple of WebGPU minUniformBufferOffsetAlignment (256);
-  // derived as the next 256-multiple ≥ the struct byte size.
-  private static readonly UNIFORM_SLOT = Math.ceil(polygonUniformBytes() / 256) * 256
-  // Polygon Uniforms struct byte size — bind-range `size` for binding 0.
-  // Derived from reflect() so a struct change propagates automatically.
-  // The BGL omits minBindingSize, so WebGPU uses the shader-derived minimum at
-  // draw time; a smaller bind `size` fails draw-time validation.
-  private static readonly UNIFORM_SIZE = polygonUniformBytes()
+  // Polygon Uniforms stride / bind-range size are read LAZILY via
+  // polygonUniformStride() / polygonUniformBytes() (memoised) at ctor/draw time.
+  // They MUST NOT be `static readonly` fields: polygonUniformBytes() reflects the
+  // polygon module = a projection emit, which throws until configureProjections()
+  // has run (post-GPU-init), and a static field evaluates at class-definition
+  // (IMPORT) time — that crashed the entire map init. The BGL omits minBindingSize,
+  // so a smaller bind `size` than the shader-derived struct fails draw validation.
   /** Pipeline-construction collaborator (Unit 1 of
    *  renderer-decomposition-2026-06-09). Owns every render pipeline +
    *  bind-group layout + the atlas STUB textures + the shared sampler +
@@ -248,7 +246,7 @@ export class MapRenderer {
     // ensure() fires the onGrow callback → builds this.bindGroup (and the
     // per-layer loop, empty at init since no layers are registered yet),
     // faithfully replacing the inline build at the same point in init.
-    this.uniformRing = new UniformRing(this.ctx.device, MapRenderer.UNIFORM_SLOT, 256, 'uniform-ring', () => this.rebuildUniformBindGroups())
+    this.uniformRing = new UniformRing(this.ctx.device, polygonUniformStride(), 256, 'uniform-ring', () => this.rebuildUniformBindGroups())
     this.uniformRing.ensure()
     // Graticule init is lazy — first frame after setGraticuleEnabled(true)
     // builds the buffer. Default off so the ctor stays cheap and the
@@ -416,7 +414,7 @@ export class MapRenderer {
     this.bindGroup = device.createBindGroup({
       layout: this.bindGroupLayout,
       entries: [
-        { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } },
+        { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: polygonUniformBytes() } },
         { binding: 2, resource: this.paletteColorAtlasView },
         { binding: 4, resource: this.paletteSampler },
         { binding: 5, resource: this.spriteAtlasView },
@@ -428,7 +426,7 @@ export class MapRenderer {
         layer.perLayerBindGroup = device.createBindGroup({
           layout: this.featureBindGroupLayout,
           entries: [
-            { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } },
+            { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: polygonUniformBytes() } },
             { binding: 1, resource: { buffer: layer.featureDataBuffer } },
             { binding: 2, resource: this.paletteColorAtlasView },
             { binding: 4, resource: this.paletteSampler },
@@ -594,7 +592,7 @@ export class MapRenderer {
         layer.perLayerBindGroup = device.createBindGroup({
           layout: this.getOrBuildVariantLayout(variant),
           entries: [
-            { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } },
+            { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: polygonUniformBytes() } },
             { binding: 1, resource: { buffer: layer.featureDataBuffer } },
             { binding: 2, resource: this.paletteColorAtlasView },
             { binding: 4, resource: this.paletteSampler },
@@ -662,7 +660,7 @@ export class MapRenderer {
       this.bindGroup = this.ctx.device.createBindGroup({
         layout: this.bindGroupLayout,
         entries: [
-          { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } },
+          { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: polygonUniformBytes() } },
           { binding: 2, resource: this.paletteColorAtlasView },
           { binding: 4, resource: this.paletteSampler },
           { binding: 5, resource: this.spriteAtlasView },
@@ -684,7 +682,7 @@ export class MapRenderer {
         layer.perLayerBindGroup = this.ctx.device.createBindGroup({
           layout: variant ? this.getOrBuildVariantLayout(variant) : this.featureBindGroupLayout,
           entries: [
-            { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } },
+            { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: polygonUniformBytes() } },
             { binding: 1, resource: { buffer: layer.featureDataBuffer } },
             { binding: 2, resource: this.paletteColorAtlasView },
             { binding: 4, resource: this.paletteSampler },
@@ -710,7 +708,7 @@ export class MapRenderer {
       this.bindGroup = this.ctx.device.createBindGroup({
         layout: this.bindGroupLayout,
         entries: [
-          { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } },
+          { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: polygonUniformBytes() } },
           { binding: 2, resource: this.paletteColorAtlasView },
           { binding: 4, resource: this.paletteSampler },
           { binding: 5, resource: this.spriteAtlasView },
@@ -727,7 +725,7 @@ export class MapRenderer {
         layer.perLayerBindGroup = this.ctx.device.createBindGroup({
           layout: variant ? this.getOrBuildVariantLayout(variant) : this.featureBindGroupLayout,
           entries: [
-            { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } },
+            { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: polygonUniformBytes() } },
             { binding: 1, resource: { buffer: layer.featureDataBuffer } },
             { binding: 2, resource: this.paletteColorAtlasView },
             { binding: 4, resource: this.paletteSampler },
