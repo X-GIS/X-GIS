@@ -12,7 +12,7 @@
 // already accepts `preamble` + `fillExpr` + `strokeExpr` (the legacy
 // match()-on-fragment path emits all three). After Phase 2.5 US-008
 // the runtime in renderer.ts buildShader() routes the variant
-// through emitPolygonWgsl (shader-dsl/shaders/polygon.ts), and:
+// through emitPolygonWgsl (runtime/src/engine/shaders/dsl/polygon.ts), and:
 //
 //   1. Feeds variant.fillExpr / strokeExpr Nodes into the composer's
 //      placeholder Stmt swap (fill-return / stroke-return tags).

@@ -2,10 +2,14 @@
 // nodeToWgslString — Expr → WGSL emit oracle round-trip
 // ═══════════════════════════════════════════════════════════════════
 //
-// Pins the compiler-side `nodeToWgslString` against the runtime's
-// `wgsl.ts:emitExpr` shape. Relocated out of `_back-compat/` in PR 2e.B.2
-// with the adapter itself when its production splice-point retired; it
-// survives as the emit-shape equality oracle used across the test suite.
+// NOTE: despite the name, this does NOT pin against the live `@xgis/shader-dsl`
+// emitter — every fixture below is HAND-TYPED to the local `node-types.ts` Expr
+// shape (so the test stays inside the compiler workspace). It pins
+// `nodeToWgslString` to ITSELF; it cannot catch drift from the package emitter.
+// Relocated out of `_back-compat/` in PR 2e.B.2 with the adapter when its
+// production splice-point retired; it survives as a self-consistency oracle for
+// the emit shape used across the test suite. (Dedup tracked: see
+// docs/architecture/package-responsibilities.md §5.)
 
 import { describe, it, expect } from 'vitest'
 import { nodeToWgslString } from './node-to-wgsl'

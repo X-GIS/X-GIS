@@ -8,7 +8,7 @@
 // lineTranslateX/Y into the layer ring would ship silently (the heatmap-class
 // data-path bug): the prop stays "supported" on paper while the GPU sees 0.
 //
-// The runtime contract (vs_line, shader-dsl/shaders/line.ts:1062-1063 reads
+// The runtime contract (vs_line, runtime/src/engine/shaders/dsl/line.ts:1062-1063 reads
 // `layer.line_translate_x` / `_y` to offset clip post-MVP): when a line layer
 // slot is written with lineTranslateX/Y, the 208-byte line layer uniform's f32
 // slot 47 carries line_translate_x and slot 48 carries line_translate_y.

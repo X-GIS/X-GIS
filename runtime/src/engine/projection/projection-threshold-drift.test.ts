@@ -66,7 +66,7 @@ describe('projection threshold drift gate', () => {
   })
 
   it('generated cpu needs_backface_cull follows the table thresholds (behavioral)', () => {
-    // The cpu-f64 lowering (shader-dsl/projections.ts) pulls cull thresholds
+    // The cpu-f64 lowering (runtime/src/engine/shaders/dsl/projections.ts) pulls cull thresholds
     // from the PROJECTIONS table, so its cull SIGN flips exactly at the table
     // value — drift-impossible by construction. Probe: azimuthal (4) visible
     // iff cc > AZIMUTHAL, stereographic (5) iff cc > STEREO. (Replaces the old

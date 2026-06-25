@@ -1,6 +1,6 @@
 // POLYGON_FILL_FORMAT f32-tail producer/consumer CONTRACT gate.
 //
-// The polygon fill VS `vs_main_ecef` (runtime/src/engine/shader-dsl/shaders/
+// The polygon fill VS `vs_main_ecef` (runtime/src/engine/shaders/dsl/
 // polygon.ts:454-461) reads the two f32 tail slots (abs_lon @float4, abs_lat
 // @float5) as TILE-LOCAL MERCATOR and reconstructs ABSOLUTE Mercator for the
 // fragment hemisphere-cull:  abs_merc = tail + tile_origin_merc.

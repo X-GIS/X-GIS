@@ -14,7 +14,7 @@ import { emitPolygonWgsl } from '../shaders/dsl/polygon'
 describe('rim_alpha rollout coverage', () => {
   it('polygon shader (fs_fill / fs_stroke / fs_oit_translucent) calls polygon_rim_alpha', () => {
     // 3 fragment entry points, each multiplies rim into alpha. The polygon
-    // shader is now DSL-emitted (shader-dsl/shaders/polygon.ts) so this
+    // shader is now DSL-emitted (runtime/src/engine/shaders/dsl/polygon.ts) so this
     // counts call sites in the composed output.
     const wgsl = emitPolygonWgsl(null, false)
     const occurrences = (wgsl.match(/polygon_rim_alpha/g) ?? []).length
@@ -27,7 +27,7 @@ describe('rim_alpha rollout coverage', () => {
   })
 
   it('line shader calls line_rim_alpha in fs_line and fs_line_max', () => {
-    // WGSL is now emitted from shader-dsl/shaders/line.ts.
+    // WGSL is now emitted from runtime/src/engine/shaders/dsl/line.ts.
     const src = emitLineWgsl(false)
     const occurrences = (src.match(/line_rim_alpha/g) ?? []).length
     // 1 definition + 3 uses (fs_line + fs_line_pattern + fs_line_max).
@@ -57,7 +57,7 @@ describe('rim_alpha rollout coverage', () => {
   })
 
   it('rim_alpha function is emitted into WGSL_PROJECTION_FNS', () => {
-    // The projection block is now DSL-emitted (shader-dsl/projections.ts), so
+    // The projection block is now DSL-emitted (runtime/src/engine/shaders/dsl/projections.ts), so
     // check the emitted string carries the fn — not the source file text.
     expect(WGSL_PROJECTION_FNS()).toContain('fn rim_alpha(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>) -> f32')
   })

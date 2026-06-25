@@ -4,7 +4,7 @@
 # shader-dsl
 
 ## Purpose
-A zero-dependency TypeScript shader DSL that eliminates hand-maintained GPU/CPU drift. Shaders are authored once as typed node graphs (the IR); the IR is then emitted by THREE backends over ONE shared tree-walk: a **WGSL** writer (production strings for `device.createShaderModule`), a **GLSL ES 3.00** writer (a target-neutrality proof — string-shape-validated only, never GPU-compiled yet), and a **CPU f64 oracle** that tree-walks the same IR on the host for projection math (the generated replacement for the deleted `projection-wgsl-mirror.ts`). Split into `core/` (IR, the neutral emitter + backend contract, the pass pipeline, the SoT layer — all private) and `shaders/` (concrete shader graphs). Consumers outside this directory import only from `index.ts`; `core/` is never imported directly.
+A zero-dependency TypeScript shader DSL that eliminates hand-maintained GPU/CPU drift. Shaders are authored once as typed node graphs (the IR); the IR is then emitted by THREE backends over ONE shared tree-walk: a **WGSL** writer (production strings for `device.createShaderModule`), a **GLSL ES 3.00** writer (a target-neutrality proof — string-shape-validated only, never GPU-compiled yet), and a **CPU f64 oracle** that tree-walks the same IR on the host for projection math (the generated replacement for the deleted `projection-wgsl-mirror.ts`). Split into `core/` (IR, the neutral emitter + backend contract, the pass pipeline, the SoT layer — all private) and `shaders/` (concrete shader graphs). ⚠️ The `shaders/` graphs were RELOCATED to `runtime/src/engine/shaders/dsl/` and are NO LONGER in this package — the `### Shaders` section below is stale (see docs/architecture/package-responsibilities.md §e). This package is now the content-free `core/` framework; consumers import `core/` via the barrel/subpath.
 
 **Authoring a shader? Read `../AUTHORING.md`** (the package-level guide) — it documents the current
 ceremony-free surface (`fn(name, params, body)` with inferred return type, `const x = expr` + `.assign()`,
@@ -47,7 +47,9 @@ exist as primitives, but the guide shows the form to author NEW shaders in.
 | `core/passes/lint/` | The lint engine (`engine.ts`: one registry, one shared traversal) + `rules/` (one rule per file) + `presets.ts`. `RULES` = full set (static-analysis gate); `CORE_RULES` = the tiny subset `validate()` runs at every emit (structural invariants that hold for any module). |
 | `core/passes/single-exit.ts`, `inline.ts` | MISRA single-exit transform; function inliner. |
 
-### Shaders (`shaders/`)
+### Shaders (RELOCATED → `runtime/src/engine/shaders/dsl/`)
+
+> ⚠️ STALE: these graphs moved OUT of this package to `runtime/src/engine/shaders/dsl/`. The table is retained only as a description of those graphs at their new home; this package no longer contains a `shaders/` directory.
 | File | Description |
 |---|---|
 | `shaders/projections.ts` | All 8 projections as one `PROJECTION_MODULE`; dispatch ladder + cull thresholds generated from `projection/projections-table.ts`. Exports `PROJECTION_WGSL_CONSTS`/`PROJECTION_WGSL_FNS`. |

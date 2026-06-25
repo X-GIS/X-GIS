@@ -226,7 +226,7 @@ export function buildLineSegments(
   }
 
   // ── line_length (slot 13) — total arc length of each polyline ──
-  // The pattern shader (shader-dsl/shaders/line.ts) places START/END/CENTER
+  // The pattern shader (runtime/src/engine/shaders/dsl/line.ts) places START/END/CENTER
   // single-instance patterns in POLYLINE-ARC space:
   //   centerArc = START → start_offset
   //               END   → line_length - start_offset

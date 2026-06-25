@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 // (lon ±180) — a faint 1px vertical SEAM flickers in the WATER fill at the
 // dateline. ROOT (authoritative diagnosis): f32 catastrophic cancellation in
 // the equirect / natural_earth arm of project_geom
-// (shader-dsl/shaders/projections.ts:264-275).
+// (runtime/src/engine/shaders/dsl/projections.ts:264-275).
 //
 // For non-mercator periodic projections the z=0 root tile is split into z=1
 // children PER world copy. Copy 0's lon=+180 east edge must land at the SAME

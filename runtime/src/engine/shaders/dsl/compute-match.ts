@@ -8,7 +8,12 @@
 // re-target builds on a proven shape instead of discovering it late.
 //
 // colorHexToRGBA is replicated from compute-gen.ts for now; Phase 2.5 unifies
-// it when compute-gen re-targets onto this builder (one parser, no drift).
+// it when compute-gen re-targets onto this builder (one parser). NOTE: the two
+// copies have ALREADY DRIFTED — compute-gen.ts pre-resolves CSS named colors via
+// `resolveColor`, while this copy accepts `#`-hex only and returns black for a
+// named color. Latent today (this kernel is an unwired PoC, and the compiler
+// pre-resolves names before `colorHex` reaches either parser). Dedup → compiler
+// tokens/ ownership; see docs/architecture/package-responsibilities.md (§5/§g).
 
 import {
   fn, module, vec4, f32, pack4x8unorm,

@@ -6,7 +6,7 @@
 // → TextDraw.fontSize — to the text glyph draw. The renderer threads that
 // value into the 64-byte text uniform at f32 slot 14 (`font_size_px`), which
 // the text fragment shader reads to compute the MapLibre-exact AA half-width
-// (soft = 2.52 / font_size_px; see shader-dsl/shaders/text.ts + packUniforms
+// (soft = 2.52 / font_size_px; see runtime/src/engine/shaders/dsl/text.ts + packUniforms
 // note at text-renderer.ts:530). That `font_size_px` slot — the direct wire
 // that makes text-size reach the GPU uniform — had NO behavioral assertion:
 // halo-uniforms.test.ts asserts the halo slots (12/13) and the AA `soft` math,
@@ -29,7 +29,7 @@ import { packUniformsForTesting, type TextDraw } from './text-renderer'
 // font_size_px is f32 slot 14 of the 64-byte (16-float) text uniform:
 // viewport@0-1, pad@2-3, fill_color@4-7, halo_color@8-11, halo_width@12,
 // halo_blur@13, font_size_px@14, _pad1@15. (Matches the Uniforms struct in
-// shader-dsl/shaders/text.ts and packUniforms in text-renderer.ts.)
+// runtime/src/engine/shaders/dsl/text.ts and packUniforms in text-renderer.ts.)
 const FONT_SIZE_PX_SLOT = 14
 
 const baseGlyph = {

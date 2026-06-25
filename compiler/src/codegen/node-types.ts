@@ -12,11 +12,16 @@
 // imports its types from here. The renderer splice-point that depended on the
 // adapter retired in PR 2e.B.2.
 //
-// The `Expr` shape MUST stay in lock-step with
-// `runtime/src/engine/shader-dsl/core/ir/nodes.ts` Expr union — the compiler
-// can't import the runtime type directly (compiler/tsconfig.json's rootDir
-// excludes runtime/, and the runtime package is the dependent in the
-// workspace chain). The boundary is pinned by `node-to-wgsl.test.ts`.
+// The `Expr` shape is a HAND COPY of `@xgis/shader-dsl`'s Expr union, now at
+// `shader-dsl/src/core/ir/nodes.ts` (the DSL was extracted out of `runtime/`).
+// NOTE: the old "can't import — rootDir / workspace cycle" reason is STALE.
+// `@xgis/shader-dsl` is a zero-dep leaf, so `compiler → @xgis/shader-dsl` is
+// acyclic (the same shape as the existing `compiler → @xgis/shared` edge; the
+// runtime package already imports it). This copy is extraction debt — dedup is
+// tracked in docs/architecture/package-responsibilities.md (§5). It has already
+// drifted from the source (e.g. the `2d-ms` texture variant), and nothing
+// structurally guards parity: `node-to-wgsl.test.ts` pins this copy only to
+// ITSELF (hand-typed fixtures), never to the live emitter.
 
 type Scalar = 'f32' | 'i32' | 'u32' | 'bool'
 
