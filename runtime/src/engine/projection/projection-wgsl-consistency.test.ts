@@ -22,6 +22,18 @@ import {
   needsBackfaceCullWgsl,
 } from '../shaders/dsl'
 import { globeForward } from './globe'
+import { globeEyeUniform } from '../render/globe-eye-uniform'
+
+const EARTH_R = 6378137
+// #600 — a NADIR eye over (clon, clat) at altitude `altR`×EARTH_R, for the globe
+// eye-horizon cull. altR large ⇒ horizonCos → 0 ⇒ horizon ≈ strict hemisphere
+// (sign matches cosC); altR small ⇒ a tight visible cap.
+function nadirEye(clon: number, clat: number, altR: number): readonly [number, number, number] {
+  const lam = clon * Math.PI / 180, phi = clat * Math.PI / 180, c = Math.cos(phi)
+  const s = EARTH_R * (1 + altR)
+  return [s * c * Math.cos(lam), s * c * Math.sin(lam), s * Math.sin(phi)]
+}
+const eye4 = (e: readonly [number, number, number]) => globeEyeUniform(e) as [number, number, number, number]
 
 // Phase 2-A: Cross-consistency between CPU canonical (projection.ts) and
 // WGSL mirror (projection-wgsl-mirror.ts). A failure means the GPU shader
@@ -275,10 +287,28 @@ describe('needsBackfaceCullWgsl matches WGSL needs_backface_cull thresholds', ()
       expect(needsBackfaceCullWgsl(3, lon, lat, CL, CT)).toBeCloseTo(cosC(lon, lat, CL, CT), 6)
     }
   })
-  it('globe (7) culls like ortho — raw cos(c), strict hemisphere', () => {
+  it('globe (7) — #600 eye-horizon cap: far NADIR eye ≈ strict hemisphere (sign = cosC)', () => {
+    // The globe arm now culls by the eye-horizon cap, NOT the pitch-invariant
+    // centre hemisphere. With a FAR on-axis (nadir) eye the horizon → the strict
+    // hemisphere, so the cull sign matches cosC (the pre-#600 behaviour on a
+    // low-zoom nadir view). horizonCos = R/|eye| → ~0 at this altitude.
+    const eye = eye4(nadirEye(CL, CT, 1e6))
     for (const [lon, lat] of sampleGrid()) {
-      expect(needsBackfaceCullWgsl(7, lon, lat, CL, CT)).toBeCloseTo(cosC(lon, lat, CL, CT), 6)
+      expect(needsBackfaceCullWgsl(7, lon, lat, CL, CT, eye) > 0).toBe(cosC(lon, lat, CL, CT) > 0)
     }
+  })
+  it('globe (7) — #600 eye-horizon cap shrinks as the eye nears the surface', () => {
+    // A NEAR eye (low altitude) sees only a small cap: horizonCos = R/|eye| is
+    // large, so a point at cosC just above 0 (e.g. ~60° off centre) is now CULLED
+    // even though it is on the front centre-hemisphere. This is the property the
+    // old center_cos_c model could never express (it always cut at cosC=0).
+    const nearEye = eye4(nadirEye(CL, CT, 0.05)) // |eye| ≈ 1.05 R ⇒ horizonCos ≈ 0.952
+    // Front-centre point (cosC ≈ 1) stays visible; a 60°-off point (cosC = 0.5 <
+    // 0.952) is now culled by the near-eye horizon.
+    expect(needsBackfaceCullWgsl(7, CL, CT, CL, CT, nearEye)).toBeGreaterThan(0)
+    const farLon = CL + 60
+    expect(cosC(farLon, CT, CL, CT)).toBeLessThan(0.952) // it IS within the near-eye cull band
+    expect(needsBackfaceCullWgsl(7, farLon, CT, CL, CT, nearEye)).toBeLessThan(0)
   })
   it('azimuthal culls at cc ≤ -0.85, stereographic at cc ≤ -0.8', () => {
     for (const [lon, lat] of sampleGrid()) {

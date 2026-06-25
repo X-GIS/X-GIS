@@ -51,18 +51,18 @@ describe('projection threshold drift gate', () => {
 
   it('WGSL rim_alpha smoothstep lower bounds == table', () => {
     // DSL emits `smoothstep(LO, HI, <cos_c>)` with bounds precomputed (RIM_FADE
-    // inlined). The optimizer cse-hoists the repeated center_cos_c(...) into a shared
-    // temp, so the 3rd arg is now a \w+ temp, not the inline call — match only the
-    // LO/HI bounds, which is what this gate pins. Order: ortho, azimuthal, stereo, globe.
+    // inlined). Match only the LO/HI bounds, which is what this gate pins.
+    // Order: ortho, azimuthal, stereo, globe.
     const found = allMatches(
       WGSL_PROJECTION_FNS(),
       /smoothstep\((-?[\d.]+), -?[\d.]+, /g,
     )
-    // globe's rim is the SAME `smoothstep(0, RIM, cc)` as ortho, so the cse auto-cache
-    // dedups them into one shared temp — 3 distinct smoothstep calls emit (ortho/globe
-    // share, azimuthal, stereographic). The globe=0 threshold is still verified via that
-    // shared temp + the behavioral cpu cull test below.
-    expect(found).toEqual([ORTHO, AZIMUTHAL, STEREO])
+    // #600 — globe's rim is now `smoothstep(0, RIM, globe_eye_horizon_cos(...))`,
+    // a DIFFERENT 3rd arg from ortho's `smoothstep(0, RIM, center_cos_c)`, so the
+    // two no longer cse-merge: 4 distinct smoothsteps emit (ortho, azimuthal,
+    // stereographic, globe). globe's LO is still 0 (= ORTHO). Pre-#600 the two
+    // identical ortho/globe calls cse'd to one (the old [ORTHO,AZI,STEREO]).
+    expect(found).toEqual([ORTHO, AZIMUTHAL, STEREO, ORTHO])
   })
 
   it('generated cpu needs_backface_cull follows the table thresholds (behavioral)', () => {
@@ -105,7 +105,7 @@ describe('projection threshold drift gate', () => {
     // temp; match only the LO/HI bounds.)
     const bands = [...WGSL_PROJECTION_FNS().matchAll(/smoothstep\((-?[\d.]+), (-?[\d.]+), /g)]
       .map((m) => Math.round((parseFloat(m[2]!) - parseFloat(m[1]!)) * 1000) / 1000)
-    expect(bands).toEqual([0.02, 0.02, 0.02]) // ortho/globe share one cse'd smoothstep
+    expect(bands).toEqual([0.02, 0.02, 0.02, 0.02]) // #600 — ortho/azi/stereo/globe (globe no longer cse-merges with ortho)
     const raster = emitRasterWgsl(false)
     // raster applies `smoothstep(0.0, 0.02, input.vis)` — same fade width.
     expect(raster).toContain('smoothstep(0.0, 0.02,')

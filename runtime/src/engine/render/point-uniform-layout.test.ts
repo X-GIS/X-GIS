@@ -63,6 +63,7 @@ const CONTRACT = {
   cam_ecef_h: 24,
   cam_ecef_l: 28,
   circle_params: 32,
+  globe_eye: 36, // #600 — globe(7) eye-horizon cull dir
 }
 
 describe('point uniform byte-layout consistency (reflection ↔ WGSL ↔ contract)', () => {
@@ -77,8 +78,9 @@ describe('point uniform byte-layout consistency (reflection ↔ WGSL ↔ contrac
     expect(refl.slot).toEqual(CONTRACT)
   })
 
-  it('struct is 144 bytes / 36 f32 slots — exactly the renderer Float32Array', () => {
-    expect(wgsl.sizeBytes).toBe(144)
-    expect(refl.slots).toBe(36)
+  it('struct is 160 bytes / 40 f32 slots — exactly the renderer Float32Array', () => {
+    // #600 — grew 144→160 (globe_eye vec4 @36 for the globe(7) eye-horizon cull).
+    expect(wgsl.sizeBytes).toBe(160)
+    expect(refl.slots).toBe(40)
   })
 })

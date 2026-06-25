@@ -144,7 +144,9 @@ const LOC_CEILINGS: Record<string, number> = {
   // RETIRES the std140 drift the file carried (DSL struct + uf[N]/uniformF32[N]/
   // uniformU32[N] magic). Render byte-identical; the +15 is the one-time slot-Proxy
   // wiring, not feature surface. Decomposition stays a tracked follow-up.
-  'runtime/src/engine/render/vector-tile-renderer.ts': 4093,
+  // Bumped 4093→4104 (#600): the per-frame globe_eye uniform write + its doc
+  // comment + the UNIFORM_SLOT/SIZE 256→512/272 rationale comments.
+  'runtime/src/engine/render/vector-tile-renderer.ts': 4104,
   // Bumped 3361→3393 for the destroy()-completeness fix: cancelling the
   // EventDispatcher move-rAF + the pending-flush rAF, clearing _pendingPatches,
   // and removing the run()-installed window globals (__xgisReady/snapshot/
@@ -295,7 +297,9 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 917→931 (Phase R heatmap): ensureHeatmapBlur / ensureHeatmapCompose
   // forwarders + the two heatmap bind-group-layout getters (thin delegates to
   // the factory, mirror of ensureOverdrawCompose).
-  'runtime/src/engine/render/renderer.ts': 931,
+  // Bumped 931→941 (#600): the non-tiled globe_eye uniform write + its doc
+  // comment, the globeEyeUniform import, and the UNIFORM_SLOT/SIZE bump comments.
+  'runtime/src/engine/render/renderer.ts': 941,
   // Lowered 776→254: extracted the text-layout family (text-anchor /
   // variable-anchor[-offset] / transform / offset / translate / radial-offset /
   // collision / rotate / letter-spacing / max-width / line-height / justify /
@@ -566,7 +570,9 @@ const LOC_CEILINGS: Record<string, number> = {
   // repeat like labels/fills. Additive loop; decomposition stays a tracked follow-up.
   // Bumped 991→1022 (#594-test): extracted pointWorldCopies + worldCopyMercX as
   // exported pure helpers so the discriminating unit test can import real source.
-  'runtime/src/engine/render/point-renderer.ts': 1022,
+  // Bumped 1022→1033 (#600): the globe_eye slot in PointUniformSlots + the
+  // writePointFrameUniform globe_eye write + the globeEyeUniform import + comments.
+  'runtime/src/engine/render/point-renderer.ts': 1033,
   // Baselined at 820 (mbx_batch2): lower-label.ts is the label-knob lowering
   // sub-pass extracted from lower.ts; crossed 800 here for the icon-translate
   // accumulators + parse arms + knobs-interface + merge wiring. Cohesive

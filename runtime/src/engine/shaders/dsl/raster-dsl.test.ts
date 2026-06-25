@@ -135,27 +135,45 @@ describe('Phase-2 raster shader — DSL emission (ECEF VS, PR 2d.3)', () => {
 // This is the ONLY GPU-free gate for the hemisphere predicate; the visual
 // confirmation (back hemisphere hidden) is done via headed Chrome.
 import { needsBackfaceCullCpu } from './cpu-projections'
+import { globeEyeUniform } from '../../render/globe-eye-uniform'
+
+// #600 — the globe(7) arm culls by the EYE-HORIZON cap, so it needs a globe_eye.
+// A FAR NADIR eye over (clon, clat) makes the eye direction = the centre normal
+// AND horizonCos = R/|eye| → ~0, so eye-horizon(P) = dot(P̂, normalize(center)) −
+// ~0 = cosC(P, center) — sign AND magnitude match the pre-#600 center_cos_c
+// predicate this #595 block pins. (The pitched-eye behaviour is in
+// back-face-cull-comprehensive's #600 discriminating block.)
+const EARTH_R = 6378137
+function nadirEye(clon: number, clat: number): readonly [number, number, number] {
+  const lam = clon * Math.PI / 180, phi = clat * Math.PI / 180, c = Math.cos(phi)
+  const s = EARTH_R * 1e6
+  return [s * c * Math.cos(lam), s * c * Math.sin(lam), s * Math.sin(phi)]
+}
+// Globe cull with the far-nadir eye over the camera centre (= the strict
+// hemisphere predicate, in eye-horizon form).
+const cullGlobe = (lon: number, lat: number, clon: number, clat: number): number =>
+  needsBackfaceCullCpu(7, lon, lat, clon, clat, globeEyeUniform(nadirEye(clon, clat)) as [number, number, number, number])
 
 describe('back-face predicate — analytic (CPU mirror, #595)', () => {
-  const GLOBE = 7
+  // GLOBE(7) calls route through cullGlobe() (which supplies the #600 eye).
   const MERCATOR = 0
   const ORTHO = 3
 
   it('globe: point at camera centre (face-on) → positive', () => {
     // Camera at (lon=0, lat=0); point directly facing → cos_c = +1
-    const result = needsBackfaceCullCpu(GLOBE, 0, 0, 0, 0)
+    const result = cullGlobe(0, 0, 0, 0)
     expect(result).toBeGreaterThan(0)
   })
 
   it('globe: point at antipode (back-facing) → negative', () => {
     // Camera at (lon=0, lat=0); point at (lon=180, lat=0) → cos_c = -1
-    const result = needsBackfaceCullCpu(GLOBE, 180, 0, 0, 0)
+    const result = cullGlobe(180, 0, 0, 0)
     expect(result).toBeLessThan(0)
   })
 
   it('globe: point at ~90° off-axis (near limb) → near zero', () => {
     // lon=90 from camera at lon=0, same lat → cos_c ≈ 0
-    const result = needsBackfaceCullCpu(GLOBE, 90, 0, 0, 0)
+    const result = cullGlobe(90, 0, 0, 0)
     expect(Math.abs(result)).toBeLessThan(0.01)
   })
 
@@ -183,18 +201,19 @@ describe('back-face predicate — analytic (CPU mirror, #595)', () => {
   // This proves the per-vertex interpolation LEAKS back-hemisphere raster.
   // The per-fragment fix catches it; the per-vertex approach cannot.
   it('DISCRIMINATING counterexample: interior fragment lon=−137.25 lat=41.57 camera clon=0 clat=30 globe → per-fragment cos_c < 0 (must cull), per-vertex bilinear ≈ +0.0029 (would NOT cull)', () => {
-    // Per-fragment result (the fix): must be negative → discard.
-    const perFragment = needsBackfaceCullCpu(GLOBE, -137.25, 41.57, 0, 30)
+    // Per-fragment result (the fix): must be negative → discard. (#600 — globe
+    // cull via the far-nadir eye = the strict cosC predicate; value preserved.)
+    const perFragment = cullGlobe(-137.25, 41.57, 0, 30)
     expect(perFragment).toBeLessThan(0)
     // Verify the value is approximately −0.144 as computed analytically.
     expect(perFragment).toBeCloseTo(-0.144, 2)
 
     // Per-vertex bilinear interpolation (the bug): compute cos_c at the 4
     // tile corners and bilinearly interpolate to the interior point.
-    const sw = needsBackfaceCullCpu(GLOBE, -180,    0,     0, 30)  // uu=0, vv=1 (south)
-    const se = needsBackfaceCullCpu(GLOBE, -90,     0,     0, 30)  // uu=1, vv=1
-    const nw = needsBackfaceCullCpu(GLOBE, -180,    66.51, 0, 30)  // uu=0, vv=0 (north)
-    const ne = needsBackfaceCullCpu(GLOBE, -90,     66.51, 0, 30)  // uu=1, vv=0
+    const sw = cullGlobe(-180,    0,     0, 30)  // uu=0, vv=1 (south)
+    const se = cullGlobe(-90,     0,     0, 30)  // uu=1, vv=1
+    const nw = cullGlobe(-180,    66.51, 0, 30)  // uu=0, vv=0 (north)
+    const ne = cullGlobe(-90,     66.51, 0, 30)  // uu=1, vv=0
 
     // uu = (−137.25 − (−180)) / (−90 − (−180)) = 42.75/90 = 0.475
     // vv = 0 → north, 1 → south. lat=41.57 in [0..66.51] → vv = (66.51−41.57)/66.51 = 0.375
