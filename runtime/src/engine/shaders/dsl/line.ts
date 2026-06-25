@@ -713,11 +713,11 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, (p) =
   })
   If(patDm.lt(1e9), () => { dM.assign(min(dM, patDm)) })
 
-  // Convert to pixels + line-blur AA.
+  // Convert to pixels + dpr-aware edge AA: half-band 0.5/dpr outer + blur inner (#606; line-thin-width-dpr.test).
   const dPx = Let(dM.div(layerMpp))
   const blurPx = max(f32(0), LAYER.field.aa_width_px.sub(1))
-  const aa = f32(0.5).add(blurPx)
-  const alpha = f32(1).sub(smoothstep(aa.neg(), aa, dPx))
+  const halfAa = f32(0.5).div(LAYER.field.dpr)
+  const alpha = f32(1).sub(smoothstep(halfAa.add(blurPx).neg(), halfAa, dPx))
   If(alpha.lt(0.005), () => Discard())
 
   // Per-segment stroke colour override.
