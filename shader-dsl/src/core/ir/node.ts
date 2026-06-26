@@ -261,6 +261,16 @@ export const fract = genType1('fract')
 export const radians = genType1('radians')
 export const degrees = genType1('degrees')
 export const sign = genType1('sign')
+/** `exp2(x)` — 2ˣ, component-wise (the base-2 partner of the existing `log2`). */
+export const exp2 = genType1('exp2')
+/** `trunc(x)` — round toward zero, component-wise. */
+export const trunc = genType1('trunc')
+/** `round(x)` — nearest integer, ties to even (WGSL / GLSL-ES `round` semantics —
+ *  NOT JS `Math.round`, which rounds halves toward +∞). */
+export const round = genType1('round')
+/** `inverseSqrt(x)` — 1/√x, component-wise. Neutral id: GLSL spells it
+ *  `inversesqrt` (see core/intrinsics.ts); WGSL keeps `inverseSqrt`. */
+export const inverseSqrt = genType1('inverseSqrt')
 
 export const atan2 = <K extends string>(y: Node<K>, x: ArithArg<K>): Node<K> => call('atan2', y.type, y, x) as Node<K>
 export const min = <K extends string>(a: Node<K>, b: ArithArg<K>): Node<K> => call('min', binResultType(a.type, lift(b).type, 'min'), a, b) as Node<K>
@@ -274,8 +284,22 @@ export const pow = <K extends string>(a: Node<K>, b: ArithArg<K>): Node<K> => ca
 export const clamp = <K extends string>(x: Node<K>, lo: ArithArg<K>, hi: ArithArg<K>): Node<K> => call('clamp', x.type, x, lo, hi) as Node<K>
 export const mix = <K extends string>(a: Node<K>, b: ArithArg<K>, t: Node<ScalarKey> | number): Node<K> => call('mix', a.type, a, b, t) as Node<K>
 export const smoothstep = (e0: Node<ScalarKey> | number, e1: Node<ScalarKey> | number, x: Node<ScalarKey> | number): Node<'f32'> => { const n = lift(x); return call('smoothstep', elemScalarType(n.type), e0, e1, n) as Node<'f32'> }
+/** `step(edge, x)` — 0 where x < edge, else 1, component-wise. Result is keyed
+ *  by `x` (the genType operand); WGSL needs `edge` and `x` the same type. */
+export const step = <K extends string>(edge: ArithArg<K>, x: Node<K>): Node<K> => call('step', x.type, edge, x) as Node<K>
 export const length = (v: Node<string>): Node<'f32'> => call('length', f32T, v) as Node<'f32'>
 export const dot = (a: Node<string>, b: Node<string>): Node<'f32'> => call('dot', f32T, a, b) as Node<'f32'>
+/** `normalize(v)` — v/|v|; preserves the vector key (vec2/3/4). */
+export const normalize = genType1('normalize')
+/** `distance(a, b)` — |a − b| (vector → scalar), the built-in spelling of the
+ *  hand-rolled `length(a.sub(b))`. */
+export const distance = (a: Node<string>, b: Node<string>): Node<'f32'> => call('distance', f32T, a, b) as Node<'f32'>
+/** `cross(a, b)` — 3-D cross product (vec3 only). */
+export const cross = (a: Node<'vec3<f32>'>, b: Node<'vec3<f32>'>): Node<'vec3<f32>'> => call('cross', vec3fT, a, b) as Node<'vec3<f32>'>
+// NOTE: the GLSL/WGSL builtin `reflect(i, n)` is intentionally NOT added — the
+// name is already taken by the std140 reflection engine (core/reflect.ts), and no
+// shader currently needs vector reflection. Add it under a non-colliding name only
+// when a real call site appears.
 /** Pack a vec4<f32> (each component in [0,1]) into a u32 RGBA8. */
 export const pack4x8unorm = (v: Node<'vec4<f32>'>): Node<'u32'> => call('pack4x8unorm', u32T, v) as Node<'u32'>
 /** Unpack a u32 RGBA8 into a vec4<f32> (each component in [0,1]). */

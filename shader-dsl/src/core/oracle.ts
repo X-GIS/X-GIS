@@ -91,10 +91,21 @@ function applyBin(bop: BinOp, a: CpuValue, b: CpuValue, isI32 = false): CpuValue
 type Builtin = (...args: CpuValue[]) => CpuValue
 const map1 = (f: (x: number) => number): Builtin => (x) => (isArr(x) ? x.map((v) => f(v as number)) : f(x as number))
 
+// WGSL / GLSL-ES `round` rounds halfway cases to the nearest EVEN integer, unlike
+// JS `Math.round` (ties toward +∞). round(2.5)=2, round(3.5)=4, round(-2.5)=-2.
+const roundTiesToEven = (x: number): number => {
+  const f = Math.floor(x), d = x - f
+  if (d < 0.5) return f
+  if (d > 0.5) return f + 1
+  return f % 2 === 0 ? f : f + 1
+}
+
 const BUILTINS: Record<string, Builtin> = {
   sin: map1(Math.sin), cos: map1(Math.cos), tan: map1(Math.tan),
   asin: map1(Math.asin), acos: map1(Math.acos), atan: map1(Math.atan),
   exp: map1(Math.exp), log: map1(Math.log), log2: map1(Math.log2), sqrt: map1(Math.sqrt),
+  exp2: map1((x) => 2 ** x), inverseSqrt: map1((x) => 1 / Math.sqrt(x)),
+  trunc: map1(Math.trunc), round: map1(roundTiesToEven),
   floor: map1(Math.floor), ceil: map1(Math.ceil), abs: map1(Math.abs), sign: map1(Math.sign),
   radians: map1((d) => (d * Math.PI) / 180), degrees: map1((r) => (r * 180) / Math.PI),
   atan2: (y, x) => Math.atan2(y as number, x as number),
@@ -109,8 +120,19 @@ const BUILTINS: Record<string, Builtin> = {
     const t = clampVal((x as number - (e0 as number)) / ((e1 as number) - (e0 as number)), 0, 1) as number
     return t * t * (3 - 2 * t)
   },
+  // step(edge, x) — component-wise; edge may be a scalar broadcast over a vector x.
+  step: (edge, x) => {
+    const s = (e: number, v: number): number => (v < e ? 0 : 1)
+    return isArr(x) ? (x as number[]).map((v, i) => s(isArr(edge) ? (edge[i] as number) : (edge as number), v as number)) : s(edge as number, x as number)
+  },
   length: (v) => Math.sqrt((v as number[]).reduce((s, c) => s + (c as number) * (c as number), 0)),
   dot: (a, b) => (a as number[]).reduce((s, c, i) => s + (c as number) * ((b as number[])[i] as number), 0),
+  distance: (a, b) => Math.sqrt((a as number[]).reduce((s, c, i) => { const d = (c as number) - ((b as number[])[i] as number); return s + d * d }, 0)),
+  normalize: (v) => { const a = v as number[]; const l = Math.sqrt(a.reduce((s, c) => s + (c as number) * (c as number), 0)); return a.map((c) => (c as number) / l) },
+  cross: (a, b) => {
+    const u = a as number[], w = b as number[]
+    return [u[1]! * w[2]! - u[2]! * w[1]!, u[2]! * w[0]! - u[0]! * w[2]!, u[0]! * w[1]! - u[1]! * w[0]!]
+  },
   f32: (x) => Number(x),
   i32: (x) => Math.trunc(x as number),
   u32: (x) => Math.trunc(x as number) >>> 0,
