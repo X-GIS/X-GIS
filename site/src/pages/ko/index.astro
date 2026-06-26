@@ -1,0 +1,58 @@
+---
+import Base from '../../layouts/Base.astro'
+import Header from '../../components/Header.astro'
+import Footer from '../../components/Footer.astro'
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+---
+
+<Base
+  title="X-GIS — 카토그래피를 위한 언어"
+  description="지도를 어떻게 그릴지 선언하면, 컴파일러가 최적화된 WebGPU 셰이더를 만들어 냅니다. X-GIS는 GPU 우선 지도 엔진입니다."
+>
+  <Header />
+  <main class="pt-28 sm:pt-40 pb-32">
+    <div class="max-w-[920px] mx-auto px-6">
+      <header class="mb-20 sm:mb-28">
+        <p class="font-mono text-[12px] tracking-[0.22em] uppercase text-accent mb-4">한국어</p>
+        <h1 class="font-display font-semibold uppercase text-fg leading-[0.92] tracking-[0.01em] text-[52px] sm:text-[76px] lg:text-[92px]">
+          지도를 선언하면,<br />GPU가 그린다.
+        </h1>
+        <p class="mt-7 text-[17px] sm:text-[20px] leading-[1.6] text-fg-dim max-w-[660px]">
+          X-GIS는 선언적 스타일 언어를 진짜 컴파일러로 처리해 최적화된 WebGPU
+          셰이더로 바꾸는 <strong class="text-fg">GPU 우선 지도 엔진</strong>입니다.
+          타입드 셰이더 IR, 3D 글로브 지오데시, WebGL2 폴백까지.
+        </p>
+        <div class="mt-9 flex flex-wrap gap-3">
+          <a href={`${base}/docs`} class="inline-flex items-center rounded-full bg-accent text-[var(--on-sienna)] px-5 py-2.5 text-[14px] font-medium hover:bg-accent-hover transition-colors">
+            문서 보기
+          </a>
+          <a href={`${base}/examples`} class="inline-flex items-center rounded-full border border-line px-5 py-2.5 text-[14px] text-fg hover:border-accent hover:text-accent transition-colors">
+            예제
+          </a>
+        </div>
+      </header>
+
+      <section class="grid sm:grid-cols-3 gap-8 sm:gap-10 border-t border-line pt-12">
+        <div>
+          <h2 class="font-display font-semibold text-fg text-[22px] mb-2">컴파일러</h2>
+          <p class="text-[15px] leading-[1.6] text-fg-dim">선언적 스타일 → 렉서·파서·IR·옵티마이저 → GPU 프로그램. 상수는 접고, data-driven 페인트는 compute 커널로.</p>
+        </div>
+        <div>
+          <h2 class="font-display font-semibold text-fg text-[22px] mb-2">셰이더 IR</h2>
+          <p class="text-[15px] leading-[1.6] text-fg-dim">하나의 타입드 IR에서 WebGPU용 WGSL과 WebGL2용 GLSL을 함께 emit. CSE·상수접기·DCE 옵티마이저 내장.</p>
+        </div>
+        <div>
+          <h2 class="font-display font-semibold text-fg text-[22px] mb-2">3D 글로브</h2>
+          <p class="text-[15px] leading-[1.6] text-fg-dim">ECEF·타원체 지오이드·정밀도 수학(RTC, 로그 깊이)으로 도시부터 궤도까지 한 프레임에 또렷하게.</p>
+        </div>
+      </section>
+
+      <p class="mt-16 text-[13px] text-fg-mute border-t border-line pt-6">
+        한국어 콘텐츠를 순차적으로 추가하는 중입니다. 자세한 문서는 현재 영어로 제공됩니다 —
+        <a href={`${base}/docs`} class="text-accent underline underline-offset-2">/docs</a>.
+      </p>
+    </div>
+  </main>
+  <Footer />
+</Base>

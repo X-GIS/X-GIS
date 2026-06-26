@@ -15,6 +15,7 @@ const examplesUrl = `${base}/examples`
 const convertUrl = `${base}/convert`
 const blueprintUrl = `${base}/blueprint`
 const shaderUrl = `${base}/shader-dsl`
+const blogUrl = `${base}/blog`
 
 // Active top-nav highlight. Checked by path substring (base-prefix agnostic); shader-dsl is
 // tested BEFORE examples so /shader-dsl/examples lights "Shaders", not "Examples".
@@ -25,6 +26,7 @@ const activeSeg =
   : path.includes('/examples') ? 'examples'
   : path.includes('/blueprint') ? 'blueprint'
   : path.includes('/convert') ? 'convert'
+  : path.includes('/blog') ? 'blog'
   : ''
 const navCls = (key: string): string =>
   key === activeSeg ? 'text-accent font-medium' : 'hover:text-accent transition-colors'
@@ -50,6 +52,7 @@ const navCls = (key: string): string =>
       <a href={shaderUrl} class={navCls('shaders')}>Shaders</a>
       <a href={blueprintUrl} class={navCls('blueprint')}>Blueprint</a>
       <a href={convertUrl} class={navCls('convert')}>Convert</a>
+      <a href={blogUrl} class={navCls('blog')}>Blog</a>
       <a href={`${home}#install`} class="hover:text-accent transition-colors">Install</a>
       <a href={githubUrl} target="_blank" rel="noopener" class="hover:text-accent transition-colors">GitHub</a>
     </nav>

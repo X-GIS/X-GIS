@@ -12,6 +12,16 @@ const isCI = !!process.env.GITHUB_ACTIONS
 export default defineConfig({
   site: 'https://x-gis.github.io',
   base: isCI ? '/X-GIS' : '/',
+  // English is the default and stays at the root (/docs, /blog, …);
+  // Korean is served under /ko (/ko/docs, /ko/blog, …). prefixDefaultLocale:
+  // false keeps every existing en route unchanged — i18n is purely additive
+  // until the /ko content is filled in. Use Astro.currentLocale + getRelativeLocaleUrl
+  // in components for the language toggle.
+  i18n: {
+    defaultLocale: 'en',
+    locales: ['en', 'ko'],
+    routing: { prefixDefaultLocale: false },
+  },
   integrations: [
     // Build-time syntax highlighting (Shiki under the hood) + frame
     // chrome (language label, copy button, optional file caption /
