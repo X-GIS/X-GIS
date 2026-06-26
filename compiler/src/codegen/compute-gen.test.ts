@@ -354,8 +354,10 @@ describe('compute-gen — emitInterpolateComputeKernel', () => {
         { input: 10, colorHex: '#00ff00' },
       ],
     })
-    expect(k.wgsl).toContain('if (v_rank <= 0.0)')
-    expect(k.wgsl).toMatch(/color = vec4<f32>\(1\.0, 0\.0, 0\.0, 1\.0\);/)
+    // IR-emitted (CSE-hoisted colours, auto-named temps) — assert the CONTRACT, not
+    // the temp names; the full WGSL is locked by compute-gen-wgsl-snapshot.test.ts.
+    expect(k.wgsl).toMatch(/<= 0\.0\)/)                       // first-stop boundary
+    expect(k.wgsl).toContain('vec4<f32>(1.0, 0.0, 0.0, 1.0)') // c0 (#ff0000)
   })
 
   it('emits piecewise mix() between adjacent stops', () => {
@@ -366,8 +368,8 @@ describe('compute-gen — emitInterpolateComputeKernel', () => {
         { input: 10, colorHex: '#00ff00' },
       ],
     })
-    expect(k.wgsl).toContain('let t = (v_rank - 0.0) / 10.0;')
-    expect(k.wgsl).toContain('color = mix(')
+    expect(k.wgsl).toContain('mix(')   // piecewise lerp between adjacent stops
+    expect(k.wgsl).toContain('/ 10.0') // normalised by the stop span (t = (v − s0)/10, s0=0 folded out)
   })
 
   it('clamps right above the last stop (v > sN → cN)', () => {
@@ -378,9 +380,9 @@ describe('compute-gen — emitInterpolateComputeKernel', () => {
         { input: 10, colorHex: '#00ff00' },
       ],
     })
-    // The trailing else uses the LAST stop's colour. Match against
-    // (0,1,0,1) which is #00ff00.
-    expect(k.wgsl).toMatch(/else \{ color = vec4<f32>\(0\.0, 1\.0, 0\.0, 1\.0\);/)
+    // The trailing else uses the LAST stop's colour (0,1,0,1 = #00ff00), CSE-hoisted.
+    expect(k.wgsl).toContain('else')
+    expect(k.wgsl).toContain('vec4<f32>(0.0, 1.0, 0.0, 1.0)')
   })
 
   it('emits middle ranges in ascending stop order (3-stop ramp)', () => {
@@ -404,12 +406,12 @@ describe('compute-gen — emitInterpolateComputeKernel', () => {
       stops: [{ input: 5, colorHex: '#ff0000' }],
     })
     expect(k.wgsl).not.toContain('mix(')
-    expect(k.wgsl).toContain('color = vec4<f32>(1.0, 0.0, 0.0, 1.0);')
+    expect(k.wgsl).toContain('vec4<f32>(1.0, 0.0, 0.0, 1.0)')
   })
 
   it('empty stops emits transparent fallback (degenerate but valid)', () => {
     const k = emitInterpolateComputeKernel({ fieldName: 'x', stops: [] })
-    expect(k.wgsl).toContain('color = vec4<f32>(0.0, 0.0, 0.0, 0.0);')
+    expect(k.wgsl).toContain('vec4<f32>(0.0, 0.0, 0.0, 0.0)')
     expect(k.wgsl).toContain('@compute @workgroup_size(64)')
   })
 
@@ -427,7 +429,8 @@ describe('compute-gen — emitInterpolateComputeKernel', () => {
       fieldName: 'x',
       stops: [{ input: 0, colorHex: '#fff' }, { input: 1, colorHex: '#000' }],
     })
-    expect(k.wgsl).toContain('out_color[fid] = pack4x8unorm(color);')
+    expect(k.wgsl).toContain('pack4x8unorm(')
+    expect(k.wgsl).toContain('out_color[')
   })
 
   it('sets entryPoint to "eval_interpolate" in returned metadata', () => {
