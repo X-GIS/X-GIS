@@ -1,0 +1,45 @@
+---
+// Beat 2 · "What is X-GIS" — the one-line definition, then three concrete
+// cards naming what it actually is: a declarative language, a GPU
+// compiler, a real 3D globe. Short and concrete — every claim is backed
+// by a later beat (the compiler beat, the shaders beat) or a live demo
+// (the hero globe, the gallery). Composed on the kit so the rhythm and
+// type match every other section.
+import { ContentBand, SectionHead, Card } from '@/components/kit'
+
+const cards = [
+  {
+    tag: 'Language',
+    title: 'A declarative language.',
+    body: 'Write fill-zinc-200, stroke-1, opacity-80 — the source reads like the map you see. No imperative setter chains, no callback graph. A .xgis file is the whole style.',
+  },
+  {
+    tag: 'Compiler',
+    title: 'A GPU compiler.',
+    body: 'X-GIS compiles that source to WGSL shaders, buffer layouts, projection math, and a render plan — optimized at compile time. You never hand-write a vertex shader.',
+  },
+  {
+    tag: 'Engine',
+    title: 'A real 3D globe.',
+    body: 'It renders to a true ellipsoidal globe and seven projections. One source goes from a flat Mercator map to an orthographic globe on a uniform write — no re-tessellation.',
+  },
+]
+---
+
+<ContentBand id="what">
+  <SectionHead num="02" eyebrow="What It Is"
+    title="A language, a compiler, and a globe."
+    lead="X-GIS is three things in one project: a way to describe a map, the compiler that turns that description into GPU programs, and the engine that draws it — flat or on a globe." />
+
+  <div class="grid sm:grid-cols-3 gap-4 lg:gap-5 mt-14 lg:mt-18">
+    {cards.map(c => (
+      <Card padding="p-6" class="flex flex-col">
+        <span class="font-mono text-[11px] tracking-[0.16em] uppercase text-fg-mute mb-5">{c.tag}</span>
+        <h3 class="text-[20px] sm:text-[22px] font-normal text-fg leading-[1.3] tracking-[-0.01em] mb-3">
+          {c.title}
+        </h3>
+        <p class="text-[14.5px] leading-[1.65] text-fg-dim">{c.body}</p>
+      </Card>
+    ))}
+  </div>
+</ContentBand>

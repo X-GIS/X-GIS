@@ -1,0 +1,86 @@
+---
+// Beat 4 · "xgis becomes GPU shaders" — the direct analog of TypeScript's
+// "TS becomes JS". The honest, load-bearing claim: ONE typed shader IR
+// emits BOTH WGSL (WebGPU) and GLSL ES 3.00 (the WebGL2 fallback), run
+// through a real optimizer first. We state it confidently and link to
+// the live playground (/shader-dsl) rather than printing invented shader
+// text — the playground emits the real WGSL/GLSL the visitor can read.
+// (REBUILD §6 — Shader IR is TRUE: @xgis/shader-dsl.)
+import { ContentBand, SectionHead, Card } from '@/components/kit'
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const shaderUrl = `${base}/shader-dsl`
+
+// Real optimizer passes — each is a file under
+// shader-dsl/src/core/passes/opt/. Named as labels, run before emit.
+const passes = ['const-fold', 'copy-prop', 'CSE', 'LICM', 'DCE']
+
+// The two real backends the one IR targets.
+const targets = [
+  {
+    name: 'WGSL',
+    runtime: 'WebGPU',
+    note: 'The primary path — the modern GPU API. Emitted from the IR, byte-stable across builds.',
+  },
+  {
+    name: 'GLSL ES 3.00',
+    runtime: 'WebGL2 fallback',
+    note: 'The same IR, the same program — re-emitted as #version 300 es so the map still runs where WebGPU is absent.',
+  },
+]
+---
+
+<ContentBand id="shaders">
+  <SectionHead num="04" eyebrow="It Becomes Shaders"
+    title="One IR. Two GPU targets."
+    lead="TypeScript becomes JavaScript. X-GIS becomes GPU shaders. A single typed shader IR is optimized once, then emitted to two backends — so the same map runs on WebGPU and falls back to WebGL2 without a rewrite." />
+
+  <div class="mt-14 lg:mt-18">
+    <!-- The fan-out: one IR → optimizer → two real backends. Built from
+         the kit Card + tokens only; reads as a ledger, not a diagram. -->
+    <div class="grid lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1.4fr)] gap-5 lg:gap-6 items-stretch">
+      <!-- source: one IR -->
+      <Card padding="p-6" class="flex flex-col justify-center">
+        <span class="font-mono text-[11px] tracking-[0.16em] uppercase text-fg-mute mb-4">Source</span>
+        <p class="text-[20px] font-normal text-fg leading-[1.3] tracking-[-0.01em] mb-2">One typed IR.</p>
+        <p class="text-[14px] leading-[1.6] text-fg-dim">
+          The compiler builds a single intermediate representation of every shader — typed,
+          backend-agnostic, optimized before either target is touched.
+        </p>
+        <div class="mt-5 flex flex-wrap gap-1.5">
+          {passes.map(p => (
+            <span class="font-mono text-[11px] text-fg-dim border border-line rounded-full px-2.5 py-1">{p}</span>
+          ))}
+        </div>
+      </Card>
+
+      <!-- the split — a quiet branch glyph (hidden on mobile where the
+           stack already implies the fan-out). -->
+      <div class="hidden lg:flex items-center justify-center px-1" aria-hidden="true">
+        <svg viewBox="0 0 48 120" width="48" height="120" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" class="text-line-strong">
+          <path d="M2 60 H22" />
+          <path d="M22 60 V24 H46" />
+          <path d="M22 60 V96 H46" />
+        </svg>
+      </div>
+
+      <!-- two targets -->
+      <div class="grid sm:grid-cols-2 gap-4 lg:gap-5">
+        {targets.map(t => (
+          <Card padding="p-6" class="flex flex-col">
+            <span class="font-mono text-[11px] tracking-[0.16em] uppercase text-fg-mute mb-4">{t.runtime}</span>
+            <p class="font-mono text-[17px] text-fg leading-[1.3] mb-3">{t.name}</p>
+            <p class="text-[13.5px] leading-[1.6] text-fg-dim mt-auto">{t.note}</p>
+          </Card>
+        ))}
+      </div>
+    </div>
+
+    <div class="mt-10">
+      <a href={shaderUrl} class="inline-flex items-center gap-2 text-accent hover:text-accent-hover text-[15px] font-medium transition-colors">
+        See both emitted, live — the shader playground
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+      </a>
+    </div>
+  </div>
+</ContentBand>
