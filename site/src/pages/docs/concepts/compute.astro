@@ -350,6 +350,29 @@ const initialPreset = presets[0]
       </div>
     </details>
 
+    <details class="stage-card group">
+      <summary class="stage-summary">
+        <span class="stage-num">7b</span>
+        <span class="stage-title">Full assembled shader</span>
+        <span class="stage-sub">runtime geometry composer · @xgis/shader-dsl emitModule</span>
+        <span class="stage-arrow"></span>
+      </summary>
+      <div class="stage-body">
+        <p class="text-fg-dim text-[12px] leading-[1.55] mb-3 max-w-[820px]">
+          The COMPLETE WGSL the runtime hands to WebGPU — the geometry shader (vertex +
+          fragment + projection / log-depth / back-face cull) the runtime authors in
+          <code class="font-mono text-[11px]">@xgis/shader-dsl</code>, per geometry kind.
+          <strong class="text-fg">Polygon</strong> splices the first render node's compiled
+          fill / stroke paint (it is the one composer that takes a
+          <code class="font-mono text-[11px]">ShaderVariant</code>); line / point / raster /
+          text show their base template — their paint is applied through their own path.
+          Stages 7 + 8 above are the <em>fragments</em> that get spliced in here.
+        </p>
+        <div id="full-shader-tabs" class="flex flex-wrap gap-1 mb-2"></div>
+        <pre id="out-full-shader" class="stage-pre"></pre>
+      </div>
+    </details>
+
     <details class="stage-card group" open>
       <summary class="stage-summary">
         <span class="stage-num">8</span>
@@ -984,6 +1007,15 @@ const initialPreset = presets[0]
     // WGSL by delegating to @xgis/shader-dsl's emitExpr (the same DSL the runtime's
     // geometry shaders are authored in). Without this they stringify to '[object Object]'.
     import { nodeToWgslString } from '../../../../../compiler/src/codegen/node-to-wgsl'
+    // Runtime geometry composers — the FULL shader the runtime hands to WebGPU. Only
+    // emitPolygonWgsl takes a ShaderVariant (splices the compiled fill/stroke paint);
+    // the rest emit their base geometry template. All are pure @xgis/shader-dsl emit
+    // (no GPU), so they run in the browser like the compiler stages above.
+    import { emitPolygonWgsl } from '../../../../../runtime/src/engine/shaders/dsl/polygon'
+    import { emitLineWgsl } from '../../../../../runtime/src/engine/shaders/dsl/line'
+    import { emitPointWgsl } from '../../../../../runtime/src/engine/shaders/dsl/point'
+    import { emitRasterWgsl } from '../../../../../runtime/src/engine/shaders/dsl/raster'
+    import { emitTextWgsl } from '../../../../../runtime/src/engine/shaders/dsl/text'
 
     const presetSources = (window as unknown as { __xgisComputePresets: Record<string, string> }).__xgisComputePresets
 
@@ -1013,6 +1045,8 @@ const initialPreset = presets[0]
     const $outRenderShader = document.getElementById('out-render-shader') as HTMLElement
     const $renderShaderTabs = document.getElementById('render-shader-tabs') as HTMLElement
     const $badgeRenderShaders = document.getElementById('badge-render-shaders') as HTMLElement
+    const $fullShaderTabs = document.getElementById('full-shader-tabs') as HTMLElement
+    const $outFullShader = document.getElementById('out-full-shader') as HTMLElement
 
     function setError(msg: string) {
       $errBadge.textContent = msg
@@ -1756,6 +1790,46 @@ const initialPreset = presets[0]
       $outRenderShader.innerHTML = highlightWgsl(activeWgsl)
     }
 
+    // ── Stage 7b — full assembled geometry shaders ──
+    // Calls the runtime's per-geometry composers. Polygon takes the compiled
+    // ShaderVariant (splices the fill/stroke paint); the others emit their base
+    // template. Each call is guarded — a composer that throws shows the message
+    // instead of blanking the stage.
+    function renderFullShaderTabs(variant: unknown): void {
+      const geos: Array<{ label: string; emit: () => string }> = [
+        { label: 'polygon (+ paint)', emit: () => emitPolygonWgsl(variant as never, false) },
+        { label: 'line', emit: () => emitLineWgsl(false) },
+        { label: 'point', emit: () => emitPointWgsl() },
+        { label: 'raster', emit: () => emitRasterWgsl(false) },
+        { label: 'text', emit: () => emitTextWgsl() },
+      ]
+      $fullShaderTabs.innerHTML = ''
+      let first = true
+      let activeWgsl = ''
+      for (const g of geos) {
+        let wgsl: string
+        try {
+          wgsl = g.emit()
+        } catch (e) {
+          wgsl = `// ${g.label} composer threw:\n// ${(e as Error).message}`
+        }
+        const text = wgsl
+        const btn = document.createElement('button')
+        btn.type = 'button'
+        btn.className = 'kernel-tab' + (first ? ' active' : '')
+        btn.textContent = g.label
+        btn.addEventListener('click', () => {
+          $fullShaderTabs.querySelectorAll('.kernel-tab').forEach(b => b.classList.remove('active'))
+          btn.classList.add('active')
+          $outFullShader.innerHTML = highlightWgsl(text)
+        })
+        if (first) activeWgsl = wgsl
+        first = false
+        $fullShaderTabs.appendChild(btn)
+      }
+      $outFullShader.innerHTML = highlightWgsl(activeWgsl)
+    }
+
     function compile(src: string): void {
       const t0 = performance.now()
       try {
@@ -1880,6 +1954,8 @@ const initialPreset = presets[0]
           })
         }
         renderRenderShaderTabs(renderShaderViews)
+        // Stage 7b — full geometry shaders; polygon splices the first node's variant.
+        renderFullShaderTabs(shows[0]?.shaderVariant ?? null)
 
         const plan = commands.computePlan ?? []
         $statEntries.textContent = String(plan.length)
