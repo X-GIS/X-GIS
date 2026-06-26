@@ -1,0 +1,251 @@
+---
+import Docs from '../../../layouts/Docs.astro'
+import GlobeDemo from '../../../components/react/GlobeDemo.tsx'
+import { FeatureRow } from '@/components/kit'
+import SeeAlso from '../../../components/SeeAlso.astro'
+import SpecLinks from '../../../components/SpecLinks.astro'
+
+// Globe & 3D — the product-identity concept page (REBUILD §9, P2: "Globe
+// first — the identity"). Built on the xAI kit + the Docs chrome (nav,
+// TOC, prev/next), matching the existing concept pages (rtc, projections)
+// so it slots into the Concepts sidebar group.
+//
+// Honesty (REBUILD §6): every claim below is TRUE against the codebase —
+// ECEF positioning, the WGS84 ellipsoid vertex / sphere camera split and
+// its ~21 km geoid seam, one-source-any-projection (globe + 7 flat),
+// RTC + logarithmic depth, and per-fragment inverse-Mercator raster drape.
+// Terrain / 3D-tiles / streaming+LOD / fly-to are flagged as ROADMAP, not
+// shipped, and link the repo ROADMAP.md.
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const repo = 'https://github.com/X-GIS/X-GIS'
+
+// On-this-page TOC — matches the <h2> ids below.
+const headings = [
+  { depth: 2, slug: 'the-render', text: 'The render' },
+  { depth: 2, slug: 'real-3d',    text: 'A real 3D globe' },
+  { depth: 2, slug: 'ellipsoid',  text: 'The ellipsoidal geoid' },
+  { depth: 2, slug: 'one-source', text: 'One source, any projection' },
+  { depth: 2, slug: 'precision',  text: 'Precision: the hard problem' },
+  { depth: 2, slug: 'raster',     text: 'Raster on the globe' },
+  { depth: 2, slug: 'roadmap',    text: 'Where it is going' },
+]
+---
+
+<Docs
+  current="concepts/globe"
+  title="X-GIS — Globe & 3D"
+  description="X-GIS's identity: a real 3D globe. Geometry positioned in ECEF, the WGS84 ellipsoid, one source rendered as the globe or seven flat projections, kept f32-precise from city streets to orbit by RTC and a logarithmic depth buffer."
+  headings={headings}
+>
+  <header class="mb-12">
+    <p class="font-mono text-[11px] tracking-[0.2em] uppercase text-accent mb-3">
+      Concept
+    </p>
+    <h1 class="font-display font-semibold uppercase text-fg leading-[0.95] tracking-[0.01em] text-[38px] sm:text-[52px] lg:text-[64px]">
+      A real 3D globe.
+    </h1>
+    <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[700px]">
+      X-GIS renders a Google-Earth-style globe — not a flat map bent into
+      a sphere. Geometry lives in 3D Earth-Centered coordinates and the
+      camera orbits the planet. The same source data renders as the globe
+      or as seven flat projections.
+    </p>
+  </header>
+
+  <!-- ── Hero visual: the live globe (React island) ── -->
+  <div class="mb-16">
+    <GlobeDemo client:visible base={base} />
+  </div>
+
+  <article class="space-y-4 text-[15px] sm:text-[16px] leading-[1.65] text-fg-dim">
+
+    <section id="the-render">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        The render
+      </h2>
+      <p class="mb-4">
+        The globe above is a live X-GIS render compiling in your browser —
+        the same runtime that powers the home page hero. One small
+        <code class="font-mono text-fg">.xgis</code> source declares a land
+        layer; X-GIS compiles it to GPU shaders and draws it on the sphere.
+        Drag to orbit, scroll to zoom. Everything below explains how the
+        globe actually works — each claim is true of the engine, with the
+        not-yet-built parts marked as roadmap.
+      </p>
+    </section>
+
+    <!-- ── FeatureRow ledger: each TRUE capability, one row ── -->
+    <section id="real-3d" class="pt-6">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        A real 3D globe
+      </h2>
+
+      <FeatureRow num="01" title="Geometry lives in ECEF">
+        Vertices are positioned in <strong class="text-fg">ECEF</strong> —
+        Earth-Centered, Earth-Fixed 3D coordinates, the origin at the
+        planet's center. This is a true 3D scene with an orbit camera, not
+        a 2D map texture wrapped onto a ball. Tilt is a real camera tilt;
+        the horizon is a real horizon.
+      </FeatureRow>
+
+      <FeatureRow num="02" title="The camera orbits the planet">
+        Drag rotates the globe, scroll zooms toward the surface, a
+        two-finger vertical drag tilts (pitch). Because the scene is
+        genuinely 3D, pitch is an actual tilt of the view — not a flattened
+        disc like the orthographic projection's "globe-like" look.
+      </FeatureRow>
+    </section>
+
+    <section id="ellipsoid" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        The ellipsoidal geoid
+      </h2>
+
+      <FeatureRow num="03" title="Earth is the WGS84 ellipsoid, not a sphere">
+        The planet is modeled as the <strong class="text-fg">WGS84
+        ellipsoid</strong> — flattened at the poles, bulging at the equator
+        — not a perfect sphere. Vertex math is done on the ellipsoid so
+        positions land where the datum says they should.
+      </FeatureRow>
+
+      <FeatureRow num="04" title="The geoid seam (~21 km), handled">
+        X-GIS keeps vertex math on the ellipsoid while the camera uses a
+        sphere model. The gap between the two — about
+        <strong class="text-fg">21 km</strong> between the equatorial and
+        polar radius — is the "geoid seam," and the engine accounts for it
+        rather than letting vertices and camera disagree.
+      </FeatureRow>
+    </section>
+
+    <section id="one-source" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        One source, any projection
+      </h2>
+      <p class="mb-2 max-w-[700px]">
+        The same data renders as the globe <em>or</em> as a flat map —
+        sphere to plane and back, from one source, no re-tessellation.
+      </p>
+
+      <FeatureRow num="05" title="The globe plus seven flat projections">
+        Switch between the 3D globe and seven flat projections —
+        <strong class="text-fg">Mercator</strong>, Natural Earth,
+        Orthographic, Stereographic, Azimuthal Equidistant,
+        Equirectangular, and Oblique Mercator. The source data is stored
+        once; the projection is chosen per frame.
+      </FeatureRow>
+
+      <p class="pt-6 text-[14px]">
+        The mechanics of that switch — why it's a single uniform write with
+        no re-tiling — are covered in
+        <a href={`${base}/docs/concepts/projections`} class="text-accent hover:text-accent-hover transition-colors">Projection switching</a>.
+      </p>
+    </section>
+
+    <section id="precision" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        Precision: the hard problem
+      </h2>
+      <p class="mb-2 max-w-[700px]">
+        A planet is enormous and the GPU works in 32-bit floats, which lose
+        precision at street scale. Two mechanisms keep the globe sharp from
+        a city block out to orbit.
+      </p>
+
+      <FeatureRow num="06" title="RTC keeps geometry f32-precise">
+        <strong class="text-fg">RTC</strong> (relative-to-center) expresses
+        geometry relative to a nearby anchor instead of the planet's center,
+        so coordinates stay small and f32 keeps its precision — from city
+        streets up to an orbital view. The full coordinate scheme is in
+        <a href={`${base}/docs/concepts/rtc`} class="text-accent hover:text-accent-hover transition-colors">RTC + DSFUN precision</a>.
+      </FeatureRow>
+
+      <FeatureRow num="07" title="A logarithmic depth buffer">
+        Near geometry (a city street) and far geometry (the horizon, orbit)
+        have to render in one frame without z-fighting. X-GIS uses a
+        <strong class="text-fg">logarithmic depth buffer</strong> so that
+        enormous near-to-far range resolves cleanly in a single pass.
+      </FeatureRow>
+    </section>
+
+    <section id="raster" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        Raster on the globe
+      </h2>
+
+      <FeatureRow num="08" title="Per-fragment inverse-Mercator drape">
+        Raster tiles are draped onto the sphere with a
+        <strong class="text-fg">per-fragment inverse-Mercator</strong>:
+        each fragment inverts the Mercator projection so the imagery lands
+        in the right place on the curved surface, instead of stretching a
+        flat texture across it.
+      </FeatureRow>
+    </section>
+
+    <section id="roadmap" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        Where it is going
+      </h2>
+      <div class="rounded-[8px] bg-bg-card border border-line p-5 sm:p-6 mb-4">
+        <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-fg-mute mb-3">
+          Roadmap · not yet shipped
+        </p>
+        <p class="mb-4 text-[14px] sm:text-[15px]">
+          These are planned, not built. They are on the roadmap, not in the
+          engine today:
+        </p>
+        <ul class="space-y-2.5 text-[14px] sm:text-[15px]">
+          <li class="flex items-baseline gap-3">
+            <span class="font-mono text-[11px] text-fg-mute pt-0.5 flex-shrink-0">→</span>
+            <span><strong class="text-fg">Terrain</strong> — elevation on the surface.</span>
+          </li>
+          <li class="flex items-baseline gap-3">
+            <span class="font-mono text-[11px] text-fg-mute pt-0.5 flex-shrink-0">→</span>
+            <span><strong class="text-fg">3D tiles</strong> — streamed 3D mesh content.</span>
+          </li>
+          <li class="flex items-baseline gap-3">
+            <span class="font-mono text-[11px] text-fg-mute pt-0.5 flex-shrink-0">→</span>
+            <span><strong class="text-fg">Streaming + LOD</strong> — level-of-detail loading at planet scale.</span>
+          </li>
+          <li class="flex items-baseline gap-3">
+            <span class="font-mono text-[11px] text-fg-mute pt-0.5 flex-shrink-0">→</span>
+            <span><strong class="text-fg">Fly-to camera</strong> — animated camera moves across the globe.</span>
+          </li>
+        </ul>
+        <p class="mt-5 text-[13.5px]">
+          Tracked in the repo
+          <a href={`${repo}/blob/main/ROADMAP.md`} target="_blank" rel="noopener" class="text-accent hover:text-accent-hover transition-colors">ROADMAP.md ↗</a>.
+        </p>
+      </div>
+    </section>
+
+    <!-- ── See it live ── -->
+    <section class="border-t border-line pt-12">
+      <h2 class="text-[20px] font-medium text-fg leading-[1.2] tracking-[-0.015em] mb-3">
+        See it live
+      </h2>
+      <p class="mb-4">
+        The globe at the top of this page is the real thing. For the full
+        experience — the globe cycling through every projection from one
+        source — open the
+        <a href={`${base}/`} class="text-accent hover:text-accent-hover transition-colors">home page hero</a>,
+        or explore real maps in the
+        <a href={`${base}/examples`} class="text-accent hover:text-accent-hover transition-colors">examples gallery</a>.
+      </p>
+    </section>
+
+  </article>
+
+  <SpecLinks specs={[
+    { body: 'EPSG', title: 'EPSG:4326 WGS 84 (the ellipsoid + lon/lat datum)', url: 'https://epsg.io/4326' },
+    { body: 'EPSG', title: 'EPSG:3857 Web Mercator', url: 'https://epsg.io/3857' },
+    { body: 'NGA',  title: 'WGS 84 — the world geodetic system', url: 'https://earth-info.nga.mil/index.php?dir=wgs84&action=wgs84' },
+    { body: 'W3C',  title: 'WGSL specification', url: 'https://www.w3.org/TR/WGSL/' },
+  ]} />
+
+  <SeeAlso links={[
+    { label: 'Projection switching', href: `${base}/docs/concepts/projections`, body: 'The globe and seven flat projections from one source — a single uniform write.' },
+    { label: 'RTC + DSFUN precision', href: `${base}/docs/concepts/rtc`, body: 'How a vertex stays f32-precise from city streets to orbit.' },
+    { label: 'JavaScript API', href: `${base}/docs/api`, body: '`setProjection("globe")`, the camera, and the embedding surface.' },
+  ]} />
+</Docs>
