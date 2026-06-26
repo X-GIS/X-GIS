@@ -158,13 +158,15 @@ describe('continent-match.xgis — compute path opt-in', () => {
     expect(entry.categoryOrder['CONTINENT']).toContain('Antarctica')
   })
 
-  it('kernel WGSL has 7 comparisons + a default branch', () => {
+  it('kernel WGSL has 7 switch cases + a default branch', () => {
     const cmds = compileFixture(true)
     const kernel = cmds.computePlan![0]!.kernel
     expect(kernel.entryPoint).toBe('eval_match')
-    // One `==` comparison per arm — alphabetical IDs 0..6.
-    const compareCount = (kernel.wgsl.match(/v_CONTINENT == /g) ?? []).length
-    expect(compareCount).toBe(7)
+    // 7 arms < MATCH_LUT_THRESHOLD → a WGSL switch: one `case N:` per arm
+    // (alphabetical IDs 0..6) + a default.
+    const caseCount = (kernel.wgsl.match(/case \d+:/g) ?? []).length
+    expect(caseCount).toBe(7)
+    expect(kernel.wgsl).toContain('default:')
   })
 })
 
