@@ -25,15 +25,15 @@ const cards = [
 ]
 ---
 
-<section id="language" class="relative py-28 sm:py-36 lg:py-44 border-t border-line">
-  <span class="absolute -top-[9px] left-6 xl:left-[136px] px-2 bg-bg font-mono text-[10px] tracking-[0.18em] uppercase text-fg-faint">
-    The Language
-  </span>
+<section id="language" class="relative py-20 sm:py-32 lg:py-40 border-t border-line">
 
   <div class="max-w-[1100px] mx-auto px-6">
     <div class="max-w-[840px] mb-14 lg:mb-18">
-      <h2 class="font-display font-semibold uppercase text-fg leading-[0.92] tracking-[0.01em]
-                 text-[36px] sm:text-[56px] lg:text-[76px]">
+      <p class="font-mono uppercase tracking-[0.18em] text-[12px] text-fg-mute mb-6">
+        02 · The Language
+      </p>
+      <h2 class="font-display font-normal text-fg leading-[1.02] tracking-[-0.02em]
+                 text-[40px] sm:text-[52px] lg:text-[64px]">
         Write the map.<br />Read the program.
       </h2>
       <p class="mt-6 text-[17px] sm:text-[19px] leading-[1.55] text-fg-dim max-w-[640px]">
@@ -45,10 +45,9 @@ const cards = [
 
     <div class="grid lg:grid-cols-2 gap-5 lg:gap-6">
       <!-- 1 · Declarative -->
-      <article class="rounded-xl bg-bg-card border border-line overflow-hidden flex flex-col">
+      <article class="rounded-[8px] bg-bg-card border border-line overflow-hidden flex flex-col">
         <div class="px-5 pt-4 pb-3 border-b border-line flex items-center gap-2">
-          <span class="inline-block w-1.5 h-1.5 rotate-45 bg-vermilion"></span>
-          <span class="font-mono text-[10.5px] tracking-[0.18em] uppercase text-fg-mute">{cards[0].tag}</span>
+          <span class="font-mono text-[11px] tracking-[0.16em] uppercase text-fg-mute">{cards[0].tag}</span>
         </div>
         <pre class="m-0 px-5 py-4 font-mono text-[13px] leading-[1.7] text-fg overflow-x-auto"
 ><code><span class="kw">layer</span> <span class="id">countries</span> {`{`}
@@ -59,10 +58,9 @@ const cards = [
       </article>
 
       <!-- 2 · Data-driven -->
-      <article class="rounded-xl bg-bg-card border border-line overflow-hidden flex flex-col">
+      <article class="rounded-[8px] bg-bg-card border border-line overflow-hidden flex flex-col">
         <div class="px-5 pt-4 pb-3 border-b border-line flex items-center gap-2">
-          <span class="inline-block w-1.5 h-1.5 rotate-45 bg-vermilion"></span>
-          <span class="font-mono text-[10.5px] tracking-[0.18em] uppercase text-fg-mute">{cards[1].tag}</span>
+          <span class="font-mono text-[11px] tracking-[0.16em] uppercase text-fg-mute">{cards[1].tag}</span>
         </div>
         <pre class="m-0 px-5 py-4 font-mono text-[13px] leading-[1.7] text-fg overflow-x-auto"
 ><code><span class="pun">|</span> <span class="util">fill</span> <span class="fn">match</span><span class="pun">(</span><span class="prop">.CONTINENT</span><span class="pun">) {`{`}</span>
@@ -75,10 +73,9 @@ const cards = [
       </article>
 
       <!-- 3 · Zoom-reactive -->
-      <article class="rounded-xl bg-bg-card border border-line overflow-hidden flex flex-col">
+      <article class="rounded-[8px] bg-bg-card border border-line overflow-hidden flex flex-col">
         <div class="px-5 pt-4 pb-3 border-b border-line flex items-center gap-2">
-          <span class="inline-block w-1.5 h-1.5 rotate-45 bg-vermilion"></span>
-          <span class="font-mono text-[10.5px] tracking-[0.18em] uppercase text-fg-mute">{cards[2].tag}</span>
+          <span class="font-mono text-[11px] tracking-[0.16em] uppercase text-fg-mute">{cards[2].tag}</span>
         </div>
         <pre class="m-0 px-5 py-4 font-mono text-[13px] leading-[1.7] text-fg overflow-x-auto"
 ><code><span class="pun">|</span> <span class="util">opacity-[</span><span class="fn">interpolate</span><span class="pun">(</span><span class="kw">zoom</span><span class="pun">,</span> <span class="num">2</span><span class="pun">,</span> <span class="num">30</span><span class="pun">,</span> <span class="num">5</span><span class="pun">,</span> <span class="num">60</span><span class="pun">,</span> <span class="num">8</span><span class="pun">,</span> <span class="num">90</span><span class="pun">)</span><span class="util">]</span></code></pre>
@@ -86,10 +83,9 @@ const cards = [
       </article>
 
       <!-- 4 · Projections -->
-      <article class="rounded-xl bg-bg-card border border-line overflow-hidden flex flex-col">
+      <article class="rounded-[8px] bg-bg-card border border-line overflow-hidden flex flex-col">
         <div class="px-5 pt-4 pb-3 border-b border-line flex items-center gap-2">
-          <span class="inline-block w-1.5 h-1.5 rotate-45 bg-vermilion"></span>
-          <span class="font-mono text-[10.5px] tracking-[0.18em] uppercase text-fg-mute">{cards[3].tag}</span>
+          <span class="font-mono text-[11px] tracking-[0.16em] uppercase text-fg-mute">{cards[3].tag}</span>
         </div>
         <pre class="m-0 px-5 py-4 font-mono text-[13px] leading-[1.7] text-fg overflow-x-auto"
 ><code><span class="fn">getProjection</span><span class="pun">(</span><span class="str">"orthographic"</span><span class="pun">,</span> <span class="id">lon</span><span class="pun">,</span> <span class="id">lat</span><span class="pun">)</span>

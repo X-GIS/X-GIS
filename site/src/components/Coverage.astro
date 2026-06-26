@@ -14,15 +14,15 @@ const groups = [
 ]
 ---
 
-<section id="covers" class="relative py-28 sm:py-36 lg:py-44 border-t border-line">
-  <span class="absolute -top-[9px] left-6 xl:left-[136px] px-2 bg-bg font-mono text-[10px] tracking-[0.18em] uppercase text-fg-faint">
-    What It Covers
-  </span>
+<section id="covers" class="relative py-20 sm:py-32 lg:py-40 border-t border-line">
 
   <div class="max-w-[1100px] mx-auto px-6">
     <div class="max-w-[840px] mb-12 lg:mb-16">
-      <h2 class="font-display font-semibold uppercase text-fg leading-[0.92] tracking-[0.01em]
-                 text-[36px] sm:text-[56px] lg:text-[76px]">
+      <p class="font-mono uppercase tracking-[0.18em] text-[12px] text-fg-mute mb-6">
+        04 · What It Covers
+      </p>
+      <h2 class="font-display font-normal text-fg leading-[1.0] tracking-[-0.02em]
+                 text-[40px] sm:text-[52px] lg:text-[64px]">
         Not a toy.
       </h2>
       <p class="mt-6 text-[17px] sm:text-[19px] leading-[1.55] text-fg-dim max-w-[640px]">
@@ -35,9 +35,8 @@ const groups = [
     <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-x-10 gap-y-10">
       {groups.map(g => (
         <div class="border-t border-line pt-5">
-          <div class="flex items-center gap-2 mb-4">
-            <span class="inline-block w-1.5 h-1.5 rotate-45 bg-vermilion"></span>
-            <span class="font-mono text-[10.5px] tracking-[0.18em] uppercase text-fg-mute">{g.tag}</span>
+          <div class="mb-4">
+            <span class="font-mono text-[11px] tracking-[0.16em] uppercase text-fg-mute">{g.tag}</span>
           </div>
           <ul class="space-y-2">
             {g.items.map(item => (
