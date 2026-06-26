@@ -19,9 +19,9 @@ const capabilities = [
   title="X-GIS — Shader DSL"
   description="A TypeScript shader DSL: author a typed shader once, compile to WGSL (WebGPU) and GLSL ES 3.00 (WebGL2), reflect the pipeline, and cross-check on a CPU f64 oracle."
 >
-  <p class="font-mono text-[11px] tracking-[0.2em] uppercase text-accent mb-3">@xgis/shader-dsl</p>
-  <h1 class="font-display font-semibold uppercase text-fg leading-[0.95] tracking-[0.01em] text-[38px] sm:text-[52px] lg:text-[64px]">
-    Shaders, authored in <span class="font-mono normal-case">TypeScript</span>.
+  <p class="font-mono text-[12px] tracking-[0.18em] uppercase text-fg-mute mb-5">@xgis/shader-dsl</p>
+  <h1 class="font-display font-normal text-fg leading-[1.0] tracking-[-0.02em] text-[40px] sm:text-[52px] lg:text-[64px]">
+    Shaders, authored in <span class="font-mono">TypeScript</span>.
   </h1>
   <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[680px]">
     <code class="font-mono text-[15px] text-fg">@xgis/shader-dsl</code> is the engine that draws every
@@ -30,27 +30,27 @@ const capabilities = [
     the pipeline and a CPU f64 oracle for parity checks.
   </p>
 
-  <div class="mt-7 flex flex-wrap gap-3">
-    <a href={`${root}/getting-started`} class="inline-flex items-center gap-2 px-5 h-10 rounded-md bg-accent hover:bg-accent-hover text-bg text-[14px] font-semibold transition-colors">
+  <div class="mt-8 flex flex-wrap gap-3">
+    <a href={`${root}/getting-started`} class="inline-flex items-center gap-2 px-5 h-10 rounded-full border border-line bg-bg text-fg hover:border-line-strong text-[14px] transition-colors">
       Get started
       <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
     </a>
-    <a href={`${root}/examples`} class="inline-flex items-center gap-2 px-5 h-10 rounded-md border border-line-strong text-fg hover:border-accent hover:text-accent text-[14px] font-medium transition-colors">
+    <a href={`${root}/examples`} class="inline-flex items-center gap-2 px-5 h-10 rounded-full border border-line bg-bg text-fg hover:border-line-strong text-[14px] transition-colors">
       Browse examples
     </a>
   </div>
 
-  <h2 class="text-[20px] sm:text-[22px] font-medium text-fg tracking-[-0.02em] mt-14 mb-5">What it gives you</h2>
+  <h2 class="font-display text-[22px] sm:text-[24px] font-normal text-fg tracking-[-0.02em] mt-16 mb-5">What it gives you</h2>
   <div class="grid sm:grid-cols-2 gap-4">
     {capabilities.map((cap) => (
-      <div class="rounded-2xl bg-bg-card border border-line p-5">
-        <h3 class="text-[15px] font-medium text-fg mb-1.5">{cap.label}</h3>
+      <div class="rounded-[8px] bg-bg-card border border-line p-5">
+        <h3 class="text-[15px] font-normal text-fg mb-1.5">{cap.label}</h3>
         <p class="text-[13.5px] leading-[1.55] text-fg-dim">{cap.body}</p>
       </div>
     ))}
   </div>
 
-  <div class="mt-12 rounded-2xl border border-line p-5 bg-bg-card">
+  <div class="mt-12 rounded-[8px] border border-line p-5 bg-bg-card">
     <p class="text-[14px] leading-[1.6] text-fg-dim">
       <span class="text-fg font-medium">New here?</span> Start with
       <a href={`${root}/getting-started`} class="text-accent hover:text-accent-hover transition-colors">Getting started</a>

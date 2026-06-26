@@ -99,7 +99,7 @@ const groups: Group[] = [
   title="X-GIS Shader DSL — API reference"
   description="The @xgis/shader-dsl authoring + emit surface: functions, layout declarators, value constructors, operators, built-ins, control flow, types, and emit/reflect."
 >
-  <h1 class="font-display font-semibold uppercase text-fg leading-[0.95] tracking-[0.01em] text-[38px] sm:text-[52px] lg:text-[64px]">API reference</h1>
+  <h1 class="font-display font-normal text-fg leading-[1.0] tracking-[-0.02em] text-[40px] sm:text-[52px] lg:text-[64px]">API reference</h1>
   <p class="mt-4 text-[16px] leading-[1.6] text-fg-dim max-w-[680px]">
     A selected tour of the surface exported from <code class="font-mono text-[14px] text-fg">@xgis/shader-dsl</code>.
     See the <a href="https://github.com/X-GIS/X-GIS/blob/main/shader-dsl/src/index.ts" target="_blank" rel="noopener" class="text-accent hover:text-accent-hover transition-colors">barrel</a>
@@ -109,9 +109,9 @@ const groups: Group[] = [
   <div class="mt-10 space-y-10">
     {groups.map((g) => (
       <section>
-        <h2 class="text-[19px] font-medium text-fg tracking-[-0.015em] mb-1.5">{g.title}</h2>
+        <h2 class="font-display text-[20px] font-normal text-fg tracking-[-0.015em] mb-1.5">{g.title}</h2>
         {g.note && <p class="text-[13.5px] leading-[1.55] text-fg-mute mb-3 max-w-[680px]">{g.note}</p>}
-        <div class="rounded-xl border border-line overflow-hidden divide-y divide-[var(--color-line)]">
+        <div class="rounded-[8px] border border-line overflow-hidden divide-y divide-[var(--color-line)]">
           {g.rows.map((r) => (
             <div class="grid sm:grid-cols-[minmax(0,42%)_minmax(0,58%)] gap-x-5 gap-y-1 px-4 py-3">
               <code class="font-mono text-[12.5px] text-fg leading-[1.5] break-words">{r.sig}</code>

@@ -48,7 +48,7 @@ const sections = [
   title="X-GIS Shader DSL — Concepts"
   description="How the shader DSL works: one typed IR, two backends (WGSL + GLSL ES 3.00), reflection, a CPU f64 oracle, and an optimizer + lint pipeline."
 >
-  <h1 class="font-display font-semibold uppercase text-fg leading-[0.95] tracking-[0.01em] text-[38px] sm:text-[52px] lg:text-[64px]">Concepts</h1>
+  <h1 class="font-display font-normal text-fg leading-[1.0] tracking-[-0.02em] text-[40px] sm:text-[52px] lg:text-[64px]">Concepts</h1>
   <p class="mt-4 text-[16px] leading-[1.6] text-fg-dim max-w-[680px]">
     The DSL is a TSL-style graph with a real type checker, two backends, a reflection layer, a CPU
     oracle, and an optimizer — all over one intermediate representation.
@@ -57,14 +57,14 @@ const sections = [
   <div class="mt-10 space-y-10">
     {sections.map((s) => (
       <section id={s.id}>
-        <h2 class="text-[20px] font-medium text-fg tracking-[-0.02em] mb-2">{s.title}</h2>
+        <h2 class="font-display text-[21px] font-normal text-fg tracking-[-0.02em] mb-2">{s.title}</h2>
         <p class="text-[14.5px] leading-[1.65] text-fg-dim max-w-[700px]" set:html={s.body}></p>
       </section>
     ))}
   </div>
 
   <section class="mt-14">
-    <h2 class="text-[20px] font-medium text-fg tracking-[-0.02em] mb-2">See it both ways</h2>
+    <h2 class="font-display text-[21px] font-normal text-fg tracking-[-0.02em] mb-2">See it both ways</h2>
     <p class="text-[14.5px] leading-[1.65] text-fg-dim max-w-[700px] mb-5">
       The <a href={`${root}/examples/gradient`} class="text-accent hover:text-accent-hover transition-colors">gradient</a>
       example, emitted from one module. Note the divergences the DSL handles: <code class="font-mono text-[13px] text-fg">vec4&lt;f32&gt;</code> →
@@ -83,7 +83,7 @@ const sections = [
     </div>
   </section>
 
-  <div class="mt-12 rounded-2xl border border-line p-5 bg-bg-card">
+  <div class="mt-12 rounded-[8px] border border-line p-5 bg-bg-card">
     <p class="text-[14px] leading-[1.6] text-fg-dim">
       Each <a href={`${root}/examples`} class="text-accent hover:text-accent-hover transition-colors">example</a>
       shows these concepts end to end: the DSL source, the emitted WGSL and GLSL, and the reflection JSON —
