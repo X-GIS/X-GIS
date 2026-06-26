@@ -15,7 +15,7 @@
 import type { GPUContext } from '../gpu/gpu'
 import { generateGraticule } from '../graticule'
 import type { UniformRing } from './uniform-ring'
-import { polygonUniformBytes } from './polygon-uniform-slots'
+import { polygonUniformBytes, polygonUniformSlots } from './polygon-uniform-slots'
 
 /** Per-frame data the graticule draw needs from the coordinator. The
  *  graticule reuses the SAME 240-byte uniform struct offsets as the layer
@@ -162,23 +162,26 @@ export class GraticuleRenderer {
         // byte 160: clip_bounds (4 f32)
         // byte 176: zoom + 3-float pad; bytes 192-239 = RTC fields (zero
         // for the graticule's absolute-ECEF path) → total 240 B
-        new Float32Array(gratData, 0, 16).set(frame.mvp) // ECEF-MVP for vs_main
+        // Offsets reflect-derived (polygonUniformSlots().slot) — byte-identical to
+        // the literals above, pinned by polygon-uniform-offset-parity.test.ts.
+        const S = polygonUniformSlots().slot
+        new Float32Array(gratData, S.mvp * 4, 16).set(frame.mvp) // ECEF-MVP for vs_main
         // fill_color = white @ 15% opacity (minor grid line colour)
-        new Float32Array(gratData, 64, 4).set([1, 1, 1, 0.15])
+        new Float32Array(gratData, S.fill_color * 4, 4).set([1, 1, 1, 0.15])
         // stroke_color = white @ 15% opacity
-        new Float32Array(gratData, 80, 4).set([1, 1, 1, 0.15])
+        new Float32Array(gratData, S.stroke_color * 4, 4).set([1, 1, 1, 0.15])
         // proj_params
-        new Float32Array(gratData, 96, 4).set([frame.projType, frame.projCenterLon, frame.projCenterLat, 0])
+        new Float32Array(gratData, S.proj_params * 4, 4).set([frame.projType, frame.projCenterLon, frame.projCenterLat, 0])
         // Graticule vertices are ECEF-encoded (PR 2d.1D); RTC anchor = (0,0,0)
         // since graticule emits absolute ECEF without per-tile centering.
         // cam_h / cam_l fields are unused by vs_main (ECEF path) — zero-fill.
-        new Float32Array(gratData, 112, 4).set([0, 0, 0, 0]) // cam_h + cam_l
+        new Float32Array(gratData, S.cam_h * 4, 4).set([0, 0, 0, 0]) // cam_h + cam_l
         // tile_origin_merc=(0,0), opacity=1, log_depth_fc
-        new Float32Array(gratData, 128, 4).set([0, 0, 1, frame.logDepthFc])
+        new Float32Array(gratData, S.tile_origin_merc * 4, 4).set([0, 0, 1, frame.logDepthFc])
         // pick_id=0 — graticule is decorative, never pickable. + layer_depth_offset=0
-        new Uint32Array(gratData, 144, 4).set([0, 0, 0, 0])
+        new Uint32Array(gratData, S.pick_id * 4, 4).set([0, 0, 0, 0])
         // clip_bounds sentinel — same rationale as the polygon path.
-        new Float32Array(gratData, 160, 4).set([-1e30, 0, 0, 0])
+        new Float32Array(gratData, S.clip_bounds * 4, 4).set([-1e30, 0, 0, 0])
         const gratOff = ring.allocSlot()
         ring.stageSlot(gratOff, gratData)
 

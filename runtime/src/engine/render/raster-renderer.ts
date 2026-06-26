@@ -13,6 +13,7 @@ import { isPickEnabled, getSampleCount } from '../gpu/gpu'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import { globeVisibleTiles } from '../projection/globe'
 import { globeEyeUniform } from './globe-eye-uniform'
+import { rasterUniformSlots, rasterUniformBytes, rasterTileSlots, rasterTileBytes } from './raster-uniform-slots'
 
 /** Camera RTC anchor for the raster VS on the globe / 3D surfaces.
  *
@@ -95,7 +96,7 @@ export class RasterRenderer {
   private tileUniformPool: GPUBuffer[] = []
   private tileBindGroupPool: GPUBindGroup[] = []
   private tileUniformIdx = 0
-  private drawTileF32 = new Float32Array(12) // bounds(4) + tile_ecef_center(4) + merc_y(2) + pad(2)
+  private drawTileF32 = new Float32Array(rasterTileSlots().slots) // reflect-derived (= bounds4+tile_ecef4+merc_y2+pad2 = 12)
 
   // ── Forced-WebGL2 raster slice (US-003) ──
   // A SECOND draper backed by the WebGl2Device (host.ctx.rhi), drawing an analytic
@@ -126,7 +127,7 @@ export class RasterRenderer {
     this.pipeline = this.buildPipeline()
 
     this.uniformBuffer = ctx.device.createBuffer({
-      size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, label: 'raster-uniforms',
+      size: rasterUniformBytes(), usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, label: 'raster-uniforms',
     })
 
     this.linearSampler = ctx.device.createSampler({
@@ -261,7 +262,7 @@ export class RasterRenderer {
 
     // Global uniform (160 B) — Float32 element offsets: mvp@0, proj@16, raster_params@20,
     // color0@24, color1@28, cam_ecef_center@32. Mirrors render()'s layout.
-    const globalBytes = new ArrayBuffer(160)
+    const globalBytes = new ArrayBuffer(rasterUniformBytes())
     const gf = new Float32Array(globalBytes)
     gf.set(frame.matrix, 0)
     gf.set([projType, projCenterLon, projCenterLat, frame.logDepthFc], 16)
@@ -397,15 +398,16 @@ export class RasterRenderer {
     // Write global uniforms. proj_params.w = log_depth_fc so the raster
     // grid shader can apply/read the log-depth transform uniformly with
     // the vector pipelines.
-    const uniformData = new ArrayBuffer(160)
-    new Float32Array(uniformData, 0, 16).set(mvp)
-    new Float32Array(uniformData, 64, 4).set([projType, projCenterLon, projCenterLat, frame.logDepthFc])
+    const uniformData = new ArrayBuffer(rasterUniformBytes())
+    const RS = rasterUniformSlots().slot // offsets reflect-derived (byte-identical; raster-uniform-bytes.test.ts)
+    new Float32Array(uniformData, RS.mvp * 4, 16).set(mvp)
+    new Float32Array(uniformData, RS.proj_params * 4, 4).set([projType, projCenterLon, projCenterLat, frame.logDepthFc])
     // raster_params at offset 80 — x = opacity, yzw reserved.
-    new Float32Array(uniformData, 80, 4).set([this._opacity, 0, 0, 0])
+    new Float32Array(uniformData, RS.raster_params * 4, 4).set([this._opacity, 0, 0, 0])
     // raster_color0 @96 — (hueRotateDeg, brightnessMin, brightnessMax, saturation).
-    new Float32Array(uniformData, 96, 4).set([this._hueRotate, this._brightnessMin, this._brightnessMax, this._saturation])
+    new Float32Array(uniformData, RS.raster_color0 * 4, 4).set([this._hueRotate, this._brightnessMin, this._brightnessMax, this._saturation])
     // raster_color1 @112 — x = contrast, yzw reserved.
-    new Float32Array(uniformData, 112, 4).set([this._contrast, 0, 0, 0])
+    new Float32Array(uniformData, RS.raster_color1 * 4, 4).set([this._contrast, 0, 0, 0])
     // cam_ecef_center @128 — camera anchor (ellipsoid) for camera-relative RTC,
     // mirroring polygon's cam_ecef_off. Subtracted in the raster VS so the ECEF
     // vertex projects vertex − cameraCenter through the camera-at-origin MVP.
@@ -413,7 +415,7 @@ export class RasterRenderer {
     // camera centre — the flat VS computes rel = project(lon,lat) − cam.xy and
     // the ECEF lanes are dead there. 3D / globe: the ECEF anchor (ellipsoid).
     if (projType === 0) {
-      new Float32Array(uniformData, 128, 4).set([camera.centerX, camera.centerY, 0, 0])
+      new Float32Array(uniformData, RS.cam_ecef_center * 4, 4).set([camera.centerX, camera.centerY, 0, 0])
     } else {
       // ELLIPSOID camera anchor — the raster VS reconstructs each vertex via
       // lonlat_to_ecef (WGS84, E2≠0), so the anchor it subtracts MUST be on the
@@ -423,7 +425,7 @@ export class RasterRenderer {
       // is the exact frame-consistency fix the vector tiler already applies to
       // cam_ecef_off (vector-tile-renderer.ts:3627-3638).
       const camC = rasterGlobeCamAnchor(projCenterLon, projCenterLat)
-      new Float32Array(uniformData, 128, 4).set([camC[0], camC[1], camC[2], 0])
+      new Float32Array(uniformData, RS.cam_ecef_center * 4, 4).set([camC[0], camC[1], camC[2], 0])
     }
     // #600 — globe_eye @144: (normalize(eye), R/|eye|) for the globe(7)
     // eye-horizon cull (raster FS, #595). frame.eye is the absolute sphere-ECEF
@@ -432,7 +434,7 @@ export class RasterRenderer {
     // the vector path had: the centre-hemisphere cull discarded eye-visible
     // raster around the limb.
     const ge = globeEyeUniform(frame.eye)
-    new Float32Array(uniformData, 144, 4).set([ge[0], ge[1], ge[2], ge[3]])
+    new Float32Array(uniformData, RS.globe_eye * 4, 4).set([ge[0], ge[1], ge[2], ge[3]])
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData)
 
     pass.setPipeline(this.pipeline)
@@ -554,7 +556,7 @@ export class RasterRenderer {
         // Get or create a pooled uniform buffer + matching bind group.
         if (this.tileUniformIdx >= this.tileUniformPool.length) {
           const buf = this.device.createBuffer({
-            size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            size: rasterTileBytes(), usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
           })
           this.tileUniformPool.push(buf)
           this.tileBindGroupPool.push(this.device.createBindGroup({
@@ -569,12 +571,13 @@ export class RasterRenderer {
         const tf = this.drawTileF32
         // bounds: shift west/east by wo*360° so the shader's mix(bounds.x, bounds.z, uu)
         // naturally produces the correct world-copy longitude for lonlat_to_ecef.
-        tf[0] = west + wo * 360; tf[1] = south; tf[2] = east + wo * 360; tf[3] = north
+        const RT = rasterTileSlots().slot // reflect-derived f32 slots (byte-identical; raster-uniform-bytes.test.ts)
+        tf[RT.bounds] = west + wo * 360; tf[RT.bounds + 1] = south; tf[RT.bounds + 2] = east + wo * 360; tf[RT.bounds + 3] = north
         // tile_ecef_center: ECEF of SW corner (unshifted; shared across copies).
-        tf[4] = swEcef[0]; tf[5] = swEcef[1]; tf[6] = swEcef[2]; tf[7] = 0
-        tf[8] = mercSouth        // merc_y.x
-        tf[9] = mercDiff         // merc_y.y
-        tf[10] = 0; tf[11] = 0   // padding
+        tf[RT.tile_ecef_center] = swEcef[0]; tf[RT.tile_ecef_center + 1] = swEcef[1]; tf[RT.tile_ecef_center + 2] = swEcef[2]; tf[RT.tile_ecef_center + 3] = 0
+        tf[RT.merc_y] = mercSouth        // merc_y.x
+        tf[RT.merc_y + 1] = mercDiff         // merc_y.y
+        tf[RT._pad] = 0; tf[RT._pad + 1] = 0   // padding
         this.device.queue.writeBuffer(tileBuf, 0, tf)
         pass.setBindGroup(1, tileBG)
         pass.draw(384) // 8×8 grid × 6 verts/cell

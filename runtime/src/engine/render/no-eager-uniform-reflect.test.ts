@@ -21,16 +21,28 @@ import { join } from 'path'
 
 const DIR = join(process.cwd(), 'runtime/src/engine/render')
 
-// Every consumer of the reflect-derived polygon uniform size.
+// Every file that consumes (or defines) a PROJECTION-GATED reflect-uniform helper.
+// text/frame/overdraw modules carry NO projection, so reflecting them eagerly is
+// SAFE — those files are intentionally NOT scanned.
 const FILES = [
   'renderer.ts',
   'vector-tile-renderer.ts',
   'graticule-renderer.ts',
   'bind-group-registry.ts',
   'feature-data-binder.ts',
+  'point-renderer.ts',
+  'heatmap-renderer.ts',
+  'heatmap-uniform-slots.ts',
+  'raster-renderer.ts',
+  'line-renderer.ts',
+  'line-pattern.ts',
 ]
 
-const CALLS_REFLECT = /polygonUniform(Bytes|Slots|Stride)\s*\(/
+// Projection-gated reflect helpers (named) + the raw `reflect(build*Module)`
+// primitive they wrap. ALL of these emit the projection fns → throw until
+// configureProjections() runs. Add a new helper name here when one is created.
+const CALLS_REFLECT =
+  /\b(polygonUniform(Bytes|Slots|Stride)|pointUniformSlots|heatmapUniform(Slots|Bytes)|rasterUniform(Slots|Bytes|Stride)|lineLayer(Slots|Bytes))\s*\(|reflect\s*\(\s*build(Polygon|Point|Line|Raster|Heatmap)\w*Module/
 
 /** A line is EAGER if it calls a reflect helper AND it is a module-level `const`
  *  binding or a `static` class-field initializer (both evaluate at import /
@@ -51,14 +63,18 @@ function isEager(line: string): boolean {
 
 describe('no eager polygon-uniform reflect at import (map-load crash gate)', () => {
   it('detector flags eager module-const / static, allows lazy local / instance / method', () => {
-    // Forbidden (evaluate before configureProjections):
+    // Forbidden (evaluate before configureProjections) — across all gated helpers:
     expect(isEager('const X = polygonUniformBytes()')).toBe(true)
     expect(isEager('export const X = Math.ceil(polygonUniformStride() / 2)')).toBe(true)
     expect(isEager('  private static readonly X = polygonUniformBytes()')).toBe(true)
+    expect(isEager('const N = pointUniformSlots().slots')).toBe(true)
+    expect(isEager('  static readonly B = heatmapUniformBytes()')).toBe(true)
+    expect(isEager('const M = reflect(buildRasterModule())')).toBe(true)
     // Allowed (ctor / draw / function-body time):
     expect(isEager('        const gratData = new ArrayBuffer(polygonUniformBytes())')).toBe(false) // indented local
-    expect(isEager('  private buf = new ArrayBuffer(polygonUniformBytes())')).toBe(false) // instance field
+    expect(isEager('  private buf = new ArrayBuffer(heatmapUniformBytes())')).toBe(false) // instance field
     expect(isEager('  return polygonUniformSlots().slots * 4')).toBe(false) // function body
+    expect(isEager('export function pointUniformSlots() {')).toBe(false) // a helper definition
     expect(isEager('  // polygonUniformBytes() must stay lazy')).toBe(false) // comment
     expect(isEager('  this.ring = new UniformRing(d, polygonUniformStride(), 256)')).toBe(false) // ctor stmt
   })

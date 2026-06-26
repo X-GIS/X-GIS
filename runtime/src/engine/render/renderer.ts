@@ -13,7 +13,7 @@ import { parseColor } from './renderer-helpers'
 import { UniformRing } from './uniform-ring'
 import { GraticuleRenderer } from './graticule-renderer'
 import { PipelineFactory } from './pipeline-factory'
-import { polygonUniformBytes, polygonUniformStride } from './polygon-uniform-slots'
+import { polygonUniformBytes, polygonUniformStride, polygonUniformSlots } from './polygon-uniform-slots'
 
 // Re-export the extracted types so this module's public surface stays
 // byte-identical (external consumers import these from './renderer').
@@ -836,10 +836,14 @@ export class MapRenderer {
       // byte 144: pick_id (u32) | layer_depth_offset | tile_extent_m | extrude_height_m
       // byte 160: clip_bounds (4 f32)
       // byte 176: zoom + 3-float pad → total 192 B
-      new Float32Array(uniformData, 0, 16).set(mvp)
-      new Float32Array(uniformData, 64, 4).set(fillColor as number[])
-      new Float32Array(uniformData, 80, 4).set(strokeColor as number[])
-      new Float32Array(uniformData, 96, 4).set([projType, projCenterLon, projCenterLat, 0])
+      // Offsets reflect-derived (polygonUniformSlots().slot) — byte-identical to
+      // the literals documented above, pinned by polygon-uniform-offset-parity.
+      // test.ts; a struct field shift reflows these instead of corrupting the write.
+      const S = polygonUniformSlots().slot
+      new Float32Array(uniformData, S.mvp * 4, 16).set(mvp)
+      new Float32Array(uniformData, S.fill_color * 4, 4).set(fillColor as number[])
+      new Float32Array(uniformData, S.stroke_color * 4, 4).set(strokeColor as number[])
+      new Float32Array(uniformData, S.proj_params * 4, 4).set([projType, projCenterLon, projCenterLat, 0])
       // Non-tiled layer: vertices are stored in absolute Mercator meters
       // (DSFUN stride 5/6) so tile_origin_merc = (0, 0) and
       // cam_h/cam_l = splitF64(cam_merc). The DSFUN subtraction in vs_main
@@ -854,13 +858,13 @@ export class MapRenderer {
       const cxL = Math.fround(cx - cxH)
       const cyH = Math.fround(cy)
       const cyL = Math.fround(cy - cyH)
-      new Float32Array(uniformData, 112, 4).set([cxH, cyH, cxL, cyL]) // cam_h.xy, cam_l.xy
+      new Float32Array(uniformData, S.cam_h * 4, 4).set([cxH, cyH, cxL, cyL]) // cam_h.xy, cam_l.xy
       // tile_origin_merc=(0,0), opacity, log_depth_fc
-      new Float32Array(uniformData, 128, 4).set([0, 0, opacity, frame.logDepthFc])
+      new Float32Array(uniformData, S.tile_origin_merc * 4, 4).set([0, 0, opacity, frame.logDepthFc])
       // pick_id (low16 = layerId, high16 = instanceId=0 for non-tiled),
       // followed by 12 bytes of vec3<u32> padding so the uniform struct
       // ends on a 16-byte boundary as required by WebGPU std140-ish layout.
-      new Uint32Array(uniformData, 144, 4).set([layer.pickId, 0, 0, 0])
+      new Uint32Array(uniformData, S.pick_id * 4, 4).set([layer.pickId, 0, 0, 0])
       // clip_bounds (160-175): sentinel "no clip" — non-tiled layers
       // own their entire screen area, no per-tile fallback clipping
       // applies. The fragment shader's `clip_bounds.x > -1e29` gate
@@ -869,12 +873,12 @@ export class MapRenderer {
       // an unusual value) and discards most fragments — the symptom
       // was the hero map showing only ~1/4 of the world after the
       // per-tile clip mask landed in 9c026b3.
-      new Float32Array(uniformData, 160, 4).set([-1e30, 0, 0, 0])
+      new Float32Array(uniformData, S.clip_bounds * 4, 4).set([-1e30, 0, 0, 0])
       // zoom + 3-float pad (offsets 176-191) — P3 palette gradient
       // sample reads u.zoom. Pad slots stay zero (RTC fields 192-239 +
       // light_dir_ecef 240-255 too — this fill/line path never extrudes);
       // total struct size is 256 bytes (UNIFORM_SIZE constant).
-      new Float32Array(uniformData, 176, 4).set([camera.zoom, 0, 0, 0])
+      new Float32Array(uniformData, S.zoom * 4, 4).set([camera.zoom, 0, 0, 0])
       const slotOffset = this.allocUniformSlot()
       this.stageUniformSlot(slotOffset, uniformData)
 

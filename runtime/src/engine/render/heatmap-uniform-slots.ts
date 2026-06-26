@@ -18,3 +18,12 @@ let _slots: UniformFieldSlots | undefined
 export function heatmapUniformSlots(): UniformFieldSlots {
   return (_slots ??= uniformFieldSlots(reflect(buildHeatmapAccumModule()), 'Uniforms'))
 }
+
+/** Canonical heatmap-accum 'Uniforms' struct byte size, reflect-derived (= slots * 4).
+ *  Use for the bind-range `size` + the scratch Float32Array, so a struct change
+ *  propagates without hand-bumping the literal (mirrors polygonUniformBytes()).
+ *  LAZY like heatmapUniformSlots() — call only AFTER configureProjections() (ctor/
+ *  draw time), NEVER a module-level const / static field. */
+export function heatmapUniformBytes(): number {
+  return heatmapUniformSlots().slots * 4
+}
