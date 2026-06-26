@@ -1,11 +1,10 @@
 /* Self-hosted variable fonts via @fontsource — no third-party DNS.
- *   Big Shoulders Display — condensed survey-stamp display face (titles).
- *   Archivo               — body grotesque.
- *   Spline Sans Mono      — code / labels / coordinate data.
+ *   Inter      — display + body (Universal Sans substitute per the xAI DESIGN.md;
+ *                negative tracking at display sizes is applied per-element).
+ *   Geist Mono — uppercase tracked eyebrows / labels / code.
  */
-@import "@fontsource-variable/big-shoulders-display";
-@import "@fontsource-variable/archivo";
-@import "@fontsource-variable/spline-sans-mono";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/geist-mono";
 @import "tailwindcss";
 @import "tw-animate-css";
 
@@ -33,21 +32,27 @@
   /* source swatches — a deliberately WIDE value ladder so panels and
    * cards lift clearly off the ground (the prior palette's steps were
    * too small and the page read flat). */
-  --ink:      #14110c;   /* warm ink ground (val ~7%) */
-  --ink-2:    #1e1a13;   /* raised panel  (val ~12%) */
-  --ink-3:    #29231a;   /* card          (val ~16%) */
-  --ink-4:    #352e21;   /* hover / subtle fill (val ~20%) */
-  --paper:    #efe8da;   /* warm paper text */
-  --paper-2:  #b8ad99;   /* dim */
-  --paper-3:  #8c8169;   /* muted */
-  --paper-4:  #524a3a;   /* faint */
-  --hair:     rgba(239, 232, 218, 0.09);
-  --hair-2:   rgba(239, 232, 218, 0.16);
-  --sienna:        #cb6a3c;   /* surveyor's ink — the one accent */
-  --sienna-hover:  #df8052;
-  --sienna-press:  #ab5530;
-  --sienna-deep:   #9c4a28;
-  --on-sienna:     #1b140d;
+  /* xAI design system (getdesign.md/x.ai) — stark near-black canvas, white ink,
+   * hairline elevation (no shadows). Var NAMES are kept (ink/paper/sienna) so every
+   * existing utility (bg-bg, text-fg-dim, border-line, text-accent, …) maps straight
+   * across; only the VALUES change. The "sienna" accent bridges to xAI sunset-orange
+   * so current accent usages stay a warm, visible highlight until the per-component
+   * restyle reduces accent to white-primary + render-borne colour. */
+  --ink:      #0a0a0a;   /* canvas (near-black) */
+  --ink-2:    #1a1c20;   /* canvas-soft (hover / tooltip) */
+  --ink-3:    #191919;   /* canvas-card */
+  --ink-4:    #363a3f;   /* canvas-mid (nested) */
+  --paper:    #ffffff;   /* ink — primary text */
+  --paper-2:  #dadbdf;   /* body */
+  --paper-3:  #7d8187;   /* body-mid / mute */
+  --paper-4:  #5a5f66;   /* faint */
+  --hair:     rgba(255, 255, 255, 0.10);
+  --hair-2:   rgba(255, 255, 255, 0.18);
+  --sienna:        #ff7a17;   /* accent → xAI sunset-orange (warm highlight) */
+  --sienna-hover:  #ff9248;
+  --sienna-press:  #e06a10;
+  --sienna-deep:   #c95e0d;
+  --on-sienna:     #0a0a0a;
 
   /* shadcn semantic tokens */
   --background: var(--ink);
@@ -124,9 +129,9 @@
   --color-vermilion: var(--sienna-deep);
   --color-vermilion-dim: #7e3c20;
 
-  --font-display: "Big Shoulders Display Variable", "Archivo Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-sans: "Archivo Variable", "Archivo", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono: "Spline Sans Mono Variable", "Spline Sans Mono", "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+  --font-display: "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-sans: "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono Variable", "Geist Mono", "SF Mono", "JetBrains Mono", ui-monospace, monospace;
 }
 
 @layer base {
