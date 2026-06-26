@@ -20,7 +20,7 @@ const SOURCE = `source land {
   url: "data/land.geojson"
 }
 
-background { fill: #14110c }
+background { fill: #0a0a0a }
 
 layer continents {
   source: land
@@ -139,7 +139,7 @@ export default function Hero({ docsUrl, examplesUrl, convertUrl }: Props) {
           Introducing X-GIS
         </p>
 
-        <h1 className="fade-up font-display text-[44px] font-semibold uppercase leading-[0.88] tracking-[0.005em] text-foreground sm:text-[80px] md:text-[104px] lg:text-[132px] xl:text-[150px]" style={{ animationDelay: "200ms" }}>
+        <h1 className="fade-up font-display text-[44px] font-normal leading-[0.92] tracking-[-0.03em] text-foreground sm:text-[80px] md:text-[104px] lg:text-[128px] xl:text-[144px]" style={{ animationDelay: "200ms" }}>
           A language for<br />cartography
         </h1>
 
@@ -161,7 +161,7 @@ export default function Hero({ docsUrl, examplesUrl, convertUrl }: Props) {
         </div>
 
         <div className="scale-fade mx-auto mt-16 max-w-[680px] text-left sm:mt-20" style={{ animationDelay: "640ms" }}>
-          <Card className="overflow-hidden shadow-[0_28px_70px_-28px_rgba(0,0,0,0.75)]">
+          <Card className="overflow-hidden">
             <pre className="m-0 overflow-x-auto whitespace-pre px-7 py-6 font-mono text-[13.5px] leading-[1.8] text-foreground sm:text-[14.5px]">
               <code>
                 <span className="kw">source</span> <span className="id">land</span> {"{"}{"\n"}
