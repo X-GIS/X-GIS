@@ -10,6 +10,7 @@ const logoUrl = `${base}/x-gis-logo-dark.svg`
 // links (Why / Install) prepend `/` so clicking from /docs or
 // /examples first navigates back to the home page, then scrolls.
 const home = `${base}/`
+const whyUrl = `${base}/why`
 const docsUrl = `${base}/docs`
 const examplesUrl = `${base}/examples`
 const convertUrl = `${base}/convert`
@@ -27,6 +28,7 @@ const activeSeg =
   : path.includes('/blueprint') ? 'blueprint'
   : path.includes('/convert') ? 'convert'
   : path.includes('/blog') ? 'blog'
+  : path.includes('/why') ? 'why'
   : ''
 // Active = white ink (the brand's primary signal on near-black); inactive greys
 // lift to white on hover. Weight stays 400 — the brand never bolds nav.
@@ -49,6 +51,7 @@ const navCls = (key: string): string =>
     <!-- Desktop nav (≥ sm) — hover lights the link in the chart's active
          cyan, like a selected instrument readout. -->
     <nav class="ml-auto hidden sm:flex items-center gap-7 text-fg-dim">
+      <a href={whyUrl} class={navCls('why')}>Why</a>
       <a href={docsUrl} class={navCls('docs')}>Docs</a>
       <a href={examplesUrl} class={navCls('examples')}>Examples</a>
       <a href={shaderUrl} class={navCls('shaders')}>Shaders</a>

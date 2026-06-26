@@ -18,6 +18,7 @@
 
 const githubUrl = 'https://github.com/X-GIS/X-GIS'
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const whyUrl = `${base}/why`
 const docsUrl = `${base}/docs`
 const examplesUrl = `${base}/examples`
 const convertUrl = `${base}/convert`
@@ -32,6 +33,7 @@ interface NavGroup {
 const groups: NavGroup[] = [
   {
     links: [
+      { label: 'Why X-GIS', href: whyUrl },
       { label: 'Examples',  href: examplesUrl },
       { label: 'Shaders',   href: shaderUrl },
       { label: 'Blueprint', href: blueprintUrl },
