@@ -92,7 +92,7 @@ import Docs from '../../../layouts/Docs.astro'
           <g>
             <rect x="580" y="280" width="200" height="56" rx="8" fill="var(--color-bg-card)" stroke="var(--color-line)" stroke-width="1"/>
             <text x="680" y="304" text-anchor="middle" font-family="DM Mono, monospace" font-size="13" fill="var(--color-fg)">ShaderVariant[]</text>
-            <text x="680" y="322" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="10" fill="var(--color-fg-mute)">WGSL programs</text>
+            <text x="680" y="322" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="10" fill="var(--color-fg-mute)">shader-dsl IR → WGSL</text>
           </g>
 
           <!-- Runtime label spanning bottom -->
@@ -187,21 +187,68 @@ import Docs from '../../../layouts/Docs.astro'
 
     <section>
       <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
-        Codegen: WGSL shader variants
+        Codegen: paint → shader-dsl IR → WGSL
       </h2>
       <p class="mb-4">
-        Layers with no per-feature GPU expressions share a common
-        <code class="font-mono text-fg">tile_default</code> shader pipeline.
-        Layers that DO use per-feature expressions (e.g.,
-        <code class="font-mono text-fg">fill match(.continent)</code>) get
-        a custom WGSL variant emitted at compile time — the
-        <code class="font-mono text-fg">match</code> table becomes a
-        chained <code class="font-mono text-fg">if/elif</code> in the fragment
-        shader, with branch values constant-baked from the IR.
+        Codegen does <strong class="text-fg">not</strong> hand-assemble WGSL strings.
+        Each layer's fill / stroke / opacity paint is lowered into typed
+        <a href="#shader-ir" class="text-accent underline">shader-dsl IR nodes</a>
+        (<code class="font-mono text-fg">NodeLike&lt;vec4&lt;f32&gt;&gt;</code>), then
+        emitted to WGSL by <code class="font-mono text-fg">@xgis/shader-dsl</code>'s
+        <code class="font-mono text-fg">emitExpr</code> /
+        <code class="font-mono text-fg">emitModule</code> — the same DSL + emitter the
+        runtime's geometry shaders (polygon, line, point, raster, text) are authored in.
+        Because the paint is real IR, the optimizer's constant-fold / CSE / dead-code
+        passes apply to the emitted shader for free.
+      </p>
+      <p class="mb-4">
+        A <strong class="text-fg">data-driven</strong> expression — say
+        <code class="font-mono text-fg">fill match(.continent)</code> — routes to a
+        per-feature <strong class="text-fg">compute kernel</strong>:
+        <code class="font-mono text-fg">compute-gen</code> builds it as shader-dsl IR (a
+        <code class="font-mono text-fg">matchExpr</code> → a WGSL
+        <code class="font-mono text-fg">switch</code>, or a const-array
+        <code class="font-mono text-fg">LUT</code> past 16 arms), and the fragment shader
+        reads the packed result back via
+        <code class="font-mono text-fg">unpack4x8unorm(compute_out[feat_id])</code>.
+        Zoom-only paint samples a pre-baked gradient atlas; pure constants inline as
+        literals.
       </p>
       <p>
-        Variants are deduplicated by content hash so a 50-layer scene
-        with identical styling produces one pipeline, not 50.
+        Variants are deduplicated by content fingerprint so a 50-layer scene with
+        identical styling produces one pipeline, not 50.
+      </p>
+    </section>
+
+    <section id="shader-ir">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        The shader IR — <code class="font-mono text-[20px]">@xgis/shader-dsl</code>
+      </h2>
+      <p class="mb-4">
+        Yes — the compiler lowers XGIS into shader-dsl partway through. The compiler and
+        the runtime share one shader layer:
+        <code class="font-mono text-fg">@xgis/shader-dsl</code>, a small typed-IR →
+        WGSL / GLSL compiler. The compiler turns XGIS paint into its
+        <code class="font-mono text-fg">Expr</code> nodes — in fact the compiler's
+        <code class="font-mono text-fg">node-types.ts</code> imports the
+        <code class="font-mono text-fg">Expr</code> /
+        <code class="font-mono text-fg">ShaderType</code> union <em>straight from the
+        package</em> — and the runtime authors every geometry shader in that same IR.
+      </p>
+      <p class="mb-4">
+        One emitter, one optimizer, one set of backends: a constant folds, a repeated
+        sub-expression CSEs, and dead code drops the same way whether the WGSL came from
+        a <code class="font-mono text-fg">.xgis</code>
+        <code class="font-mono text-fg">match()</code> or a hand-written polygon shader.
+        WebGPU gets WGSL; the WebGL2 fallback gets GLSL ES 3.00 — from the identical IR.
+      </p>
+      <p>
+        Watch it live on the
+        <a href="/docs/concepts/compute" class="text-accent underline">Compute concept</a>
+        page: stage 7 (render-node paint) and stage 8 (compute kernels) print the exact
+        shader-dsl output for whatever XGIS you type. <span class="text-fg-mute">(A few
+        legacy string-built emit paths are still being folded into the IR — an active
+        consolidation, not the end state.)</span>
       </p>
     </section>
 
