@@ -1,61 +1,74 @@
 ---
-// Breadth reassurance — the language is not a toy. Each group lists the
-// real, shipped surface (sources / layer types / projections / expressions
-// / animation / interop), so a skeptical engineer can scan what's covered.
+// Beat 5 · "Mapbox-compatible" — the drop-in story, told HONESTLY. The
+// numbers are the real spec-coverage figures, counted from the authority
+// (compiler/src/convert/spec-coverage/*): 175 of 235 style-spec
+// properties fully supported (+14 partial) ≈ 74%. We never claim "100%".
+// The /docs/mapbox-spec page derives the SAME totals from MAPBOX_COVERAGE
+// at build time, so this stays in sync. (REBUILD §6.)
+import { ContentBand, SectionHead } from '@/components/kit'
+
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 
+// Real coverage figures — supported / partial / total-excluding-n/a.
+// Source: compiler/src/convert/spec-coverage/ (175 supported, 14 partial,
+// 46 unsupported, 7 n/a → 235 applicable). Stated, not rounded up.
+const stats = [
+  { value: '175', label: 'Properties supported', sub: 'of 235 applicable · 74%' },
+  { value: '+14', label: 'Partial', sub: 'lossy or runtime gap' },
+  { value: '93', label: 'Layer basemap', sub: 'OpenFreeMap, rendered today' },
+]
+
+// The shipped surface — what a skeptical engineer can scan for. Real,
+// supported categories (not the full property table; that lives on the
+// coverage page).
 const groups = [
   { tag: 'Sources',     items: ['GeoJSON', 'PMTiles (MVT)', 'Raster XYZ', 'Inline data'] },
-  { tag: 'Layer types', items: ['fill', 'line', 'symbol', 'circle', 'text (SDF)', 'heatmap', 'fill-extrusion (3D)'] },
+  { tag: 'Layer types', items: ['fill', 'line', 'symbol', 'circle', 'text (SDF)', 'heatmap', 'fill-extrusion'] },
   { tag: 'Projections', items: ['Mercator', 'Natural Earth', 'Orthographic', 'Equirectangular', 'Stereographic', 'Azimuthal eq.', 'Oblique Mercator'] },
   { tag: 'Expressions', items: ['interpolate(zoom)', 'interpolate(.prop)', 'match()', 'filter:', 'preset / apply'] },
-  { tag: 'Motion',      items: ['keyframes', 'easing curves', 'per-property tweens'] },
-  { tag: 'Interop',     items: ['Mapbox Style import', 'WebGPU + Canvas 2D', 'MIT licensed'] },
 ]
 ---
 
-<section id="covers" class="relative py-20 sm:py-32 lg:py-40 border-t border-line">
+<ContentBand id="coverage">
+  <SectionHead num="05" eyebrow="Mapbox-Compatible"
+    title="Bring your Mapbox style."
+    lead="The converter reads a real Mapbox Style Spec document and emits .xgis. It is not a full reimplementation — it is honest about what it covers, and it covers most of it." />
 
-  <div class="max-w-[1100px] mx-auto px-6">
-    <div class="max-w-[840px] mb-12 lg:mb-16">
-      <p class="font-mono uppercase tracking-[0.18em] text-[12px] text-fg-mute mb-6">
-        04 · What It Covers
-      </p>
-      <h2 class="font-display font-normal text-fg leading-[1.0] tracking-[-0.02em]
-                 text-[40px] sm:text-[52px] lg:text-[64px]">
-        Not a toy.
-      </h2>
-      <p class="mt-6 text-[17px] sm:text-[19px] leading-[1.55] text-fg-dim max-w-[640px]">
-        The whole cartographic surface — vector and raster sources, every common layer type,
-        seven projections, data-driven expressions, and a converter that imports real Mapbox
-        styles. It renders OpenFreeMap's 93-layer basemap today.
-      </p>
-    </div>
-
-    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-x-10 gap-y-10">
-      {groups.map(g => (
-        <div class="border-t border-line pt-5">
-          <div class="mb-4">
-            <span class="font-mono text-[11px] tracking-[0.16em] uppercase text-fg-mute">{g.tag}</span>
-          </div>
-          <ul class="space-y-2">
-            {g.items.map(item => (
-              <li class="font-mono text-[13.5px] text-fg-dim">{item}</li>
-            ))}
-          </ul>
+  <!-- The real numbers, up front. No rounding to 100%. -->
+  <div class="grid grid-cols-3 gap-4 lg:gap-6 mt-14 lg:mt-18">
+    {stats.map(s => (
+      <div class="border-t border-line pt-5">
+        <div class="font-display text-[40px] sm:text-[52px] lg:text-[60px] font-normal text-fg leading-[0.95] tracking-[-0.02em] tabular-nums">
+          {s.value}
         </div>
-      ))}
-    </div>
-
-    <div class="mt-12 flex flex-wrap gap-x-6 gap-y-2">
-      <a href={`${base}/docs/mapbox-spec`} class="inline-flex items-center gap-2 text-accent hover:text-accent-hover text-[15px] font-medium transition-colors">
-        Mapbox coverage matrix
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
-      </a>
-      <a href={`${base}/convert`} class="inline-flex items-center gap-2 text-fg-mute hover:text-fg text-[15px] font-medium transition-colors">
-        Convert a Mapbox style
-        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
-      </a>
-    </div>
+        <div class="mt-3 text-[14px] sm:text-[15px] text-fg leading-[1.35]">{s.label}</div>
+        <div class="mt-1 font-mono text-[11px] tracking-[0.08em] uppercase text-fg-mute">{s.sub}</div>
+      </div>
+    ))}
   </div>
-</section>
+
+  <!-- Breadth scan — the supported surface, grouped. -->
+  <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-x-10 gap-y-10 mt-16 lg:mt-20">
+    {groups.map(g => (
+      <div class="border-t border-line pt-5">
+        <span class="font-mono text-[11px] tracking-[0.16em] uppercase text-fg-mute">{g.tag}</span>
+        <ul class="mt-4 space-y-2">
+          {g.items.map(item => (
+            <li class="font-mono text-[13px] text-fg-dim">{item}</li>
+          ))}
+        </ul>
+      </div>
+    ))}
+  </div>
+
+  <div class="mt-12 flex flex-wrap gap-x-6 gap-y-2">
+    <a href={`${base}/docs/mapbox-spec`} class="inline-flex items-center gap-2 text-accent hover:text-accent-hover text-[15px] font-medium transition-colors">
+      Full coverage — every property, classified
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+    </a>
+    <a href={`${base}/convert`} class="inline-flex items-center gap-2 text-fg-mute hover:text-fg text-[15px] font-medium transition-colors">
+      Convert a style
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+    </a>
+  </div>
+</ContentBand>
