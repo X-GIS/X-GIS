@@ -8,7 +8,7 @@
 import {
   fn, module, uniformStruct, ioStruct,
   u32, f32, toF32, vec2, vec3, vec4,
-  sin, cos, dot, max, pow, normalize, length, location, builtin, Loop, If, Break,
+  sin, cos, dot, max, pow, normalize, length, location, builtin, Loop, If, Break, Let,
   f32T, vec2fT, vec4fT, u32T,
 } from '../src/index.ts'
 import type { ShaderExample } from './_shared.ts'
@@ -33,7 +33,7 @@ const fs = fn('fs', { vo: VsOut.type }, ({ vo }) => {
   const hit = f32(0)
   Loop(u32(0), (i) => i.lt(u32(72)), (i) => {
     const p = ro.add(rd.mul(t))
-    const d = length(p).sub(1)
+    const d = Let(length(p).sub(1)) // materialise once: `t` is a mutated var so CSE can't hoist — without Let the SDF (a `length`) re-emits in both the hit test and `t += d`
     If(d.lt(0.001), () => { hit.assign(1); Break() })
     t.assign(t.add(d))
     If(t.gt(8), () => { Break() })
@@ -42,7 +42,7 @@ const fs = fn('fs', { vo: VsOut.type }, ({ vo }) => {
   const col = vec3(0.04, 0.05, 0.09).add(vec3(0.0, 0.04, 0.10).mul(uv.y))
   If(hit.gt(0.5), () => {
     const p = ro.add(rd.mul(t))
-    const n = normalize(p)
+    const n = Let(normalize(p)) // materialise once: the 3 lighting dots below each read `n`, and `t` (a var) blocks CSE — without Let the normal (sqrt + divides) re-emits 3x
     const ld = normalize(vec3(cos(U.field.time), 0.75, sin(U.field.time)))
     const diff = max(dot(n, ld), 0)
     const h = normalize(ld.sub(rd)) // Blinn-Phong halfway (view dir = −rd)
