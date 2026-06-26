@@ -1,0 +1,26 @@
+---
+// Card — the xAI inset card. A slightly-lighter charcoal fill on the
+// near-black canvas, 8px corners, a single solid hairline border, and
+// NO shadow (the brand carries elevation with the hairline alone —
+// DESIGN.md › card-content / Elevation level 1).
+//
+// Static container (no animation) → reduced-motion + no-JS safe.
+//
+// Usage:
+//   <Card>…</Card>
+//   <Card padding="p-8">…</Card>
+//   <Card class="flex flex-col gap-4">…</Card>
+
+interface Props {
+  /** Padding utility. Defaults to the brand card interior (24px). */
+  padding?: string
+  /** Extra classes merged onto the root <div>. */
+  class?: string
+}
+
+const { padding = 'p-6', class: className = '' } = Astro.props
+---
+
+<div class:list={['bg-bg-card border border-line rounded-[8px]', padding, className]}>
+  <slot />
+</div>

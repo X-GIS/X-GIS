@@ -1,0 +1,53 @@
+---
+// SectionHead — the canonical xAI section opener: a mono-caps Eyebrow,
+// an Inter weight-400 display head with tight negative tracking, and an
+// optional lead paragraph. This is the exact Wave-3 home pattern
+// (eyebrow → display head → lead), formalized so pages stop hand-writing
+// the utility stack.
+//
+// Head is sentence-case, weight 400 (the brand never bolds — size +
+// negative tracking do the emphasis work). Composes <Eyebrow>.
+//
+// Static text only → reduced-motion + no-JS safe.
+//
+// Usage:
+//   <SectionHead num="01" eyebrow="The Approach" title="Beyond the library." />
+//   <SectionHead eyebrow="The Language" title="Write the map." lead="…" />
+//   <SectionHead num="02" eyebrow="The Language">
+//     Write the map.<br />Read the program.       {/* slot = head */}
+//   </SectionHead>
+
+import Eyebrow from './Eyebrow.astro'
+
+interface Props {
+  /** Eyebrow kicker text. Omit to drop the eyebrow entirely. */
+  eyebrow?: string
+  /** Optional ordinal for the eyebrow, e.g. "01". */
+  num?: string
+  /** Head text. Optional — falls back to <slot> (lets you pass <br/> / markup). */
+  title?: string
+  /** Optional lead paragraph under the head. Plain text; use the slot variant for markup. */
+  lead?: string
+  /** Extra classes merged onto the wrapping container. */
+  class?: string
+}
+
+const { eyebrow, num, title, lead, class: className = '' } = Astro.props
+---
+
+<div class:list={['max-w-[840px]', className]}>
+  {eyebrow && <Eyebrow num={num} label={eyebrow} class="mb-6" />}
+
+  <h2
+    class="font-display font-normal text-fg leading-[1.0] tracking-[-0.02em]
+           text-[40px] sm:text-[52px] lg:text-[64px]"
+  >
+    {title ?? <slot />}
+  </h2>
+
+  {lead && (
+    <p class="mt-6 text-fg-dim text-[17px] sm:text-[19px] leading-[1.6] max-w-[660px]">
+      {lead}
+    </p>
+  )}
+</div>
