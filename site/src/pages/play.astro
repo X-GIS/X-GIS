@@ -1,0 +1,77 @@
+---
+import Base from '../layouts/Base.astro'
+import Graticule from '../components/Graticule.astro'
+import Header from '../components/Header.astro'
+import Footer from '../components/Footer.astro'
+import Playground from '../components/react/Playground.tsx'
+
+// Playground — the "type-and-see" page (PAGES.md §10, the single
+// highest-leverage demo). A full-bleed split: a .xgis source editor ↔ a
+// live XGISMap canvas. Edit the source, the compiler + runtime re-render
+// in the browser. The map is the hero; the chrome stays monochrome.
+//
+// Shell mirrors convert.astro (Base + Graticule + Header + Footer). The
+// live editor + map is the <Playground> React island, hydrated client:idle
+// so it never competes with first paint. The island SSRs its own
+// <textarea> seeded with the default source, so even with JS disabled the
+// page renders a usable static editor — a <noscript> note explains the
+// live map needs WebGPU + JS.
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+
+// The default preset, authored once here and handed to the island as its
+// SSR seed so the server render and the first client render match exactly.
+// `{B}` → the absolute base at hydration (the island substitutes it); for
+// the SSR/no-JS textarea it's already the real base.
+const DEFAULT_SOURCE = `source land {
+  type: geojson
+  url: "${base}/data/land.geojson"
+}
+
+background { fill: #0a0a0a }
+
+layer continents {
+  source: land
+  | fill-zinc-200
+}`
+---
+
+<Base
+  title="Playground — type .xgis, see the map"
+  description="Author X-GIS source and watch the WebGPU map render live in your browser. Edit the .xgis, the compiler re-renders on the fly."
+>
+  <Graticule />
+  <Header />
+
+  <main class="pt-12">
+    <!-- Compact page intro — one mono eyebrow + a single line, so the
+         split below gets the full viewport. The render is the hero. -->
+    <div class="border-b border-line px-6 py-4 sm:flex sm:items-baseline sm:gap-4">
+      <p class="font-mono text-[11px] uppercase tracking-[0.2em] text-accent">
+        Playground
+      </p>
+      <p class="mt-1 text-fg-dim text-[13px] sm:mt-0">
+        Edit the <code class="font-mono text-fg">.xgis</code> on the left —
+        the map on the right recompiles as you type.
+      </p>
+    </div>
+
+    <!-- The live split. The island hosts the editor + canvas and owns the
+         full XGISMap lifecycle (mount on idle, destroy on unmount). -->
+    <Playground client:idle base={base} initialSource={DEFAULT_SOURCE} />
+
+    <!-- No-JS / pre-hydration note. The SSR'd island already rendered a
+         real <textarea> above (a usable static editor); this only tells a
+         JS-disabled visitor why the right pane stays blank. Hidden the
+         moment the island hydrates (the script removes it). -->
+    <noscript>
+      <div class="border-t border-line px-6 py-4 text-fg-dim text-[13px] leading-[1.6]">
+        The live map renders with WebGPU and needs JavaScript enabled. The
+        editor above is a static source view — enable JavaScript (in a
+        recent Chrome, Edge, or Safari) to compile and render it live.
+      </div>
+    </noscript>
+  </main>
+
+  <Footer />
+</Base>
