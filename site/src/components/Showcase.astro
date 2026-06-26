@@ -10,15 +10,15 @@ const catCount = galleryCategories.length
 const catNames = galleryCategories.map(c => c.title)
 ---
 
-<section id="gallery" class="relative py-28 sm:py-36 lg:py-44 border-t border-line">
-  <span class="absolute -top-[9px] left-6 xl:left-[136px] px-2 bg-bg font-mono text-[10px] tracking-[0.18em] uppercase text-fg-faint">
-    Made With It
-  </span>
+<section id="gallery" class="relative py-20 sm:py-32 lg:py-40 border-t border-line">
 
   <div class="max-w-[1100px] mx-auto px-6">
     <div class="max-w-[840px] mb-12 lg:mb-16">
-      <h2 class="font-display font-semibold uppercase text-fg leading-[0.92] tracking-[0.01em]
-                 text-[36px] sm:text-[56px] lg:text-[76px]">
+      <p class="font-mono uppercase tracking-[0.18em] text-[12px] text-fg-mute mb-6">
+        03 · Made With It
+      </p>
+      <h2 class="font-display font-normal text-fg leading-[1.02] tracking-[-0.02em]
+                 text-[40px] sm:text-[52px] lg:text-[64px]">
         Every example<br />is a live map.
       </h2>
       <p class="mt-6 text-[17px] sm:text-[19px] leading-[1.55] text-fg-dim max-w-[640px]">
@@ -31,7 +31,7 @@ const catNames = galleryCategories.map(c => c.title)
     <!-- Three featured maps. -->
     <div class="grid sm:grid-cols-3 gap-4 lg:gap-5">
       {featuredDemos.map(d => (
-        <a href={examplesUrl} class="group rounded-xl bg-bg-card border border-line overflow-hidden hover:border-line-strong transition-colors">
+        <a href={examplesUrl} class="group rounded-[8px] bg-bg-card border border-line overflow-hidden hover:border-line-strong transition-colors">
           <div class="aspect-[4/3] overflow-hidden bg-bg-elev">
             <img
               src={`${base}/thumbnails/${runIdOf(d)}.jpg`}

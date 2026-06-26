@@ -28,8 +28,10 @@ const activeSeg =
   : path.includes('/convert') ? 'convert'
   : path.includes('/blog') ? 'blog'
   : ''
+// Active = white ink (the brand's primary signal on near-black); inactive greys
+// lift to white on hover. Weight stays 400 — the brand never bolds nav.
 const navCls = (key: string): string =>
-  key === activeSeg ? 'text-accent font-medium' : 'hover:text-accent transition-colors'
+  key === activeSeg ? 'text-fg' : 'hover:text-fg transition-colors'
 ---
 
 <header class="fixed top-0 inset-x-0 z-50 backdrop-blur-2xl bg-bg/72 border-b border-line">
@@ -41,7 +43,7 @@ const navCls = (key: string): string =>
         width="22"
         height="22"
       />
-      <span class="font-medium tracking-tight text-fg">X-GIS</span>
+      <span class="font-display font-normal tracking-[-0.02em] text-fg">X-GIS</span>
     </a>
 
     <!-- Desktop nav (≥ sm) — hover lights the link in the chart's active
@@ -53,8 +55,8 @@ const navCls = (key: string): string =>
       <a href={blueprintUrl} class={navCls('blueprint')}>Blueprint</a>
       <a href={convertUrl} class={navCls('convert')}>Convert</a>
       <a href={blogUrl} class={navCls('blog')}>Blog</a>
-      <a href={`${home}#install`} class="hover:text-accent transition-colors">Install</a>
-      <a href={githubUrl} target="_blank" rel="noopener" class="hover:text-accent transition-colors">GitHub</a>
+      <a href={`${home}#install`} class="hover:text-fg transition-colors">Install</a>
+      <a href={githubUrl} target="_blank" rel="noopener" class="hover:text-fg transition-colors">GitHub</a>
     </nav>
 
     <!-- Search (desktop) — sits between nav links and the trailing

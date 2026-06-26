@@ -25,18 +25,17 @@ const pillars = [
 ]
 ---
 
-<section id="why" class="relative py-28 sm:py-36 lg:py-48 border-t border-line">
-  <!-- Section divider as a chart parallel: a coordinate label rides the
-       top rule, the way a meridian is labelled where it meets the frame. -->
-  <span class="absolute -top-[9px] left-6 xl:left-[136px] px-2 bg-bg font-mono text-[10px] tracking-[0.18em] uppercase text-fg-faint">
-    The Approach
-  </span>
+<section id="why" class="relative py-20 sm:py-32 lg:py-44 border-t border-line">
 
   <div class="max-w-[1000px] mx-auto px-6">
 
     <div class="max-w-[840px] mb-16 lg:mb-20">
-      <h2 class="font-display font-semibold uppercase text-fg leading-[0.92] tracking-[0.01em]
-                 text-[36px] sm:text-[60px] lg:text-[88px]">
+      <!-- xAI eyebrow: GeistMono UPPERCASE tracked, the brand's signature label. -->
+      <p class="font-mono uppercase tracking-[0.18em] text-[12px] text-fg-mute mb-6">
+        01 · The Approach
+      </p>
+      <h2 class="font-display font-normal text-fg leading-[1.0] tracking-[-0.02em]
+                 text-[40px] sm:text-[52px] lg:text-[64px]">
         Beyond the library.
       </h2>
       <p class="mt-6 text-[17px] sm:text-[19px] leading-[1.55] text-fg-dim max-w-[660px]">
@@ -50,11 +49,10 @@ const pillars = [
     <div class="grid sm:grid-cols-2 gap-x-12 gap-y-12 lg:gap-y-14">
       {pillars.map(p => (
         <article class="relative border-t border-line pt-6">
-          <div class="flex items-center gap-2 mb-4">
-            <span class="inline-block w-1.5 h-1.5 rotate-45 bg-vermilion"></span>
-            <span class="font-mono text-[10.5px] tracking-[0.18em] uppercase text-fg-mute">{p.tag}</span>
+          <div class="mb-4">
+            <span class="font-mono text-[11px] tracking-[0.16em] uppercase text-fg-mute">{p.tag}</span>
           </div>
-          <h3 class="text-[21px] sm:text-[23px] font-medium text-fg leading-[1.25] tracking-[-0.01em] mb-3">
+          <h3 class="text-[20px] sm:text-[22px] font-normal text-fg leading-[1.3] tracking-[-0.01em] mb-3">
             {p.title}
           </h3>
           <p class="text-[15px] leading-[1.65] text-fg-dim">

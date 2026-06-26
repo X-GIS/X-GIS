@@ -4,16 +4,16 @@ const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const docsUrl = `${base}/docs`
 ---
 
-<section id="install" class="relative py-28 sm:py-36 lg:py-48 border-t border-line">
-  <span class="absolute -top-[9px] left-6 xl:left-[136px] px-2 bg-bg font-mono text-[10px] tracking-[0.18em] uppercase text-fg-faint">
-    Get Started
-  </span>
+<section id="install" class="relative py-20 sm:py-32 lg:py-44 border-t border-line">
 
   <div class="max-w-[1000px] mx-auto px-6">
 
     <div class="max-w-[840px] mb-12 lg:mb-16">
-      <h2 class="font-display font-semibold uppercase text-fg leading-[0.92] tracking-[0.01em]
-                 text-[36px] sm:text-[60px] lg:text-[88px]">
+      <p class="font-mono uppercase tracking-[0.18em] text-[12px] text-fg-mute mb-6">
+        05 · Get Started
+      </p>
+      <h2 class="font-display font-normal text-fg leading-[1.0] tracking-[-0.02em]
+                 text-[40px] sm:text-[52px] lg:text-[64px]">
         Clone, install, run.
       </h2>
       <p class="mt-5 text-[15px] text-fg-mute">
@@ -24,8 +24,8 @@ const docsUrl = `${base}/docs`
     <!-- Clone + install + dev in one block — the only working install
          path until the package lands on npm. -->
     <div class="max-w-[720px]">
-      <div class="rounded-xl bg-bg-card border border-line p-1.5">
-        <div class="rounded-lg bg-bg px-6 py-5 flex items-start gap-4">
+      <div class="rounded-[8px] bg-bg-card border border-line p-1.5">
+        <div class="rounded-[6px] bg-bg px-6 py-5 flex items-start gap-4">
           <span class="text-vermilion font-mono text-[15px] select-none pt-px">$</span>
           <code class="flex-1 font-mono text-[13.5px] sm:text-[14.5px] text-fg whitespace-pre-wrap break-words leading-[1.65]"
 >git clone <span class="text-accent">https://github.com/X-GIS/X-GIS</span>
@@ -34,7 +34,7 @@ bun install
 bun run dev</code>
           <button
             type="button"
-            class="copy-btn shrink-0 inline-flex items-center gap-1.5 px-3 h-8 rounded-md
+            class="copy-btn shrink-0 inline-flex items-center gap-1.5 px-3.5 h-8 rounded-full
                    text-[12px] font-medium text-fg-dim hover:text-fg
                    border border-line hover:border-line-strong transition-colors"
             data-copy={cloneCmd}
@@ -56,7 +56,7 @@ bun run dev</code>
 
     <!-- The actual public API, two lines. -->
     <div class="max-w-[720px] mt-12">
-      <div class="rounded-xl bg-bg-card border border-line overflow-hidden">
+      <div class="rounded-[8px] bg-bg-card border border-line overflow-hidden">
         <pre class="px-7 py-6 font-mono text-[13.5px] sm:text-[14.5px] leading-[1.8] text-fg overflow-x-auto"
 ><code><span class="cs-kw">import</span> {`{`} XGISMap {`}`} <span class="cs-kw">from</span> <span class="cs-str">"@xgis/runtime"</span>
 
