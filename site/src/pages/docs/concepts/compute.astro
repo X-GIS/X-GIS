@@ -331,10 +331,20 @@ const initialPreset = presets[0]
       <summary class="stage-summary">
         <span class="stage-num">7</span>
         <span class="stage-title">Render-node WGSL</span>
-        <span class="stage-sub">shader-gen · <span id="badge-render-shaders">—</span> variants · inline constants visible</span>
+        <span class="stage-sub">shader-gen → shader-dsl IR · <span id="badge-render-shaders">—</span> variants</span>
         <span class="stage-arrow"></span>
       </summary>
       <div class="stage-body">
+        <p class="text-fg-dim text-[12px] leading-[1.55] mb-3 max-w-[820px]">
+          Each render node's <strong class="text-fg">fill / stroke paint is a typed
+          shader-dsl IR node</strong> (<code class="font-mono text-[11px]">NodeLike&lt;vec4&lt;f32&gt;&gt;</code>),
+          not a hand-built string. The WGSL below is that node lowered through
+          <code class="font-mono text-[11px]">@xgis/shader-dsl</code>'s <code class="font-mono text-[11px]">emitExpr</code>
+          — the same DSL + emitter the runtime's geometry shaders (polygon, line, point,
+          raster, text) are authored in. Constants fold to literals; data-driven paint
+          becomes an <code class="font-mono text-[11px]">unpack4x8unorm(compute_out[feat_id])</code>
+          read wired to Stage 8's kernel.
+        </p>
         <div id="render-shader-tabs" class="flex flex-wrap gap-1 mb-2"></div>
         <pre id="out-render-shader" class="stage-pre"></pre>
       </div>
@@ -969,6 +979,11 @@ const initialPreset = presets[0]
     import { TokenType } from '../../../../../compiler/src/lexer/tokens'
     import { routeColorValue, routePropertyShape } from '../../../../../compiler/src/codegen/paint-routing'
     import { collectPalette } from '../../../../../compiler/src/codegen/palette'
+    // fillExpr / strokeExpr on a ShaderVariant are shader-dsl IR Nodes
+    // (NodeLike<'vec4<f32>'> | null), NOT strings — nodeToWgslString lowers one to
+    // WGSL by delegating to @xgis/shader-dsl's emitExpr (the same DSL the runtime's
+    // geometry shaders are authored in). Without this they stringify to '[object Object]'.
+    import { nodeToWgslString } from '../../../../../compiler/src/codegen/node-to-wgsl'
 
     const presetSources = (window as unknown as { __xgisComputePresets: Record<string, string> }).__xgisComputePresets
 
@@ -1853,8 +1868,11 @@ const initialPreset = presets[0]
             nodeName: show.targetName || show.layerName || show.sourceLayer || `<unnamed>`,
             key: v.key ?? '',
             preamble: v.preamble ?? '',
-            fillExpr: v.fillExpr ?? 'vec4<f32>(0.0)',
-            strokeExpr: v.strokeExpr ?? 'vec4<f32>(0.0)',
+            // fillExpr / strokeExpr are shader-dsl IR Nodes → emit to WGSL via the
+            // package emitter (nodeToWgslString). `?? 'vec4<f32>(0.0)'` alone left an
+            // object in the template literal → '[object Object]' in the output.
+            fillExpr: v.fillExpr ? nodeToWgslString(v.fillExpr) : 'vec4<f32>(0.0)',
+            strokeExpr: v.strokeExpr ? nodeToWgslString(v.strokeExpr) : 'vec4<f32>(0.0)',
             fillPreamble: v.fillPreamble ?? '',
             strokePreamble: v.strokePreamble ?? '',
             paletteColorGradients: v.paletteColorGradients ?? [],
