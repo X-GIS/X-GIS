@@ -1,165 +1,486 @@
-# DESIGN.md — X-GIS
+---
+version: alpha
+name: xAI-design-analysis
+description: An inspired interpretation of xAI's design language — Elon Musk's frontier-AI company whose web surface is a strict near-black canvas broken only by white pill outlines, occasional warm sunset / dusk gradient accents, a custom geometric sans (Universal Sans) for display, and an uppercase tracked monospace caption face; the whole system reads as engineered-cosmic, unmarketed.
 
-> Design source-of-truth for the X-GIS site rebuild (Astro + React islands).
-> Token + rule + rationale in one file. Every screen the rebuild produces must stay
-> on this system. If a case isn't covered, decide from the **Principles** + **Voice**,
-> then add the rule back here.
+colors:
+  primary: "#ffffff"
+  on-primary: "#0a0a0a"
+  ink: "#ffffff"
+  ink-hover: "#fafaf7"
+  body: "#dadbdf"
+  body-mid: "#7d8187"
+  mute: "#7d8187"
+  hairline: "#212327"
+  canvas: "#0a0a0a"
+  canvas-soft: "#1a1c20"
+  canvas-card: "#191919"
+  canvas-mid: "#363a3f"
+  accent-sunset: "#ff7a17"
+  accent-sunset-soft: "#ffc285"
+  accent-dusk: "#7c3aed"
+  accent-twilight: "#c4b5fd"
+  accent-breeze: "#a0c3ec"
+  accent-midnight: "#0d1726"
+
+typography:
+  display-xl:
+    fontFamily: universalSans, Inter, system-ui, -apple-system, sans-serif
+    fontSize: 96px
+    fontWeight: 400
+    lineHeight: 96px
+    letterSpacing: -2.4px
+  display-lg:
+    fontFamily: universalSans, Inter, system-ui, sans-serif
+    fontSize: 72px
+    fontWeight: 400
+    lineHeight: 72px
+    letterSpacing: -1.8px
+  display-md:
+    fontFamily: universalSans, Inter, system-ui, sans-serif
+    fontSize: 48px
+    fontWeight: 400
+    lineHeight: 48px
+    letterSpacing: -1.2px
+  display-sm:
+    fontFamily: universalSans, Inter, system-ui, sans-serif
+    fontSize: 32px
+    fontWeight: 400
+    lineHeight: 36px
+    letterSpacing: -0.6px
+  display-xs:
+    fontFamily: universalSans, Inter, system-ui, sans-serif
+    fontSize: 20px
+    fontWeight: 400
+    lineHeight: 28px
+  body-lg:
+    fontFamily: universalSans, Inter, system-ui, sans-serif
+    fontSize: 18px
+    fontWeight: 400
+    lineHeight: 28px
+  body-md:
+    fontFamily: universalSans, Inter, system-ui, sans-serif
+    fontSize: 16px
+    fontWeight: 400
+    lineHeight: 24px
+  body-sm:
+    fontFamily: universalSans, Inter, system-ui, sans-serif
+    fontSize: 14px
+    fontWeight: 400
+    lineHeight: 20px
+  caption-mono:
+    fontFamily: GeistMono, ui-monospace, SFMono-Regular, Menlo, Monaco, monospace
+    fontSize: 14px
+    fontWeight: 400
+    lineHeight: 20px
+    letterSpacing: 1.4px
+  caption-mono-sm:
+    fontFamily: GeistMono, ui-monospace, SFMono-Regular, Menlo, monospace
+    fontSize: 12px
+    fontWeight: 400
+    lineHeight: 16px
+    letterSpacing: 1.2px
+  button-md:
+    fontFamily: universalSans, Inter, system-ui, sans-serif
+    fontSize: 14px
+    fontWeight: 400
+    lineHeight: 20px
+
+rounded:
+  none: 0px
+  sm: 8px
+  pill: 9999px
+  full: 9999px
+
+spacing:
+  xxs: 2px
+  xs: 4px
+  sm: 8px
+  md: 12px
+  lg: 16px
+  xl: 24px
+  2xl: 32px
+  3xl: 48px
+  4xl: 64px
+
+components:
+  nav-bar:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.ink}"
+    typography: "{typography.body-sm}"
+    padding: "{spacing.md} {spacing.xl}"
+  nav-link:
+    textColor: "{colors.ink}"
+    typography: "{typography.body-sm}"
+  button-primary:
+    backgroundColor: "{colors.primary}"
+    textColor: "{colors.on-primary}"
+    borderColor: "{colors.primary}"
+    typography: "{typography.button-md}"
+    rounded: "{rounded.pill}"
+    padding: "{spacing.xs} {spacing.md}"
+  button-outline-on-dark:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.ink}"
+    borderColor: "{colors.hairline}"
+    typography: "{typography.button-md}"
+    rounded: "{rounded.pill}"
+    padding: "{spacing.sm} {spacing.lg}"
+  button-outline-sm:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.ink}"
+    borderColor: "{colors.hairline}"
+    typography: "{typography.button-md}"
+    rounded: "{rounded.pill}"
+    padding: "{spacing.xs} {spacing.md}"
+  text-input:
+    backgroundColor: "{colors.canvas-soft}"
+    textColor: "{colors.ink}"
+    borderColor: "{colors.hairline}"
+    typography: "{typography.body-md}"
+    rounded: "{rounded.sm}"
+    padding: "{spacing.md} {spacing.lg}"
+  card-content:
+    backgroundColor: "{colors.canvas-card}"
+    textColor: "{colors.ink}"
+    borderColor: "{colors.hairline}"
+    typography: "{typography.body-md}"
+    rounded: "{rounded.sm}"
+    padding: "{spacing.xl}"
+  card-feature-product:
+    backgroundColor: "{colors.canvas-card}"
+    textColor: "{colors.ink}"
+    borderColor: "{colors.hairline}"
+    typography: "{typography.body-md}"
+    rounded: "{rounded.sm}"
+    padding: "{spacing.xl}"
+  hero-band:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.ink}"
+    typography: "{typography.display-xl}"
+    padding: "{spacing.4xl} {spacing.xl}"
+  content-band:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.ink}"
+    typography: "{typography.display-md}"
+    padding: "{spacing.4xl} {spacing.xl}"
+  eyebrow-mono:
+    textColor: "{colors.ink}"
+    typography: "{typography.caption-mono}"
+  divider-hairline:
+    borderColor: "{colors.hairline}"
+  footer:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.body}"
+    typography: "{typography.body-sm}"
+    padding: "{spacing.3xl} {spacing.xl}"
+
+  # ─── Examples (illustrative) — auto-derived; resolve any TO_FILL markers below ───
+  ex-pricing-tier:
+    description: "Default Pricing tier card. Re-uses feature-card chrome with brand canvas-soft surface."
+    backgroundColor: "{colors.canvas-soft}"
+    textColor: "{colors.ink}"
+    borderColor: "{colors.hairline}"
+    rounded: "{rounded.sm}"
+    padding: "{spacing.xl}"
+  ex-pricing-tier-featured:
+    description: "Featured/highlighted tier — polarity-flipped surface (dark fill + light text in light mode, light fill + dark text in dark mode)."
+    backgroundColor: "{colors.ink}"
+    textColor: "{colors.on-primary}"
+    rounded: "{rounded.sm}"
+    padding: "{spacing.xl}"
+  ex-product-selector:
+    description: "What's Included summary card — re-purposed for SaaS / B2B verticals (NOT a literal product gallery)."
+    backgroundColor: "{colors.canvas-soft}"
+    rounded: "{rounded.sm}"
+    padding: "{spacing.xl}"
+  ex-cart-drawer:
+    description: "Subscription summary — re-purposed for SaaS / B2B (line items per add-on, not literal cart)."
+    backgroundColor: "{colors.canvas}"
+    rounded: "{rounded.sm}"
+    padding: "{spacing.xl}"
+    item-divider: "{colors.hairline}"
+  ex-app-shell-row:
+    description: "Sidebar nav row inside the App Shell example. Active state uses brand primary as the indicator."
+    backgroundColor: "{colors.canvas}"
+    activeIndicator: "{colors.primary}"
+    rounded: "{rounded.sm}"
+    padding: "{spacing.md} {spacing.lg}"
+  ex-data-table-cell:
+    description: "Default data-table th + td chrome. Header uses mono-caps eyebrow typography; body uses body-sm."
+    headerBackground: "{colors.canvas-soft}"
+    headerTypography: "{typography.caption-mono}"
+    bodyTypography: "{typography.body-sm}"
+    cellPadding: "{spacing.md} {spacing.lg}"
+    rowBorder: "{colors.hairline}"
+  ex-auth-form-card:
+    description: "Sign-in / sign-up card. Re-uses feature-card chrome with text-input primitives inside."
+    backgroundColor: "{colors.canvas-soft}"
+    rounded: "{rounded.sm}"
+    padding: "{spacing.xl}"
+  ex-modal-card:
+    description: "Modal dialog surface — same chrome as feature-card with elevated shadow."
+    backgroundColor: "{colors.canvas}"
+    rounded: "{rounded.sm}"
+    padding: "{spacing.xl}"
+  ex-empty-state-card:
+    description: "Empty-state illustration frame."
+    backgroundColor: "{colors.canvas-soft}"
+    rounded: "{rounded.sm}"
+    padding: "{spacing.3xl}"
+    captionTypography: "{typography.body-md}"
+  ex-toast:
+    description: "Toast notification surface — feature-card shape + medium shadow."
+    backgroundColor: "{colors.canvas}"
+    rounded: "{rounded.sm}"
+    padding: "{spacing.md} {spacing.lg}"
+    typography: "{typography.body-sm}"
 
 ---
 
-## 1. Essence
 
-**X-GIS is a precision cartographic instrument that runs on the GPU.** Not a chat UI,
-not a generic dev-tool dashboard, not a flat npm-library landing. The site should feel
-like the cover of a survey instrument: **calm, exact, spacious, confident** — with the
-*map / globe / shader render itself* as the hero, and the chrome receding around it.
+## X-GIS adaptation
 
-Three words that gate every decision: **Precise · Spatial · Warm-technical.**
+This is the X-GIS site's design source-of-truth — pulled from **getdesign.md/x.ai**
+(via `awesome-claude-design`, `npx getdesign add x.ai`) and adopted as the rebuild
+system. The token + component spec below is canonical; apply it on the X-GIS stack as:
 
-- **Precise** — hairlines not heavy borders; tabular numerals; coordinate-grade labels; nothing decorative-for-decoration.
-- **Spatial** — Apple-grade whitespace and type scale; one idea per scroll section; the layout breathes like a map margin.
-- **Warm-technical** — a cartographer's warm ink, not generic cold black. Engineering rigor with paper warmth.
+- **Stack:** Astro + React islands (shadcn base). Map the `colors` / `spacing` / `rounded`
+  / `typography` tokens into Tailwind v4 `@theme` in `src/styles/global.css` (replacing the
+  former warm "Drafting Table" palette). Use the utilities, never hardcode hexes in markup.
+- **Fonts:** Universal Sans is proprietary → use **Inter** (weight 400, the documented
+  negative-tracking at display sizes) for display/body, **Geist Mono** for the uppercase
+  tracked caption/eyebrow face. Add both via `@fontsource`; retire Big Shoulders / Archivo /
+  Spline Sans Mono from the chrome.
+- **The render is the hero (X-GIS rule):** the chrome stays strictly white-on-near-black; the
+  muted accent palette (sunset / dusk / twilight / breeze) appears through the *actual* X-GIS
+  output — the globe, vector tiles, shader demos, the live compile graph — framed minimally,
+  NOT as decorative chrome. The accent budget is the work itself.
+- **Scope:** en first (KR deferred, each `/ko` page humanized later); rebuild page-by-page in
+  surgical, reviewable diffs; CI `bun run build` + the GitHub Pages deploy are the gate (local
+  `astro` is currently blocked by an expressive-code/shiki env issue).
 
-**Anti-goals:** AI-startup gradient soup, neon-on-black "futuristic," bento-box card grids, emoji, drop shadows as decoration, more than one accent hue.
+## Overview
 
----
+xAI is Elon Musk's frontier-AI lab and the website wears that posture with engineered restraint: a near-black canvas `{colors.canvas}` (`#0a0a0a`) edge-to-edge, white outline pills as every interactive element, and a single proprietary geometric sans `Universal Sans` carrying every display headline at weight 400. There is no gradient hero, no atmospheric backdrop, no product screenshot. The brand reads as confidently sparse — a research lab announcing its work rather than a SaaS marketing site.
 
-## 2. Voice
+Type is the second decisive voice. `Universal Sans` carries every display at weight 400 (regular) with aggressive negative tracking (`-2.4 px` at 96 px, scaling down through the display ladder). For technical labels, eyebrows, and metric counters, the brand pairs `Geist Mono` (uppercase, 1.4 px positive tracking) — every section eyebrow reads as a code comment more than a marketing label.
 
-Confident, concrete, declarative. We say what the engine *does*, in the fewest exact words.
+Every interactive element is a pill (`{rounded.pill}` 9999 px) with 1 px white-translucent border `rgba(255, 255, 255, 0.25)`. The button shape never varies — the same translucent-white pill carries "Try Grok", "Read announcement", "Custom Voices", "Sign up now", and every "Read" anchor. The pill is the entire shape system.
 
-- ✅ "Declare the map. The GPU draws it." · "One typed IR → WGSL and GLSL."
-- ❌ "Revolutionize your mapping workflow with cutting-edge AI-powered rendering."
+**Key Characteristics:**
+- A single near-black canvas (`{colors.canvas}` `#0a0a0a`) with white outline pills as the entire interactive vocabulary.
+- Universal Sans weight 400 for display, Geist Mono uppercase tracked for labels — the two-face contrast IS the brand voice.
+- Every button is a `{rounded.pill}` outline with translucent-white border. The brand never uses filled CTAs except for one variant (white-filled pill on Sign Up).
+- Cards are tight `{rounded.sm}` 8 px rectangles in a slightly-lighter `{colors.canvas-card}` (`#191919`) fill with hairline border. No shadows.
+- A muted accent palette of sunset-orange / dusk-purple / twilight-violet / breeze-blue lives in the design tokens but appears rarely on the main marketing surface — reserved for product illustrations / icons.
+- Massive negative letter-spacing on display headlines (`-2.4 px` at 96 px) gives the typography a precise, gathered look.
 
-Korean (later phase): plain, direct, 합쇼체 for product copy; pass all KR copy through the
-`humanize-korean` skill before shipping (no translation-ese). KR is deferred — en first.
+## Colors
 
----
+### Brand & Accent
+- **White** (`{colors.primary}` — `#ffffff`): The brand's primary "color" — used as button outline, button-primary fill, all display text. The brand's signature is white-on-near-black.
+- **Sunset Orange** (`{colors.accent-sunset}` — `#ff7a17`): A warm orange used inside product illustrations and accent moments.
+- **Sunset Soft** (`{colors.accent-sunset-soft}` — `#ffc285`): The lighter variant of the sunset accent.
+- **Dusk Purple** (`{colors.accent-dusk}` — `#7c3aed`): Deep purple used inside product illustrations.
+- **Twilight** (`{colors.accent-twilight}` — `#c4b5fd`): Soft violet — illustrative accent.
+- **Breeze Blue** (`{colors.accent-breeze}` — `#a0c3ec`): Soft blue — illustrative accent.
+- **Midnight** (`{colors.accent-midnight}` — `#0d1726`): Deep blue-black for illustrative backgrounds.
 
-## 3. Palette — "Drafting Table" (refined dark instrument)
+### Surface
+- **Canvas** (`{colors.canvas}` — `#0a0a0a`): The default near-black page background. The brand's only true surface.
+- **Canvas Soft** (`{colors.canvas-soft}` — `#1a1c20`): A slightly lighter dark fill used for hovered nav items and tooltips.
+- **Canvas Card** (`{colors.canvas-card}` — `#191919`): The charcoal card fill used inside product-feature cards.
+- **Canvas Mid** (`{colors.canvas-mid}` — `#363a3f`): A mid-dark used for nested surfaces and code mockup backgrounds.
+- **Hairline** (`{colors.hairline}` — `#212327`): 1 px solid dividers on dark surfaces.
 
-Dark is primary: it lets the map/globe/shader renders pop as the hero and reads as a
-precision instrument. The ground is **warm ink** (black-with-warmth), never cold #000.
-ONE accent — surveyor's **sienna**. Evolve the existing tokens; do not invent a new hue.
+### Text
+- **Ink** (`{colors.ink}` — `#ffffff`): Default text on canvas — pure white.
+- **Ink Hover** (`{colors.ink-hover}` — `#fafaf7`): Slightly off-white used for hover states (filtered out per no-hover policy in component specs).
+- **Body** (`{colors.body}` — `#dadbdf`): Secondary body text — supporting copy in lighter weight.
+- **Body Mid / Mute** (`{colors.body-mid}` — `#7d8187`): Mid-emphasis body and mute text — captions, fine print.
+
+### Semantic
+The brand doesn't surface a separate semantic palette on the marketing site. Validation cues use the white-on-canvas hierarchy.
+
+## Typography
+
+### Font Family
+Two faces ladder the system:
+1. **universalSans** — proprietary geometric sans used for every display, body, button, and link role. Weight 400 only on the marketing surface (the brand's restraint is part of the voice). Negative letter-spacing at display sizes is the visual signature.
+2. **GeistMono** — used for uppercase section eyebrows, label captions, and metric counters. Positive tracking (1.2 – 1.4 px) at 12 – 14 px.
+
+### Hierarchy
+
+| Token | Size | Weight | Line Height | Letter Spacing | Use |
+|---|---|---|---|---|---|
+| `{typography.display-xl}` | 96px | 400 | 96px | -2.4px | Maximum hero scale. |
+| `{typography.display-lg}` | 72px | 400 | 72px | -1.8px | Sub-hero displays. |
+| `{typography.display-md}` | 48px | 400 | 48px | -1.2px | Section headlines. |
+| `{typography.display-sm}` | 32px | 400 | 36px | -0.6px | Card-cluster headings. |
+| `{typography.display-xs}` | 20px | 400 | 28px | 0 | Inline displays. |
+| `{typography.body-lg}` | 18px | 400 | 28px | 0 | Lead paragraphs. |
+| `{typography.body-md}` | 16px | 400 | 24px | 0 | Default body. |
+| `{typography.body-sm}` | 14px | 400 | 20px | 0 | Secondary body. |
+| `{typography.caption-mono}` | 14px | 400 | 20px | 1.4px | Section eyebrow (GeistMono uppercase). |
+| `{typography.caption-mono-sm}` | 12px | 400 | 16px | 1.2px | Small mono labels. |
+| `{typography.button-md}` | 14px | 400 | 20px | 0 | Button label. |
+
+### Principles
+- **Weight 400 for everything.** The brand never bolds. Negative tracking + size hierarchy do the emphasis work.
+- **Tight negative tracking on display sizes.** Reverting to neutral tracking loses the precision feel.
+- **GeistMono uppercase for eyebrows.** Tracked positively (1.4 px) to make the mono read as a code comment.
+
+### Note on Font Substitutes
+universalSans is proprietary. Open-source substitutes:
+- **Display + body** — *Inter* weight 400 with `-0.04em` to `-0.02em` letter-spacing at display sizes comes closest. *Geist* is the second-best option.
+- **Mono** — *Geist Mono* is the documented brand companion; *JetBrains Mono* or *IBM Plex Mono* are alternates.
+
+## Layout
+
+### Spacing System
+- **Base unit**: 4 px.
+- **Tokens**: `{spacing.xxs}` 2 px · `{spacing.xs}` 4 px · `{spacing.sm}` 8 px · `{spacing.md}` 12 px · `{spacing.lg}` 16 px · `{spacing.xl}` 24 px · `{spacing.2xl}` 32 px · `{spacing.3xl}` 48 px · `{spacing.4xl}` 64 px.
+- **Section padding**: hero / content bands at `{spacing.4xl}` 64 px on desktop.
+- **Card interior padding**: `{spacing.xl}` 24 px.
+
+### Grid & Container
+- Marketing content centres at ~1200 px.
+- Product / announcement card grid: 2-up at desktop, 1-up at mobile.
+
+### Responsive Strategy
+
+#### Breakpoints
+
+| Name | Width | Key Changes |
+|---|---|---|
+| Mobile | < 768px | Hero scales 96 → 48 px; grids 1-up; hamburger nav. |
+| Desktop | ≥ 768px | Full hero + 2-up grids. |
+
+#### Touch Targets
+Buttons render ~32 – 40 px tall (8 vertical padding + 20 line). Mobile inflates touch area to meet WCAG 44 × 44 px.
+
+#### Image Behavior
+The brand uses sparse SVG illustrations for product moments (Grok, Voice, API). No photography on the marketing surface.
+
+## Elevation & Depth
+
+| Level | Treatment | Use |
+|---|---|---|
+| Level 0 — Flat | No shadow, no border. | Default. |
+| Level 1 — Hairline | 1 px solid `{colors.hairline}` border. | Card chrome, button outlines (with translucent white). |
+
+The brand uses no shadows. Hairline borders carry all elevation cues.
+
+## Shapes
+
+### Border Radius Scale
 
 | Token | Value | Use |
 |---|---|---|
-| `--ink` (bg) | `#14110c` | page ground (warm, val ~7%) |
-| `--ink-2` (bg-elev) | `#1e1a13` | raised panel |
-| `--ink-3` (bg-card) | `#29231a` | card / inset |
-| `--ink-4` (bg-hover) | `#352e21` | hover fill |
-| `--paper` (fg) | `#efe8da` | primary text (warm paper) |
-| `--paper-2` (fg-dim) | `#b8ad99` | secondary text |
-| `--paper-3` (fg-mute) | `#8c8169` | labels / captions |
-| `--paper-4` (fg-faint) | `#524a3a` | tertiary / disabled |
-| `--hair` (line) | `rgba(239,232,218,.09)` | hairline rules — the primary structural device |
-| `--hair-2` (line-strong) | `rgba(239,232,218,.16)` | emphasized rule / focus |
-| `--sienna` (accent) | `#cb6a3c` | THE single accent — used sparsely |
-| `--sienna-hover` | `#df8052` | accent hover |
-| graticule | `rgba(239,232,218,.06)` | the meridian mesh motif |
+| `{rounded.none}` | 0px | Full-bleed bands. |
+| `{rounded.sm}` | 8px | Card chrome (the brand's `--radius` value). |
+| `{rounded.pill}` | 9999px | Every button — the brand's universal interactive shape. |
+| `{rounded.full}` | 9999px | Circular icon containers. |
 
-**Accent budget rule:** sienna appears at most ~3–4 times per viewport (one primary CTA, a
-kicker, a key number, an active link). If everything is accented, nothing is. Default to
-paper-on-ink; reach for sienna only to mark the ONE thing that matters in a region.
+## Components
 
-**Color is carried by the work, not the chrome.** The vivid color on the page should come
-from the actual map renders / shader outputs / globe, framed by a near-monochrome shell.
+### Buttons
 
-(A light "drafting paper" mode is a possible future variant — NOT in this rebuild. One mode, done well.)
+**`button-primary`** — the rare white-filled pill (used on a single Sign Up CTA).
+- Background `{colors.primary}` white, text `{colors.on-primary}` near-black, 1 px solid white border, label `{typography.button-md}`, padding `{spacing.xs} {spacing.md}`, shape `{rounded.pill}` 9999 px.
 
----
+**`button-outline-on-dark`** — the canonical white-outline pill, used for every non-primary CTA.
+- Background `{colors.canvas}` (transparent in practice — `rgba(0,0,0,0)`), text `{colors.ink}` white, 1 px solid `{colors.hairline}` border (translucent white at runtime), same typography / padding scale / shape.
 
-## 4. Typography
+**`button-outline-sm`** — the smaller outline pill used in card-cluster CTAs.
+- Same as `button-outline-on-dark` with tighter padding `{spacing.xs} {spacing.md}`.
 
-Three self-hosted faces, already wired (`@fontsource-variable`):
+### Cards & Containers
 
-- **Big Shoulders Display** (`--font-display`) — condensed survey-stamp face. Headlines ONLY.
-- **Archivo** (`--font-sans`) — grotesque body. All prose + UI.
-- **Spline Sans Mono** (`--font-mono`) — code, coordinate labels, kickers, numerals.
+**`card-content`** — the default content card.
+- Background `{colors.canvas-card}` (`#191919`), text `{colors.ink}`, 1 px solid `{colors.hairline}` border, padding `{spacing.xl}`, shape `{rounded.sm}` 8 px.
 
-**Scale (Apple-grade, fluid):**
+**`card-feature-product`** — the product-feature card (Grok / Voice / API).
+- Same chrome as `card-content`. Hosts an SVG illustration + headline + body + outline pill CTA.
 
-| Role | Size (mobile → desktop) | Face | Notes |
-|---|---|---|---|
-| Hero | 56 → 96px | display | `leading-[0.9]`, `tracking-[0.01em]`, uppercase ok |
-| Section head | 36 → 56px | display | one per scroll section |
-| Sub-head | 24 → 32px | display or sans-600 | |
-| Lead / intro | 18 → 22px | sans | `leading-[1.6]`, `max-w-[660px]` |
-| Body | 16 → 17px | sans | `leading-[1.7]`, measure `max-w-[680px]` |
-| Caption / label | 11 → 13px | mono | `uppercase`, `tracking-[0.16em–0.22em]`, fg-mute |
-| Code | 13px | mono | expressive-code frames |
+### Inputs & Forms
 
-Rules: tabular numerals everywhere (`font-variant-numeric: tabular-nums`). Generous line-height
-on prose (1.6–1.75). Mono kickers above section heads ("`CONCEPT · 01`") are a signature device.
+**`text-input`** — the standard text input on dark.
+- Background `{colors.canvas-soft}`, text `{colors.ink}`, 1 px solid `{colors.hairline}`, body in `{typography.body-md}`, padding `{spacing.md} {spacing.lg}`, shape `{rounded.sm}` 8 px.
 
----
+### Navigation
 
-## 5. Space & layout
+**`nav-bar`** — the sticky top nav.
+- Background `{colors.canvas}`, text `{colors.ink}`, padding `{spacing.md} {spacing.xl}`.
 
-Apple-grade air. Whitespace is the primary design material.
+**`nav-link`** — link items inside nav.
+- Text `{colors.ink}`, set in `{typography.body-sm}`.
 
-- **Section rhythm:** vertical padding `80px (mobile) → 120 → 180px (desktop)` between major sections.
-- **Content widths:** prose `max-w-[680px]`; standard section `max-w-[1100px]` (matches Header/Footer); full-bleed visuals may exceed.
-- **One idea per scroll section**, separated by a single hairline rule — NOT boxed cards.
-- **Structure via type hierarchy + space + hairlines**, not borders/shadows. Cards (when truly needed) are inset fills (`bg-card`) with a hairline, radius `0.625rem`, never shadowed.
-- **Editorial feature lists** over equal-height card grids: `mono index · display title · sans prose` rows on a `grid-cols-[auto_1fr]`.
-- 8px base grid for spacing.
+**`footer`** — the footer band.
+- Background `{colors.canvas}`, text `{colors.body}`, padding `{spacing.3xl} {spacing.xl}`. Body in `{typography.body-sm}`.
 
----
+### Signature Components
 
-## 6. Motion
+**`hero-band`** — the dark hero with massive display headline.
+- Background `{colors.canvas}`, text `{colors.ink}`, padding `{spacing.4xl} {spacing.xl}`. Headline in `{typography.display-xl}` (96 px weight 400 with `-2.4 px` tracking).
 
-Restrained, purposeful, Apple-calm. Easing `cubic-bezier(0.16, 0.84, 0.32, 1)`.
+**`content-band`** — the standard content section.
+- Background `{colors.canvas}`, text `{colors.ink}`, padding `{spacing.4xl} {spacing.xl}`. Section headline in `{typography.display-md}` preceded by a `{typography.caption-mono}` UPPERCASE GeistMono eyebrow.
 
-- **Scroll reveal:** sections fade + rise (~28px, ~0.8s) as they enter the viewport (IntersectionObserver).
-  Staggered children via a `--reveal-delay` step (~0.08s). MUST be **no-JS safe** (content visible by
-  default; hidden start-state gated behind an `html.js` class) and **reduced-motion safe** (`@media (prefers-reduced-motion: reduce)` → no transform/animation, full opacity).
-- **Hover:** color/opacity transitions ~0.15s. No scale-bounces, no spring overshoot on UI.
-- The **graticule mesh** may draw-in subtly on hero load (existing `draw-grid`).
-- No autoplaying loops except the live map/globe demo itself.
+**`eyebrow-mono`** — the uppercase tracked GeistMono label above every section headline.
+- Text `{colors.ink}`, set in `{typography.caption-mono}`. The brand's signature label style.
 
----
+**`divider-hairline`** — the 1 px line between section bands.
+- 1 px solid `{colors.hairline}`.
 
-## 7. Signature motifs (what makes it X-GIS, not generic)
+### Examples (illustrative)
 
-1. **Graticule mesh** — faint meridian/parallel grid (existing `graticule-field`) as a background texture on heroes/section breaks. The map margin made into chrome.
-2. **Coordinate labels** — mono, wide-tracked, uppercase micro-labels (`LAT 37.5413 · LON 126.8819`, `z14`, `EPSG:4326`) used as kickers/captions. Reads as instrument readout.
-3. **Survey-stamp headlines** — Big Shoulders condensed caps for the biggest type.
-4. **The render is the hero** — every major section should, where possible, show real X-GIS output (globe, vector tiles, a shader, the live compile graph), framed minimally.
+> Auto-derived kit-mirror demonstration surfaces (`scripts/derive-examples-block.mjs`). Each `ex-*` entry references brand-native primitives so downstream consumers (`/preview-design`, `/generate-kit`) re-skin the same 10 surfaces consistently. `TO_FILL` markers indicate missing primitives — resolve in the LLM judgment pass.
 
----
+**`ex-pricing-tier`** — Default Pricing tier card. Re-uses feature-card chrome with brand canvas-soft surface.
+- Properties: `backgroundColor`, `textColor`, `borderColor`, `rounded`, `padding`
 
-## 8. Components (rebuild targets, React+Astro)
+**`ex-pricing-tier-featured`** — Featured/highlighted tier — polarity-flipped surface (dark fill + light text in light mode, light fill + dark text in dark mode).
+- Properties: `backgroundColor`, `textColor`, `rounded`, `padding`
 
-Astro for static/layout + content; **React islands** (shadcn/ui base, already installed) for
-anything interactive (live compile graph, design toggles, search, tabs, the map/globe embeds).
+**`ex-product-selector`** — What's Included summary card — re-purposed for SaaS / B2B verticals (NOT a literal product gallery).
+- Properties: `backgroundColor`, `rounded`, `padding`
 
-- **Button** — primary: solid sienna, `text-on-sienna`, pill (`rounded-full`), `px-5 py-2.5`. Secondary: hairline border, paper text, hover→sienna border+text. No third style.
-- **Nav (Header)** — fixed, `backdrop-blur`, `bg/72`, hairline bottom. Mono-ish links, active = sienna. Keep ≤7 items.
-- **Kicker** — mono, uppercase, tracking `0.22em`, sienna or fg-mute, above heads.
-- **Feature row** — `[mono index] [display title] [sans prose]`, hairline-separated, reveal-staggered.
-- **Code block** — expressive-code, `github-dark-default` retoned, radius `0.75rem`, no frame shadow.
-- **Card (sparingly)** — `bg-card` + hairline + radius, inset feel, never shadowed.
-- **Footer** — calm, hairline top, mono meta, link columns.
+**`ex-cart-drawer`** — Subscription summary — re-purposed for SaaS / B2B (line items per add-on, not literal cart).
+- Properties: `backgroundColor`, `rounded`, `padding`, `item-divider`
 
-Accessibility: real heading hierarchy, `:focus-visible` 2px sienna outline (existing), AA contrast
-(paper-on-ink passes), reduced-motion honored, no-JS content visible.
+**`ex-app-shell-row`** — Sidebar nav row inside the App Shell example. Active state uses brand primary as the indicator.
+- Properties: `backgroundColor`, `activeIndicator`, `rounded`, `padding`
 
----
+**`ex-data-table-cell`** — Default data-table th + td chrome. Header uses mono-caps eyebrow typography; body uses body-sm.
+- Properties: `headerBackground`, `headerTypography`, `bodyTypography`, `cellPadding`, `rowBorder`
 
-## 9. Information architecture (rebuild scope)
+**`ex-auth-form-card`** — Sign-in / sign-up card. Re-uses feature-card chrome with text-input primitives inside.
+- Properties: `backgroundColor`, `rounded`, `padding`
 
-- **Home** — promo hero + the X-GIS story in scroll sections (declare→compile→GPU; globe; shader IR; performance). The render is the hero.
-- **Docs** — Diátaxis (Get started / Guides / Language / Concepts / API). Concepts EXPANDED (Globe, Shader IR, Rendering engine, Tiles & sources, Labels, Camera, Performance) — currently too few.
-- **Blog** — engineering notes (shipped in foundation).
-- **Examples / Shaders / Blueprint / Convert** — interactive surfaces, React islands.
-- **i18n** — en first; `/ko` later, each KR page humanized.
+**`ex-modal-card`** — Modal dialog surface — same chrome as feature-card with elevated shadow.
+- Properties: `backgroundColor`, `rounded`, `padding`
 
----
+**`ex-empty-state-card`** — Empty-state illustration frame.
+- Properties: `backgroundColor`, `rounded`, `padding`, `captionTypography`
 
-## 10. Build rules
+**`ex-toast`** — Toast notification surface — feature-card shape + medium shadow.
+- Properties: `backgroundColor`, `rounded`, `padding`, `typography`
 
-- **Astro + React islands.** Static pages in `.astro`; interactivity as React islands (shadcn base). Don't ship React where Astro suffices.
-- **Tailwind v4 (`@theme`)** — use the tokens above via utilities (`bg-bg`, `text-fg-dim`, `border-line`, `text-accent`). Don't hardcode hexes in markup.
-- **Surgical, on-system, reviewable diffs** — even in a full rebuild, land it page-by-page so each change is legible and ships green. No opaque mass file dumps.
-- **CI is the gate** (local `astro` build is currently blocked by an expressive-code/shiki env issue) — every change validated by CI `bun run build` + reviewed on the GitHub Pages deploy.
+
+## Do's and Don'ts
+
+### Do
+- Reserve `{colors.canvas}` (`#0a0a0a`) as the only page surface. The brand is dark-canvas only.
+- Set hero headlines in `{typography.display-xl}` Universal Sans weight 400 with `-2.4 px` tracking. The precision IS the voice.
+- Use `{rounded.pill}` 9999 px on every interactive element. The pill is the brand.
+- Pair Universal Sans (sentence-case) with GeistMono UPPERCASE (eyebrows, labels, metric counters).
+- Use white-translucent borders for outline buttons — the brand never uses solid white borders on its outline pill.
+
+### Don't
+- Don't introduce a light-mode counterpart. xAI is dark-canvas only.
+- Don't bold display headlines. Weight 400 is the entire scale.
+- Don't use filled buttons broadly. The brand uses outline pills almost exclusively; one Sign Up white-filled pill is the rare exception.
+- Don't drop a drop-shadow on cards. Hairline borders carry elevation.
+- Don't substitute Universal Sans with a generic geometric sans without adjusting letter-spacing. The negative tracking is part of the brand.
