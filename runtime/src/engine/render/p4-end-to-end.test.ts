@@ -231,11 +231,13 @@ describe('P4 end-to-end — compiler ↔ runtime contract', () => {
       featureCount: 3,
     })
     expect(Array.from(data)).toEqual([0, 1, -1])
-    // The kernel's if-else chain matches these IDs (alphabetical
-    // categoryOrder). Hospital → arm 0, school → arm 1, unknown →
-    // default branch.
-    expect(entry.kernel.wgsl).toContain('v_class == 0.0')
-    expect(entry.kernel.wgsl).toContain('v_class == 1.0')
+    // The kernel switches on the RAW signed id (alphabetical categoryOrder):
+    // hospital → case 0, school → case 1, unknown (-1) → no case → default. The
+    // scrutinee must NOT clamp with max(v, 0) — that would alias -1 onto arm 0.
+    expect(entry.kernel.wgsl).toContain('case 0:')
+    expect(entry.kernel.wgsl).toContain('case 1:')
+    expect(entry.kernel.wgsl).toContain('i32(')
+    expect(entry.kernel.wgsl).not.toContain('max(')
   })
 
   it('dispatch fires one compute pass with 3-binding bind group after uploadFromProps', () => {
