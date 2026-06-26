@@ -478,7 +478,15 @@ const needs_backface_cull = fn('needs_backface_cull', LLPE_PARAMS, ({ lon_deg, l
     // globe (7) — #600 EYE-HORIZON cap (NOT the pitch-invariant centre
     // hemisphere): the perspective eye tilts off the centre normal at high
     // pitch, so the visible region is the eye-horizon cap. > 0 = visible.
-    Return(globe_eye_horizon_cos(lon_deg, lat_deg, globe_eye))
+    // globe_eye.w = EARTH_R/|eye| is ALWAYS > 0 for a real camera, so w == 0 is
+    // the reliable sentinel for "globe_eye NOT written" — the non-tiled / GeoJSON
+    // layer path (renderer.ts renderToPass) packs uniforms only up to byte 176 and
+    // leaves globe_eye zero. Without this guard those layers read globe_eye=0,
+    // globe_eye_horizon_cos returns 0, rim_alpha smoothsteps to 0 alpha, and the
+    // whole layer renders BLANK on the globe. Fall back to the pre-#600
+    // centre-hemisphere cull (cc) when globe_eye is unwritten.
+    If(globe_eye.w.gt(0), () => { Return(globe_eye_horizon_cos(lon_deg, lat_deg, globe_eye)) })
+    Return(cc)
   })
   return f32(1) // flat projections — no culling
 })
@@ -496,8 +504,11 @@ const rim_alpha = fn('rim_alpha', LLPE_PARAMS, ({ lon_deg, lat_deg, proj_params,
     If(t.lt(6.5), () => { Return(f32(1)) }) // oblique_mercator — no rim
     // globe (7) — #600: fade across the EYE-HORIZON boundary (same signal the
     // cull uses) so the far cap kept by the eye-horizon cull is NOT faded to 0
-    // by a centre-hemisphere rim (which would re-hide it via alpha).
-    Return(smoothstep(0, RIM, globe_eye_horizon_cos(lon_deg, lat_deg, globe_eye)))
+    // by a centre-hemisphere rim (which would re-hide it via alpha). globe_eye.w
+    // == 0 = globe_eye unwritten (non-tiled / GeoJSON path) → fall back to the
+    // centre-hemisphere rim so the layer is not faded to 0 alpha (blank globe).
+    If(globe_eye.w.gt(0), () => { Return(smoothstep(0, RIM, globe_eye_horizon_cos(lon_deg, lat_deg, globe_eye))) })
+    Return(smoothstep(0, RIM, cc))
   })
   return f32(1) // flat projections — no rim
 })

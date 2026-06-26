@@ -1,4 +1,4 @@
-// baseline: ed0f9fade09ed7a74cf49d7dfbdd80d396895af5
+// baseline: 83365ae2f00cbb762bfe7cdb3946b3d909ea8974
 // fixture: demotiles-stroke-match
 // variant.key: demotiles-stroke-match
 // pick: false
@@ -267,27 +267,34 @@ fn needs_backface_cull(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>, globe
     if ((proj_params.x < 6.5)) {
       return 1.0;
     }
-    return globe_eye_horizon_cos(lon_deg, lat_deg, globe_eye);
+    if ((globe_eye.w > 0.0)) {
+      return globe_eye_horizon_cos(lon_deg, lat_deg, globe_eye);
+    }
+    return _cse0;
   }
   return 1.0;
 }
 
 fn rim_alpha(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>, globe_eye: vec4<f32>) -> f32 {
-  let _cse0 = center_cos_c(lon_deg, lat_deg, proj_params.y, proj_params.z);
+  let _cse1 = center_cos_c(lon_deg, lat_deg, proj_params.y, proj_params.z);
+  let _cse0 = smoothstep(0.0, 0.02, _cse1);
   if ((proj_params.x > 2.5)) {
     if ((proj_params.x < 3.5)) {
-      return smoothstep(0.0, 0.02, _cse0);
+      return _cse0;
     }
     if ((proj_params.x < 4.5)) {
-      return smoothstep(-0.85, -0.83, _cse0);
+      return smoothstep(-0.85, -0.83, _cse1);
     }
     if ((proj_params.x < 5.5)) {
-      return smoothstep(-0.8, -0.78, _cse0);
+      return smoothstep(-0.8, -0.78, _cse1);
     }
     if ((proj_params.x < 6.5)) {
       return 1.0;
     }
-    return smoothstep(0.0, 0.02, globe_eye_horizon_cos(lon_deg, lat_deg, globe_eye));
+    if ((globe_eye.w > 0.0)) {
+      return smoothstep(0.0, 0.02, globe_eye_horizon_cos(lon_deg, lat_deg, globe_eye));
+    }
+    return _cse0;
   }
   return 1.0;
 }
