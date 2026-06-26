@@ -52,7 +52,7 @@ const flat = navGroups.flatMap((g) => g.items)
       <!-- Desktop sidebar -->
       <aside class="hidden lg:block">
         <nav class="sticky top-20 text-[13px] leading-[1.7]">
-          <p class="text-[11px] font-mono text-accent uppercase tracking-[0.16em] mb-4">Shader DSL</p>
+          <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-4">Shader DSL</p>
           {navGroups.map((group) => (
             <div class="mb-7">
               {group.title && (
@@ -99,13 +99,13 @@ const flat = navGroups.flatMap((g) => g.items)
           return (
             <div class={`mt-16 pt-8 border-t border-line grid gap-3 ${prev && next ? 'sm:grid-cols-2' : 'sm:grid-cols-1'}`}>
               {prev && (
-                <a href={prev.href} class="group block rounded-xl border border-line px-5 py-4 hover:border-line-strong transition-colors">
+                <a href={prev.href} class="group block rounded-[8px] border border-line px-5 py-4 hover:border-line-strong transition-colors">
                   <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-1.5">← Previous</p>
                   <p class="text-[15px] font-medium text-fg group-hover:text-accent transition-colors">{prev.label}</p>
                 </a>
               )}
               {next && (
-                <a href={next.href} class={`group block rounded-xl border border-line px-5 py-4 hover:border-line-strong transition-colors text-right ${!prev ? 'sm:col-start-2' : ''}`}>
+                <a href={next.href} class={`group block rounded-[8px] border border-line px-5 py-4 hover:border-line-strong transition-colors text-right ${!prev ? 'sm:col-start-2' : ''}`}>
                   <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-1.5">Next →</p>
                   <p class="text-[15px] font-medium text-fg group-hover:text-accent transition-colors">{next.label}</p>
                 </a>

@@ -38,18 +38,18 @@ const tabs = [
   </a>
 
   <div class="flex items-center gap-2 mb-3">
-    <span class="font-mono text-[10px] text-fg-mute uppercase tracking-[0.16em] px-1.5 py-0.5 rounded bg-bg-elev border border-line">{card.category}</span>
+    <span class="font-mono text-[10px] text-fg-mute uppercase tracking-[0.16em] px-2 py-0.5 rounded-full bg-bg-card border border-line">{card.category}</span>
     <span class="font-mono text-[11px] text-fg-mute">{card.file}</span>
   </div>
-  <h1 class="font-display font-semibold uppercase text-fg leading-[0.95] tracking-[0.01em] text-[38px] sm:text-[52px] lg:text-[64px]">{card.title}</h1>
+  <h1 class="font-display font-normal text-fg leading-[1.0] tracking-[-0.02em] text-[40px] sm:text-[52px] lg:text-[64px]">{card.title}</h1>
   <p class="mt-4 text-[15.5px] sm:text-[16px] leading-[1.55] text-fg-dim max-w-[680px]">{card.blurb}</p>
 
   {card.renderable && card.spec && (
     <section class="mt-7">
-      <div class="relative rounded-2xl overflow-hidden bg-bg-elev border border-line" style="aspect-ratio: 16 / 10;">
+      <div class="relative rounded-[8px] overflow-hidden bg-bg-elev border border-line" style="aspect-ratio: 16 / 10;">
         <canvas data-shader={card.id} class="block w-full h-full" style="touch-action: none;"></canvas>
-        <span class="absolute top-3 left-3 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-bg/80 backdrop-blur text-accent text-[10px] font-mono tracking-[0.16em] uppercase pointer-events-none">
-          <span class="w-1.5 h-1.5 rounded-full bg-accent inline-block animate-pulse"></span>
+        <span class="absolute top-3 left-3 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-bg/80 backdrop-blur border border-line text-fg-dim text-[10px] font-mono tracking-[0.16em] uppercase pointer-events-none">
+          <span class="w-1.5 h-1.5 rounded-full bg-fg inline-block animate-pulse"></span>
           Live · WebGL2
         </span>
         <div data-error hidden class="absolute inset-0 flex items-center justify-center p-6 text-center text-fg-mute text-[12px] font-mono bg-bg-elev"></div>
@@ -72,7 +72,7 @@ const tabs = [
   )}
 
   {!card.renderable && (
-    <section class="mt-7 rounded-2xl bg-bg-elev border border-line px-5 py-4 text-[13.5px] leading-[1.55] text-fg-dim">
+    <section class="mt-7 rounded-[8px] bg-bg-card border border-line px-5 py-4 text-[13.5px] leading-[1.55] text-fg-dim">
       This is a <span class="text-fg font-medium">compute</span> kernel — WebGPU only. GLSL ES 3.00
       has no compute stage, so the DSL fails closed for WebGL2 and there is no live preview. The WGSL
       and reflection below are emitted from the same DSL source.
@@ -82,7 +82,7 @@ const tabs = [
   <section class="mt-10">
     <div data-tabs role="tablist" class="flex gap-1 overflow-x-auto no-scrollbar mb-2 -mx-1 px-1">
       {tabs.map((tab, i) => (
-        <button type="button" role="tab" id={`tab-${tab.id}`} data-tab={tab.id} aria-controls={`panel-${tab.id}`} aria-selected={i === 0 ? 'true' : 'false'} tabindex={i === 0 ? 0 : -1} class="shrink-0 text-[12.5px] font-medium px-3 py-1.5 rounded-md transition-colors">
+        <button type="button" role="tab" id={`tab-${tab.id}`} data-tab={tab.id} aria-controls={`panel-${tab.id}`} aria-selected={i === 0 ? 'true' : 'false'} tabindex={i === 0 ? 0 : -1} class="shrink-0 text-[12.5px] font-medium px-3.5 py-1.5 rounded-full border border-transparent transition-colors">
           {tab.label}
         </button>
       ))}
@@ -95,7 +95,7 @@ const tabs = [
     </div>
   </section>
 
-  <section class="mt-8 rounded-xl border border-line px-5 py-4">
+  <section class="mt-8 rounded-[8px] border border-line px-5 py-4">
     <p class="text-[13px] text-fg-dim leading-[1.6]">
       Run it locally:
       <code class="font-mono text-[13px] text-fg ml-1">npx tsx examples/print.ts {card.id}</code>
@@ -106,13 +106,13 @@ const tabs = [
 
   <nav class="mt-12 pt-8 border-t border-line grid sm:grid-cols-2 gap-3">
     {prev ? (
-      <a href={detailHref(prev.id)} class="group block rounded-xl border border-line px-5 py-4 hover:border-line-strong transition-colors">
+      <a href={detailHref(prev.id)} class="group block rounded-[8px] border border-line px-5 py-4 hover:border-line-strong transition-colors">
         <p class="font-mono text-[11px] text-fg-mute uppercase tracking-[0.16em] mb-1.5">← Previous</p>
         <p class="text-[15px] font-medium text-fg group-hover:text-accent transition-colors">{prev.title}</p>
       </a>
     ) : <div></div>}
     {next && (
-      <a href={detailHref(next.id)} class="group block rounded-xl border border-line px-5 py-4 hover:border-line-strong transition-colors text-right">
+      <a href={detailHref(next.id)} class="group block rounded-[8px] border border-line px-5 py-4 hover:border-line-strong transition-colors text-right">
         <p class="font-mono text-[11px] text-fg-mute uppercase tracking-[0.16em] mb-1.5">Next →</p>
         <p class="text-[15px] font-medium text-fg group-hover:text-accent transition-colors">{next.title}</p>
       </a>
