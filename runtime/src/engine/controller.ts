@@ -83,12 +83,6 @@ export class PanZoomController implements Controller {
     let dragAnchor: DiscAnchor | MercAnchor | null = null
     let lastX = 0
     let lastY = 0
-    // #7: last unprojected world position for world-space inertia velocity.
-    // panVelX/Y are world metres per ~16ms frame instead of raw screen pixels.
-    // At pitch>0 screen-px velocity over-estimates world speed (foreshortening
-    // near the horizon causes a glide jump on release).
-    // null = ray missed ground (high pitch) → fall back to screen-px velocity.
-    let curWorldX: number | null = null, curWorldY: number | null = null
 
     // Touch state for pinch-to-zoom
     const activePointers = new Map<number, { x: number; y: number }>()
@@ -181,8 +175,6 @@ export class PanZoomController implements Controller {
           const dprNow = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
           const r0 = canvas.getBoundingClientRect()
           const sxA = (e.clientX - r0.left) * dprNow, syA = (e.clientY - r0.top) * dprNow
-          // Reset world-position tracker for #7 world-space inertia.
-          curWorldX = null; curWorldY = null
           if (camera.globeMode) {
             // Globe: anchor the GEOGRAPHIC point under the cursor on the
             // RENDERED SPHERE (ray↔sphere inverse) — panToScreenAnchor's globe
@@ -406,41 +398,22 @@ export class PanZoomController implements Controller {
             )
           }
 
-          // #7: capture inertia velocity in world space so that pitch>0
-          // glide speed matches the drag's actual world movement rather
-          // than raw screen pixels (which over-estimates world speed at
-          // high pitch due to perspective foreshortening).
-          // Unproject the current cursor to a world point; diff with the
-          // previous frame's world point → world metres per frame at 60fps.
-          // Disc AND globe skip world-velocity → screen-px velocity. The
-          // world-velocity path below unprojects via `unprojectToZ0`, the FLAT
-          // Mercator plane, which is a PHANTOM in globe mode (the recovered point
-          // is not on the rendered sphere) — and `camera.pan` consumes its result
-          // as CSS PIXELS, not the Mercator METRES that path produces, so a globe
-          // release flung the camera tens of degrees of inertia (issue #582). The
-          // px-velocity branch feeds `camera.pan` the pixels it expects; the globe
-          // arm of `camera.pan` converts px→deg correctly. (Disc inverse is also
-          // expensive + a secondary concern, the original reason it lives here.)
-          if (dragAnchor.kind !== 'disc' && !camera.globeMode) {
-            const worldNow = camera.unprojectToZ0(sxM, syM, canvas.width, canvas.height, dprMove)
-            if (worldNow && curWorldX !== null && curWorldY !== null) {
-              // world delta per this frame → scale to ~60fps
-              const wdx = (worldNow[0] - curWorldX) * (16 / dt)
-              const wdy = (worldNow[1] - curWorldY) * (16 / dt)
-              // Only update if world velocity is non-trivial (avoids NaN/Inf
-              // when dt is very small or world jump on anchor recapture).
-              if (isFinite(wdx) && isFinite(wdy)) {
-                panVelX = wdx
-                panVelY = wdy
-              }
-            }
-            curWorldX = worldNow ? worldNow[0] : null
-            curWorldY = worldNow ? worldNow[1] : null
-          } else {
-            // Disc / globe: screen-px velocity (camera.pan converts px→world/deg).
-            panVelX = dx * (16 / dt)
-            panVelY = dy * (16 / dt)
-          }
+          // Inertia velocity = the SCREEN-px cursor velocity (px/frame at 60fps) —
+          // the basis camera.pan() consumes and MAX_INERTIA_VEL caps. A straight
+          // north→south drag then glides straight south, continuing the drag.
+          // #614: the old flat-Mercator arm captured velocity from
+          // unprojectToZ0(cursor) AFTER panToScreenAnchor had already tracked the
+          // FIXED drag anchor under the cursor — so that per-frame delta was ~0 at
+          // pitch 0 (the anchor is, by construction, under the cursor every frame)
+          // and a perspective-vs-flat-plane residual at pitch>0 — NOT the pan
+          // velocity — and it fed camera.pan Mercator METRES where it wants px, so
+          // the flat-pan glide died / went off-axis. Disc + globe already used the
+          // screen-px velocity here (issue #582); all three now share it. (The
+          // pitch>0 foreshortening the old world-velocity arm chased is a separate
+          // glide-speed tuning follow-up — screen-px slightly over-speeds at high
+          // pitch but tracks the drag direction, which the residual did not.)
+          panVelX = dx * (16 / dt)
+          panVelY = dy * (16 / dt)
         } else {
           // Anchor missed ground (cursor above horizon at drag start)
           // — fall back to delta-based pan so the user can still drag
@@ -525,8 +498,6 @@ export class PanZoomController implements Controller {
         const dprUp = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
         const rUp = canvas.getBoundingClientRect()
         const sxU = (remaining.x - rUp.left) * dprUp, syU = (remaining.y - rUp.top) * dprUp
-        // Reset world-position tracker for #7 world-space inertia.
-        curWorldX = null; curWorldY = null
         if (camera.globeMode) {
           // Same globe anchor space as the drag-start capture.
           const gAnchorUp = unprojectGlobeFromCamera(camera, sxU, syU, canvas.width, canvas.height, dprUp)
