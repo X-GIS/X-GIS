@@ -2,8 +2,8 @@
 //
 // compute-gen.ts emits one of two WGSL shapes for `match(get(field), …)`:
 //
-//   • if-chain  — sequential `if (cls == K0) …  else if (cls == K1) …`
-//                 (arms < MATCH_LUT_THRESHOLD; default 16)
+//   • switch    — `switch u32(v) { case 0u: … default: … }`, lowered from
+//                 match() through the DSL IR (arms < MATCH_LUT_THRESHOLD; default 16)
 //   • LUT       — `const LUT: array<vec4<f32>, N>(…); color = LUT[id];`
 //                 (arms ≥ threshold)
 //
@@ -15,8 +15,8 @@
 //
 // continent-match is the right test fixture: 7 arms on the `CONTINENT`
 // field, 250 features (Natural Earth countries), one fill draw per
-// feature. Below the default threshold so the baseline uses if-chain;
-// override = 4 forces LUT for the same scene.
+// feature. Below the default threshold so the baseline uses the switch
+// path; override = 4 forces LUT for the same scene.
 //
 // Requires `?gpuprof=1` so the device opts in to the timestamp-query
 // feature. The runtime's GPUTimer feeds `getBreakdown()` through to
@@ -126,12 +126,12 @@ function summariseField(samples: Sample[], field: 'compute' | 'vt'): { n: number
   }
 }
 
-test('continent-match GPU strategy A/B — if-chain vs LUT', async ({ browser }) => {
+test('continent-match GPU strategy A/B — switch vs LUT', async ({ browser }) => {
   test.setTimeout(180_000)
 
   const runs: Array<{ label: string; threshold: number; samples: Sample[] }> = []
   for (const cfg of [
-    { label: 'if-chain (threshold 16, default)', threshold: 16 },
+    { label: 'switch  (threshold 16, default)', threshold: 16 },
     { label: 'LUT     (threshold 4,  forced)',  threshold: 4 },
   ]) {
     // Fresh context per run — guarantees the compute pipeline is recompiled
@@ -176,8 +176,8 @@ test('continent-match GPU strategy A/B — if-chain vs LUT', async ({ browser })
   lines.push('')
   if (sIf.median > 0 && sLut.median > 0) {
     const delta = ((sLut.median - sIf.median) / sIf.median) * 100
-    const verdict = delta < -5 ? 'LUT WINS' : delta > 5 ? 'if-chain WINS' : 'within noise'
-    lines.push(`Δ kernel median: LUT vs if-chain = ${delta > 0 ? '+' : ''}${delta.toFixed(1)} %  →  ${verdict}`)
+    const verdict = delta < -5 ? 'LUT WINS' : delta > 5 ? 'switch WINS' : 'within noise'
+    lines.push(`Δ kernel median: LUT vs switch = ${delta > 0 ? '+' : ''}${delta.toFixed(1)} %  →  ${verdict}`)
   } else {
     lines.push('Δ: insufficient kernel samples (compute timing 0 — adapter may lack the feature)')
   }
