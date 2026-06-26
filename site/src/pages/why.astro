@@ -1,0 +1,437 @@
+---
+// Why X-GIS  ·  /why  — positioning for evaluators (PAGES.md §9).
+//
+// The honest thesis: X-GIS is a different KIND of tool. Most web-map
+// engines are JS libraries you configure (Mapbox GL / MapLibre via a
+// JSON style spec; deck.gl / Cesium via imperative JS). X-GIS is a
+// compiled declarative LANGUAGE — a real compiler (lexer → parser → IR)
+// emits the GPU shaders (WGSL + GLSL) from your style. Lead with that
+// distinction; be fair to the alternatives; mark X-GIS's gaps honestly
+// (REBUILD §6 — no vaporware, real numbers).
+//
+// Built entirely on the kit + token utilities (no hardcoded hexes, no
+// new deps). The comparison table is a real <table> with scope'd headers
+// inside a horizontal-scroll wrapper (mobile), hairline rows, and a small
+// cell vocabulary: ✓ (yes) · — (no) · "Roadmap" pill (planned) · plain
+// text (a qualified yes, e.g. "WebGL"). Static / reduced-motion / no-JS
+// safe — only FeatureRow's hover nudge animates, and it self-guards.
+import Base from '../layouts/Base.astro'
+import Graticule from '../components/Graticule.astro'
+import Header from '../components/Header.astro'
+import Footer from '../components/Footer.astro'
+import { ContentBand, SectionHead, Card, FeatureRow, Eyebrow } from '@/components/kit'
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const githubUrl = 'https://github.com/X-GIS/X-GIS'
+
+// ── The distinctive angle — three cards (§2). Each names ONE real,
+//    defensible property of the compiler/engine, not a feature war. ──
+const pillars: { num: string; title: string; body: string; meta: string }[] = [
+  {
+    num: '01',
+    title: 'A real language',
+    body:
+      'You write a map in .xgis — and a real compiler reads it: lexer → parser → typed IR. ' +
+      'Not a JSON style document handed to a fixed renderer, but a program that gets compiled.',
+    meta: 'lexer · parser · IR',
+  },
+  {
+    num: '02',
+    title: 'Shaders compiled from your style',
+    body:
+      'The IR lowers to GPU shaders generated for your style — WGSL and GLSL emitted from the ' +
+      'same source, then optimized. Not a fixed shader set you parameterize from the outside.',
+    meta: 'WGSL + GLSL · optimized',
+  },
+  {
+    num: '03',
+    title: 'WebGPU-first',
+    body:
+      'The renderer targets WebGPU, with a WebGL2 fallback behind one RHI (render-hardware ' +
+      'interface) — the same draw path emits to whichever backend the browser gives you.',
+    meta: 'WebGPU · WebGL2 · one RHI',
+  },
+]
+
+// ── The honest comparison (§3). Conservative, defensible cells only.
+//    `kind` drives the rendered cell vocabulary:
+//      'yes'     → white check
+//      'no'      → em-dash (absence — never "worse", just not that)
+//      'roadmap' → muted "Roadmap" pill (X-GIS's own gap, marked)
+//      'text'    → a qualified answer rendered verbatim (e.g. "WebGL",
+//                  "partial") — used when a flat ✓/— would overclaim
+//    `note` is an optional second line under a cell (kept terse).
+//
+//    Every competitor cell is deliberately CONSERVATIVE: where a tool
+//    genuinely has the capability it gets ✓ (or its honest qualifier);
+//    we never write "—" against something a tool actually ships.
+type Cell =
+  | { kind: 'yes'; note?: string }
+  | { kind: 'no' }
+  | { kind: 'roadmap' }
+  | { kind: 'text'; label: string; note?: string }
+
+interface Row {
+  /** Row label (the capability). */
+  label: string
+  /** Optional clarifier under the label. */
+  sub?: string
+  xgis: Cell
+  mapbox: Cell
+  maplibre: Cell
+  deckgl: Cell
+  cesium: Cell
+}
+
+const cols = ['X-GIS', 'Mapbox GL JS', 'MapLibre GL JS', 'deck.gl', 'Cesium'] as const
+
+const rows: Row[] = [
+  {
+    label: 'Declarative style as a compiled language',
+    sub: 'the style is a program, not config',
+    xgis: { kind: 'yes' },
+    mapbox: { kind: 'text', label: 'JSON spec' },
+    maplibre: { kind: 'text', label: 'JSON spec' },
+    deckgl: { kind: 'text', label: 'JS API' },
+    cesium: { kind: 'text', label: 'JS API' },
+  },
+  {
+    label: 'Generates GPU shaders from your style',
+    sub: 'WGSL / GLSL emitted per style',
+    xgis: { kind: 'yes' },
+    mapbox: { kind: 'text', label: 'fixed shaders' },
+    maplibre: { kind: 'text', label: 'fixed shaders' },
+    deckgl: { kind: 'text', label: 'fixed shaders' },
+    cesium: { kind: 'text', label: 'fixed shaders' },
+  },
+  {
+    label: 'WebGPU rendering',
+    sub: 'GPU backend',
+    xgis: { kind: 'yes', note: '+ WebGL2 fallback' },
+    mapbox: { kind: 'text', label: 'WebGL' },
+    maplibre: { kind: 'text', label: 'WebGL', note: 'WebGPU emerging' },
+    deckgl: { kind: 'text', label: 'WebGL', note: 'WebGPU emerging' },
+    cesium: { kind: 'text', label: 'WebGL' },
+  },
+  {
+    label: '3D globe',
+    xgis: { kind: 'yes' },
+    mapbox: { kind: 'yes' },
+    maplibre: { kind: 'yes' },
+    deckgl: { kind: 'text', label: 'partial' },
+    cesium: { kind: 'yes', note: 'best-in-class' },
+  },
+  {
+    label: 'Terrain / 3D tiles',
+    xgis: { kind: 'roadmap' },
+    mapbox: { kind: 'yes' },
+    maplibre: { kind: 'yes' },
+    deckgl: { kind: 'text', label: '3D tiles' },
+    cesium: { kind: 'yes', note: 'its specialty' },
+  },
+  {
+    label: 'Custom layers',
+    sub: 'three.js / own WebGPU',
+    xgis: { kind: 'roadmap' },
+    mapbox: { kind: 'yes' },
+    maplibre: { kind: 'yes' },
+    deckgl: { kind: 'yes', note: 'its core' },
+    cesium: { kind: 'yes' },
+  },
+  {
+    label: 'Mapbox style-spec compatibility',
+    xgis: { kind: 'text', label: 'partial', note: '175 / 235' },
+    mapbox: { kind: 'yes', note: 'native' },
+    maplibre: { kind: 'yes', note: 'native' },
+    deckgl: { kind: 'no' },
+    cesium: { kind: 'no' },
+  },
+  {
+    label: 'License',
+    xgis: { kind: 'text', label: 'MIT' },
+    mapbox: { kind: 'text', label: 'Proprietary', note: 'v2+' },
+    maplibre: { kind: 'text', label: 'BSD' },
+    deckgl: { kind: 'text', label: 'MIT' },
+    cesium: { kind: 'text', label: 'Apache-2.0' },
+  },
+]
+
+// ── Who it's for / not (yet) for (§4). ──
+const forList: string[] = [
+  'Teams who want map styling that is declarative, version-controllable, and reviewed like code.',
+  'Anyone who wants the GPU shaders compiled from the style — not bolted on from the outside.',
+  'Projects that want to target WebGPU today, with a WebGL2 fallback for older browsers.',
+  'Apps that need a real ellipsoidal globe, not a textured sphere.',
+]
+const notYetList: string[] = [
+  'Teams that need terrain, 3D tiles, or custom three.js layers shipping today — those are on the roadmap, not in the box yet.',
+  'Use cases that demand a battle-tested, mature ecosystem with years of production hardening.',
+  'Full Mapbox style-spec drop-in — coverage is real (175 / 235) but not yet complete.',
+]
+---
+
+<Base
+  title="Why X-GIS — a compiler, not a config"
+  description="Why X-GIS over Mapbox GL JS, MapLibre, deck.gl, or Cesium: it's a different kind of tool — a compiled declarative language whose compiler emits the GPU shaders (WGSL + GLSL) from your style. An honest comparison, gaps marked."
+>
+  <Graticule />
+  <Header />
+
+  <main>
+    <!-- ── 1 · Thesis ── -->
+    <ContentBand id="thesis" class="border-t-0 pt-28 sm:pt-36 lg:pt-44">
+      <SectionHead
+        num="00"
+        eyebrow="Why X-GIS"
+        title="A compiler, not a config."
+        lead="Most web-map engines are JavaScript libraries you configure — Mapbox GL and MapLibre from a JSON style spec, deck.gl and Cesium from imperative JS. X-GIS is a different kind of tool: a compiled declarative language. You declare the map, and a real compiler emits the GPU shaders — WGSL and GLSL — from your style."
+      />
+    </ContentBand>
+
+    <!-- ── 2 · The distinctive angle — three cards ── -->
+    <ContentBand id="distinction">
+      <Eyebrow num="01" label="The Distinction" />
+      <h2 class="mt-6 font-display font-normal text-fg leading-[1.05] tracking-[-0.02em]
+                 text-[32px] sm:text-[42px] lg:text-[52px] max-w-[760px]">
+        Three things make it a different category.
+      </h2>
+
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-12 lg:mt-16">
+        {pillars.map(p => (
+          <Card padding="p-7 sm:p-8" class="flex flex-col">
+            <span class="font-mono text-[11px] tracking-[0.16em] uppercase text-fg-mute tabular-nums">
+              {p.num}
+            </span>
+            <h3 class="mt-5 text-[21px] sm:text-[23px] font-normal text-fg leading-[1.25] tracking-[-0.01em]">
+              {p.title}
+            </h3>
+            <p class="mt-3 text-[14.5px] leading-[1.6] text-fg-dim">
+              {p.body}
+            </p>
+            <span class="mt-6 pt-5 border-t border-line font-mono text-[11px] tracking-[0.1em] uppercase text-fg-mute">
+              {p.meta}
+            </span>
+          </Card>
+        ))}
+      </div>
+    </ContentBand>
+
+    <!-- ── 3 · Honest comparison table ── -->
+    <ContentBand id="comparison" width="wide">
+      <SectionHead
+        num="02"
+        eyebrow="The Comparison"
+        title="An honest scorecard."
+        lead="Conservative cells only — a check where X-GIS genuinely leads, a dash where a tool simply does something different, and a marked Roadmap where X-GIS isn't there yet. The alternatives are excellent; this is about kind, not ranking."
+      />
+
+      <!-- Horizontal-scroll wrapper so the table never breaks the layout
+           on a narrow screen; the table keeps its own min-width and the
+           first column is the row label. -->
+      <div class="mt-12 lg:mt-16 -mx-6 px-6 overflow-x-auto no-scrollbar">
+        <table class="w-full min-w-[820px] border-collapse text-left align-top">
+          <caption class="sr-only">
+            Capability comparison of X-GIS against Mapbox GL JS, MapLibre GL JS, deck.gl, and Cesium.
+            White check means yes; an em-dash means no; “Roadmap” means planned for X-GIS;
+            other cells give the honest specific (e.g. WebGL, partial, a licence).
+          </caption>
+          <thead>
+            <tr class="border-b border-line-strong">
+              <th scope="col" class="py-4 pr-6 align-bottom font-mono text-[11px] tracking-[0.14em] uppercase text-fg-mute font-normal">
+                Capability
+              </th>
+              {cols.map((c, i) => (
+                <th
+                  scope="col"
+                  class:list={[
+                    'py-4 px-3 align-bottom font-normal text-[13px] leading-[1.25] tracking-[-0.005em] whitespace-nowrap',
+                    i === 0 ? 'text-fg' : 'text-fg-dim',
+                  ]}
+                >
+                  {i === 0 && (
+                    <span class="block font-mono text-[10px] tracking-[0.16em] uppercase text-accent mb-1">
+                      This is us
+                    </span>
+                  )}
+                  {c}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => {
+              const cells = [r.xgis, r.mapbox, r.maplibre, r.deckgl, r.cesium]
+              return (
+                <tr class="border-b border-line">
+                  <th scope="row" class="py-5 pr-6 align-top font-normal">
+                    <span class="block text-[15px] leading-[1.3] text-fg tracking-[-0.01em]">{r.label}</span>
+                    {r.sub && (
+                      <span class="block mt-1 text-[12.5px] leading-[1.35] text-fg-mute">{r.sub}</span>
+                    )}
+                  </th>
+                  {cells.map((cell, i) => (
+                    <td
+                      class:list={[
+                        'py-5 px-3 align-top',
+                        i === 0 ? 'bg-bg-card/40' : '',
+                      ]}
+                    >
+                      {cell.kind === 'yes' && (
+                        <span class="inline-flex flex-col gap-1">
+                          <svg
+                            class="text-fg" viewBox="0 0 20 20" width="17" height="17"
+                            fill="none" stroke="currentColor" stroke-width="2.4"
+                            stroke-linecap="round" stroke-linejoin="round"
+                            role="img" aria-label="Yes"
+                          >
+                            <path d="M4 10.5l3.5 3.5L16 5.5" />
+                          </svg>
+                          {cell.note && (
+                            <span class="text-[11.5px] leading-[1.35] text-fg-mute max-w-[140px]">{cell.note}</span>
+                          )}
+                        </span>
+                      )}
+
+                      {cell.kind === 'no' && (
+                        <span class="text-fg-faint text-[16px] leading-none" aria-label="No">—</span>
+                      )}
+
+                      {cell.kind === 'roadmap' && (
+                        <span class="inline-block font-mono text-[10px] uppercase tracking-[0.12em] text-fg-dim border border-line-strong rounded-full px-2.5 py-1">
+                          Roadmap
+                        </span>
+                      )}
+
+                      {cell.kind === 'text' && (
+                        <span class="inline-flex flex-col gap-1">
+                          <span class="text-[13.5px] leading-[1.3] text-fg-dim">{cell.label}</span>
+                          {cell.note && (
+                            <span class="text-[11.5px] leading-[1.35] text-fg-mute max-w-[140px]">{cell.note}</span>
+                          )}
+                        </span>
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- The honest caption — stated plainly, not buried. -->
+      <p class="mt-8 text-[14px] sm:text-[15px] leading-[1.6] text-fg-mute max-w-[760px]">
+        X-GIS is young — terrain, 3D tiles, and custom layers are on the roadmap.
+        Where it's distinctive is the language and the compiler.
+      </p>
+    </ContentBand>
+
+    <!-- ── 4 · Who it's for / not (yet) for ── -->
+    <ContentBand id="fit">
+      <SectionHead
+        num="03"
+        eyebrow="The Fit"
+        title="Who it's for — and not yet for."
+        lead="The honest cut. X-GIS earns its place on a specific set of priorities; on others, a mature alternative is the right call today."
+      />
+
+      <div class="grid lg:grid-cols-2 gap-x-12 gap-y-12 mt-12 lg:mt-16">
+        <!-- For -->
+        <div>
+          <p class="flex items-center gap-2.5 font-mono text-[11px] tracking-[0.16em] uppercase text-fg-mute mb-2">
+            <span class="inline-block w-1.5 h-1.5 bg-fg rounded-full"></span>
+            A good fit
+          </p>
+          <ul>
+            {forList.map(item => (
+              <li class="flex items-start gap-3 border-t border-line py-5">
+                <svg
+                  class="text-fg mt-1 shrink-0" viewBox="0 0 20 20" width="16" height="16"
+                  fill="none" stroke="currentColor" stroke-width="2.4"
+                  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+                >
+                  <path d="M4 10.5l3.5 3.5L16 5.5" />
+                </svg>
+                <span class="text-[15px] leading-[1.55] text-fg-dim">{item}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <!-- Not yet for -->
+        <div>
+          <p class="flex items-center gap-2.5 font-mono text-[11px] tracking-[0.16em] uppercase text-fg-mute mb-2">
+            <span class="inline-block w-1.5 h-1.5 border border-fg-mute rounded-full"></span>
+            Not yet for
+          </p>
+          <ul>
+            {notYetList.map(item => (
+              <li class="flex items-start gap-3 border-t border-line py-5">
+                <span class="text-fg-faint mt-0.5 shrink-0 text-[15px] leading-[1.4] w-4 text-center" aria-hidden="true">—</span>
+                <span class="text-[15px] leading-[1.55] text-fg-dim">{item}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </ContentBand>
+
+    <!-- ── 5 · CTA row ── -->
+    <ContentBand id="next">
+      <div class="flex flex-col gap-8 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <Eyebrow label="Next" />
+          <h2 class="mt-5 font-display font-normal text-fg leading-[1.05] tracking-[-0.02em]
+                     text-[30px] sm:text-[38px] lg:text-[46px] max-w-[620px]">
+            See the compiler do the work.
+          </h2>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3 shrink-0">
+          <!-- Read the docs — primary white pill (the brand's rare filled CTA). -->
+          <a
+            href={`${base}/docs`}
+            class="inline-flex items-center gap-2 rounded-full bg-fg text-bg
+                   text-[13px] font-medium px-5 py-2.5 hover:bg-accent-hover transition-colors"
+          >
+            Read the docs
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M9 6l6 6-6 6" />
+            </svg>
+          </a>
+
+          <!-- See it compile — outline pill → the compute concept page. -->
+          <a
+            href={`${base}/docs/concepts/compute`}
+            class="inline-flex items-center gap-2 rounded-full border border-line-strong text-fg
+                   text-[13px] font-medium px-5 py-2.5 hover:border-fg-mute transition-colors"
+          >
+            See it compile
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M9 6l6 6-6 6" />
+            </svg>
+          </a>
+        </div>
+      </div>
+
+      <!-- A quiet secondary lane — repo + roadmap, for the evaluator who
+           wants to verify the claims at the source. -->
+      <div class="mt-12 pt-8 border-t border-line flex flex-wrap gap-x-8 gap-y-3">
+        <a href={githubUrl} target="_blank" rel="noopener"
+           class="inline-flex items-center gap-2 text-[14px] text-fg-mute hover:text-fg transition-colors">
+          Read the source
+          <span aria-hidden="true" class="text-fg-faint">↗</span>
+        </a>
+        <a href={`${base}/examples`}
+           class="inline-flex items-center gap-2 text-[14px] text-fg-mute hover:text-fg transition-colors">
+          See it render
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 6l6 6-6 6" />
+          </svg>
+        </a>
+      </div>
+    </ContentBand>
+  </main>
+
+  <Footer />
+</Base>
