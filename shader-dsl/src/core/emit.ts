@@ -11,7 +11,7 @@ import type { Expr, Stmt, ModuleDecl } from './ir'
 import { validate } from './passes/validate'
 import { assertCaps } from './passes/required-caps'
 import { lowerModule } from './passes/match-lower'
-import { autoVars } from './passes/opt'
+import { autoVars, optimizeAt, type OptLevel } from './passes/opt'
 import { reflect, type Reflection } from './reflect'
 
 const pad = (depth: number): string => '  '.repeat(depth)
@@ -110,7 +110,7 @@ export function forHeader(s: Stmt, be: Backend): string {
  *  `optimize(lowerModule(autoVars(m)))`. Returns the lowered module ready for
  *  per-declaration spelling. (autoVars BEFORE lowerModule — var materialisation is
  *  backend-neutral; cse runs only inside the WGSL backend's `optimize`.) */
-export function lowerForBackend(m: ModuleDecl, be: Backend): ModuleDecl {
+export function lowerForBackend(m: ModuleDecl, be: Backend, level?: OptLevel): ModuleDecl {
   // Validate the AUTHORED module before any lowering (the rules reason about the
   // pre-lower shape — e.g. matchExpr chains, placeholder swap sites).
   validate(m)
@@ -119,7 +119,10 @@ export function lowerForBackend(m: ModuleDecl, be: Backend): ModuleDecl {
   // matchExpr-unaware (identity for modules with no matchExpr); auto-cache (cse, in the
   // WGSL backend's optimize) then hoists any input-only subexpression reused ≥2x into one
   // shared `let`, so authors write plain inline expressions and the reuse is bound for them.
-  return be.optimize(lowerModule(autoVars(m)))
+  // `level` overrides the backend's default optimizer tier (used by the measurement A/B and
+  // debug emit); omitted → the backend's own `optimize` (= O2 fixpoint), the production path.
+  const pre = lowerModule(autoVars(m))
+  return level === undefined ? be.optimize(pre) : optimizeAt(pre, level)
 }
 
 /** Assemble an ALREADY-lowered module into a target string: the declaration assembly
@@ -141,6 +144,16 @@ function assembleLowered(lowered: ModuleDecl, be: Backend): string {
  *  (`emitModule` for WGSL) routes through here, so the assembly lives once. */
 export function emitModule(m: ModuleDecl, be: Backend): string {
   return assembleLowered(lowerForBackend(m, be), be)
+}
+
+/** Emit a ModuleDecl at an explicit optimization level (O0/O1/O2) instead of the
+ *  backend's default. `emitModuleAt(m, be, 'O2')` is byte-identical to `emitModule(m, be)`
+ *  (both run the full fixpoint); O0 emits the naive lowered module. Used by the emit-size
+ *  measurement (measure.ts) to A/B the optimizer and for debug builds. NOTE: the GLSL
+ *  backend assembles uniform UBOs via its own emitGlslModule, so this WGSL-style assembly
+ *  is for the WGSL backend (and any backend whose bindings need no special assembly). */
+export function emitModuleAt(m: ModuleDecl, be: Backend, level: OptLevel): string {
+  return assembleLowered(lowerForBackend(m, be, level), be)
 }
 
 /** Emit a ModuleDecl AND recover its pipeline reflection, BOTH derived from the SAME
