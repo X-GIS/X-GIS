@@ -24,6 +24,7 @@ import { constFold } from './const-fold'
 import { algebraicSimplify } from './algebraic'
 import { deadBranch } from './dead-branch'
 import { cse } from './cse'
+import { cseLocal } from './cse-local'
 import { licm } from './licm'
 import { dce } from './dce'
 
@@ -31,9 +32,10 @@ export type OptPass = (m: ModuleDecl) => ModuleDecl
 
 /** The default pipeline. const/copy-prop first (move literals & copies into uses),
  *  then const-fold + algebraic-simplify (collapse the exposed literals / identities),
- *  then dead-branch (drop the control flow those literals decided), then CSE / LICM
- *  (hoist repeats & loop invariants), then DCE last (clean up everything orphaned). */
-export const DEFAULT_PASSES: readonly OptPass[] = [constProp, copyProp, constFold, algebraicSimplify, deadBranch, cse, licm, dce]
+ *  then dead-branch (drop the control flow those literals decided), then CSE (fn-top
+ *  input-only repeats) + cse-local (statement-local repeats that touch a local/var) /
+ *  LICM (loop invariants), then DCE last (clean up everything orphaned). */
+export const DEFAULT_PASSES: readonly OptPass[] = [constProp, copyProp, constFold, algebraicSimplify, deadBranch, cse, cseLocal, licm, dce]
 
 export function optimize(m: ModuleDecl, passes: readonly OptPass[] = DEFAULT_PASSES): ModuleDecl {
   return passes.reduce((mod, pass) => pass(mod), m)
