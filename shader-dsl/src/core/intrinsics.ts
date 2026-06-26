@@ -40,8 +40,12 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // 3rd arg in int(); GLSL has no implicit u32→int here. (2-arg form passes through.)
   textureLoad: { wgsl: (a) => `textureLoad(${join(a)})`, glsl: (a) => a.length >= 3 ? `texelFetch(${a[0]}, ${a[1]}, int(${a[2]}))` : `texelFetch(${join(a)})` },
   // GLSL textureSize REQUIRES an int lod (WGSL textureDimensions(t) defaults to base
-  // level 0); supply 0 when absent, else cast the given level to int.
-  textureDimensions: { wgsl: (a) => `textureDimensions(${join(a)})`, glsl: (a) => a.length >= 2 ? `textureSize(${a[0]}, int(${a[1]}))` : `textureSize(${a[0]}, 0)` },
+  // level 0); supply 0 when absent, else cast the given level to int. WGSL
+  // textureDimensions returns vec2<u32> but GLSL textureSize returns a SIGNED ivec2 —
+  // wrap in uvec2() so the GLSL type matches the IR's u32 type. Without this the
+  // mismatch is masked while the call is inlined into an int context, but breaks the
+  // moment the optimizer's CSE hoists it into a typed `uvec2 _cse = …` local.
+  textureDimensions: { wgsl: (a) => `textureDimensions(${join(a)})`, glsl: (a) => a.length >= 2 ? `uvec2(textureSize(${a[0]}, int(${a[1]})))` : `uvec2(textureSize(${a[0]}, 0))` },
   // Storage-buffer emulation (WebGL2 has no SSBO): GLSL-only synthetic. A storage read
   // data[i] lowers to a fetch from a DATA TEXTURE — a[0]=the sampler, a[1]=the element index.
   // 2D-TILED: the linear index maps to (i % W, i / W) where W = the texture's own width
