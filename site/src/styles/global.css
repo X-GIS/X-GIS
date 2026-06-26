@@ -35,9 +35,10 @@
   /* xAI design system (getdesign.md/x.ai) — stark near-black canvas, white ink,
    * hairline elevation (no shadows). Var NAMES are kept (ink/paper/sienna) so every
    * existing utility (bg-bg, text-fg-dim, border-line, text-accent, …) maps straight
-   * across; only the VALUES change. The "sienna" accent bridges to xAI sunset-orange
-   * so current accent usages stay a warm, visible highlight until the per-component
-   * restyle reduces accent to white-primary + render-borne colour. */
+   * across; only the VALUES change. The "sienna" accent IS xAI primary WHITE — the brand
+   * is white-on-near-black, so emphasis is carried by shape (pill) + weight, not hue. The
+   * muted sunset/dusk/twilight/breeze palette below is illustrative-only (real renders /
+   * diagrams), never chrome. Use x.ai as-is — no improvised accent. */
   --ink:      #0a0a0a;   /* canvas (near-black) */
   --ink-2:    #1a1c20;   /* canvas-soft (hover / tooltip) */
   --ink-3:    #191919;   /* canvas-card */
@@ -46,13 +47,18 @@
   --paper-2:  #dadbdf;   /* body */
   --paper-3:  #7d8187;   /* body-mid / mute */
   --paper-4:  #5a5f66;   /* faint */
-  --hair:     rgba(255, 255, 255, 0.10);
-  --hair-2:   rgba(255, 255, 255, 0.18);
-  --sienna:        #ff7a17;   /* accent → xAI sunset-orange (warm highlight) */
-  --sienna-hover:  #ff9248;
-  --sienna-press:  #e06a10;
-  --sienna-deep:   #c95e0d;
-  --on-sienna:     #0a0a0a;
+  --hair:     #212327;   /* xAI hairline (solid) — the elevation device */
+  --hair-2:   #2c2f34;   /* hairline-strong / focus */
+  --sienna:        #ffffff;   /* accent = xAI primary (white). Brand is white-on-near-black; emphasis is shape (pill) + weight, NOT hue. */
+  --sienna-hover:  #fafaf7;
+  --sienna-press:  #e8e8e6;
+  --sienna-deep:   #d8d8d6;
+  --on-sienna:     #0a0a0a;   /* text on the white accent / primary pill */
+  /* xAI muted accent palette — illustrative ONLY (real renders / diagrams / icons), never chrome. */
+  --accent-sunset:   #ff7a17;
+  --accent-dusk:     #7c3aed;
+  --accent-twilight: #c4b5fd;
+  --accent-breeze:   #a0c3ec;
 
   /* shadcn semantic tokens */
   --background: var(--ink);
