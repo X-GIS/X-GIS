@@ -7,6 +7,7 @@ import WhatIsXGIS from '../components/WhatIsXGIS.astro'
 import HowItCompiles from '../components/HowItCompiles.astro'
 import BecomesShaders from '../components/BecomesShaders.astro'
 import Coverage from '../components/Coverage.astro'
+import Roadmap from '../components/Roadmap.astro'
 import Showcase from '../components/Showcase.astro'
 import QuickStart from '../components/QuickStart.astro'
 import Footer from '../components/Footer.astro'
@@ -18,8 +19,9 @@ import Footer from '../components/Footer.astro'
 //   3 How it compiles — the real .xgis → truthful pipeline → live compile graph
 //   4 Becomes shaders — one IR → WGSL + GLSL ES 3.00 (the "TS becomes JS" beat)
 //   5 Mapbox-compatible — the honest spec-coverage figures (175/235 +14)
-//   6 Examples        — live gallery teaser
-//   7 Get started     — install / docs CTAs
+//   6 Roadmap         — where it's headed (vision; the future-track lives here)
+//   7 Examples        — live gallery teaser
+//   8 Get started     — install / docs CTAs
 // The hero is hydrated; everything below is static Astro inheriting the
 // tokens. Nav still anchors #install (QuickStart).
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
@@ -34,6 +36,7 @@ const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
     <HowItCompiles />
     <BecomesShaders />
     <Coverage />
+    <Roadmap />
     <Showcase />
     <QuickStart />
   </main>
