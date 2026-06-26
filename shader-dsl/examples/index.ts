@@ -9,14 +9,18 @@ import { graticule } from './graticule.ts'
 import { hillshade } from './hillshade.ts'
 import { colorRamp } from './color-ramp.ts'
 import { plasma } from './shadertoy-plasma.ts'
+import { voronoi } from './voronoi.ts'
+import { julia } from './julia.ts'
+import { fbmClouds } from './fbm-clouds.ts'
+import { raymarchSphere } from './raymarch-sphere.ts'
 import { gradient } from './gradient-pass.ts'
 import { computeReduction } from './compute-reduction.ts'
 import type { ShaderExample } from './_shared.ts'
 
 export type { ShaderExample, Control } from './_shared.ts'
-export { graticule, hillshade, colorRamp, plasma, gradient, computeReduction }
+export { graticule, hillshade, colorRamp, plasma, voronoi, julia, fbmClouds, raymarchSphere, gradient, computeReduction }
 
 /** All examples, cartographic first (they belong on a map site), then generic, then compute. */
 export const examples: readonly ShaderExample[] = [
-  graticule, hillshade, colorRamp, plasma, gradient, computeReduction,
+  graticule, hillshade, colorRamp, plasma, voronoi, julia, fbmClouds, raymarchSphere, gradient, computeReduction,
 ]
