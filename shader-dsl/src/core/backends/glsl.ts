@@ -31,6 +31,7 @@ import { f32Lit } from './wgsl'
 import { emitBody, lowerForBackend } from '../emit'
 import { wgslLayout } from '../reflect'
 import { sanitizeReservedIdents } from './glsl-sanitize'
+import { fixpoint } from '../passes/opt'
 
 // UnsupportedFeatureError now lives in the backend contract; re-exported here so
 // existing importers (`from './glsl'`) keep working.
@@ -182,8 +183,15 @@ export const glslEs300Backend: Backend = {
     const params = f.params.map((p) => `${glslType(p.type)} ${p.name}`).join(', ')
     return `${glslType(f.ret)} ${f.name}(${params}) {\n${emitBody(f.body, 1, glslEs300Backend)}\n}`
   },
-  // GLSL has no emit-time auto-cache (cse stays WGSL-only so byte-identity holds); identity.
-  optimize: (lowered) => lowered,
+  // Same emit-time optimizer the WGSL backend runs (fixpoint: const/copy-prop,
+  // const-fold, cse auto-cache, licm, dce). The pass is IR-level + backend-neutral,
+  // so the WebGL2 fragment path stops recomputing CSE-able subexpressions (e.g. the
+  // hillshade `terrain()` ~10x/fragment, plasma's 3-sin sum). Value-preserving
+  // (oracle-validated). REQUIRES every intrinsic whose GLSL spelling diverges in
+  // SIGNEDNESS from its WGSL/IR type to cast to the IR type (e.g. textureDimensions →
+  // uvec2(textureSize(…))) — otherwise CSE hoisting it into a typed local is a GLSL
+  // int/uint compile error. Gated by the real-WebGL2 link gate (_glsl-real-shader-link-gate).
+  optimize: (m) => fixpoint(m),
 }
 
 /** Emit a std140 UBO block for a uniform struct binding. The block tag is the STRUCT

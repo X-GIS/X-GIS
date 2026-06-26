@@ -46,10 +46,13 @@ describe('intrinsics — neutral registry (#3a)', () => {
     expect(spellIntrinsic('glsl', 'textureLoad', ['t', 'c', 'lvl'])).toBe('texelFetch(t, c, int(lvl))')
   })
 
-  it('textureDimensions: WGSL unchanged; GLSL textureSize supplies an int lod (0 when absent)', () => {
+  it('textureDimensions: WGSL unchanged; GLSL textureSize (int lod) wrapped in uvec2', () => {
     expect(spellIntrinsic('wgsl', 'textureDimensions', ['t'])).toBe('textureDimensions(t)')
-    expect(spellIntrinsic('glsl', 'textureDimensions', ['t'])).toBe('textureSize(t, 0)')
+    // GLSL textureSize returns a SIGNED ivec2; wrap in uvec2 so the type matches the
+    // IR's vec2<u32> (else the optimizer's CSE hoist `uvec2 _cse = textureSize(…)` is a
+    // GLSL int/uint compile error). 0 lod when absent.
+    expect(spellIntrinsic('glsl', 'textureDimensions', ['t'])).toBe('uvec2(textureSize(t, 0))')
     // explicit level form casts the given level to int.
-    expect(spellIntrinsic('glsl', 'textureDimensions', ['t', 'lvl'])).toBe('textureSize(t, int(lvl))')
+    expect(spellIntrinsic('glsl', 'textureDimensions', ['t', 'lvl'])).toBe('uvec2(textureSize(t, int(lvl)))')
   })
 })
