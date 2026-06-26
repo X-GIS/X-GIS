@@ -21,6 +21,20 @@ const canonical = new URL(Astro.url.pathname, Astro.site ?? siteUrl).toString()
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const logoUrl = `${base}/x-gis-logo-dark.svg`
 
+// Build-time manifest of localized (/ko) routes. The first-visit language
+// auto-switch (inline script below) only redirects a Korean browser to a /ko
+// page that ACTUALLY exists — so it is a safe no-op until /ko content is filled
+// in, never a redirect to a 404. The list grows automatically as src/pages/ko/**
+// pages are added.
+const koGlob = import.meta.glob('/src/pages/ko/**/*.{astro,md,mdx}')
+const koRoutes = Object.keys(koGlob).map(
+  (p) =>
+    p
+      .replace('/src/pages', '')
+      .replace(/\/index\.(astro|md|mdx)$/, '')
+      .replace(/\.(astro|md|mdx)$/, '') || '/',
+)
+
 // JSON-LD: SoftwareSourceCode + WebSite. Helps search engines surface
 // the project as a software listing rather than a generic page.
 const jsonLd = {
@@ -80,6 +94,31 @@ const jsonLd = {
          fonts.googleapis.com / fonts.gstatic.com needed. -->
 
     <title>{title}</title>
+
+    <!-- First-visit language auto-switch. Runs before paint (is:inline, in
+         <head>) so a Korean browser lands on the /ko twin without a flash.
+         Rules: a manually-stored choice ALWAYS wins (the toggle sets it); on a
+         first visit with no stored choice we detect navigator.language, remember
+         it, and redirect to /ko ONLY when a localized twin exists (koRoutes). -->
+    <script is:inline define:vars={{ koRoutes, base }}>
+      (function () {
+        try {
+          var KEY = 'xgis-lang'
+          if (localStorage.getItem(KEY)) return // manual choice wins
+          var isKo = (navigator.language || '').toLowerCase().slice(0, 2) === 'ko'
+          localStorage.setItem(KEY, isKo ? 'ko' : 'en') // remember first-visit detection
+          if (!isKo) return
+          var path = location.pathname
+          if (path.indexOf(base + '/ko') === 0) return // already localized
+          var rel = path.indexOf(base) === 0 ? path.slice(base.length) : path
+          var tail = rel === '/' || rel === '' ? '' : rel
+          var want = '/ko' + tail
+          if (koRoutes.indexOf(want) !== -1 || koRoutes.indexOf(want.replace(/\/$/, '')) !== -1) {
+            location.replace(base + '/ko' + tail)
+          }
+        } catch (e) {}
+      })()
+    </script>
 
     <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
   </head>
