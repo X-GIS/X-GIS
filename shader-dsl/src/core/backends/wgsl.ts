@@ -11,9 +11,9 @@ import type {
   ShaderType, Expr, ConstDecl, StructDecl, BindingDecl, FuncDecl, ModuleDecl,
 } from '../ir'
 import { Capabilities, type Backend } from '../backend'
-import { emitExpr as emitExprNeutral, emitBody, emitModule as emitModuleDriver } from '../emit'
+import { emitExpr as emitExprNeutral, emitBody, emitModule as emitModuleDriver, emitModuleAt as emitModuleAtDriver, lowerForBackend } from '../emit'
 import { lowerModule } from '../passes/match-lower'
-import { fixpoint, autoVars } from '../passes/opt'
+import { fixpoint, autoVars, type OptLevel } from '../passes/opt'
 import { spellIntrinsic } from '../intrinsics'
 
 export function wgslType(t: ShaderType): string {
@@ -127,3 +127,14 @@ export function emitFuncsCsed(funcs: readonly FuncDecl[]): string {
 /** Emit a ModuleDecl as a WGSL string. Thin wrapper over the shared backend-parameterised
  *  driver (core/emit.ts) bound to wgslBackend — the module assembly lives once. */
 export const emitModule = (m: ModuleDecl): string => emitModuleDriver(m, wgslBackend)
+
+/** Emit WGSL at an explicit optimization level (O0/O1/O2). `emitModuleAt(m, 'O2')` is
+ *  byte-identical to `emitModule(m)`; O0 is the naive (un-optimized) emit. Drives the
+ *  emit-size measurement (core/measure.ts) and debug builds. */
+export const emitModuleAt = (m: ModuleDecl, level: OptLevel): string => emitModuleAtDriver(m, wgslBackend, level)
+
+/** The lowered+optimized WGSL ModuleDecl at a level — the SAME pre-emit pipeline `emitModule`
+ *  runs (validate → assertCaps → autoVars → lowerModule → optimizeAt), returned as IR rather
+ *  than a string. Single source of the lowering recipe so an IR consumer (core/measure.ts's
+ *  op-count) and the string emit cannot describe different modules. */
+export const lowerWgsl = (m: ModuleDecl, level: OptLevel): ModuleDecl => lowerForBackend(m, wgslBackend, level)

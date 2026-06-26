@@ -46,6 +46,12 @@ export * from './core/reflect'
 // carrying sibling of emitModule (its `.code` is byte-identical to the WGSL emitModule).
 export { emitStmt, emitBody, forHeader, lowerForBackend, emitModuleWithReflection } from './core/emit'
 
+// Optimizer measurement (A/B the optimizer on op-count + source size; "measure, don't guess").
+export { emitSize, countOps, optimizerReport, type EmitSize, type OpCount, type OptimizerReport } from './core/measure'
+
+// Named optimization levels (O0/O1/O2) + the level-aware optimize entry.
+export { optimizeAt, LEVEL_PASSES, type OptLevel } from './core/passes/opt'
+
 // Pre-emit passes used by authors / consumers.
 export { lowerModule } from './core/passes/match-lower'
 export { cse } from './core/passes/opt/cse'

@@ -55,3 +55,31 @@ export function fixpoint(m: ModuleDecl, passes: readonly OptPass[] = DEFAULT_PAS
   }
   return cur
 }
+
+// ── Named optimization levels (C-compiler -O0/-O1/-O2) ──
+// emit hardcodes the full pipeline (`be.optimize = fixpoint(m)` = O2). These named
+// tiers expose the intermediate points so a consumer can emit a debug build (O0,
+// naive — every author-written subexpr verbatim) or a bit-exact build (O1) and, in
+// particular, so the measurement util can A/B the optimizer's effect (O0 vs O2).
+export type OptLevel = 'O0' | 'O1' | 'O2'
+
+/** The pass list each level runs to a fixed point.
+ *  • O0 — none. Naive lowered emit (debug / the size baseline the optimizer is measured against).
+ *  • O1 — the bit-exact value-MOVERS + cleanup only: const/copy-prop, dead-branch, cse, cse-local, dce.
+ *    None changes WHICH float ops execute, so O1's RUNTIME VALUES are bit-identical to O0 on every
+ *    target. (cse / cse-local may rewrite the SOURCE — hoist a repeat to a `let` — but never the
+ *    result; that source-vs-result split is exactly what measure.ts's "bytes ≠ work" surfaces.) It
+ *    deliberately omits const-FOLD on floats, algebraic identities, and LICM — the passes that can
+ *    change float semantics and so need the real-GPU f32 differential gate (P3).
+ *  • O2 — the full DEFAULT_PASSES (adds constFold + algebraicSimplify + licm). The emit default;
+ *    `optimizeAt(m,'O2')` is identical to every backend's `optimize: (m) => fixpoint(m)`. */
+export const LEVEL_PASSES: Record<OptLevel, readonly OptPass[]> = {
+  O0: [],
+  O1: [constProp, copyProp, deadBranch, cse, cseLocal, dce],
+  O2: DEFAULT_PASSES,
+}
+
+/** Optimize a module at a named level (fixpoint of that level's passes). O0 is identity. */
+export function optimizeAt(m: ModuleDecl, level: OptLevel): ModuleDecl {
+  return level === 'O0' ? m : fixpoint(m, LEVEL_PASSES[level])
+}
