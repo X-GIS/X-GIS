@@ -29,7 +29,7 @@ import { emitHeatmapAccumWgsl } from '../shaders/dsl'
 import { WebGpuDevice, wrapWebGpuPass } from './rhi/rhi-webgpu'
 import { HeatmapDraper } from './material/heatmap-material'
 import { HEATMAP_DENSITY_FORMAT } from '../gpu/gpu-shared'
-import { heatmapUniformSlots } from './heatmap-uniform-slots'
+import { heatmapUniformSlots, heatmapUniformBytes } from './heatmap-uniform-slots'
 import { globeEyeUniform } from './globe-eye-uniform'
 
 // f32 slots of the heatmap-accum 'Uniforms' struct, from reflect() (NOT hand-coded magic
@@ -137,7 +137,7 @@ export class HeatmapRenderer {
   private pipeline: GPURenderPipeline
   private bindGroupLayout: GPUBindGroupLayout
   private uniformBuffer: GPUBuffer
-  private uniformData = new Float32Array(36) // mvp16+proj4+viewport4+cam_h4+cam_l4+globe_eye4 (#600)
+  private uniformData = new Float32Array(heatmapUniformSlots().slots) // reflect-derived (= mvp16+proj4+viewport4+cam_h4+cam_l4+globe_eye4 = 36, #600)
   private readonly _frameArena = new FrameArena(64 * 1024)
   private layers: HeatmapLayer[] = []
   /** Blur direction uniforms (allocated once; the heatmap pass picks H/V).
@@ -194,7 +194,7 @@ export class HeatmapRenderer {
     })
 
     this.uniformBuffer = device.createBuffer({
-      size: 144, // 36 f32 × 4 (#600 globe_eye)
+      size: heatmapUniformBytes(), // reflect-derived (was 144 = 36 f32 × 4, #600 globe_eye)
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     })
 
