@@ -1,4 +1,4 @@
-// baseline: 83365ae2f00cbb762bfe7cdb3946b3d909ea8974
+// baseline: 26ac3c8c765ce78240d267c8587b7e8df70ad1c2
 // fixture: bright-landuse-match13
 // variant.key: bright-landuse-match13
 // pick: false
@@ -332,7 +332,8 @@ fn vs_main(@location(0) pos_h: vec3<f32>, @location(1) pos_l: vec3<f32>, @locati
   }
   _av0.x = (_av0.x + (u.fill_translate_x * _av0.w));
   _av0.y = (_av0.y - (u.fill_translate_y * _av0.w));
-  return VertexOutput(vec4<f32>(apply_log_depth(_av0, u.log_depth_fc).x, apply_log_depth(_av0, u.log_depth_fc).y, (apply_log_depth(_av0, u.log_depth_fc).z - (u.layer_depth_offset * apply_log_depth(_av0, u.log_depth_fc).w)), apply_log_depth(_av0, u.log_depth_fc).w), 0.0, u32(feature_id), _cse3, _av0.w, 1.0, (radians(abs_lon) * EARTH_R), (log(tan(((PI / 4.0) + (radians(_cse3) / 2.0)))) * EARTH_R), 0.0, _cse0);
+  let _v0 = apply_log_depth(_av0, u.log_depth_fc);
+  return VertexOutput(vec4<f32>(_v0.x, _v0.y, (_v0.z - (u.layer_depth_offset * _v0.w)), _v0.w), 0.0, u32(feature_id), _cse3, _av0.w, 1.0, (radians(abs_lon) * EARTH_R), (log(tan(((PI / 4.0) + (radians(_cse3) / 2.0)))) * EARTH_R), 0.0, _cse0);
 }
 
 @vertex
@@ -353,7 +354,8 @@ fn vs_main_ecef(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u32>, @loca
   }
   _av0.x = (_av0.x + (u.fill_translate_x * _av0.w));
   _av0.y = (_av0.y - (u.fill_translate_y * _av0.w));
-  return VertexOutput(vec4<f32>(apply_log_depth(_av0, u.log_depth_fc).x, apply_log_depth(_av0, u.log_depth_fc).y, (apply_log_depth(_av0, u.log_depth_fc).z - (u.layer_depth_offset * apply_log_depth(_av0, u.log_depth_fc).w)), apply_log_depth(_av0, u.log_depth_fc).w), 0.0, u32(feature_id), clamp(degrees(inv_merc_lat_rad(_cse3)), (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT), _av0.w, 1.0, _cse4, _cse3, 0.0, _cse0);
+  let _v0 = apply_log_depth(_av0, u.log_depth_fc);
+  return VertexOutput(vec4<f32>(_v0.x, _v0.y, (_v0.z - (u.layer_depth_offset * _v0.w)), _v0.w), 0.0, u32(feature_id), clamp(degrees(inv_merc_lat_rad(_cse3)), (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT), _av0.w, 1.0, _cse4, _cse3, 0.0, _cse0);
 }
 
 @vertex
@@ -374,13 +376,14 @@ fn vs_main_ecef_extruded(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u3
   }
   _av0.x = (_av0.x + (u.fill_translate_x * _av0.w));
   _av0.y = (_av0.y - (u.fill_translate_y * _av0.w));
+  let _v0 = apply_log_depth(_av0, u.log_depth_fc);
   var _av1: f32 = clamp(dot(face_normal, u.light_dir_ecef.xyz), 0.0, 1.0);
   _av1 = mix(_cse3, max(((1.0 - (((u.fill_color.rgb.x * 0.2126) + (u.fill_color.rgb.y * 0.7152)) + (u.fill_color.rgb.z * 0.0722))) + u.light_dir_ecef.w), 1.0), _av1);
   if (((abs(face_normal.z) < 0.5) && (u.cam_ecef_off_l.w != 0.0))) {
     _av1 = (_av1 * clamp((is_top * sqrt((max(wall_height, 1.0) / 150.0))), mix(0.7, 0.98, _cse3), 1.0));
   }
-  let _v0 = clamp((((u.fill_color.rgb + vec3<f32>(0.03)) * _av1) * unpack4x8unorm(u.light_color_packed).xyz), vec3<f32>(0.0), vec3<f32>(1.0));
-  return VertexOutput(vec4<f32>(apply_log_depth(_av0, u.log_depth_fc).x, apply_log_depth(_av0, u.log_depth_fc).y, (apply_log_depth(_av0, u.log_depth_fc).z - (u.layer_depth_offset * apply_log_depth(_av0, u.log_depth_fc).w)), apply_log_depth(_av0, u.log_depth_fc).w), 0.0, u32(feature_id), _cse4, _av0.w, is_top, (radians(abs_lon) * EARTH_R), (log(tan(((PI / 4.0) + (radians(_cse4) / 2.0)))) * EARTH_R), _cse1, vec4<f32>(_v0, u.fill_color.w));
+  let _v1 = clamp((((u.fill_color.rgb + vec3<f32>(0.03)) * _av1) * unpack4x8unorm(u.light_color_packed).xyz), vec3<f32>(0.0), vec3<f32>(1.0));
+  return VertexOutput(vec4<f32>(_v0.x, _v0.y, (_v0.z - (u.layer_depth_offset * _v0.w)), _v0.w), 0.0, u32(feature_id), _cse4, _av0.w, is_top, (radians(abs_lon) * EARTH_R), (log(tan(((PI / 4.0) + (radians(_cse4) / 2.0)))) * EARTH_R), _cse1, vec4<f32>(_v1, u.fill_color.w));
 }
 
 @fragment

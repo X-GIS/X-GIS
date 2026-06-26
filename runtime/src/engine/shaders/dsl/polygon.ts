@@ -381,7 +381,7 @@ const vsMain = fn(
     clip.x.assign(clip.x.add(fillTx.mul(clip.w)))
     clip.y.assign(clip.y.sub(fillTy.mul(clip.w)))
     // Log-depth rewrite + per-layer NDC-z bias (z = z − offset·w, computed inline).
-    const pos0 = apply_log_depth(clip, logDepthFc)
+    const pos0 = Let(apply_log_depth(clip, logDepthFc)) // materialise once: `clip` is a mutated var so CSE can't hoist; without Let the 4 pos0.* reads below re-emit apply_log_depth (log2) 4× per vertex
     return VertexOutputIO.construct({
       position: vec4(pos0.x, pos0.y, pos0.z.sub(layerDepthOff.mul(pos0.w)), pos0.w),
       view_w: clip.w,
@@ -502,7 +502,7 @@ const vsMainEcef = fn(
     clip.x.assign(clip.x.add(fillTx.mul(clip.w)))
     clip.y.assign(clip.y.sub(fillTy.mul(clip.w)))
     // Log-depth rewrite + per-layer NDC-z bias (z = z − offset·w, computed inline).
-    const pos0 = apply_log_depth(clip, logDepthFc)
+    const pos0 = Let(apply_log_depth(clip, logDepthFc)) // materialise once: `clip` is a mutated var so CSE can't hoist; without Let the 4 pos0.* reads below re-emit apply_log_depth (log2) 4× per vertex
     return VertexOutputIO.construct({
       position: vec4(pos0.x, pos0.y, pos0.z.sub(layerDepthOff.mul(pos0.w)), pos0.w),
       view_w: clip.w,
@@ -593,7 +593,7 @@ const vsMainEcefExtruded = fn(
     clip.x.assign(clip.x.add(fillTx.mul(clip.w)))
     clip.y.assign(clip.y.sub(fillTy.mul(clip.w)))
     // Log-depth rewrite + per-layer NDC-z bias (z = z − offset·w, computed inline).
-    const pos0 = apply_log_depth(clip, logDepthFc)
+    const pos0 = Let(apply_log_depth(clip, logDepthFc)) // materialise once: `clip` is a mutated var so CSE can't hoist; without Let the 4 pos0.* reads below re-emit apply_log_depth (log2) 4× per vertex
 
     // MapLibre-equivalent face-normal directional lighting (preserved
     // verbatim from vs_main_quantized_extruded). Default light style:
