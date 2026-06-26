@@ -1,0 +1,29 @@
+---
+// Eyebrow — the signature xAI mono-caps kicker that sits above every
+// section head. Geist Mono, UPPERCASE, positively tracked — reads as a
+// code comment rather than a marketing label. The brand's signature
+// section marker (DESIGN.md › eyebrow-mono).
+//
+// Static text only (no animation) → reduced-motion + no-JS safe by nature.
+//
+// Usage:
+//   <Eyebrow num="01" label="The Approach" />   →  01 · The Approach
+//   <Eyebrow label="What It Covers" />           →  What It Covers
+//   <Eyebrow num="03">Made With It</Eyebrow>     →  03 · Made With It (slot)
+
+interface Props {
+  /** The kicker text. Optional — falls back to <slot> when omitted. */
+  label?: string
+  /** Optional ordinal, e.g. "01". Rendered as a "NN ·" prefix. */
+  num?: string
+  /** Extra classes merged onto the root <p>. */
+  class?: string
+}
+
+const { label, num, class: className = '' } = Astro.props
+---
+
+<p class:list={['font-mono uppercase tracking-[0.18em] text-[12px] text-fg-mute', className]}>
+  {num && <span class="text-fg-mute">{num} ·&nbsp;</span>}
+  {label ?? <slot />}
+</p>

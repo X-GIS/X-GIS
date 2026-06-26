@@ -1,0 +1,85 @@
+---
+// FeatureRow — the xAI editorial row: rows over boxed grids. A hairline
+// rule, a mono ordinal in the left rail, then a weight-400 display title
+// with prose underneath. Stack several and the shared top-borders read
+// as a clean ledger (the brand's "rows, not cards" list pattern).
+//
+// When `href` is set the whole row becomes a link (subtle title→white +
+// arrow nudge on hover); otherwise it renders as a static <div>. Hover/
+// transition is colour + a 2px translate only — degrades cleanly with
+// no JS, and the reduced-motion guard below disables the nudge.
+//
+// Usage:
+//   <FeatureRow num="01" title="Globe & 3D">
+//     A real ellipsoidal globe, not a textured sphere…       {/* slot = body */}
+//   </FeatureRow>
+//
+//   <FeatureRow num="02" title="Shader IR" href="/docs/concepts/shader-ir">
+//     One IR emits both WGSL and GLSL…
+//   </FeatureRow>
+
+interface Props {
+  /** Optional ordinal in the left rail, e.g. "01". */
+  num?: string
+  /** Row title (display, weight 400). */
+  title: string
+  /** Makes the entire row a link. */
+  href?: string
+  /** Extra classes merged onto the root element. */
+  class?: string
+}
+
+const { num, title, href, class: className = '' } = Astro.props
+
+const Tag = href ? 'a' : 'div'
+const rowClass = [
+  'group grid grid-cols-[auto_1fr] gap-x-6 sm:gap-x-10 items-baseline',
+  'border-t border-line py-8',
+  href && 'transition-colors hover:border-line-strong',
+  className,
+]
+---
+
+<Tag href={href} class:list={rowClass}>
+  <span class="font-mono text-[12px] tracking-[0.16em] uppercase text-fg-mute pt-1 tabular-nums">
+    {num ?? ''}
+  </span>
+
+  <div>
+    <h3
+      class="feature-row__title flex items-center gap-2 text-[20px] sm:text-[22px] font-normal
+             text-fg leading-[1.3] tracking-[-0.01em] mb-3"
+    >
+      {title}
+      {href && (
+        <svg
+          class="feature-row__arrow text-fg-mute"
+          viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+        >
+          <path d="M9 6l6 6-6 6" />
+        </svg>
+      )}
+    </h3>
+
+    <div class="text-[15px] leading-[1.65] text-fg-dim">
+      <slot />
+    </div>
+  </div>
+</Tag>
+
+<style>
+  /* Subtle link affordance — colour shift + a 2px arrow nudge, nothing more. */
+  .feature-row__arrow {
+    transition: transform 0.25s cubic-bezier(0.16, 0.84, 0.32, 1), color 0.2s ease;
+  }
+  a.group:hover .feature-row__title { color: var(--color-accent); }
+  a.group:hover .feature-row__arrow {
+    color: var(--color-accent);
+    transform: translateX(2px);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .feature-row__arrow { transition: color 0.2s ease; }
+    a.group:hover .feature-row__arrow { transform: none; }
+  }
+</style>

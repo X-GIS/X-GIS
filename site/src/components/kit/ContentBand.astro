@@ -1,0 +1,42 @@
+---
+// ContentBand — the section-rhythm wrapper. Carries the xAI vertical
+// rhythm (py-20 → 32 → 40), a top hairline divider between bands, a
+// centered max-width container, and consistent gutters (px-6). Pages
+// wrap each section in this so the whole page breathes on one grid
+// (DESIGN.md › content-band / divider-hairline).
+//
+// Static container (no animation) → reduced-motion + no-JS safe.
+//
+// width:
+//   "standard" (default) — 1100px marketing content
+//   "prose"              — 680px reading measure (docs / long-form)
+//   "wide"               — 1280px full-width grids / galleries
+//
+// Usage:
+//   <ContentBand id="why">…</ContentBand>
+//   <ContentBand id="install" width="prose">…</ContentBand>
+//   <ContentBand width="wide" class="border-t-0">…</ContentBand>
+
+interface Props {
+  /** Anchor id on the <section> (for in-page nav). */
+  id?: string
+  /** Container max-width preset. */
+  width?: 'standard' | 'prose' | 'wide'
+  /** Extra classes merged onto the <section>. */
+  class?: string
+}
+
+const { id, width = 'standard', class: className = '' } = Astro.props
+
+const maxW = {
+  standard: 'max-w-[1100px]',
+  prose: 'max-w-[680px]',
+  wide: 'max-w-[1280px]',
+}[width]
+---
+
+<section id={id} class:list={['relative border-t border-line py-20 sm:py-32 lg:py-40', className]}>
+  <div class:list={[maxW, 'mx-auto px-6']}>
+    <slot />
+  </div>
+</section>
