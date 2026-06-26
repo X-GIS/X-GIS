@@ -41,11 +41,14 @@ describe('compute-gen — emitMatchComputeKernel', () => {
     expect(COMPUTE_WORKGROUP_SIZE).toBe(64)
   })
 
-  it('emits if-else chain in ALPHABETICAL pattern order (cross-path ID alignment)', () => {
+  it('emits a switch case per arm in ALPHABETICAL pattern order (cross-path ID alignment)', () => {
     // shader-gen.ts line ~227 sorts arms alphabetically before
     // assigning IDs. The compute emitter must use the same order so
     // the runtime's feat_data write maps to the right branch on
-    // BOTH compute kernel and fragment shader.
+    // BOTH compute kernel and fragment shader. The sub-threshold path
+    // lowers match() → a WGSL `switch`; ID i ⇒ `case iu`. The exact
+    // id→colour mapping is pinned by categoryOrder + the WGSL snapshot;
+    // here we assert one case per arm (cemetery=0 … school=3) + ordering.
     const k = emitMatchComputeKernel({
       fieldName: 'class',
       arms: [
@@ -56,25 +59,26 @@ describe('compute-gen — emitMatchComputeKernel', () => {
       ],
       defaultColorHex: '#00000000',
     })
-    const idxCemetery = k.wgsl.indexOf('== 0.0)')
-    const idxHospital = k.wgsl.indexOf('== 1.0)')
-    const idxRailway = k.wgsl.indexOf('== 2.0)')
-    const idxSchool = k.wgsl.indexOf('== 3.0)')
-    expect(idxCemetery).toBeGreaterThan(0)
-    expect(idxHospital).toBeGreaterThan(idxCemetery)
-    expect(idxRailway).toBeGreaterThan(idxHospital)
-    expect(idxSchool).toBeGreaterThan(idxRailway)
+    const idx0 = k.wgsl.indexOf('case 0:')
+    const idx1 = k.wgsl.indexOf('case 1:')
+    const idx2 = k.wgsl.indexOf('case 2:')
+    const idx3 = k.wgsl.indexOf('case 3:')
+    expect(idx0).toBeGreaterThan(0)
+    expect(idx1).toBeGreaterThan(idx0)
+    expect(idx2).toBeGreaterThan(idx1)
+    expect(idx3).toBeGreaterThan(idx2)
+    expect(k.categoryOrder!['class']).toEqual(['cemetery', 'hospital', 'railway', 'school'])
   })
 
-  it('emits the default arm as the trailing else (catches non-listed values)', () => {
+  it('emits the default arm as the switch default (catches non-listed values)', () => {
     const k = emitMatchComputeKernel({
       fieldName: 'class',
       arms: [{ pattern: 'a', colorHex: '#ff0000' }],
       defaultColorHex: '#00ff00',
     })
-    // Default appears as the final `else {…}` after the if-else chain.
-    // fmt(0) emits `0.0`; fmt(1) emits `1.0`. Match both.
-    expect(k.wgsl).toMatch(/}\s+else\s+\{\s+color = vec4<f32>\(0\.0,\s*1\.0,\s*0\.0,\s*1\.0\)/)
+    // Default lowers to the switch `default:` arm assigning #00ff00 = (0,1,0,1).
+    expect(k.wgsl).toContain('default')
+    expect(k.wgsl).toContain('vec4<f32>(0.0, 1.0, 0.0, 1.0)')
   })
 
   it('packs the per-fragment color into RGBA8 via pack4x8unorm', () => {
@@ -83,7 +87,8 @@ describe('compute-gen — emitMatchComputeKernel', () => {
       arms: [{ pattern: 'a', colorHex: '#fff' }],
       defaultColorHex: '#000',
     })
-    expect(k.wgsl).toContain('out_color[fid] = pack4x8unorm(color)')
+    expect(k.wgsl).toContain('pack4x8unorm(')
+    expect(k.wgsl).toContain('out_color[gid.x]')
   })
 
   it('parses 3-digit, 4-digit, 6-digit, 8-digit hex colors', () => {
@@ -100,7 +105,7 @@ describe('compute-gen — emitMatchComputeKernel', () => {
         defaultColorHex: '#000',
       })
       expect(k.wgsl).toContain(
-        `color = vec4<f32>(${formatNumber(c.r)}, ${formatNumber(c.g)}, ${formatNumber(c.b)}, ${formatNumber(c.a)});`,
+        `vec4<f32>(${formatNumber(c.r)}, ${formatNumber(c.g)}, ${formatNumber(c.b)}, ${formatNumber(c.a)})`,
       )
     }
   })
@@ -137,28 +142,43 @@ describe('compute-gen — emitMatchComputeKernel', () => {
     expect(k.dispatchSize(1000)).toBe(Math.ceil(1000 / 64))  // 16
   })
 
-  it('empty arms list still emits a valid kernel with only the default branch', () => {
+  it('empty arms list still emits a valid kernel with only the default colour', () => {
     const k = emitMatchComputeKernel({
       fieldName: 'class',
       arms: [],
       defaultColorHex: '#888',
     })
     expect(k.wgsl).toContain('@compute @workgroup_size(64)')
-    expect(k.wgsl).toContain('var color: vec4<f32>;')
-    // No if-else chain — just the default else branch. The kernel
-    // is valid WGSL because the `else` follows the immediate
-    // `var color: vec4<f32>;` declaration without a preceding if.
-    // (Edge-case: the runtime will skip dispatching a match() with
-    // zero arms anyway, so this is mostly a "doesn't throw" check.)
+    // No arms → no switch; the kernel just packs the default colour
+    // unconditionally (#888 = 0.533…). The runtime skips dispatching a
+    // zero-arm match() anyway, so this is mostly a "doesn't throw" check.
+    expect(k.wgsl).toContain('pack4x8unorm(')
+    expect(k.wgsl).not.toContain('switch')
   })
 
-  it('emits the field load using array index = fid (single-field stride)', () => {
+  it('emits the field load at array index = fid (single-field stride)', () => {
     const k = emitMatchComputeKernel({
       fieldName: 'rank',
       arms: [{ pattern: 'a', colorHex: '#fff' }],
       defaultColorHex: '#000',
     })
-    expect(k.wgsl).toContain('let v_rank = feat_data[fid];')
+    // Stride 1 → bare `feat_data[gid.x]` (no `* stride` offset).
+    expect(k.wgsl).toContain('feat_data[gid.x]')
+  })
+
+  it('switches on the RAW signed id (i32, no max-clamp) so unknown (-1) → default', () => {
+    // The feature packer emits -1 for an unknown/unmatched category
+    // (compute-feature-packer contract). The switch must route -1 to the default
+    // arm, exactly like the if-else chain it replaces. A `u32(max(v, 0))` clamp
+    // would alias -1 → 0 → arm 0 (wrong colour), so the selector is the raw i32.
+    const k = emitMatchComputeKernel({
+      fieldName: 'class',
+      arms: [{ pattern: 'a', colorHex: '#ff0000' }, { pattern: 'b', colorHex: '#00ff00' }],
+      defaultColorHex: '#0000ff',
+    })
+    expect(k.wgsl).toContain('i32(')          // signed scrutinee
+    expect(k.wgsl).not.toContain('max(')      // no clamp that would swallow the -1 sentinel
+    expect(k.wgsl).toContain('default')       // -1 (and any non-arm id) hits the default arm
   })
 
   it('match kernel exposes categoryOrder with alphabetised patterns', () => {
@@ -467,11 +487,12 @@ describe('emitMatchComputeKernel — LUT branch (P5 large-match)', () => {
     return { fieldName: 'cls', arms, defaultColorHex: '#888888' }
   }
 
-  it('below threshold (15 arms) → if-else chain, no LUT', () => {
+  it('below threshold (15 arms) → switch, no LUT', () => {
     const k = emitMatchComputeKernel(bigMatch(15))
     expect(k.wgsl).not.toContain('const LUT:')
-    const compareCount = (k.wgsl.match(/v_cls == /g) ?? []).length
-    expect(compareCount).toBe(15)
+    // Sub-threshold lowers to a WGSL switch — one case per arm (+ a default).
+    const caseCount = (k.wgsl.match(/case \d+:/g) ?? []).length
+    expect(caseCount).toBe(15)
   })
 
   it('at threshold (16 arms) → emits LUT, no if-else comparisons', () => {
@@ -517,10 +538,12 @@ describe('emitMatchComputeKernel — LUT branch (P5 large-match)', () => {
     expect(large.dispatchSize(1000)).toBe(Math.ceil(1000 / 64))
   })
 
-  it('out_color write path is identical between LUT + if-else paths', () => {
-    const small = emitMatchComputeKernel(bigMatch(10))
-    const large = emitMatchComputeKernel(bigMatch(20))
-    expect(small.wgsl).toContain('out_color[fid] = pack4x8unorm(color);')
+  it('out_color write path packs the colour in both switch + LUT paths', () => {
+    const small = emitMatchComputeKernel(bigMatch(10)) // switch path (IR-emitted)
+    const large = emitMatchComputeKernel(bigMatch(20)) // LUT path (hand-built)
+    // Same semantics — pack the RGBA into out_color[feature]; spelling differs
+    // (switch path = gid.x/_vN via the shared IR shell, LUT path = fid/color).
+    expect(small.wgsl).toMatch(/out_color\[\w+(\.\w+)?\] = pack4x8unorm\(/)
     expect(large.wgsl).toContain('out_color[fid] = pack4x8unorm(color);')
   })
 

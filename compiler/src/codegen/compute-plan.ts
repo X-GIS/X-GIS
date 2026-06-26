@@ -28,8 +28,10 @@
 //
 // Kernel reference dedup:
 //
-// Two entries whose emitted kernel WGSL + entryPoint are identical
-// share the SAME `ComputeKernel` object (reference equality). This
+// Two entries whose emitted kernel WGSL + entryPoint AND data layout
+// (fieldOrder / categoryOrder) are identical share the SAME
+// `ComputeKernel` object (reference equality) — see kernelFingerprint
+// for why the data layout is part of the key, not just the WGSL. This
 // lets the runtime detect "same kernel, different bind site" by
 // `entries[i].kernel === entries[j].kernel` without re-hashing the
 // WGSL string. Common case: fill + stroke axes both reference the
@@ -38,8 +40,8 @@
 // ComputeKernel → the runtime can collapse them to one dispatch +
 // one output buffer with two bind group entries pointing at it.
 //
-// The dedup operates on the emitted WGSL fingerprint, NOT the AST.
-// This catches:
+// The dedup operates on the emitted WGSL + data-layout fingerprint,
+// NOT the AST. This catches:
 //   - Identical ASTs at different sites (the obvious case).
 //   - Lowering-equivalent ASTs (e.g. arms in different declared
 //     order but the kernel emitter sorts them alphabetically before
@@ -145,13 +147,23 @@ export function planComputeKernels(scene: Scene): ComputePlanEntry[] {
   return out
 }
 
-/** Fingerprint a kernel for cache lookup. `entryPoint` is included
- *  so two kernels with the same WGSL but different entry-point names
- *  (which a future emitter expansion could produce) don't collide.
- *  The `\x1F` separator is a unit-separator control char — can't
- *  appear in legal WGSL or identifier strings. */
+/** Fingerprint a kernel for cache lookup. `entryPoint` + `wgsl` identify the
+ *  COMPUTE; `fieldOrder` + `categoryOrder` identify WHICH feature data it reads.
+ *  Both halves are load-bearing: the DSL-IR-emitted kernels are POSITIONAL
+ *  (`feat_data[fid]`, no `v_<field>` name baked in), so two match()/interpolate
+ *  kernels on DIFFERENT fields — or matches whose pattern→ID mapping differs while
+ *  the colour-by-id WGSL coincides — can share byte-identical WGSL yet must stay
+ *  DISTINCT (each entry packs a different field / string→ID table). Keying on the
+ *  data layout too keeps that dedup correct; truly-identical kernels still share.
+ *  The `\x1F` separator is a unit-separator control char — can't appear in legal
+ *  WGSL or identifier strings. */
 function kernelFingerprint(k: ComputeKernel): string {
-  return k.entryPoint + '\x1F' + k.wgsl
+  return [
+    k.entryPoint,
+    k.wgsl,
+    k.fieldOrder.join(','),
+    JSON.stringify(k.categoryOrder ?? {}),
+  ].join('\x1F')
 }
 
 function shareOrCache(

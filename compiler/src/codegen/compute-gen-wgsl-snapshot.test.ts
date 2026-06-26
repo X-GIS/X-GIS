@@ -47,6 +47,21 @@ describe('compute-gen WGSL snapshot — match kernel', () => {
       entryPoint: k.entryPoint,
     }).toMatchSnapshot()
   })
+
+  it('LUT path: 16 arms (≥ MATCH_LUT_THRESHOLD) emits a const-array LUT, not a switch', () => {
+    // Pins the hand-built LUT emission offline (it has no other snapshot coverage,
+    // and the sub-threshold path now lives in the DSL IR — keep both pinned).
+    const arms = Array.from({ length: 16 }, (_, i) => ({
+      pattern: `k${String(i).padStart(2, '0')}`,
+      colorHex: `#${i.toString(16).padStart(2, '0')}8040`,
+    }))
+    const k = emitMatchComputeKernel({ fieldName: 'cls', arms, defaultColorHex: '#00000000' })
+    expect({
+      wgsl: k.wgsl,
+      entryPoint: k.entryPoint,
+      fieldOrder: k.fieldOrder,
+    }).toMatchSnapshot()
+  })
 })
 
 describe('compute-gen WGSL snapshot — ternary (case) kernel', () => {
