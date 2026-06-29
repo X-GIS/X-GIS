@@ -32,7 +32,6 @@ export type {
 export { planComputeKernels } from './compute-plan'
 export type { ComputePlanEntry, PaintAxis } from './compute-plan'
 export {
-  emitComputeOutputBindingDecl,
   emitComputeOutputReadExpr,
   makeComputeOutputBindGroupEntry,
 } from './compute-output-binding'

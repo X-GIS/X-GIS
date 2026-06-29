@@ -4,7 +4,7 @@
 
 import { resolveColor } from '../tokens/colors'
 import { hexToRgba } from '../ir/render-node'
-import { arrayT, vec4fT, emitConst, type ConstDecl, type Expr } from '@xgis/shader-dsl'
+import { arrayT, vec4fT, type ConstDecl, type Expr } from '@xgis/shader-dsl'
 import { vec4fFromRgba } from './_util/node-builders'
 
 // 20 maximally-distinct colors from Tailwind palette (500 shades)
@@ -44,12 +44,4 @@ export function buildCatPaletteConst(paletteSize = 20): ConstDecl {
     cpuValue: 0,
     valueExpr: { op: 'construct', type, args },
   }
-}
-
-/**
- * Generate the WGSL `const CAT_PALETTE` declaration. Thin wrapper that emits the
- * IR `ConstDecl` from `buildCatPaletteConst` through the shader-dsl backend.
- */
-export function generatePaletteWGSL(paletteSize = 20): string {
-  return emitConst(buildCatPaletteConst(paletteSize))
 }

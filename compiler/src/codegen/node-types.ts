@@ -2,7 +2,7 @@
 // node-types — compiler-side DSL Node vocabulary (permanent)
 // ═══════════════════════════════════════════════════════════════════
 //
-// The compiler's codegen Node vocabulary: the package IR `Expr`/`ShaderType`
+// The compiler's codegen Node vocabulary: the package IR `Expr`
 // (IMPORTED from `@xgis/shader-dsl`) plus the compiler-local `rawString` op, the
 // `NodeLike` seam type, and the `wgslRaw` helper. NOT migration scaffolding — a
 // permanent home.
@@ -12,15 +12,13 @@
 // imports its types from here. The renderer splice-point that depended on the
 // adapter retired in PR 2e.B.2.
 //
-// `Expr`/`ShaderType` are now IMPORTED from the package (Tier-2 dedup — see
+// `Expr` is now IMPORTED from the package (Tier-2 dedup — see
 // docs/architecture/package-responsibilities.md §5): `@xgis/shader-dsl` is a
 // zero-dep leaf, so `compiler → @xgis/shader-dsl` is acyclic (the same shape as
 // the existing `compiler → @xgis/shared` edge; runtime already imports it). The
 // only compiler-local addition is the `rawString` op below.
 
-import type { Expr as DslExpr, ShaderType } from '@xgis/shader-dsl'
-
-export type { ShaderType }
+import type { Expr as DslExpr } from '@xgis/shader-dsl'
 
 // The compiler's Node vocabulary = the package IR `Expr` PLUS one compiler-local
 // op, `rawString` — a back-compat wrapper that carries a pre-built WGSL string so
