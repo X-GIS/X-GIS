@@ -289,9 +289,9 @@ map.setProjection("orthographic")`,
     </p>
 
     <RuntimeSupport rows={[
-      { label: 'WebGPU',        state: 'yes',     body: 'Chrome 113+ · Safari 17.4+ · Firefox 130+ · Edge 113+' },
+      { label: 'WebGPU',        state: 'yes',     body: 'Chrome 113+ · Edge 113+ · Safari 18+ · Firefox 141+' },
       { label: 'No WebGPU',     state: 'no',      body: 'WebGPU is required — there is no Canvas 2D fallback. When no adapter is present the map shows an "unavailable" message (the host\'s onWebGPUUnavailable hook, or a default in-container notice) and does not render — no degraded mode.' },
-      { label: 'Mobile',        state: 'limited', body: 'iOS Safari 17.4+ · Android Chrome with WebGPU enabled. Heavier scenes may throttle.' },
+      { label: 'Mobile',        state: 'limited', body: 'iOS Safari 18+ · Android Chrome with WebGPU enabled. Heavier scenes may throttle.' },
       { label: 'Web workers',   state: 'yes',     body: 'Required — used for off-main-thread MVT decode + GeoJSON tessellation.' },
     ]} />
   </header>

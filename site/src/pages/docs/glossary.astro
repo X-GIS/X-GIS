@@ -134,7 +134,7 @@ const terms: Term[] = [
   { slug: 'wgsl', term: 'WGSL (WebGPU shading language)',
     body: 'The GPU shader language WebGPU mandates. Modern, type-safe, derived from Rust-ish + GLSL ancestry. X-GIS\'s codegen emits WGSL; you don\'t hand-write it unless you\'re extending the compute pipeline.' },
   { slug: 'webgpu', term: 'WebGPU',
-    body: 'The modern browser GPU API (W3C spec, Chrome 113+, Safari 17+, Firefox 130+). Replaces WebGL with explicit pipelines, compute shaders, and a closer-to-metal model. X-GIS targets WebGPU; falls back to Canvas 2D when no adapter is available.' },
+    body: 'The modern browser GPU API (W3C spec, Chrome 113+, Edge 113+, Safari 18+, Firefox 141+). Replaces WebGL with explicit pipelines, compute shaders, and a closer-to-metal model. X-GIS requires WebGPU — there is no Canvas 2D fallback; with no adapter the map shows an "unavailable" notice instead of rendering.' },
   { slug: 'web-mercator', term: 'Web Mercator',
     body: 'See [EPSG:3857](#epsg-3857).' },
   { slug: 'worker', term: 'Worker (web worker)',
