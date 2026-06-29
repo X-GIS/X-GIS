@@ -17,6 +17,7 @@
 //   - bind-group entries land at the binding indices the compiler chose
 
 import { beforeAll, describe, expect, it } from 'vitest'
+import { emitModule } from '@xgis/shader-dsl' // compiler returns IR; emit WGSL in-test (ruling i)
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import {
@@ -164,9 +165,9 @@ describe('continent-match.xgis — compute path opt-in', () => {
     expect(kernel.entryPoint).toBe('eval_match')
     // 7 arms < MATCH_LUT_THRESHOLD → a WGSL switch: one `case N:` per arm
     // (alphabetical IDs 0..6) + a default.
-    const caseCount = (kernel.wgsl.match(/case \d+:/g) ?? []).length
+    const caseCount = (emitModule(kernel.module).match(/case \d+:/g) ?? []).length
     expect(caseCount).toBe(7)
-    expect(kernel.wgsl).toContain('default:')
+    expect(emitModule(kernel.module)).toContain('default:')
   })
 })
 

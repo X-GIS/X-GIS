@@ -32,6 +32,7 @@
 // test BEFORE they hit a real GPU pipeline build.
 
 import { beforeAll, describe, expect, it } from 'vitest'
+import { emitModule } from '@xgis/shader-dsl' // compiler returns IR; emit WGSL in-test (ruling i)
 import {
   emitCommands,
   buildPerShowMergedVariant,
@@ -234,10 +235,10 @@ describe('P4 end-to-end — compiler ↔ runtime contract', () => {
     // The kernel switches on the RAW signed id (alphabetical categoryOrder):
     // hospital → case 0, school → case 1, unknown (-1) → no case → default. The
     // scrutinee must NOT clamp with max(v, 0) — that would alias -1 onto arm 0.
-    expect(entry.kernel.wgsl).toContain('case 0:')
-    expect(entry.kernel.wgsl).toContain('case 1:')
-    expect(entry.kernel.wgsl).toContain('i32(')
-    expect(entry.kernel.wgsl).not.toContain('max(')
+    expect(emitModule(entry.kernel.module)).toContain('case 0:')
+    expect(emitModule(entry.kernel.module)).toContain('case 1:')
+    expect(emitModule(entry.kernel.module)).toContain('i32(')
+    expect(emitModule(entry.kernel.module)).not.toContain('max(')
   })
 
   it('dispatch fires one compute pass with 3-binding bind group after uploadFromProps', () => {

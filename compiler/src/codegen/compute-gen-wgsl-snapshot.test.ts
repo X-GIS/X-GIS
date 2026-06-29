@@ -15,6 +15,7 @@ import {
   emitMatchComputeKernel,
   emitTernaryComputeKernel,
 } from './compute-gen'
+import { emitModule } from '@xgis/shader-dsl' // compiler returns IR; emit WGSL in-test (ruling i)
 
 describe('compute-gen WGSL snapshot — match kernel', () => {
   it('canonical match() with 3 arms + transparent default', () => {
@@ -28,7 +29,7 @@ describe('compute-gen WGSL snapshot — match kernel', () => {
       defaultColorHex: '#00000000',
     })
     expect({
-      wgsl: k.wgsl,
+      wgsl: emitModule(k.module),
       entryPoint: k.entryPoint,
       dispatchSize: k.dispatchSize,
       featureStrideF32: k.featureStrideF32,
@@ -43,7 +44,7 @@ describe('compute-gen WGSL snapshot — match kernel', () => {
       defaultColorHex: '#666666',
     })
     expect({
-      wgsl: k.wgsl,
+      wgsl: emitModule(k.module),
       entryPoint: k.entryPoint,
     }).toMatchSnapshot()
   })
@@ -57,7 +58,7 @@ describe('compute-gen WGSL snapshot — match kernel', () => {
     }))
     const k = emitMatchComputeKernel({ fieldName: 'cls', arms, defaultColorHex: '#00000000' })
     expect({
-      wgsl: k.wgsl,
+      wgsl: emitModule(k.module),
       entryPoint: k.entryPoint,
       fieldOrder: k.fieldOrder,
     }).toMatchSnapshot()
@@ -76,7 +77,7 @@ describe('compute-gen WGSL snapshot — ternary (case) kernel', () => {
       defaultColorHex: '#888888',
     })
     expect({
-      wgsl: k.wgsl,
+      wgsl: emitModule(k.module),
       entryPoint: k.entryPoint,
       fieldOrder: k.fieldOrder,
     }).toMatchSnapshot()
@@ -98,7 +99,7 @@ describe('compute-gen WGSL snapshot — ternary (case) kernel', () => {
       defaultColorHex: '#000000',
     })
     expect({
-      wgsl: k.wgsl,
+      wgsl: emitModule(k.module),
       entryPoint: k.entryPoint,
       fieldOrder: k.fieldOrder,
     }).toMatchSnapshot()
@@ -119,7 +120,7 @@ describe('compute-gen WGSL snapshot — interpolate kernel', () => {
       ],
     })
     expect({
-      wgsl: k.wgsl,
+      wgsl: emitModule(k.module),
       entryPoint: k.entryPoint,
       fieldOrder: k.fieldOrder,
     }).toMatchSnapshot()
@@ -134,7 +135,7 @@ describe('compute-gen WGSL snapshot — interpolate kernel', () => {
       ],
     })
     expect({
-      wgsl: k.wgsl,
+      wgsl: emitModule(k.module),
       entryPoint: k.entryPoint,
       fieldOrder: k.fieldOrder,
     }).toMatchSnapshot()

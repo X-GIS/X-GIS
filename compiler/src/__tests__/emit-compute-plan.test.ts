@@ -10,6 +10,7 @@
 // SceneCommands shape.
 
 import { describe, expect, it } from 'vitest'
+import { emitModule } from '@xgis/shader-dsl' // compiler returns IR; emit WGSL in-test (ruling i)
 import { emitCommands } from '../ir/emit-commands'
 import type {
   ColorValue, DataExpr, RenderNode, Scene, SizeValue, StrokeValue,
@@ -256,6 +257,6 @@ describe('emitCommands — computePlan emission', () => {
     ])
     const cmds = emitCommands(scene)
     const entry = cmds.computePlan![0]!
-    expect(entry.kernel.wgsl).toContain(`fn ${entry.kernel.entryPoint}(`)
+    expect(emitModule(entry.kernel.module)).toContain(`fn ${entry.kernel.entryPoint}(`)
   })
 })

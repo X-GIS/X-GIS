@@ -74,6 +74,13 @@ export function emitStmt(s: Stmt, depth: number, be: Backend): string {
       for (const c of s.cases) {
         lines.push(`${pad(depth + 1)}case ${be.caseLabel(c.value, s.scrut.type)}: {`)
         lines.push(emitBody(c.body, depth + 2, be))
+        // C-style backends (GLSL) fall through without a terminator — append the
+        // backend's case break unless the body already ends in return/discard (which
+        // would make the break unreachable). WGSL has no caseBreak (no fallthrough).
+        const last = c.body[c.body.length - 1]
+        if (be.caseBreak && !(last && (last.s === 'return' || last.s === 'discard'))) {
+          lines.push(`${pad(depth + 2)}${be.caseBreak}`)
+        }
         lines.push(`${pad(depth + 1)}}`)
       }
       lines.push(`${pad(depth + 1)}default: {`)

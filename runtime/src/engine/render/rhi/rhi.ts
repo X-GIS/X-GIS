@@ -37,7 +37,7 @@ export interface RhiBufferDesc {
  *  `rgba16float` is the OIT weighted-blend accum target (gpu-shared
  *  OIT_ACCUM_FORMAT); WebGL2 fail-closes on it (rendering to it needs
  *  EXT_color_buffer_float — deferred to the WebGL2 full-frame phase). */
-export type RhiTextureFormat = 'rgba8unorm' | 'bgra8unorm' | 'depth24plus-stencil8' | 'rg32uint' | 'r16float' | 'rgba16float'
+export type RhiTextureFormat = 'rgba8unorm' | 'bgra8unorm' | 'depth24plus-stencil8' | 'rg32uint' | 'r32uint' | 'r16float' | 'rgba16float'
 
 export interface RhiTextureDesc {
   width: number

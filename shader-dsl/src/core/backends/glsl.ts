@@ -24,7 +24,7 @@
 // offsets, in/out varyings, main()) + the headless-WebGL2 gate cover the emit.
 
 import type { ShaderType, ModuleDecl, StructDecl, BindingDecl, FuncDecl, Expr, Stmt } from '../ir'
-import { texture2dfT, u32T, f32T } from '../ir'
+import { texture2dfT, u32T, f32T, vec4fT } from '../ir'
 import { Capabilities, UnsupportedFeatureError, type Backend } from '../backend'
 import { spellIntrinsic } from '../intrinsics'
 import { f32Lit } from './wgsl'
@@ -154,6 +154,8 @@ export const glslEs300Backend: Backend = {
   // needs `${value}u` labels (an int label is a compile error), an i32/int one stays bare.
   caseLabel: (value, scrutType) => scrutType.kind === 'scalar' && scrutType.scalar === 'u32' ? `${value}u` : `${value}`,
   switchHead: (scrut) => `switch (${scrut}) {`,
+  // C-style GLSL switch falls through — each case must `break` or it leaks into the next.
+  caseBreak: 'break;',
   rawStmt: () => { throw new UnsupportedFeatureError('glsl-es300: raw WGSL Stmt cannot lower to GLSL (backendOnly:wgsl)') },
   placeholderStmt: () => { throw new UnsupportedFeatureError('glsl-es300: un-swapped placeholder Stmt — composer must run first') },
   // ── Module-decl surface ──
@@ -447,12 +449,115 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
   return { ...m, bindings, funcs: m.funcs.map((f) => ({ ...f, body: f.body.map(rS) })) }
 }
 
-export function emitGlslModule(m: ModuleDecl, stage?: 'vertex' | 'fragment', opts?: { emulateStorage?: boolean }): string {
+// ── compute → fragment-GPGPU lowering (WebGL2 ES 3.00 has no compute) ──
+// A GLSL-LOCAL IR→IR pre-pass — sibling of lowerStorageToDataTexture — run BEFORE it
+// (and before the standard pipeline) ONLY under emitGlslModule({emulateCompute}). It
+// rewrites a GATHER-ONLY @compute kernel into a @fragment GPGPU pass:
+//   • @compute @workgroup_size(N) entry → @fragment entry (N is perf-only on WebGPU,
+//     dropped — the output texel grid carries the dispatch).
+//   • the @builtin(global_invocation_id) param → removed; an @builtin(position)
+//     param (xgis_frag_pos → gl_FragCoord) injected. gid.x (the linear invocation index)
+//     → u32(floor(gl_FragCoord.x)) + u32(floor(gl_FragCoord.y)) * u_count.y, where
+//     u_count.y = the output-texture width W_out (packed by the M2c runtime, same 2D
+//     tiling as the input read texture).
+//   • out[fid] = E (the SOLE read_write-storage write, at the invocation index) →
+//     `return E;` with ret = u32T @location(0) → a `layout(location=0) out uint`
+//     R32UI draw buffer, bit-exact for the packed pack4x8unorm(color) u32.
+//   • the per-fid bounds guard's exprless `return;` → `discard;` (padding texels in the
+//     last partial row write nothing).
+//   • the read_write storage binding is REMOVED; the read storage binding (feat_data)
+//     STAYS for lowerStorageToDataTexture (runs next) to convert to a sampler2D.
+// Because the rewritten module has NO @compute attr and NO storage write binding,
+// requiredCaps drops 'compute' (+ the storage cap once lowerStorageToDataTexture runs),
+// so assertCaps passes with the normal empty-caps backend — no caps loosening, WGSL
+// untouched. FAIL-CLOSED (operationalizes the gather-only invariant, not trusted): a
+// scatter (write index != gid), >1 output write, or a gid use other than `.x` throws.
+export function lowerComputeToFragment(m: ModuleDecl): ModuleDecl {
+  const entry = m.funcs.find((f) => f.attrs?.some((a) => a.startsWith('@compute')))
+  if (!entry) throw new UnsupportedFeatureError('glsl-es300 compute-emul: no @compute entry in module')
+  const gid = entry.params.find((p) => (p.builtin ?? parseAttr(p.attr).builtin) === 'global_invocation_id')
+  if (!gid) throw new UnsupportedFeatureError('glsl-es300 compute-emul: @compute entry has no @builtin(global_invocation_id) param')
+  const outBinding = m.bindings.find((b) => b.space === 'storage' && b.access === 'read_write')
+  if (!outBinding) throw new UnsupportedFeatureError('glsl-es300 compute-emul: no read_write storage output binding to map to the fragment colour output')
+  const uCount = m.bindings.find((b) => b.space === 'uniform')
+  if (!uCount) throw new UnsupportedFeatureError('glsl-es300 compute-emul: no uniform binding (u_count) to source the output-row width from')
+
+  const isGidX = (e: Expr): boolean => e.op === 'member' && e.field === 'x' && e.base.op === 'param' && e.base.name === gid.name
+
+  // the linear texel index from gl_FragCoord (pixel-center → floor is exact in range).
+  const fragPos: Expr = { op: 'param', type: vec4fT, name: 'xgis_frag_pos' }
+  const u32floor = (f: 'x' | 'y'): Expr => ({ op: 'call', type: u32T, fn: 'u32', args: [{ op: 'call', type: f32T, fn: 'floor', args: [{ op: 'member', type: f32T, base: fragPos, field: f }] }] })
+  const width: Expr = { op: 'member', type: u32T, base: { op: 'varref', type: uCount.type, name: uCount.name }, field: 'y' }
+  const fidExpr: Expr = { op: 'binop', type: u32T, bop: '+', a: u32floor('x'), b: { op: 'binop', type: u32T, bop: '*', a: u32floor('y'), b: width } }
+
+  // Expr rewrite: gid.x → fidExpr; a bare gid param ref (gid.y/.z or whole vec) is a
+  // non-gather use → fail-closed; everything else recurses (exhaustive, mirrors rE in
+  // lowerStorageToDataTexture).
+  const rE = (e: Expr): Expr => {
+    if (isGidX(e)) return fidExpr
+    if (e.op === 'param' && e.name === gid.name) throw new UnsupportedFeatureError(`glsl-es300 compute-emul: global_invocation_id used other than '.x' — only a 1-D linear invocation index is supported`)
+    switch (e.op) {
+      case 'member': return { ...e, base: rE(e.base) }
+      case 'index': return { ...e, base: rE(e.base), idx: rE(e.idx) }
+      case 'binop': return { ...e, a: rE(e.a), b: rE(e.b) }
+      case 'compare': return { ...e, a: rE(e.a), b: rE(e.b) }
+      case 'logical': return { ...e, a: rE(e.a), b: rE(e.b) }
+      case 'unop': return { ...e, a: rE(e.a) }
+      case 'call': return { ...e, args: e.args.map(rE) }
+      case 'construct': return { ...e, args: e.args.map(rE) }
+      case 'select': return { ...e, cond: rE(e.cond), ifTrue: rE(e.ifTrue), ifFalse: rE(e.ifFalse) }
+      case 'matchExpr': return { ...e, scrutinee: rE(e.scrutinee), cases: e.cases.map(([v, x]) => [v, rE(x)] as const), default: rE(e.default) }
+      default: return e // lit / constref / param(non-gid) / varref
+    }
+  }
+
+  let writes = 0
+  const rS = (s: Stmt): Stmt => {
+    // the SOLE read_write-storage write `out[gid.x] = E` → `return E` (R32UI draw buffer).
+    if (s.s === 'assign' && s.target.op === 'index' && s.target.base.op === 'varref' && s.target.base.name === outBinding.name) {
+      writes++
+      if (!isGidX(s.target.idx)) throw new UnsupportedFeatureError(`glsl-es300 compute-emul: output write '${outBinding.name}[…]' is not at the invocation index (scatter / non-gather kernel unsupported)`)
+      return { s: 'return', expr: rE(s.expr) }
+    }
+    switch (s.s) {
+      case 'let': return { ...s, expr: rE(s.expr) }
+      case 'var': return { ...s, init: s.init !== undefined ? rE(s.init) : undefined }
+      case 'assign': return { ...s, target: rE(s.target), expr: rE(s.expr) }
+      case 'assignOp': return { ...s, target: rE(s.target), expr: rE(s.expr) }
+      case 'return': return s.expr !== undefined ? { ...s, expr: rE(s.expr) } : { s: 'discard' } // bounds-guard early-out → discard
+      case 'if': return { ...s, arms: s.arms.map((a) => ({ cond: rE(a.cond), body: a.body.map(rS) })), elseBody: s.elseBody?.map(rS) }
+      case 'for': return { ...s, init: rS(s.init), cond: rE(s.cond), update: rS(s.update), body: s.body.map(rS) }
+      case 'switch': return { ...s, scrut: rE(s.scrut), cases: s.cases.map((c) => ({ value: c.value, body: c.body.map(rS) })), defaultBody: s.defaultBody?.map(rS) }
+      default: return s // discard
+    }
+  }
+
+  const newBody = entry.body.map(rS)
+  if (writes !== 1) throw new UnsupportedFeatureError(`glsl-es300 compute-emul: expected exactly ONE output write to '${outBinding.name}', found ${writes} (only a gather-only single-output kernel maps to fragment-GPGPU)`)
+
+  const rewritten: FuncDecl = {
+    ...entry,
+    attrs: ['@fragment'],
+    params: [{ name: 'xgis_frag_pos', type: vec4fT, builtin: 'position' }, ...entry.params.filter((p) => p !== gid)],
+    ret: u32T,
+    retAttr: '@location(0)',
+    body: newBody,
+  }
+  return { ...m, bindings: m.bindings.filter((b) => b !== outBinding), funcs: m.funcs.map((f) => (f === entry ? rewritten : f)) }
+}
+
+export function emitGlslModule(m: ModuleDecl, stage?: 'vertex' | 'fragment', opts?: { emulateStorage?: boolean; emulateCompute?: boolean }): string {
   // autoVars BEFORE lowerModule (inside lowerForBackend), same order as the WGSL backend /
   // CPU oracle — materialising assigned plain-value bindings into real vars is BACKEND-NEUTRAL.
   // Opt-in storage→data-texture emulation runs FIRST so the rewritten module carries no
   // storage binding (assertCaps then passes with the normal empty-caps backend).
-  const src = opts?.emulateStorage ? lowerStorageToDataTexture(m) : m
+  // Opt-in compute→fragment lowering runs FIRST (strips the @compute attr + the
+  // read_write `out_color` binding, which lowerStorageToDataTexture would throw on),
+  // then storage→data-texture converts the remaining `feat_data` read. emulateCompute
+  // IMPLIES emulateStorage.
+  const src = opts?.emulateCompute ? lowerStorageToDataTexture(lowerComputeToFragment(m))
+    : opts?.emulateStorage ? lowerStorageToDataTexture(m)
+      : m
   // GLSL-local: rename any param/var identifier colliding with a GLSL reserved word
   // (e.g. an entry param `input` / `in`) — does NOT affect the WGSL backend.
   const lowered = sanitizeReservedIdents(lowerForBackend(src, glslEs300Backend))
@@ -491,6 +596,11 @@ export function emitGlslModule(m: ModuleDecl, stage?: 'vertex' | 'fragment', opt
     else if (b.type.kind === 'sampler') { /* fused into the texture's sampler2D — skip */ }
     else if (b.space === 'storage') throw new UnsupportedFeatureError('glsl-es300: storage buffer (SSBO) — GLSL ES 3.00 has no SSBO; fail-closed')
     else if (b.type.kind === 'struct') bindingLines.push(emitGlslUbo(b, structByName(structs, b.type.name)))
+    // compute-GPGPU only: a bare scalar/vec uniform (u_count: uvec4) emits as a
+    // default-block uniform (set via glUniform*). Gated behind emulateCompute so the
+    // existing "uniform binding must be a struct" invariant is unchanged for every
+    // vertex/fragment caller (critique #3).
+    else if (opts?.emulateCompute && b.space === 'uniform' && (b.type.kind === 'scalar' || b.type.kind === 'vec')) bindingLines.push(`uniform ${glslType(b.type)} ${b.name};`)
     else throw new UnsupportedFeatureError(`glsl-es300: uniform binding '${b.name}' must be a struct (a std140 UBO block)`)
   }
   if (bindingLines.length) parts.push(bindingLines.join('\n\n'))

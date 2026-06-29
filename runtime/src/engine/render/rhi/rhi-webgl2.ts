@@ -82,6 +82,7 @@ function texFmt(gl: WebGL2RenderingContext, f: RhiTextureFormat): { internal: GL
     case 'bgra8unorm': return { internal: gl.RGBA8, format: gl.RGBA, type: gl.UNSIGNED_BYTE } // WebGL2 has no BGRA8 storage; host orders bytes
     case 'r16float': return { internal: gl.R16F, format: gl.RED, type: gl.HALF_FLOAT }
     case 'rg32uint': return { internal: gl.RG32UI, format: gl.RG_INTEGER, type: gl.UNSIGNED_INT }
+    case 'r32uint': return { internal: gl.R32UI, format: gl.RED_INTEGER, type: gl.UNSIGNED_INT } // core color-renderable, no extension — the compute-as-draw target
     case 'depth24plus-stencil8': return { internal: gl.DEPTH24_STENCIL8, format: gl.DEPTH_STENCIL, type: gl.UNSIGNED_INT_24_8 }
     case 'rgba16float':
       // Fail-CLOSED: the OIT weighted-blend accum target. Rendering TO rgba16float
@@ -493,5 +494,39 @@ export class WebGl2Device implements RhiDevice {
       vertexBuffers: desc.vertexBuffers ?? [],
       layouts,
     } satisfies Gl2Pipeline)
+  }
+
+  /** Run a compute-as-draw (the M2 compute→fragment-GPGPU lowering) into an offscreen
+   *  R32UI target and read it back. `pipeline`'s fragment shader is the lowered kernel
+   *  (`emitGlslModule {emulateCompute}`); `bindGroup` carries the storage input(s)
+   *  (feat_data → data-texture). `u_count` is a BARE `uniform uvec4` set DIRECTLY here
+   *  (it is not a UBO, so it bypasses the bind-group reflection). NOT `createCommandEncoder`
+   *  — this is the narrow single-attachment integer-output path compute needs (R32UI is
+   *  core color-renderable, no extension). Returns the packed-u32 per texel, row-major. */
+  dispatchComputeToR32UI(pipeline: RhiPipeline, bindGroup: RhiBindGroup, wOut: number, hOut: number, uCount: Uint32Array): Uint32Array {
+    const gl = this.gl
+    const outTex = un<Gl2Texture>(this.createTexture({ format: 'r32uint', width: wOut, height: hOut, usage: ['render', 'copy-src'] }))
+    const fbo = gl.createFramebuffer()
+    if (!fbo) throw new Error('webgl2: createFramebuffer (compute) failed')
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo)
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, outTex.tex, 0)
+    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER)
+    if (status !== gl.FRAMEBUFFER_COMPLETE) throw new Error(`webgl2: compute R32UI FBO incomplete (0x${status.toString(16)})`)
+    gl.viewport(0, 0, wOut, hOut)
+    gl.disable(gl.BLEND) // blending is illegal on an integer attachment
+    gl.clearBufferuiv(gl.COLOR, 0, new Uint32Array([0, 0, 0, 0]))
+    const pass = new WebGl2RenderPass(gl)
+    pass.setPipeline(pipeline)
+    pass.setBindGroup(0, bindGroup)
+    const loc = gl.getUniformLocation(un<Gl2Pipeline>(pipeline).program, 'u_count')
+    if (loc) gl.uniform4uiv(loc, uCount)
+    pass.draw(3) // gl_VertexID fullscreen triangle — no VBO
+    gl.readBuffer(gl.COLOR_ATTACHMENT0)
+    const out = new Uint32Array(wOut * hOut)
+    gl.readPixels(0, 0, wOut, hOut, gl.RED_INTEGER, gl.UNSIGNED_INT, out)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+    gl.deleteFramebuffer(fbo)
+    gl.deleteTexture(outTex.tex)
+    return out
   }
 }
