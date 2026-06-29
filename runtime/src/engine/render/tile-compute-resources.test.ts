@@ -130,7 +130,7 @@ function makeMatchPlanEntry(field: string, renderNodeIndex = 0): ComputePlanEntr
 function makeTernaryPlanEntry(field: string, renderNodeIndex = 0): ComputePlanEntry {
   const kernel = emitTernaryComputeKernel({
     fields: [field],
-    branches: [{ pred: `v_${field} != 0.0`, colorHex: '#ff0000' }],
+    branches: [{ pred: { kind: 'cmp', field, op: '!=', value: 0 }, colorHex: '#ff0000' }],
     defaultColorHex: '#000000',
   })
   return {
@@ -411,7 +411,7 @@ describe('TileComputeResources — kernel dedup (P4-6 runtime half)', () => {
     })
     const distinctKernel = emitTernaryComputeKernel({
       fields: ['flag'],
-      branches: [{ pred: 'v_flag != 0.0', colorHex: '#00ff00' }],
+      branches: [{ pred: { kind: 'cmp', field: 'flag', op: '!=', value: 0 }, colorHex: '#00ff00' }],
       defaultColorHex: '#000000',
     })
     new TileComputeResources(dispatcher, [

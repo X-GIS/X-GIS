@@ -218,7 +218,7 @@ describe('compute-gen — emitTernaryComputeKernel', () => {
   it('emits the same binding header as match() (cross-kernel layout)', () => {
     const k = emitTernaryComputeKernel({
       fields: ['rank'],
-      branches: [{ pred: 'v_rank == 0.0', colorHex: '#fff' }],
+      branches: [{ pred: { kind: 'cmp', field: 'rank', op: '==', value: 0 }, colorHex: '#fff' }],
       defaultColorHex: '#000',
     })
     expect(k.wgsl).toContain('@group(0) @binding(0) var<storage, read> feat_data: array<f32>')
@@ -229,80 +229,107 @@ describe('compute-gen — emitTernaryComputeKernel', () => {
   it('emits the workgroup-size annotation', () => {
     const k = emitTernaryComputeKernel({
       fields: ['x'],
-      branches: [{ pred: 'v_x > 0.0', colorHex: '#fff' }],
+      branches: [{ pred: { kind: 'cmp', field: 'x', op: '>', value: 0 }, colorHex: '#fff' }],
       defaultColorHex: '#000',
     })
     expect(k.wgsl).toContain(`@compute @workgroup_size(${COMPUTE_WORKGROUP_SIZE})`)
   })
 
   it('emits branches in INPUT order (case() semantics — first match wins)', () => {
-    // case() differs from match(): order is significant. The first
-    // matching predicate wins, so the emitter must preserve insertion
-    // order rather than sorting alphabetically.
+    // case() differs from match(): order is significant. The first matching
+    // predicate wins, so the IR `if/elif/else` chain preserves insertion order
+    // rather than sorting alphabetically. Assert the branch COLOURS appear in
+    // input order (red → green → blue) — survives SSA renaming / CSE.
     const k = emitTernaryComputeKernel({
       fields: ['cls'],
       branches: [
-        { pred: 'v_cls == 0.0', colorHex: '#ff0000' },
-        { pred: 'v_cls == 1.0', colorHex: '#00ff00' },
-        { pred: 'v_cls == 2.0', colorHex: '#0000ff' },
+        { pred: { kind: 'cmp', field: 'cls', op: '==', value: 0 }, colorHex: '#ff0000' },
+        { pred: { kind: 'cmp', field: 'cls', op: '==', value: 1 }, colorHex: '#00ff00' },
+        { pred: { kind: 'cmp', field: 'cls', op: '==', value: 2 }, colorHex: '#0000ff' },
       ],
       defaultColorHex: '#888',
     })
-    const idx0 = k.wgsl.indexOf('v_cls == 0.0')
-    const idx1 = k.wgsl.indexOf('v_cls == 1.0')
-    const idx2 = k.wgsl.indexOf('v_cls == 2.0')
-    expect(idx0).toBeGreaterThan(0)
-    expect(idx1).toBeGreaterThan(idx0)
-    expect(idx2).toBeGreaterThan(idx1)
+    const red = k.wgsl.indexOf('vec4<f32>(1.0, 0.0, 0.0, 1.0)')
+    const green = k.wgsl.indexOf('vec4<f32>(0.0, 1.0, 0.0, 1.0)')
+    const blue = k.wgsl.indexOf('vec4<f32>(0.0, 0.0, 1.0, 1.0)')
+    expect(red).toBeGreaterThan(0)
+    expect(green).toBeGreaterThan(red)
+    expect(blue).toBeGreaterThan(green)
+    // The numeric comparisons emit against the loaded field (== 0.0 / 1.0 / 2.0)
+    expect(k.wgsl).toContain('== 0.0)')
+    expect(k.wgsl).toContain('== 1.0)')
+    expect(k.wgsl).toContain('== 2.0)')
   })
 
   it('emits the default arm as the trailing else', () => {
     const k = emitTernaryComputeKernel({
       fields: ['x'],
-      branches: [{ pred: 'v_x > 0.0', colorHex: '#fff' }],
+      branches: [{ pred: { kind: 'cmp', field: 'x', op: '>', value: 0 }, colorHex: '#fff' }],
       defaultColorHex: '#00ff00',
     })
-    expect(k.wgsl).toMatch(/}\s+else\s+\{\s+color = vec4<f32>\(0\.0,\s*1\.0,\s*0\.0,\s*1\.0\)/)
+    // The default colour assignment trails the single branch's colour.
+    expect(k.wgsl).toContain('else {')
+    const branchColor = k.wgsl.indexOf('vec4<f32>(1.0, 1.0, 1.0, 1.0)')
+    const defaultColor = k.wgsl.indexOf('vec4<f32>(0.0, 1.0, 0.0, 1.0)')
+    expect(branchColor).toBeGreaterThan(0)
+    expect(defaultColor).toBeGreaterThan(branchColor)
   })
 
   it('loads a single field at offset 0 with no stride multiplier', () => {
     const k = emitTernaryComputeKernel({
       fields: ['rank'],
-      branches: [{ pred: 'v_rank > 0.0', colorHex: '#fff' }],
+      branches: [{ pred: { kind: 'cmp', field: 'rank', op: '>', value: 0 }, colorHex: '#fff' }],
       defaultColorHex: '#000',
     })
-    expect(k.wgsl).toContain('let v_rank = feat_data[fid];')
+    // Single field → stride 1 → direct `feat_data[gid.x]` index (no `* Nu`).
+    expect(k.wgsl).toContain('feat_data[gid.x]')
   })
 
   it('loads multiple fields with stride + offset (multi-field case)', () => {
     const k = emitTernaryComputeKernel({
       fields: ['cls', 'rank'],
-      branches: [{ pred: 'v_cls == 0.0 && v_rank > 5.0', colorHex: '#fff' }],
+      branches: [{
+        pred: {
+          kind: 'and',
+          left: { kind: 'cmp', field: 'cls', op: '==', value: 0 },
+          right: { kind: 'cmp', field: 'rank', op: '>', value: 5 },
+        },
+        colorHex: '#fff',
+      }],
       defaultColorHex: '#000',
     })
-    expect(k.wgsl).toContain('let v_cls = feat_data[fid * 2u + 0u];')
-    expect(k.wgsl).toContain('let v_rank = feat_data[fid * 2u + 1u];')
+    // Stride multiply is CSE-hoisted (`let _cseN = (gid.x * 2u)`); offset-0
+    // folds to a bare index, offset-1 adds `+ 1u`.
+    expect(k.wgsl).toContain('(gid.x * 2u)')
+    expect(k.wgsl).toContain('+ 1u)')
     expect(k.featureStrideF32).toBe(2)
     expect(k.fieldOrder).toEqual(['cls', 'rank'])
   })
 
-  it('passes through compound predicates verbatim (caller emits valid WGSL)', () => {
-    // The emitter trusts caller-supplied predicate strings. Composite
-    // predicates with &&, ||, parens come through unchanged.
+  it('lowers a compound (and) predicate to a logical-&& expression', () => {
+    // Structured `and` predicates lower to the IR `logical` op → WGSL `&&`,
+    // each side a compare against the loaded field.
     const k = emitTernaryComputeKernel({
       fields: ['a', 'b'],
-      branches: [
-        { pred: '(v_a > 0.0) && (v_b < 10.0)', colorHex: '#fff' },
-      ],
+      branches: [{
+        pred: {
+          kind: 'and',
+          left: { kind: 'cmp', field: 'a', op: '>', value: 0 },
+          right: { kind: 'cmp', field: 'b', op: '<', value: 10 },
+        },
+        colorHex: '#fff',
+      }],
       defaultColorHex: '#000',
     })
-    expect(k.wgsl).toContain('if ((v_a > 0.0) && (v_b < 10.0))')
+    expect(k.wgsl).toContain('&&')
+    expect(k.wgsl).toContain('> 0.0)')
+    expect(k.wgsl).toContain('< 10.0)')
   })
 
   it('sets entryPoint to "eval_case" in returned metadata', () => {
     const k = emitTernaryComputeKernel({
       fields: ['x'],
-      branches: [{ pred: 'v_x > 0.0', colorHex: '#fff' }],
+      branches: [{ pred: { kind: 'cmp', field: 'x', op: '>', value: 0 }, colorHex: '#fff' }],
       defaultColorHex: '#000',
     })
     expect(k.entryPoint).toBe('eval_case')
@@ -311,7 +338,7 @@ describe('compute-gen — emitTernaryComputeKernel', () => {
   it('ternary kernel has no categoryOrder (predicates are pure numeric)', () => {
     const k = emitTernaryComputeKernel({
       fields: ['x'],
-      branches: [{ pred: 'v_x > 0.0', colorHex: '#fff' }],
+      branches: [{ pred: { kind: 'cmp', field: 'x', op: '>', value: 0 }, colorHex: '#fff' }],
       defaultColorHex: '#000',
     })
     // Absence is the contract — packer skips fields without an
@@ -323,10 +350,10 @@ describe('compute-gen — emitTernaryComputeKernel', () => {
   it('packs color via pack4x8unorm (same write path as match kernel)', () => {
     const k = emitTernaryComputeKernel({
       fields: ['x'],
-      branches: [{ pred: 'v_x > 0.0', colorHex: '#fff' }],
+      branches: [{ pred: { kind: 'cmp', field: 'x', op: '>', value: 0 }, colorHex: '#fff' }],
       defaultColorHex: '#000',
     })
-    expect(k.wgsl).toContain('out_color[fid] = pack4x8unorm(color);')
+    expect(k.wgsl).toContain('out_color[gid.x] = pack4x8unorm(')
   })
 
   it('empty branches list emits just the default branch', () => {
@@ -336,16 +363,16 @@ describe('compute-gen — emitTernaryComputeKernel', () => {
       defaultColorHex: '#888',
     })
     expect(k.wgsl).toContain('@compute @workgroup_size(64)')
-    expect(k.wgsl).toContain('var color: vec4<f32>;')
-    expect(k.wgsl).toMatch(/else \{ color = vec4<f32>/)
-    // No fields → no v_* loads.
-    expect(k.wgsl).not.toMatch(/let v_/)
+    // Unconditional default assignment — no branch `if`, no field loads.
+    expect(k.wgsl).toContain('vec4<f32>(0.5333333333333333, 0.5333333333333333, 0.5333333333333333, 1.0)')
+    expect(k.wgsl).not.toContain('else')
+    expect(k.wgsl).not.toMatch(/= feat_data\[/)
   })
 
   it('dispatchSize ceils features / workgroup_size', () => {
     const k = emitTernaryComputeKernel({
       fields: ['x'],
-      branches: [{ pred: 'v_x > 0.0', colorHex: '#fff' }],
+      branches: [{ pred: { kind: 'cmp', field: 'x', op: '>', value: 0 }, colorHex: '#fff' }],
       defaultColorHex: '#000',
     })
     expect(k.dispatchSize(0)).toBe(0)

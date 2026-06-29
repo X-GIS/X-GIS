@@ -134,6 +134,78 @@ export const u32Add = (a: NodeLike<'u32'>, b: NodeLike<'u32'>) => u32Binop('+', 
 export const u32Mul = (a: NodeLike<'u32'>, b: NodeLike<'u32'>) => u32Binop('*', a, b)
 export const u32Mod = (a: NodeLike<'u32'>, b: NodeLike<'u32'>) => u32Binop('%', a, b)
 
+/** Unary negation `(-x)`. Mirrors the IR `unop` (negation-only). */
+export function negF32(x: NodeLike<'f32'>): NodeLike<'f32'> {
+  return { expr: { op: 'unop', type: F32_T, a: x.expr } } as NodeLike<'f32'>
+}
+
+/** A generic f32-returning builtin / user-fn call `fn(args...)`. The args carry
+ *  their own types; the result is annotated f32 — the only return type the
+ *  fragment data-driven expression compiler produces. The fn NAME is spelled by
+ *  the package WGSL backend's intrinsic registry, not here. */
+export function callF32(fn: string, args: ReadonlyArray<NodeLike<string>>): NodeLike<'f32'> {
+  return { expr: { op: 'call', type: F32_T, fn, args: args.map((a) => a.expr) } } as NodeLike<'f32'>
+}
+
+/** max(a, b) for f32 — the f32 encoding of logical OR (`||`). */
+export function maxF32(a: NodeLike<'f32'>, b: NodeLike<'f32'>): NodeLike<'f32'> {
+  return callF32('max', [a, b])
+}
+
+/** floored modulo `a - b * floor(a / b)` — NOT the `%` operator.
+ *
+ *  The `%` BinOp is deliberately avoided: WGSL `%` and the CPU oracle's JS `%`
+ *  are TRUNCATED remainder (sign of dividend), GLSL ES rejects `%` on floats
+ *  outright, so a raw `%` breaks the three-backend single-emit + CPU↔GPU parity
+ *  contract. This floored form composes only portable ops (`-`/`*`/`/`/`floor`,
+ *  all three backends + the oracle evaluate them identically) and matches the
+ *  codebase's canonical wrap (`value - floor(value / period) * period`). */
+export function f32Mod(a: NodeLike<'f32'>, b: NodeLike<'f32'>): NodeLike<'f32'> {
+  return f32Sub(a, f32Mul(b, callF32('floor', [f32Div(a, b)])))
+}
+
+/** A comparison producing a WGSL bool (`(a <cop> b)`). */
+export function compareToBool(
+  a: NodeLike<'f32'>,
+  cop: '<' | '>' | '<=' | '>=' | '==' | '!=',
+  b: NodeLike<'f32'>,
+): NodeLike<'bool'> {
+  return { expr: { op: 'compare', type: BOOL_T, cop, a: a.expr, b: b.expr } } as NodeLike<'bool'>
+}
+
+/** select(ifFalse, ifTrue, cond) returning f32 — the boolean→value bridge the
+ *  data-driven expression compiler uses to keep every value f32. */
+export function selectF32(
+  ifFalse: NodeLike<'f32'>,
+  ifTrue: NodeLike<'f32'>,
+  cond: NodeLike<'bool'>,
+): NodeLike<'f32'> {
+  return {
+    expr: { op: 'select', type: F32_T, cond: cond.expr, ifTrue: ifTrue.expr, ifFalse: ifFalse.expr },
+  } as NodeLike<'f32'>
+}
+
+/** A binary op that emits `(a <op> b)` verbatim, choosing the IR node by op
+ *  class (arithmetic → binop, comparison → compare, logical → logical). Used by
+ *  the user-fn inliner, which historically embedded comparison/logical operators
+ *  verbatim (NOT through the f32 select() bridge). The `type` is annotated f32
+ *  because emit ignores the type for these ops — the spelling is `(a op b)`. */
+export function binaryVerbatimF32(a: NodeLike<'f32'>, op: string, b: NodeLike<'f32'>): NodeLike<'f32'> {
+  // `%` routes through the floored-modulo expression (portable across the three
+  // backends); the raw `%` BinOp is never emitted for f32.
+  if (op === '%') return f32Mod(a, b)
+  if (op === '+' || op === '-' || op === '*' || op === '/') {
+    return { expr: { op: 'binop', type: F32_T, bop: op, a: a.expr, b: b.expr } } as NodeLike<'f32'>
+  }
+  if (op === '<' || op === '>' || op === '<=' || op === '>=' || op === '==' || op === '!=') {
+    return { expr: { op: 'compare', type: F32_T, cop: op, a: a.expr, b: b.expr } } as NodeLike<'f32'>
+  }
+  if (op === '&&' || op === '||') {
+    return { expr: { op: 'logical', type: F32_T, lop: op, a: a.expr, b: b.expr } } as NodeLike<'f32'>
+  }
+  throw new Error(`binaryVerbatimF32: unsupported operator ${op}`)
+}
+
 /** Array index access (`base[idx]`). Returns a Node of the elemKey
  *  generic. The elemKey is opaque to the compiler-side helper — the
  *  caller annotates the result type. */

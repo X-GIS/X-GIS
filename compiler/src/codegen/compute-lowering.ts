@@ -18,7 +18,7 @@
 //       branches: [{ field, value }], fallback: ColorValue
 //     →  TernaryEmitSpec
 //        fields:   [...unique field names...]
-//        branches: each branch becomes a WGSL `v_<field> != 0.0` test
+//        branches: each branch becomes a structured `field != 0` predicate
 //        defaultColorHex: fallback (must itself be constant)
 //
 //   ColorValue.kind === 'data-driven', expr.ast is match() FnCall
@@ -39,7 +39,7 @@ import type { Expr } from '../parser/ast'
 import type { ColorValue, DataExpr } from '../ir/render-node'
 import { rgbaToHex } from '../ir/render-node'
 import { resolveColor } from '../tokens/colors'
-import type { MatchEmitSpec, TernaryEmitSpec } from './compute-gen'
+import type { MatchEmitSpec, TernaryEmitSpec, TernaryBranchSpec } from './compute-gen'
 
 /** Lower a `conditional` ColorValue (branches × fallback) into a
  *  TernaryEmitSpec. Each branch's `field` becomes a feature property
@@ -55,7 +55,7 @@ export function lowerConditionalColorToTernary(
 ): TernaryEmitSpec | null {
   const seen = new Set<string>()
   const fields: string[] = []
-  const branches: { pred: string; colorHex: string }[] = []
+  const branches: TernaryBranchSpec[] = []
 
   for (const branch of value.branches) {
     if (branch.value.kind !== 'constant') return null
@@ -64,7 +64,7 @@ export function lowerConditionalColorToTernary(
       seen.add(branch.field)
       fields.push(branch.field)
     }
-    branches.push({ pred: `v_${branch.field} != 0.0`, colorHex })
+    branches.push({ pred: { kind: 'cmp', field: branch.field, op: '!=', value: 0 }, colorHex })
   }
 
   if (value.fallback.kind !== 'constant') return null

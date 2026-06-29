@@ -69,9 +69,9 @@ describe('compute-gen WGSL snapshot — ternary (case) kernel', () => {
     const k = emitTernaryComputeKernel({
       fields: ['cls'],
       branches: [
-        { pred: 'v_cls == 0.0', colorHex: '#ff0000' },
-        { pred: 'v_cls == 1.0', colorHex: '#00ff00' },
-        { pred: 'v_cls == 2.0', colorHex: '#0000ff' },
+        { pred: { kind: 'cmp', field: 'cls', op: '==', value: 0 }, colorHex: '#ff0000' },
+        { pred: { kind: 'cmp', field: 'cls', op: '==', value: 1 }, colorHex: '#00ff00' },
+        { pred: { kind: 'cmp', field: 'cls', op: '==', value: 2 }, colorHex: '#0000ff' },
       ],
       defaultColorHex: '#888888',
     })
@@ -86,7 +86,14 @@ describe('compute-gen WGSL snapshot — ternary (case) kernel', () => {
     const k = emitTernaryComputeKernel({
       fields: ['rank', 'class'],
       branches: [
-        { pred: 'v_rank == 0.0 && v_class == 1.0', colorHex: '#ff00ff' },
+        {
+          pred: {
+            kind: 'and',
+            left: { kind: 'cmp', field: 'rank', op: '==', value: 0 },
+            right: { kind: 'cmp', field: 'class', op: '==', value: 1 },
+          },
+          colorHex: '#ff00ff',
+        },
       ],
       defaultColorHex: '#000000',
     })
