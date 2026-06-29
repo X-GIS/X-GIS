@@ -32,7 +32,7 @@ import {
   type ModuleDecl, type Stmt, type BindingDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, resource } from '@xgis/shader-dsl'
-import { emitModule, emitFunc } from '@xgis/shader-dsl'
+import { emitModule, emitFunc, composeModule } from '@xgis/shader-dsl'
 import { project, flat_rel, needs_backface_cull, rim_alpha, inv_merc_lat_rad, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
 import { PI, EARTH_R, MERCATOR_LAT_LIMIT, DEG2RAD } from './consts'
@@ -1040,52 +1040,9 @@ const variantReturnStmts = (
   return [...(preamble ?? []), ...b.stmts]
 }
 
-// Recursive placeholder-Stmt walker. The polygon base module only places
-// placeholders at top-level in fs_fill / fs_stroke bodies (no current
-// nesting), but the walker descends into if / for / switch bodies anyway
-// so future polygon-DSL additions can place placeholders in nested scopes
-// without re-plumbing the composer.
-
-const swapPlaceholders = (
-  stmts: readonly Stmt[],
-  swaps: Record<string, readonly Stmt[]>,
-): Stmt[] => {
-  const out: Stmt[] = []
-  for (const s of stmts) {
-    if (s.s === 'placeholder') {
-      const replacement = swaps[s.tag]
-      if (replacement) out.push(...replacement)
-      else out.push(s) // bare survival → wgsl emits `// __placeholder: <tag>`
-      continue
-    }
-    if (s.s === 'if') {
-      out.push({
-        s: 'if',
-        arms: s.arms.map((arm) => ({
-          cond: arm.cond,
-          body: swapPlaceholders(arm.body, swaps),
-        })),
-        elseBody: s.elseBody ? swapPlaceholders(s.elseBody, swaps) : undefined,
-      })
-      continue
-    }
-    if (s.s === 'for') {
-      out.push({ ...s, body: swapPlaceholders(s.body, swaps) })
-      continue
-    }
-    if (s.s === 'switch') {
-      out.push({
-        s: 'switch',
-        scrut: s.scrut,
-        cases: s.cases.map((c) => ({ value: c.value, body: swapPlaceholders(c.body, swaps) })),
-        defaultBody: s.defaultBody ? swapPlaceholders(s.defaultBody, swaps) : undefined,
-      })
-      continue
-    }
-    out.push(s)
-  }
-  return out
-}
+// Placeholder swap is now the framework's first-class, validated `composeModule` (core/passes/
+// compose.ts) — it descends into if/for/switch bodies and ERRORS on an un-swapped placeholder or a
+// typo'd swap key (the silent-on-GPU / throws-on-CPU footgun), instead of the former bare survival.
 
 // ── Module assembly ──
 //
@@ -1140,7 +1097,7 @@ export const buildPolygonModule = (
         'fill-return': defaultFillReturnStmts(),
         'stroke-return': defaultStrokeReturnStmts(),
       }
-  const composedFuncs = base.funcs.map((f) => ({ ...f, body: swapPlaceholders(f.body, swaps) }))
+  const composedFuncs = composeModule(base, swaps).funcs
 
   // Variant-driven binding extensions.
   // - needsFeatureBuffer → feat_data storage binding at @group(1) @binding(0).

@@ -116,6 +116,20 @@ export const buildRasterModule = (pickEnabled: boolean): ModuleDecl => module({
 
 ---
 
+### `composeModule` — variant composition via placeholders
+
+When a base module has variation seams, mark them with `b.placeholder('tag')` and fill them per
+variant with `composeModule`, instead of hand-rolling a clone-and-swap walk:
+
+```ts
+const base = module({ funcs: [/* … fs_fill ends with */ (_p, b) => b.placeholder('fill-return') ] })
+const composed = composeModule(base, { 'fill-return': variantFillReturnStmts })
+```
+
+It descends into `if`/`for`/`switch` bodies, and is **strict by default**: an un-swapped placeholder
+or a swap key that matches no placeholder **throws** (the silent-on-GPU / throws-on-CPU footgun
+becomes a loud compose-time error). Pass `{ allowUnswapped: true }` for deliberate bare survival.
+
 ## 2. Values and mutation
 
 ### Plain `const` — let the emit decide `let` / `var` / inline
