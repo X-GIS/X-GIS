@@ -199,7 +199,52 @@ export function convertInterpolate(
       warnings.push(`["${op}", ["cubic-bezier", ${bezierX1}, ${bezierY1}, ${bezierX2}, ${bezierY2}], …] approximated via dense piecewise-linear samples (${SAMPLES_PER_SEGMENT} per segment) — xgis has no per-stop bezier interpolator at runtime.`)
       return `interpolate(${input}, ${dense.join(', ')})`
     }
-    warnings.push(`["${op}", ["cubic-bezier", …], …] folded to linear — xgis has no per-stop bezier interpolator and non-numeric stop values can't be densified at compile time.`)
+    // Not all-numeric: try HEX COLOUR stops, sampling each segment's
+    // colour at the bezier-EASED fraction (sRGB channel lerp — the space
+    // Mapbox's non-lab `interpolate` uses). Mirror of the numeric densify
+    // above; the runtime then linearly interpolates the dense hex stops.
+    const colourStops: Array<{ z: number; rgb: [number, number, number]; quoted: boolean }> = []
+    let allHex = true
+    for (let i = 0; i < stopArgs.length; i += 2) {
+      const z = Number(stopArgs[i]!)
+      const y = stopArgs[i + 1]!
+      if (!Number.isFinite(z)) { allHex = false; break }
+      const quoted = y.length >= 2 && y.startsWith('"') && y.endsWith('"')
+      const rgb = parseSrgbHex(quoted ? y.slice(1, -1) : y)
+      if (!rgb) { allHex = false; break }
+      colourStops.push({ z, rgb, quoted })
+    }
+    if (allHex && colourStops.length >= 2) {
+      const SAMPLES_PER_SEGMENT = 6
+      const reQuote = colourStops.some(s => s.quoted)
+      const ch = (c: number) => Math.max(0, Math.min(255, Math.round(c * 255))).toString(16).padStart(2, '0')
+      const emit = (rgb: [number, number, number]) => {
+        const hex = `#${ch(rgb[0])}${ch(rgb[1])}${ch(rgb[2])}`
+        return reQuote ? `"${hex}"` : hex
+      }
+      const dense: string[] = []
+      for (let i = 0; i < colourStops.length - 1; i++) {
+        const a = colourStops[i]!
+        const b = colourStops[i + 1]!
+        dense.push(String(a.z), emit(a.rgb))
+        for (let k = 1; k < SAMPLES_PER_SEGMENT; k++) {
+          const t = k / SAMPLES_PER_SEGMENT
+          const eased = cssBezierEase(t, bezierX1, bezierY1, bezierX2, bezierY2)
+          const z = a.z + (b.z - a.z) * t
+          const rgb: [number, number, number] = [
+            a.rgb[0] + (b.rgb[0] - a.rgb[0]) * eased,
+            a.rgb[1] + (b.rgb[1] - a.rgb[1]) * eased,
+            a.rgb[2] + (b.rgb[2] - a.rgb[2]) * eased,
+          ]
+          dense.push(String(z), emit(rgb))
+        }
+      }
+      const last = colourStops[colourStops.length - 1]!
+      dense.push(String(last.z), emit(last.rgb))
+      warnings.push(`["${op}", ["cubic-bezier", ${bezierX1}, ${bezierY1}, ${bezierX2}, ${bezierY2}], …] colour stops approximated via dense piecewise-linear sRGB samples (${SAMPLES_PER_SEGMENT} per segment) at bezier-eased fractions — xgis has no per-stop bezier interpolator at runtime.`)
+      return `interpolate(${input}, ${dense.join(', ')})`
+    }
+    warnings.push(`["${op}", ["cubic-bezier", …], …] folded to linear — xgis has no per-stop bezier interpolator and non-numeric, non-hex stop values can't be densified at compile time.`)
   }
   if (isLab && !isExp && !isBezier) {
     // Try Lab/LCh densification over hex colour stops. stopArgs y

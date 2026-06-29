@@ -30,8 +30,12 @@ describe('legacy none-filter conversion', () => {
   })
 
   it('fail-closed when a sub-filter cannot convert (cannot widen)', () => {
+    // `feature-state` is unconvertible (needs the setFeatureState/hover
+    // runtime subsystem) — the canonical "cannot lower" sub-filter.
+    // (`within` was used here until it gained CPU support — see
+    // within-convert.test.ts.)
     const w: string[] = []
-    const out = filterToXgis(['none', ['within', { type: 'Polygon', coordinates: [] }]], w)
+    const out = filterToXgis(['none', ['feature-state', 'hover']], w)
     expect(out).toBe('!(true)') // → false: renders nothing rather than over-rendering
     expect(w.some((m) => m.includes('none'))).toBe(true)
   })

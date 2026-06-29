@@ -49,6 +49,14 @@ export const FEATURE_ID_KEY = '$featureId' as const
  *  features silently failed `==="Polygon"` filters. */
 export const GEOMETRY_TYPE_KEY = '$geometryType' as const
 
+/** Reserved key for the feature's RAW geometry object ({ type, coordinates }).
+ *  Mapbox `["within", polygon]` lowers to `within(get("$geometry"), …)` and
+ *  needs the actual coordinates (not just the type) to test containment.
+ *  `applyFilter` (GeoJSON path) injects `feature.geometry` here; paths that
+ *  don't supply it (MVT tile-coordinate filter eval) leave it absent, so
+ *  `within` degrades to false there — see eval/within.ts. */
+export const GEOMETRY_KEY = '$geometry' as const
+
 /** Normalize a raw GeoJSON geometry-type string to the form Mapbox's
  *  `["geometry-type"]` accessor returns. Multi* → base. Pass-through
  *  for already-base shapes and unrecognised inputs. */
@@ -66,6 +74,7 @@ export type ReservedKey =
   | typeof CAMERA_PITCH_KEY
   | typeof FEATURE_ID_KEY
   | typeof GEOMETRY_TYPE_KEY
+  | typeof GEOMETRY_KEY
 
 /** Build an evaluator props bag with reserved keys correctly named.
  *
@@ -93,6 +102,9 @@ export function makeEvalProps(opts: {
   featureId?: string | number
   /** GeoJSON geometry type — exposed via `["geometry-type"]`. */
   geometryType?: string
+  /** Raw GeoJSON geometry object — exposed via `["within"]` containment.
+   *  Only the filter-eval sites that hold the full geometry supply it. */
+  geometry?: unknown
 }): Record<string, unknown> {
   // Defensive: coerce non-plain-object props to {}. A host passing
   // a string or array (TypeScript-typed-as-record cast at the
@@ -110,5 +122,6 @@ export function makeEvalProps(opts: {
   if (opts.geometryType !== undefined) {
     out[GEOMETRY_TYPE_KEY] = normalizeGeometryType(opts.geometryType)
   }
+  if (opts.geometry !== undefined) out[GEOMETRY_KEY] = opts.geometry
   return out
 }

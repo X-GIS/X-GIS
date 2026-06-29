@@ -7,6 +7,9 @@
 import {
   parseSrgbHex, srgbToLab, labToHex, labToLch, lchToLab,
 } from '../tokens/colors'
+import { evalWithin } from './within'
+import { evalDistance } from './distance'
+import { collatorCompare, resolvedLocale } from './collator'
 
 // ═══ Built-in functions ═══
 
@@ -448,6 +451,37 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
         if (typeof a === 'string' && HEX_RE.test(a)) return a
       }
       return null
+    }
+    case 'within': {
+      // Mapbox `["within", polygon]` — true when the feature geometry is
+      // contained in the argument polygon(s). The converter lowers it to
+      // `within(get("$geometry"), <coords>)`, so args[0] is the feature
+      // geometry object (or null on paths that don't inject $geometry) and
+      // args[1] is the polygon argument as a MultiPolygon-shaped nested
+      // array. Pure CPU predicate — see eval/within.ts.
+      return evalWithin(args[0], args[1])
+    }
+    case 'distance': {
+      // Mapbox `["distance", target]` → metres between the feature geometry
+      // and the target. The converter decomposes the constant target into
+      // points / segments / polygons, so args are
+      // [geometry, points, segments, polygons]. Pure CPU — see
+      // eval/distance.ts.
+      return evalDistance(args[0], args[1], args[2], args[3])
+    }
+    case 'collator_cmp': {
+      // Mapbox `["==", a, b, ["collator", opts]]` (and the other 5
+      // comparison ops) lowered by the converter. args:
+      // [op, a, b, locale, caseSensitive, diacriticSensitive]. Pure CPU
+      // locale-aware compare — see eval/collator.ts.
+      return collatorCompare(
+        String(args[0]), args[1], args[2],
+        String(args[3] ?? ''), Boolean(args[4]), Boolean(args[5]),
+      )
+    }
+    case 'resolved_locale': {
+      // Mapbox `["resolved-locale", ["collator", opts]]` → the BCP-47 tag.
+      return resolvedLocale(String(args[0] ?? ''))
     }
     default:
       return args[0] ?? null

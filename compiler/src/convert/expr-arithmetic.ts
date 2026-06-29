@@ -8,6 +8,7 @@
 // parameter to avoid importing expressions.ts (cycle).
 
 import type { ExprHandler } from './expr-handler-types'
+import { extractCollatorOpts } from './collator-opts'
 
 // Comparison operators. Mapbox spec allows a trailing
 // `["collator", {…}]` arg that controls case-sensitivity /
@@ -21,11 +22,18 @@ export const comparisonHandler: ExprHandler = (v, warnings, recurse, _recurseFil
   if (v.length === 4) {
     const collator = v[3]
     if (Array.isArray(collator) && collator[0] === 'collator') {
-      warnings.push(`["${op}"] trailing ["collator", …] dropped — X-GIS string compare is byte-exact (no case-insensitive / locale-aware ordering).`)
       const a = recurse(v[1], warnings)
       const b = recurse(v[2], warnings)
       if (a === null || b === null) return null
-      return `${a} ${op} ${b}`
+      // Constant collator options → lower to the CPU locale-aware compare
+      // builtin (eval/collator.ts). Non-constant options can't be baked
+      // into the call, so fall back to byte-exact compare with a warning.
+      const opts = extractCollatorOpts(collator)
+      if (opts === null) {
+        warnings.push(`["${op}"] ["collator", …] has non-constant options — locale-aware compare needs literal case-sensitive / diacritic-sensitive / locale; falling back to byte-exact compare.`)
+        return `${a} ${op} ${b}`
+      }
+      return `collator_cmp(${JSON.stringify(op)}, ${a}, ${b}, ${JSON.stringify(opts.locale)}, ${opts.caseSensitive}, ${opts.diacriticSensitive})`
     }
   }
   if (v.length !== 3) return null

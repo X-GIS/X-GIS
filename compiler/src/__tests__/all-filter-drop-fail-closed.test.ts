@@ -1,7 +1,7 @@
 // Pin fail-CLOSED behaviour when an `["all", …]` filter drops a conjunct.
 //
 // Bug (A3): `all` means AND. When converting `["all", A, B]` where B is
-// unconvertible (an op filterToXgis can't lower — e.g. `["within", …]`),
+// unconvertible (an op filterToXgis can't lower — e.g. `["feature-state", …]`),
 // the converter dropped B and kept `A`. Dropping a conjunct from an AND
 // makes the predicate MORE permissive — the layer then renders features
 // the authored `all` constraint was meant to EXCLUDE (floods the layer).
@@ -12,37 +12,35 @@
 // fail-closed). `any`/OR drops narrow the set (the safe direction), so
 // they stay as-is.
 //
-// Fail-before: pre-fix `filterToXgis(["all", ==class, within(poly)])`
+// Fail-before: pre-fix `filterToXgis(["all", ==class, featureState(hover)])`
 // returned `.class == "park"` — the lowered predicate STILL MATCHES every
-// park feature, including the ones the dropped `within` polygon would
-// have excluded. The assertions below require the dropped-conjunct case
-// to resolve to "match nothing" (contain a `false` term), NOT the bare
+// park feature, including the ones the dropped conjunct would have
+// excluded. The assertions below require the dropped-conjunct case to
+// resolve to "match nothing" (contain a `false` term), NOT the bare
 // widened conjunct.
 
 import { describe, it, expect } from 'vitest'
 import { filterToXgis } from '../convert/expressions'
 import { convertLayer } from '../convert/layers'
 
-// `["within", <GeoJSON>]` — filterToXgis has no lowering for `within`
-// (KNOWN_UNSUPPORTED), so it returns null with a warning. The canonical
-// unconvertible conjunct.
-const WITHIN_POLYGON = [
-  'within',
-  { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]] },
-] as unknown
+// `["feature-state", …]` — filterToXgis has no lowering for `feature-state`
+// (KNOWN_UNSUPPORTED — needs the setFeatureState/hover runtime subsystem),
+// so it returns null with a warning. The canonical unconvertible conjunct.
+// (`within` then `distance` were used here until each gained CPU support.)
+const UNCONVERTIBLE = ['feature-state', 'hover'] as unknown
 
 describe('["all"] with a dropped conjunct fails closed (does not widen)', () => {
   it('all(convertible, unconvertible) → predicate cannot widen (AND-ed with false)', () => {
     const warnings: string[] = []
     const out = filterToXgis(
-      ['all', ['==', ['get', 'class'], 'park'], WITHIN_POLYGON],
+      ['all', ['==', ['get', 'class'], 'park'], UNCONVERTIBLE],
       warnings,
     )
     expect(out).not.toBeNull()
     const code = out as string
     // Fail-before: code === '.class == "park"' (the widened conjunct).
     // After: the chain must carry a `false` term so the whole predicate
-    // can never accept the features the dropped `within` would exclude.
+    // can never accept the features the dropped conjunct would exclude.
     expect(code).toContain('false')
     // The surviving convertible conjunct is still present (we keep what
     // we can prove + AND false; we don't throw the whole filter away).
@@ -54,20 +52,20 @@ describe('["all"] with a dropped conjunct fails closed (does not widen)', () => 
   it('the widened conjunct alone is NOT the result (the actual bug shape)', () => {
     const warnings: string[] = []
     const out = filterToXgis(
-      ['all', ['==', ['get', 'class'], 'park'], WITHIN_POLYGON],
+      ['all', ['==', ['get', 'class'], 'park'], UNCONVERTIBLE],
       warnings,
     )
     // The exact bug: returning just `.class == "park"` (renders all parks
-    // including the ones the within() polygon excluded). Must NOT happen.
+    // including the ones the dropped conjunct excluded). Must NOT happen.
     expect(out).not.toBe('.class == "park"')
   })
 
-  it('fill layer with all(==, within) filter → fail closed (false in filter line)', () => {
+  it('fill layer with all(==, feature-state) filter → fail closed (false in filter line)', () => {
     const warnings: string[] = []
     const out = convertLayer(
       {
         id: 'parks', type: 'fill', source: 'osm', 'source-layer': 'landuse',
-        filter: ['all', ['==', ['get', 'class'], 'park'], WITHIN_POLYGON],
+        filter: ['all', ['==', ['get', 'class'], 'park'], UNCONVERTIBLE],
         paint: { 'fill-color': '#0a0' },
       } as never,
       warnings,
@@ -92,7 +90,7 @@ describe('["all"] with a dropped conjunct fails closed (does not widen)', () => 
   it('regression: any() with a dropped arm stays as-is (OR narrows = safe direction)', () => {
     const warnings: string[] = []
     const out = filterToXgis(
-      ['any', ['==', ['get', 'class'], 'park'], WITHIN_POLYGON],
+      ['any', ['==', ['get', 'class'], 'park'], UNCONVERTIBLE],
       warnings,
     )
     // any drops narrow the accepted set (more restrictive) — the safe

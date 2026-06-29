@@ -15,8 +15,11 @@ function convert(mapbox: unknown): { result: string | null; warnings: string[] }
 describe('unsupported op warnings — specific not generic', () => {
   const cases: Array<[string, unknown[], string]> = [
     ['feature-state', ['hover'], 'Feature-state accessor'],
-    ['within', [{ type: 'Polygon', coordinates: [[]] }], 'Within accessor'],
-    ['resolved-locale', [['collator', {}]], 'resolved-locale accessor'],
+    // `within` was here — now SUPPORTED (Point/MultiPoint vs polygon, CPU
+    // predicate); see within-convert.test.ts.
+    // `resolved-locale` was here — now SUPPORTED (constant collator locale →
+    // `resolved_locale` CPU builtin); see collator-convert.test.ts.
+    // A STANDALONE collator (not attached to a comparison op) still warns.
     ['collator', [{}], 'collator object'],
     ['accumulated', [], 'Accumulated accessor'],
     ['heatmap-density', [], 'Heatmap density accessor'],
@@ -33,7 +36,8 @@ describe('unsupported op warnings — specific not generic', () => {
     // builtin returning the feature.properties object, mirror of the
     // `geometry-type` / `id` accessor pattern); see
     // expressions-properties.test.ts.
-    ['distance', [{ type: 'Point', coordinates: [0, 0] }], 'Geometry distance accessor'],
+    // `distance` was here — now SUPPORTED (Point/MultiPoint feature vs any
+    // target, CPU metre metric); see distance-convert.test.ts.
   ]
 
   for (const [op, args, expectMessage] of cases) {

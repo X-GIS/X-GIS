@@ -59,7 +59,7 @@ describe('precise unsupported-accessor warnings', () => {
     expect(code).toMatch(/\["feature-state"\] not yet supported.*setFeatureState/)
   })
 
-  it('within warns', () => {
+  it('within converts (no longer warns) — CPU containment predicate', () => {
     const style = {
       version: 8,
       sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
@@ -68,13 +68,14 @@ describe('precise unsupported-accessor warnings', () => {
           id: 'l',
           type: 'fill',
           source: 's',
-          filter: ['within', { type: 'Polygon', coordinates: [[]] }],
+          filter: ['within', { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] }],
           paint: { 'fill-color': '#abc' },
         },
       ],
     }
     const code = convertMapboxStyle(style as never)
-    expect(code).toMatch(/\["within"\] not yet supported/)
+    expect(code).not.toMatch(/\["within"\] not yet supported/)
+    expect(code).toContain('within(get("$geometry")')
   })
 
   it('unrelated unknown operator still falls to generic warning', () => {

@@ -98,20 +98,34 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
       // this fallback table.
       'feature-state': 'Feature-state accessor — map.setFeatureState() / hover-state is not yet implemented; values resolve to null.',
       'image': 'Image accessor — sprite atlas (Batch 2) not yet implemented; the layer falls through to its colour-only fallback.',
-      'within': 'Within accessor — polygon-containment filter not yet implemented; predicate evaluates to false.',
+      // `within` is now SUPPORTED (Point/MultiPoint vs Polygon/MultiPolygon
+      // on GeoJSON sources) — handled by withinHandler in the expr-lookup
+      // cluster, so it never reaches this fallback table. (LineString /
+      // Polygon tested-geometry and MVT tile-coordinate sources remain
+      // partial — see eval/within.ts.)
       // `is-supported-script` is now SUPPORTED — handled by
       // isSupportedScriptHandler in the expr-lookup cluster (lowers to
       // constant `true`, matching X-GIS' all-Unicode-renderable
       // capability), so it never reaches this fallback table.
-      'resolved-locale': 'resolved-locale accessor — collator-resolved BCP-47 locale tag not implemented; returns null.',
-      'collator': 'collator object — locale-aware string ordering not implemented; comparison operators fall back to byte-exact compare.',
+      // `resolved-locale` is now SUPPORTED (constant collator locale) —
+      // handled by resolvedLocaleHandler in the expr-lookup cluster, so it
+      // never reaches this fallback table.
+      // `collator` as the trailing 4th arg of a comparison op IS now
+      // supported (lowers to the `collator_cmp` CPU builtin — see
+      // comparisonHandler). A STANDALONE `["collator", …]` (not attached to
+      // a comparison) has no value in X-GIS and still warns here.
+      'collator': 'collator object used outside a comparison operator — a bare ["collator", …] has no standalone value; attach it as the 4th argument of ==/!=/</<=/>/>= for locale-aware compare.',
       // Iter 544 additions — Mapbox spec ops the converter dropped to
       // the generic "Expression not converted" catch-all. Specific
       // messages so the lossy report surfaces the actual feature gap.
       // (`properties` is now SUPPORTED — handled by propertiesHandler in
       // the expr-lookup cluster, emits the `properties()` builtin, so it
       // never reaches this fallback table.)
-      'distance': 'Geometry distance accessor — Mapbox `["distance", geometry]` returns metric distance from the feature to a target GeoJSON shape; requires a geometric-distance pipeline not yet wired (would need turf-style polygon-to-line nearest-neighbour at filter eval time).',
+      // `distance` is now SUPPORTED (Point/MultiPoint feature-geometry vs
+      // any target, GeoJSON sources) — handled by distanceHandler in the
+      // expr-lookup cluster, so it never reaches this fallback table.
+      // (LineString/Polygon feature-geometry and MVT sources remain
+      // partial — see eval/distance.ts.)
     }
     const reason = KNOWN_UNSUPPORTED[unsupportedOp]
     if (reason !== undefined) {

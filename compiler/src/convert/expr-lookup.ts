@@ -8,6 +8,7 @@
 // is taken as a parameter (`recurse`) to avoid importing expressions.ts.
 
 import type { ExprHandler } from './expr-handler-types'
+import { extractCollatorOpts } from './collator-opts'
 
 export const getHandler: ExprHandler = (v, warnings, recurse) => {
   // Mapbox spec: ["get", key] or ["get", key, object]. The field
@@ -228,6 +229,173 @@ export const idHandler: ExprHandler = (v, warnings) => {
     warnings.push(`Malformed ["id"] expression: zero-arg accessor takes no arguments, got ${v.length - 1}.`)
   }
   return 'get("$featureId")'
+}
+
+/** Serialise a nested numeric coordinate array to xgis array-literal
+ *  source (`[[...]]`). Returns null if any leaf is a non-finite number
+ *  (an invalid bare identifier in the emitted source). */
+function emitCoords(node: unknown): string | null {
+  if (Array.isArray(node)) {
+    const parts: string[] = []
+    for (const el of node) {
+      const s = emitCoords(el)
+      if (s === null) return null
+      parts.push(s)
+    }
+    return `[${parts.join(', ')}]`
+  }
+  if (typeof node === 'number' && Number.isFinite(node)) return String(node)
+  return null
+}
+
+/** Pull polygon rings out of one GeoJSON object, appending to `out`
+ *  (normalised to MultiPolygon form: a list of polygons). Handles
+ *  Polygon, MultiPolygon, and Feature wrappers. Unknown geometry types
+ *  are skipped (caller decides whether the empty result is a drop). */
+function collectPolygons(geo: unknown, out: unknown[]): void {
+  if (!geo || typeof geo !== 'object') return
+  const g = geo as { type?: unknown; coordinates?: unknown; geometry?: unknown }
+  if (g.type === 'Feature') { collectPolygons(g.geometry, out); return }
+  if (g.type === 'Polygon' && Array.isArray(g.coordinates)) { out.push(g.coordinates); return }
+  if (g.type === 'MultiPolygon' && Array.isArray(g.coordinates)) {
+    for (const poly of g.coordinates) out.push(poly)
+  }
+}
+
+export const withinHandler: ExprHandler = (v, warnings) => {
+  // Mapbox `["within", <GeoJSON Polygon|MultiPolygon|Feature|
+  // FeatureCollection>]` — true when the feature geometry is contained
+  // in the argument polygon(s). Lowered to a `within()` builtin that
+  // reads the feature geometry from the `$geometry` reserved key the
+  // runtime injects, plus the polygon argument as a normalised
+  // MultiPolygon array literal. The containment test is a pure CPU
+  // predicate (eval/within.ts) — no runtime/GPU dependency.
+  if (v.length !== 2) {
+    warnings.push(`Malformed ["within"] expression: expected exactly 1 geometry argument, got ${v.length - 1}.`)
+    return null
+  }
+  const arg = v[1]
+  const polygons: unknown[] = []
+  const fc = arg as { type?: unknown; features?: unknown }
+  if (fc && typeof fc === 'object' && fc.type === 'FeatureCollection' && Array.isArray(fc.features)) {
+    for (const f of fc.features) collectPolygons(f, polygons)
+  } else {
+    collectPolygons(arg, polygons)
+  }
+  if (polygons.length === 0) {
+    warnings.push(`["within"] argument is not a Polygon/MultiPolygon GeoJSON (or contains none); predicate dropped.`)
+    return null
+  }
+  const coords = emitCoords(polygons)
+  if (coords === null) {
+    warnings.push(`["within"] polygon coordinates contain a non-finite number; predicate dropped.`)
+    return null
+  }
+  return `within(get("$geometry"), ${coords})`
+}
+
+interface TargetPrimitives {
+  points: unknown[]
+  segments: unknown[]
+  polygons: unknown[]
+}
+
+/** Emit a closed ring's / line's consecutive vertex pairs as segments. */
+function pushSegments(line: unknown, out: unknown[]): void {
+  if (!Array.isArray(line)) return
+  for (let i = 0; i + 1 < line.length; i++) out.push([line[i], line[i + 1]])
+}
+
+/** Decompose a constant target GeoJSON into flat point / segment / polygon
+ *  primitives for the distance metric. Polygons contribute BOTH their
+ *  rings (for inside→0 containment) and their edges (for boundary
+ *  distance). Handles Feature / FeatureCollection / GeometryCollection. */
+function decomposeTarget(geo: unknown, out: TargetPrimitives): void {
+  if (!geo || typeof geo !== 'object') return
+  const g = geo as {
+    type?: unknown; coordinates?: unknown; geometry?: unknown; geometries?: unknown; features?: unknown
+  }
+  // if/else (not a switch) on the GeoJSON type tag — a switch arm keyed on
+  // a capitalised geometry name would trip the spec-coverage drift detector,
+  // which reads switch arms as Mapbox op references (mirror of within's
+  // collectPolygons).
+  const t = g.type
+  if (t === 'Feature') { decomposeTarget(g.geometry, out); return }
+  if (t === 'FeatureCollection') {
+    if (Array.isArray(g.features)) for (const f of g.features) decomposeTarget(f, out)
+    return
+  }
+  if (t === 'GeometryCollection') {
+    if (Array.isArray(g.geometries)) for (const gm of g.geometries) decomposeTarget(gm, out)
+    return
+  }
+  if (t === 'Point') {
+    if (Array.isArray(g.coordinates)) out.points.push(g.coordinates)
+    return
+  }
+  if (t === 'MultiPoint') {
+    if (Array.isArray(g.coordinates)) for (const p of g.coordinates) out.points.push(p)
+    return
+  }
+  if (t === 'LineString') { pushSegments(g.coordinates, out.segments); return }
+  if (t === 'MultiLineString') {
+    if (Array.isArray(g.coordinates)) for (const ln of g.coordinates) pushSegments(ln, out.segments)
+    return
+  }
+  if (t === 'Polygon') {
+    if (Array.isArray(g.coordinates)) {
+      out.polygons.push(g.coordinates)
+      for (const ring of g.coordinates) pushSegments(ring, out.segments)
+    }
+    return
+  }
+  if (t === 'MultiPolygon') {
+    if (Array.isArray(g.coordinates)) for (const poly of g.coordinates) {
+      out.polygons.push(poly)
+      for (const ring of poly) pushSegments(ring, out.segments)
+    }
+  }
+}
+
+export const distanceHandler: ExprHandler = (v, warnings) => {
+  // Mapbox `["distance", <GeoJSON>]` — metres between the feature geometry
+  // and the target. Lowered to a CPU builtin that reads the feature
+  // geometry from `$geometry` plus the target decomposed (at compile time)
+  // into points / segments / polygons array literals. See eval/distance.ts.
+  if (v.length !== 2) {
+    warnings.push(`Malformed ["distance"] expression: expected exactly 1 geometry argument, got ${v.length - 1}.`)
+    return null
+  }
+  const prims: TargetPrimitives = { points: [], segments: [], polygons: [] }
+  decomposeTarget(v[1], prims)
+  if (prims.points.length === 0 && prims.segments.length === 0 && prims.polygons.length === 0) {
+    warnings.push(`["distance"] argument is not a usable GeoJSON geometry (or contains none); predicate dropped.`)
+    return null
+  }
+  const pts = emitCoords(prims.points)
+  const segs = emitCoords(prims.segments)
+  const polys = emitCoords(prims.polygons)
+  if (pts === null || segs === null || polys === null) {
+    warnings.push(`["distance"] target coordinates contain a non-finite number; predicate dropped.`)
+    return null
+  }
+  return `distance(get("$geometry"), ${pts}, ${segs}, ${polys})`
+}
+
+export const resolvedLocaleHandler: ExprHandler = (v, warnings) => {
+  // Mapbox `["resolved-locale", ["collator", opts]]` → the BCP-47 tag the
+  // collator resolves to. Lowered to the CPU `resolved_locale("<locale>")`
+  // builtin (eval/collator.ts). Requires a constant collator locale.
+  if (v.length !== 2) {
+    warnings.push(`Malformed ["resolved-locale"] expression: expected 1 collator argument, got ${v.length - 1}.`)
+    return null
+  }
+  const opts = extractCollatorOpts(v[1])
+  if (opts === null) {
+    warnings.push(`["resolved-locale"] argument must be a ["collator", …] with constant options; dropped.`)
+    return null
+  }
+  return `resolved_locale(${JSON.stringify(opts.locale)})`
 }
 
 export const inHandler: ExprHandler = (v, warnings, recurse) => {
