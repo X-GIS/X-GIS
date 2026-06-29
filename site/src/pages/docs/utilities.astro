@@ -155,12 +155,21 @@ const utilFamilies: UtilFamily[] = [
     ],
   },
 ]
+
+// On-this-page TOC: the two top sections plus one entry per utility family.
+const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+const headings = [
+  { depth: 2, slug: 'color-palette', text: 'Color palette' },
+  { depth: 2, slug: 'utility-families', text: 'Utility families' },
+  ...utilFamilies.map((f) => ({ depth: 3, slug: slugify(f.name), text: f.name })),
+]
 ---
 
 <Docs
   current="utilities"
   title="X-GIS — Utility catalog"
   description="The full Tailwind-style utility class set for X-GIS — colors, fills, strokes, opacity, sizes, shapes, animation, modifiers."
+  headings={headings}
 >
   <header class="mb-12">
     <p class="font-mono text-[11px] tracking-[0.2em] uppercase text-accent mb-3">
@@ -179,7 +188,7 @@ const utilFamilies: UtilFamily[] = [
   <article class="space-y-16">
 
     <!-- Color swatches -->
-    <section>
+    <section id="color-palette" class="scroll-mt-20">
       <h2 class="text-[26px] sm:text-[32px] font-medium text-fg leading-[1.15] tracking-[-0.02em] mb-3 pb-3 border-b border-line">
         Color palette
       </h2>
@@ -213,13 +222,13 @@ const utilFamilies: UtilFamily[] = [
     </section>
 
     <!-- Utility families -->
-    <section>
+    <section id="utility-families" class="scroll-mt-20">
       <h2 class="text-[26px] sm:text-[32px] font-medium text-fg leading-[1.15] tracking-[-0.02em] mb-3 pb-3 border-b border-line">
         Utility families
       </h2>
       <div class="space-y-12">
         {utilFamilies.map(f => (
-          <div>
+          <div id={slugify(f.name)} class="scroll-mt-20">
             <h3 class="text-[18px] font-medium text-fg leading-[1.25] tracking-[-0.015em] mb-2">
               {f.name}
             </h3>
