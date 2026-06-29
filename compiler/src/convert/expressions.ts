@@ -107,8 +107,14 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
       // isSupportedScriptHandler in the expr-lookup cluster (lowers to
       // constant `true`, matching X-GIS' all-Unicode-renderable
       // capability), so it never reaches this fallback table.
-      'resolved-locale': 'resolved-locale accessor — collator-resolved BCP-47 locale tag not implemented; returns null.',
-      'collator': 'collator object — locale-aware string ordering not implemented; comparison operators fall back to byte-exact compare.',
+      // `resolved-locale` is now SUPPORTED (constant collator locale) —
+      // handled by resolvedLocaleHandler in the expr-lookup cluster, so it
+      // never reaches this fallback table.
+      // `collator` as the trailing 4th arg of a comparison op IS now
+      // supported (lowers to the `collator_cmp` CPU builtin — see
+      // comparisonHandler). A STANDALONE `["collator", …]` (not attached to
+      // a comparison) has no value in X-GIS and still warns here.
+      'collator': 'collator object used outside a comparison operator — a bare ["collator", …] has no standalone value; attach it as the 4th argument of ==/!=/</<=/>/>= for locale-aware compare.',
       // Iter 544 additions — Mapbox spec ops the converter dropped to
       // the generic "Expression not converted" catch-all. Specific
       // messages so the lossy report surfaces the actual feature gap.

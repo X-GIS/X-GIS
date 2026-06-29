@@ -17,7 +17,9 @@ describe('unsupported op warnings — specific not generic', () => {
     ['feature-state', ['hover'], 'Feature-state accessor'],
     // `within` was here — now SUPPORTED (Point/MultiPoint vs polygon, CPU
     // predicate); see within-convert.test.ts.
-    ['resolved-locale', [['collator', {}]], 'resolved-locale accessor'],
+    // `resolved-locale` was here — now SUPPORTED (constant collator locale →
+    // `resolved_locale` CPU builtin); see collator-convert.test.ts.
+    // A STANDALONE collator (not attached to a comparison op) still warns.
     ['collator', [{}], 'collator object'],
     ['accumulated', [], 'Accumulated accessor'],
     ['heatmap-density', [], 'Heatmap density accessor'],

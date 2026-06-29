@@ -8,6 +8,7 @@ import {
   parseSrgbHex, srgbToLab, labToHex, labToLch, lchToLab,
 } from '../tokens/colors'
 import { evalWithin } from './within'
+import { collatorCompare, resolvedLocale } from './collator'
 
 // ═══ Built-in functions ═══
 
@@ -458,6 +459,20 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
       // args[1] is the polygon argument as a MultiPolygon-shaped nested
       // array. Pure CPU predicate — see eval/within.ts.
       return evalWithin(args[0], args[1])
+    }
+    case 'collator_cmp': {
+      // Mapbox `["==", a, b, ["collator", opts]]` (and the other 5
+      // comparison ops) lowered by the converter. args:
+      // [op, a, b, locale, caseSensitive, diacriticSensitive]. Pure CPU
+      // locale-aware compare — see eval/collator.ts.
+      return collatorCompare(
+        String(args[0]), args[1], args[2],
+        String(args[3] ?? ''), Boolean(args[4]), Boolean(args[5]),
+      )
+    }
+    case 'resolved_locale': {
+      // Mapbox `["resolved-locale", ["collator", opts]]` → the BCP-47 tag.
+      return resolvedLocale(String(args[0] ?? ''))
     }
     default:
       return args[0] ?? null

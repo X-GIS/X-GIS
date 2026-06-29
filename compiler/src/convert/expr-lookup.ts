@@ -8,6 +8,7 @@
 // is taken as a parameter (`recurse`) to avoid importing expressions.ts.
 
 import type { ExprHandler } from './expr-handler-types'
+import { extractCollatorOpts } from './collator-opts'
 
 export const getHandler: ExprHandler = (v, warnings, recurse) => {
   // Mapbox spec: ["get", key] or ["get", key, object]. The field
@@ -291,6 +292,22 @@ export const withinHandler: ExprHandler = (v, warnings) => {
     return null
   }
   return `within(get("$geometry"), ${coords})`
+}
+
+export const resolvedLocaleHandler: ExprHandler = (v, warnings) => {
+  // Mapbox `["resolved-locale", ["collator", opts]]` → the BCP-47 tag the
+  // collator resolves to. Lowered to the CPU `resolved_locale("<locale>")`
+  // builtin (eval/collator.ts). Requires a constant collator locale.
+  if (v.length !== 2) {
+    warnings.push(`Malformed ["resolved-locale"] expression: expected 1 collator argument, got ${v.length - 1}.`)
+    return null
+  }
+  const opts = extractCollatorOpts(v[1])
+  if (opts === null) {
+    warnings.push(`["resolved-locale"] argument must be a ["collator", …] with constant options; dropped.`)
+    return null
+  }
+  return `resolved_locale(${JSON.stringify(opts.locale)})`
 }
 
 export const inHandler: ExprHandler = (v, warnings, recurse) => {
