@@ -68,7 +68,7 @@ export const wgslBackend: Backend = {
   rawStmt: (wgsl) => wgsl,
   placeholderStmt: (tag) => `// __placeholder: ${tag}`,
   // ── Module-decl surface (the WGSL spellings, lifted from the former free fns) ──
-  emitConst: (c) => wgslBackend.constDecl(c.name, c.type, f32Lit(c.wgslValue)),
+  emitConst: (c) => wgslBackend.constDecl(c.name, c.type, c.valueExpr ? emitExprNeutral(c.valueExpr, wgslBackend) : f32Lit(c.wgslValue)),
   emitStruct: (s) => {
     const fields = s.fields.map((f) => `  ${f.attr ? `${f.attr} ` : ''}${f.name}: ${wgslType(f.type)},`).join('\n')
     return `struct ${s.name} {\n${fields}\n}`

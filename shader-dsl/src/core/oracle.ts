@@ -41,7 +41,7 @@ export type CpuValue = number | boolean | number[] | CpuStruct
 export interface CpuStruct { [k: string]: CpuValue }
 
 interface Ctx {
-  consts: Map<string, number>
+  consts: Map<string, CpuValue>
   fns: Record<string, (...args: CpuValue[]) => CpuValue>
   bindings: Record<string, CpuValue>
   structs: Map<string, StructDecl>
@@ -410,10 +410,16 @@ export function compileModule(m: ModuleDecl): CpuModule {
   // as the WGSL backend does, so the CPU mirror evaluates the same assignable lvalues.
   m = autoVars(m)
   const ctx: Ctx = {
-    consts: new Map(m.consts.map((c) => [c.name, c.cpuValue])),
+    consts: new Map<string, CpuValue>(),
     fns: {},
     bindings: {},
     structs: new Map(m.structs.map((s) => [s.name, s])),
+  }
+  // Populate consts in declaration order so a later const may reference an
+  // earlier one. A `valueExpr` const (vec / array / struct literal) is evaluated
+  // through the same tree-walk; a scalar const uses its full-precision cpuValue.
+  for (const c of m.consts) {
+    ctx.consts.set(c.name, c.valueExpr ? evalExpr(c.valueExpr, new Map(), ctx) : c.cpuValue)
   }
   for (const f of m.funcs) {
     ctx.fns[f.name] = (...args: CpuValue[]): CpuValue => {

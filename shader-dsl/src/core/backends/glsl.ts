@@ -28,7 +28,7 @@ import { texture2dfT, u32T, f32T } from '../ir'
 import { Capabilities, UnsupportedFeatureError, type Backend } from '../backend'
 import { spellIntrinsic } from '../intrinsics'
 import { f32Lit } from './wgsl'
-import { emitBody, lowerForBackend } from '../emit'
+import { emitBody, emitExpr as emitExprNeutral, lowerForBackend } from '../emit'
 import { wgslLayout } from '../reflect'
 import { sanitizeReservedIdents } from './glsl-sanitize'
 import { fixpoint } from '../passes/opt'
@@ -157,7 +157,7 @@ export const glslEs300Backend: Backend = {
   rawStmt: () => { throw new UnsupportedFeatureError('glsl-es300: raw WGSL Stmt cannot lower to GLSL (backendOnly:wgsl)') },
   placeholderStmt: () => { throw new UnsupportedFeatureError('glsl-es300: un-swapped placeholder Stmt — composer must run first') },
   // ── Module-decl surface ──
-  emitConst: (c) => glslEs300Backend.constDecl(c.name, c.type, f32Lit(c.wgslValue)),
+  emitConst: (c) => glslEs300Backend.constDecl(c.name, c.type, c.valueExpr ? emitExprNeutral(c.valueExpr, glslEs300Backend) : f32Lit(c.wgslValue)),
   // A NON-uniform struct (an IO output type, or a storage element struct) emits as a
   // plain GLSL struct; the `@location`/`@builtin` field attrs are stripped here — they
   // become `in`/`out` varyings at entry-IO lowering, not struct members.
