@@ -117,11 +117,6 @@ export function mergeComputeAddendumIntoVariant(
     // the axis, carry the source variant's flag forward unchanged.
     fillIsDefault: hasFill ? false : variant.fillIsDefault,
     strokeIsDefault: hasStroke ? false : variant.strokeIsDefault,
-    // The legacy match() / if-else preamble is irrelevant when the
-    // compute kernel evaluated the colour upstream. Drop them so the
-    // emitted shader doesn't carry dead helper-var declarations.
-    fillPreamble: hasFill ? undefined : variant.fillPreamble,
-    strokePreamble: hasStroke ? undefined : variant.strokePreamble,
     uniformFields,
     // Surface the bindings on the merged variant so the runtime can
     // (a) detect "compute layout needed" via existence-check and

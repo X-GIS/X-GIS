@@ -167,8 +167,12 @@ describe('emitCommands — computePlan emission', () => {
     // compute output reference.
     {
       const fe = cmds.shows[0]!.shaderVariant!.fillExpr
-      const fillStr = fe ? nodeToWgslString(fe) : 'u.fill_color'
-      expect(fillStr).not.toContain('unpack4x8unorm')
+      // fillExpr is now a `matchExpr` Node (lowered to a switch only at module
+      // emit, which needs statement hoisting nodeToWgslString can't do for a
+      // bare expression). Inspect the IR JSON to prove no compute-output read
+      // leaked into the legacy match path.
+      const feJson = fe ? JSON.stringify(fe.expr) : 'u.fill_color'
+      expect(feJson).not.toContain('unpack4x8unorm')
     }
   })
 
