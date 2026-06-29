@@ -30,7 +30,7 @@ class PointsPass implements RenderPass {
           storeOp: 'store',
         }],
         depthStencilAttachment: {
-          view: ctx.rt.stencilTexture!.createView(),
+          view: ctx.rt.stencilView!,
           // Load the depth the last opaque sub-pass stored above so
           // billboards on the back side of a globe / pitched surface
           // are correctly occluded by the front-facing opaque
