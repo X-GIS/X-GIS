@@ -14,7 +14,7 @@ import { UniformRing } from './uniform-ring'
 import { GraticuleRenderer } from './graticule-renderer'
 import { PipelineFactory } from './pipeline-factory'
 import { polygonUniformBytes, polygonUniformStride, polygonUniformSlots } from './polygon-uniform-slots'
-import { globeEyeUniform } from './globe-eye-uniform'
+import { writeFrameProjectionUniform } from './frame-projection-uniform'
 
 // Re-export the extracted types so this module's public surface stays
 // byte-identical (external consumers import these from './renderer').
@@ -844,7 +844,10 @@ export class MapRenderer {
       new Float32Array(uniformData, S.mvp * 4, 16).set(mvp)
       new Float32Array(uniformData, S.fill_color * 4, 4).set(fillColor as number[])
       new Float32Array(uniformData, S.stroke_color * 4, 4).set(strokeColor as number[])
-      new Float32Array(uniformData, S.proj_params * 4, 4).set([projType, projCenterLon, projCenterLat, 0])
+      // proj_params + globe_eye written TOGETHER (coupled so a missing globe_eye —
+      // the #600 vector-path leak — is unrepresentable). frame.eye is the globe/ECEF
+      // camera position (undefined off the globe → globe_eye zero, ignored by flat).
+      writeFrameProjectionUniform(new Float32Array(uniformData), projType, projCenterLon, projCenterLat, frame.eye)
       // Non-tiled layer: vertices are stored in absolute Mercator meters
       // (DSFUN stride 5/6) so tile_origin_merc = (0, 0) and
       // cam_h/cam_l = splitF64(cam_merc). The DSFUN subtraction in vs_main
@@ -880,15 +883,6 @@ export class MapRenderer {
       // light_dir_ecef 240-255 too — this fill/line path never extrudes);
       // total struct size is 256 bytes (UNIFORM_SIZE constant).
       new Float32Array(uniformData, S.zoom * 4, 4).set([camera.zoom, 0, 0, 0])
-      // #600 globe_eye — (normalize(eye).xyz, EARTH_R/|eye|) for the globe(7)
-      // eye-horizon hemisphere cull (needs_backface_cull). frame.eye is the
-      // absolute sphere-ECEF camera position on the globe/ECEF branch (undefined
-      // on flat → all-zero; the flat/disc cull arms ignore it). Without this
-      // write the cull fell back to the pitch-invariant centre-hemisphere model,
-      // which keeps the occluded near-limb band — far-side non-tiled GeoJSON
-      // lines/fills leaked through as backface (뒷면) render on the globe.
-      const ge = globeEyeUniform(frame.eye)
-      new Float32Array(uniformData, S.globe_eye * 4, 4).set([ge[0], ge[1], ge[2], ge[3]])
       const slotOffset = this.allocUniformSlot()
       this.stageUniformSlot(slotOffset, uniformData)
 

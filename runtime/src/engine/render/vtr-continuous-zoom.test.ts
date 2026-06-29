@@ -85,9 +85,6 @@ function makeVtr(lastZoom: number, cameraZoom: number) {
   set('_lightPosition', [1.15, 210, 30])
   set('_lightIntensity', 0.5)
   set('_lightColor', [1, 1, 1])
-  // #600 — the per-tile packer reads globeEye (globe_eye slot). Object.create
-  // skips the class field initializer, so set the off-globe default here.
-  set('globeEye', [0, 0, 0, 0])
   set('lineRenderer', null)
   set('_linePatternActiveForShow', false)
   set('_drawStats', { hasDrawn: () => false, markDrawn: () => {} })

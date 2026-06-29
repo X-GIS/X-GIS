@@ -9,7 +9,7 @@ import { Camera } from '../projection/camera'
 import type { ShowCommand } from './renderer'
 import { variantProducesFill } from './renderer-helpers'
 import { polygonUniformSlots, polygonUniformBytes, polygonUniformStride } from './polygon-uniform-slots'
-import { globeEyeUniform } from './globe-eye-uniform'
+import { writeFrameProjectionUniform } from './frame-projection-uniform'
 import { xlog } from '../log'
 
 // f32 slot indices of the polygon 'Uniforms' struct, sourced from reflect() of the SAME
@@ -336,16 +336,6 @@ export class VectorTileRenderer {
   /** Log-depth factor for the current frame, sampled from camera at the
    *  start of render(). Packed into slot 35 of every tile uniform. */
   private logDepthFc = 0
-  /** #600 globe(7) eye-horizon cull uniform — (normalize(eye).xyz,
-   *  EARTH_R/|eye|), sampled from frame.eye at the start of render() and
-   *  packed into the globe_eye slot of every tile uniform. All-zero off the
-   *  globe (the flat/disc cull arms ignore it). Without this write the polygon
-   *  / line globe cull fell back to the pitch-invariant CENTRE-hemisphere model
-   *  (needs_backface_cull's globe_eye.w==0 arm), which keeps the occluded
-   *  near-limb band (true horizon … 90°) — far-side strokes/fills leaked through
-   *  ("뒷면" render) since the no-depth-write ground surface can't occlude them
-   *  and line topology has no winding cull. Mirrors raster/point/heatmap. */
-  private globeEye: readonly [number, number, number, number] = [0, 0, 0, 0]
 
   // ── Uniform ring (dynamic-offset) ──
   // Shared across all tiles + world copies + layers in a frame. Each draw
@@ -2274,11 +2264,6 @@ export class VectorTileRenderer {
     const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
     const mvp = frame.matrix
     this.logDepthFc = frame.logDepthFc
-    // #600 — cache the globe eye-horizon cull uniform once per frame (copy out
-    // of globeEyeUniform's shared scratch). frame.eye is the absolute sphere-ECEF
-    // camera position on the globe/ECEF branch (undefined on flat → all-zero).
-    const ge = globeEyeUniform(frame.eye)
-    this.globeEye = [ge[0], ge[1], ge[2], ge[3]]
 
     // Cache color parsing — only reparse if show properties changed.
     //
@@ -2436,7 +2421,10 @@ export class VectorTileRenderer {
       uf[US.stroke_color] = this.cachedStrokeColor[0]; uf[US.stroke_color + 1] = this.cachedStrokeColor[1]
       uf[US.stroke_color + 2] = this.cachedStrokeColor[2]; uf[US.stroke_color + 3] = this.cachedStrokeColor[3] * this.currentOpacity
     }
-    uf[US.proj_params] = projType; uf[US.proj_params + 1] = projCenterLon; uf[US.proj_params + 2] = projCenterLat; uf[US.proj_params + 3] = 0
+    // proj_params + globe_eye written TOGETHER (frame-invariant; coupled so the
+    // #600 "projection set, eye forgotten" leak is unrepresentable). frame.eye is
+    // the globe/ECEF camera position (undefined off the globe → globe_eye zero).
+    writeFrameProjectionUniform(uf, projType, projCenterLon, projCenterLat, frame.eye)
 
     // Allocate + write SDF line layer slot for this render() call. All
     // drawSegments() calls below will use this same byte offset.
@@ -3784,16 +3772,9 @@ export class VectorTileRenderer {
       // unpack4x8unorm order: .x = byte 0 (LSB) = r, … so pack r|g<<8|b<<16.
       this.uniformU32[US.light_color_packed] = (lr8 | (lg8 << 8) | (lb8 << 16) | (255 << 24)) >>> 0
 
-      // #600 globe_eye — (normalize(eye).xyz, EARTH_R/|eye|), cached once per
-      // frame in render(). The polygon/line FS hemisphere cull
-      // (needs_backface_cull) reads this on the globe(7) arm; all-zero off the
-      // globe (the flat/disc arms ignore it). Without it the cull fell back to
-      // the pitch-invariant centre-hemisphere model and leaked the occluded
-      // near-limb band (far-side line/fill 뒷면 render).
-      this.uniformF32[US.globe_eye] = this.globeEye[0]
-      this.uniformF32[US.globe_eye + 1] = this.globeEye[1]
-      this.uniformF32[US.globe_eye + 2] = this.globeEye[2]
-      this.uniformF32[US.globe_eye + 3] = this.globeEye[3]
+      // (proj_params + globe_eye are frame-invariant — written once per frame in
+      // render() via writeFrameProjectionUniform, and persist in this.uniformF32
+      // across every per-tile slot stage, exactly like proj_params always has.)
 
       // tile_origin_merc (32-33) + opacity (34) + log_depth_fc (35)
       // — offsets 128..143. log_depth_fc was cached by camera.getRTCMatrix
