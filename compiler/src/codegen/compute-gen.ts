@@ -54,7 +54,7 @@ import {
   fn, module, emitModule, storageBuffer, resource, builtin,
   If, Return, Var, Let, vec4, mix, pack4x8unorm, matchExpr, toI32, toU32, max,
   constExpr, constRef, arrayLit, arrayT,
-  f32T, u32T, vec3uT, vec4uT, vec4fT, type Node, type ConstDecl,
+  f32T, u32T, vec3uT, vec4uT, vec4fT, type Node, type ReadonlyNode, type ConstDecl,
 } from '@xgis/shader-dsl'
 
 /** Workgroup size used by every emitted kernel. 64 is the WebGPU
@@ -304,7 +304,7 @@ export function emitTernaryComputeKernel(spec: TernaryEmitSpec): ComputeKernel {
     // Load every referenced field once (stride/offset addressing); CSE folds
     // repeat reads. Branch predicates reference these loaded Nodes by field
     // name — there is no `v_<field>` string indirection any more.
-    const fieldNodes = new Map<string, Node<'f32'>>()
+    const fieldNodes = new Map<string, ReadonlyNode<'f32'>>()
     spec.fields.forEach((f, i) => {
       const addr = stride === 1 ? fid : fid.mul(stride).add(i)
       fieldNodes.set(f, Let(featData.at(addr)))

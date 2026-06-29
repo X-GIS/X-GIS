@@ -7,7 +7,7 @@
 // family, OPACITY). The SoT helpers declare a layout ONCE and DERIVE the rest, so the
 // pieces cannot disagree and the type checker covers field names + types.
 
-import { Node, structT, bindingRef, construct, member, arrayT, type ShaderType, type StructDecl, type KeyOf, type ScalarKey, type BindingDecl, type AddressSpace } from './ir'
+import { Node, ReadonlyNode, structT, bindingRef, construct, member, arrayT, type ShaderType, type StructDecl, type KeyOf, type ScalarKey, type BindingDecl, type AddressSpace } from './ir'
 
 export interface FieldSpec<T extends ShaderType = ShaderType> {
   readonly type: T
@@ -34,11 +34,11 @@ export interface IoStruct<F extends Record<string, FieldSpec>> {
    *  emitted member Expr is byte-identical. NonNullable strips the `| undefined` a
    *  conditional-field spread (`...(cond ? { pick } : {})`) introduces, so optional
    *  output fields stay `Node`, not `Node | undefined`. */
-  of(node: Node): { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> }
+  of(node: ReadonlyNode): { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> }
   /** Build a value of this struct in ONE expression — `LineOut(f0, f1, …)` — instead of a
    *  mutable `var out; out.f0 = …; return out`. Args are taken in field-declaration order, so a
    *  wrong/missing field is a TS error. Replaces the imperative field-by-field output build. */
-  construct(values: { readonly [K in keyof F]: Node<KeyOf<NonNullable<F[K]>['type']>> }): Node
+  construct(values: { readonly [K in keyof F]: ReadonlyNode<KeyOf<NonNullable<F[K]>['type']>> }): Node
 }
 
 /** Declare an IO struct (vertex/fragment in/out) from one field map; derive the
@@ -51,7 +51,7 @@ export function ioStruct<F extends Record<string, FieldSpec>>(name: string, fiel
   return {
     decl,
     type: structT(name),
-    of(node: Node) {
+    of(node: ReadonlyNode) {
       return new Proxy({} as Record<string, Node>, {
         get: (_t, prop) => {
           const spec = fields[prop as string]
@@ -60,7 +60,7 @@ export function ioStruct<F extends Record<string, FieldSpec>>(name: string, fiel
         },
       }) as { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> }
     },
-    construct(values: Record<string, Node>) {
+    construct(values: Record<string, ReadonlyNode>) {
       return construct(structT(name), decl.fields.map((f) => values[f.name]))
     },
   }
@@ -71,11 +71,11 @@ export interface PlainStruct<F extends Record<string, ShaderType>> {
   readonly type: ShaderType
   /** Typed field access for a value of this struct — e.g. an array<T> storage element
    *  read via `Seg.of(segments.at(i)).p0_h`; replaces `node.field('p0_h', vec2fT)`. */
-  of(node: Node): { readonly [K in keyof F]: Node<KeyOf<F[K]>> }
+  of(node: ReadonlyNode): { readonly [K in keyof F]: Node<KeyOf<F[K]>> }
   /** Positional field access — `Seg.get(node, 'p0_h')` is `node.field('p0_h', <type>)`,
    *  a wrong field name a TS error. Same as `.of(node).p0_h`; kept for call sites that
    *  read many fields off a shared shorthand (`const g = Seg.get`). */
-  get<K extends keyof F & string>(node: Node, field: K): Node<KeyOf<F[K]>>
+  get<K extends keyof F & string>(node: ReadonlyNode, field: K): Node<KeyOf<F[K]>>
 }
 
 /** Declare a plain (non-binding, non-IO) struct — a storage-buffer element type used in
@@ -88,10 +88,10 @@ export function structDecl<F extends Record<string, ShaderType>>(name: string, f
   return {
     decl,
     type,
-    get<K extends keyof F & string>(node: Node, field: K): Node<KeyOf<F[K]>> {
+    get<K extends keyof F & string>(node: ReadonlyNode, field: K): Node<KeyOf<F[K]>> {
       return member(node, field, fields[field])
     },
-    of(node: Node) {
+    of(node: ReadonlyNode) {
       return new Proxy({} as Record<string, Node>, {
         get: (_t, prop) => {
           const t = fields[prop as string]
@@ -156,11 +156,11 @@ export function resource<T extends ShaderType>(name: string, type: T, at: { grou
 export interface StorageBuffer<A> {
   readonly binding: BindingDecl
   readonly node: Node
-  at(i: Node<ScalarKey> | number): A
+  at(i: ReadonlyNode<ScalarKey> | number): A
 }
 
 /** A struct ELEMENT handle (structDecl / ioStruct) — has a `.type` and a typed `.of(node)` proxy. */
-type StructHandle = { readonly type: ShaderType; of(node: Node): object }
+type StructHandle = { readonly type: ShaderType; of(node: ReadonlyNode): object }
 
 /** A storage buffer binding declared from its ELEMENT (a struct handle or a scalar type) in one place;
  *  derives the binding decl (space 'storage' + access), the access node, AND `.at(i)` element access. */

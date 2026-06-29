@@ -172,6 +172,15 @@ There is **no** free `assign(x, v)` function in the authoring surface — `.assi
 method on the target Node. There is **no** compound `addAssign` either: `add` is the pure
 expression, so `x += v` is `x.assign(x.add(v))`.
 
+**Mutating an immutable binding is a compile error.** `.assign` lives only on the **mutable**
+node type (`Node`) returned by `Var()` and by every produced value (literals, ctors, arithmetic,
+accessors — so the plain-`const` auto-var pattern works). `Let()`, a function param, and a module
+const return the read-only supertype `ReadonlyNode`, which has no `.assign` — so `someLet.assign(…)`
+or `param.assign(…)` is rejected by `tsc`, not just at `device.createShaderModule`. Read APIs
+(`length`, `dot`, `mix`, `.of`, an `fn` return, …) accept `ReadonlyNode`, so an immutable binding
+still flows everywhere a value is read. (This is a type-only distinction — emitted WGSL is
+unchanged; it mirrors RxJS `Observable` vs `Subject`.) To mutate, declare with `Var()`.
+
 ### Method ops + contextual literal lift
 
 Arithmetic, comparison, bitwise, swizzle, and index are **methods** on a Node:
