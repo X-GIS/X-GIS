@@ -146,7 +146,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // wiring, not feature surface. Decomposition stays a tracked follow-up.
   // Bumped 4093→4104 (#600): the per-frame globe_eye uniform write + its doc
   // comment + the UNIFORM_SLOT/SIZE 256→512/272 rationale comments.
-  'runtime/src/engine/render/vector-tile-renderer.ts': 4104,
+  // Bumped 4104→4115 (#600 fix): the prior bump documented a globe_eye write that
+  // was never actually committed to VTR — so the vector globe cull fell back to the
+  // centre-hemisphere model and leaked far-side line/fill 뒷면. Restores the missing
+  // write: the globeEye frame field + its doc, the render() cache, the globeEyeUniform
+  // import, and the per-tile globe_eye pack. Decomposition stays a tracked follow-up.
+  'runtime/src/engine/render/vector-tile-renderer.ts': 4115,
   // Bumped 3361→3393 for the destroy()-completeness fix: cancelling the
   // EventDispatcher move-rAF + the pending-flush rAF, clearing _pendingPatches,
   // and removing the run()-installed window globals (__xgisReady/snapshot/
@@ -299,7 +304,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // the factory, mirror of ensureOverdrawCompose).
   // Bumped 931→941 (#600): the non-tiled globe_eye uniform write + its doc
   // comment, the globeEyeUniform import, and the UNIFORM_SLOT/SIZE bump comments.
-  'runtime/src/engine/render/renderer.ts': 941,
+  // Bumped 941→943 (#600 fix): the prior bump documented a globe_eye write missing
+  // from renderToPass + the graticule eye plumbing — restoring them (the write, the
+  // import, the GraticuleFrame.eye pass-through) adds the final 2 lines.
+  'runtime/src/engine/render/renderer.ts': 943,
   // Lowered 776→254: extracted the text-layout family (text-anchor /
   // variable-anchor[-offset] / transform / offset / translate / radial-offset /
   // collision / rotate / letter-spacing / max-width / line-height / justify /
