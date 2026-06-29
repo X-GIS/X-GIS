@@ -25,10 +25,8 @@ import { lonLatToECEF } from '../projection/ecef'
 import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 import { getSampleCount } from '../gpu/gpu'
 import { FrameArena } from '../gpu/frame-arena'
-import { emitHeatmapAccumWgsl } from '../shaders/dsl'
 import { WebGpuDevice, wrapWebGpuPass } from './rhi/rhi-webgpu'
 import { HeatmapDraper } from './material/heatmap-material'
-import { HEATMAP_DENSITY_FORMAT } from '../gpu/gpu-shared'
 import { heatmapUniformSlots, heatmapUniformBytes } from './heatmap-uniform-slots'
 import { writeProjectionCull } from './frame-projection-uniform'
 
@@ -133,7 +131,6 @@ function writeHeatmapFrameUniform(
 
 export class HeatmapRenderer {
   private device: GPUDevice
-  private pipeline: GPURenderPipeline
   private bindGroupLayout: GPUBindGroupLayout
   private uniformBuffer: GPUBuffer
   private uniformData = new Float32Array(heatmapUniformSlots().slots) // reflect-derived (= mvp16+proj4+viewport4+cam_h4+cam_l4+globe_eye4 = 36, #600)
@@ -151,8 +148,6 @@ export class HeatmapRenderer {
     this.device = ctx.device
     const { device } = ctx
 
-    const shaderModule = device.createShaderModule({ code: emitHeatmapAccumWgsl(), label: 'heatmap-accum-shader' })
-
     this.bindGroupLayout = device.createBindGroupLayout({
       label: 'heatmap-accum-bgl',
       entries: [
@@ -160,37 +155,8 @@ export class HeatmapRenderer {
         { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
       ],
     })
-    const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [this.bindGroupLayout] })
-
-    // Per-point quad: center(vec2) + quad_id(u32) + feat_id(f32) = 16 bytes.
-    const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 16,
-      attributes: [
-        { shaderLocation: 0, offset: 0, format: 'float32x2' }, // center
-        { shaderLocation: 1, offset: 8, format: 'uint32' },    // quad_id
-        { shaderLocation: 2, offset: 12, format: 'float32' },  // feat_id
-      ],
-    }
-
-    // Accum target is single-sample r16float; additive blend so overlapping
-    // splats SUM. No depth (density is a 2-D screen-space accumulation).
-    this.pipeline = device.createRenderPipeline({
-      label: 'heatmap-accum-pipeline',
-      layout: pipelineLayout,
-      vertex: { module: shaderModule, entryPoint: 'vs_heatmap', buffers: [vertexBufferLayout] },
-      fragment: {
-        module: shaderModule, entryPoint: 'fs_heatmap',
-        targets: [{
-          format: HEATMAP_DENSITY_FORMAT,
-          blend: {
-            color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
-            alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
-          },
-        }],
-      },
-      primitive: { topology: 'triangle-list', cullMode: 'none' },
-      multisample: { count: 1 },
-    })
+    // The accum draw goes through the RHI Material seam (HeatmapDraper, which owns the
+    // additive r16float single-sample pipeline); the shared bind-group layout feeds it.
 
     this.uniformBuffer = device.createBuffer({
       size: heatmapUniformBytes(), // reflect-derived (was 144 = 36 f32 × 4, #600 globe_eye)
@@ -427,23 +393,15 @@ export class HeatmapRenderer {
     this.device.queue.writeBuffer(layer._idxBuf!, 0, indices)
     this.device.queue.writeBuffer(layer._featBuf!, 0, featData)
 
-    if ((globalThis as { __xgisHeatmapViaRhi?: boolean }).__xgisHeatmapViaRhi === true) {
-      this.ensureHeatmapDraper()
-      if (!this._heatRhiLogged) { this._heatRhiLogged = true; console.warn(`[HEATRHI] accum draw via RHI seam (idx=${N * 6})`) }
-      this._heatmapDraper!.draw(wrapWebGpuPass(pass), {
-        bindGroup: layer._bindGroup!, vertBuf: layer._vertBuf!, idxBuf: layer._idxBuf!, indexCount: N * 6,
-      })
-    } else {
-      pass.setPipeline(this.pipeline)
-      pass.setBindGroup(0, layer._bindGroup!)
-      pass.setVertexBuffer(0, layer._vertBuf!)
-      pass.setIndexBuffer(layer._idxBuf!, 'uint32')
-      pass.drawIndexed(N * 6)
-    }
+    // The accum draw goes through the RHI Material seam (P1: the sole path). The accum
+    // target is r16float — WebGL2 fail-closes on it, so this is WebGPU-only by construction.
+    this.ensureHeatmapDraper()
+    this._heatmapDraper!.draw(wrapWebGpuPass(pass), {
+      bindGroup: layer._bindGroup!, vertBuf: layer._vertBuf!, idxBuf: layer._idxBuf!, indexCount: N * 6,
+    })
   }
 
   private _heatmapDraper?: HeatmapDraper
-  private _heatRhiLogged = false
   private ensureHeatmapDraper(): void {
     if (this._heatmapDraper) return
     this._heatmapDraper = new HeatmapDraper(new WebGpuDevice(this.device), this.bindGroupLayout)
