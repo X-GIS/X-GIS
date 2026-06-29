@@ -36,13 +36,14 @@ const FILES = [
   'raster-renderer.ts',
   'line-renderer.ts',
   'line-pattern.ts',
+  'line-uniform-slots.ts',
 ]
 
 // Projection-gated reflect helpers (named) + the raw `reflect(build*Module)`
 // primitive they wrap. ALL of these emit the projection fns → throw until
 // configureProjections() runs. Add a new helper name here when one is created.
 const CALLS_REFLECT =
-  /\b(polygonUniform(Bytes|Slots|Stride)|pointUniformSlots|heatmapUniform(Slots|Bytes)|rasterUniform(Slots|Bytes|Stride)|lineLayer(Slots|Bytes))\s*\(|reflect\s*\(\s*build(Polygon|Point|Line|Raster|Heatmap)\w*Module/
+  /\b(polygonUniform(Bytes|Slots|Stride)|pointUniform(Slots|Bytes)|heatmapUniform(Slots|Bytes)|rasterUniform(Slots|Bytes|Stride)|lineLayerUniform(Slots|Bytes|Stride))\s*\(|reflect\s*\(\s*build(Polygon|Point|Line|Raster|Heatmap)\w*Module/
 
 /** A line is EAGER if it calls a reflect helper AND it is a module-level `const`
  *  binding or a `static` class-field initializer (both evaluate at import /

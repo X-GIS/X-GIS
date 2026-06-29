@@ -319,6 +319,40 @@ describe('emitPolygonWgsl — skeleton', () => {
     expect(wgsl).toContain('  ' + rawChain + '\n  out.color = _mcSS;')
   })
 
+  it('a matchExpr fillExpr lowers to a switch through the composer (Phase C)', () => {
+    // The compiler now emits match() colours as a `matchExpr` Node directly
+    // inside fillExpr (no separate WGSL-string preamble). emitModule's
+    // lowerModule pass must hoist it into a `var + switch` ahead of the assign
+    // — pickEnabled / preamble untouched. Mimics the compiler's output:
+    // vec4(match.rgb, match.a * OPACITY) with the match arms baked in.
+    const match = matchExpr(
+      new Node<'i32'>({ op: 'call', type: f32T, fn: 'i32', args: [
+        new Node<'f32'>({ op: 'index', type: f32T,
+          base: new Node({ op: 'varref', type: { kind: 'array', elem: f32T }, name: 'feat_data' }).expr,
+          idx: new Node<'u32'>({ op: 'member', type: { kind: 'scalar', scalar: 'u32' },
+            base: new Node({ op: 'varref', type: vec4fT, name: 'input' }).expr, field: 'feat_id' }).expr,
+        }).expr,
+      ] }) as unknown as Node<'i32'>,
+      [[0, vec4(f32(1), f32(0), f32(0), f32(1))], [1, vec4(f32(0), f32(1), f32(0), f32(1))]],
+      vec4(f32(0.5), f32(0.5), f32(0.5), f32(1)),
+    )
+    const variant: import('./polygon').ShaderVariantInfo = {
+      preamble: null,
+      fillExpr: match,
+      strokeExpr: null,
+      fillPreamble: null,
+      strokePreamble: null,
+      needsFeatureBuffer: true,
+    }
+    const wgsl = emitPolygonWgsl(variant, false)
+    // The matchExpr lowered to a switch (no raw `matchExpr` token leaks).
+    expect(wgsl).toContain('switch')
+    expect(wgsl).not.toContain('matchExpr')
+    // Both case colours + the default are present in the lowered body.
+    expect(wgsl).toContain('vec4<f32>(1.0, 0.0, 0.0, 1.0)')
+    expect(wgsl).toContain('vec4<f32>(0.5, 0.5, 0.5, 1.0)')
+  })
+
   it('variant.needsFeatureBuffer appends the feat_data @group(1) @binding(0) storage binding', () => {
     const wgslOff = emitPolygonWgsl(null, false)
     expect(wgslOff).not.toContain('feat_data')

@@ -52,11 +52,11 @@ interface NavGroup {
   items: NavItem[]
 }
 
-// Diátaxis layout: Get started → Guides → Reference → Concepts → API.
+// Diátaxis layout: Get started → Guides → Reference → Concepts.
 // Tutorials (quickstart) come first because they're learning-oriented;
 // Guides (cookbook, mapbox migration) are goal-oriented; Reference is
-// the dry information sink; Concepts explain the WHY; API is the JS-
-// surface for embedding.
+// the dry information sink (the language reference, sources/functions/
+// expressions/utilities, glossary, and the JS API); Concepts explain the WHY.
 const navGroups: NavGroup[] = [
   {
     items: [
@@ -78,19 +78,18 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
-    title: 'Language',
+    // Reference = the dry information sink. Folds in the former single-item
+    // "Reference" (Glossary) and "API" groups, and the language-reference page
+    // is labelled "Language reference" to disambiguate it from the section.
+    title: 'Reference',
     items: [
-      { label: 'Reference',          slug: 'reference',   href: `${base}/docs/reference` },
+      { label: 'Language reference', slug: 'reference',   href: `${base}/docs/reference` },
       { label: 'Sources',            slug: 'sources',     href: `${base}/docs/sources` },
       { label: 'Functions',          slug: 'functions',   href: `${base}/docs/functions` },
       { label: 'Expressions',        slug: 'expressions', href: `${base}/docs/expressions` },
       { label: 'Utility catalog',    slug: 'utilities',   href: `${base}/docs/utilities` },
-    ],
-  },
-  {
-    title: 'Reference',
-    items: [
       { label: 'Glossary',           slug: 'glossary',    href: `${base}/docs/glossary` },
+      { label: 'JavaScript API',     slug: 'api',         href: `${base}/docs/api` },
     ],
   },
   {
@@ -103,12 +102,6 @@ const navGroups: NavGroup[] = [
       { label: 'Compute paint',          slug: 'concepts/compute',     href: `${base}/docs/concepts/compute` },
     ],
   },
-  {
-    title: 'API',
-    items: [
-      { label: 'JavaScript API',  slug: 'api', href: `${base}/docs/api` },
-    ],
-  },
 ]
 ---
 
@@ -117,7 +110,7 @@ const navGroups: NavGroup[] = [
   <Header />
 
   <main class="pt-20 pb-32">
-    <div class={`max-w-[1120px] mx-auto px-6 grid gap-x-12 ${headings.length > 0 ? 'lg:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)_200px]' : 'lg:grid-cols-[220px_minmax(0,1fr)]'}`}>
+    <div class={`max-w-[1280px] mx-auto px-6 grid gap-x-12 ${headings.length > 0 ? 'lg:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)_200px]' : 'lg:grid-cols-[220px_minmax(0,1fr)]'}`}>
 
       <!-- Side-nav (desktop). On mobile this collapses to a horizontal
            scroll-strip just below the header so the user can still

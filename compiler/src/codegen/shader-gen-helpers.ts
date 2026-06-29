@@ -130,8 +130,3 @@ function exprToCssArg(node: import('../parser/ast').Expr): string | null {
   // up the chain. Out of scope here.
   return null
 }
-
-export function fmt(n: number): string {
-  const s = n.toFixed(6).replace(/0+$/, '').replace(/\.$/, '.0')
-  return s
-}

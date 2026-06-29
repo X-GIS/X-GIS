@@ -16,34 +16,47 @@ on:
       - 'docs/**'
       - 'LICENSE'
       - '.gitignore'
-  push:
-    branches: [main]
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
-      - 'LICENSE'
-      - '.gitignore'
+  # NOTE: no `push: main` trigger. Every change reaches main through a PR,
+  # which already ran this whole workflow — re-running it on the post-merge
+  # push just duplicated the full matrix for no gating benefit (main has no
+  # required checks, and deploy-pages.yml runs independently of this one).
+  # `workflow_dispatch` keeps a manual on-demand run available for main if
+  # ever needed. If direct pushes to main (bypassing PRs) become a thing and
+  # need CI, add the `push: branches: [main]` trigger back.
+  workflow_dispatch:
 
 # Cancel a PR's older in-flight run when a new commit is pushed to the same
 # ref — iterative pushes used to leave 3-5min runs burning in parallel.
-# Keyed on github.ref, so each PR branch (and main) cancels only its OWN
-# older run; PRs don't cancel each other. Keys on the whole workflow run, so
-# it covers all 5 `test` matrix legs + render-gate as one cancellable unit.
+# Keyed on github.ref, so each PR branch cancels only its OWN older run;
+# PRs don't cancel each other. Keys on the whole workflow run, so it covers
+# all 5 `test` matrix legs + render-gate as one cancellable unit.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # Cheap filter job: decides whether render-affecting code changed. Output
-  # `render` drives the render-gate skip below. This job is sub-5s (no bun,
-  # no build) and the paths cover every input the shader/projection gate
-  # exercises: emitted WGSL + projection math (compiler/runtime/shared), the
-  # playground specs/harness the gate runs, the lockfiles, and the workflow
-  # file itself (so edits to the gate always re-run it).
+  # Cheap filter job (sub-5s, no bun/build) that decides which downstream jobs
+  # have anything to do, so a change that only touches one area doesn't fan out
+  # the whole matrix. Three outputs:
+  #   render — shader/projection gate inputs (emitted WGSL + projection math +
+  #            the playground harness). Drives the render-gate skip.
+  #   code   — anything the engine/compiler/runtime vitest matrix + typecheck
+  #            exercise. When FALSE (e.g. a site-only PR) those jobs `if`-skip
+  #            every step and still post green. Note: `site/**` is deliberately
+  #            NOT in `code` — the site has no vitest here, so editing it must
+  #            not spin up the 7 engine legs.
+  #   site   — the marketing/docs site sources. Drives the lightweight `site`
+  #            build job below. A runtime/compiler change is NOT in `site`
+  #            because `code`'s `bun run build` already builds the site, so the
+  #            site job only needs to fire for site-only PRs.
+  # The workflow file + lockfiles are in all three so editing the gate (or deps)
+  # always re-runs everything.
   changes:
     runs-on: ubuntu-latest
     outputs:
       render: ${{ steps.filter.outputs.render }}
+      code: ${{ steps.filter.outputs.code }}
+      site: ${{ steps.filter.outputs.site }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -61,8 +74,34 @@ jobs:
               - 'package.json'
               - '**/package.json'
               - '.github/workflows/test.yml'
+            code:
+              - 'compiler/**'
+              - 'runtime/**'
+              - 'shared/**'
+              - 'blueprint/**'
+              - 'shader-dsl/**'
+              - 'playground/**'
+              - 'bun.lock'
+              - 'bun.lockb'
+              - 'package.json'
+              - '**/package.json'
+              - 'tsconfig*.json'
+              - 'vitest.config.ts'
+              - '.github/workflows/test.yml'
+            site:
+              - 'site/**'
+              - 'bun.lock'
+              - 'bun.lockb'
+              - 'package.json'
+              - '.github/workflows/test.yml'
 
   test:
+    needs: changes
+    # Skip the entire engine/compiler/runtime vitest matrix when no `code`
+    # changed (e.g. a site-only PR) — these legs exercise nothing the site
+    # touches. Skipped legs report `skipped`, which the required `test-result`
+    # aggregator below treats as a pass (so the PR is never stranded).
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     # PARALLELIZE the unit suite. The 5 vitest path-filter sets used to run
     # SERIALLY on one runner (~149s of vitest on top of the ~28s build,
@@ -187,6 +226,9 @@ jobs:
   # types); then an explicit `--noEmit` over runtime (vite skips it).
   typecheck:
     name: typecheck
+    needs: changes
+    # Same gate as `test`: the runtime tsc pass is irrelevant to a site-only PR.
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -202,6 +244,32 @@ jobs:
       - run: bun run build
       - run: ./node_modules/.bin/tsc -p runtime/tsconfig.json --noEmit
 
+  # Site build gate. The engine `test` matrix used to be the only thing that
+  # built the site (as a side effect of `bun run build`), so gating that matrix
+  # off for site-only PRs would have left the site UNvalidated on exactly the
+  # PRs that change it. This dedicated job builds the site when `site` files
+  # change — one runner instead of the 7 engine legs. `bun run build` builds
+  # every workspace (incl. `astro build` for the site), catching site build
+  # breaks; the astro.config aliases @xgis/* to source, so no publish step is
+  # needed. Skipped (→ pass via test-result) when no site files changed.
+  site:
+    name: site
+    needs: changes
+    if: needs.changes.outputs.site == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/bun.lockb') }}
+          restore-keys: bun-${{ runner.os }}-
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+
   # Single stable status context that aggregates the matrix + typecheck. Branch
   # protection (if ever enabled) should require `test-result`, NOT the per-leg
   # `test (...)` names — this name is immune to leg-count changes.
@@ -209,11 +277,20 @@ jobs:
   # leg (or the typecheck) failed.
   test-result:
     name: test-result
-    needs: [test, typecheck]
+    needs: [test, typecheck, site]
     if: always()
     runs-on: ubuntu-latest
+    # Each upstream job is either `success` (ran and passed) or `skipped` (its
+    # `changes` filter didn't fire — a path-irrelevant PR). Both are a pass;
+    # anything else (failure/cancelled) fails this single stable context.
     steps:
-      - run: '[ "${{ needs.test.result }}" = "success" ] && [ "${{ needs.typecheck.result }}" = "success" ] || exit 1'
+      - run: |
+          for r in "${{ needs.test.result }}" "${{ needs.typecheck.result }}" "${{ needs.site.result }}"; do
+            case "$r" in
+              success|skipped) ;;
+              *) echo "upstream job result: $r"; exit 1 ;;
+            esac
+          done
 
   # Render-behavior gate: the unit suite above NEVER executes a shader
   # (deep-dive 2026-05-25 finding #1). This job runs the SHADER-MATH gate

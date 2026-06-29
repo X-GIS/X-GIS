@@ -17,11 +17,11 @@
 import { describe, it, expect } from 'vitest'
 import { variantProducesFill } from './renderer-helpers'
 import type { ShaderVariant } from '@xgis/compiler'
-import { wgslRaw } from '@xgis/compiler'
+import { varRefVec4 } from '@xgis/compiler'
 
 function v(opts: Partial<ShaderVariant>): ShaderVariant {
   return {
-    key: 'k', preamble: {}, fillExpr: wgslRaw('u.fill_color'), strokeExpr: wgslRaw('u.stroke_color'),
+    key: 'k', preamble: {}, fillExpr: varRefVec4('u.fill_color'), strokeExpr: varRefVec4('u.stroke_color'),
     needsFeatureBuffer: false, featureFields: [], uniformFields: [],
     categoryOrder: {}, paletteColorGradients: [], paletteScalarGradients: [],
     fillUsesPalette: false, strokeUsesPalette: false, opacityUsesPalette: false,
@@ -50,7 +50,7 @@ describe('polygon skip-fill-draw — sentinel flag (US-002)', () => {
   })
 
   it('non-default variant (data-driven match) + zero alpha → DRAW (variant produces the colour)', () => {
-    const dd = v({ fillIsDefault: false, fillExpr: wgslRaw('_mcL1') })
+    const dd = v({ fillIsDefault: false, fillExpr: varRefVec4('_mcL1') })
     expect(variantProducesFill(dd)).toBe(true)
     expect(skipFillDraw(dd, 0)).toBe(false)
   })
@@ -61,7 +61,7 @@ describe('polygon skip-fill-draw — sentinel flag (US-002)', () => {
   })
 
   it('non-default variant + non-zero alpha → DRAW (variant + uniform both contribute)', () => {
-    const dd = v({ fillIsDefault: false, fillExpr: wgslRaw('textureSampleLevel(...)') })
+    const dd = v({ fillIsDefault: false, fillExpr: varRefVec4('textureSampleLevel(...)') })
     expect(skipFillDraw(dd, 1)).toBe(false)
   })
 

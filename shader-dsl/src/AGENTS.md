@@ -94,7 +94,7 @@ The public barrel `index.ts` re-exports ONLY: `projections`, `cpu-projections`, 
 - **SoT layout declarations**: declare an IO/uniform/storage layout ONCE via `core/sot.ts` (`ioStruct`/`uniformStruct`/`structDecl`/`resource`/`storageBuffer`) and derive the StructDecl + binding + typed field access (replaces the old `schema.ts` `struct()`).
 - **`ConstDecl` dual-value**: every constant needing CPU/GPU fidelity uses `{ wgslValue: <truncated>, cpuValue: <Math.*> }`.
 - **Projection dispatch from table**: `PROJECTIONS` in `projection/projections-table.ts` is the single source of truth; do not add a projection without a table entry.
-- **Placeholder + composer**: `polygon.ts` lays down `b.placeholder('fill-return')`; `emitPolygonWgsl` clones the module and swaps each tagged placeholder before `emitModule`.
+- **Placeholder + composer**: `polygon.ts` lays down `b.placeholder('fill-return')`; the first-class `composeModule(base, swaps)` pass (`core/passes/compose.ts`) swaps each tagged placeholder before `emitModule`, descending into nested bodies. STRICT by default — an un-swapped placeholder or a typo'd swap key throws (pass `{ allowUnswapped: true }` for deliberate bare survival). Replaced the former hand-rolled per-shader `swapPlaceholders` walk.
 
 ## Dependencies
 

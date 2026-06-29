@@ -380,6 +380,46 @@ export function matchExpr<S extends ScalarKey, R extends string>(
   })
 }
 
+// ── Exhaustive integer dispatch (enumU32 + matchEnum) ──
+
+/** A typed u32 "enum" — a name→value map whose members are `Node<'u32'>` literals, plus the raw
+ *  value map. Pair with `matchEnum` for EXHAUSTIVE integer dispatch: the arms object must cover
+ *  every member (a missing or unknown key is a `tsc` error), so a forgotten case is caught at
+ *  compile time instead of silently falling through the WGSL `switch` default. */
+export interface EnumU32<M extends Record<string, number>> {
+  /** Typed member literals — `Kind.members.Fill` is a `Node<'u32'>` of that member's value. */
+  readonly members: { readonly [K in keyof M]: Node<'u32'> }
+  /** The raw name→value map (the integer case labels `matchEnum` dispatches on). */
+  readonly values: M
+}
+
+/** Declare a u32 enum from a name→value map — `const Kind = enumU32({ Line: 0, Fill: 1, Stroke: 2 })`.
+ *  The `const` type parameter preserves the literal keys, so `matchEnum` can require one arm per
+ *  member. Values are the integer case labels emitted in the switch. */
+export function enumU32<const M extends Record<string, number>>(values: M): EnumU32<M> {
+  const members = {} as { [K in keyof M]: Node<'u32'> }
+  for (const k of Object.keys(values) as (keyof M)[]) members[k] = u32(values[k])
+  return { members, values }
+}
+
+/** Exhaustive integer dispatch over an `enumU32` — `matchEnum(kind, Kind, { Line: () => …, Fill: () => …, … })`.
+ *  EVERY member must have an arm: omit one and `tsc` errors (the arms type is a mapped type over the
+ *  enum's keys), so adding an enum member immediately surfaces every un-handled dispatch site. Lowers to
+ *  the SAME `matchExpr` the hand-written form emits — the last-declared member becomes the switch
+ *  `default`, so the emitted WGSL is a standard exhaustive switch (byte-identical to the manual form).
+ *  Arms are zero-arg thunks; their values are built in declared order. */
+export function matchEnum<M extends Record<string, number>, R extends string>(
+  scrutinee: Node<ScalarKey>,
+  e: EnumU32<M>,
+  arms: { readonly [K in keyof M]: () => Node<R> },
+): Node<R> {
+  const keys = Object.keys(e.values) as (keyof M & string)[]
+  if (keys.length === 0) throw new Error('shader-dsl: matchEnum needs at least one member')
+  const last = keys[keys.length - 1]!
+  const cases = keys.slice(0, -1).map((k) => [e.values[k], arms[k]()] as const)
+  return matchExpr(scrutinee, cases, arms[last]())
+}
+
 // Casts
 export const toF32 = (x: ReadonlyNode<string> | number): Node<'f32'> => call('f32', f32T, x) as Node<'f32'>
 export const toI32 = (x: ReadonlyNode<string> | number): Node<'i32'> => call('i32', i32T, x) as Node<'i32'>

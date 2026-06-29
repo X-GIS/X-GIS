@@ -8,9 +8,9 @@
 // Static container (no animation) → reduced-motion + no-JS safe.
 //
 // width:
-//   "standard" (default) — 960px marketing content
+//   "standard" (default) — 1200px marketing content
 //   "prose"              — 680px reading measure (docs / long-form)
-//   "wide"               — 1120px full-width grids / galleries
+//   "wide"               — 1280px full-width grids / galleries
 //
 // Usage:
 //   <ContentBand id="why">…</ContentBand>
@@ -29,9 +29,9 @@ interface Props {
 const { id, width = 'standard', class: className = '' } = Astro.props
 
 const maxW = {
-  standard: 'max-w-[960px]',
+  standard: 'max-w-[1200px]',
   prose: 'max-w-[680px]',
-  wide: 'max-w-[1120px]',
+  wide: 'max-w-[1280px]',
 }[width]
 ---
 

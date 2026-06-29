@@ -32,25 +32,12 @@ export interface ShaderVariant {
   preamble: PreambleModule
   /** Fill-color expression as a DSL Node, or `null` for the default-
    *  uniform placeholder (`fillIsDefault: true` is the typed sentinel).
-   *  The compiler-side emit sites currently wrap pre-built WGSL strings
-   *  via `wgslRaw(...)` so the type can shift without disrupting
-   *  per-idiom emit; US-005 rewrites each call site to construct real
-   *  Node values via the IR builders. Runtime extracts the WGSL string
-   *  via `nodeToWgslString(variant.fillExpr)` at the marker
-   *  substitution site until US-008's polygon DSL composer accepts
-   *  Node directly. */
+   *  Authored entirely via the IR builders (no WGSL strings); the runtime
+   *  reconstructs it with `new Node(fillExpr.expr)` and the polygon composer
+   *  emits it at the fill-return marker. */
   fillExpr: NodeLike<'vec4<f32>'> | null
   /** Stroke-color expression — same migration shape as `fillExpr`. */
   strokeExpr: NodeLike<'vec4<f32>'> | null
-  /** WGSL code injected before fill return (match if-else chains) */
-  fillPreamble?: string
-  /** WGSL code injected before stroke return — analogous to
-   *  `fillPreamble` for the stroke entry point. Without this, a
-   *  `match()` expression on stroke colour produces an `_mcSS = ...`
-   *  if-else chain whose VAR DECLARATION is dropped on the floor
-   *  while the `expr` still references the var name → "unresolved
-   *  identifier _mc83" at WGSL compile time. */
-  strokePreamble?: string
   /** Whether a storage buffer is needed for per-feature data */
   needsFeatureBuffer: boolean
   /** Fields needed from feature data (for storage buffer layout) */
@@ -129,21 +116,27 @@ export interface ColorResult {
    *  or CAT_PALETTE). Empty for paths that inline / reference a uniform. */
   preamble: ConstDecl[]
   isConst: boolean
-  /** Phase 2.5 US-005 — set by arms that have migrated to DSL Node
-   *  construction. When present, the shader-gen top-level uses this
-   *  via composeFillVec4(nodeExpr, opacity.nodeExpr) instead of the
-   *  legacy string-emit + wgslRaw path. Each per-idiom commit lands
-   *  this for one more arm; once every arm sets it, the legacy
-   *  `expr: string` field can be removed. */
+  /** The colour as a vec4 DSL Node — set by every vec4 colour arm (constant,
+   *  categorical, gradient, scale, match, palette, uniform). The top level
+   *  composes it with opacity via `composeFillVec4(nodeExpr, opacity.nodeExpr)`.
+   *  Mutually exclusive with `scalarNodeExpr` (the greyscale scalar path). */
   nodeExpr?: NodeLike<'vec4<f32>'>
+  /** Set by the scalar data-driven (grayscale) arm — the f32 value Node.
+   *  Composed into `vec4(s, s, s, opacity)` at the top level (the colour is
+   *  greyscale: the scalar drives r=g=b and opacity drives alpha), so it can't
+   *  go through `composeFillVec4`'s `.rgb`/`.a` path like a vec4 colour. */
+  scalarNodeExpr?: NodeLike<'f32'>
   /** Index into `palette.colorGradients` when this result was routed
    *  through the textureSampleLevel path. Undefined for every legacy
    *  path (constant, time-interpolated, data-driven, conditional). */
   paletteGradientIdx?: number
   needsFeatures: boolean
-  isVec4: boolean  // true if expr already returns vec4f (categorical/gradient)
-  expr: string // WGSL expression for the color
-  matchPreamble?: string // if-else chain for match() — injected before return in fragment
+  /** Set only by the `match()` arm — the matchExpr Node (identical to
+   *  `nodeExpr`). The variant cache key hashes its structural JSON via
+   *  `matchArmsKey` so two compounds over the same field with different
+   *  value→colour mappings hash to distinct pipelines. Undefined for every
+   *  non-match path, keeping their cache-key bytes unchanged. */
+  matchNode?: NodeLike<'vec4<f32>'>
   /** field → ordered list of patterns the if-else chain expects. The
    *  runtime uses this to assign matching integer IDs into the per-
    *  feature data buffer. Without this, IDs would be derived from
@@ -158,7 +151,6 @@ export interface OpacityResult {
   preamble: ConstDecl[]
   needsUniform: boolean
   needsFeatures: boolean
-  expr: string
   /** Phase 2.5 US-005 — set by arms that have migrated to DSL Node
    *  construction. Mirrors ColorResult.nodeExpr — see that doc. */
   nodeExpr?: NodeLike<'f32'>

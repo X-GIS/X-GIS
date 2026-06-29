@@ -4,33 +4,29 @@
 
 import type { RenderNode, ColorValue, OpacityValue } from '../ir/render-node'
 import { rgbaToHex } from '../ir/render-node'
-import { exprToWGSL, astToNode, collectFields, type WGSLFnEnv } from './wgsl-expr'
+import { astToNode, collectFields, type WGSLFnEnv } from './wgsl-expr'
 import { buildCatPaletteConst } from './categorical-encoder'
 import type { Palette } from './palette'
 import {
-  emitColorGradientSample,
   emitColorGradientSampleNode,
-  emitScalarGradientSample,
   emitScalarGradientSampleNode,
   buildScalarSampleFunc,
   buildPaletteBindingDecls,
   type ScalarPaletteMode,
 } from './palette-emit'
 import type { ShaderVariant, ColorResult, OpacityResult, PreambleModule } from './shader-gen-types'
-import { wgslRaw } from './node-types'
 import type { NodeLike } from './node-types'
 import type { ConstDecl, BindingDecl, FuncDecl, Expr } from '@xgis/shader-dsl'
 import { vec4fT, f32T } from '@xgis/shader-dsl'
 import {
-  composeFillVec4, constRefVec4, refF32,
-  toU32, u32Lit, u32Mod, arrayIndex, featDataField,
-  mix4, clampF32, f32Sub, f32Div, f32Lit, vec4fFromRgba,
+  composeFillVec4, constRefVec4, varRefVec4, refF32,
+  toU32, toI32, u32Lit, u32Mod, arrayIndex,
+  mix4, clampF32, f32Sub, f32Div, f32Lit, vec4f, vec4fFromRgba, matchVec4,
 } from './_util/node-builders'
 import {
   buildFieldMap,
   matchArmsKey,
   resolveColorFromAST,
-  fmt,
 } from './shader-gen-helpers'
 
 export type { ShaderVariant } from './shader-gen-types'
@@ -103,59 +99,30 @@ export function generateShaderVariant(
   }
 
   // ── Build final expressions ──
-  // When the layer has no fill at all (`kind: 'none'`), emit the default
-  // `u.fill_color` placeholder rather than `vec4f(FILL_COLOR.rgb, ...)`
-  // with the all-zero const. The runtime treats `fillExpr === 'u.fill_color'`
-  // as "use the cached uniform color" and combines that with the
-  // `cachedFillColor[3] <= 0.005` check to skip the entire fill draw —
-  // which is the right behavior for stroke-only layers (no fill draw
-  // means no pick attachment write either, so picks fall through to
-  // whatever drew underneath).
-  // Phase 2.5 US-004 — fillExpr / strokeExpr are now Node-typed
-  // (NodeLike<'vec4<f32>'> | null). The default-uniform shortcut
-  // becomes a literal `null` paired with `fillIsDefault: true` below;
-  // the runtime checks the flag, NOT the field's contents.
-  //
-  // US-005 idiom #1 (constant-fill + constant-opacity) — when the
-  // fillResult is the FILL_COLOR const path AND opacityResult is the
-  // OPACITY const path, build fillExpr via real DSL Node composition
-  // (composeFillVec4(constRefVec4('FILL_COLOR'), refF32('OPACITY'))).
-  // Every other arm stays on the legacy wgslRaw() string path until
-  // US-005's per-idiom commits land them too. Both paths produce
-  // semantic-equivalent WGSL at the marker substitution site;
-  // pixel-survey is the integration gate.
-  const fillExprStr = node.fill.kind === 'none' ? 'u.fill_color' : buildFillExpr(fillResult, opacityResult)
-  const strokeExprStr = buildStrokeExpr(strokeResult, opacityResult)
-  // US-005 dispatch order: prefer the per-idiom arm's `nodeExpr`
-  // (lands one bucket at a time), then the generic varref-pair
-  // pattern, finally fall back to wgslRaw(legacy string). Each
-  // ColorResult / OpacityResult arm that migrates sets `.nodeExpr`
-  // and the legacy string path quietly retreats.
-  const fillExprNode = fillResult.nodeExpr && opacityResult.nodeExpr
-    ? composeFillVec4(fillResult.nodeExpr, opacityResult.nodeExpr)
-    : tryComposeFillNodeFromVarrefs(fillResult, opacityResult)
-  const strokeExprNode = strokeResult.nodeExpr && opacityResult.nodeExpr
-    ? composeFillVec4(strokeResult.nodeExpr, opacityResult.nodeExpr)
-    : tryComposeFillNodeFromVarrefs(strokeResult, opacityResult)
+  // Single-emit: every colour / opacity arm produces a real DSL Node, so fill /
+  // stroke compose to a Node directly. A `kind: 'none'` fill stays the default-
+  // uniform sentinel — a literal `null` paired with `fillIsDefault: true` below;
+  // the runtime checks that flag (NOT the field's contents) and combines it with
+  // the `cachedFillColor[3] <= 0.005` test to skip the entire fill draw, the
+  // right behaviour for stroke-only layers (no fill draw → no pick write, so
+  // picks fall through to whatever drew underneath).
+  const fillExprNode = composeColorOpacityNode(fillResult, opacityResult)
+  const strokeExprNode = composeColorOpacityNode(strokeResult, opacityResult)
   const fillExpr: NodeLike<'vec4<f32>'> | null =
-    node.fill.kind === 'none' ? null
-      : (fillExprNode ?? wgslRaw<'vec4<f32>'>(fillExprStr))
-  const strokeExpr: NodeLike<'vec4<f32>'> | null =
-    strokeExprStr === 'u.stroke_color' ? null
-      : (strokeExprNode ?? wgslRaw<'vec4<f32>'>(strokeExprStr))
+    node.fill.kind === 'none' ? null : fillExprNode
+  const strokeExpr: NodeLike<'vec4<f32>'> | null = strokeExprNode
 
   // ── Cache key ──
   const featureFields = [...allFeatureFields].sort()
   const key = buildKey(node, fillResult, strokeResult, opacityResult, featureFields)
     // Match-arms hash: two compound layers (same field, different
     // value→colour mappings) produce IDENTICAL `f:feat|ff:kind`
-    // keys but DIFFERENT shader bodies — the if-else chain in
-    // matchPreamble differs. Without this, the variant cache
-    // returns the FIRST compiled compound's pipeline for the
-    // SECOND compound's draws → roads end up rendered with
-    // landuse colours (or vice versa). Including a hash of the
-    // injected match preambles disambiguates them.
-    + matchArmsKey(fillResult.matchPreamble, strokeResult.matchPreamble)
+    // keys but DIFFERENT shader bodies — the matchExpr cases differ.
+    // Without this, the variant cache returns the FIRST compiled
+    // compound's pipeline for the SECOND compound's draws → roads end
+    // up rendered with landuse colours (or vice versa). Hashing the
+    // match Node's structural JSON disambiguates them.
+    + matchArmsKey(fillResult.matchNode, strokeResult.matchNode)
 
   // Aggregate categoryOrder from fill + stroke results. Both code
   // paths sort patterns alphabetically, so a field used by BOTH fill
@@ -184,8 +151,6 @@ export function generateShaderVariant(
     preamble,
     fillExpr,
     strokeExpr,
-    fillPreamble: fillResult.matchPreamble,
-    strokePreamble: strokeResult.matchPreamble,
     needsFeatureBuffer,
     featureFields,
     uniformFields,
@@ -217,8 +182,7 @@ function processColorValue(
   if (value.kind === 'none') {
     return {
       preamble: [vec4ConstDecl(`${prefix}_COLOR`, [0, 0, 0, 0])],
-      isConst: true, needsFeatures: false, isVec4: true,
-      expr: `${prefix}_COLOR`,
+      isConst: true, needsFeatures: false,
       nodeExpr: constRefVec4(`${prefix}_COLOR`),
     }
   }
@@ -226,8 +190,7 @@ function processColorValue(
   if (value.kind === 'constant') {
     return {
       preamble: [vec4ConstDecl(`${prefix}_COLOR`, value.rgba)],
-      isConst: true, needsFeatures: false, isVec4: true,
-      expr: `${prefix}_COLOR`,
+      isConst: true, needsFeatures: false,
       nodeExpr: constRefVec4(`${prefix}_COLOR`),
     }
   }
@@ -240,8 +203,8 @@ function processColorValue(
     const uniformName = prefix === 'FILL' ? 'u.fill_color' : 'u.stroke_color'
     return {
       preamble: [],
-      isConst: false, needsFeatures: false, isVec4: true,
-      expr: uniformName,
+      isConst: false, needsFeatures: false,
+      nodeExpr: varRefVec4(uniformName),
     }
   }
 
@@ -254,73 +217,61 @@ function processColorValue(
     // ── categorical(field) → auto palette ──
     if (ast.kind === 'FnCall' && ast.callee.kind === 'Identifier' && ast.callee.name === 'categorical') {
       const fieldExpr = ast.args[0]
-      const wgsl = exprToWGSL(fieldExpr, fieldMap, fnEnv)
-      // Phase 2.5 US-005 idiom #3 (categorical) — when the field
-      // argument is a direct FieldAccess / Identifier (the
-      // overwhelmingly common shape; OFM landuse / road class etc.),
-      // build a real Node via featDataField + toU32 + u32Mod +
-      // arrayIndex(CAT_PALETTE). Falls back to wgslRaw for the
-      // arithmetic / builtin-call AST sub-shapes — those need the
-      // full DataExpr->Node converter (deferred to a later commit).
-      const fieldName = (fieldExpr && (fieldExpr.kind === 'Identifier'
-        ? fieldExpr.name
-        : fieldExpr.kind === 'FieldAccess' ? fieldExpr.field : null)) ?? null
-      const fieldNode = fieldName ? featDataField(fieldName, fieldMap) : null
-      const nodeExpr = fieldNode
-        ? arrayIndex<'vec4<f32>'>(
-            constRefVec4('CAT_PALETTE') as NodeLike<string>,
-            u32Mod(toU32(fieldNode), u32Lit(20)),
-            'vec4<f32>',
-          )
-        : undefined
+      // categorical(field) → CAT_PALETTE[u32(field) % 20]. `astToNode`
+      // converts ANY field-argument AST shape (direct FieldAccess /
+      // Identifier, but also arithmetic / builtin-call / pipe) to IR, so the
+      // Node path always carries the colour — no string fallback.
+      const fieldNode = astToNode(fieldExpr, fieldMap, fnEnv)
+      const nodeExpr = arrayIndex<'vec4<f32>'>(
+        constRefVec4('CAT_PALETTE') as NodeLike<string>,
+        u32Mod(toU32(fieldNode), u32Lit(20)),
+        'vec4<f32>',
+      )
       return {
         preamble: [buildCatPaletteConst()],
-        isConst: false, needsFeatures: true, isVec4: true,
-        expr: `CAT_PALETTE[u32(${wgsl}) % 20u]`,
+        isConst: false, needsFeatures: true,
         nodeExpr,
       }
     }
 
-    // ── match(field) { "val" -> color, ... } → if-else chain ──
+    // ── match(field) { "val" -> color, ... } → matchExpr IR node ──
     if (ast.kind === 'FnCall' && ast.callee.kind === 'Identifier' && ast.callee.name === 'match' && ast.matchBlock) {
       const fieldExpr = ast.args[0]
-      const wgsl = exprToWGSL(fieldExpr, fieldMap, fnEnv)
       const arms = ast.matchBlock.arms
-      let fallbackColor = 'vec4f(0.5, 0.5, 0.5, 1.0)'
-      const branches: string[] = []
-      let varName = `_mc${prefix.charCodeAt(0)}`
 
+      // Fallback (the `_` arm) — defaults to mid-grey when the style omits it.
+      let fallbackRgba: [number, number, number, number] = [0.5, 0.5, 0.5, 1.0]
       for (const arm of arms) {
+        if (arm.pattern !== '_') continue
         const rgba = resolveColorFromAST(arm.value)
-        if (!rgba) continue
-        const [r, g, b, a] = rgba
-        const colorVec = `vec4f(${fmt(r)}, ${fmt(g)}, ${fmt(b)}, ${fmt(a)})`
-        if (arm.pattern === '_') {
-          fallbackColor = colorVec
-        } else {
-          // Category ID is assigned alphabetically at data-load time
-          // At shader-gen we emit by pattern order; runtime maps strings → IDs
-          branches.push({ pattern: arm.pattern, color: colorVec } as any)
-        }
+        if (rgba) fallbackRgba = rgba
       }
 
       // Sort patterns alphabetically to match runtime category ID assignment
+      // (the packer maps string→ID in this same order; the IDs index the cases).
       const sortedPatterns = arms
         .filter(a => a.pattern !== '_')
         .map(a => a.pattern)
         .sort()
-      const patternToId = new Map(sortedPatterns.map((p, i) => [p, i]))
-
-      let ifElse = `var ${varName}: vec4f = ${fallbackColor};\n`
+      const rgbaByPattern = new Map<string, [number, number, number, number]>()
       for (const arm of arms) {
         if (arm.pattern === '_') continue
-        const id = patternToId.get(arm.pattern)
-        if (id === undefined) continue
         const rgba = resolveColorFromAST(arm.value)
-        if (!rgba) continue
-        const [r, g, b, a] = rgba
-        ifElse += `  if (${wgsl} == ${fmt(id)}) { ${varName} = vec4f(${fmt(r)}, ${fmt(g)}, ${fmt(b)}, ${fmt(a)}); }\n`
+        if (rgba) rgbaByPattern.set(arm.pattern, rgba)
       }
+
+      // Scrutinee is the feature field cast to i32 — same shape as the compute
+      // match kernel (`toI32(featData.at(fid))`). Each case is `[id, color]`;
+      // the backend's lowerModule hoists the matchExpr into a var + switch.
+      const cases = sortedPatterns
+        .map((pat, i) => [i, rgbaByPattern.get(pat)] as const)
+        .filter((c): c is readonly [number, [number, number, number, number]] => c[1] !== undefined)
+        .map(([i, rgba]) => [i, vec4fFromRgba(rgba)] as const)
+      const nodeExpr = matchVec4(
+        toI32(astToNode(fieldExpr, fieldMap, fnEnv)),
+        cases,
+        vec4fFromRgba(fallbackRgba),
+      )
 
       // Surface the (sortedPatterns) list for THIS field so the runtime
       // can encode feature data with matching IDs. Only the simple
@@ -335,34 +286,26 @@ function processColorValue(
 
       return {
         preamble: [],
-        isConst: false, needsFeatures: true, isVec4: true,
-        expr: `/* match */ ${varName}`,
-        matchPreamble: ifElse,
+        isConst: false, needsFeatures: true,
+        // Legacy string field (unused for output now that nodeExpr owns the
+        // match — buildFillExpr's string path is only reached when nodeExpr is
+        // absent). Carries the fallback colour as a defensive standalone value.
         categoryOrder,
-        // Phase 2.5 US-005 idiom (match-chain surface) — fillExpr at
-        // the marker site is just a varref to the chain's slot var.
-        // The matchPreamble string (Stmt[] migration deferred to
-        // US-007's polygon composer) is injected separately. Comment
-        // prefix '/* match */' is dropped in the Node form — AC6
-        // allows comment-placement differences.
-        nodeExpr: constRefVec4(varName),
+        nodeExpr,
+        // Disambiguates the variant cache: two compounds over the same field
+        // with different value→colour mappings hash differently here.
+        matchNode: nodeExpr,
       } as ColorResult
     }
 
     // ── gradient(field, min, max, colorLow, colorHigh) → mix() ──
     if (ast.kind === 'FnCall' && ast.callee.kind === 'Identifier' && ast.callee.name === 'gradient' && ast.args.length === 5) {
-      const valExpr = exprToWGSL(ast.args[0], fieldMap, fnEnv)
-      const minExpr = exprToWGSL(ast.args[1], fieldMap, fnEnv)
-      const maxExpr = exprToWGSL(ast.args[2], fieldMap, fnEnv)
       const lowColor = resolveColorFromAST(ast.args[3])
       const highColor = resolveColorFromAST(ast.args[4])
       if (lowColor && highColor) {
-        const [lr, lg, lb, la] = lowColor
-        const [hr, hg, hb, ha] = highColor
         // Build mix4(low, high, clamp(...)) Node end-to-end. `astToNode`
         // converts any val/min/max AST shape (compound binops, builtins,
-        // pipes, user-fn inlining) to IR, byte-consistent with the `expr`
-        // string (both go through the same AST→Node path).
+        // pipes, user-fn inlining) to IR.
         const valNode = astToNode(ast.args[0], fieldMap, fnEnv)
         const minNode = astToNode(ast.args[1], fieldMap, fnEnv)
         const maxNode = astToNode(ast.args[2], fieldMap, fnEnv)
@@ -373,8 +316,7 @@ function processColorValue(
         )
         return {
           preamble: [],
-          isConst: false, needsFeatures: true, isVec4: true,
-          expr: `mix(vec4f(${fmt(lr)}, ${fmt(lg)}, ${fmt(lb)}, ${fmt(la)}), vec4f(${fmt(hr)}, ${fmt(hg)}, ${fmt(hb)}, ${fmt(ha)}), clamp((${valExpr} - ${minExpr}) / (${maxExpr} - ${minExpr}), 0.0, 1.0))`,
+          isConst: false, needsFeatures: true,
           nodeExpr,
         }
       }
@@ -382,41 +324,30 @@ function processColorValue(
 
     // ── Legacy: fill-[name] / fill-[.name] → auto palette (backward compat) ──
     if (ast.kind === 'FieldAccess' || (ast.kind === 'Identifier' && ast.name !== 'zoom')) {
-      const wgsl = exprToWGSL(ast, fieldMap, fnEnv)
-      // Phase 2.5 US-005 idiom — same shape as the explicit
-      // categorical() path above; reuses featDataField when the
-      // ast is a simple Identifier / FieldAccess (the only shapes
-      // this fallback accepts).
-      const fieldName = ast.kind === 'Identifier' ? ast.name : ast.field
-      const fieldNode = featDataField(fieldName, fieldMap)
-      const nodeExpr = fieldNode
-        ? arrayIndex<'vec4<f32>'>(
-            constRefVec4('CAT_PALETTE') as NodeLike<string>,
-            u32Mod(toU32(fieldNode), u32Lit(20)),
-            'vec4<f32>',
-          )
-        : undefined
+      // Same shape as the explicit categorical() path above; `astToNode`
+      // converts the field AST (Identifier / FieldAccess here) to IR, so the
+      // Node path always carries it.
+      const fieldNode = astToNode(ast, fieldMap, fnEnv)
+      const nodeExpr = arrayIndex<'vec4<f32>'>(
+        constRefVec4('CAT_PALETTE') as NodeLike<string>,
+        u32Mod(toU32(fieldNode), u32Lit(20)),
+        'vec4<f32>',
+      )
       return {
         preamble: [buildCatPaletteConst()],
-        isConst: false, needsFeatures: true, isVec4: true,
-        expr: `CAT_PALETTE[u32(${wgsl}) % 20u]`,
+        isConst: false, needsFeatures: true,
         nodeExpr,
       }
     }
 
     // ── Legacy: scale(field, min, max, colorLow, colorHigh) ──
     if (ast.kind === 'FnCall' && ast.callee.kind === 'Identifier' && ast.callee.name === 'scale' && ast.args.length === 5) {
-      const valExpr = exprToWGSL(ast.args[0], fieldMap, fnEnv)
-      const minExpr = exprToWGSL(ast.args[1], fieldMap, fnEnv)
-      const maxExpr = exprToWGSL(ast.args[2], fieldMap, fnEnv)
       const lowColor = resolveColorFromAST(ast.args[3])
       const highColor = resolveColorFromAST(ast.args[4])
       if (lowColor && highColor) {
-        const [lr, lg, lb, la] = lowColor
-        const [hr, hg, hb, ha] = highColor
-        // scale() emits the same WGSL shape as gradient() (mix between
-        // two literal vec4 endpoints) — same Node composition path,
-        // `astToNode` for any val/min/max AST shape.
+        // scale() emits the same shape as gradient() (mix between two literal
+        // vec4 endpoints) — same Node composition, `astToNode` for any
+        // val/min/max AST shape.
         const valNode = astToNode(ast.args[0], fieldMap, fnEnv)
         const minNode = astToNode(ast.args[1], fieldMap, fnEnv)
         const maxNode = astToNode(ast.args[2], fieldMap, fnEnv)
@@ -427,19 +358,17 @@ function processColorValue(
         )
         return {
           preamble: [],
-          isConst: false, needsFeatures: true, isVec4: true,
-          expr: `mix(vec4f(${fmt(lr)}, ${fmt(lg)}, ${fmt(lb)}, ${fmt(la)}), vec4f(${fmt(hr)}, ${fmt(hg)}, ${fmt(hb)}, ${fmt(ha)}), clamp((${valExpr} - ${minExpr}) / (${maxExpr} - ${minExpr}), 0.0, 1.0))`,
+          isConst: false, needsFeatures: true,
           nodeExpr,
         }
       }
     }
 
-    // Default: scalar data-driven expression
-    const wgsl = exprToWGSL(ast, fieldMap, fnEnv)
+    // Default: scalar data-driven expression → greyscale vec4(s, s, s, opacity).
     return {
       preamble: [],
-      isConst: false, needsFeatures: true, isVec4: false,
-      expr: wgsl,
+      isConst: false, needsFeatures: true,
+      scalarNodeExpr: astToNode(ast, fieldMap, fnEnv),
     }
   }
 
@@ -457,8 +386,7 @@ function processColorValue(
     if (gradientIdx >= 0) {
       return {
         preamble: [],
-        isConst: false, needsFeatures: false, isVec4: true,
-        expr: emitColorGradientSample(palette, gradientIdx),
+        isConst: false, needsFeatures: false,
         // Phase 2.5 US-005 idiom (palette sample) — emit the
         // textureSampleLevel call as a real Node so the zoom-interp +
         // palette path (OFM Bright zoom-interpolated fills, etc.) flows
@@ -472,8 +400,8 @@ function processColorValue(
   // conditional, zoom-interpolated (no palette), …  → fall back to uniform
   return {
     preamble: [],
-    isConst: false, needsFeatures: false, isVec4: true,
-    expr: `u.${prefix.toLowerCase()}_color`,
+    isConst: false, needsFeatures: false,
+    nodeExpr: varRefVec4(`u.${prefix.toLowerCase()}_color`),
   }
 }
 
@@ -488,7 +416,6 @@ function processOpacity(
       preamble: [f32ConstDecl('OPACITY', value.value)],
       needsUniform: false,
       needsFeatures: false,
-      expr: 'OPACITY',
       // Phase 2.5 US-005 — Node-emit available for constant-opacity
       // (the most common path).
       nodeExpr: refF32('OPACITY'),
@@ -499,14 +426,11 @@ function processOpacity(
     const fields = collectFields(value.expr.ast)
     fields.forEach(f => featureFields.add(f))
     const fieldMap = buildFieldMap(featureFields)
-    const wgsl = exprToWGSL(value.expr.ast, fieldMap, fnEnv)
-    // Data-driven opacity → f32 Node via `astToNode` (any AST shape,
-    // byte-consistent with the `expr` string built from the same path).
+    // Data-driven opacity → f32 Node via `astToNode` (any AST shape).
     return {
       preamble: [],
       needsUniform: false,
       needsFeatures: true,
-      expr: wgsl,
       nodeExpr: astToNode(value.expr.ast, fieldMap, fnEnv),
     }
   }
@@ -538,7 +462,6 @@ function processOpacity(
         // emitScalarGradientSample emits `xgis_scalar_sample(...)` —
         // the helper definition is appended once per variant by
         // generateShaderVariant.
-        expr: emitScalarGradientSample(palette, idx),
         // Phase 2.5 US-005 — Node parallel emission for the scalar
         // palette sample (opacity zoom-interp w/ palette path).
         nodeExpr: emitScalarGradientSampleNode(palette, idx) ?? undefined,
@@ -553,66 +476,32 @@ function processOpacity(
     preamble: [],
     needsUniform: true,
     needsFeatures: false,
-    expr: 'u.opacity',
+    nodeExpr: refF32('u.opacity'),
   }
 }
 
 // ═══ Expression builders ═══
 
-// Phase 2.5 US-005 idiom #1+#2 — recognise paths whose ColorResult.expr
-// and OpacityResult.expr are PURE VARREFS (single identifier optionally
-// dotted, e.g. `FILL_COLOR`, `u.fill_color`, `OPACITY`, `u.opacity`).
-// In those cases the legacy `vec4f(<color>.rgb, <color>.a * <opacity>)`
-// composition is structurally equivalent to a real DSL
-// `composeFillVec4(varref(color), varref(opacity))` Node, so the
-// migration produces the same WGSL at the marker substitution site
-// with no per-arm logic change.
-//
-// Covers: constant fill / stroke (FILL_COLOR / STROKE_COLOR), time-
-// interpolated (u.fill_color / u.stroke_color), and the legacy
-// fallback path that returns `u.<prefix>_color` (line 362).
-// Any path whose expr embeds arithmetic / function calls / member
-// accesses beyond a single dotted name falls back to wgslRaw.
-
-// Single dotted-identifier check: `name` or `obj.field`. Rejects WGSL
-// expression text (`vec4f(...)`, `unpack4x8unorm(...)`, `mix(a, b, t)`,
-// data-driven binop strings, etc.).
-const PURE_VARREF_RE = /^[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*$/
-
-function tryComposeFillNodeFromVarrefs(
+/** Compose a colour ColorResult + opacity OpacityResult into the final
+ *  fill / stroke vec4 Node. Every colour arm carries either a vec4 `nodeExpr`
+ *  (constant, categorical, gradient, scale, match, palette, uniform) or a
+ *  scalar `scalarNodeExpr` (data-driven greyscale), and every opacity arm a
+ *  scalar `nodeExpr` — so this always returns a Node (no string fallback):
+ *
+ *    - vec4 colour → `vec4(colour.rgb, colour.a * opacity)` via composeFillVec4.
+ *    - scalar colour → `vec4(s, s, s, opacity)` (greyscale: s drives rgb). */
+function composeColorOpacityNode(
   color: ColorResult,
   opacity: OpacityResult,
 ): NodeLike<'vec4<f32>'> | null {
-  if (!color.isVec4) return null
-  if (!PURE_VARREF_RE.test(color.expr)) return null
-  if (!PURE_VARREF_RE.test(opacity.expr)) return null
-  // Color is always a vec4 here (isVec4=true guard); opacity is f32.
-  // refF32 emits varref to either `OPACITY` (const decl) or `u.opacity`
-  // (uniform field) — both pass the PURE_VARREF_RE check.
-  // For the color varref, the name might be either `FILL_COLOR` (const
-  // decl) or `u.fill_color` (uniform field). constRefVec4 emits a
-  // `constref` op while the runtime treats it as a varref — same emit
-  // shape, so the WGSL output matches the legacy `<name>` text either way.
-  return composeFillVec4(constRefVec4(color.expr), refF32(opacity.expr))
-}
-
-function buildFillExpr(color: ColorResult, opacity: OpacityResult): string {
-  if (color.isVec4) {
-    // Expression already returns vec4f (constant, categorical, gradient)
-    return `vec4f(${color.expr}.rgb, ${color.expr}.a * ${opacity.expr})`
+  const opacityNode = opacity.nodeExpr
+  if (!opacityNode) return null
+  if (color.scalarNodeExpr) {
+    const s = color.scalarNodeExpr
+    return vec4f(s, s, s, opacityNode)
   }
-  if (color.needsFeatures) {
-    // Data-driven scalar → grayscale
-    return `vec4f(${color.expr}, ${color.expr}, ${color.expr}, ${opacity.expr})`
-  }
-  return `vec4f(${color.expr}.rgb, ${color.expr}.a * ${opacity.expr})`
-}
-
-function buildStrokeExpr(color: ColorResult, opacity: OpacityResult): string {
-  if (color.isConst && opacity.expr === 'OPACITY') {
-    return `vec4f(${color.expr}.rgb, ${color.expr}.a * ${opacity.expr})`
-  }
-  return `vec4f(${color.expr}.rgb, ${color.expr}.a * ${opacity.expr})`
+  if (color.nodeExpr) return composeFillVec4(color.nodeExpr, opacityNode)
+  return null
 }
 
 // ═══ Helpers ═══

@@ -53,6 +53,7 @@ export { emitSize, countOps, optimizerReport, type EmitSize, type OpCount, type 
 export { optimizeAt, LEVEL_PASSES, type OptLevel } from './core/passes/opt'
 
 // Pre-emit passes used by authors / consumers.
+export { composeModule, type ComposeOptions } from './core/passes/compose'
 export { lowerModule } from './core/passes/match-lower'
 export { cse } from './core/passes/opt/cse'
 export { autoVars } from './core/passes/opt/auto-vars'

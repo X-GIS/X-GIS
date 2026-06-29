@@ -37,11 +37,9 @@ class HeatmapPass implements RenderPass {
       // Lazily (re)allocate the density targets at canvas size. No-op when
       // unchanged; never allocates in the default no-heatmap path.
       ctx.rt.ensureHeatmap(ctx.w, ctx.h)
-      const accumTex = ctx.rt.heatmapAccumTexture
-      const blurTex = ctx.rt.heatmapBlurTexture
-      if (!accumTex || !blurTex) return
-      const accumView = accumTex.createView()
-      const blurView = blurTex.createView()
+      const accumView = ctx.rt.heatmapAccumView
+      const blurView = ctx.rt.heatmapBlurView
+      if (!accumView || !blurView) return
 
       const blurPipeline = host.renderer.ensureHeatmapBlur()
       const composePipeline = host.renderer.ensureHeatmapCompose()

@@ -1,11 +1,20 @@
 ---
 import Docs from '../../../layouts/Docs.astro'
+
+const headings = [
+  { depth: 2, slug: 'the-problem',            text: 'The problem' },
+  { depth: 2, slug: 'coordinate-spaces',      text: 'Coordinate spaces' },
+  { depth: 2, slug: 'dsfun',                  text: 'DSFUN: f64-equivalent in f32 hardware' },
+  { depth: 2, slug: 'cross-path-invariants',  text: 'Cross-path invariants' },
+  { depth: 2, slug: 'source',                 text: 'Source' },
+]
 ---
 
 <Docs
   current="concepts/rtc"
   title="X-GIS — RTC + DSFUN precision"
   description="How X-GIS preserves f32 precision at any camera zoom by splitting Mercator-meter coordinates into f64-equivalent high-low pairs (DSFUN)."
+  headings={headings}
 >
   <header class="mb-12">
     <p class="font-mono text-[11px] tracking-[0.2em] uppercase text-accent mb-3">
@@ -24,7 +33,7 @@ import Docs from '../../../layouts/Docs.astro'
   <article class="space-y-14 text-[15px] sm:text-[16px] leading-[1.65] text-fg-dim">
 
     <section>
-      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+      <h2 id="the-problem" class="scroll-mt-24 text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
         The problem
       </h2>
       <p class="mb-4">
@@ -47,7 +56,7 @@ import Docs from '../../../layouts/Docs.astro'
     </section>
 
     <section>
-      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+      <h2 id="coordinate-spaces" class="scroll-mt-24 text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
         Coordinate spaces
       </h2>
       <p class="mb-5">
@@ -78,7 +87,7 @@ import Docs from '../../../layouts/Docs.astro'
     </section>
 
     <section>
-      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+      <h2 id="dsfun" class="scroll-mt-24 text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
         DSFUN: f64-equivalent in f32 hardware
       </h2>
       <p class="mb-4">
@@ -108,7 +117,7 @@ let pos_relative_to_camera =
     </section>
 
     <section>
-      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+      <h2 id="cross-path-invariants" class="scroll-mt-24 text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
         Cross-path invariants
       </h2>
       <p class="mb-4">
@@ -127,7 +136,7 @@ let pos_relative_to_camera =
     </section>
 
     <section class="border-t border-line pt-12">
-      <h2 class="text-[20px] font-medium text-fg leading-[1.2] tracking-[-0.015em] mb-3">
+      <h2 id="source" class="scroll-mt-24 text-[20px] font-medium text-fg leading-[1.2] tracking-[-0.015em] mb-3">
         Source
       </h2>
       <p>

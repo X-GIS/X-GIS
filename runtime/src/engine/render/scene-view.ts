@@ -53,11 +53,17 @@ type SceneHost = Pick<RenderLoopHost,
 
 /** Build the per-frame SceneView from the bucket scheduler. Mirrors the
  *  inline block formerly at render()'s bucket-scheduler section. */
-export function buildSceneView(host: SceneHost, ctx: FrameContext): SceneView {
+// `_ctx` is retained for signature stability (callers pass the FrameContext)
+// but is no longer read: hasOit went content-based, which was its only use.
+export function buildSceneView(host: SceneHost, _ctx: FrameContext): SceneView {
   const { opaque, translucent, oit } = host.classifyVectorTileShows()
   const opaqueGroups = host.groupOpaqueBySource(opaque)
   const hasTranslucent = translucent.length > 0 && host.lineRenderer !== null
-  const hasOit = oit.length > 0 && ctx.rt.oitAccumTexture !== null && ctx.rt.oitRevealageTexture !== null
+  // Content-based: the OIT targets are now lazily allocated by the OIT pass
+  // (ctx.rt.ensureOit) when this flag is set, so it can no longer depend on
+  // the textures already existing — that would always be false on the lazy
+  // path and the OIT pass would never run.
+  const hasOit = oit.length > 0
   const hasPoints = host.pointRenderer?.hasLayers() ?? false
   const hasHeatmap = host.heatmapRenderer?.hasLayers() ?? false
   // Which pass owns the MSAA resolveTarget? The last pass that writes the

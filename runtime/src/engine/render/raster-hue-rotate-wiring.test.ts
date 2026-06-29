@@ -29,6 +29,7 @@ import { installWebGPUStub, type StubInstallation } from '../../__test-support__
 import { initGPU, type GPUContext } from '../gpu/gpu'
 import { RasterRenderer } from './raster-renderer'
 import { Camera } from '../projection/camera'
+import { rasterUniformBytes } from './raster-uniform-slots'
 
 let stub: StubInstallation
 
@@ -52,16 +53,17 @@ async function makeCtx(): Promise<GPUContext> {
 const W = 1024
 const H = 768
 
-// The raster global uniform is a 160-byte buffer (raster-renderer.ts:117).
-// raster_color0 is written at byte offset 96 → f32 slot 24; its .x lane is
-// hueRotateDeg (raster-renderer.ts:313-314). Filtering on the 160-byte size
-// uniquely identifies this write — the per-tile pooled uniforms are 48 B.
-const UNIFORM_BYTES = 160
+// The raster global uniform is the reflect-derived 'Uniforms' buffer
+// (raster-renderer.ts:117). raster_color0 is written at byte offset 96 → f32
+// slot 24; its .x lane is hueRotateDeg (raster-renderer.ts:313-314). Filtering
+// on the reflect-derived byte size uniquely identifies this write — the
+// per-tile pooled uniforms are 48 B.
 const RASTER_COLOR0_X = 24 // 96 / 4
 
 /** Set raster-hue-rotate via setColorAdjust, run render() once, and return
  *  raster_color0.x from the captured 160-byte global-uniform write. */
 function capturedHueRotate(ctx: GPUContext, hueRotateDeg: number): number {
+  const UNIFORM_BYTES = rasterUniformBytes()
   const renderer = new RasterRenderer(ctx)
   // render() early-returns unless a url template is set; the global-uniform
   // write happens before any tile is loaded, so no real texture is needed.

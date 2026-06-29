@@ -46,22 +46,44 @@ const groups: NavGroup[] = [
       { label: 'Blog',      href: blogUrl },
     ],
   },
+  // Documentation — subgroups mirror the docs sidebar IA (Docs.astro navGroups)
+  // so mobile gets the same organized, complete set (previously a flat list
+  // missing Mapbox coverage / Glossary / Globe / Compute paint).
   {
-    title: 'Documentation',
+    title: 'Get started',
     links: [
-      { label: 'Overview',           href: docsUrl },
+      { label: 'Docs overview',      href: docsUrl },
       { label: 'Quickstart',         href: `${docsUrl}/quickstart` },
+    ],
+  },
+  {
+    title: 'Guides',
+    links: [
       { label: 'Cookbook',           href: `${docsUrl}/cookbook` },
       { label: 'Mapbox migration',   href: `${docsUrl}/mapbox` },
+      { label: 'Mapbox coverage',    href: `${docsUrl}/mapbox-spec` },
+    ],
+  },
+  {
+    title: 'Reference',
+    links: [
       { label: 'Language reference', href: `${docsUrl}/reference` },
       { label: 'Sources',            href: `${docsUrl}/sources` },
       { label: 'Functions',          href: `${docsUrl}/functions` },
       { label: 'Expressions',        href: `${docsUrl}/expressions` },
       { label: 'Utility catalog',    href: `${docsUrl}/utilities` },
+      { label: 'Glossary',           href: `${docsUrl}/glossary` },
       { label: 'JavaScript API',     href: `${docsUrl}/api` },
+    ],
+  },
+  {
+    title: 'Concepts',
+    links: [
+      { label: 'Globe & 3D',         href: `${docsUrl}/concepts/globe` },
       { label: 'RTC + DSFUN',        href: `${docsUrl}/concepts/rtc` },
       { label: 'Projections',        href: `${docsUrl}/concepts/projections` },
       { label: 'Compile pipeline',   href: `${docsUrl}/concepts/pipeline` },
+      { label: 'Compute paint',      href: `${docsUrl}/concepts/compute` },
     ],
   },
   {
@@ -76,7 +98,7 @@ const groups: NavGroup[] = [
 
 <div
   id="mobile-nav-drawer"
-  class="sm:hidden fixed inset-0 z-[100] bg-bg backdrop-blur-xl
+  class="lg:hidden fixed inset-0 z-[100] bg-bg backdrop-blur-xl
          translate-x-full transition-transform duration-300
          flex flex-col"
   aria-hidden="true"
