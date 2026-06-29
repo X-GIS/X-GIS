@@ -21,7 +21,9 @@ export interface PointBatch {
   vertex: GPUBuffer
   index: GPUBuffer
   indexCount: number
-  translucent: boolean
+  /** Pipeline variant: 0 = opaque (depth write + bias), 1 = translucent (no write + bias),
+   *  2 = flat (no write, NO bias — flat ground-plane circles). */
+  variant: number
 }
 
 export class PointDraper {
@@ -41,6 +43,8 @@ export class PointDraper {
       variants: [
         { depthWrite: true, depthCompare: 'less-equal', depthBias: bias, label: 'sdf-point-pipeline-rhi' },
         { depthWrite: false, depthCompare: 'less-equal', depthBias: bias, label: 'sdf-point-pipeline-translucent-rhi' },
+        // flat: depth-read, NO write, NO bias — flat ground-plane circles (painter's order).
+        { depthWrite: false, depthCompare: 'less-equal', label: 'sdf-point-pipeline-flat-rhi' },
       ],
     })
   }
@@ -53,7 +57,7 @@ export class PointDraper {
       { binding: 3, resource: { buffer: wrapWebGpuBuffer(b.seg) } },
     ])
     executeItems(this.material, pass, [{
-      variant: b.translucent ? 1 : 0,
+      variant: b.variant,
       bindGroups: [bg],
       vertex: wrapWebGpuBuffer(b.vertex),
       index: { buffer: wrapWebGpuBuffer(b.index), format: 'uint32' },

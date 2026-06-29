@@ -6,14 +6,14 @@
 import type { Camera } from '../projection/camera'
 import { lonLatToECEF } from '../projection/ecef'
 import { isWebMercator } from '../projection/projections-table'
-import { BLEND_ALPHA, DEPTH_TEST_WRITE, WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
+import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 import { getSampleCount } from '../gpu/gpu'
 import type { ShapeRegistry } from '../text/sdf-shape'
 import { parseHexColor } from '../feature-helpers'
 import { resolveNumberShape } from './paint-shape-resolve'
 import { FrameArena } from '../gpu/frame-arena'
 import type { PointLayer } from './point-renderer-types'
-import { emitPointWgsl, buildPointModule } from '../shaders/dsl'
+import { buildPointModule } from '../shaders/dsl'
 import { WebGpuDevice, wrapWebGpuPass } from './rhi/rhi-webgpu'
 import { PointDraper } from './material/point-material'
 import { reflect } from '@xgis/shader-dsl'
@@ -198,11 +198,7 @@ export function worldCopyMercX(lon: number, wo: number): number {
 
 export class PointRenderer {
   private device: GPUDevice
-  private pipeline: GPURenderPipeline            // billboard: depth test + write + bias
-  private pipelineTranslucent: GPURenderPipeline // billboard: depth test only, no write (transparency)
-  private pipelineFlat: GPURenderPipeline        // flat: depth test only, no write (avoids coplanar z-fight)
   private bindGroupLayout: GPUBindGroupLayout
-  private pipelineLayout: GPUPipelineLayout | null = null
   private format: GPUTextureFormat = 'bgra8unorm'
   // Vertex buffer layout — cached so rebuildForQuality can reuse without
   // recomputing the stride/attribute map.
@@ -237,8 +233,6 @@ export class PointRenderer {
     this.device = ctx.device
     const { device } = ctx
 
-    const shaderModule = device.createShaderModule({ code: emitPointWgsl(), label: 'sdf-point-shader' })
-
     this.bindGroupLayout = device.createBindGroupLayout({
       // Entries sourced from reflect(buildPointModule()) — binding numbers +
       // buffer types come from the shader's own IR (see buildPointBglEntries);
@@ -247,77 +241,12 @@ export class PointRenderer {
     })
 
     this.format = ctx.format
-    this.pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [this.bindGroupLayout] })
-    const pipelineLayout = this.pipelineLayout
 
-    // Derived from the single-source POINT_FORMAT spec (vs_point @location +
-    // packer derive from the same spec, so they cannot drift).
+    // Derived from the single-source POINT_FORMAT spec (vs_point @location + packer
+    // derive from the same spec, so they cannot drift). The point draw goes through the
+    // RHI Material seam (PointDraper, which owns the pipelines + their depth-bias variants);
+    // this layout feeds ensurePointDraper.
     this.vertexBufferLayout = toVertexBufferLayout(POINT_FORMAT)
-    const vertexBufferLayout = this.vertexBufferLayout
-
-    // Polygon offset (depth bias) pulls point markers slightly toward the
-    // camera so they never z-fight with ground polygons, line strokes, or
-    // each other. Negative bias = closer in WebGPU's [0,1] depth range.
-    // `depthBiasSlopeScale: -1` makes the offset proportional to surface
-    // slope so the effect is roughly constant in screen space regardless
-    // of pitch. Values chosen empirically — large enough to dominate any
-    // realistic coplanar tie at 24-bit depth precision.
-    const pointDepthStencil: GPUDepthStencilState = {
-      ...DEPTH_TEST_WRITE,
-      depthBias: -10,
-      depthBiasSlopeScale: -1,
-      depthBiasClamp: 0,
-    }
-
-    this.pipeline = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: { module: shaderModule, entryPoint: 'vs_point', buffers: [vertexBufferLayout] },
-      fragment: { module: shaderModule, entryPoint: 'fs_point', targets: [{ format: ctx.format, blend: BLEND_ALPHA }] },
-      primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: pointDepthStencil,
-      multisample: { count: getSampleCount() },
-      label: 'sdf-point-pipeline',
-    })
-
-    // Translucent billboard pipeline — same as `pipeline` (depth bias, test
-    // less-equal) but does NOT write depth. Translucent halos, glows, and
-    // any fill/stroke with effective alpha < 1 use this so the depth buffer
-    // only retains values from opaque fragments. Without this, a halo drawn
-    // first writes depth across its large area and causes opaque pins of
-    // other points drawn later to fail the depth test under pitch+rotation.
-    const translucentDepthStencil: GPUDepthStencilState = {
-      ...pointDepthStencil,
-      depthWriteEnabled: false,
-    }
-    this.pipelineTranslucent = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: { module: shaderModule, entryPoint: 'vs_point', buffers: [vertexBufferLayout] },
-      fragment: { module: shaderModule, entryPoint: 'fs_point', targets: [{ format: ctx.format, blend: BLEND_ALPHA }] },
-      primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: translucentDepthStencil,
-      multisample: { count: getSampleCount() },
-      label: 'sdf-point-pipeline-translucent',
-    })
-
-    // Flat pipeline — depth read but NO write. Flat circles (e.g. coverage
-    // overlays lying on the ground plane) have identical clip-space Z at
-    // any overlapping fragment, so writing depth produces a coplanar tie
-    // that flickers as z-fighting. Painter's order + alpha blending is the
-    // correct composition for these. Depth test is kept at less-equal so
-    // future opaque 3D geometry (not present today) can still occlude them.
-    const flatDepthStencil: GPUDepthStencilState = {
-      ...DEPTH_TEST_WRITE,
-      depthWriteEnabled: false,
-    }
-    this.pipelineFlat = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: { module: shaderModule, entryPoint: 'vs_point', buffers: [vertexBufferLayout] },
-      fragment: { module: shaderModule, entryPoint: 'fs_point', targets: [{ format: ctx.format, blend: BLEND_ALPHA }] },
-      primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: flatDepthStencil,
-      multisample: { count: getSampleCount() },
-      label: 'sdf-point-pipeline-flat',
-    })
 
     this.uniformBuffer = device.createBuffer({
       size: pointUniformSlots().slots * 4, // reflected std140 Uniforms size (40 slots × 4 = 160 bytes after #600 globe_eye)
@@ -325,49 +254,11 @@ export class PointRenderer {
     })
   }
 
-  /** Rebuild the 3 point pipelines with the current QUALITY.msaa.
-   *  Points don't participate in GPU picking today (their render pass has
-   *  only one color attachment), so `isPickEnabled()` is ignored here —
-   *  only MSAA changes require the rebuild. Safe to call mid-session. */
+  /** A quality (MSAA) change invalidates the point draper so the next draw lazily rebuilds
+   *  its pipelines with the new getSampleCount(). Points do no GPU picking (single colour
+   *  attachment), so only the sample count matters. Safe to call mid-session. */
   rebuildForQuality(): void {
-    if (!this.pipelineLayout || !this.vertexBufferLayout) return
-    const device = this.device
-    const shaderModule = device.createShaderModule({ code: emitPointWgsl(), label: 'sdf-point-shader-rebuilt' })
-    const msaa = { count: getSampleCount() }
-    const vb = this.vertexBufferLayout
-    const pl = this.pipelineLayout
-    const fmt = this.format
-    const pointDepthStencil: GPUDepthStencilState = {
-      ...DEPTH_TEST_WRITE,
-      depthBias: -10, depthBiasSlopeScale: -1, depthBiasClamp: 0,
-    }
-    this.pipeline = device.createRenderPipeline({
-      layout: pl,
-      vertex: { module: shaderModule, entryPoint: 'vs_point', buffers: [vb] },
-      fragment: { module: shaderModule, entryPoint: 'fs_point', targets: [{ format: fmt, blend: BLEND_ALPHA }] },
-      primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: pointDepthStencil,
-      multisample: msaa,
-      label: 'sdf-point-pipeline',
-    })
-    this.pipelineTranslucent = device.createRenderPipeline({
-      layout: pl,
-      vertex: { module: shaderModule, entryPoint: 'vs_point', buffers: [vb] },
-      fragment: { module: shaderModule, entryPoint: 'fs_point', targets: [{ format: fmt, blend: BLEND_ALPHA }] },
-      primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: { ...pointDepthStencil, depthWriteEnabled: false },
-      multisample: msaa,
-      label: 'sdf-point-pipeline-translucent',
-    })
-    this.pipelineFlat = device.createRenderPipeline({
-      layout: pl,
-      vertex: { module: shaderModule, entryPoint: 'vs_point', buffers: [vb] },
-      fragment: { module: shaderModule, entryPoint: 'fs_point', targets: [{ format: fmt, blend: BLEND_ALPHA }] },
-      primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: { ...DEPTH_TEST_WRITE, depthWriteEnabled: false },
-      multisample: msaa,
-      label: 'sdf-point-pipeline-flat',
-    })
+    this._pointDraper = undefined
   }
 
   /** Create a bind group with uniform + feat_data + shape buffers */
@@ -588,7 +479,7 @@ export class PointRenderer {
       uniform: this.uniformBuffer, feat: this.tilePointFeatBuffer!,
       shape: shapeBuf ?? emptyBuf, seg: segBuf ?? emptyBuf,
       vertex: this.tilePointBuffer!, index: this.tilePointIndexBuffer!,
-      indexCount: totalN * 6, translucent: tileIsTranslucent,
+      indexCount: totalN * 6, variant: tileIsTranslucent ? 1 : 0,
     })
 
     // Clear for next frame
@@ -982,7 +873,6 @@ export class PointRenderer {
         layer._expandedVertBuf = this.device.createBuffer({ size: expandedVerts.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST, label: 'point-expanded-vertices' })
         layer._expandedIdxBuf = this.device.createBuffer({ size: expandedIdx.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST, label: 'point-expanded-indices' })
         layer._expandedFeatBuf = this.device.createBuffer({ size: Math.max(expandedFeat.byteLength, 16), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'point-expanded-features' })
-        layer._expandedBindGroup = this.makeBindGroup(layer._expandedFeatBuf)
         layer._expandedSize = totalPoints
       }
 
@@ -992,15 +882,21 @@ export class PointRenderer {
       return totalPoints
     }
 
-    const drawLayer = (layer: PointLayer, pipeline: GPURenderPipeline, totalPoints: number) => {
+    const drawLayer = (layer: PointLayer, variant: number, totalPoints: number) => {
       // Write per-layer uniform (circle_params may differ between layers).
       writePointFrameUniform(uf, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight, layer.circleTranslateX, layer.circleTranslateY, layer.circleBlur, layer.circlePitchScaleMap)
       this.device.queue.writeBuffer(this.uniformBuffer, 0, uf)
-      pass.setPipeline(pipeline)
-      pass.setBindGroup(0, layer._expandedBindGroup!)
-      pass.setVertexBuffer(0, layer._expandedVertBuf!)
-      pass.setIndexBuffer(layer._expandedIdxBuf!, 'uint32')
-      pass.drawIndexed(totalPoints * 6)
+      // Through the RHI Material seam (P1: the sole path), same as the tile-point draw.
+      const shapeBuf = this.shapeRegistry?.shapeBuffer
+      const segBuf = this.shapeRegistry?.segmentBuffer
+      const emptyBuf = this._emptyStorageBuf ??= this.device.createBuffer({ size: 64, usage: GPUBufferUsage.STORAGE, label: 'empty-shape-buf' })
+      this.ensurePointDraper()
+      this._pointDraper!.draw(wrapWebGpuPass(pass), {
+        uniform: this.uniformBuffer, feat: layer._expandedFeatBuf!,
+        shape: shapeBuf ?? emptyBuf, seg: segBuf ?? emptyBuf,
+        vertex: layer._expandedVertBuf!, index: layer._expandedIdxBuf!,
+        indexCount: totalPoints * 6, variant,
+      })
     }
 
     // Upload every layer's buffers first (cheap; writes don't depend on
@@ -1012,7 +908,7 @@ export class PointRenderer {
     for (let i = 0; i < this.layers.length; i++) {
       const layer = this.layers[i]
       if (layer.isFlat || layer.isTranslucent) continue
-      drawLayer(layer, this.pipeline, totals[i])
+      drawLayer(layer, 0, totals[i])
     }
 
     // Phase 2 — translucent billboards + flat layers blend on top without
@@ -1021,8 +917,7 @@ export class PointRenderer {
     for (let i = 0; i < this.layers.length; i++) {
       const layer = this.layers[i]
       if (!layer.isFlat && !layer.isTranslucent) continue
-      const pipeline = layer.isFlat ? this.pipelineFlat : this.pipelineTranslucent
-      drawLayer(layer, pipeline, totals[i])
+      drawLayer(layer, layer.isFlat ? 2 : 1, totals[i])
     }
   }
 }
