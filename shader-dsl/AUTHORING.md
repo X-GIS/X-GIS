@@ -13,7 +13,7 @@ or `f32()` wrappers around literals. This guide documents the surface that lande
 > `core/**` authoring + emit surface (the IR, the SoT layout declarators, the WGSL/GLSL
 > backends, the lint passes, the CPU oracle, and `reflect()`):
 > ```ts
-> import { fn, module, vec4, If, Switch, condExpr, emitModule, reflect, … } from '@xgis/shader-dsl'
+> import { fn, module, vec4, If, Switch, when, emitModule, reflect, … } from '@xgis/shader-dsl'
 > import { ioStruct, uniformStruct, structDecl, builtin, location, storageBuffer, resource } from '@xgis/shader-dsl'
 > ```
 > The X-GIS-specific shader graphs that used to live in `shader-dsl/src/shaders/*.ts`
@@ -241,18 +241,19 @@ Switch(seg.kind)
   .default(() => {})
 ```
 
-### Value combinators — `ifExpr` / `condExpr` / `reduce`
+### Value combinators — `when` / `reduce`
 
 When you want a branch-**initialised value** instead of a mutation, use the value
 combinators. They take **only values** — no var name, no type token (the type is inferred
-from the arms):
+from the arms). `when` is the **one** condition-dispatch combinator (2-arm and N-arm), the
+condition-side sibling of `Switch`/`matchExpr` (scrutinee) and `select` (eager 2-way):
 
 ```ts
-// 2-arm if-expression
-const dir = ifExpr(segLen.lt(1e-6), () => vec2(1, 0), () => segVec.div(segLen))
+// 2-arm
+const dir = when(segLen.lt(1e-6), () => vec2(1, 0), () => segVec.div(segLen))
 
-// N-arm: array of [condition, () => value] arms, then the else value
-const clip = condExpr([
+// N-arm: array of [condition, () => value] arms, then the else value (first true wins)
+const clip = when([
   [projParams.x.lt(0.5), () => transformMat4(mvp, vec4(rel2d, 0, 1))],
   [projParams.x.lt(6.5), () => transformMat4(mvp, vec4(relG, 0, 1))],
 ], () => transformMat4(mvp, vec4(ecefRtc, 1)))
@@ -264,10 +265,10 @@ const best = reduce(f32(1e10), u32(0), (i) => i.le(STEPS), (acc, i) => {
 }, u32(1))
 ```
 
-`condExpr`/`ifExpr`/`reduce` materialise the var + control flow internally and return the
-result Node, so the emit is identical to the hand-written `var v; if (…) v = …` form. Use
-`condExpr` for genuine **condition/range** dispatch (no single scrutinee); use `Switch` for
-integer **scrutinee** dispatch.
+`when`/`reduce` materialise the var + control flow internally and return the result Node, so
+the emit is identical to the hand-written `var v; if (…) v = …` form. Use `when` for genuine
+**condition/range** dispatch (no single scrutinee); use `Switch`/`matchExpr` for integer
+**scrutinee** dispatch. (`ifExpr`/`condExpr` are **deprecated** aliases of `when`.)
 
 ### Early returns — `Return` / `ReturnIf`
 
@@ -521,7 +522,7 @@ const clip = condExpr([[c0, () => e0], [c1, () => e1]], () => elseVal)
 | A literal in an op | bare number — `x.add(1)`, `vec4(p, 0, 1)` |
 | deg↔rad | `radians(x)` / `degrees(x)` |
 | Branch (statement) | `If(c, …).elif(c, …).else(…)` |
-| Branch (value) | `ifExpr(c, ()=>a, ()=>b)` / `condExpr([[c,()=>a]], ()=>b)` |
+| Branch (value) | `when(c, ()=>a, ()=>b)` / `when([[c,()=>a]], ()=>b)` (was `ifExpr`/`condExpr`) |
 | Integer dispatch | `Switch(s).case(n, …).default(…)` |
 | Loop fold (value) | `reduce(init, i0, cond, (acc,i)=>…, step)` |
 | Early return | `Return(v)` / `ReturnIf(c, v)` |

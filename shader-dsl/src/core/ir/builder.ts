@@ -468,43 +468,43 @@ export function reduce<K extends string, J extends string>(
   return acc
 }
 
-/** Immutable if-expression — the functional spelling of `var v; if (cond) { v = then } else { v =
- *  else }`. Each branch RETURNS its value (no `Var` + `assign` at the call site); ifExpr materialises
- *  the var + if/else internally, so the emit is byte-identical (it does NOT lower to `select`, which
- *  would change the WGSL). Use for a branch-INITIALISED value, not for genuine multi-step mutation. */
-export function ifExpr<K extends string>(
-  cond: Node<'bool'>,
-  thenVal: () => Node<K>,
-  elseVal: () => Node<K>,
+/** Immutable value-by-CONDITION dispatch — `var v; if (c0) v=e0; else if (c1) v=e1; … else v=eN`.
+ *  Each arm RETURNS its value; `when` materialises the var + if/elif/else chain internally, so the
+ *  emit is byte-identical to the hand form (it does NOT lower to `select`). Two shapes:
+ *    when(cond, () => a, () => b)                      — 2-arm
+ *    when([[c0, () => e0], [c1, () => e1]], () => eN)  — N-arm (first true condition wins)
+ *
+ *  The orthogonal value-dispatch surface: `when` for a boolean TEST, `matchExpr`/`Switch` for integer
+ *  SCRUTINEE dispatch, `select` for an eager 2-way (both arms evaluated). (Subsumes the former
+ *  `ifExpr`/`condExpr`.) */
+export function when<K extends string>(cond: Node<'bool'>, thenVal: () => Node<K>, elseVal: () => Node<K>): Node<K>
+export function when<K extends string>(arms: ReadonlyArray<readonly [Node<'bool'>, () => Node<K>]>, elseVal: () => Node<K>): Node<K>
+export function when<K extends string>(
+  a: Node<'bool'> | ReadonlyArray<readonly [Node<'bool'>, () => Node<K>]>,
+  b: () => Node<K>,
+  c?: () => Node<K>,
 ): Node<K> {
-  const b = currentBuilder()
-  const iv = b.inferredVar()
+  const arms: ReadonlyArray<readonly [Node<'bool'>, () => Node<K>]> = Array.isArray(a) ? a : [[a as Node<'bool'>, b]]
+  const elseVal = (Array.isArray(a) ? b : c) as () => Node<K>
+  const bld = currentBuilder()
+  const iv = bld.inferredVar()
   let vt: ShaderType | undefined
-  b.if(cond, () => { const val = thenVal(); vt ??= val.type; currentBuilder().assign(iv.ref(val.type) as Node<K>, val) })
-    .else(() => { const val = elseVal(); vt ??= val.type; currentBuilder().assign(iv.ref(val.type) as Node<K>, val) })
+  const arm = (v: () => Node<K>) => () => { const val = v(); vt ??= val.type; currentBuilder().assign(iv.ref(val.type) as Node<K>, val) }
+  let chain = bld.if(arms[0][0], arm(arms[0][1]))
+  for (let k = 1; k < arms.length; k++) chain = chain.elif(arms[k][0], arm(arms[k][1]))
+  chain.else(arm(elseVal))
   iv.commit(vt!)
   return iv.ref(vt!) as Node<K>
 }
 
-/** N-arm immutable if-expression — `var v; if (c0) { v = e0 } else if (c1) { v = e1 } ... else
- *  { v = eN }`. Each arm RETURNS its value (arms may have intermediate const/Let before the
- *  return); the materialised var + if/elif/else chain is byte-identical to the hand form. The
- *  2-arm `ifExpr` is the single-arm case of this. */
-export function condExpr<K extends string>(
-  arms: ReadonlyArray<readonly [Node<'bool'>, () => Node<K>]>,
-  elseVal: () => Node<K>,
-): Node<K> {
-  const b = currentBuilder()
-  const iv = b.inferredVar()
-  let vt: ShaderType | undefined
-  const arm = (v: () => Node<K>) => () => { const val = v(); vt ??= val.type; currentBuilder().assign(iv.ref(val.type) as Node<K>, val) }
-  let chain = b.if(arms[0][0], arm(arms[0][1]))
-  for (let k = 1; k < arms.length; k++) {
-    chain = chain.elif(arms[k][0], arm(arms[k][1]))
-  }
-  chain.else(arm(elseVal))
-  iv.commit(vt!)
-  return iv.ref(vt!) as Node<K>
+/** @deprecated Use `when(cond, then, else)` — the unified condition-dispatch primitive. */
+export function ifExpr<K extends string>(cond: Node<'bool'>, thenVal: () => Node<K>, elseVal: () => Node<K>): Node<K> {
+  return when(cond, thenVal, elseVal)
+}
+
+/** @deprecated Use `when(arms, else)` — the unified condition-dispatch primitive. */
+export function condExpr<K extends string>(arms: ReadonlyArray<readonly [Node<'bool'>, () => Node<K>]>, elseVal: () => Node<K>): Node<K> {
+  return when(arms, elseVal)
 }
 
 /** `switch (scrut) { case n: …; default: … }` as a chainable statement BUILDER — mirrors the
