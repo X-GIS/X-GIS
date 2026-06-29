@@ -1,8 +1,10 @@
 export type { ShaderVariant } from './shader-gen'
-// Permanent codegen Node vocabulary (relocated out of _back-compat in
-// PR 2e.B.1). `nodeToWgslString` stays the transient splice-point adapter
-// and retires in PR 2e.B.2.
-export { wgslRaw, type NodeLike } from './node-types'
+// Permanent codegen Node vocabulary. `NodeLike` is the compiler↔runtime seam
+// type; `varRefVec4` builds a `vec4<f32>` varref Node — the public way to author
+// a placeholder fill/stroke expression (e.g. runtime variant test fixtures),
+// replacing the removed `wgslRaw` rawString escape hatch.
+export { type NodeLike } from './node-types'
+export { varRefVec4 } from './_util/node-builders'
 // Field-name extraction for an expression AST. Reused by the runtime's
 // show-source-maps to compute the minimal per-slice featureProps key set
 // (label text-field + data-driven paint fields) so the MVT worker clones

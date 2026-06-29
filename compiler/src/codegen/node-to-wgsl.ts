@@ -31,15 +31,15 @@ import { emitExpr } from '@xgis/shader-dsl'
 
 // `nodeToWgslString` lowers a compiler `NodeLike` to its WGSL string by DELEGATING
 // to the package emitter (`emitExpr` from `@xgis/shader-dsl` — the single neutral
-// tree-walk + the WGSL backend's spelling). The only compiler-local op is
-// `rawString` (a pre-built WGSL string), unwrapped verbatim here; everything else is
-// the package IR `Expr`. A `matchExpr` that reaches the emitter throws (the pre-emit
-// `lowerModule` pass should have hoisted it into a `Stmt.switch` first).
+// tree-walk + the WGSL backend's spelling). `node.expr` is the package IR `Expr`
+// directly (the `rawString` escape hatch is gone). A `matchExpr` that reaches the
+// emitter throws (the pre-emit `lowerModule` pass should have hoisted it into a
+// `Stmt.switch` first).
 
 /**
  * Convert a DSL `Node`-shaped value (`{ expr: Expr }`) to its WGSL string
  * representation. Emit-shape equality oracle for compiler + runtime tests.
  */
 export function nodeToWgslString(node: NodeLike): string {
-  return node.expr.op === 'rawString' ? node.expr.value : emitExpr(node.expr)
+  return emitExpr(node.expr)
 }
