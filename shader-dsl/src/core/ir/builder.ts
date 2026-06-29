@@ -5,7 +5,7 @@
 // computeFn / entryFn / module assemblers. Imports types + nodes + node.
 
 import { type ShaderType, type KeyOf, type ScalarKey, voidT } from './types'
-import type { Stmt, Expr, BinOp, FuncDecl, ModuleDecl } from './nodes'
+import type { Stmt, Expr, BinOp, FuncDecl, ModuleDecl, ConstDecl } from './nodes'
 import { Node, type ArithArg, type NodeLike, lift, f32, i32, u32, callFn, installStmtSink } from './node'
 
 export type ParamSpec = Record<string, ShaderType>
@@ -380,6 +380,17 @@ export function module(parts: Partial<ModuleDecl>): ModuleDecl {
     bindings: parts.bindings ?? [],
     funcs: parts.funcs ?? [],
   }
+}
+
+/** Author a module-level constant from an IR VALUE expression — the general
+ *  (non-scalar) const form. `value` may be any constant-foldable literal Node:
+ *  a vector `vec4(…)`, an `array(…)` literal, a struct constructor, or a scalar.
+ *  Emits `const <name>: <type> = <value>;` on WGSL + GLSL and evaluates `value`
+ *  on the CPU oracle. For a plain scalar `f32` const that needs the truncated-
+ *  vs-full-precision split (e.g. `PI`), author the `{wgslValue, cpuValue}` form
+ *  directly instead. */
+export function constExpr(name: string, type: ShaderType, value: Node): ConstDecl {
+  return { name, type, wgslValue: 0, cpuValue: 0, valueExpr: value.expr }
 }
 
 // ── Ambient free-function authoring surface (C2) ──

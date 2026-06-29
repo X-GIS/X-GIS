@@ -75,10 +75,22 @@ export type Stmt =
 export interface ConstDecl {
   readonly name: string
   readonly type: ShaderType
-  /** Value emitted by the WGSL backend (the truncated shader constant). */
+  /** Scalar value emitted by the WGSL/GLSL backends (the truncated shader
+   *  constant). Used when `valueExpr` is absent; ignored otherwise. */
   readonly wgslValue: number
-  /** Value used by the CPU backend (full-precision, matching the mirror). */
+  /** Scalar value used by the CPU backend (full-precision, matching the
+   *  mirror). Used when `valueExpr` is absent; ignored otherwise. */
   readonly cpuValue: number
+  /** OPTIONAL general constant value as an IR literal expression — e.g.
+   *  `vec4<f32>(…)` colour, `array<vec4<f32>, N>(…)` palette, or a struct
+   *  literal. When present it SUPERSEDES `wgslValue`/`cpuValue` on every backend
+   *  (WGSL + GLSL emit it, the CPU oracle evaluates it), making vector / array /
+   *  struct module constants first-class rather than scalar-only. Must be a
+   *  constant-foldable literal expression (`lit` / `construct` / `unop` /
+   *  `binop` over those, or `constref` to an earlier const) — it may not read a
+   *  binding, parameter, or runtime input. The scalar dual-precision path stays
+   *  the default for ordinary `f32` consts (e.g. truncated `PI` vs `Math.PI`). */
+  readonly valueExpr?: Expr
 }
 
 export interface StructField {
