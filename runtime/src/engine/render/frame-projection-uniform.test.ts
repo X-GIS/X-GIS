@@ -2,7 +2,7 @@
 // proj_params + globe_eye for the polygon/line group(0) family (ADR-0009).
 
 import { describe, it, expect } from 'vitest'
-import { writeFrameProjectionUniform } from './frame-projection-uniform'
+import { writeFrameProjectionUniform, writeProjectionCull } from './frame-projection-uniform'
 import { polygonUniformBytes, polygonUniformSlots } from './polygon-uniform-slots'
 import { globeEyeUniform } from './globe-eye-uniform'
 import { buildGlobeMatrix } from '../projection/globe'
@@ -40,5 +40,18 @@ describe('writeFrameProjectionUniform — coupled proj_params + globe_eye writer
     writeFrameProjectionUniform(f32, 0, 0, 0, undefined)
     expect([f32[S.globe_eye], f32[S.globe_eye + 1], f32[S.globe_eye + 2], f32[S.globe_eye + 3]])
       .toEqual([0, 0, 0, 0])
+  })
+
+  it('generic writeProjectionCull honours caller slots + proj_params.w (raster log_depth_fc)', () => {
+    // Arbitrary slot layout (proj at 4, eye at 12) + the raster-style proj_params.w
+    // = log_depth_fc lane. Proves the generic writer (used by raster/heatmap/point)
+    // couples both fields at the caller's offsets without hardcoding the polygon layout.
+    const f32 = new Float32Array(20)
+    const eye = buildGlobeMatrix(0, 0, 2.2, 0, 0, 1280, 720).eye as readonly [number, number, number]
+    writeProjectionCull(f32, 4, 12, 7, 10, 20, eye, 0.5)
+    expect([f32[4], f32[5], f32[6], f32[7]]).toEqual([7, 10, 20, 0.5]) // proj_params incl. .w
+    const ge = globeEyeUniform(eye)
+    expect([f32[12], f32[13], f32[14], f32[15]])
+      .toEqual([Math.fround(ge[0]), Math.fround(ge[1]), Math.fround(ge[2]), Math.fround(ge[3])])
   })
 })

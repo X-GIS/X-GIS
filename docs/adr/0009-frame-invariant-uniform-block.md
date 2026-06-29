@@ -94,12 +94,18 @@ Supporting principles (carry forward regardless of when step 2 lands):
      family (no separate-bind-slot needed — same buffer, one coupled writer). The
      completeness guard auto-narrowed to the families that still hand-pack their own
      struct (raster / heatmap); it is deleted when they adopt the same coupled writer.
-  4. *(pending)* Generalize the coupled writer to the raster / heatmap / point structs
-     (different slot maps — raster folds `log_depth_fc` into `proj_params.w`), then
-     delete the completeness guard. Optionally lift the frame group into a SEPARATE
-     per-frame UBO bound once (a perf refinement over the current shared-buffer pack)
-     + a GPU-readback `devAssert` that the bound frame block matches the camera frame
-     on the globe path (debug-toolkit cross-path-assert pattern).
+  4. *(landed)* Generalized the coupled writer to ALL families via
+     `writeProjectionCull(f32, projSlot, eyeSlot, …, projParamsW)` — raster/heatmap/
+     point now route through it (raster passes `log_depth_fc` as `proj_params.w`).
+     EVERY family that sets the projection now sets the eye in the same call, so the
+     stop-gap completeness guard was DELETED (no hand-packers remain).
+  5. *(pending — needs real GPU)* Optionally lift the frame group into a SEPARATE
+     per-frame UBO bound once (a perf refinement over the current shared-buffer pack:
+     bind frame data once instead of copying it into every per-draw slot) + a
+     GPU-readback `devAssert` that the bound frame block matches the camera frame on
+     the globe path (debug-toolkit cross-path-assert pattern). This changes the WGSL
+     struct + every pipeline's bind-group layout, so per ADR-0004 it must be verified
+     on a real GPU (CI is no-GPU) before merge — NOT a headless-only change.
 
 This ADR is **Accepted (partial)**: the direction is decided and the projection/cull
 coupling — the exact #600 drift — is implemented for the polygon/line family. The
