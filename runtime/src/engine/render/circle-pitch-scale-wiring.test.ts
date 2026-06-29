@@ -19,7 +19,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
 import { initGPU, type GPUContext } from '../gpu/gpu'
-import { PointRenderer } from './point-renderer'
+import { PointRenderer, pointUniformBytes } from './point-renderer'
 import { Camera } from '../projection/camera'
 
 let stub: StubInstallation
@@ -46,10 +46,11 @@ const FILL: [number, number, number, number] = [1, 0, 0, 1]
 const W = 1024
 const H = 768
 
-// The point uniform is a Float32Array(40) → 160-byte buffer (#600 grew it
-// 144→160 for globe_eye); circle_params.w is f32 slot 35, unchanged (globe_eye
-// is appended AFTER circle_params). (See point-uniform-layout.test.ts.)
-const UNIFORM_BYTES = 160
+// The point uniform buffer size is DERIVED from reflect() (pointUniformBytes(),
+// the SAME source the renderer sizes it from), not a hardcoded 160 that drifts
+// when the struct grows (#600 grew it 144→160 for globe_eye). circle_params.w is
+// f32 slot 35, unchanged — globe_eye is appended AFTER circle_params. (See
+// point-uniform-layout.test.ts.) Read lazily inside the function (post-setup).
 const CIRCLE_PARAMS_W = 35
 
 /** Add a single opaque circle layer with the given pitch-scale mode, run
@@ -68,6 +69,8 @@ function capturedPitchScaleFlag(ctx: GPUContext, pitchScaleMap: boolean): number
     pitchScaleMap,
   )
 
+  const UNIFORM_BYTES = pointUniformBytes()
+  const SLOT_COUNT = UNIFORM_BYTES / 4
   let flag = Number.NaN
   const device = ctx.device as unknown as {
     queue: { writeBuffer: (buf: unknown, off: number, data: ArrayBufferView | ArrayBuffer) => void }
@@ -76,7 +79,7 @@ function capturedPitchScaleFlag(ctx: GPUContext, pitchScaleMap: boolean): number
     if ((buf as { size?: number })?.size !== UNIFORM_BYTES) return
     const f32 = data instanceof ArrayBuffer
       ? new Float32Array(data)
-      : new Float32Array((data as ArrayBufferView).buffer, (data as ArrayBufferView).byteOffset, 40)
+      : new Float32Array((data as ArrayBufferView).buffer, (data as ArrayBufferView).byteOffset, SLOT_COUNT)
     flag = f32[CIRCLE_PARAMS_W]
   }
 

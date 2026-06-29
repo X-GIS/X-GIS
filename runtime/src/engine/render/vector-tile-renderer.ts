@@ -9,6 +9,7 @@ import { Camera } from '../projection/camera'
 import type { ShowCommand } from './renderer'
 import { variantProducesFill } from './renderer-helpers'
 import { polygonUniformSlots, polygonUniformBytes, polygonUniformStride } from './polygon-uniform-slots'
+import { writeFrameProjectionUniform } from './frame-projection-uniform'
 import { xlog } from '../log'
 
 // f32 slot indices of the polygon 'Uniforms' struct, sourced from reflect() of the SAME
@@ -2420,7 +2421,10 @@ export class VectorTileRenderer {
       uf[US.stroke_color] = this.cachedStrokeColor[0]; uf[US.stroke_color + 1] = this.cachedStrokeColor[1]
       uf[US.stroke_color + 2] = this.cachedStrokeColor[2]; uf[US.stroke_color + 3] = this.cachedStrokeColor[3] * this.currentOpacity
     }
-    uf[US.proj_params] = projType; uf[US.proj_params + 1] = projCenterLon; uf[US.proj_params + 2] = projCenterLat; uf[US.proj_params + 3] = 0
+    // proj_params + globe_eye written TOGETHER (frame-invariant; coupled so the
+    // #600 "projection set, eye forgotten" leak is unrepresentable). frame.eye is
+    // the globe/ECEF camera position (undefined off the globe → globe_eye zero).
+    writeFrameProjectionUniform(uf, projType, projCenterLon, projCenterLat, frame.eye)
 
     // Allocate + write SDF line layer slot for this render() call. All
     // drawSegments() calls below will use this same byte offset.
@@ -3767,6 +3771,10 @@ export class VectorTileRenderer {
       const lb8 = Math.max(0, Math.min(255, Math.round(lc[2] * 255)))
       // unpack4x8unorm order: .x = byte 0 (LSB) = r, … so pack r|g<<8|b<<16.
       this.uniformU32[US.light_color_packed] = (lr8 | (lg8 << 8) | (lb8 << 16) | (255 << 24)) >>> 0
+
+      // (proj_params + globe_eye are frame-invariant — written once per frame in
+      // render() via writeFrameProjectionUniform, and persist in this.uniformF32
+      // across every per-tile slot stage, exactly like proj_params always has.)
 
       // tile_origin_merc (32-33) + opacity (34) + log_depth_fc (35)
       // — offsets 128..143. log_depth_fc was cached by camera.getRTCMatrix

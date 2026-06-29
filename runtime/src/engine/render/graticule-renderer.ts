@@ -16,6 +16,7 @@ import type { GPUContext } from '../gpu/gpu'
 import { generateGraticule } from '../graticule'
 import type { UniformRing } from './uniform-ring'
 import { polygonUniformBytes, polygonUniformSlots } from './polygon-uniform-slots'
+import { writeFrameProjectionUniform } from './frame-projection-uniform'
 
 /** Per-frame data the graticule draw needs from the coordinator. The
  *  graticule reuses the SAME 240-byte uniform struct offsets as the layer
@@ -34,6 +35,10 @@ export interface GraticuleFrame {
   projCenterLat: number
   /** camera.zoom — drives zoom-bucket regeneration. */
   zoom: number
+  /** #600 — absolute sphere-ECEF camera position (frame.eye) for the globe(7)
+   *  eye-horizon cull, written into the globe_eye slot. Undefined off the globe
+   *  (flat/disc cull arms ignore it). */
+  eye?: readonly [number, number, number]
 }
 
 export class GraticuleRenderer {
@@ -171,7 +176,10 @@ export class GraticuleRenderer {
         // stroke_color = white @ 15% opacity
         new Float32Array(gratData, S.stroke_color * 4, 4).set([1, 1, 1, 0.15])
         // proj_params
-        new Float32Array(gratData, S.proj_params * 4, 4).set([frame.projType, frame.projCenterLon, frame.projCenterLat, 0])
+        // proj_params + globe_eye written TOGETHER (coupled so a missing globe_eye
+        // can't recur — #600). frame.eye is the globe camera position (undefined off
+        // the globe → globe_eye zero, ignored by the flat/disc cull arms).
+        writeFrameProjectionUniform(new Float32Array(gratData), frame.projType, frame.projCenterLon, frame.projCenterLat, frame.eye)
         // Graticule vertices are ECEF-encoded (PR 2d.1D); RTC anchor = (0,0,0)
         // since graticule emits absolute ECEF without per-tile centering.
         // cam_h / cam_l fields are unused by vs_main (ECEF path) — zero-fill.

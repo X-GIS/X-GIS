@@ -19,12 +19,22 @@ const projections = [
   { name: 'oblique_mercator',         args: '(lon, lat)',      title: 'Oblique Mercator',      body: 'Tilted Mercator centered on (lon, lat). Useful for narrow regions that span continents (e.g., the Hawaiian Islands chain).' },
   { name: 'globe',                    args: '',                title: 'Globe (3D)',            body: 'True 3D sphere with an orbit camera — Cesium-style. Two-finger vertical drag tilts (pitch), pinch zooms, drag rotates. Pitch is a real 3D tilt, not a flattened disc like orthographic.' },
 ]
+
+const headings = [
+  { depth: 2, slug: 'how-it-works',       text: 'How it works' },
+  { depth: 2, slug: 'storage-frame',      text: 'Why MM as the storage frame' },
+  { depth: 2, slug: 'available',          text: 'Available projections' },
+  { depth: 2, slug: 'switching',          text: 'Switching at runtime' },
+  { depth: 2, slug: 'limitations',        text: 'Known limitations' },
+  { depth: 2, slug: 'cpu-gpu',            text: 'CPU/GPU consistency' },
+]
 ---
 
 <Docs
   current="concepts/projections"
   title="X-GIS — Projection switching"
   description="Seven projections, one source. How X-GIS switches via a single GPU uniform write — no re-tessellation, no re-render of source data."
+  headings={headings}
 >
   <header class="mb-12">
     <p class="font-mono text-[11px] tracking-[0.2em] uppercase text-accent mb-3">
@@ -43,7 +53,7 @@ const projections = [
   <article class="space-y-14 text-[15px] sm:text-[16px] leading-[1.65] text-fg-dim">
 
     <section>
-      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+      <h2 id="how-it-works" class="scroll-mt-24 text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
         How it works
       </h2>
       <p class="mb-4">
@@ -115,7 +125,7 @@ let clip = u.mvp * vec4(projected, 0.0, 1.0)</code></pre>
     </section>
 
     <section>
-      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+      <h2 id="storage-frame" class="scroll-mt-24 text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
         Why MM as the storage frame
       </h2>
       <p class="mb-4">
@@ -133,7 +143,7 @@ let clip = u.mvp * vec4(projected, 0.0, 1.0)</code></pre>
     </section>
 
     <section>
-      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+      <h2 id="available" class="scroll-mt-24 text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
         Available projections
       </h2>
       <div class="space-y-3">
@@ -159,7 +169,7 @@ let clip = u.mvp * vec4(projected, 0.0, 1.0)</code></pre>
     </section>
 
     <section>
-      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+      <h2 id="switching" class="scroll-mt-24 text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
         Switching at runtime
       </h2>
       <p class="mb-4">
@@ -177,7 +187,7 @@ map.setProjection(getProjection("orthographic", 127, 37.5))</code></pre>
     </section>
 
     <section>
-      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+      <h2 id="limitations" class="scroll-mt-24 text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
         Known limitations
       </h2>
       <h3 class="text-[18px] font-medium text-fg mt-6 mb-2">Globe: polar caps render empty (±85.05°)</h3>
@@ -203,7 +213,7 @@ map.setProjection(getProjection("orthographic", 127, 37.5))</code></pre>
     </section>
 
     <section>
-      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+      <h2 id="cpu-gpu" class="scroll-mt-24 text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
         CPU/GPU consistency
       </h2>
       <p>

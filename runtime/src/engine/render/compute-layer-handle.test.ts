@@ -11,7 +11,7 @@ import {
   mergeComputeAddendumIntoVariant,
 } from '@xgis/compiler'
 import type { ShaderVariant, ComputePlanEntry } from '@xgis/compiler'
-import { wgslRaw } from '@xgis/compiler'
+import { varRefVec4 } from '@xgis/compiler'
 
 beforeAll(() => {
   if (typeof globalThis.GPUBufferUsage === 'undefined') {
@@ -72,7 +72,7 @@ function makeFakeContext() {
 
 function legacyVariant(): ShaderVariant {
   return {
-    key: 'L', preamble: {}, fillExpr: wgslRaw('u.fill_color'), strokeExpr: wgslRaw('u.stroke_color'),
+    key: 'L', preamble: {}, fillExpr: varRefVec4('u.fill_color'), strokeExpr: varRefVec4('u.stroke_color'),
     needsFeatureBuffer: false, featureFields: [], uniformFields: [],
     categoryOrder: {}, paletteColorGradients: [], paletteScalarGradients: [],
     fillUsesPalette: false, strokeUsesPalette: false, opacityUsesPalette: false,

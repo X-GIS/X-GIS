@@ -7,13 +7,15 @@
 // link time). A constRef is a stateless name reference, so one shared handle per const is correct
 // everywhere it is used.
 
-import { constRef, type Node } from '@xgis/shader-dsl'
+import { constRef, type ReadonlyNode } from '@xgis/shader-dsl'
 
-export const PI: Node<'f32'> = constRef('PI')
-export const EARTH_R: Node<'f32'> = constRef('EARTH_R')
-export const MERCATOR_LAT_LIMIT: Node<'f32'> = constRef('MERCATOR_LAT_LIMIT')
-export const WGS84_A: Node<'f32'> = constRef('WGS84_A')
-export const WGS84_E2: Node<'f32'> = constRef('WGS84_E2')
+// Module-level consts are immutable references → ReadonlyNode (no `.assign`); they flow into
+// every read-API (which accepts the ReadonlyNode supertype) but cannot be a mutation target.
+export const PI: ReadonlyNode<'f32'> = constRef('PI')
+export const EARTH_R: ReadonlyNode<'f32'> = constRef('EARTH_R')
+export const MERCATOR_LAT_LIMIT: ReadonlyNode<'f32'> = constRef('MERCATOR_LAT_LIMIT')
+export const WGS84_A: ReadonlyNode<'f32'> = constRef('WGS84_A')
+export const WGS84_E2: ReadonlyNode<'f32'> = constRef('WGS84_E2')
 // Survives only as the (DEG2RAD·EARTH_R) divisor in the abs-Mercator → degree reverse paths; forward
 // deg↔rad math uses the radians()/degrees() built-ins.
-export const DEG2RAD: Node<'f32'> = constRef('DEG2RAD')
+export const DEG2RAD: ReadonlyNode<'f32'> = constRef('DEG2RAD')

@@ -22,7 +22,7 @@ import {
   f32, u32, i32, toF32, toU32, vec2, vec3, vec4, mix, exp, clamp,
   length, dot, min, max, smoothstep, fwidth, select,
   f32T, u32T, vec2fT, vec4fT, mat4x4fT,
-  Let, Var, If, Loop, reduce, ifExpr, condExpr, Switch, Return, Discard,
+  Let, Var, If, Loop, reduce, when, Switch, Return, Discard,
   type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, structDecl, storageBuffer } from '@xgis/shader-dsl'
@@ -281,7 +281,7 @@ const vs = fn('vs_point', {
   // ECEF lanes are dead on the flat path. u.mvp is the matching matrix
   // (Camera.getViewForProjection). Quad expansion below consumes centerClip
   // identically for both paths.
-  const centerClip = condExpr([
+  const centerClip = when([
     [U.field.proj_params.x.lt(0.5), () => {
     // Precise absolute Mercator DSFUN (slots 20-23), camera-recentered in DSFUN
     // space — `(mx_h−camH)+(mx_l−camL)` — exactly like ecef_rtc. The old path
@@ -416,7 +416,7 @@ const fs = fn('fs_point', { in: PointOut.type }, (p) => {
   const blurUv = blurPx.div(max(pin.radius_px, 1))
   const halfBand = aa.add(blurUv)
 
-  const dist = ifExpr(shapeId.eq(0),
+  const dist = when(shapeId.eq(0),
     () => length(pin.uv),   // analytical circle (fast path)
     () => sdfShape(pin.uv, shapeId.sub(1)),
   )

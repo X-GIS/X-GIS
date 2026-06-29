@@ -66,18 +66,22 @@ describe('buildSceneView', () => {
     expect(noLine.hasTranslucent).toBe(false)
   })
 
-  it('hasOit requires OIT shows AND both OIT textures present', () => {
-    const ready = buildSceneView(
-      makeHost({ opaque: [], translucent: [], oit: cs(2), lineRenderer: {}, pointHasLayers: false }),
-      makeCtx(true),
-    )
-    expect(ready.hasOit).toBe(true)
-
-    const noTex = buildSceneView(
+  it('hasOit is content-based (OIT shows present) — targets are now lazily allocated by the pass', () => {
+    // The OIT targets moved to a lazy ensureOit(), so hasOit can no longer
+    // depend on the textures already existing (that would always be false on
+    // the lazy path). It is now purely `oit.length > 0`, independent of
+    // whether the RT handles are populated yet.
+    const withShows = buildSceneView(
       makeHost({ opaque: [], translucent: [], oit: cs(2), lineRenderer: {}, pointHasLayers: false }),
       makeCtx(false),
     )
-    expect(noTex.hasOit).toBe(false)
+    expect(withShows.hasOit).toBe(true)
+
+    const noShows = buildSceneView(
+      makeHost({ opaque: [], translucent: [], oit: [], lineRenderer: {}, pointHasLayers: false }),
+      makeCtx(false),
+    )
+    expect(noShows.hasOit).toBe(false)
   })
 
   it('hasPoints is false when pointRenderer is null', () => {

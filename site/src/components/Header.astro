@@ -40,7 +40,7 @@ const navCls = (key: string): string =>
 ---
 
 <header class="fixed top-0 inset-x-0 z-50 backdrop-blur-2xl bg-bg/72 border-b border-line">
-  <div class="max-w-[960px] mx-auto px-6 h-12 flex items-center text-[13px]">
+  <div class="max-w-[1200px] mx-auto px-6 h-12 flex items-center text-[13px]">
     <a href={home} class="flex items-center gap-2 hover:text-fg transition-colors">
       <img
         src={logoUrl}
@@ -53,32 +53,31 @@ const navCls = (key: string): string =>
 
     <!-- Desktop nav (≥ sm) — hover lights the link in the chart's active
          cyan, like a selected instrument readout. -->
-    <nav class="ml-auto hidden sm:flex items-center gap-7 text-fg-dim">
+    <nav class="ml-auto hidden lg:flex flex-nowrap items-center gap-6 text-fg-dim whitespace-nowrap">
+      <a href={docsUrl} class={navCls('docs')}>Docs</a>
       <a href={whyUrl} class={navCls('why')}>Why</a>
       <a href={playUrl} class={navCls('play')}>Playground</a>
-      <a href={docsUrl} class={navCls('docs')}>Docs</a>
       <a href={examplesUrl} class={navCls('examples')}>Examples</a>
       <a href={shaderUrl} class={navCls('shaders')}>Shaders</a>
       <a href={blueprintUrl} class={navCls('blueprint')}>Blueprint</a>
       <a href={convertUrl} class={navCls('convert')}>Convert</a>
       <a href={blogUrl} class={navCls('blog')}>Blog</a>
-      <a href={`${home}#install`} class="hover:text-fg transition-colors">Install</a>
       <a href={githubUrl} target="_blank" rel="noopener" class="hover:text-fg transition-colors">GitHub</a>
     </nav>
 
     <!-- Search (desktop) — sits between nav links and the trailing
          GitHub link. Cmd-K opens it from any page. -->
-    <div class="hidden sm:block ml-5">
+    <div class="hidden lg:block ml-5">
       <Search />
     </div>
 
     <!-- Language toggle (desktop) — en ↔ ko, mapping to the same page. -->
-    <div class="hidden sm:flex items-center ml-4">
+    <div class="hidden lg:flex items-center ml-4">
       <LangToggle variant="inline" />
     </div>
 
     <!-- Mobile drawer (the trigger button + the drawer markup) -->
-    <div class="sm:hidden ml-auto">
+    <div class="lg:hidden ml-auto">
       <MobileNav />
     </div>
   </div>

@@ -62,6 +62,7 @@ export { CODES, type ErrorCode, type ErrorCodeDef } from './core/diagnostics/cod
 export { diagnose, formatReport, type DiagnoseOptions, type DiagnosticReport } from './core/diagnostics/report'
 
 // Pre-emit passes used by authors / consumers.
+export { composeModule, type ComposeOptions } from './core/passes/compose'
 export { lowerModule } from './core/passes/match-lower'
 export { cse } from './core/passes/opt/cse'
 export { autoVars } from './core/passes/opt/auto-vars'

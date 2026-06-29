@@ -14,6 +14,7 @@ import { UniformRing } from './uniform-ring'
 import { GraticuleRenderer } from './graticule-renderer'
 import { PipelineFactory } from './pipeline-factory'
 import { polygonUniformBytes, polygonUniformStride, polygonUniformSlots } from './polygon-uniform-slots'
+import { writeFrameProjectionUniform } from './frame-projection-uniform'
 
 // Re-export the extracted types so this module's public surface stays
 // byte-identical (external consumers import these from './renderer').
@@ -843,7 +844,10 @@ export class MapRenderer {
       new Float32Array(uniformData, S.mvp * 4, 16).set(mvp)
       new Float32Array(uniformData, S.fill_color * 4, 4).set(fillColor as number[])
       new Float32Array(uniformData, S.stroke_color * 4, 4).set(strokeColor as number[])
-      new Float32Array(uniformData, S.proj_params * 4, 4).set([projType, projCenterLon, projCenterLat, 0])
+      // proj_params + globe_eye written TOGETHER (coupled so a missing globe_eye —
+      // the #600 vector-path leak — is unrepresentable). frame.eye is the globe/ECEF
+      // camera position (undefined off the globe → globe_eye zero, ignored by flat).
+      writeFrameProjectionUniform(new Float32Array(uniformData), projType, projCenterLon, projCenterLat, frame.eye)
       // Non-tiled layer: vertices are stored in absolute Mercator meters
       // (DSFUN stride 5/6) so tile_origin_merc = (0, 0) and
       // cam_h/cam_l = splitF64(cam_merc). The DSFUN subtraction in vs_main
@@ -925,6 +929,7 @@ export class MapRenderer {
       projCenterLon,
       projCenterLat,
       zoom: camera.zoom,
+      eye: frame.eye, // #600 globe_eye for the graticule's globe(7) cull
     })
 
     // pass.end() and submit() are handled by caller

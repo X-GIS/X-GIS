@@ -50,7 +50,10 @@ describe('uniform byte-layout consistency (CPU pack ↔ DSL struct, via reflect(
     expect(vtr).toMatch(/uf\.set\(mvp,\s*US\.mvp\)/)
     expect(vtr).toMatch(/US\.fill_color/)
     expect(vtr).toMatch(/US\.stroke_color/)
-    expect(vtr).toMatch(/US\.proj_params/)
+    // proj_params + globe_eye are no longer packed inline here — they route through
+    // the shared coupled writer (frame-projection-uniform.ts) so a missing globe_eye
+    // (the #600 leak) is unrepresentable. The writer itself uses reflect slots.
+    expect(vtr).toMatch(/writeFrameProjectionUniform/)
     // a bare numeric uniform-slot write (uf[16] / this.uniformF32[24] / this.uniformU32[36]
     // = …) must NOT survive — on ANY typed view over the uniform buffer.
     expect(vtr).not.toMatch(/\buf\[\d+\]/)

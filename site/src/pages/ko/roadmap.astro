@@ -1,0 +1,172 @@
+---
+// 로드맵 · /ko/roadmap — 영문 /roadmap 의 한국어 트윈. 같은 kit·구조를 쓰되
+// 내용만 번역했습니다. 언어 토글이 /roadmap ⇄ /ko/roadmap 으로 왕복합니다.
+import Base from '../../layouts/Base.astro'
+import Graticule from '../../components/Graticule.astro'
+import Header from '../../components/Header.astro'
+import Footer from '../../components/Footer.astro'
+import { ContentBand, SectionHead, FeatureRow } from '@/components/kit'
+
+const githubUrl = 'https://github.com/X-GIS/X-GIS'
+
+type Status = 'Shipped' | 'In progress' | 'Planned'
+
+interface Phase {
+  num: string
+  title: string
+  status: Status
+  thesis: string
+  items: string[]
+}
+
+const phases: Phase[] = [
+  {
+    num: '00',
+    title: 'MVP — 화면에 폴리곤 하나',
+    status: 'Shipped',
+    thesis: '핵심 가설 검증: 유틸리티 스타일 소스 → 컴파일러 → WGSL → 렌더된 폴리곤.',
+    items: [
+      '렉서 · 파서 · 타입체커 · IR · WGSL 코드젠',
+      'GeoJSON 로더, WebGPU 렌더러, 줌/패닝 카메라',
+      'fill / stroke / opacity / size 유틸리티',
+    ],
+  },
+  {
+    num: '01',
+    title: '코어 언어 — 진짜 지도 앱',
+    status: 'Shipped',
+    thesis: '데이터 기반 스타일링, 심볼, 모듈 시스템으로 실제 지도 앱을 만든다.',
+    items: [
+      '표현식: 산술, match, interpolate, 줌 모디파이어',
+      '데이터 모디파이어, 심볼, preset, struct / enum / fn',
+      'import / export, const, null 안전성',
+    ],
+  },
+  {
+    num: '02',
+    title: '데이터 파이프라인 — 실시간 데이터',
+    status: 'In progress',
+    thesis: '외부 데이터를 실시간으로 주입하고 더 많은 소스 포맷을 지원한다.',
+    items: [
+      '벡터 타일(MVT) + LOD, 래스터 타일',
+      'input / uniform 호스트 주입, WebSocket 스트림',
+      'TypeScript 코드젠 + f64 → f32 자동 RTC',
+    ],
+  },
+  {
+    num: '03',
+    title: '고급 렌더링 — 3D + 이펙트',
+    status: 'In progress',
+    thesis: '지형·커스텀 셰이더·멀티패스 렌더링을 갖춘 Google-Earth급 글로브.',
+    items: [
+      'ECEF 글로브는 현재 동작; 지형 · 3D 타일 · 스트리밍 + LOD는 로드맵',
+      'extrude, @fragment / @vertex 탈출구, effect 패키지',
+      'glTF 엔티티, PBR 조명, 자동 instancing / batching',
+    ],
+  },
+  {
+    num: '04',
+    title: '컴퓨트 — GPU 분석',
+    status: 'In progress',
+    thesis: 'GPU에서 시뮬레이션과 공간 분석을 실행한다.',
+    items: [
+      'grid / particle / agent 시뮬레이션 + 더블 버퍼링',
+      '분석 파이프라인: step → parallel → reduce',
+      'buffer, convex_hull, voronoi, contour, 불리언 연산',
+    ],
+  },
+  {
+    num: '05',
+    title: '애플리케이션 — 완전한 앱',
+    status: 'Planned',
+    thesis: 'HUD, 인터랙션, 드로잉 도구, 애니메이션을 갖춘 완전한 지도 앱.',
+    items: [
+      'overlay / annotation / widget, MSDF 텍스트 렌더링',
+      'click / hover / drag, GPU 피킹, 드로잉 도구',
+      '상태 머신, 모션, 타임라인 리플레이, 카메라 애니메이션',
+    ],
+  },
+  {
+    num: '06',
+    title: '도메인 표준 — 해도 & 국방',
+    status: 'Planned',
+    thesis: 'S-100 해도 표준과 군사 심볼 체계.',
+    items: [
+      'S-101 / S-102 로더, S-52 포트레이얼, 피처 카탈로그 → struct',
+      'MIL-STD-2525 / NATO APP-6 심볼, MGRS / UTM 좌표',
+      'Mapbox Style JSON → X-GIS 변환 및 브리지 모드',
+    ],
+  },
+  {
+    num: '07',
+    title: '생태계 & 프로덕션 — 실전 배치',
+    status: 'In progress',
+    thesis: '레지스트리, Studio, 서버 렌더링, 멀티유저, 보안.',
+    items: [
+      '플레이그라운드·문서 사이트는 현재 제공; 패키지 레지스트리 + Studio가 다음',
+      '헤드리스 / 서버 렌더링, 멀티 타깃 빌드 (Vulkan · Metal · HLSL)',
+      '멀티유저 동기화, 보안 등급, 증분 컴파일',
+    ],
+  },
+]
+
+// 상태 표시(한국어) — pillTone 키는 영문 status 그대로 사용.
+const statusKo: Record<Status, string> = {
+  Shipped: '출시됨',
+  'In progress': '진행 중',
+  Planned: '예정',
+}
+const pillTone: Record<Status, string> = {
+  Shipped: 'text-fg border-line-strong',
+  'In progress': 'text-fg-dim border-line',
+  Planned: 'text-fg-mute border-line',
+}
+---
+
+<Base
+  title="로드맵 — X-GIS가 향하는 곳"
+  description="렌더된 폴리곤 MVP부터 실시간 데이터, 3D 글로브, GPU 분석, 완전한 애플리케이션 계층, 도메인 해도 표준, 프로덕션 배치까지 — X-GIS의 단계별 방향. 솔직한 상태, 날짜 약속 없음."
+>
+  <Graticule />
+  <Header />
+
+  <main>
+    <!-- ── 개요 ── -->
+    <ContentBand id="roadmap" class="border-t-0 pt-28 sm:pt-36 lg:pt-44">
+      <SectionHead
+        eyebrow="로드맵"
+        title="X-GIS가 향하는 곳."
+        lead="여덟 단계, 첫 렌더된 폴리곤부터 프로덕션 배치까지. 비전 기반의 솔직한 정리 — 무엇이 출시됐고, 무엇이 진행 중이며, 무엇이 남았는지. 날짜 약속은 없습니다."
+      />
+      <p class="mt-8 text-fg-mute text-[14px] leading-[1.6] max-w-[620px]">
+        각 단계의 전체 범위와 수용 기준은
+        <a href={`${githubUrl}/blob/main/ROADMAP.md`} target="_blank" rel="noopener" class="text-accent hover:text-accent-hover transition-colors">ROADMAP.md ↗</a>
+        에 있습니다.
+      </p>
+    </ContentBand>
+
+    <!-- ── 단계별 정리 ── -->
+    <ContentBand class="border-t-0 pt-0">
+      <div>
+        {phases.map((p) => (
+          <FeatureRow num={p.num} title={p.title}>
+            <span class:list={['inline-block font-mono text-[10.5px] uppercase tracking-[0.14em] rounded-full border px-2.5 py-0.5 mb-3', pillTone[p.status]]}>
+              {statusKo[p.status]}
+            </span>
+            <p class="text-fg-dim text-[15px] leading-[1.6] max-w-[620px]">{p.thesis}</p>
+            <ul class="mt-4 space-y-1.5 max-w-[620px]">
+              {p.items.map((it) => (
+                <li class="flex gap-3 text-[14px] leading-[1.55] text-fg-mute">
+                  <span aria-hidden="true" class="mt-[7px] inline-block w-1 h-1 rotate-45 bg-fg-faint flex-shrink-0"></span>
+                  <span>{it}</span>
+                </li>
+              ))}
+            </ul>
+          </FeatureRow>
+        ))}
+      </div>
+    </ContentBand>
+  </main>
+
+  <Footer />
+</Base>

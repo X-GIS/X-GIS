@@ -25,6 +25,7 @@ import { installWebGPUStub, type StubInstallation } from '../../../__test-suppor
 import { initGPU, type GPUContext } from '../../gpu/gpu'
 import { RasterRenderer } from '../raster-renderer'
 import { Camera } from '../../projection/camera'
+import { rasterUniformBytes } from '../raster-uniform-slots'
 
 let stub: StubInstallation
 
@@ -48,11 +49,10 @@ async function makeCtx(): Promise<GPUContext> {
 const W = 1024
 const H = 768
 
-// The raster global uniform is a 160-byte buffer (raster-renderer.ts:117).
-// raster_color0 sits at byte offset 96 → f32 indices 24..27, laid out as
-// (hueRotateDeg, brightnessMin, brightnessMax, saturation). brightnessMin is
-// the .y lane → f32 slot 25. (raster-renderer.ts:313-314.)
-const UNIFORM_BYTES = 160
+// The raster global uniform is the reflect-derived 'Uniforms' buffer
+// (raster-renderer.ts:117). raster_color0 sits at byte offset 96 → f32 indices
+// 24..27, laid out as (hueRotateDeg, brightnessMin, brightnessMax, saturation).
+// brightnessMin is the .y lane → f32 slot 25. (raster-renderer.ts:313-314.)
 const BRIGHTNESS_MIN_SLOT = 25
 
 // A value that is NOT a spec default (default brightnessMin = 0) and is in-range
@@ -64,6 +64,7 @@ const BRIGHTNESS_MIN = 0.375
  *  the same setColorAdjust the orchestrator calls, run render() once, and return
  *  the raster_color0.y lane from the captured 160-byte uniform write. */
 function capturedBrightnessMin(ctx: GPUContext, brightnessMin: number): number {
+  const UNIFORM_BYTES = rasterUniformBytes()
   const renderer = new RasterRenderer(ctx)
   renderer.setUrlTemplate('https://example.invalid/{z}/{x}/{y}.png')
   // Mirror opaque-pass.ts:140-145 positional order:

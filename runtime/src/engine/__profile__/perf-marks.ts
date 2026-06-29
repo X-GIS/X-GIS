@@ -45,7 +45,19 @@ const WINDOW = 60
 // to do zero performance.now()/Map work. Opt in via `__xgisPerfMarks = true`
 // before load, or call setPerfMarksEnabled(true) at runtime, to restore full
 // diagnostics. The recorded semantics are identical when enabled.
+// Enable via (a) `__xgisPerfMarks = true` before load, (b) the `?perfmarks=1`
+// URL flag, or (c) the `?gpuprof=1` flag (so the GPU-timer profiling URL also
+// turns on the CPU per-pass marks — one flag arms the whole mobile scoreboard),
+// or (d) setPerfMarksEnabled(true) / __xgisPerfPhases.setEnabled(true) at runtime.
+function urlPerfFlag(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    const p = new URL(window.location.href).searchParams
+    return p.get('perfmarks') === '1' || p.get('gpuprof') === '1'
+  } catch { return false }
+}
 let ENABLED = (globalThis as { __xgisPerfMarks?: boolean }).__xgisPerfMarks === true
+  || urlPerfFlag()
 
 /** Toggle perf-marks recording. Off by default in production. */
 export function setPerfMarksEnabled(b: boolean): void {
@@ -132,8 +144,12 @@ export function resetPhaseTimings(): void {
   __xgisPerfPhases?: {
     getPhaseAverages: typeof getPhaseAverages
     resetPhaseTimings: typeof resetPhaseTimings
+    setEnabled: typeof setPerfMarksEnabled
   }
 }).__xgisPerfPhases = {
   getPhaseAverages,
   resetPhaseTimings,
+  // Exposed so a DevTools / remote-debugged-phone console can arm the per-pass
+  // marks at runtime (then drive an animation and read getPhaseAverages()).
+  setEnabled: setPerfMarksEnabled,
 }

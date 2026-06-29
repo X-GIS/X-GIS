@@ -17,24 +17,26 @@ import { dslError } from '../diagnostics/error'
 // `KeyOf` / `ElemKey` re-export pattern in the barrel).
 export type { ScalarKey } from './types'
 
-/** Anything acceptable where a Node is expected — a Node, or a number that
- *  is auto-lifted to an f32 literal (the projection math is f32-dominant). */
-export type NodeLike = Node | number
+/** Anything acceptable where a Node is READ — any node (mutable or read-only), or a
+ *  number that is auto-lifted to an f32 literal (the projection math is f32-dominant).
+ *  Reading takes the `ReadonlyNode` supertype, so a `Let()`/param/const operand is
+ *  accepted everywhere a value is consumed; only `.assign` needs the mutable subtype. */
+export type NodeLike = ReadonlyNode<any> | number
 
 /** Operand a binary arithmetic op accepts: a matching vector or any scalar
  *  (WGSL vec∘scalar broadcast) for a vector LHS; any scalar for a scalar LHS.
  *  A `vec2`+`vec3` mismatch is therefore a TS error. */
 export type ArithArg<K extends string> =
-  K extends `vec${string}` ? Node<K> | Node<ScalarKey> | number : Node<ScalarKey> | number
+  K extends `vec${string}` ? ReadonlyNode<K> | ReadonlyNode<ScalarKey> | number : ReadonlyNode<ScalarKey> | number
 
-export function lift(x: NodeLike): Node {
+export function lift(x: NodeLike): ReadonlyNode<any> {
   return typeof x === 'number' ? new Node({ op: 'lit', type: f32T, value: x }) : x
 }
 
-/** Statement sink — the builder installs how `node.set(v)` / `node.addAssign(v)` push their Stmt to the
+/** Statement sink — the builder installs how `node.assign(v)` pushes its Stmt to the
  *  current scope. Injected (not imported) so the Node lvalue methods can route to the builder without a
- *  node ↔ builder import cycle. */
-type StmtSink = { assign(target: Node, value: Node): void }
+ *  node ↔ builder import cycle. (Reads only `.expr`, so a ReadonlyNode value is fine.) */
+type StmtSink = { assign(target: ReadonlyNode<any>, value: ReadonlyNode<any>): void }
 let _stmtSink: StmtSink | undefined
 export const installStmtSink = (s: StmtSink): void => { _stmtSink = s }
 const stmtSink = (): StmtSink => {
@@ -70,7 +72,7 @@ function binResultType(a: ShaderType, b: ShaderType, ctx: string): ShaderType {
 
 const VEC_FIELD_INDEX: Record<string, number> = { x: 0, y: 1, z: 2, w: 3 }
 
-export class Node<K extends string = string> {
+export class ReadonlyNode<K extends string = string> {
   /** Phantom type key. Optional + never assigned, so it carries K covariantly
    *  at the type level (a Node<'vec3<f32>'> is NOT assignable where
    *  Node<'vec2<f32>'> is wanted — the vec3+vec2 compile-error mechanism)
@@ -86,7 +88,7 @@ export class Node<K extends string = string> {
    *  a vec LHS (or any f32-dominant geometry/projection math) keeps the f32 lift (WGSL broadcasts
    *  `vec + scalar`). So the author drops the `f32()`/`u32()`/`i32()` wrapper in every arithmetic,
    *  comparison, and bitwise op — the context types the literal. */
-  private liftArg(o: NodeLike): Node {
+  protected liftArg(o: NodeLike): ReadonlyNode {
     const t = this.type
     if (typeof o === 'number' && t.kind === 'scalar' && (t.scalar === 'u32' || t.scalar === 'i32')) {
       return t.scalar === 'u32' ? u32(o) : i32(o)
@@ -108,15 +110,15 @@ export class Node<K extends string = string> {
   private cmp(cop: CmpOp, o: NodeLike): Node<'bool'> {
     return new Node<'bool'>({ op: 'compare', type: boolT, cop, a: this.expr, b: this.liftArg(o).expr })
   }
-  lt(o: Node<ScalarKey> | number): Node<'bool'> { return this.cmp('<', o) }
-  gt(o: Node<ScalarKey> | number): Node<'bool'> { return this.cmp('>', o) }
-  le(o: Node<ScalarKey> | number): Node<'bool'> { return this.cmp('<=', o) }
-  ge(o: Node<ScalarKey> | number): Node<'bool'> { return this.cmp('>=', o) }
-  eq(o: Node<ScalarKey> | number): Node<'bool'> { return this.cmp('==', o) }
-  ne(o: Node<ScalarKey> | number): Node<'bool'> { return this.cmp('!=', o) }
+  lt(o: ReadonlyNode<ScalarKey> | number): Node<'bool'> { return this.cmp('<', o) }
+  gt(o: ReadonlyNode<ScalarKey> | number): Node<'bool'> { return this.cmp('>', o) }
+  le(o: ReadonlyNode<ScalarKey> | number): Node<'bool'> { return this.cmp('<=', o) }
+  ge(o: ReadonlyNode<ScalarKey> | number): Node<'bool'> { return this.cmp('>=', o) }
+  eq(o: ReadonlyNode<ScalarKey> | number): Node<'bool'> { return this.cmp('==', o) }
+  ne(o: ReadonlyNode<ScalarKey> | number): Node<'bool'> { return this.cmp('!=', o) }
 
-  and(o: Node<'bool'>): Node<'bool'> { return new Node<'bool'>({ op: 'logical', type: boolT, lop: '&&', a: this.expr, b: o.expr }) }
-  or(o: Node<'bool'>): Node<'bool'> { return new Node<'bool'>({ op: 'logical', type: boolT, lop: '||', a: this.expr, b: o.expr }) }
+  and(o: ReadonlyNode<'bool'>): Node<'bool'> { return new Node<'bool'>({ op: 'logical', type: boolT, lop: '&&', a: this.expr, b: o.expr }) }
+  or(o: ReadonlyNode<'bool'>): Node<'bool'> { return new Node<'bool'>({ op: 'logical', type: boolT, lop: '||', a: this.expr, b: o.expr }) }
 
   /** Bitwise ops on u32 / i32. Number literals auto-lift to the LHS's scalar
    *  type so `flags.bitAnd(1)` emits `flags & 1u` for a u32 flags (the WGSL
@@ -126,14 +128,14 @@ export class Node<K extends string = string> {
     if (t.kind !== 'scalar' || (t.scalar !== 'u32' && t.scalar !== 'i32')) {
       throw dslError('SD0005', `${bop}, got ${typeKey(t)}`)
     }
-    const bn: Node = typeof o === 'number' ? (t.scalar === 'u32' ? u32(o) : i32(o)) : o
+    const bn: ReadonlyNode = typeof o === 'number' ? (t.scalar === 'u32' ? u32(o) : i32(o)) : o
     return new Node({ op: 'binop', type: t, bop, a: this.expr, b: bn.expr })
   }
-  bitAnd(o: Node<ScalarKey> | number): Node<K> { return this.bitBin('&', o) as Node<K> }
-  bitOr(o: Node<ScalarKey> | number): Node<K> { return this.bitBin('|', o) as Node<K> }
-  bitXor(o: Node<ScalarKey> | number): Node<K> { return this.bitBin('^', o) as Node<K> }
-  shl(o: Node<ScalarKey> | number): Node<K> { return this.bitBin('<<', o) as Node<K> }
-  shr(o: Node<ScalarKey> | number): Node<K> { return this.bitBin('>>', o) as Node<K> }
+  bitAnd(o: ReadonlyNode<ScalarKey> | number): Node<K> { return this.bitBin('&', o) as Node<K> }
+  bitOr(o: ReadonlyNode<ScalarKey> | number): Node<K> { return this.bitBin('|', o) as Node<K> }
+  bitXor(o: ReadonlyNode<ScalarKey> | number): Node<K> { return this.bitBin('^', o) as Node<K> }
+  shl(o: ReadonlyNode<ScalarKey> | number): Node<K> { return this.bitBin('<<', o) as Node<K> }
+  shr(o: ReadonlyNode<ScalarKey> | number): Node<K> { return this.bitBin('>>', o) as Node<K> }
 
   /** Vector component access — `.x`/`.y`/`.z`/`.w` → elem scalar. */
   comp(field: 'x' | 'y' | 'z' | 'w'): Node<ElemKey<K>> {
@@ -178,24 +180,35 @@ export class Node<K extends string = string> {
   get bgra(): Node<'vec4<f32>'> { return this.swizzle('bgra') as Node<'vec4<f32>'> }
 
   /** Array index — base[idx]. Key inferred from the element ShaderType. */
-  at<T extends ShaderType>(idx: Node<ScalarKey> | number, elem: T): Node<KeyOf<T>> {
+  at<T extends ShaderType>(idx: ReadonlyNode<ScalarKey> | number, elem: T): Node<KeyOf<T>> {
     return new Node<KeyOf<T>>({ op: 'index', type: elem, base: this.expr, idx: lift(idx).expr })
   }
 
-  /** `this = value;` — the ONE lvalue-mutation method (matches three.js TSL's `.assign()`). JS can't
-   *  overload `=` (`x = v` would just rebind the JS variable, not emit a store), so mutation is a method.
-   *  There is no compound `addAssign`: `add` is the pure expression, so `x += v` is `x.assign(x.add(v))`.
-   *  The value lifts to this lvalue's scalar context. */
-  assign(value: ArithArg<K>): void { stmtSink().assign(this, this.liftArg(value)) }
-
   /** `this ? a : b` (only valid on a bool node — enforced via `this:`).
    *  Both branches must share a key. Mirrors WGSL select(b, a, this). */
-  select<R extends string = 'f32'>(this: Node<'bool'>, a: Node<R> | number, b: Node<R> | number): Node<R> {
+  select<R extends string = 'f32'>(this: ReadonlyNode<'bool'>, a: ReadonlyNode<R> | number, b: ReadonlyNode<R> | number): Node<R> {
     if (!typeEq(this.type, boolT)) throw dslError('SD0009')
     const ta = lift(a), tb = lift(b)
     if (!typeEq(ta.type, tb.type)) throw dslError('SD0010', `${typeKey(ta.type)} vs ${typeKey(tb.type)}`)
     return new Node<R>({ op: 'select', type: ta.type, cond: this.expr, ifTrue: ta.expr, ifFalse: tb.expr })
   }
+}
+
+/** A node that also carries the WRITE capability. `Var()` and the auto-var value bindings
+ *  (`const x = <expr>` later `.assign`-ed) are `Node`; `Let()` / a function param / a module
+ *  const are the read-only `ReadonlyNode` SUPERTYPE — so `someLet.assign(…)` is a compile error
+ *  (the no-assign-to-let footgun, caught by `tsc` instead of only by the lint rule). Every
+ *  value-producing method/builtin returns `Node`, so the auto-var sugar keeps working for any
+ *  produced value; only named immutable bindings are narrowed to `ReadonlyNode`.
+ *
+ *  This is a TYPE-LEVEL distinction only — the runtime is one class, so emitted WGSL/GLSL is
+ *  byte-identical. (Mirrors RxJS `Observable` (read) vs `Subject` (read+write).) */
+export class Node<K extends string = string> extends ReadonlyNode<K> {
+  /** `this = value;` — the ONE lvalue-mutation method (matches three.js TSL's `.assign()`). JS can't
+   *  overload `=` (`x = v` would just rebind the JS variable, not emit a store), so mutation is a method.
+   *  There is no compound `addAssign`: `add` is the pure expression, so `x += v` is `x.assign(x.add(v))`.
+   *  The value lifts to this lvalue's scalar context. */
+  assign(value: ArithArg<K>): void { stmtSink().assign(this, this.liftArg(value)) }
 }
 
 // ── Literal / ref constructors ──
@@ -219,12 +232,13 @@ export const bool = (v: boolean): Node<'bool'> => {
 
 /** A reference to a module-level const (PI, DEG2RAD, EARTH_R, …). Defaults to
  *  an f32 const (every projection const is f32). */
-export function constRef<T extends ShaderType = typeof f32T>(name: string, type?: T): Node<KeyOf<T>> {
+export function constRef<T extends ShaderType = typeof f32T>(name: string, type?: T): ReadonlyNode<KeyOf<T>> {
   return new Node<KeyOf<T>>({ op: 'constref', type: type ?? f32T, name })
 }
 
-/** A function parameter reference (key inferred from the ShaderType literal). */
-export function param<T extends ShaderType>(name: string, type: T): Node<KeyOf<T>> {
+/** A function parameter reference (key inferred from the ShaderType literal). Read-only — a
+ *  param cannot be assigned (so `p.x.assign(...)` on a param is a compile error). */
+export function param<T extends ShaderType>(name: string, type: T): ReadonlyNode<KeyOf<T>> {
   return new Node<KeyOf<T>>({ op: 'param', type, name })
 }
 
@@ -241,7 +255,7 @@ const call = (fn: string, type: ShaderType, ...args: NodeLike[]): Node =>
   new Node({ op: 'call', type, fn, args: args.map((a) => lift(a).expr) })
 
 // genType1: component-wise unary builtin — preserves the operand key.
-const genType1 = (fn: string) => <K extends string>(x: Node<K>): Node<K> => call(fn, x.type, x) as Node<K>
+const genType1 = (fn: string) => <K extends string>(x: ReadonlyNode<K>): Node<K> => call(fn, x.type, x) as Node<K>
 
 export const sin = genType1('sin')
 export const cos = genType1('cos')
@@ -273,61 +287,61 @@ export const round = genType1('round')
  *  `inversesqrt` (see core/intrinsics.ts); WGSL keeps `inverseSqrt`. */
 export const inverseSqrt = genType1('inverseSqrt')
 
-export const atan2 = <K extends string>(y: Node<K>, x: ArithArg<K>): Node<K> => call('atan2', y.type, y, x) as Node<K>
-export const min = <K extends string>(a: Node<K>, b: ArithArg<K>): Node<K> => call('min', binResultType(a.type, lift(b).type, 'min'), a, b) as Node<K>
-export const max = <K extends string>(a: Node<K>, b: ArithArg<K>): Node<K> => call('max', binResultType(a.type, lift(b).type, 'max'), a, b) as Node<K>
+export const atan2 = <K extends string>(y: ReadonlyNode<K>, x: NoInfer<ArithArg<K>>): Node<K> => call('atan2', y.type, y, x) as Node<K>
+export const min = <K extends string>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>>): Node<K> => call('min', binResultType(a.type, lift(b).type, 'min'), a, b) as Node<K>
+export const max = <K extends string>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>>): Node<K> => call('max', binResultType(a.type, lift(b).type, 'max'), a, b) as Node<K>
 /** `pow(a, b)` — same-type binary; second operand promotes via ArithArg so
  *  `pow(z, 4)` emits `pow(z, 4.0)` for an f32 base. WGSL pow only accepts
  *  matching scalar/vec floats, so a vec*scalar broadcast is structurally
  *  rejected by WGSL even when the type system would allow it — we keep
  *  binResultType for parity with `min` / `max`. */
-export const pow = <K extends string>(a: Node<K>, b: ArithArg<K>): Node<K> => call('pow', binResultType(a.type, lift(b).type, 'pow'), a, b) as Node<K>
-export const clamp = <K extends string>(x: Node<K>, lo: ArithArg<K>, hi: ArithArg<K>): Node<K> => call('clamp', x.type, x, lo, hi) as Node<K>
-export const mix = <K extends string>(a: Node<K>, b: ArithArg<K>, t: Node<ScalarKey> | number): Node<K> => call('mix', a.type, a, b, t) as Node<K>
-export const smoothstep = (e0: Node<ScalarKey> | number, e1: Node<ScalarKey> | number, x: Node<ScalarKey> | number): Node<'f32'> => { const n = lift(x); return call('smoothstep', elemScalarType(n.type), e0, e1, n) as Node<'f32'> }
+export const pow = <K extends string>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>>): Node<K> => call('pow', binResultType(a.type, lift(b).type, 'pow'), a, b) as Node<K>
+export const clamp = <K extends string>(x: ReadonlyNode<K>, lo: NoInfer<ArithArg<K>>, hi: NoInfer<ArithArg<K>>): Node<K> => call('clamp', x.type, x, lo, hi) as Node<K>
+export const mix = <K extends string>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>>, t: ReadonlyNode<ScalarKey> | number): Node<K> => call('mix', a.type, a, b, t) as Node<K>
+export const smoothstep = (e0: ReadonlyNode<ScalarKey> | number, e1: ReadonlyNode<ScalarKey> | number, x: ReadonlyNode<ScalarKey> | number): Node<'f32'> => { const n = lift(x); return call('smoothstep', elemScalarType(n.type), e0, e1, n) as Node<'f32'> }
 /** `step(edge, x)` — 0 where x < edge, else 1, component-wise. Result is keyed
  *  by `x` (the genType operand); WGSL needs `edge` and `x` the same type. */
-export const step = <K extends string>(edge: ArithArg<K>, x: Node<K>): Node<K> => call('step', x.type, edge, x) as Node<K>
-export const length = (v: Node<string>): Node<'f32'> => call('length', f32T, v) as Node<'f32'>
-export const dot = (a: Node<string>, b: Node<string>): Node<'f32'> => call('dot', f32T, a, b) as Node<'f32'>
+export const step = <K extends string>(edge: NoInfer<ArithArg<K>>, x: ReadonlyNode<K>): Node<K> => call('step', x.type, edge, x) as Node<K>
+export const length = (v: ReadonlyNode<string>): Node<'f32'> => call('length', f32T, v) as Node<'f32'>
+export const dot = (a: ReadonlyNode<string>, b: ReadonlyNode<string>): Node<'f32'> => call('dot', f32T, a, b) as Node<'f32'>
 /** `normalize(v)` — v/|v|; preserves the vector key (vec2/3/4). */
 export const normalize = genType1('normalize')
 /** `distance(a, b)` — |a − b| (vector → scalar), the built-in spelling of the
  *  hand-rolled `length(a.sub(b))`. */
-export const distance = (a: Node<string>, b: Node<string>): Node<'f32'> => call('distance', f32T, a, b) as Node<'f32'>
+export const distance = (a: ReadonlyNode<string>, b: ReadonlyNode<string>): Node<'f32'> => call('distance', f32T, a, b) as Node<'f32'>
 /** `cross(a, b)` — 3-D cross product (vec3 only). */
-export const cross = (a: Node<'vec3<f32>'>, b: Node<'vec3<f32>'>): Node<'vec3<f32>'> => call('cross', vec3fT, a, b) as Node<'vec3<f32>'>
+export const cross = (a: ReadonlyNode<'vec3<f32>'>, b: ReadonlyNode<'vec3<f32>'>): Node<'vec3<f32>'> => call('cross', vec3fT, a, b) as Node<'vec3<f32>'>
 // NOTE: the GLSL/WGSL builtin `reflect(i, n)` is intentionally NOT added — the
 // name is already taken by the std140 reflection engine (core/reflect.ts), and no
 // shader currently needs vector reflection. Add it under a non-colliding name only
 // when a real call site appears.
 /** Pack a vec4<f32> (each component in [0,1]) into a u32 RGBA8. */
-export const pack4x8unorm = (v: Node<'vec4<f32>'>): Node<'u32'> => call('pack4x8unorm', u32T, v) as Node<'u32'>
+export const pack4x8unorm = (v: ReadonlyNode<'vec4<f32>'>): Node<'u32'> => call('pack4x8unorm', u32T, v) as Node<'u32'>
 /** Unpack a u32 RGBA8 into a vec4<f32> (each component in [0,1]). */
-export const unpack4x8unorm = (v: Node<'u32'>): Node<'vec4<f32>'> => call('unpack4x8unorm', vec4fT, v) as Node<'vec4<f32>'>
+export const unpack4x8unorm = (v: ReadonlyNode<'u32'>): Node<'vec4<f32>'> => call('unpack4x8unorm', vec4fT, v) as Node<'vec4<f32>'>
 /** Reinterpret an f32's bit pattern as u32. Carries the NEUTRAL intrinsic id
  *  `bitcastU32`; the registry (core/intrinsics.ts) spells it `bitcast<u32>(x)` on
  *  WGSL and `floatBitsToUint(x)` on GLSL — no WGSL generic syntax in the IR. */
-export const bitcastU32 = (v: Node<'f32'>): Node<'u32'> => call('bitcastU32', u32T, v) as Node<'u32'>
+export const bitcastU32 = (v: ReadonlyNode<'f32'>): Node<'u32'> => call('bitcastU32', u32T, v) as Node<'u32'>
 /** Sample a 2D texture → vec4<f32>. (CPU eval: nearest-texel stub.) */
-export const textureSample = (tex: Node, smp: Node, uv: NodeLike): Node<'vec4<f32>'> =>
+export const textureSample = (tex: ReadonlyNode, smp: ReadonlyNode, uv: NodeLike): Node<'vec4<f32>'> =>
   call('textureSample', vec4fT, tex, smp, uv) as Node<'vec4<f32>'>
 /** Load a texel from a 2D texture at integer coords → vec4<f32>. The mip
  *  level argument is required by WGSL; pass `0` for the base level.
  *  Coord is typically `vec2<i32>`; the runtime accepts any vec2 / scalar
  *  NodeLike and lets WGSL's textureLoad signature check. (CPU stub.) */
-export const textureLoad = (tex: Node, coord: NodeLike, level: NodeLike): Node<'vec4<f32>'> =>
+export const textureLoad = (tex: ReadonlyNode, coord: NodeLike, level: NodeLike): Node<'vec4<f32>'> =>
   call('textureLoad', vec4fT, tex, coord, level) as Node<'vec4<f32>'>
 /** Texture extent in texels → vec2<u32>. Cost: one query per fragment in
  *  fullscreen-triangle compose passes; cached in a `let` by the caller. */
-export const textureDimensions = (tex: Node): Node<'vec2<u32>'> =>
+export const textureDimensions = (tex: ReadonlyNode): Node<'vec2<u32>'> =>
   call('textureDimensions', vec2uT, tex) as Node<'vec2<u32>'>
 /** Screen-space derivative magnitude — GPU-only (uncomputable per-invocation
  *  on the CPU; the interpreter stubs it to 0). */
 export const fwidth = genType1('fwidth')
 
 /** select(cond, ifTrue, ifFalse) — free-function form of Node.select. */
-export const select = <R extends string>(cond: Node<'bool'>, ifTrue: Node<R> | number, ifFalse: Node<R> | number): Node<R> => cond.select(ifTrue, ifFalse)
+export const select = <R extends string>(cond: ReadonlyNode<'bool'>, ifTrue: ReadonlyNode<R> | number, ifFalse: ReadonlyNode<R> | number): Node<R> => cond.select(ifTrue, ifFalse)
 
 /**
  * `match (scrutinee) { case v0: r0; ...; default: dflt }` — a typed multi-arm
@@ -349,9 +363,9 @@ export const select = <R extends string>(cond: Node<'bool'>, ifTrue: Node<R> | n
  * shader DSL migration.
  */
 export function matchExpr<S extends ScalarKey, R extends string>(
-  scrutinee: Node<S>,
-  cases: ReadonlyArray<readonly [caseValue: number, value: Node<R>]>,
-  default_: Node<R>,
+  scrutinee: ReadonlyNode<S>,
+  cases: ReadonlyArray<readonly [caseValue: number, value: ReadonlyNode<R>]>,
+  default_: ReadonlyNode<R>,
 ): Node<R> {
   for (const [, v] of cases) {
     if (!typeEq(v.type, default_.type)) {
@@ -367,10 +381,50 @@ export function matchExpr<S extends ScalarKey, R extends string>(
   })
 }
 
+// ── Exhaustive integer dispatch (enumU32 + matchEnum) ──
+
+/** A typed u32 "enum" — a name→value map whose members are `Node<'u32'>` literals, plus the raw
+ *  value map. Pair with `matchEnum` for EXHAUSTIVE integer dispatch: the arms object must cover
+ *  every member (a missing or unknown key is a `tsc` error), so a forgotten case is caught at
+ *  compile time instead of silently falling through the WGSL `switch` default. */
+export interface EnumU32<M extends Record<string, number>> {
+  /** Typed member literals — `Kind.members.Fill` is a `Node<'u32'>` of that member's value. */
+  readonly members: { readonly [K in keyof M]: Node<'u32'> }
+  /** The raw name→value map (the integer case labels `matchEnum` dispatches on). */
+  readonly values: M
+}
+
+/** Declare a u32 enum from a name→value map — `const Kind = enumU32({ Line: 0, Fill: 1, Stroke: 2 })`.
+ *  The `const` type parameter preserves the literal keys, so `matchEnum` can require one arm per
+ *  member. Values are the integer case labels emitted in the switch. */
+export function enumU32<const M extends Record<string, number>>(values: M): EnumU32<M> {
+  const members = {} as { [K in keyof M]: Node<'u32'> }
+  for (const k of Object.keys(values) as (keyof M)[]) members[k] = u32(values[k])
+  return { members, values }
+}
+
+/** Exhaustive integer dispatch over an `enumU32` — `matchEnum(kind, Kind, { Line: () => …, Fill: () => …, … })`.
+ *  EVERY member must have an arm: omit one and `tsc` errors (the arms type is a mapped type over the
+ *  enum's keys), so adding an enum member immediately surfaces every un-handled dispatch site. Lowers to
+ *  the SAME `matchExpr` the hand-written form emits — the last-declared member becomes the switch
+ *  `default`, so the emitted WGSL is a standard exhaustive switch (byte-identical to the manual form).
+ *  Arms are zero-arg thunks; their values are built in declared order. */
+export function matchEnum<M extends Record<string, number>, R extends string>(
+  scrutinee: Node<ScalarKey>,
+  e: EnumU32<M>,
+  arms: { readonly [K in keyof M]: () => Node<R> },
+): Node<R> {
+  const keys = Object.keys(e.values) as (keyof M & string)[]
+  if (keys.length === 0) throw new Error('shader-dsl: matchEnum needs at least one member')
+  const last = keys[keys.length - 1]!
+  const cases = keys.slice(0, -1).map((k) => [e.values[k], arms[k]()] as const)
+  return matchExpr(scrutinee, cases, arms[last]())
+}
+
 // Casts
-export const toF32 = (x: Node<string> | number): Node<'f32'> => call('f32', f32T, x) as Node<'f32'>
-export const toI32 = (x: Node<string> | number): Node<'i32'> => call('i32', i32T, x) as Node<'i32'>
-export const toU32 = (x: Node<string> | number): Node<'u32'> => call('u32', u32T, x) as Node<'u32'>
+export const toF32 = (x: ReadonlyNode<string> | number): Node<'f32'> => call('f32', f32T, x) as Node<'f32'>
+export const toI32 = (x: ReadonlyNode<string> | number): Node<'i32'> => call('i32', i32T, x) as Node<'i32'>
+export const toU32 = (x: ReadonlyNode<string> | number): Node<'u32'> => call('u32', u32T, x) as Node<'u32'>
 
 /** Call a user-defined (authored) function by name. The WGSL backend emits
  *  `name(args)`; the CPU backend dispatches through the compiled fn table. */
@@ -396,7 +450,7 @@ export const construct = (type: ShaderType, args: NodeLike[]): Node => {
 
 /** Low-level struct member access — `base.name`. NOT for authoring: shaders read fields through the
  *  SoT getters (`Handle.of(node).name`, `U.field.name`); this is the primitive those getters build on. */
-export const member = <T extends ShaderType>(base: Node, name: string, type: T): Node<KeyOf<T>> =>
+export const member = <T extends ShaderType>(base: ReadonlyNode, name: string, type: T): Node<KeyOf<T>> =>
   new Node<KeyOf<T>>({ op: 'member', type, base: base.expr, field: name })
 export const vec2 = (...a: NodeLike[]): Node<'vec2<f32>'> => construct(vec2fT, a) as Node<'vec2<f32>'>
 export const vec3 = (...a: NodeLike[]): Node<'vec3<f32>'> => construct(vec3fT, a) as Node<'vec3<f32>'>
@@ -407,11 +461,11 @@ export const vec2i = (...a: NodeLike[]): Node<'vec2<i32>'> => construct(vec2iT, 
 /** mat4x4 × vec4 → vec4 (the generic `.mul` correctly rejects mat×vec since a
  *  matrix is not a scalar/matching-vector operand — this is the explicit MVP
  *  transform path). */
-export const transformMat4 = (m: Node<'mat4x4<f32>'>, v: Node<'vec4<f32>'>): Node<'vec4<f32>'> =>
+export const transformMat4 = (m: ReadonlyNode<'mat4x4<f32>'>, v: ReadonlyNode<'vec4<f32>'>): Node<'vec4<f32>'> =>
   new Node<'vec4<f32>'>({ op: 'binop', type: vec4fT, bop: '*', a: m.expr, b: v.expr })
 
 /** A fixed-length array literal — `array<elemKey, N>(...)`. */
-export const arrayLit = (elem: ShaderType, ...items: Node[]): Node =>
+export const arrayLit = (elem: ShaderType, ...items: ReadonlyNode[]): Node =>
   new Node({ op: 'construct', type: arrayT(elem, items.length), args: items.map((n) => n.expr) })
 
 // ── Composite arithmetic sugar (readability killer #2) ──
@@ -420,8 +474,8 @@ export const arrayLit = (elem: ShaderType, ...items: Node[]): Node =>
 // so it emits BYTE-IDENTICALLY to the manual chain — readability only, zero IR change.
 
 /** Fused multiply-add — `a*b + c`. */
-export const madd = <K extends string>(a: Node<K>, b: ArithArg<K>, c: ArithArg<K>): Node<K> => a.mul(b).add(c)
+export const madd = <K extends string>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>>, c: NoInfer<ArithArg<K>>): Node<K> => a.mul(b).add(c)
 /** Out-of-range predicate — `x < lo || x > hi`. */
-export const outsideRange = (x: Node<ScalarKey>, lo: Node<ScalarKey> | number, hi: Node<ScalarKey> | number): Node<'bool'> => x.lt(lo).or(x.gt(hi))
+export const outsideRange = (x: ReadonlyNode<ScalarKey>, lo: ReadonlyNode<ScalarKey> | number, hi: ReadonlyNode<ScalarKey> | number): Node<'bool'> => x.lt(lo).or(x.gt(hi))
 /** In-range predicate — `x >= lo && x <= hi`. */
-export const insideRange = (x: Node<ScalarKey>, lo: Node<ScalarKey> | number, hi: Node<ScalarKey> | number): Node<'bool'> => x.ge(lo).and(x.le(hi))
+export const insideRange = (x: ReadonlyNode<ScalarKey>, lo: ReadonlyNode<ScalarKey> | number, hi: ReadonlyNode<ScalarKey> | number): Node<'bool'> => x.ge(lo).and(x.le(hi))

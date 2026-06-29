@@ -51,22 +51,22 @@ const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
       <div class="grid sm:grid-cols-2 gap-5">
         <div class="rounded-xl border border-line bg-bg-elev p-5">
           <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-3">Mapbox</p>
-          <ul class="space-y-2 text-[13px] leading-[1.55] text-fg-dim">
-            <li>• Imperative API — <code class="font-mono text-fg">map.addLayer({})</code></li>
-            <li>• JSON style spec parsed at runtime</li>
-            <li>• Expressions evaluated by a tree walker per frame</li>
-            <li>• GLSL shaders hand-written for each paint property</li>
-            <li>• Symbol layers (text, icons) first-class</li>
+          <ul class="cov-mx-list cov-mx-neutral space-y-2 text-[13px] leading-[1.55] text-fg-dim">
+            <li>Imperative API — <code class="font-mono text-fg">map.addLayer({})</code></li>
+            <li>JSON style spec parsed at runtime</li>
+            <li>Expressions evaluated by a tree walker per frame</li>
+            <li>GLSL shaders hand-written for each paint property</li>
+            <li>Symbol layers (text, icons) first-class</li>
           </ul>
         </div>
         <div class="rounded-xl border border-line bg-bg-elev p-5">
           <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-3">xgis</p>
-          <ul class="space-y-2 text-[13px] leading-[1.55] text-fg-dim">
-            <li>• Declarative — <code class="font-mono text-fg">layer x &#123; … &#125;</code></li>
-            <li>• Compile-time IR + WGSL codegen</li>
-            <li>• Zoom-driven values lower to GPU uniforms</li>
-            <li>• Per-feature expressions baked into vertex attributes</li>
-            <li>• Symbol layers not yet implemented (text rendering pending)</li>
+          <ul class="cov-mx-list cov-mx-neutral space-y-2 text-[13px] leading-[1.55] text-fg-dim">
+            <li>Declarative — <code class="font-mono text-fg">layer x &#123; … &#125;</code></li>
+            <li>Compile-time IR + WGSL codegen</li>
+            <li>Zoom-driven values lower to GPU uniforms</li>
+            <li>Per-feature expressions baked into vertex attributes</li>
+            <li>Symbol layers not yet implemented (text rendering pending)</li>
           </ul>
         </div>
       </div>
@@ -144,39 +144,39 @@ const xgis = convertMapboxStyle(style)
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-[12.5px]">
         <div class="border border-line rounded-md p-4 bg-bg-elev">
           <div class="text-emerald-300 text-[11px] uppercase tracking-[0.16em] mb-2 font-mono">Supported</div>
-          <ul class="space-y-1.5 text-fg-dim leading-[1.55]">
-            <li>• Sources: vector (PMTiles + TileJSON), raster, GeoJSON</li>
-            <li>• Layers: background, fill, line, fill-extrusion, symbol (text)</li>
-            <li>• Paint: fill-color/-opacity, line-color/-width/-dasharray/-opacity, fill-extrusion-color/-opacity/-height/-base</li>
-            <li>• Symbol text: text-field, text-color, text-size (zoom-interpolated), text-halo-color/-width, text-anchor (5-way), text-transform, text-offset, text-rotate, text-letter-spacing, text-max-width + text-line-height + text-justify (multiline), text-font stack, text-allow-overlap, text-ignore-placement, text-padding (collision), <code class="font-mono">symbol-placement: line</code> + <code class="font-mono">line-center</code> (along-path)</li>
-            <li>• Filters: legacy + expression form (==/!=/&lt;/&gt;/all/any/in/!in/has/!has)</li>
-            <li>• Expressions: get / coalesce / case / match / arithmetic (+ - * / % ^) / min / max / abs / ceil / floor / round / sqrt / sin / cos / tan / asin / acos / atan / ln / log10 / log2 / pi / e / ln2 / concat / length / downcase / upcase / step (N-stop) / let+var / to-string / to-number / to-boolean / to-color / rgb / rgba</li>
-            <li>• Zoom: <code class="font-mono">interpolate(zoom, …)</code> with linear curve</li>
+          <ul class="cov-mx-list cov-mx-ok space-y-1.5 text-fg-dim leading-[1.55]">
+            <li>Sources: vector (PMTiles + TileJSON), raster, GeoJSON</li>
+            <li>Layers: background, fill, line, fill-extrusion, symbol (text)</li>
+            <li>Paint: fill-color/-opacity, line-color/-width/-dasharray/-opacity, fill-extrusion-color/-opacity/-height/-base</li>
+            <li>Symbol text: text-field, text-color, text-size (zoom-interpolated), text-halo-color/-width, text-anchor (5-way), text-transform, text-offset, text-rotate, text-letter-spacing, text-max-width + text-line-height + text-justify (multiline), text-font stack, text-allow-overlap, text-ignore-placement, text-padding (collision), <code class="font-mono">symbol-placement: line</code> + <code class="font-mono">line-center</code> (along-path)</li>
+            <li>Filters: legacy + expression form (==/!=/&lt;/&gt;/all/any/in/!in/has/!has)</li>
+            <li>Expressions: get / coalesce / case / match / arithmetic (+ - * / % ^) / min / max / abs / ceil / floor / round / sqrt / sin / cos / tan / asin / acos / atan / ln / log10 / log2 / pi / e / ln2 / concat / length / downcase / upcase / step (N-stop) / let+var / to-string / to-number / to-boolean / to-color / rgb / rgba</li>
+            <li>Zoom: <code class="font-mono">interpolate(zoom, …)</code> with linear curve</li>
           </ul>
         </div>
         <div class="border border-line rounded-md p-4 bg-bg-elev">
           <div class="text-amber-300 text-[11px] uppercase tracking-[0.16em] mb-2 font-mono">Lossy / heuristic</div>
-          <ul class="space-y-1.5 text-fg-dim leading-[1.55]">
-            <li>• <code class="font-mono">interpolate</code> curve type (exponential / cubic-bezier) folded to linear</li>
-            <li>• <code class="font-mono">fill-translate</code>, <code class="font-mono">line-translate</code> dropped</li>
-            <li>• <code class="font-mono">fill-outline-color</code> emitted as a separate stroke layer when paired</li>
-            <li>• <code class="font-mono">$type</code> / <code class="font-mono">$id</code> filters dropped (geometry type implied by utility)</li>
-            <li>• <code class="font-mono">text-anchor</code> diagonals (top-left / etc.) collapse to dominant axis</li>
-            <li>• <code class="font-mono">text-font</code> resolved by browser glyph-fallback chain (no opentype-sdf bake step)</li>
-            <li>• <code class="font-mono">fill-pattern</code> / <code class="font-mono">line-pattern</code> dropped (bitmap atlases unimplemented)</li>
+          <ul class="cov-mx-list cov-mx-warn space-y-1.5 text-fg-dim leading-[1.55]">
+            <li><code class="font-mono">interpolate</code> curve type (exponential / cubic-bezier) folded to linear</li>
+            <li><code class="font-mono">fill-translate</code>, <code class="font-mono">line-translate</code> dropped</li>
+            <li><code class="font-mono">fill-outline-color</code> emitted as a separate stroke layer when paired</li>
+            <li><code class="font-mono">$type</code> / <code class="font-mono">$id</code> filters dropped (geometry type implied by utility)</li>
+            <li><code class="font-mono">text-anchor</code> diagonals (top-left / etc.) collapse to dominant axis</li>
+            <li><code class="font-mono">text-font</code> resolved by browser glyph-fallback chain (no opentype-sdf bake step)</li>
+            <li><code class="font-mono">fill-pattern</code> / <code class="font-mono">line-pattern</code> dropped (bitmap atlases unimplemented)</li>
           </ul>
         </div>
         <div class="border border-line rounded-md p-4 bg-bg-elev">
           <div class="text-rose-300 text-[11px] uppercase tracking-[0.16em] mb-2 font-mono">Unsupported (engine)</div>
-          <ul class="space-y-1.5 text-fg-dim leading-[1.55]">
-            <li>• Icon symbols + sprite atlas (icon-image / icon-size / icon-color)</li>
-            <li>• <code class="font-mono">text-keep-upright</code> per-glyph flip on curves</li>
-            <li>• <code class="font-mono">symbol-spacing</code> repeat-along-line (single-label per feature in v1)</li>
-            <li>• <code class="font-mono">text-writing-mode: vertical</code> (CJK vertical text)</li>
-            <li>• Circle, heatmap, hillshade, sky layers</li>
-            <li>• <code class="font-mono">number-format</code>, <code class="font-mono">format</code> (rich text)</li>
-            <li>• <code class="font-mono">distance</code>, <code class="font-mono">within</code> (geometry predicates)</li>
-            <li>• Top-level <code class="font-mono">light</code>, <code class="font-mono">fog</code>, <code class="font-mono">terrain</code></li>
+          <ul class="cov-mx-list cov-mx-bad space-y-1.5 text-fg-dim leading-[1.55]">
+            <li>Icon symbols + sprite atlas (icon-image / icon-size / icon-color)</li>
+            <li><code class="font-mono">text-keep-upright</code> per-glyph flip on curves</li>
+            <li><code class="font-mono">symbol-spacing</code> repeat-along-line (single-label per feature in v1)</li>
+            <li><code class="font-mono">text-writing-mode: vertical</code> (CJK vertical text)</li>
+            <li>Circle, heatmap, hillshade, sky layers</li>
+            <li><code class="font-mono">number-format</code>, <code class="font-mono">format</code> (rich text)</li>
+            <li><code class="font-mono">distance</code>, <code class="font-mono">within</code> (geometry predicates)</li>
+            <li>Top-level <code class="font-mono">light</code>, <code class="font-mono">fog</code>, <code class="font-mono">terrain</code></li>
           </ul>
         </div>
       </div>
@@ -301,4 +301,23 @@ const xgis = convertMapboxStyle(style)
     { label: 'Expressions & operators', href: `${base}/docs/expressions`, body: 'Where the converted match() / interpolate() / ?? expressions land.' },
     { label: 'Function reference', href: `${base}/docs/functions`, body: 'The `interpolate(zoom, …)` / `step` / `match` builtin set.' },
   ]} />
+
+  <style>
+    /* Compatibility-matrix lists: a small status-toned dot instead of a bare
+       bullet, with a hanging indent so wrapped lines align under the text. */
+    .cov-mx-list li { position: relative; padding-left: 0.95rem; }
+    .cov-mx-list li::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0.62em;
+      width: 5px;
+      height: 5px;
+      border-radius: 999px;
+      background: var(--color-fg-faint);
+    }
+    .cov-mx-ok   li::before { background: #6ee7b7; } /* emerald-300 */
+    .cov-mx-warn li::before { background: #fcd34d; } /* amber-300 */
+    .cov-mx-bad  li::before { background: #fda4af; } /* rose-300 */
+  </style>
 </Docs>

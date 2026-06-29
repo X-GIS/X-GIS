@@ -63,3 +63,31 @@ export function spellIntrinsic(target: IntrinsicTarget, name: string, args: read
   if (entry) return entry[target](args)
   return `${name}(${join(args)})`
 }
+
+// ── Portable builtins (the EXPLICIT identity-spelled set) ──
+//
+// The DSL's free-function builtins (core/ir/node.ts) emit a `call` whose `fn` id is spelled
+// IDENTICALLY in WGSL and GLSL ES 3.00 — so they need no INTRINSICS entry and fall through
+// `spellIntrinsic` as `name(args)`. The risk that makes the registry a silent agreement
+// surface: a NEW builtin whose spelling actually DIVERGES, added without an INTRINSICS entry,
+// also falls through — emitting the same (wrong-on-one-target) string, caught only at GPU
+// compile time. Listing the portable ids EXPLICITLY here turns "absent = assume identity" into
+// "absent = unclassified", which the catalogue test (intrinsic-coverage.test.ts) flags: every
+// builtin id the surface emits must be in INTRINSICS (divergent) OR here (asserted identical).
+export const PORTABLE_INTRINSICS: ReadonlySet<string> = new Set([
+  // genType1 (component-wise unary) — same name in WGSL + GLSL ES 3.00.
+  'sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'exp', 'log', 'log2', 'exp2',
+  'floor', 'ceil', 'abs', 'sqrt', 'fract', 'trunc', 'round', 'sign',
+  'radians', 'degrees', 'normalize', 'fwidth',
+  // multi-arg math — identical spelling on both targets.
+  'min', 'max', 'pow', 'clamp', 'mix', 'smoothstep', 'step',
+  'length', 'dot', 'distance', 'cross',
+])
+
+/** True if `name` is a builtin the registry knows how to spell on every target — either a
+ *  DIVERGENT id (INTRINSICS) or an asserted-portable identity id (PORTABLE_INTRINSICS). A `call`
+ *  id that is neither is EITHER a user/extern fn (fine — same spelling everywhere) OR an
+ *  unclassified builtin (a latent silent-wrong-emit). The catalogue test uses this to assert the
+ *  DSL's own builtin surface is fully classified. */
+export const isKnownIntrinsic = (name: string): boolean =>
+  Object.prototype.hasOwnProperty.call(INTRINSICS, name) || PORTABLE_INTRINSICS.has(name)

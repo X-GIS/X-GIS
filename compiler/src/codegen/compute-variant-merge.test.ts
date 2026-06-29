@@ -88,24 +88,6 @@ describe('mergeComputeAddendumIntoVariant — fill override', () => {
     expect(strokeStr(merged)).toBe('u.stroke_color')
   })
 
-  it('drops fillPreamble (compute kernel already evaluated)', () => {
-    const v = makeLegacyVariant({
-      fillPreamble: 'var _mcA: vec4f = vec4f(0.5,0.5,0.5,1.0);\n  if (...) { _mcA = ...; }',
-    })
-    const addendum = buildComputeVariantAddendum([makeFillEntry()], 0, 1)
-    const merged = mergeComputeAddendumIntoVariant(v, addendum)
-    expect(merged.fillPreamble).toBeUndefined()
-  })
-
-  it('preserves strokePreamble when stroke axis is NOT overridden', () => {
-    const v = makeLegacyVariant({
-      strokePreamble: 'var _mcS: vec4f = vec4f(0,0,0,1);',
-    })
-    const addendum = buildComputeVariantAddendum([makeFillEntry()], 0, 1)
-    const merged = mergeComputeAddendumIntoVariant(v, addendum)
-    expect(merged.strokePreamble).toBe('var _mcS: vec4f = vec4f(0,0,0,1);')
-  })
-
   it('prunes fill_color from uniformFields (runtime skips per-frame write)', () => {
     const v = makeLegacyVariant({
       uniformFields: ['mvp', 'proj_params', 'fill_color', 'stroke_color', 'opacity'],
@@ -145,15 +127,6 @@ describe('mergeComputeAddendumIntoVariant — stroke override', () => {
     expect(fillStr(merged)).toBe('u.fill_color')
   })
 
-  it('drops strokePreamble', () => {
-    const v = makeLegacyVariant({
-      strokePreamble: 'var _mcS: vec4f = vec4f(0,0,0,1);',
-    })
-    const addendum = buildComputeVariantAddendum([makeStrokeEntry()], 0, 1)
-    const merged = mergeComputeAddendumIntoVariant(v, addendum)
-    expect(merged.strokePreamble).toBeUndefined()
-  })
-
   it('prunes stroke_color from uniformFields', () => {
     const v = makeLegacyVariant()
     const addendum = buildComputeVariantAddendum([makeStrokeEntry()], 0, 1)
@@ -175,18 +148,13 @@ describe('mergeComputeAddendumIntoVariant — both axes', () => {
     expect(strokeStr(merged)).toContain('compute_out_stroke')
   })
 
-  it('drops both preambles + prunes both uniformFields', () => {
-    const v = makeLegacyVariant({
-      fillPreamble: 'var _mcF: vec4f;',
-      strokePreamble: 'var _mcS: vec4f;',
-    })
+  it('prunes both uniformFields', () => {
+    const v = makeLegacyVariant()
     const addendum = buildComputeVariantAddendum(
       [makeFillEntry(), makeStrokeEntry()],
       0, 1,
     )
     const merged = mergeComputeAddendumIntoVariant(v, addendum)
-    expect(merged.fillPreamble).toBeUndefined()
-    expect(merged.strokePreamble).toBeUndefined()
     expect(merged.uniformFields).not.toContain('fill_color')
     expect(merged.uniformFields).not.toContain('stroke_color')
   })

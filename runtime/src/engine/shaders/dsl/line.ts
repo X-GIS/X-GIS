@@ -25,11 +25,11 @@ import {
   length, dot, min, max, smoothstep, abs, floor, select, textureSample,
   bitcastU32, unpack4x8unorm,
   atan, exp, degrees,
-  If, ifExpr, Loop, Let, Var, Continue, Break, Discard, madd, outsideRange,
+  If, when, Loop, Let, Var, Continue, Break, Discard, madd, outsideRange,
   ReturnIf, Switch,
   f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   arrayT,
-  type Node,
+  type Node, type ReadonlyNode,
   type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, structDecl, storageBuffer, resource } from '@xgis/shader-dsl'
@@ -365,7 +365,7 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, (p) =
   // Segment direction / normal in tile-local meters.
   const segVec = p1.sub(p0)
   const segLen = length(segVec)
-  const dir = ifExpr(segLen.lt(1e-6), () => vec2(1, 0), () => segVec.div(segLen))
+  const dir = when(segLen.lt(1e-6), () => vec2(1, 0), () => segVec.div(segLen))
 
   // Per-segment width override falls through to layer.width_px when 0.
   const layerWidthPx = LAYER.field.width_px
@@ -760,7 +760,7 @@ const vsLine = fn('vs_line', {
 
   const segVec = p1.sub(p0)
   const segLen = length(segVec)
-  const dir = ifExpr(segLen.lt(1e-6), () => vec2(1, 0), () => segVec.div(segLen))
+  const dir = when(segLen.lt(1e-6), () => vec2(1, 0), () => segVec.div(segLen))
   const nrm = Let(vec2(dir.y.neg(), dir.x))
 
   const layerWidthPx = LAYER.field.width_px
@@ -893,7 +893,7 @@ const vsLine = fn('vs_line', {
   // uses for the extruded roof ring (polygon-mesh.ts). The previous form added
   // z_lift to ECEF Z AFTER conversion (polar axis), displacing extruded
   // outlines h·cos(lat) north + h·(1−sin lat) below the roof (~37 px at z16).
-  type FNode = Node<'f32'>
+  type FNode = ReadonlyNode<'f32'>
   const ecefFromMerc = (
     _builder: unknown,
     _name: string,
