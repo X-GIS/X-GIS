@@ -1,0 +1,175 @@
+---
+// Roadmap · /roadmap — the project's phased direction as a real on-site
+// page (previously the "Roadmap" nav links redirected straight to the
+// GitHub ROADMAP.md blob). Content is distilled from ROADMAP.md into an
+// English, vision-framed phase ledger — honest status, no dated promises,
+// nothing claimed shipped that isn't. Built on the kit primitives so it
+// shares the site's rhythm (ContentBand · SectionHead · FeatureRow).
+import Base from '../layouts/Base.astro'
+import Graticule from '../components/Graticule.astro'
+import Header from '../components/Header.astro'
+import Footer from '../components/Footer.astro'
+import { ContentBand, SectionHead, FeatureRow } from '@/components/kit'
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const githubUrl = 'https://github.com/X-GIS/X-GIS'
+
+// Status vocabulary — three honest states only.
+//   Shipped      — built and in the codebase today
+//   In progress  — partially landed, actively moving
+//   Planned      — direction, not yet built
+type Status = 'Shipped' | 'In progress' | 'Planned'
+
+interface Phase {
+  num: string
+  title: string
+  status: Status
+  thesis: string
+  items: string[]
+}
+
+const phases: Phase[] = [
+  {
+    num: '00',
+    title: 'MVP — one polygon on screen',
+    status: 'Shipped',
+    thesis: 'Prove the core bet: utility-style source → compiler → WGSL → a rendered polygon.',
+    items: [
+      'Lexer · parser · type checker · IR · WGSL codegen',
+      'GeoJSON loader, WebGPU renderer, zoom/pan camera',
+      'fill / stroke / opacity / size utilities',
+    ],
+  },
+  {
+    num: '01',
+    title: 'Core language — a real map app',
+    status: 'Shipped',
+    thesis: 'Data-driven styling, symbols, and a module system you can build an actual map with.',
+    items: [
+      'Expressions: arithmetic, match, interpolate, zoom modifiers',
+      'Data modifiers, symbols, presets, struct / enum / fn',
+      'import / export, const, null-safety',
+    ],
+  },
+  {
+    num: '02',
+    title: 'Data pipeline — live data',
+    status: 'In progress',
+    thesis: 'Stream external data in and support more source formats.',
+    items: [
+      'Vector tiles (MVT) with LOD, raster tiles',
+      'input / uniform host injection, WebSocket streams',
+      'TypeScript codegen + automatic RTC for f64 → f32',
+    ],
+  },
+  {
+    num: '03',
+    title: 'Advanced rendering — 3D + effects',
+    status: 'In progress',
+    thesis: 'A Google-Earth-class globe with terrain, custom shaders, and multi-pass rendering.',
+    items: [
+      'ECEF globe ships today; terrain · 3D tiles · streaming + LOD on the roadmap',
+      'extrude, @fragment / @vertex escape hatches, effect packages',
+      'glTF entities, PBR lighting, automatic instancing / batching',
+    ],
+  },
+  {
+    num: '04',
+    title: 'Compute — GPU analysis',
+    status: 'In progress',
+    thesis: 'Run simulations and spatial analysis on the GPU.',
+    items: [
+      'grid / particle / agent simulation with double-buffering',
+      'analysis pipelines: step → parallel → reduce',
+      'buffer, convex_hull, voronoi, contour, boolean ops',
+    ],
+  },
+  {
+    num: '05',
+    title: 'Application — a complete app',
+    status: 'Planned',
+    thesis: 'HUD, interaction, drawing tools, and animation for a full map application.',
+    items: [
+      'overlay / annotation / widget, MSDF text rendering',
+      'click / hover / drag, GPU picking, draw tools',
+      'state machines, motion, timeline replay, camera animation',
+    ],
+  },
+  {
+    num: '06',
+    title: 'Domain standards — charts & defence',
+    status: 'Planned',
+    thesis: 'S-100 nautical charts and military symbology.',
+    items: [
+      'S-101 / S-102 loaders, S-52 portrayal, feature catalogues → struct',
+      'MIL-STD-2525 / NATO APP-6 symbols, MGRS / UTM coordinates',
+      'Mapbox Style JSON → X-GIS conversion and bridge mode',
+    ],
+  },
+  {
+    num: '07',
+    title: 'Ecosystem & production — real deployment',
+    status: 'In progress',
+    thesis: 'Registry, Studio, server rendering, multi-user, and security.',
+    items: [
+      'Playground and docs site ship today; package registry + Studio next',
+      'Headless / server rendering, multi-target builds (Vulkan · Metal · HLSL)',
+      'Multi-user sync, classification levels, incremental compilation',
+    ],
+  },
+]
+
+// Pill tone per status — white-on-near-black brand, emphasis by weight not hue.
+const pillTone: Record<Status, string> = {
+  Shipped: 'text-fg border-line-strong',
+  'In progress': 'text-fg-dim border-line',
+  Planned: 'text-fg-mute border-line',
+}
+---
+
+<Base
+  title="Roadmap — where X-GIS is headed"
+  description="The phased direction of X-GIS, from the rendered-polygon MVP through live data, a 3D globe, GPU analysis, a full application layer, domain chart standards, and production deployment. Honest status, no dated promises."
+>
+  <Graticule />
+  <Header />
+
+  <main>
+    <!-- ── Thesis ── -->
+    <ContentBand id="roadmap" class="border-t-0 pt-28 sm:pt-36 lg:pt-44">
+      <SectionHead
+        eyebrow="Roadmap"
+        title="Where X-GIS is headed."
+        lead="Eight phases, from the first rendered polygon to a production deployment. Vision-framed and honest — what's shipped, what's moving, and what's still ahead. No dated promises."
+      />
+      <p class="mt-8 text-fg-mute text-[14px] leading-[1.6] max-w-[620px]">
+        The full breakdown — every phase's scope and acceptance criteria — lives in
+        <a href={`${githubUrl}/blob/main/ROADMAP.md`} target="_blank" rel="noopener" class="text-accent hover:text-accent-hover transition-colors">ROADMAP.md ↗</a>.
+      </p>
+    </ContentBand>
+
+    <!-- ── Phase ledger ── -->
+    <ContentBand class="border-t-0 pt-0">
+      <div>
+        {phases.map((p) => (
+          <FeatureRow num={p.num} title={p.title}>
+            <span class:list={['inline-block font-mono text-[10.5px] uppercase tracking-[0.14em] rounded-full border px-2.5 py-0.5 mb-3', pillTone[p.status]]}>
+              {p.status}
+            </span>
+            <p class="text-fg-dim text-[15px] leading-[1.6] max-w-[620px]">{p.thesis}</p>
+            <ul class="mt-4 space-y-1.5 max-w-[620px]">
+              {p.items.map((it) => (
+                <li class="flex gap-3 text-[14px] leading-[1.55] text-fg-mute">
+                  <span aria-hidden="true" class="mt-[7px] inline-block w-1 h-1 rotate-45 bg-fg-faint flex-shrink-0"></span>
+                  <span>{it}</span>
+                </li>
+              ))}
+            </ul>
+          </FeatureRow>
+        ))}
+      </div>
+    </ContentBand>
+  </main>
+
+  <Footer />
+</Base>
