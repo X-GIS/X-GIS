@@ -12,7 +12,7 @@ import { BLEND_ALPHA, STENCIL_DISABLED, routeToSphereSelector, enumerateWorldCop
 import { isPickEnabled, getSampleCount } from '../gpu/gpu'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import { globeVisibleTiles } from '../projection/globe'
-import { globeEyeUniform } from './globe-eye-uniform'
+import { writeProjectionCull } from './frame-projection-uniform'
 import { rasterUniformSlots, rasterUniformBytes, rasterTileSlots, rasterTileBytes } from './raster-uniform-slots'
 
 /** Camera RTC anchor for the raster VS on the globe / 3D surfaces.
@@ -401,7 +401,11 @@ export class RasterRenderer {
     const uniformData = new ArrayBuffer(rasterUniformBytes())
     const RS = rasterUniformSlots().slot // offsets reflect-derived (byte-identical; raster-uniform-bytes.test.ts)
     new Float32Array(uniformData, RS.mvp * 4, 16).set(mvp)
-    new Float32Array(uniformData, RS.proj_params * 4, 4).set([projType, projCenterLon, projCenterLat, frame.logDepthFc])
+    // proj_params + globe_eye written TOGETHER (coupled so the #600 "projection
+    // set, eye forgotten" leak is unrepresentable). proj_params.w = log_depth_fc
+    // is raster-specific (the raster struct folds it into that lane). frame.eye is
+    // the globe/ECEF camera position (undefined off the globe → globe_eye zero).
+    writeProjectionCull(new Float32Array(uniformData), RS.proj_params, RS.globe_eye, projType, projCenterLon, projCenterLat, frame.eye, frame.logDepthFc)
     // raster_params at offset 80 — x = opacity, yzw reserved.
     new Float32Array(uniformData, RS.raster_params * 4, 4).set([this._opacity, 0, 0, 0])
     // raster_color0 @96 — (hueRotateDeg, brightnessMin, brightnessMax, saturation).
@@ -427,14 +431,7 @@ export class RasterRenderer {
       const camC = rasterGlobeCamAnchor(projCenterLon, projCenterLat)
       new Float32Array(uniformData, RS.cam_ecef_center * 4, 4).set([camC[0], camC[1], camC[2], 0])
     }
-    // #600 — globe_eye @144: (normalize(eye), R/|eye|) for the globe(7)
-    // eye-horizon cull (raster FS, #595). frame.eye is the absolute sphere-ECEF
-    // camera position on the globe/ECEF branch (undefined on flat → all-zero;
-    // the flat/disc cull arm ignores it). Fixes the same high-pitch far-cap drop
-    // the vector path had: the centre-hemisphere cull discarded eye-visible
-    // raster around the limb.
-    const ge = globeEyeUniform(frame.eye)
-    new Float32Array(uniformData, RS.globe_eye * 4, 4).set([ge[0], ge[1], ge[2], ge[3]])
+    // (proj_params + globe_eye written together above via writeProjectionCull.)
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData)
 
     pass.setPipeline(this.pipeline)

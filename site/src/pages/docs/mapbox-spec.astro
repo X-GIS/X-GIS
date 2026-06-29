@@ -108,8 +108,32 @@ const impactBadge = (i?: CoverageImpact): { label: string; cls: string } | null 
     </Callout>
   </section>
 
+  {/* ── Filter / search toolbar ── sticks under the header; a small vanilla
+        script (bottom of file) shows/hides rows by status + property name. */}
+  <div class="cov-toolbar sticky top-12 z-20 -mx-2 px-2 py-3 mb-10 bg-bg/85 backdrop-blur-md border-b border-line flex flex-wrap items-center gap-x-3 gap-y-2.5">
+    <div class="flex flex-wrap gap-1.5" role="group" aria-label="Filter by status">
+      <button type="button" class="cov-chip" data-filter="all" aria-pressed="true">All <span class="cov-chip-n">{total}</span></button>
+      <button type="button" class="cov-chip" data-filter="supported" aria-pressed="false">Supported <span class="cov-chip-n">{totals.supported}</span></button>
+      <button type="button" class="cov-chip" data-filter="partial" aria-pressed="false">Partial <span class="cov-chip-n">{totals.partial}</span></button>
+      <button type="button" class="cov-chip" data-filter="unsupported" aria-pressed="false">Unsupported <span class="cov-chip-n">{totals.unsupported}</span></button>
+      <button type="button" class="cov-chip" data-filter="na" aria-pressed="false">N/A <span class="cov-chip-n">{totals.na}</span></button>
+    </div>
+    <label class="ml-auto relative">
+      <span class="sr-only">Search properties</span>
+      <input
+        id="cov-search"
+        type="search"
+        placeholder="Search property…"
+        autocomplete="off"
+        class="w-[200px] max-w-[60vw] bg-bg-elev border border-line rounded-md pl-3 pr-3 py-1.5 text-[13px] text-fg placeholder:text-fg-mute focus:outline-none focus:border-accent"
+      />
+    </label>
+    <p class="text-[12px] text-fg-mute basis-full sm:basis-auto">Showing <span id="cov-count" class="text-fg-dim tabular-nums">{total}</span> of {total}</p>
+    <p id="cov-empty" class="hidden basis-full text-[13px] text-fg-mute">No properties match — try another status or clear the search.</p>
+  </div>
+
   {MAPBOX_COVERAGE.map(section => (
-    <section id={section.id} class="mb-12 scroll-mt-24">
+    <section id={section.id} class="cov-section mb-12 scroll-mt-24">
       <h2 class="text-[20px] sm:text-[24px] font-medium text-fg leading-[1.25] tracking-[-0.02em] mb-2 pb-2 border-b border-line">
         {section.title}
       </h2>
@@ -132,7 +156,7 @@ const impactBadge = (i?: CoverageImpact): { label: string; cls: string } | null 
               const sb = statusBadge(e.status)
               const ib = impactBadge(e.impact)
               return (
-                <tr class="border-t border-line/60 align-top">
+                <tr class="cov-row border-t border-line/60 align-top" data-status={e.status} data-name={e.name}>
                   <td class="py-2 pr-3"><code class="font-mono text-fg">{e.name}</code></td>
                   <td class="py-2 pr-3">
                     <span class={`inline-block text-[10.5px] font-medium px-1.5 py-0.5 rounded border ${sb.cls}`}>{sb.label}</span>
@@ -140,7 +164,7 @@ const impactBadge = (i?: CoverageImpact): { label: string; cls: string } | null 
                   <td class="py-2 pr-3">
                     {ib ? <span class={`inline-block text-[10.5px] font-medium px-1.5 py-0.5 rounded border ${ib.cls}`}>{ib.label}</span> : <span class="text-fg-mute text-[11px]">—</span>}
                   </td>
-                  <td class="py-2 pr-3 text-fg-dim leading-[1.5]">{e.note ?? <span class="text-fg-mute">—</span>}</td>
+                  <td class="py-2 pr-3 text-fg-dim leading-[1.5]">{e.note ? <div class="cov-note cursor-pointer" title="Click to expand">{e.note}</div> : <span class="text-fg-mute">—</span>}</td>
                   <td class="py-2 text-fg-mute font-mono text-[11px] whitespace-nowrap">{e.source ?? '—'}</td>
                 </tr>
               )
@@ -172,4 +196,85 @@ const impactBadge = (i?: CoverageImpact): { label: string; cls: string } | null 
       </li>
     </ul>
   </section>
+
+  <style>
+    /* Filter chips — active state via aria-pressed so the script only flips
+       one attribute. */
+    .cov-chip {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      color: var(--color-fg-mute);
+      background: var(--color-bg-elev);
+      border: 1px solid var(--color-line);
+      border-radius: 999px;
+      padding: 0.3rem 0.7rem;
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s, background 0.15s;
+    }
+    .cov-chip:hover { color: var(--color-fg-dim); }
+    .cov-chip[aria-pressed='true'] {
+      color: var(--color-fg);
+      border-color: var(--color-line-strong);
+      background: var(--color-bg-hover);
+    }
+    .cov-chip-n { color: var(--color-fg-faint); margin-left: 0.25rem; }
+    .cov-chip[aria-pressed='true'] .cov-chip-n { color: var(--color-fg-mute); }
+
+    /* Note column — clamp to 2 lines so rows stay uniform; click to expand. */
+    .cov-note {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      overflow: hidden;
+    }
+    .cov-note.cov-note-open { -webkit-line-clamp: unset; }
+  </style>
+
+  <script>
+    // Client-side filter for the coverage tables: status chips + property
+    // search hide non-matching rows and any section left empty. Vanilla, no
+    // deps — same pattern as the other inline scripts on the site.
+    const rows = Array.from(document.querySelectorAll<HTMLTableRowElement>('.cov-row'))
+    const sections = Array.from(document.querySelectorAll<HTMLElement>('.cov-section'))
+    const chips = Array.from(document.querySelectorAll<HTMLButtonElement>('.cov-chip'))
+    const search = document.getElementById('cov-search') as HTMLInputElement | null
+    const count = document.getElementById('cov-count')
+    const empty = document.getElementById('cov-empty')
+
+    if (rows.length && chips.length && search && count) {
+      let active = 'all'
+
+      const apply = () => {
+        const q = search.value.trim().toLowerCase()
+        let shown = 0
+        for (const r of rows) {
+          const okStatus = active === 'all' || r.dataset.status === active
+          const okName = !q || (r.dataset.name ?? '').toLowerCase().includes(q)
+          const visible = okStatus && okName
+          r.classList.toggle('hidden', !visible)
+          if (visible) shown++
+        }
+        for (const s of sections) {
+          s.classList.toggle('hidden', !s.querySelector('.cov-row:not(.hidden)'))
+        }
+        count.textContent = String(shown)
+        if (empty) empty.classList.toggle('hidden', shown !== 0)
+      }
+
+      for (const c of chips) {
+        c.addEventListener('click', () => {
+          active = c.dataset.filter ?? 'all'
+          for (const x of chips) x.setAttribute('aria-pressed', String(x === c))
+          apply()
+        })
+      }
+      search.addEventListener('input', apply)
+
+      // Expand a clamped note on click.
+      for (const n of Array.from(document.querySelectorAll('.cov-note'))) {
+        n.addEventListener('click', () => n.classList.toggle('cov-note-open'))
+      }
+    }
+  </script>
 </Docs>

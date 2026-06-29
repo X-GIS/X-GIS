@@ -21,7 +21,7 @@ import { vertexField } from '@xgis/compiler'
 import { POINT_FORMAT } from './point-vertex-format'
 import { toVertexBufferLayout } from './vertex-buffer-layout'
 import { reflectionToBindGroupLayoutEntries, uniformFieldSlots } from './reflection-to-webgpu'
-import { globeEyeUniform } from './globe-eye-uniform'
+import { writeProjectionCull } from './frame-projection-uniform'
 
 // Float-slot indices derived from the single-source POINT_FORMAT spec so the
 // packer cannot drift from the GPUVertexBufferLayout / vs_point @location.
@@ -126,7 +126,10 @@ function writePointFrameUniform(
   // WGSL struct it shares an IR with.
   const { mvp: U_MVP, proj: U_PROJ, viewport: U_VIEWPORT, camH: U_CAM_H, camL: U_CAM_L, circle: U_CIRCLE, eye: U_EYE } = pointUniformSlots()
   uf.set(frame.matrix, U_MVP)
-  uf[U_PROJ] = projType; uf[U_PROJ + 1] = projCenterLon; uf[U_PROJ + 2] = projCenterLat; uf[U_PROJ + 3] = 0
+  // proj_params + globe_eye written TOGETHER (coupled so a missing globe_eye —
+  // the #600 leak class — is unrepresentable). frame.eye is set only on the
+  // globe/ECEF branch → globe_eye all-zero on flat (flat/disc cull arms ignore it).
+  writeProjectionCull(uf, U_PROJ, U_EYE, projType, projCenterLon, projCenterLat, frame.eye, 0)
   const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, camera.zoom)
   uf[U_VIEWPORT] = canvasWidth; uf[U_VIEWPORT + 1] = canvasHeight; uf[U_VIEWPORT + 2] = metersPerPixel; uf[U_VIEWPORT + 3] = frame.logDepthFc
   // Camera centre for the per-vertex re-centring. Flat Mercator (projType 0)
@@ -155,11 +158,7 @@ function writePointFrameUniform(
   // scales the quad expansion by w_ref/clip.w = mvp[3][3]/clip.w so circles
   // foreshorten with pitch/distance, matching MapLibre's pitch-scale:map).
   uf[U_CIRCLE + 3] = circlePitchScaleMap ? 1 : 0
-  // #600 — globe_eye: (normalize(eye), R/|eye|) for the globe(7) eye-horizon
-  // cull (point_cos_c, VS-side). frame.eye is set only on the globe/ECEF
-  // branch → all-zero on flat (the flat/disc cull arm ignores it).
-  const ge = globeEyeUniform(frame.eye)
-  uf[U_EYE] = ge[0]; uf[U_EYE + 1] = ge[1]; uf[U_EYE + 2] = ge[2]; uf[U_EYE + 3] = ge[3]
+  // (proj_params + globe_eye written together above via writeProjectionCull.)
 }
 
 // ── World-copy helpers (exported for unit tests) ──────────────────────────

@@ -30,7 +30,7 @@ import { WebGpuDevice, wrapWebGpuPass } from './rhi/rhi-webgpu'
 import { HeatmapDraper } from './material/heatmap-material'
 import { HEATMAP_DENSITY_FORMAT } from '../gpu/gpu-shared'
 import { heatmapUniformSlots, heatmapUniformBytes } from './heatmap-uniform-slots'
-import { globeEyeUniform } from './globe-eye-uniform'
+import { writeProjectionCull } from './frame-projection-uniform'
 
 // f32 slots of the heatmap-accum 'Uniforms' struct, from reflect() (NOT hand-coded magic
 // offsets — those drift from heatmap-accum.ts). The `uf[...]` packer writes at HS.<field>.
@@ -111,7 +111,10 @@ function writeHeatmapFrameUniform(
   canvasHeight: number,
 ): void {
   uf.set(frame.matrix, HS.mvp)
-  uf[HS.proj_params] = projType; uf[HS.proj_params + 1] = projCenterLon; uf[HS.proj_params + 2] = projCenterLat; uf[HS.proj_params + 3] = 0
+  // proj_params + globe_eye written TOGETHER (coupled so a missing globe_eye —
+  // the #600 leak class — is unrepresentable). frame.eye is set only on the
+  // globe/ECEF branch → globe_eye all-zero on flat (flat/disc cull arms ignore it).
+  writeProjectionCull(uf, HS.proj_params, HS.globe_eye, projType, projCenterLon, projCenterLat, frame.eye, 0)
   const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, camera.zoom)
   uf[HS.viewport] = canvasWidth; uf[HS.viewport + 1] = canvasHeight; uf[HS.viewport + 2] = metersPerPixel; uf[HS.viewport + 3] = 0
   if (projType === 0) {
@@ -125,11 +128,7 @@ function writeHeatmapFrameUniform(
     uf[HS.cam_ecef_h] = cxH; uf[HS.cam_ecef_h + 1] = cyH; uf[HS.cam_ecef_h + 2] = czH; uf[HS.cam_ecef_h + 3] = 0
     uf[HS.cam_ecef_l] = camC[0] - cxH; uf[HS.cam_ecef_l + 1] = camC[1] - cyH; uf[HS.cam_ecef_l + 2] = camC[2] - czH; uf[HS.cam_ecef_l + 3] = 0
   }
-  // #600 — globe_eye: (normalize(eye), R/|eye|) for the globe(7) eye-horizon
-  // cull (heatmap VS back-hemisphere cull, #595). frame.eye is set only on the
-  // globe/ECEF branch → all-zero on flat (the flat/disc cull arm ignores it).
-  const ge = globeEyeUniform(frame.eye)
-  uf[HS.globe_eye] = ge[0]; uf[HS.globe_eye + 1] = ge[1]; uf[HS.globe_eye + 2] = ge[2]; uf[HS.globe_eye + 3] = ge[3]
+  // (proj_params + globe_eye written together above via writeProjectionCull.)
 }
 
 export class HeatmapRenderer {

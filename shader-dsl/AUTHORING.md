@@ -116,6 +116,20 @@ export const buildRasterModule = (pickEnabled: boolean): ModuleDecl => module({
 
 ---
 
+### `composeModule` — variant composition via placeholders
+
+When a base module has variation seams, mark them with `b.placeholder('tag')` and fill them per
+variant with `composeModule`, instead of hand-rolling a clone-and-swap walk:
+
+```ts
+const base = module({ funcs: [/* … fs_fill ends with */ (_p, b) => b.placeholder('fill-return') ] })
+const composed = composeModule(base, { 'fill-return': variantFillReturnStmts })
+```
+
+It descends into `if`/`for`/`switch` bodies, and is **strict by default**: an un-swapped placeholder
+or a swap key that matches no placeholder **throws** (the silent-on-GPU / throws-on-CPU footgun
+becomes a loud compose-time error). Pass `{ allowUnswapped: true }` for deliberate bare survival.
+
 ## 2. Values and mutation
 
 ### Plain `const` — let the emit decide `let` / `var` / inline
@@ -269,6 +283,28 @@ const best = reduce(f32(1e10), u32(0), (i) => i.le(STEPS), (acc, i) => {
 the emit is identical to the hand-written `var v; if (…) v = …` form. Use `when` for genuine
 **condition/range** dispatch (no single scrutinee); use `Switch`/`matchExpr` for integer
 **scrutinee** dispatch. (`ifExpr`/`condExpr` are **deprecated** aliases of `when`.)
+
+### `enumU32` / `matchEnum` — EXHAUSTIVE integer dispatch
+
+For dispatch over a fixed set of integer cases, declare an `enumU32` and use `matchEnum`. The
+arms object must cover **every** member — omit one (or add an unknown key) and it is a `tsc`
+compile error, so adding a member surfaces every un-handled site. It lowers to the same
+`matchExpr` (switch) the hand-written form emits (byte-identical):
+
+```ts
+const Kind = enumU32({ Line: 0, Fill: 1, Stroke: 2 })
+
+const color = matchEnum(seg.kind, Kind, {
+  Line:   () => lineColor,
+  Fill:   () => fillColor,
+  Stroke: () => strokeColor,   // drop an arm → compile error
+})
+// Kind.members.Fill is a Node<'u32'> literal; Kind.struct/values feed the case labels.
+```
+
+Use `matchEnum` over a bare `Switch`/`matchExpr` whenever the case set is closed — it turns a
+"forgot a case" runtime/visual bug into a compile error (the dispatch analogue of the
+`.assign`-on-`Let` footgun being a type error).
 
 ### Early returns — `Return` / `ReturnIf`
 
@@ -523,6 +559,7 @@ const clip = condExpr([[c0, () => e0], [c1, () => e1]], () => elseVal)
 | deg↔rad | `radians(x)` / `degrees(x)` |
 | Branch (statement) | `If(c, …).elif(c, …).else(…)` |
 | Branch (value) | `when(c, ()=>a, ()=>b)` / `when([[c,()=>a]], ()=>b)` (was `ifExpr`/`condExpr`) |
+| Exhaustive integer dispatch | `enumU32({A:0,B:1})` + `matchEnum(s, E, { A:()=>…, B:()=>… })` (missing arm = compile error) |
 | Integer dispatch | `Switch(s).case(n, …).default(…)` |
 | Loop fold (value) | `reduce(init, i0, cond, (acc,i)=>…, step)` |
 | Early return | `Return(v)` / `ReturnIf(c, v)` |
