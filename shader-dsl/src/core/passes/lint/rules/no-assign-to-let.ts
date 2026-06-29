@@ -45,7 +45,7 @@ export const noAssignToLet: LintRule = {
         if (s.s !== 'assign' && s.s !== 'assignOp') return
         const root = targetRootName(s.target)
         if (root !== undefined && lets.has(root) && !vars.has(root)) {
-          ctx.report(`assignment to immutable 'let' binding '${root}' in fn '${fn.name}' — declare it with Var() to mutate (assigning to a 'let' is invalid WGSL)`, { fn: fn.name })
+          ctx.report(`assignment to immutable 'let' binding '${root}' in fn '${fn.name}' — declare it with Var() to mutate (assigning to a 'let' is invalid WGSL)`, { fn: fn.name, node: s, code: 'SD0107', hint: 'declare the binding with Var() instead of Let() to mutate it' })
         }
       },
     }

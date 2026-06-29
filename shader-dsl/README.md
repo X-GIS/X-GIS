@@ -18,7 +18,7 @@ package like any other consumer.)
 | **Author** (typed IR, SoT layout declarators, control-flow + value combinators) | **STRONG** |
 | **Type-check** (compile-time `Node<K>` keys; wrong-typed return / field is a TS error) | **STRONG** |
 | **Optimize** (CSE, DCE, LICM, const-fold, algebraic, auto-var/auto-let) | STRONG |
-| **Validate / lint** (20-rule lint engine + capability gate) | **STRONG** |
+| **Validate / lint** (lint engine + capability gate; coded errors `SD####`, aggregated `validate`, unified `diagnose()`/`formatReport()` + opt-in source locations) | **STRONG** |
 | **CPU-oracle parity** (compile the same module to an f64 CPU fn for cross-checking) | **DISTINCTIVE** |
 | **Reflect** (`reflect(module)` → bind-groups + std140/std430 layouts + entry signatures) | **NEW** |
 | **WGSL backend** | real, byte-stable |

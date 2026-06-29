@@ -69,7 +69,7 @@ describe('matchExpr — IR construction', () => {
         [[0, vec4(1, 0, 0, 1) as unknown as Node<'i32'>]],
         i32(99),
       )
-    }).toThrow(/matchExpr case Node type/)
+    }).toThrow(/\[SD0011\]: matchExpr case type does not match/)
   })
 
   it('tsc rejects case type mismatch when R is pinned (compile-time gate)', () => {
@@ -84,7 +84,7 @@ describe('matchExpr — IR construction', () => {
         [[0, vec4(1, 0, 0, 1)]],
         i32(99),
       )
-    }).toThrow(/matchExpr case Node type/)
+    }).toThrow(/\[SD0011\]: matchExpr case type does not match/)
   })
 })
 

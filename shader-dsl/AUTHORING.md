@@ -498,6 +498,61 @@ const clip = condExpr([[c0, () => e0], [c1, () => e1]], () => elseVal)
 
 ---
 
+## 6. Diagnostics — coded errors, aggregated reports, source locations
+
+Authoring mistakes surface as **coded** errors (`shader-dsl [SD####]: …`) carrying a one-line
+`hint`, not opaque strings. A type mismatch, a swizzle on a non-vector, a `select` over
+mismatched branches — each throws a `ShaderDslError` with a stable `.code` you can branch on:
+
+```ts
+try { emitModule(m) } catch (e) {
+  if (e instanceof ShaderDslError && e.code === 'SD0002') { /* mismatched vectors */ }
+}
+```
+
+### `validate()` reports every error, not just the first
+
+`emitModule` runs `validate()` first; on a structurally invalid module it throws ONE
+`ValidationError` listing **all** failures (with each diagnostic's code, rule, fn, and — when
+source tracing is on — `file:line:col`). The diagnostics are also on `err.diagnostics`.
+
+### `diagnose(module, opts?)` — the one "what's wrong with this?" entry
+
+Run the lint ruleset and (optionally) a backend capability check together, **without throwing**,
+and render a human report:
+
+```ts
+import { diagnose, formatReport, wgslBackend } from '@xgis/shader-dsl'
+
+const report = diagnose(m, { rules: 'all', backend: wgslBackend })
+console.log(formatReport(report))
+// error[SD0107] no-assign-to-let  (fn rim_alpha)
+//   --> runtime/src/engine/shaders/dsl/line.ts:721:9
+//   assignment to immutable 'let' binding 'x' …
+//   hint: declare the binding with Var() instead of Let() to mutate it
+// 1 error, 0 warnings
+```
+
+`diagnose` is read-only over the IR and never on the emit path — it surfaces lint + capability
+problems in one pass. The classic `.assign()`-on-a-`Let` footgun (`Let(x); x.assign(…)` → invalid
+WGSL) shows up here as the `SD0107` / `no-assign-to-let` error.
+
+### Source locations — `setSourceTracing` (dev-only, opt-in, off by default)
+
+Source-location capture maps each authored statement / function back to the TypeScript line
+that produced it, so diagnostics can print `file:line:col`. It is **off by default** and
+**genuinely zero-cost when off** (no stack is ever allocated); turn it on in a dev/test run:
+
+```ts
+import { setSourceTracing } from '@xgis/shader-dsl'
+setSourceTracing(true)            // or set XGIS_SHADER_DSL_TRACE=1
+```
+
+Locations live in a private side-table keyed by node identity — they are **never** read on the
+emit path and **never** appear in emitted WGSL/GLSL (emit is byte-identical whether tracing is on
+or off). They resolve only on the **authored** module (before the optimizer/lowering rebuild
+nodes), which is exactly where `validate()` / `lintModule()` / `diagnose()` run.
+
 ## Quick reference
 
 | Need | Write |
@@ -521,3 +576,5 @@ const clip = condExpr([[c0, () => e0], [c1, () => e1]], () => elseVal)
 | Texture / sampler | `resource(name, type, at)` → `.node`, `.binding` |
 | A shared const | import the handle (`PI`, `EARTH_R`) — not `constRef('NAME')` |
 | Call a function | import the `FnHandle`, call directly — not `callFn('name')` |
+| Diagnose a module | `diagnose(m, { backend })` → `formatReport(report)` (lint + caps, no throw) |
+| Source locations in errors | `setSourceTracing(true)` (dev-only, off by default, never on emit) |

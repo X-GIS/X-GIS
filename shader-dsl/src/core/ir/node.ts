@@ -10,6 +10,7 @@ import {
   f32T, i32T, u32T, boolT, vec2fT, vec3fT, vec4fT, vec2uT, vec2iT, arrayT,
 } from './types'
 import type { Expr, BinOp, CmpOp } from './nodes'
+import { dslError } from '../diagnostics/error'
 
 // Re-export ScalarKey so consumers importing the matchExpr signature can refer
 // to its generic bound without a separate types import (mirrors the existing
@@ -37,7 +38,7 @@ type StmtSink = { assign(target: Node, value: Node): void }
 let _stmtSink: StmtSink | undefined
 export const installStmtSink = (s: StmtSink): void => { _stmtSink = s }
 const stmtSink = (): StmtSink => {
-  if (!_stmtSink) throw new Error('shader-dsl: statement sink not installed — import @xgis/shader-dsl from its entry, not a deep path')
+  if (!_stmtSink) throw dslError('SD0012')
   return _stmtSink
 }
 
@@ -48,12 +49,12 @@ const stmtSink = (): StmtSink => {
 function binResultType(a: ShaderType, b: ShaderType, ctx: string): ShaderType {
   // mat * vec → vec (matN x vecN); mat * mat → mat.
   if (isMat(a) && isVec(b)) {
-    if (a.n !== b.n) throw new Error(`shader-dsl: ${ctx} mat${a.n} * vec${b.n} size mismatch`)
+    if (a.n !== b.n) throw dslError('SD0001', `${ctx}: mat${a.n} * vec${b.n}`)
     return b
   }
   if (isMat(a) && isMat(b)) return a
   if (isVec(a) && isVec(b)) {
-    if (!typeEq(a, b)) throw new Error(`shader-dsl: ${ctx} on mismatched vectors ${typeKey(a)} vs ${typeKey(b)}`)
+    if (!typeEq(a, b)) throw dslError('SD0002', `${ctx}: ${typeKey(a)} vs ${typeKey(b)}`)
     return a
   }
   if (isVec(a) && isScalar(b)) return a
@@ -61,10 +62,10 @@ function binResultType(a: ShaderType, b: ShaderType, ctx: string): ShaderType {
   if (isScalar(a) && isScalar(b)) {
     const order: Scalar[] = ['f32', 'i32', 'u32']
     const as = a.scalar, bs = b.scalar
-    if (as === 'bool' || bs === 'bool') throw new Error(`shader-dsl: ${ctx} on bool`)
+    if (as === 'bool' || bs === 'bool') throw dslError('SD0003', ctx)
     return order.indexOf(as) <= order.indexOf(bs) ? a : b
   }
-  throw new Error(`shader-dsl: ${ctx} on ${typeKey(a)} / ${typeKey(b)}`)
+  throw dslError('SD0004', `${ctx}: ${typeKey(a)} / ${typeKey(b)}`)
 }
 
 const VEC_FIELD_INDEX: Record<string, number> = { x: 0, y: 1, z: 2, w: 3 }
@@ -123,7 +124,7 @@ export class Node<K extends string = string> {
   private bitBin(bop: BinOp, o: NodeLike): Node {
     const t = this.type
     if (t.kind !== 'scalar' || (t.scalar !== 'u32' && t.scalar !== 'i32')) {
-      throw new Error(`shader-dsl: bitwise ${bop} requires u32/i32 LHS, got ${typeKey(t)}`)
+      throw dslError('SD0005', `${bop}, got ${typeKey(t)}`)
     }
     const bn: Node = typeof o === 'number' ? (t.scalar === 'u32' ? u32(o) : i32(o)) : o
     return new Node({ op: 'binop', type: t, bop, a: this.expr, b: bn.expr })
@@ -137,8 +138,8 @@ export class Node<K extends string = string> {
   /** Vector component access — `.x`/`.y`/`.z`/`.w` → elem scalar. */
   comp(field: 'x' | 'y' | 'z' | 'w'): Node<ElemKey<K>> {
     const t = this.type
-    if (!isVec(t)) throw new Error(`shader-dsl: .${field} on non-vector ${typeKey(t)}`)
-    if (VEC_FIELD_INDEX[field] >= t.n) throw new Error(`shader-dsl: .${field} out of range on ${typeKey(t)}`)
+    if (!isVec(t)) throw dslError('SD0006', `.${field} on ${typeKey(t)}`)
+    if (VEC_FIELD_INDEX[field] >= t.n) throw dslError('SD0007', `.${field} on ${typeKey(t)}`)
     return new Node<ElemKey<K>>({ op: 'member', type: { kind: 'scalar', scalar: t.elem }, base: this.expr, field })
   }
   get x(): Node<ElemKey<K>> { return this.comp('x') }
@@ -153,7 +154,7 @@ export class Node<K extends string = string> {
    *  the default `string` preserves the historical untyped result. */
   swizzle<R extends string = string>(comps: string): Node<R> {
     const t = this.type
-    if (!isVec(t)) throw new Error(`shader-dsl: swizzle .${comps} on non-vector ${typeKey(t)}`)
+    if (!isVec(t)) throw dslError('SD0008', `.${comps} on ${typeKey(t)}`)
     const n = comps.length
     const type: ShaderType = n === 1 ? { kind: 'scalar', scalar: t.elem } : { kind: 'vec', n: n as 2 | 3 | 4, elem: t.elem }
     return new Node<R>({ op: 'member', type, base: this.expr, field: comps })
@@ -190,9 +191,9 @@ export class Node<K extends string = string> {
   /** `this ? a : b` (only valid on a bool node — enforced via `this:`).
    *  Both branches must share a key. Mirrors WGSL select(b, a, this). */
   select<R extends string = 'f32'>(this: Node<'bool'>, a: Node<R> | number, b: Node<R> | number): Node<R> {
-    if (!typeEq(this.type, boolT)) throw new Error('shader-dsl: .select on non-bool condition')
+    if (!typeEq(this.type, boolT)) throw dslError('SD0009')
     const ta = lift(a), tb = lift(b)
-    if (!typeEq(ta.type, tb.type)) throw new Error(`shader-dsl: select branches differ ${typeKey(ta.type)} vs ${typeKey(tb.type)}`)
+    if (!typeEq(ta.type, tb.type)) throw dslError('SD0010', `${typeKey(ta.type)} vs ${typeKey(tb.type)}`)
     return new Node<R>({ op: 'select', type: ta.type, cond: this.expr, ifTrue: ta.expr, ifFalse: tb.expr })
   }
 }
@@ -354,7 +355,7 @@ export function matchExpr<S extends ScalarKey, R extends string>(
 ): Node<R> {
   for (const [, v] of cases) {
     if (!typeEq(v.type, default_.type)) {
-      throw new Error(`shader-dsl: matchExpr case Node type ${typeKey(v.type)} does not match default ${typeKey(default_.type)}`)
+      throw dslError('SD0011', `${typeKey(v.type)} vs default ${typeKey(default_.type)}`)
     }
   }
   return new Node<R>({

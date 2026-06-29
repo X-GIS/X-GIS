@@ -52,10 +52,21 @@ export { emitSize, countOps, optimizerReport, type EmitSize, type OpCount, type 
 // Named optimization levels (O0/O1/O2) + the level-aware optimize entry.
 export { optimizeAt, LEVEL_PASSES, type OptLevel } from './core/passes/opt'
 
+// Diagnostics surface: coded errors (ShaderDslError / dslError), opt-in authored-source
+// tracing (setSourceTracing — dev-only, off by default, never on the emit path), the code
+// catalogue, and the unified diagnose()/formatReport() report. (The loc side-table accessors
+// captureLoc/recordLoc/getLoc stay INTERNAL — not re-exported.)
+export { ShaderDslError, dslError, formatLoc, type SourceLoc } from './core/diagnostics/error'
+export { setSourceTracing, isSourceTracing } from './core/diagnostics/loc'
+export { CODES, type ErrorCode, type ErrorCodeDef } from './core/diagnostics/codes'
+export { diagnose, formatReport, type DiagnoseOptions, type DiagnosticReport } from './core/diagnostics/report'
+
 // Pre-emit passes used by authors / consumers.
 export { lowerModule } from './core/passes/match-lower'
 export { cse } from './core/passes/opt/cse'
 export { autoVars } from './core/passes/opt/auto-vars'
-export { validate, lintModule } from './core/passes/validate'
+export { validate, lintModule, ValidationError } from './core/passes/validate'
+// Lint-engine public types + formatters (referenced by diagnose()/lintModule() results).
+export { summarize, formatDiagnostics, type Diagnostic, type LintSummary, type Severity, type LintConfig } from './core/passes/lint/engine'
 export { requiredCaps, assertCaps } from './core/passes/required-caps'
 export { checkSingleExit } from './core/passes/single-exit'

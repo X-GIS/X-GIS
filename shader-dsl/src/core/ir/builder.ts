@@ -7,6 +7,8 @@
 import { type ShaderType, type KeyOf, type ScalarKey, voidT } from './types'
 import type { Stmt, Expr, BinOp, FuncDecl, ModuleDecl, ConstDecl } from './nodes'
 import { Node, type ArithArg, type NodeLike, lift, f32, i32, u32, callFn, installStmtSink } from './node'
+import { dslError } from '../diagnostics/error'
+import { captureLoc, recordLoc } from '../diagnostics/loc'
 
 export type ParamSpec = Record<string, ShaderType>
 /** An entry-point param carrying a stage attribute — `builtin('vertex_index', u32T)` /
@@ -36,7 +38,7 @@ export class Builder {
 
   private autoName(): string { return `_v${this.autoNames.n++}` }
 
-  private push(s: Stmt): void { this.stmts.push(s) }
+  private push(s: Stmt): void { recordLoc(s, captureLoc()); this.stmts.push(s) }
 
   /** Immutable binding — `let name = expr;`. The name is OPTIONAL: omit it and the
    *  binding takes a function-unique auto name (`_v0`, `_v1`, …) — for when the JS
@@ -181,7 +183,7 @@ const scopeStack: Builder[] = []
 function currentBuilder(): Builder {
   const b = scopeStack[scopeStack.length - 1]
   if (b === undefined) {
-    throw new Error('shader-dsl: no active builder — call Let/Var/If/Loop/… inside an fn / If / Loop body')
+    throw dslError('SD0013')
   }
   return b
 }
@@ -351,6 +353,10 @@ export function fn(
   // function's own `name` is non-enumerable by default, which would drop it from a spread.
   Object.defineProperty(handle, 'name', { value: name, configurable: true, enumerable: true })
   Object.assign(handle, { params: paramList, ret, body: decl.body, attrs: decl.attrs, retAttr: decl.retAttr, allowEarlyReturn: decl.allowEarlyReturn, lintDisable: decl.lintDisable, decl })
+  // Stamp the handle (the object that lands in a module's funcs[] and that the lint
+  // engine iterates) with its authored location, so Func-level diagnostics can resolve
+  // a file:line:col. No-op unless source tracing is on.
+  recordLoc(handle, captureLoc())
   return handle
 }
 

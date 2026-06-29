@@ -12,6 +12,7 @@
 import type {
   ShaderType, ConstDecl, StructDecl, BindingDecl, FuncDecl, ModuleDecl,
 } from './ir'
+import { ShaderDslError } from './diagnostics/error'
 
 /** GPU features a target may or may not support; emit of an unsupported feature
  *  must be a typed error, never silent mis-emit. */
@@ -91,6 +92,6 @@ export interface Backend {
 /** Emitting a feature a target does not support is a typed error, never a silent
  *  mis-emit. Thrown by the capability gate (assertCaps) and by individual backend
  *  fragments that hit an unsupported construct. */
-export class UnsupportedFeatureError extends Error {
-  constructor(message: string) { super(message); this.name = 'UnsupportedFeatureError' }
+export class UnsupportedFeatureError extends ShaderDslError {
+  constructor(message: string) { super({ code: 'SD0030', message }); this.name = 'UnsupportedFeatureError' }
 }
