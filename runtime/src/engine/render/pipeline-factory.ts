@@ -100,20 +100,16 @@ function buildShader(variant?: ShaderVariantInfo | null): string {
   // Variant-bearing path — feed Node-typed exprs + needsFeatureBuffer into
   // the composer. variant.preamble (module-shape string) still splices
   // post-emit until the Partial<ModuleDecl> migration closes it out.
-  // The compiler-side NodeLike.expr captures the same Expr shape the runtime
-  // IR Expr union defines, but TypeScript treats them as nominally different
-  // types (different file-local declarations). Cast through `unknown` at the
-  // seam — the structural mirroring is pinned by the node-to-wgsl round-trip
-  // test. Both casts retire once ShaderVariant.fillExpr/strokeExpr migrate to
-  // the runtime Expr type.
-  type RuntimeExpr = ConstructorParameters<typeof Node>[0]
+  // The compiler authors fill/stroke exprs as `@xgis/shader-dsl` IR (its `Expr`
+  // is imported from the package, not a local mirror), so `variant.fillExpr.expr`
+  // is the runtime Node's own `Expr` type — reconstruct the Node directly, no cast.
   const fillExprNode =
     variant.fillExpr && !variant.fillIsDefault
-      ? new Node<'vec4<f32>'>(variant.fillExpr.expr as unknown as RuntimeExpr)
+      ? new Node<'vec4<f32>'>(variant.fillExpr.expr)
       : null
   const strokeExprNode =
     variant.strokeExpr && !variant.strokeIsDefault
-      ? new Node<'vec4<f32>'>(variant.strokeExpr.expr as unknown as RuntimeExpr)
+      ? new Node<'vec4<f32>'>(variant.strokeExpr.expr)
       : null
   // match() colours now live INSIDE fillExpr / strokeExpr as a `matchExpr`
   // Node (the compiler dropped the separate WGSL-string preamble). emitModule's
