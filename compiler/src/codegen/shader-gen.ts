@@ -23,8 +23,8 @@ import type { ConstDecl, BindingDecl, FuncDecl, Expr } from '@xgis/shader-dsl'
 import { vec4fT, f32T } from '@xgis/shader-dsl'
 import {
   composeFillVec4, constRefVec4, refF32,
-  toU32, u32Lit, u32Mod, arrayIndex, featDataField,
-  mix4, clampF32, f32Sub, f32Div, f32Lit, vec4fFromRgba,
+  toU32, toI32, u32Lit, u32Mod, arrayIndex, featDataField,
+  mix4, clampF32, f32Sub, f32Div, f32Lit, vec4fFromRgba, matchVec4,
 } from './_util/node-builders'
 import {
   buildFieldMap,
@@ -131,12 +131,8 @@ export function generateShaderVariant(
   // pattern, finally fall back to wgslRaw(legacy string). Each
   // ColorResult / OpacityResult arm that migrates sets `.nodeExpr`
   // and the legacy string path quietly retreats.
-  const fillExprNode = fillResult.nodeExpr && opacityResult.nodeExpr
-    ? composeFillVec4(fillResult.nodeExpr, opacityResult.nodeExpr)
-    : tryComposeFillNodeFromVarrefs(fillResult, opacityResult)
-  const strokeExprNode = strokeResult.nodeExpr && opacityResult.nodeExpr
-    ? composeFillVec4(strokeResult.nodeExpr, opacityResult.nodeExpr)
-    : tryComposeFillNodeFromVarrefs(strokeResult, opacityResult)
+  const fillExprNode = composeColorOpacityNode(fillResult, opacityResult)
+  const strokeExprNode = composeColorOpacityNode(strokeResult, opacityResult)
   const fillExpr: NodeLike<'vec4<f32>'> | null =
     node.fill.kind === 'none' ? null
       : (fillExprNode ?? wgslRaw<'vec4<f32>'>(fillExprStr))
@@ -149,13 +145,12 @@ export function generateShaderVariant(
   const key = buildKey(node, fillResult, strokeResult, opacityResult, featureFields)
     // Match-arms hash: two compound layers (same field, different
     // value→colour mappings) produce IDENTICAL `f:feat|ff:kind`
-    // keys but DIFFERENT shader bodies — the if-else chain in
-    // matchPreamble differs. Without this, the variant cache
-    // returns the FIRST compiled compound's pipeline for the
-    // SECOND compound's draws → roads end up rendered with
-    // landuse colours (or vice versa). Including a hash of the
-    // injected match preambles disambiguates them.
-    + matchArmsKey(fillResult.matchPreamble, strokeResult.matchPreamble)
+    // keys but DIFFERENT shader bodies — the matchExpr cases differ.
+    // Without this, the variant cache returns the FIRST compiled
+    // compound's pipeline for the SECOND compound's draws → roads end
+    // up rendered with landuse colours (or vice versa). Hashing the
+    // match Node's structural JSON disambiguates them.
+    + matchArmsKey(fillResult.matchNode, strokeResult.matchNode)
 
   // Aggregate categoryOrder from fill + stroke results. Both code
   // paths sort patterns alphabetically, so a field used by BOTH fill
@@ -184,8 +179,6 @@ export function generateShaderVariant(
     preamble,
     fillExpr,
     strokeExpr,
-    fillPreamble: fillResult.matchPreamble,
-    strokePreamble: strokeResult.matchPreamble,
     needsFeatureBuffer,
     featureFields,
     uniformFields,
@@ -281,46 +274,44 @@ function processColorValue(
       }
     }
 
-    // ── match(field) { "val" -> color, ... } → if-else chain ──
+    // ── match(field) { "val" -> color, ... } → matchExpr IR node ──
     if (ast.kind === 'FnCall' && ast.callee.kind === 'Identifier' && ast.callee.name === 'match' && ast.matchBlock) {
       const fieldExpr = ast.args[0]
-      const wgsl = exprToWGSL(fieldExpr, fieldMap, fnEnv)
       const arms = ast.matchBlock.arms
-      let fallbackColor = 'vec4f(0.5, 0.5, 0.5, 1.0)'
-      const branches: string[] = []
-      let varName = `_mc${prefix.charCodeAt(0)}`
 
+      // Fallback (the `_` arm) — defaults to mid-grey when the style omits it.
+      let fallbackRgba: [number, number, number, number] = [0.5, 0.5, 0.5, 1.0]
       for (const arm of arms) {
+        if (arm.pattern !== '_') continue
         const rgba = resolveColorFromAST(arm.value)
-        if (!rgba) continue
-        const [r, g, b, a] = rgba
-        const colorVec = `vec4f(${fmt(r)}, ${fmt(g)}, ${fmt(b)}, ${fmt(a)})`
-        if (arm.pattern === '_') {
-          fallbackColor = colorVec
-        } else {
-          // Category ID is assigned alphabetically at data-load time
-          // At shader-gen we emit by pattern order; runtime maps strings → IDs
-          branches.push({ pattern: arm.pattern, color: colorVec } as any)
-        }
+        if (rgba) fallbackRgba = rgba
       }
 
       // Sort patterns alphabetically to match runtime category ID assignment
+      // (the packer maps string→ID in this same order; the IDs index the cases).
       const sortedPatterns = arms
         .filter(a => a.pattern !== '_')
         .map(a => a.pattern)
         .sort()
-      const patternToId = new Map(sortedPatterns.map((p, i) => [p, i]))
-
-      let ifElse = `var ${varName}: vec4f = ${fallbackColor};\n`
+      const rgbaByPattern = new Map<string, [number, number, number, number]>()
       for (const arm of arms) {
         if (arm.pattern === '_') continue
-        const id = patternToId.get(arm.pattern)
-        if (id === undefined) continue
         const rgba = resolveColorFromAST(arm.value)
-        if (!rgba) continue
-        const [r, g, b, a] = rgba
-        ifElse += `  if (${wgsl} == ${fmt(id)}) { ${varName} = vec4f(${fmt(r)}, ${fmt(g)}, ${fmt(b)}, ${fmt(a)}); }\n`
+        if (rgba) rgbaByPattern.set(arm.pattern, rgba)
       }
+
+      // Scrutinee is the feature field cast to i32 — same shape as the compute
+      // match kernel (`toI32(featData.at(fid))`). Each case is `[id, color]`;
+      // the backend's lowerModule hoists the matchExpr into a var + switch.
+      const cases = sortedPatterns
+        .map((pat, i) => [i, rgbaByPattern.get(pat)] as const)
+        .filter((c): c is readonly [number, [number, number, number, number]] => c[1] !== undefined)
+        .map(([i, rgba]) => [i, vec4fFromRgba(rgba)] as const)
+      const nodeExpr = matchVec4(
+        toI32(astToNode(fieldExpr, fieldMap, fnEnv)),
+        cases,
+        vec4fFromRgba(fallbackRgba),
+      )
 
       // Surface the (sortedPatterns) list for THIS field so the runtime
       // can encode feature data with matching IDs. Only the simple
@@ -336,16 +327,15 @@ function processColorValue(
       return {
         preamble: [],
         isConst: false, needsFeatures: true, isVec4: true,
-        expr: `/* match */ ${varName}`,
-        matchPreamble: ifElse,
+        // Legacy string field (unused for output now that nodeExpr owns the
+        // match — buildFillExpr's string path is only reached when nodeExpr is
+        // absent). Carries the fallback colour as a defensive standalone value.
+        expr: `vec4f(${fmt(fallbackRgba[0])}, ${fmt(fallbackRgba[1])}, ${fmt(fallbackRgba[2])}, ${fmt(fallbackRgba[3])})`,
         categoryOrder,
-        // Phase 2.5 US-005 idiom (match-chain surface) — fillExpr at
-        // the marker site is just a varref to the chain's slot var.
-        // The matchPreamble string (Stmt[] migration deferred to
-        // US-007's polygon composer) is injected separately. Comment
-        // prefix '/* match */' is dropped in the Node form — AC6
-        // allows comment-placement differences.
-        nodeExpr: constRefVec4(varName),
+        nodeExpr,
+        // Disambiguates the variant cache: two compounds over the same field
+        // with different value→colour mappings hash differently here.
+        matchNode: nodeExpr,
       } as ColorResult
     }
 
@@ -578,6 +568,30 @@ function processOpacity(
 // expression text (`vec4f(...)`, `unpack4x8unorm(...)`, `mix(a, b, t)`,
 // data-driven binop strings, etc.).
 const PURE_VARREF_RE = /^[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*$/
+
+/** Compose a colour ColorResult + opacity OpacityResult into the final
+ *  `vec4(color.rgb, color.a * opacity)` Node, preferring real Node exprs.
+ *
+ *  - When the colour carries a real `nodeExpr` (constant, categorical,
+ *    gradient, scale, match, …): compose it with the opacity's `nodeExpr`,
+ *    or — when opacity hasn't migrated to a Node yet (the `u.opacity`
+ *    uniform path) — synthesise a varref Node from its pure-varref string.
+ *    This keeps match()/data-driven fills on the Node path regardless of
+ *    the opacity arm, so the matchExpr is never stranded in the dead
+ *    legacy string path.
+ *  - Otherwise fall back to the pure-varref pairing (constant / time-
+ *    interpolated / default-uniform colours whose `expr` is a bare name). */
+function composeColorOpacityNode(
+  color: ColorResult,
+  opacity: OpacityResult,
+): NodeLike<'vec4<f32>'> | null {
+  if (color.nodeExpr) {
+    const opacityNode = opacity.nodeExpr
+      ?? (PURE_VARREF_RE.test(opacity.expr) ? refF32(opacity.expr) : null)
+    return opacityNode ? composeFillVec4(color.nodeExpr, opacityNode) : null
+  }
+  return tryComposeFillNodeFromVarrefs(color, opacity)
+}
 
 function tryComposeFillNodeFromVarrefs(
   color: ColorResult,

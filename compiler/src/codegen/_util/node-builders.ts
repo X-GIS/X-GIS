@@ -76,6 +76,28 @@ export function vec4fFromRgba(rgba: readonly [number, number, number, number]): 
   return vec4f(f32Lit(rgba[0]), f32Lit(rgba[1]), f32Lit(rgba[2]), f32Lit(rgba[3]))
 }
 
+/** match-expression over an i32 scrutinee producing a vec4<f32> — mirrors the
+ *  runtime `matchExpr` builder (same Expr shape). The backend's `lowerModule`
+ *  pass (run inside `emitModule`) hoists this into a `var _mr_N: vec4<f32>` +
+ *  `switch` that writes each case's value into the slot, exactly the shape the
+ *  legacy hand-built `var _mc; if(scrutinee == id){...}` chain produced. Cases
+ *  are `[categoryId, colorNode]`; `fallback` is the `default` arm. */
+export function matchVec4(
+  scrutinee: NodeLike<'i32'>,
+  cases: ReadonlyArray<readonly [number, NodeLike<'vec4<f32>'>]>,
+  fallback: NodeLike<'vec4<f32>'>,
+): NodeLike<'vec4<f32>'> {
+  return {
+    expr: {
+      op: 'matchExpr',
+      type: VEC4F_T,
+      scrutinee: scrutinee.expr,
+      cases: cases.map(([n, v]) => [n, v.expr] as const),
+      default: fallback.expr,
+    },
+  } as NodeLike<'vec4<f32>'>
+}
+
 /** Reference to a uniform / storage binding scalar (`u.opacity`,
  *  `OPACITY` after a preamble const decl, etc.). The dotted name
  *  passes through verbatim as a varref. */

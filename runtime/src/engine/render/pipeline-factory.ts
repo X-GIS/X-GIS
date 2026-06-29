@@ -115,14 +115,12 @@ function buildShader(variant?: ShaderVariantInfo | null): string {
     variant.strokeExpr && !variant.strokeIsDefault
       ? new Node<'vec4<f32>'>(variant.strokeExpr.expr as unknown as RuntimeExpr)
       : null
-  // The compiler emits fill/stroke preambles (the categorical `_mcSS` match
-  // chain) as WGSL strings. Wrap each as a raw-WGSL Stmt so the composer
-  // emits it verbatim before the fill-/stroke-return assign — byte-identical
-  // to the former post-emit splice, without the nodeToWgslString reconstruction.
-  const fillPreamble: readonly Stmt[] | null =
-    fillExprNode && variant.fillPreamble ? [{ s: 'raw', wgsl: variant.fillPreamble }] : null
-  const strokePreamble: readonly Stmt[] | null =
-    strokeExprNode && variant.strokePreamble ? [{ s: 'raw', wgsl: variant.strokePreamble }] : null
+  // match() colours now live INSIDE fillExpr / strokeExpr as a `matchExpr`
+  // Node (the compiler dropped the separate WGSL-string preamble). emitModule's
+  // lowerModule pass hoists each matchExpr into a `var + switch` ahead of the
+  // assign automatically, so the composer needs no explicit preamble Stmts.
+  const fillPreamble: readonly Stmt[] | null = null
+  const strokePreamble: readonly Stmt[] | null = null
   // ShaderVariantInfo.fillExpr expects Node<'vec4<f32>'>; the runtime Node
   // class carries the same {op:'construct'|...} Expr shape that the
   // compiler-side NodeLike captures, so the constructor call is the bridge.

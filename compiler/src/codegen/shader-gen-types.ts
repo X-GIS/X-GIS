@@ -42,15 +42,6 @@ export interface ShaderVariant {
   fillExpr: NodeLike<'vec4<f32>'> | null
   /** Stroke-color expression — same migration shape as `fillExpr`. */
   strokeExpr: NodeLike<'vec4<f32>'> | null
-  /** WGSL code injected before fill return (match if-else chains) */
-  fillPreamble?: string
-  /** WGSL code injected before stroke return — analogous to
-   *  `fillPreamble` for the stroke entry point. Without this, a
-   *  `match()` expression on stroke colour produces an `_mcSS = ...`
-   *  if-else chain whose VAR DECLARATION is dropped on the floor
-   *  while the `expr` still references the var name → "unresolved
-   *  identifier _mc83" at WGSL compile time. */
-  strokePreamble?: string
   /** Whether a storage buffer is needed for per-feature data */
   needsFeatureBuffer: boolean
   /** Fields needed from feature data (for storage buffer layout) */
@@ -143,7 +134,12 @@ export interface ColorResult {
   needsFeatures: boolean
   isVec4: boolean  // true if expr already returns vec4f (categorical/gradient)
   expr: string // WGSL expression for the color
-  matchPreamble?: string // if-else chain for match() — injected before return in fragment
+  /** Set only by the `match()` arm — the matchExpr Node (identical to
+   *  `nodeExpr`). The variant cache key hashes its structural JSON via
+   *  `matchArmsKey` so two compounds over the same field with different
+   *  value→colour mappings hash to distinct pipelines. Undefined for every
+   *  non-match path, keeping their cache-key bytes unchanged. */
+  matchNode?: NodeLike<'vec4<f32>'>
   /** field → ordered list of patterns the if-else chain expects. The
    *  runtime uses this to assign matching integer IDs into the per-
    *  feature data buffer. Without this, IDs would be derived from
