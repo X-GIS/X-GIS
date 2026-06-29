@@ -23,9 +23,33 @@ interface PerfMap {
   gpuTimer?: { getBreakdown(): Record<string, number[]>; resetTimings?: () => void } | null
 }
 interface PerfPhasesAPI {
-  getPhaseAverages: () => Array<{ name: string; meanMs: number; perFrameMs: number; samples: number }>
+  getPhaseAverages: () => Array<{ name: string; meanMs: number; perFrameMs: number; maxFrameMs: number; samples: number }>
   resetPhaseTimings: () => void
   setEnabled: (b: boolean) => void
+}
+
+/** Read-only view of the shared MVT worker pool's diagnostic counters
+ *  (runtime/src/data/workers/mvt-worker-pool.ts). The pool already tracks
+ *  these cumulatively — surfacing deltas across a sweep is free and tells us
+ *  how much of the OUTSIDE-renderFrame main-thread time is the tile
+ *  drain/resolve chain (the prime suspect for bursty high-pitch stalls). */
+interface MvtPoolDiag {
+  totalResolved: number
+  totalDrains: number
+  maxDrainSize: number
+  totalDrainMs: number
+  queueLength: number
+}
+function readMvtPool(): MvtPoolDiag | null {
+  const p = (globalThis as { __XGIS_MVT_POOL?: Partial<MvtPoolDiag> }).__XGIS_MVT_POOL
+  if (!p || typeof p.totalResolved !== 'number') return null
+  return {
+    totalResolved: p.totalResolved ?? 0,
+    totalDrains: p.totalDrains ?? 0,
+    maxDrainSize: p.maxDrainSize ?? 0,
+    totalDrainMs: p.totalDrainMs ?? 0,
+    queueLength: p.queueLength ?? 0,
+  }
 }
 
 function pct(arr: number[], p: number): number {
@@ -286,22 +310,47 @@ export function installPerfOverlay(map: PerfMap): void {
       lastPing = performance.now()
       ch.port2.postMessage(0)
 
+      // Worst-frame sampler. The phase ring is only 60 frames; at 25 fps that's
+      // the last ~2.4 s, so a burst early in the 6 s sweep would fall off before
+      // we read it. Poll getPhaseAverages() every 200 ms and keep the running
+      // MAX of each phase's worst frame, so the report captures the worst spike
+      // ANYWHERE in the run — the whole point of chasing a bursty stall.
+      const phaseMax = new Map<string, number>()
+      const poolBefore = readMvtPool()
+      const sampler = setInterval(() => {
+        for (const p of phases?.getPhaseAverages?.() ?? []) {
+          const prev = phaseMax.get(p.name) ?? 0
+          if (p.maxFrameMs > prev) phaseMax.set(p.name, p.maxFrameMs)
+        }
+      }, 200)
+
       pre.textContent = '판정 중… rotate+pitch (6초)'
       const frames = await runScenario(map, 6000, sweep)
       probing = false
       ch.port1.close()
+      clearInterval(sampler)
+      // Final catch so the last window's spikes are folded into the max.
+      for (const p of phases?.getPhaseAverages?.() ?? []) {
+        const prev = phaseMax.get(p.name) ?? 0
+        if (p.maxFrameMs > prev) phaseMax.set(p.name, p.maxFrameMs)
+      }
+      const poolAfter = readMvtPool()
 
       // Restore the view.
       const c = map.getCamera()
       c.zoom = z0; c.centerX = x0; c.centerY = y0; c.pitch = p0; c.bearing = br0
       map.invalidate()
 
-      const fP50 = pct(frames.slice(2), 50)
+      const fr = frames.slice(2)
+      const fP50 = pct(fr, 50)
+      const fP95 = pct(fr, 95)
+      const framesMax = fr.reduce((a, b) => Math.max(a, b), 0)
       const fps = fP50 > 0 ? (1000 / fP50).toFixed(0) : '--'
       const stallP50 = pct(gaps, 50)
       const stallP95 = pct(gaps, 95)
       const stallMax = gaps.reduce((a, b) => Math.max(a, b), 0)
       const frameTotal = (phases?.getPhaseAverages?.() ?? []).find(p => p.name === 'frame.total')?.perFrameMs ?? 0
+      const frameTotalMax = phaseMax.get('frame.total') ?? 0
       const gpu = map.gpuTimer?.getBreakdown?.() ?? {}
       const gpuVals = Object.values(gpu).flat().map(n => n / 1e6).sort((a, b) => a - b)
       const gpuP50 = gpuVals.length ? gpuVals[Math.floor(gpuVals.length * 0.5)]! : 0
@@ -310,15 +359,49 @@ export function installPerfOverlay(map: PerfMap): void {
       const verdict = busyFrac > 0.7
         ? `→ 메인스레드 최대 stall ${stallMax.toFixed(0)}ms ≈ frame ${fP50.toFixed(0)}ms : CPU 바운드(메인스레드가 프레임 내내 바쁨 — renderFrame 밖 JS)`
         : `→ 메인스레드 최대 stall ${stallMax.toFixed(0)}ms ≪ frame ${fP50.toFixed(0)}ms : GPU 바운드(메인은 idle, GPU/present 대기 — DPR/draw/present 쪽)`
+
+      // Worst-frame attribution — the means above hide bursts; THIS splits the
+      // 61ms spike into inside-render vs outside-render. If frame.total max ≈
+      // worst rAF frame → the burst is INSIDE render (an upload/evict spike a
+      // mean of 8ms hides) and the per-phase MAX below names the pass. If
+      // frame.total max stays small while the rAF frame spikes → the burst is
+      // OUTSIDE render (the tile drain/resolve chain — see MVT drain below).
+      const outsideWorst = Math.max(0, framesMax - frameTotalMax)
+      const topPhaseMax = [...phaseMax.entries()]
+        .filter(([n]) => n !== 'frame.total' && n !== 'frame.prep' && n !== 'frame.encode' && n !== 'frame.submit')
+        .sort((a, b) => b[1] - a[1]).slice(0, 6)
+      const whereWorst = frameTotalMax >= framesMax * 0.7
+        ? `렌더 안(frame.total) 스파이크 — 아래 phase MAX 가 범인`
+        : `렌더 밖 스파이크 ≈ ${outsideWorst.toFixed(0)}ms — 타일 drain/resolve 의심(아래 MVT)`
+
+      // MVT drain deltas across the sweep — how much of the outside-render time
+      // is the worker-result drain chain.
+      let drainLine = 'MVT drain: (__XGIS_MVT_POOL 없음)'
+      if (poolBefore && poolAfter) {
+        const dTiles = poolAfter.totalResolved - poolBefore.totalResolved
+        const dDrains = poolAfter.totalDrains - poolBefore.totalDrains
+        const dMs = poolAfter.totalDrainMs - poolBefore.totalDrainMs
+        const perDrain = dDrains > 0 ? dMs / dDrains : 0
+        drainLine = `MVT drain(측정중): 타일=${dTiles} drain횟수=${dDrains} drain합=${dMs.toFixed(1)}ms `
+          + `(회당~${perDrain.toFixed(1)}ms, 최대배치=${poolAfter.maxDrainSize}, 잔여큐=${poolAfter.queueLength})`
+      }
+
       const dpr = window.devicePixelRatio || 1
       const canvas = document.querySelector('canvas')
       report = [
-        '=== X-GIS GPU/CPU 판정 (rotate+pitch) ===',
+        '=== X-GIS GPU/CPU 판정 + 최악프레임 분해 (rotate+pitch) ===',
         `기기 DPR=${dpr} 캔버스=${canvas?.width ?? 0}x${canvas?.height ?? 0}`,
-        `frame p50=${fP50.toFixed(1)}ms (${fps}fps)`,
-        `renderFrame CPU(frame.total)=${frameTotal.toFixed(1)}ms   GPU timestamp p50=${gpuP50.toFixed(1)}ms`,
+        `frame p50=${fP50.toFixed(1)} p95=${fP95.toFixed(1)} 최악=${framesMax.toFixed(0)}ms (${fps}fps)`,
+        `renderFrame CPU(frame.total)  평균=${frameTotal.toFixed(1)}  최악=${frameTotalMax.toFixed(1)}ms   GPU timestamp p50=${gpuP50.toFixed(1)}ms`,
         `main-thread stall  p50=${stallP50.toFixed(1)}  p95=${stallP95.toFixed(1)}  max=${stallMax.toFixed(1)} ms`,
         verdict,
+        '',
+        `최악프레임 분해: rAF최악=${framesMax.toFixed(0)} / frame.total최악=${frameTotalMax.toFixed(0)} → ${whereWorst}`,
+        'phase MAX (최악프레임 ms, 큰 순):',
+        ...(topPhaseMax.length
+          ? topPhaseMax.map(([n, v]) => `  ${v.toFixed(1).padStart(7)}  ${n.replace('encoder.pass.', '')}`)
+          : ['  (phase 마크 없음 — ?gpuprof=1 로 로드했는지 확인)']),
+        drainLine,
       ].join('\n')
       pre.textContent = report
       abBtn.disabled = false; runBtn.disabled = false
