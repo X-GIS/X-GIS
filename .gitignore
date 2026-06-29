@@ -36,6 +36,11 @@ playground/public/data/*
 # changing the URL field.
 !playground/public/data/land.geojson
 
+# `countries.geojson` — Natural Earth country polygons referenced by 20+ demo
+# .xgis files (categorical, continent-match, gdp-gradient, bold-borders, …).
+# Same rationale as the ne_110m_* set: must ship or those demos 404.
+!playground/public/data/countries.geojson
+
 # Playwright e2e artifacts
 playground/test-results/
 playground/playwright-report/
@@ -56,6 +61,7 @@ playground/e2e/__*__
 
 # Profiling + perf-debug dumps (ad-hoc, not source-controlled)
 *.cpuprofile
+*.log
 playground/profile-*
 playground/baseline-stats.json
 playground/post-p1-stats.json

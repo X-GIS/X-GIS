@@ -1,2 +1,4 @@
 status.json
 data/
+# Per-machine MCP server path (absolute, user-local) — not source-controlled.
+config.json

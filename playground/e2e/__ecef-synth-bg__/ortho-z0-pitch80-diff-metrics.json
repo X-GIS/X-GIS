@@ -1,7 +1,0 @@
-{
-  "diffRatio": 0.004533268733850129,
-  "diffPct": 0.453,
-  "threshold": 0.005,
-  "pass": true,
-  "note": "In WIP state, canvas is all-black (fill not rendering). Diff reflects run-to-run variance in that state."
-}
