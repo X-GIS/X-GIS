@@ -83,6 +83,13 @@ nul
 # Local Claude Code harness state (per-machine)
 .claude/
 
+# Per-developer editor configs. The codebase-memory MCP extension writes a
+# machine-local server path (c:\Users\...) into these on install, so they
+# can't be shared. CI uses bun/npm scripts, not editor config.
+.cursor/
+.vscode/
+.zed/
+
 # OMC (oh-my-claudecode) working tree — per-machine runtime state, session
 # artifacts, and scratch docs. Ignored wholesale; not source-controlled.
 # Files committed under .omc before this rule stay tracked until untracked
