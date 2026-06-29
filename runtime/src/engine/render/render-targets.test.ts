@@ -172,6 +172,28 @@ describe('RenderTargets.ensure', () => {
     expect(size.height).toBe(768)
   })
 
+  it('view getters self-heal across a resize — never hand back a stale view', () => {
+    // The desync trap the identity-keyed cache exists to prevent: after a
+    // resize recreates stencilTexture, stencilView MUST derive from the NEW
+    // texture, not a view cached against the destroyed one.
+    const fake = makeFakeDevice()
+    const rt = new RenderTargets(() => makeCtx(fake.device))
+
+    rt.ensure(800, 600, 1, false, false, screenView)
+    const texA = rt.stencilTexture
+    const viewA = rt.stencilView
+    expect(viewA).not.toBeNull()
+    // Same texture → same cached view object (no per-call allocation).
+    expect(rt.stencilView).toBe(viewA)
+
+    rt.ensure(1024, 768, 1, false, false, screenView)
+    expect(rt.stencilTexture).not.toBe(texA) // recreated
+    // The getter now derives from the new texture: a different view object,
+    // and never the one bound to the destroyed texture.
+    expect(rt.stencilView).not.toBe(viewA)
+    expect(rt.stencilView).not.toBeNull()
+  })
+
   it('invalidate() forces a recreate even when w/h are unchanged', () => {
     const fake = makeFakeDevice()
     const rt = new RenderTargets(() => makeCtx(fake.device))

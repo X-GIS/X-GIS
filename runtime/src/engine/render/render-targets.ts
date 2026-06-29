@@ -56,29 +56,40 @@ export class RenderTargets {
   /** Pick (GPU hover/click) RG32Uint single-sample colour attachment. */
   pickTexture: GPUTexture | null = null
 
-  // ── Cached texture views ──
-  // A GPUTexture.createView() with no args returns a fresh default view each
-  // call; the passes used to mint one EVERY frame for stencil/pick/oit/msaa/
-  // overdraw (4–8 allocations/frame). The backing textures only change on
-  // resize, so the view is cached at (re)creation and the passes read it.
-  // The swapchain view stays per-frame (a fresh getCurrentTexture each
-  // acquire) and is never cached here.
-  /** Cached view of `stencilTexture`. */
-  stencilView: GPUTextureView | null = null
-  /** Cached view of `pickTexture` (null when picking disabled). */
-  pickView: GPUTextureView | null = null
-  /** Cached view of `msaaTexture` (null when sampleCount === 1). */
-  msaaView: GPUTextureView | null = null
-  /** Cached view of `overdrawAccumTexture` (null unless `?debug=overdraw`). */
-  overdrawView: GPUTextureView | null = null
-  /** Cached view of `oitAccumTexture` (null until `ensureOit`). */
-  oitAccumView: GPUTextureView | null = null
-  /** Cached view of `oitRevealageTexture` (null until `ensureOit`). */
-  oitRevealageView: GPUTextureView | null = null
-  /** Cached view of `heatmapAccumTexture` (null until `ensureHeatmap`). */
-  heatmapAccumView: GPUTextureView | null = null
-  /** Cached view of `heatmapBlurTexture` (null until `ensureHeatmap`). */
-  heatmapBlurView: GPUTextureView | null = null
+  // ── Self-healing texture-view cache ──
+  // A GPUTexture.createView() with no args returns a FRESH view each call; the
+  // passes used to mint one EVERY frame for stencil/pick/oit/msaa/overdraw/
+  // heatmap (4–8 allocations/frame). The backing textures only change on
+  // resize, so we cache the view keyed on the texture IDENTITY: the getters
+  // below derive-and-cache through `viewOf`, which (re)creates the view IFF the
+  // underlying texture object changed. This makes the cache impossible to
+  // desync — a future texture-recreation site needs no companion "update the
+  // view" bookkeeping, and a stale view can never be handed to a render pass.
+  // The swapchain view stays per-frame (a fresh getCurrentTexture each acquire)
+  // and is never cached here. WeakMap so a retired texture's entry is GC'd with
+  // the texture; no manual eviction on resize.
+  private readonly _viewCache = new WeakMap<GPUTexture, GPUTextureView>()
+  private viewOf(tex: GPUTexture): GPUTextureView {
+    let v = this._viewCache.get(tex)
+    if (v === undefined) { v = tex.createView(); this._viewCache.set(tex, v) }
+    return v
+  }
+  /** Cached default view of `stencilTexture` (null until `ensure`). */
+  get stencilView(): GPUTextureView | null { return this.stencilTexture ? this.viewOf(this.stencilTexture) : null }
+  /** Cached default view of `pickTexture` (null when picking disabled). */
+  get pickView(): GPUTextureView | null { return this.pickTexture ? this.viewOf(this.pickTexture) : null }
+  /** Cached default view of `msaaTexture` (null when sampleCount === 1). */
+  get msaaView(): GPUTextureView | null { return this.msaaTexture ? this.viewOf(this.msaaTexture) : null }
+  /** Cached default view of `overdrawAccumTexture` (null unless `?debug=overdraw`). */
+  get overdrawView(): GPUTextureView | null { return this.overdrawAccumTexture ? this.viewOf(this.overdrawAccumTexture) : null }
+  /** Cached default view of `oitAccumTexture` (null until `ensureOit`). */
+  get oitAccumView(): GPUTextureView | null { return this.oitAccumTexture ? this.viewOf(this.oitAccumTexture) : null }
+  /** Cached default view of `oitRevealageTexture` (null until `ensureOit`). */
+  get oitRevealageView(): GPUTextureView | null { return this.oitRevealageTexture ? this.viewOf(this.oitRevealageTexture) : null }
+  /** Cached default view of `heatmapAccumTexture` (null until `ensureHeatmap`). */
+  get heatmapAccumView(): GPUTextureView | null { return this.heatmapAccumTexture ? this.viewOf(this.heatmapAccumTexture) : null }
+  /** Cached default view of `heatmapBlurTexture` (null until `ensureHeatmap`). */
+  get heatmapBlurView(): GPUTextureView | null { return this.heatmapBlurTexture ? this.viewOf(this.heatmapBlurTexture) : null }
   /** Heatmap density accumulation target (r16float, single-sample). Lazily
    *  allocated by `ensureHeatmap()` ONLY when a heatmap layer is present, so
    *  a style with no heatmap allocates nothing here (byte-identical default).
@@ -138,7 +149,6 @@ export class RenderTargets {
       this.pickTexture?.destroy()
       this.overdrawAccumTexture?.destroy()
       this.overdrawAccumTexture = null
-      this.overdrawView = null
       // Allocate the MSAA color attachment ONLY when MSAA is on. When
       // sc === 1 we render straight to the swapchain (no resolveTarget)
       // and the MSAA texture would just waste w×h×4 bytes per frame.
@@ -150,14 +160,12 @@ export class RenderTargets {
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
           })
         : null
-      this.msaaView = this.msaaTexture?.createView() ?? null
       this.stencilTexture = device.createTexture({
         size: { width: w, height: h },
         format: 'depth24plus-stencil8',
         sampleCount: sc,
         usage: GPUTextureUsage.RENDER_ATTACHMENT,
       })
-      this.stencilView = this.stencilTexture.createView()
       // Pick RT: RG32Uint, single-sample. `?picking=1` forces SAMPLE_COUNT
       // to 1 globally (see quality.ts) so sc === 1 here whenever PICK is
       // true — the pick attachment and color attachment share sample count
@@ -170,7 +178,6 @@ export class RenderTargets {
             usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
           })
         : null
-      this.pickView = this.pickTexture?.createView() ?? null
       // The OIT + offscreen-extrude targets are NOT allocated here — they
       // move to the lazy `ensureOit()` (gated on scene OIT content), the
       // same way the heatmap targets gate on `scene.hasHeatmap`. On a
@@ -187,7 +194,6 @@ export class RenderTargets {
           usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
           label: 'overdraw-accum',
         })
-        this.overdrawView = this.overdrawAccumTexture.createView()
       }
       this.msaaWidth = w
       this.msaaHeight = h
@@ -238,8 +244,6 @@ export class RenderTargets {
       usage,
       label: 'heatmap-blur',
     })
-    this.heatmapAccumView = this.heatmapAccumTexture.createView()
-    this.heatmapBlurView = this.heatmapBlurTexture.createView()
     this.heatmapWidth = w
     this.heatmapHeight = h
   }
@@ -285,8 +289,6 @@ export class RenderTargets {
       usage: GPUTextureUsage.RENDER_ATTACHMENT,
       label: 'offscreen-extrude-depth',
     })
-    this.oitAccumView = this.oitAccumTexture.createView()
-    this.oitRevealageView = this.oitRevealageTexture.createView()
     this.oitWidth = w
     this.oitHeight = h
     this.oitSampleCount = sampleCount
@@ -299,8 +301,6 @@ export class RenderTargets {
     this.heatmapBlurTexture?.destroy()
     this.heatmapAccumTexture = null
     this.heatmapBlurTexture = null
-    this.heatmapAccumView = null
-    this.heatmapBlurView = null
     this.heatmapWidth = 0
     this.heatmapHeight = 0
   }
