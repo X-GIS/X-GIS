@@ -33,6 +33,7 @@
 import {
   arrayIndex, varRefArrayU32, unpack4x8unormVec4, inputFeatIdRef,
 } from './_util/node-builders'
+import { arrayT, u32T, type BindingDecl } from '@xgis/shader-dsl'
 
 /** Which paint axis the compute output evaluates. Two-state union
  *  matches the rest of the P4 plan; future axes (opacity, stroke
@@ -66,6 +67,19 @@ function varNameFor(axis: ComputeOutputPaintAxis): string {
 export function emitComputeOutputBindingDecl(spec: ComputeOutputBindingSpec): string {
   const name = varNameFor(spec.paintAxis)
   return `@group(${spec.bindGroup}) @binding(${spec.binding}) var<storage, read> ${name}: array<u32>;`
+}
+
+/** IR `BindingDecl` parallel of `emitComputeOutputBindingDecl` — the
+ *  `Partial<ModuleDecl>` preamble form for the compute output storage buffer. */
+export function buildComputeOutputBindingDecl(spec: ComputeOutputBindingSpec): BindingDecl {
+  return {
+    group: spec.bindGroup,
+    binding: spec.binding,
+    name: varNameFor(spec.paintAxis),
+    space: 'storage',
+    access: 'read',
+    type: arrayT(u32T),
+  }
 }
 
 /** Emit the WGSL expression that reads + unpacks the per-feature

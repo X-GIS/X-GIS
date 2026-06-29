@@ -40,7 +40,7 @@ function makeTernaryEntry(field: string, paintAxis: 'fill' | 'stroke-color'): Co
 describe('buildComputeVariantAddendum', () => {
   it('empty entries → empty addendum (no-op merge target)', () => {
     const a = buildComputeVariantAddendum([], 0, 1)
-    expect(a.preamble).toBe('')
+    expect(a.bindingDecls).toEqual([])
     expect(a.fillExpr).toBeUndefined()
     expect(a.strokeExpr).toBeUndefined()
     expect(a.bindGroupEntries).toEqual([])
@@ -53,8 +53,7 @@ describe('buildComputeVariantAddendum', () => {
       0,
       3,
     )
-    expect(a.preamble).toContain('@group(0) @binding(3)')
-    expect(a.preamble).toContain('compute_out_fill')
+    expect(a.bindingDecls[0]).toMatchObject({ group: 0, binding: 3, name: 'compute_out_fill', space: 'storage' })
     expect(a.fillExpr).toBe('unpack4x8unorm(compute_out_fill[input.feat_id])')
     expect(a.strokeExpr).toBeUndefined()
     expect(a.bindGroupEntries).toHaveLength(1)
@@ -84,11 +83,10 @@ describe('buildComputeVariantAddendum', () => {
     expect(a.fillExpr).toBeDefined()
     expect(a.strokeExpr).toBeDefined()
     expect(a.bindGroupEntries.map(e => e.binding)).toEqual([5, 6])
-    // Preamble has two distinct decl lines.
-    const lines = a.preamble.split('\n')
-    expect(lines).toHaveLength(2)
-    expect(lines[0]).toContain('@binding(5)')
-    expect(lines[1]).toContain('@binding(6)')
+    // Two distinct binding decls, in order.
+    expect(a.bindingDecls).toHaveLength(2)
+    expect(a.bindingDecls[0]!.binding).toBe(5)
+    expect(a.bindingDecls[1]!.binding).toBe(6)
   })
 
   it('binding sequence starts at baseBinding and increments by 1', () => {

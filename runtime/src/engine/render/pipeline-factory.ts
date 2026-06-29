@@ -90,7 +90,10 @@ function buildShader(variant?: ShaderVariantInfo | null): string {
   // Default-uniform path (variant absent OR variant carries no preamble +
   // no feat_buffer) — the composer's null-variant emit substitutes the
   // POLYGON_SHADER_SOURCE:565 / 780 default-uniform assigns.
-  if (!variant || (!variant.preamble && !variant.needsFeatureBuffer)) {
+  const pre = variant?.preamble
+  const hasPreamble = !!pre
+    && (((pre.consts?.length ?? 0) + (pre.bindings?.length ?? 0) + (pre.funcs?.length ?? 0)) > 0)
+  if (!variant || (!hasPreamble && !variant.needsFeatureBuffer)) {
     return emitPolygonWgsl(null, isPickEnabled())
   }
 
@@ -123,9 +126,12 @@ function buildShader(variant?: ShaderVariantInfo | null): string {
   // ShaderVariantInfo.fillExpr expects Node<'vec4<f32>'>; the runtime Node
   // class carries the same {op:'construct'|...} Expr shape that the
   // compiler-side NodeLike captures, so the constructor call is the bridge.
-  let wgsl = emitPolygonWgsl(
+  // The compiler authors every specialized const / binding / helper fn as IR
+  // decls (variant.preamble: Partial<ModuleDecl>); the composer spreads them
+  // into the base module — no post-emit WGSL-string splice.
+  const wgsl = emitPolygonWgsl(
     {
-      preamble: null,
+      preamble: variant.preamble ?? null,
       fillExpr: fillExprNode,
       strokeExpr: strokeExprNode,
       fillPreamble,
@@ -134,22 +140,6 @@ function buildShader(variant?: ShaderVariantInfo | null): string {
     },
     isPickEnabled(),
   )
-
-  // Splice variant.preamble (string) after the composer's last fixed
-  // binding (@group(0) @binding(6) sprite_samp). The line is emitted
-  // exactly once with no leading indent — match on the unindented form
-  // so the splice resolves deterministically.
-  if (variant.preamble) {
-    const spriteSampMatch = wgsl.match(/^@group\(0\) @binding\(6\) [^\n]*\n/m)
-    if (spriteSampMatch && spriteSampMatch.index !== undefined) {
-      const insertAt = spriteSampMatch.index + spriteSampMatch[0].length
-      wgsl = wgsl.slice(0, insertAt)
-        + '\n// ── Specialized constants ──\n'
-        + variant.preamble
-        + '\n'
-        + wgsl.slice(insertAt)
-    }
-  }
 
   return wgsl
 }

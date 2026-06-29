@@ -137,7 +137,7 @@ describe('continent-match.xgis — compute path opt-in', () => {
     const cmds = compileFixture(true)
     const continents = cmds.shows.find(s => s.layerName === 'continents')!
     const v = continents.shaderVariant!
-    expect(v.preamble).toContain('compute_out_fill')
+    expect((v.preamble.bindings ?? []).some(b => b.name === 'compute_out_fill')).toBe(true)
     // Phase 2.5 US-004 — fillExpr now NodeLike|null.
     const fillStr = v.fillExpr ? nodeToWgslString(v.fillExpr) : ''
     expect(fillStr).toContain('compute_out_fill')

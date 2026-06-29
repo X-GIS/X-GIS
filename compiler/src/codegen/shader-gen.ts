@@ -5,20 +5,22 @@
 import type { RenderNode, ColorValue, OpacityValue } from '../ir/render-node'
 import { rgbaToHex } from '../ir/render-node'
 import { exprToWGSL, astToNode, collectFields, type WGSLFnEnv } from './wgsl-expr'
-import { generatePaletteWGSL } from './categorical-encoder'
+import { buildCatPaletteConst } from './categorical-encoder'
 import type { Palette } from './palette'
 import {
   emitColorGradientSample,
   emitColorGradientSampleNode,
   emitScalarGradientSample,
   emitScalarGradientSampleNode,
-  emitScalarSampleHelper,
-  emitPaletteBindings,
+  buildScalarSampleFunc,
+  buildPaletteBindingDecls,
   type ScalarPaletteMode,
 } from './palette-emit'
-import type { ShaderVariant, ColorResult, OpacityResult } from './shader-gen-types'
+import type { ShaderVariant, ColorResult, OpacityResult, PreambleModule } from './shader-gen-types'
 import { wgslRaw } from './node-types'
 import type { NodeLike } from './node-types'
+import type { ConstDecl, BindingDecl, FuncDecl, Expr } from '@xgis/shader-dsl'
+import { vec4fT, f32T } from '@xgis/shader-dsl'
 import {
   composeFillVec4, constRefVec4, refF32,
   toU32, u32Lit, u32Mod, arrayIndex, featDataField,
@@ -32,6 +34,17 @@ import {
 } from './shader-gen-helpers'
 
 export type { ShaderVariant } from './shader-gen-types'
+
+/** Build a `vec4<f32>` module const from an RGBA tuple (the FILL/STROKE_COLOR
+ *  specialised constants), authored as an IR literal expression. */
+function vec4ConstDecl(name: string, rgba: readonly [number, number, number, number]): ConstDecl {
+  return { name, type: vec4fT, wgslValue: 0, cpuValue: 0, valueExpr: vec4fFromRgba(rgba).expr as Expr }
+}
+
+/** Build a scalar `f32` module const (OPACITY) — the dual-precision form. */
+function f32ConstDecl(name: string, value: number): ConstDecl {
+  return { name, type: f32T, wgslValue: value, cpuValue: value }
+}
 
 /**
  * Generate a shader variant for a RenderNode.
@@ -49,7 +62,7 @@ export function generateShaderVariant(
   palette?: Palette,
   scalarPaletteMode: ScalarPaletteMode = 'manual',
 ): ShaderVariant {
-  const preambleLines: string[] = []
+  const consts: ConstDecl[] = []
   const uniformFields: string[] = ['mvp', 'proj_params']
   const allFeatureFields = new Set<string>()
   let needsFeatureBuffer = false
@@ -64,7 +77,7 @@ export function generateShaderVariant(
 
   // ── Fill ──
   const fillResult = processColorValue(node.fill, 'FILL', allFeatureFields, fnEnv, palette)
-  preambleLines.push(...fillResult.preamble)
+  consts.push(...fillResult.preamble)
   if (!fillResult.isConst) uniformFields.push('fill_color')
   if (fillResult.needsFeatures) needsFeatureBuffer = true
   if (fillResult.paletteGradientIdx !== undefined) {
@@ -73,7 +86,7 @@ export function generateShaderVariant(
 
   // ── Stroke ──
   const strokeResult = processColorValue(node.stroke.color, 'STROKE', allFeatureFields, fnEnv, palette)
-  preambleLines.push(...strokeResult.preamble)
+  consts.push(...strokeResult.preamble)
   if (!strokeResult.isConst) uniformFields.push('stroke_color')
   if (strokeResult.needsFeatures) needsFeatureBuffer = true
   if (strokeResult.paletteGradientIdx !== undefined) {
@@ -82,7 +95,7 @@ export function generateShaderVariant(
 
   // ── Opacity ──
   const opacityResult = processOpacity(node.opacity, allFeatureFields, fnEnv, palette)
-  preambleLines.push(...opacityResult.preamble)
+  consts.push(...opacityResult.preamble)
   if (opacityResult.needsUniform) uniformFields.push('opacity')
   if (opacityResult.needsFeatures) needsFeatureBuffer = true
   if (opacityResult.paletteScalarIdx !== undefined) {
@@ -153,22 +166,22 @@ export function generateShaderVariant(
     ...(strokeResult.categoryOrder ?? {}),
   }
 
-  // Prepend palette binding declarations + helper functions when the
-  // variant actually samples either atlas. Skipped when both gradient
-  // lists are empty so existing (non-palette) variants stay
-  // byte-identical with the legacy path.
+  // Palette binding declarations + scalar-sample helper fn, as IR decls, when
+  // the variant actually samples either atlas. Empty for non-palette variants.
+  const bindings: BindingDecl[] = []
+  const funcs: FuncDecl[] = []
   if (palette && (paletteColorGradients.length > 0 || paletteScalarGradients.length > 0)) {
-    const bindings = emitPaletteBindings(palette)
-    const scalarHelper = paletteScalarGradients.length > 0
-      ? emitScalarSampleHelper(palette, scalarPaletteMode)
-      : ''
-    const prefix = bindings + scalarHelper
-    if (prefix) preambleLines.unshift(prefix)
+    bindings.push(...buildPaletteBindingDecls(palette))
+    if (paletteScalarGradients.length > 0) {
+      const helper = buildScalarSampleFunc(palette, scalarPaletteMode)
+      if (helper) funcs.push(helper)
+    }
   }
+  const preamble: PreambleModule = { consts, bindings, funcs }
 
   return {
     key,
-    preamble: preambleLines.join('\n'),
+    preamble,
     fillExpr,
     strokeExpr,
     fillPreamble: fillResult.matchPreamble,
@@ -203,18 +216,19 @@ function processColorValue(
 ): ColorResult {
   if (value.kind === 'none') {
     return {
-      preamble: [`const ${prefix}_COLOR: vec4f = vec4f(0.0, 0.0, 0.0, 0.0);`],
+      preamble: [vec4ConstDecl(`${prefix}_COLOR`, [0, 0, 0, 0])],
       isConst: true, needsFeatures: false, isVec4: true,
       expr: `${prefix}_COLOR`,
+      nodeExpr: constRefVec4(`${prefix}_COLOR`),
     }
   }
 
   if (value.kind === 'constant') {
-    const [r, g, b, a] = value.rgba
     return {
-      preamble: [`const ${prefix}_COLOR: vec4f = vec4f(${fmt(r)}, ${fmt(g)}, ${fmt(b)}, ${fmt(a)});`],
+      preamble: [vec4ConstDecl(`${prefix}_COLOR`, value.rgba)],
       isConst: true, needsFeatures: false, isVec4: true,
       expr: `${prefix}_COLOR`,
+      nodeExpr: constRefVec4(`${prefix}_COLOR`),
     }
   }
 
@@ -260,7 +274,7 @@ function processColorValue(
           )
         : undefined
       return {
-        preamble: [generatePaletteWGSL()],
+        preamble: [buildCatPaletteConst()],
         isConst: false, needsFeatures: true, isVec4: true,
         expr: `CAT_PALETTE[u32(${wgsl}) % 20u]`,
         nodeExpr,
@@ -383,7 +397,7 @@ function processColorValue(
           )
         : undefined
       return {
-        preamble: [generatePaletteWGSL()],
+        preamble: [buildCatPaletteConst()],
         isConst: false, needsFeatures: true, isVec4: true,
         expr: `CAT_PALETTE[u32(${wgsl}) % 20u]`,
         nodeExpr,
@@ -471,7 +485,7 @@ function processOpacity(
 ): OpacityResult {
   if (value.kind === 'constant') {
     return {
-      preamble: [`const OPACITY: f32 = ${fmt(value.value)};`],
+      preamble: [f32ConstDecl('OPACITY', value.value)],
       needsUniform: false,
       needsFeatures: false,
       expr: 'OPACITY',

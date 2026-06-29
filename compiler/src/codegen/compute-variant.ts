@@ -38,8 +38,9 @@
 //     the existing model).
 
 import type { ComputePlanEntry } from './compute-plan'
+import type { BindingDecl } from '@xgis/shader-dsl'
 import {
-  emitComputeOutputBindingDecl,
+  buildComputeOutputBindingDecl,
   emitComputeOutputReadExpr,
   makeComputeOutputBindGroupEntry,
   type ComputeOutputBindGroupEntry,
@@ -50,9 +51,9 @@ import {
  *  shape — fields are intentionally optional so the caller can
  *  detect "no compute paint" via the missing fillExpr/strokeExpr. */
 export interface ComputeVariantAddendum {
-  /** WGSL preamble — one bind decl per compute output buffer.
-   *  Joined by '\n'. Empty string when no entries contribute. */
-  preamble: string
+  /** Storage-binding decls — one per compute output buffer — merged into the
+   *  variant's `preamble.bindings`. Empty when no entries contribute. */
+  bindingDecls: BindingDecl[]
   /** Fragment expression replacing `u.fill_color` for this show.
    *  `undefined` when this show's fill axis didn't route to compute. */
   fillExpr?: string
@@ -89,7 +90,7 @@ export function buildComputeVariantAddendum(
   bindGroup: number,
   baseBinding: number,
 ): ComputeVariantAddendum {
-  const preambleLines: string[] = []
+  const bindingDecls: BindingDecl[] = []
   const bindGroupEntries: ComputeOutputBindGroupEntry[] = []
   const bindings: ComputeOutputBindingSpec[] = []
   let fillExpr: string | undefined
@@ -102,7 +103,7 @@ export function buildComputeVariantAddendum(
       bindGroup,
       binding: nextBinding,
     }
-    preambleLines.push(emitComputeOutputBindingDecl(spec))
+    bindingDecls.push(buildComputeOutputBindingDecl(spec))
     bindGroupEntries.push(makeComputeOutputBindGroupEntry(spec))
     bindings.push(spec)
     const readExpr = emitComputeOutputReadExpr(spec, FRAGMENT_FEAT_ID_EXPR)
@@ -115,7 +116,7 @@ export function buildComputeVariantAddendum(
   }
 
   return {
-    preamble: preambleLines.join('\n'),
+    bindingDecls,
     fillExpr,
     strokeExpr,
     bindGroupEntries,

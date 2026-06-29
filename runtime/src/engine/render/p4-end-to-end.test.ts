@@ -198,7 +198,7 @@ describe('P4 end-to-end — compiler ↔ runtime contract', () => {
     // The preamble should declare compute_out_fill; fillExpr must
     // reference the same name. Drift here would produce an
     // unresolved-identifier WGSL compile error at pipeline create.
-    expect(merged.preamble).toContain('compute_out_fill')
+    expect((merged.preamble.bindings ?? []).some(b => b.name === 'compute_out_fill')).toBe(true)
     // Phase 2.5 US-004 — fillExpr now NodeLike|null.
     expect(merged.fillExpr ? nodeToWgslString(merged.fillExpr) : '').toContain('compute_out_fill')
   })
