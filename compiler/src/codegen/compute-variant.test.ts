@@ -25,7 +25,7 @@ function makeMatchEntry(field: string, paintAxis: 'fill' | 'stroke-color', rende
 function makeTernaryEntry(field: string, paintAxis: 'fill' | 'stroke-color'): ComputePlanEntry {
   const kernel = emitTernaryComputeKernel({
     fields: [field],
-    branches: [{ pred: `v_${field} != 0.0`, colorHex: '#ff0000' }],
+    branches: [{ pred: { kind: 'cmp', field, op: '!=', value: 0 }, colorHex: '#ff0000' }],
     defaultColorHex: '#000000',
   })
   return {

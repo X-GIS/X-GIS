@@ -53,9 +53,9 @@ function computeVariants(): Array<{ name: string; wgsl: string }> {
       wgsl: emitTernaryComputeKernel({
         fields: ['cls'],
         branches: [
-          { pred: 'v_cls == 0.0', colorHex: '#ff0000' },
-          { pred: 'v_cls == 1.0', colorHex: '#00ff00' },
-          { pred: 'v_cls == 2.0', colorHex: '#0000ff' },
+          { pred: { kind: 'cmp', field: 'cls', op: '==', value: 0 }, colorHex: '#ff0000' },
+          { pred: { kind: 'cmp', field: 'cls', op: '==', value: 1 }, colorHex: '#00ff00' },
+          { pred: { kind: 'cmp', field: 'cls', op: '==', value: 2 }, colorHex: '#0000ff' },
         ],
         defaultColorHex: '#888888',
       }).wgsl,
