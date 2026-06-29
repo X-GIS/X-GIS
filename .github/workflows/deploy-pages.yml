@@ -39,10 +39,24 @@ jobs:
       # actual interactive demos that the /examples gallery cards
       # deep-link to. The playground vite config already emits with
       # base=/X-GIS/play/ in CI, so asset URLs resolve as-is.
+      #
+      # EXCLUDE the playground's own index.html: the site's play.astro
+      # already built site/dist/play/index.html (the React "type-and-see"
+      # editor page that the nav's "Playground" link points at), and a
+      # plain `cp -R` would clobber it with the playground's standalone
+      # demo gallery — leaving play.astro unreachable in production. That
+      # gallery is redundant with the site's /examples page anyway, so we
+      # drop it and keep the Astro page authoritative at /play/.
       - name: Merge playground into site/dist/play/
         run: |
           mkdir -p site/dist/play
+          # Preserve the Astro-built play page, copy the playground over
+          # the top (this clobbers index.html), then restore it — so the
+          # playground's demo.html / compare.html / assets land under
+          # /play/ while /play/index.html stays the Astro React page.
+          cp site/dist/play/index.html /tmp/play-index.html
           cp -R playground/dist/. site/dist/play/
+          cp /tmp/play-index.html site/dist/play/index.html
 
       - uses: actions/upload-pages-artifact@v3
         with:

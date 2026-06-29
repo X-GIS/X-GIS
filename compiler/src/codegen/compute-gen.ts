@@ -52,7 +52,7 @@
 import { resolveColorToRgba } from '../tokens/colors'
 import {
   fn, module, emitModule, storageBuffer, resource, builtin,
-  If, Return, Var, Let, vec4, mix, pack4x8unorm, matchExpr, toI32, toU32, max,
+  If, Return, Var, Let, vec4, mix, pack4x8unorm, matchExpr, toI32,
   constExpr, constRef, arrayLit, arrayT,
   f32T, u32T, vec3uT, vec4uT, vec4fT, type Node, type ReadonlyNode, type ConstDecl,
 } from '@xgis/shader-dsl'
@@ -190,16 +190,18 @@ export function emitMatchComputeKernel(spec: MatchEmitSpec): ComputeKernel {
   const useLut = sortedPatterns.length >= (readMatchLutThresholdOverride() ?? MATCH_LUT_THRESHOLD)
   const wgsl = useLut
     ? emitComputeKernelWgsl('eval_match', (fid, featData) => {
-        // O(1) LUT branch — `id = u32(max(0.0, v))`, then `LUT[id]` for any id in
-        // [0, N); out-of-range (the packer's unknown/sentinel id) falls to default.
-        // `Let` pins the feat_data read below the fid-bounds guard (matching the
-        // interpolate/ternary kernels) so out-of-range threads never index it.
+        // O(1) LUT branch — select on the RAW signed id (i32, NO max-clamp): an id
+        // in [0, N) indexes `LUT[id]`; the packer's `-1` unknown/sentinel (and any
+        // id >= N) falls to default. A `u32(max(v, 0))` clamp would alias -1 -> 0 ->
+        // arm 0's colour (issue #632, diverging from the switch path), so the
+        // selector AND the range-check are signed — mirroring the sub-threshold
+        // switch path's raw `i32(v)`. `Let` pins the feat_data read below the
+        // fid-bounds guard so out-of-range threads never index it.
         const lutType = arrayT(vec4fT, sortedPatterns.length)
-        const v = Let(featData.at(fid)) // single field → stride 1 → offset 0
-        const id = Let(toU32(max(v, 0))) // compute the LUT index once
+        const iv = Let(toI32(featData.at(fid))) // single field → stride 1 → offset 0
         const color = Var(vec4fT)
-        If(id.lt(sortedPatterns.length), () => {
-          color.assign(constRef('LUT', lutType).at(id, vec4fT))
+        If(iv.ge(0).and(iv.lt(sortedPatterns.length)), () => {
+          color.assign(constRef('LUT', lutType).at(iv, vec4fT))
         }).else(() => {
           color.assign(rgba(spec.defaultColorHex))
         })

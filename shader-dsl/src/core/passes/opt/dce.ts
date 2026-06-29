@@ -71,7 +71,7 @@ function collectStmtNames(s: Stmt, out: Set<string>): void {
   }
 }
 
-function bodyHasRaw(body: readonly Stmt[]): boolean {
+export function bodyHasRaw(body: readonly Stmt[]): boolean {
   for (const s of body) {
     if (s.s === 'raw') return true
     if (s.s === 'if') {

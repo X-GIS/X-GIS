@@ -119,17 +119,27 @@ export function flushPerFrameMarks(): void {
  *  iter-263: includes per-FRAME mean alongside per-CALL mean.
  *  Per-call = averaged across invocations (biased when phase fires
  *  N×/frame). Per-frame = total ms spent in this phase per frame
- *  (correct for sub-marks). Use per-frame for budget analysis. */
-export function getPhaseAverages(): Array<{ name: string; meanMs: number; perFrameMs: number; samples: number }> {
-  const out: Array<{ name: string; meanMs: number; perFrameMs: number; samples: number }> = []
+ *  (correct for sub-marks). Use per-frame for budget analysis.
+ *
+ *  `maxFrameMs` is the WORST single frame in the per-frame ring — the
+ *  mean alone hides bursts (a phase that is 2 ms on 59 frames and 50 ms
+ *  on one averages ~3 ms), and bursty stalls are exactly the mobile case
+ *  we're chasing. Localizing a spike needs the worst frame, not the mean. */
+export function getPhaseAverages(): Array<{ name: string; meanMs: number; perFrameMs: number; maxFrameMs: number; samples: number }> {
+  const out: Array<{ name: string; meanMs: number; perFrameMs: number; maxFrameMs: number; samples: number }> = []
   for (const [name, s] of _states) {
     if (s.ringFilled === 0) continue
     let sum = 0
     for (let i = 0; i < s.ringFilled; i++) sum += s.ring[i]!
     let frameSum = 0
-    for (let i = 0; i < s.perFrameRingFilled; i++) frameSum += s.perFrameRing[i]!
+    let frameMax = 0
+    for (let i = 0; i < s.perFrameRingFilled; i++) {
+      const v = s.perFrameRing[i]!
+      frameSum += v
+      if (v > frameMax) frameMax = v
+    }
     const perFrameMs = s.perFrameRingFilled > 0 ? frameSum / s.perFrameRingFilled : 0
-    out.push({ name, meanMs: sum / s.ringFilled, perFrameMs, samples: s.ringFilled })
+    out.push({ name, meanMs: sum / s.ringFilled, perFrameMs, maxFrameMs: frameMax, samples: s.ringFilled })
   }
   out.sort((a, b) => b.perFrameMs - a.perFrameMs)
   return out

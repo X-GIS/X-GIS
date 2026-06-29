@@ -110,3 +110,25 @@ export const notHandler: ExprHandler = (v, warnings, _recurse, recurseFilter) =>
   const inner = recurseFilter(v[1], warnings)
   return inner ? `!(${inner})` : null
 }
+
+// Legacy Mapbox filter combinator (GL JS v0/v1 spec; not a v8 expression
+// operator): `["none", f1, f2, …]` ≡ `!(f1 || f2 || …)` — a feature
+// passes only if NONE of the sub-filters match. Without this, `none`
+// fell through unhandled, `filterToXgis` returned null, and the layer's
+// authored filter failed CLOSED to `filter: false` (renders nothing).
+export const noneHandler: ExprHandler = (v, warnings, _recurse, recurseFilter) => {
+  const rawCount = v.length - 1
+  const parts = v.slice(1).map(a => recurseFilter(a, warnings)).filter((s): s is string => !!s)
+  // ["none"] with no sub-filters = !(false) = true (accept every feature).
+  if (rawCount === 0) return 'true'
+  // Fail CLOSED on a dropped sub-filter. Dropping a disjunct NARROWS the
+  // inner OR, which WIDENS the negation — the layer would render features
+  // the authored `none` meant to exclude. Append a `true` disjunct so the
+  // inner OR is unconditionally true and the negation collapses to false
+  // (the none-analog of allHandler appending `false`).
+  if (parts.length < rawCount) {
+    warnings.push(`["none"] dropped ${rawCount - parts.length} of ${rawCount} sub-filter(s) that failed to convert; fail-closed so the predicate can't widen past the authored intent.`)
+    parts.push('true')
+  }
+  return `!(${parts.map(parenthesize).join(' || ')})`
+}
