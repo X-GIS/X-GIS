@@ -121,7 +121,11 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
       // (`properties` is now SUPPORTED — handled by propertiesHandler in
       // the expr-lookup cluster, emits the `properties()` builtin, so it
       // never reaches this fallback table.)
-      'distance': 'Geometry distance accessor — Mapbox `["distance", geometry]` returns metric distance from the feature to a target GeoJSON shape; requires a geometric-distance pipeline not yet wired (would need turf-style polygon-to-line nearest-neighbour at filter eval time).',
+      // `distance` is now SUPPORTED (Point/MultiPoint feature-geometry vs
+      // any target, GeoJSON sources) — handled by distanceHandler in the
+      // expr-lookup cluster, so it never reaches this fallback table.
+      // (LineString/Polygon feature-geometry and MVT sources remain
+      // partial — see eval/distance.ts.)
     }
     const reason = KNOWN_UNSUPPORTED[unsupportedOp]
     if (reason !== undefined) {

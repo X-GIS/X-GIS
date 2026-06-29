@@ -1,7 +1,7 @@
 // Pin fail-CLOSED behaviour when an `["all", …]` filter drops a conjunct.
 //
 // Bug (A3): `all` means AND. When converting `["all", A, B]` where B is
-// unconvertible (an op filterToXgis can't lower — e.g. `["distance", …]`),
+// unconvertible (an op filterToXgis can't lower — e.g. `["feature-state", …]`),
 // the converter dropped B and kept `A`. Dropping a conjunct from an AND
 // makes the predicate MORE permissive — the layer then renders features
 // the authored `all` constraint was meant to EXCLUDE (floods the layer).
@@ -12,7 +12,7 @@
 // fail-closed). `any`/OR drops narrow the set (the safe direction), so
 // they stay as-is.
 //
-// Fail-before: pre-fix `filterToXgis(["all", ==class, distance(geom)])`
+// Fail-before: pre-fix `filterToXgis(["all", ==class, featureState(hover)])`
 // returned `.class == "park"` — the lowered predicate STILL MATCHES every
 // park feature, including the ones the dropped conjunct would have
 // excluded. The assertions below require the dropped-conjunct case to
@@ -23,14 +23,11 @@ import { describe, it, expect } from 'vitest'
 import { filterToXgis } from '../convert/expressions'
 import { convertLayer } from '../convert/layers'
 
-// `["distance", <GeoJSON>]` — filterToXgis has no lowering for `distance`
-// (KNOWN_UNSUPPORTED), so it returns null with a warning. The canonical
-// unconvertible conjunct. (`within` was used here until it gained CPU
-// support — see within-convert.test.ts.)
-const UNCONVERTIBLE = [
-  'distance',
-  { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]] },
-] as unknown
+// `["feature-state", …]` — filterToXgis has no lowering for `feature-state`
+// (KNOWN_UNSUPPORTED — needs the setFeatureState/hover runtime subsystem),
+// so it returns null with a warning. The canonical unconvertible conjunct.
+// (`within` then `distance` were used here until each gained CPU support.)
+const UNCONVERTIBLE = ['feature-state', 'hover'] as unknown
 
 describe('["all"] with a dropped conjunct fails closed (does not widen)', () => {
   it('all(convertible, unconvertible) → predicate cannot widen (AND-ed with false)', () => {
@@ -63,7 +60,7 @@ describe('["all"] with a dropped conjunct fails closed (does not widen)', () => 
     expect(out).not.toBe('.class == "park"')
   })
 
-  it('fill layer with all(==, distance) filter → fail closed (false in filter line)', () => {
+  it('fill layer with all(==, feature-state) filter → fail closed (false in filter line)', () => {
     const warnings: string[] = []
     const out = convertLayer(
       {

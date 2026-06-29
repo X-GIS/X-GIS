@@ -25,8 +25,8 @@ Properties where the runtime currently degrades or drops a specific value-form.
 | Status | Count |
 |---|---:|
 | supported | 175 |
-| partial | 17 |
-| unsupported | 43 |
+| partial | 18 |
+| unsupported | 42 |
 | na | 7 |
 | **total** | **242** |
 
@@ -61,4 +61,5 @@ Properties marked `partial` — converter accepts but runtime degrades. These ne
 | collator | low | Locale-aware comparator as the trailing 4th arg of ==/!=/</<=/>/>=. Constant collator options (case-sensitive / diacritic-sensitive / locale) are fully supported: comparisonHandler lowers `["==", a, b, ["collator", opts]]` to the `collator_cmp` CPU builtin (eval/collator.ts) backed by Intl.Collator. Non-constant (per-feature expression) options fall back to byte-exact compare with a warning; a STANDALONE `["collator", …]` (not on a comparison) still warns (no value alone). |
 | resolved-locale | low | Returns the BCP-47 tag a collator resolves to. Constant collator locale supported: resolvedLocaleHandler lowers `["resolved-locale", ["collator", opts]]` to the `resolved_locale` CPU builtin (Intl.Collator.resolvedOptions().locale). Non-constant collator options warn + drop. |
 | array | low | Type-assertion drops to value pass-through (X-GIS arrays carry no per-element type tag, so the spec's "abort if not array" semantic is lost; in paint/filter use a non-array would null-cascade anyway). |
+| distance | low | Shortest distance (metres) between the feature and a target GeoJSON. Point/MultiPoint feature-geometry vs any target is supported on GeoJSON sources: distanceHandler decomposes the constant target into points/segments/polygons (compile time) and lowers to the `distance(get("$geometry"), …)` CPU builtin (eval/distance.ts), which uses a cheap-ruler (latitude-corrected planar) metre metric and treats inside-polygon as 0. Deferred (return null): LineString/Polygon feature-geometry and MVT/PMTiles tile-coordinate sources (the worker filter path does not inject `$geometry`). |
 | within | low | Geometry-containment filter. Point/MultiPoint tested-geometry vs Polygon/MultiPolygon argument is fully supported on GeoJSON sources: the converter lowers ["within", poly] to `within(get("$geometry"), <coords>)` (expr-lookup.ts withinHandler) and applyFilter injects the `$geometry` reserved key; the CPU even-odd containment test (eval/within.ts) honours holes + MultiPolygon. Deferred (return false): LineString/Polygon tested-geometry (needs segment-vs-ring intersection) and MVT/PMTiles tile-coordinate sources (the worker filter path does not inject `$geometry`, and the polygon arg would need lng/lat→tile reprojection). |

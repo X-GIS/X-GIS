@@ -8,6 +8,7 @@ import {
   parseSrgbHex, srgbToLab, labToHex, labToLch, lchToLab,
 } from '../tokens/colors'
 import { evalWithin } from './within'
+import { evalDistance } from './distance'
 import { collatorCompare, resolvedLocale } from './collator'
 
 // ═══ Built-in functions ═══
@@ -459,6 +460,14 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
       // args[1] is the polygon argument as a MultiPolygon-shaped nested
       // array. Pure CPU predicate — see eval/within.ts.
       return evalWithin(args[0], args[1])
+    }
+    case 'distance': {
+      // Mapbox `["distance", target]` → metres between the feature geometry
+      // and the target. The converter decomposes the constant target into
+      // points / segments / polygons, so args are
+      // [geometry, points, segments, polygons]. Pure CPU — see
+      // eval/distance.ts.
+      return evalDistance(args[0], args[1], args[2], args[3])
     }
     case 'collator_cmp': {
       // Mapbox `["==", a, b, ["collator", opts]]` (and the other 5

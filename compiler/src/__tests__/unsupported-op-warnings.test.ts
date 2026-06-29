@@ -36,7 +36,8 @@ describe('unsupported op warnings — specific not generic', () => {
     // builtin returning the feature.properties object, mirror of the
     // `geometry-type` / `id` accessor pattern); see
     // expressions-properties.test.ts.
-    ['distance', [{ type: 'Point', coordinates: [0, 0] }], 'Geometry distance accessor'],
+    // `distance` was here — now SUPPORTED (Point/MultiPoint feature vs any
+    // target, CPU metre metric); see distance-convert.test.ts.
   ]
 
   for (const [op, args, expectMessage] of cases) {

@@ -6,11 +6,11 @@
 //     if (f) lines.push(`  filter: ${f}`)
 //   }
 // When `layer.filter` IS authored but UNCONVERTIBLE (an op filterToXgis
-// can't lower — e.g. `["distance", geom]`), filterToXgis returns null,
+// can't lower — e.g. `["feature-state", …]`), filterToXgis returns null,
 // the `if (f)` gate skips the push, and the layer emits NO filter line.
 // A filter-less layer renders EVERY feature → fail-OPEN, the exact
 // opposite of the spec intent that an unknown/unsatisfiable predicate
-// EXCLUDES features (a `["distance", geom]` filter that drops out
+// EXCLUDES features (a `["feature-state", …]` filter that drops out
 // would render ALL features, not none).
 //
 // Fix: fail CLOSED — emit the literal `filter: false`, which the
@@ -21,14 +21,12 @@
 import { describe, it, expect } from 'vitest'
 import { convertLayer } from '../convert/layers'
 
-// A `["distance", <GeoJSON>]` filter — filterToXgis has no lowering for
-// the `distance` op (expressions.ts KNOWN_UNSUPPORTED), so it returns
-// null with a warning. The canonical over-permissive case. (`within` was
-// used here until it gained CPU support — see within-convert.test.ts.)
-const UNCONVERTIBLE = [
-  'distance',
-  { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]] },
-] as unknown
+// A `["feature-state", …]` filter — filterToXgis has no lowering for the
+// `feature-state` op (expressions.ts KNOWN_UNSUPPORTED — needs the
+// setFeatureState/hover runtime subsystem), so it returns null with a
+// warning. The canonical over-permissive case. (`within` then `distance`
+// were used here until each gained CPU support.)
+const UNCONVERTIBLE = ['feature-state', 'hover'] as unknown
 
 /** A converted layer is "fail-closed" iff it either drops every feature
  *  via `filter: false` (or equivalent match-nothing literal) OR is
@@ -47,7 +45,7 @@ function assertFailClosed(out: string | null): void {
 }
 
 describe('unconvertible filter fails closed (not open)', () => {
-  it('fill layer with ["distance"] filter → filter: false (match nothing), NOT filter-less', () => {
+  it('fill layer with ["feature-state"] filter → filter: false (match nothing), NOT filter-less', () => {
     const warnings: string[] = []
     const out = convertLayer(
       { id: 'water', type: 'fill', source: 'osm', 'source-layer': 'water', filter: UNCONVERTIBLE, paint: { 'fill-color': '#00f' } } as never,
@@ -55,7 +53,7 @@ describe('unconvertible filter fails closed (not open)', () => {
     )
     assertFailClosed(out)
     // filterToXgis's own "not supported" warning still surfaces the loss.
-    expect(warnings.some(w => /distance/i.test(w))).toBe(true)
+    expect(warnings.some(w => /feature-state/i.test(w))).toBe(true)
   })
 
   it('circle layer with unconvertible filter → fail closed', () => {

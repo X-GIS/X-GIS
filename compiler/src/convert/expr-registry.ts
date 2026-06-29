@@ -21,7 +21,7 @@ import {
 import {
   getHandler, hasHandler, notHasHandler, atHandler, typeofHandler,
   zoomHandler, pitchHandler, propertiesHandler, geometryTypeHandler, idHandler, inHandler,
-  isSupportedScriptHandler, withinHandler, resolvedLocaleHandler,
+  isSupportedScriptHandler, withinHandler, resolvedLocaleHandler, distanceHandler,
 } from './expr-lookup'
 import {
   literalHandler, arrayHandler, typeCoercionHandler, concatHandler,
@@ -126,6 +126,8 @@ export const EXPR_HANDLERS: Map<string, ExprHandler> = new Map([
   ['id', idHandler],
   // geometry containment — point/multipoint within polygon (CPU predicate)
   ['within', withinHandler],
+  // geometry proximity — metres from feature to target (CPU predicate)
+  ['distance', distanceHandler],
   // locale-aware comparator resolved tag (CPU; collator itself rides the
   // comparison-op 4th arg, handled in comparisonHandler)
   ['resolved-locale', resolvedLocaleHandler],
