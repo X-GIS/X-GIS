@@ -537,11 +537,15 @@ describe('emitMatchComputeKernel — LUT branch (P5 large-match)', () => {
     expect(vec4Count).toBe(51)
   })
 
-  it('LUT id-bounds branch: < N hits LUT, ≥ N hits default', () => {
+  it('LUT id-bounds branch: 0 <= id < N hits LUT, else (incl. -1) hits default', () => {
     const k = emitMatchComputeKernel(bigMatch(20))
-    // The IR shell auto-names the index + colour vars (CSE/auto-vars), so match
-    // the structure with flexible identifiers rather than the literal id/color.
-    expect(k.wgsl).toMatch(/\w+ < 20u\)\)\s*\{\s*\w+ = LUT\[\w+\];/)
+    // Selector is the RAW signed id (i32) range-checked `id >= 0 && id < N` — a
+    // u32(max(id,0)) clamp would alias the packer's -1 unknown sentinel onto arm 0
+    // (issue #632). The IR shell auto-names the index + colour vars (CSE/auto-vars),
+    // so match the structure with flexible identifiers rather than the literal names.
+    expect(k.wgsl).toMatch(/\w+ >= 0\)/)                       // signed lower-bound guard
+    expect(k.wgsl).toMatch(/\w+ < 20\)+\s*\{\s*\w+ = LUT\[\w+\];/)
+    expect(k.wgsl).not.toContain('max(')                       // no clamp that swallows -1
     expect(k.wgsl).toMatch(/\} else \{\s*\w+ = vec4<f32>\(/)
   })
 
@@ -579,7 +583,7 @@ describe('emitMatchComputeKernel — LUT branch (P5 large-match)', () => {
   it('demotiles-scale (214 arms) emits valid LUT WGSL', () => {
     const k = emitMatchComputeKernel(bigMatch(214))
     expect(k.wgsl).toContain('const LUT: array<vec4<f32>, 214>')
-    expect(k.wgsl).toContain('< 214u)')
+    expect(k.wgsl).toContain('< 214)')
     expect(k.wgsl).toContain('@compute @workgroup_size(64)')
     // No O(N) comparisons in the kernel body for the LUT path.
     expect((k.wgsl.match(/v_cls == /g) ?? []).length).toBe(0)
