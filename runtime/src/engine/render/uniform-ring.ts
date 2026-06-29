@@ -17,6 +17,8 @@
 //     fix); MapRenderer destroys them in beginFrame. Each applies its own
 //     policy to the returned list.
 
+import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
+
 export class UniformRing {
   private _buffer: GPUBuffer | null = null
   private capacity: number
@@ -102,6 +104,7 @@ export class UniformRing {
   }
 
   private grow(minSlots: number): void {
+    perfMarkStart('uniform-ring.grow')
     let newCap = this.capacity
     while (newCap < minSlots) newCap *= 2
     if (this._buffer) {
@@ -132,6 +135,7 @@ export class UniformRing {
     grown.set(this.staging.subarray(0, Math.min(this.staging.length, grown.length)))
     this.staging = grown
     this.onGrow()
+    perfMarkEnd('uniform-ring.grow')
   }
 
   /** Full teardown: destroy the live buffer + any retired buffers. */

@@ -360,19 +360,23 @@ export function installPerfOverlay(map: PerfMap): void {
         ? `→ 메인스레드 최대 stall ${stallMax.toFixed(0)}ms ≈ frame ${fP50.toFixed(0)}ms : CPU 바운드(메인스레드가 프레임 내내 바쁨 — renderFrame 밖 JS)`
         : `→ 메인스레드 최대 stall ${stallMax.toFixed(0)}ms ≪ frame ${fP50.toFixed(0)}ms : GPU 바운드(메인은 idle, GPU/present 대기 — DPR/draw/present 쪽)`
 
-      // Worst-frame attribution — the means above hide bursts; THIS splits the
-      // 61ms spike into inside-render vs outside-render. If frame.total max ≈
-      // worst rAF frame → the burst is INSIDE render (an upload/evict spike a
-      // mean of 8ms hides) and the per-phase MAX below names the pass. If
-      // frame.total max stays small while the rAF frame spikes → the burst is
-      // OUTSIDE render (the tile drain/resolve chain — see MVT drain below).
-      const outsideWorst = Math.max(0, framesMax - frameTotalMax)
+      // Worst-frame attribution. NOTE: frame.total-max and the rAF-worst frame
+      // need NOT be the same frame, so subtracting them ("렌더 밖 ≈ rAF−total")
+      // is unreliable — it over-reports outside-render work. Instead compare
+      // frame.total-worst against the worst RENDER PASS (both from the same
+      // phase ring): if the opaque pass alone ≈ frame.total-worst, the spike is
+      // an inside-render opaque burst (upload/evict/ring-grow — see sub-marks).
       const topPhaseMax = [...phaseMax.entries()]
-        .filter(([n]) => n !== 'frame.total' && n !== 'frame.prep' && n !== 'frame.encode' && n !== 'frame.submit')
-        .sort((a, b) => b[1] - a[1]).slice(0, 6)
-      const whereWorst = frameTotalMax >= framesMax * 0.7
-        ? `렌더 안(frame.total) 스파이크 — 아래 phase MAX 가 범인`
-        : `렌더 밖 스파이크 ≈ ${outsideWorst.toFixed(0)}ms — 타일 drain/resolve 의심(아래 MVT)`
+        .filter(([n]) => !n.startsWith('frame.'))
+        .sort((a, b) => b[1] - a[1]).slice(0, 8)
+      const opaqueMax = [...phaseMax.entries()]
+        .filter(([n]) => /encoder\.pass\.opaque/.test(n))
+        .reduce((a, [, v]) => Math.max(a, v), 0)
+      const whereWorst = opaqueMax >= frameTotalMax * 0.6 && opaqueMax > 0
+        ? `렌더 안 opaque 패스 스파이크 (opaque최악=${opaqueMax.toFixed(0)}ms ≈ frame.total최악) — 아래 sub-marks 가 범인`
+        : frameTotalMax >= framesMax * 0.6
+        ? `렌더 안(frame.total) 스파이크 — 아래 phase MAX 참조`
+        : `rAF최악(${framesMax.toFixed(0)})이 frame.total최악(${frameTotalMax.toFixed(0)})보다 큼 — 서로 다른 프레임일 수 있어 phase MAX / MVT 로 교차확인`
 
       // MVT drain deltas across the sweep — how much of the outside-render time
       // is the worker-result drain chain.
@@ -401,6 +405,9 @@ export function installPerfOverlay(map: PerfMap): void {
         ...(topPhaseMax.length
           ? topPhaseMax.map(([n, v]) => `  ${v.toFixed(1).padStart(7)}  ${n.replace('encoder.pass.', '')}`)
           : ['  (phase 마크 없음 — ?gpuprof=1 로 로드했는지 확인)']),
+        'opaque 버스트 분해 (sub-marks 최악ms):',
+        ...['vtr.upload', 'vtr.evict', 'uniform-ring.grow'].map(
+          n => `  ${(phaseMax.get(n) ?? 0).toFixed(1).padStart(7)}  ${n}`),
         drainLine,
       ].join('\n')
       pre.textContent = report
