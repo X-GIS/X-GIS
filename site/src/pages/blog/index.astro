@@ -20,7 +20,7 @@ const fmt = (d: Date) =>
     <div class="max-w-[860px] mx-auto px-6">
       <header class="mb-16 sm:mb-24">
         <p class="font-mono text-[12px] tracking-[0.22em] uppercase text-accent mb-4">Blog</p>
-        <h1 class="font-display font-semibold uppercase text-fg leading-[0.92] tracking-[0.01em] text-[52px] sm:text-[72px] lg:text-[88px]">
+        <h1 class="font-display font-normal text-fg leading-[0.92] tracking-[-0.02em] text-[52px] sm:text-[72px] lg:text-[88px]">
           Engineering notes.
         </h1>
         <p class="mt-6 text-[17px] sm:text-[19px] leading-[1.6] text-fg-dim max-w-[640px]">
@@ -39,7 +39,7 @@ const fmt = (d: Date) =>
                 <time datetime={post.data.date.toISOString()} class="font-mono text-[12px] tracking-[0.14em] uppercase text-fg-mute">
                   {fmt(post.data.date)}
                 </time>
-                <h2 class="mt-2 font-display font-semibold text-fg text-[28px] sm:text-[36px] leading-[1.05] tracking-[0.01em] group-hover:text-accent transition-colors">
+                <h2 class="mt-2 font-display font-normal text-fg text-[28px] sm:text-[36px] leading-[1.05] tracking-[-0.02em] group-hover:text-accent transition-colors">
                   {post.data.title}
                 </h2>
                 <p class="mt-3 text-[16px] leading-[1.6] text-fg-dim max-w-[640px]">
