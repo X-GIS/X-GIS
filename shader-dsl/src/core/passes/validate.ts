@@ -17,9 +17,29 @@
 import type { ModuleDecl } from '../ir'
 import { lint, type Diagnostic, type LintConfig } from './lint/engine'
 import { RULES, CORE_RULES } from './lint/rules'
+import { ShaderDslError, formatLoc } from '../diagnostics/error'
 
-export class ValidationError extends Error {
-  constructor(msg: string) { super(msg); this.name = 'ValidationError' }
+/** Render every error diagnostic on its own line — `[SD####] (fn X) message @ file:line:col`
+ *  — so an aggregated validation failure shows ALL problems, not just the first. */
+function formatValidationMessage(diags: readonly Diagnostic[]): string {
+  const head = `shader-dsl [SD0020]: module validation failed (${diags.length} error${diags.length === 1 ? '' : 's'}):`
+  const lines = diags.map((d) => {
+    const code = d.code ? `[${d.code}] ` : ''
+    const fn = d.fn ? ` (fn ${d.fn})` : ''
+    const at = d.loc ? ` @ ${formatLoc(d.loc)}` : ''
+    return `  - ${code}${d.ruleId}${fn}: ${d.message}${at}`
+  })
+  return [head, ...lines].join('\n')
+}
+
+export class ValidationError extends ShaderDslError {
+  /** Every error-severity diagnostic that caused the failure (not just the first). */
+  readonly diagnostics: readonly Diagnostic[]
+  constructor(diags: readonly Diagnostic[]) {
+    super({ code: 'SD0020', message: formatValidationMessage(diags) })
+    this.name = 'ValidationError'
+    this.diagnostics = diags
+  }
 }
 
 /** Run the lint ruleset and return all diagnostics (errors + warnings). Does not
@@ -35,6 +55,6 @@ export function lintModule(m: ModuleDecl, config?: LintConfig): Diagnostic[] {
  *  static-analysis tests gate the shader modules via lintModule(), so an emit-time gate
  *  never false-flags non-shader code (cf. the OPACITY / single-exit-on-eval_match regressions). */
 export function validate(m: ModuleDecl): void {
-  const err = lint(m, CORE_RULES).find((d) => d.severity === 'error')
-  if (err) throw new ValidationError(err.message)
+  const errors = lint(m, CORE_RULES).filter((d) => d.severity === 'error')
+  if (errors.length) throw new ValidationError(errors)
 }
