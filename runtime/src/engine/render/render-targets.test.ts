@@ -52,7 +52,7 @@ describe('RenderTargets.ensure', () => {
   beforeEach(() => { stub = installWebGPUStub() })
   afterEach(() => { stub.uninstall() })
 
-  it('allocates stencil + OIT + offscreen-extrude on first ensure (no MSAA, no pick, no overdraw)', () => {
+  it('allocates ONLY stencil on first ensure (no MSAA, no pick, no overdraw); OIT/extrude are lazy', () => {
     const fake = makeFakeDevice()
     const rt = new RenderTargets(() => makeCtx(fake.device))
 
@@ -63,20 +63,23 @@ describe('RenderTargets.ensure', () => {
     expect(rt.msaaTexture).toBeNull()
     expect(rt.pickTexture).toBeNull()
     expect(rt.overdrawAccumTexture).toBeNull()
-    // stencil + oitAccum + oitRevealage + offscreenExtrudeDepth.
+    // stencil allocated + its view cached.
     expect(rt.stencilTexture).not.toBeNull()
-    expect(rt.oitAccumTexture).not.toBeNull()
-    expect(rt.oitRevealageTexture).not.toBeNull()
-    expect(rt.offscreenExtrudeDepth).not.toBeNull()
+    expect(rt.stencilView).not.toBeNull()
+    // OIT + offscreen-extrude are NOT allocated by ensure() — they are lazy
+    // (ensureOit), gated on scene OIT content. Default path allocates none.
+    expect(rt.oitAccumTexture).toBeNull()
+    expect(rt.oitRevealageTexture).toBeNull()
+    expect(rt.offscreenExtrudeDepth).toBeNull()
     expect(rt.msaaWidth).toBe(800)
     expect(rt.msaaHeight).toBe(600)
     // sc === 1 → colorView is the swapchain view directly.
     expect(colorView).toBe(screenView)
-    // 4 textures created (stencil, oitAccum, oitRevealage, extrudeDepth).
-    expect(fake.created.length).toBe(4)
+    // 1 texture created (stencil only).
+    expect(fake.created.length).toBe(1)
   })
 
-  it('allocates MSAA + pick + overdraw when those inputs are on', () => {
+  it('allocates MSAA + pick + overdraw when those inputs are on (still no OIT)', () => {
     const fake = makeFakeDevice()
     const rt = new RenderTargets(() => makeCtx(fake.device))
 
@@ -86,11 +89,16 @@ describe('RenderTargets.ensure', () => {
     expect(rt.msaaTexture).not.toBeNull()
     expect(rt.pickTexture).not.toBeNull()
     expect(rt.overdrawAccumTexture).not.toBeNull()
+    // Cached views populated alongside their textures.
+    expect(rt.msaaView).not.toBeNull()
+    expect(rt.pickView).not.toBeNull()
+    expect(rt.overdrawView).not.toBeNull()
+    // OIT still not allocated by ensure().
+    expect(rt.oitAccumTexture).toBeNull()
     // debug-overdraw → colorView is the accumulator view, not screenView.
     expect(colorView).not.toBe(screenView)
-    // msaa(format bgra8unorm), stencil, pick(rg32uint sc1), oitAccum,
-    // oitRevealage, extrudeDepth, overdrawAccum = 7.
-    expect(fake.created.length).toBe(7)
+    // msaa(format bgra8unorm), stencil, pick(rg32uint sc1), overdrawAccum = 4.
+    expect(fake.created.length).toBe(4)
     const msaa = rt.msaaTexture as unknown as FakeTexture
     expect(msaa.descriptor.format).toBe('bgra8unorm')
     expect(msaa.descriptor.sampleCount).toBe(4)
@@ -98,6 +106,32 @@ describe('RenderTargets.ensure', () => {
     expect(pick.descriptor.format).toBe('rg32uint')
     // pick stays single-sample regardless of the opaque sample count.
     expect(pick.descriptor.sampleCount).toBe(1)
+  })
+
+  it('ensureOit lazily allocates the 3 OIT targets once, recreates on size/sample change', () => {
+    const fake = makeFakeDevice()
+    const rt = new RenderTargets(() => makeCtx(fake.device))
+    rt.ensure(800, 600, 1, false, false, screenView)
+    const afterEnsure = fake.created.length // stencil only
+
+    rt.ensureOit(800, 600, 1)
+    // oitAccum + oitRevealage + offscreenExtrudeDepth = 3, views cached.
+    expect(fake.created.length).toBe(afterEnsure + 3)
+    expect(rt.oitAccumTexture).not.toBeNull()
+    expect(rt.oitRevealageTexture).not.toBeNull()
+    expect(rt.offscreenExtrudeDepth).not.toBeNull()
+    expect(rt.oitAccumView).not.toBeNull()
+    expect(rt.oitRevealageView).not.toBeNull()
+
+    // Same size + sample count → no recreate.
+    rt.ensureOit(800, 600, 1)
+    expect(fake.created.length).toBe(afterEnsure + 3)
+
+    // Sample-count change → recreate (OIT must match the opaque sample count).
+    rt.ensureOit(800, 600, 4)
+    expect(fake.created.length).toBe(afterEnsure + 6)
+    const accum = rt.oitAccumTexture as unknown as FakeTexture
+    expect(accum.descriptor.sampleCount).toBe(4)
   })
 
   it('does NOT recreate when ensure is called again at the same size', () => {

@@ -20,6 +20,10 @@ class OitPass implements RenderPass {
 
   execute(ctx: FrameContext, scene: SceneView, host: OitPassHost): void {
     const encoder = ctx.encoder
+    // Lazily allocate the OIT targets at the frame's size + sample count.
+    // Gated by scene.hasOit (this pass only runs when set), so the default
+    // path never allocates them. Mirrors the heatmap pass's ensureHeatmap.
+    ctx.rt.ensureOit(ctx.w, ctx.h, ctx.sampleCount)
     ctx.passScope('oit-fill', () => {
       // OIT pass shares the opaque pass's MSAA depth-stencil
       // (depthLoadOp='load' so the opaque depth is what
@@ -32,12 +36,12 @@ class OitPass implements RenderPass {
       const oitPass = encoder.beginRenderPass({
         colorAttachments: [
           {
-            view: ctx.rt.oitAccumTexture!.createView(),
+            view: ctx.rt.oitAccumView!,
             clearValue: { r: 0, g: 0, b: 0, a: 0 },
             loadOp: 'clear', storeOp: 'store',
           },
           {
-            view: ctx.rt.oitRevealageTexture!.createView(),
+            view: ctx.rt.oitRevealageView!,
             clearValue: { r: 1, g: 0, b: 0, a: 0 },
             loadOp: 'clear', storeOp: 'store',
           },
@@ -48,7 +52,7 @@ class OitPass implements RenderPass {
         // executes; restored to the canonical opaque-depth load
         // for the future opt-in path.
         depthStencilAttachment: {
-          view: ctx.rt.stencilTexture!.createView(),
+          view: ctx.rt.stencilView!,
           depthLoadOp: 'load', depthStoreOp: 'discard',
           stencilLoadOp: 'load', stencilStoreOp: 'discard',
         },
@@ -79,8 +83,8 @@ class OitPass implements RenderPass {
       const bg = host.ctx.device.createBindGroup({
         layout: host.renderer.oitComposeBindGroupLayout,
         entries: [
-          { binding: 0, resource: ctx.rt.oitAccumTexture!.createView() },
-          { binding: 1, resource: ctx.rt.oitRevealageTexture!.createView() },
+          { binding: 0, resource: ctx.rt.oitAccumView! },
+          { binding: 1, resource: ctx.rt.oitRevealageView! },
         ],
       })
       compPass.setPipeline(host.renderer.oitComposePipeline)

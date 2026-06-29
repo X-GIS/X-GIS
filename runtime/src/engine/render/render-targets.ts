@@ -39,16 +39,46 @@ export class RenderTargets {
   stencilTexture: GPUTexture | null = null
   /** MSAA 4x render target (only allocated when sampleCount > 1). */
   msaaTexture: GPUTexture | null = null
-  /** Weighted-Blended OIT accum target (rgba16float). */
+  /** Weighted-Blended OIT accum target (rgba16float). Lazily allocated by
+   *  `ensureOit()` ONLY when the scene has OIT-extrude content (default
+   *  styles keep `isOitExtrude=false`, so the default path allocates none of
+   *  the ~10 B/px these two targets cost). Mirrors `ensureHeatmap()`. */
   oitAccumTexture: GPUTexture | null = null
-  /** Weighted-Blended OIT revealage target (r16float). */
+  /** Weighted-Blended OIT revealage target (r16float). Lazy — see above. */
   oitRevealageTexture: GPUTexture | null = null
-  /** Fresh depth for the two-pass offscreen extrude pass. */
+  /** Fresh depth for the two-pass offscreen extrude pass. Lazy (allocated
+   *  alongside the OIT targets in `ensureOit()`) — kept for the future OIT
+   *  opt-in path; unread on the default path so allocating it eagerly was
+   *  pure waste. */
   offscreenExtrudeDepth: GPUTexture | null = null
   /** `?debug=overdraw` r16float accumulator. */
   overdrawAccumTexture: GPUTexture | null = null
   /** Pick (GPU hover/click) RG32Uint single-sample colour attachment. */
   pickTexture: GPUTexture | null = null
+
+  // ── Cached texture views ──
+  // A GPUTexture.createView() with no args returns a fresh default view each
+  // call; the passes used to mint one EVERY frame for stencil/pick/oit/msaa/
+  // overdraw (4–8 allocations/frame). The backing textures only change on
+  // resize, so the view is cached at (re)creation and the passes read it.
+  // The swapchain view stays per-frame (a fresh getCurrentTexture each
+  // acquire) and is never cached here.
+  /** Cached view of `stencilTexture`. */
+  stencilView: GPUTextureView | null = null
+  /** Cached view of `pickTexture` (null when picking disabled). */
+  pickView: GPUTextureView | null = null
+  /** Cached view of `msaaTexture` (null when sampleCount === 1). */
+  msaaView: GPUTextureView | null = null
+  /** Cached view of `overdrawAccumTexture` (null unless `?debug=overdraw`). */
+  overdrawView: GPUTextureView | null = null
+  /** Cached view of `oitAccumTexture` (null until `ensureOit`). */
+  oitAccumView: GPUTextureView | null = null
+  /** Cached view of `oitRevealageTexture` (null until `ensureOit`). */
+  oitRevealageView: GPUTextureView | null = null
+  /** Cached view of `heatmapAccumTexture` (null until `ensureHeatmap`). */
+  heatmapAccumView: GPUTextureView | null = null
+  /** Cached view of `heatmapBlurTexture` (null until `ensureHeatmap`). */
+  heatmapBlurView: GPUTextureView | null = null
   /** Heatmap density accumulation target (r16float, single-sample). Lazily
    *  allocated by `ensureHeatmap()` ONLY when a heatmap layer is present, so
    *  a style with no heatmap allocates nothing here (byte-identical default).
@@ -66,6 +96,12 @@ export class RenderTargets {
    *  block (they are never allocated in the default no-heatmap path). */
   private heatmapWidth = 0
   private heatmapHeight = 0
+  /** Size + sample count the OIT targets were last allocated at — a separate
+   *  tracker so the lazily-allocated OIT block resizes independently of the
+   *  main MSAA block and recreates when the sample count changes. */
+  private oitWidth = 0
+  private oitHeight = 0
+  private oitSampleCount = 0
 
   private readonly getCtx: () => GPUContext
 
@@ -100,10 +136,9 @@ export class RenderTargets {
       this.msaaTexture?.destroy()
       this.stencilTexture?.destroy()
       this.pickTexture?.destroy()
-      this.oitAccumTexture?.destroy()
-      this.oitRevealageTexture?.destroy()
       this.overdrawAccumTexture?.destroy()
       this.overdrawAccumTexture = null
+      this.overdrawView = null
       // Allocate the MSAA color attachment ONLY when MSAA is on. When
       // sc === 1 we render straight to the swapchain (no resolveTarget)
       // and the MSAA texture would just waste w×h×4 bytes per frame.
@@ -115,12 +150,14 @@ export class RenderTargets {
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
           })
         : null
+      this.msaaView = this.msaaTexture?.createView() ?? null
       this.stencilTexture = device.createTexture({
         size: { width: w, height: h },
         format: 'depth24plus-stencil8',
         sampleCount: sc,
         usage: GPUTextureUsage.RENDER_ATTACHMENT,
       })
+      this.stencilView = this.stencilTexture.createView()
       // Pick RT: RG32Uint, single-sample. `?picking=1` forces SAMPLE_COUNT
       // to 1 globally (see quality.ts) so sc === 1 here whenever PICK is
       // true — the pick attachment and color attachment share sample count
@@ -133,36 +170,12 @@ export class RenderTargets {
             usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
           })
         : null
-      // OIT render targets — sampleCount matches the opaque pass so
-      // both can share the same depth attachment. Without that
-      // sharing the OIT pass had no depth → translucent buildings
-      // didn't occlude behind opaque foreground walls. Compose
-      // pass resolves the MSAA samples by averaging in the shader.
-      this.oitAccumTexture = device.createTexture({
-        size: { width: w, height: h },
-        format: OIT_ACCUM_FORMAT,
-        sampleCount: sc,
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-        label: 'oit-accum',
-      })
-      this.oitRevealageTexture = device.createTexture({
-        size: { width: w, height: h },
-        format: OIT_REVEALAGE_FORMAT,
-        sampleCount: sc,
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-        label: 'oit-revealage',
-      })
-      // iter-192 — fresh depth for the two-pass offscreen extrude
-      // pass. Cleared at the start of every `oit-fill` pass; never
-      // shared with the opaque scene depth.
-      this.offscreenExtrudeDepth?.destroy()
-      this.offscreenExtrudeDepth = device.createTexture({
-        size: { width: w, height: h },
-        format: 'depth24plus-stencil8',
-        sampleCount: sc,
-        usage: GPUTextureUsage.RENDER_ATTACHMENT,
-        label: 'offscreen-extrude-depth',
-      })
+      this.pickView = this.pickTexture?.createView() ?? null
+      // The OIT + offscreen-extrude targets are NOT allocated here — they
+      // move to the lazy `ensureOit()` (gated on scene OIT content), the
+      // same way the heatmap targets gate on `scene.hasHeatmap`. On a
+      // resize the stale OIT targets are size-mismatched; the next
+      // `ensureOit()` recreates them via its own tracker.
       if (debugOverdraw) {
         // r16float lets per-pixel additive accumulation grow well
         // past the [0, 1] swapchain range. MSAA forced to 1× in
@@ -174,6 +187,7 @@ export class RenderTargets {
           usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
           label: 'overdraw-accum',
         })
+        this.overdrawView = this.overdrawAccumTexture.createView()
       }
       this.msaaWidth = w
       this.msaaHeight = h
@@ -190,8 +204,8 @@ export class RenderTargets {
     // pipeline mirrors emit into the same accumulator with additive
     // blend, so the heatmap counts every contributing draw.
     const colorView = debugOverdraw
-      ? this.overdrawAccumTexture!.createView()
-      : (useResolve ? this.msaaTexture!.createView() : screenView)
+      ? this.overdrawView!
+      : (useResolve ? this.msaaView! : screenView)
 
     return { useResolve, colorView }
   }
@@ -224,8 +238,58 @@ export class RenderTargets {
       usage,
       label: 'heatmap-blur',
     })
+    this.heatmapAccumView = this.heatmapAccumTexture.createView()
+    this.heatmapBlurView = this.heatmapBlurTexture.createView()
     this.heatmapWidth = w
     this.heatmapHeight = h
+  }
+
+  /** Lazily (re)allocate the OIT targets (accum + revealage + offscreen-
+   *  extrude depth) at canvas size + sample count. Called from the OIT pass
+   *  ONLY when `scene.hasOit` — the default style keeps `isOitExtrude=false`
+   *  so this never fires and the ~10 B/px the accum + revealage cost (plus
+   *  the extrude depth) is never allocated. `sampleCount` matches the opaque
+   *  pass so the OIT fill can share the opaque depth attachment. Recreates on
+   *  resize or sample-count change via the dedicated tracker. */
+  ensureOit(w: number, h: number, sampleCount: number): void {
+    if (this.oitAccumTexture
+      && this.oitWidth === w && this.oitHeight === h && this.oitSampleCount === sampleCount) return
+    const { device } = this.getCtx()
+    this.oitAccumTexture?.destroy()
+    this.oitRevealageTexture?.destroy()
+    this.offscreenExtrudeDepth?.destroy()
+    // OIT render targets — sampleCount matches the opaque pass so both can
+    // share the same depth attachment. Without that sharing the OIT pass
+    // had no depth → translucent buildings didn't occlude behind opaque
+    // foreground walls. Compose pass resolves the MSAA samples in-shader.
+    this.oitAccumTexture = device.createTexture({
+      size: { width: w, height: h },
+      format: OIT_ACCUM_FORMAT,
+      sampleCount,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+      label: 'oit-accum',
+    })
+    this.oitRevealageTexture = device.createTexture({
+      size: { width: w, height: h },
+      format: OIT_REVEALAGE_FORMAT,
+      sampleCount,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+      label: 'oit-revealage',
+    })
+    // Fresh depth for the two-pass offscreen extrude pass; kept for the
+    // future OIT opt-in path (unread today).
+    this.offscreenExtrudeDepth = device.createTexture({
+      size: { width: w, height: h },
+      format: 'depth24plus-stencil8',
+      sampleCount,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+      label: 'offscreen-extrude-depth',
+    })
+    this.oitAccumView = this.oitAccumTexture.createView()
+    this.oitRevealageView = this.oitRevealageTexture.createView()
+    this.oitWidth = w
+    this.oitHeight = h
+    this.oitSampleCount = sampleCount
   }
 
   /** Release the heatmap density targets (destroy + null). Called from the
@@ -235,6 +299,8 @@ export class RenderTargets {
     this.heatmapBlurTexture?.destroy()
     this.heatmapAccumTexture = null
     this.heatmapBlurTexture = null
+    this.heatmapAccumView = null
+    this.heatmapBlurView = null
     this.heatmapWidth = 0
     this.heatmapHeight = 0
   }

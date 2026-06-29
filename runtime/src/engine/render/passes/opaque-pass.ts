@@ -89,7 +89,7 @@ class OpaquePass implements RenderPass {
         }]
         if (isPickEnabled() && ctx.rt.pickTexture) {
           colorAttachments.push({
-            view: ctx.rt.pickTexture.createView(),
+            view: ctx.rt.pickView!,
             clearValue: isFirst ? { r: 0, g: 0, b: 0, a: 0 } : undefined,
             loadOp: isFirst ? 'clear' : 'load',
             storeOp: 'store',
@@ -98,7 +98,7 @@ class OpaquePass implements RenderPass {
         const subPass = encoder.beginRenderPass({
           colorAttachments,
           depthStencilAttachment: {
-            view: ctx.rt.stencilTexture!.createView(),
+            view: ctx.rt.stencilView!,
             depthClearValue: 1.0,
             // First sub-pass clears depth; subsequent ones load the
             // depth their predecessor stored.

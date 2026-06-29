@@ -34,7 +34,7 @@ class OverdrawComposePass implements RenderPass {
         layout: host.renderer.overdrawComposeBindGroupLayout,
         entries: [{
           binding: 0,
-          resource: ctx.rt.overdrawAccumTexture!.createView(),
+          resource: ctx.rt.overdrawView!,
         }],
       })
       compPass.setPipeline(pipeline)
