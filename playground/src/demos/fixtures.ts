@@ -18,6 +18,7 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
     description: 'Single SDF point at (0, 0). Used by e2e fixture tests to validate the pointRenderer code path in isolation.',
     source: load('fixture-point.xgis'),
   },
+  fixture_raster_local: { name: 'Fixture: raster (local checker)', tag: 'fixture', description: 'Deterministic offline raster tile (no {z}/{x}/{y}) for the P1.4 RHI-flip DC=0 gate.', source: load('fixture-raster-local.xgis') },
   fixture_line: { name: 'Fixture: line (2pt)', tag: 'fixture', description: '2-vertex line, no join.', source: load('fixture-line.xgis') },
   fixture_line_join: { name: 'Fixture: line join', tag: 'fixture', description: '3-vertex sharp turn — miter join.', source: load('fixture-line-join.xgis') },
   fixture_triangle: { name: 'Fixture: triangle', tag: 'fixture', description: 'Closed 3-vertex polygon.', source: load('fixture-triangle.xgis') },

@@ -19,8 +19,11 @@ export interface RasterTile { texture: GPUTexture | RhiTexture; tileBytes: Float
 
 export class RasterDraper {
   private readonly material: Material
-  private readonly samplerEntry
-  private readonly globalBGByTex = new Map<GPUTexture | RhiTexture, RhiBindGroup>()
+  private readonly linearSampler
+  private readonly nearestSampler
+  // Cached global bind group per texture, holding the linear + nearest variants
+  // (Mapbox `raster-resampling` toggles between them; chosen per render call).
+  private readonly globalBGByTex = new Map<GPUTexture | RhiTexture, { linear?: RhiBindGroup; nearest?: RhiBindGroup }>()
   /** View cache keyed on the (stable) texture handle — a `GPUTexture.createView()`
    *  or `rhi.createView(rhiTex)` is made ONCE per texture, not per frame. */
   private readonly viewByTex = new Map<GPUTexture | RhiTexture, RhiTextureView>()
@@ -45,7 +48,8 @@ export class RasterDraper {
       pool: { group: 1, slotSize: 64 },
       globalUniformSize: 160,
     })
-    this.samplerEntry = { sampler: rhi.createSampler({ mag: 'linear', min: 'linear' }) }
+    this.linearSampler = { sampler: rhi.createSampler({ mag: 'linear', min: 'linear' }) }
+    this.nearestSampler = { sampler: rhi.createSampler({ mag: 'nearest', min: 'nearest' }) }
   }
 
   /** Resolve a tile texture to an RHI view, once per texture. A WebGPU `GPUTexture`
@@ -64,25 +68,28 @@ export class RasterDraper {
     return view
   }
 
-  private globalBG(texture: GPUTexture | RhiTexture): RhiBindGroup {
-    let bg = this.globalBGByTex.get(texture)
+  private globalBG(texture: GPUTexture | RhiTexture, nearest: boolean): RhiBindGroup {
+    let entry = this.globalBGByTex.get(texture)
+    if (!entry) { entry = {}; this.globalBGByTex.set(texture, entry) }
+    const key = nearest ? 'nearest' : 'linear'
+    let bg = entry[key]
     if (!bg) {
       bg = this.rhi.createBindGroup(this.material.layout(0), [
         { binding: 0, resource: { buffer: this.material.globalUniform! } },
         { binding: 1, resource: { view: this.viewOf(texture) } },
-        { binding: 2, resource: this.samplerEntry },
+        { binding: 2, resource: nearest ? this.nearestSampler : this.linearSampler },
       ])
-      this.globalBGByTex.set(texture, bg)
+      entry[key] = bg
     }
     return bg
   }
 
   /** Build draw items from visible tiles + issue them through the generic executor. */
-  draw(pass: import('../rhi/rhi').RhiRenderPass, globalBytes: BufferSource, tiles: ReadonlyArray<RasterTile>): void {
+  draw(pass: import('../rhi/rhi').RhiRenderPass, globalBytes: BufferSource, tiles: ReadonlyArray<RasterTile>, nearest = false): void {
     this.material.writeGlobal(globalBytes)
     const items: DrawItem[] = tiles.map((t) => ({
       variant: 0,
-      bindGroups: [this.globalBG(t.texture), null],
+      bindGroups: [this.globalBG(t.texture, nearest), null],
       poolBytes: t.tileBytes,
       count: 384,
       indexed: false,
