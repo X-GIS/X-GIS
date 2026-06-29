@@ -11,6 +11,7 @@ import { variantProducesFill } from './renderer-helpers'
 import { polygonUniformSlots, polygonUniformBytes, polygonUniformStride } from './polygon-uniform-slots'
 import { writeFrameProjectionUniform } from './frame-projection-uniform'
 import { xlog } from '../log'
+import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
 
 // f32 slot indices of the polygon 'Uniforms' struct, sourced from reflect() of the SAME
 // IR the shader is emitted from (NOT hand-coded magic numbers — those silently drift from
@@ -1450,8 +1451,10 @@ export class VectorTileRenderer {
     // upload routes have identical OOM behaviour.
     let pair = this._allocPolyPair(polyVertexArena, polyIndexArena, polyVertexByteLength, polyIndexByteLength)
     if (pair === null) {
+      perfMarkStart('vtr.evict')
       this._store.forceEvictBytes(polyVertexArena, polyVertexByteLength, this.stableKeys, this._releaseTileHook)
       this._store.forceEvictBytes(polyIndexArena, polyIndexByteLength, this.stableKeys, this._releaseTileHook)
+      perfMarkEnd('vtr.evict')
       pair = this._allocPolyPair(polyVertexArena, polyIndexArena, polyVertexByteLength, polyIndexByteLength)
     }
     if (pair === null) {
@@ -1774,8 +1777,10 @@ export class VectorTileRenderer {
     // next frame's classifyTile re-decides upload.
     let pair = this._allocPolyPair(polyVertexArena, polyIndexArena, polyVertexByteLength, polyIndexByteLength)
     if (pair === null) {
+      perfMarkStart('vtr.evict')
       this._store.forceEvictBytes(polyVertexArena, polyVertexByteLength, this.stableKeys, this._releaseTileHook)
       this._store.forceEvictBytes(polyIndexArena, polyIndexByteLength, this.stableKeys, this._releaseTileHook)
+      perfMarkEnd('vtr.evict')
       pair = this._allocPolyPair(polyVertexArena, polyIndexArena, polyVertexByteLength, polyIndexByteLength)
     }
     if (pair === null) {
@@ -2731,7 +2736,9 @@ export class VectorTileRenderer {
           parentKeysSet.add(decision.parentKey)
         } else if (decision.parentNeedsUpload) {
           const data = this.source.getTileData(decision.parentKey, sliceLayer)
+          perfMarkStart('vtr.upload')
           if (data) this.doUploadTile(decision.parentKey, data, sliceLayer)
+          perfMarkEnd('vtr.upload')
         }
         continue
       }
@@ -2767,7 +2774,9 @@ export class VectorTileRenderer {
           // upload, renderTileKeys finds no gpuCache entry and the
           // tile draws as a black hole. (See _high-pitch-flicker
           // regression case.)
+          perfMarkStart('vtr.upload')
           this.doUploadTile(inner.parentKey, this.source.getTileData(inner.parentKey, sliceLayer)!, sliceLayer)
+          perfMarkEnd('vtr.upload')
         }
         fallbackKeys.push(inner.parentKey)
         fallbackOffsets.push(worldOffDeg[i])
@@ -2782,7 +2791,9 @@ export class VectorTileRenderer {
       } else if (inner.kind === 'child-fallback') {
         for (const ck of inner.childrenNeedingUpload) {
           const childData = this.source.getTileData(ck, sliceLayer)
+          perfMarkStart('vtr.upload')
           if (childData) this.doUploadTile(ck, childData, sliceLayer)
+          perfMarkEnd('vtr.upload')
         }
         for (const ck of inner.childKeys) {
           fallbackKeys.push(ck)
