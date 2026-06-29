@@ -34,7 +34,14 @@ export type OptPass = (m: ModuleDecl) => ModuleDecl
  *  then const-fold + algebraic-simplify (collapse the exposed literals / identities),
  *  then dead-branch (drop the control flow those literals decided), then CSE (fn-top
  *  input-only repeats) + cse-local (statement-local repeats that touch a local/var) /
- *  LICM (loop invariants), then DCE last (clean up everything orphaned). */
+ *  LICM (loop invariants), then DCE last (clean up everything orphaned).
+ *
+ *  NB: whole-function tree-shaking (`deadFnElim`, ./dce-fns) is deliberately NOT in
+ *  this list — like `inlineFn` (../inline), it is an available-but-unwired pass. The
+ *  shaders that share a projection prelude emit it as one module of helper fns + the
+ *  entry points, so tree-shaking would per-shader-prune the prelude and break the
+ *  deliberately byte-stable shared-prelude emit (+ its golden-WGSL drift gate). Wire
+ *  it only behind a maintainer decision to regenerate those snapshots. */
 export const DEFAULT_PASSES: readonly OptPass[] = [constProp, copyProp, constFold, algebraicSimplify, deadBranch, cse, cseLocal, licm, dce]
 
 export function optimize(m: ModuleDecl, passes: readonly OptPass[] = DEFAULT_PASSES): ModuleDecl {
