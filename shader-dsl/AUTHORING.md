@@ -269,6 +269,28 @@ result Node, so the emit is identical to the hand-written `var v; if (…) v = �
 `condExpr` for genuine **condition/range** dispatch (no single scrutinee); use `Switch` for
 integer **scrutinee** dispatch.
 
+### `enumU32` / `matchEnum` — EXHAUSTIVE integer dispatch
+
+For dispatch over a fixed set of integer cases, declare an `enumU32` and use `matchEnum`. The
+arms object must cover **every** member — omit one (or add an unknown key) and it is a `tsc`
+compile error, so adding a member surfaces every un-handled site. It lowers to the same
+`matchExpr` (switch) the hand-written form emits (byte-identical):
+
+```ts
+const Kind = enumU32({ Line: 0, Fill: 1, Stroke: 2 })
+
+const color = matchEnum(seg.kind, Kind, {
+  Line:   () => lineColor,
+  Fill:   () => fillColor,
+  Stroke: () => strokeColor,   // drop an arm → compile error
+})
+// Kind.members.Fill is a Node<'u32'> literal; Kind.struct/values feed the case labels.
+```
+
+Use `matchEnum` over a bare `Switch`/`matchExpr` whenever the case set is closed — it turns a
+"forgot a case" runtime/visual bug into a compile error (the dispatch analogue of the
+`.assign`-on-`Let` footgun being a type error).
+
 ### Early returns — `Return` / `ReturnIf`
 
 A control-flow body never captures a native `return value` as an early exit (that would
@@ -522,6 +544,7 @@ const clip = condExpr([[c0, () => e0], [c1, () => e1]], () => elseVal)
 | deg↔rad | `radians(x)` / `degrees(x)` |
 | Branch (statement) | `If(c, …).elif(c, …).else(…)` |
 | Branch (value) | `ifExpr(c, ()=>a, ()=>b)` / `condExpr([[c,()=>a]], ()=>b)` |
+| Exhaustive integer dispatch | `enumU32({A:0,B:1})` + `matchEnum(s, E, { A:()=>…, B:()=>… })` (missing arm = compile error) |
 | Integer dispatch | `Switch(s).case(n, …).default(…)` |
 | Loop fold (value) | `reduce(init, i0, cond, (acc,i)=>…, step)` |
 | Early return | `Return(v)` / `ReturnIf(c, v)` |
