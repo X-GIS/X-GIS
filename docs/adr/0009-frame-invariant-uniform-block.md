@@ -1,6 +1,6 @@
 # ADR-0009: Frame-invariant uniform block written once by a shared producer
 
-Status: Proposed
+Status: Accepted (partial — projection/cull coupling landed; separate-bind-slot UBO pending)
 Date: 2026-06-29
 
 ## Context
@@ -86,16 +86,25 @@ Supporting principles (carry forward regardless of when step 2 lands):
 - **Migration / staging.**
   1. *(landed, #663)* Restore the missing `globe_eye` writes + the stop-gap
      completeness guard (`frame-uniform-writer-completeness.test.ts`).
-  2. Extract a `FrameUniform` producer + bind slot; route one renderer through it
-     behind a parity test (bytes identical to the current hand-pack).
-  3. Migrate the remaining renderers; delete the per-renderer frame-field writes and
-     the stop-gap completeness guard once all consumers bind the shared block.
-  4. Add a GPU-readback parity / `devAssert` that the bound frame block matches the
-     camera frame on the globe path (the debug-toolkit cross-path-assert pattern).
+  2–3. *(landed, this ADR's PR)* **Couple the drift-prone pair at the source.**
+     `frame-projection-uniform.ts:writeFrameProjectionUniform` writes `proj_params`
+     + `globe_eye` TOGETHER; the three polygon/line group(0) writers
+     (vector-tile-renderer / renderer.renderToPass / graticule) route through it, so a
+     "projection set, eye forgotten" partial write is now unrepresentable for that
+     family (no separate-bind-slot needed — same buffer, one coupled writer). The
+     completeness guard auto-narrowed to the families that still hand-pack their own
+     struct (raster / heatmap); it is deleted when they adopt the same coupled writer.
+  4. *(pending)* Generalize the coupled writer to the raster / heatmap / point structs
+     (different slot maps — raster folds `log_depth_fc` into `proj_params.w`), then
+     delete the completeness guard. Optionally lift the frame group into a SEPARATE
+     per-frame UBO bound once (a perf refinement over the current shared-buffer pack)
+     + a GPU-readback `devAssert` that the bound frame block matches the camera frame
+     on the globe path (debug-toolkit cross-path-assert pattern).
 
-This ADR is **Proposed**: it records the direction and the staging so the rationale
-does not evaporate the way the #600 follow-up did. Step 1 is done; steps 2–4 are
-tracked work, not part of #663.
+This ADR is **Accepted (partial)**: the direction is decided and the projection/cull
+coupling — the exact #600 drift — is implemented for the polygon/line family. The
+broader generalization + the bind-once UBO are tracked follow-ups. Recording the
+staging here so the rationale does not evaporate the way the #600 follow-up did.
 
 ## References
 
