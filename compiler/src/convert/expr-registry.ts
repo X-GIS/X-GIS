@@ -16,7 +16,7 @@ import {
   minMaxHandler, powHandler, unaryMathHandler, mathConstantHandler,
 } from './expr-arithmetic'
 import {
-  coalesceHandler, caseHandler, allHandler, anyHandler, notHandler,
+  coalesceHandler, caseHandler, allHandler, anyHandler, notHandler, noneHandler,
 } from './expr-logic'
 import {
   getHandler, hasHandler, notHasHandler, atHandler, typeofHandler,
@@ -49,6 +49,7 @@ export const EXPR_HANDLERS: Map<string, ExprHandler> = new Map([
   ['match', matchHandler],
   ['all', allHandler],
   ['any', anyHandler],
+  ['none', noneHandler],
   ['!', notHandler],
   // comparison
   ['==', comparisonHandler],
