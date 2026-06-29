@@ -135,9 +135,9 @@ export const DEMOS_CORE: Record<string, Demo> = {
   },
 
   openfreemap_bright: {
-    name: 'OpenFreeMap — Bright (converted)',
+    name: 'OpenFreeMap — Bright (live import)',
     tag: 'vector-tiles',
-    description: 'Live OpenFreeMap "bright" Mapbox style, run through the /convert pipeline. 93 layers, OpenMapTiles schema (water, landuse, building, transportation, …). Use this to stress-test pitched / panned views against a real-world style. Navigate to a city: #14/35.68/139.76 (Tokyo), #14/40.78/-73.97 (Manhattan).',
+    description: 'Live one-line `import "…/styles/bright"` — the runtime fetches the OpenFreeMap "bright" Mapbox style and converts it in full, including the place/POI/road-name/shield labels (the old static snapshot dropped every symbol layer). OpenMapTiles schema. Use this to stress-test pitched / panned views against a real-world style. Navigate to a city: #14/35.68/139.76 (Tokyo), #14/40.78/-73.97 (Manhattan).',
     source: load('openfreemap-bright.xgis'),
   },
 
