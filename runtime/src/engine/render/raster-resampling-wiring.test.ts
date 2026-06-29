@@ -46,38 +46,33 @@ async function makeCtx(): Promise<GPUContext> {
   return initGPU(canvas) as unknown as Promise<GPUContext>
 }
 
-/** Read the renderer's private sampler-trio identities. */
-function samplers(r: RasterRenderer): { active: unknown; linear: unknown; nearest: unknown } {
-  const p = r as unknown as { sampler: unknown; linearSampler: unknown; nearestSampler: unknown }
-  return { active: p.sampler, linear: p.linearSampler, nearest: p.nearestSampler }
+// Post-P1.4 (RHI Material seam): the immutable linear/nearest samplers + the per-tile bind
+// groups now live in the RasterDraper, which selects the sampler per draw from the `nearest`
+// arg. The renderer's role is reduced to the `_nearest` flag it forwards to draper.draw()
+// (raster-renderer.ts: `this.ensureRasterDraper().draw(..., this._nearest, …)`). So the
+// GPU-free contract here is that setResampling drives that flag; the sampler-object selection
+// is the RasterDraper's concern (covered by the draper + the real-GPU resampling parity).
+/** Read the renderer's resampling flag (forwarded to RasterDraper.draw). */
+function nearestFlag(r: RasterRenderer): boolean {
+  return (r as unknown as { _nearest: boolean })._nearest
 }
 
-describe('raster-resampling sampler wiring (GPU-free)', () => {
-  it('default active sampler is the linear sampler', async () => {
-    const ctx = await makeCtx()
-    const r = new RasterRenderer(ctx)
-    const s = samplers(r)
-    // Guard: the two samplers must be distinct objects for the test to mean
-    // anything (else the identity assertions below would be vacuous).
-    expect(s.linear).not.toBe(s.nearest)
-    expect(s.active).toBe(s.linear)
+describe('raster-resampling wiring (GPU-free)', () => {
+  it('defaults to linear (nearest = false)', async () => {
+    const r = new RasterRenderer(await makeCtx())
+    expect(nearestFlag(r)).toBe(false)
   })
 
-  it('setResampling(true) re-points the active sampler at the nearest sampler', async () => {
-    const ctx = await makeCtx()
-    const r = new RasterRenderer(ctx)
+  it('setResampling(true) selects nearest', async () => {
+    const r = new RasterRenderer(await makeCtx())
     r.setResampling(true)
-    const s = samplers(r)
-    // Break `sampler = nearest ? nearestSampler : linearSampler` → stays linear → fails.
-    expect(s.active).toBe(s.nearest)
+    expect(nearestFlag(r)).toBe(true)
   })
 
-  it('setResampling(false) restores the linear sampler', async () => {
-    const ctx = await makeCtx()
-    const r = new RasterRenderer(ctx)
+  it('setResampling(false) restores linear', async () => {
+    const r = new RasterRenderer(await makeCtx())
     r.setResampling(true)
     r.setResampling(false)
-    const s = samplers(r)
-    expect(s.active).toBe(s.linear)
+    expect(nearestFlag(r)).toBe(false)
   })
 })

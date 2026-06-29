@@ -9,6 +9,7 @@ import type { RhiDevice, RhiBindGroup, RhiTexture, RhiTextureView } from '../rhi
 import { wrapWebGpuTextureView } from '../rhi/rhi-webgpu'
 import { Material, executeItems, type DrawItem } from './material'
 import { emitRasterWgsl, buildRasterModule } from '../../shaders/dsl'
+import { rasterTileBytes } from '../raster-uniform-slots'
 import { emitGlslModule } from '@xgis/shader-dsl'
 
 /** One raster tile to draw: its texture + 64-byte per-tile uniform. The texture is
@@ -50,7 +51,7 @@ export class RasterDraper {
       ],
       colorTargets: [{ format: format as 'bgra8unorm', blend: 'alpha' }],
       variants: [{ depthWrite: false, depthCompare: 'always', label: 'raster-pipeline-rhi' }],
-      pool: { group: 1, slotSize: 64 },
+      pool: { group: 1, slotSize: rasterTileBytes() }, // 48 — the canonical TileUniforms size
       globalUniformSize: 160,
     })
     this.linearSampler = { sampler: rhi.createSampler({ mag: 'linear', min: 'linear' }) }
@@ -71,7 +72,7 @@ export class RasterDraper {
       ],
       colorTargets: [{ format: this.format as 'bgra8unorm', blend: 'alpha' }, { format: 'rg32uint' }],
       variants: [{ depthWrite: false, depthCompare: 'always', label: 'raster-pick-pipeline-rhi' }],
-      pool: { group: 1, slotSize: 64 },
+      pool: { group: 1, slotSize: rasterTileBytes() }, // 48 — the canonical TileUniforms size
       globalUniformSize: 160,
     }))
   }

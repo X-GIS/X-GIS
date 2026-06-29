@@ -5,15 +5,15 @@ import type { Camera } from '../projection/camera'
 import { visibleTilesFrustum, tileUrl, loadImageTexture } from '../../data/tile-select'
 import { mercator as mercatorProj, mercatorYToLat } from '../projection/projection'
 import { lonLatToECEF, type ECEF } from '../projection/ecef'
-import { emitRasterWgsl } from '../shaders/dsl'
 import type { RhiDevice, RhiRenderPass, RhiTexture } from './rhi/rhi'
-import { RasterDraper } from './material/raster-material'
-import { BLEND_ALPHA, STENCIL_DISABLED, routeToSphereSelector, enumerateWorldCopies } from '../gpu/gpu-shared'
+import { RasterDraper, type RasterTile } from './material/raster-material'
+import { WebGpuDevice, wrapWebGpuPass } from './rhi/rhi-webgpu'
+import { routeToSphereSelector, enumerateWorldCopies } from '../gpu/gpu-shared'
 import { isPickEnabled, getSampleCount } from '../gpu/gpu'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import { globeVisibleTiles } from '../projection/globe'
 import { writeProjectionCull } from './frame-projection-uniform'
-import { rasterUniformSlots, rasterUniformBytes, rasterTileSlots, rasterTileBytes } from './raster-uniform-slots'
+import { rasterUniformSlots, rasterUniformBytes, rasterTileSlots } from './raster-uniform-slots'
 
 /** Camera RTC anchor for the raster VS on the globe / 3D surfaces.
  *
@@ -39,23 +39,10 @@ interface CachedTile {
 
 const MAX_CACHED_TILES = 256
 const MAX_CONCURRENT_LOADS = 6
-// Cap the per-draw uniform pool so long sessions with peaks of 300+ frustum
-// tiles don't hold onto VRAM forever. The pool grows as needed up to this cap
-// and stale entries are destroyed when the cap is exceeded.
-const MAX_TILE_UNIFORM_POOL = 256
 
 export class RasterRenderer {
   private device: GPUDevice
   private format: GPUTextureFormat = 'bgra8unorm'
-  private pipeline: GPURenderPipeline
-  private globalBindGroupLayout: GPUBindGroupLayout
-  private tileBindGroupLayout: GPUBindGroupLayout
-  private uniformBuffer: GPUBuffer
-  // Active sampler for THIS frame's tile bind groups. Points at
-  // `linearSampler` (default) or `nearestSampler` per `raster-resampling`.
-  private sampler: GPUSampler
-  private linearSampler!: GPUSampler
-  private nearestSampler!: GPUSampler
 
   // LRU tile cache
   private tileCache = new Map<string, CachedTile>()
@@ -89,13 +76,6 @@ export class RasterRenderer {
   /** True when `raster-resampling: nearest` is active. Default false
    *  (linear) is byte-identical to today's fixed-linear sampler. */
   private _nearest = false
-  // Pool of per-draw tile uniform buffers (avoids writeBuffer race with draw).
-  // Each buffer has a matching pre-built bind group in `tileBindGroupPool` so
-  // the hot path never calls createBindGroup — a major frame-time win when
-  // many raster tiles are visible.
-  private tileUniformPool: GPUBuffer[] = []
-  private tileBindGroupPool: GPUBindGroup[] = []
-  private tileUniformIdx = 0
   private drawTileF32 = new Float32Array(rasterTileSlots().slots) // reflect-derived (= bounds4+tile_ecef4+merc_y2+pad2 = 12)
 
   // ── Forced-WebGL2 raster slice (US-003) ──
@@ -105,73 +85,27 @@ export class RasterRenderer {
   // (the WebGPU pilot). Created lazily on the first forced-WebGL2 frame.
   private _rhiDraper?: RasterDraper
   private _rhiChecker?: RhiTexture
+  /** The WebGPU RasterDraper — render()'s sole draw path (P1.4). Lazily built with the
+   *  swapchain format + sample count; rebuilt on a quality (MSAA) change via invalidation. */
+  private _rasterDraper?: RasterDraper
+  private ensureRasterDraper(): RasterDraper {
+    return (this._rasterDraper ??= new RasterDraper(new WebGpuDevice(this.device), this.format, getSampleCount()))
+  }
 
   constructor(ctx: GPUContext) {
     this.device = ctx.device
     this.format = ctx.format
 
-    this.globalBindGroupLayout = ctx.device.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: {} },
-        { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
-      ],
-    })
-
-    this.tileBindGroupLayout = ctx.device.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'uniform' } },
-      ],
-    })
-
-    this.pipeline = this.buildPipeline()
-
-    this.uniformBuffer = ctx.device.createBuffer({
-      size: rasterUniformBytes(), usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, label: 'raster-uniforms',
-    })
-
-    this.linearSampler = ctx.device.createSampler({
-      magFilter: 'linear', minFilter: 'linear',
-      addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge',
-    })
-    // Mapbox `raster-resampling: nearest` (pixel-art / DEM staircase) uses
-    // a NEAREST-filtered sampler instead of the default linear. Built once;
-    // `_nearest` selects between the two per render. Both are immutable.
-    this.nearestSampler = ctx.device.createSampler({
-      magFilter: 'nearest', minFilter: 'nearest',
-      addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge',
-    })
-    this.sampler = this.linearSampler
+    // The raster draw goes through the RHI Material seam (RasterDraper, lazily built in
+    // ensureRasterDraper): it owns the pipelines (non-pick + pick MRT), bind-group layouts,
+    // the linear/nearest samplers, the global uniform + the per-tile pool. The renderer keeps
+    // only its tile cache + the per-frame paint params (_opacity/_nearest/…).
   }
 
-  /** Recompile shader + pipeline using the current QUALITY (MSAA /
-   *  picking). Called by map.setQuality() when those knobs flip at
-   *  runtime. All cached bind groups on CachedTile entries stay valid —
-   *  they reference the texture view + sampler + uniform buffer, not
-   *  the pipeline. */
+  /** A quality (MSAA / picking) change invalidates the raster draper so the next render()
+   *  lazily rebuilds its pipelines with the new getSampleCount() / isPickEnabled(). */
   rebuildForQuality(): void {
-    this.pipeline = this.buildPipeline()
-  }
-
-  /** Live-reads QUALITY so the returned pipeline matches the current
-   *  MSAA / picking setting. Used at construction time AND from
-   *  `rebuildForQuality()` — each call produces a fresh module + pipeline. */
-  private buildPipeline(): GPURenderPipeline {
-    const module = this.device.createShaderModule({ code: emitRasterWgsl(isPickEnabled()), label: 'raster-shader' })
-    return this.device.createRenderPipeline({
-      layout: this.device.createPipelineLayout({ bindGroupLayouts: [this.globalBindGroupLayout, this.tileBindGroupLayout] }),
-      vertex: { module, entryPoint: 'vs_tile' },
-      fragment: {
-        module, entryPoint: 'fs_tile',
-        targets: isPickEnabled()
-          ? [{ format: this.format, blend: BLEND_ALPHA }, { format: 'rg32uint' as GPUTextureFormat }]
-          : [{ format: this.format, blend: BLEND_ALPHA }],
-      },
-      primitive: { topology: 'triangle-list' },
-      depthStencil: STENCIL_DISABLED,
-      multisample: { count: getSampleCount() },
-      label: 'raster-pipeline',
-    })
+    this._rasterDraper = undefined
   }
 
   setUrlTemplate(url: string): void {
@@ -213,12 +147,9 @@ export class RasterRenderer {
    *  the next render rebuilds them against the new sampler. Default linear
    *  is byte-identical to today. */
   setResampling(nearest: boolean): void {
-    if (nearest === this._nearest) return
+    // `_nearest` is forwarded to draper.draw(); the RasterDraper caches its global bind group
+    // per (texture, pick, resampling), so flipping needs no cache invalidation here.
     this._nearest = nearest
-    this.sampler = nearest ? this.nearestSampler : this.linearSampler
-    // Cached globalBG entries reference the OLD sampler — drop them so the
-    // render loop rebuilds each against `this.sampler`.
-    for (const tile of this.tileCache.values()) tile.globalBG = undefined
   }
 
   /** True while any tile fetch is still in flight. The map's render loop
@@ -432,12 +363,9 @@ export class RasterRenderer {
       new Float32Array(uniformData, RS.cam_ecef_center * 4, 4).set([camC[0], camC[1], camC[2], 0])
     }
     // (proj_params + globe_eye written together above via writeProjectionCull.)
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData)
-
-    pass.setPipeline(this.pipeline)
-
-    // Reset per-draw uniform pool index
-    this.tileUniformIdx = 0
+    // The raster draw goes through the RHI Material seam (P1.4: the sole path). Collect each
+    // visible tile (+ world-copy) into a RasterTile, then issue them in ONE draper.draw below.
+    const tilesArr: RasterTile[] = []
 
     // Also load parent tiles for fallback (1-2 levels up)
     for (const coord of tiles) {
@@ -528,58 +456,29 @@ export class RasterRenderer {
       const mercNorth = Math.log(Math.tan(Math.PI / 4 + clampMerc(north) * DEG2RAD / 2))
       const mercDiff = mercNorth - mercSouth
 
-      // Per-tile global bind group: immutable after load. Pre-build
-      // ONCE per tile lifetime — shared across all world-copy draws.
-      if (!cached.globalBG) {
-        cached.globalBG = this.device.createBindGroup({
-          layout: this.globalBindGroupLayout,
-          entries: [
-            { binding: 0, resource: { buffer: this.uniformBuffer } },
-            { binding: 1, resource: cached.texture.createView() },
-            { binding: 2, resource: this.sampler },
-          ],
-        })
-      }
-      pass.setBindGroup(0, cached.globalBG)
-
-      // iter-188 — world-copy loop. For Mercator, draw the tile in
-      // every visible world copy by shifting bounds.x / bounds.z by
-      // wo * 360°. The vertex shader's mix(bounds.x, bounds.z, uu)
-      // naturally lands lon in the right world copy for lonlat_to_ecef.
-      // tile_ecef_center stays unshifted (shared across copies; the
-      // RTC subtraction is in 3D ECEF and copy-invariant).
-      // Non-Mercator collapses to wo=0 only.
+      // iter-188 — world-copy loop. For Mercator, draw the tile in every visible world copy
+      // by shifting bounds.x / bounds.z by wo*360° (the VS mix(bounds.x, bounds.z, uu) lands
+      // lon in the right copy). tile_ecef_center stays unshifted (copy-invariant 3D-ECEF RTC).
+      // Non-Mercator collapses to wo=0. Each (tile, world-copy) becomes one RasterTile.
       for (const wo of RASTER_WORLD_COPIES) {
-        // Get or create a pooled uniform buffer + matching bind group.
-        if (this.tileUniformIdx >= this.tileUniformPool.length) {
-          const buf = this.device.createBuffer({
-            size: rasterTileBytes(), usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-          })
-          this.tileUniformPool.push(buf)
-          this.tileBindGroupPool.push(this.device.createBindGroup({
-            layout: this.tileBindGroupLayout,
-            entries: [{ binding: 0, resource: { buffer: buf } }],
-          }))
-        }
-        const tileBuf = this.tileUniformPool[this.tileUniformIdx]
-        const tileBG = this.tileBindGroupPool[this.tileUniformIdx]
-        this.tileUniformIdx++
-
         const tf = this.drawTileF32
-        // bounds: shift west/east by wo*360° so the shader's mix(bounds.x, bounds.z, uu)
-        // naturally produces the correct world-copy longitude for lonlat_to_ecef.
         const RT = rasterTileSlots().slot // reflect-derived f32 slots (byte-identical; raster-uniform-bytes.test.ts)
         tf[RT.bounds] = west + wo * 360; tf[RT.bounds + 1] = south; tf[RT.bounds + 2] = east + wo * 360; tf[RT.bounds + 3] = north
-        // tile_ecef_center: ECEF of SW corner (unshifted; shared across copies).
         tf[RT.tile_ecef_center] = swEcef[0]; tf[RT.tile_ecef_center + 1] = swEcef[1]; tf[RT.tile_ecef_center + 2] = swEcef[2]; tf[RT.tile_ecef_center + 3] = 0
         tf[RT.merc_y] = mercSouth        // merc_y.x
         tf[RT.merc_y + 1] = mercDiff         // merc_y.y
         tf[RT._pad] = 0; tf[RT._pad + 1] = 0   // padding
-        this.device.queue.writeBuffer(tileBuf, 0, tf)
-        pass.setBindGroup(1, tileBG)
-        pass.draw(384) // 8×8 grid × 6 verts/cell
+        // `tf` (this.drawTileF32) is reused every iteration — COPY it for the batch entry.
+        tilesArr.push({ texture: cached.texture, tileBytes: tf.slice() })
       }
     }
+
+    // Issue every collected tile in ONE draper.draw — the sole raster draw path (P1.4),
+    // byte-identical to the legacy multi-tile loop. uniformData is the 160B global; the draper
+    // owns the per-tile pool + the global/texture/sampler bind group. pick = the opaque-pass MRT.
+    // Always called (even with 0 visible tiles) so the global uniform is written every frame —
+    // matching the legacy path (it wrote the global before the loop): 0 tiles → global write, no draws.
+    this.ensureRasterDraper().draw(wrapWebGpuPass(pass), uniformData, tilesArr, this._nearest, isPickEnabled())
 
     // Capture this frame's visible set; deferred eviction runs in the next
     // beginFrame(). Eviction used to run inline here, but destroying tile
@@ -588,18 +487,6 @@ export class RasterRenderer {
     // them at queue.submit() time. Same lifecycle hazard the buffer fix
     // (da4f26f) addressed for VectorTileRenderer.evictGPUTiles().
     this.lastVisibleKeys = visibleKeys
-
-    // Shrink the uniform pool back toward MAX_TILE_UNIFORM_POOL if a previous
-    // peak (e.g. extreme pitch) grew it beyond the cap. Only trim the tail
-    // past what we used this frame so active draws aren't disturbed.
-    if (this.tileUniformPool.length > MAX_TILE_UNIFORM_POOL
-        && this.tileUniformIdx <= MAX_TILE_UNIFORM_POOL) {
-      for (let i = this.tileUniformPool.length - 1; i >= MAX_TILE_UNIFORM_POOL; i--) {
-        this.tileUniformPool[i].destroy()
-      }
-      this.tileUniformPool.length = MAX_TILE_UNIFORM_POOL
-      this.tileBindGroupPool.length = MAX_TILE_UNIFORM_POOL
-    }
   }
 
   /** Drop LRU tiles past MAX_CACHED_TILES and destroy their GPU textures.
