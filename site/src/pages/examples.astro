@@ -80,7 +80,7 @@ const visibleFeatured = showDevOnly
     <!-- Featured starter — three big cards for the most representative
          entry points. Helps a first-time visitor pick a path without
          scanning the full ~50-card gallery. -->
-    <section class="max-w-[1100px] mx-auto px-6 mb-20">
+    <section class="max-w-[960px] mx-auto px-6 mb-20">
       <Eyebrow label="Start here" class="mb-5" />
       <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {visibleFeatured.map(d => (
@@ -127,12 +127,12 @@ const visibleFeatured = showDevOnly
     </section>
 
     <!-- Section divider -->
-    <div class="max-w-[1100px] mx-auto px-6 mb-12">
+    <div class="max-w-[960px] mx-auto px-6 mb-12">
       <Eyebrow label="All examples" />
     </div>
 
     <!-- Categories -->
-    <div class="max-w-[1100px] mx-auto px-6 space-y-20">
+    <div class="max-w-[960px] mx-auto px-6 space-y-20">
       {visibleCategories.map(cat => (
         <section>
           <h2 class="font-display text-[26px] sm:text-[30px] font-normal text-fg leading-[1.2] tracking-[-0.02em] mb-2">
