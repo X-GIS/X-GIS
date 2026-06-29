@@ -65,8 +65,11 @@ function summarise(frames: number[]): string {
   return `p50=${p50.toFixed(1)} p95=${p95.toFixed(1)} p99=${p99.toFixed(1)} worst=${worst.toFixed(0)}  (~${fps}fps, ${t.length}f)`
 }
 
-/** Build the full copyable text report after the scenarios have run. */
-function buildReport(map: PerfMap, panZoomLine: string, rotPitchLine: string): string {
+/** Build the full copyable text report after the scenarios have run.
+ *  `rotPitchP50` is the measured rAF frame-time median of the (slow) rotate+
+ *  pitch scenario — compared against `frame.total` to expose work OUTSIDE the
+ *  render loop (tile upload/streaming, rAF scheduling, compositing). */
+function buildReport(map: PerfMap, panZoomLine: string, rotPitchLine: string, rotPitchP50: number): string {
   const dpr = window.devicePixelRatio || 1
   const canvas = document.querySelector('canvas')
   const cw = canvas?.width ?? 0, ch = canvas?.height ?? 0
@@ -74,7 +77,11 @@ function buildReport(map: PerfMap, panZoomLine: string, rotPitchLine: string): s
   const effDpr = clientW > 0 ? (cw / clientW).toFixed(2) : '?'
 
   const phases = (window as unknown as { __xgisPerfPhases?: PerfPhasesAPI }).__xgisPerfPhases
-  const passes = (phases?.getPhaseAverages?.() ?? []).filter(p => p.name.startsWith('encoder.pass.'))
+  const all = phases?.getPhaseAverages?.() ?? []
+  // getPhaseAverages is already sorted by perFrameMs desc; partition preserves it.
+  const passes = all.filter(p => p.name.startsWith('encoder.pass.'))
+  const frameStar = all.filter(p => p.name.startsWith('frame.'))
+  const other = all.filter(p => !p.name.startsWith('encoder.pass.') && !p.name.startsWith('frame.'))
   const opaqueGroups = passes.filter(p => /encoder\.pass\.opaque/.test(p.name)).length
   const translucent = passes.filter(p => /encoder\.pass\.translucent/.test(p.name)).length
 
@@ -105,6 +112,40 @@ function buildReport(map: PerfMap, panZoomLine: string, rotPitchLine: string): s
     lines.push('  (없음 — perf-marks 미활성. ?perf=1 또는 ?gpuprof=1 로 로드했는지 확인)')
   } else {
     for (const p of passes) lines.push(`  ${p.perFrameMs.toFixed(3).padStart(8)}  ${p.name.replace('encoder.pass.', '')}`)
+  }
+
+  // Frame-stage CPU (frame.prep / encode / submit / total) — the render loop's
+  // own decomposition. This is where the non-pass CPU hides.
+  lines.push('')
+  lines.push('frame 단계 CPU (perFrame ms):')
+  if (frameStar.length === 0) {
+    lines.push('  (frame.* 마크 없음)')
+  } else {
+    for (const p of frameStar) lines.push(`  ${p.perFrameMs.toFixed(3).padStart(8)}  ${p.name}`)
+  }
+  // Localizers, computed from the marks:
+  //  • encode − Σpasses isolates the non-pass encode work (buildSceneView /
+  //    classify / pumpPrefetch) from the draw-call encode (the passes).
+  //  • measured frame − frame.total isolates work OUTSIDE renderFrame (tile
+  //    decode/upload, rAF scheduling, compositing).
+  const passSum = passes.reduce((a, p) => a + p.perFrameMs, 0)
+  const frameEncode = frameStar.find(p => p.name === 'frame.encode')?.perFrameMs ?? 0
+  const frameTotal = frameStar.find(p => p.name === 'frame.total')?.perFrameMs ?? 0
+  if (frameEncode > 0) {
+    lines.push(`  frame.encode=${frameEncode.toFixed(1)} − passes합=${passSum.toFixed(1)}`
+      + `  → 비패스 encode(classify/prefetch)≈${(frameEncode - passSum).toFixed(1)}ms`)
+  }
+  if (frameTotal > 0 && rotPitchP50 > 0) {
+    lines.push(`  측정 frame p50=${rotPitchP50.toFixed(1)} − frame.total=${frameTotal.toFixed(1)}`
+      + `  → 렌더 밖(업로드/rAF/합성)≈${(rotPitchP50 - frameTotal).toFixed(1)}ms`)
+  }
+
+  // Every other marked phase (tile selection / classify / prepare / prefetch),
+  // largest first — the prime suspects for the high-pitch CPU spike.
+  if (other.length > 0) {
+    lines.push('')
+    lines.push('기타 단계 CPU (perFrame ms, 큰 순):')
+    for (const p of other) lines.push(`  ${p.perFrameMs.toFixed(3).padStart(8)}  ${p.name}`)
   }
   return lines.join('\n')
 }
@@ -199,7 +240,8 @@ export function installPerfOverlay(map: PerfMap): void {
       camNow.zoom = z0; camNow.centerX = x0; camNow.pitch = p0; camNow.bearing = br0
       map.invalidate()
 
-      report = buildReport(map, summarise(panZoom), summarise(rotPitch))
+      const rotPitchP50 = pct(rotPitch.slice(2), 50)
+      report = buildReport(map, summarise(panZoom), summarise(rotPitch), rotPitchP50)
       pre.textContent = report
       runBtn.disabled = false
       runBtn.textContent = '▶ 다시 측정'
