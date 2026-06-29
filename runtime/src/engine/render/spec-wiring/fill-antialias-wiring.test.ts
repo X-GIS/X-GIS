@@ -32,8 +32,8 @@ import { installWebGPUStub, type StubInstallation } from '../../../__test-suppor
 import { initGPU } from '../../gpu/gpu'
 import { VectorTileRenderer } from '../vector-tile-renderer'
 import { UniformRing } from '../uniform-ring'
+import { polygonUniformStride } from '../polygon-uniform-slots'
 
-const UNIFORM_SLOT = 256
 // cam_ecef_off_h.w — the spare lane fill-antialias rides (1 default, 0 = off).
 const FILL_ANTIALIAS_SLOT = 55
 
@@ -63,6 +63,8 @@ async function makeCtx(): Promise<Awaited<ReturnType<typeof initGPU>>> {
  *  read back via the private `staging` Uint8Array — exactly what flush()
  *  uploads to the GPU. */
 function makeRecordingRing(): { ring: UniformRing; staging: () => Float32Array } {
+  // Stride derived from reflect() (lazy: safe here, after configureProjections).
+  const UNIFORM_SLOT = polygonUniformStride()
   const device = {
     createBuffer: () => ({ destroy() {} } as unknown as GPUBuffer),
     queue: { writeBuffer: () => {} },

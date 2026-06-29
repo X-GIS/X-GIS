@@ -30,6 +30,7 @@ import { installWebGPUStub, type StubInstallation } from '../../../__test-suppor
 import { initGPU, type GPUContext } from '../../gpu/gpu'
 import { RasterRenderer } from '../raster-renderer'
 import { Camera } from '../../projection/camera'
+import { rasterUniformBytes } from '../raster-uniform-slots'
 
 let stub: StubInstallation
 
@@ -53,16 +54,17 @@ async function makeCtx(): Promise<GPUContext> {
 const W = 1024
 const H = 768
 
-// The global raster uniform is a 160-byte buffer (raster-renderer.ts:117).
-// raster_color0 sits at byte offset 96 → f32 slot 24; component .z (the 3rd
-// of [hueRotateDeg, brightnessMin, brightnessMax, saturation]) = f32 slot 26.
-const UNIFORM_BYTES = 160
+// The global raster uniform is the reflect-derived 'Uniforms' buffer
+// (raster-renderer.ts:117). raster_color0 sits at byte offset 96 → f32 slot 24;
+// component .z (the 3rd of [hueRotateDeg, brightnessMin, brightnessMax,
+// saturation]) = f32 slot 26.
 const RASTER_COLOR0_Z = 26
 
 /** Add the colour adjust, run render() once with a url template set (no tiles
  *  cached → the 160-byte global uniform is the only writeBuffer), and return
  *  raster_color0.z from the captured global uniform upload. */
 function capturedBrightnessMax(ctx: GPUContext, brightnessMax: number): number {
+  const UNIFORM_BYTES = rasterUniformBytes()
   const renderer = new RasterRenderer(ctx)
   renderer.setUrlTemplate('https://example.invalid/{z}/{x}/{y}.png')
   // setColorAdjust(hueRotate, brightnessMin, brightnessMax, saturation, contrast).

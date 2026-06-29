@@ -580,7 +580,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // exported pure helpers so the discriminating unit test can import real source.
   // Bumped 1022→1033 (#600): the globe_eye slot in PointUniformSlots + the
   // writePointFrameUniform globe_eye write + the globeEyeUniform import + comments.
-  'runtime/src/engine/render/point-renderer.ts': 1033,
+  // Bumped 1033→1040 (uniform-hardcode audit): exported lazy pointUniformBytes()
+  // so circle-pitch-scale-wiring sizes the point uniform from reflect() (= the
+  // SAME source the renderer uses) instead of a hardcoded 160. +7 = the helper +
+  // doc. Decomposition stays a tracked follow-up.
+  'runtime/src/engine/render/point-renderer.ts': 1040,
   // Baselined at 820 (mbx_batch2): lower-label.ts is the label-knob lowering
   // sub-pass extracted from lower.ts; crossed 800 here for the icon-translate
   // accumulators + parse arms + knobs-interface + merge wiring. Cohesive

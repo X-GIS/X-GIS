@@ -67,6 +67,13 @@ function pointUniformSlots(): PointUniformSlots {
     slots: u.slots,
   })
 }
+/** Canonical point `Uniforms` byte size, derived from reflect() (= slots × 4).
+ *  Exported so wiring tests size/identify the global uniform write from the SAME
+ *  reflect source the renderer uses, not a hand-coded 160. LAZY (calls
+ *  pointUniformSlots → reflect → projection emit) — call only post-configureProjections. */
+export function pointUniformBytes(): number {
+  return pointUniformSlots().slots * 4
+}
 // Build the @group(0) bind-group-layout entries from the reflection. Visibility
 // is the renderer's own knowledge (which stages read each binding); reflection
 // records structure, not stage usage. uniform + feat_data are read by both

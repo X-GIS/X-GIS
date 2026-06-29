@@ -25,6 +25,7 @@ import { installWebGPUStub, type StubInstallation } from '../../__test-support__
 import { initGPU, type GPUContext } from '../gpu/gpu'
 import { RasterRenderer } from './raster-renderer'
 import { Camera } from '../projection/camera'
+import { rasterUniformBytes } from './raster-uniform-slots'
 
 let stub: StubInstallation
 
@@ -49,14 +50,15 @@ const W = 1024
 const H = 768
 
 // raster_color1 @112 → f32 slot 28; its .x lane is contrast
-// (raster-renderer.ts:316). The 160-byte size uniquely identifies the global
-// uniform write (per-tile pooled uniforms are 48 B).
-const UNIFORM_BYTES = 160
+// (raster-renderer.ts:316). The reflect-derived global-uniform byte size
+// uniquely identifies the global uniform write (per-tile pooled uniforms are
+// 48 B).
 const RASTER_COLOR1_X = 28 // 112 / 4
 
 /** Set raster-contrast via setColorAdjust, run render() once, and return
  *  raster_color1.x from the captured 160-byte global-uniform write. */
 function capturedContrast(ctx: GPUContext, contrast: number): number {
+  const UNIFORM_BYTES = rasterUniformBytes()
   const renderer = new RasterRenderer(ctx)
   renderer.setUrlTemplate('https://example.invalid/{z}/{x}/{y}.png')
   // Only contrast is exercised; hue/brightness/saturation stay at spec no-ops.
