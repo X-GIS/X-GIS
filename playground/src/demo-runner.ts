@@ -816,6 +816,24 @@ function teardownPickingOverlay(): void {
 ;(window as unknown as { __xgisRunSource?: (s: string) => Promise<unknown> }).__xgisRunSource =
   async (s: string) => runSource(s, 'TestInjected')
 
+/** Push inline GeoJSON captured from an imported Mapbox style onto the
+ *  current map. Keyed by sanitized source id — matching the empty
+ *  geojson sources the converter emitted — so setSourceData() fills
+ *  them in. Used by both the in-app Import-Mapbox hook and the
+ *  /convert page hand-off (`__import`). No-op when there's nothing to
+ *  push or the map failed to build. */
+function pushImportedInlineGeoJSON(inline: Record<string, unknown> | null | undefined) {
+  if (!inline || !currentMap) return
+  for (const [id, fc] of Object.entries(inline)) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      currentMap.setSourceData(id, fc as any)
+    } catch (e) {
+      console.warn(`[X-GIS] inline GeoJSON push failed for source "${id}"`, e)
+    }
+  }
+}
+
 async function runSource(source: string, label: string) {
   errorDiv.style.display = 'none'
   currentMap?.stop()
@@ -1034,7 +1052,13 @@ selectEl.addEventListener('change', () => loadDemo(parseInt(selectEl.value)))
         const styleZoom = (styleObj as { zoom?: number }).zoom
         const styleBearing = (styleObj as { bearing?: number }).bearing
         const stylePitch = (styleObj as { pitch?: number }).pitch
-        const xgis = convertMapboxStyle(styleObj)
+        // Capture inline GeoJSON `source.data` via the collector so it
+        // renders instead of being dropped with a "call setSourceData()
+        // manually" note. The converted xgis text can't embed inline
+        // data (the DSL has no inline-data form), so we push each
+        // captured FeatureCollection after runSource below.
+        const inlineGeoJSON = new Map<string, unknown>()
+        const xgis = convertMapboxStyle(styleObj, { inlineGeoJSON })
         editor.setValue(xgis)
         // Stash sprite + glyphs URLs in module-scope so the XGISMap
         // constructor inside runSource picks them up at build time
@@ -1049,6 +1073,10 @@ selectEl.addEventListener('change', () => loadDemo(parseInt(selectEl.value)))
         pendingSpriteUrl = typeof spriteUrl === 'string' && spriteUrl.length > 0 ? spriteUrl : null
         pendingGlyphsUrl = typeof glyphsUrl === 'string' && glyphsUrl.length > 0 ? glyphsUrl : null
         await runSource(xgis, 'Imported (Mapbox)')
+        // Seed inline GeoJSON captured above. setSourceData populates the
+        // empty geojson sources the converter emitted (no-URL stubs) so
+        // the features render on the first frame after the push.
+        pushImportedInlineGeoJSON(Object.fromEntries(inlineGeoJSON))
         // WS-8 — honour the style's top-level `projection` field. Apply
         // BEFORE the camera block below so setProjection's zoom-clamp /
         // globeMode writes don't clobber the style-declared camera. URL
@@ -1181,12 +1209,27 @@ document.addEventListener('pointerup', () => {
 if (params.get('id') === '__import') {
   let imported: string | null = null
   let label: string | null = null
-  // Channel 1: URL hash (dev cross-origin).
+  // Inline GeoJSON captured by the convert page (id → FeatureCollection),
+  // pushed via setSourceData after runSource. Null when the style had none.
+  let importInline: Record<string, unknown> | null = null
+  // Channel 1: URL hash (dev cross-origin). The hash carries `src=` and
+  // optionally `inline=`, both standard base64 (alphabet has no `&`), so
+  // split on `&` to separate them unambiguously.
   if (location.hash.startsWith('#src=')) {
     try {
-      const encoded = location.hash.slice('#src='.length)
-      imported = decodeURIComponent(escape(atob(encoded)))
+      let srcEnc = ''
+      let inlineEnc = ''
+      for (const part of location.hash.slice(1).split('&')) {
+        if (part.startsWith('src=')) srcEnc = part.slice('src='.length)
+        else if (part.startsWith('inline=')) inlineEnc = part.slice('inline='.length)
+      }
+      imported = decodeURIComponent(escape(atob(srcEnc)))
       label = params.get('label') ?? 'Imported'
+      if (inlineEnc) {
+        try {
+          importInline = JSON.parse(decodeURIComponent(escape(atob(inlineEnc))))
+        } catch { /* malformed inline blob — render without it */ }
+      }
     } catch {
       // Malformed base64 / utf-8 — fall through to sessionStorage.
       imported = null
@@ -1198,6 +1241,12 @@ if (params.get('id') === '__import') {
       imported = sessionStorage.getItem('__xgisImportSource')
       label = sessionStorage.getItem('__xgisImportLabel')
     } catch { /* sessionStorage unavailable */ }
+  }
+  if (!importInline) {
+    try {
+      const raw = sessionStorage.getItem('__xgisImportInline')
+      if (raw) importInline = JSON.parse(raw)
+    } catch { /* sessionStorage unavailable / malformed — render without it */ }
   }
   // Sibling sprite + glyphs URLs from the convert page. Iter 105:
   // pre-fix the convert page sent only the converted xgis source, so
@@ -1223,7 +1272,11 @@ if (params.get('id') === '__import') {
     tagEl.textContent = 'imported'
     editor.setValue(imported.trim())
     discoverFields(imported, import.meta.env.BASE_URL + 'data/')
-    runSource(imported, label ?? 'Imported')
+    runSource(imported, label ?? 'Imported').then(() => {
+      // Seed inline GeoJSON handed off from the convert page once the
+      // map (and its empty geojson source stubs) exist.
+      pushImportedInlineGeoJSON(importInline)
+    })
     // Don't clear yet — the user may want to reload. Cleared on next
     // demo navigation via the regular loadDemo path.
   } else {

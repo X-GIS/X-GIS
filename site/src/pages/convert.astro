@@ -273,11 +273,24 @@ const presets: Preset[] = [
     // Iter 105.
     let lastSpriteUrl = ''
     let lastGlyphsUrl = ''
+    // Inline GeoJSON `source.data` objects captured during conversion,
+    // keyed by sanitized source id. The xgis text output can't embed
+    // them (the DSL has no inline-data form), so we stash them and the
+    // playground auto-pushes via setSourceData() after run() — same
+    // hand-off pattern as sprite/glyphs above. Empty when the style
+    // carries no inline GeoJSON.
+    let lastInlineGeoJSON: Record<string, unknown> = {}
 
     function convertJsonString(jsonStr: string, label?: string) {
       try {
         const parsed = JSON.parse(jsonStr)
-        const xgis = convertMapboxStyle(parsed)
+        // Pass an `inlineGeoJSON` collector so inline `source.data`
+        // objects are captured (and the misleading "call setSourceData()
+        // manually" note is suppressed) instead of dropped. The captured
+        // data rides along to the playground in openInPlayground().
+        const inlineGeoJSON = new Map<string, unknown>()
+        const xgis = convertMapboxStyle(parsed, { inlineGeoJSON })
+        lastInlineGeoJSON = Object.fromEntries(inlineGeoJSON)
         $out.value = xgis
         if (label) lastImportLabel = label
         // Capture sprite + glyphs URLs from the parsed JSON for the
@@ -416,8 +429,17 @@ const presets: Preset[] = [
         // dev → sessionStorage doesn't survive the origin hop).
         const spriteParam = lastSpriteUrl ? `&sprite=${encodeURIComponent(lastSpriteUrl)}` : ''
         const glyphsParam = lastGlyphsUrl ? `&glyphs=${encodeURIComponent(lastGlyphsUrl)}` : ''
+        // Inline GeoJSON rides in the hash alongside `src=` (base64 of
+        // the JSON map). The hash — not a query param — because the
+        // payload can be multi-MB, the same reason `src=` lives here.
+        // Both values are standard base64 (alphabet has no `&`), so the
+        // consumer splits the hash on `&` unambiguously.
+        const inlineKeys = Object.keys(lastInlineGeoJSON)
+        const inlineParam = inlineKeys.length > 0
+          ? `&inline=${btoa(unescape(encodeURIComponent(JSON.stringify(lastInlineGeoJSON))))}`
+          : ''
         window.location.href =
-          `${pgOrigin}/demo.html?id=__import&label=${labelParam}${spriteParam}${glyphsParam}#src=${encoded}`
+          `${pgOrigin}/demo.html?id=__import&label=${labelParam}${spriteParam}${glyphsParam}#src=${encoded}${inlineParam}`
         return
       }
       try {
@@ -432,6 +454,14 @@ const presets: Preset[] = [
         else sessionStorage.removeItem('__xgisImportSprite')
         if (lastGlyphsUrl) sessionStorage.setItem('__xgisImportGlyphs', lastGlyphsUrl)
         else sessionStorage.removeItem('__xgisImportGlyphs')
+        // Inline GeoJSON captured at convert time — the playground
+        // auto-pushes it via setSourceData() after run() (the xgis text
+        // itself can't carry inline data).
+        if (Object.keys(lastInlineGeoJSON).length > 0) {
+          sessionStorage.setItem('__xgisImportInline', JSON.stringify(lastInlineGeoJSON))
+        } else {
+          sessionStorage.removeItem('__xgisImportInline')
+        }
       } catch { /* sessionStorage may be unavailable in some embeds */ }
       window.location.href = playgroundUrl + '?id=__import'
     }
