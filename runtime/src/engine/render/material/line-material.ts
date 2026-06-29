@@ -24,23 +24,41 @@ export interface LineBatch {
 }
 
 export class LineDraper {
-  private readonly material: Material
+  private readonly material: Material  // non-pick: single colour target, fs_line / fs_line_pattern
+  // pick pass: colour + rg32uint pick MRT. The line pick fragment writes vec2u(0,0) — lines are
+  // not pickable; the target exists only for opaque-pass MRT compatibility when picking is on (so
+  // no per-target writeMask is needed, the shader masks itself). LAZY so the non-pick path never
+  // builds the rg32uint MRT pipeline (which WebGl2Device fail-closes on).
+  private _pickMaterial?: Material
 
-  constructor(rhi: RhiDevice, format: string, sampleCount: number, tileLayout: GPUBindGroupLayout, layerLayout: GPUBindGroupLayout) {
-    this.material = new Material(rhi, {
-      shader: emitLineWgsl(false), vsEntry: 'vs_line', fsEntry: 'fs_line',
-      format: format as 'bgra8unorm', sampleCount,
-      groups: [wrapWebGpuBindGroupLayout(tileLayout), wrapWebGpuBindGroupLayout(layerLayout)],
-      colorTargets: [{ format: format as 'bgra8unorm', blend: 'alpha' }],
+  constructor(
+    private readonly rhi: RhiDevice,
+    private readonly format: string,
+    private readonly sampleCount: number,
+    private readonly tileLayout: GPUBindGroupLayout,
+    private readonly layerLayout: GPUBindGroupLayout,
+  ) {
+    this.material = this.buildMaterial(false)
+  }
+
+  private buildMaterial(pick: boolean): Material {
+    return new Material(this.rhi, {
+      shader: emitLineWgsl(pick), vsEntry: 'vs_line', fsEntry: 'fs_line',
+      format: this.format as 'bgra8unorm', sampleCount: this.sampleCount,
+      groups: [wrapWebGpuBindGroupLayout(this.tileLayout), wrapWebGpuBindGroupLayout(this.layerLayout)],
+      colorTargets: pick
+        ? [{ format: this.format as 'bgra8unorm', blend: 'alpha' }, { format: 'rg32uint' }]
+        : [{ format: this.format as 'bgra8unorm', blend: 'alpha' }],
       variants: [
-        { depthWrite: false, depthCompare: 'less-equal', label: 'line-pipeline-rhi' },
-        { depthWrite: false, depthCompare: 'less-equal', fsEntry: 'fs_line_pattern', label: 'line-pipeline-pattern-rhi' },
+        { depthWrite: false, depthCompare: 'less-equal', label: pick ? 'line-pipeline-pick-rhi' : 'line-pipeline-rhi' },
+        { depthWrite: false, depthCompare: 'less-equal', fsEntry: 'fs_line_pattern', label: pick ? 'line-pipeline-pattern-pick-rhi' : 'line-pipeline-pattern-rhi' },
       ],
     })
   }
 
-  draw(pass: RhiRenderPass, b: LineBatch): void {
-    executeItems(this.material, pass, [{
+  draw(pass: RhiRenderPass, b: LineBatch, pick = false): void {
+    const material = pick ? (this._pickMaterial ??= this.buildMaterial(true)) : this.material
+    executeItems(material, pass, [{
       variant: b.pattern ? 1 : 0,
       bindGroups: [wrapWebGpuBindGroup(b.tileBG), wrapWebGpuBindGroup(b.layerBG)],
       dynamicOffsets: [[b.tileOffset], [b.layerOffset]],
