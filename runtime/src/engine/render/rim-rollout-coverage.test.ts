@@ -36,7 +36,9 @@ describe('rim_alpha rollout coverage', () => {
 
   it('point shader passes rim_a flat varying and applies it in fs_point', () => {
     // WGSL moved to point-renderer-shaders.ts (renderer re-exports POINT_SHADER).
-    const src = emitPointWgsl()
+    // Emit at O1: at production O2 the single-call `point_rim_alpha` is inlined into
+    // the VS (so the named fn is gone); this structural contract asserts the authored shape.
+    const src = emitPointWgsl('O1')
     expect(src).toContain('point_rim_alpha')
     // the fs colour is a plain `const` materialised as an auto-var (`_avN`), so pin the
     // rim apply by shape, not the var name. Alpha is the 4th component — emitted as `.w`

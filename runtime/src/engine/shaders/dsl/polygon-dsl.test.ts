@@ -416,7 +416,9 @@ describe('emitPolygonWgsl — skeleton', () => {
       fillPreamble: null, strokePreamble: null,
       needsFeatureBuffer: false,
     }
-    const wgsl = emitPolygonWgsl(variant, false)
+    // An injected-but-uncalled preamble helper is tree-shaken by deadFnElim at O2;
+    // the injection CONTRACT (preamble.funcs appends the fn) is asserted at O1.
+    const wgsl = emitPolygonWgsl(variant, false, 'O1')
     expect(wgsl).toContain('fn custom_helper')
   })
 

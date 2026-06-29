@@ -23,7 +23,7 @@ import {
   type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, resource } from '@xgis/shader-dsl'
-import { emitModule } from '@xgis/shader-dsl'
+import { emitModule, emitModuleAt, type OptLevel } from '@xgis/shader-dsl'
 import { ECEF_CONSTS, ECEF_FUNCS, lonlatToEcef } from './ecef'
 import { RASTER_COLOR_FUNCS, rasterColorAdjust } from './raster-color'
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
@@ -221,4 +221,5 @@ export const buildRasterModule = (pickEnabled: boolean): ModuleDecl => module({
 /** Full raster shader: one module — shared projection + ecef + raster-color + log-depth
  *  decls merged ahead of the raster structs / bindings / vs_tile / fs_tile.
  *  `pickEnabled` toggles the pick attachment field + write. */
-export const emitRasterWgsl = (pickEnabled: boolean): string => emitModule(buildRasterModule(pickEnabled))
+export const emitRasterWgsl = (pickEnabled: boolean, level: OptLevel = 'O2'): string =>
+  level === 'O2' ? emitModule(buildRasterModule(pickEnabled)) : emitModuleAt(buildRasterModule(pickEnabled), level)

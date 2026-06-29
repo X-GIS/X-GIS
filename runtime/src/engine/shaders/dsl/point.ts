@@ -26,7 +26,7 @@ import {
   type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, structDecl, storageBuffer } from '@xgis/shader-dsl'
-import { emitModule } from '@xgis/shader-dsl'
+import { emitModule, emitModuleAt, type OptLevel } from '@xgis/shader-dsl'
 import { needs_backface_cull, rim_alpha, flat_rel, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
 
@@ -498,4 +498,9 @@ export const buildPointModule = (): ModuleDecl => module({
 
 /** Full point shader: one module — shared projection consts + log-depth + projection fns
  *  merged ahead of the point structs / bindings / helpers. No pick variant. */
-export const emitPointWgsl = (): string => emitModule(buildPointModule())
+/** Emit the point shader. Defaults to the production O2 pipeline; pass a lower
+ *  `level` (e.g. 'O1') to inspect the un-inlined / un-tree-shaken structure — the
+ *  structural-contract tests use 'O1' so they assert the authored shape, while
+ *  production stays O2 (inlines single-call prelude helpers, tree-shakes unused). */
+export const emitPointWgsl = (level: OptLevel = 'O2'): string =>
+  level === 'O2' ? emitModule(buildPointModule()) : emitModuleAt(buildPointModule(), level)

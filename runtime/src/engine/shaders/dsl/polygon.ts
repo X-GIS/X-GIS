@@ -32,7 +32,7 @@ import {
   type ModuleDecl, type Stmt, type BindingDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, resource } from '@xgis/shader-dsl'
-import { emitModule, emitFunc, composeModule } from '@xgis/shader-dsl'
+import { emitModule, emitModuleAt, emitFunc, composeModule, type OptLevel } from '@xgis/shader-dsl'
 import { project, flat_rel, needs_backface_cull, rim_alpha, inv_merc_lat_rad, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
 import { PI, EARTH_R, MERCATOR_LAT_LIMIT, DEG2RAD } from './consts'
@@ -1159,4 +1159,7 @@ export const buildPolygonModule = (
 export const emitPolygonWgsl = (
   variant: ShaderVariantInfo | null,
   pickEnabled: boolean,
-): string => emitModule(buildPolygonModule(variant, pickEnabled))
+  level: OptLevel = 'O2',
+): string => level === 'O2'
+  ? emitModule(buildPolygonModule(variant, pickEnabled))
+  : emitModuleAt(buildPolygonModule(variant, pickEnabled), level)

@@ -80,6 +80,11 @@ function pickCandidate(m: ModuleDecl): string | undefined {
 export function autoInline(m: ModuleDecl): ModuleDecl {
   // A raw WGSL stmt may call a helper textually (invisible to the IR walk) — bail.
   if (m.funcs.some((f) => bodyHasRaw(f.body))) return m
+  // No entry points -> this is a LIBRARY / prelude (e.g. the emitFuncsCsed projection
+  // fns), where every fn is public API called by name from outside the module. Inlining
+  // a single-call helper there would delete a referenced function -> no-op, keep all.
+  // (Mirrors deadFnElim's guard; a real shader has its @vertex/@fragment/@compute entry.)
+  if (!m.funcs.some((f) => (f.attrs?.length ?? 0) > 0)) return m
   let cur = m
   // Each inlineFn removes its target, so the candidate set strictly shrinks;
   // the fn-count bound is a belt-and-suspenders cap on the loop.

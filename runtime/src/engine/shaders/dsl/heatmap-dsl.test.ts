@@ -9,7 +9,7 @@ import { emitHeatmapComposeWgsl } from './heatmap-compose'
 // bindings / entry points) so a structural regression fails fast on Windows.
 
 describe('heatmap accum shader — DSL emission', () => {
-  const w = emitHeatmapAccumWgsl()
+  const w = emitHeatmapAccumWgsl('O1') // structural contract -> authored (O1) shape; production is O2
   it('prepends the shared projection WGSL the VS calls', () => {
     expect(w).toContain('fn project')
     expect(w).toContain('fn flat_rel')

@@ -9,8 +9,10 @@ import { emitLineWgsl, emitCompositeWgsl } from './line'
 // CPU interp would need to model RGBA8 packing). The gate is the emission
 // shape + the GPU pixel survey + the standalone CI render-gate.
 describe('Phase-2 line shader — DSL emission', () => {
-  const noPick = emitLineWgsl(false)
-  const pick = emitLineWgsl(true)
+  // Structural contracts assert the AUTHORED shape -> emit at O1 (production is O2,
+  // which inlines single-call prelude helpers + tree-shakes unused ones).
+  const noPick = emitLineWgsl(false, 'O1')
+  const pick = emitLineWgsl(true, 'O1')
   const linePart = (w: string) => w.slice(w.indexOf('struct TileUniforms'))
 
   it('prepends the shared projection + log-depth + SDF helper WGSL', () => {

@@ -1,4 +1,4 @@
-// baseline: 26ac3c8c765ce78240d267c8587b7e8df70ad1c2
+// baseline: f3b45b006914bf29cbe452afcd34fae9024a3979
 // fixture: bright-landuse-match13
 // variant.key: bright-landuse-match13
 // pick: false
@@ -74,10 +74,6 @@ fn compute_log_frag_depth(view_w: f32, fc: f32) -> f32 {
   return (log2(max(0.000001, (view_w + 1.0))) * fc);
 }
 
-fn proj_mercator(lon_deg: f32, lat_deg: f32) -> vec2<f32> {
-  return vec2<f32>((radians(lon_deg) * EARTH_R), (log(tan(((PI / 4.0) + (radians(clamp(lat_deg, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT)) / 2.0)))) * EARTH_R));
-}
-
 fn wrap_lon_delta(d: f32) -> f32 {
   if ((d > 180.0)) {
     return (d - (ceil(((d - 180.0) / 360.0)) * 360.0));
@@ -97,35 +93,6 @@ fn proj_natural_earth_d(lon_rel: f32, lat_deg: f32) -> vec2<f32> {
   let _cse1 = (_cse2 * _cse2);
   let _cse0 = (_cse1 * _cse1);
   return vec2<f32>(((radians(lon_rel) * (((0.8707 - (_cse1 * 0.131979)) + (_cse0 * 0.013791)) - ((_cse1 * _cse0) * 0.0081435))) * EARTH_R), ((_cse2 * (1.007226 + (_cse1 * (0.015085 + (_cse1 * ((-0.044475 + (_cse1 * 0.028874)) - (_cse0 * 0.005916))))))) * EARTH_R));
-}
-
-fn proj_equirectangular(lon_deg: f32, lat_deg: f32, clon: f32) -> vec2<f32> {
-  return proj_equirectangular_d(wrap_lon_delta((lon_deg - clon)), lat_deg);
-}
-
-fn proj_natural_earth(lon_deg: f32, lat_deg: f32, clon: f32) -> vec2<f32> {
-  return proj_natural_earth_d(wrap_lon_delta((lon_deg - clon)), lat_deg);
-}
-
-fn unwrap_lon_near(value: f32, ref_v: f32) -> f32 {
-  return (value - (floor((((value - ref_v) + 180.0) / 360.0)) * 360.0));
-}
-
-fn unwrap_lon_near_keep(value: f32, ref_v: f32, keep_sign: f32) -> f32 {
-  return (value - (floor(((((value - ref_v) + 180.0) - (keep_sign * 0.0001)) / 360.0)) * 360.0));
-}
-
-fn unwrap_rad_near(value: f32, ref_v: f32) -> f32 {
-  let _cse0 = (PI * 2.0);
-  return (value - (floor((((value - ref_v) + PI) / _cse0)) * _cse0));
-}
-
-fn proj_orthographic(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> vec2<f32> {
-  let _cse3 = radians(lat_deg);
-  let _cse0 = cos(_cse3);
-  let _cse1 = (radians(lon_deg) - radians(clon));
-  let _cse2 = radians(clat);
-  return vec2<f32>(((EARTH_R * _cse0) * sin(_cse1)), (EARTH_R * ((cos(_cse2) * sin(_cse3)) - ((sin(_cse2) * _cse0) * cos(_cse1)))));
 }
 
 fn proj_azimuthal_equidistant(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> vec2<f32> {
@@ -179,11 +146,6 @@ fn proj_oblique_mercator_d(lam_rot: f32, phi_rot: f32) -> vec2<f32> {
   return vec2<f32>((EARTH_R * lam_rot), (EARTH_R * log(tan(((PI / 4.0) + (clamp(phi_rot, (-_cse0), _cse0) / 2.0))))));
 }
 
-fn proj_oblique_mercator(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> vec2<f32> {
-  let _cse0 = oblique_rot(lon_deg, lat_deg, clon, clat);
-  return proj_oblique_mercator_d(_cse0.x, _cse0.y);
-}
-
 fn proj_globe(lon_deg: f32, lat_deg: f32) -> vec3<f32> {
   let _cse2 = radians(lat_deg);
   let _cse0 = (EARTH_R * cos(_cse2));
@@ -203,45 +165,55 @@ fn globe_eye_horizon_cos(lon_deg: f32, lat_deg: f32, globe_eye: vec4<f32>) -> f3
 }
 
 fn project(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>) -> vec2<f32> {
+  let _cse5 = radians(lat_deg);
+  let _cse6 = radians(lon_deg);
+  let _cse0 = wrap_lon_delta((lon_deg - proj_params.y));
+  let _cse1 = cos(_cse5);
+  let _cse2 = (_cse6 - radians(proj_params.y));
+  let _cse3 = radians(proj_params.z);
+  let _cse4 = oblique_rot(lon_deg, lat_deg, proj_params.y, proj_params.z);
   if ((proj_params.x < 0.5)) {
-    return proj_mercator(lon_deg, lat_deg);
+    return vec2<f32>((_cse6 * EARTH_R), (log(tan(((PI / 4.0) + (radians(clamp(lat_deg, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT)) / 2.0)))) * EARTH_R));
   } else if ((proj_params.x < 1.5)) {
-    return proj_equirectangular(lon_deg, lat_deg, proj_params.y);
+    return proj_equirectangular_d(_cse0, lat_deg);
   } else if ((proj_params.x < 2.5)) {
-    return proj_natural_earth(lon_deg, lat_deg, proj_params.y);
+    return proj_natural_earth_d(_cse0, lat_deg);
   } else if ((proj_params.x < 3.5)) {
-    return proj_orthographic(lon_deg, lat_deg, proj_params.y, proj_params.z);
+    return vec2<f32>(((EARTH_R * _cse1) * sin(_cse2)), (EARTH_R * ((cos(_cse3) * sin(_cse5)) - ((sin(_cse3) * _cse1) * cos(_cse2)))));
   } else if ((proj_params.x < 4.5)) {
     return proj_azimuthal_equidistant(lon_deg, lat_deg, proj_params.y, proj_params.z);
   } else if ((proj_params.x < 5.5)) {
     return proj_stereographic(lon_deg, lat_deg, proj_params.y, proj_params.z);
   } else {
-    return proj_oblique_mercator(lon_deg, lat_deg, proj_params.y, proj_params.z);
+    return proj_oblique_mercator_d(_cse4.x, _cse4.y);
   }
 }
 
 fn project_geom(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>, ref_lon: f32) -> vec2<f32> {
-  let _cse7 = floor((((ref_lon - proj_params.y) + 180.0) / 360.0));
-  let _cse6 = (_cse7 * 360.0);
-  let _cse4 = (lon_deg - _cse6);
-  let _cse5 = (ref_lon - _cse6);
-  let _cse3 = (unwrap_lon_near_keep((_cse4 - _cse5), 0.0, sign(_cse4)) + wrap_lon_delta((_cse5 - proj_params.y)));
-  let _cse0 = wrap_lon_delta(_cse3);
-  let _cse1 = (((_cse7 * 2.0) * PI) * EARTH_R);
-  let _cse2 = oblique_rot(_cse4, lat_deg, proj_params.y, proj_params.z);
+  let _cse10 = floor((((ref_lon - proj_params.y) + 180.0) / 360.0));
+  let _cse9 = (_cse10 * 360.0);
+  let _cse7 = (lon_deg - _cse9);
+  let _cse8 = (ref_lon - _cse9);
+  let _cse6 = (_cse7 - _cse8);
+  let _cse4 = ((_cse6 - (floor((((_cse6 + 180.0) - (sign(_cse7) * 0.0001)) / 360.0)) * 360.0)) + wrap_lon_delta((_cse8 - proj_params.y)));
+  let _cse5 = oblique_rot(_cse7, lat_deg, proj_params.y, proj_params.z);
+  let _cse0 = wrap_lon_delta(_cse4);
+  let _cse1 = (((_cse10 * 2.0) * PI) * EARTH_R);
+  let _cse2 = _cse5.x;
+  let _cse3 = (PI * 2.0);
   if (((proj_params.x > 0.5) && (proj_params.x < 2.5))) {
     var _v0: vec2<f32>;
     if ((proj_params.x < 1.5)) {
-      _v0 = proj_equirectangular_d(_cse3, lat_deg);
+      _v0 = proj_equirectangular_d(_cse4, lat_deg);
     } else {
       _v0 = proj_natural_earth_d(_cse0, lat_deg);
-      _v0.x = (_v0.x + (((floor((((_cse3 - _cse0) / 360.0) + 0.5)) * 2.0) * PI) * EARTH_R));
+      _v0.x = (_v0.x + (((floor((((_cse4 - _cse0) / 360.0) + 0.5)) * 2.0) * PI) * EARTH_R));
     }
     _v0.x = (_v0.x + _cse1);
     return _v0;
   }
   if ((proj_params.x > 5.5)) {
-    var _v1: vec2<f32> = proj_oblique_mercator_d(unwrap_rad_near(_cse2.x, oblique_rot(_cse5, proj_params.z, proj_params.y, proj_params.z).x), _cse2.y);
+    var _v1: vec2<f32> = proj_oblique_mercator_d((_cse2 - (floor((((_cse2 - oblique_rot(_cse8, proj_params.z, proj_params.y, proj_params.z).x) + PI) / _cse3)) * _cse3)), _cse5.y);
     _v1.x = (_v1.x + _cse1);
     return _v1;
   }

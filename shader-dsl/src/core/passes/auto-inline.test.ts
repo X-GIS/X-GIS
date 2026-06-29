@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { autoInline } from './auto-inline'
-import { module, fn, f32T, callFn, type ModuleDecl } from '../ir'
+import { module, fn, f32, f32T, callFn, type ModuleDecl } from '../ir'
 import { emitModule } from '../backends/wgsl'
 import { compileModule } from '../oracle'
 
@@ -8,17 +8,22 @@ import { compileModule } from '../oracle'
 // non-recursive, single-return helper iff it is single-call (strict win) or its
 // return is a leaf (param/lit/const — never bloats). Pinned by oracle equality.
 describe('autoInline — cost-driven function inlining (#627)', () => {
+  // A `main` entry point makes the module a real shader (not an entry-less LIBRARY,
+  // where autoInline no-ops to protect public-API prelude fns). `caller` has 0 call
+  // sites so it stays (and is oracle-callable); the helper it calls gets inlined.
+  // Assert on the IR (out.funcs) — emitModule now runs the full pipeline, which would
+  // also deadFnElim the unreachable `caller`, masking autoInline's isolated effect.
   it('inlines a single-call helper and drops it', () => {
     const m = module({
       funcs: [
         fn('dbl', { x: f32T }, f32T, ({ x }, b) => { b.ret(x.mul(2)) }),
         fn('caller', { y: f32T }, f32T, ({ y }, b) => { b.ret(callFn('dbl', f32T, y.add(1))) }),
+        fn('main', {}, f32T, (_p, b) => { b.ret(f32(0)) }, { stage: 'fragment', retAttr: '@location(0)' }),
       ],
     })
     const out = autoInline(m)
-    const wgsl = emitModule(out)
-    expect(wgsl).not.toMatch(/\bdbl\(/)     // call site gone
-    expect(wgsl).not.toContain('fn dbl')    // decl dropped
+    expect(out.funcs.some((f) => f.name === 'dbl')).toBe(false)    // inlined + dropped
+    expect(out.funcs.some((f) => f.name === 'caller')).toBe(true)  // 0 call sites -> kept
     expect(compileModule(out).fns.caller(5)).toBe(compileModule(m).fns.caller(5))
   })
 
@@ -27,10 +32,11 @@ describe('autoInline — cost-driven function inlining (#627)', () => {
       funcs: [
         fn('id', { x: f32T }, f32T, ({ x }, b) => { b.ret(x) }),
         fn('caller', { y: f32T }, f32T, ({ y }, b) => { b.ret(callFn('id', f32T, y).add(callFn('id', f32T, y.mul(3)))) }),
+        fn('main', {}, f32T, (_p, b) => { b.ret(f32(0)) }, { stage: 'fragment', retAttr: '@location(0)' }),
       ],
     })
     const out = autoInline(m)
-    expect(emitModule(out)).not.toContain('fn id')
+    expect(out.funcs.some((f) => f.name === 'id')).toBe(false)
     expect(compileModule(out).fns.caller(2)).toBe(compileModule(m).fns.caller(2)) // 2 + 6 = 8
   })
 

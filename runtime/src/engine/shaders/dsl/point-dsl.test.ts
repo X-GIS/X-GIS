@@ -7,7 +7,9 @@ import { emitPointWgsl } from './point'
 // (storage + fwidth + many extern fn calls); the gate is the emission shape
 // + the GPU pixel survey.
 describe('Phase-2 point shader — DSL emission', () => {
-  const w = emitPointWgsl()
+  // Structural contracts assert the AUTHORED shape -> emit at O1 (production is O2,
+  // which inlines single-call prelude helpers + tree-shakes unused ones).
+  const w = emitPointWgsl('O1')
   const pointPart = w.slice(w.indexOf('struct Uniforms'))
 
   it('prepends the shared projection + log-depth WGSL the vs/fs call', () => {

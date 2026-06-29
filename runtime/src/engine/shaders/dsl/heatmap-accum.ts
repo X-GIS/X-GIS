@@ -34,7 +34,7 @@ import {
   type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, storageBuffer } from '@xgis/shader-dsl'
-import { emitModule } from '@xgis/shader-dsl'
+import { emitModule, emitModuleAt, type OptLevel } from '@xgis/shader-dsl'
 import { flat_rel, needs_backface_cull, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
 
 const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
@@ -184,4 +184,5 @@ export const buildHeatmapAccumModule = (): ModuleDecl => module({
 
 /** Full heatmap accumulation shader: one module — shared projection consts + fns merged
  *  ahead of the accum module (Uniforms + feat_data storage + vs_heatmap/fs_heatmap). */
-export const emitHeatmapAccumWgsl = (): string => emitModule(buildHeatmapAccumModule())
+export const emitHeatmapAccumWgsl = (level: OptLevel = 'O2'): string =>
+  level === 'O2' ? emitModule(buildHeatmapAccumModule()) : emitModuleAt(buildHeatmapAccumModule(), level)

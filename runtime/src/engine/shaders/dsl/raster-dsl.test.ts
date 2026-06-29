@@ -6,8 +6,10 @@ import { emitRasterWgsl } from './raster'
 // MVP) replacing the old 4-branch projection dispatch. The fragment is
 // unchanged: sample + rim fade + log-depth.
 describe('Phase-2 raster shader — DSL emission (ECEF VS, PR 2d.3)', () => {
-  const noPick = emitRasterWgsl(false)
-  const pick = emitRasterWgsl(true)
+  // Structural contracts assert the AUTHORED shape -> emit at O1 (production is O2,
+  // which inlines single-call prelude helpers + tree-shakes unused ones).
+  const noPick = emitRasterWgsl(false, 'O1')
+  const pick = emitRasterWgsl(true, 'O1')
   const rasterPart = (w: string) => w.slice(w.indexOf('struct Uniforms'))
 
   it('prepends ECEF consts + lonlat_to_ecef fn + log-depth fns', () => {

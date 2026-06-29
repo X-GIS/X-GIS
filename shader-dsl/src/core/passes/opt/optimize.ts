@@ -27,22 +27,28 @@ import { cse } from './cse'
 import { cseLocal } from './cse-local'
 import { licm } from './licm'
 import { dce } from './dce'
+import { gvn } from './gvn'
+import { deadFnElim } from './dce-fns'
+import { autoInline } from '../auto-inline'
 
 export type OptPass = (m: ModuleDecl) => ModuleDecl
 
-/** The default pipeline. const/copy-prop first (move literals & copies into uses),
- *  then const-fold + algebraic-simplify (collapse the exposed literals / identities),
- *  then dead-branch (drop the control flow those literals decided), then CSE (fn-top
- *  input-only repeats) + cse-local (statement-local repeats that touch a local/var) /
- *  LICM (loop invariants), then DCE last (clean up everything orphaned).
+/** The default pipeline. const/copy-prop first (move literals & copies into uses), then
+ *  auto-inline (collapse single-call / leaf helpers so the inlined body is exposed to the
+ *  folders), then const-fold + algebraic-simplify (collapse the exposed literals /
+ *  identities), then dead-branch (drop the control flow those literals decided), then CSE
+ *  (fn-top input-only repeats) + cse-local (statement-local repeats) + gvn (cross-statement
+ *  local-touching repeats) / LICM (loop invariants), then DCE (orphaned locals), then
+ *  dead-FN elim last (tree-shake functions no entry point can still reach — a helper
+ *  inlined away, or whose only call site dead-branch removed, or an unused prelude fn).
+ *  fixpoint re-runs the list so inline→fold→tree-shake chains converge.
  *
- *  NB: whole-function tree-shaking (`deadFnElim`, ./dce-fns) is deliberately NOT in
- *  this list — like `inlineFn` (../inline), it is an available-but-unwired pass. The
- *  shaders that share a projection prelude emit it as one module of helper fns + the
- *  entry points, so tree-shaking would per-shader-prune the prelude and break the
- *  deliberately byte-stable shared-prelude emit (+ its golden-WGSL drift gate). Wire
- *  it only behind a maintainer decision to regenerate those snapshots. */
-export const DEFAULT_PASSES: readonly OptPass[] = [constProp, copyProp, constFold, algebraicSimplify, deadBranch, cse, cseLocal, licm, dce]
+ *  The three structural additions are all BIT-EXACT (pure substitution / dedup / removal —
+ *  no float op changes), so the f64 oracle + the real-GPU optimizer-parity gate stay green.
+ *  `autoInline`/`deadFnElim` no-op on entry-point-less modules (the emitFuncsCsed projection
+ *  LIBRARY), so the shared prelude emitted standalone keeps every public fn; only a real
+ *  shader (with a @vertex/@fragment/@compute entry) per-shader-prunes its prelude copy. */
+export const DEFAULT_PASSES: readonly OptPass[] = [constProp, copyProp, autoInline, constFold, algebraicSimplify, deadBranch, cse, cseLocal, gvn, licm, dce, deadFnElim]
 
 export function optimize(m: ModuleDecl, passes: readonly OptPass[] = DEFAULT_PASSES): ModuleDecl {
   return passes.reduce((mod, pass) => pass(mod), m)

@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { deadFnElim } from './index'
 import { module, fn, callFn, f32, f32T, type Expr, type FuncDecl, type ModuleDecl } from '../../ir'
-import { emitModule } from '../../backends/wgsl'
 
 // Whole-FUNCTION tree-shaking: drop functions unreachable from the entry
 // points. Roots = fns with a non-empty `attrs` (@vertex/@fragment/@compute);
@@ -63,11 +62,10 @@ describe('optimize — dead-function elimination (tree-shaking)', () => {
     expect(deadFnElim(m)).toBe(m)
   })
 
-  it('tree-shakes a dead helper out of the emitted WGSL (applied before emit)', () => {
-    // Authored through the real builder. deadFnElim is an available-but-unwired
-    // pass (NOT in emitModule's default pipeline — see DEFAULT_PASSES), so apply
-    // it explicitly. `unused` is declared but never called -> dropped; `used`
-    // (called by the `main` entry point) and `main` survive + still emit.
+  it('drops an unreachable helper from a real builder-authored module (deadFnElim isolated)', () => {
+    // Authored through the real builder. Assert on the IR so this tests deadFnElim
+    // ALONE — emitModule now runs the full pipeline (autoInline would also inline the
+    // single-call `used` into `main`, which is autoInline's concern, not this test's).
     const m = module({
       funcs: [
         fn('used', { x: f32T }, f32T, ({ x }, b) => { b.ret(x.mul(2)) }),
@@ -75,10 +73,9 @@ describe('optimize — dead-function elimination (tree-shaking)', () => {
         fn('main', { x: f32T }, f32T, ({ x }, b) => { b.ret(callFn('used', f32T, x)) }, { stage: 'fragment', retAttr: '@location(0)' }),
       ],
     })
-    const wgsl = emitModule(deadFnElim(m))
-    expect(wgsl).toContain('fn used(')
-    expect(wgsl).toContain('fn main(')
-    expect(wgsl).not.toContain('fn unused(')
-    expect(wgsl).not.toContain('99')
+    const out = deadFnElim(m)
+    expect(out.funcs.some((f) => f.name === 'unused')).toBe(false) // unreachable -> dropped
+    expect(out.funcs.some((f) => f.name === 'used')).toBe(true)    // reachable from main -> kept
+    expect(out.funcs.some((f) => f.name === 'main')).toBe(true)
   })
 })

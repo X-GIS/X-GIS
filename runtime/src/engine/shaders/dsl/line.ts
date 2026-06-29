@@ -33,7 +33,7 @@ import {
   type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, structDecl, storageBuffer, resource } from '@xgis/shader-dsl'
-import { emitModule } from '@xgis/shader-dsl'
+import { emitModule, emitModuleAt, type OptLevel } from '@xgis/shader-dsl'
 import { inv_merc_lat_rad, flat_rel, needs_backface_cull, rim_alpha, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
 import { ECEF_CONSTS, ECEF_FUNCS, lonlatToEcef } from './ecef'
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
@@ -1135,7 +1135,8 @@ export const buildLineModule = (pickEnabled: boolean): ModuleDecl => module({
  *  projection fns + SDF distance/winding helpers, then the line module.
  *  `pickEnabled` toggles the pick attachment field + writes (replaces the old
  *  __PICK_FIELD__ / __PICK_WRITE__ regex markers). */
-export const emitLineWgsl = (pickEnabled: boolean): string => emitModule(buildLineModule(pickEnabled))
+export const emitLineWgsl = (pickEnabled: boolean, level: OptLevel = 'O2'): string =>
+  level === 'O2' ? emitModule(buildLineModule(pickEnabled)) : emitModuleAt(buildLineModule(pickEnabled), level)
 
 // ── Compositor (fullscreen-triangle sampling the translucent offscreen RT) ──
 //
