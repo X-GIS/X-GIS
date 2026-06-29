@@ -1242,32 +1242,6 @@ export class BlueprintEditor {
       wrap.appendChild(input)
       box.appendChild(wrap)
     }
-    if (n.type === 'layer') {
-      // A layer's source is normally set by wiring a source node into
-      // its `source` pin. Splice-imported sources (`import "url"`) have
-      // no node to wire to, so offer a bare source-name fallback here.
-      // The wire wins when both are present (see codegen.emitLayer).
-      const wired = this.edges.some((e) => e.to.node === n.id && e.to.pin === 'source')
-      const wrap = document.createElement('label')
-      wrap.className = 'bp-field'
-      const lab = document.createElement('span')
-      lab.className = 'bp-flabel'
-      lab.textContent = wired ? 'source name (overridden by wire)' : 'source name (imported)'
-      wrap.appendChild(lab)
-      const input = document.createElement('input')
-      input.type = 'text'
-      input.className = 'bp-input'
-      input.placeholder = 'openmaptiles'
-      input.value = n.data.source ?? ''
-      input.addEventListener('focus', () => this.recordFieldOnce())
-      input.addEventListener('input', () => {
-        n.data.source = input.value
-        this.scheduleRedraw()
-        this.emit()
-      })
-      wrap.appendChild(input)
-      box.appendChild(wrap)
-    }
     if (n.type === 'source') {
       const peek = document.createElement('button')
       peek.type = 'button'
