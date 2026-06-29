@@ -588,6 +588,7 @@ export class VectorTileRenderer {
     // multiple render() calls within the frame accumulate into one
     // total (see render()). Does NOT clear renderedDraws (render-scoped).
     this._drawStats.beginFrame()
+    this._diagFillsThisFrame = 0 // DIAGNOSTIC draw cap (window.__xgisMaxTiles)
     // iter-255 (Plan AAA A.2) — clear inner Maps in place instead
     // of dropping them. Outer Map retained; inner Maps' hash
     // buckets reused next frame. Pre-iter-255 each frame's first
@@ -788,6 +789,12 @@ export class VectorTileRenderer {
    *  on `uploadTile` calls that actually start work this frame.
    *  Overflow is held in `_heldUploads` and replayed at beginFrame. */
   private _uploadsThisFrame = 0
+  /** DIAGNOSTIC ONLY — count of fill draws emitted this frame, used by the
+   *  `window.__xgisMaxTiles` per-frame draw cap in `recordTileFill`. Lets the
+   *  perf A/B test "fewer DRAWS = faster?" by capping the actual GPU draw
+   *  calls (the selection cap is defeated by fallback/ancestor back-fill, so
+   *  it never reduced draw count). Reset each frame in `beginFrame`. */
+  private _diagFillsThisFrame = 0
   private _heldUploads: { key: number; data: TileData; sourceLayer: string }[] = []
   private _heldUploadIds = new Set<string>()
   /** Mirror of `_heldUploads`'s tile keys (sliceLayer-collapsed)
@@ -3522,6 +3529,18 @@ export class VectorTileRenderer {
     bindZBuffer: boolean,
   ): void {
     if (this._skipFillDrawForBundle) return
+    // DIAGNOSTIC ONLY — `window.__xgisMaxTiles` caps the actual fill DRAWS per
+    // frame (nearest-first, since the draw loop visits camera-priority order),
+    // so the perf A/B truly tests "fewer draws = faster". Unlike the selection
+    // cap (defeated by fallback back-fill), this reduces the real GPU draw
+    // count. No-op when unset → production behaviour byte-identical.
+    if (typeof window !== 'undefined') {
+      const cap = (window as { __xgisMaxTiles?: number | null }).__xgisMaxTiles
+      if (typeof cap === 'number' && cap >= 0) {
+        if (this._diagFillsThisFrame >= cap) return
+        this._diagFillsThisFrame++
+      }
+    }
     encoder.setPipeline(pipeline)
     encoder.setBindGroup(0, tileBg, [slotOffset])
     // Phase 6a.2 — polygon vertex buffer is the shared arena

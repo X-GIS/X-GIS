@@ -265,19 +265,21 @@ export function installPerfOverlay(map: PerfMap): void {
         cam.bearing = br0 + t * 360
         cam.pitch = p0 + ph * 40
       }
-      const tilesNow = (): number => map.stats?.tilesVisible ?? 0
+      // drawCalls is the metric the cap actually reduces (the per-frame fill
+      // DRAW cap in recordTileFill); tilesVisible stays at the selection count.
+      const drawsNow = (): number => map.stats?.drawCalls ?? 0
 
       W.__xgisMaxTiles = undefined            // uncapped
       map.invalidate()
       pre.textContent = 'A/B 1/2 — uncapped rotate+pitch (5초)'
       const fUncap = await runScenario(map, 5000, sweep)
-      const tilesUncap = tilesNow()
+      const drawsUncap = drawsNow()
 
-      W.__xgisMaxTiles = 30                    // cap live
+      W.__xgisMaxTiles = 30                    // cap actual draws live
       map.invalidate()
-      pre.textContent = 'A/B 2/2 — maxtiles=30 rotate+pitch (5초)'
+      pre.textContent = 'A/B 2/2 — draw-cap 30 rotate+pitch (5초)'
       const fCap = await runScenario(map, 5000, sweep)
-      const tilesCap = tilesNow()
+      const drawsCap = drawsNow()
 
       W.__xgisMaxTiles = undefined             // restore
       const c = map.getCamera()
@@ -288,16 +290,19 @@ export function installPerfOverlay(map: PerfMap): void {
       const fpsU = pU > 0 ? (1000 / pU).toFixed(0) : '--'
       const fpsC = pC > 0 ? (1000 / pC).toFixed(0) : '--'
       const drop = pU > 0 ? ((1 - pC / pU) * 100) : 0
-      const verdict = pC < pU * 0.7
-        ? `→ 타일 ${tilesUncap}→${tilesCap}, p50 ${pU}→${pC} (${drop.toFixed(0)}%↓): DRAW 수가 원인 확정`
-        : `→ 타일 ${tilesUncap}→${tilesCap} 인데 p50 ${pU}→${pC} (변화 미미): draw 수가 원인 아님`
+      const capWorked = drawsCap < drawsUncap * 0.6 // did the cap actually cut draws?
+      const verdict = !capWorked
+        ? `→ ⚠ draw가 안 줄었음(${drawsUncap}→${drawsCap}) — 테스트 무효(배포/캐시 확인)`
+        : pC < pU * 0.7
+          ? `→ draws ${drawsUncap}→${drawsCap}, p50 ${pU}→${pC} (${drop.toFixed(0)}%↓): DRAW 수가 원인 확정`
+          : `→ draws ${drawsUncap}→${drawsCap} 인데 p50 ${pU}→${pC} (변화 미미): draw 수가 원인 아님 → GPU present/iOS 쪽`
       const dpr = window.devicePixelRatio || 1
       const canvas = document.querySelector('canvas')
       report = [
         '=== X-GIS A/B draw-count 테스트 (rotate+pitch) ===',
         `기기 DPR=${dpr} 캔버스=${canvas?.width ?? 0}x${canvas?.height ?? 0}`,
-        `uncapped    : p50=${pU.toFixed(1)}ms (${fpsU}fps)  tiles=${tilesUncap}`,
-        `maxtiles=30 : p50=${pC.toFixed(1)}ms (${fpsC}fps)  tiles=${tilesCap}`,
+        `uncapped  : p50=${pU.toFixed(1)}ms (${fpsU}fps)  drawCalls=${drawsUncap}`,
+        `draw-cap30: p50=${pC.toFixed(1)}ms (${fpsC}fps)  drawCalls=${drawsCap}`,
         verdict,
       ].join('\n')
       pre.textContent = report
