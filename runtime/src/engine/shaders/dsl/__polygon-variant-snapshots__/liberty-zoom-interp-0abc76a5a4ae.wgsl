@@ -1,4 +1,4 @@
-// baseline: 26ac3c8c765ce78240d267c8587b7e8df70ad1c2
+// baseline: 9ce2428404e0ee3a9a10a055b5e624c5f9916420
 // fixture: liberty-zoom-interp
 // variant.key: liberty-zoom-interp
 // pick: false
