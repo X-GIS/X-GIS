@@ -390,12 +390,11 @@ export class PointRenderer {
   }
   private _emptyStorageBuf: GPUBuffer | null = null
 
-  // ── RHI pilot (behind __xgisPointViaRhi) — second-primitive proof ──
-  // The tile-point draw routed through the RHI seam (storage buffers + vertex/
-  // index + drawIndexed): builds the RHI pipelines once, then per-frame wraps the
-  // native uniform/feature/shape/seg/vertex/index buffers + draws. Legacy default.
+  // ── RHI Material seam — the tile-point draw (P1: the sole path) ──
+  // Storage buffers + vertex/index + drawIndexed through the generic Material: builds the
+  // RHI pipelines once, then per-frame wraps the native uniform/feature/shape/seg/vertex/
+  // index buffers + draws.
   private _pointDraper?: PointDraper
-  private _pointRhiLogged = false
 
   private ensurePointDraper(): void {
     if (this._pointDraper) return
@@ -432,7 +431,7 @@ export class PointRenderer {
   /** Buffers retired this frame because renderTilePoints rebuilt
    *  its tile-point geometry. Destroyed at the START of the NEXT
    *  frame so any in-flight queue.submit() that bound them via
-   *  tilePointBindGroup completes first. Mirrors the
+   *  the per-frame bind group completes first. Mirrors the
    *  retiredUniformRings pattern in vector-tile-renderer.ts:
    *  WebGPU spec keeps the GPU-side memory alive after destroy()
    *  for already-submitted work, but it's illegal to ENQUEUE new
@@ -443,7 +442,6 @@ export class PointRenderer {
    *  errors when the prior frame's command encoder still
    *  referenced the same bind group. */
   private retiredTilePointBuffers: GPUBuffer[] = []
-  private tilePointBindGroup: GPUBindGroup | null = null
 
   /** Drain retired-buffer queue from the previous frame. Safe by
    *  this point because the previous frame's queue.submit() has
@@ -564,8 +562,6 @@ export class PointRenderer {
     this.tilePointFeatBuffer = this.device.createBuffer({ size: Math.max(featData.byteLength, 16), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'tile-point-features' })
     this.device.queue.writeBuffer(this.tilePointFeatBuffer, 0, featData)
 
-    this.tilePointBindGroup = this.makeBindGroup(this.tilePointFeatBuffer)
-
     const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
     const uf = this.uniformData
     writePointFrameUniform(uf, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight, tileTranslateX, tileTranslateY, show.circleBlur ?? 0, show.circlePitchScaleMap ?? false)
@@ -580,27 +576,20 @@ export class PointRenderer {
     const strokeA = stroke ? stroke[3] * opacity * tileStrokeOpacity : 1
     const tileIsTranslucent = opacity < EPS || fillA < EPS || strokeA < EPS
 
-    // Single draw call for all tile points. RHI pilot path (non-default): same
-    // draw through the backend seam, wrapping the native buffers.
-    if ((globalThis as { __xgisPointViaRhi?: boolean }).__xgisPointViaRhi === true) {
-      this.ensurePointDraper()
-      const shapeBuf = this.shapeRegistry?.shapeBuffer
-      const segBuf = this.shapeRegistry?.segmentBuffer
-      const emptyBuf = this._emptyStorageBuf ??= this.device.createBuffer({ size: 64, usage: GPUBufferUsage.STORAGE, label: 'empty-shape-buf' })
-      if (!this._pointRhiLogged) { this._pointRhiLogged = true; console.warn(`[POINTRHI] tile-point draw via RHI seam (totalN=${totalN})`) }
-      this._pointDraper!.draw(wrapWebGpuPass(pass), {
-        uniform: this.uniformBuffer, feat: this.tilePointFeatBuffer!,
-        shape: shapeBuf ?? emptyBuf, seg: segBuf ?? emptyBuf,
-        vertex: this.tilePointBuffer!, index: this.tilePointIndexBuffer!,
-        indexCount: totalN * 6, translucent: tileIsTranslucent,
-      })
-    } else {
-      pass.setPipeline(tileIsTranslucent ? this.pipelineTranslucent : this.pipeline)
-      pass.setBindGroup(0, this.tilePointBindGroup)
-      pass.setVertexBuffer(0, this.tilePointBuffer)
-      pass.setIndexBuffer(this.tilePointIndexBuffer, 'uint32')
-      pass.drawIndexed(totalN * 6)
-    }
+    // Single draw call for all tile points, through the RHI Material seam. P1: the SOLE
+    // draw path — proven pixel-identical (DC=0, real GPU) to the legacy direct draw by
+    // playground/e2e/_point-rhi-parity. Points don't participate in GPU picking, so there
+    // is no pick variant to keep on the legacy path.
+    this.ensurePointDraper()
+    const shapeBuf = this.shapeRegistry?.shapeBuffer
+    const segBuf = this.shapeRegistry?.segmentBuffer
+    const emptyBuf = this._emptyStorageBuf ??= this.device.createBuffer({ size: 64, usage: GPUBufferUsage.STORAGE, label: 'empty-shape-buf' })
+    this._pointDraper!.draw(wrapWebGpuPass(pass), {
+      uniform: this.uniformBuffer, feat: this.tilePointFeatBuffer!,
+      shape: shapeBuf ?? emptyBuf, seg: segBuf ?? emptyBuf,
+      vertex: this.tilePointBuffer!, index: this.tilePointIndexBuffer!,
+      indexCount: totalN * 6, translucent: tileIsTranslucent,
+    })
 
     // Clear for next frame
     this.tilePoints = []
