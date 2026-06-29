@@ -211,6 +211,44 @@ export interface RhiRenderPassDesc {
   label?: string
 }
 
+// ── Compute (P0.4, gap #4) ───────────────────────────────────────────────────
+// The live ComputeDispatcher (gpu/compute.ts) runs RAW device.createComputePipeline
+// + encoder.beginComputePass + dispatchWorkgroups today (per-feature paint kernels:
+// match / case / interpolate). This contract expresses that dispatch backend-
+// agnostically. WebGPU maps 1:1 (byte-identical to the raw calls); WebGL2 FAIL-
+// CLOSES — ES 3.00 has no compute, so a kernel that tries to originate through the
+// RHI can never silently produce a wrong frame (the GLSL paint path is a separate
+// data-texture emulation). Additive + inert + OPTIONAL: no caller routes through
+// here until the P1 compute flip — `WebGpuDevice` implements these, `WebGl2Device`
+// throws.
+export interface RhiComputePipeline { readonly __rhi: 'computepipeline' }
+
+/** A compute-pipeline source. The bind-group layout is auto-derived (mirroring the
+ *  live `layout: 'auto'`) and fetched via `RhiDevice.computeBindGroupLayout`. */
+export interface RhiComputePipelineDesc {
+  /** WGSL compute-shader source. */
+  code: string
+  /** Compute entry-point name (same body + different entry-point = a distinct
+   *  pipeline, matching the ComputeKernel cache key). */
+  entryPoint: string
+  label?: string
+}
+
+/** A recorded compute pass — the `GPUComputePassEncoder` subset the dispatcher
+ *  uses: set a pipeline + bind group, dispatch workgroups, end. */
+export interface RhiComputePass {
+  setPipeline(pipeline: RhiComputePipeline): void
+  setBindGroup(index: number, group: RhiBindGroup): void
+  /** Dispatch workgroups; `y`/`z` default to 1 (WebGPU semantics). */
+  dispatchWorkgroups(x: number, y?: number, z?: number): void
+  end(): void
+}
+
+/** Optional compute-pass parameters. Timestamp writes are intentionally NOT
+ *  modelled — a WebGPU-encoder profiling concern layered at the call-site's
+ *  gpuTimer seam (exactly like the render pass). */
+export interface RhiComputePassDesc { label?: string }
+
 /** A command encoder — the scope offscreen passes are recorded into and
  *  submitted from. WebGPU wraps `GPUCommandEncoder` (begin-pass + finish→
  *  queue.submit). WebGL2 fail-closes: `createCommandEncoder` throws (slice-1
