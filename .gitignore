@@ -93,6 +93,9 @@ nul
 # OMC (oh-my-claudecode) working tree — per-machine runtime state, session
 # artifacts, and scratch docs. Ignored wholesale; not source-controlled.
 # Files committed under .omc before this rule stay tracked until untracked
-# explicitly (git rm --cached).
-.omc
+# explicitly (git rm --cached). EXCEPTION: .omc/skills/ holds project-scoped
+# learned skills meant to travel with the repo (per CLAUDE.md), so it is carved
+# back in — only the operational state (.omc/* state files) stays ignored.
+.omc/*
+!.omc/skills/
 tmp/
