@@ -71,12 +71,12 @@ export function mergeComputeAddendumIntoVariant(
     return variant
   }
 
-  // Preamble concatenation — legacy first, addendum second. Both are
-  // strings with their own internal newline structure; join with a
-  // newline so adjacent decls don't fuse.
-  const preamble = variant.preamble.length === 0
-    ? addendum.preamble
-    : `${variant.preamble}\n${addendum.preamble}`
+  // Preamble merge — append the compute output storage bindings to the
+  // variant's existing module-shape preamble (consts/bindings/funcs).
+  const preamble = {
+    ...variant.preamble,
+    bindings: [...(variant.preamble.bindings ?? []), ...addendum.bindingDecls],
+  }
 
   // Prune uniform fields whose axis the compute path now owns. The
   // runtime uses `uniformFields` to decide which u.* slots get

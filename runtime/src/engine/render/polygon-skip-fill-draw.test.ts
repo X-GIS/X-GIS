@@ -21,7 +21,7 @@ import { wgslRaw } from '@xgis/compiler'
 
 function v(opts: Partial<ShaderVariant>): ShaderVariant {
   return {
-    key: 'k', preamble: '', fillExpr: wgslRaw('u.fill_color'), strokeExpr: wgslRaw('u.stroke_color'),
+    key: 'k', preamble: {}, fillExpr: wgslRaw('u.fill_color'), strokeExpr: wgslRaw('u.stroke_color'),
     needsFeatureBuffer: false, featureFields: [], uniformFields: [],
     categoryOrder: {}, paletteColorGradients: [], paletteScalarGradients: [],
     fillUsesPalette: false, strokeUsesPalette: false, opacityUsesPalette: false,
