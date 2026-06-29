@@ -1,149 +1,151 @@
 // ═══ AST → WGSL Expression Compiler ═══
-// Translates per-feature-gpu expressions into WGSL code strings.
+// Translates per-feature-gpu expressions into shader-dsl IR Nodes, then emits
+// the WGSL string through the package emitter (`nodeToWgslString` → `emitExpr`).
 // Only handles GPU-safe expressions (arithmetic, builtins, field access).
+//
+// Authored as IR (NOT hand-assembled WGSL strings) so the single neutral
+// tree-walk owns spelling: control-flow / operator parenthesisation, the
+// intrinsic-name registry, and literal formatting live in `@xgis/shader-dsl`,
+// not in a parallel string builder here. `astToNode` is the reusable Node
+// surface; `exprToWGSL` is the back-compat string wrapper for callers that
+// still consume WGSL text. Emitted WGSL is semantically identical to the prior
+// hand-built strings (the IR emitter adds redundant parentheses around binops /
+// comparisons, which never change WGSL evaluation).
 
 import type * as AST from '../parser/ast'
+import type { NodeLike } from './node-types'
+import { nodeToWgslString } from './node-to-wgsl'
+import {
+  f32Lit, featDataField, negF32, callF32, maxF32, compareToBool, selectF32,
+  binaryVerbatimF32, f32Add, f32Sub, f32Mul, f32Div, f32Mod,
+} from './_util/node-builders'
 
-/** WGSL built-in function name mapping (most are identical) */
-const WGSL_BUILTINS: Record<string, string> = {
-  clamp: 'clamp',
-  min: 'min',
-  max: 'max',
-  round: 'round',
-  floor: 'floor',
-  ceil: 'ceil',
-  abs: 'abs',
-  sqrt: 'sqrt',
-  log: 'log',
-  log2: 'log2',
-  exp: 'exp',
-  exp2: 'exp2',
-  pow: 'pow',
-  sin: 'sin',
-  cos: 'cos',
-  tan: 'tan',
-  asin: 'asin',
-  acos: 'acos',
-  atan: 'atan',
-  atan2: 'atan2',
-}
+/** GPU-safe builtin allowlist. Every name maps to the IDENTITY WGSL spelling
+ *  (`name(args)`), so the package backend's intrinsic registry — not a local
+ *  name→name table — owns the spelling. This Set is only the compiler-side
+ *  SEMANTIC gate deciding which calls are permitted on the GPU expression path;
+ *  unknown names fall through to user-fn inlining or the `0.0` default. */
+const WGSL_BUILTIN_FNS: ReadonlySet<string> = new Set([
+  'clamp', 'min', 'max', 'round', 'floor', 'ceil', 'abs', 'sqrt',
+  'log', 'log2', 'exp', 'exp2', 'pow',
+  'sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'atan2',
+])
 
 /** User-defined function environment for inlining */
 export type WGSLFnEnv = Map<string, AST.FnStatement>
 
 /**
- * Compile an AST expression to a WGSL expression string.
- * Field access uses `feat_data[feat_idx + OFFSET]` pattern.
+ * Compile an AST expression to a shader-dsl IR Node (typed f32 — every value on
+ * this path is f32; strings/colors collapse to `0.0`). Field access resolves to
+ * the `feat_data[input.feat_id * STRIDE + offset]` lookup Node.
  * @param expr The AST expression
  * @param fieldMap Maps field names to their offset in the feature data buffer
  * @param fnEnv Optional user-defined functions for inlining
+ */
+export function astToNode(
+  expr: AST.Expr,
+  fieldMap: Map<string, number>,
+  fnEnv?: WGSLFnEnv,
+): NodeLike<'f32'> {
+  switch (expr.kind) {
+    case 'NumberLiteral':
+      return f32Lit(expr.value)
+
+    case 'StringLiteral':
+      // Strings can't exist in WGSL fragment shaders
+      return f32Lit(0)
+
+    case 'ColorLiteral':
+      return f32Lit(0) // Colors should be handled at IR level, not expression level
+
+    case 'BoolLiteral':
+      return f32Lit(expr.value ? 1 : 0)
+
+    case 'Identifier':
+      return featDataField(expr.name, fieldMap) ?? f32Lit(0)
+
+    case 'FieldAccess':
+      return featDataField(expr.field, fieldMap) ?? f32Lit(0)
+
+    case 'BinaryExpr': {
+      const left = astToNode(expr.left, fieldMap, fnEnv)
+      const right = astToNode(expr.right, fieldMap, fnEnv)
+      switch (expr.op) {
+        case '+': return f32Add(left, right)
+        case '-': return f32Sub(left, right)
+        case '*': return f32Mul(left, right)
+        case '/': return f32Div(left, right)
+        case '%': return f32Mod(left, right)
+        // Comparison ops return bool → bridge to f32 via select(0, 1, cond)
+        case '==': case '!=': case '<': case '>': case '<=': case '>=':
+          return selectF32(f32Lit(0), f32Lit(1), compareToBool(left, expr.op, right))
+        case '&&': return f32Mul(left, right) // both non-zero = truthy
+        case '||': return maxF32(left, right)
+        default:
+          // verbatim `(a op b)` — matches the legacy string default arm
+          return binaryVerbatimF32(left, expr.op, right)
+      }
+    }
+
+    case 'UnaryExpr': {
+      const operand = astToNode(expr.operand, fieldMap, fnEnv)
+      if (expr.op === '-') return negF32(operand)
+      if (expr.op === '!') return f32Sub(f32Lit(1), operand)
+      return operand
+    }
+
+    case 'FnCall':
+      return fnCallToNode(expr, fieldMap, fnEnv)
+
+    case 'PipeExpr':
+      return pipeToNode(expr, fieldMap, fnEnv)
+
+    case 'ConditionalExpr': {
+      const cond = astToNode(expr.condition, fieldMap, fnEnv)
+      const thenVal = astToNode(expr.thenExpr, fieldMap, fnEnv)
+      const elseVal = astToNode(expr.elseExpr, fieldMap, fnEnv)
+      return selectF32(elseVal, thenVal, compareToBool(cond, '!=', f32Lit(0)))
+    }
+
+    default:
+      return f32Lit(0)
+  }
+}
+
+/**
+ * Compile an AST expression to a WGSL expression string. Back-compat wrapper
+ * around `astToNode` for callers that consume WGSL text; the string is produced
+ * by the package emitter, not assembled here.
  */
 export function exprToWGSL(
   expr: AST.Expr,
   fieldMap: Map<string, number>,
   fnEnv?: WGSLFnEnv,
 ): string {
-  switch (expr.kind) {
-    case 'NumberLiteral':
-      return formatFloat(expr.value)
-
-    case 'StringLiteral':
-      // Strings can't exist in WGSL fragment shaders
-      return '0.0'
-
-    case 'ColorLiteral':
-      return '0.0' // Colors should be handled at IR level, not expression level
-
-    case 'BoolLiteral':
-      return expr.value ? '1.0' : '0.0'
-
-    case 'Identifier': {
-      const offset = fieldMap.get(expr.name)
-      if (offset !== undefined) {
-        const total = fieldMap.size
-        return `feat_data[input.feat_id * ${total}u + ${offset}u]`
-      }
-      return '0.0'
-    }
-
-    case 'FieldAccess': {
-      const fieldName = expr.field
-      const offset = fieldMap.get(fieldName)
-      if (offset !== undefined) {
-        const total = fieldMap.size
-        return `feat_data[input.feat_id * ${total}u + ${offset}u]`
-      }
-      return '0.0'
-    }
-
-    case 'BinaryExpr': {
-      const left = exprToWGSL(expr.left, fieldMap, fnEnv)
-      const right = exprToWGSL(expr.right, fieldMap, fnEnv)
-      const op = wgslOp(expr.op)
-      if (op) {
-        return `(${left} ${op} ${right})`
-      }
-      // Comparison ops that return bool → convert to f32
-      switch (expr.op) {
-        case '==': return `select(0.0, 1.0, ${left} == ${right})`
-        case '!=': return `select(0.0, 1.0, ${left} != ${right})`
-        case '<': return `select(0.0, 1.0, ${left} < ${right})`
-        case '>': return `select(0.0, 1.0, ${left} > ${right})`
-        case '<=': return `select(0.0, 1.0, ${left} <= ${right})`
-        case '>=': return `select(0.0, 1.0, ${left} >= ${right})`
-        case '&&': return `(${left} * ${right})` // both non-zero = truthy
-        case '||': return `max(${left}, ${right})`
-        default: return `(${left} ${expr.op} ${right})`
-      }
-    }
-
-    case 'UnaryExpr': {
-      const operand = exprToWGSL(expr.operand, fieldMap, fnEnv)
-      if (expr.op === '-') return `(-${operand})`
-      if (expr.op === '!') return `(1.0 - ${operand})`
-      return operand
-    }
-
-    case 'FnCall':
-      return fnCallToWGSL(expr, fieldMap, fnEnv)
-
-    case 'PipeExpr':
-      return pipeToWGSL(expr, fieldMap, fnEnv)
-
-    case 'ConditionalExpr': {
-      const cond = exprToWGSL(expr.condition, fieldMap, fnEnv)
-      const thenVal = exprToWGSL(expr.thenExpr, fieldMap, fnEnv)
-      const elseVal = exprToWGSL(expr.elseExpr, fieldMap, fnEnv)
-      return `select(${elseVal}, ${thenVal}, ${cond} != 0.0)`
-    }
-
-    default:
-      return '0.0'
-  }
+  return nodeToWgslString(astToNode(expr, fieldMap, fnEnv))
 }
 
-function fnCallToWGSL(expr: AST.FnCall, fieldMap: Map<string, number>, fnEnv?: WGSLFnEnv): string {
+function fnCallToNode(expr: AST.FnCall, fieldMap: Map<string, number>, fnEnv?: WGSLFnEnv): NodeLike<'f32'> {
   const name = expr.callee.kind === 'Identifier' ? expr.callee.name : null
-  if (!name) return '0.0'
+  if (!name) return f32Lit(0)
 
-  const args = expr.args.map(a => exprToWGSL(a, fieldMap, fnEnv))
+  const args = expr.args.map(a => astToNode(a, fieldMap, fnEnv))
 
   // Special cases
   if (name === 'scale') {
-    return `(${args[0] ?? '0.0'} * ${args[1] ?? '1.0'})`
+    return f32Mul(args[0] ?? f32Lit(0), args[1] ?? f32Lit(1))
   }
   if (name === 'step') {
     // step(value, threshold, below, above)
-    return `select(${args[3] ?? '1.0'}, ${args[2] ?? '0.0'}, ${args[0] ?? '0.0'} < ${args[1] ?? '0.0'})`
+    return selectF32(args[3] ?? f32Lit(1), args[2] ?? f32Lit(0), compareToBool(args[0] ?? f32Lit(0), '<', args[1] ?? f32Lit(0)))
   }
   if (name === 'log10') {
-    return `(log(max(${args[0] ?? '0.0'}, 1e-10)) / log(10.0))`
+    return f32Div(callF32('log', [maxF32(args[0] ?? f32Lit(0), f32Lit(1e-10))]), callF32('log', [f32Lit(10)]))
   }
 
   // WGSL built-in
-  const wgslName = WGSL_BUILTINS[name]
-  if (wgslName) {
-    return `${wgslName}(${args.join(', ')})`
+  if (WGSL_BUILTIN_FNS.has(name)) {
+    return callF32(name, args)
   }
 
   // User-defined function: try inline
@@ -151,30 +153,27 @@ function fnCallToWGSL(expr: AST.FnCall, fieldMap: Map<string, number>, fnEnv?: W
     return inlineUserFn(fnEnv.get(name)!, args, fieldMap, fnEnv)
   }
 
-  return '0.0'
+  return f32Lit(0)
 }
 
-function pipeToWGSL(expr: AST.PipeExpr, fieldMap: Map<string, number>, fnEnv?: WGSLFnEnv): string {
-  let result = exprToWGSL(expr.input, fieldMap, fnEnv)
+function pipeToNode(expr: AST.PipeExpr, fieldMap: Map<string, number>, fnEnv?: WGSLFnEnv): NodeLike<'f32'> {
+  let result = astToNode(expr.input, fieldMap, fnEnv)
 
   for (const transform of expr.transforms) {
     const name = transform.callee.kind === 'Identifier' ? transform.callee.name : null
     if (!name) continue
 
-    const extraArgs = transform.args.map(a => exprToWGSL(a, fieldMap, fnEnv))
+    const extraArgs = transform.args.map(a => astToNode(a, fieldMap, fnEnv))
 
     // Pipe passes result as first arg
     if (name === 'scale') {
-      result = `(${result} * ${extraArgs[0] ?? '1.0'})`
+      result = f32Mul(result, extraArgs[0] ?? f32Lit(1))
     } else if (name === 'step') {
-      result = `select(${extraArgs[2] ?? '1.0'}, ${extraArgs[1] ?? '0.0'}, ${result} < ${extraArgs[0] ?? '0.0'})`
+      result = selectF32(extraArgs[2] ?? f32Lit(1), extraArgs[1] ?? f32Lit(0), compareToBool(result, '<', extraArgs[0] ?? f32Lit(0)))
     } else if (name === 'log10') {
-      result = `(log(max(${result}, 1e-10)) / log(10.0))`
-    } else {
-      const wgslName = WGSL_BUILTINS[name]
-      if (wgslName) {
-        result = `${wgslName}(${result}, ${extraArgs.join(', ')})`
-      }
+      result = f32Div(callF32('log', [maxF32(result, f32Lit(1e-10))]), callF32('log', [f32Lit(10)]))
+    } else if (WGSL_BUILTIN_FNS.has(name)) {
+      result = callF32(name, [result, ...extraArgs])
     }
   }
 
@@ -182,19 +181,19 @@ function pipeToWGSL(expr: AST.PipeExpr, fieldMap: Map<string, number>, fnEnv?: W
 }
 
 /**
- * Inline a user-defined function by compiling its body to WGSL.
+ * Inline a user-defined function by compiling its body to an IR Node.
  * Simple bodies (single expression) → direct substitution.
- * Complex bodies (if/else, let, return) → preamble + result var.
+ * Complex bodies (if/else, let, return) → nested select().
  */
 function inlineUserFn(
   fn: AST.FnStatement,
-  argExprs: string[],
+  argNodes: NodeLike<'f32'>[],
   fieldMap: Map<string, number>,
   fnEnv?: WGSLFnEnv,
-): string {
-  const paramMap = new Map<string, string>()
+): NodeLike<'f32'> {
+  const paramMap = new Map<string, NodeLike<'f32'>>()
   fn.params.forEach((p, i) => {
-    paramMap.set(p.name, argExprs[i] ?? '0.0')
+    paramMap.set(p.name, argNodes[i] ?? f32Lit(0))
   })
 
   // Check if body has control flow (if/return)
@@ -210,21 +209,20 @@ function inlineUserFn(
         return substituteParams(stmt.expr, paramMap, fieldMap, fnEnv)
       }
     }
-    return '0.0'
+    return f32Lit(0)
   }
 
-  // Complex path: compile statements to WGSL with a result variable
-  // This generates preamble code that gets injected via the fillPreamble mechanism
-  return compileStmtBlockToWGSL(fn.body, paramMap, fieldMap, fnEnv)
+  // Complex path: compile statements to a single nested-select expression
+  return compileStmtBlockToNode(fn.body, paramMap, fieldMap, fnEnv)
 }
 
-/** Compile a statement block to a single WGSL expression using nested select() */
-function compileStmtBlockToWGSL(
+/** Compile a statement block to a single IR Node using nested select() */
+function compileStmtBlockToNode(
   stmts: AST.Statement[],
-  paramMap: Map<string, string>,
+  paramMap: Map<string, NodeLike<'f32'>>,
   fieldMap: Map<string, number>,
   fnEnv?: WGSLFnEnv,
-): string {
+): NodeLike<'f32'> {
   // Strategy: convert if/else chains to nested select()
   // fn f(x) { if x > 10 { return 1.0 } else { return 0.5 } }
   // → select(0.5, 1.0, x > 10.0)
@@ -238,91 +236,74 @@ function compileStmtBlockToWGSL(
     }
     if (stmt.kind === 'LetStatement') {
       // Add local variable to paramMap
-      const val = substituteParams(stmt.value, paramMap, fieldMap, fnEnv)
-      paramMap.set(stmt.name, `(${val})`)
+      paramMap.set(stmt.name, substituteParams(stmt.value, paramMap, fieldMap, fnEnv))
     }
     if (stmt.kind === 'IfStatement') {
       const cond = substituteParams(stmt.condition, paramMap, fieldMap, fnEnv)
-      const thenVal = compileStmtBlockToWGSL(stmt.thenBranch, new Map(paramMap), fieldMap, fnEnv)
+      const thenVal = compileStmtBlockToNode(stmt.thenBranch, new Map(paramMap), fieldMap, fnEnv)
       const elseVal = stmt.elseBranch
-        ? compileStmtBlockToWGSL(stmt.elseBranch, new Map(paramMap), fieldMap, fnEnv)
-        : '0.0'
-      return `select(${elseVal}, ${thenVal}, ${cond} != 0.0)`
+        ? compileStmtBlockToNode(stmt.elseBranch, new Map(paramMap), fieldMap, fnEnv)
+        : f32Lit(0)
+      return selectF32(elseVal, thenVal, compareToBool(cond, '!=', f32Lit(0)))
     }
   }
-  return '0.0'
+  return f32Lit(0)
 }
 
-/** Recursively substitute parameter names with their WGSL expressions */
+/** Recursively substitute parameter names with their IR Nodes */
 function substituteParams(
   expr: AST.Expr,
-  paramMap: Map<string, string>,
+  paramMap: Map<string, NodeLike<'f32'>>,
   fieldMap: Map<string, number>,
   fnEnv?: WGSLFnEnv,
-): string {
+): NodeLike<'f32'> {
   switch (expr.kind) {
     case 'Identifier': {
-      // Check if it's a function parameter
+      // Check if it's a function parameter / local
       const sub = paramMap.get(expr.name)
       if (sub !== undefined) return sub
-      return exprToWGSL(expr, fieldMap, fnEnv)
+      return astToNode(expr, fieldMap, fnEnv)
     }
 
     case 'BinaryExpr': {
       const left = substituteParams(expr.left, paramMap, fieldMap, fnEnv)
       const right = substituteParams(expr.right, paramMap, fieldMap, fnEnv)
-      const op = wgslOp(expr.op)
-      if (op) return `(${left} ${op} ${right})`
-      return `(${left} ${expr.op} ${right})`
+      // Historic inliner behaviour: operators are embedded VERBATIM `(a op b)`
+      // (no f32 select() bridge for comparisons here, unlike top-level emit).
+      return binaryVerbatimF32(left, expr.op, right)
     }
 
     case 'UnaryExpr': {
       const operand = substituteParams(expr.operand, paramMap, fieldMap, fnEnv)
-      if (expr.op === '-') return `(-${operand})`
+      if (expr.op === '-') return negF32(operand)
       return operand
     }
 
     case 'FnCall': {
       const name = expr.callee.kind === 'Identifier' ? expr.callee.name : null
       const args = expr.args.map(a => substituteParams(a, paramMap, fieldMap, fnEnv))
-      if (!name) return '0.0'
+      if (!name) return f32Lit(0)
 
-      if (name === 'scale') return `(${args[0] ?? '0.0'} * ${args[1] ?? '1.0'})`
-      if (name === 'log10') return `(log(max(${args[0] ?? '0.0'}, 1e-10)) / log(10.0))`
+      if (name === 'scale') return f32Mul(args[0] ?? f32Lit(0), args[1] ?? f32Lit(1))
+      if (name === 'log10') return f32Div(callF32('log', [maxF32(args[0] ?? f32Lit(0), f32Lit(1e-10))]), callF32('log', [f32Lit(10)]))
 
-      const wgslName = WGSL_BUILTINS[name]
-      if (wgslName) return `${wgslName}(${args.join(', ')})`
-      return '0.0'
+      if (WGSL_BUILTIN_FNS.has(name)) return callF32(name, args)
+      return f32Lit(0)
     }
 
     case 'ConditionalExpr': {
       const cond = substituteParams(expr.condition, paramMap, fieldMap, fnEnv)
       const thenVal = substituteParams(expr.thenExpr, paramMap, fieldMap, fnEnv)
       const elseVal = substituteParams(expr.elseExpr, paramMap, fieldMap, fnEnv)
-      return `select(${elseVal}, ${thenVal}, ${cond} != 0.0)`
+      return selectF32(elseVal, thenVal, compareToBool(cond, '!=', f32Lit(0)))
     }
 
     case 'FieldAccess':
-      return exprToWGSL(expr, fieldMap, fnEnv)
+      return astToNode(expr, fieldMap, fnEnv)
 
     default:
-      return exprToWGSL(expr, fieldMap, fnEnv)
+      return astToNode(expr, fieldMap, fnEnv)
   }
-}
-
-function wgslOp(op: string): string | null {
-  switch (op) {
-    case '+': case '-': case '*': case '/': case '%':
-      return op
-    default:
-      return null
-  }
-}
-
-function formatFloat(n: number): string {
-  const s = String(n)
-  if (s.includes('.') || s.includes('e') || s.includes('E')) return s
-  return s + '.0'
 }
 
 /**
