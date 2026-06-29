@@ -84,15 +84,14 @@ fn eval_match(@builtin(global_invocation_id) gid: vec3<u32>) {
   if ((gid.x >= u_count.x)) {
     return;
   }
-  let _v0 = feat_data[gid.x];
-  let _v1 = u32(max(_v0, 0.0));
-  var _v2: vec4<f32>;
-  if ((_v1 < 16u)) {
-    _v2 = LUT[_v1];
+  let _v0 = i32(feat_data[gid.x]);
+  var _v1: vec4<f32>;
+  if (((_v0 >= 0) && (_v0 < 16))) {
+    _v1 = LUT[_v0];
   } else {
-    _v2 = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    _v1 = vec4<f32>(0.0, 0.0, 0.0, 0.0);
   }
-  out_color[gid.x] = pack4x8unorm(_v2);
+  out_color[gid.x] = pack4x8unorm(_v1);
 }
 ",
 }
