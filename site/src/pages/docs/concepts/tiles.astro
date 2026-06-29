@@ -1,0 +1,274 @@
+---
+import Docs from '../../../layouts/Docs.astro'
+import { FeatureRow } from '@/components/kit'
+import SeeAlso from '../../../components/SeeAlso.astro'
+import SpecLinks from '../../../components/SpecLinks.astro'
+
+// Tiles & sources — a Concepts page on how X-GIS gets geometry onto the
+// GPU. Built on the xAI kit + the Docs chrome (nav, TOC, prev/next),
+// matching the sibling concept pages (globe, projections, rtc) so it
+// slots into the Concepts sidebar group. No live React island here (the
+// globe page has one; these pages use prose + FeatureRow + a "see it
+// live" link instead).
+//
+// Honesty (REBUILD §6): every claim below is TRUE against the codebase —
+//   - The three source loaders in runtime/src/loader/: PMTilesArchiveSource
+//     + TileJSONSource (MVT / XYZ) in vector-tile-loader.ts, loadGeoJSON()
+//     in geojson.ts. Format picked by detectVectorTileFormat().
+//   - Per-frame screen-space-error tile selection (loader/tiles-sse.ts,
+//     the production default — tile-selection-cache.ts: "SSE is now default").
+//   - The shared bump-allocated GPUArena (engine/gpu/gpu-arena.ts).
+//   - Byte-aware eviction at ARENA_HIGH_WATER=0.75 / ARENA_LOW_WATER=0.60
+//     (engine/render/vector-tile-renderer-helpers.ts; the policy gate in
+//     engine/render/arena-eviction-policy.test.ts; data/tile-eviction-policy.ts).
+//   - Untrusted-input guards: MAX_TILE_BYTES decompression-bomb check
+//     (vector-tile-loader.ts) + assertIngestBudget on loadGeoJSON.
+// 3D tiles / terrain / polar-cap tile synthesis are flagged as ROADMAP,
+// not shipped, in the roadmap block and link the repo ROADMAP.md.
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const repo = 'https://github.com/X-GIS/X-GIS'
+
+// On-this-page TOC — slugs match the <section id> blocks below.
+const headings = [
+  { depth: 2, slug: 'formats',   text: 'Three source formats' },
+  { depth: 2, slug: 'selection', text: 'Selecting tiles per view' },
+  { depth: 2, slug: 'arena',     text: 'The GPU arena' },
+  { depth: 2, slug: 'eviction',  text: 'Byte-aware eviction' },
+  { depth: 2, slug: 'safety',    text: 'Untrusted-input guards' },
+  { depth: 2, slug: 'roadmap',   text: 'Where it is going' },
+]
+---
+
+<Docs
+  current="concepts/tiles"
+  title="X-GIS — Tiles & sources"
+  description="How geometry reaches the GPU: PMTiles, vector MVT, and GeoJSON source loaders; per-frame screen-space-error tile selection; and a shared bump-allocated GPU arena with byte-aware eviction."
+  headings={headings}
+>
+  <header class="mb-12">
+    <p class="font-mono text-[11px] tracking-[0.2em] uppercase text-accent mb-3">
+      Concept
+    </p>
+    <h1 class="font-display font-semibold uppercase text-fg leading-[0.95] tracking-[0.01em] text-[38px] sm:text-[52px] lg:text-[64px]">
+      Tiles &amp; sources.
+    </h1>
+    <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[700px]">
+      X-GIS reads three kinds of source — PMTiles archives, vector tiles
+      (MVT), and GeoJSON. Each frame it picks the tiles the current camera
+      can actually resolve, then uploads their geometry into shared GPU
+      arenas that evict by byte budget, not tile count.
+    </p>
+  </header>
+
+  <article class="space-y-4 text-[15px] sm:text-[16px] leading-[1.65] text-fg-dim">
+
+    <section id="formats">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        Three source formats
+      </h2>
+      <p class="mb-4 max-w-[700px]">
+        The format is chosen from the URL — a
+        <code class="font-mono text-fg">.pmtiles</code> archive opens the
+        PMTiles loader, while a
+        <code class="font-mono text-fg">.json</code> /
+        <code class="font-mono text-fg">.tilejson</code> manifest and a
+        <code class="font-mono text-fg">{`{z}/{x}/{y}`}</code> tile template
+        both feed the vector-tile (MVT) loader. GeoJSON is handed straight to
+        the tessellator.
+      </p>
+
+      <FeatureRow num="01" title="PMTiles archives">
+        A <strong class="text-fg">PMTiles</strong> source opens a single-file
+        archive, reads its header — zoom range, bounds, and the vector-layer
+        list — and fetches each tile by <code class="font-mono text-fg">z/x/y</code>
+        with range requests against that one file. No per-tile HTTP endpoint
+        and no separate manifest are required.
+      </FeatureRow>
+
+      <FeatureRow num="02" title="Vector tiles (MVT) over TileJSON or XYZ">
+        A <strong class="text-fg">TileJSON</strong> manifest, or a bare
+        <code class="font-mono text-fg">.mvt</code> /
+        <code class="font-mono text-fg">.pbf</code> XYZ template, feeds the
+        Mapbox-Vector-Tile path. A template with no manifest is wrapped in a
+        minimal synthetic TileJSON so the rest of the pipeline never has to
+        know whether a real manifest existed.
+      </FeatureRow>
+
+      <FeatureRow num="03" title="GeoJSON tessellated to GPU meshes">
+        Inline <strong class="text-fg">GeoJSON</strong> is tessellated to GPU
+        meshes up front: polygons triangulated with
+        <code class="font-mono text-fg">earcut</code>, line strings expanded to
+        stroke geometry, and <code class="font-mono text-fg">GeometryCollection</code>
+        features flattened one level (matching Mapbox / MapLibre). The output is
+        a packed float vertex array plus a 32-bit index array.
+      </FeatureRow>
+    </section>
+
+    <section id="selection" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        Selecting tiles per view
+      </h2>
+      <p class="mb-2 max-w-[700px]">
+        Nothing loads the whole pyramid. Every frame, X-GIS works out which
+        tiles the current camera can actually resolve and asks only for those.
+      </p>
+
+      <FeatureRow num="04" title="Screen-space error picks the level of detail">
+        The default selector measures <strong class="text-fg">screen-space
+        error</strong> — roughly, how many pixels of error a tile would add if
+        drawn in place of its more-detailed children. It subdivides while that
+        error exceeds the target pixel budget and the max zoom hasn't been hit,
+        so far-away horizon tiles stop subdividing on their own without a
+        pitch-band kludge.
+      </FeatureRow>
+
+      <FeatureRow num="05" title="Recomputed each frame, capped for safety">
+        Selection is keyed to the camera and canvas, so it re-runs whenever the
+        view changes and is memoised across the layers that share a source
+        within a frame. A hard cap on emitted tiles is a safety net against a
+        degenerate camera (deep zoom at extreme pitch) blowing the count up.
+      </FeatureRow>
+    </section>
+
+    <section id="arena" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        The GPU arena
+      </h2>
+      <p class="mb-2 max-w-[700px]">
+        Selected tiles don't each get their own GPU buffer. Their geometry is
+        uploaded into a small set of large shared buffers — linear arenas — so
+        the draw loop binds each arena once and draws every tile from its own
+        slice.
+      </p>
+
+      <FeatureRow num="06" title="One shared buffer, bump-allocated">
+        Each <strong class="text-fg">GPUArena</strong> backs one large GPU
+        buffer — in the default build a 128 MB vertex arena and a 64 MB index
+        arena (extruded tiles add a separate z-attribute arena). Each tile's
+        geometry is written at a bump-allocated offset, 4-byte aligned for
+        WebGPU's <code class="font-mono text-fg">setVertexBuffer</code> /
+        <code class="font-mono text-fg">setIndexBuffer</code> requirement. This
+        replaces a buffer-per-tile pool and is what makes a single
+        bound-once-then-draw-per-slice loop possible.
+      </FeatureRow>
+
+      <FeatureRow num="07" title="Freed slots reused by exact footprint">
+        When a tile is freed its offset goes onto a free list keyed by its exact
+        aligned size, so a reused slot can never overrun its neighbour and
+        pan / zoom keeps re-filling the same offsets. When the live set genuinely
+        outgrows the buffer, compaction relocates it into a larger one rather
+        than failing outright.
+      </FeatureRow>
+    </section>
+
+    <section id="eviction" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        Byte-aware eviction
+      </h2>
+      <p class="mb-2 max-w-[700px]">
+        An arena fills on bytes, not on a tile count — a few large globe or
+        extruded tiles can exhaust it long before any count limit is reached.
+        Eviction is therefore driven by the byte high-water mark.
+      </p>
+
+      <FeatureRow num="08" title="Trigger at 75%, drain to 60%">
+        Eviction fires when the arena crosses its
+        <strong class="text-fg">high-water mark (75 %)</strong> of capacity and
+        drains least-recently-used tiles until live bytes fall back under the
+        <strong class="text-fg">low-water mark (60 %)</strong>. A count-only
+        trigger used to early-return while the byte-sized arena overflowed and
+        crashed the render loop; the byte signal closed that gap.
+      </FeatureRow>
+
+      <FeatureRow num="09" title="Visible and skeleton tiles are protected">
+        The tiles needed for the current frame — plus their fallback ancestors
+        and a permanent low-zoom skeleton base — are protected and never evicted,
+        even under pressure. Everything else is fair game in roughly
+        least-recently-used order; a returning camera simply re-fetches what was
+        dropped.
+      </FeatureRow>
+    </section>
+
+    <section id="safety" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        Untrusted-input guards
+      </h2>
+      <p class="mb-2 max-w-[700px]">
+        Tiles and GeoJSON often come from a third-party host, so the loaders
+        treat their bytes as untrusted.
+      </p>
+
+      <FeatureRow num="10" title="Decompression-bomb and ingest caps">
+        A PMTiles tile that decompresses past the per-tile byte ceiling is
+        dropped — it renders empty and the map stays alive instead of a tiny
+        gzip blob inflating to hundreds of megabytes and exhausting the arena.
+        At the GeoJSON entry point an ingest budget caps the feature and vertex
+        count before tessellation allocates, so a hostile
+        <code class="font-mono text-fg">FeatureCollection</code> can't OOM the
+        tab.
+      </FeatureRow>
+    </section>
+
+    <section id="roadmap" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        Where it is going
+      </h2>
+      <div class="rounded-[8px] bg-bg-card border border-line p-5 sm:p-6 mb-4">
+        <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-fg-mute mb-3">
+          Roadmap · not yet shipped
+        </p>
+        <p class="mb-4 text-[14px] sm:text-[15px]">
+          These are planned, not built. They are on the roadmap, not in the
+          engine today:
+        </p>
+        <ul class="space-y-2.5 text-[14px] sm:text-[15px]">
+          <li class="flex items-baseline gap-3">
+            <span class="font-mono text-[11px] text-fg-mute pt-0.5 flex-shrink-0">→</span>
+            <span><strong class="text-fg">3D tiles</strong> — streamed 3D mesh content as a source type.</span>
+          </li>
+          <li class="flex items-baseline gap-3">
+            <span class="font-mono text-[11px] text-fg-mute pt-0.5 flex-shrink-0">→</span>
+            <span><strong class="text-fg">Terrain</strong> — elevation tiles draped on the surface.</span>
+          </li>
+          <li class="flex items-baseline gap-3">
+            <span class="font-mono text-[11px] text-fg-mute pt-0.5 flex-shrink-0">→</span>
+            <span><strong class="text-fg">Polar-cap tile synthesis</strong> — generating cap tiles beyond the Web-Mercator ±85° band that the pyramid leaves empty.</span>
+          </li>
+        </ul>
+        <p class="mt-5 text-[13.5px]">
+          Tracked in the repo
+          <a href={`${repo}/blob/main/ROADMAP.md`} target="_blank" rel="noopener" class="text-accent hover:text-accent-hover transition-colors">ROADMAP.md ↗</a>.
+        </p>
+      </div>
+    </section>
+
+    <!-- ── See it live ── -->
+    <section class="border-t border-line pt-12">
+      <h2 class="text-[20px] font-medium text-fg leading-[1.2] tracking-[-0.015em] mb-3">
+        See it live
+      </h2>
+      <p class="mb-4">
+        Real PMTiles and vector sources render in the
+        <a href={`${base}/examples`} class="text-accent hover:text-accent-hover transition-colors">examples gallery</a>.
+        To turn a Mapbox / MapLibre style or a tile source into an
+        <code class="font-mono text-fg">.xgis</code> program, use the in-browser
+        <a href={`${base}/convert`} class="text-accent hover:text-accent-hover transition-colors">convert tool</a>.
+      </p>
+    </section>
+
+  </article>
+
+  <SpecLinks specs={[
+    { body: 'RFC 7946',  title: 'GeoJSON', url: 'https://datatracker.ietf.org/doc/html/rfc7946' },
+    { body: 'Mapbox',    title: 'Vector Tile Specification (MVT)', url: 'https://github.com/mapbox/vector-tile-spec' },
+    { body: 'Protomaps', title: 'PMTiles specification (v3)', url: 'https://github.com/protomaps/PMTiles/blob/main/spec/v3/spec.md' },
+    { body: 'Mapbox',    title: 'TileJSON 3.0.0', url: 'https://github.com/mapbox/tilejson-spec' },
+  ]} />
+
+  <SeeAlso links={[
+    { label: 'Sources', href: `${base}/docs/sources`, body: 'The reference for declaring PMTiles, vector, and GeoJSON sources in an `.xgis` program.' },
+    { label: 'Projection switching', href: `${base}/docs/concepts/projections`, body: 'Why the same tiles re-project per frame on a single uniform write — no re-tiling.' },
+    { label: 'Globe & 3D', href: `${base}/docs/concepts/globe`, body: 'The 3D scene those tiles are uploaded into, kept f32-precise from streets to orbit.' },
+  ]} />
+</Docs>

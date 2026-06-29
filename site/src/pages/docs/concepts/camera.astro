@@ -1,0 +1,280 @@
+---
+import Docs from '../../../layouts/Docs.astro'
+import { FeatureRow } from '@/components/kit'
+import SeeAlso from '../../../components/SeeAlso.astro'
+import SpecLinks from '../../../components/SpecLinks.astro'
+
+// Camera & interaction — the concept page for how input drives the view.
+// Built on the xAI kit + the Docs chrome (nav, TOC, prev/next), matching
+// the sibling concept pages (globe, rtc, projections) so it slots into the
+// Concepts sidebar group. Unlike globe.astro there is NO live React island
+// here — the page is prose + a FeatureRow ledger + a "see it live" link.
+//
+// Honesty (REBUILD §6): every claim below is TRUE against the codebase —
+// the projection-aware pan branch (Camera.pan, camera.ts:763), the orbit
+// camera + ray↔sphere globe anchoring (globe-anchor.ts / globe.ts), the
+// cursor-anchored zoomAt (camera.ts:856), bearing/pitch gestures with the
+// disc pitch-lock (controller.ts / camera.ts:49), pan inertia + smooth
+// wheel zoom (controller.ts:228 / :541), projection-aware unproject
+// (camera.ts:710), and the Mapbox-parity camera API (camera-controller.ts).
+// An ANIMATED fly-to camera is NOT shipped — easeTo/flyTo alias jumpTo
+// (camera-controller.ts:281); that, plus the deferred azimuthal-disc
+// screen→lon/lat unproject, is flagged ROADMAP.
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const repo = 'https://github.com/X-GIS/X-GIS'
+
+// On-this-page TOC — matches the <section> ids below.
+const headings = [
+  { depth: 2, slug: 'the-model',   text: 'The model' },
+  { depth: 2, slug: 'orbit-pan',   text: 'Orbit the globe, pan the plane' },
+  { depth: 2, slug: 'zoom',        text: 'Zoom toward the cursor' },
+  { depth: 2, slug: 'rotate-tilt', text: 'Rotate and tilt' },
+  { depth: 2, slug: 'inertia',     text: 'Inertia' },
+  { depth: 2, slug: 'unproject',   text: 'Projection-aware unproject' },
+  { depth: 2, slug: 'api',         text: 'Programmatic control' },
+  { depth: 2, slug: 'roadmap',     text: 'Where it is going' },
+]
+---
+
+<Docs
+  current="concepts/camera"
+  title="X-GIS — Camera & interaction"
+  description="Projection-aware input: the same drag orbits the 3D globe and pans the flat plane, the cursor stays anchored across a zoom, flicks glide with inertia, and a Mapbox-parity camera API (setCenter / jumpTo / fitBounds / panBy) drives it programmatically."
+  headings={headings}
+>
+  <header class="mb-12">
+    <p class="font-mono text-[11px] tracking-[0.2em] uppercase text-accent mb-3">
+      Concept
+    </p>
+    <h1 class="font-display font-semibold uppercase text-fg leading-[0.95] tracking-[0.01em] text-[38px] sm:text-[52px] lg:text-[64px]">
+      Orbit the globe, pan the plane.
+    </h1>
+    <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[700px]">
+      One set of gestures, interpreted by the active projection. On the
+      globe a drag is a real 3D orbit around the planet; on a flat map the
+      same drag pans a plane. The cursor stays anchored across a zoom, a
+      flick glides with inertia, and a Mapbox-parity API drives the camera
+      from code.
+    </p>
+  </header>
+
+  <article class="space-y-4 text-[15px] sm:text-[16px] leading-[1.65] text-fg-dim">
+
+    <section id="the-model">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        The model
+      </h2>
+      <p class="mb-4">
+        The camera is <strong class="text-fg">projection-aware</strong>: a
+        drag, a scroll, a pinch mean the same thing to the user, but the
+        camera resolves them differently depending on what is on screen.
+        The 3D globe is a true orbit camera around the planet; the seven
+        flat projections move a 2D plane. The input layer reads the active
+        projection each frame and routes every gesture down the matching
+        path, so the point you grab stays under your finger whether the
+        Earth is a sphere or a Mercator sheet.
+      </p>
+      <p class="mb-4">
+        Everything below is true of the engine today, with the one
+        not-yet-built part — an <em>animated</em> fly-to — marked as
+        roadmap.
+      </p>
+    </section>
+
+    <section id="orbit-pan" class="pt-6">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        Orbit the globe, pan the plane
+      </h2>
+      <p class="mb-2 max-w-[700px]">
+        Pan splits on the projection family: a flat map slides in projected
+        metres, the globe rolls in surface degrees.
+      </p>
+
+      <FeatureRow num="01" title="Pan the plane">
+        On the cylindrical and pseudo-cylindrical projections, a drag
+        moves the camera centre in <strong class="text-fg">Web Mercator
+        metres</strong>, rotated by the current bearing so a drag tracks
+        the screen even on a turned map. The centre wraps across the
+        antimeridian and clamps to the Mercator latitude limit
+        (±85.051129°) so it can't run off the world.
+      </FeatureRow>
+
+      <FeatureRow num="02" title="Orbit the globe">
+        In globe mode the view is a real <strong class="text-fg">orbit
+        camera</strong>, not a panned plane. A drag rotates the planet
+        under the cursor: the grabbed point is found by intersecting the
+        pointer ray with the sphere, and the centre rotates so it returns
+        under the finger. Because the globe tracks its true centre
+        latitude, the orbit rolls <strong class="text-fg">all the way to
+        the pole</strong> instead of stopping at the Mercator limit.
+      </FeatureRow>
+    </section>
+
+    <section id="zoom" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        Zoom toward the cursor
+      </h2>
+
+      <FeatureRow num="03" title="The point under the cursor stays put">
+        Zoom is anchored to the cursor: the geographic point under the
+        pointer is unprojected <em>before</em> the zoom, the zoom is
+        applied, and the centre is shifted so that same point lands back
+        under the cursor. Each projection family uses its own inverse to do
+        it — an exact Mercator-metre shift for Web Mercator, a fixed-point
+        solve for the other flat forms, the disc inverse for the
+        azimuthal discs, and a ray↔sphere solve on the globe — so the spot
+        you point at is the spot you zoom into.
+      </FeatureRow>
+
+      <FeatureRow num="04" title="Smooth wheel zoom">
+        Wheel and trackpad zoom is <strong class="text-fg">eased</strong>,
+        not instant: each frame the zoom moves a fraction of the way toward
+        a target level, with no spring overshoot, anchored at the cursor
+        the whole time. Reversing the wheel mid-glide drops the pending
+        overshoot so the direction flips immediately.
+      </FeatureRow>
+    </section>
+
+    <section id="rotate-tilt" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        Rotate and tilt
+      </h2>
+
+      <FeatureRow num="05" title="Bearing and pitch, by drag or pinch">
+        A right-drag turns the map: horizontal motion changes
+        <strong class="text-fg">bearing</strong>, vertical motion changes
+        <strong class="text-fg">pitch</strong> (clamped 0–85°). A two-finger
+        gesture rotates, pinch-zooms, and tilts at once, and the bearing
+        snaps to the nearest 15° on release. On the flat azimuthal discs —
+        orthographic, azimuthal-equidistant, stereographic — pitch is
+        <strong class="text-fg">locked to 0</strong>, because a 2D disc has
+        no meaningful tilt; only the true 3D globe takes a real camera tilt.
+      </FeatureRow>
+    </section>
+
+    <section id="inertia" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        Inertia
+      </h2>
+
+      <FeatureRow num="06" title="Flick to glide">
+        Release a fast drag and the map keeps moving. The release velocity
+        is the cursor's screen-pixel speed, capped so a hard flick can't
+        launch the view, and it <strong class="text-fg">decays each
+        frame</strong> until it falls below a threshold and stops. A flick
+        only starts a glide above a small speed, so a deliberate slow drag
+        ends exactly where you let go. The same screen-pixel velocity
+        drives the glide for the flat plane, the discs, and the globe.
+      </FeatureRow>
+    </section>
+
+    <section id="unproject" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        Projection-aware unproject
+      </h2>
+
+      <FeatureRow num="07" title="Screen pixel → geographic point">
+        Turning a screen pixel back into a lon/lat is also
+        projection-aware. For the flat projections the pixel is inverted
+        through that projection's own inverse — Web Mercator, equirect­angular,
+        Natural Earth, and oblique Mercator each recover the correct point on
+        Earth, not a one-size Mercator guess. On the globe the pixel is
+        unprojected by <strong class="text-fg">intersecting the pointer ray
+        with the sphere</strong>, returning null off the limb. This is what
+        keeps drag and zoom anchored under the cursor across projections.
+      </FeatureRow>
+    </section>
+
+    <section id="api" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        Programmatic control
+      </h2>
+
+      <FeatureRow num="08" title="A Mapbox-parity camera API">
+        Drive the camera from code with the familiar methods —
+        <code class="font-mono text-fg">setCenter</code>,
+        <code class="font-mono text-fg">setZoom</code>,
+        <code class="font-mono text-fg">jumpTo</code>,
+        <code class="font-mono text-fg">panBy</code>,
+        <code class="font-mono text-fg">getBounds</code>,
+        <code class="font-mono text-fg">fitBounds</code> — matching MapLibre
+        GL JS's signatures. <code class="font-mono text-fg">fitBounds</code>
+        fits a lon/lat box by choosing the more constraining of the
+        horizontal and vertical fit zooms. Every input is finite-checked and
+        clamped (zoom to its min/max, pitch to 0–85°), and
+        <code class="font-mono text-fg">setMaxBounds</code> /
+        <code class="font-mono text-fg">setMinZoom</code> /
+        <code class="font-mono text-fg">setMaxZoom</code> constrain
+        interactive gestures too. Drag and <code class="font-mono text-fg">panBy</code>
+        are device-pixel-ratio invariant — one CSS pixel of input is the
+        same world distance on any display.
+      </FeatureRow>
+    </section>
+
+    <section id="roadmap" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        Where it is going
+      </h2>
+      <div class="rounded-[8px] bg-bg-card border border-line p-5 sm:p-6 mb-4">
+        <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-fg-mute mb-3">
+          Roadmap · not yet shipped
+        </p>
+        <p class="mb-4 text-[14px] sm:text-[15px]">
+          These are planned, not built. They are on the roadmap, not in the
+          engine today:
+        </p>
+        <ul class="space-y-2.5 text-[14px] sm:text-[15px]">
+          <li class="flex items-baseline gap-3">
+            <span class="font-mono text-[11px] text-fg-mute pt-0.5 flex-shrink-0">→</span>
+            <span><strong class="text-fg">Animated fly-to</strong> — smooth, eased camera
+            flights between views. Today <code class="font-mono text-fg">easeTo</code> and
+            <code class="font-mono text-fg">flyTo</code> exist for API parity but jump
+            instantly to the destination; there is no transition interpolation yet.</span>
+          </li>
+          <li class="flex items-baseline gap-3">
+            <span class="font-mono text-[11px] text-fg-mute pt-0.5 flex-shrink-0">→</span>
+            <span><strong class="text-fg">Azimuthal-disc unproject</strong> — screen→lon/lat
+            for the orthographic / azimuthal-equidistant / stereographic discs is deferred
+            (their limb is singular). Drag and pinch on those discs are already anchored via a
+            dedicated disc inverse; the general-purpose unproject returns null for them.</span>
+          </li>
+        </ul>
+        <p class="mt-5 text-[13.5px]">
+          Tracked in the repo
+          <a href={`${repo}/blob/main/ROADMAP.md`} target="_blank" rel="noopener" class="text-accent hover:text-accent-hover transition-colors">ROADMAP.md ↗</a>.
+        </p>
+      </div>
+    </section>
+
+    <!-- ── See it live ── -->
+    <section class="border-t border-line pt-12">
+      <h2 class="text-[20px] font-medium text-fg leading-[1.2] tracking-[-0.015em] mb-3">
+        See it live
+      </h2>
+      <p class="mb-4">
+        The camera is best felt, not read. Drag, scroll, and pinch the
+        globe in the
+        <a href={`${base}/`} class="text-accent hover:text-accent-hover transition-colors">home page hero</a>,
+        or open the
+        <a href={`${base}/play`} class="text-accent hover:text-accent-hover transition-colors">playground</a>
+        to orbit, pan, and zoom a real map and switch projections under the
+        same gestures.
+      </p>
+    </section>
+
+  </article>
+
+  <SpecLinks specs={[
+    { body: 'MapLibre', title: 'MapLibre GL JS — Map camera API (the parity target)', url: 'https://maplibre.org/maplibre-gl-js/docs/API/classes/Map/' },
+    { body: 'Mapbox',   title: 'Mapbox GL JS — Map: jumpTo / easeTo / flyTo / fitBounds', url: 'https://docs.mapbox.com/mapbox-gl-js/api/map/' },
+    { body: 'W3C',      title: 'Pointer Events — the unified pointer/touch input model', url: 'https://www.w3.org/TR/pointerevents/' },
+    { body: 'EPSG',     title: 'EPSG:3857 Web Mercator (the plane a flat pan moves in)', url: 'https://epsg.io/3857' },
+  ]} />
+
+  <SeeAlso links={[
+    { label: 'Globe & 3D', href: `${base}/docs/concepts/globe`, body: 'The ECEF scene and orbit camera the globe gestures move through.' },
+    { label: 'Projection switching', href: `${base}/docs/concepts/projections`, body: 'Why the same input drives the globe and seven flat projections.' },
+    { label: 'JavaScript API', href: `${base}/docs/api`, body: '`setCenter`, `jumpTo`, `fitBounds`, `panBy` — the Mapbox-parity camera methods.' },
+  ]} />
+</Docs>

@@ -1,0 +1,286 @@
+---
+import Docs from '../../../layouts/Docs.astro'
+import { FeatureRow } from '@/components/kit'
+import SeeAlso from '../../../components/SeeAlso.astro'
+import SpecLinks from '../../../components/SpecLinks.astro'
+
+// Shader IR — the concept page for @xgis/shader-dsl. Built on the xAI kit +
+// the Docs chrome (nav, TOC, prev/next), matching the sibling concept pages
+// (globe, rtc, projections, compute) so it slots into the Concepts group.
+// No live React island here — prose + a FeatureRow ledger + a "see it live"
+// link to the /shader-dsl playground (matching the non-island concept pages).
+//
+// Honesty (REBUILD §6): every claim below is TRUE against the codebase —
+//   • one typed IR (Expr/Stmt/ModuleDecl) + one neutral tree-walk shared by
+//     every backend            — shader-dsl/src/core/emit.ts (emitExpr/emitStmt)
+//   • WGSL backend             — shader-dsl/src/core/backends/wgsl.ts (emitModule)
+//   • GLSL ES 3.00 backend     — shader-dsl/src/core/backends/glsl.ts (emitGlslModule)
+//   • capability gate fails closed — backend.caps + assertCaps in emit.ts
+//   • emit-time optimizer pipeline at fixpoint, both backends run it —
+//     shader-dsl/src/core/passes/opt/optimize.ts (DEFAULT_PASSES) +
+//     wgsl.ts:98 / glsl.ts:194 (`optimize: (m) => fixpoint(m)`)
+//   • named O0/O1/O2 levels    — optimize.ts (LEVEL_PASSES / optimizeAt)
+//   • style → IR: ShaderVariant.fillExpr/strokeExpr are NodeLike<'vec4<f32>'>
+//     IR nodes, not WGSL strings — compiler/src/codegen/shader-gen-types.ts
+//     + node-to-wgsl.ts (delegates to emitExpr).
+// GVN (PR #627), whole-function tree-shaking / inlining, and full WebGL2
+// runtime parity are flagged as ROADMAP — implemented-but-unwired or deferred,
+// NOT stated as shipped. (gvn.ts header: "Available-but-unwired … NOT in
+// DEFAULT_PASSES"; rhi-webgl2.ts:428 + gpu.ts:294: the forced-WebGL2 device is
+// a single-sample isolated raster slice today.)
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const repo = 'https://github.com/X-GIS/X-GIS'
+
+// On-this-page TOC — matches the <section id> blocks below.
+const headings = [
+  { depth: 2, slug: 'one-ir',       text: 'One typed IR' },
+  { depth: 2, slug: 'two-backends', text: 'Two backends, one tree' },
+  { depth: 2, slug: 'optimizer',    text: 'A real optimizer' },
+  { depth: 2, slug: 'style-to-ir',  text: 'From style to IR' },
+  { depth: 2, slug: 'roadmap',      text: 'Where it is going' },
+]
+---
+
+<Docs
+  current="concepts/shader-ir"
+  title="X-GIS — Shader IR"
+  description="X-GIS authors every shader as one typed IR and emits it to two targets — WGSL for WebGPU and GLSL ES 3.00 for WebGL2 — through an optimizing compiler, not a transliterator."
+  headings={headings}
+>
+  <header class="mb-12">
+    <p class="font-mono text-[11px] tracking-[0.2em] uppercase text-accent mb-3">
+      Concept
+    </p>
+    <h1 class="font-display font-semibold uppercase text-fg leading-[0.95] tracking-[0.01em] text-[38px] sm:text-[52px] lg:text-[64px]">
+      One IR, two backends.
+    </h1>
+    <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[720px]">
+      X-GIS does not hand-write WGSL. Every shader is a typed intermediate
+      representation, and one neutral tree-walk emits it to two targets —
+      <strong class="text-fg">WGSL</strong> for WebGPU and
+      <strong class="text-fg">GLSL ES 3.00</strong> for WebGL2 — through an
+      optimizing compiler, not a transliterator.
+    </p>
+  </header>
+
+  <article class="space-y-4 text-[15px] sm:text-[16px] leading-[1.65] text-fg-dim">
+
+    <section id="one-ir">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        One typed IR
+      </h2>
+      <p class="mb-2 max-w-[720px]">
+        The package <code class="font-mono text-fg">@xgis/shader-dsl</code>
+        models a shader as a <code class="font-mono text-fg">ModuleDecl</code> —
+        typed expressions and statements plus declarations (consts, structs,
+        bindings, funcs). The target language is a final spelling decision, not
+        the source of truth.
+      </p>
+
+      <FeatureRow num="01" title="A typed expression and statement IR">
+        Each expression node carries a <strong class="text-fg">ShaderType</strong>,
+        and the authoring wrapper is phantom-typed, so a
+        <code class="font-mono text-fg">vec2</code> + <code class="font-mono text-fg">vec3</code>
+        mismatch is a TypeScript error before any GPU sees the shader. The IR
+        covers the full surface the renderer needs — arithmetic, comparisons,
+        intrinsics, member and index access, construction,
+        <code class="font-mono text-fg">if</code> / <code class="font-mono text-fg">for</code> /
+        <code class="font-mono text-fg">switch</code>, and a high-level
+        <code class="font-mono text-fg">matchExpr</code>.
+      </FeatureRow>
+
+      <FeatureRow num="02" title="One neutral tree-walk, shared by every backend">
+        A single tree-walk (<code class="font-mono text-fg">emitExpr</code> /
+        <code class="font-mono text-fg">emitStmt</code>) renders the IR. It is
+        target-neutral: a backend supplies only spelling — type names, literals,
+        intrinsic names, and a handful of divergent declaration fragments. The
+        control-flow walk is never re-implemented per target, so the two backends
+        cannot drift on how an <code class="font-mono text-fg">if</code> or a
+        <code class="font-mono text-fg">switch</code> is structured.
+      </FeatureRow>
+    </section>
+
+    <section id="two-backends" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        Two backends, one tree
+      </h2>
+      <p class="mb-2 max-w-[720px]">
+        The same module emits to two real targets. The runtime's geometry
+        shaders — polygon, line, point, raster, and text — are authored in this
+        IR, not as hand-written WGSL strings.
+      </p>
+
+      <FeatureRow num="03" title="WGSL → WebGPU">
+        <code class="font-mono text-fg">emitModule</code> lowers a module to a
+        WGSL string for <code class="font-mono text-fg">device.createShaderModule</code>.
+        This is the primary, production render path: the WebGPU pipeline
+        compiles the WGSL the IR emits.
+      </FeatureRow>
+
+      <FeatureRow num="04" title="GLSL ES 3.00 → WebGL2">
+        <code class="font-mono text-fg">emitGlslModule</code> lowers the
+        <em>same</em> IR to GLSL ES 3.00. A uniform struct binding becomes a
+        <strong class="text-fg">std140 UBO block</strong> whose byte offsets come
+        from the same layout engine the host packs against;
+        <code class="font-mono text-fg">@vertex</code> /
+        <code class="font-mono text-fg">@fragment</code> entries become
+        <code class="font-mono text-fg">in</code> / <code class="font-mono text-fg">out</code>
+        varyings and a synthesised <code class="font-mono text-fg">void main()</code>.
+        The WebGL2 RHI device compiles exactly this GLSL.
+      </FeatureRow>
+
+      <FeatureRow num="05" title="A capability gate that fails closed">
+        Each backend declares its <strong class="text-fg">Capabilities</strong>,
+        and a shared gate rejects any module that needs a feature the target
+        lacks. GLSL ES 3.00 has no storage buffers, no compute, and no
+        multisampled-texture load, so a module using one raises
+        <code class="font-mono text-fg">UnsupportedFeatureError</code> up front —
+        before a single line of GLSL is produced — rather than emitting code that
+        would fail to compile on the device.
+      </FeatureRow>
+    </section>
+
+    <section id="optimizer" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        A real optimizer
+      </h2>
+      <p class="mb-2 max-w-[720px]">
+        The headline value of a typed IR over string templating: an optimizing
+        compiler. The emit path runs an ordered list of correctness-preserving
+        passes to a fixed point, so authors write plain inline expressions and
+        the optimizer folds, prunes, and binds reuse for them.
+      </p>
+
+      <FeatureRow num="06" title="The emit-time pipeline, run to a fixed point">
+        In order: <strong class="text-fg">constant propagation</strong>,
+        <strong class="text-fg">copy propagation</strong>,
+        <strong class="text-fg">constant folding</strong>,
+        <strong class="text-fg">algebraic simplification</strong>,
+        <strong class="text-fg">dead-branch elimination</strong>,
+        <strong class="text-fg">CSE</strong> (hoist function-top input-only
+        repeats), <strong class="text-fg">statement-local CSE</strong>,
+        <strong class="text-fg">loop-invariant code motion (LICM)</strong>, and
+        <strong class="text-fg">dead-code elimination (DCE)</strong> — iterated
+        until the module stops changing. Both the WGSL and the GLSL backend run
+        this same pipeline (<code class="font-mono text-fg">optimize: (m) =&gt; fixpoint(m)</code>),
+        so the WebGL2 fragment path stops recomputing CSE-able subexpressions too.
+      </FeatureRow>
+
+      <FeatureRow num="07" title="Named levels — O0 / O1 / O2">
+        Like a C compiler's <code class="font-mono text-fg">-O</code> flags:
+        <strong class="text-fg">O0</strong> is the naive lowered emit (every
+        author-written subexpression verbatim), <strong class="text-fg">O1</strong>
+        is the bit-exact value-movers plus cleanup, and
+        <strong class="text-fg">O2</strong> is the full pipeline — the emit
+        default. The split exists so the emit-size measurement can A/B O0 against
+        O2 and so a debug build can read the un-optimized shader.
+      </FeatureRow>
+
+      <FeatureRow num="08" title="Precision-critical paths are emitted verbatim">
+        A raw statement is opaque to every optimizer pass — the dataflow passes
+        (const / copy propagation, dead-branch, CSE, LICM, DCE) bail out of any
+        function that contains one, and the literal folders cannot rewrite the
+        opaque fragment — so the path the polygon composer uses to splice the
+        compiler's fill / stroke paint is emitted verbatim, untouched. Correctness
+        across the rest is pinned by oracle value-equality (a pass must leave the
+        module evaluating to identical results) and a real-GPU optimizer-parity
+        gate.
+      </FeatureRow>
+    </section>
+
+    <section id="style-to-ir" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        From style to IR
+      </h2>
+      <p class="mb-2 max-w-[720px]">
+        The compiler lowers a map style into this same IR — the bridge from
+        <code class="font-mono text-fg">.xgis</code> source to a GPU shader.
+      </p>
+
+      <FeatureRow num="09" title="Fill and stroke are IR nodes, not strings">
+        When the compiler specializes a layer it produces a
+        <strong class="text-fg">ShaderVariant</strong> whose
+        <code class="font-mono text-fg">fillExpr</code> and
+        <code class="font-mono text-fg">strokeExpr</code> are typed IR nodes
+        (<code class="font-mono text-fg">NodeLike&lt;'vec4&lt;f32&gt;'&gt;</code>),
+        not WGSL strings. The runtime reconstructs them and the polygon composer
+        emits them through the same tree-walk. A <code class="font-mono text-fg">match()</code>
+        in the style becomes a <code class="font-mono text-fg">matchExpr</code> IR
+        node, hoisted to a <code class="font-mono text-fg">switch</code> by a
+        pre-emit pass so the rest of the emitter stays match-unaware. The live
+        breakdown — tokens through emitted WGSL — is on the
+        <a href={`${base}/docs/concepts/compute`} class="text-accent hover:text-accent-hover transition-colors">Compute paint</a> page.
+      </FeatureRow>
+    </section>
+
+    <section id="roadmap" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        Where it is going
+      </h2>
+      <div class="rounded-[8px] bg-bg-card border border-line p-5 sm:p-6 mb-4">
+        <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-fg-mute mb-3">
+          Roadmap · not yet shipped
+        </p>
+        <p class="mb-4 text-[14px] sm:text-[15px]">
+          These exist in the codebase but are deliberately not in the default
+          emit path — they are implemented-but-unwired passes or a deferred
+          runtime surface, not part of the shipped pipeline today:
+        </p>
+        <ul class="space-y-2.5 text-[14px] sm:text-[15px]">
+          <li class="flex items-baseline gap-3">
+            <span class="font-mono text-[11px] text-fg-mute pt-0.5 flex-shrink-0">→</span>
+            <span><strong class="text-fg">GVN</strong> — cross-statement global value numbering completes the CSE family. Implemented, but not yet in the default pipeline: wiring it would change the byte-stable golden-WGSL snapshots, a maintainer call.</span>
+          </li>
+          <li class="flex items-baseline gap-3">
+            <span class="font-mono text-[11px] text-fg-mute pt-0.5 flex-shrink-0">→</span>
+            <span><strong class="text-fg">Whole-function tree-shaking and inlining</strong> — both passes exist but are unwired; they would prune or inline the shared projection prelude and break its deliberately byte-stable emit.</span>
+          </li>
+          <li class="flex items-baseline gap-3">
+            <span class="font-mono text-[11px] text-fg-mute pt-0.5 flex-shrink-0">→</span>
+            <span><strong class="text-fg">Full WebGL2 runtime parity</strong> — the forced-WebGL2 device renders a single-sample, isolated raster slice today. The full-frame WebGL2 path (the MSAA opaque pass and the stencil clip-mask pipeline) is deferred.</span>
+          </li>
+          <li class="flex items-baseline gap-3">
+            <span class="font-mono text-[11px] text-fg-mute pt-0.5 flex-shrink-0">→</span>
+            <span><strong class="text-fg">WebGL2 storage emulation residual</strong> — WebGL2 has no storage buffers, so the GLSL path emulates them with data textures. Only <code class="font-mono text-fg">array&lt;f32&gt;</code> and structs of scalar / <code class="font-mono text-fg">vecN&lt;f32&gt;</code> fields lower today; other element types are fail-closed.</span>
+          </li>
+        </ul>
+        <p class="mt-5 text-[13.5px]">
+          Tracked in the repo
+          <a href={`${repo}/blob/main/ROADMAP.md`} target="_blank" rel="noopener" class="text-accent hover:text-accent-hover transition-colors">ROADMAP.md ↗</a>.
+        </p>
+      </div>
+    </section>
+
+    <!-- ── See it live ── -->
+    <section class="border-t border-line pt-12">
+      <h2 class="text-[20px] font-medium text-fg leading-[1.2] tracking-[-0.015em] mb-3">
+        See it live
+      </h2>
+      <p class="mb-4">
+        The
+        <a href={`${base}/shader-dsl`} class="text-accent hover:text-accent-hover transition-colors">shader-dsl playground</a>
+        compiles a gallery of example modules to both WGSL and GLSL ES 3.00 and
+        runs the renderable ones live on your WebGL2 device — the same IR, two
+        backends, side by side. For the IR behind compiled map styles, the
+        <a href={`${base}/docs/concepts/compute`} class="text-accent hover:text-accent-hover transition-colors">Compute paint</a>
+        page runs the compiler in your browser and shows every stage, tokens
+        through emitted WGSL, updating as you type.
+      </p>
+    </section>
+
+  </article>
+
+  <SpecLinks specs={[
+    { body: 'W3C',     title: 'WGSL specification (the WebGPU shading language)', url: 'https://www.w3.org/TR/WGSL/' },
+    { body: 'Khronos', title: 'OpenGL ES Shading Language 3.00 (GLSL ES)', url: 'https://registry.khronos.org/OpenGL/specs/es/3.0/GLSL_ES_Specification_3.00.pdf' },
+    { body: 'Khronos', title: 'WebGL 2.0 specification', url: 'https://registry.khronos.org/webgl/specs/latest/2.0/' },
+    { body: 'W3C',     title: 'WebGPU specification', url: 'https://www.w3.org/TR/webgpu/' },
+  ]} />
+
+  <SeeAlso links={[
+    { label: 'Compute paint', href: `${base}/docs/concepts/compute`, body: 'The live compile graph — .xgis source through emitted WGSL, updating as you type.' },
+    { label: 'Compile pipeline', href: `${base}/docs/concepts/pipeline`, body: 'How a style is parsed, lowered, and optimized on its way to the IR.' },
+    { label: 'Globe & 3D', href: `${base}/docs/concepts/globe`, body: 'The projection and log-depth math these shaders run, authored in the same IR.' },
+  ]} />
+</Docs>

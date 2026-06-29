@@ -1,0 +1,306 @@
+---
+import Docs from '../../../layouts/Docs.astro'
+import { FeatureRow } from '@/components/kit'
+import SeeAlso from '../../../components/SeeAlso.astro'
+import SpecLinks from '../../../components/SpecLinks.astro'
+
+// Rendering — the backend concept page: WebGPU-first, WebGL2 fallback,
+// one RHI. Built on the xAI kit + the Docs chrome (nav, TOC, prev/next),
+// matching the sibling concept pages (globe, rtc, projections) so it slots
+// into the Concepts sidebar group. No live React island — prose + a
+// FeatureRow ledger + a "see it live" link to the examples gallery.
+//
+// Honesty (REBUILD §6): every claim below is TRUE against the codebase —
+// the RhiDevice interface (rhi.ts), the WebGpuDevice (rhi-webgpu.ts) and
+// WebGl2Device (rhi-webgl2.ts) backends, the ?forcegl2=1 boot toggle that
+// boots WebGl2Device and draws a real raster tile through the same
+// RasterDraper (gpu.ts / render-loop.ts / raster-renderer.ts), reflection-
+// by-name, storage→data-texture emulation, and the fail-closed gates.
+// What is NOT shipped — the full-frame WebGL2 fallback (vector/line/point/
+// heatmap, MSAA, OIT, pick, compute, the offscreen/MRT pass chain) and the
+// @xgis/engine ↔ @xgis/map package split — is flagged ROADMAP, not stated
+// as shipped. In production (WebGPU, flag off) renderers still issue raw
+// WebGPU calls; the RHI is the seam they are migrating onto, proven
+// end-to-end for raster on WebGL2.
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const repo = 'https://github.com/X-GIS/X-GIS'
+
+// On-this-page TOC — matches the <section> ids below.
+const headings = [
+  { depth: 2, slug: 'the-rhi',   text: 'The RHI' },
+  { depth: 2, slug: 'webgpu',    text: 'WebGPU, the production backend' },
+  { depth: 2, slug: 'webgl2',    text: 'The WebGL2 backend' },
+  { depth: 2, slug: 'forcegl2',  text: 'Proving the fallback' },
+  { depth: 2, slug: 'passes',    text: 'Render passes' },
+  { depth: 2, slug: 'roadmap',   text: 'Where it is going' },
+]
+---
+
+<Docs
+  current="concepts/rendering"
+  title="X-GIS — Rendering"
+  description="WebGPU-first, WebGL2 fallback. X-GIS draws through one backend-agnostic Render Hardware Interface (RHI): a WebGPU backend (production) and a WebGL2 backend (GLSL ES 3.00 + std140 UBOs + sampler objects) implement the same interface, proven on a live frame by the ?forcegl2=1 toggle."
+  headings={headings}
+>
+  <header class="mb-12">
+    <p class="font-mono text-[11px] tracking-[0.2em] uppercase text-accent mb-3">
+      Concept
+    </p>
+    <h1 class="font-display font-semibold uppercase text-fg leading-[0.95] tracking-[0.01em] text-[38px] sm:text-[52px] lg:text-[64px]">
+      One RHI, two backends.
+    </h1>
+    <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[700px]">
+      X-GIS draws through a backend-agnostic Render Hardware Interface — the
+      RHI. WebGPU is the production backend; a WebGL2 backend implements the
+      same interface for browsers without WebGPU. Renderers target the RHI
+      instead of a GPU device, so swapping the backend is one implementation,
+      not a rewrite of every renderer.
+    </p>
+  </header>
+
+  <article class="space-y-4 text-[15px] sm:text-[16px] leading-[1.65] text-fg-dim">
+
+    <section id="the-rhi">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        The RHI
+      </h2>
+      <p class="mb-4">
+        The <strong class="text-fg">RHI</strong> (Render Hardware Interface)
+        is a backend-agnostic GPU surface. Through it the engine creates
+        buffers, textures, samplers, bind groups, pipelines, and a draw pass —
+        recording against the interface rather than calling
+        <code class="font-mono text-fg">GPUDevice</code> or a render-pass
+        encoder directly. A backend swap then becomes a single implementation
+        of one interface, not an edit to every renderer.
+      </p>
+      <p class="mb-4">
+        Two implementations exist today: a <strong class="text-fg">WebGPU
+        backend</strong> and a <strong class="text-fg">WebGL2 backend</strong>.
+        Each capability below is true of the engine today; the
+        designed-but-not-yet-shipped parts are marked as roadmap. In
+        production the renderers still issue WebGPU calls directly — the RHI
+        is the seam they are migrating onto, and the WebGL2 path proves that
+        seam works end-to-end for raster.
+      </p>
+    </section>
+
+    <!-- ── FeatureRow ledger: each TRUE capability, one row ── -->
+    <section id="webgpu" class="pt-6">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        WebGPU, the production backend
+      </h2>
+
+      <FeatureRow num="01" title="One backend-agnostic interface">
+        <code class="font-mono text-fg">RhiDevice</code> is the single GPU
+        contract — it creates buffers, textures, samplers, bind groups, and
+        pipelines, and begins draw passes. It carries a positive
+        <code class="font-mono text-fg">backend</code> marker
+        (<code class="font-mono text-fg">'webgpu' | 'webgl2'</code>) so a
+        forced-fallback path can be asserted to have actually run on the
+        backend it claims.
+      </FeatureRow>
+
+      <FeatureRow num="02" title="Opaque handles hide the backend">
+        Resource handles —
+        <code class="font-mono text-fg">RhiBuffer</code>,
+        <code class="font-mono text-fg">RhiTexture</code>,
+        <code class="font-mono text-fg">RhiPipeline</code> — are opaque:
+        callers never see a <code class="font-mono text-fg">GPUBuffer</code>
+        or a <code class="font-mono text-fg">WebGLBuffer</code>. The WebGPU
+        impl wraps the native object; the WebGL2 impl wraps its GL record. The
+        renderer above the seam stays backend-blind.
+      </FeatureRow>
+
+      <FeatureRow num="03" title="WebGPU is the production backend">
+        <code class="font-mono text-fg">WebGpuDevice</code> is a thin,
+        one-to-one set of wrappers over <code class="font-mono text-fg">GPUDevice</code>
+        / <code class="font-mono text-fg">GPURenderPassEncoder</code>, so it
+        adds ~zero overhead. The app boots a WebGPU device by default, which
+        makes it the reference the WebGL2 backend is matched against.
+      </FeatureRow>
+    </section>
+
+    <section id="webgl2" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        The WebGL2 backend
+      </h2>
+      <p class="mb-2 max-w-[700px]">
+        The WebGL2 backend is real code, not a placeholder. It absorbs the gap
+        between WebGPU's resource model and WebGL2's so the renderers above the
+        seam stay unchanged.
+      </p>
+
+      <FeatureRow num="04" title="A real WebGL2 backend, not a stub">
+        <code class="font-mono text-fg">WebGl2Device</code> wraps a
+        <code class="font-mono text-fg">WebGL2RenderingContext</code>: shaders
+        compile from <strong class="text-fg">GLSL ES 3.00</strong> (a split
+        vertex + fragment source), uniforms bind as
+        <strong class="text-fg">std140 UBOs</strong> via
+        <code class="font-mono text-fg">bindBufferBase</code> /
+        <code class="font-mono text-fg">bindBufferRange</code>, textures bind
+        to texture units paired with sampler objects, and vertex attributes
+        bind via <code class="font-mono text-fg">vertexAttribPointer</code>.
+      </FeatureRow>
+
+      <FeatureRow num="05" title="Reflection by name, not by order">
+        When a bind-layout entry carries the shader's reflected name, the
+        linked program's uniform blocks and samplers bind
+        <strong class="text-fg">by name</strong>
+        (<code class="font-mono text-fg">getUniformBlockIndex</code> /
+        <code class="font-mono text-fg">getUniformLocation</code>) — so a
+        multi-resource group binds correctly regardless of declaration order.
+        An un-named entry falls back to binding by order.
+      </FeatureRow>
+
+      <FeatureRow num="06" title="Storage buffers become data textures">
+        WebGL2 (ES 3.00) has no storage buffers, so a
+        <code class="font-mono text-fg">storage</code> buffer is emulated as a
+        2D-tiled <strong class="text-fg">R32F data texture</strong>: element
+        <em>i</em> is read in GLSL with
+        <code class="font-mono text-fg">texelFetch</code> at
+        <code class="font-mono text-fg">(i % W, i / W)</code>.
+      </FeatureRow>
+
+      <FeatureRow num="07" title="Fail-closed: never a silently wrong frame">
+        Anything WebGL2 cannot yet do <strong class="text-fg">throws</strong>
+        instead of degrading silently — the offscreen / MRT command encoder,
+        stencil pipeline state, the <code class="font-mono text-fg">rgba16float</code>
+        OIT accumulation target, and a pipeline missing its GLSL source. A
+        draw that cannot be reproduced faithfully can never quietly corrupt
+        the picture.
+      </FeatureRow>
+    </section>
+
+    <section id="forcegl2" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        Proving the fallback
+      </h2>
+      <p class="mb-2 max-w-[700px]">
+        The fallback is verified end-to-end, not asserted on paper.
+      </p>
+
+      <FeatureRow num="08" title="A live frame on WebGL2 — ?forcegl2=1">
+        An off-by-default boot toggle,
+        <code class="font-mono text-fg">?forcegl2=1</code>, builds a
+        <code class="font-mono text-fg">WebGl2Device</code> instead of a WebGPU
+        device and renders a <strong class="text-fg">real z0 raster tile</strong>
+        through the <em>same</em> <code class="font-mono text-fg">RasterDraper</code>
+        the WebGPU pilot uses. A page-readable backend marker and an end-to-end
+        gate read the pixels back to confirm the frame actually originated on
+        WebGL2.
+      </FeatureRow>
+
+      <p class="pt-6 text-[14px] max-w-[700px]">
+        That live frame is an <strong class="text-fg">isolated, single-sample
+        raster slice</strong> — the proof that one renderer draws correctly
+        across the seam. Every other primitive (points, lines, heatmaps)
+        already has an RHI adapter wired behind a flag and exercised by
+        per-primitive parity gates, but those adapters are off by default;
+        flipping the whole frame onto the RHI is the roadmap below.
+      </p>
+    </section>
+
+    <section id="passes" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        Render passes
+      </h2>
+      <p class="mb-4 max-w-[700px]">
+        The engine's render path is a fixed linear chain of passes —
+        <code class="font-mono text-fg">compute → opaque → OIT → translucent →
+        points → labels → overdraw-compose</code>. Each pass is a stateless
+        object that emits its GPU commands for the frame; today those commands
+        record into a raw WebGPU command encoder.
+      </p>
+      <p class="mb-4 max-w-[700px]">
+        The RHI models that topology backend-agnostically. A
+        <code class="font-mono text-fg">RhiRenderPass</code> is the draw scope
+        (set a pipeline, set bind groups, set vertex buffers, draw);
+        <code class="font-mono text-fg">beginScreenPass</code> covers the
+        single-sample backbuffer; and an offscreen / MRT pass is described by
+        <code class="font-mono text-fg">RhiRenderPassDesc</code> through a
+        command encoder. The WebGPU impl maps those offscreen descriptors
+        <strong class="text-fg">byte-identically</strong> to the raw
+        descriptors each pass builds — a parity test gates the byte-identity,
+        so adopting the seam never drifts the topology.
+      </p>
+      <p class="max-w-[700px]">
+        Per-tile clip masks ride a <code class="font-mono text-fg">setStencilReference</code>
+        on the pass: WebGPU maps it to the native call, while WebGL2 leaves it
+        inert and fail-closes on a stencil-configured pipeline. On WebGL2 the
+        offscreen / MRT encoder fail-closes entirely, so the
+        <code class="font-mono text-fg">?forcegl2=1</code> slice uses only the
+        single-sample screen pass. Routing the full live chain through the RHI
+        — so the whole frame can run on WebGL2 — is roadmap.
+      </p>
+    </section>
+
+    <section id="roadmap" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        Where it is going
+      </h2>
+      <div class="rounded-[8px] bg-bg-card border border-line p-5 sm:p-6 mb-4">
+        <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-fg-mute mb-3">
+          Roadmap · not yet shipped
+        </p>
+        <p class="mb-4 text-[14px] sm:text-[15px]">
+          The WebGL2 backend is real, but today it carries one renderer (raster)
+          on a single-sample frame. These extend it to the full map — planned,
+          not built:
+        </p>
+        <ul class="space-y-2.5 text-[14px] sm:text-[15px]">
+          <li class="flex items-baseline gap-3">
+            <span class="font-mono text-[11px] text-fg-mute pt-0.5 flex-shrink-0">→</span>
+            <span><strong class="text-fg">Full-frame WebGL2</strong> — vector tiles, lines, points, and heatmaps drawn on WebGL2. Each primitive already has an RHI adapter, but they are off by default.</span>
+          </li>
+          <li class="flex items-baseline gap-3">
+            <span class="font-mono text-[11px] text-fg-mute pt-0.5 flex-shrink-0">→</span>
+            <span><strong class="text-fg">MSAA, OIT, and picking on WebGL2</strong> — the multi-sample, order-independent-transparency, and pick-readback topology still fail-closes on WebGL2.</span>
+          </li>
+          <li class="flex items-baseline gap-3">
+            <span class="font-mono text-[11px] text-fg-mute pt-0.5 flex-shrink-0">→</span>
+            <span><strong class="text-fg">Compute on WebGL2</strong> — ES 3.00 has no compute shaders, so the GPU compute-paint path fail-closes; a data-texture emulation is planned.</span>
+          </li>
+          <li class="flex items-baseline gap-3">
+            <span class="font-mono text-[11px] text-fg-mute pt-0.5 flex-shrink-0">→</span>
+            <span><strong class="text-fg">@xgis/engine ↔ @xgis/map split</strong> — carving the backend-agnostic GPU engine out from the map content. An engineering plan today, not a shipped package boundary.</span>
+          </li>
+        </ul>
+        <p class="mt-5 text-[13.5px]">
+          Tracked in the repo
+          <a href={`${repo}/blob/main/ROADMAP.md`} target="_blank" rel="noopener" class="text-accent hover:text-accent-hover transition-colors">ROADMAP.md ↗</a>.
+        </p>
+      </div>
+    </section>
+
+    <!-- ── See it live ── -->
+    <section class="border-t border-line pt-12">
+      <h2 class="text-[20px] font-medium text-fg leading-[1.2] tracking-[-0.015em] mb-3">
+        See it live
+      </h2>
+      <p class="mb-4">
+        Every map in the
+        <a href={`${base}/examples`} class="text-accent hover:text-accent-hover transition-colors">examples gallery</a>
+        is a live X-GIS render on the WebGPU backend — the production path
+        through the RHI's reference implementation. The WebGL2 backend ships
+        as a developer boot toggle (<code class="font-mono text-fg">?forcegl2=1</code>),
+        which renders the single-sample raster slice and reads it back to prove
+        the fallback.
+      </p>
+    </section>
+
+  </article>
+
+  <SpecLinks specs={[
+    { body: 'W3C',     title: 'WebGPU specification', url: 'https://www.w3.org/TR/webgpu/' },
+    { body: 'W3C',     title: 'WGSL — the WebGPU shading language', url: 'https://www.w3.org/TR/WGSL/' },
+    { body: 'Khronos', title: 'WebGL 2.0 specification', url: 'https://registry.khronos.org/webgl/specs/latest/2.0/' },
+    { body: 'Khronos', title: 'OpenGL ES Shading Language 3.00 (GLSL ES)', url: 'https://registry.khronos.org/OpenGL/specs/es/3.0/GLSL_ES_Specification_3.00.pdf' },
+  ]} />
+
+  <SeeAlso links={[
+    { label: 'Globe & 3D', href: `${base}/docs/concepts/globe`, body: 'The 3D globe these passes draw — ECEF geometry, the WGS84 ellipsoid, RTC precision.' },
+    { label: 'Compute paint', href: `${base}/docs/concepts/compute`, body: 'GPU compute paint evaluation — WebGPU-only today; the WebGL2 backend fail-closes on it.' },
+    { label: 'JavaScript API', href: `${base}/docs/api`, body: 'The embedding surface — how a map boots a device and starts the render loop.' },
+  ]} />
+</Docs>
