@@ -4,6 +4,16 @@ Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-s
 
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
+> ## ⏳ This is a 5+ YEAR library — architect for that horizon
+> X-GIS is a long-lived library (a Google-Earth-grade 3D globe engine), not a throwaway script. **Every
+> architectural decision must hold for 5+ years of use.** Benchmark against mature engines
+> (Unreal/Unity/Godot/three.js/Frostbite); prefer single-authority, zero-coupling, and
+> verified-by-construction over quick fixes, fallback shims, or environment-specific patches. Be
+> **right-sized, not gold-plated** (§2 simplicity-first) — but NEVER a shortcut that won't last. The
+> mandatory render/parity verification (§5) and graph-first discovery (§6) exist precisely because a
+> shortcut here compounds over years. When two designs both work, pick the one a senior engineer would
+> still endorse in 5 years.
+
 ## 0. Communication Language
 
 **Respond to the user in Korean (한국어).** This applies only to chat replies. Keep everything that lands in the repository — code, identifiers, comments, commit messages, PR titles/bodies, and docs — in English unless that file is already written in Korean.
