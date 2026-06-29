@@ -177,13 +177,15 @@ export function installPerfOverlay(map: PerfMap): void {
     return b
   }
   const runBtn = mkBtn('▶ 측정 (12초)')
+  const abBtn = mkBtn('▶ A/B draw-test (10초)')
   const copyBtn = mkBtn('📋 복사')
   const closeBtn = mkBtn('✕')
   closeBtn.style.background = '#444'
   copyBtn.style.background = '#2da44e'
+  abBtn.style.background = '#8957e5'
   const live = document.createElement('span')
   live.style.cssText = 'margin-left:auto;color:#9fd3ff;'
-  bar.append(runBtn, copyBtn, closeBtn, live)
+  bar.append(runBtn, abBtn, copyBtn, closeBtn, live)
 
   const pre = document.createElement('pre')
   pre.style.cssText = 'margin:0;white-space:pre-wrap;word-break:break-word;'
@@ -245,6 +247,62 @@ export function installPerfOverlay(map: PerfMap): void {
       pre.textContent = report
       runBtn.disabled = false
       runBtn.textContent = '▶ 다시 측정'
+    })()
+  })
+
+  // One-tap A/B: runs the SAME rotate+pitch sweep twice — uncapped, then with
+  // the tile cap (window.__xgisMaxTiles=30) toggled live — and reports BOTH in
+  // a single copyable block. Settles the "is it draw/tile-count bound?" test
+  // without juggling two URLs or two copy-pastes.
+  abBtn.addEventListener('click', () => {
+    void (async () => {
+      abBtn.disabled = true; runBtn.disabled = true
+      const W = window as { __xgisMaxTiles?: number | null }
+      const b0 = map.getCamera()
+      const z0 = b0.zoom, x0 = b0.centerX, y0 = b0.centerY, p0 = b0.pitch, br0 = b0.bearing
+      const sweep = (t: number, cam: PerfCamera): void => {
+        const ph = t < 0.5 ? t * 2 : (1 - t) * 2
+        cam.bearing = br0 + t * 360
+        cam.pitch = p0 + ph * 40
+      }
+      const tilesNow = (): number => map.stats?.tilesVisible ?? 0
+
+      W.__xgisMaxTiles = undefined            // uncapped
+      map.invalidate()
+      pre.textContent = 'A/B 1/2 — uncapped rotate+pitch (5초)'
+      const fUncap = await runScenario(map, 5000, sweep)
+      const tilesUncap = tilesNow()
+
+      W.__xgisMaxTiles = 30                    // cap live
+      map.invalidate()
+      pre.textContent = 'A/B 2/2 — maxtiles=30 rotate+pitch (5초)'
+      const fCap = await runScenario(map, 5000, sweep)
+      const tilesCap = tilesNow()
+
+      W.__xgisMaxTiles = undefined             // restore
+      const c = map.getCamera()
+      c.zoom = z0; c.centerX = x0; c.centerY = y0; c.pitch = p0; c.bearing = br0
+      map.invalidate()
+
+      const pU = pct(fUncap.slice(2), 50), pC = pct(fCap.slice(2), 50)
+      const fpsU = pU > 0 ? (1000 / pU).toFixed(0) : '--'
+      const fpsC = pC > 0 ? (1000 / pC).toFixed(0) : '--'
+      const drop = pU > 0 ? ((1 - pC / pU) * 100) : 0
+      const verdict = pC < pU * 0.7
+        ? `→ 타일 ${tilesUncap}→${tilesCap}, p50 ${pU}→${pC} (${drop.toFixed(0)}%↓): DRAW 수가 원인 확정`
+        : `→ 타일 ${tilesUncap}→${tilesCap} 인데 p50 ${pU}→${pC} (변화 미미): draw 수가 원인 아님`
+      const dpr = window.devicePixelRatio || 1
+      const canvas = document.querySelector('canvas')
+      report = [
+        '=== X-GIS A/B draw-count 테스트 (rotate+pitch) ===',
+        `기기 DPR=${dpr} 캔버스=${canvas?.width ?? 0}x${canvas?.height ?? 0}`,
+        `uncapped    : p50=${pU.toFixed(1)}ms (${fpsU}fps)  tiles=${tilesUncap}`,
+        `maxtiles=30 : p50=${pC.toFixed(1)}ms (${fpsC}fps)  tiles=${tilesCap}`,
+        verdict,
+      ].join('\n')
+      pre.textContent = report
+      abBtn.disabled = false; runBtn.disabled = false
+      abBtn.textContent = '▶ A/B 다시'
     })()
   })
 
