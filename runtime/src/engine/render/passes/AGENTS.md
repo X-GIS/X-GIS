@@ -1,10 +1,10 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-06-03 | Updated: 2026-06-23 -->
+<!-- Generated: 2026-06-03 | Updated: 2026-06-29 -->
 
 # passes
 
 ## Purpose
-Contains the fixed linear render-pass chain that structures every GPU frame in X-GIS. Each file implements the `RenderPass` interface (defined in `pass.ts`) and represents one bucket of the pipeline: background → opaque → OIT → translucent → points → labels → overdraw-compose. All passes are stateless singletons — no per-frame allocation — that receive a `FrameContext` + `SceneView` + `PassHost` (the owning map's renderer view) and emit `GPURenderPassEncoder` commands. These objects were extracted verbatim from inline `passScope` blocks in `RenderLoop.render` during the engine redesign; behaviour is byte-identical to the original inline code.
+Contains the fixed linear render-pass chain that structures every GPU frame in X-GIS. Each file implements the `RenderPass` interface (defined in `pass.ts`) and represents one bucket of the pipeline: background → opaque → OIT → translucent → points → labels → heatmap → overdraw-compose. All passes are stateless singletons — no per-frame allocation — that receive a `FrameContext` + `SceneView` + `PassHost` (the owning map's renderer view) and emit `GPURenderPassEncoder` commands. These objects were extracted verbatim from inline `passScope` blocks in `RenderLoop.render` during the engine redesign; behaviour is byte-identical to the original inline code.
 
 ## Key Files
 

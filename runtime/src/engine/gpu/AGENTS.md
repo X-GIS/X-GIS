@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-06-03 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-06-03 | Updated: 2026-06-29 -->
 
 # gpu
 
@@ -11,7 +11,7 @@ Low-level WebGPU infrastructure shared by all renderers in the X-GIS engine. Thi
 | File | Description |
 |---|---|
 | `gpu.ts` | WebGPU device init (`initGPU`, `resizeCanvas`), `GPUContext` bundle (device, format, canvas, feature flags including `float32FilterableSupported`, `timestampQuerySupported`, `timestampInsidePassesSupported`, `deviceLost`, `onDeviceLost`), `WebGPUUnavailableError` for graceful degradation, device-loss guard, validation-error queue (`getValidationErrors`, `clearValidationErrors`) for test assertions, `SAFE_MODE` / `GPU_PROF` URL flags, runtime quality accessors (`getSampleCount`, `getMaxDpr`, `isPickEnabled`). |
-| `gpu-shared.ts` | Canonical `GPUBlendState` / `GPUDepthStencilState` / `GPUMultisampleState` constants (`BLEND_ALPHA`, `BLEND_ALPHA_PREMULT`, `BLEND_MAX`, `BLEND_OIT_ACCUM`, `BLEND_OIT_REVEALAGE`, `OIT_ACCUM_FORMAT`, all `STENCIL_*` and `DEPTH_*` variants, per-tile clip-mask states, `MSAA_STATE`). Also `uploadBuffer`, `createUniformBuffer`, `WORLD_MERC`, `TILE_PX`, and re-exports of world-copy helpers from `projections-table`. |
+| `gpu-shared.ts` | Canonical `GPUBlendState` / `GPUDepthStencilState` / `GPUMultisampleState` constants (`BLEND_ALPHA`, `BLEND_ALPHA_PREMULT`, `BLEND_MAX`, `BLEND_OIT_ACCUM`, `BLEND_OIT_REVEALAGE`, `OIT_ACCUM_FORMAT`, all `STENCIL_*` and `DEPTH_*` variants, per-tile clip-mask states, `MSAA_STATE`). Also `WORLD_MERC`, `TILE_PX`, and re-exports of world-copy helpers from `projections-table`. |
 | `quality.ts` | `QualityConfig` + `QUALITY_PRESETS` (default / performance / balanced / battery), URL-flag resolver (`?quality`, `?msaa`, `?dpr`, `?adaptiveDpr`, `?picking`, `?debug=overdraw`), mutable `QUALITY` singleton, `updateQuality` + `onQualityChange` listener API. Adaptive MSAA auto-disabled at DPR ≥ 2. |
 | `gpu-arena.ts` | `GPUArena`: linear bump-pointer + exact-align4 free-list allocator over a single `GPUBuffer`. Provides `alloc`, `free`, `canServe`, `reclaimIfDrained`, `getStats`. Byte-aware eviction with 75/60 hysteresis + alloc-fail safety net (PR #193 fix for globe z10-11 OOM crash). OOM diagnostic enumerates live/free/bump stats on throw. |
 | `frame-arena.ts` | `FrameArena`: CPU-side bump allocator over a single `ArrayBuffer`, reset each `beginFrame()`. Typed allocation helpers `allocF32`, `allocU32`, `allocI32`, `allocF64`. Grows 1.5× when peak watermark exceeds 90% of capacity. Eliminates per-frame `new Float32Array(N)` churn in the label/projection pipelines. |

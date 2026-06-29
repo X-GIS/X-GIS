@@ -1,16 +1,19 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-29 -->
 
 # site/src/lib/
 
 ## Purpose
-Build-time TypeScript utilities and static assets consumed by Astro components and `astro.config.mjs`. Contains the search index builder (flattens docs pages + gallery demos into `SearchRecord[]`, embedded as JSON in the `Search` component for client-side fuzzy filtering), a git metadata reader (`gitMeta(filePath)` shells out to `git log` at build time to return ISO timestamp + relative time + contributor count for each docs page footer), and the `.xgis` Shiki grammar JSON (loaded by `astro-expressive-code` to tokenise `.xgis` code blocks in docs).
+Build-time TypeScript utilities and static assets consumed by Astro components and `astro.config.mjs`. Contains the search index builder (flattens docs pages + gallery demos into `SearchRecord[]`, embedded as JSON in the `Search` component for client-side fuzzy filtering), a git metadata reader (`gitMeta(filePath)` shells out to `git log` at build time to return ISO timestamp + relative time + contributor count for each docs page footer), the shader-DSL example/playground data modules (emit WGSL/GLSL + reflection at build time so no `@xgis/shader-dsl` ships to the client), a small `cn()` class-name helper, and the `.xgis` Shiki grammar JSON (loaded by `astro-expressive-code` to tokenise `.xgis` code blocks in docs).
 
 ## Key Files
 | File | Description |
 |------|-------------|
-| `search-index.ts` | Exports `buildSearchIndex(base): SearchRecord[]` and `buildSearchIndexJSON(base)`. Flattens 13 top-level doc pages, all `referenceSections`, per-section anchor records for functions/expressions/sources/cookbook/mapbox/api, and gallery demos (respecting `devOnly` flag) into one array. `SearchRecord` fields: `id`, `title`, `body`, `type` (`'doc'|'demo'`), `tag`, `url`. |
+| `search-index.ts` | Exports `buildSearchIndex(base): SearchRecord[]` and `buildSearchIndexJSON(base)`. Flattens top-level doc pages, all `referenceSections`, per-section anchor records for functions/expressions/sources/cookbook/mapbox/api, and gallery demos (respecting `devOnly` flag) into one array. `SearchRecord` fields: `id`, `title`, `body`, `type` (`'doc'|'demo'`), `tag`, `url`. |
 | `git-meta.ts` | Exports `gitMeta(filePath): Meta` (`iso`, `relative`, `contributors`). Resolves repo root once via `git rev-parse --show-toplevel` (cwd fix — build runs from `site/`), then runs `git log -1 --format=%aI` and `git log --format=%ae` per file. Results are per-process cached in a `Map`. Returns empty `Meta` silently if git is unavailable. |
+| `shader-examples.ts` | Build-time shader-DSL example data: imports the shared `examples` modules + `@xgis/shader-dsl` `emitModule`/`emitGlslModule`/`reflect`, emits WGSL/GLSL/reflection and reads each example's raw source, all at build time. Consumed by `/shader-dsl` index + `/shader-dsl/examples/[id]` so neither page bundles `@xgis/shader-dsl` to the client. |
+| `shader-playground.ts` | Client-side, dependency-free WebGL2 renderer for the shader-DSL pages: compiles + draws a fullscreen-triangle pass from the build-time-emitted GLSL + std140 reflection, packing uniforms via the same reflection the unit/e2e gates use. |
+| `utils.ts` | `cn(...inputs)` — `clsx` + `tailwind-merge` class-name helper for the React/`ui/` components. |
 | `xgis-grammar.json` | TextMate grammar for the `.xgis` language, consumed by `astro-expressive-code` via `shiki.langs` in `astro.config.mjs`; must stay in sync with `vscode-xgis/syntaxes/xgis.tmLanguage.json` (parallel copy). |
 
 ## For AI Agents
@@ -35,9 +38,12 @@ Build-time TypeScript utilities and static assets consumed by Astro components a
 ### Internal
 - `src/content/gallery-demos.ts` — `galleryCategories`, `runIdOf`
 - `src/content/reference-sections.ts` — `referenceSections`
+- `shader-dsl/examples/` + `@xgis/shader-dsl` — `shader-examples.ts` (build-time emit)
 
 ### External
 - Node.js `child_process` (`execSync`) — git-meta only
+- `@xgis/shader-dsl` — `shader-examples.ts` build-time WGSL/GLSL/reflection emit
+- `clsx`, `tailwind-merge` — `utils.ts` `cn()` helper
 - `astro-expressive-code` / Shiki consume `xgis-grammar.json` via `astro.config.mjs`
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->

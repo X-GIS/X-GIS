@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-29 -->
 
 # site/src/pages/docs/
 
@@ -25,7 +25,7 @@ Documentation pages for the X-GIS language and runtime. Each `.astro` file maps 
 ## Subdirectories
 | Directory | Purpose |
 |-----------|---------|
-| `concepts/` | Deep-dive concept guides: RTC precision, projections, compile pipeline, blueprint/compute (see `concepts/AGENTS.md`) |
+| `concepts/` | Deep-dive concept guides: RTC precision, projections, compile pipeline, blueprint/compute, globe (see `concepts/AGENTS.md`) |
 
 ## For AI Agents
 

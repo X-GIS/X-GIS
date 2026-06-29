@@ -1,15 +1,15 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-29 -->
 
 # site/src/styles/
 
 ## Purpose
-Global stylesheet entry point for the X-GIS Astro docs site. `global.css` is the single CSS file for the entire site: it self-hosts the three "Chart Room" typefaces (Big Shoulders Display, Archivo, Spline Sans Mono) via `@fontsource-variable` (avoiding Google Fonts round-trips), imports Tailwind v4, declares all design tokens in a `@theme` block, sets base HTML/body/selection/focus rules in `@layer base`, and defines the page-load / graticule motion keyframes (`fade-up`, `fade-in`, `scale-fade`, `draw-grid`, `marker-pulse`) plus matching `@utility` classes (including the `graticule-field` mesh) with reduced-motion overrides.
+Global stylesheet entry point for the X-GIS Astro docs site. `global.css` is the single CSS file for the entire site: it self-hosts Inter + Geist Mono via `@fontsource-variable` (avoiding Google Fonts round-trips), imports Tailwind v4 and `tw-animate-css`, declares all design tokens in a `@theme` block, sets base HTML/body/selection/focus rules in `@layer base`, and defines the page-load / graticule motion keyframes plus matching `@utility` classes with reduced-motion overrides. The palette is the "xAI" monochrome system — near-black ground, white text, white as the accent (emphasis carried by shape + weight, not hue).
 
 ## Key Files
 | File | Description |
 |------|-------------|
-| `global.css` | Entire site stylesheet: `@import` for `@fontsource-variable/big-shoulders-display` + `@fontsource-variable/archivo` + `@fontsource-variable/spline-sans-mono` (self-hosted woff2, hash-busted via Vite); `@import "tailwindcss"`; `@theme` block with the Chart Room tokens — `--color-bg/bg-elev/bg-card/bg-hover`, `--color-fg/fg-dim/fg-mute/fg-faint`, `--color-line/line-strong`, `--color-graticule/graticule-strong`, `--color-accent/accent-hover/accent-press` (phosphor cyan), `--color-vermilion/vermilion-dim` (signature) and 3 font-stack tokens (`--font-display`, `--font-sans`, `--font-mono`); `@layer base` applying fonts, antialiasing, scroll-behavior, `::selection` (cyan on ink), `:focus-visible` ring, tabular numerals; `@keyframes` + `@utility` for `fade-up`, `fade-in`, `scale-fade`, `draw-grid`, `marker-pulse`, and the `graticule-field` mesh; `prefers-reduced-motion` block disabling them. |
+| `global.css` | Entire site stylesheet: `@import` for `@fontsource-variable/inter` + `@fontsource-variable/geist-mono` (self-hosted woff2, hash-busted via Vite); `@import "tailwindcss"`; `@import "tw-animate-css"`; `@theme` block with two token layers — (1) a shadcn-style set (`--color-background/foreground/card/primary/secondary/muted/destructive/border/input/ring …`) and (2) the X-GIS utility aliases (`--color-bg/bg-elev/bg-card/bg-hover`, `--color-fg/fg-dim/fg-mute/fg-faint`, `--color-line/line-strong`, `--color-graticule/graticule-strong`, `--color-accent/accent-hover/accent-press` → `--sienna` which is **white** in this theme, `--color-vermilion/vermilion-dim`), plus 3 font-stack tokens (`--font-display`, `--font-sans` = Inter, `--font-mono` = Geist Mono); `@layer base` applying fonts, antialiasing, scroll-behavior, `::selection`, `:focus-visible` ring, tabular numerals; `@keyframes` + `@utility` for the page-load + graticule-mesh motion; `prefers-reduced-motion` block disabling them. |
 
 ## For AI Agents
 
@@ -24,9 +24,9 @@ Global stylesheet entry point for the X-GIS Astro docs site. `global.css` is the
 - No automated tests. Verify visually via `bun run dev` in `site/`. Check token propagation, font loading (no FOUT), focus ring on keyboard nav, and animation behaviour with OS reduced-motion toggled.
 
 ### Common Patterns
-- "Chart Room" dark palette (nautical/topographic chart on a screen): ink `#0b1722` ground, bone `#eae6da` text, phosphor-cyan accent `#45dbd2` (the workhorse — links/buttons/focus), surveyor-vermilion `#ff5a36` (signature only — projection marker + legend ticks). The graticule mesh (`--color-graticule`) backs the page as its structural grid.
-- Big Shoulders Display Variable is the DISPLAY face (page titles + big section heads, always uppercase — the chart title-block look); Archivo Variable is the body sans; Spline Sans Mono Variable is the code/label/coordinate face. Reference as `"Big Shoulders Display Variable"` / `"Archivo Variable"` / `"Spline Sans Mono Variable"` in the font stacks. Micro-labels (eyebrows, legends, table headers) use `font-mono uppercase tracking-[0.16em]`.
-- Page-load motion: `fade-up` (28 px translate + opacity, 1.1 s), `fade-in` (opacity only, 1.4 s), `scale-fade` (scale 0.96→1 + opacity, 1.4 s). All use Apple-easing `cubic-bezier(0.16, 0.84, 0.32, 1)` or `ease-out`.
+- "xAI" monochrome palette: near-black ink `#0a0a0a` ground, white `#ffffff` text, accent `--sienna` is **white** (`--color-accent`) — the brand is white-on-near-black, so emphasis is carried by shape (pill) + weight, NOT hue. A solid hairline (`--hair` `#212327`, `--color-line`) is the elevation device; the graticule mesh (`--color-graticule`) backs the page as its structural grid.
+- Inter Variable is both the display and body face (`--font-display` = `--font-sans`); Geist Mono Variable is the code/label/coordinate face (`--font-mono`). Reference as `"Inter Variable"` / `"Geist Mono Variable"` in the font stacks. Micro-labels (eyebrows, legends, table headers) use `font-mono uppercase` tracking (see `kit/Eyebrow`).
+- A shadcn-style token set (`--color-primary`, `--color-muted`, `--color-border`, …) coexists with the X-GIS utility aliases so the `ui/` React primitives (badge/button/card) and the Astro components share one `@theme`.
 
 ## Dependencies
 
@@ -35,8 +35,8 @@ Global stylesheet entry point for the X-GIS Astro docs site. `global.css` is the
 
 ### External
 - `tailwindcss` ^4 (Vite plugin scans Astro/HTML for utility usage)
-- `@fontsource-variable/big-shoulders-display` (display face, self-hosted woff2)
-- `@fontsource-variable/archivo` (body sans, self-hosted woff2)
-- `@fontsource-variable/spline-sans-mono` (mono — code/labels, self-hosted woff2)
+- `tw-animate-css` (animation utilities, imported after Tailwind)
+- `@fontsource-variable/inter` (display + body face, self-hosted woff2)
+- `@fontsource-variable/geist-mono` (mono — code/labels, self-hosted woff2)
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->

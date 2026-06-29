@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-06-23 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-29 -->
 
 # playground/src
 
@@ -10,7 +10,8 @@ TypeScript entry-point modules for the four Vite HTML pages (`index.html`, `demo
 | File | Description |
 |------|-------------|
 | `web-entry.ts` | Thin re-export of `registerXGISElement` and `XGISMap` from `@xgis/runtime`; used by the gallery `index.html` page. |
-| `demos.ts` | `DEMOS` registry — maps ~100 demo ID strings to `{ name, tag, description, source, picking? }`. Loads `.xgis` source text via `import.meta.glob('*.xgis', { eager:true, query:'?raw' })`. Handles production URL rewrites: dev `/pmtiles-proxy/protomaps/v4.pmtiles` → protomaps API TileJSON endpoint (keyed to `x-gis.github.io` CORS origin). |
+| `demos.ts` | `DEMOS` registry assembler — spreads per-category fragments (`demos/core.ts`, `style.ts`, `natural-earth.ts`, `data-driven.ts`, `procedural.ts`, `lines.ts`, `detail-10m.ts`, `thematic.ts`, `fixtures.ts`) into one insertion-ordered `Record<string, Demo>` (~127 entries). Each fragment is a pure `Record<string, Demo>` keyed by stable demo ids. The `.xgis` `?raw` glob, the `Demo` type, and the `URL_REWRITES` table live in `demos/loader.ts`. |
+| `demos/loader.ts` | Shared demo loader: `import.meta.glob('../examples/*.xgis', { eager:true, query:'?raw', import:'default' })` + `load(file)` applies `URL_REWRITES` in BOTH dev and prod (the old protomaps demo-bucket path is dead/404, so `/pmtiles-proxy/protomaps/v4.pmtiles` → `api.protomaps.com/tiles/v4.json` keyed request, CORS-exempt from localhost and allowed for `x-gis.github.io` in prod). Defines the `Demo` interface (`name`, `tag`, `description`, `source`, `picking?`). |
 | `gallery.ts` | `TAG_COLORS` / `TAG_LABELS` / `TAG_ORDER` display maps; builds category-section DOM for `index.html` with inline search filtering. Imports `DEMOS` from `demos.ts`. |
 | `demo-runner.ts` | Full interactive demo runner for `demo.html`: Monaco editor with XGIS language support, projection selector, prev/next navigation, snapshot copy button (`__xgisSnapshot`), mobile editor toggle, in-page log overlay (captures `console.error`/`console.warn`/uncaptured WebGPU errors), `?debug=labels` label-anchor visualiser overlay, `?profile=1` inspector activation, `?safe=1` MSAA bypass toggle, Mapbox-import flow (`__xgisImportMapbox` / sessionStorage `__xgisImportSource`), camera hash serialisation (`#z/lat/lon/bearing/pitch`), and `window.__xgisMap` / `window.__xgisReady` exposure for e2e tests. |
 | `mapbox-projection.ts` | Extracts host-applicable Mapbox style-spec fields (`projection` type name and `light` block) for use by `demo-runner.ts` and `compare-runner.ts`; provides `extractMapboxProjectionName` and `extractMapboxLight` utilities with CSS colour parsing. |
@@ -24,14 +25,15 @@ TypeScript entry-point modules for the four Vite HTML pages (`index.html`, `demo
 | Directory | Purpose |
 |-----------|---------|
 | `examples/` | `.xgis` DSL source files for every demo and fixture (see `examples/AGENTS.md`). |
+| `demos/` | Per-category `DEMOS` fragments (`core`, `style`, `natural-earth`, `data-driven`, `procedural`, `lines`, `detail-10m`, `thematic`, `fixtures`) plus the shared `loader.ts` (`?raw` glob, `URL_REWRITES`, `Demo` type). Assembled by `demos.ts`. |
 
 ## For AI Agents
 
 ### Working In This Directory
-- Adding a new demo requires: (1) create `examples/<id>.xgis`, (2) add an entry to `DEMOS` in `demos.ts` with the correct `tag`. The gallery and dropdown pick it up automatically via the glob.
+- Adding a new demo requires: (1) create `examples/<id>.xgis`, (2) add an entry to the matching `demos/<category>.ts` fragment with the correct `tag` (NOT inline in `demos.ts`, which only spreads fragments). The gallery and dropdown pick it up automatically via the glob.
 - `window.__xgisMap` is set by `demo-runner.ts` after map construction; `window.__xgisReady` is set by the runtime after first-frame completion. E2e specs gate on both — do not rename either.
 - The camera hash format `#z/lat/lon[/bearing/pitch]` is duplicated in `demo-runner.ts` and `compare-runner.ts`; keep them in sync (the comment in `compare-runner.ts:31` calls this out explicitly).
-- `PROD_URL_REWRITES` in `demos.ts` uses `import.meta.env.PROD`; never change it to `GITHUB_ACTIONS` (breaks CI playground-audit). The API key is CORS-restricted to `x-gis.github.io` in the protomaps dashboard.
+- `URL_REWRITES` in `demos/loader.ts` is applied in BOTH dev and prod (the protomaps demo bucket is dead/404, so the rewrite to `api.protomaps.com/tiles/v4.json` is needed everywhere). The API key is CORS-exempt from localhost and allowed for `x-gis.github.io` in the protomaps dashboard.
 - Demos with `picking: true` trigger `setupPickingOverlay` in `demo-runner.ts`, which calls `setQuality({ picking: true })` programmatically — no URL param needed.
 - `applyFixtureAutoPush` in `demo-runner.ts` auto-pushes sample data for `fixture_inline_push`, `multiline_labels`, and `fixture_typed_array_points` when `?e2e=1` is absent. E2e tests pass `?e2e=1` to control push cadence themselves.
 - `xgis-inspector.ts` is loaded dynamically (`?profile=1`); it monkey-patches renderer internals after a 1-second delay to allow construction. If the map isn't ready at 1 s it retries at 1.5 s.
@@ -43,7 +45,7 @@ TypeScript entry-point modules for the four Vite HTML pages (`index.html`, `demo
 - The `__*__` screenshot/probe output dirs under `../e2e/` are generated artifacts — one summary line per run, not enumerated.
 
 ### Common Patterns
-- `demos.ts` uses the `Demo` interface: `{ name, tag, description, source, picking? }`. The `source` field is the raw `.xgis` text (never a URL).
+- The `Demo` interface (`{ name, tag, description, source, picking? }`) is defined in `demos/loader.ts`. The `source` field is the raw `.xgis` text (never a URL).
 - `parseHash` / `formatHash` helpers are inlined in both `demo-runner.ts` and `compare-runner.ts` — keep them in sync on any hash-format change.
 - Sprite/glyphs URLs for the Mapbox-import flow are stashed in module-scope `pendingSpriteUrl` / `pendingGlyphsUrl` and consumed by the `XGISMap` constructor inside `runSource`.
 - `?compute=1` opt-in threads through `XGISMap({ enableComputePath: true })` and bypasses `convertMapboxStyle`'s match-expander in `compare-runner.ts`.

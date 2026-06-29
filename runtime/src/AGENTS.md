@@ -1,10 +1,10 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-06-03 | Updated: 2026-06-23 -->
+<!-- Generated: 2026-06-03 | Updated: 2026-06-29 -->
 
 # src
 
 ## Purpose
-Root of the `@xgis/runtime` source tree. The four top-level source files are the public entry barrel (`index.ts`), the runtime capability flag table (`capabilities.ts`), a Vite worker-query ambient shim (`vite-shims.ts`), and an ambient type declaration for `earcut` (`earcut.d.ts`). All substantive implementation lives in seven subdirectories: `engine/` (camera, projections, WebGPU device/context, all render passes, text/SDF/PBF glyph pipeline, sprite atlas, GPU staging buffers), `data/` (tile catalog/router, per-format source backends, GeoJSON tiling worker pool, filter/extrude eval, polar-cap synthesis), `loader/` (GeoJSON parser, vector-tile-loader for PMTiles/TileJSON, SSE tile selector, polar-cap detector), `core/` (GPU-free geometry/scheduling primitives), `web/` (the `<xgis-map>` custom element), `debug/` (CPU-only tile-pipeline predictor and simulator), and `diagnostics/` (per-frame render-trace capture).
+Root of the `@xgis/runtime` source tree. The four top-level source files are the public entry barrel (`index.ts`), the runtime capability flag table (`capabilities.ts`), a Vite worker-query ambient shim (`vite-shims.ts`), and an ambient type declaration for `earcut` (`earcut.d.ts`). All substantive implementation lives in subdirectories: `engine/` (camera, projections, WebGPU device/context, all render passes, text/SDF/PBF glyph pipeline, sprite atlas, GPU staging buffers), `data/` (tile catalog/router, per-format source backends, GeoJSON tiling worker pool, filter/extrude eval, polar-cap synthesis), `loader/` (GeoJSON parser, vector-tile-loader for PMTiles/TileJSON, SSE tile selector, polar-cap detector), `core/` (GPU-free geometry/scheduling primitives), `capabilities/` (per-layer-type capability descriptors assembled by `capabilities.ts`), `web/` (the `<xgis-map>` custom element), `debug/` (CPU-only tile-pipeline predictor and simulator), `diagnostics/` (per-frame render-trace capture), and `dev/` (dev-only `devAssert` cross-path invariant helper).
 
 ## Key Files
 | File | Description |
@@ -19,8 +19,10 @@ Root of the `@xgis/runtime` source tree. The four top-level source files are the
 ## Subdirectories
 | Directory | Purpose |
 |-----------|---------|
+| `capabilities/` | Per-layer-type capability descriptors (`background.ts`, `circle.ts`, `fill.ts`, `fill-extrusion.ts`, `heatmap.ts`, `line.ts`, `raster.ts`, `symbol.ts`, `types.ts`) spread into the `RUNTIME_CAPABILITIES` table by `capabilities.ts`. |
 | `core/` | GPU-free geometry and scheduling primitives: line-segment build, polygon mesh construction, boundary-cap suppression, priority queue (see `core/AGENTS.md`). |
 | `data/` | Tile catalog/router, per-format source backends, GeoJSON tiling worker pool, filter/extrude eval, polar-cap synthesis (see `data/AGENTS.md`). |
+| `dev/` | Dev-only `devAssert` helper (`dev-assert.ts`) for cross-path invariant checks, stripped from production builds. |
 | `debug/` | CPU-only tile-pipeline predictor and simulator for deterministic coverage analysis without a GPU (see `debug/AGENTS.md`). |
 | `diagnostics/` | `RenderTrace` — per-frame capture of render intent (layer draws, tile decisions) for offline analysis (see `diagnostics/AGENTS.md`). |
 | `engine/` | Camera, 8-surface projections, WebGPU device/context, all render passes, text/SDF/PBF glyph pipeline, sprite atlas, GPU staging buffers (see `engine/AGENTS.md`). |

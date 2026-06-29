@@ -1,16 +1,17 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-29 -->
 
 # site/src/layouts/
 
 ## Purpose
-Page-level chrome wrappers for the Astro docs site. `Base.astro` is the root HTML shell used by every page: it handles `<head>` metadata (canonical URL, OG/Twitter cards, JSON-LD structured data for SoftwareSourceCode + WebSite), GH Pages base-prefix resolution for assets, and mounts `MobileNavDrawer` at body root. `Docs.astro` extends `Base` with the full docs chrome: a Diátaxis-structured left sidebar nav (7 groups — Overview, Get started, Guides, Language, Reference, Concepts, API), a mobile breadcrumb strip, main content slot, prev/next pagination, `PageFeedback`, "Edit on GitHub" + "Report an issue" footer links with build-time `gitMeta` last-updated stamp, and an `OnThisPage` TOC in the right column (xl+ only, shown only when `headings` is non-empty).
+Page-level chrome wrappers for the Astro docs site. `Base.astro` is the root HTML shell used by every page: it handles `<head>` metadata (canonical URL, OG/Twitter cards, JSON-LD structured data for SoftwareSourceCode + WebSite), GH Pages base-prefix resolution for assets, and mounts `MobileNavDrawer` at body root. `Docs.astro` extends `Base` with the full docs chrome: a Diátaxis-structured left sidebar nav, a mobile breadcrumb strip, main content slot, prev/next pagination, `PageFeedback`, "Edit on GitHub" + "Report an issue" footer links with build-time `gitMeta` last-updated stamp, and an `OnThisPage` TOC in the right column (xl+ only, shown only when `headings` is non-empty). `ShaderDsl.astro` is the shell for the `/shader-dsl/**` section.
 
 ## Key Files
 | File | Description |
 |------|-------------|
-| `Base.astro` | HTML shell: canonical URL + GH Pages `BASE_URL` prefix handling, OG/Twitter meta, JSON-LD (`SoftwareSourceCode` + `WebSite`), ink `theme-color`, favicon, self-hosted-font comment (Big Shoulders Display / Archivo / Spline Sans Mono via `@fontsource-variable`), body with `<slot>` + `MobileNavDrawer` |
+| `Base.astro` | HTML shell: canonical URL + GH Pages `BASE_URL` prefix handling, OG/Twitter meta, JSON-LD (`SoftwareSourceCode` + `WebSite`), `theme-color`, favicon, self-hosted Inter + Geist Mono variable fonts (imported in `global.css` via `@fontsource-variable`), body with `<slot>` + `MobileNavDrawer` |
 | `Docs.astro` | Docs layout: wraps `Base` with sticky desktop sidebar (`navGroups` hard-coded Diátaxis order), mobile breadcrumb nav (group + page label, no horizontal strip), article slot, `PageFeedback`, prev/next pagination derived from flattened `navGroups`, "Edit on GitHub" + "Report an issue" links, `gitMeta` last-updated + contributor count, `OnThisPage` TOC; props: `current` (slug after `/docs/`), `title`, `description`, `headings?` |
+| `ShaderDsl.astro` | Section shell for `/shader-dsl/**` pages (the shader-DSL docs subsite) |
 
 ## For AI Agents
 
@@ -40,6 +41,6 @@ Page-level chrome wrappers for the Astro docs site. `Base.astro` is the root HTM
 - `src/styles/global.css` — imported by `Base.astro`
 
 ### External
-- `@fontsource-variable/big-shoulders-display`, `@fontsource-variable/archivo`, `@fontsource-variable/spline-sans-mono` (self-hosted fonts, referenced in global CSS)
+- `@fontsource-variable/inter`, `@fontsource-variable/geist-mono` (self-hosted fonts, imported in `global.css`)
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->

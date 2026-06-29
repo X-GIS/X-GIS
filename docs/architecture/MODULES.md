@@ -1,6 +1,7 @@
 # Module dependency map
 
-Last revised: 2026-06-02.
+Last revised: 2026-06-02 (paths refreshed 2026-06-29 for the `@xgis/shader-dsl`
+package extraction).
 
 This document maps the import-direction DAG of X-GIS: the cross-package
 layering (`compiler → runtime`, acyclic) and the engine subsystem graph
@@ -15,7 +16,9 @@ this file is wrong; treat a divergence as a doc bug.
 
 ## 1. Package DAG
 
-Four published workspaces plus consumers. The arrow is the import
+Five published workspaces (`shared`, `shader-dsl`, `compiler`, `runtime`, plus
+the `blueprint` editor) plus consumers. `@xgis/shader-dsl` is a zero-dep leaf,
+imported by both `compiler` (codegen) and `runtime`. The arrow is the import
 direction (`A → B` = "A imports B").
 
 ```
@@ -33,7 +36,7 @@ direction (`A → B` = "A imports B").
 └───────▲────────┘          └─────────────────┘
         │ @xgis/runtime imports @xgis/compiler (59 non-test files)
 ┌───────┴────────┐
-│  @xgis/runtime │   engine (XGISMap, renderers, camera, shader-dsl),
+│  @xgis/runtime │   engine (XGISMap, renderers, camera, shaders/dsl),
 │                │   data (TileCatalog), loader, core
 └───────▲────────┘
         │
@@ -48,13 +51,14 @@ Edges, grounded:
   `@xgis/compiler` (lexer, parser, `lower`, `optimize`, `emitCommands`,
   `ShaderVariant`, `tileKey`, `POLYGON_FILL_FORMAT`, …). Entry point is
   `map.ts:5`.
-- **`compiler → runtime`: NONE.** The only mention of `@xgis/runtime` inside
-  `compiler/src` is a comment in `codegen/node-to-wgsl.ts:20` explaining why
-  the edge is forbidden: `compiler/tsconfig.json` has `rootDir: ./src`, so a
-  relative import of a runtime file would push it outside `rootDir` (tsc
-  error), and a workspace dep "would create a cycle." The compiler keeps a
-  **self-contained `emit` copy** of the WGSL expression backend instead; a
-  round-trip test pins the boundary. The DAG is acyclic by construction.
+- **`compiler → runtime`: NONE.** There is still no `@xgis/runtime` import
+  inside `compiler/src`; the DAG is acyclic by construction. The codegen WGSL
+  emit no longer needs runtime — `compiler/codegen` now imports the IR + emit
+  from the zero-dep **`@xgis/shader-dsl`** package (`node-types.ts` imports
+  `Expr`/`ShaderType`; `compute-gen.ts` authors kernels through its IR). A
+  residual hand copy of the WGSL backend survives test-only in
+  `codegen/node-to-wgsl.ts` as an emit-shape oracle (see
+  `package-responsibilities.md` §5).
 - **`@xgis/shared`** is the shared math kernel (`ecef.ts`, ~9 KB). It is
   imported by both `runtime/src/engine/projection/ecef.ts` (a thin
   `export * from '@xgis/shared'` re-export keeping every `../projection/ecef`
@@ -90,11 +94,11 @@ import direction.
             ┌──────────────────────┘    │    └─────────────┼─────────────────┤
             ▼                           ▼                  ▼                 ▼
      ┌──────────────┐            ┌─────────────┐    ┌──────────────────────────┐
-     │  projection/ │◄───────────│   gpu/      │    │      shader-dsl/         │
-     │  camera,     │  (camera   │ gpu-shared, │    │ core/(ir,backends,schema)│
-     │  globe,      │   imports  │ gpu-arena,  │    │ shaders/(polygon,line,   │
-     │  projections-│   gpu-     │ frame-arena,│    │   point,text,sdf,raster, │
-     │  table (SoT) │   shared)  │ quality,    │    │   projections, …)        │
+     │  projection/ │◄───────────│   gpu/      │    │      shaders/dsl/        │
+     │  camera,     │  (camera   │ gpu-shared, │    │ graphs(polygon,line,     │
+     │  globe,      │   imports  │ gpu-arena,  │    │   point,text,sdf,raster, │
+     │  projections-│   gpu-     │ frame-arena,│    │   projections, …)        │
+     │  table (SoT) │   shared)  │ quality,    │    │ on @xgis/shader-dsl pkg  │
      └──────┬───────┘            │ compute     │    │ index.ts = public barrel │
             │                    └──────┬──────┘    └────────────┬─────────────┘
             │ projections-table         │ gpu-shared re-exports   │ emits WGSL strings
@@ -113,15 +117,15 @@ import direction.
 | **render** | `engine/render/` | GPU buffer/bind-group/draw-call orchestration. `vector-tile-renderer.ts` (VTR), `renderer.ts` (MapRenderer), per-geometry `point/line/raster-renderer`, `bucket-scheduler`, `uniform-ring`, `render-targets`, `bundle-cache`. | `gpu`, `projection`, `shader-dsl`, `data`, `loader`, `core` |
 | **gpu** | `engine/gpu/` | WebGPU device, buffers, arenas, compute, quality. `gpu-shared.ts` holds `WORLD_MERC` / `TILE_PX` and **re-exports the projection table's derived predicates** (`gpu-shared.ts:303`). `gpu-arena`, `frame-arena`, `staging-buffer-pool`, `compute`, `bind-tiers`, `palette-texture`. | `projection` (re-export only), shared GPU primitives |
 | **projection** | `engine/projection/` | Camera math, globe path, forward/inverse maps, and `projections-table.ts` = **single source of truth** (§3). `camera.ts`, `globe.ts`, `projection.ts`, `ecef.ts` (re-export of `@xgis/shared`). | `gpu/gpu-shared`, `gpu/gpu` (camera imports gpu, not vice-versa) |
-| **shader-dsl** | `engine/shader-dsl/` | WGSL emit authority. `core/` (ir + backends + schema) is **internal**; `shaders/` holds the per-geometry graphs; `index.ts` is the only public barrel — consumers import `from '../shader-dsl'`, never the inner modules. | `compiler` types only; leaf w.r.t. other engine subsystems |
+| **shaders/dsl** | `engine/shaders/dsl/` | WGSL emit authority — the X-GIS shader **graphs** (polygon/line/point/text/sdf/raster/heatmap/projections) authored on the standalone `@xgis/shader-dsl` framework package (the IR + backends + emit live in that package now, not under `engine/`). `index.ts` is the only public barrel — consumers import `from '../shaders/dsl'`, never the inner modules. | `@xgis/shader-dsl` (framework), `compiler` types; leaf w.r.t. other engine subsystems |
 | **text** | `engine/text/` | Label pipeline: `text-stage.ts` (resolve → layout → collision → raster → atlas), `text-renderer`, `text-collision`, `sdf/` glyph atlas + PBF/Canvas rasterizers. | `gpu/frame-arena`, `shader-dsl` (text/sdf graphs), `sdf/` internals |
 | **sprite** | `engine/sprite/` | Icon pipeline: `icon-stage.ts`, `icon-renderer.ts`, `sprite-atlas-host/gpu`. Parallel to text but for sprites/POI/shields. | `gpu`, `shader-dsl` (icon graph) |
 | **camera** | `engine/camera/` | **Empty.** Camera code lives in `engine/projection/camera.ts` and `engine/camera-controller.ts` (engine root). The `camera/` dir is a placeholder. | — |
 
-Note on `shader-dsl/shaders/projections.ts` vs the legacy
-`engine/shaders/projection.ts`: the DSL `shaders/projections.ts` is the
+Note on `engine/shaders/dsl/projections.ts` vs the legacy
+`engine/shaders/projection.ts`: the DSL `dsl/projections.ts` is the
 emit graph; a separate legacy `engine/shaders/projection.ts` still exists
-and is consumed in places. Treat `shader-dsl` as the emit authority going
+and is consumed in places. Treat `shaders/dsl` as the emit authority going
 forward, but both paths are live in the tree today.
 
 ---
@@ -216,7 +220,7 @@ declarations, including overloads/getters); LOC are exact `wc -l`.
 |---------|--------|
 | Projection capability / projType | `projection/projections-table.ts` (SoT) |
 | Camera / view matrix / globe | `projection/camera.ts`, `projection/globe.ts` |
-| WGSL emit | `shader-dsl/` (public barrel `shader-dsl/index.ts`) |
+| WGSL emit | graphs in `engine/shaders/dsl/` (barrel `shaders/dsl/index.ts`), framework in `@xgis/shader-dsl` |
 | Vector tile draw | `render/vector-tile-renderer.ts` |
 | Non-tile draw (graticule, OIT, pipelines) | `render/renderer.ts` (MapRenderer) |
 | Per-frame orchestration | `render-loop.ts` (delegate of XGISMap) |

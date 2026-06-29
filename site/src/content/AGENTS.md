@@ -1,10 +1,10 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-29 -->
 
 # site/src/content/
 
 ## Purpose
-Typed TypeScript data modules that serve as the single source of truth for structured page content. Two modules live here: `gallery-demos.ts` (the authoritative `Category[]` + `Demo[]` list consumed by `examples.astro` and the search index) and `reference-sections.ts` (the `ReferenceSection[]` list consumed by `reference.astro` and the search index). Keeping data here rather than inline in pages ensures the build-time search index stays consistent with the rendered pages. No subdirectories; no other source files.
+Typed TypeScript data modules that serve as the single source of truth for structured page content, plus an Astro content collection. The TS modules: `gallery-demos.ts` (the authoritative `Category[]` + `Demo[]` list consumed by `examples.astro` and the search index) and `reference-sections.ts` (the `ReferenceSection[]` list consumed by `reference.astro` and the search index). Keeping data here rather than inline in pages ensures the build-time search index stays consistent with the rendered pages. The `blog/` subdirectory holds the markdown `blog` content collection (schema in `src/content.config.ts`), rendered by `pages/blog/`.
 
 ## Key Files
 | File | Description |

@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-06-03 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-06-03 | Updated: 2026-06-29 -->
 
 # tiler
 
@@ -15,6 +15,8 @@ The `geojsonvt/` subdirectory contains a 1:1 TypeScript port of mapbox/geojson-v
 | `polygon-tiler.ts` / `line-tiler.ts` / `point-tiler.ts` | Per-geometry compile concerns split out of `compileSingleTile` (Tier-C5): clip + earcut tessellation + great-circle subdivision (polygon), segment build (line), point assembly. They IMPORT the shared byte-contract packers (`packECEF*`, DSFUN quant, `polygon-vertex-format`) — those stay shared, never inlined/forked (CPU↔WGSL vertex contract). |
 | `vector-tiler-types.ts` | Type/interface declarations extracted from `vector-tiler.ts`: `CompiledTile`, `CompiledTileSet`, `TileLevel`, `GeometryPart`, `PropertyTable`, `TilerOptions`, `FeatureIdResolver`. |
 | `vector-tiler-helpers.ts` | Side-effect-free Morton Z-order tile-key helpers: `mortonEncode/Decode`, `tileKey`, `tileKeyUnpack`, `tileKeyParent`, `tileKeyChildren`. Hot-path optimized (z-order accumulation loop, avoids `Math.pow` in tight loops). |
+| `ecef-packing.ts` | ECEF/DSFUN GPU byte-packing kernels lifted out of `vector-tiler.ts`: `packECEFPolygonVertices` (stride-24), `packECEFLineSegments` / `packDSFUNLineVertices` (stride-10/11), `packECEFPointFeatures` (stride-9), plus `lonLatToMercF64`, `splitF64`, `tileEcefCenterFromMerc`. Each is a pure `(scratch[, anchor]) → TypedArray`; byte-for-byte fuzz tests reconstruct the exact bytes. The per-geometry tilers import these back unchanged (CPU↔WGSL contract). |
+| `geometry-sphere.ts` | Great-circle geometry on the unit sphere extracted verbatim from `vector-tiler.ts`: slerp interpolate, arc-degree measure, and ≤1°-sub-vertex densify so line/ring edges hug the sphere under globe/orthographic projections. Pure math, zero deps; sole consumer is `makeLinePart`. |
 | `polygon-vertex-format.ts` | Single source of truth for the quantized ECEF polygon vertex layout (`POLYGON_FILL_FORMAT`, `POLYGON_EXTRUDED_FORMAT`). Uses `buildFormat` so stride and byte offsets are computed, not hand-copied, preventing packer-vs-shader drift. |
 | `vertex-format.ts` | Generic vertex format infrastructure: `buildFormat`, `field`, `VertexFormat`, `VbFormat`, `WgslType`, `VB_FORMAT_BYTES`. Lives in compiler so runtime shader-DSL and compiler packers share one source. |
 | `dequant-mirror.ts` | CPU mirrors of the GPU `dequant_ecef` WGSL function: `dequantVertex` (f64, quantization error only) and `dequantVertexF32` (Math.fround models GPU f32 arithmetic). Also `mulMat4Vec4F32` for the MVP clip-parity gate. Used in compute parity tests. |

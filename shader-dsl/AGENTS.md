@@ -1,13 +1,14 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-06-23 | Updated: 2026-06-23 -->
+<!-- Generated: 2026-06-23 | Updated: 2026-06-29 -->
 
 # shader-dsl (`@xgis/shader-dsl`)
 
 ## Purpose
 A zero-dependency TypeScript shader DSL that eliminates hand-maintained GPU/CPU drift. A shader is authored
 ONCE as a typed node graph (the IR); three backends then emit it over ONE shared tree-walk — a **WGSL**
-writer (the production strings for `device.createShaderModule`), a **GLSL ES 3.00** writer (a
-target-neutrality proof, string-shape validated, not yet GPU-compiled), and a **CPU f64 oracle** that walks
+writer (the production strings for `device.createShaderModule`), a **GLSL ES 3.00** writer (real for
+render pipelines — vertex+fragment entry-IO + std140 UBO, WebGL2 compile+render-verified; compute/SSBO
+fail closed), and a **CPU f64 oracle** that walks
 the same IR on the host for projection math (the generated replacement for the deleted
 `projection-wgsl-mirror.ts`). The package is consumed by `runtime/` (and `compiler/`) for projection /
 line / polygon / point / raster / text / icon / compute shaders. The authoring surface is deliberately
@@ -49,6 +50,11 @@ type, familiar `If`/`Switch` — see **`AUTHORING.md`** for the full guide.
 - One IR, three backends, one tree-walk — any new emit feature must be added to the shared walk, not a single
   backend, or the CPU oracle / GLSL writer drift.
 - The auto-var pass relies on Expr OBJECT IDENTITY; it runs on ALL THREE backends — never skip it on a new one.
+- **Module constants** are scalar dual-precision by default (`ConstDecl.wgslValue` truncated vs `cpuValue`
+  full-precision, e.g. `PI`). A non-scalar const (vec / array / struct) sets `ConstDecl.valueExpr` instead —
+  a constant-foldable literal Expr that supersedes `wgslValue`/`cpuValue` on every backend (WGSL + GLSL emit
+  it through the neutral `emitExpr`; the oracle evaluates it via the same tree-walk, consts populated in
+  declaration order). Author one with the `constExpr(name, type, valueNode)` helper.
 
 ## Dependencies
 
