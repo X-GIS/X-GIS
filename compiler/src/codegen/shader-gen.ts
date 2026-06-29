@@ -4,7 +4,7 @@
 
 import type { RenderNode, ColorValue, OpacityValue } from '../ir/render-node'
 import { rgbaToHex } from '../ir/render-node'
-import { exprToWGSL, collectFields, type WGSLFnEnv } from './wgsl-expr'
+import { exprToWGSL, astToNode, collectFields, type WGSLFnEnv } from './wgsl-expr'
 import { generatePaletteWGSL } from './categorical-encoder'
 import type { Palette } from './palette'
 import {
@@ -22,7 +22,7 @@ import type { NodeLike } from './node-types'
 import {
   composeFillVec4, constRefVec4, refF32,
   toU32, u32Lit, u32Mod, arrayIndex, featDataField,
-  mix4, clampF32, f32Add, f32Sub, f32Mul, f32Div, f32Lit, vec4fFromRgba,
+  mix4, clampF32, f32Sub, f32Div, f32Lit, vec4fFromRgba,
 } from './_util/node-builders'
 import {
   buildFieldMap,
@@ -345,21 +345,18 @@ function processColorValue(
       if (lowColor && highColor) {
         const [lr, lg, lb, la] = lowColor
         const [hr, hg, hb, ha] = highColor
-        // Phase 2.5 US-005 idiom (gradient) — when val/min/max are
-        // simple field accesses or number literals, build mix4(low,
-        // high, clamp(...)) Node end-to-end. Falls back to wgslRaw
-        // when any of the three args needs the full DataExpr->Node
-        // converter (compound binops, builtin calls).
-        const valNode = simpleScalarNode(ast.args[0], fieldMap)
-        const minNode = simpleScalarNode(ast.args[1], fieldMap)
-        const maxNode = simpleScalarNode(ast.args[2], fieldMap)
-        const nodeExpr = (valNode && minNode && maxNode)
-          ? mix4(
-              vec4fFromRgba(lowColor),
-              vec4fFromRgba(highColor),
-              clampF32(f32Div(f32Sub(valNode, minNode), f32Sub(maxNode, minNode)), f32Lit(0), f32Lit(1)),
-            )
-          : undefined
+        // Build mix4(low, high, clamp(...)) Node end-to-end. `astToNode`
+        // converts any val/min/max AST shape (compound binops, builtins,
+        // pipes, user-fn inlining) to IR, byte-consistent with the `expr`
+        // string (both go through the same AST→Node path).
+        const valNode = astToNode(ast.args[0], fieldMap, fnEnv)
+        const minNode = astToNode(ast.args[1], fieldMap, fnEnv)
+        const maxNode = astToNode(ast.args[2], fieldMap, fnEnv)
+        const nodeExpr = mix4(
+          vec4fFromRgba(lowColor),
+          vec4fFromRgba(highColor),
+          clampF32(f32Div(f32Sub(valNode, minNode), f32Sub(maxNode, minNode)), f32Lit(0), f32Lit(1)),
+        )
         return {
           preamble: [],
           isConst: false, needsFeatures: true, isVec4: true,
@@ -403,19 +400,17 @@ function processColorValue(
       if (lowColor && highColor) {
         const [lr, lg, lb, la] = lowColor
         const [hr, hg, hb, ha] = highColor
-        // Phase 2.5 US-005 idiom — scale() emits the same WGSL shape
-        // as gradient() (mix between two literal vec4 endpoints).
-        // Reuses the same Node composition path.
-        const valNode = simpleScalarNode(ast.args[0], fieldMap)
-        const minNode = simpleScalarNode(ast.args[1], fieldMap)
-        const maxNode = simpleScalarNode(ast.args[2], fieldMap)
-        const nodeExpr = (valNode && minNode && maxNode)
-          ? mix4(
-              vec4fFromRgba(lowColor),
-              vec4fFromRgba(highColor),
-              clampF32(f32Div(f32Sub(valNode, minNode), f32Sub(maxNode, minNode)), f32Lit(0), f32Lit(1)),
-            )
-          : undefined
+        // scale() emits the same WGSL shape as gradient() (mix between
+        // two literal vec4 endpoints) — same Node composition path,
+        // `astToNode` for any val/min/max AST shape.
+        const valNode = astToNode(ast.args[0], fieldMap, fnEnv)
+        const minNode = astToNode(ast.args[1], fieldMap, fnEnv)
+        const maxNode = astToNode(ast.args[2], fieldMap, fnEnv)
+        const nodeExpr = mix4(
+          vec4fFromRgba(lowColor),
+          vec4fFromRgba(highColor),
+          clampF32(f32Div(f32Sub(valNode, minNode), f32Sub(maxNode, minNode)), f32Lit(0), f32Lit(1)),
+        )
         return {
           preamble: [],
           isConst: false, needsFeatures: true, isVec4: true,
@@ -491,16 +486,14 @@ function processOpacity(
     fields.forEach(f => featureFields.add(f))
     const fieldMap = buildFieldMap(featureFields)
     const wgsl = exprToWGSL(value.expr.ast, fieldMap, fnEnv)
-    // Phase 2.5 US-005 idiom (data-driven opacity, simple shapes) —
-    // when the AST is an Identifier / FieldAccess / NumberLiteral,
-    // build the f32 Node via featDataField / f32Lit. Complex AST
-    // (arithmetic, builtins) needs the full DataExpr converter.
+    // Data-driven opacity → f32 Node via `astToNode` (any AST shape,
+    // byte-consistent with the `expr` string built from the same path).
     return {
       preamble: [],
       needsUniform: false,
       needsFeatures: true,
       expr: wgsl,
-      nodeExpr: simpleScalarNode(value.expr.ast, fieldMap) ?? undefined,
+      nodeExpr: astToNode(value.expr.ast, fieldMap, fnEnv),
     }
   }
 
@@ -551,64 +544,6 @@ function processOpacity(
 }
 
 // ═══ Expression builders ═══
-
-// Phase 2.5 US-005 — best-effort AST -> Node converter for the scalar
-// shapes exprToWGSL handles cleanly:
-//   - NumberLiteral   -> f32Lit(value)
-//   - Identifier      -> featDataField(name, fieldMap) (when known)
-//   - FieldAccess     -> featDataField(field, fieldMap) (when known)
-//   - BinaryExpr +-*/ -> recursive f32Add/Sub/Mul/Div composition
-// Returns null for shapes needing the full DataExpr converter
-// (comparison / logical binops, builtin calls, pipe expressions);
-// callers then route to the legacy wgslRaw path.
-function simpleScalarNode(
-  ast: import('../parser/ast').Expr,
-  fieldMap: Map<string, number>,
-): NodeLike<'f32'> | null {
-  if (ast.kind === 'NumberLiteral') return f32Lit(ast.value)
-  if (ast.kind === 'Identifier' && ast.name !== 'zoom') return featDataField(ast.name, fieldMap)
-  if (ast.kind === 'FieldAccess') return featDataField(ast.field, fieldMap)
-  if (ast.kind === 'BinaryExpr') {
-    const left = simpleScalarNode(ast.left, fieldMap)
-    const right = simpleScalarNode(ast.right, fieldMap)
-    if (!left || !right) return null
-    switch (ast.op) {
-      case '+': return f32Add(left, right)
-      case '-': return f32Sub(left, right)
-      case '*': return f32Mul(left, right)
-      case '/': return f32Div(left, right)
-      default: return null // '%', comparison, logical → not supported here
-    }
-  }
-  // Phase 2.5 US-005 — recognise the WGSL-builtin scalar fn calls
-  // exprToWGSL maps through the WGSL_BUILTINS table (clamp, min,
-  // max, abs, sqrt, floor, ceil, sin, cos, ...). Returns a typed
-  // call op when every arg also resolves to a simple scalar Node.
-  if (ast.kind === 'FnCall' && ast.callee.kind === 'Identifier') {
-    const SIMPLE_BUILTINS = new Set([
-      'clamp', 'min', 'max', 'abs', 'sqrt', 'floor', 'ceil', 'round',
-      'log', 'log2', 'exp', 'exp2', 'pow',
-      'sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'atan2',
-    ])
-    if (SIMPLE_BUILTINS.has(ast.callee.name)) {
-      const args: NodeLike<'f32'>[] = []
-      for (const arg of ast.args) {
-        const n = simpleScalarNode(arg, fieldMap)
-        if (!n) return null
-        args.push(n)
-      }
-      return {
-        expr: {
-          op: 'call',
-          type: { kind: 'scalar', scalar: 'f32' },
-          fn: ast.callee.name,
-          args: args.map(a => a.expr),
-        },
-      } as NodeLike<'f32'>
-    }
-  }
-  return null
-}
 
 // Phase 2.5 US-005 idiom #1+#2 — recognise paths whose ColorResult.expr
 // and OpacityResult.expr are PURE VARREFS (single identifier optionally
