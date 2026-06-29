@@ -16,19 +16,20 @@ on:
       - 'docs/**'
       - 'LICENSE'
       - '.gitignore'
-  push:
-    branches: [main]
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
-      - 'LICENSE'
-      - '.gitignore'
+  # NOTE: no `push: main` trigger. Every change reaches main through a PR,
+  # which already ran this whole workflow — re-running it on the post-merge
+  # push just duplicated the full matrix for no gating benefit (main has no
+  # required checks, and deploy-pages.yml runs independently of this one).
+  # `workflow_dispatch` keeps a manual on-demand run available for main if
+  # ever needed. If direct pushes to main (bypassing PRs) become a thing and
+  # need CI, add the `push: branches: [main]` trigger back.
+  workflow_dispatch:
 
 # Cancel a PR's older in-flight run when a new commit is pushed to the same
 # ref — iterative pushes used to leave 3-5min runs burning in parallel.
-# Keyed on github.ref, so each PR branch (and main) cancels only its OWN
-# older run; PRs don't cancel each other. Keys on the whole workflow run, so
-# it covers all 5 `test` matrix legs + render-gate as one cancellable unit.
+# Keyed on github.ref, so each PR branch cancels only its OWN older run;
+# PRs don't cancel each other. Keys on the whole workflow run, so it covers
+# all 5 `test` matrix legs + render-gate as one cancellable unit.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
