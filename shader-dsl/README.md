@@ -129,8 +129,9 @@ cannot change an emitted byte. The std140/std430 offset engine is also exposed s
 ## Examples
 
 Runnable, runtime-free shaders live in [`examples/`](./examples) — three cartographic
-(graticule, hillshade, choropleth ramp), two generic (plasma, gradient), and one compute
-kernel. Each emits WGSL + GLSL ES 3.00 + reflection from one source:
+(graticule, hillshade, choropleth ramp), six generic (plasma, voronoi, julia, fBm clouds,
+raymarched sphere, gradient), and one compute kernel. Each emits WGSL + GLSL ES 3.00 +
+reflection from one source:
 
 ```bash
 npx tsx examples/print.ts            # print WGSL / GLSL / reflection for every example

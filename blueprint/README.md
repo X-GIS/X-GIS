@@ -101,6 +101,9 @@ bun run test     # vitest run
   `types.ts` / `codegen.ts` / `LANGUAGE_SCHEMA` 변경 후 반드시 통과해야 한다.
 - `diagnostics.test.ts` — 순수 lint 함수 커버리지.
 - `import-skip.test.ts` — 블록 스캐너의 malformed 입력 가드.
+- `deserialize-unknown-node.test.ts` / `load-history-reset.test.ts` / `wire-undo-reconnect.test.ts` —
+  에디터 시즘 가드 (untrusted JSON paste/undo, load 시 history reset, 와이어 재연결 undo 부기). 라이브
+  DOM 없이 `BlueprintEditor`를 `Object.create`해 검증.
 
 ## 관련 문서
 

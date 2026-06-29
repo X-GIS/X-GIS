@@ -1,21 +1,26 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-29 -->
 
 # site/src/components/
 
 ## Purpose
-Reusable Astro UI components shared across pages and layouts. Covers full page furniture (Header, Footer, MobileNav), home-page marketing sections (Hero, Why, QuickStart, Stats, Capabilities), docs-specific widgets (OnThisPage TOC, PageFeedback, SeeAlso, SpecLinks, Callout, RuntimeSupport), and the client-side Search overlay. No subdirectories; all components live flat in this directory.
+Reusable UI components shared across pages and layouts. Covers page furniture (Header, Footer, MobileNav, MobileNavDrawer), home-page marketing sections (WhatIsXGIS, Why, HowItCompiles, BecomesShaders, Capabilities, Coverage, Roadmap, Showcase, RuntimeSupport, QuickStart, Graticule), docs-specific widgets (OnThisPage TOC, PageFeedback, SeeAlso, SpecLinks, Callout), and the client-side Search overlay. Three subdirectories hold non-flat assets: `kit/` (Astro design primitives — see `kit/README.md`), `react/` (React islands), and `ui/` (shadcn-style React primitives).
 
 ## Key Files
 | File | Description |
 |------|-------------|
 | `Header.astro` | Top navigation bar with logo, desktop nav links, and Search trigger button |
 | `Footer.astro` | Site-wide footer with links and copyright |
-| `Hero.astro` | Home-page hero section — headline, sub-copy, CTA buttons |
-| `Why.astro` | "Beyond the library" four-pillar section on the home page |
+| `Why.astro` | "Beyond the library" pillar section on the home page |
+| `WhatIsXGIS.astro` | Home-page "what is X-GIS" explainer section |
+| `HowItCompiles.astro` | Home-page section illustrating the compile pipeline |
+| `BecomesShaders.astro` | Home-page section on style → shader compilation |
+| `Coverage.astro` | Home-page spec/feature coverage section |
+| `Roadmap.astro` | Home-page roadmap section |
+| `Showcase.astro` | Home-page showcase/gallery strip |
 | `QuickStart.astro` | Inline install + minimal code sample section on the home page |
-| `Stats.astro` | Numeric stats card (currently unused on the home page) |
-| `Capabilities.astro` | Home-page six-capability grid (projections, PMTiles, data-driven, globe, SDF symbols, layers) — inline static data, no external import |
+| `Capabilities.astro` | Home-page capability grid — inline static data, no external import |
+| `Graticule.astro` | Decorative graticule background used as page chrome |
 | `MobileNav.astro` | Mobile navigation trigger button |
 | `MobileNavDrawer.astro` | Slide-in mobile navigation drawer |
 | `OnThisPage.astro` | Right-column heading TOC for docs pages; receives `headings` prop |
@@ -25,6 +30,13 @@ Reusable Astro UI components shared across pages and layouts. Covers full page f
 | `Callout.astro` | Styled note/warning/tip admonition block used in docs prose |
 | `RuntimeSupport.astro` | Inline support-status badge (supported / partial / unsupported) |
 | `Search.astro` | Client-side fuzzy search overlay; embeds build-time index from `lib/search-index.ts` as inline JSON; parsing is deferred to first ⌘K open to avoid long-task on landing |
+
+## Subdirectories
+| Directory | Purpose |
+|-----------|---------|
+| `kit/` | Astro design primitives composed by home/section pages — Card, ContentBand, Eyebrow, FeatureRow, SectionHead, barrel `index.ts` (see `kit/README.md`) |
+| `react/` | React islands hydrated client-side — `Hero.tsx`, `Playground.tsx`, `GlobeDemo.tsx` |
+| `ui/` | shadcn-style React primitives — `badge.tsx`, `button.tsx`, `card.tsx` |
 
 ## For AI Agents
 

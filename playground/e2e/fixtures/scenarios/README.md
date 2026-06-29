@@ -40,5 +40,8 @@ name)` helper that:
 4. Records per-frame timings via natural-interaction.ts helpers.
 5. Emits a per-scenario REPORT.md row.
 
-Helper lives at `playground/e2e/helpers/scenarios.ts` (separate
-commit when the consumer specs are written).
+The loader (`loadScenario` / `listKnownScenarios`) is committed at
+`playground/e2e/helpers/scenarios.ts`; the rAF-paced driving + timing
+(steps 3–4) lives in `playground/e2e/helpers/natural-interaction.ts`
+(`runInteraction`). The combined `runScenario` wrapper lands with the
+consumer specs.

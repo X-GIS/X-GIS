@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-06-03 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-06-03 | Updated: 2026-06-29 -->
 
 # compiler
 
@@ -10,9 +10,9 @@
 | File | Description |
 |------|-------------|
 | `src/index.ts` | Public package barrel — re-exports every public symbol: `Lexer`, `Parser`, `lower`, `optimize`, `emitCommands`, all IR types, full codegen suite (ShaderVariant, wgslRaw, collectPalette, compute kernel emitters/planner/output-binding/variant builders), tiler (`compileGeoJSONToTiles`, ECEF/DSFUN packers, geodesic, simplify, clip, geojsonvt, encodeMVT, polygon/vertex formats, dequant), `decodeMvtTile`, `convertMapboxStyle`, `MAPBOX_COVERAGE`, IR analysis (`analyzeCSE`, `annotateDeps`, `Dep`), `LANGUAGE_SCHEMA`, `resolveColor`, `getStyleProfile`. Canonical map of all package exports. |
-| `src/earcut.d.ts` | Ambient module declaration for the untyped `earcut` polygon-triangulation dep (used by the tiler in Mercator-projected coordinate space). |
+| `src/tiler/earcut.d.ts` | Ambient module declaration for the untyped `earcut` polygon-triangulation dep (used by the tiler in Mercator-projected coordinate space). |
 | `bench-geojson-vt-encode.ts` | Standalone benchmark (`bun run`) timing geojson-vt + vt-pbf encode cost on e2e fixtures; upper-bounds the MVT-pipeline-insertion option. |
-| `package.json` | `@xgis/compiler` workspace package (`private: true`, `type: module`); `exports` map `.` → `src/index.ts` and `./tiler/geodesic` → `src/tiler/geodesic.ts`. Runtime deps: `@mapbox/vector-tile`, `pbf`, `@xgis/shared`. Dev: `@maplibre/maplibre-gl-style-spec`, `geojson-vt`, `vt-pbf`. |
+| `package.json` | `@xgis/compiler` workspace package (`private: true`, `type: module`); `exports` map `.` → `src/index.ts` and `./tiler/geodesic` → `src/tiler/geodesic.ts`. Runtime deps: `@mapbox/vector-tile`, `pbf`, `@xgis/shader-dsl`, `@xgis/shared`. Dev: `@maplibre/maplibre-gl-style-spec`, `geojson-vt`, `vt-pbf`. |
 | `tsconfig.json` | Per-package TypeScript project config (`tsc --build`). |
 | `README.md` | Package-level documentation. |
 
@@ -27,7 +27,7 @@
 - **GPU-free by contract.** Never import `@webgpu/types` or `navigator.gpu` here — WGSL is emitted as strings, never compiled.
 - **Pipeline order is load-bearing.** `lower()` produces the IR `Scene`; IR pass manager + `optimize()` transform it; `emitCommands()` bridges to the runtime; codegen reads the optimized `Scene`. Do not reorder stages.
 - Three expression execution classes drive most design decisions: `constant` (folded at compile time), `zoom-dependent` (CPU-interpolated per frame via uniforms/palette), and `per-feature-gpu`/`per-feature-cpu` (WGSL codegen or storage-buffer upload). See `src/ir/classify.ts`.
-- `earcut` runs intentionally in **Mercator-projected coordinates** so CPU triangulation edges match GPU rendering (lon/lat-straight edges curve in Mercator — running earcut in lon/lat produces fill artefacts at coastlines). A second `earcut.d.ts` also exists inside `src/tiler/` for the tiler's direct use.
+- `earcut` runs intentionally in **Mercator-projected coordinates** so CPU triangulation edges match GPU rendering (lon/lat-straight edges curve in Mercator — running earcut in lon/lat produces fill artefacts at coastlines). The ambient `earcut.d.ts` lives in `src/tiler/` for the tiler's direct use.
 - All public symbols must be exported through `src/index.ts`; the only permitted deep-path export is `@xgis/compiler/tiler/geodesic` (declared in `package.json` `exports`).
 - `vitest` does **not** typecheck. Run `bun run build` (`tsc --build`) before committing any change that touches exported types or test-local destructuring.
 - The compute codegen suite (`compute-gen`, `compute-plan`, `compute-output-binding`, `compute-variant`, `compute-variant-merge`, `compute-variant-build`) handles GPU compute kernels for per-feature paint evaluation — changes here ripple into runtime shader dispatch.
@@ -45,11 +45,11 @@
 ## Dependencies
 
 ### Internal
-- Imports `@xgis/shared` (shared types/utils).
+- Imports `@xgis/shared` (shared types/utils) and `@xgis/shader-dsl` (codegen routes shader/compute emission through its IR Nodes).
 - Consumed by `@xgis/runtime`, `playground`, `site`, and `blueprint` (schema).
 
 ### External
 - **Runtime:** `@mapbox/vector-tile`, `pbf` (MVT/PBF decode).
-- **Dev / port reference:** `@maplibre/maplibre-gl-style-spec` (spec oracle), `geojson-vt`, `vt-pbf`, `earcut` (ambient-typed only via `src/earcut.d.ts`).
+- **Dev / port reference:** `@maplibre/maplibre-gl-style-spec` (spec oracle), `geojson-vt`, `vt-pbf`, `earcut` (ambient-typed only via `src/tiler/earcut.d.ts`).
 
 <!-- MANUAL: notes below this line are preserved on regeneration -->

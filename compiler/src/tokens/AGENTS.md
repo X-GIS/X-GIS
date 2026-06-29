@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-29 -->
 
 # tokens
 
@@ -9,7 +9,7 @@ Design-token color resolution for the X-GIS compiler. Holds a Tailwind-compatibl
 ## Key Files
 | File | Description |
 |------|-------------|
-| `colors.ts` | Tailwind PALETTE (22 hues × 11 shades), NAMED_COLORS (CSS Color 4, 148 entries), `resolveColor(name) → string \| null`, `parseCssColorFn` (rgb/rgba/hsl/hsla/hwb/lab/oklab/lch/oklch → hex), `parseSrgbHex`, `srgbToLab`, `labToHex`, `labToLch`, `lchToLab`. No runtime dependencies. |
+| `colors.ts` | Tailwind PALETTE (22 hues × 11 shades), NAMED_COLORS (CSS Color 4, 148 entries), `resolveColor(name) → string \| null`, `parseCssColorFn` (rgb/rgba/hsl/hsla/hwb/lab/oklab/lch/oklch → hex), `parseSrgbHex`, `srgbToLab`, `labToHex`, `labToLch`, `lchToLab`, `resolveColorToRgba` (hex → `[r,g,b,a]` 0–1 tuple, consumed by `codegen/compute-gen`). No runtime dependencies. |
 
 No subdirectories. `colors-fuzz.test.ts` is colocated (see Testing below).
 
@@ -30,7 +30,7 @@ No subdirectories. `colors-fuzz.test.ts` is colocated (see Testing below).
 
 ### Common Patterns
 - Static palette + lookup function — zero state, zero side effects.
-- All internal helpers (`parseChannel`, `parsePercent`, `parseAlpha`, `parseHue`, `hslToRgb`, `hwbToRgb`, `labToSrgb`, `oklabToSrgb`, `linearToSrgb`, etc.) are module-private; only `resolveColor`, `parseSrgbHex`, `srgbToLab`, `labToHex`, `labToLch`, `lchToLab` are exported.
+- All internal helpers (`parseChannel`, `parsePercent`, `parseAlpha`, `parseHue`, `hslToRgb`, `hwbToRgb`, `labToSrgb`, `oklabToSrgb`, `linearToSrgb`, etc.) are module-private; only `resolveColor`, `parseSrgbHex`, `srgbToLab`, `labToHex`, `labToLch`, `lchToLab`, `resolveColorToRgba` are exported.
 
 ## Dependencies
 

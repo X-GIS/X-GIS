@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-29 -->
 
 # blueprint/src
 
@@ -13,7 +13,7 @@ All TypeScript source for `@xgis/blueprint`. Implements the visual node editor f
 | `types.ts` | Core model: `BPNode`, `BPEdge`, `BPGraph`, `BPFrame`; `NODE_SPECS` catalogue built from `@xgis/compiler`'s `LANGUAGE_SCHEMA`; `PinType`, `PinSpec`, `FieldSpec`; `PIN_COLOR` (Unreal-style typed wire colours); `pinCompatible`; `uid`; `defaultData`; `starterGraph`. |
 | `editor.ts` | `BlueprintEditor` class — pan/zoom, drag-wire, marquee, multi-select, node CRUD, comment frames, reroute knots, snap-to-grid, align/distribute, copy-paste, undo/redo, inspector panel, tooltips, node LOD. Drag state uses a discriminated union. |
 | `codegen.ts` | `graphToXgis(g: BPGraph): string` — emits valid `.xgis` source from a graph, in language-defined order, with reroute-transparent wire resolution via `incoming()`. |
-| `import.ts` | `importStyleToGraph(src: string): Promise<BPGraph>` — reverses codegen: MapLibre `style.json` or raw `.xgis` → `BPGraph` by calling `convertMapboxStyle` then block-splitting. |
+| `import.ts` | Reverses codegen → `BPGraph`. `xgisToGraph(src)` block-splits raw `.xgis`; `styleToGraph(style)` runs `convertMapboxStyle` then `xgisToGraph`; `importText(text)` dispatches heuristically (JSON `{` → style, else `.xgis`). Internal `autoLayout` arranges nodes into role-based columns. |
 | `diagnostics.ts` | `computeNodeIssues(nodes, edges): Map<id, string[]>` — pure per-node lint, no DOM. |
 | `history.ts` | `History` — bounded 100-entry undo/redo stack of opaque `JSON.stringify` snapshots. |
 | `minimap.ts` | `renderMinimap(el, view)` — corner overview canvas, shown only for graphs with ≥12 nodes. |
@@ -25,7 +25,7 @@ All TypeScript source for `@xgis/blueprint`. Implements the visual node editor f
 ## Subdirectories
 | Directory | Purpose |
 |-----------|---------|
-| `__tests__/` | Vitest unit tests: codegen contract, diagnostics, import-skip guard (see `__tests__/AGENTS.md`). |
+| `__tests__/` | Vitest unit tests: codegen contract, diagnostics, import-skip guard, plus editor-level guards (unknown-node deserialize, load-history-reset, wire-undo-reconnect) (see `__tests__/AGENTS.md`). |
 
 ## For AI Agents
 
@@ -38,7 +38,7 @@ All TypeScript source for `@xgis/blueprint`. Implements the visual node editor f
 - Node IDs must always come from `uid()`; node data must always be initialised with `defaultData(type)`.
 
 ### Testing Requirements
-- `bun run test` from `blueprint/` runs all three `__tests__/*.test.ts` files.
+- `bun run test` from `blueprint/` runs all `__tests__/*.test.ts` files.
 - `contract.test.ts` is the primary gate — must pass after any change to `types.ts`, `codegen.ts`, or the compiler schema.
 - `diagnostics.test.ts` covers the pure-lint path; `import-skip.test.ts` guards the import guard branch.
 

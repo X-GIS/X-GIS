@@ -166,4 +166,4 @@ let center_projected = project(center_lon, center_lat);
 let rtc = vertex_projected - center_projected;
 ```
 
-Supported: Mercator, Equirectangular, Natural Earth, Orthographic, Azimuthal Equidistant, Stereographic, Oblique Mercator.
+Supported: Mercator, Equirectangular, Natural Earth, Orthographic, Azimuthal Equidistant, Stereographic, Oblique Mercator, Globe (ECEF).

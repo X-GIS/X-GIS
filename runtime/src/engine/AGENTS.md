@@ -1,18 +1,18 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-06-03 | Updated: 2026-06-23 -->
+<!-- Generated: 2026-06-03 | Updated: 2026-06-29 -->
 
 # engine
 
 ## Purpose
 
-The engine directory is the top-level orchestration layer of the X-GIS WebGPU runtime. It contains the public `XGISMap` class and all of its structural decomposition modules: the per-frame render loop, camera/viewport API, source ingest, pick/interaction query, layer model, tile-resolution logic, and security hardening. It wires together the six specialist subdirectories (`gpu`, `projection`, `render`, `text`, `sprite`, `shader-dsl`) into a single coherent map lifecycle. `map.ts` (~160 KB) is the highest-level orchestrator and remains the primary integration surface despite ongoing decomposition into sibling modules via injected-callback delegation (`CameraController`, `SourceManager`, `InteractionController`, `RenderLoop`).
+The engine directory is the top-level orchestration layer of the X-GIS WebGPU runtime. It contains the public `XGISMap` class and all of its structural decomposition modules: the per-frame render loop, camera/viewport API, source ingest, pick/interaction query, layer model, tile-resolution logic, and security hardening. It wires together the six specialist subdirectories (`gpu`, `projection`, `render`, `text`, `sprite`, `shaders`) into a single coherent map lifecycle. `map.ts` (~180 KB) is the highest-level orchestrator and remains the primary integration surface despite ongoing decomposition into sibling modules via injected-callback delegation (`CameraController`, `SourceManager`, `InteractionController`, `RenderLoop`).
 
 ## Key Files
 
 | File | Description |
 |---|---|
-| `map.ts` | `XGISMap` class — the public API entry point. Owns the GPU context, camera, render loop, source registries, layer stacks, and the `run()` / `destroy()` / `renderFrame()` lifecycle. Delegates to CameraController, SourceManager, InteractionController, and RenderLoop via injected-callback decomposition. ~160 KB; #1 LOC file in the engine. |
-| `render-loop.ts` | `RenderLoop` — the per-frame GPU render method extracted verbatim from `XGISMap.renderFrame`. Sequences seven render passes (background → opaque → OIT → translucent → points → labels → overdraw-compose) via `FrameContext` + `SceneView`. Reaches map state through a typed `RenderLoopHost` Pick so member types stay in exact lock-step with `XGISMap`. |
+| `map.ts` | `XGISMap` class — the public API entry point. Owns the GPU context, camera, render loop, source registries, layer stacks, and the `run()` / `destroy()` / `renderFrame()` lifecycle. Delegates to CameraController, SourceManager, InteractionController, and RenderLoop via injected-callback decomposition. ~180 KB; #1 LOC file in the engine. |
+| `render-loop.ts` | `RenderLoop` — the per-frame GPU render method extracted verbatim from `XGISMap.renderFrame`. Sequences eight render passes (background → opaque → OIT → translucent → points → labels → heatmap → overdraw-compose) via `FrameContext` + `SceneView`. Reaches map state through a typed `RenderLoopHost` Pick so member types stay in exact lock-step with `XGISMap`. |
 | `render-loop-helpers.ts` | Pure, side-effect-free helpers extracted from the render path: per-show label paint resolution, ECEF projection helpers, world-copy offset math for the non-Mercator periodic set. No `this`, no module state — every function takes explicit inputs and returns a value. |
 | `camera-controller.ts` | `CameraController` — owns Mapbox-API-parity camera/viewport methods (`setCenter`, `setZoom`, `jumpTo`, `easeTo`, `flyTo`, `fitBounds`, `panBy`, `getBounds`, `getCameraState`). First structural decomposition of `XGISMap`. Wired via injected `invalidate` / `getCanvas` callbacks; owns `_maxBounds` and `_cameraExplicitlyPositioned`. |
 | `source-manager.ts` | `SourceManager` — owns GeoJSON/tile source ingest methods (`_attachOneSource`, `setSourceData`, EPSG reprojection path, polar-cap ordering). Second structural decomposition. Shares the `rawDatasets`/`vtSources`/`sourceCRS` Maps by reference with the host map; uses injected callbacks for `invalidate`, `rebuildLayers`, `teardownSource`. |
@@ -48,10 +48,10 @@ The engine directory is the top-level orchestration layer of the X-GIS WebGPU ru
 | `gpu/` | WebGPU device init, GPUArena byte-aware allocator, staging-buffer pool, palette texture, bind-tier helpers, compute path (`compute.ts`), quality config. See `gpu/AGENTS.md`. |
 | `projection/` | Camera matrix math for all 8 projection surfaces (Mercator, globe/ECEF, equirect, natural-earth, oblique-mercator, azimuthal, stereographic, orthographic), world-copy logic, log-depth. See `projection/AGENTS.md`. |
 | `render/` | All render passes, VectorTileRenderer (~5600 LOC, #1 debt file), RasterRenderer, PointRenderer, LineRenderer, BundleCache, bucket scheduler, prefetch-scheduler, FrameContext, RenderTargets, SceneView, compute-path wire-up. See `render/AGENTS.md`. |
-| `shader-dsl/` | TypeScript DSL that emits WGSL; CPU projection mirrors; overdraw/SDF/log-depth shaders. See `shader-dsl/AGENTS.md`. |
-| `shaders/` | Static WGSL utility modules shared with the DSL: `log-depth.ts`, `projection.ts`, `sdf.ts` (TypeScript wrappers that emit WGSL snippets). Not a separately documented child; present alongside `shader-dsl/`. See `shaders/AGENTS.md`. |
+| `shaders/` | Static WGSL utility modules (`log-depth.ts`, `projection.ts` — TypeScript wrappers that emit WGSL snippets) plus the `dsl/` child: the TypeScript DSL that emits WGSL, CPU projection mirrors, and overdraw/SDF/log-depth shaders. See `shaders/AGENTS.md`. |
 | `sprite/` | Sprite atlas host + GPU upload, IconStage. See `sprite/AGENTS.md`. |
 | `text/` | SDF glyph atlas, PBF glyph provider, TextStage, text-wrap/collision, curved-label strip, distance transform. See `text/AGENTS.md`. |
+| `state/` | `dirty.ts` — `DirtyDomains` invalidation bitset (roadmap S3). Currently a write-only back-compat wrapper over `XGISMap._needsRender`; granular consumer skips land later. No child AGENTS.md. |
 
 The `__profile__/` and `__tests__/` dirs hold perf-mark instrumentation and coverage-only test fixtures — not enumerated individually.
 
@@ -63,7 +63,7 @@ The `__profile__/` and `__tests__/` dirs hold perf-mark instrumentation and cove
 - The four structural decompositions are **behavior-identical relocations**, not decouplings. Every moved method is verbatim; the only mechanical change is `this.X` → `this.host.X`. Do not introduce new abstractions when adding to these modules.
 - `safety.ts` has zero engine dependencies by design — keep it that way. All remote-URL and ingest-budget checks must go through `assertSafeRemoteUrl` / `assertIngestBudget`.
 - `tile-decision.ts` is a pure function with no side effects. Keep it that way — decisions must be unit-testable without a GPU context.
-- `map.ts` is ~160 KB and growing. Prefer extracting new public methods to a sibling module (following the CameraController/SourceManager pattern) unless they are genuinely core to the class.
+- `map.ts` is ~180 KB and growing. Prefer extracting new public methods to a sibling module (following the CameraController/SourceManager pattern) unless they are genuinely core to the class.
 - Run `bun run build` before committing — vitest does not typecheck, and type errors here break the entire runtime package.
 - Injected accessors (`getCtx()`, `getPickTexture()`, `getProjectionName()`, `getVectorTileShows()`) must be called fresh each frame — these point at lazily-populated or reassignable values, never captured at construction.
 
@@ -88,7 +88,7 @@ The `__profile__/` and `__tests__/` dirs hold perf-mark instrumentation and cove
 - `@xgis/compiler` — lexer/parser/IR/codegen; `tileKey`, `tileKeyChildren`, `tileKeyParent`, `PaintShapes`, AST types, `emitCommands`, `evaluate`, `deserializeXGB`, `resolveImportsAsync`
 - `../data/` — `TileCatalog`, tile-select, workers (GeoJSON compile pool), sources (SyntheticEarthSurfaceBackend)
 - `../loader/` — `lonLatToMercator`, `GeoJSONFeatureCollection`, `vector-tile-loader`
-- `./gpu/`, `./projection/`, `./render/`, `./text/`, `./sprite/`, `./shader-dsl/` — all specialist subdirs
+- `./gpu/`, `./projection/`, `./render/`, `./text/`, `./sprite/`, `./shaders/` (incl. `./shaders/dsl/`) — all specialist subdirs
 
 ### External
 

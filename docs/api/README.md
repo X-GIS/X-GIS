@@ -95,7 +95,7 @@ HTML 호스트는 `<xgis-map>` 커스텀 엘리먼트(`XGISMapElement`, `registe
 | `getCamera` | `getCamera(): Camera` | 내부 `Camera` 인스턴스(URL 해시 동기화 등 저수준 용도). |
 | `markCameraPositioned` | `markCameraPositioned(): void` | 카메라를 "사용자 위치 지정됨"으로 표시 — 워커 컴파일 완료 후 자동 bounds-fit이 뷰를 덮어쓰지 않게 함(딥링크 해시 적용 후 호출). |
 
-> **public project/unproject는 없습니다.** CSS↔경위도 변환(`clientToLngLat`)은 private이며 Mercator-only입니다. `pickAt`만이 공개된 좌표→피처 질의 경로입니다(§6).
+> **`project`/`unproject`는 이제 public입니다** (`map.ts:1159,1171` — MapLibre-parity 경위도↔스크린 CSS-px). 좌표↔픽셀 변환용이며, 좌표→**피처** 질의 경로는 여전히 `pickAt`만 공개되어 있습니다(§6).
 
 ---
 
@@ -195,7 +195,7 @@ HTML 호스트는 `<xgis-map>` 커스텀 엘리먼트(`XGISMapElement`, `registe
 - **`XGISFeatureListener`**: `(event: XGISFeatureEvent) => void`
 - **`XGISFeatureEvent`** 페이로드: `type`, `target`/`currentTarget`(`XGISLayer`), `feature`(`XGISFeature`: `id`/`source`/`layer`/`properties`), `coordinate: [lon, lat]`, `pixel: [x, y]`, `clientX`/`clientY`, `originalEvent`, `timeStamp`. `preventDefault()`/`stopPropagation()`로 전파 차단.
 
-> 카메라 move/zoom 등 **viewport 이벤트는 아직 없습니다** — 이벤트 표면은 위 피처 픽 이벤트로 한정됩니다.
+> **viewport/카메라 이벤트가 추가되었습니다** (`chore/ship-p0`, P0-8). `XGISMapEventType`: `'load' | 'idle' | 'movestart' | 'move' | 'moveend' | 'zoomstart' | 'zoom' | 'zoomend'` (`engine/layer.ts:505-508`)이며 `MapEventBus`가 rAF별 카메라-시그니처 diff로 발화합니다(`engine/map-event-bus.ts`). `on`/`off`/`once`는 피처 픽 이벤트와 이 맵 이벤트를 모두 받도록 오버로드되어 있습니다(`map.ts:3291-3305`).
 
 ---
 

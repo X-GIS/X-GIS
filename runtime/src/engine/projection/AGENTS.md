@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-06-03 | Updated: 2026-06-23 -->
+<!-- Generated: 2026-06-03 | Updated: 2026-06-29 -->
 
 # projection
 
@@ -30,7 +30,7 @@ Camera math and the full 8-surface projection system for X-GIS. Holds CPU forwar
 - Known open bugs: oblique_mercator at pitch>0 (flat MVP + sphere tiles, deferred); z=0+high-pitch Mercator perspective strip; antimeridian seam flicker (water polygon T-junction, user-deferred).
 
 ### Testing Requirements
-45 test files in this directory. Key suites: `projection-wgsl-consistency.test.ts` (CPU `projection.ts` ↔ generated cpu-f64 parity — must pass on any formula change), `projections-table.test.ts` (row-by-row literal pins), `projection-threshold-drift.test.ts` (WGSL threshold pins), `projection-forward-edge.test.ts` + `projection-inverse-roundtrip.test.ts`, `camera.test.ts` + `camera-fuzz.test.ts` + `camera-coverage.test.ts` + `camera-ecef.test.ts` + `camera-ecef-mvp.test.ts` + `camera-z0-probe.test.ts` + `camera-transition-smoothness.test.ts`, `globe.test.ts` + `globe-deep-zoom-probe.test.ts` + `globe-z0-focal-tile.test.ts`, `mercator-clamp.test.ts` + `mercator-lat-limit.test.ts`, `oblique-mercator-tile-mismatch.test.ts` + `oblique-6-promotion.test.ts` + `oblique-polar-tearing.test.ts`, `polar-tile-pyramid-gap.test.ts`, `world-copy-projection.test.ts` + `visible-world-copies.test.ts`, `antimeridian-routing.test.ts` + `_antimeridian-seam-coincidence.test.ts`, `earth-surface-fill.test.ts`, `surface-geoid-unification.test.ts`, `interaction-contract-gates.test.ts`, `extruded-globe-recenter.test.ts`, `point-anchor-pitch-consistency.test.ts`, `ecef-vertex-camera-frame.test.ts`. Add a parity test for any new/changed projection formula.
+49 test files in this directory. Key suites: `projection-wgsl-consistency.test.ts` (CPU `projection.ts` ↔ generated cpu-f64 parity — must pass on any formula change), `projections-table.test.ts` (row-by-row literal pins), `projection-threshold-drift.test.ts` (WGSL threshold pins), `projection-forward-edge.test.ts` + `projection-inverse-roundtrip.test.ts`, `camera.test.ts` + `camera-fuzz.test.ts` + `camera-coverage.test.ts` + `camera-ecef.test.ts` + `camera-ecef-mvp.test.ts` + `camera-z0-probe.test.ts` + `camera-transition-smoothness.test.ts`, `globe.test.ts` + `globe-deep-zoom-probe.test.ts` + `globe-z0-focal-tile.test.ts`, `mercator-clamp.test.ts` + `mercator-lat-limit.test.ts`, `oblique-mercator-tile-mismatch.test.ts` + `oblique-6-promotion.test.ts` + `oblique-polar-tearing.test.ts`, `polar-tile-pyramid-gap.test.ts`, `world-copy-projection.test.ts` + `visible-world-copies.test.ts`, `antimeridian-routing.test.ts` + `_antimeridian-seam-coincidence.test.ts`, `earth-surface-fill.test.ts`, `surface-geoid-unification.test.ts`, `interaction-contract-gates.test.ts`, `extruded-globe-recenter.test.ts`, `point-anchor-pitch-consistency.test.ts`, `ecef-vertex-camera-frame.test.ts`. Add a parity test for any new/changed projection formula.
 
 ### Common Patterns
 - `{ name, forward, inverse }` projection objects; antipode/div-by-zero guards return NaN or centre point.

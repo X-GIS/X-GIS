@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-29 -->
 
 # pbf
 
@@ -36,7 +36,7 @@ MapLibre PBF glyph sourcing — fetch, decode, cache, and bridge server-side gly
 
 ### Internal
 - `../glyph-rasterizer` (`GlyphRasterResult` type)
-- `../safety` (`assertSafeRemoteUrl`, `readBodyCapped` — SSRF guard + body cap)
+- `engine/safety` (`assertSafeRemoteUrl`, `readBodyCapped`, `safeFetch` — SSRF guard + body cap, imported as `../../../safety`)
 
 ### External
 - None (hand-rolled protobuf; deliberately no `pbf` package).

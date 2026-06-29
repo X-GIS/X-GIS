@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-06-03 | Updated: 2026-06-23 -->
+<!-- Generated: 2026-06-03 | Updated: 2026-06-29 -->
 
 # runtime (@xgis/runtime)
 
@@ -9,9 +9,9 @@
 ## Key Files
 | File | Description |
 |------|-------------|
-| `package.json` | `@xgis/runtime` workspace package (`private: true`, ESM). Deps: `@xgis/compiler`, `@xgis/shared`, `pmtiles`, `@chenglou/pretext`, `proj4`. Dev: `geojson-vt`, `vt-pbf`. |
-| `tsconfig.json` | TypeScript project-reference config. Resolves `@xgis/compiler` and `@xgis/shared` via `../compiler/dist/index.d.ts` and `../shared/dist/index.d.ts`; also resolves `@xgis/compiler/tiler/geodesic`; emits to `./dist`; adds `@webgpu/types`. |
-| `vite.config.ts` | Library build config for `@xgis/runtime`. Bundles `@xgis/shared` and `@xgis/compiler` sources; externalises third-party deps (earcut, proj4, pmtiles, pbf, @mapbox/vector-tile); configures worker chunks and asset paths for ESM consumers and re-bundlers. |
+| `package.json` | `@xgis/runtime` workspace package (ESM, `type: module`). Runtime deps: `@mapbox/vector-tile`, `@webgpu/types`, `earcut`, `pbf`, `pmtiles`, `proj4`. Dev deps: `@xgis/compiler`, `@xgis/shader-dsl`, `@xgis/shared` (workspace), `geojson-vt`, `vt-pbf`, `rollup`, `rollup-plugin-dts`, `vite`. |
+| `tsconfig.json` | TypeScript project-reference config. Resolves `@xgis/compiler`, `@xgis/shared`, and `@xgis/shader-dsl` via their `../*/dist/index.d.ts`; also resolves `@xgis/compiler/tiler/geodesic` and `@xgis/shader-dsl/*`; emits to `./dist`; adds `@webgpu/types`. |
+| `vite.config.ts` | Library build config for `@xgis/runtime`. Bundles `@xgis/shared` and `@xgis/compiler` sources; externalises third-party deps (`earcut`, `proj4`, `pmtiles`, `pbf`, `@mapbox/vector-tile` — the `EXTERNAL` array); configures worker chunks (`?worker` graph) and asset paths (`base: './'`) for ESM consumers and re-bundlers. |
 | `src/index.ts` | Public barrel. Re-exports: `XGISMap`, `Camera`, `MapRenderer`, `StatsPanel`/`StatsTracker`, `loadGeoJSON`/`lonLatToMercator`, projection factories (`mercator`, `equirectangular`, `naturalEarth`, `orthographic`, `getProjection`), polar-cap helpers, `VectorTileLoader`/`VectorTileSource`/`PMTilesArchiveSource`/`TileJSONSource`, `XGISMapElement`/`registerXGISElement`, `ComputeDispatcher`, `createColorRampTexture`/`createRampSampler`/`availableRamps`, `RUNTIME_CAPABILITIES`/`runtimeCapability`/`runtimeGaps`. |
 | `src/capabilities.ts` | `RUNTIME_CAPABILITIES` matrix — per `(layerType, property, variant)` flags what the renderer actually honours, paired with the compiler's spec-coverage table to surface silent drops. |
 | `src/vite-shims.ts` | Ambient `declare module '*?worker'` shim for Vite's worker-bundle query suffix. Kept as `.ts` (not `.d.ts`) so it is tracked by git. |
@@ -48,15 +48,16 @@
 
 ## Dependencies
 
-### Internal
+### Internal (workspace, bundled into `dist/`)
 - `@xgis/compiler` — SceneCommands, ShaderVariant, CompiledTile, `decodeMvtTile`/`decomposeFeatures`/`compileSingleTile`, geojson-vt port, palette, expression `evaluate`, geodesic utilities.
+- `@xgis/shader-dsl` — single-emit WGSL+CPU projection DSL (the projection IR consumed by the render and CPU-mirror paths).
 - `@xgis/shared` — shared types and utilities.
 
 ### External
 - `pmtiles` — PMTiles archive reader.
-- `@chenglou/pretext` — text layout helper.
 - `proj4` — EPSG input-data reprojection (**user-approved zero-dep-policy exception**, input side only; the eight display projections remain hand-written via the shader DSL).
-- `earcut` — polygon triangulation (bundled via compiler, exposed via `src/earcut.d.ts`).
+- `earcut` — polygon triangulation (exposed via `src/earcut.d.ts`).
+- `pbf`, `@mapbox/vector-tile` — MVT decode (imported by the bundled-in compiler; kept external so the consumer resolves them).
 - `geojson-vt`, `vt-pbf` (dev) — in-memory GeoJSON tiling + MVT encoding for the virtual-PMTiles path.
 - `@webgpu/types` — WebGPU type definitions (TypeScript only).
 
