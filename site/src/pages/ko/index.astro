@@ -1,58 +1,89 @@
 ---
+// Korean landing (/ko). Mirrors the English home's tone on the shared kit —
+// Graticule background, weight-400 display heads (the brand never bolds), and
+// the same Card rhythm as WhatIsXGIS. Kept concise: a localized landing, not a
+// full translation. The honest "translation in progress" note links on to the
+// English docs.
 import Base from '../../layouts/Base.astro'
+import Graticule from '../../components/Graticule.astro'
 import Header from '../../components/Header.astro'
 import Footer from '../../components/Footer.astro'
+import { ContentBand, SectionHead, Eyebrow, Card } from '@/components/kit'
 
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+
+const cards = [
+  {
+    tag: 'COMPILER',
+    title: '컴파일러',
+    body: '선언적 스타일 → 렉서·파서·IR·옵티마이저 → GPU 프로그램. 상수는 접고, data-driven 페인트는 compute 커널로 내립니다.',
+  },
+  {
+    tag: 'SHADER IR',
+    title: '셰이더 IR',
+    body: '하나의 타입드 IR에서 WebGPU용 WGSL과 WebGL2용 GLSL을 함께 emit. CSE·상수 접기·DCE 옵티마이저가 내장돼 있습니다.',
+  },
+  {
+    tag: '3D GLOBE',
+    title: '3D 글로브',
+    body: 'ECEF·타원체 지오이드·정밀도 수학(RTC, 로그 깊이)으로 도시부터 궤도까지 한 프레임에 또렷하게 그립니다.',
+  },
+]
 ---
 
 <Base
   title="X-GIS — 카토그래피를 위한 언어"
   description="지도를 어떻게 그릴지 선언하면, 컴파일러가 최적화된 WebGPU 셰이더를 만들어 냅니다. X-GIS는 GPU 우선 지도 엔진입니다."
 >
+  <Graticule />
   <Header />
-  <main class="pt-28 sm:pt-40 pb-32">
-    <div class="max-w-[920px] mx-auto px-6">
-      <header class="mb-20 sm:mb-28">
-        <p class="font-mono text-[12px] tracking-[0.22em] uppercase text-accent mb-4">한국어</p>
-        <h1 class="font-display font-semibold uppercase text-fg leading-[0.92] tracking-[0.01em] text-[52px] sm:text-[76px] lg:text-[92px]">
-          지도를 선언하면,<br />GPU가 그린다.
-        </h1>
-        <p class="mt-7 text-[17px] sm:text-[20px] leading-[1.6] text-fg-dim max-w-[660px]">
-          X-GIS는 선언적 스타일 언어를 진짜 컴파일러로 처리해 최적화된 WebGPU
-          셰이더로 바꾸는 <strong class="text-fg">GPU 우선 지도 엔진</strong>입니다.
-          타입드 셰이더 IR, 3D 글로브 지오데시, WebGL2 폴백까지.
-        </p>
-        <div class="mt-9 flex flex-wrap gap-3">
-          <a href={`${base}/docs`} class="inline-flex items-center rounded-full bg-accent text-[var(--on-sienna)] px-5 py-2.5 text-[14px] font-medium hover:bg-accent-hover transition-colors">
-            문서 보기
-          </a>
-          <a href={`${base}/examples`} class="inline-flex items-center rounded-full border border-line px-5 py-2.5 text-[14px] text-fg hover:border-accent hover:text-accent transition-colors">
-            예제
-          </a>
-        </div>
-      </header>
-
-      <section class="grid sm:grid-cols-3 gap-8 sm:gap-10 border-t border-line pt-12">
-        <div>
-          <h2 class="font-display font-semibold text-fg text-[22px] mb-2">컴파일러</h2>
-          <p class="text-[15px] leading-[1.6] text-fg-dim">선언적 스타일 → 렉서·파서·IR·옵티마이저 → GPU 프로그램. 상수는 접고, data-driven 페인트는 compute 커널로.</p>
-        </div>
-        <div>
-          <h2 class="font-display font-semibold text-fg text-[22px] mb-2">셰이더 IR</h2>
-          <p class="text-[15px] leading-[1.6] text-fg-dim">하나의 타입드 IR에서 WebGPU용 WGSL과 WebGL2용 GLSL을 함께 emit. CSE·상수접기·DCE 옵티마이저 내장.</p>
-        </div>
-        <div>
-          <h2 class="font-display font-semibold text-fg text-[22px] mb-2">3D 글로브</h2>
-          <p class="text-[15px] leading-[1.6] text-fg-dim">ECEF·타원체 지오이드·정밀도 수학(RTC, 로그 깊이)으로 도시부터 궤도까지 한 프레임에 또렷하게.</p>
-        </div>
-      </section>
-
-      <p class="mt-16 text-[13px] text-fg-mute border-t border-line pt-6">
-        한국어 콘텐츠를 순차적으로 추가하는 중입니다. 자세한 문서는 현재 영어로 제공됩니다 —
-        <a href={`${base}/docs`} class="text-accent underline underline-offset-2">/docs</a>.
+  <main>
+    <!-- ── Hero ── -->
+    <ContentBand class="border-t-0 pt-28 sm:pt-36 lg:pt-44">
+      <Eyebrow label="한국어" class="mb-6" />
+      <h1 class="font-display font-normal text-fg leading-[1.05] tracking-[-0.02em] text-[40px] sm:text-[56px] lg:text-[72px] max-w-[16ch]">
+        지도를 선언하면,<br />GPU가 그린다.
+      </h1>
+      <p class="mt-7 text-[17px] sm:text-[19px] leading-[1.6] text-fg-dim max-w-[640px]">
+        X-GIS는 선언적 스타일 언어를 진짜 컴파일러로 처리해 최적화된 WebGPU
+        셰이더로 바꾸는 <strong class="text-fg font-medium">GPU 우선 지도 엔진</strong>입니다.
+        타입드 셰이더 IR, 3D 글로브 지오데시, WebGL2 폴백까지.
       </p>
-    </div>
+      <div class="mt-9 flex flex-wrap gap-3">
+        <a href={`${base}/docs`} class="inline-flex items-center rounded-full bg-accent text-[var(--on-sienna)] px-5 py-2.5 text-[14px] font-medium hover:bg-accent-hover transition-colors">
+          문서 보기
+        </a>
+        <a href={`${base}/examples`} class="inline-flex items-center rounded-full border border-line px-5 py-2.5 text-[14px] text-fg hover:border-accent hover:text-accent transition-colors">
+          예제 보기
+        </a>
+      </div>
+    </ContentBand>
+
+    <!-- ── 세 가지 ── -->
+    <ContentBand>
+      <SectionHead
+        num="01"
+        eyebrow="핵심"
+        title="언어, 컴파일러, 글로브."
+        lead="지도를 선언하는 언어, 그것을 GPU 프로그램으로 바꾸는 컴파일러, 그리고 평면부터 글로브까지 그려내는 엔진 — 한 프로젝트 안에 셋이 함께 있습니다."
+      />
+      <div class="grid sm:grid-cols-3 gap-4 lg:gap-5 mt-14 lg:mt-18">
+        {cards.map((c) => (
+          <Card padding="p-6" class="flex flex-col">
+            <span class="font-mono text-[11px] tracking-[0.16em] uppercase text-fg-mute mb-5">{c.tag}</span>
+            <h3 class="text-[20px] sm:text-[22px] font-normal text-fg leading-[1.3] tracking-[-0.01em] mb-3">
+              {c.title}
+            </h3>
+            <p class="text-[14.5px] leading-[1.65] text-fg-dim">{c.body}</p>
+          </Card>
+        ))}
+      </div>
+
+      <p class="mt-14 pt-6 border-t border-line text-[13px] text-fg-mute">
+        한국어 콘텐츠를 순차적으로 추가하는 중입니다. 자세한 문서는 현재 영어로 제공됩니다 —
+        <a href={`${base}/docs`} class="text-accent hover:text-accent-hover underline underline-offset-2">/docs</a>.
+      </p>
+    </ContentBand>
   </main>
   <Footer />
 </Base>
