@@ -59,8 +59,14 @@ function splitBlocks(src: string): string[] {
       continue
     }
     if (start < 0 && depth === 0 && /\S/.test(c)) start = i
-    if (c === '{') depth++
-    else if (c === '}') {
+    // A named import's `{ a, b }` is a name list, not a statement body —
+    // treating its braces as block delimiters would sever the line at the
+    // `}` and drop the trailing `from "path"` (and the import with it).
+    // So for a statement that begins with `import`, ignore braces and let
+    // it terminate at the newline like the splice form.
+    const inImport = start >= 0 && src[start] === 'i' && /^import\b/.test(src.slice(start, i + 1))
+    if (c === '{' && !inImport) depth++
+    else if (c === '}' && !inImport) {
       depth--
       if (depth === 0 && start >= 0) {
         out.push(src.slice(start, i + 1).trim())
@@ -238,6 +244,11 @@ export function xgisToGraph(src: string): BPGraph {
       node.data.source = s
     if (st && styleByName.has(st))
       edges.push({ id: uid('e'), from: { node: styleByName.get(st)!, pin: 'out' }, to: { node: node.id, pin: 'style' } })
+    else if (st)
+      // Same as the source fallback above: a `style:` ref to a
+      // splice-imported style has no local node to wire to. Keep the
+      // bare name so codegen can re-emit `style:` rather than drop it.
+      node.data.style = st
     edges.push({ id: uid('e'), from: { node: node.id, pin: 'out' }, to: { node: map.id, pin: 'layers' } })
   }
 
