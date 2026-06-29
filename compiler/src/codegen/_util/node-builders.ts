@@ -2,15 +2,16 @@
 // node-builders — compiler-side Node IR construction helpers
 // ═══════════════════════════════════════════════════════════════════
 //
-// Phase 2.5 US-005 prep — the per-idiom Node conversion will rewrite
-// each compiler emit site (processColorValue arms, buildFillExpr,
-// palette-emit, categorical-encoder) from WGSL string assembly to
-// DSL Node construction. The compiler can't import the runtime's
-// `Node<K>` class directly (compiler tsconfig rootDir excludes
-// runtime/ + a workspace value-dep would cycle); these helpers
-// build the structural Expr literals + the NodeLike wrapper so the
-// compiler-side codegen sites have a stable authoring surface. The
-// NodeLike / Expr vocabulary lives in the permanent `../node-types`.
+// X-GIS's compiler-side authoring surface for `@xgis/shader-dsl` IR. Each helper
+// builds a structural `NodeLike` (`{ expr }`) for one IR `Expr` shape, so the
+// codegen sites (processColorValue arms, palette-emit, categorical-encoder,
+// wgsl-expr) author trees without hand-assembling WGSL strings — the package's
+// single tree-walk (`emitExpr`/`emitModule`) spells them. These stay structural
+// (rather than constructing the package `Node` class, which `@xgis/shader-dsl`
+// also exports) because the runtime reconstructs the Node from `.expr` anyway,
+// and the structural form keeps the X-GIS layout idioms (feat_data lookups,
+// floored modulo, fill composition) as plain data. The NodeLike / Expr
+// vocabulary lives in the permanent `../node-types`.
 
 import type { NodeLike } from '../node-types'
 
