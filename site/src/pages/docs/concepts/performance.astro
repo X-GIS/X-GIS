@@ -1,0 +1,287 @@
+---
+import Docs from '../../../layouts/Docs.astro'
+import { FeatureRow } from '@/components/kit'
+import SeeAlso from '../../../components/SeeAlso.astro'
+import SpecLinks from '../../../components/SpecLinks.astro'
+
+// Performance — a Concepts page on the three pillars X-GIS leans on for
+// frame budget: a GPU arena (byte-aware eviction), compute kernels for
+// data-driven paint, and REAL GPU-time measurement surfaced on screen.
+// Built on the xAI kit + the Docs chrome, matching the sibling concept
+// pages (globe, rtc, projections). No live React island — prose +
+// FeatureRow + a "see it live" link to the playground perf overlay.
+//
+// Honesty (REBUILD §6): every claim is TRUE against the codebase —
+//   • GPUArena                runtime/src/engine/gpu/gpu-arena.ts
+//   • byte-aware eviction     runtime/src/engine/render/gpu-tile-store.ts
+//                             (runFrameMaintenance, ARENA_HIGH_WATER, compact)
+//   • compute kernels         compiler/src/codegen/compute-gen.ts
+//                             (emitMatch/Ternary/Interpolate), routeIsCompute,
+//                             runtime ComputeDispatcher.dispatchKernel
+//   • GPU-time measurement    runtime/src/engine/gpu/gpu-timer.ts (GPUTimer,
+//                             timestamp-query) + __profile__/perf-marks.ts
+//                             (frame.prep/encode/submit/total, encoder.pass.*)
+//   • on-screen verdict       playground/src/perf-overlay.ts (GPU/CPU verdict,
+//                             worst-frame MAX, MVT drain attribution)
+//   • opt-in quality knobs    runtime/src/engine/gpu/quality.ts + gpu.ts
+//                             effectiveDpr() + map.ts markInteracting()
+// AUTOMATIC, thermal-/FPS-driven quality adaptation is NOT built — the
+// quality trade-off is always explicit/opt-in — so it lives in the roadmap
+// block, never stated as shipped.
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const repo = 'https://github.com/X-GIS/X-GIS'
+
+// On-this-page TOC — slugs match the <section id> blocks below.
+const headings = [
+  { depth: 2, slug: 'the-arena',     text: 'The GPU arena' },
+  { depth: 2, slug: 'compute-paint', text: 'Compute kernels for paint' },
+  { depth: 2, slug: 'measurement',   text: 'Real GPU-time measurement' },
+  { depth: 2, slug: 'overlay',       text: 'The on-screen verdict' },
+  { depth: 2, slug: 'quality',       text: 'Quality knobs' },
+  { depth: 2, slug: 'roadmap',       text: 'Where it is going' },
+]
+---
+
+<Docs
+  current="concepts/performance"
+  title="X-GIS — Performance"
+  description="How X-GIS keeps frames cheap: one shared GPU buffer with byte-aware eviction, data-driven paint that can move to an opt-in compute pass, and real WebGPU-timestamp measurement that prints a GPU-vs-CPU verdict on screen."
+  headings={headings}
+>
+  <header class="mb-12">
+    <p class="font-mono text-[11px] tracking-[0.2em] uppercase text-accent mb-3">
+      Concept
+    </p>
+    <h1 class="font-display font-semibold uppercase text-fg leading-[0.95] tracking-[0.01em] text-[38px] sm:text-[52px] lg:text-[64px]">
+      Performance you can measure.
+    </h1>
+    <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[700px]">
+      X-GIS treats frame budget as something to measure, not guess. Three
+      mechanisms carry the load: one shared GPU buffer with byte-aware
+      eviction, data-driven paint that can move to an opt-in compute pass, and
+      a real GPU-timestamp profiler that prints a GPU-vs-CPU verdict on screen.
+    </p>
+  </header>
+
+  <article class="space-y-4 text-[15px] sm:text-[16px] leading-[1.65] text-fg-dim">
+
+    <section id="the-arena">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        The GPU arena
+      </h2>
+      <p class="mb-4 max-w-[700px]">
+        At zoom 14 over a dense basemap a frame touches on the order of ten
+        thousand tile meshes. Giving each its own GPU buffer means a buffer
+        swap per tile and thousands of tiny allocations. X-GIS instead packs
+        tiles into one large shared buffer and hands out byte offsets.
+      </p>
+
+      <FeatureRow num="01" title="One shared buffer, not thousands">
+        The <strong class="text-fg">GPUArena</strong> is a linear allocator
+        backing a single large GPU buffer (the polygon vertex / index arenas
+        start at tens of megabytes). Tiles upload into it by offset, so the
+        draw loop binds the arena buffer once instead of swapping a vertex
+        buffer per tile — the precondition for indexed/indirect draws.
+      </FeatureRow>
+
+      <FeatureRow num="02" title="O(1) allocation with exact-footprint reuse">
+        Each <code class="font-mono text-fg">alloc</code> is a free-list pop or
+        a bump-pointer bump — constant time. The free-list is keyed by the
+        exact 4-byte-aligned footprint, so a reused slot always fits the
+        request and can never overrun its neighbour. Real tiles cluster around
+        a few stride-aligned sizes, so reuse stays high during pan and zoom.
+      </FeatureRow>
+
+      <FeatureRow num="03" title="Byte-aware eviction, compaction, and auto-grow">
+        Eviction is byte-aware, not count-only — large globe or extruded tiles
+        can exhaust the arena long before any tile-count cap is reached, so the
+        store triggers on byte pressure as well as the count cap. When the bump
+        high-water mark crosses the <strong class="text-fg">high-water
+        threshold</strong> the store evicts least-recently-used tiles; if the
+        live set is fragmented it compacts (relocating into a fresh buffer),
+        and if it genuinely exceeds capacity it grows. All of it runs in the
+        post-submit safe window, never mid-render.
+      </FeatureRow>
+    </section>
+
+    <section id="compute-paint" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        Compute kernels for paint
+      </h2>
+      <p class="mb-2 max-w-[700px]">
+        Data-driven paint — a colour or width chosen per feature from its
+        properties — can be moved off the fragment shader and evaluated once
+        per frame in a compute pass.
+      </p>
+
+      <FeatureRow num="04" title="Per-feature paint, evaluated once on the GPU">
+        The compiler can emit a WGSL <strong class="text-fg">compute kernel</strong>
+        for feature-dependent paint — <code class="font-mono text-fg">match</code>,
+        a conditional (case/ternary), and <code class="font-mono text-fg">interpolate</code>
+        each have their own emitter — for the runtime's
+        <code class="font-mono text-fg">ComputeDispatcher</code> to dispatch,
+        writing one packed RGBA per feature into a storage buffer the draw pass
+        reads. Routing is selective: only paint whose value depends on feature
+        properties is eligible for the compute path; zoom-only paint stays
+        elsewhere. High-arm <code class="font-mono text-fg">match</code>
+        expressions switch from an if-else chain to a constant lookup table.
+        This path is opt-in — armed with <code class="font-mono text-fg">?compute=1</code>
+        (the <code class="font-mono text-fg">enableComputePath</code> option); by
+        default feature-dependent paint still evaluates in the fragment shader,
+        and no production style turns the compute path on yet.
+      </FeatureRow>
+    </section>
+
+    <section id="measurement" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        Real GPU-time measurement
+      </h2>
+      <p class="mb-2 max-w-[700px]">
+        CPU wall-clock around a draw call tells you almost nothing — the GPU
+        runs asynchronously. X-GIS reads the real device time with WebGPU
+        timestamp queries.
+      </p>
+
+      <FeatureRow num="05" title="WebGPU timestamp queries, not wall-clock guesses">
+        When the device supports it (opt in with
+        <code class="font-mono text-fg">?gpuprof=1</code>), the
+        <strong class="text-fg">GPUTimer</strong> plants timestamp queries
+        around each render pass and resolves them through a small readback ring
+        — so the number reported is actual GPU execution time, hidden behind a
+        couple of frames of map latency rather than blocking the frame.
+      </FeatureRow>
+
+      <FeatureRow num="06" title="Per-pass GPU and per-phase CPU breakdown">
+        Where supported, the GPU pass splits into named segments — background,
+        raster, legacy, vector-tile, and the compute pass — so you see which
+        pass costs what. On the CPU side, per-frame marks decompose the render
+        loop into <code class="font-mono text-fg">frame.prep</code>,
+        <code class="font-mono text-fg">frame.encode</code>,
+        <code class="font-mono text-fg">frame.submit</code>, and per-pass encode
+        times, each tracking its mean and its <em>worst single frame</em>. The
+        marks are off by default — they cost real CPU — and arm with
+        <code class="font-mono text-fg">?perfmarks=1</code> or
+        <code class="font-mono text-fg">?gpuprof=1</code>.
+      </FeatureRow>
+    </section>
+
+    <section id="overlay" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        The on-screen verdict
+      </h2>
+      <p class="mb-2 max-w-[700px]">
+        Mobile testers can't open DevTools. The playground carries an
+        on-screen scoreboard that runs a fixed camera sweep and prints — and
+        one-tap copies — the numbers.
+      </p>
+
+      <FeatureRow num="07" title="GPU-bound or CPU-bound, decided on screen">
+        Load any demo with <code class="font-mono text-fg">?perf=1</code> for
+        the scoreboard. Its GPU/CPU button runs a rotate-and-pitch sweep while a
+        message-channel probe measures how long the main thread is busy: if the
+        worst stall fills the frame the verdict is
+        <strong class="text-fg">CPU-bound</strong>; if the main thread sits idle
+        waiting on present, <strong class="text-fg">GPU-bound</strong>. It also
+        captures the worst frame anywhere in the run and attributes it —
+        inside-render (naming the pass) versus the tile drain chain — so a
+        bursty stall a mean would hide gets pinned down.
+      </FeatureRow>
+    </section>
+
+    <section id="quality" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        Quality knobs
+      </h2>
+      <p class="mb-2 max-w-[700px]">
+        X-GIS generally avoids quality settings — the goal is to render
+        correctly and fast, not to ship sliders. There is exactly one opt-in
+        exception, because a GPU-bound scene physically can't hit a high frame
+        rate without trading MSAA or pixel density.
+      </p>
+
+      <FeatureRow num="08" title="One opt-in trade-off, always explicit">
+        Named presets (<code class="font-mono text-fg">performance</code>,
+        <code class="font-mono text-fg">balanced</code>,
+        <code class="font-mono text-fg">battery</code>) and URL flags
+        (<code class="font-mono text-fg">?quality</code>,
+        <code class="font-mono text-fg">?msaa</code>,
+        <code class="font-mono text-fg">?dpr</code>,
+        <code class="font-mono text-fg">?adaptiveDpr</code>) trade fidelity for
+        budget. The default keeps full quality. Under <code class="font-mono text-fg">balanced</code>
+        / <code class="font-mono text-fg">battery</code> (or an explicit
+        <code class="font-mono text-fg">?adaptiveDpr=N</code>) the renderer
+        drops device-pixel-ratio during an active pan or zoom and restores it
+        when the gesture settles — pan motion hides the lower density. It is
+        inert otherwise. The engine never adapts quality on its own; the
+        trade-off is always something a host opted into.
+      </FeatureRow>
+    </section>
+
+    <section id="roadmap" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        Where it is going
+      </h2>
+      <div class="rounded-[8px] bg-bg-card border border-line p-5 sm:p-6 mb-4">
+        <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-fg-mute mb-3">
+          Roadmap · not yet shipped
+        </p>
+        <p class="mb-4 text-[14px] sm:text-[15px]">
+          These are planned, not built. They are on the roadmap, not in the
+          engine today:
+        </p>
+        <ul class="space-y-2.5 text-[14px] sm:text-[15px]">
+          <li class="flex items-baseline gap-3">
+            <span class="font-mono text-[11px] text-fg-mute pt-0.5 flex-shrink-0">→</span>
+            <span><strong class="text-fg">Automatic quality adaptation</strong> — a
+            closed loop that watches measured frame time (or thermal pressure)
+            and lowers DPR / MSAA on its own. Today the trade-off is opt-in
+            only; there is no automatic, FPS- or thermal-driven downgrade.</span>
+          </li>
+          <li class="flex items-baseline gap-3">
+            <span class="font-mono text-[11px] text-fg-mute pt-0.5 flex-shrink-0">→</span>
+            <span><strong class="text-fg">Always-on perf HUD</strong> — the
+            GPU/CPU verdict and frame-phase breakdown live in the playground
+            scoreboard behind a URL flag, not as a product-facing overlay in the
+            embedding API.</span>
+          </li>
+        </ul>
+        <p class="mt-5 text-[13.5px]">
+          Tracked in the repo
+          <a href={`${repo}/blob/main/ROADMAP.md`} target="_blank" rel="noopener" class="text-accent hover:text-accent-hover transition-colors">ROADMAP.md ↗</a>.
+        </p>
+      </div>
+    </section>
+
+    <!-- ── See it live ── -->
+    <section class="border-t border-line pt-12">
+      <h2 class="text-[20px] font-medium text-fg leading-[1.2] tracking-[-0.015em] mb-3">
+        See it live
+      </h2>
+      <p class="mb-4">
+        Open the
+        <a href={`${base}/play`} class="text-accent hover:text-accent-hover transition-colors">playground</a>
+        or pick a map from the
+        <a href={`${base}/examples`} class="text-accent hover:text-accent-hover transition-colors">examples gallery</a>,
+        then append <code class="font-mono text-fg">?perf=1&amp;gpuprof=1</code>
+        to the demo URL. Tap <strong class="text-fg">측정</strong> to run the
+        sweep, or <strong class="text-fg">GPU/CPU 판정</strong> for the
+        bound-by verdict, then copy the report.
+      </p>
+    </section>
+
+  </article>
+
+  <SpecLinks specs={[
+    { body: 'W3C', title: 'WebGPU specification (queues, passes, query sets)', url: 'https://www.w3.org/TR/webgpu/' },
+    { body: 'W3C', title: 'WGSL specification (compute shaders)', url: 'https://www.w3.org/TR/WGSL/' },
+    { body: 'MDN', title: 'GPUQuerySet — timestamp queries', url: 'https://developer.mozilla.org/en-US/docs/Web/API/GPUQuerySet' },
+    { body: 'MDN', title: 'Window.devicePixelRatio', url: 'https://developer.mozilla.org/en-US/docs/Web/API/Window/devicePixelRatio' },
+  ]} />
+
+  <SeeAlso links={[
+    { label: 'Compute paint', href: `${base}/docs/concepts/compute`, body: 'How feature-dependent paint is routed to a compute kernel instead of the fragment shader.' },
+    { label: 'Compile pipeline', href: `${base}/docs/concepts/pipeline`, body: 'Where the WGSL — fragment and compute — is generated from a .xgis source.' },
+    { label: 'RTC + DSFUN precision', href: `${base}/docs/concepts/rtc`, body: 'The f32-precision scheme that keeps the cheap-to-render geometry correct at any zoom.' },
+  ]} />
+</Docs>

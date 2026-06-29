@@ -1,0 +1,278 @@
+---
+import Docs from '../../../layouts/Docs.astro'
+import { FeatureRow } from '@/components/kit'
+import SeeAlso from '../../../components/SeeAlso.astro'
+import SpecLinks from '../../../components/SpecLinks.astro'
+
+// Labels & text — the concept page for the runtime label/glyph
+// pipeline. Built on the xAI kit + the Docs chrome (nav, TOC,
+// prev/next), matching the sibling concept pages (globe, rtc,
+// projections) so it slots into the Concepts sidebar group. No live
+// React island (unlike globe) — prose + FeatureRow + a "see it live"
+// link to the examples gallery.
+//
+// Honesty (REBUILD §6): every claim below is TRUE against the runtime
+// as read on this branch —
+//  - SDF glyphs in a texture atlas, one slot per (font, codepoint,
+//    radius), one reference raster size (glyph-atlas-host.ts /
+//    glyph-rasterizer.ts; SDF threshold in shaders/dsl/text.ts).
+//  - PBF glyph-server path + metrics-only placeholder + in-place
+//    re-raster via the generation counter (glyph-rasterizer.ts
+//    Canvas2DMetricsRasterizer, glyph-atlas-host.invalidate).
+//  - LRU atlas, dirty-queue upload, per-frame overflow drop
+//    (text-stage.ts prepare()).
+//  - Ideograph-aware shaping + synthetic oblique (text-wrap.ts).
+//  - Greedy AABB collision with Mapbox semantics (text-collision.ts).
+//  - Curved line labels with a text-max-angle gate (curved-line
+//    shaping).
+// Local-ideograph generation is in the tree but SWITCHED OFF
+// (LOCAL_IDEOGRAPH_ENABLED = false, text-wrap.ts) — flagged ROADMAP,
+// not claimed as shipped.
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const repo = 'https://github.com/X-GIS/X-GIS'
+
+// On-this-page TOC — matches the <section id> blocks below.
+const headings = [
+  { depth: 2, slug: 'the-atlas',     text: 'The glyph atlas' },
+  { depth: 2, slug: 'sharp',         text: 'Sharp at any zoom' },
+  { depth: 2, slug: 'glyph-sources', text: 'Where glyphs come from' },
+  { depth: 2, slug: 'cjk',           text: 'CJK, Hangul & bilingual' },
+  { depth: 2, slug: 'collision',     text: 'Collision & placement' },
+  { depth: 2, slug: 'line-labels',   text: 'Labels that follow a line' },
+  { depth: 2, slug: 'roadmap',       text: 'Where it is going' },
+]
+---
+
+<Docs
+  current="concepts/labels"
+  title="X-GIS — Labels & text"
+  description="How X-GIS draws text: signed-distance-field glyphs in a texture atlas that stay sharp at any zoom, served from a glyph-server PBF or rasterised locally, with ideograph-aware shaping and a greedy collision pass for placement."
+  headings={headings}
+>
+  <header class="mb-12">
+    <p class="font-mono text-[11px] tracking-[0.2em] uppercase text-accent mb-3">
+      Concept
+    </p>
+    <h1 class="font-display font-semibold uppercase text-fg leading-[0.95] tracking-[0.01em] text-[38px] sm:text-[52px] lg:text-[64px]">
+      Labels &amp; text.
+    </h1>
+    <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[700px]">
+      Every place name, road number and POI is text drawn on the GPU.
+      X-GIS stores each glyph once as a signed-distance field and reuses
+      it at every size — so labels stay sharp from a whole-world view
+      down to a single street, in Latin and CJK alike.
+    </p>
+  </header>
+
+  <article class="space-y-4 text-[15px] sm:text-[16px] leading-[1.65] text-fg-dim">
+
+    <section id="the-atlas">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        The glyph atlas
+      </h2>
+      <p class="mb-4 max-w-[700px]">
+        Text rendering is a pipeline: rasterise each glyph once, pack it
+        into a texture, shape strings into glyph runs, decide which
+        labels survive collision, then draw. Everything below walks that
+        pipeline — each claim is true of the engine today, with the
+        not-yet-built parts marked as roadmap.
+      </p>
+
+      <FeatureRow num="01" title="Glyphs are signed-distance fields in an atlas">
+        Each <strong class="text-fg">(font, codepoint, SDF radius)</strong>
+        gets one slot in a shared texture atlas. The glyph is rasterised
+        once at a single reference pixel size; the shader scales that one
+        SDF for display rather than re-rasterising per zoom. The bytes use
+        tiny-SDF packing — <strong class="text-fg">0</strong> far outside
+        the glyph, <strong class="text-fg">192</strong> at the edge,
+        <strong class="text-fg">255</strong> far inside.
+      </FeatureRow>
+    </section>
+
+    <section id="sharp" class="pt-6">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        Sharp at any zoom
+      </h2>
+      <p class="mb-2 max-w-[700px]">
+        A signed-distance field stores distance-to-edge, not pixels — so a
+        single atlas slot renders crisply whether the label is 9 px or
+        64 px, with no bitmap blur.
+      </p>
+
+      <FeatureRow num="02" title="One glyph slot, every size">
+        The fragment shader recovers coverage by
+        <strong class="text-fg">smoothstepping</strong> the distance field
+        across the glyph edge (edge = 0.75 = 192/256, MapLibre's symbol
+        buffer default) using a per-glyph-size analytic anti-aliasing
+        half-width. A tiny country label and a large city label come from
+        the <em>same</em> slot, both anti-aliased.
+      </FeatureRow>
+
+      <FeatureRow num="03" title="Halo / text-outline in the same pass">
+        The shader composites a halo
+        (<code class="font-mono text-fg">text-halo-color</code> /
+        <code class="font-mono text-fg">-width</code> /
+        <code class="font-mono text-fg">-blur</code>) behind the fill in a
+        single pass. The halo edge is bounded to the SDF radius so it
+        stays a thin outline that thins as text shrinks, instead of
+        flooding the glyph cell into an opaque box at low zoom.
+      </FeatureRow>
+    </section>
+
+    <section id="glyph-sources" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        Where glyphs come from
+      </h2>
+
+      <FeatureRow num="04" title="Glyph-server PBF, or a local rasteriser">
+        Glyphs come from a Mapbox/MapLibre-style
+        <strong class="text-fg">glyph-server PBF</strong> (24-px SDF
+        reference) or from a local Canvas2D rasteriser that computes the
+        SDF on device. While a PBF range is still in flight, a
+        metrics-only placeholder reserves the correct layout slot — the
+        glyph occupies its right position but renders blank — so the frame
+        never stalls waiting on the network.
+      </FeatureRow>
+
+      <FeatureRow num="05" title="In-place re-raster when a range lands">
+        When the PBF range arrives, its slot is marked stale and
+        re-rasterised in place. A monotonic
+        <strong class="text-fg">generation counter</strong> bumps so the
+        per-string caches miss — which is what lets a label whose glyph
+        range landed <em>after</em> it was first shaped pick up the real
+        SDF, instead of a low-zoom CJK label keeping only the few glyphs
+        that happened to land early.
+      </FeatureRow>
+
+      <FeatureRow num="06" title="LRU atlas with overflow protection">
+        The atlas evicts least-recently-used slots and drains newly
+        rasterised glyphs to the GPU through a dirty queue. Before shaping,
+        it verifies every pending label's glyphs are still resident; a
+        label that would overflow the atlas this frame is
+        <strong class="text-fg">dropped</strong> rather than rendered with
+        another label's SDF bytes aliased into its slots.
+      </FeatureRow>
+    </section>
+
+    <section id="cjk" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        CJK, Hangul &amp; bilingual
+      </h2>
+      <p class="mb-2 max-w-[700px]">
+        Chinese, Japanese, Korean and Kana need handling Latin doesn't —
+        dense ideographs, line breaking without spaces, and labels that
+        mix scripts.
+      </p>
+
+      <FeatureRow num="07" title="Ideograph-aware shaping">
+        X-GIS detects CJK / Hangul / Kana ideographs to allow line breaks
+        between them (no spaces required) and to apply a
+        <strong class="text-fg">synthetic oblique</strong> for italic
+        labels — Noto's CJK face ships no true italic, so the engine
+        shears the upright glyph while leaving a Latin italic run on its
+        real italic font. Per-glyph baked-size metadata lets one bilingual
+        label carry a Latin run and a CJK run, each from its own slot.
+      </FeatureRow>
+    </section>
+
+    <section id="collision" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        Collision &amp; placement
+      </h2>
+      <p class="mb-2 max-w-[700px]">
+        When labels would overlap, something has to give. X-GIS runs a
+        greedy axis-aligned collision pass that mirrors Mapbox's placement
+        semantics.
+      </p>
+
+      <FeatureRow num="08" title="Greedy collision, Mapbox semantics">
+        Labels claim space first-come by priority
+        (<code class="font-mono text-fg">symbol-sort-key</code>) in a
+        shared AABB grid; a later label that overlaps is dropped. The pass
+        supports <code class="font-mono text-fg">allowOverlap</code> /
+        <code class="font-mono text-fg">ignorePlacement</code>
+        (always-visible / never-blocks),
+        <code class="font-mono text-fg">text-variable-anchor</code> (try
+        each candidate position, keep the first that fits),
+        <code class="font-mono text-fg">symbol-spacing</code> along a line,
+        collision groups (an icon never blocks its own paired text), and
+        pre-seeded icon obstacles so text avoids already-placed icons.
+      </FeatureRow>
+    </section>
+
+    <section id="line-labels" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+        Labels that follow a line
+      </h2>
+
+      <FeatureRow num="09" title="Curved labels that follow the road">
+        A line label samples points along the line and places each glyph
+        at that point's <strong class="text-fg">tangent angle</strong>, so
+        the text bends with the road. A
+        <code class="font-mono text-fg">text-max-angle</code> gate drops a
+        label whose glyph-to-glyph turn is too sharp to read cleanly.
+      </FeatureRow>
+    </section>
+
+    <section id="roadmap" class="pt-10">
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        Where it is going
+      </h2>
+      <div class="rounded-[8px] bg-bg-card border border-line p-5 sm:p-6 mb-4">
+        <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-fg-mute mb-3">
+          Roadmap · not yet shipped
+        </p>
+        <p class="mb-4 text-[14px] sm:text-[15px]">
+          This is planned, not built — the plumbing is in the engine but
+          switched off today:
+        </p>
+        <ul class="space-y-2.5 text-[14px] sm:text-[15px]">
+          <li class="flex items-baseline gap-3">
+            <span class="font-mono text-[11px] text-fg-mute pt-0.5 flex-shrink-0">→</span>
+            <span>
+              <strong class="text-fg">Local-ideograph generation</strong> —
+              rasterising CJK glyphs locally at display-size buckets
+              instead of the fixed 24-px server PBF. The routing exists but
+              is disabled: the local SDF currently reads thicker and softer
+              than the PBF glyphs, so CJK is served from the sharp PBF path
+              at its authored size until the local SDF quality matches.
+            </span>
+          </li>
+        </ul>
+        <p class="mt-5 text-[13.5px]">
+          Tracked in the repo
+          <a href={`${repo}/blob/main/ROADMAP.md`} target="_blank" rel="noopener" class="text-accent hover:text-accent-hover transition-colors">ROADMAP.md ↗</a>.
+        </p>
+      </div>
+    </section>
+
+    <!-- ── See it live ── -->
+    <section class="border-t border-line pt-12">
+      <h2 class="text-[20px] font-medium text-fg leading-[1.2] tracking-[-0.015em] mb-3">
+        See it live
+      </h2>
+      <p class="mb-4">
+        Labels are everywhere a real map renders — place names, road
+        shields and POIs all flow through this pipeline. Open a labelled
+        map in the
+        <a href={`${base}/examples`} class="text-accent hover:text-accent-hover transition-colors">examples gallery</a>
+        and zoom in: the same atlas glyph stays crisp at every scale.
+      </p>
+    </section>
+
+  </article>
+
+  <SpecLinks specs={[
+    { body: 'Mapbox', title: 'Style Spec — the symbol layer (text-field, text-variable-anchor, text-halo, symbol-sort-key, symbol-spacing, text-max-angle)', url: 'https://docs.mapbox.com/style-spec/reference/layers/#symbol' },
+    { body: 'Mapbox', title: 'Style Spec — glyphs (the font glyph-PBF URL template)', url: 'https://docs.mapbox.com/style-spec/reference/root/#glyphs' },
+    { body: 'Unicode', title: 'UAX #14 — Unicode Line Breaking Algorithm', url: 'https://www.unicode.org/reports/tr14/' },
+    { body: 'W3C',     title: 'WGSL specification (the SDF text shader language)', url: 'https://www.w3.org/TR/WGSL/' },
+  ]} />
+
+  <SeeAlso links={[
+    { label: 'Globe & 3D', href: `${base}/docs/concepts/globe`, body: 'Labels ride the same 3D scene — the globe and seven flat projections from one source.' },
+    { label: 'RTC + DSFUN precision', href: `${base}/docs/concepts/rtc`, body: 'Label anchors are positioned in the same f32-precise coordinate scheme as the geometry.' },
+    { label: 'Mapbox coverage', href: `${base}/docs/mapbox-spec`, body: 'Which symbol-layer and text properties X-GIS implements against the Mapbox Style Spec.' },
+  ]} />
+</Docs>
