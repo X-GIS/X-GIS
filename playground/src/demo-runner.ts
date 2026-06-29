@@ -702,7 +702,7 @@ hashBadge.title = 'Click to copy map state (zoom/lat/lon/bearing/pitch)'
 hashBadge.style.cssText = [
   'position:absolute', 'top:12px', 'left:12px', 'z-index:20',
   'font:11px/1.4 "DM Mono",monospace', 'color:#dde',
-  'background:rgba(10,12,20,0.75)', 'backdrop-filter:blur(6px)',
+  'background:rgba(10,10,10,0.75)', 'backdrop-filter:blur(6px)',
   'padding:6px 10px', 'border:1px solid rgba(255,255,255,0.12)',
   'border-radius:6px', 'cursor:pointer', 'user-select:all',
 ].join(';')
@@ -742,16 +742,16 @@ function setupPickingOverlay(map: InstanceType<typeof XGISMap>): void {
     'position:absolute', 'top:12px', 'right:12px',
     'min-width:200px', 'max-width:min(80vw,300px)',
     'padding:10px 12px',
-    'background:rgba(10,14,22,0.85)', 'backdrop-filter:blur(8px)',
-    'border:1px solid rgba(56,189,248,0.4)', 'border-radius:8px',
-    'font:11px/1.5 "DM Mono",monospace', 'color:#c8d3e0',
+    'background:rgba(10,10,10,0.85)', 'backdrop-filter:blur(8px)',
+    'border:1px solid rgba(255,255,255,0.2)', 'border-radius:8px',
+    'font:11px/1.5 "Geist Mono Variable","Geist Mono",monospace', 'color:#dadbdf',
     'pointer-events:none', 'z-index:25',
     'box-shadow:0 4px 12px rgba(0,0,0,0.3)',
   ].join(';')
   panel.innerHTML = `
-    <div style="font-weight:500;color:#38bdf8;margin-bottom:6px">Picking</div>
-    <div id="po-hover" style="color:#5a6a7e">Hover a country…</div>
-    <div id="po-click" style="margin-top:6px;padding-top:6px;border-top:1px solid #1a2233;color:#5a6a7e">Tap or click to lock</div>
+    <div style="font-weight:500;color:#ffffff;margin-bottom:6px">Picking</div>
+    <div id="po-hover" style="color:#7d8187">Hover a country…</div>
+    <div id="po-click" style="margin-top:6px;padding-top:6px;border-top:1px solid #212327;color:#7d8187">Tap or click to lock</div>
   `
   const mapPane = document.getElementById('map-pane')!
   mapPane.appendChild(panel)
@@ -1017,6 +1017,24 @@ runBtn.addEventListener('click', () => {
   discoverFields(src, import.meta.env.BASE_URL + 'data/')
   runSource(src, 'Custom')
 })
+
+// ── Gallery back-link ──
+// The footer "Gallery" link is authored as href="." (the playground's
+// own index). But the deployed playground is reached by deep-link from
+// the marketing site's /examples gallery — returning to the playground
+// index (a separate, differently-shaped page) surprised users who
+// expected to land back on the gallery they came from. In the deployed
+// layout the playground lives under <site-base>/play/, so the examples
+// gallery is one level up at <site-base>/examples. In standalone dev
+// (BASE_URL === '/') there is no merged site, so keep the playground
+// index as the fallback.
+{
+  const backLink = document.querySelector('.back-link') as HTMLAnchorElement | null
+  const base = import.meta.env.BASE_URL
+  if (backLink && base.endsWith('/play/')) {
+    backLink.href = base.replace(/play\/$/, '') + 'examples'
+  }
+}
 
 // ── Navigation ──
 prevBtn.addEventListener('click', () => { if (currentIdx > 0) loadDemo(currentIdx - 1) })

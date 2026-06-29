@@ -808,23 +808,27 @@ export function registerXGISTheme() {
       { token: 'operator', foreground: '89ddff' },
       { token: 'delimiter', foreground: '5a6a7e' },
     ],
+    // Editor-chrome colours track the site's "Drafting Table" palette
+    // (warm near-black surfaces, hairline borders, white cursor /
+    // selection). The syntax `rules` foregrounds above stay colourful —
+    // code highlighting is expected to be polychrome, like any editor.
     colors: {
-      'editor.background': '#0c1017',
-      'editor.foreground': '#c8d3e0',
-      'editor.lineHighlightBackground': '#111820',
-      'editor.selectionBackground': '#38bdf830',
-      'editorCursor.foreground': '#38bdf8',
-      'editorLineNumber.foreground': '#2a3a52',
-      'editorLineNumber.activeForeground': '#5a6a7e',
-      'editorIndentGuide.background': '#1a2233',
-      'editorWidget.background': '#0c1017',
-      'editorWidget.border': '#1a2233',
-      'editorSuggestWidget.background': '#0c1017',
-      'editorSuggestWidget.border': '#1a2233',
-      'editorSuggestWidget.selectedBackground': '#1a2233',
-      'editorHoverWidget.background': '#0c1017',
-      'editorHoverWidget.border': '#1a2233',
-      'list.hoverBackground': '#111820',
+      'editor.background': '#141414',
+      'editor.foreground': '#dadbdf',
+      'editor.lineHighlightBackground': '#1c1c1f',
+      'editor.selectionBackground': '#ffffff24',
+      'editorCursor.foreground': '#ffffff',
+      'editorLineNumber.foreground': '#5a5f66',
+      'editorLineNumber.activeForeground': '#dadbdf',
+      'editorIndentGuide.background': '#212327',
+      'editorWidget.background': '#191919',
+      'editorWidget.border': '#212327',
+      'editorSuggestWidget.background': '#191919',
+      'editorSuggestWidget.border': '#212327',
+      'editorSuggestWidget.selectedBackground': '#2c2f34',
+      'editorHoverWidget.background': '#191919',
+      'editorHoverWidget.border': '#212327',
+      'list.hoverBackground': '#1a1c20',
     },
   })
 }
