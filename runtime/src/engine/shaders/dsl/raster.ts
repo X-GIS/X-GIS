@@ -19,7 +19,7 @@ import {
   fn, module, transformMat4, arrayLit,
   f32, u32, toF32, vec2, vec3, vec4, vec2u, mix, atan, exp, textureSample, radians, degrees,
   f32T, u32T, vec2fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
-  If, condExpr, Discard,
+  If, when, Discard,
   type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, resource } from '@xgis/shader-dsl'
@@ -127,7 +127,7 @@ const vs = fn('vs_tile', { vid: builtin('vertex_index', u32T) }, (p) => {
   // there. u.mvp is the matching matrix (Camera.getViewForProjection). f32
   // reprojection ≈ 1 m at extreme zoom (P1), sub-pixel for texture-grade
   // raster.
-  const clip = condExpr([
+  const clip = when([
     [projParams.x.lt(0.5), () => {
       const p2d = project(lon, latDeg, projParams)
       const rel2d = p2d.sub(vec2(camEcef.x, camEcef.y))

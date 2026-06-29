@@ -29,7 +29,7 @@
 import {
   fn, module, transformMat4, arrayLit,
   f32, u32, toU32, vec2, vec3, vec4, exp, max, select,
-  Let, condExpr,
+  Let, when,
   f32T, u32T, vec2fT, vec4fT, mat4x4fT,
   type ModuleDecl,
 } from '@xgis/shader-dsl'
@@ -105,7 +105,7 @@ const vs = fn('vs_heatmap', {
   const absLat = featData.at(fid.mul(STRIDE).add(18), f32T)
 
   // Three-way projType branch — faithful clone of the point VS.
-  const centerClip = condExpr([
+  const centerClip = when([
     [U.field.proj_params.x.lt(0.5), () => {
       // Flat Mercator: precise absolute-Mercator DSFUN tail (slots 20..23),
       // camera-recentered in DSFUN space.
