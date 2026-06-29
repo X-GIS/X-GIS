@@ -229,6 +229,13 @@ export function xgisToGraph(src: string): BPGraph {
   for (const { node, src: s, style: st } of layers) {
     if (s && sourceByName.has(s))
       edges.push({ id: uid('e'), from: { node: sourceByName.get(s)!, pin: 'out' }, to: { node: node.id, pin: 'source' } })
+    else if (s)
+      // Source isn't a local node — typically a splice `import "url"`
+      // brings it in (e.g. `openmaptiles`), so there's nothing to wire
+      // to. Keep the bare reference on the layer so the round-trip
+      // doesn't silently drop `source:` and orphan the layer. Codegen
+      // emits it as a fallback when no source node is wired.
+      node.data.source = s
     if (st && styleByName.has(st))
       edges.push({ id: uid('e'), from: { node: styleByName.get(st)!, pin: 'out' }, to: { node: node.id, pin: 'style' } })
     edges.push({ id: uid('e'), from: { node: node.id, pin: 'out' }, to: { node: map.id, pin: 'layers' } })

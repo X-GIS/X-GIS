@@ -126,6 +126,11 @@ function emitLayer(g: BPGraph, n: BPNode, nodes: Map<string, BPNode>): string {
   const srcIds = incoming(g, n.id, 'source')
   if (srcIds.length > 0) {
     lines.push(`  source: ${nameOf(nodes.get(srcIds[0]), 'source')}`)
+  } else if (d.source?.trim()) {
+    // No wired source node — fall back to a bare source name. This is
+    // how a layer references a source brought in by a splice `import
+    // "url"` (e.g. `openmaptiles`), which has no node to wire to.
+    lines.push(`  source: ${d.source.trim()}`)
   } else {
     lines.push('  // ⚠ no source wired')
   }

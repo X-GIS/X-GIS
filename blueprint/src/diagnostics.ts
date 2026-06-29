@@ -22,7 +22,8 @@ export function computeNodeIssues(nodes: BPNode[], edges: BPEdge[]): Map<string,
     const hasName = NODE_SPECS[n.type].fields.some((f) => f.key === 'name')
     if (hasName && !(n.data.name || '').trim()) issues.push('name is empty')
     if (n.type === 'layer') {
-      if (!edges.some((e) => e.to.node === n.id && e.to.pin === 'source')) issues.push('no source wired')
+      if (!edges.some((e) => e.to.node === n.id && e.to.pin === 'source') && !(n.data.source || '').trim())
+        issues.push('no source wired')
       if ((layDupes.get((n.data.name || '').trim()) ?? 0) > 1) issues.push('duplicate layer name')
     }
     if (n.type === 'source') {
