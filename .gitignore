@@ -95,7 +95,13 @@ nul
 # Files committed under .omc before this rule stay tracked until untracked
 # explicitly (git rm --cached). EXCEPTION: .omc/skills/ holds project-scoped
 # learned skills meant to travel with the repo (per CLAUDE.md), so it is carved
-# back in — only the operational state (.omc/* state files) stays ignored.
-.omc/*
-!.omc/skills/
+# back in — only the operational state stays ignored.
+# Nested .omc dirs in subpackages (playground/.omc, shader-dsl/.omc, …) are all
+# operational state — ignore at any depth.
+**/.omc/
+# Root .omc: keep the dir traversable, ignore its operational contents, but
+# carve back in .omc/skills/ (the committable learned-skills exception).
+!/.omc/
+/.omc/*
+!/.omc/skills/
 tmp/
