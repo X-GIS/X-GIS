@@ -92,12 +92,23 @@ const DEFAULT_TARGET_SSE_PX = 1
  *  z=22 + pitch=89° + bearing change) could in theory blow up. */
 const MAX_EMITTED = 600
 
-/** DIAGNOSTIC ONLY — `?maxtiles=N` hard-caps the emitted tile count so a
- *  tester can A/B "does drawing fewer tiles fix the frame rate?" without any
- *  code change. The camera-priority DFS already emits nearest-first, so the
- *  cap keeps the foreground and drops the far horizon. Read once (memoised);
- *  returns null when absent so production behaviour is byte-identical. NOT a
- *  perf feature — it leaves the viewport partially uncovered by design. */
+/** DIAGNOSTIC ONLY — hard-caps the emitted tile count so a tester can A/B
+ *  "does drawing fewer tiles fix the frame rate?" without any code change. The
+ *  camera-priority DFS already emits nearest-first, so the cap keeps the
+ *  foreground and drops the far horizon. Two sources, runtime-first:
+ *    • `window.__xgisMaxTiles` — RUNTIME override, re-read every call so the
+ *      perf overlay's one-tap A/B can toggle it between scenarios (a number
+ *      caps, `null` forces "no cap" overriding the URL, `undefined` defers).
+ *    • `?maxtiles=N` — the static URL default (read once, memoised).
+ *  Returns null when neither is set so production behaviour is byte-identical.
+ *  NOT a perf feature — it leaves the viewport partially uncovered by design. */
+function maxTilesCap(): number | null {
+  if (typeof window !== 'undefined') {
+    const rt = (window as { __xgisMaxTiles?: number | null }).__xgisMaxTiles
+    if (rt !== undefined) return (typeof rt === 'number' && rt >= 1) ? Math.floor(rt) : null
+  }
+  return urlMaxTiles()
+}
 let _maxTilesFlag: number | null | undefined
 function urlMaxTiles(): number | null {
   if (_maxTilesFlag !== undefined) return _maxTilesFlag
@@ -201,7 +212,7 @@ export function visibleTilesSSE(
   }
   // `?maxtiles=N` (diagnostic) wins over the explicit opt and the default so
   // the A/B cap applies on every selection path; null/absent → normal behaviour.
-  const maxEmitted = urlMaxTiles() ?? opts.maxEmitted ?? MAX_EMITTED
+  const maxEmitted = maxTilesCap() ?? opts.maxEmitted ?? MAX_EMITTED
 
   // Camera altitude in Mercator metres — derived from the CSS-pixel
   // viewport (matches camera.ts:120 — must stay DPR-invariant so the
