@@ -6,7 +6,7 @@
 
 import { type ShaderType, type KeyOf, type ScalarKey, voidT } from './types'
 import type { Stmt, Expr, BinOp, FuncDecl, ModuleDecl, ConstDecl } from './nodes'
-import { Node, type ArithArg, type NodeLike, lift, f32, i32, u32, callFn, installStmtSink } from './node'
+import { Node, ReadonlyNode, type ArithArg, type NodeLike, lift, f32, i32, u32, callFn, installStmtSink } from './node'
 
 export type ParamSpec = Record<string, ShaderType>
 /** An entry-point param carrying a stage attribute — `builtin('vertex_index', u32T)` /
@@ -43,24 +43,24 @@ export class Builder {
    *  const already carries the meaning (`const lon = let(expr)`) and repeating it as a
    *  string is redundant; the tradeoff is an opaque WGSL name. Returns a varref Node
    *  of the bound value's key. */
-  let<K extends string>(value: Node<K>): Node<K>
-  let<K extends string>(name: string, value: Node<K>): Node<K>
-  let<K extends string>(nameOrValue: string | Node<K>, maybeValue?: Node<K>): Node<K> {
+  let<K extends string>(value: ReadonlyNode<K>): ReadonlyNode<K>
+  let<K extends string>(name: string, value: ReadonlyNode<K>): ReadonlyNode<K>
+  let<K extends string>(nameOrValue: string | ReadonlyNode<K>, maybeValue?: ReadonlyNode<K>): ReadonlyNode<K> {
     const named = typeof nameOrValue === 'string'
     const name = named ? nameOrValue : this.autoName()
-    const value = (named ? maybeValue : nameOrValue) as Node<K>
+    const value = (named ? maybeValue : nameOrValue) as ReadonlyNode<K>
     this.push({ s: 'let', name, expr: value.expr })
     return new Node<K>({ op: 'varref', type: value.type, name })
   }
 
   /** Mutable binding — `var name: T = init?;`. The name is OPTIONAL (see let). */
-  var<T extends ShaderType>(type: T, init?: Node<KeyOf<T>>): Node<KeyOf<T>>
-  var<T extends ShaderType>(name: string, type: T, init?: Node<KeyOf<T>>): Node<KeyOf<T>>
-  var<T extends ShaderType>(nameOrType: string | T, typeOrInit?: T | Node<KeyOf<T>>, maybeInit?: Node<KeyOf<T>>): Node<KeyOf<T>> {
+  var<T extends ShaderType>(type: T, init?: ReadonlyNode<KeyOf<T>>): Node<KeyOf<T>>
+  var<T extends ShaderType>(name: string, type: T, init?: ReadonlyNode<KeyOf<T>>): Node<KeyOf<T>>
+  var<T extends ShaderType>(nameOrType: string | T, typeOrInit?: T | ReadonlyNode<KeyOf<T>>, maybeInit?: ReadonlyNode<KeyOf<T>>): Node<KeyOf<T>> {
     const named = typeof nameOrType === 'string'
     const name = named ? nameOrType : this.autoName()
     const type = (named ? typeOrInit : nameOrType) as T
-    const init = (named ? maybeInit : typeOrInit) as Node<KeyOf<T>> | undefined
+    const init = (named ? maybeInit : typeOrInit) as ReadonlyNode<KeyOf<T>> | undefined
     this.push({ s: 'var', name, type, init: init?.expr })
     return new Node<KeyOf<T>>({ op: 'varref', type, name })
   }
@@ -83,15 +83,15 @@ export class Builder {
     }
   }
 
-  assign<K extends string>(target: Node<K>, value: Node<K>): void {
+  assign<K extends string>(target: ReadonlyNode<K>, value: ReadonlyNode<K>): void {
     this.push({ s: 'assign', target: target.expr, expr: value.expr })
   }
-  assignOp<K extends string>(target: Node<K>, bop: BinOp, value: ArithArg<K>): void {
+  assignOp<K extends string>(target: ReadonlyNode<K>, bop: BinOp, value: ArithArg<K>): void {
     this.push({ s: 'assignOp', target: target.expr, bop, expr: lift(value).expr })
   }
   addAssign<K extends string>(target: Node<K>, value: ArithArg<K>): void { this.assignOp(target, '+', value) }
 
-  ret(value?: Node): void { this.push({ s: 'return', expr: value?.expr }) }
+  ret(value?: ReadonlyNode): void { this.push({ s: 'return', expr: value?.expr }) }
   break(): void { this.push({ s: 'break' }) }
   continue(): void { this.push({ s: 'continue' }) }
   discard(): void { this.push({ s: 'discard' }) }
@@ -105,7 +105,7 @@ export class Builder {
   /** if / else-if / else chain. Returns a chainer so `.elif().else()` reads
    *  top-to-bottom. The If stmt is pushed on the first call and mutated in
    *  place by subsequent .elif/.else. */
-  if(cond: Node<'bool'>, body: (b: Builder) => Node | void): IfChain {
+  if(cond: ReadonlyNode<'bool'>, body: (b: Builder) => ReadonlyNode | void): IfChain {
     const arms: Array<{ cond: Expr; body: Stmt[] }> = [{ cond: cond.expr, body: subBody(this, body) }]
     const stmt = { s: 'if' as const, arms, elseBody: undefined as Stmt[] | undefined }
     // Push a mutable-shaped object; the readonly Stmt typing is a compile-time
@@ -117,20 +117,20 @@ export class Builder {
   /** C-style for: `for (var name = init; name <cond>; name = name+step)`.
    *  A numeric / omitted step is typed to the loop var's scalar so a u32/i32
    *  counter emits `i + 1u` / `i + 1` (not `i + 1.0`, which naga/tint reject). */
-  forRange<K extends string>(init: Node<K>, cond: (i: Node<K>) => Node<'bool'>, body: (b: Builder, i: Node<K>) => Node | void, step?: Node<ScalarKey> | number): void
-  forRange<K extends string>(name: string, init: Node<K>, cond: (i: Node<K>) => Node<'bool'>, body: (b: Builder, i: Node<K>) => Node | void, step?: Node<ScalarKey> | number): void
+  forRange<K extends string>(init: Node<K>, cond: (i: Node<K>) => Node<'bool'>, body: (b: Builder, i: Node<K>) => ReadonlyNode | void, step?: Node<ScalarKey> | number): void
+  forRange<K extends string>(name: string, init: Node<K>, cond: (i: Node<K>) => Node<'bool'>, body: (b: Builder, i: Node<K>) => ReadonlyNode | void, step?: Node<ScalarKey> | number): void
   forRange<K extends string>(
     a: string | Node<K>,
     b: Node<K> | ((i: Node<K>) => Node<'bool'>),
-    c: ((i: Node<K>) => Node<'bool'>) | ((b: Builder, i: Node<K>) => Node | void),
-    d?: ((b: Builder, i: Node<K>) => Node | void) | Node<ScalarKey> | number,
+    c: ((i: Node<K>) => Node<'bool'>) | ((b: Builder, i: Node<K>) => ReadonlyNode | void),
+    d?: ((b: Builder, i: Node<K>) => ReadonlyNode | void) | Node<ScalarKey> | number,
     e?: Node<ScalarKey> | number,
   ): void {
     const named = typeof a === 'string'
     const name = named ? a : this.autoName()
     const init = (named ? b : a) as Node<K>
     const cond = (named ? c : b) as (i: Node<K>) => Node<'bool'>
-    const body = (named ? d : c) as (b: Builder, i: Node<K>) => Node | void
+    const body = (named ? d : c) as (b: Builder, i: Node<K>) => ReadonlyNode | void
     const step = (named ? e : d) as Node<ScalarKey> | number | undefined
     const i = new Node<K>({ op: 'varref', type: init.type, name })
     const litOf = (v: number): Node => {
@@ -140,11 +140,11 @@ export class Builder {
     }
     const stepNode = step === undefined ? litOf(1) : typeof step === 'number' ? litOf(step) : step
     const initStmt: Stmt = { s: 'var', name, type: init.type, init: init.expr }
-    const updateStmt: Stmt = { s: 'assign', target: i.expr, expr: i.add(stepNode as ArithArg<K>).expr }
+    const updateStmt: Stmt = { s: 'assign', target: i.expr, expr: i.add(stepNode as unknown as ArithArg<K>).expr }
     this.push({ s: 'for', init: initStmt, cond: cond(i).expr, update: updateStmt, body: subBody(this, (b) => body(b, i)) })
   }
 
-  switch(scrut: Node<ScalarKey>, cases: Array<[number, (b: Builder) => Node | void]>, defaultBody?: (b: Builder) => Node | void): void {
+  switch(scrut: ReadonlyNode<ScalarKey>, cases: Array<[number, (b: Builder) => ReadonlyNode | void]>, defaultBody?: (b: Builder) => ReadonlyNode | void): void {
     this.push({
       s: 'switch',
       scrut: scrut.expr,
@@ -160,11 +160,11 @@ export class IfChain {
     private readonly arms: Array<{ cond: Expr; body: Stmt[] }>,
     private readonly setElse: (body: Stmt[]) => void,
   ) {}
-  elif(cond: Node<'bool'>, body: (b: Builder) => Node | void): IfChain {
+  elif(cond: ReadonlyNode<'bool'>, body: (b: Builder) => ReadonlyNode | void): IfChain {
     this.arms.push({ cond: cond.expr, body: subBody(this.parent, body) })
     return this
   }
-  else(body: (b: Builder) => Node | void): void {
+  else(body: (b: Builder) => ReadonlyNode | void): void {
     this.setElse(subBody(this.parent, body))
   }
 }
@@ -197,7 +197,7 @@ installStmtSink({
   assign: (target, value) => currentBuilder().assign(target, value),
 })
 
-function subBody(parent: Builder, fn: (b: Builder) => Node | void): Stmt[] {
+function subBody(parent: Builder, fn: (b: Builder) => ReadonlyNode | void): Stmt[] {
   // child() shares the parent's auto-name counter, so an omitted binding name inside this
   // nested scope keeps incrementing the same `_v{n}` sequence (no inner-shadows-outer).
   const b = parent.child()
@@ -241,7 +241,7 @@ function makeCallFactory<R extends ShaderType>(
     // Node is a class instance. (callFn then builds the identical call-by-name node.)
     const a0 = args[0]
     if (args.length === 1 && a0 != null && !(a0 instanceof Node) && typeof a0 === 'object' && !Array.isArray(a0)) {
-      const obj = a0 as Record<string, NodeLike>
+      const obj = a0 as unknown as Record<string, NodeLike>
       return callFn(name, ret, ...paramList.map((p) => obj[p.name]))
     }
     return callFn(name, ret, ...args)
@@ -259,12 +259,12 @@ type FnOpts = {
   /** Return-value attribute for a bare (non-struct) stage output — `-> @location(0) vec4<f32>`. */
   retAttr?: string
 }
-type FnBody<P extends FnParamSpec, R extends string> = (p: ParamNodes<P>, b: Builder) => Node<R> | void
+type FnBody<P extends FnParamSpec, R extends string> = (p: ParamNodes<P>, b: Builder) => ReadonlyNode<R> | void
 
 /** Infer a fn's WGSL return type from its body — the type of the value it returns. Used when the author
  *  omits the explicit return-type token. Walks into nested if/for/switch for a body that returns only via
  *  an early `Return(value)` (a guard). voidT when nothing is returned (statement / compute entry). */
-function inferReturnType(result: Node | void, stmts: readonly Stmt[]): ShaderType {
+function inferReturnType(result: ReadonlyNode | void, stmts: readonly Stmt[]): ShaderType {
   if (result !== undefined) return result.type
   const scan = (ss: readonly Stmt[]): ShaderType | undefined => {
     for (const s of ss) {
@@ -401,26 +401,26 @@ export function constExpr(name: string, type: ShaderType, value: Node): ConstDec
 // emit stays byte-identical. IfChain.elif/.else accept a zero-arg `() => …` body
 // (a 0-arg fn is assignable where `(b) => void` is wanted), so chains read clean too.
 
-export function Let<K extends string>(value: Node<K>): Node<K>
-export function Let<K extends string>(name: string, value: Node<K>): Node<K>
-export function Let<K extends string>(nameOrValue: string | Node<K>, maybeValue?: Node<K>): Node<K> {
+export function Let<K extends string>(value: ReadonlyNode<K>): ReadonlyNode<K>
+export function Let<K extends string>(name: string, value: ReadonlyNode<K>): ReadonlyNode<K>
+export function Let<K extends string>(nameOrValue: string | ReadonlyNode<K>, maybeValue?: ReadonlyNode<K>): ReadonlyNode<K> {
   return typeof nameOrValue === 'string' ? currentBuilder().let(nameOrValue, maybeValue!) : currentBuilder().let(nameOrValue)
 }
-export function Var<K extends string>(init: Node<K>): Node<K>
-export function Var<T extends ShaderType>(type: T, init?: Node<KeyOf<T>>): Node<KeyOf<T>>
-export function Var<T extends ShaderType>(name: string, type: T, init?: Node<KeyOf<T>>): Node<KeyOf<T>>
-export function Var<T extends ShaderType>(nameOrTypeOrInit: string | T | Node, typeOrInit?: T | Node<KeyOf<T>>, maybeInit?: Node<KeyOf<T>>): Node<KeyOf<T>> {
+export function Var<K extends string>(init: ReadonlyNode<K>): Node<K>
+export function Var<T extends ShaderType>(type: T, init?: ReadonlyNode<KeyOf<T>>): Node<KeyOf<T>>
+export function Var<T extends ShaderType>(name: string, type: T, init?: ReadonlyNode<KeyOf<T>>): Node<KeyOf<T>>
+export function Var<T extends ShaderType>(nameOrTypeOrInit: string | T | ReadonlyNode, typeOrInit?: T | ReadonlyNode<KeyOf<T>>, maybeInit?: ReadonlyNode<KeyOf<T>>): Node<KeyOf<T>> {
   // Var(init) — a mutable var seeded from a value infers its WGSL type from that value.
-  if (nameOrTypeOrInit instanceof Node) return currentBuilder().var(nameOrTypeOrInit.type, nameOrTypeOrInit) as Node<KeyOf<T>>
+  if (nameOrTypeOrInit instanceof ReadonlyNode) return currentBuilder().var(nameOrTypeOrInit.type, nameOrTypeOrInit) as Node<KeyOf<T>>
   return typeof nameOrTypeOrInit === 'string'
     ? currentBuilder().var(nameOrTypeOrInit, typeOrInit as T, maybeInit)
     : currentBuilder().var(nameOrTypeOrInit, typeOrInit as Node<KeyOf<T>> | undefined)
 }
-export const Return = (value?: Node): void => currentBuilder().ret(value)
+export const Return = (value?: ReadonlyNode): void => currentBuilder().ret(value)
 /** Guard clause — `if (cond) { return value; }`. The readable, EXPLICIT early return:
  *  reads as "return value if cond", unlike `If(cond, () => value)` which looks like a
  *  fall-through. Emits identically to `If(cond, () => Return(value))`. */
-export const ReturnIf = (cond: Node<'bool'>, value?: Node): void => {
+export const ReturnIf = (cond: ReadonlyNode<'bool'>, value?: ReadonlyNode): void => {
   currentBuilder().if(cond, (b) => b.ret(value))
 }
 export const Continue = (): void => currentBuilder().continue()
@@ -429,22 +429,22 @@ export const Discard = (): void => currentBuilder().discard()
 
 /** `if (cond) { body }` over the innermost scope; a body may `return value` for an
  *  early return (same `return` everywhere). Chain `.elif(c, () => …)` / `.else(() => …)`. */
-export const If = (cond: Node<'bool'>, body: () => Node | void): IfChain => currentBuilder().if(cond, () => body())
+export const If = (cond: ReadonlyNode<'bool'>, body: () => ReadonlyNode | void): IfChain => currentBuilder().if(cond, () => body())
 
 /** C-style for over the innermost scope; the body receives the typed counter Node. */
-export function Loop<K extends string>(init: Node<K>, cond: (i: Node<K>) => Node<'bool'>, body: (i: Node<K>) => Node | void, step?: Node<ScalarKey> | number): void
-export function Loop<K extends string>(name: string, init: Node<K>, cond: (i: Node<K>) => Node<'bool'>, body: (i: Node<K>) => Node | void, step?: Node<ScalarKey> | number): void
+export function Loop<K extends string>(init: Node<K>, cond: (i: Node<K>) => Node<'bool'>, body: (i: Node<K>) => ReadonlyNode | void, step?: Node<ScalarKey> | number): void
+export function Loop<K extends string>(name: string, init: Node<K>, cond: (i: Node<K>) => Node<'bool'>, body: (i: Node<K>) => ReadonlyNode | void, step?: Node<ScalarKey> | number): void
 export function Loop<K extends string>(
   a: string | Node<K>,
   b: Node<K> | ((i: Node<K>) => Node<'bool'>),
-  c: ((i: Node<K>) => Node<'bool'>) | ((i: Node<K>) => Node | void),
-  d?: ((i: Node<K>) => Node | void) | Node<ScalarKey> | number,
+  c: ((i: Node<K>) => Node<'bool'>) | ((i: Node<K>) => ReadonlyNode | void),
+  d?: ((i: Node<K>) => ReadonlyNode | void) | Node<ScalarKey> | number,
   e?: Node<ScalarKey> | number,
 ): void {
   const named = typeof a === 'string'
   const init = (named ? b : a) as Node<K>
   const cond = (named ? c : b) as (i: Node<K>) => Node<'bool'>
-  const body = (named ? d : c) as (i: Node<K>) => Node | void
+  const body = (named ? d : c) as (i: Node<K>) => ReadonlyNode | void
   const step = (named ? e : d) as Node<ScalarKey> | number | undefined
   if (named) currentBuilder().forRange(a as string, init, cond, (_b, i) => body(i), step)
   else currentBuilder().forRange(init, cond, (_b, i) => body(i), step)
@@ -461,7 +461,7 @@ export function reduce<K extends string, J extends string>(
   body: (acc: Node<K>, i: Node<J>) => Node<K>,
   step?: Node<ScalarKey> | number,
 ): Node<K> {
-  const acc = currentBuilder().var(init.type, init) as Node<K>
+  const acc = currentBuilder().var(init.type, init as ReadonlyNode) as Node<K>
   currentBuilder().forRange(loopInit, cond, (_b, i) => {
     currentBuilder().assign(acc, body(acc, i))
   }, step)
@@ -473,7 +473,7 @@ export function reduce<K extends string, J extends string>(
  *  the var + if/else internally, so the emit is byte-identical (it does NOT lower to `select`, which
  *  would change the WGSL). Use for a branch-INITIALISED value, not for genuine multi-step mutation. */
 export function ifExpr<K extends string>(
-  cond: Node<'bool'>,
+  cond: ReadonlyNode<'bool'>,
   thenVal: () => Node<K>,
   elseVal: () => Node<K>,
 ): Node<K> {
@@ -527,7 +527,7 @@ export class SwitchChain {
   default(body?: () => void): void {
     currentBuilder().switch(
       this.scrut,
-      this.cases.map(([v, f]) => [v, (_b: Builder) => f()] as [number, (bb: Builder) => Node | void]),
+      this.cases.map(([v, f]) => [v, (_b: Builder) => f()] as [number, (bb: Builder) => ReadonlyNode | void]),
       body ? (_b: Builder) => body() : undefined,
     )
   }

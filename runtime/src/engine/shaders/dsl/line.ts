@@ -29,7 +29,7 @@ import {
   ReturnIf, Switch,
   f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
   arrayT,
-  type Node,
+  type Node, type ReadonlyNode,
   type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, structDecl, storageBuffer, resource } from '@xgis/shader-dsl'
@@ -893,7 +893,7 @@ const vsLine = fn('vs_line', {
   // uses for the extruded roof ring (polygon-mesh.ts). The previous form added
   // z_lift to ECEF Z AFTER conversion (polar axis), displacing extruded
   // outlines h·cos(lat) north + h·(1−sin lat) below the roof (~37 px at z16).
-  type FNode = Node<'f32'>
+  type FNode = ReadonlyNode<'f32'>
   const ecefFromMerc = (
     _builder: unknown,
     _name: string,
