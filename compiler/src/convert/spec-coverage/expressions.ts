@@ -15,6 +15,7 @@ export const EXPRESSIONS: readonly CoverageEntry[] = [
   // Logic + comparison
   { name: 'all',             status: 'supported' },
   { name: 'any',             status: 'supported' },
+  { name: 'none',            status: 'supported', note: 'Legacy filter combinator. Lowers to `!(f1 || f2 || …)`.' },
   { name: '!',               status: 'supported' },
   { name: '== / != / < / <= / > / >=', status: 'supported' },
   { name: 'in',              status: 'supported', note: 'Both expression form and legacy form. Empty value list lowers to constant `false` per spec.', source: 'expressions.ts:560' },
