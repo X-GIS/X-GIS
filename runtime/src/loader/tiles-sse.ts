@@ -92,6 +92,28 @@ const DEFAULT_TARGET_SSE_PX = 1
  *  z=22 + pitch=89° + bearing change) could in theory blow up. */
 const MAX_EMITTED = 600
 
+/** DIAGNOSTIC ONLY — `?maxtiles=N` hard-caps the emitted tile count so a
+ *  tester can A/B "does drawing fewer tiles fix the frame rate?" without any
+ *  code change. The camera-priority DFS already emits nearest-first, so the
+ *  cap keeps the foreground and drops the far horizon. Read once (memoised);
+ *  returns null when absent so production behaviour is byte-identical. NOT a
+ *  perf feature — it leaves the viewport partially uncovered by design. */
+let _maxTilesFlag: number | null | undefined
+function urlMaxTiles(): number | null {
+  if (_maxTilesFlag !== undefined) return _maxTilesFlag
+  _maxTilesFlag = null
+  if (typeof window !== 'undefined') {
+    try {
+      const v = new URL(window.location.href).searchParams.get('maxtiles')
+      if (v !== null) {
+        const n = Number(v)
+        if (Number.isFinite(n) && n >= 1) _maxTilesFlag = Math.floor(n)
+      }
+    } catch { /* non-browser / bad URL → no cap */ }
+  }
+  return _maxTilesFlag
+}
+
 export interface VisibleTilesSSEOptions {
   /** Subdivide-cutoff in screen pixels. Default 16. */
   targetSSEPx?: number
@@ -177,7 +199,9 @@ export function visibleTilesSSE(
       targetSSE = Math.min(24, targetSSE + zBoost * (24 - targetSSE))
     }
   }
-  const maxEmitted = opts.maxEmitted ?? MAX_EMITTED
+  // `?maxtiles=N` (diagnostic) wins over the explicit opt and the default so
+  // the A/B cap applies on every selection path; null/absent → normal behaviour.
+  const maxEmitted = urlMaxTiles() ?? opts.maxEmitted ?? MAX_EMITTED
 
   // Camera altitude in Mercator metres — derived from the CSS-pixel
   // viewport (matches camera.ts:120 — must stay DPR-invariant so the
