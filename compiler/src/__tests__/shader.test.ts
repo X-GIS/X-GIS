@@ -53,6 +53,16 @@ describe('WGSL Expression Compiler', () => {
     expect(exprToWGSL(parseExpr('-speed'), fieldMap)).toBe('(-feat_data[((input.feat_id * 3u) + 0u)])')
   })
 
+  it('compiles % as a floored-modulo expression, never the raw % operator', () => {
+    // WGSL/JS `%` are truncated remainder and GLSL ES rejects `%` on floats, so
+    // the f32 path emits `a - b * floor(a / b)` — portable across the three
+    // backends + the CPU oracle, preserving parity.
+    const result = exprToWGSL(parseExpr('speed % 50'), fieldMap)
+    expect(result).not.toContain('%')
+    expect(result).toContain('floor(')
+    expect(result).toBe('(feat_data[((input.feat_id * 3u) + 0u)] - (50.0 * floor((feat_data[((input.feat_id * 3u) + 0u)] / 50.0))))')
+  })
+
   it('compiles log10 via log', () => {
     const result = exprToWGSL(parseExpr('log10(speed)'), fieldMap)
     expect(result).toContain('log(')

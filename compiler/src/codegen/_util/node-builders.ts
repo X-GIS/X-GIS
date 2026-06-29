@@ -130,7 +130,6 @@ export const f32Add = (a: NodeLike<'f32'>, b: NodeLike<'f32'>) => f32Binop('+', 
 export const f32Sub = (a: NodeLike<'f32'>, b: NodeLike<'f32'>) => f32Binop('-', a, b)
 export const f32Mul = (a: NodeLike<'f32'>, b: NodeLike<'f32'>) => f32Binop('*', a, b)
 export const f32Div = (a: NodeLike<'f32'>, b: NodeLike<'f32'>) => f32Binop('/', a, b)
-export const f32Mod = (a: NodeLike<'f32'>, b: NodeLike<'f32'>) => f32Binop('%', a, b)
 export const u32Add = (a: NodeLike<'u32'>, b: NodeLike<'u32'>) => u32Binop('+', a, b)
 export const u32Mul = (a: NodeLike<'u32'>, b: NodeLike<'u32'>) => u32Binop('*', a, b)
 export const u32Mod = (a: NodeLike<'u32'>, b: NodeLike<'u32'>) => u32Binop('%', a, b)
@@ -151,6 +150,18 @@ export function callF32(fn: string, args: ReadonlyArray<NodeLike<string>>): Node
 /** max(a, b) for f32 — the f32 encoding of logical OR (`||`). */
 export function maxF32(a: NodeLike<'f32'>, b: NodeLike<'f32'>): NodeLike<'f32'> {
   return callF32('max', [a, b])
+}
+
+/** floored modulo `a - b * floor(a / b)` — NOT the `%` operator.
+ *
+ *  The `%` BinOp is deliberately avoided: WGSL `%` and the CPU oracle's JS `%`
+ *  are TRUNCATED remainder (sign of dividend), GLSL ES rejects `%` on floats
+ *  outright, so a raw `%` breaks the three-backend single-emit + CPU↔GPU parity
+ *  contract. This floored form composes only portable ops (`-`/`*`/`/`/`floor`,
+ *  all three backends + the oracle evaluate them identically) and matches the
+ *  codebase's canonical wrap (`value - floor(value / period) * period`). */
+export function f32Mod(a: NodeLike<'f32'>, b: NodeLike<'f32'>): NodeLike<'f32'> {
+  return f32Sub(a, f32Mul(b, callF32('floor', [f32Div(a, b)])))
 }
 
 /** A comparison producing a WGSL bool (`(a <cop> b)`). */
@@ -180,7 +191,10 @@ export function selectF32(
  *  verbatim (NOT through the f32 select() bridge). The `type` is annotated f32
  *  because emit ignores the type for these ops — the spelling is `(a op b)`. */
 export function binaryVerbatimF32(a: NodeLike<'f32'>, op: string, b: NodeLike<'f32'>): NodeLike<'f32'> {
-  if (op === '+' || op === '-' || op === '*' || op === '/' || op === '%') {
+  // `%` routes through the floored-modulo expression (portable across the three
+  // backends); the raw `%` BinOp is never emitted for f32.
+  if (op === '%') return f32Mod(a, b)
+  if (op === '+' || op === '-' || op === '*' || op === '/') {
     return { expr: { op: 'binop', type: F32_T, bop: op, a: a.expr, b: b.expr } } as NodeLike<'f32'>
   }
   if (op === '<' || op === '>' || op === '<=' || op === '>=' || op === '==' || op === '!=') {
