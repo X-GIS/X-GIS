@@ -66,7 +66,7 @@ function summarise(frames: number[]): string {
 }
 
 /** Build the full copyable text report after the scenarios have run. */
-function buildReport(map: PerfMap, zoomLine: string, pitchLine: string): string {
+function buildReport(map: PerfMap, panZoomLine: string, rotPitchLine: string): string {
   const dpr = window.devicePixelRatio || 1
   const canvas = document.querySelector('canvas')
   const cw = canvas?.width ?? 0, ch = canvas?.height ?? 0
@@ -94,8 +94,8 @@ function buildReport(map: PerfMap, zoomLine: string, pitchLine: string): string 
   lines.push(`기기   DPR=${dpr} effDPR=${effDpr}  뷰포트=${clientW}x${clientH}  캔버스=${cw}x${ch}`)
   lines.push(`UA     ${navigator.userAgent}`)
   lines.push('')
-  lines.push(`프레임  zoom+pan : ${zoomLine}`)
-  lines.push(`프레임  pitch    : ${pitchLine}`)
+  lines.push(`프레임  pan+zoom     : ${panZoomLine}`)
+  lines.push(`프레임  rotate+pitch : ${rotPitchLine}`)
   lines.push(`draw    ${drawLine}`)
   lines.push(`gpu ms (p50/p95)  ${gpuLine}`)
   lines.push('')
@@ -146,7 +146,7 @@ export function installPerfOverlay(map: PerfMap): void {
 
   const pre = document.createElement('pre')
   pre.style.cssText = 'margin:0;white-space:pre-wrap;word-break:break-word;'
-  pre.textContent = '«측정»을 눌러 6초 zoom+pan + 6초 pitch 를 돌립니다.\nGPU 시간까지 보려면 URL 에 &gpuprof=1 을 붙여 다시 로드하세요.'
+  pre.textContent = '«측정»을 눌러 6초 pan+zoom + 6초 rotate+pitch 를 돌립니다 (현재 카메라 기준 — 글로브/평면 모두 OK).\nGPU 시간까지 보려면 URL 에 &gpuprof=1 을 붙여 다시 로드하세요.'
   panel.append(bar, pre)
 
   let report = ''
@@ -169,21 +169,37 @@ export function installPerfOverlay(map: PerfMap): void {
       phases?.resetPhaseTimings?.()
       map.gpuTimer?.resetTimings?.()
 
-      const base = map.getCamera()
-      const x0 = base.centerX
-      pre.textContent = '측정 중… zoom+pan (6초)'
-      const zoom = await runScenario(map, 6000, (t, cam) => {
+      // Snapshot the camera and perturb RELATIVE to it, so the benchmark is
+      // meaningful at any starting view — a globe at z≈3 stays a globe (spin
+      // exercises the 2-pass sphere render), a street scene at z≈14 pans/zooms
+      // streets. The old hard-coded zoom 10→14 zoomed a globe down to mercator
+      // and never tested the sphere pass.
+      const b0 = map.getCamera()
+      const z0 = b0.zoom, x0 = b0.centerX, p0 = b0.pitch, br0 = b0.bearing
+      // ~0.4 of the visible width at this zoom (Web-Mercator world circumference
+      // is 40,075,016 m); keeps the pan on-screen at z=3 and z=14 alike.
+      const panDelta = (40075016.686 / Math.pow(2, z0)) * 0.4
+
+      pre.textContent = '측정 중… pan+zoom (6초)'
+      const panZoom = await runScenario(map, 6000, (t, cam) => {
         const ph = t < 0.5 ? t * 2 : (1 - t) * 2
-        cam.zoom = 10 + ph * 4
-        cam.centerX = x0 + ph * 200000
+        cam.zoom = Math.max(0, z0 + ph * 2)   // zoom in +2 then back
+        cam.centerX = x0 + ph * panDelta
       })
-      pre.textContent = '측정 중… pitch (6초)'
-      const pitch = await runScenario(map, 6000, (t, cam) => {
+      pre.textContent = '측정 중… rotate+pitch (6초)'
+      const rotPitch = await runScenario(map, 6000, (t, cam) => {
         const ph = t < 0.5 ? t * 2 : (1 - t) * 2
-        cam.pitch = ph * 70
+        cam.bearing = br0 + t * 360           // full spin — drives the globe sphere pass
+        cam.pitch = p0 + ph * 40
       })
 
-      report = buildReport(map, summarise(zoom), summarise(pitch))
+      // Restore the starting view (pan/zoom/pitch already returned via the
+      // triangle wave; bearing ends a full turn later ≡ br0).
+      const camNow = map.getCamera()
+      camNow.zoom = z0; camNow.centerX = x0; camNow.pitch = p0; camNow.bearing = br0
+      map.invalidate()
+
+      report = buildReport(map, summarise(panZoom), summarise(rotPitch))
       pre.textContent = report
       runBtn.disabled = false
       runBtn.textContent = '▶ 다시 측정'
