@@ -127,6 +127,11 @@ export interface ColorResult {
    *  this for one more arm; once every arm sets it, the legacy
    *  `expr: string` field can be removed. */
   nodeExpr?: NodeLike<'vec4<f32>'>
+  /** Set by the scalar data-driven (grayscale) arm — the f32 value Node.
+   *  Composed into `vec4(s, s, s, opacity)` at the top level (the colour is
+   *  greyscale: the scalar drives r=g=b and opacity drives alpha), so it can't
+   *  go through `composeFillVec4`'s `.rgb`/`.a` path like a vec4 colour. */
+  scalarNodeExpr?: NodeLike<'f32'>
   /** Index into `palette.colorGradients` when this result was routed
    *  through the textureSampleLevel path. Undefined for every legacy
    *  path (constant, time-interpolated, data-driven, conditional). */

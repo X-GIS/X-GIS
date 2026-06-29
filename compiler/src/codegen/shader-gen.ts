@@ -17,14 +17,13 @@ import {
   type ScalarPaletteMode,
 } from './palette-emit'
 import type { ShaderVariant, ColorResult, OpacityResult, PreambleModule } from './shader-gen-types'
-import { wgslRaw } from './node-types'
 import type { NodeLike } from './node-types'
 import type { ConstDecl, BindingDecl, FuncDecl, Expr } from '@xgis/shader-dsl'
 import { vec4fT, f32T } from '@xgis/shader-dsl'
 import {
-  composeFillVec4, constRefVec4, refF32,
-  toU32, toI32, u32Lit, u32Mod, arrayIndex, featDataField,
-  mix4, clampF32, f32Sub, f32Div, f32Lit, vec4fFromRgba, matchVec4,
+  composeFillVec4, constRefVec4, varRefVec4, refF32,
+  toU32, toI32, u32Lit, u32Mod, arrayIndex,
+  mix4, clampF32, f32Sub, f32Div, f32Lit, vec4f, vec4fFromRgba, matchVec4,
 } from './_util/node-builders'
 import {
   buildFieldMap,
@@ -124,21 +123,15 @@ export function generateShaderVariant(
   // US-005's per-idiom commits land them too. Both paths produce
   // semantic-equivalent WGSL at the marker substitution site;
   // pixel-survey is the integration gate.
-  const fillExprStr = node.fill.kind === 'none' ? 'u.fill_color' : buildFillExpr(fillResult, opacityResult)
-  const strokeExprStr = buildStrokeExpr(strokeResult, opacityResult)
-  // US-005 dispatch order: prefer the per-idiom arm's `nodeExpr`
-  // (lands one bucket at a time), then the generic varref-pair
-  // pattern, finally fall back to wgslRaw(legacy string). Each
-  // ColorResult / OpacityResult arm that migrates sets `.nodeExpr`
-  // and the legacy string path quietly retreats.
+  // Single-emit: every colour / opacity arm now produces a real DSL Node, so
+  // fill / stroke compose to a Node directly (no wgslRaw string fallback). A
+  // `kind: 'none'` fill stays the default-uniform sentinel (`null` +
+  // `fillIsDefault: true`) so the runtime keeps the skip-fill-draw fast path.
   const fillExprNode = composeColorOpacityNode(fillResult, opacityResult)
   const strokeExprNode = composeColorOpacityNode(strokeResult, opacityResult)
   const fillExpr: NodeLike<'vec4<f32>'> | null =
-    node.fill.kind === 'none' ? null
-      : (fillExprNode ?? wgslRaw<'vec4<f32>'>(fillExprStr))
-  const strokeExpr: NodeLike<'vec4<f32>'> | null =
-    strokeExprStr === 'u.stroke_color' ? null
-      : (strokeExprNode ?? wgslRaw<'vec4<f32>'>(strokeExprStr))
+    node.fill.kind === 'none' ? null : fillExprNode
+  const strokeExpr: NodeLike<'vec4<f32>'> | null = strokeExprNode
 
   // ── Cache key ──
   const featureFields = [...allFeatureFields].sort()
@@ -235,6 +228,7 @@ function processColorValue(
       preamble: [],
       isConst: false, needsFeatures: false, isVec4: true,
       expr: uniformName,
+      nodeExpr: varRefVec4(uniformName),
     }
   }
 
@@ -248,24 +242,17 @@ function processColorValue(
     if (ast.kind === 'FnCall' && ast.callee.kind === 'Identifier' && ast.callee.name === 'categorical') {
       const fieldExpr = ast.args[0]
       const wgsl = exprToWGSL(fieldExpr, fieldMap, fnEnv)
-      // Phase 2.5 US-005 idiom #3 (categorical) — when the field
-      // argument is a direct FieldAccess / Identifier (the
-      // overwhelmingly common shape; OFM landuse / road class etc.),
-      // build a real Node via featDataField + toU32 + u32Mod +
-      // arrayIndex(CAT_PALETTE). Falls back to wgslRaw for the
-      // arithmetic / builtin-call AST sub-shapes — those need the
-      // full DataExpr->Node converter (deferred to a later commit).
-      const fieldName = (fieldExpr && (fieldExpr.kind === 'Identifier'
-        ? fieldExpr.name
-        : fieldExpr.kind === 'FieldAccess' ? fieldExpr.field : null)) ?? null
-      const fieldNode = fieldName ? featDataField(fieldName, fieldMap) : null
-      const nodeExpr = fieldNode
-        ? arrayIndex<'vec4<f32>'>(
-            constRefVec4('CAT_PALETTE') as NodeLike<string>,
-            u32Mod(toU32(fieldNode), u32Lit(20)),
-            'vec4<f32>',
-          )
-        : undefined
+      // categorical(field) → CAT_PALETTE[u32(field) % 20]. `astToNode`
+      // converts ANY field-argument AST shape (direct FieldAccess /
+      // Identifier, but also arithmetic / builtin-call / pipe) to the same
+      // IR the `wgsl` string captures, so the Node path always carries the
+      // colour — no string fallback.
+      const fieldNode = astToNode(fieldExpr, fieldMap, fnEnv)
+      const nodeExpr = arrayIndex<'vec4<f32>'>(
+        constRefVec4('CAT_PALETTE') as NodeLike<string>,
+        u32Mod(toU32(fieldNode), u32Lit(20)),
+        'vec4<f32>',
+      )
       return {
         preamble: [buildCatPaletteConst()],
         isConst: false, needsFeatures: true, isVec4: true,
@@ -373,19 +360,15 @@ function processColorValue(
     // ── Legacy: fill-[name] / fill-[.name] → auto palette (backward compat) ──
     if (ast.kind === 'FieldAccess' || (ast.kind === 'Identifier' && ast.name !== 'zoom')) {
       const wgsl = exprToWGSL(ast, fieldMap, fnEnv)
-      // Phase 2.5 US-005 idiom — same shape as the explicit
-      // categorical() path above; reuses featDataField when the
-      // ast is a simple Identifier / FieldAccess (the only shapes
-      // this fallback accepts).
-      const fieldName = ast.kind === 'Identifier' ? ast.name : ast.field
-      const fieldNode = featDataField(fieldName, fieldMap)
-      const nodeExpr = fieldNode
-        ? arrayIndex<'vec4<f32>'>(
-            constRefVec4('CAT_PALETTE') as NodeLike<string>,
-            u32Mod(toU32(fieldNode), u32Lit(20)),
-            'vec4<f32>',
-          )
-        : undefined
+      // Same shape as the explicit categorical() path above; `astToNode`
+      // converts the field AST (Identifier / FieldAccess here) to the same
+      // IR the `wgsl` string captures, so the Node path always carries it.
+      const fieldNode = astToNode(ast, fieldMap, fnEnv)
+      const nodeExpr = arrayIndex<'vec4<f32>'>(
+        constRefVec4('CAT_PALETTE') as NodeLike<string>,
+        u32Mod(toU32(fieldNode), u32Lit(20)),
+        'vec4<f32>',
+      )
       return {
         preamble: [buildCatPaletteConst()],
         isConst: false, needsFeatures: true, isVec4: true,
@@ -424,12 +407,13 @@ function processColorValue(
       }
     }
 
-    // Default: scalar data-driven expression
+    // Default: scalar data-driven expression → greyscale vec4(s, s, s, opacity).
     const wgsl = exprToWGSL(ast, fieldMap, fnEnv)
     return {
       preamble: [],
       isConst: false, needsFeatures: true, isVec4: false,
       expr: wgsl,
+      scalarNodeExpr: astToNode(ast, fieldMap, fnEnv),
     }
   }
 
@@ -464,6 +448,7 @@ function processColorValue(
     preamble: [],
     isConst: false, needsFeatures: false, isVec4: true,
     expr: `u.${prefix.toLowerCase()}_color`,
+    nodeExpr: varRefVec4(`u.${prefix.toLowerCase()}_color`),
   }
 }
 
@@ -544,89 +529,32 @@ function processOpacity(
     needsUniform: true,
     needsFeatures: false,
     expr: 'u.opacity',
+    nodeExpr: refF32('u.opacity'),
   }
 }
 
 // ═══ Expression builders ═══
 
-// Phase 2.5 US-005 idiom #1+#2 — recognise paths whose ColorResult.expr
-// and OpacityResult.expr are PURE VARREFS (single identifier optionally
-// dotted, e.g. `FILL_COLOR`, `u.fill_color`, `OPACITY`, `u.opacity`).
-// In those cases the legacy `vec4f(<color>.rgb, <color>.a * <opacity>)`
-// composition is structurally equivalent to a real DSL
-// `composeFillVec4(varref(color), varref(opacity))` Node, so the
-// migration produces the same WGSL at the marker substitution site
-// with no per-arm logic change.
-//
-// Covers: constant fill / stroke (FILL_COLOR / STROKE_COLOR), time-
-// interpolated (u.fill_color / u.stroke_color), and the legacy
-// fallback path that returns `u.<prefix>_color` (line 362).
-// Any path whose expr embeds arithmetic / function calls / member
-// accesses beyond a single dotted name falls back to wgslRaw.
-
-// Single dotted-identifier check: `name` or `obj.field`. Rejects WGSL
-// expression text (`vec4f(...)`, `unpack4x8unorm(...)`, `mix(a, b, t)`,
-// data-driven binop strings, etc.).
-const PURE_VARREF_RE = /^[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*$/
-
 /** Compose a colour ColorResult + opacity OpacityResult into the final
- *  `vec4(color.rgb, color.a * opacity)` Node, preferring real Node exprs.
+ *  fill / stroke vec4 Node. Every colour arm carries either a vec4 `nodeExpr`
+ *  (constant, categorical, gradient, scale, match, palette, uniform) or a
+ *  scalar `scalarNodeExpr` (data-driven greyscale), and every opacity arm a
+ *  scalar `nodeExpr` — so this always returns a Node (no string fallback):
  *
- *  - When the colour carries a real `nodeExpr` (constant, categorical,
- *    gradient, scale, match, …): compose it with the opacity's `nodeExpr`,
- *    or — when opacity hasn't migrated to a Node yet (the `u.opacity`
- *    uniform path) — synthesise a varref Node from its pure-varref string.
- *    This keeps match()/data-driven fills on the Node path regardless of
- *    the opacity arm, so the matchExpr is never stranded in the dead
- *    legacy string path.
- *  - Otherwise fall back to the pure-varref pairing (constant / time-
- *    interpolated / default-uniform colours whose `expr` is a bare name). */
+ *    - vec4 colour → `vec4(colour.rgb, colour.a * opacity)` via composeFillVec4.
+ *    - scalar colour → `vec4(s, s, s, opacity)` (greyscale: s drives rgb). */
 function composeColorOpacityNode(
   color: ColorResult,
   opacity: OpacityResult,
 ): NodeLike<'vec4<f32>'> | null {
-  if (color.nodeExpr) {
-    const opacityNode = opacity.nodeExpr
-      ?? (PURE_VARREF_RE.test(opacity.expr) ? refF32(opacity.expr) : null)
-    return opacityNode ? composeFillVec4(color.nodeExpr, opacityNode) : null
+  const opacityNode = opacity.nodeExpr
+  if (!opacityNode) return null
+  if (color.scalarNodeExpr) {
+    const s = color.scalarNodeExpr
+    return vec4f(s, s, s, opacityNode)
   }
-  return tryComposeFillNodeFromVarrefs(color, opacity)
-}
-
-function tryComposeFillNodeFromVarrefs(
-  color: ColorResult,
-  opacity: OpacityResult,
-): NodeLike<'vec4<f32>'> | null {
-  if (!color.isVec4) return null
-  if (!PURE_VARREF_RE.test(color.expr)) return null
-  if (!PURE_VARREF_RE.test(opacity.expr)) return null
-  // Color is always a vec4 here (isVec4=true guard); opacity is f32.
-  // refF32 emits varref to either `OPACITY` (const decl) or `u.opacity`
-  // (uniform field) — both pass the PURE_VARREF_RE check.
-  // For the color varref, the name might be either `FILL_COLOR` (const
-  // decl) or `u.fill_color` (uniform field). constRefVec4 emits a
-  // `constref` op while the runtime treats it as a varref — same emit
-  // shape, so the WGSL output matches the legacy `<name>` text either way.
-  return composeFillVec4(constRefVec4(color.expr), refF32(opacity.expr))
-}
-
-function buildFillExpr(color: ColorResult, opacity: OpacityResult): string {
-  if (color.isVec4) {
-    // Expression already returns vec4f (constant, categorical, gradient)
-    return `vec4f(${color.expr}.rgb, ${color.expr}.a * ${opacity.expr})`
-  }
-  if (color.needsFeatures) {
-    // Data-driven scalar → grayscale
-    return `vec4f(${color.expr}, ${color.expr}, ${color.expr}, ${opacity.expr})`
-  }
-  return `vec4f(${color.expr}.rgb, ${color.expr}.a * ${opacity.expr})`
-}
-
-function buildStrokeExpr(color: ColorResult, opacity: OpacityResult): string {
-  if (color.isConst && opacity.expr === 'OPACITY') {
-    return `vec4f(${color.expr}.rgb, ${color.expr}.a * ${opacity.expr})`
-  }
-  return `vec4f(${color.expr}.rgb, ${color.expr}.a * ${opacity.expr})`
+  if (color.nodeExpr) return composeFillVec4(color.nodeExpr, opacityNode)
+  return null
 }
 
 // ═══ Helpers ═══
