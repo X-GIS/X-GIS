@@ -10,10 +10,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_PALETTE_SLOTS,
+  buildPaletteBindingDecls,
+  buildScalarSampleFunc,
   emitColorGradientSample,
-  emitPaletteBindings,
   emitScalarGradientSample,
-  emitScalarSampleHelper,
 } from './palette-emit'
 import { collectPalette } from './palette'
 import type { ColorValue, RenderNode, Scene, SizeValue, StrokeValue, ZoomStop } from '../ir/render-node'
@@ -47,32 +47,35 @@ function sceneFromNodes(...nodes: RenderNode[]): Scene {
   return { sources: [], renderNodes: nodes, symbols: [] }
 }
 
-describe('palette-emit — emitPaletteBindings', () => {
-  it('empty palette → empty string (no bindings to declare)', () => {
+describe('palette-emit — buildPaletteBindingDecls', () => {
+  it('empty palette → no decls (nothing to bind)', () => {
     const palette = collectPalette(sceneFromNodes())
-    expect(emitPaletteBindings(palette)).toBe('')
+    expect(buildPaletteBindingDecls(palette)).toEqual([])
   })
 
-  it('constants-only palette (no gradients) → empty string', () => {
+  it('constants-only palette (no gradients) → no decls', () => {
     // Constant fill goes into the .colors pool but has no gradient.
     // The shader inlines constants directly — no atlas needed.
     const palette = collectPalette(sceneFromNodes(makeNode({
       fill: { kind: 'constant', rgba: RED } as ColorValue,
     })))
-    expect(emitPaletteBindings(palette)).toBe('')
+    expect(buildPaletteBindingDecls(palette)).toEqual([])
   })
 
-  it('color gradient → emits color atlas binding + sampler, no scalar', () => {
+  it('color gradient → color atlas binding + sampler, no scalar', () => {
     const palette = collectPalette(sceneFromNodes(makeNode({
       fill: { kind: 'zoom-interpolated', stops: [zs(0, RED), zs(20, BLUE)] } as ColorValue,
     })))
-    const out = emitPaletteBindings(palette)
-    expect(out).toContain('@binding(2) var color_grad_atlas: texture_2d<f32>')
-    expect(out).not.toContain('scalar_grad_atlas')
-    expect(out).toContain('@binding(4) var palette_samp: sampler')
+    const decls = buildPaletteBindingDecls(palette)
+    const names = decls.map(d => d.name)
+    expect(names).toContain('color_grad_atlas')
+    expect(names).not.toContain('scalar_grad_atlas')
+    expect(names).toContain('palette_samp')
+    expect(decls.find(d => d.name === 'color_grad_atlas')).toMatchObject({ binding: 2 })
+    expect(decls.find(d => d.name === 'palette_samp')).toMatchObject({ binding: 4 })
   })
 
-  it('scalar gradient only → emits scalar atlas binding + sampler, no color', () => {
+  it('scalar gradient only → scalar atlas binding + sampler, no color', () => {
     // Scalar zoom-interpolated paint values now wire through binding 3
     // alongside the shared sampler. The bind-group layout in
     // renderer.ts picks sampleType based on `float32-filterable`
@@ -80,10 +83,12 @@ describe('palette-emit — emitPaletteBindings', () => {
     const palette = collectPalette(sceneFromNodes(makeNode({
       size: { kind: 'zoom-interpolated', stops: [zs(0, 4), zs(20, 16)] } as SizeValue,
     })))
-    const out = emitPaletteBindings(palette)
-    expect(out).toContain('@binding(3) var scalar_grad_atlas: texture_2d<f32>')
-    expect(out).not.toContain('color_grad_atlas')
-    expect(out).toContain('palette_samp')
+    const decls = buildPaletteBindingDecls(palette)
+    const names = decls.map(d => d.name)
+    expect(names).toContain('scalar_grad_atlas')
+    expect(names).not.toContain('color_grad_atlas')
+    expect(names).toContain('palette_samp')
+    expect(decls.find(d => d.name === 'scalar_grad_atlas')).toMatchObject({ binding: 3 })
   })
 
   it('mixed gradients → both atlases + single shared sampler', () => {
@@ -91,21 +96,21 @@ describe('palette-emit — emitPaletteBindings', () => {
       makeNode({ fill: { kind: 'zoom-interpolated', stops: [zs(0, RED), zs(20, BLUE)] } as ColorValue }),
       makeNode({ size: { kind: 'zoom-interpolated', stops: [zs(0, 4), zs(20, 16)] } as SizeValue }),
     ))
-    const out = emitPaletteBindings(palette)
-    expect(out).toContain('color_grad_atlas')
-    expect(out).toContain('scalar_grad_atlas')
-    expect((out.match(/palette_samp/g) ?? []).length).toBe(1)
+    const names = buildPaletteBindingDecls(palette).map(d => d.name)
+    expect(names).toContain('color_grad_atlas')
+    expect(names).toContain('scalar_grad_atlas')
+    expect(names.filter(n => n === 'palette_samp').length).toBe(1)
   })
 
   it('honors custom binding slots', () => {
     const palette = collectPalette(sceneFromNodes(makeNode({
       fill: { kind: 'zoom-interpolated', stops: [zs(0, RED), zs(20, BLUE)] } as ColorValue,
     })))
-    const out = emitPaletteBindings(palette, {
+    const decls = buildPaletteBindingDecls(palette, {
       group: 2, colorGradientBinding: 7, scalarGradientBinding: 8, samplerBinding: 9,
     })
-    expect(out).toContain('@group(2) @binding(7) var color_grad_atlas')
-    expect(out).toContain('@group(2) @binding(9) var palette_samp')
+    expect(decls.find(d => d.name === 'color_grad_atlas')).toMatchObject({ group: 2, binding: 7 })
+    expect(decls.find(d => d.name === 'palette_samp')).toMatchObject({ group: 2, binding: 9 })
   })
 
   it('default slots ship sensible numbers above 0..1', () => {
@@ -191,31 +196,34 @@ describe('palette-emit — emitScalarGradientSample', () => {
   })
 })
 
-describe('palette-emit — emitScalarSampleHelper', () => {
-  it('empty palette → empty string (no helper needed)', () => {
+describe('palette-emit — buildScalarSampleFunc', () => {
+  it('empty palette → null (no helper needed)', () => {
     const palette = collectPalette(sceneFromNodes())
-    expect(emitScalarSampleHelper(palette, 'filtering')).toBe('')
-    expect(emitScalarSampleHelper(palette, 'manual')).toBe('')
+    expect(buildScalarSampleFunc(palette, 'filtering')).toBeNull()
+    expect(buildScalarSampleFunc(palette, 'manual')).toBeNull()
   })
 
-  it('filtering mode → textureSampleLevel body', () => {
+  it('filtering mode → FuncDecl with textureSampleLevel raw body', () => {
     const palette = collectPalette(sceneFromNodes(makeNode({
       size: { kind: 'zoom-interpolated', stops: [zs(0, 4), zs(20, 16)] } as SizeValue,
     })))
-    const out = emitScalarSampleHelper(palette, 'filtering')
-    expect(out).toContain('fn xgis_scalar_sample(')
-    expect(out).toContain('textureSampleLevel(scalar_grad_atlas, palette_samp')
-    expect(out).not.toContain('textureLoad')
+    const fn = buildScalarSampleFunc(palette, 'filtering')!
+    expect(fn.name).toBe('xgis_scalar_sample')
+    expect(fn.params.map(p => p.name)).toEqual(['idx', 'zoom', 'zMin', 'zMax'])
+    const body = (fn.body[0] as { s: 'raw'; wgsl: string }).wgsl
+    expect(body).toContain('textureSampleLevel(scalar_grad_atlas, palette_samp')
+    expect(body).not.toContain('textureLoad')
   })
 
-  it('manual mode → textureLoad ×2 + mix body', () => {
+  it('manual mode → FuncDecl with textureLoad ×2 + mix raw body', () => {
     const palette = collectPalette(sceneFromNodes(makeNode({
       size: { kind: 'zoom-interpolated', stops: [zs(0, 4), zs(20, 16)] } as SizeValue,
     })))
-    const out = emitScalarSampleHelper(palette, 'manual')
-    expect(out).toContain('fn xgis_scalar_sample(')
-    expect((out.match(/textureLoad\(scalar_grad_atlas/g) ?? []).length).toBe(2)
-    expect(out).toContain('mix(a, b, frac)')
-    expect(out).not.toContain('textureSampleLevel')
+    const fn = buildScalarSampleFunc(palette, 'manual')!
+    expect(fn.name).toBe('xgis_scalar_sample')
+    const body = (fn.body[0] as { s: 'raw'; wgsl: string }).wgsl
+    expect((body.match(/textureLoad\(scalar_grad_atlas/g) ?? []).length).toBe(2)
+    expect(body).toContain('mix(a, b, frac)')
+    expect(body).not.toContain('textureSampleLevel')
   })
 })

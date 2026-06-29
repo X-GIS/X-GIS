@@ -179,7 +179,7 @@ export class ReadonlyNode<K extends string = string> {
   get bgra(): Node<'vec4<f32>'> { return this.swizzle('bgra') as Node<'vec4<f32>'> }
 
   /** Array index — base[idx]. Key inferred from the element ShaderType. */
-  at<T extends ShaderType>(idx: Node<ScalarKey> | number, elem: T): Node<KeyOf<T>> {
+  at<T extends ShaderType>(idx: ReadonlyNode<ScalarKey> | number, elem: T): Node<KeyOf<T>> {
     return new Node<KeyOf<T>>({ op: 'index', type: elem, base: this.expr, idx: lift(idx).expr })
   }
 

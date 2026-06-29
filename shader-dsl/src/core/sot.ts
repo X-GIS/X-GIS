@@ -156,7 +156,7 @@ export function resource<T extends ShaderType>(name: string, type: T, at: { grou
 export interface StorageBuffer<A> {
   readonly binding: BindingDecl
   readonly node: Node
-  at(i: Node<ScalarKey> | number): A
+  at(i: ReadonlyNode<ScalarKey> | number): A
 }
 
 /** A struct ELEMENT handle (structDecl / ioStruct) — has a `.type` and a typed `.of(node)` proxy. */

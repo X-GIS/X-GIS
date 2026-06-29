@@ -18,6 +18,10 @@ for (const section of MAPBOX_COVERAGE) {
   for (const e of section.entries) totals[e.status]++
 }
 const total = totals.supported + totals.partial + totals.unsupported + totals.na
+// Coverage % is quoted against APPLICABLE properties (excluding n/a — Mapbox-only
+// concepts with no xgis equivalent), matching the figures the marketing pages
+// (Coverage.astro, why.astro) state: 175 / 235 ≈ 74%, not 175 / 242.
+const applicable = total - totals.na
 
 const statusBadge = (s: CoverageStatus): { label: string; cls: string } => {
   switch (s) {
@@ -68,7 +72,7 @@ const impactBadge = (i?: CoverageImpact): { label: string; cls: string } | null 
       <div class="rounded-lg border border-line bg-bg-elev p-4">
         <div class="text-[11px] uppercase tracking-[0.16em] text-emerald-300 font-mono mb-1.5">Supported</div>
         <div class="text-[28px] font-medium text-fg leading-none">{totals.supported}</div>
-        <div class="text-[11px] text-fg-mute mt-1.5">{Math.round(totals.supported / total * 100)}% of {total}</div>
+        <div class="text-[11px] text-fg-mute mt-1.5">{Math.round(totals.supported / applicable * 100)}% of {applicable} applicable</div>
       </div>
       <div class="rounded-lg border border-line bg-bg-elev p-4">
         <div class="text-[11px] uppercase tracking-[0.16em] text-amber-300 font-mono mb-1.5">Partial</div>

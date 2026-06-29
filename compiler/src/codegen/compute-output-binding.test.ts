@@ -4,41 +4,35 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  emitComputeOutputBindingDecl,
+  buildComputeOutputBindingDecl,
   emitComputeOutputReadExpr,
   makeComputeOutputBindGroupEntry,
   type ComputeOutputBindingSpec,
 } from './compute-output-binding'
 
-describe('emitComputeOutputBindingDecl', () => {
-  it('emits the fill binding with the right group/binding indices', () => {
-    const decl = emitComputeOutputBindingDecl({
+describe('buildComputeOutputBindingDecl', () => {
+  it('builds the fill binding decl with the right group/binding indices', () => {
+    const decl = buildComputeOutputBindingDecl({
       paintAxis: 'fill', bindGroup: 3, binding: 5,
     })
-    expect(decl).toBe(
-      '@group(3) @binding(5) var<storage, read> compute_out_fill: array<u32>;',
-    )
+    expect(decl).toMatchObject({
+      group: 3, binding: 5, name: 'compute_out_fill', space: 'storage', access: 'read',
+    })
   })
 
-  it('emits the stroke binding with distinct variable name', () => {
-    const decl = emitComputeOutputBindingDecl({
+  it('builds the stroke binding decl with a distinct variable name', () => {
+    const decl = buildComputeOutputBindingDecl({
       paintAxis: 'stroke-color', bindGroup: 3, binding: 6,
     })
-    expect(decl).toBe(
-      '@group(3) @binding(6) var<storage, read> compute_out_stroke: array<u32>;',
-    )
+    expect(decl).toMatchObject({ group: 3, binding: 6, name: 'compute_out_stroke' })
   })
 
   it('fill and stroke variable names differ (so both can coexist)', () => {
-    const fill = emitComputeOutputBindingDecl({
-      paintAxis: 'fill', bindGroup: 0, binding: 0,
-    })
-    const stroke = emitComputeOutputBindingDecl({
-      paintAxis: 'stroke-color', bindGroup: 0, binding: 1,
-    })
-    expect(fill).toContain('compute_out_fill')
-    expect(stroke).toContain('compute_out_stroke')
-    expect(fill).not.toBe(stroke)
+    const fill = buildComputeOutputBindingDecl({ paintAxis: 'fill', bindGroup: 0, binding: 0 })
+    const stroke = buildComputeOutputBindingDecl({ paintAxis: 'stroke-color', bindGroup: 0, binding: 1 })
+    expect(fill.name).toBe('compute_out_fill')
+    expect(stroke.name).toBe('compute_out_stroke')
+    expect(fill.name).not.toBe(stroke.name)
   })
 })
 
@@ -118,10 +112,10 @@ describe('cross-helper consistency (WGSL decl ↔ read expr ↔ runtime entry)',
     const spec: ComputeOutputBindingSpec = {
       paintAxis: 'fill', bindGroup: 2, binding: 7,
     }
-    const decl = emitComputeOutputBindingDecl(spec)
+    const decl = buildComputeOutputBindingDecl(spec)
     const entry = makeComputeOutputBindGroupEntry(spec)
-    // Decl writes "@binding(7)", entry exposes binding=7.
-    expect(decl).toContain('@binding(7)')
+    // Decl carries binding=7, entry exposes binding=7.
+    expect(decl.binding).toBe(7)
     expect(entry.binding).toBe(7)
   })
 
@@ -129,11 +123,11 @@ describe('cross-helper consistency (WGSL decl ↔ read expr ↔ runtime entry)',
     const spec: ComputeOutputBindingSpec = {
       paintAxis: 'fill', bindGroup: 0, binding: 0,
     }
-    const decl = emitComputeOutputBindingDecl(spec)
+    const decl = buildComputeOutputBindingDecl(spec)
     const expr = emitComputeOutputReadExpr(spec, 'fid')
     // Both reference "compute_out_fill" — drifting one without the
     // other produces an unresolved WGSL identifier.
-    expect(decl).toContain('compute_out_fill')
+    expect(decl.name).toBe('compute_out_fill')
     expect(expr).toContain('compute_out_fill')
   })
 
@@ -141,7 +135,7 @@ describe('cross-helper consistency (WGSL decl ↔ read expr ↔ runtime entry)',
     const spec: ComputeOutputBindingSpec = {
       paintAxis: 'stroke-color', bindGroup: 0, binding: 0,
     }
-    expect(emitComputeOutputBindingDecl(spec)).toContain('compute_out_stroke')
+    expect(buildComputeOutputBindingDecl(spec).name).toBe('compute_out_stroke')
     expect(emitComputeOutputReadExpr(spec, 'fid')).toContain('compute_out_stroke')
   })
 })
