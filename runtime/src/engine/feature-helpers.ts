@@ -177,6 +177,11 @@ export function applyFilter(
     const propsBag = makeEvalProps({
       props: f.properties ?? undefined,
       geometryType: f.geometry?.type,
+      // Raw geometry for the Mapbox `["within"]` containment predicate
+      // (lowered to `within(get("$geometry"), …)`). GeoJSON features are
+      // already in lng/lat — the same space as the `within` polygon arg —
+      // so no reprojection is needed here.
+      geometry: f.geometry,
       featureId: (f as { id?: string | number }).id,
       cameraZoom,
       cameraPitch,

@@ -6,12 +6,12 @@
 //     if (f) lines.push(`  filter: ${f}`)
 //   }
 // When `layer.filter` IS authored but UNCONVERTIBLE (an op filterToXgis
-// can't lower — e.g. `["within", polygon]`), filterToXgis returns null,
+// can't lower — e.g. `["distance", geom]`), filterToXgis returns null,
 // the `if (f)` gate skips the push, and the layer emits NO filter line.
 // A filter-less layer renders EVERY feature → fail-OPEN, the exact
 // opposite of the spec intent that an unknown/unsatisfiable predicate
-// EXCLUDES features (a `["within", waterPolygon]` filter that drops out
-// would render ALL water, not none).
+// EXCLUDES features (a `["distance", geom]` filter that drops out
+// would render ALL features, not none).
 //
 // Fix: fail CLOSED — emit the literal `filter: false`, which the
 // compiler evaluator + both runtime filter-eval paths resolve to "match
@@ -21,11 +21,12 @@
 import { describe, it, expect } from 'vitest'
 import { convertLayer } from '../convert/layers'
 
-// A `["within", <GeoJSON>]` filter — filterToXgis has no lowering for
-// the `within` op (expressions.ts KNOWN_UNSUPPORTED), so it returns
-// null with a warning. The canonical over-permissive case.
-const WITHIN_POLYGON = [
-  'within',
+// A `["distance", <GeoJSON>]` filter — filterToXgis has no lowering for
+// the `distance` op (expressions.ts KNOWN_UNSUPPORTED), so it returns
+// null with a warning. The canonical over-permissive case. (`within` was
+// used here until it gained CPU support — see within-convert.test.ts.)
+const UNCONVERTIBLE = [
+  'distance',
   { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]] },
 ] as unknown
 
@@ -46,21 +47,21 @@ function assertFailClosed(out: string | null): void {
 }
 
 describe('unconvertible filter fails closed (not open)', () => {
-  it('fill layer with ["within", polygon] filter → filter: false (match nothing), NOT filter-less', () => {
+  it('fill layer with ["distance"] filter → filter: false (match nothing), NOT filter-less', () => {
     const warnings: string[] = []
     const out = convertLayer(
-      { id: 'water', type: 'fill', source: 'osm', 'source-layer': 'water', filter: WITHIN_POLYGON, paint: { 'fill-color': '#00f' } } as never,
+      { id: 'water', type: 'fill', source: 'osm', 'source-layer': 'water', filter: UNCONVERTIBLE, paint: { 'fill-color': '#00f' } } as never,
       warnings,
     )
     assertFailClosed(out)
     // filterToXgis's own "not supported" warning still surfaces the loss.
-    expect(warnings.some(w => /within/i.test(w))).toBe(true)
+    expect(warnings.some(w => /distance/i.test(w))).toBe(true)
   })
 
   it('circle layer with unconvertible filter → fail closed', () => {
     const warnings: string[] = []
     const out = convertLayer(
-      { id: 'pts', type: 'circle', source: 'osm', 'source-layer': 'poi', filter: WITHIN_POLYGON, paint: { 'circle-color': '#00f' } } as never,
+      { id: 'pts', type: 'circle', source: 'osm', 'source-layer': 'poi', filter: UNCONVERTIBLE, paint: { 'circle-color': '#00f' } } as never,
       warnings,
     )
     assertFailClosed(out)
@@ -69,7 +70,7 @@ describe('unconvertible filter fails closed (not open)', () => {
   it('symbol layer with unconvertible filter → fail closed', () => {
     const warnings: string[] = []
     const out = convertLayer(
-      { id: 'lbl', type: 'symbol', source: 'osm', 'source-layer': 'place', filter: WITHIN_POLYGON, layout: { 'text-field': '{name}' } } as never,
+      { id: 'lbl', type: 'symbol', source: 'osm', 'source-layer': 'place', filter: UNCONVERTIBLE, layout: { 'text-field': '{name}' } } as never,
       warnings,
     )
     assertFailClosed(out)
@@ -78,7 +79,7 @@ describe('unconvertible filter fails closed (not open)', () => {
   it('heatmap layer with unconvertible filter → fail closed', () => {
     const warnings: string[] = []
     const out = convertLayer(
-      { id: 'hm', type: 'heatmap', source: 'osm', 'source-layer': 'poi', filter: WITHIN_POLYGON } as never,
+      { id: 'hm', type: 'heatmap', source: 'osm', 'source-layer': 'poi', filter: UNCONVERTIBLE } as never,
       warnings,
     )
     assertFailClosed(out)

@@ -15,7 +15,8 @@ function convert(mapbox: unknown): { result: string | null; warnings: string[] }
 describe('unsupported op warnings — specific not generic', () => {
   const cases: Array<[string, unknown[], string]> = [
     ['feature-state', ['hover'], 'Feature-state accessor'],
-    ['within', [{ type: 'Polygon', coordinates: [[]] }], 'Within accessor'],
+    // `within` was here — now SUPPORTED (Point/MultiPoint vs polygon, CPU
+    // predicate); see within-convert.test.ts.
     ['resolved-locale', [['collator', {}]], 'resolved-locale accessor'],
     ['collator', [{}], 'collator object'],
     ['accumulated', [], 'Accumulated accessor'],

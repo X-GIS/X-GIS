@@ -27,9 +27,10 @@ function mockCanvas(): HTMLCanvasElement {
 }
 
 // A minimal Mapbox style whose ONE layer carries an unconvertible filter
-// (`["within", polygon]` — no lowering) so the converter emits a notes
+// (`["distance", geom]` — no lowering) so the converter emits a notes
 // block. Real-world shape: a basemap layer the converter can't fully
-// honour.
+// honour. (`within` was used here until it gained CPU support — see
+// compiler/src/__tests__/within-convert.test.ts.)
 const STYLE_WITH_DROPPED_FILTER = {
   version: 8,
   name: 'drops-a-filter',
@@ -40,7 +41,7 @@ const STYLE_WITH_DROPPED_FILTER = {
       type: 'fill',
       source: 'osm',
       'source-layer': 'water',
-      filter: ['within', { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] }],
+      filter: ['distance', { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] }],
       paint: { 'fill-color': '#00f' },
     },
   ],
@@ -53,9 +54,9 @@ describe('A2: conversion notes surface at runtime', () => {
   it('the converter emits a Conversion notes block for a dropped filter', () => {
     const xgis = convertMapboxStyle(STYLE_WITH_DROPPED_FILTER)
     expect(xgis).toContain('/* Conversion notes')
-    // The within drop is recorded (filterToXgis pushes the warning,
-    // and the all/within path lands it in the block).
-    expect(xgis).toMatch(/within/i)
+    // The distance drop is recorded (filterToXgis pushes the warning,
+    // and lands it in the block).
+    expect(xgis).toMatch(/distance/i)
   })
 
   it('extractConversionNotes pulls the bullet lines out of real converter output', () => {
@@ -64,7 +65,7 @@ describe('A2: conversion notes surface at runtime', () => {
     expect(notes).not.toBeNull()
     expect((notes as string[]).length).toBeGreaterThan(0)
     // The notes carry the actual warning text, decoration stripped.
-    expect((notes as string[]).some(n => /within/i.test(n))).toBe(true)
+    expect((notes as string[]).some(n => /distance/i.test(n))).toBe(true)
     // No bullet / comment-frame leakage in the extracted lines.
     for (const n of notes as string[]) {
       expect(n).not.toMatch(/^\s*\*/)
@@ -87,7 +88,7 @@ describe('A2: conversion notes surface at runtime', () => {
       // The warnings carry the convert tag + the dropped-filter text.
       const all = warnSpy.mock.calls.map(c => String(c[0])).join('\n')
       expect(all).toContain('[X-GIS convert]')
-      expect(all).toMatch(/within/i)
+      expect(all).toMatch(/distance/i)
     } finally {
       warnSpy.mockRestore()
     }

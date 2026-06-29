@@ -98,7 +98,11 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
       // this fallback table.
       'feature-state': 'Feature-state accessor — map.setFeatureState() / hover-state is not yet implemented; values resolve to null.',
       'image': 'Image accessor — sprite atlas (Batch 2) not yet implemented; the layer falls through to its colour-only fallback.',
-      'within': 'Within accessor — polygon-containment filter not yet implemented; predicate evaluates to false.',
+      // `within` is now SUPPORTED (Point/MultiPoint vs Polygon/MultiPolygon
+      // on GeoJSON sources) — handled by withinHandler in the expr-lookup
+      // cluster, so it never reaches this fallback table. (LineString /
+      // Polygon tested-geometry and MVT tile-coordinate sources remain
+      // partial — see eval/within.ts.)
       // `is-supported-script` is now SUPPORTED — handled by
       // isSupportedScriptHandler in the expr-lookup cluster (lowers to
       // constant `true`, matching X-GIS' all-Unicode-renderable

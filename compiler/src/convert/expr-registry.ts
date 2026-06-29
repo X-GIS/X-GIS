@@ -21,7 +21,7 @@ import {
 import {
   getHandler, hasHandler, notHasHandler, atHandler, typeofHandler,
   zoomHandler, pitchHandler, propertiesHandler, geometryTypeHandler, idHandler, inHandler,
-  isSupportedScriptHandler,
+  isSupportedScriptHandler, withinHandler,
 } from './expr-lookup'
 import {
   literalHandler, arrayHandler, typeCoercionHandler, concatHandler,
@@ -124,6 +124,8 @@ export const EXPR_HANDLERS: Map<string, ExprHandler> = new Map([
   ['properties', propertiesHandler],
   ['geometry-type', geometryTypeHandler],
   ['id', idHandler],
+  // geometry containment — point/multipoint within polygon (CPU predicate)
+  ['within', withinHandler],
   // Unicode script-coverage gate — X-GIS treats all Unicode as
   // renderable, so this lowers to constant `true` (see handler).
   ['is-supported-script', isSupportedScriptHandler],

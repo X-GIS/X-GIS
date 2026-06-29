@@ -7,6 +7,7 @@
 import {
   parseSrgbHex, srgbToLab, labToHex, labToLch, lchToLab,
 } from '../tokens/colors'
+import { evalWithin } from './within'
 
 // ═══ Built-in functions ═══
 
@@ -448,6 +449,15 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
         if (typeof a === 'string' && HEX_RE.test(a)) return a
       }
       return null
+    }
+    case 'within': {
+      // Mapbox `["within", polygon]` — true when the feature geometry is
+      // contained in the argument polygon(s). The converter lowers it to
+      // `within(get("$geometry"), <coords>)`, so args[0] is the feature
+      // geometry object (or null on paths that don't inject $geometry) and
+      // args[1] is the polygon argument as a MultiPolygon-shaped nested
+      // array. Pure CPU predicate — see eval/within.ts.
+      return evalWithin(args[0], args[1])
     }
     default:
       return args[0] ?? null

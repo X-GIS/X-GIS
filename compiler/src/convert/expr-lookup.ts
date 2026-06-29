@@ -230,6 +230,69 @@ export const idHandler: ExprHandler = (v, warnings) => {
   return 'get("$featureId")'
 }
 
+/** Serialise a nested numeric coordinate array to xgis array-literal
+ *  source (`[[...]]`). Returns null if any leaf is a non-finite number
+ *  (an invalid bare identifier in the emitted source). */
+function emitCoords(node: unknown): string | null {
+  if (Array.isArray(node)) {
+    const parts: string[] = []
+    for (const el of node) {
+      const s = emitCoords(el)
+      if (s === null) return null
+      parts.push(s)
+    }
+    return `[${parts.join(', ')}]`
+  }
+  if (typeof node === 'number' && Number.isFinite(node)) return String(node)
+  return null
+}
+
+/** Pull polygon rings out of one GeoJSON object, appending to `out`
+ *  (normalised to MultiPolygon form: a list of polygons). Handles
+ *  Polygon, MultiPolygon, and Feature wrappers. Unknown geometry types
+ *  are skipped (caller decides whether the empty result is a drop). */
+function collectPolygons(geo: unknown, out: unknown[]): void {
+  if (!geo || typeof geo !== 'object') return
+  const g = geo as { type?: unknown; coordinates?: unknown; geometry?: unknown }
+  if (g.type === 'Feature') { collectPolygons(g.geometry, out); return }
+  if (g.type === 'Polygon' && Array.isArray(g.coordinates)) { out.push(g.coordinates); return }
+  if (g.type === 'MultiPolygon' && Array.isArray(g.coordinates)) {
+    for (const poly of g.coordinates) out.push(poly)
+  }
+}
+
+export const withinHandler: ExprHandler = (v, warnings) => {
+  // Mapbox `["within", <GeoJSON Polygon|MultiPolygon|Feature|
+  // FeatureCollection>]` — true when the feature geometry is contained
+  // in the argument polygon(s). Lowered to a `within()` builtin that
+  // reads the feature geometry from the `$geometry` reserved key the
+  // runtime injects, plus the polygon argument as a normalised
+  // MultiPolygon array literal. The containment test is a pure CPU
+  // predicate (eval/within.ts) — no runtime/GPU dependency.
+  if (v.length !== 2) {
+    warnings.push(`Malformed ["within"] expression: expected exactly 1 geometry argument, got ${v.length - 1}.`)
+    return null
+  }
+  const arg = v[1]
+  const polygons: unknown[] = []
+  const fc = arg as { type?: unknown; features?: unknown }
+  if (fc && typeof fc === 'object' && fc.type === 'FeatureCollection' && Array.isArray(fc.features)) {
+    for (const f of fc.features) collectPolygons(f, polygons)
+  } else {
+    collectPolygons(arg, polygons)
+  }
+  if (polygons.length === 0) {
+    warnings.push(`["within"] argument is not a Polygon/MultiPolygon GeoJSON (or contains none); predicate dropped.`)
+    return null
+  }
+  const coords = emitCoords(polygons)
+  if (coords === null) {
+    warnings.push(`["within"] polygon coordinates contain a non-finite number; predicate dropped.`)
+    return null
+  }
+  return `within(get("$geometry"), ${coords})`
+}
+
 export const inHandler: ExprHandler = (v, warnings, recurse) => {
   // Two flavours:
   //   expression-form: ["in", value, ["literal", [...]]]
