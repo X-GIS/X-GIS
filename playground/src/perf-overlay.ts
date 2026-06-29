@@ -177,7 +177,7 @@ export function installPerfOverlay(map: PerfMap): void {
     return b
   }
   const runBtn = mkBtn('▶ 측정 (12초)')
-  const abBtn = mkBtn('▶ A/B draw-test (10초)')
+  const abBtn = mkBtn('▶ GPU/CPU 판정 (6초)')
   const copyBtn = mkBtn('📋 복사')
   const closeBtn = mkBtn('✕')
   closeBtn.style.background = '#444'
@@ -250,14 +250,15 @@ export function installPerfOverlay(map: PerfMap): void {
     })()
   })
 
-  // One-tap A/B: runs the SAME rotate+pitch sweep twice — uncapped, then with
-  // the tile cap (window.__xgisMaxTiles=30) toggled live — and reports BOTH in
-  // a single copyable block. Settles the "is it draw/tile-count bound?" test
-  // without juggling two URLs or two copy-pastes.
+  // One-tap GPU-vs-CPU verdict. Runs the rotate+pitch sweep once while a
+  // MessageChannel ping-pong measures how long the MAIN THREAD is unresponsive
+  // (busy) per stretch. This is confound-free (no render changes): if the main
+  // thread is busy ≈ the whole frame → CPU-bound; if it's busy only ≈
+  // renderFrame and idle the rest → the frame is paced to GPU/present →
+  // GPU-bound. Settles the 22ms "렌더 밖" gap directly.
   abBtn.addEventListener('click', () => {
     void (async () => {
       abBtn.disabled = true; runBtn.disabled = true
-      const W = window as { __xgisMaxTiles?: number | null }
       const b0 = map.getCamera()
       const z0 = b0.zoom, x0 = b0.centerX, y0 = b0.centerY, p0 = b0.pitch, br0 = b0.bearing
       const sweep = (t: number, cam: PerfCamera): void => {
@@ -265,49 +266,63 @@ export function installPerfOverlay(map: PerfMap): void {
         cam.bearing = br0 + t * 360
         cam.pitch = p0 + ph * 40
       }
-      // drawCalls is the metric the cap actually reduces (the per-frame fill
-      // DRAW cap in recordTileFill); tilesVisible stays at the selection count.
-      const drawsNow = (): number => map.stats?.drawCalls ?? 0
+      const phases = (window as unknown as { __xgisPerfPhases?: PerfPhasesAPI }).__xgisPerfPhases
+      phases?.setEnabled?.(true); phases?.resetPhaseTimings?.()
+      map.gpuTimer?.resetTimings?.()
 
-      W.__xgisMaxTiles = undefined            // uncapped
-      map.invalidate()
-      pre.textContent = 'A/B 1/2 — uncapped rotate+pitch (5초)'
-      const fUncap = await runScenario(map, 5000, sweep)
-      const drawsUncap = drawsNow()
+      // Main-thread stall probe: a MessageChannel posts to itself as fast as
+      // the event loop allows; the gap between deliveries = main-thread busy
+      // time in that interval. Records the gap distribution over the run.
+      const ch = new MessageChannel()
+      const gaps: number[] = []
+      let probing = true
+      let lastPing = performance.now()
+      ch.port1.onmessage = (): void => {
+        const now = performance.now()
+        gaps.push(now - lastPing)
+        lastPing = now
+        if (probing) ch.port2.postMessage(0)
+      }
+      lastPing = performance.now()
+      ch.port2.postMessage(0)
 
-      W.__xgisMaxTiles = 30                    // cap actual draws live
-      map.invalidate()
-      pre.textContent = 'A/B 2/2 — draw-cap 30 rotate+pitch (5초)'
-      const fCap = await runScenario(map, 5000, sweep)
-      const drawsCap = drawsNow()
+      pre.textContent = '판정 중… rotate+pitch (6초)'
+      const frames = await runScenario(map, 6000, sweep)
+      probing = false
+      ch.port1.close()
 
-      W.__xgisMaxTiles = undefined             // restore
+      // Restore the view.
       const c = map.getCamera()
       c.zoom = z0; c.centerX = x0; c.centerY = y0; c.pitch = p0; c.bearing = br0
       map.invalidate()
 
-      const pU = pct(fUncap.slice(2), 50), pC = pct(fCap.slice(2), 50)
-      const fpsU = pU > 0 ? (1000 / pU).toFixed(0) : '--'
-      const fpsC = pC > 0 ? (1000 / pC).toFixed(0) : '--'
-      const drop = pU > 0 ? ((1 - pC / pU) * 100) : 0
-      const capWorked = drawsCap < drawsUncap * 0.6 // did the cap actually cut draws?
-      const verdict = !capWorked
-        ? `→ ⚠ draw가 안 줄었음(${drawsUncap}→${drawsCap}) — 테스트 무효(배포/캐시 확인)`
-        : pC < pU * 0.7
-          ? `→ draws ${drawsUncap}→${drawsCap}, p50 ${pU}→${pC} (${drop.toFixed(0)}%↓): DRAW 수가 원인 확정`
-          : `→ draws ${drawsUncap}→${drawsCap} 인데 p50 ${pU}→${pC} (변화 미미): draw 수가 원인 아님 → GPU present/iOS 쪽`
+      const fP50 = pct(frames.slice(2), 50)
+      const fps = fP50 > 0 ? (1000 / fP50).toFixed(0) : '--'
+      const stallP50 = pct(gaps, 50)
+      const stallP95 = pct(gaps, 95)
+      const stallMax = gaps.reduce((a, b) => Math.max(a, b), 0)
+      const frameTotal = (phases?.getPhaseAverages?.() ?? []).find(p => p.name === 'frame.total')?.perFrameMs ?? 0
+      const gpu = map.gpuTimer?.getBreakdown?.() ?? {}
+      const gpuVals = Object.values(gpu).flat().map(n => n / 1e6).sort((a, b) => a - b)
+      const gpuP50 = gpuVals.length ? gpuVals[Math.floor(gpuVals.length * 0.5)]! : 0
+      // Decision: is the main thread busy for most of the frame, or idle?
+      const busyFrac = fP50 > 0 ? stallMax / fP50 : 0
+      const verdict = busyFrac > 0.7
+        ? `→ 메인스레드 최대 stall ${stallMax.toFixed(0)}ms ≈ frame ${fP50.toFixed(0)}ms : CPU 바운드(메인스레드가 프레임 내내 바쁨 — renderFrame 밖 JS)`
+        : `→ 메인스레드 최대 stall ${stallMax.toFixed(0)}ms ≪ frame ${fP50.toFixed(0)}ms : GPU 바운드(메인은 idle, GPU/present 대기 — DPR/draw/present 쪽)`
       const dpr = window.devicePixelRatio || 1
       const canvas = document.querySelector('canvas')
       report = [
-        '=== X-GIS A/B draw-count 테스트 (rotate+pitch) ===',
+        '=== X-GIS GPU/CPU 판정 (rotate+pitch) ===',
         `기기 DPR=${dpr} 캔버스=${canvas?.width ?? 0}x${canvas?.height ?? 0}`,
-        `uncapped  : p50=${pU.toFixed(1)}ms (${fpsU}fps)  drawCalls=${drawsUncap}`,
-        `draw-cap30: p50=${pC.toFixed(1)}ms (${fpsC}fps)  drawCalls=${drawsCap}`,
+        `frame p50=${fP50.toFixed(1)}ms (${fps}fps)`,
+        `renderFrame CPU(frame.total)=${frameTotal.toFixed(1)}ms   GPU timestamp p50=${gpuP50.toFixed(1)}ms`,
+        `main-thread stall  p50=${stallP50.toFixed(1)}  p95=${stallP95.toFixed(1)}  max=${stallMax.toFixed(1)} ms`,
         verdict,
       ].join('\n')
       pre.textContent = report
       abBtn.disabled = false; runBtn.disabled = false
-      abBtn.textContent = '▶ A/B 다시'
+      abBtn.textContent = '▶ GPU/CPU 다시'
     })()
   })
 
