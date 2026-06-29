@@ -539,8 +539,10 @@ describe('emitMatchComputeKernel — LUT branch (P5 large-match)', () => {
 
   it('LUT id-bounds branch: < N hits LUT, ≥ N hits default', () => {
     const k = emitMatchComputeKernel(bigMatch(20))
-    expect(k.wgsl).toMatch(/if \(id < 20u\)\s*\{\s*color = LUT\[id\];/)
-    expect(k.wgsl).toMatch(/\} else \{\s*color = vec4<f32>\(/)
+    // The IR shell auto-names the index + colour vars (CSE/auto-vars), so match
+    // the structure with flexible identifiers rather than the literal id/color.
+    expect(k.wgsl).toMatch(/\w+ < 20u\)\)\s*\{\s*\w+ = LUT\[\w+\];/)
+    expect(k.wgsl).toMatch(/\} else \{\s*\w+ = vec4<f32>\(/)
   })
 
   it('LUT entries appear in alphabetical pattern order (matches packer IDs)', () => {
@@ -567,17 +569,17 @@ describe('emitMatchComputeKernel — LUT branch (P5 large-match)', () => {
 
   it('out_color write path packs the colour in both switch + LUT paths', () => {
     const small = emitMatchComputeKernel(bigMatch(10)) // switch path (IR-emitted)
-    const large = emitMatchComputeKernel(bigMatch(20)) // LUT path (hand-built)
-    // Same semantics — pack the RGBA into out_color[feature]; spelling differs
-    // (switch path = gid.x/_vN via the shared IR shell, LUT path = fid/color).
+    const large = emitMatchComputeKernel(bigMatch(20)) // LUT path (IR-emitted)
+    // Same semantics — pack the RGBA into out_color[feature]. Both paths now run
+    // through the shared IR shell, so both spell `out_color[gid.x] = pack4x8unorm(_vN)`.
     expect(small.wgsl).toMatch(/out_color\[\w+(\.\w+)?\] = pack4x8unorm\(/)
-    expect(large.wgsl).toContain('out_color[fid] = pack4x8unorm(color);')
+    expect(large.wgsl).toMatch(/out_color\[\w+(\.\w+)?\] = pack4x8unorm\(/)
   })
 
   it('demotiles-scale (214 arms) emits valid LUT WGSL', () => {
     const k = emitMatchComputeKernel(bigMatch(214))
     expect(k.wgsl).toContain('const LUT: array<vec4<f32>, 214>')
-    expect(k.wgsl).toContain('if (id < 214u)')
+    expect(k.wgsl).toContain('< 214u)')
     expect(k.wgsl).toContain('@compute @workgroup_size(64)')
     // No O(N) comparisons in the kernel body for the LUT path.
     expect((k.wgsl.match(/v_cls == /g) ?? []).length).toBe(0)
