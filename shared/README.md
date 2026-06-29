@@ -1,9 +1,9 @@
 # @xgis/shared
 
-The cross-package **math kernel** for the X-GIS monorepo. One file —
-`src/ecef.ts` — holding the WGS84 / ECEF coordinate math that both the
-`@xgis/compiler` tiler and the `@xgis/runtime` engine need to agree on,
-byte-for-byte.
+The cross-package **math kernel** for the X-GIS monorepo. `src/ecef.ts` holds
+the WGS84 / ECEF coordinate math, and `src/quantize.ts` the shared vertex
+quantization, that both the `@xgis/compiler` tiler and the `@xgis/runtime`
+engine need to agree on, byte-for-byte.
 
 It is the smallest package in the repo on purpose: it is a **leaf** with
 **zero dependencies**. Keeping it dependency-free is the whole point — both
@@ -48,9 +48,9 @@ export * from '@xgis/shared'
 
 ## Public surface
 
-Everything is re-exported from `src/index.ts` (`export * from './ecef'`).
-All helpers are pure functions over the WGS84 ellipsoid (`a = 6378137 m`,
-`1/f = 298.257223563`).
+Everything is re-exported from `src/index.ts` (`export * from './ecef'` +
+`export * from './quantize'`). All helpers are pure functions over the WGS84
+ellipsoid (`a = 6378137 m`, `1/f = 298.257223563`).
 
 ### Types
 
@@ -86,6 +86,7 @@ paths parity-matched at the equator until the legacy path is retired:
 | `dsfunSplitECEF(ecef, ecefCenter)` | hi/lo f32 split of an RTC-relative ECEF vertex (sub-mm precision on GPU) |
 | `ecefToENURotation(lon, lat)` | column-major `Float32Array(16)` ECEF→ENU (East/North/Up) rotation |
 | `WGS84` | `{ A, F, E2, RAD2DEG }` constants, for WGSL emission / tiler / cross-validation |
+| `quantizeAxis(axis, halfRange, invSpan)` | quantize one absolute axis value into a double-u16 `[hi, lo]` pair for the packed ECEF vertex layout (shared by the tiler + synthetic-earth packer) |
 
 ## Build
 
@@ -93,9 +94,11 @@ paths parity-matched at the equator until the legacy path is retired:
 bun run build   # tsc --build
 ```
 
-There is no separate test script here; parity is pinned by the consumers'
-precision-fuzz tests (e.g. the runtime's `globe-ecef-frame-consistency.test.ts`
-and the compiler tiler's ECEF point-precision fuzz).
+There is no separate `test` script here (only `build`); the co-located
+`src/ecef.test.ts` characterization suite runs via the root `vitest`, and parity
+is also pinned by the consumers' precision-fuzz tests (e.g. the runtime's
+`globe-ecef-frame-consistency.test.ts` and the compiler tiler's ECEF
+point-precision fuzz).
 
 ## Constraints
 

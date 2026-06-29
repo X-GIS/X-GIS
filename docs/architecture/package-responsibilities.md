@@ -6,6 +6,7 @@
 > breaks these rules and the principled fix direction.
 >
 > Generated 2026-06-25 from each package's `AGENTS.md` charters + first-hand code reads.
+> Updated 2026-06-29: the `@xgis/compiler → @xgis/shader-dsl` edge is now wired (§1, §5).
 > Keep it in sync when a package's responsibility genuinely changes.
 
 ---
@@ -32,13 +33,13 @@ The internal dependency DAG is strictly **acyclic** with two leaves — `@xgis/s
    @xgis/shared        (leaves: no internal deps)
         + @mapbox/vector-tile, pbf
 
-   MISSING edge (should exist, is acyclic): @xgis/compiler ──▶ @xgis/shader-dsl
+   @xgis/compiler ──▶ @xgis/shader-dsl  (acyclic; now wired — see §5)
 ```
 
-`@xgis/compiler` depends only on `@xgis/shared` (+ `@mapbox/vector-tile`, `pbf`).
-`@xgis/runtime` sits at the top and depends on all three. **`@xgis/compiler` does NOT
-depend on `@xgis/shader-dsl` today** even though doing so is acyclic (shader-dsl is zero-dep
-and runtime already imports it) — that missing edge is the root cause of the duplication in §5.
+`@xgis/compiler` depends on `@xgis/shared` and `@xgis/shader-dsl` (+ `@mapbox/vector-tile`, `pbf`).
+`@xgis/runtime` sits at the top and depends on all three. The `@xgis/compiler ──▶
+@xgis/shader-dsl` edge is now present (shader-dsl is zero-dep and runtime already imports it,
+so it is acyclic); adding it retired the bulk of the duplication tracked in §5.
 
 ---
 
@@ -85,7 +86,7 @@ and runtime already imports it) — that missing edge is the root cause of the d
 | **parser** | Recursive-descent; AST node types; `parseExpressionString` | `Token[]` → AST | tokenizing (→ lexer); lower/eval (→ ir/eval) |
 | **ir** | `lower→optimize→emit`; `PropertyShape`/`Dep`/`Scene` | AST + eval + spec → `Scene`, `SceneCommands` | WGSL (→ codegen); hardcoded spec defaults (→ spec); 4-stage order fixed |
 | **ir/passes** | Deterministic `Scene→Scene` opt (CSE/DCE/fold/merge) | `Scene` → `Scene` | order outside declared deps; keep analysis/rewrite split |
-| **codegen** | Compiler back-end: `RenderNode → ShaderVariant`/compute-kernels/palettes (pure strings) | optimized `Scene` → `ShaderVariant`, `ComputeKernel` | **never touch `GPUDevice`**; IR/classification (→ ir); **must not hand-copy shader-dsl IR/emit — see §5** |
+| **codegen** | Compiler back-end: `RenderNode → ShaderVariant`/compute-kernels/palettes (pure strings); authors kernel bodies via the `@xgis/shader-dsl` IR | optimized `Scene` → `ShaderVariant`, `ComputeKernel` | **never touch `GPUDevice`**; IR/classification (→ ir); **must not re-spell emission — the residual hand copy in `node-to-wgsl.ts` is test-only, see §5** |
 | **eval** | Mapbox/MapLibre expression evaluator; `reserved-keys` SoT | AST + props → `evaluate(...)` | side effects; helper→evaluator cycle |
 | **format** | `{expr:spec;locale}` label templates; `formatValue` (number/date/GIS DMS) | spec + values → `formatValue` | evaluate embedded expr (→ eval) |
 | **tiler** | clip/simplify/earcut/pack into 3 vertex layouts; **vertex-format + dequant mirror SoT** | GeoJSON + shared → `CompiledTileSet` | GPU dep; import runtime (math is intentionally bit-duplicated); earcut Mercator-only |
@@ -156,9 +157,9 @@ and runtime already imports it) — that missing edge is the root cause of the d
 
 | violation (where) | what it is | rule broken | fix direction |
 |---|---|---|---|
-| `compiler/src/codegen/node-types.ts` | hand-copy of shader-dsl `Expr`/`ShaderType` (drifted: missing `2d-ms`) | **(a)** | **delete + import** the IR from `@xgis/shader-dsl`; add the acyclic `compiler → @xgis/shader-dsl` dep |
-| `compiler/src/codegen/node-to-wgsl.ts` | copy of `emitExpr` (drifted: array spacing; **hardcodes `call`/`select`** vs the intrinsic registry) | **(b) + (d)** | **delete + dedup**: emit through the package backend |
-| `compiler/src/codegen/compute-gen.ts` | compute kernels built as **raw WGSL strings**, bypassing the IR builder + optimizer | **(b) + (c) + (f)** | **relocate authoring**: build kernel bodies via the shader-dsl IR so cse/autoVars/optimize apply; compiler keeps only *which* kernel |
+| `compiler/src/codegen/node-types.ts` | ~~hand-copy of shader-dsl `Expr`/`ShaderType`~~ — **RESOLVED**: now imports `Expr`/`ShaderType` from `@xgis/shader-dsl` (only the compiler-local `rawString` op is added) | **(a)** | done — the acyclic `compiler → @xgis/shader-dsl` dep is wired |
+| `compiler/src/codegen/node-to-wgsl.ts` | copy of `emitExpr` (drifted: array spacing; **hardcodes `call`/`select`** vs the intrinsic registry). Now **test-only** — the production renderer splice-point retired (PR 2e.B.2); survives as an emit-shape oracle | **(b) + (d)** | **delete + dedup**: assert against the package backend instead of the hand copy |
+| `compiler/src/codegen/compute-gen.ts` | ~~compute kernels built as **raw WGSL strings**~~ — **RESOLVED**: kernel bodies now authored through the shader-dsl IR (`emitTernaryComputeKernel` → `matchExpr` → WGSL switch), inheriting cse/autoVars; compiler keeps only *which* kernel | **(b) + (c) + (f)** | done — IR-routed |
 | `runtime/.../shaders/dsl/compute-match.ts` | an **unwired IR twin** of the compiler's compute kernel (PoC, test-only) | **(f)** | **dedup + wire** (finish "Phase 2.5") **or delete** the unwired twin — do not keep both |
 | `colorHexToRGBA` (triplicated) | same color→RGBA helper copied in 3 places; the runtime copy already drifted (named colors → black) | **(g)** | **dedup**: single definition in compiler `tokens/`; others import it |
 | provenance comments citing `runtime/src/engine/shader-dsl/` | a **dead path** (the package was extracted to `/shader-dsl/`) | meta (extraction debt) | **repoint** the references; the "import would create a cycle" excuse is stale |
@@ -166,7 +167,9 @@ and runtime already imports it) — that missing edge is the root cause of the d
 **Root cause:** *extraction debt.* When `shader-dsl` was lifted out of `runtime/` into the
 standalone zero-dependency package, `compiler/codegen`'s copies were missed by the move, and
 their justifying "importing would create a cycle" became false the moment the package shipped
-zero-dependency. **The single highest-leverage fix is adding the acyclic
-`@xgis/compiler → @xgis/shader-dsl` edge**, which retires violations (a)–(d) and (f) at once.
-A dedup caveat: `shader-dsl`'s `core/` is documented as private, so the dedup either consumes
-the `./core/*` package subpath export or formally exposes the IR + emit through the public barrel.
+zero-dependency. **The highest-leverage fix — adding the acyclic
+`@xgis/compiler → @xgis/shader-dsl` edge — has now landed**, retiring violations (a) and (f)
+(node-types imports the IR; compute-gen routes through it). What remains is the test-only
+`node-to-wgsl.ts` emit-shape oracle (b)/(d): re-point it at the package backend. A dedup
+caveat: `shader-dsl`'s `core/` is documented as private, so the dedup either consumes the
+`./core/*` package subpath export or formally exposes the IR + emit through the public barrel.

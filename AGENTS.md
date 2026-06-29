@@ -1,4 +1,4 @@
-<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-29 -->
 
 # xgis
 
@@ -8,10 +8,10 @@ X-GIS is a domain-specific language and WebGPU rendering engine for GIS maps —
 ## Key Files
 | File | Description |
 |------|-------------|
-| `package.json` | Bun workspace root; workspaces: `shared`, `compiler`, `blueprint`, `runtime`, `playground`, `site`. Scripts: `build` (all workspaces), `test` (vitest), `dev` (playground), `dev:site`, `test:pixel/perf/projection/e2e` (Playwright), `precheck`, `setup:hooks`. |
+| `package.json` | Bun workspace root; workspaces: `shared`, `compiler`, `blueprint`, `shader-dsl`, `runtime`, `playground`, `site`. Scripts: `build` (all workspaces), `test` (vitest), `dev` (playground), `dev:site`, `test:pixel/perf/projection/e2e` (Playwright), `precheck`, `setup:hooks`. |
 | `vitest.config.ts` | Vitest config covering `compiler/src/**`, `blueprint/src/**`, and `runtime/src/**` test files; sets a 30s timeout for full-pipeline tests that load `countries.geojson`. |
 | `tsconfig.base.json` | Shared TypeScript compiler options (`ES2022`, `strict`, `noUnusedLocals/Parameters`, `@webgpu/types`); inherited by all packages. |
-| `tsconfig.json` | Root project-reference file wiring `shared`, `compiler`, `blueprint`, `runtime` for cross-package type checking. |
+| `tsconfig.json` | Root project-reference file wiring `shared`, `compiler`, `blueprint`, `shader-dsl`, `runtime` for cross-package type checking. |
 | `CLAUDE.md` | AI-agent behavioral contract: think before coding, simplicity first, surgical changes only, goal-driven execution with verifiable criteria. |
 | `README.md` | Language overview with `.xgis` syntax examples, architecture summary, quick-start (`bun install && bun run dev`). |
 | `DESIGN.md` | Design research and rationale (Korean prose + tables); covers MapLibre/Mapbox/Deck.gl/CesiumJS analysis, Paint Property Binder pattern, GPU interpolation strategy. |
@@ -31,7 +31,7 @@ X-GIS is a domain-specific language and WebGPU rendering engine for GIS maps —
 | `blueprint/` | Visual node-editor concept for `.xgis` pipeline authoring (see `blueprint/AGENTS.md`) |
 | `playground/` | Vite dev app + Playwright e2e suites: pixel-match survey, perf, projection coverage (see `playground/AGENTS.md`) |
 | `site/` | Astro-based documentation/marketing site (see `site/AGENTS.md`) |
-| `docs/` | Architecture docs: C4 diagrams, module DAG, 6 ADRs, Mermaid UML, `COORDINATES.md` coordinate-convention contract (see `docs/AGENTS.md`) |
+| `docs/` | Architecture docs: C4 diagrams, module DAG, 8 ADRs, Mermaid UML, `COORDINATES.md` coordinate-convention contract (see `docs/AGENTS.md`) |
 | `scripts/` | `precheck.ts` pre-push gate; Python cross-validation harness under `cross-validation/` (pyproj/mercantile/shapely, 20 tests pinning CPU projection math); render observation logs (see `scripts/AGENTS.md`) |
 | `e2e/` | Top-level end-to-end test assets (see `e2e/AGENTS.md`) |
 | `vscode-xgis/` | VS Code syntax-highlight extension for the `.xgis` language (see `vscode-xgis/AGENTS.md`) |
@@ -67,7 +67,7 @@ X-GIS is a domain-specific language and WebGPU rendering engine for GIS maps —
 ## Dependencies
 
 ### Internal
-- `playground` and `site` consume `@xgis/compiler` + `@xgis/runtime`.
+- `playground` consumes `@xgis/compiler` + `@xgis/runtime`; `site` also adds `@xgis/blueprint`.
 - `runtime` consumes `@xgis/compiler` output (SceneCommands, ShaderVariant[]).
 - All packages inherit `tsconfig.base.json` and may import from `@xgis/shared`.
 

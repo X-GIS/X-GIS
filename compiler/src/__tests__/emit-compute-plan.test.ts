@@ -213,7 +213,9 @@ describe('emitCommands — computePlan emission', () => {
     const variant = cmds.shows[0]!.shaderVariant!
     expect(variant.computeBindings![0]!.bindGroup).toBe(3)
     expect(variant.computeBindings![0]!.binding).toBe(7)
-    expect(variant.preamble).toContain('@group(3) @binding(7)')
+    expect(variant.preamble.bindings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ group: 3, binding: 7 }),
+    ]))
   })
 
   it('enableComputePath ON but no entry for this show: variant remains the legacy reference', () => {

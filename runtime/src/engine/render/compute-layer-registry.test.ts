@@ -72,7 +72,7 @@ function makeFakeContext() {
 
 function legacyVariant(): ShaderVariant {
   return {
-    key: 'L', preamble: '', fillExpr: wgslRaw('u.fill_color'), strokeExpr: wgslRaw('u.stroke_color'),
+    key: 'L', preamble: {}, fillExpr: wgslRaw('u.fill_color'), strokeExpr: wgslRaw('u.stroke_color'),
     needsFeatureBuffer: false, featureFields: [], uniformFields: [],
     categoryOrder: {}, paletteColorGradients: [], paletteScalarGradients: [],
     fillUsesPalette: false, strokeUsesPalette: false, opacityUsesPalette: false,

@@ -48,6 +48,10 @@
 import type { Palette } from './palette'
 import type { NodeLike } from './node-types'
 import {
+  texture2dfT, samplerT, u32T, f32T,
+  type BindingDecl, type FuncDecl, type Stmt,
+} from '@xgis/shader-dsl'
+import {
   f32Lit, f32Sub, f32Div, refF32, clampF32,
   varRefTexture2d, varRefSampler, vec2f, textureSampleLevelVec4,
 } from './_util/node-builders'
@@ -79,73 +83,6 @@ export const DEFAULT_PALETTE_SLOTS: PaletteBindingSlots = {
   samplerBinding: 4,
 }
 
-/** WGSL declarations to prepend to a variant fragment shader.
- *  Empty string when the palette has no gradients of either kind —
- *  saves the binding overhead on layers that don't need them.
- *
- *  Note: the underlying GPU textures are 1×1 stubs when the pool is
- *  empty (see `uploadPalette` in palette-texture.ts), so emitting
- *  the declarations even with zero gradients is technically safe.
- *  Skipping them keeps the WGSL minimal and the bind-group layout
- *  small — both matter for compile time. */
-export function emitPaletteBindings(
-  palette: Palette,
-  slots: PaletteBindingSlots = DEFAULT_PALETTE_SLOTS,
-): string {
-  // Color and scalar atlases are emitted independently based on what
-  // the palette pool collected. The texture type in WGSL is identical
-  // (`texture_2d<f32>` in both cases) — the bind-group layout decides
-  // sampleType (`float` filterable when the device has
-  // `float32-filterable`, `unfilterable-float` otherwise). The scalar
-  // sample helper below picks `textureSampleLevel` vs `textureLoad`
-  // ×2 + `mix` to match the layout, so the WGSL the compiler emits
-  // remains identical across adapters — the variation lives in the
-  // helper's body.
-  //
-  // *** ARCHITECTURE LIMIT — scalar atlas should NOT carry layer-uniform
-  // axes (opacity, stroke-width). Those values are constant across every
-  // fragment of a single layer's draw, so sampling them per-fragment
-  // multiplies their cost by the rendered pixel count. Measured on OFM
-  // Bright Seoul z=17 (14 zoom-interp opacity axes routed to scalar
-  // atlas, manual interp mode): median frame 7.0 → 37 ms idle, 6.9 →
-  // 50 ms zoom — 5-7× regression purely from fragment overhead. The
-  // legacy CPU-resolve → uniform path is the correct architecture for
-  // layer-uniform scalars: one lerp per layer per frame (~50 ns × 84
-  // axes ≈ 4 µs) costs vastly less than per-fragment work at millions
-  // of pixels. Scalar sampling is reserved for FUTURE data-driven
-  // scalar shapes (varying per feature) — those already route through
-  // the P4 compute kernel, not this gradient atlas. */
-  const hasColor = palette.colorGradients.length > 0
-  const hasScalar = palette.scalarGradients.length > 0
-  if (!hasColor && !hasScalar) return ''
-
-  const lines: string[] = ['']
-  lines.push('// ── Palette bindings (zoom-stop gradients) ──')
-  if (hasColor) {
-    lines.push(
-      `@group(${slots.group}) @binding(${slots.colorGradientBinding}) `
-      + `var color_grad_atlas: texture_2d<f32>;`,
-    )
-  }
-  if (hasScalar) {
-    lines.push(
-      `@group(${slots.group}) @binding(${slots.scalarGradientBinding}) `
-      + `var scalar_grad_atlas: texture_2d<f32>;`,
-    )
-  }
-  // Shared sampler — linear filter + clampToEdge (configured on the
-  // GPU side in renderer.ts). HW interp smooths the inter-texel
-  // residual without bleeding past the row edges. Bound regardless
-  // of which atlases are active so pipelines that sample only the
-  // scalar atlas via textureSampleLevel (filterable path) still
-  // satisfy the layout.
-  lines.push(
-    `@group(${slots.group}) @binding(${slots.samplerBinding}) `
-    + `var palette_samp: sampler;`,
-  )
-  lines.push('')
-  return lines.join('\n')
-}
 
 /** WGSL expression to sample a color gradient at the current camera
  *  zoom. The caller is responsible for ensuring `gradientIndex` is
@@ -239,52 +176,69 @@ export function emitColorGradientSampleNode(
  *  effectively this `mode` parameter at variant emit time. */
 export type ScalarPaletteMode = 'filtering' | 'manual'
 
-/** WGSL helper function that samples a scalar gradient row by index
- *  + per-frame zoom. Emit once per variant alongside the bindings
- *  (after `emitPaletteBindings`). Returns empty when no scalar
- *  gradients exist in the palette — the call site is dead code in
- *  that case and the shader compiles unchanged.
- *
- *  Pre-baked literals: gradient count comes from the palette so the
- *  v-coord math is a literal divide. Per-gradient zMin / zMax are
- *  passed by the caller (`emitScalarGradientSample` inlines them per
- *  call site) to avoid a uniform-buffer indirection. */
-export function emitScalarSampleHelper(
+
+/** Palette atlas + sampler bindings as IR `BindingDecl`s (the `Partial<ModuleDecl>`
+ *  preamble form — replaces `emitPaletteBindings`'s WGSL string). Texture/sampler
+ *  are handle types: `space` is ignored by the backend, kept `'uniform'` for the
+ *  type. Empty when the palette has no gradients of either kind. */
+export function buildPaletteBindingDecls(
+  palette: Palette,
+  slots: PaletteBindingSlots = DEFAULT_PALETTE_SLOTS,
+): BindingDecl[] {
+  const hasColor = palette.colorGradients.length > 0
+  const hasScalar = palette.scalarGradients.length > 0
+  if (!hasColor && !hasScalar) return []
+  const decls: BindingDecl[] = []
+  if (hasColor) {
+    decls.push({ group: slots.group, binding: slots.colorGradientBinding, name: 'color_grad_atlas', space: 'uniform', type: texture2dfT })
+  }
+  if (hasScalar) {
+    decls.push({ group: slots.group, binding: slots.scalarGradientBinding, name: 'scalar_grad_atlas', space: 'uniform', type: texture2dfT })
+  }
+  decls.push({ group: slots.group, binding: slots.samplerBinding, name: 'palette_samp', space: 'uniform', type: samplerT })
+  return decls
+}
+
+/** The `xgis_scalar_sample` helper as an IR `FuncDecl` (the preamble `funcs`
+ *  form — replaces `emitScalarSampleHelper`'s WGSL string). The body is a single
+ *  `raw` Stmt: the helper is GPU-only (texture sampling), never run by the CPU
+ *  oracle or the GLSL backend, so a raw body is sound. Returns null when the
+ *  palette carries no scalar gradients. */
+export function buildScalarSampleFunc(
   palette: Palette,
   mode: ScalarPaletteMode,
-): string {
-  if (palette.scalarGradients.length === 0) return ''
+): FuncDecl | null {
+  if (palette.scalarGradients.length === 0) return null
   const count = palette.scalarGradients.length
-  if (mode === 'filtering') {
-    return [
-      '',
-      '// Scalar gradient sample helper (filterable HW path).',
-      'fn xgis_scalar_sample(idx: u32, zoom: f32, zMin: f32, zMax: f32) -> f32 {',
-      '  let t = clamp((zoom - zMin) / max(zMax - zMin, 1.0e-6), 0.0, 1.0);',
-      `  let v = (f32(idx) + 0.5) / ${fmtF(count)};`,
-      '  return textureSampleLevel(scalar_grad_atlas, palette_samp, vec2f(t, v), 0.0).r;',
-      '}',
-      '',
-    ].join('\n')
+  const body = mode === 'filtering'
+    ? [
+        'let t = clamp((zoom - zMin) / max(zMax - zMin, 1.0e-6), 0.0, 1.0);',
+        `let v = (f32(idx) + 0.5) / ${fmtF(count)};`,
+        'return textureSampleLevel(scalar_grad_atlas, palette_samp, vec2f(t, v), 0.0).r;',
+      ].join('\n')
+    : [
+        'let t = clamp((zoom - zMin) / max(zMax - zMin, 1.0e-6), 0.0, 1.0);',
+        'let dims = textureDimensions(scalar_grad_atlas);',
+        'let u = t * f32(dims.x - 1u);',
+        'let u0 = u32(floor(u));',
+        'let u1 = min(u0 + 1u, dims.x - 1u);',
+        'let frac = u - f32(u0);',
+        'let a = textureLoad(scalar_grad_atlas, vec2u(u0, idx), 0).r;',
+        'let b = textureLoad(scalar_grad_atlas, vec2u(u1, idx), 0).r;',
+        'return mix(a, b, frac);',
+      ].join('\n')
+  const rawBody: Stmt[] = [{ s: 'raw', wgsl: body }]
+  return {
+    name: 'xgis_scalar_sample',
+    params: [
+      { name: 'idx', type: u32T },
+      { name: 'zoom', type: f32T },
+      { name: 'zMin', type: f32T },
+      { name: 'zMax', type: f32T },
+    ],
+    ret: f32T,
+    body: rawBody,
   }
-  // mode === 'manual' — textureLoad ×2 + mix. textureDimensions reads
-  // GRADIENT_WIDTH from the atlas; one branch per row pair.
-  return [
-    '',
-    '// Scalar gradient sample helper (manual interp — unfilterable r32float).',
-    'fn xgis_scalar_sample(idx: u32, zoom: f32, zMin: f32, zMax: f32) -> f32 {',
-    '  let t = clamp((zoom - zMin) / max(zMax - zMin, 1.0e-6), 0.0, 1.0);',
-    '  let dims = textureDimensions(scalar_grad_atlas);',
-    '  let u = t * f32(dims.x - 1u);',
-    '  let u0 = u32(floor(u));',
-    '  let u1 = min(u0 + 1u, dims.x - 1u);',
-    '  let frac = u - f32(u0);',
-    '  let a = textureLoad(scalar_grad_atlas, vec2u(u0, idx), 0).r;',
-    '  let b = textureLoad(scalar_grad_atlas, vec2u(u1, idx), 0).r;',
-    '  return mix(a, b, frac);',
-    '}',
-    '',
-  ].join('\n')
 }
 
 /** Sample a scalar gradient at the current camera zoom. Emits a call

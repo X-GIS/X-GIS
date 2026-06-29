@@ -151,6 +151,11 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     scroll-behavior: smooth;
+    /* The header is fixed (h-12 = 48px). Without this, clicking an in-page
+     * anchor (#install, #roadmap, the docs On-this-page TOC) scrolls the
+     * target flush to the viewport top where the header hides it. Offset
+     * every anchor jump by the header height plus a little breathing room. */
+    scroll-padding-top: 4.5rem;
     text-rendering: optimizeLegibility;
   }
 

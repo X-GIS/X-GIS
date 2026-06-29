@@ -1,10 +1,10 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-29 -->
 
 # playground/src/examples
 
 ## Purpose
-Raw `.xgis` DSL source files for every demo and fixture in the playground gallery — 124 files total. Each file is the single source of truth for its demo's content; `demos.ts` loads all of them at build time via `import.meta.glob('./examples/*.xgis', { eager: true, query: '?raw' })` and applies a dev-vs-production URL rewrite for the Protomaps PMTiles proxy. Files prefixed `fixture-` are minimal isolated examples that exercise one rendering capability in isolation and are the direct targets of the e2e fixture/reftest specs. Files prefixed `reftest-` form static-vs-match pairs for pixel-diff reftests. All other files are named-demo examples displayed in the gallery.
+Raw `.xgis` DSL source files for every demo and fixture in the playground gallery — 127 files total. Each file is the single source of truth for its demo's content; `demos/loader.ts` loads all of them at build time via `import.meta.glob('../examples/*.xgis', { eager: true, query: '?raw', import: 'default' })` and applies a URL rewrite (both dev and prod) for the dead Protomaps PMTiles bucket. Files prefixed `fixture-` are minimal isolated examples that exercise one rendering capability in isolation and are the direct targets of the e2e fixture/reftest specs. Files prefixed `reftest-` form static-vs-match pairs for pixel-diff reftests. All other files are named-demo examples displayed in the gallery.
 
 ## Key Files
 | File | Description |
@@ -114,9 +114,9 @@ Raw `.xgis` DSL source files for every demo and fixture in the playground galler
 ## For AI Agents
 
 ### Working In This Directory
-- To add a new fixture: create `fixture-<name>.xgis` here AND add a `DEMOS` entry in `../demos.ts` with `tag: 'fixture'`.
+- To add a new fixture: create `fixture-<name>.xgis` here AND add an entry to `../demos/fixtures.ts` with `tag: 'fixture'`.
 - Fixture `.xgis` files must use only `public/data/` GeoJSON assets or inline source (`type: geojson` with no `url`, data pushed via `setSourceData`) — no external network fetches — so they are deterministic in CI.
-- Demo `.xgis` files that reference `/pmtiles-proxy/protomaps/v4.pmtiles` are automatically rewritten for production by `demos.ts`; no manual URL management needed.
+- Demo `.xgis` files that reference `/pmtiles-proxy/protomaps/v4.pmtiles` are automatically rewritten (dev and prod) to the protomaps API TileJSON by `demos/loader.ts`; no manual URL management needed.
 - `picking-demo.xgis` requires `picking: true` in the DEMOS entry; the overlay panel is wired in `demo-runner.ts`, not in the `.xgis` file.
 - The `import "url"` syntax (as in `import-mapbox-style.xgis`) triggers `convertMapboxStyle` in the runtime; the `.xgis` file needs no further layers.
 - Do not add binary files here. All assets are text `.xgis`.
@@ -138,7 +138,7 @@ Raw `.xgis` DSL source files for every demo and fixture in the playground galler
 ## Dependencies
 
 ### Internal
-- Loaded by `../demos.ts` via `import.meta.glob('./examples/*.xgis', { eager: true, query: '?raw' })`.
+- Loaded by `../demos/loader.ts` via `import.meta.glob('../examples/*.xgis', { eager: true, query: '?raw', import: 'default' })`.
 - GeoJSON data served from `../../public/data/`.
 
 ### External

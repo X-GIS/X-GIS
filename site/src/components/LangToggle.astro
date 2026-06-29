@@ -1,0 +1,76 @@
+---
+// Language toggle (en ↔ ko). Maps to the SAME page in the other locale when a
+// translated twin exists; otherwise the Korean side falls back per `whenMissing`
+// (default: the /ko home, so it's never a dead end during progressive
+// translation). English always exists at the site root.
+//
+// Used both inline in the Header and inside the mobile drawer — `variant` only
+// changes sizing. The active locale renders as static text (aria-current); the
+// other locale is a link that also records the choice in localStorage so the
+// first-visit auto-switch in Base.astro honours it ("manual choice wins").
+import { getRelativeLocaleUrl } from 'astro:i18n'
+import { toLogicalPath, hasKoTwin, localeOf, type Locale, type WhenMissing } from '../lib/i18n'
+
+interface Props {
+  /** Sizing/idiom only. */
+  variant?: 'inline' | 'drawer'
+  /** What the Korean side does when the current page has no /ko twin. */
+  whenMissing?: WhenMissing
+}
+
+const { variant = 'inline', whenMissing = 'home' } = Astro.props
+
+const logical = toLogicalPath(Astro.url.pathname)
+const current: Locale = localeOf(Astro.url.pathname)
+
+// getRelativeLocaleUrl re-applies base + locale — pass logical paths only.
+const enHref = getRelativeLocaleUrl('en', logical)
+const koHref = hasKoTwin(logical)
+  ? getRelativeLocaleUrl('ko', logical)
+  : whenMissing === 'home'
+    ? getRelativeLocaleUrl('ko', '/')
+    : null
+
+const langs: { code: Locale; label: string; href: string | null }[] = [
+  { code: 'en', label: 'EN', href: enHref },
+  { code: 'ko', label: '한국어', href: koHref },
+]
+
+const inline = variant === 'inline'
+---
+
+<div
+  class:list={['flex items-center', inline ? 'gap-2 text-[13px]' : 'gap-3 text-[17px]']}
+  aria-label="Language"
+>
+  {langs.map((l, i) => (
+    <>
+      {i > 0 && inline && <span class="text-fg-faint" aria-hidden="true">·</span>}
+      {l.code === current ? (
+        <span class="text-fg" aria-current="true">{l.label}</span>
+      ) : l.href ? (
+        <a
+          href={l.href}
+          data-set-lang={l.code}
+          hreflang={l.code}
+          class="text-fg-dim hover:text-accent transition-colors"
+        >{l.label}</a>
+      ) : (
+        <span class="text-fg-faint" aria-disabled="true" title="Korean translation coming soon">{l.label}</span>
+      )}
+    </>
+  ))}
+</div>
+
+<script>
+  // Persist the manual choice so Base.astro's first-visit auto-switch respects
+  // it next time. Astro hoists this script once, so it binds every toggle
+  // instance's links across the page.
+  document.querySelectorAll('[data-set-lang]').forEach((el) => {
+    el.addEventListener('click', () => {
+      try {
+        localStorage.setItem('xgis-lang', el.getAttribute('data-set-lang') as string)
+      } catch {}
+    })
+  })
+</script>

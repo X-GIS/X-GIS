@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-06-03 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-06-03 | Updated: 2026-06-29 -->
 
 # ir
 
@@ -13,6 +13,8 @@ The intermediate representation — the heart of the compiler. Sits between the 
 | `lower-bindings.ts` (+ `lower-bindings-fill.ts` / `-line.ts` / `-paint.ts` / `lower-bindings-registry.ts`) | Per-concern BindingHandler descriptor registry split out of `lowerLayer`'s binding ladder. Each handler applies one binding to the shared mutable LayerAccumulator; `dispatch()` honours a handler returning `false` (matched-but-not-consumed) to reproduce the original fall-through. A new paint/layout binding handler goes HERE, not in the `lower.ts` driver. |
 | `lower-types.ts` | Shared types for the lowering pipeline: `LowerOptions` (bypass flags for match-collapse) and `ZoomStopsWithBase<T>`. Extracted from `lower.ts` to keep logic and types separate. |
 | `lower-helpers.ts` | Pure binding helpers used by `lower.ts`: `bindingToTextValue`, `bindingAsConstantNumber`, `extractMatchDefaultColor`, `extractInterpolateZoomStops`, `extractInterpolateZoomColorStops`. No side effects; operate solely on `AST.Expr`. |
+| `lower-label.ts` | Stateless `label-*` / `label-icon-*` lowering sub-pass extracted from `lowerLayer`. Resolves every label/icon utility (constant, zoom-interp, data-driven, VAO) into a `LabelDef | undefined`. Runs a second utility-loop pass disjoint from the paint loop; preserves item visit order. |
+| `lower-animation.ts` | Stateless KEYFRAME → time-stop expansion sub-pass extracted from `lowerLayer`. Expands a referenced `keyframes` block into the six per-property `TimeStop` arrays (`KeyframeTimeStops`) at the layer's animation duration. |
 | `render-node.ts` | Core IR types: `Scene`, `SourceDef`, `RenderNode`, `ColorValue`, `StrokeValue`, `OpacityValue`, `SizeValue`, `DataExpr`, `ZoomStop`, `LabelDef`, `TextValue`, `Diagnostic`, `SymbolDef`, `ExtrudeValue`, `FormatSpec`. Re-exports constructors from `render-node-helpers.ts`. |
 | `render-node-helpers.ts` | Pure value-type constructors / factories extracted from `render-node.ts`: `colorNone`, `colorConstant`, `opacityConstant`, `sizeNone`, `sizeConstant`, `shapeNone`, `buildLabelShapes`, `hexToRgba`, `rgbaToHex`. |
 | `optimize.ts` | Top-level optimize pass: classifies expressions, folds constants, then drives the shared `PIPELINE` (`PassManager`) through merge-layers → fold-trivial-stops → fold-trivial-case → dce-fixpoint group → cse-annotate → expr-analyze. Sits between `lower()` and `emitCommands()`. |

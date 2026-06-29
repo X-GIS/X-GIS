@@ -396,6 +396,17 @@ import { PI, EARTH_R } from './consts'
 const latRad = f32(2).mul(atan(exp(mercYAbs))).sub(PI.div(2))
 ```
 
+To **declare** a module constant, a scalar that needs the truncated-vs-full-precision split
+(`PI`) is authored as the `{ wgslValue, cpuValue }` `ConstDecl` directly. For a **non-scalar**
+constant — a `vec4<f32>` colour, an `array<vec4<f32>, N>` palette, a struct — use `constExpr`,
+which takes a constant-foldable literal Node and emits `const <name>: <type> = <value>;` on
+both WGSL + GLSL and evaluates it on the CPU oracle:
+
+```ts
+const SKY = constExpr('SKY', vec4fT, vec4(0.4, 0.6, 0.9, 1))
+const PALETTE = constExpr('PALETTE', arrayT(vec4fT, 3), arrayLit(vec4fT, c0, c1, c2))
+```
+
 Functions are **handles** too — import them and call directly, no `callFn('name')`:
 
 ```ts
@@ -575,6 +586,7 @@ nodes), which is exactly where `validate()` / `lintModule()` / `diagnose()` run.
 | Storage buffer | `storageBuffer(name, Element, at)` → `buf.at(i).f` |
 | Texture / sampler | `resource(name, type, at)` → `.node`, `.binding` |
 | A shared const | import the handle (`PI`, `EARTH_R`) — not `constRef('NAME')` |
+| A non-scalar const | `constExpr(name, type, valueNode)` — `vec4` / `arrayLit` / struct literal |
 | Call a function | import the `FnHandle`, call directly — not `callFn('name')` |
 | Diagnose a module | `diagnose(m, { backend })` → `formatReport(report)` (lint + caps, no throw) |
 | Source locations in errors | `setSourceTracing(true)` (dev-only, off by default, never on emit) |

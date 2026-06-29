@@ -1,5 +1,8 @@
 ---
 import Docs from '../../../layouts/Docs.astro'
+
+// Internal links must respect the GH Pages base prefix (`/X-GIS/` in CI).
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 ---
 
 <Docs
@@ -244,7 +247,7 @@ import Docs from '../../../layouts/Docs.astro'
       </p>
       <p>
         Watch it live on the
-        <a href="/docs/concepts/compute" class="text-accent underline">Compute concept</a>
+        <a href={`${base}/docs/concepts/compute`} class="text-accent underline">Compute concept</a>
         page: stage 7 (render-node paint) and stage 8 (compute kernels) print the exact
         shader-dsl output for whatever XGIS you type. <span class="text-fg-mute">(A few
         legacy string-built emit paths are still being folded into the IR — an active

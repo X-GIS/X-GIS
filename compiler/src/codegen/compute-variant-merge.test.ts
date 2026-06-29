@@ -22,7 +22,7 @@ function strokeStr(v: ShaderVariant): string {
 function makeLegacyVariant(overrides: Partial<ShaderVariant> = {}): ShaderVariant {
   return {
     key: 'legacy-key',
-    preamble: '',
+    preamble: {},
     // Phase 2.5 US-004 — Node-typed fields; `null` paired with
     // fillIsDefault: true is the default-uniform placeholder.
     fillExpr: null,
@@ -115,22 +115,24 @@ describe('mergeComputeAddendumIntoVariant — fill override', () => {
     expect(merged.uniformFields).toEqual(['mvp', 'proj_params', 'stroke_color', 'opacity'])
   })
 
-  it('concatenates legacy + addendum preambles with newline separator', () => {
+  it('appends addendum bindings after the legacy preamble consts', () => {
+    const fillColor = { name: 'X', type: { kind: 'scalar', scalar: 'f32' }, wgslValue: 1, cpuValue: 1 } as const
     const v = makeLegacyVariant({
-      preamble: 'const X: f32 = 1.0;',
+      preamble: { consts: [fillColor] },
     })
     const addendum = buildComputeVariantAddendum([makeFillEntry()], 2, 5)
     const merged = mergeComputeAddendumIntoVariant(v, addendum)
-    expect(merged.preamble).toContain('const X: f32 = 1.0;')
-    expect(merged.preamble).toContain('@group(2) @binding(5)')
-    expect(merged.preamble.indexOf('const X')).toBeLessThan(merged.preamble.indexOf('@group(2)'))
+    expect(merged.preamble.consts).toEqual([fillColor])
+    expect(merged.preamble.bindings).toHaveLength(1)
+    expect(merged.preamble.bindings![0]).toMatchObject({ group: 2, binding: 5, name: 'compute_out_fill' })
   })
 
-  it('empty legacy preamble → addendum becomes the preamble (no leading newline)', () => {
-    const v = makeLegacyVariant({ preamble: '' })
+  it('empty legacy preamble → addendum bindings become the only bindings', () => {
+    const v = makeLegacyVariant({ preamble: {} })
     const addendum = buildComputeVariantAddendum([makeFillEntry()], 0, 1)
     const merged = mergeComputeAddendumIntoVariant(v, addendum)
-    expect(merged.preamble.startsWith('@group(0)')).toBe(true)
+    expect(merged.preamble.bindings).toHaveLength(1)
+    expect(merged.preamble.bindings![0]).toMatchObject({ group: 0, binding: 1 })
   })
 })
 
@@ -203,7 +205,7 @@ describe('mergeComputeAddendumIntoVariant — cache key', () => {
     const v = makeLegacyVariant({ key: 'L' })
     // Same set of bindings, different insertion order.
     const a1: ComputeVariantAddendum = {
-      preamble: '...',
+      bindingDecls: [],
       fillExpr: 'F', strokeExpr: 'S',
       bindGroupEntries: [],
       bindings: [
@@ -212,7 +214,7 @@ describe('mergeComputeAddendumIntoVariant — cache key', () => {
       ],
     }
     const a2: ComputeVariantAddendum = {
-      preamble: '...',
+      bindingDecls: [],
       fillExpr: 'F', strokeExpr: 'S',
       bindGroupEntries: [],
       bindings: [

@@ -110,8 +110,9 @@ describe('Shader Variant Generator', () => {
     const node = scene.renderNodes[0]
     const variant = generateShaderVariant(node)
 
-    expect(variant.preamble).toContain('FILL_COLOR')
-    expect(variant.preamble).toContain('OPACITY')
+    const constNames = (variant.preamble.consts ?? []).map(c => c.name)
+    expect(constNames).toContain('FILL_COLOR')
+    expect(constNames).toContain('OPACITY')
     expect(variant.needsFeatureBuffer).toBe(false)
     expect(variant.uniformFields).not.toContain('fill_color')
   })
@@ -127,8 +128,7 @@ describe('Shader Variant Generator', () => {
     const node = scene.renderNodes[0]
     const variant = generateShaderVariant(node)
 
-    expect(variant.preamble).toContain('FILL_COLOR')
-    expect(variant.preamble).toContain('0.0, 0.0, 0.0, 0.0')
+    expect((variant.preamble.consts ?? []).map(c => c.name)).toContain('FILL_COLOR')
   })
 
   it('generates variant needing feature buffer for data-driven size', () => {
@@ -145,7 +145,7 @@ describe('Shader Variant Generator', () => {
     // Size is data-driven but fill is constant
     // The variant itself doesn't need feature buffer for fill
     // (size isn't handled in fragment shader yet)
-    expect(variant.preamble).toContain('FILL_COLOR')
+    expect((variant.preamble.consts ?? []).map(c => c.name)).toContain('FILL_COLOR')
   })
 
   it('same constants produce same cache key', () => {

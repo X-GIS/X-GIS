@@ -1,14 +1,15 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-29 -->
 
 # site/src/pages/docs/concepts/
 
 ## Purpose
-Deep-dive concept guide pages under `/docs/concepts/`. Each page explains a non-trivial architectural or mathematical concept in X-GIS with prose, annotated code blocks, inline SVG diagrams, and (for `compute.astro`) a fully interactive live compiler view. All four pages use the shared `Docs.astro` layout and contribute cards to `src/pages/docs/index.astro`.
+Deep-dive concept guide pages under `/docs/concepts/`. Each page explains a non-trivial architectural or mathematical concept in X-GIS with prose, annotated code blocks, inline SVG diagrams, and (for `compute.astro`) a fully interactive live compiler view. All five pages use the shared `Docs.astro` layout and contribute cards to `src/pages/docs/index.astro`.
 
 ## Key Files
 | File | Description |
 |------|-------------|
+| `globe.astro` | "Globe & 3D" — the product-identity concept page (ECEF positioning, the WGS84-ellipsoid-vertex / sphere-camera split and its ~21 km geoid seam, one-source-any-projection, RTC + log depth, per-fragment inverse-Mercator raster drape). Built on the `kit/` primitives + `GlobeDemo` React island; terrain/3D-tiles/streaming/fly-to flagged as ROADMAP. |
 | `rtc.astro` | "RTC + DSFUN precision" — explains the LL/MM/DLM/SP coordinate pipeline, why f32 cancellation degrades sub-meter accuracy at high zooms, and how the hi/lo DSFUN split recovers f64-equivalent precision in the vertex shader. References `tile-cross-path-invariants.test.ts` and `docs/COORDINATES.md`. |
 | `projections.astro` | "Projection switching" — all eight projections (mercator, equirectangular, natural_earth, orthographic, azimuthal_equidistant, stereographic, oblique_mercator, globe) documented with interactive "Try this →" links to the playground, a WGSL code sample showing the `u.projection_type` uniform path, and a Known Limitations section for polar-cap tile truncation. Imports `SeeAlso.astro` and `SpecLinks.astro`. |
 | `pipeline.astro` | "Compile pipeline" — SVG diagram of the Lexer → Parser → AST → `lower()` → IR → `optimize()` → `emit()` / `codegen()` → SceneCommands / ShaderVariants path, with per-stage prose covering constant folding and the four expression classification buckets. |

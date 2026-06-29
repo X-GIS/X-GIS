@@ -217,8 +217,8 @@ coordinate-space contract (LL / MM / DLM / SP) is in
 Each projection has paired CPU and GPU implementations that must agree exactly.
 The CPU side is `engine/projection/projection.ts`; the WGSL side is the source
 of truth (`engine/shaders/projection.ts`), and a **generated** CPU-f64 lowering
-(`engine/shader-dsl/cpu-projections.ts`) is produced from the projection IR
-(`engine/shader-dsl/projections.ts`). Divergences here are a documented
+(`engine/shaders/dsl/cpu-projections.ts`) is produced from the projection IR
+(`engine/shaders/dsl/projections.ts`). Divergences here are a documented
 recurring bug class (`runtime/AGENTS.md` line 25). The
 `projections-table.ts` `PROJECTIONS` array is the single source of truth for
 `projType → behavior` that every projection-aware site derives from

@@ -12,7 +12,7 @@ import { wgslRaw } from '@xgis/compiler'
 
 function legacyVariant(): ShaderVariant {
   return {
-    key: 'L', preamble: '',
+    key: 'L', preamble: {},
     fillExpr: wgslRaw('u.fill_color'), strokeExpr: wgslRaw('u.stroke_color'),
     needsFeatureBuffer: false,
     featureFields: [], uniformFields: [],

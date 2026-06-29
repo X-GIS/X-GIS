@@ -116,8 +116,9 @@ bun run test     # vitest run
   lexer·parser·evaluator·clip·simplify·geodesic·mvt-decoder·colors·tile-key·dsfun
   precision의 `*-fuzz.test.ts`는 항상 green을 유지한다.
 
-런타임 의존성: `@mapbox/vector-tile`, `pbf`(MVT decode), `@xgis/shared`. dev/포트 레퍼런스:
-`@maplibre/maplibre-gl-style-spec`, `geojson-vt`, `vt-pbf`, `earcut`.
+런타임 의존성: `@mapbox/vector-tile`, `pbf`(MVT decode), `@xgis/shader-dsl`(codegen IR),
+`@xgis/shared`. dev/포트 레퍼런스: `@maplibre/maplibre-gl-style-spec`, `geojson-vt`, `vt-pbf`,
+`earcut`.
 
 ## Related Docs
 

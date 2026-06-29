@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-06-03 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-06-03 | Updated: 2026-06-29 -->
 
 # compiler/src
 
@@ -10,7 +10,7 @@ Root of the compiler source tree. `index.ts` is the sole public entry point for 
 | File | Description |
 |------|-------------|
 | `index.ts` | Public package barrel (~100 lines). Re-exports every symbol consumers need: `Lexer`/`Parser`/AST types, `lower`/`optimize`/`emitCommands`, IR types (`Scene`, `RenderNode`, `PropertyShape`), `evaluate`/`makeEvalProps`/reserved keys, format helpers (`formatValue`, `parseFormatSpec`, `parseTextTemplate`), codegen (`ShaderVariant`, `collectPalette`, compute-gen/plan/output-binding/variant/variant-merge/variant-build, `paint-routing`, node-type helpers), tiler (`compileGeoJSONToTiles`, ECEF packers, `clipPolygonToRect`, `simplify`, `interpolateGreatCircle`, vertex-format, dequant-mirror), `decodeMvtTile`, `convertMapboxStyle`/`MAPBOX_COVERAGE`, `getStyleProfile`, CSE/deps analysis passes, and `LANGUAGE_SCHEMA`. Read this first to locate any symbol. The barrel now re-exports via per-area sub-barrels (`./lexer`, `./parser`, `./ir`, `./eval`, `./module`, `./codegen`, `./tiler`, `./input`, `./convert`, `./diagnostics`, `./schema`, `./binary`, `./tokens` — each its own `index.ts`) plus a curated `./format` re-export; a new public symbol goes in its AREA sub-barrel and flows up automatically (the set-identical export contract is pinned by a drift check). |
-| `earcut.d.ts` | Ambient `declare module 'earcut'` for the untyped polygon-triangulation dependency used by the tiler. |
+| `tiler/earcut.d.ts` | Ambient `declare module 'earcut'` for the untyped polygon-triangulation dependency used by the tiler (lives under `tiler/`, the sole consumer). |
 
 ## Subdirectories
 | Directory | Purpose |
@@ -38,7 +38,7 @@ Root of the compiler source tree. `index.ts` is the sole public entry point for 
 ### Working In This Directory
 - Any new public symbol must be exported from `index.ts` — all consumers import from `@xgis/compiler`, never from deep paths (sole exception: `@xgis/compiler/tiler/geodesic`, declared in `package.json#exports`).
 - Keep `index.ts` grouped by subsystem in its existing order: lexer/parser → binary → ir → eval → format → codegen → tiler → input → convert → diagnostics → passes → schema. Do not reorder sections.
-- `earcut.d.ts` here is a duplicate of `tiler/earcut.d.ts`; both are needed — do not remove either without checking resolution scope.
+- The ambient `earcut.d.ts` lives in `tiler/` (its sole consumer); do not remove it without checking resolution scope.
 - Run `bun run build` (not just vitest) before any PR — vitest does not typecheck; the build will catch type errors in `index.ts` re-exports.
 
 ### Testing Requirements
@@ -56,6 +56,6 @@ Root of the compiler source tree. `index.ts` is the sole public entry point for 
 - `index.ts` imports from every subdirectory in this tree; no cross-package imports at this level.
 
 ### External
-- None directly at this level. Subdirs pull `pbf`, `@mapbox/vector-tile` (input/), and `earcut` (tiler/).
+- None directly at this level. Subdirs pull `pbf`, `@mapbox/vector-tile` (input/), `earcut` (tiler/), and `@xgis/shader-dsl` (codegen/ routes shader/compute emission through its IR Nodes).
 
 <!-- MANUAL: notes below this line are preserved on regeneration -->

@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-05-22 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-05-22 | Updated: 2026-06-29 -->
 
 # playground/public
 
@@ -12,7 +12,7 @@ Static assets served verbatim by Vite at the `/` root during local development a
 | `liberty-buildings-only.json` | Stripped MapLibre Liberty style retaining only background fill, flat building fill, and 3D building extrusion. Referenced by `compare-runner.ts` STYLES catalogue for isolated extrude pixel-diff comparison. If renamed, update the catalogue entry. |
 | `sample-mapbox-with-inline-geojson.json` | Sample Mapbox style with an inline GeoJSON source; loaded by the `import-mapbox-inline-geojson.xgis` demo and its e2e spec. |
 
-The `data/` subdirectory (documented separately in `data/AGENTS.md`) holds all GeoJSON and XGT geographic assets: Natural Earth layers at 110m / 50m / 10m resolution, fixture GeoJSONs for isolated render/pipeline tests (triangle, point, line, join, square, antimeridian, mercator-clip, categorical, stress, EPSG:5179 Seoul reprojection), a pre-compiled `countries.xgt`, and the `data/libs/` S-100 nautical `.xgis` library (see `data/libs/AGENTS.md`).
+The `data/` subdirectory holds the GeoJSON geographic assets. Note that `playground/public/data/*` is gitignored except an allow-list (see `.gitignore`): only the committed assets travel with the repo — Natural Earth **110m** layers (`ne_110m_{countries,ocean,land,coastline,rivers,lakes,populated_places}.geojson`), `countries.geojson`, `land.geojson`, and the small `fixture-*.geojson` files for isolated render/pipeline tests (triangle, point, line, line-join, square, antimeridian, mercator-clip, categorical, stress-many, points-pop, EPSG:5179 Seoul reprojection). Higher-resolution Natural Earth (`ne_10m_*` / `ne_50m_*`) and any `.xgt` tiles referenced by demos are gitignored bulk assets fetched/generated locally, not checked in.
 
 ## For AI Agents
 

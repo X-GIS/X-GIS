@@ -7,10 +7,10 @@
 // buffer. The fragment shader's job is to read that u32 at the
 // feature's `feat_id` and unpack to a vec4<f32>.
 //
-// Two emit helpers — both pure strings, no IR / GPU coupling:
+// Emit helpers:
 //
-//   - emitComputeOutputBindingDecl(spec)
-//       → "@group(N) @binding(M) var<storage, read> compute_out_<axis>: array<u32>;"
+//   - buildComputeOutputBindingDecl(spec)
+//       → IR `BindingDecl` for the `compute_out_<axis>: array<u32>` storage buffer
 //   - emitComputeOutputReadExpr(spec, fidExpr)
 //       → "unpack4x8unorm(compute_out_<axis>[<fidExpr>])"
 //
@@ -33,6 +33,7 @@
 import {
   arrayIndex, varRefArrayU32, unpack4x8unormVec4, inputFeatIdRef,
 } from './_util/node-builders'
+import { arrayT, u32T, type BindingDecl } from '@xgis/shader-dsl'
 
 /** Which paint axis the compute output evaluates. Two-state union
  *  matches the rest of the P4 plan; future axes (opacity, stroke
@@ -59,13 +60,18 @@ function varNameFor(axis: ComputeOutputPaintAxis): string {
   return axis === 'fill' ? 'compute_out_fill' : 'compute_out_stroke'
 }
 
-/** Emit the WGSL bind declaration line. Goes into the shader
- *  variant's preamble insertion point alongside other @group/@binding
- *  declarations. The buffer holds one u32 per feature
+/** IR `BindingDecl` for the compute output storage buffer — goes into the
+ *  variant's `preamble.bindings`. The buffer holds one u32 per feature
  *  (pack4x8unorm-encoded RGBA8). */
-export function emitComputeOutputBindingDecl(spec: ComputeOutputBindingSpec): string {
-  const name = varNameFor(spec.paintAxis)
-  return `@group(${spec.bindGroup}) @binding(${spec.binding}) var<storage, read> ${name}: array<u32>;`
+export function buildComputeOutputBindingDecl(spec: ComputeOutputBindingSpec): BindingDecl {
+  return {
+    group: spec.bindGroup,
+    binding: spec.binding,
+    name: varNameFor(spec.paintAxis),
+    space: 'storage',
+    access: 'read',
+    type: arrayT(u32T),
+  }
 }
 
 /** Emit the WGSL expression that reads + unpacks the per-feature

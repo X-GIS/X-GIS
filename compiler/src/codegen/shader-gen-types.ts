@@ -6,6 +6,17 @@
 // into shader-gen.ts only.
 
 import type { NodeLike } from './node-types'
+import type { ConstDecl, BindingDecl, FuncDecl } from '@xgis/shader-dsl'
+
+/** The compiler-side preamble fragment merged into the runtime polygon module.
+ *  Mirrors the runtime `ShaderVariantInfo.preamble` shape
+ *  (`Partial<Pick<ModuleDecl, 'consts'|'bindings'|'funcs'>>`) so the runtime
+ *  spreads the arrays directly — no WGSL-string splice. */
+export interface PreambleModule {
+  consts?: readonly ConstDecl[]
+  bindings?: readonly BindingDecl[]
+  funcs?: readonly FuncDecl[]
+}
 
 /**
  * A specialized shader variant for a layer.
@@ -13,12 +24,12 @@ import type { NodeLike } from './node-types'
 export interface ShaderVariant {
   /** Cache key — layers with identical keys share a pipeline */
   key: string
-  /** WGSL const declarations to prepend to the shader.
-   *  Phase 2.5 — kept as string during the in-flight migration; the
-   *  per-idiom Node conversion in US-005 + the polygon DSL composer
-   *  in US-007 are the natural points for the `Partial<ModuleDecl>`
-   *  shape. Deferred per the plan's rollback option. */
-  preamble: string
+  /** Module-shape fragment (consts / bindings / funcs) the runtime polygon
+   *  composer spreads into the base module. Replaces the former WGSL string +
+   *  post-emit regex splice: the compiler now authors every specialized const
+   *  (FILL_COLOR / STROKE_COLOR / OPACITY / CAT_PALETTE), palette binding, and
+   *  the scalar-sample helper as IR decls. */
+  preamble: PreambleModule
   /** Fill-color expression as a DSL Node, or `null` for the default-
    *  uniform placeholder (`fillIsDefault: true` is the typed sentinel).
    *  The compiler-side emit sites currently wrap pre-built WGSL strings
@@ -114,7 +125,9 @@ export interface ShaderVariant {
 }
 
 export interface ColorResult {
-  preamble: string[]
+  /** Module-level const declarations this colour path needs (FILL/STROKE_COLOR
+   *  or CAT_PALETTE). Empty for paths that inline / reference a uniform. */
+  preamble: ConstDecl[]
   isConst: boolean
   /** Phase 2.5 US-005 — set by arms that have migrated to DSL Node
    *  construction. When present, the shader-gen top-level uses this
@@ -141,7 +154,8 @@ export interface ColorResult {
 }
 
 export interface OpacityResult {
-  preamble: string[]
+  /** Module-level const declarations (OPACITY). Empty for the uniform path. */
+  preamble: ConstDecl[]
   needsUniform: boolean
   needsFeatures: boolean
   expr: string

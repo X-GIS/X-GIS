@@ -127,17 +127,21 @@ layer tracks {
               Runtime + WebGPU
 ```
 
-Three packages:
+Seven workspaces:
 
 | Package | Role |
 |---------|------|
+| `@xgis/shared` | Shared TypeScript types and utilities; common base, imports from neither compiler nor runtime. |
 | `@xgis/compiler` | Lexer, parser, IR, optimizer, WGSL codegen. Pure TypeScript, no GPU deps. |
+| `@xgis/blueprint` | Visual node-editor concept for `.xgis` pipeline authoring. |
+| `@xgis/shader-dsl` | Zero-dep typed shader IR authored once, emitted to WGSL + a CPU f64 oracle (closes GPU/CPU projection drift). |
 | `@xgis/runtime` | WebGPU renderers (vector, raster tiles, globe), camera, interaction. |
-| `@xgis/playground` | Vite dev app for testing. |
+| `@xgis/playground` | Vite dev app + Playwright e2e suites for testing. |
+| `@xgis/site` | Astro documentation/marketing site. |
 
 ## Rendering
 
-- **WebGPU** (only) -- 7 map projections baked into WGSL shaders, RTC coordinate system for float32 precision. No Canvas 2D / WebGL fallback: on an unsupported browser `initGPU` throws `WebGPUUnavailableError` and fires the `onWebGPUUnavailable()` host hook (provide it to show a fallback UI). See the browser-support matrix before adopting.
+- **WebGPU** (only) -- 8 map projections baked into WGSL shaders, RTC coordinate system for float32 precision. No Canvas 2D / WebGL fallback: on an unsupported browser `initGPU` throws `WebGPUUnavailableError` and fires the `onWebGPUUnavailable()` host hook (provide it to show a fallback UI). See the browser-support matrix before adopting.
 - **Globe mode** -- 2-pass: equirectangular flat map to offscreen texture, then sphere mesh with lighting
 - **Raster tiles** -- `{z}/{x}/{y}` URL templates, LRU cache (256 tiles), priority loading, zoom-change cancellation
 - **Mobile** -- touch pan/pinch-zoom, DPR-aware rendering, HTTPS dev server for WebGPU
@@ -195,7 +199,7 @@ coastlines.
 
 ## Projections
 
-Mercator, Equirectangular, Natural Earth, Orthographic, Azimuthal Equidistant, Stereographic, Oblique Mercator. Each has dual CPU + GPU implementations. Switching is instant via GPU uniform -- no re-tessellation.
+Mercator, Equirectangular, Natural Earth, Orthographic, Azimuthal Equidistant, Stereographic, Oblique Mercator, Globe (ECEF). Each has dual CPU + GPU implementations. Switching is instant via GPU uniform -- no re-tessellation.
 
 ## License
 

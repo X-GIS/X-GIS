@@ -1,17 +1,17 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-06-03 | Updated: 2026-06-23 -->
+<!-- Generated: 2026-06-03 | Updated: 2026-06-29 -->
 
 # scripts/
 
 ## Purpose
-Developer tooling scripts and generated artefacts for the X-GIS repository. Contains five TypeScript scripts runnable via `bun` (pre-push gate, mutation tester, polygon shader snapshot capture, gap-matrix emitter, and a committed gap-matrix snapshot), a Python cross-validation harness in `cross-validation/` that pins CPU projection and tile math against independent reference libraries (pyproj / mercantile / shapely), and miscellaneous planning/observation markdown files produced during debug sessions. Nothing here is imported by published packages; all scripts are development-support tooling only.
+Developer tooling scripts and generated artefacts for the X-GIS repository. Contains six TypeScript scripts runnable via `bun` (pre-push gate, mutation tester, polygon shader snapshot capture, gap-matrix emitter, render-verify baseline-accept gate, and matrix-report pretty-printer) plus a committed gap-matrix snapshot, a Python cross-validation harness in `cross-validation/` that pins CPU projection and tile math against independent reference libraries (pyproj / mercantile / shapely), and miscellaneous planning/observation markdown files produced during debug sessions. Nothing here is imported by published packages; all scripts are development-support tooling only.
 
 ## Key Files
 | File | Description |
 |------|-------------|
 | `precheck.ts` | Pre-push gate. Runs vitest unit suite across `compiler/src`, `blueprint/src`, `runtime/src` and optionally the Playwright projection-coverage smoke spec (`--smoke`, ~2-3 min). Wired as a git pre-push hook via `bun setup:hooks`. Parses stdout to tolerate vitest worker-IPC teardown false-failures so CI parity is exact. |
 | `mutate.ts` | Zero-dependency hand-rolled mutation tester. Applies 14 operator-flip / boolean-negate / Math.max↔min mutations one at a time to a target source file, runs the specified vitest filter after each, and reports mutation score (killed / survived). Skips mutations inside comments and string literals. Usage: `bun scripts/mutate.ts <target-file> <vitest-filter>`. |
-| `capture-polygon-snapshots.ts` | Polygon shader DSL baseline capture (Phase 2.5 US-010). Imports `FIXTURES` and `emitForFixture` from the runtime shader-DSL test fixtures, emits each variant's WGSL, and writes SHA-256-keyed `.wgsl` snapshot files to `runtime/src/engine/shader-dsl/shaders/__polygon-variant-snapshots__/`. `polygon-variant-diff.test.ts` byte-diffs current emit against these snapshots to detect unintentional composer drift. Re-run after intentional DSL composer changes. |
+| `capture-polygon-snapshots.ts` | Polygon shader DSL baseline capture (Phase 2.5 US-010). Imports `FIXTURES` and `emitForFixture` from the runtime shader-DSL test fixtures, emits each variant's WGSL, and writes SHA-256-keyed `.wgsl` snapshot files to `runtime/src/engine/shaders/dsl/__polygon-variant-snapshots__/`. `polygon-variant-diff.test.ts` byte-diffs current emit against these snapshots to detect unintentional composer drift. Re-run after intentional DSL composer changes. |
 | `emit-gap-matrix.ts` | Generates `gap-matrix.md` by cross-referencing `compiler/src/convert/spec-coverage.ts` and `runtime/src/capabilities.ts`. Produces four sections: runtime capability gaps, spec-coverage status breakdown, high-impact unsupported entries, and partial entries. Run: `bun scripts/emit-gap-matrix.ts > scripts/gap-matrix.md`. |
 | `matrix-accept.ts` | Human-approved baseline acceptance gate for render-verify oracle. Copies a reviewed candidate screenshot from `playground/e2e/__matrix__/<id>.png` into the committed baseline corpus at `playground/render-verify/baselines/<id>.png`, stamps provenance metadata, and guides the user to flip the manifest status from 'candidate' to 'green'. Enforces explicit review: refuses to silently overwrite existing baselines without `--force`. |
 | `matrix-report.ts` | Pretty-printer for render-verify matrix test results. Reads the cached report JSON from `playground/e2e/__matrix__/report.json` (written by `_matrix-gate.spec.ts`) and displays per-cell verdicts (PASS/FAIL/SOFT/SKIP/CANDIDATE) in a table with measured values, thresholds, and detail. Read-only; no side effects. |
@@ -40,7 +40,7 @@ Developer tooling scripts and generated artefacts for the X-GIS repository. Cont
 
 ### Testing Requirements
 - `precheck.ts` is the canonical local test runner. It exercises vitest on `compiler/src`, `blueprint/src`, and `runtime/src`.
-- Polygon DSL drift is caught by `runtime/src/engine/shader-dsl/shaders/polygon-variant-diff.test.ts`, which byte-diffs against the snapshots written by `capture-polygon-snapshots.ts`.
+- Polygon DSL drift is caught by `runtime/src/engine/shaders/dsl/polygon-variant-diff.test.ts`, which byte-diffs against the snapshots written by `capture-polygon-snapshots.ts`.
 - Cross-validation fixture correctness is verified by `runtime/src/__tests__/cross-validation.test.ts`. Regenerate the fixture via `cd scripts/cross-validation && uv run generate-fixtures.py` only when a projection or tile formula intentionally changes.
 
 ### Common Patterns
@@ -51,7 +51,7 @@ Developer tooling scripts and generated artefacts for the X-GIS repository. Cont
 ## Dependencies
 
 ### Internal
-- `runtime/src/engine/shader-dsl/shaders/_polygon-fixtures` — imported by `capture-polygon-snapshots.ts`
+- `runtime/src/engine/shaders/dsl/_polygon-fixtures` — imported by `capture-polygon-snapshots.ts`
 - `compiler/src/convert/spec-coverage.ts` — imported by `emit-gap-matrix.ts`
 - `runtime/src/capabilities.ts` — imported by `emit-gap-matrix.ts`
 - `runtime/src/__tests__/cross-validation.fixture.json` — written by `cross-validation/generate-fixtures.py`, read by `cross-validation.test.ts`

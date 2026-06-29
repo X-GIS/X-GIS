@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-06-03 | Updated: 2026-06-03 -->
+<!-- Generated: 2026-06-03 | Updated: 2026-06-29 -->
 
 # parser
 
@@ -9,7 +9,11 @@ Second stage of the X-GIS compiler pipeline. Consumes the `Token[]` stream produ
 ## Key Files
 | File | Description |
 |------|-------------|
-| `parser.ts` | The `Parser` class and `parseExpressionString(src)` helper. `parse()` returns a `Program`; `parseSingleExpression()` parses exactly one `Expr` and throws on trailing tokens (used by `ir/lower.ts` for template interpolations). `parseBlockProperty()` deliberately stops at `parseCoalesce` rather than `parseExpr` so the `|` pipe operator is never consumed inside `layer`/`source` block values. `isStylePropertyStart()` uses a 2-token lookahead to distinguish CSS-style `fill: stone-800` from generic `key: expr` block properties. `captureFnCallAsString()` walks paren-balanced tokens to capture `rgb()`/`rgba()`/`hsl()` CSS color calls as raw strings for the downstream color resolver. |
+| `index.ts` | Barrel re-export: exports `Parser` from `parser.ts` and all AST types (`export type *`) from `ast.ts`. |
+| `parser.ts` | The `Parser` class (`extends StatementParser`) and `parseExpressionString(src)` helper. `parse()` returns a `Program`; `parseSingleExpression()` parses exactly one `Expr` and throws on trailing tokens (used by `ir/lower.ts` for template interpolations). `parseBlockProperty()` deliberately stops at `parseCoalesce` rather than `parseExpr` so the `|` pipe operator is never consumed inside `layer`/`source` block values. `isStylePropertyStart()` uses a 2-token lookahead to distinguish CSS-style `fill: stone-800` from generic `key: expr` block properties. `captureFnCallAsString()` walks paren-balanced tokens to capture `rgb()`/`rgba()`/`hsl()` CSS color calls as raw strings for the downstream color resolver. |
+| `parser-cursor.ts` | `ParserCursor` base class — owns `this.tokens` / `this.pos` and the low-level traversal + lookahead utilities. Filters `Newline` tokens in its constructor. Both the statement handlers and the expression precedence ladder extend this so they share one cursor. |
+| `parser-expressions.ts` | `ExpressionParser extends ParserCursor` — the Pratt/precedence-climbing expression ladder (`parsePipe` → `parseCoalesce` → … → `parsePrimary`). |
+| `parser-statements.ts` | `StatementParser extends ExpressionParser` — the statement-form handlers (keyword→handler dispatch) for `let`/`show`/`source`/`layer`/`background`/`preset`/`fn`/`symbol`/`style`/`keyframes`/`import`/`if`/`for`/`return`. |
 | `ast.ts` | All AST node type definitions. `Statement` is a union of 14 forms (`LetStatement`, `ShowStatement`, `FnStatement`, `ExprStatement`, `SourceStatement`, `LayerStatement`, `BackgroundStatement`, `PresetStatement`, `ImportStatement`, `SymbolStatement`, `StyleStatement`, `KeyframesStatement`, `IfStatement`, `ReturnStatement`, `ForStatement`). `Expr` covers 13 node kinds including `PipeExpr`, `MatchBlock`/`MatchArm`, `FieldAccess` (with `object: null` for implicit `.field` data binding), `ConditionalExpr`, and `ArrayAccess`. `UtilityItem` carries an optional `modifier` (for `friendly:fill-green-500` conditional styling), a hyphen-joined `name`, an optional `binding: Expr` (for `size-[expr]`), and an optional `bindingUnit`. `KeyframesStatement` sorts frames by `percent` after parsing. Every statement node carries `line` for diagnostics. |
 
 ## For AI Agents

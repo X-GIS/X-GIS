@@ -20,7 +20,7 @@ function strokeStr(v: ShaderVariant): string {
 function makeLegacyVariant(overrides: Partial<ShaderVariant> = {}): ShaderVariant {
   return {
     key: 'legacy',
-    preamble: '',
+    preamble: {},
     // Phase 2.5 US-004 — Node-typed fields; `null` paired with
     // fillIsDefault: true is the default-uniform placeholder.
     fillExpr: null,
@@ -108,15 +108,14 @@ describe('buildPerShowMergedVariant', () => {
     const out = buildPerShowMergedVariant(v, plan, 3, 0, 5)
     expect(fillStr(out)).toContain('compute_out_fill')
     expect(strokeStr(out)).toContain('compute_out_stroke')
-    expect(out.preamble).toContain('@binding(5)')
-    expect(out.preamble).toContain('@binding(6)')
+    expect(out.preamble.bindings!.map(b => b.binding)).toEqual([5, 6])
   })
 
   it('passes through bindGroup + baseBinding to the addendum', () => {
     const v = makeLegacyVariant()
     const plan = [makeMatchEntry('class', 0)]
     const out = buildPerShowMergedVariant(v, plan, 0, 2, 9)
-    expect(out.preamble).toContain('@group(2) @binding(9)')
+    expect(out.preamble.bindings![0]).toMatchObject({ group: 2, binding: 9 })
   })
 
   it('cache key is extended for merged variant; identity case preserves key', () => {

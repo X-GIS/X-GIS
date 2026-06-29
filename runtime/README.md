@@ -3,8 +3,9 @@
 The WebGPU rendering engine for X-GIS. `@xgis/runtime` is the rendering half of
 the monorepo: it consumes the compiler's output (`SceneCommands`,
 `ShaderVariant`, `CompiledTile`) and paints maps on the GPU. It owns the camera
-math, pointer interaction, the full MVT/PBF vector-tile pipeline, and the seven
-projections — each baked into WGSL with a paired CPU implementation.
+math, pointer interaction, the full MVT/PBF vector-tile pipeline, and the eight
+projection surfaces (projType 0–6 plus the true-3D globe at projType 7) — each
+baked into WGSL with a paired CPU implementation.
 
 > Role in the monorepo: `@xgis/compiler` turns `.xgis` source into IR + scene
 > commands + shaders; `@xgis/runtime` executes them on WebGPU. See
@@ -135,8 +136,9 @@ and [`docs/verification/STRATEGY.md`](../docs/verification/STRATEGY.md).
 ## Dependencies
 
 The internal `@xgis/compiler` (scene commands, shader variants, MVT decode/
-compile, geojson-vt port, expression `evaluate`) and `@xgis/shared` are **bundled
-into `dist/`** at build time, so the published package depends only on genuine
+compile, geojson-vt port, expression `evaluate`), `@xgis/shader-dsl` (the
+single-emit WGSL+CPU projection DSL), and `@xgis/shared` are **bundled into
+`dist/`** at build time, so the published package depends only on genuine
 third-party externals:
 
 - **Runtime:** `@mapbox/vector-tile` + `pbf` (MVT decode), `pmtiles` (archive
