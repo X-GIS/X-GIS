@@ -3,12 +3,23 @@ import Docs from '../../../layouts/Docs.astro'
 
 // Internal links must respect the GH Pages base prefix (`/X-GIS/` in CI).
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+
+const headings = [
+  { depth: 2, slug: 'stages',       text: 'Stages' },
+  { depth: 2, slug: 'lexer-parser', text: 'Lexer + Parser' },
+  { depth: 2, slug: 'ast-ir',       text: 'AST → IR (Scene)' },
+  { depth: 2, slug: 'optimizer',    text: 'Optimizer: constant fold + classify' },
+  { depth: 2, slug: 'codegen',      text: 'Codegen: paint → shader-dsl IR → WGSL' },
+  { depth: 2, slug: 'shader-ir',    text: 'The shader IR' },
+  { depth: 2, slug: 'runtime',      text: 'Runtime' },
+]
 ---
 
 <Docs
   current="concepts/pipeline"
   title="X-GIS — Compile pipeline"
   description="The path from a .xgis source string to a frame: lexer → parser → AST → IR → optimizer → WGSL codegen → renderer."
+  headings={headings}
 >
   <header class="mb-12">
     <p class="font-mono text-[11px] tracking-[0.2em] uppercase text-accent mb-3">
@@ -26,7 +37,7 @@ const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
   <article class="space-y-14 text-[15px] sm:text-[16px] leading-[1.65] text-fg-dim">
 
     <section>
-      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+      <h2 id="stages" class="scroll-mt-24 text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
         Stages
       </h2>
       <div class="rounded-2xl bg-bg-card border border-line overflow-hidden p-6 sm:p-10">
@@ -105,7 +116,7 @@ const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
     </section>
 
     <section>
-      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+      <h2 id="lexer-parser" class="scroll-mt-24 text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
         Lexer + Parser
       </h2>
       <p class="mb-4">
@@ -134,7 +145,7 @@ const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
     </section>
 
     <section>
-      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+      <h2 id="ast-ir" class="scroll-mt-24 text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
         AST → IR (Scene)
       </h2>
       <p class="mb-4">
@@ -157,7 +168,7 @@ const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
     </section>
 
     <section>
-      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+      <h2 id="optimizer" class="scroll-mt-24 text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
         Optimizer: constant fold + classify
       </h2>
       <p class="mb-4">
@@ -189,7 +200,7 @@ const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
     </section>
 
     <section>
-      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+      <h2 id="codegen" class="scroll-mt-24 text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
         Codegen: paint → shader-dsl IR → WGSL
       </h2>
       <p class="mb-4">
@@ -256,7 +267,7 @@ const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
     </section>
 
     <section>
-      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+      <h2 id="runtime" class="scroll-mt-24 text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
         Runtime
       </h2>
       <p class="mb-4">
