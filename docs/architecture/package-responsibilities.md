@@ -17,10 +17,19 @@ X-GIS compiles a **`.xgis` style source (or an imported Mapbox/MapLibre style) +
 data** into deterministic GPU-ready artifacts, then paints pixels:
 
 ```
-style → lex → parse → IR (lower / optimize / emit)
-      → { SceneCommands, ShaderVariant strings, CompiledTile vertex layouts, palettes }
-      → runtime upload → per-frame pass chain → pixels   (across 8 projection surfaces)
+style → lex → parse → IR (lower / optimize)
+      → { SceneCommands, shader-dsl IR (NEUTRAL — not WGSL/GLSL), CompiledTile vertex layouts, palettes }
+      → runtime selects backend (WebGPU|WebGL2) → @xgis/shader-dsl emits WGSL or GLSL from the IR
+      → upload → per-frame pass chain → pixels   (across 8 projection surfaces)
 ```
+
+> **⛔ DECIDED (2026-06-29, SRP + runtime-backend): the compiler emits NO shader code.** The
+> WebGPU-vs-WebGL2 target is chosen **at runtime** (device init), so the compiler *cannot* emit a
+> backend-specific shader at compile time — it would have to guess the target. Therefore **shader
+> CODE generation (IR → WGSL/GLSL) is `@xgis/shader-dsl`'s SOLE responsibility**, performed at runtime
+> when the backend is known. The compiler stops at **backend-neutral shader-dsl IR**; it must NOT call
+> `emitModule`/`emitExpr` or produce any WGSL/GLSL string. Two modules generating shader code = the
+> duplicate / wheel-reinvention / SRP break this charter exists to forbid (ruling **b**, **f**; §5).
 
 The internal dependency DAG is strictly **acyclic** with two leaves — `@xgis/shared`
 (WGS84/ECEF math) and `@xgis/shader-dsl` (zero-dependency shader-authoring framework):
@@ -45,14 +54,17 @@ so it is acyclic); adding it retired the bulk of the duplication tracked in §5.
 
 ## 2. The three charters
 
-### `@xgis/compiler` — the GPU-free front-end
-- **OWNS:** Everything from `.xgis`/Mapbox-style text to deterministic render artifacts —
-  lexing, parsing, IR lower/optimize/emit, expression evaluation & Mapbox-expression
-  semantics, color resolution, label formatting, the style-spec oracle, and the **data-side
-  tiler** (clip/simplify/tessellate/pack into GPU vertex layouts).
-- **DOES NOT OWN:** Any `GPUDevice` call or GPU resource (emits *strings & typed data* only);
-  the shader IR/optimizer machinery (that is `@xgis/shader-dsl`'s); per-frame scheduling,
-  draw calls, or projection-matrix math (runtime's). It **produces** artifacts; it never executes them.
+### `@xgis/compiler` — the GPU-free, shader-CODE-free front-end
+- **OWNS:** Everything from `.xgis`/Mapbox-style text to deterministic, **backend-neutral** render
+  artifacts — lexing, parsing, IR lower/optimize, expression evaluation & Mapbox-expression
+  semantics, color resolution, label formatting, the style-spec oracle, the **data-side tiler**
+  (clip/simplify/tessellate/pack into GPU vertex layouts), and deciding **WHICH** shader-dsl IR a
+  style lowers to (kernel/variant selection).
+- **DOES NOT OWN:** Any `GPUDevice` call or GPU resource; the shader IR/optimizer machinery (that is
+  `@xgis/shader-dsl`'s); **shader CODE emission — it does NOT produce WGSL/GLSL strings, ever** (the
+  backend is a runtime decision, so it produces backend-NEUTRAL `@xgis/shader-dsl` IR + typed data, and
+  the runtime emits per backend via shader-dsl); per-frame scheduling, draw calls, or projection-matrix
+  math (runtime's). It **produces** neutral artifacts; it never emits shader code and never executes them.
 
 ### `@xgis/shader-dsl` — the content-free shader framework
 - **OWNS:** The shader *machinery* — the typed IR (`Expr`/`Stmt`/`Decl`, `Node<K>`, `Builder`),
@@ -86,7 +98,7 @@ so it is acyclic); adding it retired the bulk of the duplication tracked in §5.
 | **parser** | Recursive-descent; AST node types; `parseExpressionString` | `Token[]` → AST | tokenizing (→ lexer); lower/eval (→ ir/eval) |
 | **ir** | `lower→optimize→emit`; `PropertyShape`/`Dep`/`Scene` | AST + eval + spec → `Scene`, `SceneCommands` | WGSL (→ codegen); hardcoded spec defaults (→ spec); 4-stage order fixed |
 | **ir/passes** | Deterministic `Scene→Scene` opt (CSE/DCE/fold/merge) | `Scene` → `Scene` | order outside declared deps; keep analysis/rewrite split |
-| **codegen** | Compiler back-end: `RenderNode → ShaderVariant`/compute-kernels/palettes (pure strings); authors kernel bodies via the `@xgis/shader-dsl` IR | optimized `Scene` → `ShaderVariant`, `ComputeKernel` | **never touch `GPUDevice`**; IR/classification (→ ir); **must not re-spell emission — the residual hand copy in `node-to-wgsl.ts` is test-only, see §5** |
+| **codegen** | Compiler back-end: `RenderNode → ` the shader-dsl **IR** for each variant/compute-kernel/palette (decides WHICH kernel; builds the IR via `@xgis/shader-dsl` builders) | optimized `Scene` → shader-dsl **IR** + `ComputeKernel` IR | **never touch `GPUDevice`**; IR/classification (→ ir); **never emit shader CODE — no `emitModule`/`emitExpr` call, no WGSL/GLSL string out (backend is a runtime decision); shader-dsl emits at runtime. `node-to-wgsl.ts` emit is test-only, see §5** |
 | **eval** | Mapbox/MapLibre expression evaluator; `reserved-keys` SoT | AST + props → `evaluate(...)` | side effects; helper→evaluator cycle |
 | **format** | `{expr:spec;locale}` label templates; `formatValue` (number/date/GIS DMS) | spec + values → `formatValue` | evaluate embedded expr (→ eval) |
 | **tiler** | clip/simplify/earcut/pack into 3 vertex layouts; **vertex-format + dequant mirror SoT** | GeoJSON + shared → `CompiledTileSet` | GPU dep; import runtime (math is intentionally bit-duplicated); earcut Mercator-only |
@@ -147,7 +159,8 @@ so it is acyclic); adding it retired the bulk of the duplication tracked in §5.
 | **c** | The shader optimizer (cse/autoVars/optimize) | **`@xgis/shader-dsl/core/passes/opt` owns it;** it runs inside backend emit, gated by the real-GPU parity test. | Optimization is IR→IR machinery, not application logic. |
 | **d** | The intrinsic registry (per-target spelling SoT) | **`@xgis/shader-dsl/core/intrinsics.ts` owns it;** a divergent builtin is ONE entry, never a hardcoded per-writer name. | Single spelling SoT prevents `call`/`select` drift. |
 | **e** | Shader **authoring** (the polygon/heatmap/raster/text graphs) | **`@xgis/runtime/engine/shaders/dsl` owns it.** | The framework is content-free; the graphs are X-GIS domain content and belong to the renderer that runs them. |
-| **f** | GPU compute-kernel generation for the tiler | **`@xgis/compiler/codegen` owns *which* kernels to emit; the WGSL body must be authored through the `@xgis/shader-dsl` IR**, not raw strings. | Kernel *selection* is a compile-time artifact decision (compiler); kernel *spelling* is shader emission (shader-dsl). |
+| **f** | GPU compute-kernel generation for the tiler | **`@xgis/compiler/codegen` owns *which* kernels (selection) and builds the `@xgis/shader-dsl` IR; it must NOT emit the WGSL/GLSL — it returns the IR, and `@xgis/shader-dsl` emits the backend shader at RUNTIME** when the device backend is known. | Kernel *selection* is a compile-time decision (compiler); kernel *spelling/emission* is shader-dsl's, and it is backend-specific so it cannot happen until the runtime picks WebGPU vs WebGL2. A compiler `emitModule()` call bakes a compile-time WGSL string and is a violation (§5). |
+| **i** | **Backend (WebGPU/WebGL2) selection** | **`@xgis/runtime` decides the backend at device-init (RUNTIME).** No compile-time artifact may be backend-specific; everything crossing the compile boundary is backend-NEUTRAL (shader-dsl IR, typed data). | One compiled style must drive *either* backend (and survive a device-loss fallback). Compile-time WGSL emission forecloses WebGL2 and breaks single-responsibility. |
 | **g** | Mapbox-expression / color parsing & CPU eval | **`@xgis/compiler` owns it: `eval/` (expressions), `tokens/` (color), `spec/` (semantics).** | Deterministic, GPU-free, style-semantic concerns — the compiler's core competency. `colorHexToRGBA` belongs to `tokens/`. |
 | **h** | Tiling / geometry (clip/simplify/tessellate/pack) | **`@xgis/compiler/tiler` owns the vertex-format byte-contract SoT + CPU dequant mirror; `@xgis/runtime` consumes `CompiledTile`.** | Tiling is GPU-free data compilation (compiler); runtime layouts must stay byte-identical, never fork. |
 
@@ -159,7 +172,8 @@ so it is acyclic); adding it retired the bulk of the duplication tracked in §5.
 |---|---|---|---|
 | `compiler/src/codegen/node-types.ts` | ~~hand-copy of shader-dsl `Expr`/`ShaderType`~~ — **RESOLVED**: now imports `Expr`/`ShaderType` from `@xgis/shader-dsl` (only the compiler-local `rawString` op is added) | **(a)** | done — the acyclic `compiler → @xgis/shader-dsl` dep is wired |
 | `compiler/src/codegen/node-to-wgsl.ts` | copy of `emitExpr` (drifted: array spacing; **hardcodes `call`/`select`** vs the intrinsic registry). Now **test-only** — the production renderer splice-point retired (PR 2e.B.2); survives as an emit-shape oracle | **(b) + (d)** | **delete + dedup**: assert against the package backend instead of the hand copy |
-| `compiler/src/codegen/compute-gen.ts` | ~~compute kernels built as **raw WGSL strings**~~ — **RESOLVED**: kernel bodies now authored through the shader-dsl IR (`emitTernaryComputeKernel` → `matchExpr` → WGSL switch), inheriting cse/autoVars; compiler keeps only *which* kernel | **(b) + (c) + (f)** | done — IR-routed |
+| `compiler/src/codegen/compute-gen.ts` | kernels are now IR-routed (good, retired the raw strings) **BUT `:417` calls `emitModule(...)` → a compile-time WGSL STRING.** Under ruling **i** (runtime backend), a compile-time WGSL emit is a violation: it forecloses WebGL2 and duplicates shader-dsl's emit. | **(b) + (f) + (i)** | **stop at IR**: `compute-gen` returns the shader-dsl `module(...)` IR (not `emitModule`'s string); the runtime emits WGSL **or** GLSL via shader-dsl once the backend is known. (Requires shader-dsl GLSL compute→fragment-GPGPU lowering — `glsl.ts:15-17` fail-close — for WebGL2 parity.) |
+| compiler emits `ShaderVariant` **strings** (`ir`/`codegen` → WGSL at compile time; charter §1/§3a) | the whole compile-time WGSL-emit surface (`exprToWGSL`, `emitModule` callers, ShaderVariant string outputs) | **(b) + (i)** | the compile artifact carries shader-dsl **IR**, not WGSL; runtime emits per backend. Largest piece of the SRP fix; sequence after shader-dsl exposes IR+emit through a stable surface. |
 | `runtime/.../shaders/dsl/compute-match.ts` | an **unwired IR twin** of the compiler's compute kernel (PoC, test-only) | **(f)** | **dedup + wire** (finish "Phase 2.5") **or delete** the unwired twin — do not keep both |
 | `colorHexToRGBA` (triplicated) | same color→RGBA helper copied in 3 places; the runtime copy already drifted (named colors → black) | **(g)** | **dedup**: single definition in compiler `tokens/`; others import it |
 | provenance comments citing `runtime/src/engine/shader-dsl/` | a **dead path** (the package was extracted to `/shader-dsl/`) | meta (extraction debt) | **repoint** the references; the "import would create a cycle" excuse is stale |
