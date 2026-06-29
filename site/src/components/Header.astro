@@ -1,6 +1,7 @@
 ---
 import Search from './Search.astro'
 import MobileNav from './MobileNav.astro'
+import LangToggle from './LangToggle.astro'
 
 const githubUrl = 'https://github.com/X-GIS/X-GIS'
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
@@ -69,6 +70,11 @@ const navCls = (key: string): string =>
          GitHub link. Cmd-K opens it from any page. -->
     <div class="hidden sm:block ml-5">
       <Search />
+    </div>
+
+    <!-- Language toggle (desktop) — en ↔ ko, mapping to the same page. -->
+    <div class="hidden sm:flex items-center ml-4">
+      <LangToggle variant="inline" />
     </div>
 
     <!-- Mobile drawer (the trigger button + the drawer markup) -->
