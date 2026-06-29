@@ -44,9 +44,9 @@ const playUrl = import.meta.env.DEV
       <Code lang="bash" code={`bun add @xgis/compiler @xgis/runtime
 # or npm / pnpm / yarn — works the same`} />
       <Callout type="note">
-        WebGPU is required. The runtime falls back to a Canvas&nbsp;2D
-        renderer when no adapter is available, but only the basic
-        GeoJSON path runs there — no PMTiles, no extruded buildings.
+        WebGPU is required — there is no Canvas&nbsp;2D fallback. When no
+        adapter is available the map fires your <code class="font-mono">onWebGPUUnavailable</code>
+        hook (or shows a default in-container notice) and does not render.
       </Callout>
     </section>
 

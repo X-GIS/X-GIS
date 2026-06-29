@@ -8,10 +8,40 @@ import expressiveCode from 'astro-expressive-code'
 import xgisGrammar from './src/lib/xgis-grammar.json' with { type: 'json' }
 
 const isCI = !!process.env.GITHUB_ACTIONS
+const BASE = (isCI ? '/X-GIS' : '/').replace(/\/$/, '')
+
+// Prefix the deploy base onto root-absolute internal links authored in
+// markdown content (blog posts write clean `/docs/...`). Astro's `base`
+// only rewrites links built from import.meta.env.BASE_URL in .astro/JSX;
+// plain markdown hrefs are emitted verbatim and 404 under the GitHub Pages
+// base. This walks the rendered HAST and prepends BASE to any site-root-
+// absolute href (skipping protocol-relative `//`, already-based, and the
+// local case where BASE is empty). Zero-dep tree-walk — no unist import.
+function rehypeBaseLinks() {
+  return (tree) => {
+    const walk = (node) => {
+      if (
+        node.tagName === 'a' &&
+        node.properties &&
+        typeof node.properties.href === 'string'
+      ) {
+        const href = node.properties.href
+        if (BASE && href.startsWith('/') && !href.startsWith('//') && !href.startsWith(BASE + '/')) {
+          node.properties.href = BASE + href
+        }
+      }
+      if (node.children) for (const c of node.children) walk(c)
+    }
+    walk(tree)
+  }
+}
 
 export default defineConfig({
   site: 'https://x-gis.github.io',
   base: isCI ? '/X-GIS' : '/',
+  markdown: {
+    rehypePlugins: [rehypeBaseLinks],
+  },
   // English is the default and stays at the root (/docs, /blog, …);
   // Korean is served under /ko (/ko/docs, /ko/blog, …). prefixDefaultLocale:
   // false keeps every existing en route unchanged — i18n is purely additive
