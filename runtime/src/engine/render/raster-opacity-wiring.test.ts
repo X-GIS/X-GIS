@@ -30,6 +30,7 @@ import { installWebGPUStub, type StubInstallation } from '../../__test-support__
 import { initGPU, type GPUContext } from '../gpu/gpu'
 import { RasterRenderer } from './raster-renderer'
 import { Camera } from '../projection/camera'
+import { rasterUniformBytes } from './raster-uniform-slots'
 
 let stub: StubInstallation
 
@@ -53,16 +54,17 @@ async function makeCtx(): Promise<GPUContext> {
 const W = 1024
 const H = 768
 
-// The raster GLOBAL uniform is a 160-byte buffer (constructor:
-// createBuffer({ size: 160, label: 'raster-uniforms' })). raster_params.x —
-// the opacity slot — is byte offset 80 → f32 slot 20. The per-tile pool
-// buffers are 48 B, so keying on size === 160 isolates the global write.
-const GLOBAL_UNIFORM_BYTES = 160
+// The raster GLOBAL uniform is the reflect-derived 'Uniforms' buffer
+// (constructor: createBuffer({ size, label: 'raster-uniforms' })).
+// raster_params.x — the opacity slot — is byte offset 80 → f32 slot 20. The
+// per-tile pool buffers are 48 B, so keying on the reflect-derived global byte
+// size isolates the global write.
 const RASTER_PARAMS_X = 20
 
 /** Set opacity, run render() once against the stub, and return
  *  raster_params.x from the captured 160-byte global-uniform write. */
 function capturedOpacity(ctx: GPUContext, opacity: number): number {
+  const GLOBAL_UNIFORM_BYTES = rasterUniformBytes()
   const renderer = new RasterRenderer(ctx)
   // render() returns early when urlTemplate is empty (no draw, no upload);
   // give it a template so the global uniform write at the top of the tile

@@ -21,10 +21,15 @@
 import { describe, expect, it } from 'vitest'
 import { tileKey } from '@xgis/compiler'
 import { VectorTileRenderer } from './vector-tile-renderer'
+import { polygonUniformBytes } from './polygon-uniform-slots'
 import type { GPUTile } from './vector-tile-renderer-types'
 
-const UNIFORM_SIZE = 256 // bytes — matches VTR's module-private UNIFORM_SLOT
-// (256; the per-tile pack writes up to light_dir_ecef at f32 60-62, #420)
+// Scratch uniform buffer size — DERIVED from reflect(buildPolygonModule()) (the
+// SAME source the production VTR sizes uniformDataBuf from), not a hardcoded byte
+// count. A hardcoded 256 silently truncated the #600 globe_eye slot (f32 64-67)
+// when the struct grew to 272; deriving it means a future field reflows the test
+// automatically instead of drifting (the std140-drift class #581 retired). Read
+// lazily inside makeVtr (post-setup configureProjections), never at module scope.
 
 // A cached tile with NO geometry: indexCount/segment counts all 0 so the
 // fill draw (`cached.indexCount > 0`) and stroke push are both skipped,
@@ -51,7 +56,7 @@ function emptyTile(): GPUTile {
 // so the FILL path resolves to a truthy baseGroup() and passes the guard.
 function makeVtr(lastZoom: number, cameraZoom: number) {
   const vtr = Object.create(VectorTileRenderer.prototype) as VectorTileRenderer
-  const buf = new ArrayBuffer(UNIFORM_SIZE)
+  const buf = new ArrayBuffer(polygonUniformBytes())
   const f32 = new Float32Array(buf)
   const u32 = new Uint32Array(buf)
   const layout = {} as GPUBindGroupLayout
@@ -80,6 +85,9 @@ function makeVtr(lastZoom: number, cameraZoom: number) {
   set('_lightPosition', [1.15, 210, 30])
   set('_lightIntensity', 0.5)
   set('_lightColor', [1, 1, 1])
+  // #600 — the per-tile packer reads globeEye (globe_eye slot). Object.create
+  // skips the class field initializer, so set the off-globe default here.
+  set('globeEye', [0, 0, 0, 0])
   set('lineRenderer', null)
   set('_linePatternActiveForShow', false)
   set('_drawStats', { hasDrawn: () => false, markDrawn: () => {} })

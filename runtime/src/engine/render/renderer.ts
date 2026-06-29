@@ -14,6 +14,7 @@ import { UniformRing } from './uniform-ring'
 import { GraticuleRenderer } from './graticule-renderer'
 import { PipelineFactory } from './pipeline-factory'
 import { polygonUniformBytes, polygonUniformStride, polygonUniformSlots } from './polygon-uniform-slots'
+import { globeEyeUniform } from './globe-eye-uniform'
 
 // Re-export the extracted types so this module's public surface stays
 // byte-identical (external consumers import these from './renderer').
@@ -879,6 +880,15 @@ export class MapRenderer {
       // light_dir_ecef 240-255 too — this fill/line path never extrudes);
       // total struct size is 256 bytes (UNIFORM_SIZE constant).
       new Float32Array(uniformData, S.zoom * 4, 4).set([camera.zoom, 0, 0, 0])
+      // #600 globe_eye — (normalize(eye).xyz, EARTH_R/|eye|) for the globe(7)
+      // eye-horizon hemisphere cull (needs_backface_cull). frame.eye is the
+      // absolute sphere-ECEF camera position on the globe/ECEF branch (undefined
+      // on flat → all-zero; the flat/disc cull arms ignore it). Without this
+      // write the cull fell back to the pitch-invariant centre-hemisphere model,
+      // which keeps the occluded near-limb band — far-side non-tiled GeoJSON
+      // lines/fills leaked through as backface (뒷면) render on the globe.
+      const ge = globeEyeUniform(frame.eye)
+      new Float32Array(uniformData, S.globe_eye * 4, 4).set([ge[0], ge[1], ge[2], ge[3]])
       const slotOffset = this.allocUniformSlot()
       this.stageUniformSlot(slotOffset, uniformData)
 
@@ -925,6 +935,7 @@ export class MapRenderer {
       projCenterLon,
       projCenterLat,
       zoom: camera.zoom,
+      eye: frame.eye, // #600 globe_eye for the graticule's globe(7) cull
     })
 
     // pass.end() and submit() are handled by caller

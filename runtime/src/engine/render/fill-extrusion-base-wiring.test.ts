@@ -26,8 +26,7 @@ import { installWebGPUStub, type StubInstallation } from '../../__test-support__
 import { initGPU } from '../gpu/gpu'
 import { VectorTileRenderer } from './vector-tile-renderer'
 import { UniformRing } from './uniform-ring'
-
-const UNIFORM_SLOT = 256
+import { polygonUniformStride } from './polygon-uniform-slots'
 
 let stub: StubInstallation
 let stubCtx: Awaited<ReturnType<typeof initGPU>>
@@ -51,6 +50,8 @@ async function makeCtx(): Promise<Awaited<ReturnType<typeof initGPU>>> {
 }
 
 function makeRecordingRing(): { ring: UniformRing; staging: () => Float32Array } {
+  // Stride derived from reflect() (lazy: safe here, after configureProjections).
+  const UNIFORM_SLOT = polygonUniformStride()
   const device = {
     createBuffer: () => ({ destroy() {} } as unknown as GPUBuffer),
     queue: { writeBuffer: () => {} },

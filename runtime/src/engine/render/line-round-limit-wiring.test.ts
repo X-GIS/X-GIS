@@ -30,13 +30,13 @@ import { describe, expect, it } from 'vitest'
   UNIFORM: 1, COPY_DST: 2, STORAGE: 4, VERTEX: 8, INDEX: 16,
 }
 import { LineRenderer } from './line-renderer'
+import { lineLayerUniformStride } from './line-uniform-slots'
 import type { GPUContext } from '../gpu/gpu'
 
 // f32 slot 49 (byte 196) of the 256-byte line layer slot is line-round-limit.
 // See line-pattern.ts:293 (`buf[49] = roundLimit`) and the line.ts WGSL
 // `round_limit` field comment.
 const ROUND_LIMIT_SLOT = 49
-const LAYER_SLOT_BYTES = 256
 
 interface Flush {
   /** ArrayBuffer staged for the layerRing flush. */
@@ -102,8 +102,10 @@ function capturedRoundLimit(roundLimit: number): number {
   expect(flushes, 'endFrame() should flush exactly one layer-ring write').toHaveLength(1)
   const f = flushes[0]
   // First (and only) slot starts at flush offset 0 within the staging buffer.
+  // Slot stride DERIVED from reflect (lineLayerUniformStride, the SAME source the
+  // LineRenderer ring uses) — not a hardcoded 256 that drifts when LineLayer grows.
   const slotByteBase = f.dataOffset
-  const f32 = new Float32Array(f.buffer, slotByteBase, LAYER_SLOT_BYTES / 4)
+  const f32 = new Float32Array(f.buffer, slotByteBase, lineLayerUniformStride() / 4)
   return f32[ROUND_LIMIT_SLOT]
 }
 
