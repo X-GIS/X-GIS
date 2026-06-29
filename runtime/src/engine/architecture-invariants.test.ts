@@ -151,7 +151,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // centre-hemisphere model and leaked far-side line/fill 뒷면. Restores the missing
   // write: the globeEye frame field + its doc, the render() cache, the globeEyeUniform
   // import, and the per-tile globe_eye pack. Decomposition stays a tracked follow-up.
-  'runtime/src/engine/render/vector-tile-renderer.ts': 4115,
+  // Bumped 4115→4126 (mobile-perf diag): perf-marks sub-marks that nest inside the
+  // opaque pass to localize the high-pitch CPU burst — `vtr.upload` around the three
+  // mid-render doUploadTile fallback calls + `vtr.evict` around the two forceEvictBytes
+  // pairs (+ the perf-marks import). Gated OFF by default (markStart/End early-return),
+  // so render is byte-identical; the +11 is diagnostic plumbing. Reclaim on decomposition.
+  'runtime/src/engine/render/vector-tile-renderer.ts': 4126,
   // Bumped 3361→3393 for the destroy()-completeness fix: cancelling the
   // EventDispatcher move-rAF + the pending-flush rAF, clearing _pendingPatches,
   // and removing the run()-installed window globals (__xgisReady/snapshot/
