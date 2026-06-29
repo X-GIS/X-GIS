@@ -879,6 +879,14 @@ async function runSource(source: string, label: string) {
       const { installPerfOverlay } = await import('./perf-overlay')
       installPerfOverlay(currentMap)
     }
+    // ?debug=overdraw — on-screen overdraw capture: one tap measures pitch 0°
+    // and 70°, inverts the heatmap colormap to real overdraw COUNTS, and prints
+    // copyable stats (mean/p95/max/distribution). The runtime already turns the
+    // scene into the heatmap for this flag; this just adds the capture button.
+    if (new URL(window.location.href).searchParams.get('debug') === 'overdraw') {
+      const { installOverdrawCapture } = await import('./overdraw-capture')
+      installOverdrawCapture(currentMap)
+    }
     // Expose tileKeyUnpack for e2e diagnostic — lets tests decode
     // packed tileKeys back to (z, x, y) without re-importing the
     // helper through Playwright's evaluate-evaluate boundary.
