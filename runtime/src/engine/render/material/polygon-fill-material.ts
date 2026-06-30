@@ -29,9 +29,12 @@ export interface FillRhiState {
    *  Material twin + variant. Checked before the default `pipes` above. */
   perStyle: Map<GPURenderPipeline, { mat: Material; variant: number }> | null
   /** Opaque 3D-extruded fill (default shader): the extrude Material + the two native pipelines it
-   *  twins. Routed on the bindZBuffer path (slot-1 z-buffer). null = extrude stays raw (OIT +
-   *  per-style extrude are not yet routed). */
-  extrude: { mat: Material; write: GPURenderPipeline; test: GPURenderPipeline } | null
+   *  twins. Routed on the bindZBuffer path. The *NoPick fields twin the pointer-events:none extrude
+   *  pipelines (only built when picking is on; null otherwise). null = extrude stays raw. */
+  extrude: {
+    mat: Material; write: GPURenderPipeline; test: GPURenderPipeline
+    matNoPick?: Material; writeNoPick?: GPURenderPipeline; testNoPick?: GPURenderPipeline
+  } | null
 }
 
 export interface FillMaterialInputs {
@@ -42,6 +45,9 @@ export interface FillMaterialInputs {
   bindGroupLayout: GPUBindGroupLayout
   vertexLayout: GPUVertexBufferLayout
   pickEnabled: boolean
+  /** Pick-attachment writeMask (default 0xf). The `pointer-events:none` no-pick twins pass 0 so the
+   *  layer's pick id never lands in the pick texture (picks fall through). */
+  pickWriteMask?: number
 }
 
 const toMatVB = (l: GPUVertexBufferLayout) => ({
@@ -57,7 +63,7 @@ export function buildFlatFillMaterials(inp: FillMaterialInputs): { flat: Materia
   const groups = [wrapWebGpuBindGroupLayout(inp.bindGroupLayout)]
   const vertexBuffers = [toMatVB(inp.vertexLayout)]
   const colorTargets = inp.pickEnabled
-    ? [{ format: fmt, blend: 'alpha' as const }, { format: 'rg32uint' as const, writeMask: 0xf }]
+    ? [{ format: fmt, blend: 'alpha' as const }, { format: 'rg32uint' as const, writeMask: inp.pickWriteMask ?? 0xf }]
     : [{ format: fmt, blend: 'alpha' as const }]
   const base = { shader: inp.shader, vsEntry: 'vs_main_ecef', fsEntry: 'fs_fill', format: fmt, sampleCount: inp.sampleCount, groups, vertexBuffers, colorTargets }
   const flat = new Material(rhi, {
@@ -88,7 +94,7 @@ export function buildExtrudeMaterial(inp: FillMaterialInputs): Material {
     groups: [wrapWebGpuBindGroupLayout(inp.bindGroupLayout)],
     vertexBuffers: [toMatVB(inp.vertexLayout)],
     colorTargets: inp.pickEnabled
-      ? [{ format: fmt, blend: 'alpha' }, { format: 'rg32uint', writeMask: 0xf }]
+      ? [{ format: fmt, blend: 'alpha' }, { format: 'rg32uint', writeMask: inp.pickWriteMask ?? 0xf }]
       : [{ format: fmt, blend: 'alpha' }],
     cullMode: 'none',
     variants: [
@@ -129,8 +135,10 @@ export function recordFillDraw(
       // POLYGON_EXTRUDED vertex (slot 0) — the slot-1 z-buffer is unused here (the raw path binds it
       // null), so no vertex1. (OIT + per-style extrude are not in `extrude` yet → raw draw below.)
       const e = fillRhi.extrude
-      variant = pipeline === e.write ? 0 : pipeline === e.test ? 1 : -1
-      if (variant >= 0) mat = e.mat
+      if (pipeline === e.write) { mat = e.mat; variant = 0 }
+      else if (pipeline === e.test) { mat = e.mat; variant = 1 }
+      else if (e.matNoPick && pipeline === e.writeNoPick) { mat = e.matNoPick; variant = 0 }
+      else if (e.matNoPick && pipeline === e.testNoPick) { mat = e.matNoPick; variant = 1 }
     }
     if (mat && variant >= 0) {
       const g = globalThis as { __xgisVtrFillRhiDraws?: number }; g.__xgisVtrFillRhiDraws = (g.__xgisVtrFillRhiDraws ?? 0) + 1

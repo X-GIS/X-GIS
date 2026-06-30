@@ -154,6 +154,9 @@ export class PipelineFactory {
   private _fillPerStyle = new Map<GPURenderPipeline, { mat: Material; variant: number }>()
   /** Opaque 3D-extrude fill Material (default shader; the base extrude pipelines, not per-variant). */
   private _fillExtrudeMaterial: Material | null = null
+  /** pointer-events:none (no-pick, pick writeMask 0) twin of _fillExtrudeMaterial — only built when
+   *  picking is on (off → the no-pick pipelines alias the pickable ones, already covered). */
+  private _fillExtrudeMaterialNoPick: Material | null = null
   fillRhiState(): FillRhiState | null {
     if (!this._fillMaterials) return null
     return {
@@ -161,7 +164,12 @@ export class PipelineFactory {
       pipes: { write: this.fillPipeline, test: this.fillPipelineFallback, groundWrite: this.fillPipelineGround, groundTest: this.fillPipelineGroundFallback },
       perStyle: this._fillPerStyle,
       extrude: this._fillExtrudeMaterial
-        ? { mat: this._fillExtrudeMaterial, write: this.fillPipelineExtruded, test: this.fillPipelineExtrudedFallback }
+        ? {
+            mat: this._fillExtrudeMaterial, write: this.fillPipelineExtruded, test: this.fillPipelineExtrudedFallback,
+            ...(this._fillExtrudeMaterialNoPick
+              ? { matNoPick: this._fillExtrudeMaterialNoPick, writeNoPick: this.fillPipelineExtrudedNoPick, testNoPick: this.fillPipelineExtrudedFallbackNoPick }
+              : {}),
+          }
         : null,
     }
   }
@@ -894,6 +902,25 @@ export class PipelineFactory {
       this.fillPipelineGroundFallbackNoPick = this.fillPipelineGroundFallback
       this.fillPipelineExtrudedFallbackNoPick = this.fillPipelineExtrudedFallback
       this.linePipelineFallbackNoPick = this.linePipelineFallback
+    }
+
+    // P1.6 — pointer-events:none no-pick fill Material twins (pick writeMask 0). Only when picking is
+    // ON + the flag is on; with picking off the no-pick pipelines alias the pickable set (already
+    // routed via _fillMaterials). The non-extrude no-pick pipelines join _fillPerStyle (checked first
+    // by recordFillDraw); the extrude no-pick rides the extrude slot's *NoPick fields.
+    if (pickEnabled && (globalThis as { __xgisVtrFillViaRhi?: boolean }).__xgisVtrFillViaRhi === true) {
+      const np = buildFlatFillMaterials({
+        device, shader: pickShader, format, sampleCount: getSampleCount(),
+        bindGroupLayout: this.bindGroupLayout, vertexLayout: vertexBufferLayout, pickEnabled, pickWriteMask: 0,
+      })
+      this._fillPerStyle.set(this.fillPipelineNoPick, { mat: np.flat, variant: 0 })
+      this._fillPerStyle.set(this.fillPipelineFallbackNoPick, { mat: np.flat, variant: 1 })
+      this._fillPerStyle.set(this.fillPipelineGroundNoPick, { mat: np.ground, variant: 0 })
+      this._fillPerStyle.set(this.fillPipelineGroundFallbackNoPick, { mat: np.ground, variant: 1 })
+      this._fillExtrudeMaterialNoPick = buildExtrudeMaterial({
+        device, shader: pickShader, format, sampleCount: getSampleCount(),
+        bindGroupLayout: this.bindGroupLayout, vertexLayout: extrudedVertexBufferLayout, pickEnabled, pickWriteMask: 0,
+      })
     }
 
     // OIT compose — full-screen quad samples accum + revealage and
