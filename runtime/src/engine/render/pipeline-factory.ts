@@ -42,6 +42,8 @@ import { POLYGON_FILL_FORMAT, POLYGON_EXTRUDED_FORMAT } from '@xgis/compiler'
 import { toVertexBufferLayout } from './vertex-buffer-layout'
 import { LINE_FORMAT } from './line-vertex-format'
 import { DEBUG_OVERDRAW } from '../debug-flags'
+import { Material } from './material/material'
+import { WebGpuDevice, wrapWebGpuBindGroupLayout } from './rhi/rhi-webgpu'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
 import { emitOverdrawComposeWgsl } from '../shaders/dsl/overdraw-compose'
 import { emitHeatmapBlurWgsl } from '../shaders/dsl/heatmap-blur'
@@ -147,6 +149,11 @@ export class PipelineFactory {
   private shaderCache = new Map<string, CachedPipeline>()
 
   fillPipeline!: GPURenderPipeline
+  /** P1.6 — the RHI Material draw path for the polygon flat-fill (default shader). Variant 0 =
+   *  STENCIL_WRITE (the `fill` pipeline), 1 = STENCIL_TEST (the `fillFallback`). Consumed by
+   *  VectorTileRenderer.recordTileFill via executeItems when __xgisVtrFillViaRhi is on. */
+  private _fillFlatMaterial?: Material
+  get fillFlatMaterial(): Material | undefined { return this._fillFlatMaterial }
   /** Ground-layer fill — identical to fillPipeline except depth
    *  test/write are off. Selected at draw time for any layer whose
    *  `extrude.kind === 'none'` so coplanar fills resolve via plain
@@ -762,6 +769,32 @@ export class PipelineFactory {
     this.fillPipelinePatternGroundFallback = pickable.fillPatternGroundFallback
     this.fillPipelinePatternExtruded = pickable.fillPatternExtruded
     this.fillPipelinePatternExtrudedFallback = pickable.fillPatternExtrudedFallback
+
+    // P1.6 — build the RHI Material twin of the flat-fill pipelines (variant 0 = STENCIL_WRITE / the
+    // `fill` pipeline, 1 = STENCIL_TEST / `fillFallback`). Same default shader (pickShader), vertex
+    // layout, bind group, and MSAA as the native pair above; the pick target writeMask is 0xf because
+    // the polygon fragment writes the feature id (unlike raster/line, which write 0). Behind
+    // __xgisVtrFillViaRhi (default off) so production builds no extra pipelines until the VTR fill flip.
+    if ((globalThis as { __xgisVtrFillViaRhi?: boolean }).__xgisVtrFillViaRhi === true) {
+      const toMatVB = (l: GPUVertexBufferLayout) => ({
+        stride: Number(l.arrayStride),
+        attributes: Array.from(l.attributes).map((a) => ({ location: a.shaderLocation, offset: a.offset, format: a.format as string })),
+      })
+      this._fillFlatMaterial = new Material(new WebGpuDevice(device), {
+        shader: pickShader, vsEntry: 'vs_main_ecef', fsEntry: 'fs_fill',
+        format: format as 'bgra8unorm', sampleCount: getSampleCount(),
+        groups: [wrapWebGpuBindGroupLayout(this.bindGroupLayout)],
+        vertexBuffers: [toMatVB(vertexBufferLayout)],
+        colorTargets: pickEnabled
+          ? [{ format: format as 'bgra8unorm', blend: 'alpha' }, { format: 'rg32uint', writeMask: 0xf }]
+          : [{ format: format as 'bgra8unorm', blend: 'alpha' }],
+        cullMode: 'none',
+        variants: [
+          { depthCompare: 'less-equal', depthWrite: true, stencil: { compare: 'always', passOp: 'replace', writeMask: 0xff, readMask: 0xff }, label: 'fill-flat-write-rhi' },
+          { depthCompare: 'less-equal', depthWrite: true, stencil: { compare: 'equal', passOp: 'keep', writeMask: 0x00, readMask: 0xff }, label: 'fill-flat-test-rhi' },
+        ],
+      })
+    }
 
     // `?debug=overdraw` — fill + line debug mirrors. Same VS as the
     // opaque pipelines so the rasterizer produces matching fragment
