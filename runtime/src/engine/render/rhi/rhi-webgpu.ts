@@ -254,7 +254,7 @@ export class WebGpuDevice implements RhiDevice {
         targets: desc.colorTargets.map((t): GPUColorTargetState => ({
           format: t.format as GPUTextureFormat,
           blend: t.blend === 'alpha' ? BLEND_ALPHA : t.blend === 'premult' ? BLEND_ALPHA_PREMULT : t.blend === 'additive' ? BLEND_ADDITIVE : t.blend === 'max' ? BLEND_MAX : undefined,
-          writeMask: t.format === 'rg32uint' ? 0 : 0xf, // 0xf = GPUColorWrite.ALL (literal — the WebGPU global is undefined under node test envs)
+          writeMask: t.writeMask ?? (t.format === 'rg32uint' ? 0 : 0xf), // 0xf = GPUColorWrite.ALL (literal — the WebGPU global is undefined under node test envs); pickable fills override to 0xf
         })),
       },
       depthStencil: desc.depthStencil ? {

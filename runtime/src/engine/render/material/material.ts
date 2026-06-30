@@ -50,7 +50,7 @@ export interface MaterialDesc {
   /** Per-group bind layout: entries to CREATE a layout, OR an existing layout to
    *  REUSE (line shares the VTR tile bind-group layout). */
   groups: Array<RhiBindLayoutEntry[] | RhiBindGroupLayout>
-  colorTargets: ReadonlyArray<{ format: RhiTextureFormat; blend?: 'alpha' | 'premult' | 'additive' | 'max' | 'none' }>
+  colorTargets: ReadonlyArray<{ format: RhiTextureFormat; blend?: 'alpha' | 'premult' | 'additive' | 'max' | 'none'; writeMask?: number }>
   depthFormat?: RhiTextureFormat
   vertexBuffers?: ReadonlyArray<{ stride: number; attributes: ReadonlyArray<{ location: number; offset: number; format: string }> }>
   /** Triangle face culling (material-level — the VTR ground-fill Material culls 'back'). Default 'none'. */

@@ -93,7 +93,11 @@ export interface RhiPipelineDesc {
   vsCode?: string
   fsCode?: string
   bindGroupLayouts: RhiBindGroupLayout[]
-  colorTargets: ReadonlyArray<{ format: RhiTextureFormat; blend?: 'alpha' | 'premult' | 'additive' | 'max' | 'none' }>
+  /** `writeMask` (GPUColorWrite bitmask; 0xf = ALL) defaults per format: rg32uint pick targets
+   *  default 0 (the raster/line non-pickable pattern — they write vec2u(0,0)), every other target
+   *  defaults 0xf. A PICKABLE primitive (VTR polygon fill writes the feature id) sets the pick
+   *  target's writeMask to 0xf explicitly to override the default. */
+  colorTargets: ReadonlyArray<{ format: RhiTextureFormat; blend?: 'alpha' | 'premult' | 'additive' | 'max' | 'none'; writeMask?: number }>
   depthStencil?: {
     format: RhiTextureFormat; write: boolean; compare: 'always' | 'less' | 'less-equal'
     /** Polygon-offset depth bias (point markers pull toward camera). */
