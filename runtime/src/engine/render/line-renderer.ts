@@ -444,10 +444,10 @@ export class LineRenderer {
       this.compositeSlot++
     }
     this.device.queue.writeBuffer(this.compositeRing, off, new Float32Array([opacity, 0, 0, 0]))
-    // RHI seam (P1.5, behind __xgisLineViaRhi like the draw): only the composite DRAW routes through
-    // the CompositeDraper; the offscreen RT/pass origination stays raw (deferred to P2). WebGPU-only
-    // (the offscreen translucent path fail-closes on WebGl2).
-    if ((globalThis as { __xgisLineViaRhi?: boolean }).__xgisLineViaRhi === true && this.offscreenView) {
+    // RHI seam (DEFAULT ON, same opt-out as the draw): the composite DRAW routes through the
+    // CompositeDraper; the raw compositePipeline remains the explicit-false fallback. Offscreen
+    // RT/pass origination stays raw (P2). WebGPU-only (the offscreen path fail-closes on WebGl2).
+    if ((globalThis as { __xgisLineViaRhi?: boolean }).__xgisLineViaRhi !== false && this.offscreenView) {
       this.ensureCompositeDraper().draw(wrapWebGpuPass(mainPass), this.offscreenView, this.compositeRing, off)
     } else {
       mainPass.setPipeline(this.compositePipeline)
@@ -646,15 +646,15 @@ export class LineRenderer {
     // don't contribute to the v1 heatmap. Phase 2 adds an additive
     // r16float variant so line overdraw counts too.
     if (DEBUG_OVERDRAW) return
-    // RHI seam: ALL line draws route through the LineDraper now — the opaque main pass, the
-    // translucent offscreen MAX-blend pass, the pick MRT pass, AND the render-BUNDLE path (the
-    // wrapped pass accepts a GPURenderBundleEncoder; setStencilReference/end no-op there). mode
-    // 'opaque' / 'max' / 'pick' (lines write pick=vec2u(0,0)). The offscreen RT/pass ORIGINATION
-    // stays raw (deferred to P2); only the draw is wrapped.
-    const lineRhi = (globalThis as { __xgisLineViaRhi?: boolean }).__xgisLineViaRhi === true
+    // RHI seam (DEFAULT ON): every line draw routes through the LineDraper Material seam — the
+    // opaque main pass, the translucent offscreen MAX-blend pass, the pick MRT pass, AND the
+    // render-BUNDLE path (the wrapped pass accepts a GPURenderBundleEncoder; setStencilReference/end
+    // no-op there). mode 'opaque' / 'max' / 'pick' (lines write pick=vec2u(0,0)). The raw pipelines
+    // below remain ONLY as an explicit opt-out (__xgisLineViaRhi === false, e.g. the parity specs);
+    // they retire with the §4 seam + VTR. Offscreen RT/pass ORIGINATION stays raw (deferred to P2).
+    const lineRhi = (globalThis as { __xgisLineViaRhi?: boolean }).__xgisLineViaRhi !== false
     if (lineRhi) {
       this.ensureLineDraper()
-      if (!this._lineRhiLogged) { this._lineRhiLogged = true; console.warn(`[LINERHI] segment draw via RHI seam (segments=${segmentCount})`) }
       this._lineDraper!.draw(wrapWebGpuPass(pass), {
         tileBG: tileBindGroup, layerBG: layerBindGroup, tileOffset, layerOffset,
         pattern: patternActive, segmentCount,
@@ -668,7 +668,6 @@ export class LineRenderer {
   }
 
   private _lineDraper?: LineDraper
-  private _lineRhiLogged = false
   private ensureLineDraper(): void {
     if (this._lineDraper) return
     this._lineDraper = new LineDraper(new WebGpuDevice(this.device), this.format, getSampleCount(), this.tileBindGroupLayout, this.layerBindGroupLayout)
