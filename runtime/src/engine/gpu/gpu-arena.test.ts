@@ -11,31 +11,39 @@
 
 import { describe, it, expect } from 'vitest'
 import { GPUArena, type GPUArenaDevice } from './gpu-arena'
+import type { RhiBuffer } from '../render/rhi/rhi'
 
 interface MockBuffer {
   size: number
-  usage: number
+  usage: string
+  copySrc?: boolean
   label?: string
   destroyed: boolean
   destroy(): void
 }
 
+// The arena now drives the RHI device subset: createBuffer({desc}) → RhiBuffer
+// ({native} shape, the same WebGpuDevice wrap the arena unwraps) + destroyBuffer.
+const unwrap = (h: unknown): MockBuffer => (h as { native: MockBuffer }).native
+
 function mockDevice(): GPUArenaDevice {
   return {
-    createBuffer(desc: GPUBufferDescriptor): GPUBuffer {
+    createBuffer(desc): RhiBuffer {
       const b: MockBuffer = {
         size: desc.size,
         usage: desc.usage,
+        copySrc: desc.copySrc,
         label: desc.label,
         destroyed: false,
         destroy() { b.destroyed = true },
       }
-      return b as unknown as GPUBuffer
+      return { native: b } as unknown as RhiBuffer
     },
+    destroyBuffer(h) { unwrap(h).destroy() },
   }
 }
 
-const VERTEX_USAGE = 0x20 | 0x8  // GPUBufferUsage.VERTEX | COPY_DST
+const VERTEX_USAGE = 'vertex'  // RhiBufferUsage role (was GPUBufferUsage.VERTEX | COPY_DST)
 
 describe('GPUArena — construction', () => {
   it('allocates the underlying GPU buffer at requested capacity', () => {
@@ -450,11 +458,20 @@ interface RecordedCopy {
 function recordingEncoder() {
   const copies: RecordedCopy[] = []
   const enc = {
+    // The arena passes RHI handles ({native} wraps); unwrap to the underlying
+    // MockBuffer so the source/destination identity assertions compare against
+    // `a.buffer` (which the arena exposes already-unwrapped).
     copyBufferToBuffer(
-      source: GPUBuffer, sourceOffset: number,
-      destination: GPUBuffer, destinationOffset: number, size: number,
+      source: RhiBuffer, sourceOffset: number,
+      destination: RhiBuffer, destinationOffset: number, size: number,
     ): void {
-      copies.push({ source, sourceOffset, destination, destinationOffset, size })
+      copies.push({
+        source: unwrap(source) as unknown as GPUBuffer,
+        sourceOffset,
+        destination: unwrap(destination) as unknown as GPUBuffer,
+        destinationOffset,
+        size,
+      })
     },
   }
   return { enc, copies }

@@ -37,6 +37,7 @@
 // caller-supplied predicate so the store never references the queue.
 
 import { GPUArena } from '../gpu/gpu-arena'
+import { WebGpuDevice } from './rhi/rhi-webgpu'
 import { getMaxGpuTiles, ARENA_HIGH_WATER, ARENA_LOW_WATER } from './vector-tile-renderer-helpers'
 import type { GPUTile } from './vector-tile-renderer-types'
 
@@ -55,6 +56,16 @@ function align4(bytes: number): number {
 
 export class GpuTileStore {
   private device: GPUDevice
+  /** The RHI device (same backend, wrapping `device`) the ARENA cluster routes
+   *  through: the poly arenas create their buffers via `rhi.createBuffer`
+   *  ({usage:'vertex'|'index', copySrc:true}) and the compaction/grow relocation
+   *  records through `rhi.createCommandEncoder` → `copyBufferToBuffer`. `device`
+   *  is retained for the pooled per-tile line/index/outline buffers
+   *  (`acquireBuffer`) + the retire-queue + buffer-pool destroys, which stay raw
+   *  GPUBuffer: their draw consumers (the raw VTR fill draw, the SDF segment /
+   *  feature bind groups) are not yet RHI, so per the §4 coupling rule those
+   *  buffers retire with the VTR/line cluster, not this unit. */
+  private rhi: WebGpuDevice
 
   /** GPU tile cache keyed by `${tileKey}|${sourceLayer}`. The `sourceLayer`
    *  segment is the MVT layer slot — '' for single-layer sources
@@ -199,12 +210,14 @@ export class GpuTileStore {
 
   private getOrCreatePolyVertexArena(): GPUArena {
     if (this.polyVertexArena === null) {
-      this.polyVertexArena = new GPUArena(this.device, {
+      this.polyVertexArena = new GPUArena(this.rhi, {
         capacityBytes: GpuTileStore.POLY_VERTEX_ARENA_CAPACITY,
-        // COPY_SRC is required for compaction's copyBufferToBuffer (it
-        // reads the old arena buffer as the copy SOURCE when relocating the
-        // live set into the freshly-packed destination buffer).
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+        usage: 'vertex',
+        // copySrc is required for compaction's copyBufferToBuffer (it reads the
+        // old arena buffer as the copy SOURCE when relocating the live set into
+        // the freshly-packed destination buffer) → the RHI ORs in COPY_SRC, so
+        // the final usage is byte-identical to the prior raw VERTEX|COPY_DST|COPY_SRC.
+        copySrc: true,
         label: 'poly-vertex-arena',
       })
     }
@@ -224,10 +237,11 @@ export class GpuTileStore {
 
   private getOrCreatePolyIndexArena(): GPUArena {
     if (this.polyIndexArena === null) {
-      this.polyIndexArena = new GPUArena(this.device, {
+      this.polyIndexArena = new GPUArena(this.rhi, {
         capacityBytes: GpuTileStore.POLY_INDEX_ARENA_CAPACITY,
-        // COPY_SRC required for compaction (see poly-vertex-arena above).
-        usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+        usage: 'index',
+        // copySrc required for compaction (see poly-vertex-arena above).
+        copySrc: true,
         label: 'poly-index-arena',
       })
     }
@@ -241,6 +255,7 @@ export class GpuTileStore {
 
   constructor(device: GPUDevice) {
     this.device = device
+    this.rhi = new WebGpuDevice(device)
   }
 
   // ── Cache accessors (cheap monomorphic field-deref getters for the
@@ -816,11 +831,13 @@ export class GpuTileStore {
       : null
 
     // One encoder records ALL copies for both arenas; a single submit makes
-    // the whole relocation atomic w.r.t. the GPU timeline.
-    const encoder = this.device.createCommandEncoder({ label: 'arena-compact-grow' })
+    // the whole relocation atomic w.r.t. the GPU timeline. Through the RHI seam:
+    // createCommandEncoder + copyBufferToBuffer (in arena.compact), and finish()
+    // does the queue.submit (RhiCommandEncoder.finish = queue.submit(enc.finish())).
+    const encoder = this.rhi.createCommandEncoder('arena-compact-grow')
     const vResult = vArena && vReloc ? vArena.compact(vReloc, encoder, vTarget) : null
     const iResult = iArena && iReloc ? iArena.compact(iReloc, encoder, iTarget) : null
-    this.device.queue.submit([encoder.finish()])
+    encoder.finish()
 
     // Rewrite tile records to the new offsets + new buffer reference. This
     // is the atomic offset rewrite: it runs synchronously with no await, so

@@ -30,6 +30,12 @@ export interface RhiBufferDesc {
   usage: RhiBufferUsage
   /** Buffer is written after creation via writeBuffer (the common case). */
   writable?: boolean
+  /** Buffer can be read as the SOURCE of a `copyBufferToBuffer` (the GPUArena
+   *  compaction/grow ping-pong reads the old arena buffer as the copy source).
+   *  WebGPU ORs in `GPUBufferUsage.COPY_SRC`; WebGL2 ignores it (any GL buffer is
+   *  a valid `copyBufferSubData` read source). Additive + default false: an
+   *  un-set buffer's usage flags are byte-identical to before. */
+  copySrc?: boolean
   label?: string
 }
 
@@ -268,9 +274,16 @@ export interface RhiCommandEncoder {
    *  pass, then call `pass.end()` (mirroring the raw `subPass.end()` every
    *  pass body already calls). */
   beginRenderPass(desc: RhiRenderPassDesc): RhiRenderPass
+  /** GPU→GPU buffer copy of `size` bytes from `src[srcOffset]` to `dst[dstOffset]`
+   *  (the GPUArena defrag/grow ping-pong: relocate the live set from the old arena
+   *  buffer into a freshly-packed one). WebGPU maps 1:1 to
+   *  `GPUCommandEncoder.copyBufferToBuffer`; WebGL2 binds the two buffers to
+   *  COPY_READ/COPY_WRITE and issues `gl.copyBufferSubData` immediately. `size`
+   *  + the offsets must be 4-byte aligned (WebGPU requirement; the arena aligns). */
+  copyBufferToBuffer(src: RhiBuffer, srcOffset: number, dst: RhiBuffer, dstOffset: number, size: number): void
   /** Finish recording + submit this encoder's work (WebGPU: queue.submit of
    *  encoder.finish()). One encoder → one submit, matching the loop's single
-   *  per-frame submit. */
+   *  per-frame submit. WebGL2 is immediate-mode (copies already executed) → no-op. */
   finish(): void
 }
 
@@ -316,10 +329,13 @@ export interface RhiDevice {
   // (render-loop.ts:216/501). To originate the passes/ offscreen + MRT topology
   // through the RHI the encoder must come from here. OPTIONAL + additive +
   // INERT: `WebGpuDevice` returns a wrapper over a native `GPUCommandEncoder`
-  // (begin-pass via the byte-identical rhiRenderPassToGpu mapper); `WebGl2Device`
-  // FAIL-CLOSES (throws) — MRT + offscreen FBOs are the WebGL2 full-frame phase.
-  // The live loop does NOT call this yet; it is the seam P1 adopts.
+  // (begin-pass via the byte-identical rhiRenderPassToGpu mapper). `WebGl2Device`
+  // returns a COPY-SCOPED encoder: `copyBufferToBuffer` works (gl.copyBufferSubData)
+  // — the GPUArena compaction/grow path needs it — but `beginRenderPass` still
+  // FAIL-CLOSES (MRT + offscreen FBOs are the WebGL2 full-frame phase).
 
-  /** Create a command encoder for offscreen / MRT passes. WebGL2 throws. */
-  createCommandEncoder?(): RhiCommandEncoder
+  /** Create a command encoder for offscreen / MRT passes + buffer copies. The
+   *  optional `label` rides the native `GPUCommandEncoder` (DevTools attribution,
+   *  WebGPU). WebGL2 returns a copy-only encoder (beginRenderPass throws). */
+  createCommandEncoder?(label?: string): RhiCommandEncoder
 }

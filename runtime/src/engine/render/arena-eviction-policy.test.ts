@@ -26,33 +26,39 @@
 // evictGPUTiles, using ARENA_HIGH_WATER / ARENA_LOW_WATER from the helpers.
 
 import { describe, expect, it } from 'vitest'
-import { GPUArena } from '../gpu/gpu-arena'
+import { GPUArena, type GPUArenaDevice } from '../gpu/gpu-arena'
+import type { RhiBuffer } from './rhi/rhi'
 import { ARENA_HIGH_WATER, ARENA_LOW_WATER } from './vector-tile-renderer-helpers'
 
 interface MockBuffer {
   size: number
-  usage: number
+  usage: string
+  copySrc?: boolean
   label?: string
   destroyed: boolean
   destroy(): void
 }
 
-function mockDevice() {
+const unwrap = (h: unknown): MockBuffer => (h as { native: MockBuffer }).native
+
+function mockDevice(): GPUArenaDevice {
   return {
-    createBuffer(desc: GPUBufferDescriptor): GPUBuffer {
+    createBuffer(desc): RhiBuffer {
       const b: MockBuffer = {
         size: desc.size,
         usage: desc.usage,
+        copySrc: desc.copySrc,
         label: desc.label,
         destroyed: false,
         destroy() { b.destroyed = true },
       }
-      return b as unknown as GPUBuffer
+      return { native: b } as unknown as RhiBuffer
     },
+    destroyBuffer(h) { unwrap(h).destroy() },
   }
 }
 
-const VERTEX_USAGE = 0x20 | 0x8  // GPUBufferUsage.VERTEX | COPY_DST
+const VERTEX_USAGE = 'vertex'  // RhiBufferUsage role (was GPUBufferUsage.VERTEX | COPY_DST)
 // Match the production arena capacity (64 MB)
 const CAPACITY = 64 * 1024 * 1024
 

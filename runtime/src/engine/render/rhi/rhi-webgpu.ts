@@ -91,12 +91,14 @@ export function rhiRenderPassToGpu(desc: RhiRenderPassDesc): GPURenderPassDescri
   }
 }
 
-function bufUsage(usage: RhiBufferDesc['usage'], writable: boolean): GPUBufferUsageFlags {
+function bufUsage(usage: RhiBufferDesc['usage'], writable: boolean, copySrc = false): GPUBufferUsageFlags {
   const base = usage === 'uniform' ? GPUBufferUsage.UNIFORM
     : usage === 'vertex' ? GPUBufferUsage.VERTEX
     : usage === 'index' ? GPUBufferUsage.INDEX
     : GPUBufferUsage.STORAGE
-  return base | (writable ? GPUBufferUsage.COPY_DST : 0)
+  // COPY_SRC is OR'd ONLY when copySrc is set (the arena compaction source) — an
+  // un-flagged buffer's usage bits are byte-identical to the pre-copySrc map.
+  return base | (writable ? GPUBufferUsage.COPY_DST : 0) | (copySrc ? GPUBufferUsage.COPY_SRC : 0)
 }
 
 function texUsage(usage: RhiTextureDesc['usage']): GPUTextureUsageFlags {
@@ -160,6 +162,17 @@ export function wrapWebGpuBuffer(buffer: GPUBuffer): RhiBuffer {
   return wrap(buffer) as unknown as RhiBuffer
 }
 
+/** Recover the native `GPUBuffer` from an RHI buffer — the inverse of
+ *  `wrapWebGpuBuffer`. Used at the engine/content boundary where a buffer
+ *  CREATED through the RHI (GPUArena's arena buffer) must still be handed to a
+ *  not-yet-migrated RAW draw consumer (the VTR fill draw binds `tile.vertexBuffer`
+ *  on the raw `GPURenderPassEncoder`; that raw path retires with the VTR cluster).
+ *  Identity on WebGPU — the same `GPUBuffer` the wrap holds — so it is byte-
+ *  identical to the pre-migration `device.createBuffer` handle. */
+export function unwrapWebGpuBuffer(buffer: RhiBuffer): GPUBuffer {
+  return u<GPUBuffer>(buffer)
+}
+
 /** Adopt an externally-created bind-group layout (line reuses the VTR tile layout
  *  so its pipeline is layout-compatible with VTR-built tile bind groups). */
 export function wrapWebGpuBindGroupLayout(layout: GPUBindGroupLayout): RhiBindGroupLayout {
@@ -178,9 +191,14 @@ export function wrapWebGpuBindGroup(group: GPUBindGroup): RhiBindGroup {
  *  one submit, matching the render loop's per-frame submit). */
 class WebGpuCommandEncoder implements RhiCommandEncoder {
   private readonly enc: GPUCommandEncoder
-  constructor(private readonly device: GPUDevice) { this.enc = device.createCommandEncoder() }
+  constructor(private readonly device: GPUDevice, label?: string) {
+    this.enc = device.createCommandEncoder(label !== undefined ? { label } : undefined)
+  }
   beginRenderPass(desc: RhiRenderPassDesc): RhiRenderPass {
     return new WebGpuRenderPass(this.enc.beginRenderPass(rhiRenderPassToGpu(desc)))
+  }
+  copyBufferToBuffer(src: RhiBuffer, srcOffset: number, dst: RhiBuffer, dstOffset: number, size: number): void {
+    this.enc.copyBufferToBuffer(u<GPUBuffer>(src), srcOffset, u<GPUBuffer>(dst), dstOffset, size)
   }
   finish(): void { this.device.queue.submit([this.enc.finish()]) }
 }
@@ -189,11 +207,11 @@ export class WebGpuDevice implements RhiDevice {
   readonly backend = 'webgpu' as const
   constructor(private readonly device: GPUDevice) {}
 
-  createCommandEncoder(): RhiCommandEncoder { return new WebGpuCommandEncoder(this.device) }
+  createCommandEncoder(label?: string): RhiCommandEncoder { return new WebGpuCommandEncoder(this.device, label) }
 
   createBuffer(desc: RhiBufferDesc): RhiBuffer {
     return wrap(this.device.createBuffer({
-      size: desc.size, usage: bufUsage(desc.usage, desc.writable ?? true), label: desc.label,
+      size: desc.size, usage: bufUsage(desc.usage, desc.writable ?? true, desc.copySrc), label: desc.label,
     })) as unknown as RhiBuffer
   }
 

@@ -45,7 +45,7 @@ import type {
   RhiDevice, RhiBuffer, RhiTexture, RhiTextureView, RhiSampler, RhiBindGroup,
   RhiBindGroupLayout, RhiPipeline, RhiRenderPass, RhiBufferDesc, RhiTextureDesc,
   RhiSamplerDesc, RhiBindLayoutEntry, RhiBindEntry, RhiPipelineDesc, RhiTextureFormat, RhiBufferUsage,
-  RhiScreenPassDesc, RhiCommandEncoder,
+  RhiScreenPassDesc, RhiCommandEncoder, RhiRenderPassDesc,
 } from './rhi'
 
 // Each opaque RHI handle stores a rich GL record (cast both ways inside this
@@ -264,6 +264,44 @@ class WebGl2RenderPass implements RhiRenderPass {
   end(): void {}
 }
 
+/** A COPY-SCOPED command encoder for WebGL2. `copyBufferToBuffer` is supported
+ *  (GL `copyBufferSubData` — the GPUArena compaction/grow ping-pong needs it);
+ *  `beginRenderPass` still fail-CLOSES (offscreen / MRT FBOs are the WebGL2 full-
+ *  frame phase). WebGL2 is immediate-mode, so the copy executes at call time and
+ *  `finish()` is a no-op (there is no command buffer to submit). */
+class WebGl2CommandEncoder implements RhiCommandEncoder {
+  constructor(private readonly gl: WebGL2RenderingContext) {}
+  copyBufferToBuffer(src: RhiBuffer, srcOffset: number, dst: RhiBuffer, dstOffset: number, size: number): void {
+    const gl = this.gl
+    const s = un<Gl2Buffer | Gl2StorageBuffer>(src)
+    const d = un<Gl2Buffer | Gl2StorageBuffer>(dst)
+    // A 'storage' RHI buffer is emulated as a data TEXTURE (no GL buffer object),
+    // so it cannot be a copyBufferSubData source/target. The arena buffers are
+    // vertex/index (real GL buffers) — guard so a mis-routed storage copy fails
+    // loud rather than binding `undefined`. Mirrors destroyBuffer's storage fork.
+    if ('storageTex' in s || 'storageTex' in d) {
+      throw new Error('webgl2: copyBufferToBuffer requires real GL buffers (a storage buffer is emulated as a data-texture; no buffer copy)')
+    }
+    gl.bindBuffer(gl.COPY_READ_BUFFER, s.buf)
+    gl.bindBuffer(gl.COPY_WRITE_BUFFER, d.buf)
+    gl.copyBufferSubData(gl.COPY_READ_BUFFER, gl.COPY_WRITE_BUFFER, srcOffset, dstOffset, size)
+    // Unbind the COPY_* targets so a later index/UBO bind isn't shadowed.
+    gl.bindBuffer(gl.COPY_READ_BUFFER, null)
+    gl.bindBuffer(gl.COPY_WRITE_BUFFER, null)
+  }
+  beginRenderPass(_desc: RhiRenderPassDesc): RhiRenderPass {
+    // Fail-CLOSED: offscreen / MRT render passes have no WebGL2 path in slice-1
+    // (multi-attachment FBOs are the full-frame phase). copyBufferToBuffer is the
+    // only supported encoder op — a render pass can never silently originate here.
+    throw new Error('webgl2: beginRenderPass (offscreen/MRT) not yet supported (deferred to the WebGL2 full-frame phase); this command encoder supports copyBufferToBuffer only')
+  }
+  finish(): void {
+    // Immediate-mode: copyBufferSubData already executed at call time. There is no
+    // command buffer to submit (the per-frame submit analog is the screen pass's
+    // gl.flush() in endScreenPass).
+  }
+}
+
 /** Begin an RHI render pass over the gl context's CURRENTLY-bound framebuffer
  *  (the caller sets viewport / clears / binds the target FBO first), mirroring how
  *  wrapWebGpuPass adopts an externally-created encoder. */
@@ -322,14 +360,15 @@ export class WebGl2Device implements RhiDevice {
     return out
   }
 
-  /** Fail-CLOSED: the offscreen / MRT command-encoder topology (opaque pick MRT,
-   *  OIT accum+revealage MRT, the offscreen line + heatmap r16float passes) has
-   *  no WebGL2 path in slice-1 — multi-attachment FBOs + EXT_color_buffer_float
-   *  targets are the WebGL2 full-frame phase. Throwing here means a pass that
-   *  tries to originate through the RHI on WebGL2 can never silently fall back to
-   *  the screen pass and corrupt the frame. (Slice-1 WebGL2 = `beginScreenPass`.) */
-  createCommandEncoder(): RhiCommandEncoder {
-    throw new Error('webgl2: offscreen/MRT render passes (createCommandEncoder) not yet supported (slice-1 WebGL2 is screen-pass only; deferred to the WebGL2 full-frame phase)')
+  /** A COPY-SCOPED command encoder: `copyBufferToBuffer` works (gl.copyBufferSubData
+   *  — the GPUArena compaction/grow ping-pong needs it), but `beginRenderPass`
+   *  still fail-CLOSES (the offscreen / MRT topology — opaque pick MRT, OIT
+   *  accum+revealage MRT, the offscreen line + heatmap r16float passes — is the
+   *  WebGL2 full-frame phase). So a render pass can never silently originate on
+   *  WebGL2 and corrupt the frame, while the arena buffer relocation is supported.
+   *  The `label` is ignored (WebGL2 has no command-encoder object to attribute). */
+  createCommandEncoder(_label?: string): RhiCommandEncoder {
+    return new WebGl2CommandEncoder(this.gl)
   }
 
   createBuffer(desc: RhiBufferDesc): RhiBuffer {
