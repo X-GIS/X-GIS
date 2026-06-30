@@ -123,7 +123,7 @@ export interface RhiRenderPass {
    *  size; WebGL2: `offset` is added to each attribute's `vertexAttribPointer` byte
    *  offset (`size` is implied by the draw count). */
   setVertexBuffer(slot: number, buffer: RhiBuffer, offset?: number, size?: number): void
-  setIndexBuffer(buffer: RhiBuffer, format: 'uint16' | 'uint32'): void
+  setIndexBuffer(buffer: RhiBuffer, format: 'uint16' | 'uint32', offset?: number, size?: number): void
   draw(vertexCount: number, instanceCount?: number, firstVertex?: number): void
   drawIndexed(indexCount: number, instanceCount?: number): void
   /** Per-draw stencil reference value (the per-tile clip-mask ID). Inert on a

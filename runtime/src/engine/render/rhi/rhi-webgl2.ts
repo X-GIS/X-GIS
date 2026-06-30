@@ -139,7 +139,7 @@ class WebGl2RenderPass implements RhiRenderPass {
   private cur?: Gl2Pipeline
   private vbuf?: Gl2Buffer
   private vbufOffset = 0
-  private ibuf?: { buf: Gl2Buffer; type: GLenum }
+  private ibuf?: { buf: Gl2Buffer; type: GLenum; offset: number }
   constructor(private readonly gl: WebGL2RenderingContext) {}
 
   setPipeline(p: RhiPipeline): void {
@@ -206,8 +206,11 @@ class WebGl2RenderPass implements RhiRenderPass {
   }
 
   setVertexBuffer(_slot: number, buffer: RhiBuffer, offset = 0): void { this.vbuf = un<Gl2Buffer>(buffer); this.vbufOffset = offset }
-  setIndexBuffer(buffer: RhiBuffer, format: 'uint16' | 'uint32'): void {
-    this.ibuf = { buf: un<Gl2Buffer>(buffer), type: format === 'uint16' ? this.gl.UNSIGNED_SHORT : this.gl.UNSIGNED_INT }
+  setIndexBuffer(buffer: RhiBuffer, format: 'uint16' | 'uint32', offset = 0): void {
+    // `offset` (bytes) shifts the per-tile arena index sub-range start into the drawElements byte
+    // offset — symmetric with setVertexBuffer's offset; default 0 is byte-identical to a no-offset
+    // bind. `size` (byteLength) is implied by the draw's indexCount on WebGL2, so it is not stored.
+    this.ibuf = { buf: un<Gl2Buffer>(buffer), type: format === 'uint16' ? this.gl.UNSIGNED_SHORT : this.gl.UNSIGNED_INT, offset }
   }
 
   private bindAttributes(): void {
@@ -244,8 +247,8 @@ class WebGl2RenderPass implements RhiRenderPass {
     this.bindAttributes()
     if (!this.ibuf) throw new Error('webgl2: drawIndexed without an index buffer')
     this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, this.ibuf.buf)
-    if (instanceCount > 1) this.gl.drawElementsInstanced(this.gl.TRIANGLES, indexCount, this.ibuf.type, 0, instanceCount)
-    else this.gl.drawElements(this.gl.TRIANGLES, indexCount, this.ibuf.type, 0)
+    if (instanceCount > 1) this.gl.drawElementsInstanced(this.gl.TRIANGLES, indexCount, this.ibuf.type, this.ibuf.offset, instanceCount)
+    else this.gl.drawElements(this.gl.TRIANGLES, indexCount, this.ibuf.type, this.ibuf.offset)
   }
 
   // WebGL2 is immediate-mode: there is no pass object to close, so ending is a
