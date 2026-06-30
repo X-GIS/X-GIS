@@ -112,7 +112,15 @@ function isDeadLayer(node: RenderNode, rasterSources: Set<string>): boolean {
   const hasStroke = hasStrokeColour && hasStrokeWidth
   const hasLabel = node.label !== undefined
   const hasProcedural = node.geometry !== null
-  if (!hasFill && !hasStroke && !hasLabel && !hasProcedural) return true
+  // fill-pattern / line-pattern (iter-177) are a visual surface on their own:
+  // a layer can declare ONLY `fill-pattern: <sprite>` with NO fill-color (fill
+  // is `kind: 'none'`) and still paint — the runtime samples the sprite atlas.
+  // Without this guard such a layer trips the no-paint check below and is
+  // silently dropped, losing `fillPattern` before it reaches the runtime.
+  // Symptom: OFM Liberty's `landcover_wetland` / `road_area_pattern` (pattern-
+  // only, no fill-color) never render. Mirrors the raster / heatmap guards above.
+  const hasPattern = node.fillPattern !== undefined || node.linePattern !== undefined
+  if (!hasFill && !hasStroke && !hasLabel && !hasProcedural && !hasPattern) return true
 
   // Phase D.1 (iter 203) — statically-transparent fill drop.
   //
@@ -139,7 +147,7 @@ function isDeadLayer(node: RenderNode, rasterSources: Set<string>): boolean {
   // header comment + the pin test at line 134-144. opacity is the
   // animation-base channel; transparent fill is the
   // structurally-dead channel.
-  if (hasFill && !hasStroke && !hasLabel && !hasProcedural
+  if (hasFill && !hasStroke && !hasLabel && !hasProcedural && !hasPattern
       && node.pointerEvents !== 'auto'
       && isStaticallyTransparent(node.fill)) {
     return true
