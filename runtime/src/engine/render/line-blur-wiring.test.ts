@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   packLineLayerUniform,
-  LINE_UNIFORM_SIZE,
+  lineUniformSize,
 } from './line-renderer'
 
 // line-blur wiring (GPU-free, fail-before).
@@ -52,8 +52,8 @@ function packWithBlur(blurPx: number): Float32Array {
 }
 
 describe('line-blur wiring (GPU-free)', () => {
-  it('produces a buffer of exactly LINE_UNIFORM_SIZE bytes', () => {
-    expect(packWithBlur(0).byteLength).toBe(LINE_UNIFORM_SIZE)
+  it('produces a buffer of exactly lineUniformSize() bytes', () => {
+    expect(packWithBlur(0).byteLength).toBe(lineUniformSize())
   })
 
   it('blur=0 leaves aa_width_px (slot 5) at the 1.0 px AA reserve only', () => {

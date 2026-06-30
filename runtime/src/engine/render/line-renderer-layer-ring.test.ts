@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 ;(globalThis as unknown as { GPUBufferUsage: Record<string, number> }).GPUBufferUsage = {
   UNIFORM: 1, COPY_DST: 2, STORAGE: 4, VERTEX: 8, INDEX: 16,
 }
-import { LineRenderer, LINE_UNIFORM_SIZE, packLineLayerUniform } from './line-renderer'
+import { LineRenderer, lineUniformSize, packLineLayerUniform } from './line-renderer'
 import type { GPUContext } from '../gpu/gpu'
 
 // These tests validate the ring-buffer math and the public guarantees of
@@ -15,9 +15,9 @@ import type { GPUContext } from '../gpu/gpu'
 // command submission.
 
 describe('LineRenderer layer uniform ring', () => {
-  it('packLineLayerUniform emits a LINE_UNIFORM_SIZE payload', () => {
+  it('packLineLayerUniform emits a lineUniformSize() payload', () => {
     const data = packLineLayerUniform([1, 0, 0, 1], 4, 1, 1)
-    expect(data.byteLength).toBe(LINE_UNIFORM_SIZE)
+    expect(data.byteLength).toBe(lineUniformSize())
   })
 
   it('writeLayerSlot returns distinct, 256-aligned offsets per call', () => {

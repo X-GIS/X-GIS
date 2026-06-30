@@ -48,7 +48,7 @@ import { LineDraper } from './material/line-material'
 import { LineCompositeDraper } from './material/line-composite-material'
 import type { ShapeRegistry } from '../text/sdf-shape'
 import {
-  LINE_UNIFORM_SIZE, PATTERN_SLOT_COUNT, PATTERN_SLOT_F32,
+  lineUniformSize, PATTERN_SLOT_COUNT, PATTERN_SLOT_F32,
   LINE_CAP_BUTT, LINE_CAP_ROUND, LINE_CAP_SQUARE, LINE_CAP_ARROW,
   LINE_JOIN_MITER, LINE_JOIN_ROUND, LINE_JOIN_BEVEL,
   LINE_FLAG_HAS_PATTERN, LINE_FLAG_HAS_OFFSET,
@@ -57,10 +57,11 @@ import {
   checkPatternParams, packLineLayerUniform,
   type DashConfig, type PatternSlot,
 } from './line-pattern'
+import { lineLayerUniformStride } from './line-uniform-slots'
 // Re-export so test files (line-renderer.test, line-pattern-guards.test, etc.)
 // keep importing the public surface from the renderer module.
 export {
-  LINE_UNIFORM_SIZE, PATTERN_SLOT_COUNT, PATTERN_SLOT_F32,
+  lineUniformSize, PATTERN_SLOT_COUNT, PATTERN_SLOT_F32,
   LINE_CAP_BUTT, LINE_CAP_ROUND, LINE_CAP_SQUARE, LINE_CAP_ARROW,
   LINE_JOIN_MITER, LINE_JOIN_ROUND, LINE_JOIN_BEVEL,
   LINE_FLAG_HAS_PATTERN, LINE_FLAG_HAS_OFFSET,
@@ -121,10 +122,17 @@ export { LINE_SEGMENT_STRIDE_F32, LINE_SEGMENT_STRIDE_BYTES, buildLineSegments }
 // ═══ Renderer ═══
 
 export class LineRenderer {
-  private static readonly LAYER_SLOT = 256
-  /** Composite uniform slot stride. Matches LAYER_SLOT (256) so the
-   *  dynamic offset is a multiple of the typical
-   *  minUniformBufferOffsetAlignment, exactly as the layer ring does. */
+  /** Dynamic-offset stride of the LineLayer uniform ring, in bytes. Derived
+   *  from `reflect()` (the SoT) via `lineLayerUniformStride()` — assigned in the
+   *  CONSTRUCTOR (runs after configureProjections(), so the reflect emit is
+   *  safe) instead of a hand literal, so a future LineLayer struct growth past
+   *  256 B re-aligns every slot automatically instead of silently truncating
+   *  it (the #600-blank-globe drift class). */
+  private readonly layerStride: number
+  /** Composite uniform slot stride. The composite opacity uniform (`CompUniform`
+   *  = opacity f32 + vec3 pad = 16 B) is a DIFFERENT struct than LineLayer, so
+   *  this stays its own value: 256 = the WebGPU minUniformBufferOffsetAlignment
+   *  (the next 256-multiple ≥ 16 B). Not derived from layerStride. */
   private static readonly COMPOSITE_SLOT = 256
   private device: GPUDevice
   /** The RHI seam (§4 batch-seam migration). One instance, reused for line's
@@ -182,6 +190,9 @@ export class LineRenderer {
     this.rhi = new WebGpuDevice(ctx.device)
     this.format = ctx.format
     this.tileBindGroupLayout = vtrTileBindGroupLayout
+    // Ctor runs post-configureProjections(), so reflecting the LineLayer
+    // stride here is safe (unlike a `static` field, which evaluates at import).
+    this.layerStride = lineLayerUniformStride()
 
     this.layerBindGroupLayout = this.device.createBindGroupLayout({
       label: 'line-layer-bgl',
@@ -197,11 +208,11 @@ export class LineRenderer {
     // multi-layer writeBuffer clobbering within a single frame.
     // UNIFORM|COPY_DST, byte-identical via bufUsage('uniform', writable:true).
     this.layerRing = this.rhi.createBuffer({
-      size: this.layerRingCapacity * LineRenderer.LAYER_SLOT,
+      size: this.layerRingCapacity * this.layerStride,
       usage: 'uniform', writable: true,
       label: 'line-layer-ring',
     })
-    this.layerStaging = new Uint8Array(this.layerRingCapacity * LineRenderer.LAYER_SLOT)
+    this.layerStaging = new Uint8Array(this.layerRingCapacity * this.layerStride)
 
     // STORAGE-only (never written), byte-identical via bufUsage('storage', writable:false).
     this.emptyShapeBuffer = this.rhi.createBuffer({
@@ -380,9 +391,9 @@ export class LineRenderer {
 
     if (this.layerSlot >= this.layerRingCapacity) {
       xlog.warn('[LineRenderer] layer ring overflow — capping at capacity; style bleed possible')
-      return (this.layerRingCapacity - 1) * LineRenderer.LAYER_SLOT
+      return (this.layerRingCapacity - 1) * this.layerStride
     }
-    const off = this.layerSlot * LineRenderer.LAYER_SLOT
+    const off = this.layerSlot * this.layerStride
     this.layerSlot++
     const data = packLineLayerUniform(
       strokeColor, strokeWidthPx, opacity, mppAtCenter,
@@ -392,9 +403,9 @@ export class LineRenderer {
     // Stage into the CPU mirror; flushLayerStaging (called from the
     // map's render loop via `endFrame()`) emits a single writeBuffer
     // over the frame's dirty range instead of one per layer.
-    const src = new Uint8Array(data.buffer, data.byteOffset, Math.min(data.byteLength, LineRenderer.LAYER_SLOT))
+    const src = new Uint8Array(data.buffer, data.byteOffset, Math.min(data.byteLength, this.layerStride))
     this.layerStaging.set(src, off)
-    const hi = off + LineRenderer.LAYER_SLOT
+    const hi = off + this.layerStride
     if (this.layerDirtyHi === this.layerDirtyLo) {
       this.layerDirtyLo = off
       this.layerDirtyHi = hi
@@ -448,7 +459,7 @@ export class LineRenderer {
     const shapeBuf = this.shapeRegistry?.shapeBuffer
     const shapeSegBuf = this.shapeRegistry?.segmentBuffer
     return this.rhi.createBindGroup(wrapWebGpuBindGroupLayout(this.layerBindGroupLayout), [
-      { binding: 0, resource: { buffer: this.layerRing, offset: 0, size: LINE_UNIFORM_SIZE } },
+      { binding: 0, resource: { buffer: this.layerRing, offset: 0, size: lineUniformSize() } },
       { binding: 1, resource: { buffer: wrapWebGpuBuffer(segmentBuffer) } },
       { binding: 2, resource: { buffer: shapeBuf ? wrapWebGpuBuffer(shapeBuf) : this.emptyShapeBuffer } },
       { binding: 3, resource: { buffer: shapeSegBuf ? wrapWebGpuBuffer(shapeSegBuf) : this.emptyShapeBuffer } },
