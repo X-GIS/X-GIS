@@ -47,7 +47,7 @@ All GPU draw-call renderers, per-frame scheduling, and paint-resolution glue for
 ## Subdirectories
 | Directory | Purpose |
 |-----------|---------|
-| `passes/` | Fixed render-pass chain objects (`RenderPass` interface + background, opaque, OIT, translucent, points, labels, heatmap, overdraw-compose passes). Each pass is a stateless singleton reading `FrameContext` + `SceneView`. (see `passes/AGENTS.md`) |
+| `passes/` | Fixed render-pass chain objects (`RenderPass` interface + background, opaque, OIT, translucent, points, labels, heatmap, overdraw-compose passes). Each pass is a stateless singleton reading `FrameContext` + `SceneView` + a `Pick<XGISMap>` role host. `pass-chain.ts` adapts each into a content-blind `RenderNode` and registers the frozen-order chain the engine loop iterates (P2-carve Step 4). (see `passes/AGENTS.md`) |
 | `material/` | Descriptor-driven generic `Material` + `DrawItem` + executor over the RHI render layer — one path that raster/point (and later line/text/icon) flow through. Per-primitive material descriptors (`raster-material.ts`, `point-material.ts`, `line-material.ts`, `text-material.ts`, `icon-material.ts`, `heatmap-material.ts`). |
 | `rhi/` | RHI (Render Hardware Interface) — backend-agnostic GPU surface (`rhi.ts`) decoupling renderers from `GPUDevice`/encoders, with `rhi-webgpu.ts` and `rhi-webgl2.ts` backends (the `?forcegl2=1` path runs through this). |
 

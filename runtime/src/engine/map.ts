@@ -34,6 +34,7 @@ import { InteractionController } from './interaction-controller'
 import { MapRendererContent, type ShowCommand } from './render/renderer'
 import { resolveNumberShape } from './render/paint-shape-resolve'
 import { RenderLoop } from './render-loop'
+import { buildRenderNodes } from './render/passes/pass-chain'
 import { RenderTargets } from './render/render-targets'
 import {
   classifyVectorTileShows as classifyVectorTileShowsImpl,
@@ -870,12 +871,11 @@ export class XGISMap {
     // construction via setGraticuleEnabled — held on the viewport controller
     // until renderer exists (initGPU resolves in run()).
     this._viewport.graticuleInitial = options.graticule === true
-    // RenderLoop owns the per-frame GPU render method (extracted from
-    // map.ts). It holds this map by reference and reaches its members
-    // through a typed host view — renderer / ctx / stages are read fresh
-    // at render time, so constructing it before run() populates them is
-    // safe.
+    // RenderLoop owns the per-frame GPU render method (extracted from map.ts).
+    // Content registers the frozen-order RenderNode pass chain it iterates
+    // (P2-carve Step 4); nodes capture this map + read it fresh at render time.
     this.renderLoopInstance = new RenderLoop(this)
+    this.renderLoopInstance.registerNodes(buildRenderNodes(this))
     // P0-7 a11y baseline: make the host-supplied canvas focusable +
     // keyboard-drivable. Runs at ctor time (canvas is available pre-GPU);
     // no-ops when the canvas is not a real DOM element (unit-test mock).

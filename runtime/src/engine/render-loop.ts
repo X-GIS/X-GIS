@@ -28,14 +28,7 @@ import { type FrameContext } from './render/frame-context'
 import { makeProjectionToken, setProjectionToken } from './render/projection-token'
 import type { RhiDevice } from './render/rhi/rhi'
 import { buildSceneView } from './render/scene-view'
-import { backgroundPass } from './render/passes/background-pass'
-import { opaquePass } from './render/passes/opaque-pass'
-import { oitPass } from './render/passes/oit-pass'
-import { translucentPass } from './render/passes/translucent-pass'
-import { pointsPass } from './render/passes/points-pass'
-import { labelPass } from './render/passes/label-pass'
-import { heatmapPass } from './render/passes/heatmap-pass'
-import { overdrawComposePass } from './render/passes/overdraw-compose-pass'
+import type { RenderNode } from './render/render-node'
 import type { XGISMap } from './map'
 // Host ROLE views (Tier-B sub-bundle): the flat ~57-key `Pick<XGISMap>` is
 // now segmented into per-pass role views in render/passes/pass-hosts.ts;
@@ -67,6 +60,19 @@ export class RenderLoop {
    *  fields are repopulated at the SAME points the equivalent locals were
    *  computed before this struct existed, so behaviour is byte-identical. */
   private _ctx: FrameContext | null = null
+
+  /** The content-registered render-pass chain (P2-carve Step 4). The engine
+   *  iterates this frozen-order list each frame, running every node whose
+   *  `shouldRun` gate passes — it no longer names a concrete pass or reaches
+   *  the owning map through a `PassHost`. Registered once by content
+   *  (map.ts → render/passes/pass-chain.ts) right after construction. */
+  private readonly _nodes: RenderNode[] = []
+
+  /** Content (map.ts) hands the engine its ordered RenderNode chain. */
+  registerNodes(nodes: readonly RenderNode[]): void {
+    this._nodes.length = 0
+    for (const n of nodes) this._nodes.push(n)
+  }
 
   constructor(map: XGISMap) {
     // Hold the owning map through the typed host view. The Pick-based
@@ -452,36 +458,18 @@ export class RenderLoop {
 
       if (scene.hasTranslucent) this.host.lineRenderer!.ensureOffscreen(ctx.w, ctx.h)
 
-      // ── Bucket 0: background / coverage clear ── (BackgroundPass — render/passes/background-pass.ts)
-      // Owns the whole-viewport colour clear (relocated from opaque's first
-      // sub-pass). Runs before everything so coverage has one defined owner.
-      backgroundPass.execute(ctx, scene, this.host)
-
-      // ── Bucket 1: opaque ── (OpaquePass — render/passes/opaque-pass.ts)
-      opaquePass.execute(ctx, scene, this.host)
-
-      // ── Bucket 1.5: OIT translucent extrude ── (OitPass — render/passes/oit-pass.ts)
-      if (oitPass.shouldRun(scene)) oitPass.execute(ctx, scene, this.host)
-
-      // ── Bucket 2: translucent offscreen + composite ── (TranslucentPass — render/passes/translucent-pass.ts)
-      if (translucentPass.shouldRun(scene)) translucentPass.execute(ctx, scene, this.host)
-
-      // ── Bucket 3: direct-layer points ── (PointsPass — render/passes/points-pass.ts)
-      if (pointsPass.shouldRun(scene)) pointsPass.execute(ctx, scene, this.host)
-
-      // ── Bucket 4: text overlays + per-feature labels ── (LabelPass — render/passes/label-pass.ts)
-      labelPass.execute(ctx, scene, this.host)
-
-      // ── Bucket 5: heatmap (Phase R) ── (HeatmapPass — render/passes/heatmap-pass.ts)
-      // Runs AFTER labels (the MSAA resolve-owner) so it composites onto the
-      // resolved swapchain — same strategy as overdraw-compose. Gated off
-      // (no target alloc, no pass) when scene.hasHeatmap is false, so a style
-      // with no heatmap layer renders byte-identically.
-      if (heatmapPass.shouldRun(scene)) heatmapPass.execute(ctx, scene, this.host)
-
-      // ── Debug overdraw compose ── (OverdrawComposePass — render/passes/overdraw-compose-pass.ts)
-      // Runs as the LAST pass of the frame so it owns the swapchain attachment.
-      if (overdrawComposePass.shouldRun(scene)) overdrawComposePass.execute(ctx, scene, this.host)
+      // ── Render-pass chain ── (content-registered RenderNode[] — render/render-node.ts)
+      // Iterate the frozen-order node list registered by content (map.ts →
+      // render/passes/pass-chain.ts): background → opaque → oit → translucent →
+      // points → label → heatmap → overdraw-compose. Each node's shouldRun
+      // reproduces its former inline `if` gate (background / opaque / label are
+      // unconditional → shouldRun()===true). The engine no longer names a pass
+      // or hands it a PassHost — nodes capture their own map host. The OIT node
+      // sits at its historical slot but is runtime-dead (shouldRun immutably
+      // false), so it is never live — folded out of the live path here.
+      for (const node of this._nodes) {
+        if (node.shouldRun(scene)) node.execute(ctx, scene)
+      }
     }
 
     // Flush CPU-side uniform-ring mirrors just before submit. WebGPU
