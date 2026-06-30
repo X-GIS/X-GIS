@@ -46,6 +46,7 @@ import { BLEND_ALPHA, BLEND_ALPHA_PREMULT, BLEND_MAX, DEPTH_READ_ONLY } from '..
 import { emitLineWgsl, emitCompositeWgsl } from '../shaders/dsl'
 import { WebGpuDevice, wrapWebGpuPass } from './rhi/rhi-webgpu'
 import { LineDraper } from './material/line-material'
+import { LineCompositeDraper } from './material/line-composite-material'
 import type { ShapeRegistry } from '../text/sdf-shape'
 import {
   LINE_UNIFORM_SIZE, PATTERN_SLOT_COUNT, PATTERN_SLOT_F32,
@@ -443,9 +444,21 @@ export class LineRenderer {
       this.compositeSlot++
     }
     this.device.queue.writeBuffer(this.compositeRing, off, new Float32Array([opacity, 0, 0, 0]))
-    mainPass.setPipeline(this.compositePipeline)
-    mainPass.setBindGroup(0, this.compositeBindGroup, [off])
-    mainPass.draw(3, 1)
+    // RHI seam (P1.5, behind __xgisLineViaRhi like the draw): only the composite DRAW routes through
+    // the CompositeDraper; the offscreen RT/pass origination stays raw (deferred to P2). WebGPU-only
+    // (the offscreen translucent path fail-closes on WebGl2).
+    if ((globalThis as { __xgisLineViaRhi?: boolean }).__xgisLineViaRhi === true && this.offscreenView) {
+      this.ensureCompositeDraper().draw(wrapWebGpuPass(mainPass), this.offscreenView, this.compositeRing, off)
+    } else {
+      mainPass.setPipeline(this.compositePipeline)
+      mainPass.setBindGroup(0, this.compositeBindGroup, [off])
+      mainPass.draw(3, 1)
+    }
+  }
+
+  private _compositeDraper?: LineCompositeDraper
+  private ensureCompositeDraper(): LineCompositeDraper {
+    return (this._compositeDraper ??= new LineCompositeDraper(new WebGpuDevice(this.device), this.format, getSampleCount()))
   }
 
   /** Used by VTR to pick the right pipeline depending on whether the
