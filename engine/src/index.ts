@@ -17,3 +17,24 @@ export * from './gpu/staging-buffer-pool'
 export * from './gpu/palette-texture'
 export * from './gpu/quality'
 export * from './gpu/bind-tiers'
+// P3 Step 3: GPU machinery deferred at Step 2 (imported projection / shaders-dsl).
+export * from './gpu/gpu-shared'
+export * from './gpu/frame-uniform'
+export * from './gpu/compute-webgl2'
+
+// ── Projection / camera math (P3 Step 3) ─────────────────────────────
+export * from './projection/projection'
+export * from './projection/projections-table'
+export * from './projection/ecef'
+export * from './projection/globe'
+export * from './projection/globe-anchor'
+export * from './projection/camera-helpers'
+export * from './projection/camera-world-copies'
+export * from './projection/view-matrix'
+export * from './projection/unproject'
+export * from './projection/earth-surface-fill'
+export * from './projection/camera'
+
+// ── Shader machinery: CPU log-depth + content-blind shader-DSL leaves ─
+export * from './shaders/log-depth'
+export * from './shaders/dsl/overdraw-compose'

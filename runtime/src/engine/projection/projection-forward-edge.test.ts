@@ -14,8 +14,8 @@ import {
   mercator, equirectangular, naturalEarth, orthographic,
   azimuthalEquidistant, stereographic, obliqueMercator,
   MERCATOR_LAT_LIMIT,
-} from './projection'
-import type { Projection } from './projection'
+} from '@xgis/engine'
+import type { Projection } from '@xgis/engine'
 
 const CYLINDRICAL: Array<[string, Projection]> = [
   ['mercator', mercator],

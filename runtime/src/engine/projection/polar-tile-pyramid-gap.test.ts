@@ -20,7 +20,7 @@
 // 7=globe.
 
 import { describe, expect, it } from 'vitest'
-import { mercator } from './projection'
+import { mercator } from '@xgis/engine'
 
 const EARTH_R = 6378137
 const HALF_CIRC = Math.PI * EARTH_R

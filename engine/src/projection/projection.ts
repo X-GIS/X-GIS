@@ -52,6 +52,18 @@ export function mercatorYToLat(y: number): number {
   return mercatorYToLatRad(y) * RAD2DEG
 }
 
+// Forward Web Mercator (lon/lat degrees → metres). CPU single authority for
+// the lon/lat→Mercator projection used by the camera bounds path and the
+// GeoJSON loader (re-exported via loader/geojson-helpers). Clamped to
+// MERCATOR_LAT_LIMIT — relocated here from loader/geojson-helpers so the
+// projection/camera math layer carries no upward content edge (P3 Step 3).
+export function lonLatToMercator(lon: number, lat: number): [number, number] {
+  const clampedLat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, lat))
+  const x = lon * (Math.PI / 180) * EARTH_RADIUS
+  const y = Math.log(Math.tan(Math.PI / 4 + (clampedLat * Math.PI / 180) / 2)) * EARTH_RADIUS
+  return [x, y]
+}
+
 // Longitude delta wrapped to [-180, 180]. Identity inside that range so
 // the pure (central-meridian = 0) definitions are byte-unchanged; only
 // the recentred (camera-longitude) case shifts. The GPU shader

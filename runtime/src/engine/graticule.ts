@@ -1,7 +1,7 @@
 // ═══ Graticule (위경도 그리드 라인) + Globe Background ═══
 // GPU 프로젝션과 함께 동작. 줌 적응형 간격 + 메이저/마이너 구분.
 
-import { lonLatToECEF, dsfunSplitECEF } from './projection/ecef'
+import { lonLatToECEF, dsfunSplitECEF } from '@xgis/engine'
 
 export interface GraticuleData {
   /** Line vertices in ECEF-DSFUN stride 9 (Phase 2 PR 2d.1D):

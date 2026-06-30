@@ -6,9 +6,9 @@ import { Lexer, Parser, lower, optimize, emitCommands, evaluate, makeEvalProps, 
 import { packPalette, uploadPalette, type PaletteTextures } from '@xgis/engine'
 import type * as AST from '@xgis/compiler'
 import { SyntheticEarthSurfaceBackend } from '../data/sources/synthetic-earth-surface-backend'
-import { PROJECTION_NAME_TO_TYPE, PROJECTIONS } from './projection/projections-table'
+import { PROJECTION_NAME_TO_TYPE, PROJECTIONS } from '@xgis/engine'
 import { configureProjections } from './shaders/dsl'
-import { worldBandForProjType } from './projection/earth-surface-fill'
+import { worldBandForProjType } from '@xgis/engine'
 import { projectLonLatToScreenCss } from './render-loop-helpers'
 import {
   SYNTHETIC_EARTH_SURFACE_SOURCE,
@@ -26,7 +26,7 @@ import { getSharedGeoJSONCompilePool } from '../data/workers/geojson-compile-poo
 import { initGPU, GPU_PROF, getMaxDpr, effectiveDpr, WebGPUUnavailableError, type GPUContext } from '@xgis/engine'
 import { QUALITY, updateQuality, type QualityConfig } from '@xgis/engine'
 import { GPUTimer } from '@xgis/engine'
-import { Camera } from './projection/camera'
+import { Camera } from '@xgis/engine'
 import { CameraController } from './camera-controller'
 import { ViewportModeController } from './render/viewport-mode-controller'
 import { SourceManager } from './source-manager'

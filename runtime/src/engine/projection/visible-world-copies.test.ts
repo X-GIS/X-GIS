@@ -6,7 +6,7 @@
 // derived enumeration against expected counts per camera state.
 
 import { describe, expect, it } from 'vitest'
-import { Camera } from './camera'
+import { Camera } from '@xgis/engine'
 
 const W = 800, H = 600, DPR = 1
 

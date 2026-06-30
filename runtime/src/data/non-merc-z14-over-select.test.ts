@@ -15,10 +15,10 @@
 // seoul-pitch-drag` spec carries the visual regression gate.
 
 import { describe, it, expect } from 'vitest'
-import { globeVisibleTiles } from '../engine/projection/globe'
+import { globeVisibleTiles } from '@xgis/engine'
 import { visibleTilesSSE } from '../loader/tiles-sse'
-import { mercator } from '../engine/projection/projection'
-import { Camera } from '../engine/projection/camera'
+import { mercator } from '@xgis/engine'
+import { Camera } from '@xgis/engine'
 
 const W = 800
 const H = 800

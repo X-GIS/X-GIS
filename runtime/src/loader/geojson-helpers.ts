@@ -9,18 +9,13 @@
 // helpers and the tessellation functions in geojson.ts key off them.
 
 import { interpolateGreatCircle } from '@xgis/compiler/tiler/geodesic'
-import { MERCATOR_LAT_LIMIT } from '../engine/projection/projection'
 
 // ═══ Projection helpers (CPU side, for bounds only) ═══
 
-const EARTH_RADIUS = 6378137
-
-export function lonLatToMercator(lon: number, lat: number): [number, number] {
-  const clampedLat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, lat))
-  const x = lon * (Math.PI / 180) * EARTH_RADIUS
-  const y = Math.log(Math.tan(Math.PI / 4 + (clampedLat * Math.PI / 180) / 2)) * EARTH_RADIUS
-  return [x, y]
-}
+// lonLatToMercator's single authority now lives in @xgis/engine (projection.ts);
+// re-exported here so every prior import path (camera, source-manager, geojson.ts)
+// keeps resolving. Relocated in P3 Step 3 to sever the camera→loader content edge.
+export { lonLatToMercator } from '@xgis/engine'
 
 // ═══ Subdivision ═══
 // 큰 삼각형을 세분화하여 프로젝션 곡선을 근사

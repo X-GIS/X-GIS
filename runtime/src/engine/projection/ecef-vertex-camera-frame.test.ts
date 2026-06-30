@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { lonLatToECEF, lonLatToECEFSphere, WGS84 } from './ecef'
+import { lonLatToECEF, lonLatToECEFSphere, WGS84 } from '@xgis/engine'
 
 // ═══ Vertex(ellipsoid) ↔ camera(sphere) ECEF frame mismatch guard ═══
 //

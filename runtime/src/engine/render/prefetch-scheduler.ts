@@ -24,9 +24,9 @@ import {
   type CameraSnapshot,
 } from '../tile-decision'
 import { visibleTilesFrustumSampled } from '../../data/tile-select'
-import { Camera } from '../projection/camera'
-import { mercator as mercatorProj } from '../projection/projection'
-import type { Projection } from '../projection/projection'
+import { Camera } from '@xgis/engine'
+import { mercator as mercatorProj } from '@xgis/engine'
+import type { Projection } from '@xgis/engine'
 import { tileKey } from '@xgis/compiler'
 
 /** Inputs the scheduler reads from the surrounding render loop —

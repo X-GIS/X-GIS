@@ -6,8 +6,8 @@
 // scaffolding that Phase 2 PR 2c+ shader paths consume.
 
 import { describe, it, expect } from 'vitest'
-import { Camera } from './camera'
-import { lonLatToECEFSphere, ecefToENURotation, WGS84 } from './ecef'
+import { Camera } from '@xgis/engine'
+import { lonLatToECEFSphere, ecefToENURotation, WGS84 } from '@xgis/engine'
 
 describe('Camera.getECEFCenter — derives ECEF from canonical Mercator centre', () => {
   it('lon=0, lat=0 anchor → ECEF (A, 0, 0) on the WGS84 equator', () => {

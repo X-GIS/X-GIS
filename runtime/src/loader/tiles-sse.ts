@@ -42,11 +42,11 @@
 // (window-level) so we can A/B against the existing selector with
 // real data + measurements before flipping the default.
 
-import type { Camera } from '../engine/projection/camera'
-import type { Projection } from './../engine/projection/projection'
-import { mercatorYToLat } from '../engine/projection/projection'
-import { worldCopiesFor, TILE_PX } from '../engine/gpu/gpu-shared'
-import { PROJECTION_NAME_TO_TYPE } from '../engine/projection/projections-table'
+import type { Camera } from '@xgis/engine'
+import type { Projection } from '@xgis/engine'
+import { mercatorYToLat } from '@xgis/engine'
+import { worldCopiesFor, TILE_PX } from '@xgis/engine'
+import { PROJECTION_NAME_TO_TYPE } from '@xgis/engine'
 import type { TileCoord } from '../data/tile-select'
 
 const EARTH_CIRC_M = 40075016.686

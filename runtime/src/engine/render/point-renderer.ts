@@ -3,10 +3,10 @@
 // using Signed Distance Field math in the fragment shader.
 // Single draw call for all points via per-feature storage buffer.
 
-import type { Camera } from '../projection/camera'
-import { lonLatToECEF } from '../projection/ecef'
-import { isWebMercator } from '../projection/projections-table'
-import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
+import type { Camera } from '@xgis/engine'
+import { lonLatToECEF } from '@xgis/engine'
+import { isWebMercator } from '@xgis/engine'
+import { WORLD_MERC, TILE_PX } from '@xgis/engine'
 import { getSampleCount } from '@xgis/engine'
 import type { ShapeRegistry } from '../text/sdf-shape'
 import { parseHexColor } from '../feature-helpers'

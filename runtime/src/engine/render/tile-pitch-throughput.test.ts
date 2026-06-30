@@ -3,9 +3,9 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
-import { Camera } from '../projection/camera'
+import { Camera } from '@xgis/engine'
 import { visibleTilesFrustum, firstIndexedAncestor } from '../../data/tile-select'
-import { mercator } from '../projection/projection'
+import { mercator } from '@xgis/engine'
 import { TileCatalog } from '../../data/tile-catalog'
 import {
   compileGeoJSONToTiles, decomposeFeatures, tileKey,

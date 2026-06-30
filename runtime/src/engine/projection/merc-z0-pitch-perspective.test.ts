@@ -25,7 +25,7 @@
 // a point at the camera center → real foreshortening, not flat strip).
 
 import { describe, expect, it } from 'vitest'
-import { Camera } from './camera'
+import { Camera } from '@xgis/engine'
 
 const W = 800, H = 800, DPR = 1
 

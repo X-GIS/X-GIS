@@ -29,8 +29,8 @@ import {
   generateEarthSurfaceFillMesh,
   worldBandForProjType,
   type WorldBandKind,
-} from '../../engine/projection/earth-surface-fill'
-import { tileEcefCenterFromMerc } from '../../engine/projection/ecef'
+} from '@xgis/engine'
+import { tileEcefCenterFromMerc } from '@xgis/engine'
 import { packECEFWithPolarCaps, MERC_LAT_CLAMP } from './polar-cap-ecef-pack'
 import {
   TILE_LAYOUT_VERSION,

@@ -1,17 +1,17 @@
 // ═══ Raster Tile Renderer — 텍스처 타일을 GPU 투영으로 렌더링 ═══
 
 import type { GPUContext } from '@xgis/engine'
-import type { Camera } from '../projection/camera'
+import type { Camera } from '@xgis/engine'
 import { visibleTilesFrustum, tileUrl, loadImageTexture } from '../../data/tile-select'
-import { mercator as mercatorProj, mercatorYToLat } from '../projection/projection'
-import { lonLatToECEF, type ECEF } from '../projection/ecef'
+import { mercator as mercatorProj, mercatorYToLat } from '@xgis/engine'
+import { lonLatToECEF, type ECEF } from '@xgis/engine'
 import type { RhiDevice, RhiRenderPass, RhiTexture } from '@xgis/engine'
 import { RasterDraper, type RasterTile } from './material/raster-material'
 import { wrapWebGpuPass } from '@xgis/engine'
-import { routeToSphereSelector, enumerateWorldCopies } from '../gpu/gpu-shared'
+import { routeToSphereSelector, enumerateWorldCopies } from '@xgis/engine'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { DEBUG_OVERDRAW } from '../debug-flags'
-import { globeVisibleTiles } from '../projection/globe'
+import { globeVisibleTiles } from '@xgis/engine'
 import { writeProjectionCull } from './frame-projection-uniform'
 import { rasterUniformSlots, rasterUniformBytes, rasterTileSlots } from './raster-uniform-slots'
 

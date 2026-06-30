@@ -21,7 +21,7 @@
 import { describe, it, expect } from 'vitest'
 import { packECEFPolygonVertices } from '@xgis/compiler'
 import { packECEFWithPolarCaps, MERC_LAT_CLAMP } from './polar-cap-ecef-pack'
-import { tileEcefCenterFromMerc } from '../../engine/projection/ecef'
+import { tileEcefCenterFromMerc } from '@xgis/engine'
 
 const A = 6378137
 const DEG2RAD = Math.PI / 180

@@ -17,7 +17,7 @@
 // call-site changes.
 
 import type { GPUContext } from '@xgis/engine'
-import type { Camera } from '../projection/camera'
+import type { Camera } from '@xgis/engine'
 import type { MeshData, LineMeshData } from '../../loader/geojson'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import { resolveNumberShape, resolveColorShape } from './paint-shape-resolve'

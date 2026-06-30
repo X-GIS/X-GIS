@@ -3,7 +3,7 @@ import {
   routeToSphereSelector,
   promotesToGlobeWhenTilted,
   PROJECTIONS,
-} from './projections-table'
+} from '@xgis/engine'
 
 // ═══ CHARACTERIZATION: oblique_mercator(6) tilt-promotion gap ═══
 //

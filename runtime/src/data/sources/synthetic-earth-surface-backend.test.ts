@@ -11,7 +11,7 @@
 import { describe, it, expect } from 'vitest'
 import { tileKey } from '@xgis/compiler'
 import { SyntheticEarthSurfaceBackend } from './synthetic-earth-surface-backend'
-import { lonLatToECEF, tileEcefCenterFromMerc } from '../../engine/projection/ecef'
+import { lonLatToECEF, tileEcefCenterFromMerc } from '@xgis/engine'
 import {
   TILE_LAYOUT_VERSION,
   type BackendTileResult,

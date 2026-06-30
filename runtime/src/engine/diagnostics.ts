@@ -21,7 +21,7 @@
 
 import { tileKey as compilerTileKey } from '@xgis/compiler'
 import { getMaxDpr } from '@xgis/engine'
-import { mercatorYToLat } from './projection/projection'
+import { mercatorYToLat } from '@xgis/engine'
 import type { QualityConfig } from '@xgis/engine'
 import type { XGISMap } from './map'
 import { xlog } from './log'

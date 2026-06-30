@@ -62,10 +62,10 @@ import {
   mercator,
   mercatorYToLat,
   type Projection,
-} from './projection'
-import { Camera } from './camera'
-import { globeForward, buildGlobeMatrix, unprojectGlobe } from './globe'
-import { lonLatToECEF } from './ecef'
+} from '@xgis/engine'
+import { Camera } from '@xgis/engine'
+import { globeForward, buildGlobeMatrix, unprojectGlobe } from '@xgis/engine'
+import { lonLatToECEF } from '@xgis/engine'
 
 // ════════════════════════════════════════════════════════════════════════
 // G2 — CPU per-projType inverse round-trip (foundational; PASSES today).

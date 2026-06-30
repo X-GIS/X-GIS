@@ -18,8 +18,8 @@ import { describe, expect, it } from 'vitest'
 import {
   mercator, equirectangular, naturalEarth, orthographic,
   azimuthalEquidistant, stereographic, obliqueMercator,
-} from './projection'
-import { Camera } from './camera'
+} from '@xgis/engine'
+import { Camera } from '@xgis/engine'
 
 const PROJECTIONS = [
   { name: 'mercator', proj: mercator, projType: 0, factory: () => mercator },

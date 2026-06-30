@@ -26,7 +26,7 @@
 //   - `this.camera` / `this.canvas`  → injected (stable ctor-time instances).
 
 import { assertIngestBudget, readBodyCapped, safeFetch } from './safety'
-import type { Camera } from './projection/camera'
+import type { Camera } from '@xgis/engine'
 import type { GPUContext } from '@xgis/engine'
 import { getMaxDpr } from '@xgis/engine'
 import type { MapRendererContent } from './render/renderer'

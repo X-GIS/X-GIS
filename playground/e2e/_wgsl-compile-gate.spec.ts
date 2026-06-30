@@ -24,7 +24,7 @@ import { emitLineWgsl, emitCompositeWgsl } from '../../runtime/src/engine/shader
 import { emitPointWgsl } from '../../runtime/src/engine/shaders/dsl/point'
 import { emitRasterWgsl } from '../../runtime/src/engine/shaders/dsl/raster'
 import { emitIconWgsl } from '../../runtime/src/engine/shaders/dsl/icon'
-import { emitOverdrawComposeWgsl } from '../../runtime/src/engine/shaders/dsl/overdraw-compose'
+import { emitOverdrawComposeWgsl } from '../../engine/src/shaders/dsl/overdraw-compose'
 import { emitOverdrawFsWgsl } from '../../runtime/src/engine/shaders/dsl/overdraw-fs'
 import { emitTextWgsl } from '../../runtime/src/engine/shaders/dsl/text'
 import { emitHeatmapAccumWgsl } from '../../runtime/src/engine/shaders/dsl/heatmap-accum'

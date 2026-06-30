@@ -43,7 +43,7 @@
 //   skipped entirely.
 
 import { describe, expect, it } from 'vitest'
-import { Camera } from '../projection/camera'
+import { Camera } from '@xgis/engine'
 import { TileSelectionCache } from './tile-selection-cache'
 import { FrameDrawStats } from './frame-draw-stats'
 import type { TileCatalog } from '../../data/tile-catalog'

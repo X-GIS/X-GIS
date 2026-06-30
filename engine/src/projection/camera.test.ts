@@ -25,7 +25,7 @@
 import { describe, expect, it } from 'vitest'
 import { Camera } from './camera'
 import { zoomAtGlobeAnchored, type GlobeAnchorCamera } from './globe-anchor'
-import { lonLatToMercator } from '../../loader/geojson'
+import { lonLatToMercator } from './projection'
 
 /** Inverse of `lonLatToMercator` for the round-trip assertion below.
  *  Local copy because the loader/geojson module doesn't export one

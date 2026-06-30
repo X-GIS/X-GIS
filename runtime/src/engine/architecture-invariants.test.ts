@@ -439,24 +439,9 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 1198→1205 (#600): the globe_eye Uniforms-struct lane + its doc
   // comment, and threading globe_eye into polygon_cos_c_fragment / polygon_rim_alpha.
   'runtime/src/engine/shaders/dsl/polygon.ts': 1205,
-  // Bumped 1067→1092 for the minZoom + setMaxBounds gesture-clamp correctness
-  // fixes (#244/#248): the maxBounds clamp method + its 7 gesture-exit call
-  // sites are irreducible. camera.ts decomposition remains a tracked priority.
-  // Bumped 1092→1108 for BUG P4 (sphere-family maxBounds pole-reach): the
-  // clampCenterToBounds sphere branch clamps centerLatDeg against the bbox's
-  // TRUE latitudes (carried as northLat/southLat on _maxBoundsMerc) instead of
-  // re-syncing from the Mercator-saturated centerY, so a maxBounds past ±85.05
-  // no longer pins the globe centre below the pole. Cylindrical path unchanged.
-  // Bumped 1108→1114 for the pan-inertia bearing-sign fix: camera.pan rotated
-  // the screen delta by Rot(−bearing) instead of Rot(+bearing) (off by 2·θ, so
-  // inertia flung the wrong way on a rotated map). The 6 added lines are the
-  // contract comment tying the sign to panToScreenAnchor's MVP inverse.
-  // Bumped 1114→1128 for the disc-drag anchor fix (#2): two new public methods
-  // discDragAnchorAt + panDiscToScreenAnchor mirror zoomAt's disc geo-anchor
-  // converge loop so a single-finger drag on an ortho/azi/stereo disc keeps the
-  // grabbed point under the cursor (the drag path previously subtracted disc-
-  // plane metres in Mercator space). Irreducible new surface, not bloat.
-  'runtime/src/engine/projection/camera.ts': 1128,
+  // camera.ts relocated to @xgis/engine (engine/src/projection/camera.ts) in
+  // P3 Step 3 — no longer under a SRC_DIRS walk, so its LOC ceiling is tracked
+  // by the engine package's own ratchet, not this runtime gate.
   // Bumped 1065→1067 for the curved-text early-return perf-mark balance fix:
   // the `total < spacingPx*0.5` curved branch was missing the two matching
   // perfMarkEnd('…line.emit')/('…line.polyline') calls its sibling returns

@@ -31,7 +31,7 @@ import { installWebGPUStub, type StubInstallation } from '../../__test-support__
 import { initGPU, type GPUContext } from '@xgis/engine'
 import { PointRenderer } from './point-renderer'
 import { WebGpuDevice } from '@xgis/engine'
-import { Camera } from '../projection/camera'
+import { Camera } from '@xgis/engine'
 
 let stub: StubInstallation
 

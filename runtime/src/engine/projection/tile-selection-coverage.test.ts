@@ -20,8 +20,8 @@ import { describe, it, expect } from 'vitest'
 import { visibleTilesSSE } from '../../loader/tiles-sse'
 import {
   mercator, equirectangular, naturalEarth, MERCATOR_LAT_LIMIT, type Projection,
-} from './projection'
-import { Camera } from './camera'
+} from '@xgis/engine'
+import { Camera } from '@xgis/engine'
 
 const W = 800, H = 800
 const R = 6378137

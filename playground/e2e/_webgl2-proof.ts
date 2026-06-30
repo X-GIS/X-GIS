@@ -14,7 +14,7 @@
 
 import { WebGl2Device, wrapWebGl2Pass } from '@xgis/engine'
 import { Material, executeItems } from '../../runtime/src/engine/render/material/material'
-import { overdrawComposeModule } from '../../runtime/src/engine/shaders/dsl/overdraw-compose'
+import { overdrawComposeModule } from '../../engine/src/shaders/dsl/overdraw-compose'
 import { buildPointModule } from '../../runtime/src/engine/shaders/dsl/point'
 import {
   emitGlslModule,

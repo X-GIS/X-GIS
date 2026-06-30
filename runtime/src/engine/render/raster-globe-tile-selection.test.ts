@@ -21,11 +21,11 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
 import { initGPU, type GPUContext } from '@xgis/engine'
 import { RasterRenderer } from './raster-renderer'
-import { Camera } from '../projection/camera'
+import { Camera } from '@xgis/engine'
 import { visibleTilesFrustum } from '../../data/tile-select'
-import { mercator as mercatorProj } from '../projection/projection'
-import { globeVisibleTiles } from '../projection/globe'
-import { routeToSphereSelector } from '../gpu/gpu-shared'
+import { mercator as mercatorProj } from '@xgis/engine'
+import { globeVisibleTiles } from '@xgis/engine'
+import { routeToSphereSelector } from '@xgis/engine'
 
 let stub: StubInstallation
 

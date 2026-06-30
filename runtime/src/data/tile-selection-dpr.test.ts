@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { Camera } from '../engine/projection/camera'
+import { Camera } from '@xgis/engine'
 import { visibleTilesFrustum, visibleTilesFrustumSampled } from './tile-select'
-import { mercator } from '../engine/projection/projection'
+import { mercator } from '@xgis/engine'
 
 // Verifies that DPR is a rasterisation-density concept ONLY — same
 // logical viewport (CSS pixels) at DPR=1 vs DPR=3 must select the

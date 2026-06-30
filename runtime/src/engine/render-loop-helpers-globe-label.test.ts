@@ -13,7 +13,7 @@
 // so a correct projector puts it dead-centre on screen at ANY pitch. Without
 // the focus subtraction it is thrown far off (off-screen under pitch).
 import { describe, it, expect } from 'vitest'
-import { Camera } from './projection/camera'
+import { Camera } from '@xgis/engine'
 import { makeLabelProjectors } from './render-loop-helpers'
 
 const W = 800, H = 600

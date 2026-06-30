@@ -53,7 +53,7 @@ vi.mock('../data/sources/virtual-pmtiles-backend', () => ({
 }))
 
 import { SourceManager, type SourceManagerDeps } from './source-manager'
-import { Camera } from './projection/camera'
+import { Camera } from '@xgis/engine'
 import type { ShowSourceMaps } from './show-source-maps'
 import type { GeoJSONFeatureCollection } from '../loader/geojson'
 import type { MapRendererContent } from './render/renderer'

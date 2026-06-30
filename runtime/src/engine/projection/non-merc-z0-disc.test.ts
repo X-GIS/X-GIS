@@ -48,7 +48,7 @@
 // control at z0. See .omc/research/p2-2.1-z0-disc-probe-2026-05-31.md.
 
 import { describe, it, expect } from 'vitest'
-import { Camera } from './camera'
+import { Camera } from '@xgis/engine'
 import { projectGeomCpu, projectCpu } from '../shaders/dsl/cpu-projections'
 
 const W = 800, H = 800, DPR = 1

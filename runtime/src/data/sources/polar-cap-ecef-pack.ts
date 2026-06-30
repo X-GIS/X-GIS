@@ -19,7 +19,7 @@
 // because the VS writes the CLAMPED abs_lat to the varying — only the POSITION
 // attribute reaches the pole.
 
-import { lonLatToECEF } from '../../engine/projection/ecef'
+import { lonLatToECEF } from '@xgis/engine'
 import { quantizeAxis } from '@xgis/shared'
 import { POLYGON_FILL_FORMAT, vertexField } from '@xgis/compiler'
 

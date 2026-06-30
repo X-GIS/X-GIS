@@ -35,7 +35,7 @@ import {
   STENCIL_WRITE_NO_DEPTH, STENCIL_TEST_NO_DEPTH,
   BLEND_OIT_ACCUM, BLEND_OIT_REVEALAGE,
   OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT,
-} from '../gpu/gpu-shared'
+} from '@xgis/engine'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { POLYGON_FILL_FORMAT, POLYGON_EXTRUDED_FORMAT } from '@xgis/compiler'
 import { toVertexBufferLayout } from './vertex-buffer-layout'

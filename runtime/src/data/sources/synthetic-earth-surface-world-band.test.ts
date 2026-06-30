@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { SyntheticEarthSurfaceBackend } from './synthetic-earth-surface-backend'
 import type { BackendTileResult, TileSourceSink } from '../tile-source'
-import { MERCATOR_LAT_LIMIT } from '../../engine/projection/projection'
+import { MERCATOR_LAT_LIMIT } from '@xgis/engine'
 
 // ═══ Synthetic earth-surface band tracks projType (source-honest world band) ═══
 //

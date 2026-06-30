@@ -261,7 +261,7 @@ export const DEPTH_TEST_WRITE: GPUDepthStencilState = {
 // resolves to. All render pipelines pick this up at creation; the 1×
 // branch in `map.ts:renderFrame` handles the no-resolve direct-to-swapchain
 // path.
-import { SAMPLE_COUNT } from '@xgis/engine'
+import { SAMPLE_COUNT } from './gpu'
 export const MSAA_STATE: GPUMultisampleState = { count: SAMPLE_COUNT }
 /** @deprecated Use `MSAA_STATE` (count is no longer always 4). Alias kept
  *  for back-compat with existing imports. */

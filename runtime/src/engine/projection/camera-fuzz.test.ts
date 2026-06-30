@@ -4,7 +4,7 @@
 // miss.
 
 import { describe, it, expect } from 'vitest'
-import { Camera } from './camera'
+import { Camera } from '@xgis/engine'
 
 const W = 800, H = 800, DPR = 1
 

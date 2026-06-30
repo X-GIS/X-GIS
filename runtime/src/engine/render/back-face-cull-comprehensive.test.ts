@@ -20,7 +20,7 @@
 import { describe, expect, it, beforeAll } from 'vitest'
 import { cosC, needsBackfaceCullWgsl } from '../shaders/dsl'
 import { globeEyeUniform } from './globe-eye-uniform'
-import { buildGlobeMatrix } from '../projection/globe'
+import { buildGlobeMatrix } from '@xgis/engine'
 
 const EARTH_R = 6378137
 const DEG2RAD = Math.PI / 180

@@ -44,7 +44,7 @@
 //   zooms the camera.
 
 import { describe, it, expect, afterEach } from 'vitest'
-import { Camera } from './projection/camera'
+import { Camera } from '@xgis/engine'
 import { PanZoomController } from './controller'
 
 const W = 800, H = 800

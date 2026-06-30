@@ -23,7 +23,7 @@
 // (`teardownSource` / `rawDatasets` / `showCommands` / VTR+TileCatalog). This
 // controller must NEVER touch them; it only SIGNALS a world-band change.
 
-import type { Camera } from '../projection/camera'
+import type { Camera } from '@xgis/engine'
 import type { MapRendererContent } from './renderer'
 import { xlog } from '../log'
 

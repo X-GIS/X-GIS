@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mercatorYToLat, MERCATOR_LAT_LIMIT } from './projection'
+import { mercatorYToLat, MERCATOR_LAT_LIMIT } from '@xgis/engine'
 
 // Pins the invariant behind the render-loop RTC-centre clamp unification
 // (P2 2.6): the RTC-centre latitude is now clamped to ±MERCATOR_LAT_LIMIT,

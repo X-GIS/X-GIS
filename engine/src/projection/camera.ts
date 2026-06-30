@@ -1,9 +1,9 @@
 // ═══ Map Camera — 줌/패닝/회전/피치 ═══
 
-import { lonLatToMercator } from '../../loader/geojson'
+import { lonLatToMercator } from './projection'
 import { type ECEF } from './ecef'
 import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
-import { getMaxDpr } from '@xgis/engine'
+import { getMaxDpr } from '../gpu/gpu'
 import { computeLogDepthFc } from '../shaders/log-depth'
 import { EARTH_R } from './globe'
 import { mercatorYToLat, mercatorYToLatRad, mercator } from './projection'

@@ -5,7 +5,7 @@
 
 import type { GPUContext } from '@xgis/engine'
 import { DEBUG_OVERDRAW } from '../debug-flags'
-import { Camera } from '../projection/camera'
+import { Camera } from '@xgis/engine'
 import type { ShowCommand } from './renderer'
 import { variantProducesFill } from './renderer-helpers'
 import { polygonUniformSlots, polygonUniformBytes, polygonUniformStride } from './polygon-uniform-slots'
@@ -46,14 +46,14 @@ import { tileKeyParent, tileKeyUnpack, type PropertyTable } from '@xgis/compiler
 import { StagingBufferPool } from '@xgis/engine'
 import { BundleCache, type BundleEncodeDescriptor } from './bundle-cache'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
-import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
+import { WORLD_MERC, TILE_PX } from '@xgis/engine'
 import { UploadCoordinator } from './upload-coordinator'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog } from '../../data/tile-catalog'
 import type { TileData } from '../../data/tile-types'
 import { computeSliceKey } from '../../data/eval/filter-eval'
-import { mercator as mercatorProj, getProjection, type Projection } from '../projection/projection'
-import { SELECTOR_PROJ_NAMES } from '../projection/projections-table'
+import { mercator as mercatorProj, getProjection, type Projection } from '@xgis/engine'
+import { SELECTOR_PROJ_NAMES } from '@xgis/engine'
 import type { PointRenderer } from './point-renderer'
 import type { LineRenderer } from './line-renderer'
 import { parseHexColor } from '../feature-helpers'
@@ -155,7 +155,7 @@ export class VectorTileRenderer {
   get sourceMaxLevel(): number {
     return this.source?.maxLevel ?? 0
   }
-  currentProjection: import('../projection/projection').Projection | null = null
+  currentProjection: import('@xgis/engine').Projection | null = null
   /** Resident GPU tile cache + arenas + eviction (Cluster A; see class
    *  doc). Injected collaborator; VTR keeps thin forwarders (`getCacheSize`)
    *  and the uploader + render hot loop call through it. The store holds no

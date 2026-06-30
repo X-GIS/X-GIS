@@ -11,11 +11,11 @@
 // 5-7 fps over-select).
 
 import { describe, it, expect } from 'vitest'
-import { globeVisibleTiles } from './globe'
+import { globeVisibleTiles } from '@xgis/engine'
 import { visibleTilesFrustumSampled } from '../../data/tile-select'
-import { mercator, equirectangular, naturalEarth } from './projection'
-import { Camera } from './camera'
-import { routeToSphereSelector } from '../gpu/gpu-shared'
+import { mercator, equirectangular, naturalEarth } from '@xgis/engine'
+import { Camera } from '@xgis/engine'
+import { routeToSphereSelector } from '@xgis/engine'
 
 const W = 800, H = 800
 
