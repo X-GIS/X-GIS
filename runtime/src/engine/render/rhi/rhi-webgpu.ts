@@ -146,6 +146,13 @@ export function wrapWebGpuTextureView(view: GPUTextureView): RhiTextureView {
   return wrap(view) as unknown as RhiTextureView
 }
 
+/** Adopt an EXTERNALLY-created sampler (e.g. the glyph atlas's GPUSampler) as an
+ *  RHI sampler — the legit native→RHI bridge for samplers built outside the device
+ *  abstraction, mirroring wrapWebGpuTextureView. */
+export function wrapWebGpuSampler(sampler: GPUSampler): RhiSampler {
+  return wrap(sampler) as unknown as RhiSampler
+}
+
 /** Adopt an externally-built GPUBuffer (vertex / index / feature geometry from
  *  the upload path) as an RHI buffer. Bridge for resources built outside the
  *  device abstraction; the full arch builds these via RHI too. */
