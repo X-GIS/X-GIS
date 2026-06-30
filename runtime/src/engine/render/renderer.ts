@@ -1,20 +1,32 @@
-// ═══ X-GIS Map Renderer — WebGPU ═══
+// ═══ X-GIS Map Renderer — content half (WebGPU) ═══
+//
+// Step 1 of the P2 engine carve (docs/architecture/p2-engine-carve-plan.md):
+// `MapRendererContent` is the CONTENT half split out of the former
+// `MapRenderer` god-object. It owns *what to paint* — the non-tiled
+// RenderLayer set + addLayer, the per-draw paint struct + renderToPass, the
+// palette / sprite atlas LIVE views, the base bindGroup, the graticule
+// overlay, and StyleProperties. It holds a `FrameRenderer` (the engine half,
+// frame-renderer.ts: RHI / ring / pipeline machinery) and reaches that
+// machinery ONLY through its public methods / getters. The engine holds NO
+// back-reference to content.
+//
+// The external read contract is preserved here: `map.ts` constructs this
+// object as `this.renderer`, and the passes / source-manager read the engine
+// pipeline fields off it. The engine pipeline getters are re-exposed below as
+// thin delegations to the FrameRenderer — byte-identical external API, ZERO
+// call-site changes.
 
 import type { GPUContext } from '../gpu/gpu'
 import type { Camera } from '../projection/camera'
 import type { MeshData, LineMeshData } from '../../loader/geojson'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import { resolveNumberShape, resolveColorShape } from './paint-shape-resolve'
-import { ComputeDispatcher } from '../gpu/compute'
-import { ComputeLayerRegistry } from './compute-layer-registry'
-import { extendBindGroupLayoutEntriesForCompute } from './compute-bind-layout'
 import type { ShaderVariantInfo, CachedPipeline, ShowCommand, RenderLayer } from './renderer-types'
 import { parseColor } from './renderer-helpers'
-import { UniformRing } from './uniform-ring'
 import { GraticuleRenderer } from './graticule-renderer'
-import { PipelineFactory } from './pipeline-factory'
-import { polygonUniformBytes, polygonUniformStride, polygonUniformSlots } from './polygon-uniform-slots'
+import { polygonUniformBytes, polygonUniformSlots } from './polygon-uniform-slots'
 import { writeFrameProjectionUniform } from './frame-projection-uniform'
+import { FrameRenderer } from './frame-renderer'
 
 // Re-export the extracted types so this module's public surface stays
 // byte-identical (external consumers import these from './renderer').
@@ -81,83 +93,35 @@ export class StyleProperties {
   }
 }
 
-// ═══ MapRenderer ═══
+// ═══ MapRendererContent ═══
 
-export class MapRenderer {
+export class MapRendererContent {
+  /** Shared GPU context — the SAME instance held by the engine half.
+   *  Content needs `ctx.device` (buffer / bind-group creation) + `ctx.canvas`
+   *  (camera framing) directly; the device is shared infra. */
   private ctx: GPUContext
+  /** The ENGINE half — RHI / ring / pipeline machinery. Content reaches it
+   *  ONLY through its public methods / getters; the engine holds NO back-
+   *  reference to content (plan Step 1 invariant). */
+  private readonly engine: FrameRenderer
   // Cached per-frame allocation (avoid GC pressure in render loop). Sized to
   // the polygon Uniforms struct byte count (reflect-derived via
   // polygonUniformBytes()). Out-of-bounds typed-array writes are silent no-ops
   // so a mismatch here = uniform never reaches the GPU.
   private uniformDataBuf = new ArrayBuffer(polygonUniformBytes())
-  // Polygon Uniforms stride / bind-range size are read LAZILY via
-  // polygonUniformStride() / polygonUniformBytes() (memoised) at ctor/draw time.
-  // They MUST NOT be `static readonly` fields: polygonUniformBytes() reflects the
-  // polygon module = a projection emit, which throws until configureProjections()
-  // has run (post-GPU-init), and a static field evaluates at class-definition
-  // (IMPORT) time — that crashed the entire map init. The BGL omits minBindingSize,
-  // so a smaller bind `size` than the shader-derived struct fails draw validation.
-  /** Pipeline-construction collaborator (Unit 1 of
-   *  renderer-decomposition-2026-06-09). Owns every render pipeline +
-   *  bind-group layout + the atlas STUB textures + the shared sampler +
-   *  the per-variant shader cache. Built in the ctor; the external read
-   *  contract (map.ts / source-manager.ts push these fields into VTR's
-   *  set*Pipelines) is preserved by the per-field delegating getters
-   *  below — byte-identical external API, ZERO call-site changes. The
-   *  factory holds NO back-reference to MapRenderer. */
-  private readonly _pipelines: PipelineFactory
-  // ── Per-field delegating getters: the external pipeline-field read
-  //    contract (plan §0) — every field map.ts / source-manager.ts /
-  //    the OIT/opaque passes read MUST stay readable on MapRenderer. ──
-  get fillPipeline(): GPURenderPipeline { return this._pipelines.fillPipeline }
-  /** P1.6 — the polygon flat-fill RHI Material twins + pipeline refs for VectorTileRenderer.setFillRhi. */
-  fillRhiState(): import('./material/polygon-fill-material').FillRhiState | null { return this._pipelines.fillRhiState() }
-  get fillPipelineGround(): GPURenderPipeline { return this._pipelines.fillPipelineGround }
-  get fillPipelineExtruded(): GPURenderPipeline { return this._pipelines.fillPipelineExtruded }
-  get fillPipelineExtrudedOIT(): GPURenderPipeline { return this._pipelines.fillPipelineExtrudedOIT }
-  get oitComposePipeline(): GPURenderPipeline { return this._pipelines.oitComposePipeline }
-  get oitComposeBindGroupLayout(): GPUBindGroupLayout { return this._pipelines.oitComposeBindGroupLayout }
-  get overdrawComposePipeline(): GPURenderPipeline | null { return this._pipelines.overdrawComposePipeline }
-  get overdrawComposeBindGroupLayout(): GPUBindGroupLayout { return this._pipelines.overdrawComposeBindGroupLayout }
-  get heatmapBlurBindGroupLayout(): GPUBindGroupLayout { return this._pipelines.heatmapBlurBindGroupLayout }
-  get heatmapComposeBindGroupLayout(): GPUBindGroupLayout { return this._pipelines.heatmapComposeBindGroupLayout }
-  get fillPipelineOverdraw(): GPURenderPipeline | null { return this._pipelines.fillPipelineOverdraw }
-  get fillPipelineOverdrawFeature(): GPURenderPipeline | null { return this._pipelines.fillPipelineOverdrawFeature }
-  get linePipelineOverdraw(): GPURenderPipeline | null { return this._pipelines.linePipelineOverdraw }
-  get linePipeline(): GPURenderPipeline { return this._pipelines.linePipeline }
-  get fillPipelineFallback(): GPURenderPipeline { return this._pipelines.fillPipelineFallback }
-  get fillPipelineGroundFallback(): GPURenderPipeline { return this._pipelines.fillPipelineGroundFallback }
-  get fillPipelineExtrudedFallback(): GPURenderPipeline { return this._pipelines.fillPipelineExtrudedFallback }
-  get fillPipelinePatternGround(): GPURenderPipeline { return this._pipelines.fillPipelinePatternGround }
-  get fillPipelinePatternGroundFallback(): GPURenderPipeline { return this._pipelines.fillPipelinePatternGroundFallback }
-  get fillPipelinePatternExtruded(): GPURenderPipeline { return this._pipelines.fillPipelinePatternExtruded }
-  get fillPipelinePatternExtrudedFallback(): GPURenderPipeline { return this._pipelines.fillPipelinePatternExtrudedFallback }
-  get linePipelineFallback(): GPURenderPipeline { return this._pipelines.linePipelineFallback }
-  get fillPipelineNoPick(): GPURenderPipeline { return this._pipelines.fillPipelineNoPick }
-  get fillPipelineGroundNoPick(): GPURenderPipeline { return this._pipelines.fillPipelineGroundNoPick }
-  get fillPipelineExtrudedNoPick(): GPURenderPipeline { return this._pipelines.fillPipelineExtrudedNoPick }
-  get linePipelineNoPick(): GPURenderPipeline { return this._pipelines.linePipelineNoPick }
-  get fillPipelineFallbackNoPick(): GPURenderPipeline { return this._pipelines.fillPipelineFallbackNoPick }
-  get fillPipelineGroundFallbackNoPick(): GPURenderPipeline { return this._pipelines.fillPipelineGroundFallbackNoPick }
-  get fillPipelineExtrudedFallbackNoPick(): GPURenderPipeline { return this._pipelines.fillPipelineExtrudedFallbackNoPick }
-  get linePipelineFallbackNoPick(): GPURenderPipeline { return this._pipelines.linePipelineFallbackNoPick }
-  get bindGroupLayout(): GPUBindGroupLayout { return this._pipelines.bindGroupLayout }
-  get featureBindGroupLayout(): GPUBindGroupLayout { return this._pipelines.featureBindGroupLayout }
-  /** Palette/sprite sampler — owned by the factory (shared by both
-   *  atlases at bindings 4 + 6). In the external read contract
-   *  (map.ts:557 / source-manager.ts). */
-  get paletteSampler(): GPUSampler { return this._pipelines.paletteSampler }
-  private uniformRing!: UniformRing
-  /** Live uniform ring buffer. Public — read by the OIT / opaque /
-   *  translucent passes via `host.renderer.uniformBuffer`. Delegates to
-   *  the shared UniformRing so those callers keep working unchanged. */
-  get uniformBuffer(): GPUBuffer { return this.uniformRing.buffer! }
-  // P3 Step 3c palette atlas — the LIVE view stays on MapRenderer (plan
-  // §5 FB#3). It starts as the factory's 1×1 transparent STUB view (so
-  // every bind group is valid before the real atlas lands) and
-  // `setPaletteColorAtlas` swaps it in-place + rebuilds bindGroup +
-  // per-layer groups when the scene compile finishes. Seeded in the
-  // ctor from `_pipelines.paletteStubTextureView`.
+  // The polygon Uniforms bind-range size is read LAZILY via polygonUniformBytes()
+  // (memoised) at ctor/draw time. It MUST NOT be a `static readonly` field:
+  // polygonUniformBytes() reflects the polygon module = a projection emit, which
+  // throws until configureProjections() has run (post-GPU-init), and a static
+  // field evaluates at class-definition (IMPORT) time — that crashed the entire
+  // map init. The BGL omits minBindingSize, so a smaller bind `size` than the
+  // shader-derived struct fails draw validation.
+  // P3 Step 3c palette atlas — the LIVE view stays on the CONTENT half (plan
+  // §5 FB#3 + Step 1 invariant: atlas views do NOT survive in the engine). It
+  // starts as the factory's 1×1 transparent STUB view (so every bind group is
+  // valid before the real atlas lands) and `setPaletteColorAtlas` swaps it
+  // in-place + rebuilds bindGroup + per-layer groups when the scene compile
+  // finishes. Seeded in the ctor from `engine.paletteStubTextureView`.
   /** Currently-bound color gradient atlas view. Defaults to the factory's
    *  1×1 stub; set to the real atlas via `setPaletteColorAtlas`. In the
    *  external read contract (map.ts:557 / source-manager.ts). */
@@ -172,10 +136,122 @@ export class MapRenderer {
   private layers: RenderLayer[] = []
   /** Lat/lon grid overlay collaborator. Owns its own GPU-buffer lifecycle
    *  + zoom-bucket regeneration + WeakMap cache; borrows linePipeline +
-   *  base bindGroup + uniformRing per frame (passed into renderFrame).
-   *  Built in the ctor (after `this.ctx` is set). */
+   *  base bindGroup + the engine's uniformRing per frame (passed into
+   *  renderFrame). Built in the ctor. */
   private readonly _graticule: GraticuleRenderer
 
+  constructor(ctx: GPUContext) {
+    this.ctx = ctx
+    this._graticule = new GraticuleRenderer(ctx)
+    // Engine half: PipelineFactory build (layouts → pipelines → atlas stubs)
+    // + setLayoutResolver. ORDER preserves the original MapRenderer ctor:
+    // graticule → pipelines → atlas-view seed → ring create + ensure().
+    this.engine = new FrameRenderer(ctx)
+    // Seed the LIVE atlas views from the factory's 1×1 stubs (FB#3). The
+    // setters (setPaletteColorAtlas / setSpriteAtlas) swap these in-place
+    // once the real atlases land.
+    this.paletteColorAtlasView = this.engine.paletteStubTextureView
+    this.spriteAtlasView = this.engine.spriteAtlasStubTextureView
+    // Build the uniform ring + fire the first rebuildUniformBindGroups via
+    // the onGrow hook (layers empty at init → base bindGroup only). This
+    // runs AFTER the atlas-view seed so the rebuild sees the live views.
+    this.engine.initUniformRing(() => this.rebuildUniformBindGroups())
+    // Graticule init is lazy — first frame after setGraticuleEnabled(true)
+    // builds the buffer. Default off so the ctor stays cheap and the
+    // grid doesn't render unless the host opts in.
+  }
+
+  // ── Engine read-contract re-exposers (plan Step 1 "preserve the external
+  //    read contract"): every pipeline field / method that map.ts /
+  //    source-manager.ts / the OIT/opaque/translucent/heatmap/overdraw
+  //    passes read off `renderer` MUST stay readable on the object map.ts
+  //    constructs. Thin delegations to the engine half — byte-identical
+  //    external API, ZERO call-site changes. ──
+  get fillPipeline(): GPURenderPipeline { return this.engine.fillPipeline }
+  fillRhiState(): import('./material/polygon-fill-material').FillRhiState | null { return this.engine.fillRhiState() }
+  get fillPipelineGround(): GPURenderPipeline { return this.engine.fillPipelineGround }
+  get fillPipelineExtruded(): GPURenderPipeline { return this.engine.fillPipelineExtruded }
+  get fillPipelineExtrudedOIT(): GPURenderPipeline { return this.engine.fillPipelineExtrudedOIT }
+  get oitComposePipeline(): GPURenderPipeline { return this.engine.oitComposePipeline }
+  get oitComposeBindGroupLayout(): GPUBindGroupLayout { return this.engine.oitComposeBindGroupLayout }
+  get overdrawComposePipeline(): GPURenderPipeline | null { return this.engine.overdrawComposePipeline }
+  get overdrawComposeBindGroupLayout(): GPUBindGroupLayout { return this.engine.overdrawComposeBindGroupLayout }
+  get heatmapBlurBindGroupLayout(): GPUBindGroupLayout { return this.engine.heatmapBlurBindGroupLayout }
+  get heatmapComposeBindGroupLayout(): GPUBindGroupLayout { return this.engine.heatmapComposeBindGroupLayout }
+  get fillPipelineOverdraw(): GPURenderPipeline | null { return this.engine.fillPipelineOverdraw }
+  get fillPipelineOverdrawFeature(): GPURenderPipeline | null { return this.engine.fillPipelineOverdrawFeature }
+  get linePipelineOverdraw(): GPURenderPipeline | null { return this.engine.linePipelineOverdraw }
+  get linePipeline(): GPURenderPipeline { return this.engine.linePipeline }
+  get fillPipelineFallback(): GPURenderPipeline { return this.engine.fillPipelineFallback }
+  get fillPipelineGroundFallback(): GPURenderPipeline { return this.engine.fillPipelineGroundFallback }
+  get fillPipelineExtrudedFallback(): GPURenderPipeline { return this.engine.fillPipelineExtrudedFallback }
+  get fillPipelinePatternGround(): GPURenderPipeline { return this.engine.fillPipelinePatternGround }
+  get fillPipelinePatternGroundFallback(): GPURenderPipeline { return this.engine.fillPipelinePatternGroundFallback }
+  get fillPipelinePatternExtruded(): GPURenderPipeline { return this.engine.fillPipelinePatternExtruded }
+  get fillPipelinePatternExtrudedFallback(): GPURenderPipeline { return this.engine.fillPipelinePatternExtrudedFallback }
+  get linePipelineFallback(): GPURenderPipeline { return this.engine.linePipelineFallback }
+  get fillPipelineNoPick(): GPURenderPipeline { return this.engine.fillPipelineNoPick }
+  get fillPipelineGroundNoPick(): GPURenderPipeline { return this.engine.fillPipelineGroundNoPick }
+  get fillPipelineExtrudedNoPick(): GPURenderPipeline { return this.engine.fillPipelineExtrudedNoPick }
+  get linePipelineNoPick(): GPURenderPipeline { return this.engine.linePipelineNoPick }
+  get fillPipelineFallbackNoPick(): GPURenderPipeline { return this.engine.fillPipelineFallbackNoPick }
+  get fillPipelineGroundFallbackNoPick(): GPURenderPipeline { return this.engine.fillPipelineGroundFallbackNoPick }
+  get fillPipelineExtrudedFallbackNoPick(): GPURenderPipeline { return this.engine.fillPipelineExtrudedFallbackNoPick }
+  get linePipelineFallbackNoPick(): GPURenderPipeline { return this.engine.linePipelineFallbackNoPick }
+  get bindGroupLayout(): GPUBindGroupLayout { return this.engine.bindGroupLayout }
+  get featureBindGroupLayout(): GPUBindGroupLayout { return this.engine.featureBindGroupLayout }
+  /** Palette/sprite sampler — owned by the engine's factory (shared by both
+   *  atlases at bindings 4 + 6). In the external read contract
+   *  (map.ts:557 / source-manager.ts). */
+  get paletteSampler(): GPUSampler { return this.engine.paletteSampler }
+  /** Live uniform ring buffer — read by the OIT / opaque / translucent
+   *  passes via `host.renderer.uniformBuffer`. */
+  get uniformBuffer(): GPUBuffer { return this.engine.uniformBuffer }
+  /** Rebuild all pipelines + invalidate shader variant cache (map.setQuality). */
+  rebuildForQuality(): void { this.engine.rebuildForQuality() }
+  /** Lazy-build the `?debug=overdraw` final compose pipeline. */
+  ensureOverdrawCompose(): GPURenderPipeline { return this.engine.ensureOverdrawCompose() }
+  /** Lazy-build the heatmap blur pipeline (Phase R). */
+  ensureHeatmapBlur(): GPURenderPipeline { return this.engine.ensureHeatmapBlur() }
+  /** Lazy-build the heatmap compose pipeline (Phase R). */
+  ensureHeatmapCompose(): GPURenderPipeline { return this.engine.ensureHeatmapCompose() }
+  /** Reset the ring-buffer slot cursor. Call once per frame before any draws. */
+  beginFrame(): void { this.engine.beginFrame() }
+  /** Flush the staged uniform bytes before queue.submit(). */
+  endFrame(): void { this.engine.endFrame() }
+  /** Run every attached compute kernel onto the encoder (once per frame). */
+  dispatchComputePass(
+    encoder: GPUCommandEncoder,
+    timestampWritesProvider?: { computeWrites(): GPUComputePassTimestampWrites | null } | null,
+  ): void {
+    this.engine.dispatchComputePass(encoder, timestampWritesProvider)
+  }
+  /** Hand the scene's compute plan to the renderer before addLayer calls. */
+  setComputePlan(plan: readonly import('@xgis/compiler').ComputePlanEntry[] | undefined): void {
+    this.engine.setComputePlan(plan)
+  }
+  /** Return the bind-group layout the renderer binds for a given variant. */
+  getOrBuildVariantLayout(variant: ShaderVariantInfo): GPUBindGroupLayout {
+    return this.engine.getOrBuildVariantLayout(variant)
+  }
+  /** Get or create variant pipelines (public for vector tile renderer). */
+  getOrCreateVariantPipelines(variant: ShaderVariantInfo): CachedPipeline {
+    return this.engine.getOrCreateVariantPipelines(variant)
+  }
+  /** Async prewarm — forwarder to the engine's factory. */
+  async prewarmShaderVariantsAsync(variants: ShaderVariantInfo[]): Promise<void> {
+    return this.engine.prewarmShaderVariantsAsync(variants)
+  }
+
+  /** Toggle the lat/lon grid overlay at runtime. Default off. */
+  setGraticuleEnabled(on: boolean): void {
+    this._graticule.setEnabled(on)
+  }
+
+  /** Read the current graticule on/off state. */
+  isGraticuleEnabled(): boolean {
+    return this._graticule.isEnabled()
+  }
 
   /** Get rendering stats for all layers */
   getDrawStats(): { drawCalls: number; vertices: number; triangles: number; lines: number } {
@@ -198,212 +274,6 @@ export class MapRenderer {
       vertices += gratVerts
     }
     return { drawCalls, vertices, triangles, lines }
-  }
-
-  // Compute-paint scaffolding (plan P4-5). Lazily initialised on the
-  // first request — the registry owns ComputeLayerHandle instances
-  // and dispatches their kernels once per frame. Stays null until a
-  // variant with `computeBindings` is encountered, so the production
-  // path (no enableComputePath flag) pays nothing.
-  private computeRegistry: ComputeLayerRegistry | null = null
-  private computeDispatcher: ComputeDispatcher | null = null
-  /** Per-variant cached extended bind-group layout (legacy feature
-   *  entries + one read-only-storage per computeBindings spec). Keyed
-   *  by `variant.key` — same key as `shaderCache` so a cache hit on
-   *  one implies a hit on the other. Pipelines built against the
-   *  legacy `featureBindGroupLayout` use that directly; compute
-   *  variants take a freshly-built per-variant layout from here. */
-  private variantComputeLayoutCache = new Map<string, GPUBindGroupLayout>()
-  /** Scene plan provided by the orchestrator before addLayer is
-   *  called. ComputeLayerHandle filters this by renderNodeIndex —
-   *  the runtime never holds an opinion about which subset goes
-   *  where; the variant.computeBindings + plan filter agree by
-   *  construction (compiler post-condition). */
-  private currentComputePlan: readonly import('@xgis/compiler').ComputePlanEntry[] | undefined
-
-  constructor(ctx: GPUContext) {
-    this.ctx = ctx
-    this._graticule = new GraticuleRenderer(ctx)
-    // Unit 1 split (plan §5 FB#4): the factory builds layouts → pipelines
-    // → atlas stubs (its ctor calls build()); MapRenderer then seeds the
-    // live atlas views + builds the uniform ring (the ring-tail that
-    // STAYS here) + fires the first rebuildUniformBindGroups. ORDER is
-    // load-bearing (DO-NOT-SPLIT #2): the factory finishes layout +
-    // pipeline + stub creation BEFORE the ring bind groups reference
-    // `_pipelines.bindGroupLayout`.
-    this._pipelines = new PipelineFactory(ctx)
-    // Route the variant pipeline builders' compute-aware layout pick back
-    // through MapRenderer's getOrBuildVariantLayout — the
-    // `variantComputeLayoutCache` (compute branch) is COMPUTE-cluster
-    // state that STAYS here (plan §5 FB#1); the factory's own resolver
-    // only covers the non-compute base layouts.
-    this._pipelines.setLayoutResolver((v) => this.getOrBuildVariantLayout(v))
-    // Seed the LIVE atlas views from the factory's 1×1 stubs (FB#3). The
-    // setters (setPaletteColorAtlas / setSpriteAtlas) swap these in-place
-    // once the real atlases land.
-    this.paletteColorAtlasView = this._pipelines.paletteStubTextureView
-    this.spriteAtlasView = this._pipelines.spriteAtlasStubTextureView
-    // Uniform ring buffer: 240-byte slots (shared polygon/line struct), 256-slot
-    // initial capacity, dynamic offsets per draw. Guarantees that multi-
-    // layer draws don't overwrite each other's uniforms.
-    // ensure() fires the onGrow callback → builds this.bindGroup (and the
-    // per-layer loop, empty at init since no layers are registered yet),
-    // faithfully replacing the inline build at the same point in init.
-    this.uniformRing = new UniformRing(this.ctx.device, polygonUniformStride(), 256, 'uniform-ring', () => this.rebuildUniformBindGroups())
-    this.uniformRing.ensure()
-    // Graticule init is lazy — first frame after setGraticuleEnabled(true)
-    // builds the buffer. Default off so the ctor stays cheap and the
-    // grid doesn't render unless the host opts in.
-  }
-
-  /** Toggle the lat/lon grid overlay at runtime. Default off. */
-  setGraticuleEnabled(on: boolean): void {
-    this._graticule.setEnabled(on)
-  }
-
-  /** Read the current graticule on/off state. */
-  isGraticuleEnabled(): boolean {
-    return this._graticule.isEnabled()
-  }
-
-  /** Get-or-create the compute registry. Lazy because most scenes
-   *  don't use the compute path; we don't want to allocate the
-   *  dispatcher unless we actually have a compute kernel to run. */
-  private ensureComputeRegistry(): ComputeLayerRegistry {
-    if (this.computeRegistry) return this.computeRegistry
-    this.computeDispatcher = new ComputeDispatcher(this.ctx)
-    this.computeRegistry = new ComputeLayerRegistry(this.computeDispatcher)
-    return this.computeRegistry
-  }
-
-  /** Run every attached compute kernel onto the encoder. Call ONCE
-   *  per frame from the orchestrator (map.ts) BEFORE the first
-   *  beginRenderPass — compute output buffers must be populated
-   *  before the fragment shader reads them.
-   *
-   *  No-op when no compute layer is attached (the registry is null
-   *  or empty). Safe to call unconditionally from the orchestrator. */
-  dispatchComputePass(
-    encoder: GPUCommandEncoder,
-    timestampWritesProvider?: { computeWrites(): GPUComputePassTimestampWrites | null } | null,
-  ): void {
-    this.computeRegistry?.dispatchAll(encoder, timestampWritesProvider)
-  }
-
-  /** Hand the scene's compute plan to the renderer before issuing
-   *  addLayer calls. ComputeLayerHandle filters the plan by
-   *  `show.renderNodeIndex`; calling this with `undefined` clears
-   *  the plan (back-compat for scenes without compute kernels). */
-  setComputePlan(plan: readonly import('@xgis/compiler').ComputePlanEntry[] | undefined): void {
-    this.currentComputePlan = plan
-  }
-
-  /** Return the bind-group layout the renderer should bind for a
-   *  given variant. Variants without `computeBindings` keep using
-   *  the shared `featureBindGroupLayout`; variants WITH compute
-   *  bindings get a per-key extended layout (cached). The returned
-   *  layout matches the bind-group entries `addLayer` constructs
-   *  for the same variant — drift between the two surfaces as a
-   *  WebGPU validation error at pipeline / bind-group create.
-   *
-   *  Public so VTR / point-renderer (which build their own per-tile
-   *  bind groups against this same layout) can request the right
-   *  layout per variant during their setBindGroupLayout / pipeline-
-   *  build call sites. */
-  getOrBuildVariantLayout(variant: ShaderVariantInfo): GPUBindGroupLayout {
-    if (!variant.computeBindings || variant.computeBindings.length === 0) {
-      // Non-compute half — a trivial read of the two factory-owned base
-      // layouts (plan §5 FB#1 split). Forwarded to the factory.
-      return this._pipelines.getOrBuildVariantLayout(variant)
-    }
-    // Compute half — STAYS on MapRenderer. The `variantComputeLayoutCache`
-    // is COMPUTE-cluster state keyed by `variant.key` (same key as the
-    // factory's shaderCache) and MUST stay consistent with the bind-group
-    // entries addLayer constructs — plan §5 FB#1, NOT factory state.
-    const cached = this.variantComputeLayoutCache.get(variant.key)
-    if (cached) return cached
-    // Build extended entries from the legacy feature entries (the
-    // single source of truth for the polygon path's uniform / feature-
-    // data / palette layout). `extendBindGroupLayoutEntriesForCompute`
-    // appends one read-only-storage entry per computeBindings spec at
-    // the binding indices the compiler chose. The base entries live on
-    // the factory (PipelineFactory.FEATURE_LAYOUT_ENTRIES) so the two
-    // layouts cannot drift.
-    const legacy = PipelineFactory.getFeatureLayoutEntries()
-    // FRAGMENT bit = 2 (raw spec value; see FEATURE_LAYOUT_ENTRIES
-    // comment for why we don't reference GPUShaderStage here).
-    const extended = extendBindGroupLayoutEntriesForCompute(
-      variant, legacy, /* FRAGMENT */ 2,
-    )
-    const layout = this.ctx.device.createBindGroupLayout({
-      label: `mr-featureBindGroupLayout-compute(${variant.key})`,
-      entries: extended as GPUBindGroupLayoutEntry[],
-    })
-    this.variantComputeLayoutCache.set(variant.key, layout)
-    return layout
-  }
-
-  /** Public mirror of the factory's PALETTE_LAYOUT_ENTRIES for the
-   *  bind-group-drift invariant test (`bind-group-drift.test.ts` reads
-   *  `MapRenderer.PALETTE_LAYOUT_ENTRIES`). The canonical array lives on
-   *  PipelineFactory after Unit 1 — forwarded here so the external
-   *  static read contract stays byte-identical. Same array; do not
-   *  duplicate. */
-  static readonly PALETTE_LAYOUT_ENTRIES: readonly GPUBindGroupLayoutEntry[] =
-    PipelineFactory.PALETTE_LAYOUT_ENTRIES
-
-  /** Public mirror of the factory's FEATURE_LAYOUT_ENTRIES for the drift
-   *  invariant test (`bind-group-drift.test.ts` reads
-   *  `MapRenderer.getFeatureLayoutEntries()`). The canonical array lives
-   *  on PipelineFactory after Unit 1. Same array; do not duplicate. */
-  static getFeatureLayoutEntries(): readonly GPUBindGroupLayoutEntry[] {
-    return PipelineFactory.getFeatureLayoutEntries()
-  }
-
-  /** Rebuild all pipelines + invalidate shader variant cache. Called by
-   *  `map.setQuality()` when MSAA or picking flip at runtime — both force
-   *  a pipeline `sampleCount` / fragment-target-count change that's baked
-   *  at pipeline creation. Non-pipeline state (bind group layouts, the
-   *  uniform ring, graticule geometry) survives the rebuild unchanged.
-   *
-   *  Forwarder (plan §6 DO-NOT-SPLIT #3): clears MapRenderer's
-   *  `variantComputeLayoutCache` (COMPUTE-cluster, FB#1) FIRST, then
-   *  `_pipelines.rebuild()` clears the factory's shaderCache + rebuilds
-   *  every pipeline. Both caches are keyed by `variant.key` and MUST be
-   *  invalidated in lockstep — pinned by map-set-quality-invariant.test.ts
-   *  (regression 6080a2f). */
-  rebuildForQuality(): void {
-    // Toss the per-show variant pipelines — their shader embeds the
-    // PICK markers too, and their `multisample.count` is frozen.
-    // map.setQuality (the only caller) follows up with an eager
-    // re-resolve loop over vectorTileShows that calls
-    // getOrCreateVariantPipelines + getOrBuildVariantLayout so
-    // pipelines AND layouts stay self-consistent. Lazy rebuild from the
-    // draw path was previously promised in a comment here but never
-    // wired — that promise let entry.pipelines stay null with
-    // entry.layout still feature/compute, tripping per-frame
-    // BindGroupLayout validation (see commit 6080a2f).
-    this.variantComputeLayoutCache.clear()
-    this._pipelines.rebuild()
-  }
-
-  /** Lazy-build the `?debug=overdraw` final compose pipeline. Thin
-   *  forwarder to the factory (the external read site is
-   *  overdraw-compose-pass.ts:25 `host.renderer.ensureOverdrawCompose()`). */
-  ensureOverdrawCompose(): GPURenderPipeline {
-    return this._pipelines.ensureOverdrawCompose()
-  }
-
-  /** Lazy-build the heatmap blur pipeline (Phase R). Thin forwarder to the
-   *  factory; the external read site is heatmap-pass.ts. */
-  ensureHeatmapBlur(): GPURenderPipeline {
-    return this._pipelines.ensureHeatmapBlur()
-  }
-
-  /** Lazy-build the heatmap compose pipeline (Phase R). Thin forwarder to the
-   *  factory; the external read site is heatmap-pass.ts. */
-  ensureHeatmapCompose(): GPURenderPipeline {
-    return this._pipelines.ensureHeatmapCompose()
   }
 
   /** Rebuild the bind group(s) that reference the uniform ring. Invoked
@@ -441,30 +311,6 @@ export class MapRenderer {
     }
   }
 
-  /** Reset the ring-buffer slot cursor. Call once per frame before any draws. */
-  beginFrame(): void {
-    this.uniformRing.resetSlot()
-    for (const b of this.uniformRing.takeRetired()) b.destroy()
-  }
-
-  /** Copy a draw's uniform block into the staging mirror; tracked by
-   *  dirty range so endFrame() can emit one writeBuffer instead of
-   *  one per draw. Same pattern as VTR.stageUniformSlot. */
-  private stageUniformSlot(slotOffset: number, src: ArrayBuffer): void {
-    this.uniformRing.stageSlot(slotOffset, src)
-  }
-
-  /** Flush the staged uniform bytes before queue.submit(). Safe to
-   *  call any number of times per frame — a no-op when no slots have
-   *  been staged since the last flush. */
-  endFrame(): void {
-    this.uniformRing.flush()
-  }
-
-  private allocUniformSlot(): number {
-    return this.uniformRing.allocSlot()
-  }
-
   /** Register data + show command as a render layer.
    *  `pickId` is the stable u16 from `LayerIdRegistry`; it gets baked into
    *  every uniform-stage write so the fragment shader can stamp the pick
@@ -488,12 +334,12 @@ export class MapRenderer {
     // Phase 2.5 US-002 — fillIsDefault replaces the legacy string compare;
     // see buildShader() in pipeline-factory.ts for the migration rationale.
     if (variant && (variant.preamble || variant.needsFeatureBuffer || !variant.fillIsDefault)) {
-      const cached = this._pipelines.getCachedVariant(variant.key)
+      const cached = this.engine.getCachedVariant(variant.key)
       if (cached) {
         layerFillPipeline = cached.fillPipeline
         layerLinePipeline = cached.linePipeline
       } else {
-        const pipelines = this._pipelines.cacheVariantPipelines(variant)
+        const pipelines = this.engine.cacheVariantPipelines(variant)
         layerFillPipeline = pipelines.fillPipeline
         layerLinePipeline = pipelines.linePipeline
         console.log(`[X-GIS] Specialized shader for layer "${show.targetName}" (key: ${variant.key})`)
@@ -571,11 +417,11 @@ export class MapRenderer {
         // pipeline build does.
         let extraComputeEntries: { binding: number; resource: { buffer: GPUBuffer } }[] = []
         if ((variant.computeBindings?.length ?? 0) > 0 && show.renderNodeIndex !== undefined) {
-          const registry = this.ensureComputeRegistry()
+          const registry = this.engine.ensureComputeRegistry()
           const handle = registry.attach(
             show.targetName,
             variant,
-            this.currentComputePlan,
+            this.engine.computePlan,
             show.renderNodeIndex,
           )
           if (handle) {
@@ -680,7 +526,7 @@ export class MapRenderer {
         // variants.
         const variant = layer.show.shaderVariant as ShaderVariantInfo | null | undefined
         const computeEntries = variant?.computeBindings
-          ? (this.computeRegistry?.getHandle(layer.show.targetName)?.getBindGroupEntries() ?? [])
+          ? (this.engine.registry?.getHandle(layer.show.targetName)?.getBindGroupEntries() ?? [])
           : []
         layer.perLayerBindGroup = this.ctx.device.createBindGroup({
           layout: variant ? this.getOrBuildVariantLayout(variant) : this.featureBindGroupLayout,
@@ -723,7 +569,7 @@ export class MapRenderer {
       if (layer.featureDataBuffer) {
         const variant = layer.show.shaderVariant as ShaderVariantInfo | null | undefined
         const computeEntries = variant?.computeBindings
-          ? (this.computeRegistry?.getHandle(layer.show.targetName)?.getBindGroupEntries() ?? [])
+          ? (this.engine.registry?.getHandle(layer.show.targetName)?.getBindGroupEntries() ?? [])
           : []
         layer.perLayerBindGroup = this.ctx.device.createBindGroup({
           layout: variant ? this.getOrBuildVariantLayout(variant) : this.featureBindGroupLayout,
@@ -739,19 +585,6 @@ export class MapRenderer {
         })
       }
     }
-  }
-
-  /** Get or create variant pipelines (public for vector tile renderer).
-   *  Thin forwarder — the shaderCache + construction live on the factory
-   *  (Unit 1). External callers (map.ts:1540/2232/2276/2417/2520) unchanged. */
-  getOrCreateVariantPipelines(variant: ShaderVariantInfo): CachedPipeline {
-    return this._pipelines.getOrCreateVariantPipelines(variant)
-  }
-
-  /** Async prewarm — forwarder to the factory's
-   *  prewarmShaderVariantsAsync (cold-start path; map.ts:2055). */
-  async prewarmShaderVariantsAsync(variants: ShaderVariantInfo[]): Promise<void> {
-    return this._pipelines.prewarmShaderVariantsAsync(variants)
   }
 
   /** Remove all layers (for re-projection) */
@@ -780,7 +613,7 @@ export class MapRenderer {
     // (lazy-allocated, cheap to re-fill); `destroyAll` only frees
     // owned device memory. Production never enters this branch
     // because no variant carries `computeBindings` today.
-    this.computeRegistry?.destroyAll()
+    this.engine.registry?.destroyAll()
   }
 
   /** Render all layers into an existing render pass (RTC projection) */
@@ -885,8 +718,8 @@ export class MapRenderer {
       // light_dir_ecef 240-255 too — this fill/line path never extrudes);
       // total struct size is 256 bytes (UNIFORM_SIZE constant).
       new Float32Array(uniformData, S.zoom * 4, 4).set([camera.zoom, 0, 0, 0])
-      const slotOffset = this.allocUniformSlot()
-      this.stageUniformSlot(slotOffset, uniformData)
+      const slotOffset = this.engine.allocUniformSlot()
+      this.engine.stageUniformSlot(slotOffset, uniformData)
 
       // Select bind group: per-layer (with feature data) or shared
       const bindGroup = layer.perLayerBindGroup ?? this.bindGroup
@@ -924,7 +757,7 @@ export class MapRenderer {
     // point in the frame (after the layer draws). The collaborator borrows
     // the layer path's linePipeline + base bindGroup + uniformRing and
     // reuses the SAME 192-byte uniform offsets (passed in, not re-derived).
-    this._graticule.renderFrame(pass, this.linePipeline, this.bindGroup, this.uniformRing, {
+    this._graticule.renderFrame(pass, this.linePipeline, this.bindGroup, this.engine.uniformRingHandle, {
       mvp,
       logDepthFc: frame.logDepthFc,
       projType,

@@ -12,7 +12,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
 import { initGPU } from '../gpu/gpu'
-import { MapRenderer } from './renderer'
+import { MapRendererContent } from './renderer'
 import { polygonUniformBytes } from './polygon-uniform-slots'
 
 let stub: StubInstallation
@@ -39,13 +39,13 @@ async function makeCtx(): Promise<Awaited<ReturnType<typeof initGPU>>> {
 describe('MapRenderer construction (stub)', () => {
   it('constructs without throwing', async () => {
     const ctx = await makeCtx()
-    expect(() => new MapRenderer(ctx)).not.toThrow()
+    expect(() => new MapRendererContent(ctx)).not.toThrow()
   })
 
   it('emits the shader modules + pipelines its draw path will reach for', async () => {
     const ctx = await makeCtx()
     const before = { ...stub.callCounts }
-    new MapRenderer(ctx)
+    new MapRendererContent(ctx)
     // Shader modules: vertex + fragment WGSL pairs across the polygon /
     // extruded / OIT / ground variants. Minimum bar — actual count
     // matters less than "did we compile anything at all".
@@ -64,7 +64,7 @@ describe('MapRenderer construction (stub)', () => {
   it('declares at least one bind group layout', async () => {
     const ctx = await makeCtx()
     const before = stub.callCounts.createBindGroupLayout ?? 0
-    new MapRenderer(ctx)
+    new MapRendererContent(ctx)
     expect((stub.callCounts.createBindGroupLayout ?? 0) - before,
       'MapRenderer should declare bind group layout(s)')
       .toBeGreaterThan(0)
@@ -81,7 +81,7 @@ describe('MapRenderer construction (stub)', () => {
     // polygonUniformBytes() === emitted-WGSL-struct-size gate lives in
     // maprenderer-uniform-bind-size.test.ts.
     const ctx = await makeCtx()
-    expect(() => new MapRenderer(ctx)).not.toThrow()
+    expect(() => new MapRendererContent(ctx)).not.toThrow()
     const bytes = polygonUniformBytes()
     expect(bytes).toBeGreaterThan(0)
     expect(bytes % 16).toBe(0) // valid WGSL uniform struct alignment
@@ -94,7 +94,7 @@ describe('MapRenderer construction (stub)', () => {
     // re-wire regressions historically broke when this binding was
     // silently dropped or changed visibility.
     const ctx = await makeCtx()
-    const r = new MapRenderer(ctx) as unknown as { bindGroupLayout: { __descriptor?: GPUBindGroupLayoutDescriptor } }
+    const r = new MapRendererContent(ctx) as unknown as { bindGroupLayout: { __descriptor?: GPUBindGroupLayoutDescriptor } }
     const desc = r.bindGroupLayout.__descriptor
     expect(desc, 'MapRenderer.bindGroupLayout should be a stub-tagged BGL').toBeTruthy()
     const entries = desc!.entries as GPUBindGroupLayoutEntry[]

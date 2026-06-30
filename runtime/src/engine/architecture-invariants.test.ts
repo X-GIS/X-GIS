@@ -320,7 +320,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 941→943 (#600 fix): the prior bump documented a globe_eye write missing
   // from renderToPass + the graticule eye plumbing — restoring them (the write, the
   // import, the GraticuleFrame.eye pass-through) adds the final 2 lines.
-  'runtime/src/engine/render/renderer.ts': 943,
+  // Lowered 943→772 (P2 carve Step 1): the engine half (RHI / ring / pipeline
+  // machinery — PipelineFactory delegates, compute path, ensure*, rebuildForQuality,
+  // beginFrame/endFrame, uniform-ring tail) moved out to frame-renderer.ts; this
+  // file keeps the CONTENT half (MapRendererContent) + the engine read-contract
+  // re-exposers. New ceiling = measured size of the content half.
+  'runtime/src/engine/render/renderer.ts': 772,
   // Lowered 776→254: extracted the text-layout family (text-anchor /
   // variable-anchor[-offset] / transform / offset / translate / radial-offset /
   // collision / rotate / letter-spacing / max-width / line-height / justify /

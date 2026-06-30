@@ -56,7 +56,7 @@ import { SourceManager, type SourceManagerDeps } from './source-manager'
 import { Camera } from './projection/camera'
 import type { ShowSourceMaps } from './show-source-maps'
 import type { GeoJSONFeatureCollection } from '../loader/geojson'
-import type { MapRenderer } from './render/renderer'
+import type { MapRendererContent } from './render/renderer'
 import type { GPUContext } from './gpu/gpu'
 
 /** A test double for XGISMap's `_runBoundsFitGate`: runs `apply` only when the
@@ -87,7 +87,7 @@ function emptyMaps(): ShowSourceMaps {
 function makeSourceManager(camera: Camera, positioned: { value: boolean }) {
   // The mocked VectorTileRenderer ignores every value passed to its setters,
   // so a bare object satisfies the renderer-property reads in the attach.
-  const rendererStub = {} as unknown as MapRenderer
+  const rendererStub = {} as unknown as MapRendererContent
   const deps: SourceManagerDeps = {
     rawDatasets: new Map(),
     vtSources: new Map(),

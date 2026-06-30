@@ -11,7 +11,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
 import { initGPU } from '../gpu/gpu'
-import { MapRenderer } from './renderer'
+import { MapRendererContent } from './renderer'
 import { VectorTileRenderer } from './vector-tile-renderer'
 import { LineRenderer } from './line-renderer'
 import { RasterRenderer } from './raster-renderer'
@@ -45,7 +45,7 @@ describe('renderer construction smoke (stub)', () => {
 
   it('LineRenderer constructs against MapRenderer.bindGroupLayout', async () => {
     const ctx = await makeCtx()
-    const mr = new MapRenderer(ctx)
+    const mr = new MapRendererContent(ctx)
     expect(() => new LineRenderer(ctx, mr.bindGroupLayout)).not.toThrow()
     // LineRenderer compiles its own SDF + dash variants — at least one
     // shader module + one pipeline should be emitted by the
@@ -73,7 +73,7 @@ describe('renderer construction smoke (stub)', () => {
     // 2c.3 retired BackgroundRenderer — the synthetic earth-surface
     // ShowCommand dispatches through the standard VT path.
     const ctx = await makeCtx()
-    const mr = new MapRenderer(ctx)
+    const mr = new MapRendererContent(ctx)
     const vtr = new VectorTileRenderer(ctx)
     vtr.setBindGroupLayout(mr.bindGroupLayout)
     const pr = new PointRenderer({ device: ctx.device, format: ctx.format, rhi: new WebGpuDevice(ctx.device) })

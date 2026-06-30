@@ -1,7 +1,8 @@
 export { XGISMap } from './engine/map'
 export { StatsPanel, StatsTracker, type RenderStats } from './engine/stats'
 export { Camera } from './engine/projection/camera'
-export { MapRenderer } from './engine/render/renderer'
+export { MapRendererContent } from './engine/render/renderer'
+export { FrameRenderer } from './engine/render/frame-renderer'
 export { loadGeoJSON, lonLatToMercator } from './loader/geojson'
 export {
   injectPolarCaps, findClampBoundarySpans, synthesizeCapRing, vertexOnClampBoundary,

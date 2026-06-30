@@ -29,7 +29,7 @@ import { assertIngestBudget, readBodyCapped, safeFetch } from './safety'
 import type { Camera } from './projection/camera'
 import type { GPUContext } from './gpu/gpu'
 import { getMaxDpr } from './gpu/gpu'
-import type { MapRenderer } from './render/renderer'
+import type { MapRendererContent } from './render/renderer'
 import type { LineRenderer } from './render/line-renderer'
 import { lonLatToMercator, type GeoJSONFeatureCollection } from '../loader/geojson'
 import { isTileTemplate } from '../data/tile-select'
@@ -72,7 +72,7 @@ export interface SourceManagerDeps {
   /** The WebGPU context, read fresh (populated in run() / runBinary). */
   getCtx(): GPUContext
   /** The MapRenderer, read fresh (populated in run() / runBinary). */
-  getRenderer(): MapRenderer
+  getRenderer(): MapRendererContent
   /** The shared SDF LineRenderer, read fresh (may be null pre-init). */
   getLineRenderer(): LineRenderer | null
   /** Mark a render as needed (XGISMap's `invalidate()`). */
@@ -100,7 +100,7 @@ export class SourceManager {
   private readonly camera: Camera
   private readonly canvas: HTMLCanvasElement
   private readonly getCtx: () => GPUContext
-  private readonly getRenderer: () => MapRenderer
+  private readonly getRenderer: () => MapRendererContent
   private readonly getLineRenderer: () => LineRenderer | null
   private readonly invalidate: () => void
   private readonly _fitZoomToLonSpan: (lonSpan: number, cssWidthPx: number) => number

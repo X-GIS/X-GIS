@@ -31,7 +31,7 @@ import { CameraController } from './camera-controller'
 import { ViewportModeController } from './render/viewport-mode-controller'
 import { SourceManager } from './source-manager'
 import { InteractionController } from './interaction-controller'
-import { MapRenderer, type ShowCommand } from './render/renderer'
+import { MapRendererContent, type ShowCommand } from './render/renderer'
 import { resolveNumberShape } from './render/paint-shape-resolve'
 import { RenderLoop } from './render-loop'
 import { RenderTargets } from './render/render-targets'
@@ -187,7 +187,7 @@ export class XGISMap {
   private readonly _viewport: ViewportModeController
   private sourceManager!: SourceManager
   private interactionController!: InteractionController
-  renderer!: MapRenderer
+  renderer!: MapRendererContent
   rasterRenderer!: RasterRenderer
   /** Show whose source backs the active raster URL — single-tracked
    *  for now (one raster basemap per scene is the realistic case).
@@ -2171,7 +2171,7 @@ export class XGISMap {
     }
     this.ctx = result
     if (this._onDeviceLost) this.ctx.onDeviceLost = this._onDeviceLost
-    this.renderer = new MapRenderer(this.ctx)
+    this.renderer = new MapRendererContent(this.ctx)
     this.renderer.setGraticuleEnabled(this._viewport.graticuleInitial)
     this.rasterRenderer = new RasterRenderer(this.ctx)
     if (GPU_PROF) this.gpuTimer = new GPUTimer(this.ctx)
@@ -2374,7 +2374,7 @@ export class XGISMap {
     }
     if (variants.length > 0) {
       try {
-        await this.renderer.prewarmShaderVariantsAsync(variants as unknown as Parameters<MapRenderer['prewarmShaderVariantsAsync']>[0])
+        await this.renderer.prewarmShaderVariantsAsync(variants as unknown as Parameters<MapRendererContent['prewarmShaderVariantsAsync']>[0])
       } catch (e) {
         xlog.warn('[X-GIS] shader prewarm failed (falling back to lazy compile on first draw):', (e as Error).message)
       }
@@ -2938,7 +2938,7 @@ export class XGISMap {
     }
     this.ctx = ctx
     if (this._onDeviceLost) this.ctx.onDeviceLost = this._onDeviceLost
-    this.renderer = new MapRenderer(this.ctx)
+    this.renderer = new MapRendererContent(this.ctx)
     this.renderer.setGraticuleEnabled(this._viewport.graticuleInitial)
     this.rasterRenderer = new RasterRenderer(this.ctx)
     if (GPU_PROF) this.gpuTimer = new GPUTimer(this.ctx)

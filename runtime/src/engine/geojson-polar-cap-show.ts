@@ -18,7 +18,7 @@ import { TileCatalog } from '../data/tile-catalog'
 import { VectorTileRenderer } from './render/vector-tile-renderer'
 import { worldBandForProjType } from './projection/earth-surface-fill'
 import { PROJECTION_NAME_TO_TYPE } from './projection/projections-table'
-import type { MapRenderer } from './render/renderer'
+import type { MapRendererContent } from './render/renderer'
 import type { LineRenderer } from './render/line-renderer'
 import type { GPUContext } from './gpu/gpu'
 import { parseHexColor } from './feature-helpers'
@@ -30,7 +30,7 @@ import type { GeoJSONFeatureCollection } from '../loader/geojson'
  *  authority. */
 export interface PolarCapInstallHost {
   ctx: GPUContext
-  renderer: MapRenderer
+  renderer: MapRendererContent
   lineRenderer: LineRenderer | null
   projectionName: string
   vtSources: Map<string, { source: TileCatalog; renderer: VectorTileRenderer }>

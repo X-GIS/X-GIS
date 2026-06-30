@@ -24,7 +24,7 @@
 // controller must NEVER touch them; it only SIGNALS a world-band change.
 
 import type { Camera } from '../projection/camera'
-import type { MapRenderer } from './renderer'
+import type { MapRendererContent } from './renderer'
 import { xlog } from '../log'
 
 // One-shot guard for the setPolarCapsEnabled deprecation warning.
@@ -37,7 +37,7 @@ export interface ViewportModeControllerDeps {
   /** Active MapRenderer, or undefined before `run()` populates it. Graticule
    *  delegates to `renderer.setGraticuleEnabled` / `isGraticuleEnabled`;
    *  kept optional to preserve the host's `this.renderer?.…` semantics. */
-  getRenderer(): MapRenderer | undefined
+  getRenderer(): MapRendererContent | undefined
   /** Run the world-band-change synthetic-backend rebuild ON map.ts (the
    *  bg-fill state is STYLE-fused and stays there — plan §5 false-boundary
    *  #1). Invoked from `setProjection` at the exact position the inline
@@ -48,7 +48,7 @@ export interface ViewportModeControllerDeps {
 
 export class ViewportModeController {
   private readonly camera: Camera
-  private readonly getRenderer: () => MapRenderer | undefined
+  private readonly getRenderer: () => MapRendererContent | undefined
   private readonly onWorldBandChange: (prevProj: string, canonical: string) => void
 
   /** The active projection's canonical name. XGISMap exposes a field-read
