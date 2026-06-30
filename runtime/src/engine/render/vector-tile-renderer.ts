@@ -12,6 +12,9 @@ import { polygonUniformSlots, polygonUniformBytes, polygonUniformStride } from '
 import { writeFrameProjectionUniform } from './frame-projection-uniform'
 import { xlog } from '../log'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
+import type { Material } from './material/material'
+import { executeItems } from './material/material'
+import { wrapWebGpuBuffer, wrapWebGpuBindGroup, wrapWebGpuPass } from './rhi/rhi-webgpu'
 
 // f32 slot indices of the polygon 'Uniforms' struct, sourced from reflect() of the SAME
 // IR the shader is emitted from (NOT hand-coded magic numbers — those silently drift from
@@ -348,6 +351,18 @@ export class VectorTileRenderer {
 
   // SDF line renderer (set externally)
   private lineRenderer: LineRenderer | null = null
+
+  // P1.6 — the polygon flat-fill RHI Material twins (flat: cull-none/depth-on; ground: cull-back/
+  // depth-off) + the native pipeline refs that identify each variant (0 = STENCIL_WRITE, 1 =
+  // STENCIL_TEST). Set once from PipelineFactory; consumed by recordTileFill behind __xgisVtrFillViaRhi.
+  private _fillRhiFlat: Material | null = null
+  private _fillRhiGround: Material | null = null
+  private _fillRhiPipes: { write: GPURenderPipeline; test: GPURenderPipeline; groundWrite: GPURenderPipeline; groundTest: GPURenderPipeline } | null = null
+  setFillRhiMaterials(flat: Material | undefined, ground: Material | undefined, pipes: { write: GPURenderPipeline; test: GPURenderPipeline; groundWrite: GPURenderPipeline; groundTest: GPURenderPipeline }): void {
+    this._fillRhiFlat = flat ?? null
+    this._fillRhiGround = ground ?? null
+    this._fillRhiPipes = pipes
+  }
 
   /** Data-driven feature buffer + per-tile feature bind groups + compute
    *  paint (Cluster D). Owns `featureDataBuffer`, the captured
@@ -3550,6 +3565,30 @@ export class VectorTileRenderer {
       if (typeof cap === 'number' && cap >= 0) {
         if (this._diagFillsThisFrame >= cap) return
         this._diagFillsThisFrame++
+      }
+    }
+    // P1.6 — flat-fill (non-extrude) draws route through the RHI Material seam when enabled. The
+    // pick MRT + arena vertex/index sub-ranges carry through executeItems; the per-draw stencil ref
+    // is set ONE level up (the caller), so the WRITE/TEST variant + that ref compose as before.
+    // Extrude (bindZBuffer) + per-style-shader tiles stay on the native pipeline below.
+    if (this._fillRhiPipes && !bindZBuffer
+        && (globalThis as { __xgisVtrFillViaRhi?: boolean }).__xgisVtrFillViaRhi === true) {
+      const p = this._fillRhiPipes
+      const mat = (pipeline === p.write || pipeline === p.test) ? this._fillRhiFlat
+        : (pipeline === p.groundWrite || pipeline === p.groundTest) ? this._fillRhiGround : null
+      const variant = (pipeline === p.write || pipeline === p.groundWrite) ? 0
+        : (pipeline === p.test || pipeline === p.groundTest) ? 1 : -1
+      if (mat && variant >= 0) {
+        const g = globalThis as { __xgisVtrFillRhiDraws?: number }; g.__xgisVtrFillRhiDraws = (g.__xgisVtrFillRhiDraws ?? 0) + 1 // verify counter (P1.6 b)
+        executeItems(mat, wrapWebGpuPass(encoder), [{
+          variant,
+          bindGroups: [wrapWebGpuBindGroup(tileBg)],
+          dynamicOffsets: [[slotOffset]],
+          vertex: wrapWebGpuBuffer(cached.vertexBuffer), vertexOffset: cached.polyVertexOffset, vertexSize: cached.polyVertexByteLength,
+          index: { buffer: wrapWebGpuBuffer(cached.indexBuffer), format: 'uint32', offset: cached.polyIndexOffset, size: cached.polyIndexByteLength },
+          count: cached.indexCount, indexed: true,
+        }])
+        return
       }
     }
     encoder.setPipeline(pipeline)
