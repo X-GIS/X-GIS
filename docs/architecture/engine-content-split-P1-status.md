@@ -27,9 +27,11 @@ finish is dedicated work — do it in this order, each gated on real-GPU DC=0 + 
      formally drop the dead opt-in (`isOitExtrude` is always false).
 2. **Real-world verify** — sweep OFM/Mapbox styles (the 7 fixtures are local; the Material mechanism is
    style-independent but blends/stencils in real styles are untested). Network tiles → offline fixture.
-3. **Flip + raw delete together** — the `recordTileFill`-caller refactor: the VTR selects a Material
-   VARIANT INDEX, not a native pipeline (today `recordFillDraw` matches `pipeline === e.write`). Then
-   `__xgisVtrFillViaRhi` retires + the raw `drawIndexed` else-branch is deleted.
+3. **Raw delete** (the flag is ALREADY flipped default-on, `ab3466f2` — Material seam is the production
+   default; `__xgisVtrFillViaRhi=false` is the kill-switch). What remains is deleting the raw
+   `drawIndexed` else-branch + the native fill pipelines: a `recordTileFill`-caller refactor so the VTR
+   selects a Material VARIANT INDEX instead of a native pipeline (today `recordFillDraw` matches
+   `pipeline === e.write`). Blocked until step 1's residuals route (they use the raw else-branch today).
 4. **§4 seam** — the coupled cluster (`ShapeRegistry`/`GPUArena`/bind-group-registry → `Rhi*`,
    `RhiDevice.destroyBuffer`). Migrate together (a partial migration leaves a mixed Rhi*/raw state).
 5. **P2 carve → P3 extract → P4 shell** (per `engine-content-split.md`).
@@ -50,7 +52,7 @@ way and the RHI-routed way and confirm byte-identical output. Strict `tsc --buil
 | **Heatmap — accum** (P1.3, `133af74e`) | ✅ flipped, raw deleted | within run-to-run noise (r16float accum is non-deterministic) |
 | **Raster — render()** (P1.4, `829d5249`+`9896074b`+`0dcb3b53`) | ✅ flipped, raw deleted (+ resampling + pick MRT Materials) | DC=0, offline checker fixture |
 | **Line — draws** (P1.5, `e1d399df`) | ✅ flipped, **raw deleted** (flag + raw pipelines/composite removed; LineDraper unconditional) | DC=0, fixture_translucent_stroke |
-| **VTR fill** (P1.6, `cb5d86b7`+`ea650987`+`c8c96cb5`+`cc715b45`) | ◐ every COMMON fill path routed behind `__xgisVtrFillViaRhi` (default off); flip + raw-delete remain | DC=0/within-noise across 7 fixtures (see P1.6 detail below) |
+| **VTR fill** (P1.6, …`cc715b45`+`ab3466f2`) | ◐ every COMMON fill path routed; flag **flipped DEFAULT-ON** (`ab3466f2`) — Material seam is the production default, raw is the `__xgisVtrFillViaRhi=false` kill-switch. Raw-delete remains (blocked on residuals) | DC=0 default-vs-killswitch (fixture_extrude_local); 7-fixture mechanism DC=0; CI green |
 
 Adjacent shipped on `feat/shader-dsl-glsl-compute-gpgpu` (M1–M5): shader-codegen SRP (compiler emits
 neutral IR; shader-dsl is the sole emitter) + WebGL2 compute→fragment-GPGPU, with 3 real bugs the
