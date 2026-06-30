@@ -43,7 +43,7 @@ import { LINE_FORMAT } from './line-vertex-format'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
 import { buildOverdrawComposePipeline, buildHeatmapBlurPipeline, buildHeatmapComposePipeline, buildOitComposePipeline } from './compose-pipelines'
-import { buildFlatFillMaterials, buildExtrudeMaterial, buildPatternFillMaterials, fillViaRhiEnabled, type FillRhiState } from './material/polygon-fill-material'
+import { buildFlatFillMaterials, buildExtrudeMaterial, buildPatternFillMaterials, type FillRhiState } from './material/polygon-fill-material'
 import type { Material } from './material/material'
 import { emitPolygonWgsl } from '../shaders/dsl/polygon'
 import { Node } from '@xgis/shader-dsl'
@@ -145,9 +145,8 @@ export class PipelineFactory {
   private shaderCache = new Map<string, CachedPipeline>()
 
   fillPipeline!: GPURenderPipeline
-  /** P1.6 — flat-fill RHI Material twins (default shader), built behind __xgisVtrFillViaRhi (default
-   *  off → no extra pipelines). The VTR's recordFillDraw routes the flat/ground non-extrude fill
-   *  through these via the FillRhiState getter below. */
+  /** P1.6/§4 — flat-fill RHI Material twins (default shader), always built. The VTR's recordFillDraw
+   *  routes the flat/ground non-extrude fill through these via the FillRhiState getter below. */
   private _fillMaterials: { flat: Material; ground: Material } | null = null
   /** LIVE per-style fill Material map (grown by registerFillMaterials as variant pipelines build). */
   private _fillPerStyle = new Map<GPURenderPipeline, { mat: Material; variant: number }>()
@@ -157,7 +156,7 @@ export class PipelineFactory {
    *  picking is on (off → the no-pick pipelines alias the pickable ones, already covered). */
   private _fillExtrudeMaterialNoPick: Material | null = null
   /** Fill-pattern (fs_fill_pattern) Material twins of the native fillPipelinePattern{Ground,Extruded}*
-   *  pipelines — built behind __xgisVtrFillViaRhi. recordFillDraw routes pattern draws through these. */
+   *  pipelines — always built. recordFillDraw routes pattern draws through these. */
   private _fillPatternMaterials: { patternGround: Material; patternExtruded: Material } | null = null
   fillRhiState(): FillRhiState | null {
     if (!this._fillMaterials) return null
@@ -186,7 +185,6 @@ export class PipelineFactory {
   /** Build + register the per-style fill Material twins for a variant pipeline set (behind the flag).
    *  Keyed by each native per-style pipeline so recordFillDraw routes them via the Material seam. */
   private registerFillMaterials(variant: ShaderVariantInfo, pipelines: CachedPipeline): void {
-    if (!fillViaRhiEnabled()) return
     const { format } = this.ctx
     const { flat, ground } = buildFlatFillMaterials({
       rhi: this.ctx.rhi, shader: buildShader(variant), format, sampleCount: getSampleCount(),
@@ -750,25 +748,23 @@ export class PipelineFactory {
     this.fillPipelinePatternExtruded = pickable.fillPatternExtruded
     this.fillPipelinePatternExtrudedFallback = pickable.fillPatternExtrudedFallback
 
-    // P1.6 — build the flat-fill Material twins (default shader) behind __xgisVtrFillViaRhi (default
-    // off → no extra pipelines built). recordFillDraw routes the flat/ground non-extrude fill through them.
-    if (fillViaRhiEnabled()) {
-      this._fillMaterials = buildFlatFillMaterials({
-        rhi: this.ctx.rhi, shader: pickShader, format, sampleCount: getSampleCount(),
-        bindGroupLayout: this.bindGroupLayout, vertexLayout: vertexBufferLayout, pickEnabled,
-      })
-      this._fillExtrudeMaterial = buildExtrudeMaterial({
-        rhi: this.ctx.rhi, shader: pickShader, format, sampleCount: getSampleCount(),
-        bindGroupLayout: this.bindGroupLayout, vertexLayout: extrudedVertexBufferLayout, pickEnabled,
-      })
-      // Fill-pattern twins (fs_fill_pattern) of fillPipelinePattern{Ground,Extruded}* — one call twins
-      // BOTH the ground (flat layout) + extruded (POLYGON_EXTRUDED layout) pattern pipelines.
-      this._fillPatternMaterials = buildPatternFillMaterials({
-        rhi: this.ctx.rhi, shader: pickShader, format, sampleCount: getSampleCount(),
-        bindGroupLayout: this.bindGroupLayout, vertexLayout: vertexBufferLayout,
-        extrudedVertexLayout: extrudedVertexBufferLayout, pickEnabled,
-      })
-    }
+    // P1.6/§4 — build the flat-fill Material twins (default shader), always. recordFillDraw routes the
+    // flat/ground non-extrude fill through them (the raw fallback is deleted; an untwinned pipeline throws).
+    this._fillMaterials = buildFlatFillMaterials({
+      rhi: this.ctx.rhi, shader: pickShader, format, sampleCount: getSampleCount(),
+      bindGroupLayout: this.bindGroupLayout, vertexLayout: vertexBufferLayout, pickEnabled,
+    })
+    this._fillExtrudeMaterial = buildExtrudeMaterial({
+      rhi: this.ctx.rhi, shader: pickShader, format, sampleCount: getSampleCount(),
+      bindGroupLayout: this.bindGroupLayout, vertexLayout: extrudedVertexBufferLayout, pickEnabled,
+    })
+    // Fill-pattern twins (fs_fill_pattern) of fillPipelinePattern{Ground,Extruded}* — one call twins
+    // BOTH the ground (flat layout) + extruded (POLYGON_EXTRUDED layout) pattern pipelines.
+    this._fillPatternMaterials = buildPatternFillMaterials({
+      rhi: this.ctx.rhi, shader: pickShader, format, sampleCount: getSampleCount(),
+      bindGroupLayout: this.bindGroupLayout, vertexLayout: vertexBufferLayout,
+      extrudedVertexLayout: extrudedVertexBufferLayout, pickEnabled,
+    })
 
     // `?debug=overdraw` — fill + line debug mirrors. Same VS as the
     // opaque pipelines so the rasterizer produces matching fragment
@@ -921,11 +917,11 @@ export class PipelineFactory {
       this.linePipelineFallbackNoPick = this.linePipelineFallback
     }
 
-    // P1.6 — pointer-events:none no-pick fill Material twins (pick writeMask 0). Only when picking is
-    // ON + the flag is on; with picking off the no-pick pipelines alias the pickable set (already
-    // routed via _fillMaterials). The non-extrude no-pick pipelines join _fillPerStyle (checked first
-    // by recordFillDraw); the extrude no-pick rides the extrude slot's *NoPick fields.
-    if (pickEnabled && fillViaRhiEnabled()) {
+    // P1.6/§4 — pointer-events:none no-pick fill Material twins (pick writeMask 0). Only when picking
+    // is ON; with picking off the no-pick pipelines alias the pickable set (already routed via
+    // _fillMaterials). The non-extrude no-pick pipelines join _fillPerStyle (checked first by
+    // recordFillDraw); the extrude no-pick rides the extrude slot's *NoPick fields.
+    if (pickEnabled) {
       const np = buildFlatFillMaterials({
         rhi: this.ctx.rhi, shader: pickShader, format, sampleCount: getSampleCount(),
         bindGroupLayout: this.bindGroupLayout, vertexLayout: vertexBufferLayout, pickEnabled, pickWriteMask: 0,

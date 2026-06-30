@@ -325,8 +325,8 @@ export class VectorTileRenderer {
   private lineRenderer: LineRenderer | null = null
 
   // Polygon flat-fill RHI Material twins + the native pipeline refs they
-  // map to (set once from PipelineFactory). recordFillDraw consumes it
-  // behind __xgisVtrFillViaRhi.
+  // map to (set once from PipelineFactory). recordFillDraw routes EVERY
+  // fill draw through it (§4 closed; an untwinned pipeline throws).
   private _fillRhi: FillRhiState | null = null
   setFillRhi(state: FillRhiState | null): void { this._fillRhi = state }
 

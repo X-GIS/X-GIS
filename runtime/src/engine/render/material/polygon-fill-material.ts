@@ -3,21 +3,13 @@
 // The VTR fill draw lives here (not in vector-tile-renderer.ts, which is at its size ratchet) so the
 // renderer stays a thin caller. buildFlatFillMaterials() builds the RHI Material twins of the native
 // flat-fill pipelines (flat = cull-none/depth-on, ground = cull-back/depth-off; variant 0 =
-// STENCIL_WRITE, 1 = STENCIL_TEST). recordFillDraw() is the single per-tile fill draw: it routes the
-// flat/ground non-extrude draw through the Material seam (executeItems, arena vertex/index sub-ranges,
-// pick MRT) when __xgisVtrFillViaRhi is on + the pipeline matches a built variant, else the raw draw.
+// STENCIL_WRITE, 1 = STENCIL_TEST). recordFillDraw() is the single per-tile fill draw: EVERY fill draw
+// routes through the Material seam (executeItems, arena vertex/index sub-ranges, pick MRT); §4 is closed,
+// so a pipeline with no built Material twin throws (the raw fallback draw + kill-switch were deleted).
 
 import type { RhiDevice } from '../rhi/rhi'
 import { wrapWebGpuBindGroupLayout, wrapWebGpuBuffer, wrapWebGpuBindGroup, wrapWebGpuPass } from '../rhi/rhi-webgpu'
 import { Material, executeItems } from './material'
-
-/** P1.6 — the VTR fill routes through the RHI Material seam by DEFAULT; `__xgisVtrFillViaRhi === false`
- *  is the kill-switch back to the raw draw. (The raw else-branch in recordFillDraw + the native fill
- *  pipelines survive as that fallback + for the not-yet-routed residuals — fill patterns, OIT, until
- *  they route + the raw is deleted with the §4 seam.) */
-export function fillViaRhiEnabled(): boolean {
-  return (globalThis as { __xgisVtrFillViaRhi?: boolean }).__xgisVtrFillViaRhi !== false
-}
 
 /** The per-tile GPUArena fill buffers recordFillDraw reads (structural — a VTR GPUTile satisfies it). */
 export interface FillTileBuffers {
@@ -157,9 +149,10 @@ export function buildPatternFillMaterials(inp: FillMaterialInputs): { patternGro
   return { patternGround, patternExtruded }
 }
 
-/** The single per-tile fill draw. Routes the flat/ground non-extrude draw through the RHI Material
- *  seam when enabled + the pipeline matches a built variant; otherwise the raw native draw. The
- *  per-draw stencil ref is set one level up by the caller. */
+/** The single per-tile fill draw. EVERY fill draw routes through the RHI Material seam: the pipeline
+ *  is matched to its built Material twin (flat/ground/perStyle/extrude/pattern) and executed via
+ *  executeItems. §4 is closed — a pipeline with no twin throws (fail-closed; the raw native draw was
+ *  deleted). The per-draw stencil ref is set one level up by the caller. */
 export function recordFillDraw(
   fillRhi: FillRhiState | null,
   encoder: GPURenderPassEncoder | GPURenderBundleEncoder,
@@ -169,7 +162,7 @@ export function recordFillDraw(
   cached: FillTileBuffers,
   bindZBuffer: boolean,
 ): void {
-  if (fillRhi && fillViaRhiEnabled()) {
+  if (fillRhi) {
     let mat: Material | null = null
     let variant = -1
     if (!bindZBuffer) {
@@ -191,8 +184,9 @@ export function recordFillDraw(
       }
     } else {
       // Opaque 3D extrude: match the two extrude pipelines. The per-feature height rides in the
-      // POLYGON_EXTRUDED vertex (slot 0) — the slot-1 z-buffer is unused here (the raw path binds it
-      // null), so no vertex1. (OIT + per-style extrude are not in `extrude` yet → raw draw below.)
+      // POLYGON_EXTRUDED vertex (slot 0) — the slot-1 z-buffer is unused here, so no vertex1. (OIT +
+      // per-style extrude are not in `extrude` yet → would throw below; both are provably unreachable
+      // here: OIT-extrude is never scheduled and there is no per-style-extrude pipeline.)
       const e = fillRhi.extrude
       if (e) {
         if (pipeline === e.write) { mat = e.mat; variant = 0 }
@@ -220,10 +214,5 @@ export function recordFillDraw(
       return
     }
   }
-  encoder.setPipeline(pipeline)
-  encoder.setBindGroup(0, tileBg, [slotOffset])
-  encoder.setVertexBuffer(0, cached.vertexBuffer, cached.polyVertexOffset, cached.polyVertexByteLength)
-  if (bindZBuffer) encoder.setVertexBuffer(1, cached.zBuffer!, cached.zBufferOffset, cached.zBufferByteLength)
-  encoder.setIndexBuffer(cached.indexBuffer, 'uint32', cached.polyIndexOffset, cached.polyIndexByteLength)
-  encoder.drawIndexed(cached.indexCount)
+  throw new Error(`recordFillDraw: fill pipeline has no RHI Material twin — every fill draw must route through the RHI seam (§4 closed). label=${(pipeline as GPURenderPipeline).label ?? '?'} bindZBuffer=${bindZBuffer}`)
 }
