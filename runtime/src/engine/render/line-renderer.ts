@@ -42,7 +42,8 @@ import { isPickEnabled, getSampleCount, type GPUContext } from '../gpu/gpu'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import { asyncWriteBuffer, type StagingBufferPool } from '../gpu/staging-buffer-pool'
 import { xlog } from '../log'
-import { WebGpuDevice, wrapWebGpuPass } from './rhi/rhi-webgpu'
+import { WebGpuDevice, wrapWebGpuPass, wrapWebGpuBuffer, wrapWebGpuBindGroup, wrapWebGpuBindGroupLayout } from './rhi/rhi-webgpu'
+import type { RhiBuffer, RhiBindGroup } from './rhi/rhi'
 import { LineDraper } from './material/line-material'
 import { LineCompositeDraper } from './material/line-composite-material'
 import type { ShapeRegistry } from '../text/sdf-shape'
@@ -126,6 +127,16 @@ export class LineRenderer {
    *  minUniformBufferOffsetAlignment, exactly as the layer ring does. */
   private static readonly COMPOSITE_SLOT = 256
   private device: GPUDevice
+  /** The RHI seam (§4 batch-seam migration). One instance, reused for line's
+   *  PRIVATE resources (the layer-uniform ring, the empty-shape fallback, the
+   *  composite-opacity ring + their bind groups) AND the LineDraper / Line-
+   *  CompositeDraper. On WebGPU `createBuffer === device.createBuffer`,
+   *  `writeBuffer === queue.writeBuffer` (the `bufUsage` map is 1:1), so the GPU
+   *  command stream stays byte-identical. The per-tile SEGMENT buffers
+   *  (uploadSegmentBuffer*) stay raw `device.createBuffer` — they are owned +
+   *  destroyed by GpuTileStore's raw retire queue (the VTR/GPUArena cluster),
+   *  so they flip with that cluster, not here. */
+  private readonly rhi: WebGpuDevice
   private format: GPUTextureFormat
   private tileBindGroupLayout: GPUBindGroupLayout
   private layerBindGroupLayout: GPUBindGroupLayout
@@ -134,9 +145,9 @@ export class LineRenderer {
    *  describing the violation. Survives per LineRenderer instance — reset on
    *  demo reload (new instance). */
   private patternWarnings = new Set<string>()
-  private emptyShapeBuffer: GPUBuffer
+  private emptyShapeBuffer: RhiBuffer
   // Dynamic-offset layer uniform ring (shared across all VTR sources/layers)
-  private layerRing!: GPUBuffer
+  private layerRing!: RhiBuffer
   private layerRingCapacity = 512
   private layerSlot = 0
   /** CPU-side mirror of layerRing. Each writeLayerSlot() stages its
@@ -162,12 +173,13 @@ export class LineRenderer {
    *  frame before any submitted draw runs, so a shared buffer would make
    *  every composite draw sample the LAST layer's opacity. Mirrors
    *  `layerRing`. */
-  private compositeRing!: GPUBuffer
+  private compositeRing!: RhiBuffer
   private compositeRingCapacity = 256
   private compositeSlot = 0
 
   constructor(ctx: GPUContext, vtrTileBindGroupLayout: GPUBindGroupLayout) {
     this.device = ctx.device
+    this.rhi = new WebGpuDevice(ctx.device)
     this.format = ctx.format
     this.tileBindGroupLayout = vtrTileBindGroupLayout
 
@@ -183,16 +195,18 @@ export class LineRenderer {
 
     // Layer uniform ring. 256-byte slots → dynamic offsets prevent
     // multi-layer writeBuffer clobbering within a single frame.
-    this.layerRing = this.device.createBuffer({
+    // UNIFORM|COPY_DST, byte-identical via bufUsage('uniform', writable:true).
+    this.layerRing = this.rhi.createBuffer({
       size: this.layerRingCapacity * LineRenderer.LAYER_SLOT,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      usage: 'uniform', writable: true,
       label: 'line-layer-ring',
     })
     this.layerStaging = new Uint8Array(this.layerRingCapacity * LineRenderer.LAYER_SLOT)
 
-    this.emptyShapeBuffer = this.device.createBuffer({
+    // STORAGE-only (never written), byte-identical via bufUsage('storage', writable:false).
+    this.emptyShapeBuffer = this.rhi.createBuffer({
       size: 64,
-      usage: GPUBufferUsage.STORAGE,
+      usage: 'storage', writable: false,
       label: 'line-empty-shape-buf',
     })
 
@@ -208,9 +222,10 @@ export class LineRenderer {
     // Composite uniform ring. 256-byte slots → dynamic offsets prevent
     // multi-layer writeBuffer clobbering within a single frame, mirroring
     // `layerRing`.
-    this.compositeRing = this.device.createBuffer({
+    // UNIFORM|COPY_DST, byte-identical via bufUsage('uniform', writable:true).
+    this.compositeRing = this.rhi.createBuffer({
       size: this.compositeRingCapacity * LineRenderer.COMPOSITE_SLOT,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      usage: 'uniform', writable: true,
       label: 'line-composite-ring',
     })
   }
@@ -274,7 +289,7 @@ export class LineRenderer {
     } else {
       this.compositeSlot++
     }
-    this.device.queue.writeBuffer(this.compositeRing, off, new Float32Array([opacity, 0, 0, 0]))
+    this.rhi.writeBuffer(this.compositeRing, off, new Float32Array([opacity, 0, 0, 0]))
     // Through the RHI Material seam (the sole path). The offscreen RT/pass origination stays raw (P2).
     // WebGPU-only (the offscreen translucent path fail-closes on WebGl2).
     this.ensureCompositeDraper().draw(wrapWebGpuPass(mainPass), this.offscreenView, this.compositeRing, off)
@@ -282,14 +297,18 @@ export class LineRenderer {
 
   private _compositeDraper?: LineCompositeDraper
   private ensureCompositeDraper(): LineCompositeDraper {
-    return (this._compositeDraper ??= new LineCompositeDraper(new WebGpuDevice(this.device), this.format, getSampleCount()))
+    return (this._compositeDraper ??= new LineCompositeDraper(this.rhi, this.format, getSampleCount()))
   }
 
   setShapeRegistry(registry: ShapeRegistry): void {
     this.shapeRegistry = registry
   }
 
-  /** Upload segment data and return a GPU buffer. Caller owns destruction. */
+  /** Upload segment data and return a GPU buffer. Caller owns destruction.
+   *  STAYS raw `device.createBuffer` (NOT the §4 RHI seam): the returned buffer
+   *  is owned + destroyed by GpuTileStore's raw `_retiredTileBuffers: GPUBuffer[]`
+   *  retire queue (the VTR/GPUArena cluster), so it flips to RhiBuffer with that
+   *  cluster, not in this line step. createLayerBindGroup wraps it transiently. */
   uploadSegmentBuffer(segments: Float32Array): GPUBuffer {
     const size = Math.max(segments.byteLength, LINE_SEGMENT_STRIDE_BYTES)
     const buf = this.device.createBuffer({
@@ -392,10 +411,11 @@ export class LineRenderer {
   endFrame(): void {
     if (this.layerDirtyHi === this.layerDirtyLo) return
     const lo = this.layerDirtyLo, hi = this.layerDirtyHi
-    this.device.queue.writeBuffer(
-      this.layerRing, lo,
-      this.layerStaging.buffer, this.layerStaging.byteOffset + lo, hi - lo,
-    )
+    // A subarray view over [lo, hi) of the CPU mirror (byteOffset 0) — the same
+    // bytes the 5-arg `queue.writeBuffer(buf, lo, staging.buffer, lo, hi-lo)` wrote
+    // to the same GPU offset, so the upload is byte-identical (the RHI seam's
+    // writeBuffer is 3-arg by contract — no dataOffset/size).
+    this.rhi.writeBuffer(this.layerRing, lo, this.layerStaging.subarray(lo, hi))
     this.layerDirtyLo = 0
     this.layerDirtyHi = 0
   }
@@ -418,18 +438,21 @@ export class LineRenderer {
 
   /** Create a bind group for the line layer + segments + shape registry.
    *  Binding 0 uses a dynamic offset — actual slot is chosen at draw time. */
-  createLayerBindGroup(segmentBuffer: GPUBuffer): GPUBindGroup {
-    const shapeBuf = this.shapeRegistry?.shapeBuffer ?? this.emptyShapeBuffer
-    const shapeSegBuf = this.shapeRegistry?.segmentBuffer ?? this.emptyShapeBuffer
-    return this.device.createBindGroup({
-      layout: this.layerBindGroupLayout,
-      entries: [
-        { binding: 0, resource: { buffer: this.layerRing, offset: 0, size: LINE_UNIFORM_SIZE } },
-        { binding: 1, resource: { buffer: segmentBuffer } },
-        { binding: 2, resource: { buffer: shapeBuf } },
-        { binding: 3, resource: { buffer: shapeSegBuf } },
-      ],
-    })
+  createLayerBindGroup(segmentBuffer: GPUBuffer): RhiBindGroup {
+    // §4 seam: built via the RHI. binding 0 = line's PRIVATE layer ring (RhiBuffer);
+    // binding 1 = the per-tile segment buffer, still a raw GpuTileStore-owned
+    // GPUBuffer (flips with the VTR/GPUArena cluster) → wrapped transiently;
+    // binding 2/3 = the SHARED ShapeRegistry shape/seg buffers, raw until step 3c
+    // → wrapped (`shapeBuf ? wrap : emptyShapeBuffer`, the empty fallback already a
+    // private RhiBuffer). All transient wraps drop when their owners flip.
+    const shapeBuf = this.shapeRegistry?.shapeBuffer
+    const shapeSegBuf = this.shapeRegistry?.segmentBuffer
+    return this.rhi.createBindGroup(wrapWebGpuBindGroupLayout(this.layerBindGroupLayout), [
+      { binding: 0, resource: { buffer: this.layerRing, offset: 0, size: LINE_UNIFORM_SIZE } },
+      { binding: 1, resource: { buffer: wrapWebGpuBuffer(segmentBuffer) } },
+      { binding: 2, resource: { buffer: shapeBuf ? wrapWebGpuBuffer(shapeBuf) : this.emptyShapeBuffer } },
+      { binding: 3, resource: { buffer: shapeSegBuf ? wrapWebGpuBuffer(shapeSegBuf) : this.emptyShapeBuffer } },
+    ])
   }
 
   /**
@@ -446,7 +469,7 @@ export class LineRenderer {
   drawSegments(
     pass: GPURenderPassEncoder | GPURenderBundleEncoder,
     tileBindGroup: GPUBindGroup,
-    layerBindGroup: GPUBindGroup,
+    layerBindGroup: RhiBindGroup,
     segmentCount: number,
     tileOffset: number,
     layerOffset: number,
@@ -466,8 +489,11 @@ export class LineRenderer {
     // below remain ONLY as an explicit opt-out (__xgisLineViaRhi === false, e.g. the parity specs);
     // they retire with the §4 seam + VTR. Offscreen RT/pass ORIGINATION stays raw (deferred to P2).
     this.ensureLineDraper()
+    // layerBG is line's RhiBindGroup (createLayerBindGroup, via the RHI seam);
+    // tileBG is the VTR tile bind group — still a raw GPUBindGroup (flips with the
+    // VTR cluster) → wrapped here at the renderer call site (transient).
     this._lineDraper!.draw(wrapWebGpuPass(pass), {
-      tileBG: tileBindGroup, layerBG: layerBindGroup, tileOffset, layerOffset,
+      tileBG: wrapWebGpuBindGroup(tileBindGroup), layerBG: layerBindGroup, tileOffset, layerOffset,
       pattern: patternActive, segmentCount,
     }, translucent ? 'max' : isPickEnabled() ? 'pick' : 'opaque')
   }
@@ -475,7 +501,7 @@ export class LineRenderer {
   private _lineDraper?: LineDraper
   private ensureLineDraper(): void {
     if (this._lineDraper) return
-    this._lineDraper = new LineDraper(new WebGpuDevice(this.device), this.format, getSampleCount(), this.tileBindGroupLayout, this.layerBindGroupLayout)
+    this._lineDraper = new LineDraper(this.rhi, this.format, getSampleCount(), this.tileBindGroupLayout, this.layerBindGroupLayout)
   }
 
   clearLayers(): void {

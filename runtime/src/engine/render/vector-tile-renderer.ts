@@ -41,6 +41,7 @@ import { TileSelectionCache } from './tile-selection-cache'
 import { FeatureDataBinder } from './feature-data-binder'
 import { GpuTileStore } from './gpu-tile-store'
 import { BindGroupRegistry } from './bind-group-registry'
+import type { RhiBindGroup } from './rhi/rhi'
 import {
   generateWallMeshExtrudedECEF,
 } from '../../core/polygon-mesh'
@@ -1523,9 +1524,9 @@ export class VectorTileRenderer {
     // tile extent in Mercator meters so its tile-boundary detection keeps
     // seamless joins across tile edges.
     let outlineSegmentCount = 0
-    let outlineSegmentBindGroup: GPUBindGroup | null = null
+    let outlineSegmentBindGroup: RhiBindGroup | null = null
     let lineSegmentCount = 0
-    let lineSegmentBindGroup: GPUBindGroup | null = null
+    let lineSegmentBindGroup: RhiBindGroup | null = null
     if (this.lineRenderer) {
       const SEG_DEG2RAD = Math.PI / 180
       const SEG_R = 6378137
@@ -1879,9 +1880,9 @@ export class VectorTileRenderer {
     // through `uploadSegmentBufferAsync` so the segment-buffer write
     // shares this tile's staging pool + encoder.
     let outlineSegmentCount = 0
-    let outlineSegmentBindGroup: GPUBindGroup | null = null
+    let outlineSegmentBindGroup: RhiBindGroup | null = null
     let lineSegmentCount = 0
-    let lineSegmentBindGroup: GPUBindGroup | null = null
+    let lineSegmentBindGroup: RhiBindGroup | null = null
     if (this.lineRenderer) {
       const SEG_DEG2RAD = Math.PI / 180
       const SEG_R = 6378137

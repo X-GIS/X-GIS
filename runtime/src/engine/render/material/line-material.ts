@@ -7,16 +7,19 @@
 // group layout (so its pipeline is layout-compatible with VTR-built tile groups).
 // The translucent MAX-blend / composite pass is a render-graph concern, separate.
 
-import type { RhiDevice, RhiRenderPass } from '../rhi/rhi'
-import { wrapWebGpuBindGroup, wrapWebGpuBindGroupLayout } from '../rhi/rhi-webgpu'
+import type { RhiBindGroup, RhiDevice, RhiRenderPass } from '../rhi/rhi'
+import { wrapWebGpuBindGroupLayout } from '../rhi/rhi-webgpu'
 import { Material, executeItems } from './material'
 import { emitLineWgsl } from '../../shaders/dsl'
 
-/** One line-segment batch: the (externally-built) tile + layer bind groups, their
- *  ring offsets, the pattern flag, and the instance (segment) count. */
+/** One line-segment batch (§4 batch-seam). Both bind groups arrive as RhiBindGroup:
+ *  the layer group is built via `rhi.createBindGroup` (LineRenderer.createLayer-
+ *  BindGroup); the VTR tile group is still raw + wrapped at the renderer call site.
+ *  Passed straight through — NO re-wrapping (a wrap of an already-RHI handle would
+ *  double-wrap → unwrap yields a Native wrapper, not a GPUBindGroup → empty draw). */
 export interface LineBatch {
-  tileBG: GPUBindGroup
-  layerBG: GPUBindGroup
+  tileBG: RhiBindGroup
+  layerBG: RhiBindGroup
   tileOffset: number
   layerOffset: number
   pattern: boolean
@@ -77,7 +80,7 @@ export class LineDraper {
       : this.material
     executeItems(material, pass, [{
       variant: mode === 'max' ? 0 : (b.pattern ? 1 : 0), // the MAX material has a single variant
-      bindGroups: [wrapWebGpuBindGroup(b.tileBG), wrapWebGpuBindGroup(b.layerBG)],
+      bindGroups: [b.tileBG, b.layerBG],
       dynamicOffsets: [[b.tileOffset], [b.layerOffset]],
       count: 6,
       indexed: false,

@@ -6,8 +6,8 @@
 // blended. WebGPU-ONLY by construction — the offscreen translucent pass fail-closes on WebGl2
 // (createCommandEncoder), so this Material is lazy + WGSL-only (no GLSL emit needed).
 
-import type { RhiDevice, RhiRenderPass } from '../rhi/rhi'
-import { wrapWebGpuTextureView, wrapWebGpuBuffer } from '../rhi/rhi-webgpu'
+import type { RhiBuffer, RhiDevice, RhiRenderPass } from '../rhi/rhi'
+import { wrapWebGpuTextureView } from '../rhi/rhi-webgpu'
 import { Material, executeItems } from './material'
 import { emitCompositeWgsl } from '../../shaders/dsl'
 
@@ -40,12 +40,15 @@ export class LineCompositeDraper {
 
   /** Composite the offscreen RT onto the bound (main) pass. `ring`/`offset` are the per-layer
    *  opacity ring + its dynamic offset (the renderer wrote the opacity before calling). */
-  draw(pass: RhiRenderPass, offscreenView: GPUTextureView, ring: GPUBuffer, offset: number): void {
+  draw(pass: RhiRenderPass, offscreenView: GPUTextureView, ring: RhiBuffer, offset: number): void {
     const m = this.mat()
+    // `ring` is line's PRIVATE composite-opacity ring (RhiBuffer, §4 seam) → passed
+    // straight through; the offscreen view stays a raw GPUTextureView (the offscreen
+    // RT/pass origination is deferred to P2) → adopted via wrapWebGpuTextureView.
     const bg = this.rhi.createBindGroup(m.layout(0), [
       { binding: 0, resource: this.sampler },
       { binding: 1, resource: { view: wrapWebGpuTextureView(offscreenView) } },
-      { binding: 2, resource: { buffer: wrapWebGpuBuffer(ring), size: COMPOSITE_SLOT } },
+      { binding: 2, resource: { buffer: ring, size: COMPOSITE_SLOT } },
     ])
     executeItems(m, pass, [{ variant: 0, bindGroups: [bg], dynamicOffsets: [[offset]], count: 3, indexed: false }])
   }

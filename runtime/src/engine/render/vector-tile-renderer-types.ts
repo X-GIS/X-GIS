@@ -4,6 +4,8 @@
 // no logic or symbol renames. `LayerDrawPhase` remains part of the
 // public surface and is re-exported from vector-tile-renderer.ts.
 
+import type { RhiBindGroup } from './rhi/rhi'
+
 /** Layer draw phase — replaces the prior `translucentLines: boolean` flag.
  *  'all' draws fill + stroke in one pass (opaque default).
  *  'fills'/'strokes' split across a main pass and an offscreen MAX-blend
@@ -59,10 +61,14 @@ export interface GPUTile {
   // SDF line segment buffers for polygon outlines and line features
   outlineSegmentBuffer: GPUBuffer | null
   outlineSegmentCount: number
-  outlineSegmentBindGroup: GPUBindGroup | null
+  // §4 seam: the layer bind group is built via the RHI (LineRenderer.create-
+  // LayerBindGroup) → RhiBindGroup. The segment BUFFER above stays a raw
+  // GPUBuffer (owned + destroyed by GpuTileStore's retire queue — flips with
+  // the VTR/GPUArena cluster).
+  outlineSegmentBindGroup: RhiBindGroup | null
   lineSegmentBuffer: GPUBuffer | null
   lineSegmentCount: number
-  lineSegmentBindGroup: GPUBindGroup | null
+  lineSegmentBindGroup: RhiBindGroup | null
   tileWest: number
   tileSouth: number
   tileWidth: number
