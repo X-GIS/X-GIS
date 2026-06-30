@@ -1,0 +1,30 @@
+{
+  "name": "@xgis/engine",
+  "version": "0.0.1",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --build"
+  },
+  "dependencies": {
+    "@webgpu/types": "^0.1.69"
+  },
+  "devDependencies": {
+    "@xgis/compiler": "workspace:*",
+    "@xgis/shader-dsl": "workspace:*",
+    "@xgis/shared": "workspace:*"
+  }
+}

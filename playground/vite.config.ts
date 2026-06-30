@@ -22,6 +22,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@xgis/runtime': fileURLToPath(new URL('../runtime/src/index.ts', import.meta.url)),
+      '@xgis/engine': fileURLToPath(new URL('../engine/src/index.ts', import.meta.url)),
+      '@xgis/map': fileURLToPath(new URL('../map/src/index.ts', import.meta.url)),
     },
   },
   server: {
@@ -43,7 +45,7 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    exclude: ['@xgis/compiler', '@xgis/blueprint', '@xgis/runtime', '@xgis/shader-dsl'],
+    exclude: ['@xgis/compiler', '@xgis/blueprint', '@xgis/runtime', '@xgis/shader-dsl', '@xgis/engine', '@xgis/map'],
   },
   build: {
     rollupOptions: {

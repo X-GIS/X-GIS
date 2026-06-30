@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
-  "workspaces": ["shared", "compiler", "blueprint", "shader-dsl", "runtime", "playground", "site"],
+  "workspaces": ["shared", "compiler", "blueprint", "shader-dsl", "engine", "map", "runtime", "playground", "site"],
   "scripts": {
     "build": "bun run --filter '*' build",
     "test": "vitest run",
