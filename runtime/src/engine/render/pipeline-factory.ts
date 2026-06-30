@@ -35,7 +35,6 @@ import {
   STENCIL_WRITE_NO_DEPTH, STENCIL_TEST_NO_DEPTH,
   BLEND_OIT_ACCUM, BLEND_OIT_REVEALAGE,
   OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT,
-  HEATMAP_DENSITY_FORMAT,
 } from '../gpu/gpu-shared'
 import { isPickEnabled, getSampleCount } from '../gpu/gpu'
 import { POLYGON_FILL_FORMAT, POLYGON_EXTRUDED_FORMAT } from '@xgis/compiler'
@@ -43,9 +42,7 @@ import { toVertexBufferLayout } from './vertex-buffer-layout'
 import { LINE_FORMAT } from './line-vertex-format'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
-import { emitOverdrawComposeWgsl } from '../shaders/dsl/overdraw-compose'
-import { emitHeatmapBlurWgsl } from '../shaders/dsl/heatmap-blur'
-import { emitHeatmapComposeWgsl } from '../shaders/dsl/heatmap-compose'
+import { buildOverdrawComposePipeline, buildHeatmapBlurPipeline, buildHeatmapComposePipeline } from './compose-pipelines'
 import { emitOitComposeWgsl } from '../shaders/dsl/oit-compose'
 import { emitPolygonWgsl } from '../shaders/dsl/polygon'
 import { Node } from '@xgis/shader-dsl'
@@ -371,31 +368,9 @@ export class PipelineFactory {
    *  Idempotent — first call builds, subsequent calls reuse. */
   ensureOverdrawCompose(): GPURenderPipeline {
     if (this.overdrawComposePipeline) return this.overdrawComposePipeline
-    const { device, format } = this.ctx
-    // Phase 4+ migration — WGSL was extracted to the polygon DSL in
-    // runtime/src/engine/shaders/dsl/overdraw-compose.ts. emit returns the same
-    // shader text the inline template held; the pipeline's bind-group
-    // layout + entryPoint names (vs_full / fs_compose) are unchanged.
-    const code = emitOverdrawComposeWgsl()
-    const module = device.createShaderModule({ code, label: 'overdraw-compose-shader' })
-    this.overdrawComposeBindGroupLayout = device.createBindGroupLayout({
-      label: 'overdraw-compose-bgl',
-      entries: [{
-        binding: 0, visibility: GPUShaderStage.FRAGMENT,
-        texture: { sampleType: 'unfilterable-float', multisampled: false },
-      }],
-    })
-    this.overdrawComposePipeline = device.createRenderPipeline({
-      label: 'overdraw-compose-pipeline',
-      layout: device.createPipelineLayout({ bindGroupLayouts: [this.overdrawComposeBindGroupLayout] }),
-      vertex: { module, entryPoint: 'vs_full' },
-      fragment: {
-        module, entryPoint: 'fs_compose',
-        targets: [{ format }],
-      },
-      primitive: { topology: 'triangle-list' },
-      multisample: { count: 1 },
-    })
+    const built = buildOverdrawComposePipeline(this.ctx.device, this.ctx.format)
+    this.overdrawComposeBindGroupLayout = built.layout
+    this.overdrawComposePipeline = built.pipeline
     return this.overdrawComposePipeline
   }
 
@@ -407,24 +382,9 @@ export class PipelineFactory {
    *  — single-sample, no MSAA variants. Idempotent. */
   ensureHeatmapBlur(): GPURenderPipeline {
     if (this.heatmapBlurPipeline) return this.heatmapBlurPipeline
-    const { device } = this.ctx
-    const code = emitHeatmapBlurWgsl()
-    const module = device.createShaderModule({ code, label: 'heatmap-blur-shader' })
-    this.heatmapBlurBindGroupLayout = device.createBindGroupLayout({
-      label: 'heatmap-blur-bgl',
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float', multisampled: false } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
-      ],
-    })
-    this.heatmapBlurPipeline = device.createRenderPipeline({
-      label: 'heatmap-blur-pipeline',
-      layout: device.createPipelineLayout({ bindGroupLayouts: [this.heatmapBlurBindGroupLayout] }),
-      vertex: { module, entryPoint: 'vs_full' },
-      fragment: { module, entryPoint: 'fs_blur', targets: [{ format: HEATMAP_DENSITY_FORMAT }] },
-      primitive: { topology: 'triangle-list' },
-      multisample: { count: 1 },
-    })
+    const built = buildHeatmapBlurPipeline(this.ctx.device)
+    this.heatmapBlurBindGroupLayout = built.layout
+    this.heatmapBlurPipeline = built.pipeline
     return this.heatmapBlurPipeline
   }
 
@@ -444,35 +404,9 @@ export class PipelineFactory {
    *  pre-label MSAA chain (so symbols sit on top) is a deferred follow-up. */
   ensureHeatmapCompose(): GPURenderPipeline {
     if (this.heatmapComposePipeline) return this.heatmapComposePipeline
-    const { device, format } = this.ctx
-    const code = emitHeatmapComposeWgsl()
-    const module = device.createShaderModule({ code, label: 'heatmap-compose-shader' })
-    this.heatmapComposeBindGroupLayout = device.createBindGroupLayout({
-      label: 'heatmap-compose-bgl',
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float', multisampled: false } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', multisampled: false } },
-        { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
-        { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
-      ],
-    })
-    this.heatmapComposePipeline = device.createRenderPipeline({
-      label: 'heatmap-compose-pipeline',
-      layout: device.createPipelineLayout({ bindGroupLayouts: [this.heatmapComposeBindGroupLayout] }),
-      vertex: { module, entryPoint: 'vs_full' },
-      fragment: {
-        module, entryPoint: 'fs_compose',
-        targets: [{
-          format,
-          blend: {
-            color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-          },
-        }],
-      },
-      primitive: { topology: 'triangle-list' },
-      multisample: { count: 1 },
-    })
+    const built = buildHeatmapComposePipeline(this.ctx.device, this.ctx.format)
+    this.heatmapComposeBindGroupLayout = built.layout
+    this.heatmapComposePipeline = built.pipeline
     return this.heatmapComposePipeline
   }
 
