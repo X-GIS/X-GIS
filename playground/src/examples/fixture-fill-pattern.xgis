@@ -1,7 +1,7 @@
 /* §4 fill-pattern consumption-side verification: a flat polygon whose ONLY fill is a sprite
  * pattern (fill-pattern-pat), routed through fs_fill_pattern. This selects fillPipelinePatternGround
- * (show.fillPatternUV != null) which the RHI Material seam twins (patternGround), so the raw vs RHI
- * draw can be DC=0 compared via the __xgisVtrFillViaRhi kill-switch.
+ * (show.fillPatternUV != null) which the RHI Material seam twins (patternGround). The §4 seam is
+ * closed: the raw fill draw is deleted, so fill-pattern routes unconditionally through patternGround.
  *
  * The fill-pattern-ONLY layer (no fill-color) survives dead-layer-elim via the hasPattern guard
  * (compiler/src/ir/passes/dead-layer-elim.ts); `show.fillPattern` then trips the lazy IconStage

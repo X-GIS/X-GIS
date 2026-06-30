@@ -38,13 +38,15 @@ refactor it produces a false-confidence green. You ship "verified" and it means 
 - You're about to `git stash` the whole change and re-render to get a "before."
 
 ## The Approach
-1. **Prefer a runtime A/B kill-switch over git-stash.** This codebase ships per-seam toggles
-   exactly for this: `globalThis.__xgisVtrFillViaRhi !== false` (fill), `__xgisLineViaRhi`
-   (line). One served bundle, flag on vs off → a *true* raw-vs-RHI A/B with no rebuild
-   ambiguity. If the seam you're verifying has such a flag, toggle it in-page (`page.evaluate`)
-   and diff — DC=0 then genuinely means identical. If it lacks one and the change is
-   seam-shaped, **add the kill-switch as part of the change** so it's verifiable (and so the
-   raw fallback can later be deleted with a proven A/B).
+1. **Prefer a runtime A/B kill-switch over git-stash.** During a flip this codebase shipped
+   per-seam toggles exactly for this (e.g. the former `__xgisVtrFillViaRhi` / `__xgisLineViaRhi`
+   — a global read like `globalThis.__xgisVtrFillViaRhi !== false`): one served bundle, flag on
+   vs off → a *true* raw-vs-RHI A/B with no rebuild ambiguity. That is the toggle's whole
+   lifecycle: **add it as part of a seam-shaped change → use it to prove the new path is DC=0 to
+   raw → then DELETE it together with the raw fallback once proven** (both fill + line toggles
+   are now gone, the seams fail-closed). So if the seam you're verifying still has such a flag,
+   toggle it in-page (`page.evaluate`) and diff — DC=0 then genuinely means identical; if it
+   doesn't, add one, prove DC=0, and remove it with the raw path.
 2. **If you must git-stash, the before-tree must be genuinely *served*.** HMR or a warm vite
    can serve the post-change bundle for both captures → false DC=0. Required: `git stash push
    runtime/src`, **kill vite (find PID via `netstat -ano | grep :3000`), `rm -rf

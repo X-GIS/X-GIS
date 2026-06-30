@@ -494,12 +494,12 @@ export class LineRenderer {
     // don't contribute to the v1 heatmap. Phase 2 adds an additive
     // r16float variant so line overdraw counts too.
     if (DEBUG_OVERDRAW) return
-    // RHI seam (DEFAULT ON): every line draw routes through the LineDraper Material seam — the
+    // RHI seam (UNCONDITIONAL): every line draw routes through the LineDraper Material seam — the
     // opaque main pass, the translucent offscreen MAX-blend pass, the pick MRT pass, AND the
     // render-BUNDLE path (the wrapped pass accepts a GPURenderBundleEncoder; setStencilReference/end
-    // no-op there). mode 'opaque' / 'max' / 'pick' (lines write pick=vec2u(0,0)). The raw pipelines
-    // below remain ONLY as an explicit opt-out (__xgisLineViaRhi === false, e.g. the parity specs);
-    // they retire with the §4 seam + VTR. Offscreen RT/pass ORIGINATION stays raw (deferred to P2).
+    // no-op there). mode 'opaque' / 'max' / 'pick' (lines write pick=vec2u(0,0)). There is no raw
+    // line draw + no opt-out flag (the flip is complete, like the §4 fill seam). Offscreen RT/pass
+    // ORIGINATION stays raw (deferred to P2).
     this.ensureLineDraper()
     // layerBG is line's RhiBindGroup (createLayerBindGroup, via the RHI seam);
     // tileBG is the VTR tile bind group — still a raw GPUBindGroup (flips with the
