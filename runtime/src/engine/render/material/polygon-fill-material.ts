@@ -11,6 +11,14 @@ import type { RhiDevice } from '../rhi/rhi'
 import { WebGpuDevice, wrapWebGpuBindGroupLayout, wrapWebGpuBuffer, wrapWebGpuBindGroup, wrapWebGpuPass } from '../rhi/rhi-webgpu'
 import { Material, executeItems } from './material'
 
+/** P1.6 — the VTR fill routes through the RHI Material seam by DEFAULT; `__xgisVtrFillViaRhi === false`
+ *  is the kill-switch back to the raw draw. (The raw else-branch in recordFillDraw + the native fill
+ *  pipelines survive as that fallback + for the not-yet-routed residuals — fill patterns, OIT, until
+ *  they route + the raw is deleted with the §4 seam.) */
+export function fillViaRhiEnabled(): boolean {
+  return (globalThis as { __xgisVtrFillViaRhi?: boolean }).__xgisVtrFillViaRhi !== false
+}
+
 /** The per-tile GPUArena fill buffers recordFillDraw reads (structural — a VTR GPUTile satisfies it). */
 export interface FillTileBuffers {
   vertexBuffer: GPUBuffer; polyVertexOffset: number; polyVertexByteLength: number
@@ -116,7 +124,7 @@ export function recordFillDraw(
   cached: FillTileBuffers,
   bindZBuffer: boolean,
 ): void {
-  if (fillRhi && (globalThis as { __xgisVtrFillViaRhi?: boolean }).__xgisVtrFillViaRhi === true) {
+  if (fillRhi && fillViaRhiEnabled()) {
     let mat: Material | null = null
     let variant = -1
     if (!bindZBuffer) {

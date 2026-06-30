@@ -43,7 +43,7 @@ import { LINE_FORMAT } from './line-vertex-format'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
 import { buildOverdrawComposePipeline, buildHeatmapBlurPipeline, buildHeatmapComposePipeline, buildOitComposePipeline } from './compose-pipelines'
-import { buildFlatFillMaterials, buildExtrudeMaterial, type FillRhiState } from './material/polygon-fill-material'
+import { buildFlatFillMaterials, buildExtrudeMaterial, fillViaRhiEnabled, type FillRhiState } from './material/polygon-fill-material'
 import type { Material } from './material/material'
 import { emitPolygonWgsl } from '../shaders/dsl/polygon'
 import { Node } from '@xgis/shader-dsl'
@@ -175,7 +175,7 @@ export class PipelineFactory {
   /** Build + register the per-style fill Material twins for a variant pipeline set (behind the flag).
    *  Keyed by each native per-style pipeline so recordFillDraw routes them via the Material seam. */
   private registerFillMaterials(variant: ShaderVariantInfo, pipelines: CachedPipeline): void {
-    if ((globalThis as { __xgisVtrFillViaRhi?: boolean }).__xgisVtrFillViaRhi !== true) return
+    if (!fillViaRhiEnabled()) return
     const { device, format } = this.ctx
     const { flat, ground } = buildFlatFillMaterials({
       device, shader: buildShader(variant), format, sampleCount: getSampleCount(),
@@ -741,7 +741,7 @@ export class PipelineFactory {
 
     // P1.6 — build the flat-fill Material twins (default shader) behind __xgisVtrFillViaRhi (default
     // off → no extra pipelines built). recordFillDraw routes the flat/ground non-extrude fill through them.
-    if ((globalThis as { __xgisVtrFillViaRhi?: boolean }).__xgisVtrFillViaRhi === true) {
+    if (fillViaRhiEnabled()) {
       this._fillMaterials = buildFlatFillMaterials({
         device, shader: pickShader, format, sampleCount: getSampleCount(),
         bindGroupLayout: this.bindGroupLayout, vertexLayout: vertexBufferLayout, pickEnabled,
@@ -907,7 +907,7 @@ export class PipelineFactory {
     // ON + the flag is on; with picking off the no-pick pipelines alias the pickable set (already
     // routed via _fillMaterials). The non-extrude no-pick pipelines join _fillPerStyle (checked first
     // by recordFillDraw); the extrude no-pick rides the extrude slot's *NoPick fields.
-    if (pickEnabled && (globalThis as { __xgisVtrFillViaRhi?: boolean }).__xgisVtrFillViaRhi === true) {
+    if (pickEnabled && fillViaRhiEnabled()) {
       const np = buildFlatFillMaterials({
         device, shader: pickShader, format, sampleCount: getSampleCount(),
         bindGroupLayout: this.bindGroupLayout, vertexLayout: vertexBufferLayout, pickEnabled, pickWriteMask: 0,
