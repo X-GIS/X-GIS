@@ -77,7 +77,12 @@ export interface DrawItem {
   /** Bytes for this item's pooled uniform (only when the material has a pool). */
   poolBytes?: BufferSource
   vertex?: RhiBuffer
-  index?: { buffer: RhiBuffer; format: 'uint16' | 'uint32' }
+  /** Sub-range of the slot-0 vertex buffer (the per-tile GPUArena range). Default whole buffer. */
+  vertexOffset?: number
+  vertexSize?: number
+  /** Optional slot-1 vertex buffer (the polygon extrude z-buffer), with its own arena sub-range. */
+  vertex1?: { buffer: RhiBuffer; offset?: number; size?: number }
+  index?: { buffer: RhiBuffer; format: 'uint16' | 'uint32'; offset?: number; size?: number }
   /** vertexCount (procedural) or indexCount (indexed). */
   count: number
   indexed: boolean
@@ -148,9 +153,10 @@ export function executeItems(material: Material, pass: RhiRenderPass, items: Rea
       slot.write(it.poolBytes)
       pass.setBindGroup(material.poolGroup, slot.bg)
     }
-    if (it.vertex) pass.setVertexBuffer(0, it.vertex)
+    if (it.vertex) pass.setVertexBuffer(0, it.vertex, it.vertexOffset, it.vertexSize)
+    if (it.vertex1) pass.setVertexBuffer(1, it.vertex1.buffer, it.vertex1.offset, it.vertex1.size)
     const instances = it.instanceCount ?? 1
-    if (it.index) { pass.setIndexBuffer(it.index.buffer, it.index.format); pass.drawIndexed(it.count, instances) }
+    if (it.index) { pass.setIndexBuffer(it.index.buffer, it.index.format, it.index.offset, it.index.size); pass.drawIndexed(it.count, instances) }
     else pass.draw(it.count, instances, it.firstVertex ?? 0)
   }
 }
