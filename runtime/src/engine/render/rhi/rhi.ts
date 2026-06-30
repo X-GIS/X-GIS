@@ -93,7 +93,7 @@ export interface RhiPipelineDesc {
   vsCode?: string
   fsCode?: string
   bindGroupLayouts: RhiBindGroupLayout[]
-  colorTargets: ReadonlyArray<{ format: RhiTextureFormat; blend?: 'alpha' | 'premult' | 'additive' | 'none' }>
+  colorTargets: ReadonlyArray<{ format: RhiTextureFormat; blend?: 'alpha' | 'premult' | 'additive' | 'max' | 'none' }>
   depthStencil?: {
     format: RhiTextureFormat; write: boolean; compare: 'always' | 'less' | 'less-equal'
     /** Polygon-offset depth bias (point markers pull toward camera). */

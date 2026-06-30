@@ -65,7 +65,7 @@ interface Gl2BindGroupLayout { entries: ReadonlyArray<RhiBindLayoutEntry> }
 interface Gl2BindGroup { layout: Gl2BindGroupLayout; entries: ReadonlyArray<RhiBindEntry> }
 interface Gl2Pipeline {
   program: WebGLProgram
-  blend: 'alpha' | 'premult' | 'additive' | 'none' | undefined
+  blend: 'alpha' | 'premult' | 'additive' | 'max' | 'none' | undefined
   depth?: { write: boolean; compare: 'always' | 'less' | 'less-equal'; bias?: { constant: number; slopeScale: number; clamp: number } }
   vertexBuffers: ReadonlyArray<{ stride: number; attributes: ReadonlyArray<{ location: number; offset: number; format: string }> }>
   layouts: ReadonlyArray<Gl2BindGroupLayout>
@@ -104,6 +104,7 @@ const VFMT: Readonly<Record<string, { size: number; type: 'f32' | 'u8'; normaliz
 function applyBlend(gl: WebGL2RenderingContext, mode: Gl2Pipeline['blend']): void {
   if (!mode || mode === 'none') { gl.disable(gl.BLEND); return }
   gl.enable(gl.BLEND)
+  if (mode === 'max') { gl.blendEquation(gl.MAX); gl.blendFunc(gl.ONE, gl.ONE); return } // translucent-line offscreen accum
   gl.blendEquation(gl.FUNC_ADD)
   if (mode === 'alpha') {
     // STRAIGHT alpha — byte-matches rhi-webgpu BLEND_ALPHA (color src-alpha, alpha one).

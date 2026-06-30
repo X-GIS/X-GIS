@@ -34,6 +34,11 @@ const BLEND_ADDITIVE: GPUBlendState = {
   color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
   alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
 }
+// MAX blend — the translucent-line offscreen accumulation (mirrors gpu-shared BLEND_MAX).
+const BLEND_MAX: GPUBlendState = {
+  color: { srcFactor: 'one', dstFactor: 'one', operation: 'max' },
+  alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'max' },
+}
 
 /** Map the RHI stencil config (or its absence) to the `GPUDepthStencilState`
  *  stencil fields. Absent → the inert STENCIL_DISABLED shape (compare always,
@@ -244,7 +249,7 @@ export class WebGpuDevice implements RhiDevice {
         module, entryPoint: desc.fsEntry,
         targets: desc.colorTargets.map((t): GPUColorTargetState => ({
           format: t.format as GPUTextureFormat,
-          blend: t.blend === 'alpha' ? BLEND_ALPHA : t.blend === 'premult' ? BLEND_ALPHA_PREMULT : t.blend === 'additive' ? BLEND_ADDITIVE : undefined,
+          blend: t.blend === 'alpha' ? BLEND_ALPHA : t.blend === 'premult' ? BLEND_ALPHA_PREMULT : t.blend === 'additive' ? BLEND_ADDITIVE : t.blend === 'max' ? BLEND_MAX : undefined,
           writeMask: t.format === 'rg32uint' ? 0 : GPUColorWrite.ALL,
         })),
       },

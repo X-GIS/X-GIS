@@ -30,6 +30,9 @@ export class LineDraper {
   // no per-target writeMask is needed, the shader masks itself). LAZY so the non-pick path never
   // builds the rg32uint MRT pipeline (which WebGl2Device fail-closes on).
   private _pickMaterial?: Material
+  // offscreen translucent MAX-blend pass: fs_line_max, blend 'max', SINGLE-sample (the offscreen RT
+  // is single-sample), no depth. LAZY (built on the first translucent draw).
+  private _maxMaterial?: Material
 
   constructor(
     private readonly rhi: RhiDevice,
@@ -56,10 +59,24 @@ export class LineDraper {
     })
   }
 
-  draw(pass: RhiRenderPass, b: LineBatch, pick = false): void {
-    const material = pick ? (this._pickMaterial ??= this.buildMaterial(true)) : this.material
+  /** Build the offscreen translucent MAX-blend Material — fs_line_max into the single-sample
+   *  offscreen RT (BLEND_MAX, no depth). One fragment variant (no pattern). LAZY. */
+  private maxMat(): Material {
+    return (this._maxMaterial ??= new Material(this.rhi, {
+      shader: emitLineWgsl(false), vsEntry: 'vs_line', fsEntry: 'fs_line_max',
+      format: this.format as 'bgra8unorm', sampleCount: 1,
+      groups: [wrapWebGpuBindGroupLayout(this.tileLayout), wrapWebGpuBindGroupLayout(this.layerLayout)],
+      colorTargets: [{ format: this.format as 'bgra8unorm', blend: 'max' }],
+      variants: [{ label: 'line-pipeline-max-rhi' }], // no depth-stencil (offscreen accum)
+    }))
+  }
+
+  draw(pass: RhiRenderPass, b: LineBatch, mode: 'opaque' | 'pick' | 'max' = 'opaque'): void {
+    const material = mode === 'pick' ? (this._pickMaterial ??= this.buildMaterial(true))
+      : mode === 'max' ? this.maxMat()
+      : this.material
     executeItems(material, pass, [{
-      variant: b.pattern ? 1 : 0,
+      variant: mode === 'max' ? 0 : (b.pattern ? 1 : 0), // the MAX material has a single variant
       bindGroups: [wrapWebGpuBindGroup(b.tileBG), wrapWebGpuBindGroup(b.layerBG)],
       dynamicOffsets: [[b.tileOffset], [b.layerOffset]],
       count: 6,

@@ -635,15 +635,19 @@ export class LineRenderer {
     if (DEBUG_OVERDRAW) return
     // RHI pilot (main pass, non-pick, direct render pass — bundles + the
     // translucent MAX pass stay legacy): same draw through the generic seam.
+    // RHI seam: opaque (main pass) + translucent (the offscreen MAX-blend pass) both route through
+    // the LineDraper now (the draper's 'max' mode = the single-sample offscreen MAX variant). Still
+    // legacy: GPU picking + the render-bundle path (no `pass.end`). The offscreen RT/pass ORIGINATION
+    // stays raw (deferred to P2); only the draw is wrapped.
     const lineRhi = (globalThis as { __xgisLineViaRhi?: boolean }).__xgisLineViaRhi === true
-      && !translucent && !isPickEnabled() && typeof (pass as { end?: unknown }).end === 'function'
+      && !isPickEnabled() && typeof (pass as { end?: unknown }).end === 'function'
     if (lineRhi) {
       this.ensureLineDraper()
       if (!this._lineRhiLogged) { this._lineRhiLogged = true; console.warn(`[LINERHI] segment draw via RHI seam (segments=${segmentCount})`) }
       this._lineDraper!.draw(wrapWebGpuPass(pass as GPURenderPassEncoder), {
         tileBG: tileBindGroup, layerBG: layerBindGroup, tileOffset, layerOffset,
         pattern: patternActive, segmentCount,
-      })
+      }, translucent ? 'max' : 'opaque')
     } else {
       pass.setPipeline(this.getDrawPipeline(translucent, patternActive))
       pass.setBindGroup(0, tileBindGroup, [tileOffset])
