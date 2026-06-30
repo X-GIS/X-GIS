@@ -16,7 +16,7 @@
 import { SpriteAtlasGPU } from './sprite-atlas-gpu'
 import { emitIconWgsl } from '../shaders/dsl'
 import { WebGpuDevice, wrapWebGpuPass } from '../render/rhi/rhi-webgpu'
-import { IconDraper } from '../render/material/icon-material'
+import { IconDraper, iconViaRhiEnabled } from '../render/material/icon-material'
 import type { SpriteInfo } from './sprite-atlas-host'
 import { vertexField } from '@xgis/compiler'
 import { ICON_FORMAT } from './icon-vertex-format'
@@ -134,7 +134,8 @@ export class IconRenderer {
    *  new atlas texture. */
   private bindGroup: GPUBindGroup | null = null
 
-  // RHI pilot (behind __xgisIconViaRhi). Same draw through the generic seam.
+  // RHI Material path (default-on via iconViaRhiEnabled; __xgisIconViaRhi=false is the
+  // kill-switch). Same draw through the generic seam.
   private _iconFmt!: GPUTextureFormat
   private _iconSamples!: number
   private _iconDraper?: IconDraper
@@ -369,7 +370,7 @@ export class IconRenderer {
     this.device.queue.writeBuffer(this.uniformBuf, 0, u.buffer)
     // Iter 538 — capture for the diagnostic.
     this.lastDrawViewport = { width: viewport.width, height: viewport.height }
-    if ((globalThis as { __xgisIconViaRhi?: boolean }).__xgisIconViaRhi === true) {
+    if (iconViaRhiEnabled()) {
       this.ensureIconDraper()
       if (!this._iconRhiLogged) { this._iconRhiLogged = true; console.warn(`[ICONRHI] icon draw via RHI seam (verts=${this.vertexCount})`) }
       this._iconDraper!.draw(wrapWebGpuPass(pass), { bindGroup: this.bindGroup, vertexBuf: this.vertexBuf, vertexCount: this.vertexCount })

@@ -11,6 +11,14 @@ import { emitIconWgsl } from '../../shaders/dsl'
 
 type VertexBuffers = ReadonlyArray<{ stride: number; attributes: ReadonlyArray<{ location: number; offset: number; format: string }> }>
 
+/** P1 — the sprite-icon draw routes through the RHI Material seam (IconDraper) by DEFAULT;
+ *  `__xgisIconViaRhi === false` is the kill-switch back to the raw `pass.setPipeline`+`pass.draw`
+ *  path. (The raw else-branch in IconRenderer.draw + the native icon pipeline survive as that
+ *  fallback until the §4 seam deletes them.) Mirrors textViaRhiEnabled(). */
+export function iconViaRhiEnabled(): boolean {
+  return (globalThis as { __xgisIconViaRhi?: boolean }).__xgisIconViaRhi !== false
+}
+
 export interface IconBatch { bindGroup: GPUBindGroup; vertexBuf: GPUBuffer; vertexCount: number }
 
 export class IconDraper {
