@@ -646,21 +646,20 @@ export class LineRenderer {
     // don't contribute to the v1 heatmap. Phase 2 adds an additive
     // r16float variant so line overdraw counts too.
     if (DEBUG_OVERDRAW) return
-    // RHI pilot (main pass, non-pick, direct render pass — bundles + the
-    // translucent MAX pass stay legacy): same draw through the generic seam.
-    // RHI seam: opaque (main pass) + translucent (the offscreen MAX-blend pass) both route through
-    // the LineDraper now (the draper's 'max' mode = the single-sample offscreen MAX variant). Still
-    // legacy: GPU picking + the render-bundle path (no `pass.end`). The offscreen RT/pass ORIGINATION
-    // stays raw (deferred to P2); only the draw is wrapped.
+    // RHI seam: opaque (main pass), translucent (the offscreen MAX-blend pass), AND the pick MRT
+    // pass all route through the LineDraper now — mode 'opaque' / 'max' / 'pick' (lines write
+    // pick=vec2u(0,0), so the pick variant just adds the rg32uint MRT). Still legacy: the
+    // render-bundle path (no `pass.end`). The offscreen RT/pass ORIGINATION stays raw (deferred to
+    // P2); only the draw is wrapped.
     const lineRhi = (globalThis as { __xgisLineViaRhi?: boolean }).__xgisLineViaRhi === true
-      && !isPickEnabled() && typeof (pass as { end?: unknown }).end === 'function'
+      && typeof (pass as { end?: unknown }).end === 'function'
     if (lineRhi) {
       this.ensureLineDraper()
       if (!this._lineRhiLogged) { this._lineRhiLogged = true; console.warn(`[LINERHI] segment draw via RHI seam (segments=${segmentCount})`) }
       this._lineDraper!.draw(wrapWebGpuPass(pass as GPURenderPassEncoder), {
         tileBG: tileBindGroup, layerBG: layerBindGroup, tileOffset, layerOffset,
         pattern: patternActive, segmentCount,
-      }, translucent ? 'max' : 'opaque')
+      }, translucent ? 'max' : isPickEnabled() ? 'pick' : 'opaque')
     } else {
       pass.setPipeline(this.getDrawPipeline(translucent, patternActive))
       pass.setBindGroup(0, tileBindGroup, [tileOffset])
