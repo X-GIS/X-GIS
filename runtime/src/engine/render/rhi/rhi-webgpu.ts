@@ -110,8 +110,12 @@ function texUsage(usage: RhiTextureDesc['usage']): GPUTextureUsageFlags {
   return f
 }
 
+// Wraps EITHER a live render-pass encoder OR a render-BUNDLE encoder — the draw subset
+// (setPipeline/setBindGroup/setVertex+IndexBuffer/draw[Indexed]) is identical; only the pass-level
+// setStencilReference + end exist on the pass encoder (no-op'd for a bundle, which has no stencil-ref
+// and finishes via finish()).
 class WebGpuRenderPass implements RhiRenderPass {
-  constructor(private readonly enc: GPURenderPassEncoder) {}
+  constructor(private readonly enc: GPURenderPassEncoder | GPURenderBundleEncoder) {}
   setPipeline(p: RhiPipeline): void { this.enc.setPipeline(u<GPURenderPipeline>(p)) }
   setBindGroup(index: number, group: RhiBindGroup, dynamicOffsets?: number[]): void {
     this.enc.setBindGroup(index, u<GPUBindGroup>(group), dynamicOffsets)
@@ -120,13 +124,13 @@ class WebGpuRenderPass implements RhiRenderPass {
   setIndexBuffer(buffer: RhiBuffer, format: 'uint16' | 'uint32'): void { this.enc.setIndexBuffer(u<GPUBuffer>(buffer), format) }
   draw(vertexCount: number, instanceCount = 1, firstVertex = 0): void { this.enc.draw(vertexCount, instanceCount, firstVertex) }
   drawIndexed(indexCount: number, instanceCount = 1): void { this.enc.drawIndexed(indexCount, instanceCount) }
-  setStencilReference(ref: number): void { this.enc.setStencilReference(ref) }
-  end(): void { this.enc.end() }
+  setStencilReference(ref: number): void { if ('setStencilReference' in this.enc) this.enc.setStencilReference(ref) }
+  end(): void { if ('end' in this.enc) this.enc.end() }
 }
 
-/** Wrap a live GPURenderPassEncoder (created by the render loop) as an RHI pass
- *  so renderers record against the interface, not the native encoder. */
-export function wrapWebGpuPass(enc: GPURenderPassEncoder): RhiRenderPass {
+/** Wrap a live GPURenderPassEncoder OR a GPURenderBundleEncoder (the render loop's pass / a VTR tile
+ *  bundle) as an RHI pass so renderers record against the interface, not the native encoder. */
+export function wrapWebGpuPass(enc: GPURenderPassEncoder | GPURenderBundleEncoder): RhiRenderPass {
   return new WebGpuRenderPass(enc)
 }
 

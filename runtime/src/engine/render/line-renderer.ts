@@ -646,17 +646,16 @@ export class LineRenderer {
     // don't contribute to the v1 heatmap. Phase 2 adds an additive
     // r16float variant so line overdraw counts too.
     if (DEBUG_OVERDRAW) return
-    // RHI seam: opaque (main pass), translucent (the offscreen MAX-blend pass), AND the pick MRT
-    // pass all route through the LineDraper now — mode 'opaque' / 'max' / 'pick' (lines write
-    // pick=vec2u(0,0), so the pick variant just adds the rg32uint MRT). Still legacy: the
-    // render-bundle path (no `pass.end`). The offscreen RT/pass ORIGINATION stays raw (deferred to
-    // P2); only the draw is wrapped.
+    // RHI seam: ALL line draws route through the LineDraper now — the opaque main pass, the
+    // translucent offscreen MAX-blend pass, the pick MRT pass, AND the render-BUNDLE path (the
+    // wrapped pass accepts a GPURenderBundleEncoder; setStencilReference/end no-op there). mode
+    // 'opaque' / 'max' / 'pick' (lines write pick=vec2u(0,0)). The offscreen RT/pass ORIGINATION
+    // stays raw (deferred to P2); only the draw is wrapped.
     const lineRhi = (globalThis as { __xgisLineViaRhi?: boolean }).__xgisLineViaRhi === true
-      && typeof (pass as { end?: unknown }).end === 'function'
     if (lineRhi) {
       this.ensureLineDraper()
       if (!this._lineRhiLogged) { this._lineRhiLogged = true; console.warn(`[LINERHI] segment draw via RHI seam (segments=${segmentCount})`) }
-      this._lineDraper!.draw(wrapWebGpuPass(pass as GPURenderPassEncoder), {
+      this._lineDraper!.draw(wrapWebGpuPass(pass), {
         tileBG: tileBindGroup, layerBG: layerBindGroup, tileOffset, layerOffset,
         pattern: patternActive, segmentCount,
       }, translucent ? 'max' : isPickEnabled() ? 'pick' : 'opaque')
