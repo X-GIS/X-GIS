@@ -147,14 +147,15 @@ can't serve both without an unwrap shim (the non-byte-identical mixed state to a
 
 **Renderer §4-seam-readiness gate (checked 2026-06-30) — a renderer can migrate its CREATION side only
 when it has NO raw-fallback draw (else the raw draw needs `GPUBuffer`):**
-- **heatmap** ✅ sole-RHI → unit 1 DONE (`0e6adeda`).
-- **raster** ✅ sole-RHI (`_rasterDraper` is render()'s sole path, P1.4) — ready, but texture-heavy (few buffers).
+- **heatmap** ✅ sole-RHI → §4 unit 1 DONE (`0e6adeda`).
+- **text** ✅ flipped (`86af80fb`) → raw deleted + creation-side migrated, §4 unit 2 DONE (`7d37889d`).
+  Added `wrapWebGpuSampler` (text BG carries a sampler + atlas-view; heatmap's was buffers-only).
+- **raster** ✅ sole-RHI (`_rasterDraper` is render()'s sole path, P1.4) — ready, texture-heavy (few buffers).
 - **point / line** ✅ raw deleted (P1.1a/P1.5) — ready, but the COUPLED TRIAD (share ShapeRegistry).
-- **icon** — IconDraper, no raw-fallback flag found; likely sole-RHI (confirm before migrating).
-- **text** ⚠️ NOT FLIPPED — `__xgisTextViaRhi` defaults OFF (text-renderer.ts:426; raw `setPipeline`+`draw`
-  at 429/455 is the default, the TextDraper at 461 is opt-in). So text needs a FLAG FLIP first (default-on
-  + DC=0, exactly like the fill flip `ab3466f2`) BEFORE its §4-seam creation-side migration. This is an
-  additional P1 "flip every renderer" item beyond the §4 seam.
+- **icon** ✅ flipped (`b517e43c`, needed the `402d27aa` setBindGroup fix) — sole-RHI; §4 creation-side
+  next (network OFM verify via in-page toggle — no deterministic local sprite-atlas fixture).
+- **ALL 7 renderers now default-on RHI** — "flip every renderer" COMPLETE; the §4 seam closes the
+  creation side + deletes the raw kill-switches, renderer by renderer.
 
 Migration units (the buffer-bearing ones), in order:
 1. **Heatmap-accum (DONE, `0e6adeda`).** Sole RHI path already (no raw accum draw),
