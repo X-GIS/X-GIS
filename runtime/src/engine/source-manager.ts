@@ -245,6 +245,7 @@ export class SourceManager {
     vtRenderer.setPatternExtrudedPipelines(this.getRenderer().fillPipelinePatternExtruded, this.getRenderer().fillPipelinePatternExtrudedFallback)
       vtRenderer.setOITPipeline(this.getRenderer().fillPipelineExtrudedOIT)
       if (this.getLineRenderer()) vtRenderer.setLineRenderer(this.getLineRenderer()!)
+      vtRenderer.setFillRhi(this.getRenderer().fillRhiState())
       vtRenderer.setSource(source) // connect before load so preloaded tiles auto-upload
       const fullUrl = url.startsWith('http') ? url : new URL(url, location.href).href
       // Inferred set + explicit `layers:` merge: explicit wins for any
@@ -445,6 +446,7 @@ export class SourceManager {
     vtRenderer.setPatternExtrudedPipelines(this.getRenderer().fillPipelinePatternExtruded, this.getRenderer().fillPipelinePatternExtrudedFallback)
     vtRenderer.setOITPipeline(this.getRenderer().fillPipelineExtrudedOIT)
     if (this.getLineRenderer()) vtRenderer.setLineRenderer(this.getLineRenderer()!)
+    vtRenderer.setFillRhi(this.getRenderer().fillRhiState())
     vtRenderer.setSource(source)
 
     const inferred = maps.usedSourceLayers.get(sourceName)

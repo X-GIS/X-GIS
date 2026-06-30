@@ -12,6 +12,7 @@ import { polygonUniformSlots, polygonUniformBytes, polygonUniformStride } from '
 import { writeFrameProjectionUniform } from './frame-projection-uniform'
 import { xlog } from '../log'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
+import { recordFillDraw, type FillRhiState } from './material/polygon-fill-material'
 
 // f32 slot indices of the polygon 'Uniforms' struct, sourced from reflect() of the SAME
 // IR the shader is emitted from (NOT hand-coded magic numbers — those silently drift from
@@ -348,6 +349,11 @@ export class VectorTileRenderer {
 
   // SDF line renderer (set externally)
   private lineRenderer: LineRenderer | null = null
+
+  // P1.6 — the polygon flat-fill RHI Material twins + the native pipeline refs they map to (set once
+  // from PipelineFactory). recordFillDraw consumes it behind __xgisVtrFillViaRhi.
+  private _fillRhi: FillRhiState | null = null
+  setFillRhi(state: FillRhiState | null): void { this._fillRhi = state }
 
   /** Data-driven feature buffer + per-tile feature bind groups + compute
    *  paint (Cluster D). Owns `featureDataBuffer`, the captured
@@ -3552,20 +3558,11 @@ export class VectorTileRenderer {
         this._diagFillsThisFrame++
       }
     }
-    encoder.setPipeline(pipeline)
-    encoder.setBindGroup(0, tileBg, [slotOffset])
-    // Phase 6a.2 — polygon vertex buffer is the shared arena
-    // (`polyVertexArena.buffer`). Per-tile sub-range carried by
-    // (polyVertexOffset, polyVertexByteLength).
-    encoder.setVertexBuffer(0, cached.vertexBuffer, cached.polyVertexOffset, cached.polyVertexByteLength)
-    // Phase 6a.4 — z-buffer slice for extruded / OIT paths.
-    if (bindZBuffer) {
-      encoder.setVertexBuffer(1, cached.zBuffer!, cached.zBufferOffset, cached.zBufferByteLength)
-    }
-    // Phase 6a.3 — index buffer is the shared arena. Per-tile
-    // sub-range carried by (polyIndexOffset, polyIndexByteLength).
-    encoder.setIndexBuffer(cached.indexBuffer, 'uint32', cached.polyIndexOffset, cached.polyIndexByteLength)
-    encoder.drawIndexed(cached.indexCount)
+    // The fill draw — raw, or routed through the RHI Material seam — lives in polygon-fill-material.ts
+    // (recordFillDraw) so this renderer stays under its size ratchet. The arena vertex/index sub-ranges
+    // + the optional extrude z-buffer (slot 1) are carried on `cached`; the stencil ref + the bundle
+    // skip stay here, one level up.
+    recordFillDraw(this._fillRhi, encoder, pipeline, tileBg, slotOffset, cached, bindZBuffer)
   }
 
   /** iter-214 (Phase RB.B.3) — `pass` parameter type widened to also

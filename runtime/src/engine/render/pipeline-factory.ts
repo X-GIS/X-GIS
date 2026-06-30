@@ -43,6 +43,8 @@ import { LINE_FORMAT } from './line-vertex-format'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
 import { buildOverdrawComposePipeline, buildHeatmapBlurPipeline, buildHeatmapComposePipeline } from './compose-pipelines'
+import { buildFlatFillMaterials, type FillRhiState } from './material/polygon-fill-material'
+import type { Material } from './material/material'
 import { emitOitComposeWgsl } from '../shaders/dsl/oit-compose'
 import { emitPolygonWgsl } from '../shaders/dsl/polygon'
 import { Node } from '@xgis/shader-dsl'
@@ -144,6 +146,17 @@ export class PipelineFactory {
   private shaderCache = new Map<string, CachedPipeline>()
 
   fillPipeline!: GPURenderPipeline
+  /** P1.6 — flat-fill RHI Material twins (default shader), built behind __xgisVtrFillViaRhi (default
+   *  off → no extra pipelines). The VTR's recordFillDraw routes the flat/ground non-extrude fill
+   *  through these via the FillRhiState getter below. */
+  private _fillMaterials: { flat: Material; ground: Material } | null = null
+  fillRhiState(): FillRhiState | null {
+    if (!this._fillMaterials) return null
+    return {
+      flat: this._fillMaterials.flat, ground: this._fillMaterials.ground,
+      pipes: { write: this.fillPipeline, test: this.fillPipelineFallback, groundWrite: this.fillPipelineGround, groundTest: this.fillPipelineGroundFallback },
+    }
+  }
   /** Ground-layer fill — identical to fillPipeline except depth
    *  test/write are off. Selected at draw time for any layer whose
    *  `extrude.kind === 'none'` so coplanar fills resolve via plain
@@ -696,6 +709,15 @@ export class PipelineFactory {
     this.fillPipelinePatternGroundFallback = pickable.fillPatternGroundFallback
     this.fillPipelinePatternExtruded = pickable.fillPatternExtruded
     this.fillPipelinePatternExtrudedFallback = pickable.fillPatternExtrudedFallback
+
+    // P1.6 — build the flat-fill Material twins (default shader) behind __xgisVtrFillViaRhi (default
+    // off → no extra pipelines built). recordFillDraw routes the flat/ground non-extrude fill through them.
+    if ((globalThis as { __xgisVtrFillViaRhi?: boolean }).__xgisVtrFillViaRhi === true) {
+      this._fillMaterials = buildFlatFillMaterials({
+        device, shader: pickShader, format, sampleCount: getSampleCount(),
+        bindGroupLayout: this.bindGroupLayout, vertexLayout: vertexBufferLayout, pickEnabled,
+      })
+    }
 
     // `?debug=overdraw` — fill + line debug mirrors. Same VS as the
     // opaque pipelines so the rasterizer produces matching fragment
