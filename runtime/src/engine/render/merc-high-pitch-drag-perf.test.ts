@@ -42,7 +42,7 @@
 import { describe, it, expect } from 'vitest'
 import { TextStage } from '../text/text-stage'
 import { MockRasterizer } from '../text/sdf/glyph-rasterizer'
-import { WebGpuDevice } from './rhi/rhi-webgpu'
+import { WebGpuDevice } from '@xgis/engine'
 import type { LabelDef, TextValue } from '@xgis/compiler'
 import type { TextDraw } from '../text/text-renderer'
 

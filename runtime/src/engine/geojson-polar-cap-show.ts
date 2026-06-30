@@ -20,7 +20,7 @@ import { worldBandForProjType } from './projection/earth-surface-fill'
 import { PROJECTION_NAME_TO_TYPE } from './projection/projections-table'
 import type { MapRendererContent } from './render/renderer'
 import type { LineRenderer } from './render/line-renderer'
-import type { GPUContext } from './gpu/gpu'
+import type { GPUContext } from '@xgis/engine'
 import { parseHexColor } from './feature-helpers'
 import type { GeoJSONFeatureCollection } from '../loader/geojson'
 

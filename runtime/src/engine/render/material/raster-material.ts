@@ -5,8 +5,8 @@
 // builder that turns visible tiles into generic DrawItems. The pipeline/layouts/
 // pool/global-uniform + the draw loop are the shared generic core (material.ts).
 
-import type { RhiDevice, RhiBindGroup, RhiTexture, RhiTextureView } from '../rhi/rhi'
-import { wrapWebGpuTextureView } from '../rhi/rhi-webgpu'
+import type { RhiDevice, RhiBindGroup, RhiTexture, RhiTextureView } from '@xgis/engine'
+import { wrapWebGpuTextureView } from '@xgis/engine'
 import { Material, executeItems, type DrawItem } from './material'
 import { emitRasterWgsl, buildRasterModule } from '../../shaders/dsl'
 import { rasterTileBytes } from '../raster-uniform-slots'
@@ -110,7 +110,7 @@ export class RasterDraper {
   }
 
   /** Build draw items from visible tiles + issue them through the generic executor. */
-  draw(pass: import('../rhi/rhi').RhiRenderPass, globalBytes: BufferSource, tiles: ReadonlyArray<RasterTile>, nearest = false, pick = false): void {
+  draw(pass: import('@xgis/engine').RhiRenderPass, globalBytes: BufferSource, tiles: ReadonlyArray<RasterTile>, nearest = false, pick = false): void {
     const material = pick ? this.pickMat() : this.material
     material.writeGlobal(globalBytes)
     const items: DrawItem[] = tiles.map((t) => ({

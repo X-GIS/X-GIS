@@ -28,5 +28,5 @@ export {
 } from './loader/vector-tile-loader'
 export { XGISMapElement, registerXGISElement } from './web/component'
 export { mercator, equirectangular, naturalEarth, orthographic, getProjection } from './engine/projection/projection'
-export { ComputeDispatcher, type ComputeTask } from './engine/gpu/compute'
+export { ComputeDispatcher, type ComputeTask } from '@xgis/engine'
 export { createColorRampTexture, createRampSampler, availableRamps } from './engine/color-ramp'

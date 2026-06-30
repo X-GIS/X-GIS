@@ -57,7 +57,7 @@ import { Camera } from './projection/camera'
 import type { ShowSourceMaps } from './show-source-maps'
 import type { GeoJSONFeatureCollection } from '../loader/geojson'
 import type { MapRendererContent } from './render/renderer'
-import type { GPUContext } from './gpu/gpu'
+import type { GPUContext } from '@xgis/engine'
 
 /** A test double for XGISMap's `_runBoundsFitGate`: runs `apply` only when the
  *  camera has NOT been explicitly positioned — byte-identical logic to

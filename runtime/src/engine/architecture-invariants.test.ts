@@ -673,7 +673,9 @@ const LAYER_OF = (relPath: string): number | null => {
 const UPWARD_EDGE_ALLOWLIST: ReadonlySet<string> = new Set([
   'runtime/src/engine/projection/camera-helpers.ts=>runtime/src/engine/gpu/gpu-shared.ts',
   'runtime/src/engine/projection/camera.ts=>runtime/src/engine/gpu/gpu-shared.ts',
-  'runtime/src/engine/projection/camera.ts=>runtime/src/engine/gpu/gpu.ts',
+  // camera.ts=>gpu.ts removed: gpu.ts relocated to @xgis/engine (P3 Step 2);
+  // camera now imports it via the package boundary, which Gate 5 (relative-edge
+  // only) does not track — the intra-runtime upward edge no longer exists.
   'runtime/src/engine/projection/camera.ts=>runtime/src/loader/geojson.ts',
   'runtime/src/engine/projection/globe.ts=>runtime/src/engine/gpu/gpu-shared.ts',
   'runtime/src/engine/projection/view-matrix.ts=>runtime/src/engine/gpu/gpu-shared.ts',

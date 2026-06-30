@@ -36,9 +36,9 @@
 // uploadQueue active-count probe used by compaction arrives via a
 // caller-supplied predicate so the store never references the queue.
 
-import { GPUArena } from '../gpu/gpu-arena'
+import { GPUArena } from '@xgis/engine'
 // Type-only: store needs WebGpuDevice's unwrapBuffer + createCommandEncoder (not on RhiDevice); the injected ctx.rhi is narrowed to it (never self-instantiated).
-import type { WebGpuDevice } from './rhi/rhi-webgpu'
+import type { WebGpuDevice } from '@xgis/engine'
 import { getMaxGpuTiles, ARENA_HIGH_WATER, ARENA_LOW_WATER } from './vector-tile-renderer-helpers'
 import type { GPUTile } from './vector-tile-renderer-types'
 

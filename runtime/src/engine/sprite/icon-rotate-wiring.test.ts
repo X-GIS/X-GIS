@@ -34,9 +34,9 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
-import { initGPU, type GPUContext } from '../gpu/gpu'
+import { initGPU, type GPUContext } from '@xgis/engine'
 import { IconRenderer, type IconDraw } from './icon-renderer'
-import { WebGpuDevice } from '../render/rhi/rhi-webgpu'
+import { WebGpuDevice } from '@xgis/engine'
 import type { SpriteInfo } from './sprite-atlas-host'
 
 let stub: StubInstallation

@@ -10,13 +10,13 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
-import { initGPU } from '../gpu/gpu'
+import { initGPU } from '@xgis/engine'
 import { MapRendererContent } from './renderer'
 import { VectorTileRenderer } from './vector-tile-renderer'
 import { LineRenderer } from './line-renderer'
 import { RasterRenderer } from './raster-renderer'
 import { PointRenderer } from './point-renderer'
-import { WebGpuDevice } from './rhi/rhi-webgpu'
+import { WebGpuDevice } from '@xgis/engine'
 
 let stub: StubInstallation
 

@@ -19,7 +19,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { GpuTileStore } from './gpu-tile-store'
-import { WebGpuDevice } from './rhi/rhi-webgpu'
+import { WebGpuDevice } from '@xgis/engine'
 
 interface MockBuffer {
   size: number

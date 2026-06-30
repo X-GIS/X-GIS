@@ -5,7 +5,7 @@
 // is imported by point-renderer.ts and not re-exported from the public
 // surface.
 
-import type { RhiBuffer, RhiBindGroup } from './rhi/rhi'
+import type { RhiBuffer, RhiBindGroup } from '@xgis/engine'
 
 export interface PointLayer {
   vertexBuffer: RhiBuffer

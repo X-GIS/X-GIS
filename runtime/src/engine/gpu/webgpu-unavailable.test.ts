@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { initGPU, WebGPUUnavailableError } from './gpu'
+import { initGPU, WebGPUUnavailableError } from '@xgis/engine'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
 
 // 0.3a: initGPU must classify a genuine WebGPU-absence (no navigator.gpu

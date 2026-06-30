@@ -94,6 +94,7 @@
       },
       "devDependencies": {
         "@xgis/compiler": "workspace:*",
+        "@xgis/engine": "workspace:*",
         "@xgis/shader-dsl": "workspace:*",
         "@xgis/shared": "workspace:*",
         "geojson-vt": "^4.0.2",

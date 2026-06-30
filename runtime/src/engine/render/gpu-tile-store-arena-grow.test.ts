@@ -19,9 +19,9 @@
 
 import { describe, expect, it } from 'vitest'
 import { GpuTileStore } from './gpu-tile-store'
-import { GPUArena, type GPUArenaDevice } from '../gpu/gpu-arena'
-import type { RhiBuffer } from './rhi/rhi'
-import { WebGpuDevice } from './rhi/rhi-webgpu'
+import { GPUArena, type GPUArenaDevice } from '@xgis/engine'
+import type { RhiBuffer } from '@xgis/engine'
+import { WebGpuDevice } from '@xgis/engine'
 
 interface MockBuffer { size: number; destroyed: boolean; destroy(): void }
 function mockDevice(): GPUDevice {

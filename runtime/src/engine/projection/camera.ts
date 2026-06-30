@@ -3,7 +3,7 @@
 import { lonLatToMercator } from '../../loader/geojson'
 import { type ECEF } from './ecef'
 import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
-import { getMaxDpr } from '../gpu/gpu'
+import { getMaxDpr } from '@xgis/engine'
 import { computeLogDepthFc } from '../shaders/log-depth'
 import { EARTH_R } from './globe'
 import { mercatorYToLat, mercatorYToLatRad, mercator } from './projection'

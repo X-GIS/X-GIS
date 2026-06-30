@@ -14,7 +14,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { TextStage } from './text-stage'
 import { MockRasterizer, FONT_KEY_SENTINEL } from './sdf/glyph-rasterizer'
-import { WebGpuDevice } from '../render/rhi/rhi-webgpu'
+import { WebGpuDevice } from '@xgis/engine'
 import { GlyphPbfCache } from './sdf/pbf/glyph-pbf-cache'
 import type { PbfRasterizer } from './sdf/pbf-rasterizer'
 

@@ -5,7 +5,7 @@
 // wraps the point renderer's native buffers into one generic DrawItem. The
 // pipeline/layout build + draw loop are the shared generic core (material.ts).
 
-import type { RhiBuffer, RhiDevice, RhiRenderPass } from '../rhi/rhi'
+import type { RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { Material, executeItems } from './material'
 import { emitPointWgsl } from '../../shaders/dsl'
 

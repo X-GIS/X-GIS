@@ -2,7 +2,7 @@
 // Parses SVG path commands → stores segments in GPU storage buffers
 // Fragment shader computes SDF in real-time (no texture atlas)
 
-import type { RhiBuffer, RhiDevice } from '../render/rhi/rhi'
+import type { RhiBuffer, RhiDevice } from '@xgis/engine'
 
 // ═══ Types ═══
 

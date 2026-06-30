@@ -4,8 +4,8 @@
 // vertex buffer, NO depth (pure 2D overlay), one non-instanced draw. Reuses the
 // icon renderer's bind-group layout so its pipeline is layout-compatible.
 
-import type { RhiBindGroup, RhiBuffer, RhiDevice, RhiRenderPass } from '../rhi/rhi'
-import { wrapWebGpuBindGroupLayout } from '../rhi/rhi-webgpu'
+import type { RhiBindGroup, RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
+import { wrapWebGpuBindGroupLayout } from '@xgis/engine'
 import { Material, executeItems } from './material'
 import { emitIconWgsl } from '../../shaders/dsl'
 

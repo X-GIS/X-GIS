@@ -14,7 +14,7 @@
 // byte-identical to the inline block.
 
 import { DEBUG_OVERDRAW } from '../../debug-flags'
-import { isPickEnabled } from '../../gpu/gpu'
+import { isPickEnabled } from '@xgis/engine'
 import { resolveNumberShape } from '../paint-shape-resolve'
 import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'

@@ -14,11 +14,12 @@
     "paths": {
       "@xgis/compiler": ["../compiler/dist/index.d.ts"],
       "@xgis/compiler/tiler/geodesic": ["../compiler/dist/tiler/geodesic.d.ts"],
+      "@xgis/engine": ["../engine/dist/index.d.ts"],
       "@xgis/shared": ["../shared/dist/index.d.ts"],
       "@xgis/shader-dsl": ["../shader-dsl/dist/index.d.ts"],
       "@xgis/shader-dsl/*": ["../shader-dsl/dist/*"]
     }
   },
-  "references": [{ "path": "../compiler" }, { "path": "../shared" }, { "path": "../shader-dsl" }],
+  "references": [{ "path": "../compiler" }, { "path": "../shared" }, { "path": "../shader-dsl" }, { "path": "../engine" }],
   "include": ["src/**/*.ts"]
 }

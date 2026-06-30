@@ -6,8 +6,8 @@
 // group. Premultiplied-alpha blend (the shader emits rgb*a, a), no depth. Reuses
 // the text renderer's bind-group layout.
 
-import type { RhiBindGroup, RhiBuffer, RhiDevice, RhiRenderPass } from '../rhi/rhi'
-import { wrapWebGpuBindGroupLayout } from '../rhi/rhi-webgpu'
+import type { RhiBindGroup, RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
+import { wrapWebGpuBindGroupLayout } from '@xgis/engine'
 import { Material, executeItems } from './material'
 import { emitTextWgsl } from '../../shaders/dsl'
 

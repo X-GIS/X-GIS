@@ -8,6 +8,7 @@ export default defineConfig({
       'blueprint/src/**/*.test.ts',
       'shader-dsl/src/**/*.test.ts',
       'shader-dsl/examples/**/*.test.ts',
+      'engine/src/**/*.test.ts',
       'runtime/src/**/*.test.ts',
     ],
     // shader-dsl projections are host-injected (configureProjections); configure

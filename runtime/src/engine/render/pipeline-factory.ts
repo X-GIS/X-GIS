@@ -29,14 +29,14 @@
 //      references this.bindGroupLayout). Order: layouts → pipelines → atlas
 //      stubs → (back on MapRenderer) ring → first bind-group build.
 
-import type { GPUContext } from '../gpu/gpu'
+import type { GPUContext } from '@xgis/engine'
 import {
   BLEND_ALPHA, STENCIL_WRITE, STENCIL_TEST,
   STENCIL_WRITE_NO_DEPTH, STENCIL_TEST_NO_DEPTH,
   BLEND_OIT_ACCUM, BLEND_OIT_REVEALAGE,
   OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT,
 } from '../gpu/gpu-shared'
-import { isPickEnabled, getSampleCount } from '../gpu/gpu'
+import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { POLYGON_FILL_FORMAT, POLYGON_EXTRUDED_FORMAT } from '@xgis/compiler'
 import { toVertexBufferLayout } from './vertex-buffer-layout'
 import { LINE_FORMAT } from './line-vertex-format'

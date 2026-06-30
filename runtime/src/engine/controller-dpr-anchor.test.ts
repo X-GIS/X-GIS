@@ -34,7 +34,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { Camera } from './projection/camera'
 import { PanZoomController } from './controller'
-import { QUALITY, updateQuality } from './gpu/quality'
+import { QUALITY, updateQuality } from '@xgis/engine'
 
 // CSS viewport. canvas.width/height are DEVICE pixels = CSS * device scale,
 // where the device scale is min(devicePixelRatio, getMaxDpr()) exactly as

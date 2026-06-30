@@ -6,8 +6,8 @@
 // blended. WebGPU-ONLY by construction — the offscreen translucent pass fail-closes on WebGl2
 // (createCommandEncoder), so this Material is lazy + WGSL-only (no GLSL emit needed).
 
-import type { RhiBuffer, RhiDevice, RhiRenderPass } from '../rhi/rhi'
-import { wrapWebGpuTextureView } from '../rhi/rhi-webgpu'
+import type { RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
+import { wrapWebGpuTextureView } from '@xgis/engine'
 import { Material, executeItems } from './material'
 import { emitCompositeWgsl } from '../../shaders/dsl'
 

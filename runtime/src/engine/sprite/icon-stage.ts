@@ -9,7 +9,7 @@
 import { SpriteAtlasHost, type SpriteInfo } from './sprite-atlas-host'
 import { SpriteAtlasGPU } from './sprite-atlas-gpu'
 import { IconRenderer, type IconDraw, type IconAnchor } from './icon-renderer'
-import type { RhiDevice } from '../render/rhi/rhi'
+import type { RhiDevice } from '@xgis/engine'
 
 export interface IconStageOptions {
   spriteUrl: string

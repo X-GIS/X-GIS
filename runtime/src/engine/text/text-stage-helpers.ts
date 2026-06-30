@@ -5,7 +5,7 @@
 import type { LabelDef } from '@xgis/compiler'
 import { FONT_KEY_SENTINEL } from './sdf/glyph-rasterizer'
 import { bumpAlloc } from '../__profile__/alloc-counter'
-import { FrameArena } from '../gpu/frame-arena'
+import { FrameArena } from '@xgis/engine'
 import type { MlVerticalLayout } from './text-stage-types'
 
 /** Resolve per-font typography overrides for the given fontKey against

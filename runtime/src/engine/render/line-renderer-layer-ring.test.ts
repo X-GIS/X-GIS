@@ -6,8 +6,8 @@ import { describe, expect, it } from 'vitest'
   UNIFORM: 1, COPY_DST: 2, STORAGE: 4, VERTEX: 8, INDEX: 16,
 }
 import { LineRenderer, lineUniformSize, packLineLayerUniform } from './line-renderer'
-import { WebGpuDevice } from './rhi/rhi-webgpu'
-import type { GPUContext } from '../gpu/gpu'
+import { WebGpuDevice } from '@xgis/engine'
+import type { GPUContext } from '@xgis/engine'
 
 // These tests validate the ring-buffer math and the public guarantees of
 // the dynamic-offset layer ring without spinning up a real WebGPU device.

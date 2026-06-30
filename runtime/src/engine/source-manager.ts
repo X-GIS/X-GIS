@@ -27,8 +27,8 @@
 
 import { assertIngestBudget, readBodyCapped, safeFetch } from './safety'
 import type { Camera } from './projection/camera'
-import type { GPUContext } from './gpu/gpu'
-import { getMaxDpr } from './gpu/gpu'
+import type { GPUContext } from '@xgis/engine'
+import { getMaxDpr } from '@xgis/engine'
 import type { MapRendererContent } from './render/renderer'
 import type { LineRenderer } from './render/line-renderer'
 import { lonLatToMercator, type GeoJSONFeatureCollection } from '../loader/geojson'

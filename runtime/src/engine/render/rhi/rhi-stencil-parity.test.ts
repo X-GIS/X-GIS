@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { rhiStencilToGpu } from './rhi-webgpu'
+import { rhiStencilToGpu } from '@xgis/engine'
 import {
   STENCIL_WRITE, STENCIL_TEST, STENCIL_CLIPMASK_WRITE, STENCIL_CLIPMASK_TEST,
 } from '../../gpu/gpu-shared'

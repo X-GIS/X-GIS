@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { ShapeRegistry, BUILTIN_SHAPES } from './sdf-shape'
-import { WebGpuDevice } from '../render/rhi/rhi-webgpu'
+import { WebGpuDevice } from '@xgis/engine'
 
 // The registry touches `device` only from `uploadToGPU`; constructor and
 // add/lookup methods are pure, so a stubbed device is sufficient here.

@@ -11,8 +11,8 @@
 // and reaches this machinery ONLY through the public methods / getters below.
 // FrameRenderer holds NO back-reference to content.
 
-import type { GPUContext } from '../gpu/gpu'
-import { ComputeDispatcher } from '../gpu/compute'
+import type { GPUContext } from '@xgis/engine'
+import { ComputeDispatcher } from '@xgis/engine'
 import { ComputeLayerRegistry } from './compute-layer-registry'
 import { extendBindGroupLayoutEntriesForCompute } from './compute-bind-layout'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'

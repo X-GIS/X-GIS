@@ -31,8 +31,8 @@ import { describe, expect, it } from 'vitest'
 }
 import { LineRenderer } from './line-renderer'
 import { lineLayerUniformStride } from './line-uniform-slots'
-import { WebGpuDevice } from './rhi/rhi-webgpu'
-import type { GPUContext } from '../gpu/gpu'
+import { WebGpuDevice } from '@xgis/engine'
+import type { GPUContext } from '@xgis/engine'
 
 // f32 slot 49 (byte 196) of the 256-byte line layer slot is line-round-limit.
 // See line-pattern.ts:293 (`buf[49] = roundLimit`) and the line.ts WGSL

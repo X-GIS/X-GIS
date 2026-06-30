@@ -10,8 +10,8 @@ import {
   LineRenderer,
   LINE_JOIN_MITER, LINE_JOIN_ROUND, LINE_JOIN_BEVEL,
 } from './line-renderer'
-import { WebGpuDevice } from './rhi/rhi-webgpu'
-import type { GPUContext } from '../gpu/gpu'
+import { WebGpuDevice } from '@xgis/engine'
+import type { GPUContext } from '@xgis/engine'
 
 // line-join: layout-property wiring (GPU-free, fail-before).
 //

@@ -32,7 +32,7 @@ import {
 } from '@xgis/compiler'
 import type { PropertyShape } from '@xgis/compiler'
 import { nodeToWgslString } from '@xgis/compiler'
-import { ComputeDispatcher } from '../gpu/compute'
+import { ComputeDispatcher } from '@xgis/engine'
 import { ComputeLayerRegistry } from './compute-layer-registry'
 import { extendBindGroupLayoutEntriesForCompute } from './compute-bind-layout'
 

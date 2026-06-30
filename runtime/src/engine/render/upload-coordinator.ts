@@ -30,8 +30,8 @@
 //   carries the suspension + guards + submit. That block is the only place
 //   the two routes diverge.
 
-import { GPUArena } from '../gpu/gpu-arena'
-import { StagingBufferPool, asyncWriteBuffer } from '../gpu/staging-buffer-pool'
+import { GPUArena } from '@xgis/engine'
+import { StagingBufferPool, asyncWriteBuffer } from '@xgis/engine'
 import { PriorityQueue, PriorityQueueItemRemovedError } from '../../core/priority-queue'
 import { buildLineSegments, type LineRenderer } from './line-renderer'
 import { generateWallMeshExtrudedECEF } from '../../core/polygon-mesh'
@@ -39,7 +39,7 @@ import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile
 import { xlog } from '../log'
 import type { TileData } from '../../data/tile-types'
 import type { GPUTile } from './vector-tile-renderer-types'
-import type { RhiBindGroup } from './rhi/rhi'
+import type { RhiBindGroup } from '@xgis/engine'
 
 /** The subset of `GpuTileStore` the upload pipeline drives. Declared
  *  structurally so the real store satisfies it without an explicit

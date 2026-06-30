@@ -25,7 +25,7 @@ import {
   nodeToWgslString,
   type ComputePlanEntry,
 } from '@xgis/compiler'
-import { ComputeDispatcher } from './gpu/compute'
+import { ComputeDispatcher } from '@xgis/engine'
 import { ComputeLayerRegistry } from './render/compute-layer-registry'
 import { extendBindGroupLayoutEntriesForCompute } from './render/compute-bind-layout'
 

@@ -6,8 +6,8 @@
 // with ADDITIVE blend (splats sum), no depth, single-sample. The blur/compose
 // orchestration stays legacy (render-graph). Reuses the accum bind-group layout.
 
-import type { RhiBindGroup, RhiBuffer, RhiDevice, RhiRenderPass } from '../rhi/rhi'
-import { wrapWebGpuBindGroupLayout } from '../rhi/rhi-webgpu'
+import type { RhiBindGroup, RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
+import { wrapWebGpuBindGroupLayout } from '@xgis/engine'
 import { Material, executeItems } from './material'
 import { emitHeatmapAccumWgsl } from '../../shaders/dsl'
 

@@ -48,7 +48,7 @@
 //     fingerprint).
 
 import type { ComputePlanEntry, ShaderVariant } from '@xgis/compiler'
-import { ComputeDispatcher } from '../gpu/compute'
+import { ComputeDispatcher } from '@xgis/engine'
 import { TileComputeResources } from './tile-compute-resources'
 import {
   buildComputeBindGroupEntries,

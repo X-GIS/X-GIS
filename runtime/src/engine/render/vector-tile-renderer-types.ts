@@ -4,7 +4,7 @@
 // no logic or symbol renames. `LayerDrawPhase` remains part of the
 // public surface and is re-exported from vector-tile-renderer.ts.
 
-import type { RhiBindGroup } from './rhi/rhi'
+import type { RhiBindGroup } from '@xgis/engine'
 
 /** Layer draw phase — replaces the prior `translucentLines: boolean` flag.
  *  'all' draws fill + stroke in one pass (opaque default).

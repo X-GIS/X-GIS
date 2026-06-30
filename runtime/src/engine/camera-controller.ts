@@ -18,7 +18,7 @@ import { Camera } from './projection/camera'
 import { MERCATOR_LAT_LIMIT, mercatorYToLat, mercatorYToLatRad, mercator } from './projection/projection'
 import { poleLimit, representsCenterAs } from './projection/projections-table'
 import { WORLD_MERC, TILE_PX } from './gpu/gpu-shared'
-import { getMaxDpr } from './gpu/gpu'
+import { getMaxDpr } from '@xgis/engine'
 import { lonLatToMercator } from '../loader/geojson'
 import { xlog } from './log'
 

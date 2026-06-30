@@ -3,7 +3,7 @@
 import type { Camera } from './projection/camera'
 import { unprojectGlobeFromCamera } from './projection/globe-anchor'
 import { promotesToGlobeWhenTilted } from './projection/projections-table'
-import { getMaxDpr } from './gpu/gpu'
+import { getMaxDpr } from '@xgis/engine'
 import { xlog } from './log'
 
 export interface Controller {

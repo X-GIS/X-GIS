@@ -41,7 +41,7 @@ import {
 } from '@xgis/compiler'
 import type { PropertyShape } from '@xgis/compiler'
 import { nodeToWgslString } from '@xgis/compiler'
-import { ComputeDispatcher } from '../gpu/compute'
+import { ComputeDispatcher } from '@xgis/engine'
 import { TileComputeResources } from './tile-compute-resources'
 import { packFeatureData } from './compute-feature-packer'
 

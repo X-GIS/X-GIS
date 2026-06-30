@@ -20,8 +20,8 @@ import { uniformFieldSlots } from './reflection-to-webgpu'
 import { lineLayerUniformBytes, lineLayerUniformStride } from './line-uniform-slots'
 import { polygonUniformBytes } from './polygon-uniform-slots'
 import { LineRenderer, packLineLayerUniform } from './line-renderer'
-import { WebGpuDevice } from './rhi/rhi-webgpu'
-import type { GPUContext } from '../gpu/gpu'
+import { WebGpuDevice } from '@xgis/engine'
+import type { GPUContext } from '@xgis/engine'
 
 // WebGPU globals don't exist under happy-dom — stub the few the LineRenderer
 // ctor touches (createBindGroupLayout's visibility flags + createBuffer's usage

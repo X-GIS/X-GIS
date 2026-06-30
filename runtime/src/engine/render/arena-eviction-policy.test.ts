@@ -26,8 +26,8 @@
 // evictGPUTiles, using ARENA_HIGH_WATER / ARENA_LOW_WATER from the helpers.
 
 import { describe, expect, it } from 'vitest'
-import { GPUArena, type GPUArenaDevice } from '../gpu/gpu-arena'
-import type { RhiBuffer } from './rhi/rhi'
+import { GPUArena, type GPUArenaDevice } from '@xgis/engine'
+import type { RhiBuffer } from '@xgis/engine'
 import { ARENA_HIGH_WATER, ARENA_LOW_WATER } from './vector-tile-renderer-helpers'
 
 interface MockBuffer {

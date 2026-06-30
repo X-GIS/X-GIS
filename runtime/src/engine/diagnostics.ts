@@ -20,9 +20,9 @@
 // of the class's public type.
 
 import { tileKey as compilerTileKey } from '@xgis/compiler'
-import { getMaxDpr } from './gpu/gpu'
+import { getMaxDpr } from '@xgis/engine'
 import { mercatorYToLat } from './projection/projection'
-import type { QualityConfig } from './gpu/quality'
+import type { QualityConfig } from '@xgis/engine'
 import type { XGISMap } from './map'
 import { xlog } from './log'
 

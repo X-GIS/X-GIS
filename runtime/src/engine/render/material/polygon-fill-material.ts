@@ -7,8 +7,8 @@
 // routes through the Material seam (executeItems, arena vertex/index sub-ranges, pick MRT); §4 is closed,
 // so a pipeline with no built Material twin throws (the raw fallback draw + kill-switch were deleted).
 
-import type { RhiDevice } from '../rhi/rhi'
-import { wrapWebGpuBindGroupLayout, wrapWebGpuBuffer, wrapWebGpuBindGroup, wrapWebGpuPass } from '../rhi/rhi-webgpu'
+import type { RhiDevice } from '@xgis/engine'
+import { wrapWebGpuBindGroupLayout, wrapWebGpuBuffer, wrapWebGpuBindGroup, wrapWebGpuPass } from '@xgis/engine'
 import { Material, executeItems } from './material'
 
 /** The per-tile GPUArena fill buffers recordFillDraw reads (structural — a VTR GPUTile satisfies it). */

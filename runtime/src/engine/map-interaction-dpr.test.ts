@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { XGISMap } from './map'
-import { QUALITY } from './gpu/quality'
+import { QUALITY } from '@xgis/engine'
 
 // 0.5 adaptive-DPR: the render loop reads map._interacting to decide
 // whether to pass `interacting` into resizeCanvas (which only matters when

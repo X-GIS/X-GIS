@@ -15,7 +15,7 @@
 import type {
   RhiDevice, RhiBindGroup, RhiBindGroupLayout, RhiBindLayoutEntry, RhiBuffer,
   RhiPipeline, RhiRenderPass, RhiTextureFormat,
-} from '../rhi/rhi'
+} from '@xgis/engine'
 
 /** Per-pipeline-variant state — depth and/or fragment entry differ between a
  *  primitive's variants (line: fs_line vs fs_line_pattern; point: opaque vs

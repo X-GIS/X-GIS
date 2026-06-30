@@ -6,7 +6,7 @@
 
 import { compileModule } from '../../shader-dsl/src/index'
 import { emitMatchComputeKernel } from '../../compiler/src/codegen/compute-gen'
-import { WebGl2Device } from '../../runtime/src/engine/render/rhi/rhi-webgl2'
+import { WebGl2Device } from '@xgis/engine'
 import { dispatchComputeKernelWebGl2 } from '../../runtime/src/engine/gpu/compute-webgl2'
 
 export interface DispatchParityResult {
