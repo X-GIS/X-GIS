@@ -6,12 +6,37 @@
 // their own module. Each returns { pipeline, layout }; the factory's ensure* wrappers keep the lazy
 // memoization + assign the bind-group layout the renderer reads back.
 
-import { HEATMAP_DENSITY_FORMAT } from '../gpu/gpu-shared'
+import { HEATMAP_DENSITY_FORMAT, BLEND_ALPHA } from '../gpu/gpu-shared'
 import { emitOverdrawComposeWgsl } from '../shaders/dsl/overdraw-compose'
 import { emitHeatmapBlurWgsl } from '../shaders/dsl/heatmap-blur'
 import { emitHeatmapComposeWgsl } from '../shaders/dsl/heatmap-compose'
+import { emitOitComposeWgsl } from '../shaders/dsl/oit-compose'
 
 interface BuiltPipeline { pipeline: GPURenderPipeline; layout: GPUBindGroupLayout }
+
+/** Weighted-Blended OIT compose: a fullscreen triangle samples the accum (rgba16float) + revealage
+ *  (r16float) targets and over-blends the recovered translucent colour onto the resolved swapchain.
+ *  MSAA-aware (the targets are multisampled when sampleCount > 1; the shader averages every sample). */
+export function buildOitComposePipeline(device: GPUDevice, format: GPUTextureFormat, sampleCount: number): BuiltPipeline {
+  const isMsaa = sampleCount > 1
+  const module = device.createShaderModule({ code: emitOitComposeWgsl(sampleCount, isMsaa), label: 'oit-compose' })
+  const layout = device.createBindGroupLayout({
+    label: 'oit-compose-bgl',
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float', multisampled: isMsaa } },
+      { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float', multisampled: isMsaa } },
+    ],
+  })
+  const pipeline = device.createRenderPipeline({
+    label: 'oit-compose-pipeline',
+    layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
+    vertex: { module, entryPoint: 'vs_full' },
+    fragment: { module, entryPoint: 'fs_compose', targets: [{ format, blend: BLEND_ALPHA }] },
+    primitive: { topology: 'triangle-list' },
+    multisample: { count: sampleCount },
+  })
+  return { pipeline, layout }
+}
 
 /** Overdraw-debug compose: samples the r16float overdraw counter (unfilterable-float, no sampler)
  *  and tonemaps it to the swapchain. Single-sample (the debug pass turns MSAA off). */

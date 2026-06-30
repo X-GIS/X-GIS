@@ -42,10 +42,9 @@ import { toVertexBufferLayout } from './vertex-buffer-layout'
 import { LINE_FORMAT } from './line-vertex-format'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
-import { buildOverdrawComposePipeline, buildHeatmapBlurPipeline, buildHeatmapComposePipeline } from './compose-pipelines'
+import { buildOverdrawComposePipeline, buildHeatmapBlurPipeline, buildHeatmapComposePipeline, buildOitComposePipeline } from './compose-pipelines'
 import { buildFlatFillMaterials, buildExtrudeMaterial, type FillRhiState } from './material/polygon-fill-material'
 import type { Material } from './material/material'
-import { emitOitComposeWgsl } from '../shaders/dsl/oit-compose'
 import { emitPolygonWgsl } from '../shaders/dsl/polygon'
 import { Node } from '@xgis/shader-dsl'
 import type { Stmt } from '@xgis/shader-dsl'
@@ -929,31 +928,9 @@ export class PipelineFactory {
     // are multisampled; the shader averages every sample to recover
     // a single resolved value. Single-sample (mobile / safe mode)
     // takes the same code path with a 1-sample loop, no branch.
-    const sampleCount = getSampleCount()
-    const isMsaa = sampleCount > 1
-    const oitComposeShader = emitOitComposeWgsl(sampleCount, isMsaa)
-    const oitComposeModule = device.createShaderModule({ code: oitComposeShader, label: 'oit-compose' })
-    this.oitComposeBindGroupLayout = device.createBindGroupLayout({
-      label: 'oit-compose-bgl',
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.FRAGMENT,
-          texture: { sampleType: 'unfilterable-float', multisampled: isMsaa } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT,
-          texture: { sampleType: 'unfilterable-float', multisampled: isMsaa } },
-      ],
-    })
-    this.oitComposePipeline = device.createRenderPipeline({
-      label: 'oit-compose-pipeline',
-      layout: device.createPipelineLayout({ bindGroupLayouts: [this.oitComposeBindGroupLayout] }),
-      vertex: { module: oitComposeModule, entryPoint: 'vs_full' },
-      fragment: {
-        module: oitComposeModule,
-        entryPoint: 'fs_compose',
-        targets: [{ format, blend: BLEND_ALPHA }],
-      },
-      primitive: { topology: 'triangle-list' },
-      multisample: msaaState,
-    })
+    const oitCompose = buildOitComposePipeline(device, format, getSampleCount())
+    this.oitComposeBindGroupLayout = oitCompose.layout
+    this.oitComposePipeline = oitCompose.pipeline
   }
 
   /** Get or create variant pipelines (public for vector tile renderer) */
