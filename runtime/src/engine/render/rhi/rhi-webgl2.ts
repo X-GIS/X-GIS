@@ -66,6 +66,7 @@ interface Gl2BindGroup { layout: Gl2BindGroupLayout; entries: ReadonlyArray<RhiB
 interface Gl2Pipeline {
   program: WebGLProgram
   blend: 'alpha' | 'premult' | 'additive' | 'max' | 'none' | undefined
+  cullMode?: 'none' | 'back' | 'front'
   depth?: { write: boolean; compare: 'always' | 'less' | 'less-equal'; bias?: { constant: number; slopeScale: number; clamp: number } }
   vertexBuffers: ReadonlyArray<{ stride: number; attributes: ReadonlyArray<{ location: number; offset: number; format: string }> }>
   layouts: ReadonlyArray<Gl2BindGroupLayout>
@@ -157,6 +158,12 @@ class WebGl2RenderPass implements RhiRenderPass {
     } else {
       gl.disable(gl.DEPTH_TEST)
       gl.depthMask(false)
+    }
+    if (pl.cullMode && pl.cullMode !== 'none') {
+      gl.enable(gl.CULL_FACE)
+      gl.cullFace(pl.cullMode === 'back' ? gl.BACK : gl.FRONT)
+    } else {
+      gl.disable(gl.CULL_FACE)
     }
   }
 
@@ -494,6 +501,7 @@ export class WebGl2Device implements RhiDevice {
     return wrap<RhiPipeline>({
       program,
       blend: desc.colorTargets[0]?.blend,
+      cullMode: desc.cullMode,
       depth: desc.depthStencil ? { write: desc.depthStencil.write, compare: desc.depthStencil.compare, bias: desc.depthStencil.bias } : undefined,
       vertexBuffers: desc.vertexBuffers ?? [],
       layouts,

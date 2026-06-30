@@ -107,6 +107,9 @@ export interface RhiPipelineDesc {
   sampleCount?: number
   /** Procedural-grid draws (raster/drape) have no vertex buffers. */
   vertexBuffers?: ReadonlyArray<{ stride: number; attributes: ReadonlyArray<{ location: number; offset: number; format: string }> }>
+  /** Triangle face culling. Default 'none' (byte-identical to the prior hardcoded primitive). The
+   *  VTR ground-fill variants cull 'back' (GPU back-cull of the far hemisphere on the globe). */
+  cullMode?: 'none' | 'back' | 'front'
   label?: string
 }
 

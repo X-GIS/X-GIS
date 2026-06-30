@@ -271,7 +271,7 @@ export class WebGpuDevice implements RhiDevice {
         ...rhiStencilToGpu(desc.depthStencil.stencil),
       } : undefined,
       multisample: { count: desc.sampleCount ?? 1 },
-      primitive: { topology: 'triangle-list' },
+      primitive: { topology: 'triangle-list', cullMode: desc.cullMode ?? 'none' },
       label: desc.label,
     })) as unknown as RhiPipeline
   }

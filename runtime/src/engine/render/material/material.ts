@@ -53,6 +53,8 @@ export interface MaterialDesc {
   colorTargets: ReadonlyArray<{ format: RhiTextureFormat; blend?: 'alpha' | 'premult' | 'additive' | 'max' | 'none' }>
   depthFormat?: RhiTextureFormat
   vertexBuffers?: ReadonlyArray<{ stride: number; attributes: ReadonlyArray<{ location: number; offset: number; format: string }> }>
+  /** Triangle face culling (material-level — the VTR ground-fill Material culls 'back'). Default 'none'. */
+  cullMode?: 'none' | 'back' | 'front'
   /** 1+ pipeline variants (depth differs). */
   variants: PipelineVariant[]
   /** Optional per-item pooled uniform (raster's per-tile slot). */
@@ -106,6 +108,7 @@ export class Material {
         : undefined,
       sampleCount: desc.sampleCount,
       vertexBuffers: desc.vertexBuffers,
+      cullMode: desc.cullMode,
       label: v.label,
     }))
     this.poolGroupIdx = desc.pool?.group ?? -1
