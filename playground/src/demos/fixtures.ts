@@ -55,6 +55,7 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
   reftest_stroke_keyframe_static: { name: 'Reftest B: stroke keyframe static', tag: 'fixture', description: 'Line with degenerate stroke keyframe — must equal static.', source: load('reftest-stroke-keyframe-static.xgis') },
   // Stress fixtures (exercise validation capture)
   fixture_stress_all_renderers: { name: 'Stress: all renderers', tag: 'fixture', description: 'Polygon fill + SDF line + SDF point in one frame.', source: load('fixture-stress-all-renderers.xgis') },
+  fixture_extrude_local: { name: 'Fixture: extrude (local)', tag: 'fixture', description: 'Constant-height 3D-extruded polygon through the VTR (P1.6 extrude verify).', source: load('fixture-extrude-local.xgis') },
   fixture_stress_many_layers: { name: 'Stress: many layers', tag: 'fixture', description: '8 filtered layers from one source — uniform ring boundary.', source: load('fixture-stress-many-layers.xgis') },
   // Extension: caps/joins/patterns/align/offset/easing/data-driven/shape
   fixture_cap_round:            { name: 'Fixture: cap round',          tag: 'fixture', description: 'stroke-round-cap isolated.',                   source: load('fixture-cap-round.xgis') },

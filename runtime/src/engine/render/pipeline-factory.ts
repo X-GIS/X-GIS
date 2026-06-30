@@ -43,7 +43,7 @@ import { LINE_FORMAT } from './line-vertex-format'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
 import { buildOverdrawComposePipeline, buildHeatmapBlurPipeline, buildHeatmapComposePipeline } from './compose-pipelines'
-import { buildFlatFillMaterials, type FillRhiState } from './material/polygon-fill-material'
+import { buildFlatFillMaterials, buildExtrudeMaterial, type FillRhiState } from './material/polygon-fill-material'
 import type { Material } from './material/material'
 import { emitOitComposeWgsl } from '../shaders/dsl/oit-compose'
 import { emitPolygonWgsl } from '../shaders/dsl/polygon'
@@ -152,12 +152,17 @@ export class PipelineFactory {
   private _fillMaterials: { flat: Material; ground: Material } | null = null
   /** LIVE per-style fill Material map (grown by registerFillMaterials as variant pipelines build). */
   private _fillPerStyle = new Map<GPURenderPipeline, { mat: Material; variant: number }>()
+  /** Opaque 3D-extrude fill Material (default shader; the base extrude pipelines, not per-variant). */
+  private _fillExtrudeMaterial: Material | null = null
   fillRhiState(): FillRhiState | null {
     if (!this._fillMaterials) return null
     return {
       flat: this._fillMaterials.flat, ground: this._fillMaterials.ground,
       pipes: { write: this.fillPipeline, test: this.fillPipelineFallback, groundWrite: this.fillPipelineGround, groundTest: this.fillPipelineGroundFallback },
       perStyle: this._fillPerStyle,
+      extrude: this._fillExtrudeMaterial
+        ? { mat: this._fillExtrudeMaterial, write: this.fillPipelineExtruded, test: this.fillPipelineExtrudedFallback }
+        : null,
     }
   }
   /** Build + register the per-style fill Material twins for a variant pipeline set (behind the flag).
@@ -733,6 +738,10 @@ export class PipelineFactory {
       this._fillMaterials = buildFlatFillMaterials({
         device, shader: pickShader, format, sampleCount: getSampleCount(),
         bindGroupLayout: this.bindGroupLayout, vertexLayout: vertexBufferLayout, pickEnabled,
+      })
+      this._fillExtrudeMaterial = buildExtrudeMaterial({
+        device, shader: pickShader, format, sampleCount: getSampleCount(),
+        bindGroupLayout: this.bindGroupLayout, vertexLayout: extrudedVertexBufferLayout, pickEnabled,
       })
     }
 

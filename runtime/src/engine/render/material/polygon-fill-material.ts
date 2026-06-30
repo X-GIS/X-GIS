@@ -28,6 +28,10 @@ export interface FillRhiState {
    *  (grown by PipelineFactory as layers are added) routes each per-style fill pipeline to its
    *  Material twin + variant. Checked before the default `pipes` above. */
   perStyle: Map<GPURenderPipeline, { mat: Material; variant: number }> | null
+  /** Opaque 3D-extruded fill (default shader): the extrude Material + the two native pipelines it
+   *  twins. Routed on the bindZBuffer path (slot-1 z-buffer). null = extrude stays raw (OIT +
+   *  per-style extrude are not yet routed). */
+  extrude: { mat: Material; write: GPURenderPipeline; test: GPURenderPipeline } | null
 }
 
 export interface FillMaterialInputs {
@@ -73,6 +77,27 @@ export function buildFlatFillMaterials(inp: FillMaterialInputs): { flat: Materia
   return { flat, ground }
 }
 
+/** Build the 3D-extruded fill Material (vs_main_ecef_extruded / fs_fill_extrude, the POLYGON_EXTRUDED
+ *  vertex layout). Variant 0 = STENCIL_WRITE (fillPipelineExtruded), 1 = STENCIL_TEST (fallback) —
+ *  same depth/stencil as the flat fill (NOT ground). The per-tile z-buffer is bound at slot 1. */
+export function buildExtrudeMaterial(inp: FillMaterialInputs): Material {
+  const fmt = inp.format as 'bgra8unorm'
+  return new Material(new WebGpuDevice(inp.device), {
+    shader: inp.shader, vsEntry: 'vs_main_ecef_extruded', fsEntry: 'fs_fill_extrude',
+    format: fmt, sampleCount: inp.sampleCount,
+    groups: [wrapWebGpuBindGroupLayout(inp.bindGroupLayout)],
+    vertexBuffers: [toMatVB(inp.vertexLayout)],
+    colorTargets: inp.pickEnabled
+      ? [{ format: fmt, blend: 'alpha' }, { format: 'rg32uint', writeMask: 0xf }]
+      : [{ format: fmt, blend: 'alpha' }],
+    cullMode: 'none',
+    variants: [
+      { depthCompare: 'less-equal', depthWrite: true, stencil: { compare: 'always', passOp: 'replace', writeMask: 0xff, readMask: 0xff }, label: 'fill-extrude-write-rhi' },
+      { depthCompare: 'less-equal', depthWrite: true, stencil: { compare: 'equal', passOp: 'keep', writeMask: 0x00, readMask: 0xff }, label: 'fill-extrude-test-rhi' },
+    ],
+  })
+}
+
 /** The single per-tile fill draw. Routes the flat/ground non-extrude draw through the RHI Material
  *  seam when enabled + the pipeline matches a built variant; otherwise the raw native draw. The
  *  per-draw stencil ref is set one level up by the caller. */
@@ -85,18 +110,28 @@ export function recordFillDraw(
   cached: FillTileBuffers,
   bindZBuffer: boolean,
 ): void {
-  if (fillRhi && !bindZBuffer
-      && (globalThis as { __xgisVtrFillViaRhi?: boolean }).__xgisVtrFillViaRhi === true) {
-    // Per-style (data-driven) pipelines route via their own cached Material twin; the rest match the
-    // default-shader flat/ground pipes.
-    const ps = fillRhi.perStyle?.get(pipeline)
-    const p = fillRhi.pipes
-    const mat = ps ? ps.mat
-      : (p && (pipeline === p.write || pipeline === p.test)) ? fillRhi.flat
-      : (p && (pipeline === p.groundWrite || pipeline === p.groundTest)) ? fillRhi.ground : null
-    const variant = ps ? ps.variant
-      : (p && (pipeline === p.write || pipeline === p.groundWrite)) ? 0
-      : (p && (pipeline === p.test || pipeline === p.groundTest)) ? 1 : -1
+  if (fillRhi && (globalThis as { __xgisVtrFillViaRhi?: boolean }).__xgisVtrFillViaRhi === true) {
+    let mat: Material | null = null
+    let variant = -1
+    if (!bindZBuffer) {
+      // Flat fill. Per-style (data-driven) pipelines route via their own cached Material twin; the
+      // rest match the default-shader flat/ground pipes.
+      const ps = fillRhi.perStyle?.get(pipeline)
+      const p = fillRhi.pipes
+      mat = ps ? ps.mat
+        : (p && (pipeline === p.write || pipeline === p.test)) ? fillRhi.flat
+        : (p && (pipeline === p.groundWrite || pipeline === p.groundTest)) ? fillRhi.ground : null
+      variant = ps ? ps.variant
+        : (p && (pipeline === p.write || pipeline === p.groundWrite)) ? 0
+        : (p && (pipeline === p.test || pipeline === p.groundTest)) ? 1 : -1
+    } else if (fillRhi.extrude) {
+      // Opaque 3D extrude: match the two extrude pipelines. The per-feature height rides in the
+      // POLYGON_EXTRUDED vertex (slot 0) — the slot-1 z-buffer is unused here (the raw path binds it
+      // null), so no vertex1. (OIT + per-style extrude are not in `extrude` yet → raw draw below.)
+      const e = fillRhi.extrude
+      variant = pipeline === e.write ? 0 : pipeline === e.test ? 1 : -1
+      if (variant >= 0) mat = e.mat
+    }
     if (mat && variant >= 0) {
       const g = globalThis as { __xgisVtrFillRhiDraws?: number }; g.__xgisVtrFillRhiDraws = (g.__xgisVtrFillRhiDraws ?? 0) + 1
       executeItems(mat, wrapWebGpuPass(encoder), [{
