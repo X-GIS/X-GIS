@@ -43,6 +43,14 @@ export interface FillRhiState {
     mat: Material; write: GPURenderPipeline; test: GPURenderPipeline
     matNoPick?: Material; writeNoPick?: GPURenderPipeline; testNoPick?: GPURenderPipeline
   } | null
+  /** Fill-pattern (fs_fill_pattern) twins of the native fillPipelinePattern{Ground,Extruded}* pipelines.
+   *  ground = cull-none / depth-off stencil (twins fillPipelinePatternGround + fallback); extruded =
+   *  per-feature height / depth-write stencil (twins fillPipelinePatternExtruded + fallback). Routed
+   *  before the raw else when a show resolves fillPatternUV. null = pattern stays raw. */
+  pattern: {
+    ground: Material; groundWrite: GPURenderPipeline; groundTest: GPURenderPipeline
+    extruded: Material; extrudedWrite: GPURenderPipeline; extrudedTest: GPURenderPipeline
+  } | null
 }
 
 export interface FillMaterialInputs {
@@ -54,6 +62,9 @@ export interface FillMaterialInputs {
   sampleCount: number
   bindGroupLayout: GPUBindGroupLayout
   vertexLayout: GPUVertexBufferLayout
+  /** Extruded-fill vertex layout (POLYGON_EXTRUDED). Only buildPatternFillMaterials reads it — it twins
+   *  BOTH the ground (flat `vertexLayout` above) + extruded pattern pipelines in a single call. */
+  extrudedVertexLayout?: GPUVertexBufferLayout
   pickEnabled: boolean
   /** Pick-attachment writeMask (default 0xf). The `pointer-events:none` no-pick twins pass 0 so the
    *  layer's pick id never lands in the pick texture (picks fall through). */
@@ -114,6 +125,38 @@ export function buildExtrudeMaterial(inp: FillMaterialInputs): Material {
   })
 }
 
+/** Build the fill-pattern Material twins (fs_fill_pattern). `patternGround` mirrors the flat fill's
+ *  GROUND twin (depthCompare 'always', depthWrite false, write/test stencil) but cullMode 'none' — the
+ *  native fillPipelinePatternGround is unculled, unlike the solid ground twin's 'back'. `patternExtruded`
+ *  mirrors buildExtrudeMaterial (vs_main_ecef_extruded, the POLYGON_EXTRUDED vertex layout, STENCIL_WRITE
+ *  / STENCIL_TEST). Both swap fsEntry to 'fs_fill_pattern' so the sprite atlas is sampled at the
+ *  world-anchored UV. Variant 0 = STENCIL_WRITE(_NO_DEPTH) (main pipeline), 1 = the stencil-test fallback. */
+export function buildPatternFillMaterials(inp: FillMaterialInputs): { patternGround: Material; patternExtruded: Material } {
+  const rhi: RhiDevice = inp.rhi
+  const fmt = inp.format as 'bgra8unorm'
+  const groups = [wrapWebGpuBindGroupLayout(inp.bindGroupLayout)]
+  const colorTargets = inp.pickEnabled
+    ? [{ format: fmt, blend: 'alpha' as const }, { format: 'rg32uint' as const, writeMask: inp.pickWriteMask ?? 0xf }]
+    : [{ format: fmt, blend: 'alpha' as const }]
+  const patternGround = new Material(rhi, {
+    shader: inp.shader, vsEntry: 'vs_main_ecef', fsEntry: 'fs_fill_pattern', format: fmt, sampleCount: inp.sampleCount,
+    groups, vertexBuffers: [toMatVB(inp.vertexLayout)], colorTargets, cullMode: 'none',
+    variants: [
+      { depthCompare: 'always', depthWrite: false, stencil: { compare: 'always', passOp: 'replace', writeMask: 0xff, readMask: 0xff }, label: 'fill-pattern-ground-write-rhi' },
+      { depthCompare: 'always', depthWrite: false, stencil: { compare: 'equal', passOp: 'keep', writeMask: 0x00, readMask: 0xff }, label: 'fill-pattern-ground-test-rhi' },
+    ],
+  })
+  const patternExtruded = new Material(rhi, {
+    shader: inp.shader, vsEntry: 'vs_main_ecef_extruded', fsEntry: 'fs_fill_pattern', format: fmt, sampleCount: inp.sampleCount,
+    groups, vertexBuffers: [toMatVB(inp.extrudedVertexLayout ?? inp.vertexLayout)], colorTargets, cullMode: 'none',
+    variants: [
+      { depthCompare: 'less-equal', depthWrite: true, stencil: { compare: 'always', passOp: 'replace', writeMask: 0xff, readMask: 0xff }, label: 'fill-pattern-extrude-write-rhi' },
+      { depthCompare: 'less-equal', depthWrite: true, stencil: { compare: 'equal', passOp: 'keep', writeMask: 0x00, readMask: 0xff }, label: 'fill-pattern-extrude-test-rhi' },
+    ],
+  })
+  return { patternGround, patternExtruded }
+}
+
 /** The single per-tile fill draw. Routes the flat/ground non-extrude draw through the RHI Material
  *  seam when enabled + the pipeline matches a built variant; otherwise the raw native draw. The
  *  per-draw stencil ref is set one level up by the caller. */
@@ -140,15 +183,29 @@ export function recordFillDraw(
       variant = ps ? ps.variant
         : (p && (pipeline === p.write || pipeline === p.groundWrite)) ? 0
         : (p && (pipeline === p.test || pipeline === p.groundTest)) ? 1 : -1
-    } else if (fillRhi.extrude) {
+      // Fill-pattern ground twin (fs_fill_pattern) — checked after the solid flat/ground pipes.
+      if (!mat && fillRhi.pattern) {
+        const pat = fillRhi.pattern
+        if (pipeline === pat.groundWrite) { mat = pat.ground; variant = 0 }
+        else if (pipeline === pat.groundTest) { mat = pat.ground; variant = 1 }
+      }
+    } else {
       // Opaque 3D extrude: match the two extrude pipelines. The per-feature height rides in the
       // POLYGON_EXTRUDED vertex (slot 0) — the slot-1 z-buffer is unused here (the raw path binds it
       // null), so no vertex1. (OIT + per-style extrude are not in `extrude` yet → raw draw below.)
       const e = fillRhi.extrude
-      if (pipeline === e.write) { mat = e.mat; variant = 0 }
-      else if (pipeline === e.test) { mat = e.mat; variant = 1 }
-      else if (e.matNoPick && pipeline === e.writeNoPick) { mat = e.matNoPick; variant = 0 }
-      else if (e.matNoPick && pipeline === e.testNoPick) { mat = e.matNoPick; variant = 1 }
+      if (e) {
+        if (pipeline === e.write) { mat = e.mat; variant = 0 }
+        else if (pipeline === e.test) { mat = e.mat; variant = 1 }
+        else if (e.matNoPick && pipeline === e.writeNoPick) { mat = e.matNoPick; variant = 0 }
+        else if (e.matNoPick && pipeline === e.testNoPick) { mat = e.matNoPick; variant = 1 }
+      }
+      // Fill-pattern extruded twin (fs_fill_pattern) — checked after the solid extrude.
+      if (!mat && fillRhi.pattern) {
+        const pat = fillRhi.pattern
+        if (pipeline === pat.extrudedWrite) { mat = pat.extruded; variant = 0 }
+        else if (pipeline === pat.extrudedTest) { mat = pat.extruded; variant = 1 }
+      }
     }
     if (mat && variant >= 0) {
       const g = globalThis as { __xgisVtrFillRhiDraws?: number }; g.__xgisVtrFillRhiDraws = (g.__xgisVtrFillRhiDraws ?? 0) + 1

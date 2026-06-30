@@ -1208,6 +1208,15 @@ document.addEventListener('pointerup', () => {
 })
 
 // ── Init ──
+// `?sprite=<base>` / `?glyphs=<url>` query — seed the pending sprite/glyphs URL for ANY demo path
+// (fixtures included, not only `__import`). runSource's XGISMap ctor consumes `pendingSpriteUrl`, so a
+// local fixture (e.g. fixture_fill_pattern) can load its own sprite atlas via &sprite=/fixture-sprite.
+{
+  const qSprite = params.get('sprite')
+  const qGlyphs = params.get('glyphs')
+  if (qSprite) pendingSpriteUrl = qSprite
+  if (qGlyphs) pendingGlyphsUrl = qGlyphs
+}
 // `?id=__import` → load whatever the /convert page handed off.
 //
 // Two transport channels:

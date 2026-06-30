@@ -43,7 +43,7 @@ import { LINE_FORMAT } from './line-vertex-format'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
 import { buildOverdrawComposePipeline, buildHeatmapBlurPipeline, buildHeatmapComposePipeline, buildOitComposePipeline } from './compose-pipelines'
-import { buildFlatFillMaterials, buildExtrudeMaterial, fillViaRhiEnabled, type FillRhiState } from './material/polygon-fill-material'
+import { buildFlatFillMaterials, buildExtrudeMaterial, buildPatternFillMaterials, fillViaRhiEnabled, type FillRhiState } from './material/polygon-fill-material'
 import type { Material } from './material/material'
 import { emitPolygonWgsl } from '../shaders/dsl/polygon'
 import { Node } from '@xgis/shader-dsl'
@@ -156,6 +156,9 @@ export class PipelineFactory {
   /** pointer-events:none (no-pick, pick writeMask 0) twin of _fillExtrudeMaterial — only built when
    *  picking is on (off → the no-pick pipelines alias the pickable ones, already covered). */
   private _fillExtrudeMaterialNoPick: Material | null = null
+  /** Fill-pattern (fs_fill_pattern) Material twins of the native fillPipelinePattern{Ground,Extruded}*
+   *  pipelines — built behind __xgisVtrFillViaRhi. recordFillDraw routes pattern draws through these. */
+  private _fillPatternMaterials: { patternGround: Material; patternExtruded: Material } | null = null
   fillRhiState(): FillRhiState | null {
     if (!this._fillMaterials) return null
     return {
@@ -168,6 +171,14 @@ export class PipelineFactory {
             ...(this._fillExtrudeMaterialNoPick
               ? { matNoPick: this._fillExtrudeMaterialNoPick, writeNoPick: this.fillPipelineExtrudedNoPick, testNoPick: this.fillPipelineExtrudedFallbackNoPick }
               : {}),
+          }
+        : null,
+      pattern: this._fillPatternMaterials
+        ? {
+            ground: this._fillPatternMaterials.patternGround,
+            groundWrite: this.fillPipelinePatternGround, groundTest: this.fillPipelinePatternGroundFallback,
+            extruded: this._fillPatternMaterials.patternExtruded,
+            extrudedWrite: this.fillPipelinePatternExtruded, extrudedTest: this.fillPipelinePatternExtrudedFallback,
           }
         : null,
     }
@@ -749,6 +760,13 @@ export class PipelineFactory {
       this._fillExtrudeMaterial = buildExtrudeMaterial({
         rhi: this.ctx.rhi, shader: pickShader, format, sampleCount: getSampleCount(),
         bindGroupLayout: this.bindGroupLayout, vertexLayout: extrudedVertexBufferLayout, pickEnabled,
+      })
+      // Fill-pattern twins (fs_fill_pattern) of fillPipelinePattern{Ground,Extruded}* — one call twins
+      // BOTH the ground (flat layout) + extruded (POLYGON_EXTRUDED layout) pattern pipelines.
+      this._fillPatternMaterials = buildPatternFillMaterials({
+        rhi: this.ctx.rhi, shader: pickShader, format, sampleCount: getSampleCount(),
+        bindGroupLayout: this.bindGroupLayout, vertexLayout: vertexBufferLayout,
+        extrudedVertexLayout: extrudedVertexBufferLayout, pickEnabled,
       })
     }
 
