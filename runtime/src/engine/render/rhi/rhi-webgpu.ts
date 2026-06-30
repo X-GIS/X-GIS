@@ -118,7 +118,12 @@ class WebGpuRenderPass implements RhiRenderPass {
   constructor(private readonly enc: GPURenderPassEncoder | GPURenderBundleEncoder) {}
   setPipeline(p: RhiPipeline): void { this.enc.setPipeline(u<GPURenderPipeline>(p)) }
   setBindGroup(index: number, group: RhiBindGroup, dynamicOffsets?: number[]): void {
-    this.enc.setBindGroup(index, u<GPUBindGroup>(group), dynamicOffsets)
+    // dynamicOffsets is OPTIONAL per the RHI contract — a bind group with no dynamic-offset bindings
+    // passes none. WebGPU's setBindGroup(i, g, undefined) THROWS ("cannot convert undefined to a
+    // sequence"), so the undefined case MUST call the 2-arg form. (IconDraper — the first Draper to
+    // bind a non-dynamic-offset group through executeItems — exposed this.)
+    if (dynamicOffsets) this.enc.setBindGroup(index, u<GPUBindGroup>(group), dynamicOffsets)
+    else this.enc.setBindGroup(index, u<GPUBindGroup>(group))
   }
   setVertexBuffer(slot: number, buffer: RhiBuffer, offset?: number, size?: number): void { this.enc.setVertexBuffer(slot, u<GPUBuffer>(buffer), offset, size) }
   setIndexBuffer(buffer: RhiBuffer, format: 'uint16' | 'uint32', offset?: number, size?: number): void { this.enc.setIndexBuffer(u<GPUBuffer>(buffer), format, offset, size) }
