@@ -7,6 +7,33 @@ with the per-piece scope and the verification methodology learned along the way.
 
 Branch: `feat/engine-content-split`.
 
+## ⏭️ Next session — start here (ordered critical path)
+
+P1 is ~91%: 5/6 renderers flipped (raw deleted, DC=0) + the VTR fill ROUTED for every common path
+behind `__xgisVtrFillViaRhi` (default off), verified DC=0/within-noise across 7 fixtures. The clean
+finish is dedicated work — do it in this order, each gated on real-GPU DC=0 + `tsc --build` + suite:
+
+1. **Route the residuals** (they block the raw delete; the flip is a half-measure without them):
+   - **Fill patterns** — author a deterministic fill-pattern fixture (a local sprite atlas via the
+     `spriteUrl`/`setSpriteAtlas` path + a `fill-pattern-<sym>` fill layer through the VTR), then
+     re-add `buildPatternGroundMaterial` (it was built + reverted, see git) + register
+     `fillPipelinePattern{Ground,…}` in `_fillPerStyle`, verify DC=0. Extrude-pattern next.
+   - **Per-variant no-pick** — register the variant `*NoPick` pipelines in `registerFillMaterials`
+     (the code is in git history, reverted). VERIFY ONLY on a DEPTH-ON scene — picking forces
+     sampleCount=1 and depth-OFF ground fills are non-deterministic under no-MSAA (the floor swings
+     4..11; a clean DC=0 is impossible on a ground fill). Build a data-driven EXTRUDE fixture.
+   - **OIT** — product decision: route the accum/revealage MRT Material (needs a named
+     `'oit-revealage'` `{zero,one-minus-src}` blend + `rgba16float`/`r16float` RhiTextureFormat) OR
+     formally drop the dead opt-in (`isOitExtrude` is always false).
+2. **Real-world verify** — sweep OFM/Mapbox styles (the 7 fixtures are local; the Material mechanism is
+   style-independent but blends/stencils in real styles are untested). Network tiles → offline fixture.
+3. **Flip + raw delete together** — the `recordTileFill`-caller refactor: the VTR selects a Material
+   VARIANT INDEX, not a native pipeline (today `recordFillDraw` matches `pipeline === e.write`). Then
+   `__xgisVtrFillViaRhi` retires + the raw `drawIndexed` else-branch is deleted.
+4. **§4 seam** — the coupled cluster (`ShapeRegistry`/`GPUArena`/bind-group-registry → `Rhi*`,
+   `RhiDevice.destroyBuffer`). Migrate together (a partial migration leaves a mixed Rhi*/raw state).
+5. **P2 carve → P3 extract → P4 shell** (per `engine-content-split.md`).
+
 ## What P1 means + the gate
 
 P1 routes EVERY primitive's draw through the RHI `Material`/`DrawItem`/`executeItems` core so
