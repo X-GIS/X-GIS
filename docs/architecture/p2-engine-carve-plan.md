@@ -29,18 +29,33 @@ dissolved **first**, in dependency order (innermost handle leaks → outermost s
 
 ---
 
-## Step 0 — Delete fill raw-delete residuals (pure dead-code removal)
-- **Deletes:** OIT-extrude branch — `bucket-scheduler.ts:299` `isOitExtrude=false`, dead push
-  `:367`, guard `vector-tile-renderer.ts:2911-2913`, unreachable `:2998 extrudedOITPipeline()`.
-  Per-style-extrude residual — `polygon-fill-material.ts:194-195` + the raw else-branch fallback
-  it guards (`:223-228`) for the per-style case. Keep the iter-193 disable comment as history.
-- **Invariant:** the raw (non-RHI) fill path has **zero reachable callers** for OIT and
-  per-style extrude; the only live raw consumer is fill-pattern (routed separately — see the
-  P1.6 fill-pattern work; the raw else-branch deletes once fill-pattern routes through RHI).
-- **Proof chain (unreachable by construction):** `isOitExtrude=false` ⇒ `oit=[]` ⇒
-  `hasOit=false` ⇒ `oit-pass.shouldRun=false` ⇒ `phase!=='oit-fill'`. Add a
-  `no-oit-extrude-pipeline` static test asserting `extrudedOITPipeline()` has no caller.
-- **Divergence:** none — byte-identical *by absence of execution*.
+## Step 0 — Dead OIT subsystem + fill raw residuals (revised after a re-trace)
+- **VERIFIED DEAD (11-link proof, re-traced from source 2026-07-01):** `isOitExtrude`
+  (bucket-scheduler.ts:299) is a hardcoded immutable `false` — **sole writer** — ⇒ `oit=[]`
+  (`:203`/`:385`) ⇒ `hasOit=false` (scene-view.ts:66, sole writer) ⇒ `oit-pass.shouldRun=false`
+  (oit-pass.ts:19) ⇒ `render-loop.ts:461` never executes ⇒ `'oit-fill'` phase never emitted
+  (oit-pass.ts:65 is the only emitter) ⇒ VTR `isOitFill=false` (vector-tile-renderer.ts:2575)
+  ⇒ the `extrudedOITPipeline()` OIT arm (`:2911-2913`/`:2998`) is unreachable. ∎ DC=0 by
+  absence of execution. (`translucent-pass.ts` is a SEPARATE live path — never touch it.)
+- **BLAST RADIUS (the survey under-counted "no live caller"):** the whole OIT subsystem is
+  dead, ~16 prod + ~5 test files. The getter (bind-group-registry.ts:210) has only the
+  unreachable VTR caller, BUT the **pipeline field** `fillPipelineExtrudedOIT`
+  (pipeline-factory.ts:218/861 → renderer.ts:117) has **6 live compile-time callers**
+  (`map.ts:715/1355/2755`, `source-manager.ts:246/447`, `geojson-polar-cap-show.ts:70`) that
+  build + `setOITPipeline(...)` it (it just never reaches a draw); plus the dead-but-plumbed
+  compose half (`oitComposePipeline`/`oitComposeBindGroupLayout`, pipeline-factory.ts:222-223/
+  950-951, oit-pass.ts:84/90) and OIT targets (`ensureOit`/`oitAccumTexture`/`oitRevealageTexture`,
+  render-targets.ts:46-88/258). Full deletion also hits `oit-pass.ts` (delete file),
+  `pass-hosts.ts:41/144 OitPassHost`, `pass.ts:20/32/49`, `scene-view.ts`, `render-loop.ts:32/461`,
+  + tests render-targets/scene-view/map-rebuild-layers/source-manager-bounds-fit-gate/bundle-cache-key.
+- **DECISION — fold OIT removal into Step 4, do NOT delete standalone.** The OIT path is a
+  *deliberate* "future opt-in" scaffold (pipeline-factory.ts:861 comment), and its surface
+  (`OitPassHost`, `pass.ts`, the `oit-fill` phase) IS the PassHost/RenderPass machinery Step 4
+  inverts. A dead pass simply won't be registered as a `RenderNode` during the Step 4 inversion
+  → it drops from the live path there, in context, without a premature 16-file subsystem delete.
+- **Remaining Step 0 (in-budget, optional):** the per-style-extrude raw residual
+  (`polygon-fill-material.ts`) + the fill raw else-branch delete are gated on the fill-pattern
+  RHI routing (P1.6 — `show.fillPattern` propagation blocker), NOT on OIT. Keep raw until then.
 
 ## Step 1 — Split MapRenderer god-object → `FrameRenderer` (engine) + `MapRendererContent` (map)
 - **Engine-KEEP** (rename `MapRenderer`→`FrameRenderer`): `ctx`, `_pipelines` (renderer.ts:108),
