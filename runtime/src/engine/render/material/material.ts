@@ -25,8 +25,13 @@ export interface PipelineVariant {
   depthWrite?: boolean
   depthCompare?: 'always' | 'less' | 'less-equal'
   depthBias?: { constant: number; slopeScale: number; clamp: number }
-  /** Override the material's fsEntry for this variant (line pattern). */
+  /** Override the material's fsEntry / vsEntry for this variant (line pattern; the polygon
+   *  extruded variant swaps the vertex entry to vs_main_ecef_extruded). */
   fsEntry?: string
+  vsEntry?: string
+  /** Per-tile clip-mask stencil state (the VTR fill fallback variants — STENCIL_WRITE / STENCIL_TEST).
+   *  Forwarded to the RHI pipeline's depthStencil.stencil; absent = inert stencil (byte-identical). */
+  stencil?: { compare: 'always' | 'equal'; passOp: 'keep' | 'replace'; writeMask: number; readMask: number }
   label?: string
 }
 
@@ -92,12 +97,12 @@ export class Material {
   constructor(readonly rhi: RhiDevice, desc: MaterialDesc) {
     this.layouts = desc.groups.map((g) => Array.isArray(g) ? rhi.createBindGroupLayout(g) : g)
     this.pipelines = desc.variants.map((v) => rhi.createPipeline({
-      code: desc.shader, vsEntry: desc.vsEntry, fsEntry: v.fsEntry ?? desc.fsEntry,
+      code: desc.shader, vsEntry: v.vsEntry ?? desc.vsEntry, fsEntry: v.fsEntry ?? desc.fsEntry,
       vsCode: desc.vsCode, fsCode: desc.fsCode,
       bindGroupLayouts: this.layouts,
       colorTargets: desc.colorTargets,
-      depthStencil: v.depthCompare
-        ? { format: desc.depthFormat ?? 'depth24plus-stencil8', write: v.depthWrite ?? false, compare: v.depthCompare, bias: v.depthBias }
+      depthStencil: (v.depthCompare || v.stencil)
+        ? { format: desc.depthFormat ?? 'depth24plus-stencil8', write: v.depthWrite ?? false, compare: v.depthCompare ?? 'always', bias: v.depthBias, stencil: v.stencil }
         : undefined,
       sampleCount: desc.sampleCount,
       vertexBuffers: desc.vertexBuffers,
