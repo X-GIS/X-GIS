@@ -14,8 +14,8 @@ import { resolveNumberShape } from './paint-shape-resolve'
 import { FrameArena } from '../gpu/frame-arena'
 import type { PointLayer } from './point-renderer-types'
 import { buildPointModule } from '../shaders/dsl'
-import { WebGpuDevice, wrapWebGpuPass, wrapWebGpuBindGroupLayout } from './rhi/rhi-webgpu'
-import type { RhiBuffer, RhiBindGroup } from './rhi/rhi'
+import { wrapWebGpuPass, wrapWebGpuBindGroupLayout } from './rhi/rhi-webgpu'
+import type { RhiBuffer, RhiBindGroup, RhiDevice } from './rhi/rhi'
 import { PointDraper } from './material/point-material'
 import { reflect } from '@xgis/shader-dsl'
 import { vertexField } from '@xgis/compiler'
@@ -204,7 +204,7 @@ export class PointRenderer {
    *  device.createBuffer`, `createBindGroup === device.createBindGroup`,
    *  `writeBuffer === queue.writeBuffer`, `destroyBuffer === GPUBuffer.destroy()`,
    *  so the GPU command stream is byte-identical. */
-  private readonly rhi: WebGpuDevice
+  private readonly rhi: RhiDevice
   private bindGroupLayout: GPUBindGroupLayout
   private format: GPUTextureFormat = 'bgra8unorm'
   // Vertex buffer layout — cached so rebuildForQuality can reuse without
@@ -236,8 +236,8 @@ export class PointRenderer {
     this.shapeRegistry = registry
   }
 
-  constructor(ctx: { device: GPUDevice; format: GPUTextureFormat }) {
-    this.rhi = new WebGpuDevice(ctx.device)
+  constructor(ctx: { device: GPUDevice; format: GPUTextureFormat; rhi: RhiDevice }) {
+    this.rhi = ctx.rhi
     const { device } = ctx
 
     this.bindGroupLayout = device.createBindGroupLayout({

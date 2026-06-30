@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
   RENDER_ATTACHMENT: 16, TEXTURE_BINDING: 4,
 }
 import { LineRenderer } from './line-renderer'
+import { WebGpuDevice } from './rhi/rhi-webgpu'
 import type { GPUContext } from '../gpu/gpu'
 
 // ── Regression: translucent composite opacity must NOT clobber across layers ──
@@ -79,7 +80,7 @@ function makeHarness() {
   }
 
   const lr = new LineRenderer(
-    { device: fakeDevice as unknown as GPUDevice, format: 'bgra8unorm', canvas: {} as HTMLCanvasElement, context: {} as GPUCanvasContext } as unknown as GPUContext,
+    { device: fakeDevice as unknown as GPUDevice, format: 'bgra8unorm', canvas: {} as HTMLCanvasElement, context: {} as GPUCanvasContext, rhi: new WebGpuDevice(fakeDevice as unknown as GPUDevice) } as unknown as GPUContext,
     {} as GPUBindGroupLayout,
   )
 

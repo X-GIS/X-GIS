@@ -7,7 +7,7 @@ import { mercator as mercatorProj, mercatorYToLat } from '../projection/projecti
 import { lonLatToECEF, type ECEF } from '../projection/ecef'
 import type { RhiDevice, RhiRenderPass, RhiTexture } from './rhi/rhi'
 import { RasterDraper, type RasterTile } from './material/raster-material'
-import { WebGpuDevice, wrapWebGpuPass } from './rhi/rhi-webgpu'
+import { wrapWebGpuPass } from './rhi/rhi-webgpu'
 import { routeToSphereSelector, enumerateWorldCopies } from '../gpu/gpu-shared'
 import { isPickEnabled, getSampleCount } from '../gpu/gpu'
 import { DEBUG_OVERDRAW } from '../debug-flags'
@@ -42,6 +42,9 @@ const MAX_CONCURRENT_LOADS = 6
 
 export class RasterRenderer {
   private device: GPUDevice
+  /** The injected backend RHI device (ctx.rhi) — the RasterDraper routes resource
+   *  creation through it (WebGpuDevice on WebGPU, WebGl2Device under ?forcegl2=1). */
+  private readonly rhi: RhiDevice
   private format: GPUTextureFormat = 'bgra8unorm'
 
   // LRU tile cache
@@ -89,11 +92,12 @@ export class RasterRenderer {
    *  swapchain format + sample count; rebuilt on a quality (MSAA) change via invalidation. */
   private _rasterDraper?: RasterDraper
   private ensureRasterDraper(): RasterDraper {
-    return (this._rasterDraper ??= new RasterDraper(new WebGpuDevice(this.device), this.format, getSampleCount()))
+    return (this._rasterDraper ??= new RasterDraper(this.rhi, this.format, getSampleCount()))
   }
 
   constructor(ctx: GPUContext) {
     this.device = ctx.device
+    this.rhi = ctx.rhi
     this.format = ctx.format
 
     // The raster draw goes through the RHI Material seam (RasterDraper, lazily built in

@@ -48,11 +48,12 @@ export interface GPUContext {
   format: GPUTextureFormat
   canvas: HTMLCanvasElement
   sampleCount: number
-  /** Forced-WebGL2 fallback (the `?forcegl2=1` toggle): the RHI device the renderers +
-   *  render loop route through INSTEAD of the raw GPUDevice. Present ONLY under the toggle;
-   *  undefined on the normal WebGPU path (then the engine uses `device` directly, unchanged).
-   *  A WebGl2Device here (backend==='webgl2') is how a real layer renders on WebGL2. */
-  rhi?: RhiDevice
+  /** The chosen backend's RHI device, injected ONCE at boot — the SINGLE instance every
+   *  renderer routes resource creation through (no renderer self-instantiates a backend
+   *  device). A `WebGpuDevice` over `device` on the normal WebGPU path; a `WebGl2Device`
+   *  under the `?forcegl2=1` toggle (backend==='webgl2' is how a real layer renders on
+   *  WebGL2). Always present — the composition root (initGPU / initGPUForcedWebGL2) sets it. */
+  rhi: RhiDevice
   /** True when the device was created with the `timestamp-query`
    *  feature enabled. Gated by `?gpuprof=1` so production users don't
    *  pay the always-on adapter feature requirement. Consumers (`GPUTimer`)
@@ -214,12 +215,20 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
   // re-tuning every halo/translucency — so it is intentionally NOT done here.
   context.configure({ device, format, alphaMode: 'premultiplied' })
 
+  // The chosen backend's RHI device (this is the WebGPU path → WebGpuDevice over `device`).
+  // Lazy-imported like the WebGl2Device factory above so gpu.ts (layer 1) stays off a STATIC
+  // upward import edge to the render layer (rhi-webgpu is L3); `initGPU` is async, so the
+  // one-time dynamic import is free. This is the SINGLE backend device every renderer routes
+  // through (ctx.rhi) — no renderer self-instantiates `new WebGpuDevice`.
+  const { WebGpuDevice } = await import('../render/rhi/rhi-webgpu')
+
   // Build the GPUContext bundle BEFORE wiring the validation
   // handler so the handler can push into the per-context queue
   // (tests read `ctx._validationErrors` to assert no errors fired).
   const ctx: GPUContext = {
     device, context, format, canvas,
     sampleCount: SAMPLE_COUNT,
+    rhi: new WebGpuDevice(device),
     timestampQuerySupported,
     timestampInsidePassesSupported,
     float32FilterableSupported,

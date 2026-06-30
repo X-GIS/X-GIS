@@ -24,6 +24,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
 import { initGPU, type GPUContext } from '../gpu/gpu'
 import { IconRenderer, type IconDraw } from './icon-renderer'
+import { WebGpuDevice } from '../render/rhi/rhi-webgpu'
 import { ICON_FORMAT } from './icon-vertex-format'
 import { vertexField } from '@xgis/compiler'
 import type { SpriteInfo } from './sprite-atlas-host'
@@ -80,7 +81,7 @@ const FAKE_ATLAS = { size: () => ({ width: 256, height: 256 }) }
  *  from the vertex-buffer writeBuffer. */
 function capturedFirstVertex(ctx: GPUContext, draw: IconDraw): Float32Array | undefined {
   const renderer = new IconRenderer(
-    ctx.device, FAKE_ATLAS as never, ctx.format, 1,
+    ctx.device, new WebGpuDevice(ctx.device), FAKE_ATLAS as never, ctx.format, 1,
   )
 
   let firstVert: Float32Array | undefined

@@ -33,6 +33,7 @@ import { describe, expect, it } from 'vitest'
 }
 
 import { LineRenderer, lineUniformSize } from './line-renderer'
+import { WebGpuDevice } from './rhi/rhi-webgpu'
 import type { GPUContext } from '../gpu/gpu'
 
 // f32 slots in the 208-byte line layer uniform (see line-pattern.ts header):
@@ -79,6 +80,7 @@ function makeFakeContext(writes: CapturedWrite[]): GPUContext {
     format: 'bgra8unorm',
     canvas: {} as HTMLCanvasElement,
     context: {} as GPUCanvasContext,
+    rhi: new WebGpuDevice(fakeDevice as unknown as GPUDevice),
   } as unknown as GPUContext
 }
 

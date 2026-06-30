@@ -9,6 +9,7 @@
 import { SpriteAtlasHost, type SpriteInfo } from './sprite-atlas-host'
 import { SpriteAtlasGPU } from './sprite-atlas-gpu'
 import { IconRenderer, type IconDraw, type IconAnchor } from './icon-renderer'
+import type { RhiDevice } from '../render/rhi/rhi'
 
 export interface IconStageOptions {
   spriteUrl: string
@@ -88,6 +89,7 @@ export class IconStage {
 
   constructor(
     device: GPUDevice,
+    rhi: RhiDevice,
     presentationFormat: GPUTextureFormat,
     options: IconStageOptions,
     sampleCount: number = 1,
@@ -99,7 +101,7 @@ export class IconStage {
       onLanded: options.onLanded,
     })
     this.gpu = new SpriteAtlasGPU(device, this.host)
-    this.renderer = new IconRenderer(device, this.gpu, presentationFormat, sampleCount)
+    this.renderer = new IconRenderer(device, rhi, this.gpu, presentationFormat, sampleCount)
   }
 
   setDpr(dpr: number): void { this.dpr = dpr > 0 ? dpr : 1 }

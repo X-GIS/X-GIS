@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
   UNIFORM: 1, COPY_DST: 2, STORAGE: 4, VERTEX: 8, INDEX: 16,
 }
 import { LineRenderer, lineUniformSize, packLineLayerUniform } from './line-renderer'
+import { WebGpuDevice } from './rhi/rhi-webgpu'
 import type { GPUContext } from '../gpu/gpu'
 
 // These tests validate the ring-buffer math and the public guarantees of
@@ -46,7 +47,7 @@ describe('LineRenderer layer uniform ring', () => {
       },
     }
     const lr = new LineRenderer(
-      { device: fakeDevice as unknown as GPUDevice, format: 'bgra8unorm', canvas: {} as HTMLCanvasElement, context: {} as GPUCanvasContext } as unknown as GPUContext,
+      { device: fakeDevice as unknown as GPUDevice, format: 'bgra8unorm', canvas: {} as HTMLCanvasElement, context: {} as GPUCanvasContext, rhi: new WebGpuDevice(fakeDevice as unknown as GPUDevice) } as unknown as GPUContext,
       {} as GPUBindGroupLayout,
     )
 

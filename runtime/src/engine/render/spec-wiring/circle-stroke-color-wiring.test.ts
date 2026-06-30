@@ -25,6 +25,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../../__test-support__/webgpu-stub'
 import { initGPU, type GPUContext } from '../../gpu/gpu'
 import { PointRenderer } from '../point-renderer'
+import { WebGpuDevice } from '../rhi/rhi-webgpu'
 
 let stub: StubInstallation
 
@@ -89,7 +90,7 @@ function captureFeatData(ctx: GPUContext): Float32Array | undefined {
     orig.call(device.queue, buf, off, data)
   }
 
-  const renderer = new PointRenderer({ device: ctx.device, format: ctx.format })
+  const renderer = new PointRenderer({ device: ctx.device, format: ctx.format, rhi: new WebGpuDevice(ctx.device) })
   // Positional: features, fill, stroke, strokeWidth, radiusPx, opacity, …
   renderer.addLayer(FEATURES as never, FILL, STROKE, STROKE_WIDTH, RADIUS, OPACITY)
   return feat
@@ -126,7 +127,7 @@ describe('circle-stroke-color stroke-RGB wiring (GPU-free)', () => {
       }
       orig.call(device.queue, buf, off, data)
     }
-    const renderer = new PointRenderer({ device: ctx.device, format: ctx.format })
+    const renderer = new PointRenderer({ device: ctx.device, format: ctx.format, rhi: new WebGpuDevice(ctx.device) })
     renderer.addLayer(FEATURES as never, FILL, null, STROKE_WIDTH, RADIUS, OPACITY)
     expect(feat, 'point-features feat_data buffer should have been written').toBeTruthy()
     for (let i = 0; i < N; i++) {

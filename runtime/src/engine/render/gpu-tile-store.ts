@@ -37,7 +37,8 @@
 // caller-supplied predicate so the store never references the queue.
 
 import { GPUArena } from '../gpu/gpu-arena'
-import { WebGpuDevice } from './rhi/rhi-webgpu'
+// Type-only: store needs WebGpuDevice's unwrapBuffer + createCommandEncoder (not on RhiDevice); the injected ctx.rhi is narrowed to it (never self-instantiated).
+import type { WebGpuDevice } from './rhi/rhi-webgpu'
 import { getMaxGpuTiles, ARENA_HIGH_WATER, ARENA_LOW_WATER } from './vector-tile-renderer-helpers'
 import type { GPUTile } from './vector-tile-renderer-types'
 
@@ -238,9 +239,9 @@ export class GpuTileStore {
    *  tiles (e.g. fill-extrusion buildings) write here. */
   private zBufferArena: GPUArena | null = null
 
-  constructor(device: GPUDevice) {
+  constructor(device: GPUDevice, rhi: WebGpuDevice) {
     this.device = device
-    this.rhi = new WebGpuDevice(device)
+    this.rhi = rhi
   }
 
   // ── Cache accessors (cheap monomorphic field-deref getters for the

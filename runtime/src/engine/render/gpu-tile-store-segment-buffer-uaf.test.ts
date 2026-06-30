@@ -29,6 +29,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { GpuTileStore } from './gpu-tile-store'
+import { WebGpuDevice } from './rhi/rhi-webgpu'
 
 interface MockBuffer { destroyed: boolean; label: string; destroy(): void }
 function mockBuffer(label: string): MockBuffer {
@@ -72,7 +73,8 @@ type MaintPriv = { runFrameMaintenance(s: readonly number[], h: (k: string) => v
 
 describe('GpuTileStore segment-buffer UAF — eviction defers destroy past the frame submit', () => {
   it('_releaseTileSlots retires (does NOT synchronously destroy) the render-bound tile buffers', () => {
-    const store = new GpuTileStore(mockDevice())
+    const _dev = mockDevice()
+    const store = new GpuTileStore(_dev, new WebGpuDevice(_dev))
     const { outline, line, feat } = seedTile(store, '', 1)
 
     // Drive the shared release path (forceEvictBytes / evictToBudget reach here).
@@ -91,7 +93,8 @@ describe('GpuTileStore segment-buffer UAF — eviction defers destroy past the f
   })
 
   it('destroy() drains any still-retired tile buffers (no teardown leak)', () => {
-    const store = new GpuTileStore(mockDevice())
+    const _dev = mockDevice()
+    const store = new GpuTileStore(_dev, new WebGpuDevice(_dev))
     const { outline, line, feat } = seedTile(store, '', 2)
     ;(store as unknown as ReleasePriv)._releaseTileSlots('', 2, () => {})
     expect(outline.destroyed).toBe(false)  // retired, not yet drained

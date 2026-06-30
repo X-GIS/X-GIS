@@ -14,6 +14,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { TextStage } from './text-stage'
 import { MockRasterizer, FONT_KEY_SENTINEL } from './sdf/glyph-rasterizer'
+import { WebGpuDevice } from '../render/rhi/rhi-webgpu'
 import { GlyphPbfCache } from './sdf/pbf/glyph-pbf-cache'
 import type { PbfRasterizer } from './sdf/pbf-rasterizer'
 
@@ -57,7 +58,7 @@ describe('TextStage onLanded → onResourceLanded forward (Audit ① B1)', () =>
     const fetchOK = () => Promise.resolve(new Response(PBF_BYTES, { status: 200 }))
     const cache = new GlyphPbfCache({ glyphsUrl: 'https://x/{fontstack}/{range}.pbf', fetch: fetchOK })
 
-    const stage = new TextStage(stubDevice(), 'bgra8unorm', {
+    const stage = new TextStage(stubDevice(), new WebGpuDevice(stubDevice()), 'bgra8unorm', {
       glyphProviders: [cache],
       onResourceLanded,
     })
@@ -79,7 +80,7 @@ describe('TextStage onLanded → onResourceLanded forward (Audit ① B1)', () =>
 
   it('no PbfRasterizer (no glyph sources) → no crash, callback never fires', () => {
     const onResourceLanded = vi.fn()
-    const stage = new TextStage(stubDevice(), 'bgra8unorm', {
+    const stage = new TextStage(stubDevice(), new WebGpuDevice(stubDevice()), 'bgra8unorm', {
       rasterizer: new MockRasterizer(),
       onResourceLanded,
     })
@@ -92,7 +93,7 @@ describe('TextStage onLanded → onResourceLanded forward (Audit ① B1)', () =>
     // render-kick (markLabelDirty, textStage null there); this pins the
     // invalidate half — the generation bump that breaks the stringInfoCache
     // short-circuit so a Canvas2D fallback glyph re-rasters once the WOFF lands.
-    const stage = new TextStage(stubDevice(), 'bgra8unorm', { rasterizer: new MockRasterizer() })
+    const stage = new TextStage(stubDevice(), new WebGpuDevice(stubDevice()), 'bgra8unorm', { rasterizer: new MockRasterizer() })
     stage.host.ensureString(fontKeyOf('normal', 400, 'X'), 'A') // populate one glyph
     const g0 = stage.host.getGeneration()
     stage.invalidateAllGlyphs()

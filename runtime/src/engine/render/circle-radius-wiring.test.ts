@@ -30,6 +30,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
 import { initGPU, type GPUContext } from '../gpu/gpu'
 import { PointRenderer } from './point-renderer'
+import { WebGpuDevice } from './rhi/rhi-webgpu'
 import { Camera } from '../projection/camera'
 
 let stub: StubInstallation
@@ -68,7 +69,7 @@ const RADIUS_SLOT = 0          // feat_data slot 0 = radius_px
  *  once, and return feat_data slot 0 from the per-feature buffer the renderer
  *  actually uploads. */
 function capturedRadiusSlot(ctx: GPUContext, radiusPx: number): number {
-  const renderer = new PointRenderer({ device: ctx.device, format: ctx.format })
+  const renderer = new PointRenderer({ device: ctx.device, format: ctx.format, rhi: new WebGpuDevice(ctx.device) })
   // addLayer positional head: features, fill, stroke, strokeWidth, radiusPx, opacity.
   renderer.addLayer(FEATURES as never, FILL, null, 1, radiusPx, 1)
 

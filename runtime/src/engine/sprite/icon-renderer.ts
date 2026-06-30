@@ -14,8 +14,8 @@
 // stage just converts viewport-px → NDC.
 
 import { SpriteAtlasGPU } from './sprite-atlas-gpu'
-import { WebGpuDevice, wrapWebGpuPass, wrapWebGpuBindGroupLayout, wrapWebGpuTextureView, wrapWebGpuSampler } from '../render/rhi/rhi-webgpu'
-import type { RhiBuffer, RhiBindGroup } from '../render/rhi/rhi'
+import { wrapWebGpuPass, wrapWebGpuBindGroupLayout, wrapWebGpuTextureView, wrapWebGpuSampler } from '../render/rhi/rhi-webgpu'
+import type { RhiBuffer, RhiBindGroup, RhiDevice } from '../render/rhi/rhi'
 import { IconDraper } from '../render/material/icon-material'
 import type { SpriteInfo } from './sprite-atlas-host'
 import { vertexField } from '@xgis/compiler'
@@ -83,7 +83,7 @@ export class IconRenderer {
    *  On WebGPU `createBuffer === device.createBuffer`, `createBindGroup ===
    *  device.createBindGroup`, `writeBuffer === queue.writeBuffer`, `destroyBuffer ===
    *  GPUBuffer.destroy()`, so the GPU command stream is unchanged. */
-  private readonly rhi: WebGpuDevice
+  private readonly rhi: RhiDevice
   private readonly atlas: SpriteAtlasGPU
   private readonly bgLayout: GPUBindGroupLayout
   private readonly uniformBuf: RhiBuffer
@@ -157,10 +157,10 @@ export class IconRenderer {
   }
 
   constructor(
-    device: GPUDevice, atlas: SpriteAtlasGPU,
+    device: GPUDevice, rhi: RhiDevice, atlas: SpriteAtlasGPU,
     presentationFormat: GPUTextureFormat, sampleCount: number = 1,
   ) {
-    this.rhi = new WebGpuDevice(device)
+    this.rhi = rhi
     this.atlas = atlas
     this._iconFmt = presentationFormat
     this._iconSamples = sampleCount

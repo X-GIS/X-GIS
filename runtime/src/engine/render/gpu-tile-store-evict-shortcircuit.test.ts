@@ -23,6 +23,7 @@ import { describe, expect, it } from 'vitest'
 import { GpuTileStore } from './gpu-tile-store'
 import { GPUArena, type GPUArenaDevice } from '../gpu/gpu-arena'
 import type { RhiBuffer } from './rhi/rhi'
+import { WebGpuDevice } from './rhi/rhi-webgpu'
 
 interface MockBuffer { size: number; destroyed: boolean; destroy(): void }
 function mockDevice(): GPUDevice {
@@ -101,7 +102,8 @@ function atCeilingProtected(store: GpuTileStore): { arena: GPUArena; counting: S
 
 describe('GpuTileStore forceEvictBytes — at-ceiling futility short-circuit (a1)', () => {
   it('a repeated at-ceiling evict in the SAME frame skips the O(resident) scan', () => {
-    const store = new GpuTileStore(mockDevice())
+    const _dev = mockDevice()
+    const store = new GpuTileStore(_dev, new WebGpuDevice(_dev))
     const inj = store as unknown as StorePriv
     const { arena, counting } = atCeilingProtected(store)
 
@@ -121,7 +123,8 @@ describe('GpuTileStore forceEvictBytes — at-ceiling futility short-circuit (a1
   })
 
   it('runFrameMaintenance clears the latch so the next frame re-attempts eviction', () => {
-    const store = new GpuTileStore(mockDevice())
+    const _dev = mockDevice()
+    const store = new GpuTileStore(_dev, new WebGpuDevice(_dev))
     const inj = store as unknown as StorePriv
     const { arena } = atCeilingProtected(store)
 

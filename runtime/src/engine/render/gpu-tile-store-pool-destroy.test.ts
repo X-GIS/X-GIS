@@ -19,6 +19,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { GpuTileStore } from './gpu-tile-store'
+import { WebGpuDevice } from './rhi/rhi-webgpu'
 
 interface MockBuffer {
   size: number
@@ -47,7 +48,8 @@ const VERTEX_USAGE = 0x20 | 0x8 // GPUBufferUsage.VERTEX | COPY_DST
 
 describe('GpuTileStore.destroy() drains the buffer pool', () => {
   it('destroys every buffer parked in _bufferPool (no GPU leak on teardown)', () => {
-    const store = new GpuTileStore(mockDevice())
+    const _dev = mockDevice()
+    const store = new GpuTileStore(_dev, new WebGpuDevice(_dev))
 
     // Acquire then release a few buffers so they land in the pool. Sizes pick
     // the same power-of-two bucket so releaseBuffer's `${size}:${usage}` key
@@ -72,7 +74,8 @@ describe('GpuTileStore.destroy() drains the buffer pool', () => {
   })
 
   it('drains buffers across multiple buckets', () => {
-    const store = new GpuTileStore(mockDevice())
+    const _dev = mockDevice()
+    const store = new GpuTileStore(_dev, new WebGpuDevice(_dev))
 
     // 1500 → bucket 2048, 3000 → bucket 4096 — two distinct pool buckets.
     const small = store.acquireBuffer(1500, VERTEX_USAGE, 'small')

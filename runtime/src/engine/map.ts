@@ -2202,7 +2202,7 @@ export class XGISMap {
     }
     try {
       this.pointRenderer = new PointRenderer(this.ctx)
-      this.shapeRegistry = new ShapeRegistry(this.ctx.device)
+      this.shapeRegistry = new ShapeRegistry(this.ctx.rhi)
       // Register user-defined symbols from DSL under the `user:` namespace
       // so they shadow built-ins of the same name instead of being silently
       // dropped by the duplicate-name guard in `addShape`.

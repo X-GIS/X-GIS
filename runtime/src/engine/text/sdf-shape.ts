@@ -2,8 +2,7 @@
 // Parses SVG path commands → stores segments in GPU storage buffers
 // Fragment shader computes SDF in real-time (no texture atlas)
 
-import { WebGpuDevice } from '../render/rhi/rhi-webgpu'
-import type { RhiBuffer } from '../render/rhi/rhi'
+import type { RhiBuffer, RhiDevice } from '../render/rhi/rhi'
 
 // ═══ Types ═══
 
@@ -253,7 +252,7 @@ export class ShapeRegistry {
   // `destroyBuffer === GPUBuffer.destroy()`, so the GPU command stream stays
   // byte-identical; the renderers now consume `shapeBuffer`/`segmentBuffer` as
   // RhiBuffer directly (their transient wrapWebGpuBuffer wraps dropped here).
-  private rhi: WebGpuDevice
+  private rhi: RhiDevice
   private shapes = new Map<string, { id: number; desc: ShapeDescData; segments: SegmentData[] }>()
   private allSegments: SegmentData[] = []
   private nextId = 1 // 0 = circle (analytical)
@@ -262,8 +261,8 @@ export class ShapeRegistry {
   private _shapeBuffer: RhiBuffer | null = null
   private _segmentBuffer: RhiBuffer | null = null
 
-  constructor(device: GPUDevice) {
-    this.rhi = new WebGpuDevice(device)
+  constructor(rhi: RhiDevice) {
+    this.rhi = rhi
     // Register built-in shapes
     for (const [name, path] of Object.entries(BUILTIN_SHAPES)) {
       this.addShape(name, path)

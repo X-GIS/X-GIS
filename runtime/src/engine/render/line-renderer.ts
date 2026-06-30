@@ -42,8 +42,8 @@ import { isPickEnabled, getSampleCount, type GPUContext } from '../gpu/gpu'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import { asyncWriteBuffer, type StagingBufferPool } from '../gpu/staging-buffer-pool'
 import { xlog } from '../log'
-import { WebGpuDevice, wrapWebGpuPass, wrapWebGpuBuffer, wrapWebGpuBindGroup, wrapWebGpuBindGroupLayout } from './rhi/rhi-webgpu'
-import type { RhiBuffer, RhiBindGroup } from './rhi/rhi'
+import { wrapWebGpuPass, wrapWebGpuBuffer, wrapWebGpuBindGroup, wrapWebGpuBindGroupLayout } from './rhi/rhi-webgpu'
+import type { RhiBuffer, RhiBindGroup, RhiDevice } from './rhi/rhi'
 import { LineDraper } from './material/line-material'
 import { LineCompositeDraper } from './material/line-composite-material'
 import type { ShapeRegistry } from '../text/sdf-shape'
@@ -144,7 +144,7 @@ export class LineRenderer {
    *  (uploadSegmentBuffer*) stay raw `device.createBuffer` — they are owned +
    *  destroyed by GpuTileStore's raw retire queue (the VTR/GPUArena cluster),
    *  so they flip with that cluster, not here. */
-  private readonly rhi: WebGpuDevice
+  private readonly rhi: RhiDevice
   private format: GPUTextureFormat
   private tileBindGroupLayout: GPUBindGroupLayout
   private layerBindGroupLayout: GPUBindGroupLayout
@@ -187,7 +187,7 @@ export class LineRenderer {
 
   constructor(ctx: GPUContext, vtrTileBindGroupLayout: GPUBindGroupLayout) {
     this.device = ctx.device
-    this.rhi = new WebGpuDevice(ctx.device)
+    this.rhi = ctx.rhi
     this.format = ctx.format
     this.tileBindGroupLayout = vtrTileBindGroupLayout
     // Ctor runs post-configureProjections(), so reflecting the LineLayer

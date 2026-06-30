@@ -176,9 +176,9 @@ export class PipelineFactory {
    *  Keyed by each native per-style pipeline so recordFillDraw routes them via the Material seam. */
   private registerFillMaterials(variant: ShaderVariantInfo, pipelines: CachedPipeline): void {
     if (!fillViaRhiEnabled()) return
-    const { device, format } = this.ctx
+    const { format } = this.ctx
     const { flat, ground } = buildFlatFillMaterials({
-      device, shader: buildShader(variant), format, sampleCount: getSampleCount(),
+      rhi: this.ctx.rhi, shader: buildShader(variant), format, sampleCount: getSampleCount(),
       bindGroupLayout: this.getOrBuildVariantLayout(variant), vertexLayout: toVertexBufferLayout(POLYGON_FILL_FORMAT), pickEnabled: isPickEnabled(),
     })
     this._fillPerStyle.set(pipelines.fillPipeline, { mat: flat, variant: 0 })
@@ -743,11 +743,11 @@ export class PipelineFactory {
     // off → no extra pipelines built). recordFillDraw routes the flat/ground non-extrude fill through them.
     if (fillViaRhiEnabled()) {
       this._fillMaterials = buildFlatFillMaterials({
-        device, shader: pickShader, format, sampleCount: getSampleCount(),
+        rhi: this.ctx.rhi, shader: pickShader, format, sampleCount: getSampleCount(),
         bindGroupLayout: this.bindGroupLayout, vertexLayout: vertexBufferLayout, pickEnabled,
       })
       this._fillExtrudeMaterial = buildExtrudeMaterial({
-        device, shader: pickShader, format, sampleCount: getSampleCount(),
+        rhi: this.ctx.rhi, shader: pickShader, format, sampleCount: getSampleCount(),
         bindGroupLayout: this.bindGroupLayout, vertexLayout: extrudedVertexBufferLayout, pickEnabled,
       })
     }
@@ -909,7 +909,7 @@ export class PipelineFactory {
     // by recordFillDraw); the extrude no-pick rides the extrude slot's *NoPick fields.
     if (pickEnabled && fillViaRhiEnabled()) {
       const np = buildFlatFillMaterials({
-        device, shader: pickShader, format, sampleCount: getSampleCount(),
+        rhi: this.ctx.rhi, shader: pickShader, format, sampleCount: getSampleCount(),
         bindGroupLayout: this.bindGroupLayout, vertexLayout: vertexBufferLayout, pickEnabled, pickWriteMask: 0,
       })
       this._fillPerStyle.set(this.fillPipelineNoPick, { mat: np.flat, variant: 0 })
@@ -917,7 +917,7 @@ export class PipelineFactory {
       this._fillPerStyle.set(this.fillPipelineGroundNoPick, { mat: np.ground, variant: 0 })
       this._fillPerStyle.set(this.fillPipelineGroundFallbackNoPick, { mat: np.ground, variant: 1 })
       this._fillExtrudeMaterialNoPick = buildExtrudeMaterial({
-        device, shader: pickShader, format, sampleCount: getSampleCount(),
+        rhi: this.ctx.rhi, shader: pickShader, format, sampleCount: getSampleCount(),
         bindGroupLayout: this.bindGroupLayout, vertexLayout: extrudedVertexBufferLayout, pickEnabled, pickWriteMask: 0,
       })
     }

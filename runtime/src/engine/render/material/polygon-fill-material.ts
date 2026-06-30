@@ -8,7 +8,7 @@
 // pick MRT) when __xgisVtrFillViaRhi is on + the pipeline matches a built variant, else the raw draw.
 
 import type { RhiDevice } from '../rhi/rhi'
-import { WebGpuDevice, wrapWebGpuBindGroupLayout, wrapWebGpuBuffer, wrapWebGpuBindGroup, wrapWebGpuPass } from '../rhi/rhi-webgpu'
+import { wrapWebGpuBindGroupLayout, wrapWebGpuBuffer, wrapWebGpuBindGroup, wrapWebGpuPass } from '../rhi/rhi-webgpu'
 import { Material, executeItems } from './material'
 
 /** P1.6 — the VTR fill routes through the RHI Material seam by DEFAULT; `__xgisVtrFillViaRhi === false`
@@ -46,7 +46,9 @@ export interface FillRhiState {
 }
 
 export interface FillMaterialInputs {
-  device: GPUDevice
+  /** The injected backend RHI device (ctx.rhi) — the Material twins create their
+   *  pipelines/bind-groups through it; not self-instantiated here. */
+  rhi: RhiDevice
   shader: string
   format: string
   sampleCount: number
@@ -66,7 +68,7 @@ const toMatVB = (l: GPUVertexBufferLayout) => ({
 /** Build the flat + ground fill Material twins for one shader (default or per-style). Pickable: the
  *  pick target writeMask is 0xf (the polygon fragment writes the feature id). */
 export function buildFlatFillMaterials(inp: FillMaterialInputs): { flat: Material; ground: Material } {
-  const rhi: RhiDevice = new WebGpuDevice(inp.device)
+  const rhi: RhiDevice = inp.rhi
   const fmt = inp.format as 'bgra8unorm'
   const groups = [wrapWebGpuBindGroupLayout(inp.bindGroupLayout)]
   const vertexBuffers = [toMatVB(inp.vertexLayout)]
@@ -96,7 +98,7 @@ export function buildFlatFillMaterials(inp: FillMaterialInputs): { flat: Materia
  *  same depth/stencil as the flat fill (NOT ground). The per-tile z-buffer is bound at slot 1. */
 export function buildExtrudeMaterial(inp: FillMaterialInputs): Material {
   const fmt = inp.format as 'bgra8unorm'
-  return new Material(new WebGpuDevice(inp.device), {
+  return new Material(inp.rhi, {
     shader: inp.shader, vsEntry: 'vs_main_ecef_extruded', fsEntry: 'fs_fill_extrude',
     format: fmt, sampleCount: inp.sampleCount,
     groups: [wrapWebGpuBindGroupLayout(inp.bindGroupLayout)],

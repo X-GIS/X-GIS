@@ -25,8 +25,8 @@ import { lonLatToECEF } from '../projection/ecef'
 import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 import { getSampleCount } from '../gpu/gpu'
 import { FrameArena } from '../gpu/frame-arena'
-import type { RhiBuffer, RhiBindGroup } from './rhi/rhi'
-import { WebGpuDevice, wrapWebGpuPass, wrapWebGpuBindGroupLayout } from './rhi/rhi-webgpu'
+import type { RhiBuffer, RhiBindGroup, RhiDevice } from './rhi/rhi'
+import { wrapWebGpuPass, wrapWebGpuBindGroupLayout } from './rhi/rhi-webgpu'
 import { HeatmapDraper } from './material/heatmap-material'
 import { heatmapUniformSlots, heatmapUniformBytes } from './heatmap-uniform-slots'
 import { writeProjectionCull } from './frame-projection-uniform'
@@ -139,7 +139,7 @@ export class HeatmapRenderer {
    *  HeatmapDraper. On WebGPU `createBuffer === device.createBuffer`,
    *  `createBindGroup === device.createBindGroup`, `destroyBuffer === GPUBuffer.destroy()`,
    *  so the GPU command stream is unchanged. */
-  private rhi: WebGpuDevice
+  private rhi: RhiDevice
   private bindGroupLayout: GPUBindGroupLayout
   private uniformBuffer: RhiBuffer
   private uniformData = new Float32Array(heatmapUniformSlots().slots) // reflect-derived (= mvp16+proj4+viewport4+cam_h4+cam_l4+globe_eye4 = 36, #600)
@@ -153,10 +153,10 @@ export class HeatmapRenderer {
   /** Linear sampler for the ramp LUT (filtering). */
   private rampSampler: GPUSampler
 
-  constructor(ctx: { device: GPUDevice }) {
+  constructor(ctx: { device: GPUDevice; rhi: RhiDevice }) {
     this.device = ctx.device
     const { device } = ctx
-    this.rhi = new WebGpuDevice(device)
+    this.rhi = ctx.rhi
 
     this.bindGroupLayout = device.createBindGroupLayout({
       label: 'heatmap-accum-bgl',

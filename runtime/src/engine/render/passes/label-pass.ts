@@ -198,7 +198,7 @@ class LabelPass implements RenderPass {
           // frame that needed it drew, re-arm a frame + tag LABEL dirty so
           // the S16 skip re-prepares instead of replaying the stale glyph.
           tsOpts.onResourceLanded = () => host.markLabelDirty()
-          host.textStage = new TextStage(device, host.ctx.format, tsOpts, sc)
+          host.textStage = new TextStage(device, host.ctx.rhi, host.ctx.format, tsOpts, sc)
           host.textStage.prewarmGISDefaults()
           // Attach any debug hook that was set before the stage existed.
           // The hook is null/undefined-safe on the stage side, so the
@@ -227,7 +227,7 @@ class LabelPass implements RenderPass {
                 // `landcover_wetland` + `road_area_pattern` only
                 // declare `fill-pattern`, no icon layers).
                 || host.showCommands.some(s => s.fillPattern || s.linePattern))) {
-          host.iconStage = new IconStage(device, host.ctx.format, {
+          host.iconStage = new IconStage(device, host.ctx.rhi, host.ctx.format, {
             spriteUrl: host.spriteUrl, dpr,
             onLanded: () => host.markLabelDirty(), // sprite-land re-arm (glyph parity)
           }, sc)

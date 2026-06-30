@@ -20,6 +20,7 @@ import { uniformFieldSlots } from './reflection-to-webgpu'
 import { lineLayerUniformBytes, lineLayerUniformStride } from './line-uniform-slots'
 import { polygonUniformBytes } from './polygon-uniform-slots'
 import { LineRenderer, packLineLayerUniform } from './line-renderer'
+import { WebGpuDevice } from './rhi/rhi-webgpu'
 import type { GPUContext } from '../gpu/gpu'
 
 // WebGPU globals don't exist under happy-dom — stub the few the LineRenderer
@@ -45,6 +46,7 @@ function fakeContext(): GPUContext {
     format: 'bgra8unorm',
     canvas: {} as HTMLCanvasElement,
     context: {} as GPUCanvasContext,
+    rhi: new WebGpuDevice(fakeDevice as unknown as GPUDevice),
   } as unknown as GPUContext
 }
 

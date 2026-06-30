@@ -20,8 +20,8 @@ import { FrameArena } from '../gpu/frame-arena'
 import { bumpAlloc } from '../__profile__/alloc-counter'
 import type { TextDraw } from './text-renderer-types'
 import { codePointIsIdeographic } from './text-wrap'
-import { WebGpuDevice, wrapWebGpuPass, wrapWebGpuBindGroupLayout, wrapWebGpuTextureView, wrapWebGpuSampler } from '../render/rhi/rhi-webgpu'
-import type { RhiBuffer, RhiBindGroup } from '../render/rhi/rhi'
+import { wrapWebGpuPass, wrapWebGpuBindGroupLayout, wrapWebGpuTextureView, wrapWebGpuSampler } from '../render/rhi/rhi-webgpu'
+import type { RhiBuffer, RhiBindGroup, RhiDevice } from '../render/rhi/rhi'
 import { TextDraper, type TextSlice } from '../render/material/text-material'
 import { vertexField } from '@xgis/compiler'
 import { TEXT_FORMAT } from './text-vertex-format'
@@ -57,7 +57,7 @@ export class TextRenderer {
    *  On WebGPU `createBuffer === device.createBuffer`, `createBindGroup ===
    *  device.createBindGroup`, `writeBuffer === queue.writeBuffer`, `destroyBuffer ===
    *  GPUBuffer.destroy()`, so the GPU command stream is unchanged. */
-  private readonly rhi: WebGpuDevice
+  private readonly rhi: RhiDevice
   private readonly atlas: GlyphAtlasGPU
   private readonly bgLayout: GPUBindGroupLayout
   private uniformBuf: RhiBuffer
@@ -108,10 +108,10 @@ export class TextRenderer {
   }
 
   constructor(
-    device: GPUDevice, atlas: GlyphAtlasGPU, presentationFormat: GPUTextureFormat,
+    device: GPUDevice, rhi: RhiDevice, atlas: GlyphAtlasGPU, presentationFormat: GPUTextureFormat,
     sampleCount: number = 1,
   ) {
-    this.rhi = new WebGpuDevice(device)
+    this.rhi = rhi
     this.atlas = atlas
     this._textFmt = presentationFormat
     this._textSamples = sampleCount

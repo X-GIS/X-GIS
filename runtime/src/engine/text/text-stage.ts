@@ -32,6 +32,7 @@ import { InlineGlyphProvider } from './sdf/pbf/inline-glyph-provider'
 import type { GlyphProvider } from './sdf/pbf/glyph-provider'
 import { PbfRasterizer } from './sdf/pbf-rasterizer'
 import { TextRenderer, type TextDraw } from './text-renderer'
+import type { RhiDevice } from '../render/rhi/rhi'
 import { greedyPlaceBboxes, type CollisionItem, type CollisionObstacle } from './text-collision'
 import {
   applyTextTransform, stripCurveLineExtraScripts,
@@ -259,6 +260,7 @@ export class TextStage {
 
   constructor(
     device: GPUDevice,
+    rhi: RhiDevice,
     presentationFormat: GPUTextureFormat,
     options: TextStageOptions = {},
     sampleCount: number = 1,
@@ -353,7 +355,7 @@ export class TextStage {
       hostOpts,
     )
     this.gpu = new GlyphAtlasGPU(device, this.host, { pageSize: this.opts.pageSize })
-    this.renderer = new TextRenderer(device, this.gpu, presentationFormat, sampleCount)
+    this.renderer = new TextRenderer(device, rhi, this.gpu, presentationFormat, sampleCount)
   }
 
   /** Pre-warm the atlas with a glyph set. Run once at engine init

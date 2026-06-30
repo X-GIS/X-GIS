@@ -24,6 +24,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
 import { initGPU, type GPUContext } from '../gpu/gpu'
 import { PointRenderer } from './point-renderer'
+import { WebGpuDevice } from './rhi/rhi-webgpu'
 import { Camera } from '../projection/camera'
 
 let stub: StubInstallation
@@ -65,7 +66,7 @@ const FEAT_BYTES = STRIDE * 4
 /** Add a single circle layer with the given stroke width, run render() once,
  *  and return slot 9 (stroke_w_px) from the captured per-feature write. */
 function capturedStrokeWidth(ctx: GPUContext, strokeWidth: number): number {
-  const renderer = new PointRenderer({ device: ctx.device, format: ctx.format })
+  const renderer = new PointRenderer({ device: ctx.device, format: ctx.format, rhi: new WebGpuDevice(ctx.device) })
   // addLayer positional head: features, fill, stroke, strokeWidth, radiusPx,
   // opacity, … . Stroke non-null + opaque (α = 1, opacity 1) so it draws.
   renderer.addLayer(

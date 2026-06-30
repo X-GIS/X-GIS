@@ -23,6 +23,7 @@
 import { describe, it, expect } from 'vitest'
 import { TextStage } from './text-stage'
 import { MockRasterizer } from './sdf/glyph-rasterizer'
+import { WebGpuDevice } from '../render/rhi/rhi-webgpu'
 import type { LabelDef, TextValue } from '@xgis/compiler'
 import type { TextDraw } from './text-renderer'
 
@@ -71,7 +72,7 @@ function makeStage(small = false) {
   const opts = small
     ? { rasterizer: new MockRasterizer(), slotSize: 32, pageSize: 128 } // 16 slots
     : { rasterizer: new MockRasterizer() }
-  const stage = new TextStage(stubDevice(), 'bgra8unorm', opts)
+  const stage = new TextStage(stubDevice(), new WebGpuDevice(stubDevice()), 'bgra8unorm', opts)
   const captured: TextDraw[][] = []
   ;(stage as unknown as { renderer: { setDraws(d: TextDraw[]): void } }).renderer.setDraws =
     (d: TextDraw[]) => { captured.push(d) }

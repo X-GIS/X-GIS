@@ -31,6 +31,7 @@ import { describe, expect, it } from 'vitest'
 }
 import { LineRenderer } from './line-renderer'
 import { lineLayerUniformStride } from './line-uniform-slots'
+import { WebGpuDevice } from './rhi/rhi-webgpu'
 import type { GPUContext } from '../gpu/gpu'
 
 // f32 slot 49 (byte 196) of the 256-byte line layer slot is line-round-limit.
@@ -76,7 +77,7 @@ function makeRenderer(): { lr: LineRenderer; flushes: Flush[] } {
     },
   }
   const lr = new LineRenderer(
-    { device: fakeDevice as unknown as GPUDevice, format: 'bgra8unorm', canvas: {} as HTMLCanvasElement, context: {} as GPUCanvasContext } as unknown as GPUContext,
+    { device: fakeDevice as unknown as GPUDevice, format: 'bgra8unorm', canvas: {} as HTMLCanvasElement, context: {} as GPUCanvasContext, rhi: new WebGpuDevice(fakeDevice as unknown as GPUDevice) } as unknown as GPUContext,
     {} as GPUBindGroupLayout,
   )
   return { lr, flushes }

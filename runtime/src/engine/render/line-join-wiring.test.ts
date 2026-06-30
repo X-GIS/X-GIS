@@ -10,6 +10,7 @@ import {
   LineRenderer,
   LINE_JOIN_MITER, LINE_JOIN_ROUND, LINE_JOIN_BEVEL,
 } from './line-renderer'
+import { WebGpuDevice } from './rhi/rhi-webgpu'
 import type { GPUContext } from '../gpu/gpu'
 
 // line-join: layout-property wiring (GPU-free, fail-before).
@@ -64,7 +65,7 @@ function makeLineRenderer(captured: { bytes?: ArrayBuffer; dataOffset?: number }
     },
   }
   return new LineRenderer(
-    { device: fakeDevice as unknown as GPUDevice, format: 'bgra8unorm', canvas: {} as HTMLCanvasElement, context: {} as GPUCanvasContext } as unknown as GPUContext,
+    { device: fakeDevice as unknown as GPUDevice, format: 'bgra8unorm', canvas: {} as HTMLCanvasElement, context: {} as GPUCanvasContext, rhi: new WebGpuDevice(fakeDevice as unknown as GPUDevice) } as unknown as GPUContext,
     {} as GPUBindGroupLayout,
   )
 }

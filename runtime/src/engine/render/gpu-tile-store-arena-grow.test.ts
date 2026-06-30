@@ -21,6 +21,7 @@ import { describe, expect, it } from 'vitest'
 import { GpuTileStore } from './gpu-tile-store'
 import { GPUArena, type GPUArenaDevice } from '../gpu/gpu-arena'
 import type { RhiBuffer } from './rhi/rhi'
+import { WebGpuDevice } from './rhi/rhi-webgpu'
 
 interface MockBuffer { size: number; destroyed: boolean; destroy(): void }
 function mockDevice(): GPUDevice {
@@ -87,7 +88,8 @@ function fillProtected(store: GpuTileStore, arena: GPUArena, n: number, bytes: n
 
 describe('GpuTileStore arena auto-grow (US-003)', () => {
   it('over-capacity protected live set → forceEvictBytes flags a GROW (not compaction)', () => {
-    const store = new GpuTileStore(mockDevice())
+    const _dev = mockDevice()
+    const store = new GpuTileStore(_dev, new WebGpuDevice(_dev))
     const inj = store as unknown as StorePriv
     const CAP = 64 * 1024
     const arena = new GPUArena(arenaDevice(), { capacityBytes: CAP, usage: VERTEX_USAGE, copySrc: true })
@@ -107,7 +109,8 @@ describe('GpuTileStore arena auto-grow (US-003)', () => {
   })
 
   it('runFrameMaintenance drains the grow → arena capacity increases + tile offsets rewritten', () => {
-    const store = new GpuTileStore(mockDevice())
+    const _dev = mockDevice()
+    const store = new GpuTileStore(_dev, new WebGpuDevice(_dev))
     const inj = store as unknown as StorePriv
     const CAP = 64 * 1024
     const arena = new GPUArena(arenaDevice(), { capacityBytes: CAP, usage: VERTEX_USAGE, copySrc: true })
@@ -131,7 +134,8 @@ describe('GpuTileStore arena auto-grow (US-003)', () => {
   })
 
   it('at the ceiling → flags compaction (graceful), NOT an unbounded grow', () => {
-    const store = new GpuTileStore(mockDevice())
+    const _dev = mockDevice()
+    const store = new GpuTileStore(_dev, new WebGpuDevice(_dev))
     const inj = store as unknown as StorePriv
     // Construct an arena already AT the vertex ceiling (512MB) but with a tiny
     // logical fill so we can saturate it cheaply: use the real ceiling cap and

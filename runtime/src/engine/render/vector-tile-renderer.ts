@@ -40,6 +40,7 @@ import { FrameDrawStats } from './frame-draw-stats'
 import { TileSelectionCache } from './tile-selection-cache'
 import { FeatureDataBinder } from './feature-data-binder'
 import { GpuTileStore } from './gpu-tile-store'
+import type { WebGpuDevice } from './rhi/rhi-webgpu'
 import { BindGroupRegistry } from './bind-group-registry'
 import { tileKeyParent, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
 import { StagingBufferPool } from '../gpu/staging-buffer-pool'
@@ -344,7 +345,10 @@ export class VectorTileRenderer {
     this.stagingPool = new StagingBufferPool(ctx.device)
     this.bundleCache = new BundleCache(ctx.device)
     this._featureBinder = new FeatureDataBinder(ctx.device)
-    this._store = new GpuTileStore(ctx.device)
+    // GpuTileStore is the WebGPU-coupled VTR memory core (it hands raw GPUBuffers to the fill
+    // draw + records the arena compaction encoder), so the injected backend device is narrowed
+    // to WebGpuDevice here — the SINGLE boot instance, never a freshly self-instantiated device.
+    this._store = new GpuTileStore(ctx.device, ctx.rhi as WebGpuDevice)
     this._bindGroups = new BindGroupRegistry(ctx.device)
     // Renderer-side GPU upload pipeline (priority queue + per-frame cap +
     // stale-cancel + the SINGLE sync/async tile-upload dispatch body). Holds

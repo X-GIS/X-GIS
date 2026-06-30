@@ -36,6 +36,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
 import { initGPU, type GPUContext } from '../gpu/gpu'
 import { IconRenderer, type IconDraw } from './icon-renderer'
+import { WebGpuDevice } from '../render/rhi/rhi-webgpu'
 import type { SpriteInfo } from './sprite-atlas-host'
 
 let stub: StubInstallation
@@ -91,6 +92,7 @@ const UNIFORM_BYTES = 16
 function capturedFirstCorner(ctx: GPUContext, rotateRad: number | undefined): [number, number] {
   const renderer = new IconRenderer(
     ctx.device as unknown as GPUDevice,
+    new WebGpuDevice(ctx.device as unknown as GPUDevice),
     makeStubAtlas() as never,
     ctx.format,
   )

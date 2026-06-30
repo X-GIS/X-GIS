@@ -42,6 +42,7 @@
 import { describe, it, expect } from 'vitest'
 import { TextStage } from '../text/text-stage'
 import { MockRasterizer } from '../text/sdf/glyph-rasterizer'
+import { WebGpuDevice } from './rhi/rhi-webgpu'
 import type { LabelDef, TextValue } from '@xgis/compiler'
 import type { TextDraw } from '../text/text-renderer'
 
@@ -112,7 +113,7 @@ function buildLabelDef(textStr: string): { value: TextValue; def: LabelDef } {
 describe('Mercator high-pitch drag p95 — across-frame layout cache (#10)', () => {
   it('prepare() p95 + ensure() call count gates over 120 pan frames', () => {
     const stage = new TextStage(
-      stubDevice(), 'bgra8unorm',
+      stubDevice(), new WebGpuDevice(stubDevice()), 'bgra8unorm',
       { rasterizer: new MockRasterizer() },
     )
     // Capture TextDraws so renderer.draw isn't required.

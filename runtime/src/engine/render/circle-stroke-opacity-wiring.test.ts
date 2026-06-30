@@ -30,6 +30,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
 import { initGPU, type GPUContext } from '../gpu/gpu'
 import { PointRenderer } from './point-renderer'
+import { WebGpuDevice } from './rhi/rhi-webgpu'
 import { Camera } from '../projection/camera'
 import type { PropertyShape } from '@xgis/compiler'
 
@@ -88,7 +89,7 @@ const ZOOM = 8
  *  updateDynamicSizes (resolves the shape into feat_data slot 8) + render()
  *  once, and return slot 8 from the captured expanded-feature upload. */
 function capturedStrokeAlpha(ctx: GPUContext): number {
-  const renderer = new PointRenderer({ device: ctx.device, format: ctx.format })
+  const renderer = new PointRenderer({ device: ctx.device, format: ctx.format, rhi: new WebGpuDevice(ctx.device) })
   // addLayer positional tail: …, sizeShape, circleTranslateX, circleTranslateY,
   // circleBlur, strokeOpacityShape, … Opaque so it draws in phase 1.
   renderer.addLayer(

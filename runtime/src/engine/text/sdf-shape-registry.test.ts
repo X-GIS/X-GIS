@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { ShapeRegistry, BUILTIN_SHAPES } from './sdf-shape'
+import { WebGpuDevice } from '../render/rhi/rhi-webgpu'
 
 // The registry touches `device` only from `uploadToGPU`; constructor and
 // add/lookup methods are pure, so a stubbed device is sufficient here.
@@ -7,19 +8,19 @@ const fakeDevice = {} as unknown as GPUDevice
 
 describe('ShapeRegistry', () => {
   it('resolves built-in shapes by bare name', () => {
-    const r = new ShapeRegistry(fakeDevice)
+    const r = new ShapeRegistry(new WebGpuDevice(fakeDevice))
     expect(r.getShapeId('cross')).toBeGreaterThan(0)
     expect(r.getShapeId('square')).toBeGreaterThan(0)
   })
 
   it('returns 0 for circle (analytical) and unknown names', () => {
-    const r = new ShapeRegistry(fakeDevice)
+    const r = new ShapeRegistry(new WebGpuDevice(fakeDevice))
     expect(r.getShapeId('circle')).toBe(0)
     expect(r.getShapeId('nope')).toBe(0)
   })
 
   it('user-defined symbols shadow identically-named built-ins', () => {
-    const r = new ShapeRegistry(fakeDevice)
+    const r = new ShapeRegistry(new WebGpuDevice(fakeDevice))
     const builtinCrossId = r.getShapeId('cross')
     expect(builtinCrossId).toBeGreaterThan(0)
 
@@ -32,7 +33,7 @@ describe('ShapeRegistry', () => {
   })
 
   it('user symbols with unique names still resolve via bare lookup', () => {
-    const r = new ShapeRegistry(fakeDevice)
+    const r = new ShapeRegistry(new WebGpuDevice(fakeDevice))
     const id = r.addUserShape('dot', 'M 0 -0.5 L 0.5 0 L 0 0.5 L -0.5 0 Z')
     expect(id).toBeGreaterThan(0)
     expect(r.getShapeId('dot')).toBe(id)
@@ -57,7 +58,7 @@ describe('ShapeRegistry path normalization', () => {
   }
 
   it('normalizes a sub-unit path so max-|coord| becomes 1', () => {
-    const r = new ShapeRegistry(fakeDevice)
+    const r = new ShapeRegistry(new WebGpuDevice(fakeDevice))
     // Diamond authored at ±0.5 (max-extent 0.5)
     r.addUserShape('mydot', 'M 0 -0.5 L 0.5 0 L 0 0.5 L -0.5 0 Z')
     const [minX, minY, maxX, maxY] = readBBox(r, 'mydot')
@@ -69,7 +70,7 @@ describe('ShapeRegistry path normalization', () => {
   })
 
   it('preserves aspect ratio for anisotropic paths', () => {
-    const r = new ShapeRegistry(fakeDevice)
+    const r = new ShapeRegistry(new WebGpuDevice(fakeDevice))
     // Long thin rectangle: x extent ±0.5, y extent ±0.1.
     // Max-extent is 0.5 → scale by 2. Y becomes ±0.2.
     r.addUserShape('bar', 'M -0.5 -0.1 L 0.5 -0.1 L 0.5 0.1 L -0.5 0.1 Z')
@@ -81,7 +82,7 @@ describe('ShapeRegistry path normalization', () => {
   })
 
   it('built-in `square` (now ±1 source) registers at ±1 normalized extent', () => {
-    const r = new ShapeRegistry(fakeDevice)
+    const r = new ShapeRegistry(new WebGpuDevice(fakeDevice))
     const [minX, minY, maxX, maxY] = readBBox(r, 'square')
     expect(maxX).toBeGreaterThan(1.05); expect(maxX).toBeLessThan(1.15)
     expect(maxY).toBeGreaterThan(1.05); expect(maxY).toBeLessThan(1.15)
@@ -90,7 +91,7 @@ describe('ShapeRegistry path normalization', () => {
   })
 
   it('handles degenerate paths without NaN (single-point M then Z)', () => {
-    const r = new ShapeRegistry(fakeDevice)
+    const r = new ShapeRegistry(new WebGpuDevice(fakeDevice))
     // Max-extent is 0 → scale skipped; bbox is just origin ± margin.
     r.addUserShape('blank', 'M 0 0 Z')
     const [minX, minY, maxX, maxY] = readBBox(r, 'blank')

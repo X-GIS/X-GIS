@@ -32,6 +32,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
 import { IconRenderer, type IconDraw, type IconAnchor } from './icon-renderer'
+import { WebGpuDevice } from '../render/rhi/rhi-webgpu'
 import type { SpriteAtlasGPU } from './sprite-atlas-gpu'
 import type { SpriteInfo } from './sprite-atlas-host'
 
@@ -71,7 +72,7 @@ async function stubDevice(): Promise<GPUDevice> {
 
 async function topLeftFor(anchor: IconAnchor): Promise<[number, number]> {
   const device = await stubDevice()
-  const renderer = new IconRenderer(device, ATLAS, 'bgra8unorm', 1)
+  const renderer = new IconRenderer(device, new WebGpuDevice(device), ATLAS, 'bgra8unorm', 1)
 
   let tl: [number, number] | null = null
   const dev = device as unknown as {
