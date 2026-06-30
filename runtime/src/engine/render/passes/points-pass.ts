@@ -11,6 +11,7 @@
 
 import { DEBUG_OVERDRAW } from '../../debug-flags'
 import type { FrameContext } from '../frame-context'
+import { unwrapProjection } from '../projection-token'
 import type { SceneView } from '../scene-view'
 import type { RenderPass, PointsPassHost } from './pass'
 
@@ -45,7 +46,8 @@ class PointsPass implements RenderPass {
       // current camera before drawing. No-op for layers without
       // zoomSizeStops; internally skipped when zoom is unchanged.
       host.pointRenderer!.updateDynamicSizes(host.camera.zoom, performance.now())
-      host.pointRenderer!.render(ptPass, host.camera, ctx.projType, ctx.centerLon, ctx.centerLat, ctx.w, ctx.h, ctx.dpr)
+      const { projType, centerLon, centerLat } = unwrapProjection(ctx.projection)
+      host.pointRenderer!.render(ptPass, host.camera, projType, centerLon, centerLat, ctx.w, ctx.h, ctx.dpr)
       ptPass.end()
     })
   }

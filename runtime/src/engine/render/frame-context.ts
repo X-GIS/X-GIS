@@ -14,6 +14,7 @@
 
 import type { Camera } from '../projection/camera'
 import type { RenderTargets } from './render-targets'
+import type { ProjectionToken } from './projection-token'
 
 /** Per-frame render state. One reused instance lives on RenderLoop; its
  *  fields are (re)populated at the start of each `render()` at the same
@@ -33,13 +34,11 @@ export interface FrameContext {
   colorView: GPUTextureView
   /** The owning map's camera (live reference, not a snapshot). */
   camera: Camera
-  /** Resolved numeric projection kind (mercator=0 … globe=7), already
-   *  promoted to 7 for azimuthal-when-tilted. */
-  projType: number
-  /** Camera-centre longitude in degrees (RTC projection centre). */
-  centerLon: number
-  /** Camera-centre latitude in degrees, clamped to ±85. */
-  centerLat: number
+  /** Opaque projection handle (projection-token.ts). The engine transports it
+   *  but cannot decode it; only content unwraps it (`unwrapProjection`) for its
+   *  draw/shader signatures — the projType / RTC-centre triple that used to live
+   *  here as loose scalars (P2-carve §3: FrameContext is projection-blind). */
+  projection: ProjectionToken
   /** Canvas width / height in physical pixels (`canvas.width/height`). */
   w: number
   h: number
@@ -56,10 +55,6 @@ export interface FrameContext {
   sampleCount: number
   /** `sampleCount > 1` — whether passes resolve MSAA to the swapchain. */
   useResolve: boolean
-  /** Visible world-copy offsets for label world-copy iteration
-   *  (`camera.getVisibleWorldCopies(...)`). Populated inside the label
-   *  block at the point it is computed. */
-  visibleWorldCopies: readonly number[]
   /** Per-pass validation-scope + perf-marks helper. Re-bound each frame
    *  because it closes over this frame's `device`. */
   passScope: (label: string, fn: () => void) => void

@@ -17,6 +17,7 @@ import { DEBUG_OVERDRAW } from '../../debug-flags'
 import { isPickEnabled } from '../../gpu/gpu'
 import { resolveNumberShape } from '../paint-shape-resolve'
 import type { FrameContext } from '../frame-context'
+import { unwrapProjection } from '../projection-token'
 import type { SceneView } from '../scene-view'
 import type { RenderPass, OpaquePassHost } from './pass'
 
@@ -121,6 +122,7 @@ class OpaquePass implements RenderPass {
         // is now dispatched via the synthetic earth-surface
         // ShowCommand prepended to commands.shows in XGISMap.run().
         if (isFirst) {
+          const { projType, centerLon, centerLat } = unwrapProjection(ctx.projection)
           host.gpuTimer?.mark(subPass, 'after_bg')
           // Per-frame raster-opacity resolve. resolveNumberShape
           // honours constant / zoom-interpolated / time-interpolated
@@ -150,9 +152,9 @@ class OpaquePass implements RenderPass {
             host.rasterRenderer.setColorAdjust(0, 0, 1, 0, 0)
             host.rasterRenderer.setResampling(false)
           }
-          host.rasterRenderer.render(subPass, host.camera, ctx.projType, ctx.centerLon, ctx.centerLat, ctx.w, ctx.h, ctx.dpr)
+          host.rasterRenderer.render(subPass, host.camera, projType, centerLon, centerLat, ctx.w, ctx.h, ctx.dpr)
           host.gpuTimer?.mark(subPass, 'after_raster')
-          host.renderer.renderToPass(subPass, host.camera, ctx.projType, ctx.centerLon, ctx.centerLat, host._elapsedMs)
+          host.renderer.renderToPass(subPass, host.camera, projType, centerLon, centerLat, host._elapsedMs)
           host.gpuTimer?.mark(subPass, 'after_legacy')
         }
 

@@ -28,6 +28,7 @@ import { describe, it, expect } from 'vitest'
 import { backgroundPass } from './background-pass'
 import type { BackgroundPassHost } from './pass'
 import type { FrameContext } from '../frame-context'
+import { makeProjectionToken } from '../projection-token'
 
 // A deliberately non-trivial, asymmetric colour so each channel is its own
 // witness — no channel can be satisfied by a constant or by another channel.
@@ -64,7 +65,7 @@ function capturedClearValue(
     // colorShape/opacityShape are null below, so the resolve branches never
     // read camera.zoom / elapsedMs — a bare stub camera is sufficient.
     camera: { zoom: 5 } as unknown as FrameContext['camera'],
-    projType,
+    projection: makeProjectionToken(projType, 0, 0),
     elapsedMs: 0,
     // passScope just brackets validation/perf-marks — invoke the body.
     passScope: (_label: string, fn: () => void) => fn(),

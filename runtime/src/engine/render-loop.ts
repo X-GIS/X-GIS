@@ -25,6 +25,7 @@ import { WORLD_MERC, TILE_PX } from './gpu/gpu-shared'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { reportErrorScope } from './render-loop-helpers'
 import { type FrameContext } from './render/frame-context'
+import { makeProjectionToken, setProjectionToken } from './render/projection-token'
 import type { RhiDevice } from './render/rhi/rhi'
 import { buildSceneView } from './render/scene-view'
 import { backgroundPass } from './render/passes/background-pass'
@@ -276,21 +277,23 @@ export class RenderLoop {
     // ── Build / repopulate the single reused FrameContext ──
     // Bundles the per-frame locals computed above (plus the few derived
     // deeper in the frame: colorView / sampleCount / useResolve set in the
-    // MSAA block, mvp / visibleWorldCopies set in the label block). The
-    // values are IDENTICAL to the locals and assigned at the same points;
-    // this is a pure bundling. Lazily allocate once on the first frame,
-    // then mutate in place — the 60 Hz loop is allocation-paranoid.
+    // MSAA block). The values are IDENTICAL to the locals and assigned at the
+    // same points; this is a pure bundling. The projType / centerLon / centerLat
+    // triple is wrapped into the opaque ProjectionToken (projection-token.ts) —
+    // the engine FrameContext is projection-blind; only content unwraps it. The
+    // token is allocated once and repopulated in place (allocation-paranoid).
+    // Lazily allocate the context once on the first frame, then mutate in place.
     if (this._ctx === null) {
       this._ctx = {
         device, encoder, screenView,
         colorView: screenView,            // set in the MSAA block below
         camera: this.host.camera,
-        projType, centerLon, centerLat, w, h, dpr,
+        projection: makeProjectionToken(projType, centerLon, centerLat),
+        w, h, dpr,
         elapsedMs: this.host._elapsedMs,
         frameCount: this.host._frameCount,
         sampleCount: 1,                   // set in the MSAA block below
         useResolve: false,                // set in the MSAA block below
-        visibleWorldCopies: [],           // set in the label block below
         passScope,
         rt: this.host.renderTargets,
       }
@@ -300,9 +303,7 @@ export class RenderLoop {
       c.encoder = encoder
       c.screenView = screenView
       c.camera = this.host.camera
-      c.projType = projType
-      c.centerLon = centerLon
-      c.centerLat = centerLat
+      setProjectionToken(c.projection, projType, centerLon, centerLat)
       c.w = w
       c.h = h
       c.dpr = dpr
@@ -310,8 +311,8 @@ export class RenderLoop {
       c.frameCount = this.host._frameCount
       c.passScope = passScope
       c.rt = this.host.renderTargets
-      // colorView / sampleCount / useResolve / visibleWorldCopies are
-      // repopulated at their own (deeper) computation points below.
+      // colorView / sampleCount / useResolve are repopulated at their own
+      // (deeper) computation points below.
     }
     const ctx = this._ctx
 
@@ -375,7 +376,9 @@ export class RenderLoop {
       // the prev-cam velocity vector and _evictShield population
       // stay frame-stable. See VTR.pumpPrefetch doc.
       for (const [, { renderer: vtR }] of this.host.vtSources) {
-        vtR.pumpPrefetch(this.host.camera, ctx.projType, ctx.w, ctx.h, ctx.dpr)
+        // projType is the render-loop local (camera-resolved above); the engine
+        // reads it directly rather than decoding the opaque ctx.projection token.
+        vtR.pumpPrefetch(this.host.camera, projType, ctx.w, ctx.h, ctx.dpr)
       }
 
       // ══════ Bucket scheduler ══════

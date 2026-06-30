@@ -30,6 +30,7 @@ import { SAFE_MODE } from '../gpu/gpu'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import type { RenderTraceRecorder, RGBA } from '../../diagnostics/render-trace'
 import type { FrameContext } from './frame-context'
+import { unwrapProjection } from './projection-token'
 import type { PointRenderer } from './point-renderer'
 
 // ── Output: post-classification show with all animation resolved ──
@@ -409,8 +410,9 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     const drawFpG = debugFp ?? fpG
     const drawFpGF = debugFp ?? fpGF
     const draw: ShowDrawFn = (pass, ctx, uniformBuffer, pointRenderer, phase, translucentBucket) => {
+      const { projType, centerLon, centerLat } = unwrapProjection(ctx.projection)
       vtEntry.renderer.render!(
-        pass, ctx.camera, ctx.projType, ctx.centerLon, ctx.centerLat, ctx.w, ctx.h,
+        pass, ctx.camera, projType, centerLon, centerLat, ctx.w, ctx.h,
         entry.show, drawFp, drawLp, uniformBuffer, bgl,
         drawFpF, drawLpF,
         pointRenderer, phase, ctx.dpr, drawFpG, drawFpGF, translucentBucket, resolvedShow,
