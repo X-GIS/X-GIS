@@ -5,8 +5,8 @@
 // frustum cull, fallback inject) doesn't silently regress the basics.
 
 import { describe, expect, it } from 'vitest'
-import { Camera } from '../engine/projection/camera'
-import { mercator } from '../engine/projection/projection'
+import { Camera } from '@xgis/engine'
+import { mercator } from '@xgis/engine'
 import { visibleTilesSSE } from './tiles-sse'
 
 function makeCam(zoom: number, pitch: number, lon: number, lat: number, bearing = 0): Camera {

@@ -5,6 +5,6 @@
 // projection path (polygon/line/point/raster/heatmap emit, cpu-projections,
 // threshold-drift / rim-rollout / wgsl-reserved-words) is configured first.
 import { configureProjections } from './engine/shaders/dsl'
-import { PROJECTIONS } from './engine/projection/projections-table'
+import { PROJECTIONS } from '@xgis/engine'
 
 configureProjections(PROJECTIONS)

@@ -27,9 +27,10 @@
 // composite / points) and the label pass own the MSAA resolve unchanged.
 
 import { DEBUG_OVERDRAW } from '../../debug-flags'
-import { worldBandForProjType } from '../../projection/projections-table'
+import { worldBandForProjType } from '@xgis/engine'
 import { resolveColorShape, resolveNumberShape } from '../paint-shape-resolve'
-import type { FrameContext } from '../frame-context'
+import type { FrameContext } from '@xgis/engine'
+import { unwrapProjection } from '@xgis/engine'
 import type { SceneView } from '../scene-view'
 import type { RenderPass, BackgroundPassHost } from './pass'
 
@@ -81,7 +82,7 @@ class BackgroundPass implements RenderPass {
       const a = resolveNumberShape(opacityShape, ctx.camera.zoom, ctx.elapsedMs).value
       bg = [bg[0], bg[1], bg[2], bg[3] * a]
     }
-    const clearValue = backgroundClearValue(ctx.projType, bg, DEBUG_OVERDRAW)
+    const clearValue = backgroundClearValue(unwrapProjection(ctx.projection).projType, bg, DEBUG_OVERDRAW)
     ctx.passScope('background', () => {
       const pass = ctx.encoder.beginRenderPass({
         colorAttachments: [{

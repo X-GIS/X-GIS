@@ -16,16 +16,16 @@
 // it (BMP-only Latin maps fit in one page comfortably).
 
 import type { GlyphAtlasGPU } from './sdf/glyph-atlas-gpu'
-import { FrameArena } from '../gpu/frame-arena'
+import { FrameArena } from '@xgis/engine'
 import { bumpAlloc } from '../__profile__/alloc-counter'
 import type { TextDraw } from './text-renderer-types'
 import { codePointIsIdeographic } from './text-wrap'
-import { emitTextWgsl } from '../shaders/dsl'
-import { WebGpuDevice, wrapWebGpuPass } from '../render/rhi/rhi-webgpu'
+import { wrapWebGpuPass, wrapWebGpuBindGroupLayout, wrapWebGpuTextureView, wrapWebGpuSampler } from '@xgis/engine'
+import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
 import { TextDraper, type TextSlice } from '../render/material/text-material'
 import { vertexField } from '@xgis/compiler'
 import { TEXT_FORMAT } from './text-vertex-format'
-import { toVertexBufferLayout } from '../render/vertex-buffer-layout'
+import { toVertexBufferLayout } from '@xgis/engine'
 
 export type { TextDraw } from './text-renderer-types'
 
@@ -44,13 +44,6 @@ const FLOATS_PER_GLYPH = VERTS_PER_GLYPH * FLOATS_PER_VERT
 // are left untouched (see the ideographic-codepoint gate in setDraws).
 const OBLIQUE_TAN = 0.21
 
-// The SDF-text shader (px->NDC quad + MapLibre symbol_sdf fill/halo fragment)
-// is EMITTED from the shader DSL: runtime/src/engine/shaders/dsl/text.ts (emitTextWgsl), used
-// at createShaderModule below. No fwidth -- text uses a per-glyph-size analytic AA
-// half-width (soft = 2.52 / font_size_px). See packUniforms below for the matching
-// halo px->SDF-byte conversion.
-const TEXT_SHADER_WGSL = emitTextWgsl()
-
 /** Uniform buffer slot stride — 256 B safely exceeds every WebGPU
  *  device's minUniformBufferOffsetAlignment (typical = 256, lower
  *  bound = 64). The 64 B uniform pack lives at offset 0 within each
@@ -59,13 +52,18 @@ const UNIFORM_STRIDE = 256
 const UNIFORM_STRIDE_F32 = UNIFORM_STRIDE / 4
 
 export class TextRenderer {
-  private readonly device: GPUDevice
+  /** The RHI seam (§4 batch-seam migration). One instance, reused for the text
+   *  resources (uniform + vertex buffers + per-page bind groups) and the TextDraper.
+   *  On WebGPU `createBuffer === device.createBuffer`, `createBindGroup ===
+   *  device.createBindGroup`, `writeBuffer === queue.writeBuffer`, `destroyBuffer ===
+   *  GPUBuffer.destroy()`, so the GPU command stream is unchanged. */
+  private readonly rhi: RhiDevice
   private readonly atlas: GlyphAtlasGPU
   private readonly bgLayout: GPUBindGroupLayout
-  private readonly pipeline: GPURenderPipeline
-  private uniformBuf: GPUBuffer
+  private uniformBuf: RhiBuffer
   private uniformBufCapacityBytes: number
-  private vertexBuf: GPUBuffer | null = null
+  private vertexBuf: RhiBuffer | null = null
+  private vertexBufCapacityBytes = 0
   private vertexCount = 0
   /** Per-draw stride into the vertex buffer + uniform slot index.
    *  `page` is the atlas page the slice's glyphs reference; a single
@@ -91,13 +89,14 @@ export class TextRenderer {
    *  valid across frames. Single-page maps populate just index 0
    *  and never see multi-page logic. Invalidated when uniformBuf is
    *  reallocated. */
-  private bindGroupsByPage: GPUBindGroup[] = []
+  private bindGroupsByPage: RhiBindGroup[] = []
 
-  // RHI pilot (behind __xgisTextViaRhi). Same per-slice draws through the seam.
+  // RHI Material path — the SOLE text draw path (§4 seam: the raw kill-switch
+  // branch + the standalone native pipeline were deleted). Same per-slice draws
+  // through the seam.
   private _textFmt!: GPUTextureFormat
   private _textSamples!: number
   private _textDraper?: TextDraper
-  private _textRhiLogged = false
   private ensureTextDraper(): void {
     if (this._textDraper) return
     const vbl = toVertexBufferLayout(TEXT_FORMAT)
@@ -105,14 +104,14 @@ export class TextRenderer {
       stride: vbl.arrayStride,
       attributes: [...vbl.attributes].map((a) => ({ location: a.shaderLocation, offset: a.offset, format: a.format as string })),
     }]
-    this._textDraper = new TextDraper(new WebGpuDevice(this.device), this._textFmt, this._textSamples, this.bgLayout, vertexBuffers)
+    this._textDraper = new TextDraper(this.rhi, this._textFmt, this._textSamples, this.bgLayout, vertexBuffers)
   }
 
   constructor(
-    device: GPUDevice, atlas: GlyphAtlasGPU, presentationFormat: GPUTextureFormat,
+    device: GPUDevice, rhi: RhiDevice, atlas: GlyphAtlasGPU, presentationFormat: GPUTextureFormat,
     sampleCount: number = 1,
   ) {
-    this.device = device
+    this.rhi = rhi
     this.atlas = atlas
     this._textFmt = presentationFormat
     this._textSamples = sampleCount
@@ -133,37 +132,12 @@ export class TextRenderer {
       ],
     })
 
-    const module = device.createShaderModule({ code: TEXT_SHADER_WGSL, label: 'text-shader' })
-    this.pipeline = device.createRenderPipeline({
-      label: 'text-pipeline',
-      layout: device.createPipelineLayout({ bindGroupLayouts: [this.bgLayout] }),
-      vertex: {
-        module, entryPoint: 'vs',
-        buffers: [toVertexBufferLayout(TEXT_FORMAT)],
-      },
-      fragment: {
-        module, entryPoint: 'fs',
-        targets: [{
-          format: presentationFormat,
-          // Premultiplied-alpha blend: shader emits `rgb*a, a`, so
-          // srcFactor=one (NOT src-alpha — that double-multiplies).
-          // Mixing premul output with a non-premul blend was the
-          // root cause of dim/washed-out text + wrong halo edges.
-          blend: {
-            color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
-            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
-          },
-        }],
-      },
-      primitive: { topology: 'triangle-list' },
-      multisample: { count: sampleCount },
-    })
-
     // Initial capacity covers a single slot — grows on demand in setDraws().
     this.uniformBufCapacityBytes = UNIFORM_STRIDE
-    this.uniformBuf = device.createBuffer({
+    // Uniform — UNIFORM|COPY_DST, byte-identical via bufUsage('uniform', writable:true).
+    this.uniformBuf = this.rhi.createBuffer({
       size: this.uniformBufCapacityBytes,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      usage: 'uniform', writable: true,
       label: 'text-uniform',
     })
   }
@@ -353,15 +327,18 @@ export class TextRenderer {
     }
 
     this.vertexCount = totalGlyphs * VERTS_PER_GLYPH
-    if (this.vertexBuf === null || this.vertexBuf.size < data.byteLength) {
-      if (this.vertexBuf !== null) this.vertexBuf.destroy()
-      this.vertexBuf = this.device.createBuffer({
-        size: Math.max(1024, data.byteLength),
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-        label: 'text-vertex',
-      })
+    // vertexBufCapacityBytes tracks the allocated size (was GPUBuffer.size; an
+    // opaque RhiBuffer exposes none). Reallocation condition is byte-identical.
+    if (this.vertexBuf === null || this.vertexBufCapacityBytes < data.byteLength) {
+      if (this.vertexBuf !== null) this.rhi.destroyBuffer(this.vertexBuf)
+      const size = Math.max(1024, data.byteLength)
+      // Vertex — VERTEX|COPY_DST, byte-identical via bufUsage('vertex', writable:true).
+      this.vertexBuf = this.rhi.createBuffer({ size, usage: 'vertex', writable: true, label: 'text-vertex' })
+      this.vertexBufCapacityBytes = size
     }
-    this.device.queue.writeBuffer(this.vertexBuf, 0, data.buffer, data.byteOffset, data.byteLength)
+    // `data` is an arena-backed view; writeBuffer copies its bytes — byte-identical
+    // to the prior (data.buffer, data.byteOffset, data.byteLength) sub-range form.
+    this.rhi.writeBuffer(this.vertexBuf, 0, data)
 
     // ── Assemble shared uniform array indexed by dynamic offset ──
     // Pack each slice's 64-byte uniform block into its own UNIFORM_STRIDE
@@ -387,11 +364,11 @@ export class TextRenderer {
       // Grow uniformBuf if needed; invalidate bind groups since they
       // reference the buffer instance.
       if (totalBytes > this.uniformBufCapacityBytes) {
-        this.uniformBuf.destroy()
+        this.rhi.destroyBuffer(this.uniformBuf)
         this.uniformBufCapacityBytes = Math.max(totalBytes, this.uniformBufCapacityBytes * 2)
-        this.uniformBuf = this.device.createBuffer({
+        this.uniformBuf = this.rhi.createBuffer({
           size: this.uniformBufCapacityBytes,
-          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+          usage: 'uniform', writable: true,
           label: 'text-uniform',
         })
         this.bindGroupsByPage.length = 0
@@ -417,54 +394,45 @@ export class TextRenderer {
     // Single GPU upload — covers all slices' uniforms. Critical: prior
     // implementation called writeBuffer per slice at offset 0, but
     // WebGPU executes ALL queued writes before any draw within a
-    // submit, so the LAST write would dominate every draw.
-    this.device.queue.writeBuffer(this.uniformBuf, 0,
-      this.allUniforms.buffer, this.allUniforms.byteOffset,
-      numSlices * UNIFORM_STRIDE)
+    // submit, so the LAST write would dominate every draw. The subarray
+    // bounds the write to the active slices (allUniforms may be larger
+    // from a previous frame) — byte-identical to the prior
+    // (buffer, byteOffset, numSlices*UNIFORM_STRIDE) sub-range form.
+    this.rhi.writeBuffer(this.uniformBuf, 0, this.allUniforms.subarray(0, numSlices * UNIFORM_STRIDE_F32))
 
-    // RHI pilot: collect per-slice draw items + issue via the generic seam.
-    const useTextRhi = (globalThis as { __xgisTextViaRhi?: boolean }).__xgisTextViaRhi === true
+    // The SDF text draw routes through the RHI Material seam (TextDraper) — the SOLE
+    // path. Collect per-slice draw items + issue them via the generic seam.
     const rhiSlices: TextSlice[] = []
-    if (!useTextRhi) {
-      pass.setPipeline(this.pipeline)
-      pass.setVertexBuffer(0, this.vertexBuf)
-    }
     for (const slice of this.drawSlices) {
       const page = this.atlas.getPage(slice.page)
       if (!page) continue  // page evicted between flush and draw — skip
       let bg = this.bindGroupsByPage[slice.page]
       if (!bg) {
-        bg = this.device.createBindGroup({
-          label: `text-bg-page-${slice.page}`,
-          layout: this.bgLayout,
-          entries: [
-            // Use minBindingSize-sized window (64 B) into the shared
-            // uniform buffer. The dynamic offset picks which slice's
-            // pack is visible to the draw.
-            { binding: 0, resource: { buffer: this.uniformBuf, offset: 0, size: UNIFORM_BYTES } },
-            { binding: 1, resource: page.createView() },
-            { binding: 2, resource: this.atlas.sampler },
-          ],
-        })
+        // Bind group routes through the RHI seam (§4): binding 0 is the RhiBuffer
+        // uniform window; the atlas page texture VIEW (binding 1) + sampler (binding 2)
+        // stay raw, adopted via wrapWebGpuTextureView / wrapWebGpuSampler. Byte-identical
+        // to the prior device.createBindGroup (the debug label is the only drop).
+        bg = this.rhi.createBindGroup(wrapWebGpuBindGroupLayout(this.bgLayout), [
+          // Use minBindingSize-sized window (64 B) into the shared
+          // uniform buffer. The dynamic offset picks which slice's
+          // pack is visible to the draw.
+          { binding: 0, resource: { buffer: this.uniformBuf, offset: 0, size: UNIFORM_BYTES } },
+          { binding: 1, resource: { view: wrapWebGpuTextureView(page.createView()) } },
+          { binding: 2, resource: { sampler: wrapWebGpuSampler(this.atlas.sampler) } },
+        ])
         this.bindGroupsByPage[slice.page] = bg
       }
-      if (useTextRhi) {
-        rhiSlices.push({ bg, dynamicOffset: slice.dynamicOffset, count: slice.count, first: slice.first })
-      } else {
-        pass.setBindGroup(0, bg, [slice.dynamicOffset])
-        pass.draw(slice.count, 1, slice.first, 0)
-      }
+      rhiSlices.push({ bg, dynamicOffset: slice.dynamicOffset, count: slice.count, first: slice.first })
     }
-    if (useTextRhi && rhiSlices.length > 0) {
+    if (rhiSlices.length > 0) {
       this.ensureTextDraper()
-      if (!this._textRhiLogged) { this._textRhiLogged = true; console.warn(`[TEXTRHI] ${rhiSlices.length} glyph slices via RHI seam`) }
       this._textDraper!.draw(wrapWebGpuPass(pass), this.vertexBuf!, rhiSlices)
     }
   }
 
   destroy(): void {
-    this.uniformBuf.destroy()
-    this.vertexBuf?.destroy()
+    this.rhi.destroyBuffer(this.uniformBuf)
+    if (this.vertexBuf) this.rhi.destroyBuffer(this.vertexBuf)
     this.bindGroupsByPage.length = 0
   }
 }

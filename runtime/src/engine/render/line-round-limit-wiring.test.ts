@@ -31,7 +31,8 @@ import { describe, expect, it } from 'vitest'
 }
 import { LineRenderer } from './line-renderer'
 import { lineLayerUniformStride } from './line-uniform-slots'
-import type { GPUContext } from '../gpu/gpu'
+import { WebGpuDevice } from '@xgis/engine'
+import type { GPUContext } from '@xgis/engine'
 
 // f32 slot 49 (byte 196) of the 256-byte line layer slot is line-round-limit.
 // See line-pattern.ts:293 (`buf[49] = roundLimit`) and the line.ts WGSL
@@ -76,7 +77,7 @@ function makeRenderer(): { lr: LineRenderer; flushes: Flush[] } {
     },
   }
   const lr = new LineRenderer(
-    { device: fakeDevice as unknown as GPUDevice, format: 'bgra8unorm', canvas: {} as HTMLCanvasElement, context: {} as GPUCanvasContext } as unknown as GPUContext,
+    { device: fakeDevice as unknown as GPUDevice, format: 'bgra8unorm', canvas: {} as HTMLCanvasElement, context: {} as GPUCanvasContext, rhi: new WebGpuDevice(fakeDevice as unknown as GPUDevice) } as unknown as GPUContext,
     {} as GPUBindGroupLayout,
   )
   return { lr, flushes }

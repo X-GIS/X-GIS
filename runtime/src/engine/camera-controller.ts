@@ -14,11 +14,11 @@
 //   - `this.ctx?.canvas`    → injected `getCtxCanvas` accessor
 //   - `this._maxBounds` / `this._cameraExplicitlyPositioned` → owned here
 
-import { Camera } from './projection/camera'
-import { MERCATOR_LAT_LIMIT, mercatorYToLat, mercatorYToLatRad, mercator } from './projection/projection'
-import { poleLimit, representsCenterAs } from './projection/projections-table'
-import { WORLD_MERC, TILE_PX } from './gpu/gpu-shared'
-import { getMaxDpr } from './gpu/gpu'
+import { Camera } from '@xgis/engine'
+import { MERCATOR_LAT_LIMIT, mercatorYToLat, mercatorYToLatRad, mercator } from '@xgis/engine'
+import { poleLimit, representsCenterAs } from '@xgis/engine'
+import { WORLD_MERC, TILE_PX } from '@xgis/engine'
+import { getMaxDpr } from '@xgis/engine'
 import { lonLatToMercator } from '../loader/geojson'
 import { xlog } from './log'
 

@@ -18,6 +18,7 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
     description: 'Single SDF point at (0, 0). Used by e2e fixture tests to validate the pointRenderer code path in isolation.',
     source: load('fixture-point.xgis'),
   },
+  fixture_raster_local: { name: 'Fixture: raster (local checker)', tag: 'fixture', description: 'Deterministic offline raster tile (no {z}/{x}/{y}) for the P1.4 RHI-flip DC=0 gate.', source: load('fixture-raster-local.xgis') },
   fixture_line: { name: 'Fixture: line (2pt)', tag: 'fixture', description: '2-vertex line, no join.', source: load('fixture-line.xgis') },
   fixture_line_join: { name: 'Fixture: line join', tag: 'fixture', description: '3-vertex sharp turn — miter join.', source: load('fixture-line-join.xgis') },
   fixture_triangle: { name: 'Fixture: triangle', tag: 'fixture', description: 'Closed 3-vertex polygon.', source: load('fixture-triangle.xgis') },
@@ -54,6 +55,9 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
   reftest_stroke_keyframe_static: { name: 'Reftest B: stroke keyframe static', tag: 'fixture', description: 'Line with degenerate stroke keyframe — must equal static.', source: load('reftest-stroke-keyframe-static.xgis') },
   // Stress fixtures (exercise validation capture)
   fixture_stress_all_renderers: { name: 'Stress: all renderers', tag: 'fixture', description: 'Polygon fill + SDF line + SDF point in one frame.', source: load('fixture-stress-all-renderers.xgis') },
+  fixture_extrude_local: { name: 'Fixture: extrude (local)', tag: 'fixture', description: 'Constant-height 3D-extruded polygon through the VTR (P1.6 extrude verify).', source: load('fixture-extrude-local.xgis') },
+  fixture_flat_local: { name: 'Fixture: flat (local)', tag: 'fixture', description: 'Flat polygon through the VTR, fill only (P1.6 no-pick flat verify).', source: load('fixture-flat-local.xgis') },
+  fixture_fill_pattern: { name: 'Fixture: fill pattern (local sprite)', tag: 'fixture', description: 'Polygon filled via fill-pattern (fs_fill_pattern) sampling a local sprite atlas — selects fillPipelinePatternGround for the §4 RHI Material twin DC=0 gate. Load with &sprite=/fixture-sprite.', source: load('fixture-fill-pattern.xgis') },
   fixture_stress_many_layers: { name: 'Stress: many layers', tag: 'fixture', description: '8 filtered layers from one source — uniform ring boundary.', source: load('fixture-stress-many-layers.xgis') },
   // Extension: caps/joins/patterns/align/offset/easing/data-driven/shape
   fixture_cap_round:            { name: 'Fixture: cap round',          tag: 'fixture', description: 'stroke-round-cap isolated.',                   source: load('fixture-cap-round.xgis') },

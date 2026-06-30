@@ -10,9 +10,9 @@
 // `polygon-ecef-mvp-latitude-parity.test.ts` is the correctness gate.
 
 import { describe, it, expect } from 'vitest'
-import { Camera } from './camera'
-import { mercatorToECEFSphere } from './ecef'
-import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
+import { Camera } from '@xgis/engine'
+import { mercatorToECEFSphere } from '@xgis/engine'
+import { WORLD_MERC, TILE_PX } from '@xgis/engine'
 
 // Apply column-major 4x4 to a vec4 → vec4.
 function mulMat4Vec4(

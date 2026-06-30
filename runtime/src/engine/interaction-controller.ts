@@ -25,10 +25,10 @@
 //     (reassigned to [] at rebuildLayers start, so read fresh).
 //   - `this.pickReadbackPool`   → owned here (only pickAt reads/mutates it).
 
-import type { Camera } from './projection/camera'
-import { unprojectGlobeFromCamera } from './projection/globe-anchor'
-import { mercatorYToLat } from './projection/projection'
-import type { GPUContext } from './gpu/gpu'
+import type { Camera } from '@xgis/engine'
+import { unprojectGlobeFromCamera } from '@xgis/engine'
+import { mercatorYToLat } from '@xgis/engine'
+import type { GPUContext } from '@xgis/engine'
 import type { LayerIdRegistry, XGISLayer, XGISFeature } from './layer'
 import type { SceneCommands } from './interpreter'
 import type { GeoJSONFeature, GeoJSONFeatureCollection } from '../loader/geojson'

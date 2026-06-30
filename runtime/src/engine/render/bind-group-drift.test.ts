@@ -51,7 +51,7 @@
 //   the invariant deliberately instead of letting drift slip in.
 
 import { describe, it, expect } from 'vitest'
-import { MapRenderer } from './renderer'
+import { FrameRenderer } from './frame-renderer'
 
 interface MinimalEntry {
   binding: number
@@ -64,8 +64,8 @@ function asMinimal(e: GPUBindGroupLayoutEntry): MinimalEntry {
 
 describe('bind-group layout drift invariant (iter-204A)', () => {
   it('every PALETTE_LAYOUT_ENTRIES binding is present in FEATURE_LAYOUT_ENTRIES', () => {
-    const feature = MapRenderer.getFeatureLayoutEntries().map(asMinimal)
-    const palette = MapRenderer.PALETTE_LAYOUT_ENTRIES.map(asMinimal)
+    const feature = FrameRenderer.getFeatureLayoutEntries().map(asMinimal)
+    const palette = FrameRenderer.PALETTE_LAYOUT_ENTRIES.map(asMinimal)
     const featureBindings = new Set(feature.map(e => e.binding))
     const missingFromFeature = palette
       .map(e => e.binding)
@@ -79,8 +79,8 @@ describe('bind-group layout drift invariant (iter-204A)', () => {
   })
 
   it('matching bindings declare matching visibility masks', () => {
-    const feature = MapRenderer.getFeatureLayoutEntries().map(asMinimal)
-    const palette = MapRenderer.PALETTE_LAYOUT_ENTRIES.map(asMinimal)
+    const feature = FrameRenderer.getFeatureLayoutEntries().map(asMinimal)
+    const palette = FrameRenderer.PALETTE_LAYOUT_ENTRIES.map(asMinimal)
     const byBinding = new Map(feature.map(e => [e.binding, e.visibility]))
     const mismatches: { binding: number; feature: number; palette: number }[] = []
     for (const p of palette) {
@@ -102,7 +102,7 @@ describe('bind-group layout drift invariant (iter-204A)', () => {
     // slot, this test points at the original intent. Bindings 2 (palette
     // atlas) + 4 (palette sampler) are P3-era; bindings 5 (sprite atlas)
     // + 6 (sprite sampler) are iter-181/182.
-    const bindings = MapRenderer.PALETTE_LAYOUT_ENTRIES.map(e => e.binding).sort((a, b) => a - b)
+    const bindings = FrameRenderer.PALETTE_LAYOUT_ENTRIES.map(e => e.binding).sort((a, b) => a - b)
     expect(bindings).toEqual([2, 4, 5, 6])
   })
 
@@ -110,7 +110,7 @@ describe('bind-group layout drift invariant (iter-204A)', () => {
     // Mirror sanity for the feature-path-specific bindings. These are
     // NOT in PALETTE_LAYOUT_ENTRIES — feature buffer is the layer that
     // distinguishes the feature path from the base path.
-    const bindings = MapRenderer.getFeatureLayoutEntries()
+    const bindings = FrameRenderer.getFeatureLayoutEntries()
       .map(e => e.binding).sort((a, b) => a - b)
     expect(bindings).toEqual([0, 1, 2, 4, 5, 6])
   })

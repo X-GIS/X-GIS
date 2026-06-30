@@ -196,15 +196,17 @@ describe('ComputeDispatcher.dispatchKernel', () => {
   it('treats same wgsl + different entryPoint as different pipelines', () => {
     // Synthesise two kernels with identical bodies but distinct
     // entry-point metadata to verify the cache key separates them.
+    // same kernel IR (→ identical emitted WGSL), distinct entryPoint metadata.
+    const sharedModule = emitMatchComputeKernel({ fieldName: 'x', arms: [], defaultColorHex: '#00000000' }).module
     const k1: ComputeKernel = {
-      wgsl: '@compute @workgroup_size(64) fn entry_a() {}',
+      module: sharedModule,
       entryPoint: 'entry_a',
       featureStrideF32: 1,
       fieldOrder: [],
       dispatchSize: (n) => Math.ceil(n / 64),
     }
     const k2: ComputeKernel = {
-      wgsl: '@compute @workgroup_size(64) fn entry_a() {}',
+      module: sharedModule,
       entryPoint: 'entry_b',
       featureStrideF32: 1,
       fieldOrder: [],

@@ -23,7 +23,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
-import { initGPU } from '../gpu/gpu'
+import { initGPU } from '@xgis/engine'
 import { VectorTileRenderer } from './vector-tile-renderer'
 import { UniformRing } from './uniform-ring'
 import { polygonUniformStride } from './polygon-uniform-slots'

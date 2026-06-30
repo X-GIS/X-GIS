@@ -30,6 +30,12 @@ export interface RhiBufferDesc {
   usage: RhiBufferUsage
   /** Buffer is written after creation via writeBuffer (the common case). */
   writable?: boolean
+  /** Buffer can be read as the SOURCE of a `copyBufferToBuffer` (the GPUArena
+   *  compaction/grow ping-pong reads the old arena buffer as the copy source).
+   *  WebGPU ORs in `GPUBufferUsage.COPY_SRC`; WebGL2 ignores it (any GL buffer is
+   *  a valid `copyBufferSubData` read source). Additive + default false: an
+   *  un-set buffer's usage flags are byte-identical to before. */
+  copySrc?: boolean
   label?: string
 }
 
@@ -37,7 +43,7 @@ export interface RhiBufferDesc {
  *  `rgba16float` is the OIT weighted-blend accum target (gpu-shared
  *  OIT_ACCUM_FORMAT); WebGL2 fail-closes on it (rendering to it needs
  *  EXT_color_buffer_float — deferred to the WebGL2 full-frame phase). */
-export type RhiTextureFormat = 'rgba8unorm' | 'bgra8unorm' | 'depth24plus-stencil8' | 'rg32uint' | 'r16float' | 'rgba16float'
+export type RhiTextureFormat = 'rgba8unorm' | 'bgra8unorm' | 'depth24plus-stencil8' | 'rg32uint' | 'r32uint' | 'r16float' | 'rgba16float'
 
 export interface RhiTextureDesc {
   width: number
@@ -93,7 +99,11 @@ export interface RhiPipelineDesc {
   vsCode?: string
   fsCode?: string
   bindGroupLayouts: RhiBindGroupLayout[]
-  colorTargets: ReadonlyArray<{ format: RhiTextureFormat; blend?: 'alpha' | 'premult' | 'additive' | 'none' }>
+  /** `writeMask` (GPUColorWrite bitmask; 0xf = ALL) defaults per format: rg32uint pick targets
+   *  default 0 (the raster/line non-pickable pattern — they write vec2u(0,0)), every other target
+   *  defaults 0xf. A PICKABLE primitive (VTR polygon fill writes the feature id) sets the pick
+   *  target's writeMask to 0xf explicitly to override the default. */
+  colorTargets: ReadonlyArray<{ format: RhiTextureFormat; blend?: 'alpha' | 'premult' | 'additive' | 'max' | 'none'; writeMask?: number }>
   depthStencil?: {
     format: RhiTextureFormat; write: boolean; compare: 'always' | 'less' | 'less-equal'
     /** Polygon-offset depth bias (point markers pull toward camera). */
@@ -107,6 +117,9 @@ export interface RhiPipelineDesc {
   sampleCount?: number
   /** Procedural-grid draws (raster/drape) have no vertex buffers. */
   vertexBuffers?: ReadonlyArray<{ stride: number; attributes: ReadonlyArray<{ location: number; offset: number; format: string }> }>
+  /** Triangle face culling. Default 'none' (byte-identical to the prior hardcoded primitive). The
+   *  VTR ground-fill variants cull 'back' (GPU back-cull of the far hemisphere on the globe). */
+  cullMode?: 'none' | 'back' | 'front'
   label?: string
 }
 
@@ -123,7 +136,7 @@ export interface RhiRenderPass {
    *  size; WebGL2: `offset` is added to each attribute's `vertexAttribPointer` byte
    *  offset (`size` is implied by the draw count). */
   setVertexBuffer(slot: number, buffer: RhiBuffer, offset?: number, size?: number): void
-  setIndexBuffer(buffer: RhiBuffer, format: 'uint16' | 'uint32'): void
+  setIndexBuffer(buffer: RhiBuffer, format: 'uint16' | 'uint32', offset?: number, size?: number): void
   draw(vertexCount: number, instanceCount?: number, firstVertex?: number): void
   drawIndexed(indexCount: number, instanceCount?: number): void
   /** Per-draw stencil reference value (the per-tile clip-mask ID). Inert on a
@@ -261,9 +274,16 @@ export interface RhiCommandEncoder {
    *  pass, then call `pass.end()` (mirroring the raw `subPass.end()` every
    *  pass body already calls). */
   beginRenderPass(desc: RhiRenderPassDesc): RhiRenderPass
+  /** GPU→GPU buffer copy of `size` bytes from `src[srcOffset]` to `dst[dstOffset]`
+   *  (the GPUArena defrag/grow ping-pong: relocate the live set from the old arena
+   *  buffer into a freshly-packed one). WebGPU maps 1:1 to
+   *  `GPUCommandEncoder.copyBufferToBuffer`; WebGL2 binds the two buffers to
+   *  COPY_READ/COPY_WRITE and issues `gl.copyBufferSubData` immediately. `size`
+   *  + the offsets must be 4-byte aligned (WebGPU requirement; the arena aligns). */
+  copyBufferToBuffer(src: RhiBuffer, srcOffset: number, dst: RhiBuffer, dstOffset: number, size: number): void
   /** Finish recording + submit this encoder's work (WebGPU: queue.submit of
    *  encoder.finish()). One encoder → one submit, matching the loop's single
-   *  per-frame submit. */
+   *  per-frame submit. WebGL2 is immediate-mode (copies already executed) → no-op. */
   finish(): void
 }
 
@@ -275,6 +295,10 @@ export interface RhiDevice {
   readonly backend: 'webgpu' | 'webgl2'
   createBuffer(desc: RhiBufferDesc): RhiBuffer
   writeBuffer(buffer: RhiBuffer, byteOffset: number, data: BufferSource): void
+  /** Release a buffer's GPU memory (WebGPU `GPUBuffer.destroy()`; WebGL2
+   *  `gl.deleteBuffer`). Called at the SAME teardown sites the raw `.destroy()`
+   *  was — resource lifetime is the caller's, not centralized by the RHI. */
+  destroyBuffer(buffer: RhiBuffer): void
   createTexture(desc: RhiTextureDesc): RhiTexture
   writeTexture(texture: RhiTexture, data: BufferSource, bytesPerRow: number, width: number, height: number): void
   createView(texture: RhiTexture): RhiTextureView
@@ -305,10 +329,13 @@ export interface RhiDevice {
   // (render-loop.ts:216/501). To originate the passes/ offscreen + MRT topology
   // through the RHI the encoder must come from here. OPTIONAL + additive +
   // INERT: `WebGpuDevice` returns a wrapper over a native `GPUCommandEncoder`
-  // (begin-pass via the byte-identical rhiRenderPassToGpu mapper); `WebGl2Device`
-  // FAIL-CLOSES (throws) — MRT + offscreen FBOs are the WebGL2 full-frame phase.
-  // The live loop does NOT call this yet; it is the seam P1 adopts.
+  // (begin-pass via the byte-identical rhiRenderPassToGpu mapper). `WebGl2Device`
+  // returns a COPY-SCOPED encoder: `copyBufferToBuffer` works (gl.copyBufferSubData)
+  // — the GPUArena compaction/grow path needs it — but `beginRenderPass` still
+  // FAIL-CLOSES (MRT + offscreen FBOs are the WebGL2 full-frame phase).
 
-  /** Create a command encoder for offscreen / MRT passes. WebGL2 throws. */
-  createCommandEncoder?(): RhiCommandEncoder
+  /** Create a command encoder for offscreen / MRT passes + buffer copies. The
+   *  optional `label` rides the native `GPUCommandEncoder` (DevTools attribution,
+   *  WebGPU). WebGL2 returns a copy-only encoder (beginRenderPass throws). */
+  createCommandEncoder?(label?: string): RhiCommandEncoder
 }

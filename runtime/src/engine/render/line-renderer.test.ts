@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildLineSegments,
   packLineLayerUniform,
-  LINE_UNIFORM_SIZE,
+  lineUniformSize,
   LINE_SEGMENT_STRIDE_F32,
   LINE_CAP_BUTT,
   LINE_JOIN_MITER,
@@ -71,9 +71,9 @@ function dsfunPolyVerts(coords: Array<[number, number]>): Float32Array {
 }
 
 describe('packLineLayerUniform', () => {
-  it('produces a buffer of exactly LINE_UNIFORM_SIZE bytes', () => {
+  it('produces a buffer of exactly lineUniformSize() bytes', () => {
     const buf = packLineLayerUniform([1, 0, 0, 1], 2, 1, 1000)
-    expect(buf.byteLength).toBe(LINE_UNIFORM_SIZE)
+    expect(buf.byteLength).toBe(lineUniformSize())
   })
 
   it('writes color, width, and mpp to their fixed slots', () => {
@@ -236,9 +236,9 @@ describe('packLineLayerUniform', () => {
     expect((offNegU32[U32_FLAGS] & FLAG_OFFSET) !== 0).toBe(true)
   })
 
-  it('LINE_UNIFORM_SIZE includes the offset slot (≥ 192 bytes)', () => {
-    expect(LINE_UNIFORM_SIZE).toBeGreaterThanOrEqual(192)
-    expect(LINE_UNIFORM_SIZE % 16).toBe(0)
+  it('lineUniformSize() includes the offset slot (≥ 192 bytes)', () => {
+    expect(lineUniformSize()).toBeGreaterThanOrEqual(192)
+    expect(lineUniformSize() % 16).toBe(0)
   })
 })
 

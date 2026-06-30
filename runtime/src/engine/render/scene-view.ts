@@ -14,7 +14,7 @@
 // side effects (e.g. `lineRenderer.ensureOffscreen`) stay in render().
 
 import type { ClassifiedShow, OpaqueGroup } from './bucket-scheduler'
-import type { FrameContext } from './frame-context'
+import type { FrameContext } from '@xgis/engine'
 import type { RenderLoopHost } from '../render-loop'
 
 /** Which pass owns the MSAA `resolveTarget` — precisely the last pass

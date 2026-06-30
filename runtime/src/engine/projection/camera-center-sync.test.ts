@@ -17,9 +17,9 @@
 //   0 mercator · 1 equirectangular · 7 globe.
 
 import { describe, expect, it } from 'vitest'
-import { Camera } from './camera'
+import { Camera } from '@xgis/engine'
 import { CameraController, type CameraControllerDeps } from '../camera-controller'
-import { mercatorYToLat, mercator } from './projection'
+import { mercatorYToLat, mercator } from '@xgis/engine'
 
 const MERC_LIMIT = 85.051129
 

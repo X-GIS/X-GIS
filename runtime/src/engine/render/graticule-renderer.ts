@@ -12,7 +12,7 @@
 // path. The packed frame values (mvp / logDepthFc / proj_params / zoom) are
 // PASSED IN; the offsets are NOT re-derived or changed.
 
-import type { GPUContext } from '../gpu/gpu'
+import type { GPUContext } from '@xgis/engine'
 import { generateGraticule } from '../graticule'
 import type { UniformRing } from './uniform-ring'
 import { polygonUniformBytes, polygonUniformSlots } from './polygon-uniform-slots'

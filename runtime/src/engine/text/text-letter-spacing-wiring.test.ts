@@ -29,7 +29,9 @@ import { describe, it, expect } from 'vitest'
 import { TextRenderer } from './text-renderer'
 import type { TextDraw } from './text-renderer'
 import type { GlyphInfo } from './sdf/glyph-atlas-host'
-import { FrameArena } from '../gpu/frame-arena'
+import { FrameArena } from '@xgis/engine'
+import { WebGpuDevice } from '@xgis/engine'
+import type { RhiBuffer, RhiBindGroup } from '@xgis/engine'
 
 // setDraws creates the vertex buffer via device.createBuffer({ usage:
 // GPUBufferUsage.VERTEX | ... }) — the bitflag global isn't present in the
@@ -71,17 +73,12 @@ function makeRenderer(): { renderer: TextRenderer; lastVerts: () => Float32Array
   const stubDevice = {
     createBuffer: () => fakeBuffer,
     queue: {
-      // setDraws emits exactly one vertex-buffer write:
-      //   writeBuffer(this.vertexBuf, 0, data.buffer, data.byteOffset, data.byteLength)
-      // The arena reuses its backing buffer across frames, so copy out now.
-      writeBuffer(
-        _buf: unknown, _off: number,
-        src: ArrayBuffer | ArrayBufferView, srcOffset?: number, size?: number,
-      ): void {
-        const ab = src instanceof ArrayBuffer ? src : (src as ArrayBufferView).buffer
-        const byteOff = srcOffset ?? 0
-        const byteLen = size ?? ab.byteLength
-        captured = new Float32Array(ab.slice(byteOff, byteOff + byteLen))
+      // setDraws emits exactly one vertex-buffer write through the §4 RHI seam:
+      //   rhi.writeBuffer(this.vertexBuf, 0, data) — `data` is the arena-backed
+      //   Float32Array VIEW (no byteOffset/size args). The arena reuses its backing
+      //   buffer across frames, so copy the view's exact bytes out now.
+      writeBuffer(_buf: unknown, _off: number, src: ArrayBufferView): void {
+        captured = new Float32Array(src.buffer.slice(src.byteOffset, src.byteOffset + src.byteLength))
       },
     },
   } as unknown as GPUDevice
@@ -91,26 +88,28 @@ function makeRenderer(): { renderer: TextRenderer; lastVerts: () => Float32Array
   }
 
   interface MutableRenderer {
-    device: GPUDevice
+    rhi: WebGpuDevice
     atlas: typeof stubAtlas
     _frameArena: FrameArena
     drawSlices: unknown[]
-    vertexBuf: GPUBuffer | null
+    vertexBuf: RhiBuffer | null
     vertexCount: number
+    vertexBufCapacityBytes: number
     allUniforms: Float32Array | null
-    uniformBuf: GPUBuffer
+    uniformBuf: RhiBuffer
     uniformBufCapacityBytes: number
-    bindGroupsByPage: GPUBindGroup[]
+    bindGroupsByPage: RhiBindGroup[]
   }
   const renderer = Object.create(TextRenderer.prototype) as unknown as MutableRenderer
-  renderer.device = stubDevice
+  renderer.rhi = new WebGpuDevice(stubDevice)
   renderer.atlas = stubAtlas
   renderer._frameArena = new FrameArena(64 * 1024)
   renderer.drawSlices = []
   renderer.vertexBuf = null
   renderer.vertexCount = 0
+  renderer.vertexBufCapacityBytes = 0
   renderer.allUniforms = null
-  renderer.uniformBuf = fakeBuffer
+  renderer.uniformBuf = renderer.rhi.createBuffer({ size: 256, usage: 'uniform', writable: true })
   renderer.uniformBufCapacityBytes = 256
   renderer.bindGroupsByPage = []
 

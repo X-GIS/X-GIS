@@ -29,24 +29,22 @@
 //      references this.bindGroupLayout). Order: layouts → pipelines → atlas
 //      stubs → (back on MapRenderer) ring → first bind-group build.
 
-import type { GPUContext } from '../gpu/gpu'
+import type { GPUContext } from '@xgis/engine'
 import {
   BLEND_ALPHA, STENCIL_WRITE, STENCIL_TEST,
   STENCIL_WRITE_NO_DEPTH, STENCIL_TEST_NO_DEPTH,
   BLEND_OIT_ACCUM, BLEND_OIT_REVEALAGE,
   OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT,
-  HEATMAP_DENSITY_FORMAT,
-} from '../gpu/gpu-shared'
-import { isPickEnabled, getSampleCount } from '../gpu/gpu'
+} from '@xgis/engine'
+import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { POLYGON_FILL_FORMAT, POLYGON_EXTRUDED_FORMAT } from '@xgis/compiler'
-import { toVertexBufferLayout } from './vertex-buffer-layout'
+import { toVertexBufferLayout } from '@xgis/engine'
 import { LINE_FORMAT } from './line-vertex-format'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
-import { emitOverdrawComposeWgsl } from '../shaders/dsl/overdraw-compose'
-import { emitHeatmapBlurWgsl } from '../shaders/dsl/heatmap-blur'
-import { emitHeatmapComposeWgsl } from '../shaders/dsl/heatmap-compose'
-import { emitOitComposeWgsl } from '../shaders/dsl/oit-compose'
+import { buildOverdrawComposePipeline, buildHeatmapBlurPipeline, buildHeatmapComposePipeline, buildOitComposePipeline } from './compose-pipelines'
+import { buildFlatFillMaterials, buildExtrudeMaterial, buildPatternFillMaterials, type FillRhiState } from './material/polygon-fill-material'
+import type { Material } from './material/material'
 import { emitPolygonWgsl } from '../shaders/dsl/polygon'
 import { Node } from '@xgis/shader-dsl'
 import type { Stmt } from '@xgis/shader-dsl'
@@ -147,6 +145,56 @@ export class PipelineFactory {
   private shaderCache = new Map<string, CachedPipeline>()
 
   fillPipeline!: GPURenderPipeline
+  /** P1.6/§4 — flat-fill RHI Material twins (default shader), always built. The VTR's recordFillDraw
+   *  routes the flat/ground non-extrude fill through these via the FillRhiState getter below. */
+  private _fillMaterials: { flat: Material; ground: Material } | null = null
+  /** LIVE per-style fill Material map (grown by registerFillMaterials as variant pipelines build). */
+  private _fillPerStyle = new Map<GPURenderPipeline, { mat: Material; variant: number }>()
+  /** Opaque 3D-extrude fill Material (default shader; the base extrude pipelines, not per-variant). */
+  private _fillExtrudeMaterial: Material | null = null
+  /** pointer-events:none (no-pick, pick writeMask 0) twin of _fillExtrudeMaterial — only built when
+   *  picking is on (off → the no-pick pipelines alias the pickable ones, already covered). */
+  private _fillExtrudeMaterialNoPick: Material | null = null
+  /** Fill-pattern (fs_fill_pattern) Material twins of the native fillPipelinePattern{Ground,Extruded}*
+   *  pipelines — always built. recordFillDraw routes pattern draws through these. */
+  private _fillPatternMaterials: { patternGround: Material; patternExtruded: Material } | null = null
+  fillRhiState(): FillRhiState | null {
+    if (!this._fillMaterials) return null
+    return {
+      flat: this._fillMaterials.flat, ground: this._fillMaterials.ground,
+      pipes: { write: this.fillPipeline, test: this.fillPipelineFallback, groundWrite: this.fillPipelineGround, groundTest: this.fillPipelineGroundFallback },
+      perStyle: this._fillPerStyle,
+      extrude: this._fillExtrudeMaterial
+        ? {
+            mat: this._fillExtrudeMaterial, write: this.fillPipelineExtruded, test: this.fillPipelineExtrudedFallback,
+            ...(this._fillExtrudeMaterialNoPick
+              ? { matNoPick: this._fillExtrudeMaterialNoPick, writeNoPick: this.fillPipelineExtrudedNoPick, testNoPick: this.fillPipelineExtrudedFallbackNoPick }
+              : {}),
+          }
+        : null,
+      pattern: this._fillPatternMaterials
+        ? {
+            ground: this._fillPatternMaterials.patternGround,
+            groundWrite: this.fillPipelinePatternGround, groundTest: this.fillPipelinePatternGroundFallback,
+            extruded: this._fillPatternMaterials.patternExtruded,
+            extrudedWrite: this.fillPipelinePatternExtruded, extrudedTest: this.fillPipelinePatternExtrudedFallback,
+          }
+        : null,
+    }
+  }
+  /** Build + register the per-style fill Material twins for a variant pipeline set (behind the flag).
+   *  Keyed by each native per-style pipeline so recordFillDraw routes them via the Material seam. */
+  private registerFillMaterials(variant: ShaderVariantInfo, pipelines: CachedPipeline): void {
+    const { format } = this.ctx
+    const { flat, ground } = buildFlatFillMaterials({
+      rhi: this.ctx.rhi, shader: buildShader(variant), format, sampleCount: getSampleCount(),
+      bindGroupLayout: this.getOrBuildVariantLayout(variant), vertexLayout: toVertexBufferLayout(POLYGON_FILL_FORMAT), pickEnabled: isPickEnabled(),
+    })
+    this._fillPerStyle.set(pipelines.fillPipeline, { mat: flat, variant: 0 })
+    this._fillPerStyle.set(pipelines.fillPipelineFallback, { mat: flat, variant: 1 })
+    this._fillPerStyle.set(pipelines.fillPipelineGround, { mat: ground, variant: 0 })
+    this._fillPerStyle.set(pipelines.fillPipelineGroundFallback, { mat: ground, variant: 1 })
+  }
   /** Ground-layer fill — identical to fillPipeline except depth
    *  test/write are off. Selected at draw time for any layer whose
    *  `extrude.kind === 'none'` so coplanar fills resolve via plain
@@ -371,31 +419,9 @@ export class PipelineFactory {
    *  Idempotent — first call builds, subsequent calls reuse. */
   ensureOverdrawCompose(): GPURenderPipeline {
     if (this.overdrawComposePipeline) return this.overdrawComposePipeline
-    const { device, format } = this.ctx
-    // Phase 4+ migration — WGSL was extracted to the polygon DSL in
-    // runtime/src/engine/shaders/dsl/overdraw-compose.ts. emit returns the same
-    // shader text the inline template held; the pipeline's bind-group
-    // layout + entryPoint names (vs_full / fs_compose) are unchanged.
-    const code = emitOverdrawComposeWgsl()
-    const module = device.createShaderModule({ code, label: 'overdraw-compose-shader' })
-    this.overdrawComposeBindGroupLayout = device.createBindGroupLayout({
-      label: 'overdraw-compose-bgl',
-      entries: [{
-        binding: 0, visibility: GPUShaderStage.FRAGMENT,
-        texture: { sampleType: 'unfilterable-float', multisampled: false },
-      }],
-    })
-    this.overdrawComposePipeline = device.createRenderPipeline({
-      label: 'overdraw-compose-pipeline',
-      layout: device.createPipelineLayout({ bindGroupLayouts: [this.overdrawComposeBindGroupLayout] }),
-      vertex: { module, entryPoint: 'vs_full' },
-      fragment: {
-        module, entryPoint: 'fs_compose',
-        targets: [{ format }],
-      },
-      primitive: { topology: 'triangle-list' },
-      multisample: { count: 1 },
-    })
+    const built = buildOverdrawComposePipeline(this.ctx.device, this.ctx.format)
+    this.overdrawComposeBindGroupLayout = built.layout
+    this.overdrawComposePipeline = built.pipeline
     return this.overdrawComposePipeline
   }
 
@@ -407,24 +433,9 @@ export class PipelineFactory {
    *  — single-sample, no MSAA variants. Idempotent. */
   ensureHeatmapBlur(): GPURenderPipeline {
     if (this.heatmapBlurPipeline) return this.heatmapBlurPipeline
-    const { device } = this.ctx
-    const code = emitHeatmapBlurWgsl()
-    const module = device.createShaderModule({ code, label: 'heatmap-blur-shader' })
-    this.heatmapBlurBindGroupLayout = device.createBindGroupLayout({
-      label: 'heatmap-blur-bgl',
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float', multisampled: false } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
-      ],
-    })
-    this.heatmapBlurPipeline = device.createRenderPipeline({
-      label: 'heatmap-blur-pipeline',
-      layout: device.createPipelineLayout({ bindGroupLayouts: [this.heatmapBlurBindGroupLayout] }),
-      vertex: { module, entryPoint: 'vs_full' },
-      fragment: { module, entryPoint: 'fs_blur', targets: [{ format: HEATMAP_DENSITY_FORMAT }] },
-      primitive: { topology: 'triangle-list' },
-      multisample: { count: 1 },
-    })
+    const built = buildHeatmapBlurPipeline(this.ctx.device)
+    this.heatmapBlurBindGroupLayout = built.layout
+    this.heatmapBlurPipeline = built.pipeline
     return this.heatmapBlurPipeline
   }
 
@@ -444,35 +455,9 @@ export class PipelineFactory {
    *  pre-label MSAA chain (so symbols sit on top) is a deferred follow-up. */
   ensureHeatmapCompose(): GPURenderPipeline {
     if (this.heatmapComposePipeline) return this.heatmapComposePipeline
-    const { device, format } = this.ctx
-    const code = emitHeatmapComposeWgsl()
-    const module = device.createShaderModule({ code, label: 'heatmap-compose-shader' })
-    this.heatmapComposeBindGroupLayout = device.createBindGroupLayout({
-      label: 'heatmap-compose-bgl',
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float', multisampled: false } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', multisampled: false } },
-        { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
-        { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
-      ],
-    })
-    this.heatmapComposePipeline = device.createRenderPipeline({
-      label: 'heatmap-compose-pipeline',
-      layout: device.createPipelineLayout({ bindGroupLayouts: [this.heatmapComposeBindGroupLayout] }),
-      vertex: { module, entryPoint: 'vs_full' },
-      fragment: {
-        module, entryPoint: 'fs_compose',
-        targets: [{
-          format,
-          blend: {
-            color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-          },
-        }],
-      },
-      primitive: { topology: 'triangle-list' },
-      multisample: { count: 1 },
-    })
+    const built = buildHeatmapComposePipeline(this.ctx.device, this.ctx.format)
+    this.heatmapComposeBindGroupLayout = built.layout
+    this.heatmapComposePipeline = built.pipeline
     return this.heatmapComposePipeline
   }
 
@@ -763,6 +748,24 @@ export class PipelineFactory {
     this.fillPipelinePatternExtruded = pickable.fillPatternExtruded
     this.fillPipelinePatternExtrudedFallback = pickable.fillPatternExtrudedFallback
 
+    // P1.6/§4 — build the flat-fill Material twins (default shader), always. recordFillDraw routes the
+    // flat/ground non-extrude fill through them (the raw fallback is deleted; an untwinned pipeline throws).
+    this._fillMaterials = buildFlatFillMaterials({
+      rhi: this.ctx.rhi, shader: pickShader, format, sampleCount: getSampleCount(),
+      bindGroupLayout: this.bindGroupLayout, vertexLayout: vertexBufferLayout, pickEnabled,
+    })
+    this._fillExtrudeMaterial = buildExtrudeMaterial({
+      rhi: this.ctx.rhi, shader: pickShader, format, sampleCount: getSampleCount(),
+      bindGroupLayout: this.bindGroupLayout, vertexLayout: extrudedVertexBufferLayout, pickEnabled,
+    })
+    // Fill-pattern twins (fs_fill_pattern) of fillPipelinePattern{Ground,Extruded}* — one call twins
+    // BOTH the ground (flat layout) + extruded (POLYGON_EXTRUDED layout) pattern pipelines.
+    this._fillPatternMaterials = buildPatternFillMaterials({
+      rhi: this.ctx.rhi, shader: pickShader, format, sampleCount: getSampleCount(),
+      bindGroupLayout: this.bindGroupLayout, vertexLayout: vertexBufferLayout,
+      extrudedVertexLayout: extrudedVertexBufferLayout, pickEnabled,
+    })
+
     // `?debug=overdraw` — fill + line debug mirrors. Same VS as the
     // opaque pipelines so the rasterizer produces matching fragment
     // coverage; FS collapses to `fs_overdraw` (constant 1.0 R, alpha
@@ -914,37 +917,34 @@ export class PipelineFactory {
       this.linePipelineFallbackNoPick = this.linePipelineFallback
     }
 
+    // P1.6/§4 — pointer-events:none no-pick fill Material twins (pick writeMask 0). Only when picking
+    // is ON; with picking off the no-pick pipelines alias the pickable set (already routed via
+    // _fillMaterials). The non-extrude no-pick pipelines join _fillPerStyle (checked first by
+    // recordFillDraw); the extrude no-pick rides the extrude slot's *NoPick fields.
+    if (pickEnabled) {
+      const np = buildFlatFillMaterials({
+        rhi: this.ctx.rhi, shader: pickShader, format, sampleCount: getSampleCount(),
+        bindGroupLayout: this.bindGroupLayout, vertexLayout: vertexBufferLayout, pickEnabled, pickWriteMask: 0,
+      })
+      this._fillPerStyle.set(this.fillPipelineNoPick, { mat: np.flat, variant: 0 })
+      this._fillPerStyle.set(this.fillPipelineFallbackNoPick, { mat: np.flat, variant: 1 })
+      this._fillPerStyle.set(this.fillPipelineGroundNoPick, { mat: np.ground, variant: 0 })
+      this._fillPerStyle.set(this.fillPipelineGroundFallbackNoPick, { mat: np.ground, variant: 1 })
+      this._fillExtrudeMaterialNoPick = buildExtrudeMaterial({
+        rhi: this.ctx.rhi, shader: pickShader, format, sampleCount: getSampleCount(),
+        bindGroupLayout: this.bindGroupLayout, vertexLayout: extrudedVertexBufferLayout, pickEnabled, pickWriteMask: 0,
+      })
+    }
+
     // OIT compose — full-screen quad samples accum + revealage and
     // over-blends the recovered translucent colour onto the
     // (resolved) main framebuffer. With MSAA on, accum + revealage
     // are multisampled; the shader averages every sample to recover
     // a single resolved value. Single-sample (mobile / safe mode)
     // takes the same code path with a 1-sample loop, no branch.
-    const sampleCount = getSampleCount()
-    const isMsaa = sampleCount > 1
-    const oitComposeShader = emitOitComposeWgsl(sampleCount, isMsaa)
-    const oitComposeModule = device.createShaderModule({ code: oitComposeShader, label: 'oit-compose' })
-    this.oitComposeBindGroupLayout = device.createBindGroupLayout({
-      label: 'oit-compose-bgl',
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.FRAGMENT,
-          texture: { sampleType: 'unfilterable-float', multisampled: isMsaa } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT,
-          texture: { sampleType: 'unfilterable-float', multisampled: isMsaa } },
-      ],
-    })
-    this.oitComposePipeline = device.createRenderPipeline({
-      label: 'oit-compose-pipeline',
-      layout: device.createPipelineLayout({ bindGroupLayouts: [this.oitComposeBindGroupLayout] }),
-      vertex: { module: oitComposeModule, entryPoint: 'vs_full' },
-      fragment: {
-        module: oitComposeModule,
-        entryPoint: 'fs_compose',
-        targets: [{ format, blend: BLEND_ALPHA }],
-      },
-      primitive: { topology: 'triangle-list' },
-      multisample: msaaState,
-    })
+    const oitCompose = buildOitComposePipeline(device, format, getSampleCount())
+    this.oitComposeBindGroupLayout = oitCompose.layout
+    this.oitComposePipeline = oitCompose.pipeline
   }
 
   /** Get or create variant pipelines (public for vector tile renderer) */
@@ -953,6 +953,7 @@ export class PipelineFactory {
     if (cached) return cached
     const pipelines = this.createVariantPipelines(variant)
     this.shaderCache.set(variant.key, pipelines)
+    this.registerFillMaterials(variant, pipelines)
     return pipelines
   }
 
@@ -968,6 +969,7 @@ export class PipelineFactory {
   cacheVariantPipelines(variant: ShaderVariantInfo): CachedPipeline {
     const pipelines = this.createVariantPipelines(variant)
     this.shaderCache.set(variant.key, pipelines)
+    this.registerFillMaterials(variant, pipelines)
     return pipelines
   }
 
@@ -992,6 +994,7 @@ export class PipelineFactory {
       if (this.shaderCache.has(v.key)) continue
       tasks.push(this.createVariantPipelinesAsync(v).then((pipelines) => {
         this.shaderCache.set(v.key, pipelines)
+        this.registerFillMaterials(v, pipelines)
       }))
     }
     if (tasks.length > 0) await Promise.all(tasks)

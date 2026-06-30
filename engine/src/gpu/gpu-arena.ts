@@ -62,34 +62,48 @@
 //   every alloc by rounding the request size up to a multiple of 4.
 //   Callers don't need to pre-align their byte lengths.
 
+import type { RhiBuffer, RhiBufferDesc, RhiBufferUsage } from '../render/rhi/rhi'
+
 /** Configuration for a new arena. */
 export interface GPUArenaOptions {
   /** Initial buffer capacity in bytes. Allocations beyond this throw
    *  (Phase 6a.5 will add auto-grow). Recommended: estimated peak
    *  + 25 % headroom. */
   capacityBytes: number
-  /** WebGPU usage flags for the underlying buffer. Typical:
-   *  `GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST` for a vertex
-   *  arena. */
-  usage: GPUBufferUsageFlags
-  /** Optional label propagated to `device.createBuffer({ label })`.
-   *  Helps the WebGPU validation messages + DevTools attribution. */
+  /** Semantic RHI buffer role. The poly arenas are `'vertex'` / `'index'`;
+   *  the RHI maps the role to the backend usage flags (WebGPU VERTEX/INDEX |
+   *  COPY_DST), so the arena never names raw GPUBufferUsage bits. */
+  usage: RhiBufferUsage
+  /** OR in COPY_SRC so the compaction/grow ping-pong can read THIS buffer as the
+   *  copy SOURCE when relocating the live set into a freshly-packed destination.
+   *  The poly arenas always set it; default false is byte-identical to no flag. */
+  copySrc?: boolean
+  /** Optional label propagated to the RHI `createBuffer({ label })`. Helps the
+   *  WebGPU validation messages + DevTools attribution. */
   label?: string
 }
 
-/** Lightweight subset of GPUDevice used by GPUArena. Real device
- *  provides this; tests can substitute a stub. */
+/** The RHI device subset GPUArena needs — create the backing buffer (with the
+ *  `copySrc` compaction-source flag) + release it. The real `WebGpuDevice`
+ *  satisfies it; tests substitute a stub that wraps a recording handle. */
 export interface GPUArenaDevice {
-  createBuffer(desc: GPUBufferDescriptor): GPUBuffer
+  createBuffer(desc: RhiBufferDesc): RhiBuffer
+  destroyBuffer(buffer: RhiBuffer): void
+  /** Unwrap an RHI handle to the native GPUBuffer the arena exposes to its raw
+   *  consumers (the VTR fill draw). Injected so gpu/ never imports a backend
+   *  module (downward-spine: arena depends only on this port). */
+  unwrapBuffer(buffer: RhiBuffer): GPUBuffer
 }
 
-/** Minimal subset of GPUCommandEncoder used by compaction. Real encoder
- *  provides this; tests substitute a recording stub. */
+/** Minimal subset of `RhiCommandEncoder` used by compaction. The real
+ *  `WebGpuCommandEncoder` (and the WebGL2 copy encoder) satisfies it; tests
+ *  substitute a recording stub. The buffers are RHI handles (the copy primitive
+ *  is backend-agnostic); the WebGPU impl unwraps them to native GPUBuffers. */
 export interface GPUArenaEncoder {
   copyBufferToBuffer(
-    source: GPUBuffer,
+    source: RhiBuffer,
     sourceOffset: number,
-    destination: GPUBuffer,
+    destination: RhiBuffer,
     destinationOffset: number,
     size: number,
   ): void
@@ -151,11 +165,19 @@ function align4(bytes: number): number {
 // overrun the neighbour allocation.
 
 export class GPUArena {
-  /** Backing GPUBuffer. Mutable internally so `compact()` can ping-pong
-   *  to a freshly-packed buffer; externally exposed read-only via the
-   *  `buffer` getter. Callers that cache `arena.buffer` across a frame
-   *  boundary must re-read it after any compaction (the VTR re-reads it
-   *  when it rewrites each relocated tile's `vertexBuffer` reference). */
+  /** Backing arena buffer as an RHI handle — the truth the compaction copy
+   *  reads (`copyBufferToBuffer` is backend-agnostic + needs RhiBuffer). Created
+   *  through the RHI device with `copySrc` set. Mutable internally so `compact()`
+   *  can ping-pong to a freshly-packed buffer. */
+  private _rhiBuffer: RhiBuffer
+  /** The same buffer unwrapped to its native GPUBuffer — the handle the RAW
+   *  consumers still bind (the VTR fill draw sets `tile.vertexBuffer` on the raw
+   *  `GPURenderPassEncoder`; that raw path retires with the VTR cluster, after
+   *  which the arena buffer can flip end-to-end to RhiBuffer). Identity on WebGPU,
+   *  so exposing it is byte-identical to the pre-RHI `device.createBuffer` handle.
+   *  Externally exposed read-only via the `buffer` getter; callers that cache
+   *  `arena.buffer` across a frame must re-read it after any compaction (the VTR
+   *  re-reads it when it rewrites each relocated tile's `vertexBuffer`). */
   private _buffer: GPUBuffer
   get buffer(): GPUBuffer {
     return this._buffer
@@ -206,18 +228,23 @@ export class GPUArena {
   /** Retained for `compact()` — it must `createBuffer` a fresh
    *  destination of the same shape. */
   private readonly device: GPUArenaDevice
-  private readonly usage: GPUBufferUsageFlags
+  private readonly usage: RhiBufferUsage
+  private readonly copySrc: boolean
   private readonly label?: string
 
   constructor(device: GPUArenaDevice, opts: GPUArenaOptions) {
-    this._buffer = device.createBuffer({
+    this._rhiBuffer = device.createBuffer({
       size: opts.capacityBytes,
       usage: opts.usage,
+      writable: true,
+      copySrc: opts.copySrc,
       label: opts.label,
     })
+    this._buffer = device.unwrapBuffer(this._rhiBuffer)
     this._capacityBytes = opts.capacityBytes
     this.device = device
     this.usage = opts.usage
+    this.copySrc = opts.copySrc ?? false
     this.label = opts.label
   }
 
@@ -308,7 +335,7 @@ export class GPUArena {
    *  map disposal. Calling alloc() after destroy is undefined
    *  behaviour (the GPUBuffer ref stays but is destroyed driver-side). */
   destroy(): void {
-    this.buffer.destroy()
+    this.device.destroyBuffer(this._rhiBuffer)
     this.bumpPtr = 0
     this.liveBytes = 0
     this.freeList.clear()
@@ -387,9 +414,11 @@ export class GPUArena {
     encoder: GPUArenaEncoder,
     targetCapacity: number = this._capacityBytes,
   ): ArenaCompactionResult {
-    const newBuffer = this.device.createBuffer({
+    const newRhiBuffer = this.device.createBuffer({
       size: targetCapacity,
       usage: this.usage,
+      writable: true,
+      copySrc: this.copySrc,
       label: this.label,
     })
     const newOffsets: number[] = new Array(relocations.length)
@@ -400,15 +429,19 @@ export class GPUArena {
       // copyBufferToBuffer size must be a multiple of 4; aligned already
       // is. Source range [oldOffset, oldOffset+aligned) is exactly the
       // slot the allocator handed out, so the copy can never read past
-      // the neighbour.
+      // the neighbour. RHI handles (not native GPUBuffers) — the WebGPU
+      // encoder unwraps; the WebGL2 encoder copyBufferSubData's.
       encoder.copyBufferToBuffer(
-        this._buffer, r.oldOffset, newBuffer, packed, aligned,
+        this._rhiBuffer, r.oldOffset, newRhiBuffer, packed, aligned,
       )
       newOffsets[i] = packed
       packed += aligned
     }
+    // The caller retires the OLD buffer's NATIVE handle (it destroys it post-
+    // submit + the bundle-invalidation path identity-checks it raw).
     const oldBuffer = this._buffer
-    this._buffer = newBuffer
+    this._rhiBuffer = newRhiBuffer
+    this._buffer = this.device.unwrapBuffer(newRhiBuffer)
     // Adopt the new buffer's capacity (defaults to current = same-size
     // defrag; larger = auto-grow). Written synchronously with the buffer
     // swap so capacity and _buffer never disagree across a frame.

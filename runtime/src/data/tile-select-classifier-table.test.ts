@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { Camera } from '../engine/projection/camera'
+import { Camera } from '@xgis/engine'
 import { visibleTilesFrustum, visibleTilesFrustumSampled } from './tile-select'
-import { mercator, naturalEarth } from '../engine/projection/projection'
-import { worldCopiesFor } from '../engine/gpu/gpu-shared'
-import { PROJECTION_NAME_TO_TYPE } from '../engine/projection/projections-table'
+import { mercator, naturalEarth } from '@xgis/engine'
+import { worldCopiesFor } from '@xgis/engine'
+import { PROJECTION_NAME_TO_TYPE } from '@xgis/engine'
 
 // PR-A target #3 equivalence gate. The tile-select classifier was migrated
 // from the lossy `projType = name === 'mercator' ? 0 : 1` to the canonical

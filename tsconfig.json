@@ -5,6 +5,8 @@
     { "path": "./compiler" },
     { "path": "./blueprint" },
     { "path": "./shader-dsl" },
+    { "path": "./engine" },
+    { "path": "./map" },
     { "path": "./runtime" }
   ]
 }

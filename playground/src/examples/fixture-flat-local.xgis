@@ -1,0 +1,9 @@
+/* P1.6 no-pick FLAT verification: a flat (non-extruded) polygon through the VTR.
+ * geojson source → VTR (recordTileFill, no z-buffer). Fill only (no line/point) so picking=1 stays
+ * clean — used with pointer-events:none to exercise the no-pick flat Material route. */
+source poly { type: geojson, url: "fixture-square.geojson" }
+
+layer the_flat {
+  source: poly
+  | fill-stone-300 stroke-stone-500 stroke-1
+}

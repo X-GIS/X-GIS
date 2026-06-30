@@ -26,8 +26,9 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
-import { initGPU, type GPUContext } from '../gpu/gpu'
+import { initGPU, type GPUContext } from '@xgis/engine'
 import { TextStage } from './text-stage'
+import { WebGpuDevice } from '@xgis/engine'
 import type { LabelDef, TextValue } from '@xgis/compiler'
 
 let stub: StubInstallation
@@ -63,7 +64,7 @@ function dispatchedFor(
   ctx: GPUContext,
   transform: 'none' | 'uppercase' | 'lowercase' | undefined,
 ): string {
-  const stage = new TextStage(ctx.device, ctx.format)
+  const stage = new TextStage(ctx.device, new WebGpuDevice(ctx.device), ctx.format)
   stage.clearDispatchedLabelTexts()
   const def: LabelDef = { text: VALUE, size: 12, transform }
   stage.addLabel(VALUE, {}, 100, 100, def)

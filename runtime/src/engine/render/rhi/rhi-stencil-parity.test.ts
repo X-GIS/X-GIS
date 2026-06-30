@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { rhiStencilToGpu } from './rhi-webgpu'
+import { rhiStencilToGpu } from '@xgis/engine'
 import {
   STENCIL_WRITE, STENCIL_TEST, STENCIL_CLIPMASK_WRITE, STENCIL_CLIPMASK_TEST,
-} from '../../gpu/gpu-shared'
+} from '@xgis/engine'
 
 // P0.1 (engine/content split — RHI contract extension) byte-identity gate.
 // The new RHI stencil config (RhiPipelineDesc.depthStencil.stencil + setStencilReference)

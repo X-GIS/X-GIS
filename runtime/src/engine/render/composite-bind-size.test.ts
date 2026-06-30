@@ -65,18 +65,17 @@ describe('LineRenderer composite bind size (regression #284)', () => {
 
   it('the composite bind size is >= the CompUniform std140 size', () => {
     const required = wgslStructSize(emitCompositeWgsl(), 'CompUniform')
-    const used = (LineRenderer as unknown as { COMPOSITE_USED: number }).COMPOSITE_USED
-    // The bind `size` passed to the composite bind group MUST be >= the
-    // pipeline's minimum binding size (= the struct's std140 size), or WebGPU
-    // rejects the draw. Pre-fix used=16 < required=32 → the #284 validation error.
-    expect(used).toBeGreaterThanOrEqual(required)
+    // LineCompositeDraper binds the FULL composite slot (COMPOSITE_SLOT) as the uniform range. The
+    // bound `size` MUST be >= the pipeline's minimum binding size (= the struct's std140 size), or
+    // WebGPU rejects the draw. (Pre-fix #259 bound 16 < 32 → the #284 validation error; after the RHI
+    // flip the seam binds the whole 256-byte slot, comfortably >= 32.)
+    const slot = (LineRenderer as unknown as { COMPOSITE_SLOT: number }).COMPOSITE_SLOT
+    expect(slot).toBeGreaterThanOrEqual(required)
   })
 
-  it('the composite slot stride is a multiple of 256 and >= the bind size', () => {
-    const used = (LineRenderer as unknown as { COMPOSITE_USED: number }).COMPOSITE_USED
+  it('the composite slot stride is a multiple of 256 (dynamic-offset aligned)', () => {
     const slot = (LineRenderer as unknown as { COMPOSITE_SLOT: number }).COMPOSITE_SLOT
-    // Dynamic-offset uniforms must be 256-aligned, and a slot must hold the bind.
+    // Dynamic-offset uniforms must be 256-aligned.
     expect(slot % 256).toBe(0)
-    expect(slot).toBeGreaterThanOrEqual(used)
   })
 })

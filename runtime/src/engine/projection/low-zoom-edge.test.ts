@@ -4,7 +4,7 @@
 // (equirect/NE missing seam-straddling tiles at z=0).
 
 import { describe, expect, it } from 'vitest'
-import { globeVisibleTiles } from './globe'
+import { globeVisibleTiles } from '@xgis/engine'
 
 const VIEWPORT = { w: 1280, h: 720 }
 

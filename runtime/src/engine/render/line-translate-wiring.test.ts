@@ -32,8 +32,9 @@ import { describe, expect, it } from 'vitest'
   UNIFORM: 1, COPY_DST: 2, STORAGE: 4, VERTEX: 8, INDEX: 16,
 }
 
-import { LineRenderer, LINE_UNIFORM_SIZE } from './line-renderer'
-import type { GPUContext } from '../gpu/gpu'
+import { LineRenderer, lineUniformSize } from './line-renderer'
+import { WebGpuDevice } from '@xgis/engine'
+import type { GPUContext } from '@xgis/engine'
 
 // f32 slots in the 208-byte line layer uniform (see line-pattern.ts header):
 //   [47] line_translate_x, [48] line_translate_y.
@@ -69,8 +70,8 @@ function makeFakeContext(writes: CapturedWrite[]): GPUContext {
         const ab = data instanceof ArrayBuffer ? data : (data as ArrayBufferView).buffer
         const baseOff = (data instanceof ArrayBuffer ? 0 : (data as ArrayBufferView).byteOffset) + (dataOffset ?? 0)
         // Read the full uniform (52 f32) of the first staged slot.
-        const bytes = new Float32Array(ab, baseOff, LINE_UNIFORM_SIZE / 4)
-        writes.push({ offset, bytes: bytes.slice(0, LINE_UNIFORM_SIZE / 4) })
+        const bytes = new Float32Array(ab, baseOff, lineUniformSize() / 4)
+        writes.push({ offset, bytes: bytes.slice(0, lineUniformSize() / 4) })
       },
     },
   }
@@ -79,6 +80,7 @@ function makeFakeContext(writes: CapturedWrite[]): GPUContext {
     format: 'bgra8unorm',
     canvas: {} as HTMLCanvasElement,
     context: {} as GPUCanvasContext,
+    rhi: new WebGpuDevice(fakeDevice as unknown as GPUDevice),
   } as unknown as GPUContext
 }
 

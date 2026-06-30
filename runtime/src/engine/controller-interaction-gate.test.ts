@@ -51,12 +51,12 @@
 //   · 6 oblique_mercator · 7 globe
 
 import { describe, it, expect, afterEach } from 'vitest'
-import { Camera } from './projection/camera'
-import { buildGlobeMatrix, unprojectGlobe } from './projection/globe'
-import { mercatorYToLat } from './projection/projection'
+import { Camera } from '@xgis/engine'
+import { buildGlobeMatrix, unprojectGlobe } from '@xgis/engine'
+import { mercatorYToLat } from '@xgis/engine'
 import { PanZoomController } from './controller'
 import { InteractionController, type InteractionControllerDeps } from './interaction-controller'
-import type { GPUContext } from './gpu/gpu'
+import type { GPUContext } from '@xgis/engine'
 
 const W = 800, H = 800
 

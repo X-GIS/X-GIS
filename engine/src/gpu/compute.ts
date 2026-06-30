@@ -5,6 +5,10 @@
 
 import type { GPUContext } from './gpu'
 import type { ComputeKernel } from '@xgis/compiler'
+// The compiler returns backend-NEUTRAL IR; the RUNTIME emits the shader for the live
+// backend (ruling i). This WebGPU dispatcher emits WGSL via emitModule; the WebGL2 path
+// (a separate dispatcher) emits GLSL via emitGlslModule({emulateCompute}).
+import { emitModule } from '@xgis/shader-dsl'
 
 /**
  * A compute task specification.
@@ -92,32 +96,6 @@ export class ComputeDispatcher {
   }
 
   /**
-   * Generate a WGSL compute shader for per-feature expression evaluation.
-   * @param expression WGSL expression string (from wgsl-expr.ts)
-   * @param fieldCount Number of f32 fields per feature in the input buffer
-   * @param workgroupSize Threads per workgroup
-   */
-  static generateShader(
-    expression: string,
-    fieldCount: number,
-    workgroupSize = 64,
-  ): string {
-    return `
-@group(0) @binding(0) var<storage, read> feat_data: array<f32>;
-@group(0) @binding(1) var<storage, read_write> result: array<f32>;
-
-@compute @workgroup_size(${workgroupSize})
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let idx = gid.x;
-  let feat_idx = idx * ${fieldCount}u;
-
-  // Evaluate expression per feature
-  result[idx] = ${expression};
-}
-`
-  }
-
-  /**
    * Create a GPU storage buffer and upload data.
    */
   createBuffer(data: Float32Array, usage: GPUBufferUsageFlags): GPUBuffer {
@@ -152,12 +130,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
    * with different entry-points produces different pipelines.
    */
   getOrCreateKernelPipeline(kernel: ComputeKernel): GPUComputePipeline {
-    const key = kernelCacheKey(kernel.wgsl, kernel.entryPoint)
+    // Emit WGSL from the compiler's neutral IR at the WebGPU backend (ruling i).
+    const wgsl = emitModule(kernel.module)
+    const key = kernelCacheKey(wgsl, kernel.entryPoint)
     const cached = this.pipelineCache.get(key)
     if (cached) return cached
 
     const module = this.device.createShaderModule({
-      code: kernel.wgsl,
+      code: wgsl,
       label: `compute-module:${kernel.entryPoint}`,
     })
 

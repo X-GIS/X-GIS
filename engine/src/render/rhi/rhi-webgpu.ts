@@ -34,6 +34,11 @@ const BLEND_ADDITIVE: GPUBlendState = {
   color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
   alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
 }
+// MAX blend — the translucent-line offscreen accumulation (mirrors gpu-shared BLEND_MAX).
+const BLEND_MAX: GPUBlendState = {
+  color: { srcFactor: 'one', dstFactor: 'one', operation: 'max' },
+  alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'max' },
+}
 
 /** Map the RHI stencil config (or its absence) to the `GPUDepthStencilState`
  *  stencil fields. Absent → the inert STENCIL_DISABLED shape (compare always,
@@ -86,12 +91,14 @@ export function rhiRenderPassToGpu(desc: RhiRenderPassDesc): GPURenderPassDescri
   }
 }
 
-function bufUsage(usage: RhiBufferDesc['usage'], writable: boolean): GPUBufferUsageFlags {
+function bufUsage(usage: RhiBufferDesc['usage'], writable: boolean, copySrc = false): GPUBufferUsageFlags {
   const base = usage === 'uniform' ? GPUBufferUsage.UNIFORM
     : usage === 'vertex' ? GPUBufferUsage.VERTEX
     : usage === 'index' ? GPUBufferUsage.INDEX
     : GPUBufferUsage.STORAGE
-  return base | (writable ? GPUBufferUsage.COPY_DST : 0)
+  // COPY_SRC is OR'd ONLY when copySrc is set (the arena compaction source) — an
+  // un-flagged buffer's usage bits are byte-identical to the pre-copySrc map.
+  return base | (writable ? GPUBufferUsage.COPY_DST : 0) | (copySrc ? GPUBufferUsage.COPY_SRC : 0)
 }
 
 function texUsage(usage: RhiTextureDesc['usage']): GPUTextureUsageFlags {
@@ -105,23 +112,32 @@ function texUsage(usage: RhiTextureDesc['usage']): GPUTextureUsageFlags {
   return f
 }
 
+// Wraps EITHER a live render-pass encoder OR a render-BUNDLE encoder — the draw subset
+// (setPipeline/setBindGroup/setVertex+IndexBuffer/draw[Indexed]) is identical; only the pass-level
+// setStencilReference + end exist on the pass encoder (no-op'd for a bundle, which has no stencil-ref
+// and finishes via finish()).
 class WebGpuRenderPass implements RhiRenderPass {
-  constructor(private readonly enc: GPURenderPassEncoder) {}
+  constructor(private readonly enc: GPURenderPassEncoder | GPURenderBundleEncoder) {}
   setPipeline(p: RhiPipeline): void { this.enc.setPipeline(u<GPURenderPipeline>(p)) }
   setBindGroup(index: number, group: RhiBindGroup, dynamicOffsets?: number[]): void {
-    this.enc.setBindGroup(index, u<GPUBindGroup>(group), dynamicOffsets)
+    // dynamicOffsets is OPTIONAL per the RHI contract — a bind group with no dynamic-offset bindings
+    // passes none. WebGPU's setBindGroup(i, g, undefined) THROWS ("cannot convert undefined to a
+    // sequence"), so the undefined case MUST call the 2-arg form. (IconDraper — the first Draper to
+    // bind a non-dynamic-offset group through executeItems — exposed this.)
+    if (dynamicOffsets) this.enc.setBindGroup(index, u<GPUBindGroup>(group), dynamicOffsets)
+    else this.enc.setBindGroup(index, u<GPUBindGroup>(group))
   }
   setVertexBuffer(slot: number, buffer: RhiBuffer, offset?: number, size?: number): void { this.enc.setVertexBuffer(slot, u<GPUBuffer>(buffer), offset, size) }
-  setIndexBuffer(buffer: RhiBuffer, format: 'uint16' | 'uint32'): void { this.enc.setIndexBuffer(u<GPUBuffer>(buffer), format) }
+  setIndexBuffer(buffer: RhiBuffer, format: 'uint16' | 'uint32', offset?: number, size?: number): void { this.enc.setIndexBuffer(u<GPUBuffer>(buffer), format, offset, size) }
   draw(vertexCount: number, instanceCount = 1, firstVertex = 0): void { this.enc.draw(vertexCount, instanceCount, firstVertex) }
   drawIndexed(indexCount: number, instanceCount = 1): void { this.enc.drawIndexed(indexCount, instanceCount) }
-  setStencilReference(ref: number): void { this.enc.setStencilReference(ref) }
-  end(): void { this.enc.end() }
+  setStencilReference(ref: number): void { if ('setStencilReference' in this.enc) this.enc.setStencilReference(ref) }
+  end(): void { if ('end' in this.enc) this.enc.end() }
 }
 
-/** Wrap a live GPURenderPassEncoder (created by the render loop) as an RHI pass
- *  so renderers record against the interface, not the native encoder. */
-export function wrapWebGpuPass(enc: GPURenderPassEncoder): RhiRenderPass {
+/** Wrap a live GPURenderPassEncoder OR a GPURenderBundleEncoder (the render loop's pass / a VTR tile
+ *  bundle) as an RHI pass so renderers record against the interface, not the native encoder. */
+export function wrapWebGpuPass(enc: GPURenderPassEncoder | GPURenderBundleEncoder): RhiRenderPass {
   return new WebGpuRenderPass(enc)
 }
 
@@ -132,11 +148,29 @@ export function wrapWebGpuTextureView(view: GPUTextureView): RhiTextureView {
   return wrap(view) as unknown as RhiTextureView
 }
 
+/** Adopt an EXTERNALLY-created sampler (e.g. the glyph atlas's GPUSampler) as an
+ *  RHI sampler — the legit native→RHI bridge for samplers built outside the device
+ *  abstraction, mirroring wrapWebGpuTextureView. */
+export function wrapWebGpuSampler(sampler: GPUSampler): RhiSampler {
+  return wrap(sampler) as unknown as RhiSampler
+}
+
 /** Adopt an externally-built GPUBuffer (vertex / index / feature geometry from
  *  the upload path) as an RHI buffer. Bridge for resources built outside the
  *  device abstraction; the full arch builds these via RHI too. */
 export function wrapWebGpuBuffer(buffer: GPUBuffer): RhiBuffer {
   return wrap(buffer) as unknown as RhiBuffer
+}
+
+/** Recover the native `GPUBuffer` from an RHI buffer — the inverse of
+ *  `wrapWebGpuBuffer`. Used at the engine/content boundary where a buffer
+ *  CREATED through the RHI (GPUArena's arena buffer) must still be handed to a
+ *  not-yet-migrated RAW draw consumer (the VTR fill draw binds `tile.vertexBuffer`
+ *  on the raw `GPURenderPassEncoder`; that raw path retires with the VTR cluster).
+ *  Identity on WebGPU — the same `GPUBuffer` the wrap holds — so it is byte-
+ *  identical to the pre-migration `device.createBuffer` handle. */
+export function unwrapWebGpuBuffer(buffer: RhiBuffer): GPUBuffer {
+  return u<GPUBuffer>(buffer)
 }
 
 /** Adopt an externally-created bind-group layout (line reuses the VTR tile layout
@@ -157,9 +191,14 @@ export function wrapWebGpuBindGroup(group: GPUBindGroup): RhiBindGroup {
  *  one submit, matching the render loop's per-frame submit). */
 class WebGpuCommandEncoder implements RhiCommandEncoder {
   private readonly enc: GPUCommandEncoder
-  constructor(private readonly device: GPUDevice) { this.enc = device.createCommandEncoder() }
+  constructor(private readonly device: GPUDevice, label?: string) {
+    this.enc = device.createCommandEncoder(label !== undefined ? { label } : undefined)
+  }
   beginRenderPass(desc: RhiRenderPassDesc): RhiRenderPass {
     return new WebGpuRenderPass(this.enc.beginRenderPass(rhiRenderPassToGpu(desc)))
+  }
+  copyBufferToBuffer(src: RhiBuffer, srcOffset: number, dst: RhiBuffer, dstOffset: number, size: number): void {
+    this.enc.copyBufferToBuffer(u<GPUBuffer>(src), srcOffset, u<GPUBuffer>(dst), dstOffset, size)
   }
   finish(): void { this.device.queue.submit([this.enc.finish()]) }
 }
@@ -168,16 +207,24 @@ export class WebGpuDevice implements RhiDevice {
   readonly backend = 'webgpu' as const
   constructor(private readonly device: GPUDevice) {}
 
-  createCommandEncoder(): RhiCommandEncoder { return new WebGpuCommandEncoder(this.device) }
+  createCommandEncoder(label?: string): RhiCommandEncoder { return new WebGpuCommandEncoder(this.device, label) }
 
   createBuffer(desc: RhiBufferDesc): RhiBuffer {
     return wrap(this.device.createBuffer({
-      size: desc.size, usage: bufUsage(desc.usage, desc.writable ?? true), label: desc.label,
+      size: desc.size, usage: bufUsage(desc.usage, desc.writable ?? true, desc.copySrc), label: desc.label,
     })) as unknown as RhiBuffer
   }
 
   writeBuffer(buffer: RhiBuffer, byteOffset: number, data: BufferSource): void {
     this.device.queue.writeBuffer(u<GPUBuffer>(buffer), byteOffset, data)
+  }
+
+  destroyBuffer(buffer: RhiBuffer): void {
+    u<GPUBuffer>(buffer).destroy()
+  }
+
+  unwrapBuffer(buffer: RhiBuffer): GPUBuffer {
+    return u<GPUBuffer>(buffer)
   }
 
   createTexture(desc: RhiTextureDesc): RhiTexture {
@@ -244,8 +291,8 @@ export class WebGpuDevice implements RhiDevice {
         module, entryPoint: desc.fsEntry,
         targets: desc.colorTargets.map((t): GPUColorTargetState => ({
           format: t.format as GPUTextureFormat,
-          blend: t.blend === 'alpha' ? BLEND_ALPHA : t.blend === 'premult' ? BLEND_ALPHA_PREMULT : t.blend === 'additive' ? BLEND_ADDITIVE : undefined,
-          writeMask: t.format === 'rg32uint' ? 0 : GPUColorWrite.ALL,
+          blend: t.blend === 'alpha' ? BLEND_ALPHA : t.blend === 'premult' ? BLEND_ALPHA_PREMULT : t.blend === 'additive' ? BLEND_ADDITIVE : t.blend === 'max' ? BLEND_MAX : undefined,
+          writeMask: t.writeMask ?? (t.format === 'rg32uint' ? 0 : 0xf), // 0xf = GPUColorWrite.ALL (literal — the WebGPU global is undefined under node test envs); pickable fills override to 0xf
         })),
       },
       depthStencil: desc.depthStencil ? {
@@ -262,7 +309,7 @@ export class WebGpuDevice implements RhiDevice {
         ...rhiStencilToGpu(desc.depthStencil.stencil),
       } : undefined,
       multisample: { count: desc.sampleCount ?? 1 },
-      primitive: { topology: 'triangle-list' },
+      primitive: { topology: 'triangle-list', cullMode: desc.cullMode ?? 'none' },
       label: desc.label,
     })) as unknown as RhiPipeline
   }

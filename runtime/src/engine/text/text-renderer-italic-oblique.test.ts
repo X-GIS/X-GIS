@@ -15,7 +15,9 @@ import { describe, it, expect } from 'vitest'
 import { TextRenderer } from './text-renderer'
 import type { TextDraw } from './text-renderer'
 import type { GlyphInfo } from './sdf/glyph-atlas-host'
-import { FrameArena } from '../gpu/frame-arena'
+import { FrameArena } from '@xgis/engine'
+import { WebGpuDevice } from '@xgis/engine'
+import type { RhiBuffer, RhiBindGroup } from '@xgis/engine'
 
 const g = globalThis as Record<string, unknown>
 g.GPUBufferUsage ??= {
@@ -46,8 +48,11 @@ function makeRenderer(): { renderer: TextRenderer; verts: () => Float32Array } {
   const stubDevice = {
     createBuffer: () => fakeBuffer,
     queue: {
-      writeBuffer(_b: unknown, _o: number, src: ArrayBuffer, srcOff: number, size: number) {
-        captured = new Float32Array(src.slice(srcOff, srcOff + size))
+      // The §4 seam routes vertex upload through rhi.writeBuffer(buf, 0, data) where
+      // `data` is the arena-backed Float32Array VIEW (no byteOffset/size args). Copy
+      // its exact bytes out now (the arena reuses its backing buffer across frames).
+      writeBuffer(_b: unknown, _o: number, src: ArrayBufferView) {
+        captured = new Float32Array(src.buffer.slice(src.byteOffset, src.byteOffset + src.byteLength))
       },
     },
   } as unknown as GPUDevice
@@ -56,15 +61,16 @@ function makeRenderer(): { renderer: TextRenderer; verts: () => Float32Array } {
     getPage: () => ({ width: PAGE_SIZE }) as unknown as GPUTexture,
   }
   interface MutableRenderer {
-    device: GPUDevice; atlas: typeof stubAtlas; _frameArena: FrameArena
-    drawSlices: unknown[]; vertexBuf: GPUBuffer | null; vertexCount: number
-    allUniforms: Float32Array | null; uniformBuf: GPUBuffer
-    uniformBufCapacityBytes: number; bindGroupsByPage: GPUBindGroup[]
+    rhi: WebGpuDevice; atlas: typeof stubAtlas; _frameArena: FrameArena
+    drawSlices: unknown[]; vertexBuf: RhiBuffer | null; vertexCount: number
+    vertexBufCapacityBytes: number
+    allUniforms: Float32Array | null; uniformBuf: RhiBuffer
+    uniformBufCapacityBytes: number; bindGroupsByPage: RhiBindGroup[]
   }
   const r = Object.create(TextRenderer.prototype) as unknown as MutableRenderer
-  r.device = stubDevice; r.atlas = stubAtlas; r._frameArena = new FrameArena(64 * 1024)
-  r.drawSlices = []; r.vertexBuf = null; r.vertexCount = 0; r.allUniforms = null
-  r.uniformBuf = fakeBuffer; r.uniformBufCapacityBytes = 256; r.bindGroupsByPage = []
+  r.rhi = new WebGpuDevice(stubDevice); r.atlas = stubAtlas; r._frameArena = new FrameArena(64 * 1024)
+  r.drawSlices = []; r.vertexBuf = null; r.vertexCount = 0; r.vertexBufCapacityBytes = 0; r.allUniforms = null
+  r.uniformBuf = r.rhi.createBuffer({ size: 256, usage: 'uniform', writable: true }); r.uniformBufCapacityBytes = 256; r.bindGroupsByPage = []
   return {
     renderer: r as unknown as TextRenderer,
     verts: () => { if (!captured) throw new Error('no vertex data captured'); return captured },

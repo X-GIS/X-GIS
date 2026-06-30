@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest'
 import { buildSceneView } from './scene-view'
 import type { ClassifiedShow, OpaqueGroup } from './bucket-scheduler'
-import type { FrameContext } from './frame-context'
+import type { FrameContext } from '@xgis/engine'
 
 // Minimal stand-ins — buildSceneView only reads array length / identity.
 const cs = (n: number): ClassifiedShow[] =>

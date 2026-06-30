@@ -1,5 +1,5 @@
 // ═══ Raster Tile Loader — 웹 맵 타일 로딩 ═══
-import { worldCopiesFor, TILE_PX } from '../engine/gpu/gpu-shared'
+import { worldCopiesFor, TILE_PX } from '@xgis/engine'
 
 // Shared types + pure tile-math helpers were extracted to sibling
 // modules (behaviour-preserving refactor). Re-export them here so the
@@ -19,10 +19,10 @@ export {
 
 // ═══ Frustum-based tile selection ═══
 
-import type { Camera } from '../engine/projection/camera'
-import { type Projection, MERCATOR_LAT_LIMIT, mercatorYToLat } from '../engine/projection/projection'
-import { PROJECTION_NAME_TO_TYPE } from '../engine/projection/projections-table'
-import { EARTH_R } from '../engine/projection/globe'
+import type { Camera } from '@xgis/engine'
+import { type Projection, MERCATOR_LAT_LIMIT, mercatorYToLat } from '@xgis/engine'
+import { PROJECTION_NAME_TO_TYPE } from '@xgis/engine'
+import { EARTH_R } from '@xgis/engine'
 import { safeFetch } from '../engine/safety'
 
 // Mobile GPUs choke on 300 frustum tiles — each tile is a draw call plus

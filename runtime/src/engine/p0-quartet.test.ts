@@ -14,7 +14,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { XGISMap } from './map'
 import { ListenerRegistry, _resetListenerWarnings, type XGISFeatureEventType } from './layer'
-import { QUALITY } from './gpu/quality'
+import { QUALITY } from '@xgis/engine'
 import { attachAutoResize } from './auto-resize'
 
 function stubCanvas(): HTMLCanvasElement {

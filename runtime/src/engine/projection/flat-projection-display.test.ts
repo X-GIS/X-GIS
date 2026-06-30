@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { Camera } from './camera'
+import { Camera } from '@xgis/engine'
 import { lonLatToMercator } from '../../loader/geojson'
-import { mercatorToECEFSphere } from './ecef'
+import { mercatorToECEFSphere } from '@xgis/engine'
 
 // ═══ Flat Mercator display projection (projType 0) — FLATNESS gate ═══
 //

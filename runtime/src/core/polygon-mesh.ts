@@ -26,8 +26,8 @@ export const EXTRUDE_FALLBACK_HEIGHT_M = 50
 import earcut from 'earcut'
 import type { RingPolygon } from '@xgis/compiler'
 import { POLYGON_EXTRUDED_FORMAT, vertexField } from '@xgis/compiler'
-import { lonLatToECEF } from '../engine/projection/ecef'
-import { mercatorYToLatRad } from '../engine/projection/projection'
+import { lonLatToECEF } from '@xgis/engine'
+import { mercatorYToLatRad } from '@xgis/engine'
 
 // ─────────────────────────────────────────────────────────────────
 // ECEF wall + roof mesh — Phase 2 PR 2c.2 sub-task C.

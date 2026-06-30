@@ -28,7 +28,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../../__test-support__/webgpu-stub'
-import { initGPU, type GPUContext } from '../../gpu/gpu'
+import { initGPU, type GPUContext } from '@xgis/engine'
 import {
   LineRenderer,
   LINE_CAP_BUTT,
@@ -72,6 +72,10 @@ function makeTileBGL(ctx: GPUContext): GPUBindGroupLayout {
 // index 8 of the staged buffer the renderer uploads.
 const FLAGS_U32_INDEX = 8
 const CAP_MASK = 0x7        // bits 0-2
+// The layer-uniform ring is 512 slots × 256 B — a size unique among the
+// buffers the renderer creates, so it keys the writeBuffer interception
+// unambiguously (mirrors line-color / line-miter-limit / line-pattern wiring).
+const LAYER_RING_BYTES = 512 * 256
 const JOIN_SHIFT = 3
 const JOIN_MASK = 0x3       // bits 3-4
 
@@ -81,15 +85,15 @@ const JOIN_MASK = 0x3       // bits 3-4
 function capturedFlags(ctx: GPUContext, cap: number, join: number): number {
   const renderer = new LineRenderer(ctx, makeTileBGL(ctx))
 
-  // The ring the renderer uploads its layer uniforms into.
-  const layerRing = (renderer as unknown as { layerRing: GPUBuffer }).layerRing
-
   let flags = Number.NaN
   const device = ctx.device as unknown as {
     queue: { writeBuffer: (buf: unknown, off: number, data: ArrayBufferView | ArrayBuffer) => void }
   }
   device.queue.writeBuffer = (buf: unknown, _off: number, data: ArrayBufferView | ArrayBuffer): void => {
-    if (buf !== layerRing) return
+    // Key on the native buffer's unique byte-size (§4 seam: `renderer.layerRing`
+    // is now an opaque RhiBuffer, but writeBuffer still receives the UNWRAPPED
+    // native GPUBuffer — its size is distinct among the renderer's buffers).
+    if ((buf as { size?: number })?.size !== LAYER_RING_BYTES) return
     const u32 = data instanceof ArrayBuffer
       ? new Uint32Array(data)
       : new Uint32Array((data as ArrayBufferView).buffer,

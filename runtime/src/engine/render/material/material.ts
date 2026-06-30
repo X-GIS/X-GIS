@@ -15,7 +15,7 @@
 import type {
   RhiDevice, RhiBindGroup, RhiBindGroupLayout, RhiBindLayoutEntry, RhiBuffer,
   RhiPipeline, RhiRenderPass, RhiTextureFormat,
-} from '../rhi/rhi'
+} from '@xgis/engine'
 
 /** Per-pipeline-variant state — depth and/or fragment entry differ between a
  *  primitive's variants (line: fs_line vs fs_line_pattern; point: opaque vs
@@ -25,8 +25,13 @@ export interface PipelineVariant {
   depthWrite?: boolean
   depthCompare?: 'always' | 'less' | 'less-equal'
   depthBias?: { constant: number; slopeScale: number; clamp: number }
-  /** Override the material's fsEntry for this variant (line pattern). */
+  /** Override the material's fsEntry / vsEntry for this variant (line pattern; the polygon
+   *  extruded variant swaps the vertex entry to vs_main_ecef_extruded). */
   fsEntry?: string
+  vsEntry?: string
+  /** Per-tile clip-mask stencil state (the VTR fill fallback variants — STENCIL_WRITE / STENCIL_TEST).
+   *  Forwarded to the RHI pipeline's depthStencil.stencil; absent = inert stencil (byte-identical). */
+  stencil?: { compare: 'always' | 'equal'; passOp: 'keep' | 'replace'; writeMask: number; readMask: number }
   label?: string
 }
 
@@ -45,9 +50,11 @@ export interface MaterialDesc {
   /** Per-group bind layout: entries to CREATE a layout, OR an existing layout to
    *  REUSE (line shares the VTR tile bind-group layout). */
   groups: Array<RhiBindLayoutEntry[] | RhiBindGroupLayout>
-  colorTargets: ReadonlyArray<{ format: RhiTextureFormat; blend?: 'alpha' | 'premult' | 'additive' | 'none' }>
+  colorTargets: ReadonlyArray<{ format: RhiTextureFormat; blend?: 'alpha' | 'premult' | 'additive' | 'max' | 'none'; writeMask?: number }>
   depthFormat?: RhiTextureFormat
   vertexBuffers?: ReadonlyArray<{ stride: number; attributes: ReadonlyArray<{ location: number; offset: number; format: string }> }>
+  /** Triangle face culling (material-level — the VTR ground-fill Material culls 'back'). Default 'none'. */
+  cullMode?: 'none' | 'back' | 'front'
   /** 1+ pipeline variants (depth differs). */
   variants: PipelineVariant[]
   /** Optional per-item pooled uniform (raster's per-tile slot). */
@@ -70,7 +77,12 @@ export interface DrawItem {
   /** Bytes for this item's pooled uniform (only when the material has a pool). */
   poolBytes?: BufferSource
   vertex?: RhiBuffer
-  index?: { buffer: RhiBuffer; format: 'uint16' | 'uint32' }
+  /** Sub-range of the slot-0 vertex buffer (the per-tile GPUArena range). Default whole buffer. */
+  vertexOffset?: number
+  vertexSize?: number
+  /** Optional slot-1 vertex buffer (the polygon extrude z-buffer), with its own arena sub-range. */
+  vertex1?: { buffer: RhiBuffer; offset?: number; size?: number }
+  index?: { buffer: RhiBuffer; format: 'uint16' | 'uint32'; offset?: number; size?: number }
   /** vertexCount (procedural) or indexCount (indexed). */
   count: number
   indexed: boolean
@@ -92,15 +104,16 @@ export class Material {
   constructor(readonly rhi: RhiDevice, desc: MaterialDesc) {
     this.layouts = desc.groups.map((g) => Array.isArray(g) ? rhi.createBindGroupLayout(g) : g)
     this.pipelines = desc.variants.map((v) => rhi.createPipeline({
-      code: desc.shader, vsEntry: desc.vsEntry, fsEntry: v.fsEntry ?? desc.fsEntry,
+      code: desc.shader, vsEntry: v.vsEntry ?? desc.vsEntry, fsEntry: v.fsEntry ?? desc.fsEntry,
       vsCode: desc.vsCode, fsCode: desc.fsCode,
       bindGroupLayouts: this.layouts,
       colorTargets: desc.colorTargets,
-      depthStencil: v.depthCompare
-        ? { format: desc.depthFormat ?? 'depth24plus-stencil8', write: v.depthWrite ?? false, compare: v.depthCompare, bias: v.depthBias }
+      depthStencil: (v.depthCompare || v.stencil)
+        ? { format: desc.depthFormat ?? 'depth24plus-stencil8', write: v.depthWrite ?? false, compare: v.depthCompare ?? 'always', bias: v.depthBias, stencil: v.stencil }
         : undefined,
       sampleCount: desc.sampleCount,
       vertexBuffers: desc.vertexBuffers,
+      cullMode: desc.cullMode,
       label: v.label,
     }))
     this.poolGroupIdx = desc.pool?.group ?? -1
@@ -140,9 +153,10 @@ export function executeItems(material: Material, pass: RhiRenderPass, items: Rea
       slot.write(it.poolBytes)
       pass.setBindGroup(material.poolGroup, slot.bg)
     }
-    if (it.vertex) pass.setVertexBuffer(0, it.vertex)
+    if (it.vertex) pass.setVertexBuffer(0, it.vertex, it.vertexOffset, it.vertexSize)
+    if (it.vertex1) pass.setVertexBuffer(1, it.vertex1.buffer, it.vertex1.offset, it.vertex1.size)
     const instances = it.instanceCount ?? 1
-    if (it.index) { pass.setIndexBuffer(it.index.buffer, it.index.format); pass.drawIndexed(it.count, instances) }
+    if (it.index) { pass.setIndexBuffer(it.index.buffer, it.index.format, it.index.offset, it.index.size); pass.drawIndexed(it.count, instances) }
     else pass.draw(it.count, instances, it.firstVertex ?? 0)
   }
 }

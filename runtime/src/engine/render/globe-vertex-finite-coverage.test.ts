@@ -17,7 +17,7 @@
 //     compute on a degenerate ring) would propagate.
 
 import { describe, expect, it } from 'vitest'
-import { globeForward } from '../projection/globe'
+import { globeForward } from '@xgis/engine'
 
 describe('proj_globe vertex output finiteness (workflow #2)', () => {
   it('every (lon, lat) on a dense grid yields finite vec3', () => {

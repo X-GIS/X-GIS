@@ -36,7 +36,8 @@
 import { describe, it, expect } from 'vitest'
 import type { PropertyShape } from '@xgis/compiler'
 import { backgroundPass } from './../passes/background-pass'
-import type { FrameContext } from './../frame-context'
+import type { FrameContext } from '@xgis/engine'
+import { makeProjectionToken } from '@xgis/engine'
 import type { BackgroundPassHost } from './../passes/pass-hosts'
 import type { SceneView } from './../scene-view'
 
@@ -70,7 +71,7 @@ function capturedClearAlpha(opacityShape: PropertyShape<number> | null): number 
   }
 
   const ctx = {
-    projType: 0, // mercator → flat, worldBand !== 'sphere-full'
+    projection: makeProjectionToken(0, 0, 0), // mercator → flat, worldBand !== 'sphere-full'
     camera: { zoom: ZOOM },
     elapsedMs: 0,
     colorView: {} as GPUTextureView,

@@ -48,12 +48,12 @@
 //     fingerprint).
 
 import type { ComputePlanEntry, ShaderVariant } from '@xgis/compiler'
-import { ComputeDispatcher } from '../gpu/compute'
+import { ComputeDispatcher } from '@xgis/engine'
 import { TileComputeResources } from './tile-compute-resources'
 import {
   buildComputeBindGroupEntries,
   type ComputeBindEntry,
-} from './compute-bind-layout'
+} from '@xgis/engine'
 import type { FeaturePropertyBag } from './compute-feature-packer'
 
 /** One layer's compute lifecycle. Construct once per addLayer when

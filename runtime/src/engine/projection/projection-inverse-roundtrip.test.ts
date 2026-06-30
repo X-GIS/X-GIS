@@ -20,7 +20,7 @@ import {
   mercator, equirectangular, naturalEarth,
   orthographic, azimuthalEquidistant, stereographic, obliqueMercator,
   type Projection,
-} from './projection'
+} from '@xgis/engine'
 
 // Round-trip tolerance in degrees. Points are chosen well inside each
 // projection's well-conditioned domain (away from rim / pole / clamp),

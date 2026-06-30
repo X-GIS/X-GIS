@@ -25,15 +25,15 @@
 
 import { describe, expect, it } from 'vitest'
 import { tileKey } from '@xgis/compiler'
-import { Camera } from './projection/camera'
+import { Camera } from '@xgis/engine'
 import {
   visibleTilesFrustum, visibleTilesFrustumSampled, makeTileCoord,
 } from '../data/tile-select'
-import { globeVisibleTiles } from './projection/globe'
+import { globeVisibleTiles } from '@xgis/engine'
 import {
   mercator as mercatorProj, getProjection, type Projection, mercatorYToLat,
-} from './projection/projection'
-import { routeToSphereSelector } from './gpu/gpu-shared'
+} from '@xgis/engine'
+import { routeToSphereSelector } from '@xgis/engine'
 import { computeZoomDirectionPrefetchKeys } from './tile-decision'
 
 const W = 1024

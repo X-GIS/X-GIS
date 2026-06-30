@@ -14,13 +14,13 @@
 // stage just converts viewport-px → NDC.
 
 import { SpriteAtlasGPU } from './sprite-atlas-gpu'
-import { emitIconWgsl } from '../shaders/dsl'
-import { WebGpuDevice, wrapWebGpuPass } from '../render/rhi/rhi-webgpu'
+import { wrapWebGpuPass, wrapWebGpuBindGroupLayout, wrapWebGpuTextureView, wrapWebGpuSampler } from '@xgis/engine'
+import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
 import { IconDraper } from '../render/material/icon-material'
 import type { SpriteInfo } from './sprite-atlas-host'
 import { vertexField } from '@xgis/compiler'
 import { ICON_FORMAT } from './icon-vertex-format'
-import { toVertexBufferLayout } from '../render/vertex-buffer-layout'
+import { toVertexBufferLayout } from '@xgis/engine'
 
 export interface IconDraw {
   /** Anchor in screen pixels (caller-projected). */
@@ -71,18 +71,24 @@ const ICON_TINT_SLOT = vertexField(ICON_FORMAT, 'tint').offset / 4  // 5 (r,g,b 
 const ICON_SDF_SLOT = vertexField(ICON_FORMAT, 'sdf').offset / 4    // 8
 const FLOATS_PER_QUAD = VERTS_PER_QUAD * FLOATS_PER_VERT
 
-// The icon shader (px→NDC quad + SDF/raster textured fragment) is EMITTED from
-// the shader DSL: runtime/src/engine/shaders/dsl/icon.ts (emitIconWgsl), used at createShaderModule
-// below. SDF sprites take an fwidth-based AA path; raster sprites a straight
-// sample; the per-vertex `sdf` flag selects the path (one batch can mix both).
+// The icon shader (px→NDC quad + SDF/raster textured fragment) is EMITTED from the
+// shader DSL: runtime/src/engine/shaders/dsl/icon.ts (emitIconWgsl). SDF sprites take an
+// fwidth-based AA path; raster sprites a straight sample; the per-vertex `sdf` flag
+// selects the path (one batch can mix both). The IconDraper (icon-material.ts) owns the
+// pipeline built from it — the §4 seam deleted the renderer's standalone raw pipeline.
 
 export class IconRenderer {
-  private readonly device: GPUDevice
+  /** The RHI seam (§4 batch-seam migration). One instance, reused for the icon
+   *  resources (uniform + vertex buffers + the atlas bind group) and the IconDraper.
+   *  On WebGPU `createBuffer === device.createBuffer`, `createBindGroup ===
+   *  device.createBindGroup`, `writeBuffer === queue.writeBuffer`, `destroyBuffer ===
+   *  GPUBuffer.destroy()`, so the GPU command stream is unchanged. */
+  private readonly rhi: RhiDevice
   private readonly atlas: SpriteAtlasGPU
   private readonly bgLayout: GPUBindGroupLayout
-  private readonly pipeline: GPURenderPipeline
-  private readonly uniformBuf: GPUBuffer
-  private vertexBuf: GPUBuffer | null = null
+  private readonly uniformBuf: RhiBuffer
+  private vertexBuf: RhiBuffer | null = null
+  private vertexBufCapacityBytes = 0
   /** Last-frame vertex count. Public for the iter 533 diagnostic
    *  (IconStage.getLastDrawIconCount) — reading "did the screenshot
    *  frame actually submit icons" requires post-prepare visibility
@@ -132,13 +138,14 @@ export class IconRenderer {
    *  null reset lives in `destroy()`. Re-introducing hot-swap requires
    *  also nulling this here so the next render rebuilds against the
    *  new atlas texture. */
-  private bindGroup: GPUBindGroup | null = null
+  private bindGroup: RhiBindGroup | null = null
 
-  // RHI pilot (behind __xgisIconViaRhi). Same draw through the generic seam.
+  // RHI Material path — the SOLE icon draw path (§4 seam: the raw kill-switch
+  // branch + the standalone native pipeline were deleted). Same draw through the
+  // generic seam.
   private _iconFmt!: GPUTextureFormat
   private _iconSamples!: number
   private _iconDraper?: IconDraper
-  private _iconRhiLogged = false
   private ensureIconDraper(): void {
     if (this._iconDraper) return
     const vbl = toVertexBufferLayout(ICON_FORMAT)
@@ -146,14 +153,14 @@ export class IconRenderer {
       stride: vbl.arrayStride,
       attributes: [...vbl.attributes].map((a) => ({ location: a.shaderLocation, offset: a.offset, format: a.format as string })),
     }]
-    this._iconDraper = new IconDraper(new WebGpuDevice(this.device), this._iconFmt, this._iconSamples, this.bgLayout, vertexBuffers)
+    this._iconDraper = new IconDraper(this.rhi, this._iconFmt, this._iconSamples, this.bgLayout, vertexBuffers)
   }
 
   constructor(
-    device: GPUDevice, atlas: SpriteAtlasGPU,
+    device: GPUDevice, rhi: RhiDevice, atlas: SpriteAtlasGPU,
     presentationFormat: GPUTextureFormat, sampleCount: number = 1,
   ) {
-    this.device = device
+    this.rhi = rhi
     this.atlas = atlas
     this._iconFmt = presentationFormat
     this._iconSamples = sampleCount
@@ -167,32 +174,10 @@ export class IconRenderer {
       ],
     })
 
-    const module = device.createShaderModule({ code: emitIconWgsl(), label: 'icon-shader' })
-    this.pipeline = device.createRenderPipeline({
-      label: 'icon-pipeline',
-      layout: device.createPipelineLayout({ bindGroupLayouts: [this.bgLayout] }),
-      vertex: {
-        module, entryPoint: 'vs',
-        buffers: [toVertexBufferLayout(ICON_FORMAT)],
-      },
-      fragment: {
-        module, entryPoint: 'fs',
-        targets: [{
-          format: presentationFormat,
-          // Non-premultiplied source → standard alpha blend.
-          blend: {
-            color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' },
-            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
-          },
-        }],
-      },
-      primitive: { topology: 'triangle-list' },
-      multisample: { count: sampleCount },
-    })
-
-    this.uniformBuf = device.createBuffer({
+    // Uniform — UNIFORM|COPY_DST, byte-identical via bufUsage('uniform', writable:true).
+    this.uniformBuf = this.rhi.createBuffer({
       size: 16, // vec2 viewport + 2 floats pad
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      usage: 'uniform', writable: true,
       label: 'icon-uniform',
     })
   }
@@ -327,20 +312,23 @@ export class IconRenderer {
     // could trigger N back-to-back reallocations. Growing
     // `max(needed, current × 1.5)` keeps the cumulative
     // reallocation count O(log N) instead of O(N).
-    if (this.vertexBuf === null || this.vertexBuf.size < needBytes) {
-      const prevSize = this.vertexBuf?.size ?? 0
+    // vertexBufCapacityBytes tracks the allocated size (was GPUBuffer.size; an
+    // opaque RhiBuffer exposes none). The realloc condition + 1.5× growth are
+    // byte-identical.
+    if (this.vertexBuf === null || this.vertexBufCapacityBytes < needBytes) {
+      const prevSize = this.vertexBufCapacityBytes
       const grown = Math.max(needBytes, Math.ceil(prevSize * 1.5))
-      this.vertexBuf?.destroy()
-      this.vertexBuf = this.device.createBuffer({
-        size: Math.max(1024, grown),
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-        label: 'icon-vertex',
-      })
+      if (this.vertexBuf !== null) this.rhi.destroyBuffer(this.vertexBuf)
+      const size = Math.max(1024, grown)
+      // Vertex — VERTEX|COPY_DST, byte-identical via bufUsage('vertex', writable:true).
+      this.vertexBuf = this.rhi.createBuffer({ size, usage: 'vertex', writable: true, label: 'icon-vertex' })
+      this.vertexBufCapacityBytes = size
     }
-    // iter-234 — writeBuffer only the filled prefix (`needBytes`),
-    // not the whole scratch (which may be larger than this frame's
-    // payload).
-    this.device.queue.writeBuffer(this.vertexBuf, 0, data.buffer, data.byteOffset, needBytes)
+    // iter-234 — writeBuffer only the filled prefix (`need` floats = `needBytes`
+    // bytes), not the whole scratch (which may be larger than this frame's
+    // payload). `data.subarray(0, need)` is byte-identical to the prior
+    // (data.buffer, data.byteOffset, needBytes) sub-range form.
+    this.rhi.writeBuffer(this.vertexBuf, 0, data.subarray(0, need))
   }
 
   /** Encode the icon draw call. Returns silently when nothing to draw
@@ -350,15 +338,15 @@ export class IconRenderer {
     const tex = this.atlas.ensure()
     if (!tex) return
     if (!this.bindGroup) {
-      this.bindGroup = this.device.createBindGroup({
-        label: 'icon-bg',
-        layout: this.bgLayout,
-        entries: [
-          { binding: 0, resource: { buffer: this.uniformBuf } },
-          { binding: 1, resource: tex.createView() },
-          { binding: 2, resource: this.atlas.sampler },
-        ],
-      })
+      // Bind group routes through the RHI seam (§4): binding 0 is the RhiBuffer
+      // uniform; the atlas TEXTURE view (binding 1) + sampler (binding 2) stay raw,
+      // adopted via wrapWebGpuTextureView / wrapWebGpuSampler. Byte-identical to the
+      // prior device.createBindGroup (the debug label is the only drop).
+      this.bindGroup = this.rhi.createBindGroup(wrapWebGpuBindGroupLayout(this.bgLayout), [
+        { binding: 0, resource: { buffer: this.uniformBuf } },
+        { binding: 1, resource: { view: wrapWebGpuTextureView(tex.createView()) } },
+        { binding: 2, resource: { sampler: wrapWebGpuSampler(this.atlas.sampler) } },
+      ])
     }
     // iter-234 — reuse a pre-allocated 4-float scratch instead of
     // `new Float32Array([...])` per draw. The 16-byte alloc per
@@ -366,24 +354,19 @@ export class IconRenderer {
     // is free + completes the no-per-frame-alloc invariant.
     const u = this.uniformScratch
     u[0] = viewport.width; u[1] = viewport.height
-    this.device.queue.writeBuffer(this.uniformBuf, 0, u.buffer)
+    this.rhi.writeBuffer(this.uniformBuf, 0, u.buffer)
     // Iter 538 — capture for the diagnostic.
     this.lastDrawViewport = { width: viewport.width, height: viewport.height }
-    if ((globalThis as { __xgisIconViaRhi?: boolean }).__xgisIconViaRhi === true) {
-      this.ensureIconDraper()
-      if (!this._iconRhiLogged) { this._iconRhiLogged = true; console.warn(`[ICONRHI] icon draw via RHI seam (verts=${this.vertexCount})`) }
-      this._iconDraper!.draw(wrapWebGpuPass(pass), { bindGroup: this.bindGroup, vertexBuf: this.vertexBuf, vertexCount: this.vertexCount })
-    } else {
-      pass.setPipeline(this.pipeline)
-      pass.setVertexBuffer(0, this.vertexBuf)
-      pass.setBindGroup(0, this.bindGroup)
-      pass.draw(this.vertexCount, 1, 0, 0)
-    }
+    // The icon draw routes through the RHI Material seam (IconDraper) — the SOLE
+    // path. (The raw kill-switch branch + the standalone native pipeline were
+    // deleted in the §4 seam migration.)
+    this.ensureIconDraper()
+    this._iconDraper!.draw(wrapWebGpuPass(pass), { bindGroup: this.bindGroup, vertexBuf: this.vertexBuf, vertexCount: this.vertexCount })
   }
 
   destroy(): void {
-    this.uniformBuf.destroy()
-    this.vertexBuf?.destroy()
+    this.rhi.destroyBuffer(this.uniformBuf)
+    if (this.vertexBuf) this.rhi.destroyBuffer(this.vertexBuf)
     this.bindGroup = null
   }
 }

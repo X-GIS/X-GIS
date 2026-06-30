@@ -8,9 +8,11 @@
 // class the polygon path retired via polygon-uniform-slots.ts.
 //
 // reflect(buildLineModule()) recovers the field layout from the SAME IR the WGSL is
-// emitted from, so these helpers are the single source of truth. line-uniform-reflect-
-// parity.test.ts asserts the eager prod literals equal these (drift → CI red); the
-// lazy call sites (tests, runtime bind ranges) read them directly.
+// emitted from, so these helpers are the single source of truth, and the consumers
+// now derive from them directly: line-pattern.ts's packer scratch is sized via
+// lineLayerUniformBytes(), and LineRenderer's ring stride is lineLayerUniformStride()
+// (no more literals). line-uniform-reflect-parity.test.ts asserts those RUNTIME
+// values equal reflect — a re-hardcode guard, not a literal-drift guard.
 //
 // LAZY (like polygonUniform*): reflect(buildLineModule()) EMITS the projection fns,
 // which throw until configureProjections() has run — so NEVER call these from a
@@ -19,7 +21,7 @@
 
 import { reflect } from '@xgis/shader-dsl'
 import { buildLineModule } from '../shaders/dsl/line'
-import { uniformFieldSlots, type UniformFieldSlots } from './reflection-to-webgpu'
+import { uniformFieldSlots, type UniformFieldSlots } from '@xgis/engine'
 
 let _layer: UniformFieldSlots | undefined
 

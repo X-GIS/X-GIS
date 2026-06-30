@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
-import { mercator } from '../engine/projection/projection'
+import { mercator } from '@xgis/engine'
 import { reprojectFeatureCollection } from '../data/sources/reproject-fc'
 import type { GeoJSONFeatureCollection } from '../loader/geojson'
 

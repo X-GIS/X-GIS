@@ -17,24 +17,18 @@
 
 import { xlog } from './log'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd, flushPerFrameMarks } from './__profile__/perf-marks'
-import { mercatorYToLat } from './projection/projection'
-import { PROJECTION_NAME_TO_TYPE, isGlobeProj, promotesToGlobeWhenTilted, poleLimit } from './projection/projections-table'
-import { resizeCanvas, effectiveDpr, getSampleCount, isPickEnabled } from './gpu/gpu'
+import { mercatorYToLat } from '@xgis/engine'
+import { PROJECTION_NAME_TO_TYPE, isGlobeProj, promotesToGlobeWhenTilted, poleLimit } from '@xgis/engine'
+import { resizeCanvas, effectiveDpr, getSampleCount, isPickEnabled } from '@xgis/engine'
 import { DEBUG_OVERDRAW } from './debug-flags'
-import { WORLD_MERC, TILE_PX } from './gpu/gpu-shared'
+import { WORLD_MERC, TILE_PX } from '@xgis/engine'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { reportErrorScope } from './render-loop-helpers'
-import { type FrameContext } from './render/frame-context'
-import type { RhiDevice } from './render/rhi/rhi'
+import { type FrameContext } from '@xgis/engine'
+import { makeProjectionToken, setProjectionToken } from '@xgis/engine'
+import type { RhiDevice } from '@xgis/engine'
 import { buildSceneView } from './render/scene-view'
-import { backgroundPass } from './render/passes/background-pass'
-import { opaquePass } from './render/passes/opaque-pass'
-import { oitPass } from './render/passes/oit-pass'
-import { translucentPass } from './render/passes/translucent-pass'
-import { pointsPass } from './render/passes/points-pass'
-import { labelPass } from './render/passes/label-pass'
-import { heatmapPass } from './render/passes/heatmap-pass'
-import { overdrawComposePass } from './render/passes/overdraw-compose-pass'
+import type { RenderNode } from './render/render-node'
 import type { XGISMap } from './map'
 // Host ROLE views (Tier-B sub-bundle): the flat ~57-key `Pick<XGISMap>` is
 // now segmented into per-pass role views in render/passes/pass-hosts.ts;
@@ -66,6 +60,19 @@ export class RenderLoop {
    *  fields are repopulated at the SAME points the equivalent locals were
    *  computed before this struct existed, so behaviour is byte-identical. */
   private _ctx: FrameContext | null = null
+
+  /** The content-registered render-pass chain (P2-carve Step 4). The engine
+   *  iterates this frozen-order list each frame, running every node whose
+   *  `shouldRun` gate passes — it no longer names a concrete pass or reaches
+   *  the owning map through a `PassHost`. Registered once by content
+   *  (map.ts → render/passes/pass-chain.ts) right after construction. */
+  private readonly _nodes: RenderNode[] = []
+
+  /** Content (map.ts) hands the engine its ordered RenderNode chain. */
+  registerNodes(nodes: readonly RenderNode[]): void {
+    this._nodes.length = 0
+    for (const n of nodes) this._nodes.push(n)
+  }
 
   constructor(map: XGISMap) {
     // Hold the owning map through the typed host view. The Pick-based
@@ -276,21 +283,23 @@ export class RenderLoop {
     // ── Build / repopulate the single reused FrameContext ──
     // Bundles the per-frame locals computed above (plus the few derived
     // deeper in the frame: colorView / sampleCount / useResolve set in the
-    // MSAA block, mvp / visibleWorldCopies set in the label block). The
-    // values are IDENTICAL to the locals and assigned at the same points;
-    // this is a pure bundling. Lazily allocate once on the first frame,
-    // then mutate in place — the 60 Hz loop is allocation-paranoid.
+    // MSAA block). The values are IDENTICAL to the locals and assigned at the
+    // same points; this is a pure bundling. The projType / centerLon / centerLat
+    // triple is wrapped into the opaque ProjectionToken (projection-token.ts) —
+    // the engine FrameContext is projection-blind; only content unwraps it. The
+    // token is allocated once and repopulated in place (allocation-paranoid).
+    // Lazily allocate the context once on the first frame, then mutate in place.
     if (this._ctx === null) {
       this._ctx = {
         device, encoder, screenView,
         colorView: screenView,            // set in the MSAA block below
         camera: this.host.camera,
-        projType, centerLon, centerLat, w, h, dpr,
+        projection: makeProjectionToken(projType, centerLon, centerLat),
+        w, h, dpr,
         elapsedMs: this.host._elapsedMs,
         frameCount: this.host._frameCount,
         sampleCount: 1,                   // set in the MSAA block below
         useResolve: false,                // set in the MSAA block below
-        visibleWorldCopies: [],           // set in the label block below
         passScope,
         rt: this.host.renderTargets,
       }
@@ -300,9 +309,7 @@ export class RenderLoop {
       c.encoder = encoder
       c.screenView = screenView
       c.camera = this.host.camera
-      c.projType = projType
-      c.centerLon = centerLon
-      c.centerLat = centerLat
+      setProjectionToken(c.projection, projType, centerLon, centerLat)
       c.w = w
       c.h = h
       c.dpr = dpr
@@ -310,8 +317,8 @@ export class RenderLoop {
       c.frameCount = this.host._frameCount
       c.passScope = passScope
       c.rt = this.host.renderTargets
-      // colorView / sampleCount / useResolve / visibleWorldCopies are
-      // repopulated at their own (deeper) computation points below.
+      // colorView / sampleCount / useResolve are repopulated at their own
+      // (deeper) computation points below.
     }
     const ctx = this._ctx
 
@@ -375,7 +382,9 @@ export class RenderLoop {
       // the prev-cam velocity vector and _evictShield population
       // stay frame-stable. See VTR.pumpPrefetch doc.
       for (const [, { renderer: vtR }] of this.host.vtSources) {
-        vtR.pumpPrefetch(this.host.camera, ctx.projType, ctx.w, ctx.h, ctx.dpr)
+        // projType is the render-loop local (camera-resolved above); the engine
+        // reads it directly rather than decoding the opaque ctx.projection token.
+        vtR.pumpPrefetch(this.host.camera, projType, ctx.w, ctx.h, ctx.dpr)
       }
 
       // ══════ Bucket scheduler ══════
@@ -449,36 +458,18 @@ export class RenderLoop {
 
       if (scene.hasTranslucent) this.host.lineRenderer!.ensureOffscreen(ctx.w, ctx.h)
 
-      // ── Bucket 0: background / coverage clear ── (BackgroundPass — render/passes/background-pass.ts)
-      // Owns the whole-viewport colour clear (relocated from opaque's first
-      // sub-pass). Runs before everything so coverage has one defined owner.
-      backgroundPass.execute(ctx, scene, this.host)
-
-      // ── Bucket 1: opaque ── (OpaquePass — render/passes/opaque-pass.ts)
-      opaquePass.execute(ctx, scene, this.host)
-
-      // ── Bucket 1.5: OIT translucent extrude ── (OitPass — render/passes/oit-pass.ts)
-      if (oitPass.shouldRun(scene)) oitPass.execute(ctx, scene, this.host)
-
-      // ── Bucket 2: translucent offscreen + composite ── (TranslucentPass — render/passes/translucent-pass.ts)
-      if (translucentPass.shouldRun(scene)) translucentPass.execute(ctx, scene, this.host)
-
-      // ── Bucket 3: direct-layer points ── (PointsPass — render/passes/points-pass.ts)
-      if (pointsPass.shouldRun(scene)) pointsPass.execute(ctx, scene, this.host)
-
-      // ── Bucket 4: text overlays + per-feature labels ── (LabelPass — render/passes/label-pass.ts)
-      labelPass.execute(ctx, scene, this.host)
-
-      // ── Bucket 5: heatmap (Phase R) ── (HeatmapPass — render/passes/heatmap-pass.ts)
-      // Runs AFTER labels (the MSAA resolve-owner) so it composites onto the
-      // resolved swapchain — same strategy as overdraw-compose. Gated off
-      // (no target alloc, no pass) when scene.hasHeatmap is false, so a style
-      // with no heatmap layer renders byte-identically.
-      if (heatmapPass.shouldRun(scene)) heatmapPass.execute(ctx, scene, this.host)
-
-      // ── Debug overdraw compose ── (OverdrawComposePass — render/passes/overdraw-compose-pass.ts)
-      // Runs as the LAST pass of the frame so it owns the swapchain attachment.
-      if (overdrawComposePass.shouldRun(scene)) overdrawComposePass.execute(ctx, scene, this.host)
+      // ── Render-pass chain ── (content-registered RenderNode[] — render/render-node.ts)
+      // Iterate the frozen-order node list registered by content (map.ts →
+      // render/passes/pass-chain.ts): background → opaque → oit → translucent →
+      // points → label → heatmap → overdraw-compose. Each node's shouldRun
+      // reproduces its former inline `if` gate (background / opaque / label are
+      // unconditional → shouldRun()===true). The engine no longer names a pass
+      // or hands it a PassHost — nodes capture their own map host. The OIT node
+      // sits at its historical slot but is runtime-dead (shouldRun immutably
+      // false), so it is never live — folded out of the live path here.
+      for (const node of this._nodes) {
+        if (node.shouldRun(scene)) node.execute(ctx, scene)
+      }
     }
 
     // Flush CPU-side uniform-ring mirrors just before submit. WebGPU

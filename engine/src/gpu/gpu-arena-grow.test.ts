@@ -20,17 +20,22 @@
 
 import { describe, expect, it } from 'vitest'
 import { GPUArena, type GPUArenaDevice } from './gpu-arena'
+import type { RhiBuffer } from '../render/rhi/rhi'
 
 interface MockBuffer { size: number; destroyed: boolean; destroy(): void }
+
+const unwrap = (h: unknown): MockBuffer => (h as { native: MockBuffer }).native
 
 function mockDevice(): { dev: GPUArenaDevice; created: MockBuffer[] } {
   const created: MockBuffer[] = []
   const dev: GPUArenaDevice = {
-    createBuffer(desc: GPUBufferDescriptor): GPUBuffer {
+    createBuffer(desc): RhiBuffer {
       const b: MockBuffer = { size: desc.size, destroyed: false, destroy() { b.destroyed = true } }
       created.push(b)
-      return b as unknown as GPUBuffer
+      return { native: b } as unknown as RhiBuffer
     },
+    destroyBuffer(h) { unwrap(h).destroy() },
+    unwrapBuffer(h) { return unwrap(h) as unknown as GPUBuffer },
   }
   return { dev, created }
 }
@@ -46,7 +51,7 @@ function mockEncoder(): { enc: { copyBufferToBuffer(...a: unknown[]): void }; co
   return { enc, copies }
 }
 
-const VERTEX_USAGE = 0x20 | 0x8 // GPUBufferUsage.VERTEX | COPY_DST
+const VERTEX_USAGE = 'vertex' // RhiBufferUsage role (was GPUBufferUsage.VERTEX | COPY_DST)
 
 describe('GPUArena.compact(targetCapacity) — auto-grow', () => {
   it('grows capacity, preserves the live set, and serves the previously-failing alloc', () => {

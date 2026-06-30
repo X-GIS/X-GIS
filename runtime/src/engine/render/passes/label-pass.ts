@@ -9,17 +9,18 @@
 // screen-space collision + atlas plumbing.
 //
 // Mechanical changes only: `this.host.X` -> `host.X`; the render-local
-// scalars the block read (device / dpr / sampleCount / w / h / projType /
-// centerLon / centerLat / encoder) are re-bound from ctx at the top so
-// the body text is otherwise byte-identical. ctx.visibleWorldCopies is
-// still populated here (the FrameContext field the label block owns).
+// scalars the block read (device / dpr / sampleCount / w / h / encoder) are
+// re-bound from ctx at the top, and projType / centerLon / centerLat are
+// decoded from the opaque ctx.projection token (projection-token.ts) — this
+// pass owns that unwrap. `visibleWorldCopies` is produced + consumed entirely
+// here (label-node-local state, no longer a FrameContext field).
 
 import { evaluate, makeEvalProps, resolveColor } from '@xgis/compiler'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../../__profile__/perf-marks'
 import { DEBUG_OVERDRAW } from '../../debug-flags'
-import { WORLD_MERC, TILE_PX } from '../../gpu/gpu-shared'
-import { mercatorYToLat } from '../../projection/projection'
-import { isGlobeProj } from '../../projection/projections-table'
+import { WORLD_MERC, TILE_PX } from '@xgis/engine'
+import { mercatorYToLat } from '@xgis/engine'
+import { isGlobeProj } from '@xgis/engine'
 import { projMercatorCpu } from '../../shaders/dsl/cpu-projections'
 import { resolveLabelEffectiveDef, makeLabelProjectors } from '../../render-loop-helpers'
 import { computeSliceKey } from '../../../data/eval/filter-eval'
@@ -28,7 +29,8 @@ import { IconStage } from '../../sprite/icon-stage'
 import { resolveText } from '../../text/text-resolver'
 import { hexToRgba, featureAnchor } from '../../feature-helpers'
 import { type ShowCommand } from '../renderer'
-import type { FrameContext } from '../frame-context'
+import type { FrameContext } from '@xgis/engine'
+import { unwrapProjection } from '@xgis/engine'
 import type { SceneView } from '../scene-view'
 import type { RenderPass, LabelPassHost } from './pass'
 
@@ -198,7 +200,7 @@ class LabelPass implements RenderPass {
           // frame that needed it drew, re-arm a frame + tag LABEL dirty so
           // the S16 skip re-prepares instead of replaying the stale glyph.
           tsOpts.onResourceLanded = () => host.markLabelDirty()
-          host.textStage = new TextStage(device, host.ctx.format, tsOpts, sc)
+          host.textStage = new TextStage(device, host.ctx.rhi, host.ctx.format, tsOpts, sc)
           host.textStage.prewarmGISDefaults()
           // Attach any debug hook that was set before the stage existed.
           // The hook is null/undefined-safe on the stage side, so the
@@ -227,7 +229,7 @@ class LabelPass implements RenderPass {
                 // `landcover_wetland` + `road_area_pattern` only
                 // declare `fill-pattern`, no icon layers).
                 || host.showCommands.some(s => s.fillPattern || s.linePattern))) {
-          host.iconStage = new IconStage(device, host.ctx.format, {
+          host.iconStage = new IconStage(device, host.ctx.rhi, host.ctx.format, {
             spriteUrl: host.spriteUrl, dpr,
             onLanded: () => host.markLabelDirty(), // sprite-land re-arm (glyph parity)
           }, sc)
@@ -352,34 +354,32 @@ class LabelPass implements RenderPass {
         // near the antimeridian at very low zoom. Deferred: needs periodic-copy
         // enumeration via enumerateWorldCopies (getVisibleWorldCopies returns
         // [0] for non-Mercator) + an antimeridian label test.
-        // visibleWorldCopies is also set on ctx for downstream non-label
-        // consumers (polygon/line draw enumeration in the opaque/translucent
-        // passes).
+        // `visibleWorldCopies` is produced AND consumed entirely within this
+        // pass (label-node-local) — no other pass reads it, so it left FrameContext.
         const visibleWorldCopies = host.camera.getVisibleWorldCopies(w, h, dpr)
-        ctx.visibleWorldCopies = visibleWorldCopies
-        const projType = ctx.projType
+        const { projType, centerLon, centerLat } = unwrapProjection(ctx.projection)
         const isFlatProj = !host.camera.globeMode && !isGlobeProj(projType)
         const labelView = host.camera.getViewForProjection(projType, w, h, dpr)
         // camera-merc reference MUST equal the geometry's camMerc, which the
-        // renderer builds from the ±85-clamped projCenterLon/Lat (=
-        // ctx.centerLon/Lat), NOT raw camera.centerY. At the far-north pan
+        // renderer builds from the ±85-clamped projCenterLon/Lat (= the
+        // projection token's centerLon/Lat), NOT raw camera.centerY. At the far-north pan
         // clamp the reachable centre lat is 85.0–85.051° (maxCameraY =
         // Y(85.051129°)); raw camera.centerY then exceeds Y(85°) by up to
         // ~64 km (~13k px @ z14), flinging every Mercator label past the
         // ±1.5 NDC gate while the (clamped) polygons stay put. For |lat|≤85
         // the two are identical, so this only repairs the polar band. Routed
         // through the shared clamped CPU Mercator mirror (projMercatorCpu);
-        // its ±85.051129 clamp is inert here (ctx.centerLat is already
+        // its ±85.051129 clamp is inert here (centerLat is already
         // clamped to that bound upstream). projMercatorCpu returns a fresh
         // tuple per call (no shared scratch), so there is no aliasing hazard.
-        const camMerc = projMercatorCpu(ctx.centerLon, ctx.centerLat)
+        const camMerc = projMercatorCpu(centerLon, centerLat)
         const { projectMerc, projectLonLat, projectMercAny, projectLonLatCopies } =
           makeLabelProjectors(labelView.matrix, w, h, isFlatProj ? {
             projType,
             ccx: camMerc[0],
             ccy: camMerc[1],
-            centerLon: ctx.centerLon,
-            centerLat: ctx.centerLat,
+            centerLon,
+            centerLat,
             visibleWorldCopies,
           } : undefined, labelView.eye,
           // Globe RTC focus: the matrix is focus-relative, so the ECEF label

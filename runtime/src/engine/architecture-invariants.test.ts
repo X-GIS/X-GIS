@@ -156,7 +156,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // mid-render doUploadTile fallback calls + `vtr.evict` around the two forceEvictBytes
   // pairs (+ the perf-marks import). Gated OFF by default (markStart/End early-return),
   // so render is byte-identical; the +11 is diagnostic plumbing. Reclaim on decomposition.
-  'runtime/src/engine/render/vector-tile-renderer.ts': 4126,
+  // Lowered 4126→3120 (UploadCoordinator extraction): the twin doUploadTile /
+  // doUploadTileAsync bodies + priority queue + per-frame cap + stale-cancel +
+  // _allocPolyPair moved to upload-coordinator.ts as ONE write-strategy-
+  // parameterised dispatch body. VTR keeps thin forwarders. Ratchets the ~950-line
+  // shrink so the win can't silently regrow.
+  'runtime/src/engine/render/vector-tile-renderer.ts': 3120,
   // Bumped 3361→3393 for the destroy()-completeness fix: cancelling the
   // EventDispatcher move-rAF + the pending-flush rAF, clearing _pendingPatches,
   // and removing the run()-installed window globals (__xgisReady/snapshot/
@@ -276,7 +281,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // center-anchored text restores the box-centred ink-band recentre (the maxAsc/
   // maxDesc per-block loop, ~12 lines), standalone keeps the hang. Plus the layout-
   // cache `paired` key term so the two conventions don't alias to one cached layout.
-  'runtime/src/engine/text/text-stage.ts': 1673,
+  // Bumped 1673→1675 (backend-agnosticism fix): TextStage now receives the injected RHI
+  // device (ctx.rhi) and threads it to TextRenderer instead of the renderer self-
+  // instantiating `new WebGpuDevice` — +1 ctor param + 1 type import. Irreducible.
+  'runtime/src/engine/text/text-stage.ts': 1675,
   // Bumped 1509→1517 for the GeometryCollection decompose fix (RFC 7946
   // §3.1.8): decomposeFeatures' per-type switch is wrapped in an inner
   // recursive helper so a GeometryCollection member-decomposes under the
@@ -312,7 +320,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 941→943 (#600 fix): the prior bump documented a globe_eye write missing
   // from renderToPass + the graticule eye plumbing — restoring them (the write, the
   // import, the GraticuleFrame.eye pass-through) adds the final 2 lines.
-  'runtime/src/engine/render/renderer.ts': 943,
+  // Lowered 943→772 (P2 carve Step 1): the engine half (RHI / ring / pipeline
+  // machinery — PipelineFactory delegates, compute path, ensure*, rebuildForQuality,
+  // beginFrame/endFrame, uniform-ring tail) moved out to frame-renderer.ts; this
+  // file keeps the CONTENT half (MapRendererContent) + the engine read-contract
+  // re-exposers. New ceiling = measured size of the content half.
+  'runtime/src/engine/render/renderer.ts': 772,
   // Lowered 776→254: extracted the text-layout family (text-anchor /
   // variable-anchor[-offset] / transform / offset / translate / radial-offset /
   // collision / rotate / letter-spacing / max-width / line-height / justify /
@@ -426,24 +439,9 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 1198→1205 (#600): the globe_eye Uniforms-struct lane + its doc
   // comment, and threading globe_eye into polygon_cos_c_fragment / polygon_rim_alpha.
   'runtime/src/engine/shaders/dsl/polygon.ts': 1205,
-  // Bumped 1067→1092 for the minZoom + setMaxBounds gesture-clamp correctness
-  // fixes (#244/#248): the maxBounds clamp method + its 7 gesture-exit call
-  // sites are irreducible. camera.ts decomposition remains a tracked priority.
-  // Bumped 1092→1108 for BUG P4 (sphere-family maxBounds pole-reach): the
-  // clampCenterToBounds sphere branch clamps centerLatDeg against the bbox's
-  // TRUE latitudes (carried as northLat/southLat on _maxBoundsMerc) instead of
-  // re-syncing from the Mercator-saturated centerY, so a maxBounds past ±85.05
-  // no longer pins the globe centre below the pole. Cylindrical path unchanged.
-  // Bumped 1108→1114 for the pan-inertia bearing-sign fix: camera.pan rotated
-  // the screen delta by Rot(−bearing) instead of Rot(+bearing) (off by 2·θ, so
-  // inertia flung the wrong way on a rotated map). The 6 added lines are the
-  // contract comment tying the sign to panToScreenAnchor's MVP inverse.
-  // Bumped 1114→1128 for the disc-drag anchor fix (#2): two new public methods
-  // discDragAnchorAt + panDiscToScreenAnchor mirror zoomAt's disc geo-anchor
-  // converge loop so a single-finger drag on an ortho/azi/stereo disc keeps the
-  // grabbed point under the cursor (the drag path previously subtracted disc-
-  // plane metres in Mercator space). Irreducible new surface, not bloat.
-  'runtime/src/engine/projection/camera.ts': 1128,
+  // camera.ts relocated to @xgis/engine (engine/src/projection/camera.ts) in
+  // P3 Step 3 — no longer under a SRC_DIRS walk, so its LOC ceiling is tracked
+  // by the engine package's own ratchet, not this runtime gate.
   // Bumped 1065→1067 for the curved-text early-return perf-mark balance fix:
   // the `total < spacingPx*0.5` curved branch was missing the two matching
   // perfMarkEnd('…line.emit')/('…line.polyline') calls its sibling returns
@@ -660,7 +658,9 @@ const LAYER_OF = (relPath: string): number | null => {
 const UPWARD_EDGE_ALLOWLIST: ReadonlySet<string> = new Set([
   'runtime/src/engine/projection/camera-helpers.ts=>runtime/src/engine/gpu/gpu-shared.ts',
   'runtime/src/engine/projection/camera.ts=>runtime/src/engine/gpu/gpu-shared.ts',
-  'runtime/src/engine/projection/camera.ts=>runtime/src/engine/gpu/gpu.ts',
+  // camera.ts=>gpu.ts removed: gpu.ts relocated to @xgis/engine (P3 Step 2);
+  // camera now imports it via the package boundary, which Gate 5 (relative-edge
+  // only) does not track — the intra-runtime upward edge no longer exists.
   'runtime/src/engine/projection/camera.ts=>runtime/src/loader/geojson.ts',
   'runtime/src/engine/projection/globe.ts=>runtime/src/engine/gpu/gpu-shared.ts',
   'runtime/src/engine/projection/view-matrix.ts=>runtime/src/engine/gpu/gpu-shared.ts',

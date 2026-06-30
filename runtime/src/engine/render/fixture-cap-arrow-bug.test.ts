@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { Camera } from '../projection/camera'
+import { Camera } from '@xgis/engine'
 import { visibleTilesFrustum } from '../../data/tile-select'
-import { mercator } from '../projection/projection'
+import { mercator } from '@xgis/engine'
 
 // Regression: 2026-05-04 user report. At
 //   demo.html?id=fixture_cap_arrow#8.34/-0.14642/29.19268/90.0/74.8

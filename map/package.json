@@ -1,0 +1,23 @@
+{
+  "name": "@xgis/map",
+  "version": "0.0.1",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --build"
+  },
+  "dependencies": {
+    "@webgpu/types": "^0.1.69"
+  },
+  "devDependencies": {
+    "@xgis/engine": "workspace:*",
+    "@xgis/compiler": "workspace:*",
+    "@xgis/shader-dsl": "workspace:*",
+    "@xgis/shared": "workspace:*"
+  }
+}

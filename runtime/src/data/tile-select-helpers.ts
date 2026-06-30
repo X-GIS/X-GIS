@@ -2,7 +2,7 @@
 // Extracted verbatim from tile-select.ts (behaviour-preserving refactor).
 // These are pure tile-math free functions with no module-level mutable
 // state and no side effects.
-import { worldCopiesFor, TILE_PX } from '../engine/gpu/gpu-shared'
+import { worldCopiesFor, TILE_PX } from '@xgis/engine'
 import { tileKeyParent } from '@xgis/compiler'
 import type { TileCoord } from './tile-select-types'
 

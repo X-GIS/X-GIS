@@ -1,0 +1,12 @@
+/* Deterministic raster fixture for P1.4 RHI-flip verification. The url has NO
+ * {z}/{x}/{y} placeholders, so every visible tile loads the SAME local checker
+ * PNG (playground/public/checker-tile.png) — an offline, deterministic raster
+ * render with no network dependency, suitable for a DC=0 before/after gate. */
+source basemap {
+  type: raster
+  url: "/checker-tile.png"
+}
+
+layer tiles {
+  source: basemap
+}

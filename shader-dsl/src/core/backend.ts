@@ -65,6 +65,11 @@ export interface Backend {
   caseLabel(value: number, scrutType: ShaderType): string
   /** The `switch` head: `switch ${scrut} {` (WGSL) vs `switch (${scrut}) {` (GLSL). */
   switchHead(scrut: string): string
+  /** A per-case terminator. WGSL switch cases do NOT fall through (each case is
+   *  self-contained), so this is absent. C-style GLSL switch DOES fall through, so the
+   *  GLSL backend returns `break;` — without it every match() arm leaks into the next
+   *  (every kernel returns the LAST/default arm; caught on real WebGL2, not headless). */
+  readonly caseBreak?: string
   /** A `raw` Stmt (raw WGSL string). WGSL returns it; non-WGSL fails closed. */
   rawStmt(wgsl: string): string
   /** An un-swapped `placeholder` Stmt. WGSL emits a defensive comment; non-WGSL fails closed. */

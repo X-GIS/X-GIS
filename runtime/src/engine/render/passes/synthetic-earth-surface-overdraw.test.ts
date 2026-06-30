@@ -2,8 +2,9 @@
 //
 // Verifies that SyntheticEarthSurfaceBackend emits vertices that are
 // consumed by the standard VTR polygon dispatch path — the same path
-// that opaque-pass.ts overrides with fillPipelineOverdraw / fs_overdraw
-// when DEBUG_OVERDRAW is active. Because the synthetic backend produces
+// that the bucket scheduler's draw closure overrides with
+// fillPipelineOverdraw / fs_overdraw when DEBUG_OVERDRAW is active.
+// Because the synthetic backend produces
 // a standard BackendTileResult (same shape as any polygon tile), the
 // overdraw accumulator sees exactly one additive r16float write per
 // rasterised fragment — identical to any regular polygon layer.
@@ -17,10 +18,11 @@
 //       2D-ground fill path (not the extruded path), which is the same
 //       drawShow() branch opaque-pass.ts subjects to the
 //       fillPipelineOverdraw override.
-//   T3: The overdraw dispatch logic in opaque-pass.ts selects the
-//       fillPipelineOverdraw (or fillPipelineOverdrawFeature) override
-//       uniformly for EVERY show in the group — no special-case guard
-//       excludes the synthetic show. Confirmed by source inspection.
+//   T3: The overdraw dispatch logic in the bucket scheduler's draw
+//       closure selects the fillPipelineOverdraw (or
+//       fillPipelineOverdrawFeature) override uniformly for EVERY show in
+//       the group — no special-case guard excludes the synthetic show.
+//       Confirmed by source inspection.
 //   T4: The polygon DSL emits fs_overdraw as a standard fragment entry
 //       sharing the same WGSL module as vs_main_ecef, so the pipeline
 //       layout matches the synthetic show's bind group.
@@ -47,6 +49,13 @@ import { backgroundClearValue } from './background-pass'
 // Source files for structural dispatch-path analysis
 const OPAQUE_PASS_SRC = readFileSync(
   resolve(__dirname, 'opaque-pass.ts'),
+  'utf8',
+)
+// The ?debug=overdraw pipeline substitution was inverted into the bucket
+// scheduler's per-show draw closure (P2 carve Step 2): the engine passes
+// no longer name a GPURenderPipeline, so the override now lives here.
+const BUCKET_SCHEDULER_SRC = readFileSync(
+  resolve(__dirname, '..', 'bucket-scheduler.ts'),
   'utf8',
 )
 
@@ -164,32 +173,37 @@ describe('AC2c.3.7 — buildSyntheticEarthSurfaceShow routes through ground (2D)
 // T3 — opaque-pass overdraw dispatch applies to ALL shows unconditionally
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('AC2c.3.7 — opaque-pass overdraw override is unconditional (no synthetic exclusion)', () => {
-  it('drawShow() selects debugFp for every show when DEBUG_OVERDRAW is active', () => {
-    // The drawShow closure in opaque-pass.ts reads:
-    //   const debugFp = DEBUG_OVERDRAW ? (cs.bgl === featureLayout ? … : …) : null
+describe('AC2c.3.7 — overdraw override is unconditional (no synthetic exclusion)', () => {
+  it('the draw closure selects debugFp for every show when DEBUG_OVERDRAW is active', () => {
+    // The bucket scheduler bakes the override into each show's draw
+    // closure:
+    //   const debugFp = DEBUG_OVERDRAW ? (bgl === featureLayout ? … : …) : null
     // There is NO early-return, layer-name guard, or source-name guard
-    // that would bypass the override for the synthetic show.
-    // Structural check: no conditional that references SYNTHETIC or __bg.
-    expect(OPAQUE_PASS_SRC).not.toContain('SYNTHETIC_EARTH_SURFACE')
-    expect(OPAQUE_PASS_SRC).not.toContain('__synthetic')
-    expect(OPAQUE_PASS_SRC).not.toContain('skipOverdraw')
-    expect(OPAQUE_PASS_SRC).not.toContain('isBackground')
+    // that would bypass the override for the synthetic show. Structural
+    // check: neither the scheduler nor the opaque pass references a
+    // SYNTHETIC / skip / background special-case.
+    for (const src of [BUCKET_SCHEDULER_SRC, OPAQUE_PASS_SRC]) {
+      expect(src).not.toContain('SYNTHETIC_EARTH_SURFACE')
+      expect(src).not.toContain('__synthetic')
+      expect(src).not.toContain('skipOverdraw')
+      expect(src).not.toContain('isBackground')
+    }
   })
 
-  it('drawShow() replaces fp with debugFp when DEBUG_OVERDRAW is truthy', () => {
-    // The pattern: `const fp = debugFp ?? cs.fp` — debugFp shadows cs.fp
-    // for every show in the group, including the synthetic one.
-    expect(OPAQUE_PASS_SRC).toContain('const fp = debugFp ?? cs.fp')
-    expect(OPAQUE_PASS_SRC).toContain('fillPipelineOverdraw')
-    expect(OPAQUE_PASS_SRC).toContain('fillPipelineOverdrawFeature')
+  it('the draw closure replaces fp with debugFp when DEBUG_OVERDRAW is truthy', () => {
+    // The pattern: `const drawFp = debugFp ?? fp` — debugFp shadows the
+    // layer's own fill pipeline for every show, including the synthetic one.
+    expect(BUCKET_SCHEDULER_SRC).toContain('const drawFp = debugFp ?? fp')
+    expect(BUCKET_SCHEDULER_SRC).toContain('fillPipelineOverdraw')
+    expect(BUCKET_SCHEDULER_SRC).toContain('fillPipelineOverdrawFeature')
   })
 
   it('both non-extruded and extruded loops call drawShow() — synthetic (non-extruded) is covered', () => {
     // opaque-pass.ts emits two loops:
     //   for si in group.shows: if (!isExtruded) drawShow(si)   ← synthetic lands here
     //   for si in group.shows: if ( isExtruded) drawShow(si)   ← buildings
-    // Both call the SAME drawShow(), so the override applies equally.
+    // Both call the SAME drawShow() (which invokes cs.draw), so the
+    // override applies equally.
     const nonExtrudedLoop = 'if (!isExtruded(group.shows[si])) drawShow(group.shows[si])'
     const extrudedLoop    = 'if (isExtruded(group.shows[si])) drawShow(group.shows[si])'
     expect(OPAQUE_PASS_SRC).toContain(nonExtrudedLoop)

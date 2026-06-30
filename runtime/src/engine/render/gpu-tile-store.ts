@@ -36,7 +36,9 @@
 // uploadQueue active-count probe used by compaction arrives via a
 // caller-supplied predicate so the store never references the queue.
 
-import { GPUArena } from '../gpu/gpu-arena'
+import { GPUArena } from '@xgis/engine'
+// Type-only: store needs WebGpuDevice's unwrapBuffer + createCommandEncoder (not on RhiDevice); the injected ctx.rhi is narrowed to it (never self-instantiated).
+import type { WebGpuDevice } from '@xgis/engine'
 import { getMaxGpuTiles, ARENA_HIGH_WATER, ARENA_LOW_WATER } from './vector-tile-renderer-helpers'
 import type { GPUTile } from './vector-tile-renderer-types'
 
@@ -55,6 +57,9 @@ function align4(bytes: number): number {
 
 export class GpuTileStore {
   private device: GPUDevice
+  /** RHI device the ARENA routes createBuffer + compaction-copy through; `device`
+   *  stays raw for the pooled per-tile buffers + retire queue (§4 coupling rule). */
+  private rhi: WebGpuDevice
 
   /** GPU tile cache keyed by `${tileKey}|${sourceLayer}`. The `sourceLayer`
    *  segment is the MVT layer slot — '' for single-layer sources
@@ -199,23 +204,18 @@ export class GpuTileStore {
 
   private getOrCreatePolyVertexArena(): GPUArena {
     if (this.polyVertexArena === null) {
-      this.polyVertexArena = new GPUArena(this.device, {
+      this.polyVertexArena = new GPUArena(this.rhi, {
         capacityBytes: GpuTileStore.POLY_VERTEX_ARENA_CAPACITY,
-        // COPY_SRC is required for compaction's copyBufferToBuffer (it
-        // reads the old arena buffer as the copy SOURCE when relocating the
-        // live set into the freshly-packed destination buffer).
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+        usage: 'vertex',
+        copySrc: true,  // compaction copy SOURCE → COPY_SRC (see GPUArenaOptions.copySrc)
         label: 'poly-vertex-arena',
       })
     }
     return this.polyVertexArena
   }
 
-  /** Phase 6a.3 (iter-209) — shared polygon index arena. Mirror of
-   *  the vertex arena above. Capacity 64 MB matching vertex arena —
-   *  initial 32 MB sizing underestimated demotiles-europe-z2 which
-   *  exceeded 33 MB across all source-layers before eviction kicked
-   *  in. Phase 6a.5 will add auto-grow + cross-test reset. */
+  /** Shared polygon index arena (mirror of the vertex arena). 64 MB — 32 MB
+   *  underestimated demotiles-europe-z2 (>33 MB across source-layers pre-eviction). */
   private polyIndexArena: GPUArena | null = null
   private static readonly POLY_INDEX_ARENA_CAPACITY = 64 * 1024 * 1024
   /** Hard ceiling for auto-grow of the INDEX arena (US-003). Indices are
@@ -224,10 +224,10 @@ export class GpuTileStore {
 
   private getOrCreatePolyIndexArena(): GPUArena {
     if (this.polyIndexArena === null) {
-      this.polyIndexArena = new GPUArena(this.device, {
+      this.polyIndexArena = new GPUArena(this.rhi, {
         capacityBytes: GpuTileStore.POLY_INDEX_ARENA_CAPACITY,
-        // COPY_SRC required for compaction (see poly-vertex-arena above).
-        usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+        usage: 'index',
+        copySrc: true,
         label: 'poly-index-arena',
       })
     }
@@ -239,8 +239,9 @@ export class GpuTileStore {
    *  tiles (e.g. fill-extrusion buildings) write here. */
   private zBufferArena: GPUArena | null = null
 
-  constructor(device: GPUDevice) {
+  constructor(device: GPUDevice, rhi: WebGpuDevice) {
     this.device = device
+    this.rhi = rhi
   }
 
   // ── Cache accessors (cheap monomorphic field-deref getters for the
@@ -815,12 +816,11 @@ export class GpuTileStore {
       ? tiles.map((t) => ({ oldOffset: t.polyIndexOffset, bytes: t.polyIndexByteLength }))
       : null
 
-    // One encoder records ALL copies for both arenas; a single submit makes
-    // the whole relocation atomic w.r.t. the GPU timeline.
-    const encoder = this.device.createCommandEncoder({ label: 'arena-compact-grow' })
+    // One encoder records ALL copies for both arenas; one finish() = atomic submit.
+    const encoder = this.rhi.createCommandEncoder('arena-compact-grow')
     const vResult = vArena && vReloc ? vArena.compact(vReloc, encoder, vTarget) : null
     const iResult = iArena && iReloc ? iArena.compact(iReloc, encoder, iTarget) : null
-    this.device.queue.submit([encoder.finish()])
+    encoder.finish()
 
     // Rewrite tile records to the new offsets + new buffer reference. This
     // is the atomic offset rewrite: it runs synchronously with no await, so

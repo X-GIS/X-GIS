@@ -19,7 +19,9 @@
 
 import { describe, expect, it } from 'vitest'
 import { GpuTileStore } from './gpu-tile-store'
-import { GPUArena } from '../gpu/gpu-arena'
+import { GPUArena, type GPUArenaDevice } from '@xgis/engine'
+import type { RhiBuffer } from '@xgis/engine'
+import { WebGpuDevice } from '@xgis/engine'
 
 interface MockBuffer { size: number; destroyed: boolean; destroy(): void }
 function mockDevice(): GPUDevice {
@@ -35,7 +37,20 @@ function mockDevice(): GPUDevice {
   } as unknown as GPUDevice
 }
 
-const VERTEX_USAGE = 0x20 | 0x8
+// The injected arena drives the RHI device subset (createBuffer→RhiBuffer +
+// destroyBuffer). RHI handles wrap as {native}; the arena unwraps `buffer`.
+function arenaDevice(): GPUArenaDevice {
+  return {
+    createBuffer(desc): RhiBuffer {
+      const b: MockBuffer = { size: desc.size, destroyed: false, destroy() { b.destroyed = true } }
+      return { native: b } as unknown as RhiBuffer
+    },
+    destroyBuffer(h) { (h as unknown as { native: MockBuffer }).native.destroy() },
+    unwrapBuffer(h) { return (h as unknown as { native: MockBuffer }).native as unknown as GPUBuffer },
+  }
+}
+
+const VERTEX_USAGE = 'vertex'
 
 type StorePriv = {
   polyVertexArena: GPUArena | null
@@ -73,10 +88,11 @@ function fillProtected(store: GpuTileStore, arena: GPUArena, n: number, bytes: n
 
 describe('GpuTileStore arena auto-grow (US-003)', () => {
   it('over-capacity protected live set → forceEvictBytes flags a GROW (not compaction)', () => {
-    const store = new GpuTileStore(mockDevice())
+    const _dev = mockDevice()
+    const store = new GpuTileStore(_dev, new WebGpuDevice(_dev))
     const inj = store as unknown as StorePriv
     const CAP = 64 * 1024
-    const arena = new GPUArena(mockDevice(), { capacityBytes: CAP, usage: VERTEX_USAGE })
+    const arena = new GPUArena(arenaDevice(), { capacityBytes: CAP, usage: VERTEX_USAGE, copySrc: true })
     inj.polyVertexArena = arena
 
     // Fill the arena with protected tiles (≈ full capacity).
@@ -93,10 +109,11 @@ describe('GpuTileStore arena auto-grow (US-003)', () => {
   })
 
   it('runFrameMaintenance drains the grow → arena capacity increases + tile offsets rewritten', () => {
-    const store = new GpuTileStore(mockDevice())
+    const _dev = mockDevice()
+    const store = new GpuTileStore(_dev, new WebGpuDevice(_dev))
     const inj = store as unknown as StorePriv
     const CAP = 64 * 1024
-    const arena = new GPUArena(mockDevice(), { capacityBytes: CAP, usage: VERTEX_USAGE })
+    const arena = new GPUArena(arenaDevice(), { capacityBytes: CAP, usage: VERTEX_USAGE, copySrc: true })
     inj.polyVertexArena = arena
     const TILE = 8 * 1024
     const keys = fillProtected(store, arena, 8, TILE)
@@ -117,14 +134,15 @@ describe('GpuTileStore arena auto-grow (US-003)', () => {
   })
 
   it('at the ceiling → flags compaction (graceful), NOT an unbounded grow', () => {
-    const store = new GpuTileStore(mockDevice())
+    const _dev = mockDevice()
+    const store = new GpuTileStore(_dev, new WebGpuDevice(_dev))
     const inj = store as unknown as StorePriv
     // Construct an arena already AT the vertex ceiling (512MB) but with a tiny
     // logical fill so we can saturate it cheaply: use the real ceiling cap and
     // a single protected tile occupying the whole bump via a large alloc is
     // impractical, so instead assert the branch via a near-ceiling cap.
     const CEIL = 512 * 1024 * 1024
-    const arena = new GPUArena(mockDevice(), { capacityBytes: CEIL, usage: VERTEX_USAGE })
+    const arena = new GPUArena(arenaDevice(), { capacityBytes: CEIL, usage: VERTEX_USAGE, copySrc: true })
     inj.polyVertexArena = arena
     // One protected tile near the top of the bump so liveBytes+needed > cap but
     // capacity is already at the ceiling → no further grow allowed.

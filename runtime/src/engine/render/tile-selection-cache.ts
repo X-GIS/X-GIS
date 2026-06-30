@@ -23,20 +23,20 @@
 // (§5 items 2 + 6). `merc-high-pitch-drag-perf.test.ts` is the scratch
 // guard; `_zoom-transition-*.spec.ts` are the hysteresis/readiness guards.
 
-import { Camera } from '../projection/camera'
+import { Camera } from '@xgis/engine'
 import {
   visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority, makeTileCoord,
 } from '../../data/tile-select'
 import { visibleTilesSSE } from '../../loader/tiles-sse'
-import { globeVisibleTiles } from '../projection/globe'
+import { globeVisibleTiles } from '@xgis/engine'
 import { tileKey, tileKeyParent } from '@xgis/compiler'
-import { enumerateWorldCopies, routeToSphereSelector } from '../gpu/gpu-shared'
+import { enumerateWorldCopies, routeToSphereSelector } from '@xgis/engine'
 import {
   mercator as mercatorProj, getProjection, type Projection, mercatorYToLat,
-} from '../projection/projection'
-import { SELECTOR_PROJ_NAMES, promotesToGlobeWhenTilted, representsCenterAs } from '../projection/projections-table'
+} from '@xgis/engine'
+import { SELECTOR_PROJ_NAMES, promotesToGlobeWhenTilted, representsCenterAs } from '@xgis/engine'
 import type { TileCatalog } from '../../data/tile-catalog'
-import type { FrameDrawStats } from './frame-draw-stats'
+import type { FrameDrawStats } from '@xgis/engine'
 
 /** Cache of `visibleTilesFrustum()` + the derived neededKeys /
  *  worldOffsets arrays. With one source feeding N layer

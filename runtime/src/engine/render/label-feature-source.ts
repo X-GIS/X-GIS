@@ -15,7 +15,7 @@
 // owns those, not this collaborator.
 
 import { bumpAlloc } from '../__profile__/alloc-counter'
-import { FrameArena } from '../gpu/frame-arena'
+import { FrameArena } from '@xgis/engine'
 import type { TileCatalog } from '../../data/tile-catalog'
 
 export class LabelFeatureSource {

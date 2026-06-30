@@ -24,8 +24,9 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
-import { initGPU, type GPUContext } from '../gpu/gpu'
+import { initGPU, type GPUContext } from '@xgis/engine'
 import { PointRenderer } from './point-renderer'
+import { WebGpuDevice } from '@xgis/engine'
 
 let stub: StubInstallation
 
@@ -77,7 +78,7 @@ function capturedFeatData(ctx: GPUContext, opacity: number): Float32Array | unde
       : new Float32Array((data as ArrayBufferView).buffer, (data as ArrayBufferView).byteOffset, STRIDE)
   }
 
-  const renderer = new PointRenderer({ device: ctx.device, format: ctx.format })
+  const renderer = new PointRenderer({ device: ctx.device, format: ctx.format, rhi: new WebGpuDevice(ctx.device) })
   // addLayer(features, fill, stroke, strokeWidth, radiusPx, opacity, …)
   renderer.addLayer(FEATURES as never, FILL, STROKE, STROKE_WIDTH, RADIUS_PX, opacity)
   return feat

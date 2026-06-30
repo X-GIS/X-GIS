@@ -53,11 +53,11 @@ vi.mock('../data/sources/virtual-pmtiles-backend', () => ({
 }))
 
 import { SourceManager, type SourceManagerDeps } from './source-manager'
-import { Camera } from './projection/camera'
+import { Camera } from '@xgis/engine'
 import type { ShowSourceMaps } from './show-source-maps'
 import type { GeoJSONFeatureCollection } from '../loader/geojson'
-import type { MapRenderer } from './render/renderer'
-import type { GPUContext } from './gpu/gpu'
+import type { MapRendererContent } from './render/renderer'
+import type { GPUContext } from '@xgis/engine'
 
 /** A test double for XGISMap's `_runBoundsFitGate`: runs `apply` only when the
  *  camera has NOT been explicitly positioned — byte-identical logic to
@@ -87,7 +87,7 @@ function emptyMaps(): ShowSourceMaps {
 function makeSourceManager(camera: Camera, positioned: { value: boolean }) {
   // The mocked VectorTileRenderer ignores every value passed to its setters,
   // so a bare object satisfies the renderer-property reads in the attach.
-  const rendererStub = {} as unknown as MapRenderer
+  const rendererStub = {} as unknown as MapRendererContent
   const deps: SourceManagerDeps = {
     rawDatasets: new Map(),
     vtSources: new Map(),

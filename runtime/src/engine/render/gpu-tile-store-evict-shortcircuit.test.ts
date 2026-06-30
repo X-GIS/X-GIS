@@ -21,7 +21,9 @@
 
 import { describe, expect, it } from 'vitest'
 import { GpuTileStore } from './gpu-tile-store'
-import { GPUArena } from '../gpu/gpu-arena'
+import { GPUArena, type GPUArenaDevice } from '@xgis/engine'
+import type { RhiBuffer } from '@xgis/engine'
+import { WebGpuDevice } from '@xgis/engine'
 
 interface MockBuffer { size: number; destroyed: boolean; destroy(): void }
 function mockDevice(): GPUDevice {
@@ -37,7 +39,20 @@ function mockDevice(): GPUDevice {
   } as unknown as GPUDevice
 }
 
-const VERTEX_USAGE = 0x20 | 0x8
+// The injected arena drives the RHI device subset (createBuffer→RhiBuffer +
+// destroyBuffer). RHI handles wrap as {native}; the arena unwraps `buffer`.
+function arenaDevice(): GPUArenaDevice {
+  return {
+    createBuffer(desc): RhiBuffer {
+      const b: MockBuffer = { size: desc.size, destroyed: false, destroy() { b.destroyed = true } }
+      return { native: b } as unknown as RhiBuffer
+    },
+    destroyBuffer(h) { (h as unknown as { native: MockBuffer }).native.destroy() },
+    unwrapBuffer(h) { return (h as unknown as { native: MockBuffer }).native as unknown as GPUBuffer },
+  }
+}
+
+const VERTEX_USAGE = 'vertex'
 
 /** A Map that counts how many times it is iterated (for…of). An OWN
  *  [Symbol.iterator] shadows the prototype's, so the count is exact and
@@ -69,7 +84,7 @@ function atCeilingProtected(store: GpuTileStore): { arena: GPUArena; counting: S
   const counting = countingMap<string, Map<number, unknown>>()
   inj.gpuCache = counting as unknown as Map<string, Map<number, unknown>>
   const CEIL = 512 * 1024 * 1024
-  const arena = new GPUArena(mockDevice(), { capacityBytes: CEIL, usage: VERTEX_USAGE })
+  const arena = new GPUArena(arenaDevice(), { capacityBytes: CEIL, usage: VERTEX_USAGE, copySrc: true })
   inj.polyVertexArena = arena
   const inner = new Map<number, unknown>()
   counting.set('', inner)
@@ -87,7 +102,8 @@ function atCeilingProtected(store: GpuTileStore): { arena: GPUArena; counting: S
 
 describe('GpuTileStore forceEvictBytes — at-ceiling futility short-circuit (a1)', () => {
   it('a repeated at-ceiling evict in the SAME frame skips the O(resident) scan', () => {
-    const store = new GpuTileStore(mockDevice())
+    const _dev = mockDevice()
+    const store = new GpuTileStore(_dev, new WebGpuDevice(_dev))
     const inj = store as unknown as StorePriv
     const { arena, counting } = atCeilingProtected(store)
 
@@ -107,7 +123,8 @@ describe('GpuTileStore forceEvictBytes — at-ceiling futility short-circuit (a1
   })
 
   it('runFrameMaintenance clears the latch so the next frame re-attempts eviction', () => {
-    const store = new GpuTileStore(mockDevice())
+    const _dev = mockDevice()
+    const store = new GpuTileStore(_dev, new WebGpuDevice(_dev))
     const inj = store as unknown as StorePriv
     const { arena } = atCeilingProtected(store)
 

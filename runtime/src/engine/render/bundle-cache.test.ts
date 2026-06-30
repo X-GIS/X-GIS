@@ -7,7 +7,7 @@
 //   - Stats (hits / misses / size / hitRate)
 
 import { describe, it, expect } from 'vitest'
-import { BundleCache, type BundleEncodeDescriptor } from './bundle-cache'
+import { BundleCache, type BundleEncodeDescriptor } from '@xgis/engine'
 
 interface MockBundle { __mock: true; label?: string; encodedSeq: number }
 

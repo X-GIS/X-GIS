@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   mercator, equirectangular, naturalEarth,
   orthographic, azimuthalEquidistant, stereographic, obliqueMercator,
-} from './projection'
+} from '@xgis/engine'
 import {
   projMercatorWgsl,
   projEquirectangularWgsl,
@@ -21,7 +21,7 @@ import {
   wrapLonDelta,
   needsBackfaceCullWgsl,
 } from '../shaders/dsl'
-import { globeForward } from './globe'
+import { globeForward } from '@xgis/engine'
 import { globeEyeUniform } from '../render/globe-eye-uniform'
 
 const EARTH_R = 6378137

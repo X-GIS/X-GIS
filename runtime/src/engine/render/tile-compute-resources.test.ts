@@ -4,7 +4,7 @@
 
 import { beforeAll, describe, expect, it } from 'vitest'
 import { TileComputeResources } from './tile-compute-resources'
-import { ComputeDispatcher } from '../gpu/compute'
+import { ComputeDispatcher } from '@xgis/engine'
 import {
   emitMatchComputeKernel,
   emitTernaryComputeKernel,

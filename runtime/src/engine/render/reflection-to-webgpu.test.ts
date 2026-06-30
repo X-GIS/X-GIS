@@ -10,7 +10,7 @@ import {
   reflectionToBindGroupLayoutEntries,
   uniformFieldSlots,
   type VisibilityMap,
-} from './reflection-to-webgpu'
+} from '@xgis/engine'
 
 const V = 1 // GPUShaderStage.VERTEX
 const F = 2 // GPUShaderStage.FRAGMENT

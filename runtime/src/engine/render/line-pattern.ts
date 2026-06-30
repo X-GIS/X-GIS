@@ -4,6 +4,8 @@
 // 1700-line renderer class. line-renderer.ts re-exports the public
 // surface so existing imports keep working.
 
+import { lineLayerUniformBytes } from './line-uniform-slots'
+
 // ═══ Layer Uniform Layout ═══
 // Must match WGSL struct LineLayerUniform.
 // Layout (all f32 unless noted):
@@ -27,7 +29,15 @@
 //   [50-51] pad                      — 16-byte alignment (208 bytes total)
 // Total = 52 f32 = 208 bytes.
 
-export const LINE_UNIFORM_SIZE = 208
+/** Canonical `LineLayer` uniform byte size — the size of the buffer
+ *  `packLineLayerUniform` returns. Derived from `reflect()` (the SoT) via
+ *  `lineLayerUniformBytes()`, NOT a hand literal, so a future struct change
+ *  can't silently truncate the scratch (the #600-blank-globe drift class).
+ *  LAZY (calls reflect → emits projection fns that throw until
+ *  `configureProjections()` runs) — so it's a function, never a module const. */
+export function lineUniformSize(): number {
+  return lineLayerUniformBytes()
+}
 export const PATTERN_SLOT_COUNT = 3
 export const PATTERN_SLOT_F32 = 8 // 32 bytes per slot
 
@@ -164,13 +174,26 @@ export function checkPatternParams(
   }
 }
 
-// Module-level scratch buffer reused across packLineLayerUniform
-// calls. Called per line layer per frame — 71 calls on OFM Bright
-// z=13 = ~13 KB of fresh Float32Array allocations per frame. The
-// caller passes the result straight to `writeBuffer`, which COPIES
-// synchronously, so reuse is safe (no caller retention).
-const _lineUniformScratchF32 = new Float32Array(LINE_UNIFORM_SIZE / 4)
-const _lineUniformScratchU32 = new Uint32Array(_lineUniformScratchF32.buffer)
+// Scratch buffer reused across packLineLayerUniform calls. Called per line
+// layer per frame — 71 calls on OFM Bright z=13 = ~13 KB of fresh
+// Float32Array allocations per frame. The caller passes the result straight
+// to `writeBuffer`, which COPIES synchronously, so reuse is safe (no caller
+// retention).
+//
+// LAZILY allocated: its size comes from `lineLayerUniformBytes()` (reflect),
+// which emits projection fns that throw until `configureProjections()` has
+// run — so it CANNOT be a module-scope `new Float32Array(...)` (that would
+// evaluate at import, pre-init, and crash map load). First draw (post-init)
+// materialises it; reused thereafter.
+let _lineUniformScratchF32: Float32Array | undefined
+let _lineUniformScratchU32: Uint32Array | undefined
+function lineUniformScratch(): { f32: Float32Array; u32: Uint32Array } {
+  if (_lineUniformScratchF32 === undefined) {
+    _lineUniformScratchF32 = new Float32Array(lineLayerUniformBytes() / 4)
+    _lineUniformScratchU32 = new Uint32Array(_lineUniformScratchF32.buffer)
+  }
+  return { f32: _lineUniformScratchF32, u32: _lineUniformScratchU32! }
+}
 
 /** Pack layer uniform data into a Float32Array for upload. The layout
  *  is documented at the top of this file; the 192-byte struct is
@@ -213,8 +236,7 @@ export function packLineLayerUniform(
    *  fold constant, byte-identical default). */
   roundLimit: number = 0,
 ): Float32Array {
-  const buf = _lineUniformScratchF32
-  const u32 = _lineUniformScratchU32
+  const { f32: buf, u32 } = lineUniformScratch()
   // Zero the scratch — the function only writes selected slots,
   // and stale values from a prior call would leak into the GPU
   // upload (e.g. dash cycle from a solid-stroke layer's prior

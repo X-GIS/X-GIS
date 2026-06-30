@@ -51,10 +51,10 @@
 
 import { resolveColorToRgba } from '../tokens/colors'
 import {
-  fn, module, emitModule, storageBuffer, resource, builtin,
+  fn, module, storageBuffer, resource, builtin,
   If, Return, Var, Let, vec4, mix, pack4x8unorm, matchExpr, toI32,
   constExpr, constRef, arrayLit, arrayT,
-  f32T, u32T, vec3uT, vec4uT, vec4fT, type Node, type ReadonlyNode, type ConstDecl,
+  f32T, u32T, vec3uT, vec4uT, vec4fT, type Node, type ReadonlyNode, type ConstDecl, type ModuleDecl,
 } from '@xgis/shader-dsl'
 
 /** Workgroup size used by every emitted kernel. 64 is the WebGPU
@@ -97,7 +97,11 @@ function readMatchLutThresholdOverride(): number | undefined {
  *  helper tells the runtime how many workgroups to launch for a
  *  given feature count: `ceil(features / COMPUTE_WORKGROUP_SIZE)`. */
 export interface ComputeKernel {
-  wgsl: string
+  /** The backend-NEUTRAL shader-dsl IR for this kernel. The compiler does NOT emit
+   *  shader code (the WebGPU-vs-WebGL2 target is a RUNTIME decision, package-
+   *  responsibilities.md ruling i) — it returns the module IR and the runtime emits
+   *  WGSL (emitModule) or GLSL (emitGlslModule {emulateCompute}) per the live backend. */
+  module: ModuleDecl
   /** WGSL function name to use as the pipeline entry point. Each
    *  emitter picks a distinct name (`eval_match`, `eval_case`,
    *  `eval_interpolate`) so the runtime can build separate
@@ -188,8 +192,8 @@ export function emitMatchComputeKernel(spec: MatchEmitSpec): ComputeKernel {
   // sub-threshold path lowers `matchExpr` → WGSL switch. Either way the kernel
   // inherits cse / const-fold / dce + the std430 layout — no hand-assembled WGSL.
   const useLut = sortedPatterns.length >= (readMatchLutThresholdOverride() ?? MATCH_LUT_THRESHOLD)
-  const wgsl = useLut
-    ? emitComputeKernelWgsl('eval_match', (fid, featData) => {
+  const mod = useLut
+    ? buildComputeKernelModule('eval_match', (fid, featData) => {
         // O(1) LUT branch — select on the RAW signed id (i32, NO max-clamp): an id
         // in [0, N) indexes `LUT[id]`; the packer's `-1` unknown/sentinel (and any
         // id >= N) falls to default. A `u32(max(v, 0))` clamp would alias -1 -> 0 ->
@@ -207,7 +211,7 @@ export function emitMatchComputeKernel(spec: MatchEmitSpec): ComputeKernel {
         })
         return color
       }, [buildMatchLutConst(sortedPatterns, armByPattern)])
-    : emitComputeKernelWgsl('eval_match', (fid, featData) => {
+    : buildComputeKernelModule('eval_match', (fid, featData) => {
         const dflt = rgba(spec.defaultColorHex)
         // No arms → just the default colour (an empty match has no switch).
         if (sortedPatterns.length === 0) return dflt
@@ -226,7 +230,7 @@ export function emitMatchComputeKernel(spec: MatchEmitSpec): ComputeKernel {
       })
 
   return {
-    wgsl,
+    module: mod,
     entryPoint: 'eval_match',
     featureStrideF32: 1,
     fieldOrder: [spec.fieldName],
@@ -298,7 +302,7 @@ export interface TernaryEmitSpec {
  */
 export function emitTernaryComputeKernel(spec: TernaryEmitSpec): ComputeKernel {
   const stride = spec.fields.length
-  const wgsl = emitComputeKernelWgsl('eval_case', (fid, featData) => {
+  const mod = buildComputeKernelModule('eval_case', (fid, featData) => {
     const rgba = (hex: string): Node<'vec4<f32>'> => {
       const [r, g, b, a] = colorHexToRGBA(hex)
       return vec4(r, g, b, a)
@@ -344,7 +348,7 @@ export function emitTernaryComputeKernel(spec: TernaryEmitSpec): ComputeKernel {
   })
 
   return {
-    wgsl,
+    module: mod,
     entryPoint: 'eval_case',
     featureStrideF32: Math.max(1, stride),
     fieldOrder: [...spec.fields],
@@ -400,11 +404,11 @@ export interface InterpolateEmitSpec {
  *  the vec4 colour Node (doing its own field loads + control flow). Routing the body
  *  through `emitModule` gives it cse / autoVars / const-fold / dce for free, and the
  *  std430/reflection layout — the whole reason this stops being a string builder. */
-function emitComputeKernelWgsl(
+function buildComputeKernelModule(
   entryName: string,
   buildColor: (fid: Node<'u32'>, featData: { at(i: Node<'u32'>): Node<'f32'> }) => Node<'vec4<f32>'>,
   consts: ConstDecl[] = [],
-): string {
+): ModuleDecl {
   const featData = storageBuffer('feat_data', f32T, { group: 0, binding: 0, access: 'read' })
   const outColor = storageBuffer('out_color', u32T, { group: 0, binding: 1, access: 'read_write' })
   const uCount = resource('u_count', vec4uT, { group: 0, binding: 2 }) // vec4<u32> — 16-byte UBO min
@@ -414,7 +418,7 @@ function emitComputeKernelWgsl(
     const color = buildColor(fid, featData)
     outColor.at(fid).assign(pack4x8unorm(color))
   }, { stage: 'compute', workgroupSize: COMPUTE_WORKGROUP_SIZE })
-  return emitModule(module({ consts, bindings: [featData.binding, outColor.binding, uCount.binding], funcs: [kernel] }))
+  return module({ consts, bindings: [featData.binding, outColor.binding, uCount.binding], funcs: [kernel] })
 }
 
 export function emitInterpolateComputeKernel(spec: InterpolateEmitSpec): ComputeKernel {
@@ -422,7 +426,7 @@ export function emitInterpolateComputeKernel(spec: InterpolateEmitSpec): Compute
     const [r, g, b, a] = colorHexToRGBA(hex)
     return vec4(r, g, b, a)
   }
-  const wgsl = emitComputeKernelWgsl('eval_interpolate', (fid, featData) => {
+  const mod = buildComputeKernelModule('eval_interpolate', (fid, featData) => {
     const v = Let(featData.at(fid)) // single field → stride 1 → offset 0
     const color = Var(vec4fT)
     if (spec.stops.length === 0) {
@@ -448,7 +452,7 @@ export function emitInterpolateComputeKernel(spec: InterpolateEmitSpec): Compute
     return color
   })
   return {
-    wgsl,
+    module: mod,
     entryPoint: 'eval_interpolate',
     featureStrideF32: 1,
     fieldOrder: [spec.fieldName],

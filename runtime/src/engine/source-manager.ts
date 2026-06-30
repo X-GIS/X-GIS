@@ -26,10 +26,10 @@
 //   - `this.camera` / `this.canvas`  → injected (stable ctor-time instances).
 
 import { assertIngestBudget, readBodyCapped, safeFetch } from './safety'
-import type { Camera } from './projection/camera'
-import type { GPUContext } from './gpu/gpu'
-import { getMaxDpr } from './gpu/gpu'
-import type { MapRenderer } from './render/renderer'
+import type { Camera } from '@xgis/engine'
+import type { GPUContext } from '@xgis/engine'
+import { getMaxDpr } from '@xgis/engine'
+import type { MapRendererContent } from './render/renderer'
 import type { LineRenderer } from './render/line-renderer'
 import { lonLatToMercator, type GeoJSONFeatureCollection } from '../loader/geojson'
 import { isTileTemplate } from '../data/tile-select'
@@ -72,7 +72,7 @@ export interface SourceManagerDeps {
   /** The WebGPU context, read fresh (populated in run() / runBinary). */
   getCtx(): GPUContext
   /** The MapRenderer, read fresh (populated in run() / runBinary). */
-  getRenderer(): MapRenderer
+  getRenderer(): MapRendererContent
   /** The shared SDF LineRenderer, read fresh (may be null pre-init). */
   getLineRenderer(): LineRenderer | null
   /** Mark a render as needed (XGISMap's `invalidate()`). */
@@ -100,7 +100,7 @@ export class SourceManager {
   private readonly camera: Camera
   private readonly canvas: HTMLCanvasElement
   private readonly getCtx: () => GPUContext
-  private readonly getRenderer: () => MapRenderer
+  private readonly getRenderer: () => MapRendererContent
   private readonly getLineRenderer: () => LineRenderer | null
   private readonly invalidate: () => void
   private readonly _fitZoomToLonSpan: (lonSpan: number, cssWidthPx: number) => number
@@ -245,6 +245,7 @@ export class SourceManager {
     vtRenderer.setPatternExtrudedPipelines(this.getRenderer().fillPipelinePatternExtruded, this.getRenderer().fillPipelinePatternExtrudedFallback)
       vtRenderer.setOITPipeline(this.getRenderer().fillPipelineExtrudedOIT)
       if (this.getLineRenderer()) vtRenderer.setLineRenderer(this.getLineRenderer()!)
+      vtRenderer.setFillRhi?.(this.getRenderer().fillRhiState?.() ?? null)
       vtRenderer.setSource(source) // connect before load so preloaded tiles auto-upload
       const fullUrl = url.startsWith('http') ? url : new URL(url, location.href).href
       // Inferred set + explicit `layers:` merge: explicit wins for any
@@ -445,6 +446,7 @@ export class SourceManager {
     vtRenderer.setPatternExtrudedPipelines(this.getRenderer().fillPipelinePatternExtruded, this.getRenderer().fillPipelinePatternExtrudedFallback)
     vtRenderer.setOITPipeline(this.getRenderer().fillPipelineExtrudedOIT)
     if (this.getLineRenderer()) vtRenderer.setLineRenderer(this.getLineRenderer()!)
+    vtRenderer.setFillRhi?.(this.getRenderer().fillRhiState?.() ?? null)
     vtRenderer.setSource(source)
 
     const inferred = maps.usedSourceLayers.get(sourceName)

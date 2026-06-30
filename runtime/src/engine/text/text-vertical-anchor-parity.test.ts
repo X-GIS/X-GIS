@@ -24,6 +24,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { TextStage } from './text-stage'
+import { WebGpuDevice } from '@xgis/engine'
 import { computeSDF } from './sdf/distance-transform'
 import type { GlyphRasterizer, GlyphRasterRequest, GlyphRasterResult } from './sdf/glyph-rasterizer'
 import type { LabelDef, TextValue } from '@xgis/compiler'
@@ -92,7 +93,7 @@ function defOf(size: number, anchor: string): LabelDef {
  *  marks the label icon-paired (a shield) — #608-scope routes that through the
  *  box-centred ink recentre instead of the standalone hang-below. */
 function inkCentroidRel(text: string, size: number, anchor: string, pairKey?: string): number {
-  const stage = new TextStage(stubDevice(), 'bgra8unorm', { rasterizer: new LatinMetricsRasterizer() })
+  const stage = new TextStage(stubDevice(), new WebGpuDevice(stubDevice()), 'bgra8unorm', { rasterizer: new LatinMetricsRasterizer() })
   const captured: TextDraw[][] = []
   ;(stage as unknown as { renderer: { setDraws(d: TextDraw[]): void } }).renderer.setDraws =
     (d: TextDraw[]) => { captured.push(d) }

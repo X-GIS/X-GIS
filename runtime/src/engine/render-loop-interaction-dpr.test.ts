@@ -16,8 +16,8 @@
 // resizeCanvas (the swapchain size) and the render loop (the camera dpr)
 // can never diverge. These tests pin that contract — pure CPU, no GPU.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { effectiveDpr, resizeCanvas, getMaxDpr, type GPUContext } from './gpu/gpu'
-import { QUALITY } from './gpu/quality'
+import { effectiveDpr, resizeCanvas, getMaxDpr, type GPUContext } from '@xgis/engine'
+import { QUALITY } from '@xgis/engine'
 
 // jsdom/node leaves window undefined; install a minimal shim carrying only
 // devicePixelRatio (gpu.ts reads window.devicePixelRatio; QUALITY caps it).

@@ -14,7 +14,7 @@
 // tautological.
 
 import { describe, it, expect } from 'vitest'
-import { Camera } from '../projection/camera'
+import { Camera } from '@xgis/engine'
 import { pointWorldCopies, worldCopyMercX } from './point-renderer'
 
 const DEG2RAD = Math.PI / 180

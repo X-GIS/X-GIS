@@ -14,7 +14,7 @@
 
 import { reflect } from '@xgis/shader-dsl'
 import { buildPolygonModule } from '../shaders/dsl/polygon'
-import { uniformFieldSlots, type UniformFieldSlots } from './reflection-to-webgpu'
+import { uniformFieldSlots, type UniformFieldSlots } from '@xgis/engine'
 
 let _slots: UniformFieldSlots | undefined
 

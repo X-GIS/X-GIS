@@ -31,8 +31,9 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
-import { initGPU, type GPUContext } from '../gpu/gpu'
+import { initGPU, type GPUContext } from '@xgis/engine'
 import { TextRenderer } from './text-renderer'
+import { WebGpuDevice } from '@xgis/engine'
 import type { TextDraw } from './text-renderer-types'
 import type { GlyphInfo } from './sdf/glyph-atlas-host'
 
@@ -104,7 +105,7 @@ const VERTS_PER_GLYPH = 6
 /** Run setDraws once for the given rotateRad and return the uploaded
  *  vertex Float32Array (24 floats = 6 verts × 4 floats). */
 function capturedVerts(ctx: GPUContext, rotateRad: number | undefined): Float32Array {
-  const renderer = new TextRenderer(ctx.device, FAKE_ATLAS, ctx.format)
+  const renderer = new TextRenderer(ctx.device, new WebGpuDevice(ctx.device), FAKE_ATLAS, ctx.format)
 
   let verts: Float32Array | undefined
   const device = ctx.device as unknown as {

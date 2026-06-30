@@ -3,24 +3,25 @@
 // using Signed Distance Field math in the fragment shader.
 // Single draw call for all points via per-feature storage buffer.
 
-import type { Camera } from '../projection/camera'
-import { lonLatToECEF } from '../projection/ecef'
-import { isWebMercator } from '../projection/projections-table'
-import { BLEND_ALPHA, DEPTH_TEST_WRITE, WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
-import { getSampleCount } from '../gpu/gpu'
+import type { Camera } from '@xgis/engine'
+import { lonLatToECEF } from '@xgis/engine'
+import { isWebMercator } from '@xgis/engine'
+import { WORLD_MERC, TILE_PX } from '@xgis/engine'
+import { getSampleCount } from '@xgis/engine'
 import type { ShapeRegistry } from '../text/sdf-shape'
 import { parseHexColor } from '../feature-helpers'
 import { resolveNumberShape } from './paint-shape-resolve'
-import { FrameArena } from '../gpu/frame-arena'
+import { FrameArena } from '@xgis/engine'
 import type { PointLayer } from './point-renderer-types'
-import { emitPointWgsl, buildPointModule } from '../shaders/dsl'
-import { WebGpuDevice, wrapWebGpuPass } from './rhi/rhi-webgpu'
+import { buildPointModule } from '../shaders/dsl'
+import { wrapWebGpuPass, wrapWebGpuBindGroupLayout } from '@xgis/engine'
+import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
 import { PointDraper } from './material/point-material'
 import { reflect } from '@xgis/shader-dsl'
 import { vertexField } from '@xgis/compiler'
 import { POINT_FORMAT } from './point-vertex-format'
-import { toVertexBufferLayout } from './vertex-buffer-layout'
-import { reflectionToBindGroupLayoutEntries, uniformFieldSlots } from './reflection-to-webgpu'
+import { toVertexBufferLayout } from '@xgis/engine'
+import { reflectionToBindGroupLayoutEntries, uniformFieldSlots } from '@xgis/engine'
 import { writeProjectionCull } from './frame-projection-uniform'
 
 // Float-slot indices derived from the single-source POINT_FORMAT spec so the
@@ -197,17 +198,19 @@ export function worldCopyMercX(lon: number, wo: number): number {
 // ═══ Renderer ═══
 
 export class PointRenderer {
-  private device: GPUDevice
-  private pipeline: GPURenderPipeline            // billboard: depth test + write + bias
-  private pipelineTranslucent: GPURenderPipeline // billboard: depth test only, no write (transparency)
-  private pipelineFlat: GPURenderPipeline        // flat: depth test only, no write (avoids coplanar z-fight)
+  /** The RHI seam (§4 batch-seam migration). One instance, reused for the point
+   *  resources (uniform + per-frame vertex/index/feature buffers + the empty-shape
+   *  fallback + the bind groups) and the PointDraper. On WebGPU `createBuffer ===
+   *  device.createBuffer`, `createBindGroup === device.createBindGroup`,
+   *  `writeBuffer === queue.writeBuffer`, `destroyBuffer === GPUBuffer.destroy()`,
+   *  so the GPU command stream is byte-identical. */
+  private readonly rhi: RhiDevice
   private bindGroupLayout: GPUBindGroupLayout
-  private pipelineLayout: GPUPipelineLayout | null = null
   private format: GPUTextureFormat = 'bgra8unorm'
   // Vertex buffer layout — cached so rebuildForQuality can reuse without
   // recomputing the stride/attribute map.
   private vertexBufferLayout: GPUVertexBufferLayout | null = null
-  private uniformBuffer: GPUBuffer
+  private uniformBuffer: RhiBuffer
   // Point Uniforms: mvp(16) + proj_params(4) + viewport(4) + cam_ecef_h(4) +
   // cam_ecef_l(4) + circle_params(4) = 36 floats × 4 = 144 bytes.
   // `mvp` IS the ECEF-MVP (Camera.getECEFFrameView). The per-feature ECEF
@@ -233,11 +236,9 @@ export class PointRenderer {
     this.shapeRegistry = registry
   }
 
-  constructor(ctx: { device: GPUDevice; format: GPUTextureFormat }) {
-    this.device = ctx.device
+  constructor(ctx: { device: GPUDevice; format: GPUTextureFormat; rhi: RhiDevice }) {
+    this.rhi = ctx.rhi
     const { device } = ctx
-
-    const shaderModule = device.createShaderModule({ code: emitPointWgsl(), label: 'sdf-point-shader' })
 
     this.bindGroupLayout = device.createBindGroupLayout({
       // Entries sourced from reflect(buildPointModule()) — binding numbers +
@@ -247,155 +248,58 @@ export class PointRenderer {
     })
 
     this.format = ctx.format
-    this.pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [this.bindGroupLayout] })
-    const pipelineLayout = this.pipelineLayout
 
-    // Derived from the single-source POINT_FORMAT spec (vs_point @location +
-    // packer derive from the same spec, so they cannot drift).
+    // Derived from the single-source POINT_FORMAT spec (vs_point @location + packer
+    // derive from the same spec, so they cannot drift). The point draw goes through the
+    // RHI Material seam (PointDraper, which owns the pipelines + their depth-bias variants);
+    // this layout feeds ensurePointDraper.
     this.vertexBufferLayout = toVertexBufferLayout(POINT_FORMAT)
-    const vertexBufferLayout = this.vertexBufferLayout
 
-    // Polygon offset (depth bias) pulls point markers slightly toward the
-    // camera so they never z-fight with ground polygons, line strokes, or
-    // each other. Negative bias = closer in WebGPU's [0,1] depth range.
-    // `depthBiasSlopeScale: -1` makes the offset proportional to surface
-    // slope so the effect is roughly constant in screen space regardless
-    // of pitch. Values chosen empirically — large enough to dominate any
-    // realistic coplanar tie at 24-bit depth precision.
-    const pointDepthStencil: GPUDepthStencilState = {
-      ...DEPTH_TEST_WRITE,
-      depthBias: -10,
-      depthBiasSlopeScale: -1,
-      depthBiasClamp: 0,
-    }
-
-    this.pipeline = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: { module: shaderModule, entryPoint: 'vs_point', buffers: [vertexBufferLayout] },
-      fragment: { module: shaderModule, entryPoint: 'fs_point', targets: [{ format: ctx.format, blend: BLEND_ALPHA }] },
-      primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: pointDepthStencil,
-      multisample: { count: getSampleCount() },
-      label: 'sdf-point-pipeline',
-    })
-
-    // Translucent billboard pipeline — same as `pipeline` (depth bias, test
-    // less-equal) but does NOT write depth. Translucent halos, glows, and
-    // any fill/stroke with effective alpha < 1 use this so the depth buffer
-    // only retains values from opaque fragments. Without this, a halo drawn
-    // first writes depth across its large area and causes opaque pins of
-    // other points drawn later to fail the depth test under pitch+rotation.
-    const translucentDepthStencil: GPUDepthStencilState = {
-      ...pointDepthStencil,
-      depthWriteEnabled: false,
-    }
-    this.pipelineTranslucent = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: { module: shaderModule, entryPoint: 'vs_point', buffers: [vertexBufferLayout] },
-      fragment: { module: shaderModule, entryPoint: 'fs_point', targets: [{ format: ctx.format, blend: BLEND_ALPHA }] },
-      primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: translucentDepthStencil,
-      multisample: { count: getSampleCount() },
-      label: 'sdf-point-pipeline-translucent',
-    })
-
-    // Flat pipeline — depth read but NO write. Flat circles (e.g. coverage
-    // overlays lying on the ground plane) have identical clip-space Z at
-    // any overlapping fragment, so writing depth produces a coplanar tie
-    // that flickers as z-fighting. Painter's order + alpha blending is the
-    // correct composition for these. Depth test is kept at less-equal so
-    // future opaque 3D geometry (not present today) can still occlude them.
-    const flatDepthStencil: GPUDepthStencilState = {
-      ...DEPTH_TEST_WRITE,
-      depthWriteEnabled: false,
-    }
-    this.pipelineFlat = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: { module: shaderModule, entryPoint: 'vs_point', buffers: [vertexBufferLayout] },
-      fragment: { module: shaderModule, entryPoint: 'fs_point', targets: [{ format: ctx.format, blend: BLEND_ALPHA }] },
-      primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: flatDepthStencil,
-      multisample: { count: getSampleCount() },
-      label: 'sdf-point-pipeline-flat',
-    })
-
-    this.uniformBuffer = device.createBuffer({
-      size: pointUniformSlots().slots * 4, // reflected std140 Uniforms size (40 slots × 4 = 160 bytes after #600 globe_eye)
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    // reflected std140 Uniforms size (40 slots × 4 = 160 bytes after #600 globe_eye).
+    // UNIFORM|COPY_DST, byte-identical via bufUsage('uniform', writable:true).
+    this.uniformBuffer = this.rhi.createBuffer({
+      size: pointUniformSlots().slots * 4,
+      usage: 'uniform', writable: true,
     })
   }
 
-  /** Rebuild the 3 point pipelines with the current QUALITY.msaa.
-   *  Points don't participate in GPU picking today (their render pass has
-   *  only one color attachment), so `isPickEnabled()` is ignored here —
-   *  only MSAA changes require the rebuild. Safe to call mid-session. */
+  /** A quality (MSAA) change invalidates the point draper so the next draw lazily rebuilds
+   *  its pipelines with the new getSampleCount(). Points do no GPU picking (single colour
+   *  attachment), so only the sample count matters. Safe to call mid-session. */
   rebuildForQuality(): void {
-    if (!this.pipelineLayout || !this.vertexBufferLayout) return
-    const device = this.device
-    const shaderModule = device.createShaderModule({ code: emitPointWgsl(), label: 'sdf-point-shader-rebuilt' })
-    const msaa = { count: getSampleCount() }
-    const vb = this.vertexBufferLayout
-    const pl = this.pipelineLayout
-    const fmt = this.format
-    const pointDepthStencil: GPUDepthStencilState = {
-      ...DEPTH_TEST_WRITE,
-      depthBias: -10, depthBiasSlopeScale: -1, depthBiasClamp: 0,
-    }
-    this.pipeline = device.createRenderPipeline({
-      layout: pl,
-      vertex: { module: shaderModule, entryPoint: 'vs_point', buffers: [vb] },
-      fragment: { module: shaderModule, entryPoint: 'fs_point', targets: [{ format: fmt, blend: BLEND_ALPHA }] },
-      primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: pointDepthStencil,
-      multisample: msaa,
-      label: 'sdf-point-pipeline',
-    })
-    this.pipelineTranslucent = device.createRenderPipeline({
-      layout: pl,
-      vertex: { module: shaderModule, entryPoint: 'vs_point', buffers: [vb] },
-      fragment: { module: shaderModule, entryPoint: 'fs_point', targets: [{ format: fmt, blend: BLEND_ALPHA }] },
-      primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: { ...pointDepthStencil, depthWriteEnabled: false },
-      multisample: msaa,
-      label: 'sdf-point-pipeline-translucent',
-    })
-    this.pipelineFlat = device.createRenderPipeline({
-      layout: pl,
-      vertex: { module: shaderModule, entryPoint: 'vs_point', buffers: [vb] },
-      fragment: { module: shaderModule, entryPoint: 'fs_point', targets: [{ format: fmt, blend: BLEND_ALPHA }] },
-      primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: { ...DEPTH_TEST_WRITE, depthWriteEnabled: false },
-      multisample: msaa,
-      label: 'sdf-point-pipeline-flat',
-    })
+    this._pointDraper = undefined
   }
 
-  /** Create a bind group with uniform + feat_data + shape buffers */
-  private makeBindGroup(featBuffer: GPUBuffer): GPUBindGroup {
+  /** Create a bind group with uniform + feat_data + shape buffers, through the
+   *  RHI seam (§4). All handles are point-owned/shared RhiBuffers passed directly:
+   *  uniform + feat are point-owned; the shared ShapeRegistry shape/seg buffers
+   *  are now RhiBuffer too (step 3c migrated them), with the point-owned
+   *  emptyStorageBuf() fallback when no registry is attached. */
+  private makeBindGroup(featBuffer: RhiBuffer): RhiBindGroup {
     const shapeBuf = this.shapeRegistry?.shapeBuffer
     const segBuf = this.shapeRegistry?.segmentBuffer
-    // Fallback: tiny empty buffers if no registry
-    const emptyBuf = this._emptyStorageBuf ??= this.device.createBuffer({
-      size: 64, usage: GPUBufferUsage.STORAGE, label: 'empty-shape-buf',
-    })
-    return this.device.createBindGroup({
-      layout: this.bindGroupLayout,
-      entries: [
-        { binding: 0, resource: { buffer: this.uniformBuffer } },
-        { binding: 1, resource: { buffer: featBuffer } },
-        { binding: 2, resource: { buffer: shapeBuf ?? emptyBuf } },
-        { binding: 3, resource: { buffer: segBuf ?? emptyBuf } },
-      ],
+    return this.rhi.createBindGroup(wrapWebGpuBindGroupLayout(this.bindGroupLayout), [
+      { binding: 0, resource: { buffer: this.uniformBuffer } },
+      { binding: 1, resource: { buffer: featBuffer } },
+      { binding: 2, resource: { buffer: shapeBuf ?? this.emptyStorageBuf() } },
+      { binding: 3, resource: { buffer: segBuf ?? this.emptyStorageBuf() } },
+    ])
+  }
+  /** Tiny empty storage buffer used as the binding-2/3 fallback when no
+   *  ShapeRegistry is attached. STORAGE-only (no COPY_DST — never written),
+   *  byte-identical via bufUsage('storage', writable:false). */
+  private emptyStorageBuf(): RhiBuffer {
+    return this._emptyStorageBuf ??= this.rhi.createBuffer({
+      size: 64, usage: 'storage', writable: false, label: 'empty-shape-buf',
     })
   }
-  private _emptyStorageBuf: GPUBuffer | null = null
+  private _emptyStorageBuf: RhiBuffer | null = null
 
-  // ── RHI pilot (behind __xgisPointViaRhi) — second-primitive proof ──
-  // The tile-point draw routed through the RHI seam (storage buffers + vertex/
-  // index + drawIndexed): builds the RHI pipelines once, then per-frame wraps the
-  // native uniform/feature/shape/seg/vertex/index buffers + draws. Legacy default.
+  // ── RHI Material seam — the tile-point draw (P1: the sole path) ──
+  // Storage buffers + vertex/index + drawIndexed through the generic Material: builds the
+  // RHI pipelines once, then per-frame wraps the native uniform/feature/shape/seg/vertex/
+  // index buffers + draws.
   private _pointDraper?: PointDraper
-  private _pointRhiLogged = false
 
   private ensurePointDraper(): void {
     if (this._pointDraper) return
@@ -404,17 +308,17 @@ export class PointRenderer {
       stride: vbl.arrayStride,
       attributes: [...vbl.attributes].map((a) => ({ location: a.shaderLocation, offset: a.offset, format: a.format as string })),
     }]
-    this._pointDraper = new PointDraper(new WebGpuDevice(this.device), this.format, getSampleCount(), vertexBuffers)
+    this._pointDraper = new PointDraper(this.rhi, this.format, getSampleCount(), vertexBuffers)
   }
 
   clearLayers(): void {
     for (const layer of this.layers) {
-      layer.vertexBuffer.destroy()
-      layer.indexBuffer.destroy()
-      layer.featureBuffer.destroy()
-      layer._expandedVertBuf?.destroy()
-      layer._expandedIdxBuf?.destroy()
-      layer._expandedFeatBuf?.destroy()
+      this.rhi.destroyBuffer(layer.vertexBuffer)
+      this.rhi.destroyBuffer(layer.indexBuffer)
+      this.rhi.destroyBuffer(layer.featureBuffer)
+      if (layer._expandedVertBuf) this.rhi.destroyBuffer(layer._expandedVertBuf)
+      if (layer._expandedIdxBuf) this.rhi.destroyBuffer(layer._expandedIdxBuf)
+      if (layer._expandedFeatBuf) this.rhi.destroyBuffer(layer._expandedFeatBuf)
     }
     this.layers = []
   }
@@ -426,13 +330,13 @@ export class PointRenderer {
   // ── Tile-based point accumulation (called from VectorTileRenderer) ──
   // Phase 2 PR 2d.2 — ECEF DSFUN: [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, featId, absLon, absLat]
   private tilePoints: { exH: number; eyH: number; ezH: number; exL: number; eyL: number; ezL: number; featId: number; absLon: number; absLat: number; mxH: number; mxL: number; myH: number; myL: number }[] = []
-  private tilePointBuffer: GPUBuffer | null = null
-  private tilePointIndexBuffer: GPUBuffer | null = null
-  private tilePointFeatBuffer: GPUBuffer | null = null
+  private tilePointBuffer: RhiBuffer | null = null
+  private tilePointIndexBuffer: RhiBuffer | null = null
+  private tilePointFeatBuffer: RhiBuffer | null = null
   /** Buffers retired this frame because renderTilePoints rebuilt
    *  its tile-point geometry. Destroyed at the START of the NEXT
    *  frame so any in-flight queue.submit() that bound them via
-   *  tilePointBindGroup completes first. Mirrors the
+   *  the per-frame bind group completes first. Mirrors the
    *  retiredUniformRings pattern in vector-tile-renderer.ts:
    *  WebGPU spec keeps the GPU-side memory alive after destroy()
    *  for already-submitted work, but it's illegal to ENQUEUE new
@@ -442,8 +346,7 @@ export class PointRenderer {
    *  hit "Buffer used in submit while destroyed" validation
    *  errors when the prior frame's command encoder still
    *  referenced the same bind group. */
-  private retiredTilePointBuffers: GPUBuffer[] = []
-  private tilePointBindGroup: GPUBindGroup | null = null
+  private retiredTilePointBuffers: RhiBuffer[] = []
 
   /** Drain retired-buffer queue from the previous frame. Safe by
    *  this point because the previous frame's queue.submit() has
@@ -453,7 +356,7 @@ export class PointRenderer {
    *  renderTilePoints / renderPoints call. */
   beginFrame(): void {
     if (this.retiredTilePointBuffers.length === 0) return
-    for (const b of this.retiredTilePointBuffers) b.destroy()
+    for (const b of this.retiredTilePointBuffers) this.rhi.destroyBuffer(b)
     this.retiredTilePointBuffers.length = 0
   }
 
@@ -557,19 +460,19 @@ export class PointRenderer {
     if (this.tilePointIndexBuffer) this.retiredTilePointBuffers.push(this.tilePointIndexBuffer)
     if (this.tilePointFeatBuffer) this.retiredTilePointBuffers.push(this.tilePointFeatBuffer)
 
-    this.tilePointBuffer = this.device.createBuffer({ size: verts.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST, label: 'tile-point-vertices' })
-    this.device.queue.writeBuffer(this.tilePointBuffer, 0, verts)
-    this.tilePointIndexBuffer = this.device.createBuffer({ size: indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST, label: 'tile-point-indices' })
-    this.device.queue.writeBuffer(this.tilePointIndexBuffer, 0, indices)
-    this.tilePointFeatBuffer = this.device.createBuffer({ size: Math.max(featData.byteLength, 16), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'tile-point-features' })
-    this.device.queue.writeBuffer(this.tilePointFeatBuffer, 0, featData)
-
-    this.tilePointBindGroup = this.makeBindGroup(this.tilePointFeatBuffer)
+    // VERTEX|COPY_DST / INDEX|COPY_DST / STORAGE|COPY_DST, byte-identical via
+    // bufUsage(usage, writable:true); writeBuffer = queue.writeBuffer.
+    this.tilePointBuffer = this.rhi.createBuffer({ size: verts.byteLength, usage: 'vertex', writable: true, label: 'tile-point-vertices' })
+    this.rhi.writeBuffer(this.tilePointBuffer, 0, verts)
+    this.tilePointIndexBuffer = this.rhi.createBuffer({ size: indices.byteLength, usage: 'index', writable: true, label: 'tile-point-indices' })
+    this.rhi.writeBuffer(this.tilePointIndexBuffer, 0, indices)
+    this.tilePointFeatBuffer = this.rhi.createBuffer({ size: Math.max(featData.byteLength, 16), usage: 'storage', writable: true, label: 'tile-point-features' })
+    this.rhi.writeBuffer(this.tilePointFeatBuffer, 0, featData)
 
     const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
     const uf = this.uniformData
     writePointFrameUniform(uf, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight, tileTranslateX, tileTranslateY, show.circleBlur ?? 0, show.circlePitchScaleMap ?? false)
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, uf)
+    this.rhi.writeBuffer(this.uniformBuffer, 0, uf)
 
     // Pick the translucent (no depth write) pipeline when the effective
     // alpha drops below 1 so halos/glows rendered from tile sources don't
@@ -580,27 +483,22 @@ export class PointRenderer {
     const strokeA = stroke ? stroke[3] * opacity * tileStrokeOpacity : 1
     const tileIsTranslucent = opacity < EPS || fillA < EPS || strokeA < EPS
 
-    // Single draw call for all tile points. RHI pilot path (non-default): same
-    // draw through the backend seam, wrapping the native buffers.
-    if ((globalThis as { __xgisPointViaRhi?: boolean }).__xgisPointViaRhi === true) {
-      this.ensurePointDraper()
-      const shapeBuf = this.shapeRegistry?.shapeBuffer
-      const segBuf = this.shapeRegistry?.segmentBuffer
-      const emptyBuf = this._emptyStorageBuf ??= this.device.createBuffer({ size: 64, usage: GPUBufferUsage.STORAGE, label: 'empty-shape-buf' })
-      if (!this._pointRhiLogged) { this._pointRhiLogged = true; console.warn(`[POINTRHI] tile-point draw via RHI seam (totalN=${totalN})`) }
-      this._pointDraper!.draw(wrapWebGpuPass(pass), {
-        uniform: this.uniformBuffer, feat: this.tilePointFeatBuffer!,
-        shape: shapeBuf ?? emptyBuf, seg: segBuf ?? emptyBuf,
-        vertex: this.tilePointBuffer!, index: this.tilePointIndexBuffer!,
-        indexCount: totalN * 6, translucent: tileIsTranslucent,
-      })
-    } else {
-      pass.setPipeline(tileIsTranslucent ? this.pipelineTranslucent : this.pipeline)
-      pass.setBindGroup(0, this.tilePointBindGroup)
-      pass.setVertexBuffer(0, this.tilePointBuffer)
-      pass.setIndexBuffer(this.tilePointIndexBuffer, 'uint32')
-      pass.drawIndexed(totalN * 6)
-    }
+    // Single draw call for all tile points, through the RHI Material seam. P1: the SOLE
+    // draw path — proven pixel-identical (DC=0, real GPU) to the legacy direct draw by
+    // playground/e2e/_point-rhi-parity. Points don't participate in GPU picking, so there
+    // is no pick variant to keep on the legacy path.
+    this.ensurePointDraper()
+    // ShapeRegistry shape/seg are RhiBuffer (step 3c) → passed directly; the empty
+    // fallback is a point-owned RhiBuffer.
+    const shapeBuf = this.shapeRegistry?.shapeBuffer
+    const segBuf = this.shapeRegistry?.segmentBuffer
+    this._pointDraper!.draw(wrapWebGpuPass(pass), {
+      uniform: this.uniformBuffer, feat: this.tilePointFeatBuffer!,
+      shape: shapeBuf ?? this.emptyStorageBuf(),
+      seg: segBuf ?? this.emptyStorageBuf(),
+      vertex: this.tilePointBuffer!, index: this.tilePointIndexBuffer!,
+      indexCount: totalN * 6, variant: tileIsTranslucent ? 1 : 0,
+    })
 
     // Clear for next frame
     this.tilePoints = []
@@ -723,14 +621,16 @@ export class PointRenderer {
       lats[i] = points[i].lat
     }
 
-    const vertexBuffer = this.device.createBuffer({ size: verts.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST, label: 'point-vertices' })
-    this.device.queue.writeBuffer(vertexBuffer, 0, verts)
+    // VERTEX|COPY_DST / INDEX|COPY_DST / STORAGE|COPY_DST, byte-identical via
+    // bufUsage(usage, writable:true); writeBuffer = queue.writeBuffer.
+    const vertexBuffer = this.rhi.createBuffer({ size: verts.byteLength, usage: 'vertex', writable: true, label: 'point-vertices' })
+    this.rhi.writeBuffer(vertexBuffer, 0, verts)
 
-    const indexBuffer = this.device.createBuffer({ size: indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST, label: 'point-indices' })
-    this.device.queue.writeBuffer(indexBuffer, 0, indices)
+    const indexBuffer = this.rhi.createBuffer({ size: indices.byteLength, usage: 'index', writable: true, label: 'point-indices' })
+    this.rhi.writeBuffer(indexBuffer, 0, indices)
 
-    const featureBuffer = this.device.createBuffer({ size: Math.max(featData.byteLength, 16), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'point-features' })
-    this.device.queue.writeBuffer(featureBuffer, 0, featData)
+    const featureBuffer = this.rhi.createBuffer({ size: Math.max(featData.byteLength, 16), usage: 'storage', writable: true, label: 'point-features' })
+    this.rhi.writeBuffer(featureBuffer, 0, featData)
 
     const bindGroup = this.makeBindGroup(featureBuffer)
 
@@ -985,33 +885,42 @@ export class PointRenderer {
         }
       }
 
-      // Reuse or recreate GPU buffers sized for 3× points
+      // Reuse or recreate GPU buffers sized for 3× points. VERTEX|COPY_DST /
+      // INDEX|COPY_DST / STORAGE|COPY_DST, byte-identical via bufUsage(usage,
+      // writable:true); destroyBuffer = GPUBuffer.destroy().
       if (!layer._expandedVertBuf || layer._expandedSize !== totalPoints) {
-        layer._expandedVertBuf?.destroy()
-        layer._expandedIdxBuf?.destroy()
-        layer._expandedFeatBuf?.destroy()
-        layer._expandedVertBuf = this.device.createBuffer({ size: expandedVerts.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST, label: 'point-expanded-vertices' })
-        layer._expandedIdxBuf = this.device.createBuffer({ size: expandedIdx.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST, label: 'point-expanded-indices' })
-        layer._expandedFeatBuf = this.device.createBuffer({ size: Math.max(expandedFeat.byteLength, 16), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'point-expanded-features' })
-        layer._expandedBindGroup = this.makeBindGroup(layer._expandedFeatBuf)
+        if (layer._expandedVertBuf) this.rhi.destroyBuffer(layer._expandedVertBuf)
+        if (layer._expandedIdxBuf) this.rhi.destroyBuffer(layer._expandedIdxBuf)
+        if (layer._expandedFeatBuf) this.rhi.destroyBuffer(layer._expandedFeatBuf)
+        layer._expandedVertBuf = this.rhi.createBuffer({ size: expandedVerts.byteLength, usage: 'vertex', writable: true, label: 'point-expanded-vertices' })
+        layer._expandedIdxBuf = this.rhi.createBuffer({ size: expandedIdx.byteLength, usage: 'index', writable: true, label: 'point-expanded-indices' })
+        layer._expandedFeatBuf = this.rhi.createBuffer({ size: Math.max(expandedFeat.byteLength, 16), usage: 'storage', writable: true, label: 'point-expanded-features' })
         layer._expandedSize = totalPoints
       }
 
-      this.device.queue.writeBuffer(layer._expandedVertBuf!, 0, expandedVerts)
-      this.device.queue.writeBuffer(layer._expandedIdxBuf!, 0, expandedIdx)
-      this.device.queue.writeBuffer(layer._expandedFeatBuf!, 0, expandedFeat)
+      this.rhi.writeBuffer(layer._expandedVertBuf!, 0, expandedVerts)
+      this.rhi.writeBuffer(layer._expandedIdxBuf!, 0, expandedIdx)
+      this.rhi.writeBuffer(layer._expandedFeatBuf!, 0, expandedFeat)
       return totalPoints
     }
 
-    const drawLayer = (layer: PointLayer, pipeline: GPURenderPipeline, totalPoints: number) => {
+    const drawLayer = (layer: PointLayer, variant: number, totalPoints: number) => {
       // Write per-layer uniform (circle_params may differ between layers).
       writePointFrameUniform(uf, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight, layer.circleTranslateX, layer.circleTranslateY, layer.circleBlur, layer.circlePitchScaleMap)
-      this.device.queue.writeBuffer(this.uniformBuffer, 0, uf)
-      pass.setPipeline(pipeline)
-      pass.setBindGroup(0, layer._expandedBindGroup!)
-      pass.setVertexBuffer(0, layer._expandedVertBuf!)
-      pass.setIndexBuffer(layer._expandedIdxBuf!, 'uint32')
-      pass.drawIndexed(totalPoints * 6)
+      this.rhi.writeBuffer(this.uniformBuffer, 0, uf)
+      // Through the RHI Material seam (P1: the sole path), same as the tile-point draw.
+      // ShapeRegistry shape/seg are RhiBuffer (step 3c) → passed directly; the empty
+      // fallback is a point-owned RhiBuffer.
+      const shapeBuf = this.shapeRegistry?.shapeBuffer
+      const segBuf = this.shapeRegistry?.segmentBuffer
+      this.ensurePointDraper()
+      this._pointDraper!.draw(wrapWebGpuPass(pass), {
+        uniform: this.uniformBuffer, feat: layer._expandedFeatBuf!,
+        shape: shapeBuf ?? this.emptyStorageBuf(),
+        seg: segBuf ?? this.emptyStorageBuf(),
+        vertex: layer._expandedVertBuf!, index: layer._expandedIdxBuf!,
+        indexCount: totalPoints * 6, variant,
+      })
     }
 
     // Upload every layer's buffers first (cheap; writes don't depend on
@@ -1023,7 +932,7 @@ export class PointRenderer {
     for (let i = 0; i < this.layers.length; i++) {
       const layer = this.layers[i]
       if (layer.isFlat || layer.isTranslucent) continue
-      drawLayer(layer, this.pipeline, totals[i])
+      drawLayer(layer, 0, totals[i])
     }
 
     // Phase 2 — translucent billboards + flat layers blend on top without
@@ -1032,8 +941,7 @@ export class PointRenderer {
     for (let i = 0; i < this.layers.length; i++) {
       const layer = this.layers[i]
       if (!layer.isFlat && !layer.isTranslucent) continue
-      const pipeline = layer.isFlat ? this.pipelineFlat : this.pipelineTranslucent
-      drawLayer(layer, pipeline, totals[i])
+      drawLayer(layer, layer.isFlat ? 2 : 1, totals[i])
     }
   }
 }

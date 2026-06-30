@@ -12,6 +12,7 @@
 //   - dispatchSize + fieldOrder + featureStrideF32 metadata
 
 import { describe, expect, it } from 'vitest'
+import { emitModule } from '@xgis/shader-dsl' // compiler returns IR; emit WGSL in-test (ruling i)
 import {
   COMPUTE_WORKGROUP_SIZE,
   emitInterpolateComputeKernel,
@@ -26,9 +27,9 @@ describe('compute-gen — emitMatchComputeKernel', () => {
       arms: [{ pattern: 'a', colorHex: '#ff0000' }],
       defaultColorHex: '#000000',
     })
-    expect(k.wgsl).toContain('@group(0) @binding(0) var<storage, read> feat_data: array<f32>')
-    expect(k.wgsl).toContain('@group(0) @binding(1) var<storage, read_write> out_color: array<u32>')
-    expect(k.wgsl).toContain('@group(0) @binding(2) var<uniform> u_count: vec4<u32>')
+    expect(emitModule(k.module)).toContain('@group(0) @binding(0) var<storage, read> feat_data: array<f32>')
+    expect(emitModule(k.module)).toContain('@group(0) @binding(1) var<storage, read_write> out_color: array<u32>')
+    expect(emitModule(k.module)).toContain('@group(0) @binding(2) var<uniform> u_count: vec4<u32>')
   })
 
   it('emits the workgroup-size annotation matching the constant', () => {
@@ -37,7 +38,7 @@ describe('compute-gen — emitMatchComputeKernel', () => {
       arms: [{ pattern: 'a', colorHex: '#fff' }],
       defaultColorHex: '#000',
     })
-    expect(k.wgsl).toContain(`@compute @workgroup_size(${COMPUTE_WORKGROUP_SIZE})`)
+    expect(emitModule(k.module)).toContain(`@compute @workgroup_size(${COMPUTE_WORKGROUP_SIZE})`)
     expect(COMPUTE_WORKGROUP_SIZE).toBe(64)
   })
 
@@ -59,10 +60,10 @@ describe('compute-gen — emitMatchComputeKernel', () => {
       ],
       defaultColorHex: '#00000000',
     })
-    const idx0 = k.wgsl.indexOf('case 0:')
-    const idx1 = k.wgsl.indexOf('case 1:')
-    const idx2 = k.wgsl.indexOf('case 2:')
-    const idx3 = k.wgsl.indexOf('case 3:')
+    const idx0 = emitModule(k.module).indexOf('case 0:')
+    const idx1 = emitModule(k.module).indexOf('case 1:')
+    const idx2 = emitModule(k.module).indexOf('case 2:')
+    const idx3 = emitModule(k.module).indexOf('case 3:')
     expect(idx0).toBeGreaterThan(0)
     expect(idx1).toBeGreaterThan(idx0)
     expect(idx2).toBeGreaterThan(idx1)
@@ -77,8 +78,8 @@ describe('compute-gen — emitMatchComputeKernel', () => {
       defaultColorHex: '#00ff00',
     })
     // Default lowers to the switch `default:` arm assigning #00ff00 = (0,1,0,1).
-    expect(k.wgsl).toContain('default')
-    expect(k.wgsl).toContain('vec4<f32>(0.0, 1.0, 0.0, 1.0)')
+    expect(emitModule(k.module)).toContain('default')
+    expect(emitModule(k.module)).toContain('vec4<f32>(0.0, 1.0, 0.0, 1.0)')
   })
 
   it('packs the per-fragment color into RGBA8 via pack4x8unorm', () => {
@@ -87,8 +88,8 @@ describe('compute-gen — emitMatchComputeKernel', () => {
       arms: [{ pattern: 'a', colorHex: '#fff' }],
       defaultColorHex: '#000',
     })
-    expect(k.wgsl).toContain('pack4x8unorm(')
-    expect(k.wgsl).toContain('out_color[gid.x]')
+    expect(emitModule(k.module)).toContain('pack4x8unorm(')
+    expect(emitModule(k.module)).toContain('out_color[gid.x]')
   })
 
   it('parses 3-digit, 4-digit, 6-digit, 8-digit hex colors', () => {
@@ -104,7 +105,7 @@ describe('compute-gen — emitMatchComputeKernel', () => {
         arms: [{ pattern: 'a', colorHex: c.input }],
         defaultColorHex: '#000',
       })
-      expect(k.wgsl).toContain(
+      expect(emitModule(k.module)).toContain(
         `vec4<f32>(${formatNumber(c.r)}, ${formatNumber(c.g)}, ${formatNumber(c.b)}, ${formatNumber(c.a)})`,
       )
     }
@@ -148,12 +149,12 @@ describe('compute-gen — emitMatchComputeKernel', () => {
       arms: [],
       defaultColorHex: '#888',
     })
-    expect(k.wgsl).toContain('@compute @workgroup_size(64)')
+    expect(emitModule(k.module)).toContain('@compute @workgroup_size(64)')
     // No arms → no switch; the kernel just packs the default colour
     // unconditionally (#888 = 0.533…). The runtime skips dispatching a
     // zero-arm match() anyway, so this is mostly a "doesn't throw" check.
-    expect(k.wgsl).toContain('pack4x8unorm(')
-    expect(k.wgsl).not.toContain('switch')
+    expect(emitModule(k.module)).toContain('pack4x8unorm(')
+    expect(emitModule(k.module)).not.toContain('switch')
   })
 
   it('emits the field load at array index = fid (single-field stride)', () => {
@@ -163,7 +164,7 @@ describe('compute-gen — emitMatchComputeKernel', () => {
       defaultColorHex: '#000',
     })
     // Stride 1 → bare `feat_data[gid.x]` (no `* stride` offset).
-    expect(k.wgsl).toContain('feat_data[gid.x]')
+    expect(emitModule(k.module)).toContain('feat_data[gid.x]')
   })
 
   it('switches on the RAW signed id (i32, no max-clamp) so unknown (-1) → default', () => {
@@ -176,9 +177,9 @@ describe('compute-gen — emitMatchComputeKernel', () => {
       arms: [{ pattern: 'a', colorHex: '#ff0000' }, { pattern: 'b', colorHex: '#00ff00' }],
       defaultColorHex: '#0000ff',
     })
-    expect(k.wgsl).toContain('i32(')          // signed scrutinee
-    expect(k.wgsl).not.toContain('max(')      // no clamp that would swallow the -1 sentinel
-    expect(k.wgsl).toContain('default')       // -1 (and any non-arm id) hits the default arm
+    expect(emitModule(k.module)).toContain('i32(')          // signed scrutinee
+    expect(emitModule(k.module)).not.toContain('max(')      // no clamp that would swallow the -1 sentinel
+    expect(emitModule(k.module)).toContain('default')       // -1 (and any non-arm id) hits the default arm
   })
 
   it('match kernel exposes categoryOrder with alphabetised patterns', () => {
@@ -210,7 +211,7 @@ describe('compute-gen — emitMatchComputeKernel', () => {
       arms: [{ pattern: 'a', colorHex: '#fff' }],
       defaultColorHex: '#000',
     })
-    expect(k.wgsl).toContain(`fn ${k.entryPoint}(`)
+    expect(emitModule(k.module)).toContain(`fn ${k.entryPoint}(`)
   })
 })
 
@@ -221,9 +222,9 @@ describe('compute-gen — emitTernaryComputeKernel', () => {
       branches: [{ pred: { kind: 'cmp', field: 'rank', op: '==', value: 0 }, colorHex: '#fff' }],
       defaultColorHex: '#000',
     })
-    expect(k.wgsl).toContain('@group(0) @binding(0) var<storage, read> feat_data: array<f32>')
-    expect(k.wgsl).toContain('@group(0) @binding(1) var<storage, read_write> out_color: array<u32>')
-    expect(k.wgsl).toContain('@group(0) @binding(2) var<uniform> u_count: vec4<u32>')
+    expect(emitModule(k.module)).toContain('@group(0) @binding(0) var<storage, read> feat_data: array<f32>')
+    expect(emitModule(k.module)).toContain('@group(0) @binding(1) var<storage, read_write> out_color: array<u32>')
+    expect(emitModule(k.module)).toContain('@group(0) @binding(2) var<uniform> u_count: vec4<u32>')
   })
 
   it('emits the workgroup-size annotation', () => {
@@ -232,7 +233,7 @@ describe('compute-gen — emitTernaryComputeKernel', () => {
       branches: [{ pred: { kind: 'cmp', field: 'x', op: '>', value: 0 }, colorHex: '#fff' }],
       defaultColorHex: '#000',
     })
-    expect(k.wgsl).toContain(`@compute @workgroup_size(${COMPUTE_WORKGROUP_SIZE})`)
+    expect(emitModule(k.module)).toContain(`@compute @workgroup_size(${COMPUTE_WORKGROUP_SIZE})`)
   })
 
   it('emits branches in INPUT order (case() semantics — first match wins)', () => {
@@ -249,16 +250,16 @@ describe('compute-gen — emitTernaryComputeKernel', () => {
       ],
       defaultColorHex: '#888',
     })
-    const red = k.wgsl.indexOf('vec4<f32>(1.0, 0.0, 0.0, 1.0)')
-    const green = k.wgsl.indexOf('vec4<f32>(0.0, 1.0, 0.0, 1.0)')
-    const blue = k.wgsl.indexOf('vec4<f32>(0.0, 0.0, 1.0, 1.0)')
+    const red = emitModule(k.module).indexOf('vec4<f32>(1.0, 0.0, 0.0, 1.0)')
+    const green = emitModule(k.module).indexOf('vec4<f32>(0.0, 1.0, 0.0, 1.0)')
+    const blue = emitModule(k.module).indexOf('vec4<f32>(0.0, 0.0, 1.0, 1.0)')
     expect(red).toBeGreaterThan(0)
     expect(green).toBeGreaterThan(red)
     expect(blue).toBeGreaterThan(green)
     // The numeric comparisons emit against the loaded field (== 0.0 / 1.0 / 2.0)
-    expect(k.wgsl).toContain('== 0.0)')
-    expect(k.wgsl).toContain('== 1.0)')
-    expect(k.wgsl).toContain('== 2.0)')
+    expect(emitModule(k.module)).toContain('== 0.0)')
+    expect(emitModule(k.module)).toContain('== 1.0)')
+    expect(emitModule(k.module)).toContain('== 2.0)')
   })
 
   it('emits the default arm as the trailing else', () => {
@@ -268,9 +269,9 @@ describe('compute-gen — emitTernaryComputeKernel', () => {
       defaultColorHex: '#00ff00',
     })
     // The default colour assignment trails the single branch's colour.
-    expect(k.wgsl).toContain('else {')
-    const branchColor = k.wgsl.indexOf('vec4<f32>(1.0, 1.0, 1.0, 1.0)')
-    const defaultColor = k.wgsl.indexOf('vec4<f32>(0.0, 1.0, 0.0, 1.0)')
+    expect(emitModule(k.module)).toContain('else {')
+    const branchColor = emitModule(k.module).indexOf('vec4<f32>(1.0, 1.0, 1.0, 1.0)')
+    const defaultColor = emitModule(k.module).indexOf('vec4<f32>(0.0, 1.0, 0.0, 1.0)')
     expect(branchColor).toBeGreaterThan(0)
     expect(defaultColor).toBeGreaterThan(branchColor)
   })
@@ -282,7 +283,7 @@ describe('compute-gen — emitTernaryComputeKernel', () => {
       defaultColorHex: '#000',
     })
     // Single field → stride 1 → direct `feat_data[gid.x]` index (no `* Nu`).
-    expect(k.wgsl).toContain('feat_data[gid.x]')
+    expect(emitModule(k.module)).toContain('feat_data[gid.x]')
   })
 
   it('loads multiple fields with stride + offset (multi-field case)', () => {
@@ -300,8 +301,8 @@ describe('compute-gen — emitTernaryComputeKernel', () => {
     })
     // Stride multiply is CSE-hoisted (`let _cseN = (gid.x * 2u)`); offset-0
     // folds to a bare index, offset-1 adds `+ 1u`.
-    expect(k.wgsl).toContain('(gid.x * 2u)')
-    expect(k.wgsl).toContain('+ 1u)')
+    expect(emitModule(k.module)).toContain('(gid.x * 2u)')
+    expect(emitModule(k.module)).toContain('+ 1u)')
     expect(k.featureStrideF32).toBe(2)
     expect(k.fieldOrder).toEqual(['cls', 'rank'])
   })
@@ -321,9 +322,9 @@ describe('compute-gen — emitTernaryComputeKernel', () => {
       }],
       defaultColorHex: '#000',
     })
-    expect(k.wgsl).toContain('&&')
-    expect(k.wgsl).toContain('> 0.0)')
-    expect(k.wgsl).toContain('< 10.0)')
+    expect(emitModule(k.module)).toContain('&&')
+    expect(emitModule(k.module)).toContain('> 0.0)')
+    expect(emitModule(k.module)).toContain('< 10.0)')
   })
 
   it('sets entryPoint to "eval_case" in returned metadata', () => {
@@ -353,7 +354,7 @@ describe('compute-gen — emitTernaryComputeKernel', () => {
       branches: [{ pred: { kind: 'cmp', field: 'x', op: '>', value: 0 }, colorHex: '#fff' }],
       defaultColorHex: '#000',
     })
-    expect(k.wgsl).toContain('out_color[gid.x] = pack4x8unorm(')
+    expect(emitModule(k.module)).toContain('out_color[gid.x] = pack4x8unorm(')
   })
 
   it('empty branches list emits just the default branch', () => {
@@ -362,11 +363,11 @@ describe('compute-gen — emitTernaryComputeKernel', () => {
       branches: [],
       defaultColorHex: '#888',
     })
-    expect(k.wgsl).toContain('@compute @workgroup_size(64)')
+    expect(emitModule(k.module)).toContain('@compute @workgroup_size(64)')
     // Unconditional default assignment — no branch `if`, no field loads.
-    expect(k.wgsl).toContain('vec4<f32>(0.5333333333333333, 0.5333333333333333, 0.5333333333333333, 1.0)')
-    expect(k.wgsl).not.toContain('else')
-    expect(k.wgsl).not.toMatch(/= feat_data\[/)
+    expect(emitModule(k.module)).toContain('vec4<f32>(0.5333333333333333, 0.5333333333333333, 0.5333333333333333, 1.0)')
+    expect(emitModule(k.module)).not.toContain('else')
+    expect(emitModule(k.module)).not.toMatch(/= feat_data\[/)
   })
 
   it('dispatchSize ceils features / workgroup_size', () => {
@@ -388,9 +389,9 @@ describe('compute-gen — emitInterpolateComputeKernel', () => {
       fieldName: 'rank',
       stops: [{ input: 0, colorHex: '#fff' }, { input: 10, colorHex: '#000' }],
     })
-    expect(k.wgsl).toContain('@group(0) @binding(0) var<storage, read> feat_data: array<f32>')
-    expect(k.wgsl).toContain('@group(0) @binding(1) var<storage, read_write> out_color: array<u32>')
-    expect(k.wgsl).toContain('@group(0) @binding(2) var<uniform> u_count: vec4<u32>')
+    expect(emitModule(k.module)).toContain('@group(0) @binding(0) var<storage, read> feat_data: array<f32>')
+    expect(emitModule(k.module)).toContain('@group(0) @binding(1) var<storage, read_write> out_color: array<u32>')
+    expect(emitModule(k.module)).toContain('@group(0) @binding(2) var<uniform> u_count: vec4<u32>')
   })
 
   it('clamps left below the first stop (v <= s0 → c0)', () => {
@@ -403,8 +404,8 @@ describe('compute-gen — emitInterpolateComputeKernel', () => {
     })
     // IR-emitted (CSE-hoisted colours, auto-named temps) — assert the CONTRACT, not
     // the temp names; the full WGSL is locked by compute-gen-wgsl-snapshot.test.ts.
-    expect(k.wgsl).toMatch(/<= 0\.0\)/)                       // first-stop boundary
-    expect(k.wgsl).toContain('vec4<f32>(1.0, 0.0, 0.0, 1.0)') // c0 (#ff0000)
+    expect(emitModule(k.module)).toMatch(/<= 0\.0\)/)                       // first-stop boundary
+    expect(emitModule(k.module)).toContain('vec4<f32>(1.0, 0.0, 0.0, 1.0)') // c0 (#ff0000)
   })
 
   it('emits piecewise mix() between adjacent stops', () => {
@@ -415,8 +416,8 @@ describe('compute-gen — emitInterpolateComputeKernel', () => {
         { input: 10, colorHex: '#00ff00' },
       ],
     })
-    expect(k.wgsl).toContain('mix(')   // piecewise lerp between adjacent stops
-    expect(k.wgsl).toContain('/ 10.0') // normalised by the stop span (t = (v − s0)/10, s0=0 folded out)
+    expect(emitModule(k.module)).toContain('mix(')   // piecewise lerp between adjacent stops
+    expect(emitModule(k.module)).toContain('/ 10.0') // normalised by the stop span (t = (v − s0)/10, s0=0 folded out)
   })
 
   it('clamps right above the last stop (v > sN → cN)', () => {
@@ -428,8 +429,8 @@ describe('compute-gen — emitInterpolateComputeKernel', () => {
       ],
     })
     // The trailing else uses the LAST stop's colour (0,1,0,1 = #00ff00), CSE-hoisted.
-    expect(k.wgsl).toContain('else')
-    expect(k.wgsl).toContain('vec4<f32>(0.0, 1.0, 0.0, 1.0)')
+    expect(emitModule(k.module)).toContain('else')
+    expect(emitModule(k.module)).toContain('vec4<f32>(0.0, 1.0, 0.0, 1.0)')
   })
 
   it('emits middle ranges in ascending stop order (3-stop ramp)', () => {
@@ -441,8 +442,8 @@ describe('compute-gen — emitInterpolateComputeKernel', () => {
         { input: 5000, colorHex: '#ffffff' },
       ],
     })
-    const idx1 = k.wgsl.indexOf('<= 1000.0')
-    const idx2 = k.wgsl.indexOf('<= 5000.0')
+    const idx1 = emitModule(k.module).indexOf('<= 1000.0')
+    const idx2 = emitModule(k.module).indexOf('<= 5000.0')
     expect(idx1).toBeGreaterThan(0)
     expect(idx2).toBeGreaterThan(idx1)
   })
@@ -452,14 +453,14 @@ describe('compute-gen — emitInterpolateComputeKernel', () => {
       fieldName: 'x',
       stops: [{ input: 5, colorHex: '#ff0000' }],
     })
-    expect(k.wgsl).not.toContain('mix(')
-    expect(k.wgsl).toContain('vec4<f32>(1.0, 0.0, 0.0, 1.0)')
+    expect(emitModule(k.module)).not.toContain('mix(')
+    expect(emitModule(k.module)).toContain('vec4<f32>(1.0, 0.0, 0.0, 1.0)')
   })
 
   it('empty stops emits transparent fallback (degenerate but valid)', () => {
     const k = emitInterpolateComputeKernel({ fieldName: 'x', stops: [] })
-    expect(k.wgsl).toContain('vec4<f32>(0.0, 0.0, 0.0, 0.0)')
-    expect(k.wgsl).toContain('@compute @workgroup_size(64)')
+    expect(emitModule(k.module)).toContain('vec4<f32>(0.0, 0.0, 0.0, 0.0)')
+    expect(emitModule(k.module)).toContain('@compute @workgroup_size(64)')
   })
 
   it('returns single-field metadata (stride 1, fieldOrder = [name])', () => {
@@ -476,8 +477,8 @@ describe('compute-gen — emitInterpolateComputeKernel', () => {
       fieldName: 'x',
       stops: [{ input: 0, colorHex: '#fff' }, { input: 1, colorHex: '#000' }],
     })
-    expect(k.wgsl).toContain('pack4x8unorm(')
-    expect(k.wgsl).toContain('out_color[')
+    expect(emitModule(k.module)).toContain('pack4x8unorm(')
+    expect(emitModule(k.module)).toContain('out_color[')
   })
 
   it('sets entryPoint to "eval_interpolate" in returned metadata', () => {
@@ -496,7 +497,7 @@ describe('compute-gen — emitInterpolateComputeKernel', () => {
       fieldName: 'x',
       stops: [{ input: 0, colorHex: '#fff' }, { input: 1, colorHex: '#000' }],
     })
-    expect(k.wgsl).toContain('fn eval_interpolate(')
+    expect(emitModule(k.module)).toContain('fn eval_interpolate(')
   })
 })
 
@@ -516,24 +517,24 @@ describe('emitMatchComputeKernel — LUT branch (P5 large-match)', () => {
 
   it('below threshold (15 arms) → switch, no LUT', () => {
     const k = emitMatchComputeKernel(bigMatch(15))
-    expect(k.wgsl).not.toContain('const LUT:')
+    expect(emitModule(k.module)).not.toContain('const LUT:')
     // Sub-threshold lowers to a WGSL switch — one case per arm (+ a default).
-    const caseCount = (k.wgsl.match(/case \d+:/g) ?? []).length
+    const caseCount = (emitModule(k.module).match(/case \d+:/g) ?? []).length
     expect(caseCount).toBe(15)
   })
 
   it('at threshold (16 arms) → emits LUT, no if-else comparisons', () => {
     const k = emitMatchComputeKernel(bigMatch(16))
-    expect(k.wgsl).toContain('const LUT: array<vec4<f32>, 16>')
-    const compareCount = (k.wgsl.match(/v_cls == /g) ?? []).length
+    expect(emitModule(k.module)).toContain('const LUT: array<vec4<f32>, 16>')
+    const compareCount = (emitModule(k.module).match(/v_cls == /g) ?? []).length
     expect(compareCount).toBe(0)
   })
 
   it('large-arm (50 arms) → LUT length matches arm count', () => {
     const k = emitMatchComputeKernel(bigMatch(50))
-    expect(k.wgsl).toContain('const LUT: array<vec4<f32>, 50>')
+    expect(emitModule(k.module)).toContain('const LUT: array<vec4<f32>, 50>')
     // 50 LUT entries + 1 default-branch vec4 = 51 total.
-    const vec4Count = (k.wgsl.match(/vec4<f32>\(/g) ?? []).length
+    const vec4Count = (emitModule(k.module).match(/vec4<f32>\(/g) ?? []).length
     expect(vec4Count).toBe(51)
   })
 
@@ -543,10 +544,10 @@ describe('emitMatchComputeKernel — LUT branch (P5 large-match)', () => {
     // u32(max(id,0)) clamp would alias the packer's -1 unknown sentinel onto arm 0
     // (issue #632). The IR shell auto-names the index + colour vars (CSE/auto-vars),
     // so match the structure with flexible identifiers rather than the literal names.
-    expect(k.wgsl).toMatch(/\w+ >= 0\)/)                       // signed lower-bound guard
-    expect(k.wgsl).toMatch(/\w+ < 20\)+\s*\{\s*\w+ = LUT\[\w+\];/)
-    expect(k.wgsl).not.toContain('max(')                       // no clamp that swallows -1
-    expect(k.wgsl).toMatch(/\} else \{\s*\w+ = vec4<f32>\(/)
+    expect(emitModule(k.module)).toMatch(/\w+ >= 0\)/)                       // signed lower-bound guard
+    expect(emitModule(k.module)).toMatch(/\w+ < 20\)+\s*\{\s*\w+ = LUT\[\w+\];/)
+    expect(emitModule(k.module)).not.toContain('max(')                       // no clamp that swallows -1
+    expect(emitModule(k.module)).toMatch(/\} else \{\s*\w+ = vec4<f32>\(/)
   })
 
   it('LUT entries appear in alphabetical pattern order (matches packer IDs)', () => {
@@ -559,7 +560,7 @@ describe('emitMatchComputeKernel — LUT branch (P5 large-match)', () => {
     }
     const k = emitMatchComputeKernel({ fieldName: 'x', arms, defaultColorHex: '#ffffff' })
     expect(k.categoryOrder?.x?.[0]).toBe('k080')
-    expect(k.wgsl).toContain('const LUT: array<vec4<f32>, 20>')
+    expect(emitModule(k.module)).toContain('const LUT: array<vec4<f32>, 20>')
   })
 
   it('LUT kernel preserves entryPoint + dispatchSize contract', () => {
@@ -576,17 +577,17 @@ describe('emitMatchComputeKernel — LUT branch (P5 large-match)', () => {
     const large = emitMatchComputeKernel(bigMatch(20)) // LUT path (IR-emitted)
     // Same semantics — pack the RGBA into out_color[feature]. Both paths now run
     // through the shared IR shell, so both spell `out_color[gid.x] = pack4x8unorm(_vN)`.
-    expect(small.wgsl).toMatch(/out_color\[\w+(\.\w+)?\] = pack4x8unorm\(/)
-    expect(large.wgsl).toMatch(/out_color\[\w+(\.\w+)?\] = pack4x8unorm\(/)
+    expect(emitModule(small.module)).toMatch(/out_color\[\w+(\.\w+)?\] = pack4x8unorm\(/)
+    expect(emitModule(large.module)).toMatch(/out_color\[\w+(\.\w+)?\] = pack4x8unorm\(/)
   })
 
   it('demotiles-scale (214 arms) emits valid LUT WGSL', () => {
     const k = emitMatchComputeKernel(bigMatch(214))
-    expect(k.wgsl).toContain('const LUT: array<vec4<f32>, 214>')
-    expect(k.wgsl).toContain('< 214)')
-    expect(k.wgsl).toContain('@compute @workgroup_size(64)')
+    expect(emitModule(k.module)).toContain('const LUT: array<vec4<f32>, 214>')
+    expect(emitModule(k.module)).toContain('< 214)')
+    expect(emitModule(k.module)).toContain('@compute @workgroup_size(64)')
     // No O(N) comparisons in the kernel body for the LUT path.
-    expect((k.wgsl.match(/v_cls == /g) ?? []).length).toBe(0)
+    expect((emitModule(k.module).match(/v_cls == /g) ?? []).length).toBe(0)
   })
 
   it('WGSL length scales linearly with arm count for LUT (no quadratic blowup)', () => {
@@ -597,7 +598,7 @@ describe('emitMatchComputeKernel — LUT branch (P5 large-match)', () => {
     // ratio is less than 10× — checking that it's clearly more than
     // 5× (proves linear, not constant) AND clearly less than 11×
     // (proves no quadratic blowup).
-    const ratio = k200.wgsl.length / k20.wgsl.length
+    const ratio = emitModule(k200.module).length / emitModule(k20.module).length
     expect(ratio).toBeGreaterThan(5)
     expect(ratio).toBeLessThan(11)
   })

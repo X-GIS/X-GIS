@@ -192,9 +192,14 @@ function fakeGl(): WebGL2RenderingContext {
 }
 
 describe('WebGl2Device — RHI gap #2 fail-close', () => {
-  it('createCommandEncoder throws (offscreen/MRT deferred to the full-frame phase)', () => {
-    expect(() => new WebGl2Device(fakeGl()).createCommandEncoder())
-      .toThrow(/createCommandEncoder.*not yet supported|full-frame phase/)
+  it('createCommandEncoder returns a copy-scoped encoder whose beginRenderPass throws (offscreen/MRT deferred to the full-frame phase)', () => {
+    // The encoder now EXISTS (the GPUArena compaction/grow path needs
+    // copyBufferToBuffer = gl.copyBufferSubData), but the offscreen / MRT render
+    // pass is still fail-CLOSED — it can never silently originate on WebGL2.
+    const enc = new WebGl2Device(fakeGl()).createCommandEncoder()
+    expect(enc).toBeDefined()
+    expect(() => enc.beginRenderPass({ colorAttachments: [] }))
+      .toThrow(/beginRenderPass.*not yet supported|full-frame phase/)
   })
 
   it('createTexture rgba16float (OIT accum) throws — needs EXT_color_buffer_float', () => {

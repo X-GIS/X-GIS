@@ -25,7 +25,7 @@ import { emitModule } from '../../shader-dsl/src/core/backends/wgsl'
 import { optimize } from '../../shader-dsl/src/core/passes/opt/index'
 import { compileModule } from '../../shader-dsl/src/core/oracle'
 import { getPROJECTION_MODULE, configureProjections } from '../../runtime/src/engine/shaders/dsl/projections'
-import { PROJECTIONS } from '../../runtime/src/engine/projection/projections-table'
+import { PROJECTIONS } from '../../engine/src/projection/projections-table'
 
 // shader-dsl projections are host-injected — configure before any emit / cpu use.
 configureProjections(PROJECTIONS)

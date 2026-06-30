@@ -45,7 +45,7 @@ import type {
   RhiDevice, RhiBuffer, RhiTexture, RhiTextureView, RhiSampler, RhiBindGroup,
   RhiBindGroupLayout, RhiPipeline, RhiRenderPass, RhiBufferDesc, RhiTextureDesc,
   RhiSamplerDesc, RhiBindLayoutEntry, RhiBindEntry, RhiPipelineDesc, RhiTextureFormat, RhiBufferUsage,
-  RhiScreenPassDesc, RhiCommandEncoder,
+  RhiScreenPassDesc, RhiCommandEncoder, RhiRenderPassDesc,
 } from './rhi'
 
 // Each opaque RHI handle stores a rich GL record (cast both ways inside this
@@ -65,7 +65,8 @@ interface Gl2BindGroupLayout { entries: ReadonlyArray<RhiBindLayoutEntry> }
 interface Gl2BindGroup { layout: Gl2BindGroupLayout; entries: ReadonlyArray<RhiBindEntry> }
 interface Gl2Pipeline {
   program: WebGLProgram
-  blend: 'alpha' | 'premult' | 'additive' | 'none' | undefined
+  blend: 'alpha' | 'premult' | 'additive' | 'max' | 'none' | undefined
+  cullMode?: 'none' | 'back' | 'front'
   depth?: { write: boolean; compare: 'always' | 'less' | 'less-equal'; bias?: { constant: number; slopeScale: number; clamp: number } }
   vertexBuffers: ReadonlyArray<{ stride: number; attributes: ReadonlyArray<{ location: number; offset: number; format: string }> }>
   layouts: ReadonlyArray<Gl2BindGroupLayout>
@@ -82,6 +83,7 @@ function texFmt(gl: WebGL2RenderingContext, f: RhiTextureFormat): { internal: GL
     case 'bgra8unorm': return { internal: gl.RGBA8, format: gl.RGBA, type: gl.UNSIGNED_BYTE } // WebGL2 has no BGRA8 storage; host orders bytes
     case 'r16float': return { internal: gl.R16F, format: gl.RED, type: gl.HALF_FLOAT }
     case 'rg32uint': return { internal: gl.RG32UI, format: gl.RG_INTEGER, type: gl.UNSIGNED_INT }
+    case 'r32uint': return { internal: gl.R32UI, format: gl.RED_INTEGER, type: gl.UNSIGNED_INT } // core color-renderable, no extension — the compute-as-draw target
     case 'depth24plus-stencil8': return { internal: gl.DEPTH24_STENCIL8, format: gl.DEPTH_STENCIL, type: gl.UNSIGNED_INT_24_8 }
     case 'rgba16float':
       // Fail-CLOSED: the OIT weighted-blend accum target. Rendering TO rgba16float
@@ -103,6 +105,7 @@ const VFMT: Readonly<Record<string, { size: number; type: 'f32' | 'u8'; normaliz
 function applyBlend(gl: WebGL2RenderingContext, mode: Gl2Pipeline['blend']): void {
   if (!mode || mode === 'none') { gl.disable(gl.BLEND); return }
   gl.enable(gl.BLEND)
+  if (mode === 'max') { gl.blendEquation(gl.MAX); gl.blendFunc(gl.ONE, gl.ONE); return } // translucent-line offscreen accum
   gl.blendEquation(gl.FUNC_ADD)
   if (mode === 'alpha') {
     // STRAIGHT alpha — byte-matches rhi-webgpu BLEND_ALPHA (color src-alpha, alpha one).
@@ -137,7 +140,7 @@ class WebGl2RenderPass implements RhiRenderPass {
   private cur?: Gl2Pipeline
   private vbuf?: Gl2Buffer
   private vbufOffset = 0
-  private ibuf?: { buf: Gl2Buffer; type: GLenum }
+  private ibuf?: { buf: Gl2Buffer; type: GLenum; offset: number }
   constructor(private readonly gl: WebGL2RenderingContext) {}
 
   setPipeline(p: RhiPipeline): void {
@@ -155,6 +158,12 @@ class WebGl2RenderPass implements RhiRenderPass {
     } else {
       gl.disable(gl.DEPTH_TEST)
       gl.depthMask(false)
+    }
+    if (pl.cullMode && pl.cullMode !== 'none') {
+      gl.enable(gl.CULL_FACE)
+      gl.cullFace(pl.cullMode === 'back' ? gl.BACK : gl.FRONT)
+    } else {
+      gl.disable(gl.CULL_FACE)
     }
   }
 
@@ -204,8 +213,11 @@ class WebGl2RenderPass implements RhiRenderPass {
   }
 
   setVertexBuffer(_slot: number, buffer: RhiBuffer, offset = 0): void { this.vbuf = un<Gl2Buffer>(buffer); this.vbufOffset = offset }
-  setIndexBuffer(buffer: RhiBuffer, format: 'uint16' | 'uint32'): void {
-    this.ibuf = { buf: un<Gl2Buffer>(buffer), type: format === 'uint16' ? this.gl.UNSIGNED_SHORT : this.gl.UNSIGNED_INT }
+  setIndexBuffer(buffer: RhiBuffer, format: 'uint16' | 'uint32', offset = 0): void {
+    // `offset` (bytes) shifts the per-tile arena index sub-range start into the drawElements byte
+    // offset — symmetric with setVertexBuffer's offset; default 0 is byte-identical to a no-offset
+    // bind. `size` (byteLength) is implied by the draw's indexCount on WebGL2, so it is not stored.
+    this.ibuf = { buf: un<Gl2Buffer>(buffer), type: format === 'uint16' ? this.gl.UNSIGNED_SHORT : this.gl.UNSIGNED_INT, offset }
   }
 
   private bindAttributes(): void {
@@ -242,14 +254,52 @@ class WebGl2RenderPass implements RhiRenderPass {
     this.bindAttributes()
     if (!this.ibuf) throw new Error('webgl2: drawIndexed without an index buffer')
     this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, this.ibuf.buf)
-    if (instanceCount > 1) this.gl.drawElementsInstanced(this.gl.TRIANGLES, indexCount, this.ibuf.type, 0, instanceCount)
-    else this.gl.drawElements(this.gl.TRIANGLES, indexCount, this.ibuf.type, 0)
+    if (instanceCount > 1) this.gl.drawElementsInstanced(this.gl.TRIANGLES, indexCount, this.ibuf.type, this.ibuf.offset, instanceCount)
+    else this.gl.drawElements(this.gl.TRIANGLES, indexCount, this.ibuf.type, this.ibuf.offset)
   }
 
   // WebGL2 is immediate-mode: there is no pass object to close, so ending is a
   // no-op (the next pass rebinds its FBO + viewport). The screen pass is finished
   // via WebGl2Device.endScreenPass instead.
   end(): void {}
+}
+
+/** A COPY-SCOPED command encoder for WebGL2. `copyBufferToBuffer` is supported
+ *  (GL `copyBufferSubData` — the GPUArena compaction/grow ping-pong needs it);
+ *  `beginRenderPass` still fail-CLOSES (offscreen / MRT FBOs are the WebGL2 full-
+ *  frame phase). WebGL2 is immediate-mode, so the copy executes at call time and
+ *  `finish()` is a no-op (there is no command buffer to submit). */
+class WebGl2CommandEncoder implements RhiCommandEncoder {
+  constructor(private readonly gl: WebGL2RenderingContext) {}
+  copyBufferToBuffer(src: RhiBuffer, srcOffset: number, dst: RhiBuffer, dstOffset: number, size: number): void {
+    const gl = this.gl
+    const s = un<Gl2Buffer | Gl2StorageBuffer>(src)
+    const d = un<Gl2Buffer | Gl2StorageBuffer>(dst)
+    // A 'storage' RHI buffer is emulated as a data TEXTURE (no GL buffer object),
+    // so it cannot be a copyBufferSubData source/target. The arena buffers are
+    // vertex/index (real GL buffers) — guard so a mis-routed storage copy fails
+    // loud rather than binding `undefined`. Mirrors destroyBuffer's storage fork.
+    if ('storageTex' in s || 'storageTex' in d) {
+      throw new Error('webgl2: copyBufferToBuffer requires real GL buffers (a storage buffer is emulated as a data-texture; no buffer copy)')
+    }
+    gl.bindBuffer(gl.COPY_READ_BUFFER, s.buf)
+    gl.bindBuffer(gl.COPY_WRITE_BUFFER, d.buf)
+    gl.copyBufferSubData(gl.COPY_READ_BUFFER, gl.COPY_WRITE_BUFFER, srcOffset, dstOffset, size)
+    // Unbind the COPY_* targets so a later index/UBO bind isn't shadowed.
+    gl.bindBuffer(gl.COPY_READ_BUFFER, null)
+    gl.bindBuffer(gl.COPY_WRITE_BUFFER, null)
+  }
+  beginRenderPass(_desc: RhiRenderPassDesc): RhiRenderPass {
+    // Fail-CLOSED: offscreen / MRT render passes have no WebGL2 path in slice-1
+    // (multi-attachment FBOs are the full-frame phase). copyBufferToBuffer is the
+    // only supported encoder op — a render pass can never silently originate here.
+    throw new Error('webgl2: beginRenderPass (offscreen/MRT) not yet supported (deferred to the WebGL2 full-frame phase); this command encoder supports copyBufferToBuffer only')
+  }
+  finish(): void {
+    // Immediate-mode: copyBufferSubData already executed at call time. There is no
+    // command buffer to submit (the per-frame submit analog is the screen pass's
+    // gl.flush() in endScreenPass).
+  }
 }
 
 /** Begin an RHI render pass over the gl context's CURRENTLY-bound framebuffer
@@ -310,14 +360,15 @@ export class WebGl2Device implements RhiDevice {
     return out
   }
 
-  /** Fail-CLOSED: the offscreen / MRT command-encoder topology (opaque pick MRT,
-   *  OIT accum+revealage MRT, the offscreen line + heatmap r16float passes) has
-   *  no WebGL2 path in slice-1 — multi-attachment FBOs + EXT_color_buffer_float
-   *  targets are the WebGL2 full-frame phase. Throwing here means a pass that
-   *  tries to originate through the RHI on WebGL2 can never silently fall back to
-   *  the screen pass and corrupt the frame. (Slice-1 WebGL2 = `beginScreenPass`.) */
-  createCommandEncoder(): RhiCommandEncoder {
-    throw new Error('webgl2: offscreen/MRT render passes (createCommandEncoder) not yet supported (slice-1 WebGL2 is screen-pass only; deferred to the WebGL2 full-frame phase)')
+  /** A COPY-SCOPED command encoder: `copyBufferToBuffer` works (gl.copyBufferSubData
+   *  — the GPUArena compaction/grow ping-pong needs it), but `beginRenderPass`
+   *  still fail-CLOSES (the offscreen / MRT topology — opaque pick MRT, OIT
+   *  accum+revealage MRT, the offscreen line + heatmap r16float passes — is the
+   *  WebGL2 full-frame phase). So a render pass can never silently originate on
+   *  WebGL2 and corrupt the frame, while the arena buffer relocation is supported.
+   *  The `label` is ignored (WebGL2 has no command-encoder object to attribute). */
+  createCommandEncoder(_label?: string): RhiCommandEncoder {
+    return new WebGl2CommandEncoder(this.gl)
   }
 
   createBuffer(desc: RhiBufferDesc): RhiBuffer {
@@ -366,6 +417,14 @@ export class WebGl2Device implements RhiDevice {
     }
     gl.bindBuffer(b.target, b.buf)
     gl.bufferSubData(b.target, byteOffset, data as ArrayBufferView)
+  }
+
+  destroyBuffer(buffer: RhiBuffer): void {
+    const b = un<Gl2Buffer | Gl2StorageBuffer>(buffer)
+    // A 'storage' buffer is emulated as a data texture (no GL buffer object) — delete the
+    // texture; a real buffer deletes its GL buffer. Mirrors writeBuffer's storage fork.
+    if ('storageTex' in b) this.gl.deleteTexture(b.storageTex)
+    else this.gl.deleteBuffer(b.buf)
   }
 
   createTexture(desc: RhiTextureDesc): RhiTexture {
@@ -489,9 +548,44 @@ export class WebGl2Device implements RhiDevice {
     return wrap<RhiPipeline>({
       program,
       blend: desc.colorTargets[0]?.blend,
+      cullMode: desc.cullMode,
       depth: desc.depthStencil ? { write: desc.depthStencil.write, compare: desc.depthStencil.compare, bias: desc.depthStencil.bias } : undefined,
       vertexBuffers: desc.vertexBuffers ?? [],
       layouts,
     } satisfies Gl2Pipeline)
+  }
+
+  /** Run a compute-as-draw (the M2 compute→fragment-GPGPU lowering) into an offscreen
+   *  R32UI target and read it back. `pipeline`'s fragment shader is the lowered kernel
+   *  (`emitGlslModule {emulateCompute}`); `bindGroup` carries the storage input(s)
+   *  (feat_data → data-texture). `u_count` is a BARE `uniform uvec4` set DIRECTLY here
+   *  (it is not a UBO, so it bypasses the bind-group reflection). NOT `createCommandEncoder`
+   *  — this is the narrow single-attachment integer-output path compute needs (R32UI is
+   *  core color-renderable, no extension). Returns the packed-u32 per texel, row-major. */
+  dispatchComputeToR32UI(pipeline: RhiPipeline, bindGroup: RhiBindGroup, wOut: number, hOut: number, uCount: Uint32Array): Uint32Array {
+    const gl = this.gl
+    const outTex = un<Gl2Texture>(this.createTexture({ format: 'r32uint', width: wOut, height: hOut, usage: ['render', 'copy-src'] }))
+    const fbo = gl.createFramebuffer()
+    if (!fbo) throw new Error('webgl2: createFramebuffer (compute) failed')
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo)
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, outTex.tex, 0)
+    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER)
+    if (status !== gl.FRAMEBUFFER_COMPLETE) throw new Error(`webgl2: compute R32UI FBO incomplete (0x${status.toString(16)})`)
+    gl.viewport(0, 0, wOut, hOut)
+    gl.disable(gl.BLEND) // blending is illegal on an integer attachment
+    gl.clearBufferuiv(gl.COLOR, 0, new Uint32Array([0, 0, 0, 0]))
+    const pass = new WebGl2RenderPass(gl)
+    pass.setPipeline(pipeline)
+    pass.setBindGroup(0, bindGroup)
+    const loc = gl.getUniformLocation(un<Gl2Pipeline>(pipeline).program, 'u_count')
+    if (loc) gl.uniform4uiv(loc, uCount)
+    pass.draw(3) // gl_VertexID fullscreen triangle — no VBO
+    gl.readBuffer(gl.COLOR_ATTACHMENT0)
+    const out = new Uint32Array(wOut * hOut)
+    gl.readPixels(0, 0, wOut, hOut, gl.RED_INTEGER, gl.UNSIGNED_INT, out)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+    gl.deleteFramebuffer(fbo)
+    gl.deleteTexture(outTex.tex)
+    return out
   }
 }

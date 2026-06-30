@@ -25,7 +25,7 @@
 import type { ShowCommand } from './render/renderer'
 import { parseHexColor as parseHexColorRaw } from './feature-helpers'
 import { xlog } from './log'
-import { QUALITY } from './gpu/quality'
+import { QUALITY } from '@xgis/engine'
 
 /** Wrapper that returns `null` on parse failure so the setters can
  *  short-circuit without touching paintShapes when given a malformed

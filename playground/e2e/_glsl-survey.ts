@@ -5,7 +5,7 @@
 
 import { emitGlslModule } from '../../shader-dsl/src/index'
 import { buildRasterModule } from '../../runtime/src/engine/shaders/dsl/raster'
-import { overdrawComposeModule } from '../../runtime/src/engine/shaders/dsl/overdraw-compose'
+import { overdrawComposeModule } from '../../engine/src/shaders/dsl/overdraw-compose'
 
 export interface SurveyRow { name: string; vertex: string; fragment: string; link: string }
 

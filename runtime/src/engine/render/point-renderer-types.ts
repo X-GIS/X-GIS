@@ -5,16 +5,18 @@
 // is imported by point-renderer.ts and not re-exported from the public
 // surface.
 
+import type { RhiBuffer, RhiBindGroup } from '@xgis/engine'
+
 export interface PointLayer {
-  vertexBuffer: GPUBuffer
-  indexBuffer: GPUBuffer
-  featureBuffer: GPUBuffer
+  vertexBuffer: RhiBuffer
+  indexBuffer: RhiBuffer
+  featureBuffer: RhiBuffer
   featData: Float32Array
   lons: Float64Array
   lats: Float64Array
   indexCount: number
   pointCount: number
-  bindGroup: GPUBindGroup
+  bindGroup: RhiBindGroup
   /** Flat layers lie on the ground plane and draw without depth write so
    *  overlapping circles blend cleanly without z-fighting from coplanar
    *  fragments. Billboards keep depth write so near markers occlude far. */
@@ -80,9 +82,9 @@ export interface PointLayer {
    *  the quad expansion by w_ref/clip.w so circles foreshorten with pitch. */
   circlePitchScaleMap: boolean
   // Expanded buffers for 3× world copies (created on first render)
-  _expandedVertBuf?: GPUBuffer
-  _expandedIdxBuf?: GPUBuffer
-  _expandedFeatBuf?: GPUBuffer
-  _expandedBindGroup?: GPUBindGroup
+  _expandedVertBuf?: RhiBuffer
+  _expandedIdxBuf?: RhiBuffer
+  _expandedFeatBuf?: RhiBuffer
+  _expandedBindGroup?: RhiBindGroup
   _expandedSize?: number
 }

@@ -3,15 +3,16 @@
 // Data loading/caching/sub-tiling is handled by TileCatalog.
 // This class manages GPU buffers, bind groups, and draw calls only.
 
-import type { GPUContext } from '../gpu/gpu'
+import type { GPUContext } from '@xgis/engine'
 import { DEBUG_OVERDRAW } from '../debug-flags'
-import { Camera } from '../projection/camera'
+import { Camera } from '@xgis/engine'
 import type { ShowCommand } from './renderer'
 import { variantProducesFill } from './renderer-helpers'
 import { polygonUniformSlots, polygonUniformBytes, polygonUniformStride } from './polygon-uniform-slots'
 import { writeFrameProjectionUniform } from './frame-projection-uniform'
 import { xlog } from '../log'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
+import { recordFillDraw, type FillRhiState } from './material/polygon-fill-material'
 
 // f32 slot indices of the polygon 'Uniforms' struct, sourced from reflect() of the SAME
 // IR the shader is emitted from (NOT hand-coded magic numbers — those silently drift from
@@ -35,29 +36,26 @@ import {
 } from '../tile-decision'
 import { PrefetchScheduler } from './prefetch-scheduler'
 import { LabelFeatureSource } from './label-feature-source'
-import { FrameDrawStats } from './frame-draw-stats'
+import { FrameDrawStats } from '@xgis/engine'
 import { TileSelectionCache } from './tile-selection-cache'
 import { FeatureDataBinder } from './feature-data-binder'
 import { GpuTileStore } from './gpu-tile-store'
+import type { WebGpuDevice } from '@xgis/engine'
 import { BindGroupRegistry } from './bind-group-registry'
-import {
-  generateWallMeshExtrudedECEF,
-} from '../../core/polygon-mesh'
 import { tileKeyParent, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
-import { StagingBufferPool, asyncWriteBuffer } from '../gpu/staging-buffer-pool'
-import { GPUArena } from '../gpu/gpu-arena'
-import { BundleCache, type BundleEncodeDescriptor } from './bundle-cache'
-import { isPickEnabled, getSampleCount } from '../gpu/gpu'
-import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
-import { PriorityQueue, PriorityQueueItemRemovedError } from '../../core/priority-queue'
+import { StagingBufferPool } from '@xgis/engine'
+import { BundleCache, type BundleEncodeDescriptor } from '@xgis/engine'
+import { isPickEnabled, getSampleCount } from '@xgis/engine'
+import { WORLD_MERC, TILE_PX } from '@xgis/engine'
+import { UploadCoordinator } from './upload-coordinator'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog } from '../../data/tile-catalog'
 import type { TileData } from '../../data/tile-types'
 import { computeSliceKey } from '../../data/eval/filter-eval'
-import { mercator as mercatorProj, getProjection, type Projection } from '../projection/projection'
-import { SELECTOR_PROJ_NAMES } from '../projection/projections-table'
+import { mercator as mercatorProj, getProjection, type Projection } from '@xgis/engine'
+import { SELECTOR_PROJ_NAMES } from '@xgis/engine'
 import type { PointRenderer } from './point-renderer'
-import { buildLineSegments, type LineRenderer } from './line-renderer'
+import type { LineRenderer } from './line-renderer'
 import { parseHexColor } from '../feature-helpers'
 import type { GPUTile, LayerDrawPhase } from './vector-tile-renderer-types'
 import { getMaxGpuTiles, uploadBudgetFor } from './vector-tile-renderer-helpers'
@@ -70,18 +68,9 @@ import { UniformRing } from './uniform-ring'
 
 // ═══ Types ═══
 
-// Type/interface declarations live in vector-tile-renderer-types.ts.
-// `LayerDrawPhase` is part of the public module surface, so it is
-// re-exported here to keep imports of `./vector-tile-renderer` working
-// unchanged. It is also imported above so the in-body parameter
-// annotations can reference it (a bare `export type { … } from` only
-// re-exports — it does not bind the name in local scope).
-// `GPUTile` is internal-only (imported above).
+// Re-exported so `import … from './vector-tile-renderer'` keeps working;
+// also imported above so in-body type annotations can name it.
 export type { LayerDrawPhase }
-
-// GPU tile cache caps + per-frame upload budget helpers
-// (getMaxGpuTiles / uploadBudgetFor) live in
-// vector-tile-renderer-helpers.ts and are imported above.
 
 // ═══ Renderer ═══
 
@@ -98,19 +87,16 @@ export type { LayerDrawPhase }
  *  dequant scale). */
 const TWO_PI_R_EARTH = 2 * Math.PI * 6378137
 
-/** Cesium replacement-invariant ancestor protection depth. Caps the
- *  number of pyramid levels above each visible tile that are held
- *  pinned in the catalog cache. 22 matches `firstIndexedAncestor`'s
- *  MAX_WALK (DSFUN zoom ceiling) so the entire chain from leaf to
- *  root is protected — "parents are never evicted before their
- *  children arrive" (Cesium replace-refinement rule #2). Sibling
- *  visibles share the bulk of their chain, so the unique-key count
- *  scales as O(visible + log2(visible) × depth), not visible × depth;
- *  measured ~30-50 unique ancestors at z=14 over a typical viewport,
- *  well inside the 100/200 MB catalog cap. The previous value (4)
- *  left mid-zoom ancestors (z=3..z=N-5) unprotected and they were
- *  evicted during fast zoom-in even though they were the last
- *  available fallback before the pinned skeleton at z=0..2/3. */
+/** Cesium replacement-invariant ancestor protection depth: pyramid
+ *  levels above each visible tile pinned in the catalog cache. 22
+ *  matches `firstIndexedAncestor`'s MAX_WALK (DSFUN zoom ceiling) so
+ *  the whole leaf→root chain is protected (Cesium replace-refinement
+ *  rule #2: parents are never evicted before their children arrive).
+ *  Siblings share most of their chain, so unique keys scale as
+ *  O(visible + log2(visible) × depth) — measured ~30-50 at z=14, well
+ *  inside the 100/200 MB cap. If set too low (was 4), mid-zoom
+ *  ancestors (z=3..z=N-5) get evicted during fast zoom-in while they
+ *  are still the only fallback below the pinned z=0..2/3 skeleton. */
 const ANCESTOR_PROTECT_DEPTH = 22
 
 /** Mapbox `*-translate-anchor`: viewport (default) returns the [dx,dy]
@@ -128,12 +114,38 @@ export function rotateTranslateForAnchor(
 }
 
 // Polygon extruded wall + roof mesh generation lives in core/
-// polygon-mesh.ts so the math is unit-testable independent of GPU
-// state. See `generateWallMeshExtrudedECEF`. (The Mercator-DSFUN
-// `quantizePolygonVertices*` + `generateWallMesh*` paths were retired
-// in Phase 2 PR 2c.2 — tile vertices arrive as ECEF-DSFUN stride-9
-// floats from the compiler tiler and upload directly.)
+// polygon-mesh.ts (unit-testable independent of GPU state). See
+// `generateWallMeshExtrudedECEF`. Tile vertices arrive as ECEF-DSFUN
+// stride-9 floats from the compiler tiler and upload directly.
 
+/**
+ * Renders vector tiles from a TileCatalog to WebGPU: GPU buffers, bind
+ * groups, and draw calls only (data load / cache / sub-tiling is the
+ * catalog's job).
+ *
+ * Decomposed into injected, single-responsibility collaborators. VTR owns
+ * the cross-cutting wires (uniform ring, the onGrow fan-out, frame
+ * lifecycle) and keeps thin forwarders for external callers. Each
+ * collaborator touches only its own state and holds NO back-reference to
+ * VTR — shared handles arrive as call arguments.
+ *   - Cluster A `_store` (GpuTileStore): resident GPU tile cache, the three
+ *     arenas (poly vertex / index / z-buffer), pooled buffer recycler,
+ *     byte-aware LRU + OOM forced eviction, deferred post-submit compaction.
+ *   - Cluster B uploader (VTR-owned): the priority upload queue + the
+ *     sync/async doUploadTile paths.
+ *   - Cluster C `_bindGroups` (BindGroupRegistry): source-level bind groups,
+ *     base layout, palette / sprite-atlas resources, bind-group epoch, and
+ *     the fill-pipeline field pairs + their setters.
+ *   - Cluster D `_featureBinder` (FeatureDataBinder): data-driven feature
+ *     buffer, captured variant schema, per-tile ComputeLayerHandle lifetime,
+ *     featureBindGroupLayout, compute paint.
+ *   - Cluster E `_selection` (TileSelectionCache): visible-tile selection,
+ *     zoom hysteresis, readiness gate, per-frame tile cache. Zero GPU state.
+ *   - Cluster F `_labelSource` (LabelFeatureSource): CPU label-feature
+ *     extraction + scratch + per-frame FrameArena. Zero GPU state.
+ *   - Cluster G `_drawStats` (FrameDrawStats): per-frame draw stats,
+ *     diagnostics, dedup, trace stash.
+ */
 export class VectorTileRenderer {
   private device: GPUDevice
   private source: TileCatalog | null = null
@@ -143,41 +155,25 @@ export class VectorTileRenderer {
   get sourceMaxLevel(): number {
     return this.source?.maxLevel ?? 0
   }
-  currentProjection: import('../projection/projection').Projection | null = null
-  /** Resident GPU tile set (Cluster A — the memory core): the nested
-   *  `${tileKey}|${sourceLayer}` cache map, the three GPUArenas (poly
-   *  vertex / poly index / z-buffer), the pooled GPU buffer recycler, the
-   *  unique-key + byte-aware LRU eviction (#218 fix), the OOM Lane-B forced
-   *  eviction, and the deferred post-submit arena compaction. VTR holds it
-   *  as an injected collaborator and keeps thin forwarders for the external
-   *  surface (`getCacheSize`); the uploader (Cluster B) + the render hot
-   *  loop call THROUGH it. The store holds NO VTR back-reference —
-   *  `stableKeys` (E) + the compute-handle release hook (D, bound to
-   *  `_featureBinder.releaseTile`) + the upload-active probe (B) arrive as
-   *  call arguments. */
+  currentProjection: import('@xgis/engine').Projection | null = null
+  /** Resident GPU tile cache + arenas + eviction (Cluster A; see class
+   *  doc). Injected collaborator; VTR keeps thin forwarders (`getCacheSize`)
+   *  and the uploader + render hot loop call through it. The store holds no
+   *  VTR back-reference — `stableKeys`, the compute-handle release hook, and
+   *  the upload-active probe arrive as call arguments. */
   private readonly _store: GpuTileStore
-  /** Base bind-group + fill-pipeline resource registry (Cluster C — the
-   *  "thin-C" final decomposition unit). Owns the two source-level bind
-   *  groups (`tileBgDefault`/`tileBgFeature`), the base bind-group layout,
-   *  the palette/sprite atlas views/sampler, the bind-group rebuild epoch,
-   *  and ALL fill-pipeline field pairs + their setters. VTR keeps thin
-   *  forwarders for the external setter surface (renderer.ts/map.ts/
-   *  source-manager.ts/render-loop.ts) and coordinates the onGrow
-   *  single-trigger fan-out (base rebuild then per-tile rebuild). The
-   *  registry holds NO reference to VTR/FeatureDataBinder/GpuTileStore —
-   *  it receives the uniform-ring buffer + feature layout + feature data
-   *  buffer as `rebuildBase` call arguments. Constructed in the constructor
-   *  (after `this.device` is assigned). */
+  /** Base bind-group + fill-pipeline resource registry (Cluster C; see
+   *  class doc). VTR keeps thin forwarders for the external setter surface
+   *  and coordinates the onGrow fan-out (base rebuild then per-tile). The
+   *  registry holds no VTR reference; the uniform-ring buffer + feature
+   *  layout + feature data buffer arrive as `rebuildBase` call arguments. */
   private readonly _bindGroups: BindGroupRegistry
-  /** The Cluster-D compute-handle release hook handed to the store's
-   *  eviction path (the `7b31ce52` free order). A single pre-bound arrow
-   *  so the store never imports FeatureDataBinder nor holds a VTR
-   *  reference, and eviction never allocates a fresh closure per call. */
+  /** Compute-handle release hook handed to the store's eviction path
+   *  (Cluster D). A single pre-bound arrow so the store never imports
+   *  FeatureDataBinder nor holds a VTR reference, and eviction never
+   *  allocates a fresh closure per call. */
   private readonly _releaseTileHook = (handleKey: string): void => {
     this._featureBinder.releaseTile(handleKey)
-  }
-  private getLayerCache(sourceLayer: string): Map<number, GPUTile> | undefined {
-    return this._store.getLayer(sourceLayer)
   }
   private getOrCreateLayerCache(sourceLayer: string): Map<number, GPUTile> {
     return this._store.getOrCreateLayer(sourceLayer)
@@ -187,10 +183,9 @@ export class VectorTileRenderer {
    *  `_continuous-wheel-zoom`, `_mobile-overdraw-flat-pitch`,
    *  `_osm-style-merge-proof`, `_user-scenario-capture`,
    *  `_openfreemap-bright-overzoom`) that read `renderer.gpuCache`
-   *  (`.get`/`.size`/`.values`). The cache itself moved onto the
-   *  GpuTileStore (Cluster A); this getter forwards the live Map so those
-   *  probes keep working unchanged. No production hot-loop reads this — the
-   *  per-tile loop hoists the inner Map via `getLayerCache` once/frame. */
+   *  (`.get`/`.size`/`.values`). Forwards the live Map from the store
+   *  (Cluster A). No production hot-loop reads this — the per-tile loop
+   *  hoists the inner Map via `getLayerCache` once/frame. */
   get gpuCache(): Map<string, Map<number, GPUTile>> {
     return this._store.cache()
   }
@@ -201,36 +196,20 @@ export class VectorTileRenderer {
    *  zoom-interp fills + palette gradients interpolate, not snap. */
   private currentCameraZoom = 0
   private stableKeys: number[] = []
-  /** Per-frame visible-tile selection + zoom-transition hysteresis +
-   *  readiness gate (Cluster E-selection). Owns `_frameTileCache`, the
-   *  cross-frame `_hysteresisZ`/`_czPendingAdvance` state, the
-   *  camera-idle snapshot, the gate SSE memo, and the selection-only
-   *  hot-path scratch arrays. Touches ZERO GPU state — VTR calls
-   *  `selectForFrame` once per render() and consumes the returned
-   *  Selection; `stableKeys` stays on VTR (read by eviction + labels). */
+  /** Per-frame visible-tile selection + zoom hysteresis + readiness gate
+   *  (Cluster E; see class doc). VTR calls `selectForFrame` once per
+   *  render() and consumes the returned Selection; `stableKeys` stays on
+   *  VTR (read by eviction + labels). */
   private readonly _selection = new TileSelectionCache()
   /** Speculative prefetch routes (sibling-of-visible + pan-direction
    *  speculation). Owns the frame-stable camera snapshot that the
    *  velocity-vector projection depends on; updated exactly once per
    *  frame inside `pumpPrefetch`. */
   private readonly prefetchScheduler = new PrefetchScheduler()
-  /** CPU label-feature extraction (Cluster F). Owns the label scratch
-   *  collections + line-label run cache + per-frame FrameArena. VTR
-   *  keeps thin forwarders (forEachLabelFeature etc.) so callers are
-   *  unchanged; this collaborator touches ZERO GPU state. */
+  /** CPU label-feature extraction (Cluster F; see class doc). VTR keeps
+   *  thin forwarders (forEachLabelFeature etc.) so callers are unchanged. */
   private readonly _labelSource = new LabelFeatureSource()
   private readonly _drawStats = new FrameDrawStats()
-  /** Pooled GPU buffer acquire/release — thin forwarders to the
-   *  GpuTileStore (Cluster A owner). The pool keyed by
-   *  `{powerOfTwoBucketSize}:{usage}` lives on the store; doUploadTile +
-   *  eviction hand freed line/outline buffers straight back to the next
-   *  acquire instead of round-tripping through the GPU driver. */
-  private acquireBuffer(size: number, usage: GPUBufferUsageFlags, label: string): GPUBuffer {
-    return this._store.acquireBuffer(size, usage, label)
-  }
-  private releaseBuffer(buf: GPUBuffer | null | undefined): void {
-    this._store.releaseBuffer(buf)
-  }
   /** Hot-path scratch collections — reused across render() calls
    *  to avoid per-frame Set/Map allocations. Each is `.clear()`'d
    *  before use; the same instance is fine because multi-render-
@@ -243,21 +222,17 @@ export class VectorTileRenderer {
   private _scratchParentKeysSet = new Set<number>()
   private _scratchMergedStableKeys = new Set<number>()
   private _scratchProtectedKeys = new Set<number>()
-  /** iter-255 (Plan AAA A.2) — per-frame scratch array for the
-   *  `_tileDecisions` diagnostic. Same `.length = N` reset pattern
-   *  as iter-254 parentAtMaxLevel. */
+  /** Per-frame scratch array for the `_tileDecisions` diagnostic
+   *  (reused via `.length = N` reset). */
   private readonly _scratchTileDecisions: (string | undefined)[] = []
-  // Sized to UNIFORM_SIZE (= WGSL Uniforms struct size). Shrunk from
-  // 256 → 192 in PR 2d.5 closeout when the legacy Mercator `mvp` slot
-  // was retired (the surviving `mvp` slot IS the ECEF-MVP).
+  // Sized to the WGSL Uniforms struct size via polygonUniformBytes().
   // Out-of-bounds typed-array writes are silent no-ops in JS, so a
   // mismatch here = uniform never reaches the GPU = shader reads
   // garbage at the new offset. Keep this in lockstep with WGSL.
   private uniformDataBuf = new ArrayBuffer(polygonUniformBytes())
   private uniformF32 = new Float32Array(this.uniformDataBuf) // reusable view over full uniform
   /** Reusable u32 view over the same uniform buffer — used to write
-   *  `pick_id` (u32). After PR 2d.5 closeout the field sits at f32 slot
-   *  36 (byte offset 144) — shifted -16 by the legacy mvp removal. */
+   *  `pick_id` (u32) at f32 slot 36 (byte offset 144). */
   private uniformU32 = new Uint32Array(this.uniformDataBuf)
   private cachedFillColor = [0, 0, 0, 0]
   private cachedStrokeColor = [0, 0, 0, 0]
@@ -295,27 +270,27 @@ export class VectorTileRenderer {
    *  bool) because the slot is an f32 the WGSL reads via `!= 0`. */
   private currentFillAntialias = 1
   private currentFillVerticalGradient = 1
-  /** WS-9 — top-level fill-extrusion light, pushed each frame from the
-   *  render loop (host._light). Defaults = MapLibre/Mapbox default so an
-   *  untouched renderer is byte-identical to the pre-WS-9 baked consts.
-   *  position = [radius, azimuth°, polar°] (Mapbox spec); the packer
-   *  converts it to an (East,North,Up) direction then rotates into ECEF by
-   *  the camera-anchor basis (same path the old fixed light used). */
+  /** Top-level fill-extrusion light, pushed each frame from the render
+   *  loop (host._light). Defaults = MapLibre/Mapbox default so an untouched
+   *  renderer is byte-identical to the baked consts. position = [radius,
+   *  azimuth°, polar°] (Mapbox spec); the packer converts it to an
+   *  (East,North,Up) direction then rotates into ECEF by the camera-anchor
+   *  basis. */
   private _lightPosition: [number, number, number] = [1.15, 210, 30]
   private _lightIntensity = 0.5
   private _lightColor: [number, number, number] = [1, 1, 1]
-  /** iter-183 — fill-pattern Stage 2 per-show flag. Set true when the
-   *  current `render()` call's show has a resolved pattern UV bbox +
-   *  the pattern pipeline is wired. Per-tile uniform writes use this
-   *  to decide whether slot 46/47 carries fill-translate NDC values
-   *  or the pattern repeat in Mercator metres. */
+  /** Fill-pattern per-show flag. Set true when the current `render()`
+   *  call's show has a resolved pattern UV bbox + the pattern pipeline is
+   *  wired. Per-tile uniform writes use this to decide whether slot 46/47
+   *  carries fill-translate NDC values or the pattern repeat in Mercator
+   *  metres. */
   private _patternUniformActive = false
   private _patternRepeatMX = 1
   private _patternRepeatMY = 1
-  /** iter-185 — line-pattern Stage 2 per-show flag. True when the
-   *  current `render()` call's show has a resolved line-pattern UV
-   *  bbox + repeat AND lineRenderer is wired. Read by the deferred
-   *  drawSegments() pass to route through `pipelinePattern`. */
+  /** Line-pattern per-show flag. True when the current `render()` call's
+   *  show has a resolved line-pattern UV bbox + repeat AND lineRenderer is
+   *  wired. Read by the deferred drawSegments() pass to route through
+   *  `pipelinePattern`. */
   private _linePatternActiveForShow = false
   /** Extrude routing for the current `render()` call.
    *   - 'none': flat polygon, no z lift
@@ -349,24 +324,20 @@ export class VectorTileRenderer {
   // SDF line renderer (set externally)
   private lineRenderer: LineRenderer | null = null
 
-  /** Data-driven feature buffer + per-tile feature bind groups + compute
-   *  paint (Cluster D). Owns `featureDataBuffer`, the captured
-   *  `latestVariant*` schema, the per-tile `ComputeLayerHandle` lifetime,
-   *  and the `featureBindGroupLayout`. VTR keeps thin forwarders
-   *  (`buildFeatureDataBuffer`/`setComputePlan`/`dispatchComputePass`/
-   *  `hasFeatureData`) for external callers; the per-tile rebuild
-   *  (`rebuildPerTileGroups`) is CALLED by `_onUniformRingGrow` (the
-   *  single `UniformRing.onGrow` fan-out, base→per-tile) — the binder never
-   *  registers its own onGrow nor references VTR/gpuCache (they arrive as
-   *  call args).
-   *  Constructed in the constructor (after `this.device` is assigned). */
-  private readonly _featureBinder: FeatureDataBinder
+  // Polygon flat-fill RHI Material twins + the native pipeline refs they
+  // map to (set once from PipelineFactory). recordFillDraw routes EVERY
+  // fill draw through it (§4 closed; an untwinned pipeline throws).
+  private _fillRhi: FillRhiState | null = null
+  setFillRhi(state: FillRhiState | null): void { this._fillRhi = state }
 
-  // Per-frame draw stats + diagnostics + dedup + trace stash live on the
-  // FrameDrawStats collaborator (Cluster G). See `_drawStats` above.
-  // The fill-pipeline field pairs (extruded / ground / OIT / pattern) +
-  // their setters live on the BindGroupRegistry (Cluster C). See
-  // `_bindGroups` above + the thin forwarders below.
+  /** Data-driven feature buffer + per-tile feature bind groups + compute
+   *  paint (Cluster D; see class doc). VTR keeps thin forwarders
+   *  (`buildFeatureDataBuffer`/`setComputePlan`/`dispatchComputePass`/
+   *  `hasFeatureData`); the per-tile rebuild (`rebuildPerTileGroups`) is
+   *  CALLED by `_onUniformRingGrow` (the single `UniformRing.onGrow`
+   *  fan-out, base→per-tile). The binder never registers its own onGrow
+   *  nor references VTR/gpuCache (they arrive as call args). */
+  private readonly _featureBinder: FeatureDataBinder
 
   constructor(ctx: GPUContext) {
     this.device = ctx.device
@@ -374,34 +345,45 @@ export class VectorTileRenderer {
     this.stagingPool = new StagingBufferPool(ctx.device)
     this.bundleCache = new BundleCache(ctx.device)
     this._featureBinder = new FeatureDataBinder(ctx.device)
-    this._store = new GpuTileStore(ctx.device)
+    // GpuTileStore is the WebGPU-coupled VTR memory core (it hands raw GPUBuffers to the fill
+    // draw + records the arena compaction encoder), so the injected backend device is narrowed
+    // to WebGpuDevice here — the SINGLE boot instance, never a freshly self-instantiated device.
+    this._store = new GpuTileStore(ctx.device, ctx.rhi as WebGpuDevice)
     this._bindGroups = new BindGroupRegistry(ctx.device)
+    // Renderer-side GPU upload pipeline (priority queue + per-frame cap +
+    // stale-cancel + the SINGLE sync/async tile-upload dispatch body). Holds
+    // no VTR back-reference — every dependency arrives through this host
+    // port; mutable-per-frame values (lineRenderer, uniform ring, frameCount,
+    // stableKeys) are getters read at call time.
+    this._uploads = new UploadCoordinator({
+      device: ctx.device,
+      stagingPool: this.stagingPool,
+      store: this._store,
+      lineRenderer: () => this.lineRenderer,
+      buildPerTileFeatureData: (featureProps, handleKey) =>
+        this._featureBinder.buildPerTileFeatureData(
+          featureProps, this.uniformRing?.buffer, this._bindGroups.paletteResources(), handleKey,
+        ),
+      frameCount: () => this.frameCount,
+      stableKeys: () => this.stableKeys,
+      releaseTileHook: this._releaseTileHook,
+      hasWarned: (key) => this._drawStats.hasWarned(key),
+      markWarned: (key) => this._drawStats.markWarned(key),
+    })
   }
+  /** Renderer-side GPU tile-upload pipeline (Cluster A sibling). See ctor. */
+  private readonly _uploads: UploadCoordinator
 
-  /** iter-218 (Phase RB.B.6) — swapchain color format. Captured from
-   *  the GPUContext so bundle descriptors can declare the correct
-   *  color attachment format. */
+  /** Swapchain color format, captured from the GPUContext so bundle
+   *  descriptors can declare the correct color attachment format. */
   private format: GPUTextureFormat
-  /** iter-218 — per-show RenderBundle cache. Encodes draw commands
-   *  once + replays via `executeBundles([bundle])` on stable scenes
-   *  (idle camera / slow pan). Invalidated by cache key composition:
-   *  any tile set change OR gpuCache change OR pipeline rebuild
-   *  produces a different key → re-encode. */
+  /** Per-show RenderBundle cache. Encodes draw commands once + replays
+   *  via `executeBundles([bundle])` on stable scenes (idle camera / slow
+   *  pan). Invalidated by cache key composition: any tile set change OR
+   *  gpuCache change OR pipeline rebuild produces a different key →
+   *  re-encode. */
   private bundleCache: BundleCache
 
-  /** Polygon vertex/index arena getters — thin forwarders to the
-   *  GpuTileStore (Cluster A owner). The arenas (poly vertex / poly index
-   *  / z-buffer) + their capacity consts + the pending-compaction flag +
-   *  the retired-buffer pool all live on the store; the uploader lazy-
-   *  inits via these getters on first `doUploadTile`/`doUploadTileAsync`
-   *  and binds every tile from the same underlying GPUBuffer with per-tile
-   *  offsets. */
-  private getOrCreatePolyVertexArena(): GPUArena {
-    return this._store.polyVertexArenaOrCreate()
-  }
-  private getOrCreatePolyIndexArena(): GPUArena {
-    return this._store.polyIndexArenaOrCreate()
-  }
 
   /** Tiered MAP_WRITE | COPY_SRC pool used by the async upload path
    *  (`doUploadTileAsync`). The sync `doUploadTile` keeps using
@@ -419,7 +401,7 @@ export class VectorTileRenderer {
     this._bindGroups.setExtrudedPipelines(main, fallback)
   }
 
-  /** WS-9 — set the fill-extrusion light (top-level style concern, not
+  /** Set the fill-extrusion light (top-level style concern, not
    *  per-show). The render loop pushes host._light into every VTR each
    *  frame; omitted fields keep their current value. Cheap (3 scalar
    *  stores); the packer consumes them per tile uniform write. */
@@ -439,18 +421,17 @@ export class VectorTileRenderer {
     this._bindGroups.setGroundPipelines(main, fallback)
   }
 
-  /** iter-183 — fill-pattern Stage 2 pattern ground pipelines. Caller
-   *  hands the `fillPipelinePatternGround` + fallback pair built by
-   *  MapRenderer. VTR selects them in place of the regular ground
-   *  pipelines when `show.fillPatternUV` is populated (the iconStage
-   *  has resolved the sprite atlas UV bbox via map.ts). */
+  /** Fill-pattern ground pipelines. Caller hands the
+   *  `fillPipelinePatternGround` + fallback pair built by MapRenderer. VTR
+   *  selects them in place of the regular ground pipelines when
+   *  `show.fillPatternUV` is populated (the iconStage has resolved the
+   *  sprite atlas UV bbox via map.ts). */
   setPatternPipelines(main: GPURenderPipeline, fallback: GPURenderPipeline): void {
     this._bindGroups.setPatternPipelines(main, fallback)
   }
 
-  /** iter-186 — fill-extrusion-pattern Stage 2 variants. Mirror of
-   *  setPatternPipelines for the extruded (per-feature z attribute)
-   *  vertex path. */
+  /** Fill-extrusion-pattern variants. Mirror of setPatternPipelines for
+   *  the extruded (per-feature z attribute) vertex path. */
   setPatternExtrudedPipelines(main: GPURenderPipeline, fallback: GPURenderPipeline): void {
     this._bindGroups.setPatternExtrudedPipelines(main, fallback)
   }
@@ -524,12 +505,11 @@ export class VectorTileRenderer {
     this._onUniformRingGrow()
   }
 
-  /** iter-181 — fill-pattern Stage 2 infra mirror of
-   *  setPaletteResources. Sprite atlas texture at binding 5; sampler
-   *  reuses `paletteSampler` at binding 4. Stub 1×1 white via the
-   *  initial MapRenderer.setSpriteAtlas push; replaced when the
-   *  IconStage finishes loading the real sprite atlas. Thin forwarder
-   *  (registry-owned resource + base/per-tile fan-out, as above). */
+  /** Sprite-atlas setter, mirror of setPaletteResources. Sprite atlas
+   *  texture at binding 5; sampler reuses `paletteSampler` at binding 4.
+   *  Stub 1×1 white via the initial MapRenderer.setSpriteAtlas push;
+   *  replaced when the IconStage finishes loading the real sprite atlas.
+   *  Thin forwarder (registry-owned resource + base/per-tile fan-out). */
   setSpriteAtlasView(view: GPUTextureView): void {
     this._bindGroups.setSpriteAtlasView(view)
     this._onUniformRingGrow()
@@ -543,22 +523,21 @@ export class VectorTileRenderer {
 
   /** The SINGLE `UniformRing.onGrow` fan-out (also fired by the palette /
    *  sprite-atlas setters). One trigger, base → per-tile order (plan §5
-   *  DO-NOT-SPLIT #3, the iter-348/349 stale-colour fix). VTR coordinates;
-   *  the BindGroupRegistry rebuilds the BASE source-level groups (Cluster C)
+   *  DO-NOT-SPLIT #3, the stale-colour fix). VTR coordinates; the
+   *  BindGroupRegistry rebuilds the BASE source-level groups (Cluster C)
    *  and the FeatureDataBinder rebuilds the PER-TILE feature groups
-   *  (Cluster D). Neither owns the onGrow wire — VTR does. The ring buffer +
-   *  feature layout + feature data buffer + palette resources arrive as
+   *  (Cluster D). Neither owns the onGrow wire — VTR does. The ring buffer
+   *  + feature layout + feature data buffer + palette resources arrive as
    *  call arguments, so neither collaborator holds a VTR reference.
    *
-   *  iter-226 — the base rebuild replaces `tileBgDefault`/`tileBgFeature`
-   *  (new refs) and bumps the bind-group epoch so stale RenderBundles miss.
-   *  iter-349 — the per-tile feature bind groups (data-driven MVT tiles)
-   *  bind the same ring at binding 0; after a grow they'd keep referencing
-   *  the OLD (retired, then destroyed-next-frame) ring → data-driven fills
-   *  read stale uniform colours (the user-reported high-pitch "land flashes
-   *  water-blue" while moving). Rebuilding both against the new ring fixes
-   *  it; the order (base then per-tile) is preserved from the prior inline
-   *  `rebuildTileBindGroups`. */
+   *  The base rebuild replaces `tileBgDefault`/`tileBgFeature` (new refs)
+   *  and bumps the bind-group epoch so stale RenderBundles miss. The
+   *  per-tile feature bind groups (data-driven MVT tiles) bind the same
+   *  ring at binding 0; if NOT rebuilt against the new ring after a grow
+   *  they keep referencing the OLD (retired, destroyed-next-frame) ring →
+   *  data-driven fills read stale uniform colours (user-reported high-pitch
+   *  "land flashes water-blue" while moving). Order (base then per-tile)
+   *  must match the prior inline `rebuildTileBindGroups`. */
   private _onUniformRingGrow(): void {
     const ringBuf = this.uniformRing?.buffer
     this._bindGroups.rebuildBase(
@@ -578,30 +557,26 @@ export class VectorTileRenderer {
   beginFrame(frameId: number = 0): void {
     this.currentFrameId = frameId
     this.uniformRing?.resetSlot()
-    // iter-243 (Plan AAA B.2) — reset per-frame scratch arena
-    // before any forEachLineLabelPolyline calls. The previous
-    // frame's xs/ys views become invalid here, but callers don't
-    // retain them across frames (they reslice into tileRuns
-    // cache which copies into permanent storage). The arena now
-    // lives on the _labelSource collaborator (Cluster F).
+    // Reset the per-frame label scratch arena (Cluster F) before any
+    // forEachLineLabelPolyline calls. The previous frame's xs/ys views
+    // become invalid here, but callers don't retain them across frames
+    // (they reslice into the tileRuns cache, which copies into permanent
+    // storage).
     this._labelSource.beginFrame()
     // Reset the frame-scoped miss counter + draw accumulators here so
     // multiple render() calls within the frame accumulate into one
     // total (see render()). Does NOT clear renderedDraws (render-scoped).
     this._drawStats.beginFrame()
     this._diagFillsThisFrame = 0 // DIAGNOSTIC draw cap (window.__xgisMaxTiles)
-    // iter-255 (Plan AAA A.2) — clear inner Maps in place instead
-    // of dropping them. Outer Map retained; inner Maps' hash
-    // buckets reused next frame. Pre-iter-255 each frame's first
-    // `_frameClassifyMemo.get(slice)` returned undefined → new
-    // Map(). At ~13 distinct slices per Bright frame = ~13
-    // Map allocations / frame.
+    // Clear inner Maps in place (don't drop them) so the outer Map + hash
+    // buckets are reused next frame — saves ~13 Map allocations/frame on
+    // Bright (~13 distinct slices).
     for (const inner of this._frameClassifyMemo.values()) inner.clear()
     // Reset the per-frame upload counter + replay any uploads that
     // got held over by the previous frame's cap. Without this, a
     // 80+ slice scene (Bright) bursts hundreds of uploads into one
     // rAF callback and the JS thread spends ~300 ms per frame in
-    // staging-buffer copies. See `_uploadsThisFrame` for context.
+    // staging-buffer copies. See the upload coordinator's per-frame cap.
     this.resetUploadFrameCap()
     // Frame tile cache invalidates on each new frame via the
     // currentFrameId comparison in render(); explicit null isn't
@@ -609,43 +584,30 @@ export class VectorTileRenderer {
     // previous frame's tile array drop sooner if the ShowCommand
     // list shrinks (e.g. layer toggle).
     this._selection.invalidateFrame()
-    // Retired rings are NO LONGER explicitly destroyed here. The
-    // previous frame's `queue.submit()` was called before the rAF
-    // callback that fired this `beginFrame`, so validation already
-    // passed — but a separate code path (teardownSource → VTR.destroy
-    // mid-frame, or a setBindGroup call that captured a ring just
-    // before grow) can still race the destroy ahead of submit, which
-    // surfaces as "Buffer vtr-uniform-ring used in submit while
-    // destroyed" on OFM Bright load (user-reported 2026-05-14).
-    //
-    // Replaced with a plain array clear: drop our refs, let JS GC +
-    // the WebGPU implementation's internal refcount free the underlying
-    // GPU resource at the right time. Bounded memory cost — ring grows
-    // double capacity, so the retired pool tops out at log2(maxCap)
-    // buffers (a handful, ~MB-scale transient).
+    // Retired rings are NOT explicitly destroyed: a teardownSource →
+    // VTR.destroy or a setBindGroup that captured a ring just before grow
+    // can race the destroy ahead of submit → "Buffer vtr-uniform-ring used
+    // in submit while destroyed". A plain array clear (drop our refs, let
+    // GC + the implementation's refcount free the buffer) avoids it.
+    // Bounded: the retired pool tops out at log2(maxCap) buffers (a
+    // handful, ~MB-scale transient).
     this.uniformRing?.takeRetired()
-    // Same safety window applies to tile-buffer eviction. Eviction used to
-    // run inline at the end of render() (`this.gpuCache.size > MAX_GPU_TILES`
-    // check after the per-frame draws were encoded). The bucket scheduler
-    // calls render() multiple times per frame (once per opaque layer plus
-    // once per translucent layer), so an eviction in call N could destroy
-    // buffers still bound by encoded-but-not-yet-submitted commands from
-    // call N−1, producing "Buffer used in submit while destroyed"
-    // validation errors on translucent_lines and other multi-layer
-    // demos. Defer to the start of the next frame: the previous frame's
-    // queue.submit() has returned by now, so destroying these buffers
-    // can't poison any in-flight submit.
-    //
-    // The retired-buffer drain + the count/byte high-water evict trigger +
-    // the deferred compaction drain all live on the GpuTileStore (Cluster A
-    // owner) and run, in that exact order, inside `runFrameMaintenance` —
-    // the post-submit safe window. `stableKeys` (E) + the compute-handle
-    // release hook (D) + the upload-active probe (B) are passed in so the
-    // store references neither VTR nor the upload queue.
+    // Tile-buffer eviction is DEFERRED to the start of the next frame.
+    // The bucket scheduler calls render() multiple times per frame, so an
+    // eviction in call N could destroy buffers still bound by encoded-but-
+    // not-yet-submitted commands from call N−1 → "Buffer used in submit
+    // while destroyed". By next frame the previous queue.submit() has
+    // returned, so destroying these buffers can't poison an in-flight
+    // submit. The retired-buffer drain + the count/byte high-water evict
+    // trigger + the deferred compaction drain run in THAT exact order
+    // inside `runFrameMaintenance` (the post-submit safe window).
+    // `stableKeys` + the compute-handle release hook + the upload-active
+    // probe are passed in so the store references neither VTR nor the
+    // upload queue.
     const compacted = this._store.runFrameMaintenance(
       this.stableKeys,
       this._releaseTileHook,
-      () => this.uploadQueue.activeCount() > 0,
+      () => this._uploads.isActive(),
     )
     // Compaction swapped each tile's vertex/index buffer to a fresh packed
     // buffer + retired the old one (destroyed next maintenance pass). Cached
@@ -657,16 +619,12 @@ export class VectorTileRenderer {
     // before the retired buffer is destroyed. Mirrors the async-upload path's
     // buffer-identity guard. (Bundles are default-OFF; this is a latent-UAF fix.)
     if (compacted) this.bundleCache.invalidateAll()
-    // CPU-side TileCatalog eviction. Without this the dataCache grew
-    // unbounded for the lifetime of the session — VTR's gpuCache
-    // capped GPU memory but every parsed-and-decoded tile's
-    // TileData (vertex + index + line + outline + polygon-rings
-    // arrays) stayed pinned in JS heap. evictTiles protects the
-    // current frame's stableKeys + indexed ancestors (≤ maxLevel)
-    // so visible tiles + their fallback chain survive; only
-    // off-screen leaves get dropped. Same safe-window as the GPU
-    // eviction (runs after prev frame's submit), so a re-render
-    // walking the parent chain can always find a cached ancestor.
+    // CPU-side TileCatalog eviction — caps the JS-heap dataCache (decoded
+    // TileData) that gpuCache's GPU cap does not bound. evictTiles protects
+    // the current frame's stableKeys + indexed ancestors (≤ maxLevel) so
+    // visible tiles + their fallback chain survive; only off-screen leaves
+    // drop. Runs in the same post-submit safe window as GPU eviction, so a
+    // re-render walking the parent chain can always find a cached ancestor.
     if (this.source && this.stableKeys.length > 0) {
       const guard = this._scratchProtectedKeys
       guard.clear()
@@ -707,31 +665,6 @@ export class VectorTileRenderer {
     )
   }
 
-  /** Async-upload priority queue. Replaces the previous in-place sort
-   *  + per-frame writeBuffer-budget loop. `maxJobs` caps how many tile
-   *  uploads can be in flight concurrently (each holding 5-7 staging
-   *  buffers); the rest wait their turn. Items are string IDs
-   *  (`${key}:${sourceLayer}`) so the queue's identity-based dedup
-   *  catches duplicate enqueues across frames; the actual TileData
-   *  lives in `uploadItemData`. The queue's priorityCallback is wired
-   *  per-frame to the same distance closure that drives fetch — closer
-   *  tiles dispatch first.
-   *
-   *  Async path replaces the writeBuffer-budget reasoning (which was
-   *  about preventing JS-thread stalls): mapAsync doesn't block JS, so
-   *  the only meaningful cap is staging-buffer concurrency. */
-  private uploadQueue = new PriorityQueue<string, void>()
-  private uploadItemData = new Map<string, { key: number; data: TileData; sourceLayer: string }>()
-
-  /** Set by destroy() before the arenas are torn down. In-flight
-   *  `doUploadTileAsync` coroutines suspended on the staging mapAsync
-   *  round-trip re-check this after their awaits and bail out WITHOUT
-   *  submitting — otherwise their `queue.submit` would reference the
-   *  now-destroyed poly-vertex/index arena buffer ("used in submit
-   *  while destroyed"). See destroy() + doUploadTileAsync's pre-submit
-   *  guard. */
-  private _destroyed = false
-
   /** Per-frame distSq memo + cached camera centre. distSq runs O(N log N)
    *  times per upload-queue sort and once per fetch-priority dispatch;
    *  the camera is constant for the whole frame, so cache the (key →
@@ -746,12 +679,11 @@ export class VectorTileRenderer {
   /** Stable closure that reads `_distMemo` + camera centre on the
    *  instance — installed ONCE on the upload queue + source, never
    *  re-allocated per render. */
-  /** Sentinel — once we install the stable comparators on a queue,
-   *  skip re-installing on every render(). Doesn't prevent a fresh
-   *  source / queue swap (next render sees a different identity).
-   *  Without this, `priorityCallback = …` runs 80× per frame for free
-   *  but the `setFetchPriority` callback path also runs 80×. */
-  private _installedPriorityFns: PriorityQueue<string, void> | null = null
+  /** Sentinel — once the stable comparators are installed (fetch-side
+   *  `setFetchPriority` + the upload queue's priorityCallback), skip
+   *  re-installing on every render(). Set once, never reset (the source +
+   *  upload queue keep their identity for the renderer's lifetime). */
+  private _priorityInstalled = false
 
   private _distSqStable = (key: number): number => {
     const cached = this._distMemo.get(key)
@@ -779,48 +711,24 @@ export class VectorTileRenderer {
     return priority
   }
 
-  /** Per-frame dispatch counter. Phase C removed the count-based
-   *  upload budget on the assumption that mapAsync would prevent
-   *  JS-thread stalls. Bench (Bright at z=14 Tokyo, 2026-05-08):
-   *  pre-Phase-C 7 ms median, post 80-300 ms — even with maxJobs=1
-   *  the JS thread spends most of the frame in writeBuffer / staging
-   *  copy, because every job's completion microtask immediately
-   *  dispatches the next, and the queue drains hundreds of items in
-   *  ONE rAF callback. The per-frame cap below restores the bound
-   *  on `uploadTile` calls that actually start work this frame.
-   *  Overflow is held in `_heldUploads` and replayed at beginFrame. */
-  private _uploadsThisFrame = 0
   /** DIAGNOSTIC ONLY — count of fill draws emitted this frame, used by the
    *  `window.__xgisMaxTiles` per-frame draw cap in `recordTileFill`. Lets the
    *  perf A/B test "fewer DRAWS = faster?" by capping the actual GPU draw
    *  calls (the selection cap is defeated by fallback/ancestor back-fill, so
    *  it never reduced draw count). Reset each frame in `beginFrame`. */
   private _diagFillsThisFrame = 0
-  private _heldUploads: { key: number; data: TileData; sourceLayer: string }[] = []
-  private _heldUploadIds = new Set<string>()
-  /** Mirror of `_heldUploads`'s tile keys (sliceLayer-collapsed)
-   *  used by `classifyTile`'s `hasOtherSliceHeld` predicate to keep
-   *  every layer of a single tile on the same fallback level until
-   *  the slowest slice catches up. Without this set, the upload cap
-   *  staggers per-MVT-layer slice arrival across frames and the
-   *  renderer ends up with `primary` z=N landcover next to
-   *  `parent-fallback` z=N-1 transportation in the same screen
-   *  region — visually jarring. The set is rebuilt at
-   *  `resetUploadFrameCap` so any items the replay re-defers are
-   *  re-tracked, while peers that successfully upload drop out. */
-  private _heldUploadKeys = new Set<number>()
 
   /** The outer render-on-demand loop calls this to know whether it still
    *  needs to tick — if tiles are queued or actively uploading the
    *  scene hasn't actually converged yet, even though no user input
-   *  is flowing. */
+   *  is flowing. Thin forwarder to the upload coordinator. */
   hasPendingUploads(): boolean {
-    return this.uploadQueue.running
+    return this._uploads.hasPending()
   }
 
   /** Diagnostic: queue depth for inspectPipeline() snapshots. */
   getPendingUploadCount(): number {
-    return this.uploadQueue.size() + this.uploadQueue.activeCount()
+    return this._uploads.pendingCount()
   }
 
   /** Diagnostic — per-decision tile count from the last completed
@@ -835,7 +743,7 @@ export class VectorTileRenderer {
    *    drop-empty-slice    — sliced source: this layer empty here
    *    drop-no-archive     — tile not in archive index
    *    pending             — fetch issued, no fallback found yet
-   *    queued-no-fb (BUG)  — uploadTile queued, no fallback (49d4801)
+   *    queued-no-fb (BUG)  — uploadTile queued, no fallback
    */
   getLastDecisionCounts(): Record<string, number> {
     return this._drawStats.getLastDecisionCounts()
@@ -869,12 +777,12 @@ export class VectorTileRenderer {
     // If tiles were uploaded before LineRenderer was available they have no
     // segment buffers — force re-upload so outlines/lines render on next frame.
     if (wasNull && this._store.cacheCount() > 0) {
-      // P4 compute path — gpuCache is being cleared wholesale, so every
-      // per-tile ComputeLayerHandle is now orphaned. Free + clear them
-      // here (Cluster D, VTR-owned) BEFORE the store wipes its cache; the
-      // store's per-tile buffer-destroy loop goes through arenas, not
-      // _releaseTileSlots, so it never touches these compute handles — the
-      // two buffer sets are disjoint, so the relative order is moot.
+      // gpuCache is being cleared wholesale, so every per-tile
+      // ComputeLayerHandle is now orphaned. Free + clear them here
+      // (Cluster D) BEFORE the store wipes its cache; the store's per-tile
+      // buffer-destroy loop goes through arenas, not _releaseTileSlots, so
+      // it never touches these compute handles — the two buffer sets are
+      // disjoint, so the relative order is moot.
       this._featureBinder.releaseAllComputeHandles()
       // The store destroys every per-tile line/outline/feature buffer,
       // resets all three arenas (keep GPU buffers alive for next upload),
@@ -986,8 +894,8 @@ export class VectorTileRenderer {
     return this._store.cacheCount()
   }
 
-  /** iter-288 — FLICKER class diagnostic. Returns a per-frame
-   *  partition of where the visible-tile set stands:
+  /** FLICKER class diagnostic. Returns a per-frame partition of where
+   *  the visible-tile set stands:
    *
    *    needed         — last frame's `_frameTilesVisible` (visible
    *                     unique tile count emitted by the per-tile
@@ -1033,7 +941,7 @@ export class VectorTileRenderer {
       gpuUnique: this._store.cacheCount(),
       catalogCached: this.source?.getCacheSize?.() ?? 0,
       catalogLoading: this.source?.getPendingLoadCount?.() ?? 0,
-      uploadQueued: this.uploadQueue.size(),
+      uploadQueued: this._uploads.queueSize(),
       gpuCap: getMaxGpuTiles(),
     }
   }
@@ -1050,13 +958,11 @@ export class VectorTileRenderer {
     // drop every still-QUEUED upload (not yet dispatched) so no new
     // coroutine can start and capture the arena buffer after this
     // point. ACTIVE coroutines are handled by the pre-submit guard in
-    // doUploadTileAsync via the _destroyed flag.
-    this._destroyed = true
-    this.uploadQueue.removeByFilter(() => true)
-    this.uploadItemData.clear()
-    // P4 compute resources: per-tile ComputeLayerHandle instances
-    // own (feat / out / count) buffer trios. Free them before the
-    // legacy buffer loop so device memory is reclaimed in one pass.
+    // the coordinator's async dispatch via its _destroyed flag.
+    this._uploads.destroy()
+    // Compute resources: per-tile ComputeLayerHandle instances own
+    // (feat / out / count) buffer trios. Free them before the legacy
+    // buffer loop so device memory is reclaimed in one pass.
     this._featureBinder.releaseAllComputeHandles()
     // Cluster-A teardown: destroy every per-tile line/outline/feature
     // buffer, clear the cache + count, destroy all three arenas, and
@@ -1091,12 +997,11 @@ export class VectorTileRenderer {
     return this._drawStats.getDrawStats()
   }
 
-  /** iter-222 — BundleCache stats accessor. Returns lifetime
-   *  hit/miss counters across all (slice, phase, key-set, gen,
-   *  attachment) variants this VTR has cached. Map.ts aggregates
-   *  across all VT sources + bg renderer for the global stats.
-   *  iter-228 widens to also report LRU evictions so the global
-   *  panel can surface cap pressure. */
+  /** BundleCache stats accessor. Returns lifetime hit/miss/eviction
+   *  counters across all (slice, phase, key-set, gen, attachment) variants
+   *  this VTR has cached. Map.ts aggregates across all VT sources + bg
+   *  renderer for the global stats; evictions let the global panel surface
+   *  cap pressure. */
   getBundleStats(): { hits: number; misses: number; evictions: number } {
     const s = this.bundleCache.getStats()
     return { hits: s.hits, misses: s.misses, evictions: s.evictions }
@@ -1123,932 +1028,34 @@ export class VectorTileRenderer {
     }
   }
 
-  /** Route uploads through the priority queue. Every call enqueues an
-   *  async dispatch via `doUploadTileAsync`; the queue caps concurrent
-   *  uploads via `maxJobs` (set per-frame from `uploadBudgetFor`).
-   *  Same-key + same-layer dedup uses the queue's identity Map.
-   *
-   *  Mid-render fallback uploads still go directly to `doUploadTile`
-   *  (sync) — they need data on GPU before the next render command in
-   *  the same call. Queued uploads tolerate the mapAsync round-trip
-   *  because the visible-set's fallback ancestor covers the gap. */
+  /** Route uploads through the priority queue (background path). Thin
+   *  forwarder to the upload coordinator, which owns the queue + per-frame
+   *  cap + stale-cancel + the unified sync/async dispatch body. */
   private uploadTile(key: number, data: TileData, sourceLayer = ''): void {
-    if (this.getLayerCache(sourceLayer)?.has(key)) return
-    const id = `${key}:${sourceLayer}`
-    if (this.uploadQueue.has(id)) return
-    if (this._heldUploadIds.has(id)) return  // already deferred to next frame
-
-    // Per-frame SLICE-upload cap. Phase A/B/C made `uploadTile` per-
-    // SLICE not per-tile, so a single visible tile in an 80-layer
-    // style (Bright) generates ~80 uploadTile calls. Empirically
-    // (z=14 Tokyo, OpenFreeMap Bright):
-    //   cap=24 → pitch=0 182 ms / pitch=40 514 ms / pitch=80 1066 ms
-    //   cap=4  → pitch=0 190 ms / pitch=40 150 ms / pitch=80  339 ms
-    // Higher cap drains more this frame but each dispatched upload's
-    // sync portion (~5 ms staging copy + writeBuffer encode) blocks
-    // the JS thread, so the per-frame budget grows. cap=4 is the
-    // sweet spot: convergence is bounded but per-frame stall is
-    // tolerable. Mobile gets 1 (matches the prior `uploadBudgetFor`
-    // mobile floor for the same per-CPU-cost reasoning).
-    const cap = (typeof window !== 'undefined' && window.innerWidth <= 900) ? 1 : 4
-    if (this._uploadsThisFrame >= cap) {
-      this._heldUploads.push({ key, data, sourceLayer })
-      this._heldUploadIds.add(id)
-      this._heldUploadKeys.add(key)
-      return
-    }
-    this._uploadsThisFrame++
-
-    this.uploadItemData.set(id, { key, data, sourceLayer })
-    this.uploadQueue.add(id, async () => {
-      const item = this.uploadItemData.get(id)
-      this.uploadItemData.delete(id)
-      if (!item) return
-      await this.doUploadTileAsync(item.key, item.data, item.sourceLayer)
-    }).catch((err: unknown) => {
-      this.uploadItemData.delete(id)
-      // PriorityQueueItemRemovedError is the expected outcome when
-      // `cancelStaleUploads` drops a queued upload (camera has moved
-      // past the target tile). It's a normal flow signal, not an
-      // error — surface the others.
-      if (err instanceof PriorityQueueItemRemovedError) return
-      xlog.error('[upload queue]', err)
-    })
+    this._uploads.enqueue(key, data, sourceLayer)
   }
 
-  /** Release the per-frame upload slot counter and replay any tiles
-   *  held over from the previous frame. Called from beginFrame. */
-  private resetUploadFrameCap(): void {
-    this._uploadsThisFrame = 0
-    if (this._heldUploads.length === 0) return
-    // Replay up to the cap. Items beyond the cap remain held for the
-    // following frame.
-    const held = this._heldUploads
-    this._heldUploads = []
-    this._heldUploadIds.clear()
-    this._heldUploadKeys.clear()
-    for (const item of held) {
-      // Re-deferrals (cap exceeded again) repopulate _heldUploadKeys
-      // via the push branch above; successful uploads simply leave
-      // the key out of the rebuilt set.
-      this.uploadTile(item.key, item.data, item.sourceLayer)
-    }
-  }
-
-  /** Kick the upload queue. The queue auto-schedules via `queueMicrotask`
-   *  on every `add` and on every job completion, so this is mostly a
-   *  no-op in steady state — only useful as an explicit flush point if
-   *  the caller wants the queue to consider its current state right
-   *  now (e.g. immediately after a burst of `uploadTile` calls). */
-  private drainPendingUploads(): void {
-    this.uploadQueue.tryRunJobs()
-  }
-
-  /** Drop queued uploads for tiles the camera has moved past. Mirrors
-   *  the source-side `cancelStale` (which drops in-flight FETCHES) for
-   *  the renderer-side GPU upload queue. The two queues are unrelated:
-   *  cancelStale aborts network/decode work; this drops staging-buffer
-   *  writes whose target tile is no longer visible.
-   *
-   *  Bug class this fixes: under fast zoom + pan, every visible tile
-   *  along the way queued an `uploadTile` job. With ~80 layers per
-   *  style and several hundred frames of camera motion, the queue
-   *  accumulates hundreds of stale uploads that maxJobs=4-8 dispatches
-   *  per frame can't drain. Meanwhile each new visible tile gets a
-   *  fresh upload job queued BEHIND the stale ones — so the new
-   *  visible tile never reaches the GPU and classifyTile keeps
-   *  returning parent-fallback for it. Visual symptom: parent's
-   *  simplified low-zoom geometry painted as "stale fill" that
-   *  persists across pan / zoom long past when it should have been
-   *  replaced. (User-reported: Korea Positron, fast zoom + pan,
-   *  red fallback regions visible 8+ s after settle.)
-   *
-   *  `activeKeys` is the same set the source-side cancelStale uses —
-   *  union of visible / parent / fallback / toLoad keys. Items
-   *  outside this set are safe to drop; either they're for tiles the
-   *  camera has left behind (won't be drawn this frame) or they're
-   *  prefetch / pending entries we'll re-queue on the next render if
-   *  they become relevant again.
-   *
-   *  Also walks `_heldUploads` (cap-deferred queue) since stale items
-   *  could be sitting there too. */
-  cancelStaleUploads(activeKeys: ReadonlySet<number>): void {
-    const itemData = this.uploadItemData
-    // Filter the queue first — `removeByFilter` is O(N) and rejects the
-    // dropped items' promises with PriorityQueueItemRemovedError. The
-    // queue.add caller's `.catch` clause (see uploadTile) already
-    // handles that error class as a silent drop.
-    const staleIds: string[] = []
-    for (const [id, item] of itemData) {
-      if (!activeKeys.has(item.key)) staleIds.push(id)
-    }
-    if (staleIds.length === 0 && this._heldUploads.length === 0) return
-    if (staleIds.length > 0) {
-      const staleSet = new Set(staleIds)
-      this.uploadQueue.removeByFilter(id => staleSet.has(id))
-      for (const id of staleIds) {
-        const item = itemData.get(id)
-        // The dropped upload was the only thing that would have nulled
-        // these prebuilt SDF segment buffers (doUploadTile does it post-
-        // upload). The TileData stays in the catalog's dataCache, but
-        // `TileCatalog.sizeOfTileData` deliberately OMITS prebuilt
-        // segments (it assumes they're nulled after upload) — so a
-        // retained multi-MB segment buffer is uncounted by `_cachedBytes`
-        // and the byte-cap eviction under-fires. Null them here to keep
-        // the size-omission invariant true; buildLineSegments rebuilds
-        // them on a later re-upload exactly as the post-upload null relies on.
-        if (item) VectorTileRenderer._releasePrebuiltSegments(item.data)
-        itemData.delete(id)
-      }
-    }
-    // Compact _heldUploads in-place. _heldUploadIds + _heldUploadKeys
-    // are rebuilt from the survivors so the coherence guard in
-    // classifyTile (`hasOtherSliceHeld`) stays accurate.
-    if (this._heldUploads.length > 0) {
-      const kept: typeof this._heldUploads = []
-      this._heldUploadIds.clear()
-      this._heldUploadKeys.clear()
-      for (const item of this._heldUploads) {
-        if (activeKeys.has(item.key)) {
-          kept.push(item)
-          this._heldUploadIds.add(`${item.key}:${item.sourceLayer}`)
-          this._heldUploadKeys.add(item.key)
-        } else {
-          // Same uncounted-bytes leak as the queued-drop path above — a
-          // held item that gets dropped keeps its prebuilt segments
-          // forever otherwise. Null them so `sizeOfTileData`'s omission
-          // stays accurate.
-          VectorTileRenderer._releasePrebuiltSegments(item.data)
-        }
-      }
-      this._heldUploads = kept
-    }
-  }
-
-  /** Null a TileData's prebuilt SDF segment buffers. Used by
-   *  `cancelStaleUploads` when it drops a queued / held upload whose
-   *  TileData stays in the catalog: the buffers are rebuilt on demand by
-   *  `buildLineSegments` at the next upload, and `TileCatalog.sizeOfTileData`
-   *  assumes they're absent for cached tiles, so leaving them set would
-   *  under-count `_cachedBytes` and stall byte-cap eviction. */
-  private static _releasePrebuiltSegments(data: TileData): void {
-    data.prebuiltLineSegments = undefined
-    data.prebuiltOutlineSegments = undefined
-  }
-
-  /** Lane B — atomic polygon vertex+index arena alloc. Allocates the
-   *  vertex slot first, then the index slot; if the index alloc throws
-   *  (arena OOM) the already-claimed vertex slot is freed so a failed
-   *  pair NEVER leaks. Returns null on any failure (caller runs forced
-   *  eviction + retry, then warn-and-skip). Shared by BOTH the sync
-   *  `doUploadTile` and async `doUploadTileAsync` paths so the two routes
-   *  cannot diverge in OOM handling (the async path is the primary tile-
-   *  streaming route — the crash repro goes through it). */
-  private _allocPolyPair(
-    vArena: GPUArena, iArena: GPUArena, vBytes: number, iBytes: number,
-  ): { v: number; i: number } | null {
-    let v: number | null = null
-    try {
-      v = vArena.alloc(vBytes)
-      const i = iArena.alloc(iBytes)
-      return { v, i }
-    } catch {
-      if (v !== null) vArena.free(v, vBytes)  // no partial leak
-      return null
-    }
-  }
-
+  /** Mid-render fallback upload (sync). Thin forwarder — the coordinator's
+   *  sync dispatch reaches no await, so the data is GPU-resident before this
+   *  returns and the immediately-following render command sees the tile. */
   private doUploadTile(key: number, data: TileData, sourceLayer = ''): void {
-    const layerCache = this.getOrCreateLayerCache(sourceLayer)
-    if (layerCache.has(key)) return // already uploaded
-
-    // Lane B backstop — doUploadTile must NEVER throw out of render().
-    // Beyond the inner allocPair guard (polygon vertex/index), the
-    // line / outline acquireBuffer + lineRenderer.uploadSegmentBuffer
-    // paths can also throw under GPU memory exhaustion. The outer
-    // try/catch degrades ANY such throw to skip-this-tile (warn-once,
-    // un-cached → retried next frame). Orphan-leak guard (option b):
-    // if the throw lands AFTER the polygon vertex/index alloc but
-    // BEFORE layerCache.set, those slots would never be recorded →
-    // never freed. We track both offsets + their byte lengths in
-    // let-vars (offset −1 = unset) and free any assigned slot in the
-    // catch via the store arenas (`_store.polyVertexArenaOrNull()` /
-    // `polyIndexArenaOrNull()` — created once an offset is assigned).
-    let polyVertexOffset = -1
-    let polyIndexOffset = -1
-    let polyVertexFreeBytes = 0
-    let polyIndexFreeBytes = 0
-    // Hoisted OUTSIDE the try (mirror of doUploadTileAsync) so the catch
-    // backstop can free buffers acquired before a pre-cache throw — else
-    // those line/index + segment buffers leak VRAM.
-    let lineVertexBuffer: GPUBuffer | null = null
-    let lineIndexBuffer: GPUBuffer | null = null
-    let outlineIndexBuffer: GPUBuffer | null = null
-    let outlineSegmentBuffer: GPUBuffer | null = null
-    let lineSegmentBuffer: GPUBuffer | null = null
-    try {
-    // Label every per-tile buffer so writeBuffer attribution in the
-    // diagnostic suite can separate tile-upload churn from per-frame
-    // uniform writes. Cost is zero — label is a GPU debug string.
-    //
-    // Polygon vertex pipeline (Phase 2 PR 2c.2 — ECEF-DSFUN):
-    //   * Flat slices: `data.vertices` is the tiler's stride-9 ECEF-DSFUN
-    //     buffer (`[ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon,
-    //     abs_lat]` per vertex, 36 bytes). Uploaded directly — no runtime
-    //     re-quantization. Indices come straight from `data.indices`.
-    //   * Extruded slices: `generateWallMeshExtrudedECEF` emits an
-    //     interleaved stride-14 ECEF-DSFUN buffer (walls + roof, 56
-    //     bytes / vertex; layout in `polygon-mesh.ts`'s ECEF block).
-    //     `data.vertices` / `data.indices` are NOT consumed in this
-    //     branch — the wall-mesh generator owns the full extruded
-    //     geometry. Per-vertex height + face_normal + is_top live IN
-    //     the unified buffer, so no parallel z buffer.
-    // Slices that carried per-feature `render_height` / `height` from
-    // the MVT decode path route through the extruded generator; slices
-    // without heights stay on the flat-fill ECEF stride-9 layout. The
-    // previous heuristic (`sourceLayer === 'buildings'`) is replaced —
-    // slices route entirely off the data they carry, and per-layer
-    // control lives in the style language now.
-    const useFeatureHeights = data.heights !== undefined && data.heights.size > 0
-    let polyVerts: ArrayBuffer
-    let polyIndices: Uint32Array
-    // PR 2f per-tile quantized-position dequant params (flat: from `data`;
-    // extruded: from the runtime wall-mesh). Written into the per-tile uniform.
-    let dequantScale: number
-    let dequantHalf: number
-    if (useFeatureHeights && data.polygons) {
-      // ECEF tile-corner anchor — must match the compiler tiler's
-      // `tileEcefCenter` (`packECEFPolygonVertices`'s RTC origin) so
-      // the unified extruded buffer stays in the same DSFUN frame as
-      // the surrounding flat-fill tiles. WGS84 ellipsoidal math
-      // (cross-package import from runtime/projection forbidden in
-      // the worker thread; mirrors `tileEcefCenterFromMerc`).
-      const A_ = 6378137
-      const F_ = 1 / 298.257223563
-      const E2_ = F_ * (2 - F_)
-      const DEG2RAD = Math.PI / 180
-      const clampLat = Math.max(-85.051129, Math.min(85.051129, data.tileSouth))
-      const tileMx = data.tileWest * DEG2RAD * A_
-      const tileMy = Math.log(Math.tan(Math.PI / 4 + clampLat * DEG2RAD / 2)) * A_
-      const tileLonRad = tileMx / A_
-      const tileLatRad = 2 * Math.atan(Math.exp(tileMy / A_)) - Math.PI / 2
-      const sinLat = Math.sin(tileLatRad)
-      const cosLat = Math.cos(tileLatRad)
-      const N = A_ / Math.sqrt(1 - E2_ * sinLat * sinLat)
-      const tileEcefCenter: readonly [number, number, number] = [
-        N * cosLat * Math.cos(tileLonRad),
-        N * cosLat * Math.sin(tileLonRad),
-        N * (1 - E2_) * sinLat,
-      ]
-      const mesh = generateWallMeshExtrudedECEF(
-        data.polygons, data.heights!, data.bases,
-        tileMx, tileMy, tileEcefCenter,
-      )
-      polyVerts = mesh.vertices.buffer.slice(
-        mesh.vertices.byteOffset,
-        mesh.vertices.byteOffset + mesh.vertices.byteLength,
-      ) as ArrayBuffer
-      polyIndices = mesh.indices
-      // PR 2f: extruded dequant params computed post-lift by the wall-mesh.
-      dequantScale = mesh.dequantScale
-      dequantHalf = mesh.dequantHalf
-    } else {
-      // Flat slice: tiler already emitted the quantized ECEF layout
-      // (stride 28 bytes, #398) — pass through unchanged. `data.vertices` is a
-      // typed-array view; `slice` copies into a fresh ArrayBuffer the arena
-      // can accept. The companion per-tile dequant params travel on `data`.
-      polyVerts = data.vertices.buffer.slice(
-        data.vertices.byteOffset,
-        data.vertices.byteOffset + data.vertices.byteLength,
-      ) as ArrayBuffer
-      polyIndices = data.indices
-      dequantScale = data.dequantScale
-      dequantHalf = data.dequantHalf
-    }
-    // Phase 6a.2 (iter-208) — polygon vertex now allocates from the
-    // shared arena. The arena's underlying GPUBuffer is set as
-    // `cached.vertexBuffer`; per-tile `polyVertexOffset` +
-    // `polyVertexByteLength` carry the sub-range. Mirrors stayed
-    // for the async path below + the eviction `arena.free` call.
-    const polyVertexArena = this.getOrCreatePolyVertexArena()
-    // Phase 6a.3 (iter-209) — polygon index from shared arena.
-    const polyIndexArena = this.getOrCreatePolyIndexArena()
-    const polyVertexByteLength = Math.max(polyVerts.byteLength, 12)
-    const polyIndexByteLength = Math.max(polyIndices.byteLength, 4)
-
-    // Lane B — alloc-fail safety net. Without this, the arena overflow
-    // throw propagates out of doUploadTile → out of render() → kills the
-    // frame every frame. _allocPolyPair allocs vertex then index; on an
-    // index-fail it frees the already-claimed vertex slot so a failed
-    // pair never leaks. On the first failure we run a forced, count-
-    // bypassing byte-eviction (drops LRU UNPROTECTED tiles — stableKeys
-    // stay resident so the visible frame survives) on BOTH arenas, then
-    // retry ONCE. If the retry still fails the tile is left un-cached
-    // (returns before layerCache.set), so the next frame's classifyTile
-    // re-decides upload — the desired retry-later behaviour. Non-OOM
-    // path is unchanged: _allocPolyPair succeeds first try, same offsets +
-    // writeBuffer order as before. Shared with doUploadTileAsync so both
-    // upload routes have identical OOM behaviour.
-    let pair = this._allocPolyPair(polyVertexArena, polyIndexArena, polyVertexByteLength, polyIndexByteLength)
-    if (pair === null) {
-      perfMarkStart('vtr.evict')
-      this._store.forceEvictBytes(polyVertexArena, polyVertexByteLength, this.stableKeys, this._releaseTileHook)
-      this._store.forceEvictBytes(polyIndexArena, polyIndexByteLength, this.stableKeys, this._releaseTileHook)
-      perfMarkEnd('vtr.evict')
-      pair = this._allocPolyPair(polyVertexArena, polyIndexArena, polyVertexByteLength, polyIndexByteLength)
-    }
-    if (pair === null) {
-      const wKey = `arena-oom:${sourceLayer}:${key}`
-      if (!this._drawStats.hasWarned(wKey)) {
-        this._drawStats.markWarned(wKey)
-        xlog.warn(`[VTR arena-oom] poly arena out of capacity uploading tile ${key} (${sourceLayer || 'base'}); skipping this frame, will retry. vBytes=${polyVertexByteLength} iBytes=${polyIndexByteLength}`)
-      }
-      return
-    }
-    polyVertexOffset = pair.v
-    polyIndexOffset = pair.i
-    polyVertexFreeBytes = polyVertexByteLength
-    polyIndexFreeBytes = polyIndexByteLength
-    const vertexBuffer = polyVertexArena.buffer
-    const indexBuffer = polyIndexArena.buffer
-    this.device.queue.writeBuffer(vertexBuffer, polyVertexOffset, polyVerts)
-    this.device.queue.writeBuffer(indexBuffer, polyIndexOffset, polyIndices)
-
-    // Phase 2 PR 2c.2 — the parallel z attribute is retired. Per-vertex
-    // height + face_normal + is_top now live inside the unified
-    // stride-14 vertex buffer emitted by `generateWallMeshExtrudedECEF`.
-    // The cache schema keeps `zBuffer`-shaped fields populated with
-    // sentinel values so downstream layer-routing logic compiles; the
-    // extruded vertex layout no longer binds a second buffer.
-    const zBuffer: GPUBuffer | null = null
-    const zBufferOffset = 0
-    const zBufferByteLength = 0
-
-    if (data.lineVertices.length > 0) {
-      lineVertexBuffer = this.acquireBuffer(
-        data.lineVertices.byteLength,
-        GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-        'tile-line-vertices',
-      )
-      this.device.queue.writeBuffer(lineVertexBuffer, 0, data.lineVertices)
-
-      lineIndexBuffer = this.acquireBuffer(
-        data.lineIndices.byteLength,
-        GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-        'tile-line-indices',
-      )
-      this.device.queue.writeBuffer(lineIndexBuffer, 0, data.lineIndices)
-    }
-
-    // Outline indices (polygon edges, reuses polygon vertex buffer)
-    let outlineIndexCount = 0
-    if (data.outlineIndices && data.outlineIndices.length > 0) {
-      outlineIndexBuffer = this.acquireBuffer(
-        Math.max(data.outlineIndices.byteLength, 4),
-        GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-        'tile-outline-indices',
-      )
-      this.device.queue.writeBuffer(outlineIndexBuffer, 0, data.outlineIndices)
-      outlineIndexCount = data.outlineIndices.length
-    }
-
-    // SDF line segment buffers (for polygon outlines + line features).
-    // buildLineSegments now reads DSFUN-stride vertex buffers and needs the
-    // tile extent in Mercator meters so its tile-boundary detection keeps
-    // seamless joins across tile edges.
-    let outlineSegmentCount = 0
-    let outlineSegmentBindGroup: GPUBindGroup | null = null
-    let lineSegmentCount = 0
-    let lineSegmentBindGroup: GPUBindGroup | null = null
-    if (this.lineRenderer) {
-      const SEG_DEG2RAD = Math.PI / 180
-      const SEG_R = 6378137
-      const SEG_LAT_LIMIT = 85.051129
-      const clampSegLat = (v: number) => Math.max(-SEG_LAT_LIMIT, Math.min(SEG_LAT_LIMIT, v))
-      const tileMercXWest = data.tileWest * SEG_DEG2RAD * SEG_R
-      const tileMercXEast = (data.tileWest + data.tileWidth) * SEG_DEG2RAD * SEG_R
-      const tileMercYSouth = Math.log(Math.tan(Math.PI / 4 + clampSegLat(data.tileSouth) * SEG_DEG2RAD / 2)) * SEG_R
-      const tileMercYNorth = Math.log(Math.tan(Math.PI / 4 + clampSegLat(data.tileSouth + data.tileHeight) * SEG_DEG2RAD / 2)) * SEG_R
-      const tileWidthMerc = tileMercXEast - tileMercXWest
-      const tileHeightMerc = tileMercYNorth - tileMercYSouth
-      // Polygon outlines: every tile source now ships stride-10 outline
-      // vertices with global arc_start (GeoJSON tiler, binary .xgvt
-      // decoder, and runtime sub-tile generator all use the same
-      // augmentRingWithArc + clipLineToRect helpers). Line features go
-      // through the same SDF pipeline. The legacy stride-5 outline-
-      // indices-into-fill-vertices path is gone.
-      if (data.outlineVertices && data.outlineVertices.length > 0
-          && data.outlineLineIndices && data.outlineLineIndices.length > 0) {
-        // PMTiles MVT worker pre-builds segments off-thread; reuse if
-        // present, else build now on the main thread (XGVT-binary path).
-        // Main-thread fallback: pass heights + EXTRUDE_FALLBACK_HEIGHT_M
-        // so this code path matches the worker pre-build (mvt-worker /
-        // pmtiles-backend). Otherwise outlines for tiles built here
-        // would drop to z=0 even on extruded layers and get occluded
-        // by their own walls — same symptom the worker-side fix
-        // (heights ?? defaultHeight) addresses.
-        const segData = data.prebuiltOutlineSegments
-          ?? buildLineSegments(
-            data.outlineVertices, data.outlineLineIndices, 10,
-            tileWidthMerc, tileHeightMerc,
-            data.heights && data.heights.size > 0 ? data.heights : undefined,
-            undefined, undefined,
-            0,
-          )
-        outlineSegmentBuffer = this.lineRenderer.uploadSegmentBuffer(segData)
-        outlineSegmentCount = data.outlineLineIndices.length / 2
-        outlineSegmentBindGroup = this.lineRenderer.createLayerBindGroup(outlineSegmentBuffer)
-      }
-      if (data.lineIndices.length > 0 && data.lineVertices.length > 0) {
-        let segData: Float32Array
-        if (data.prebuiltLineSegments) {
-          segData = data.prebuiltLineSegments
-        } else {
-          // Line features: detect stride from vertex data length / vertex count.
-          // Stride 10 includes precomputed tangent_in/out for cross-tile joins;
-          // stride 6 is the legacy format without tangents.
-          let lineStride: 6 | 10 = 6
-          if (data.lineIndices.length > 0) {
-            let maxIdx = 0
-            for (let li = 0; li < data.lineIndices.length; li++) {
-              if (data.lineIndices[li] > maxIdx) maxIdx = data.lineIndices[li]
-            }
-            const vertCount = maxIdx + 1
-            if (vertCount > 0 && data.lineVertices.length / vertCount >= 10) lineStride = 10
-          }
-          segData = buildLineSegments(
-            data.lineVertices, data.lineIndices, lineStride,
-            tileWidthMerc, tileHeightMerc,
-            data.heights && data.heights.size > 0 ? data.heights : undefined,
-            undefined, undefined,
-            0,
-          )
-        }
-        lineSegmentBuffer = this.lineRenderer.uploadSegmentBuffer(segData)
-        lineSegmentCount = data.lineIndices.length / 2
-        lineSegmentBindGroup = this.lineRenderer.createLayerBindGroup(lineSegmentBuffer)
-      }
-    }
-
-    // Per-tile feat_data buffer for MVT/PMTiles data-driven paint.
-    // Builds only when a variant requiring per-feature data has bound
-    // to this renderer (latestVariantFields captured) AND the worker
-    // emitted featureProps for this slice. GeoJSON path skips (uses
-    // source-level featureDataBuffer instead).
-    // Compute-handle keying matches the legacy `${key}:${sourceLayer}`
-    // identity already used by the upload queue + held set, so the
-    // handle's lifetime tracks the tile's bind-group lifetime.
-    const perTileFeat = this._featureBinder.buildPerTileFeatureData(
-      data.featureProps, this.uniformRing?.buffer, this._bindGroups.paletteResources(), `${key}:${sourceLayer}`)
-
-    layerCache.set(key, {
-      vertexBuffer, polyVertexOffset, polyVertexByteLength, indexBuffer,
-      polyIndexOffset, polyIndexByteLength,
-      indexCount: polyIndices.length,
-      zBuffer, zBufferOffset, zBufferByteLength, extruded: useFeatureHeights && !!data.polygons,
-      lineVertexBuffer, lineIndexBuffer,
-      lineIndexCount: data.lineIndices.length,
-      outlineIndexBuffer, outlineIndexCount,
-      outlineSegmentBuffer, outlineSegmentCount, outlineSegmentBindGroup,
-      lineSegmentBuffer, lineSegmentCount, lineSegmentBindGroup,
-      tileWest: data.tileWest, tileSouth: data.tileSouth,
-      tileWidth: data.tileWidth, tileHeight: data.tileHeight,
-      tileZoom: data.tileZoom,
-      dequantScale, dequantHalf,
-      lastUsedFrame: this.frameCount,
-      uploadTimeMs: performance.now(),
-      featureDataBuffer: perTileFeat?.buffer ?? null,
-      featureBindGroup: perTileFeat?.bindGroup ?? null,
-      // iter-226 — strictly-monotonic per-tile upload counter for
-      // RenderBundle cache key composition (see _tileUploadEpoch).
-      uploadEpoch: this._store.nextUploadEpoch(),
-    })
-    this._store.incrementCount()
-
-    // Drop main-thread copies of GPU-resident SDF segment buffers.
-    // These are 45 % of catalog memory on a fully-warm world-scale
-    // cache (measured at 180 MB / 401 MB total in
-    // _pmtiles-stress-leak.spec.ts). They were retained only as a
-    // worker-decoded handoff to the upload step; the GPU buffers
-    // are now the source of truth. If the GPU side gets evicted
-    // and a re-upload is needed later, buildLineSegments
-    // (main thread, ~few ms per tile) regenerates them on demand —
-    // a vastly better trade than the steady-state heap cost.
-    data.prebuiltLineSegments = undefined
-    data.prebuiltOutlineSegments = undefined
-
-    // Drop the raw polygon rings too — these are RingPolygon[] (plain
-    // JS nested arrays) retained only for sub-tile generation when
-    // visible zoom exceeds archive maxLevel. At sub-archive zooms (the
-    // common case: PMTiles maxLevel = 15, user is at z=8-14) sub-tile
-    // gen never fires, so the rings are pure overhead — and they're
-    // big: real-device iPhone inspector at Tokyo z=9.1 showed 4 tiles
-    // × ~73 MB total, with rings the dominant share. The over-zoom
-    // path (catalog.generateSubTile) already has a fallback for
-    // missing polygons via outlineIndices (legacy dash-phase reset
-    // recurs there but visible content stays correct), so drop is
-    // safe — just at the cost of slightly worse over-zoom dash
-    // continuity at z > maxLevel, a corner of the camera space the
-    // app rarely sits in.
-    data.polygons = undefined
-    } catch (e) {
-      // Backstop: a throw from line / outline acquireBuffer,
-      // uploadSegmentBuffer, or any other GPU-memory-exhaustion path
-      // reaching here means layerCache.set did not run, so the polygon
-      // vertex/index slots claimed by allocPair are orphaned. Free any
-      // assigned offset (option b) before degrading to skip-this-tile.
-      const vArena = this._store.polyVertexArenaOrNull()
-      const iArena = this._store.polyIndexArenaOrNull()
-      if (polyVertexOffset >= 0 && vArena !== null) {
-        vArena.free(polyVertexOffset, polyVertexFreeBytes)
-      }
-      if (polyIndexOffset >= 0 && iArena !== null) {
-        iArena.free(polyIndexOffset, polyIndexFreeBytes)
-      }
-      // Line/outline/segment buffers acquired before the throw were never
-      // cached either — free them too (mirror of async cleanupLineBuffers;
-      // no double-free: the happy path exits the try without this catch).
-      this.releaseBuffer(lineVertexBuffer)
-      this.releaseBuffer(lineIndexBuffer)
-      this.releaseBuffer(outlineIndexBuffer)
-      outlineSegmentBuffer?.destroy()
-      lineSegmentBuffer?.destroy()
-      const wKey = `upload-throw:${sourceLayer}:${key}`
-      if (!this._drawStats.hasWarned(wKey)) {
-        this._drawStats.markWarned(wKey)
-        xlog.warn(`[VTR upload] doUploadTile threw for tile ${key} (${sourceLayer || 'base'}); skipping. ${(e as Error)?.message ?? e}`)
-      }
-    }
+    this._uploads.uploadSync(key, data, sourceLayer)
   }
 
-  /** Async variant of `doUploadTile`. Routes the 5-7 GPU buffer writes
-   *  through the staging pool's `mapAsync` path, so the JS thread
-   *  yields between mapAsync round-trips and concurrent uploads can
-   *  overlap CPU work on subsequent tiles. Used by `drainPendingUploads`
-   *  for the queued (background) upload path. The sync `doUploadTile`
-   *  above stays put for mid-render fallback uploads where data must
-   *  be on GPU before the next render command in the same call.
-   *
-   *  Body mirrors `doUploadTile` line-for-line apart from:
-   *    - one command encoder per tile
-   *    - writeBuffer → asyncWriteBuffer (pooled mapAsync)
-   *    - lineRenderer.uploadSegmentBuffer → uploadSegmentBufferAsync
-   *    - submit + bulk-release at the end
-   *  Code dup is acceptable: the alternative (parameterising over a
-   *  writer callable) breaks the mid-render path because `await`
-   *  defers to a microtask even for resolved promises, and the
-   *  fallback ancestor uploads need to land before the calling
-   *  renderTileKeys reads `layerCache`. */
-  private async doUploadTileAsync(key: number, data: TileData, sourceLayer = ''): Promise<void> {
-    const layerCache = this.getOrCreateLayerCache(sourceLayer)
-    if (layerCache.has(key)) return
+  /** Release the per-frame upload cap + replay held tiles. Thin forwarder. */
+  private resetUploadFrameCap(): void {
+    this._uploads.resetFrameCap()
+  }
 
-    // Phase 2 PR 2c.2 — ECEF-DSFUN upload (mirror of `doUploadTile`'s sync
-    // path; see that function's comment block for the per-stride layout
-    // contract). Flat slices pass `data.vertices` through unchanged;
-    // extruded slices route through `generateWallMeshExtrudedECEF` for the
-    // unified walls + roof stride-14 buffer.
-    const useFeatureHeights = data.heights !== undefined && data.heights.size > 0
-    let polyVerts: ArrayBuffer
-    let polyIndices: Uint32Array
-    // PR 2f per-tile quantized-position dequant params (see sync path).
-    let dequantScale: number
-    let dequantHalf: number
-    if (useFeatureHeights && data.polygons) {
-      const A_ = 6378137
-      const F_ = 1 / 298.257223563
-      const E2_ = F_ * (2 - F_)
-      const DEG2RAD = Math.PI / 180
-      const clampLat = Math.max(-85.051129, Math.min(85.051129, data.tileSouth))
-      const tileMx = data.tileWest * DEG2RAD * A_
-      const tileMy = Math.log(Math.tan(Math.PI / 4 + clampLat * DEG2RAD / 2)) * A_
-      const tileLonRad = tileMx / A_
-      const tileLatRad = 2 * Math.atan(Math.exp(tileMy / A_)) - Math.PI / 2
-      const sinLat = Math.sin(tileLatRad)
-      const cosLat = Math.cos(tileLatRad)
-      const N = A_ / Math.sqrt(1 - E2_ * sinLat * sinLat)
-      const tileEcefCenter: readonly [number, number, number] = [
-        N * cosLat * Math.cos(tileLonRad),
-        N * cosLat * Math.sin(tileLonRad),
-        N * (1 - E2_) * sinLat,
-      ]
-      const mesh = generateWallMeshExtrudedECEF(
-        data.polygons, data.heights!, data.bases,
-        tileMx, tileMy, tileEcefCenter,
-      )
-      polyVerts = mesh.vertices.buffer.slice(
-        mesh.vertices.byteOffset,
-        mesh.vertices.byteOffset + mesh.vertices.byteLength,
-      ) as ArrayBuffer
-      polyIndices = mesh.indices
-      dequantScale = mesh.dequantScale
-      dequantHalf = mesh.dequantHalf
-    } else {
-      polyVerts = data.vertices.buffer.slice(
-        data.vertices.byteOffset,
-        data.vertices.byteOffset + data.vertices.byteLength,
-      ) as ArrayBuffer
-      polyIndices = data.indices
-      dequantScale = data.dequantScale
-      dequantHalf = data.dequantHalf
-    }
+  /** Kick the upload queue (explicit flush point). Thin forwarder. */
+  private drainPendingUploads(): void {
+    this._uploads.drain()
+  }
 
-    // One command encoder per tile — all the copyBufferToBuffer ops
-    // below batch into a single submit at the end, minimising queue
-    // submission overhead.
-    const encoder = this.device.createCommandEncoder({ label: `tile-upload-${key}` })
-    const releases: Array<() => void> = []
-
-    // Phase 6a.2 (iter-208) — async upload mirror of sync path. Both
-    // paths allocate from the same polyVertexArena so eviction
-    // behaviour matches regardless of upload route.
-    const polyVertexArena = this.getOrCreatePolyVertexArena()
-    const polyVertexByteLength = Math.max(polyVerts.byteLength, 12)
-    // Phase 6a.3 — async index also from arena.
-    const polyIndexArena = this.getOrCreatePolyIndexArena()
-    const polyIndexByteLength = Math.max(polyIndices.byteLength, 4)
-
-    // Lane B — alloc-fail safety net, mirroring the sync path EXACTLY so
-    // the primary (async) tile-streaming route can never crash the loop.
-    // _allocPolyPair claims vertex then index, freeing the vertex slot if
-    // the index alloc throws (no partial leak). On first failure run a
-    // forced count-bypassing byte-eviction on BOTH arenas, then retry once;
-    // on persistent failure leave the tile un-cached (warn-once) so the
-    // next frame's classifyTile re-decides upload.
-    let pair = this._allocPolyPair(polyVertexArena, polyIndexArena, polyVertexByteLength, polyIndexByteLength)
-    if (pair === null) {
-      perfMarkStart('vtr.evict')
-      this._store.forceEvictBytes(polyVertexArena, polyVertexByteLength, this.stableKeys, this._releaseTileHook)
-      this._store.forceEvictBytes(polyIndexArena, polyIndexByteLength, this.stableKeys, this._releaseTileHook)
-      perfMarkEnd('vtr.evict')
-      pair = this._allocPolyPair(polyVertexArena, polyIndexArena, polyVertexByteLength, polyIndexByteLength)
-    }
-    if (pair === null) {
-      const wKey = `arena-oom:${sourceLayer}:${key}`
-      if (!this._drawStats.hasWarned(wKey)) {
-        this._drawStats.markWarned(wKey)
-        xlog.warn(`[VTR arena-oom] poly arena out of capacity uploading tile ${key} (${sourceLayer || 'base'}); skipping this frame, will retry. vBytes=${polyVertexByteLength} iBytes=${polyIndexByteLength}`)
-      }
-      return
-    }
-    const polyVertexOffset = pair.v
-    const polyIndexOffset = pair.i
-    const vertexBuffer = polyVertexArena.buffer
-    const indexBuffer = polyIndexArena.buffer
-    // Track whether the just-claimed poly slots have been handed off to
-    // layerCache yet. Until handoff, ANY early-return (race guard) or throw
-    // (acquireBuffer / uploadSegmentBufferAsync / encoder.finish / submit)
-    // must free them, else they leak permanently — pinning liveBytes > 0
-    // and blocking reclaimIfDrained forever. The outer try/catch backstop
-    // below frees on throw; the race-guard frees on early-return.
-    let polySlotsCached = false
-
-    // Declared OUTSIDE the try so the catch backstop below can reach them.
-    // A throw mid-acquire (e.g. the 2nd acquireBuffer / uploadSegmentBufferAsync)
-    // can leave some of these populated; the catch must free them too.
-    let lineVertexBuffer: GPUBuffer | null = null
-    let lineIndexBuffer: GPUBuffer | null = null
-    let outlineIndexBuffer: GPUBuffer | null = null
-    let outlineSegmentBuffer: GPUBuffer | null = null
-    let lineSegmentBuffer: GPUBuffer | null = null
-    // Bail-site cleanup: the three early-returns below (UAF/compaction guard,
-    // same-key race guard, catch backstop) all return BEFORE layerCache.set,
-    // so the line/outline buffers acquired above + the segment buffers built
-    // below are never recorded in the cache entry and _releaseTileSlots can
-    // never reach them — they leak VRAM. Each bail site calls this first to
-    // return the pooled index/vertex buffers + destroy the lineRenderer-owned
-    // segment buffers. Same order/guards as _releaseTileSlots; all null for
-    // synthetic sources (no lineRenderer / empty line data).
-    const cleanupLineBuffers = () => {
-      this.releaseBuffer(lineVertexBuffer)
-      this.releaseBuffer(lineIndexBuffer)
-      this.releaseBuffer(outlineIndexBuffer)
-      outlineSegmentBuffer?.destroy()
-      lineSegmentBuffer?.destroy()
-    }
-
-    try {
-
-    // Kick off the staging-buffer mapAsync for vertex + index in
-    // parallel, then await both. mapAsync round-trips overlap, so
-    // the wall-clock cost is one round-trip (not N).
-    const writeHandles: Array<Promise<{ release: () => void }>> = []
-    writeHandles.push(asyncWriteBuffer(this.stagingPool, encoder, vertexBuffer, polyVertexOffset, polyVerts))
-    writeHandles.push(asyncWriteBuffer(this.stagingPool, encoder, indexBuffer, polyIndexOffset, polyIndices))
-
-    // Phase 2 PR 2c.2 — parallel z attribute retired (see sync path
-    // comment). Cache schema keeps sentinel values populated.
-    const zBuffer: GPUBuffer | null = null
-    const zBufferOffset = 0
-    const zBufferByteLength = 0
-
-    if (data.lineVertices.length > 0) {
-      lineVertexBuffer = this.acquireBuffer(
-        data.lineVertices.byteLength,
-        GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-        'tile-line-vertices',
-      )
-      writeHandles.push(asyncWriteBuffer(this.stagingPool, encoder, lineVertexBuffer, 0, data.lineVertices))
-
-      lineIndexBuffer = this.acquireBuffer(
-        data.lineIndices.byteLength,
-        GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-        'tile-line-indices',
-      )
-      writeHandles.push(asyncWriteBuffer(this.stagingPool, encoder, lineIndexBuffer, 0, data.lineIndices))
-    }
-
-    let outlineIndexCount = 0
-    if (data.outlineIndices && data.outlineIndices.length > 0) {
-      outlineIndexBuffer = this.acquireBuffer(
-        Math.max(data.outlineIndices.byteLength, 4),
-        GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-        'tile-outline-indices',
-      )
-      writeHandles.push(asyncWriteBuffer(this.stagingPool, encoder, outlineIndexBuffer, 0, data.outlineIndices))
-      outlineIndexCount = data.outlineIndices.length
-    }
-
-    // SDF line segment buffers — same logic as sync path but routed
-    // through `uploadSegmentBufferAsync` so the segment-buffer write
-    // shares this tile's staging pool + encoder.
-    let outlineSegmentCount = 0
-    let outlineSegmentBindGroup: GPUBindGroup | null = null
-    let lineSegmentCount = 0
-    let lineSegmentBindGroup: GPUBindGroup | null = null
-    if (this.lineRenderer) {
-      const SEG_DEG2RAD = Math.PI / 180
-      const SEG_R = 6378137
-      const SEG_LAT_LIMIT = 85.051129
-      const clampSegLat = (v: number) => Math.max(-SEG_LAT_LIMIT, Math.min(SEG_LAT_LIMIT, v))
-      const tileMercXWest = data.tileWest * SEG_DEG2RAD * SEG_R
-      const tileMercXEast = (data.tileWest + data.tileWidth) * SEG_DEG2RAD * SEG_R
-      const tileMercYSouth = Math.log(Math.tan(Math.PI / 4 + clampSegLat(data.tileSouth) * SEG_DEG2RAD / 2)) * SEG_R
-      const tileMercYNorth = Math.log(Math.tan(Math.PI / 4 + clampSegLat(data.tileSouth + data.tileHeight) * SEG_DEG2RAD / 2)) * SEG_R
-      const tileWidthMerc = tileMercXEast - tileMercXWest
-      const tileHeightMerc = tileMercYNorth - tileMercYSouth
-      if (data.outlineVertices && data.outlineVertices.length > 0
-          && data.outlineLineIndices && data.outlineLineIndices.length > 0) {
-        const segData = data.prebuiltOutlineSegments
-          ?? buildLineSegments(
-            data.outlineVertices, data.outlineLineIndices, 10,
-            tileWidthMerc, tileHeightMerc,
-            data.heights && data.heights.size > 0 ? data.heights : undefined,
-            undefined, undefined,
-            0,
-          )
-        const seg = await this.lineRenderer.uploadSegmentBufferAsync(segData, encoder, this.stagingPool)
-        outlineSegmentBuffer = seg.buffer
-        releases.push(seg.release)
-        outlineSegmentCount = data.outlineLineIndices.length / 2
-        outlineSegmentBindGroup = this.lineRenderer.createLayerBindGroup(outlineSegmentBuffer)
-      }
-      if (data.lineIndices.length > 0 && data.lineVertices.length > 0) {
-        let segData: Float32Array
-        if (data.prebuiltLineSegments) {
-          segData = data.prebuiltLineSegments
-        } else {
-          let lineStride: 6 | 10 = 6
-          if (data.lineIndices.length > 0) {
-            let maxIdx = 0
-            for (let li = 0; li < data.lineIndices.length; li++) {
-              if (data.lineIndices[li] > maxIdx) maxIdx = data.lineIndices[li]
-            }
-            const vertCount = maxIdx + 1
-            if (vertCount > 0 && data.lineVertices.length / vertCount >= 10) lineStride = 10
-          }
-          segData = buildLineSegments(
-            data.lineVertices, data.lineIndices, lineStride,
-            tileWidthMerc, tileHeightMerc,
-            data.heights && data.heights.size > 0 ? data.heights : undefined,
-            undefined, undefined,
-            0,
-          )
-        }
-        const seg = await this.lineRenderer.uploadSegmentBufferAsync(segData, encoder, this.stagingPool)
-        lineSegmentBuffer = seg.buffer
-        releases.push(seg.release)
-        lineSegmentCount = data.lineIndices.length / 2
-        lineSegmentBindGroup = this.lineRenderer.createLayerBindGroup(lineSegmentBuffer)
-      }
-    }
-
-    // Wait for every staging write to land in its mapped range +
-    // copyBufferToBuffer to be encoded. After this, the encoder holds
-    // every copy command for the tile.
-    const settled = await Promise.all(writeHandles)
-    for (const h of settled) releases.push(h.release)
-
-    // UAF guard: a synchronous teardown (e.g. a projection band-change
-    // calling setBackgroundFill(null) → teardownSource → destroy()) can
-    // land inside the staging mapAsync suspension above. If it did, the
-    // captured `vertexBuffer`/`indexBuffer` (= the poly arena buffers,
-    // VTR:2175-2176) have been destroyed, and the encoder's
-    // copyBufferToBuffer targets them — submitting would raise
-    // "Buffer poly-vertex-arena/poly-index-arena used in submit while
-    // destroyed". Bail WITHOUT submitting; return the staging slots to
-    // the (shared, still-live) pool so they aren't leaked. The dead
-    // arenas were already destroyed+nulled by destroy(), so the claimed
-    // poly slots need no free (the whole arena is gone).
-    // ALSO bail if a COMPACTION (the post-merge arena defrag) swapped an arena
-    // buffer out from under us while we were suspended: `_compactPolyArenas`
-    // replaces `arena.buffer` with a fresh packed buffer and RETIRES the old one
-    // (destroyed a frame later via _retiredArenaBuffers), and our claimed slot
-    // offsets moved. The captured `vertexBuffer`/`indexBuffer` are then a stale/
-    // retired buffer, so this copy's submit would raise the same UAF (the
-    // `_destroyed` flag does NOT trip — compaction is not teardown). A buffer-
-    // identity check covers BOTH cases (teardown nulls the arena; compaction
-    // replaces .buffer); the un-cached tile is re-uploaded into the live buffer
-    // next frame.
-    if (
-      this._destroyed ||
-      this._store.polyVertexArenaOrNull()?.buffer !== vertexBuffer ||
-      this._store.polyIndexArenaOrNull()?.buffer !== indexBuffer
-    ) {
-      for (const release of releases) release()
-      cleanupLineBuffers()
-      return
-    }
-
-    // Single submit per tile. The GPU now consumes staging → dst.
-    this.device.queue.submit([encoder.finish()])
-    // Return staging slots to the pool. Subsequent borrows on these
-    // slots will mapAsync, which natively waits for the just-submitted
-    // copy to finish before re-mapping for write.
-    for (const release of releases) release()
-
-    // Race guard: another upload (e.g. parallel doUploadTileAsync for
-    // the same key, or a synchronous mid-render fallback) may have
-    // populated the cache while we were awaiting. Skip the second set —
-    // but FIRST free the poly vertex/index slots this call claimed. Those
-    // offsets were never recorded in layerCache (the winning upload owns
-    // the cache entry + its own slots), so without this free they leak
-    // permanently and pin liveBytes > 0, blocking reclaimIfDrained forever.
-    if (layerCache.has(key)) {
-      polyVertexArena.free(polyVertexOffset, polyVertexByteLength)
-      polyIndexArena.free(polyIndexOffset, polyIndexByteLength)
-      cleanupLineBuffers()
-      return
-    }
-
-    // Per-tile feat_data — same rationale as the sync path.
-    // Compute-handle keying matches the legacy `${key}:${sourceLayer}`
-    // identity already used by the upload queue + held set, so the
-    // handle's lifetime tracks the tile's bind-group lifetime.
-    const perTileFeat = this._featureBinder.buildPerTileFeatureData(
-      data.featureProps, this.uniformRing?.buffer, this._bindGroups.paletteResources(), `${key}:${sourceLayer}`)
-
-    layerCache.set(key, {
-      vertexBuffer, polyVertexOffset, polyVertexByteLength, indexBuffer,
-      polyIndexOffset, polyIndexByteLength,
-      indexCount: polyIndices.length,
-      zBuffer, zBufferOffset, zBufferByteLength, extruded: useFeatureHeights && !!data.polygons,
-      lineVertexBuffer, lineIndexBuffer,
-      lineIndexCount: data.lineIndices.length,
-      outlineIndexBuffer, outlineIndexCount,
-      outlineSegmentBuffer, outlineSegmentCount, outlineSegmentBindGroup,
-      lineSegmentBuffer, lineSegmentCount, lineSegmentBindGroup,
-      tileWest: data.tileWest, tileSouth: data.tileSouth,
-      tileWidth: data.tileWidth, tileHeight: data.tileHeight,
-      tileZoom: data.tileZoom,
-      dequantScale, dequantHalf,
-      lastUsedFrame: this.frameCount,
-      uploadTimeMs: performance.now(),
-      featureDataBuffer: perTileFeat?.buffer ?? null,
-      featureBindGroup: perTileFeat?.bindGroup ?? null,
-      // iter-226 — see sync upload-path for rationale.
-      uploadEpoch: this._store.nextUploadEpoch(),
-    })
-    this._store.incrementCount()
-    // Poly slots are now owned by the cache entry — the backstop must NOT
-    // free them.
-    polySlotsCached = true
-
-    // Same memory-cleanup as sync path.
-    data.prebuiltLineSegments = undefined
-    data.prebuiltOutlineSegments = undefined
-    data.polygons = undefined
-    } catch (e) {
-      // Backstop (mirror of the sync path's outer try/catch): a throw from
-      // acquireBuffer / uploadSegmentBufferAsync / encoder.finish / submit
-      // reaching here means layerCache.set did not run, so the polygon
-      // vertex/index slots claimed by _allocPolyPair are orphaned. Free them
-      // (unless already handed to the cache) before degrading to skip-this-
-      // tile (warn-once, un-cached → retried a later frame). This guarantees
-      // doUploadTileAsync can never reject-with-leak.
-      if (!polySlotsCached) {
-        polyVertexArena.free(polyVertexOffset, polyVertexByteLength)
-        polyIndexArena.free(polyIndexOffset, polyIndexByteLength)
-        // The line/outline/segment buffers acquired before the throw were
-        // never handed to the cache either — free them with the poly slots.
-        cleanupLineBuffers()
-      }
-      const wKey = `upload-throw:${sourceLayer}:${key}`
-      if (!this._drawStats.hasWarned(wKey)) {
-        this._drawStats.markWarned(wKey)
-        xlog.warn(`[VTR upload] doUploadTileAsync threw for tile ${key} (${sourceLayer || 'base'}); skipping. ${(e as Error)?.message ?? e}`)
-      }
-    }
+  /** Drop queued + held uploads for tiles the camera moved past. Thin
+   *  forwarder to the upload coordinator. */
+  private cancelStaleUploads(activeKeys: ReadonlySet<number>): void {
+    this._uploads.cancelStale(activeKeys)
   }
 
   /** Render visible tiles into a render pass */
@@ -2101,13 +1108,12 @@ export class VectorTileRenderer {
      *  (fully opaque even though the fill is translucent), so phase
      *  alone isn't enough to dispatch. */
     translucentBucket: boolean,
-    /** Per-frame ResolvedShow snapshot — required as of Phase 4c-final.
-     *  Carries every zoom × time-resolved paint scalar / RGBA the
-     *  draw path needs. The bucket scheduler (`classifyVectorTileShows`)
-     *  is the sole authority that builds these; map.ts forwards them
-     *  to every `VTR.render` call. New consumers MUST read paint values
-     *  from here — `show.*` paint fields stay around for trace +
-     *  introspection only. */
+    /** Per-frame ResolvedShow snapshot. Carries every zoom × time-resolved
+     *  paint scalar / RGBA the draw path needs. The bucket scheduler
+     *  (`classifyVectorTileShows`) is the sole authority that builds these;
+     *  map.ts forwards them to every `VTR.render` call. New consumers MUST
+     *  read paint values from here — `show.*` paint fields stay around for
+     *  trace + introspection only. */
     resolvedShow: ResolvedShow,
   ): void {
     if (!this.source?.hasData()) return
@@ -2267,7 +1273,7 @@ export class VectorTileRenderer {
 
     // Display-projection MVP: `getViewForProjection` returns the flat 2D
     // Mercator-plane MVP for flat Mercator (projType 0) and the ECEF-MVP
-    // for 3D / globe (and, in Phase 1, every other projType). The polygon /
+    // for 3D / globe (and, currently, every other projType). The polygon /
     // line VS branches on `proj_params.x` to consume the matching matrix
     // (flat → `project(abs)−cam` 2D-plane metres; 3D → ECEF-RTC). The
     // returned `matrix` reference is overwritten by the next call from the
@@ -2318,7 +1324,7 @@ export class VectorTileRenderer {
     }
     // Mapbox fill-/line-translate — bake CSS px → NDC-per-pixel (`2 /
     // canvasDim`); vertex shader multiplies by clip.w so the offset stays
-    // pixel-constant after the perspective divide. WS-1 reads the PER-FRAME
+    // pixel-constant after the perspective divide. Reads the PER-FRAME
     // resolved offset from ResolvedShow (zoom-interp shapes already collapsed
     // to a scalar; constant forms pass through). translate-anchor=map:
     // rotateTranslateForAnchor rotates (dx,dy) by the map bearing so the
@@ -2387,21 +1393,19 @@ export class VectorTileRenderer {
     // BUT a data-driven `fill match(...)` produces colors entirely inside
     // the variant pipeline (fillIsDefault === false), so cachedFillColor
     // can be [0,0,0,0] yet the draw is still meaningful — must keep it.
-    // Phase 2.5 US-002 — the legacy default-uniform string compare on
-    // variantFillExpr moved to the typed `fillIsDefault` sentinel flag,
-    // exposed via the shared variantProducesFill() helper.
+    // The skip uses the typed `fillIsDefault` sentinel (variantProducesFill()
+    // helper), not a default-uniform string compare on variantFillExpr.
     this._skipFillDraw = !variantProducesFill(show.shaderVariant) && this.cachedFillColor[3] <= 0.005
 
     // Write uniforms directly via cached Float32Array view (no new typed array allocations)
     const uf = this.uniformF32
-    uf.set(mvp, US.mvp) // mvp (16 floats) — ECEF-MVP (post PR 2d.5)
-    // iter-183 — fill-pattern Stage 2 packs the sprite atlas UV bbox
-    // into the fill_color slot instead of the resolved RGBA.
-    // fs_fill_pattern reads (u0, v0, u1, v1) from u.fill_color. The
-    // pattern repeat in metres is written to the fill_translate slots below
-    // (overriding the fill-translate NDC values). Both overrides
-    // apply ONLY when the show has a resolved pattern bbox + the
-    // pattern pipeline path is wired by the caller (setPatternPipelines).
+    uf.set(mvp, US.mvp) // mvp (16 floats) — ECEF-MVP
+    // Fill-pattern packs the sprite atlas UV bbox into the fill_color slot
+    // instead of the resolved RGBA. fs_fill_pattern reads (u0, v0, u1, v1)
+    // from u.fill_color. The pattern repeat in metres is written to the
+    // fill_translate slots below (overriding the fill-translate NDC values).
+    // Both overrides apply ONLY when the show has a resolved pattern bbox +
+    // the pattern pipeline path is wired by the caller (setPatternPipelines).
     const patternUV = show.fillPatternUV
     const patternRepeat = show.fillPatternRepeatM
     const patternSlotsActive = patternUV != null && patternRepeat != null
@@ -2417,11 +1421,10 @@ export class VectorTileRenderer {
       uf[US.fill_color + 2] = this.cachedFillColor[2]; uf[US.fill_color + 3] = this.cachedFillColor[3] * this.currentOpacity
       this._patternUniformActive = false
     }
-    // iter-185 — line-pattern Stage 2 packs the sprite atlas UV bbox
-    // into the stroke_color slot (20-23). fs_line_pattern reads
-    // (u0, v0, u1, v1) from tile.stroke_color. Pattern shows trade
-    // their solid stroke colour for the atlas sample; documented in
-    // the line-pattern partial → supported promotion (iter 186).
+    // Line-pattern packs the sprite atlas UV bbox into the stroke_color
+    // slot (20-23). fs_line_pattern reads (u0, v0, u1, v1) from
+    // tile.stroke_color. Pattern shows trade their solid stroke colour for
+    // the atlas sample.
     const linePatternSlotsActive = show.linePatternUV != null
       && show.linePatternRepeatM != null
       && this.lineRenderer != null
@@ -2483,8 +1486,8 @@ export class VectorTileRenderer {
       // the multiply, 1-px dashes against a 1-px line gave near-
       // continuous coverage and looked solid).
       const dashWidthScalePx = strokeWidthPx_h
-      // WS-1 — prefer the PER-FRAME resolved dash array (zoom-interp STEP)
-      // over the static one; constant dash falls through unchanged.
+      // Prefer the PER-FRAME resolved dash array (zoom-interp STEP) over
+      // the static one; constant dash falls through unchanged.
       const dashSrc = resolvedShow.dashArray ?? show.dashArray
       const dash = (dashSrc && dashSrc.length >= 2)
         ? {
@@ -2544,13 +1547,12 @@ export class VectorTileRenderer {
       const gapWidth = show.strokeGapWidth ?? 0
       const halfGap = gapWidth > 0 ? (gapWidth + strokeWidthPx) / 2 : 0
 
-      // iter-185 — line-pattern Stage 2 override. When the show has a
-      // resolved pattern repeat, replace strokeColor.r / .a with the
-      // x / y repeat metres (fs_line_pattern reads layer.color.r/.a
-      // as repeat axes). Stage 1 resolvedStrokeRgba is lost on the
-      // pattern path, but the sprite atlas sample provides the visual
-      // colour band — documented Stage 2 trade-off (mirror of
-      // fill-pattern's fill_color slot reuse).
+      // Line-pattern override. When the show has a resolved pattern repeat,
+      // replace strokeColor.r / .a with the x / y repeat metres
+      // (fs_line_pattern reads layer.color.r/.a as repeat axes). The solid
+      // stroke colour is lost on the pattern path, but the sprite atlas
+      // sample provides the visual colour band (mirror of fill-pattern's
+      // fill_color slot reuse).
       const linePatternActive = show.linePatternUV != null && show.linePatternRepeatM != null
       const lineSlotColor: [number, number, number, number] = linePatternActive
         ? [show.linePatternRepeatM![0], 0, 0, show.linePatternRepeatM![1]]
@@ -2660,9 +1662,8 @@ export class VectorTileRenderer {
     // The invariant-throw at end of loop is gated on
     // `globalThis.__XGIS_INVARIANTS`; the per-decision count summary
     // (exposed via `getLastDecisionCounts()`) is always available.
-    // iter-255 — scratch reuse + length reset. Clear prior values
-    // by setting indices to undefined inside the loop below
-    // (decision always assigned per tile in the for loop).
+    // Scratch reuse + length reset; prior values are overwritten inside
+    // the loop below (decision always assigned per tile).
     const _tileDecisions = this._scratchTileDecisions
     _tileDecisions.length = tiles.length
     const _inv = (globalThis as { __XGIS_INVARIANTS?: boolean }).__XGIS_INVARIANTS
@@ -2691,11 +1692,8 @@ export class VectorTileRenderer {
       // pmtiles_layered z=22 from 6.4 ms → ~1 ms per render.
       // Per-tile resolution via the pure `classifyTile` classifier
       // (engine/tile-decision.ts). The classifier returns ONE explicit
-      // TileDecision; the side-effect application below pushes
-      // fallbackKeys, requests uploads, and bumps counters per the
-      // decision kind. Replaces the previous inline ~150-line cascade
-      // of `if … continue` branches that two regressions
-      // (commit-49d4801, commit-71dd401) lived inside.
+      // TileDecision; the side-effect application below pushes fallbackKeys,
+      // requests uploads, and bumps counters per the decision kind.
       let decision: TileDecision | undefined = sliceMemo.get(key)
       if (!decision) {
         decision = classifyTile({
@@ -2721,8 +1719,8 @@ export class VectorTileRenderer {
           sliceLayer,
           // Coherence: any peer slice for this tile still queued blocks
           // primary in this layer too, so all consumers transition
-          // together. See _heldUploadKeys field doc.
-          hasOtherSliceHeld: this._heldUploadKeys.has(key),
+          // together. See UploadCoordinator.isHeld (cap-deferred held set).
+          hasOtherSliceHeld: this._uploads.isHeld(key),
         })
         sliceMemo.set(key, decision)
       }
@@ -2808,8 +1806,8 @@ export class VectorTileRenderer {
 
     // ── Production invariant — visibility/fallback consistency check ──
     // Fires if any visible tile reached the end of the per-tile loop
-    // with `queued-no-fb` (the commit-49d4801 white-flash bug class)
-    // or with no decision at all (un-tracked code path). Pending +
+    // with `queued-no-fb` (the white-flash bug class) or with no decision
+    // at all (un-tracked code path). Pending +
     // intentional drops are allowed; primary / fallback resolutions
     // are allowed. The bug pattern is: catalog has data, primary
     // can't draw (queued upload), AND no per-tile fallback was
@@ -2949,25 +1947,22 @@ export class VectorTileRenderer {
       this._distMemoCamX = camera.centerX
       this._distMemoCamY = camera.centerY
       // Camera moved → previously-sorted items now compare against
-      // different distances. Force the next uploadQueue.sort() to
+      // different distances. Force the next upload-queue sort to
       // re-execute (the per-frame idempotency skip would otherwise
       // keep the stale ordering when the queue's items haven't
       // changed since last frame).
-      this.uploadQueue.markDirty()
+      this._uploads.markQueueDirty()
       this._distMemo.clear()
     }
-    if (this._installedPriorityFns !== this.uploadQueue) {
+    if (!this._priorityInstalled) {
+      // Install the shared distance comparator on BOTH the fetch queue
+      // (source) and the renderer-side upload queue (coordinator). Once —
+      // both keep their identity for the renderer's lifetime.
       this.source.setFetchPriority(this._distSqStable)
-      const itemData = this.uploadItemData
-      const distSq = this._distSqStable
-      this.uploadQueue.priorityCallback = (a, b) => {
-        const ia = itemData.get(a), ib = itemData.get(b)
-        if (!ia || !ib) return 0
-        return distSq(ib.key) - distSq(ia.key)
-      }
-      this._installedPriorityFns = this.uploadQueue
+      this._uploads.installPriority(this._distSqStable)
+      this._priorityInstalled = true
     }
-    this.uploadQueue.maxJobs = uploadBudgetFor(canvasWidth, canvasHeight, dpr)
+    this._uploads.setMaxJobs(uploadBudgetFor(canvasWidth, canvasHeight, dpr))
 
     // Visible-tile fetches: ALWAYS issued, like parentKeys. The
     // earlier `cameraIdle` gate here was a heat mitigation that
@@ -3035,14 +2030,13 @@ export class VectorTileRenderer {
         : (groundIsBase
             ? this._bindGroups.groundPipeline()
             : (fillPipelineGroundOverride ?? null))
-      // iter-183 — fill-pattern Stage 2 routing. When the show has a
-      // resolved pattern UV bbox AND the variant pipeline path isn't
-      // active AND we're not in DEBUG_OVERDRAW (r16float surface),
-      // swap the ground pipeline for the pattern variant. The pattern
-      // pipeline uses the same base bindGroupLayout, so it's only
-      // valid on the `groundIsBase` path; variant + feature-data
-      // pattern shows fall through to the generic fillPipeline
-      // (visual fallback to solid Stage-1 colour, not crash).
+      // Fill-pattern routing. When the show has a resolved pattern UV bbox
+      // AND the variant pipeline path isn't active AND we're not in
+      // DEBUG_OVERDRAW (r16float surface), swap the ground pipeline for the
+      // pattern variant. The pattern pipeline uses the same base
+      // bindGroupLayout, so it's only valid on the `groundIsBase` path;
+      // variant + feature-data pattern shows fall through to the generic
+      // fillPipeline (renders solid colour, not crash).
       const patternActive = !DEBUG_OVERDRAW
         && groundIsBase
         && show.fillPatternUV != null
@@ -3053,10 +2047,9 @@ export class VectorTileRenderer {
       const mainFill = this.currentExtrudeMode === 'none' && groundChoice !== null
         ? groundChoice
         : fillPipeline
-      // iter-186 — fill-extrusion-pattern Stage 2: when the extruded
-      // pattern pipeline is wired and the show has a resolved pattern
-      // UV bbox, route per-feature extruded draws to the pattern
-      // variant. Same gate as the ground path.
+      // Fill-extrusion-pattern: when the extruded pattern pipeline is wired
+      // and the show has a resolved pattern UV bbox, route per-feature
+      // extruded draws to the pattern variant. Same gate as the ground path.
       const extrudedPatternActive = !DEBUG_OVERDRAW
         && groundIsBase
         && show.fillPatternUV != null
@@ -3064,11 +2057,10 @@ export class VectorTileRenderer {
       const extrudedPipeline = extrudedPatternActive
         ? this._bindGroups.patternExtrudedPipeline()
         : this._bindGroups.extrudedPipeline()
-      // iter-220 (Phase RB.B.8) — bundle wrap for the primary
-      // opaque pass call. Gated to the main opaque attachment
-      // context (excludes OIT, debug overdraw, translucent stroke
-      // bucket, the standalone strokes phase). Cache key includes
-      // every input that affects the recorded draws OR the bundle
+      // Bundle wrap for the primary opaque pass call. Gated to the main
+      // opaque attachment context (excludes OIT, debug overdraw,
+      // translucent stroke bucket, the standalone strokes phase). Cache key
+      // includes every input that affects the recorded draws OR the bundle
       // descriptor; the next miss re-encodes from scratch.
       //
       // Hit path: re-runs renderTileKeys for state side effects
@@ -3080,38 +2072,36 @@ export class VectorTileRenderer {
       // Miss path: getOrEncode runs renderTileKeys with the
       // bundle encoder. State side effects + draws recorded into
       // the bundle. `executeBundles` replays into the real pass.
-      // iter-270 — bundle ONLY when every needed tile is in layer
-      // cache. Partial-set bundles caused the user-reported flicker
-      // (2026-05-21 OFM Bright import + wheel zoom):
+      // Bundle ONLY when every needed tile is in layer cache. Partial-set
+      // bundles caused the user-reported flicker (OFM Bright import + wheel
+      // zoom):
       //
       //   1. Fast zoom selects new neededKeys; tiles A,B not loaded yet.
       //   2. Bundle encodes — recordTileFill skips A,B (cache miss
       //      inside per-tile loop), records draws for already-loaded
       //      C,D only.
       //   3. Bundle cached under key with ueXor reflecting only C,D's
-      //      uploadEpochs (the iter-226 comment "tiles not yet in
-      //      layerCache contribute 0" was the design gap).
+      //      uploadEpochs ("tiles not yet in layerCache contribute 0" was
+      //      the design gap).
       //   4. Frame N+1: same neededKeys, same ueXor (A,B still loading,
       //      C,D unchanged) → cache HIT → replays the partial bundle
       //      with A,B missing → polygon fills disappear for A,B until
       //      they finally upload + bump ueXor.
       //   5. Strokes don't hit this because `phase === 'strokes'` skips
-      //      the bundle path entirely (line 4303 below), and the
-      //      fallback ancestor path is also bundled with the same gap.
+      //      the bundle path entirely, and the fallback ancestor path is
+      //      also bundled with the same gap.
       //
       // Gating shouldBundle on the all-loaded invariant eliminates the
       // partial-encode case. During fast zoom we fall through to a
       // direct renderTileKeys call (no bundle, no cache); steady-state
-      // (all tiles loaded) keeps the iter-226 97.6% hit rate.
-      // iter-277 — bundle path RE-DISABLED. iter-276 re-enable based
-      // on iter-275 invariant gate was wrong: gate only tested SINGLE
-      // STATIC SCREENSHOT per scene, missed interactive cases.
-      // User screenshot iPhone OFM Bright z=7.53/36.97/127.46 + pitch
-      // 3.6 shows MOSTLY EMPTY canvas (polygons + lines almost all
-      // missing on X-GIS pane). Bundle replay during interactive
-      // navigation / pitch produces broken state.
+      // (all tiles loaded) keeps the 97.6% hit rate.
       //
-      // Default OFF. Override:
+      // Bundle path is DEFAULT OFF: a prior re-enable (gated on the
+      // all-loaded invariant) was validated against only a SINGLE STATIC
+      // SCREENSHOT per scene and missed interactive cases — iPhone OFM
+      // Bright z=7.53/36.97/127.46 + pitch 3.6 showed a MOSTLY EMPTY canvas
+      // (polygons + lines almost all missing). Bundle replay during
+      // interactive navigation / pitch produces broken state.
       //   __XGIS_BUNDLE_FORCE_ON = true   to force enable (testing only)
       let allTilesLoaded = true
       for (let i = 0; i < neededKeys.length; i++) {
@@ -3126,24 +2116,20 @@ export class VectorTileRenderer {
         && phase !== 'oit-fill'
         && allTilesLoaded
       if (shouldBundle) {
-        // iter-281 — structural cache key. Replaces the iter-226 +
-        // iter-271 manual concat (kh + ueXor + woh + rebuildEpoch +
-        // pickOn + samples + pipeline labels) with a single
-        // structuralHashKey() over a typed state literal. Adding a
-        // new dependency below = one new property; the hash adapts
-        // automatically and downstream cache invalidates correctly
-        // without any string-template churn. See _cache/structural-
-        // key.ts for the pattern rationale.
+        // Structural cache key: a single structuralHashKey() over a typed
+        // state literal. Adding a new dependency below = one new property;
+        // the hash adapts and the cache invalidates correctly without
+        // string-template churn. See _cache/structural-key.ts.
         const pickOn = isPickEnabled()
         const samples = getSampleCount()
         const epochs: number[] = new Array(neededKeys.length)
         for (let i = 0; i < neededKeys.length; i++) {
           epochs[i] = layerCache.get(neededKeys[i]!)!.uploadEpoch
         }
-        // iter-283 — `satisfies BundleKeyState` enforces every
-        // property of the contract is filled. Adding a new dimension
-        // to BundleKeyState breaks BOTH call sites here (primary +
-        // fallback) until the literal is updated.
+        // `satisfies BundleKeyState` enforces that every property of the
+        // contract is filled. Adding a new dimension to BundleKeyState
+        // breaks BOTH call sites here (primary + fallback) until the literal
+        // is updated.
         const keyState = {
           sliceLayer,
           phase,
@@ -3200,14 +2186,10 @@ export class VectorTileRenderer {
       // simpler-geometry parent could occlude the more-detailed one
       // depending on fallbackKeys insertion order.
       //
-      // No dedup: an earlier commit (004af0f) deduped by (key, offset)
-      // tuple so identical parent renders ran ONCE instead of N times.
-      // That was correct under the old binary stencil model where every
-      // render of the same parent produced identical pixels. Reverted
-      // here because the per-tile stencil clip mask (follow-up commit)
-      // makes each push render with a DIFFERENT visible-tile clip area —
-      // each push corresponds to a unique visible-tile fallback fill, so
-      // dedup'ing them would erase coverage of N-1 visible tiles.
+      // Do NOT dedup by (key, offset): each push renders the SAME parent
+      // with a DIFFERENT per-tile visible clip mask (one push per visible
+      // tile it fills for), so dedup'ing would erase coverage of N-1
+      // visible tiles.
       if (fallbackKeys.length > 1) {
         const indexed: { k: number; o: number; vk: number; z: number }[] = []
         for (let i = 0; i < fallbackKeys.length; i++) {
@@ -3249,8 +2231,7 @@ export class VectorTileRenderer {
         : (fallbackGroundIsBase
             ? this._bindGroups.groundPipelineFallback()
             : (fillPipelineGroundFallbackOverride ?? null))
-      // iter-183 — fill-pattern Stage 2 fallback routing (mirror of
-      // the primary path above).
+      // Fill-pattern fallback routing (mirror of the primary path above).
       const fallbackPatternActive = !DEBUG_OVERDRAW
         && fallbackGroundIsBase
         && show.fillPatternUV != null
@@ -3261,7 +2242,7 @@ export class VectorTileRenderer {
       const fallbackFill = this.currentExtrudeMode === 'none' && fallbackGroundChoice !== null
         ? fallbackGroundChoice
         : fillPipelineFallback
-      // iter-186 — fill-extrusion-pattern fallback path mirror.
+      // Fill-extrusion-pattern fallback path mirror.
       const fallbackExtrudedPatternActive = !DEBUG_OVERDRAW
         && fallbackGroundIsBase
         && show.fillPatternUV != null
@@ -3269,24 +2250,21 @@ export class VectorTileRenderer {
       const fallbackExtrudedPipeline = fallbackExtrudedPatternActive
         ? this._bindGroups.patternExtrudedPipelineFallback()
         : this._bindGroups.extrudedPipelineFallback()
-      // iter-221 (Phase RB.B.9) — fallback path bundle wrap. Mirror
-      // of iter-220's primary-call wrap, applied to the
-      // fallbackKeys renderTileKeys invocation. Same gate + same
-      // cache key shape, plus the fallback-specific
-      // `fallbackVisibleKeys` hash so the per-tile clip_bounds
-      // (set from `visibleKeysForClip`) is part of the invalidation
-      // surface. Tiles + visibleKeys + offsets together fully
-      // describe the recorded draws.
-      // iter-270 — mirror the primary path's all-loaded gate. Fallback
-      // keys are by construction picked from layerCache, but a fallback
-      // entry could in principle be evicted between selection and
-      // bundle encode (LRU under tight cap). Cheap guard avoids the
-      // same partial-set replay class of bug.
+      // Fallback path bundle wrap. Mirror of the primary-call wrap, applied
+      // to the fallbackKeys renderTileKeys invocation. Same gate + same
+      // cache key shape, plus the fallback-specific `fallbackVisibleKeys`
+      // hash so the per-tile clip_bounds (set from `visibleKeysForClip`) is
+      // part of the invalidation surface. Tiles + visibleKeys + offsets
+      // together fully describe the recorded draws.
+      // Mirror the primary path's all-loaded gate. Fallback keys are by
+      // construction picked from layerCache, but an entry could be evicted
+      // between selection and bundle encode (LRU under tight cap). Cheap
+      // guard avoids the same partial-set replay class of bug.
       let fbAllLoaded = true
       for (let i = 0; i < fallbackKeys.length; i++) {
         if (!layerCache.get(fallbackKeys[i]!)) { fbAllLoaded = false; break }
       }
-      // iter-277 — fallback path also RE-DISABLED.
+      // Fallback path also default OFF (see primary path).
       const _fbBundleForceOn = (globalThis as { __XGIS_BUNDLE_FORCE_ON?: boolean })
         .__XGIS_BUNDLE_FORCE_ON === true
       const fbShouldBundle = _fbBundleForceOn
@@ -3297,7 +2275,7 @@ export class VectorTileRenderer {
         && !_debugRed
         && fbAllLoaded
       if (fbShouldBundle) {
-        // iter-281 — structural cache key (mirrors primary path; see
+        // Structural cache key (mirrors primary path; see
         // _cache/structural-key.ts).
         const fbPickOn = isPickEnabled()
         const fbSamples = getSampleCount()
@@ -3467,7 +2445,7 @@ export class VectorTileRenderer {
     // point intent independent of a declared size.
     const hasPointStyle = show.paintShapes?.circle.size != null || show.shape !== null
     if (hasPointStyle && pointRenderer && typeof pointRenderer.addTilePoint === 'function') {
-      // Phase 2 PR 2d.2 — read ECEF DSFUN stride-9:
+      // Read ECEF DSFUN stride-9:
       // [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, feat_id, abs_lon, abs_lat]
       for (const key of this.stableKeys) {
         const tileData = this.source!.getTileData(key, sliceLayer)
@@ -3487,50 +2465,37 @@ export class VectorTileRenderer {
     }
   }
 
-  /** iter-217 (Phase RB.B.5) — flag set by a future caller to gate
-   *  the recordTileFill draw emit. When true, recordTileFill skips
-   *  the 6 GPU commands (bundle replay handles them instead). The
-   *  caller still runs renderTileKeys for per-frame state side
-   *  effects (uniform staging, strokeQueue population) — only the
-   *  fill-draw recording is bypassed.
-   *
-   *  Default false. Pixel-match identical to iter-216 when no
-   *  caller flips it. iter-218 introduces the actual bundle wrap
-   *  that sets this true during the replay path. */
+  /** Flag set during bundle replay to gate the recordTileFill draw emit.
+   *  When true, recordTileFill skips the GPU commands (the cached bundle
+   *  replays them instead); the caller still runs renderTileKeys for
+   *  per-frame state side effects (uniform staging, strokeQueue
+   *  population). Default false. */
   private _skipFillDrawForBundle: boolean = false
 
-  /** iter-219 (Phase RB.B.7) — sibling of `_skipFillDrawForBundle`
-   *  for the stroke (drawSegments) draws emitted at the tail of
-   *  renderTileKeys. When the bundle includes strokes (phase ===
-   *  'all' on the opaque pass), a cache-hit replay path that
-   *  re-runs renderTileKeys for state side effects must NOT
-   *  re-emit strokes to the real pass — `executeBundles([bundle])`
-   *  already replays them. This flag gates the two `drawSegments`
-   *  call sites inside renderTileKeys (one for outlines, one for
-   *  lines). Default false. */
+  /** Sibling of `_skipFillDrawForBundle` for the stroke (drawSegments)
+   *  draws at the tail of renderTileKeys. When the bundle includes strokes
+   *  (phase === 'all' on the opaque pass), a cache-hit replay that re-runs
+   *  renderTileKeys for state side effects must NOT re-emit strokes to the
+   *  real pass — `executeBundles([bundle])` already replays them. Gates the
+   *  two `drawSegments` call sites (outlines, lines). Default false. */
   private _skipStrokeDrawForBundle: boolean = false
 
-  /** iter-216 (Phase RB.B.4) — bundle-compatible per-tile fill draw
-   *  recording. The 6 GPU commands here are EXACTLY the subset
-   *  accepted by both `GPURenderPassEncoder` and
-   *  `GPURenderBundleEncoder`, so a future iter (iter-217+) can
-   *  pass a `GPURenderBundleEncoder` instead of a render pass to
-   *  build a cached bundle without re-tracing the per-tile
-   *  conditionals (OIT / extruded / pattern routes).
+  /** Bundle-compatible per-tile fill draw recording. The GPU commands here
+   *  are EXACTLY the subset accepted by both `GPURenderPassEncoder` and
+   *  `GPURenderBundleEncoder`, so the caller can pass a
+   *  `GPURenderBundleEncoder` to build a cached bundle without re-tracing
+   *  the per-tile conditionals (OIT / extruded / pattern routes).
    *
    *  Side-effect free besides the GPU commands — `slotOffset` is
-   *  pre-resolved by the caller (`allocUniformSlot` + stage), and
-   *  `cached` carries the arena offsets (iter-208/209/210 Phase
-   *  6a). When `bindZBuffer` is true, slot 1 is bound to the
-   *  z-arena slice (extruded / OIT-extrude paths).
+   *  pre-resolved by the caller (`allocUniformSlot` + stage), and `cached`
+   *  carries the arena offsets. When `bindZBuffer` is true, slot 1 is bound
+   *  to the z-arena slice (extruded / OIT-extrude paths).
    *
-   *  Pipeline gating (OIT vs extruded vs ground) stays in the
-   *  caller — the choice is reflected in `pipeline` + `bindZBuffer`.
-   *
-   *  iter-217 — early-returns when `_skipFillDrawForBundle` is true
-   *  so the caller's bundle-replay path can run renderTileKeys for
-   *  state side effects without re-recording the draws (bundle
-   *  already carries them). */
+   *  Pipeline gating (OIT vs extruded vs ground) stays in the caller — the
+   *  choice is reflected in `pipeline` + `bindZBuffer`. Early-returns when
+   *  `_skipFillDrawForBundle` is true so the bundle-replay path can run
+   *  renderTileKeys for state side effects without re-recording the
+   *  draws. */
   private recordTileFill(
     encoder: GPURenderPassEncoder | GPURenderBundleEncoder,
     pipeline: GPURenderPipeline,
@@ -3552,30 +2517,19 @@ export class VectorTileRenderer {
         this._diagFillsThisFrame++
       }
     }
-    encoder.setPipeline(pipeline)
-    encoder.setBindGroup(0, tileBg, [slotOffset])
-    // Phase 6a.2 — polygon vertex buffer is the shared arena
-    // (`polyVertexArena.buffer`). Per-tile sub-range carried by
-    // (polyVertexOffset, polyVertexByteLength).
-    encoder.setVertexBuffer(0, cached.vertexBuffer, cached.polyVertexOffset, cached.polyVertexByteLength)
-    // Phase 6a.4 — z-buffer slice for extruded / OIT paths.
-    if (bindZBuffer) {
-      encoder.setVertexBuffer(1, cached.zBuffer!, cached.zBufferOffset, cached.zBufferByteLength)
-    }
-    // Phase 6a.3 — index buffer is the shared arena. Per-tile
-    // sub-range carried by (polyIndexOffset, polyIndexByteLength).
-    encoder.setIndexBuffer(cached.indexBuffer, 'uint32', cached.polyIndexOffset, cached.polyIndexByteLength)
-    encoder.drawIndexed(cached.indexCount)
+    // The fill draw — raw, or routed through the RHI Material seam — lives in polygon-fill-material.ts
+    // (recordFillDraw) so this renderer stays under its size ratchet. The arena vertex/index sub-ranges
+    // + the optional extrude z-buffer (slot 1) are carried on `cached`; the stencil ref + the bundle
+    // skip stay here, one level up.
+    recordFillDraw(this._fillRhi, encoder, pipeline, tileBg, slotOffset, cached, bindZBuffer)
   }
 
-  /** iter-214 (Phase RB.B.3) — `pass` parameter type widened to also
-   *  accept `GPURenderBundleEncoder` so a future caller can record
-   *  the per-tile draw loop into a cached bundle. Every method this
-   *  function calls on `pass` (`setPipeline`, `setBindGroup`,
+  /** `pass` accepts `GPURenderPassEncoder` OR `GPURenderBundleEncoder` so
+   *  the per-tile draw loop can be recorded into a cached bundle. Every
+   *  method this calls on `pass` (`setPipeline`, `setBindGroup`,
    *  `setVertexBuffer`, `setIndexBuffer`, `drawIndexed`) is in BOTH
-   *  interfaces' common subset. The pass-only calls
-   *  (`setStencilReference`) live ONE level up in the calling site
-   *  (line ~4077 / ~4167) so they wrap any future bundle replay. */
+   *  interfaces' common subset; the pass-only calls (`setStencilReference`)
+   *  live ONE level up in the calling site so they wrap any bundle replay. */
   private renderTileKeys(
     keys: number[],
     pass: GPURenderPassEncoder | GPURenderBundleEncoder,
@@ -3684,17 +2638,18 @@ export class VectorTileRenderer {
       // visually cleaner and matches the loading sequence's natural cadence.
       const baseFillA = this.cachedFillColor[3] * (this.currentOpacity ?? 1.0)
       const baseStrokeA = this.cachedStrokeColor[3] * (this.currentOpacity ?? 1.0)
-      // iter-183/185 — when a pattern is active, render() packed the sprite
-      // atlas UV bbox into the fill_color slot (fill, v1 = fill_color.a) / the
-      // stroke_color slot (line, v1 = stroke_color.a). The fragment shader reads
-      // fill_color.a / stroke_color.a as the pattern's v1; clobbering it with the
-      // alpha here corrupts the UV (black/garbage pattern). Same guard as the
-      // fill_translate slots below — only write the alpha when NO pattern owns the slot.
+      // When a pattern is active, render() packed the sprite atlas UV bbox
+      // into the fill_color slot (fill, v1 = fill_color.a) / the stroke_color
+      // slot (line, v1 = stroke_color.a). The fragment shader reads
+      // fill_color.a / stroke_color.a as the pattern's v1; clobbering it with
+      // the alpha here corrupts the UV (black/garbage pattern). Same guard as
+      // the fill_translate slots below — only write the alpha when NO pattern
+      // owns the slot.
       if (!this._patternUniformActive) this.uniformF32[US.fill_color + 3] = baseFillA
       if (!this._linePatternActiveForShow) this.uniformF32[US.stroke_color + 3] = baseStrokeA
       // u.opacity for shader variants is written at index 34 (offset 136 in
-      // the post PR 2d.5 192-byte layout) in the DSFUN uniform block, below
-      // — keep it off the pre-tile pack so we only write it once per slot.
+      // the 192-byte layout) in the DSFUN uniform block, below — keep it off
+      // the pre-tile pack so we only write it once per slot.
 
       // DSFUN uniform pack:
       // cam_h/cam_l = splitF64(cam_merc - tile_origin_merc) so the GPU
@@ -3720,7 +2675,7 @@ export class VectorTileRenderer {
       const camRelYH = Math.fround(camRelY)
       const camRelYL = Math.fround(camRelY - camRelYH)
 
-      // cam_h (28-29), cam_l (30-31) — offsets 112..127 (post PR 2d.5)
+      // cam_h (28-29), cam_l (30-31) — offsets 112..127
       this.uniformF32[US.cam_h] = camRelXH
       this.uniformF32[US.cam_h + 1] = camRelYH
       this.uniformF32[US.cam_l] = camRelXL
@@ -3779,8 +2734,8 @@ export class VectorTileRenderer {
       // -sLat·sLon,cLat), Up=(cLat·cLon,cLat·sLon,sLat)) → roof brightest,
       // walls in MapLibre's band (CPU-oracle confirmed). .w (63) spare.
       const camSinLon = Math.sin(camLonR), camCosLon = Math.cos(camLonR)
-      // WS-9 — convert the Mapbox light position [radius, azimuth°, polar°]
-      // to an (East,North,Up) direction via MapLibre's sphericalToCartesian
+      // Convert the Mapbox light position [radius, azimuth°, polar°] to an
+      // (East,North,Up) direction via MapLibre's sphericalToCartesian
       // (azimuth +90° so 0° points north). The default [1.15,210,30]
       // reproduces the old baked (0.288,-0.498,0.996).
       const [lRad, lAz, lPol] = this._lightPosition
@@ -3791,9 +2746,9 @@ export class VectorTileRenderer {
       this.uniformF32[US.light_dir_ecef] = Math.fround(LE * (-camSinLon) + LN * (-camSin * camCosLon) + LU * (camCos * camCosLon))
       this.uniformF32[US.light_dir_ecef + 1] = Math.fround(LE * (camCosLon) + LN * (-camSin * camSinLon) + LU * (camCos * camSinLon))
       this.uniformF32[US.light_dir_ecef + 2] = Math.fround(/* LE*0 */ LN * (camCos) + LU * (camSin))
-      // WS-9 — intensity → light_dir_ecef.w (slot 63); colour → RGBA8 packed
-      // into light_color_packed (slot 50). The extrude VS reads both; all
-      // other variants ignore them. Default (0.5, white) = pre-WS-9 consts.
+      // Intensity → light_dir_ecef.w (slot 63); colour → RGBA8 packed into
+      // light_color_packed (slot 50). The extrude VS reads both; all other
+      // variants ignore them. Default (0.5, white) = the baked consts.
       this.uniformF32[US.light_dir_ecef + 3] = this._lightIntensity
       const lc = this._lightColor
       const lr8 = Math.max(0, Math.min(255, Math.round(lc[0] * 255)))
@@ -3890,11 +2845,10 @@ export class VectorTileRenderer {
       // fill-translate NDC-per-px (fill_translate_x/y slots) — pre-baked at
       // render() time using canvasWidth/Height. Vertex shader
       // applies via clip += offset * clip.w so the pixel offset
-      // stays constant regardless of depth. iter-183 — pattern shows
-      // overwrite the same slots with the pattern repeat in Mercator
-      // metres (fs_fill_pattern reads u.fill_translate as repeat_m
-      // for the world-anchored UV). Pattern shows cannot also use
-      // fill-translate; documented Stage 2 trade-off.
+      // stays constant regardless of depth. Pattern shows overwrite the
+      // same slots with the pattern repeat in Mercator metres
+      // (fs_fill_pattern reads u.fill_translate as repeat_m for the
+      // world-anchored UV). Pattern shows cannot also use fill-translate.
       if (this._patternUniformActive) {
         this.uniformF32[US.fill_translate_x] = this._patternRepeatMX
         this.uniformF32[US.fill_translate_y] = this._patternRepeatMY
@@ -3903,7 +2857,7 @@ export class VectorTileRenderer {
         this.uniformF32[US.fill_translate_y] = this.currentFillTranslateNdcY
       }
 
-      // tile_dequant_scale (48) + tile_dequant_half (49) — PR 2f per-tile
+      // tile_dequant_scale (48) + tile_dequant_half (49) — per-tile
       // quantized-position dequant. The polygon VS reconstructs each ECEF
       // RTC axis as `q = f32(hi)*65536 + f32(lo); axis = q*scale - half`.
       // These are per-tile (flat: tiler-computed; extruded: wall-mesh-
@@ -4045,13 +2999,12 @@ export class VectorTileRenderer {
               : useExtrudedPipe
                 ? fillPipelineExtruded!
                 : fillPipeline)
-        // Phase RB.B.4 (iter-216) — bundle-compatible draw recording
-        // extracted to `recordTileFill`. The 6 GPU commands below
-        // (setPipeline, setBindGroup, setVertexBuffer ×1-2,
-        // setIndexBuffer, drawIndexed) are the EXACT subset that
-        // GPURenderBundleEncoder accepts. Encapsulating them lets a
-        // future iter (iter-217) route through a bundle encoder
-        // without re-tracing the conditionals.
+        // Bundle-compatible draw recording extracted to `recordTileFill`.
+        // The 6 GPU commands below (setPipeline, setBindGroup,
+        // setVertexBuffer ×1-2, setIndexBuffer, drawIndexed) are the EXACT
+        // subset that GPURenderBundleEncoder accepts. Encapsulating them
+        // lets the caller route through a bundle encoder without re-tracing
+        // the conditionals.
         // Skip if feature bg not ready — never bind null (see note above).
         if (currentTileBg) {
           this.recordTileFill(
@@ -4090,11 +3043,10 @@ export class VectorTileRenderer {
     // depth tests, but their occlusion against THIS layer's own
     // 3D geometry is now correct regardless of tile iteration order.
     if (strokeQueue.length > 0 && this.lineRenderer && !this._skipStrokeDrawForBundle) {
-      // iter-219 (Phase RB.B.7) — `_skipStrokeDrawForBundle` gates
-      // these two drawSegments call sites. When set true by the
-      // bundle replay path, both calls are skipped — the cached
-      // bundle's executeBundles already replays the stroke draws.
-      // strokeQueue side effects (push from per-tile loop) remain
+      // `_skipStrokeDrawForBundle` gates these two drawSegments call sites.
+      // When set true by the bundle replay path, both calls are skipped —
+      // the cached bundle's executeBundles already replays the stroke
+      // draws. strokeQueue side effects (push from per-tile loop) remain
       // populated for any non-bundle path or stats.
       const currentLineTileBg2 = this._bindGroups.baseGroup()!
       // line-gap-width double-draw: when the second offset slot was

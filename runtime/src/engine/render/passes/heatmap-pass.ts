@@ -20,7 +20,8 @@
 // per-frame allocated — RenderTargets.ensureHeatmap tracks size + reuses).
 
 import { DEBUG_OVERDRAW } from '../../debug-flags'
-import type { FrameContext } from '../frame-context'
+import type { FrameContext } from '@xgis/engine'
+import { unwrapProjection } from '@xgis/engine'
 import type { SceneView } from '../scene-view'
 import type { RenderPass, HeatmapPassHost } from './pass'
 
@@ -49,7 +50,8 @@ class HeatmapPass implements RenderPass {
       const rampSampler = hr.getRampSampler()
 
       // Write the shared accum frame uniform once.
-      hr.updateFrameUniform(ctx.camera, ctx.projType, ctx.centerLon, ctx.centerLat, ctx.w, ctx.h, ctx.dpr)
+      const { projType, centerLon, centerLat } = unwrapProjection(ctx.projection)
+      hr.updateFrameUniform(ctx.camera, projType, centerLon, centerLat, ctx.w, ctx.h, ctx.dpr)
 
       const layers = hr.getLayers()
       for (let li = 0; li < layers.length; li++) {

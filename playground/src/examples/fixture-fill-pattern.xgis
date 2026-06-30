@@ -1,0 +1,26 @@
+/* §4 fill-pattern consumption-side verification: a flat polygon whose ONLY fill is a sprite
+ * pattern (fill-pattern-pat), routed through fs_fill_pattern. This selects fillPipelinePatternGround
+ * (show.fillPatternUV != null) which the RHI Material seam twins (patternGround). The §4 seam is
+ * closed: the raw fill draw is deleted, so fill-pattern routes unconditionally through patternGround.
+ *
+ * The fill-pattern-ONLY layer (no fill-color) survives dead-layer-elim via the hasPattern guard
+ * (compiler/src/ir/passes/dead-layer-elim.ts); `show.fillPattern` then trips the lazy IconStage
+ * sprite-atlas gate (label-pass.ts) so the atlas loads and the UV resolves — no label layer needed.
+ *
+ * Load with: /demo.html?id=fixture_fill_pattern&e2e=1&sprite=/fixture-sprite
+ */
+source poly { type: geojson, url: "fixture-square.geojson" }
+
+layer pat_fill {
+  source: poly
+  | fill-pattern-pat
+}
+
+/* A label show makes the label pass run, which hosts the lazy IconStage sprite-atlas gate
+ * (label-pass.ts) — its `showCommands.some(s => s.fillPattern)` arm then loads the atlas so
+ * the pattern UV resolves. (A fill-pattern-only style w/o labels not loading its sprite is a
+ * separate label-pass-gate follow-up; real styles carry labels.) Empty-prop literal text. */
+layer pat_label {
+  source: poly
+  | label-["x"] label-size-12
+}

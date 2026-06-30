@@ -22,7 +22,9 @@ import { describe, it, expect } from 'vitest'
 import { TextRenderer } from './text-renderer'
 import type { TextDraw } from './text-renderer'
 import type { GlyphInfo } from './sdf/glyph-atlas-host'
-import { FrameArena } from '../gpu/frame-arena'
+import { FrameArena } from '@xgis/engine'
+import { WebGpuDevice } from '@xgis/engine'
+import type { RhiBuffer, RhiBindGroup } from '@xgis/engine'
 
 // setDraws creates the vertex buffer via device.createBuffer({ usage:
 // GPUBufferUsage.VERTEX | ... }) — the bitflag global isn't present in the
@@ -67,28 +69,32 @@ function makeRenderer(): { renderer: TextRenderer; slices: () => RecordedSlice[]
 
   // Object.create + a structural cast: TextRenderer's fields are private,
   // so we can't intersect the class type (it collapses to `never`). Name
-  // only the fields setDraws touches via a standalone mutable shape.
+  // only the fields setDraws touches via a standalone mutable shape. Buffers
+  // route through the §4 RHI seam, so `rhi` is a WebGpuDevice over the stub and
+  // the buffer handles are RhiBuffer (rhi.createBuffer wraps the fake).
   interface MutableRenderer {
-    device: GPUDevice
+    rhi: WebGpuDevice
     atlas: typeof stubAtlas
     _frameArena: FrameArena
     drawSlices: RecordedSlice[]
-    vertexBuf: GPUBuffer | null
+    vertexBuf: RhiBuffer | null
     vertexCount: number
+    vertexBufCapacityBytes: number
     allUniforms: Float32Array | null
-    uniformBuf: GPUBuffer
+    uniformBuf: RhiBuffer
     uniformBufCapacityBytes: number
-    bindGroupsByPage: GPUBindGroup[]
+    bindGroupsByPage: RhiBindGroup[]
   }
   const renderer = Object.create(TextRenderer.prototype) as unknown as MutableRenderer
-  renderer.device = stubDevice
+  renderer.rhi = new WebGpuDevice(stubDevice)
   renderer.atlas = stubAtlas
   renderer._frameArena = new FrameArena(64 * 1024)
   renderer.drawSlices = []
   renderer.vertexBuf = null
   renderer.vertexCount = 0
+  renderer.vertexBufCapacityBytes = 0
   renderer.allUniforms = null
-  renderer.uniformBuf = fakeBuffer
+  renderer.uniformBuf = renderer.rhi.createBuffer({ size: 256, usage: 'uniform', writable: true })
   renderer.uniformBufCapacityBytes = 256
   renderer.bindGroupsByPage = []
 

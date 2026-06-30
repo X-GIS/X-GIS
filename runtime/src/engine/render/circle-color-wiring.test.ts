@@ -24,8 +24,9 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
-import { initGPU, type GPUContext } from '../gpu/gpu'
+import { initGPU, type GPUContext } from '@xgis/engine'
 import { PointRenderer } from './point-renderer'
+import { WebGpuDevice } from '@xgis/engine'
 
 let stub: StubInstallation
 
@@ -81,7 +82,7 @@ function captureFillUpload(ctx: GPUContext): Captured {
     captured.feat = f32.slice(0, STRIDE)
   }
 
-  const renderer = new PointRenderer({ device: ctx.device, format: ctx.format })
+  const renderer = new PointRenderer({ device: ctx.device, format: ctx.format, rhi: new WebGpuDevice(ctx.device) })
   // addLayer(features, fill, stroke, strokeWidth, radiusPx, opacity, …).
   // No stroke so flags stay simple; opacity < 1 to prove the alpha multiply.
   renderer.addLayer(FEATURES as never, FILL, null, 0, 8, OPACITY)
@@ -91,7 +92,7 @@ function captureFillUpload(ctx: GPUContext): Captured {
 describe('circle-color fill RGBA wiring (GPU-free)', () => {
   it('addLayer registers exactly one layer for a Point set', async () => {
     const ctx = await makeCtx()
-    const renderer = new PointRenderer({ device: ctx.device, format: ctx.format })
+    const renderer = new PointRenderer({ device: ctx.device, format: ctx.format, rhi: new WebGpuDevice(ctx.device) })
     expect(renderer.hasLayers()).toBe(false)
     renderer.addLayer(FEATURES as never, FILL, null, 0, 8, OPACITY)
     expect(renderer.hasLayers()).toBe(true)

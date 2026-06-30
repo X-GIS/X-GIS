@@ -25,7 +25,7 @@
 // the cap inherits that source layer's fill colour (blue ocean / green land).
 
 import { tileKey } from '@xgis/compiler'
-import { tileEcefCenterFromMerc } from '../../engine/projection/ecef'
+import { tileEcefCenterFromMerc } from '@xgis/engine'
 import { findClampBoundarySpans } from '../../loader/polar-cap-detect'
 import type { GeoJSONFeatureCollection } from '../../loader/geojson'
 import { packECEFWithPolarCaps, MERC_LAT_CLAMP } from './polar-cap-ecef-pack'

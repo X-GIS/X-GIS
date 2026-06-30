@@ -3,12 +3,12 @@
 import { xlog } from './log'
 import { setLogSink as setEngineLogSink } from './log'
 import { Lexer, Parser, lower, optimize, emitCommands, evaluate, makeEvalProps, deserializeXGB, resolveImportsAsync, resolveUtilities, resolveColor, extractInterpolateZoomColorStops, extractInterpolateZoomStops } from '@xgis/compiler'
-import { packPalette, uploadPalette, type PaletteTextures } from './gpu/palette-texture'
+import { packPalette, uploadPalette, type PaletteTextures } from '@xgis/engine'
 import type * as AST from '@xgis/compiler'
 import { SyntheticEarthSurfaceBackend } from '../data/sources/synthetic-earth-surface-backend'
-import { PROJECTION_NAME_TO_TYPE, PROJECTIONS } from './projection/projections-table'
+import { PROJECTION_NAME_TO_TYPE, PROJECTIONS } from '@xgis/engine'
 import { configureProjections } from './shaders/dsl'
-import { worldBandForProjType } from './projection/earth-surface-fill'
+import { worldBandForProjType } from '@xgis/engine'
 import { projectLonLatToScreenCss } from './render-loop-helpers'
 import {
   SYNTHETIC_EARTH_SURFACE_SOURCE,
@@ -23,18 +23,19 @@ import {
 } from './geojson-polar-cap-show'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { getSharedGeoJSONCompilePool } from '../data/workers/geojson-compile-pool'
-import { initGPU, GPU_PROF, getMaxDpr, effectiveDpr, WebGPUUnavailableError, type GPUContext } from './gpu/gpu'
-import { QUALITY, updateQuality, type QualityConfig } from './gpu/quality'
-import { GPUTimer } from './gpu/gpu-timer'
-import { Camera } from './projection/camera'
+import { initGPU, GPU_PROF, getMaxDpr, effectiveDpr, WebGPUUnavailableError, type GPUContext } from '@xgis/engine'
+import { QUALITY, updateQuality, type QualityConfig } from '@xgis/engine'
+import { GPUTimer } from '@xgis/engine'
+import { Camera } from '@xgis/engine'
 import { CameraController } from './camera-controller'
 import { ViewportModeController } from './render/viewport-mode-controller'
 import { SourceManager } from './source-manager'
 import { InteractionController } from './interaction-controller'
-import { MapRenderer, type ShowCommand } from './render/renderer'
+import { MapRendererContent, type ShowCommand } from './render/renderer'
 import { resolveNumberShape } from './render/paint-shape-resolve'
 import { RenderLoop } from './render-loop'
-import { RenderTargets } from './render/render-targets'
+import { buildRenderNodes } from './render/passes/pass-chain'
+import { RenderTargets } from '@xgis/engine'
 import {
   classifyVectorTileShows as classifyVectorTileShowsImpl,
   groupOpaqueBySource as groupOpaqueBySourceImpl,
@@ -187,7 +188,7 @@ export class XGISMap {
   private readonly _viewport: ViewportModeController
   private sourceManager!: SourceManager
   private interactionController!: InteractionController
-  renderer!: MapRenderer
+  renderer!: MapRendererContent
   rasterRenderer!: RasterRenderer
   /** Show whose source backs the active raster URL — single-tracked
    *  for now (one raster basemap per scene is the realistic case).
@@ -714,6 +715,7 @@ export class XGISMap {
     vtRenderer.setPatternExtrudedPipelines(this.renderer.fillPipelinePatternExtruded, this.renderer.fillPipelinePatternExtrudedFallback)
     vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
     if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
+    vtRenderer.setFillRhi?.(this.renderer.fillRhiState?.() ?? null)
     vtRenderer.setSource(catalog)
     const projType = PROJECTION_NAME_TO_TYPE[this.projectionName] ?? 0
     const backend = new SyntheticEarthSurfaceBackend(projType)
@@ -869,12 +871,11 @@ export class XGISMap {
     // construction via setGraticuleEnabled — held on the viewport controller
     // until renderer exists (initGPU resolves in run()).
     this._viewport.graticuleInitial = options.graticule === true
-    // RenderLoop owns the per-frame GPU render method (extracted from
-    // map.ts). It holds this map by reference and reaches its members
-    // through a typed host view — renderer / ctx / stages are read fresh
-    // at render time, so constructing it before run() populates them is
-    // safe.
+    // RenderLoop owns the per-frame GPU render method (extracted from map.ts).
+    // Content registers the frozen-order RenderNode pass chain it iterates
+    // (P2-carve Step 4); nodes capture this map + read it fresh at render time.
     this.renderLoopInstance = new RenderLoop(this)
+    this.renderLoopInstance.registerNodes(buildRenderNodes(this))
     // P0-7 a11y baseline: make the host-supplied canvas focusable +
     // keyboard-drivable. Runs at ctor time (canvas is available pre-GPU);
     // no-ops when the canvas is not a real DOM element (unit-test mock).
@@ -1352,6 +1353,7 @@ export class XGISMap {
           this.renderer.fillPipelinePatternExtrudedFallback,
         )
         vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
+        vtRenderer.setFillRhi?.(this.renderer.fillRhiState?.() ?? null)
       }
     }
     if (dprChanged) {
@@ -2169,7 +2171,7 @@ export class XGISMap {
     }
     this.ctx = result
     if (this._onDeviceLost) this.ctx.onDeviceLost = this._onDeviceLost
-    this.renderer = new MapRenderer(this.ctx)
+    this.renderer = new MapRendererContent(this.ctx)
     this.renderer.setGraticuleEnabled(this._viewport.graticuleInitial)
     this.rasterRenderer = new RasterRenderer(this.ctx)
     if (GPU_PROF) this.gpuTimer = new GPUTimer(this.ctx)
@@ -2200,7 +2202,7 @@ export class XGISMap {
     }
     try {
       this.pointRenderer = new PointRenderer(this.ctx)
-      this.shapeRegistry = new ShapeRegistry(this.ctx.device)
+      this.shapeRegistry = new ShapeRegistry(this.ctx.rhi)
       // Register user-defined symbols from DSL under the `user:` namespace
       // so they shadow built-ins of the same name instead of being silently
       // dropped by the duplicate-name guard in `addShape`.
@@ -2372,7 +2374,7 @@ export class XGISMap {
     }
     if (variants.length > 0) {
       try {
-        await this.renderer.prewarmShaderVariantsAsync(variants as unknown as Parameters<MapRenderer['prewarmShaderVariantsAsync']>[0])
+        await this.renderer.prewarmShaderVariantsAsync(variants as unknown as Parameters<MapRendererContent['prewarmShaderVariantsAsync']>[0])
       } catch (e) {
         xlog.warn('[X-GIS] shader prewarm failed (falling back to lazy compile on first draw):', (e as Error).message)
       }
@@ -2752,6 +2754,7 @@ export class XGISMap {
     vtRenderer.setPatternExtrudedPipelines(this.renderer.fillPipelinePatternExtruded, this.renderer.fillPipelinePatternExtrudedFallback)
       vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
       if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
+      vtRenderer.setFillRhi?.(this.renderer.fillRhiState?.() ?? null)
       vtRenderer.setSource(source)
       this.vtSources.set(vtKey, { source, renderer: vtRenderer })
 
@@ -2935,7 +2938,7 @@ export class XGISMap {
     }
     this.ctx = ctx
     if (this._onDeviceLost) this.ctx.onDeviceLost = this._onDeviceLost
-    this.renderer = new MapRenderer(this.ctx)
+    this.renderer = new MapRendererContent(this.ctx)
     this.renderer.setGraticuleEnabled(this._viewport.graticuleInitial)
     this.rasterRenderer = new RasterRenderer(this.ctx)
     if (GPU_PROF) this.gpuTimer = new GPUTimer(this.ctx)
@@ -3153,6 +3156,9 @@ export class XGISMap {
         fillPipelineFallbackNoPick: this.renderer.fillPipelineFallbackNoPick,
         fillPipelineGroundFallbackNoPick: this.renderer.fillPipelineGroundFallback,
         linePipelineFallbackNoPick: this.renderer.linePipelineFallbackNoPick,
+        // ?debug=overdraw substitution handles (read only in overdraw mode; the classifier bakes them into each show's draw closure — null on the production path):
+        featureBindGroupLayout: this.renderer.featureBindGroupLayout,
+        fillPipelineOverdraw: this.renderer.fillPipelineOverdraw, fillPipelineOverdrawFeature: this.renderer.fillPipelineOverdrawFeature, linePipelineOverdraw: this.renderer.linePipelineOverdraw,
       },
       traceRecorder: this._pendingTraceRecorder,
     })

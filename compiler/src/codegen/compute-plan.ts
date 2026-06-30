@@ -160,7 +160,9 @@ export function planComputeKernels(scene: Scene): ComputePlanEntry[] {
 function kernelFingerprint(k: ComputeKernel): string {
   return [
     k.entryPoint,
-    k.wgsl,
+    // the kernel's backend-NEUTRAL IR (the compiler no longer emits WGSL — ruling i).
+    // The module is plain serializable data; identical kernels stringify identically.
+    JSON.stringify(k.module),
     k.fieldOrder.join(','),
     JSON.stringify(k.categoryOrder ?? {}),
   ].join('\x1F')

@@ -16,8 +16,8 @@
 // After: maxAbsLon ≈ 180.
 
 import { describe, expect, it } from 'vitest'
-import { Camera } from '../engine/projection/camera'
-import { getProjection } from '../engine/projection/projection'
+import { Camera } from '@xgis/engine'
+import { getProjection } from '@xgis/engine'
 import { visibleTilesSSE } from './tiles-sse'
 
 describe('visibleTilesSSE — projType resolution (single-world disc)', () => {
