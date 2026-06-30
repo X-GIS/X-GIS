@@ -22,8 +22,8 @@ way and the RHI-routed way and confirm byte-identical output. Strict `tsc --buil
 | **Point — GeoJSON/render()** (P1.2, `4853ef64`) | ✅ flipped, raw pipelines deleted (+ flat variant) | DC=0, 3 fixtures |
 | **Heatmap — accum** (P1.3, `133af74e`) | ✅ flipped, raw deleted | within run-to-run noise (r16float accum is non-deterministic) |
 | **Raster — render()** (P1.4, `829d5249`+`9896074b`+`0dcb3b53`) | ✅ flipped, raw deleted (+ resampling + pick MRT Materials) | DC=0, offline checker fixture |
-| **Line — draws** (P1.5 partial, `424a42d6`+`6d9c64a8`+`ab721d48`) | ◐ opaque + translucent-MAX + composite draws ROUTED behind `__xgisLineViaRhi`; raw still default | DC=0, fixture_translucent_stroke |
-| **VTR** (P1.6) | ☐ not started | — |
+| **Line — draws** (P1.5, `e1d399df`) | ✅ flipped, **raw deleted** (flag + raw pipelines/composite removed; LineDraper unconditional) | DC=0, fixture_translucent_stroke |
+| **VTR fill** (P1.6, `cb5d86b7`+`ea650987`+`c8c96cb5`+`cc715b45`) | ◐ every COMMON fill path routed behind `__xgisVtrFillViaRhi` (default off); flip + raw-delete remain | DC=0/within-noise across 7 fixtures (see P1.6 detail below) |
 
 Adjacent shipped on `feat/shader-dsl-glsl-compute-gpgpu` (M1–M5): shader-codegen SRP (compiler emits
 neutral IR; shader-dsl is the sole emitter) + WebGL2 compute→fragment-GPGPU, with 3 real bugs the
@@ -33,8 +33,10 @@ real-GPU gate caught (the GLSL switch `break` fall-through fixed every `match()`
 
 - `r32uint` format + `WebGl2Device.dispatchComputeToR32UI` (M4 — WebGL2 compute dispatch).
 - `RhiTextureFormat`/blend `'max'` (P1.5 — the translucent-line offscreen MAX accumulation).
-- (deferred, needed next) `setIndexBuffer(offset, size)` — the index sub-range for the VTR arena
-  (the one blocking RHI primitive per the design; `setVertexBuffer` already carries offset/size).
+- `setIndexBuffer(offset, size)` (P1.6 — the index sub-range for the VTR arena; CLOSED).
+- `Material`/`PipelineVariant` gained `cullMode`, `vsEntry`, per-variant `stencil`, per-target `blend 'max'`
+  + `writeMask`; `DrawItem` gained `vertexOffset/Size`, `vertex1` (slot 1), `index.offset/size`;
+  `executeItems` forwards the vertex/index sub-ranges (P1.6 — the fill/extrude draw needs them).
 
 ## ⭐ Verification methodology bank (hard-won — applies to ALL real-GPU render verification here)
 
@@ -50,38 +52,56 @@ real-GPU gate caught (the GLSL switch `break` fall-through fixed every `match()`
    no stable baseline. `fixture-raster-local.xgis` uses a url with NO `{z}/{x}/{y}` so every tile
    loads the same local `checker-tile.png` → byte-deterministic (P1.4).
 
-## Remaining P1 — VTR fill/extrude (the bulk)
+## P1.6 VTR fill — routing DONE for every common path; flip + raw-delete remain
 
-**Line P1.5 is DONE on the draw path** (`96b6360b`): `__xgisLineViaRhi` defaults ON, all 5 draw cases
-(opaque / translucent-MAX / composite / pick-MRT / render-bundle) verified real-GPU DC=0. The raw line
-pipelines survive ONLY as the `__xgisLineViaRhi === false` fallback and retire with the §4 seam.
+VTR **strokes** already route (`lineRenderer.drawSegments`, now unconditional RHI). The **fill** draw is
+one `drawIndexed` method (`recordTileFill`); its body moved to `material/polygon-fill-material.ts`
+(`recordFillDraw`) so the renderer stays under its size ratchet (the move NET-SHRANK the VTR). The fill
+Materials live in that content module; `PipelineFactory` builds them behind `__xgisVtrFillViaRhi`
+(default OFF — no extra pipelines built) and hands them to the VTR via `fillRhiState()` → `setFillRhi`
+(wired from the source-manager, the main VTR setup path, defensively for unit-test stubs).
 
-VTR **strokes/outlines already route through the RHI** — they call `lineRenderer.drawSegments` (vector-
-tile-renderer.ts ~4111/4114), which is now default-ON RHI. So VTR's remaining draws are **fill + extrude
-only**, and they share ONE `drawIndexed` method (~3555: `setPipeline` → `setVertexBuffer(0, arena sub-
-range)` → optional `setVertexBuffer(1, zBuffer)` for extrude → `setIndexBuffer(arena sub-range)` →
-`drawIndexed`). The `setIndexBuffer(offset,size)` RHI gap is CLOSED (`5ff386b4`).
+`recordFillDraw` matches the native pipeline ref the VTR selected → routes through the Material seam
+(`executeItems`, arena vertex/index sub-ranges, pick MRT). Routed + verified (real-GPU, behind the flag):
 
-The remaining work is a **polygon Material with the full fill-pipeline variant matrix**
-(`pipeline-factory.ts`, ~19 pipelines = the bulk). Axes, all emitted from `emitPolygonWgsl(variantInfo,
-pickEnabled)`:
-- entryPoint: `vs_main_ecef` (flat) vs `vs_main_ecef_extruded` (3D walls/roof; vertex slot 1 = zBuffer)
-- depthWrite: on (`fillPipeline`) vs off (`fillPipelineGround`)
-- stencil: none vs `*Fallback` (stencil-test, draw where stencil==0 — the per-tile clip-mask via
-  `setStencilReference`, already in `RhiRenderPass`)
-- pick: MRT (`fillPipeline`) vs `*NoPick`
-- blend/shader: opaque vs `*ExtrudedOIT` vs `*Pattern*` (line-pattern Stage 2) vs overdraw-debug
+| Fill path | Material | Verify (flag on vs off) |
+|---|---|---|
+| flat default-shader (constant fills) | `buildFlatFillMaterials` flat/ground (`pipes`) | fixture_stress 38 draws **DC=0** |
+| per-style (data-driven `match()`) | live `_fillPerStyle` map (per variant, `registerFillMaterials`) | fixture_categorical 16 draws **DC=0** |
+| opaque 3D extrude | `buildExtrudeMaterial` (`extrude` slot) | fixture_extrude_local 32 draws **DC=0** |
+| no-pick (pointer-events:none, picking on) | `pickWriteMask:0` twins → `_fillPerStyle` + `extrude.*NoPick` | extrude **DC=0** (28); flat within-noise + by-composition |
+| broad sweep | — | multi_layer 72 / filter_complex 28 DC=0 / mercator_clip 12, all maxdelta ≤ 3 |
 
-STRUCTURE (good news — it fits the Material model): the ~19 are pipeline-CONFIG variants of ONE shader
-per style. `buildShader(variant)` emits either the default `emitPolygonWgsl(null, pick)` (most tiles) or
-a style-specific module (data-driven fill/stroke `Expr`s spliced); the fillPipeline* differ only in
-pipeline state (entryPoint / depthWrite / stencil / pick-MRT / blend). So it's a **Material per style**
-(shader = `buildShader`) with the ~19 as its `variants[]`, cached like the renderer caches pipelines today.
+Key findings (save the next session the debugging):
+- **Extrude height rides the POLYGON_EXTRUDED vertex (slot 0), NOT a slot-1 z-buffer** — the z-buffer is
+  null for extrude (the raw path binds it null); the extrude Material is 1 vertex buffer, no `vertex1`.
+- **Data-driven extrude heights ALSO use the base `fillPipelineExtruded`** (height baked into the vertex
+  at compile) → there is NO per-style extrude pipeline; the opaque-extrude route covers them.
+- **picking is OFF by default** (`QUALITY.picking=false`); with it off the `*NoPick` pipelines ALIAS the
+  pickable set → already covered. The no-pick twins only matter under `?picking=1` + pointer-events:none.
+- `recordFillDraw` was confounded twice (counter=0): once because the wiring lives in `source-manager.ts`
+  (not just `map.ts`), once by the wrong `cached.zBuffer` guard. Verify routing with the
+  `__xgisVtrFillRhiDraws` counter, not just pixels.
 
-The fill draw's caller (`recordTileFill`) selects a *pipeline* today; routing means it selects a Material
-VARIANT INDEX instead. Build the per-style Material + all config-variants → route the one `drawIndexed` +
-the stencil (`setStencilReference`) → verify DC=0 (a VTR polygon scene, e.g. fixture_h2_fill). Then the §4
-seam (shared `GPUArena`/bind-group-registry → `Rhi*`) retires the raw line + VTR paths together.
+**Unrouted residuals (the flip's blockers):**
+- **Fill patterns** (`fs_fill_pattern`, `fillPipelinePattern{Ground,Extruded}*`) — a REAL path but NO local
+  `.xgis` fixture exercises it (`fixture_pattern_multi` is a STROKE pattern; `fill-pattern-*` is OFM-Liberty
+  network-only). `buildPatternGroundMaterial` was built then REVERTED (verify-before-ship — unverifiable
+  locally). Needs a fill-pattern fixture (sprite atlas + `fill-pattern-<sym>`) to route + verify.
+- **OIT translucent extrude** (`fillPipelineExtrudedOIT`, accum/revealage MRT) — DEAD by default
+  (bucket-scheduler keeps `isOitExtrude=false`); kept for future opt-in. Custom blend (`{zero,one-minus-src}`
+  revealage) is not a named Material blend yet.
+- **Per-variant no-pick** (data-driven + pointer-events:none) — `registerFillMaterials` registers only the
+  pickable variant pipelines; triple-niche.
+
+**The flip (P1.6 finish) — why it is NOT a quick toggle:** `recordFillDraw` matches by NATIVE pipeline ref
+(`pipeline === e.write`). Deleting the raw fill draw means the VTR must select a Material VARIANT INDEX
+directly instead of a pipeline — a `recordTileFill`-caller refactor (the VTR pipeline-selection logic →
+Material-resolution). It also needs (a) the residuals routed or excluded, and (b) real-world network-style
+verification (the broad sweep is 7 local fixtures; OFM/Mapbox styles are untested + non-deterministic).
+Flipping the flag default ON without the raw-delete keeps BOTH the native + Material pipelines (2x, until
+the residuals let the native go). So: route residuals → network-verify → flip + Material-resolution
+refactor → delete raw. Then the §4 seam retires the raw line + VTR paths together.
 
 ## §4 seam (Rhi* handles, the WebGL2-parity track)
 
