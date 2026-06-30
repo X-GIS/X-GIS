@@ -6,12 +6,16 @@
 // with ADDITIVE blend (splats sum), no depth, single-sample. The blur/compose
 // orchestration stays legacy (render-graph). Reuses the accum bind-group layout.
 
-import type { RhiDevice, RhiRenderPass } from '../rhi/rhi'
-import { wrapWebGpuBindGroup, wrapWebGpuBindGroupLayout, wrapWebGpuBuffer } from '../rhi/rhi-webgpu'
+import type { RhiBindGroup, RhiBuffer, RhiDevice, RhiRenderPass } from '../rhi/rhi'
+import { wrapWebGpuBindGroupLayout } from '../rhi/rhi-webgpu'
 import { Material, executeItems } from './material'
 import { emitHeatmapAccumWgsl } from '../../shaders/dsl'
 
-export interface HeatmapBatch { bindGroup: GPUBindGroup; vertBuf: GPUBuffer; idxBuf: GPUBuffer; indexCount: number }
+// The accum batch now carries RHI handles directly — the renderer builds the buffers +
+// bind group via the RHI seam (§4 batch-seam migration), so NO re-wrapping here (a wrap
+// of an already-RHI handle would double-wrap → unwrap yields a Native wrapper, not a
+// GPUBuffer → empty draw).
+export interface HeatmapBatch { bindGroup: RhiBindGroup; vertBuf: RhiBuffer; idxBuf: RhiBuffer; indexCount: number }
 
 export class HeatmapDraper {
   private readonly material: Material
@@ -35,9 +39,9 @@ export class HeatmapDraper {
   draw(pass: RhiRenderPass, b: HeatmapBatch): void {
     executeItems(this.material, pass, [{
       variant: 0,
-      bindGroups: [wrapWebGpuBindGroup(b.bindGroup)],
-      vertex: wrapWebGpuBuffer(b.vertBuf),
-      index: { buffer: wrapWebGpuBuffer(b.idxBuf), format: 'uint32' },
+      bindGroups: [b.bindGroup],
+      vertex: b.vertBuf,
+      index: { buffer: b.idxBuf, format: 'uint32' },
       count: b.indexCount,
       indexed: true,
     }])

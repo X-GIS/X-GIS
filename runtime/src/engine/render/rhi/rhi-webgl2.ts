@@ -380,6 +380,14 @@ export class WebGl2Device implements RhiDevice {
     gl.bufferSubData(b.target, byteOffset, data as ArrayBufferView)
   }
 
+  destroyBuffer(buffer: RhiBuffer): void {
+    const b = un<Gl2Buffer | Gl2StorageBuffer>(buffer)
+    // A 'storage' buffer is emulated as a data texture (no GL buffer object) — delete the
+    // texture; a real buffer deletes its GL buffer. Mirrors writeBuffer's storage fork.
+    if ('storageTex' in b) this.gl.deleteTexture(b.storageTex)
+    else this.gl.deleteBuffer(b.buf)
+  }
+
   createTexture(desc: RhiTextureDesc): RhiTexture {
     const gl = this.gl
     const tex = gl.createTexture()

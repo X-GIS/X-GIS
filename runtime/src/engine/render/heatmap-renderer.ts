@@ -25,7 +25,8 @@ import { lonLatToECEF } from '../projection/ecef'
 import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 import { getSampleCount } from '../gpu/gpu'
 import { FrameArena } from '../gpu/frame-arena'
-import { WebGpuDevice, wrapWebGpuPass } from './rhi/rhi-webgpu'
+import type { RhiBuffer, RhiBindGroup } from './rhi/rhi'
+import { WebGpuDevice, wrapWebGpuPass, wrapWebGpuBindGroupLayout } from './rhi/rhi-webgpu'
 import { HeatmapDraper } from './material/heatmap-material'
 import { heatmapUniformSlots, heatmapUniformBytes } from './heatmap-uniform-slots'
 import { writeProjectionCull } from './frame-projection-uniform'
@@ -68,11 +69,13 @@ interface HeatmapLayer {
    *  static thereafter, so no per-frame buffer writes. */
   paramsBuf: GPUBuffer
   // Per-layer GPU buffers (created lazily on first renderAccum, resized as
-  // point count changes).
-  _vertBuf?: GPUBuffer
-  _idxBuf?: GPUBuffer
-  _featBuf?: GPUBuffer
-  _bindGroup?: GPUBindGroup
+  // point count changes). Routed through the RHI seam (§4 batch-seam migration):
+  // Rhi* handles, byte-identical to the raw VERTEX|COPY_DST / INDEX|COPY_DST /
+  // STORAGE|COPY_DST buffers they replace.
+  _vertBuf?: RhiBuffer
+  _idxBuf?: RhiBuffer
+  _featBuf?: RhiBuffer
+  _bindGroup?: RhiBindGroup
   _capacity?: number
 }
 
@@ -131,8 +134,14 @@ function writeHeatmapFrameUniform(
 
 export class HeatmapRenderer {
   private device: GPUDevice
+  /** The RHI seam (§4 batch-seam migration). One instance, reused for the accum
+   *  set (uniform + per-layer vert/idx/feat buffers + accum bind group) and the
+   *  HeatmapDraper. On WebGPU `createBuffer === device.createBuffer`,
+   *  `createBindGroup === device.createBindGroup`, `destroyBuffer === GPUBuffer.destroy()`,
+   *  so the GPU command stream is unchanged. */
+  private rhi: WebGpuDevice
   private bindGroupLayout: GPUBindGroupLayout
-  private uniformBuffer: GPUBuffer
+  private uniformBuffer: RhiBuffer
   private uniformData = new Float32Array(heatmapUniformSlots().slots) // reflect-derived (= mvp16+proj4+viewport4+cam_h4+cam_l4+globe_eye4 = 36, #600)
   private readonly _frameArena = new FrameArena(64 * 1024)
   private layers: HeatmapLayer[] = []
@@ -147,6 +156,7 @@ export class HeatmapRenderer {
   constructor(ctx: { device: GPUDevice }) {
     this.device = ctx.device
     const { device } = ctx
+    this.rhi = new WebGpuDevice(device)
 
     this.bindGroupLayout = device.createBindGroupLayout({
       label: 'heatmap-accum-bgl',
@@ -158,9 +168,10 @@ export class HeatmapRenderer {
     // The accum draw goes through the RHI Material seam (HeatmapDraper, which owns the
     // additive r16float single-sample pipeline); the shared bind-group layout feeds it.
 
-    this.uniformBuffer = device.createBuffer({
+    // Accum uniform — UNIFORM|COPY_DST, byte-identical via bufUsage('uniform', writable:true).
+    this.uniformBuffer = this.rhi.createBuffer({
       size: heatmapUniformBytes(), // reflect-derived (was 144 = 36 f32 × 4, #600 globe_eye)
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      usage: 'uniform', writable: true,
     })
 
     // Blur direction uniforms (vec4: x,y = texel step direction). Written
@@ -292,9 +303,10 @@ export class HeatmapRenderer {
     for (const layer of this.layers) {
       layer.rampTexture.destroy()
       layer.paramsBuf.destroy()
-      layer._vertBuf?.destroy()
-      layer._idxBuf?.destroy()
-      layer._featBuf?.destroy()
+      // Accum buffers route through the RHI seam; ramp/params stay raw (separate set).
+      if (layer._vertBuf) this.rhi.destroyBuffer(layer._vertBuf)
+      if (layer._idxBuf) this.rhi.destroyBuffer(layer._idxBuf)
+      if (layer._featBuf) this.rhi.destroyBuffer(layer._featBuf)
     }
     this.layers = []
   }
@@ -322,7 +334,7 @@ export class HeatmapRenderer {
     const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
     const uf = this.uniformData
     writeHeatmapFrameUniform(uf, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight)
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, uf)
+    this.rhi.writeBuffer(this.uniformBuffer, 0, uf)
   }
 
   /** Draw ONE heatmap layer's Gaussian splats additively into the bound accum
@@ -372,26 +384,25 @@ export class HeatmapRenderer {
       featData[fOff + 22] = myH; featData[fOff + 23] = Math.fround(my - myH)
     }
 
-    // (Re)allocate per-layer GPU buffers when missing or point count changed.
+    // (Re)allocate per-layer GPU buffers when missing or point count changed. Routed
+    // through the RHI seam (§4): 'vertex'/'index'/'storage' + writable:true map 1:1 to
+    // VERTEX|COPY_DST / INDEX|COPY_DST / STORAGE|COPY_DST — byte-identical GPU resources.
     if (!layer._vertBuf || layer._capacity !== N) {
-      layer._vertBuf?.destroy()
-      layer._idxBuf?.destroy()
-      layer._featBuf?.destroy()
-      layer._vertBuf = this.device.createBuffer({ size: verts.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST, label: 'heatmap-vertices' })
-      layer._idxBuf = this.device.createBuffer({ size: indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST, label: 'heatmap-indices' })
-      layer._featBuf = this.device.createBuffer({ size: Math.max(featData.byteLength, 16), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'heatmap-features' })
-      layer._bindGroup = this.device.createBindGroup({
-        layout: this.bindGroupLayout,
-        entries: [
-          { binding: 0, resource: { buffer: this.uniformBuffer } },
-          { binding: 1, resource: { buffer: layer._featBuf } },
-        ],
-      })
+      if (layer._vertBuf) this.rhi.destroyBuffer(layer._vertBuf)
+      if (layer._idxBuf) this.rhi.destroyBuffer(layer._idxBuf)
+      if (layer._featBuf) this.rhi.destroyBuffer(layer._featBuf)
+      layer._vertBuf = this.rhi.createBuffer({ size: verts.byteLength, usage: 'vertex', writable: true, label: 'heatmap-vertices' })
+      layer._idxBuf = this.rhi.createBuffer({ size: indices.byteLength, usage: 'index', writable: true, label: 'heatmap-indices' })
+      layer._featBuf = this.rhi.createBuffer({ size: Math.max(featData.byteLength, 16), usage: 'storage', writable: true, label: 'heatmap-features' })
+      layer._bindGroup = this.rhi.createBindGroup(wrapWebGpuBindGroupLayout(this.bindGroupLayout), [
+        { binding: 0, resource: { buffer: this.uniformBuffer } },
+        { binding: 1, resource: { buffer: layer._featBuf } },
+      ])
       layer._capacity = N
     }
-    this.device.queue.writeBuffer(layer._vertBuf!, 0, verts)
-    this.device.queue.writeBuffer(layer._idxBuf!, 0, indices)
-    this.device.queue.writeBuffer(layer._featBuf!, 0, featData)
+    this.rhi.writeBuffer(layer._vertBuf!, 0, verts)
+    this.rhi.writeBuffer(layer._idxBuf!, 0, indices)
+    this.rhi.writeBuffer(layer._featBuf!, 0, featData)
 
     // The accum draw goes through the RHI Material seam (P1: the sole path). The accum
     // target is r16float — WebGL2 fail-closes on it, so this is WebGPU-only by construction.
@@ -404,7 +415,7 @@ export class HeatmapRenderer {
   private _heatmapDraper?: HeatmapDraper
   private ensureHeatmapDraper(): void {
     if (this._heatmapDraper) return
-    this._heatmapDraper = new HeatmapDraper(new WebGpuDevice(this.device), this.bindGroupLayout)
+    this._heatmapDraper = new HeatmapDraper(this.rhi, this.bindGroupLayout)
   }
 
   /** Rebuild the accum pipeline for a quality change. Heatmap accum is always

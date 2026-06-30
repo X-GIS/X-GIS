@@ -282,6 +282,10 @@ export interface RhiDevice {
   readonly backend: 'webgpu' | 'webgl2'
   createBuffer(desc: RhiBufferDesc): RhiBuffer
   writeBuffer(buffer: RhiBuffer, byteOffset: number, data: BufferSource): void
+  /** Release a buffer's GPU memory (WebGPU `GPUBuffer.destroy()`; WebGL2
+   *  `gl.deleteBuffer`). Called at the SAME teardown sites the raw `.destroy()`
+   *  was — resource lifetime is the caller's, not centralized by the RHI. */
+  destroyBuffer(buffer: RhiBuffer): void
   createTexture(desc: RhiTextureDesc): RhiTexture
   writeTexture(texture: RhiTexture, data: BufferSource, bytesPerRow: number, width: number, height: number): void
   createView(texture: RhiTexture): RhiTextureView
