@@ -135,12 +135,33 @@ refactor → delete raw. Then the §4 seam retires the raw line + VTR paths toge
 ## §4 seam (Rhi* handles, the WebGL2-parity track)
 
 The flips above are WebGPU byte-identical but still wrap raw `GPUBuffer`/`GPUBindGroup` at the draw
-site (`wrapWebGpu*`). Closing the seam (resource builders use `rhi.createBuffer`/`createBindGroup`,
-batches carry `Rhi*` handles) is what makes them WebGL2-capable. It is a COUPLED cluster:
-`ShapeRegistry` (`text/sdf-shape.ts`, shared by point+line), `GPUArena`, and the bind-group registry
-all migrate together. `RhiBuffer` has no `destroy()` yet → add `RhiDevice.destroyBuffer` (the
-per-frame-rebuild renderers retire buffers). Strategy: flip-first (WebGPU, done for 4.x renderers) →
-this seam migration makes them WebGL2-capable.
+site (`wrapWebGpu*`). Closing the seam (resource builders CREATE via `rhi.createBuffer`/`createBindGroup`,
+batches carry `Rhi*` handles, drop the draw-site wrap) is what makes them WebGL2-capable. On WebGPU
+`rhi.createBuffer === device.createBuffer` (the `bufUsage` map is 1:1), so each piece is BYTE-IDENTICAL.
+
+**The governing coupling rule (mapped 2026-06-30, workflow w6262ztgx):** a builder's buffer handle can
+flip `GPUBuffer → RhiBuffer` only when (a) EVERY bind group referencing it is built via
+`rhi.createBindGroup` AND (b) every RAW-fallback draw consuming it is deleted — because
+`rhi.createBindGroup` needs `RhiBuffer` while raw `device.createBindGroup` needs `GPUBuffer`; one buffer
+can't serve both without an unwrap shim (the non-byte-identical mixed state to avoid). Migration units, in order:
+
+1. **Heatmap-accum (INDEPENDENT, FIRST — in progress).** Sole RHI path already (no raw accum draw),
+   accum buffers + BG are private. Establishes `RhiDevice.destroyBuffer` at minimum risk. Files:
+   rhi.ts (+`destroyBuffer`), rhi-webgpu.ts + rhi-webgl2.ts (impl), heatmap-renderer.ts (accum
+   create/write/destroy/BG via rhi; blur/compose/ramp stay raw), heatmap-material.ts (HeatmapBatch →
+   Rhi*, drop wraps). The 4 accum bufs are `base|COPY_DST` → map 1:1 (uniform/vertex/index/storage).
+2. **Icon / Text (INDEPENDENT each).** Gate: confirm the raw fallback draw is deleted first; else treat
+   like the triad.
+3. **Point + Line + ShapeRegistry (COUPLED TRIAD).** `ShapeRegistry` (sdf-shape.ts) is shared by both.
+   Order: (3a) delete point's raw `makeBindGroup` (point-renderer.ts:265-272) + flip point buffers;
+   (3b) delete line's raw `createLayerBindGroup` + flip line buffers; (3c) ONLY THEN flip ShapeRegistry's
+   getters `GPUBuffer → RhiBuffer` + drop the wraps (point-material.ts:54-57, line-material.ts:80).
+4. **VTR / polygon cluster: GPUArena + uniform-ring + feature-data-binder + BindGroupRegistry (LAST).**
+   Deeply shared; highest blast radius. Needs RHI CONTRACT EXPANSION beyond `destroyBuffer`: the arena
+   buffer is `VERTEX|COPY_DST|COPY_SRC` but `RhiBufferUsage` has no `copy-src` + `bufUsage` only ORs
+   COPY_DST → add `copySrc?: boolean` to `RhiBufferDesc` (additive, default false) + `RhiCommandEncoder.
+   copyBufferToBuffer` (for `gpu-arena.ts` compaction) BEFORE flipping the arena, else compaction throws
+   a validation error (latent — only under memory pressure / many tiles; verify on globe z10-11).
 
 ## After P1: P2 carve `@xgis/engine` → P3 extract `@xgis/map` → P4 runtime thin shell
 
