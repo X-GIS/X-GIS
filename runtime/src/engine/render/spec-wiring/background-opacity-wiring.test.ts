@@ -36,8 +36,8 @@
 import { describe, it, expect } from 'vitest'
 import type { PropertyShape } from '@xgis/compiler'
 import { backgroundPass } from './../passes/background-pass'
-import type { FrameContext } from './../frame-context'
-import { makeProjectionToken } from './../projection-token'
+import type { FrameContext } from '@xgis/engine'
+import { makeProjectionToken } from '@xgis/engine'
 import type { BackgroundPassHost } from './../passes/pass-hosts'
 import type { SceneView } from './../scene-view'
 

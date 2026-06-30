@@ -35,7 +35,7 @@ import { MapRendererContent, type ShowCommand } from './render/renderer'
 import { resolveNumberShape } from './render/paint-shape-resolve'
 import { RenderLoop } from './render-loop'
 import { buildRenderNodes } from './render/passes/pass-chain'
-import { RenderTargets } from './render/render-targets'
+import { RenderTargets } from '@xgis/engine'
 import {
   classifyVectorTileShows as classifyVectorTileShowsImpl,
   groupOpaqueBySource as groupOpaqueBySourceImpl,

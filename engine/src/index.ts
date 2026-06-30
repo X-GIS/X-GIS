@@ -35,6 +35,12 @@ export * from './projection/unproject'
 export * from './projection/earth-surface-fill'
 export * from './projection/camera'
 
+// ── Frame / render core machinery (P3 Step 4) ────────────────────────
+export * from './render/render-targets'
+export * from './render/projection-token'
+export * from './render/frame-context'
+export * from './render/frame-draw-stats'
+
 // ── Shader machinery: CPU log-depth + content-blind shader-DSL leaves ─
 export * from './shaders/log-depth'
 export * from './shaders/dsl/overdraw-compose'

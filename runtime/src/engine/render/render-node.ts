@@ -17,7 +17,7 @@
 // ratchet (engine must not import @xgis/map) holds by construction — not as a
 // regex bolt-on.
 
-import type { FrameContext } from './frame-context'
+import type { FrameContext } from '@xgis/engine'
 import type { SceneView } from './scene-view'
 
 /** One stage of the fixed render-pass chain, implemented + registered by

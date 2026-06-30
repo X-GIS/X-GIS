@@ -36,7 +36,7 @@ import {
 } from '../tile-decision'
 import { PrefetchScheduler } from './prefetch-scheduler'
 import { LabelFeatureSource } from './label-feature-source'
-import { FrameDrawStats } from './frame-draw-stats'
+import { FrameDrawStats } from '@xgis/engine'
 import { TileSelectionCache } from './tile-selection-cache'
 import { FeatureDataBinder } from './feature-data-binder'
 import { GpuTileStore } from './gpu-tile-store'

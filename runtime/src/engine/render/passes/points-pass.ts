@@ -10,8 +10,8 @@
 // changes only: `this.host.X` → `host.X`, `encoder` → `ctx.encoder`.
 
 import { DEBUG_OVERDRAW } from '../../debug-flags'
-import type { FrameContext } from '../frame-context'
-import { unwrapProjection } from '../projection-token'
+import type { FrameContext } from '@xgis/engine'
+import { unwrapProjection } from '@xgis/engine'
 import type { SceneView } from '../scene-view'
 import type { RenderPass, PointsPassHost } from './pass'
 

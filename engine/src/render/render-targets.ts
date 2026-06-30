@@ -16,8 +16,8 @@
 // destroy → recreate order; setQuality() zeroes the size tracker the same
 // way (now via `invalidate()`).
 
-import { OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT, HEATMAP_DENSITY_FORMAT } from '@xgis/engine'
-import type { GPUContext } from '@xgis/engine'
+import { OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT, HEATMAP_DENSITY_FORMAT } from '../gpu/gpu-shared'
+import type { GPUContext } from '../gpu/gpu'
 
 /** Result of `RenderTargets.ensure` — the per-frame colour-attachment
  *  decision that depends on `sampleCount` / `debugOverdraw`. Identical to

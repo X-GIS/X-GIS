@@ -12,7 +12,7 @@
 // arena / scratch-reuse patterns elsewhere in the path. The fields are all
 // `let`-style (mutable) for that reason.
 
-import type { Camera } from '@xgis/engine'
+import type { Camera } from '../projection/camera'
 import type { RenderTargets } from './render-targets'
 import type { ProjectionToken } from './projection-token'
 

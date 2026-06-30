@@ -20,8 +20,8 @@
 // per-frame allocated — RenderTargets.ensureHeatmap tracks size + reuses).
 
 import { DEBUG_OVERDRAW } from '../../debug-flags'
-import type { FrameContext } from '../frame-context'
-import { unwrapProjection } from '../projection-token'
+import type { FrameContext } from '@xgis/engine'
+import { unwrapProjection } from '@xgis/engine'
 import type { SceneView } from '../scene-view'
 import type { RenderPass, HeatmapPassHost } from './pass'
 

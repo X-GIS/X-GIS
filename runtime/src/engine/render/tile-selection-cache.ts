@@ -36,7 +36,7 @@ import {
 } from '@xgis/engine'
 import { SELECTOR_PROJ_NAMES, promotesToGlobeWhenTilted, representsCenterAs } from '@xgis/engine'
 import type { TileCatalog } from '../../data/tile-catalog'
-import type { FrameDrawStats } from './frame-draw-stats'
+import type { FrameDrawStats } from '@xgis/engine'
 
 /** Cache of `visibleTilesFrustum()` + the derived neededKeys /
  *  worldOffsets arrays. With one source feeding N layer

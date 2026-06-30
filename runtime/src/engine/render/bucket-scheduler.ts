@@ -29,8 +29,8 @@ import { resolveShow, type ResolvedShow } from './resolved-show'
 import { SAFE_MODE } from '@xgis/engine'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import type { RenderTraceRecorder, RGBA } from '../../diagnostics/render-trace'
-import type { FrameContext } from './frame-context'
-import { unwrapProjection } from './projection-token'
+import type { FrameContext } from '@xgis/engine'
+import { unwrapProjection } from '@xgis/engine'
 import type { PointRenderer } from './point-renderer'
 
 // ── Output: post-classification show with all animation resolved ──
