@@ -13,6 +13,14 @@ import { emitTextWgsl } from '../../shaders/dsl'
 
 type VertexBuffers = ReadonlyArray<{ stride: number; attributes: ReadonlyArray<{ location: number; offset: number; format: string }> }>
 
+/** P1 — the SDF text/label draw routes through the RHI Material seam (TextDraper) by DEFAULT;
+ *  `__xgisTextViaRhi === false` is the kill-switch back to the raw `pass.setPipeline`+`pass.draw`
+ *  path. (The raw else-branch in TextRenderer.draw + the native text pipeline survive as that
+ *  fallback until the §4 seam deletes them.) Mirrors fillViaRhiEnabled(). */
+export function textViaRhiEnabled(): boolean {
+  return (globalThis as { __xgisTextViaRhi?: boolean }).__xgisTextViaRhi !== false
+}
+
 /** One glyph-run slice: its page's bind group + dynamic offset + vertex range. */
 export interface TextSlice { bg: GPUBindGroup; dynamicOffset: number; count: number; first: number }
 

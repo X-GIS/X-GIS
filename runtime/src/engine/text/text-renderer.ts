@@ -22,7 +22,7 @@ import type { TextDraw } from './text-renderer-types'
 import { codePointIsIdeographic } from './text-wrap'
 import { emitTextWgsl } from '../shaders/dsl'
 import { WebGpuDevice, wrapWebGpuPass } from '../render/rhi/rhi-webgpu'
-import { TextDraper, type TextSlice } from '../render/material/text-material'
+import { TextDraper, textViaRhiEnabled, type TextSlice } from '../render/material/text-material'
 import { vertexField } from '@xgis/compiler'
 import { TEXT_FORMAT } from './text-vertex-format'
 import { toVertexBufferLayout } from '../render/vertex-buffer-layout'
@@ -93,7 +93,8 @@ export class TextRenderer {
    *  reallocated. */
   private bindGroupsByPage: GPUBindGroup[] = []
 
-  // RHI pilot (behind __xgisTextViaRhi). Same per-slice draws through the seam.
+  // RHI Material path (default-on via textViaRhiEnabled; __xgisTextViaRhi=false is the
+  // kill-switch). Same per-slice draws through the seam.
   private _textFmt!: GPUTextureFormat
   private _textSamples!: number
   private _textDraper?: TextDraper
@@ -422,8 +423,9 @@ export class TextRenderer {
       this.allUniforms.buffer, this.allUniforms.byteOffset,
       numSlices * UNIFORM_STRIDE)
 
-    // RHI pilot: collect per-slice draw items + issue via the generic seam.
-    const useTextRhi = (globalThis as { __xgisTextViaRhi?: boolean }).__xgisTextViaRhi === true
+    // RHI Material path (default-on): collect per-slice draw items + issue via the
+    // generic seam. __xgisTextViaRhi=false falls back to the raw pass.draw branch below.
+    const useTextRhi = textViaRhiEnabled()
     const rhiSlices: TextSlice[] = []
     if (!useTextRhi) {
       pass.setPipeline(this.pipeline)
