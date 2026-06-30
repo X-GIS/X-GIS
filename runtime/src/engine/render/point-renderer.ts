@@ -14,7 +14,8 @@ import { resolveNumberShape } from './paint-shape-resolve'
 import { FrameArena } from '../gpu/frame-arena'
 import type { PointLayer } from './point-renderer-types'
 import { buildPointModule } from '../shaders/dsl'
-import { WebGpuDevice, wrapWebGpuPass } from './rhi/rhi-webgpu'
+import { WebGpuDevice, wrapWebGpuPass, wrapWebGpuBuffer, wrapWebGpuBindGroupLayout } from './rhi/rhi-webgpu'
+import type { RhiBuffer, RhiBindGroup } from './rhi/rhi'
 import { PointDraper } from './material/point-material'
 import { reflect } from '@xgis/shader-dsl'
 import { vertexField } from '@xgis/compiler'
@@ -197,13 +198,19 @@ export function worldCopyMercX(lon: number, wo: number): number {
 // ═══ Renderer ═══
 
 export class PointRenderer {
-  private device: GPUDevice
+  /** The RHI seam (§4 batch-seam migration). One instance, reused for the point
+   *  resources (uniform + per-frame vertex/index/feature buffers + the empty-shape
+   *  fallback + the bind groups) and the PointDraper. On WebGPU `createBuffer ===
+   *  device.createBuffer`, `createBindGroup === device.createBindGroup`,
+   *  `writeBuffer === queue.writeBuffer`, `destroyBuffer === GPUBuffer.destroy()`,
+   *  so the GPU command stream is byte-identical. */
+  private readonly rhi: WebGpuDevice
   private bindGroupLayout: GPUBindGroupLayout
   private format: GPUTextureFormat = 'bgra8unorm'
   // Vertex buffer layout — cached so rebuildForQuality can reuse without
   // recomputing the stride/attribute map.
   private vertexBufferLayout: GPUVertexBufferLayout | null = null
-  private uniformBuffer: GPUBuffer
+  private uniformBuffer: RhiBuffer
   // Point Uniforms: mvp(16) + proj_params(4) + viewport(4) + cam_ecef_h(4) +
   // cam_ecef_l(4) + circle_params(4) = 36 floats × 4 = 144 bytes.
   // `mvp` IS the ECEF-MVP (Camera.getECEFFrameView). The per-feature ECEF
@@ -230,7 +237,7 @@ export class PointRenderer {
   }
 
   constructor(ctx: { device: GPUDevice; format: GPUTextureFormat }) {
-    this.device = ctx.device
+    this.rhi = new WebGpuDevice(ctx.device)
     const { device } = ctx
 
     this.bindGroupLayout = device.createBindGroupLayout({
@@ -248,9 +255,11 @@ export class PointRenderer {
     // this layout feeds ensurePointDraper.
     this.vertexBufferLayout = toVertexBufferLayout(POINT_FORMAT)
 
-    this.uniformBuffer = device.createBuffer({
-      size: pointUniformSlots().slots * 4, // reflected std140 Uniforms size (40 slots × 4 = 160 bytes after #600 globe_eye)
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    // reflected std140 Uniforms size (40 slots × 4 = 160 bytes after #600 globe_eye).
+    // UNIFORM|COPY_DST, byte-identical via bufUsage('uniform', writable:true).
+    this.uniformBuffer = this.rhi.createBuffer({
+      size: pointUniformSlots().slots * 4,
+      usage: 'uniform', writable: true,
     })
   }
 
@@ -261,25 +270,29 @@ export class PointRenderer {
     this._pointDraper = undefined
   }
 
-  /** Create a bind group with uniform + feat_data + shape buffers */
-  private makeBindGroup(featBuffer: GPUBuffer): GPUBindGroup {
+  /** Create a bind group with uniform + feat_data + shape buffers, through the
+   *  RHI seam (§4). uniform + feat are point-owned RhiBuffers (passed directly);
+   *  the shared ShapeRegistry shape/seg buffers are still raw GPUBuffer until
+   *  step 3c, so they're wrapped here (transient wraps dropped in 3c). */
+  private makeBindGroup(featBuffer: RhiBuffer): RhiBindGroup {
     const shapeBuf = this.shapeRegistry?.shapeBuffer
     const segBuf = this.shapeRegistry?.segmentBuffer
-    // Fallback: tiny empty buffers if no registry
-    const emptyBuf = this._emptyStorageBuf ??= this.device.createBuffer({
-      size: 64, usage: GPUBufferUsage.STORAGE, label: 'empty-shape-buf',
-    })
-    return this.device.createBindGroup({
-      layout: this.bindGroupLayout,
-      entries: [
-        { binding: 0, resource: { buffer: this.uniformBuffer } },
-        { binding: 1, resource: { buffer: featBuffer } },
-        { binding: 2, resource: { buffer: shapeBuf ?? emptyBuf } },
-        { binding: 3, resource: { buffer: segBuf ?? emptyBuf } },
-      ],
+    return this.rhi.createBindGroup(wrapWebGpuBindGroupLayout(this.bindGroupLayout), [
+      { binding: 0, resource: { buffer: this.uniformBuffer } },
+      { binding: 1, resource: { buffer: featBuffer } },
+      { binding: 2, resource: { buffer: shapeBuf ? wrapWebGpuBuffer(shapeBuf) : this.emptyStorageBuf() } },
+      { binding: 3, resource: { buffer: segBuf ? wrapWebGpuBuffer(segBuf) : this.emptyStorageBuf() } },
+    ])
+  }
+  /** Tiny empty storage buffer used as the binding-2/3 fallback when no
+   *  ShapeRegistry is attached. STORAGE-only (no COPY_DST — never written),
+   *  byte-identical via bufUsage('storage', writable:false). */
+  private emptyStorageBuf(): RhiBuffer {
+    return this._emptyStorageBuf ??= this.rhi.createBuffer({
+      size: 64, usage: 'storage', writable: false, label: 'empty-shape-buf',
     })
   }
-  private _emptyStorageBuf: GPUBuffer | null = null
+  private _emptyStorageBuf: RhiBuffer | null = null
 
   // ── RHI Material seam — the tile-point draw (P1: the sole path) ──
   // Storage buffers + vertex/index + drawIndexed through the generic Material: builds the
@@ -294,17 +307,17 @@ export class PointRenderer {
       stride: vbl.arrayStride,
       attributes: [...vbl.attributes].map((a) => ({ location: a.shaderLocation, offset: a.offset, format: a.format as string })),
     }]
-    this._pointDraper = new PointDraper(new WebGpuDevice(this.device), this.format, getSampleCount(), vertexBuffers)
+    this._pointDraper = new PointDraper(this.rhi, this.format, getSampleCount(), vertexBuffers)
   }
 
   clearLayers(): void {
     for (const layer of this.layers) {
-      layer.vertexBuffer.destroy()
-      layer.indexBuffer.destroy()
-      layer.featureBuffer.destroy()
-      layer._expandedVertBuf?.destroy()
-      layer._expandedIdxBuf?.destroy()
-      layer._expandedFeatBuf?.destroy()
+      this.rhi.destroyBuffer(layer.vertexBuffer)
+      this.rhi.destroyBuffer(layer.indexBuffer)
+      this.rhi.destroyBuffer(layer.featureBuffer)
+      if (layer._expandedVertBuf) this.rhi.destroyBuffer(layer._expandedVertBuf)
+      if (layer._expandedIdxBuf) this.rhi.destroyBuffer(layer._expandedIdxBuf)
+      if (layer._expandedFeatBuf) this.rhi.destroyBuffer(layer._expandedFeatBuf)
     }
     this.layers = []
   }
@@ -316,9 +329,9 @@ export class PointRenderer {
   // ── Tile-based point accumulation (called from VectorTileRenderer) ──
   // Phase 2 PR 2d.2 — ECEF DSFUN: [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, featId, absLon, absLat]
   private tilePoints: { exH: number; eyH: number; ezH: number; exL: number; eyL: number; ezL: number; featId: number; absLon: number; absLat: number; mxH: number; mxL: number; myH: number; myL: number }[] = []
-  private tilePointBuffer: GPUBuffer | null = null
-  private tilePointIndexBuffer: GPUBuffer | null = null
-  private tilePointFeatBuffer: GPUBuffer | null = null
+  private tilePointBuffer: RhiBuffer | null = null
+  private tilePointIndexBuffer: RhiBuffer | null = null
+  private tilePointFeatBuffer: RhiBuffer | null = null
   /** Buffers retired this frame because renderTilePoints rebuilt
    *  its tile-point geometry. Destroyed at the START of the NEXT
    *  frame so any in-flight queue.submit() that bound them via
@@ -332,7 +345,7 @@ export class PointRenderer {
    *  hit "Buffer used in submit while destroyed" validation
    *  errors when the prior frame's command encoder still
    *  referenced the same bind group. */
-  private retiredTilePointBuffers: GPUBuffer[] = []
+  private retiredTilePointBuffers: RhiBuffer[] = []
 
   /** Drain retired-buffer queue from the previous frame. Safe by
    *  this point because the previous frame's queue.submit() has
@@ -342,7 +355,7 @@ export class PointRenderer {
    *  renderTilePoints / renderPoints call. */
   beginFrame(): void {
     if (this.retiredTilePointBuffers.length === 0) return
-    for (const b of this.retiredTilePointBuffers) b.destroy()
+    for (const b of this.retiredTilePointBuffers) this.rhi.destroyBuffer(b)
     this.retiredTilePointBuffers.length = 0
   }
 
@@ -446,17 +459,19 @@ export class PointRenderer {
     if (this.tilePointIndexBuffer) this.retiredTilePointBuffers.push(this.tilePointIndexBuffer)
     if (this.tilePointFeatBuffer) this.retiredTilePointBuffers.push(this.tilePointFeatBuffer)
 
-    this.tilePointBuffer = this.device.createBuffer({ size: verts.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST, label: 'tile-point-vertices' })
-    this.device.queue.writeBuffer(this.tilePointBuffer, 0, verts)
-    this.tilePointIndexBuffer = this.device.createBuffer({ size: indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST, label: 'tile-point-indices' })
-    this.device.queue.writeBuffer(this.tilePointIndexBuffer, 0, indices)
-    this.tilePointFeatBuffer = this.device.createBuffer({ size: Math.max(featData.byteLength, 16), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'tile-point-features' })
-    this.device.queue.writeBuffer(this.tilePointFeatBuffer, 0, featData)
+    // VERTEX|COPY_DST / INDEX|COPY_DST / STORAGE|COPY_DST, byte-identical via
+    // bufUsage(usage, writable:true); writeBuffer = queue.writeBuffer.
+    this.tilePointBuffer = this.rhi.createBuffer({ size: verts.byteLength, usage: 'vertex', writable: true, label: 'tile-point-vertices' })
+    this.rhi.writeBuffer(this.tilePointBuffer, 0, verts)
+    this.tilePointIndexBuffer = this.rhi.createBuffer({ size: indices.byteLength, usage: 'index', writable: true, label: 'tile-point-indices' })
+    this.rhi.writeBuffer(this.tilePointIndexBuffer, 0, indices)
+    this.tilePointFeatBuffer = this.rhi.createBuffer({ size: Math.max(featData.byteLength, 16), usage: 'storage', writable: true, label: 'tile-point-features' })
+    this.rhi.writeBuffer(this.tilePointFeatBuffer, 0, featData)
 
     const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
     const uf = this.uniformData
     writePointFrameUniform(uf, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight, tileTranslateX, tileTranslateY, show.circleBlur ?? 0, show.circlePitchScaleMap ?? false)
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, uf)
+    this.rhi.writeBuffer(this.uniformBuffer, 0, uf)
 
     // Pick the translucent (no depth write) pipeline when the effective
     // alpha drops below 1 so halos/glows rendered from tile sources don't
@@ -472,12 +487,14 @@ export class PointRenderer {
     // playground/e2e/_point-rhi-parity. Points don't participate in GPU picking, so there
     // is no pick variant to keep on the legacy path.
     this.ensurePointDraper()
+    // ShapeRegistry shape/seg are still raw GPUBuffer until step 3c → wrapped
+    // here (transient); the empty fallback is already a point-owned RhiBuffer.
     const shapeBuf = this.shapeRegistry?.shapeBuffer
     const segBuf = this.shapeRegistry?.segmentBuffer
-    const emptyBuf = this._emptyStorageBuf ??= this.device.createBuffer({ size: 64, usage: GPUBufferUsage.STORAGE, label: 'empty-shape-buf' })
     this._pointDraper!.draw(wrapWebGpuPass(pass), {
       uniform: this.uniformBuffer, feat: this.tilePointFeatBuffer!,
-      shape: shapeBuf ?? emptyBuf, seg: segBuf ?? emptyBuf,
+      shape: shapeBuf ? wrapWebGpuBuffer(shapeBuf) : this.emptyStorageBuf(),
+      seg: segBuf ? wrapWebGpuBuffer(segBuf) : this.emptyStorageBuf(),
       vertex: this.tilePointBuffer!, index: this.tilePointIndexBuffer!,
       indexCount: totalN * 6, variant: tileIsTranslucent ? 1 : 0,
     })
@@ -603,14 +620,16 @@ export class PointRenderer {
       lats[i] = points[i].lat
     }
 
-    const vertexBuffer = this.device.createBuffer({ size: verts.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST, label: 'point-vertices' })
-    this.device.queue.writeBuffer(vertexBuffer, 0, verts)
+    // VERTEX|COPY_DST / INDEX|COPY_DST / STORAGE|COPY_DST, byte-identical via
+    // bufUsage(usage, writable:true); writeBuffer = queue.writeBuffer.
+    const vertexBuffer = this.rhi.createBuffer({ size: verts.byteLength, usage: 'vertex', writable: true, label: 'point-vertices' })
+    this.rhi.writeBuffer(vertexBuffer, 0, verts)
 
-    const indexBuffer = this.device.createBuffer({ size: indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST, label: 'point-indices' })
-    this.device.queue.writeBuffer(indexBuffer, 0, indices)
+    const indexBuffer = this.rhi.createBuffer({ size: indices.byteLength, usage: 'index', writable: true, label: 'point-indices' })
+    this.rhi.writeBuffer(indexBuffer, 0, indices)
 
-    const featureBuffer = this.device.createBuffer({ size: Math.max(featData.byteLength, 16), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'point-features' })
-    this.device.queue.writeBuffer(featureBuffer, 0, featData)
+    const featureBuffer = this.rhi.createBuffer({ size: Math.max(featData.byteLength, 16), usage: 'storage', writable: true, label: 'point-features' })
+    this.rhi.writeBuffer(featureBuffer, 0, featData)
 
     const bindGroup = this.makeBindGroup(featureBuffer)
 
@@ -865,35 +884,39 @@ export class PointRenderer {
         }
       }
 
-      // Reuse or recreate GPU buffers sized for 3× points
+      // Reuse or recreate GPU buffers sized for 3× points. VERTEX|COPY_DST /
+      // INDEX|COPY_DST / STORAGE|COPY_DST, byte-identical via bufUsage(usage,
+      // writable:true); destroyBuffer = GPUBuffer.destroy().
       if (!layer._expandedVertBuf || layer._expandedSize !== totalPoints) {
-        layer._expandedVertBuf?.destroy()
-        layer._expandedIdxBuf?.destroy()
-        layer._expandedFeatBuf?.destroy()
-        layer._expandedVertBuf = this.device.createBuffer({ size: expandedVerts.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST, label: 'point-expanded-vertices' })
-        layer._expandedIdxBuf = this.device.createBuffer({ size: expandedIdx.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST, label: 'point-expanded-indices' })
-        layer._expandedFeatBuf = this.device.createBuffer({ size: Math.max(expandedFeat.byteLength, 16), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'point-expanded-features' })
+        if (layer._expandedVertBuf) this.rhi.destroyBuffer(layer._expandedVertBuf)
+        if (layer._expandedIdxBuf) this.rhi.destroyBuffer(layer._expandedIdxBuf)
+        if (layer._expandedFeatBuf) this.rhi.destroyBuffer(layer._expandedFeatBuf)
+        layer._expandedVertBuf = this.rhi.createBuffer({ size: expandedVerts.byteLength, usage: 'vertex', writable: true, label: 'point-expanded-vertices' })
+        layer._expandedIdxBuf = this.rhi.createBuffer({ size: expandedIdx.byteLength, usage: 'index', writable: true, label: 'point-expanded-indices' })
+        layer._expandedFeatBuf = this.rhi.createBuffer({ size: Math.max(expandedFeat.byteLength, 16), usage: 'storage', writable: true, label: 'point-expanded-features' })
         layer._expandedSize = totalPoints
       }
 
-      this.device.queue.writeBuffer(layer._expandedVertBuf!, 0, expandedVerts)
-      this.device.queue.writeBuffer(layer._expandedIdxBuf!, 0, expandedIdx)
-      this.device.queue.writeBuffer(layer._expandedFeatBuf!, 0, expandedFeat)
+      this.rhi.writeBuffer(layer._expandedVertBuf!, 0, expandedVerts)
+      this.rhi.writeBuffer(layer._expandedIdxBuf!, 0, expandedIdx)
+      this.rhi.writeBuffer(layer._expandedFeatBuf!, 0, expandedFeat)
       return totalPoints
     }
 
     const drawLayer = (layer: PointLayer, variant: number, totalPoints: number) => {
       // Write per-layer uniform (circle_params may differ between layers).
       writePointFrameUniform(uf, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight, layer.circleTranslateX, layer.circleTranslateY, layer.circleBlur, layer.circlePitchScaleMap)
-      this.device.queue.writeBuffer(this.uniformBuffer, 0, uf)
+      this.rhi.writeBuffer(this.uniformBuffer, 0, uf)
       // Through the RHI Material seam (P1: the sole path), same as the tile-point draw.
+      // ShapeRegistry shape/seg are still raw GPUBuffer until step 3c → wrapped here
+      // (transient); the empty fallback is already a point-owned RhiBuffer.
       const shapeBuf = this.shapeRegistry?.shapeBuffer
       const segBuf = this.shapeRegistry?.segmentBuffer
-      const emptyBuf = this._emptyStorageBuf ??= this.device.createBuffer({ size: 64, usage: GPUBufferUsage.STORAGE, label: 'empty-shape-buf' })
       this.ensurePointDraper()
       this._pointDraper!.draw(wrapWebGpuPass(pass), {
         uniform: this.uniformBuffer, feat: layer._expandedFeatBuf!,
-        shape: shapeBuf ?? emptyBuf, seg: segBuf ?? emptyBuf,
+        shape: shapeBuf ? wrapWebGpuBuffer(shapeBuf) : this.emptyStorageBuf(),
+        seg: segBuf ? wrapWebGpuBuffer(segBuf) : this.emptyStorageBuf(),
         vertex: layer._expandedVertBuf!, index: layer._expandedIdxBuf!,
         indexCount: totalPoints * 6, variant,
       })
