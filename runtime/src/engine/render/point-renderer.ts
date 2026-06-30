@@ -20,8 +20,8 @@ import { PointDraper } from './material/point-material'
 import { reflect } from '@xgis/shader-dsl'
 import { vertexField } from '@xgis/compiler'
 import { POINT_FORMAT } from './point-vertex-format'
-import { toVertexBufferLayout } from './vertex-buffer-layout'
-import { reflectionToBindGroupLayoutEntries, uniformFieldSlots } from './reflection-to-webgpu'
+import { toVertexBufferLayout } from '@xgis/engine'
+import { reflectionToBindGroupLayoutEntries, uniformFieldSlots } from '@xgis/engine'
 import { writeProjectionCull } from './frame-projection-uniform'
 
 // Float-slot indices derived from the single-source POINT_FORMAT spec so the

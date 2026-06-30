@@ -27,7 +27,7 @@ import {
 } from '@xgis/compiler'
 import { ComputeDispatcher } from '@xgis/engine'
 import { ComputeLayerRegistry } from './render/compute-layer-registry'
-import { extendBindGroupLayoutEntriesForCompute } from './render/compute-bind-layout'
+import { extendBindGroupLayoutEntriesForCompute } from '@xgis/engine'
 
 beforeAll(() => {
   if (typeof globalThis.GPUBufferUsage === 'undefined') {

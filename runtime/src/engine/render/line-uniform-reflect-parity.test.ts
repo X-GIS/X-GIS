@@ -16,7 +16,7 @@
 import { describe, it, expect } from 'vitest'
 import { reflect } from '@xgis/shader-dsl'
 import { buildLineModule } from '../shaders/dsl/line'
-import { uniformFieldSlots } from './reflection-to-webgpu'
+import { uniformFieldSlots } from '@xgis/engine'
 import { lineLayerUniformBytes, lineLayerUniformStride } from './line-uniform-slots'
 import { polygonUniformBytes } from './polygon-uniform-slots'
 import { LineRenderer, packLineLayerUniform } from './line-renderer'

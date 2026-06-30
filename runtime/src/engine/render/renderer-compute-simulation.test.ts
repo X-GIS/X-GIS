@@ -34,7 +34,7 @@ import type { PropertyShape } from '@xgis/compiler'
 import { nodeToWgslString } from '@xgis/compiler'
 import { ComputeDispatcher } from '@xgis/engine'
 import { ComputeLayerRegistry } from './compute-layer-registry'
-import { extendBindGroupLayoutEntriesForCompute } from './compute-bind-layout'
+import { extendBindGroupLayoutEntriesForCompute } from '@xgis/engine'
 
 beforeAll(() => {
   if (typeof globalThis.GPUBufferUsage === 'undefined') {

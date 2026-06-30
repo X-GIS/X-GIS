@@ -38,7 +38,7 @@ import {
 } from '@xgis/engine'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { POLYGON_FILL_FORMAT, POLYGON_EXTRUDED_FORMAT } from '@xgis/compiler'
-import { toVertexBufferLayout } from './vertex-buffer-layout'
+import { toVertexBufferLayout } from '@xgis/engine'
 import { LINE_FORMAT } from './line-vertex-format'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'

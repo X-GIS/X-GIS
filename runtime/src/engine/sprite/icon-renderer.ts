@@ -20,7 +20,7 @@ import { IconDraper } from '../render/material/icon-material'
 import type { SpriteInfo } from './sprite-atlas-host'
 import { vertexField } from '@xgis/compiler'
 import { ICON_FORMAT } from './icon-vertex-format'
-import { toVertexBufferLayout } from '../render/vertex-buffer-layout'
+import { toVertexBufferLayout } from '@xgis/engine'
 
 export interface IconDraw {
   /** Anchor in screen pixels (caller-projected). */

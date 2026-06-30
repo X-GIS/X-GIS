@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import {
   extendBindGroupLayoutEntriesForCompute,
   buildComputeBindGroupEntries,
-} from './compute-bind-layout'
+} from '@xgis/engine'
 import type { ShaderVariant } from '@xgis/compiler'
 import { varRefVec4 } from '@xgis/compiler'
 

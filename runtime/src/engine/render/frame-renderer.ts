@@ -14,7 +14,7 @@
 import type { GPUContext } from '@xgis/engine'
 import { ComputeDispatcher } from '@xgis/engine'
 import { ComputeLayerRegistry } from './compute-layer-registry'
-import { extendBindGroupLayoutEntriesForCompute } from './compute-bind-layout'
+import { extendBindGroupLayoutEntriesForCompute } from '@xgis/engine'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
 import { UniformRing } from './uniform-ring'
 import { PipelineFactory } from './pipeline-factory'

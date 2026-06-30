@@ -25,7 +25,7 @@ import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
 import { TextDraper, type TextSlice } from '../render/material/text-material'
 import { vertexField } from '@xgis/compiler'
 import { TEXT_FORMAT } from './text-vertex-format'
-import { toVertexBufferLayout } from '../render/vertex-buffer-layout'
+import { toVertexBufferLayout } from '@xgis/engine'
 
 export type { TextDraw } from './text-renderer-types'
 

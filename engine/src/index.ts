@@ -41,6 +41,12 @@ export * from './render/projection-token'
 export * from './render/frame-context'
 export * from './render/frame-draw-stats'
 
+// ── Pipeline/bind/upload/compute machinery (P3 Step 5, content-blind only) ─
+export * from './render/reflection-to-webgpu'
+export * from './render/vertex-buffer-layout'
+export * from './render/bundle-cache'
+export * from './render/compute-bind-layout'
+
 // ── Shader machinery: CPU log-depth + content-blind shader-DSL leaves ─
 export * from './shaders/log-depth'
 export * from './shaders/dsl/overdraw-compose'
