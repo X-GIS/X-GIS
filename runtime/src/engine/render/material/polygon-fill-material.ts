@@ -24,6 +24,10 @@ export interface FillRhiState {
   flat: Material | null
   ground: Material | null
   pipes: { write: GPURenderPipeline; test: GPURenderPipeline; groundWrite: GPURenderPipeline; groundTest: GPURenderPipeline } | null
+  /** Per-STYLE (data-driven) fills compile their own shader → their own pipeline; this LIVE map
+   *  (grown by PipelineFactory as layers are added) routes each per-style fill pipeline to its
+   *  Material twin + variant. Checked before the default `pipes` above. */
+  perStyle: Map<GPURenderPipeline, { mat: Material; variant: number }> | null
 }
 
 export interface FillMaterialInputs {
@@ -81,13 +85,18 @@ export function recordFillDraw(
   cached: FillTileBuffers,
   bindZBuffer: boolean,
 ): void {
-  if (fillRhi?.pipes && !bindZBuffer
+  if (fillRhi && !bindZBuffer
       && (globalThis as { __xgisVtrFillViaRhi?: boolean }).__xgisVtrFillViaRhi === true) {
+    // Per-style (data-driven) pipelines route via their own cached Material twin; the rest match the
+    // default-shader flat/ground pipes.
+    const ps = fillRhi.perStyle?.get(pipeline)
     const p = fillRhi.pipes
-    const mat = (pipeline === p.write || pipeline === p.test) ? fillRhi.flat
-      : (pipeline === p.groundWrite || pipeline === p.groundTest) ? fillRhi.ground : null
-    const variant = (pipeline === p.write || pipeline === p.groundWrite) ? 0
-      : (pipeline === p.test || pipeline === p.groundTest) ? 1 : -1
+    const mat = ps ? ps.mat
+      : (p && (pipeline === p.write || pipeline === p.test)) ? fillRhi.flat
+      : (p && (pipeline === p.groundWrite || pipeline === p.groundTest)) ? fillRhi.ground : null
+    const variant = ps ? ps.variant
+      : (p && (pipeline === p.write || pipeline === p.groundWrite)) ? 0
+      : (p && (pipeline === p.test || pipeline === p.groundTest)) ? 1 : -1
     if (mat && variant >= 0) {
       const g = globalThis as { __xgisVtrFillRhiDraws?: number }; g.__xgisVtrFillRhiDraws = (g.__xgisVtrFillRhiDraws ?? 0) + 1
       executeItems(mat, wrapWebGpuPass(encoder), [{

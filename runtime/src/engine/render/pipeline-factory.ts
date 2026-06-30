@@ -150,12 +150,29 @@ export class PipelineFactory {
    *  off → no extra pipelines). The VTR's recordFillDraw routes the flat/ground non-extrude fill
    *  through these via the FillRhiState getter below. */
   private _fillMaterials: { flat: Material; ground: Material } | null = null
+  /** LIVE per-style fill Material map (grown by registerFillMaterials as variant pipelines build). */
+  private _fillPerStyle = new Map<GPURenderPipeline, { mat: Material; variant: number }>()
   fillRhiState(): FillRhiState | null {
     if (!this._fillMaterials) return null
     return {
       flat: this._fillMaterials.flat, ground: this._fillMaterials.ground,
       pipes: { write: this.fillPipeline, test: this.fillPipelineFallback, groundWrite: this.fillPipelineGround, groundTest: this.fillPipelineGroundFallback },
+      perStyle: this._fillPerStyle,
     }
+  }
+  /** Build + register the per-style fill Material twins for a variant pipeline set (behind the flag).
+   *  Keyed by each native per-style pipeline so recordFillDraw routes them via the Material seam. */
+  private registerFillMaterials(variant: ShaderVariantInfo, pipelines: CachedPipeline): void {
+    if ((globalThis as { __xgisVtrFillViaRhi?: boolean }).__xgisVtrFillViaRhi !== true) return
+    const { device, format } = this.ctx
+    const { flat, ground } = buildFlatFillMaterials({
+      device, shader: buildShader(variant), format, sampleCount: getSampleCount(),
+      bindGroupLayout: this.getOrBuildVariantLayout(variant), vertexLayout: toVertexBufferLayout(POLYGON_FILL_FORMAT), pickEnabled: isPickEnabled(),
+    })
+    this._fillPerStyle.set(pipelines.fillPipeline, { mat: flat, variant: 0 })
+    this._fillPerStyle.set(pipelines.fillPipelineFallback, { mat: flat, variant: 1 })
+    this._fillPerStyle.set(pipelines.fillPipelineGround, { mat: ground, variant: 0 })
+    this._fillPerStyle.set(pipelines.fillPipelineGroundFallback, { mat: ground, variant: 1 })
   }
   /** Ground-layer fill — identical to fillPipeline except depth
    *  test/write are off. Selected at draw time for any layer whose
@@ -909,6 +926,7 @@ export class PipelineFactory {
     if (cached) return cached
     const pipelines = this.createVariantPipelines(variant)
     this.shaderCache.set(variant.key, pipelines)
+    this.registerFillMaterials(variant, pipelines)
     return pipelines
   }
 
@@ -924,6 +942,7 @@ export class PipelineFactory {
   cacheVariantPipelines(variant: ShaderVariantInfo): CachedPipeline {
     const pipelines = this.createVariantPipelines(variant)
     this.shaderCache.set(variant.key, pipelines)
+    this.registerFillMaterials(variant, pipelines)
     return pipelines
   }
 
@@ -948,6 +967,7 @@ export class PipelineFactory {
       if (this.shaderCache.has(v.key)) continue
       tasks.push(this.createVariantPipelinesAsync(v).then((pipelines) => {
         this.shaderCache.set(v.key, pipelines)
+        this.registerFillMaterials(v, pipelines)
       }))
     }
     if (tasks.length > 0) await Promise.all(tasks)
