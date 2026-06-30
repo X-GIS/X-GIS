@@ -452,17 +452,18 @@ export class LineRenderer {
   createLayerBindGroup(segmentBuffer: GPUBuffer): RhiBindGroup {
     // §4 seam: built via the RHI. binding 0 = line's PRIVATE layer ring (RhiBuffer);
     // binding 1 = the per-tile segment buffer, still a raw GpuTileStore-owned
-    // GPUBuffer (flips with the VTR/GPUArena cluster) → wrapped transiently;
-    // binding 2/3 = the SHARED ShapeRegistry shape/seg buffers, raw until step 3c
-    // → wrapped (`shapeBuf ? wrap : emptyShapeBuffer`, the empty fallback already a
-    // private RhiBuffer). All transient wraps drop when their owners flip.
+    // GPUBuffer (flips with the VTR/GPUArena cluster, unit 4) → wrapped transiently;
+    // binding 2/3 = the SHARED ShapeRegistry shape/seg buffers, now RhiBuffer (step
+    // 3c migrated them) → passed directly, with the private emptyShapeBuffer (also
+    // RhiBuffer) as the no-registry fallback. The binding-1 segment wrap drops with
+    // the VTR/GPUArena cluster.
     const shapeBuf = this.shapeRegistry?.shapeBuffer
     const shapeSegBuf = this.shapeRegistry?.segmentBuffer
     return this.rhi.createBindGroup(wrapWebGpuBindGroupLayout(this.layerBindGroupLayout), [
       { binding: 0, resource: { buffer: this.layerRing, offset: 0, size: lineUniformSize() } },
       { binding: 1, resource: { buffer: wrapWebGpuBuffer(segmentBuffer) } },
-      { binding: 2, resource: { buffer: shapeBuf ? wrapWebGpuBuffer(shapeBuf) : this.emptyShapeBuffer } },
-      { binding: 3, resource: { buffer: shapeSegBuf ? wrapWebGpuBuffer(shapeSegBuf) : this.emptyShapeBuffer } },
+      { binding: 2, resource: { buffer: shapeBuf ?? this.emptyShapeBuffer } },
+      { binding: 3, resource: { buffer: shapeSegBuf ?? this.emptyShapeBuffer } },
     ])
   }
 

@@ -14,7 +14,7 @@ import { resolveNumberShape } from './paint-shape-resolve'
 import { FrameArena } from '../gpu/frame-arena'
 import type { PointLayer } from './point-renderer-types'
 import { buildPointModule } from '../shaders/dsl'
-import { WebGpuDevice, wrapWebGpuPass, wrapWebGpuBuffer, wrapWebGpuBindGroupLayout } from './rhi/rhi-webgpu'
+import { WebGpuDevice, wrapWebGpuPass, wrapWebGpuBindGroupLayout } from './rhi/rhi-webgpu'
 import type { RhiBuffer, RhiBindGroup } from './rhi/rhi'
 import { PointDraper } from './material/point-material'
 import { reflect } from '@xgis/shader-dsl'
@@ -271,17 +271,18 @@ export class PointRenderer {
   }
 
   /** Create a bind group with uniform + feat_data + shape buffers, through the
-   *  RHI seam (§4). uniform + feat are point-owned RhiBuffers (passed directly);
-   *  the shared ShapeRegistry shape/seg buffers are still raw GPUBuffer until
-   *  step 3c, so they're wrapped here (transient wraps dropped in 3c). */
+   *  RHI seam (§4). All handles are point-owned/shared RhiBuffers passed directly:
+   *  uniform + feat are point-owned; the shared ShapeRegistry shape/seg buffers
+   *  are now RhiBuffer too (step 3c migrated them), with the point-owned
+   *  emptyStorageBuf() fallback when no registry is attached. */
   private makeBindGroup(featBuffer: RhiBuffer): RhiBindGroup {
     const shapeBuf = this.shapeRegistry?.shapeBuffer
     const segBuf = this.shapeRegistry?.segmentBuffer
     return this.rhi.createBindGroup(wrapWebGpuBindGroupLayout(this.bindGroupLayout), [
       { binding: 0, resource: { buffer: this.uniformBuffer } },
       { binding: 1, resource: { buffer: featBuffer } },
-      { binding: 2, resource: { buffer: shapeBuf ? wrapWebGpuBuffer(shapeBuf) : this.emptyStorageBuf() } },
-      { binding: 3, resource: { buffer: segBuf ? wrapWebGpuBuffer(segBuf) : this.emptyStorageBuf() } },
+      { binding: 2, resource: { buffer: shapeBuf ?? this.emptyStorageBuf() } },
+      { binding: 3, resource: { buffer: segBuf ?? this.emptyStorageBuf() } },
     ])
   }
   /** Tiny empty storage buffer used as the binding-2/3 fallback when no
@@ -487,14 +488,14 @@ export class PointRenderer {
     // playground/e2e/_point-rhi-parity. Points don't participate in GPU picking, so there
     // is no pick variant to keep on the legacy path.
     this.ensurePointDraper()
-    // ShapeRegistry shape/seg are still raw GPUBuffer until step 3c → wrapped
-    // here (transient); the empty fallback is already a point-owned RhiBuffer.
+    // ShapeRegistry shape/seg are RhiBuffer (step 3c) → passed directly; the empty
+    // fallback is a point-owned RhiBuffer.
     const shapeBuf = this.shapeRegistry?.shapeBuffer
     const segBuf = this.shapeRegistry?.segmentBuffer
     this._pointDraper!.draw(wrapWebGpuPass(pass), {
       uniform: this.uniformBuffer, feat: this.tilePointFeatBuffer!,
-      shape: shapeBuf ? wrapWebGpuBuffer(shapeBuf) : this.emptyStorageBuf(),
-      seg: segBuf ? wrapWebGpuBuffer(segBuf) : this.emptyStorageBuf(),
+      shape: shapeBuf ?? this.emptyStorageBuf(),
+      seg: segBuf ?? this.emptyStorageBuf(),
       vertex: this.tilePointBuffer!, index: this.tilePointIndexBuffer!,
       indexCount: totalN * 6, variant: tileIsTranslucent ? 1 : 0,
     })
@@ -908,15 +909,15 @@ export class PointRenderer {
       writePointFrameUniform(uf, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight, layer.circleTranslateX, layer.circleTranslateY, layer.circleBlur, layer.circlePitchScaleMap)
       this.rhi.writeBuffer(this.uniformBuffer, 0, uf)
       // Through the RHI Material seam (P1: the sole path), same as the tile-point draw.
-      // ShapeRegistry shape/seg are still raw GPUBuffer until step 3c → wrapped here
-      // (transient); the empty fallback is already a point-owned RhiBuffer.
+      // ShapeRegistry shape/seg are RhiBuffer (step 3c) → passed directly; the empty
+      // fallback is a point-owned RhiBuffer.
       const shapeBuf = this.shapeRegistry?.shapeBuffer
       const segBuf = this.shapeRegistry?.segmentBuffer
       this.ensurePointDraper()
       this._pointDraper!.draw(wrapWebGpuPass(pass), {
         uniform: this.uniformBuffer, feat: layer._expandedFeatBuf!,
-        shape: shapeBuf ? wrapWebGpuBuffer(shapeBuf) : this.emptyStorageBuf(),
-        seg: segBuf ? wrapWebGpuBuffer(segBuf) : this.emptyStorageBuf(),
+        shape: shapeBuf ?? this.emptyStorageBuf(),
+        seg: segBuf ?? this.emptyStorageBuf(),
         vertex: layer._expandedVertBuf!, index: layer._expandedIdxBuf!,
         indexCount: totalPoints * 6, variant,
       })

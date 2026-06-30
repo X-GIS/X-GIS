@@ -14,10 +14,9 @@ type VertexBuffers = ReadonlyArray<{ stride: number; attributes: ReadonlyArray<{
 /** The buffers + draw params for one tile-point batch. All handles are RHI
  *  buffers (§4 batch-seam migration): the renderer builds its own uniform/feat/
  *  vertex/index via the RHI seam, and the shared ShapeRegistry shape/seg buffers
- *  (still raw GPUBuffer until step 3c) are wrapped at the renderer call site so
- *  they arrive here as RhiBuffer too. Passed straight through — NO re-wrapping (a
- *  wrap of an already-RHI handle would double-wrap → unwrap yields a Native
- *  wrapper, not a GPUBuffer → empty draw). */
+ *  are RhiBuffer too (step 3c migrated them) so they arrive here directly. Passed
+ *  straight through — NO re-wrapping (a wrap of an already-RHI handle would
+ *  double-wrap → unwrap yields a Native wrapper, not a GPUBuffer → empty draw). */
 export interface PointBatch {
   uniform: RhiBuffer
   feat: RhiBuffer

@@ -2,6 +2,9 @@
 // Parses SVG path commands → stores segments in GPU storage buffers
 // Fragment shader computes SDF in real-time (no texture atlas)
 
+import { WebGpuDevice } from '../render/rhi/rhi-webgpu'
+import type { RhiBuffer } from '../render/rhi/rhi'
+
 // ═══ Types ═══
 
 type PathCmd =
@@ -243,17 +246,24 @@ const SHAPE_DESC_FLOATS = 8 // seg_start(u32) + seg_count(u32) + bbox(4f) + pad(
 const SEGMENT_FLOATS = 12
 
 export class ShapeRegistry {
-  private device: GPUDevice
+  // The RHI seam (§4 batch-seam migration, step 3c). The shape/segment storage
+  // buffers — shared by the point + line renderers — create/write/destroy through
+  // this. On WebGPU `createBuffer === device.createBuffer` (bufUsage('storage',
+  // writable:true) === STORAGE|COPY_DST), `writeBuffer === queue.writeBuffer`,
+  // `destroyBuffer === GPUBuffer.destroy()`, so the GPU command stream stays
+  // byte-identical; the renderers now consume `shapeBuffer`/`segmentBuffer` as
+  // RhiBuffer directly (their transient wrapWebGpuBuffer wraps dropped here).
+  private rhi: WebGpuDevice
   private shapes = new Map<string, { id: number; desc: ShapeDescData; segments: SegmentData[] }>()
   private allSegments: SegmentData[] = []
   private nextId = 1 // 0 = circle (analytical)
   private dirty = true
 
-  private _shapeBuffer: GPUBuffer | null = null
-  private _segmentBuffer: GPUBuffer | null = null
+  private _shapeBuffer: RhiBuffer | null = null
+  private _segmentBuffer: RhiBuffer | null = null
 
   constructor(device: GPUDevice) {
-    this.device = device
+    this.rhi = new WebGpuDevice(device)
     // Register built-in shapes
     for (const [name, path] of Object.entries(BUILTIN_SHAPES)) {
       this.addShape(name, path)
@@ -341,31 +351,33 @@ export class ShapeRegistry {
       segData[off + 10] = s.p3x; segData[off + 11] = s.p3y
     }
 
-    // Recreate GPU buffers
-    this._shapeBuffer?.destroy()
-    this._segmentBuffer?.destroy()
+    // Recreate GPU buffers. STORAGE|COPY_DST, byte-identical via
+    // bufUsage('storage', writable:true); write = queue.writeBuffer,
+    // destroy = GPUBuffer.destroy().
+    if (this._shapeBuffer) this.rhi.destroyBuffer(this._shapeBuffer)
+    if (this._segmentBuffer) this.rhi.destroyBuffer(this._segmentBuffer)
 
-    this._shapeBuffer = this.device.createBuffer({
+    this._shapeBuffer = this.rhi.createBuffer({
       size: Math.max(shapeData.byteLength, 32),
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      usage: 'storage', writable: true,
       label: 'shape-descs',
     })
-    this.device.queue.writeBuffer(this._shapeBuffer, 0, shapeData)
+    this.rhi.writeBuffer(this._shapeBuffer, 0, shapeData)
 
-    this._segmentBuffer = this.device.createBuffer({
+    this._segmentBuffer = this.rhi.createBuffer({
       size: Math.max(segData.byteLength, 48),
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      usage: 'storage', writable: true,
       label: 'shape-segments',
     })
-    this.device.queue.writeBuffer(this._segmentBuffer, 0, segData)
+    this.rhi.writeBuffer(this._segmentBuffer, 0, segData)
   }
 
-  get shapeBuffer(): GPUBuffer {
+  get shapeBuffer(): RhiBuffer {
     if (!this._shapeBuffer) this.uploadToGPU()
     return this._shapeBuffer!
   }
 
-  get segmentBuffer(): GPUBuffer {
+  get segmentBuffer(): RhiBuffer {
     if (!this._segmentBuffer) this.uploadToGPU()
     return this._segmentBuffer!
   }
