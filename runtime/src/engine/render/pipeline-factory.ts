@@ -154,10 +154,6 @@ export class PipelineFactory {
    *  VectorTileRenderer.recordTileFill via executeItems when __xgisVtrFillViaRhi is on. */
   private _fillFlatMaterial?: Material
   get fillFlatMaterial(): Material | undefined { return this._fillFlatMaterial }
-  /** Ground-fill (extrude.kind==='none') Material — cull 'back' + STENCIL_*_NO_DEPTH; the common
-   *  flat fill (mainFill picks fillPipelineGround when groundChoice). Variant 0/1 = WRITE/TEST. */
-  private _fillGroundMaterial?: Material
-  get fillGroundMaterial(): Material | undefined { return this._fillGroundMaterial }
   /** Ground-layer fill — identical to fillPipeline except depth
    *  test/write are off. Selected at draw time for any layer whose
    *  `extrude.kind === 'none'` so coplanar fills resolve via plain
@@ -796,22 +792,6 @@ export class PipelineFactory {
         variants: [
           { depthCompare: 'less-equal', depthWrite: true, stencil: { compare: 'always', passOp: 'replace', writeMask: 0xff, readMask: 0xff }, label: 'fill-flat-write-rhi' },
           { depthCompare: 'less-equal', depthWrite: true, stencil: { compare: 'equal', passOp: 'keep', writeMask: 0x00, readMask: 0xff }, label: 'fill-flat-test-rhi' },
-        ],
-      })
-      // Ground-fill twin — cull 'back' + STENCIL_*_NO_DEPTH (depth test/write off). Variant 0 =
-      // fillPipelineGround (STENCIL_WRITE_NO_DEPTH), 1 = fillPipelineGroundFallback (STENCIL_TEST_NO_DEPTH).
-      this._fillGroundMaterial = new Material(new WebGpuDevice(device), {
-        shader: pickShader, vsEntry: 'vs_main_ecef', fsEntry: 'fs_fill',
-        format: format as 'bgra8unorm', sampleCount: getSampleCount(),
-        groups: [wrapWebGpuBindGroupLayout(this.bindGroupLayout)],
-        vertexBuffers: [toMatVB(vertexBufferLayout)],
-        colorTargets: pickEnabled
-          ? [{ format: format as 'bgra8unorm', blend: 'alpha' }, { format: 'rg32uint', writeMask: 0xf }]
-          : [{ format: format as 'bgra8unorm', blend: 'alpha' }],
-        cullMode: 'back',
-        variants: [
-          { depthCompare: 'always', depthWrite: false, stencil: { compare: 'always', passOp: 'replace', writeMask: 0xff, readMask: 0xff }, label: 'fill-ground-write-rhi' },
-          { depthCompare: 'always', depthWrite: false, stencil: { compare: 'equal', passOp: 'keep', writeMask: 0x00, readMask: 0xff }, label: 'fill-ground-test-rhi' },
         ],
       })
     }

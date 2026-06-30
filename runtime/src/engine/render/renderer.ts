@@ -110,8 +110,6 @@ export class MapRenderer {
   //    contract (plan §0) — every field map.ts / source-manager.ts /
   //    the OIT/opaque passes read MUST stay readable on MapRenderer. ──
   get fillPipeline(): GPURenderPipeline { return this._pipelines.fillPipeline }
-  get fillFlatMaterial(): import('./material/material').Material | undefined { return this._pipelines.fillFlatMaterial }
-  get fillGroundMaterial(): import('./material/material').Material | undefined { return this._pipelines.fillGroundMaterial }
   get fillPipelineGround(): GPURenderPipeline { return this._pipelines.fillPipelineGround }
   get fillPipelineExtruded(): GPURenderPipeline { return this._pipelines.fillPipelineExtruded }
   get fillPipelineExtrudedOIT(): GPURenderPipeline { return this._pipelines.fillPipelineExtrudedOIT }

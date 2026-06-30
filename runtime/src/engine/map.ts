@@ -714,10 +714,6 @@ export class XGISMap {
     vtRenderer.setPatternExtrudedPipelines(this.renderer.fillPipelinePatternExtruded, this.renderer.fillPipelinePatternExtrudedFallback)
     vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
     if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
-    vtRenderer.setFillRhiMaterials(this.renderer.fillFlatMaterial, this.renderer.fillGroundMaterial, {
-      write: this.renderer.fillPipeline, test: this.renderer.fillPipelineFallback,
-      groundWrite: this.renderer.fillPipelineGround, groundTest: this.renderer.fillPipelineGroundFallback,
-    })
     vtRenderer.setSource(catalog)
     const projType = PROJECTION_NAME_TO_TYPE[this.projectionName] ?? 0
     const backend = new SyntheticEarthSurfaceBackend(projType)
@@ -1356,10 +1352,6 @@ export class XGISMap {
           this.renderer.fillPipelinePatternExtrudedFallback,
         )
         vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
-        vtRenderer.setFillRhiMaterials(this.renderer.fillFlatMaterial, this.renderer.fillGroundMaterial, {
-          write: this.renderer.fillPipeline, test: this.renderer.fillPipelineFallback,
-          groundWrite: this.renderer.fillPipelineGround, groundTest: this.renderer.fillPipelineGroundFallback,
-        })
       }
     }
     if (dprChanged) {
@@ -2760,10 +2752,6 @@ export class XGISMap {
     vtRenderer.setPatternExtrudedPipelines(this.renderer.fillPipelinePatternExtruded, this.renderer.fillPipelinePatternExtrudedFallback)
       vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
       if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
-      vtRenderer.setFillRhiMaterials(this.renderer.fillFlatMaterial, this.renderer.fillGroundMaterial, {
-        write: this.renderer.fillPipeline, test: this.renderer.fillPipelineFallback,
-        groundWrite: this.renderer.fillPipelineGround, groundTest: this.renderer.fillPipelineGroundFallback,
-      })
       vtRenderer.setSource(source)
       this.vtSources.set(vtKey, { source, renderer: vtRenderer })
 
