@@ -58,15 +58,9 @@ class OitPass implements RenderPass {
         },
       })
       for (const cs of scene.oit) {
-        cs.vtEntry.renderer.render!(
-          oitPass, host.camera, ctx.projType, ctx.centerLon, ctx.centerLat, ctx.w, ctx.h,
-          cs.show, cs.fp, cs.lp, host.renderer.uniformBuffer, cs.bgl,
-          cs.fpF, cs.lpF,
-          null, 'oit-fill',
-          ctx.dpr,
-          cs.fpG, cs.fpGF,
-          false, cs.resolvedShow,
-        )
+        // Draw via the content closure — the engine pass never touches a
+        // GPURenderPipeline. phase='oit-fill', translucentBucket=false.
+        cs.draw(oitPass, ctx, host.renderer.uniformBuffer, null, 'oit-fill', false)
       }
       oitPass.end()
     })

@@ -3156,6 +3156,9 @@ export class XGISMap {
         fillPipelineFallbackNoPick: this.renderer.fillPipelineFallbackNoPick,
         fillPipelineGroundFallbackNoPick: this.renderer.fillPipelineGroundFallback,
         linePipelineFallbackNoPick: this.renderer.linePipelineFallbackNoPick,
+        // ?debug=overdraw substitution handles (read only in overdraw mode; the classifier bakes them into each show's draw closure — null on the production path):
+        featureBindGroupLayout: this.renderer.featureBindGroupLayout,
+        fillPipelineOverdraw: this.renderer.fillPipelineOverdraw, fillPipelineOverdrawFeature: this.renderer.fillPipelineOverdrawFeature, linePipelineOverdraw: this.renderer.linePipelineOverdraw,
       },
       traceRecorder: this._pendingTraceRecorder,
     })

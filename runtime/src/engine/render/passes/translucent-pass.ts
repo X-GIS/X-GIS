@@ -28,16 +28,10 @@ class TranslucentPass implements RenderPass {
 
       ctx.passScope(`translucent-off[${li}]`, () => {
         const offPass = host.lineRenderer!.beginTranslucentPass(encoder)
-        cs.vtEntry.renderer.render!(
-          offPass, host.camera, ctx.projType, ctx.centerLon, ctx.centerLat, ctx.w, ctx.h,
-          cs.show, cs.fp, cs.lp, host.renderer.uniformBuffer, cs.bgl,
-          cs.fpF, cs.lpF,
-          null, 'strokes',
-          ctx.dpr,
-          cs.fpG, cs.fpGF,
-          true, // translucentBucket — offscreen pass has no depth
-          cs.resolvedShow,
-        )
+        // Draw via the content closure — the engine pass never touches a
+        // GPURenderPipeline. phase='strokes'; translucentBucket=true (the
+        // offscreen MAX-blend pass has no depth attachment).
+        cs.draw(offPass, ctx, host.renderer.uniformBuffer, null, 'strokes', true)
         offPass.end()
       })
 

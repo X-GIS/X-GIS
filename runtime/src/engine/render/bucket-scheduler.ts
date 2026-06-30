@@ -27,9 +27,34 @@ import type { ShowCommand } from './renderer-types'
 import { resolveNumberShape } from './paint-shape-resolve'
 import { resolveShow, type ResolvedShow } from './resolved-show'
 import { SAFE_MODE } from '../gpu/gpu'
+import { DEBUG_OVERDRAW } from '../debug-flags'
 import type { RenderTraceRecorder, RGBA } from '../../diagnostics/render-trace'
+import type { FrameContext } from './frame-context'
+import type { PointRenderer } from './point-renderer'
 
 // ── Output: post-classification show with all animation resolved ──
+
+/** Opaque draw closure handed to the engine by the content bucket
+ *  scheduler. It captures this show's content GPU handles (fill / line
+ *  pipelines, bind-group layout — incl. the ?debug=overdraw
+ *  substitution) plus the source's renderer + per-frame paint snapshot,
+ *  so an engine render pass can draw the show WITHOUT ever naming a
+ *  GPURenderPipeline / GPUBindGroupLayout. The engine supplies only the
+ *  per-draw context: the sub-pass encoder, the per-frame FrameContext,
+ *  the uniform ring buffer, the point renderer (or null), the layer's
+ *  draw phase, and the translucent-bucket (no-depth) flag.
+ *
+ *  (Named `ShowDrawFn`, not `DrawItem`, to avoid colliding with the RHI
+ *  render-layer `DrawItem` in `material/material.ts` — a different
+ *  abstraction.) */
+export type ShowDrawFn = (
+  pass: GPURenderPassEncoder,
+  ctx: FrameContext,
+  uniformBuffer: GPUBuffer,
+  pointRenderer: PointRenderer | null | undefined,
+  phase: LayerDrawPhase,
+  translucentBucket: boolean,
+) => void
 
 /** A vector-tile show after zoom-opacity resolution and bucket
  *  classification. Produced by `classifyVectorTileShows()` once per
@@ -48,7 +73,6 @@ import type { RenderTraceRecorder, RGBA } from '../../diagnostics/render-trace'
  *  dropped entirely. */
 export interface ClassifiedShow {
   sourceName: string
-  vtEntry: ClassifierVTSource
   show: ShowCommand
   /** Per-frame snapshot of the show's paint state with every
    *  zoom-stop / time-stop / shape kind already collapsed to a
@@ -63,20 +87,15 @@ export interface ClassifiedShow {
    *  downstream consumer (VTR.render, line composite, point labels)
    *  reads paint values from THIS field. */
   resolvedShow: ResolvedShow
-  fp: GPURenderPipeline
-  lp: GPURenderPipeline
-  bgl: GPUBindGroupLayout
-  fpF?: GPURenderPipeline
-  lpF?: GPURenderPipeline
-  // Depth-disabled (`STENCIL_WRITE_NO_DEPTH`) ground variants for
-  // `extrude.kind === 'none'` layers. Match `bgl` — i.e. they share
-  // the layout of `fp`/`fpF`. The renderer's unconditional ground
-  // pipelines (`fillPipelineGround` / `fillPipelineGroundFallback`)
-  // can only substitute when bgl === baseBindGroupLayout; for
-  // variant-driven (feature-buffer) shows we need a feature-layout
-  // ground pipeline, which is what these fields carry.
-  fpG?: GPURenderPipeline
-  fpGF?: GPURenderPipeline
+  /** This show's opaque draw closure. Built once per frame by the
+   *  classifier, which captures the resolved content pipelines (fill /
+   *  line / fallback / depth-disabled ground variants + the
+   *  ?debug=overdraw substitution), the bind-group layout, the source's
+   *  VTR, and the paint snapshot. The engine render passes invoke it
+   *  through {@link ShowDrawFn} WITHOUT ever touching a GPURenderPipeline /
+   *  GPUBindGroupLayout — so SceneView carries no content-typed GPU
+   *  object. */
+  draw: ShowDrawFn
   isTranslucentStroke: boolean
   fillPhase: LayerDrawPhase
 }
@@ -150,6 +169,16 @@ interface ClassifierRendererDefaults {
   fillPipelineFallbackNoPick?: GPURenderPipeline
   fillPipelineGroundFallbackNoPick?: GPURenderPipeline
   linePipelineFallbackNoPick?: GPURenderPipeline
+  /** ?debug=overdraw substitution handles — read ONLY when DEBUG_OVERDRAW
+   *  is active. The classifier bakes the overdraw pipeline into each
+   *  show's draw closure (replacing the layer's own fill/line pipelines);
+   *  `featureBindGroupLayout` selects the feature-layout overdraw variant
+   *  for data-driven shows. Optional: the production non-debug path never
+   *  reads them, so test fixtures can omit them. */
+  featureBindGroupLayout?: GPUBindGroupLayout
+  fillPipelineOverdraw?: GPURenderPipeline | null
+  fillPipelineOverdrawFeature?: GPURenderPipeline | null
+  linePipelineOverdraw?: GPURenderPipeline | null
 }
 
 /** Full input bundle. Keeping it a single param object means callers
@@ -353,12 +382,45 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     const resolvedShow = resolveShow(entry.show, {
       cameraZoom: input.cameraZoom, elapsedMs: input.elapsedMs,
     })
+    // Bake this show's opaque draw closure. It captures the resolved
+    // content pipelines + bind-group layout + the source's VTR + the
+    // paint snapshot, so the engine passes can iterate SceneView.opaque /
+    // .translucent / .oit as ShowDrawFn[] and draw WITHOUT ever naming a
+    // GPURenderPipeline / GPUBindGroupLayout (Step 2 inversion).
+    //
+    // The ?debug=overdraw pipeline substitution (formerly inline in
+    // opaque-pass.ts) bakes HERE: DEBUG_OVERDRAW is frame-constant, and
+    // the overdraw pipelines / featureBindGroupLayout / bgl are stable
+    // within a frame, so pre-substituting at classify time is byte-
+    // identical to substituting per-draw (pipeline-factory.ts:777
+    // documents this as a map-side override). The OIT / translucent
+    // passes are gated off under DEBUG_OVERDRAW, so one closure serving
+    // all three buckets is safe.
+    const debugFp = DEBUG_OVERDRAW
+      ? (bgl === defaults.featureBindGroupLayout
+          ? defaults.fillPipelineOverdrawFeature!
+          : defaults.fillPipelineOverdraw!)
+      : null
+    const debugLp = DEBUG_OVERDRAW ? defaults.linePipelineOverdraw! : null
+    const drawFp = debugFp ?? fp
+    const drawLp = debugLp ?? lp
+    const drawFpF = debugFp ?? fpF
+    const drawLpF = debugLp ?? lpF
+    const drawFpG = debugFp ?? fpG
+    const drawFpGF = debugFp ?? fpGF
+    const draw: ShowDrawFn = (pass, ctx, uniformBuffer, pointRenderer, phase, translucentBucket) => {
+      vtEntry.renderer.render!(
+        pass, ctx.camera, ctx.projType, ctx.centerLon, ctx.centerLat, ctx.w, ctx.h,
+        entry.show, drawFp, drawLp, uniformBuffer, bgl,
+        drawFpF, drawLpF,
+        pointRenderer, phase, ctx.dpr, drawFpG, drawFpGF, translucentBucket, resolvedShow,
+      )
+    }
     const classified: ClassifiedShow = {
       sourceName: entry.sourceName,
-      vtEntry,
       show: entry.show,
       resolvedShow,
-      fp, lp, bgl, fpF, lpF, fpG, fpGF,
+      draw,
       isTranslucentStroke,
       fillPhase,
     }

@@ -189,36 +189,21 @@ class OpaquePass implements RenderPass {
             const ex = (cs.show as { extrude?: { kind?: string } }).extrude
             return !!ex && ex.kind !== undefined && ex.kind !== 'none'
           }
-          // Debug=overdraw: collapse every fill variant onto the
-          // single fill debug pipeline whose bgl matches the show's.
-          // VTR's setPipeline calls use it uniformly — fallback /
-          // ground / extruded variants all output the same constant
-          // fragment count. Line pipeline is unused inside VTR's
-          // debug path (strokes route through LineRenderer which is
-          // gated off too), but we still pass a non-null override
-          // for completeness.
+          // Each show carries its own opaque draw closure (built by the
+          // bucket scheduler). The engine pass invokes it WITHOUT ever
+          // naming a GPURenderPipeline / GPUBindGroupLayout — the content
+          // pipelines (incl. the ?debug=overdraw substitution that
+          // formerly lived here) are private to the closure. We hand it
+          // only engine-side per-draw context: this sub-pass encoder, the
+          // FrameContext, the uniform ring, the point renderer (gated off
+          // in overdraw mode), the layer's fillPhase, and `false` for the
+          // translucent-bucket flag (the opaque pass has a depth
+          // attachment).
           const drawShow = (cs: typeof group.shows[number]) => {
-            const debugFp = DEBUG_OVERDRAW
-              ? (cs.bgl === host.renderer.featureBindGroupLayout
-                  ? host.renderer.fillPipelineOverdrawFeature!
-                  : host.renderer.fillPipelineOverdraw!)
-              : null
-            const debugLp = DEBUG_OVERDRAW ? host.renderer.linePipelineOverdraw! : null
-            const fp = debugFp ?? cs.fp
-            const lp = debugLp ?? cs.lp
-            const fpF = debugFp ?? cs.fpF
-            const lpF = debugLp ?? cs.lpF
-            const fpG = debugFp ?? cs.fpG
-            const fpGF = debugFp ?? cs.fpGF
-            cs.vtEntry.renderer.render!(
-              subPass, host.camera, ctx.projType, ctx.centerLon, ctx.centerLat, ctx.w, ctx.h,
-              cs.show, fp, lp, host.renderer.uniformBuffer, cs.bgl,
-              fpF, lpF,
+            cs.draw(
+              subPass, ctx, host.renderer.uniformBuffer,
               DEBUG_OVERDRAW ? null : host.pointRenderer,
-              cs.fillPhase,
-              ctx.dpr,
-              fpG, fpGF,
-              false, cs.resolvedShow,
+              cs.fillPhase, false,
             )
           }
           for (let si = 0; si < group.shows.length; si++) {
