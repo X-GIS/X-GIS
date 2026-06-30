@@ -145,7 +145,19 @@ flip `GPUBuffer → RhiBuffer` only when (a) EVERY bind group referencing it is 
 `rhi.createBindGroup` needs `RhiBuffer` while raw `device.createBindGroup` needs `GPUBuffer`; one buffer
 can't serve both without an unwrap shim (the non-byte-identical mixed state to avoid). Migration units, in order:
 
-1. **Heatmap-accum (INDEPENDENT, FIRST — in progress).** Sole RHI path already (no raw accum draw),
+**Renderer §4-seam-readiness gate (checked 2026-06-30) — a renderer can migrate its CREATION side only
+when it has NO raw-fallback draw (else the raw draw needs `GPUBuffer`):**
+- **heatmap** ✅ sole-RHI → unit 1 DONE (`0e6adeda`).
+- **raster** ✅ sole-RHI (`_rasterDraper` is render()'s sole path, P1.4) — ready, but texture-heavy (few buffers).
+- **point / line** ✅ raw deleted (P1.1a/P1.5) — ready, but the COUPLED TRIAD (share ShapeRegistry).
+- **icon** — IconDraper, no raw-fallback flag found; likely sole-RHI (confirm before migrating).
+- **text** ⚠️ NOT FLIPPED — `__xgisTextViaRhi` defaults OFF (text-renderer.ts:426; raw `setPipeline`+`draw`
+  at 429/455 is the default, the TextDraper at 461 is opt-in). So text needs a FLAG FLIP first (default-on
+  + DC=0, exactly like the fill flip `ab3466f2`) BEFORE its §4-seam creation-side migration. This is an
+  additional P1 "flip every renderer" item beyond the §4 seam.
+
+Migration units (the buffer-bearing ones), in order:
+1. **Heatmap-accum (DONE, `0e6adeda`).** Sole RHI path already (no raw accum draw),
    accum buffers + BG are private. Establishes `RhiDevice.destroyBuffer` at minimum risk. Files:
    rhi.ts (+`destroyBuffer`), rhi-webgpu.ts + rhi-webgl2.ts (impl), heatmap-renderer.ts (accum
    create/write/destroy/BG via rhi; blur/compose/ramp stay raw), heatmap-material.ts (HeatmapBatch →
