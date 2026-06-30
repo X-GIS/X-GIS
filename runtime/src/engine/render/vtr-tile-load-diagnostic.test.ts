@@ -15,7 +15,7 @@ import { FrameDrawStats } from './frame-draw-stats'
 // The GPU resident-tile COUNT now lives on the GpuTileStore collaborator
 // (Cluster A, vtr-decomposition U3-prime); getTileLoadDiagnostic reads it
 // via `_store.cacheCount()`, so the bare VTR carries a minimal store stub
-// whose count is settable (mirrors the `uploadQueue` size stub below).
+// whose count is settable (mirrors the `_uploads` queueSize stub below).
 function setGpuUnique(vtr: VectorTileRenderer, n: number): void {
   ;(vtr as unknown as { _store: { cacheCount: () => number } })._store = {
     cacheCount: () => n,
@@ -29,8 +29,8 @@ function makeBareVtr(): VectorTileRenderer {
   setNeeded(vtr, 0)
   setMissed(vtr, 0)
   setGpuUnique(vtr, 0)
-  ;(vtr as unknown as { uploadQueue: { size: () => number } }).uploadQueue = {
-    size: () => 0,
+  ;(vtr as unknown as { _uploads: { queueSize: () => number } })._uploads = {
+    queueSize: () => 0,
   }
   return vtr
 }
@@ -64,8 +64,8 @@ describe('VectorTileRenderer.getTileLoadDiagnostic (iter-288)', () => {
     setNeeded(vtr, 140)
     setMissed(vtr, 78)
     setGpuUnique(vtr, 62)
-    ;(vtr as unknown as { uploadQueue: { size: () => number } }).uploadQueue = {
-      size: () => 12,
+    ;(vtr as unknown as { _uploads: { queueSize: () => number } })._uploads = {
+      queueSize: () => 12,
     }
     const d = vtr.getTileLoadDiagnostic()
     // Pins the FLICKER memory's reported numbers: 140 needed,

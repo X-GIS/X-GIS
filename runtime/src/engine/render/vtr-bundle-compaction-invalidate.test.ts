@@ -56,9 +56,9 @@ function makeVtr(opts: {
   inject._selection = { invalidateFrame() {} }
   inject._frameClassifyMemo = new Map()
   inject.uniformRing = undefined // optional-chained: resetSlot/takeRetired skip
-  inject._uploadsThisFrame = 0
-  inject._heldUploads = [] // resetUploadFrameCap early-returns on empty
-  inject.uploadQueue = { activeCount: () => 0 }
+  // Upload pipeline now lives on the coordinator; beginFrame calls
+  // resetFrameCap() + passes the isActive() probe into runFrameMaintenance.
+  inject._uploads = { resetFrameCap() {}, isActive: () => false }
   inject.stableKeys = []
   inject._releaseTileHook = () => {}
   inject.source = null // skips the CPU TileCatalog evictTiles tail

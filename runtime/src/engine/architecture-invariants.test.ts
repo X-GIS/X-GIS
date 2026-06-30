@@ -156,7 +156,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // mid-render doUploadTile fallback calls + `vtr.evict` around the two forceEvictBytes
   // pairs (+ the perf-marks import). Gated OFF by default (markStart/End early-return),
   // so render is byte-identical; the +11 is diagnostic plumbing. Reclaim on decomposition.
-  'runtime/src/engine/render/vector-tile-renderer.ts': 4126,
+  // Lowered 4126→3120 (UploadCoordinator extraction): the twin doUploadTile /
+  // doUploadTileAsync bodies + priority queue + per-frame cap + stale-cancel +
+  // _allocPolyPair moved to upload-coordinator.ts as ONE write-strategy-
+  // parameterised dispatch body. VTR keeps thin forwarders. Ratchets the ~950-line
+  // shrink so the win can't silently regrow.
+  'runtime/src/engine/render/vector-tile-renderer.ts': 3120,
   // Bumped 3361→3393 for the destroy()-completeness fix: cancelling the
   // EventDispatcher move-rAF + the pending-flush rAF, clearing _pendingPatches,
   // and removing the run()-installed window globals (__xgisReady/snapshot/
