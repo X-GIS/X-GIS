@@ -42,8 +42,6 @@ import { isPickEnabled, getSampleCount, type GPUContext } from '../gpu/gpu'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import { asyncWriteBuffer, type StagingBufferPool } from '../gpu/staging-buffer-pool'
 import { xlog } from '../log'
-import { BLEND_ALPHA, BLEND_ALPHA_PREMULT, BLEND_MAX, DEPTH_READ_ONLY } from '../gpu/gpu-shared'
-import { emitLineWgsl, emitCompositeWgsl } from '../shaders/dsl'
 import { WebGpuDevice, wrapWebGpuPass } from './rhi/rhi-webgpu'
 import { LineDraper } from './material/line-material'
 import { LineCompositeDraper } from './material/line-composite-material'
@@ -127,25 +125,8 @@ export class LineRenderer {
    *  dynamic offset is a multiple of the typical
    *  minUniformBufferOffsetAlignment, exactly as the layer ring does. */
   private static readonly COMPOSITE_SLOT = 256
-  /** Bytes of the composite slot actually bound = the std140 size of the WGSL
-   *  `CompUniform { opacity: f32, _pad: vec3f }` (shaders/line.ts). vec3f aligns
-   *  to 16, so opacity sits at 0, _pad at 16, and the struct rounds up to 32 —
-   *  NOT 16. This MUST be >= the pipeline's minimum binding size or WebGPU
-   *  rejects the composite draw at frame-validation ("bound with size 16 …
-   *  requires at least 32 bytes"). Equals the original pre-ring buffer size. */
-  private static readonly COMPOSITE_USED = 32
   private device: GPUDevice
   private format: GPUTextureFormat
-  /** Standard alpha-blend pipeline — used for opaque line draws. */
-  private pipeline: GPURenderPipeline
-  /** Max-blend pipeline — used for translucent line draws into the offscreen
-   *  RT. Max blending eliminates within-layer alpha accumulation at corner
-   *  overlaps and self-intersections. */
-  private pipelineMax!: GPURenderPipeline
-  /** iter-185 — line-pattern Stage 2 pipeline (fs_line_pattern,
-   *  alpha-blend, same layout as `pipeline`). Selected by
-   *  `pipelineFor` when the show has a resolved line-pattern UV. */
-  private pipelinePattern!: GPURenderPipeline
   private tileBindGroupLayout: GPUBindGroupLayout
   private layerBindGroupLayout: GPUBindGroupLayout
   private shapeRegistry: ShapeRegistry | null = null
@@ -174,10 +155,6 @@ export class LineRenderer {
   private offscreenView: GPUTextureView | null = null
   private offscreenWidth = 0
   private offscreenHeight = 0
-  private offscreenSampler!: GPUSampler
-  private compositePipeline!: GPURenderPipeline
-  private compositeBindGroupLayout!: GPUBindGroupLayout
-  private compositeBindGroup: GPUBindGroup | null = null
   /** Composite uniform ring. 256-byte slots → each composite() call writes
    *  its own opacity into a fresh slot and binds via dynamic offset. This
    *  prevents the multi-layer writeBuffer clobbering hazard that a single
@@ -226,114 +203,8 @@ export class LineRenderer {
     // so writing (0, 0) from the line stroke would OVERWRITE the fill's
     // pick — which is why the `writeMask: 0` on the second target skips
     // pick output entirely for the line pipeline.
-    const module = this.device.createShaderModule({ code: emitLineWgsl(isPickEnabled()), label: 'line-shader' })
-
-    const linePipelineLayout = this.device.createPipelineLayout({
-      bindGroupLayouts: [this.tileBindGroupLayout, this.layerBindGroupLayout],
-    })
-
-    this.pipeline = this.device.createRenderPipeline({
-      label: 'line-pipeline',
-      layout: linePipelineLayout,
-      vertex: { module, entryPoint: 'vs_line' },
-      fragment: {
-        module,
-        entryPoint: 'fs_line',
-        targets: isPickEnabled()
-          ? [
-              { format: this.format, blend: BLEND_ALPHA },
-              // writeMask: 0 → pick buffer preserves whatever the
-              // polygon fill wrote underneath the line stroke.
-              { format: 'rg32uint' as GPUTextureFormat, writeMask: 0 },
-            ]
-          : [{ format: this.format, blend: BLEND_ALPHA }],
-      },
-      primitive: { topology: 'triangle-list', cullMode: 'none' },
-      // Depth test ON, depth write OFF — lines respect 3D building
-      // occlusion (a roof-edge outline behind a foreground wall is
-      // hidden by the wall) without interfering with subsequent
-      // draws. The previous STENCIL_DISABLED state ignored depth
-      // entirely, which is fine for purely 2D scenes but visibly
-      // wrong once `extrude:` lifts outlines onto building roofs:
-      // background buildings' outlines bled through foreground
-      // walls. Pure painter's order via depth-disabled writes —
-      // already used by ground-layer fills — doesn't apply here
-      // because lines need to compete with extruded fills that
-      // DO write depth.
-      depthStencil: DEPTH_READ_ONLY,
-      multisample: { count: getSampleCount() },
-    })
-
-    // MAX-blend variant: same shader, different blend op + NO MSAA + NO depth-stencil.
-    // Targets the single-sample offscreen RT used for translucent compositing.
-    // Uses fs_line_max (not fs_line) because the offscreen target has no
-    // depth attachment — writing @builtin(frag_depth) would trip the
-    // "shader writes frag depth but no depth texture set" validation.
-    this.pipelineMax = this.device.createRenderPipeline({
-      label: 'line-pipeline-max',
-      layout: linePipelineLayout,
-      vertex: { module, entryPoint: 'vs_line' },
-      fragment: {
-        module,
-        entryPoint: 'fs_line_max',
-        targets: [{ format: this.format, blend: BLEND_MAX }],
-      },
-      primitive: { topology: 'triangle-list', cullMode: 'none' },
-    })
-
-    // iter-185 — line-pattern Stage 2 pipeline. Same vertex + bind
-    // group layout as the standard `pipeline`; fragment routes to
-    // `fs_line_pattern` which samples the sprite atlas at world-
-    // anchored UV. Selected by `pipelineFor` when the show has a
-    // resolved line-pattern UV bbox.
-    this.pipelinePattern = this.device.createRenderPipeline({
-      label: 'line-pipeline-pattern',
-      layout: linePipelineLayout,
-      vertex: { module, entryPoint: 'vs_line' },
-      fragment: {
-        module,
-        entryPoint: 'fs_line_pattern',
-        targets: isPickEnabled()
-          ? [
-              { format: this.format, blend: BLEND_ALPHA },
-              { format: 'rg32uint' as GPUTextureFormat, writeMask: 0 },
-            ]
-          : [{ format: this.format, blend: BLEND_ALPHA }],
-      },
-      primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: DEPTH_READ_ONLY,
-      multisample: { count: getSampleCount() },
-    })
-
-    // ── Composite pipeline ──
-    this.compositeBindGroupLayout = this.device.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-        { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform', hasDynamicOffset: true } },
-      ],
-    })
-    const compositeModule = this.device.createShaderModule({ code: emitCompositeWgsl(), label: 'line-composite' })
-    this.compositePipeline = this.device.createRenderPipeline({
-      label: 'line-composite-pipeline',
-      layout: this.device.createPipelineLayout({ bindGroupLayouts: [this.compositeBindGroupLayout] }),
-      vertex: { module: compositeModule, entryPoint: 'vs_full' },
-      fragment: {
-        module: compositeModule,
-        entryPoint: 'fs_full',
-        // fs_full emits PREMULTIPLIED rgb (`c.rgb * cu.opacity`); pair it
-        // with the matching blend factor so we don't multiply by alpha a
-        // second time at write. Using BLEND_ALPHA here was the original
-        // bug — translucent line composites came out darker than asked.
-        targets: [{ format: this.format, blend: BLEND_ALPHA_PREMULT }],
-      },
-      primitive: { topology: 'triangle-list' },
-      multisample: { count: getSampleCount() },
-    })
-    this.offscreenSampler = this.device.createSampler({
-      magFilter: 'linear', minFilter: 'linear',
-      addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge',
-    })
+    // The line + composite draws now route through LineDraper / LineCompositeDraper (the RHI Material
+    // seam) — the raw GPURenderPipelines + the composite bind-group/sampler that lived here are gone.
     // Composite uniform ring. 256-byte slots → dynamic offsets prevent
     // multi-layer writeBuffer clobbering within a single frame, mirroring
     // `layerRing`.
@@ -350,43 +221,10 @@ export class LineRenderer {
    *  has no pick target, so it doesn't need rebuilding. Bind group
    *  layouts, shape buffers, and the uniform ring survive unchanged. */
   rebuildForQuality(): void {
-    const module = this.device.createShaderModule({ code: emitLineWgsl(isPickEnabled()), label: 'line-shader-rebuilt' })
-    const linePipelineLayout = this.device.createPipelineLayout({
-      bindGroupLayouts: [this.tileBindGroupLayout, this.layerBindGroupLayout],
-    })
-    this.pipeline = this.device.createRenderPipeline({
-      label: 'line-pipeline',
-      layout: linePipelineLayout,
-      vertex: { module, entryPoint: 'vs_line' },
-      fragment: {
-        module,
-        entryPoint: 'fs_line',
-        targets: isPickEnabled()
-          ? [
-              { format: this.format, blend: BLEND_ALPHA },
-              { format: 'rg32uint' as GPUTextureFormat, writeMask: 0 },
-            ]
-          : [{ format: this.format, blend: BLEND_ALPHA }],
-      },
-      primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: DEPTH_READ_ONLY,
-      multisample: { count: getSampleCount() },
-    })
-    // Composite pipeline samples the offscreen RT back into the MSAA main
-    // color, so its multisample.count must match.
-    const compositeModule = this.device.createShaderModule({ code: emitCompositeWgsl(), label: 'line-composite-rebuilt' })
-    this.compositePipeline = this.device.createRenderPipeline({
-      label: 'line-composite-pipeline',
-      layout: this.device.createPipelineLayout({ bindGroupLayouts: [this.compositeBindGroupLayout] }),
-      vertex: { module: compositeModule, entryPoint: 'vs_full' },
-      fragment: {
-        module: compositeModule,
-        entryPoint: 'fs_full',
-        targets: [{ format: this.format, blend: BLEND_ALPHA_PREMULT }],
-      },
-      primitive: { topology: 'triangle-list' },
-      multisample: { count: getSampleCount() },
-    })
+    // The line + composite draws come from LineDraper / LineCompositeDraper, which capture the MSAA
+    // sample count at construction — drop them so the next draw rebuilds against the new QUALITY.
+    this._lineDraper = undefined
+    this._compositeDraper = undefined
   }
 
   /** Lazily allocate / resize the offscreen RT to match the main color target. */
@@ -402,15 +240,8 @@ export class LineRenderer {
     this.offscreenView = this.offscreenTexture.createView()
     this.offscreenWidth = width
     this.offscreenHeight = height
-    this.compositeBindGroup = this.device.createBindGroup({
-      layout: this.compositeBindGroupLayout,
-      entries: [
-        { binding: 0, resource: this.offscreenSampler },
-        { binding: 1, resource: this.offscreenView },
-        // Dynamic-offset binding: actual slot is chosen per composite() call.
-        { binding: 2, resource: { buffer: this.compositeRing, offset: 0, size: LineRenderer.COMPOSITE_USED } },
-      ],
-    })
+    // The composite bind group (offscreen view + sampler + opacity ring) is built per-draw by
+    // LineCompositeDraper now — nothing to pre-build here.
   }
 
   /** Begin a translucent line render pass against the offscreen RT. */
@@ -434,7 +265,7 @@ export class LineRenderer {
    *  time — fixing the shared-buffer clobber where every draw sampled the
    *  last layer's opacity. */
   composite(mainPass: GPURenderPassEncoder, opacity: number): void {
-    if (!this.compositeBindGroup) return
+    if (!this.offscreenView) return
     const off = this.compositeSlot < this.compositeRingCapacity
       ? this.compositeSlot * LineRenderer.COMPOSITE_SLOT
       : (this.compositeRingCapacity - 1) * LineRenderer.COMPOSITE_SLOT
@@ -444,32 +275,14 @@ export class LineRenderer {
       this.compositeSlot++
     }
     this.device.queue.writeBuffer(this.compositeRing, off, new Float32Array([opacity, 0, 0, 0]))
-    // RHI seam (DEFAULT ON, same opt-out as the draw): the composite DRAW routes through the
-    // CompositeDraper; the raw compositePipeline remains the explicit-false fallback. Offscreen
-    // RT/pass origination stays raw (P2). WebGPU-only (the offscreen path fail-closes on WebGl2).
-    if ((globalThis as { __xgisLineViaRhi?: boolean }).__xgisLineViaRhi !== false && this.offscreenView) {
-      this.ensureCompositeDraper().draw(wrapWebGpuPass(mainPass), this.offscreenView, this.compositeRing, off)
-    } else {
-      mainPass.setPipeline(this.compositePipeline)
-      mainPass.setBindGroup(0, this.compositeBindGroup, [off])
-      mainPass.draw(3, 1)
-    }
+    // Through the RHI Material seam (the sole path). The offscreen RT/pass origination stays raw (P2).
+    // WebGPU-only (the offscreen translucent path fail-closes on WebGl2).
+    this.ensureCompositeDraper().draw(wrapWebGpuPass(mainPass), this.offscreenView, this.compositeRing, off)
   }
 
   private _compositeDraper?: LineCompositeDraper
   private ensureCompositeDraper(): LineCompositeDraper {
     return (this._compositeDraper ??= new LineCompositeDraper(new WebGpuDevice(this.device), this.format, getSampleCount()))
-  }
-
-  /** Used by VTR to pick the right pipeline depending on whether the
-   *  current pass is the offscreen translucent pass + whether the
-   *  show wants line-pattern Stage 2. Pattern shows route to
-   *  `pipelinePattern`; translucent pattern falls back to the
-   *  max-blend opaque-colour pipeline (Stage 2.1 will add a pattern
-   *  max variant). */
-  getDrawPipeline(translucent: boolean, patternActive = false): GPURenderPipeline {
-    if (translucent) return this.pipelineMax
-    return patternActive ? this.pipelinePattern : this.pipeline
   }
 
   setShapeRegistry(registry: ShapeRegistry): void {
@@ -652,19 +465,11 @@ export class LineRenderer {
     // no-op there). mode 'opaque' / 'max' / 'pick' (lines write pick=vec2u(0,0)). The raw pipelines
     // below remain ONLY as an explicit opt-out (__xgisLineViaRhi === false, e.g. the parity specs);
     // they retire with the §4 seam + VTR. Offscreen RT/pass ORIGINATION stays raw (deferred to P2).
-    const lineRhi = (globalThis as { __xgisLineViaRhi?: boolean }).__xgisLineViaRhi !== false
-    if (lineRhi) {
-      this.ensureLineDraper()
-      this._lineDraper!.draw(wrapWebGpuPass(pass), {
-        tileBG: tileBindGroup, layerBG: layerBindGroup, tileOffset, layerOffset,
-        pattern: patternActive, segmentCount,
-      }, translucent ? 'max' : isPickEnabled() ? 'pick' : 'opaque')
-    } else {
-      pass.setPipeline(this.getDrawPipeline(translucent, patternActive))
-      pass.setBindGroup(0, tileBindGroup, [tileOffset])
-      pass.setBindGroup(1, layerBindGroup, [layerOffset])
-      pass.draw(6, segmentCount)
-    }
+    this.ensureLineDraper()
+    this._lineDraper!.draw(wrapWebGpuPass(pass), {
+      tileBG: tileBindGroup, layerBG: layerBindGroup, tileOffset, layerOffset,
+      pattern: patternActive, segmentCount,
+    }, translucent ? 'max' : isPickEnabled() ? 'pick' : 'opaque')
   }
 
   private _lineDraper?: LineDraper

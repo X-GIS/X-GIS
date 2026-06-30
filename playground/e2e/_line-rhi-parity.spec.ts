@@ -6,31 +6,25 @@ import { fileURLToPath } from 'node:url'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const OUT = join(HERE, '__globe-baseline__')
 
-type W = { __xgisReady?: boolean; __xgisMap?: { invalidate?: () => void }; __xgisLineViaRhi?: boolean }
+type W = { __xgisReady?: boolean }
 
-// RHI third-primitive gate: the SDF line main draw (instanced, 2 dynamic-offset
-// bind groups, reused VTR tile layout) legacy vs RHI must be pixel-identical.
-test('line RHI parity: legacy vs RHI path pixel-identical', async ({ page }) => {
+// P1.5 — the SDF line draw is now UNCONDITIONALLY on the RHI Material seam (LineDraper /
+// LineCompositeDraper). The raw GPURenderPipelines + the __xgisLineViaRhi opt-out flag are deleted;
+// the RHI path was proven pixel-identical to the old raw path (DC=0) across opaque / translucent-MAX
+// / composite / pick-MRT / bundle before the flip. This now smoke-tests that the line + composite
+// render the all-renderers stress scene through the RHI seam without GPU/validation errors.
+test('line RHI seam: stress scene renders error-free', async ({ page }) => {
   test.setTimeout(45_000)
   mkdirSync(OUT, { recursive: true })
   const errors: string[] = []
-  const logs: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); if (/LINERHI/.test(m.text())) logs.push(m.text()) })
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
 
   await page.setViewportSize({ width: 600, height: 600 })
   await page.goto('/demo.html?id=fixture_stress_all_renderers&e2e=1', { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(() => (window as unknown as W).__xgisReady === true, null, { timeout: 25_000 })
   await page.waitForTimeout(4000)
+  writeFileSync(join(OUT, 'line-rhi-seam.png'), await page.locator('#map').screenshot())
 
-  await page.evaluate(() => { const w = window as unknown as W; w.__xgisLineViaRhi = false; w.__xgisMap?.invalidate?.() })
-  await page.waitForTimeout(900)
-  writeFileSync(join(OUT, 'line-parity-legacy.png'), await page.locator('#map').screenshot())
-
-  await page.evaluate(() => { const w = window as unknown as W; w.__xgisLineViaRhi = true; w.__xgisMap?.invalidate?.() })
-  await page.waitForTimeout(900)
-  writeFileSync(join(OUT, 'line-parity-rhi.png'), await page.locator('#map').screenshot())
-
-  console.log('LINEPARITY rhiRan=', logs.length > 0, 'errors', errors.length)
   expect(errors.length).toBe(0)
 })
