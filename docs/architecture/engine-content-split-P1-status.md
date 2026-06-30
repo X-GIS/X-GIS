@@ -50,22 +50,38 @@ real-GPU gate caught (the GLSL switch `break` fall-through fixed every `match()`
    no stable baseline. `fixture-raster-local.xgis` uses a url with NO `{z}/{x}/{y}` so every tile
    loads the same local `checker-tile.png` → byte-deterministic (P1.4).
 
-## Remaining P1 — line completion + VTR are COUPLED
+## Remaining P1 — VTR fill/extrude (the bulk)
 
-Line draws are emitted from inside VTR (`vector-tile-renderer.ts` calls `lineRenderer.drawSegments`),
-and `LineDraper` reuses VTR's tile bind-group layout, so finishing line and routing VTR is one unit.
+**Line P1.5 is DONE on the draw path** (`96b6360b`): `__xgisLineViaRhi` defaults ON, all 5 draw cases
+(opaque / translucent-MAX / composite / pick-MRT / render-bundle) verified real-GPU DC=0. The raw line
+pipelines survive ONLY as the `__xgisLineViaRhi === false` fallback and retire with the §4 seam.
 
-- **Line P1.5 remainder**: wire the pick draw (the `LineDraper` pick variant exists; relax the
-  `!isPickEnabled()` gate in `drawSegments`; lines write `pick=vec2u(0,0)` so it's byte-identical) +
-  the render-bundle path (`wrapWebGpuPass` over a `GPURenderBundleEncoder` — a small RHI extension) +
-  then flip `__xgisLineViaRhi` default ON and delete the raw else-branches (draw + composite + the raw
-  pipelines). Verify pick via a picking-enabled VTR scene (color DC=0; the pick buffer is 0 either way).
-- **VTR P1.6 (the bulk)**: no existing RHI pilot. fill alone has 6+ pipeline variants
-  (fill/fallback/ground/ground-override/ground-fallback/pattern-ground) + per-tile stencil clip-masks
-  (`setStencilReference`, already in `RhiRenderPass`) + render bundles + the `recordTileFill` emit;
-  plus stroke (via LineRenderer) + 3D extrude. Needs: `setIndexBuffer(offset,size)`; a polygon/fill
-  Material with the variants; stencil routing; the shared `GPUArena` (`gpu/frame-arena.ts`) +
-  bind-group-registry converted to `Rhi*` (the §4 seam — converted ONCE here, line consumes it).
+VTR **strokes/outlines already route through the RHI** — they call `lineRenderer.drawSegments` (vector-
+tile-renderer.ts ~4111/4114), which is now default-ON RHI. So VTR's remaining draws are **fill + extrude
+only**, and they share ONE `drawIndexed` method (~3555: `setPipeline` → `setVertexBuffer(0, arena sub-
+range)` → optional `setVertexBuffer(1, zBuffer)` for extrude → `setIndexBuffer(arena sub-range)` →
+`drawIndexed`). The `setIndexBuffer(offset,size)` RHI gap is CLOSED (`5ff386b4`).
+
+The remaining work is a **polygon Material with the full fill-pipeline variant matrix**
+(`pipeline-factory.ts`, ~19 pipelines = the bulk). Axes, all emitted from `emitPolygonWgsl(variantInfo,
+pickEnabled)`:
+- entryPoint: `vs_main_ecef` (flat) vs `vs_main_ecef_extruded` (3D walls/roof; vertex slot 1 = zBuffer)
+- depthWrite: on (`fillPipeline`) vs off (`fillPipelineGround`)
+- stencil: none vs `*Fallback` (stencil-test, draw where stencil==0 — the per-tile clip-mask via
+  `setStencilReference`, already in `RhiRenderPass`)
+- pick: MRT (`fillPipeline`) vs `*NoPick`
+- blend/shader: opaque vs `*ExtrudedOIT` vs `*Pattern*` (line-pattern Stage 2) vs overdraw-debug
+
+STRUCTURE (good news — it fits the Material model): the ~19 are pipeline-CONFIG variants of ONE shader
+per style. `buildShader(variant)` emits either the default `emitPolygonWgsl(null, pick)` (most tiles) or
+a style-specific module (data-driven fill/stroke `Expr`s spliced); the fillPipeline* differ only in
+pipeline state (entryPoint / depthWrite / stencil / pick-MRT / blend). So it's a **Material per style**
+(shader = `buildShader`) with the ~19 as its `variants[]`, cached like the renderer caches pipelines today.
+
+The fill draw's caller (`recordTileFill`) selects a *pipeline* today; routing means it selects a Material
+VARIANT INDEX instead. Build the per-style Material + all config-variants → route the one `drawIndexed` +
+the stencil (`setStencilReference`) → verify DC=0 (a VTR polygon scene, e.g. fixture_h2_fill). Then the §4
+seam (shared `GPUArena`/bind-group-registry → `Rhi*`) retires the raw line + VTR paths together.
 
 ## §4 seam (Rhi* handles, the WebGL2-parity track)
 
