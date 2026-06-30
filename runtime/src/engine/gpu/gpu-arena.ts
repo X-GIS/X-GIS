@@ -63,7 +63,6 @@
 //   Callers don't need to pre-align their byte lengths.
 
 import type { RhiBuffer, RhiBufferDesc, RhiBufferUsage } from '../render/rhi/rhi'
-import { unwrapWebGpuBuffer } from '../render/rhi/rhi-webgpu'
 
 /** Configuration for a new arena. */
 export interface GPUArenaOptions {
@@ -90,6 +89,10 @@ export interface GPUArenaOptions {
 export interface GPUArenaDevice {
   createBuffer(desc: RhiBufferDesc): RhiBuffer
   destroyBuffer(buffer: RhiBuffer): void
+  /** Unwrap an RHI handle to the native GPUBuffer the arena exposes to its raw
+   *  consumers (the VTR fill draw). Injected so gpu/ never imports a backend
+   *  module (downward-spine: arena depends only on this port). */
+  unwrapBuffer(buffer: RhiBuffer): GPUBuffer
 }
 
 /** Minimal subset of `RhiCommandEncoder` used by compaction. The real
@@ -237,7 +240,7 @@ export class GPUArena {
       copySrc: opts.copySrc,
       label: opts.label,
     })
-    this._buffer = unwrapWebGpuBuffer(this._rhiBuffer)
+    this._buffer = device.unwrapBuffer(this._rhiBuffer)
     this._capacityBytes = opts.capacityBytes
     this.device = device
     this.usage = opts.usage
@@ -438,7 +441,7 @@ export class GPUArena {
     // submit + the bundle-invalidation path identity-checks it raw).
     const oldBuffer = this._buffer
     this._rhiBuffer = newRhiBuffer
-    this._buffer = unwrapWebGpuBuffer(newRhiBuffer)
+    this._buffer = this.device.unwrapBuffer(newRhiBuffer)
     // Adopt the new buffer's capacity (defaults to current = same-size
     // defrag; larger = auto-grow). Written synchronously with the buffer
     // swap so capacity and _buffer never disagree across a frame.

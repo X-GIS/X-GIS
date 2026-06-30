@@ -56,15 +56,8 @@ function align4(bytes: number): number {
 
 export class GpuTileStore {
   private device: GPUDevice
-  /** The RHI device (same backend, wrapping `device`) the ARENA cluster routes
-   *  through: the poly arenas create their buffers via `rhi.createBuffer`
-   *  ({usage:'vertex'|'index', copySrc:true}) and the compaction/grow relocation
-   *  records through `rhi.createCommandEncoder` → `copyBufferToBuffer`. `device`
-   *  is retained for the pooled per-tile line/index/outline buffers
-   *  (`acquireBuffer`) + the retire-queue + buffer-pool destroys, which stay raw
-   *  GPUBuffer: their draw consumers (the raw VTR fill draw, the SDF segment /
-   *  feature bind groups) are not yet RHI, so per the §4 coupling rule those
-   *  buffers retire with the VTR/line cluster, not this unit. */
+  /** RHI device the ARENA routes createBuffer + compaction-copy through; `device`
+   *  stays raw for the pooled per-tile buffers + retire queue (§4 coupling rule). */
   private rhi: WebGpuDevice
 
   /** GPU tile cache keyed by `${tileKey}|${sourceLayer}`. The `sourceLayer`
@@ -213,22 +206,15 @@ export class GpuTileStore {
       this.polyVertexArena = new GPUArena(this.rhi, {
         capacityBytes: GpuTileStore.POLY_VERTEX_ARENA_CAPACITY,
         usage: 'vertex',
-        // copySrc is required for compaction's copyBufferToBuffer (it reads the
-        // old arena buffer as the copy SOURCE when relocating the live set into
-        // the freshly-packed destination buffer) → the RHI ORs in COPY_SRC, so
-        // the final usage is byte-identical to the prior raw VERTEX|COPY_DST|COPY_SRC.
-        copySrc: true,
+        copySrc: true,  // compaction copy SOURCE → COPY_SRC (see GPUArenaOptions.copySrc)
         label: 'poly-vertex-arena',
       })
     }
     return this.polyVertexArena
   }
 
-  /** Phase 6a.3 (iter-209) — shared polygon index arena. Mirror of
-   *  the vertex arena above. Capacity 64 MB matching vertex arena —
-   *  initial 32 MB sizing underestimated demotiles-europe-z2 which
-   *  exceeded 33 MB across all source-layers before eviction kicked
-   *  in. Phase 6a.5 will add auto-grow + cross-test reset. */
+  /** Shared polygon index arena (mirror of the vertex arena). 64 MB — 32 MB
+   *  underestimated demotiles-europe-z2 (>33 MB across source-layers pre-eviction). */
   private polyIndexArena: GPUArena | null = null
   private static readonly POLY_INDEX_ARENA_CAPACITY = 64 * 1024 * 1024
   /** Hard ceiling for auto-grow of the INDEX arena (US-003). Indices are
@@ -240,7 +226,6 @@ export class GpuTileStore {
       this.polyIndexArena = new GPUArena(this.rhi, {
         capacityBytes: GpuTileStore.POLY_INDEX_ARENA_CAPACITY,
         usage: 'index',
-        // copySrc required for compaction (see poly-vertex-arena above).
         copySrc: true,
         label: 'poly-index-arena',
       })
@@ -830,10 +815,7 @@ export class GpuTileStore {
       ? tiles.map((t) => ({ oldOffset: t.polyIndexOffset, bytes: t.polyIndexByteLength }))
       : null
 
-    // One encoder records ALL copies for both arenas; a single submit makes
-    // the whole relocation atomic w.r.t. the GPU timeline. Through the RHI seam:
-    // createCommandEncoder + copyBufferToBuffer (in arena.compact), and finish()
-    // does the queue.submit (RhiCommandEncoder.finish = queue.submit(enc.finish())).
+    // One encoder records ALL copies for both arenas; one finish() = atomic submit.
     const encoder = this.rhi.createCommandEncoder('arena-compact-grow')
     const vResult = vArena && vReloc ? vArena.compact(vReloc, encoder, vTarget) : null
     const iResult = iArena && iReloc ? iArena.compact(iReloc, encoder, iTarget) : null

@@ -223,6 +223,10 @@ export class WebGpuDevice implements RhiDevice {
     u<GPUBuffer>(buffer).destroy()
   }
 
+  unwrapBuffer(buffer: RhiBuffer): GPUBuffer {
+    return u<GPUBuffer>(buffer)
+  }
+
   createTexture(desc: RhiTextureDesc): RhiTexture {
     return wrap(this.device.createTexture({
       size: { width: desc.width, height: desc.height },

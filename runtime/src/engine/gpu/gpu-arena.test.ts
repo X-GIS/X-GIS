@@ -40,6 +40,7 @@ function mockDevice(): GPUArenaDevice {
       return { native: b } as unknown as RhiBuffer
     },
     destroyBuffer(h) { unwrap(h).destroy() },
+    unwrapBuffer(h) { return unwrap(h) as unknown as GPUBuffer },
   }
 }
 

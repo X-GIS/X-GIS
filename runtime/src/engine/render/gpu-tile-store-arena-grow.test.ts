@@ -45,6 +45,7 @@ function arenaDevice(): GPUArenaDevice {
       return { native: b } as unknown as RhiBuffer
     },
     destroyBuffer(h) { (h as unknown as { native: MockBuffer }).native.destroy() },
+    unwrapBuffer(h) { return (h as unknown as { native: MockBuffer }).native as unknown as GPUBuffer },
   }
 }
 
