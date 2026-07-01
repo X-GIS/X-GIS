@@ -6,6 +6,7 @@
     { "path": "./blueprint" },
     { "path": "./shader-dsl" },
     { "path": "./engine" },
+    { "path": "./data" },
     { "path": "./map" },
     { "path": "./runtime" }
   ]
