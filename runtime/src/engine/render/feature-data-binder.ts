@@ -50,6 +50,32 @@ export interface PaletteResources {
   spriteAtlasView: GPUTextureView | null
 }
 
+/** #723 — stable, tile-independent categorical palette id. FNV-1a of the
+ *  value, masked to 23 bits so it round-trips EXACTLY through the f32
+ *  `feat_data` slot (f32 mantissa is 24 bits); the `categorical()` shader
+ *  applies `% <palette>` (shader-gen.ts:227) to land it in a palette slot.
+ *  The prior code used the ALPHABETICAL RANK of the values present in a
+ *  single tile, so the same value mapped to a different slot depending on
+ *  which other values shared the tile — a `categorical()` fill therefore
+ *  changed colour across zoom/pan (issue #723). An id that is a pure
+ *  function of the value is identical in every tile by construction. */
+export function stableCategoryId(v: string): number {
+  let h = 0x811c9dc5
+  for (let i = 0; i < v.length; i++) h = Math.imul(h ^ v.charCodeAt(i), 0x01000193)
+  return (h >>> 0) & 0x7fffff
+}
+
+/** Build a value→id map for a `categorical()` field that has NO compile-time
+ *  `categoryOrder` (i.e. the palette path, not `match()`). The id is
+ *  `stableCategoryId(value)` — a pure function of the value, NOT the
+ *  per-tile / per-source rank. Shared by the per-tile and source-level
+ *  packers so both agree on a value's colour. See #723. */
+export function buildCategoryMap(values: Iterable<string>): Map<string, number> {
+  const map = new Map<string, number>()
+  for (const v of values) if (!map.has(v)) map.set(v, stableCategoryId(v))
+  return map
+}
+
 export class FeatureDataBinder {
   private device: GPUDevice
 
@@ -266,17 +292,18 @@ export class FeatureDataBinder {
           let next = compileTimeOrder.length
           for (const v of [...uniqueVals].sort()) map.set(v, next++)
         } else {
-          // Legacy path: variant doesn't expose category order (e.g.
-          // shader uses `categorical()` palette, not `match()`). Sort
-          // unique data values alphabetically; matches the historic
-          // assignment behaviour.
-          const uniqueVals = new Set<string>()
+          // #723 — variant doesn't expose category order (shader uses the
+          // `categorical()` palette, not `match()`). Assign each value a
+          // STABLE palette id that is a pure function of the value
+          // (stableCategoryId), identical to the per-tile packer, so a
+          // categorical fill's colour never depends on which values are
+          // present. (Was: per-tile/-source alphabetical rank.)
+          const vals: string[] = []
           for (const row of table.values) {
             const v = row[fi]
-            if (typeof v === 'string') uniqueVals.add(v)
+            if (typeof v === 'string') vals.push(v)
           }
-          const sorted = [...uniqueVals].sort()
-          sorted.forEach((v, i) => map.set(v, i))
+          for (const [v, id] of buildCategoryMap(vals)) map.set(v, id)
         }
         catMaps.set(fieldName, map)
       }
@@ -364,13 +391,16 @@ export class FeatureDataBinder {
         let next = order.length
         for (const v of [...unseen].sort()) map.set(v, next++)
       } else {
-        const unique = new Set<string>()
+        // #723 — categorical() palette id is a pure function of the value
+        // (stableCategoryId), NOT the per-tile alphabetical rank, so the
+        // same value gets the same palette slot in every tile / at every
+        // zoom instead of shifting with the tile's value-subset.
+        const vals: string[] = []
         for (const props of featureProps.values()) {
           const v = props[fieldName]
-          if (typeof v === 'string') unique.add(v)
+          if (typeof v === 'string') vals.push(v)
         }
-        const sorted = [...unique].sort()
-        sorted.forEach((v, i) => map.set(v, i))
+        for (const [v, id] of buildCategoryMap(vals)) map.set(v, id)
       }
       catMaps.set(fieldName, map)
     }
