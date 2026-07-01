@@ -18,7 +18,7 @@
 
 import type { LabelDef } from '@xgis/compiler'
 import type { RenderTraceRecorder } from '@xgis/map'
-import type { TextDraw } from './text-renderer'
+import type { TextDraw } from '@xgis/map'
 
 /** One captured halo-norm probe entry (see captureHalo). */
 export interface HaloDebugEntry {

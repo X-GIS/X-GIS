@@ -43,7 +43,9 @@ describe('uniform byte-layout consistency (CPU pack ↔ DSL struct, via reflect(
   })
 
   it('the CPU packer (vector-tile-renderer) sources its slots from reflect(), not magic numbers', () => {
-    const vtr = readFileSync(join(HERE, 'vector-tile-renderer.ts'), 'utf8')
+    // vector-tile-renderer.ts relocated to @xgis/map (P3 Batch B7); HERE is
+    // runtime/src/engine/render → up 4 to repo root, then into map/src/render.
+    const vtr = readFileSync(join(HERE, '..', '..', '..', '..', 'map', 'src', 'render', 'vector-tile-renderer.ts'), 'utf8')
     // The packer derives slots from polygonUniformSlots() (reflect) and writes at US.<field> —
     // no hand-coded magic indices to drift from the DSL struct.
     expect(vtr).toMatch(/polygonUniformSlots/)

@@ -32,6 +32,9 @@ export * from './render/frame-projection-uniform'
 export * from './render/line-pattern'
 export * from './render/vector-tile-renderer-types'
 export * from './render/vector-tile-renderer-helpers'
+// P3 Batch B7 — VTR god-file (SELECTIVE: LayerDrawPhase re-export collides with
+// vector-tile-renderer-types above; export only the new symbols).
+export { VectorTileRenderer, rotateTranslateForAnchor } from './render/vector-tile-renderer'
 export * from './graticule'
 // P3 Batch D — point-renderer-types + text leaf content (pruned to public API in Step 8).
 export * from './render/point-renderer-types'
@@ -155,3 +158,6 @@ export * from './render/resolved-show'
 export * from './render/viewport-mode-controller'
 export * from './text/sdf/glyph-atlas-gpu'
 export * from './text/text-renderer-types'
+// P3 Batch B7 — text-renderer (SELECTIVE: TextDraw re-export collides with
+// text-renderer-types above; export only the new symbols).
+export { TextRenderer, packUniformsForTesting } from './text/text-renderer'

@@ -35,7 +35,7 @@ import { TextStage } from './text-stage'
 import { MockRasterizer } from '@xgis/map'
 import { WebGpuDevice } from '@xgis/engine'
 import type { LabelDef, TextValue } from '@xgis/compiler'
-import type { TextDraw } from './text-renderer'
+import type { TextDraw } from '@xgis/map'
 
 // WebGPU bitflag globals the GPU classes reference at construction —
 // not present in the node test env. Values per the WebGPU spec.

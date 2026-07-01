@@ -4,15 +4,15 @@
 // This class manages GPU buffers, bind groups, and draw calls only.
 
 import type { GPUContext } from '@xgis/engine'
-import { DEBUG_OVERDRAW } from '@xgis/map'
+import { DEBUG_OVERDRAW } from '../debug-flags'
 import { Camera } from '@xgis/engine'
-import type { ShowCommand } from '@xgis/map'
-import { variantProducesFill } from '@xgis/map'
-import { polygonUniformSlots, polygonUniformBytes, polygonUniformStride } from '@xgis/map'
-import { writeFrameProjectionUniform } from '@xgis/map'
+import type { ShowCommand } from './renderer-types'
+import { variantProducesFill } from './renderer-helpers'
+import { polygonUniformSlots, polygonUniformBytes, polygonUniformStride } from './polygon-uniform-slots'
+import { writeFrameProjectionUniform } from './frame-projection-uniform'
 import { xlog } from '@xgis/shared'
-import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '@xgis/map'
-import { recordFillDraw, type FillRhiState } from '@xgis/map'
+import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
+import { recordFillDraw, type FillRhiState } from './material/polygon-fill-material'
 
 // f32 slot indices of the polygon 'Uniforms' struct, sourced from reflect() of the SAME
 // IR the shader is emitted from (NOT hand-coded magic numbers — those silently drift from
@@ -27,39 +27,39 @@ let _uSlots: Readonly<Record<string, number>> | null = null
 const US = new Proxy({} as Record<string, number>, {
   get: (_t, k: string) => (_uSlots ??= polygonUniformSlots().slot)[k],
 })
-import type { ResolvedShow } from '@xgis/map'
-import { structuralHashKey } from '@xgis/map'
-import type { BundleKeyState } from '@xgis/map'
+import type { ResolvedShow } from './resolved-show'
+import { structuralHashKey } from '../_cache/structural-key'
+import type { BundleKeyState } from '../_cache/bundle-cache-key'
 import {
   classifyTile, computeProtectedKeys, computeZoomDirectionPrefetchKeys,
   type TileDecision,
-} from '@xgis/map'
-import { PrefetchScheduler } from '@xgis/map'
-import { LabelFeatureSource } from '@xgis/map'
+} from '../tile-decision'
+import { PrefetchScheduler } from './prefetch-scheduler'
+import { LabelFeatureSource } from './label-feature-source'
 import { FrameDrawStats } from '@xgis/engine'
-import { TileSelectionCache } from '@xgis/map'
-import { FeatureDataBinder } from '@xgis/map'
-import { GpuTileStore } from '@xgis/map'
+import { TileSelectionCache } from './tile-selection-cache'
+import { FeatureDataBinder } from './feature-data-binder'
+import { GpuTileStore } from './gpu-tile-store'
 import type { WebGpuDevice } from '@xgis/engine'
-import { BindGroupRegistry } from '@xgis/map'
+import { BindGroupRegistry } from './bind-group-registry'
 import { tileKeyParent, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
 import { StagingBufferPool } from '@xgis/engine'
 import { BundleCache, type BundleEncodeDescriptor } from '@xgis/engine'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { WORLD_MERC, TILE_PX } from '@xgis/engine'
-import { UploadCoordinator } from '@xgis/map'
+import { UploadCoordinator } from './upload-coordinator'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog } from '@xgis/data'
 import type { TileData } from '@xgis/data'
 import { computeSliceKey } from '@xgis/data'
 import { mercator as mercatorProj, getProjection, type Projection } from '@xgis/engine'
 import { SELECTOR_PROJ_NAMES } from '@xgis/engine'
-import type { PointRenderer } from '@xgis/map'
-import type { LineRenderer } from '@xgis/map'
-import { parseHexColor } from '@xgis/map'
-import type { GPUTile, LayerDrawPhase } from '@xgis/map'
-import { getMaxGpuTiles, uploadBudgetFor } from '@xgis/map'
-import { UniformRing } from '@xgis/map'
+import type { PointRenderer } from './point-renderer'
+import type { LineRenderer } from './line-renderer'
+import { parseHexColor } from '../feature-helpers'
+import type { GPUTile, LayerDrawPhase } from './vector-tile-renderer-types'
+import { getMaxGpuTiles, uploadBudgetFor } from './vector-tile-renderer-helpers'
+import { UniformRing } from './uniform-ring'
 
 // projType (camera.projType / proj_params.x) → projection registry name,
 // for building the projection-aware `selectorProj`. Index 0 (mercator) and

@@ -15,19 +15,19 @@
 // Multi-page bind-group permutation lands when an actual map needs
 // it (BMP-only Latin maps fit in one page comfortably).
 
-import type { GlyphAtlasGPU } from '@xgis/map'
+import type { GlyphAtlasGPU } from './sdf/glyph-atlas-gpu'
 import { FrameArena } from '@xgis/engine'
-import { bumpAlloc } from '@xgis/map'
-import type { TextDraw } from '@xgis/map'
-import { codePointIsIdeographic } from '@xgis/map'
+import { bumpAlloc } from '../__profile__/alloc-counter'
+import type { TextDraw } from './text-renderer-types'
+import { codePointIsIdeographic } from './text-wrap'
 import { wrapWebGpuPass, wrapWebGpuBindGroupLayout, wrapWebGpuTextureView, wrapWebGpuSampler } from '@xgis/engine'
 import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
-import { TextDraper, type TextSlice } from '@xgis/map'
+import { TextDraper, type TextSlice } from '../render/material/text-material'
 import { vertexField } from '@xgis/compiler'
-import { TEXT_FORMAT } from '@xgis/map'
+import { TEXT_FORMAT } from './text-vertex-format'
 import { toVertexBufferLayout } from '@xgis/engine'
 
-export type { TextDraw } from '@xgis/map'
+export type { TextDraw } from './text-renderer-types'
 
 const VERTS_PER_GLYPH = 6  // two triangles
 // Derived from the single-source TEXT_FORMAT spec so the packer cannot drift

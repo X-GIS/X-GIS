@@ -20,8 +20,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { tileKey, tileKeyChildren } from '@xgis/compiler'
 import { Camera } from '@xgis/engine'
 import { VectorTileRenderer } from './vector-tile-renderer'
-import { PrefetchScheduler } from '@xgis/map'
-import { TileSelectionCache, type FrameTileCache } from '@xgis/map'
+import { PrefetchScheduler } from './prefetch-scheduler'
+import { TileSelectionCache, type FrameTileCache } from './tile-selection-cache'
 
 // Build a minimal "catalog" that records prefetchTiles calls. Only
 // the fields pumpPrefetch reads need to be present; everything else

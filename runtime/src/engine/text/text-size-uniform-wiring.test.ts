@@ -24,7 +24,7 @@
 // text-size → font_size_px wire is gone, and the test says so before a render.
 
 import { describe, it, expect } from 'vitest'
-import { packUniformsForTesting, type TextDraw } from './text-renderer'
+import { packUniformsForTesting, type TextDraw } from '@xgis/map'
 
 // font_size_px is f32 slot 14 of the 64-byte (16-float) text uniform:
 // viewport@0-1, pad@2-3, fill_color@4-7, halo_color@8-11, halo_width@12,

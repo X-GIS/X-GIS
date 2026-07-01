@@ -78,90 +78,6 @@ describe('arch ratchet: map ↔ render-loop value-import cycle stays broken', ()
 // ── Gate 3: LOC ceilings (god-files shrink-only; no new god-files) ───
 // High-water marks measured 2026-06-09. LOWER these as files shrink.
 const LOC_CEILINGS: Record<string, number> = {
-  // Bumped 3913→3924 for the sync-path (doUploadTile) line/outline/segment
-  // buffer-leak fix: the 5 buffer declarations are hoisted ABOVE the try so
-  // the catch backstop can reach them, and 5 cleanup statements (release the
-  // pooled line/index buffers + destroy the lineRenderer-owned segment
-  // buffers) mirror doUploadTileAsync's cleanupLineBuffers. Irreducible — the
-  // async path already carries the identical structure; this closes the
-  // asymmetric sync gap (throw before layerCache.set → leaked VRAM).
-  // Bumped 3924→3934 for the bundle-cache compaction-UAF fix: capturing
-  // runFrameMaintenance's new "compacted" return + invalidating every cached
-  // render bundle (whose recorded buffer ref the arena swap retired) is
-  // irreducible — the explanatory comment carries the bulk (mirrors the
-  // async-upload buffer-identity guard; latent since bundles are default-OFF).
-  // Bumped 3934→3938 for the continuous-zoom fill-interp fix: slot 44 (u.zoom)
-  // must carry the fractional camera.zoom, not the integer tile-selection
-  // lastZoom, or OFM zoom-interp fills + palette gradients snap at integer
-  // boundaries. Adds a `currentCameraZoom` field (cached in render()) — net
-  // +4 lines after trimming the slot-44 comment.
-  // Bumped 3938→3948 for the empty-default-slice fix (#356-followup): the
-  // classifyTile call site passes a hasNonEmptySliceInCatalog predicate so a
-  // single-layer GeoJSON empty placeholder classifies as drop-empty instead of
-  // being forced into a parent-fallback (+10 lines, irreducible inline closure).
-  // Bumped 3948→3955 for the match()-variant null-feature-bg crash fix: the
-  // per-tile fill loop resolves the feature bind group to null (not a lying `!`)
-  // and skips the fill draw when absent — binding null with a dynamic offset
-  // invalidated the whole encoder (black screen on non-mercator projections).
-  // Lowered 3955→3923 for the Tier-2 zoom-direction prefetch extraction: the
-  // tile-set math moved VERBATIM to tile-decision.computeZoomDirectionPrefetchKeys
-  // (pure, unit-tested), leaving only the guard + prefetchTiles side-effect inline
-  // (byte-identical execution order). Five now-unused imports also dropped.
-  // Bumped 3923→3929 for the fill/line-pattern atlas-UV clobber fix (slots 19/23):
-  // the two unconditional uf[19]/uf[23] writes split into _patternUniformActive /
-  // _linePatternActiveForShow guarded writes + the 6-line rationale comment — the
-  // shader reads those slots as the pattern v1, so the guard is irreducible.
-  // Bumped 3929→3959 for BUG D4 (cancelStaleUploads byte-accounting leak): the
-  // _releasePrebuiltSegments helper + its two drop-path call sites (queued +
-  // held) null prebuiltLineSegments/prebuiltOutlineSegments on dropped uploads
-  // whose TileData stays cached, keeping sizeOfTileData's segment-omission
-  // invariant true so the byte-cap eviction stops under-firing. Shared helper.
-  // Bumped 3959→3961 for the line-width dpr fix: the two writeLayerSlot call
-  // sites (stroke + gap) each thread `dpr` into the layer uniform so vs_line's
-  // screen-width clamp lands on the right NDC span (roads were 1/dpr too thin).
-  // Bumped 3961→3962 for the point precision fix: the tile-point decode passes
-  // the absolute Mercator DSFUN tail (slots 9-12) to addTilePoint.
-  // Bumped 3962→3996 (mbx_batch2) for the fill-antialias / fill-extrusion-
-  // vertical-gradient opt-out flags: two baked per-show fields + their render()
-  // bake + the two uniform writes into the spare cam_ecef_off_{h,l}.w lanes +
-  // the contract comments. Irreducible additive plumbing (no struct growth).
-  // Bumped 3996→4011 (#420) for the light_dir_ecef pack: the camera-anchor
-  // ENU→ECEF light rotation (camSinLon/camCosLon + 3 uniform writes) + the
-  // basis-contract comment that ties it to polygon-mesh.ts's normals.
-  // Bumped 4011→4051 (WS-9 + WS-1): the fill-extrusion light state +
-  // setLight() + the per-tile light-colour/intensity pack (slots 50/63),
-  // plus reading the per-frame resolved fill/line translate off ResolvedShow.
-  // Bumped 4051→4054 (WS-1 line-dasharray): prefer ResolvedShow.dashArray.
-  // Bumped 4054→4078 (Phase S Batch 2, two features): line-round-limit
-  // (+7: show.roundLimit read threaded to both writeLayerSlot calls) AND
-  // *-translate-anchor:map (+17: rotateTranslateForAnchor 2D bearing-rotation
-  // helper + the two map-anchor flags at the fill/line translate bake;
-  // fill-extrusion inherits via the shared fill_translate slot 46/47).
-  // Default viewport/round-limit byte-identical; additive, no struct growth.
-  // Bumped 4078→4093 (uniform-from-reflect, #581): the polygon uniform slots are
-  // now SOURCED from reflect(buildPolygonModule()) via a lazy `US` slot Proxy
-  // (polygon-uniform-slots.ts) instead of three hand-maintained byte-offset copies —
-  // RETIRES the std140 drift the file carried (DSL struct + uf[N]/uniformF32[N]/
-  // uniformU32[N] magic). Render byte-identical; the +15 is the one-time slot-Proxy
-  // wiring, not feature surface. Decomposition stays a tracked follow-up.
-  // Bumped 4093→4104 (#600): the per-frame globe_eye uniform write + its doc
-  // comment + the UNIFORM_SLOT/SIZE 256→512/272 rationale comments.
-  // Bumped 4104→4115 (#600 fix): the prior bump documented a globe_eye write that
-  // was never actually committed to VTR — so the vector globe cull fell back to the
-  // centre-hemisphere model and leaked far-side line/fill 뒷면. Restores the missing
-  // write: the globeEye frame field + its doc, the render() cache, the globeEyeUniform
-  // import, and the per-tile globe_eye pack. Decomposition stays a tracked follow-up.
-  // Bumped 4115→4126 (mobile-perf diag): perf-marks sub-marks that nest inside the
-  // opaque pass to localize the high-pitch CPU burst — `vtr.upload` around the three
-  // mid-render doUploadTile fallback calls + `vtr.evict` around the two forceEvictBytes
-  // pairs (+ the perf-marks import). Gated OFF by default (markStart/End early-return),
-  // so render is byte-identical; the +11 is diagnostic plumbing. Reclaim on decomposition.
-  // Lowered 4126→3120 (UploadCoordinator extraction): the twin doUploadTile /
-  // doUploadTileAsync bodies + priority queue + per-frame cap + stale-cancel +
-  // _allocPolyPair moved to upload-coordinator.ts as ONE write-strategy-
-  // parameterised dispatch body. VTR keeps thin forwarders. Ratchets the ~950-line
-  // shrink so the win can't silently regrow.
-  'runtime/src/engine/render/vector-tile-renderer.ts': 3120,
   // Bumped 3361→3393 for the destroy()-completeness fix: cancelling the
   // EventDispatcher move-rAF + the pending-flush rAF, clearing _pendingPatches,
   // and removing the run()-installed window globals (__xgisReady/snapshot/
@@ -512,6 +428,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // Batch B6 — no longer under a SRC_DIRS walk, so its LOC ceiling leaves this runtime ratchet
   // (mirrors the gpu-tile-store.ts / tile-selection-cache.ts / camera.ts precedents above;
   // package-level LOC ratchets for map/engine are a tracked post-Gate-6 follow-up).
+  // vector-tile-renderer.ts relocated to @xgis/map (map/src/render/vector-tile-renderer.ts) in P3
+  // Phase 2 Batch B7 (the 3120-LOC VTR god-file) — no longer under a SRC_DIRS walk, so its LOC
+  // ceiling leaves this runtime ratchet (mirrors the point-renderer.ts / gpu-tile-store.ts /
+  // tile-selection-cache.ts / camera.ts precedents above; package-level LOC ratchets for map/engine
+  // are a tracked post-Gate-6 follow-up).
   // Baselined at 820 (mbx_batch2): lower-label.ts is the label-knob lowering
   // sub-pass extracted from lower.ts; crossed 800 here for the icon-translate
   // accumulators + parse arms + knobs-interface + merge wiring. Cohesive

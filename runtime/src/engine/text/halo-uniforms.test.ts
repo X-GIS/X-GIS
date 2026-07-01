@@ -15,7 +15,7 @@
 // (See `packUniforms` in text-renderer.ts.)
 
 import { describe, it, expect } from 'vitest'
-import { packUniformsForTesting, type TextDraw } from './text-renderer'
+import { packUniformsForTesting, type TextDraw } from '@xgis/map'
 
 const baseGlyph = {
   codepoint: 65,

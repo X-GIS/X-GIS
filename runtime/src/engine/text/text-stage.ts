@@ -31,7 +31,7 @@ import { FrameArena } from '@xgis/engine'
 import { InlineGlyphProvider } from '@xgis/map'
 import type { GlyphProvider } from '@xgis/map'
 import { PbfRasterizer } from '@xgis/map'
-import { TextRenderer, type TextDraw } from './text-renderer'
+import { TextRenderer, type TextDraw } from '@xgis/map'
 import type { RhiDevice } from '@xgis/engine'
 import { greedyPlaceBboxes, type CollisionItem, type CollisionObstacle } from '@xgis/map'
 import {

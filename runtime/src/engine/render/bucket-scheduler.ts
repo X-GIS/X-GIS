@@ -22,7 +22,7 @@
 // pure function lets `bucket-scheduler.test.ts` exercise every
 // fixture combination without spinning up the full WebGPU stack.
 
-import type { LayerDrawPhase, VectorTileRenderer } from './vector-tile-renderer'
+import type { LayerDrawPhase, VectorTileRenderer } from '@xgis/map'
 import type { ShowCommand } from '@xgis/map'
 import { resolveNumberShape } from '@xgis/map'
 import { resolveShow, type ResolvedShow } from '@xgis/map'

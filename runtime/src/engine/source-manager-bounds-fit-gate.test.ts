@@ -17,7 +17,11 @@ import { describe, expect, it, vi } from 'vitest'
 // regardless, and the GeoJSON path derives bounds from the data itself
 // (computeGeoJSONBounds), not from the renderer.
 
-vi.mock('./render/vector-tile-renderer', () => ({
+// VectorTileRenderer moved to @xgis/map (P3 Batch B7). Partial-mock the barrel and
+// override ONLY VTR (a bare vi.mock('@xgis/map') would blank every other export the
+// SourceManager pulls from the barrel), mirroring the @xgis/data partial mock below.
+vi.mock('@xgis/map', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@xgis/map')>()),
   VectorTileRenderer: class {
     setBindGroupLayout(): void {}
     setPaletteResources(): void {}
