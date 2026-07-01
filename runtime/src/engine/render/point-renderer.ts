@@ -365,7 +365,7 @@ export class PointRenderer {
     projCenterLat: number,
     canvasWidth: number,
     canvasHeight: number,
-    show: { fill?: string | null; stroke?: string | null; strokeWidth?: number; size?: number | null; opacity?: number; circleTranslateX?: number; circleTranslateY?: number; circleBlur?: number; circlePitchScaleMap?: boolean; circleTranslateXShape?: import('@xgis/compiler').PropertyShape<number> | null; circleTranslateYShape?: import('@xgis/compiler').PropertyShape<number> | null; circleStrokeOpacityShape?: import('@xgis/compiler').PropertyShape<number> | null },
+    show: { fill?: string | null; stroke?: string | null; strokeWidth?: number; size?: number | null; shape?: string | null; opacity?: number; circleTranslateX?: number; circleTranslateY?: number; circleBlur?: number; circlePitchScaleMap?: boolean; circleTranslateXShape?: import('@xgis/compiler').PropertyShape<number> | null; circleTranslateYShape?: import('@xgis/compiler').PropertyShape<number> | null; circleStrokeOpacityShape?: import('@xgis/compiler').PropertyShape<number> | null },
     dpr: number = 1,
   ): void {
     if (this.tilePoints.length === 0) return
@@ -379,6 +379,11 @@ export class PointRenderer {
     const opacity = show.opacity ?? 1.0
     const radiusPx = show.size ?? 6
     const strokeWidth = show.strokeWidth ?? 1  // raw px, shader converts to UV
+    // #722 S2 — resolve the tile-layer shape ONCE (mirrors map.ts:2715, the
+    // inline path). Fixes #16: tile points (URL geojson / PMTiles) hardcoded
+    // shape_id 0 → custom shapes (star/…) always drew as circles. show.shape
+    // carries the compiled shape name; getShapeId maps it to the GPU slot.
+    const tileShapeId = show.shape ? (this.shapeRegistry?.getShapeId(show.shape) ?? 0) : 0
     // WS-1 — per-frame zoom-interp on the tile-point path (mirror of the
     // GeoJSON updateDynamicSizes path). flushTilePoints rebakes feat_data +
     // the frame uniform every frame, so resolve the shapes here. These are
@@ -410,11 +415,11 @@ export class PointRenderer {
     // each flush allocated fresh typed arrays per call; now they
     // share one ArrayBuffer that grows to per-session peak.
     this._frameArena.beginFrame()
-    // Per-source-point paint record (stride-24 slots 0-10 style + shape=0 at
-    // 19). Allocated FIRST so it stays valid if a later alloc grows the arena;
+    // Per-source-point paint record (stride-24 slots 0-10 style + tileShapeId
+    // at 19). Allocated FIRST so it stays valid if a later alloc grows the arena;
     // the packer reads it as `srcFeatData`, fans it out per world copy, and
-    // fills the position slots (11-18 ECEF+abs, 20-23 Mercator). S2 will thread
-    // the per-feature shape into slot 19 — today all tile circles use shape 0.
+    // fills the position slots (11-18 ECEF+abs, 20-23 Mercator). #722 S2 threads
+    // the per-layer shape into slot 19 (0 = circle, resolved once above).
     const src = this._frameArena.allocF32(N * STRIDE)
     for (let i = 0; i < N; i++) {
       const so = i * STRIDE
@@ -424,7 +429,7 @@ export class PointRenderer {
       src[so + 5] = stroke ? stroke[0] : 0; src[so + 6] = stroke ? stroke[1] : 0
       src[so + 7] = stroke ? stroke[2] : 0; src[so + 8] = stroke ? stroke[3] * opacity * tileStrokeOpacity : 0
       src[so + 9] = strokeWidth; src[so + 10] = flags
-      src[so + 19] = 0 // shape_id (circle default for tile points; S2)
+      src[so + 19] = tileShapeId // #722 S2 — per-layer shape (0 = circle)
     }
 
     const verts = this._frameArena.allocF32(totalN * 4 * 4)
