@@ -16,7 +16,7 @@ import { ComputeDispatcher } from '@xgis/engine'
 import { ComputeLayerRegistry } from './compute-layer-registry'
 import { extendBindGroupLayoutEntriesForCompute } from '@xgis/engine'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
-import { UniformRing } from './uniform-ring'
+import { UniformRing } from '@xgis/map'
 import { PipelineFactory } from './pipeline-factory'
 import { polygonUniformStride } from '@xgis/map'
 

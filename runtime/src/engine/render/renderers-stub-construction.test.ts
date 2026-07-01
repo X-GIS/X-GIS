@@ -13,8 +13,8 @@ import { installWebGPUStub, type StubInstallation } from '../../__test-support__
 import { initGPU } from '@xgis/engine'
 import { MapRendererContent } from './renderer'
 import { VectorTileRenderer } from './vector-tile-renderer'
-import { LineRenderer } from './line-renderer'
-import { RasterRenderer } from './raster-renderer'
+import { LineRenderer } from '@xgis/map'
+import { RasterRenderer } from '@xgis/map'
 import { PointRenderer } from './point-renderer'
 import { WebGpuDevice } from '@xgis/engine'
 

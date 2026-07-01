@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   MockRasterizer, FONT_KEY_SENTINEL,
-} from './glyph-rasterizer'
+} from '@xgis/map'
 import { GlyphPbfCache } from './pbf/glyph-pbf-cache'
 import { PbfRasterizer, deriveFontstack } from './pbf-rasterizer'
 

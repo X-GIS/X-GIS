@@ -6,14 +6,14 @@ import { visibleTilesFrustum, tileUrl, loadImageTexture } from '@xgis/data'
 import { mercator as mercatorProj, mercatorYToLat } from '@xgis/engine'
 import { lonLatToECEF, type ECEF } from '@xgis/engine'
 import type { RhiDevice, RhiRenderPass, RhiTexture } from '@xgis/engine'
-import { RasterDraper, type RasterTile } from '@xgis/map'
+import { RasterDraper, type RasterTile } from './material/raster-material'
 import { wrapWebGpuPass } from '@xgis/engine'
 import { routeToSphereSelector, enumerateWorldCopies } from '@xgis/engine'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
-import { DEBUG_OVERDRAW } from '@xgis/map'
+import { DEBUG_OVERDRAW } from '../debug-flags'
 import { globeVisibleTiles } from '@xgis/engine'
-import { writeProjectionCull } from '@xgis/map'
-import { rasterUniformSlots, rasterUniformBytes, rasterTileSlots } from '@xgis/map'
+import { writeProjectionCull } from './frame-projection-uniform'
+import { rasterUniformSlots, rasterUniformBytes, rasterTileSlots } from './raster-uniform-slots'
 
 /** Camera RTC anchor for the raster VS on the globe / 3D surfaces.
  *

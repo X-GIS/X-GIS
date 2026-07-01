@@ -4,7 +4,7 @@
 // surface stays byte-identical.
 
 import type { LabelDef } from '@xgis/compiler'
-import type { GlyphRasterizer } from './sdf/glyph-rasterizer'
+import type { GlyphRasterizer } from '@xgis/map'
 import type { InlineGlyphSource } from './sdf/pbf/inline-glyph-provider'
 import type { GlyphProvider } from './sdf/pbf/glyph-provider'
 

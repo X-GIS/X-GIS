@@ -14,7 +14,7 @@
 
 import type { GPUContext } from '@xgis/engine'
 import { generateGraticule } from '@xgis/map'
-import type { UniformRing } from './uniform-ring'
+import type { UniformRing } from '@xgis/map'
 import { polygonUniformBytes, polygonUniformSlots } from '@xgis/map'
 import { writeFrameProjectionUniform } from '@xgis/map'
 

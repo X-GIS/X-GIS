@@ -39,14 +39,14 @@
 //    and is deferred.
 
 import { isPickEnabled, getSampleCount, type GPUContext } from '@xgis/engine'
-import { DEBUG_OVERDRAW } from '@xgis/map'
+import { DEBUG_OVERDRAW } from '../debug-flags'
 import { asyncWriteBuffer, type StagingBufferPool } from '@xgis/engine'
 import { xlog } from '@xgis/shared'
 import { wrapWebGpuPass, wrapWebGpuBuffer, wrapWebGpuBindGroup, wrapWebGpuBindGroupLayout } from '@xgis/engine'
 import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
-import { LineDraper } from '@xgis/map'
-import { LineCompositeDraper } from '@xgis/map'
-import type { ShapeRegistry } from '@xgis/map'
+import { LineDraper } from './material/line-material'
+import { LineCompositeDraper } from './material/line-composite-material'
+import type { ShapeRegistry } from '../text/sdf-shape'
 import {
   lineUniformSize, PATTERN_SLOT_COUNT, PATTERN_SLOT_F32,
   LINE_CAP_BUTT, LINE_CAP_ROUND, LINE_CAP_SQUARE, LINE_CAP_ARROW,
@@ -56,8 +56,8 @@ import {
   PATTERN_ANCHOR_REPEAT, PATTERN_ANCHOR_START, PATTERN_ANCHOR_END, PATTERN_ANCHOR_CENTER,
   checkPatternParams, packLineLayerUniform,
   type DashConfig, type PatternSlot,
-} from '@xgis/map'
-import { lineLayerUniformStride } from '@xgis/map'
+} from './line-pattern'
+import { lineLayerUniformStride } from './line-uniform-slots'
 // Re-export so test files (line-renderer.test, line-pattern-guards.test, etc.)
 // keep importing the public surface from the renderer module.
 export {

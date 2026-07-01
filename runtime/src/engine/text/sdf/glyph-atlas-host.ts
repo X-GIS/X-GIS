@@ -19,8 +19,8 @@ import {
 } from '@xgis/map'
 import type {
   GlyphRasterizer, GlyphRasterResult,
-} from './glyph-rasterizer'
-import { cjkSizedFontKey } from './glyph-rasterizer'
+} from '@xgis/map'
+import { cjkSizedFontKey } from '@xgis/map'
 import { codePointIsIdeographic } from '../text-wrap'
 
 export interface GlyphInfo {

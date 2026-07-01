@@ -6,7 +6,7 @@
 // are typically 256×256 to 1024×1024 — comfortably inside texture
 // limits, no paging needed).
 
-import { SpriteAtlasHost } from './sprite-atlas-host'
+import { SpriteAtlasHost } from '@xgis/map'
 
 export class SpriteAtlasGPU {
   private readonly device: GPUDevice

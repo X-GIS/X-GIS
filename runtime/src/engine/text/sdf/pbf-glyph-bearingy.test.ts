@@ -23,8 +23,8 @@
 import { describe, it, expect } from 'vitest'
 import { PbfRasterizer } from './pbf-rasterizer'
 import type { GlyphProvider } from './pbf/glyph-provider'
-import type { GlyphRasterizer, GlyphRasterRequest, GlyphRasterResult } from './glyph-rasterizer'
-import type { PbfGlyph } from './pbf/glyphs-proto'
+import type { GlyphRasterizer, GlyphRasterRequest, GlyphRasterResult } from '@xgis/map'
+import type { PbfGlyph } from '@xgis/map'
 
 const SLOT = 64, SDF_R = 8, FONT_SIZE = 32
 

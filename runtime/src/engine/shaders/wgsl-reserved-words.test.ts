@@ -9,7 +9,7 @@
 // (fn names, parameters, let/var/const bindings) is enough.
 
 import { describe, expect, it } from 'vitest'
-import { WGSL_PROJECTION_FNS } from './projection'
+import { WGSL_PROJECTION_FNS } from '@xgis/map'
 import { emitRasterWgsl, emitLineWgsl } from '@xgis/map'
 import { emitPolygonWgsl } from '@xgis/map'
 

@@ -22,7 +22,7 @@
 // bitmap dimensions are therefore (width+6, height+6). The encoded SDF
 // uses 192 = glyph edge (tiny-sdf compatible).
 
-import { PbfReader, PbfEofError } from '@xgis/map'
+import { PbfReader, PbfEofError } from './varint'
 
 const PBF_BUFFER = 3  // px of outer buffer per side (bitmap = (w+6)×(h+6))
 // Sane ceiling on glyph dimensions. PBFs are baked at a 24-px reference,

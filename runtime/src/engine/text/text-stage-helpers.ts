@@ -3,7 +3,7 @@
 // TextRenderer's WGSL pipeline + GPU types.
 
 import type { LabelDef } from '@xgis/compiler'
-import { FONT_KEY_SENTINEL } from './sdf/glyph-rasterizer'
+import { FONT_KEY_SENTINEL } from '@xgis/map'
 import { bumpAlloc } from '@xgis/map'
 import { FrameArena } from '@xgis/engine'
 import type { MlVerticalLayout } from './text-stage-types'

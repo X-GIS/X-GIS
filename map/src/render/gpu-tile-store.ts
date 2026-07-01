@@ -39,8 +39,8 @@
 import { GPUArena } from '@xgis/engine'
 // Type-only: store needs WebGpuDevice's unwrapBuffer + createCommandEncoder (not on RhiDevice); the injected ctx.rhi is narrowed to it (never self-instantiated).
 import type { WebGpuDevice } from '@xgis/engine'
-import { getMaxGpuTiles, ARENA_HIGH_WATER, ARENA_LOW_WATER } from '@xgis/map'
-import type { GPUTile } from '@xgis/map'
+import { getMaxGpuTiles, ARENA_HIGH_WATER, ARENA_LOW_WATER } from './vector-tile-renderer-helpers'
+import type { GPUTile } from './vector-tile-renderer-types'
 
 /** Free a tile's per-tile ComputeLayerHandle (Cluster D). Bound to
  *  `FeatureDataBinder.releaseTile` and passed into the store's eviction

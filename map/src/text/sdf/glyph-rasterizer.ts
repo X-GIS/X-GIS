@@ -20,7 +20,7 @@
 // Both implement the `GlyphRasterizer` interface so callers (the
 // atlas + worker) treat them uniformly.
 
-import { computeSDF } from '@xgis/map'
+import { computeSDF } from './distance-transform'
 
 /** Sentinel prefix that marks a fontKey as carrying weight/style.
  *

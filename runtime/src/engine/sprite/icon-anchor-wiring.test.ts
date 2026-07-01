@@ -34,7 +34,7 @@ import { installWebGPUStub, type StubInstallation } from '../../__test-support__
 import { IconRenderer, type IconDraw, type IconAnchor } from './icon-renderer'
 import { WebGpuDevice } from '@xgis/engine'
 import type { SpriteAtlasGPU } from './sprite-atlas-gpu'
-import type { SpriteInfo } from './sprite-atlas-host'
+import type { SpriteInfo } from '@xgis/map'
 
 let stub: StubInstallation
 

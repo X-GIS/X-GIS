@@ -13,7 +13,7 @@ import {
   variableAnchorOffsetEm,
 } from './text-stage-helpers'
 import { composeFontKey } from './text-stage'
-import { FONT_KEY_SENTINEL } from './sdf/glyph-rasterizer'
+import { FONT_KEY_SENTINEL } from '@xgis/map'
 import type { LabelDef } from '@xgis/compiler'
 
 const baseLabel: LabelDef = {

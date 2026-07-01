@@ -15,7 +15,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { TextStage } from './text-stage'
-import { MockRasterizer } from './sdf/glyph-rasterizer'
+import { MockRasterizer } from '@xgis/map'
 import { WebGpuDevice } from '@xgis/engine'
 import type { LabelDef, TextValue } from '@xgis/compiler'
 import type { TextDraw } from './text-renderer'

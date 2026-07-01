@@ -8,7 +8,7 @@ import { cjkBucketPx, CJK_SIZE_BUCKETS_CSS } from './text-wrap'
 import {
   cjkSizedFontKey, parseSizedFontKey, MockRasterizer,
   type GlyphRasterizer, type GlyphRasterRequest, type GlyphRasterResult,
-} from './sdf/glyph-rasterizer'
+} from '@xgis/map'
 import { PbfRasterizer } from './sdf/pbf-rasterizer'
 import type { GlyphProvider } from './sdf/pbf/glyph-provider'
 

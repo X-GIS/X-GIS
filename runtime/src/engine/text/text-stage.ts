@@ -24,7 +24,7 @@ import {
   GlyphAtlasHost, type GlyphAtlasHostOptions,
 } from './sdf/glyph-atlas-host'
 import { GlyphAtlasGPU } from './sdf/glyph-atlas-gpu'
-import { createRasterizer, createMetricsRasterizer, type GlyphRasterizer } from './sdf/glyph-rasterizer'
+import { createRasterizer, createMetricsRasterizer, type GlyphRasterizer } from '@xgis/map'
 import { GlyphPbfCache } from './sdf/pbf/glyph-pbf-cache'
 import { bumpAlloc } from '@xgis/map'
 import { FrameArena } from '@xgis/engine'

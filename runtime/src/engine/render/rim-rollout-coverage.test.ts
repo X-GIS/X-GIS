@@ -7,7 +7,7 @@
 // pass on the 2D label canvas, rim plumbed at label-resolver level).
 
 import { describe, expect, it } from 'vitest'
-import { WGSL_PROJECTION_FNS } from '../shaders/projection'
+import { WGSL_PROJECTION_FNS } from '@xgis/map'
 import { emitRasterWgsl, emitPointWgsl, emitLineWgsl } from '@xgis/map'
 import { emitPolygonWgsl } from '@xgis/map'
 

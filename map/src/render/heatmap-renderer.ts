@@ -27,9 +27,9 @@ import { getSampleCount } from '@xgis/engine'
 import { FrameArena } from '@xgis/engine'
 import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
 import { wrapWebGpuPass, wrapWebGpuBindGroupLayout } from '@xgis/engine'
-import { HeatmapDraper } from '@xgis/map'
-import { heatmapUniformSlots, heatmapUniformBytes } from '@xgis/map'
-import { writeProjectionCull } from '@xgis/map'
+import { HeatmapDraper } from './material/heatmap-material'
+import { heatmapUniformSlots, heatmapUniformBytes } from './heatmap-uniform-slots'
+import { writeProjectionCull } from './frame-projection-uniform'
 
 // f32 slots of the heatmap-accum 'Uniforms' struct, from reflect() (NOT hand-coded magic
 // offsets — those drift from heatmap-accum.ts). The `uf[...]` packer writes at HS.<field>.

@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest'
 ;(globalThis as unknown as { GPUTextureUsage: Record<string, number> }).GPUTextureUsage = {
   RENDER_ATTACHMENT: 16, TEXTURE_BINDING: 4,
 }
-import { LineRenderer } from './line-renderer'
+import { LineRenderer } from '@xgis/map'
 import { WebGpuDevice } from '@xgis/engine'
 import type { GPUContext } from '@xgis/engine'
 

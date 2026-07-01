@@ -14,7 +14,7 @@
 // exercises the stage's tracking logic via a thin shim.
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import { SpriteAtlasHost } from './sprite-atlas-host'
+import { SpriteAtlasHost } from '@xgis/map'
 
 // Minimal IconStage-like shim that mirrors the iter 526 contract:
 // missingIconNames records lookups that miss WHEN the host status is

@@ -6,7 +6,7 @@
 // (real-GPU: red vector borders separated from the OSM raster at z8). This pins
 // the anchor to the ellipsoid frame. Fails if the anchor reverts to the sphere.
 import { describe, it, expect } from 'vitest'
-import { rasterGlobeCamAnchor } from './raster-renderer'
+import { rasterGlobeCamAnchor } from '@xgis/map'
 import { lonLatToECEF } from '@xgis/engine'
 
 describe('raster globe camera anchor — ellipsoid frame', () => {

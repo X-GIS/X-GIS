@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { InlineGlyphProvider } from './inline-glyph-provider'
-import { decodeGlyphsPbf } from './glyphs-proto'
+import { decodeGlyphsPbf } from '@xgis/map'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const FIXTURE = join(HERE, '__fixtures__', 'open-sans-semibold-0-255.pbf')

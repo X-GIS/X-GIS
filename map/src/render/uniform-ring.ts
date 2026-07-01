@@ -17,7 +17,7 @@
 //     fix); MapRenderer destroys them in beginFrame. Each applies its own
 //     policy to the returned list.
 
-import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '@xgis/map'
+import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
 
 export class UniformRing {
   private _buffer: GPUBuffer | null = null

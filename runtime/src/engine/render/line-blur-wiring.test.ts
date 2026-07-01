@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   packLineLayerUniform,
   lineUniformSize,
-} from './line-renderer'
+} from '@xgis/map'
 
 // line-blur wiring (GPU-free, fail-before).
 //

@@ -17,7 +17,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { GlyphAtlasHost } from './sdf/glyph-atlas-host'
-import { MockRasterizer } from './sdf/glyph-rasterizer'
+import { MockRasterizer } from '@xgis/map'
 import { wrapForTesting, mlVerticalLayout } from './text-stage'
 import { greedyPlaceBboxes, type CollisionItem } from '@xgis/map'
 

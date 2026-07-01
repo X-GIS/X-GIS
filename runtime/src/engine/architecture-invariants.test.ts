@@ -513,17 +513,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // lazy pipelines (modelled on ensureOverdrawCompose) + their bind-group-layout
   // fields + the two emitter imports + the HEATMAP_DENSITY_FORMAT import.
   'runtime/src/engine/render/pipeline-factory.ts': 1285,
-  // GpuTileStore — VTR Cluster-A extraction (the resident-tile memory core:
-  // gpuCache + the three GPUArenas + byte-aware eviction + OOM forced eviction
-  // + deferred compaction/AUTO-GROW). Over the 800 cap because the verbatim
-  // arena lifecycle + its hard-won fix-history comments (#218 OOM, #288/#289
-  // relocation→bundle-invalidation, #366 mid-render-destroy UAF, US-003 grow)
-  // carry the LOC. Baselined here; decomposition is a tracked priority.
-  // Bumped 870→903 for the at-ceiling eviction-futility short-circuit (a1):
-  // two per-arena latch fields + the short-circuit + the per-frame reset +
-  // the invariant comments (nothing frees mid-frame → re-scan is pure waste),
-  // killing the ARENA-OOM per-frame O(resident) re-scan lag at z22+pitch.
-  'runtime/src/engine/render/gpu-tile-store.ts': 903,
+  // gpu-tile-store.ts relocated to @xgis/map (map/src/render/gpu-tile-store.ts)
+  // in P3 Phase 2 Batch B1b — no longer under a SRC_DIRS walk, so its LOC ceiling leaves this
+  // runtime ratchet (mirrors the tile-selection-cache.ts / camera.ts precedents above; package-level
+  // LOC ratchets for map/engine are a tracked post-Gate-6 follow-up).
   // Baselined at 805 (mbx_batch2): point-renderer.ts crossed the 800 cap from
   // prior batch work (circle-translate / circle-blur). Not touched here;
   // baselined to keep the ratchet honest. Decomposition is a tracked follow-up.

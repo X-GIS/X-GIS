@@ -59,3 +59,20 @@ export * from './render/compose-pipelines'
 export * from './render/compute-feature-packer'
 export * from './render/label-feature-source'
 export * from './render/tile-selection-cache'
+// P3 Phase-2 Batch B1b — dependency-leaf render/text/sprite content machinery (renderers +
+// gpu-tile-store + uniform-ring + sprite-atlas-host + glyph-rasterizer + glyphs.proto decoder +
+// projection WGSL re-export shim) deep-imported cross-package by still-in-runtime VTR / map.ts /
+// text-stage / sprite pipeline (pruned to the public API in Step 8).
+export * from './render/heatmap-renderer'
+export * from './render/raster-renderer'
+export * from './render/gpu-tile-store'
+export * from './render/uniform-ring'
+export * from './sprite/sprite-atlas-host'
+export * from './text/sdf/glyph-rasterizer'
+export * from './text/sdf/pbf/glyphs-proto'
+export * from './shaders/projection'
+// line-renderer re-exports the line-pattern public surface (lineUniformSize / LINE_CAP_* /
+// packLineLayerUniform / DashConfig / …) which the barrel already star-exports via
+// './render/line-pattern' — a blanket re-export would be an ambiguous duplicate. Export only
+// line-renderer's OWN symbols.
+export { LineRenderer, buildLineSegments, LINE_SEGMENT_STRIDE_F32, LINE_SEGMENT_STRIDE_BYTES } from './render/line-renderer'

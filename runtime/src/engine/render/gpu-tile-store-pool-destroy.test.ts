@@ -18,7 +18,7 @@
 // then destroy() and assert every pooled buffer is now destroyed.
 
 import { describe, expect, it } from 'vitest'
-import { GpuTileStore } from './gpu-tile-store'
+import { GpuTileStore } from '@xgis/map'
 import { WebGpuDevice } from '@xgis/engine'
 
 interface MockBuffer {

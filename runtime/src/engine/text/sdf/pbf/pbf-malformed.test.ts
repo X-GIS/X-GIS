@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { decodeGlyphsPbf } from './glyphs-proto'
+import { decodeGlyphsPbf } from '@xgis/map'
 
 // Repro / regression suite for the DoS / infinite-loop class on malformed
 // or truncated glyph PBFs.

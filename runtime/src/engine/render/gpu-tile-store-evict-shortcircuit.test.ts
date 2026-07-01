@@ -20,7 +20,7 @@
 // re-scans → scanCount 2 instead of 1.
 
 import { describe, expect, it } from 'vitest'
-import { GpuTileStore } from './gpu-tile-store'
+import { GpuTileStore } from '@xgis/map'
 import { GPUArena, type GPUArenaDevice } from '@xgis/engine'
 import type { RhiBuffer } from '@xgis/engine'
 import { WebGpuDevice } from '@xgis/engine'

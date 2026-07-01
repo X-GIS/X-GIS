@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { emitCompositeWgsl } from '@xgis/map'
-import { LineRenderer } from './line-renderer'
+import { LineRenderer } from '@xgis/map'
 
 // ── Regression #284 (introduced by #259): composite bind size < pipeline min ──
 //

@@ -24,7 +24,7 @@
 // cull divergence that projection-wgsl-consistency.test.ts pins separately.
 
 import { test, expect } from '@playwright/test'
-import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../../runtime/src/engine/shaders/projection'
+import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../../map/src/shaders/projection'
 import { projectWgsl, invMercLatRad, configureProjections } from '@xgis/map'
 import { PROJECTIONS } from '../../engine/src/projection/projections-table'
 

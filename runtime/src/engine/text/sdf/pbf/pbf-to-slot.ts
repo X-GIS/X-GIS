@@ -13,8 +13,8 @@
 // re-run computeSDF at engine's sdfRadius. Same shader threshold + AA
 // behaviour applies as for Canvas2D-rasterised glyphs.
 
-import type { GlyphRasterResult } from '../glyph-rasterizer'
-import type { PbfGlyph } from './glyphs-proto'
+import type { GlyphRasterResult } from '@xgis/map'
+import type { PbfGlyph } from '@xgis/map'
 
 export const PBF_REF_SIZE = 24  // MapLibre rasterises all glyph PBFs at 24 px
 const PBF_BUFFER = 3          // px of outer buffer around the glyph bbox

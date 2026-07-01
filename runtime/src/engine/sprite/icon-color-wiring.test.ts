@@ -27,7 +27,7 @@ import { IconRenderer, type IconDraw } from './icon-renderer'
 import { WebGpuDevice } from '@xgis/engine'
 import { ICON_FORMAT } from '@xgis/map'
 import { vertexField } from '@xgis/compiler'
-import type { SpriteInfo } from './sprite-atlas-host'
+import type { SpriteInfo } from '@xgis/map'
 
 let stub: StubInstallation
 

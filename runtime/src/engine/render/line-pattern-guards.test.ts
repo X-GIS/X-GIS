@@ -4,7 +4,7 @@ import {
   PATTERN_UNIT_M,
   PATTERN_UNIT_PX,
   type PatternSlot,
-} from './line-renderer'
+} from '@xgis/map'
 
 function makeSlot(overrides: Partial<PatternSlot> = {}): PatternSlot {
   return {

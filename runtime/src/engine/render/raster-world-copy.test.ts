@@ -49,7 +49,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
 import { initGPU, type GPUContext } from '@xgis/engine'
-import { RasterRenderer } from './raster-renderer'
+import { RasterRenderer } from '@xgis/map'
 import { Camera } from '@xgis/engine'
 import { visibleTilesFrustum } from '@xgis/data'
 import { mercator as mercatorProj } from '@xgis/engine'

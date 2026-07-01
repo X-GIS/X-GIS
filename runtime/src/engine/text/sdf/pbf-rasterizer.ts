@@ -15,8 +15,8 @@
 
 import type {
   GlyphRasterizer, GlyphRasterRequest, GlyphRasterResult,
-} from './glyph-rasterizer'
-import { parseFontKey, parseSizedFontKey } from './glyph-rasterizer'
+} from '@xgis/map'
+import { parseFontKey, parseSizedFontKey } from '@xgis/map'
 import type { GlyphProvider } from './pbf/glyph-provider'
 import { pbfGlyphToSlot, PBF_REF_SIZE } from './pbf/pbf-to-slot'
 
