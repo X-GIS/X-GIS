@@ -16,14 +16,14 @@
 // unchanged.
 
 import { xlog } from '@xgis/shared'
-import { markStart as perfMarkStart, markEnd as perfMarkEnd, flushPerFrameMarks } from '@xgis/map'
+import { markStart as perfMarkStart, markEnd as perfMarkEnd, flushPerFrameMarks } from './__profile__/perf-marks'
 import { mercatorYToLat } from '@xgis/engine'
 import { PROJECTION_NAME_TO_TYPE, isGlobeProj, promotesToGlobeWhenTilted, poleLimit } from '@xgis/engine'
 import { resizeCanvas, effectiveDpr, getSampleCount, isPickEnabled } from '@xgis/engine'
-import { DEBUG_OVERDRAW } from '@xgis/map'
+import { DEBUG_OVERDRAW } from './debug-flags'
 import { WORLD_MERC, TILE_PX } from '@xgis/engine'
-import { invalidateResolvedShowCache } from '@xgis/map'
-import { reportErrorScope } from '@xgis/map'
+import { invalidateResolvedShowCache } from './render/resolved-show'
+import { reportErrorScope } from './render-loop-helpers'
 import { type FrameContext } from '@xgis/engine'
 import { makeProjectionToken, setProjectionToken } from '@xgis/engine'
 import type { RhiDevice } from '@xgis/engine'

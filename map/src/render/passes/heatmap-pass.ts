@@ -19,7 +19,7 @@
 // renders byte-identically. The density targets are lazily ensured here (NOT
 // per-frame allocated — RenderTargets.ensureHeatmap tracks size + reuses).
 
-import { DEBUG_OVERDRAW } from '@xgis/map'
+import { DEBUG_OVERDRAW } from '../../debug-flags'
 import type { FrameContext } from '@xgis/engine'
 import { unwrapProjection } from '@xgis/engine'
 import type { SceneView } from '../scene-view'

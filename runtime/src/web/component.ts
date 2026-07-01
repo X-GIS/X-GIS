@@ -1,7 +1,7 @@
 // ═══ <xgis-map> Web Component ═══
 // HTML에서 바로 X-GIS 코드를 쓸 수 있게 해주는 커스텀 엘리먼트
 
-import { XGISMap } from '../engine/map'
+import { XGISMap } from '@xgis/map'
 import { xlog } from '@xgis/shared'
 
 export class XGISMapElement extends HTMLElement {

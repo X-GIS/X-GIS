@@ -6,7 +6,7 @@
 // swapchain attachment. Mechanical changes only: `this.host.X` → `host.X`,
 // `encoder` → `ctx.encoder`.
 
-import { DEBUG_OVERDRAW } from '@xgis/map'
+import { DEBUG_OVERDRAW } from '../../debug-flags'
 import type { FrameContext } from '@xgis/engine'
 import type { SceneView } from '../scene-view'
 import type { RenderPass, OverdrawComposePassHost } from './pass'

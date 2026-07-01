@@ -1,4 +1,4 @@
-export { XGISMap } from './engine/map'
+export { XGISMap } from '@xgis/map'
 export { StatsPanel, StatsTracker, type RenderStats } from '@xgis/map'
 export { Camera } from '@xgis/engine'
 export { MapRendererContent } from '@xgis/map'

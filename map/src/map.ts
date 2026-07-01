@@ -7,32 +7,33 @@ import { packPalette, uploadPalette, type PaletteTextures } from '@xgis/engine'
 import type * as AST from '@xgis/compiler'
 import { SyntheticEarthSurfaceBackend } from '@xgis/data'
 import { PROJECTION_NAME_TO_TYPE, PROJECTIONS } from '@xgis/engine'
-import { configureProjections } from '@xgis/map'
+import { configureProjections } from './shaders/dsl/projections'
 import { worldBandForProjType } from '@xgis/engine'
-import { projectLonLatToScreenCss } from '@xgis/map'
+import { projectLonLatToScreenCss } from './render-loop-helpers'
 import {
   SYNTHETIC_EARTH_SURFACE_SOURCE,
   buildSyntheticEarthSurfaceShow,
   updateSyntheticEarthSurfaceShowFill,
-} from '@xgis/map'
+} from './synthetic-earth-surface-show'
 import { type CapPoles } from '@xgis/data'
 import {
   installGeoJSONPolarCaps,
   detachGeoJSONPolarCaps,
   type PolarCapInstallHost,
-} from '@xgis/map'
-import { invalidateResolvedShowCache } from '@xgis/map'
+} from './geojson-polar-cap-show'
+import { invalidateResolvedShowCache } from './render/resolved-show'
 import { getSharedGeoJSONCompilePool } from '@xgis/data'
 import { initGPU, GPU_PROF, getMaxDpr, effectiveDpr, WebGPUUnavailableError, type GPUContext } from '@xgis/engine'
 import { QUALITY, updateQuality, type QualityConfig } from '@xgis/engine'
 import { GPUTimer } from '@xgis/engine'
 import { Camera } from '@xgis/engine'
-import { CameraController } from '@xgis/map'
-import { ViewportModeController } from '@xgis/map'
-import { SourceManager } from '@xgis/map'
-import { InteractionController } from '@xgis/map'
-import { MapRendererContent, type ShowCommand } from '@xgis/map'
-import { resolveNumberShape } from '@xgis/map'
+import { CameraController } from './camera-controller'
+import { ViewportModeController } from './render/viewport-mode-controller'
+import { SourceManager } from './source-manager'
+import { InteractionController } from './interaction-controller'
+import { MapRendererContent } from './render/renderer'
+import type { ShowCommand } from './render/renderer-types'
+import { resolveNumberShape } from './render/paint-shape-resolve'
 import { RenderLoop } from './render-loop'
 import { buildRenderNodes } from './render/passes/pass-chain'
 import { RenderTargets } from '@xgis/engine'
@@ -41,34 +42,35 @@ import {
   groupOpaqueBySource as groupOpaqueBySourceImpl,
   type ClassifiedShow as ExternalClassifiedShow,
   type OpaqueGroup as ExternalOpaqueGroup,
-} from '@xgis/map'
-import { interpret, type SceneCommands } from '@xgis/map'
+} from './render/bucket-scheduler'
+import { interpret, type SceneCommands } from './interpreter'
 import { lonLatToMercator, type GeoJSONFeatureCollection } from '@xgis/data'
-import { RasterRenderer } from '@xgis/map'
-import { PointRenderer } from '@xgis/map'
-import { HeatmapRenderer } from '@xgis/map'
-import { ShapeRegistry } from '@xgis/map'
-import { LineRenderer } from '@xgis/map'
-import { PanZoomController, type Controller } from '@xgis/map'
-import { DirtyTracker, DirtyDomain, DIRTY_ALL } from '@xgis/map'
-import { VectorTileRenderer } from '@xgis/map'
-import { TextStage, type TextStageOptions } from '@xgis/map'
-import type { GlyphProvider } from '@xgis/map'
-import { IconStage } from '@xgis/map'
+import { RasterRenderer } from './render/raster-renderer'
+import { PointRenderer } from './render/point-renderer'
+import { HeatmapRenderer } from './render/heatmap-renderer'
+import { ShapeRegistry } from './text/sdf-shape'
+import { LineRenderer } from './render/line-renderer'
+import { PanZoomController, type Controller } from './controller'
+import { DirtyTracker, DirtyDomain, DIRTY_ALL } from './state/dirty'
+import { VectorTileRenderer } from './render/vector-tile-renderer'
+import { TextStage } from './text/text-stage'
+import type { TextStageOptions } from './text/text-stage-types'
+import type { GlyphProvider } from './text/sdf/pbf/glyph-provider'
+import { IconStage } from './sprite/icon-stage'
 import {
   LayerIdRegistry, XGISLayer,
   type XGISFeature, type XGISFeatureEvent, type XGISFeatureEventType, type XGISFeatureListener,
   type XGISMapEventType, type XGISMapListener,
-} from '@xgis/map'
-import { attachAutoResize } from '@xgis/map'
-import { EventDispatcher } from '@xgis/map'
+} from './layer'
+import { attachAutoResize } from './auto-resize'
+import { EventDispatcher } from './event-dispatcher'
 import { TileCatalog } from '@xgis/data'
 import { isTileTemplate } from '@xgis/data'
-import { buildShowSourceMaps } from '@xgis/map'
+import { buildShowSourceMaps } from './show-source-maps'
 import {
   parseHexColor, hexToRgba,
   applyFilter, applyGeometry,
-} from '@xgis/map'
+} from './feature-helpers'
 import {
   inspectMapPipeline, captureMapSnapshot, replayMapSnapshot,
   type PipelineInspection, type MapSnapshot, type ReplayResult,
@@ -77,23 +79,23 @@ import type {
   VariantPipelines, TextOverlay,
   TextOverlayOptions, TextOverlayHandle, XGISFontResource,
   XGISMapOptions, FontTypographyMap,
-} from '@xgis/map'
+} from './map-types'
 // Re-export the public type surface so existing `import { ... } from
 // './engine/map'` paths keep resolving after the extraction.
 export type {
   TextOverlayOptions, TextOverlayHandle, XGISFontResource,
   XGISMapOptions, FontTypographyMap,
-} from '@xgis/map'
+} from './map-types'
 import {
   asVectorTileKind, sceneHasAnyAnimation, labelsHaveTimeAnimation,
   buildTypographyMap, registerFonts,
-} from '@xgis/map'
+} from './map-geo-helpers'
 import { prewarmVectorTileSource, detectVectorTileFormat } from '@xgis/data'
-import { StatsTracker, StatsPanel, type RenderStats } from '@xgis/map'
+import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 import { pointPatchToFeatureCollection, type PointPatch } from '@xgis/data'
 import type { GeoJSONFeature } from '@xgis/data'
-import { FeatureUpdateQueue } from '@xgis/map'
-import { MapEventBus } from '@xgis/map'
+import { FeatureUpdateQueue } from './feature-update-queue'
+import { MapEventBus } from './map-event-bus'
 import { safeFetch, assertIngestBudget, readBodyCapped } from '@xgis/shared'
 
 // DoS ceilings for the top-level loader entry points (.xgis style /
@@ -1652,11 +1654,11 @@ export class XGISMap {
    *  layer-level paint state in addition to label metadata, and is
    *  forwarded into the bucket scheduler's `traceRecorder` field on
    *  the next `renderFrame()` via `_pendingTraceRecorder`. */
-  setTraceRecorder(recorder: import('@xgis/map').RenderTraceRecorder | null): void {
+  setTraceRecorder(recorder: import('./diagnostics/render-trace').RenderTraceRecorder | null): void {
     this._pendingTraceRecorder = recorder
     this.textStage?.setTraceRecorder(recorder)
   }
-  _pendingTraceRecorder: import('@xgis/map').RenderTraceRecorder | null = null
+  _pendingTraceRecorder: import('./diagnostics/render-trace').RenderTraceRecorder | null = null
 
   /** One-shot helper: attaches a fresh recorder, waits TWO requestAnimationFrame
    *  ticks (the first ensures any in-flight frame settles, the second
@@ -1664,8 +1666,8 @@ export class XGISMap {
    *  Used by e2e invariant tests via `window.__xgisMap.captureNextFrameTrace()`
    *  so test code doesn't have to import the recorder class through the
    *  page context. */
-  async captureNextFrameTrace(): Promise<import('@xgis/map').FrameTrace> {
-    const { createTraceRecorder } = await import('@xgis/map')
+  async captureNextFrameTrace(): Promise<import('./diagnostics/render-trace').FrameTrace> {
+    const { createTraceRecorder } = await import('./diagnostics/render-trace')
     const recorder = createTraceRecorder()
     this.setTraceRecorder(recorder)
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))

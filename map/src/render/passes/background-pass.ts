@@ -26,9 +26,9 @@
 // never claims `resolveTarget` — the resolveOwner chain (opaque /
 // composite / points) and the label pass own the MSAA resolve unchanged.
 
-import { DEBUG_OVERDRAW } from '@xgis/map'
+import { DEBUG_OVERDRAW } from '../../debug-flags'
 import { worldBandForProjType } from '@xgis/engine'
-import { resolveColorShape, resolveNumberShape } from '@xgis/map'
+import { resolveColorShape, resolveNumberShape } from '../paint-shape-resolve'
 import type { FrameContext } from '@xgis/engine'
 import { unwrapProjection } from '@xgis/engine'
 import type { SceneView } from '../scene-view'

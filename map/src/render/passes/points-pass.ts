@@ -9,7 +9,7 @@
 // off when no direct-layer points or in ?debug=overdraw. Mechanical
 // changes only: `this.host.X` → `host.X`, `encoder` → `ctx.encoder`.
 
-import { DEBUG_OVERDRAW } from '@xgis/map'
+import { DEBUG_OVERDRAW } from '../../debug-flags'
 import type { FrameContext } from '@xgis/engine'
 import { unwrapProjection } from '@xgis/engine'
 import type { SceneView } from '../scene-view'

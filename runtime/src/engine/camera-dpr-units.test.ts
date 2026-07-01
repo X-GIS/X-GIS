@@ -17,7 +17,7 @@
 // so DPR=2 is NOT clamped down — the bug is fully exercised.
 
 import { describe, expect, it, afterEach } from 'vitest'
-import { XGISMap } from './map'
+import { XGISMap } from '@xgis/map'
 
 // The vitest env is `node` (vitest.config.ts sets no `environment`), so
 // `window` is undefined by default — which is exactly why the existing

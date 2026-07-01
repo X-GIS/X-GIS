@@ -16,7 +16,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const MAP_SRC = readFileSync(
-  resolve(__dirname, 'map.ts'),
+  resolve(__dirname, '..', '..', '..', 'map', 'src', 'map.ts'),
   'utf8',
 )
 

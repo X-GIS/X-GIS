@@ -198,3 +198,22 @@ export * from './map-event-bus'
 export * from './interaction-controller'
 export * from './map-geo-helpers'
 export * from './source-manager'
+// P3 Phase-2 Batch B10d — the map.ts 16-file atomic SCC (the Step-7 render-loop CUT + the
+// Step-8 map.ts move, unified): map.ts + render-loop.ts + diagnostics.ts + render/{render-node,
+// scene-view} + render/passes/** (background/opaque/oit/translucent/points/label/heatmap/
+// overdraw-compose + pass/pass-hosts/pass-chain). These were the runtime shell's FINAL content
+// dependency; the passes / render-loop / scene-view internals stay PRIVATE, so this is a
+// SELECTIVE export of only what a STAYING shell/test still imports cross-package:
+//   - XGISMap (the facade class) + its two load-path helpers extractConversionNotes /
+//     logConversionNotes. A blanket `export * from './map'` is AVOIDED: map.ts re-exports the
+//     map-types surface (TextOverlayOptions / TextOverlayHandle / XGISFontResource /
+//     XGISMapOptions / FontTypographyMap) which the barrel already star-exports via
+//     './map-types' (L195) — a blanket re-export would be an ambiguous duplicate.
+//   - backgroundPass / BackgroundPassHost / SceneView / lineLabelDeduped / lineIconIsIconOnly —
+//     the only pass / scene-view symbols a STAYING wiring / dedup test imports cross-package
+//     (background-opacity-wiring.test.ts, icon-cross-tile-dedup.test.ts).
+export { XGISMap, extractConversionNotes, logConversionNotes } from './map'
+export { backgroundPass } from './render/passes/background-pass'
+export type { BackgroundPassHost } from './render/passes/pass-hosts'
+export type { SceneView } from './render/scene-view'
+export { lineLabelDeduped, lineIconIsIconOnly } from './render/passes/label-pass'
