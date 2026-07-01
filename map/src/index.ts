@@ -35,6 +35,9 @@ export * from './render/vector-tile-renderer-helpers'
 export * from './graticule'
 // P3 Batch D — point-renderer-types + text leaf content (pruned to public API in Step 8).
 export * from './render/point-renderer-types'
+// Stateless point-packing authority (#722 S0) — stride-24 feat_data assembly +
+// world-copy fan-out + translucent depth-sort, consumed by point-renderer.
+export * from './render/point-feature-packer'
 export * from './text/sdf-shape'
 export * from './text/text-collision'
 export * from './text/text-resolver'

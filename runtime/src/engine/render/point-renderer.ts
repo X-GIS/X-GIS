@@ -4,7 +4,6 @@
 // Single draw call for all points via per-feature storage buffer.
 
 import type { Camera } from '@xgis/engine'
-import { lonLatToECEF } from '@xgis/engine'
 import { isWebMercator } from '@xgis/engine'
 import { WORLD_MERC, TILE_PX } from '@xgis/engine'
 import { getSampleCount } from '@xgis/engine'
@@ -14,6 +13,7 @@ import { resolveNumberShape } from './paint-shape-resolve'
 import { FrameArena } from '@xgis/engine'
 import type { PointLayer } from '@xgis/map'
 import { buildPointModule } from '@xgis/map'
+import { packPointInstances } from '@xgis/map'
 import { wrapWebGpuPass, wrapWebGpuBindGroupLayout } from '@xgis/engine'
 import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
 import { PointDraper } from '@xgis/map'
@@ -164,9 +164,6 @@ function writePointFrameUniform(
 
 // ── World-copy helpers (exported for unit tests) ──────────────────────────
 
-const _DEG2RAD = Math.PI / 180
-const _R_MERC  = 6378137 // web-Mercator sphere radius (matches the tiler packer)
-
 /**
  * Returns the world-copy offset array the renderer uses for a given projType.
  * Flat Mercator (projType 0) fans out to all visible world copies via
@@ -185,15 +182,9 @@ export function pointWorldCopies(
     : [0]
 }
 
-/**
- * Returns the Mercator x (in metres) for a point at `lon` (degrees) in
- * world-copy `wo`.  `wo = 0` is the primary world; `wo = ±1, ±2, …` shift
- * by one full world-width (360° × DEG2RAD × R_MERC) each.
- * The caller is responsible for splitting into hi/lo f32 DSFUN slots.
- */
-export function worldCopyMercX(lon: number, wo: number): number {
-  return lon * _DEG2RAD * _R_MERC + wo * 360 * _DEG2RAD * _R_MERC
-}
+// worldCopyMercX moved into the stateless packer (@xgis/map, #722 S0); re-exported
+// here so its discriminating unit test still imports it from this module.
+export { worldCopyMercX } from '@xgis/map'
 
 // ═══ Renderer ═══
 
@@ -769,7 +760,6 @@ export class PointRenderer {
     const uf = this.uniformData
 
     const DEG2RAD = Math.PI / 180
-    const R_MERC = 6378137 // web-Mercator sphere radius (matches the tiler packer)
 
     const STRIDE = 24
     // Flat Mercator (projType 0) fans out to all visible world copies so
@@ -803,87 +793,27 @@ export class PointRenderer {
       const expandedIdx = this._frameArena.allocU32(totalPoints * 6)
       const u32Verts = new Uint32Array(expandedVerts.buffer, expandedVerts.byteOffset, expandedVerts.length)
 
-      // Pre-compute each instance's view-forward depth so we can write
-      // the index buffer in back-to-front order. Only translucent layers
-      // actually need this (opaque depth-test handles occlusion); for
-      // opaque we skip the sort and keep feature-index order.
+      // Depth-sort keys for translucent layers only (opaque uses feature
+      // order — the depth test handles occlusion). Allocated by this method
+      // (arena-backed) and filled by the packer.
       const depths = layer.isTranslucent ? this._frameArena.allocF32(totalPoints) : null
-      const order = layer.isTranslucent ? this._frameArena.allocU32(totalPoints) : null
 
-      for (let w = 0; w < COPIES.length; w++) {
-        const basePoint = w * N
-
-        for (let i = 0; i < N; i++) {
-          const lon = layer.lons[i]
-          const lat = layer.lats[i]
-
-          // ECEF DSFUN: absolute ECEF with hi/lo split around origin.
-          const ecef = lonLatToECEF(lon, lat)
-          const exH = Math.fround(ecef[0]); const exL = ecef[0] - exH
-          const eyH = Math.fround(ecef[1]); const eyL = ecef[1] - eyH
-          const ezH = Math.fround(ecef[2]); const ezL = ecef[2] - ezH
-
-          // Copy style data from original (slots 0-10)
-          const srcOff = i * STRIDE
-          const globalIdx = basePoint + i
-          const dstOff = globalIdx * STRIDE
-          expandedFeat.set(layer.featData.subarray(srcOff, srcOff + 11), dstOff)
-          // ECEF DSFUN at slots 11-16, abs_lon/lat at 17-18, shape_id at 19
-          expandedFeat[dstOff + 11] = exH; expandedFeat[dstOff + 12] = eyH; expandedFeat[dstOff + 13] = ezH
-          expandedFeat[dstOff + 14] = exL; expandedFeat[dstOff + 15] = eyL; expandedFeat[dstOff + 16] = ezL
-          expandedFeat[dstOff + 17] = lon; expandedFeat[dstOff + 18] = lat
-          expandedFeat[dstOff + 19] = layer.featData[srcOff + 19] // shape_id
-          // Absolute Mercator DSFUN (20-23) — precise flat-Mercator position.
-          // For world copies (projType 0) apply a per-copy longitude offset
-          // of wo*360° in Mercator metres so the point appears in every visible
-          // world repeat.  The ECEF/abs_lon branches above are copy-independent
-          // (absolute 3D position) and are left unchanged.
-          const wo = COPIES[w]
-          const mx = worldCopyMercX(lon, wo)
-          const myClamp = Math.max(-85.051129, Math.min(85.051129, lat))
-          const my = Math.log(Math.tan(Math.PI / 4 + myClamp * DEG2RAD / 2)) * R_MERC
-          const mxH = Math.fround(mx); const myH = Math.fround(my)
-          expandedFeat[dstOff + 20] = mxH; expandedFeat[dstOff + 21] = Math.fround(mx - mxH)
-          expandedFeat[dstOff + 22] = myH; expandedFeat[dstOff + 23] = Math.fround(my - myH)
-
-          // Build quad vertices
-          const vBase = globalIdx * 4 * 4
-          for (let q = 0; q < 4; q++) {
-            const off = vBase + q * 4
-            expandedVerts[off + 0] = 0
-            expandedVerts[off + 1] = 0
-            u32Verts[off + 2] = q
-            expandedVerts[off + 3] = globalIdx
-          }
-
-          // Depth sort key: use ECEF z-component as a proxy for back-to-front.
-          // (more negative ez_h = further from viewer in most projections)
-          if (depths && order) {
-            depths[globalIdx] = exH * fwdX + eyH * fwdY
-            order[globalIdx] = globalIdx
-          } else {
-            // Feature-order indices for opaque layers.
-            const iBase = globalIdx * 6
-            const vIdx = globalIdx * 4
-            expandedIdx[iBase] = vIdx; expandedIdx[iBase + 1] = vIdx + 1; expandedIdx[iBase + 2] = vIdx + 2
-            expandedIdx[iBase + 3] = vIdx; expandedIdx[iBase + 4] = vIdx + 2; expandedIdx[iBase + 5] = vIdx + 3
-          }
-        }
-      }
-
-      // Back-to-front: larger depth first. Sorted order[p] gives the
-      // globalIdx to emit at draw position p.
-      if (depths && order) {
-        const arr = Array.from(order)
-        arr.sort((a, b) => depths[b] - depths[a])
-        for (let p = 0; p < totalPoints; p++) {
-          const globalIdx = arr[p]
-          const iBase = p * 6
-          const vIdx = globalIdx * 4
-          expandedIdx[iBase] = vIdx; expandedIdx[iBase + 1] = vIdx + 1; expandedIdx[iBase + 2] = vIdx + 2
-          expandedIdx[iBase + 3] = vIdx; expandedIdx[iBase + 4] = vIdx + 2; expandedIdx[iBase + 5] = vIdx + 3
-        }
-      }
+      // Assemble the stride-24 records + world-copy fan-out + quad verts/indices
+      // + (translucent) back-to-front depth-sorted order via the shared stateless
+      // packer (#722 S0). Byte-identical to the former inline loop; this method
+      // still owns the arena allocation above + the GPU buffer create/write below.
+      packPointInstances(
+        {
+          count: N,
+          copies: COPIES,
+          isTranslucent: layer.isTranslucent,
+          fwdX, fwdY,
+          srcFeatData: layer.featData,
+          lons: layer.lons,
+          lats: layer.lats,
+        },
+        { verts: expandedVerts, u32: u32Verts, idx: expandedIdx, feat: expandedFeat, depths },
+      )
 
       // Reuse or recreate GPU buffers sized for 3× points. VERTEX|COPY_DST /
       // INDEX|COPY_DST / STORAGE|COPY_DST, byte-identical via bufUsage(usage,
