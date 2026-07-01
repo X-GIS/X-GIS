@@ -2456,10 +2456,19 @@ export class VectorTileRenderer {
     if (hasPointStyle && pointRenderer && typeof pointRenderer.addTilePoint === 'function') {
       // Read ECEF DSFUN stride-9:
       // [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, feat_id, abs_lon, abs_lat]
+      // #722 S4 — when the layer authors a data-driven size expression, thread
+      // each point's SOURCE feature properties so flushTilePoints can resolve
+      // the size per feature (fixes #17 size). featureProps is PER-TILE (fid ==
+      // sourceFeatures index within THIS tile), so resolve it here where the
+      // tile's map is in scope — fids collide across tiles, so a single map read
+      // after the accumulation loop would mis-assign props. Constant-size layers
+      // pass undefined → the tile-point path stays byte-identical.
+      const wantsFeatProps = show.sizeExpr?.ast != null
       for (const key of this.stableKeys) {
         const tileData = this.source!.getTileData(key, sliceLayer)
         if (!tileData?.pointVertices || tileData.pointVertices.length < 13) continue
         const ptv = tileData.pointVertices
+        const featProps = wantsFeatProps ? tileData.featureProps : undefined
         for (let i = 0; i < ptv.length; i += 13) {
           pointRenderer.addTilePoint(
             ptv[i], ptv[i + 1], ptv[i + 2],   // ex_h, ey_h, ez_h
@@ -2467,6 +2476,7 @@ export class VectorTileRenderer {
             ptv[i + 6],                          // feat_id
             ptv[i + 7], ptv[i + 8],              // abs_lon, abs_lat (cull)
             ptv[i + 9], ptv[i + 10], ptv[i + 11], ptv[i + 12], // merc DSFUN mx_h,mx_l,my_h,my_l
+            featProps ? (featProps.get(ptv[i + 6]) ?? null) : null, // #722 S4 per-feature source props
           )
         }
       }

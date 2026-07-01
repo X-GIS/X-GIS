@@ -18,7 +18,7 @@ import { wrapWebGpuPass, wrapWebGpuBindGroupLayout } from '@xgis/engine'
 import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
 import { PointDraper } from '@xgis/map'
 import { reflect } from '@xgis/shader-dsl'
-import { vertexField } from '@xgis/compiler'
+import { vertexField, evaluate, makeEvalProps } from '@xgis/compiler'
 import { POINT_FORMAT } from '@xgis/map'
 import { toVertexBufferLayout } from '@xgis/engine'
 import { reflectionToBindGroupLayoutEntries, uniformFieldSlots } from '@xgis/engine'
@@ -320,7 +320,14 @@ export class PointRenderer {
 
   // ── Tile-based point accumulation (called from VectorTileRenderer) ──
   // Phase 2 PR 2d.2 — ECEF DSFUN: [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, featId, absLon, absLat]
-  private tilePoints: { exH: number; eyH: number; ezH: number; exL: number; eyL: number; ezL: number; featId: number; absLon: number; absLat: number; mxH: number; mxL: number; myH: number; myL: number }[] = []
+  // #722 S4 — `featProps` carries the point's SOURCE feature properties
+  // (featureProps.get(featId) from THIS point's tile), threaded in at
+  // accumulation time so flushTilePoints can resolve a data-driven size
+  // expression per feature. Resolved per-tile (not a single post-flush map)
+  // because featId == source-feature index WITHIN a tile → fids collide across
+  // tiles. Undefined when the layer has no data-driven size (constant-size path
+  // stays byte-identical).
+  private tilePoints: { exH: number; eyH: number; ezH: number; exL: number; eyL: number; ezL: number; featId: number; absLon: number; absLat: number; mxH: number; mxL: number; myH: number; myL: number; featProps?: Record<string, unknown> | null }[] = []
   private tilePointBuffer: RhiBuffer | null = null
   private tilePointIndexBuffer: RhiBuffer | null = null
   private tilePointFeatBuffer: RhiBuffer | null = null
@@ -351,9 +358,12 @@ export class PointRenderer {
     this.retiredTilePointBuffers.length = 0
   }
 
-  /** Accumulate a point from a visible tile (ECEF DSFUN components). */
-  addTilePoint(exH: number, eyH: number, ezH: number, exL: number, eyL: number, ezL: number, featId: number, absLon: number, absLat: number, mxH: number, mxL: number, myH: number, myL: number): void {
-    this.tilePoints.push({ exH, eyH, ezH, exL, eyL, ezL, featId, absLon, absLat, mxH, mxL, myH, myL })
+  /** Accumulate a point from a visible tile (ECEF DSFUN components).
+   *  `featProps` (#722 S4) is the point's source feature properties bag
+   *  (featureProps.get(featId) for this tile) — supplied only when the layer
+   *  authors a data-driven size expression; undefined otherwise. */
+  addTilePoint(exH: number, eyH: number, ezH: number, exL: number, eyL: number, ezL: number, featId: number, absLon: number, absLat: number, mxH: number, mxL: number, myH: number, myL: number, featProps?: Record<string, unknown> | null): void {
+    this.tilePoints.push({ exH, eyH, ezH, exL, eyL, ezL, featId, absLon, absLat, mxH, mxL, myH, myL, featProps })
   }
 
   /** Flush accumulated tile points as a single draw call */
@@ -365,7 +375,7 @@ export class PointRenderer {
     projCenterLat: number,
     canvasWidth: number,
     canvasHeight: number,
-    show: { fill?: string | null; stroke?: string | null; strokeWidth?: number; size?: number | null; shape?: string | null; sizeUnit?: string | null; anchor?: 'center' | 'bottom' | 'top'; billboard?: boolean; opacity?: number; circleTranslateX?: number; circleTranslateY?: number; circleBlur?: number; circlePitchScaleMap?: boolean; circleTranslateXShape?: import('@xgis/compiler').PropertyShape<number> | null; circleTranslateYShape?: import('@xgis/compiler').PropertyShape<number> | null; circleStrokeOpacityShape?: import('@xgis/compiler').PropertyShape<number> | null },
+    show: { fill?: string | null; stroke?: string | null; strokeWidth?: number; size?: number | null; sizeExpr?: { ast?: unknown } | null; shape?: string | null; sizeUnit?: string | null; anchor?: 'center' | 'bottom' | 'top'; billboard?: boolean; opacity?: number; circleTranslateX?: number; circleTranslateY?: number; circleBlur?: number; circlePitchScaleMap?: boolean; circleTranslateXShape?: import('@xgis/compiler').PropertyShape<number> | null; circleTranslateYShape?: import('@xgis/compiler').PropertyShape<number> | null; circleStrokeOpacityShape?: import('@xgis/compiler').PropertyShape<number> | null },
     dpr: number = 1,
   ): void {
     if (this.tilePoints.length === 0) return
@@ -378,6 +388,17 @@ export class PointRenderer {
     const stroke = strokeHex ? parseHexColor(strokeHex) : null
     const opacity = show.opacity ?? 1.0
     const radiusPx = show.size ?? 6
+    // #722 S4 — data-driven per-feature size on the tile path (fixes #17 size).
+    // Mirror of the INLINE GeoJSON path (map.ts:2688-2711): when the layer
+    // authors a size EXPRESSION, evaluate it per feature against that feature's
+    // source properties (pt.featProps, threaded on each tilePoint at
+    // accumulation). Same @xgis/compiler evaluate + makeEvalProps + per-feature
+    // throw-isolation → numeric fallback to the constant radius the inline path
+    // uses. When there is no expression (or a point lacks props), radiusPx
+    // (show.size ?? 6) is written verbatim — BYTE-IDENTICAL to pre-S4.
+    const sizeAst = (show.sizeExpr?.ast ?? null) as import('@xgis/compiler').Expr | null
+    const cameraZoom = camera.zoom
+    const cameraPitch = camera.pitch
     const strokeWidth = show.strokeWidth ?? 1  // raw px, shader converts to UV
     // #722 S2 — resolve the tile-layer shape ONCE (mirrors map.ts:2715, the
     // inline path). Fixes #16: tile points (URL geojson / PMTiles) hardcoded
@@ -436,7 +457,20 @@ export class PointRenderer {
     const src = this._frameArena.allocF32(N * STRIDE)
     for (let i = 0; i < N; i++) {
       const so = i * STRIDE
-      src[so + 0] = radiusPx
+      // Per-feature size when the layer authors a size expression AND this
+      // point carries its source props; else the constant radius (byte-identical).
+      const pt = this.tilePoints[i]
+      let r = radiusPx
+      if (sizeAst && pt.featProps) {
+        let ev: unknown
+        try {
+          ev = evaluate(sizeAst, makeEvalProps({ props: pt.featProps, geometryType: 'Point', featureId: pt.featId, cameraZoom, cameraPitch }))
+        } catch {
+          ev = radiusPx
+        }
+        r = typeof ev === 'number' ? ev : radiusPx
+      }
+      src[so + 0] = r
       src[so + 1] = fill ? fill[0] : 0; src[so + 2] = fill ? fill[1] : 0
       src[so + 3] = fill ? fill[2] : 0; src[so + 4] = fill ? fill[3] * opacity : 0
       src[so + 5] = stroke ? stroke[0] : 0; src[so + 6] = stroke ? stroke[1] : 0
