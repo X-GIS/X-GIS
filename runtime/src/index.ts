@@ -7,11 +7,11 @@ export { loadGeoJSON, lonLatToMercator } from '@xgis/data'
 export {
   injectPolarCaps, findClampBoundarySpans, synthesizeCapRing, vertexOnClampBoundary,
   type CapSpan,
-} from './loader/polar-cap-detect'
+} from '@xgis/data'
 export {
   synthesizePolarCaps, projectionNeedsPolarCaps,
   type PolarCapOptions, type PolarCapFeatureCollection,
-} from './data/polar-cap-synth'
+} from '@xgis/data'
 export {
   RUNTIME_CAPABILITIES, runtimeCapability, runtimeGaps,
   type RuntimeCapability,

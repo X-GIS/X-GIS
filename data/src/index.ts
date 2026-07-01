@@ -16,3 +16,16 @@ export * from './id-resolver'
 export * from './tile-source'
 export * from './tile-types'
 export * from './tile-select-types'
+// Tile data-layer logic leaves (F4): pure geometry/budget/eviction/cache helpers + the
+// filter/extrude expression evaluators + polar-cap mesh synth/detect. Depend only on
+// @xgis/compiler + the already-relocated data types; the still-in-runtime catalog /
+// selection / source backends consume them cross-package until they relocate too.
+export * from './tile-catalog-helpers'
+export * from './tile-compile-budget'
+export * from './tile-data-cache'
+export * from './tile-eviction-policy'
+export * from './tile-select-helpers'
+export * from './polar-cap-synth'
+export * from './polar-cap-detect'
+export * from './eval/filter-eval'
+export * from './eval/extrude-eval'

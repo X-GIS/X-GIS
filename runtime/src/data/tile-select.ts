@@ -15,7 +15,7 @@ export {
   tileUrl,
   isTileTemplate,
   sortByPriority,
-} from './tile-select-helpers'
+} from '@xgis/data'
 
 // ═══ Frustum-based tile selection ═══
 

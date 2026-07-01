@@ -30,7 +30,7 @@ import {
   type TileSource, type TileSourceSink, type TileSourceMeta,
 } from '@xgis/data'
 import { getSharedMvtPool, type MvtWorkerPool } from '../workers/mvt-worker-pool'
-import { evalFilterExpr } from '../eval/filter-eval'
+import { evalFilterExpr } from '@xgis/data'
 import {
   PriorityQueue, PriorityQueueItemRemovedError,
 } from '@xgis/shared'

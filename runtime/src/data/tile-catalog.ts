@@ -44,10 +44,10 @@ import {
   maxConcurrentLoads, defaultSkeletonDepth,
   type VirtualCatalog, type VirtualTileFetcher,
 } from '@xgis/data'
-import { unionBounds } from './tile-catalog-helpers'
-import { TileDataCache } from './tile-data-cache'
-import { CompileBudget } from './tile-compile-budget'
-import { TileEvictionPolicy } from './tile-eviction-policy'
+import { unionBounds } from '@xgis/data'
+import { TileDataCache } from '@xgis/data'
+import { CompileBudget } from '@xgis/data'
+import { TileEvictionPolicy } from '@xgis/data'
 
 export {
   type TileData, type TileState,

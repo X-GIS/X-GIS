@@ -15,7 +15,7 @@
 //
 // Layer: L2 (data) — imports only same-or-lower layers (tile-types).
 
-import { type TileData } from '@xgis/data'
+import { type TileData } from './tile-types'
 
 export class TileDataCache {
   /** Cache of compiled tile data per (tile key, source-layer name).
