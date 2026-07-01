@@ -16,7 +16,7 @@
 
 import {
   AtlasState, type AtlasConfig, type AtlasSlot, type GlyphKey,
-} from './atlas-state'
+} from '@xgis/map'
 import type {
   GlyphRasterizer, GlyphRasterResult,
 } from './glyph-rasterizer'

@@ -3,7 +3,7 @@ import { GlyphAtlasHost } from './sdf/glyph-atlas-host'
 import {
   type GlyphRasterizer, type GlyphRasterRequest, type GlyphRasterResult,
 } from './sdf/glyph-rasterizer'
-import { computeSDF } from './sdf/distance-transform'
+import { computeSDF } from '@xgis/map'
 
 const cfg = { slotSize: 24, pageSize: 96 }
 const opts = { fontSize: 16, sdfRadius: 6 }

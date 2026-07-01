@@ -47,7 +47,7 @@ import { lonLatToMercator, type GeoJSONFeatureCollection } from '../loader/geojs
 import { RasterRenderer } from './render/raster-renderer'
 import { PointRenderer } from './render/point-renderer'
 import { HeatmapRenderer } from './render/heatmap-renderer'
-import { ShapeRegistry } from './text/sdf-shape'
+import { ShapeRegistry } from '@xgis/map'
 import { LineRenderer } from './render/line-renderer'
 import { PanZoomController, type Controller } from './controller'
 import { DirtyTracker, DirtyDomain, DIRTY_ALL } from './state/dirty'

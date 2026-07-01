@@ -46,7 +46,7 @@ import { wrapWebGpuPass, wrapWebGpuBuffer, wrapWebGpuBindGroup, wrapWebGpuBindGr
 import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
 import { LineDraper } from '@xgis/map'
 import { LineCompositeDraper } from '@xgis/map'
-import type { ShapeRegistry } from '../text/sdf-shape'
+import type { ShapeRegistry } from '@xgis/map'
 import {
   lineUniformSize, PATTERN_SLOT_COUNT, PATTERN_SLOT_F32,
   LINE_CAP_BUTT, LINE_CAP_ROUND, LINE_CAP_SQUARE, LINE_CAP_ARROW,

@@ -10,7 +10,7 @@
 // the equivalent X-GIS behaviour.
 
 import { describe, expect, it } from 'vitest'
-import { greedyPlaceBboxes, type CollisionItem } from './text-collision'
+import { greedyPlaceBboxes, type CollisionItem } from '@xgis/map'
 
 const bbox = (x: number, y: number, w = 40, h = 12) => ({
   minX: x, minY: y, maxX: x + w, maxY: y + h,

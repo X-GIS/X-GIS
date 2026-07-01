@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url'
 import { GlyphAtlasHost } from './sdf/glyph-atlas-host'
 import { MockRasterizer } from './sdf/glyph-rasterizer'
 import { wrapForTesting, mlVerticalLayout } from './text-stage'
-import { greedyPlaceBboxes, type CollisionItem } from './text-collision'
+import { greedyPlaceBboxes, type CollisionItem } from '@xgis/map'
 
 const TEXT = 'Seoul\n서울특별시'
 const CODE = [...TEXT].map(c => c.codePointAt(0)!)   // 11 incl \n=10

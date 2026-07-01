@@ -26,7 +26,7 @@ import { resolveLabelEffectiveDef, makeLabelProjectors } from '../../render-loop
 import { computeSliceKey } from '../../../data/eval/filter-eval'
 import { TextStage, type TextStageOptions } from '../../text/text-stage'
 import { IconStage } from '../../sprite/icon-stage'
-import { resolveText } from '../../text/text-resolver'
+import { resolveText } from '@xgis/map'
 import { hexToRgba, featureAnchor } from '../../feature-helpers'
 import { type ShowCommand } from '../renderer'
 import type { FrameContext } from '@xgis/engine'
@@ -63,7 +63,7 @@ export function lineLabelDeduped(resolvedText: string, emitted: ReadonlySet<stri
  *  the placement walk is an anon callback. */
 export function lineIconIsIconOnly(
   text: import('@xgis/compiler').TextValue | undefined,
-  props: import('../../text/text-resolver').FeatureProps,
+  props: import('@xgis/map').FeatureProps,
   cameraZoom: number,
 ): boolean {
   if (text === undefined || text === null) return true
@@ -94,7 +94,7 @@ export function lineIconIsIconOnly(
 export function lineLabelDedupeKey(
   pairedWithIcon: boolean,
   text: import('@xgis/compiler').TextValue,
-  props: import('../../text/text-resolver').FeatureProps,
+  props: import('@xgis/map').FeatureProps,
   cameraZoom: number,
 ): string {
   if (pairedWithIcon) return resolveText(text, props, cameraZoom)
@@ -249,7 +249,7 @@ class LabelPass implements RenderPass {
         // doesn't call this (icon-along-curve is a Phase B+ feature);
         // point-anchored POI symbols (the demotiles + OFM Bright bus-
         // stop / school / amenity layers) flow through here.
-        const dispatchIcon = (def: { iconImage?: string; iconSize?: number; iconAnchor?: import('@xgis/compiler').LabelDef['iconAnchor']; iconOffset?: [number, number]; iconTranslateX?: number; iconTranslateY?: number; iconTranslateAnchorMap?: boolean; iconRotate?: number; iconOpacity?: number; iconColor?: [number, number, number, number]; iconRotationAlignment?: 'map'; text?: import('@xgis/compiler').LabelDef['text'] }, ax: number, ay: number, lineTangentDeg = 0, pairKey?: string, collide = false, props?: import('../../text/text-resolver').FeatureProps): void => {
+        const dispatchIcon = (def: { iconImage?: string; iconSize?: number; iconAnchor?: import('@xgis/compiler').LabelDef['iconAnchor']; iconOffset?: [number, number]; iconTranslateX?: number; iconTranslateY?: number; iconTranslateAnchorMap?: boolean; iconRotate?: number; iconOpacity?: number; iconColor?: [number, number, number, number]; iconRotationAlignment?: 'map'; text?: import('@xgis/compiler').LabelDef['text'] }, ax: number, ay: number, lineTangentDeg = 0, pairKey?: string, collide = false, props?: import('@xgis/map').FeatureProps): void => {
           if (!iStage || def.iconImage === undefined) return
           // icon-offset (layout, em/px nudge baked before rotation) AND
           // icon-translate (paint, viewport screen shift) both land as a

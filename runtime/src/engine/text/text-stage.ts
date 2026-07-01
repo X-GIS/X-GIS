@@ -19,7 +19,7 @@
 // AND screen-space overlays (HUD, scale bar).
 
 import type { LabelDef, TextValue } from '@xgis/compiler'
-import { resolveText, type FeatureProps } from './text-resolver'
+import { resolveText, type FeatureProps } from '@xgis/map'
 import {
   GlyphAtlasHost, type GlyphAtlasHostOptions,
 } from './sdf/glyph-atlas-host'
@@ -33,7 +33,7 @@ import type { GlyphProvider } from './sdf/pbf/glyph-provider'
 import { PbfRasterizer } from './sdf/pbf-rasterizer'
 import { TextRenderer, type TextDraw } from './text-renderer'
 import type { RhiDevice } from '@xgis/engine'
-import { greedyPlaceBboxes, type CollisionItem, type CollisionObstacle } from './text-collision'
+import { greedyPlaceBboxes, type CollisionItem, type CollisionObstacle } from '@xgis/map'
 import {
   applyTextTransform, stripCurveLineExtraScripts,
   evaluateVariableOffsetEm, variableAnchorOffsetEm,
