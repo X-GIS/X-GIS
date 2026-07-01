@@ -99,3 +99,13 @@ export * from './render/upload-coordinator'
 export * from './sprite/sprite-atlas-gpu'
 export * from './text/sdf/pbf/glyph-provider'
 export * from './text/sdf/pbf/pbf-to-slot'
+// P3 Phase-2 Batch B3 — render/sprite/text content leaves unlocked by B1+B2 (each depended only on a
+// now-migrated B1/B2 leaf): per-layer compute lifecycle handle, standalone sprite-icon GPU pipeline,
+// PBF glyph rasterizer chain + HTTP range cache + inline (air-gapped) glyph provider — deep-imported
+// cross-package by still-in-runtime compute-layer-registry / feature-data-binder / icon-stage /
+// text-stage (pruned to the public API in Step 8).
+export * from './render/compute-layer-handle'
+export * from './sprite/icon-renderer'
+export * from './text/sdf/pbf-rasterizer'
+export * from './text/sdf/pbf/glyph-pbf-cache'
+export * from './text/sdf/pbf/inline-glyph-provider'

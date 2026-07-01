@@ -13,13 +13,13 @@
 // caller projects lon/lat → screen px before submitting). The vertex
 // stage just converts viewport-px → NDC.
 
-import { SpriteAtlasGPU } from '@xgis/map'
+import { SpriteAtlasGPU } from './sprite-atlas-gpu'
 import { wrapWebGpuPass, wrapWebGpuBindGroupLayout, wrapWebGpuTextureView, wrapWebGpuSampler } from '@xgis/engine'
 import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
-import { IconDraper } from '@xgis/map'
-import type { SpriteInfo } from '@xgis/map'
+import { IconDraper } from '../render/material/icon-material'
+import type { SpriteInfo } from './sprite-atlas-host'
 import { vertexField } from '@xgis/compiler'
-import { ICON_FORMAT } from '@xgis/map'
+import { ICON_FORMAT } from './icon-vertex-format'
 import { toVertexBufferLayout } from '@xgis/engine'
 
 export interface IconDraw {

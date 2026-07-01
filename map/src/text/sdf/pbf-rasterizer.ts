@@ -15,10 +15,10 @@
 
 import type {
   GlyphRasterizer, GlyphRasterRequest, GlyphRasterResult,
-} from '@xgis/map'
-import { parseFontKey, parseSizedFontKey } from '@xgis/map'
-import type { GlyphProvider } from '@xgis/map'
-import { pbfGlyphToSlot, PBF_REF_SIZE } from '@xgis/map'
+} from './glyph-rasterizer'
+import { parseFontKey, parseSizedFontKey } from './glyph-rasterizer'
+import type { GlyphProvider } from './pbf/glyph-provider'
+import { pbfGlyphToSlot, PBF_REF_SIZE } from './pbf/pbf-to-slot'
 
 // CSS-weight number → MapLibre fontstack-name keyword. MapLibre's
 // glyphs-server URL convention concatenates the family + weight keyword

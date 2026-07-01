@@ -26,7 +26,7 @@
 // stay LAST in the entries array. Pinned by `feature-bindgroup-rebuild.test.ts`.
 
 import { ComputeDispatcher } from '@xgis/engine'
-import { ComputeLayerHandle } from './compute-layer-handle'
+import { ComputeLayerHandle } from '@xgis/map'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { GPUTile } from '@xgis/map'
 import { polygonUniformSlots } from '@xgis/map'

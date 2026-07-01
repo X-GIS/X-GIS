@@ -15,8 +15,8 @@
 // (fontstack, range) the host has pre-bundled, while everything else
 // falls through to the HTTP provider's lazy fetch path.
 
-import { decodeGlyphsPbf, type PbfGlyph } from '@xgis/map'
-import type { GlyphProvider } from '@xgis/map'
+import { decodeGlyphsPbf, type PbfGlyph } from './glyphs-proto'
+import type { GlyphProvider } from './glyph-provider'
 
 export interface InlineGlyphSeed {
   /** Either pre-decoded glyph map, or raw PBF bytes that will be

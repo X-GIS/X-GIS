@@ -22,7 +22,7 @@
 import { describe, it, expect } from 'vitest'
 import { lineLabelDeduped, lineIconIsIconOnly } from '../render/passes/label-pass'
 import { IconStage } from './icon-stage'
-import type { IconDraw } from './icon-renderer'
+import type { IconDraw } from '@xgis/map'
 import type { TextValue } from '@xgis/compiler'
 
 // ─── lineLabelDeduped contract (unchanged, regression guard) ─────────────────

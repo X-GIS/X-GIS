@@ -9,7 +9,7 @@ import {
   cjkSizedFontKey, parseSizedFontKey, MockRasterizer,
   type GlyphRasterizer, type GlyphRasterRequest, type GlyphRasterResult,
 } from '@xgis/map'
-import { PbfRasterizer } from './sdf/pbf-rasterizer'
+import { PbfRasterizer } from '@xgis/map'
 import type { GlyphProvider } from '@xgis/map'
 
 describe('cjkBucketPx ladder', () => {

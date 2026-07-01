@@ -21,7 +21,7 @@
 // fallback (Canvas2D-like positive ascent) and asserts the correction.
 
 import { describe, it, expect } from 'vitest'
-import { PbfRasterizer } from './pbf-rasterizer'
+import { PbfRasterizer } from '@xgis/map'
 import type { GlyphProvider } from '@xgis/map'
 import type { GlyphRasterizer, GlyphRasterRequest, GlyphRasterResult } from '@xgis/map'
 import type { PbfGlyph } from '@xgis/map'

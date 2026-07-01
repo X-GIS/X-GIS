@@ -15,8 +15,8 @@ import { fileURLToPath } from 'node:url'
 import { TextStage } from './text-stage'
 import { MockRasterizer, FONT_KEY_SENTINEL } from '@xgis/map'
 import { WebGpuDevice } from '@xgis/engine'
-import { GlyphPbfCache } from './sdf/pbf/glyph-pbf-cache'
-import type { PbfRasterizer } from './sdf/pbf-rasterizer'
+import { GlyphPbfCache } from '@xgis/map'
+import type { PbfRasterizer } from '@xgis/map'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const FIXTURE = join(HERE, 'sdf', 'pbf', '__fixtures__', 'open-sans-semibold-0-255.pbf')

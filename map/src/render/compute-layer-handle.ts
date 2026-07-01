@@ -49,12 +49,12 @@
 
 import type { ComputePlanEntry, ShaderVariant } from '@xgis/compiler'
 import { ComputeDispatcher } from '@xgis/engine'
-import { TileComputeResources } from '@xgis/map'
+import { TileComputeResources } from './tile-compute-resources'
 import {
   buildComputeBindGroupEntries,
   type ComputeBindEntry,
 } from '@xgis/engine'
-import type { FeaturePropertyBag } from '@xgis/map'
+import type { FeaturePropertyBag } from './compute-feature-packer'
 
 /** One layer's compute lifecycle. Construct once per addLayer when
  *  the variant has computeBindings; call uploadFromProps when

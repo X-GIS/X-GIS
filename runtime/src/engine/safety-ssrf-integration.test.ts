@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { SpriteAtlasHost } from '@xgis/map'
-import { GlyphPbfCache } from './text/sdf/pbf/glyph-pbf-cache'
+import { GlyphPbfCache } from '@xgis/map'
 import { loadImageTexture } from '@xgis/data'
 import { VectorTileLoader } from '@xgis/data'
 
