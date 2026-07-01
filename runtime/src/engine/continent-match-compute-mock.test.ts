@@ -26,7 +26,7 @@ import {
   type ComputePlanEntry,
 } from '@xgis/compiler'
 import { ComputeDispatcher } from '@xgis/engine'
-import { ComputeLayerRegistry } from './render/compute-layer-registry'
+import { ComputeLayerRegistry } from '@xgis/map'
 import { extendBindGroupLayoutEntriesForCompute } from '@xgis/engine'
 
 beforeAll(() => {

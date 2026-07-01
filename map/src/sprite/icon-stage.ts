@@ -6,9 +6,9 @@
 //   2. prepare()                                       — builds draws
 //   3. render(pass, viewport)                          — encodes draw
 
-import { SpriteAtlasHost, type SpriteInfo } from '@xgis/map'
-import { SpriteAtlasGPU } from '@xgis/map'
-import { IconRenderer, type IconDraw, type IconAnchor } from '@xgis/map'
+import { SpriteAtlasHost, type SpriteInfo } from './sprite-atlas-host'
+import { SpriteAtlasGPU } from './sprite-atlas-gpu'
+import { IconRenderer, type IconDraw, type IconAnchor } from './icon-renderer'
 import type { RhiDevice } from '@xgis/engine'
 
 export interface IconStageOptions {

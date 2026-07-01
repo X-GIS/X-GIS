@@ -33,7 +33,7 @@ import {
 import type { PropertyShape } from '@xgis/compiler'
 import { nodeToWgslString } from '@xgis/compiler'
 import { ComputeDispatcher } from '@xgis/engine'
-import { ComputeLayerRegistry } from './compute-layer-registry'
+import { ComputeLayerRegistry } from '@xgis/map'
 import { extendBindGroupLayoutEntriesForCompute } from '@xgis/engine'
 
 beforeAll(() => {

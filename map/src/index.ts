@@ -109,3 +109,12 @@ export * from './sprite/icon-renderer'
 export * from './text/sdf/pbf-rasterizer'
 export * from './text/sdf/pbf/glyph-pbf-cache'
 export * from './text/sdf/pbf/inline-glyph-provider'
+// P3 Phase-2 Batch B4 — render/sprite/text content leaves unlocked by B1-B3 (each depended only on a
+// now-migrated B1-B3 leaf): compute-layer registry aggregator, data-driven feature buffer + per-tile
+// bind-group binder (#723 stableCategoryId), sprite icon-stage orchestrator, text-stage type
+// declarations — deep-imported cross-package by still-in-runtime frame-renderer / VTR / map / label-pass
+// / text-stage (pruned to the public API in Step 8).
+export * from './render/compute-layer-registry'
+export * from './render/feature-data-binder'
+export * from './sprite/icon-stage'
+export * from './text/text-stage-types'

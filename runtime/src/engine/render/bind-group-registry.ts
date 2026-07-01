@@ -194,7 +194,7 @@ export class BindGroupRegistry {
   /** Snapshot of the palette/sprite atlas resources (Cluster C) the
    *  FeatureDataBinder needs to compose per-tile feature bind groups.
    *  Passed by value per call so the binder never holds a VTR reference. */
-  paletteResources(): import('./feature-data-binder').PaletteResources {
+  paletteResources(): import('@xgis/map').PaletteResources {
     return {
       paletteColorAtlasView: this.paletteColorAtlasView,
       paletteSampler: this.paletteSampler,

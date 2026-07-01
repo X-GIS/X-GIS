@@ -18,7 +18,7 @@
 // the survivor draws handed to renderer.setDraws.
 
 import { describe, it, expect } from 'vitest'
-import { IconStage } from './icon-stage'
+import { IconStage } from '@xgis/map'
 import type { IconDraw } from '@xgis/map'
 
 const SPRITE = { width: 20, height: 20, pixelRatio: 1 }

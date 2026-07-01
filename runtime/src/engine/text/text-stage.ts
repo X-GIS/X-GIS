@@ -45,7 +45,7 @@ import {
 } from './text-stage-helpers'
 import type {
   TextStageOptions, PendingLabel, PendingLineLabel,
-} from './text-stage-types'
+} from '@xgis/map'
 import {
   wrapWithKnuthPlass, cjkBucketFor,
 } from './text-wrap'
@@ -59,7 +59,7 @@ import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '@xgis/map'
 
 // Re-export the previously-`export`ed types so the public surface of
 // this module stays byte-identical after the text-stage-types.ts split.
-export type { TextStageOptions } from './text-stage-types'
+export type { TextStageOptions } from '@xgis/map'
 // Re-export the pure typography helper (moved to text-stage-helpers.ts)
 // so existing `import { resolveTypography } from './text-stage'` works.
 export { resolveTypography } from './text-stage-helpers'

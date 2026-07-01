@@ -13,7 +13,7 @@
 // anchor coordinates.
 
 import { describe, it, expect } from 'vitest'
-import { IconStage } from './icon-stage'
+import { IconStage } from '@xgis/map'
 import { TextStage } from '../text/text-stage'
 import { TextStageDiagnostics } from '../text/text-stage-diagnostics'
 import type { LabelDef } from '@xgis/compiler'

@@ -14,7 +14,7 @@
 // results — current behavior, preserved).
 
 import type { GlyphInfo } from './sdf/glyph-atlas-host'
-import type { WrappedLineRange, KPBreak } from './text-stage-types'
+import type { WrappedLineRange, KPBreak } from '@xgis/map'
 
 /** LRU cache for wrap results. Same (glyph sequence, font, size,
  *  letter-spacing, maxWidth) tuple produces identical line breaks. On

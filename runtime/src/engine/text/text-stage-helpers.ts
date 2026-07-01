@@ -6,7 +6,7 @@ import type { LabelDef } from '@xgis/compiler'
 import { FONT_KEY_SENTINEL } from '@xgis/map'
 import { bumpAlloc } from '@xgis/map'
 import { FrameArena } from '@xgis/engine'
-import type { MlVerticalLayout } from './text-stage-types'
+import type { MlVerticalLayout } from '@xgis/map'
 
 /** Resolve per-font typography overrides for the given fontKey against
  *  a typography table. The primary family is the first entry of the

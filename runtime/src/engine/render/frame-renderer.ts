@@ -13,7 +13,7 @@
 
 import type { GPUContext } from '@xgis/engine'
 import { ComputeDispatcher } from '@xgis/engine'
-import { ComputeLayerRegistry } from './compute-layer-registry'
+import { ComputeLayerRegistry } from '@xgis/map'
 import { extendBindGroupLayoutEntriesForCompute } from '@xgis/engine'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
 import { UniformRing } from '@xgis/map'

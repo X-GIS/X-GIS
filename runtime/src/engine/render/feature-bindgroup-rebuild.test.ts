@@ -16,7 +16,7 @@
 // references VTR). featureBindGroupLayout + computeHandlesByTile are now
 // binder-owned.
 import { describe, it, expect } from 'vitest'
-import { FeatureDataBinder } from './feature-data-binder'
+import { FeatureDataBinder } from '@xgis/map'
 
 interface FakeBuf { id: string }
 interface FakeBG { id: string; entries: { binding: number; resource: { buffer?: FakeBuf } }[] }

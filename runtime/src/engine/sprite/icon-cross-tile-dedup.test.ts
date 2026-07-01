@@ -21,7 +21,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { lineLabelDeduped, lineIconIsIconOnly } from '../render/passes/label-pass'
-import { IconStage } from './icon-stage'
+import { IconStage } from '@xgis/map'
 import type { IconDraw } from '@xgis/map'
 import type { TextValue } from '@xgis/compiler'
 

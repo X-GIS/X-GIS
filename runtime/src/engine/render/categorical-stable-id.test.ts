@@ -5,7 +5,7 @@
 // shared the tile — a categorical fill therefore changed colour across
 // zoom/pan. These tests pin the property that fixes it.
 import { describe, it, expect } from 'vitest'
-import { stableCategoryId, buildCategoryMap } from './feature-data-binder'
+import { stableCategoryId, buildCategoryMap } from '@xgis/map'
 
 describe('stableCategoryId (#723)', () => {
   it('is deterministic — same value → same id', () => {
