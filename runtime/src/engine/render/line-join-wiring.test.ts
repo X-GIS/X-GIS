@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest'
 import {
   LineRenderer,
   LINE_JOIN_MITER, LINE_JOIN_ROUND, LINE_JOIN_BEVEL,
-} from './line-renderer'
+} from '@xgis/map'
 import { WebGpuDevice } from '@xgis/engine'
 import type { GPUContext } from '@xgis/engine'
 

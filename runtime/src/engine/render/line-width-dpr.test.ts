@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { packLineLayerUniform } from './line-renderer'
+import { packLineLayerUniform } from '@xgis/map'
 import { emitLineWgsl } from '@xgis/map'
 
 // Regression: line stroke width must account for the device-pixel ratio.

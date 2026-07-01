@@ -4,7 +4,7 @@
 // linear the moment a time animation joined the same axis.
 
 import { describe, it, expect } from 'vitest'
-import { resolveNumberShape } from './paint-shape-resolve'
+import { resolveNumberShape } from '@xgis/map'
 
 describe('zoom-time PropertyShape honors zoomBase', () => {
   it('base !== 1 produces curve different from linear at the same zoom', () => {

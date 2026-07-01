@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { interpolateTime, interpolateTimeColor, type Easing } from './renderer'
+import { interpolateTime, interpolateTimeColor, type Easing } from '@xgis/map'
 
 // ═══ interpolateTime: time-axis sibling of interpolateZoom ═══
 //

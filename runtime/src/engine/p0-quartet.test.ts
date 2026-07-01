@@ -12,10 +12,10 @@
 // and the destroy() teardown mirror).
 
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
-import { XGISMap } from './map'
-import { ListenerRegistry, _resetListenerWarnings, type XGISFeatureEventType } from './layer'
+import { XGISMap } from '@xgis/map'
+import { ListenerRegistry, _resetListenerWarnings, type XGISFeatureEventType } from '@xgis/map'
 import { QUALITY } from '@xgis/engine'
-import { attachAutoResize } from './auto-resize'
+import { attachAutoResize } from '@xgis/map'
 
 function stubCanvas(): HTMLCanvasElement {
   return {

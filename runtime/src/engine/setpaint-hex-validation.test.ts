@@ -10,7 +10,7 @@
 // covers it but requires a GPU mock to test directly.
 
 import { describe, it, expect } from 'vitest'
-import { hexToRgba } from './feature-helpers'
+import { hexToRgba } from '@xgis/map'
 
 describe('setPaintProperty hex validation contract', () => {
   it('hexToRgba("red") returns null (so setPaintProperty rejects)', () => {

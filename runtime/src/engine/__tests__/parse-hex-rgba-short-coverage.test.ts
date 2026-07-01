@@ -3,7 +3,7 @@
 // the colour silently turned black on any style emitting `#xxxa`.
 
 import { describe, it, expect } from 'vitest'
-import { parseHexColor } from '../feature-helpers'
+import { parseHexColor } from '@xgis/map'
 
 describe('parseHexColor #rgba short alpha form', () => {
   it('#f008 (short-alpha) → red with ~53% alpha', () => {

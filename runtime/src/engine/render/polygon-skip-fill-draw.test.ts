@@ -15,7 +15,7 @@
 // is never `=== 'u.fill_color'`).
 
 import { describe, it, expect } from 'vitest'
-import { variantProducesFill } from './renderer-helpers'
+import { variantProducesFill } from '@xgis/map'
 import type { ShaderVariant } from '@xgis/compiler'
 import { varRefVec4 } from '@xgis/compiler'
 

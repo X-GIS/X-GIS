@@ -27,7 +27,7 @@
 
 import { describe, it, expect } from 'vitest'
 import type { LabelDef } from '@xgis/compiler'
-import { resolveLabelEffectiveDef } from './render-loop-helpers'
+import { resolveLabelEffectiveDef } from '@xgis/map'
 
 // A zoom-interpolated text-halo-width shape: halo width 2 px at z0 → 12 px at
 // z10, linear. interpolateZoom (base 1) gives width = 2 + (z/10)*(12-2):

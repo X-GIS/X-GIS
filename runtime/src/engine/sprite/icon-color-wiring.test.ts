@@ -23,11 +23,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
 import { initGPU, type GPUContext } from '@xgis/engine'
-import { IconRenderer, type IconDraw } from './icon-renderer'
+import { IconRenderer, type IconDraw } from '@xgis/map'
 import { WebGpuDevice } from '@xgis/engine'
 import { ICON_FORMAT } from '@xgis/map'
 import { vertexField } from '@xgis/compiler'
-import type { SpriteInfo } from './sprite-atlas-host'
+import type { SpriteInfo } from '@xgis/map'
 
 let stub: StubInstallation
 

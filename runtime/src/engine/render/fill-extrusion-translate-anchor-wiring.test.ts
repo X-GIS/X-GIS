@@ -18,7 +18,7 @@
 // makes translate-anchor:map track the world axes is gone.
 
 import { describe, it, expect } from 'vitest'
-import { rotateTranslateForAnchor } from './vector-tile-renderer'
+import { rotateTranslateForAnchor } from '@xgis/map'
 
 describe('fill-extrusion-translate-anchor wiring (GPU-free)', () => {
   it('viewport (anchorMap=false) returns the offset unchanged (screen-space)', () => {

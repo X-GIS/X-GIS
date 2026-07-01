@@ -9,7 +9,7 @@
 // + 0.5·LH); blockTop = −vAlign·n·LH.
 
 import { describe, it, expect } from 'vitest'
-import { verticalLayoutForTesting as v } from './text-stage'
+import { verticalLayoutForTesting as v } from '@xgis/map'
 
 const LH = 28.8     // 1.2 (text-line-height) * 24 (sizePx)
 const SIZE = 24     // → em→px factor 1, SHAPING_DEFAULT_OFFSET px = −17

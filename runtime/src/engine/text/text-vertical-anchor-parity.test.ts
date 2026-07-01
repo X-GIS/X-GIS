@@ -23,12 +23,12 @@
 // (non-zero) and all-caps ≠ mixed-case.
 
 import { describe, it, expect } from 'vitest'
-import { TextStage } from './text-stage'
+import { TextStage } from '@xgis/map'
 import { WebGpuDevice } from '@xgis/engine'
 import { computeSDF } from '@xgis/map'
-import type { GlyphRasterizer, GlyphRasterRequest, GlyphRasterResult } from './sdf/glyph-rasterizer'
+import type { GlyphRasterizer, GlyphRasterRequest, GlyphRasterResult } from '@xgis/map'
 import type { LabelDef, TextValue } from '@xgis/compiler'
-import type { TextDraw } from './text-renderer'
+import type { TextDraw } from '@xgis/map'
 
 // WebGPU bitflag globals the GPU classes touch at construction.
 const G = globalThis as Record<string, unknown>

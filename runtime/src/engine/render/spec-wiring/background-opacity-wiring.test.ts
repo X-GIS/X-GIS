@@ -35,11 +35,11 @@
 
 import { describe, it, expect } from 'vitest'
 import type { PropertyShape } from '@xgis/compiler'
-import { backgroundPass } from './../passes/background-pass'
+import { backgroundPass } from '@xgis/map'
 import type { FrameContext } from '@xgis/engine'
 import { makeProjectionToken } from '@xgis/engine'
-import type { BackgroundPassHost } from './../passes/pass-hosts'
-import type { SceneView } from './../scene-view'
+import type { BackgroundPassHost } from '@xgis/map'
+import type { SceneView } from '@xgis/map'
 
 /** A zoom-interpolated number shape: linear 0→0.25 .. 10→0.75. At zoom 5 the
  *  linear midpoint resolves to 0.5. */

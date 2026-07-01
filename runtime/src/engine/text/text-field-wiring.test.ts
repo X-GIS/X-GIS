@@ -31,8 +31,8 @@
 
 import { describe, it, expect } from 'vitest'
 import type { LabelDef, TextValue } from '@xgis/compiler'
-import { TextStage } from './text-stage'
-import { TextStageDiagnostics } from './text-stage-diagnostics'
+import { TextStage } from '@xgis/map'
+import { TextStageDiagnostics } from '@xgis/map'
 
 // FieldAccess AST node helper — mirrors text-resolver.test.ts.
 const fld = (field: string) =>

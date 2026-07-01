@@ -28,7 +28,7 @@
 // and ARE destroyed only after runFrameMaintenance / destroy().
 
 import { describe, expect, it } from 'vitest'
-import { GpuTileStore } from './gpu-tile-store'
+import { GpuTileStore } from '@xgis/map'
 import { WebGpuDevice } from '@xgis/engine'
 
 interface MockBuffer { destroyed: boolean; label: string; destroy(): void }

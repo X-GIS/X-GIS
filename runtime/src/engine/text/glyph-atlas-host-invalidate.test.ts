@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { GlyphAtlasHost } from './sdf/glyph-atlas-host'
+import { GlyphAtlasHost } from '@xgis/map'
 import {
   type GlyphRasterizer, type GlyphRasterRequest, type GlyphRasterResult,
-} from './sdf/glyph-rasterizer'
+} from '@xgis/map'
 import { computeSDF } from '@xgis/map'
 
 const cfg = { slotSize: 24, pageSize: 96 }

@@ -20,9 +20,9 @@
 // that arms the cross-tile icon dedup gate — for the icon-only line symbol.
 
 import { describe, it, expect } from 'vitest'
-import { lineLabelDeduped, lineIconIsIconOnly } from '../render/passes/label-pass'
-import { IconStage } from './icon-stage'
-import type { IconDraw } from './icon-renderer'
+import { lineLabelDeduped, lineIconIsIconOnly } from '@xgis/map'
+import { IconStage } from '@xgis/map'
+import type { IconDraw } from '@xgis/map'
 import type { TextValue } from '@xgis/compiler'
 
 // ─── lineLabelDeduped contract (unchanged, regression guard) ─────────────────

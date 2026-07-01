@@ -21,11 +21,11 @@
 // size 20, ASCII single-char text → bbox ≈ x[X-2, X+14], y[Y-14, Y+14].
 
 import { describe, it, expect } from 'vitest'
-import { TextStage } from './text-stage'
-import { MockRasterizer } from './sdf/glyph-rasterizer'
+import { TextStage } from '@xgis/map'
+import { MockRasterizer } from '@xgis/map'
 import { WebGpuDevice } from '@xgis/engine'
 import type { LabelDef, TextValue } from '@xgis/compiler'
-import type { TextDraw } from './text-renderer'
+import type { TextDraw } from '@xgis/map'
 
 const g = globalThis as Record<string, unknown>
 g.GPUShaderStage ??= { VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 }

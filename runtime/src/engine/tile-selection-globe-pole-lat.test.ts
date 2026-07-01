@@ -25,10 +25,10 @@
 import { describe, expect, it } from 'vitest'
 import { tileKey } from '@xgis/compiler'
 import { Camera } from '@xgis/engine'
-import { CameraController, type CameraControllerDeps } from './camera-controller'
+import { CameraController, type CameraControllerDeps } from '@xgis/map'
 import { globeVisibleTiles } from '@xgis/engine'
 import { mercatorYToLat, mercator as mercatorProj } from '@xgis/engine'
-import { computeZoomDirectionPrefetchKeys } from './tile-decision'
+import { computeZoomDirectionPrefetchKeys } from '@xgis/map'
 
 const W = 800
 const H = 800

@@ -4,13 +4,13 @@
 // instead of the PBF server.
 
 import { describe, it, expect } from 'vitest'
-import { cjkBucketPx, CJK_SIZE_BUCKETS_CSS } from './text-wrap'
+import { cjkBucketPx, CJK_SIZE_BUCKETS_CSS } from '@xgis/map'
 import {
   cjkSizedFontKey, parseSizedFontKey, MockRasterizer,
   type GlyphRasterizer, type GlyphRasterRequest, type GlyphRasterResult,
-} from './sdf/glyph-rasterizer'
-import { PbfRasterizer } from './sdf/pbf-rasterizer'
-import type { GlyphProvider } from './sdf/pbf/glyph-provider'
+} from '@xgis/map'
+import { PbfRasterizer } from '@xgis/map'
+import type { GlyphProvider } from '@xgis/map'
 
 describe('cjkBucketPx ladder', () => {
   it('picks the smallest bucket >= display size (always minify, never magnify)', () => {

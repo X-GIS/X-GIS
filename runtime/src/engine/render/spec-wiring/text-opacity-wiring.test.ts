@@ -23,7 +23,7 @@
 
 import { describe, it, expect } from 'vitest'
 import type { LabelDef } from '@xgis/compiler'
-import { resolveLabelEffectiveDef } from '../../render-loop-helpers'
+import { resolveLabelEffectiveDef } from '@xgis/map'
 
 // Probe values. The fill/halo base alphas and the opacity are all distinct so
 // the asserted products (FILL_A*OPACITY, HALO_A*OPACITY) are unambiguous and

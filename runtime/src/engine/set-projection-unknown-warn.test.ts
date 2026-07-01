@@ -22,7 +22,7 @@ import { PROJECTIONS } from '@xgis/engine'
 describe('setProjection validity set', () => {
   it('every ALIASES entry maps to a VALID name', () => {
     const src = readFileSync(
-      join(__dirname, 'render', 'viewport-mode-controller.ts'),
+      join(__dirname, '..', '..', '..', 'map', 'src', 'render', 'viewport-mode-controller.ts'),
       'utf8',
     )
     // ALIASES → canonical.
@@ -48,7 +48,7 @@ describe('setProjection validity set', () => {
 
   it('VALID set matches the renderFrame projType lookup', () => {
     const src = readFileSync(
-      join(__dirname, 'render', 'viewport-mode-controller.ts'),
+      join(__dirname, '..', '..', '..', 'map', 'src', 'render', 'viewport-mode-controller.ts'),
       'utf8',
     )
     // VALID set declared in setProjection.

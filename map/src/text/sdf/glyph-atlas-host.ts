@@ -1,0 +1,481 @@
+// ═══════════════════════════════════════════════════════════════════
+// Glyph Atlas Host (Batch 1c-6d)
+// ═══════════════════════════════════════════════════════════════════
+//
+// The orchestration layer: wires `AtlasState` (where does each glyph
+// live?) + `GlyphRasterizer` (what does each glyph look like?) + a
+// dirty-queue protocol the GPU wrapper drains to upload new SDF
+// bytes to the texture. No GPU dependencies — fully testable.
+//
+// Per-glyph layout metrics live alongside the slot so the text
+// shaper (1c-7) gets everything it needs from one lookup. We CACHE
+// the rasterized metrics rather than re-rasterising on every shape
+// pass: glyph metrics are stable within a (font, size) so this is
+// cheap and avoids running the rasterizer on every frame for the
+// same string.
+
+import {
+  AtlasState, type AtlasConfig, type AtlasSlot, type GlyphKey,
+} from './atlas-state'
+import type {
+  GlyphRasterizer, GlyphRasterResult,
+} from './glyph-rasterizer'
+import { cjkSizedFontKey } from './glyph-rasterizer'
+import { codePointIsIdeographic } from '../text-wrap'
+
+export interface GlyphInfo {
+  codepoint: number
+  slot: AtlasSlot
+  /** Pen advance after drawing (px). */
+  advanceWidth: number
+  /** Pen → glyph-bbox left edge (px). */
+  bearingX: number
+  /** Baseline → glyph-bbox top edge (px, positive up). */
+  bearingY: number
+  width: number
+  height: number
+  /** SDF source — see GlyphRasterResult.pbf. Threaded through so the
+   *  renderer can pick the matching halo-width normalisation. */
+  pbf: boolean
+  /** Pixel size this glyph's SDF + metrics were baked at (see
+   *  GlyphRasterResult.rasterFontSize). Per-glyph so a label mixing
+   *  24-px PBF Latin and DPR-scaled local Hangul scales each run
+   *  correctly. Optional only to keep external test fixtures terse;
+   *  the host always populates it — consumers fall back to the
+   *  draw-level rasterFontSize when absent. */
+  rasterFontSize?: number
+}
+
+export interface DirtyGlyph {
+  key: GlyphKey
+  slot: AtlasSlot
+  /** SDF bitmap. slotSize × slotSize, tiny-sdf packing. */
+  sdf: Uint8Array
+}
+
+export interface GlyphAtlasHostOptions {
+  /** Pixel size to rasterise at. One size per atlas keeps the slot
+   *  count manageable; the shader scales for display. */
+  fontSize: number
+  /** SDF falloff radius in pixels. Determines the aliasing budget. */
+  sdfRadius: number
+}
+
+interface CachedMetrics {
+  advanceWidth: number
+  bearingX: number
+  bearingY: number
+  width: number
+  height: number
+  pbf: boolean
+  rasterFontSize: number
+}
+
+export class GlyphAtlasHost {
+  readonly state: AtlasState
+  private readonly rasterizer: GlyphRasterizer
+  private readonly fontSize: number
+  private readonly sdfRadius: number
+  /** Per-glyph layout metrics, keyed by numeric encoding (iter 129 —
+   *  was Map<string> with template-literal allocations dominating the
+   *  glyph-atlas hot path at z=14 / z=16-p60). Uses the same
+   *  fontKey→fontId interning as AtlasState below. */
+  private readonly metrics = new Map<number, CachedMetrics>()
+  /** iter-205 — cached GlyphInfo objects per metricsKey. Cache HIT in
+   *  `ensure()` previously allocated a new GlyphInfo object every call;
+   *  at ~3000 ensures/frame (300 labels × 10 chars at z=14 OFM Bright)
+   *  that's ~3k obj allocs/frame just for the return wrapper, dominant
+   *  contributor to the 4.5% GC samples in the iter-197 CPU profile.
+   *  Cache is invalidated on slot eviction (same site that bumps
+   *  _generation) AND on `invalidate()` (PBF upgrade path — fresh
+   *  GlyphInfo built next ensure call after re-raster). */
+  private readonly infoCache = new Map<number, GlyphInfo>()
+  /** iter-233 — string-level GlyphInfo[] cache. ensureString allocates
+   *  a fresh array per call + does N codepoint lookups; at 300 labels
+   *  × 10 chars/frame on z=14 OFM Bright that's ~3k array allocs and
+   *  ~3k codePointAt iterations per frame. Memory note
+   *  project_merc_high_pitch_drag_2026_05_20 pins ~21.5 % of drag CPU
+   *  on the ensureString / ensure path; same-text-second-frame call
+   *  should short-circuit.
+   *
+   *  iter-167/168 attempted this and was reverted (iter-175) because
+   *  the per-frame eviction drain corrupted cached arrays whose
+   *  GlyphInfo entries referenced slots reclaimed mid-frame. iter-190
+   *  added `_generation` (bumps on EVERY slot reuse, including
+   *  mid-frame), so a `{ info, generation }` envelope makes any
+   *  post-eviction read a clean miss — re-runs the full ensure loop
+   *  and re-caches.
+   *
+   *  Cached array is shared by reference; callers must treat it
+   *  read-only (matches the existing infoCache contract). */
+  private readonly stringInfoCache = new Map<string, { info: GlyphInfo[]; generation: number }>()
+  /** iter-#10 Phase A slice 4 (across-frame drag p95). Per-string
+   *  validation memo for `preloadString` + `hasAllGlyphs`. Both
+   *  functions previously walked every codepoint of every pending
+   *  label per frame, calling `ensure()` (preloadString) or peeking
+   *  `metrics` (hasAllGlyphs). At Liberty Seoul z17 pitch68 drag the
+   *  iter-161 CPU profile pinned 21.5 % of drag CPU on `ensure`
+   *  (atlas-state.ts) — dominated by these per-frame walks even on
+   *  steady-state corpora where the atlas was already populated.
+   *
+   *  Key shape: `fontKey + '|' + text` (matches stringInfoCache).
+   *  Value: the generation at which we last admitted every codepoint
+   *  (preloadString) or verified residency (hasAllGlyphs). When the
+   *  current `_generation` matches the cached value, we know the
+   *  atlas state for this exact (fontKey, text) is identical to the
+   *  state at validation time and can skip the codepoint loop.
+   *
+   *  Cache is implicitly invalidated by generation bump (any slot
+   *  eviction triggers it). No explicit clear needed; stale entries
+   *  miss the generation guard and re-validate. */
+  private readonly preloadedAtGen = new Map<string, number>()
+  private readonly hasAllGlyphsAtGen = new Map<string, number>()
+  /** Newly rasterised glyphs awaiting GPU upload. Drained by
+   *  the GPU wrapper via `consumeDirty()`. */
+  private dirty: DirtyGlyph[] = []
+  /** Newly evicted glyphs whose vertex data the renderer needs to
+   *  invalidate. Drained by `consumeEvictions()`. */
+  private evictions: GlyphKey[] = []
+  /** iter-190 — monotonic generation counter bumped on every slot
+   *  reuse. Cached `GlyphInfo[]` arrays reference live atlas slots
+   *  whose pxX / pxY change when the slot is reassigned. Keying a
+   *  cache by `(text, fontKey, generation)` makes any post-eviction
+   *  read miss instead of returning glyphs with stale pixel coords.
+   *  Read via `getGeneration()`. */
+  private _generation = 0
+  getGeneration(): number { return this._generation }
+  /** Glyph keys marked stale via `invalidate()`. The next `ensure()`
+   *  call for one of these re-rasterises in place — same slot stays
+   *  bound, metrics overwrite, dirty queue gets a fresh upload. Used
+   *  by the PBF rasterizer to upgrade a Canvas2D-fallback glyph after
+   *  the async PBF fetch lands. */
+  private readonly stale = new Set<number>()
+  // fontKey → small integer id (iter 129 perf, mirrors AtlasState's
+  // own interning so callers don't pay the string-allocation cost on
+  // every metricsKey() call).
+  private readonly fontKeyId = new Map<string, number>()
+  private nextFontId = 0
+
+  constructor(
+    config: AtlasConfig,
+    rasterizer: GlyphRasterizer,
+    options: GlyphAtlasHostOptions,
+  ) {
+    this.state = new AtlasState(config)
+    this.rasterizer = rasterizer
+    this.fontSize = options.fontSize
+    this.sdfRadius = options.sdfRadius
+  }
+
+  /** Ensure one glyph is in the atlas. Cache hit → returns cached
+   *  metrics; cache miss → rasterises, queues dirty, returns fresh
+   *  metrics. A previously-invalidated glyph (see `invalidate`) is
+   *  treated as a miss even when its slot still exists: same slot
+   *  is kept, but the rasterizer runs again and the SDF re-uploads. */
+  ensure(fontKey: string, codepoint: number): GlyphInfo {
+    const key: GlyphKey = { fontKey, codepoint, sdfRadius: this.sdfRadius }
+    const ensured = this.state.ensure(key)
+    if (ensured.evictedKey !== undefined) {
+      // The slot we got was reclaimed — the renderer needs to know
+      // the previous tenant is gone.
+      this.evictions.push(ensured.evictedKey)
+      const evictedMk = this.metricsKey(ensured.evictedKey)
+      this.metrics.delete(evictedMk)
+      // iter-205 — drop the cached GlyphInfo for the evicted glyph.
+      // Same slot will be reused for the NEW glyph; the cached info
+      // would point at the wrong codepoint + stale metrics.
+      this.infoCache.delete(evictedMk)
+      // iter-190 — bump a monotonic generation counter on every slot
+      // reuse. Across-frame caches that key by `(text, generation)`
+      // miss after any eviction (mid-frame too — the iter-167 cache
+      // only drained per-frame via consumeEvictions and corrupted
+      // labels whenever one label's ensure() displaced a cached
+      // glyph slot referenced by a later label in the same frame).
+      this._generation++
+    }
+    const mk = this.metricsKey(key)
+    const forceRasterize = ensured.created || this.stale.has(mk)
+    if (forceRasterize) {
+      const result = this.rasterizer.rasterize({
+        fontKey, fontSize: this.fontSize, codepoint,
+        sdfRadius: this.sdfRadius, slotSize: ensured.slot.size,
+      })
+      this.metrics.set(mk, {
+        advanceWidth: result.advanceWidth,
+        bearingX: result.bearingX,
+        bearingY: result.bearingY,
+        width: result.width,
+        height: result.height,
+        pbf: result.pbf === true,
+        rasterFontSize: result.rasterFontSize,
+      })
+      this.dirty.push({ key, slot: ensured.slot, sdf: result.sdf })
+      this.stale.delete(mk)
+      // iter-205 — populate infoCache so the next cache-hit
+      // ensure() for the same glyph returns the same reference
+      // (the test pin asserts `b === a` after two ensure calls).
+      // Without this populate, the FIRST call goes through this
+      // forceRasterize branch + builds via assembleInfo, while the
+      // SECOND call hits the cache-hit branch + builds a fresh
+      // object — defeats the memoisation invariant.
+      const info = this.assembleInfo(codepoint, ensured.slot, result)
+      this.infoCache.set(mk, info)
+      return info
+    }
+    // Cache hit: return memoised GlyphInfo when available (iter-205);
+    // otherwise build + cache. Slot reference stays valid as long as
+    // the slot isn't reclaimed — eviction handler above clears the
+    // cache entry, so a hit here is always serving the current slot.
+    const cached = this.infoCache.get(mk)
+    if (cached !== undefined) return cached
+    const m = this.metrics.get(mk)!
+    const info: GlyphInfo = {
+      codepoint, slot: ensured.slot,
+      advanceWidth: m.advanceWidth,
+      bearingX: m.bearingX,
+      bearingY: m.bearingY,
+      width: m.width,
+      height: m.height,
+      pbf: m.pbf,
+      rasterFontSize: m.rasterFontSize,
+    }
+    this.infoCache.set(mk, info)
+    return info
+  }
+
+  /** Mark one glyph as stale so its next `ensure()` call re-rasterises
+   *  in place (slot kept, dirty queue re-fires). Used by the PBF
+   *  rasterizer to swap in a freshly-fetched SDF without disturbing
+   *  vertex buffers that already reference the slot.
+   *
+   *  No-op if the glyph isn't currently in the atlas (nothing to
+   *  invalidate) — callers should not rely on invalidate() to populate. */
+  invalidate(fontKey: string, codepoint: number): void {
+    const key: GlyphKey = { fontKey, codepoint, sdfRadius: this.sdfRadius }
+    const mk = this.metricsKey(key)
+    if (this.metrics.has(mk)) {
+      this.stale.add(mk)
+      // iter-205 — also drop the cached GlyphInfo; the next ensure()
+      // will re-raster + rebuild with the post-upgrade metrics. Skip
+      // this and a stale GlyphInfo could survive until eviction.
+      this.infoCache.delete(mk)
+      // BUG FIX (low-zoom CJK labels dropping all but early-landed glyphs):
+      // bump the generation so the generation-keyed STRING caches added later
+      // (stringInfoCache / preloadedAtGen / hasAllGlyphsAtGen, iter-233/#10)
+      // miss next frame. Those caches short-circuit BEFORE `ensure()` is
+      // reached, so without a bump a glyph whose PBF range lands AFTER the
+      // label was first shaped is never re-ensured — its slot keeps the
+      // zero-SDF metrics fallback forever (only glyphs whose range landed
+      // before the first shape, e.g. high-frequency 市, ever render). The
+      // eviction path bumps generation for the same staleness reason.
+      this._generation++
+    }
+  }
+
+  /** Invalidate EVERY cached glyph: mark all stale + bump the generation so the
+   *  generation-keyed string caches (stringInfoCache / preloadedAtGen /
+   *  hasAllGlyphsAtGen) miss and every glyph re-rasterises through the chain on
+   *  the next ensure. Used when a glyph PROVIDER is added at runtime
+   *  (XGISMap.addGlyphProvider): the new source may supply glyphs that
+   *  already-shaped labels fell back on, with no per-codepoint signal of which —
+   *  so re-raster all. The fleet-scale sibling of invalidate()'s single-glyph
+   *  upgrade; without it a runtime-added provider's glyphs never replace the
+   *  fallback (the synchronous twin of the async-land generation-bump bug). */
+  invalidateAll(): void {
+    if (this.metrics.size === 0) return
+    for (const mk of this.metrics.keys()) this.stale.add(mk)
+    this.infoCache.clear()
+    this._generation++
+  }
+
+  /** iter-268 — preload every codepoint in `text` into the atlas
+   *  WITHOUT returning a GlyphInfo[] array. Used by `TextStage
+   *  .prepare()` to drain all per-frame admissions (and any
+   *  evictions they cause) BEFORE any shaping loop builds an array
+   *  that holds slot references.
+   *
+   *  Root motivation: a shape loop that interleaves ensureString
+   *  calls is vulnerable to within-frame slot aliasing — label B's
+   *  ensure() can evict a slot referenced by label A's already-built
+   *  GlyphInfo[]. The slot's pxX/pxY are reused for B's codepoint;
+   *  A's draw later reads B's SDF bytes at those coordinates,
+   *  producing the iter-175 corruption (Pyongyang → "Pyongy시ng",
+   *  South Korea → "South 민국ea" on OFM Bright z=5 Korea).
+   *
+   *  This call admits each codepoint exactly once. Any evictions
+   *  happen here, in a phase where NO GlyphInfo[] is held downstream.
+   *  After this completes for ALL pending labels, the atlas is
+   *  stable for the rest of the frame; subsequent `ensureString`
+   *  calls hit the metrics cache without further eviction. */
+  preloadString(fontKey: string, text: string, cjkBucket = 0): void {
+    // iter-#10 Phase A slice 4 — string-level fast path. A previous
+    // call admitted every codepoint at the same generation; nothing
+    // can have shifted the atlas state for this (fontKey, text) since
+    // (eviction would bump the generation). Skip the per-codepoint
+    // walk + Map probes inside `ensure()`.
+    // cjkBucket is part of the memo key: a zoom that re-buckets the CJK
+    // glyphs is a different atlas working set and MUST re-admit.
+    const memoKey = fontKey + '|' + cjkBucket + '|' + text
+    if (this.preloadedAtGen.get(memoKey) === this._generation) return
+    const len = text.length
+    let i = 0
+    while (i < len) {
+      const cp = text.codePointAt(i)!
+      this.ensure(this.routeKey(fontKey, cp, cjkBucket), cp)
+      i += cp > 0xFFFF ? 2 : 1
+    }
+    // CRITICAL: record the POST-ensure generation. Any eviction
+    // during the loop bumps `_generation`; storing the latest value
+    // keeps the next call's guard accurate. Mirrors the post-loop
+    // generation read in `ensureString` (line ~337).
+    this.preloadedAtGen.set(memoKey, this._generation)
+  }
+
+  /** iter-273 — check whether EVERY codepoint in `text` is currently
+   *  resident in the atlas. Used by TextStage.prepare() AFTER the
+   *  preloadString pass to detect atlas overflow: when total unique
+   *  codepoints across all pending labels exceed slot capacity, the
+   *  earliest-admitted codepoints get LRU-evicted by the latest-
+   *  admitted, and `preloadString` no longer satisfies the "atlas
+   *  stable for shape loop" invariant. Callers drop labels for
+   *  which this returns false rather than render with stale
+   *  GlyphInfo[] references that would alias another label's SDF
+   *  bytes (the iter-175 "Pyongyang → Pyongy시ng" corruption class).
+   *
+   *  Returns true iff every codepoint's metricsKey is in
+   *  `this.metrics` (= survived the preload + any further eviction). */
+  hasAllGlyphs(fontKey: string, text: string, cjkBucket = 0): boolean {
+    // iter-#10 Phase A slice 4 — string-level fast path. A previous
+    // call returned true at the current generation; the metrics map
+    // cannot have shed any of those entries since (eviction bumps
+    // generation, invalidating the memo). Skip the per-codepoint loop.
+    const memoKey = fontKey + '|' + cjkBucket + '|' + text
+    if (this.hasAllGlyphsAtGen.get(memoKey) === this._generation) return true
+    const len = text.length
+    let i = 0
+    while (i < len) {
+      const cp = text.codePointAt(i)!
+      const key: GlyphKey = { fontKey: this.routeKey(fontKey, cp, cjkBucket), codepoint: cp, sdfRadius: this.sdfRadius }
+      if (!this.metrics.has(this.metricsKey(key))) return false
+      i += cp > 0xFFFF ? 2 : 1
+    }
+    // Record success at the current generation. Only stamp on the
+    // positive branch — a negative result is a transient overflow
+    // condition (label dropped this frame); the next call should
+    // re-check from scratch.
+    this.hasAllGlyphsAtGen.set(memoKey, this._generation)
+    return true
+  }
+
+  /** Ensure every glyph in `text` is in the atlas. Returns one
+   *  GlyphInfo per codepoint (Unicode-aware: surrogate pairs counted
+   *  once). Iter 133 perf: indexed codePointAt iteration instead of
+   *  `for...of`; the iterator-protocol path allocates a ~50-byte
+   *  StringIterator + per-step result `{value, done}` object on
+   *  every char, dominant GC contributor at z=14 OFM Liberty Seoul
+   *  with ~300 labels × ~10 chars/frame = ~3 k iterator allocs/frame.
+   *
+   *  iter-233 — string-level memo (see stringInfoCache). Cache key
+   *  is `fontKey|text`; cache value is the GlyphInfo[] tagged with
+   *  `_generation` at build time. A subsequent call with the same
+   *  text + same generation returns the cached array directly,
+   *  skipping the codepoint loop + per-glyph `ensure()` calls + the
+   *  array allocation. A slot eviction anywhere bumps `_generation`
+   *  so the stale array is dropped on next access.
+   *
+   *  Contract: returned array is SHARED with the cache. Callers must
+   *  not mutate (matches the existing GlyphInfo / infoCache contract;
+   *  text-stage `wrapWithKnuthPlass` + line-label paths read-only). */
+  ensureString(fontKey: string, text: string, cjkBucket = 0): GlyphInfo[] {
+    const cacheKey = fontKey + '|' + cjkBucket + '|' + text
+    const cached = this.stringInfoCache.get(cacheKey)
+    if (cached !== undefined && cached.generation === this._generation) {
+      return cached.info
+    }
+    const out: GlyphInfo[] = []
+    const len = text.length
+    let i = 0
+    while (i < len) {
+      const cp = text.codePointAt(i)!
+      out.push(this.ensure(this.routeKey(fontKey, cp, cjkBucket), cp))
+      // Surrogate pair (BMP supplement) spans 2 UTF-16 code units.
+      i += cp > 0xFFFF ? 2 : 1
+    }
+    // CRITICAL: read `_generation` AFTER the ensure loop. Any
+    // ensure() call inside the loop may bump it (slot reuse); the
+    // cached array's tag must reflect the FINAL state so the next
+    // matching call validates cleanly. iter-167/168 corruption came
+    // from caching with the START-of-frame generation while later
+    // labels in the same frame evicted referenced slots — iter-190's
+    // monotonic counter + post-loop read prevents that.
+    this.stringInfoCache.set(cacheKey, { info: out, generation: this._generation })
+    return out
+  }
+
+  /** Drain newly-rasterised glyphs awaiting GPU upload. The GPU
+   *  wrapper calls this once per frame (or before its next draw)
+   *  and writes each entry's `sdf` into the texture at `slot.pxX,
+   *  slot.pxY`. Returned array is empty when nothing changed. */
+  consumeDirty(): DirtyGlyph[] {
+    if (this.dirty.length === 0) return []
+    const out = this.dirty
+    this.dirty = []
+    return out
+  }
+
+  /** Drain evicted glyph keys. The renderer's text shaper uses
+   *  this to invalidate any cached vertex buffers that referenced
+   *  the now-missing slot. */
+  consumeEvictions(): GlyphKey[] {
+    if (this.evictions.length === 0) return []
+    const out = this.evictions
+    this.evictions = []
+    return out
+  }
+
+  /** Pre-rasterise a set of glyphs without consulting their LRU
+   *  position later — used by the engine init to bake digits +
+   *  punctuation + the latin alphabet so first-frame readouts
+   *  hit the cache. Idempotent. */
+  prewarm(fontKey: string, codepoints: Iterable<number>): void {
+    for (const cp of codepoints) this.ensure(fontKey, cp)
+  }
+
+  // ─── internals ────────────────────────────────────────────────
+
+  /** Local-ideograph routing (#421): when a CJK display-size bucket is
+   *  active, ideograph codepoints get a size-marked fontKey so they land in
+   *  their own atlas slot AND the rasterizer renders them locally at that
+   *  size. Latin (and CJK when no bucket) keep the plain key → PBF path. */
+  private routeKey(fontKey: string, codepoint: number, cjkBucket: number): string {
+    return (cjkBucket > 0 && codePointIsIdeographic(codepoint))
+      ? cjkSizedFontKey(fontKey, cjkBucket)
+      : fontKey
+  }
+
+  private metricsKey(k: GlyphKey): number {
+    // Same encoding shape as AtlasState.keyToNum — sdfRadius 7b |
+    // codepoint 21b | fontId 25b. Lazy fontKey → fontId interning.
+    let id = this.fontKeyId.get(k.fontKey)
+    if (id === undefined) {
+      id = this.nextFontId++
+      this.fontKeyId.set(k.fontKey, id)
+    }
+    return id * 0x10000000 + k.codepoint * 0x80 + (k.sdfRadius & 0x7F)
+  }
+
+  private assembleInfo(
+    codepoint: number, slot: AtlasSlot, r: GlyphRasterResult,
+  ): GlyphInfo {
+    return {
+      codepoint, slot,
+      advanceWidth: r.advanceWidth,
+      bearingX: r.bearingX,
+      bearingY: r.bearingY,
+      width: r.width,
+      height: r.height,
+      pbf: r.pbf === true,
+      rasterFontSize: r.rasterFontSize,
+    }
+  }
+}

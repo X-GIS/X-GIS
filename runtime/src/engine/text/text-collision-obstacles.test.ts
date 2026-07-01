@@ -16,7 +16,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { greedyPlaceBboxes, type CollisionItem, type CollisionObstacle } from '@xgis/map'
-import { IconStage } from '../sprite/icon-stage'
+import { IconStage } from '@xgis/map'
 
 const box = (x: number, y: number, w = 10, h = 10) => ({ minX: x, minY: y, maxX: x + w, maxY: y + h })
 const label = (b: ReturnType<typeof box>, extra: Partial<CollisionItem> = {}): CollisionItem => ({ bboxes: [b], ...extra })

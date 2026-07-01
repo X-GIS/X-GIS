@@ -26,8 +26,8 @@
 // the poly slots were freed — i.e. nothing leaked.
 
 import { beforeAll, describe, expect, it } from 'vitest'
-import { UploadCoordinator, type UploadHost, type UploadStore } from './upload-coordinator'
-import type { LineRenderer } from './line-renderer'
+import { UploadCoordinator, type UploadHost, type UploadStore } from '@xgis/map'
+import type { LineRenderer } from '@xgis/map'
 import type { StagingBufferPool } from '@xgis/engine'
 import type { TileData } from '@xgis/data'
 

@@ -16,9 +16,9 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { GlyphAtlasHost } from './sdf/glyph-atlas-host'
-import { MockRasterizer } from './sdf/glyph-rasterizer'
-import { wrapForTesting, mlVerticalLayout } from './text-stage'
+import { GlyphAtlasHost } from '@xgis/map'
+import { MockRasterizer } from '@xgis/map'
+import { wrapForTesting, mlVerticalLayout } from '@xgis/map'
 import { greedyPlaceBboxes, type CollisionItem } from '@xgis/map'
 
 const TEXT = 'Seoul\n서울특별시'
@@ -132,8 +132,10 @@ describe('iter-325 Seoul bilingual label — CPU placement repro', () => {
   it('FIX-SOURCE: text-renderer draw loop guards codepoint===10', () => {
     // Pin the actual fix in renderer source (the model test above asserts
     // the contract; this asserts the code that enforces it exists).
+    // text-renderer.ts relocated to @xgis/map (P3 Batch B7); `here` is
+    // runtime/src/engine/text → up 4 to repo root, then into map/src/text.
     const here = dirname(fileURLToPath(import.meta.url))
-    const src = readFileSync(join(here, 'text-renderer.ts'), 'utf8')
+    const src = readFileSync(join(here, '..', '..', '..', '..', 'map', 'src', 'text', 'text-renderer.ts'), 'utf8')
     // The skip must appear inside the per-glyph draw loop.
     expect(src).toMatch(/if\s*\(\s*g\.codepoint\s*===\s*10\s*\)\s*continue/)
   })

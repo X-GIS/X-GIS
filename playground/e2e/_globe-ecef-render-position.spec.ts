@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { DEQUANT_ECEF_WGSL } from '@xgis/map'
-import { generateWallMeshExtrudedECEF } from '../../runtime/src/core/polygon-mesh'
+import { generateWallMeshExtrudedECEF } from '@xgis/map'
 import { lonLatToECEF } from '../../engine/src/projection/ecef'
 import { dequantVertexF32, mulMat4Vec4F32, type QuantizedDecode } from '@xgis/compiler'
 import type { RingPolygon } from '@xgis/compiler'

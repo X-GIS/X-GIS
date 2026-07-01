@@ -64,7 +64,7 @@ describe('arch ratchet: package DAG (no compiler → runtime cycle)', () => {
 // ── Gate 2: map ↔ render-loop value-import cycle ─────────────────────
 describe('arch ratchet: map ↔ render-loop value-import cycle stays broken', () => {
   it('render-loop.ts imports ./map as `import type` only', () => {
-    const s = readFileSync(join(ROOT, 'runtime/src/engine/render-loop.ts'), 'utf8')
+    const s = readFileSync(join(ROOT, 'map/src/render-loop.ts'), 'utf8')
     // A VALUE import of ./map re-forms the runtime cycle (map.ts value-imports
     // render-loop.ts). `import type` is erased by tsc, so it does not.
     const valueImport = /^\s*import\s+(?!type\b)[^\n]*from\s+['"]\.\/map['"]/m
@@ -75,149 +75,35 @@ describe('arch ratchet: map ↔ render-loop value-import cycle stays broken', ()
   })
 })
 
+// ── Gate 6: engine content-blindness (@xgis/engine → @xgis/map == 0) ──
+// The P3 Phase-2 extraction's TERMINAL invariant + completion lock ("Done =
+// Gate-6"): @xgis/engine is a content-blind GPU engine (RHI / GPU / frame-core /
+// projection-camera machinery); it must NEVER import @xgis/map (the render
+// CONTENT). Holds by construction — engine/src was carved content-free before the
+// @xgis/map content landed — so this gate passes today; it LOCKS the invariant so
+// no future edit can re-introduce the reverse edge that would make the package
+// graph cyclic (the mirror of Gate 1's compiler→runtime lock).
+describe('arch ratchet: Gate-6 — @xgis/engine is content-blind (0 @xgis/map imports)', () => {
+  it('engine/src never imports @xgis/map (static value/type OR dynamic import())', () => {
+    const re = /(?:from\s+|import\s*\(\s*)['"]@xgis\/map(?:['"/]|$)/m
+    const offenders = walkTs(join(ROOT, 'engine/src'))
+      .filter((f) => re.test(readFileSync(f, 'utf8')))
+      .map(rel)
+    expect(
+      offenders,
+      `@xgis/engine must be content-blind (Gate-6) — 0 @xgis/map imports; the reverse edge would make the package graph cyclic:\n${offenders.join('\n')}`,
+    ).toEqual([])
+  })
+})
+
 // ── Gate 3: LOC ceilings (god-files shrink-only; no new god-files) ───
 // High-water marks measured 2026-06-09. LOWER these as files shrink.
 const LOC_CEILINGS: Record<string, number> = {
-  // Bumped 3913→3924 for the sync-path (doUploadTile) line/outline/segment
-  // buffer-leak fix: the 5 buffer declarations are hoisted ABOVE the try so
-  // the catch backstop can reach them, and 5 cleanup statements (release the
-  // pooled line/index buffers + destroy the lineRenderer-owned segment
-  // buffers) mirror doUploadTileAsync's cleanupLineBuffers. Irreducible — the
-  // async path already carries the identical structure; this closes the
-  // asymmetric sync gap (throw before layerCache.set → leaked VRAM).
-  // Bumped 3924→3934 for the bundle-cache compaction-UAF fix: capturing
-  // runFrameMaintenance's new "compacted" return + invalidating every cached
-  // render bundle (whose recorded buffer ref the arena swap retired) is
-  // irreducible — the explanatory comment carries the bulk (mirrors the
-  // async-upload buffer-identity guard; latent since bundles are default-OFF).
-  // Bumped 3934→3938 for the continuous-zoom fill-interp fix: slot 44 (u.zoom)
-  // must carry the fractional camera.zoom, not the integer tile-selection
-  // lastZoom, or OFM zoom-interp fills + palette gradients snap at integer
-  // boundaries. Adds a `currentCameraZoom` field (cached in render()) — net
-  // +4 lines after trimming the slot-44 comment.
-  // Bumped 3938→3948 for the empty-default-slice fix (#356-followup): the
-  // classifyTile call site passes a hasNonEmptySliceInCatalog predicate so a
-  // single-layer GeoJSON empty placeholder classifies as drop-empty instead of
-  // being forced into a parent-fallback (+10 lines, irreducible inline closure).
-  // Bumped 3948→3955 for the match()-variant null-feature-bg crash fix: the
-  // per-tile fill loop resolves the feature bind group to null (not a lying `!`)
-  // and skips the fill draw when absent — binding null with a dynamic offset
-  // invalidated the whole encoder (black screen on non-mercator projections).
-  // Lowered 3955→3923 for the Tier-2 zoom-direction prefetch extraction: the
-  // tile-set math moved VERBATIM to tile-decision.computeZoomDirectionPrefetchKeys
-  // (pure, unit-tested), leaving only the guard + prefetchTiles side-effect inline
-  // (byte-identical execution order). Five now-unused imports also dropped.
-  // Bumped 3923→3929 for the fill/line-pattern atlas-UV clobber fix (slots 19/23):
-  // the two unconditional uf[19]/uf[23] writes split into _patternUniformActive /
-  // _linePatternActiveForShow guarded writes + the 6-line rationale comment — the
-  // shader reads those slots as the pattern v1, so the guard is irreducible.
-  // Bumped 3929→3959 for BUG D4 (cancelStaleUploads byte-accounting leak): the
-  // _releasePrebuiltSegments helper + its two drop-path call sites (queued +
-  // held) null prebuiltLineSegments/prebuiltOutlineSegments on dropped uploads
-  // whose TileData stays cached, keeping sizeOfTileData's segment-omission
-  // invariant true so the byte-cap eviction stops under-firing. Shared helper.
-  // Bumped 3959→3961 for the line-width dpr fix: the two writeLayerSlot call
-  // sites (stroke + gap) each thread `dpr` into the layer uniform so vs_line's
-  // screen-width clamp lands on the right NDC span (roads were 1/dpr too thin).
-  // Bumped 3961→3962 for the point precision fix: the tile-point decode passes
-  // the absolute Mercator DSFUN tail (slots 9-12) to addTilePoint.
-  // Bumped 3962→3996 (mbx_batch2) for the fill-antialias / fill-extrusion-
-  // vertical-gradient opt-out flags: two baked per-show fields + their render()
-  // bake + the two uniform writes into the spare cam_ecef_off_{h,l}.w lanes +
-  // the contract comments. Irreducible additive plumbing (no struct growth).
-  // Bumped 3996→4011 (#420) for the light_dir_ecef pack: the camera-anchor
-  // ENU→ECEF light rotation (camSinLon/camCosLon + 3 uniform writes) + the
-  // basis-contract comment that ties it to polygon-mesh.ts's normals.
-  // Bumped 4011→4051 (WS-9 + WS-1): the fill-extrusion light state +
-  // setLight() + the per-tile light-colour/intensity pack (slots 50/63),
-  // plus reading the per-frame resolved fill/line translate off ResolvedShow.
-  // Bumped 4051→4054 (WS-1 line-dasharray): prefer ResolvedShow.dashArray.
-  // Bumped 4054→4078 (Phase S Batch 2, two features): line-round-limit
-  // (+7: show.roundLimit read threaded to both writeLayerSlot calls) AND
-  // *-translate-anchor:map (+17: rotateTranslateForAnchor 2D bearing-rotation
-  // helper + the two map-anchor flags at the fill/line translate bake;
-  // fill-extrusion inherits via the shared fill_translate slot 46/47).
-  // Default viewport/round-limit byte-identical; additive, no struct growth.
-  // Bumped 4078→4093 (uniform-from-reflect, #581): the polygon uniform slots are
-  // now SOURCED from reflect(buildPolygonModule()) via a lazy `US` slot Proxy
-  // (polygon-uniform-slots.ts) instead of three hand-maintained byte-offset copies —
-  // RETIRES the std140 drift the file carried (DSL struct + uf[N]/uniformF32[N]/
-  // uniformU32[N] magic). Render byte-identical; the +15 is the one-time slot-Proxy
-  // wiring, not feature surface. Decomposition stays a tracked follow-up.
-  // Bumped 4093→4104 (#600): the per-frame globe_eye uniform write + its doc
-  // comment + the UNIFORM_SLOT/SIZE 256→512/272 rationale comments.
-  // Bumped 4104→4115 (#600 fix): the prior bump documented a globe_eye write that
-  // was never actually committed to VTR — so the vector globe cull fell back to the
-  // centre-hemisphere model and leaked far-side line/fill 뒷면. Restores the missing
-  // write: the globeEye frame field + its doc, the render() cache, the globeEyeUniform
-  // import, and the per-tile globe_eye pack. Decomposition stays a tracked follow-up.
-  // Bumped 4115→4126 (mobile-perf diag): perf-marks sub-marks that nest inside the
-  // opaque pass to localize the high-pitch CPU burst — `vtr.upload` around the three
-  // mid-render doUploadTile fallback calls + `vtr.evict` around the two forceEvictBytes
-  // pairs (+ the perf-marks import). Gated OFF by default (markStart/End early-return),
-  // so render is byte-identical; the +11 is diagnostic plumbing. Reclaim on decomposition.
-  // Lowered 4126→3120 (UploadCoordinator extraction): the twin doUploadTile /
-  // doUploadTileAsync bodies + priority queue + per-frame cap + stale-cancel +
-  // _allocPolyPair moved to upload-coordinator.ts as ONE write-strategy-
-  // parameterised dispatch body. VTR keeps thin forwarders. Ratchets the ~950-line
-  // shrink so the win can't silently regrow.
-  'runtime/src/engine/render/vector-tile-renderer.ts': 3120,
-  // Bumped 3361→3393 for the destroy()-completeness fix: cancelling the
-  // EventDispatcher move-rAF + the pending-flush rAF, clearing _pendingPatches,
-  // and removing the run()-installed window globals (__xgisReady/snapshot/
-  // replay/trace) are irreducible teardown statements. map.ts decomposition
-  // remains a tracked priority; shrink as the destroy body is extracted.
-  // Bumped 3393→3412 for the updateFeature() tile-backed silent-drop fix:
-  // a `{_vectorTile}`/`{_tileUrl}` marker passed the rawDatasets.has()
-  // precondition, queued a patch that flush then discarded with no warn. The
-  // `_tileBackedUpdateWarned` Set + the enqueue-time guard + the defensive
-  // flush-time warn are irreducible (warn-once data-loss prevention).
-  // Bumped 3412→3416 for the bounds-fit-gate parity fix: the programmatic
-  // Mapbox-parity setters (jumpTo/easeTo/flyTo/fitBounds) must mark the
-  // camera explicitly positioned — matching the pointer/wheel/keyboard
-  // handlers — so a post-compile bounds-fit can't clobber a host-set camera.
-  // Bumped 3416→3437 for the `map.project()` / `map.unproject()` public
-  // accessors (MapLibre-API parity + the debug-measurement primitive): thin
-  // delegates. project()'s logic was EXTRACTED to render-loop-helpers.ts
-  // (projectLonLatToScreenCss); unproject() delegates to the camera's existing
-  // unprojectToLonLat — only the public method shells live here. map.ts
-  // decomposition remains the #1 tracked god-file priority.
-  // Bumped 3437→3438 for addGlyphProvider's markLabelDirty re-arm (CJK glyph
-  // re-raster fix: a runtime-added provider must repaint an idle map — 1 line).
-  // Bumped 3438→3447 for the WOFF font-land glyph re-raster: fontsReady→
-  // invalidateAllGlyphs + markLabelDirty (Canvas2D fallbacks upgrade on load).
-  // Bumped 3447→3489 for the #360 F1 per-source polar-cap wiring: the cap
-  // install/detach LOGIC lives in geojson-polar-cap-show.ts (map.ts stays
-  // thin) — what remains here is irreducible host glue: the geojsonCapPoles
-  // field + SourceManager dep, the `_polarCapHost()` adapter, the run()
-  // install call, and the onWorldBandChange re-install/detach branch.
-  // Bumped 3489→3494: the onWorldBandChange cap (re)install must trigger
-  // rebuildLayers() so the cap show enters `vectorTileShows` (the dispatch
-  // list is rebuilt from showCommands, not read raw) — else the cap tile is
-  // cached but never selected/drawn. Irreducible host glue.
-  // Bumped 3494→3496 (mbx_batch2) for the Mapbox `["pitch"]` identifier:
-  // the render-path eval sites (applyFilter + per-feature paint/size eval)
-  // inject `this.camera.pitch` alongside cameraZoom (2 lines).
-  // Bumped 3496→3511 (Phase R heatmap): heatmapRenderer field + import + two
-  // init sites + the GeoJSON heatmap routing fork in rebuildLayers + two
-  // teardown blocks. Irreducible host glue (mirror of the pointRenderer wiring).
-  // Bumped 3511→3544 (heatmap point-source fix): tiled geojson hid its points
-  // behind the `{ _vectorTile: true }` marker so HeatmapRenderer got zero
-  // layers. Added the `heatmapPointData` field + its SourceManager dep wiring,
-  // the inline-seed preservation block, and moved the heatmap routing fork to
-  // the loop top (reads heatmapPointData, unconditional `continue`) — net of
-  // deleting the old lower fork. Irreducible host glue (mirror of pointRenderer).
-  // Bumped 3544→3597 (A2 conversion-notes surfacing): the extractConversionNotes
-  // + logConversionNotes helpers (parse the converter's trailing notes block
-  // off the raw source) + the `_logConversionNotes` field + its constructor
-  // gate + the run() once-per-load log call + contract comments. Irreducible
-  // additive load-path glue (the converter emits warnings as a discarded
-  // comment block; this is the runtime's only seam to surface them).
-  // Bumped 3597→3599: configureProjections(PROJECTIONS) import + the constructor
-  // call that injects the projection spec list into @xgis/shader-dsl (the
-  // shader-dsl extraction seam — 2 irreducible wiring lines).
-  // Bumped 3599→3610 (#603): _scratchEmittedLineIconKeys field + comment.
-  'runtime/src/engine/map.ts': 3610,
+  // map.ts relocated to @xgis/map (map/src/map.ts) in P3 Phase 2 Batch B10d (the Step-7
+  // render-loop CUT + Step-8 map.ts move, unified as the 16-file map.ts render SCC) — no
+  // longer under a SRC_DIRS walk, so its LOC ceiling leaves this runtime ratchet (mirrors the
+  // vector-tile-renderer.ts / point-renderer.ts / gpu-tile-store.ts / camera.ts precedents
+  // above; package-level LOC ratchets for map/engine are a tracked post-Gate-6 follow-up).
   // Bumped 1343→1344 for the opacity sub-1.5% round-trip fix (#274); comments
   // trimmed to the minimum, net +1 irreducible.
   // Bumped 1344→1348 for the polygon fill-stroke INSET default (US-002): a
@@ -241,50 +127,6 @@ const LOC_CEILINGS: Record<string, number> = {
   // plumbing (mirror of the dasharray arm); lower.ts decomposition stays
   // a tracked priority.
   'compiler/src/ir/lower.ts': 1452,
-  // Bumped 1441→1449 for the CJK display-size floor on CURVED/line labels: the
-  // point-loop floor (hasCjkIdeograph → Math.max(size, CJK_MIN_DISPLAY_PX*dpr))
-  // mirrored onto the curved loop so dense Han road labels stop boxing out at
-  // low zoom (1 raw→floored expr + the 5-line parity rationale, irreducible).
-  // Bumped 1449→1453 for addGlyphProvider's invalidateAll wiring (CJK glyph
-  // re-raster fix: a runtime-added provider re-rasters already-shaped fallbacks).
-  // Bumped 1453→1459 for invalidateAllGlyphs() (WOFF font-land re-raster hook).
-  // Bumped 1459→1465 for the italic-label synthetic-oblique flag (#416): a
-  // labelItalic = (def.fontStyle==='italic') per loop (point + curved) + the
-  // `italic:` field on the three TextDraw build sites so the renderer shears
-  // CJK/Hangul glyphs (the italic glyph PBF serves ideographs upright).
-  // Bumped 1465→1489 (Phase S Batch 2 text-max-angle): the curved-label
-  // angular gate — maxAngleRad/prevGlyphAngle setup, the per-glyph wrapped
-  // tangent-delta check, the post-loop `continue`, plus the comments tying
-  // it to Mapbox's drop-kinked-label semantics. Default (maxAngle unset) is
-  // a single guarded branch ⇒ byte-identical no-clamp behaviour preserved.
-  // Bumped 1489→1602 (Phase S Batch 3+4): text-translate-anchor:map rotation
-  // helper + setBearing + per-label tx/ty resolve (+39), PLUS symbol-z-order's
-  // prepare() ordering pass (zOrderMode scan, viewport-y screen-Y sort +
-  // source-order branch, ordered greedy + drawOrder emit; legacy path preserved
-  // ⇒ DEFAULT byte-identical) + ShapedLabel.symbolZOrder field (+74).
-  // Bumped 1602→1615 (#609): prepare() accepts iconObstacles param + CollisionObstacle
-  // import + groupKey wired into collisionInput + obstacles passed to all greedy calls.
-  // Bumped 1615→1624 (#608): computeCentreShift call + maxSlotHalf tracking for the
-  // center-anchor ink-band fix (the +9 is the corrected baseline math).
-  // Bumped 1624→1631 (#609 v2 rework): the EXPORTED getActiveTextPairKeys() reader —
-  // the set of pairKeys with a LIVE text bbox this frame (pending + pendingLine) —
-  // read by IconStage.computeObstacles so a to-be-dropped paired icon does not seed
-  // a phantom obstacle. Additive accessor + JSDoc; no logic moved.
-  // Bumped 1631→1652 (#605 v2): wired the same-line min-spacing collision gate into
-  // prepare() so cross-tile route shields collapse in screen space. addCurvedLineLabel
-  // accepts lineId/anchorDistancePx → PendingLineLabel → ShapedLabel → CollisionItem,
-  // the MIN_LINE_SPACING_PX (= 250 CSS px × dpr) constant, and minLineSpacingPx passed
-  // to all three greedyPlaceBboxes calls (legacy / sortKey / z-order branches).
-  // greedyPlaceBboxes already implemented the gate; this is the wiring + its rationale.
-  // Bumped 1652→1673 (#608-scope): the #608 hang-below regressed shield text (route
-  // ref low/off-centre in its box). Gate the centreShift on pairKey — icon-paired
-  // center-anchored text restores the box-centred ink-band recentre (the maxAsc/
-  // maxDesc per-block loop, ~12 lines), standalone keeps the hang. Plus the layout-
-  // cache `paired` key term so the two conventions don't alias to one cached layout.
-  // Bumped 1673→1675 (backend-agnosticism fix): TextStage now receives the injected RHI
-  // device (ctx.rhi) and threads it to TextRenderer instead of the renderer self-
-  // instantiating `new WebGpuDevice` — +1 ctor param + 1 type import. Irreducible.
-  'runtime/src/engine/text/text-stage.ts': 1675,
   // Bumped 1509→1517 for the GeometryCollection decompose fix (RFC 7946
   // §3.1.8): decomposeFeatures' per-type switch is wrapped in an inner
   // recursive helper so a GeometryCollection member-decomposes under the
@@ -320,12 +162,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 941→943 (#600 fix): the prior bump documented a globe_eye write missing
   // from renderToPass + the graticule eye plumbing — restoring them (the write, the
   // import, the GraticuleFrame.eye pass-through) adds the final 2 lines.
-  // Lowered 943→772 (P2 carve Step 1): the engine half (RHI / ring / pipeline
-  // machinery — PipelineFactory delegates, compute path, ensure*, rebuildForQuality,
-  // beginFrame/endFrame, uniform-ring tail) moved out to frame-renderer.ts; this
-  // file keeps the CONTENT half (MapRendererContent) + the engine read-contract
-  // re-exposers. New ceiling = measured size of the content half.
-  'runtime/src/engine/render/renderer.ts': 772,
+  // renderer.ts (+ its 6-file StyleProperties type-cycle SCC: renderer-types / renderer-helpers /
+  // paint-shape-resolve / pipeline-factory / frame-renderer) relocated to @xgis/map
+  // (map/src/render/renderer.ts) in P3 Phase 2 Batch B5 — no longer under a SRC_DIRS walk, so its
+  // LOC ceiling leaves this runtime ratchet (mirrors the gpu-tile-store.ts / camera.ts precedents
+  // above; package-level LOC ratchets for map/engine are a tracked post-Gate-6 follow-up).
   // Lowered 776→254: extracted the text-layout family (text-anchor /
   // variable-anchor[-offset] / transform / offset / translate / radial-offset /
   // collision / rotate / letter-spacing / max-width / line-height / justify /
@@ -437,152 +278,39 @@ const LOC_CEILINGS: Record<string, number> = {
   // camera.ts relocated to @xgis/engine (engine/src/projection/camera.ts) in
   // P3 Step 3 — no longer under a SRC_DIRS walk, so its LOC ceiling is tracked
   // by the engine package's own ratchet, not this runtime gate.
-  // Bumped 1065→1067 for the curved-text early-return perf-mark balance fix:
-  // the `total < spacingPx*0.5` curved branch was missing the two matching
-  // perfMarkEnd('…line.emit')/('…line.polyline') calls its sibling returns
-  // already make (lines ~867/889/906) — two irreducible balanced-mark lines.
-  // Bumped 1067→1068 for the GeoJSON label-show `continue` (~452) perf-mark
-  // balance fix: it was missing the matching perfMarkEnd('…label-dispatch.show')
-  // the loop-tail makes (~1022) — one irreducible balanced-mark line.
-  // Bumped 1068→1069 for the sprite-land render re-arm: IconStage onLanded =>
-  // host.markLabelDirty() (sprite atlas land must repaint an idle map — 1 line).
-  // Bumped 1069→1073 for the globe-label RTC focus fix: pass
-  // camera.getECEFCenter() into makeLabelProjectors so the ECEF label projector
-  // anchors against the same focus the globe RTC matrix subtracts (labels were
-  // projected from absolute ECEF → floated off / vanished under pitch).
-  // Bumped 1073→1087 for the one-way-arrow dedupe fix: extracted
-  // lineLabelDeduped (exported pure predicate + the '' → never-dedupe guard
-  // so text-less icon line layers stop collapsing to ~1 arrow per show).
-  // Bumped to 1137 (#424 pointLabelPairKey + #417 one-way-arrow icon-collision
-  // + #411 deep-zoom road-label screen-space subdivision) then 1137→1142 (mbx
-  // icon-translate: dispatchIcon adds def.iconTranslateX/Y × dpr alongside
-  // icon-offset, plus the def type fields + contract comment). Then 1142→1157
-  // for the #402-C rebake-sig pixel-quantization: the exported dispatchCenterKey
-  // helper (centre→px key, with the load-bearing rationale comment) + call site.
-  // Then 1157→1163 for #458 layer-order point-label dedup: the exported
-  // shouldEmitPointDedup predicate + the show-index loop counter (the dedup now
-  // lets a higher layer's duplicate win instead of first-emission-wins).
-  // Bumped 1163→1192 (Phase S Batch 3+4): icon-translate-anchor:map setBearing +
-  // anchor rotation (+17) plus icon collision policy — dispatchIcon doCollide
-  // from LabelDef.iconCollide/iconIgnorePlacement on top of the #417 rule (+12).
-  // Bumped 1192→1248 (#603/#609): cross-tile line-icon dedup (isLineIconDuplicate
-  // + _scratchEmittedLineIconKeys) + icon-obstacle wiring (computeObstacles →
-  // stage.prepare) + curved-path text-less icon gate + let hoisting for closure.
-  // Bumped 1248→1290 (#603/#609 v2 rework): the prior gate keyed on
-  // `featDef.text !== undefined`, but an icon-only symbol's text-field compiles
-  // to '""' (a DEFINED empty template) so the gate never armed for road_oneway
-  // arrows. Extracted the EXPORTED `lineIconIsIconOnly` predicate (resolve text,
-  // gate on empty) — re-used at both the straight + curved gate sites and unit-
-  // tested directly (the prior test inline-reimplemented the math and never hit
-  // the real gate) — plus the active-text-pairKeys obstacle wiring. The growth
-  // is the JSDoc'd extracted predicate + the load-bearing bug rationale at each
-  // call site, matching this file's documented-export convention.
-  // Bumped 1290→1341 (#605): route-number SHIELDS over-duplicated ~6× along a
-  // road at z19 (vs MapLibre ~1×) because the curved-walk cross-tile dedupe keyed
-  // on the road `name`, but a national route overlays many differently-named OSM
-  // segments — so the same "82" shield stamped once per distinct segment name.
-  // Extracted the EXPORTED `lineLabelDedupeKey` predicate (shield → resolved REF,
-  // the route-stable drawn text; plain label → name → name_en → resolved) + unit
-  // tests (fail-before pins the 4-distinct-name over-count). The growth is the
-  // JSDoc'd extracted predicate + its load-bearing rationale, matching this
-  // file's documented-export convention.
-  // Bumped 1341→1366 (#605 v2): the dispatch-side ref-key dedupe alone could not
-  // cap CROSS-TILE shield repeats (PMTiles slices one route into a per-tile
-  // polyline, so each tile re-emits the "82" shield → ~4-6 on screen at z19).
-  // Wired the SCREEN-SPACE same-line spacing collision (greedyPlaceBboxes
-  // minLineSpacingPx/lineId/anchorDistancePx, already implemented + unit-tested
-  // but never connected): derive a TILE-STABLE `lineId` (the route ref / road
-  // name, layer-qualified — NOT the tile) + pass it + the anchor's along-line
-  // screen offset into both addCurvedLineLabel call sites. The growth is the
-  // lineId derivation + its load-bearing rationale comment at the dispatch site.
-  'runtime/src/engine/render/passes/label-pass.ts': 1366,
-  // VTR Unit-1 extraction (Cluster E-selection). The hysteresis +
-  // readiness-gate logic was moved VERBATIM (plan §5 DO-NOT-SPLIT #2),
-  // and its hard-won fix-history comments carry the bulk of the LOC —
-  // just over the 800 cap. Baselined here; shrink as comments distil.
-  // Bumped 858→861 (globe pole-tile fix): sphere-family selection now reads the
-  // true centerLatDeg instead of the Mercator-saturated centerY so the selected
-  // tile set matches the rendered sphere past ±85.051° — a 3-line rationale
-  // comment (the ternary itself is net-zero over the prior single line).
-  'runtime/src/engine/render/tile-selection-cache.ts': 861,
-  // renderer.ts Unit-1 extraction (PipelineFactory) — the pipeline /
-  // bind-group-layout / atlas-stub construction + the three per-variant
-  // builders (createVariantPipelines + createVariantPipelinesAsync +
-  // buildVariantDescriptors, each a near-identical descriptor set) were
-  // moved VERBATIM (rasterization-critical, CI has no GPU; plan §2 Unit 1).
-  // Over the 800 cap because the verbatim descriptor sets + hard-won
-  // fix-history comments (OIT cull, iter-130/186/197 etc.) carry the LOC.
-  // Baselined here; shrink as the three builders converge (descriptor
-  // factory) + comments distil.
-  // Bumped 1193→1285 (Phase R heatmap): ensureHeatmapBlur + ensureHeatmapCompose
-  // lazy pipelines (modelled on ensureOverdrawCompose) + their bind-group-layout
-  // fields + the two emitter imports + the HEATMAP_DENSITY_FORMAT import.
-  'runtime/src/engine/render/pipeline-factory.ts': 1285,
-  // GpuTileStore — VTR Cluster-A extraction (the resident-tile memory core:
-  // gpuCache + the three GPUArenas + byte-aware eviction + OOM forced eviction
-  // + deferred compaction/AUTO-GROW). Over the 800 cap because the verbatim
-  // arena lifecycle + its hard-won fix-history comments (#218 OOM, #288/#289
-  // relocation→bundle-invalidation, #366 mid-render-destroy UAF, US-003 grow)
-  // carry the LOC. Baselined here; decomposition is a tracked priority.
-  // Bumped 870→903 for the at-ceiling eviction-futility short-circuit (a1):
-  // two per-arena latch fields + the short-circuit + the per-frame reset +
-  // the invariant comments (nothing frees mid-frame → re-scan is pure waste),
-  // killing the ARENA-OOM per-frame O(resident) re-scan lag at z22+pitch.
-  'runtime/src/engine/render/gpu-tile-store.ts': 903,
-  // Baselined at 805 (mbx_batch2): point-renderer.ts crossed the 800 cap from
-  // prior batch work (circle-translate / circle-blur). Not touched here;
-  // baselined to keep the ratchet honest. Decomposition is a tracked follow-up.
-  // Bumped 805→834 (WS-1 circle-stroke-opacity): the addLayer strokeOpacityShape
-  // param + the three PointLayer fields (shape / baseStrokeAlphaSlot8 /
-  // lastDynStrokeOpacityZoom) baked at construction + the per-frame resolve
-  // loop in updateDynamicSizes (separate from the size loop because a layer
-  // may author stroke-opacity without a size) + contract comments. Irreducible
-  // additive plumbing; decomposition stays a tracked follow-up.
-  // Bumped 834→868 (WS-1 circle-translate, part 5): the two addLayer
-  // circleTranslate{X,Y}Shape params + the five PointLayer fields (the two
-  // shapes / baseCircleTranslate{X,Y} / lastDynTranslateZoom) baked at
-  // construction + the per-frame resolve loop in updateDynamicSizes (separate
-  // from the size / stroke-opacity loops because a layer may author a
-  // translate shape without either) + contract comments. Same irreducible
-  // additive plumbing class; decomposition stays a tracked follow-up.
-  // Bumped 868→881 (WS-1 review fix): flushTilePoints (vector-tile circle
-  // path) now resolves circle-translate + circle-stroke-opacity shapes per
-  // frame, mirroring the GeoJSON updateDynamicSizes path.
-  // Bumped 881→888 (Phase S Batch 3 circle-pitch-scale): the
-  // circlePitchScaleMap param threaded through writePointFrameUniform (packed
-  // into circle_params.w) + addLayer + flushTilePoints + drawLayer, plus the
-  // PointLayer.circlePitchScaleMap field. Same irreducible additive plumbing
-  // class as the WS-1 circle-translate/stroke-opacity bumps above;
-  // decomposition stays a tracked follow-up.
-  // Bumped 888→946 (shader-dsl reflection Phase 3): the renderer now SOURCES its
-  // bind-group-layout entries + uniform field f32 slots from
-  // reflect(buildPointModule()) instead of a hand-coded entries[] literal + slot
-  // literals — a LAZY+memoized reflection accessor (pointReflection /
-  // pointUniformSlots / buildPointBglEntries) replaces the inline literals.
-  // Lazy because buildPointModule() gathers the injection-deferred projection
-  // funcs, which require configureProjections() first — so reflection is
-  // computed on first use, not at module load. This RETIRES the hand-maintained
-  // drift the file used to carry (viewport @20 vs @24); the growth is the
-  // one-time reflection-wiring header, not new feature surface. Decomposition
-  // stays a tracked follow-up.
-  // Bumped 946→980 (RHI backend seam, #581): the generic Material/RHI path (point
-  // pilot) threads vsCode/fsCode + an RhiDevice draw branch alongside the WebGPU
-  // pipeline so a point layer can render on either backend. Additive — the WebGPU
-  // path is byte-identical when the RHI seam is off; the +34 is backend-seam
-  // plumbing. Decomposition stays a tracked follow-up.
-  // Bumped 980→991 (#594): the GeoJSON point world-copy loop — enumerate the
-  // visible Mercator world-copies (flat-Merc only, gated via isWebMercator) +
-  // apply the per-copy wo*360° Mercator offset — so points render in every world
-  // repeat like labels/fills. Additive loop; decomposition stays a tracked follow-up.
-  // Bumped 991→1022 (#594-test): extracted pointWorldCopies + worldCopyMercX as
-  // exported pure helpers so the discriminating unit test can import real source.
-  // Bumped 1022→1033 (#600): the globe_eye slot in PointUniformSlots + the
-  // writePointFrameUniform globe_eye write + the globeEyeUniform import + comments.
-  // Bumped 1033→1040 (uniform-hardcode audit): exported lazy pointUniformBytes()
-  // so circle-pitch-scale-wiring sizes the point uniform from reflect() (= the
-  // SAME source the renderer uses) instead of a hardcoded 160. +7 = the helper +
-  // doc. Decomposition stays a tracked follow-up.
-  'runtime/src/engine/render/point-renderer.ts': 1040,
+  // label-pass.ts relocated to @xgis/map (map/src/render/passes/label-pass.ts) in P3 Phase 2
+  // Batch B10d (moved atomically with the map.ts 16-file render SCC) — no longer under a
+  // SRC_DIRS walk, so its LOC ceiling leaves this runtime ratchet (mirrors the
+  // vector-tile-renderer.ts / point-renderer.ts / gpu-tile-store.ts / camera.ts precedents
+  // above; package-level LOC ratchets for map/engine are a tracked post-Gate-6 follow-up).
+  // tile-selection-cache.ts relocated to @xgis/map (map/src/render/tile-selection-cache.ts)
+  // in P3 Phase 2 Batch B1 — no longer under a SRC_DIRS walk, so its LOC ceiling leaves this
+  // runtime ratchet (mirrors the camera.ts → @xgis/engine precedent above; package-level LOC
+  // ratchets for map/engine are a tracked post-Gate-6 follow-up).
+  // pipeline-factory.ts relocated to @xgis/map (map/src/render/pipeline-factory.ts) in P3 Phase 2
+  // Batch B5 (moved atomically with the renderer StyleProperties type-cycle SCC) — no longer under a
+  // SRC_DIRS walk, so its LOC ceiling leaves this runtime ratchet (mirrors the gpu-tile-store.ts /
+  // camera.ts precedents above; package-level LOC ratchets for map/engine are a tracked post-Gate-6
+  // follow-up).
+  // gpu-tile-store.ts relocated to @xgis/map (map/src/render/gpu-tile-store.ts)
+  // in P3 Phase 2 Batch B1b — no longer under a SRC_DIRS walk, so its LOC ceiling leaves this
+  // runtime ratchet (mirrors the tile-selection-cache.ts / camera.ts precedents above; package-level
+  // LOC ratchets for map/engine are a tracked post-Gate-6 follow-up).
+  // point-renderer.ts relocated to @xgis/map (map/src/render/point-renderer.ts) in P3 Phase 2
+  // Batch B6 — no longer under a SRC_DIRS walk, so its LOC ceiling leaves this runtime ratchet
+  // (mirrors the gpu-tile-store.ts / tile-selection-cache.ts / camera.ts precedents above;
+  // package-level LOC ratchets for map/engine are a tracked post-Gate-6 follow-up).
+  // vector-tile-renderer.ts relocated to @xgis/map (map/src/render/vector-tile-renderer.ts) in P3
+  // Phase 2 Batch B7 (the 3120-LOC VTR god-file) — no longer under a SRC_DIRS walk, so its LOC
+  // ceiling leaves this runtime ratchet (mirrors the point-renderer.ts / gpu-tile-store.ts /
+  // tile-selection-cache.ts / camera.ts precedents above; package-level LOC ratchets for map/engine
+  // are a tracked post-Gate-6 follow-up).
+  // text-stage.ts relocated to @xgis/map (map/src/text/text-stage.ts) in P3 Phase 2 Batch B9 (the
+  // TextStage label-pipeline orchestrator — resolve → layout → collision → raster → atlas — the final
+  // text-subsystem content leaf) — no longer under a SRC_DIRS walk, so its LOC ceiling leaves this
+  // runtime ratchet (mirrors the vector-tile-renderer.ts / point-renderer.ts / gpu-tile-store.ts /
+  // tile-selection-cache.ts / camera.ts precedents above; package-level LOC ratchets for map/engine
+  // are a tracked post-Gate-6 follow-up).
   // Baselined at 820 (mbx_batch2): lower-label.ts is the label-knob lowering
   // sub-pass extracted from lower.ts; crossed 800 here for the icon-translate
   // accumulators + parse arms + knobs-interface + merge wiring. Cohesive

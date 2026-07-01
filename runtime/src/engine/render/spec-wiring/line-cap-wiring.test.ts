@@ -35,7 +35,7 @@ import {
   LINE_CAP_ROUND,
   LINE_CAP_SQUARE,
   LINE_JOIN_BEVEL,
-} from '../line-renderer'
+} from '@xgis/map'
 
 let stub: StubInstallation
 

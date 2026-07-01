@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { SpriteAtlasHost } from './sprite-atlas-host'
+import { SpriteAtlasHost } from '@xgis/map'
 
 // Regression — the sprite atlas land had NO render-loop re-arm (audit ③): unlike
 // the glyph pipeline (onResourceLanded → markLabelDirty), a sprite atlas that

@@ -22,8 +22,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
 import { initGPU } from '@xgis/engine'
-import { VectorTileRenderer } from './vector-tile-renderer'
-import { UniformRing } from './uniform-ring'
+import { VectorTileRenderer } from '@xgis/map'
+import { UniformRing } from '@xgis/map'
 import { polygonUniformStride } from '@xgis/map'
 
 let stub: StubInstallation

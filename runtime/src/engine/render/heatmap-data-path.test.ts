@@ -21,7 +21,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
 import { initGPU, type GPUContext } from '@xgis/engine'
-import { HeatmapRenderer } from './heatmap-renderer'
+import { HeatmapRenderer } from '@xgis/map'
 import { WebGpuDevice } from '@xgis/engine'
 import { Camera } from '@xgis/engine'
 

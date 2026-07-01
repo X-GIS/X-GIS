@@ -20,7 +20,7 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import { convertMapboxStyle } from '@xgis/compiler'
-import { extractConversionNotes, logConversionNotes, XGISMap } from './map'
+import { extractConversionNotes, logConversionNotes, XGISMap } from '@xgis/map'
 
 function mockCanvas(): HTMLCanvasElement {
   return { width: 1200, height: 800 } as unknown as HTMLCanvasElement

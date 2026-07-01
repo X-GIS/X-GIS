@@ -31,10 +31,10 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
-import { IconRenderer, type IconDraw, type IconAnchor } from './icon-renderer'
+import { IconRenderer, type IconDraw, type IconAnchor } from '@xgis/map'
 import { WebGpuDevice } from '@xgis/engine'
-import type { SpriteAtlasGPU } from './sprite-atlas-gpu'
-import type { SpriteInfo } from './sprite-atlas-host'
+import type { SpriteAtlasGPU } from '@xgis/map'
+import type { SpriteInfo } from '@xgis/map'
 
 let stub: StubInstallation
 

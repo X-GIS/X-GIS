@@ -14,7 +14,7 @@
 //      giving a smaller totalWidth → wrong lineCount/targetWidth.
 
 import { describe, it, expect } from 'vitest'
-import { wrapForTesting } from './text-stage'
+import { wrapForTesting } from '@xgis/map'
 
 const A = 0x41          // Latin 'A' — not breakable, not ideographic
 const SP = 0x20         // space — whitespace + breakable

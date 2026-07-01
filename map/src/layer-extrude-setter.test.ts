@@ -1,0 +1,154 @@
+// Pin: XGISLayerStyle.extrude getter / setter behave consistently with
+// the sibling opacity / fill / strokeWidth / visible setters. Added in
+// 55ae0cd; ensures a future refactor of the setter contract doesn't
+// silently regress the new API surface.
+
+import { describe, it, expect, vi } from 'vitest'
+import { XGISLayer } from './layer'
+import type { ShowCommand } from '@xgis/map'
+
+function makeShow(extrude: ShowCommand['extrude'] = { kind: 'none' }): ShowCommand {
+  // Minimal ShowCommand stub — only fields the extrude getter / setter
+  // touches need to be real; everything else can be filler. Mirrors
+  // the rest of the layer.ts setter contracts (StyleHost reads `show`
+  // and calls `invalidate`).
+  return {
+    targetName: 'src',
+    fill: null,
+    stroke: null,
+    strokeWidth: 1,
+    projection: 'mercator',
+    visible: true,
+    pointerEvents: 'auto',
+    opacity: 1,
+    size: null,
+    shaderVariant: null,
+    filterExpr: null,
+    geometryExpr: null,
+    sizeUnit: null,
+    sizeExpr: null,
+    billboard: false,
+    shape: null,
+    extrude,
+    extrudeBase: { kind: 'none' },
+    paintShapes: {
+      fill: { fill: { kind: 'constant', value: [0, 0, 0, 1] as never } },
+      line: {
+        stroke: { kind: 'constant', value: [0, 0, 0, 1] as never },
+        strokeWidth: { kind: 'constant', value: 1 },
+      },
+      circle: { size: { kind: 'constant', value: 0 } },
+      common: { opacity: { kind: 'constant', value: 1 } },
+    },
+  } as unknown as ShowCommand
+}
+
+describe('XGISLayer.extrude getter / setter', () => {
+  it('reads null when the compiled extrude is `kind: none`', () => {
+    const show = makeShow({ kind: 'none' })
+    const layer = new XGISLayer('test', show, () => {})
+    expect(layer.style.extrude).toBeNull()
+  })
+
+  it('reads the numeric value when the compiled extrude is `kind: constant`', () => {
+    const show = makeShow({ kind: 'constant', value: 42 })
+    const layer = new XGISLayer('test', show, () => {})
+    expect(layer.style.extrude).toBe(42)
+  })
+
+  it('reads null when the compiled extrude is `kind: feature` (per-feature)', () => {
+    // The public getter intentionally returns null for per-feature
+    // dispatch — there is no single uniform value to report. The
+    // per-feature AST stays untouched on show.extrude.
+    const show = makeShow({
+      kind: 'feature',
+      expr: { ast: {} as never },
+      fallback: 30,
+    } as never)
+    const layer = new XGISLayer('test', show, () => {})
+    expect(layer.style.extrude).toBeNull()
+  })
+
+  it('setting a number replaces the extrude with `kind: constant`', () => {
+    const invalidate = vi.fn()
+    const show = makeShow({ kind: 'none' })
+    const layer = new XGISLayer('test', show, invalidate)
+    layer.style.extrude = 50
+    expect(show.extrude).toEqual({ kind: 'constant', value: 50 })
+    expect(invalidate).toHaveBeenCalledTimes(1)
+  })
+
+  it('setting null flattens the layer (`kind: none`)', () => {
+    const invalidate = vi.fn()
+    const show = makeShow({ kind: 'constant', value: 50 })
+    const layer = new XGISLayer('test', show, invalidate)
+    layer.style.extrude = null
+    expect(show.extrude).toEqual({ kind: 'none' })
+    expect(invalidate).toHaveBeenCalledTimes(1)
+  })
+
+  it('reset() restores the compiled default', () => {
+    const show = makeShow({ kind: 'constant', value: 100 })
+    const layer = new XGISLayer('test', show, () => {})
+    layer.style.extrude = 25
+    expect(show.extrude).toEqual({ kind: 'constant', value: 25 })
+    layer.style.reset('extrude')
+    expect(show.extrude).toEqual({ kind: 'constant', value: 100 })
+  })
+
+  it('extrude / extrudeBase getter returns null without crashing when the field is absent', () => {
+    // ShowCommand declares extrude/extrudeBase as OPTIONAL
+    // (renderer.ts:811-820), so a ShowCommand constructed without
+    // either field is type-legal. Pre-fix the getter did
+    // `e.kind === 'constant'` and crashed with
+    // "Cannot read properties of undefined" the moment a caller
+    // passed in a stripped ShowCommand. The `e?.kind` guard makes
+    // the getter return null for the missing-field case, mirroring
+    // the `kind: 'none'` semantics.
+    const show = makeShow()
+    delete (show as { extrude?: unknown }).extrude
+    delete (show as { extrudeBase?: unknown }).extrudeBase
+    const layer = new XGISLayer('test', show, () => {})
+    expect(layer.style.extrude).toBeNull()
+    expect(layer.style.extrudeBase).toBeNull()
+  })
+})
+
+describe('XGISLayer.extrudeBase getter / setter', () => {
+  // Mirrors the extrude pin — fewer cases since both share the
+  // implementation pattern. Pins 6fd47d1.
+
+  it('reads null when extrudeBase is `kind: none`', () => {
+    const show = makeShow()
+    show.extrudeBase = { kind: 'none' }
+    const layer = new XGISLayer('test', show, () => {})
+    expect(layer.style.extrudeBase).toBeNull()
+  })
+
+  it('reads the numeric value when extrudeBase is `kind: constant`', () => {
+    const show = makeShow()
+    show.extrudeBase = { kind: 'constant', value: 5 }
+    const layer = new XGISLayer('test', show, () => {})
+    expect(layer.style.extrudeBase).toBe(5)
+  })
+
+  it('setting a number replaces the base with kind: constant + invalidate fires', () => {
+    const invalidate = vi.fn()
+    const show = makeShow()
+    show.extrudeBase = { kind: 'none' }
+    const layer = new XGISLayer('test', show, invalidate)
+    layer.style.extrudeBase = 8
+    expect(show.extrudeBase).toEqual({ kind: 'constant', value: 8 })
+    expect(invalidate).toHaveBeenCalledTimes(1)
+  })
+
+  it('setting null flattens the base (kind: none)', () => {
+    const invalidate = vi.fn()
+    const show = makeShow()
+    show.extrudeBase = { kind: 'constant', value: 12 }
+    const layer = new XGISLayer('test', show, invalidate)
+    layer.style.extrudeBase = null
+    expect(show.extrudeBase).toEqual({ kind: 'none' })
+    expect(invalidate).toHaveBeenCalledTimes(1)
+  })
+})

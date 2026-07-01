@@ -14,7 +14,7 @@
 // first LF onwards before shaping.
 
 import { describe, it, expect } from 'vitest'
-import { stripCurveLineExtraScripts } from './text-stage-helpers'
+import { stripCurveLineExtraScripts } from '@xgis/map'
 
 describe('stripCurveLineExtraScripts', () => {
   it('strips text from the first LF onwards', () => {

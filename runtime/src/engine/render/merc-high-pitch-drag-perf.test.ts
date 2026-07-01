@@ -40,11 +40,11 @@
 //     each frame to simulate pan.
 
 import { describe, it, expect } from 'vitest'
-import { TextStage } from '../text/text-stage'
-import { MockRasterizer } from '../text/sdf/glyph-rasterizer'
+import { TextStage } from '@xgis/map'
+import { MockRasterizer } from '@xgis/map'
 import { WebGpuDevice } from '@xgis/engine'
 import type { LabelDef, TextValue } from '@xgis/compiler'
-import type { TextDraw } from '../text/text-renderer'
+import type { TextDraw } from '@xgis/map'
 
 // WebGPU bitflag globals the GPU classes reference at construction —
 // not present in the node test env. Values per the WebGPU spec.

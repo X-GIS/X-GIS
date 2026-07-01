@@ -6,7 +6,7 @@
 // colours as opaque black.
 
 import { describe, it, expect } from 'vitest'
-import { hexToRgba, parseHexColor } from './feature-helpers'
+import { hexToRgba, parseHexColor } from '@xgis/map'
 
 describe('hexToRgba validity contract', () => {
   it('returns null for null / undefined / empty input', () => {

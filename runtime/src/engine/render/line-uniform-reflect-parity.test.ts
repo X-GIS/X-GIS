@@ -19,7 +19,7 @@ import { buildLineModule } from '@xgis/map'
 import { uniformFieldSlots } from '@xgis/engine'
 import { lineLayerUniformBytes, lineLayerUniformStride } from '@xgis/map'
 import { polygonUniformBytes } from '@xgis/map'
-import { LineRenderer, packLineLayerUniform } from './line-renderer'
+import { LineRenderer, packLineLayerUniform } from '@xgis/map'
 import { WebGpuDevice } from '@xgis/engine'
 import type { GPUContext } from '@xgis/engine'
 

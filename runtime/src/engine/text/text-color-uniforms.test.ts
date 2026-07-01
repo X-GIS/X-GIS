@@ -27,7 +27,7 @@
 // green — proving this test is the one guarding the text-color wire.
 
 import { describe, it, expect } from 'vitest'
-import { packUniformsForTesting, type TextDraw } from './text-renderer'
+import { packUniformsForTesting, type TextDraw } from '@xgis/map'
 
 // Layout (text-renderer.ts packUniforms, 64-byte uniform): the fill_color
 // vec4 — the text-color consumer — lives at f32 slots 4..7.
