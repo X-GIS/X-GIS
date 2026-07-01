@@ -10,7 +10,7 @@ import { MockRasterizer, FONT_KEY_SENTINEL } from '@xgis/map'
 import { GlyphPbfCache } from './pbf/glyph-pbf-cache'
 import { InlineGlyphProvider } from './pbf/inline-glyph-provider'
 import { PbfRasterizer } from './pbf-rasterizer'
-import type { GlyphProvider } from './pbf/glyph-provider'
+import type { GlyphProvider } from '@xgis/map'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const FIXTURE = join(HERE, 'pbf', '__fixtures__', 'open-sans-semibold-0-255.pbf')

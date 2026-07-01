@@ -7,7 +7,7 @@
 // from map.ts to preserve the existing import paths.
 
 import type { TextStageOptions } from './text/text-stage'
-import type { GlyphProvider } from './text/sdf/pbf/glyph-provider'
+import type { GlyphProvider } from '@xgis/map'
 
 export interface VariantPipelines {
   fillPipeline: GPURenderPipeline

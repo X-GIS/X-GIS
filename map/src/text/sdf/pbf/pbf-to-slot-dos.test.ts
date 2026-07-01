@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { pbfGlyphToSlot } from './pbf-to-slot'
-import type { PbfGlyph } from '@xgis/map'
+import type { PbfGlyph } from './glyphs-proto'
 
 // DoS regression for the slot copier. g.width / g.height are untrusted
 // uint32 varints from a network glyph PBF. The original inner loop ran

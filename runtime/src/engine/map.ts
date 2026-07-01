@@ -53,7 +53,7 @@ import { PanZoomController, type Controller } from './controller'
 import { DirtyTracker, DirtyDomain, DIRTY_ALL } from '@xgis/map'
 import { VectorTileRenderer } from './render/vector-tile-renderer'
 import { TextStage, type TextStageOptions } from './text/text-stage'
-import type { GlyphProvider } from './text/sdf/pbf/glyph-provider'
+import type { GlyphProvider } from '@xgis/map'
 import { IconStage } from './sprite/icon-stage'
 import {
   LayerIdRegistry, XGISLayer,

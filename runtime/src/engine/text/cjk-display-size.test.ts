@@ -10,7 +10,7 @@ import {
   type GlyphRasterizer, type GlyphRasterRequest, type GlyphRasterResult,
 } from '@xgis/map'
 import { PbfRasterizer } from './sdf/pbf-rasterizer'
-import type { GlyphProvider } from './sdf/pbf/glyph-provider'
+import type { GlyphProvider } from '@xgis/map'
 
 describe('cjkBucketPx ladder', () => {
   it('picks the smallest bucket >= display size (always minify, never magnify)', () => {

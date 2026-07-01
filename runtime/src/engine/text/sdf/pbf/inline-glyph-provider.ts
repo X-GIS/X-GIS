@@ -16,7 +16,7 @@
 // falls through to the HTTP provider's lazy fetch path.
 
 import { decodeGlyphsPbf, type PbfGlyph } from '@xgis/map'
-import type { GlyphProvider } from './glyph-provider'
+import type { GlyphProvider } from '@xgis/map'
 
 export interface InlineGlyphSeed {
   /** Either pre-decoded glyph map, or raw PBF bytes that will be

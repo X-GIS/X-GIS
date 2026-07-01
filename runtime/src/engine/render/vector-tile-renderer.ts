@@ -34,7 +34,7 @@ import {
   classifyTile, computeProtectedKeys, computeZoomDirectionPrefetchKeys,
   type TileDecision,
 } from '@xgis/map'
-import { PrefetchScheduler } from './prefetch-scheduler'
+import { PrefetchScheduler } from '@xgis/map'
 import { LabelFeatureSource } from '@xgis/map'
 import { FrameDrawStats } from '@xgis/engine'
 import { TileSelectionCache } from '@xgis/map'
@@ -47,7 +47,7 @@ import { StagingBufferPool } from '@xgis/engine'
 import { BundleCache, type BundleEncodeDescriptor } from '@xgis/engine'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { WORLD_MERC, TILE_PX } from '@xgis/engine'
-import { UploadCoordinator } from './upload-coordinator'
+import { UploadCoordinator } from '@xgis/map'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog } from '@xgis/data'
 import type { TileData } from '@xgis/data'

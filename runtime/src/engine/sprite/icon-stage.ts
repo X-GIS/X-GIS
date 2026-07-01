@@ -7,7 +7,7 @@
 //   3. render(pass, viewport)                          — encodes draw
 
 import { SpriteAtlasHost, type SpriteInfo } from '@xgis/map'
-import { SpriteAtlasGPU } from './sprite-atlas-gpu'
+import { SpriteAtlasGPU } from '@xgis/map'
 import { IconRenderer, type IconDraw, type IconAnchor } from './icon-renderer'
 import type { RhiDevice } from '@xgis/engine'
 

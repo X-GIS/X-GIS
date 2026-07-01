@@ -6,7 +6,7 @@
 import type { LabelDef } from '@xgis/compiler'
 import type { GlyphRasterizer } from '@xgis/map'
 import type { InlineGlyphSource } from './sdf/pbf/inline-glyph-provider'
-import type { GlyphProvider } from './sdf/pbf/glyph-provider'
+import type { GlyphProvider } from '@xgis/map'
 
 export interface WrappedLineRange { start: number; end: number; width: number }
 

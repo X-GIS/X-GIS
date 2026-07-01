@@ -13,10 +13,10 @@
 // PASSED IN; the offsets are NOT re-derived or changed.
 
 import type { GPUContext } from '@xgis/engine'
-import { generateGraticule } from '@xgis/map'
-import type { UniformRing } from '@xgis/map'
-import { polygonUniformBytes, polygonUniformSlots } from '@xgis/map'
-import { writeFrameProjectionUniform } from '@xgis/map'
+import { generateGraticule } from '../graticule'
+import type { UniformRing } from './uniform-ring'
+import { polygonUniformBytes, polygonUniformSlots } from './polygon-uniform-slots'
+import { writeFrameProjectionUniform } from './frame-projection-uniform'
 
 /** Per-frame data the graticule draw needs from the coordinator. The
  *  graticule reuses the SAME 240-byte uniform struct offsets as the layer

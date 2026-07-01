@@ -16,7 +16,7 @@
 // Custom backends (S3, IPFS, on-device cache) plug in by implementing
 // this interface — no PbfRasterizer changes needed.
 
-import type { PbfGlyph } from '@xgis/map'
+import type { PbfGlyph } from './glyphs-proto'
 
 export interface GlyphProvider {
   /** Cheap sync probe. Return the glyph iff it's ready in this

@@ -20,7 +20,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { tileKey, tileKeyChildren } from '@xgis/compiler'
 import { Camera } from '@xgis/engine'
 import { VectorTileRenderer } from './vector-tile-renderer'
-import { PrefetchScheduler } from './prefetch-scheduler'
+import { PrefetchScheduler } from '@xgis/map'
 import { TileSelectionCache, type FrameTileCache } from '@xgis/map'
 
 // Build a minimal "catalog" that records prefetchTiles calls. Only

@@ -87,3 +87,15 @@ export * from './_cache/versioned-state'
 export * from './_cache/bundle-cache-key'
 export * from './_cache/structural-key'
 export * from './state/dirty'
+// P3 Phase-2 Batch B2 — render/sprite/text content leaves unlocked by B1 (each depended only on a
+// now-migrated B1 leaf): graticule overlay renderer, speculative tile prefetch scheduler, per-tile
+// compute-pass resources, GPU tile-upload coordinator, sprite-atlas GPU texture binder, PBF glyph
+// provider interface + PBF→slot bridge — deep-imported cross-package by still-in-runtime renderer.ts /
+// VTR / compute-layer-handle / icon pipeline / pbf-rasterizer (pruned to the public API in Step 8).
+export * from './render/graticule-renderer'
+export * from './render/prefetch-scheduler'
+export * from './render/tile-compute-resources'
+export * from './render/upload-coordinator'
+export * from './sprite/sprite-atlas-gpu'
+export * from './text/sdf/pbf/glyph-provider'
+export * from './text/sdf/pbf/pbf-to-slot'
