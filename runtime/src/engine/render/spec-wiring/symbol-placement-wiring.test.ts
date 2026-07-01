@@ -32,7 +32,7 @@
 
 import { describe, it, expect } from 'vitest'
 import type { LabelDef } from '@xgis/compiler'
-import { resolveLabelEffectiveDef } from '../../render-loop-helpers'
+import { resolveLabelEffectiveDef } from '@xgis/map'
 
 const BEARING = 30
 const Z = 14

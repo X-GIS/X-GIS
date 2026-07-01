@@ -508,60 +508,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // in P3 Phase 2 Batch B1b — no longer under a SRC_DIRS walk, so its LOC ceiling leaves this
   // runtime ratchet (mirrors the tile-selection-cache.ts / camera.ts precedents above; package-level
   // LOC ratchets for map/engine are a tracked post-Gate-6 follow-up).
-  // Baselined at 805 (mbx_batch2): point-renderer.ts crossed the 800 cap from
-  // prior batch work (circle-translate / circle-blur). Not touched here;
-  // baselined to keep the ratchet honest. Decomposition is a tracked follow-up.
-  // Bumped 805→834 (WS-1 circle-stroke-opacity): the addLayer strokeOpacityShape
-  // param + the three PointLayer fields (shape / baseStrokeAlphaSlot8 /
-  // lastDynStrokeOpacityZoom) baked at construction + the per-frame resolve
-  // loop in updateDynamicSizes (separate from the size loop because a layer
-  // may author stroke-opacity without a size) + contract comments. Irreducible
-  // additive plumbing; decomposition stays a tracked follow-up.
-  // Bumped 834→868 (WS-1 circle-translate, part 5): the two addLayer
-  // circleTranslate{X,Y}Shape params + the five PointLayer fields (the two
-  // shapes / baseCircleTranslate{X,Y} / lastDynTranslateZoom) baked at
-  // construction + the per-frame resolve loop in updateDynamicSizes (separate
-  // from the size / stroke-opacity loops because a layer may author a
-  // translate shape without either) + contract comments. Same irreducible
-  // additive plumbing class; decomposition stays a tracked follow-up.
-  // Bumped 868→881 (WS-1 review fix): flushTilePoints (vector-tile circle
-  // path) now resolves circle-translate + circle-stroke-opacity shapes per
-  // frame, mirroring the GeoJSON updateDynamicSizes path.
-  // Bumped 881→888 (Phase S Batch 3 circle-pitch-scale): the
-  // circlePitchScaleMap param threaded through writePointFrameUniform (packed
-  // into circle_params.w) + addLayer + flushTilePoints + drawLayer, plus the
-  // PointLayer.circlePitchScaleMap field. Same irreducible additive plumbing
-  // class as the WS-1 circle-translate/stroke-opacity bumps above;
-  // decomposition stays a tracked follow-up.
-  // Bumped 888→946 (shader-dsl reflection Phase 3): the renderer now SOURCES its
-  // bind-group-layout entries + uniform field f32 slots from
-  // reflect(buildPointModule()) instead of a hand-coded entries[] literal + slot
-  // literals — a LAZY+memoized reflection accessor (pointReflection /
-  // pointUniformSlots / buildPointBglEntries) replaces the inline literals.
-  // Lazy because buildPointModule() gathers the injection-deferred projection
-  // funcs, which require configureProjections() first — so reflection is
-  // computed on first use, not at module load. This RETIRES the hand-maintained
-  // drift the file used to carry (viewport @20 vs @24); the growth is the
-  // one-time reflection-wiring header, not new feature surface. Decomposition
-  // stays a tracked follow-up.
-  // Bumped 946→980 (RHI backend seam, #581): the generic Material/RHI path (point
-  // pilot) threads vsCode/fsCode + an RhiDevice draw branch alongside the WebGPU
-  // pipeline so a point layer can render on either backend. Additive — the WebGPU
-  // path is byte-identical when the RHI seam is off; the +34 is backend-seam
-  // plumbing. Decomposition stays a tracked follow-up.
-  // Bumped 980→991 (#594): the GeoJSON point world-copy loop — enumerate the
-  // visible Mercator world-copies (flat-Merc only, gated via isWebMercator) +
-  // apply the per-copy wo*360° Mercator offset — so points render in every world
-  // repeat like labels/fills. Additive loop; decomposition stays a tracked follow-up.
-  // Bumped 991→1022 (#594-test): extracted pointWorldCopies + worldCopyMercX as
-  // exported pure helpers so the discriminating unit test can import real source.
-  // Bumped 1022→1033 (#600): the globe_eye slot in PointUniformSlots + the
-  // writePointFrameUniform globe_eye write + the globeEyeUniform import + comments.
-  // Bumped 1033→1040 (uniform-hardcode audit): exported lazy pointUniformBytes()
-  // so circle-pitch-scale-wiring sizes the point uniform from reflect() (= the
-  // SAME source the renderer uses) instead of a hardcoded 160. +7 = the helper +
-  // doc. Decomposition stays a tracked follow-up.
-  'runtime/src/engine/render/point-renderer.ts': 1040,
+  // point-renderer.ts relocated to @xgis/map (map/src/render/point-renderer.ts) in P3 Phase 2
+  // Batch B6 — no longer under a SRC_DIRS walk, so its LOC ceiling leaves this runtime ratchet
+  // (mirrors the gpu-tile-store.ts / tile-selection-cache.ts / camera.ts precedents above;
+  // package-level LOC ratchets for map/engine are a tracked post-Gate-6 follow-up).
   // Baselined at 820 (mbx_batch2): lower-label.ts is the label-knob lowering
   // sub-pass extracted from lower.ts; crossed 800 here for the icon-translate
   // accumulators + parse arms + knobs-interface + merge wiring. Cohesive

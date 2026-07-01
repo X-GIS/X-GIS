@@ -15,7 +15,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { Camera } from '@xgis/engine'
-import { pointWorldCopies, worldCopyMercX } from './point-renderer'
+import { pointWorldCopies, worldCopyMercX } from '@xgis/map'
 
 const DEG2RAD = Math.PI / 180
 const R_MERC  = 6378137

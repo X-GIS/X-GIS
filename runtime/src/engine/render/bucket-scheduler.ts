@@ -25,13 +25,13 @@
 import type { LayerDrawPhase, VectorTileRenderer } from './vector-tile-renderer'
 import type { ShowCommand } from '@xgis/map'
 import { resolveNumberShape } from '@xgis/map'
-import { resolveShow, type ResolvedShow } from './resolved-show'
+import { resolveShow, type ResolvedShow } from '@xgis/map'
 import { SAFE_MODE } from '@xgis/engine'
 import { DEBUG_OVERDRAW } from '@xgis/map'
 import type { RenderTraceRecorder, RGBA } from '@xgis/map'
 import type { FrameContext } from '@xgis/engine'
 import { unwrapProjection } from '@xgis/engine'
-import type { PointRenderer } from './point-renderer'
+import type { PointRenderer } from '@xgis/map'
 
 // ── Output: post-classification show with all animation resolved ──
 

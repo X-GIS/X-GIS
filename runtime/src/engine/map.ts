@@ -9,7 +9,7 @@ import { SyntheticEarthSurfaceBackend } from '@xgis/data'
 import { PROJECTION_NAME_TO_TYPE, PROJECTIONS } from '@xgis/engine'
 import { configureProjections } from '@xgis/map'
 import { worldBandForProjType } from '@xgis/engine'
-import { projectLonLatToScreenCss } from './render-loop-helpers'
+import { projectLonLatToScreenCss } from '@xgis/map'
 import {
   SYNTHETIC_EARTH_SURFACE_SOURCE,
   buildSyntheticEarthSurfaceShow,
@@ -21,14 +21,14 @@ import {
   detachGeoJSONPolarCaps,
   type PolarCapInstallHost,
 } from './geojson-polar-cap-show'
-import { invalidateResolvedShowCache } from './render/resolved-show'
+import { invalidateResolvedShowCache } from '@xgis/map'
 import { getSharedGeoJSONCompilePool } from '@xgis/data'
 import { initGPU, GPU_PROF, getMaxDpr, effectiveDpr, WebGPUUnavailableError, type GPUContext } from '@xgis/engine'
 import { QUALITY, updateQuality, type QualityConfig } from '@xgis/engine'
 import { GPUTimer } from '@xgis/engine'
 import { Camera } from '@xgis/engine'
 import { CameraController } from './camera-controller'
-import { ViewportModeController } from './render/viewport-mode-controller'
+import { ViewportModeController } from '@xgis/map'
 import { SourceManager } from './source-manager'
 import { InteractionController } from './interaction-controller'
 import { MapRendererContent, type ShowCommand } from '@xgis/map'
@@ -45,7 +45,7 @@ import {
 import { interpret, type SceneCommands } from './interpreter'
 import { lonLatToMercator, type GeoJSONFeatureCollection } from '@xgis/data'
 import { RasterRenderer } from '@xgis/map'
-import { PointRenderer } from './render/point-renderer'
+import { PointRenderer } from '@xgis/map'
 import { HeatmapRenderer } from '@xgis/map'
 import { ShapeRegistry } from '@xgis/map'
 import { LineRenderer } from '@xgis/map'

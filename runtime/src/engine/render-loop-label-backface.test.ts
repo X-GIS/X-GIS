@@ -10,7 +10,7 @@
 // can't run in CI).
 import { describe, it, expect } from 'vitest'
 import { buildGlobeMatrix } from '@xgis/engine'
-import { makeLabelProjectors } from './render-loop-helpers'
+import { makeLabelProjectors } from '@xgis/map'
 
 describe('makeLabelProjectors — globe/ECEF back-face label cull', () => {
   const W = 800, H = 600

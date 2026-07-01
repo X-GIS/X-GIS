@@ -31,7 +31,7 @@
 
 import { describe, it, expect } from 'vitest'
 import type { LabelDef } from '@xgis/compiler'
-import { resolveLabelEffectiveDef } from '../../render-loop-helpers'
+import { resolveLabelEffectiveDef } from '@xgis/map'
 
 // Minimal point LabelDef. Only `text` + `size` are required; `placement`
 // defaults to point (undefined), which is the case where rotation-alignment

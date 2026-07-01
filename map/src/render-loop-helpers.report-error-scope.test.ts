@@ -7,13 +7,17 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// Mock the logger so we can assert on error() calls without console noise.
-vi.mock('@xgis/shared', () => ({
-  xlog: { error: vi.fn(), warn: vi.fn(), log: vi.fn() },
-}))
-
 import { reportErrorScope } from './render-loop-helpers'
 import { xlog } from '@xgis/shared'
+
+// Spy on the shared xlog singleton's error() to assert calls without console
+// noise. A module-replacement vi.mock('@xgis/shared') binds too late here:
+// render-loop-helpers is eagerly loaded by the global projection setup (which
+// imports configureProjections from the @xgis/map barrel that now re-exports this
+// file), so it captures the REAL xlog before any mock takes effect. xlog is a
+// shared singleton object, so spying on its method intercepts render-loop-helpers'
+// calls regardless of module load order.
+vi.spyOn(xlog, 'error').mockImplementation(() => {})
 
 // reportErrorScope is fire-and-forget — flush the microtask queue so the
 // .then/.catch handlers run before we assert.

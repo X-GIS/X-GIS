@@ -27,7 +27,7 @@ let _uSlots: Readonly<Record<string, number>> | null = null
 const US = new Proxy({} as Record<string, number>, {
   get: (_t, k: string) => (_uSlots ??= polygonUniformSlots().slot)[k],
 })
-import type { ResolvedShow } from './resolved-show'
+import type { ResolvedShow } from '@xgis/map'
 import { structuralHashKey } from '@xgis/map'
 import type { BundleKeyState } from '@xgis/map'
 import {
@@ -54,7 +54,7 @@ import type { TileData } from '@xgis/data'
 import { computeSliceKey } from '@xgis/data'
 import { mercator as mercatorProj, getProjection, type Projection } from '@xgis/engine'
 import { SELECTOR_PROJ_NAMES } from '@xgis/engine'
-import type { PointRenderer } from './point-renderer'
+import type { PointRenderer } from '@xgis/map'
 import type { LineRenderer } from '@xgis/map'
 import { parseHexColor } from '@xgis/map'
 import type { GPUTile, LayerDrawPhase } from '@xgis/map'

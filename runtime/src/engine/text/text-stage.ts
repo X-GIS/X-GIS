@@ -23,7 +23,7 @@ import { resolveText, type FeatureProps } from '@xgis/map'
 import {
   GlyphAtlasHost, type GlyphAtlasHostOptions,
 } from '@xgis/map'
-import { GlyphAtlasGPU } from './sdf/glyph-atlas-gpu'
+import { GlyphAtlasGPU } from '@xgis/map'
 import { createRasterizer, createMetricsRasterizer, type GlyphRasterizer } from '@xgis/map'
 import { GlyphPbfCache } from '@xgis/map'
 import { bumpAlloc } from '@xgis/map'

@@ -141,3 +141,17 @@ export {
   layoutCacheEntryValid, mlVerticalLayout, composeFontKey, verticalLayoutForTesting,
   ONE_EM, SHAPING_DEFAULT_OFFSET, CJK_FALLBACK_CHAIN, type LabelAnchor,
 } from './text/text-stage-helpers'
+// P3 Phase-2 Batch B6 — render-loop label/projection helpers, the point-renderer (its
+// reflect(buildPointModule()) stays LAZY+memoized = the #612 map-load-crash guard), resolved-show
+// paint cache, viewport-mode-controller, glyph-atlas GPU binder, text-renderer TextDraw types —
+// deep-imported cross-package by still-in-runtime map.ts / render-loop / VTR / bucket-scheduler /
+// passes / text-stage / text-renderer + their wiring tests (pruned to the public API in Step 8).
+// point-renderer uses a SELECTIVE export: it re-exports worldCopyMercX, which the barrel already
+// star-exports via './render/point-feature-packer' (L40) — a blanket `export *` would be an
+// ambiguous duplicate, so export only point-renderer's OWN symbols.
+export * from './render-loop-helpers'
+export { PointRenderer, pointUniformBytes, pointWorldCopies } from './render/point-renderer'
+export * from './render/resolved-show'
+export * from './render/viewport-mode-controller'
+export * from './text/sdf/glyph-atlas-gpu'
+export * from './text/text-renderer-types'

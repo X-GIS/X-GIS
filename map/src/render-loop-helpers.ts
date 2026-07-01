@@ -5,12 +5,12 @@
 // behaviour stays byte-identical. Mirrors map-geo-helpers.ts in spirit.
 
 import type { LabelDef } from '@xgis/compiler'
-import { resolveNumberShape, resolveColorShape, resolveSteppedShape } from '@xgis/map'
-import { hexToRgba } from '@xgis/map'
+import { resolveNumberShape, resolveColorShape, resolveSteppedShape } from './render/paint-shape-resolve'
+import { hexToRgba } from './feature-helpers'
 import { lonLatToECEF } from '@xgis/engine'
 import { EARTH_R } from '@xgis/engine'
 import { mercatorYToLat } from '@xgis/engine'
-import { projectCpu, projectGeomCpu, needsBackfaceCullCpu, projMercatorCpu } from '@xgis/map'
+import { projectCpu, projectGeomCpu, needsBackfaceCullCpu, projMercatorCpu } from './shaders/dsl/cpu-projections'
 import { isGlobeProj } from '@xgis/engine'
 import type { Camera } from '@xgis/engine'
 import { WORLD_MERC } from '@xgis/engine'

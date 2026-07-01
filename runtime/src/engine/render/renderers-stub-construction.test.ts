@@ -15,7 +15,7 @@ import { MapRendererContent } from '@xgis/map'
 import { VectorTileRenderer } from './vector-tile-renderer'
 import { LineRenderer } from '@xgis/map'
 import { RasterRenderer } from '@xgis/map'
-import { PointRenderer } from './point-renderer'
+import { PointRenderer } from '@xgis/map'
 import { WebGpuDevice } from '@xgis/engine'
 
 let stub: StubInstallation

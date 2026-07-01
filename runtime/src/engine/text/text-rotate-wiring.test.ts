@@ -34,7 +34,7 @@ import { installWebGPUStub, type StubInstallation } from '../../__test-support__
 import { initGPU, type GPUContext } from '@xgis/engine'
 import { TextRenderer } from './text-renderer'
 import { WebGpuDevice } from '@xgis/engine'
-import type { TextDraw } from './text-renderer-types'
+import type { TextDraw } from '@xgis/map'
 import type { GlyphInfo } from '@xgis/map'
 
 let stub: StubInstallation

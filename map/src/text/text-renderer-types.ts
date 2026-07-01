@@ -7,7 +7,7 @@
 // existing `import { ..., type TextDraw } from './text-renderer'` call
 // sites keep working unchanged.
 
-import type { GlyphInfo } from '@xgis/map'
+import type { GlyphInfo } from './sdf/glyph-atlas-host'
 
 export interface TextDraw {
   /** Anchor in screen pixels — caller projects from (lon, lat). */

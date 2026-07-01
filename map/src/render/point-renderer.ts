@@ -7,22 +7,22 @@ import type { Camera } from '@xgis/engine'
 import { isWebMercator } from '@xgis/engine'
 import { WORLD_MERC, TILE_PX } from '@xgis/engine'
 import { getSampleCount } from '@xgis/engine'
-import type { ShapeRegistry } from '@xgis/map'
-import { parseHexColor } from '@xgis/map'
-import { resolveNumberShape } from '@xgis/map'
+import type { ShapeRegistry } from '../text/sdf-shape'
+import { parseHexColor } from '../feature-helpers'
+import { resolveNumberShape } from './paint-shape-resolve'
 import { FrameArena } from '@xgis/engine'
-import type { PointLayer } from '@xgis/map'
-import { buildPointModule } from '@xgis/map'
-import { packPointInstances } from '@xgis/map'
+import type { PointLayer } from './point-renderer-types'
+import { buildPointModule } from '../shaders/dsl/point'
+import { packPointInstances } from './point-feature-packer'
 import { wrapWebGpuPass, wrapWebGpuBindGroupLayout } from '@xgis/engine'
 import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
-import { PointDraper } from '@xgis/map'
+import { PointDraper } from './material/point-material'
 import { reflect } from '@xgis/shader-dsl'
 import { vertexField, evaluate, makeEvalProps } from '@xgis/compiler'
-import { POINT_FORMAT } from '@xgis/map'
+import { POINT_FORMAT } from './point-vertex-format'
 import { toVertexBufferLayout } from '@xgis/engine'
 import { reflectionToBindGroupLayoutEntries, uniformFieldSlots } from '@xgis/engine'
-import { writeProjectionCull } from '@xgis/map'
+import { writeProjectionCull } from './frame-projection-uniform'
 
 // Float-slot indices derived from the single-source POINT_FORMAT spec so the
 // packer cannot drift from the GPUVertexBufferLayout / vs_point @location.
@@ -184,7 +184,7 @@ export function pointWorldCopies(
 
 // worldCopyMercX moved into the stateless packer (@xgis/map, #722 S0); re-exported
 // here so its discriminating unit test still imports it from this module.
-export { worldCopyMercX } from '@xgis/map'
+export { worldCopyMercX } from './point-feature-packer'
 
 // ═══ Renderer ═══
 
