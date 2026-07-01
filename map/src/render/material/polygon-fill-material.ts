@@ -162,15 +162,19 @@ export function recordFillDraw(
   cached: FillTileBuffers,
   bindZBuffer: boolean,
 ): void {
-  if (fillRhi) {
+  // #717 — the draw-side VTR instance can have _fillRhi still null (the site's Astro island splits
+  // the VTR module: setFillRhi(present) lands on one instance, the draw runs on another). Recover
+  // the last-good fill state from the globalThis slot setFillRhi mirrors it to. In the single-instance
+  // playground fillRhi is always present, so this is a no-op there.
+  const eff = fillRhi ?? (globalThis as { __xgisFillRhi?: FillRhiState }).__xgisFillRhi ?? null
+  if (eff) {
     let mat: Material | null = null
     let variant = -1
     // Match the draw pipeline to its built Material twin. IDENTITY FIRST (the normal single-instance
-    // case — object equality, zero-cost, unchanged behaviour). LABEL FALLBACK second: under a dual
-    // module-instance bundle (#717 — an Astro island duplicates the pipeline-build module, so the
-    // build-path and draw-path GPURenderPipeline objects differ) identity fails, but the two objects
-    // carry the SAME stable factory label (fill-pipeline / -ground / -fallback / …, all variant-
-    // distinct — pipeline-factory.ts). `pipeline` is used ONLY to pick the twin+variant here;
+    // case — object equality, zero-cost, unchanged behaviour). LABEL FALLBACK second: across the dual
+    // instance the recovered `eff` registry holds the OTHER instance's pipeline objects, so identity
+    // fails; the two objects carry the SAME stable factory label (fill-pipeline / -ground / -fallback
+    // / …, all variant-distinct — pipeline-factory.ts). `pipeline` is used ONLY to pick the twin+variant;
     // executeItems runs the twin's OWN (descriptor-equivalent) pipeline, so a label match is exact.
     // Empty label → identity only (never label-matches, so distinct-label pipelines can't collide).
     const eq = (a: GPURenderPipeline | undefined | null): boolean =>
@@ -178,20 +182,20 @@ export function recordFillDraw(
     if (!bindZBuffer) {
       // Flat fill. Per-style (data-driven) pipelines route via their own cached Material twin; the
       // rest match the default-shader flat/ground pipes.
-      let ps = fillRhi.perStyle?.get(pipeline)
-      if (!ps && fillRhi.perStyle && pipeline.label) {
-        for (const [k, v] of fillRhi.perStyle) { if (eq(k)) { ps = v; break } }
+      let ps = eff.perStyle?.get(pipeline)
+      if (!ps && eff.perStyle && pipeline.label) {
+        for (const [k, v] of eff.perStyle) { if (eq(k)) { ps = v; break } }
       }
-      const p = fillRhi.pipes
+      const p = eff.pipes
       mat = ps ? ps.mat
-        : (p && (eq(p.write) || eq(p.test))) ? fillRhi.flat
-        : (p && (eq(p.groundWrite) || eq(p.groundTest))) ? fillRhi.ground : null
+        : (p && (eq(p.write) || eq(p.test))) ? eff.flat
+        : (p && (eq(p.groundWrite) || eq(p.groundTest))) ? eff.ground : null
       variant = ps ? ps.variant
         : (p && (eq(p.write) || eq(p.groundWrite))) ? 0
         : (p && (eq(p.test) || eq(p.groundTest))) ? 1 : -1
       // Fill-pattern ground twin (fs_fill_pattern) — checked after the solid flat/ground pipes.
-      if (!mat && fillRhi.pattern) {
-        const pat = fillRhi.pattern
+      if (!mat && eff.pattern) {
+        const pat = eff.pattern
         if (eq(pat.groundWrite)) { mat = pat.ground; variant = 0 }
         else if (eq(pat.groundTest)) { mat = pat.ground; variant = 1 }
       }
@@ -200,7 +204,7 @@ export function recordFillDraw(
       // POLYGON_EXTRUDED vertex (slot 0) — the slot-1 z-buffer is unused here, so no vertex1. (OIT +
       // per-style extrude are not in `extrude` yet → would throw below; both are provably unreachable
       // here: OIT-extrude is never scheduled and there is no per-style-extrude pipeline.)
-      const e = fillRhi.extrude
+      const e = eff.extrude
       if (e) {
         if (eq(e.write)) { mat = e.mat; variant = 0 }
         else if (eq(e.test)) { mat = e.mat; variant = 1 }
@@ -208,8 +212,8 @@ export function recordFillDraw(
         else if (e.matNoPick && eq(e.testNoPick)) { mat = e.matNoPick; variant = 1 }
       }
       // Fill-pattern extruded twin (fs_fill_pattern) — checked after the solid extrude.
-      if (!mat && fillRhi.pattern) {
-        const pat = fillRhi.pattern
+      if (!mat && eff.pattern) {
+        const pat = eff.pattern
         if (eq(pat.extrudedWrite)) { mat = pat.extruded; variant = 0 }
         else if (eq(pat.extrudedTest)) { mat = pat.extruded; variant = 1 }
       }

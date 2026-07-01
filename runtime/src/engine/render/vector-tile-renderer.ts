@@ -328,7 +328,16 @@ export class VectorTileRenderer {
   // map to (set once from PipelineFactory). recordFillDraw routes EVERY
   // fill draw through it (§4 closed; an untwinned pipeline throws).
   private _fillRhi: FillRhiState | null = null
-  setFillRhi(state: FillRhiState | null): void { this._fillRhi = state }
+  setFillRhi(state: FillRhiState | null): void {
+    // #717 — the site's Astro island duplicates the VTR module, so setFillRhi(present) lands on
+    // one VTR instance while a DIFFERENT instance runs recordFillDraw with _fillRhi still null.
+    // Mirror the last non-null state onto a globalThis slot so the draw-side (possibly other)
+    // instance can recover it (recordFillDraw falls back to it; the pipeline-object mismatch that
+    // then arises across instances is tolerated by that fn's label match). Same single-instance
+    // discipline as the projections / RHI dual-package fix. No-op in the normal single-instance path.
+    if (state) (globalThis as { __xgisFillRhi?: FillRhiState }).__xgisFillRhi = state
+    this._fillRhi = state
+  }
 
   /** Data-driven feature buffer + per-tile feature bind groups + compute
    *  paint (Cluster D; see class doc). VTR keeps thin forwarders
