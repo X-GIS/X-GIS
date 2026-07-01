@@ -15,7 +15,8 @@ import {
   decodeMvtTile, decomposeFeatures, compileSingleTile, tileKey,
   type CompiledTile,
 } from '@xgis/compiler'
-import { TileCatalog, type VirtualTileFetcher } from '../tile-catalog'
+import { TileCatalog } from '../tile-catalog'
+import type { VirtualTileFetcher } from '../tile-types'
 
 function buildSyntheticCompiledTile(z: number, x: number, y: number): CompiledTile | null {
   const orig = {

@@ -12,7 +12,7 @@
 import { describe, expect, it } from 'vitest'
 import proj4 from 'proj4'
 import { reprojectFeatureCollection } from './reproject-fc'
-import type { GeoJSONFeatureCollection } from '@xgis/data'
+import type { GeoJSONFeatureCollection } from '../geojson-types'
 
 // Reference: Seoul City Hall ≈ [126.9784, 37.5665] (WGS84) ⇒ EPSG:5179.
 // proj4 round-trips this pair to itself (verified), so the 5179 → 4326

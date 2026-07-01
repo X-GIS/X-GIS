@@ -360,11 +360,6 @@ const LOC_CEILINGS: Record<string, number> = {
   // arm (mirror of `case 'zoom'`) lowering Mapbox `["pitch"]` to the bare
   // pitch identifier.
   'compiler/src/convert/expressions.ts': 1116,
-  // Bumped 1388→1417 for the tile-catalog lifecycle fixes (BUG 11/13): the
-  // prewarm-pump _skeletonTimer/_stopped fields + destroy() cancel method, and
-  // the hoisted evict-shield sweep, are irreducible (two real leaks). Catalog
-  // decomposition remains a tracked priority.
-  'runtime/src/data/tile-catalog.ts': 1417,
   // Bumped 1354→1356 for the undo-correctness fixes: tryConnect skipRecord param + insertReroute selEdge clear (two irreducible statements).
   // Bumped 1356→1370 for the deserialization guard (#353): sanitizeGraph() drops unknown node types + dangling edges at the load/paste/restore trust boundary.
   'blueprint/src/editor.ts': 1370,
@@ -698,7 +693,6 @@ const PROJTYPE_ALLOWLIST: Record<string, number> = {
   'runtime/src/engine/projection/camera.ts': 7,
   'runtime/src/engine/controller.ts': 6,
   'runtime/src/engine/projection/unproject.ts': 4,
-  'runtime/src/loader/tiles-sse.ts': 3,
   'runtime/src/engine/render/raster-renderer.ts': 2,
   'runtime/src/engine/render/prefetch-scheduler.ts': 1,
   'runtime/src/engine/render/point-renderer.ts': 1,

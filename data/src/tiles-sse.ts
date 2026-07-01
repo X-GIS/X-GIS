@@ -47,7 +47,7 @@ import type { Projection } from '@xgis/engine'
 import { mercatorYToLat } from '@xgis/engine'
 import { worldCopiesFor, TILE_PX } from '@xgis/engine'
 import { PROJECTION_NAME_TO_TYPE } from '@xgis/engine'
-import type { TileCoord } from '@xgis/data'
+import type { TileCoord } from './tile-select-types'
 
 const EARTH_CIRC_M = 40075016.686
 const PI_R = Math.PI * 6378137

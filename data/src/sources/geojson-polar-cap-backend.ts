@@ -26,8 +26,8 @@
 
 import { tileKey } from '@xgis/compiler'
 import { tileEcefCenterFromMerc } from '@xgis/engine'
-import { findClampBoundarySpans } from '@xgis/data'
-import type { GeoJSONFeatureCollection } from '@xgis/data'
+import { findClampBoundarySpans } from '../polar-cap-detect'
+import type { GeoJSONFeatureCollection } from '../geojson-types'
 import { packECEFWithPolarCaps, MERC_LAT_CLAMP } from './polar-cap-ecef-pack'
 import {
   TILE_LAYOUT_VERSION,
@@ -35,7 +35,7 @@ import {
   type TileSource,
   type TileSourceMeta,
   type TileSourceSink,
-} from '@xgis/data'
+} from '../tile-source'
 
 const Z0_KEY = tileKey(0, 0, 0)
 const DEG2RAD = Math.PI / 180

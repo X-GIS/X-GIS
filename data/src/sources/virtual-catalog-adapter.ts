@@ -17,8 +17,8 @@ import { tileKeyUnpack } from '@xgis/compiler'
 import {
   TILE_LAYOUT_VERSION,
   type TileSource, type TileSourceSink, type TileSourceMeta, type BackendTileResult,
-} from '@xgis/data'
-import type { VirtualCatalog } from '@xgis/data'
+} from '../tile-source'
+import type { VirtualCatalog } from '../tile-types'
 
 const MAX_INFLIGHT = 32
 

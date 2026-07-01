@@ -18,7 +18,7 @@
 // invokes render() ~80× per frame on dense styles). Caller invokes
 // `pump` exactly once per wall-clock frame.
 
-import type { TileCatalog } from '../../data/tile-catalog'
+import type { TileCatalog } from '@xgis/data'
 import {
   collectSiblingPrefetchKeys, projectPanPrefetchTarget,
   type CameraSnapshot,

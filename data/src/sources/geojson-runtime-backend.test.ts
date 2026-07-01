@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest'
 import { decomposeFeatures, tileKey } from '@xgis/compiler'
 import { GeoJSONRuntimeBackend } from './geojson-runtime-backend'
-import type { TileSourceSink, BackendTileResult } from '@xgis/data'
+import type { TileSourceSink, BackendTileResult } from '../tile-source'
 
 function makeSink() {
   const events: { key: number; result: BackendTileResult | null }[] = []

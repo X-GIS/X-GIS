@@ -5,7 +5,7 @@ import { setLogSink as setEngineLogSink } from '@xgis/shared'
 import { Lexer, Parser, lower, optimize, emitCommands, evaluate, makeEvalProps, deserializeXGB, resolveImportsAsync, resolveUtilities, resolveColor, extractInterpolateZoomColorStops, extractInterpolateZoomStops } from '@xgis/compiler'
 import { packPalette, uploadPalette, type PaletteTextures } from '@xgis/engine'
 import type * as AST from '@xgis/compiler'
-import { SyntheticEarthSurfaceBackend } from '../data/sources/synthetic-earth-surface-backend'
+import { SyntheticEarthSurfaceBackend } from '@xgis/data'
 import { PROJECTION_NAME_TO_TYPE, PROJECTIONS } from '@xgis/engine'
 import { configureProjections } from '@xgis/map'
 import { worldBandForProjType } from '@xgis/engine'
@@ -15,14 +15,14 @@ import {
   buildSyntheticEarthSurfaceShow,
   updateSyntheticEarthSurfaceShowFill,
 } from './synthetic-earth-surface-show'
-import { type CapPoles } from '../data/sources/geojson-polar-cap-backend'
+import { type CapPoles } from '@xgis/data'
 import {
   installGeoJSONPolarCaps,
   detachGeoJSONPolarCaps,
   type PolarCapInstallHost,
 } from './geojson-polar-cap-show'
 import { invalidateResolvedShowCache } from './render/resolved-show'
-import { getSharedGeoJSONCompilePool } from '../data/workers/geojson-compile-pool'
+import { getSharedGeoJSONCompilePool } from '@xgis/data'
 import { initGPU, GPU_PROF, getMaxDpr, effectiveDpr, WebGPUUnavailableError, type GPUContext } from '@xgis/engine'
 import { QUALITY, updateQuality, type QualityConfig } from '@xgis/engine'
 import { GPUTimer } from '@xgis/engine'
@@ -62,7 +62,7 @@ import {
 } from './layer'
 import { attachAutoResize } from './auto-resize'
 import { EventDispatcher } from './event-dispatcher'
-import { TileCatalog } from '../data/tile-catalog'
+import { TileCatalog } from '@xgis/data'
 import { isTileTemplate } from '@xgis/data'
 import { buildShowSourceMaps } from './show-source-maps'
 import {
@@ -88,7 +88,7 @@ import {
   asVectorTileKind, sceneHasAnyAnimation, labelsHaveTimeAnimation,
   buildTypographyMap, registerFonts,
 } from './map-geo-helpers'
-import { prewarmVectorTileSource, detectVectorTileFormat } from '../loader/vector-tile-loader'
+import { prewarmVectorTileSource, detectVectorTileFormat } from '@xgis/data'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 import { pointPatchToFeatureCollection, type PointPatch } from '@xgis/data'
 import type { GeoJSONFeature } from '@xgis/data'
@@ -2144,7 +2144,7 @@ export class XGISMap {
     // on the first compile() AFTER __xgisReady (~720 ms of idle worker
     // module-eval the pre-ready GPU/shader init would otherwise hide).
     if (anyVectorTile) {
-      void import('../data/workers/mvt-worker-pool').then(m => m.prewarmMvtWorkerPool()).catch(() => undefined)
+      void import('@xgis/data').then(m => m.prewarmMvtWorkerPool()).catch(() => undefined)
     }
 
 

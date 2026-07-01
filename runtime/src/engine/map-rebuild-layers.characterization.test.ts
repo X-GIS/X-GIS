@@ -13,7 +13,12 @@ import type { GeoJSONFeatureCollection } from '@xgis/data'
 // inert device and logs `createCommandEncoder is not a function` noise
 // AFTER the assertions have already passed. The upload path is downstream
 // of `rebuildLayers` and irrelevant to its observable contract.
-vi.mock('../data/workers/geojson-compile-pool', () => ({
+// Partial-mock @xgis/data: the compile pool now lives in the barrel, so mock the
+// whole package but spread the real exports and override ONLY
+// getSharedGeoJSONCompilePool (a bare vi.mock('@xgis/data') would blank out every
+// other data export the test depends on).
+vi.mock('@xgis/data', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@xgis/data')>()),
   getSharedGeoJSONCompilePool: () => ({
     compile: () =>
       Promise.resolve({

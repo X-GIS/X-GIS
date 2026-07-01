@@ -11,9 +11,9 @@
 
 import { describe, expect, it } from 'vitest'
 import { decomposeFeatures, tileKey } from '@xgis/compiler'
-import { TileCatalog } from './tile-catalog'
-import { GeoJSONRuntimeBackend } from './sources/geojson-runtime-backend'
-import { PMTilesBackend, type PMTilesFetcher } from './sources/pmtiles-backend'
+import { TileCatalog } from '@xgis/data'
+import { GeoJSONRuntimeBackend } from '@xgis/data'
+import { PMTilesBackend, type PMTilesFetcher } from '@xgis/data'
 
 const POLY_LARGE = {
   type: 'Feature' as const,

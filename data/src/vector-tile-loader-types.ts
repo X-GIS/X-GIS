@@ -6,7 +6,7 @@
 // CachedTileJSON / RawTileJSON) are imported directly by the loader module.
 
 import type { PMTiles, Header } from 'pmtiles'
-import type { PMTilesFetcher } from '../data/sources/pmtiles-backend'
+import type { PMTilesFetcher } from './sources/pmtiles-backend'
 
 /** Per-MVT-layer info pulled from `metadata.vector_layers`. Used by
  *  the runtime to skip work when the current camera zoom is outside a

@@ -18,7 +18,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // is observable. (The real module spawns a Worker via new URL(...).)
 const dropSource = vi.fn()
 let mintCount = 0
-vi.mock('../data/workers/geojson-tiling-pool', () => ({
+// Partial-mock @xgis/data: the tiling pool now lives in the barrel, so spread the
+// real exports and override ONLY the tiling-pool functions (a bare
+// vi.mock('@xgis/data') would blank out every other data export the SourceManager
+// pulls from the barrel).
+vi.mock('@xgis/data', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@xgis/data')>()),
   newTilingInstanceId: () => `gjt-test-${++mintCount}`,
   setSource: vi.fn(),
   getTile: vi.fn(),

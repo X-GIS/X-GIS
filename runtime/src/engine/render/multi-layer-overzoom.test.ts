@@ -24,7 +24,7 @@ import {
   compileGeoJSONToTiles, decomposeFeatures, tileKey,
   type GeoJSONFeatureCollection,
 } from '@xgis/compiler'
-import { TileCatalog } from '../../data/tile-catalog'
+import { TileCatalog } from '@xgis/data'
 import { DSFUN_POLY_STRIDE, DSFUN_LINE_STRIDE } from '@xgis/data'
 
 // Make a polygon FeatureCollection that fully covers a z=1 tile.

@@ -14,7 +14,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { tileKey, tileKeyUnpack } from '@xgis/compiler'
-import { TileCatalog } from './tile-catalog'
+import { TileCatalog } from '@xgis/data'
 import { DSFUN_POLY_STRIDE } from '@xgis/data'
 import {
   TILE_LAYOUT_VERSION,

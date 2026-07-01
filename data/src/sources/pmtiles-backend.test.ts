@@ -14,7 +14,7 @@ import geojsonVt from 'geojson-vt'
 import vtpbf from 'vt-pbf'
 import { tileKey } from '@xgis/compiler'
 import { PMTilesBackend, type PMTilesFetcher } from './pmtiles-backend'
-import type { TileSourceSink, BackendTileResult } from '@xgis/data'
+import type { TileSourceSink, BackendTileResult } from '../tile-source'
 
 function makeSink() {
   const events: { key: number; result: BackendTileResult | null }[] = []
@@ -203,7 +203,7 @@ describe('PMTilesBackend in isolation', () => {
   })
 })
 
-import { resolveDispatch } from '../../loader/vector-tile-loader'
+import { resolveDispatch } from '../vector-tile-loader'
 
 describe('resolveDispatch — TileJSON vs PMTiles routing', () => {
   // URL extension wins regardless of `kind` — the server's bytes

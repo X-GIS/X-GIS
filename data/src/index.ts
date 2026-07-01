@@ -40,3 +40,26 @@ export * from './sub-tile-generator'
 // meshes) and content (line-renderer), so its LCA is @xgis/data — mesh-building is data,
 // consistent with geojson.ts doing earcut polygon triangulation.
 export * from './line-segment-build'
+// Final data cluster (F6b): the tile catalog/router, the raster-tile SSE selector, the
+// PMTiles/TileJSON vector-tile loader, the per-format source backends (PMTiles / GeoJSON
+// runtime / synthetic earth-surface / polar-cap / virtual), EPSG reprojection + polar-cap
+// ECEF packing, and the worker pools. Top of the data layer; @xgis/map (rendering)
+// consumes them via this barrel. Only PARENT modules are surfaced — pmtiles-backend
+// re-exports its -types leaf and vector-tile-loader re-exports its -types/-helpers leaves,
+// so adding those directly would duplicate exports (TS2308); the raw worker modules
+// (geojson-compile-worker / geojson-tiling-worker / mvt-worker) stay internal.
+export * from './tile-catalog'
+export * from './tiles-sse'
+export * from './vector-tile-loader'
+export * from './sources/geojson-polar-cap-backend'
+export * from './sources/geojson-runtime-backend'
+export * from './sources/pmtiles-backend'
+export * from './sources/synthetic-earth-surface-backend'
+export * from './sources/virtual-pmtiles-backend'
+export * from './sources/virtual-catalog-adapter'
+export * from './sources/reproject-fc'
+export * from './sources/epsg-defs'
+export * from './sources/polar-cap-ecef-pack'
+export * from './workers/geojson-compile-pool'
+export * from './workers/geojson-tiling-pool'
+export * from './workers/mvt-worker-pool'

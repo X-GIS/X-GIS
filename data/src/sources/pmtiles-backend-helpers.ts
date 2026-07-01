@@ -8,7 +8,7 @@ import {
   evaluate, makeEvalProps,
   type GeoJSONFeature,
 } from '@xgis/compiler'
-import { evalExtrudeExpr } from '@xgis/data'
+import { evalExtrudeExpr } from '../eval/extrude-eval'
 
 /** Same height extractor as the worker (mvt-worker.ts). The inline
  *  fallback path can't import from mvt-worker because its module is

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { TileCatalog } from './tile-catalog'
-import { GeoJSONRuntimeBackend } from './sources/geojson-runtime-backend'
+import { TileCatalog } from '@xgis/data'
+import { GeoJSONRuntimeBackend } from '@xgis/data'
 
 describe('TileCatalog.getScheme', () => {
   it('returns undefined before any backend is attached', () => {

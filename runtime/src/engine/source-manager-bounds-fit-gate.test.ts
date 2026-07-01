@@ -33,7 +33,11 @@ vi.mock('./render/vector-tile-renderer', () => ({
   },
 }))
 
-vi.mock('../data/sources/virtual-pmtiles-backend', () => ({
+// Partial-mock @xgis/data: VirtualPMTilesBackend now lives in the barrel, so spread
+// the real exports and override ONLY that class (a bare vi.mock('@xgis/data') would
+// blank out every other data export the SourceManager pulls from the barrel).
+vi.mock('@xgis/data', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@xgis/data')>()),
   // Inert TileSource — `attachBackend` reads `meta` (maxZoom / bounds /
   // scheme / layoutVersion) when merging into the catalog's index shell, so
   // supply a complete world-bounds meta. No worker is spawned.

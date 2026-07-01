@@ -16,7 +16,7 @@
 
 import { bumpAlloc } from '@xgis/map'
 import { FrameArena } from '@xgis/engine'
-import type { TileCatalog } from '../../data/tile-catalog'
+import type { TileCatalog } from '@xgis/data'
 
 export class LabelFeatureSource {
   // Iter 132 perf: reused dedupe Set for forEachLabelFeature.

@@ -10,7 +10,7 @@ import {
   detectCapPoles,
   capSourceName,
   GeoJSONPolarCapBackend,
-} from './geojson-polar-cap-backend'
+} from '@xgis/data'
 import {
   buildGeoJSONPolarCapShow,
   updateGeoJSONPolarCapShowFill,

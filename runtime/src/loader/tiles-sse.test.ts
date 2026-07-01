@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest'
 import { Camera } from '@xgis/engine'
 import { mercator } from '@xgis/engine'
-import { visibleTilesSSE } from './tiles-sse'
+import { visibleTilesSSE } from '@xgis/data'
 
 function makeCam(zoom: number, pitch: number, lon: number, lat: number, bearing = 0): Camera {
   const c = new Camera(lon, lat, zoom)

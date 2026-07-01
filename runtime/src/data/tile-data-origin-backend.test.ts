@@ -7,9 +7,9 @@
 
 import { describe, it, expect } from 'vitest'
 import { tileKey, decomposeFeatures } from '@xgis/compiler'
-import { TileCatalog } from './tile-catalog'
-import { GeoJSONRuntimeBackend } from './sources/geojson-runtime-backend'
-import { PMTilesBackend, type PMTilesFetcher } from './sources/pmtiles-backend'
+import { TileCatalog } from '@xgis/data'
+import { GeoJSONRuntimeBackend } from '@xgis/data'
+import { PMTilesBackend, type PMTilesFetcher } from '@xgis/data'
 import {
   TILE_LAYOUT_VERSION,
   type TileSource, type TileSourceSink, type BackendTileResult,

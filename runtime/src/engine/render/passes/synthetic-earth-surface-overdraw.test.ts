@@ -34,7 +34,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-import { SyntheticEarthSurfaceBackend } from '../../../data/sources/synthetic-earth-surface-backend'
+import { SyntheticEarthSurfaceBackend } from '@xgis/data'
 import {
   buildSyntheticEarthSurfaceShow,
   SYNTHETIC_EARTH_SURFACE_SOURCE,

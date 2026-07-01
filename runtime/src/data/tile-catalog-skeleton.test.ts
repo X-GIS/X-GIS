@@ -13,7 +13,7 @@
 // covered separately via the e2e suite.
 import { describe, expect, it, vi } from 'vitest'
 import { tileKey } from '@xgis/compiler'
-import { TileCatalog } from './tile-catalog'
+import { TileCatalog } from '@xgis/data'
 import {
   type TileData,
   MAX_CACHED_TILES,

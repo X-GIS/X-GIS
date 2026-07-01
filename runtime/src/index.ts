@@ -25,7 +25,7 @@ export {
   PMTilesArchiveSource, TileJSONSource,
   // Types
   type PMTilesSourceOptions, type VectorLayerInfo, type VectorTileFormat,
-} from './loader/vector-tile-loader'
+} from '@xgis/data'
 export { XGISMapElement, registerXGISElement } from './web/component'
 export { mercator, equirectangular, naturalEarth, orthographic, getProjection } from '@xgis/engine'
 export { ComputeDispatcher, type ComputeTask } from '@xgis/engine'

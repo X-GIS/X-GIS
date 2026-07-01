@@ -26,14 +26,14 @@ import {
   type GeometryPart,
 } from '@xgis/compiler'
 import { xlog } from '@xgis/shared'
-import { visibleTiles } from '@xgis/data'
+import { visibleTiles } from './tile-select-helpers'
 import { VirtualCatalogAdapter } from './sources/virtual-catalog-adapter'
 import { GeoJSONRuntimeBackend } from './sources/geojson-runtime-backend'
-import { SubTileGenerator } from '@xgis/data'
+import { SubTileGenerator } from './sub-tile-generator'
 import {
   TILE_LAYOUT_VERSION, TILE_LAYOUT_VERSION_BASE,
   type TileSource, type TileSourceSink, type BackendTileResult, type TileScheme,
-} from '@xgis/data'
+} from './tile-source'
 // Step 0 of the layer-type refactor: shared types live in tile-types.ts so
 // per-format backend modules can import them without pulling in catalog
 // runtime state. Re-exported below for back-compat with external callers
@@ -42,18 +42,12 @@ import {
   type TileData, type TileState, type CacheTileDataDescriptor,
   DSFUN_POLY_STRIDE, DSFUN_LINE_STRIDE,
   maxConcurrentLoads, defaultSkeletonDepth,
-  type VirtualCatalog, type VirtualTileFetcher,
-} from '@xgis/data'
-import { unionBounds } from '@xgis/data'
-import { TileDataCache } from '@xgis/data'
-import { CompileBudget } from '@xgis/data'
-import { TileEvictionPolicy } from '@xgis/data'
-
-export {
-  type TileData, type TileState,
-  DSFUN_POLY_STRIDE, DSFUN_LINE_STRIDE,
-  type VirtualCatalog, type VirtualTileFetcher,
-}
+  type VirtualCatalog,
+} from './tile-types'
+import { unionBounds } from './tile-catalog-helpers'
+import { TileDataCache } from './tile-data-cache'
+import { CompileBudget } from './tile-compile-budget'
+import { TileEvictionPolicy } from './tile-eviction-policy'
 
 // ═══ Catalog ═══
 

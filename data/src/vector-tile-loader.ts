@@ -25,8 +25,8 @@
 import { xlog } from '@xgis/shared'
 import { readBodyCapped, assertSafeRemoteUrl, safeFetch } from '@xgis/shared'
 import { PMTiles, TileType } from 'pmtiles'
-import { TileCatalog } from '../data/tile-catalog'
-import { PMTilesBackend } from '../data/sources/pmtiles-backend'
+import { TileCatalog } from './tile-catalog'
+import { PMTilesBackend } from './sources/pmtiles-backend'
 import type {
   VectorLayerInfo,
   VectorTileFormat,

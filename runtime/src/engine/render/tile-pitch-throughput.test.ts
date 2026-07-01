@@ -6,7 +6,7 @@ import { dirname, resolve } from 'node:path'
 import { Camera } from '@xgis/engine'
 import { visibleTilesFrustum, firstIndexedAncestor } from '@xgis/data'
 import { mercator } from '@xgis/engine'
-import { TileCatalog } from '../../data/tile-catalog'
+import { TileCatalog } from '@xgis/data'
 import {
   compileGeoJSONToTiles, decomposeFeatures, tileKey,
 } from '@xgis/compiler'

@@ -8,7 +8,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { tileKey } from '@xgis/compiler'
-import { TileCatalog } from './tile-catalog'
+import { TileCatalog } from '@xgis/data'
 import {
   TILE_LAYOUT_VERSION, TILE_LAYOUT_VERSION_BASE,
   type TileSource, type TileSourceSink, type TileSourceMeta, type BackendTileResult,

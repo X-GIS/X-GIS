@@ -13,8 +13,8 @@ import {
   GeoJSONPolarCapBackend,
   capSourceName,
   type CapPoles,
-} from '../data/sources/geojson-polar-cap-backend'
-import { TileCatalog } from '../data/tile-catalog'
+} from '@xgis/data'
+import { TileCatalog } from '@xgis/data'
 import { VectorTileRenderer } from './render/vector-tile-renderer'
 import { worldBandForProjType } from '@xgis/engine'
 import { PROJECTION_NAME_TO_TYPE } from '@xgis/engine'

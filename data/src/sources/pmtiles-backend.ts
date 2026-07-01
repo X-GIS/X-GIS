@@ -24,13 +24,13 @@ import {
   makeEvalProps,
   type GeoJSONFeature,
 } from '@xgis/compiler'
-import { buildLineSegments } from '@xgis/data'
+import { buildLineSegments } from '../line-segment-build'
 import {
   TILE_LAYOUT_VERSION,
   type TileSource, type TileSourceSink, type TileSourceMeta,
-} from '@xgis/data'
+} from '../tile-source'
 import { getSharedMvtPool, type MvtWorkerPool } from '../workers/mvt-worker-pool'
-import { evalFilterExpr } from '@xgis/data'
+import { evalFilterExpr } from '../eval/filter-eval'
 import {
   PriorityQueue, PriorityQueueItemRemovedError,
 } from '@xgis/shared'

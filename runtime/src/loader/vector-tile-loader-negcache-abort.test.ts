@@ -24,7 +24,7 @@ import {
   VectorTileLoader,
   __tileFetchNegativeCacheSizeForTest,
   __resetTileFetchNegativeCacheForTest,
-} from './vector-tile-loader'
+} from '@xgis/data'
 
 // The negative cache is process-wide (module-scoped). Reset before each
 // test so entries from one case don't bleed into the next.

@@ -20,9 +20,9 @@ import {
   evaluate, makeEvalProps,
   type GeoJSONFeature,
 } from '@xgis/compiler'
-import { buildLineSegments } from '@xgis/data'
-import { evalExtrudeExpr } from '@xgis/data'
-import { evalFilterExpr } from '@xgis/data'
+import { buildLineSegments } from '../line-segment-build'
+import { evalExtrudeExpr } from '../eval/extrude-eval'
+import { evalFilterExpr } from '../eval/filter-eval'
 
 /** Build the featId → properties Map the SDF label pipeline + data-driven
  *  feature buffer read from. When `keys` is non-empty, clone ONLY those

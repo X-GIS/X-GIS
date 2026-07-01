@@ -18,7 +18,7 @@
 import { describe, expect, it } from 'vitest'
 import { Camera } from '@xgis/engine'
 import { getProjection } from '@xgis/engine'
-import { visibleTilesSSE } from './tiles-sse'
+import { visibleTilesSSE } from '@xgis/data'
 
 describe('visibleTilesSSE — projType resolution (single-world disc)', () => {
   it('orthographic evaluates projection.forward in a single world copy only', () => {

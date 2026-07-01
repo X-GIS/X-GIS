@@ -56,7 +56,7 @@ const { FakeWorker } = vi.hoisted(() => {
 vi.mock('./geojson-compile-worker.ts?worker', () => ({ default: FakeWorker }))
 
 import { GeoJSONCompilePool } from './geojson-compile-pool'
-import type { GeoJSONFeatureCollection } from '@xgis/data'
+import type { GeoJSONFeatureCollection } from '../geojson-types'
 
 function makeFC(): GeoJSONFeatureCollection {
   return {
