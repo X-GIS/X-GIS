@@ -4,7 +4,6 @@
 // Single draw call for all points via per-feature storage buffer.
 
 import type { Camera } from '@xgis/engine'
-import { lonLatToECEF } from '@xgis/engine'
 import { isWebMercator } from '@xgis/engine'
 import { WORLD_MERC, TILE_PX } from '@xgis/engine'
 import { getSampleCount } from '@xgis/engine'
@@ -14,11 +13,12 @@ import { resolveNumberShape } from './paint-shape-resolve'
 import { FrameArena } from '@xgis/engine'
 import type { PointLayer } from '@xgis/map'
 import { buildPointModule } from '@xgis/map'
+import { packPointInstances } from '@xgis/map'
 import { wrapWebGpuPass, wrapWebGpuBindGroupLayout } from '@xgis/engine'
 import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
 import { PointDraper } from '@xgis/map'
 import { reflect } from '@xgis/shader-dsl'
-import { vertexField } from '@xgis/compiler'
+import { vertexField, evaluate, makeEvalProps } from '@xgis/compiler'
 import { POINT_FORMAT } from '@xgis/map'
 import { toVertexBufferLayout } from '@xgis/engine'
 import { reflectionToBindGroupLayoutEntries, uniformFieldSlots } from '@xgis/engine'
@@ -164,9 +164,6 @@ function writePointFrameUniform(
 
 // ── World-copy helpers (exported for unit tests) ──────────────────────────
 
-const _DEG2RAD = Math.PI / 180
-const _R_MERC  = 6378137 // web-Mercator sphere radius (matches the tiler packer)
-
 /**
  * Returns the world-copy offset array the renderer uses for a given projType.
  * Flat Mercator (projType 0) fans out to all visible world copies via
@@ -185,15 +182,9 @@ export function pointWorldCopies(
     : [0]
 }
 
-/**
- * Returns the Mercator x (in metres) for a point at `lon` (degrees) in
- * world-copy `wo`.  `wo = 0` is the primary world; `wo = ±1, ±2, …` shift
- * by one full world-width (360° × DEG2RAD × R_MERC) each.
- * The caller is responsible for splitting into hi/lo f32 DSFUN slots.
- */
-export function worldCopyMercX(lon: number, wo: number): number {
-  return lon * _DEG2RAD * _R_MERC + wo * 360 * _DEG2RAD * _R_MERC
-}
+// worldCopyMercX moved into the stateless packer (@xgis/map, #722 S0); re-exported
+// here so its discriminating unit test still imports it from this module.
+export { worldCopyMercX } from '@xgis/map'
 
 // ═══ Renderer ═══
 
@@ -329,7 +320,14 @@ export class PointRenderer {
 
   // ── Tile-based point accumulation (called from VectorTileRenderer) ──
   // Phase 2 PR 2d.2 — ECEF DSFUN: [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, featId, absLon, absLat]
-  private tilePoints: { exH: number; eyH: number; ezH: number; exL: number; eyL: number; ezL: number; featId: number; absLon: number; absLat: number; mxH: number; mxL: number; myH: number; myL: number }[] = []
+  // #722 S4 — `featProps` carries the point's SOURCE feature properties
+  // (featureProps.get(featId) from THIS point's tile), threaded in at
+  // accumulation time so flushTilePoints can resolve a data-driven size
+  // expression per feature. Resolved per-tile (not a single post-flush map)
+  // because featId == source-feature index WITHIN a tile → fids collide across
+  // tiles. Undefined when the layer has no data-driven size (constant-size path
+  // stays byte-identical).
+  private tilePoints: { exH: number; eyH: number; ezH: number; exL: number; eyL: number; ezL: number; featId: number; absLon: number; absLat: number; mxH: number; mxL: number; myH: number; myL: number; featProps?: Record<string, unknown> | null }[] = []
   private tilePointBuffer: RhiBuffer | null = null
   private tilePointIndexBuffer: RhiBuffer | null = null
   private tilePointFeatBuffer: RhiBuffer | null = null
@@ -360,9 +358,12 @@ export class PointRenderer {
     this.retiredTilePointBuffers.length = 0
   }
 
-  /** Accumulate a point from a visible tile (ECEF DSFUN components). */
-  addTilePoint(exH: number, eyH: number, ezH: number, exL: number, eyL: number, ezL: number, featId: number, absLon: number, absLat: number, mxH: number, mxL: number, myH: number, myL: number): void {
-    this.tilePoints.push({ exH, eyH, ezH, exL, eyL, ezL, featId, absLon, absLat, mxH, mxL, myH, myL })
+  /** Accumulate a point from a visible tile (ECEF DSFUN components).
+   *  `featProps` (#722 S4) is the point's source feature properties bag
+   *  (featureProps.get(featId) for this tile) — supplied only when the layer
+   *  authors a data-driven size expression; undefined otherwise. */
+  addTilePoint(exH: number, eyH: number, ezH: number, exL: number, eyL: number, ezL: number, featId: number, absLon: number, absLat: number, mxH: number, mxL: number, myH: number, myL: number, featProps?: Record<string, unknown> | null): void {
+    this.tilePoints.push({ exH, eyH, ezH, exL, eyL, ezL, featId, absLon, absLat, mxH, mxL, myH, myL, featProps })
   }
 
   /** Flush accumulated tile points as a single draw call */
@@ -374,7 +375,7 @@ export class PointRenderer {
     projCenterLat: number,
     canvasWidth: number,
     canvasHeight: number,
-    show: { fill?: string | null; stroke?: string | null; strokeWidth?: number; size?: number | null; opacity?: number; circleTranslateX?: number; circleTranslateY?: number; circleBlur?: number; circlePitchScaleMap?: boolean; circleTranslateXShape?: import('@xgis/compiler').PropertyShape<number> | null; circleTranslateYShape?: import('@xgis/compiler').PropertyShape<number> | null; circleStrokeOpacityShape?: import('@xgis/compiler').PropertyShape<number> | null },
+    show: { fill?: string | null; stroke?: string | null; strokeWidth?: number; size?: number | null; sizeExpr?: { ast?: unknown } | null; shape?: string | null; sizeUnit?: string | null; anchor?: 'center' | 'bottom' | 'top'; billboard?: boolean; opacity?: number; circleTranslateX?: number; circleTranslateY?: number; circleBlur?: number; circlePitchScaleMap?: boolean; circleTranslateXShape?: import('@xgis/compiler').PropertyShape<number> | null; circleTranslateYShape?: import('@xgis/compiler').PropertyShape<number> | null; circleStrokeOpacityShape?: import('@xgis/compiler').PropertyShape<number> | null },
     dpr: number = 1,
   ): void {
     if (this.tilePoints.length === 0) return
@@ -387,7 +388,23 @@ export class PointRenderer {
     const stroke = strokeHex ? parseHexColor(strokeHex) : null
     const opacity = show.opacity ?? 1.0
     const radiusPx = show.size ?? 6
+    // #722 S4 — data-driven per-feature size on the tile path (fixes #17 size).
+    // Mirror of the INLINE GeoJSON path (map.ts:2688-2711): when the layer
+    // authors a size EXPRESSION, evaluate it per feature against that feature's
+    // source properties (pt.featProps, threaded on each tilePoint at
+    // accumulation). Same @xgis/compiler evaluate + makeEvalProps + per-feature
+    // throw-isolation → numeric fallback to the constant radius the inline path
+    // uses. When there is no expression (or a point lacks props), radiusPx
+    // (show.size ?? 6) is written verbatim — BYTE-IDENTICAL to pre-S4.
+    const sizeAst = (show.sizeExpr?.ast ?? null) as import('@xgis/compiler').Expr | null
+    const cameraZoom = camera.zoom
+    const cameraPitch = camera.pitch
     const strokeWidth = show.strokeWidth ?? 1  // raw px, shader converts to UV
+    // #722 S2 — resolve the tile-layer shape ONCE (mirrors map.ts:2715, the
+    // inline path). Fixes #16: tile points (URL geojson / PMTiles) hardcoded
+    // shape_id 0 → custom shapes (star/…) always drew as circles. show.shape
+    // carries the compiled shape name; getShapeId maps it to the GPU slot.
+    const tileShapeId = show.shape ? (this.shapeRegistry?.getShapeId(show.shape) ?? 0) : 0
     // WS-1 — per-frame zoom-interp on the tile-point path (mirror of the
     // GeoJSON updateDynamicSizes path). flushTilePoints rebakes feat_data +
     // the frame uniform every frame, so resolve the shapes here. These are
@@ -405,52 +422,86 @@ export class PointRenderer {
     let flags = 0
     if (fill) flags |= 1
     if (stroke) flags |= 2
+    // #722 S3 — mirror the inline addLayer flag byte (point-renderer.ts:591-598)
+    // exactly, so tile points honour size-unit / anchor / billboard instead of
+    // collapsing to center-anchored, pixel-sized, always-billboarded. Same
+    // encoding the point shader (map/src/shaders/dsl/point.ts) unpacks off slot
+    // 10: bits 4-7 = size_mode, bit 3 = flat, bits 8-9 = anchor. Default show
+    // (px / center / billboard) yields the identical old fill/stroke-only byte.
+    const unitMap: Record<string, number> = { m: 1, km: 2, deg: 3, nm: 4 }
+    const sizeMode = show.sizeUnit ? (unitMap[show.sizeUnit] ?? 0) : 0
+    if (show.billboard === false) flags |= 8  // bit 3 = flat
+    flags |= (sizeMode << 4)
+    // Anchor mode: bits 8-9 (0=center, 1=bottom, 2=top)
+    const anchorMap = { center: 0, bottom: 1, top: 2 } as const
+    flags |= (anchorMap[show.anchor ?? 'center']) << 8
 
-    // Phase 2 PR 2d.2 — ECEF DSFUN: one world copy (ECEF is absolute,
-    // no Mercator world-wrapping needed).
+    // #722 S1 — route the tile path through the shared world-copy fan-out
+    // (fixes #17: tile points hardcoded COPIES=[0] and never replicated to the
+    // flat-Mercator world copies at low zoom, unlike fills/lines/labels). Flat
+    // Mercator (projType 0) fans out to every visible world copy; all other
+    // projections collapse to a single absolute-ECEF world (no wrap).
     const STRIDE = 24
-    const COPIES = [0]
+    const COPIES = pointWorldCopies(projType, camera, canvasWidth, canvasHeight, dpr)
     const totalN = N * COPIES.length
 
     // iter-249 (Plan AAA B.2) — arena-backed scratch. Pre-iter-249
-    // each flush allocated 3 fresh typed arrays per call; now they
+    // each flush allocated fresh typed arrays per call; now they
     // share one ArrayBuffer that grows to per-session peak.
     this._frameArena.beginFrame()
+    // Per-source-point paint record (stride-24 slots 0-10 style + tileShapeId
+    // at 19). Allocated FIRST so it stays valid if a later alloc grows the arena;
+    // the packer reads it as `srcFeatData`, fans it out per world copy, and
+    // fills the position slots (11-18 ECEF+abs, 20-23 Mercator). #722 S2 threads
+    // the per-layer shape into slot 19 (0 = circle, resolved once above).
+    const src = this._frameArena.allocF32(N * STRIDE)
+    for (let i = 0; i < N; i++) {
+      const so = i * STRIDE
+      // Per-feature size when the layer authors a size expression AND this
+      // point carries its source props; else the constant radius (byte-identical).
+      const pt = this.tilePoints[i]
+      let r = radiusPx
+      if (sizeAst && pt.featProps) {
+        let ev: unknown
+        try {
+          ev = evaluate(sizeAst, makeEvalProps({ props: pt.featProps, geometryType: 'Point', featureId: pt.featId, cameraZoom, cameraPitch }))
+        } catch {
+          ev = radiusPx
+        }
+        r = typeof ev === 'number' ? ev : radiusPx
+      }
+      src[so + 0] = r
+      src[so + 1] = fill ? fill[0] : 0; src[so + 2] = fill ? fill[1] : 0
+      src[so + 3] = fill ? fill[2] : 0; src[so + 4] = fill ? fill[3] * opacity : 0
+      src[so + 5] = stroke ? stroke[0] : 0; src[so + 6] = stroke ? stroke[1] : 0
+      src[so + 7] = stroke ? stroke[2] : 0; src[so + 8] = stroke ? stroke[3] * opacity * tileStrokeOpacity : 0
+      src[so + 9] = strokeWidth; src[so + 10] = flags
+      src[so + 19] = tileShapeId // #722 S2 — per-layer shape (0 = circle)
+    }
+
     const verts = this._frameArena.allocF32(totalN * 4 * 4)
     const indices = this._frameArena.allocU32(totalN * 6)
     const featData = this._frameArena.allocF32(totalN * STRIDE)
     const u32View = new Uint32Array(verts.buffer, verts.byteOffset, verts.length)
 
-    for (let i = 0; i < N; i++) {
-      const pt = this.tilePoints[i]
-
-      const base = i * 4 * 4
-      for (let q = 0; q < 4; q++) {
-        const off = base + q * 4
-        verts[off] = 0; verts[off + 1] = 0; u32View[off + 2] = q; verts[off + 3] = i
-      }
-
-      const iBase = i * 6, vBase = i * 4
-      indices[iBase] = vBase; indices[iBase+1] = vBase+1; indices[iBase+2] = vBase+2
-      indices[iBase+3] = vBase; indices[iBase+4] = vBase+2; indices[iBase+5] = vBase+3
-
-      const fOff = i * STRIDE
-      featData[fOff+0] = radiusPx
-      featData[fOff+1] = fill?fill[0]:0; featData[fOff+2] = fill?fill[1]:0
-      featData[fOff+3] = fill?fill[2]:0; featData[fOff+4] = fill?fill[3]*opacity:0
-      featData[fOff+5] = stroke?stroke[0]:0; featData[fOff+6] = stroke?stroke[1]:0
-      featData[fOff+7] = stroke?stroke[2]:0; featData[fOff+8] = stroke?stroke[3]*opacity*tileStrokeOpacity:0
-      featData[fOff+9] = strokeWidth; featData[fOff+10] = flags
-      // ECEF DSFUN: pos_h.xyz at 11-13, pos_l.xyz at 14-16, abs_lon at 17, abs_lat at 18, shape_id at 19
-      featData[fOff+11] = pt.exH; featData[fOff+12] = pt.eyH; featData[fOff+13] = pt.ezH
-      featData[fOff+14] = pt.exL; featData[fOff+15] = pt.eyL; featData[fOff+16] = pt.ezL
-      featData[fOff+17] = pt.absLon; featData[fOff+18] = pt.absLat
-      featData[fOff+19] = 0 // shape_id (circle default for tile points)
-      // Absolute Mercator DSFUN at 20-23 — precise flat-Mercator position so
-      // the flat-Merc VS no longer reprojects the lossy abs_lon/abs_lat.
-      featData[fOff+20] = pt.mxH; featData[fOff+21] = pt.mxL
-      featData[fOff+22] = pt.myH; featData[fOff+23] = pt.myL
-    }
+    // Assemble the fan-out + quad verts/indices + per-copy position via the
+    // shared stateless packer (#722). The tile record arrives with the
+    // compiler's pre-split DSFUN (ECEF + abs lon/lat copy-independent, Mercator
+    // re-split per copy). isTranslucent:false keeps the former tile behaviour
+    // (feature-order indices, no back-to-front sort) byte-identical; the
+    // pipeline-variant translucency (tileIsTranslucent below) is a separate
+    // concern (no-depth-write pass), not a CPU sort.
+    packPointInstances(
+      {
+        count: N,
+        copies: COPIES,
+        isTranslucent: false,
+        fwdX: 0, fwdY: 0,
+        srcFeatData: src,
+        position: { kind: 'presplit', points: this.tilePoints },
+      },
+      { verts, u32: u32View, idx: indices, feat: featData, depths: null },
+    )
 
     // Defer destroy of the previous frame's buffers — see
     // retiredTilePointBuffers comment. Drained at the start of the
@@ -769,7 +820,6 @@ export class PointRenderer {
     const uf = this.uniformData
 
     const DEG2RAD = Math.PI / 180
-    const R_MERC = 6378137 // web-Mercator sphere radius (matches the tiler packer)
 
     const STRIDE = 24
     // Flat Mercator (projType 0) fans out to all visible world copies so
@@ -803,87 +853,26 @@ export class PointRenderer {
       const expandedIdx = this._frameArena.allocU32(totalPoints * 6)
       const u32Verts = new Uint32Array(expandedVerts.buffer, expandedVerts.byteOffset, expandedVerts.length)
 
-      // Pre-compute each instance's view-forward depth so we can write
-      // the index buffer in back-to-front order. Only translucent layers
-      // actually need this (opaque depth-test handles occlusion); for
-      // opaque we skip the sort and keep feature-index order.
+      // Depth-sort keys for translucent layers only (opaque uses feature
+      // order — the depth test handles occlusion). Allocated by this method
+      // (arena-backed) and filled by the packer.
       const depths = layer.isTranslucent ? this._frameArena.allocF32(totalPoints) : null
-      const order = layer.isTranslucent ? this._frameArena.allocU32(totalPoints) : null
 
-      for (let w = 0; w < COPIES.length; w++) {
-        const basePoint = w * N
-
-        for (let i = 0; i < N; i++) {
-          const lon = layer.lons[i]
-          const lat = layer.lats[i]
-
-          // ECEF DSFUN: absolute ECEF with hi/lo split around origin.
-          const ecef = lonLatToECEF(lon, lat)
-          const exH = Math.fround(ecef[0]); const exL = ecef[0] - exH
-          const eyH = Math.fround(ecef[1]); const eyL = ecef[1] - eyH
-          const ezH = Math.fround(ecef[2]); const ezL = ecef[2] - ezH
-
-          // Copy style data from original (slots 0-10)
-          const srcOff = i * STRIDE
-          const globalIdx = basePoint + i
-          const dstOff = globalIdx * STRIDE
-          expandedFeat.set(layer.featData.subarray(srcOff, srcOff + 11), dstOff)
-          // ECEF DSFUN at slots 11-16, abs_lon/lat at 17-18, shape_id at 19
-          expandedFeat[dstOff + 11] = exH; expandedFeat[dstOff + 12] = eyH; expandedFeat[dstOff + 13] = ezH
-          expandedFeat[dstOff + 14] = exL; expandedFeat[dstOff + 15] = eyL; expandedFeat[dstOff + 16] = ezL
-          expandedFeat[dstOff + 17] = lon; expandedFeat[dstOff + 18] = lat
-          expandedFeat[dstOff + 19] = layer.featData[srcOff + 19] // shape_id
-          // Absolute Mercator DSFUN (20-23) — precise flat-Mercator position.
-          // For world copies (projType 0) apply a per-copy longitude offset
-          // of wo*360° in Mercator metres so the point appears in every visible
-          // world repeat.  The ECEF/abs_lon branches above are copy-independent
-          // (absolute 3D position) and are left unchanged.
-          const wo = COPIES[w]
-          const mx = worldCopyMercX(lon, wo)
-          const myClamp = Math.max(-85.051129, Math.min(85.051129, lat))
-          const my = Math.log(Math.tan(Math.PI / 4 + myClamp * DEG2RAD / 2)) * R_MERC
-          const mxH = Math.fround(mx); const myH = Math.fround(my)
-          expandedFeat[dstOff + 20] = mxH; expandedFeat[dstOff + 21] = Math.fround(mx - mxH)
-          expandedFeat[dstOff + 22] = myH; expandedFeat[dstOff + 23] = Math.fround(my - myH)
-
-          // Build quad vertices
-          const vBase = globalIdx * 4 * 4
-          for (let q = 0; q < 4; q++) {
-            const off = vBase + q * 4
-            expandedVerts[off + 0] = 0
-            expandedVerts[off + 1] = 0
-            u32Verts[off + 2] = q
-            expandedVerts[off + 3] = globalIdx
-          }
-
-          // Depth sort key: use ECEF z-component as a proxy for back-to-front.
-          // (more negative ez_h = further from viewer in most projections)
-          if (depths && order) {
-            depths[globalIdx] = exH * fwdX + eyH * fwdY
-            order[globalIdx] = globalIdx
-          } else {
-            // Feature-order indices for opaque layers.
-            const iBase = globalIdx * 6
-            const vIdx = globalIdx * 4
-            expandedIdx[iBase] = vIdx; expandedIdx[iBase + 1] = vIdx + 1; expandedIdx[iBase + 2] = vIdx + 2
-            expandedIdx[iBase + 3] = vIdx; expandedIdx[iBase + 4] = vIdx + 2; expandedIdx[iBase + 5] = vIdx + 3
-          }
-        }
-      }
-
-      // Back-to-front: larger depth first. Sorted order[p] gives the
-      // globalIdx to emit at draw position p.
-      if (depths && order) {
-        const arr = Array.from(order)
-        arr.sort((a, b) => depths[b] - depths[a])
-        for (let p = 0; p < totalPoints; p++) {
-          const globalIdx = arr[p]
-          const iBase = p * 6
-          const vIdx = globalIdx * 4
-          expandedIdx[iBase] = vIdx; expandedIdx[iBase + 1] = vIdx + 1; expandedIdx[iBase + 2] = vIdx + 2
-          expandedIdx[iBase + 3] = vIdx; expandedIdx[iBase + 4] = vIdx + 2; expandedIdx[iBase + 5] = vIdx + 3
-        }
-      }
+      // Assemble the stride-24 records + world-copy fan-out + quad verts/indices
+      // + (translucent) back-to-front depth-sorted order via the shared stateless
+      // packer (#722 S0). Byte-identical to the former inline loop; this method
+      // still owns the arena allocation above + the GPU buffer create/write below.
+      packPointInstances(
+        {
+          count: N,
+          copies: COPIES,
+          isTranslucent: layer.isTranslucent,
+          fwdX, fwdY,
+          srcFeatData: layer.featData,
+          position: { kind: 'lonlat', lons: layer.lons, lats: layer.lats },
+        },
+        { verts: expandedVerts, u32: u32Verts, idx: expandedIdx, feat: expandedFeat, depths },
+      )
 
       // Reuse or recreate GPU buffers sized for 3× points. VERTEX|COPY_DST /
       // INDEX|COPY_DST / STORAGE|COPY_DST, byte-identical via bufUsage(usage,

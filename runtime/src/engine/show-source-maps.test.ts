@@ -20,6 +20,7 @@ type MinimalShow = {
   targetName: string
   sourceLayer?: string
   filterExpr?: { ast: unknown } | null
+  sizeExpr?: { ast: unknown } | null
   label?: unknown
   shaderVariant?: { needsFeatureBuffer?: boolean; featureFields?: string[] }
   extrude?: { kind: string; expr?: { ast: unknown } } | undefined
@@ -403,6 +404,56 @@ describe('buildShowSourceMaps — featurePropKeys field-filter', () => {
     ])
     const slice = showSlicesBySource.get('mystery')![0]!
     expect(slice.needsFeatureProps).toBe(true)
+    expect(slice.featurePropKeys).toEqual([])
+  })
+})
+
+// #722 S4 — DATA-LAYER half. A data-driven POINT size (`show.sizeExpr`) is
+// resolved per feature on the CPU (point-renderer flushTilePoints / VTR's
+// `wantsFeatProps = show.sizeExpr?.ast != null`), so the MVT worker MUST ship
+// featureProps for the source — else `tileData.featureProps` is undefined and
+// every point collapses to the constant `show.size` (exactly what shipped for
+// gradient_points `size-[sqrt(.pop_max)/120]`: the cities source carried no
+// featureProps). Fail-before: show-source-maps.ts only saw label / shaderVariant
+// on the needsFeatureProps gate, so a size-only show stayed false and pop_max
+// never entered featurePropKeys.
+describe('buildShowSourceMaps — #722 S4 data-driven point size', () => {
+  // Real AST shape for gradient_points `size-[sqrt(.pop_max)/120]`: the
+  // compiler emits this as show.sizeExpr (emit-commands.ts:542 sets sizeExpr
+  // iff node.size.kind === 'data-driven'). Uses the same FieldAccess builder
+  // (`fld`) the label tests use, so collectFieldsStrict walks it identically.
+  const sizeSqrtPop = {
+    ast: {
+      kind: 'BinaryExpr' as const,
+      op: '/',
+      left: {
+        kind: 'FnCall' as const,
+        callee: { kind: 'Identifier' as const, name: 'sqrt' },
+        args: [fld('pop_max')],
+      },
+      right: { kind: 'NumberLiteral' as const, value: 120 },
+    },
+  }
+
+  it('data-driven point size → needsFeatureProps true + size field shipped', () => {
+    const { showSlicesBySource } = buildShowSourceMaps([
+      show({ targetName: 'cities', sizeExpr: sizeSqrtPop }),
+    ])
+    const slice = showSlicesBySource.get('cities')![0]!
+    // fail-before: needsFeatureProps stayed false (gate only saw label/variant).
+    expect(slice.needsFeatureProps, 'S4: data-driven point size must ship featureProps').toBe(true)
+    // fail-before: featurePropKeys was [] so the worker never cloned pop_max.
+    expect(slice.featurePropKeys, 'size expr field pop_max must be cloned').toContain('pop_max')
+  })
+
+  it('constant point size (no sizeExpr) ships no featureProps — byte-identical', () => {
+    // Negative control: without a size expression the byte-identical constant
+    // path must NOT force featureProps (avoids the 309 ms/msg clone regression).
+    const { showSlicesBySource } = buildShowSourceMaps([
+      show({ targetName: 'cities' }),
+    ])
+    const slice = showSlicesBySource.get('cities')![0]!
+    expect(slice.needsFeatureProps).toBe(false)
     expect(slice.featurePropKeys).toEqual([])
   })
 })

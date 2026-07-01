@@ -228,8 +228,15 @@ export function buildShowSourceMaps(shows: readonly ShowCommand[]): ShowSourceMa
     // shaderVariant gate, merge-layers' compound fill (e.g. OFM Bright
     // landuse `class` match) ships a variant that indexes feat_data[fid]
     // but the buffer is empty because the worker dropped featureProps.
+    // #722 S4: a data-driven point size (show.sizeExpr — the compiler emits it
+    // iff the size shape is data-driven, emit-commands.ts:542) is resolved per
+    // feature on the CPU (point-renderer flushTilePoints / VTR wantsFeatProps
+    // both gate on `show.sizeExpr?.ast != null`). Mirror that gate here or the
+    // point source ships no featureProps and every point collapses to the
+    // constant `show.size` — the S4 data-layer gap the runtime half couldn't fix.
     const needsFeatureProps = show.label !== undefined
       || show.shaderVariant?.needsFeatureBuffer === true
+      || show.sizeExpr?.ast != null
     const ex = (show as { extrude?: { kind?: string } }).extrude
     const needsExtrude = !!ex && ex.kind !== 'none' && ex.kind !== undefined
     // Compute the fields THIS show reads so the worker clones only those.
@@ -241,20 +248,26 @@ export function buildShowSourceMaps(shows: readonly ShowCommand[]): ShowSourceMa
     const sliceFields = fieldSetsBySlice.get(sliceKey)
     if (sliceFields !== null) {
       const acc: Set<string> = sliceFields ?? new Set<string>()
+      let poison = false
       if (show.shaderVariant?.needsFeatureBuffer === true) {
         for (const f of show.shaderVariant.featureFields) acc.add(f)
       }
-      if (show.label !== undefined) {
-        const labelFields = collectLabelFields(show.label)
-        if (labelFields === null) {
-          fieldSetsBySlice.set(sliceKey, null)
-        } else {
-          for (const f of labelFields) acc.add(f)
-          fieldSetsBySlice.set(sliceKey, acc)
-        }
-      } else {
-        fieldSetsBySlice.set(sliceKey, acc)
+      // #722 S4: data-driven point size fields — the CPU point path resolves
+      // show.sizeExpr per feature, so the worker must clone its referenced
+      // fields (e.g. gradient_points `size-[sqrt(.pop_max)/120]` → pop_max).
+      // Same null-poisoning rule as the label text-size below: an un-
+      // introspectable size AST falls back to full props so a field is never lost.
+      if (show.sizeExpr?.ast != null) {
+        const sizeFields = collectFieldsStrict(show.sizeExpr.ast as import('@xgis/compiler').Expr)
+        if (sizeFields === null) poison = true
+        else for (const f of sizeFields) acc.add(f)
       }
+      if (!poison && show.label !== undefined) {
+        const labelFields = collectLabelFields(show.label)
+        if (labelFields === null) poison = true
+        else for (const f of labelFields) acc.add(f)
+      }
+      fieldSetsBySlice.set(sliceKey, poison ? null : acc)
     }
     const existing = list.find(s => s.sliceKey === sliceKey)
     if (existing) {
