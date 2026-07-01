@@ -28,7 +28,7 @@
 
 import type { ComputeKernel, ComputePlanEntry } from '@xgis/compiler'
 import { ComputeDispatcher } from '@xgis/engine'
-import { packFeatureData, type FeaturePropertyBag } from './compute-feature-packer'
+import { packFeatureData, type FeaturePropertyBag } from '@xgis/map'
 
 /** One unique-kernel's GPU resources. Entries that share a kernel
  *  reference (compute-plan dedup, P4-6) share these buffers — the

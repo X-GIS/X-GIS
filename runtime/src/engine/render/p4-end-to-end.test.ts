@@ -43,7 +43,7 @@ import type { PropertyShape } from '@xgis/compiler'
 import { nodeToWgslString } from '@xgis/compiler'
 import { ComputeDispatcher } from '@xgis/engine'
 import { TileComputeResources } from './tile-compute-resources'
-import { packFeatureData } from './compute-feature-packer'
+import { packFeatureData } from '@xgis/map'
 
 beforeAll(() => {
   if (typeof globalThis.GPUBufferUsage === 'undefined') {

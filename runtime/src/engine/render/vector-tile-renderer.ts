@@ -35,9 +35,9 @@ import {
   type TileDecision,
 } from '../tile-decision'
 import { PrefetchScheduler } from './prefetch-scheduler'
-import { LabelFeatureSource } from './label-feature-source'
+import { LabelFeatureSource } from '@xgis/map'
 import { FrameDrawStats } from '@xgis/engine'
-import { TileSelectionCache } from './tile-selection-cache'
+import { TileSelectionCache } from '@xgis/map'
 import { FeatureDataBinder } from './feature-data-binder'
 import { GpuTileStore } from './gpu-tile-store'
 import type { WebGpuDevice } from '@xgis/engine'

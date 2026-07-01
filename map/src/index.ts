@@ -52,3 +52,10 @@ export * from './render/__vertex-format-crosscheck'
 export * from './debug-flags'
 // P3 Phase-2 Batch M1 — data-driven / heatmap color-ramp GPU texture builder (content).
 export * from './color-ramp'
+// P3 Phase-2 Batch B1 — leaf content machinery (compose/blur pipeline builders, compute-kernel
+// feat_data packer, label feature source, tile-selection cache) deep-imported cross-package by
+// still-in-runtime VTR / pipeline-factory (pruned to the public API in Step 8).
+export * from './render/compose-pipelines'
+export * from './render/compute-feature-packer'
+export * from './render/label-feature-source'
+export * from './render/tile-selection-cache'

@@ -496,15 +496,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // screen offset into both addCurvedLineLabel call sites. The growth is the
   // lineId derivation + its load-bearing rationale comment at the dispatch site.
   'runtime/src/engine/render/passes/label-pass.ts': 1366,
-  // VTR Unit-1 extraction (Cluster E-selection). The hysteresis +
-  // readiness-gate logic was moved VERBATIM (plan §5 DO-NOT-SPLIT #2),
-  // and its hard-won fix-history comments carry the bulk of the LOC —
-  // just over the 800 cap. Baselined here; shrink as comments distil.
-  // Bumped 858→861 (globe pole-tile fix): sphere-family selection now reads the
-  // true centerLatDeg instead of the Mercator-saturated centerY so the selected
-  // tile set matches the rendered sphere past ±85.051° — a 3-line rationale
-  // comment (the ternary itself is net-zero over the prior single line).
-  'runtime/src/engine/render/tile-selection-cache.ts': 861,
+  // tile-selection-cache.ts relocated to @xgis/map (map/src/render/tile-selection-cache.ts)
+  // in P3 Phase 2 Batch B1 — no longer under a SRC_DIRS walk, so its LOC ceiling leaves this
+  // runtime ratchet (mirrors the camera.ts → @xgis/engine precedent above; package-level LOC
+  // ratchets for map/engine are a tracked post-Gate-6 follow-up).
   // renderer.ts Unit-1 extraction (PipelineFactory) — the pipeline /
   // bind-group-layout / atlas-stub construction + the three per-variant
   // builders (createVariantPipelines + createVariantPipelinesAsync +

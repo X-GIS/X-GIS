@@ -8,9 +8,9 @@
 
 import { HEATMAP_DENSITY_FORMAT, BLEND_ALPHA } from '@xgis/engine'
 import { emitOverdrawComposeWgsl } from '@xgis/engine'
-import { emitHeatmapBlurWgsl } from '@xgis/map'
-import { emitHeatmapComposeWgsl } from '@xgis/map'
-import { emitOitComposeWgsl } from '@xgis/map'
+import { emitHeatmapBlurWgsl } from '../shaders/dsl/heatmap-blur'
+import { emitHeatmapComposeWgsl } from '../shaders/dsl/heatmap-compose'
+import { emitOitComposeWgsl } from '../shaders/dsl/oit-compose'
 
 interface BuiltPipeline { pipeline: GPURenderPipeline; layout: GPUBindGroupLayout }
 

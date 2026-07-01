@@ -14,7 +14,7 @@
 // `source`, `stableKeys`, and `neededKeys` in as parameters because VTR
 // owns those, not this collaborator.
 
-import { bumpAlloc } from '@xgis/map'
+import { bumpAlloc } from '../__profile__/alloc-counter'
 import { FrameArena } from '@xgis/engine'
 import type { TileCatalog } from '@xgis/data'
 

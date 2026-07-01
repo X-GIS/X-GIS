@@ -54,7 +54,7 @@ import {
   buildComputeBindGroupEntries,
   type ComputeBindEntry,
 } from '@xgis/engine'
-import type { FeaturePropertyBag } from './compute-feature-packer'
+import type { FeaturePropertyBag } from '@xgis/map'
 
 /** One layer's compute lifecycle. Construct once per addLayer when
  *  the variant has computeBindings; call uploadFromProps when
