@@ -1254,11 +1254,10 @@ function processZoomLevelShared(
         if (Math.abs(polyArea - tileArea) / tileArea < 1e-6) {
           fullCover = true
           fullCoverFeatId = [...tilePolyFeatureIds][0]
-          // Clear polygon data — client will generate a quad
-          scratch.pv.length = 0
-          scratch.pi.length = 0
-          scratch.olv.length = 0
-          scratch.oli.length = 0
+          // #716 — keep the covering-rect polygon geometry (do NOT clear). The synthesised client
+          // quad never received the data-driven per-feature colour, so match()/gradient() fills went
+          // BLACK over large-polygon interiors. Keeping the ~4-vertex rect renders identically for
+          // constant fills and correctly (per-feature colour) for data-driven. See compileSingleTile.
         }
       }
 
@@ -1393,12 +1392,11 @@ export function compileSingleTile(
     if (tileArea > 0 && Math.abs(polyArea - tileArea) / tileArea < 1e-6) {
       fullCover = true
       fullCoverFeatId = tilePolygons[0].featId
-      // Clear polygon + outline scratch — client will generate a quad.
-      // Keep line/point scratch: those render independently.
-      scratch.pv.length = 0
-      scratch.pi.length = 0
-      scratch.olv.length = 0
-      scratch.oli.length = 0
+      // #716 — DO NOT clear the polygon scratch. Dropping the covering-rect geometry to let the
+      // client synthesise a quad saved ~100 B/tile but the quad never got the data-driven per-feature
+      // colour, so match()/gradient() fills rendered BLACK over large-polygon interiors (control test:
+      // constant 100%, data-driven 0%). Keeping the ~4-vertex covering rect renders identically for
+      // constant fills and correctly (per-feature colour) for data-driven — same path as edge tiles.
     }
   }
 
