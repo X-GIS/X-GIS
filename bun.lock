@@ -65,6 +65,7 @@
       },
       "devDependencies": {
         "@xgis/compiler": "workspace:*",
+        "@xgis/data": "workspace:*",
         "@xgis/engine": "workspace:*",
         "@xgis/shader-dsl": "workspace:*",
         "@xgis/shared": "workspace:*",
@@ -103,6 +104,7 @@
       },
       "devDependencies": {
         "@xgis/compiler": "workspace:*",
+        "@xgis/data": "workspace:*",
         "@xgis/engine": "workspace:*",
         "@xgis/map": "workspace:*",
         "@xgis/shader-dsl": "workspace:*",

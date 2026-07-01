@@ -30,6 +30,7 @@
   },
   "devDependencies": {
     "@xgis/compiler": "workspace:*",
+    "@xgis/data": "workspace:*",
     "@xgis/engine": "workspace:*",
     "@xgis/map": "workspace:*",
     "@xgis/shader-dsl": "workspace:*",

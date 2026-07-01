@@ -33,7 +33,7 @@ import { getSharedMvtPool, type MvtWorkerPool } from '../workers/mvt-worker-pool
 import { evalFilterExpr } from '../eval/filter-eval'
 import {
   PriorityQueue, PriorityQueueItemRemovedError,
-} from '../../core/priority-queue'
+} from '@xgis/shared'
 import type {
   PMTilesFetcher, PMTilesBackendOptions,
 } from './pmtiles-backend-types'

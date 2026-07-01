@@ -32,7 +32,7 @@
 
 import { GPUArena } from '@xgis/engine'
 import { StagingBufferPool, asyncWriteBuffer } from '@xgis/engine'
-import { PriorityQueue, PriorityQueueItemRemovedError } from '../../core/priority-queue'
+import { PriorityQueue, PriorityQueueItemRemovedError } from '@xgis/shared'
 import { buildLineSegments, type LineRenderer } from './line-renderer'
 import { generateWallMeshExtrudedECEF } from '../../core/polygon-mesh'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '@xgis/map'

@@ -9,7 +9,7 @@
 //     staging pool's SwiftShader direct-write fallback (no GPU needed).
 
 import { beforeAll, describe, expect, it, vi } from 'vitest'
-import { PriorityQueue } from '../../core/priority-queue'
+import { PriorityQueue } from '@xgis/shared'
 import { UploadCoordinator, type UploadHost, type UploadStore } from './upload-coordinator'
 import type { StagingBufferPool } from '@xgis/engine'
 import type { TileData } from '../../data/tile-types'
