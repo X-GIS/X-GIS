@@ -365,7 +365,7 @@ export class PointRenderer {
     projCenterLat: number,
     canvasWidth: number,
     canvasHeight: number,
-    show: { fill?: string | null; stroke?: string | null; strokeWidth?: number; size?: number | null; shape?: string | null; opacity?: number; circleTranslateX?: number; circleTranslateY?: number; circleBlur?: number; circlePitchScaleMap?: boolean; circleTranslateXShape?: import('@xgis/compiler').PropertyShape<number> | null; circleTranslateYShape?: import('@xgis/compiler').PropertyShape<number> | null; circleStrokeOpacityShape?: import('@xgis/compiler').PropertyShape<number> | null },
+    show: { fill?: string | null; stroke?: string | null; strokeWidth?: number; size?: number | null; shape?: string | null; sizeUnit?: string | null; anchor?: 'center' | 'bottom' | 'top'; billboard?: boolean; opacity?: number; circleTranslateX?: number; circleTranslateY?: number; circleBlur?: number; circlePitchScaleMap?: boolean; circleTranslateXShape?: import('@xgis/compiler').PropertyShape<number> | null; circleTranslateYShape?: import('@xgis/compiler').PropertyShape<number> | null; circleStrokeOpacityShape?: import('@xgis/compiler').PropertyShape<number> | null },
     dpr: number = 1,
   ): void {
     if (this.tilePoints.length === 0) return
@@ -401,6 +401,19 @@ export class PointRenderer {
     let flags = 0
     if (fill) flags |= 1
     if (stroke) flags |= 2
+    // #722 S3 — mirror the inline addLayer flag byte (point-renderer.ts:591-598)
+    // exactly, so tile points honour size-unit / anchor / billboard instead of
+    // collapsing to center-anchored, pixel-sized, always-billboarded. Same
+    // encoding the point shader (map/src/shaders/dsl/point.ts) unpacks off slot
+    // 10: bits 4-7 = size_mode, bit 3 = flat, bits 8-9 = anchor. Default show
+    // (px / center / billboard) yields the identical old fill/stroke-only byte.
+    const unitMap: Record<string, number> = { m: 1, km: 2, deg: 3, nm: 4 }
+    const sizeMode = show.sizeUnit ? (unitMap[show.sizeUnit] ?? 0) : 0
+    if (show.billboard === false) flags |= 8  // bit 3 = flat
+    flags |= (sizeMode << 4)
+    // Anchor mode: bits 8-9 (0=center, 1=bottom, 2=top)
+    const anchorMap = { center: 0, bottom: 1, top: 2 } as const
+    flags |= (anchorMap[show.anchor ?? 'center']) << 8
 
     // #722 S1 — route the tile path through the shared world-copy fan-out
     // (fixes #17: tile points hardcoded COPIES=[0] and never replicated to the
