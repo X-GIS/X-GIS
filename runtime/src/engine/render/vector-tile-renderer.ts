@@ -11,7 +11,7 @@ import { variantProducesFill } from './renderer-helpers'
 import { polygonUniformSlots, polygonUniformBytes, polygonUniformStride } from '@xgis/map'
 import { writeFrameProjectionUniform } from '@xgis/map'
 import { xlog } from '../log'
-import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
+import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '@xgis/map'
 import { recordFillDraw, type FillRhiState } from '@xgis/map'
 
 // f32 slot indices of the polygon 'Uniforms' struct, sourced from reflect() of the SAME

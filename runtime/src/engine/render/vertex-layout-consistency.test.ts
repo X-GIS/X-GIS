@@ -15,7 +15,7 @@ import { describe, it, expect } from 'vitest'
 import { emitPolygonWgsl } from '@xgis/map'
 import { POLYGON_FILL_FORMAT, POLYGON_EXTRUDED_FORMAT } from '@xgis/compiler'
 import { LINE_FORMAT } from '@xgis/map'
-import { specShaderMismatches } from './__vertex-format-crosscheck'
+import { specShaderMismatches } from '@xgis/map'
 
 const SHADER_SRC = emitPolygonWgsl(null, false)
 

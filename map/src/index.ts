@@ -41,3 +41,8 @@ export * from './text/text-resolver'
 export * from './text/sdf/atlas-state'
 export * from './text/sdf/distance-transform'
 export * from './text/sdf/pbf/varint'
+// P3 Batch E — content-side boundary utils (profiling / diagnostics / vertex crosscheck).
+export * from './__profile__/perf-marks'
+export * from './__profile__/alloc-counter'
+export * from './diagnostics/render-trace'
+export * from './render/__vertex-format-crosscheck'

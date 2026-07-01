@@ -26,7 +26,7 @@ import {
 import { GlyphAtlasGPU } from './sdf/glyph-atlas-gpu'
 import { createRasterizer, createMetricsRasterizer, type GlyphRasterizer } from './sdf/glyph-rasterizer'
 import { GlyphPbfCache } from './sdf/pbf/glyph-pbf-cache'
-import { bumpAlloc } from '../__profile__/alloc-counter'
+import { bumpAlloc } from '@xgis/map'
 import { FrameArena } from '@xgis/engine'
 import { InlineGlyphProvider } from './sdf/pbf/inline-glyph-provider'
 import type { GlyphProvider } from './sdf/pbf/glyph-provider'
@@ -55,7 +55,7 @@ import { TextStageDiagnostics } from './text-stage-diagnostics'
 // inner phase dominates (point shape vs curved line layout vs
 // collision vs emit). Sub-marks let the perf harness identify the
 // hottest sub-phase to attack next.
-import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
+import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '@xgis/map'
 
 // Re-export the previously-`export`ed types so the public surface of
 // this module stays byte-identical after the text-stage-types.ts split.
@@ -425,10 +425,10 @@ export class TextStage {
    *  Distinct from the older `_debugHook`, which only carries the
    *  (text, x, y, kind) tuple — kept for back-compat with the
    *  `#labels-debug` URL flag. Both can be active simultaneously. */
-  setTraceRecorder(recorder: import('../../diagnostics/render-trace').RenderTraceRecorder | null): void {
+  setTraceRecorder(recorder: import('@xgis/map').RenderTraceRecorder | null): void {
     this._traceRecorder = recorder
   }
-  private _traceRecorder: import('../../diagnostics/render-trace').RenderTraceRecorder | null = null
+  private _traceRecorder: import('@xgis/map').RenderTraceRecorder | null = null
 
   /** Optional per-call hook fired once per addLabel /
    *  addCurvedLineLabel submission BEFORE collision. The hook receives

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { emitIconWgsl } from '@xgis/map'
 import { ICON_FORMAT } from '@xgis/map'
-import { specShaderMismatches } from '../render/__vertex-format-crosscheck'
+import { specShaderMismatches } from '@xgis/map'
 
 // Single-source guard for the icon sprite vertex format. ICON_FORMAT drives the
 // GPUVertexBufferLayout (icon-renderer.ts) and the packer's float slots; this

@@ -5,7 +5,7 @@ import {
   type RenderTraceRecorder,
   type TraceLayer,
   type TraceLabel,
-} from './render-trace'
+} from '@xgis/map'
 
 describe('InMemoryTraceRecorder', () => {
   it('returns an empty trace before any record calls', () => {

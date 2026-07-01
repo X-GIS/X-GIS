@@ -17,7 +17,7 @@
 
 import type { GlyphAtlasGPU } from './sdf/glyph-atlas-gpu'
 import { FrameArena } from '@xgis/engine'
-import { bumpAlloc } from '../__profile__/alloc-counter'
+import { bumpAlloc } from '@xgis/map'
 import type { TextDraw } from './text-renderer-types'
 import { codePointIsIdeographic } from './text-wrap'
 import { wrapWebGpuPass, wrapWebGpuBindGroupLayout, wrapWebGpuTextureView, wrapWebGpuSampler } from '@xgis/engine'

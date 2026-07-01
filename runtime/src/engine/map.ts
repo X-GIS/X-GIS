@@ -1652,11 +1652,11 @@ export class XGISMap {
    *  layer-level paint state in addition to label metadata, and is
    *  forwarded into the bucket scheduler's `traceRecorder` field on
    *  the next `renderFrame()` via `_pendingTraceRecorder`. */
-  setTraceRecorder(recorder: import('../diagnostics/render-trace').RenderTraceRecorder | null): void {
+  setTraceRecorder(recorder: import('@xgis/map').RenderTraceRecorder | null): void {
     this._pendingTraceRecorder = recorder
     this.textStage?.setTraceRecorder(recorder)
   }
-  _pendingTraceRecorder: import('../diagnostics/render-trace').RenderTraceRecorder | null = null
+  _pendingTraceRecorder: import('@xgis/map').RenderTraceRecorder | null = null
 
   /** One-shot helper: attaches a fresh recorder, waits TWO requestAnimationFrame
    *  ticks (the first ensures any in-flight frame settles, the second
@@ -1664,8 +1664,8 @@ export class XGISMap {
    *  Used by e2e invariant tests via `window.__xgisMap.captureNextFrameTrace()`
    *  so test code doesn't have to import the recorder class through the
    *  page context. */
-  async captureNextFrameTrace(): Promise<import('../diagnostics/render-trace').FrameTrace> {
-    const { createTraceRecorder } = await import('../diagnostics/render-trace')
+  async captureNextFrameTrace(): Promise<import('@xgis/map').FrameTrace> {
+    const { createTraceRecorder } = await import('@xgis/map')
     const recorder = createTraceRecorder()
     this.setTraceRecorder(recorder)
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))

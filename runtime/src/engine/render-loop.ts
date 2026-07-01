@@ -16,7 +16,7 @@
 // unchanged.
 
 import { xlog } from './log'
-import { markStart as perfMarkStart, markEnd as perfMarkEnd, flushPerFrameMarks } from './__profile__/perf-marks'
+import { markStart as perfMarkStart, markEnd as perfMarkEnd, flushPerFrameMarks } from '@xgis/map'
 import { mercatorYToLat } from '@xgis/engine'
 import { PROJECTION_NAME_TO_TYPE, isGlobeProj, promotesToGlobeWhenTilted, poleLimit } from '@xgis/engine'
 import { resizeCanvas, effectiveDpr, getSampleCount, isPickEnabled } from '@xgis/engine'

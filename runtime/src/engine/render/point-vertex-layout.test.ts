@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { emitPointWgsl } from '@xgis/map'
 import { POINT_FORMAT } from '@xgis/map'
-import { specShaderMismatches } from './__vertex-format-crosscheck'
+import { specShaderMismatches } from '@xgis/map'
 
 // Single-source guard for the point vertex format. POINT_FORMAT drives the
 // GPUVertexBufferLayout (point-renderer.ts) and the packer's float slots; this

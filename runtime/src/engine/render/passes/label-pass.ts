@@ -16,7 +16,7 @@
 // here (label-node-local state, no longer a FrameContext field).
 
 import { evaluate, makeEvalProps, resolveColor } from '@xgis/compiler'
-import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../../__profile__/perf-marks'
+import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '@xgis/map'
 import { DEBUG_OVERDRAW } from '../../debug-flags'
 import { WORLD_MERC, TILE_PX } from '@xgis/engine'
 import { mercatorYToLat } from '@xgis/engine'

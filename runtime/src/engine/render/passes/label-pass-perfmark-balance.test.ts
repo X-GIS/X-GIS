@@ -23,7 +23,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import {
   markStart, markEnd, getPhaseAverages, resetPhaseTimings, setPerfMarksEnabled,
-} from '../../__profile__/perf-marks'
+} from '@xgis/map'
 
 beforeEach(() => {
   setPerfMarksEnabled(true)
