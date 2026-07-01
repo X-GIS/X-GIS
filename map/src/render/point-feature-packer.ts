@@ -2,10 +2,15 @@
 //
 // Single authority for assembling the per-point stride-24 `feat_data` record,
 // the world-copy fan-out, the per-instance quad verts/indices, and the
-// translucent back-to-front depth sort. Extracted from PointRenderer so the
-// inline GeoJSON path (PointRenderer.uploadLayer) and — in later stages — the
-// tile path (flushTilePoints) share ONE record-assembly authority instead of
-// two hand-mirrored copies.
+// translucent back-to-front depth sort. Shared by BOTH point paths:
+//   • inline GeoJSON  (PointRenderer.uploadLayer) — `{ kind: 'lonlat' }`
+//   • tile / PMTiles  (PointRenderer.flushTilePoints, #722 S1) — `{ kind: 'presplit' }`
+// instead of two hand-mirrored copies. The ONLY per-path divergence is the
+// per-point POSITION source (slots 11-18 ECEF+abs, 20-23 Mercator); it is
+// branched ONCE outside the loop via the `PackPointPosition` discriminated
+// union (never a per-point callback — the hot loop stays allocation-free of
+// closures). Style slots (0-10) + shape_id (19), the quad verts/indices, the
+// fan-out and the translucent sort are identical for both.
 //
 // STATELESS pure functions only — no module-level mutable state, no reflect(),
 // no *-uniform-slots. The caller owns the arena allocation + GPU buffer
@@ -21,6 +26,12 @@ export const POINT_FEAT_STRIDE = 24
 
 const DEG2RAD = Math.PI / 180
 const R_MERC = 6378137 // web-Mercator sphere radius (matches the tiler packer)
+/** One full Mercator world-width in metres (2π·R_MERC). This is EXACTLY the
+ *  per-`wo` shift {@link worldCopyMercX} adds (its `wo * 360 * DEG2RAD * R_MERC`
+ *  term), so the inline path (worldCopyMercX) and the tile path
+ *  ({@link mercXForCopy}) place a given point in a given world copy at
+ *  byte-identical Mercator-x. */
+const WORLD_WIDTH = 360 * DEG2RAD * R_MERC
 
 /**
  * Returns the Mercator x (in metres) for a point at `lon` (degrees) in
@@ -31,6 +42,47 @@ const R_MERC = 6378137 // web-Mercator sphere radius (matches the tiler packer)
 export function worldCopyMercX(lon: number, wo: number): number {
   return lon * DEG2RAD * R_MERC + wo * 360 * DEG2RAD * R_MERC
 }
+
+/**
+ * Shift a pre-split absolute-Mercator-x DSFUN pair into world-copy `wo`.
+ * Reconstructs `mx = mxHi + mxLo`, adds `wo * WORLD_WIDTH`, and re-splits with
+ * `Math.fround`. For the tile path (whose points arrive with the compiler's
+ * pre-split Mercator DSFUN) this is the analogue of `worldCopyMercX` for the
+ * inline path: `mercXForCopy(split(merc(lon)), wo)` reconstructs to
+ * `worldCopyMercX(lon, wo)`. At `wo = 0` it round-trips the input pair
+ * byte-identically over the Mercator-x domain, so the single-visible-copy
+ * (high-zoom) tile path stays byte-identical to the legacy direct write.
+ */
+export function mercXForCopy(mxHi: number, mxLo: number, wo: number): [number, number] {
+  const mx = mxHi + mxLo + wo * WORLD_WIDTH
+  const hi = Math.fround(mx)
+  return [hi, Math.fround(mx - hi)]
+}
+
+/**
+ * A tile point carrying the compiler's pre-split DSFUN (structural subset of
+ * `PointRenderer.tilePoints[i]`). ECEF (`exH…ezL`) and abs lon/lat are
+ * world-copy-INDEPENDENT (absolute 3D position); only Mercator-x shifts per
+ * copy. Passed through the packer unchanged except for the per-copy Mercator-x
+ * re-split via {@link mercXForCopy}.
+ */
+export interface TilePointLike {
+  readonly exH: number; readonly eyH: number; readonly ezH: number
+  readonly exL: number; readonly eyL: number; readonly ezL: number
+  readonly absLon: number; readonly absLat: number
+  readonly mxH: number; readonly mxL: number
+  readonly myH: number; readonly myL: number
+}
+
+/**
+ * Per-point POSITION source — the SOLE inline/tile divergence. Branched once
+ * outside the pack loop (never per point) so both paths share every other write.
+ *  • `lonlat`   — inline GeoJSON: ECEF from lon/lat + per-copy `worldCopyMercX`.
+ *  • `presplit` — tile: pass-through pre-split ECEF/abs + per-copy Mercator-x.
+ */
+export type PackPointPosition =
+  | { readonly kind: 'lonlat'; readonly lons: ArrayLike<number>; readonly lats: ArrayLike<number> }
+  | { readonly kind: 'presplit'; readonly points: readonly TilePointLike[] }
 
 /** Immutable per-call inputs to {@link packPointInstances}. */
 export interface PackPointInput {
@@ -45,10 +97,8 @@ export interface PackPointInput {
   readonly fwdY: number
   /** The layer's stride-24 `feat_data` (slots 0-10 style + slot 19 shape_id). */
   readonly srcFeatData: Float32Array
-  /** Per-point longitude (degrees), indexed `[0, count)`. */
-  readonly lons: ArrayLike<number>
-  /** Per-point latitude (degrees), indexed `[0, count)`. */
-  readonly lats: ArrayLike<number>
+  /** Per-point position — `lonlat` (inline) or `presplit` (tile). */
+  readonly position: PackPointPosition
 }
 
 /** Pre-allocated output buffers filled by {@link packPointInstances}. */
@@ -76,7 +126,7 @@ export interface PackPointOutput {
  * follows). The caller owns the arena allocation + GPU buffer create/write.
  */
 export function packPointInstances(input: PackPointInput, out: PackPointOutput): number {
-  const { count: N, copies, isTranslucent, fwdX, fwdY, srcFeatData, lons, lats } = input
+  const { count: N, copies, isTranslucent, fwdX, fwdY, srcFeatData, position } = input
   const { verts, u32, idx, feat, depths } = out
   const S = POINT_FEAT_STRIDE
   const totalPoints = N * copies.length
@@ -86,41 +136,76 @@ export function packPointInstances(input: PackPointInput, out: PackPointOutput):
   // depth-test handles occlusion); for opaque we keep feature-index order.
   const order = isTranslucent ? new Uint32Array(totalPoints) : null
 
+  // ── Pass 1: POSITION slots (11-16 ECEF, 17-18 abs lon/lat, 20-23 Mercator).
+  // The discriminated position source is branched ONCE here — never per point —
+  // so the hot loop carries no closure/allocation for the per-path math. The
+  // inline (lonlat) branch keeps its exact former arithmetic (byte-identical);
+  // the tile (presplit) branch passes the compiler's pre-split ECEF + abs
+  // lon/lat through unchanged (both copy-independent) and re-splits only
+  // Mercator-x per world copy. ──
+  if (position.kind === 'lonlat') {
+    const { lons, lats } = position
+    for (let w = 0; w < copies.length; w++) {
+      const basePoint = w * N
+      const wo = copies[w]
+      for (let i = 0; i < N; i++) {
+        const lon = lons[i]
+        const lat = lats[i]
+        // ECEF DSFUN: absolute ECEF with hi/lo split around origin.
+        const ecef = lonLatToECEF(lon, lat)
+        const exH = Math.fround(ecef[0]); const exL = ecef[0] - exH
+        const eyH = Math.fround(ecef[1]); const eyL = ecef[1] - eyH
+        const ezH = Math.fround(ecef[2]); const ezL = ecef[2] - ezH
+        const dstOff = (basePoint + i) * S
+        feat[dstOff + 11] = exH; feat[dstOff + 12] = eyH; feat[dstOff + 13] = ezH
+        feat[dstOff + 14] = exL; feat[dstOff + 15] = eyL; feat[dstOff + 16] = ezL
+        feat[dstOff + 17] = lon; feat[dstOff + 18] = lat
+        // Absolute Mercator DSFUN (20-23) — precise flat-Mercator position.
+        // For world copies (projType 0) apply a per-copy longitude offset of
+        // wo*360° in Mercator metres so the point appears in every visible
+        // world repeat. ECEF/abs_lon above are copy-independent.
+        const mx = worldCopyMercX(lon, wo)
+        const myClamp = Math.max(-85.051129, Math.min(85.051129, lat))
+        const my = Math.log(Math.tan(Math.PI / 4 + myClamp * DEG2RAD / 2)) * R_MERC
+        const mxH = Math.fround(mx); const myH = Math.fround(my)
+        feat[dstOff + 20] = mxH; feat[dstOff + 21] = Math.fround(mx - mxH)
+        feat[dstOff + 22] = myH; feat[dstOff + 23] = Math.fround(my - myH)
+      }
+    }
+  } else {
+    const pts = position.points
+    for (let w = 0; w < copies.length; w++) {
+      const basePoint = w * N
+      const wo = copies[w]
+      for (let i = 0; i < N; i++) {
+        const pt = pts[i]
+        const dstOff = (basePoint + i) * S
+        // ECEF DSFUN + abs lon/lat are copy-independent — passed through as-is.
+        feat[dstOff + 11] = pt.exH; feat[dstOff + 12] = pt.eyH; feat[dstOff + 13] = pt.ezH
+        feat[dstOff + 14] = pt.exL; feat[dstOff + 15] = pt.eyL; feat[dstOff + 16] = pt.ezL
+        feat[dstOff + 17] = pt.absLon; feat[dstOff + 18] = pt.absLat
+        // Only Mercator-x shifts per world copy; Mercator-y is copy-independent.
+        const [mxH, mxL] = mercXForCopy(pt.mxH, pt.mxL, wo)
+        feat[dstOff + 20] = mxH; feat[dstOff + 21] = mxL
+        feat[dstOff + 22] = pt.myH; feat[dstOff + 23] = pt.myL
+      }
+    }
+  }
+
+  // ── Pass 2: SHARED slots (0-10 style + 19 shape_id copied from the caller's
+  // per-point source), the per-instance quad verts, and the depth key / opaque
+  // index order — all position-independent. The depth key reads back the ECEF
+  // hi lanes (slots 11/12) Pass 1 wrote, so it stays byte-identical to the
+  // former `exH * fwdX + eyH * fwdY`. ──
   for (let w = 0; w < copies.length; w++) {
     const basePoint = w * N
-
     for (let i = 0; i < N; i++) {
-      const lon = lons[i]
-      const lat = lats[i]
-
-      // ECEF DSFUN: absolute ECEF with hi/lo split around origin.
-      const ecef = lonLatToECEF(lon, lat)
-      const exH = Math.fround(ecef[0]); const exL = ecef[0] - exH
-      const eyH = Math.fround(ecef[1]); const eyL = ecef[1] - eyH
-      const ezH = Math.fround(ecef[2]); const ezL = ecef[2] - ezH
-
-      // Copy style data from original (slots 0-10)
       const srcOff = i * S
       const globalIdx = basePoint + i
       const dstOff = globalIdx * S
+      // Style slots 0-10 + shape_id (19) copied verbatim from the source record.
       feat.set(srcFeatData.subarray(srcOff, srcOff + 11), dstOff)
-      // ECEF DSFUN at slots 11-16, abs_lon/lat at 17-18, shape_id at 19
-      feat[dstOff + 11] = exH; feat[dstOff + 12] = eyH; feat[dstOff + 13] = ezH
-      feat[dstOff + 14] = exL; feat[dstOff + 15] = eyL; feat[dstOff + 16] = ezL
-      feat[dstOff + 17] = lon; feat[dstOff + 18] = lat
-      feat[dstOff + 19] = srcFeatData[srcOff + 19] // shape_id
-      // Absolute Mercator DSFUN (20-23) — precise flat-Mercator position.
-      // For world copies (projType 0) apply a per-copy longitude offset
-      // of wo*360° in Mercator metres so the point appears in every visible
-      // world repeat.  The ECEF/abs_lon branches above are copy-independent
-      // (absolute 3D position) and are left unchanged.
-      const wo = copies[w]
-      const mx = worldCopyMercX(lon, wo)
-      const myClamp = Math.max(-85.051129, Math.min(85.051129, lat))
-      const my = Math.log(Math.tan(Math.PI / 4 + myClamp * DEG2RAD / 2)) * R_MERC
-      const mxH = Math.fround(mx); const myH = Math.fround(my)
-      feat[dstOff + 20] = mxH; feat[dstOff + 21] = Math.fround(mx - mxH)
-      feat[dstOff + 22] = myH; feat[dstOff + 23] = Math.fround(my - myH)
+      feat[dstOff + 19] = srcFeatData[srcOff + 19]
 
       // Build quad vertices
       const vBase = globalIdx * 4 * 4
@@ -135,7 +220,7 @@ export function packPointInstances(input: PackPointInput, out: PackPointOutput):
       // Depth sort key: use ECEF z-component as a proxy for back-to-front.
       // (more negative ez_h = further from viewer in most projections)
       if (depths && order) {
-        depths[globalIdx] = exH * fwdX + eyH * fwdY
+        depths[globalIdx] = feat[dstOff + 11] * fwdX + feat[dstOff + 12] * fwdY
         order[globalIdx] = globalIdx
       } else {
         // Feature-order indices for opaque layers.

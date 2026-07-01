@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { lonLatToECEF } from '@xgis/engine'
-import { packPointInstances, POINT_FEAT_STRIDE, worldCopyMercX } from './point-feature-packer'
+import { packPointInstances, POINT_FEAT_STRIDE, worldCopyMercX, mercXForCopy, type TilePointLike } from './point-feature-packer'
 
 const S = POINT_FEAT_STRIDE
 const DEG2RAD = Math.PI / 180
@@ -46,7 +46,7 @@ describe('point-feature-packer', () => {
     const out = makeOut(count * copies.length, false)
 
     const total = packPointInstances(
-      { count, copies, isTranslucent: false, fwdX: 0, fwdY: 0, srcFeatData: src, lons, lats },
+      { count, copies, isTranslucent: false, fwdX: 0, fwdY: 0, srcFeatData: src, position: { kind: 'lonlat', lons, lats } },
       out,
     )
     expect(total).toBe(4)
@@ -117,7 +117,7 @@ describe('point-feature-packer', () => {
     const src = makeSrc(count)
     const out = makeOut(count, false)
     packPointInstances(
-      { count, copies: [0], isTranslucent: false, fwdX: 0.3, fwdY: -0.7, srcFeatData: src, lons: [0, 10, -10], lats: [0, 45, -45] },
+      { count, copies: [0], isTranslucent: false, fwdX: 0.3, fwdY: -0.7, srcFeatData: src, position: { kind: 'lonlat', lons: [0, 10, -10], lats: [0, 45, -45] } },
       out,
     )
     expect(out.depths).toBeNull()
@@ -137,7 +137,7 @@ describe('point-feature-packer', () => {
     const out = makeOut(count, true)
 
     packPointInstances(
-      { count, copies: [0], isTranslucent: true, fwdX, fwdY, srcFeatData: src, lons, lats },
+      { count, copies: [0], isTranslucent: true, fwdX, fwdY, srcFeatData: src, position: { kind: 'lonlat', lons, lats } },
       out,
     )
     expect(out.depths).not.toBeNull()
@@ -159,6 +159,110 @@ describe('point-feature-packer', () => {
     // Back-to-front: depth non-increasing along the emit order.
     for (let p = 1; p < count; p++) {
       expect(out.depths![drawOrder[p - 1]]).toBeGreaterThanOrEqual(out.depths![drawOrder[p]])
+    }
+  })
+})
+
+// ── #722 S1 — Mercator-x world-copy re-split for the pre-split (tile) path ──
+
+/** Split an f64 into an f32 DSFUN (hi, lo) pair — mirrors the compiler's
+ *  `splitF64` (ecef-packing.ts) so the tile points below carry the SAME
+ *  precision the real tiler emits. */
+function split(x: number): [number, number] {
+  const h = Math.fround(x)
+  return [h, Math.fround(x - h)]
+}
+
+/** Build a pre-split tile point for `lon`/`lat` with the compiler's DSFUN
+ *  precision (Float32Array round-trips guarantee f32 slot values). */
+function makeTilePoint(lon: number, lat: number): TilePointLike {
+  const ecef = lonLatToECEF(lon, lat)
+  const [exH, exL] = split(ecef[0])
+  const [eyH, eyL] = split(ecef[1])
+  const [ezH, ezL] = split(ecef[2])
+  const mx = lon * DEG2RAD * R_MERC
+  const myC = Math.max(-85.051129, Math.min(85.051129, lat))
+  const my = Math.log(Math.tan(Math.PI / 4 + myC * DEG2RAD / 2)) * R_MERC
+  const [mxH, mxL] = split(mx)
+  const [myH, myL] = split(my)
+  return { exH, eyH, ezH, exL, eyL, ezL, absLon: lon, absLat: lat, mxH, mxL, myH, myL }
+}
+
+describe('mercXForCopy (#722 S1 — tile world-copy Mercator-x)', () => {
+  it('reconstructs worldCopyMercX for a sample lon across wo ∈ {-1,0,1}', () => {
+    const lon = 126.977 // Seoul
+    const [mxH, mxL] = split(lon * DEG2RAD * R_MERC)
+    for (const wo of [-1, 0, 1]) {
+      const [hi, lo] = mercXForCopy(mxH, mxL, wo)
+      // The reconstructed hi+lo must match worldCopyMercX(lon, wo) — the
+      // formula the inline path uses — so inline and tile agree per copy.
+      expect(hi + lo).toBeCloseTo(worldCopyMercX(lon, wo), 3)
+    }
+  })
+
+  it('wo=0 round-trips the input DSFUN pair byte-identically', () => {
+    // Guards the high-zoom (single-copy) tile path staying byte-identical to
+    // the legacy direct `featData[..]=pt.mxH/mxL` write.
+    for (const lon of [0, 45, -73.5, 126.977, 179.9, -179.9]) {
+      const [mxH, mxL] = split(lon * DEG2RAD * R_MERC)
+      expect(mercXForCopy(mxH, mxL, 0)).toEqual([mxH, mxL])
+    }
+  })
+})
+
+describe('point-feature-packer — presplit (tile) position source', () => {
+  it('fans out N presplit points × copies; ECEF/abs pass through, Mercator-x shifts per copy', () => {
+    const count = 2
+    const copies = [0, 1, -1]
+    const pts = [makeTilePoint(10, 30), makeTilePoint(-120, -45)]
+    const src = makeSrc(count) // style slots 0-10 + shape_id at 19
+    const out = makeOut(count * copies.length, false)
+
+    const total = packPointInstances(
+      { count, copies, isTranslucent: false, fwdX: 0, fwdY: 0, srcFeatData: src, position: { kind: 'presplit', points: pts } },
+      out,
+    )
+    expect(total).toBe(count * copies.length) // 6 records — the fan-out
+
+    const worldWidth = 360 * DEG2RAD * R_MERC
+    for (let w = 0; w < copies.length; w++) {
+      for (let i = 0; i < count; i++) {
+        const dst = (w * count + i) * S
+        const pt = pts[i]
+        // Style slots 0-10 + shape_id copied verbatim from the per-point source.
+        for (let s = 0; s <= 10; s++) expect(out.feat[dst + s]).toBe(src[i * S + s])
+        expect(out.feat[dst + 19]).toBe(src[i * S + 19])
+        // ECEF (11-16) + abs lon/lat (17-18) are copy-INDEPENDENT — every copy
+        // holds the primary point's absolute position unchanged.
+        expect(out.feat[dst + 11]).toBe(pt.exH); expect(out.feat[dst + 14]).toBe(pt.exL)
+        expect(out.feat[dst + 17]).toBe(Math.fround(pt.absLon))
+        expect(out.feat[dst + 18]).toBe(Math.fround(pt.absLat))
+        // Mercator-y (22-23) copy-independent; Mercator-x (20-21) = primary + wo·width.
+        expect(out.feat[dst + 22]).toBe(pt.myH); expect(out.feat[dst + 23]).toBe(pt.myL)
+        const mx = out.feat[dst + 20] + out.feat[dst + 21]
+        const mx0 = out.feat[i * S + 20] + out.feat[i * S + 21] // same point, copy 0
+        expect(mx - mx0).toBeCloseTo(copies[w] * worldWidth, 0)
+      }
+    }
+  })
+
+  it('wo=0 presplit output is byte-identical to the legacy direct tile write', () => {
+    const count = 3
+    const pts = [makeTilePoint(0, 0), makeTilePoint(126.977, 37.5), makeTilePoint(-120, -45)]
+    const src = makeSrc(count)
+    const out = makeOut(count, false)
+    packPointInstances(
+      { count, copies: [0], isTranslucent: false, fwdX: 0, fwdY: 0, srcFeatData: src, position: { kind: 'presplit', points: pts } },
+      out,
+    )
+    // Independent reference = the pre-#722 flushTilePoints inline write.
+    for (let i = 0; i < count; i++) {
+      const dst = i * S
+      const pt = pts[i]
+      expect(out.feat[dst + 11]).toBe(pt.exH); expect(out.feat[dst + 12]).toBe(pt.eyH); expect(out.feat[dst + 13]).toBe(pt.ezH)
+      expect(out.feat[dst + 14]).toBe(pt.exL); expect(out.feat[dst + 15]).toBe(pt.eyL); expect(out.feat[dst + 16]).toBe(pt.ezL)
+      expect(out.feat[dst + 20]).toBe(pt.mxH); expect(out.feat[dst + 21]).toBe(pt.mxL)
+      expect(out.feat[dst + 22]).toBe(pt.myH); expect(out.feat[dst + 23]).toBe(pt.myL)
     }
   })
 })

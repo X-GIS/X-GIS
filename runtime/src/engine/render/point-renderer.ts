@@ -397,51 +397,59 @@ export class PointRenderer {
     if (fill) flags |= 1
     if (stroke) flags |= 2
 
-    // Phase 2 PR 2d.2 — ECEF DSFUN: one world copy (ECEF is absolute,
-    // no Mercator world-wrapping needed).
+    // #722 S1 — route the tile path through the shared world-copy fan-out
+    // (fixes #17: tile points hardcoded COPIES=[0] and never replicated to the
+    // flat-Mercator world copies at low zoom, unlike fills/lines/labels). Flat
+    // Mercator (projType 0) fans out to every visible world copy; all other
+    // projections collapse to a single absolute-ECEF world (no wrap).
     const STRIDE = 24
-    const COPIES = [0]
+    const COPIES = pointWorldCopies(projType, camera, canvasWidth, canvasHeight, dpr)
     const totalN = N * COPIES.length
 
     // iter-249 (Plan AAA B.2) — arena-backed scratch. Pre-iter-249
-    // each flush allocated 3 fresh typed arrays per call; now they
+    // each flush allocated fresh typed arrays per call; now they
     // share one ArrayBuffer that grows to per-session peak.
     this._frameArena.beginFrame()
+    // Per-source-point paint record (stride-24 slots 0-10 style + shape=0 at
+    // 19). Allocated FIRST so it stays valid if a later alloc grows the arena;
+    // the packer reads it as `srcFeatData`, fans it out per world copy, and
+    // fills the position slots (11-18 ECEF+abs, 20-23 Mercator). S2 will thread
+    // the per-feature shape into slot 19 — today all tile circles use shape 0.
+    const src = this._frameArena.allocF32(N * STRIDE)
+    for (let i = 0; i < N; i++) {
+      const so = i * STRIDE
+      src[so + 0] = radiusPx
+      src[so + 1] = fill ? fill[0] : 0; src[so + 2] = fill ? fill[1] : 0
+      src[so + 3] = fill ? fill[2] : 0; src[so + 4] = fill ? fill[3] * opacity : 0
+      src[so + 5] = stroke ? stroke[0] : 0; src[so + 6] = stroke ? stroke[1] : 0
+      src[so + 7] = stroke ? stroke[2] : 0; src[so + 8] = stroke ? stroke[3] * opacity * tileStrokeOpacity : 0
+      src[so + 9] = strokeWidth; src[so + 10] = flags
+      src[so + 19] = 0 // shape_id (circle default for tile points; S2)
+    }
+
     const verts = this._frameArena.allocF32(totalN * 4 * 4)
     const indices = this._frameArena.allocU32(totalN * 6)
     const featData = this._frameArena.allocF32(totalN * STRIDE)
     const u32View = new Uint32Array(verts.buffer, verts.byteOffset, verts.length)
 
-    for (let i = 0; i < N; i++) {
-      const pt = this.tilePoints[i]
-
-      const base = i * 4 * 4
-      for (let q = 0; q < 4; q++) {
-        const off = base + q * 4
-        verts[off] = 0; verts[off + 1] = 0; u32View[off + 2] = q; verts[off + 3] = i
-      }
-
-      const iBase = i * 6, vBase = i * 4
-      indices[iBase] = vBase; indices[iBase+1] = vBase+1; indices[iBase+2] = vBase+2
-      indices[iBase+3] = vBase; indices[iBase+4] = vBase+2; indices[iBase+5] = vBase+3
-
-      const fOff = i * STRIDE
-      featData[fOff+0] = radiusPx
-      featData[fOff+1] = fill?fill[0]:0; featData[fOff+2] = fill?fill[1]:0
-      featData[fOff+3] = fill?fill[2]:0; featData[fOff+4] = fill?fill[3]*opacity:0
-      featData[fOff+5] = stroke?stroke[0]:0; featData[fOff+6] = stroke?stroke[1]:0
-      featData[fOff+7] = stroke?stroke[2]:0; featData[fOff+8] = stroke?stroke[3]*opacity*tileStrokeOpacity:0
-      featData[fOff+9] = strokeWidth; featData[fOff+10] = flags
-      // ECEF DSFUN: pos_h.xyz at 11-13, pos_l.xyz at 14-16, abs_lon at 17, abs_lat at 18, shape_id at 19
-      featData[fOff+11] = pt.exH; featData[fOff+12] = pt.eyH; featData[fOff+13] = pt.ezH
-      featData[fOff+14] = pt.exL; featData[fOff+15] = pt.eyL; featData[fOff+16] = pt.ezL
-      featData[fOff+17] = pt.absLon; featData[fOff+18] = pt.absLat
-      featData[fOff+19] = 0 // shape_id (circle default for tile points)
-      // Absolute Mercator DSFUN at 20-23 — precise flat-Mercator position so
-      // the flat-Merc VS no longer reprojects the lossy abs_lon/abs_lat.
-      featData[fOff+20] = pt.mxH; featData[fOff+21] = pt.mxL
-      featData[fOff+22] = pt.myH; featData[fOff+23] = pt.myL
-    }
+    // Assemble the fan-out + quad verts/indices + per-copy position via the
+    // shared stateless packer (#722). The tile record arrives with the
+    // compiler's pre-split DSFUN (ECEF + abs lon/lat copy-independent, Mercator
+    // re-split per copy). isTranslucent:false keeps the former tile behaviour
+    // (feature-order indices, no back-to-front sort) byte-identical; the
+    // pipeline-variant translucency (tileIsTranslucent below) is a separate
+    // concern (no-depth-write pass), not a CPU sort.
+    packPointInstances(
+      {
+        count: N,
+        copies: COPIES,
+        isTranslucent: false,
+        fwdX: 0, fwdY: 0,
+        srcFeatData: src,
+        position: { kind: 'presplit', points: this.tilePoints },
+      },
+      { verts, u32: u32View, idx: indices, feat: featData, depths: null },
+    )
 
     // Defer destroy of the previous frame's buffers — see
     // retiredTilePointBuffers comment. Drained at the start of the
@@ -809,8 +817,7 @@ export class PointRenderer {
           isTranslucent: layer.isTranslucent,
           fwdX, fwdY,
           srcFeatData: layer.featData,
-          lons: layer.lons,
-          lats: layer.lats,
+          position: { kind: 'lonlat', lons: layer.lons, lats: layer.lats },
         },
         { verts: expandedVerts, u32: u32Verts, idx: expandedIdx, feat: expandedFeat, depths },
       )
