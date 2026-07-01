@@ -22,7 +22,7 @@
 // it ever touches the InteractionController, so no device is needed.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { EventDispatcher, type DispatcherDeps } from './event-dispatcher'
+import { EventDispatcher, type DispatcherDeps } from '@xgis/map'
 import { XGISMap } from './map'
 
 // ── Shared mock RAF: records handles, does NOT auto-fire ─────────────

@@ -14,23 +14,23 @@ import {
   SYNTHETIC_EARTH_SURFACE_SOURCE,
   buildSyntheticEarthSurfaceShow,
   updateSyntheticEarthSurfaceShowFill,
-} from './synthetic-earth-surface-show'
+} from '@xgis/map'
 import { type CapPoles } from '@xgis/data'
 import {
   installGeoJSONPolarCaps,
   detachGeoJSONPolarCaps,
   type PolarCapInstallHost,
-} from './geojson-polar-cap-show'
+} from '@xgis/map'
 import { invalidateResolvedShowCache } from '@xgis/map'
 import { getSharedGeoJSONCompilePool } from '@xgis/data'
 import { initGPU, GPU_PROF, getMaxDpr, effectiveDpr, WebGPUUnavailableError, type GPUContext } from '@xgis/engine'
 import { QUALITY, updateQuality, type QualityConfig } from '@xgis/engine'
 import { GPUTimer } from '@xgis/engine'
 import { Camera } from '@xgis/engine'
-import { CameraController } from './camera-controller'
+import { CameraController } from '@xgis/map'
 import { ViewportModeController } from '@xgis/map'
-import { SourceManager } from './source-manager'
-import { InteractionController } from './interaction-controller'
+import { SourceManager } from '@xgis/map'
+import { InteractionController } from '@xgis/map'
 import { MapRendererContent, type ShowCommand } from '@xgis/map'
 import { resolveNumberShape } from '@xgis/map'
 import { RenderLoop } from './render-loop'
@@ -42,14 +42,14 @@ import {
   type ClassifiedShow as ExternalClassifiedShow,
   type OpaqueGroup as ExternalOpaqueGroup,
 } from '@xgis/map'
-import { interpret, type SceneCommands } from './interpreter'
+import { interpret, type SceneCommands } from '@xgis/map'
 import { lonLatToMercator, type GeoJSONFeatureCollection } from '@xgis/data'
 import { RasterRenderer } from '@xgis/map'
 import { PointRenderer } from '@xgis/map'
 import { HeatmapRenderer } from '@xgis/map'
 import { ShapeRegistry } from '@xgis/map'
 import { LineRenderer } from '@xgis/map'
-import { PanZoomController, type Controller } from './controller'
+import { PanZoomController, type Controller } from '@xgis/map'
 import { DirtyTracker, DirtyDomain, DIRTY_ALL } from '@xgis/map'
 import { VectorTileRenderer } from '@xgis/map'
 import { TextStage, type TextStageOptions } from '@xgis/map'
@@ -59,12 +59,12 @@ import {
   LayerIdRegistry, XGISLayer,
   type XGISFeature, type XGISFeatureEvent, type XGISFeatureEventType, type XGISFeatureListener,
   type XGISMapEventType, type XGISMapListener,
-} from './layer'
-import { attachAutoResize } from './auto-resize'
-import { EventDispatcher } from './event-dispatcher'
+} from '@xgis/map'
+import { attachAutoResize } from '@xgis/map'
+import { EventDispatcher } from '@xgis/map'
 import { TileCatalog } from '@xgis/data'
 import { isTileTemplate } from '@xgis/data'
-import { buildShowSourceMaps } from './show-source-maps'
+import { buildShowSourceMaps } from '@xgis/map'
 import {
   parseHexColor, hexToRgba,
   applyFilter, applyGeometry,
@@ -77,23 +77,23 @@ import type {
   VariantPipelines, TextOverlay,
   TextOverlayOptions, TextOverlayHandle, XGISFontResource,
   XGISMapOptions, FontTypographyMap,
-} from './map-types'
+} from '@xgis/map'
 // Re-export the public type surface so existing `import { ... } from
 // './engine/map'` paths keep resolving after the extraction.
 export type {
   TextOverlayOptions, TextOverlayHandle, XGISFontResource,
   XGISMapOptions, FontTypographyMap,
-} from './map-types'
+} from '@xgis/map'
 import {
   asVectorTileKind, sceneHasAnyAnimation, labelsHaveTimeAnimation,
   buildTypographyMap, registerFonts,
-} from './map-geo-helpers'
+} from '@xgis/map'
 import { prewarmVectorTileSource, detectVectorTileFormat } from '@xgis/data'
-import { StatsTracker, StatsPanel, type RenderStats } from './stats'
+import { StatsTracker, StatsPanel, type RenderStats } from '@xgis/map'
 import { pointPatchToFeatureCollection, type PointPatch } from '@xgis/data'
 import type { GeoJSONFeature } from '@xgis/data'
-import { FeatureUpdateQueue } from './feature-update-queue'
-import { MapEventBus } from './map-event-bus'
+import { FeatureUpdateQueue } from '@xgis/map'
+import { MapEventBus } from '@xgis/map'
 import { safeFetch, assertIngestBudget, readBodyCapped } from '@xgis/shared'
 
 // DoS ceilings for the top-level loader entry points (.xgis style /

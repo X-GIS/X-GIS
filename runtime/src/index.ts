@@ -1,5 +1,5 @@
 export { XGISMap } from './engine/map'
-export { StatsPanel, StatsTracker, type RenderStats } from './engine/stats'
+export { StatsPanel, StatsTracker, type RenderStats } from '@xgis/map'
 export { Camera } from '@xgis/engine'
 export { MapRendererContent } from '@xgis/map'
 export { FrameRenderer } from '@xgis/map'

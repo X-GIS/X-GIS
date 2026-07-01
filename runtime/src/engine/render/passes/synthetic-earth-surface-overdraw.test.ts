@@ -39,7 +39,7 @@ import {
   buildSyntheticEarthSurfaceShow,
   SYNTHETIC_EARTH_SURFACE_SOURCE,
   SYNTHETIC_EARTH_SURFACE_LAYER,
-} from '../../synthetic-earth-surface-show'
+} from '@xgis/map'
 import { emitPolygonWgsl } from '@xgis/map'
 // The whole-viewport colour/accumulator clear moved to the background pass
 // (bucket 0) — the coverage seam from VISION §5 gap #1. The overdraw

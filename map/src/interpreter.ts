@@ -3,7 +3,7 @@
 import type * as AST from '@xgis/compiler'
 import { resolveUtilities, resolveColor, defaultRasterShapes } from '@xgis/compiler'
 import type { PaintShapes, PropertyShape, PropertyRGBA } from '@xgis/compiler'
-import type { ShowCommand } from '@xgis/map'
+import type { ShowCommand } from './render/renderer-types'
 // Use runtime hexToRgba (nullable variant — returns null on invalid
 // hex shape) instead of the compiler's always-returns-tuple version.
 // The surrounding `fillRgba !== null ? … : null` ternary expects
@@ -11,7 +11,7 @@ import type { ShowCommand } from '@xgis/map'
 // [0,0,0,1] for ANY invalid input including legitimately invalid
 // hex strings — silently rendering them as opaque black instead of
 // no-fill. See iter 318 hexToRgba contract fix.
-import { hexToRgba } from '@xgis/map'
+import { hexToRgba } from './feature-helpers'
 
 /** Synthesize a PaintShapes bundle from a constant-only legacy show.
  *  The legacy `let`/`show` and the simple `source`/`layer` utility

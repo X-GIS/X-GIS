@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { XGISMap } from './map'
-import { XGISLayer } from './layer'
+import { XGISLayer } from '@xgis/map'
 import type { ShowCommand } from '@xgis/map'
 
 function mockCanvas(): HTMLCanvasElement {

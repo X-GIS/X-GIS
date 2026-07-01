@@ -175,3 +175,26 @@ export * from './text/text-stage-diagnostics'
 // L141-146) — a blanket `export *` would be an ambiguous duplicate. Export only TextStage.
 // Deep-imported cross-package by still-in-runtime map.ts / map-types / passes/label-pass + wiring tests.
 export { TextStage } from './text/text-stage'
+// P3 Phase-2 Batch B10abc — the XGISMap facade guts: the controller / source / layer /
+// interpreter / event / show / map-type modules that map.ts (staying as the runtime B10d
+// SCC until the Step-8 map.ts co-move) deep-imports cross-package, plus a few projection /
+// data / passes consumer tests. These import ZERO shell/STAY files (only @xgis/* + each
+// other + already-migrated map content), so they land as one atomic batch. No name
+// collisions with the existing barrel (verified) — blanket export each (pruned to the
+// public API in Step 8).
+export * from './auto-resize'
+export * from './stats'
+export * from './camera-controller'
+export * from './controller'
+export * from './feature-update-queue'
+export * from './interpreter'
+export * from './layer'
+export * from './show-source-maps'
+export * from './geojson-polar-cap-show'
+export * from './synthetic-earth-surface-show'
+export * from './map-types'
+export * from './event-dispatcher'
+export * from './map-event-bus'
+export * from './interaction-controller'
+export * from './map-geo-helpers'
+export * from './source-manager'

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 
 // B2: every source-attach path must route its post-attach camera-fit through
 // `_runBoundsFitGate`, NOT just the per-attach `cameraFitState.fit` guard.
@@ -10,58 +10,59 @@ import { describe, expect, it, vi } from 'vitest'
 // correctly gated; the fix brings these two to parity.
 //
 // `_attachGeoJSONViaVirtualPMTiles` builds a VectorTileRenderer (needs a GPU
-// device) and a VirtualPMTilesBackend (spawns the tiling Worker), neither of
-// which exists in the node test environment. Mock both to inert stubs so the
-// method runs to its camera-fit tail on CPU. The mock is behaviour-neutral:
-// the VTR setters that run between construction and the camera-fit are no-ops
-// regardless, and the GeoJSON path derives bounds from the data itself
-// (computeGeoJSONBounds), not from the renderer.
+// device, home: render/vector-tile-renderer) and a VirtualPMTilesBackend
+// (@xgis/data, spawns the tiling Worker) — neither exists in the node test env.
+// SourceManager co-moved into @xgis/map (P3 Batch B10c) → the barrel eager-loads
+// it during test setup (test-setup-projections imports configureProjections from
+// '@xgis/map') BEFORE a hoisted vi.mock could bind, so a module-mock would miss.
+// vi.spyOn mutates the already-loaded SHARED namespaces at runtime, so
+// SourceManager's `new VectorTileRenderer()` / `new VirtualPMTilesBackend()`
+// (live-binding namespace reads) pick up the inert stubs — load-order-independent.
+// Behaviour-neutral: the VTR setters are no-ops and the GeoJSON path derives
+// bounds from the data itself (computeGeoJSONBounds), not from the renderer.
+class StubVectorTileRenderer {
+  setBindGroupLayout(): void {}
+  setPaletteResources(): void {}
+  setSpriteAtlasView(): void {}
+  setExtrudedPipelines(): void {}
+  setGroundPipelines(): void {}
+  setPatternPipelines(): void {}
+  setPatternExtrudedPipelines(): void {}
+  setOITPipeline(): void {}
+  setLineRenderer(): void {}
+  setSource(): void {}
+  getBounds(): null { return null }
+}
+// Inert TileSource — `attachBackend` reads `meta` (maxZoom / bounds / scheme /
+// layoutVersion) when merging into the catalog's index shell, so supply a complete
+// world-bounds meta. No worker is spawned.
+class StubVirtualPMTilesBackend {
+  meta = {
+    bounds: [-180, -85, 180, 85] as [number, number, number, number],
+    minZoom: 0,
+    maxZoom: 14,
+    scheme: 'web-mercator-xyz' as const,
+    layoutVersion: 3,
+  }
+  has(): boolean { return false }
+  attach(): void {}
+  loadTile(): void {}
+  detach(): void {}
+}
 
-// VectorTileRenderer moved to @xgis/map (P3 Batch B7). Partial-mock the barrel and
-// override ONLY VTR (a bare vi.mock('@xgis/map') would blank every other export the
-// SourceManager pulls from the barrel), mirroring the @xgis/data partial mock below.
-vi.mock('@xgis/map', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@xgis/map')>()),
-  VectorTileRenderer: class {
-    setBindGroupLayout(): void {}
-    setPaletteResources(): void {}
-    setSpriteAtlasView(): void {}
-    setExtrudedPipelines(): void {}
-    setGroundPipelines(): void {}
-    setPatternPipelines(): void {}
-    setPatternExtrudedPipelines(): void {}
-    setOITPipeline(): void {}
-    setLineRenderer(): void {}
-    setSource(): void {}
-    getBounds(): null { return null }
-  },
-}))
-
-// Partial-mock @xgis/data: VirtualPMTilesBackend now lives in the barrel, so spread
-// the real exports and override ONLY that class (a bare vi.mock('@xgis/data') would
-// blank out every other data export the SourceManager pulls from the barrel).
-vi.mock('@xgis/data', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@xgis/data')>()),
-  // Inert TileSource — `attachBackend` reads `meta` (maxZoom / bounds /
-  // scheme / layoutVersion) when merging into the catalog's index shell, so
-  // supply a complete world-bounds meta. No worker is spawned.
-  VirtualPMTilesBackend: class {
-    meta = {
-      bounds: [-180, -85, 180, 85] as [number, number, number, number],
-      minZoom: 0,
-      maxZoom: 14,
-      scheme: 'web-mercator-xyz' as const,
-      layoutVersion: 3,
-    }
-    has(): boolean { return false }
-    attach(): void {}
-    loadTile(): void {}
-    detach(): void {}
-  },
-}))
-
+import * as vtrModule from './render/vector-tile-renderer'
+import * as xgisData from '@xgis/data'
 import { SourceManager, type SourceManagerDeps } from './source-manager'
 import { Camera } from '@xgis/engine'
+
+beforeEach(() => {
+  vi.spyOn(vtrModule, 'VectorTileRenderer').mockImplementation((() => new StubVectorTileRenderer()) as never)
+  vi.spyOn(xgisData, 'VirtualPMTilesBackend').mockImplementation((() => new StubVirtualPMTilesBackend()) as never)
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 import type { ShowSourceMaps } from './show-source-maps'
 import type { GeoJSONFeatureCollection } from '@xgis/data'
 import type { MapRendererContent } from '@xgis/map'

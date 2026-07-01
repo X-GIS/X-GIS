@@ -14,7 +14,7 @@ import {
 import {
   buildGeoJSONPolarCapShow,
   updateGeoJSONPolarCapShowFill,
-} from '../../engine/geojson-polar-cap-show'
+} from '@xgis/map'
 import type { GeoJSONFeatureCollection } from '@xgis/data'
 import type { BackendTileResult, TileSourceSink } from '@xgis/data'
 import { lonLatToECEF, tileEcefCenterFromMerc } from '@xgis/engine'

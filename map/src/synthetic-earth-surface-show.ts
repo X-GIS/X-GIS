@@ -14,7 +14,7 @@
 
 import type { PropertyShape } from '@xgis/compiler'
 import { defaultRasterShapes } from '@xgis/compiler'
-import type { ShowCommand } from '@xgis/map'
+import type { ShowCommand } from './render/renderer-types'
 import { SYNTHETIC_EARTH_SURFACE_SOURCE } from '@xgis/data'
 
 export { SYNTHETIC_EARTH_SURFACE_SOURCE }

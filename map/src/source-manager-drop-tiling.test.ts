@@ -12,26 +12,23 @@
 // No GPU: SourceManager's ctor just stores its injected deps; setSourceData
 // touches only the shared Maps + the injected callbacks (all vi.fn stubs).
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-// Mock the tiling pool so newTilingInstanceId is deterministic and dropSource
-// is observable. (The real module spawns a Worker via new URL(...).)
-const dropSource = vi.fn()
-let mintCount = 0
-// Partial-mock @xgis/data: the tiling pool now lives in the barrel, so spread the
-// real exports and override ONLY the tiling-pool functions (a bare
-// vi.mock('@xgis/data') would blank out every other data export the SourceManager
-// pulls from the barrel).
-vi.mock('@xgis/data', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@xgis/data')>()),
-  newTilingInstanceId: () => `gjt-test-${++mintCount}`,
-  setSource: vi.fn(),
-  getTile: vi.fn(),
-  dropSource: (...a: unknown[]) => dropSource(...a),
-}))
-
+// Spy the tiling-pool functions on the SHARED @xgis/data namespace so
+// newTilingInstanceId is deterministic and dropSource is observable. (The real
+// module spawns a Worker via new URL(...).) SourceManager co-moved into @xgis/map
+// (P3 Batch B10c) → the barrel eager-loads it during test setup
+// (test-setup-projections imports configureProjections from '@xgis/map') BEFORE a
+// hoisted vi.mock('@xgis/data') could bind, so a module-mock would miss. vi.spyOn
+// mutates the already-loaded shared namespace at runtime, so SourceManager's
+// `tilingPool.*` reads (import * as tilingPool from '@xgis/data') pick up the stubs
+// at call time — load-order-independent.
+import * as xgisData from '@xgis/data'
 import { SourceManager } from './source-manager'
 import type { GeoJSONFeatureCollection } from '@xgis/data'
+
+const dropSource = vi.fn()
+let mintCount = 0
 
 function makeManager() {
   const rawDatasets = new Map<string, GeoJSONFeatureCollection>()
@@ -70,6 +67,14 @@ const FC: GeoJSONFeatureCollection = {
 beforeEach(() => {
   dropSource.mockClear()
   mintCount = 0
+  vi.spyOn(xgisData, 'newTilingInstanceId').mockImplementation(() => `gjt-test-${++mintCount}`)
+  vi.spyOn(xgisData, 'dropSource').mockImplementation(((...a: unknown[]) => dropSource(...a)) as never)
+  vi.spyOn(xgisData, 'setSource').mockImplementation((() => {}) as never)
+  vi.spyOn(xgisData, 'getTile').mockImplementation((() => {}) as never)
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
 })
 
 describe('SourceManager.setSourceData — drops the old tiling index (BUG 7)', () => {

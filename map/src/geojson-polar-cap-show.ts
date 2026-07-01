@@ -7,7 +7,7 @@
 // equal the SOURCE LAYER's polygon fill so the cap continues the ocean/land
 // surface seamlessly (blue ocean Arctic / green land Antarctica).
 
-import type { ShowCommand } from '@xgis/map'
+import type { ShowCommand } from './render/renderer-types'
 import { defaultRasterShapes } from '@xgis/compiler'
 import {
   GeoJSONPolarCapBackend,
@@ -15,13 +15,13 @@ import {
   type CapPoles,
 } from '@xgis/data'
 import { TileCatalog } from '@xgis/data'
-import { VectorTileRenderer } from '@xgis/map'
+import { VectorTileRenderer } from './render/vector-tile-renderer'
 import { worldBandForProjType } from '@xgis/engine'
 import { PROJECTION_NAME_TO_TYPE } from '@xgis/engine'
-import type { MapRendererContent } from '@xgis/map'
-import type { LineRenderer } from '@xgis/map'
+import type { MapRendererContent } from './render/renderer'
+import type { LineRenderer } from './render/line-renderer'
 import type { GPUContext } from '@xgis/engine'
-import { parseHexColor } from '@xgis/map'
+import { parseHexColor } from './feature-helpers'
 import type { GeoJSONFeatureCollection } from '@xgis/data'
 
 /** Host hooks the per-source polar-cap install/detach needs from XGISMap. The

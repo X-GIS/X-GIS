@@ -22,8 +22,8 @@
 // adds the `pointerEvents:none` pipeline-variant pathway (writeMask:0
 // on the pick attachment). Phase 4 adds addEventListener.
 
-import type { ShowCommand } from '@xgis/map'
-import { parseHexColor as parseHexColorRaw } from '@xgis/map'
+import type { ShowCommand } from './render/renderer-types'
+import { parseHexColor as parseHexColorRaw } from './feature-helpers'
 import { xlog } from '@xgis/shared'
 import { QUALITY } from '@xgis/engine'
 
