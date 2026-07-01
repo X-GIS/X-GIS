@@ -50,3 +50,5 @@ export * from './__profile__/alloc-counter'
 export * from './diagnostics/render-trace'
 export * from './render/__vertex-format-crosscheck'
 export * from './debug-flags'
+// P3 Phase-2 Batch M1 — data-driven / heatmap color-ramp GPU texture builder (content).
+export * from './color-ramp'
