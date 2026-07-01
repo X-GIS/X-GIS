@@ -22,16 +22,17 @@
 // pure function lets `bucket-scheduler.test.ts` exercise every
 // fixture combination without spinning up the full WebGPU stack.
 
-import type { LayerDrawPhase, VectorTileRenderer } from '@xgis/map'
-import type { ShowCommand } from '@xgis/map'
-import { resolveNumberShape } from '@xgis/map'
-import { resolveShow, type ResolvedShow } from '@xgis/map'
+import type { LayerDrawPhase } from './vector-tile-renderer-types'
+import type { VectorTileRenderer } from './vector-tile-renderer'
+import type { ShowCommand } from './renderer-types'
+import { resolveNumberShape } from './paint-shape-resolve'
+import { resolveShow, type ResolvedShow } from './resolved-show'
 import { SAFE_MODE } from '@xgis/engine'
-import { DEBUG_OVERDRAW } from '@xgis/map'
-import type { RenderTraceRecorder, RGBA } from '@xgis/map'
+import { DEBUG_OVERDRAW } from '../debug-flags'
+import type { RenderTraceRecorder, RGBA } from '../diagnostics/render-trace'
 import type { FrameContext } from '@xgis/engine'
 import { unwrapProjection } from '@xgis/engine'
-import type { PointRenderer } from '@xgis/map'
+import type { PointRenderer } from './point-renderer'
 
 // ── Output: post-classification show with all animation resolved ──
 

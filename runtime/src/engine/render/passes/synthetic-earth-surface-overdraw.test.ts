@@ -55,7 +55,7 @@ const OPAQUE_PASS_SRC = readFileSync(
 // scheduler's per-show draw closure (P2 carve Step 2): the engine passes
 // no longer name a GPURenderPipeline, so the override now lives here.
 const BUCKET_SCHEDULER_SRC = readFileSync(
-  resolve(__dirname, '..', 'bucket-scheduler.ts'),
+  resolve(__dirname, '..', '..', '..', '..', '..', 'map', 'src', 'render', 'bucket-scheduler.ts'),
   'utf8',
 )
 

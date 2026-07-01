@@ -161,3 +161,9 @@ export * from './text/text-renderer-types'
 // P3 Batch B7 — text-renderer (SELECTIVE: TextDraw re-export collides with
 // text-renderer-types above; export only the new symbols).
 export { TextRenderer, packUniformsForTesting } from './text/text-renderer'
+// P3 Phase-2 Batch B8 — bucket-scheduler (pure VTR bucket classifier: classifyVectorTileShows /
+// groupOpaqueBySource / planFrameSchedule) + text-stage-diagnostics (bounded label observability).
+// Deep-imported cross-package by still-in-runtime map.ts / scene-view / text-stage + their wiring
+// tests (pruned to the public API in Step 8). No name collisions — blanket export for both.
+export * from './render/bucket-scheduler'
+export * from './text/text-stage-diagnostics'

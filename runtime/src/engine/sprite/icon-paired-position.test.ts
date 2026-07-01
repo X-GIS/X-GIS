@@ -15,7 +15,7 @@
 import { describe, it, expect } from 'vitest'
 import { IconStage } from '@xgis/map'
 import { TextStage } from '../text/text-stage'
-import { TextStageDiagnostics } from '../text/text-stage-diagnostics'
+import { TextStageDiagnostics } from '@xgis/map'
 import type { LabelDef } from '@xgis/compiler'
 
 interface Capture {

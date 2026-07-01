@@ -13,7 +13,7 @@
 // calls), so behaviour is byte-identical. SceneView carries DATA only;
 // side effects (e.g. `lineRenderer.ensureOffscreen`) stay in render().
 
-import type { ClassifiedShow, OpaqueGroup } from './bucket-scheduler'
+import type { ClassifiedShow, OpaqueGroup } from '@xgis/map'
 import type { FrameContext } from '@xgis/engine'
 import type { RenderLoopHost } from '../render-loop'
 

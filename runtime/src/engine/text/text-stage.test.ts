@@ -142,7 +142,7 @@ describe('composeFontKey', () => {
 // counters now live on the injected TextStageDiagnostics collaborator;
 // the public getter contract is unchanged.
 import { TextStage } from './text-stage'
-import { TextStageDiagnostics } from './text-stage-diagnostics'
+import { TextStageDiagnostics } from '@xgis/map'
 
 function stubStageWithCounts(submitted: number, drawn: number): TextStage {
   const stage = Object.create(TextStage.prototype) as TextStage

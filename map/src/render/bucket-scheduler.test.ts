@@ -29,7 +29,7 @@ import {
 } from './bucket-scheduler'
 import type { PaintShapes, PropertyShape } from '@xgis/compiler'
 import { defaultRasterShapes } from '@xgis/compiler'
-import type { ShowCommand } from '@xgis/map'
+import type { ShowCommand } from './renderer-types'
 
 /** Synthesize a PaintShapes bundle from the legacy flat fields a test
  *  fixture sets. Mirrors what emit-commands.ts does for compiled

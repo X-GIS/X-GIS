@@ -17,8 +17,8 @@
 // arguments (the trace recorder, the draw-local glyph data).
 
 import type { LabelDef } from '@xgis/compiler'
-import type { RenderTraceRecorder } from '@xgis/map'
-import type { TextDraw } from '@xgis/map'
+import type { RenderTraceRecorder } from '../diagnostics/render-trace'
+import type { TextDraw } from './text-renderer-types'
 
 /** One captured halo-norm probe entry (see captureHalo). */
 export interface HaloDebugEntry {

@@ -49,7 +49,7 @@ import type {
 import {
   wrapWithKnuthPlass, cjkBucketFor,
 } from '@xgis/map'
-import { TextStageDiagnostics } from './text-stage-diagnostics'
+import { TextStageDiagnostics } from '@xgis/map'
 // iter-265 — sub-phase drill inside prepare(). encoder.stage-prepare
 // shows 1.31 ms/frame in iter-263 budget but we don't know which
 // inner phase dominates (point shape vs curved line layout vs

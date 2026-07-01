@@ -41,7 +41,7 @@ import {
   groupOpaqueBySource as groupOpaqueBySourceImpl,
   type ClassifiedShow as ExternalClassifiedShow,
   type OpaqueGroup as ExternalOpaqueGroup,
-} from './render/bucket-scheduler'
+} from '@xgis/map'
 import { interpret, type SceneCommands } from './interpreter'
 import { lonLatToMercator, type GeoJSONFeatureCollection } from '@xgis/data'
 import { RasterRenderer } from '@xgis/map'
