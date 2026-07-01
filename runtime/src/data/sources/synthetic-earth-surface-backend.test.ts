@@ -16,7 +16,7 @@ import {
   TILE_LAYOUT_VERSION,
   type BackendTileResult,
   type TileSourceSink,
-} from '../tile-source'
+} from '@xgis/data'
 
 // WGS84 semi-major axis — matches the tiler + the render-side `off`.
 const A = 6378137

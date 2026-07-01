@@ -11,7 +11,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { SubTileGenerator } from './sub-tile-generator'
-import type { TileData } from './tile-types'
+import type { TileData } from '@xgis/data'
 import {
   decomposeFeatures, compileSingleTile, tileKey,
 } from '@xgis/compiler'

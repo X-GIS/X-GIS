@@ -4,8 +4,8 @@ import { worldCopiesFor, TILE_PX } from '@xgis/engine'
 // Shared types + pure tile-math helpers were extracted to sibling
 // modules (behaviour-preserving refactor). Re-export them here so the
 // public surface of `tile-select` is unchanged for existing importers.
-export type { TileCoord, LoadedTile } from './tile-select-types'
-import type { TileCoord } from './tile-select-types'
+export type { TileCoord, LoadedTile } from '@xgis/data'
+import type { TileCoord } from '@xgis/data'
 export {
   firstIndexedAncestor,
   worldCopyOf,

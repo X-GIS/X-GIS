@@ -20,7 +20,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { tileKey } from '@xgis/compiler'
 import { TileCatalog } from './tile-catalog'
-import { type TileData } from './tile-types'
+import { type TileData } from '@xgis/data'
 
 // Minimal TileData with a controllable byte cost (mirrors the helper in
 // tile-catalog-skeleton.test.ts).

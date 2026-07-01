@@ -25,7 +25,7 @@ import {
   type GeoJSONFeatureCollection,
 } from '@xgis/compiler'
 import { TileCatalog } from '../../data/tile-catalog'
-import { DSFUN_POLY_STRIDE, DSFUN_LINE_STRIDE } from '../../data/tile-types'
+import { DSFUN_POLY_STRIDE, DSFUN_LINE_STRIDE } from '@xgis/data'
 
 // Make a polygon FeatureCollection that fully covers a z=1 tile.
 function squareInTile(z: number, x: number, y: number): GeoJSONFeatureCollection {

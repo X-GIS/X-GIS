@@ -9,3 +9,10 @@ export * from './geojson'
 // (fnv1a32 / toU32Id / PointPatch / pointPatchToFeatureCollection). Pure data logic
 // that was misplaced under runtime/src/engine; consumed by setSourceData / picking.
 export * from './id-resolver'
+// Tile data-model types cluster: the TileSource contract + backend sink/result, the
+// per-tile TileData (DSFUN strides, cache budget) + VirtualCatalog, and the tile-select
+// coordinate types. The catalog / selection / source backends (still in runtime/src/data)
+// consume these cross-package until they too relocate here.
+export * from './tile-source'
+export * from './tile-types'
+export * from './tile-select-types'

@@ -12,7 +12,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { PriorityQueue } from '@xgis/shared'
 import { UploadCoordinator, type UploadHost, type UploadStore } from './upload-coordinator'
 import type { StagingBufferPool } from '@xgis/engine'
-import type { TileData } from '../../data/tile-types'
+import type { TileData } from '@xgis/data'
 
 beforeAll(() => {
   if (typeof (globalThis as Record<string, unknown>).GPUBufferUsage === 'undefined') {

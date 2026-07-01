@@ -28,7 +28,7 @@ import { buildLineSegments } from '../../core/line-segment-build'
 import {
   TILE_LAYOUT_VERSION,
   type TileSource, type TileSourceSink, type TileSourceMeta,
-} from '../tile-source'
+} from '@xgis/data'
 import { getSharedMvtPool, type MvtWorkerPool } from '../workers/mvt-worker-pool'
 import { evalFilterExpr } from '../eval/filter-eval'
 import {

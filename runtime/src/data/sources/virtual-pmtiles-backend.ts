@@ -27,7 +27,7 @@ import { buildLineSegments } from '../../core/line-segment-build'
 import {
   TILE_LAYOUT_VERSION,
   type BackendTileResult, type TileSource, type TileSourceMeta, type TileSourceSink,
-} from '../tile-source'
+} from '@xgis/data'
 
 export interface VirtualPMTilesBackendOptions {
   /** Logical source name — used as the MVT layer name when no

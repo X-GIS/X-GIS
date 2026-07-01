@@ -35,7 +35,7 @@ import {
   type TileSource,
   type TileSourceMeta,
   type TileSourceSink,
-} from '../tile-source'
+} from '@xgis/data'
 
 const Z0_KEY = tileKey(0, 0, 0)
 const DEG2RAD = Math.PI / 180

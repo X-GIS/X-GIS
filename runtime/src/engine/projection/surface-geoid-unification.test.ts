@@ -22,7 +22,7 @@ import type { RingPolygon } from '@xgis/compiler'
 import { SyntheticEarthSurfaceBackend } from '../../data/sources/synthetic-earth-surface-backend'
 import { generateWallMeshExtrudedECEF } from '../../core/polygon-mesh'
 import { tileEcefCenterFromMerc } from '@xgis/engine'
-import type { BackendTileResult, TileSourceSink } from '../../data/tile-source'
+import type { BackendTileResult, TileSourceSink } from '@xgis/data'
 
 // WGS84 — the SINGLE reference geoid every surface must land on.
 const A = 6378137

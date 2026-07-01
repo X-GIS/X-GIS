@@ -14,7 +14,7 @@ import geojsonVt from 'geojson-vt'
 import vtpbf from 'vt-pbf'
 import { tileKey } from '@xgis/compiler'
 import { PMTilesBackend, type PMTilesFetcher } from './pmtiles-backend'
-import type { TileSourceSink, BackendTileResult } from '../tile-source'
+import type { TileSourceSink, BackendTileResult } from '@xgis/data'
 
 function makeSink() {
   const events: { key: number; result: BackendTileResult | null }[] = []

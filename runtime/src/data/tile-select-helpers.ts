@@ -4,7 +4,7 @@
 // state and no side effects.
 import { worldCopiesFor, TILE_PX } from '@xgis/engine'
 import { tileKeyParent } from '@xgis/compiler'
-import type { TileCoord } from './tile-select-types'
+import type { TileCoord } from '@xgis/data'
 
 /** Walk from `leafKey` up the quad-tree until the first parent for
  *  which `hasEntry(pk)` returns true, returning that ancestor's key.

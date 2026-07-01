@@ -38,7 +38,7 @@ import {
   type TileSource,
   type TileSourceMeta,
   type TileSourceSink,
-} from '../tile-source'
+} from '@xgis/data'
 
 const Z0_KEY = tileKey(0, 0, 0)
 // Disc silhouette = projection of this lon/lat grid. At 32×16 the rim was a

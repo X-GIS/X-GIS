@@ -13,7 +13,7 @@ import {
   TILE_LAYOUT_VERSION, TILE_LAYOUT_VERSION_BASE,
   type TileSource, type TileSourceSink, type TileSourceMeta, type BackendTileResult,
   type TileLayoutVersion,
-} from './tile-source'
+} from '@xgis/data'
 import { setLogSink } from '@xgis/shared'
 
 const WORLD_BOUNDS: [number, number, number, number] = [-180, -85, 180, 85]

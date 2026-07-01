@@ -14,7 +14,7 @@
 // Layer: L2 (data) — imports only same-or-lower layers.
 
 import { TileDataCache } from './tile-data-cache'
-import { MAX_CACHED_TILES, maxCachedBytes } from './tile-types'
+import { MAX_CACHED_TILES, maxCachedBytes } from '@xgis/data'
 
 export class TileEvictionPolicy {
   /** Permanently-pinned keys: the global low-zoom skeleton that

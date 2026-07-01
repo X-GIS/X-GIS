@@ -33,7 +33,7 @@ import { SubTileGenerator } from './sub-tile-generator'
 import {
   TILE_LAYOUT_VERSION, TILE_LAYOUT_VERSION_BASE,
   type TileSource, type TileSourceSink, type BackendTileResult, type TileScheme,
-} from './tile-source'
+} from '@xgis/data'
 // Step 0 of the layer-type refactor: shared types live in tile-types.ts so
 // per-format backend modules can import them without pulling in catalog
 // runtime state. Re-exported below for back-compat with external callers
@@ -43,7 +43,7 @@ import {
   DSFUN_POLY_STRIDE, DSFUN_LINE_STRIDE,
   maxConcurrentLoads, defaultSkeletonDepth,
   type VirtualCatalog, type VirtualTileFetcher,
-} from './tile-types'
+} from '@xgis/data'
 import { unionBounds } from './tile-catalog-helpers'
 import { TileDataCache } from './tile-data-cache'
 import { CompileBudget } from './tile-compile-budget'

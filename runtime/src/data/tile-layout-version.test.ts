@@ -4,7 +4,7 @@ import {
   TILE_LAYOUT_VERSION_BASE,
   type TileSourceMeta,
   type TileLayoutVersion,
-} from './tile-source'
+} from '@xgis/data'
 
 describe('TILE_LAYOUT_VERSION (bumped to 6 — #398 polygon fill stride 24→28, true_lat tail slot)', () => {
   it('current version is exported as a numeric literal const', () => {

@@ -17,10 +17,10 @@ import { TileCatalog } from './tile-catalog'
 import {
   type TileData,
   MAX_CACHED_TILES,
-} from './tile-types'
+} from '@xgis/data'
 import {
   type TileSource, type TileSourceMeta, type TileSourceSink,
-} from './tile-source'
+} from '@xgis/data'
 
 // Minimal TileData with controllable byte cost. sizeOfTileData sums
 // vertices + indices + lineVertices + lineIndices + outlineIndices, so

@@ -13,7 +13,7 @@ import { PMTilesBackend, type PMTilesFetcher } from './sources/pmtiles-backend'
 import {
   TILE_LAYOUT_VERSION,
   type TileSource, type TileSourceSink, type BackendTileResult,
-} from './tile-source'
+} from '@xgis/data'
 
 // ─── Minimal mock TileSource ──────────────────────────────────────────────────
 // Implements the TileSource protocol with the smallest viable surface.

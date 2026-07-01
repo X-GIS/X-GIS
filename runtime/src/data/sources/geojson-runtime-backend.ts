@@ -17,7 +17,7 @@ import {
 import {
   TILE_LAYOUT_VERSION,
   type TileSource, type TileSourceSink, type TileSourceMeta,
-} from '../tile-source'
+} from '@xgis/data'
 
 export class GeoJSONRuntimeBackend implements TileSource {
   meta: TileSourceMeta

@@ -23,7 +23,7 @@ import { tileKey } from '@xgis/compiler'
 import { PriorityQueue } from '@xgis/shared'
 import { UploadCoordinator, type UploadHost, type UploadStore } from './upload-coordinator'
 import type { StagingBufferPool } from '@xgis/engine'
-import type { TileData } from '../../data/tile-types'
+import type { TileData } from '@xgis/data'
 
 /** TileData carrying non-empty prebuilt SDF segment buffers — the bytes the
  *  catalog does NOT count and the upload path is responsible for nulling. */
