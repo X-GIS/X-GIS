@@ -18,7 +18,7 @@ import {
   type PropertyTable,
 } from '@xgis/compiler'
 import type { GeoJSONFeature, GeoJSONFeatureCollection } from '@xgis/data'
-import { toU32Id } from '../../engine/id-resolver'
+import { toU32Id } from '@xgis/data'
 
 // ── Message protocol ──
 

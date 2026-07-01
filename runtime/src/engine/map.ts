@@ -90,7 +90,7 @@ import {
 } from './map-geo-helpers'
 import { prewarmVectorTileSource, detectVectorTileFormat } from '../loader/vector-tile-loader'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
-import { pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
+import { pointPatchToFeatureCollection, type PointPatch } from '@xgis/data'
 import type { GeoJSONFeature } from '@xgis/data'
 import { FeatureUpdateQueue } from './feature-update-queue'
 import { MapEventBus } from './map-event-bus'

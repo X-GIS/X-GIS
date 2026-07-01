@@ -1,5 +1,5 @@
 import { xlog } from '@xgis/shared'
-import { toU32Id } from './id-resolver'
+import { toU32Id } from '@xgis/data'
 import type { GeoJSONFeature, GeoJSONFeatureCollection } from '@xgis/data'
 
 /** Host hooks the queue needs to read shared map state and trigger a

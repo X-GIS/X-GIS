@@ -4,7 +4,7 @@
 // values through.
 
 import { describe, it, expect } from 'vitest'
-import { pointPatchToFeatureCollection } from './id-resolver'
+import { pointPatchToFeatureCollection } from '@xgis/data'
 
 describe('pointPatchToFeatureCollection defensive guards', () => {
   it('null data throws clear error', () => {
