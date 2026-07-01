@@ -19,12 +19,12 @@
 // so compiling the fixtures validates the production-equivalent WGSL.
 
 import { test, expect } from '@playwright/test'
-import { FIXTURES, emitForFixture } from '@xgis/map'
+import { FIXTURES, emitForFixture } from '../../map/src/shaders/dsl/_polygon-fixtures'
 import { emitLineWgsl, emitCompositeWgsl } from '@xgis/map'
 import { emitPointWgsl } from '@xgis/map'
 import { emitRasterWgsl } from '@xgis/map'
 import { emitIconWgsl } from '@xgis/map'
-import { emitOverdrawComposeWgsl } from '@xgis/map'
+import { emitOverdrawComposeWgsl } from '../../engine/src/shaders/dsl/overdraw-compose'
 import { emitOverdrawFsWgsl } from '@xgis/map'
 import { emitTextWgsl } from '@xgis/map'
 import { emitHeatmapAccumWgsl } from '@xgis/map'

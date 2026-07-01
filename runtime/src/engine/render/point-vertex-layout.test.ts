@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { emitPointWgsl } from '@xgis/map'
-import { POINT_FORMAT } from './point-vertex-format'
+import { POINT_FORMAT } from '@xgis/map'
 import { specShaderMismatches } from './__vertex-format-crosscheck'
 
 // Single-source guard for the point vertex format. POINT_FORMAT drives the

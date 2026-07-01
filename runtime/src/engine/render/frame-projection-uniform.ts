@@ -18,7 +18,7 @@
 // call it at draw/frame time, never from a module-level const / static field
 // (enforced by no-eager-uniform-reflect.test.ts).
 
-import { polygonUniformSlots } from './polygon-uniform-slots'
+import { polygonUniformSlots } from '@xgis/map'
 import { globeEyeUniform } from '@xgis/map'
 
 /** Write `proj_params` + `globe_eye` TOGETHER into a uniform `f32` view, at the

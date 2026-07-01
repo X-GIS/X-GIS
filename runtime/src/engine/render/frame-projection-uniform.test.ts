@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { writeFrameProjectionUniform, writeProjectionCull } from './frame-projection-uniform'
-import { polygonUniformBytes, polygonUniformSlots } from './polygon-uniform-slots'
+import { polygonUniformBytes, polygonUniformSlots } from '@xgis/map'
 import { globeEyeUniform } from '@xgis/map'
 import { buildGlobeMatrix } from '@xgis/engine'
 

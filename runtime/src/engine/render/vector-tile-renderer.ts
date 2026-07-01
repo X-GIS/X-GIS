@@ -8,11 +8,11 @@ import { DEBUG_OVERDRAW } from '../debug-flags'
 import { Camera } from '@xgis/engine'
 import type { ShowCommand } from './renderer'
 import { variantProducesFill } from './renderer-helpers'
-import { polygonUniformSlots, polygonUniformBytes, polygonUniformStride } from './polygon-uniform-slots'
+import { polygonUniformSlots, polygonUniformBytes, polygonUniformStride } from '@xgis/map'
 import { writeFrameProjectionUniform } from './frame-projection-uniform'
 import { xlog } from '../log'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
-import { recordFillDraw, type FillRhiState } from './material/polygon-fill-material'
+import { recordFillDraw, type FillRhiState } from '@xgis/map'
 
 // f32 slot indices of the polygon 'Uniforms' struct, sourced from reflect() of the SAME
 // IR the shader is emitted from (NOT hand-coded magic numbers — those silently drift from

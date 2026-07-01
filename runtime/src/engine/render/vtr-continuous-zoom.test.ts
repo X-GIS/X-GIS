@@ -21,7 +21,7 @@
 import { describe, expect, it } from 'vitest'
 import { tileKey } from '@xgis/compiler'
 import { VectorTileRenderer } from './vector-tile-renderer'
-import { polygonUniformBytes } from './polygon-uniform-slots'
+import { polygonUniformBytes } from '@xgis/map'
 import type { GPUTile } from './vector-tile-renderer-types'
 
 // Scratch uniform buffer size — DERIVED from reflect(buildPolygonModule()) (the

@@ -16,10 +16,10 @@
 import { SpriteAtlasGPU } from './sprite-atlas-gpu'
 import { wrapWebGpuPass, wrapWebGpuBindGroupLayout, wrapWebGpuTextureView, wrapWebGpuSampler } from '@xgis/engine'
 import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
-import { IconDraper } from '../render/material/icon-material'
+import { IconDraper } from '@xgis/map'
 import type { SpriteInfo } from './sprite-atlas-host'
 import { vertexField } from '@xgis/compiler'
-import { ICON_FORMAT } from './icon-vertex-format'
+import { ICON_FORMAT } from '@xgis/map'
 import { toVertexBufferLayout } from '@xgis/engine'
 
 export interface IconDraw {

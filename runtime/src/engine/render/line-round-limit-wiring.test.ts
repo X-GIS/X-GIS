@@ -30,7 +30,7 @@ import { describe, expect, it } from 'vitest'
   UNIFORM: 1, COPY_DST: 2, STORAGE: 4, VERTEX: 8, INDEX: 16,
 }
 import { LineRenderer } from './line-renderer'
-import { lineLayerUniformStride } from './line-uniform-slots'
+import { lineLayerUniformStride } from '@xgis/map'
 import { WebGpuDevice } from '@xgis/engine'
 import type { GPUContext } from '@xgis/engine'
 

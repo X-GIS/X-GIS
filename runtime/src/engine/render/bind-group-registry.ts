@@ -42,7 +42,7 @@
 // 2 palette atlas, 4 palette sampler, 5 sprite atlas, 6 sprite sampler).
 
 import { Epoch } from '../_cache/versioned-state'
-import { polygonUniformSlots } from './polygon-uniform-slots'
+import { polygonUniformSlots } from '@xgis/map'
 
 // Bind-group binding range size for binding 0 (the uniform ring). Derived
 // lazily from reflect(buildPolygonModule()) — the SAME IR the shader is emitted

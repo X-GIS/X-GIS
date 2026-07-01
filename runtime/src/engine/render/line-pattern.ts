@@ -4,7 +4,7 @@
 // 1700-line renderer class. line-renderer.ts re-exports the public
 // surface so existing imports keep working.
 
-import { lineLayerUniformBytes } from './line-uniform-slots'
+import { lineLayerUniformBytes } from '@xgis/map'
 
 // ═══ Layer Uniform Layout ═══
 // Must match WGSL struct LineLayerUniform.

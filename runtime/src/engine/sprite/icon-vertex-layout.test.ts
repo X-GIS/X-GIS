@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { emitIconWgsl } from '@xgis/map'
-import { ICON_FORMAT } from './icon-vertex-format'
+import { ICON_FORMAT } from '@xgis/map'
 import { specShaderMismatches } from '../render/__vertex-format-crosscheck'
 
 // Single-source guard for the icon sprite vertex format. ICON_FORMAT drives the

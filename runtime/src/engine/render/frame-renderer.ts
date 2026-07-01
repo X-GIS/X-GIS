@@ -18,7 +18,7 @@ import { extendBindGroupLayoutEntriesForCompute } from '@xgis/engine'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
 import { UniformRing } from './uniform-ring'
 import { PipelineFactory } from './pipeline-factory'
-import { polygonUniformStride } from './polygon-uniform-slots'
+import { polygonUniformStride } from '@xgis/map'
 
 // ═══ FrameRenderer ═══
 
@@ -38,7 +38,7 @@ export class FrameRenderer {
   //    the OIT/opaque passes read MUST stay readable. ──
   get fillPipeline(): GPURenderPipeline { return this._pipelines.fillPipeline }
   /** P1.6 — the polygon flat-fill RHI Material twins + pipeline refs for VectorTileRenderer.setFillRhi. */
-  fillRhiState(): import('./material/polygon-fill-material').FillRhiState | null { return this._pipelines.fillRhiState() }
+  fillRhiState(): import('@xgis/map').FillRhiState | null { return this._pipelines.fillRhiState() }
   get fillPipelineGround(): GPURenderPipeline { return this._pipelines.fillPipelineGround }
   get fillPipelineExtruded(): GPURenderPipeline { return this._pipelines.fillPipelineExtruded }
   get fillPipelineExtrudedOIT(): GPURenderPipeline { return this._pipelines.fillPipelineExtrudedOIT }

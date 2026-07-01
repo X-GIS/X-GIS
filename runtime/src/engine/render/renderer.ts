@@ -24,7 +24,7 @@ import { resolveNumberShape, resolveColorShape } from './paint-shape-resolve'
 import type { ShaderVariantInfo, CachedPipeline, ShowCommand, RenderLayer } from './renderer-types'
 import { parseColor } from './renderer-helpers'
 import { GraticuleRenderer } from './graticule-renderer'
-import { polygonUniformBytes, polygonUniformSlots } from './polygon-uniform-slots'
+import { polygonUniformBytes, polygonUniformSlots } from '@xgis/map'
 import { writeFrameProjectionUniform } from './frame-projection-uniform'
 import { FrameRenderer } from './frame-renderer'
 
@@ -168,7 +168,7 @@ export class MapRendererContent {
   //    constructs. Thin delegations to the engine half — byte-identical
   //    external API, ZERO call-site changes. ──
   get fillPipeline(): GPURenderPipeline { return this.engine.fillPipeline }
-  fillRhiState(): import('./material/polygon-fill-material').FillRhiState | null { return this.engine.fillRhiState() }
+  fillRhiState(): import('@xgis/map').FillRhiState | null { return this.engine.fillRhiState() }
   get fillPipelineGround(): GPURenderPipeline { return this.engine.fillPipelineGround }
   get fillPipelineExtruded(): GPURenderPipeline { return this.engine.fillPipelineExtruded }
   get fillPipelineExtrudedOIT(): GPURenderPipeline { return this.engine.fillPipelineExtrudedOIT }

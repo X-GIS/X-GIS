@@ -36,11 +36,11 @@ import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
 import { execSync } from 'node:child_process'
-import { FIXTURES, emitForFixture } from '../runtime/src/engine/shaders/dsl/_polygon-fixtures'
+import { FIXTURES, emitForFixture } from '../map/src/shaders/dsl/_polygon-fixtures'
 // The projection graph is host-injected (configureProjections); the polygon emit reaches it
 // via getGpuProjectionFuncs(), so configure before any emitForFixture (mirrors the vitest setup).
-import { configureProjections } from '../runtime/src/engine/shaders/dsl/projections'
-import { PROJECTIONS } from '../runtime/src/engine/projection/projections-table'
+import { configureProjections } from '../map/src/shaders/dsl/projections'
+import { PROJECTIONS } from '../engine/src/projection/projections-table'
 configureProjections(PROJECTIONS)
 
 const argBaseline = process.argv.find(a => a.startsWith('--baseline='))?.split('=')[1]

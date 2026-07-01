@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { emitPolygonWgsl } from '@xgis/map'
-import { polygonUniformBytes, polygonUniformStride } from './polygon-uniform-slots'
+import { polygonUniformBytes, polygonUniformStride } from '@xgis/map'
 
 // ── Bug maprenderer-uniform-240 (MED, webgpu-validation) ──
 //

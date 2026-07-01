@@ -46,7 +46,7 @@ import { installWebGPUStub, type StubInstallation } from '../../../__test-suppor
 import { initGPU } from '@xgis/engine'
 import { VectorTileRenderer } from '../vector-tile-renderer'
 import { UniformRing } from '../uniform-ring'
-import { polygonUniformStride } from '../polygon-uniform-slots'
+import { polygonUniformStride } from '@xgis/map'
 
 let stub: StubInstallation
 let stubCtx: Awaited<ReturnType<typeof initGPU>>

@@ -15,7 +15,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { polygonUniformSlots } from './polygon-uniform-slots'
+import { polygonUniformSlots } from '@xgis/map'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 

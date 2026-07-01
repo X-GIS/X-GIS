@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'fs'
+import { readFileSync, existsSync } from 'fs'
 import { join } from 'path'
 
 // ── Regression gate: the 2026-06-26 map-load crash ──────────────────────────────
@@ -19,7 +19,16 @@ import { join } from 'path'
 // The fix: read the size LAZILY. Allowed = instance field (ctor-time, post-init),
 // method / function body (draw-time). Forbidden = module-level const, static field.
 
-const DIR = join(process.cwd(), 'runtime/src/engine/render')
+// Files under scan live in runtime/src/engine/render OR (once P3-extracted) in
+// map/src/render — resolve each against both so the gate follows the content move.
+const DIRS = [
+  join(process.cwd(), 'runtime/src/engine/render'),
+  join(process.cwd(), 'map/src/render'),
+]
+function readScanned(f: string): string {
+  for (const d of DIRS) { const p = join(d, f); if (existsSync(p)) return readFileSync(p, 'utf8') }
+  throw new Error(`no-eager scan: ${f} not found in ${DIRS.join(' | ')}`)
+}
 
 // Every file that consumes (or defines) a PROJECTION-GATED reflect-uniform helper.
 // text/frame/overdraw modules carry NO projection, so reflecting them eagerly is
@@ -82,7 +91,7 @@ describe('no eager polygon-uniform reflect at import (map-load crash gate)', () 
 
   for (const f of FILES) {
     it(`${f}: no module-const / static-field call to polygonUniform*()`, () => {
-      const offenders = readFileSync(join(DIR, f), 'utf8')
+      const offenders = readScanned(f)
         .split('\n')
         .map((l, i) => ({ l, n: i + 1 }))
         .filter(({ l }) => isEager(l))

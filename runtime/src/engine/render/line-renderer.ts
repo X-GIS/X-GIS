@@ -44,8 +44,8 @@ import { asyncWriteBuffer, type StagingBufferPool } from '@xgis/engine'
 import { xlog } from '../log'
 import { wrapWebGpuPass, wrapWebGpuBuffer, wrapWebGpuBindGroup, wrapWebGpuBindGroupLayout } from '@xgis/engine'
 import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
-import { LineDraper } from './material/line-material'
-import { LineCompositeDraper } from './material/line-composite-material'
+import { LineDraper } from '@xgis/map'
+import { LineCompositeDraper } from '@xgis/map'
 import type { ShapeRegistry } from '../text/sdf-shape'
 import {
   lineUniformSize, PATTERN_SLOT_COUNT, PATTERN_SLOT_F32,
@@ -57,7 +57,7 @@ import {
   checkPatternParams, packLineLayerUniform,
   type DashConfig, type PatternSlot,
 } from './line-pattern'
-import { lineLayerUniformStride } from './line-uniform-slots'
+import { lineLayerUniformStride } from '@xgis/map'
 // Re-export so test files (line-renderer.test, line-pattern-guards.test, etc.)
 // keep importing the public surface from the renderer module.
 export {
