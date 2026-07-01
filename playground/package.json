@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@xgis/compiler": "workspace:*",
+    "@xgis/map": "workspace:*",
     "@xgis/runtime": "workspace:*"
   },
   "devDependencies": {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { emitLineWgsl } from '../shaders/dsl/line'
+import { emitLineWgsl } from '@xgis/map'
 
 // #606 — THIN lines render TOO THICK vs MapLibre on dpr>1 displays.
 //

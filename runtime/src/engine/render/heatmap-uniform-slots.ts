@@ -6,7 +6,7 @@
 // from reflect(buildHeatmapAccumModule()) here so a struct change reflows mechanically.
 
 import { reflect } from '@xgis/shader-dsl'
-import { buildHeatmapAccumModule } from '../shaders/dsl/heatmap-accum'
+import { buildHeatmapAccumModule } from '@xgis/map'
 import { uniformFieldSlots, type UniformFieldSlots } from '@xgis/engine'
 
 let _slots: UniformFieldSlots | undefined

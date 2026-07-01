@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { reflect, type Reflection } from '@xgis/shader-dsl'
-import { buildPointModule } from '../shaders/dsl/point'
+import { buildPointModule } from '@xgis/map'
 import {
   reflectionToBindGroupLayoutEntries,
   uniformFieldSlots,

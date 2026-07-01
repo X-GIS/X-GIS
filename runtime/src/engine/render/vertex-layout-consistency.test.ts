@@ -12,7 +12,7 @@
 // unintegrated) are SEPARATE line formats not covered here.
 
 import { describe, it, expect } from 'vitest'
-import { emitPolygonWgsl } from '../shaders/dsl/polygon'
+import { emitPolygonWgsl } from '@xgis/map'
 import { POLYGON_FILL_FORMAT, POLYGON_EXTRUDED_FORMAT } from '@xgis/compiler'
 import { LINE_FORMAT } from './line-vertex-format'
 import { specShaderMismatches } from './__vertex-format-crosscheck'

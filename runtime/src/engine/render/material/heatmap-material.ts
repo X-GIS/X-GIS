@@ -9,7 +9,7 @@
 import type { RhiBindGroup, RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { wrapWebGpuBindGroupLayout } from '@xgis/engine'
 import { Material, executeItems } from './material'
-import { emitHeatmapAccumWgsl } from '../../shaders/dsl'
+import { emitHeatmapAccumWgsl } from '@xgis/map'
 
 // The accum batch now carries RHI handles directly — the renderer builds the buffers +
 // bind group via the RHI seam (§4 batch-seam migration), so NO re-wrapping here (a wrap

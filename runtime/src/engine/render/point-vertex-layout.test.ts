@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { emitPointWgsl } from '../shaders/dsl'
+import { emitPointWgsl } from '@xgis/map'
 import { POINT_FORMAT } from './point-vertex-format'
 import { specShaderMismatches } from './__vertex-format-crosscheck'
 

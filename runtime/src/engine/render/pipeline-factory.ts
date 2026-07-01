@@ -45,7 +45,7 @@ import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
 import { buildOverdrawComposePipeline, buildHeatmapBlurPipeline, buildHeatmapComposePipeline, buildOitComposePipeline } from './compose-pipelines'
 import { buildFlatFillMaterials, buildExtrudeMaterial, buildPatternFillMaterials, type FillRhiState } from './material/polygon-fill-material'
 import type { Material } from './material/material'
-import { emitPolygonWgsl } from '../shaders/dsl/polygon'
+import { emitPolygonWgsl } from '@xgis/map'
 import { Node } from '@xgis/shader-dsl'
 import type { Stmt } from '@xgis/shader-dsl'
 

@@ -18,8 +18,8 @@
 // globe eye-horizon cap keeps the eye-visible region / culls the far cap.
 
 import { describe, expect, it, beforeAll } from 'vitest'
-import { cosC, needsBackfaceCullWgsl } from '../shaders/dsl'
-import { globeEyeUniform } from './globe-eye-uniform'
+import { cosC, needsBackfaceCullWgsl } from '@xgis/map'
+import { globeEyeUniform } from '@xgis/map'
 import { buildGlobeMatrix } from '@xgis/engine'
 
 const EARTH_R = 6378137

@@ -9,6 +9,7 @@ export default defineConfig({
       'shader-dsl/src/**/*.test.ts',
       'shader-dsl/examples/**/*.test.ts',
       'engine/src/**/*.test.ts',
+      'map/src/**/*.test.ts',
       'runtime/src/**/*.test.ts',
     ],
     // shader-dsl projections are host-injected (configureProjections); configure

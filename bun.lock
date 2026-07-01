@@ -67,6 +67,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@xgis/compiler": "workspace:*",
+        "@xgis/map": "workspace:*",
         "@xgis/runtime": "workspace:*",
       },
       "devDependencies": {
@@ -95,6 +96,7 @@
       "devDependencies": {
         "@xgis/compiler": "workspace:*",
         "@xgis/engine": "workspace:*",
+        "@xgis/map": "workspace:*",
         "@xgis/shader-dsl": "workspace:*",
         "@xgis/shared": "workspace:*",
         "geojson-vt": "^4.0.2",
@@ -127,6 +129,7 @@
         "@tailwindcss/vite": "^4.0.0",
         "@xgis/blueprint": "workspace:*",
         "@xgis/compiler": "workspace:*",
+        "@xgis/map": "workspace:*",
         "@xgis/runtime": "workspace:*",
         "astro": "^5.1.0",
         "astro-expressive-code": "^0.42.0",

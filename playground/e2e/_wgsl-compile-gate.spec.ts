@@ -19,17 +19,17 @@
 // so compiling the fixtures validates the production-equivalent WGSL.
 
 import { test, expect } from '@playwright/test'
-import { FIXTURES, emitForFixture } from '../../runtime/src/engine/shaders/dsl/_polygon-fixtures'
-import { emitLineWgsl, emitCompositeWgsl } from '../../runtime/src/engine/shaders/dsl/line'
-import { emitPointWgsl } from '../../runtime/src/engine/shaders/dsl/point'
-import { emitRasterWgsl } from '../../runtime/src/engine/shaders/dsl/raster'
-import { emitIconWgsl } from '../../runtime/src/engine/shaders/dsl/icon'
-import { emitOverdrawComposeWgsl } from '../../engine/src/shaders/dsl/overdraw-compose'
-import { emitOverdrawFsWgsl } from '../../runtime/src/engine/shaders/dsl/overdraw-fs'
-import { emitTextWgsl } from '../../runtime/src/engine/shaders/dsl/text'
-import { emitHeatmapAccumWgsl } from '../../runtime/src/engine/shaders/dsl/heatmap-accum'
-import { emitHeatmapBlurWgsl } from '../../runtime/src/engine/shaders/dsl/heatmap-blur'
-import { emitHeatmapComposeWgsl } from '../../runtime/src/engine/shaders/dsl/heatmap-compose'
+import { FIXTURES, emitForFixture } from '@xgis/map'
+import { emitLineWgsl, emitCompositeWgsl } from '@xgis/map'
+import { emitPointWgsl } from '@xgis/map'
+import { emitRasterWgsl } from '@xgis/map'
+import { emitIconWgsl } from '@xgis/map'
+import { emitOverdrawComposeWgsl } from '@xgis/map'
+import { emitOverdrawFsWgsl } from '@xgis/map'
+import { emitTextWgsl } from '@xgis/map'
+import { emitHeatmapAccumWgsl } from '@xgis/map'
+import { emitHeatmapBlurWgsl } from '@xgis/map'
+import { emitHeatmapComposeWgsl } from '@xgis/map'
 
 /** Every WGSL string the DSL can hand to createShaderModule, labelled. */
 function allVariants(): Array<{ name: string; wgsl: string }> {

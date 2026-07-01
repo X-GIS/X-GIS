@@ -29,7 +29,7 @@
 // is caught.
 
 import { describe, it, expect } from 'vitest'
-import { projectWgsl, projectGeomWgsl } from '../shaders/dsl'
+import { projectWgsl, projectGeomWgsl } from '@xgis/map'
 
 // Seam projections only — azimuthal (3/4/5) + globe (7) have no longitude
 // seam (project_geom falls through to project for them), and mercator (0)

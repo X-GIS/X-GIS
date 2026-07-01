@@ -8,8 +8,8 @@
 
 import { describe, expect, it } from 'vitest'
 import { WGSL_PROJECTION_FNS } from '../shaders/projection'
-import { emitRasterWgsl, emitPointWgsl, emitLineWgsl } from '../shaders/dsl'
-import { emitPolygonWgsl } from '../shaders/dsl/polygon'
+import { emitRasterWgsl, emitPointWgsl, emitLineWgsl } from '@xgis/map'
+import { emitPolygonWgsl } from '@xgis/map'
 
 describe('rim_alpha rollout coverage', () => {
   it('polygon shader (fs_fill / fs_stroke / fs_oit_translucent) calls polygon_rim_alpha', () => {

@@ -31,4 +31,4 @@
 export {
   getProjectionWgslConsts as WGSL_PROJECTION_CONSTS,
   getProjectionWgslFns as WGSL_PROJECTION_FNS,
-} from './dsl'
+} from '@xgis/map'

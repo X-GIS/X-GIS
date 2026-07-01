@@ -4,7 +4,7 @@
 // constructor; the test runner wires it here so any suite that reaches the
 // projection path (polygon/line/point/raster/heatmap emit, cpu-projections,
 // threshold-drift / rim-rollout / wgsl-reserved-words) is configured first.
-import { configureProjections } from './engine/shaders/dsl'
+import { configureProjections } from '@xgis/map'
 import { PROJECTIONS } from '@xgis/engine'
 
 configureProjections(PROJECTIONS)

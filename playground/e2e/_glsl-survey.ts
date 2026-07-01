@@ -4,8 +4,8 @@
 // dynamic-import path the WebGL2 gate uses.
 
 import { emitGlslModule } from '../../shader-dsl/src/index'
-import { buildRasterModule } from '../../runtime/src/engine/shaders/dsl/raster'
-import { overdrawComposeModule } from '../../engine/src/shaders/dsl/overdraw-compose'
+import { buildRasterModule } from '@xgis/map'
+import { overdrawComposeModule } from '@xgis/map'
 
 export interface SurveyRow { name: string; vertex: string; fragment: string; link: string }
 

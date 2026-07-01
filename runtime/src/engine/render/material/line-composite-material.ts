@@ -9,7 +9,7 @@
 import type { RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { wrapWebGpuTextureView } from '@xgis/engine'
 import { Material, executeItems } from './material'
-import { emitCompositeWgsl } from '../../shaders/dsl'
+import { emitCompositeWgsl } from '@xgis/map'
 
 /** Composite uniform ring slot size (matches LineRenderer.COMPOSITE_SLOT). */
 const COMPOSITE_SLOT = 256

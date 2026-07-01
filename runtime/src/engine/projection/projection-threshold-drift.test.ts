@@ -17,7 +17,7 @@
 import { describe, it, expect } from 'vitest'
 import { PROJECTIONS } from '@xgis/engine'
 import { WGSL_PROJECTION_FNS } from '../shaders/projection'
-import { cosC, needsBackfaceCullWgsl, emitRasterWgsl } from '../shaders/dsl'
+import { cosC, needsBackfaceCullWgsl, emitRasterWgsl } from '@xgis/map'
 
 const AZIMUTHAL = PROJECTIONS[4]!.cullThreshold! // -0.85
 const STEREO = PROJECTIONS[5]!.cullThreshold!    // -0.8

@@ -19,7 +19,7 @@
 // (enforced by no-eager-uniform-reflect.test.ts).
 
 import { polygonUniformSlots } from './polygon-uniform-slots'
-import { globeEyeUniform } from './globe-eye-uniform'
+import { globeEyeUniform } from '@xgis/map'
 
 /** Write `proj_params` + `globe_eye` TOGETHER into a uniform `f32` view, at the
  *  caller's slot indices. This is the generic coupled writer EVERY render family

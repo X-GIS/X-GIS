@@ -31,6 +31,7 @@
   "devDependencies": {
     "@xgis/compiler": "workspace:*",
     "@xgis/engine": "workspace:*",
+    "@xgis/map": "workspace:*",
     "@xgis/shader-dsl": "workspace:*",
     "@xgis/shared": "workspace:*",
     "geojson-vt": "^4.0.2",

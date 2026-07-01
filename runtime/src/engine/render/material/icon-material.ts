@@ -7,7 +7,7 @@
 import type { RhiBindGroup, RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { wrapWebGpuBindGroupLayout } from '@xgis/engine'
 import { Material, executeItems } from './material'
-import { emitIconWgsl } from '../../shaders/dsl'
+import { emitIconWgsl } from '@xgis/map'
 
 type VertexBuffers = ReadonlyArray<{ stride: number; attributes: ReadonlyArray<{ location: number; offset: number; format: string }> }>
 

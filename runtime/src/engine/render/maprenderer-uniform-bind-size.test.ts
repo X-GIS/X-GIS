@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { emitPolygonWgsl } from '../shaders/dsl/polygon'
+import { emitPolygonWgsl } from '@xgis/map'
 import { polygonUniformBytes, polygonUniformStride } from './polygon-uniform-slots'
 
 // ── Bug maprenderer-uniform-240 (MED, webgpu-validation) ──

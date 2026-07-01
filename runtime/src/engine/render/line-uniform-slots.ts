@@ -20,7 +20,7 @@
 // (enforced by no-eager-uniform-reflect.test.ts, which scans this file's consumers).
 
 import { reflect } from '@xgis/shader-dsl'
-import { buildLineModule } from '../shaders/dsl/line'
+import { buildLineModule } from '@xgis/map'
 import { uniformFieldSlots, type UniformFieldSlots } from '@xgis/engine'
 
 let _layer: UniformFieldSlots | undefined

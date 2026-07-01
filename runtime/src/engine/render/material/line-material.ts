@@ -10,7 +10,7 @@
 import type { RhiBindGroup, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { wrapWebGpuBindGroupLayout } from '@xgis/engine'
 import { Material, executeItems } from './material'
-import { emitLineWgsl } from '../../shaders/dsl'
+import { emitLineWgsl } from '@xgis/map'
 
 /** One line-segment batch (§4 batch-seam). Both bind groups arrive as RhiBindGroup:
  *  the layer group is built via `rhi.createBindGroup` (LineRenderer.createLayer-
