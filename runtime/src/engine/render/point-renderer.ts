@@ -22,7 +22,7 @@ import { vertexField } from '@xgis/compiler'
 import { POINT_FORMAT } from '@xgis/map'
 import { toVertexBufferLayout } from '@xgis/engine'
 import { reflectionToBindGroupLayoutEntries, uniformFieldSlots } from '@xgis/engine'
-import { writeProjectionCull } from './frame-projection-uniform'
+import { writeProjectionCull } from '@xgis/map'
 
 // Float-slot indices derived from the single-source POINT_FORMAT spec so the
 // packer cannot drift from the GPUVertexBufferLayout / vs_point @location.

@@ -90,7 +90,7 @@ function stubTile() {
     dequantScale: 1, dequantHalf: 0,
     extruded: false,
     featureBindGroup: null,
-  } as unknown as import('../vector-tile-renderer-types').GPUTile
+  } as unknown as import('@xgis/map').GPUTile
 }
 
 /** Drive renderTileKeys for one tile with `currentFillAntialias` baked to the

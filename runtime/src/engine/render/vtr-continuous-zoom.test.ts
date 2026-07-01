@@ -22,7 +22,7 @@ import { describe, expect, it } from 'vitest'
 import { tileKey } from '@xgis/compiler'
 import { VectorTileRenderer } from './vector-tile-renderer'
 import { polygonUniformBytes } from '@xgis/map'
-import type { GPUTile } from './vector-tile-renderer-types'
+import type { GPUTile } from '@xgis/map'
 
 // Scratch uniform buffer size — DERIVED from reflect(buildPolygonModule()) (the
 // SAME source the production VTR sizes uniformDataBuf from), not a hardcoded byte

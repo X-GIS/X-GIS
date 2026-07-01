@@ -28,7 +28,7 @@
 import { ComputeDispatcher } from '@xgis/engine'
 import { ComputeLayerHandle } from './compute-layer-handle'
 import type { ShaderVariant } from '@xgis/compiler'
-import type { GPUTile } from './vector-tile-renderer-types'
+import type { GPUTile } from '@xgis/map'
 import { polygonUniformSlots } from '@xgis/map'
 
 // Bind-group binding range size for binding 0 (the uniform ring). Derived

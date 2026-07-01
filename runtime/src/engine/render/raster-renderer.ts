@@ -12,7 +12,7 @@ import { routeToSphereSelector, enumerateWorldCopies } from '@xgis/engine'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import { globeVisibleTiles } from '@xgis/engine'
-import { writeProjectionCull } from './frame-projection-uniform'
+import { writeProjectionCull } from '@xgis/map'
 import { rasterUniformSlots, rasterUniformBytes, rasterTileSlots } from '@xgis/map'
 
 /** Camera RTC anchor for the raster VS on the globe / 3D surfaces.

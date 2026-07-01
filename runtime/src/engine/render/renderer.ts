@@ -25,7 +25,7 @@ import type { ShaderVariantInfo, CachedPipeline, ShowCommand, RenderLayer } from
 import { parseColor } from './renderer-helpers'
 import { GraticuleRenderer } from './graticule-renderer'
 import { polygonUniformBytes, polygonUniformSlots } from '@xgis/map'
-import { writeFrameProjectionUniform } from './frame-projection-uniform'
+import { writeFrameProjectionUniform } from '@xgis/map'
 import { FrameRenderer } from './frame-renderer'
 
 // Re-export the extracted types so this module's public surface stays

@@ -56,7 +56,7 @@ import {
   PATTERN_ANCHOR_REPEAT, PATTERN_ANCHOR_START, PATTERN_ANCHOR_END, PATTERN_ANCHOR_CENTER,
   checkPatternParams, packLineLayerUniform,
   type DashConfig, type PatternSlot,
-} from './line-pattern'
+} from '@xgis/map'
 import { lineLayerUniformStride } from '@xgis/map'
 // Re-export so test files (line-renderer.test, line-pattern-guards.test, etc.)
 // keep importing the public surface from the renderer module.
