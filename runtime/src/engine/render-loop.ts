@@ -15,12 +15,12 @@
 // keeping the public/internal call surface (render-loop tick, tests)
 // unchanged.
 
-import { xlog } from './log'
+import { xlog } from '@xgis/shared'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd, flushPerFrameMarks } from '@xgis/map'
 import { mercatorYToLat } from '@xgis/engine'
 import { PROJECTION_NAME_TO_TYPE, isGlobeProj, promotesToGlobeWhenTilted, poleLimit } from '@xgis/engine'
 import { resizeCanvas, effectiveDpr, getSampleCount, isPickEnabled } from '@xgis/engine'
-import { DEBUG_OVERDRAW } from './debug-flags'
+import { DEBUG_OVERDRAW } from '@xgis/map'
 import { WORLD_MERC, TILE_PX } from '@xgis/engine'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { reportErrorScope } from './render-loop-helpers'

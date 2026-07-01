@@ -5,7 +5,7 @@
 
 import type { GeoJSONFeatureCollection } from '../loader/geojson'
 import type { XGISFontResource, FontTypographyMap } from './map-types'
-import { xlog } from './log'
+import { xlog } from '@xgis/shared'
 
 /** Filter the xgis source DSL's `type:` field down to the values
  *  `detectVectorTileFormat` understands. XGIS source `type` can also

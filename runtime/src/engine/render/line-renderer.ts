@@ -39,9 +39,9 @@
 //    and is deferred.
 
 import { isPickEnabled, getSampleCount, type GPUContext } from '@xgis/engine'
-import { DEBUG_OVERDRAW } from '../debug-flags'
+import { DEBUG_OVERDRAW } from '@xgis/map'
 import { asyncWriteBuffer, type StagingBufferPool } from '@xgis/engine'
-import { xlog } from '../log'
+import { xlog } from '@xgis/shared'
 import { wrapWebGpuPass, wrapWebGpuBuffer, wrapWebGpuBindGroup, wrapWebGpuBindGroupLayout } from '@xgis/engine'
 import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
 import { LineDraper } from '@xgis/map'

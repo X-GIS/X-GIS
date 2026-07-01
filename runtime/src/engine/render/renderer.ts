@@ -19,7 +19,7 @@
 import type { GPUContext } from '@xgis/engine'
 import type { Camera } from '@xgis/engine'
 import type { MeshData, LineMeshData } from '../../loader/geojson'
-import { DEBUG_OVERDRAW } from '../debug-flags'
+import { DEBUG_OVERDRAW } from '@xgis/map'
 import { resolveNumberShape, resolveColorShape } from './paint-shape-resolve'
 import type { ShaderVariantInfo, CachedPipeline, ShowCommand, RenderLayer } from './renderer-types'
 import { parseColor } from './renderer-helpers'

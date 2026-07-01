@@ -14,7 +14,7 @@ import { projectCpu, projectGeomCpu, needsBackfaceCullCpu, projMercatorCpu } fro
 import { isGlobeProj } from '@xgis/engine'
 import type { Camera } from '@xgis/engine'
 import { WORLD_MERC } from '@xgis/engine'
-import { xlog } from './log'
+import { xlog } from '@xgis/shared'
 
 // Projected-x world circumference for the x-periodic flat NON-Mercator set
 // (equirect 1 / natural_earth 2 / oblique_mercator 6). This is the SAME

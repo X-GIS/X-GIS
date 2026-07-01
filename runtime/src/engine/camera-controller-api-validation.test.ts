@@ -24,7 +24,7 @@
 import { describe, expect, it, beforeEach, afterEach } from 'vitest'
 import { Camera } from '@xgis/engine'
 import { CameraController, type CameraControllerDeps } from './camera-controller'
-import { setLogSink } from './log'
+import { setLogSink } from '@xgis/shared'
 
 /** Minimal deps. B1/B2/B3 never reach getBounds/fitBounds's canvas read
  *  (B2 rejects the antimeridian bbox first), so the canvas getters throw

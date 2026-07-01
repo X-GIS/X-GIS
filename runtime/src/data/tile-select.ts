@@ -23,7 +23,7 @@ import type { Camera } from '@xgis/engine'
 import { type Projection, MERCATOR_LAT_LIMIT, mercatorYToLat } from '@xgis/engine'
 import { PROJECTION_NAME_TO_TYPE } from '@xgis/engine'
 import { EARTH_R } from '@xgis/engine'
-import { safeFetch } from '../engine/safety'
+import { safeFetch } from '@xgis/shared'
 
 // Mobile GPUs choke on 300 frustum tiles — each tile is a draw call plus
 // SDF-shaded line segments. 120 keeps the foreground refined and the

@@ -17,7 +17,7 @@
 // catalog pace compile work via the per-frame tick budget while
 // fetches keep streaming in async.
 
-import { xlog } from '../../engine/log'
+import { xlog } from '@xgis/shared'
 import {
   tileKeyUnpack,
   decodeMvtTile, decomposeFeatures, compileSingleTile,

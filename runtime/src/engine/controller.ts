@@ -4,7 +4,7 @@ import type { Camera } from '@xgis/engine'
 import { unprojectGlobeFromCamera } from '@xgis/engine'
 import { promotesToGlobeWhenTilted } from '@xgis/engine'
 import { getMaxDpr } from '@xgis/engine'
-import { xlog } from './log'
+import { xlog } from '@xgis/shared'
 
 export interface Controller {
   name: string

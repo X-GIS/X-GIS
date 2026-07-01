@@ -1,4 +1,4 @@
-import { xlog } from './log'
+import { xlog } from '@xgis/shared'
 import { toU32Id } from './id-resolver'
 import type { GeoJSONFeature, GeoJSONFeatureCollection } from '../loader/geojson'
 

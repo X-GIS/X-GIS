@@ -25,7 +25,7 @@ import {
   type CompiledTileSet, type TileLevel,
   type GeometryPart,
 } from '@xgis/compiler'
-import { xlog } from '../engine/log'
+import { xlog } from '@xgis/shared'
 import { visibleTiles } from './tile-select'
 import { VirtualCatalogAdapter } from './sources/virtual-catalog-adapter'
 import { GeoJSONRuntimeBackend } from './sources/geojson-runtime-backend'

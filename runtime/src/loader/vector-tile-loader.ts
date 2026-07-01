@@ -22,8 +22,8 @@
 // preserve every prior import path. Power users can construct their own
 // loader instance for isolated caches.
 
-import { xlog } from '../engine/log'
-import { readBodyCapped, assertSafeRemoteUrl, safeFetch } from '../engine/safety'
+import { xlog } from '@xgis/shared'
+import { readBodyCapped, assertSafeRemoteUrl, safeFetch } from '@xgis/shared'
 import { PMTiles, TileType } from 'pmtiles'
 import { TileCatalog } from '../data/tile-catalog'
 import { PMTilesBackend } from '../data/sources/pmtiles-backend'

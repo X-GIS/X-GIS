@@ -12,7 +12,7 @@
 // (via attachBackend); this adapter exists only for the
 // VirtualCatalog interface that predates PMTilesBackend.
 
-import { xlog } from '../../engine/log'
+import { xlog } from '@xgis/shared'
 import { tileKeyUnpack } from '@xgis/compiler'
 import {
   TILE_LAYOUT_VERSION,

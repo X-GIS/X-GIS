@@ -17,7 +17,7 @@
 
 import { evaluate, makeEvalProps, resolveColor } from '@xgis/compiler'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '@xgis/map'
-import { DEBUG_OVERDRAW } from '../../debug-flags'
+import { DEBUG_OVERDRAW } from '@xgis/map'
 import { WORLD_MERC, TILE_PX } from '@xgis/engine'
 import { mercatorYToLat } from '@xgis/engine'
 import { isGlobeProj } from '@xgis/engine'

@@ -1,7 +1,7 @@
 // ═══ X-GIS Map — 전체를 연결하는 엔트리포인트 ═══
 
-import { xlog } from './log'
-import { setLogSink as setEngineLogSink } from './log'
+import { xlog } from '@xgis/shared'
+import { setLogSink as setEngineLogSink } from '@xgis/shared'
 import { Lexer, Parser, lower, optimize, emitCommands, evaluate, makeEvalProps, deserializeXGB, resolveImportsAsync, resolveUtilities, resolveColor, extractInterpolateZoomColorStops, extractInterpolateZoomStops } from '@xgis/compiler'
 import { packPalette, uploadPalette, type PaletteTextures } from '@xgis/engine'
 import type * as AST from '@xgis/compiler'
@@ -94,7 +94,7 @@ import { pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
 import type { GeoJSONFeature } from '../loader/geojson'
 import { FeatureUpdateQueue } from './feature-update-queue'
 import { MapEventBus } from './map-event-bus'
-import { safeFetch, assertIngestBudget, readBodyCapped } from './safety'
+import { safeFetch, assertIngestBudget, readBodyCapped } from '@xgis/shared'
 
 // DoS ceilings for the top-level loader entry points (.xgis style /
 // import-resolver text and .xgb binary scene). Defensive — far above any
@@ -1117,7 +1117,7 @@ export class XGISMap {
   /** Route engine logs (pass-validation errors, warnings) to a custom sink
    *  instead of the console — for telemetry / in-app overlays. Pass null to
    *  restore the console default. */
-  setLogSink(sink: import('./log').LogSink | null): void { setEngineLogSink(sink) }
+  setLogSink(sink: import('@xgis/shared').LogSink | null): void { setEngineLogSink(sink) }
 
   /** Mapbox-API parity: animated camera variants. X-GIS has no
    *  transition infra yet, so both alias to jumpTo (instant) inside

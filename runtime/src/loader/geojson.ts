@@ -1,7 +1,7 @@
 import earcut from 'earcut'
 import { interpolateGreatCircle } from '@xgis/compiler/tiler/geodesic'
 import { MERCATOR_LAT_LIMIT } from '@xgis/engine'
-import { assertIngestBudget } from '../engine/safety'
+import { assertIngestBudget } from '@xgis/shared'
 import {
   subdivideRing,
   splitWidePolygon,

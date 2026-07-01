@@ -4,13 +4,13 @@
 // This class manages GPU buffers, bind groups, and draw calls only.
 
 import type { GPUContext } from '@xgis/engine'
-import { DEBUG_OVERDRAW } from '../debug-flags'
+import { DEBUG_OVERDRAW } from '@xgis/map'
 import { Camera } from '@xgis/engine'
 import type { ShowCommand } from './renderer'
 import { variantProducesFill } from './renderer-helpers'
 import { polygonUniformSlots, polygonUniformBytes, polygonUniformStride } from '@xgis/map'
 import { writeFrameProjectionUniform } from '@xgis/map'
-import { xlog } from '../log'
+import { xlog } from '@xgis/shared'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '@xgis/map'
 import { recordFillDraw, type FillRhiState } from '@xgis/map'
 

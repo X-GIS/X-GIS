@@ -15,7 +15,7 @@
 // compile, per-layer slices, extrude / stroke-width per-feature
 // bakes, etc.) without a separate runtime backend.
 
-import { xlog } from '../../engine/log'
+import { xlog } from '@xgis/shared'
 import {
   tileKeyUnpack,
   decodeMvtTile, decomposeFeatures, compileSingleTile,

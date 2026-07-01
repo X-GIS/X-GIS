@@ -36,7 +36,7 @@ import { PriorityQueue, PriorityQueueItemRemovedError } from '../../core/priorit
 import { buildLineSegments, type LineRenderer } from './line-renderer'
 import { generateWallMeshExtrudedECEF } from '../../core/polygon-mesh'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '@xgis/map'
-import { xlog } from '../log'
+import { xlog } from '@xgis/shared'
 import type { TileData } from '../../data/tile-types'
 import type { GPUTile } from '@xgis/map'
 import type { RhiBindGroup } from '@xgis/engine'

@@ -8,12 +8,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // Mock the logger so we can assert on error() calls without console noise.
-vi.mock('./log', () => ({
+vi.mock('@xgis/shared', () => ({
   xlog: { error: vi.fn(), warn: vi.fn(), log: vi.fn() },
 }))
 
 import { reportErrorScope } from './render-loop-helpers'
-import { xlog } from './log'
+import { xlog } from '@xgis/shared'
 
 // reportErrorScope is fire-and-forget — flush the microtask queue so the
 // .then/.catch handlers run before we assert.

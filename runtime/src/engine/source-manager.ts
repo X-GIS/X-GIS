@@ -25,7 +25,7 @@
 //     fresh, not captured at construction).
 //   - `this.camera` / `this.canvas`  → injected (stable ctor-time instances).
 
-import { assertIngestBudget, readBodyCapped, safeFetch } from './safety'
+import { assertIngestBudget, readBodyCapped, safeFetch } from '@xgis/shared'
 import type { Camera } from '@xgis/engine'
 import type { GPUContext } from '@xgis/engine'
 import { getMaxDpr } from '@xgis/engine'
