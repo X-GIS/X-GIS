@@ -11,7 +11,7 @@
 //   mlVerticalLayout: every baselineY finite; blockTop ≤ blockBottom.
 
 import { describe, it, expect } from 'vitest'
-import { wrapForTesting, mlVerticalLayout } from './text-stage'
+import { wrapForTesting, mlVerticalLayout } from '@xgis/map'
 
 // Uniform-advance helper: n glyphs each `adv` px wide.
 function uniform(n: number, cp = 65, adv = 10): { cps: number[]; adv: number[] } {

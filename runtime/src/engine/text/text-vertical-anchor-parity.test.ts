@@ -23,7 +23,7 @@
 // (non-zero) and all-caps ≠ mixed-case.
 
 import { describe, it, expect } from 'vitest'
-import { TextStage } from './text-stage'
+import { TextStage } from '@xgis/map'
 import { WebGpuDevice } from '@xgis/engine'
 import { computeSDF } from '@xgis/map'
 import type { GlyphRasterizer, GlyphRasterRequest, GlyphRasterResult } from '@xgis/map'

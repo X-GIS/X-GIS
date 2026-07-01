@@ -18,7 +18,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { GlyphAtlasHost } from '@xgis/map'
 import { MockRasterizer } from '@xgis/map'
-import { wrapForTesting, mlVerticalLayout } from './text-stage'
+import { wrapForTesting, mlVerticalLayout } from '@xgis/map'
 import { greedyPlaceBboxes, type CollisionItem } from '@xgis/map'
 
 const TEXT = 'Seoul\n서울특별시'

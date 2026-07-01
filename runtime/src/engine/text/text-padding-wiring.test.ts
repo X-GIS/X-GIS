@@ -31,7 +31,7 @@
 // goes red — the wire that makes text-padding reach collision is gone.
 
 import { describe, it, expect } from 'vitest'
-import { TextStage } from './text-stage'
+import { TextStage } from '@xgis/map'
 import { MockRasterizer } from '@xgis/map'
 import { WebGpuDevice } from '@xgis/engine'
 import type { LabelDef, TextValue } from '@xgis/compiler'

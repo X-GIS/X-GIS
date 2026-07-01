@@ -167,3 +167,11 @@ export { TextRenderer, packUniformsForTesting } from './text/text-renderer'
 // tests (pruned to the public API in Step 8). No name collisions — blanket export for both.
 export * from './render/bucket-scheduler'
 export * from './text/text-stage-diagnostics'
+// P3 Phase-2 Batch B9 — text-stage (the TextStage label-pipeline orchestrator: resolve → layout →
+// collision → raster → atlas — the final text-subsystem content leaf). SELECTIVE export: text-stage.ts
+// re-exports TextStageOptions / resolveTypography / wrapForTesting / layoutCacheEntryValid /
+// mlVerticalLayout / verticalLayoutForTesting / composeFontKey for backward-compat, but those already
+// resolve via their real homes above (text-stage-types L123 / text-wrap L140 / text-stage-helpers
+// L141-146) — a blanket `export *` would be an ambiguous duplicate. Export only TextStage.
+// Deep-imported cross-package by still-in-runtime map.ts / map-types / passes/label-pass + wiring tests.
+export { TextStage } from './text/text-stage'

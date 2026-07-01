@@ -15,7 +15,7 @@
 // label A's cached glyphs+glyphOffsets. "일부만" = colliding labels.
 
 import { describe, it, expect } from 'vitest'
-import { TextStage } from './text-stage'
+import { TextStage } from '@xgis/map'
 import { MockRasterizer } from '@xgis/map'
 import { WebGpuDevice } from '@xgis/engine'
 import type { LabelDef, TextValue } from '@xgis/compiler'

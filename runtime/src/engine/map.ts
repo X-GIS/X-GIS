@@ -52,7 +52,7 @@ import { LineRenderer } from '@xgis/map'
 import { PanZoomController, type Controller } from './controller'
 import { DirtyTracker, DirtyDomain, DIRTY_ALL } from '@xgis/map'
 import { VectorTileRenderer } from '@xgis/map'
-import { TextStage, type TextStageOptions } from './text/text-stage'
+import { TextStage, type TextStageOptions } from '@xgis/map'
 import type { GlyphProvider } from '@xgis/map'
 import { IconStage } from '@xgis/map'
 import {

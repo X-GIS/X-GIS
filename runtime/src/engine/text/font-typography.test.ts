@@ -3,7 +3,7 @@
 // the layer-level letter-spacing and line-height math during prepare().
 
 import { describe, it, expect } from 'vitest'
-import { resolveTypography } from './text-stage'
+import { resolveTypography } from '@xgis/map'
 
 describe('resolveTypography', () => {
   it('returns identity when no table is configured', () => {

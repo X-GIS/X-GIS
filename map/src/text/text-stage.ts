@@ -19,21 +19,22 @@
 // AND screen-space overlays (HUD, scale bar).
 
 import type { LabelDef, TextValue } from '@xgis/compiler'
-import { resolveText, type FeatureProps } from '@xgis/map'
+import { resolveText, type FeatureProps } from './text-resolver'
 import {
   GlyphAtlasHost, type GlyphAtlasHostOptions,
-} from '@xgis/map'
-import { GlyphAtlasGPU } from '@xgis/map'
-import { createRasterizer, createMetricsRasterizer, type GlyphRasterizer } from '@xgis/map'
-import { GlyphPbfCache } from '@xgis/map'
-import { bumpAlloc } from '@xgis/map'
+} from './sdf/glyph-atlas-host'
+import { GlyphAtlasGPU } from './sdf/glyph-atlas-gpu'
+import { createRasterizer, createMetricsRasterizer, type GlyphRasterizer } from './sdf/glyph-rasterizer'
+import { GlyphPbfCache } from './sdf/pbf/glyph-pbf-cache'
+import { bumpAlloc } from '../__profile__/alloc-counter'
 import { FrameArena } from '@xgis/engine'
-import { InlineGlyphProvider } from '@xgis/map'
-import type { GlyphProvider } from '@xgis/map'
-import { PbfRasterizer } from '@xgis/map'
-import { TextRenderer, type TextDraw } from '@xgis/map'
+import { InlineGlyphProvider } from './sdf/pbf/inline-glyph-provider'
+import type { GlyphProvider } from './sdf/pbf/glyph-provider'
+import { PbfRasterizer } from './sdf/pbf-rasterizer'
+import { TextRenderer } from './text-renderer'
+import type { TextDraw } from './text-renderer-types'
 import type { RhiDevice } from '@xgis/engine'
-import { greedyPlaceBboxes, type CollisionItem, type CollisionObstacle } from '@xgis/map'
+import { greedyPlaceBboxes, type CollisionItem, type CollisionObstacle } from './text-collision'
 import {
   applyTextTransform, stripCurveLineExtraScripts,
   evaluateVariableOffsetEm, variableAnchorOffsetEm,
@@ -42,32 +43,32 @@ import {
   mlVerticalLayout, composeFontKey,
   ONE_EM, SHAPING_DEFAULT_OFFSET, CJK_FALLBACK_CHAIN,
   type LabelAnchor,
-} from '@xgis/map'
+} from './text-stage-helpers'
 import type {
   TextStageOptions, PendingLabel, PendingLineLabel,
-} from '@xgis/map'
+} from './text-stage-types'
 import {
   wrapWithKnuthPlass, cjkBucketFor,
-} from '@xgis/map'
-import { TextStageDiagnostics } from '@xgis/map'
+} from './text-wrap'
+import { TextStageDiagnostics } from './text-stage-diagnostics'
 // iter-265 — sub-phase drill inside prepare(). encoder.stage-prepare
 // shows 1.31 ms/frame in iter-263 budget but we don't know which
 // inner phase dominates (point shape vs curved line layout vs
 // collision vs emit). Sub-marks let the perf harness identify the
 // hottest sub-phase to attack next.
-import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '@xgis/map'
+import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
 
 // Re-export the previously-`export`ed types so the public surface of
 // this module stays byte-identical after the text-stage-types.ts split.
-export type { TextStageOptions } from '@xgis/map'
+export type { TextStageOptions } from './text-stage-types'
 // Re-export the pure typography helper (moved to text-stage-helpers.ts)
 // so existing `import { resolveTypography } from './text-stage'` works.
-export { resolveTypography } from '@xgis/map'
+export { resolveTypography } from './text-stage-helpers'
 // Re-export the test seam for the Knuth-Plass wrap engine (moved to
 // text-wrap.ts) so existing `import { wrapForTesting } from './text-stage'`
 // in text-wrap.test.ts / text-layout-edge.test.ts /
 // bilingual-label-placement-repro.test.ts stays byte-identical.
-export { wrapForTesting } from '@xgis/map'
+export { wrapForTesting } from './text-wrap'
 // Re-export the pure shaping helpers (moved to text-stage-helpers.ts)
 // so existing test imports from './text-stage' stay byte-identical
 // (layout-cache-entry-valid.test.ts, text-vertical.test.ts,
@@ -76,7 +77,7 @@ export { wrapForTesting } from '@xgis/map'
 export {
   layoutCacheEntryValid, mlVerticalLayout, verticalLayoutForTesting,
   composeFontKey,
-} from '@xgis/map'
+} from './text-stage-helpers'
 
 // Slot must fit (rasterFontSize + 2*sdfRadius). PBF arrives at 24 px
 // native (MapLibre's ONE_EM). Setting rasterFontSize to match means
@@ -202,7 +203,7 @@ export class TextStage {
    *  Key: FNV-1a hash of (fontKey, text codepoints) — same shape as
    *  pretextCacheKey. Value: GlyphInfo[] (one per codepoint, same
    *  array shape host.ensureString would return). */
-  private readonly _glyphsByTextCache = new Map<number, import('@xgis/map').GlyphInfo[]>()
+  private readonly _glyphsByTextCache = new Map<number, import('./sdf/glyph-atlas-host').GlyphInfo[]>()
   /** iter 168 — Phase A slice 2: across-frame layout cache.
    *  Caches the per-anchor camera-independent layout output (dx, dy,
    *  glyphOffsets, totalAdvance, blockTop, blockBottom, haloGeom,
@@ -218,7 +219,7 @@ export class TextStage {
     dx: number; dy: number; totalAdvance: number
     blockTop: number; blockBottom: number; padding: number
     glyphOffsets: Float32Array
-    glyphs: import('@xgis/map').GlyphInfo[]
+    glyphs: import('./sdf/glyph-atlas-host').GlyphInfo[]
     /** iter-190 — atlas generation at cache write. On read, compare
      *  with host.getGeneration(); mismatch → glyphs[] slot references
      *  may point at reassigned codepoints (iter-175 corruption root),
@@ -425,10 +426,10 @@ export class TextStage {
    *  Distinct from the older `_debugHook`, which only carries the
    *  (text, x, y, kind) tuple — kept for back-compat with the
    *  `#labels-debug` URL flag. Both can be active simultaneously. */
-  setTraceRecorder(recorder: import('@xgis/map').RenderTraceRecorder | null): void {
+  setTraceRecorder(recorder: import('../diagnostics/render-trace').RenderTraceRecorder | null): void {
     this._traceRecorder = recorder
   }
-  private _traceRecorder: import('@xgis/map').RenderTraceRecorder | null = null
+  private _traceRecorder: import('../diagnostics/render-trace').RenderTraceRecorder | null = null
 
   /** Optional per-call hook fired once per addLabel /
    *  addCurvedLineLabel submission BEFORE collision. The hook receives

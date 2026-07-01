@@ -6,7 +6,7 @@
 // XGISFontResource / XGISMapOptions / FontTypographyMap) is re-exported
 // from map.ts to preserve the existing import paths.
 
-import type { TextStageOptions } from './text/text-stage'
+import type { TextStageOptions } from '@xgis/map'
 import type { GlyphProvider } from '@xgis/map'
 
 export interface VariantPipelines {

@@ -11,9 +11,9 @@ import {
   applyTextTransform,
   evaluateVariableOffsetEm,
   variableAnchorOffsetEm,
-} from '@xgis/map'
+} from './text-stage-helpers'
 import { composeFontKey } from './text-stage'
-import { FONT_KEY_SENTINEL } from '@xgis/map'
+import { FONT_KEY_SENTINEL } from './sdf/glyph-rasterizer'
 import type { LabelDef } from '@xgis/compiler'
 
 const baseLabel: LabelDef = {
@@ -142,7 +142,7 @@ describe('composeFontKey', () => {
 // counters now live on the injected TextStageDiagnostics collaborator;
 // the public getter contract is unchanged.
 import { TextStage } from './text-stage'
-import { TextStageDiagnostics } from '@xgis/map'
+import { TextStageDiagnostics } from './text-stage-diagnostics'
 
 function stubStageWithCounts(submitted: number, drawn: number): TextStage {
   const stage = Object.create(TextStage.prototype) as TextStage

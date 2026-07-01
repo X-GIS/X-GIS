@@ -157,50 +157,6 @@ const LOC_CEILINGS: Record<string, number> = {
   // plumbing (mirror of the dasharray arm); lower.ts decomposition stays
   // a tracked priority.
   'compiler/src/ir/lower.ts': 1452,
-  // Bumped 1441→1449 for the CJK display-size floor on CURVED/line labels: the
-  // point-loop floor (hasCjkIdeograph → Math.max(size, CJK_MIN_DISPLAY_PX*dpr))
-  // mirrored onto the curved loop so dense Han road labels stop boxing out at
-  // low zoom (1 raw→floored expr + the 5-line parity rationale, irreducible).
-  // Bumped 1449→1453 for addGlyphProvider's invalidateAll wiring (CJK glyph
-  // re-raster fix: a runtime-added provider re-rasters already-shaped fallbacks).
-  // Bumped 1453→1459 for invalidateAllGlyphs() (WOFF font-land re-raster hook).
-  // Bumped 1459→1465 for the italic-label synthetic-oblique flag (#416): a
-  // labelItalic = (def.fontStyle==='italic') per loop (point + curved) + the
-  // `italic:` field on the three TextDraw build sites so the renderer shears
-  // CJK/Hangul glyphs (the italic glyph PBF serves ideographs upright).
-  // Bumped 1465→1489 (Phase S Batch 2 text-max-angle): the curved-label
-  // angular gate — maxAngleRad/prevGlyphAngle setup, the per-glyph wrapped
-  // tangent-delta check, the post-loop `continue`, plus the comments tying
-  // it to Mapbox's drop-kinked-label semantics. Default (maxAngle unset) is
-  // a single guarded branch ⇒ byte-identical no-clamp behaviour preserved.
-  // Bumped 1489→1602 (Phase S Batch 3+4): text-translate-anchor:map rotation
-  // helper + setBearing + per-label tx/ty resolve (+39), PLUS symbol-z-order's
-  // prepare() ordering pass (zOrderMode scan, viewport-y screen-Y sort +
-  // source-order branch, ordered greedy + drawOrder emit; legacy path preserved
-  // ⇒ DEFAULT byte-identical) + ShapedLabel.symbolZOrder field (+74).
-  // Bumped 1602→1615 (#609): prepare() accepts iconObstacles param + CollisionObstacle
-  // import + groupKey wired into collisionInput + obstacles passed to all greedy calls.
-  // Bumped 1615→1624 (#608): computeCentreShift call + maxSlotHalf tracking for the
-  // center-anchor ink-band fix (the +9 is the corrected baseline math).
-  // Bumped 1624→1631 (#609 v2 rework): the EXPORTED getActiveTextPairKeys() reader —
-  // the set of pairKeys with a LIVE text bbox this frame (pending + pendingLine) —
-  // read by IconStage.computeObstacles so a to-be-dropped paired icon does not seed
-  // a phantom obstacle. Additive accessor + JSDoc; no logic moved.
-  // Bumped 1631→1652 (#605 v2): wired the same-line min-spacing collision gate into
-  // prepare() so cross-tile route shields collapse in screen space. addCurvedLineLabel
-  // accepts lineId/anchorDistancePx → PendingLineLabel → ShapedLabel → CollisionItem,
-  // the MIN_LINE_SPACING_PX (= 250 CSS px × dpr) constant, and minLineSpacingPx passed
-  // to all three greedyPlaceBboxes calls (legacy / sortKey / z-order branches).
-  // greedyPlaceBboxes already implemented the gate; this is the wiring + its rationale.
-  // Bumped 1652→1673 (#608-scope): the #608 hang-below regressed shield text (route
-  // ref low/off-centre in its box). Gate the centreShift on pairKey — icon-paired
-  // center-anchored text restores the box-centred ink-band recentre (the maxAsc/
-  // maxDesc per-block loop, ~12 lines), standalone keeps the hang. Plus the layout-
-  // cache `paired` key term so the two conventions don't alias to one cached layout.
-  // Bumped 1673→1675 (backend-agnosticism fix): TextStage now receives the injected RHI
-  // device (ctx.rhi) and threads it to TextRenderer instead of the renderer self-
-  // instantiating `new WebGpuDevice` — +1 ctor param + 1 type import. Irreducible.
-  'runtime/src/engine/text/text-stage.ts': 1675,
   // Bumped 1509→1517 for the GeometryCollection decompose fix (RFC 7946
   // §3.1.8): decomposeFeatures' per-type switch is wrapped in an inner
   // recursive helper so a GeometryCollection member-decomposes under the
@@ -431,6 +387,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // vector-tile-renderer.ts relocated to @xgis/map (map/src/render/vector-tile-renderer.ts) in P3
   // Phase 2 Batch B7 (the 3120-LOC VTR god-file) — no longer under a SRC_DIRS walk, so its LOC
   // ceiling leaves this runtime ratchet (mirrors the point-renderer.ts / gpu-tile-store.ts /
+  // tile-selection-cache.ts / camera.ts precedents above; package-level LOC ratchets for map/engine
+  // are a tracked post-Gate-6 follow-up).
+  // text-stage.ts relocated to @xgis/map (map/src/text/text-stage.ts) in P3 Phase 2 Batch B9 (the
+  // TextStage label-pipeline orchestrator — resolve → layout → collision → raster → atlas — the final
+  // text-subsystem content leaf) — no longer under a SRC_DIRS walk, so its LOC ceiling leaves this
+  // runtime ratchet (mirrors the vector-tile-renderer.ts / point-renderer.ts / gpu-tile-store.ts /
   // tile-selection-cache.ts / camera.ts precedents above; package-level LOC ratchets for map/engine
   // are a tracked post-Gate-6 follow-up).
   // Baselined at 820 (mbx_batch2): lower-label.ts is the label-knob lowering
