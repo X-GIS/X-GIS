@@ -7,7 +7,7 @@
 
 import { evaluate, makeEvalProps } from '@xgis/compiler'
 import type * as AST from '@xgis/compiler'
-import type { GeoJSONFeatureCollection } from '../loader/geojson'
+import type { GeoJSONFeatureCollection } from '@xgis/data'
 
 // ─── Color helpers ─────────────────────────────────────────────────
 
@@ -82,7 +82,7 @@ export function hexToRgba(hex: string | null | undefined): [number, number, numb
  *  to ringBboxCentre on the coordinate list. Returns null on empty /
  *  unsupported shapes so the caller can fall back to a different
  *  strategy (e.g. tile-centre when no per-feature anchor is available). */
-export function featureAnchor(geom: import('../loader/geojson').GeoJSONGeometry | { type: string; coordinates: unknown }): [number, number] | null {
+export function featureAnchor(geom: import('@xgis/data').GeoJSONGeometry | { type: string; coordinates: unknown }): [number, number] | null {
   if (!geom) return null
   // GeometryCollection (RFC 7946 §3.1.8) has `geometries`, not
   // `coordinates`. No single anchor without picking a sub-geometry;

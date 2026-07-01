@@ -25,7 +25,7 @@ import { installWebGPUStub, type StubInstallation } from '../../__test-support__
 import { initGPU, type GPUContext } from '@xgis/engine'
 import { IconRenderer, type IconDraw } from './icon-renderer'
 import { WebGpuDevice } from '@xgis/engine'
-import { ICON_FORMAT } from './icon-vertex-format'
+import { ICON_FORMAT } from '@xgis/map'
 import { vertexField } from '@xgis/compiler'
 import type { SpriteInfo } from './sprite-atlas-host'
 

@@ -14,7 +14,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { buildShowSourceMaps } from './show-source-maps'
-import { computeSliceKey } from '../data/eval/filter-eval'
+import { computeSliceKey } from '@xgis/data'
 
 type MinimalShow = {
   targetName: string

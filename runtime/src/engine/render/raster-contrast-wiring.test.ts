@@ -25,7 +25,7 @@ import { installWebGPUStub, type StubInstallation } from '../../__test-support__
 import { initGPU, type GPUContext } from '@xgis/engine'
 import { RasterRenderer } from './raster-renderer'
 import { Camera } from '@xgis/engine'
-import { rasterUniformBytes } from './raster-uniform-slots'
+import { rasterUniformBytes } from '@xgis/map'
 
 let stub: StubInstallation
 

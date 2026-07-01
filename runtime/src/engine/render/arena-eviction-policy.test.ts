@@ -28,7 +28,7 @@
 import { describe, expect, it } from 'vitest'
 import { GPUArena, type GPUArenaDevice } from '@xgis/engine'
 import type { RhiBuffer } from '@xgis/engine'
-import { ARENA_HIGH_WATER, ARENA_LOW_WATER } from './vector-tile-renderer-helpers'
+import { ARENA_HIGH_WATER, ARENA_LOW_WATER } from '@xgis/map'
 
 interface MockBuffer {
   size: number

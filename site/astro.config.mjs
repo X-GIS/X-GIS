@@ -94,6 +94,12 @@ export default defineConfig({
     resolve: {
       alias: {
         '@xgis/runtime': fileURLToPath(new URL('../runtime/src/index.ts', import.meta.url)),
+        // @xgis/runtime bundles @xgis/engine + @xgis/map (extracted in P3). Alias them to
+        // SOURCE too so the site loads ONE instance of each — Vite pre-bundling them into a
+        // second copy split the stateful RHI Material-twin / projections singletons, so the
+        // hero's fill draws hit "no RHI Material twin" and the render loop halted.
+        '@xgis/engine': fileURLToPath(new URL('../engine/src/index.ts', import.meta.url)),
+        '@xgis/map': fileURLToPath(new URL('../map/src/index.ts', import.meta.url)),
         '@': fileURLToPath(new URL('./src', import.meta.url)),
       },
     },
@@ -101,7 +107,7 @@ export default defineConfig({
     // their TS exports correctly through symlinks). Same fix the
     // playground uses.
     optimizeDeps: {
-      exclude: ['@xgis/compiler', '@xgis/blueprint', '@xgis/runtime'],
+      exclude: ['@xgis/compiler', '@xgis/blueprint', '@xgis/runtime', '@xgis/engine', '@xgis/map', '@xgis/shader-dsl'],
     },
     // (No /play proxy here — earlier attempt at HTTPS-target proxy
     // returned HTTP 500 because the playground's basic-ssl cert /

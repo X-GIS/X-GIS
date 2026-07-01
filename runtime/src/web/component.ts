@@ -2,7 +2,7 @@
 // HTML에서 바로 X-GIS 코드를 쓸 수 있게 해주는 커스텀 엘리먼트
 
 import { XGISMap } from '../engine/map'
-import { xlog } from '../engine/log'
+import { xlog } from '@xgis/shared'
 
 export class XGISMapElement extends HTMLElement {
   private map: XGISMap | null = null

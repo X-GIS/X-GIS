@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Camera } from '@xgis/engine'
-import { visibleTilesFrustum, visibleTilesFrustumSampled } from './tile-select'
+import { visibleTilesFrustum, visibleTilesFrustumSampled } from '@xgis/data'
 import { mercator } from '@xgis/engine'
 
 // Verifies that DPR is a rasterisation-density concept ONLY — same

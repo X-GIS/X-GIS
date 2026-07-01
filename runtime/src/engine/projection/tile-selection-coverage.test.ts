@@ -17,7 +17,7 @@
 // tiles to select (a separate polar-cap-synthesis concern).
 
 import { describe, it, expect } from 'vitest'
-import { visibleTilesSSE } from '../../loader/tiles-sse'
+import { visibleTilesSSE } from '@xgis/data'
 import {
   mercator, equirectangular, naturalEarth, MERCATOR_LAT_LIMIT, type Projection,
 } from '@xgis/engine'

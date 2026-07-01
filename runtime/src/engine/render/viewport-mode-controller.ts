@@ -25,7 +25,7 @@
 
 import type { Camera } from '@xgis/engine'
 import type { MapRendererContent } from './renderer'
-import { xlog } from '../log'
+import { xlog } from '@xgis/shared'
 
 // One-shot guard for the setPolarCapsEnabled deprecation warning.
 // Repeated calls share this module-scoped flag and emit at most one xlog.warn

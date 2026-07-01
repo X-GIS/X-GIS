@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { polygonUniformSlots } from './polygon-uniform-slots'
+import { polygonUniformSlots } from '@xgis/map'
 
 // Byte-identity pins for the polygon 'Uniforms' field offsets that the non-tiled
 // MapRenderer (renderer.ts renderToPass) and the GraticuleRenderer packers write

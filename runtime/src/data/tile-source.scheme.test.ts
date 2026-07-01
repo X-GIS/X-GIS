@@ -3,8 +3,8 @@
 // TileSourceMeta is the authoritative check that they populate the field.
 
 import { describe, it, expect } from 'vitest'
-import { GeoJSONRuntimeBackend } from './sources/geojson-runtime-backend'
-import { VirtualCatalogAdapter } from './sources/virtual-catalog-adapter'
+import { GeoJSONRuntimeBackend } from '@xgis/data'
+import { VirtualCatalogAdapter } from '@xgis/data'
 
 describe('TileSource backends declare scheme = "web-mercator-xyz"', () => {
   it('GeoJSONRuntimeBackend populates meta.scheme at construction', () => {

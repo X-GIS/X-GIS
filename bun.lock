@@ -37,6 +37,22 @@
         "vt-pbf": "^3.1.3",
       },
     },
+    "data": {
+      "name": "@xgis/data",
+      "version": "0.0.1",
+      "dependencies": {
+        "earcut": "^3.0.2",
+        "pmtiles": "^4.4.1",
+        "proj4": "^2.20.8",
+      },
+      "devDependencies": {
+        "@xgis/compiler": "workspace:*",
+        "@xgis/engine": "workspace:*",
+        "@xgis/shared": "workspace:*",
+        "geojson-vt": "^4.0.2",
+        "vt-pbf": "^3.1.3",
+      },
+    },
     "engine": {
       "name": "@xgis/engine",
       "version": "0.0.1",
@@ -57,6 +73,7 @@
       },
       "devDependencies": {
         "@xgis/compiler": "workspace:*",
+        "@xgis/data": "workspace:*",
         "@xgis/engine": "workspace:*",
         "@xgis/shader-dsl": "workspace:*",
         "@xgis/shared": "workspace:*",
@@ -67,6 +84,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@xgis/compiler": "workspace:*",
+        "@xgis/map": "workspace:*",
         "@xgis/runtime": "workspace:*",
       },
       "devDependencies": {
@@ -94,7 +112,9 @@
       },
       "devDependencies": {
         "@xgis/compiler": "workspace:*",
+        "@xgis/data": "workspace:*",
         "@xgis/engine": "workspace:*",
+        "@xgis/map": "workspace:*",
         "@xgis/shader-dsl": "workspace:*",
         "@xgis/shared": "workspace:*",
         "geojson-vt": "^4.0.2",
@@ -127,6 +147,7 @@
         "@tailwindcss/vite": "^4.0.0",
         "@xgis/blueprint": "workspace:*",
         "@xgis/compiler": "workspace:*",
+        "@xgis/map": "workspace:*",
         "@xgis/runtime": "workspace:*",
         "astro": "^5.1.0",
         "astro-expressive-code": "^0.42.0",
@@ -572,6 +593,8 @@
     "@xgis/blueprint": ["@xgis/blueprint@workspace:blueprint"],
 
     "@xgis/compiler": ["@xgis/compiler@workspace:compiler"],
+
+    "@xgis/data": ["@xgis/data@workspace:data"],
 
     "@xgis/engine": ["@xgis/engine@workspace:engine"],
 

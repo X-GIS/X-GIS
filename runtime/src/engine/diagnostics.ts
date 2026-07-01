@@ -24,7 +24,7 @@ import { getMaxDpr } from '@xgis/engine'
 import { mercatorYToLat } from '@xgis/engine'
 import type { QualityConfig } from '@xgis/engine'
 import type { XGISMap } from './map'
-import { xlog } from './log'
+import { xlog } from '@xgis/shared'
 
 // ─── Types ─────────────────────────────────────────────────────────
 

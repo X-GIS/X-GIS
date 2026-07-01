@@ -46,7 +46,7 @@ import { installWebGPUStub, type StubInstallation } from '../../../__test-suppor
 import { initGPU } from '@xgis/engine'
 import { VectorTileRenderer } from '../vector-tile-renderer'
 import { UniformRing } from '../uniform-ring'
-import { polygonUniformStride } from '../polygon-uniform-slots'
+import { polygonUniformStride } from '@xgis/map'
 
 let stub: StubInstallation
 let stubCtx: Awaited<ReturnType<typeof initGPU>>
@@ -100,7 +100,7 @@ function stubTile() {
     dequantScale: 1, dequantHalf: 0,
     extruded: false,
     featureBindGroup: null,
-  } as unknown as import('../vector-tile-renderer-types').GPUTile
+  } as unknown as import('@xgis/map').GPUTile
 }
 
 /** Drive renderTileKeys for one tile with the resolved fill-outline colour

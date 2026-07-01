@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { DEQUANT_ECEF_WGSL } from '../../runtime/src/engine/shaders/dsl/polygon'
+import { DEQUANT_ECEF_WGSL } from '@xgis/map'
 import { dequantVertexF32, POLYGON_FILL_FORMAT } from '@xgis/compiler'
 
 // ═══ dequant_ecef compute parity: GPU f32 ≡ CPU fround mirror ═══

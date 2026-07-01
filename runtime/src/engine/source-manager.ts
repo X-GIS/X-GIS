@@ -25,25 +25,25 @@
 //     fresh, not captured at construction).
 //   - `this.camera` / `this.canvas`  → injected (stable ctor-time instances).
 
-import { assertIngestBudget, readBodyCapped, safeFetch } from './safety'
+import { assertIngestBudget, readBodyCapped, safeFetch } from '@xgis/shared'
 import type { Camera } from '@xgis/engine'
 import type { GPUContext } from '@xgis/engine'
 import { getMaxDpr } from '@xgis/engine'
 import type { MapRendererContent } from './render/renderer'
 import type { LineRenderer } from './render/line-renderer'
-import { lonLatToMercator, type GeoJSONFeatureCollection } from '../loader/geojson'
-import { isTileTemplate } from '../data/tile-select'
-import { TileCatalog } from '../data/tile-catalog'
+import { lonLatToMercator, type GeoJSONFeatureCollection } from '@xgis/data'
+import { isTileTemplate } from '@xgis/data'
+import { TileCatalog } from '@xgis/data'
 import { VectorTileRenderer } from './render/vector-tile-renderer'
 import type { ShowSourceMaps } from './show-source-maps'
 import type { ShowCommand } from './render/renderer'
 import type { SceneCommands } from './interpreter'
 import { asVectorTileKind, computeGeoJSONBounds } from './map-geo-helpers'
-import { attachPMTilesSource, detectVectorTileFormat } from '../loader/vector-tile-loader'
-import { VirtualPMTilesBackend } from '../data/sources/virtual-pmtiles-backend'
-import { detectCapPoles, type CapPoles } from '../data/sources/geojson-polar-cap-backend'
-import * as tilingPool from '../data/workers/geojson-tiling-pool'
-import { reprojectFeatureCollection } from '../data/sources/reproject-fc'
+import { attachPMTilesSource, detectVectorTileFormat } from '@xgis/data'
+import { VirtualPMTilesBackend } from '@xgis/data'
+import { detectCapPoles, type CapPoles } from '@xgis/data'
+import * as tilingPool from '@xgis/data'
+import { reprojectFeatureCollection } from '@xgis/data'
 
 /** Dependencies SourceManager needs from the host XGISMap. */
 export interface SourceManagerDeps {

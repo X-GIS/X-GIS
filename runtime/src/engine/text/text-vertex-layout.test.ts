@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { emitTextWgsl } from '../shaders/dsl'
-import { TEXT_FORMAT } from './text-vertex-format'
-import { specShaderMismatches } from '../render/__vertex-format-crosscheck'
+import { emitTextWgsl } from '@xgis/map'
+import { TEXT_FORMAT } from '@xgis/map'
+import { specShaderMismatches } from '@xgis/map'
 
 // Single-source guard for the text glyph vertex format. TEXT_FORMAT drives the
 // GPUVertexBufferLayout (text-renderer.ts) and the glyph packer's float slots;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { XGISMap } from './map'
-import type { GeoJSONFeatureCollection } from '../loader/geojson'
+import type { GeoJSONFeatureCollection } from '@xgis/data'
 
 // ═══ EPSG ingest-reprojection wiring (Task T4 — AC3 / AC7 / AC8 / AC9) ═══
 //

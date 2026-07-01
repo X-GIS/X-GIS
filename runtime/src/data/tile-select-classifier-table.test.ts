@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Camera } from '@xgis/engine'
-import { visibleTilesFrustum, visibleTilesFrustumSampled } from './tile-select'
+import { visibleTilesFrustum, visibleTilesFrustumSampled } from '@xgis/data'
 import { mercator, naturalEarth } from '@xgis/engine'
 import { worldCopiesFor } from '@xgis/engine'
 import { PROJECTION_NAME_TO_TYPE } from '@xgis/engine'

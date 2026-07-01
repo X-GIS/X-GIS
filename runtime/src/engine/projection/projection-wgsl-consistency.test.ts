@@ -20,9 +20,9 @@ import {
   unwrapLonNear,
   wrapLonDelta,
   needsBackfaceCullWgsl,
-} from '../shaders/dsl'
+} from '@xgis/map'
 import { globeForward } from '@xgis/engine'
-import { globeEyeUniform } from '../render/globe-eye-uniform'
+import { globeEyeUniform } from '@xgis/map'
 
 const EARTH_R = 6378137
 // #600 — a NADIR eye over (clon, clat) at altitude `altR`×EARTH_R, for the globe

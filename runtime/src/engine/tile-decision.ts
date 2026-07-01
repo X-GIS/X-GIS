@@ -14,8 +14,8 @@
 // decision is unit-testable with mock caches.
 
 import { tileKey, tileKeyChildren, tileKeyParent } from '@xgis/compiler'
-import type { TileCoord } from '../data/tile-select'
-import { visibleTilesFrustum, visibleTilesFrustumSampled, makeTileCoord } from '../data/tile-select'
+import type { TileCoord } from '@xgis/data'
+import { visibleTilesFrustum, visibleTilesFrustumSampled, makeTileCoord } from '@xgis/data'
 import type { Camera } from '@xgis/engine'
 import { type Projection, mercatorYToLat } from '@xgis/engine'
 import { routeToSphereSelector } from '@xgis/engine'

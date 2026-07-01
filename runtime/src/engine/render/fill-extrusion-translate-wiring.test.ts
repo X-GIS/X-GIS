@@ -23,7 +23,7 @@ import { installWebGPUStub, type StubInstallation } from '../../__test-support__
 import { initGPU } from '@xgis/engine'
 import { VectorTileRenderer } from './vector-tile-renderer'
 import { UniformRing } from './uniform-ring'
-import { polygonUniformStride } from './polygon-uniform-slots'
+import { polygonUniformStride } from '@xgis/map'
 
 let stub: StubInstallation
 let stubCtx: Awaited<ReturnType<typeof initGPU>>
@@ -71,7 +71,7 @@ function stubTile() {
     dequantScale: 1, dequantHalf: 0,
     extruded: true,
     featureBindGroup: null,
-  } as unknown as import('./vector-tile-renderer-types').GPUTile
+  } as unknown as import('@xgis/map').GPUTile
 }
 
 /** Drive renderTileKeys with a resolved fill-translate NDC offset, then return

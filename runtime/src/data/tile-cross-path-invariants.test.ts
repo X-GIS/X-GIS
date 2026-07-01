@@ -10,8 +10,8 @@ import {
   tileKey,
   type GeoJSONFeatureCollection,
 } from '@xgis/compiler'
-import { TileCatalog } from './tile-catalog'
-import { firstIndexedAncestor } from './tile-select'
+import { TileCatalog } from '@xgis/data'
+import { firstIndexedAncestor } from '@xgis/data'
 
 // CROSS-PATH INVARIANTS — tests that compare the outputs of TWO
 // X-GIS subsystems against each other, on the premise that each

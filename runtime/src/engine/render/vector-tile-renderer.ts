@@ -4,15 +4,15 @@
 // This class manages GPU buffers, bind groups, and draw calls only.
 
 import type { GPUContext } from '@xgis/engine'
-import { DEBUG_OVERDRAW } from '../debug-flags'
+import { DEBUG_OVERDRAW } from '@xgis/map'
 import { Camera } from '@xgis/engine'
 import type { ShowCommand } from './renderer'
 import { variantProducesFill } from './renderer-helpers'
-import { polygonUniformSlots, polygonUniformBytes, polygonUniformStride } from './polygon-uniform-slots'
-import { writeFrameProjectionUniform } from './frame-projection-uniform'
-import { xlog } from '../log'
-import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
-import { recordFillDraw, type FillRhiState } from './material/polygon-fill-material'
+import { polygonUniformSlots, polygonUniformBytes, polygonUniformStride } from '@xgis/map'
+import { writeFrameProjectionUniform } from '@xgis/map'
+import { xlog } from '@xgis/shared'
+import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '@xgis/map'
+import { recordFillDraw, type FillRhiState } from '@xgis/map'
 
 // f32 slot indices of the polygon 'Uniforms' struct, sourced from reflect() of the SAME
 // IR the shader is emitted from (NOT hand-coded magic numbers — those silently drift from
@@ -49,16 +49,16 @@ import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { WORLD_MERC, TILE_PX } from '@xgis/engine'
 import { UploadCoordinator } from './upload-coordinator'
 import type { ShaderVariant } from '@xgis/compiler'
-import type { TileCatalog } from '../../data/tile-catalog'
-import type { TileData } from '../../data/tile-types'
-import { computeSliceKey } from '../../data/eval/filter-eval'
+import type { TileCatalog } from '@xgis/data'
+import type { TileData } from '@xgis/data'
+import { computeSliceKey } from '@xgis/data'
 import { mercator as mercatorProj, getProjection, type Projection } from '@xgis/engine'
 import { SELECTOR_PROJ_NAMES } from '@xgis/engine'
 import type { PointRenderer } from './point-renderer'
 import type { LineRenderer } from './line-renderer'
 import { parseHexColor } from '../feature-helpers'
-import type { GPUTile, LayerDrawPhase } from './vector-tile-renderer-types'
-import { getMaxGpuTiles, uploadBudgetFor } from './vector-tile-renderer-helpers'
+import type { GPUTile, LayerDrawPhase } from '@xgis/map'
+import { getMaxGpuTiles, uploadBudgetFor } from '@xgis/map'
 import { UniformRing } from './uniform-ring'
 
 // projType (camera.projType / proj_params.x) → projection registry name,

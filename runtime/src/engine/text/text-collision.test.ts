@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { greedyPlaceBboxes } from './text-collision'
+import { greedyPlaceBboxes } from '@xgis/map'
 
 const bbox = (minX: number, minY: number, maxX: number, maxY: number) =>
   ({ minX, minY, maxX, maxY })

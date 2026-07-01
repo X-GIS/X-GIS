@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { resolveText } from './text-resolver'
+import { resolveText } from '@xgis/map'
 import type { TextValue } from '@xgis/compiler'
 
 const fld = (field: string) =>

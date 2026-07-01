@@ -34,13 +34,13 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-import { SyntheticEarthSurfaceBackend } from '../../../data/sources/synthetic-earth-surface-backend'
+import { SyntheticEarthSurfaceBackend } from '@xgis/data'
 import {
   buildSyntheticEarthSurfaceShow,
   SYNTHETIC_EARTH_SURFACE_SOURCE,
   SYNTHETIC_EARTH_SURFACE_LAYER,
 } from '../../synthetic-earth-surface-show'
-import { emitPolygonWgsl } from '../../shaders/dsl/polygon'
+import { emitPolygonWgsl } from '@xgis/map'
 // The whole-viewport colour/accumulator clear moved to the background pass
 // (bucket 0) — the coverage seam from VISION §5 gap #1. The overdraw
 // accumulator a:0 clear is now decided by its pure helper.
@@ -66,10 +66,10 @@ const BUCKET_SCHEDULER_SRC = readFileSync(
 describe('AC2c.3.7 — SyntheticEarthSurfaceBackend produces standard polygon tile result', () => {
   it('buildResult vertex count matches (128+1)*(64+1) = 8385 vertices, stride-6 (PR 2f quantized)', () => {
     const backend = new SyntheticEarthSurfaceBackend()
-    let result: import('../../../data/tile-source').BackendTileResult | null = null
+    let result: import('@xgis/data').BackendTileResult | null = null
     backend.attach({
-      acceptResult: (_key: number, r: import('../../../data/tile-source').BackendTileResult | null) => { result = r },
-    } as unknown as import('../../../data/tile-source').TileSourceSink)
+      acceptResult: (_key: number, r: import('@xgis/data').BackendTileResult | null) => { result = r },
+    } as unknown as import('@xgis/data').TileSourceSink)
     expect(result).not.toBeNull()
     // 128×64 grid (F1 rim-smoothing): (widthSegs+1)*(heightSegs+1) vertices,
     // #398 quantized layout = stride 28 bytes = 7 floats each (u16×6 position +
@@ -83,20 +83,20 @@ describe('AC2c.3.7 — SyntheticEarthSurfaceBackend produces standard polygon ti
 
   it('buildResult index count matches 128*64*6 = 49152 (two triangles per cell)', () => {
     const backend = new SyntheticEarthSurfaceBackend()
-    let result: import('../../../data/tile-source').BackendTileResult | null = null
+    let result: import('@xgis/data').BackendTileResult | null = null
     backend.attach({
-      acceptResult: (_key: number, r: import('../../../data/tile-source').BackendTileResult | null) => { result = r },
-    } as unknown as import('../../../data/tile-source').TileSourceSink)
+      acceptResult: (_key: number, r: import('@xgis/data').BackendTileResult | null) => { result = r },
+    } as unknown as import('@xgis/data').TileSourceSink)
     const expectedIndexCount = 128 * 64 * 6  // = 49152
     expect(result!.indices.length).toBe(expectedIndexCount)
   })
 
   it('f32 tail fields are finite floats (no NaN/Inf that would produce degenerate geometry)', () => {
     const backend = new SyntheticEarthSurfaceBackend()
-    let result: import('../../../data/tile-source').BackendTileResult | null = null
+    let result: import('@xgis/data').BackendTileResult | null = null
     backend.attach({
-      acceptResult: (_key: number, r: import('../../../data/tile-source').BackendTileResult | null) => { result = r },
-    } as unknown as import('../../../data/tile-source').TileSourceSink)
+      acceptResult: (_key: number, r: import('@xgis/data').BackendTileResult | null) => { result = r },
+    } as unknown as import('@xgis/data').TileSourceSink)
     const verts = result!.vertices
     // #398: floats 0..2 of each stride-7 vertex are the quantized u16×6
     // position lanes (NaN/denormal when reinterpreted as f32 — expected).
@@ -113,10 +113,10 @@ describe('AC2c.3.7 — SyntheticEarthSurfaceBackend produces standard polygon ti
 
   it('lineVertices + lineIndices are empty (no stroke on the bg mesh)', () => {
     const backend = new SyntheticEarthSurfaceBackend()
-    let result: import('../../../data/tile-source').BackendTileResult | null = null
+    let result: import('@xgis/data').BackendTileResult | null = null
     backend.attach({
-      acceptResult: (_key: number, r: import('../../../data/tile-source').BackendTileResult | null) => { result = r },
-    } as unknown as import('../../../data/tile-source').TileSourceSink)
+      acceptResult: (_key: number, r: import('@xgis/data').BackendTileResult | null) => { result = r },
+    } as unknown as import('@xgis/data').TileSourceSink)
     expect(result!.lineVertices.length).toBe(0)
     expect(result!.lineIndices.length).toBe(0)
   })

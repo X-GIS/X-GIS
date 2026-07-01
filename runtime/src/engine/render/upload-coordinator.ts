@@ -32,13 +32,13 @@
 
 import { GPUArena } from '@xgis/engine'
 import { StagingBufferPool, asyncWriteBuffer } from '@xgis/engine'
-import { PriorityQueue, PriorityQueueItemRemovedError } from '../../core/priority-queue'
+import { PriorityQueue, PriorityQueueItemRemovedError } from '@xgis/shared'
 import { buildLineSegments, type LineRenderer } from './line-renderer'
 import { generateWallMeshExtrudedECEF } from '../../core/polygon-mesh'
-import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
-import { xlog } from '../log'
-import type { TileData } from '../../data/tile-types'
-import type { GPUTile } from './vector-tile-renderer-types'
+import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '@xgis/map'
+import { xlog } from '@xgis/shared'
+import type { TileData } from '@xgis/data'
+import type { GPUTile } from '@xgis/map'
 import type { RhiBindGroup } from '@xgis/engine'
 
 /** The subset of `GpuTileStore` the upload pipeline drives. Declared

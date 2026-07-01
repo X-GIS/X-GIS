@@ -28,8 +28,8 @@
 import { ComputeDispatcher } from '@xgis/engine'
 import { ComputeLayerHandle } from './compute-layer-handle'
 import type { ShaderVariant } from '@xgis/compiler'
-import type { GPUTile } from './vector-tile-renderer-types'
-import { polygonUniformSlots } from './polygon-uniform-slots'
+import type { GPUTile } from '@xgis/map'
+import { polygonUniformSlots } from '@xgis/map'
 
 // Bind-group binding range size for binding 0 (the uniform ring). Derived
 // lazily from reflect(buildPolygonModule()) — the SAME IR the shader is emitted

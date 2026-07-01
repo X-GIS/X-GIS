@@ -25,7 +25,7 @@
 import { describe, it, expect } from 'vitest'
 import { TextStage } from './text-stage'
 import { WebGpuDevice } from '@xgis/engine'
-import { computeSDF } from './sdf/distance-transform'
+import { computeSDF } from '@xgis/map'
 import type { GlyphRasterizer, GlyphRasterRequest, GlyphRasterResult } from './sdf/glyph-rasterizer'
 import type { LabelDef, TextValue } from '@xgis/compiler'
 import type { TextDraw } from './text-renderer'

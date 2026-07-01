@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { mercator, MERCATOR_LAT_LIMIT } from '@xgis/engine'
-import { lonLatToMercator } from '../../loader/geojson'
+import { lonLatToMercator } from '@xgis/data'
 
 // Phase 1-A (A-2): CPU-side Mercator latitude clamps diverged across the
 // repo — projection.ts and geojson.ts clamped at 85.05, tiles.ts and other
@@ -64,7 +64,7 @@ describe('Mercator latitude clamp consistency', () => {
 // can't reappear in the selector path.
 describe('tile selector uses the canonical Mercator clamp', () => {
   const src = readFileSync(
-    fileURLToPath(new URL('../../data/tile-select.ts', import.meta.url)),
+    fileURLToPath(new URL('../../../../data/src/tile-select.ts', import.meta.url)),
     'utf8',
   )
 

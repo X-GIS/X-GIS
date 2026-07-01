@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ShapeRegistry, BUILTIN_SHAPES } from './sdf-shape'
+import { ShapeRegistry, BUILTIN_SHAPES } from '@xgis/map'
 import { WebGpuDevice } from '@xgis/engine'
 
 // The registry touches `device` only from `uploadToGPU`; constructor and

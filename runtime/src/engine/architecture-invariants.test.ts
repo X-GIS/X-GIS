@@ -360,11 +360,6 @@ const LOC_CEILINGS: Record<string, number> = {
   // arm (mirror of `case 'zoom'`) lowering Mapbox `["pitch"]` to the bare
   // pitch identifier.
   'compiler/src/convert/expressions.ts': 1116,
-  // Bumped 1388→1417 for the tile-catalog lifecycle fixes (BUG 11/13): the
-  // prewarm-pump _skeletonTimer/_stopped fields + destroy() cancel method, and
-  // the hoisted evict-shield sweep, are irreducible (two real leaks). Catalog
-  // decomposition remains a tracked priority.
-  'runtime/src/data/tile-catalog.ts': 1417,
   // Bumped 1354→1356 for the undo-correctness fixes: tryConnect skipRecord param + insertReroute selEdge clear (two irreducible statements).
   // Bumped 1356→1370 for the deserialization guard (#353): sanitizeGraph() drops unknown node types + dangling edges at the load/paste/restore trust boundary.
   'blueprint/src/editor.ts': 1370,
@@ -394,13 +389,13 @@ const LOC_CEILINGS: Record<string, number> = {
   // threshold by round_limit/1.05 (0 = historical JOIN_ACUTE_BIS) + comments.
   // line.ts moved to the @xgis/shader-dsl package — tracked there, not in runtime.
   // Moved BACK into runtime (shader-dsl is now a content-free DSL framework; the
-  // X-GIS shader graphs live under runtime/src/engine/shaders/dsl/). Re-baselined
+  // X-GIS shader graphs now live in @xgis/map, map/src/shaders/dsl/ as of P3 Batch A). Re-baselined
   // at its current size — a behavior-preserving relocation, not new growth;
   // decomposition stays the same tracked priority it was in the package.
   // Bumped 1194→1219 (#598): finalize_corner threads the (p_h, p_l) DSFUN split
   // through all three call sites to kill the high-zoom f32 jitter (the lossy
   // pre-summed corner is replaced by the precise hi/lo reconstruction).
-  'runtime/src/engine/shaders/dsl/line.ts': 1219,
+  'map/src/shaders/dsl/line.ts': 1219,
   // Bumped 1171→1176 (#274 CSS color-fn whitespace), then 1176→1178 (#317) for
   // the two irreducible numeric match()-label arm-pattern cases (Number, and
   // Minus+Number). Lowered 1178→50 (Tier-C5): the Parser god-file was split
@@ -433,12 +428,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // light_dir_ecef.w and colour from unpack4x8unorm(light_color_packed).
   // polygon.ts moved to the @xgis/shader-dsl package — tracked there, not in runtime.
   // Moved BACK into runtime (shader-dsl is now a content-free DSL framework; the
-  // X-GIS shader graphs live under runtime/src/engine/shaders/dsl/). Re-baselined
+  // X-GIS shader graphs now live in @xgis/map, map/src/shaders/dsl/ as of P3 Batch A). Re-baselined
   // at its current size — a behavior-preserving relocation, not new growth;
   // decomposition stays the same tracked priority it was in the package.
   // Bumped 1198→1205 (#600): the globe_eye Uniforms-struct lane + its doc
   // comment, and threading globe_eye into polygon_cos_c_fragment / polygon_rim_alpha.
-  'runtime/src/engine/shaders/dsl/polygon.ts': 1205,
+  'map/src/shaders/dsl/polygon.ts': 1205,
   // camera.ts relocated to @xgis/engine (engine/src/projection/camera.ts) in
   // P3 Step 3 — no longer under a SRC_DIRS walk, so its LOC ceiling is tracked
   // by the engine package's own ratchet, not this runtime gate.
@@ -698,7 +693,6 @@ const PROJTYPE_ALLOWLIST: Record<string, number> = {
   'runtime/src/engine/projection/camera.ts': 7,
   'runtime/src/engine/controller.ts': 6,
   'runtime/src/engine/projection/unproject.ts': 4,
-  'runtime/src/loader/tiles-sse.ts': 3,
   'runtime/src/engine/render/raster-renderer.ts': 2,
   'runtime/src/engine/render/prefetch-scheduler.ts': 1,
   'runtime/src/engine/render/point-renderer.ts': 1,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { heatmapUniformSlots, heatmapUniformBytes } from './heatmap-uniform-slots'
+import { heatmapUniformSlots, heatmapUniformBytes } from '@xgis/map'
 
 // Byte-identity gate for the heatmap-accum 'Uniforms' SIZE migration: the
 // hand-coded literals (`new Float32Array(36)` scratch + bind `size: 144`) are now

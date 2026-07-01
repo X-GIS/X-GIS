@@ -18,12 +18,12 @@
 // invokes render() ~80× per frame on dense styles). Caller invokes
 // `pump` exactly once per wall-clock frame.
 
-import type { TileCatalog } from '../../data/tile-catalog'
+import type { TileCatalog } from '@xgis/data'
 import {
   collectSiblingPrefetchKeys, projectPanPrefetchTarget,
   type CameraSnapshot,
 } from '../tile-decision'
-import { visibleTilesFrustumSampled } from '../../data/tile-select'
+import { visibleTilesFrustumSampled } from '@xgis/data'
 import { Camera } from '@xgis/engine'
 import { mercator as mercatorProj } from '@xgis/engine'
 import type { Projection } from '@xgis/engine'

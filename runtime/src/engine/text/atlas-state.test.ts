@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { AtlasState, type GlyphKey } from './sdf/atlas-state'
+import { AtlasState, type GlyphKey } from '@xgis/map'
 
 const k = (codepoint: number, fontKey = 'noto-sans', sdfRadius = 8): GlyphKey =>
   ({ fontKey, codepoint, sdfRadius })

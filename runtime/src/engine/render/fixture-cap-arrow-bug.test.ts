@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Camera } from '@xgis/engine'
-import { visibleTilesFrustum } from '../../data/tile-select'
+import { visibleTilesFrustum } from '@xgis/data'
 import { mercator } from '@xgis/engine'
 
 // Regression: 2026-05-04 user report. At

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   rasterUniformSlots, rasterUniformBytes, rasterTileSlots, rasterTileBytes,
-} from './raster-uniform-slots'
+} from '@xgis/map'
 
 // Byte-identity gate for the raster uniform migrations. raster-renderer hand-coded
 // the global 'Uniforms' size (160) + field byte offsets and the per-tile

@@ -14,12 +14,12 @@
 
 import { describe, it, expect } from 'vitest'
 import { tileKey, tileKeyUnpack } from '@xgis/compiler'
-import { TileCatalog } from './tile-catalog'
-import { DSFUN_POLY_STRIDE } from './tile-types'
+import { TileCatalog } from '@xgis/data'
+import { DSFUN_POLY_STRIDE } from '@xgis/data'
 import {
   TILE_LAYOUT_VERSION,
   type TileSource, type TileSourceSink, type BackendTileResult,
-} from './tile-source'
+} from '@xgis/data'
 
 // Minimal mock backend that lets the test drive sink.acceptResult directly
 // (same pattern as tile-data-origin-backend.test.ts). attachBackend lazily

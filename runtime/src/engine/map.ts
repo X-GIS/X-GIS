@@ -1,13 +1,13 @@
 // ═══ X-GIS Map — 전체를 연결하는 엔트리포인트 ═══
 
-import { xlog } from './log'
-import { setLogSink as setEngineLogSink } from './log'
+import { xlog } from '@xgis/shared'
+import { setLogSink as setEngineLogSink } from '@xgis/shared'
 import { Lexer, Parser, lower, optimize, emitCommands, evaluate, makeEvalProps, deserializeXGB, resolveImportsAsync, resolveUtilities, resolveColor, extractInterpolateZoomColorStops, extractInterpolateZoomStops } from '@xgis/compiler'
 import { packPalette, uploadPalette, type PaletteTextures } from '@xgis/engine'
 import type * as AST from '@xgis/compiler'
-import { SyntheticEarthSurfaceBackend } from '../data/sources/synthetic-earth-surface-backend'
+import { SyntheticEarthSurfaceBackend } from '@xgis/data'
 import { PROJECTION_NAME_TO_TYPE, PROJECTIONS } from '@xgis/engine'
-import { configureProjections } from './shaders/dsl'
+import { configureProjections } from '@xgis/map'
 import { worldBandForProjType } from '@xgis/engine'
 import { projectLonLatToScreenCss } from './render-loop-helpers'
 import {
@@ -15,14 +15,14 @@ import {
   buildSyntheticEarthSurfaceShow,
   updateSyntheticEarthSurfaceShowFill,
 } from './synthetic-earth-surface-show'
-import { type CapPoles } from '../data/sources/geojson-polar-cap-backend'
+import { type CapPoles } from '@xgis/data'
 import {
   installGeoJSONPolarCaps,
   detachGeoJSONPolarCaps,
   type PolarCapInstallHost,
 } from './geojson-polar-cap-show'
 import { invalidateResolvedShowCache } from './render/resolved-show'
-import { getSharedGeoJSONCompilePool } from '../data/workers/geojson-compile-pool'
+import { getSharedGeoJSONCompilePool } from '@xgis/data'
 import { initGPU, GPU_PROF, getMaxDpr, effectiveDpr, WebGPUUnavailableError, type GPUContext } from '@xgis/engine'
 import { QUALITY, updateQuality, type QualityConfig } from '@xgis/engine'
 import { GPUTimer } from '@xgis/engine'
@@ -43,11 +43,11 @@ import {
   type OpaqueGroup as ExternalOpaqueGroup,
 } from './render/bucket-scheduler'
 import { interpret, type SceneCommands } from './interpreter'
-import { lonLatToMercator, type GeoJSONFeatureCollection } from '../loader/geojson'
+import { lonLatToMercator, type GeoJSONFeatureCollection } from '@xgis/data'
 import { RasterRenderer } from './render/raster-renderer'
 import { PointRenderer } from './render/point-renderer'
 import { HeatmapRenderer } from './render/heatmap-renderer'
-import { ShapeRegistry } from './text/sdf-shape'
+import { ShapeRegistry } from '@xgis/map'
 import { LineRenderer } from './render/line-renderer'
 import { PanZoomController, type Controller } from './controller'
 import { DirtyTracker, DirtyDomain, DIRTY_ALL } from './state/dirty'
@@ -62,8 +62,8 @@ import {
 } from './layer'
 import { attachAutoResize } from './auto-resize'
 import { EventDispatcher } from './event-dispatcher'
-import { TileCatalog } from '../data/tile-catalog'
-import { isTileTemplate } from '../data/tile-select'
+import { TileCatalog } from '@xgis/data'
+import { isTileTemplate } from '@xgis/data'
 import { buildShowSourceMaps } from './show-source-maps'
 import {
   parseHexColor, hexToRgba,
@@ -88,13 +88,13 @@ import {
   asVectorTileKind, sceneHasAnyAnimation, labelsHaveTimeAnimation,
   buildTypographyMap, registerFonts,
 } from './map-geo-helpers'
-import { prewarmVectorTileSource, detectVectorTileFormat } from '../loader/vector-tile-loader'
+import { prewarmVectorTileSource, detectVectorTileFormat } from '@xgis/data'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
-import { pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
-import type { GeoJSONFeature } from '../loader/geojson'
+import { pointPatchToFeatureCollection, type PointPatch } from '@xgis/data'
+import type { GeoJSONFeature } from '@xgis/data'
 import { FeatureUpdateQueue } from './feature-update-queue'
 import { MapEventBus } from './map-event-bus'
-import { safeFetch, assertIngestBudget, readBodyCapped } from './safety'
+import { safeFetch, assertIngestBudget, readBodyCapped } from '@xgis/shared'
 
 // DoS ceilings for the top-level loader entry points (.xgis style /
 // import-resolver text and .xgb binary scene). Defensive — far above any
@@ -1117,7 +1117,7 @@ export class XGISMap {
   /** Route engine logs (pass-validation errors, warnings) to a custom sink
    *  instead of the console — for telemetry / in-app overlays. Pass null to
    *  restore the console default. */
-  setLogSink(sink: import('./log').LogSink | null): void { setEngineLogSink(sink) }
+  setLogSink(sink: import('@xgis/shared').LogSink | null): void { setEngineLogSink(sink) }
 
   /** Mapbox-API parity: animated camera variants. X-GIS has no
    *  transition infra yet, so both alias to jumpTo (instant) inside
@@ -1652,11 +1652,11 @@ export class XGISMap {
    *  layer-level paint state in addition to label metadata, and is
    *  forwarded into the bucket scheduler's `traceRecorder` field on
    *  the next `renderFrame()` via `_pendingTraceRecorder`. */
-  setTraceRecorder(recorder: import('../diagnostics/render-trace').RenderTraceRecorder | null): void {
+  setTraceRecorder(recorder: import('@xgis/map').RenderTraceRecorder | null): void {
     this._pendingTraceRecorder = recorder
     this.textStage?.setTraceRecorder(recorder)
   }
-  _pendingTraceRecorder: import('../diagnostics/render-trace').RenderTraceRecorder | null = null
+  _pendingTraceRecorder: import('@xgis/map').RenderTraceRecorder | null = null
 
   /** One-shot helper: attaches a fresh recorder, waits TWO requestAnimationFrame
    *  ticks (the first ensures any in-flight frame settles, the second
@@ -1664,8 +1664,8 @@ export class XGISMap {
    *  Used by e2e invariant tests via `window.__xgisMap.captureNextFrameTrace()`
    *  so test code doesn't have to import the recorder class through the
    *  page context. */
-  async captureNextFrameTrace(): Promise<import('../diagnostics/render-trace').FrameTrace> {
-    const { createTraceRecorder } = await import('../diagnostics/render-trace')
+  async captureNextFrameTrace(): Promise<import('@xgis/map').FrameTrace> {
+    const { createTraceRecorder } = await import('@xgis/map')
     const recorder = createTraceRecorder()
     this.setTraceRecorder(recorder)
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
@@ -2144,7 +2144,7 @@ export class XGISMap {
     // on the first compile() AFTER __xgisReady (~720 ms of idle worker
     // module-eval the pre-ready GPU/shader init would otherwise hide).
     if (anyVectorTile) {
-      void import('../data/workers/mvt-worker-pool').then(m => m.prewarmMvtWorkerPool()).catch(() => undefined)
+      void import('@xgis/data').then(m => m.prewarmMvtWorkerPool()).catch(() => undefined)
     }
 
 

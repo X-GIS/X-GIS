@@ -19,8 +19,8 @@ import { MERCATOR_LAT_LIMIT, mercatorYToLat, mercatorYToLatRad, mercator } from 
 import { poleLimit, representsCenterAs } from '@xgis/engine'
 import { WORLD_MERC, TILE_PX } from '@xgis/engine'
 import { getMaxDpr } from '@xgis/engine'
-import { lonLatToMercator } from '../loader/geojson'
-import { xlog } from './log'
+import { lonLatToMercator } from '@xgis/data'
+import { xlog } from '@xgis/shared'
 
 /** Dependencies CameraController needs from the host XGISMap. */
 export interface CameraControllerDeps {

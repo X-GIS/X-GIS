@@ -46,7 +46,7 @@ import { describe, expect, it } from 'vitest'
 import { Camera } from '@xgis/engine'
 import { TileSelectionCache } from './tile-selection-cache'
 import { FrameDrawStats } from '@xgis/engine'
-import type { TileCatalog } from '../../data/tile-catalog'
+import type { TileCatalog } from '@xgis/data'
 
 // Minimal catalog stub. On the fresh-cache mercator high-pitch path
 // selectForFrame reads only `maxLevel` (line 499) + `hasEntryInIndex`

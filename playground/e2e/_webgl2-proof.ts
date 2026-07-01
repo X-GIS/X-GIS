@@ -13,9 +13,9 @@
 // the UBO-upload half of the proof).
 
 import { WebGl2Device, wrapWebGl2Pass } from '@xgis/engine'
-import { Material, executeItems } from '../../runtime/src/engine/render/material/material'
+import { Material, executeItems } from '@xgis/map'
 import { overdrawComposeModule } from '../../engine/src/shaders/dsl/overdraw-compose'
-import { buildPointModule } from '../../runtime/src/engine/shaders/dsl/point'
+import { buildPointModule } from '@xgis/map'
 import {
   emitGlslModule,
   mat4x4fT, vec4fT, vec2fT, f32T, u32T, structT, texture2dfT, samplerT,

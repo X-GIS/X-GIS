@@ -26,8 +26,8 @@
 import { Camera } from '@xgis/engine'
 import {
   visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority, makeTileCoord,
-} from '../../data/tile-select'
-import { visibleTilesSSE } from '../../loader/tiles-sse'
+} from '@xgis/data'
+import { visibleTilesSSE } from '@xgis/data'
 import { globeVisibleTiles } from '@xgis/engine'
 import { tileKey, tileKeyParent } from '@xgis/compiler'
 import { enumerateWorldCopies, routeToSphereSelector } from '@xgis/engine'
@@ -35,7 +35,7 @@ import {
   mercator as mercatorProj, getProjection, type Projection, mercatorYToLat,
 } from '@xgis/engine'
 import { SELECTOR_PROJ_NAMES, promotesToGlobeWhenTilted, representsCenterAs } from '@xgis/engine'
-import type { TileCatalog } from '../../data/tile-catalog'
+import type { TileCatalog } from '@xgis/data'
 import type { FrameDrawStats } from '@xgis/engine'
 
 /** Cache of `visibleTilesFrustum()` + the derived neededKeys /

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { pointPatchToFeatureCollection } from '../id-resolver'
+import { pointPatchToFeatureCollection } from '@xgis/data'
 
 describe('pointPatchToFeatureCollection', () => {
   it('synthesizes a FeatureCollection from parallel arrays', () => {

@@ -3,9 +3,9 @@
 // these utilities sit beside the other engine helpers rather than buried
 // in the high-level orchestrator. Mirrors feature-helpers.ts in spirit.
 
-import type { GeoJSONFeatureCollection } from '../loader/geojson'
+import type { GeoJSONFeatureCollection } from '@xgis/data'
 import type { XGISFontResource, FontTypographyMap } from './map-types'
-import { xlog } from './log'
+import { xlog } from '@xgis/shared'
 
 /** Filter the xgis source DSL's `type:` field down to the values
  *  `detectVectorTileFormat` understands. XGIS source `type` can also

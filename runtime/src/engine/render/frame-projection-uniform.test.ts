@@ -2,9 +2,9 @@
 // proj_params + globe_eye for the polygon/line group(0) family (ADR-0009).
 
 import { describe, it, expect } from 'vitest'
-import { writeFrameProjectionUniform, writeProjectionCull } from './frame-projection-uniform'
-import { polygonUniformBytes, polygonUniformSlots } from './polygon-uniform-slots'
-import { globeEyeUniform } from './globe-eye-uniform'
+import { writeFrameProjectionUniform, writeProjectionCull } from '@xgis/map'
+import { polygonUniformBytes, polygonUniformSlots } from '@xgis/map'
+import { globeEyeUniform } from '@xgis/map'
 import { buildGlobeMatrix } from '@xgis/engine'
 
 function freshBuffer(): Float32Array {

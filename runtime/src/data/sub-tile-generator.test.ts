@@ -10,8 +10,8 @@
 // (geometry would render in the wrong screen position).
 
 import { describe, it, expect } from 'vitest'
-import { SubTileGenerator } from './sub-tile-generator'
-import type { TileData } from './tile-types'
+import { SubTileGenerator } from '@xgis/data'
+import type { TileData } from '@xgis/data'
 import {
   decomposeFeatures, compileSingleTile, tileKey,
 } from '@xgis/compiler'

@@ -1,0 +1,649 @@
+// Class-based vector tile loader.
+//
+// Architecture:
+//   VectorTileLoader      — orchestrator. Owns archive + manifest caches,
+//                           dispatches to a VectorTileSource by URL/kind,
+//                           hosts attach + prewarm + fetchVectorLayerSchema.
+//   VectorTileSource      — abstract base. Subclasses encapsulate format-
+//                           specific resolution + attach behaviour. The
+//                           base provides the unified attach flow (log →
+//                           validate layers → attachBackend(PMTilesBackend)
+//                           → prewarmSkeleton) reused by every PMTiles-
+//                           backend-backed source.
+//   PMTilesArchiveSource  — `.pmtiles` archive, byte-range streamed.
+//   TileJSONSource        — TileJSON manifest pointing at an XYZ MVT server.
+//   XGVTBinarySource      — native binary; overrides attachTo to delegate
+//                           to TileCatalog.loadFromURL (no PMTilesBackend).
+//
+// Public API: a default singleton VectorTileLoader instance + thin function
+// wrappers (`attachPMTilesSource`, `loadPMTilesSource`, `prewarmVectorTileSource`,
+// `fetchPMTilesVectorLayerSchema`, `fetchPMTilesVectorLayerFields`,
+// `clearPMTilesArchiveCache`, `detectVectorTileFormat`, `resolveDispatch`)
+// preserve every prior import path. Power users can construct their own
+// loader instance for isolated caches.
+
+import { xlog } from '@xgis/shared'
+import { readBodyCapped, assertSafeRemoteUrl, safeFetch } from '@xgis/shared'
+import { PMTiles, TileType } from 'pmtiles'
+import { TileCatalog } from './tile-catalog'
+import { PMTilesBackend } from './sources/pmtiles-backend'
+import type {
+  VectorLayerInfo,
+  VectorTileFormat,
+  PMTilesSourceOptions,
+  ResolvedSource,
+  CachedArchive,
+  CachedTileJSON,
+  RawTileJSON,
+} from './vector-tile-loader-types'
+import { detectVectorTileFormat, memoizeOpen, normalizeVectorLayers } from './vector-tile-loader-helpers'
+
+// Re-export public types + format-detection helpers to preserve every prior
+// import path.
+export type {
+  VectorLayerInfo,
+  VectorTileFormat,
+  PMTilesSourceOptions,
+  ResolvedSource,
+} from './vector-tile-loader-types'
+export { detectVectorTileFormat, resolveDispatch } from './vector-tile-loader-helpers'
+
+// ─── Per-tile fetch retry (module-level, shared globally) ───────────
+
+/** Per-URL "last error logged at" timestamp (ms). Throttles transient
+ *  5xx logs to once per minute per URL pattern instead of flooding the
+ *  console — important when 100+ tiles share an upstream blip. */
+const tileFetchLogThrottle = new Map<string, number>()
+const TILE_FETCH_LOG_INTERVAL_MS = 60_000
+
+/** Negative cache for individual tile URLs that exhausted retry. The
+ *  TTL covers short-to-medium outages while still giving the upstream
+ *  a chance to recover without a page reload. */
+const tileFetchNegativeCache = new Map<string, number>()
+const NEGATIVE_CACHE_TTL_MS = 5 * 60_000
+// Hard size cap for the negative cache. Every z/x/y is a distinct URL,
+// so panning across a broken region inserts one entry per tile that is
+// never revisited — without a bound the Map grows for the page lifetime.
+// Entries are time-bounded by NEGATIVE_CACHE_TTL_MS; this is a backstop
+// for a flood of distinct failing URLs before any TTL expires.
+const NEGATIVE_CACHE_MAX_ENTRIES = 4096
+
+/** Record `url` as negative-cached. Lazily sweeps expired entries on each
+ *  insert (entries are time-bounded anyway), then enforces a hard size cap
+ *  with FIFO eviction (Map preserves insertion order → the oldest keys are
+ *  dropped first) so the cache can't grow unbounded when distinct failing
+ *  URLs never get revisited. */
+function negativeCacheSet(url: string, now: number): void {
+  for (const [k, exp] of tileFetchNegativeCache) {
+    if (now >= exp) tileFetchNegativeCache.delete(k)
+  }
+  tileFetchNegativeCache.set(url, now + NEGATIVE_CACHE_TTL_MS)
+  while (tileFetchNegativeCache.size > NEGATIVE_CACHE_MAX_ENTRIES) {
+    const oldest = tileFetchNegativeCache.keys().next().value
+    if (oldest === undefined) break
+    tileFetchNegativeCache.delete(oldest)
+  }
+}
+
+/** Test-only accessor for the module-private negative cache size. Lets the
+ *  bound be asserted directly after driving the public fetch path. */
+export function __tileFetchNegativeCacheSizeForTest(): number {
+  return tileFetchNegativeCache.size
+}
+
+/** Test-only reset of the module-private negative cache so suites don't
+ *  bleed entries into one another (the cache is process-wide). */
+export function __resetTileFetchNegativeCacheForTest(): void {
+  tileFetchNegativeCache.clear()
+}
+// DoS ceiling for a single fetched tile. Defensive — well above a dense
+// real-world MVT/PMTiles tile, below the point a size-bomb response can
+// exhaust memory during arrayBuffer() materialisation.
+const MAX_TILE_BYTES = 8 * 1024 * 1024
+// DoS ceiling for a TileJSON manifest body. A manifest is small JSON
+// metadata (a few KB in practice); 4 MB is far above any legitimate
+// manifest yet bounds a size-bomb response before JSON.parse materialises it.
+const MAX_TILEJSON_BYTES = 4 * 1024 * 1024
+
+/** Single-tile fetch with retry + graceful null fallback for transient
+ *  upstream failures (5xx, network errors). Returns:
+ *
+ *  - `Uint8Array` — successful fetch (200/206 with bytes)
+ *  - `null`        — tile is missing (404 / 204)
+ *  - `'failed'`    — exhausted retries on a transient error; the catalog
+ *                    keeps the tile in failedKeys so the parent-walk falls
+ *                    back to the nearest cached ancestor.
+ *
+ *  Backoff: 300 ms, then 900 ms (max 2 retries → 3 attempts total). */
+async function fetchTileWithRetry(
+  url: string, tileLabel: string, signal: AbortSignal,
+): Promise<Uint8Array | null | 'failed'> {
+  if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+  // Defensive: empty URL would hit the current document URL via
+  // fetch(""). The host's HTML (200 OK) would arrive as supposed
+  // tile data and the MVT parser would crash on the response bytes.
+  // Compiler now rejects empty URLs upstream (iter 300); this gate
+  // catches hand-constructed scenes that bypass the converter.
+  if (!url || typeof url !== 'string') return 'failed'
+  // SSRF guard: a host-supplied tile template must not target a
+  // private/loopback/link-local host or a non-http(s) scheme. An unsafe
+  // URL degrades to the same negative-cached 'failed' as any other fetch
+  // failure — the rest of the map keeps loading.
+  try {
+    assertSafeRemoteUrl(url, 'tile URL')
+  } catch {
+    negativeCacheSet(url, Date.now())
+    return 'failed'
+  }
+  const negativeExpiry = tileFetchNegativeCache.get(url)
+  if (negativeExpiry !== undefined) {
+    if (Date.now() < negativeExpiry) return 'failed'
+    tileFetchNegativeCache.delete(url)
+  }
+  const backoffsMs = [300, 900]
+  let lastErr: Error | null = null
+  for (let attempt = 0; attempt <= backoffsMs.length; attempt++) {
+    try {
+      // safeFetch re-validates each redirect hop (following manually) so an
+      // allowlisted tile host can't 302 to a private/loopback address. The
+      // initial-URL SSRF check above already negative-caches; a redirect to
+      // a private host throws here → handled as a fetch failure → retried,
+      // then negative-cached 'failed' like any other tile error.
+      const resp = await safeFetch(url, { signal }, 'tile URL')
+      if (resp.status === 404 || resp.status === 204) return null
+      if (resp.ok) {
+        // Size-bomb guard, fast path: reject a tile that HONESTLY advertises
+        // an over-budget Content-Length before reading any body.
+        const cl = resp.headers.get('content-length')
+        if (cl !== null) {
+          const declared = Number(cl)
+          if (Number.isFinite(declared) && declared > MAX_TILE_BYTES) {
+            negativeCacheSet(url, Date.now())
+            return 'failed'
+          }
+        }
+        // A lying or absent Content-Length (chunked transfer) bypasses the
+        // header check, so bound the ACTUAL bytes via the shared streaming
+        // cap. An over-budget body resolves to the same negative-cached
+        // 'failed' as any other fetch failure.
+        try {
+          return await readBodyCapped(resp, MAX_TILE_BYTES, tileLabel)
+        } catch {
+          negativeCacheSet(url, Date.now())
+          return 'failed'
+        }
+      }
+      lastErr = new Error(`${tileLabel}: HTTP ${resp.status}`)
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') throw e
+      lastErr = e instanceof Error ? e : new Error(String(e))
+    }
+    if (attempt === backoffsMs.length) break
+    await new Promise<void>((resolve, reject) => {
+      // Remove the abort listener on the resolve path too: {once:true}
+      // only auto-removes after the abort event FIRES, so a normal
+      // timer-fire would otherwise leave the listener lingering on the
+      // signal until the controller is GC'd. Declare timer with `let`
+      // first so onAbort can clear it without a TDZ hazard.
+      let timer: ReturnType<typeof setTimeout>
+      const onAbort = (): void => {
+        clearTimeout(timer)
+        reject(new DOMException('Aborted', 'AbortError'))
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
+      timer = setTimeout(() => {
+        signal.removeEventListener('abort', onAbort)
+        resolve()
+      }, backoffsMs[attempt])
+    })
+  }
+  const now = Date.now()
+  negativeCacheSet(url, now)
+  const urlKey = url.replace(/\/\d+\/\d+\/\d+/, '/{z}/{x}/{y}')
+  const lastLogged = tileFetchLogThrottle.get(urlKey) ?? 0
+  if (now - lastLogged > TILE_FETCH_LOG_INTERVAL_MS) {
+    tileFetchLogThrottle.set(urlKey, now)
+    xlog.warn(
+      `[X-GIS] ${tileLabel} fetch failed after ${backoffsMs.length + 1} attempts ` +
+      `(${lastErr?.message ?? 'unknown error'}). ` +
+      `Caching as missing for ${NEGATIVE_CACHE_TTL_MS / 60_000} min — that area will render empty. ` +
+      `If this is a 5xx from a tile server, it's likely an upstream data-build issue ` +
+      `for this specific (z, x, y); the rest of the map continues to load normally. ` +
+      `(Further failures matching ${urlKey} suppressed for ${TILE_FETCH_LOG_INTERVAL_MS / 1000}s.)`,
+    )
+  }
+  return 'failed'
+}
+
+// ─── Source classes ────────────────────────────────────────────────
+
+/** Abstract base for every vector tile format. Subclasses implement
+ *  format-specific resolution; the base supplies the common attach
+ *  flow (log → validate layers → attachBackend → prewarmSkeleton) used
+ *  by every source backed by `PMTilesBackend`. */
+export abstract class VectorTileSource {
+  abstract readonly format: VectorTileFormat
+
+  constructor(public readonly url: string) {}
+
+  /** Fetch metadata + build a fetcher closure. Sources that don't go
+   *  through `PMTilesBackend` (e.g. XGVT-binary) return null and override
+   *  `attachTo`. Returns null on a soft failure (e.g. CORS). */
+  abstract resolve(): Promise<ResolvedSource | null>
+
+  /** HTTP-level metadata prefetch. Default no-op; subclasses with their
+   *  own cache override. */
+  prewarm(): void {}
+
+  /** Default attach flow for sources resolved into a `ResolvedSource`.
+   *  Polymorphic — XGVT-binary overrides since it bypasses PMTilesBackend. */
+  async attachTo(catalog: TileCatalog, opts: PMTilesSourceOptions): Promise<void> {
+    const meta = await this.resolve()
+    if (!meta) return  // soft-fail: catalog stays empty, demo still loads
+
+    const formatName = meta.format === 'pmtiles' ? 'PMTiles' : 'TileJSON'
+    const layerSummary = meta.vectorLayers.length > 0
+      ? ` | layers: ${meta.vectorLayers.map(l => `${l.id}(z${l.minzoom}-${l.maxzoom})`).join(', ')}`
+      : ''
+    const boundsStr = meta.bounds.map(v => v.toFixed(4)).join(', ')
+    console.log(
+      `[X-GIS] ${formatName} attached${meta.name ? ` "${meta.name}"` : ''}: ` +
+      `z=${meta.minZoom}..${meta.maxZoom}, bounds=[${boundsStr}], ` +
+      `${meta.logDetail}${layerSummary}`,
+    )
+    if (meta.attribution) console.log(`[X-GIS] ${formatName} attribution: ${meta.attribution}`)
+    if (opts.layers && meta.vectorLayers.length > 0) {
+      const known = new Set(meta.vectorLayers.map(l => l.id))
+      for (const lname of opts.layers) {
+        if (!known.has(lname)) {
+          xlog.warn(
+            `[X-GIS] ${formatName}: requested layer "${lname}" is not in ` +
+            `vector_layers. Known: [${meta.vectorLayers.map(l => l.id).join(', ')}].`,
+          )
+        }
+      }
+    }
+
+    catalog.attachBackend(new PMTilesBackend({
+      minZoom: meta.minZoom,
+      maxZoom: meta.maxZoom,
+      bounds: meta.bounds,
+      layers: opts.layers,
+      vectorLayers: meta.vectorLayers,
+      extrudeExprs: opts.extrudeExprs,
+      extrudeBaseExprs: opts.extrudeBaseExprs,
+      showSlices: opts.showSlices,
+      strokeWidthExprs: opts.strokeWidthExprs,
+      strokeColorExprs: opts.strokeColorExprs,
+      fetcher: meta.fetcher,
+    }))
+    catalog.prewarmSkeleton({
+      depth: opts.prewarmSkeletonDepth,
+      minzoom: meta.minZoom,
+      maxzoom: meta.maxZoom,
+    })
+  }
+}
+
+export class PMTilesArchiveSource extends VectorTileSource {
+  readonly format = 'pmtiles' as const
+
+  constructor(url: string, private readonly loader: VectorTileLoader) {
+    super(url)
+  }
+
+  async resolve(): Promise<ResolvedSource | null> {
+    let cached: CachedArchive
+    try { cached = await this.loader.openArchive(this.url) }
+    catch (e) {
+      const msg = (e as Error)?.message ?? String(e)
+      xlog.error(
+        `[X-GIS] PMTiles attach failed for ${this.url}\n` +
+        `  ${msg}\n` +
+        `  If this is "Failed to fetch", the archive's origin likely\n` +
+        `  doesn't set Access-Control-Allow-Origin. Use a CORS-enabled\n` +
+        `  host (e.g. pmtiles.io) or proxy the archive through your dev\n` +
+        `  server (vite.config.ts proxy entry).`,
+      )
+      return null
+    }
+    const { archive, header } = cached
+    return {
+      format: 'pmtiles',
+      name: cached.archiveName,
+      attribution: cached.attribution,
+      minZoom: header.minZoom,
+      maxZoom: header.maxZoom,
+      bounds: [header.minLon, header.minLat, header.maxLon, header.maxLat],
+      vectorLayers: cached.vectorLayers,
+      logDetail: `${header.numTileEntries} tile entries`,
+      fetcher: async (z, x, y, signal) => {
+        // Pre-flight abort check. The pmtiles library doesn't accept an
+        // AbortSignal natively; we short-circuit before/after the range
+        // request and throw AbortError so PMTilesBackend's catch skips
+        // the failedKeys negative cache. We do NOT race the await
+        // against the signal — pmtiles interleaves directory-page
+        // fetches inside getZxy and bailing mid-flight leaves its
+        // internal directory cache half-populated.
+        if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+        const resp = await archive.getZxy(z, x, y)
+        if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+        if (!resp) return null
+        // Decompression-bomb guard: archive.getZxy returns tile bytes the
+        // pmtiles lib has ALREADY decompressed, so the streaming
+        // readBodyCapped cap (applied to network responses) never sees
+        // them. A hostile archive can ship a tiny gzip blob that inflates
+        // to hundreds of MB and exhaust the GPU arena. Reject any tile
+        // whose decoded size crosses the same MAX_TILE_BYTES ceiling →
+        // null (tile renders empty, map stays alive).
+        if (resp.data.byteLength > MAX_TILE_BYTES) {
+          xlog.warn(
+            `[X-GIS] PMTiles tile ${z}/${x}/${y}: decoded ${resp.data.byteLength} bytes ` +
+            `exceeds the ${MAX_TILE_BYTES}-byte cap (decompression-bomb guard) — skipping.`,
+          )
+          return null
+        }
+        return new Uint8Array(resp.data)
+      },
+    }
+  }
+
+  prewarm(): void {
+    void this.loader.openArchive(this.url).catch(() => undefined)
+  }
+}
+
+export class TileJSONSource extends VectorTileSource {
+  readonly format = 'tilejson' as const
+
+  constructor(url: string, private readonly loader: VectorTileLoader) {
+    super(url)
+  }
+
+  async resolve(): Promise<ResolvedSource | null> {
+    let tj: CachedTileJSON
+    try { tj = await this.loader.openTileJSON(this.url) }
+    catch (e) {
+      const msg = (e as Error)?.message ?? String(e)
+      xlog.error(
+        `[X-GIS] TileJSON attach failed for ${this.url}\n` +
+        `  ${msg}\n` +
+        `  If this is "Failed to fetch", the manifest's origin lacks\n` +
+        `  Access-Control-Allow-Origin for your origin. Use a host\n` +
+        `  that allows your origin in its CORS settings.`,
+      )
+      return null
+    }
+    return {
+      format: 'tilejson',
+      name: tj.name,
+      attribution: tj.attribution,
+      minZoom: tj.minzoom,
+      maxZoom: tj.maxzoom,
+      bounds: tj.bounds,
+      vectorLayers: tj.vectorLayers,
+      logDetail: `template=${tj.tilesTemplate}`,
+      // XYZ template fetcher with retry + graceful fallback. fetch()
+      // auto-decompresses gzip via Content-Encoding, so bytes are raw
+      // MVT (same shape PMTilesBackend expects).
+      fetcher: async (z, x, y, signal) => {
+        // Global replace so URL templates with multiple occurrences
+        // of {z}/{x}/{y} substitute correctly. Pre-fix single-pass
+        // .replace only replaced the FIRST occurrence; a URL like
+        // "https://example.com/{z}/{x}/{y}/{z}-{x}.mvt" left the
+        // second {z} and {x} intact and the fetch 400'd on the
+        // unsubstituted placeholders.
+        const url = tj.tilesTemplate
+          .replace(/\{z\}/g, String(z))
+          .replace(/\{x\}/g, String(x))
+          .replace(/\{y\}/g, String(y))
+          // Mapbox spec `{ratio}` placeholder = DPR suffix
+          // (`""` for 1x, `"@2x"` for 2x). X-GIS doesn't switch
+          // per DPR yet so we substitute the empty 1x form;
+          // pre-fix the unsubstituted literal `{ratio}` reached
+          // fetch and 404'd. Compiler also warns at convert time
+          // (iter 302) so the user sees the partial support.
+          .replace(/\{ratio\}/g, '')
+        return fetchTileWithRetry(url, `tile ${z}/${x}/${y}`, signal)
+      },
+    }
+  }
+
+  prewarm(): void {
+    void this.loader.openTileJSON(this.url).catch(() => undefined)
+  }
+}
+
+// ─── Loader ────────────────────────────────────────────────────────
+
+/** Owns the archive + manifest caches and dispatches URLs to the right
+ *  `VectorTileSource` subclass. The default singleton (`defaultLoader`
+ *  below) backs the public function-style API; instantiate your own
+ *  loader for tests that need an isolated cache. */
+export class VectorTileLoader {
+  private readonly archiveCache = new Map<string, Promise<CachedArchive>>()
+  private readonly tileJsonCache = new Map<string, Promise<CachedTileJSON>>()
+
+  /** Construct a `VectorTileSource` for `url` (or `null` if the URL
+   *  doesn't look like any vector tile format we know). */
+  sourceFor(url: string, kind?: VectorTileFormat | 'auto'): VectorTileSource | null {
+    // Defensive: empty/non-string URL would propagate to
+    // PMTilesArchiveSource/TileJSONSource constructors and crash
+    // downstream when openArchive/openTileJSON tried to fetch.
+    // Mirror of openArchive/openTileJSON empty-URL guards (iters
+    // 350/351) — return null upfront so the source factory short-
+    // circuits cleanly.
+    if (!url || typeof url !== 'string') return null
+    switch (detectVectorTileFormat(url, kind)) {
+      case 'pmtiles':  return new PMTilesArchiveSource(url, this)
+      case 'tilejson': return new TileJSONSource(url, this)
+      default:         return null
+    }
+  }
+
+  /** Attach a vector tile source to `catalog`. Auto-detects format by
+   *  URL extension, or override via `opts.kind`. Skeleton prewarm fires
+   *  automatically for every format. */
+  async attach(catalog: TileCatalog, opts: PMTilesSourceOptions): Promise<void> {
+    const src = this.sourceFor(opts.url, opts.kind)
+    if (!src) return
+    await src.attachTo(catalog, opts)
+  }
+
+  /** Convenience: spin up a fresh `TileCatalog` and attach `opts` to it. */
+  async load(opts: PMTilesSourceOptions): Promise<TileCatalog> {
+    const catalog = new TileCatalog()
+    await this.attach(catalog, opts)
+    return catalog
+  }
+
+  /** HTTP-level cache prefetch — call as soon as URLs become known
+   *  (after IR emit) so the network round trips overlap with shader
+   *  pipeline compilation, GPU adapter init, etc. */
+  prewarm(url: string, kind?: VectorTileFormat | 'auto'): void {
+    this.sourceFor(url, kind)?.prewarm()
+  }
+
+  /** Per-source-layer field schema from PMTiles metadata. Returns null
+   *  when the archive has no vector_layers metadata or the fetch fails. */
+  async fetchVectorLayerSchema(url: string): Promise<Record<string, Record<string, string>> | null> {
+    try {
+      const cached = await this.openArchive(url)
+      const out: Record<string, Record<string, string>> = {}
+      for (const vl of cached.vectorLayers) {
+        if (!vl.fields) continue
+        out[vl.id] = { ...vl.fields }
+      }
+      return Object.keys(out).length > 0 ? out : null
+    } catch {
+      return null
+    }
+  }
+
+  /** Flat union of `vector_layers[*].fields`. Back-compat shim around
+   *  `fetchVectorLayerSchema` for callers that don't need per-source-
+   *  layer scoping. */
+  async fetchVectorLayerFields(url: string): Promise<Record<string, string> | null> {
+    const schema = await this.fetchVectorLayerSchema(url)
+    if (!schema) return null
+    const merged: Record<string, string> = {}
+    for (const fields of Object.values(schema)) {
+      for (const [k, v] of Object.entries(fields)) merged[k] = v
+    }
+    return Object.keys(merged).length > 0 ? merged : null
+  }
+
+  /** Test/dev hook — drop both caches (force re-fetch in unit tests or
+   *  after a known-stale archive update). */
+  clearCache(): void {
+    this.archiveCache.clear()
+    this.tileJsonCache.clear()
+  }
+
+  // ─── Internal — used by VectorTileSource subclasses ────────────────
+
+  /** Open a PMTiles archive (or return a cached open one). Caches by
+   *  URL. Drops the cache entry on failure so the next call retries. */
+  openArchive(url: string): Promise<CachedArchive> {
+    // Defensive: empty/non-string URL would let the PMTiles library
+    // fetch the current document URL and crash on the non-archive
+    // bytes ("Wrong magic number"). Mirror of openTileJSON +
+    // fetchTileWithRetry + loadImageTexture empty-URL guards.
+    if (!url || typeof url !== 'string') {
+      return Promise.reject(new Error(`[X-GIS] openArchive: invalid URL ${JSON.stringify(url).slice(0, 60)}`))
+    }
+    // Strip Protomaps `pmtiles://` prefix before the PMTiles library
+    // sees it. Mirror of the detectVectorTileFormat strip (a5fd65a).
+    // Without this the library calls fetch on the prefixed URL and
+    // the request fails on the made-up scheme. Memoise key uses the
+    // stripped form so callers that pass either shape hit the same
+    // cache entry.
+    // Case-insensitive per RFC 3986 §3.1 — mirror of the
+    // detectVectorTileFormat strip and compiler-side stripPmtilesScheme.
+    const cleanUrl = /^pmtiles:\/\//i.test(url) ? url.slice('pmtiles://'.length) : url
+    return memoizeOpen(this.archiveCache, cleanUrl, async () => {
+      // SSRF guard BEFORE constructing PMTiles — the lib fetches the
+      // header, directory pages and tile byte-ranges internally, so
+      // guarding the URL here is the only place to stop it probing a
+      // private/loopback host. Inside the async closure so the throw
+      // becomes a rejected promise that resolve()'s catch AND prewarm()'s
+      // .catch() both handle → soft null (catalog stays empty, demo loads).
+      assertSafeRemoteUrl(cleanUrl, 'PMTiles URL')
+      const archive = new PMTiles(cleanUrl)
+      const header = await archive.getHeader()
+      if (header.tileType !== TileType.Mvt) {
+        throw new Error(`[vector-tile-loader] tileType ${header.tileType} not supported — only MVT (1)`)
+      }
+      let vectorLayers: VectorLayerInfo[] = []
+      let archiveName: string | undefined
+      let attribution: string | undefined
+      try {
+        const meta = await archive.getMetadata() as {
+          name?: string
+          attribution?: string
+          vector_layers?: Array<{ id: string; minzoom?: number; maxzoom?: number; fields?: Record<string, string> }>
+        } | null
+        if (meta) {
+          archiveName = meta.name
+          attribution = meta.attribution
+          vectorLayers = normalizeVectorLayers(meta.vector_layers, header.minZoom, header.maxZoom)
+        }
+      } catch (e) {
+        xlog.warn(`[X-GIS] PMTiles metadata fetch failed (non-fatal): ${(e as Error)?.message ?? e}`)
+      }
+      return { archive, header, vectorLayers, archiveName, attribution }
+    })
+  }
+
+  /** Open and parse a TileJSON manifest (or return a cached one). */
+  openTileJSON(url: string): Promise<CachedTileJSON> {
+    // Defensive: empty/non-string URL would hit the current document
+    // URL on fetch and `.json()` would throw on HTML payload. Mirror
+    // of fetchTileWithRetry + loadImageTexture empty-URL guards.
+    if (!url || typeof url !== 'string') {
+      return Promise.reject(new Error(`[X-GIS] openTileJSON: invalid URL ${JSON.stringify(url).slice(0, 60)}`))
+    }
+    return memoizeOpen(this.tileJsonCache, url, async () => {
+      // Mapbox-style sources can carry `tiles: ["…/{z}/{x}/{y}.mvt"]`
+      // inline — no TileJSON manifest exists, the template IS the source.
+      // Detect by the presence of XYZ placeholders and synthesize a
+      // minimal manifest in-memory rather than fetching the template
+      // URL as JSON (which would 404 or return MVT bytes for tile 0/0/0
+      // depending on the server). Caller passes the template directly.
+      if (url.includes('{z}') && url.includes('{x}') && url.includes('{y}')) {
+        return {
+          tilesTemplate: url,
+          bounds: [-180, -85.0511287, 180, 85.0511287],
+          minzoom: 0,
+          maxzoom: 14,
+          // No vector-layers metadata available without a manifest. The
+          // runtime path that needs per-source-layer field schemas
+          // (paint-shape data-driven evaluation) falls back to inferring
+          // from MVT tile contents on the fly.
+          vectorLayers: [],
+          name: undefined,
+          attribution: undefined,
+        }
+      }
+      // SSRF guard: a style's TileJSON URL is host-supplied. safeFetch
+      // validates the URL AND re-checks every redirect hop (following
+      // manually) so an allowlisted host can't 302 to an internal address.
+      // A throw rejects the cache promise → TileJSONSource.resolve()'s catch
+      // (and prewarm()'s .catch()) turn it into a soft null, leaving the
+      // demo alive.
+      const resp = await safeFetch(url, undefined, 'TileJSON URL')
+      if (!resp.ok) throw new Error(`TileJSON ${url} returned HTTP ${resp.status}`)
+      // Cap the manifest body before JSON.parse — a lying/absent
+      // Content-Length otherwise lets an unbounded .json() OOM the tab.
+      const tjBytes = await readBodyCapped(resp, MAX_TILEJSON_BYTES, `TileJSON ${url}`)
+      const tj = JSON.parse(new TextDecoder().decode(tjBytes)) as RawTileJSON
+      if (!tj.tiles || tj.tiles.length === 0) {
+        throw new Error(`TileJSON ${url}: missing or empty tiles[] template`)
+      }
+      const minzoom = tj.minzoom ?? 0
+      const maxzoom = tj.maxzoom ?? 14
+      return {
+        tilesTemplate: tj.tiles[0],
+        bounds: tj.bounds ?? [-180, -85.0511287, 180, 85.0511287],
+        minzoom, maxzoom,
+        vectorLayers: normalizeVectorLayers(tj.vector_layers, minzoom, maxzoom),
+        name: tj.name,
+        attribution: tj.attribution,
+      }
+    })
+  }
+}
+
+// ─── Default singleton + back-compat function API ──────────────────
+
+/** Process-wide loader instance. Backs every public function-style
+ *  export below; share so concurrent attaches dedupe at the cache level. */
+const defaultLoader = new VectorTileLoader()
+
+export function attachPMTilesSource(
+  source: TileCatalog, opts: PMTilesSourceOptions,
+): Promise<void> {
+  return defaultLoader.attach(source, opts)
+}
+
+export function loadPMTilesSource(opts: PMTilesSourceOptions): Promise<TileCatalog> {
+  return defaultLoader.load(opts)
+}
+
+export function prewarmVectorTileSource(
+  url: string, kind?: VectorTileFormat | 'auto',
+): void {
+  defaultLoader.prewarm(url, kind)
+}
+
+export function fetchPMTilesVectorLayerSchema(url: string): Promise<Record<string, Record<string, string>> | null> {
+  return defaultLoader.fetchVectorLayerSchema(url)
+}
+
+export function fetchPMTilesVectorLayerFields(url: string): Promise<Record<string, string> | null> {
+  return defaultLoader.fetchVectorLayerFields(url)
+}
+
+export function clearPMTilesArchiveCache(): void {
+  defaultLoader.clearCache()
+}

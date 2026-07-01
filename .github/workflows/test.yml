@@ -66,6 +66,8 @@ jobs:
             render:
               - 'compiler/**'
               - 'runtime/**'
+              - 'engine/**'
+              - 'map/**'
               - 'shared/**'
               - 'blueprint/**'
               - 'playground/**'
@@ -77,6 +79,8 @@ jobs:
             code:
               - 'compiler/**'
               - 'runtime/**'
+              - 'engine/**'
+              - 'map/**'
               - 'shared/**'
               - 'blueprint/**'
               - 'shader-dsl/**'
@@ -179,6 +183,14 @@ jobs:
             args: >-
               runtime/src
               --exclude "runtime/src/engine/**"
+          # @xgis/map content package (extracted from runtime/src/engine in P3).
+          # The moved shaders/dsl tests + future map content tests live here; the
+          # local vitest.config includes map/src, but this CI matrix shards by
+          # directory, so without its own leg the map suite silently stops running.
+          # (engine/src has the same gap from the P3 engine extraction — tracked
+          # separately; add an `engine` leg when its GPU tests are CI-safe.)
+          - id: map
+            args: map/src
     # Distinct per-leg check name in the GitHub UI / status API, e.g.
     # "test (engine-render-a)". The single stable context for branch protection
     # is `test-result` below — require THAT, not these per-leg names.

@@ -13,14 +13,14 @@
 // covered separately via the e2e suite.
 import { describe, expect, it, vi } from 'vitest'
 import { tileKey } from '@xgis/compiler'
-import { TileCatalog } from './tile-catalog'
+import { TileCatalog } from '@xgis/data'
 import {
   type TileData,
   MAX_CACHED_TILES,
-} from './tile-types'
+} from '@xgis/data'
 import {
   type TileSource, type TileSourceMeta, type TileSourceSink,
-} from './tile-source'
+} from '@xgis/data'
 
 // Minimal TileData with controllable byte cost. sizeOfTileData sums
 // vertices + indices + lineVertices + lineIndices + outlineIndices, so

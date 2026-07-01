@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { emitModule } from '@xgis/shader-dsl'
-import { getPROJECTION_MODULE } from './shaders/dsl/projections'
+import { getPROJECTION_MODULE } from '@xgis/map'
 import { PROJECTIONS } from '@xgis/engine'
 
 // US-P0-2: the WGSL backend regenerates the projection block. Byte-identity

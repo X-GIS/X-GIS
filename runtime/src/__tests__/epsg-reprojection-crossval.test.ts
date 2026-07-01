@@ -4,8 +4,8 @@ import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
 import { mercator } from '@xgis/engine'
-import { reprojectFeatureCollection } from '../data/sources/reproject-fc'
-import type { GeoJSONFeatureCollection } from '../loader/geojson'
+import { reprojectFeatureCollection } from '@xgis/data'
+import type { GeoJSONFeatureCollection } from '@xgis/data'
 
 // ═══ EPSG input-reprojection cross-validation (AC5) ═══
 //

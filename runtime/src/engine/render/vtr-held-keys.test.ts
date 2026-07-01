@@ -14,10 +14,10 @@
 
 import { describe, expect, it } from 'vitest'
 import { tileKey } from '@xgis/compiler'
-import { PriorityQueue } from '../../core/priority-queue'
+import { PriorityQueue } from '@xgis/shared'
 import { UploadCoordinator, type UploadHost, type UploadStore } from './upload-coordinator'
 import type { StagingBufferPool } from '@xgis/engine'
-import type { TileData } from '../../data/tile-types'
+import type { TileData } from '@xgis/data'
 
 // Stub TileData — none of the real upload code paths run here, so the fields
 // can be empty typed arrays. The held-queue logic only cares about identity

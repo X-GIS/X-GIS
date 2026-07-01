@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { generateGraticule } from './graticule'
+import { generateGraticule } from '@xgis/map'
 
 // Pins the graticule ECEF-kernel unification (PR-A target #2): the
 // hand-rolled `lonLatToEcefDSFUN` (own GRAT_EARTH_A / GRAT_F / GRAT_E2 +

@@ -31,8 +31,8 @@ import { mercatorYToLat } from '@xgis/engine'
 import type { GPUContext } from '@xgis/engine'
 import type { LayerIdRegistry, XGISLayer, XGISFeature } from './layer'
 import type { SceneCommands } from './interpreter'
-import type { GeoJSONFeature, GeoJSONFeatureCollection } from '../loader/geojson'
-import { toU32Id } from './id-resolver'
+import type { GeoJSONFeature, GeoJSONFeatureCollection } from '@xgis/data'
+import { toU32Id } from '@xgis/data'
 
 /** A vectorTileShows entry — structural type matching XGISMap's array
  *  element; only the `show` field's `layerName` / `targetName` are read

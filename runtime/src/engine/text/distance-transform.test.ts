@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { computeSDF, distanceTransform2D } from './sdf/distance-transform'
+import { computeSDF, distanceTransform2D } from '@xgis/map'
 
 const INF = 1e20
 

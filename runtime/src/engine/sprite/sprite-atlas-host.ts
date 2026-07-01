@@ -14,7 +14,7 @@
 // resolve to a "loaded but empty" state — the rasterizer pipeline
 // can decide to skip icons silently rather than crash.
 
-import { assertSafeRemoteUrl, readBodyCapped, safeFetch } from '../safety'
+import { assertSafeRemoteUrl, readBodyCapped, safeFetch } from '@xgis/shared'
 
 /** DoS ceilings for sprite assets — an atlas PNG is a few MB at most; the
  *  JSON metadata far less. Generous, but bound a size-bomb. */

@@ -13,7 +13,7 @@
 // preamble.
 
 import { collectFieldsStrict, type LabelDef } from '@xgis/compiler'
-import { computeSliceKey } from '../data/eval/filter-eval'
+import { computeSliceKey } from '@xgis/data'
 import type { ShowCommand } from './render/renderer'
 
 /** Collect ALL feature-property field names a LabelDef reads at runtime.

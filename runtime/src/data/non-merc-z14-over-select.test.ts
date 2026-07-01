@@ -16,7 +16,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { globeVisibleTiles } from '@xgis/engine'
-import { visibleTilesSSE } from '../loader/tiles-sse'
+import { visibleTilesSSE } from '@xgis/data'
 import { mercator } from '@xgis/engine'
 import { Camera } from '@xgis/engine'
 

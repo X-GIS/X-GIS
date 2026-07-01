@@ -15,7 +15,7 @@
 // the label-over-icon cases below flip to placed (the bug).
 
 import { describe, it, expect } from 'vitest'
-import { greedyPlaceBboxes, type CollisionItem, type CollisionObstacle } from './text-collision'
+import { greedyPlaceBboxes, type CollisionItem, type CollisionObstacle } from '@xgis/map'
 import { IconStage } from '../sprite/icon-stage'
 
 const box = (x: number, y: number, w = 10, h = 10) => ({ minX: x, minY: y, maxX: x + w, maxY: y + h })

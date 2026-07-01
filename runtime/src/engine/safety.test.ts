@@ -7,7 +7,7 @@ import {
   assertSafeRemoteUrl,
   readBodyCapped,
   INGEST_LIMITS,
-} from './safety'
+} from '@xgis/shared'
 
 describe('XGISError taxonomy', () => {
   it('subclasses are instanceof XGISError and Error', () => {

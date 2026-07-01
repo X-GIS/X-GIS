@@ -26,8 +26,8 @@
 // using the SAME CPU port of needs_backface_cull the shader emits.
 
 import { describe, expect, it, beforeAll } from 'vitest'
-import { needsBackfaceCullWgsl } from '../shaders/dsl'
-import { globeEyeUniform } from './globe-eye-uniform'
+import { needsBackfaceCullWgsl } from '@xgis/map'
+import { globeEyeUniform } from '@xgis/map'
 import { buildGlobeMatrix } from '@xgis/engine'
 
 const EARTH_R = 6378137

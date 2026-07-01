@@ -25,7 +25,7 @@
 
 import { test, expect } from '@playwright/test'
 import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../../runtime/src/engine/shaders/projection'
-import { projectWgsl, invMercLatRad, configureProjections } from '../../runtime/src/engine/shaders/dsl'
+import { projectWgsl, invMercLatRad, configureProjections } from '@xgis/map'
 import { PROJECTIONS } from '../../engine/src/projection/projections-table'
 
 // shader-dsl projections are host-injected — configure before any emit / cpu use.

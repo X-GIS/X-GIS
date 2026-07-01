@@ -32,7 +32,7 @@ import { installWebGPUStub, type StubInstallation } from '../../../__test-suppor
 import { initGPU } from '@xgis/engine'
 import { VectorTileRenderer } from '../vector-tile-renderer'
 import { UniformRing } from '../uniform-ring'
-import { polygonUniformStride } from '../polygon-uniform-slots'
+import { polygonUniformStride } from '@xgis/map'
 
 // cam_ecef_off_h.w — the spare lane fill-antialias rides (1 default, 0 = off).
 const FILL_ANTIALIAS_SLOT = 55
@@ -90,7 +90,7 @@ function stubTile() {
     dequantScale: 1, dequantHalf: 0,
     extruded: false,
     featureBindGroup: null,
-  } as unknown as import('../vector-tile-renderer-types').GPUTile
+  } as unknown as import('@xgis/map').GPUTile
 }
 
 /** Drive renderTileKeys for one tile with `currentFillAntialias` baked to the

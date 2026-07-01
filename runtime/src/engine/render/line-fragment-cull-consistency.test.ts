@@ -10,8 +10,8 @@
 // outlined polygons) while fills correctly discard, or vice-versa.
 
 import { describe, expect, it } from 'vitest'
-import { cosC, needsBackfaceCullWgsl } from '../shaders/dsl'
-import { globeEyeUniform } from './globe-eye-uniform'
+import { cosC, needsBackfaceCullWgsl } from '@xgis/map'
+import { globeEyeUniform } from '@xgis/map'
 
 const EARTH_R = 6378137
 const DEG2RAD = Math.PI / 180

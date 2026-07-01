@@ -4,7 +4,7 @@
 // observable across repeated calls.
 
 import { describe, it, expect } from 'vitest'
-import { setLogSink } from './log'
+import { setLogSink } from '@xgis/shared'
 import { XGISMap } from './map'
 import { ViewportModeController } from './render/viewport-mode-controller'
 import { Camera } from '@xgis/engine'

@@ -28,7 +28,7 @@ import { tileKey } from '@xgis/compiler'
 import { Camera } from '@xgis/engine'
 import {
   visibleTilesFrustum, visibleTilesFrustumSampled, makeTileCoord,
-} from '../data/tile-select'
+} from '@xgis/data'
 import { globeVisibleTiles } from '@xgis/engine'
 import {
   mercator as mercatorProj, getProjection, type Projection, mercatorYToLat,

@@ -17,14 +17,14 @@
 
 import type { GlyphAtlasGPU } from './sdf/glyph-atlas-gpu'
 import { FrameArena } from '@xgis/engine'
-import { bumpAlloc } from '../__profile__/alloc-counter'
+import { bumpAlloc } from '@xgis/map'
 import type { TextDraw } from './text-renderer-types'
 import { codePointIsIdeographic } from './text-wrap'
 import { wrapWebGpuPass, wrapWebGpuBindGroupLayout, wrapWebGpuTextureView, wrapWebGpuSampler } from '@xgis/engine'
 import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
-import { TextDraper, type TextSlice } from '../render/material/text-material'
+import { TextDraper, type TextSlice } from '@xgis/map'
 import { vertexField } from '@xgis/compiler'
-import { TEXT_FORMAT } from './text-vertex-format'
+import { TEXT_FORMAT } from '@xgis/map'
 import { toVertexBufferLayout } from '@xgis/engine'
 
 export type { TextDraw } from './text-renderer-types'

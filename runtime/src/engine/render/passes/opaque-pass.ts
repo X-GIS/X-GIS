@@ -13,7 +13,7 @@
 // `ctx.encoder`. All loop-local state stays inside execute(); behaviour is
 // byte-identical to the inline block.
 
-import { DEBUG_OVERDRAW } from '../../debug-flags'
+import { DEBUG_OVERDRAW } from '@xgis/map'
 import { isPickEnabled } from '@xgis/engine'
 import { resolveNumberShape } from '../paint-shape-resolve'
 import type { FrameContext } from '@xgis/engine'
