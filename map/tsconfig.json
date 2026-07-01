@@ -4,15 +4,6 @@
     "composite": true,
     "outDir": "./dist",
     "rootDir": "./src",
-    // Emit ONLY declarations to dist. @xgis/map is a bundled-in workspace package:
-    // its RUNTIME entry resolves to ./src (package.json exports), and dist exists
-    // solely so tsc project-references + downstream `paths` can consume its .d.ts.
-    // Emitting dist .js too created a DUAL-PACKAGE HAZARD — the render-gate node
-    // context loaded BOTH the map/src and map/dist copies of the stateful
-    // projections singleton (configureProjections wrote src's _specs; a later
-    // projection emit read dist's null _specs → threw pre-configure). Declaration-
-    // only leaves no dist .js, so there is one runtime instance.
-    "emitDeclarationOnly": true,
     "types": ["@webgpu/types"],
     // Consume the emitted declarations of the referenced packages (built first
     // via the project references below) instead of recompiling their source

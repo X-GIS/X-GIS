@@ -41,12 +41,20 @@ import { PI, EARTH_R, MERCATOR_LAT_LIMIT } from './consts'
 // use (production: the XGISMap constructor; vitest: a setup file; Playwright
 // e2e: an explicit call) — an unconfigured access throws loudly.
 export interface ProjectionSpec { name: string; projType: number; isGlobe: boolean; cullThreshold?: number | null }
-let _specs: ProjectionSpec[] | null = null
-let _artifacts: ReturnType<typeof buildProjectionArtifacts> | null = null
-export function configureProjections(specs: readonly ProjectionSpec[]): void { _specs = specs as ProjectionSpec[]; _artifacts = null }
+// Host-injected projection config is PROCESS-GLOBAL. Back the state with globalThis so
+// it survives module duplication: a bundled-in workspace package (@xgis/map) can be
+// instantiated more than once in a mixed resolver (the render-gate node context loads
+// map/src via the bundler AND a map/dist copy via a tsconfig-paths/node resolver). A
+// per-module `let` would split the singleton — configureProjections() writes one copy's
+// specs while a later projection emit reads the other copy's null _specs and throws
+// "configureProjections must be called before emit". Sharing across instances makes the
+// duplication harmless (configure and emit see the same _specs regardless of instance).
+type ProjModuleState = { specs: ProjectionSpec[] | null; artifacts: ReturnType<typeof buildProjectionArtifacts> | null }
+const _state: ProjModuleState = ((globalThis as unknown as { __XGIS_PROJECTIONS__?: ProjModuleState }).__XGIS_PROJECTIONS__ ??= { specs: null, artifacts: null })
+export function configureProjections(specs: readonly ProjectionSpec[]): void { _state.specs = specs as ProjectionSpec[]; _state.artifacts = null }
 function artifacts(): ReturnType<typeof buildProjectionArtifacts> {
-  if (_specs === null) throw new Error('shader-dsl: configureProjections() must be called before any projection emit / cpu-projection use')
-  return (_artifacts ??= buildProjectionArtifacts(_specs))
+  if (_state.specs === null) throw new Error('shader-dsl: configureProjections() must be called before any projection emit / cpu-projection use')
+  return (_state.artifacts ??= buildProjectionArtifacts(_state.specs))
 }
 export const getPROJECTION_MODULE = (): ModuleDecl => artifacts().PROJECTION_MODULE
 /** Emitted-WGSL accessor for the parity/structure test harnesses — they splice this exact WGSL into a standalone test shader to verify CPU↔GPU parity. NOT a production path (runtime shaders are built via emitModule, not string-prepend); the emit layer is private, so this string accessor is the sanctioned public surface for those harnesses. */
