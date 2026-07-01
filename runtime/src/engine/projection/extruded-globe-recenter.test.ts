@@ -35,7 +35,7 @@ import { describe, it, expect } from 'vitest'
 import { Camera } from '@xgis/engine'
 import { lonLatToECEF } from '@xgis/engine'
 import type { RingPolygon } from '@xgis/compiler'
-import { generateWallMeshExtrudedECEF } from '../../core/polygon-mesh'
+import { generateWallMeshExtrudedECEF } from '@xgis/map'
 import { dequantVertexF32, mulMat4Vec4F32 } from '@xgis/compiler'
 
 const DEG2RAD = Math.PI / 180

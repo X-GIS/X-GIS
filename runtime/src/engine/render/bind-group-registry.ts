@@ -41,7 +41,7 @@
 // to the old in-VTR `rebuildTileBindGroups` (0 ring, 1 feature-data,
 // 2 palette atlas, 4 palette sampler, 5 sprite atlas, 6 sprite sampler).
 
-import { Epoch } from '../_cache/versioned-state'
+import { Epoch } from '@xgis/map'
 import { polygonUniformSlots } from '@xgis/map'
 
 // Bind-group binding range size for binding 0 (the uniform ring). Derived

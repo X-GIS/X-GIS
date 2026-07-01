@@ -6,7 +6,7 @@
 
 import type { LabelDef } from '@xgis/compiler'
 import { resolveNumberShape, resolveColorShape, resolveSteppedShape } from './render/paint-shape-resolve'
-import { hexToRgba } from './feature-helpers'
+import { hexToRgba } from '@xgis/map'
 import { lonLatToECEF } from '@xgis/engine'
 import { EARTH_R } from '@xgis/engine'
 import { mercatorYToLat } from '@xgis/engine'

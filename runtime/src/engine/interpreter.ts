@@ -11,7 +11,7 @@ import type { ShowCommand } from './render/renderer'
 // [0,0,0,1] for ANY invalid input including legitimately invalid
 // hex strings — silently rendering them as opaque black instead of
 // no-fill. See iter 318 hexToRgba contract fix.
-import { hexToRgba } from './feature-helpers'
+import { hexToRgba } from '@xgis/map'
 
 /** Synthesize a PaintShapes bundle from a constant-only legacy show.
  *  The legacy `let`/`show` and the simple `source`/`layer` utility

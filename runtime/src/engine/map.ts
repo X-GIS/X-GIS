@@ -50,7 +50,7 @@ import { HeatmapRenderer } from '@xgis/map'
 import { ShapeRegistry } from '@xgis/map'
 import { LineRenderer } from '@xgis/map'
 import { PanZoomController, type Controller } from './controller'
-import { DirtyTracker, DirtyDomain, DIRTY_ALL } from './state/dirty'
+import { DirtyTracker, DirtyDomain, DIRTY_ALL } from '@xgis/map'
 import { VectorTileRenderer } from './render/vector-tile-renderer'
 import { TextStage, type TextStageOptions } from './text/text-stage'
 import type { GlyphProvider } from './text/sdf/pbf/glyph-provider'
@@ -68,7 +68,7 @@ import { buildShowSourceMaps } from './show-source-maps'
 import {
   parseHexColor, hexToRgba,
   applyFilter, applyGeometry,
-} from './feature-helpers'
+} from '@xgis/map'
 import {
   inspectMapPipeline, captureMapSnapshot, replayMapSnapshot,
   type PipelineInspection, type MapSnapshot, type ReplayResult,

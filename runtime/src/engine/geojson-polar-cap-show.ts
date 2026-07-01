@@ -21,7 +21,7 @@ import { PROJECTION_NAME_TO_TYPE } from '@xgis/engine'
 import type { MapRendererContent } from './render/renderer'
 import type { LineRenderer } from '@xgis/map'
 import type { GPUContext } from '@xgis/engine'
-import { parseHexColor } from './feature-helpers'
+import { parseHexColor } from '@xgis/map'
 import type { GeoJSONFeatureCollection } from '@xgis/data'
 
 /** Host hooks the per-source polar-cap install/detach needs from XGISMap. The

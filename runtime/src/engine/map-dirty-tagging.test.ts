@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { XGISMap } from './map'
-import { DirtyDomain, type DirtyTracker } from './state/dirty'
+import { DirtyDomain, type DirtyTracker } from '@xgis/map'
 
 // ═══ S14 — granular dirty tagging (INERT) ══════════════════════════
 //

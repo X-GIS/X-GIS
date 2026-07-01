@@ -23,7 +23,7 @@
 // on the pick attachment). Phase 4 adds addEventListener.
 
 import type { ShowCommand } from './render/renderer'
-import { parseHexColor as parseHexColorRaw } from './feature-helpers'
+import { parseHexColor as parseHexColorRaw } from '@xgis/map'
 import { xlog } from '@xgis/shared'
 import { QUALITY } from '@xgis/engine'
 

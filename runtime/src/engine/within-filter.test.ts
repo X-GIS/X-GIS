@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { Lexer, Parser } from '@xgis/compiler'
-import { applyFilter } from './feature-helpers'
+import { applyFilter } from '@xgis/map'
 
 // Parse a single xgis expression into the AST shape applyFilter expects.
 function parseAst(src: string): unknown {

@@ -28,12 +28,12 @@ const US = new Proxy({} as Record<string, number>, {
   get: (_t, k: string) => (_uSlots ??= polygonUniformSlots().slot)[k],
 })
 import type { ResolvedShow } from './resolved-show'
-import { structuralHashKey } from '../_cache/structural-key'
-import type { BundleKeyState } from '../_cache/bundle-cache-key'
+import { structuralHashKey } from '@xgis/map'
+import type { BundleKeyState } from '@xgis/map'
 import {
   classifyTile, computeProtectedKeys, computeZoomDirectionPrefetchKeys,
   type TileDecision,
-} from '../tile-decision'
+} from '@xgis/map'
 import { PrefetchScheduler } from './prefetch-scheduler'
 import { LabelFeatureSource } from '@xgis/map'
 import { FrameDrawStats } from '@xgis/engine'
@@ -56,7 +56,7 @@ import { mercator as mercatorProj, getProjection, type Projection } from '@xgis/
 import { SELECTOR_PROJ_NAMES } from '@xgis/engine'
 import type { PointRenderer } from './point-renderer'
 import type { LineRenderer } from '@xgis/map'
-import { parseHexColor } from '../feature-helpers'
+import { parseHexColor } from '@xgis/map'
 import type { GPUTile, LayerDrawPhase } from '@xgis/map'
 import { getMaxGpuTiles, uploadBudgetFor } from '@xgis/map'
 import { UniformRing } from '@xgis/map'

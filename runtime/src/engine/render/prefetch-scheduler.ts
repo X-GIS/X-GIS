@@ -22,7 +22,7 @@ import type { TileCatalog } from '@xgis/data'
 import {
   collectSiblingPrefetchKeys, projectPanPrefetchTarget,
   type CameraSnapshot,
-} from '../tile-decision'
+} from '@xgis/map'
 import { visibleTilesFrustumSampled } from '@xgis/data'
 import { Camera } from '@xgis/engine'
 import { mercator as mercatorProj } from '@xgis/engine'

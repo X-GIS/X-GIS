@@ -9,7 +9,7 @@
 // exported); pin the BEHAVIOR through the runtime hexToRgba directly.
 
 import { describe, it, expect } from 'vitest'
-import { hexToRgba } from './feature-helpers'
+import { hexToRgba } from '@xgis/map'
 
 describe('interpreter hex-null behaviour (via runtime hexToRgba)', () => {
   it('invalid hex string returns null (not [0,0,0,1])', () => {

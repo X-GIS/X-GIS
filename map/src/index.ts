@@ -76,3 +76,14 @@ export * from './shaders/projection'
 // './render/line-pattern' — a blanket re-export would be an ambiguous duplicate. Export only
 // line-renderer's OWN symbols.
 export { LineRenderer, buildLineSegments, LINE_SEGMENT_STRIDE_F32, LINE_SEGMENT_STRIDE_BYTES } from './render/line-renderer'
+// P3 Phase-2 Batch B1c — remaining B1 dependency-leaf content (feature paint/filter helpers,
+// tile-classification decision logic, extruded polygon-mesh builder, render-cache versioning /
+// bundle+structural cache-key hashing, dirty-domain tracker) deep-imported cross-package by
+// still-in-runtime VTR / map.ts / prefetch-scheduler / passes (pruned to the public API in Step 8).
+export * from './feature-helpers'
+export * from './tile-decision'
+export * from './core/polygon-mesh'
+export * from './_cache/versioned-state'
+export * from './_cache/bundle-cache-key'
+export * from './_cache/structural-key'
+export * from './state/dirty'
