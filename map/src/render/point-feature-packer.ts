@@ -136,6 +136,25 @@ export function packPointInstances(input: PackPointInput, out: PackPointOutput):
   // depth-test handles occlusion); for opaque we keep feature-index order.
   const order = isTranslucent ? new Uint32Array(totalPoints) : null
 
+  // ── Pass 0: SHARED style slots (0-10) + shape_id (19), copied from the caller's
+  // per-point source BEFORE Pass 1 writes position. This ordering is LOAD-BEARING:
+  // the caller's `srcFeatData` is PointRenderer's frame-arena-backed
+  // `layer.featData`, which ALIASES `feat` (also a frame-arena allocation reused
+  // each render() via beginFrame) — for one point, `layer.featData[0]` overlaps
+  // `feat[22]` (the Mercator-y hi slot). Reading the style source BEFORE the Pass-1
+  // Mercator write preserves the read-before-write ordering the legacy interleaved
+  // loop relied on; the reverse (position-then-copy) order corrupted slot 0 (radius)
+  // with the Mercator-y tail — the circle-radius-wiring.test.ts regression. ──
+  for (let w = 0; w < copies.length; w++) {
+    const basePoint = w * N
+    for (let i = 0; i < N; i++) {
+      const srcOff = i * S
+      const dstOff = (basePoint + i) * S
+      feat.set(srcFeatData.subarray(srcOff, srcOff + 11), dstOff)
+      feat[dstOff + 19] = srcFeatData[srcOff + 19]
+    }
+  }
+
   // ── Pass 1: POSITION slots (11-16 ECEF, 17-18 abs lon/lat, 20-23 Mercator).
   // The discriminated position source is branched ONCE here — never per point —
   // so the hot loop carries no closure/allocation for the per-path math. The
@@ -192,20 +211,15 @@ export function packPointInstances(input: PackPointInput, out: PackPointOutput):
     }
   }
 
-  // ── Pass 2: SHARED slots (0-10 style + 19 shape_id copied from the caller's
-  // per-point source), the per-instance quad verts, and the depth key / opaque
-  // index order — all position-independent. The depth key reads back the ECEF
-  // hi lanes (slots 11/12) Pass 1 wrote, so it stays byte-identical to the
-  // former `exH * fwdX + eyH * fwdY`. ──
+  // ── Pass 2: per-instance quad verts + the depth key / opaque index order — all
+  // position-independent (style slots 0-10/19 were copied in Pass 0). The depth key
+  // reads back the ECEF hi lanes (slots 11/12) Pass 1 wrote, so it stays
+  // byte-identical to the former `exH * fwdX + eyH * fwdY`. ──
   for (let w = 0; w < copies.length; w++) {
     const basePoint = w * N
     for (let i = 0; i < N; i++) {
-      const srcOff = i * S
       const globalIdx = basePoint + i
       const dstOff = globalIdx * S
-      // Style slots 0-10 + shape_id (19) copied verbatim from the source record.
-      feat.set(srcFeatData.subarray(srcOff, srcOff + 11), dstOff)
-      feat[dstOff + 19] = srcFeatData[srcOff + 19]
 
       // Build quad vertices
       const vBase = globalIdx * 4 * 4
