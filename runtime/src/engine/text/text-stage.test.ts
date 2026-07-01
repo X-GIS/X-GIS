@@ -11,7 +11,7 @@ import {
   applyTextTransform,
   evaluateVariableOffsetEm,
   variableAnchorOffsetEm,
-} from './text-stage-helpers'
+} from '@xgis/map'
 import { composeFontKey } from './text-stage'
 import { FONT_KEY_SENTINEL } from '@xgis/map'
 import type { LabelDef } from '@xgis/compiler'

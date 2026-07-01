@@ -14,7 +14,7 @@
 
 import { collectFieldsStrict, type LabelDef } from '@xgis/compiler'
 import { computeSliceKey } from '@xgis/data'
-import type { ShowCommand } from './render/renderer'
+import type { ShowCommand } from '@xgis/map'
 
 /** Collect ALL feature-property field names a LabelDef reads at runtime.
  *

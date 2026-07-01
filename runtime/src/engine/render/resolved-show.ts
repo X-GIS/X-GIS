@@ -21,8 +21,8 @@
 // stop arrays, …) that this resolver reads below. Use the runtime type,
 // not the compiler's, so those field accesses type-check.
 import type { PropertyShape } from '@xgis/compiler'
-import type { ShowCommand } from './renderer-types'
-import { resolveNumberShape, resolveColorShape, resolveArrayShape } from './paint-shape-resolve'
+import type { ShowCommand } from '@xgis/map'
+import { resolveNumberShape, resolveColorShape, resolveArrayShape } from '@xgis/map'
 
 type ShapeRef = PropertyShape<unknown> | null | undefined
 

@@ -28,7 +28,7 @@
 
 import { DEBUG_OVERDRAW } from '@xgis/map'
 import { worldBandForProjType } from '@xgis/engine'
-import { resolveColorShape, resolveNumberShape } from '../paint-shape-resolve'
+import { resolveColorShape, resolveNumberShape } from '@xgis/map'
 import type { FrameContext } from '@xgis/engine'
 import { unwrapProjection } from '@xgis/engine'
 import type { SceneView } from '../scene-view'

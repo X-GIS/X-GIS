@@ -16,8 +16,8 @@
 // Infinity → NaN colour, GPU sampled undefined behaviour").
 
 import { describe, it, expect } from 'vitest'
-import { interpolateZoom, interpolateZoomRgba, interpolateTime } from './renderer'
-import { resolveNumberShape, resolveColorShape } from './paint-shape-resolve'
+import { interpolateZoom, interpolateZoomRgba, interpolateTime } from '@xgis/map'
+import { resolveNumberShape, resolveColorShape } from '@xgis/map'
 import type { PropertyShape } from '@xgis/compiler'
 
 type Rgba = [number, number, number, number]

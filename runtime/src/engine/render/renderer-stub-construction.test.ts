@@ -12,7 +12,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
 import { initGPU } from '@xgis/engine'
-import { MapRendererContent } from './renderer'
+import { MapRendererContent } from '@xgis/map'
 import { polygonUniformBytes } from '@xgis/map'
 
 let stub: StubInstallation

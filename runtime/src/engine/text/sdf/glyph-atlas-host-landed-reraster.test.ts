@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { GlyphAtlasHost } from './glyph-atlas-host'
+import { GlyphAtlasHost } from '@xgis/map'
 import type { GlyphRasterizer, GlyphRasterRequest, GlyphRasterResult } from '@xgis/map'
 
 // Regression — low-zoom CJK labels dropping every glyph whose PBF range landed

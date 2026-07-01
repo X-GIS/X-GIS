@@ -4,7 +4,7 @@
 // instead of the PBF server.
 
 import { describe, it, expect } from 'vitest'
-import { cjkBucketPx, CJK_SIZE_BUCKETS_CSS } from './text-wrap'
+import { cjkBucketPx, CJK_SIZE_BUCKETS_CSS } from '@xgis/map'
 import {
   cjkSizedFontKey, parseSizedFontKey, MockRasterizer,
   type GlyphRasterizer, type GlyphRasterRequest, type GlyphRasterResult,

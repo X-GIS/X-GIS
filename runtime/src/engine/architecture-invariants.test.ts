@@ -320,12 +320,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 941→943 (#600 fix): the prior bump documented a globe_eye write missing
   // from renderToPass + the graticule eye plumbing — restoring them (the write, the
   // import, the GraticuleFrame.eye pass-through) adds the final 2 lines.
-  // Lowered 943→772 (P2 carve Step 1): the engine half (RHI / ring / pipeline
-  // machinery — PipelineFactory delegates, compute path, ensure*, rebuildForQuality,
-  // beginFrame/endFrame, uniform-ring tail) moved out to frame-renderer.ts; this
-  // file keeps the CONTENT half (MapRendererContent) + the engine read-contract
-  // re-exposers. New ceiling = measured size of the content half.
-  'runtime/src/engine/render/renderer.ts': 772,
+  // renderer.ts (+ its 6-file StyleProperties type-cycle SCC: renderer-types / renderer-helpers /
+  // paint-shape-resolve / pipeline-factory / frame-renderer) relocated to @xgis/map
+  // (map/src/render/renderer.ts) in P3 Phase 2 Batch B5 — no longer under a SRC_DIRS walk, so its
+  // LOC ceiling leaves this runtime ratchet (mirrors the gpu-tile-store.ts / camera.ts precedents
+  // above; package-level LOC ratchets for map/engine are a tracked post-Gate-6 follow-up).
   // Lowered 776→254: extracted the text-layout family (text-anchor /
   // variable-anchor[-offset] / transform / offset / translate / radial-offset /
   // collision / rotate / letter-spacing / max-width / line-height / justify /
@@ -500,19 +499,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // in P3 Phase 2 Batch B1 — no longer under a SRC_DIRS walk, so its LOC ceiling leaves this
   // runtime ratchet (mirrors the camera.ts → @xgis/engine precedent above; package-level LOC
   // ratchets for map/engine are a tracked post-Gate-6 follow-up).
-  // renderer.ts Unit-1 extraction (PipelineFactory) — the pipeline /
-  // bind-group-layout / atlas-stub construction + the three per-variant
-  // builders (createVariantPipelines + createVariantPipelinesAsync +
-  // buildVariantDescriptors, each a near-identical descriptor set) were
-  // moved VERBATIM (rasterization-critical, CI has no GPU; plan §2 Unit 1).
-  // Over the 800 cap because the verbatim descriptor sets + hard-won
-  // fix-history comments (OIT cull, iter-130/186/197 etc.) carry the LOC.
-  // Baselined here; shrink as the three builders converge (descriptor
-  // factory) + comments distil.
-  // Bumped 1193→1285 (Phase R heatmap): ensureHeatmapBlur + ensureHeatmapCompose
-  // lazy pipelines (modelled on ensureOverdrawCompose) + their bind-group-layout
-  // fields + the two emitter imports + the HEATMAP_DENSITY_FORMAT import.
-  'runtime/src/engine/render/pipeline-factory.ts': 1285,
+  // pipeline-factory.ts relocated to @xgis/map (map/src/render/pipeline-factory.ts) in P3 Phase 2
+  // Batch B5 (moved atomically with the renderer StyleProperties type-cycle SCC) — no longer under a
+  // SRC_DIRS walk, so its LOC ceiling leaves this runtime ratchet (mirrors the gpu-tile-store.ts /
+  // camera.ts precedents above; package-level LOC ratchets for map/engine are a tracked post-Gate-6
+  // follow-up).
   // gpu-tile-store.ts relocated to @xgis/map (map/src/render/gpu-tile-store.ts)
   // in P3 Phase 2 Batch B1b — no longer under a SRC_DIRS walk, so its LOC ceiling leaves this
   // runtime ratchet (mirrors the tile-selection-cache.ts / camera.ts precedents above; package-level

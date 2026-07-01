@@ -5,7 +5,7 @@
 // stops match MapLibre's visual.
 
 import { describe, it, expect } from 'vitest'
-import { interpolateZoom } from './renderer'
+import { interpolateZoom } from '@xgis/map'
 
 describe('interpolateZoom — linear (no base)', () => {
   const stops = [{ zoom: 0, value: 0 }, { zoom: 10, value: 100 }]

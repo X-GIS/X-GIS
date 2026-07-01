@@ -14,7 +14,7 @@
 // linear-RGB (documented partial; covered separately by spec-coverage).
 
 import { describe, it, expect } from 'vitest'
-import { interpolateZoomRgba } from './renderer'
+import { interpolateZoomRgba } from '@xgis/map'
 
 type Stop = { zoom: number; value: [number, number, number, number] }
 

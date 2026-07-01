@@ -17,7 +17,7 @@
 // pre-allocate based on expected glyph count, or wait for the
 // host's pageCount to grow and call addPage on demand).
 
-import type { GlyphAtlasHost } from './glyph-atlas-host'
+import type { GlyphAtlasHost } from '@xgis/map'
 
 export interface GlyphAtlasGPUOptions {
   /** Side length in pixels of each atlas page. Must match the

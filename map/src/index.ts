@@ -118,3 +118,26 @@ export * from './render/compute-layer-registry'
 export * from './render/feature-data-binder'
 export * from './sprite/icon-stage'
 export * from './text/text-stage-types'
+// P3 Phase-2 Batch B5 — the renderer StyleProperties 6-file type-cycle SCC
+// (renderer/renderer-types/renderer-helpers/paint-shape-resolve/pipeline-factory/frame-renderer),
+// the glyph-atlas-host↔text-wrap 2-file cycle SCC, + bind-group-registry / text-stage-helpers.
+// SELECTIVE exports (not blanket): renderer.ts re-exports ShaderVariantInfo/CachedPipeline/Easing/
+// ShowCommand from renderer-types and interpolate* from renderer-helpers, so a blanket `export *`
+// on all three would be an ambiguous duplicate. Export only the symbols still-in-runtime content
+// (map.ts / VTR / interpreter / layer / passes / source-manager / text-stage / text-renderer +
+// their tests) deep-imports cross-package (pruned to the public API in Step 8). pipeline-factory
+// has no cross-package importer (only co-moving frame-renderer), so it is intentionally omitted.
+export { MapRendererContent } from './render/renderer'
+export type { ShowCommand, Easing } from './render/renderer-types'
+export { interpolateZoom, interpolateZoomRgba, interpolateTime, interpolateTimeColor, variantProducesFill } from './render/renderer-helpers'
+export { resolveNumberShape, resolveColorShape, resolveSteppedShape, resolveArrayShape } from './render/paint-shape-resolve'
+export { FrameRenderer } from './render/frame-renderer'
+export { BindGroupRegistry } from './render/bind-group-registry'
+export { GlyphAtlasHost, type GlyphAtlasHostOptions, type GlyphInfo } from './text/sdf/glyph-atlas-host'
+export { wrapWithKnuthPlass, cjkBucketFor, wrapForTesting, codePointIsIdeographic, cjkBucketPx, CJK_SIZE_BUCKETS_CSS } from './text/text-wrap'
+export {
+  resolveTypography, applyTextTransform, stripCurveLineExtraScripts,
+  evaluateVariableOffsetEm, variableAnchorOffsetEm, layoutCacheKey, textKeyFor,
+  layoutCacheEntryValid, mlVerticalLayout, composeFontKey, verticalLayoutForTesting,
+  ONE_EM, SHAPING_DEFAULT_OFFSET, CJK_FALLBACK_CHAIN, type LabelAnchor,
+} from './text/text-stage-helpers'

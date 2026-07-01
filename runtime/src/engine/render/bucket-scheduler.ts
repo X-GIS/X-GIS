@@ -23,8 +23,8 @@
 // fixture combination without spinning up the full WebGPU stack.
 
 import type { LayerDrawPhase, VectorTileRenderer } from './vector-tile-renderer'
-import type { ShowCommand } from './renderer-types'
-import { resolveNumberShape } from './paint-shape-resolve'
+import type { ShowCommand } from '@xgis/map'
+import { resolveNumberShape } from '@xgis/map'
 import { resolveShow, type ResolvedShow } from './resolved-show'
 import { SAFE_MODE } from '@xgis/engine'
 import { DEBUG_OVERDRAW } from '@xgis/map'

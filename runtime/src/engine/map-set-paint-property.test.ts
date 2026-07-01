@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest'
 import { XGISMap } from './map'
 import { XGISLayer } from './layer'
-import type { ShowCommand } from './render/renderer'
+import type { ShowCommand } from '@xgis/map'
 
 function mockCanvas(): HTMLCanvasElement {
   return { width: 1200, height: 800 } as unknown as HTMLCanvasElement

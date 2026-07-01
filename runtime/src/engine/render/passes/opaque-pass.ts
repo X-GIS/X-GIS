@@ -15,7 +15,7 @@
 
 import { DEBUG_OVERDRAW } from '@xgis/map'
 import { isPickEnabled } from '@xgis/engine'
-import { resolveNumberShape } from '../paint-shape-resolve'
+import { resolveNumberShape } from '@xgis/map'
 import type { FrameContext } from '@xgis/engine'
 import { unwrapProjection } from '@xgis/engine'
 import type { SceneView } from '../scene-view'

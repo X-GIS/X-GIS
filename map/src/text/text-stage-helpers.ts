@@ -3,10 +3,10 @@
 // TextRenderer's WGSL pipeline + GPU types.
 
 import type { LabelDef } from '@xgis/compiler'
-import { FONT_KEY_SENTINEL } from '@xgis/map'
-import { bumpAlloc } from '@xgis/map'
+import { FONT_KEY_SENTINEL } from './sdf/glyph-rasterizer'
+import { bumpAlloc } from '../__profile__/alloc-counter'
 import { FrameArena } from '@xgis/engine'
-import type { MlVerticalLayout } from '@xgis/map'
+import type { MlVerticalLayout } from './text-stage-types'
 
 /** Resolve per-font typography overrides for the given fontKey against
  *  a typography table. The primary family is the first entry of the

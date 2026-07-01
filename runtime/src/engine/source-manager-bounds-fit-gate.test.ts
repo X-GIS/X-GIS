@@ -60,7 +60,7 @@ import { SourceManager, type SourceManagerDeps } from './source-manager'
 import { Camera } from '@xgis/engine'
 import type { ShowSourceMaps } from './show-source-maps'
 import type { GeoJSONFeatureCollection } from '@xgis/data'
-import type { MapRendererContent } from './render/renderer'
+import type { MapRendererContent } from '@xgis/map'
 import type { GPUContext } from '@xgis/engine'
 
 /** A test double for XGISMap's `_runBoundsFitGate`: runs `apply` only when the

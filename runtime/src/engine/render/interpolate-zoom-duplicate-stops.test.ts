@@ -5,7 +5,7 @@
 // Mirrors the compiler-evaluator duplicate-x guard.
 
 import { describe, it, expect } from 'vitest'
-import { interpolateZoom, interpolateZoomRgba } from './renderer'
+import { interpolateZoom, interpolateZoomRgba } from '@xgis/map'
 
 describe('interpolateZoom duplicate-zoom stops', () => {
   it('linear: duplicate-zoom returns finite value (not NaN)', () => {

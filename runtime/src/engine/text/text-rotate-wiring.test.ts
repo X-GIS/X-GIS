@@ -35,7 +35,7 @@ import { initGPU, type GPUContext } from '@xgis/engine'
 import { TextRenderer } from './text-renderer'
 import { WebGpuDevice } from '@xgis/engine'
 import type { TextDraw } from './text-renderer-types'
-import type { GlyphInfo } from './sdf/glyph-atlas-host'
+import type { GlyphInfo } from '@xgis/map'
 
 let stub: StubInstallation
 

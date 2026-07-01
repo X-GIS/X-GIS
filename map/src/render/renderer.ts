@@ -19,13 +19,13 @@
 import type { GPUContext } from '@xgis/engine'
 import type { Camera } from '@xgis/engine'
 import type { MeshData, LineMeshData } from '@xgis/data'
-import { DEBUG_OVERDRAW } from '@xgis/map'
+import { DEBUG_OVERDRAW } from '../debug-flags'
 import { resolveNumberShape, resolveColorShape } from './paint-shape-resolve'
 import type { ShaderVariantInfo, CachedPipeline, ShowCommand, RenderLayer } from './renderer-types'
 import { parseColor } from './renderer-helpers'
-import { GraticuleRenderer } from '@xgis/map'
-import { polygonUniformBytes, polygonUniformSlots } from '@xgis/map'
-import { writeFrameProjectionUniform } from '@xgis/map'
+import { GraticuleRenderer } from './graticule-renderer'
+import { polygonUniformBytes, polygonUniformSlots } from './polygon-uniform-slots'
+import { writeFrameProjectionUniform } from './frame-projection-uniform'
 import { FrameRenderer } from './frame-renderer'
 
 // Re-export the extracted types so this module's public surface stays
@@ -168,7 +168,7 @@ export class MapRendererContent {
   //    constructs. Thin delegations to the engine half — byte-identical
   //    external API, ZERO call-site changes. ──
   get fillPipeline(): GPURenderPipeline { return this.engine.fillPipeline }
-  fillRhiState(): import('@xgis/map').FillRhiState | null { return this.engine.fillRhiState() }
+  fillRhiState(): import('./material/polygon-fill-material').FillRhiState | null { return this.engine.fillRhiState() }
   get fillPipelineGround(): GPURenderPipeline { return this.engine.fillPipelineGround }
   get fillPipelineExtruded(): GPURenderPipeline { return this.engine.fillPipelineExtruded }
   get fillPipelineExtrudedOIT(): GPURenderPipeline { return this.engine.fillPipelineExtrudedOIT }

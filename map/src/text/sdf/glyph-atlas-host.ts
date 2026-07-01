@@ -16,11 +16,11 @@
 
 import {
   AtlasState, type AtlasConfig, type AtlasSlot, type GlyphKey,
-} from '@xgis/map'
+} from './atlas-state'
 import type {
   GlyphRasterizer, GlyphRasterResult,
-} from '@xgis/map'
-import { cjkSizedFontKey } from '@xgis/map'
+} from './glyph-rasterizer'
+import { cjkSizedFontKey } from './glyph-rasterizer'
 import { codePointIsIdeographic } from '../text-wrap'
 
 export interface GlyphInfo {

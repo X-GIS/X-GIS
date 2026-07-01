@@ -5,7 +5,7 @@
 // behaviour stays byte-identical. Mirrors map-geo-helpers.ts in spirit.
 
 import type { LabelDef } from '@xgis/compiler'
-import { resolveNumberShape, resolveColorShape, resolveSteppedShape } from './render/paint-shape-resolve'
+import { resolveNumberShape, resolveColorShape, resolveSteppedShape } from '@xgis/map'
 import { hexToRgba } from '@xgis/map'
 import { lonLatToECEF } from '@xgis/engine'
 import { EARTH_R } from '@xgis/engine'

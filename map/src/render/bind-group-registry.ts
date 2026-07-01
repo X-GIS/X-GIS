@@ -41,8 +41,8 @@
 // to the old in-VTR `rebuildTileBindGroups` (0 ring, 1 feature-data,
 // 2 palette atlas, 4 palette sampler, 5 sprite atlas, 6 sprite sampler).
 
-import { Epoch } from '@xgis/map'
-import { polygonUniformSlots } from '@xgis/map'
+import { Epoch } from '../_cache/versioned-state'
+import { polygonUniformSlots } from './polygon-uniform-slots'
 
 // Bind-group binding range size for binding 0 (the uniform ring). Derived
 // lazily from reflect(buildPolygonModule()) — the SAME IR the shader is emitted
@@ -194,7 +194,7 @@ export class BindGroupRegistry {
   /** Snapshot of the palette/sprite atlas resources (Cluster C) the
    *  FeatureDataBinder needs to compose per-tile feature bind groups.
    *  Passed by value per call so the binder never holds a VTR reference. */
-  paletteResources(): import('@xgis/map').PaletteResources {
+  paletteResources(): import('./feature-data-binder').PaletteResources {
     return {
       paletteColorAtlasView: this.paletteColorAtlasView,
       paletteSampler: this.paletteSampler,

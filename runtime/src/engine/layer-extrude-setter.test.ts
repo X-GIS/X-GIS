@@ -5,7 +5,7 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import { XGISLayer } from './layer'
-import type { ShowCommand } from './render/renderer'
+import type { ShowCommand } from '@xgis/map'
 
 function makeShow(extrude: ShowCommand['extrude'] = { kind: 'none' }): ShowCommand {
   // Minimal ShowCommand stub — only fields the extrude getter / setter

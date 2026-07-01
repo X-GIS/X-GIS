@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { GlyphAtlasHost } from './sdf/glyph-atlas-host'
+import { GlyphAtlasHost } from '@xgis/map'
 import {
   type GlyphRasterizer, type GlyphRasterRequest, type GlyphRasterResult,
 } from '@xgis/map'

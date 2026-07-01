@@ -24,7 +24,7 @@
 // controller must NEVER touch them; it only SIGNALS a world-band change.
 
 import type { Camera } from '@xgis/engine'
-import type { MapRendererContent } from './renderer'
+import type { MapRendererContent } from '@xgis/map'
 import { xlog } from '@xgis/shared'
 
 // One-shot guard for the setPolarCapsEnabled deprecation warning.

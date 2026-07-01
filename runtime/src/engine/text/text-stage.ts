@@ -22,7 +22,7 @@ import type { LabelDef, TextValue } from '@xgis/compiler'
 import { resolveText, type FeatureProps } from '@xgis/map'
 import {
   GlyphAtlasHost, type GlyphAtlasHostOptions,
-} from './sdf/glyph-atlas-host'
+} from '@xgis/map'
 import { GlyphAtlasGPU } from './sdf/glyph-atlas-gpu'
 import { createRasterizer, createMetricsRasterizer, type GlyphRasterizer } from '@xgis/map'
 import { GlyphPbfCache } from '@xgis/map'
@@ -42,13 +42,13 @@ import {
   mlVerticalLayout, composeFontKey,
   ONE_EM, SHAPING_DEFAULT_OFFSET, CJK_FALLBACK_CHAIN,
   type LabelAnchor,
-} from './text-stage-helpers'
+} from '@xgis/map'
 import type {
   TextStageOptions, PendingLabel, PendingLineLabel,
 } from '@xgis/map'
 import {
   wrapWithKnuthPlass, cjkBucketFor,
-} from './text-wrap'
+} from '@xgis/map'
 import { TextStageDiagnostics } from './text-stage-diagnostics'
 // iter-265 — sub-phase drill inside prepare(). encoder.stage-prepare
 // shows 1.31 ms/frame in iter-263 budget but we don't know which
@@ -62,12 +62,12 @@ import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '@xgis/map'
 export type { TextStageOptions } from '@xgis/map'
 // Re-export the pure typography helper (moved to text-stage-helpers.ts)
 // so existing `import { resolveTypography } from './text-stage'` works.
-export { resolveTypography } from './text-stage-helpers'
+export { resolveTypography } from '@xgis/map'
 // Re-export the test seam for the Knuth-Plass wrap engine (moved to
 // text-wrap.ts) so existing `import { wrapForTesting } from './text-stage'`
 // in text-wrap.test.ts / text-layout-edge.test.ts /
 // bilingual-label-placement-repro.test.ts stays byte-identical.
-export { wrapForTesting } from './text-wrap'
+export { wrapForTesting } from '@xgis/map'
 // Re-export the pure shaping helpers (moved to text-stage-helpers.ts)
 // so existing test imports from './text-stage' stay byte-identical
 // (layout-cache-entry-valid.test.ts, text-vertical.test.ts,
@@ -76,7 +76,7 @@ export { wrapForTesting } from './text-wrap'
 export {
   layoutCacheEntryValid, mlVerticalLayout, verticalLayoutForTesting,
   composeFontKey,
-} from './text-stage-helpers'
+} from '@xgis/map'
 
 // Slot must fit (rasterFontSize + 2*sdfRadius). PBF arrives at 24 px
 // native (MapLibre's ONE_EM). Setting rasterFontSize to match means
@@ -202,7 +202,7 @@ export class TextStage {
    *  Key: FNV-1a hash of (fontKey, text codepoints) — same shape as
    *  pretextCacheKey. Value: GlyphInfo[] (one per codepoint, same
    *  array shape host.ensureString would return). */
-  private readonly _glyphsByTextCache = new Map<number, import('./sdf/glyph-atlas-host').GlyphInfo[]>()
+  private readonly _glyphsByTextCache = new Map<number, import('@xgis/map').GlyphInfo[]>()
   /** iter 168 — Phase A slice 2: across-frame layout cache.
    *  Caches the per-anchor camera-independent layout output (dx, dy,
    *  glyphOffsets, totalAdvance, blockTop, blockBottom, haloGeom,
@@ -218,7 +218,7 @@ export class TextStage {
     dx: number; dy: number; totalAdvance: number
     blockTop: number; blockBottom: number; padding: number
     glyphOffsets: Float32Array
-    glyphs: import('./sdf/glyph-atlas-host').GlyphInfo[]
+    glyphs: import('@xgis/map').GlyphInfo[]
     /** iter-190 — atlas generation at cache write. On read, compare
      *  with host.getGeneration(); mismatch → glyphs[] slot references
      *  may point at reassigned codepoints (iter-175 corruption root),

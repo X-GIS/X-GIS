@@ -51,7 +51,7 @@
 //   the invariant deliberately instead of letting drift slip in.
 
 import { describe, it, expect } from 'vitest'
-import { FrameRenderer } from './frame-renderer'
+import { FrameRenderer } from '@xgis/map'
 
 interface MinimalEntry {
   binding: number

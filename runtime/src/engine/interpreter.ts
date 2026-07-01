@@ -3,7 +3,7 @@
 import type * as AST from '@xgis/compiler'
 import { resolveUtilities, resolveColor, defaultRasterShapes } from '@xgis/compiler'
 import type { PaintShapes, PropertyShape, PropertyRGBA } from '@xgis/compiler'
-import type { ShowCommand } from './render/renderer'
+import type { ShowCommand } from '@xgis/map'
 // Use runtime hexToRgba (nullable variant — returns null on invalid
 // hex shape) instead of the compiler's always-returns-tuple version.
 // The surrounding `fillRgba !== null ? … : null` ternary expects
