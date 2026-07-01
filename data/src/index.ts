@@ -35,3 +35,8 @@ export * from './eval/extrude-eval'
 // dropped — the barrel surfaces those directly via tile-select-types / tile-select-helpers.)
 export * from './tile-select'
 export * from './sub-tile-generator'
+// Line mesh geometry kernel (F6a): buildLineSegments + stride/miter constants. Pure
+// (zero imports); consumed by BOTH data (tile source backends / mvt-worker build line
+// meshes) and content (line-renderer), so its LCA is @xgis/data — mesh-building is data,
+// consistent with geojson.ts doing earcut polygon triangulation.
+export * from './line-segment-build'

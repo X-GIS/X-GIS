@@ -24,7 +24,7 @@ import {
   makeEvalProps,
   type GeoJSONFeature,
 } from '@xgis/compiler'
-import { buildLineSegments } from '../../core/line-segment-build'
+import { buildLineSegments } from '@xgis/data'
 import {
   TILE_LAYOUT_VERSION,
   type TileSource, type TileSourceSink, type TileSourceMeta,

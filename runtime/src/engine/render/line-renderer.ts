@@ -97,7 +97,7 @@ export {
 // magnitude and recover camera-relative meters with f64-equivalent precision.
 // Tangents stay single-f32 — they're unit vectors in a tile-local frame and
 // don't suffer from cancellation.
-import { LINE_SEGMENT_STRIDE_F32, LINE_SEGMENT_STRIDE_BYTES, buildLineSegments } from '../../core/line-segment-build'
+import { LINE_SEGMENT_STRIDE_F32, LINE_SEGMENT_STRIDE_BYTES, buildLineSegments } from '@xgis/data'
 export { LINE_SEGMENT_STRIDE_F32, LINE_SEGMENT_STRIDE_BYTES, buildLineSegments }
 
 // ═══ WGSL Shader ═══

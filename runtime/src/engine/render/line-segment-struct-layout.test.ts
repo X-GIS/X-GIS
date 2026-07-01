@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { emitLineWgsl } from '@xgis/map'
-import { LINE_SEGMENT_STRIDE_BYTES, LINE_SEGMENT_STRIDE_F32 } from '../../core/line-segment-build'
+import { LINE_SEGMENT_STRIDE_BYTES, LINE_SEGMENT_STRIDE_F32 } from '@xgis/data'
 
 // ═══ LineSegment storage-struct layout consistency (CPU writer ↔ WGSL reader) ═══
 //

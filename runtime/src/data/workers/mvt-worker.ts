@@ -20,7 +20,7 @@ import {
   evaluate, makeEvalProps,
   type GeoJSONFeature,
 } from '@xgis/compiler'
-import { buildLineSegments } from '../../core/line-segment-build'
+import { buildLineSegments } from '@xgis/data'
 import { evalExtrudeExpr } from '@xgis/data'
 import { evalFilterExpr } from '@xgis/data'
 
