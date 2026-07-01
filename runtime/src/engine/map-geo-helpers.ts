@@ -3,7 +3,7 @@
 // these utilities sit beside the other engine helpers rather than buried
 // in the high-level orchestrator. Mirrors feature-helpers.ts in spirit.
 
-import type { GeoJSONFeatureCollection } from '../loader/geojson'
+import type { GeoJSONFeatureCollection } from '@xgis/data'
 import type { XGISFontResource, FontTypographyMap } from './map-types'
 import { xlog } from '@xgis/shared'
 

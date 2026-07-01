@@ -3,7 +3,7 @@ export { StatsPanel, StatsTracker, type RenderStats } from './engine/stats'
 export { Camera } from '@xgis/engine'
 export { MapRendererContent } from './engine/render/renderer'
 export { FrameRenderer } from './engine/render/frame-renderer'
-export { loadGeoJSON, lonLatToMercator } from './loader/geojson'
+export { loadGeoJSON, lonLatToMercator } from '@xgis/data'
 export {
   injectPolarCaps, findClampBoundarySpans, synthesizeCapRing, vertexOnClampBoundary,
   type CapSpan,

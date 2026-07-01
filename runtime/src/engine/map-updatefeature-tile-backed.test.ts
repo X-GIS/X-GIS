@@ -16,7 +16,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { XGISMap } from './map'
-import type { GeoJSONFeatureCollection } from '../loader/geojson'
+import type { GeoJSONFeatureCollection } from '@xgis/data'
 
 function stubCanvas(): HTMLCanvasElement {
   return {

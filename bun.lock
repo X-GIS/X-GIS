@@ -40,8 +40,12 @@
     "data": {
       "name": "@xgis/data",
       "version": "0.0.1",
+      "dependencies": {
+        "earcut": "^3.0.2",
+      },
       "devDependencies": {
         "@xgis/compiler": "workspace:*",
+        "@xgis/engine": "workspace:*",
         "@xgis/shared": "workspace:*",
       },
     },

@@ -43,7 +43,7 @@ export function toU32Id(v: unknown): number {
 
 // ═══ Typed-array point patch → synthetic FeatureCollection ═══════════
 
-import type { GeoJSONFeature, GeoJSONFeatureCollection } from '../loader/geojson'
+import type { GeoJSONFeature, GeoJSONFeatureCollection } from '@xgis/data'
 
 /** Parallel typed-array point patch. See XGISMap.setSourcePoints. */
 export interface PointPatch {

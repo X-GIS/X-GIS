@@ -26,7 +26,7 @@ vi.mock('../data/workers/geojson-tiling-pool', () => ({
 }))
 
 import { SourceManager } from './source-manager'
-import type { GeoJSONFeatureCollection } from '../loader/geojson'
+import type { GeoJSONFeatureCollection } from '@xgis/data'
 
 function makeManager() {
   const rawDatasets = new Map<string, GeoJSONFeatureCollection>()

@@ -27,7 +27,7 @@
 import { tileKey } from '@xgis/compiler'
 import { tileEcefCenterFromMerc } from '@xgis/engine'
 import { findClampBoundarySpans } from '../../loader/polar-cap-detect'
-import type { GeoJSONFeatureCollection } from '../../loader/geojson'
+import type { GeoJSONFeatureCollection } from '@xgis/data'
 import { packECEFWithPolarCaps, MERC_LAT_CLAMP } from './polar-cap-ecef-pack'
 import {
   TILE_LAYOUT_VERSION,

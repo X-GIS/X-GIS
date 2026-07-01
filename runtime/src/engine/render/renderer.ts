@@ -18,7 +18,7 @@
 
 import type { GPUContext } from '@xgis/engine'
 import type { Camera } from '@xgis/engine'
-import type { MeshData, LineMeshData } from '../../loader/geojson'
+import type { MeshData, LineMeshData } from '@xgis/data'
 import { DEBUG_OVERDRAW } from '@xgis/map'
 import { resolveNumberShape, resolveColorShape } from './paint-shape-resolve'
 import type { ShaderVariantInfo, CachedPipeline, ShowCommand, RenderLayer } from './renderer-types'

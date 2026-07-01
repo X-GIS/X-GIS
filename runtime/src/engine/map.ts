@@ -43,7 +43,7 @@ import {
   type OpaqueGroup as ExternalOpaqueGroup,
 } from './render/bucket-scheduler'
 import { interpret, type SceneCommands } from './interpreter'
-import { lonLatToMercator, type GeoJSONFeatureCollection } from '../loader/geojson'
+import { lonLatToMercator, type GeoJSONFeatureCollection } from '@xgis/data'
 import { RasterRenderer } from './render/raster-renderer'
 import { PointRenderer } from './render/point-renderer'
 import { HeatmapRenderer } from './render/heatmap-renderer'
@@ -91,7 +91,7 @@ import {
 import { prewarmVectorTileSource, detectVectorTileFormat } from '../loader/vector-tile-loader'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 import { pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
-import type { GeoJSONFeature } from '../loader/geojson'
+import type { GeoJSONFeature } from '@xgis/data'
 import { FeatureUpdateQueue } from './feature-update-queue'
 import { MapEventBus } from './map-event-bus'
 import { safeFetch, assertIngestBudget, readBodyCapped } from '@xgis/shared'

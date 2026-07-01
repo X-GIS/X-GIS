@@ -4,7 +4,7 @@ import type {
   GeoJSONFeatureCollection,
   GeoJSONFeature,
   GeoJSONGeometry,
-} from '../../loader/geojson'
+} from '@xgis/data'
 
 // ═══ Input-data EPSG → WGS84 reprojection ═══
 //

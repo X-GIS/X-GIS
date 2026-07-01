@@ -16,7 +16,7 @@ import {
   runCompile,
   resolveIdResolver,
 } from './geojson-compile-worker'
-import type { GeoJSONFeatureCollection } from '../../loader/geojson'
+import type { GeoJSONFeatureCollection } from '@xgis/data'
 
 function makePointFC(points: [number, number][], ids?: (string | number)[]): GeoJSONFeatureCollection {
   return {

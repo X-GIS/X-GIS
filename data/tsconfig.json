@@ -6,15 +6,20 @@
     "rootDir": "./src",
     // Consume referenced packages' emitted .d.ts (built first via references) rather
     // than recompiling their source under data's rootDir. Build order:
-    // shared → compiler → data. @xgis/data is a bundled-in workspace package whose
-    // RUNTIME entry is ./src (package.json exports); dist is types-only for tsc.
+    // shared → compiler → engine → data. @xgis/data is a bundled-in workspace package
+    // whose RUNTIME entry is ./src (package.json exports); dist is types-only for tsc.
+    // data depends on @xgis/engine for projection math (mercator lat-limit / ECEF /
+    // world-copies) the tile-selection + geojson-ingest layers need — data sits ABOVE
+    // engine in the layer order, so this is a valid downward dependency.
     "paths": {
+      "@xgis/engine": ["../engine/dist/index.d.ts"],
       "@xgis/compiler": ["../compiler/dist/index.d.ts"],
       "@xgis/compiler/tiler/geodesic": ["../compiler/dist/tiler/geodesic.d.ts"],
       "@xgis/shared": ["../shared/dist/index.d.ts"]
     }
   },
   "references": [
+    { "path": "../engine" },
     { "path": "../compiler" },
     { "path": "../shared" }
   ],

@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { XGISMap } from './map'
-import type { GeoJSONFeatureCollection } from '../loader/geojson'
+import type { GeoJSONFeatureCollection } from '@xgis/data'
 
 // Stub the GeoJSON compile pool so the polygon/line branch's async
 // `compile().then()` resolves to an EMPTY tileSet. That branch's
