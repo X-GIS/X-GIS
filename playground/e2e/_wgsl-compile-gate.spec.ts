@@ -30,6 +30,13 @@ import { emitTextWgsl } from '@xgis/map'
 import { emitHeatmapAccumWgsl } from '@xgis/map'
 import { emitHeatmapBlurWgsl } from '@xgis/map'
 import { emitHeatmapComposeWgsl } from '@xgis/map'
+import { configureProjections } from '@xgis/map'
+import { PROJECTIONS } from '../../engine/src/projection/projections-table'
+
+// This spec EMITS projection-dependent shaders (polygon/point/line/raster via the DSL), so it
+// must inject the projection graph itself — do not rely on another render-gate spec having
+// configured the process-shared singleton (Playwright may shard specs across worker realms).
+configureProjections(PROJECTIONS)
 
 /** Every WGSL string the DSL can hand to createShaderModule, labelled. */
 function allVariants(): Array<{ name: string; wgsl: string }> {

@@ -48,7 +48,7 @@ const baselineSha = argBaseline ?? execSync('git rev-parse HEAD').toString().tri
 
 const __filename = fileURLToPath(import.meta.url)
 const repoRoot = resolve(dirname(__filename), '..')
-const dir = join(repoRoot, 'runtime/src/engine/shaders/dsl/__polygon-variant-snapshots__')
+const dir = join(repoRoot, 'map/src/shaders/dsl/__polygon-variant-snapshots__')
 mkdirSync(dir, { recursive: true })
 
 let written = 0

@@ -265,7 +265,7 @@ test.describe('polygon fill flat-Mercator arm parity (GPU position ≡ outline)'
     // auto-var/CSE pass binds it to a generated name (`_cseN`), not a fixed one,
     // so pin the expression, not the binding name.
     const here = dirname(fileURLToPath(import.meta.url))
-    const snapDir = join(here, '..', '..', 'runtime', 'src', 'engine', 'shaders', 'dsl', '__polygon-variant-snapshots__')
+    const snapDir = join(here, '..', '..', 'map', 'src', 'shaders', 'dsl', '__polygon-variant-snapshots__')
     const TOKEN = '= ((vec2<f32>(abs_lon, abs_lat) - u.cam_h) - u.cam_l)'
     const files = readdirSync(snapDir).filter((f) => f.endsWith('.wgsl'))
     expect(files.length, `no polygon snapshots in ${snapDir}`).toBeGreaterThan(0)
