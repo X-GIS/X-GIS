@@ -1,21 +1,11 @@
 // ═══ Raster Tile Loader — 웹 맵 타일 로딩 ═══
 import { worldCopiesFor, TILE_PX } from '@xgis/engine'
 
-// Shared types + pure tile-math helpers were extracted to sibling
-// modules (behaviour-preserving refactor). Re-export them here so the
-// public surface of `tile-select` is unchanged for existing importers.
-export type { TileCoord, LoadedTile } from '@xgis/data'
-import type { TileCoord } from '@xgis/data'
-export {
-  firstIndexedAncestor,
-  worldCopyOf,
-  makeTileCoord,
-  visibleTiles,
-  tileBounds,
-  tileUrl,
-  isTileTemplate,
-  sortByPriority,
-} from '@xgis/data'
+// TileCoord / LoadedTile + the pure tile-math helpers live in sibling modules
+// (tile-select-types / tile-select-helpers) and are surfaced by the @xgis/data
+// barrel directly, so tile-select no longer re-exports them (that would make the
+// names ambiguous under the barrel's `export *`). It only needs TileCoord here.
+import type { TileCoord } from './tile-select-types'
 
 // ═══ Frustum-based tile selection ═══
 

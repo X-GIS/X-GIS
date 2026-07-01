@@ -23,7 +23,7 @@ import {
   collectSiblingPrefetchKeys, projectPanPrefetchTarget,
   type CameraSnapshot,
 } from '../tile-decision'
-import { visibleTilesFrustumSampled } from '../../data/tile-select'
+import { visibleTilesFrustumSampled } from '@xgis/data'
 import { Camera } from '@xgis/engine'
 import { mercator as mercatorProj } from '@xgis/engine'
 import type { Projection } from '@xgis/engine'

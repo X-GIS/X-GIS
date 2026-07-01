@@ -22,7 +22,7 @@ import {
   packECEFPolygonVertices, packECEFPointFeatures,
   extractNonSyntheticArcs, makeSameBoundarySidePredicateMerc,
 } from '@xgis/compiler'
-import { type TileData, DSFUN_LINE_STRIDE } from '@xgis/data'
+import { type TileData, DSFUN_LINE_STRIDE } from './tile-types'
 
 // ECEF stride-9 layout for polygon vertices (PR 2c.2):
 //   [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon_deg, abs_lat_deg]

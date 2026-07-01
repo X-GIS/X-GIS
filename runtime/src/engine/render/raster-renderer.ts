@@ -2,7 +2,7 @@
 
 import type { GPUContext } from '@xgis/engine'
 import type { Camera } from '@xgis/engine'
-import { visibleTilesFrustum, tileUrl, loadImageTexture } from '../../data/tile-select'
+import { visibleTilesFrustum, tileUrl, loadImageTexture } from '@xgis/data'
 import { mercator as mercatorProj, mercatorYToLat } from '@xgis/engine'
 import { lonLatToECEF, type ECEF } from '@xgis/engine'
 import type { RhiDevice, RhiRenderPass, RhiTexture } from '@xgis/engine'

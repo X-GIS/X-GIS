@@ -64,7 +64,7 @@ describe('Mercator latitude clamp consistency', () => {
 // can't reappear in the selector path.
 describe('tile selector uses the canonical Mercator clamp', () => {
   const src = readFileSync(
-    fileURLToPath(new URL('../../data/tile-select.ts', import.meta.url)),
+    fileURLToPath(new URL('../../../../data/src/tile-select.ts', import.meta.url)),
     'utf8',
   )
 

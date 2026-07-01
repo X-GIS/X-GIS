@@ -29,3 +29,9 @@ export * from './polar-cap-synth'
 export * from './polar-cap-detect'
 export * from './eval/filter-eval'
 export * from './eval/extrude-eval'
+// Tile selection + sub-tile generation (F5): frustum/visibility tile selection + the
+// raster tile loader, and the sub-tile mesh generator. Depend on @xgis/engine projection
+// + the relocated data types/helpers. (tile-select's TileCoord/helper re-exports were
+// dropped — the barrel surfaces those directly via tile-select-types / tile-select-helpers.)
+export * from './tile-select'
+export * from './sub-tile-generator'

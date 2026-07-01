@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { firstIndexedAncestor } from './tile-select'
+import { firstIndexedAncestor } from '@xgis/data'
 import { tileKey, tileKeyParent } from '@xgis/compiler'
 
 // CPU regression for the FLICKER bug at extreme over-zoom —

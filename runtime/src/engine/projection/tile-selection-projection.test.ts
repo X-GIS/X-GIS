@@ -12,7 +12,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { globeVisibleTiles } from '@xgis/engine'
-import { visibleTilesFrustumSampled } from '../../data/tile-select'
+import { visibleTilesFrustumSampled } from '@xgis/data'
 import { mercator, equirectangular, naturalEarth } from '@xgis/engine'
 import { Camera } from '@xgis/engine'
 import { routeToSphereSelector } from '@xgis/engine'

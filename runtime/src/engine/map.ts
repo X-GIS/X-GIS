@@ -63,7 +63,7 @@ import {
 import { attachAutoResize } from './auto-resize'
 import { EventDispatcher } from './event-dispatcher'
 import { TileCatalog } from '../data/tile-catalog'
-import { isTileTemplate } from '../data/tile-select'
+import { isTileTemplate } from '@xgis/data'
 import { buildShowSourceMaps } from './show-source-maps'
 import {
   parseHexColor, hexToRgba,

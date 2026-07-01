@@ -24,7 +24,7 @@
 // absolute MM, and count segments running along the parent clip edge.
 
 import { describe, it, expect } from 'vitest'
-import { SubTileGenerator } from './sub-tile-generator'
+import { SubTileGenerator } from '@xgis/data'
 import type { TileData } from '@xgis/data'
 import {
   decomposeFeatures, compileSingleTile, tileKey, lonLatToMercF64,

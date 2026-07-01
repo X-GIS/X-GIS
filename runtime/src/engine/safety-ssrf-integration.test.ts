@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { SpriteAtlasHost } from './sprite/sprite-atlas-host'
 import { GlyphPbfCache } from './text/sdf/pbf/glyph-pbf-cache'
-import { loadImageTexture } from '../data/tile-select'
+import { loadImageTexture } from '@xgis/data'
 import { VectorTileLoader } from '../loader/vector-tile-loader'
 
 // Integration: the SSRF guard must DEGRADE gracefully (state 'failed',

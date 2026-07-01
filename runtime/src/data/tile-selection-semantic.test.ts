@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Camera } from '@xgis/engine'
-import { visibleTilesFrustum } from './tile-select'
+import { visibleTilesFrustum } from '@xgis/data'
 import { mercator } from '@xgis/engine'
 
 // Phase 2-B: Semantic oracles for tile selection.

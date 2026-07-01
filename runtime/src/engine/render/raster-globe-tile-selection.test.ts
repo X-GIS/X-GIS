@@ -22,7 +22,7 @@ import { installWebGPUStub, type StubInstallation } from '../../__test-support__
 import { initGPU, type GPUContext } from '@xgis/engine'
 import { RasterRenderer } from './raster-renderer'
 import { Camera } from '@xgis/engine'
-import { visibleTilesFrustum } from '../../data/tile-select'
+import { visibleTilesFrustum } from '@xgis/data'
 import { mercator as mercatorProj } from '@xgis/engine'
 import { globeVisibleTiles } from '@xgis/engine'
 import { routeToSphereSelector } from '@xgis/engine'

@@ -26,10 +26,10 @@ import {
   type GeometryPart,
 } from '@xgis/compiler'
 import { xlog } from '@xgis/shared'
-import { visibleTiles } from './tile-select'
+import { visibleTiles } from '@xgis/data'
 import { VirtualCatalogAdapter } from './sources/virtual-catalog-adapter'
 import { GeoJSONRuntimeBackend } from './sources/geojson-runtime-backend'
-import { SubTileGenerator } from './sub-tile-generator'
+import { SubTileGenerator } from '@xgis/data'
 import {
   TILE_LAYOUT_VERSION, TILE_LAYOUT_VERSION_BASE,
   type TileSource, type TileSourceSink, type BackendTileResult, type TileScheme,

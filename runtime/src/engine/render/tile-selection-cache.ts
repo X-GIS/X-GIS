@@ -26,7 +26,7 @@
 import { Camera } from '@xgis/engine'
 import {
   visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority, makeTileCoord,
-} from '../../data/tile-select'
+} from '@xgis/data'
 import { visibleTilesSSE } from '../../loader/tiles-sse'
 import { globeVisibleTiles } from '@xgis/engine'
 import { tileKey, tileKeyParent } from '@xgis/compiler'
