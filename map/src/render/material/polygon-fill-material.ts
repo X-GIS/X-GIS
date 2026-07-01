@@ -165,22 +165,35 @@ export function recordFillDraw(
   if (fillRhi) {
     let mat: Material | null = null
     let variant = -1
+    // Match the draw pipeline to its built Material twin. IDENTITY FIRST (the normal single-instance
+    // case — object equality, zero-cost, unchanged behaviour). LABEL FALLBACK second: under a dual
+    // module-instance bundle (#717 — an Astro island duplicates the pipeline-build module, so the
+    // build-path and draw-path GPURenderPipeline objects differ) identity fails, but the two objects
+    // carry the SAME stable factory label (fill-pipeline / -ground / -fallback / …, all variant-
+    // distinct — pipeline-factory.ts). `pipeline` is used ONLY to pick the twin+variant here;
+    // executeItems runs the twin's OWN (descriptor-equivalent) pipeline, so a label match is exact.
+    // Empty label → identity only (never label-matches, so distinct-label pipelines can't collide).
+    const eq = (a: GPURenderPipeline | undefined | null): boolean =>
+      pipeline === a || (!!pipeline.label && !!a && pipeline.label === a.label)
     if (!bindZBuffer) {
       // Flat fill. Per-style (data-driven) pipelines route via their own cached Material twin; the
       // rest match the default-shader flat/ground pipes.
-      const ps = fillRhi.perStyle?.get(pipeline)
+      let ps = fillRhi.perStyle?.get(pipeline)
+      if (!ps && fillRhi.perStyle && pipeline.label) {
+        for (const [k, v] of fillRhi.perStyle) { if (eq(k)) { ps = v; break } }
+      }
       const p = fillRhi.pipes
       mat = ps ? ps.mat
-        : (p && (pipeline === p.write || pipeline === p.test)) ? fillRhi.flat
-        : (p && (pipeline === p.groundWrite || pipeline === p.groundTest)) ? fillRhi.ground : null
+        : (p && (eq(p.write) || eq(p.test))) ? fillRhi.flat
+        : (p && (eq(p.groundWrite) || eq(p.groundTest))) ? fillRhi.ground : null
       variant = ps ? ps.variant
-        : (p && (pipeline === p.write || pipeline === p.groundWrite)) ? 0
-        : (p && (pipeline === p.test || pipeline === p.groundTest)) ? 1 : -1
+        : (p && (eq(p.write) || eq(p.groundWrite))) ? 0
+        : (p && (eq(p.test) || eq(p.groundTest))) ? 1 : -1
       // Fill-pattern ground twin (fs_fill_pattern) — checked after the solid flat/ground pipes.
       if (!mat && fillRhi.pattern) {
         const pat = fillRhi.pattern
-        if (pipeline === pat.groundWrite) { mat = pat.ground; variant = 0 }
-        else if (pipeline === pat.groundTest) { mat = pat.ground; variant = 1 }
+        if (eq(pat.groundWrite)) { mat = pat.ground; variant = 0 }
+        else if (eq(pat.groundTest)) { mat = pat.ground; variant = 1 }
       }
     } else {
       // Opaque 3D extrude: match the two extrude pipelines. The per-feature height rides in the
@@ -189,16 +202,16 @@ export function recordFillDraw(
       // here: OIT-extrude is never scheduled and there is no per-style-extrude pipeline.)
       const e = fillRhi.extrude
       if (e) {
-        if (pipeline === e.write) { mat = e.mat; variant = 0 }
-        else if (pipeline === e.test) { mat = e.mat; variant = 1 }
-        else if (e.matNoPick && pipeline === e.writeNoPick) { mat = e.matNoPick; variant = 0 }
-        else if (e.matNoPick && pipeline === e.testNoPick) { mat = e.matNoPick; variant = 1 }
+        if (eq(e.write)) { mat = e.mat; variant = 0 }
+        else if (eq(e.test)) { mat = e.mat; variant = 1 }
+        else if (e.matNoPick && eq(e.writeNoPick)) { mat = e.matNoPick; variant = 0 }
+        else if (e.matNoPick && eq(e.testNoPick)) { mat = e.matNoPick; variant = 1 }
       }
       // Fill-pattern extruded twin (fs_fill_pattern) — checked after the solid extrude.
       if (!mat && fillRhi.pattern) {
         const pat = fillRhi.pattern
-        if (pipeline === pat.extrudedWrite) { mat = pat.extruded; variant = 0 }
-        else if (pipeline === pat.extrudedTest) { mat = pat.extruded; variant = 1 }
+        if (eq(pat.extrudedWrite)) { mat = pat.extruded; variant = 0 }
+        else if (eq(pat.extrudedTest)) { mat = pat.extruded; variant = 1 }
       }
     }
     if (mat && variant >= 0) {
