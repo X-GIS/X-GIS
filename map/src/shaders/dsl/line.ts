@@ -35,7 +35,7 @@ import {
 import { ioStruct, builtin, location, uniformStruct, structDecl, storageBuffer, resource } from '@xgis/shader-dsl'
 import { emitModule } from '@xgis/shader-dsl'
 import { inv_merc_lat_rad, flat_rel, needs_backface_cull, rim_alpha, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
-import { ECEF_CONSTS, ECEF_FUNCS, lonlatToEcef } from './ecef'
+import { ECEF_CONSTS, lonlatToEcef } from './ecef'
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
 import { PI, EARTH_R, DEG2RAD } from './consts'
 import {
@@ -1119,14 +1119,12 @@ export const buildLineModule = (pickEnabled: boolean): ModuleDecl => module({
     shapeSegmentsB.binding,
   ],
   funcs: [
-    // Shared dependency decls, callees first (was the LOG_DEPTH / projection / ECEF / SDF
-    // WGSL-string prepend): log-depth → projection → ecef → sdf, then line's own funcs.
-    apply_log_depth, compute_log_frag_depth,
+    // Injection seam ONLY (#740 R1): the projection fns are extern-called (no
+    // declRef) so module() cannot auto-collect them. Everything else — log-depth,
+    // ECEF, the SDF distance/winding helpers, the line color/corner machinery —
+    // is reached through handle calls and collected callee-first automatically.
     ...getGpuProjectionFuncs(),
-    ...ECEF_FUNCS,
-    dist_to_segment, dist_to_quadratic, dist_to_cubic, winding_line,
-    lineEndpoint, finalizeCorner, endpointCosC, patternUnitToM, sdfShape,
-    computeLineColor, lineRimAlpha, vsLine,
+    vsLine,
     buildFsLine(pickEnabled), buildFsLinePattern(pickEnabled), fsLineMax,
   ],
 })

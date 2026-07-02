@@ -1073,9 +1073,8 @@ export const buildPolygonModule = (
       spriteSampRes.binding,
     ],
     funcs: [
-      dequantEcefFn,
-      polygonCosCFragment,
-      polygonRimAlpha,
+      // Entries only (#740 R1) — dequantEcefFn / polygonCosCFragment /
+      // polygonRimAlpha are handle-called and auto-collected callee-first.
       vsMain,
       vsMainEcef,
       vsMainEcefExtruded,
@@ -1140,7 +1139,10 @@ export const buildPolygonModule = (
     consts: [...PROJECTION_CONSTS, ...base.consts, ...(variant?.preamble?.consts ?? [])],
     structs: base.structs,
     bindings: [...base.bindings, ...extraBindings, ...(variant?.preamble?.bindings ?? [])],
-    funcs: [apply_log_depth, compute_log_frag_depth, ...getGpuProjectionFuncs(), ...composedFuncs, ...(variant?.preamble?.funcs ?? [])],
+    // log-depth arrives INSIDE composedFuncs now (#740 R1: the base module
+    // auto-collects it through the entry fns' handle calls) — listing it here
+    // again was a dup-func. Projection fns stay explicit (extern-called, no declRef).
+    funcs: [...getGpuProjectionFuncs(), ...composedFuncs, ...(variant?.preamble?.funcs ?? [])],
   })
 }
 

@@ -1,4 +1,4 @@
-// baseline: 9ce2428404e0ee3a9a10a055b5e624c5f9916420
+// baseline: 554c09df7cf0d6572b7c28f024359becdbef9cae
 // fixture: bright-landuse-match13
 // variant.key: bright-landuse-match13
 // pick: false
@@ -65,14 +65,6 @@ struct FragmentOutput {
 @group(0) @binding(6) var sprite_samp: sampler;
 
 @group(0) @binding(1) var<storage, read> feat_data: array<f32>;
-
-fn apply_log_depth(pos: vec4<f32>, fc: f32) -> vec4<f32> {
-  return vec4<f32>(pos.x, pos.y, ((log2(max(0.000001, (pos.w + 1.0))) * fc) * pos.w), pos.w);
-}
-
-fn compute_log_frag_depth(view_w: f32, fc: f32) -> f32 {
-  return (log2(max(0.000001, (view_w + 1.0))) * fc);
-}
 
 fn proj_mercator(lon_deg: f32, lat_deg: f32) -> vec2<f32> {
   return vec2<f32>((radians(lon_deg) * EARTH_R), (log(tan(((PI / 4.0) + (radians(clamp(lat_deg, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT)) / 2.0)))) * EARTH_R));
@@ -303,6 +295,10 @@ fn inv_merc_lat_rad(merc_y_m: f32) -> f32 {
   return ((2.0 * atan(exp((merc_y_m / EARTH_R)))) - (PI / 2.0));
 }
 
+fn apply_log_depth(pos: vec4<f32>, fc: f32) -> vec4<f32> {
+  return vec4<f32>(pos.x, pos.y, ((log2(max(0.000001, (pos.w + 1.0))) * fc) * pos.w), pos.w);
+}
+
 fn dequant_ecef(q_xy: vec4<u32>, q_z: vec2<u32>, scale: f32, half: f32) -> vec3<f32> {
   return vec3<f32>(((((f32(q_xy.x) * 65536.0) + f32(q_xy.y)) * scale) - half), ((((f32(q_xy.z) * 65536.0) + f32(q_xy.w)) * scale) - half), ((((f32(q_z.x) * 65536.0) + f32(q_z.y)) * scale) - half));
 }
@@ -313,6 +309,10 @@ fn polygon_cos_c_fragment(abs_merc_x: f32, abs_merc_y: f32) -> f32 {
 
 fn polygon_rim_alpha(abs_merc_x: f32, abs_merc_y: f32) -> f32 {
   return rim_alpha((abs_merc_x / (DEG2RAD * EARTH_R)), degrees(inv_merc_lat_rad(abs_merc_y)), u.proj_params, u.globe_eye);
+}
+
+fn compute_log_frag_depth(view_w: f32, fc: f32) -> f32 {
+  return (log2(max(0.000001, (view_w + 1.0))) * fc);
 }
 
 @vertex

@@ -480,13 +480,20 @@ function normalizeFuncs(input: ModuleParts['funcs']): FuncDecl[] {
     : [...(input ?? [])]
 
   // Transitive collection (post-order DFS over declRef edges), skipping listed decls.
+  // Dedup is by IDENTITY **and NAME**: module semantics are name-keyed (dup-func is a
+  // validation error), and a pass-transformed fn (e.g. the polygon composer's
+  // placeholder-swapped copies) is a NEW object whose body still carries declRefs to
+  // the ORIGINALS — identity alone would re-collect a fn the module already lists
+  // under the same name.
   const listed = new Set(authored.map(declOf))
+  const listedNames = new Set(authored.map((f) => declOf(f).name))
   const collected: FuncDecl[] = []
   const visit = (d: FuncDecl): void => {
     walkCalls(d.body, (e) => {
       const callee = e.declRef
-      if (!callee || listed.has(callee)) return
+      if (!callee || listed.has(callee) || listedNames.has(callee.name)) return
       listed.add(callee)
+      listedNames.add(callee.name)
       visit(callee)          // callee's own callees first…
       collected.push(callee) // …then the callee (post-order = define-before-use)
     })

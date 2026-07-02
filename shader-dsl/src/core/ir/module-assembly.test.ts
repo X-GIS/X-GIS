@@ -41,6 +41,17 @@ describe('module() transitive fn collection', () => {
     const m = module({ funcs: [user] })
     expect(m.funcs.map((f) => f.name)).toEqual(['user'])
   })
+
+  it('dedups by NAME, not just identity (pass-transformed / dual-instance decls)', () => {
+    // A composer transform (or vite dual-loading the package) produces a listed
+    // fn whose OBJECT differs from the declRef the call sites carry — same name.
+    // Identity-only dedup re-collected the original next to the copy → dup-func
+    // at validate (the exact demo-path regression the polygon composer hit).
+    const caller = fn('caller2', { x: f32T }, ({ x }) => leaf(x))
+    const leafCopy = { ...leaf.decl, body: [...leaf.decl.body] } // transformed twin, same name
+    const m = module({ funcs: [leafCopy, caller] })
+    expect(m.funcs.map((f) => (f as { decl?: { name: string } }).decl?.name ?? f.name)).toEqual(['leaf', 'caller2'])
+  })
 })
 
 describe('module() key-named funcs record', () => {

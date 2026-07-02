@@ -491,12 +491,11 @@ export const buildPointModule = (): ModuleDecl => module({
     segmentsB.binding,
   ],
   funcs: [
-    // Shared dependency decls, callees first (was the LOG_DEPTH / projection WGSL-string
-    // prepend): log-depth → projection, then point's own funcs (its SDF helpers are local).
-    apply_log_depth, compute_log_frag_depth,
+    // Injection seam ONLY (#740 R1): the projection fns are extern-called (built
+    // post-configureProjections — no declRef), so module() cannot auto-collect them.
+    // Everything else — log-depth, cosC/rimAlpha, the SDF helpers — is reached
+    // through handle calls and collected callee-first automatically.
     ...getGpuProjectionFuncs(),
-    pointCosC, pointRimAlpha,
-    distToLine, distToQuadratic, distToCubic, windingLine, sdfShape,
     vs, fs,
   ],
 })

@@ -605,6 +605,16 @@ export function emitGlslModule(m: ModuleDecl, stage?: 'vertex' | 'fragment', opt
   }
   if (bindingLines.length) parts.push(bindingLines.join('\n\n'))
 
+  // Forward declarations for every helper. GLSL ES 3.00 has no hoisting, so without
+  // prototypes the DEFINITION order is load-bearing (define-before-use) — an ordering
+  // class module()'s transitive collection (#740 R1) would otherwise re-expose:
+  // collected callees are prepended and may legitimately precede the extern-bodied
+  // projection fns they call. Prototypes make the fn section order-free for good.
+  if (helpers.length) {
+    parts.push(helpers.map((f) =>
+      `${glslType(f.ret)} ${f.name}(${f.params.map((p) => `${glslType(p.type)} ${p.name}`).join(', ')});`,
+    ).join('\n'))
+  }
   if (helpers.length) parts.push(helpers.map((f) => glslEs300Backend.emitFunc(f)).join('\n\n'))
   if (entries.length) parts.push(entries.map((f) => emitGlslEntry(f, structs)).join('\n\n'))
 
