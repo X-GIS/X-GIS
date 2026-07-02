@@ -86,6 +86,11 @@ test('capture relocation DC=0 fixture set (settled frame, real-GPU)', async ({ p
   for (const fx of FIXTURES) {
     const url = `/demo.html?id=${fx.id}&e2e=1${fx.extra ?? ''}`
     await page.goto(url, { waitUntil: 'domcontentloaded' })
+    // The #status bar is an HTML overlay ON TOP of the canvas (bottom-left), so it
+    // survives the element screenshot. Its "Loading…" → "<label> · scroll to zoom…"
+    // transition timing produced the recurring DC>0 false positives the canvas-only
+    // capture was meant to end — hide it for the gate (map pixels only).
+    await page.addStyleTag({ content: '#status { visibility: hidden !important; }' })
     await page.waitForFunction(() => (window as unknown as W).__xgisReady === true, null, { timeout: 30_000 })
 
     // Freeze the (already-instant) camera so a stray re-fit can't perturb the frame, then wait

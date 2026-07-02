@@ -24,8 +24,8 @@ import {
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, resource } from '@xgis/shader-dsl'
 import { emitModule } from '@xgis/shader-dsl'
-import { ECEF_CONSTS, ECEF_FUNCS, lonlatToEcef } from './ecef'
-import { RASTER_COLOR_FUNCS, rasterColorAdjust } from './raster-color'
+import { ECEF_CONSTS, lonlatToEcef } from './ecef'
+import { rasterColorAdjust } from './raster-color'
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
 import { project, flat_rel, needs_backface_cull, rim_alpha, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
 import { PI } from './consts'
@@ -212,12 +212,10 @@ export const buildRasterModule = (pickEnabled: boolean): ModuleDecl => module({
   structs: [U.struct, Tile.struct, VsOut.decl, rasterFragmentOutput(pickEnabled).decl],
   bindings: [U.binding, tex.binding, texSampler.binding, Tile.binding],
   funcs: [
-    // Shared dependency decls, callees first (was the projection / ECEF / raster-color /
-    // log-depth WGSL-string prepend): projection → ecef → raster-color → log-depth, then raster.
+    // Injection seam ONLY (#740 R1): the projection fns are extern-called (no
+    // declRef) so module() cannot auto-collect them. ECEF / raster-color /
+    // log-depth are handle-called and collected callee-first automatically.
     ...getGpuProjectionFuncs(),
-    ...ECEF_FUNCS,
-    ...RASTER_COLOR_FUNCS,
-    apply_log_depth, compute_log_frag_depth,
     vs, buildFs(pickEnabled),
   ],
 })
