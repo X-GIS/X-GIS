@@ -7,7 +7,22 @@
 // family, OPACITY). The SoT helpers declare a layout ONCE and DERIVE the rest, so the
 // pieces cannot disagree and the type checker covers field names + types.
 
-import { Node, ReadonlyNode, structT, bindingRef, construct, member, arrayT, Var, type ShaderType, type StructDecl, type KeyOf, type ScalarKey, type BindingDecl, type AddressSpace } from './ir'
+import { Node, ReadonlyNode, structT, bindingRef, construct, member, arrayT, Var, constRef, type ShaderType, type StructDecl, type ConstDecl, type KeyOf, type ScalarKey, type BindingDecl, type AddressSpace } from './ir'
+
+/** A module-level constant declared ONCE (#763 X2) — the missing SoT declarator.
+ *  `decl` goes into module() (or `uses:`), `node` is the typed reference; the
+ *  cross-file ConstDecl↔constRef('NAME') string contract is gone (a typo'd name
+ *  used to compile and die at WGSL). */
+export interface ConstHandle<T extends ShaderType> {
+  readonly decl: ConstDecl
+  readonly node: ReadonlyNode<KeyOf<T>>
+}
+export function constDecl<T extends ShaderType>(name: string, type: T, values: { readonly wgsl: number; readonly cpu: number }): ConstHandle<T> {
+  return {
+    decl: { name, type, wgslValue: values.wgsl, cpuValue: values.cpu },
+    node: constRef(name, type),
+  }
+}
 
 export interface FieldSpec<T extends ShaderType = ShaderType> {
   readonly type: T
@@ -82,6 +97,10 @@ export function ioStruct<F extends Record<string, FieldSpec>>(name: string, fiel
           // when p.input arrived as a typed handle param. Not a WGSL identifier,
           // so it can never shadow a real field.
           if (prop === '$') return node
+          // Duck-type as the raw node for value positions (#763 X14): `return o`
+          // / `Return(o)` read `.expr`/`.type` — they used to die at LOAD with a
+          // misleading "no field 'expr'". A declared field of that name wins.
+          if ((prop === 'expr' || prop === 'type') && !(prop in fields)) return (node as unknown as Record<string, unknown>)[prop]
           const spec = fields[prop as string]
           if (spec === undefined) throw new Error(`sot: ioStruct '${name}' has no field '${String(prop)}'`)
           return member(node, prop as string, spec.type)
@@ -149,6 +168,7 @@ export function structDecl<F extends Record<string, ShaderType>>(name: string, f
           if (typeof prop !== 'string') return undefined // symbol probes (#763 D1) — never fields
           if (prop === 'then' || prop === 'toJSON') return undefined // protocol probes (#763 X13)
           if (prop === '$') return node // raw struct-value Node (#740 R6, forwardable)
+          if ((prop === 'expr' || prop === 'type') && !(prop in fields)) return (node as unknown as Record<string, unknown>)[prop] // #763 X14
           const t = fields[prop as string]
           if (t === undefined) throw new Error(`sot: structDecl '${name}' has no field '${String(prop)}'`)
           return member(node, prop as string, t)
@@ -274,11 +294,14 @@ export function resource<T extends ShaderType>(name: string, type: T, at: { grou
 export interface StorageBuffer<A> {
   readonly binding: BindingDecl
   readonly node: Node
+  /** The struct element's decl, when the element was a struct handle — lets
+   *  `module({ uses: [buf] })` register the element struct too (#763 X1). */
+  readonly elementDecl?: StructDecl
   at(i: ReadonlyNode<ScalarKey> | number): A
 }
 
 /** A struct ELEMENT handle (structDecl / ioStruct) — has a `.type` and a typed `.of(node)` proxy. */
-type StructHandle = { readonly type: ShaderType; of(node: ReadonlyNode): object }
+type StructHandle = { readonly type: ShaderType; readonly decl?: StructDecl; of(node: ReadonlyNode): object }
 
 /** A storage buffer binding declared from its ELEMENT (a struct handle or a scalar type) in one place;
  *  derives the binding decl (space 'storage' + access), the access node, AND `.at(i)` element access. */
@@ -313,6 +336,7 @@ export function storageBuffer(
   return {
     binding: { group: at.group, binding: at.binding, name, space: 'storage', access: at.access, type: arr },
     node,
+    ...(handle?.decl !== undefined ? { elementDecl: handle.decl } : {}),
     at: (i) => (handle ? handle.of(node.at(i, elemType)) : node.at(i, elemType)),
   }
 }
