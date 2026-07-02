@@ -400,7 +400,13 @@ export function fn(
     : opts?.stage
       ? [`@${opts.stage}`]
       : undefined
-  const decl: FuncDecl = { name, params: paramList, ret, body: bld.stmts, attrs, retAttr: opts?.retAttr, allowEarlyReturn: opts?.allowEarlyReturn, lintDisable: opts?.lintDisable }
+  const decl: FuncDecl = {
+    name, params: paramList, ret, body: bld.stmts, attrs,
+    // Structured stage (#740 R3) — reflect/backends read these; `attrs` stays the emit spelling.
+    stage: opts?.stage,
+    workgroupSize: opts?.stage === 'compute' ? (opts.workgroupSize ?? 64) : undefined,
+    retAttr: opts?.retAttr, allowEarlyReturn: opts?.allowEarlyReturn, lintDisable: opts?.lintDisable,
+  }
   // The handle IS the call node factory (shared with externFn); the FuncDecl fields are mixed
   // onto it so it still duck-types as a FuncDecl in a module's funcs[]. `name` is a non-writable
   // function prop, so it is set via defineProperty (Object.assign would throw on it under strict).

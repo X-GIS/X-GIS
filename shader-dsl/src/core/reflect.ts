@@ -114,6 +114,9 @@ export interface Reflection {
 const resourceKind = (space: AddressSpace, t: ShaderType): ResourceKind =>
   t.kind === 'texture' ? 'texture' : t.kind === 'sampler' ? 'sampler' : space === 'storage' ? 'storage-buffer' : 'uniform-buffer'
 
+// String fallback ONLY (#740 R3): fn()-authored decls carry structured
+// `stage`/`workgroupSize` — reflect reads those first; the attrs-string parse
+// survives solely for hand-built FuncDecl literals.
 const stageOf = (attrs: readonly string[] | undefined): EntryInfo['stage'] | undefined =>
   attrs?.some((a) => a.startsWith('@vertex')) ? 'vertex'
     : attrs?.some((a) => a.startsWith('@fragment')) ? 'fragment'
@@ -155,11 +158,11 @@ export function reflect(m: ModuleDecl): Reflection {
   const entries: EntryInfo[] = []
   let vertex: VertexLayout | undefined
   for (const f of m.funcs) {
-    const stage = stageOf(f.attrs)
+    const stage = f.stage ?? stageOf(f.attrs)
     if (!stage) continue
     entries.push({
       name: f.name, stage,
-      ...(stage === 'compute' ? { workgroupSize: workgroupSize(f.attrs) ?? 64 } : {}),
+      ...(stage === 'compute' ? { workgroupSize: f.workgroupSize ?? workgroupSize(f.attrs) ?? 64 } : {}),
       inputs: f.params.map((p) => typeKey(p.type)),
       output: typeKey(f.ret),
     })

@@ -16,15 +16,15 @@ const VsOut = ioStruct('VsOut', {
 })
 
 describe('sot — ioStruct (single source of truth for IO structs)', () => {
-  it('derives the StructDecl exactly as the hand-written form', () => {
+  it('derives the StructDecl exactly as the hand-written form (+ structured attrs, #740 R3)', () => {
     expect(VsOut.decl).toEqual({
       name: 'VsOut',
       fields: [
-        { name: 'clip_pos', type: vec4fT, attr: '@builtin(position)' },
-        { name: 'uv', type: vec2fT, attr: '@location(0)' },
-        { name: 'opacity', type: f32T, attr: '@location(1)' },
-        { name: 'tint', type: vec3fT, attr: '@location(2)' },
-        { name: 'sdf', type: f32T, attr: '@location(3) @interpolate(flat)' },
+        { name: 'clip_pos', type: vec4fT, attr: '@builtin(position)', builtin: 'position' },
+        { name: 'uv', type: vec2fT, attr: '@location(0)', location: 0 },
+        { name: 'opacity', type: f32T, attr: '@location(1)', location: 1 },
+        { name: 'tint', type: vec3fT, attr: '@location(2)', location: 2 },
+        { name: 'sdf', type: f32T, attr: '@location(3) @interpolate(flat)', location: 3, interpolate: 'flat' },
       ],
     })
   })
