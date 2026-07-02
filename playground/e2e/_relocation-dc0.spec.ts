@@ -56,14 +56,21 @@ type W = {
 // atlas, sprites): the frame at a fixed wall-clock differs run-to-run by how much has streamed.
 // Fix = poll FRAME STABILITY — rendering is on-demand, so once loading completes the scene stops
 // repainting and consecutive screenshots become byte-identical. Capture that settled frame.
+//
+// CANVAS-ONLY capture: screenshot the #map canvas ELEMENT, not the page. Full-page
+// screenshots included the demo HTML chrome (title strip / hint text / buttons), whose
+// fade-in timing produced recurring cold/warm DC>0 false positives that map pixels never
+// caused — every one had to be discriminated by identical-code re-runs. Cropping to the
+// canvas makes the gate measure exactly the surface it exists to gate.
 async function captureSettled(page: import('@playwright/test').Page, out: string, id: string) {
+  const canvas = page.locator('#map')
   let prev: Buffer | null = null
-  let buf: Buffer = await page.screenshot()
+  let buf: Buffer = await canvas.screenshot()
   let stable = 0
   let i = 0
   for (; i < 24 && stable < 3; i++) {
     await page.waitForTimeout(350)
-    buf = await page.screenshot()
+    buf = await canvas.screenshot()
     if (prev && Buffer.compare(prev, buf) === 0) stable++
     else { stable = 0; prev = buf }
   }
