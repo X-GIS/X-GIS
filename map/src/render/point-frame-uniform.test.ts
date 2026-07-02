@@ -21,7 +21,7 @@ import { describe, it, expect } from 'vitest'
 import type { Camera } from '@xgis/engine'
 import { WORLD_MERC, TILE_PX, uniformBlock } from '@xgis/engine'
 import { reflect } from '@xgis/shader-dsl'
-import { buildPointModule, U as POINT_U } from '../shaders/dsl/point'
+import { buildPointModule, pointU as POINT_U } from '../shaders/dsl/point'
 import { writePointFrameUniform } from './point-renderer'
 import { globeEyeUniform } from './globe-eye-uniform'
 

@@ -30,9 +30,11 @@ import { emitModule } from '@xgis/shader-dsl'
 import { needs_backface_cull, rim_alpha, flat_rel, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
 
-// Exported for the renderer's UniformBlock (#733 P1): the CPU packer derives its
-// typed write surface from this SAME declaration the WGSL struct is emitted from.
-export const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
+// Exported (as pointU below — every dsl file names its struct 'U' locally, so the
+// barrel needs distinct names) for the renderer's UniformBlock (#733): the CPU
+// packer derives its typed write surface from this SAME declaration the WGSL
+// struct is emitted from.
+const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
   // Phase 2 PR 2d.2 — POINT VS ECEF migration. `mvp` holds the ECEF-MVP
   // (Camera.getECEFFrameView), not the legacy Mercator-RTC MVP. Post
   // PR 2d.5 closeout, all polygon/line/raster/point shaders use the
@@ -67,6 +69,7 @@ export const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
   // writePointFrameUniform; ALL-ZERO on flat / disc paths (arms ignore it).
   globe_eye: vec4fT,
 })
+export { U as pointU }
 const ShapeDesc = structDecl('ShapeDesc', {
   seg_start: u32T,
   seg_count: u32T,
