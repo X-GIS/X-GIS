@@ -64,7 +64,7 @@ const vsFull = fn(
 const buildFsCompose = (sampleCount: number, accumTex: Node, revealageTex: Node) => {
   return fn(
     'fs_compose',
-    { in: VsOut.type },
+    { in: VsOut },
     (p) => {
       // textureDimensions returns vec2<u32>; toF32 each component for the
       // uv → texel-coord multiply. WGSL doesn't auto-convert across
@@ -72,7 +72,7 @@ const buildFsCompose = (sampleCount: number, accumTex: Node, revealageTex: Node)
       // explicit.
       const dimU = textureDimensions(accumTex)
       const dim = vec2(toF32(dimU.x), toF32(dimU.y))
-      const inUv = VsOut.of(p.in).uv
+      const inUv = p.in.uv
       const uv = vec2i(toI32(inUv.x.mul(dim.x)), toI32(inUv.y.mul(dim.y)))
       const accumSum = vec4(0, 0, 0, 0)
       const revSum = f32(0)

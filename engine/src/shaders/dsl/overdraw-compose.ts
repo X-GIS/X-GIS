@@ -69,9 +69,9 @@ const vsFull = fn(
 // tunable in 8..32 range (label-heavy ↔ extruded-building scenes).
 
 const fsCompose = fn(
-  'fs_compose', { in: VsOut.type },
+  'fs_compose', { in: VsOut },
   (p) => {
-    const pin = VsOut.of(p.in)
+    const pin = p.in
     // textureDimensions returns vec2<u32>; toF32 each component for the
     // uv → texel-coord multiply. WGSL doesn't auto-convert across
     // signed/unsigned/float in vec construction, so the conversion is

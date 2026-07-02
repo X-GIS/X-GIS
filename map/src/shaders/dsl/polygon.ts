@@ -127,6 +127,9 @@ const VertexOutputIO = ioStruct('VertexOutput', {
   v_color: location(8, vec4fT),
 })
 const VertexOutput = VertexOutputIO.decl
+// The typed field-proxy shape of a fragment-stage VertexOutput param (#740 R6) —
+// the TS emit helpers below receive it instead of a bare Node.
+type PolyFragIn = ReturnType<(typeof VertexOutputIO)['of']>
 
 const OitFragmentOutput = ioStruct('OitFragmentOutput', {
   accum: location(0, vec4fT),
@@ -676,8 +679,8 @@ const vsMainEcefExtruded = fn(
 // Inlined into each entry via this builder helper to keep the WGSL emit
 // shape byte-identical to POLYGON_SHADER_SOURCE.
 
-const emitPolygonFragmentDiscards = (input: Node): void => {
-  const i = VertexOutputIO.of(input)
+const emitPolygonFragmentDiscards = (input: PolyFragIn): void => {
+  const i = input
   const cosC = polygonCosCFragment(i.abs_merc_x, i.abs_merc_y)
   If(cosC.lt(0), () => { Discard() })
   // #399 +0.5° margin: cap abs_lat is VS-clamped to exactly ±LIMIT, so a bare `>LIMIT` flips per MSAA sample at the pole fan (speckle); loosen-only ⇒ #360-hole-safe.
@@ -702,8 +705,8 @@ const emitPolygonFragmentDiscards = (input: Node): void => {
 // reasonable depth precision). Synthetic background features (feat_id==0)
 // keep the canonical un-jittered depth.
 
-const emitLogDepthJitter = (input: Node, out: Node): void => {
-  const i = VertexOutputIO.of(input)
+const emitLogDepthJitter = (input: PolyFragIn, out: Node): void => {
+  const i = input
   const baseDepth =
     compute_log_frag_depth(i.view_w, U.field.log_depth_fc)
   const idLo = i.feat_id.bitAnd(u32(0xFFFF))
@@ -724,9 +727,9 @@ const emitLogDepthJitter = (input: Node, out: Node): void => {
 // of #152) left layerId === 0 for every pixel, so pickAt returned null for all
 // polygon fills. Keep R = feat_id, G = pick_id.
 
-const emitPickWrite = (input: Node, out: Node, pickEnabled: boolean): void => {
+const emitPickWrite = (input: PolyFragIn, out: Node, pickEnabled: boolean): void => {
   if (!pickEnabled) return
-  const i = VertexOutputIO.of(input)
+  const i = input
   polygonFragmentOutput(pickEnabled).of(out).pick.assign(vec2u(i.feat_id, U.field.pick_id))
 }
 
@@ -742,10 +745,10 @@ const emitPickWrite = (input: Node, out: Node, pickEnabled: boolean): void => {
 const buildFsFill = (pickEnabled: boolean) =>
   fn(
     'fs_fill',
-    { input: VertexOutputIO.type },
+    { input: VertexOutputIO },
     (p, b) => {
       const input = p.input
-      const i = VertexOutputIO.of(input)
+      const i = input
       emitPolygonFragmentDiscards(input)
       const out = Var('out', polygonFragmentOutput(pickEnabled).type)
       // Fill-extrusion shading via wall_blend varying. Iter 129 final after
@@ -795,10 +798,10 @@ const buildFsFill = (pickEnabled: boolean) =>
 const buildFsFillPattern = (pickEnabled: boolean) =>
   fn(
     'fs_fill_pattern',
-    { input: VertexOutputIO.type },
+    { input: VertexOutputIO },
     (p) => {
       const input = p.input
-      const i = VertexOutputIO.of(input)
+      const i = input
       emitPolygonFragmentDiscards(input)
       const out = Var('out', polygonFragmentOutput(pickEnabled).type)
       const repeatX = max(U.field.fill_translate_x, 1)
@@ -840,10 +843,10 @@ const buildFsFillPattern = (pickEnabled: boolean) =>
 
 const fsOitTranslucent = fn(
   'fs_oit_translucent',
-  { input: VertexOutputIO.type },
+  { input: VertexOutputIO },
   (p) => {
     const input = p.input
-    const i = VertexOutputIO.of(input)
+    const i = input
     emitPolygonFragmentDiscards(input)
     // Same fill-extrusion shading as fs_fill.
     const wallBlend = i.wall_blend
@@ -885,10 +888,10 @@ const fsOitTranslucent = fn(
 const buildFsFillExtrude = (pickEnabled: boolean) =>
   fn(
     'fs_fill_extrude',
-    { input: VertexOutputIO.type },
+    { input: VertexOutputIO },
     (p) => {
       const input = p.input
-      const i = VertexOutputIO.of(input)
+      const i = input
       emitPolygonFragmentDiscards(input)
       const out = Var('out', polygonFragmentOutput(pickEnabled).type)
       // Rim alpha — operates on the premultiplied colour: scales both rgb
@@ -914,10 +917,10 @@ const buildFsFillExtrude = (pickEnabled: boolean) =>
 const buildFsStroke = (pickEnabled: boolean) =>
   fn(
     'fs_stroke',
-    { input: VertexOutputIO.type },
+    { input: VertexOutputIO },
     (p, b) => {
       const input = p.input
-      const i = VertexOutputIO.of(input)
+      const i = input
       emitPolygonFragmentDiscards(input)
       // feat_id > 0 = major grid line (brighter); 0 = minor (dimmer).
       // `void` keeps tsc satisfied — defaultStrokeReturnStmts builds a

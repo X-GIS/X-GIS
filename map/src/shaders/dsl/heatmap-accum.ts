@@ -161,8 +161,8 @@ const vs = fn('vs_heatmap', {
 // contribution = weight · (exp(GAUSS_COEF · d²) − ZERO) over the unit disc
 // d=|uv|, with GAUSS_COEF = −1.5 and ZERO = exp(GAUSS_COEF) so the edge of
 // the disc contributes ~0 (continuous falloff to the quad boundary).
-const fs = fn('fs_heatmap', { in: HeatOut.type }, (p) => {
-  const pin = HeatOut.of(p.in)
+const fs = fn('fs_heatmap', { in: HeatOut }, (p) => {
+  const pin = p.in
   const uv = pin.uv
   const d2 = uv.x.mul(uv.x).add(uv.y.mul(uv.y))
   const ZERO = f32(0.22313016) // exp(-1.5)

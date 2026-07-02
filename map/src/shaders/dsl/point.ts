@@ -402,8 +402,8 @@ const vs = fn('vs_point', {
   return out
 }, { stage: 'vertex' })
 
-const fs = fn('fs_point', { in: PointOut.type }, (p) => {
-  const pin = PointOut.of(p.in)
+const fs = fn('fs_point', { in: PointOut }, (p) => {
+  const pin = p.in
   // Backface cull for globe projections — cos_c is +1 for flat projections.
   If(pin.cos_c.lt(0), () => { Discard() })
   const fid = pin.feat_id

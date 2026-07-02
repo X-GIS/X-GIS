@@ -163,8 +163,8 @@ const vs = fn('vs_tile', { vid: builtin('vertex_index', u32T) }, (p) => {
 
 const buildFs = (pickEnabled: boolean) => {
   const RasterFragmentOutput = rasterFragmentOutput(pickEnabled)
-  return fn('fs_tile', { input: VsOut.type }, (p) => {
-    const pin = VsOut.of(p.input)
+  return fn('fs_tile', { input: VsOut }, (p) => {
+    const pin = p.input
 
     // Per-fragment hemisphere cull (#595): recompute cos_c from the abs_lon /
     // abs_merc_y varyings rather than relying on the linearly-interpolated vis.

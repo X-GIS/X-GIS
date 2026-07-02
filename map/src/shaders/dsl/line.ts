@@ -322,12 +322,12 @@ const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, (p) => {
 // Backface cull → clip-bounds → segment-frame distance → bisector clip → bevel
 // edge → endpoint cap/join → dash → 3-slot pattern stack → alpha + per-segment
 // colour override. Faithful port of the WGSL helper (renderer-shaders.ts L661-1234).
-const computeLineColor = fn('compute_line_color', { input: LineOut.type }, (p) => {
+const computeLineColor = fn('compute_line_color', { input: LineOut }, (p) => {
   const projParams = TILE.field.proj_params
   const tileOrigin = TILE.field.tile_origin_merc
   const clipBounds = TILE.field.clip_bounds
 
-  const inp = LineOut.of(p.input)
+  const inp = p.input
 
   // Backface cull on non-Mercator (helper short-circuits to +1 for flat).
   If(projParams.x.ge(0.5), () => {
@@ -739,9 +739,9 @@ const computeLineColor = fn('compute_line_color', { input: LineOut.type }, (p) =
 })
 
 // ── line_rim_alpha ──
-const lineRimAlpha = fn('line_rim_alpha', { input: LineOut.type }, (p) => {
+const lineRimAlpha = fn('line_rim_alpha', { input: LineOut }, (p) => {
   const tileOrigin = TILE.field.tile_origin_merc
-  const absMerc = LineOut.of(p.input).world_local.add(tileOrigin)
+  const absMerc = p.input.world_local.add(tileOrigin)
   const absLon = absMerc.x.div(DEG2RAD.mul(EARTH_R))
   const latRad = inv_merc_lat_rad(absMerc.y)
   const absLat = degrees(latRad)
@@ -1045,19 +1045,19 @@ const vsLine = fn('vs_line', {
 // ── Fragment entries (3 variants share compute_line_color) ──
 
 const buildFsLine = (pickEnabled: boolean) =>
-  fn('fs_line', { input: LineOut.type }, (p) => {
+  fn('fs_line', { input: LineOut }, (p) => {
     const color = computeLineColor(p.input)
     const rim = lineRimAlpha(p.input)
     return lineFragmentOutput(pickEnabled).construct({
       color: vec4(color.rgb, color.a.mul(rim)),
       ...(pickEnabled ? { pick: vec2u(0, 0) } : {}),
-      depth: compute_log_frag_depth(LineOut.of(p.input).view_w, TILE.field.log_depth_fc),
+      depth: compute_log_frag_depth(p.input.view_w, TILE.field.log_depth_fc),
     })
   }, { stage: 'fragment' })
 
 const buildFsLinePattern = (pickEnabled: boolean) =>
-  fn('fs_line_pattern', { input: LineOut.type }, (p) => {
-    const inp = LineOut.of(p.input)
+  fn('fs_line_pattern', { input: LineOut }, (p) => {
+    const inp = p.input
     const base = computeLineColor(p.input)
     const tileOrigin = TILE.field.tile_origin_merc
     const absMerc = inp.world_local.add(tileOrigin)
@@ -1089,7 +1089,7 @@ const buildFsLinePattern = (pickEnabled: boolean) =>
 // offscreen RT has no depth attachment).
 const fsLineMax = fn(
   'fs_line_max',
-  { input: LineOut.type },
+  { input: LineOut },
   (p) => {
     const c = computeLineColor(p.input)
     const rim = lineRimAlpha(p.input)
@@ -1177,9 +1177,9 @@ const vsFull = fn('vs_full',
 )
 
 const fsFull = fn('fs_full',
-  { input: VsFullOut.type },
+  { input: VsFullOut },
   (p) => {
-    const c = textureSample(compSrc, compSamp, VsFullOut.of(p.input).uv)
+    const c = textureSample(compSrc, compSamp, p.input.uv)
     const op = CompUniform.field.opacity
     // MAX-blend offscreen stores non-premultiplied (rgb, a_aa); premultiply here.
     return vec4(c.rgb.mul(c.a).mul(op), c.a.mul(op))
