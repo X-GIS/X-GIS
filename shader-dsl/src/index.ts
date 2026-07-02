@@ -44,13 +44,17 @@ export * from './core/reflect'
 // Neutral emit tree-walk — non-colliding members only (emitModule / emitExpr
 // are owned by the WGSL backend above). emitModuleWithReflection is the reflection-
 // carrying sibling of emitModule (its `.code` is byte-identical to the WGSL emitModule).
-export { emitStmt, emitBody, forHeader, lowerForBackend, emitModuleWithReflection } from './core/emit'
+// (emitStmt / emitBody / forHeader are internal walk plumbing — zero consumers ever
+// imported them through this barrel; backends reach them via './core/emit' directly.)
+export { lowerForBackend, emitModuleWithReflection } from './core/emit'
 
 // Optimizer measurement (A/B the optimizer on op-count + source size; "measure, don't guess").
 export { emitSize, countOps, optimizerReport, type EmitSize, type OpCount, type OptimizerReport } from './core/measure'
 
-// Named optimization levels (O0/O1/O2) + the level-aware optimize entry.
-export { optimizeAt, LEVEL_PASSES, type OptLevel } from './core/passes/opt'
+// The optimization-level TYPE for emitModuleAt(m, level). (The optimizeAt entry +
+// LEVEL_PASSES table are internal — emit.ts drives them; no consumer ever imported
+// them through this barrel.)
+export { type OptLevel } from './core/passes/opt'
 
 // Diagnostics surface: coded errors (ShaderDslError / dslError), opt-in authored-source
 // tracing (setSourceTracing — dev-only, off by default, never on the emit path), the code

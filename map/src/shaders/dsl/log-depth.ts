@@ -10,7 +10,7 @@ import {
   f32T, vec4fT,
   type FuncDecl, type ModuleDecl,
 } from '@xgis/shader-dsl'
-import { emitFuncsCsed } from '@xgis/shader-dsl'
+import { emitFuncs } from '@xgis/shader-dsl'
 
 // apply_log_depth(pos, fc): write z = log2(max(f32(1e-6), w+1)) * fc * w, keeping
 // x/y/w. The *w pre-cancels the later perspective division.
@@ -31,4 +31,4 @@ export const LOG_DEPTH_MODULE: ModuleDecl = module({ funcs: LOG_DEPTH_FUNCS })
 /** Emitted-WGSL accessor for the log-depth parity/structure test (runtime shader-dsl-log-depth.test.ts
  *  splices + brace-checks this exact WGSL). NOT a production path (runtime shaders are built via emitModule);
  *  the emit layer is private, so this string accessor is the sanctioned public surface for that harness. */
-export const LOG_DEPTH_WGSL_FNS = `${emitFuncsCsed(LOG_DEPTH_FUNCS)}\n`
+export const LOG_DEPTH_WGSL_FNS = `${emitFuncs(LOG_DEPTH_FUNCS)}\n`

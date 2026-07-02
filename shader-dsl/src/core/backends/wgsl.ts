@@ -117,12 +117,15 @@ export const emitFunc = (f: FuncDecl): string => wgslBackend.emitFunc(f)
  *  folding / dead-code / reuse-binding happen uniformly regardless of which emit path a consumer takes.
  *  (Skips the validate/assertCaps preamble on purpose — a bare func list is not a complete authored
  *  module — so it runs only the lower+optimize the spelling needs; it mirrors `wgslBackend.optimize`
- *  (fixpoint) so this stays byte-identical to the func section of emitModule.) The name is historical
- *  (the pipeline was once cse-only). */
-export function emitFuncsCsed(funcs: readonly FuncDecl[]): string {
+ *  (fixpoint) so this stays byte-identical to the func section of emitModule.) */
+export function emitFuncs(funcs: readonly FuncDecl[]): string {
   const lowered = fixpoint(lowerModule(autoVars({ consts: [], structs: [], bindings: [], funcs: [...funcs] })))
   return lowered.funcs.map((f) => wgslBackend.emitFunc(f)).join('\n\n')
 }
+
+/** @deprecated Renamed `emitFuncs` — the "Csed" suffix described a pipeline that was
+ *  once cse-only and has been the full fixpoint optimizer for a long time. */
+export const emitFuncsCsed = emitFuncs
 
 /** Emit a ModuleDecl as a WGSL string. Thin wrapper over the shared backend-parameterised
  *  driver (core/emit.ts) bound to wgslBackend — the module assembly lives once. */

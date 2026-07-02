@@ -11,7 +11,7 @@ import {
   fn, f32, f32T, vec3, vec3fT, sin, cos, sqrt,
   type ConstDecl, type FuncDecl,
 } from '@xgis/shader-dsl'
-import { emitConst, emitFuncsCsed } from '@xgis/shader-dsl'
+import { emitConst, emitFuncs } from '@xgis/shader-dsl'
 import { WGS84_A, WGS84_E2 } from './consts'
 
 /** WGS84 ellipsoid constants — semi-major axis (m) + eccentricity² (= 2f - f²
@@ -41,4 +41,4 @@ export const ECEF_FUNCS: FuncDecl[] = [lonlatToEcef, ecefRtcReconstruct]
 /** Emitted-WGSL accessor for the parity/structure test harnesses — they splice this exact WGSL into a standalone test shader to verify CPU↔GPU parity. NOT a production path (runtime shaders are built via emitModule, not string-prepend); the emit layer is private, so this string accessor is the sanctioned public surface for those harnesses. */
 export const ECEF_WGSL_CONSTS = `${ECEF_CONSTS.map(emitConst).join('\n')}\n`
 /** Emitted-WGSL accessor for the parity/structure test harnesses — they splice this exact WGSL into a standalone test shader to verify CPU↔GPU parity. NOT a production path (runtime shaders are built via emitModule, not string-prepend); the emit layer is private, so this string accessor is the sanctioned public surface for those harnesses. */
-export const ECEF_WGSL_FNS = `${emitFuncsCsed(ECEF_FUNCS)}\n`
+export const ECEF_WGSL_FNS = `${emitFuncs(ECEF_FUNCS)}\n`
