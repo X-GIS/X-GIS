@@ -61,6 +61,10 @@ const Tile = uniformStruct('TileUniforms', { group: 1, binding: 0, as: 'tile' },
   merc_y: vec2fT,           // x = merc_south (abs), y = merc_diff (north - south)
   _pad: vec2fT,
 })
+// Exported (distinct barrel names — every dsl file calls its struct 'U'/'Tile'
+// locally) for the renderer's UniformBlock (#733 P2): the CPU packers derive
+// their typed write surfaces from the SAME declarations the WGSL is emitted from.
+export { U as rasterU, Tile as rasterTileU }
 const VsOut = ioStruct('VsOut', {
   pos: builtin('position', vec4fT),
   uv: location(0, vec2fT),
