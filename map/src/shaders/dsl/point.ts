@@ -28,6 +28,7 @@ import {
 import { ioStruct, builtin, location, uniformStruct, structDecl, storageBuffer } from '@xgis/shader-dsl'
 import { emitModule } from '@xgis/shader-dsl'
 import { needs_backface_cull, rim_alpha, flat_rel, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
+import { POINT_FEAT } from './point-feat-layout'
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
 
 // Exported (as pointU below — every dsl file names its struct 'U' locally, so the
@@ -117,7 +118,8 @@ const featData = featDataB.node
 // Bumped 20 → 24 for the absolute Mercator DSFUN tail (slots 20-23 =
 // mx_h, mx_l, my_h, my_l) — precise flat-Mercator position so the flat-Merc
 // branch no longer reprojects the lossy f32 abs_lon/abs_lat (~5.7 px @ z20).
-const STRIDE = u32(24)
+const STRIDE = u32(POINT_FEAT.stride)
+const F = POINT_FEAT.slot
 
 // ── Helper fns ──
 // Phase 2 PR 2d.2 — POINT VS ECEF migration. `point_abs_lonlat`,
@@ -240,10 +242,10 @@ const vs = fn('vs_point', {
     vec2(-1, 1),
   )
   const fid = toU32(p.feat_id)
-  const rawRadius = featData.at(fid.mul(STRIDE).add(0), f32T)
+  const rawRadius = featData.at(fid.mul(STRIDE).add(F.radius_px), f32T)
   // Pack-byte at offset 10: bit 0..3 reserved, bits 4..7 = size_mode,
   // bit 3 = is_flat, bits 8..9 = anchor_mode.
-  const packed10 = toU32(featData.at(fid.mul(STRIDE).add(10), f32T))
+  const packed10 = toU32(featData.at(fid.mul(STRIDE).add(F.flags_packed), f32T))
   const sizeMode = packed10.shr(u32(4)).bitAnd(u32(0xF))
   // Size mode: 0=px, 1=m, 2=km, 3=deg (equator approx), 4=nm.
   const viewport = U.field.viewport
@@ -261,22 +263,22 @@ const vs = fn('vs_point', {
   // the absolute lon/lat in degrees for the fragment-side hemisphere
   // cull. The single `u.mvp` slot is the ECEF-MVP (post PR 2d.5).
   const ecefH = vec3(
-    featData.at(fid.mul(STRIDE).add(11), f32T),
-    featData.at(fid.mul(STRIDE).add(12), f32T),
-    featData.at(fid.mul(STRIDE).add(13), f32T),
+    featData.at(fid.mul(STRIDE).add(F.ecef_x_h), f32T),
+    featData.at(fid.mul(STRIDE).add(F.ecef_y_h), f32T),
+    featData.at(fid.mul(STRIDE).add(F.ecef_z_h), f32T),
   )
   const ecefL = vec3(
-    featData.at(fid.mul(STRIDE).add(14), f32T),
-    featData.at(fid.mul(STRIDE).add(15), f32T),
-    featData.at(fid.mul(STRIDE).add(16), f32T),
+    featData.at(fid.mul(STRIDE).add(F.ecef_x_l), f32T),
+    featData.at(fid.mul(STRIDE).add(F.ecef_y_l), f32T),
+    featData.at(fid.mul(STRIDE).add(F.ecef_z_l), f32T),
   )
   // Camera-relative RTC: subtract the camera anchor in DSFUN space so the
   // big absolute ECEF magnitude cancels before the residual reaches f32 math.
   const camH = U.field.cam_ecef_h.swizzle('xyz')
   const camL = U.field.cam_ecef_l.swizzle('xyz')
   const ecefRtc = ecefH.sub(camH).add(ecefL.sub(camL))
-  const absLon = featData.at(fid.mul(STRIDE).add(17), f32T)
-  const absLat = featData.at(fid.mul(STRIDE).add(18), f32T)
+  const absLon = featData.at(fid.mul(STRIDE).add(F.abs_lon), f32T)
+  const absLat = featData.at(fid.mul(STRIDE).add(F.abs_lat), f32T)
   const mvp = U.field.mvp
   // Display projection (projection-display-layer-restore): flat Mercator
   // (proj_params.x < 0.5) reprojects the absolute lon/lat onto the 2D plane
@@ -291,10 +293,10 @@ const vs = fn('vs_point', {
     // Precise absolute Mercator DSFUN (slots 20-23), camera-recentered in DSFUN
     // space — `(mx_h−camH)+(mx_l−camL)` — exactly like ecef_rtc. The old path
     // reprojected the lossy f32 abs_lon/abs_lat (~1.35 m → ~5.7 px @ z20).
-    const mxH = featData.at(fid.mul(STRIDE).add(20), f32T)
-    const mxL = featData.at(fid.mul(STRIDE).add(21), f32T)
-    const myH = featData.at(fid.mul(STRIDE).add(22), f32T)
-    const myL = featData.at(fid.mul(STRIDE).add(23), f32T)
+    const mxH = featData.at(fid.mul(STRIDE).add(F.merc_x_h), f32T)
+    const mxL = featData.at(fid.mul(STRIDE).add(F.merc_x_l), f32T)
+    const myH = featData.at(fid.mul(STRIDE).add(F.merc_y_h), f32T)
+    const myL = featData.at(fid.mul(STRIDE).add(F.merc_y_l), f32T)
     const camMercH = U.field.cam_ecef_h.swizzle('xy')
     const camMercL = U.field.cam_ecef_l.swizzle('xy')
     const relX = mxH.sub(camMercH.x).add(mxL.sub(camMercL.x))
@@ -408,7 +410,7 @@ const fs = fn('fs_point', { in: PointOut }, (p) => {
   If(pin.cos_c.lt(0), () => { Discard() })
   const fid = pin.feat_id
   // shape_id moved to slot 19 in PR 2d.2's stride-20 layout (was slot 13).
-  const shapeId = toU32(featData.at(fid.mul(STRIDE).add(19), f32T))
+  const shapeId = toU32(featData.at(fid.mul(STRIDE).add(F.shape_id), f32T))
 
   // AA from UV (always smooth) — not from SDF dist (AABB discontinuities).
   // MUST stay an explicit Let: fwidth is a derivative and WGSL requires it be evaluated in
@@ -428,19 +430,19 @@ const fs = fn('fs_point', { in: PointOut }, (p) => {
 
   // Per-feature style.
   const fillColor = vec4(
-    featData.at(fid.mul(STRIDE).add(1), f32T),
-    featData.at(fid.mul(STRIDE).add(2), f32T),
-    featData.at(fid.mul(STRIDE).add(3), f32T),
-    featData.at(fid.mul(STRIDE).add(4), f32T),
+    featData.at(fid.mul(STRIDE).add(F.fill_r), f32T),
+    featData.at(fid.mul(STRIDE).add(F.fill_g), f32T),
+    featData.at(fid.mul(STRIDE).add(F.fill_b), f32T),
+    featData.at(fid.mul(STRIDE).add(F.fill_a), f32T),
   )
   const strokeColor = vec4(
-    featData.at(fid.mul(STRIDE).add(5), f32T),
-    featData.at(fid.mul(STRIDE).add(6), f32T),
-    featData.at(fid.mul(STRIDE).add(7), f32T),
-    featData.at(fid.mul(STRIDE).add(8), f32T),
+    featData.at(fid.mul(STRIDE).add(F.stroke_r), f32T),
+    featData.at(fid.mul(STRIDE).add(F.stroke_g), f32T),
+    featData.at(fid.mul(STRIDE).add(F.stroke_b), f32T),
+    featData.at(fid.mul(STRIDE).add(F.stroke_a), f32T),
   )
-  const strokeWPx = featData.at(fid.mul(STRIDE).add(9), f32T)
-  const flags = toU32(featData.at(fid.mul(STRIDE).add(10), f32T))
+  const strokeWPx = featData.at(fid.mul(STRIDE).add(F.stroke_width_px), f32T)
+  const flags = toU32(featData.at(fid.mul(STRIDE).add(F.flags_packed), f32T))
 
   // stroke_w in UV space using the actual rendered radius.
   const strokeW = strokeWPx.div(max(pin.radius_px, 1))

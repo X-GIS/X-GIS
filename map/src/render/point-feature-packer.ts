@@ -22,7 +22,10 @@ import { lonLatToECEF } from '@xgis/engine'
 /** Per-feature `feat_data` stride in f32 slots. Mirrors point.ts STRIDE (24):
  *  slots 0-10 style, 11-16 ECEF DSFUN hi/lo, 17-18 abs lon/lat, 19 shape_id,
  *  20-23 absolute-Mercator DSFUN tail. */
-export const POINT_FEAT_STRIDE = 24
+import { POINT_FEAT, POINT_FEAT_STYLE_SLOTS } from '../shaders/dsl/point-feat-layout'
+const F = POINT_FEAT.slot
+/** Re-export of POINT_FEAT.stride — the layout authority is point-feat-layout.ts (#740 R8). */
+export const POINT_FEAT_STRIDE = POINT_FEAT.stride
 
 const DEG2RAD = Math.PI / 180
 const R_MERC = 6378137 // web-Mercator sphere radius (matches the tiler packer)
@@ -150,8 +153,8 @@ export function packPointInstances(input: PackPointInput, out: PackPointOutput):
     for (let i = 0; i < N; i++) {
       const srcOff = i * S
       const dstOff = (basePoint + i) * S
-      feat.set(srcFeatData.subarray(srcOff, srcOff + 11), dstOff)
-      feat[dstOff + 19] = srcFeatData[srcOff + 19]
+      feat.set(srcFeatData.subarray(srcOff, srcOff + POINT_FEAT_STYLE_SLOTS), dstOff)
+      feat[dstOff + F.shape_id] = srcFeatData[srcOff + F.shape_id]
     }
   }
 
@@ -176,9 +179,9 @@ export function packPointInstances(input: PackPointInput, out: PackPointOutput):
         const eyH = Math.fround(ecef[1]); const eyL = ecef[1] - eyH
         const ezH = Math.fround(ecef[2]); const ezL = ecef[2] - ezH
         const dstOff = (basePoint + i) * S
-        feat[dstOff + 11] = exH; feat[dstOff + 12] = eyH; feat[dstOff + 13] = ezH
-        feat[dstOff + 14] = exL; feat[dstOff + 15] = eyL; feat[dstOff + 16] = ezL
-        feat[dstOff + 17] = lon; feat[dstOff + 18] = lat
+        feat[dstOff + F.ecef_x_h] = exH; feat[dstOff + F.ecef_y_h] = eyH; feat[dstOff + F.ecef_z_h] = ezH
+        feat[dstOff + F.ecef_x_l] = exL; feat[dstOff + F.ecef_y_l] = eyL; feat[dstOff + F.ecef_z_l] = ezL
+        feat[dstOff + F.abs_lon] = lon; feat[dstOff + F.abs_lat] = lat
         // Absolute Mercator DSFUN (20-23) — precise flat-Mercator position.
         // For world copies (projType 0) apply a per-copy longitude offset of
         // wo*360° in Mercator metres so the point appears in every visible
@@ -187,8 +190,8 @@ export function packPointInstances(input: PackPointInput, out: PackPointOutput):
         const myClamp = Math.max(-85.051129, Math.min(85.051129, lat))
         const my = Math.log(Math.tan(Math.PI / 4 + myClamp * DEG2RAD / 2)) * R_MERC
         const mxH = Math.fround(mx); const myH = Math.fround(my)
-        feat[dstOff + 20] = mxH; feat[dstOff + 21] = Math.fround(mx - mxH)
-        feat[dstOff + 22] = myH; feat[dstOff + 23] = Math.fround(my - myH)
+        feat[dstOff + F.merc_x_h] = mxH; feat[dstOff + F.merc_x_l] = Math.fround(mx - mxH)
+        feat[dstOff + F.merc_y_h] = myH; feat[dstOff + F.merc_y_l] = Math.fround(my - myH)
       }
     }
   } else {
@@ -200,13 +203,13 @@ export function packPointInstances(input: PackPointInput, out: PackPointOutput):
         const pt = pts[i]
         const dstOff = (basePoint + i) * S
         // ECEF DSFUN + abs lon/lat are copy-independent — passed through as-is.
-        feat[dstOff + 11] = pt.exH; feat[dstOff + 12] = pt.eyH; feat[dstOff + 13] = pt.ezH
-        feat[dstOff + 14] = pt.exL; feat[dstOff + 15] = pt.eyL; feat[dstOff + 16] = pt.ezL
-        feat[dstOff + 17] = pt.absLon; feat[dstOff + 18] = pt.absLat
+        feat[dstOff + F.ecef_x_h] = pt.exH; feat[dstOff + F.ecef_y_h] = pt.eyH; feat[dstOff + F.ecef_z_h] = pt.ezH
+        feat[dstOff + F.ecef_x_l] = pt.exL; feat[dstOff + F.ecef_y_l] = pt.eyL; feat[dstOff + F.ecef_z_l] = pt.ezL
+        feat[dstOff + F.abs_lon] = pt.absLon; feat[dstOff + F.abs_lat] = pt.absLat
         // Only Mercator-x shifts per world copy; Mercator-y is copy-independent.
         const [mxH, mxL] = mercXForCopy(pt.mxH, pt.mxL, wo)
-        feat[dstOff + 20] = mxH; feat[dstOff + 21] = mxL
-        feat[dstOff + 22] = pt.myH; feat[dstOff + 23] = pt.myL
+        feat[dstOff + F.merc_x_h] = mxH; feat[dstOff + F.merc_x_l] = mxL
+        feat[dstOff + F.merc_y_h] = pt.myH; feat[dstOff + F.merc_y_l] = pt.myL
       }
     }
   }
@@ -234,7 +237,7 @@ export function packPointInstances(input: PackPointInput, out: PackPointOutput):
       // Depth sort key: use ECEF z-component as a proxy for back-to-front.
       // (more negative ez_h = further from viewer in most projections)
       if (depths && order) {
-        depths[globalIdx] = feat[dstOff + 11] * fwdX + feat[dstOff + 12] * fwdY
+        depths[globalIdx] = feat[dstOff + F.ecef_x_h] * fwdX + feat[dstOff + F.ecef_y_h] * fwdY
         order[globalIdx] = globalIdx
       } else {
         // Feature-order indices for opaque layers.

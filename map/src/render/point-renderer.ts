@@ -14,6 +14,8 @@ import { FrameArena } from '@xgis/engine'
 import type { PointLayer } from './point-renderer-types'
 import { buildPointModule, pointU as POINT_U } from '../shaders/dsl/point'
 import { packPointInstances } from './point-feature-packer'
+import { POINT_FEAT } from '../shaders/dsl/point-feat-layout'
+const F = POINT_FEAT.slot
 import { wrapWebGpuPass, wrapWebGpuBindGroupLayout } from '@xgis/engine'
 import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
 import { PointDraper } from './material/point-material'
@@ -423,7 +425,7 @@ export class PointRenderer {
     // flat-Mercator world copies at low zoom, unlike fills/lines/labels). Flat
     // Mercator (projType 0) fans out to every visible world copy; all other
     // projections collapse to a single absolute-ECEF world (no wrap).
-    const STRIDE = 24
+    const STRIDE = POINT_FEAT.stride
     const COPIES = pointWorldCopies(projType, camera, canvasWidth, canvasHeight, dpr)
     const totalN = N * COPIES.length
 
@@ -452,13 +454,13 @@ export class PointRenderer {
         }
         r = typeof ev === 'number' ? ev : radiusPx
       }
-      src[so + 0] = r
-      src[so + 1] = fill ? fill[0] : 0; src[so + 2] = fill ? fill[1] : 0
-      src[so + 3] = fill ? fill[2] : 0; src[so + 4] = fill ? fill[3] * opacity : 0
-      src[so + 5] = stroke ? stroke[0] : 0; src[so + 6] = stroke ? stroke[1] : 0
-      src[so + 7] = stroke ? stroke[2] : 0; src[so + 8] = stroke ? stroke[3] * opacity * tileStrokeOpacity : 0
-      src[so + 9] = strokeWidth; src[so + 10] = flags
-      src[so + 19] = tileShapeId // #722 S2 — per-layer shape (0 = circle)
+      src[so + F.radius_px] = r
+      src[so + F.fill_r] = fill ? fill[0] : 0; src[so + F.fill_g] = fill ? fill[1] : 0
+      src[so + F.fill_b] = fill ? fill[2] : 0; src[so + F.fill_a] = fill ? fill[3] * opacity : 0
+      src[so + F.stroke_r] = stroke ? stroke[0] : 0; src[so + F.stroke_g] = stroke ? stroke[1] : 0
+      src[so + F.stroke_b] = stroke ? stroke[2] : 0; src[so + F.stroke_a] = stroke ? stroke[3] * opacity * tileStrokeOpacity : 0
+      src[so + F.stroke_width_px] = strokeWidth; src[so + F.flags_packed] = flags
+      src[so + F.shape_id] = tileShapeId // #722 S2 — per-layer shape (0 = circle)
     }
 
     const verts = this._frameArena.allocF32(totalN * 4 * 4)
@@ -611,7 +613,7 @@ export class PointRenderer {
 
     // Build per-feature data (stride = 24 floats, ECEF DSFUN layout +
     // absolute Mercator DSFUN tail at 20-23 for precise flat-Mercator position)
-    const STRIDE = 24
+    const STRIDE = POINT_FEAT.stride
     const featData = this._frameArena.allocF32(points.length * STRIDE)
     let flags = 0
     if (fill) flags |= 1
@@ -627,22 +629,22 @@ export class PointRenderer {
 
     for (let i = 0; i < points.length; i++) {
       const off = i * STRIDE
-      featData[off + 0] = perFeatureSizes ? perFeatureSizes[i] : radiusPx
+      featData[off + F.radius_px] = perFeatureSizes ? perFeatureSizes[i] : radiusPx
       // fill rgba (RGB not premultiplied — alpha blending handles it)
-      featData[off + 1] = fill ? fill[0] : 0
-      featData[off + 2] = fill ? fill[1] : 0
-      featData[off + 3] = fill ? fill[2] : 0
-      featData[off + 4] = fill ? fill[3] * opacity : 0
+      featData[off + F.fill_r] = fill ? fill[0] : 0
+      featData[off + F.fill_g] = fill ? fill[1] : 0
+      featData[off + F.fill_b] = fill ? fill[2] : 0
+      featData[off + F.fill_a] = fill ? fill[3] * opacity : 0
       // stroke rgba
-      featData[off + 5] = stroke ? stroke[0] : 0
-      featData[off + 6] = stroke ? stroke[1] : 0
-      featData[off + 7] = stroke ? stroke[2] : 0
-      featData[off + 8] = stroke ? stroke[3] * opacity : 0
+      featData[off + F.stroke_r] = stroke ? stroke[0] : 0
+      featData[off + F.stroke_g] = stroke ? stroke[1] : 0
+      featData[off + F.stroke_b] = stroke ? stroke[2] : 0
+      featData[off + F.stroke_a] = stroke ? stroke[3] * opacity : 0
       // stroke width in UV space
-      featData[off + 9] = strokeWidth  // raw px, shader converts to UV
-      featData[off + 10] = flags
+      featData[off + F.stroke_width_px] = strokeWidth  // raw px, shader converts to UV
+      featData[off + F.flags_packed] = flags
       // [11..18] = ECEF DSFUN (pos_h.xyz, pos_l.xyz, abs_lon, abs_lat) — written per-frame in render()
-      featData[off + 19] = shapeId ?? 0
+      featData[off + F.shape_id] = shapeId ?? 0
     }
 
     // Store original coordinates in f64 for per-frame RTC computation
@@ -716,7 +718,7 @@ export class PointRenderer {
    *  expanded buffer each frame, so the patched values propagate
    *  naturally — no need to touch the expanded buffer. */
   updateDynamicSizes(cameraZoom: number, elapsedMs: number): void {
-    const STRIDE = 24
+    const STRIDE = POINT_FEAT.stride
     for (const layer of this.layers) {
       const shape = layer.sizeShape
       if (shape === null) continue
@@ -732,7 +734,7 @@ export class PointRenderer {
       if (!r.hasTime && Math.abs(layer.lastDynZoom - cameraZoom) < 0.001) continue
       const size = r.value
       for (let i = 0; i < layer.pointCount; i++) {
-        layer.featData[i * STRIDE + 0] = size
+        layer.featData[i * STRIDE + F.radius_px] = size
       }
       layer.lastDynZoom = cameraZoom
     }
@@ -755,7 +757,7 @@ export class PointRenderer {
       if (!r.hasTime && Math.abs(layer.lastDynStrokeOpacityZoom - cameraZoom) < 0.001) continue
       const alpha = layer.baseStrokeAlphaSlot8 * Math.max(0, Math.min(1, r.value))
       for (let i = 0; i < layer.pointCount; i++) {
-        layer.featData[i * STRIDE + 8] = alpha
+        layer.featData[i * STRIDE + F.stroke_a] = alpha
       }
       layer.lastDynStrokeOpacityZoom = cameraZoom
     }
@@ -801,7 +803,7 @@ export class PointRenderer {
 
     const DEG2RAD = Math.PI / 180
 
-    const STRIDE = 24
+    const STRIDE = POINT_FEAT.stride
     // Flat Mercator (projType 0) fans out to all visible world copies so
     // GeoJSON points appear in every repeated world at low zoom — matching
     // the label and fill behaviour.  All other projection paths use a single
