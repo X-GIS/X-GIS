@@ -102,8 +102,16 @@ export interface StructField {
   readonly name: string
   readonly type: ShaderType
   /** Optional WGSL field attribute(s) for I/O structs, e.g.
-   *  `@builtin(position)`, `@location(0)`, `@location(0) @interpolate(flat)`. */
+   *  `@builtin(position)`, `@location(0)`, `@location(0) @interpolate(flat)`.
+   *  This is the EMIT SPELLING; the structured fields below are the semantic
+   *  source (#740 R3) — backends read those, never re-parse this string. */
   readonly attr?: string
+  /** Structured IO attribute (#740 R3): `@location(n)`. Set by sot's location(). */
+  readonly location?: number
+  /** Structured IO attribute (#740 R3): `@builtin(name)`. Set by sot's builtin(). */
+  readonly builtin?: string
+  /** Structured `@interpolate(mode)` (set alongside `location`). */
+  readonly interpolate?: string
 }
 export interface StructDecl { readonly name: string; readonly fields: readonly StructField[] }
 
@@ -124,8 +132,15 @@ export interface FuncDecl {
   readonly ret: ShaderType
   readonly body: readonly Stmt[]
   /** Stage / pipeline attributes emitted before `fn` (e.g. `@compute`,
-   *  `@workgroup_size(64)`). Empty for ordinary helper functions. */
+   *  `@workgroup_size(64)`). Empty for ordinary helper functions. This is the
+   *  EMIT SPELLING; `stage`/`workgroupSize` below are the semantic source
+   *  (#740 R3) — reflect/backends read those first (string fallback only for
+   *  hand-built FuncDecl literals). */
   readonly attrs?: readonly string[]
+  /** Structured pipeline stage (#740 R3). Set by fn()'s opts.stage. */
+  readonly stage?: 'vertex' | 'fragment' | 'compute'
+  /** Structured workgroup size for a compute stage (#740 R3). */
+  readonly workgroupSize?: number
   /** Return-value attribute for a bare (non-struct) stage output, e.g. a
    *  fragment `-> @location(0) vec4<f32>`. */
   readonly retAttr?: string

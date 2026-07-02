@@ -11,19 +11,27 @@ import { Node, ReadonlyNode, structT, bindingRef, construct, member, arrayT, typ
 
 export interface FieldSpec<T extends ShaderType = ShaderType> {
   readonly type: T
+  /** The WGSL emit spelling. Backends never re-parse it — the structured
+   *  fields below are the semantic source (#740 R3). */
   readonly attr: string
+  readonly location?: number
+  readonly builtin?: string
+  readonly interpolate?: string
 }
 
 /** A `@builtin(<name>)` IO field (e.g. builtin('position', vec4fT)). */
 export const builtin = <T extends ShaderType>(name: string, type: T): FieldSpec<T> => ({
   type,
   attr: `@builtin(${name})`,
+  builtin: name,
 })
 
 /** A `@location(<n>)` IO field, with optional `@interpolate(<mode>)` (e.g. 'flat'). */
 export const location = <T extends ShaderType>(n: number, type: T, interpolate?: string): FieldSpec<T> => ({
   type,
   attr: `@location(${n})${interpolate ? ` @interpolate(${interpolate})` : ''}`,
+  location: n,
+  ...(interpolate !== undefined ? { interpolate } : {}),
 })
 
 export interface IoStruct<F extends Record<string, FieldSpec>> {
@@ -46,7 +54,10 @@ export interface IoStruct<F extends Record<string, FieldSpec>> {
 export function ioStruct<F extends Record<string, FieldSpec>>(name: string, fields: F): IoStruct<F> {
   const decl: StructDecl = {
     name,
-    fields: Object.entries(fields).map(([n, spec]) => ({ name: n, type: spec.type, attr: spec.attr })),
+    fields: Object.entries(fields).map(([n, spec]) => ({
+      name: n, type: spec.type, attr: spec.attr,
+      location: spec.location, builtin: spec.builtin, interpolate: spec.interpolate,
+    })),
   }
   return {
     decl,

@@ -77,16 +77,28 @@ function glslLit(value: number | boolean, t: ShaderType): string {
 const LOCATION_RE = /@location\((\d+)\)/
 const BUILTIN_RE = /@builtin\((\w+)\)/
 
-const isEntry = (f: FuncDecl): boolean => !!f.attrs?.some((a) => a.startsWith('@vertex') || a.startsWith('@fragment'))
+const isEntry = (f: FuncDecl): boolean =>
+  f.stage === 'vertex' || f.stage === 'fragment'
+  || !!f.attrs?.some((a) => a.startsWith('@vertex') || a.startsWith('@fragment'))
 
-/** Parse a StructField.attr / a bare param attr into {location|builtin}. */
-function parseAttr(attr: string | undefined): { location?: number; builtin?: string } {
+/** String fallback ONLY (#740 R3): sot-authored fields carry structured
+ *  location/builtin — read those via ioAttr() below. This regex path survives
+ *  solely for hand-built FuncDecl literals and bare `retAttr` strings. */
+function parseAttrString(attr: string | undefined): { location?: number; builtin?: string } {
   if (!attr) return {}
   const loc = attr.match(LOCATION_RE)
   if (loc) return { location: Number(loc[1]) }
   const b = attr.match(BUILTIN_RE)
   if (b) return { builtin: b[1] }
   return {}
+}
+
+/** Structured-first IO attr read (#740 R3). */
+function ioAttr(src: { readonly location?: number; readonly builtin?: string; readonly attr?: string } | undefined): { location?: number; builtin?: string } {
+  if (!src) return {}
+  if (src.location !== undefined) return { location: src.location }
+  if (src.builtin !== undefined) return { builtin: src.builtin }
+  return parseAttrString(src.attr)
 }
 
 // ── builtin lowering: WGSL builtin name → GLSL global ──
@@ -238,10 +250,10 @@ function emitGlslEntry(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): s
   // a bare @location param contributes itself. @builtin fields read from gl_* globals.
   for (const p of f.params) {
     const fields = p.type.kind === 'struct'
-      ? structByName(structs, p.type.name).fields.map((sf) => ({ name: sf.name, type: sf.type, ...parseAttr(sf.attr) }))
+      ? structByName(structs, p.type.name).fields.map((sf) => ({ name: sf.name, type: sf.type, ...ioAttr(sf) }))
       // A bare entry param carries its stage attr as `attr` (the `@location(n)`/`@builtin(...)`
       // string the location()/builtin() helpers emit) OR as direct location/builtin fields (raw IR).
-      : [{ name: p.name, type: p.type, location: p.location ?? parseAttr(p.attr).location, builtin: p.builtin ?? parseAttr(p.attr).builtin }]
+      : [{ name: p.name, type: p.type, ...ioAttr(p) }]
     for (const s of fields) {
       if (s.builtin) continue
       if (s.location === undefined) throw new UnsupportedFeatureError(`glsl-es300: entry '${f.name}' input '${s.name}' has neither @location nor @builtin`)
@@ -255,9 +267,9 @@ function emitGlslEntry(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): s
   }
   // `out` varyings: the return struct's @location fields (or a bare @location return).
   const retFields = f.ret.kind === 'struct'
-    ? structByName(structs, f.ret.name).fields.map((sf) => ({ name: sf.name, type: sf.type, ...parseAttr(sf.attr) }))
+    ? structByName(structs, f.ret.name).fields.map((sf) => ({ name: sf.name, type: sf.type, ...ioAttr(sf) }))
     : f.ret.kind === 'void' ? []
-      : [{ name: '_ret', type: f.ret, ...parseAttr(f.retAttr) }]
+      : [{ name: '_ret', type: f.ret, ...parseAttrString(f.retAttr) }]
   for (const s of retFields) {
     if (s.builtin) continue
     if (s.location === undefined) throw new UnsupportedFeatureError(`glsl-es300: entry '${f.name}' output '${s.name}' has neither @location nor @builtin`)
@@ -284,12 +296,12 @@ function emitGlslEntry(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): s
       const s = structByName(structs, p.type.name)
       body.push(`  ${glslType(p.type)} ${p.name};`)
       for (const sf of s.fields) {
-        const { builtin } = parseAttr(sf.attr)
+        const { builtin } = ioAttr(sf)
         body.push(`  ${p.name}.${sf.name} = ${builtin ? builtinInRead(builtin, sf.type) : inName(sf.name)};`)
       }
       args.push(p.name)
     } else {
-      const bi = p.builtin ?? parseAttr(p.attr).builtin
+      const bi = ioAttr(p).builtin
       args.push(bi ? builtinInRead(bi, p.type) : inName(p.name))
     }
   }
@@ -298,14 +310,14 @@ function emitGlslEntry(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): s
     const s = structByName(structs, f.ret.name)
     body.push(`  ${glslType(f.ret)} _out = ${call};`)
     for (const sf of s.fields) {
-      const { builtin, location } = parseAttr(sf.attr)
+      const { builtin, location } = ioAttr(sf)
       if (builtin) body.push(`  ${builtinOut(builtin)} = _out.${sf.name};`)
       else if (location !== undefined) body.push(`  ${sf.name} = _out.${sf.name};`)
     }
   } else if (f.ret.kind === 'void') {
     body.push(`  ${call};`)
   } else {
-    const { builtin } = parseAttr(f.retAttr)
+    const { builtin } = parseAttrString(f.retAttr)
     body.push(builtin ? `  ${builtinOut(builtin)} = ${call};` : `  _ret = ${call};`)
   }
   lines.push('')
@@ -473,9 +485,9 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
 // untouched. FAIL-CLOSED (operationalizes the gather-only invariant, not trusted): a
 // scatter (write index != gid), >1 output write, or a gid use other than `.x` throws.
 export function lowerComputeToFragment(m: ModuleDecl): ModuleDecl {
-  const entry = m.funcs.find((f) => f.attrs?.some((a) => a.startsWith('@compute')))
+  const entry = m.funcs.find((f) => f.stage === 'compute' || f.attrs?.some((a) => a.startsWith('@compute')))
   if (!entry) throw new UnsupportedFeatureError('glsl-es300 compute-emul: no @compute entry in module')
-  const gid = entry.params.find((p) => (p.builtin ?? parseAttr(p.attr).builtin) === 'global_invocation_id')
+  const gid = entry.params.find((p) => (ioAttr(p).builtin) === 'global_invocation_id')
   if (!gid) throw new UnsupportedFeatureError('glsl-es300 compute-emul: @compute entry has no @builtin(global_invocation_id) param')
   const outBinding = m.bindings.find((b) => b.space === 'storage' && b.access === 'read_write')
   if (!outBinding) throw new UnsupportedFeatureError('glsl-es300 compute-emul: no read_write storage output binding to map to the fragment colour output')
