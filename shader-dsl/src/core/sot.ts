@@ -7,7 +7,7 @@
 // family, OPACITY). The SoT helpers declare a layout ONCE and DERIVE the rest, so the
 // pieces cannot disagree and the type checker covers field names + types.
 
-import { Node, ReadonlyNode, structT, bindingRef, construct, member, arrayT, type ShaderType, type StructDecl, type KeyOf, type ScalarKey, type BindingDecl, type AddressSpace } from './ir'
+import { Node, ReadonlyNode, structT, bindingRef, construct, member, arrayT, Var, type ShaderType, type StructDecl, type KeyOf, type ScalarKey, type BindingDecl, type AddressSpace } from './ir'
 
 export interface FieldSpec<T extends ShaderType = ShaderType> {
   readonly type: T
@@ -43,6 +43,11 @@ export interface IoStruct<F extends Record<string, FieldSpec>> {
    *  conditional-field spread (`...(cond ? { pick } : {})`) introduces, so optional
    *  output fields stay `Node`, not `Node | undefined`. */
   of(node: ReadonlyNode): { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> } & { readonly $: ReadonlyNode }
+  /** Declare a `var` of this struct and return its typed field proxy in one step —
+   *  `const o = VsOut.var()` replaces the `const out = Var(VsOut.type); const o =
+   *  VsOut.of(out)` stub pair. Assign fields via `o.uv.assign(…)`, return / forward the
+   *  raw value via `o.$`. `name` pins the WGSL identifier (byte-stable emit). */
+  var(name?: string): { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> } & { readonly $: ReadonlyNode }
   /** Build a value of this struct in ONE expression — `LineOut(f0, f1, …)` — instead of a
    *  mutable `var out; out.f0 = …; return out`. Args are taken in field-declaration order, so a
    *  wrong/missing field is a TS error. Replaces the imperative field-by-field output build. */
@@ -79,6 +84,9 @@ export function ioStruct<F extends Record<string, FieldSpec>>(name: string, fiel
         // misparsed as a named-args bag ("has no field 'input'" at module load).
         has: (_t, prop) => prop === '$' || (typeof prop === 'string' && prop in fields),
       }) as { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> } & { readonly $: ReadonlyNode }
+    },
+    var(varName?: string) {
+      return this.of(varName !== undefined ? Var(varName, this.type) : Var(this.type))
     },
     construct(values: Record<string, ReadonlyNode>) {
       return construct(structT(name), decl.fields.map((f) => values[f.name]))
@@ -127,34 +135,59 @@ export function structDecl<F extends Record<string, ShaderType>>(name: string, f
   }
 }
 
-export interface UniformStruct<F extends Record<string, ShaderType>> {
+/** A fixed-size `array<Element, N>` uniform field whose ELEMENT is a struct handle —
+ *  `patterns: arrayOf(PatternSlot, 3)`. The field proxy then exposes a TYPED `.at(i)`
+ *  (`LAYER.field.patterns.at(k).id`) instead of the raw-node `.at(i, elemType)` + `.of()`
+ *  bridge pair. The declared WGSL type is the same `array<T, N>` the plain spelling produced. */
+export interface HandleArray<H extends StructHandle> {
+  readonly element: H
+  readonly count: number
+}
+
+export const arrayOf = <H extends StructHandle>(element: H, count: number): HandleArray<H> => ({ element, count })
+
+const isHandleArray = (v: ShaderType | HandleArray<StructHandle>): v is HandleArray<StructHandle> =>
+  typeof v === 'object' && 'element' in v && 'count' in v
+
+type UniformFieldNode<V> =
+  V extends HandleArray<infer H> ? { at(i: ReadonlyNode<ScalarKey> | number): ReturnType<H['of']> }
+  : V extends ShaderType ? Node<KeyOf<V>>
+  : never
+
+export interface UniformStruct<F extends Record<string, ShaderType | HandleArray<StructHandle>>> {
   readonly struct: StructDecl
   readonly binding: BindingDecl
   readonly node: Node
-  readonly field: { readonly [K in keyof F]: Node<KeyOf<F[K]>> }
+  readonly field: { readonly [K in keyof F]: UniformFieldNode<F[K]> }
 }
 
 /** Declare a uniform-buffer struct + its binding from one place; derive the StructDecl,
  *  the binding decl, the access node, and typed field access. `at.as` is the WGSL var name. */
-export function uniformStruct<F extends Record<string, ShaderType>>(
+export function uniformStruct<F extends Record<string, ShaderType | HandleArray<StructHandle>>>(
   typeName: string,
   at: { group: number; binding: number; as: string },
   fields: F,
 ): UniformStruct<F> {
-  const struct: StructDecl = { name: typeName, fields: Object.entries(fields).map(([n, type]) => ({ name: n, type })) }
+  const fieldType = (v: ShaderType | HandleArray<StructHandle>): ShaderType =>
+    isHandleArray(v) ? arrayT(v.element.type, v.count) : v
+  const struct: StructDecl = { name: typeName, fields: Object.entries(fields).map(([n, v]) => ({ name: n, type: fieldType(v) })) }
   const type = structT(typeName)
   const node = bindingRef(at.as, type)
   return {
     struct,
     binding: { group: at.group, binding: at.binding, name: at.as, space: 'uniform', type },
     node,
-    field: new Proxy({} as Record<string, Node>, {
+    field: new Proxy({} as Record<string, unknown>, {
       get: (_t, prop) => {
-        const t = fields[prop as string]
-        if (t === undefined) throw new Error(`sot: uniformStruct '${typeName}' has no field '${String(prop)}'`)
-        return member(node, prop as string, t)
+        const v = fields[prop as string]
+        if (v === undefined) throw new Error(`sot: uniformStruct '${typeName}' has no field '${String(prop)}'`)
+        if (isHandleArray(v)) {
+          const arrNode = member(node, prop as string, arrayT(v.element.type, v.count))
+          return { at: (i: ReadonlyNode<ScalarKey> | number) => v.element.of(arrNode.at(i, v.element.type)) }
+        }
+        return member(node, prop as string, v)
       },
-    }) as { readonly [K in keyof F]: Node<KeyOf<F[K]>> },
+    }) as { readonly [K in keyof F]: UniformFieldNode<F[K]> },
   }
 }
 
