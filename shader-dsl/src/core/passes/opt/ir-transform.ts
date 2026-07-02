@@ -7,6 +7,7 @@
 // IR is treated as immutable: every helper returns a new node, never mutates.
 
 import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir'
+import { bodyHasRaw } from './dce'
 
 /** Bottom-up expression rewrite: map children first, then apply `f` to the
  *  rebuilt node. */
@@ -78,10 +79,16 @@ export function mapStmt(s: Stmt, f: (e: Expr) => Expr): Stmt {
   }
 }
 
-/** Apply an Expr rewrite to every function body in a module. */
-export function mapModuleExprs(m: ModuleDecl, f: (e: Expr) => Expr): ModuleDecl {
+/** Apply an Expr rewrite to every function body in a module. With
+ *  `skipRawBodies` (#763 P1) a fn containing a raw WGSL Stmt is returned
+ *  UNTOUCHED — the "raw fns emit verbatim" charter (wgsl.ts) applies to
+ *  value-rewriting passes too; constFold/algebraicSimplify were the only two
+ *  DEFAULT_PASSES without the skip, i.e. exactly the passes that CHANGE
+ *  ARITHMETIC around precision-critical raw splices. */
+export function mapModuleExprs(m: ModuleDecl, f: (e: Expr) => Expr, opts?: { skipRawBodies?: boolean }): ModuleDecl {
   return {
     ...m,
-    funcs: m.funcs.map((fn): FuncDecl => ({ ...fn, body: fn.body.map((s) => mapStmt(s, f)) })),
+    funcs: m.funcs.map((fn): FuncDecl =>
+      opts?.skipRawBodies && bodyHasRaw(fn.body) ? fn : { ...fn, body: fn.body.map((s) => mapStmt(s, f)) }),
   }
 }
