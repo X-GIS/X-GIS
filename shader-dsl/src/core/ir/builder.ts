@@ -223,7 +223,14 @@ function subBody(parent: Builder, fn: (b: Builder) => ReadonlyNode | void): Stmt
 export type FnHandle<P extends FnParamSpec, R extends string> =
   FuncDecl
   & {
-    (args: { readonly [K in keyof P]: Node<KeyOf<ParamTypeOf<P[K]>>> }): Node<R>
+    /** Typed object-param call — TS checks names, types, completeness. Raw numbers
+     *  are accepted and lift to the DECLARED param type (a u32 param gets a u32
+     *  literal, not the positional form's blanket f32). Prefer this form. */
+    (args: { readonly [K in keyof P]: Node<KeyOf<ParamTypeOf<P[K]>>> | number }): Node<R>
+    /** @deprecated Positional call — `NodeLike[]` checks NOTHING (arity, types,
+     *  order all unchecked at the TS level; a lon/lat swap compiles). The
+     *  `call-signature` lint rule catches arity/type mismatches at emit time,
+     *  but same-type swaps only the object-param form can prevent. */
     (...args: NodeLike[]): Node<R>
   }
   & { readonly decl: FuncDecl }
@@ -244,7 +251,13 @@ function makeCallFactory<R extends ShaderType>(
     const a0 = args[0]
     if (args.length === 1 && a0 != null && !(a0 instanceof Node) && typeof a0 === 'object' && !Array.isArray(a0)) {
       const obj = a0 as unknown as Record<string, NodeLike>
-      return callFn(name, ret, ...paramList.map((p) => obj[p.name]))
+      // A raw number in the object form lifts to the DECLARED param type — the
+      // caller named the parameter, so its type is known (unlike the positional
+      // form, whose bare numbers can only default-lift).
+      return callFn(name, ret, ...paramList.map((p) => {
+        const v = obj[p.name]
+        return typeof v === 'number' ? new Node({ op: 'lit', type: p.type, value: v }) : v
+      }))
     }
     return callFn(name, ret, ...args)
   }

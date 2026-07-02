@@ -24,6 +24,7 @@ import { noEmptyFunction } from './no-empty-function'
 import { maxFunctionLength } from './max-function-length'
 import { preferLetOverVar } from './prefer-let-over-var'
 import { noDeadBinding } from './no-dead-binding'
+import { callSignature } from './call-signature'
 
 /** The registered ruleset. Order is the diagnostic order (module checks, then per-fn in
  *  declaration order). Append new rules here. */
@@ -47,12 +48,14 @@ export const RULES: readonly LintRule[] = [
   maxFunctionLength,
   preferLetOverVar,
   noDeadBinding,
+  callSignature,
 ]
 
 export {
   dupStruct, dupFunc, bindingCollision, allPathsReturn, singleExit, mixedScalarRule,
   noRecursion, noUnreachable, noFloatEq, cyclomaticComplexity, paramCount, namingConvention, maxNesting,
   noSelfAssign, noAssignToLet, noEmptyFunction, maxFunctionLength, preferLetOverVar, noDeadBinding,
+  callSignature,
 }
 
 /** The subset run by validate() at EVERY emit (incl. runtime-composed + compute modules
@@ -66,4 +69,7 @@ export const CORE_RULES: readonly LintRule[] = [
   bindingCollision,
   allPathsReturn,
   mixedScalarRule,
+  // Call arity/types against the module's own fn decls — resolvable names only,
+  // so composer-injected extern names can never false-flag (validate.ts charter).
+  callSignature,
 ]
