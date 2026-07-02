@@ -73,6 +73,9 @@ export function ioStruct<F extends Record<string, FieldSpec>>(name: string, fiel
     of(node: ReadonlyNode) {
       return new Proxy({} as Record<string, Node>, {
         get: (_t, prop) => {
+          // Symbols are protocol probes (NODE_BRAND #763 D1, Symbol.toPrimitive,
+          // inspection) — never authored fields. Answer undefined, don't throw.
+          if (typeof prop !== 'string') return undefined
           // `$` = the raw struct-value Node (#740 R6): lets a field proxy be
           // FORWARDED — fn call factories unwrap it, so `helper(p.input)` works
           // when p.input arrived as a typed handle param. Not a WGSL identifier,
@@ -130,6 +133,7 @@ export function structDecl<F extends Record<string, ShaderType>>(name: string, f
     of(node: ReadonlyNode) {
       return new Proxy({} as Record<string, Node>, {
         get: (_t, prop) => {
+          if (typeof prop !== 'string') return undefined // symbol probes (#763 D1) — never fields
           if (prop === '$') return node // raw struct-value Node (#740 R6, forwardable)
           const t = fields[prop as string]
           if (t === undefined) throw new Error(`sot: structDecl '${name}' has no field '${String(prop)}'`)
@@ -189,6 +193,7 @@ export function uniformStruct<F extends Record<string, ShaderType | HandleArray<
     node,
     field: new Proxy({} as Record<string, unknown>, {
       get: (_t, prop) => {
+        if (typeof prop !== 'string') return undefined // symbol probes (#763 D1) — never fields
         const v = fields[prop as string]
         if (v === undefined) throw new Error(`sot: uniformStruct '${typeName}' has no field '${String(prop)}'`)
         if (isHandleArray(v)) {

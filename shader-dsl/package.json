@@ -8,8 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./dev": "./src/dev.ts",
-    "./core/ir": "./src/core/ir/index.ts",
-    "./core/*": "./src/core/*.ts"
+    "./core/ir": "./src/core/ir/index.ts"
   },
   "files": [
     "dist"
@@ -33,10 +32,6 @@
       "./core/ir": {
         "types": "./dist/core/ir/index.d.ts",
         "default": "./dist/core/ir/index.js"
-      },
-      "./core/*": {
-        "types": "./dist/core/*.d.ts",
-        "default": "./dist/core/*.js"
       }
     }
   }
