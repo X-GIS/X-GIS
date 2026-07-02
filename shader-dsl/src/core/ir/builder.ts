@@ -5,7 +5,7 @@
 // computeFn / entryFn / module assemblers. Imports types + nodes + node.
 
 import { type ShaderType, type KeyOf, type ScalarKey, voidT } from './types'
-import type { Stmt, Expr, BinOp, FuncDecl, ModuleDecl, ConstDecl } from './nodes'
+import type { Stmt, Expr, BinOp, FuncDecl, ModuleDecl, ConstDecl, StructDecl, BindingDecl } from './nodes'
 import { Node, ReadonlyNode, isNodeValue, type ArithArg, type NodeLike, lift, f32, i32, u32, callFn, installStmtSink } from './node'
 import { dslError } from '../diagnostics/error'
 import { captureLoc, recordLoc } from '../diagnostics/loc'
@@ -336,10 +336,16 @@ type FnOpts = {
   stage?: 'vertex' | 'fragment' | 'compute'
   /** Workgroup size for a `stage: 'compute'` entry (defaults to 64). */
   workgroupSize?: number
-  /** Return-value attribute for a bare (non-struct) stage output — `-> @location(0) vec4<f32>`. */
-  retAttr?: string
+  /** Return-value attribute for a bare (non-struct) stage output — `-> @location(0) vec4<f32>`.
+   *  Accepts the typed `location(0, T)` FieldSpec too (#763 X3 — its `.attr` is used), and
+   *  DEFAULTS to `@location(0)` for a bare non-struct fragment return (every observed site
+   *  used exactly that string; omitting it used to die late in the driver). */
+  retAttr?: string | { readonly attr: string }
 }
-type FnBody<P extends FnParamSpec, R extends string> = (p: ParamNodes<P>, b: Builder) => ReadonlyNode<R> | void
+// A body may return the raw node OR a struct field proxy (`return o` — #763 X14):
+// the proxy forwards `.expr`/`.type` to its base var, so `bld.ret` reads it like
+// a node. StructArg is the `{ $: ReadonlyNode }` shape every sot proxy carries.
+type FnBody<P extends FnParamSpec, R extends string> = (p: ParamNodes<P>, b: Builder) => ReadonlyNode<R> | StructArg | void
 
 /** Infer a fn's WGSL return type from its body — the type of the value it returns. Used when the author
  *  omits the explicit return-type token. Walks into nested if/for/switch for a body that returns only via
@@ -439,7 +445,10 @@ export function fn(
   // A body may `return value` (native TS) for its FINAL return — fn appends the
   // ret Stmt, so authoring reads like a normal function. Early returns inside
   // control flow still use Return() (a native return there only exits the closure).
-  const result = withScope(bld, () => body(paramNodes, bld))
+  const rawResult = withScope(bld, () => body(paramNodes, bld))
+  // A struct field proxy returned directly (`return o` — #763 X14) forwards
+  // `.expr`/`.type` to its base var, so it reads like a node from here on.
+  const result = rawResult as ReadonlyNode | void
   if (result !== undefined) bld.ret(result)
   // Return type: explicit token if given, else inferred from what the body returns.
   const ret = explicitRet ?? inferReturnType(result, bld.stmts)
@@ -449,12 +458,16 @@ export function fn(
     : opts?.stage
       ? [`@${opts.stage}`]
       : undefined
+  // retAttr: string | FieldSpec, with the fragment default (#763 X3).
+  const retAttrRaw = opts?.retAttr
+  const retAttr = (typeof retAttrRaw === 'string' ? retAttrRaw : retAttrRaw?.attr)
+    ?? (opts?.stage === 'fragment' && ret.kind !== 'struct' && ret.kind !== 'void' ? '@location(0)' : undefined)
   const decl: FuncDecl = {
     name, params: paramList, ret, body: bld.stmts, attrs,
     // Structured stage (#740 R3) — reflect/backends read these; `attrs` stays the emit spelling.
     stage: opts?.stage,
     workgroupSize: opts?.stage === 'compute' ? (opts.workgroupSize ?? 64) : undefined,
-    retAttr: opts?.retAttr, allowEarlyReturn: opts?.allowEarlyReturn, lintDisable: opts?.lintDisable,
+    retAttr, allowEarlyReturn: opts?.allowEarlyReturn, lintDisable: opts?.lintDisable,
   }
   // The handle IS the call node factory (shared with externFn); the FuncDecl fields are mixed
   // onto it so it still duck-types as a FuncDecl in a module's funcs[]. `name` is a non-writable
@@ -498,8 +511,19 @@ export function externFn<P extends ParamSpec, R extends ShaderType>(name: string
  *  key-named record — `{ vs, fs }` / `{ vs: someHandle }` — where each KEY names
  *  its fn (an anonymous `fn(params, body)` gets its real name here; a named one
  *  is renamed if the key differs, with every handle-made call re-spelled). */
+/** A declarator handle accepted by `module({ uses })` (#763 X1) — anything
+ *  that carries its own decl/binding: uniformStruct ({struct,binding}),
+ *  ioStruct/structDecl ({decl}), constDecl ({decl,node}), storageBuffer
+ *  ({binding,+elementDecl for struct elements}), resource ({binding}). */
+export type UsesHandle =
+  | { readonly struct: StructDecl; readonly binding: BindingDecl }
+  | { readonly decl: StructDecl | ConstDecl }
+  | { readonly binding: BindingDecl; readonly elementDecl?: StructDecl }
+
 export interface ModuleParts extends Omit<Partial<ModuleDecl>, 'funcs'> {
   readonly funcs?: readonly FuncDecl[] | Readonly<Record<string, FuncDecl>>
+  /** Handle list — structs/bindings/consts are DERIVED from these (#763 X1). */
+  readonly uses?: readonly UsesHandle[]
 }
 
 /** The decl behind a funcs[] item — FnHandle carries `.decl`; a plain FuncDecl is itself. */
@@ -625,10 +649,38 @@ function normalizeFuncs(input: ModuleParts['funcs']): FuncDecl[] {
  *  (order preserved verbatim; transitively handle-called fns are prepended
  *  callee-first) or a key-named record — see ModuleParts. */
 export function module(parts: ModuleParts): ModuleDecl {
+  // #763 X1 — `uses:` derives structs/bindings/consts from the HANDLES, which
+  // already know their own decls; every module used to restate them by hand,
+  // and a forgotten `U.binding` was green through tsc AND validate, dying at
+  // pipeline creation. Explicit arrays still work and merge (name-deduped —
+  // the dup-struct/dup-func validate rules would reject the overlap).
+  // Explicit arrays pass through UNTOUCHED — validate's dup-struct/dup-func
+  // rules must still see an author's accidental duplicates. Only the
+  // uses-DERIVED decls dedupe against what is already present (an explicit
+  // entry + the same handle in `uses` is the legal merge case).
+  const consts: ConstDecl[] = [...(parts.consts ?? [])]
+  const structs: StructDecl[] = [...(parts.structs ?? [])]
+  const bindings: BindingDecl[] = [...(parts.bindings ?? [])]
+  const structNames = new Set(structs.map((s) => s.name))
+  const constNames = new Set(consts.map((c) => c.name))
+  const bindingKeys = new Set(bindings.map((b) => `${b.group}:${b.binding}:${b.name}`))
+  const addStruct = (s: StructDecl): void => { if (!structNames.has(s.name)) { structNames.add(s.name); structs.push(s) } }
+  const addConst = (c: ConstDecl): void => { if (!constNames.has(c.name)) { constNames.add(c.name); consts.push(c) } }
+  const addBinding = (b: BindingDecl): void => {
+    const k = `${b.group}:${b.binding}:${b.name}`
+    if (!bindingKeys.has(k)) { bindingKeys.add(k); bindings.push(b) }
+  }
+  for (const h of parts.uses ?? []) {
+    if ('struct' in h && h.struct) addStruct(h.struct)                        // uniformStruct
+    else if ('decl' in h && h.decl && 'fields' in h.decl) addStruct(h.decl)   // ioStruct / structDecl
+    else if ('decl' in h && h.decl) addConst(h.decl as ConstDecl)             // constDecl handle
+    if ('elementDecl' in h && h.elementDecl) addStruct(h.elementDecl)         // storageBuffer's struct element
+    if ('binding' in h && h.binding) addBinding(h.binding)                    // uniformStruct / storageBuffer / resource
+  }
   return {
-    consts: parts.consts ?? [],
-    structs: parts.structs ?? [],
-    bindings: parts.bindings ?? [],
+    consts,
+    structs,
+    bindings,
     funcs: normalizeFuncs(parts.funcs),
   }
 }
