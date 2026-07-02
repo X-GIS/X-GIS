@@ -65,11 +65,11 @@ const vsFull = fn(
 // fs_blur — 9-tap separable Gaussian along `direction`. Reads the R16Float
 // density with textureLoad (clamped to the texture extent at the edges).
 const fsBlur = fn(
-  'fs_blur', { in: VsOut.type },
+  'fs_blur', { in: VsOut },
   (p) => {
     const dimU = textureDimensions(srcTex.node)
     const dim = vec2(toF32(dimU.x), toF32(dimU.y))
-    const baseUv = VsOut.of(p.in).uv
+    const baseUv = p.in.uv
     const baseX = baseUv.x.mul(dim.x)
     const baseY = baseUv.y.mul(dim.y)
     const dir = Params.field.direction

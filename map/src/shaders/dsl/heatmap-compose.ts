@@ -79,9 +79,9 @@ const loadDensity = fn('load_density', { uv: vec2fT }, (p) => {
 })
 
 const fsCompose = fn(
-  'fs_compose', { in: VsOut.type },
+  'fs_compose', { in: VsOut },
   (p) => {
-    const density = loadDensity(VsOut.of(p.in).uv)
+    const density = loadDensity(p.in.uv)
     const intensity = U.field.params.x
     const opacity = U.field.params.y
     // Normalise density → ramp coordinate (0..1) via intensity scale.

@@ -54,8 +54,8 @@ const vs = fn('vs', {
   })
 }, { stage: 'vertex' })
 
-const fs = fn('fs', { in: VsOut.type }, (p) => {
-  const pin = VsOut.of(p.in)
+const fs = fn('fs', { in: VsOut }, (p) => {
+  const pin = p.in
   const c = textureSample(atlasTex.node, atlasSmp.node, pin.uv)
   // fwidth must be in uniform control flow — compute aa unconditionally (the
   // raster path discards it).

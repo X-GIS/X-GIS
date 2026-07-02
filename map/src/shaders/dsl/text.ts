@@ -54,8 +54,8 @@ const vs = fn('vs', {
   })
 }, { stage: 'vertex' })
 
-const fs = fn('fs', { in: VsOut.type }, (p) => {
-  const sdf = textureSample(atlasTex.node, atlasSmp.node, VsOut.of(p.in).uv).r
+const fs = fn('fs', { in: VsOut }, (p) => {
+  const sdf = textureSample(atlasTex.node, atlasSmp.node, p.in.uv).r
   const fill = U.field.fill_color
   const halo = U.field.halo_color
   const edge = f32(0.75)

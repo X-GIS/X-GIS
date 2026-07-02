@@ -16,9 +16,15 @@ export type ParamSpec = Record<string, ShaderType>
  *  an ordinary param. Lets one `fn()` author both helpers and `@vertex`/`@fragment`/`@compute`
  *  entries from a single param record. */
 type ParamAttr = { readonly type: ShaderType; readonly attr: string }
-export type FnParamSpec = Record<string, ShaderType | ParamAttr>
-type ParamTypeOf<E> = E extends ParamAttr ? E['type'] : E extends ShaderType ? E : never
-type ParamNodes<P extends FnParamSpec> = { [K in keyof P]: Node<KeyOf<ParamTypeOf<P[K]>>> }
+/** A structDecl / ioStruct HANDLE used directly as a param spec value (#740 R6):
+ *  `fn({ in: PointOut }, ({ in }) => in.uv…)` — the body receives the TYPED field
+ *  proxy, retiring the `PointOut.of(p.in)` re-assertion at every consumer. */
+type StructParamHandle = { readonly type: ShaderType; of(node: ReadonlyNode): object }
+export type FnParamSpec = Record<string, ShaderType | ParamAttr | StructParamHandle>
+type ParamTypeOf<E> = E extends ParamAttr ? E['type'] : E extends StructParamHandle ? E['type'] : E extends ShaderType ? E : never
+type ParamNodes<P extends FnParamSpec> = {
+  [K in keyof P]: P[K] extends StructParamHandle ? ReturnType<P[K]['of']> : Node<KeyOf<ParamTypeOf<P[K]>>>
+}
 
 export class Builder {
   readonly stmts: Stmt[] = []
@@ -220,18 +226,24 @@ function subBody(parent: Builder, fn: (b: Builder) => ReadonlyNode | void): Stmt
  *   - positional `foo(a, b)` — loose (NodeLike), the legacy form; still supported. */
 // R is the RETURN KEY (e.g. 'f32', 'vec2<f32>') — inferred from the body's return Node, so a fn declares
 // no return type. The args mapped-type's own K is the PARAM key (unrelated).
+/** A forwardable struct field proxy (a handle param / `.of()` view) — accepted
+ *  anywhere a struct-typed argument is, via its raw-node `$` accessor. */
+type StructArg = { readonly $: ReadonlyNode }
+
 export type FnHandle<P extends FnParamSpec, R extends string> =
   FuncDecl
   & {
     /** Typed object-param call — TS checks names, types, completeness. Raw numbers
      *  are accepted and lift to the DECLARED param type (a u32 param gets a u32
-     *  literal, not the positional form's blanket f32). Prefer this form. */
-    (args: { readonly [K in keyof P]: Node<KeyOf<ParamTypeOf<P[K]>>> | number }): Node<R>
+     *  literal, not the positional form's blanket f32). Struct-handle params accept
+     *  a forwarded field proxy. Prefer this form. */
+    (args: { readonly [K in keyof P]: Node<KeyOf<ParamTypeOf<P[K]>>> | number | (P[K] extends StructParamHandle ? StructArg : never) }): Node<R>
     /** @deprecated Positional call — `NodeLike[]` checks NOTHING (arity, types,
      *  order all unchecked at the TS level; a lon/lat swap compiles). The
      *  `call-signature` lint rule catches arity/type mismatches at emit time,
-     *  but same-type swaps only the object-param form can prevent. */
-    (...args: NodeLike[]): Node<R>
+     *  but same-type swaps only the object-param form can prevent. (Struct field
+     *  proxies are accepted and unwrap to their raw struct-value Node.) */
+    (...args: (NodeLike | StructArg)[]): Node<R>
   }
   & { readonly decl: FuncDecl }
 
@@ -257,18 +269,26 @@ function makeCallFactory<R extends ShaderType>(
     if (declRef) (n.expr as { declRef?: FuncDecl }).declRef = declRef
     return n
   }
-  return (...args: NodeLike[]): Node<KeyOf<R>> => {
+  // A struct FIELD PROXY (a handle param / a `.of()` view) forwards as its raw
+  // struct-value Node via its `$` accessor (#740 R6) — so `helper(p.input)` just
+  // works when p.input arrived as a typed handle param.
+  const unwrap = (v: unknown): unknown =>
+    v !== null && typeof v === 'object' && !(v instanceof Node) && '$' in (v as object)
+      ? (v as { $: ReadonlyNode }).$
+      : v
+  return (...rawArgs: NodeLike[]): Node<KeyOf<R>> => {
+    const args = rawArgs.map(unwrap) as NodeLike[]
     // Typed object-param call `f({ lon, lat })` — map the named args to positional order.
     // Distinguished from a single positional Node arg: a params object is a plain object, a
-    // Node is a class instance. (callFn then builds the identical call-by-name node.)
+    // Node is a class instance, and a struct field proxy unwraps to one above.
     const a0 = args[0]
     if (args.length === 1 && a0 != null && !(a0 instanceof Node) && typeof a0 === 'object' && !Array.isArray(a0)) {
       const obj = a0 as unknown as Record<string, NodeLike>
       // A raw number in the object form lifts to the DECLARED param type — the
       // caller named the parameter, so its type is known (unlike the positional
-      // form, whose bare numbers can only default-lift).
+      // form, whose bare numbers can only default-lift). Struct proxies unwrap.
       return mk(paramList.map((p) => {
-        const v = obj[p.name]
+        const v = unwrap(obj[p.name]) as NodeLike
         return typeof v === 'number' ? new Node({ op: 'lit', type: p.type, value: v }) : v
       }))
     }
@@ -346,15 +366,25 @@ export function fn(
   const inferred = explicitRet === undefined
   const body = (inferred ? retOrBody : named ? d : c) as FnBody<FnParamSpec, string>
   const opts = (named ? (inferred ? d : e) : (inferred ? c : d)) as FnOpts | undefined
-  // A param value is either a plain ShaderType or a FieldSpec `{ type, attr }` (builtin/location)
-  // for an entry-point param — the `attr` flows straight to the emitted `@builtin(…)`/`@location(…)`.
-  const paramList = Object.entries(params).map(([n, spec]) =>
-    'attr' in spec
-      ? { name: n, type: spec.type, attr: spec.attr }
-      : { name: n, type: spec as ShaderType },
-  )
+  // A param value is a plain ShaderType, a FieldSpec `{ type, attr }` (builtin/location)
+  // for an entry-point param — the `attr` flows straight to the emitted `@builtin(…)`/
+  // `@location(…)` — or a structDecl/ioStruct HANDLE (#740 R6), whose param arrives in
+  // the body as the TYPED field proxy (no `X.of(p.in)` re-assertion).
+  const entries = Object.entries(params).map(([n, spec]) => {
+    const isHandle = 'of' in spec && typeof (spec as StructParamHandle).of === 'function'
+    return {
+      name: n,
+      type: (isHandle || 'attr' in spec ? (spec as ParamAttr | StructParamHandle).type : spec) as ShaderType,
+      attr: !isHandle && 'attr' in spec ? (spec as ParamAttr).attr : undefined,
+      handle: isHandle ? (spec as StructParamHandle) : undefined,
+    }
+  })
+  const paramList = entries.map((p) => (p.attr !== undefined ? { name: p.name, type: p.type, attr: p.attr } : { name: p.name, type: p.type }))
   const paramNodes = Object.fromEntries(
-    paramList.map((p) => [p.name, new Node({ op: 'param', type: p.type, name: p.name })]),
+    entries.map((p) => {
+      const node = new Node({ op: 'param', type: p.type, name: p.name })
+      return [p.name, p.handle ? p.handle.of(node) : node]
+    }),
   ) as ParamNodes<FnParamSpec>
   const bld = new Builder()
   // A body may `return value` (native TS) for its FINAL return — fn appends the

@@ -34,7 +34,7 @@ export interface IoStruct<F extends Record<string, FieldSpec>> {
    *  emitted member Expr is byte-identical. NonNullable strips the `| undefined` a
    *  conditional-field spread (`...(cond ? { pick } : {})`) introduces, so optional
    *  output fields stay `Node`, not `Node | undefined`. */
-  of(node: ReadonlyNode): { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> }
+  of(node: ReadonlyNode): { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> } & { readonly $: ReadonlyNode }
   /** Build a value of this struct in ONE expression — `LineOut(f0, f1, …)` — instead of a
    *  mutable `var out; out.f0 = …; return out`. Args are taken in field-declaration order, so a
    *  wrong/missing field is a TS error. Replaces the imperative field-by-field output build. */
@@ -54,11 +54,20 @@ export function ioStruct<F extends Record<string, FieldSpec>>(name: string, fiel
     of(node: ReadonlyNode) {
       return new Proxy({} as Record<string, Node>, {
         get: (_t, prop) => {
+          // `$` = the raw struct-value Node (#740 R6): lets a field proxy be
+          // FORWARDED — fn call factories unwrap it, so `helper(p.input)` works
+          // when p.input arrived as a typed handle param. Not a WGSL identifier,
+          // so it can never shadow a real field.
+          if (prop === '$') return node
           const spec = fields[prop as string]
           if (spec === undefined) throw new Error(`sot: ioStruct '${name}' has no field '${String(prop)}'`)
           return member(node, prop as string, spec.type)
         },
-      }) as { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> }
+        // The empty proxy TARGET has no keys, so without this trap `'$' in proxy`
+        // is false and the call-factory unwrap misses — the proxy then gets
+        // misparsed as a named-args bag ("has no field 'input'" at module load).
+        has: (_t, prop) => prop === '$' || (typeof prop === 'string' && prop in fields),
+      }) as { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> } & { readonly $: ReadonlyNode }
     },
     construct(values: Record<string, ReadonlyNode>) {
       return construct(structT(name), decl.fields.map((f) => values[f.name]))
@@ -70,8 +79,9 @@ export interface PlainStruct<F extends Record<string, ShaderType>> {
   readonly decl: StructDecl
   readonly type: ShaderType
   /** Typed field access for a value of this struct — e.g. an array<T> storage element
-   *  read via `Seg.of(segments.at(i)).p0_h`; replaces `node.field('p0_h', vec2fT)`. */
-  of(node: ReadonlyNode): { readonly [K in keyof F]: Node<KeyOf<F[K]>> }
+   *  read via `Seg.of(segments.at(i)).p0_h`; replaces `node.field('p0_h', vec2fT)`.
+   *  `.$` is the raw struct-value Node (forwardable — call factories unwrap it). */
+  of(node: ReadonlyNode): { readonly [K in keyof F]: Node<KeyOf<F[K]>> } & { readonly $: ReadonlyNode }
   /** Positional field access — `Seg.get(node, 'p0_h')` is `node.field('p0_h', <type>)`,
    *  a wrong field name a TS error. Same as `.of(node).p0_h`; kept for call sites that
    *  read many fields off a shared shorthand (`const g = Seg.get`). */
@@ -94,11 +104,14 @@ export function structDecl<F extends Record<string, ShaderType>>(name: string, f
     of(node: ReadonlyNode) {
       return new Proxy({} as Record<string, Node>, {
         get: (_t, prop) => {
+          if (prop === '$') return node // raw struct-value Node (#740 R6, forwardable)
           const t = fields[prop as string]
           if (t === undefined) throw new Error(`sot: structDecl '${name}' has no field '${String(prop)}'`)
           return member(node, prop as string, t)
         },
-      }) as { readonly [K in keyof F]: Node<KeyOf<F[K]>> }
+        // `'$' in proxy` must be true for the call-factory unwrap (empty target).
+        has: (_t, prop) => prop === '$' || (typeof prop === 'string' && prop in fields),
+      }) as { readonly [K in keyof F]: Node<KeyOf<F[K]>> } & { readonly $: ReadonlyNode }
     },
   }
 }
