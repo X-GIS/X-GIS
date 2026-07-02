@@ -190,11 +190,20 @@ export class PipelineFactory {
     if (this.ctx.rhi.backend === 'webgl2') return
     const { format } = this.ctx
     const cv = toComposerVariant(variant)
+    // #746 — split GLSL twins so the WebGL2 fallback can build these Materials too.
+    // BEST-EFFORT for per-style variants: a feat_data-backed variant needs a storage
+    // buffer, which the GLSL ES 3.00 backend fails closed on — an unguarded emit here
+    // threw during Material registration and left the pipeline UNTWINNED, killing every
+    // per-feature fill draw on the WebGPU path too (recordFillDraw is fail-loud).
+    // No twin → the Material is WGSL-only and WebGL2 keeps its explicit error.
+    let vsCode: string | undefined, fsCode: string | undefined
+    try {
+      vsCode = emitPolygonGlsl(cv, isPickEnabled(), 'vertex')
+      fsCode = emitPolygonGlsl(cv, isPickEnabled(), 'fragment')
+    } catch { /* GLSL-inexpressible variant (e.g. storage buffer) — WGSL-only twin */ }
     const { flat, ground } = buildFlatFillMaterials({
       rhi: this.ctx.rhi, shader: emitPolygonWgsl(cv, isPickEnabled()), format, sampleCount: getSampleCount(),
-      // #746 — split GLSL twins so the WebGL2 fallback can build these Materials too.
-      vsCode: emitPolygonGlsl(cv, isPickEnabled(), 'vertex'),
-      fsCode: emitPolygonGlsl(cv, isPickEnabled(), 'fragment'),
+      vsCode, fsCode,
       bindGroupLayout: this.getOrBuildVariantLayout(variant), vertexLayout: toVertexBufferLayout(POLYGON_FILL_FORMAT), pickEnabled: isPickEnabled(),
     })
     this._fillPerStyle.set(pipelines.fillPipeline, { mat: flat, variant: 0 })
