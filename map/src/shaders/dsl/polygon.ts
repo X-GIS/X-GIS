@@ -29,6 +29,7 @@ import {
   radians, degrees,
   f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, vec4uT, mat4x4fT, texture2dfT, samplerT,
   Node, Builder, arrayT,
+  type ReadonlyNode,
   type ModuleDecl, type Stmt, type BindingDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, resource } from '@xgis/shader-dsl'
@@ -145,8 +146,10 @@ const polygonFragmentOutput = (pickEnabled: boolean) => ioStruct('FragmentOutput
 })
 
 /** The typed `var` proxy for a fragment-output value — what the fragment entries
- *  author into and the emit helpers below receive (no raw-Node + re-`.of()` bridge). */
-type PolyFragOut = ReturnType<ReturnType<typeof polygonFragmentOutput>['of']>
+ *  author into and the emit helpers below receive (no raw-Node + re-`.of()` bridge).
+ *  Derived from `.var` (the MUTABLE view): the helpers assign fields. `.of`'s
+ *  ReturnType is the read view since #763 G2 (overloaded on the base). */
+type PolyFragOut = ReturnType<ReturnType<typeof polygonFragmentOutput>['var']>
 
 // ── Binding refs ──
 //
@@ -257,23 +260,25 @@ const polygonRimAlpha = fn(
 // nodes; clip var) are passed in as already-bound Nodes.
 const emitPolygonProjectionLadder = (
   args: {
-    projParamsV: Node<'vec4<f32>'>
-    mvp: Node<'mat4x4<f32>'>
-    absLon: Node<'f32'>
-    absLat: Node<'f32'>
-    ecefRtc: Node<'vec3<f32>'>
+    // READ inputs — ReadonlyNode, so uniform fields and fn params flow in
+    // directly (#763 G2/G3). `clip` is the OUTPUT var this ladder assigns.
+    projParamsV: ReadonlyNode<'vec4<f32>'>
+    mvp: ReadonlyNode<'mat4x4<f32>'>
+    absLon: ReadonlyNode<'f32'>
+    absLat: ReadonlyNode<'f32'>
+    ecefRtc: ReadonlyNode<'vec3<f32>'>
     clip: Node<'vec4<f32>'>
     extruded: boolean
-    isTop?: Node<'f32'>
-    wallHeight?: Node<'f32'>
+    isTop?: ReadonlyNode<'f32'>
+    wallHeight?: ReadonlyNode<'f32'>
     // When provided (quantized fill VS), the flat-Mercator arm positions from
     // this PRECISE tile-local Mercator vec2 (vertex_merc − tile_origin_merc)
     // instead of re-projecting the lossy f32 abs_lon/abs_lat degrees.
-    localMerc?: Node<'vec2<f32>'>
+    localMerc?: ReadonlyNode<'vec2<f32>'>
     // #398: TRUE unclamped lat the disc (flat_rel) arm projects from instead of
     // the Merc-clamped absLat — so the ±90 caps reach the pole, not the 85.05
     // ring. ONLY flat_rel reads it; other arms byte-identical. Absent → absLat.
-    discLat?: Node<'f32'>
+    discLat?: ReadonlyNode<'f32'>
   },
 ): void => {
   const { projParamsV, mvp, absLon, absLat, ecefRtc, clip, extruded, isTop, wallHeight, localMerc, discLat } = args
