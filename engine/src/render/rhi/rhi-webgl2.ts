@@ -68,6 +68,10 @@ interface Gl2Pipeline {
   blend: 'alpha' | 'premult' | 'additive' | 'max' | 'none' | undefined
   cullMode?: 'none' | 'back' | 'front'
   depth?: { write: boolean; compare: 'always' | 'less' | 'less-equal'; bias?: { constant: number; slopeScale: number; clamp: number } }
+  /** Per-tile clip-mask stencil state (#746). Mirrors rhi-webgpu's rhiStencilToGpu:
+   *  only compare + passOp vary; fail/depthFail stay 'keep'; ref arrives per-draw
+   *  via setStencilReference. Absent = STENCIL_TEST disabled (the inert shape). */
+  stencil?: { compare: 'always' | 'equal'; passOp: 'keep' | 'replace'; writeMask: number; readMask: number }
   vertexBuffers: ReadonlyArray<{ stride: number; attributes: ReadonlyArray<{ location: number; offset: number; format: string }> }>
   layouts: ReadonlyArray<Gl2BindGroupLayout>
 }
@@ -141,6 +145,8 @@ class WebGl2RenderPass implements RhiRenderPass {
   private vbuf?: Gl2Buffer
   private vbufOffset = 0
   private ibuf?: { buf: Gl2Buffer; type: GLenum; offset: number }
+  /** Per-draw stencil reference (WebGPU setStencilReference analog; folded into stencilFunc). */
+  private stencilRef = 0
   constructor(private readonly gl: WebGL2RenderingContext) {}
 
   setPipeline(p: RhiPipeline): void {
@@ -165,6 +171,26 @@ class WebGl2RenderPass implements RhiRenderPass {
     } else {
       gl.disable(gl.CULL_FACE)
     }
+    if (pl.stencil) {
+      gl.enable(gl.STENCIL_TEST)
+      this.applyStencil(pl.stencil)
+    } else {
+      // Inert shape — test disabled AND writes masked off, mirroring the WebGPU
+      // STENCIL_DISABLED state (masks 0x00), so a stencil-less draw can never
+      // scribble on a clip mask another pipeline wrote.
+      gl.disable(gl.STENCIL_TEST)
+      gl.stencilMask(0x00)
+    }
+  }
+
+  /** (Re)apply the current pipeline's stencil func/op/mask with the live ref —
+   *  WebGL2 folds the WebGPU per-draw stencil REFERENCE into stencilFunc, so a
+   *  ref change must re-issue the func. fail/depthFail stay KEEP (rhiStencilToGpu). */
+  private applyStencil(s: NonNullable<Gl2Pipeline['stencil']>): void {
+    const gl = this.gl
+    gl.stencilFunc(s.compare === 'equal' ? gl.EQUAL : gl.ALWAYS, this.stencilRef, s.readMask)
+    gl.stencilOp(gl.KEEP, gl.KEEP, s.passOp === 'replace' ? gl.REPLACE : gl.KEEP)
+    gl.stencilMask(s.writeMask)
   }
 
   // Bind each recorded resource onto its GL slot. The UBO block binding point and
@@ -243,11 +269,11 @@ class WebGl2RenderPass implements RhiRenderPass {
     else this.gl.drawArrays(this.gl.TRIANGLES, firstVertex, vertexCount)
   }
 
-  setStencilReference(_ref: number): void {
-    // WebGL2 stencil-state binding is deferred to the WebGL2 full-frame phase. The
-    // WebGL2 pipeline does not enable GL_STENCIL_TEST yet, so the ref is inert; and
-    // createPipeline fail-CLOSES on a stencil-configured pipeline, so a clip-mask
-    // pipeline can never silently reach this path without its stencil.
+  setStencilReference(ref: number): void {
+    // WebGPU carries the ref as pass-encoder state; WebGL2 folds it into
+    // stencilFunc, so store it and re-issue the func on the live pipeline (#746).
+    this.stencilRef = ref
+    if (this.cur?.stencil) this.applyStencil(this.cur.stencil)
   }
 
   drawIndexed(indexCount: number, instanceCount = 1): void {
@@ -334,7 +360,11 @@ export class WebGl2Device implements RhiDevice {
     if (desc.clear) {
       const [r, g, b, a] = desc.clear
       gl.clearColor(r, g, b, a)
-      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+      // Stencil too (#746): clears honor stencilMask, so unmask first — a prior
+      // pipeline's inert 0x00 mask would silently skip the stencil clear.
+      gl.stencilMask(0xff)
+      gl.clearStencil(0)
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT)
     }
     return new WebGl2RenderPass(gl)
   }
@@ -480,12 +510,6 @@ export class WebGl2Device implements RhiDevice {
     if (!desc.vsCode || !desc.fsCode) {
       throw new Error('webgl2: createPipeline requires GLSL vsCode/fsCode (emitGlslModule m,"vertex"/"fragment"); desc.code is WGSL — the single-module vs split-source divergence')
     }
-    if (desc.depthStencil?.stencil) {
-      // Fail-CLOSED: stencil pipeline state (the per-tile clip mask) has no WebGL2
-      // path yet — deferred to the WebGL2 full-frame phase. A clip-mask pipeline
-      // therefore never silently runs without its stencil on WebGL2.
-      throw new Error('webgl2: stencil pipeline state not yet supported (deferred to the WebGL2 full-frame phase)')
-    }
     const gl = this.gl
     const vs = compile(gl, gl.VERTEX_SHADER, desc.vsCode)
     const fs = compile(gl, gl.FRAGMENT_SHADER, desc.fsCode)
@@ -550,6 +574,7 @@ export class WebGl2Device implements RhiDevice {
       blend: desc.colorTargets[0]?.blend,
       cullMode: desc.cullMode,
       depth: desc.depthStencil ? { write: desc.depthStencil.write, compare: desc.depthStencil.compare, bias: desc.depthStencil.bias } : undefined,
+      stencil: desc.depthStencil?.stencil,
       vertexBuffers: desc.vertexBuffers ?? [],
       layouts,
     } satisfies Gl2Pipeline)

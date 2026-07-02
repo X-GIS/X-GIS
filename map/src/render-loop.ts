@@ -215,6 +215,18 @@ export class RenderLoop {
     const rhi = this.host.ctx.rhi
     if (rhi?.beginScreenPass && rhi.endScreenPass) {
       this.renderFrameViaRhi(rhi, w, h, projType, centerLon, centerLat, dpr)
+      // Mirror the WebGPU path's end-of-frame idle bookkeeping (#746): snapshot
+      // the camera signature + clear _needsRender. Without this the early return
+      // left shouldRenderThisFrame() true forever, so the forced-WebGL2 loop
+      // re-rendered EVERY rAF and the 'idle' lifecycle event could never fire.
+      this.host._lastSigZoom = this.host.camera.zoom
+      this.host._lastSigCX = this.host.camera.centerX
+      this.host._lastSigCY = this.host.camera.centerY
+      this.host._lastSigBearing = this.host.camera.bearing
+      this.host._lastSigPitch = this.host.camera.pitch
+      this.host._lastSigW = this.host.ctx.canvas.width
+      this.host._lastSigH = this.host.ctx.canvas.height
+      this.host._needsRender = false
       requestAnimationFrame(this.host.renderLoop)
       return
     }

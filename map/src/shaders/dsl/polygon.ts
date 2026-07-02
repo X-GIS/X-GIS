@@ -33,7 +33,7 @@ import {
   type ModuleDecl, type Stmt, type BindingDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, resource } from '@xgis/shader-dsl'
-import { emitModule, emitFunc, composeModule } from '@xgis/shader-dsl'
+import { emitModule, emitGlslModule, emitFunc, composeModule, stageOf } from '@xgis/shader-dsl'
 import { project, flat_rel, needs_backface_cull, rim_alpha, inv_merc_lat_rad, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
 import { PI, EARTH_R, MERCATOR_LAT_LIMIT, DEG2RAD } from './consts'
@@ -1175,3 +1175,24 @@ export const emitPolygonWgsl = (
   variant: ShaderVariantInfo | null,
   pickEnabled: boolean,
 ): string => emitModule(buildPolygonModule(variant, pickEnabled))
+
+/** GLSL ES 3.00 twin of the FLAT-FILL slice (#746) — the WebGL2 fallback's polygon
+ *  descriptors need split vsCode/fsCode next to the WGSL `code`. The polygon module
+ *  carries SEVERAL entries per stage (vs_main_ecef / vs_main_ecef_extruded; fs_fill /
+ *  fs_stroke / fs_fill_extrude / …) and a GLSL stage emit turns EVERY entry of that
+ *  stage into a `main()` — so narrow the module to the one entry this Material uses
+ *  (helpers/consts/bindings stay; unused helpers are dead-but-valid GLSL). Extrude /
+ *  pattern Materials stay WGSL-only for now — WebGL2 keeps its explicit fail-closed
+ *  error for those, this covers the parity spec's meaningful gate (opaque flat fill). */
+export const emitPolygonGlsl = (
+  variant: ShaderVariantInfo | null,
+  pickEnabled: boolean,
+  stage: 'vertex' | 'fragment',
+): string => {
+  const m = buildPolygonModule(variant, pickEnabled)
+  const keep = stage === 'vertex' ? 'vs_main_ecef' : 'fs_fill'
+  return emitGlslModule(
+    { ...m, funcs: m.funcs.filter((f) => stageOf(f) === undefined || f.name === keep) },
+    stage,
+  )
+}

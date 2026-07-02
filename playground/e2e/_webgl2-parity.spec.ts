@@ -36,8 +36,48 @@ async function shoot(page: import('@playwright/test').Page, id: string, gl2: boo
   await page.setViewportSize({ width: W, height: H })
   await page.goto(`/demo.html?id=${id}&e2e=1${gl2 ? '&forcegl2=1' : ''}`, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(() => (window as unknown as ReadyWin).__xgisReady === true, null, { timeout: 35_000 })
-  await page.waitForTimeout(3500)
-  const png = await page.locator('#map').screenshot()
+
+  // EVENT-DRIVEN settle — wait for the map's own 'idle' event (the render loop
+  // reports nothing left to draw), not a wall-clock sleep. invalidate() first so
+  // one more frame is forced and 'idle' RE-fires even if it already passed before
+  // the listener attached (the attach race). A never-idle regression fails loud.
+  await page.evaluate(() => new Promise<void>((resolve, reject) => {
+    const m = (window as unknown as {
+      __xgisMap?: { on?: (t: string, cb: () => void) => void; invalidate?: () => void }
+    }).__xgisMap
+    if (!m?.on) return reject(new Error('__xgisMap.on unavailable — demo did not expose the map'))
+    const t = setTimeout(() => reject(new Error("map never fired 'idle' within 30s")), 30_000)
+    m.on('idle', () => { clearTimeout(t); resolve() })
+    m.invalidate?.()
+  }))
+
+  // CANVAS-NATIVE capture: canvas.toBlob reads the map's own backbuffer — map
+  // pixels ONLY. The demo overlays (#status label / snapshot button / hash badge)
+  // that an element screenshot composites in are unrepresentable here (the
+  // reloc-DC0 demo-chrome pollution class). Same readback surface the map's own
+  // __xgisSnapshot pixel hash uses. Streaming can re-dirty the frame after an
+  // 'idle' (glyph/sprite late arrivals), so capture until two consecutive reads
+  // are byte-identical (bounded — no unconditional sleep).
+  const grab = async (): Promise<Buffer> => Buffer.from(await page.evaluate(() =>
+    new Promise<string>((resolve, reject) => {
+      const c = document.getElementById('map') as HTMLCanvasElement | null
+      if (!c || typeof c.toBlob !== 'function') return reject(new Error('#map canvas missing'))
+      c.toBlob((b) => {
+        if (!b) return reject(new Error('canvas.toBlob returned null'))
+        const r = new FileReader()
+        r.onload = () => resolve((r.result as string).split(',')[1] ?? '')
+        r.onerror = () => reject(new Error('blob read failed'))
+        r.readAsDataURL(b)
+      }, 'image/png')
+    })), 'base64')
+  let png = await grab()
+  for (let i = 0; i < 10; i++) {
+    await page.waitForTimeout(300)
+    const next = await grab()
+    const settled = Buffer.compare(png, next) === 0
+    png = next
+    if (settled) break
+  }
   if (errs.length) console.log(`  [${id} gl2=${gl2}] ${errs.length} page error(s): ${errs[0]?.slice(0, 100)}`)
   return png
 }
