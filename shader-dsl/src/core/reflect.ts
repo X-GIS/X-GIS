@@ -11,7 +11,7 @@
 // emit path, so it cannot change a single emitted byte. The std140/std430 offsets are
 // anchored to the offsets the runtime already ships (reflect.test.ts).
 
-import { type ShaderType, type StructDecl, type ModuleDecl, type AddressSpace, typeKey } from './ir'
+import { type ShaderType, type StructDecl, type ModuleDecl, type AddressSpace, typeKey, stageOf, workgroupSizeOf } from './ir'
 
 const roundUp = (x: number, a: number): number => Math.ceil(x / a) * a
 
@@ -117,15 +117,8 @@ const resourceKind = (space: AddressSpace, t: ShaderType): ResourceKind =>
 // String fallback ONLY (#740 R3): fn()-authored decls carry structured
 // `stage`/`workgroupSize` — reflect reads those first; the attrs-string parse
 // survives solely for hand-built FuncDecl literals.
-const stageOf = (attrs: readonly string[] | undefined): EntryInfo['stage'] | undefined =>
-  attrs?.some((a) => a.startsWith('@vertex')) ? 'vertex'
-    : attrs?.some((a) => a.startsWith('@fragment')) ? 'fragment'
-      : attrs?.some((a) => a.startsWith('@compute')) ? 'compute' : undefined
-
-const workgroupSize = (attrs: readonly string[] | undefined): number | undefined => {
-  const m = attrs?.map((a) => a.match(/@workgroup_size\((\d+)/)).find(Boolean)
-  return m ? Number(m[1]) : undefined
-}
+// Stage / workgroup-size predicates live in core/ir (#763 S1) — one shared helper
+// for reflect, the capability gate, GLSL entry classification, and fn-DCE roots.
 
 /** Recover the target-neutral pipeline metadata from a module's IR. Pure + read-only. */
 export function reflect(m: ModuleDecl): Reflection {
@@ -158,11 +151,11 @@ export function reflect(m: ModuleDecl): Reflection {
   const entries: EntryInfo[] = []
   let vertex: VertexLayout | undefined
   for (const f of m.funcs) {
-    const stage = f.stage ?? stageOf(f.attrs)
+    const stage = stageOf(f)
     if (!stage) continue
     entries.push({
       name: f.name, stage,
-      ...(stage === 'compute' ? { workgroupSize: f.workgroupSize ?? workgroupSize(f.attrs) ?? 64 } : {}),
+      ...(stage === 'compute' ? { workgroupSize: workgroupSizeOf(f) ?? 64 } : {}),
       inputs: f.params.map((p) => typeKey(p.type)),
       output: typeKey(f.ret),
     })

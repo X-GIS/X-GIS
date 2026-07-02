@@ -24,7 +24,7 @@
 // offsets, in/out varyings, main()) + the headless-WebGL2 gate cover the emit.
 
 import type { ShaderType, ModuleDecl, StructDecl, BindingDecl, FuncDecl, Expr, Stmt } from '../ir'
-import { texture2dfT, u32T, f32T, vec4fT } from '../ir'
+import { texture2dfT, u32T, f32T, vec4fT, stageOf } from '../ir'
 import { Capabilities, UnsupportedFeatureError, type Backend } from '../backend'
 import { spellIntrinsic } from '../intrinsics'
 import { f32Lit } from './wgsl'
@@ -77,9 +77,13 @@ function glslLit(value: number | boolean, t: ShaderType): string {
 const LOCATION_RE = /@location\((\d+)\)/
 const BUILTIN_RE = /@builtin\((\w+)\)/
 
-const isEntry = (f: FuncDecl): boolean =>
-  f.stage === 'vertex' || f.stage === 'fragment'
-  || !!f.attrs?.some((a) => a.startsWith('@vertex') || a.startsWith('@fragment'))
+// Shared stage predicate (#763 S1/S3) — structured-first with attr fallback.
+// GLSL has no compute stage; compute entries are handled by the emulation
+// lowering (or rejected by the capability gate) before this predicate runs.
+const isEntry = (f: FuncDecl): boolean => {
+  const s = stageOf(f)
+  return s === 'vertex' || s === 'fragment'
+}
 
 /** String fallback ONLY (#740 R3): sot-authored fields carry structured
  *  location/builtin — read those via ioAttr() below. This regex path survives
@@ -238,7 +242,9 @@ function emitGlslUbo(b: BindingDecl, struct: StructDecl): string {
  *  varying inside the vertex shader; inter-stage varyings + fragment draw buffers keep
  *  the field name so cross-stage by-name linkage holds. */
 function emitGlslEntry(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): string {
-  const stage: 'vertex' | 'fragment' = f.attrs?.some((a) => a.startsWith('@fragment')) ? 'fragment' : 'vertex'
+  // Structured-first (#763 S3): a `{ stage: 'fragment' }` decl without attrs used
+  // to classify as VERTEX here (wrong varying direction / dropped entry).
+  const stage: 'vertex' | 'fragment' = stageOf(f) === 'fragment' ? 'fragment' : 'vertex'
   const lines: string[] = []
 
   // input-varying GLSL name: a vertex attribute is `a_`-prefixed (so it can't collide with
@@ -575,8 +581,9 @@ export function emitGlslModule(m: ModuleDecl, stage?: 'vertex' | 'fragment', opt
   const lowered = sanitizeReservedIdents(lowerForBackend(src, glslEs300Backend))
   const structs = new Map(lowered.structs.map((s) => [s.name, s]))
 
-  const stageAttr = stage === 'vertex' ? '@vertex' : stage === 'fragment' ? '@fragment' : undefined
-  const entries = lowered.funcs.filter((f) => isEntry(f) && (stageAttr === undefined || f.attrs?.some((a) => a.startsWith(stageAttr))))
+  // Stage filter through the shared predicate (#763 S3) — the old attr-string
+  // match silently DROPPED a structured-only entry from its own stage's emit.
+  const entries = lowered.funcs.filter((f) => isEntry(f) && (stage === undefined || stageOf(f) === stage))
   const helpers = lowered.funcs.filter((f) => !isEntry(f))
 
   // A struct consumed as a uniform/storage BINDING type becomes a UBO/SSBO block, NOT a
