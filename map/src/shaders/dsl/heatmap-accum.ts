@@ -37,6 +37,9 @@ import { ioStruct, builtin, location, uniformStruct, storageBuffer } from '@xgis
 import { emitModule } from '@xgis/shader-dsl'
 import { flat_rel, needs_backface_cull, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
 
+// Exported (as heatmapAccumU below — distinct barrel name) for the renderer's
+// UniformBlock (#733 P2): the CPU packer derives its typed write surface from
+// this SAME declaration the WGSL struct is emitted from.
 const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
   // ECEF-MVP (Camera.getECEFFrameView) for globe / 3D; the matching
   // flat-Mercator MVP (Camera.getViewForProjection) on the flat path.
@@ -56,6 +59,7 @@ const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
   // on flat / disc paths (those arms ignore globe_eye).
   globe_eye: vec4fT,
 })
+export { U as heatmapAccumU }
 
 const HeatOut = ioStruct('HeatOut', {
   position: builtin('position', vec4fT),

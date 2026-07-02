@@ -108,6 +108,10 @@ const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
   // flat / disc paths (those arms ignore globe_eye). Grows the struct 256→272.
   globe_eye: vec4fT,
 })
+// Exported (distinct barrel name) for the CPU packers' UniformBlock (#733 P2):
+// renderer (non-tiled) / graticule / VTR derive their typed write surfaces from
+// this SAME declaration the WGSL struct is emitted from.
+export { U as polygonU }
 const Uniforms = U.struct
 
 const VertexOutputIO = ioStruct('VertexOutput', {

@@ -28,17 +28,19 @@ import { FrameArena } from '@xgis/engine'
 import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
 import { wrapWebGpuPass, wrapWebGpuBindGroupLayout } from '@xgis/engine'
 import { HeatmapDraper } from './material/heatmap-material'
-import { heatmapUniformSlots, heatmapUniformBytes } from './heatmap-uniform-slots'
-import { writeProjectionCull } from './frame-projection-uniform'
+import { uniformBlock, type UniformBlockOf } from '@xgis/engine'
+import { heatmapAccumU as HEATMAP_U } from '../shaders/dsl/heatmap-accum'
+import { globeEyeUniform } from './globe-eye-uniform'
 
-// f32 slots of the heatmap-accum 'Uniforms' struct, from reflect() (NOT hand-coded magic
-// offsets — those drift from heatmap-accum.ts). The `uf[...]` packer writes at HS.<field>.
-// LAZY memoising Proxy: heatmapUniformSlots() reflects a module that needs configureProjections()
-// (run later in init), so the reflect() is deferred to the first HS.<field> read (a render).
-let _hsSlots: Readonly<Record<string, number>> | null = null
-const HS = new Proxy({} as Record<string, number>, {
-  get: (_t, k: string) => (_hsSlots ??= heatmapUniformSlots().slot)[k],
-})
+// Typed pack target for the heatmap-accum 'Uniforms' struct (#733 P2): layout from
+// wgslLayout(U.struct) — handle-only, module-free — and write() typed by the same
+// field record the WGSL is emitted from, so offsets cannot drift and a missing
+// field (the #600 globe_eye class) does not compile. LAZY memo (ctor/frame time),
+// same discipline as the reflect()-based slots it replaces.
+let _heatmapBlock: UniformBlockOf<typeof HEATMAP_U> | null = null
+function heatmapBlock(): UniformBlockOf<typeof HEATMAP_U> {
+  return (_heatmapBlock ??= uniformBlock(HEATMAP_U))
+}
 
 /** A baked heatmap-color ramp stop — offset in [0,1] (heatmap-density) and a
  *  normalised RGBA colour. The renderer interpolates between stops to fill
@@ -94,15 +96,16 @@ export const DEFAULT_HEATMAP_RAMP: readonly HeatmapColorStop[] = [
   { offset: 1.0, rgba: [1, 0, 0, 1] },        // red
 ]
 
-/** Pack the heatmap accum frame uniform (32 f32 slots):
- *  mvp 0..15, proj_params 16..19, viewport 20..23, cam_ecef_h 24..27,
- *  cam_ecef_l 28..31. Identical convention to the point frame uniform's
- *  leading block (minus circle_params). The flat-Mercator path writes the
- *  2D camera centre (DSFUN hi/lo) into cam_ecef_h.xy / cam_ecef_l.xy. */
-function writeHeatmapFrameUniform(
-  uf: Float32Array,
-  // #600 — frame.eye is the absolute sphere-ECEF camera position (globe/ECEF
-  // branch only) for the globe(7) eye-horizon cull.
+/** Pack the heatmap accum frame uniform into the typed block — one write() per
+ *  frame, every field named, completeness compile-time (#733 P2; a packer that
+ *  omits globe_eye — the #600 class — does not compile). Identical convention to
+ *  the point frame uniform minus circle_params: viewport = (w, h, meters/px, 0);
+ *  cam_ecef_h/l = camera anchor split DSFUN (2D Mercator centre in .xy on the
+ *  flat path, getECEFCenter on globe/3D); globe_eye all-zero off the globe
+ *  (flat/disc cull arms ignore it).
+ *  (exported for the byte-equality gate — heatmap-frame-uniform.test.ts) */
+export function writeHeatmapFrameUniform(
+  block: UniformBlockOf<typeof HEATMAP_U>,
   frame: { matrix: Float32Array; eye?: readonly [number, number, number] },
   camera: Camera,
   projType: number,
@@ -111,25 +114,26 @@ function writeHeatmapFrameUniform(
   canvasWidth: number,
   canvasHeight: number,
 ): void {
-  uf.set(frame.matrix, HS.mvp)
-  // proj_params + globe_eye written TOGETHER (coupled so a missing globe_eye —
-  // the #600 leak class — is unrepresentable). frame.eye is set only on the
-  // globe/ECEF branch → globe_eye all-zero on flat (flat/disc cull arms ignore it).
-  writeProjectionCull(uf, HS.proj_params, HS.globe_eye, projType, projCenterLon, projCenterLat, frame.eye, 0)
   const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, camera.zoom)
-  uf[HS.viewport] = canvasWidth; uf[HS.viewport + 1] = canvasHeight; uf[HS.viewport + 2] = metersPerPixel; uf[HS.viewport + 3] = 0
+  let cHx: number, cHy: number, cHz: number, cLx: number, cLy: number, cLz: number
   if (projType === 0) {
     const cmx = camera.centerX, cmy = camera.centerY
-    const cmxH = Math.fround(cmx), cmyH = Math.fround(cmy)
-    uf[HS.cam_ecef_h] = cmxH; uf[HS.cam_ecef_h + 1] = cmyH; uf[HS.cam_ecef_h + 2] = 0; uf[HS.cam_ecef_h + 3] = 0
-    uf[HS.cam_ecef_l] = cmx - cmxH; uf[HS.cam_ecef_l + 1] = cmy - cmyH; uf[HS.cam_ecef_l + 2] = 0; uf[HS.cam_ecef_l + 3] = 0
+    cHx = Math.fround(cmx); cHy = Math.fround(cmy); cHz = 0
+    cLx = cmx - cHx; cLy = cmy - cHy; cLz = 0
   } else {
     const camC = camera.getECEFCenter()
-    const cxH = Math.fround(camC[0]); const cyH = Math.fround(camC[1]); const czH = Math.fround(camC[2])
-    uf[HS.cam_ecef_h] = cxH; uf[HS.cam_ecef_h + 1] = cyH; uf[HS.cam_ecef_h + 2] = czH; uf[HS.cam_ecef_h + 3] = 0
-    uf[HS.cam_ecef_l] = camC[0] - cxH; uf[HS.cam_ecef_l + 1] = camC[1] - cyH; uf[HS.cam_ecef_l + 2] = camC[2] - czH; uf[HS.cam_ecef_l + 3] = 0
+    cHx = Math.fround(camC[0]); cHy = Math.fround(camC[1]); cHz = Math.fround(camC[2])
+    cLx = camC[0] - cHx; cLy = camC[1] - cHy; cLz = camC[2] - cHz
   }
-  // (proj_params + globe_eye written together above via writeProjectionCull.)
+  const ge = globeEyeUniform(frame.eye)
+  block.write({
+    mvp: frame.matrix,
+    proj_params: [projType, projCenterLon, projCenterLat, 0],
+    viewport: [canvasWidth, canvasHeight, metersPerPixel, 0],
+    cam_ecef_h: [cHx, cHy, cHz, 0],
+    cam_ecef_l: [cLx, cLy, cLz, 0],
+    globe_eye: [ge[0], ge[1], ge[2], ge[3]],
+  })
 }
 
 export class HeatmapRenderer {
@@ -142,7 +146,7 @@ export class HeatmapRenderer {
   private rhi: RhiDevice
   private bindGroupLayout: GPUBindGroupLayout
   private uniformBuffer: RhiBuffer
-  private uniformData = new Float32Array(heatmapUniformSlots().slots) // reflect-derived (= mvp16+proj4+viewport4+cam_h4+cam_l4+globe_eye4 = 36, #600)
+  private frameBlock = heatmapBlock() // typed std140 pack target (mvp/proj/viewport/cam_h/cam_l/globe_eye, #600)
   private readonly _frameArena = new FrameArena(64 * 1024)
   private layers: HeatmapLayer[] = []
   /** Blur direction uniforms (allocated once; the heatmap pass picks H/V).
@@ -170,7 +174,7 @@ export class HeatmapRenderer {
 
     // Accum uniform — UNIFORM|COPY_DST, byte-identical via bufUsage('uniform', writable:true).
     this.uniformBuffer = this.rhi.createBuffer({
-      size: heatmapUniformBytes(), // reflect-derived (was 144 = 36 f32 × 4, #600 globe_eye)
+      size: this.frameBlock.byteLength, // reflected std140 size (144 = 36 f32 × 4, #600 globe_eye)
       usage: 'uniform', writable: true,
     })
 
@@ -332,9 +336,8 @@ export class HeatmapRenderer {
     dpr: number,
   ): void {
     const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
-    const uf = this.uniformData
-    writeHeatmapFrameUniform(uf, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight)
-    this.rhi.writeBuffer(this.uniformBuffer, 0, uf)
+    writeHeatmapFrameUniform(this.frameBlock, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight)
+    this.rhi.writeBuffer(this.uniformBuffer, 0, this.frameBlock.buffer)
   }
 
   /** Draw ONE heatmap layer's Gaussian splats additively into the bound accum

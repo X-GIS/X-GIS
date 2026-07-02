@@ -12,8 +12,9 @@ import { routeToSphereSelector, enumerateWorldCopies } from '@xgis/engine'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import { globeVisibleTiles } from '@xgis/engine'
-import { writeProjectionCull } from './frame-projection-uniform'
-import { rasterUniformSlots, rasterUniformBytes, rasterTileSlots } from './raster-uniform-slots'
+import { uniformBlock, type UniformBlockOf } from '@xgis/engine'
+import { rasterU as RASTER_U, rasterTileU as RASTER_TILE_U } from '../shaders/dsl/raster'
+import { globeEyeUniform } from './globe-eye-uniform'
 
 /** Camera RTC anchor for the raster VS on the globe / 3D surfaces.
  *
@@ -26,6 +27,71 @@ import { rasterUniformSlots, rasterUniformBytes, rasterTileSlots } from './raste
  *  tiler's ellipsoid `cam_ecef_off` (vector-tile-renderer.ts:3627-3638). */
 export function rasterGlobeCamAnchor(lonDeg: number, latDeg: number): ECEF {
   return lonLatToECEF(lonDeg, latDeg)
+}
+
+// ── Typed pack targets (#733 P2b) — layout from wgslLayout(U.struct), write()
+// typed by the same field record the WGSL is emitted from. LAZY memo (draw time).
+let _rasterBlock: UniformBlockOf<typeof RASTER_U> | null = null
+function rasterBlock(): UniformBlockOf<typeof RASTER_U> {
+  return (_rasterBlock ??= uniformBlock(RASTER_U))
+}
+let _rasterTileBlock: UniformBlockOf<typeof RASTER_TILE_U> | null = null
+function rasterTileBlock(): UniformBlockOf<typeof RASTER_TILE_U> {
+  return (_rasterTileBlock ??= uniformBlock(RASTER_TILE_U))
+}
+
+export interface RasterColorParams {
+  opacity: number
+  hueRotate: number
+  brightnessMin: number
+  brightnessMax: number
+  saturation: number
+  contrast: number
+}
+
+/** Pack the raster global uniform — the SINGLE authority shared by render() and
+ *  the forced-WebGL2 checker (renderRhiChecker). The checker's old literal-offset
+ *  packer carried raster_params.w = 8 where render() wrote 0 — a dead lane (the
+ *  shader reads only raster_params.x), retired by this unification. Completeness
+ *  is compile-time (#600 globe_eye class does not compile if omitted); globe_eye
+ *  is all-zero off the globe (frame.eye undefined), matching both old packers.
+ *  camAnchor: 2D Mercator centre in .xy on the flat path (ECEF lanes dead
+ *  there); the WGS84 ELLIPSOID anchor (rasterGlobeCamAnchor) on globe/3D.
+ *  (exported for the byte-equality gate — raster-frame-uniform.test.ts) */
+export function writeRasterFrameUniform(
+  block: UniformBlockOf<typeof RASTER_U>,
+  frame: { matrix: Float32Array; logDepthFc: number; eye?: readonly [number, number, number] },
+  projType: number,
+  projCenterLon: number,
+  projCenterLat: number,
+  camAnchor: readonly [number, number, number],
+  c: RasterColorParams,
+): void {
+  const ge = globeEyeUniform(frame.eye)
+  block.write({
+    mvp: frame.matrix,
+    proj_params: [projType, projCenterLon, projCenterLat, frame.logDepthFc],
+    raster_params: [c.opacity, 0, 0, 0],
+    raster_color0: [c.hueRotate, c.brightnessMin, c.brightnessMax, c.saturation],
+    raster_color1: [c.contrast, 0, 0, 0],
+    cam_ecef_center: [camAnchor[0], camAnchor[1], camAnchor[2], 0],
+    globe_eye: [ge[0], ge[1], ge[2], ge[3]],
+  })
+}
+
+/** Pack one raster TileUniforms slot (exported for the byte-equality gate). */
+export function writeRasterTileUniform(
+  block: UniformBlockOf<typeof RASTER_TILE_U>,
+  west: number, south: number, east: number, north: number,
+  tileEcef: readonly [number, number, number] | ECEF,
+  mercSouth: number, mercDiff: number,
+): void {
+  block.write({
+    bounds: [west, south, east, north],
+    tile_ecef_center: [tileEcef[0], tileEcef[1], tileEcef[2], 0],
+    merc_y: [mercSouth, mercDiff],
+    _pad: [0, 0],
+  })
 }
 
 interface CachedTile {
@@ -79,7 +145,14 @@ export class RasterRenderer {
   /** True when `raster-resampling: nearest` is active. Default false
    *  (linear) is byte-identical to today's fixed-linear sampler. */
   private _nearest = false
-  private drawTileF32 = new Float32Array(rasterTileSlots().slots) // reflect-derived (= bounds4+tile_ecef4+merc_y2+pad2 = 12)
+  // (per-tile packing goes through rasterTileBlock() — #733 P2b)
+  private colorParams(): RasterColorParams {
+    return {
+      opacity: this._opacity, hueRotate: this._hueRotate,
+      brightnessMin: this._brightnessMin, brightnessMax: this._brightnessMax,
+      saturation: this._saturation, contrast: this._contrast,
+    }
+  }
 
   // ── Forced-WebGL2 raster slice (US-003) ──
   // A SECOND draper backed by the WebGl2Device (host.ctx.rhi), drawing an analytic
@@ -195,33 +268,26 @@ export class RasterRenderer {
     const checker = this.ensureRhiChecker(rhi)
     const frame = camera.getViewForProjection(projType, w, h, dpr)
 
-    // Global uniform (160 B) — Float32 element offsets: mvp@0, proj@16, raster_params@20,
-    // color0@24, color1@28, cam_ecef_center@32. Mirrors render()'s layout.
-    const globalBytes = new ArrayBuffer(rasterUniformBytes())
-    const gf = new Float32Array(globalBytes)
-    gf.set(frame.matrix, 0)
-    gf.set([projType, projCenterLon, projCenterLat, frame.logDepthFc], 16)
-    gf.set([this._opacity, 0, 0, 8], 20)
-    gf.set([this._hueRotate, this._brightnessMin, this._brightnessMax, this._saturation], 24)
-    gf.set([this._contrast, 0, 0, 0], 28)
+    // Global uniform through the SAME packer render() uses (#733 P2b single
+    // authority — the old literal-offset copy here carried raster_params.w = 8,
+    // a dead lane the shader never reads; now uniformly 0).
     // cam_ecef_center: the slice renders a FLAT z0 tile (single-sample, projType-0 scope —
     // the globe/ECEF anchor is Story-5/6), so pack the 2D Mercator camera centre. No projType
     // branch here keeps the forced-WebGL2 path off the projType-comparison arch ratchet.
-    gf.set([camera.centerX, camera.centerY, 0, 0], 32)
+    const B = rasterBlock()
+    writeRasterFrameUniform(B, frame, projType, projCenterLon, projCenterLat,
+      [camera.centerX, camera.centerY, 0], this.colorParams())
 
-    // One z0 world tile (whole Mercator band), uv_rect = whole texture.
+    // One z0 world tile (whole Mercator band).
     const west = -180, south = -85.051129, east = 180, north = 85.051129
     const swEcef = lonLatToECEF(west, south)
     const DEG2RAD = Math.PI / 180
     const mercSouth = Math.log(Math.tan(Math.PI / 4 + south * DEG2RAD / 2))
     const mercNorth = Math.log(Math.tan(Math.PI / 4 + north * DEG2RAD / 2))
-    const tf = new Float32Array(16)
-    tf[0] = west; tf[1] = south; tf[2] = east; tf[3] = north
-    tf[4] = swEcef[0]; tf[5] = swEcef[1]; tf[6] = swEcef[2]
-    tf[8] = mercSouth; tf[9] = mercNorth - mercSouth
-    tf[12] = 0; tf[13] = 0; tf[14] = 1; tf[15] = 1
+    const TB = rasterTileBlock()
+    writeRasterTileUniform(TB, west, south, east, north, swEcef, mercSouth, mercNorth - mercSouth)
 
-    this._rhiDraper.draw(pass, globalBytes, [{ texture: checker, tileBytes: tf }])
+    this._rhiDraper.draw(pass, B.buffer, [{ texture: checker, tileBytes: new Float32Array(TB.buffer.slice(0)) }])
   }
 
   render(
@@ -245,7 +311,6 @@ export class RasterRenderer {
     this.frameCount++
 
     const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
-    const mvp = frame.matrix
     const { zoom } = camera
 
     const currentZ = Math.max(0, Math.min(18, Math.round(zoom)))
@@ -330,43 +395,23 @@ export class RasterRenderer {
       })
     }
 
-    // Write global uniforms. proj_params.w = log_depth_fc so the raster
-    // grid shader can apply/read the log-depth transform uniformly with
-    // the vector pipelines.
-    const uniformData = new ArrayBuffer(rasterUniformBytes())
-    const RS = rasterUniformSlots().slot // offsets reflect-derived (byte-identical; raster-uniform-bytes.test.ts)
-    new Float32Array(uniformData, RS.mvp * 4, 16).set(mvp)
-    // proj_params + globe_eye written TOGETHER (coupled so the #600 "projection
-    // set, eye forgotten" leak is unrepresentable). proj_params.w = log_depth_fc
-    // is raster-specific (the raster struct folds it into that lane). frame.eye is
-    // the globe/ECEF camera position (undefined off the globe → globe_eye zero).
-    writeProjectionCull(new Float32Array(uniformData), RS.proj_params, RS.globe_eye, projType, projCenterLon, projCenterLat, frame.eye, frame.logDepthFc)
-    // raster_params at offset 80 — x = opacity, yzw reserved.
-    new Float32Array(uniformData, RS.raster_params * 4, 4).set([this._opacity, 0, 0, 0])
-    // raster_color0 @96 — (hueRotateDeg, brightnessMin, brightnessMax, saturation).
-    new Float32Array(uniformData, RS.raster_color0 * 4, 4).set([this._hueRotate, this._brightnessMin, this._brightnessMax, this._saturation])
-    // raster_color1 @112 — x = contrast, yzw reserved.
-    new Float32Array(uniformData, RS.raster_color1 * 4, 4).set([this._contrast, 0, 0, 0])
-    // cam_ecef_center @128 — camera anchor (ellipsoid) for camera-relative RTC,
-    // mirroring polygon's cam_ecef_off. Subtracted in the raster VS so the ECEF
-    // vertex projects vertex − cameraCenter through the camera-at-origin MVP.
-    // Flat Mercator (projType 0): cam_ecef_center.xy carries the 2D Mercator
-    // camera centre — the flat VS computes rel = project(lon,lat) − cam.xy and
-    // the ECEF lanes are dead there. 3D / globe: the ECEF anchor (ellipsoid).
-    if (projType === 0) {
-      new Float32Array(uniformData, RS.cam_ecef_center * 4, 4).set([camera.centerX, camera.centerY, 0, 0])
-    } else {
-      // ELLIPSOID camera anchor — the raster VS reconstructs each vertex via
-      // lonlat_to_ecef (WGS84, E2≠0), so the anchor it subtracts MUST be on the
-      // same ellipsoid. getECEFCenter() is the SPHERE (E2=0); subtracting it
-      // from ellipsoid vertices left the ellipsoid−sphere discrepancy (~21.5 km
-      // at mid-lat) on every vertex → the raster sheet flew off the globe. This
-      // is the exact frame-consistency fix the vector tiler already applies to
-      // cam_ecef_off (vector-tile-renderer.ts:3627-3638).
-      const camC = rasterGlobeCamAnchor(projCenterLon, projCenterLat)
-      new Float32Array(uniformData, RS.cam_ecef_center * 4, 4).set([camC[0], camC[1], camC[2], 0])
-    }
-    // (proj_params + globe_eye written together above via writeProjectionCull.)
+    // Write global uniforms through the typed block (#733 P2b — the single
+    // authority shared with the forced-WebGL2 checker). proj_params.w =
+    // log_depth_fc so the raster grid shader can apply/read the log-depth
+    // transform uniformly with the vector pipelines.
+    // cam_ecef_center: Flat Mercator (projType 0) packs the 2D Mercator camera
+    // centre in .xy (the flat VS computes rel = project(lon,lat) − cam.xy; the
+    // ECEF lanes are dead there). 3D / globe packs the WGS84 ELLIPSOID anchor —
+    // the raster VS reconstructs each vertex via lonlat_to_ecef (E2≠0), so the
+    // anchor it subtracts MUST be on the same ellipsoid; getECEFCenter() is the
+    // SPHERE (E2=0), and subtracting it left the ellipsoid−sphere discrepancy
+    // (~21.5 km at mid-lat) on every vertex → the raster sheet flew off the
+    // globe. Mirrors the vector tiler's cam_ecef_off fix.
+    const camAnchor: readonly [number, number, number] = projType === 0
+      ? [camera.centerX, camera.centerY, 0]
+      : rasterGlobeCamAnchor(projCenterLon, projCenterLat)
+    const B = rasterBlock()
+    writeRasterFrameUniform(B, frame, projType, projCenterLon, projCenterLat, camAnchor, this.colorParams())
     // The raster draw goes through the RHI Material seam (P1.4: the sole path). Collect each
     // visible tile (+ world-copy) into a RasterTile, then issue them in ONE draper.draw below.
     const tilesArr: RasterTile[] = []
@@ -465,15 +510,10 @@ export class RasterRenderer {
       // lon in the right copy). tile_ecef_center stays unshifted (copy-invariant 3D-ECEF RTC).
       // Non-Mercator collapses to wo=0. Each (tile, world-copy) becomes one RasterTile.
       for (const wo of RASTER_WORLD_COPIES) {
-        const tf = this.drawTileF32
-        const RT = rasterTileSlots().slot // reflect-derived f32 slots (byte-identical; raster-uniform-bytes.test.ts)
-        tf[RT.bounds] = west + wo * 360; tf[RT.bounds + 1] = south; tf[RT.bounds + 2] = east + wo * 360; tf[RT.bounds + 3] = north
-        tf[RT.tile_ecef_center] = swEcef[0]; tf[RT.tile_ecef_center + 1] = swEcef[1]; tf[RT.tile_ecef_center + 2] = swEcef[2]; tf[RT.tile_ecef_center + 3] = 0
-        tf[RT.merc_y] = mercSouth        // merc_y.x
-        tf[RT.merc_y + 1] = mercDiff         // merc_y.y
-        tf[RT._pad] = 0; tf[RT._pad + 1] = 0   // padding
-        // `tf` (this.drawTileF32) is reused every iteration — COPY it for the batch entry.
-        tilesArr.push({ texture: cached.texture, tileBytes: tf.slice() })
+        const TB = rasterTileBlock() // memoised — write() repacks every lane each iteration
+        writeRasterTileUniform(TB, west + wo * 360, south, east + wo * 360, north, swEcef, mercSouth, mercDiff)
+        // The block buffer is reused every iteration — COPY it for the batch entry.
+        tilesArr.push({ texture: cached.texture, tileBytes: new Float32Array(TB.buffer.slice(0)) })
       }
     }
 
@@ -482,7 +522,7 @@ export class RasterRenderer {
     // owns the per-tile pool + the global/texture/sampler bind group. pick = the opaque-pass MRT.
     // Always called (even with 0 visible tiles) so the global uniform is written every frame —
     // matching the legacy path (it wrote the global before the loop): 0 tiles → global write, no draws.
-    this.ensureRasterDraper().draw(wrapWebGpuPass(pass), uniformData, tilesArr, this._nearest, isPickEnabled())
+    this.ensureRasterDraper().draw(wrapWebGpuPass(pass), B.buffer, tilesArr, this._nearest, isPickEnabled())
 
     // Capture this frame's visible set; deferred eviction runs in the next
     // beginFrame(). Eviction used to run inline here, but destroying tile
