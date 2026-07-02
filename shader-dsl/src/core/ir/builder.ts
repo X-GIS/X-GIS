@@ -236,8 +236,9 @@ export type FnHandle<P extends FnParamSpec, R extends string> =
     /** Typed object-param call — TS checks names, types, completeness. Raw numbers
      *  are accepted and lift to the DECLARED param type (a u32 param gets a u32
      *  literal, not the positional form's blanket f32). Struct-handle params accept
-     *  a forwarded field proxy. Prefer this form. */
-    (args: { readonly [K in keyof P]: Node<KeyOf<ParamTypeOf<P[K]>>> | number | (P[K] extends StructParamHandle ? StructArg : never) }): Node<R>
+     *  a forwarded field proxy. Args are ReadonlyNode — a call only READS its
+     *  arguments, so rvalues (Let() results, expressions) are accepted (#755). */
+    (args: { readonly [K in keyof P]: ReadonlyNode<KeyOf<ParamTypeOf<P[K]>>> | number | (P[K] extends StructParamHandle ? StructArg : never) }): Node<R>
     /** @deprecated Positional call — `NodeLike[]` checks NOTHING (arity, types,
      *  order all unchecked at the TS level; a lon/lat swap compiles). The
      *  `call-signature` lint rule catches arity/type mismatches at emit time,

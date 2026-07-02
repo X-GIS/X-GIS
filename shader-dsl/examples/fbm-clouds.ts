@@ -32,8 +32,8 @@ const noise = fn('noise', { p: vec2fT }, ({ p }) => {
   const f = Let(fract(p))
   const u = f.mul(f).mul(vec2(3).sub(f.mul(2))) // 3f² − 2f³
   return mix(
-    mix(hash(i), hash(i.add(vec2(1, 0))), u.x),
-    mix(hash(i.add(vec2(0, 1))), hash(i.add(vec2(1, 1))), u.x),
+    mix(hash({ p: i }), hash({ p: i.add(vec2(1, 0)) }), u.x),
+    mix(hash({ p: i.add(vec2(0, 1)) }), hash({ p: i.add(vec2(1, 1)) }), u.x),
     u.y,
   )
 })
@@ -44,7 +44,7 @@ const fs = fn('fs', { vo: VsOut }, ({ vo }) => {
   const v = f32(0)
   const amp = f32(0.55)
   Loop(u32(0), (i) => toF32(i).lt(U.field.octaves), (i) => {
-    v.assign(v.add(amp.mul(noise(q.add(vec2(U.field.time.mul(0.08), 0))))))
+    v.assign(v.add(amp.mul(noise({ p: q.add(vec2(U.field.time.mul(0.08), 0)) }))))
     q.assign(q.mul(2.02))
     amp.assign(amp.mul(0.5))
   })
