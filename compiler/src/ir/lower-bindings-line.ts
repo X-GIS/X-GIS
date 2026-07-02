@@ -105,19 +105,23 @@ export const strokeBindingHandler: BindingHandler = {
     // network rendered as hair-thin lines.
     const colorInterp = extractInterpolateZoomColorStops(item.binding!)
     if (colorInterp && colorInterp.stops.length > 0) {
-      // Last stop is the constant fallback. ColorValue doesn't
-      // (yet) have a `zoom-interpolated` variant for stroke; a
-      // proper per-frame stroke colour update path is parallel
-      // to the fill follow-up (see `name === 'fill'` arm).
-      // For now picking the highest-zoom colour gives the right
-      // appearance at typical viewing zoom and prevents the
-      // silent null-stroke drop. (base would land here once
-      // stroke-color gets the per-frame interp path.)
-      const last = colorInterp.stops[colorInterp.stops.length - 1]!
-      const hex = resolveColor(last.value)
-      if (hex) {
-        const rgba = hexToRgba(hex)
-        acc.strokeColor = colorConstant(rgba[0], rgba[1], rgba[2], rgba[3])
+      // #726 — FULL zoom-interpolated stroke colour, the exact construction the
+      // `name === 'fill'` arm uses. StrokeValue.color is the same ColorValue
+      // union, and the runtime per-frame path is already wired end-to-end
+      // (emit-commands wires colorValueToShape(node.stroke.color) →
+      // renderer.ts resolveColorShape(ps.line.stroke, camera.zoom, …)), so the
+      // old "bake the highest-zoom stop" placeholder — which snapped every
+      // zoom-interpolated line colour to its last stop at ALL zooms — is
+      // replaced by the real stops.
+      const rgbaStops: import('./render-node').ZoomStop<[number, number, number, number]>[] = []
+      for (const s of colorInterp.stops) {
+        const hex = resolveColor(s.value)
+        if (hex) rgbaStops.push({ zoom: s.zoom, value: hexToRgba(hex) })
+      }
+      if (rgbaStops.length > 0) {
+        acc.strokeColor = colorInterp.base !== 1
+          ? { kind: 'zoom-interpolated', stops: rgbaStops, base: colorInterp.base }
+          : { kind: 'zoom-interpolated', stops: rgbaStops }
       }
     } else {
       // Disambiguate WIDTH vs COLOUR expression. Numeric zoom

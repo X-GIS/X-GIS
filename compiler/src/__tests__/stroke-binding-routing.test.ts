@@ -113,13 +113,15 @@ describe('stroke binding routing — paint.line-width interpolate-by-zoom', () =
     const xgis = convertMapboxStyle(style as never)
     const scene = lower(new Parser(new Lexer(xgis).tokenize()).parse())
     const node = scene.renderNodes[0]
-    // Until ColorValue gains a `zoom-interpolated` variant for stroke,
-    // lower.ts collapses zoom-color stops to the last-stop constant.
-    // Pin that behaviour so the regression is caught either way.
-    expect(node!.stroke.color.kind).toBe('constant')
-    if (node!.stroke.color.kind !== 'constant') return
-    // 18% interpolation between #fff and #888 picks #888 (last stop).
-    expect(node!.stroke.color.rgba[0]).toBeCloseTo(0x88 / 255, 2)
+    // #726 — stroke colour now keeps its zoom stops (the old last-stop
+    // constant bake is retired); the runtime interpolates per frame via
+    // paintShapes.line.stroke → resolveColorShape(camera.zoom).
+    expect(node!.stroke.color.kind).toBe('zoom-interpolated')
+    if (node!.stroke.color.kind !== 'zoom-interpolated') return
+    expect(node!.stroke.color.stops.map((s) => s.zoom)).toEqual([10, 18])
+    // First stop survives (#fff) — the pre-#726 bake erased it.
+    expect(node!.stroke.color.stops[0]!.value[0]).toBeCloseTo(1, 2)
+    expect(node!.stroke.color.stops[1]!.value[0]).toBeCloseTo(0x88 / 255, 2)
   })
 
   it('Mapbox line-color data-driven match expression survives conversion', () => {

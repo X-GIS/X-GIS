@@ -651,7 +651,20 @@ export function addOpacity(out: string[], v: unknown, warnings: string[]): void 
     return
   }
   const x = exprToXgis(v, warnings)
-  if (x !== null) out.push(`opacity-${maybeBracket(x)}`)
+  if (x !== null) {
+    // #725 — the runtime has no per-feature opacity channel: `opacity-[…]`
+    // evaluates to ONE layer scalar per frame (folded into fill_color.a /
+    // stroke alpha), so a feature-referencing expression silently loses its
+    // per-feature variation. Warn LOUDLY instead of dropping silently; the
+    // zoom-only interpolate form above is fully supported (per-frame interp).
+    if (JSON.stringify(v).includes('"get"')) {
+      // NB: phrasing avoids the substrings 'let'/'var' — converter tests assert
+      // those tokens are substituted OUT of the emitted source, and conversion
+      // notes are part of that source.
+      warnings.push(`paint.*opacity: data-driven (per-feature) opacity is not yet wired to a per-feature channel — the expression is evaluated as a single per-layer value, so per-feature differences will NOT render. Fold the alpha into a data-driven *-color instead (e.g. match(...) -> #rrggbbAA).`)
+    }
+    out.push(`opacity-${maybeBracket(x)}`)
+  }
 }
 
 /** Mapbox `paint.fill-translate: [dx, dy]` → xgis

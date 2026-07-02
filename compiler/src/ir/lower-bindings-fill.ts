@@ -8,16 +8,15 @@
 import { resolveColor } from '../tokens/colors'
 import { colorConstant, hexToRgba } from './render-node'
 import {
-  extractMatchDefaultColor,
   extractInterpolateZoomColorStops,
 } from './lower-helpers'
 import type { BindingHandler } from './lower-bindings'
 
-/** Binding-form `fill-[…]` arm (zoom-interp color, match-default, data-driven). */
+/** Binding-form `fill-[…]` arm (zoom-interp color, data-driven match). */
 export const fillBindingHandler: BindingHandler = {
   match: (ctx) => ctx.name === 'fill',
   apply: (ctx) => {
-    const { item, acc, options } = ctx
+    const { item, acc } = ctx
     // Mapbox `paint.fill-color: ["interpolate", curve, ["zoom"], …]`
     // converts to `fill-[interpolate(zoom, z1, #hex, …)]`. The
     // converter emits hex literals at each stop; we extract them
@@ -44,27 +43,23 @@ export const fillBindingHandler: BindingHandler = {
       }
     }
     // Per-feature `match(.field) { …, _ -> #color }` (Mapbox
-    // `["match", ["get", "X"], …, default]`). Extract the
-    // default arm as a constant fallback fill so the polygon
-    // renders SOMETHING — without this, every country in the
-    // MapLibre demo's `countries-fill` rendered as no-fill.
-    // Per-feature distinct colours (the country-by-country
-    // palette) await a `fillExpr` plumbing PR that threads the
-    // full AST through ShowCommand for the worker to evaluate
-    // per feature, mirroring the existing strokeColorExpr path.
-    // The default-arm collapse is gated by
-    // `LowerOptions.bypassExtractMatchDefaultColor` — when true
-    // (P4 runtime opt-in), match() falls through to data-driven
-    // even when an explicit `_` arm exists. The compute path
-    // then evaluates every arm GPU-side.
-    if (!options.bypassExtractMatchDefaultColor) {
-      const defaultHex = extractMatchDefaultColor(item.binding!)
-      if (defaultHex) {
-        const rgba = hexToRgba(defaultHex)
-        acc.fill = colorConstant(rgba[0], rgba[1], rgba[2], rgba[3])
-        return true
-      }
-    }
+    // `["match", ["get", "X"], …, default]`) is DATA-DRIVEN,
+    // unconditionally (#725). This used to collapse to a constant
+    // of the `_` default arm whenever that arm was a resolvable
+    // hex — a placeholder from before the per-feature fill path
+    // existed — which made behaviour depend on how the author
+    // spelled the default (`#hex` collapsed to one colour; a
+    // token default fell through to data-driven and rendered
+    // per-feature). The per-feature machinery (compiled variant
+    // + feat_data[fid], the same path token-default matches
+    // already exercise in production) has long landed, and the
+    // match AST carries its own `_` arm, so the default still
+    // wins for unmatched features — inside the variant instead
+    // of swallowing the whole layer. (Mapbox-converted styles
+    // usually never reach here: expand-color-match splits a
+    // fill-color match into per-colour sublayers at convert
+    // time; this arm is the direct-authored `.xgis` utility
+    // path and the compute opt-in.)
     acc.fill = { kind: 'data-driven', expr: { ast: item.binding! } }
     return true
   },

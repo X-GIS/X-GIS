@@ -1955,16 +1955,13 @@ export class XGISMap {
     const hasNewSyntax = ast.body.some(s => s.kind === 'SourceStatement' || s.kind === 'LayerStatement')
     let commands
     if (hasNewSyntax) {
-      // P4: bypass `extractMatchDefaultColor` when the compute path
-      // is opted in, so match() fills survive lowering as data-
-      // driven rather than collapsing to their default arm. Paired
-      // with convertMapboxStyle's `bypassExpandColorMatch` (set by
-      // the compare/demo runner when ?compute=1) for the symmetric
-      // gate — both flags MUST be true for Mapbox-converted styles
-      // to reach the compute kernel emit.
-      const scene = lower(ast, {
-        bypassExtractMatchDefaultColor: this._enableComputePath,
-      })
+      // match() fills survive lowering as data-driven UNCONDITIONALLY
+      // (#725 — the hex-default collapse gate was retired; the variant /
+      // feat_data per-feature path is the production behaviour). The
+      // convert-side `bypassExpandColorMatch` (?compute=1, compare/demo
+      // runner) remains the only gate for routing Mapbox-converted match()
+      // into the compute kernel un-split.
+      const scene = lower(ast)
       // Surface compiler diagnostics to the console — silent failures
       // (e.g. deprecated z<N>: modifier silently dropped) become loud
       // so the user notices instead of debugging "why isn't this
