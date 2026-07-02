@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { validate, ValidationError } from '@xgis/shader-dsl/core/passes/validate'
 import {
+  validate, ValidationError,
   module, fn, f32, param, callFn, constRef, bindingRef, member, structT,
   f32T, u32T, vec4fT, compileModule,
   type ModuleDecl, type Stmt,

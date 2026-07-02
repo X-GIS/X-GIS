@@ -6,7 +6,7 @@
 
 import { type ShaderType, type KeyOf, type ScalarKey, voidT } from './types'
 import type { Stmt, Expr, BinOp, FuncDecl, ModuleDecl, ConstDecl } from './nodes'
-import { Node, ReadonlyNode, type ArithArg, type NodeLike, lift, f32, i32, u32, callFn, installStmtSink } from './node'
+import { Node, ReadonlyNode, isNodeValue, type ArithArg, type NodeLike, lift, f32, i32, u32, callFn, installStmtSink } from './node'
 import { dslError } from '../diagnostics/error'
 import { captureLoc, recordLoc } from '../diagnostics/loc'
 
@@ -197,7 +197,21 @@ export class IfChain {
 // line.ts:721-726 shadowing bug). push/pop is exception-safe (try/finally) — a
 // throw mid-body must not leak the stack into the next shader. This is a pure
 // authoring-surface change: it emits the same Stmt[] as the passed-builder API.
-const scopeStack: Builder[] = []
+// globalThis-backed (#763 D2): a dual-loaded package copy used to get its OWN
+// empty stack — `Let` imported from copy B inside a body authored by copy A's
+// `fn` threw SD0013 at module load. Sharing the ambient state across copies
+// makes the duplication harmless (same pattern as map's __XGIS_PROJECTIONS__).
+const scopeStack: Builder[] = ((globalThis as Record<symbol, unknown>)[Symbol.for('xgis.shader-dsl.scopeStack')] ??= []) as Builder[]
+
+// Loud (once) when a second copy loads — the state above makes it SAFE, but a
+// duplicated package still doubles load cost and usually means a bundler
+// dedupe/config problem worth seeing.
+{
+  const g = globalThis as Record<symbol, unknown>
+  const key = Symbol.for('xgis.shader-dsl.instanceLoaded')
+  if (g[key]) console.warn('[shader-dsl] a second copy of @xgis/shader-dsl was loaded (dual-instance). Ambient state is globalThis-backed so this is safe, but check the bundler/dedupe config — see #763 D2.')
+  else g[key] = true
+}
 
 function currentBuilder(): Builder {
   const b = scopeStack[scopeStack.length - 1]
@@ -286,8 +300,12 @@ function makeCallFactory<R extends ShaderType>(
   // A struct FIELD PROXY (a handle param / a `.of()` view) forwards as its raw
   // struct-value Node via its `$` accessor (#740 R6) — so `helper(p.input)` just
   // works when p.input arrived as a typed handle param.
+  // isNodeValue, NOT instanceof (#763 D1): a dual-loaded package splits the
+  // prototype identity, and a cross-instance node falling through instanceof
+  // was misrouted into the named-args parse (TypeError at load, or a silent
+  // mis-swizzle when a param name collides with a component getter).
   const unwrap = (v: unknown): unknown =>
-    v !== null && typeof v === 'object' && !(v instanceof Node) && '$' in (v as object)
+    v !== null && typeof v === 'object' && !isNodeValue(v) && '$' in (v as object)
       ? (v as { $: ReadonlyNode }).$
       : v
   return (...rawArgs: NodeLike[]): Node<KeyOf<R>> => {
@@ -296,7 +314,7 @@ function makeCallFactory<R extends ShaderType>(
     // Distinguished from a single positional Node arg: a params object is a plain object, a
     // Node is a class instance, and a struct field proxy unwraps to one above.
     const a0 = args[0]
-    if (args.length === 1 && a0 != null && !(a0 instanceof Node) && typeof a0 === 'object' && !Array.isArray(a0)) {
+    if (args.length === 1 && a0 != null && !isNodeValue(a0) && typeof a0 === 'object' && !Array.isArray(a0)) {
       const obj = a0 as unknown as Record<string, NodeLike>
       // A raw number in the object form lifts to the DECLARED param type — the
       // caller named the parameter, so its type is known (unlike the positional
@@ -348,7 +366,10 @@ function inferReturnType(result: ReadonlyNode | void, stmts: readonly Stmt[]): S
 // (externFn('project', …) / a callFn('…') / a placeholder-swap funcs[] lookup) must keep its
 // explicit name — an opaque `_fn{n}` would not match. Omit the name only for a fn called
 // exclusively through its own imported handle.
-let fnAutoId = 0
+// globalThis-backed counter (#763 D2) — two copies each starting at `_fn0`
+// would collide in the name-keyed module dedup and silently mis-link
+// DIFFERENT anonymous fns as one.
+const fnAutoState = ((globalThis as Record<symbol, unknown>)[Symbol.for('xgis.shader-dsl.fnAutoId')] ??= { n: 0 }) as { n: number }
 
 /** Author a function. The body receives the typed param Nodes FIRST (each keyed by its
  *  ShaderType); the Builder is the optional SECOND arg — TSL-style (three.js Fn passes the
@@ -371,7 +392,7 @@ export function fn(
   e?: FnOpts,
 ): FnHandle<FnParamSpec, string> {
   const named = typeof a === 'string'
-  const name = named ? (a as string) : `_fn${fnAutoId++}`
+  const name = named ? (a as string) : `_fn${fnAutoState.n++}`
   const params = (named ? b : a) as FnParamSpec
   // The slot after params is either the EXPLICIT return type (a ShaderType) or the BODY (a function) when
   // the return type is inferred. A ShaderType is a plain object; the body is a function — that tells them apart.
@@ -530,21 +551,42 @@ function walkCalls(stmts: readonly Stmt[], onCall: (e: Extract<Expr, { op: 'call
  *     byte-identically and an entries-only list still satisfies GLSL's
  *     define-before-use. externFn / raw callFn names carry no declRef and are
  *     linked at emit as before. */
+/** Non-enumerable marker: the name a decl was LAST assembled under (#763 D4).
+ *  Symbol.for — survives dual-instance loads like the node brand. */
+const ASSEMBLED_AS = Symbol.for('xgis.shader-dsl.assembledAs')
+
 function normalizeFuncs(input: ModuleParts['funcs']): FuncDecl[] {
   const record = input !== undefined && !Array.isArray(input)
   let renamed = false
   const authored: FuncDecl[] = record
     ? Object.entries(input as Readonly<Record<string, FuncDecl>>).map(([key, f]) => {
         const d = declOf(f)
+        // #763 D4 — a record-form rename mutates the SHARED FuncDecl in place.
+        // If this decl already participated in another assembly under a
+        // DIFFERENT name, renaming it now silently corrupts that module's
+        // re-emit (`fn old` definition vs `new(...)` calls). Fail loud.
+        const prev = (d as unknown as Record<symbol, unknown>)[ASSEMBLED_AS] as string | undefined
+        if (prev !== undefined && prev !== key) {
+          throw new Error(`shader-dsl: fn was already assembled as '${prev}' — renaming the shared decl to '${key}' would corrupt the earlier module's re-emit (#763 D4). Author a separate fn (or reuse the key '${prev}').`)
+        }
         if (d.name !== key) {
           ;(d as { name: string }).name = key
           // Keep the handle's own (defineProperty'd, enumerable) name in step for spreads.
           if (d !== f) Object.defineProperty(f, 'name', { value: key, configurable: true, enumerable: true })
           renamed = true
         }
+        // Non-enumerable — the optimizer's fixpoint compares modules via JSON;
+        // an enumerable marker would perturb it.
+        Object.defineProperty(d, ASSEMBLED_AS, { value: key, configurable: true })
         return f
       })
-    : [...(input ?? [])]
+    : (input ?? []).map((f) => {
+        // Array-form assembly pins the CURRENT name for the same reason — a later
+        // record-form rename of this decl would corrupt THIS module's re-emit.
+        const d = declOf(f)
+        Object.defineProperty(d, ASSEMBLED_AS, { value: d.name, configurable: true })
+        return f
+      })
 
   // Transitive collection (post-order DFS over declRef edges), skipping listed decls.
   // Dedup is by IDENTITY **and NAME**: module semantics are name-keyed (dup-func is a
@@ -620,7 +662,9 @@ export function Var<T extends ShaderType>(type: T, init?: ReadonlyNode<KeyOf<T>>
 export function Var<T extends ShaderType>(name: string, type: T, init?: ReadonlyNode<KeyOf<T>>): Node<KeyOf<T>>
 export function Var<T extends ShaderType>(nameOrTypeOrInit: string | T | ReadonlyNode, typeOrInit?: T | ReadonlyNode<KeyOf<T>>, maybeInit?: ReadonlyNode<KeyOf<T>>): Node<KeyOf<T>> {
   // Var(init) — a mutable var seeded from a value infers its WGSL type from that value.
-  if (nameOrTypeOrInit instanceof ReadonlyNode) return currentBuilder().var(nameOrTypeOrInit.type, nameOrTypeOrInit) as Node<KeyOf<T>>
+  // Brand probe, not instanceof (#763 D1) — a cross-instance init node must not
+  // fall through to the ShaderType arm and declare a garbage-typed var.
+  if (isNodeValue(nameOrTypeOrInit)) return currentBuilder().var(nameOrTypeOrInit.type, nameOrTypeOrInit) as Node<KeyOf<T>>
   return typeof nameOrTypeOrInit === 'string'
     ? currentBuilder().var(nameOrTypeOrInit, typeOrInit as T, maybeInit)
     : currentBuilder().var(nameOrTypeOrInit, typeOrInit as Node<KeyOf<T>> | undefined)

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { optimize, constFold } from '@xgis/shader-dsl/core/passes/opt/index'
+import { optimize, constFold } from '@xgis/shader-dsl/dev'
 import { module, fn, f32, f32T, emitModule, compileModule } from '@xgis/shader-dsl'
 import { getPROJECTION_MODULE } from './projections'
 

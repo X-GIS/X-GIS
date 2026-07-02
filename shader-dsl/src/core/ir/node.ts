@@ -33,6 +33,17 @@ export function lift(x: NodeLike): ReadonlyNode<any> {
   return typeof x === 'number' ? new Node({ op: 'lit', type: f32T, value: x }) : x
 }
 
+/** Cross-instance node brand (#763 D1). `Symbol.for` resolves through the GLOBAL
+ *  symbol registry, so when a bundler loads TWO copies of this package, a node
+ *  built by copy B still carries the brand copy A checks for — unlike
+ *  `instanceof Node`, whose prototype identity splits per copy (the R1
+ *  dup-func incident class: a cross-instance arg fell through the instanceof
+ *  check and was misparsed as a named-args bag). Installed on the PROTOTYPE
+ *  (one slot, not per-instance — nodes are hot-path allocations). */
+export const NODE_BRAND: unique symbol = Symbol.for('xgis.shader-dsl.node') as never
+export const isNodeValue = (v: unknown): v is ReadonlyNode =>
+  v !== null && typeof v === 'object' && (v as Record<symbol, unknown>)[NODE_BRAND] === true
+
 /** Statement sink — the builder installs how `node.assign(v)` pushes its Stmt to the
  *  current scope. Injected (not imported) so the Node lvalue methods can route to the builder without a
  *  node ↔ builder import cycle. (Reads only `.expr`, so a ReadonlyNode value is fine.) */
@@ -237,6 +248,10 @@ export class ReadonlyNode<K extends string = string> {
  *
  *  This is a TYPE-LEVEL distinction only — the runtime is one class, so emitted WGSL/GLSL is
  *  byte-identical. (Mirrors RxJS `Observable` (read) vs `Subject` (read+write).) */
+// One prototype slot — every ReadonlyNode/Node instance (any package copy)
+// answers the cross-instance brand probe (#763 D1).
+Object.defineProperty(ReadonlyNode.prototype, NODE_BRAND, { value: true })
+
 export class Node<K extends string = string> extends ReadonlyNode<K> {
   /** `this = value;` — the ONE lvalue-mutation method (matches three.js TSL's `.assign()`). JS can't
    *  overload `=` (`x = v` would just rebind the JS variable, not emit a store), so mutation is a method.

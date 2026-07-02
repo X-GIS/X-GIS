@@ -30,5 +30,10 @@ export { setSourceTracing, isSourceTracing } from './core/diagnostics/loc'
 // Optimizer measurement (A/B the optimizer on op-count + source size).
 export { emitSize, countOps, optimizerReport, type EmitSize, type OpCount, type OptimizerReport } from './core/measure'
 
+// Optimizer pass surface for A/B and pass-level tests (#763 D3 — the former
+// `core/passes/opt/index` deep-path consumers; the `./core/*` wildcard subpath
+// that reached it bypassed the main//dev split and enabled partial-graph loads).
+export { optimize, fixpoint, DEFAULT_PASSES, constFold } from './core/passes/opt/index'
+
 // Pipeline introspection siblings of emitModule (byte-identical `.code`).
 export { lowerForBackend, emitModuleWithReflection } from './core/emit'
