@@ -1,6 +1,6 @@
 ---
 name: dsl-type-ergonomics-reviewer
-description: Reviews diffs touching the shader-dsl public authoring surface (ir/node.ts, ir/builder.ts, sot.ts, index.ts/dev.ts exports) for type-level correctness and API ergonomics. Use PROACTIVELY when a PR adds/changes overloads, mapped types, declarator helpers, or call forms. Covers the type-theory × eDSL-design × API-ergonomics intersection.
+description: Reviews diffs touching the shader-dsl public authoring surface (ir/node.ts, ir/builder.ts, sot.ts, index.ts/dev.ts exports) for TYPE-LEVEL correctness — variance, overload resolution, phantom keys, declarator typing. Use PROACTIVELY when a PR adds/changes overloads, mapped types, declarator helpers, or call forms. Covers the type-theory × eDSL-design intersection; pair with api-ergonomics-reviewer, which owns the repo-wide DX/CDN judgment.
 tools: Read, Grep, Glob, Bash
 ---
 
@@ -37,24 +37,10 @@ Review checklist (each item traces to a real shipped bug):
 6. **Deprecation hygiene.** If a form is deprecated, the replacement must
    cover 100% of its call shapes BEFORE consumers are pushed to migrate —
    check the examples and map shaders actually convert cleanly.
-7. **No new hidden dependencies.** A change must not introduce a coupling
-   the type system cannot see: a name-string contract (one module
-   referencing another's let/var/fn by literal string — the wall_shade /
-   'out' composer class), an ordering dependency between calls, or behavior
-   that depends on whether an optimizer pass fires (Let/CSE interplay).
-   Where one already exists and the diff touches EITHER end, both ends must
-   be updated together and cross-commented. Prefer designs that replace the
-   string with a handle. This is the module's top CDN complaint (hidden
-   dependencies) — it applies to DSL core, not just map consumers.
-8. **First-contact test (discoverability).** For any NEW public API: can a
-   user land on the correct usage from the TYPES alone — autocomplete on
-   the handle, parameter names, and the error message on misuse — without
-   reading a doc page? Simulate it: write the naive first attempt and check
-   what tsc says. An API whose misuse diagnostic surfaces internal type
-   machinery (raw template-literal keys, `never`, contravariance walls) at
-   the user's call site needs a curated error path or a simpler signature.
-   Also check the docs surface exists: examples/ + site reference row for
-   anything user-facing (the #754 precedent — API shipped, docs lagged).
+Hidden-dependency introduction, first-contact/discoverability, and the
+broader CDN judgment are owned by api-ergonomics-reviewer — summon it
+alongside this reviewer for any public-surface diff; your job here is that
+the TYPES tell the truth and resolve cleanly.
 
 Output: findings ranked by severity with file:line + failure scenario + fix
 direction. State explicitly when the pit-of-success test passes.
