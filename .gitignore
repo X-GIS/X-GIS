@@ -80,8 +80,15 @@ nul
 # npm pack output — local tarballs from `npm pack` / clean-room verification
 *.tgz
 
-# Local Claude Code harness state (per-machine)
-.claude/
+# Local Claude Code harness state (per-machine). EXCEPTION: .claude/agents/
+# holds project reviewer agents meant to travel with the repo (like the
+# already-tracked settings.json / skills/), so it is carved back in — a
+# wholesale `.claude/` exclude would make the carve-back impossible.
+.claude/*
+!.claude/agents/
+!.claude/settings.json
+!.claude/launch.json
+!.claude/skills/
 
 # Per-developer editor configs. The codebase-memory MCP extension writes a
 # machine-local server path (c:\Users\...) into these on install, so they
