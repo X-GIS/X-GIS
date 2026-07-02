@@ -88,9 +88,10 @@ export interface Backend {
   emitBinding(b: BindingDecl): string
   /** A function declaration block (signature + emitted body). */
   emitFunc(f: FuncDecl): string
-  /** The backend's emit-time optimization of the lowered module (WGSL = `cse`,
-   *  GLSL = identity). Kept per-backend so cse stays WGSL-only and byte-identity
-   *  holds. Runs after lowerModule(autoVars(m)), before assembly. */
+  /** The backend's emit-time optimization of the lowered module — today BOTH
+   *  backends run the full `fixpoint` pipeline (#763 H1; wgsl.ts / glsl.ts
+   *  `optimize:`). Kept per-backend so a target can still diverge without touching
+   *  the shared driver. Runs after lowerModule(autoVars(m)), before assembly. */
   optimize(lowered: ModuleDecl): ModuleDecl
 }
 

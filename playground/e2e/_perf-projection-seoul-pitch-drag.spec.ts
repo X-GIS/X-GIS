@@ -18,6 +18,7 @@
 // Output: REPORT.md with two phase blocks per cell.
 
 import { test, type Page, expect } from '@playwright/test'
+// Relative deep import (charter): Playwright transpiles specs in raw Node — the @xgis/* workspace alias does not resolve here, so specs import package SOURCES relatively (see _glsl-compile-gate.spec.ts).
 import { convertMapboxStyle } from '../../compiler/src/convert/mapbox-to-xgis'
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'

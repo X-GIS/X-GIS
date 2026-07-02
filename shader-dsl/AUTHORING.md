@@ -17,7 +17,7 @@ or `f32()` wrappers around literals. This guide documents the surface that lande
 > import { ioStruct, uniformStruct, structDecl, builtin, location, storageBuffer, resource } from '@xgis/shader-dsl'
 > ```
 > The X-GIS-specific shader graphs that used to live in `shader-dsl/src/shaders/*.ts`
-> moved to the runtime (`runtime/src/engine/shaders/dsl/`); they author through this same
+> moved to the map package (`map/src/shaders/dsl/` — #763 A3); they author through this same
 > barrel like any other consumer. Inside the package, the barrel re-exports the IR via the
 > `core/ir` barrel and the layout helpers via `core/sot` — never import a deep file directly.
 >
@@ -92,6 +92,10 @@ const cs = fn('cs_match', { gid: builtin('global_invocation_id', vec3uT) }, (p) 
 - `retAttr` attaches an attribute to a bare (non-struct) stage return, e.g.
   `-> @location(0) vec4<f32>`. A struct return carries its attributes in the struct.
 
+> **Reserved-word params (#763 H7).** A param may be NAMED `in` (or another GLSL/WGSL
+> reserved word) — the IR carries it and the GLSL backend renames at emit — but JS
+> destructuring cannot BIND that name: write `({ in: inp }) => …`.
+
 ### `module` — assemble the WGSL module
 
 ```ts
@@ -113,6 +117,22 @@ export const buildRasterModule = (pickEnabled: boolean): ModuleDecl => module({
   ],
 })
 ```
+
+#### `funcs:` as a key-record — name once (#740 R1)
+
+`funcs:` also accepts a RECORD; each key becomes the fn's emitted name (a rename of
+whatever the handle carried, including anonymous `fn(params, body)` handles), and key
+order is the emit order (JS preserves string-key insertion order):
+
+```ts
+module({ funcs: { proj_mercator, wrap_lon_delta, vs_main } })
+```
+
+Record keys are **deterministic names** — the `fnAutoId` collision counter behind
+anonymous handles never reaches emitted WGSL through this form (#763 H9) — so it is
+safe for snapshot-gated and string-referenced shaders too. Keep the ARRAY form when
+the decl list is spread across sources or post-processed as data (e.g. a blanket
+`allowEarlyReturn` map).
 
 ---
 
@@ -352,16 +372,23 @@ const VsOut = ioStruct('VsOut', {
 })
 ```
 
-- **`builtin(name, type)`** → a `@builtin(<name>)` field.
+- **`builtin(name, type)`** → a `@builtin(<name>)` field. `name` is the WGSL builtin id
+  (`'position'`, `'vertex_index'`, `'instance_index'`, `'front_facing'`, `'frag_depth'`,
+  `'global_invocation_id'`, …), passed through verbatim — typed as `string` today
+  (#763 H7), so a typo surfaces at pipeline creation, not at tsc.
 - **`location(n, type, interpolate?)`** → a `@location(n)` field, optionally
-  `@interpolate(flat)`.
+  `@interpolate(<mode>)` with `mode ∈ 'flat' | 'linear' | 'perspective'` — `'flat'` is
+  the mode the GLSL backend also honors (emits the `flat` qualifier on both sides).
 - **`VsOut.type`** — the struct's `ShaderType` (use it as a param type, e.g.
   `{ input: VsOut.type }`).
 - **`VsOut.decl`** — the `StructDecl` for the module's `structs:` array.
 - **`VsOut.of(node).uv`** — typed field **read** off a value of the struct.
+- **`VsOut.var('out')`** — declare a `var` of the struct and get typed, ASSIGNABLE
+  fields: `o.pos.assign(…)`, then `return o` — the proxy duck-types as the raw node in
+  value positions (#763 X14). **`o.$`** is the raw struct-value node for explicit passes.
 - **`VsOut.construct({ pos, uv, vis, view_w })`** — build the struct value in **one
-  expression** (args taken in declared order; a missing/extra field is a TS error). This
-  replaces the imperative `var out; out.uv = …; return out`.
+  expression** (field-keyed; a missing/extra field is a TS error). This
+  replaces the imperative `var out; out.uv = …; return out` when no mutation is needed.
 
 ```ts
 const pin = VsOut.of(p.input)   // pin.uv, pin.vis, … are typed reads
@@ -584,7 +611,7 @@ import { diagnose, formatReport, wgslBackend } from '@xgis/shader-dsl'
 const report = diagnose(m, { rules: 'all', backend: wgslBackend })
 console.log(formatReport(report))
 // error[SD0107] no-assign-to-let  (fn rim_alpha)
-//   --> runtime/src/engine/shaders/dsl/line.ts:721:9
+//   --> map/src/shaders/dsl/line.ts:721:9
 //   assignment to immutable 'let' binding 'x' …
 //   hint: declare the binding with Var() instead of Let() to mutate it
 // 1 error, 0 warnings

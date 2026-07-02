@@ -11,6 +11,7 @@
 // frame already uses the chosen mode.
 
 import { test, expect } from '@playwright/test'
+// Relative deep import (charter): Playwright transpiles specs in raw Node — the @xgis/* workspace alias does not resolve here, so specs import package SOURCES relatively (see _glsl-compile-gate.spec.ts).
 import { convertMapboxStyle } from '../../compiler/src/convert/mapbox-to-xgis'
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'

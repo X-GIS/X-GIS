@@ -8,6 +8,7 @@
 // Relative imports (NOT the `@xgis/shader-dsl` alias): Playwright transpiles specs in raw
 // Node, which doesn't resolve the workspace alias — same as _glsl-compile-gate.spec.ts.
 import { test, expect } from '@playwright/test'
+// Relative deep import (charter): Playwright transpiles specs in raw Node — the @xgis/* workspace alias does not resolve here, so specs import package SOURCES relatively (see _glsl-compile-gate.spec.ts).
 import { examples } from '../../shader-dsl/examples/index'
 import { emitGlslModule, reflect } from '../../shader-dsl/src/index'
 

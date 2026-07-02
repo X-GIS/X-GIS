@@ -5,15 +5,16 @@
 // layer, the SoT layout declarators, the backend contract + WGSL/GLSL writers,
 // the intrinsic registry, the CPU f64 oracle, and the pre-emit passes.
 //
-// The X-GIS-specific shader GRAPHS that used to live here moved to the runtime
-// (`runtime/src/engine/shaders/dsl/`); they author/emit through this surface
-// (`from '@xgis/shader-dsl'`) like any other consumer.
+// The X-GIS-specific shader GRAPHS that used to live here moved to the map package
+// (`map/src/shaders/dsl/` — #763 A3; earlier docs said runtime/, itself since split);
+// they author/emit through this surface (`from '@xgis/shader-dsl'`) like any other
+// consumer.
 //
-// Collision note: `core/emit` and `core/backends/wgsl` both export `emitModule`
-// and `emitExpr`. The WGSL backend's versions are the canonical public ones
-// (they run the full validate → caps → autoVars → lower → cse pipeline), so they
-// win the bare names; `core/emit`'s neutral tree-walk is re-exported under its
-// remaining, non-colliding members only.
+// Naming note (#763 H6): the canonical `emitModule` / `emitExpr` here are the WGSL
+// backend's (`core/backends/wgsl` — the full validate → caps → autoVars → lower →
+// fixpoint-optimize pipeline). `core/emit`'s neutral tree-walk emitters are NOT
+// re-exported from this barrel at all since #748 — they live on the `/dev` subpath
+// (`@xgis/shader-dsl/dev`) with the rest of the introspection/pass surface.
 
 // IR authoring layer (types, nodes, node wrapper, builder/assemblers).
 export * from './core/ir'

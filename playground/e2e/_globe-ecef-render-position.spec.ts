@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { DEQUANT_ECEF_WGSL } from '@xgis/map'
 import { generateWallMeshExtrudedECEF } from '@xgis/map'
+// Relative deep import (charter): Playwright transpiles specs in raw Node — the @xgis/* workspace alias does not resolve here, so specs import package SOURCES relatively (see _glsl-compile-gate.spec.ts).
 import { lonLatToECEF } from '../../engine/src/projection/ecef'
 import { dequantVertexF32, mulMat4Vec4F32, type QuantizedDecode } from '@xgis/compiler'
 import type { RingPolygon } from '@xgis/compiler'

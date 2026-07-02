@@ -10,6 +10,7 @@
 // the page reaches the post-compile state without a swallowed error.
 
 import { test, expect } from '@playwright/test'
+// Relative deep import (charter): Playwright transpiles specs in raw Node — the @xgis/* workspace alias does not resolve here, so specs import package SOURCES relatively (see _glsl-compile-gate.spec.ts).
 import { convertMapboxStyle } from '../../compiler/src/convert/mapbox-to-xgis'
 import { Lexer } from '../../compiler/src/lexer/lexer'
 import { Parser } from '../../compiler/src/parser/parser'

@@ -4,6 +4,7 @@ import {
   getProjectionWgslFns,
 } from '@xgis/map'
 import { configureProjections } from '@xgis/map'
+// Relative deep import (charter): Playwright transpiles specs in raw Node — the @xgis/* workspace alias does not resolve here, so specs import package SOURCES relatively (see _glsl-compile-gate.spec.ts).
 import { PROJECTIONS } from '../../engine/src/projection/projections-table'
 
 // shader-dsl projections are host-injected — configure before any emit / cpu use.

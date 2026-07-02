@@ -4,7 +4,7 @@
 # shader-dsl
 
 ## Purpose
-A zero-dependency TypeScript shader DSL that eliminates hand-maintained GPU/CPU drift. Shaders are authored once as typed node graphs (the IR); the IR is then emitted by THREE backends over ONE shared tree-walk: a **WGSL** writer (production strings for `device.createShaderModule`), a **GLSL ES 3.00** writer (real for render pipelines — vertex+fragment entry-IO + std140 UBO, WebGL2 compile+render-verified; compute/SSBO fail closed), and a **CPU f64 oracle** that tree-walks the same IR on the host for projection math (the generated replacement for the deleted `projection-wgsl-mirror.ts`). Split into `core/` (IR, the neutral emitter + backend contract, the pass pipeline, the SoT layer — all private) and `shaders/` (concrete shader graphs). ⚠️ The `shaders/` graphs were RELOCATED to `runtime/src/engine/shaders/dsl/` and are NO LONGER in this package — the `### Shaders` section below is stale (see docs/architecture/package-responsibilities.md §e). This package is now the content-free `core/` framework; consumers import `core/` via the barrel/subpath.
+A zero-dependency TypeScript shader DSL that eliminates hand-maintained GPU/CPU drift. Shaders are authored once as typed node graphs (the IR); the IR is then emitted by THREE backends over ONE shared tree-walk: a **WGSL** writer (production strings for `device.createShaderModule`), a **GLSL ES 3.00** writer (real for render pipelines — vertex+fragment entry-IO + std140 UBO, WebGL2 compile+render-verified; compute/SSBO fail closed), and a **CPU f64 oracle** that tree-walks the same IR on the host for projection math (the generated replacement for the deleted `projection-wgsl-mirror.ts`). Split into `core/` (IR, the neutral emitter + backend contract, the pass pipeline, the SoT layer — all private) and `shaders/` (concrete shader graphs). ⚠️ The `shaders/` graphs were RELOCATED — today they live in `map/src/shaders/dsl/` (#763 A3; an earlier note said `runtime/src/engine/shaders/dsl/`, itself since split into the engine/map packages) and are NO LONGER in this package — the `### Shaders` section below is stale (see docs/architecture/package-responsibilities.md §e). This package is now the content-free `core/` framework; consumers import `core/` via the barrel/subpath.
 
 **Authoring a shader? Read `../AUTHORING.md`** (the package-level guide) — it documents the current
 ceremony-free surface (`fn(name, params, body)` with inferred return type, `const x = expr` + `.assign()`,
@@ -44,13 +44,13 @@ exist as primitives, but the guide shows the form to author NEW shaders in.
 | `core/passes/match-lower.ts` | Pre-emit transform (`lowerModule`): lowers every `matchExpr` Expr in a fn body into a hoisted `var _mr_N` slot + `Stmt.switch` pair, rewriting the expr position to a varref. Keeps `emit.ts` matchExpr-unaware. (Was `backends/wgsl-lower.ts`.) |
 | `core/passes/validate.ts` | Pre-emit static gate. `validate(m)` (run at the top of every backend) throws `ValidationError` on the first `CORE_RULES` error; `lintModule(m)` runs the FULL `RULES` set (used by the shader static-analysis test). |
 | `core/passes/required-caps.ts` | `assertCaps(backend, m)` — fail-closed capability gate (storage/compute/MSAA). |
-| `core/passes/opt/` | The optimization context. **Only `cse` + `autoVars` are wired into emit.** `cse` hoists repeated input-only subexprs into shared `let`s (the auto-cache that lets authors write plain inline exprs); `autoVars` materialises the `const x = expr; x.assign(…)` pattern into real `var`s. `optimize()` (`constFold`/`algebraicSimplify`/`licm`/`dce`) is NOT in any emit path — it is exercised only by its own tests + `_optimizer-gpu-parity.spec.ts`, pending the P3 GPU differential before being turned on. Shared traversal/scope helpers live in `expr-utils.ts` (the #1 "two traversals must agree" bug archetype, centralised). |
+| `core/passes/opt/` | The optimization context. **The full `fixpoint` pipeline runs on EVERY emit, both backends** (#763 H1 — an earlier note said "only cse + autoVars, pending P3"; P3 landed and the wiring followed). `autoVars` materialises the `const x = expr; x.assign(…)` pattern into real `var`s; `cse` hoists repeated input-only subexprs into shared `let`s; then `optimize()` (`constProp`/`copyProp`/`constFold`/`algebraicSimplify`/`deadBranch`/`licm`/`dce`) iterates to fixpoint. Gated by the real-GPU differential `_optimizer-gpu-parity.spec.ts` + oracle bit-equality + the emit-goldens byte gates. `deadFnElim`/`gvn`/`inlineFn` stay available-but-unwired (byte-perturbing; maintainer decision). Shared traversal/scope helpers live in `expr-utils.ts` (the #1 "two traversals must agree" bug archetype, centralised). |
 | `core/passes/lint/` | The lint engine (`engine.ts`: one registry, one shared traversal) + `rules/` (one rule per file) + `presets.ts`. `RULES` = full set (static-analysis gate); `CORE_RULES` = the tiny subset `validate()` runs at every emit (structural invariants that hold for any module). |
 | `core/passes/single-exit.ts`, `inline.ts` | MISRA single-exit transform; function inliner. |
 
-### Shaders (RELOCATED → `runtime/src/engine/shaders/dsl/`)
+### Shaders (RELOCATED → `map/src/shaders/dsl/`)
 
-> ⚠️ STALE: these graphs moved OUT of this package to `runtime/src/engine/shaders/dsl/`. The table is retained only as a description of those graphs at their new home; this package no longer contains a `shaders/` directory.
+> ⚠️ STALE: these graphs moved OUT of this package — their current home is `map/src/shaders/dsl/` (#763 A3; they passed through `runtime/src/engine/shaders/dsl/` before the engine/map split). The table is retained only as a description of those graphs at their new home; this package no longer contains a `shaders/` directory.
 | File | Description |
 |---|---|
 | `shaders/projections.ts` | All 8 projections as one `PROJECTION_MODULE`; dispatch ladder + cull thresholds generated from `projection/projections-table.ts`. Exports `PROJECTION_WGSL_CONSTS`/`PROJECTION_WGSL_FNS`. |
@@ -101,8 +101,8 @@ The public barrel `index.ts` re-exports ONLY: `projections`, `cpu-projections`, 
 ## Dependencies
 
 ### Internal
-- `runtime/src/engine/projection/projections-table.ts` — projection registry; drives the dispatch ladder in `shaders/projections.ts`
-- `runtime/src/engine/shaders/` — hand-written WGSL strings the DSL is progressively replacing (still prepended in some shader composers during migration)
+- `engine/src/projection/projections-table.ts` — projection registry; drives the dispatch ladder in `map/src/shaders/dsl/projections.ts` (#763 A3 — both paths moved in the engine/map split)
+- `map/src/shaders/` — the shader-graph consumers; the hand-written-WGSL era is over (only a re-export shim + `dsl/` remain there)
 
 ### External
 - No npm dependencies. The DSL is zero-dependency TypeScript; all WGSL math functions map to `Math.*` in the CPU oracle's `BUILTINS` table.

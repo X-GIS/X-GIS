@@ -19,6 +19,7 @@
 // so compiling the fixtures validates the production-equivalent WGSL.
 
 import { test, expect } from '@playwright/test'
+// Relative deep import (charter): Playwright transpiles specs in raw Node — the @xgis/* workspace alias does not resolve here, so specs import package SOURCES relatively (see _glsl-compile-gate.spec.ts).
 import { FIXTURES, emitForFixture } from '../../map/src/shaders/dsl/_polygon-fixtures'
 import { emitLineWgsl, emitCompositeWgsl } from '@xgis/map'
 import { emitPointWgsl } from '@xgis/map'

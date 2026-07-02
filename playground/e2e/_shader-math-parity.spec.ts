@@ -24,6 +24,7 @@
 // cull divergence that projection-wgsl-consistency.test.ts pins separately.
 
 import { test, expect } from '@playwright/test'
+// Relative deep import (charter): Playwright transpiles specs in raw Node — the @xgis/* workspace alias does not resolve here, so specs import package SOURCES relatively (see _glsl-compile-gate.spec.ts).
 import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../../map/src/shaders/projection'
 import { projectWgsl, invMercLatRad, configureProjections } from '@xgis/map'
 import { PROJECTIONS } from '../../engine/src/projection/projections-table'

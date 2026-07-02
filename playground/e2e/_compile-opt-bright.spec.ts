@@ -22,6 +22,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+// Relative deep import (charter): Playwright transpiles specs in raw Node — the @xgis/* workspace alias does not resolve here, so specs import package SOURCES relatively (see _glsl-compile-gate.spec.ts).
 import { convertMapboxStyle } from '../../compiler/src/convert/mapbox-to-xgis'
 import { Lexer } from '../../compiler/src/lexer/lexer'
 import { Parser } from '../../compiler/src/parser/parser'

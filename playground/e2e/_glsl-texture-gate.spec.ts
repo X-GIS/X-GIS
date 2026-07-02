@@ -7,6 +7,7 @@
 // backend and compiles + links it on a REAL WebGL2 context, proving the fused-
 // sampler path (the standalone sampler binding must be dropped, not emitted).
 
+// Relative deep import (charter): Playwright transpiles specs in raw Node — the @xgis/* workspace alias does not resolve here, so specs import package SOURCES relatively (see _glsl-compile-gate.spec.ts).
 import { test, expect } from '@playwright/test'
 import {
   emitGlslModule,

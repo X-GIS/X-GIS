@@ -4,8 +4,11 @@
 // e2e render-gate use, and reads each example's raw source for display — all at BUILD time.
 // The /shader-dsl index (gallery) and the /shader-dsl/[id] detail pages both consume this,
 // so the emit happens once and neither page bundles @xgis/shader-dsl into the client.
-import { examples, type Control } from '../../../shader-dsl/examples/index.ts'
-import { emitModule, emitGlslModule, reflect } from '../../../shader-dsl/src/index.ts'
+// Workspace imports (#763 A1 — was a ../../../ relative reach across packages).
+// The import.meta.glob raw-source collection below STAYS relative: glob patterns
+// are filesystem-bound, not resolver-bound.
+import { examples, type Control } from '@xgis/shader-dsl/examples'
+import { emitModule, emitGlslModule, reflect } from '@xgis/shader-dsl'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 

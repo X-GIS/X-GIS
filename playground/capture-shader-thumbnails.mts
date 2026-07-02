@@ -11,8 +11,9 @@
 import { chromium } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { examples } from '../shader-dsl/examples/index.ts'
-import { emitGlslModule, reflect } from '../shader-dsl/src/index.ts'
+// Workspace imports (#763 A1 — was a ../ relative reach across packages).
+import { examples } from '@xgis/shader-dsl/examples'
+import { emitGlslModule, reflect } from '@xgis/shader-dsl'
 
 const W = 640, H = 400, TIME = 3.0
 const outDir = fileURLToPath(new URL('../site/public/shader/', import.meta.url))

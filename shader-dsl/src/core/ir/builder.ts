@@ -367,11 +367,13 @@ function inferReturnType(result: ReadonlyNode | void, stmts: readonly Stmt[]): S
 // Auto-name counter for fn() calls that omit the name. Advanced ONLY on omission (explicit
 // names never consume it). It is process-global + advanced in fn()-call order — deterministic
 // for fns authored at module load (fixed ES evaluation order), which is the safe case.
-// ⚠️ NOT for snapshot-tested or dynamically re-authored fns: the byte-identical WGSL snapshots
+// ⚠️ The caveat is about a BARE `_fn{n}` reaching emitted WGSL: the byte-identical snapshots
 // are baked in one process and checked in another, and a fn referenced by a STRING name
-// (externFn('project', …) / a callFn('…') / a placeholder-swap funcs[] lookup) must keep its
-// explicit name — an opaque `_fn{n}` would not match. Omit the name only for a fn called
-// exclusively through its own imported handle.
+// (externFn('project', …) / a callFn('…') / a placeholder-swap funcs[] lookup) must keep a
+// stable explicit name. Two ways to have one (#763 H9): pass the name to fn(), OR list the
+// anonymous handle in a `funcs:` KEY-RECORD — the record key deterministically RENAMES the
+// decl (and every handle-made call site, via declRef + the assembly rewrite), so fnAutoId
+// never reaches the output. Only an anonymous fn used in an ARRAY-form module emits `_fn{n}`.
 // globalThis-backed counter (#763 D2) — two copies each starting at `_fn0`
 // would collide in the name-keyed module dedup and silently mis-link
 // DIFFERENT anonymous fns as one.
@@ -382,8 +384,11 @@ const fnAutoState = ((globalThis as Record<symbol, unknown>)[Symbol.for('xgis.sh
  *  inputs then the node-builder), so a clean body is just `(p) => …` using the ambient
  *  surface (Let/Var/If/Loop/Return + native terminal return) and only reaches for `b` when
  *  it must. The body's native `return` is type-checked against `ret` (`Node<KeyOf<R>>`), so a
- *  wrong-typed return is a compile error. The name is OPTIONAL — omit it for an auto `_fn{n}`
- *  (see fnAutoId caveat; keep it for string-referenced / snapshot-tested / re-authored fns).
+ *  wrong-typed return is a compile error. The name is OPTIONAL — an anonymous handle gets an
+ *  auto `_fn{n}` placeholder that a `funcs:` key-record deterministically renames at module
+ *  assembly (#763 H9 — the name-once form); keep an EXPLICIT name only where the fn is
+ *  referenced by string outside its own handle (externFn / callFn / placeholder-swap lookups)
+ *  and no record names it.
  *  Returns an FnHandle — call it directly (`foo(a, b)`), list it in a module (`funcs: [foo]`),
  *  or take `foo.decl`. */
 export function fn<P extends FnParamSpec, R extends string>(params: P, body: FnBody<P, R>, opts?: FnOpts): FnHandle<P, R>

@@ -1,4 +1,4 @@
-// ═══ Shader DSL — pipeline REFLECTION (additive, never on the emit path) ═══
+// ═══ Shader DSL — pipeline REFLECTION (additive; layout engine shared with GLSL emit) ═══
 //
 // The IR already carries every binding/struct/entry fact, but emitModule discards
 // it into a string — so a host re-derives bind-group layouts + uniform byte offsets
@@ -7,9 +7,13 @@
 // mechanically: bind-group entries, std140/std430 struct byte layouts, vertex
 // attributes, and entry-point signatures.
 //
-// PURE + ADDITIVE: this module is read-only over the IR and is NOT imported by any
-// emit path, so it cannot change a single emitted byte. The std140/std430 offsets are
-// anchored to the offsets the runtime already ships (reflect.test.ts).
+// PURE + ADDITIVE — scoped precisely (#763 H2): `reflect()` itself is read-only over
+// the IR and sits on no emit path. The LAYOUT ENGINE in this file (typeLayout /
+// structLayout) does NOT share that invariant: the GLSL backend imports it to bake
+// std140 UBO / std430 storage offsets into emitted source (glsl.ts), so a layout-rule
+// change here CAN change emitted GLSL bytes (never WGSL — the WGSL backend derives
+// nothing from it). The std140/std430 offsets are anchored to the offsets the runtime
+// already ships (reflect.test.ts).
 
 import { type ShaderType, type StructDecl, type ModuleDecl, type AddressSpace, typeKey, stageOf, workgroupSizeOf } from './ir'
 
@@ -114,7 +118,10 @@ export interface Reflection {
   readonly uniforms: readonly StructLayout[]
   /** std430 storage-buffer struct layouts. */
   readonly storage: readonly StructLayout[]
-  /** Vertex attributes from the @vertex entry's @location params (packed offsets). */
+  /** Vertex attributes from the @vertex entry's @location params. Offsets are
+   *  std430-ALIGNED (each field rounded up to its type's alignment — see the
+   *  roundUp in the vertex branch), not tightly packed (#763 H3); consumers take
+   *  offset+stride from here, verified against 4 renderers. */
   readonly vertex?: VertexLayout
   readonly entries: readonly EntryInfo[]
 }
