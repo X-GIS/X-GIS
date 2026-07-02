@@ -272,8 +272,8 @@ const vs = fn('vs_point', {
   )
   // Camera-relative RTC: subtract the camera anchor in DSFUN space so the
   // big absolute ECEF magnitude cancels before the residual reaches f32 math.
-  const camH = U.field.cam_ecef_h.swizzle<'vec3<f32>'>('xyz')
-  const camL = U.field.cam_ecef_l.swizzle<'vec3<f32>'>('xyz')
+  const camH = U.field.cam_ecef_h.swizzle('xyz')
+  const camL = U.field.cam_ecef_l.swizzle('xyz')
   const ecefRtc = ecefH.sub(camH).add(ecefL.sub(camL))
   const absLon = featData.at(fid.mul(STRIDE).add(17), f32T)
   const absLat = featData.at(fid.mul(STRIDE).add(18), f32T)
@@ -295,8 +295,8 @@ const vs = fn('vs_point', {
     const mxL = featData.at(fid.mul(STRIDE).add(21), f32T)
     const myH = featData.at(fid.mul(STRIDE).add(22), f32T)
     const myL = featData.at(fid.mul(STRIDE).add(23), f32T)
-    const camMercH = U.field.cam_ecef_h.swizzle<'vec2<f32>'>('xy')
-    const camMercL = U.field.cam_ecef_l.swizzle<'vec2<f32>'>('xy')
+    const camMercH = U.field.cam_ecef_h.swizzle('xy')
+    const camMercL = U.field.cam_ecef_l.swizzle('xy')
     const relX = mxH.sub(camMercH.x).add(mxL.sub(camMercL.x))
     const relY = myH.sub(camMercH.y).add(myL.sub(camMercL.y))
     return transformMat4(mvp, vec4(relX, relY, 0, 1))

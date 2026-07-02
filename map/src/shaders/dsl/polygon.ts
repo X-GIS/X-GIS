@@ -615,14 +615,14 @@ const vsMainEcefExtruded = fn(
     // #420 — ECEF-frame light dir (raw 0.288,-0.498,0.996 rotated by the
     // camera-anchor ENU→ECEF basis on the CPU). Same frame as face_normal →
     // fixes the dark side/back walls.
-    const lightPos = U.field.light_dir_ecef.swizzle<'vec3<f32>'>('xyz')
+    const lightPos = U.field.light_dir_ecef.swizzle('xyz')
     // WS-9 — intensity + colour are uniforms now (were baked consts). The CPU
     // packs the MapLibre default (intensity 0.5, white) when no custom `light`
     // is authored, so the default render stays byte-identical. Intensity rides
     // light_dir_ecef.w; colour is RGBA8 in light_color_packed (8-bit per
     // channel — ample for a light tint).
     const lightIntensity = U.field.light_dir_ecef.w
-    const lightColor = unpack4x8unorm(U.field.light_color_packed).swizzle<'vec3<f32>'>('xyz')
+    const lightColor = unpack4x8unorm(U.field.light_color_packed).swizzle('xyz')
     const directional = clamp(dot(p.face_normal, lightPos), 0, 1)
     directional.assign(mix(
       f32(1).sub(lightIntensity),

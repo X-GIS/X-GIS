@@ -470,7 +470,7 @@ const flat_rel = fn('flat_rel', LLPR_PARAMS, ({ lon_deg, lat_deg, proj_params, r
 const globe_eye_horizon_cos = fn('globe_eye_horizon_cos', { lon_deg: f32T, lat_deg: f32T, globe_eye: vec4fT }, ({ lon_deg, lat_deg, globe_eye }) => {
   const p = proj_globe(lon_deg, lat_deg)
   const pn = p.div(length(p))
-  return dot(pn, globe_eye.swizzle<'vec3<f32>'>('xyz')).sub(globe_eye.w)
+  return dot(pn, globe_eye.swizzle('xyz')).sub(globe_eye.w)
 })
 
 const needs_backface_cull = fn('needs_backface_cull', LLPE_PARAMS, ({ lon_deg, lat_deg, proj_params, globe_eye }) => {

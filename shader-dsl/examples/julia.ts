@@ -8,7 +8,7 @@
 import {
   fn, module, uniformStruct, ioStruct,
   u32, f32, toF32, vec2, vec3, vec4,
-  sin, cos, dot, location, builtin, Loop, If, Break,
+  sin, cos, dot, location, builtin, Loop, If, Break, Var,
   f32T, vec2fT, vec4fT, u32T,
 } from '../src/index.ts'
 import type { ShaderExample } from './_shared.ts'
@@ -32,10 +32,10 @@ const palette = fn('palette', { t: f32T }, ({ t }) => {
 const fs = fn('fs', { vo: VsOut.type }, ({ vo }) => {
   const uv = VsOut.of(vo).uv
   // centre the plane, scale by the zoom uniform
-  const z = vec2(uv.x.mul(2).sub(1), uv.y.mul(2).sub(1)).mul(U.field.zoom)
+  const z = Var(vec2(uv.x.mul(2).sub(1), uv.y.mul(2).sub(1)).mul(U.field.zoom))
   // the orbiting Julia constant
   const c = vec2(cos(U.field.time.mul(0.31)).mul(0.39).sub(0.4), sin(U.field.time.mul(0.41)).mul(0.39))
-  const it = f32(0)
+  const it = Var(f32(0))
   Loop(u32(0), (i) => i.lt(u32(96)), (i) => {
     If(dot(z, z).gt(4), () => { Break() }) // escaped
     z.assign(vec2(z.x.mul(z.x).sub(z.y.mul(z.y)).add(c.x), z.x.mul(z.y).mul(2).add(c.y)))
