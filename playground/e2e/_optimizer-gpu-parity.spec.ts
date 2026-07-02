@@ -25,7 +25,8 @@ import { test, expect } from '@playwright/test'
 import { emitModule } from '../../shader-dsl/src/core/backends/wgsl'
 import { optimize } from '../../shader-dsl/src/core/passes/opt/index'
 import { compileModule } from '../../shader-dsl/src/core/oracle'
-import { getPROJECTION_MODULE, configureProjections } from '@xgis/map'
+// NOT the `@xgis/map` BARREL (see _shader-math-parity.spec.ts — #765 loader death).
+import { getPROJECTION_MODULE, configureProjections } from '../../map/src/shaders/dsl/projections'
 import { PROJECTIONS } from '../../engine/src/projection/projections-table'
 
 // shader-dsl projections are host-injected — configure before any emit / cpu use.

@@ -21,17 +21,18 @@
 import { test, expect } from '@playwright/test'
 // Relative deep import (charter): Playwright transpiles specs in raw Node — the @xgis/* workspace alias does not resolve here, so specs import package SOURCES relatively (see _glsl-compile-gate.spec.ts).
 import { FIXTURES, emitForFixture } from '../../map/src/shaders/dsl/_polygon-fixtures'
-import { emitLineWgsl, emitCompositeWgsl } from '@xgis/map'
-import { emitPointWgsl } from '@xgis/map'
-import { emitRasterWgsl } from '@xgis/map'
-import { emitIconWgsl } from '@xgis/map'
+// NOT the `@xgis/map` BARREL (see _shader-math-parity.spec.ts — #765 loader death).
+import { emitLineWgsl, emitCompositeWgsl } from '../../map/src/shaders/dsl/line'
+import { emitPointWgsl } from '../../map/src/shaders/dsl/point'
+import { emitRasterWgsl } from '../../map/src/shaders/dsl/raster'
+import { emitIconWgsl } from '../../map/src/shaders/dsl/icon'
 import { emitOverdrawComposeWgsl } from '../../engine/src/shaders/dsl/overdraw-compose'
-import { emitOverdrawFsWgsl } from '@xgis/map'
-import { emitTextWgsl } from '@xgis/map'
-import { emitHeatmapAccumWgsl } from '@xgis/map'
-import { emitHeatmapBlurWgsl } from '@xgis/map'
-import { emitHeatmapComposeWgsl } from '@xgis/map'
-import { configureProjections } from '@xgis/map'
+import { emitOverdrawFsWgsl } from '../../map/src/shaders/dsl/overdraw-fs'
+import { emitTextWgsl } from '../../map/src/shaders/dsl/text'
+import { emitHeatmapAccumWgsl } from '../../map/src/shaders/dsl/heatmap-accum'
+import { emitHeatmapBlurWgsl } from '../../map/src/shaders/dsl/heatmap-blur'
+import { emitHeatmapComposeWgsl } from '../../map/src/shaders/dsl/heatmap-compose'
+import { configureProjections } from '../../map/src/shaders/dsl/projections'
 import { PROJECTIONS } from '../../engine/src/projection/projections-table'
 
 // This spec EMITS projection-dependent shaders (polygon/point/line/raster via the DSL), so it

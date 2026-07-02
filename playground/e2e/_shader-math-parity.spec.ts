@@ -26,7 +26,11 @@
 import { test, expect } from '@playwright/test'
 // Relative deep import (charter): Playwright transpiles specs in raw Node — the @xgis/* workspace alias does not resolve here, so specs import package SOURCES relatively (see _glsl-compile-gate.spec.ts).
 import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../../map/src/shaders/projection'
-import { projectWgsl, invMercLatRad, configureProjections } from '@xgis/map'
+// NOT the `@xgis/map` BARREL: the barrel pulls the data package, whose geodesic /
+// dev-assert chain dies in the raw-Node spec loader — the #765 total spec-collection
+// death that made this whole gate vacuous. Deep-import the defining files only.
+import { projectWgsl, invMercLatRad } from '../../map/src/shaders/dsl/cpu-projections'
+import { configureProjections } from '../../map/src/shaders/dsl/projections'
 import { PROJECTIONS } from '../../engine/src/projection/projections-table'
 
 // shader-dsl projections are host-injected — configure before any emit / cpu use.

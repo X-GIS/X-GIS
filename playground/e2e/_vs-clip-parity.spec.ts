@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
-import { DEQUANT_ECEF_WGSL } from '@xgis/map'
+// NOT the `@xgis/map` BARREL (see _shader-math-parity.spec.ts — #765 loader death).
+import { DEQUANT_ECEF_WGSL } from '../../map/src/shaders/dsl/polygon'
 import { dequantVertexF32, mulMat4Vec4F32, POLYGON_FILL_FORMAT } from '@xgis/compiler'
 
 // ═══ vs_main_ecef clip-space parity: GPU f32 (dequant→MVP→clip) ≡ CPU fround ═══

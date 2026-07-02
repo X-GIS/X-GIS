@@ -28,13 +28,18 @@ declare global {
 
 /** True under dev server + vitest, statically false (and stripped) in the
  *  production app build. Exported for dev-only probe blocks that should
- *  themselves vanish in prod: `if (DEV) { ...expensive cross-check... }`. */
-export const DEV: boolean = import.meta.env.DEV
+ *  themselves vanish in prod: `if (DEV) { ...expensive cross-check... }`.
+ *  The `typeof` guard (#765): `import.meta.env` is a VITE surface — a raw-Node
+ *  ESM loader (the Playwright spec loader) has no `env` on import.meta, and the
+ *  bare property read crashed EVERY spec that transitively loaded this module.
+ *  Vite still statically replaces the `import.meta.env.DEV` read, so dev/prod
+ *  behaviour and prod stripping are unchanged; raw Node simply gets `false`. */
+export const DEV: boolean = typeof import.meta.env !== 'undefined' ? import.meta.env.DEV : false
 
 /** Throw in dev iff `cond` is false. `msg` may be a thunk so the failure
  *  string is only built when the assert actually fires. Stripped in prod. */
 export function devAssert(cond: boolean, msg: string | (() => string)): void {
-  if (!import.meta.env.DEV) return
+  if (typeof import.meta.env === 'undefined' || !import.meta.env.DEV) return
   if (!cond) throw new Error(`[xgis devAssert] ${typeof msg === 'function' ? msg() : msg}`)
 }
 
