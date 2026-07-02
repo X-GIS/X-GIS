@@ -45,6 +45,10 @@ interface Ctx {
   fns: Record<string, (...args: CpuValue[]) => CpuValue>
   bindings: Record<string, CpuValue>
   structs: Map<string, StructDecl>
+  /** Opt-in GPU stubs (#763 O3): textureSample/fwidth return placeholder values
+   *  instead of throwing. OFF by default — plausible-wrong is the worst failure
+   *  mode for a reference backend. */
+  gpuStubs: boolean
 }
 
 export interface CpuModule {
@@ -136,20 +140,50 @@ const BUILTINS: Record<string, Builtin> = {
   f32: (x) => Number(x),
   i32: (x) => Math.trunc(x as number),
   u32: (x) => Math.trunc(x as number) >>> 0,
+  // #763 O1 — pure-math builtins the catalogue claims portable but the oracle
+  // lacked (a shader using them compiled + emitted on both GPU targets, then
+  // threw `unknown fn` at first CPU use — and compileModule is production-used).
+  pow: (a, b) => (isArr(a)
+    ? (a as number[]).map((x, i) => Math.pow(x as number, isArr(b) ? ((b as number[])[i] as number) : (b as number)))
+    : Math.pow(a as number, b as number)),
+  fract: map1((x) => x - Math.floor(x)),
+  // unpack u32 RGBA8 → vec4<f32> in [0,1]; low byte → component 0 (pack4x8unorm inverse).
+  unpack4x8unorm: (u) => {
+    const n = (u as number) >>> 0
+    return [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff].map((b) => b / 255)
+  },
+  // f32 bit-pattern reinterpreted as u32 (WGSL bitcast<u32> / GLSL floatBitsToUint).
+  bitcastU32: (x) => {
+    _bitcastView.setFloat32(0, Math.fround(x as number), true)
+    return _bitcastView.getUint32(0, true)
+  },
   // pack a vec4<f32> (each in [0,1]) into u32 RGBA8; component 0 → low byte.
   pack4x8unorm: (v) => {
     const a = v as number[]
     const q = (x: number): number => Math.round(Math.max(0, Math.min(1, x)) * 255) & 0xff
     return (q(a[0]) | (q(a[1]) << 8) | (q(a[2]) << 16) | (q(a[3]) << 24)) >>> 0
   },
-  // GPU-only stubs. textureSample needs the GPU's sampler/atlas; fwidth needs
-  // neighbouring fragments — neither is computable in this per-invocation
-  // interpreter. They exist so a shader that references them still COMPILES on
-  // the CPU side (e.g. for a vertex-only eval); a real headless renderer would
-  // replace these. No current CPU consumer evaluates a fragment that uses them.
+}
+
+const _bitcastView = new DataView(new ArrayBuffer(4))
+
+
+// GPU-only stubs (#763 O3). textureSample needs the GPU's sampler/atlas; fwidth
+// needs neighbouring fragments — neither is computable in this per-invocation
+// interpreter. Evaluating one THROWS unless compileModule was given
+// `{ gpuStubs: true }`: a silent [0,0,0,1] / 0 is a plausible-wrong value, the
+// worst failure mode for a reference backend.
+const GPU_STUBS: Record<string, Builtin> = {
   textureSample: () => [0, 0, 0, 1],
   fwidth: () => 0,
+  textureLoad: () => [0, 0, 0, 1],
+  textureDimensions: () => [1, 1], // 1×1, not 0×0 — a divide-by-dimensions stays finite
 }
+
+/** Test-only surfaces (#763 O5): the oracle's builtin coverage, pinned against the
+ *  intrinsic catalogue so a new portable intrinsic cannot ship without a CPU twin. */
+export const ORACLE_BUILTIN_NAMES: ReadonlySet<string> = new Set(Object.keys(BUILTINS))
+export const ORACLE_GPU_STUB_NAMES: ReadonlySet<string> = new Set(Object.keys(GPU_STUBS))
 
 function applyMinMax(f: (a: number, b: number) => number, a: CpuValue, b: CpuValue): number[] {
   if (isArr(a) && isArr(b)) return a.map((x, i) => f(x as number, b[i] as number))
@@ -186,10 +220,13 @@ function zeroOf(type: { kind: string; n?: number }): CpuValue {
   return 0
 }
 
-// mat4x4 (column-major) × vec4 → vec4. result[row] = Σ_col m[col*4+row]*v[col].
-function matVec4(m: number[], v: number[]): number[] {
-  const out = [0, 0, 0, 0]
-  for (let i = 0; i < 4; i++) out[i] = m[i]! * v[0]! + m[4 + i]! * v[1]! + m[8 + i]! * v[2]! + m[12 + i]! * v[3]!
+// matNxN (column-major) × vecN → vecN. result[row] = Σ_col m[col*N+row]*v[col].
+// Dimension-generic (#763 O2) — the old hardcoded mat4 form read m[4+i]/m[8+i]/
+// m[12+i] out of range on a mat2/mat3 and returned silent NaNs.
+function matVec(m: number[], v: number[]): number[] {
+  const n = v.length
+  const out = new Array<number>(n).fill(0)
+  for (let c = 0; c < n; c++) for (let r = 0; r < n; r++) out[r]! += m[c * n + r]! * v[c]!
   return out
 }
 
@@ -209,10 +246,20 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
     }
     case 'binop': {
       const av = evalExpr(e.a, env, ctx), bv = evalExpr(e.b, env, ctx)
-      // mat4 * vec4 (column-major) — the MVP transform. Dispatched by the
+      // mat * vec (column-major) — the MVP transform. Dispatched by the
       // operand's static type since values are type-blind number[] at runtime.
       if (e.bop === '*' && e.a.type.kind === 'mat' && e.b.type.kind === 'vec') {
-        return matVec4(av as number[], bv as number[])
+        return matVec(av as number[], bv as number[])
+      }
+      // #763 O2 — fail LOUD on the matrix shapes this interpreter does not
+      // implement. Falling through to applyBin computed element-wise Hadamard
+      // for mat*mat (silently wrong vs both GPU backends) and misordered
+      // vec*mat entirely.
+      if (e.bop === '*' && e.a.type.kind === 'mat' && e.b.type.kind === 'mat') {
+        throw new Error('shader-dsl/cpu: mat*mat is not implemented (element-wise would be silently wrong) — decompose into mat*vec or add a real matrix product first')
+      }
+      if (e.bop === '*' && e.a.type.kind === 'vec' && e.b.type.kind === 'mat') {
+        throw new Error('shader-dsl/cpu: vec*mat (row-vector form) is not implemented — use mat*vec')
       }
       const i32Op = e.a.type.kind === 'scalar' && e.a.type.scalar === 'i32'
       return applyBin(e.bop, av, bv, i32Op)
@@ -247,6 +294,13 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       const args = e.args.map((a) => evalExpr(a, env, ctx))
       const b = BUILTINS[e.fn]
       if (b) return b(...args)
+      const stub = GPU_STUBS[e.fn]
+      if (stub) {
+        if (!ctx.gpuStubs) {
+          throw new Error(`shader-dsl/cpu: '${e.fn}' is GPU-only and not computable here — pass compileModule(m, { gpuStubs: true }) to accept placeholder values (#763 O3)`)
+        }
+        return stub(...args)
+      }
       const user = ctx.fns[e.fn]
       if (user) return user(...args)
       throw new Error(`shader-dsl/cpu: unknown fn ${e.fn}`)
@@ -335,7 +389,11 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
       case 'assign': setLValue(s.target, evalExpr(s.expr, env, ctx), env, ctx); break
       case 'assignOp': {
         const cur = evalExpr(s.target, env, ctx)
-        setLValue(s.target, applyBin(s.bop, cur, evalExpr(s.expr, env, ctx)), env, ctx)
+        // #763 O6 — thread the i32 flag exactly as the binop path does
+        // (oracle.ts binop case): `x >>= y` on an i32 target is an ARITHMETIC
+        // shift; the flag was applied to one of the two eval sites only.
+        const i32Op = s.target.type.kind === 'scalar' && s.target.type.scalar === 'i32'
+        setLValue(s.target, applyBin(s.bop, cur, evalExpr(s.expr, env, ctx), i32Op), env, ctx)
         break
       }
       case 'return': return { kind: 'return', value: s.expr ? evalExpr(s.expr, env, ctx) : undefined }
@@ -402,7 +460,7 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
   return NORMAL
 }
 
-export function compileModule(m: ModuleDecl): CpuModule {
+export function compileModule(m: ModuleDecl, opts?: { gpuStubs?: boolean }): CpuModule {
   // Same validation gate as the WGSL/GLSL writers — the oracle is the third
   // backend over the same IR, so it must reject a structurally-invalid module.
   validate(m)
@@ -414,6 +472,7 @@ export function compileModule(m: ModuleDecl): CpuModule {
     fns: {},
     bindings: {},
     structs: new Map(m.structs.map((s) => [s.name, s])),
+    gpuStubs: opts?.gpuStubs ?? false,
   }
   // Populate consts in declaration order so a later const may reference an
   // earlier one. A `valueExpr` const (vec / array / struct literal) is evaluated
