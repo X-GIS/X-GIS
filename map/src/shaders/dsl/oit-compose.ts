@@ -21,7 +21,7 @@ import {
   texture2dfT, texture2dMsfT,
   max,
   Let, If, Loop, Return,
-  type Node, type ModuleDecl,
+  type ReadonlyNode, type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, resource } from '@xgis/shader-dsl'
 import { emitModule } from '@xgis/shader-dsl'
@@ -61,7 +61,10 @@ const vsFull = fn(
 // an integer literal. WGSL accepts an i32 literal as the loop bound
 // directly — no module-level const needed.
 
-const buildFsCompose = (sampleCount: number, accumTex: Node, revealageTex: Node) => {
+// Texture params carry the SPECIFIC keys (#763 X6) — resource() nodes provide
+// them; the widened `Node` no longer satisfies textureLoad/textureDimensions.
+type OitTex = ReadonlyNode<'texture_2d<f32>' | 'texture_multisampled_2d<f32>'>
+const buildFsCompose = (sampleCount: number, accumTex: OitTex, revealageTex: OitTex) => {
   return fn(
     'fs_compose',
     { in: VsOut },

@@ -47,6 +47,12 @@ export type KeyOf<T> =
   T extends { kind: 'scalar'; scalar: infer S extends string } ? S :
   T extends { kind: 'vec'; n: infer N extends number; elem: infer E extends string } ? `vec${N}<${E}>` :
   T extends { kind: 'mat'; n: infer N extends number } ? `mat${N}x${N}<f32>` :
+  // #763 X6 — texture/sampler arms (spellings match typeKey()): resource()
+  // promised a SPECIFIC key (`Node<'texture_2d<f32>'>`) but these fell through
+  // to `string`, so a texture/sampler argument swap type-checked.
+  T extends { kind: 'texture'; dim: '2d-ms' } ? 'texture_multisampled_2d<f32>' :
+  T extends { kind: 'texture'; dim: '2d' } ? 'texture_2d<f32>' :
+  T extends { kind: 'sampler' } ? 'sampler' :
   string
 /** Element key of a vector key (`vec3<u32>` → `u32`); identity for scalars. */
 export type ElemKey<K extends string> = K extends `vec${number}<${infer E}>` ? E : K
