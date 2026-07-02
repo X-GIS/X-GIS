@@ -22,7 +22,12 @@ export type Expr =
   | { readonly op: 'unop'; readonly type: ShaderType; readonly a: Expr }
   | { readonly op: 'compare'; readonly type: ShaderType; readonly cop: CmpOp; readonly a: Expr; readonly b: Expr }
   | { readonly op: 'logical'; readonly type: ShaderType; readonly lop: LogOp; readonly a: Expr; readonly b: Expr }
-  | { readonly op: 'call'; readonly type: ShaderType; readonly fn: string; readonly args: readonly Expr[] }
+  // `declRef` (present only on calls made through a real FnHandle — absent on externFn /
+  // raw callFn string calls) points at the callee's FuncDecl so module() can auto-collect
+  // transitively-called fns and key-naming can rewrite call spellings. NEVER read by the
+  // emit path (the spelling stays `fn`), never serialized, dropped freely by pass rewrites
+  // (collection runs at assembly time, before any pass).
+  | { readonly op: 'call'; readonly type: ShaderType; readonly fn: string; readonly args: readonly Expr[]; readonly declRef?: FuncDecl }
   | { readonly op: 'member'; readonly type: ShaderType; readonly base: Expr; readonly field: string }
   | { readonly op: 'construct'; readonly type: ShaderType; readonly args: readonly Expr[] }
   | { readonly op: 'select'; readonly type: ShaderType; readonly cond: Expr; readonly ifTrue: Expr; readonly ifFalse: Expr }
