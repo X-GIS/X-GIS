@@ -45,7 +45,7 @@ import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
 import { buildOverdrawComposePipeline, buildHeatmapBlurPipeline, buildHeatmapComposePipeline, buildOitComposePipeline } from './compose-pipelines'
 import { buildFlatFillMaterials, buildExtrudeMaterial, buildPatternFillMaterials, type FillRhiState } from './material/polygon-fill-material'
 import type { Material } from './material/material'
-import { emitPolygonWgsl } from '../shaders/dsl/polygon'
+import { emitPolygonWgsl, emitPolygonGlsl } from '../shaders/dsl/polygon'
 import { Node } from '@xgis/shader-dsl'
 import type { Stmt } from '@xgis/shader-dsl'
 
@@ -84,16 +84,17 @@ import type { Stmt } from '@xgis/shader-dsl'
  *     post-emit string splice that reconstructed the assign via the
  *     compiler-side nodeToWgslString copy (retired in PR 2e.B.2).
  */
-function buildShader(variant?: ShaderVariantInfo | null): string {
+/** Bridge a renderer-side ShaderVariantInfo to the polygon COMPOSER's variant shape
+ *  (null = default-uniform slice). Shared by the WGSL emit and the #746 GLSL twins so
+ *  both backends compose the exact same variant. */
+function toComposerVariant(variant?: ShaderVariantInfo | null): Parameters<typeof emitPolygonWgsl>[0] {
   // Default-uniform path (variant absent OR variant carries no preamble +
   // no feat_buffer) — the composer's null-variant emit substitutes the
   // POLYGON_SHADER_SOURCE:565 / 780 default-uniform assigns.
   const pre = variant?.preamble
   const hasPreamble = !!pre
     && (((pre.consts?.length ?? 0) + (pre.bindings?.length ?? 0) + (pre.funcs?.length ?? 0)) > 0)
-  if (!variant || (!hasPreamble && !variant.needsFeatureBuffer)) {
-    return emitPolygonWgsl(null, isPickEnabled())
-  }
+  if (!variant || (!hasPreamble && !variant.needsFeatureBuffer)) return null
 
   // Variant-bearing path — feed Node-typed exprs + needsFeatureBuffer into
   // the composer. variant.preamble (module-shape string) still splices
@@ -115,25 +116,24 @@ function buildShader(variant?: ShaderVariantInfo | null): string {
   // assign automatically, so the composer needs no explicit preamble Stmts.
   const fillPreamble: readonly Stmt[] | null = null
   const strokePreamble: readonly Stmt[] | null = null
-  // ShaderVariantInfo.fillExpr expects Node<'vec4<f32>'>; the runtime Node
+  // The composer's fillExpr expects Node<'vec4<f32>'>; the runtime Node
   // class carries the same {op:'construct'|...} Expr shape that the
   // compiler-side NodeLike captures, so the constructor call is the bridge.
   // The compiler authors every specialized const / binding / helper fn as IR
   // decls (variant.preamble: Partial<ModuleDecl>); the composer spreads them
   // into the base module — no post-emit WGSL-string splice.
-  const wgsl = emitPolygonWgsl(
-    {
-      preamble: variant.preamble ?? null,
-      fillExpr: fillExprNode,
-      strokeExpr: strokeExprNode,
-      fillPreamble,
-      strokePreamble,
-      needsFeatureBuffer: variant.needsFeatureBuffer,
-    },
-    isPickEnabled(),
-  )
+  return {
+    preamble: variant.preamble ?? null,
+    fillExpr: fillExprNode,
+    strokeExpr: strokeExprNode,
+    fillPreamble,
+    strokePreamble,
+    needsFeatureBuffer: variant.needsFeatureBuffer,
+  }
+}
 
-  return wgsl
+function buildShader(variant?: ShaderVariantInfo | null): string {
+  return emitPolygonWgsl(toComposerVariant(variant), isPickEnabled())
 }
 
 // ═══ PipelineFactory ═══
@@ -185,9 +185,16 @@ export class PipelineFactory {
   /** Build + register the per-style fill Material twins for a variant pipeline set (behind the flag).
    *  Keyed by each native per-style pipeline so recordFillDraw routes them via the Material seam. */
   private registerFillMaterials(variant: ShaderVariantInfo, pipelines: CachedPipeline): void {
+    // #746 — same boot guard as build(): the twins couple to WebGPU-native objects
+    // that are Proxy stubs on the forced-WebGL2 slice (see build()).
+    if (this.ctx.rhi.backend === 'webgl2') return
     const { format } = this.ctx
+    const cv = toComposerVariant(variant)
     const { flat, ground } = buildFlatFillMaterials({
-      rhi: this.ctx.rhi, shader: buildShader(variant), format, sampleCount: getSampleCount(),
+      rhi: this.ctx.rhi, shader: emitPolygonWgsl(cv, isPickEnabled()), format, sampleCount: getSampleCount(),
+      // #746 — split GLSL twins so the WebGL2 fallback can build these Materials too.
+      vsCode: emitPolygonGlsl(cv, isPickEnabled(), 'vertex'),
+      fsCode: emitPolygonGlsl(cv, isPickEnabled(), 'fragment'),
       bindGroupLayout: this.getOrBuildVariantLayout(variant), vertexLayout: toVertexBufferLayout(POLYGON_FILL_FORMAT), pickEnabled: isPickEnabled(),
     })
     this._fillPerStyle.set(pipelines.fillPipeline, { mat: flat, variant: 0 })
@@ -748,10 +755,22 @@ export class PipelineFactory {
     this.fillPipelinePatternExtruded = pickable.fillPatternExtruded
     this.fillPipelinePatternExtrudedFallback = pickable.fillPatternExtrudedFallback
 
+    // #746 — the fill Material twins still couple to WebGPU-NATIVE objects (the shared
+    // bindGroupLayout / tile bind groups / uniform-ring buffer), which on the forced-WebGL2
+    // slice are boot Proxy stubs — building them kills the whole boot before the raster
+    // slice ever renders. The WebGL2 frame path never consumes these twins (the render
+    // loop's rhi branch draws the isolated raster slice only), and recordFillDraw stays
+    // fail-LOUD on an untwinned pipeline, so skipping the builds is explicit, not silent.
+    // Re-basing the twins onto RHI-native layouts/bind-groups is the WebGL2 full-frame phase.
+    if (this.ctx.rhi.backend === 'webgl2') return
+
     // P1.6/§4 — build the flat-fill Material twins (default shader), always. recordFillDraw routes the
     // flat/ground non-extrude fill through them (the raw fallback is deleted; an untwinned pipeline throws).
     this._fillMaterials = buildFlatFillMaterials({
       rhi: this.ctx.rhi, shader: pickShader, format, sampleCount: getSampleCount(),
+      // #746 — split GLSL twins so the WebGL2 fallback can build these Materials too.
+      vsCode: emitPolygonGlsl(null, pickEnabled, 'vertex'),
+      fsCode: emitPolygonGlsl(null, pickEnabled, 'fragment'),
       bindGroupLayout: this.bindGroupLayout, vertexLayout: vertexBufferLayout, pickEnabled,
     })
     this._fillExtrudeMaterial = buildExtrudeMaterial({

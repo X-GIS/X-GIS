@@ -61,6 +61,11 @@ export interface FillMaterialInputs {
   /** Pick-attachment writeMask (default 0xf). The `pointer-events:none` no-pick twins pass 0 so the
    *  layer's pick id never lands in the pick texture (picks fall through). */
   pickWriteMask?: number
+  /** Split GLSL ES 3.00 sources for the WebGL2 fallback device (#746). Optional — a
+   *  Material whose slice has no GLSL twin yet (extrude / pattern) stays WGSL-only and
+   *  keeps WebGL2's explicit fail-closed error. */
+  vsCode?: string
+  fsCode?: string
 }
 
 const toMatVB = (l: GPUVertexBufferLayout) => ({
@@ -78,7 +83,7 @@ export function buildFlatFillMaterials(inp: FillMaterialInputs): { flat: Materia
   const colorTargets = inp.pickEnabled
     ? [{ format: fmt, blend: 'alpha' as const }, { format: 'rg32uint' as const, writeMask: inp.pickWriteMask ?? 0xf }]
     : [{ format: fmt, blend: 'alpha' as const }]
-  const base = { shader: inp.shader, vsEntry: 'vs_main_ecef', fsEntry: 'fs_fill', format: fmt, sampleCount: inp.sampleCount, groups, vertexBuffers, colorTargets }
+  const base = { shader: inp.shader, vsCode: inp.vsCode, fsCode: inp.fsCode, vsEntry: 'vs_main_ecef', fsEntry: 'fs_fill', format: fmt, sampleCount: inp.sampleCount, groups, vertexBuffers, colorTargets }
   const flat = new Material(rhi, {
     ...base, cullMode: 'none',
     variants: [

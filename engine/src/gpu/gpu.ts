@@ -292,7 +292,7 @@ export function initGPUForcedWebGL2(
   // preserveDrawingBuffer keeps the rendered frame readable via gl.readPixels after the
   // rAF turn — the US-004 live-render gate reads the checker pixels back. (This slice is a
   // dev/test path; the minor compositor cost is acceptable.)
-  const gl = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: true, preserveDrawingBuffer: true })
+  const gl = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: true, preserveDrawingBuffer: true, stencil: true })
   if (!gl) throw new WebGPUUnavailableError('?forcegl2=1 set but canvas.getContext("webgl2") returned null')
   const rhi = makeRhi(gl)
 
