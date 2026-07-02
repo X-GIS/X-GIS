@@ -10,3 +10,7 @@ export * from './safety'
 // both @xgis/data (pmtiles fetch scheduling) and @xgis/map (GPU upload scheduling), so
 // it lives here at the shared LCA rather than coupling map→data for a generic queue.
 export * from './priority-queue'
+// Dev-only invariant checks (devAssert / devAssertClose / devWatch) — import.meta.env.DEV
+// gated, stripped from any `vite build`. Lives at the shared LCA so @xgis/engine
+// (UniformBlock) and @xgis/map can both assert without importing the runtime.
+export * from './dev-assert'
