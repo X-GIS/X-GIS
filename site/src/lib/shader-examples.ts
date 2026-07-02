@@ -7,7 +7,7 @@
 import { examples, type Control } from '../../../shader-dsl/examples/index.ts'
 import { emitModule, emitGlslModule, reflect } from '../../../shader-dsl/src/index.ts'
 import { existsSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import path from 'node:path'
 
 const rawSources = import.meta.glob('../../../shader-dsl/examples/*.ts', {
   query: '?raw', import: 'default', eager: true,
@@ -79,9 +79,14 @@ export const shaderCards: ShaderCard[] = examples.map((ex) => {
 // at BUILD time (so CI's `bun run build` fails) if one is missing — e.g. after adding or
 // renaming an example without regenerating. Regenerate with:
 //   npx tsx playground/capture-shader-thumbnails.mts
+//
+// Anchored to process.cwd() (the site package dir — astro dev/build always run from the
+// package via its scripts), NOT to import.meta.url: the bundled module's depth is an astro
+// internal that moved in astro 6 (dist/chunks → dist/.prerender/chunks), which silently
+// re-pointed a ../../-relative URL at dist/public and failed the gate on committed files.
 for (const c of shaderCards) {
   if (!c.renderable) continue
-  const file = fileURLToPath(new URL(`../../public/shader/${c.id}.jpg`, import.meta.url))
+  const file = path.join(process.cwd(), 'public', 'shader', `${c.id}.jpg`)
   if (!existsSync(file)) {
     throw new Error(`[shader-dsl] missing thumbnail for renderable example '${c.id}' (site/public/shader/${c.id}.jpg) — run: npx tsx playground/capture-shader-thumbnails.mts`)
   }
