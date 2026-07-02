@@ -71,6 +71,15 @@ function binResultType(a: ShaderType, b: ShaderType, ctx: string): ShaderType {
 }
 
 const VEC_FIELD_INDEX: Record<string, number> = { x: 0, y: 1, z: 2, w: 3 }
+// Colour-alias components map onto the same lanes (WGSL allows either set).
+const SWIZZLE_ALIAS: Record<string, string> = { r: 'x', g: 'y', b: 'z', a: 'w' }
+
+// ── Swizzle result-key inference (#740 R9) ──
+type StrLen<S extends string, A extends readonly unknown[] = []> =
+  S extends `${string}${infer R}` ? StrLen<R, [...A, 1]> : A['length']
+/** The Node key of `vecK.swizzle(S)` — scalar for one component, vecN<elem> else. */
+export type SwizzleKey<K extends string, S extends string> =
+  StrLen<S> extends 1 ? ElemKey<K> : `vec${StrLen<S> & number}<${ElemKey<K>}>`
 
 export class ReadonlyNode<K extends string = string> {
   /** Phantom type key. Optional + never assigned, so it carries K covariantly
@@ -100,10 +109,24 @@ export class ReadonlyNode<K extends string = string> {
     const b = this.liftArg(o)
     return new Node({ op: 'binop', type: binResultType(this.type, b.type, bop), bop, a: this.expr, b: b.expr })
   }
-  add(o: ArithArg<K>): Node<K> { return this.bin('+', o) as Node<K> }
-  sub(o: ArithArg<K>): Node<K> { return this.bin('-', o) as Node<K> }
-  mul(o: ArithArg<K>): Node<K> { return this.bin('*', o) as Node<K> }
-  div(o: ArithArg<K>): Node<K> { return this.bin('/', o) as Node<K> }
+  // Scalar-node × vec-node BROADCASTS (#740 R9): `t.add(phases)` where t is f32
+  // and phases vec3<f32> types as vec3<f32> — the runtime (binResultType) always
+  // supported it; only the signature forced authors to unroll per component.
+  // The `vec${number}<${K}>` constraint self-limits these overloads to a SCALAR
+  // LHS (for K = 'vec3<f32>' no vec key can contain it), so vec LHS keeps its
+  // exact-K arithmetic unchanged.
+  add<K2 extends `vec${number}<${K}>`>(o: ReadonlyNode<K2>): Node<K2>
+  add(o: ArithArg<K>): Node<K>
+  add(o: NodeLike): Node { return this.bin('+', o) }
+  sub<K2 extends `vec${number}<${K}>`>(o: ReadonlyNode<K2>): Node<K2>
+  sub(o: ArithArg<K>): Node<K>
+  sub(o: NodeLike): Node { return this.bin('-', o) }
+  mul<K2 extends `vec${number}<${K}>`>(o: ReadonlyNode<K2>): Node<K2>
+  mul(o: ArithArg<K>): Node<K>
+  mul(o: NodeLike): Node { return this.bin('*', o) }
+  div<K2 extends `vec${number}<${K}>`>(o: ReadonlyNode<K2>): Node<K2>
+  div(o: ArithArg<K>): Node<K>
+  div(o: NodeLike): Node { return this.bin('/', o) }
   mod(o: ArithArg<K>): Node<K> { return this.bin('%', o) as Node<K> }
   neg(): Node<K> { return new Node<K>({ op: 'unop', type: this.type, a: this.expr }) }
 
@@ -150,34 +173,45 @@ export class ReadonlyNode<K extends string = string> {
   get w(): Node<ElemKey<K>> { return this.comp('w') }
 
   /** Vector swizzle — `.rgb`, `.xy`, `.a`, … A length-1 swizzle → scalar;
-   *  length-N → vecN of the same element type. The result key cannot be
-   *  inferred from the runtime `comps` string, so callers that know the
-   *  swizzle shape statically pass it explicitly (e.g. `swizzle<'vec3<f32>'>('xyz')`);
-   *  the default `string` preserves the historical untyped result. */
-  swizzle<R extends string = string>(comps: string): Node<R> {
+   *  length-N → vecN of the same element type. The result key is INFERRED from
+   *  the components string (#740 R9): `v4.swizzle('yxz')` is `Node<'vec3<f32>'>`
+   *  for an f32 source, elem-typed for u32/i32 vectors too — no hand-written
+   *  result-type parameter. Components are validated (xyzw/rgba, each within
+   *  the source's lane count). */
+  swizzle<S extends string>(comps: S): Node<SwizzleKey<K, S>>
+  /** @deprecated The explicit-result-type form — the key is inferred from the
+   *  components string now; a hand-written key can silently lie. */
+  swizzle<R extends string>(comps: string): Node<R>
+  swizzle(comps: string): Node {
     const t = this.type
     if (!isVec(t)) throw dslError('SD0008', `.${comps} on ${typeKey(t)}`)
     const n = comps.length
+    if (n < 1 || n > 4) throw dslError('SD0008', `.${comps} — a swizzle takes 1-4 components`)
+    for (const c of comps) {
+      const idx = VEC_FIELD_INDEX[(SWIZZLE_ALIAS[c] ?? c) as 'x' | 'y' | 'z' | 'w']
+      if (idx === undefined) throw dslError('SD0008', `.${comps} — '${c}' is not a component (xyzw/rgba)`)
+      if (idx >= t.n) throw dslError('SD0007', `.${comps} on ${typeKey(t)}`)
+    }
     const type: ShaderType = n === 1 ? { kind: 'scalar', scalar: t.elem } : { kind: 'vec', n: n as 2 | 3 | 4, elem: t.elem }
-    return new Node<R>({ op: 'member', type, base: this.expr, field: comps })
+    return new Node({ op: 'member', type, base: this.expr, field: comps })
   }
   get r(): Node<ElemKey<K>> { return this.comp('x') }
   get g(): Node<ElemKey<K>> { return this.comp('y') }
   get b(): Node<ElemKey<K>> { return this.comp('z') }
   get a(): Node<ElemKey<K>> { return this.comp('w') }
 
-  get rgb(): Node<'vec3<f32>'> { return this.swizzle('rgb') as Node<'vec3<f32>'> }
+  get rgb(): Node<SwizzleKey<K, 'rgb'>> { return this.swizzle('rgb') }
 
   // Common multi-component swizzle getters — `w.zxy` instead of vec3(w.z, w.x, w.y) or
   // the untyped swizzle<'vec3<f32>'>('zxy'). Like .rgb, these assume an f32 source (the
   // dominant case for position/colour vectors); for u32/i32 vectors use .swizzle<R>('...').
-  get xy(): Node<'vec2<f32>'> { return this.swizzle('xy') as Node<'vec2<f32>'> }
-  get xyz(): Node<'vec3<f32>'> { return this.swizzle('xyz') as Node<'vec3<f32>'> }
-  get zyx(): Node<'vec3<f32>'> { return this.swizzle('zyx') as Node<'vec3<f32>'> }
-  get zxy(): Node<'vec3<f32>'> { return this.swizzle('zxy') as Node<'vec3<f32>'> }
-  get yzx(): Node<'vec3<f32>'> { return this.swizzle('yzx') as Node<'vec3<f32>'> }
-  get bgr(): Node<'vec3<f32>'> { return this.swizzle('bgr') as Node<'vec3<f32>'> }
-  get bgra(): Node<'vec4<f32>'> { return this.swizzle('bgra') as Node<'vec4<f32>'> }
+  get xy(): Node<SwizzleKey<K, 'xy'>> { return this.swizzle('xy') }
+  get xyz(): Node<SwizzleKey<K, 'xyz'>> { return this.swizzle('xyz') }
+  get zyx(): Node<SwizzleKey<K, 'zyx'>> { return this.swizzle('zyx') }
+  get zxy(): Node<SwizzleKey<K, 'zxy'>> { return this.swizzle('zxy') }
+  get yzx(): Node<SwizzleKey<K, 'yzx'>> { return this.swizzle('yzx') }
+  get bgr(): Node<SwizzleKey<K, 'bgr'>> { return this.swizzle('bgr') }
+  get bgra(): Node<SwizzleKey<K, 'bgra'>> { return this.swizzle('bgra') }
 
   /** Array index — base[idx]. Key inferred from the element ShaderType. */
   at<T extends ShaderType>(idx: ReadonlyNode<ScalarKey> | number, elem: T): Node<KeyOf<T>> {
