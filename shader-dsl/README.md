@@ -31,9 +31,14 @@ This is a workspace package (build-to-tarball, not published):
 
 ```bash
 bun install
-bun run build          # tsc --build → dist/ + .d.ts
+bun run build          # tsc --build → dist/ + .d.ts, then a noEmit type-check of tests + examples
 npm pack               # → xgis-shader-dsl-0.0.1.tgz (ships dist/ only)
 ```
+
+> **Publish tooling (#763 V6):** the `publishConfig` `exports`/`main`/`types` overrides are a
+> **pnpm/bun extension** — plain `npm publish` ignores them, so the tarball's `exports` would
+> still point at `src/**` while `files` ships only `dist/` → a broken package. If this is ever
+> published, use `pnpm publish` or `bun publish`. (`private: true` keeps the hazard dormant.)
 
 Consume it from the built artifact:
 

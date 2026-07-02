@@ -38,7 +38,7 @@ const fs = fn('fs', { vo: VsOut }, ({ vo }) => {
   // the orbiting Julia constant
   const c = vec2(cos(U.field.time.mul(0.31)).mul(0.39).sub(0.4), sin(U.field.time.mul(0.41)).mul(0.39))
   const it = Var(f32(0))
-  Loop(u32(0), (i) => i.lt(u32(96)), (i) => {
+  Loop(u32(0), (i) => i.lt(u32(96)), () => {
     If(dot(z, z).gt(4), () => { Break() }) // escaped
     z.assign(vec2(z.x.mul(z.x).sub(z.y.mul(z.y)).add(c.x), z.x.mul(z.y).mul(2).add(c.y)))
     it.assign(it.add(1))

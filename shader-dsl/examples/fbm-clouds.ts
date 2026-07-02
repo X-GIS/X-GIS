@@ -43,7 +43,7 @@ const fs = fn('fs', { vo: VsOut }, ({ vo }) => {
   const q = vec2(uv.x.mul(3), uv.y.mul(3)) // mutable sample point (octave frequency)
   const v = f32(0)
   const amp = f32(0.55)
-  Loop(u32(0), (i) => toF32(i).lt(U.field.octaves), (i) => {
+  Loop(u32(0), (i) => toF32(i).lt(U.field.octaves), () => {
     v.assign(v.add(amp.mul(noise({ p: q.add(vec2(U.field.time.mul(0.08), 0)) }))))
     q.assign(q.mul(2.02))
     amp.assign(amp.mul(0.5))

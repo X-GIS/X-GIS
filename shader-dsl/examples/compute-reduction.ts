@@ -11,7 +11,7 @@
 
 import {
   fn, module, f32, u32, reduce,
-  f32T, u32T, vec3uT, vec4uT,
+  f32T, vec3uT, vec4uT,
   If, Return,
   storageBuffer, resource, builtin,
 } from '../src/index.ts'

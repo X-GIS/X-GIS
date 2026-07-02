@@ -9,7 +9,7 @@ import {
   fn, module, uniformStruct, ioStruct,
   u32, i32, f32, toF32, vec2, vec3, vec4,
   sin, cos, floor, fract, dot, min, distance, location, builtin, Loop, Let,
-  f32T, vec2fT, vec3fT, vec4fT, u32T,
+  f32T, vec2fT, vec4fT, u32T,
 } from '../src/index.ts'
 import type { ShaderExample } from './_shared.ts'
 

@@ -33,13 +33,18 @@ describe('shader static analysis — full lint ruleset', () => {
     }
   })
 
-  it('surfaces the warning inventory (informational, not asserted)', () => {
+  it('surfaces the warning inventory and ratchets its size', () => {
     const warnings = Object.entries(modules()).flatMap(([name, m]) =>
       lintModule(m)
         .filter((d) => d.severity === 'warning')
         .map((d) => `${name}/${d.fn ?? '-'}: ${d.ruleId} — ${d.message}`),
     )
     console.log(`[shader-lint] ${warnings.length} warning(s) across reachable modules:\n${warnings.join('\n')}`)
-    expect(Array.isArray(warnings)).toBe(true)
+    // #763 V4 — warning-count RATCHET (the old `Array.isArray` assertion was vacuous).
+    // Current inventory: 4 (line/compute_line_color complexity+length, line/vs_line
+    // complexity, +1). A shader change that ADDS a warning must either fix it or
+    // consciously raise this number in the same diff — silent style/perf debt growth
+    // is what the ratchet kills. Lowering the count? Lower the bound with it.
+    expect(warnings.length).toBeLessThanOrEqual(4)
   })
 })

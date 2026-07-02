@@ -45,12 +45,25 @@ describe('optimize — constant folding', () => {
     const m = getPROJECTION_MODULE()
     const base = compileModule(m).fns
     const opt = compileModule(optimize(m)).fns
-    for (const lon of [-170, -90, -1, 0, 45, 127, 170]) {
-      for (const lat of [-80, -45, -1, 0, 30, 60, 84]) {
-        const a = base.proj_mercator(lon, lat) as number[]
-        const b = opt.proj_mercator(lon, lat) as number[]
-        expect(b[0]).toBe(a[0])
-        expect(b[1]).toBe(a[1])
+    // #763 V5 — EVERY exported proj_* fn, not just mercator: an optimizer bug in a
+    // branch only the azimuthal/oblique family exercises was invisible to the old
+    // single-fn loop. Arity comes from the IR (the compiled closures are variadic);
+    // params beyond lon/lat are centre lon/lat — fixed representative values.
+    const projFns = m.funcs.filter((f) => f.name.startsWith('proj_'))
+    expect(projFns.length).toBeGreaterThanOrEqual(11) // the loop really covers the family
+    for (const f of projFns) {
+      for (const lon of [-170, -90, -1, 0, 45, 127, 170]) {
+        for (const lat of [-80, -45, -1, 0, 30, 60, 84]) {
+          const args = [lon, lat, 10, 20].slice(0, f.params.length)
+          const a = base[f.name]!(...args)
+          const b = opt[f.name]!(...args)
+          if (Array.isArray(a)) {
+            expect((b as number[]).length, f.name).toBe(a.length)
+            a.forEach((v, i) => expect((b as number[])[i], `${f.name}[${i}] @ (${args.join(',')})`).toBe(v))
+          } else {
+            expect(b, `${f.name} @ (${args.join(',')})`).toBe(a)
+          }
+        }
       }
     }
   })

@@ -8,13 +8,14 @@
 
 import { describe, it, expect } from 'vitest'
 import { examples } from './index.ts'
-import { emitModule, emitGlslModule, reflect } from '../src/index.ts'
+import { emitGlslModule, reflect } from '../src/index.ts'
 
 describe('shader-dsl examples', () => {
-  it('every example emits WGSL and reflects a pipeline', () => {
+  it('every example reflects a pipeline', () => {
     expect(examples.length).toBeGreaterThan(0)
     for (const ex of examples) {
-      expect(emitModule(ex.module).length, ex.id).toBeGreaterThan(50)
+      // WGSL emit bytes are pinned exactly by emit-goldens.test.ts (#763 V3) — the old
+      // `.length > 50` check here was near-vacuous and is superseded by that gate.
       expect(reflect(ex.module), ex.id).toBeTruthy()
     }
   })
