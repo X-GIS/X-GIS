@@ -660,14 +660,21 @@ export function Let<K extends string>(nameOrValue: string | ReadonlyNode<K>, may
 export function Var<K extends string>(init: ReadonlyNode<K>): Node<K>
 export function Var<T extends ShaderType>(type: T, init?: ReadonlyNode<KeyOf<T>>): Node<KeyOf<T>>
 export function Var<T extends ShaderType>(name: string, type: T, init?: ReadonlyNode<KeyOf<T>>): Node<KeyOf<T>>
+/** Named + type-inferred (#763 X9) — the one missing cell of the naming matrix:
+ *  `Var('n', init)` mirrors `Let('n', init)`; the mutable form used to force
+ *  restating the type token the init already carries. */
+export function Var<K extends string>(name: string, init: ReadonlyNode<K>): Node<K>
 export function Var<T extends ShaderType>(nameOrTypeOrInit: string | T | ReadonlyNode, typeOrInit?: T | ReadonlyNode<KeyOf<T>>, maybeInit?: ReadonlyNode<KeyOf<T>>): Node<KeyOf<T>> {
   // Var(init) — a mutable var seeded from a value infers its WGSL type from that value.
   // Brand probe, not instanceof (#763 D1) — a cross-instance init node must not
   // fall through to the ShaderType arm and declare a garbage-typed var.
   if (isNodeValue(nameOrTypeOrInit)) return currentBuilder().var(nameOrTypeOrInit.type, nameOrTypeOrInit) as Node<KeyOf<T>>
-  return typeof nameOrTypeOrInit === 'string'
-    ? currentBuilder().var(nameOrTypeOrInit, typeOrInit as T, maybeInit)
-    : currentBuilder().var(nameOrTypeOrInit, typeOrInit as Node<KeyOf<T>> | undefined)
+  if (typeof nameOrTypeOrInit === 'string') {
+    // Var(name, init) — the second slot is a NODE, not a ShaderType (#763 X9).
+    if (isNodeValue(typeOrInit)) return currentBuilder().var(nameOrTypeOrInit, typeOrInit.type, typeOrInit) as Node<KeyOf<T>>
+    return currentBuilder().var(nameOrTypeOrInit, typeOrInit as T, maybeInit)
+  }
+  return currentBuilder().var(nameOrTypeOrInit, typeOrInit as Node<KeyOf<T>> | undefined)
 }
 export const Return = (value?: ReadonlyNode): void => currentBuilder().ret(value)
 /** Guard clause — `if (cond) { return value; }`. The readable, EXPLICIT early return:
