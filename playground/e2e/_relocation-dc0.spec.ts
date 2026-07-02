@@ -37,6 +37,7 @@ const FIXTURES: Array<{ id: string; extra?: string }> = [
   { id: 'fixture_fill_pattern', extra: '&sprite=/fixture-sprite' }, // pattern material twin
   { id: 'fixture_stress_many_layers' },   // 8 layers — uniform ring boundary
   { id: 'fixture_categorical' },          // match() data-driven fill
+  { id: 'fixture_raster_local' },         // offline raster tile — raster global+tile uniform path (#733 P2b)
 ]
 
 type W = {
