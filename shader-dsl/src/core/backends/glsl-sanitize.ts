@@ -14,6 +14,7 @@
 // emitGlslModule imports sanitizeReservedIdents from here.
 
 import type { ModuleDecl, FuncDecl, Expr, Stmt } from '../ir'
+import { UnsupportedFeatureError } from '../backend'
 
 const GLSL_RESERVED: ReadonlySet<string> = new Set([
   'input', 'output', 'in', 'out', 'inout', 'attribute', 'varying', 'uniform', 'buffer', 'shared',
@@ -80,5 +81,63 @@ export function sanitizeReservedIdents(m: ModuleDecl): ModuleDecl {
     }
     return { ...f, params: f.params.map((p) => (map.has(p.name) ? { ...p, name: rn(p.name) } : p)), body: f.body.map(rS) }
   }
-  return { ...m, funcs: m.funcs.map(rewriteFunc) }
+  const locallyClean = { ...m, funcs: m.funcs.map(rewriteFunc) }
+
+  // #763 P6 — module-level surfaces the per-fn pass could not cover:
+  // (a) BINDING names reach GLSL verbatim as UBO/texture identifiers; renaming
+  //     one would desync the host's reflection-driven bind points → fail loud.
+  for (const b of m.bindings) {
+    if (GLSL_RESERVED.has(b.name)) {
+      throw new UnsupportedFeatureError(`glsl-es300: binding '${b.name}' is a GLSL reserved word — renaming would break reflection-driven binding; pick another name`)
+    }
+  }
+  // (b) FN names: a helper named `texture`/`filter` emitted a reserved-word
+  //     function declaration. Rename the declaration AND every call site.
+  const fnRename = new Map<string, string>()
+  const taken = new Set(locallyClean.funcs.map((f) => f.name))
+  for (const f of locallyClean.funcs) {
+    if (!GLSL_RESERVED.has(f.name)) continue
+    let safe = f.name + '_'
+    while (GLSL_RESERVED.has(safe) || taken.has(safe)) safe += '_'
+    taken.add(safe)
+    fnRename.set(f.name, safe)
+  }
+  if (fnRename.size === 0) return locallyClean
+  const rcE = (e: Expr): Expr => {
+    const base: Expr = e.op === 'call' && fnRename.has(e.fn) ? { ...e, fn: fnRename.get(e.fn)! } : e
+    switch (base.op) {
+      case 'binop': return { ...base, a: rcE(base.a), b: rcE(base.b) }
+      case 'compare': return { ...base, a: rcE(base.a), b: rcE(base.b) }
+      case 'logical': return { ...base, a: rcE(base.a), b: rcE(base.b) }
+      case 'unop': return { ...base, a: rcE(base.a) }
+      case 'call': return { ...base, args: base.args.map(rcE) }
+      case 'construct': return { ...base, args: base.args.map(rcE) }
+      case 'member': return { ...base, base: rcE(base.base) }
+      case 'index': return { ...base, base: rcE(base.base), idx: rcE(base.idx) }
+      case 'select': return { ...base, cond: rcE(base.cond), ifTrue: rcE(base.ifTrue), ifFalse: rcE(base.ifFalse) }
+      case 'matchExpr': return { ...base, scrutinee: rcE(base.scrutinee), cases: base.cases.map(([v, x]) => [v, rcE(x)] as const), default: rcE(base.default) }
+      default: return base
+    }
+  }
+  const rcS = (s: Stmt): Stmt => {
+    switch (s.s) {
+      case 'let': return { ...s, expr: rcE(s.expr) }
+      case 'var': return s.init !== undefined ? { ...s, init: rcE(s.init) } : s
+      case 'assign': return { ...s, target: rcE(s.target), expr: rcE(s.expr) }
+      case 'assignOp': return { ...s, target: rcE(s.target), expr: rcE(s.expr) }
+      case 'return': return s.expr !== undefined ? { ...s, expr: rcE(s.expr) } : s
+      case 'if': return { ...s, arms: s.arms.map((a) => ({ cond: rcE(a.cond), body: a.body.map(rcS) })), elseBody: s.elseBody?.map(rcS) }
+      case 'for': return { ...s, init: rcS(s.init), cond: rcE(s.cond), update: rcS(s.update), body: s.body.map(rcS) }
+      case 'switch': return { ...s, scrut: rcE(s.scrut), cases: s.cases.map((c) => ({ value: c.value, body: c.body.map(rcS) })), defaultBody: s.defaultBody?.map(rcS) }
+      default: return s
+    }
+  }
+  return {
+    ...locallyClean,
+    funcs: locallyClean.funcs.map((f) => ({
+      ...f,
+      name: fnRename.get(f.name) ?? f.name,
+      body: f.body.map(rcS),
+    })),
+  }
 }

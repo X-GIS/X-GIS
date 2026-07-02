@@ -135,6 +135,17 @@ function hoistMatchExprs(s: Stmt, counter: Counter): { hoisted: Stmt[]; rewritte
 // unchanged. Leaves (lit / constref / param / varref) have no children so
 // `visit` simply returns them.
 
+/** Does this Expr tree contain a matchExpr anywhere? (#763 P3 — for-header guard.) */
+function exprContainsMatch(e: Expr): boolean {
+  if (e.op === 'matchExpr') return true
+  let found = false
+  walkExprChildren(e, (child) => {
+    if (found || exprContainsMatch(child)) found = true
+    return child
+  })
+  return found
+}
+
 function walkExprChildren(e: Expr, visit: (e: Expr) => Expr): Expr {
   switch (e.op) {
     case 'lit':
@@ -188,7 +199,20 @@ function walkStmtExprs(s: Stmt, visit: (e: Expr) => Expr): Stmt {
     case 'assignOp':return { ...s, target: visit(s.target), expr: visit(s.expr) }
     case 'return':  return s.expr !== undefined ? { ...s, expr: visit(s.expr) } : s
     case 'if':      return { ...s, arms: s.arms.map((arm) => ({ ...arm, cond: visit(arm.cond), body: arm.body })) }
-    case 'for':     return { ...s, cond: visit(s.cond) }
+    case 'for': {
+      // #763 P3 — the throw this file's header comment PROMISED but never had.
+      // Hoisting a matchExpr out of a for-COND evaluates it ONCE where the loop
+      // (and the CPU oracle) evaluate it per iteration — a silent CPU/GPU
+      // divergence, author-reachable via forRange's cond callback. init/update
+      // matchExprs would survive un-lowered and die later in emit with a
+      // misleading "lowerModule should have hoisted it". Fail loud here instead.
+      if (exprContainsMatch(s.cond)
+        || (s.init.s === 'var' && s.init.init !== undefined && exprContainsMatch(s.init.init))
+        || (s.update.s === 'assign' && exprContainsMatch(s.update.expr))) {
+        throw new Error('shader-dsl: matchExpr in a for-loop header (init/cond/update) is not lowerable — hoisting evaluates it once instead of per-iteration. Compute it into a var inside the loop body (or before the loop if truly invariant).')
+      }
+      return s
+    }
     case 'switch':  return { ...s, scrut: visit(s.scrut) }
     case 'break':
     case 'continue':

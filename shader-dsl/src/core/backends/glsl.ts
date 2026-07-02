@@ -76,6 +76,7 @@ function glslLit(value: number | boolean, t: ShaderType): string {
 
 const LOCATION_RE = /@location\((\d+)\)/
 const BUILTIN_RE = /@builtin\((\w+)\)/
+const INTERPOLATE_RE = /@interpolate\((\w+)\)/
 
 // Shared stage predicate (#763 S1/S3) — structured-first with attr fallback.
 // GLSL has no compute stage; compute entries are handled by the emulation
@@ -85,22 +86,50 @@ const isEntry = (f: FuncDecl): boolean => {
   return s === 'vertex' || s === 'fragment'
 }
 
+/** Define-before-use order for GLSL struct decls (#763 P5): DFS post-order over
+ *  field-type references (struct fields + array-of-struct elements), restricted
+ *  to the given set. WGSL accepts any order; GLSL has no forward declaration. */
+function topoSortStructs(structs: readonly StructDecl[]): StructDecl[] {
+  const byName = new Map(structs.map((s) => [s.name, s]))
+  const out: StructDecl[] = []
+  const done = new Set<string>()
+  const visit = (s: StructDecl): void => {
+    if (done.has(s.name)) return
+    done.add(s.name)
+    for (const f of s.fields) {
+      const t = f.type.kind === 'array' ? f.type.elem : f.type
+      if (t.kind === 'struct') {
+        const dep = byName.get(t.name)
+        if (dep) visit(dep)
+      }
+    }
+    out.push(s)
+  }
+  for (const s of structs) visit(s)
+  return out
+}
+
 /** String fallback ONLY (#740 R3): sot-authored fields carry structured
  *  location/builtin — read those via ioAttr() below. This regex path survives
  *  solely for hand-built FuncDecl literals and bare `retAttr` strings. */
-function parseAttrString(attr: string | undefined): { location?: number; builtin?: string } {
+function parseAttrString(attr: string | undefined): { location?: number; builtin?: string; interpolate?: string } {
   if (!attr) return {}
   const loc = attr.match(LOCATION_RE)
-  if (loc) return { location: Number(loc[1]) }
+  if (loc) {
+    const interp = attr.match(INTERPOLATE_RE)
+    return { location: Number(loc[1]), ...(interp ? { interpolate: interp[1] } : {}) }
+  }
   const b = attr.match(BUILTIN_RE)
   if (b) return { builtin: b[1] }
   return {}
 }
 
-/** Structured-first IO attr read (#740 R3). */
-function ioAttr(src: { readonly location?: number; readonly builtin?: string; readonly attr?: string } | undefined): { location?: number; builtin?: string } {
+/** Structured-first IO attr read (#740 R3). `interpolate` rides along (#763 P4)
+ *  so `@interpolate(flat)` float varyings emit GLSL `flat` — they used to
+ *  interpolate smooth on WebGL2 while WGSL got provoking-vertex flat. */
+function ioAttr(src: { readonly location?: number; readonly builtin?: string; readonly interpolate?: string; readonly attr?: string } | undefined): { location?: number; builtin?: string; interpolate?: string } {
   if (!src) return {}
-  if (src.location !== undefined) return { location: src.location }
+  if (src.location !== undefined) return { location: src.location, ...(src.interpolate !== undefined ? { interpolate: src.interpolate } : {}) }
   if (src.builtin !== undefined) return { builtin: src.builtin }
   return parseAttrString(src.attr)
 }
@@ -266,12 +295,20 @@ function emitGlslEntry(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): s
       // location qualifier ONLY on a vertex attribute; a fragment input varying drops it.
       const qual = stage === 'vertex' ? `layout(location = ${s.location}) ` : ''
       // GLSL ES requires `flat` on an integer inter-stage varying (a fragment-IN that carries
-      // an int/uint can't be interpolated). Vertex attributes (vertex-IN) are not varyings → no flat.
-      const flat = stage === 'fragment' && isIntType(s.type) ? 'flat ' : ''
+      // an int/uint can't be interpolated). @interpolate(flat) float varyings match it (#763 P4).
+      // Vertex attributes (vertex-IN) are not varyings → no flat.
+      const flat = stage === 'fragment' && (isIntType(s.type) || s.interpolate === 'flat') ? 'flat ' : ''
       lines.push(`${qual}${flat}in ${glslType(s.type)} ${inName(s.name)};`)
     }
   }
   // `out` varyings: the return struct's @location fields (or a bare @location return).
+  if (f.ret.kind !== 'struct' && f.ret.kind !== 'void' && stage === 'vertex') {
+    // #763 P8 — GLSL links inter-stage varyings BY NAME (WGSL by location). A bare
+    // non-struct vertex output would emit as `out T _ret`, which can never link to a
+    // fragment input named anything else. Fail closed instead of emitting a shader
+    // pair that compiles and renders nothing.
+    throw new UnsupportedFeatureError(`glsl-es300: entry '${f.name}' returns a bare non-struct vertex output — GLSL links varyings by NAME; use an ioStruct so both stages share the field name`)
+  }
   const retFields = f.ret.kind === 'struct'
     ? structByName(structs, f.ret.name).fields.map((sf) => ({ name: sf.name, type: sf.type, ...ioAttr(sf) }))
     : f.ret.kind === 'void' ? []
@@ -281,9 +318,11 @@ function emitGlslEntry(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): s
     if (s.location === undefined) throw new UnsupportedFeatureError(`glsl-es300: entry '${f.name}' output '${s.name}' has neither @location nor @builtin`)
     // location qualifier ONLY on a fragment draw buffer; a vertex output varying drops it.
     const qual = stage === 'fragment' ? `layout(location = ${s.location}) ` : ''
-    // `flat` on an integer VERTEX-OUT varying (matches the fragment-IN above). A fragment draw
-    // buffer (fragment-OUT) is not interpolated → no flat.
-    const flat = stage === 'vertex' && isIntType(s.type) ? 'flat ' : ''
+    // `flat` on an integer VERTEX-OUT varying (matches the fragment-IN above), and on
+    // @interpolate(flat) float varyings (#763 P4) — both sides derive from the same
+    // structured field, so the qualifier stays link-matched. A fragment draw buffer
+    // (fragment-OUT) is not interpolated → no flat.
+    const flat = stage === 'vertex' && (isIntType(s.type) || s.interpolate === 'flat') ? 'flat ' : ''
     lines.push(`${qual}${flat}out ${glslType(s.type)} ${s.name};`)
   }
 
@@ -601,7 +640,10 @@ export function emitGlslModule(m: ModuleDecl, stage?: 'vertex' | 'fragment', opt
 
   if (lowered.consts.length) parts.push(lowered.consts.map((c) => glslEs300Backend.emitConst(c)).join('\n'))
 
-  const plainStructs = lowered.structs.filter((s) => !bindingStructNames.has(s.name))
+  // Topologically sorted (#763 P5): GLSL has no struct forward-declaration, so a
+  // nested struct must be DEFINED before the struct that embeds it. WGSL accepts
+  // any order; helper fns got prototypes in #745 — structs get a topo sort.
+  const plainStructs = topoSortStructs(lowered.structs.filter((s) => !bindingStructNames.has(s.name)))
   if (plainStructs.length) parts.push(plainStructs.map((s) => glslEs300Backend.emitStruct(s)).join('\n\n'))
 
   // Uniform UBO blocks (std140, reflection-fed) + texture/sampler uniforms.

@@ -27,6 +27,14 @@ function typeLayout(t: ShaderType, layout: LayoutKind, structs: ReadonlyMap<stri
       // vec2 → 8/8, vec3 → 12/16, vec4 → 16/16 (elem is always 4 bytes)
       return t.n === 2 ? { size: 8, align: 8 } : t.n === 3 ? { size: 12, align: 16 } : { size: 16, align: 16 }
     case 'mat': {
+      // #763 P7 — mat2 std140 DIVERGES between WGSL uniform rules (column stride 8)
+      // and real GLSL std140 (columns round to vec4 → stride 16). The GLSL UBO emit
+      // declares this layout THE offset contract, so a mat2 field would drift host
+      // bytes vs GL for it and every following field. No producer exists (types.ts
+      // exports only mat4x4fT) — reject until the vec4-rounded rule + a layout test land.
+      if (layout === 'std140' && t.n === 2) {
+        throw new Error('wgslLayout: mat2 in std140 is not supported — WGSL uniform rules (stride 8) and GLSL std140 (stride 16) disagree; add the dual-rule layout + tests before using mat2 in a UBO')
+      }
       // matNxN<f32>: N columns of vecN; column stride = round(size,align) of the column vec.
       const col = t.n === 2 ? { size: 8, align: 8 } : t.n === 3 ? { size: 12, align: 16 } : { size: 16, align: 16 }
       const stride = roundUp(col.size, col.align)
