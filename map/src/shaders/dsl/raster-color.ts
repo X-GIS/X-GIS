@@ -5,7 +5,7 @@
 // raster.fragment.glsl; the per-show FACTORS are derived on the GPU from the raw
 // param values (uniform carries [hueDeg, bMin, bMax, saturation] + [contrast]).
 // DEFAULTS are a hard no-op (hue=0 / bmin=0,bmax=1 / sat=0 / contrast=0 → texel
-// unchanged). Authored as DSL fns (was hand-written WGSL); emit via emitFuncsCsed(RASTER_COLOR_FUNCS).
+// unchanged). Authored as DSL fns (was hand-written WGSL); emit via emitFuncs(RASTER_COLOR_FUNCS).
 // hue→radians via the radians() built-in (the DEG2RAD_F const it once read is gone).
 
 import {

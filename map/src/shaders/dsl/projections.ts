@@ -30,7 +30,7 @@ import {
   dot, length,
   type ConstDecl, type FuncDecl, type ModuleDecl, type Node,
 } from '@xgis/shader-dsl'
-import { emitConst, emitFuncsCsed } from '@xgis/shader-dsl'
+import { emitConst, emitFuncs } from '@xgis/shader-dsl'
 import { PI, EARTH_R, MERCATOR_LAT_LIMIT } from './consts'
 
 // ── Backend-agnostic projection injection (standalone-package seam) ──
@@ -551,7 +551,7 @@ const PROJECTION_MODULE: ModuleDecl = module({
 // consume DSL-emitted WGSL from the SAME graph as the cpu-f64 lowering.
 const GPU_PROJECTION_FUNCS = PROJECTION_FUNCS.filter((f) => f.name !== 'project_geom_cpu')
 const PROJECTION_WGSL_CONSTS = `${PROJECTION_CONSTS.map(emitConst).join('\n')}\n`
-const PROJECTION_WGSL_FNS = `${emitFuncsCsed(GPU_PROJECTION_FUNCS)}\n`
+const PROJECTION_WGSL_FNS = `${emitFuncs(GPU_PROJECTION_FUNCS)}\n`
 
   return { PROJECTION_FUNCS, GPU_PROJECTION_FUNCS, PROJECTION_MODULE, PROJECTION_WGSL_CONSTS, PROJECTION_WGSL_FNS }
 }
