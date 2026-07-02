@@ -128,7 +128,7 @@ export interface BindingDecl {
 
 export interface FuncDecl {
   readonly name: string
-  readonly params: readonly { name: string; type: ShaderType; builtin?: string; location?: number; attr?: string }[]
+  readonly params: readonly { name: string; type: ShaderType; builtin?: string; location?: number; interpolate?: string; attr?: string }[]
   readonly ret: ShaderType
   readonly body: readonly Stmt[]
   /** Stage / pipeline attributes emitted before `fn` (e.g. `@compute`,
@@ -159,6 +159,23 @@ export interface ModuleDecl {
   readonly structs: readonly StructDecl[]
   readonly bindings: readonly BindingDecl[]
   readonly funcs: readonly FuncDecl[]
+}
+
+/** THE stage predicate (#763 S1) — structured `stage` first, attr-string fallback
+ *  only for hand-built FuncDecl literals (#740 R3 contract). Every stage/entry
+ *  decision (reflect, capability gate, GLSL entry classification, fn-DCE roots)
+ *  goes through this one helper so the predicates cannot drift apart again. */
+export const stageOf = (f: Pick<FuncDecl, 'stage' | 'attrs'>): 'vertex' | 'fragment' | 'compute' | undefined =>
+  f.stage ?? (
+    f.attrs?.some((a) => a.startsWith('@vertex')) ? 'vertex'
+      : f.attrs?.some((a) => a.startsWith('@fragment')) ? 'fragment'
+        : f.attrs?.some((a) => a.startsWith('@compute')) ? 'compute' : undefined)
+
+/** Workgroup size of a compute entry — structured field first, attr fallback (#763 S1). */
+export const workgroupSizeOf = (f: Pick<FuncDecl, 'workgroupSize' | 'attrs'>): number | undefined => {
+  if (f.workgroupSize !== undefined) return f.workgroupSize
+  const m = f.attrs?.map((a) => a.match(/@workgroup_size\((\d+)/)).find(Boolean)
+  return m ? Number(m[1]) : undefined
 }
 
 /** An entry-point parameter — carries a `@builtin(...)` or a `@location(n)`. */

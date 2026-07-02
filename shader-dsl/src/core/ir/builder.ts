@@ -15,7 +15,16 @@ export type ParamSpec = Record<string, ShaderType>
  *  `location(0, vec4fT)` (the SAME FieldSpec the ioStruct fields use). A plain ShaderType value is
  *  an ordinary param. Lets one `fn()` author both helpers and `@vertex`/`@fragment`/`@compute`
  *  entries from a single param record. */
-type ParamAttr = { readonly type: ShaderType; readonly attr: string }
+type ParamAttr = {
+  readonly type: ShaderType
+  readonly attr: string
+  // Structured IO fields (#740 R3 / #763 S5) — sot's builtin()/location() set these;
+  // fn() threads them into FuncDecl.params so reflect() sees vertex attributes
+  // WITHOUT re-parsing the attr string.
+  readonly location?: number
+  readonly builtin?: string
+  readonly interpolate?: string
+}
 /** A structDecl / ioStruct HANDLE used directly as a param spec value (#740 R6):
  *  `fn({ in: PointOut }, ({ in }) => in.uv…)` — the body receives the TYPED field
  *  proxy, retiring the `PointOut.of(p.in)` re-assertion at every consumer. */
@@ -377,14 +386,28 @@ export function fn(
   // the body as the TYPED field proxy (no `X.of(p.in)` re-assertion).
   const entries = Object.entries(params).map(([n, spec]) => {
     const isHandle = 'of' in spec && typeof (spec as StructParamHandle).of === 'function'
+    const fieldSpec = !isHandle && 'attr' in spec ? (spec as ParamAttr) : undefined
     return {
       name: n,
       type: (isHandle || 'attr' in spec ? (spec as ParamAttr | StructParamHandle).type : spec) as ShaderType,
-      attr: !isHandle && 'attr' in spec ? (spec as ParamAttr).attr : undefined,
+      attr: fieldSpec?.attr,
+      // #763 S5 — thread the structured IO fields through to FuncDecl.params;
+      // dropping them here made reflect() see ZERO vertex attributes for
+      // location()-authored entry params (the string fallback was load-bearing).
+      location: fieldSpec?.location,
+      builtin: fieldSpec?.builtin,
+      interpolate: fieldSpec?.interpolate,
       handle: isHandle ? (spec as StructParamHandle) : undefined,
     }
   })
-  const paramList = entries.map((p) => (p.attr !== undefined ? { name: p.name, type: p.type, attr: p.attr } : { name: p.name, type: p.type }))
+  const paramList = entries.map((p) => ({
+    name: p.name,
+    type: p.type,
+    ...(p.attr !== undefined ? { attr: p.attr } : {}),
+    ...(p.location !== undefined ? { location: p.location } : {}),
+    ...(p.builtin !== undefined ? { builtin: p.builtin } : {}),
+    ...(p.interpolate !== undefined ? { interpolate: p.interpolate } : {}),
+  }))
   const paramNodes = Object.fromEntries(
     entries.map((p) => {
       const node = new Node({ op: 'param', type: p.type, name: p.name })

@@ -21,6 +21,7 @@
 //   • No entry points → can't compute reachability (a helper-only func list,
 //     e.g. the `emitFuncsCsed` parity-harness path) → no-op, keep everything.
 
+import { stageOf } from '../../ir'
 import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir'
 import { bodyHasRaw } from './dce'
 
@@ -81,7 +82,10 @@ function collectStmtCalls(s: Stmt, out: Set<string>): void {
   }
 }
 
-const isEntry = (f: FuncDecl): boolean => (f.attrs?.length ?? 0) > 0
+// Roots = pipeline entries via the shared stage predicate (#763 S4) — the old
+// `attrs.length > 0` missed structured-only entries and mistook any attr'd
+// helper for a root.
+const isEntry = (f: FuncDecl): boolean => stageOf(f) !== undefined
 
 /** Remove functions unreachable from the module's entry points. Pure (module -> module). */
 export function deadFnElim(m: ModuleDecl): ModuleDecl {

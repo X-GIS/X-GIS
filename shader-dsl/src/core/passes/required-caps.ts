@@ -5,7 +5,7 @@
 // instead of a silent mis-emit. Wired at the top of every emit entry (#9) so the
 // fail-closed promise is real, not the GLSL writer's ad-hoc per-construct throws.
 
-import type { ModuleDecl } from '../ir'
+import { stageOf, type ModuleDecl } from '../ir'
 import { type Backend, type Capability, UnsupportedFeatureError } from '../backend'
 
 /** The capabilities a module's emit requires. */
@@ -16,7 +16,9 @@ export function requiredCaps(m: ModuleDecl): Capability[] {
     if (b.type.kind === 'texture' && b.type.dim === '2d-ms') caps.add('msaaTextureLoad')
   }
   for (const f of m.funcs) {
-    if (f.attrs?.some((a) => a.startsWith('@compute'))) caps.add('compute')
+    // stageOf reads structured `stage` first (#763 S2) — a hand-built
+    // `{ stage: 'compute' }` decl without attrs must NOT slip past the gate.
+    if (stageOf(f) === 'compute') caps.add('compute')
   }
   return [...caps]
 }
