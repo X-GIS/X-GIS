@@ -37,12 +37,15 @@ export const location = <T extends ShaderType>(n: number, type: T, interpolate?:
 export interface IoStruct<F extends Record<string, FieldSpec>> {
   readonly decl: StructDecl
   readonly type: ShaderType
-  /** Typed field access on a value of this struct — `VsOut.of(node).uv` is
-   *  `node.field('uv', <its type>)`, so the field name + type are checked and the
-   *  emitted member Expr is byte-identical. NonNullable strips the `| undefined` a
-   *  conditional-field spread (`...(cond ? { pick } : {})`) introduces, so optional
-   *  output fields stay `Node`, not `Node | undefined`. */
-  of(node: ReadonlyNode): { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> } & { readonly $: ReadonlyNode }
+  /** Typed field access on a value of this struct — `VsOut.of(node).uv` emits the same
+   *  member Expr as `member(node, 'uv', <its type>)`, so the field name + type are checked.
+   *  The view's WRITE capability follows the BASE (#763 G2): a mutable base (`Var`) gives
+   *  `Node` fields (assignable); a read-only base (a param, a `Let`) gives `ReadonlyNode`
+   *  fields — assigning through a read-only value was tsc-green and died at the driver.
+   *  NonNullable strips the `| undefined` a conditional-field spread
+   *  (`...(cond ? { pick } : {})`) introduces, so optional output fields stay plain. */
+  of(node: Node): { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> } & { readonly $: ReadonlyNode }
+  of(node: ReadonlyNode): { readonly [K in keyof F]-?: ReadonlyNode<KeyOf<NonNullable<F[K]>['type']>> } & { readonly $: ReadonlyNode }
   /** Declare a `var` of this struct and return its typed field proxy in one step —
    *  `const o = VsOut.var()` replaces the `const out = Var(VsOut.type); const o =
    *  VsOut.of(out)` stub pair. Assign fields via `o.uv.assign(…)`, return / forward the
@@ -99,12 +102,16 @@ export interface PlainStruct<F extends Record<string, ShaderType>> {
   readonly type: ShaderType
   /** Typed field access for a value of this struct — e.g. an array<T> storage element
    *  read via `Seg.of(segments.at(i)).p0_h`; replaces `node.field('p0_h', vec2fT)`.
+   *  Write capability follows the base (#763 G2): mutable base → `Node` fields,
+   *  read-only base → `ReadonlyNode` fields.
    *  `.$` is the raw struct-value Node (forwardable — call factories unwrap it). */
-  of(node: ReadonlyNode): { readonly [K in keyof F]: Node<KeyOf<F[K]>> } & { readonly $: ReadonlyNode }
+  of(node: Node): { readonly [K in keyof F]: Node<KeyOf<F[K]>> } & { readonly $: ReadonlyNode }
+  of(node: ReadonlyNode): { readonly [K in keyof F]: ReadonlyNode<KeyOf<F[K]>> } & { readonly $: ReadonlyNode }
   /** Positional field access — `Seg.get(node, 'p0_h')` is `node.field('p0_h', <type>)`,
    *  a wrong field name a TS error. Same as `.of(node).p0_h`; kept for call sites that
-   *  read many fields off a shared shorthand (`const g = Seg.get`). */
-  get<K extends keyof F & string>(node: ReadonlyNode, field: K): Node<KeyOf<F[K]>>
+   *  read many fields off a shared shorthand (`const g = Seg.get`). A READ accessor —
+   *  returns `ReadonlyNode` (#763 G2). */
+  get<K extends keyof F & string>(node: ReadonlyNode, field: K): ReadonlyNode<KeyOf<F[K]>>
 }
 
 /** Declare a plain (non-binding, non-IO) struct — a storage-buffer element type used in
@@ -117,7 +124,7 @@ export function structDecl<F extends Record<string, ShaderType>>(name: string, f
   return {
     decl,
     type,
-    get<K extends keyof F & string>(node: ReadonlyNode, field: K): Node<KeyOf<F[K]>> {
+    get<K extends keyof F & string>(node: ReadonlyNode, field: K): ReadonlyNode<KeyOf<F[K]>> {
       return member(node, field, fields[field])
     },
     of(node: ReadonlyNode) {
@@ -149,9 +156,12 @@ export const arrayOf = <H extends StructHandle>(element: H, count: number): Hand
 const isHandleArray = (v: ShaderType | HandleArray<StructHandle>): v is HandleArray<StructHandle> =>
   typeof v === 'object' && 'element' in v && 'count' in v
 
+/** Uniform fields are READ-ONLY in WGSL — the field proxy hands out `ReadonlyNode`
+ *  (#763 G2): `U.field.opacity.assign(…)` is a tsc error, not a naga rejection.
+ *  Handle-array fields get the element handle's read view (the `.of` read overload). */
 type UniformFieldNode<V> =
   V extends HandleArray<infer H> ? { at(i: ReadonlyNode<ScalarKey> | number): ReturnType<H['of']> }
-  : V extends ShaderType ? Node<KeyOf<V>>
+  : V extends ShaderType ? ReadonlyNode<KeyOf<V>>
   : never
 
 export interface UniformStruct<F extends Record<string, ShaderType | HandleArray<StructHandle>>> {
@@ -221,11 +231,25 @@ type StructHandle = { readonly type: ShaderType; of(node: ReadonlyNode): object 
 
 /** A storage buffer binding declared from its ELEMENT (a struct handle or a scalar type) in one place;
  *  derives the binding decl (space 'storage' + access), the access node, AND `.at(i)` element access. */
+/** Re-map a read view's fields to their mutable twins — the element view of a
+ *  `read_write` storage buffer. Homomorphic, so field optionality/readonly are kept;
+ *  the raw `$` node stays ReadonlyNode (writes go through fields, not the whole value). */
+type MutableView<V> = { [K in keyof V]: K extends '$' ? V[K] : V[K] extends ReadonlyNode<infer T> ? Node<T> : V[K] }
+
+// The element view's WRITE capability follows the declared ACCESS (#763 G2):
+// `access: 'read'` hands out read views (`buf.at(i).p0.assign(…)` is a tsc error —
+// it used to compile and die at the driver); `read_write` hands out mutable views.
 export function storageBuffer<H extends StructHandle>(
-  name: string, element: H, at: { group: number; binding: number; access: 'read' | 'read_write' },
+  name: string, element: H, at: { group: number; binding: number; access: 'read' },
 ): StorageBuffer<ReturnType<H['of']>>
+export function storageBuffer<H extends StructHandle>(
+  name: string, element: H, at: { group: number; binding: number; access: 'read_write' },
+): StorageBuffer<MutableView<ReturnType<H['of']>>>
 export function storageBuffer<T extends ShaderType>(
-  name: string, element: T, at: { group: number; binding: number; access: 'read' | 'read_write' },
+  name: string, element: T, at: { group: number; binding: number; access: 'read' },
+): StorageBuffer<ReadonlyNode<KeyOf<T>>>
+export function storageBuffer<T extends ShaderType>(
+  name: string, element: T, at: { group: number; binding: number; access: 'read_write' },
 ): StorageBuffer<Node<KeyOf<T>>>
 export function storageBuffer(
   name: string, element: StructHandle | ShaderType,

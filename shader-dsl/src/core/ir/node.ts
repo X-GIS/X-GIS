@@ -444,9 +444,9 @@ export function enumU32<const M extends Record<string, number>>(values: M): Enum
  *  `default`, so the emitted WGSL is a standard exhaustive switch (byte-identical to the manual form).
  *  Arms are zero-arg thunks; their values are built in declared order. */
 export function matchEnum<M extends Record<string, number>, R extends string>(
-  scrutinee: Node<ScalarKey>,
+  scrutinee: ReadonlyNode<ScalarKey>,
   e: EnumU32<M>,
-  arms: { readonly [K in keyof M]: () => Node<R> },
+  arms: { readonly [K in keyof M]: () => ReadonlyNode<R> },
 ): Node<R> {
   const keys = Object.keys(e.values) as (keyof M & string)[]
   if (keys.length === 0) throw new Error('shader-dsl: matchEnum needs at least one member')
