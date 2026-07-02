@@ -45,7 +45,7 @@ import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
 import { buildOverdrawComposePipeline, buildHeatmapBlurPipeline, buildHeatmapComposePipeline, buildOitComposePipeline } from './compose-pipelines'
 import { buildFlatFillMaterials, buildExtrudeMaterial, buildPatternFillMaterials, type FillRhiState } from './material/polygon-fill-material'
 import type { Material } from './material/material'
-import { emitPolygonWgsl, emitPolygonGlsl } from '../shaders/dsl/polygon'
+import { emitPolygonWgsl } from '../shaders/dsl/polygon'
 import { Node } from '@xgis/shader-dsl'
 import type { Stmt } from '@xgis/shader-dsl'
 
@@ -190,20 +190,13 @@ export class PipelineFactory {
     if (this.ctx.rhi.backend === 'webgl2') return
     const { format } = this.ctx
     const cv = toComposerVariant(variant)
-    // #746 — split GLSL twins so the WebGL2 fallback can build these Materials too.
-    // BEST-EFFORT for per-style variants: a feat_data-backed variant needs a storage
-    // buffer, which the GLSL ES 3.00 backend fails closed on — an unguarded emit here
-    // threw during Material registration and left the pipeline UNTWINNED, killing every
-    // per-feature fill draw on the WebGPU path too (recordFillDraw is fail-loud).
-    // No twin → the Material is WGSL-only and WebGL2 keeps its explicit error.
-    let vsCode: string | undefined, fsCode: string | undefined
-    try {
-      vsCode = emitPolygonGlsl(cv, isPickEnabled(), 'vertex')
-      fsCode = emitPolygonGlsl(cv, isPickEnabled(), 'fragment')
-    } catch { /* GLSL-inexpressible variant (e.g. storage buffer) — WGSL-only twin */ }
+    // #778 P6 — NO GLSL twin emit here. The webgl2 early-return above means this body
+    // runs ONLY on WebGPU, which never consumes vsCode/fsCode; the emitPolygonGlsl pair
+    // #775 added was therefore pure boot waste (two shader emits + optimize per per-style
+    // variant, discarded). The WebGL2 full-frame phase that re-bases these twins onto
+    // RHI-native objects will re-add the GLSL emit past its own live guard.
     const { flat, ground } = buildFlatFillMaterials({
       rhi: this.ctx.rhi, shader: emitPolygonWgsl(cv, isPickEnabled()), format, sampleCount: getSampleCount(),
-      vsCode, fsCode,
       bindGroupLayout: this.getOrBuildVariantLayout(variant), vertexLayout: toVertexBufferLayout(POLYGON_FILL_FORMAT), pickEnabled: isPickEnabled(),
     })
     this._fillPerStyle.set(pipelines.fillPipeline, { mat: flat, variant: 0 })
@@ -777,9 +770,8 @@ export class PipelineFactory {
     // flat/ground non-extrude fill through them (the raw fallback is deleted; an untwinned pipeline throws).
     this._fillMaterials = buildFlatFillMaterials({
       rhi: this.ctx.rhi, shader: pickShader, format, sampleCount: getSampleCount(),
-      // #746 — split GLSL twins so the WebGL2 fallback can build these Materials too.
-      vsCode: emitPolygonGlsl(null, pickEnabled, 'vertex'),
-      fsCode: emitPolygonGlsl(null, pickEnabled, 'fragment'),
+      // #778 P6 — no GLSL twin emit (webgl2 returned early above; this runs only on
+      // WebGPU, which discards vsCode/fsCode). See registerFillMaterials.
       bindGroupLayout: this.bindGroupLayout, vertexLayout: vertexBufferLayout, pickEnabled,
     })
     this._fillExtrudeMaterial = buildExtrudeMaterial({

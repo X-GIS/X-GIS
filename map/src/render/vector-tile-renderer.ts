@@ -224,6 +224,9 @@ export class VectorTileRenderer {
   /** Per-frame scratch array for the `_tileDecisions` diagnostic
    *  (reused via `.length = N` reset). */
   private readonly _scratchTileDecisions: (string | undefined)[] = []
+  /** #778 P1: reused scratch for world-copy offset cache-key rounding
+   *  (replaces per-frame `.map()` allocs; see `_worldOffScratchKey`). */
+  private readonly _worldOffScratch: number[] = []
   /** Typed pack target over the polygon 'Uniforms' struct (#733 P2d). PER-
    *  INSTANCE: frame-invariant fields persist across per-tile set.* patches +
    *  ring stages, exactly like the raw views this replaces. u32 lanes
@@ -2140,9 +2143,11 @@ export class VectorTileRenderer {
           phase,
           // Order significant — neededKeys is iteration order, the
           // same order the bundle records draws in.
-          neededKeys: neededKeys.slice(),
+          // #778 P1: pass by-ref; the hash reads it synchronously and never retains keyState → the defensive .slice() was pure waste.
+          neededKeys: neededKeys,
           epochs,
-          worldOffsets: worldOffDeg ? worldOffDeg.map(o => Math.round(o * 1e3)) : null,
+          // #778 P1: reused scratch instead of a per-frame `.map()` alloc (identical rounded contents → identical hash).
+          worldOffsets: this._worldOffScratchKey(worldOffDeg),
           bindGroupEpoch: this._bindGroups.epoch(),
           pickOn,
           samples,
@@ -2296,11 +2301,13 @@ export class VectorTileRenderer {
           // Fallback bundle has no `neededKeys` (the primary side),
           // only fallback tile keys; populate both for uniform shape
           // — the structural hash treats null + the array distinctly.
-          neededKeys: fallbackKeys.slice(),
+          // #778 P1: pass by-ref; the hash reads it synchronously and never retains keyState → the defensive .slice() was pure waste.
+          neededKeys: fallbackKeys,
           fallbackKeys: fallbackKeys.slice(),
           fallbackVisibleKeys: fallbackVisibleKeys ? fallbackVisibleKeys.slice() : null,
           epochs: fbEpochs,
-          worldOffsets: fallbackOffsets ? fallbackOffsets.map(o => Math.round(o * 1e3)) : null,
+          // #778 P1: reused scratch instead of a per-frame `.map()` alloc (identical rounded contents → identical hash).
+          worldOffsets: this._worldOffScratchKey(fallbackOffsets),
           bindGroupEpoch: this._bindGroups.epoch(),
           pickOn: fbPickOn,
           samples: fbSamples,
@@ -2539,6 +2546,20 @@ export class VectorTileRenderer {
     // + the optional extrude z-buffer (slot 1) are carried on `cached`; the stencil ref + the bundle
     // skip stay here, one level up.
     recordFillDraw(this._fillRhi, encoder, pipeline, tileBg, slotOffset, cached, bindZBuffer)
+  }
+
+  /** #778 P1: round world-copy offsets into the shared reused scratch,
+   *  replacing a per-frame `.map()` alloc at both bundle-key sites. One
+   *  scratch is safe: each keyState is hashed synchronously (before the
+   *  other site can overwrite it) and is never retained past the hash
+   *  (see `_cache/structural-key.ts`). Mirrors the original
+   *  `offs ? offs.map(o => Math.round(o * 1e3)) : null` exactly. */
+  private _worldOffScratchKey(offs: readonly number[] | null): readonly number[] | null {
+    if (!offs) return null
+    const s = this._worldOffScratch
+    s.length = offs.length
+    for (let i = 0; i < offs.length; i++) s[i] = Math.round(offs[i]! * 1e3)
+    return s
   }
 
   /** `pass` accepts `GPURenderPassEncoder` OR `GPURenderBundleEncoder` so

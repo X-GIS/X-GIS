@@ -156,6 +156,26 @@ export function dispatchCenterKey(centerX: number, centerY: number, zoom: number
 class LabelPass implements RenderPass {
   readonly label = 'labels'
 
+  // #778 P2 — reused `labelShows` scratch. Building
+  // `host.showCommands.filter(...)` (plus the `inZoomRange` closure) on EVERY
+  // frame allocated a fresh array + a fresh closure — a real GC cost on
+  // label-heavy styles (hundreds of shows). Refill ONE reused array in place
+  // instead: the array OBJECT is stable across frames (so `labelShows.length`
+  // — and thus the S16 dispatch signature — stays referentially stable, which
+  // is what lets the skip stand) and the predicate is inlined (no per-frame
+  // closure). We refill EVERY frame rather than memoizing on a key, ON PURPOSE:
+  // the filter predicate reads `s.visible`, and `setPaintProperty(id,
+  // 'visibility', …)` flips a ShowCommand's `.visible` IN PLACE (layer.ts →
+  // `show.visible = v`) WITHOUT reassigning `host.showCommands` — a src-ref /
+  // zoom / disableLabels memo key would serve a stale list after such a toggle
+  // (the just-hidden layer's label would keep placing). Refilling is always
+  // fresh by construction; the O(n) walk on a few hundred shows is negligible
+  // next to the S16-gated O(N²) collision it feeds, and the alloc — the actual
+  // finding — is gone. Shared singleton across maps: the array is cleared and
+  // refilled from the caller's own `host.showCommands` each call, so there is
+  // no cross-map bleed.
+  private readonly _labelShowsScratch: ShowCommand[] = []
+
   // Internal disableLabels / empty-overlays-and-shows checks short-circuit
   // the body, so this pass is always "run" from the chain.
   shouldRun(): boolean { return true }
@@ -176,12 +196,24 @@ class LabelPass implements RenderPass {
       // onto the antimeridian view, drowning out the few
       // country-level labels that should be visible there.
       const camZ = host.camera.zoom
-      const inZoomRange = (s: ShowCommand): boolean =>
-        (s.minzoom === undefined || camZ >= s.minzoom)
-        && (s.maxzoom === undefined || camZ < s.maxzoom)
-      const labelShows = disableLabels
-        ? []
-        : host.showCommands.filter(s => s.label !== undefined && s.visible !== false && inZoomRange(s))
+      // #778 P2 — refill the reused labelShows scratch in place (0 alloc, always
+      // fresh). Predicate inlined (no closure); identical to the former
+      // `host.showCommands.filter(s => s.label !== undefined && s.visible !== false
+      // && inZoomRange(s))`. `length = 0` + push reuses the array object so the
+      // ref (and .length-based S16 sig) stays stable when membership is unchanged.
+      const labelShows = this._labelShowsScratch
+      labelShows.length = 0
+      if (!disableLabels) {
+        const src = host.showCommands
+        for (let i = 0; i < src.length; i++) {
+          const s = src[i]!
+          if (
+            s.label !== undefined && s.visible !== false
+            && (s.minzoom === undefined || camZ >= s.minzoom)
+            && (s.maxzoom === undefined || camZ < s.maxzoom)
+          ) labelShows.push(s)
+        }
+      }
       if (!disableLabels && (host.overlays.length > 0 || labelShows.length > 0)) {
         if (host.textStage === null) {
           // Assemble the TextStage's glyph-resource options from
