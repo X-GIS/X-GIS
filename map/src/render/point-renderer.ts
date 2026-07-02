@@ -12,7 +12,7 @@ import { parseHexColor } from '../feature-helpers'
 import { resolveNumberShape } from './paint-shape-resolve'
 import { FrameArena } from '@xgis/engine'
 import type { PointLayer } from './point-renderer-types'
-import { buildPointModule } from '../shaders/dsl/point'
+import { buildPointModule, U as POINT_U } from '../shaders/dsl/point'
 import { packPointInstances } from './point-feature-packer'
 import { wrapWebGpuPass, wrapWebGpuBindGroupLayout } from '@xgis/engine'
 import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
@@ -21,8 +21,8 @@ import { reflect } from '@xgis/shader-dsl'
 import { vertexField, evaluate, makeEvalProps } from '@xgis/compiler'
 import { POINT_FORMAT } from './point-vertex-format'
 import { toVertexBufferLayout } from '@xgis/engine'
-import { reflectionToBindGroupLayoutEntries, uniformFieldSlots } from '@xgis/engine'
-import { writeProjectionCull } from './frame-projection-uniform'
+import { reflectionToBindGroupLayoutEntries, uniformBlock, type UniformBlockOf } from '@xgis/engine'
+import { globeEyeUniform } from './globe-eye-uniform'
 
 // Float-slot indices derived from the single-source POINT_FORMAT spec so the
 // packer cannot drift from the GPUVertexBufferLayout / vs_point @location.
@@ -31,49 +31,36 @@ const POINT_CENTER_FLOAT = vertexField(POINT_FORMAT, 'center').offset / 4    // 
 const POINT_QUADID_FLOAT = vertexField(POINT_FORMAT, 'quad_id').offset / 4   // 2
 const POINT_FEATID_FLOAT = vertexField(POINT_FORMAT, 'feat_id').offset / 4   // 3
 
-// ── Reflection-driven bind-group layout + uniform field offsets ──
+// ── Reflection-driven bind-group layout + typed uniform pack target ──
 // reflect(buildPointModule()) recovers, from the SAME IR the WGSL is emitted
-// from, the @group(0) bind entries and the std140 `Uniforms` struct byte
-// layout. Sourcing the layout entries + the per-field f32 slots from there makes
-// the hand-maintained drift that the point path once carried (viewport @20 vs
-// @24) structurally impossible — the packer writes each field at its reflected
-// slot.
+// from, the @group(0) bind entries. The std140 `Uniforms` byte layout + write
+// surface come from uniformBlock(U) (#733): the block derives per-field offsets
+// from wgslLayout(U.struct) — handle-only, module-free — and its write() value
+// object is TYPED by the same field record, so both the offset drift the point
+// path once carried (viewport @20 vs @24) and the missing-field class (#600
+// globe_eye) are compile-time impossible.
 //
 // LAZY + memoized: buildPointModule() gathers the injection-deferred projection
 // funcs (getGpuProjectionFuncs), which require configureProjections() to have
 // run first. Reflecting at module-load time would fire that emit before the app
 // configures projections (the same reason buildPointModule is a build-fn). So
 // the reflection is computed on first use (constructor / first frame), by which
-// point configureProjections() has run.
-interface PointUniformSlots {
-  readonly mvp: number; readonly proj: number; readonly viewport: number
-  readonly camH: number; readonly camL: number; readonly circle: number
-  // #600 — globe(7) eye-horizon cull dir (normalize(eye), R/|eye|).
-  readonly eye: number
-  readonly slots: number
-}
+// point configureProjections() has run. (uniformBlock(U) itself never touches
+// the module, but constructing it lazily keeps one discipline for the file.)
 let _pointReflection: ReturnType<typeof reflect> | null = null
-let _pointSlots: PointUniformSlots | null = null
+let _pointBlock: UniformBlockOf<typeof POINT_U> | null = null
 function pointReflection(): ReturnType<typeof reflect> {
   return (_pointReflection ??= reflect(buildPointModule()))
 }
-/** Memoized std140 `Uniforms` field → f32 slot (byteOffset / 4) + slot count. */
-function pointUniformSlots(): PointUniformSlots {
-  if (_pointSlots) return _pointSlots
-  const u = uniformFieldSlots(pointReflection(), 'Uniforms')
-  return (_pointSlots = {
-    mvp: u.slot.mvp, proj: u.slot.proj_params, viewport: u.slot.viewport,
-    camH: u.slot.cam_ecef_h, camL: u.slot.cam_ecef_l, circle: u.slot.circle_params,
-    eye: u.slot.globe_eye,
-    slots: u.slots,
-  })
+/** Memoized typed pack target for the std140 `Uniforms` struct. */
+function pointBlock(): UniformBlockOf<typeof POINT_U> {
+  return (_pointBlock ??= uniformBlock(POINT_U))
 }
-/** Canonical point `Uniforms` byte size, derived from reflect() (= slots × 4).
+/** Canonical point `Uniforms` byte size, derived from the reflected layout.
  *  Exported so wiring tests size/identify the global uniform write from the SAME
- *  reflect source the renderer uses, not a hand-coded 160. LAZY (calls
- *  pointUniformSlots → reflect → projection emit) — call only post-configureProjections. */
+ *  layout source the renderer uses, not a hand-coded 160. */
 export function pointUniformBytes(): number {
-  return pointUniformSlots().slots * 4
+  return pointBlock().byteLength
 }
 // Build the @group(0) bind-group-layout entries from the reflection. Visibility
 // is the renderer's own knowledge (which stages read each binding); reflection
@@ -92,24 +79,27 @@ function buildPointBglEntries(): GPUBindGroupLayoutEntry[] {
   )
 }
 
-/** Pack the point frame uniform (shared by render() and flushTilePoints()).
- *  Layout (f32 slots): mvp 0..15, proj_params 16..19, viewport 20..23,
- *  cam_ecef_h 24..27, cam_ecef_l 28..31, circle_params 32..35.
+/** Pack the point frame uniform (shared by render() and flushTilePoints()) into
+ *  the typed block — one write() per frame, every field named, completeness
+ *  compile-time (#733). The #600 "projection set, eye forgotten" class is now
+ *  unrepresentable at tsc level: write() has no optional fields, so a packer
+ *  that omits globe_eye does not compile (this file's writeProjectionCull
+ *  predecessor enforced the same coupling at runtime, per-call-site).
  *
- *  Two fixes live here: (1) viewport now lands at 20..23 — it was previously
- *  written at 24..27, past the old Float32Array(24) bound, so the shader read
- *  an all-zero viewport (NDC quad expansion divided by zero). (2) cam_ecef_h/l
- *  carry the camera anchor (getECEFCenter, sphere) split DSFUN so the VS can
- *  re-center the now-ABSOLUTE per-feature ECEF against the camera-at-ENU-origin
- *  MVP via (ecefH−camH)+(ecefL−camL).
- *
- *  circle_params @32-35: x=translate_x_ndc, y=translate_y_ndc, z=blur_px, w=0.
- *  translate_x/y are pre-baked as NDC-per-pixel (px * 2 / w/h), same
- *  convention as fill_translate in polygon.ts. Default [0,0,0,0] = no-op. */
-function writePointFrameUniform(
-  uf: Float32Array,
-  // #600 — frame.eye is the absolute sphere-ECEF camera position (globe/ECEF
-  // branch only; undefined on flat) for the globe(7) eye-horizon cull.
+ *  Field notes (semantics unchanged, bytes identical to the lane writer this
+ *  replaces — gated by point-frame-uniform.test.ts):
+ *  · viewport: xy = canvas w/h, z = meters/px, w = log_depth_fc.
+ *  · cam_ecef_h/l: camera anchor split DSFUN so the VS re-centers the ABSOLUTE
+ *    per-feature ECEF against the camera-at-ENU-origin MVP via
+ *    (ecefH−camH)+(ecefL−camL).
+ *  · circle_params: x/y = translate baked CSS-px → NDC-per-pixel (px * 2 / w/h,
+ *    y negated — NDC y is UP), z = blur_px, w = pitch-scale flag (0 = viewport,
+ *    1 = map: VS scales quad expansion by w_ref/clip.w, MapLibre pitch-scale:map).
+ *  · globe_eye: #600 globe(7) eye-horizon cull — frame.eye is set only on the
+ *    globe/ECEF branch → all-zero on flat (flat/disc cull arms ignore it). */
+// (exported for the byte-equality gate — point-frame-uniform.test.ts)
+export function writePointFrameUniform(
+  block: UniformBlockOf<typeof POINT_U>,
   frame: { matrix: Float32Array; logDepthFc: number; eye?: readonly [number, number, number] },
   camera: Camera,
   projType: number,
@@ -122,44 +112,36 @@ function writePointFrameUniform(
   circleBlur = 0,
   circlePitchScaleMap = false,
 ): void {
-  // Field base slots are sourced from reflect(buildPointModule()) (the std140
-  // Uniforms struct), not hand-counted — so the packer cannot drift from the
-  // WGSL struct it shares an IR with.
-  const { mvp: U_MVP, proj: U_PROJ, viewport: U_VIEWPORT, camH: U_CAM_H, camL: U_CAM_L, circle: U_CIRCLE, eye: U_EYE } = pointUniformSlots()
-  uf.set(frame.matrix, U_MVP)
-  // proj_params + globe_eye written TOGETHER (coupled so a missing globe_eye —
-  // the #600 leak class — is unrepresentable). frame.eye is set only on the
-  // globe/ECEF branch → globe_eye all-zero on flat (flat/disc cull arms ignore it).
-  writeProjectionCull(uf, U_PROJ, U_EYE, projType, projCenterLon, projCenterLat, frame.eye, 0)
   const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, camera.zoom)
-  uf[U_VIEWPORT] = canvasWidth; uf[U_VIEWPORT + 1] = canvasHeight; uf[U_VIEWPORT + 2] = metersPerPixel; uf[U_VIEWPORT + 3] = frame.logDepthFc
   // Camera centre for the per-vertex re-centring. Flat Mercator (projType 0)
   // uses the 2D Mercator centre (camera.centerX/Y) split DSFUN into the .xy
   // lanes — the flat VS does rel = project(abs) − (cam_ecef_h.xy + cam_ecef_l.xy)
   // and ignores .z. 3D / globe uses the ECEF anchor (getECEFCenter, sphere).
+  let cHx: number, cHy: number, cHz: number, cLx: number, cLy: number, cLz: number
   if (projType === 0) {
     const cmx = camera.centerX, cmy = camera.centerY
-    const cmxH = Math.fround(cmx), cmyH = Math.fround(cmy)
-    uf[U_CAM_H] = cmxH; uf[U_CAM_H + 1] = cmyH; uf[U_CAM_H + 2] = 0; uf[U_CAM_H + 3] = 0
-    uf[U_CAM_L] = cmx - cmxH; uf[U_CAM_L + 1] = cmy - cmyH; uf[U_CAM_L + 2] = 0; uf[U_CAM_L + 3] = 0
+    cHx = Math.fround(cmx); cHy = Math.fround(cmy); cHz = 0
+    cLx = cmx - cHx; cLy = cmy - cHy; cLz = 0
   } else {
     const camC = camera.getECEFCenter()
-    const cxH = Math.fround(camC[0]); const cyH = Math.fround(camC[1]); const czH = Math.fround(camC[2])
-    uf[U_CAM_H] = cxH; uf[U_CAM_H + 1] = cyH; uf[U_CAM_H + 2] = czH; uf[U_CAM_H + 3] = 0
-    uf[U_CAM_L] = camC[0] - cxH; uf[U_CAM_L + 1] = camC[1] - cyH; uf[U_CAM_L + 2] = camC[2] - czH; uf[U_CAM_L + 3] = 0
+    cHx = Math.fround(camC[0]); cHy = Math.fround(camC[1]); cHz = Math.fround(camC[2])
+    cLx = camC[0] - cHx; cLy = camC[1] - cHy; cLz = camC[2] - cHz
   }
-  // circle_params @32-35: translate_x_ndc, translate_y_ndc, blur_px, _unused.
-  // Bake translate from CSS-px to NDC-per-pixel (multiply by clip.w in VS).
-  // Negate y because NDC y is UP (screen y is DOWN).
-  uf[U_CIRCLE] = canvasWidth  > 0 ? (circleTranslateX * 2) / canvasWidth  : 0
-  uf[U_CIRCLE + 1] = canvasHeight > 0 ? -(circleTranslateY * 2) / canvasHeight : 0
-  uf[U_CIRCLE + 2] = circleBlur
-  // circle_params.w: circle-pitch-scale flag. 0 = viewport (default —
-  // radius constant in screen px, byte-identical). 1 = map (the point VS
-  // scales the quad expansion by w_ref/clip.w = mvp[3][3]/clip.w so circles
-  // foreshorten with pitch/distance, matching MapLibre's pitch-scale:map).
-  uf[U_CIRCLE + 3] = circlePitchScaleMap ? 1 : 0
-  // (proj_params + globe_eye written together above via writeProjectionCull.)
+  const ge = globeEyeUniform(frame.eye)
+  block.write({
+    mvp: frame.matrix,
+    proj_params: [projType, projCenterLon, projCenterLat, 0],
+    viewport: [canvasWidth, canvasHeight, metersPerPixel, frame.logDepthFc],
+    cam_ecef_h: [cHx, cHy, cHz, 0],
+    cam_ecef_l: [cLx, cLy, cLz, 0],
+    circle_params: [
+      canvasWidth > 0 ? (circleTranslateX * 2) / canvasWidth : 0,
+      canvasHeight > 0 ? -(circleTranslateY * 2) / canvasHeight : 0,
+      circleBlur,
+      circlePitchScaleMap ? 1 : 0,
+    ],
+    globe_eye: [ge[0], ge[1], ge[2], ge[3]],
+  })
 }
 
 // ── World-copy helpers (exported for unit tests) ──────────────────────────
@@ -211,7 +193,7 @@ export class PointRenderer {
   // Sized from the reflected std140 Uniforms slot count (36) — not hand-counted.
   // (Field init runs at construction, post-configureProjections, so the lazy
   // reflection is safe here.)
-  private uniformData = new Float32Array(pointUniformSlots().slots)
+  private frameBlock = pointBlock()
   /** iter-249 (Plan AAA B.2) — per-flush arena. Each flush*() call
    *  allocates 3 large typed arrays (verts / indices / featData)
    *  sized to per-call vertex count. On flush entry, beginFrame()
@@ -246,10 +228,10 @@ export class PointRenderer {
     // this layout feeds ensurePointDraper.
     this.vertexBufferLayout = toVertexBufferLayout(POINT_FORMAT)
 
-    // reflected std140 Uniforms size (40 slots × 4 = 160 bytes after #600 globe_eye).
+    // reflected std140 Uniforms size (160 bytes after #600 globe_eye).
     // UNIFORM|COPY_DST, byte-identical via bufUsage('uniform', writable:true).
     this.uniformBuffer = this.rhi.createBuffer({
-      size: pointUniformSlots().slots * 4,
+      size: this.frameBlock.byteLength,
       usage: 'uniform', writable: true,
     })
   }
@@ -521,9 +503,8 @@ export class PointRenderer {
     this.rhi.writeBuffer(this.tilePointFeatBuffer, 0, featData)
 
     const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
-    const uf = this.uniformData
-    writePointFrameUniform(uf, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight, tileTranslateX, tileTranslateY, show.circleBlur ?? 0, show.circlePitchScaleMap ?? false)
-    this.rhi.writeBuffer(this.uniformBuffer, 0, uf)
+    writePointFrameUniform(this.frameBlock, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight, tileTranslateX, tileTranslateY, show.circleBlur ?? 0, show.circlePitchScaleMap ?? false)
+    this.rhi.writeBuffer(this.uniformBuffer, 0, this.frameBlock.buffer)
 
     // Pick the translucent (no depth write) pipeline when the effective
     // alpha drops below 1 so halos/glows rendered from tile sources don't
@@ -780,7 +761,7 @@ export class PointRenderer {
     }
     // WS-1 — per-frame zoom-interp circle-translate. Resolves the x / y
     // shapes and writes the result into layer.circleTranslateX / Y — the
-    // fields writePointFrameUniform bakes to NDC (uf 32/33) when render()
+    // fields writePointFrameUniform bakes to NDC (circle_params.xy) when render()
     // draws the layer next. Not feat_data: circle-translate is a frame
     // uniform, not a per-vertex attribute. A separate loop (not folded
     // into the size loop) because a layer may author a translate shape
@@ -817,7 +798,6 @@ export class PointRenderer {
     if (this.layers.length === 0) return
 
     const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
-    const uf = this.uniformData
 
     const DEG2RAD = Math.PI / 180
 
@@ -895,8 +875,8 @@ export class PointRenderer {
 
     const drawLayer = (layer: PointLayer, variant: number, totalPoints: number) => {
       // Write per-layer uniform (circle_params may differ between layers).
-      writePointFrameUniform(uf, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight, layer.circleTranslateX, layer.circleTranslateY, layer.circleBlur, layer.circlePitchScaleMap)
-      this.rhi.writeBuffer(this.uniformBuffer, 0, uf)
+      writePointFrameUniform(this.frameBlock, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight, layer.circleTranslateX, layer.circleTranslateY, layer.circleBlur, layer.circlePitchScaleMap)
+      this.rhi.writeBuffer(this.uniformBuffer, 0, this.frameBlock.buffer)
       // Through the RHI Material seam (P1: the sole path), same as the tile-point draw.
       // ShapeRegistry shape/seg are RhiBuffer (step 3c) → passed directly; the empty
       // fallback is a point-owned RhiBuffer.

@@ -46,6 +46,9 @@ export * from './render/reflection-to-webgpu'
 export * from './render/vertex-buffer-layout'
 export * from './render/bundle-cache'
 export * from './render/compute-bind-layout'
+// Reflect-derived typed std140 pack target (#733): write() full-struct pack with
+// compile-time completeness + set.* zero-alloc per-field setters.
+export * from './render/uniform-block'
 
 // ── Shader machinery: CPU log-depth + content-blind shader-DSL leaves ─
 export * from './shaders/log-depth'
