@@ -20,16 +20,20 @@
 
 import { describe, expect, it } from 'vitest'
 import { tileKey } from '@xgis/compiler'
+import { uniformBlock } from '@xgis/engine'
 import { VectorTileRenderer } from './vector-tile-renderer'
-import { polygonUniformBytes } from './polygon-uniform-slots'
+import { polygonUniformSlots } from './polygon-uniform-slots'
+import { polygonU } from '../shaders/dsl/polygon'
 import type { GPUTile } from './vector-tile-renderer-types'
 
-// Scratch uniform buffer size — DERIVED from reflect(buildPolygonModule()) (the
-// SAME source the production VTR sizes uniformDataBuf from), not a hardcoded byte
-// count. A hardcoded 256 silently truncated the #600 globe_eye slot (f32 64-67)
-// when the struct grew to 272; deriving it means a future field reflows the test
-// automatically instead of drifting (the std140-drift class #581 retired). Read
-// lazily inside makeVtr (post-setup configureProjections), never at module scope.
+// #733 REWRITE: the packer surface this pins moved from the hand-indexed
+// `uniformF32` scratch (uf[44]) to the typed UniformBlock — the harness now
+// injects a real `uniformBlock(polygonU)` as `frameBlock` (Object.create skips
+// the class-field initializer) and reads the zoom lane back off the block's own
+// buffer at the reflect-derived slot (polygonUniformSlots().slot.zoom), so a
+// future struct reflow moves the assertion automatically instead of drifting.
+// Block construction happens lazily inside makeVtr (post-setup
+// configureProjections — reflect() is injection-deferred), never at module scope.
 
 // A cached tile with NO geometry: indexCount/segment counts all 0 so the
 // fill draw (`cached.indexCount > 0`) and stroke push are both skipped,
@@ -56,17 +60,17 @@ function emptyTile(): GPUTile {
 // so the FILL path resolves to a truthy baseGroup() and passes the guard.
 function makeVtr(lastZoom: number, cameraZoom: number) {
   const vtr = Object.create(VectorTileRenderer.prototype) as VectorTileRenderer
-  const buf = new ArrayBuffer(polygonUniformBytes())
-  const f32 = new Float32Array(buf)
-  const u32 = new Uint32Array(buf)
+  // The REAL typed block the production packer writes through (#733). Its
+  // backing buffer is what stageUniformSlot copies into the ring — reading it
+  // directly is the same staged ground truth the old uniformF32 scratch was.
+  const block = uniformBlock(polygonU)
+  const f32 = new Float32Array(block.buffer)
   const layout = {} as GPUBindGroupLayout
   const group = {} as GPUBindGroup
 
   const set = (k: string, v: unknown) => { (vtr as unknown as Record<string, unknown>)[k] = v }
 
-  set('uniformDataBuf', buf)
-  set('uniformF32', f32)
-  set('uniformU32', u32)
+  set('frameBlock', block)
   set('lastZoom', lastZoom)
   set('currentCameraZoom', cameraZoom)
   set('frameCount', 0)
@@ -116,29 +120,31 @@ function callRenderTileKeys(vtr: VectorTileRenderer, layout: GPUBindGroupLayout,
   )
 }
 
-describe('VectorTileRenderer — slot 44 (u.zoom) carries continuous camera zoom', () => {
+describe('VectorTileRenderer — u.zoom lane carries continuous camera zoom', () => {
   it('packs the fractional camera.zoom (5.7), not the integer tile-selection zoom (5)', () => {
     // camera.zoom = 5.7 while the tile-selection zoom (lastZoom) sits at 5.
     const { vtr, f32, layout } = makeVtr(/* lastZoom */ 5, /* cameraZoom */ 5.7)
     callRenderTileKeys(vtr, layout, tileKey(5, 16, 11))
 
-    // Slot 44 = byte offset 176. Must reflect the continuous zoom.
-    // Float32 round-trip of 5.7 — compare with a small tolerance.
-    expect(f32[44]).toBeCloseTo(5.7, 5)
+    // The zoom lane at its reflect-derived f32 slot must carry the continuous
+    // zoom. Float32 round-trip of 5.7 — compare with a small tolerance.
+    const zoomSlot = (polygonUniformSlots().slot as Record<string, number>).zoom!
+    expect(f32[zoomSlot]).toBeCloseTo(5.7, 5)
     // And it must NOT be the integer tile-selection zoom (the bug).
-    expect(f32[44]).not.toBe(5)
+    expect(f32[zoomSlot]).not.toBe(5)
   })
 
   it('interpolates across a fractional zoom range within one integer level', () => {
     // Two camera zooms inside [5, 6) that share the SAME integer
     // tile-selection zoom (5) must yield DISTINCT u.zoom values.
+    const zoomSlot = (polygonUniformSlots().slot as Record<string, number>).zoom!
     const a = makeVtr(5, 5.2)
     callRenderTileKeys(a.vtr, a.layout, tileKey(5, 16, 11))
     const b = makeVtr(5, 5.8)
     callRenderTileKeys(b.vtr, b.layout, tileKey(5, 16, 11))
 
-    expect(a.f32[44]).toBeCloseTo(5.2, 5)
-    expect(b.f32[44]).toBeCloseTo(5.8, 5)
-    expect(a.f32[44]).not.toBeCloseTo(b.f32[44], 5)
+    expect(a.f32[zoomSlot]).toBeCloseTo(5.2, 5)
+    expect(b.f32[zoomSlot]).toBeCloseTo(5.8, 5)
+    expect(a.f32[zoomSlot]).not.toBeCloseTo(b.f32[zoomSlot], 5)
   })
 })

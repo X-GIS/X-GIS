@@ -42,22 +42,21 @@ describe('uniform byte-layout consistency (CPU pack ↔ DSL struct, via reflect(
     expect(slots).toBeLessThanOrEqual(128)
   })
 
-  it('the CPU packer (vector-tile-renderer) sources its slots from reflect(), not magic numbers', () => {
+  it('the CPU packer (vector-tile-renderer) packs through the typed UniformBlock, not magic numbers', () => {
     // vector-tile-renderer.ts relocated to @xgis/map (P3 Batch B7); HERE is
     // runtime/src/engine/render → up 4 to repo root, then into map/src/render.
     const vtr = readFileSync(join(HERE, '..', '..', '..', '..', 'map', 'src', 'render', 'vector-tile-renderer.ts'), 'utf8')
-    // The packer derives slots from polygonUniformSlots() (reflect) and writes at US.<field> —
-    // no hand-coded magic indices to drift from the DSL struct.
-    expect(vtr).toMatch(/polygonUniformSlots/)
-    expect(vtr).toMatch(/uf\.set\(mvp,\s*US\.mvp\)/)
-    expect(vtr).toMatch(/US\.fill_color/)
-    expect(vtr).toMatch(/US\.stroke_color/)
-    // proj_params + globe_eye are no longer packed inline here — they route through
-    // the shared coupled writer (frame-projection-uniform.ts) so a missing globe_eye
-    // (the #600 leak) is unrepresentable. The writer itself uses reflect slots.
-    expect(vtr).toMatch(/writeFrameProjectionUniform/)
+    // #733 (this test's previous regexes pinned the intermediate US.<field> era):
+    // the packer is now a typed UniformBlock over POLYGON_U — named set.* writes
+    // with compile-time completeness, layout still sourced from reflect() inside
+    // uniformBlock(); no parallel slot table and no hand-coded indices remain.
+    expect(vtr).toMatch(/uniformBlock\(POLYGON_U\)/)
+    expect(vtr).toMatch(/frameBlock\.set\.fill_color/)
+    expect(vtr).toMatch(/frameBlock\.set\.stroke_color/)
+    // Any residual direct f32 index must be DERIVED (fieldOffset('…')), never bare.
+    expect(vtr).toMatch(/fieldOffset\('fill_color'\)/)
     // a bare numeric uniform-slot write (uf[16] / this.uniformF32[24] / this.uniformU32[36]
-    // = …) must NOT survive — on ANY typed view over the uniform buffer.
+    // = …) must NOT return — on ANY typed view over the uniform buffer.
     expect(vtr).not.toMatch(/\buf\[\d+\]/)
     expect(vtr).not.toMatch(/this\.uniformF32\[\d+\]/)
     expect(vtr).not.toMatch(/this\.uniformU32\[\d+\]/)

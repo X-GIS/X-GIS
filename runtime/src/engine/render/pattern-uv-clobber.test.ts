@@ -1,18 +1,23 @@
-// Fail-before gate for the fill/line-pattern atlas-UV clobber (uniform slots
-// 19 + 23) in VectorTileRenderer.renderTileKeys.
+// Fail-before gate for the fill/line-pattern atlas-UV clobber (the fill_color /
+// stroke_color alpha lanes) in VectorTileRenderer.renderTileKeys.
 //
 // When a fill/line PATTERN is active, render() packs the sprite-atlas UV bbox
-// into the fill_color slot (uf[16..19], v1 = uf[19]) and the stroke_color slot
-// (uf[20..23], v1 = uf[23]). The fragment shader (runtime/src/engine/shaders/dsl/polygon
+// into the fill_color slot (v1 = fill_color.a) and the stroke_color slot
+// (v1 = stroke_color.a). The fragment shader (map/src/shaders/dsl/polygon
 // fs_fill_pattern) reads fill_color.a / stroke_color.a as the pattern's v1.
 //
 // The per-tile loop in renderTileKeys UNCONDITIONALLY overwrote those two
-// slots with the resolved fill/stroke ALPHA (baseFillA / baseStrokeA), so the
+// lanes with the resolved fill/stroke ALPHA (baseFillA / baseStrokeA), so the
 // staged uniform that reaches the GPU carried alpha (e.g. 1.0) where the
-// shader expected v1 (e.g. 0.4) → corrupt pattern UV (black / garbage). The
-// SIBLING pattern slots 46/47 were already guarded by _patternUniformActive;
-// slots 19/23 were missed. Fix: guard uf[19] by _patternUniformActive and
-// uf[23] by _linePatternActiveForShow (the line-pattern flag).
+// shader expected v1 (e.g. 0.4) → corrupt pattern UV (black / garbage). Fix:
+// guard the fill_color write by _patternUniformActive and the stroke_color
+// write by _linePatternActiveForShow (the line-pattern flag).
+//
+// #733 REWRITE: the packer surface this pins moved from the hand-indexed
+// `uniformF32` array (uf[16..23]) to the typed UniformBlock (`frameBlock.set.
+// fill_color/stroke_color`); the test drives the same real renderTileKeys and
+// reads the same staged ring bytes, but writes through the block and derives
+// the lane indices from polygonUniformSlots() (reflect) instead of magic 16/23.
 //
 // Harness: drive the REAL renderTileKeys over one minimal cached tile (all
 // geometry counts 0 → no GPU draw is emitted; the loop still runs the per-tile
@@ -24,7 +29,7 @@ import { installWebGPUStub, type StubInstallation } from '../../__test-support__
 import { initGPU } from '@xgis/engine'
 import { VectorTileRenderer } from '@xgis/map'
 import { UniformRing } from '@xgis/map'
-import { polygonUniformStride } from '@xgis/map'
+import { polygonUniformStride, polygonUniformSlots } from '@xgis/map'
 
 let stub: StubInstallation
 let stubCtx: Awaited<ReturnType<typeof initGPU>>
@@ -81,9 +86,19 @@ function stubTile() {
   } as unknown as import('@xgis/map').GPUTile
 }
 
-/** Drive renderTileKeys for one tile with the pattern slots packed, then
- *  return the staged uniform floats. `fillPatternActive` / `linePatternActive`
- *  set the two guard flags the fix consults. */
+/** The block's set.* surface as the test needs it (structurally typed — the
+ *  full generated setter record is an implementation detail of POLYGON_U). */
+interface FrameBlockLike {
+  readonly set: {
+    fill_color: (r: number, g: number, b: number, a: number) => void
+    stroke_color: (r: number, g: number, b: number, a: number) => void
+  }
+}
+
+/** Drive renderTileKeys for one tile with the pattern slots packed (through
+ *  the typed UniformBlock, as render() does), then return the staged uniform
+ *  floats. `fillPatternActive` / `linePatternActive` set the two guard flags
+ *  the fix consults. */
 function stageOneTile(opts: {
   fillUV: [number, number, number, number]
   lineUV: [number, number, number, number]
@@ -103,7 +118,7 @@ function stageOneTile(opts: {
   // is taken (uniform-only base path — no per-tile feature group needed).
   const layoutSentinel = { __layout: true } as unknown as GPUBindGroupLayout
   const groupSentinel = { __group: true } as unknown as GPUBindGroup
-  const reg = vtr._bindGroups as Record<string, unknown>
+  const reg = vtr._bindGroups as unknown as Record<string, unknown>
   reg.baseBindGroupLayout = layoutSentinel
   reg.tileBgDefault = groupSentinel
 
@@ -116,11 +131,11 @@ function stageOneTile(opts: {
   vtr._patternUniformActive = opts.fillPatternActive
   vtr._linePatternActiveForShow = opts.linePatternActive
 
-  // Pack the pattern UV bboxes exactly as render() does (lines ~2294-2316):
-  // fill UV → uf[16..19], line UV → uf[20..23].
-  const uf = vtr.uniformF32 as Float32Array
-  uf[16] = opts.fillUV[0]; uf[17] = opts.fillUV[1]; uf[18] = opts.fillUV[2]; uf[19] = opts.fillUV[3]
-  uf[20] = opts.lineUV[0]; uf[21] = opts.lineUV[1]; uf[22] = opts.lineUV[2]; uf[23] = opts.lineUV[3]
+  // Pack the pattern UV bboxes exactly as render() does — through the typed
+  // UniformBlock (#733), not a hand-indexed array.
+  const B = vtr.frameBlock as FrameBlockLike
+  B.set.fill_color(...opts.fillUV)
+  B.set.stroke_color(...opts.lineUV)
 
   const layerCache = new Map<number, unknown>()
   const KEY = 12345
@@ -151,44 +166,46 @@ function stageOneTile(opts: {
   return staging()
 }
 
-describe('renderTileKeys pattern-UV slot clobber (uf[19] fill v1, uf[23] line v1)', () => {
+describe('renderTileKeys pattern-UV slot clobber (fill_color.a fill v1, stroke_color.a line v1)', () => {
   const FILL_UV: [number, number, number, number] = [0.1, 0.2, 0.3, 0.4] // v1 = 0.4
   const LINE_UV: [number, number, number, number] = [0.5, 0.6, 0.7, 0.8] // v1 = 0.8
+  // Lane indices from reflect() — the same source the packer uses (#733), no magic 16/23.
+  const US = polygonUniformSlots().slot as Record<string, number>
 
-  it('fill-pattern v1 (uf[19]) survives the per-tile loop instead of being clobbered by alpha', () => {
+  it('fill-pattern v1 (fill_color.a) survives the per-tile loop instead of being clobbered by alpha', () => {
     const staged = stageOneTile({
       fillUV: FILL_UV, lineUV: LINE_UV,
       fillPatternActive: true, linePatternActive: false,
     })
     // The whole fill-pattern UV bbox must reach the GPU intact.
-    expect(staged[16]).toBeCloseTo(0.1, 6)
-    expect(staged[17]).toBeCloseTo(0.2, 6)
-    expect(staged[18]).toBeCloseTo(0.3, 6)
-    // v1 is the slot the bug clobbered with baseFillA (= 1.0) pre-fix.
-    expect(staged[19]).toBeCloseTo(0.4, 6)
+    expect(staged[US.fill_color! + 0]).toBeCloseTo(0.1, 6)
+    expect(staged[US.fill_color! + 1]).toBeCloseTo(0.2, 6)
+    expect(staged[US.fill_color! + 2]).toBeCloseTo(0.3, 6)
+    // v1 is the lane the bug clobbered with baseFillA (= 1.0) pre-fix.
+    expect(staged[US.fill_color! + 3]).toBeCloseTo(0.4, 6)
   })
 
-  it('line-pattern v1 (uf[23]) survives the per-tile loop instead of being clobbered by alpha', () => {
+  it('line-pattern v1 (stroke_color.a) survives the per-tile loop instead of being clobbered by alpha', () => {
     const staged = stageOneTile({
       fillUV: FILL_UV, lineUV: LINE_UV,
       fillPatternActive: false, linePatternActive: true,
     })
-    expect(staged[20]).toBeCloseTo(0.5, 6)
-    expect(staged[21]).toBeCloseTo(0.6, 6)
-    expect(staged[22]).toBeCloseTo(0.7, 6)
-    // v1 is the slot the bug clobbered with baseStrokeA (= 1.0) pre-fix.
-    expect(staged[23]).toBeCloseTo(0.8, 6)
+    expect(staged[US.stroke_color! + 0]).toBeCloseTo(0.5, 6)
+    expect(staged[US.stroke_color! + 1]).toBeCloseTo(0.6, 6)
+    expect(staged[US.stroke_color! + 2]).toBeCloseTo(0.7, 6)
+    // v1 is the lane the bug clobbered with baseStrokeA (= 1.0) pre-fix.
+    expect(staged[US.stroke_color! + 3]).toBeCloseTo(0.8, 6)
   })
 
-  it('NON-pattern path still writes the resolved alpha into uf[19]/uf[23] (no behavior change)', () => {
+  it('NON-pattern path still writes the resolved alpha into fill_color.a/stroke_color.a (no behavior change)', () => {
     // Guard the fix's "only skip when a pattern owns the slot" contract: with
     // both flags false the per-tile loop MUST still write baseFillA/baseStrokeA
-    // (= cachedColor.a * opacity = 1.0), overwriting whatever was in the slot.
+    // (= cachedColor.a * opacity = 1.0), overwriting whatever was in the lane.
     const staged = stageOneTile({
       fillUV: FILL_UV, lineUV: LINE_UV,
       fillPatternActive: false, linePatternActive: false,
     })
-    expect(staged[19]).toBeCloseTo(1.0, 6) // baseFillA
-    expect(staged[23]).toBeCloseTo(1.0, 6) // baseStrokeA
+    expect(staged[US.fill_color! + 3]).toBeCloseTo(1.0, 6) // baseFillA
+    expect(staged[US.stroke_color! + 3]).toBeCloseTo(1.0, 6) // baseStrokeA
   })
 })
