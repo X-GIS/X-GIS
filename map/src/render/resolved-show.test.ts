@@ -96,6 +96,21 @@ describe('resolveShow — zoom-interpolated', () => {
     expect(r.fill![0]).toBeCloseTo(0.5, 2)
     expect(r.fill![2]).toBeCloseTo(0.5, 2)
   })
+
+  it('interpolates RGBA stroke across zoom stops (#726 — the line-color path)', () => {
+    // The compiler now lowers `line-color: interpolate(zoom, …)` to a real
+    // zoom-interpolated stroke shape (it used to bake the last stop); this pins
+    // the runtime half — the per-frame resolver interpolates it like fill.
+    const r = resolveShow(show({
+      stroke: { kind: 'zoom-interpolated', base: 1, stops: [
+        { zoom: 0, value: [1, 0, 0, 1] },
+        { zoom: 10, value: [0, 0, 1, 1] },
+      ] },
+    }), { cameraZoom: 5, elapsedMs: 0 })
+    expect(r.stroke).not.toBeNull()
+    expect(r.stroke![0]).toBeCloseTo(0.5, 2)
+    expect(r.stroke![2]).toBeCloseTo(0.5, 2)
+  })
 })
 
 describe('resolveShow — zoom × time composition', () => {
