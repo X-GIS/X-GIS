@@ -185,5 +185,8 @@ export function uniformBlock<F extends Record<string, ShaderType>>(u: UniformStr
 }
 
 /** Block type for a given uniformStruct handle — lets consumers type a memoised
- *  block field (`_block: UniformBlockOf<typeof U> | null`) without re-stating F. */
-export type UniformBlockOf<U> = U extends UniformStruct<infer F> ? UniformBlock<F> : never
+ *  block field (`_block: UniformBlockOf<typeof U> | null`) without re-stating F.
+ *  The `infer F extends` bound filters to flat (scalar/vec/mat) field records —
+ *  a struct with `arrayOf(…)` handle-array fields resolves to `never`, matching
+ *  the constructor's fail-loud array rejection (those keep bespoke packers). */
+export type UniformBlockOf<U> = U extends UniformStruct<infer F extends Record<string, ShaderType>> ? UniformBlock<F> : never

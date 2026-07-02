@@ -23,7 +23,7 @@
 
 import {
   fn, module,
-  Let, Var, If, Return, Discard,
+  Let, If, Return, Discard,
   f32, u32, vec2, vec2u, vec3, vec4, toF32, toU32, transformMat4, clamp, select,
   abs, fract, max, min, mix, pow, sqrt, dot, log, tan, floor, textureSample, unpack4x8unorm,
   radians, degrees,
@@ -143,6 +143,10 @@ const polygonFragmentOutput = (pickEnabled: boolean) => ioStruct('FragmentOutput
   ...(pickEnabled ? { pick: location(1, vec2uT, 'flat') } : {}),
   depth: builtin('frag_depth', f32T),
 })
+
+/** The typed `var` proxy for a fragment-output value — what the fragment entries
+ *  author into and the emit helpers below receive (no raw-Node + re-`.of()` bridge). */
+type PolyFragOut = ReturnType<ReturnType<typeof polygonFragmentOutput>['of']>
 
 // ── Binding refs ──
 //
@@ -705,7 +709,7 @@ const emitPolygonFragmentDiscards = (input: PolyFragIn): void => {
 // reasonable depth precision). Synthetic background features (feat_id==0)
 // keep the canonical un-jittered depth.
 
-const emitLogDepthJitter = (input: PolyFragIn, out: Node): void => {
+const emitLogDepthJitter = (input: PolyFragIn, out: PolyFragOut): void => {
   const i = input
   const baseDepth =
     compute_log_frag_depth(i.view_w, U.field.log_depth_fc)
@@ -717,7 +721,7 @@ const emitLogDepthJitter = (input: PolyFragIn, out: Node): void => {
     toF32(mixed).sub(512).mul(1.5e-8),
     f32(0),
   )
-  polygonFragmentOutput(false).of(out).depth.assign(baseDepth.add(jitter))
+  out.depth.assign(baseDepth.add(jitter))
 }
 
 // Pick attachment write (RG32Uint) — only emits when pickEnabled. The readback
@@ -727,10 +731,10 @@ const emitLogDepthJitter = (input: PolyFragIn, out: Node): void => {
 // of #152) left layerId === 0 for every pixel, so pickAt returned null for all
 // polygon fills. Keep R = feat_id, G = pick_id.
 
-const emitPickWrite = (input: PolyFragIn, out: Node, pickEnabled: boolean): void => {
+const emitPickWrite = (input: PolyFragIn, out: PolyFragOut, pickEnabled: boolean): void => {
   if (!pickEnabled) return
   const i = input
-  polygonFragmentOutput(pickEnabled).of(out).pick.assign(vec2u(i.feat_id, U.field.pick_id))
+  out.pick.assign(vec2u(i.feat_id, U.field.pick_id))
 }
 
 // ── Fragment entries ──
@@ -750,7 +754,7 @@ const buildFsFill = (pickEnabled: boolean) =>
       const input = p.input
       const i = input
       emitPolygonFragmentDiscards(input)
-      const out = Var('out', polygonFragmentOutput(pickEnabled).type)
+      const out = polygonFragmentOutput(pickEnabled).var('out')
       // Fill-extrusion shading via wall_blend varying. Iter 129 final after
       // the derivative-normal experiment was reverted — see fs_fill comment
       // in POLYGON_SHADER_SOURCE for the rationale.
@@ -779,12 +783,11 @@ const buildFsFill = (pickEnabled: boolean) =>
       // at the default the multiply runs exactly as before (no-op gate).
       If(U.field.cam_ecef_off_h.w.ne(0), () => {
         const rimA = polygonRimAlpha(i.abs_merc_x, i.abs_merc_y)
-        const o = polygonFragmentOutput(pickEnabled).of(out)
-        o.color.a.assign(o.color.a.mul(rimA))
+        out.color.a.assign(out.color.a.mul(rimA))
       })
       emitPickWrite(input, out, pickEnabled)
       emitLogDepthJitter(input, out)
-      Return(out)
+      Return(out.$)
     },
     { stage: 'fragment' },
   )
@@ -803,7 +806,7 @@ const buildFsFillPattern = (pickEnabled: boolean) =>
       const input = p.input
       const i = input
       emitPolygonFragmentDiscards(input)
-      const out = Var('out', polygonFragmentOutput(pickEnabled).type)
+      const out = polygonFragmentOutput(pickEnabled).var('out')
       const repeatX = max(U.field.fill_translate_x, 1)
       const repeatY = max(U.field.fill_translate_y, 1)
       const uvLocal = vec2(
@@ -821,13 +824,12 @@ const buildFsFillPattern = (pickEnabled: boolean) =>
       )
       const sampled = textureSample(spriteAtlas, spriteSamp, atlasUv)
       // Layer opacity multiplies sprite alpha so fill-opacity still works.
-      const o = polygonFragmentOutput(pickEnabled).of(out)
-      o.color.assign(vec4(sampled.rgb, sampled.a.mul(U.field.opacity)))
+      out.color.assign(vec4(sampled.rgb, sampled.a.mul(U.field.opacity)))
       const rimA = polygonRimAlpha(i.abs_merc_x, i.abs_merc_y)
-      o.color.a.assign(o.color.a.mul(rimA))
+      out.color.a.assign(out.color.a.mul(rimA))
       emitPickWrite(input, out, pickEnabled)
       emitLogDepthJitter(input, out)
-      Return(out)
+      Return(out.$)
     },
     { stage: 'fragment' },
   )
@@ -893,15 +895,15 @@ const buildFsFillExtrude = (pickEnabled: boolean) =>
       const input = p.input
       const i = input
       emitPolygonFragmentDiscards(input)
-      const out = Var('out', polygonFragmentOutput(pickEnabled).type)
+      const out = polygonFragmentOutput(pickEnabled).var('out')
       // Rim alpha — operates on the premultiplied colour: scales both rgb
       // and alpha by the rim factor so the building still fades at sphere
       // edges on globe / azimuthal projections.
       const rim = polygonRimAlpha(i.abs_merc_x, i.abs_merc_y)
-      polygonFragmentOutput(pickEnabled).of(out).color.assign(i.v_color.mul(rim))
+      out.color.assign(i.v_color.mul(rim))
       emitPickWrite(input, out, pickEnabled)
       emitLogDepthJitter(input, out)
-      Return(out)
+      Return(out.$)
     },
     { stage: 'fragment' },
   )
@@ -928,18 +930,17 @@ const buildFsStroke = (pickEnabled: boolean) =>
       // let-bound name at emit time (composer's default-path assign).
       const alphaScale = Let('alpha_scale', select(i.feat_id.gt(0), f32(1), f32(0.4))) // named: the composer default-stroke return Stmt references `alpha_scale` by literal varref
       void alphaScale
-      const out = Var('out', polygonFragmentOutput(pickEnabled).type)
+      const out = polygonFragmentOutput(pickEnabled).var('out')
       // ▼ Composer-swap point — variant.strokeExpr replaces this OR the
       //   composer inserts the base default-uniform path:
       //     out.color = vec4<f32>(u.stroke_color.rgb, u.stroke_color.a * alpha_scale);
       b.placeholder('stroke-return')
       const rimA = polygonRimAlpha(i.abs_merc_x, i.abs_merc_y)
-      const o = polygonFragmentOutput(pickEnabled).of(out)
-      o.color.a.assign(o.color.a.mul(rimA))
+      out.color.a.assign(out.color.a.mul(rimA))
       emitPickWrite(input, out, pickEnabled)
       // Stroke depth: bare log-depth, no per-feature jitter.
-      o.depth.assign(compute_log_frag_depth(i.view_w, U.field.log_depth_fc))
-      Return(out)
+      out.depth.assign(compute_log_frag_depth(i.view_w, U.field.log_depth_fc))
+      Return(out.$)
     },
     { stage: 'fragment' },
   )

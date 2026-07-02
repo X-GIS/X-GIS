@@ -351,8 +351,7 @@ const vs = fn('vs_point', {
   radiusPx.assign(max(radiusPx, 1))
   const expand = Let(radiusPx.add(2))
 
-  const out = Var(PointOut.type)
-  const o = PointOut.of(out)
+  const o = PointOut.var()
   // All four corners share the centre's view_w (point markers occupy a
   // near-zero depth range; per-corner depth divergence would over-strict
   // the log-depth interpolation).
@@ -401,7 +400,7 @@ const vs = fn('vs_point', {
   o.radius_px.assign(radiusPx)
   o.cos_c.assign(pointCosC(absLon, absLat))
   o.rim_a.assign(pointRimAlpha(absLon, absLat))
-  return out
+  return o.$
 }, { stage: 'vertex' })
 
 const fs = fn('fs_point', { in: PointOut }, (p) => {

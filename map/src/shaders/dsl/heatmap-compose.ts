@@ -54,15 +54,14 @@ const vsFull = fn(
     const pos = Var(vec2(-1, -1))
     If(p.idx.eq(1), () => { pos.assign(vec2(3, -1)) })
       .elif(p.idx.eq(2), () => { pos.assign(vec2(-1, 3)) })
-    const out = Var(VsOut.type)
-    const o = VsOut.of(out)
+    const o = VsOut.var()
     o.pos.assign(vec4(pos, 0, 1))
     // y-flip — texture origin top-left, NDC origin bottom-left.
     o.uv.assign(vec2(
         pos.x.add(1).mul(0.5),
         f32(1).sub(pos.y.add(1).mul(0.5)),
       ))
-    return out
+    return o.$
   },
   { stage: 'vertex' },
 )

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { ioStruct, builtin, location, uniformStruct, resource, storageBuffer, structDecl } from './sot'
-import { member, param, bindingRef, structT, vec4fT, vec2fT, vec3fT, f32T, texture2dfT, arrayT } from './ir'
-import { emitExpr } from './backends/wgsl'
+import { ioStruct, builtin, location, uniformStruct, resource, storageBuffer, structDecl, arrayOf } from './sot'
+import { member, param, bindingRef, structT, vec4fT, vec2fT, vec3fT, f32T, u32T, texture2dfT, arrayT, fn, module, Var } from './ir'
+import { emitExpr, emitModule } from './backends/wgsl'
 
 // Single-source-of-truth for an IO struct. One declaration derives the StructDecl (with
 // the @builtin/@location/@interpolate attrs), the struct type, and typed field access —
@@ -38,6 +38,24 @@ describe('sot — ioStruct (single source of truth for IO structs)', () => {
     expect(emitExpr(VsOut.of(n).uv.expr)).toBe(emitExpr(member(n, 'uv', vec2fT).expr))
     expect(emitExpr(VsOut.of(n).sdf.expr)).toBe(emitExpr(member(n, 'sdf', f32T).expr))
   })
+
+  it('.var() fuses the Var(T.type) + .of(out) output stub — byte-identical emit (#740 R6c)', () => {
+    const emitF = (f: ReturnType<typeof fn>): string => emitModule(module({ funcs: { f } }))
+    const viaVar = emitF(fn('f', {}, () => {
+      const o = VsOut.var('out')
+      o.opacity.assign(o.opacity.mul(0))
+      return o.$
+    }))
+    const viaStub = emitF(fn('f', {}, () => {
+      const out = Var('out', VsOut.type)
+      const o = VsOut.of(out)
+      o.opacity.assign(o.opacity.mul(0))
+      return out
+    }))
+    expect(viaVar).toBe(viaStub)
+    // Anonymous form still declares a var (auto-named).
+    expect(emitF(fn('f', {}, () => VsOut.var().$))).toContain('var ')
+  })
 })
 
 describe('sot — uniformStruct + resource (single source of truth for bindings)', () => {
@@ -68,5 +86,24 @@ describe('sot — uniformStruct + resource (single source of truth for bindings)
     expect(buf.binding.type).toEqual(arrayT(structT('Seg')))
     // buf.at(i).a  emits  segs[i].a  — same member Expr the old `Seg.of(segs.at(i)).a` produced.
     expect(emitExpr(buf.at(2).a.expr)).toBe(emitExpr(member(bindingRef('segs', arrayT(structT('Seg'))).at(2, structT('Seg')), 'a', f32T).expr))
+  })
+
+  it('arrayOf(handle, n) uniform field declares array<T, n> and .at(i) gives the typed proxy (#740 R6c)', () => {
+    const Slot = structDecl('Slot', { id: u32T, size: f32T })
+    const L = uniformStruct('Layer', { group: 1, binding: 0, as: 'layer' }, {
+      mpp: f32T,
+      slots: arrayOf(Slot, 3),
+    })
+    // Declared WGSL type is the same array<Slot, 3> the plain arrayT spelling produced.
+    expect(L.struct).toEqual({
+      name: 'Layer',
+      fields: [{ name: 'mpp', type: f32T }, { name: 'slots', type: arrayT(structT('Slot'), 3) }],
+    })
+    // layer.slots[k].id — same Expr chain as the old Slot.of(L.field.slots.at(k, Slot.type)).id.
+    const node = bindingRef('layer', structT('Layer'))
+    const old = member(member(node, 'slots', arrayT(structT('Slot'), 3)).at(2, structT('Slot')), 'id', u32T)
+    expect(emitExpr(L.field.slots.at(2).id.expr)).toBe(emitExpr(old.expr))
+    // Unknown field still throws.
+    expect(() => (L.field as Record<string, unknown>).nope).toThrow(/no field/)
   })
 })

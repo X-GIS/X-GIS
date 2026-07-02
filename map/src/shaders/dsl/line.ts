@@ -32,7 +32,7 @@ import {
   type Node, type ReadonlyNode,
   type ModuleDecl,
 } from '@xgis/shader-dsl'
-import { ioStruct, builtin, location, uniformStruct, structDecl, storageBuffer, resource } from '@xgis/shader-dsl'
+import { ioStruct, builtin, location, uniformStruct, structDecl, storageBuffer, resource, arrayOf } from '@xgis/shader-dsl'
 import { emitModule } from '@xgis/shader-dsl'
 import { inv_merc_lat_rad, flat_rel, needs_backface_cull, rim_alpha, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
 import { ECEF_CONSTS, lonlatToEcef } from './ecef'
@@ -134,7 +134,7 @@ const LAYER = uniformStruct('LineLayer', { group: 1, binding: 0, as: 'layer' }, 
   dash_cycle_m: f32T,
   dash_offset_m: f32T,
   dash_array: arrayT(vec4fT, 2),
-  patterns: arrayT(PatternSlot.type, 3),
+  patterns: arrayOf(PatternSlot, 3),
   offset_m: f32T,
   viewport_height: f32T,
   // Device-pixel ratio. The screen-width clamp (vs_line) divides the
@@ -407,7 +407,7 @@ const computeLineColor = fn('compute_line_color', { input: LineOut }, (p) => {
   const patExtentFs = f32(0)
   If(layerFlags.bitAnd(u32(64)).ne(0), () => {
     Loop(u32(0), (pk) => pk.lt(3), (pk) => {
-      const patFs = PatternSlot.of(LAYER.field.patterns.at(pk, PatternSlot.type))
+      const patFs = LAYER.field.patterns.at(pk)
       If(patFs.id.eq(0), () => { Continue() })
       const szUnit = patFs.flags.shr(u32(2)).bitAnd(u32(3))
       const ofUnit = patFs.flags.shr(u32(4)).bitAnd(u32(3))
@@ -658,7 +658,7 @@ const computeLineColor = fn('compute_line_color', { input: LineOut }, (p) => {
   const patDm = f32(1e10)
   If(layerFlags.bitAnd(u32(64)).ne(0), () => {
     Loop(u32(0), (k) => k.lt(3), (k) => {
-      const pat = PatternSlot.of(LAYER.field.patterns.at(k, PatternSlot.type))
+      const pat = LAYER.field.patterns.at(k)
       If(pat.id.eq(0), () => { Continue() })
 
       const patF = pat.flags
@@ -783,7 +783,7 @@ const vsLine = fn('vs_line', {
   const patExtentM = f32(0)
   If(layerFlags.bitAnd(u32(64)).ne(0), () => {
     Loop(u32(0), (pk) => pk.lt(3), (pk) => {
-      const pat = PatternSlot.of(LAYER.field.patterns.at(pk, PatternSlot.type))
+      const pat = LAYER.field.patterns.at(pk)
       If(pat.id.eq(0), () => { Continue() })
       const szUnit = pat.flags.shr(u32(2)).bitAnd(u32(3))
       const offUnit = pat.flags.shr(u32(4)).bitAnd(u32(3))
