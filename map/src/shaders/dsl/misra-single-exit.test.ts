@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { checkSingleExit } from '@xgis/shader-dsl'
-import { lintModule } from '@xgis/shader-dsl'
+import { checkSingleExit } from '@xgis/shader-dsl/dev'
+import { lintModule } from '@xgis/shader-dsl/dev'
 import { fn, module, f32T, f32 } from '@xgis/shader-dsl'
 import { getPROJECTION_MODULE } from './projections'
 import { ICON_MODULE } from './icon'

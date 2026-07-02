@@ -41,37 +41,24 @@ export * from './core/oracle'
 // plus the standalone wgslLayout(struct, kind) offset engine.
 export * from './core/reflect'
 
-// Neutral emit tree-walk — non-colliding members only (emitModule / emitExpr
-// are owned by the WGSL backend above). emitModuleWithReflection is the reflection-
-// carrying sibling of emitModule (its `.code` is byte-identical to the WGSL emitModule).
-// (emitStmt / emitBody / forHeader are internal walk plumbing — zero consumers ever
-// imported them through this barrel; backends reach them via './core/emit' directly.)
-export { lowerForBackend, emitModuleWithReflection } from './core/emit'
-
-// Optimizer measurement (A/B the optimizer on op-count + source size; "measure, don't guess").
-export { emitSize, countOps, optimizerReport, type EmitSize, type OpCount, type OptimizerReport } from './core/measure'
-
 // The optimization-level TYPE for emitModuleAt(m, level). (The optimizeAt entry +
 // LEVEL_PASSES table are internal — emit.ts drives them; no consumer ever imported
 // them through this barrel.)
 export { type OptLevel } from './core/passes/opt'
 
-// Diagnostics surface: coded errors (ShaderDslError / dslError), opt-in authored-source
-// tracing (setSourceTracing — dev-only, off by default, never on the emit path), the code
-// catalogue, and the unified diagnose()/formatReport() report. (The loc side-table accessors
-// captureLoc/recordLoc/getLoc stay INTERNAL — not re-exported.)
-export { ShaderDslError, dslError, formatLoc, type SourceLoc } from './core/diagnostics/error'
-export { setSourceTracing, isSourceTracing } from './core/diagnostics/loc'
-export { CODES, type ErrorCode, type ErrorCodeDef } from './core/diagnostics/codes'
-export { diagnose, formatReport, type DiagnoseOptions, type DiagnosticReport } from './core/diagnostics/report'
+// Public error surface: the coded base class + the EMIT-time validation gate.
+// (`Diagnostic` is the type of ValidationError.diagnostics.) Everything else on
+// the diagnostics/lint/measure axis is DEV tooling — import it from
+// '@xgis/shader-dsl/dev' (#740 R2b): lintModule / summarize / formatDiagnostics /
+// checkSingleExit / requiredCaps / assertCaps / diagnose / formatReport / CODES /
+// dslError / formatLoc / setSourceTracing / emitSize / countOps / optimizerReport /
+// lowerForBackend / emitModuleWithReflection.
+export { ShaderDslError } from './core/diagnostics/error'
+export { validate, ValidationError } from './core/passes/validate'
+export { type Diagnostic } from './core/passes/lint/engine'
 
 // Pre-emit passes used by authors / consumers.
 export { composeModule, type ComposeOptions } from './core/passes/compose'
 export { lowerModule } from './core/passes/match-lower'
 export { cse } from './core/passes/opt/cse'
 export { autoVars } from './core/passes/opt/auto-vars'
-export { validate, lintModule, ValidationError } from './core/passes/validate'
-// Lint-engine public types + formatters (referenced by diagnose()/lintModule() results).
-export { summarize, formatDiagnostics, type Diagnostic, type LintSummary, type Severity, type LintConfig } from './core/passes/lint/engine'
-export { requiredCaps, assertCaps } from './core/passes/required-caps'
-export { checkSingleExit } from './core/passes/single-exit'
