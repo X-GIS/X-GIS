@@ -243,7 +243,20 @@ function makeCallFactory<R extends ShaderType>(
   name: string,
   ret: R,
   paramList: ReadonlyArray<{ name: string; type: ShaderType }>,
+  // The callee's decl, when the factory belongs to a real fn() handle (externFn has
+  // none). Stamped onto every call node as `declRef` so module() can auto-collect
+  // transitive callees and key-naming can re-spell calls. Note the call spells
+  // `declRef.name` at BUILD time (not the closed-over `name`): a key-named module
+  // may rename the decl AFTER call sites were authored in other fns' bodies —
+  // reading through the decl keeps handle-made calls rename-consistent, and the
+  // assembly-time rewrite covers nodes built before a rename.
+  declRef?: FuncDecl,
 ): (...args: NodeLike[]) => Node<KeyOf<R>> {
+  const mk = (args: NodeLike[]): Node<KeyOf<R>> => {
+    const n = callFn(declRef?.name ?? name, ret, ...args)
+    if (declRef) (n.expr as { declRef?: FuncDecl }).declRef = declRef
+    return n
+  }
   return (...args: NodeLike[]): Node<KeyOf<R>> => {
     // Typed object-param call `f({ lon, lat })` — map the named args to positional order.
     // Distinguished from a single positional Node arg: a params object is a plain object, a
@@ -254,12 +267,12 @@ function makeCallFactory<R extends ShaderType>(
       // A raw number in the object form lifts to the DECLARED param type — the
       // caller named the parameter, so its type is known (unlike the positional
       // form, whose bare numbers can only default-lift).
-      return callFn(name, ret, ...paramList.map((p) => {
+      return mk(paramList.map((p) => {
         const v = obj[p.name]
         return typeof v === 'number' ? new Node({ op: 'lit', type: p.type, value: v }) : v
       }))
     }
-    return callFn(name, ret, ...args)
+    return mk(args)
   }
 }
 
@@ -361,7 +374,7 @@ export function fn(
   // The handle IS the call node factory (shared with externFn); the FuncDecl fields are mixed
   // onto it so it still duck-types as a FuncDecl in a module's funcs[]. `name` is a non-writable
   // function prop, so it is set via defineProperty (Object.assign would throw on it under strict).
-  const handle = makeCallFactory(name, ret, paramList) as FnHandle<FnParamSpec, string>
+  const handle = makeCallFactory(name, ret, paramList, decl) as FnHandle<FnParamSpec, string>
   // enumerable so `{ ...handle }` (e.g. the projection-fn spread) carries the name; a
   // function's own `name` is non-enumerable by default, which would drop it from a spread.
   Object.defineProperty(handle, 'name', { value: name, configurable: true, enumerable: true })
@@ -391,13 +404,116 @@ export function externFn<P extends ParamSpec, R extends ShaderType>(name: string
   return makeCallFactory(name, ret, paramList) as ExternFn<P, R>
 }
 
-/** Assemble a module from its declarations. */
-export function module(parts: Partial<ModuleDecl>): ModuleDecl {
+// ── module assembly: transitive fn collection + key-naming (#740 R1) ──
+
+/** `module()` input: like Partial<ModuleDecl>, but `funcs` also accepts a
+ *  key-named record — `{ vs, fs }` / `{ vs: someHandle }` — where each KEY names
+ *  its fn (an anonymous `fn(params, body)` gets its real name here; a named one
+ *  is renamed if the key differs, with every handle-made call re-spelled). */
+export interface ModuleParts extends Omit<Partial<ModuleDecl>, 'funcs'> {
+  readonly funcs?: readonly FuncDecl[] | Readonly<Record<string, FuncDecl>>
+}
+
+/** The decl behind a funcs[] item — FnHandle carries `.decl`; a plain FuncDecl is itself. */
+const declOf = (f: FuncDecl): FuncDecl => (f as { decl?: FuncDecl }).decl ?? f
+
+/** Visit every call Expr in a body (the collector's only interest — full walk). */
+function walkCalls(stmts: readonly Stmt[], onCall: (e: Extract<Expr, { op: 'call' }>) => void): void {
+  const expr = (e: Expr): void => {
+    switch (e.op) {
+      case 'binop': case 'compare': case 'logical': expr(e.a); expr(e.b); break
+      case 'unop': expr(e.a); break
+      case 'call': onCall(e); for (const a of e.args) expr(a); break
+      case 'construct': for (const a of e.args) expr(a); break
+      case 'member': expr(e.base); break
+      case 'index': expr(e.base); expr(e.idx); break
+      case 'select': expr(e.cond); expr(e.ifTrue); expr(e.ifFalse); break
+      case 'matchExpr': expr(e.scrutinee); for (const [, v] of e.cases) expr(v); expr(e.default); break
+      default: break // lit / constref / param / varref — leaves
+    }
+  }
+  const stmt = (s: Stmt): void => {
+    switch (s.s) {
+      case 'let': expr(s.expr); break
+      case 'var': if (s.init) expr(s.init); break
+      case 'assign': case 'assignOp': expr(s.target); expr(s.expr); break
+      case 'return': if (s.expr) expr(s.expr); break
+      case 'if':
+        for (const arm of s.arms) { expr(arm.cond); arm.body.forEach(stmt) }
+        s.elseBody?.forEach(stmt)
+        break
+      case 'for': stmt(s.init); expr(s.cond); stmt(s.update); s.body.forEach(stmt); break
+      case 'switch':
+        expr(s.scrut)
+        for (const c of s.cases) c.body.forEach(stmt)
+        s.defaultBody?.forEach(stmt)
+        break
+      default: break // break / continue / discard / placeholder / raw — no exprs
+    }
+  }
+  stmts.forEach(stmt)
+}
+
+/** Normalize `funcs` (array or key-named record) into the ModuleDecl array:
+ *  1. Record form: each key names its decl (anonymous fns get their real name;
+ *     a differing name is a rename — every handle-made call re-spells via declRef).
+ *  2. Transitive collection: fns reached through handle calls (`declRef`) but not
+ *     listed are PREPENDED in callee-first (post-order) discovery order — the
+ *     authored list keeps its exact order, so existing full lists emit
+ *     byte-identically and an entries-only list still satisfies GLSL's
+ *     define-before-use. externFn / raw callFn names carry no declRef and are
+ *     linked at emit as before. */
+function normalizeFuncs(input: ModuleParts['funcs']): FuncDecl[] {
+  const record = input !== undefined && !Array.isArray(input)
+  let renamed = false
+  const authored: FuncDecl[] = record
+    ? Object.entries(input as Readonly<Record<string, FuncDecl>>).map(([key, f]) => {
+        const d = declOf(f)
+        if (d.name !== key) {
+          ;(d as { name: string }).name = key
+          // Keep the handle's own (defineProperty'd, enumerable) name in step for spreads.
+          if (d !== f) Object.defineProperty(f, 'name', { value: key, configurable: true, enumerable: true })
+          renamed = true
+        }
+        return f
+      })
+    : [...(input ?? [])]
+
+  // Transitive collection (post-order DFS over declRef edges), skipping listed decls.
+  const listed = new Set(authored.map(declOf))
+  const collected: FuncDecl[] = []
+  const visit = (d: FuncDecl): void => {
+    walkCalls(d.body, (e) => {
+      const callee = e.declRef
+      if (!callee || listed.has(callee)) return
+      listed.add(callee)
+      visit(callee)          // callee's own callees first…
+      collected.push(callee) // …then the callee (post-order = define-before-use)
+    })
+  }
+  authored.forEach((f) => visit(declOf(f)))
+  const funcs = collected.length ? [...collected, ...authored] : authored
+
+  // A rename can postdate call nodes authored in OTHER fn bodies — re-spell them.
+  if (renamed) {
+    for (const f of funcs) {
+      walkCalls(declOf(f).body, (e) => {
+        if (e.declRef && e.fn !== e.declRef.name) (e as { fn: string }).fn = e.declRef.name
+      })
+    }
+  }
+  return funcs
+}
+
+/** Assemble a module from its declarations. `funcs` may be the classic array
+ *  (order preserved verbatim; transitively handle-called fns are prepended
+ *  callee-first) or a key-named record — see ModuleParts. */
+export function module(parts: ModuleParts): ModuleDecl {
   return {
     consts: parts.consts ?? [],
     structs: parts.structs ?? [],
     bindings: parts.bindings ?? [],
-    funcs: parts.funcs ?? [],
+    funcs: normalizeFuncs(parts.funcs),
   }
 }
 
