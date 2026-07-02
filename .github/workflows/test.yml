@@ -475,4 +475,7 @@ jobs:
         env:
           XGIS_SOFTWARE_GPU: '1'
           HEADED: '0'
-        run: ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _optimizer-gpu-parity.spec.ts
+        # _glsl-compile-gate: the ONE continuous gate on the GLSL ES 3.00 backend —
+        # compiles + links emitGlslModule output on a real WebGL2 context (#763 G1).
+        # (The wider _webgl2-parity render spec stays local-only: known red, #746.)
+        run: ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts

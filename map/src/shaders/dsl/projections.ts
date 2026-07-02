@@ -28,7 +28,7 @@ import {
   ReturnIf, If, Var, Return, f32T, vec2fT, vec4fT,
   radians, clamp, log, tan, sin, cos, asin, acos, atan, atan2, exp, floor, ceil, sign, smoothstep,
   dot, length,
-  type ConstDecl, type FuncDecl, type ModuleDecl, type Node,
+  type ConstDecl, type FuncDecl, type ModuleDecl, type Node, type ReadonlyNode,
 } from '@xgis/shader-dsl'
 import { emitConst, emitFuncs } from '@xgis/shader-dsl'
 import { PI, EARTH_R, MERCATOR_LAT_LIMIT } from './consts'
@@ -299,7 +299,7 @@ const STEREO_CULL = byName('stereographic').cullThreshold as number // -0.8
 // ── Forward dispatch (GENERATED from the injected specs) ──
 
 // Build the forward call for a given table record (per-projection arity).
-function forwardCall(name: string, lon: Node, lat: Node, clon: Node, clat: Node): Node {
+function forwardCall(name: string, lon: ReadonlyNode, lat: ReadonlyNode, clon: ReadonlyNode, clat: ReadonlyNode): Node {
   switch (name) {
     case 'mercator': return proj_mercator(lon, lat)
     case 'equirectangular': return proj_equirectangular(lon, lat, clon)
@@ -317,7 +317,7 @@ const FLAT = specs.filter((p) => !p.isGlobe)
 
 // Generate the `if (t < n.5) … else …` ladder returning each projection's
 // forward — straight from the table order.
-function emitForwardLadder(t: Node, lon: Node, lat: Node, clon: Node, clat: Node): void {
+function emitForwardLadder(t: ReadonlyNode, lon: ReadonlyNode, lat: ReadonlyNode, clon: ReadonlyNode, clat: ReadonlyNode): void {
   const last = FLAT.length - 1
   const chain = If(t.lt(FLAT[0].projType + 0.5), () => { Return(forwardCall(FLAT[0].name, lon, lat, clon, clat)) })
   for (let i = 1; i < last; i++) {

@@ -22,8 +22,12 @@ type ParamAttr = { readonly type: ShaderType; readonly attr: string }
 type StructParamHandle = { readonly type: ShaderType; of(node: ReadonlyNode): object }
 export type FnParamSpec = Record<string, ShaderType | ParamAttr | StructParamHandle>
 type ParamTypeOf<E> = E extends ParamAttr ? E['type'] : E extends StructParamHandle ? E['type'] : E extends ShaderType ? E : never
+/** Body-side param values. Params are READ-ONLY in WGSL — the node type is
+ *  `ReadonlyNode`, so `p.lon.assign(…)` is a tsc error (#763 G3; the runtime
+ *  never guarded this: auto-vars skips param roots and the emitted assign
+ *  died in the driver). Struct-handle params receive the handle's READ view. */
 type ParamNodes<P extends FnParamSpec> = {
-  [K in keyof P]: P[K] extends StructParamHandle ? ReturnType<P[K]['of']> : Node<KeyOf<ParamTypeOf<P[K]>>>
+  [K in keyof P]: P[K] extends StructParamHandle ? ReturnType<P[K]['of']> : ReadonlyNode<KeyOf<ParamTypeOf<P[K]>>>
 }
 
 export class Builder {
@@ -125,21 +129,21 @@ export class Builder {
   /** C-style for: `for (var name = init; name <cond>; name = name+step)`.
    *  A numeric / omitted step is typed to the loop var's scalar so a u32/i32
    *  counter emits `i + 1u` / `i + 1` (not `i + 1.0`, which naga/tint reject). */
-  forRange<K extends string>(init: Node<K>, cond: (i: Node<K>) => Node<'bool'>, body: (b: Builder, i: Node<K>) => ReadonlyNode | void, step?: Node<ScalarKey> | number): void
-  forRange<K extends string>(name: string, init: Node<K>, cond: (i: Node<K>) => Node<'bool'>, body: (b: Builder, i: Node<K>) => ReadonlyNode | void, step?: Node<ScalarKey> | number): void
+  forRange<K extends string>(init: ReadonlyNode<K>, cond: (i: Node<K>) => ReadonlyNode<'bool'>, body: (b: Builder, i: Node<K>) => ReadonlyNode | void, step?: ReadonlyNode<ScalarKey> | number): void
+  forRange<K extends string>(name: string, init: ReadonlyNode<K>, cond: (i: Node<K>) => ReadonlyNode<'bool'>, body: (b: Builder, i: Node<K>) => ReadonlyNode | void, step?: ReadonlyNode<ScalarKey> | number): void
   forRange<K extends string>(
-    a: string | Node<K>,
-    b: Node<K> | ((i: Node<K>) => Node<'bool'>),
-    c: ((i: Node<K>) => Node<'bool'>) | ((b: Builder, i: Node<K>) => ReadonlyNode | void),
-    d?: ((b: Builder, i: Node<K>) => ReadonlyNode | void) | Node<ScalarKey> | number,
-    e?: Node<ScalarKey> | number,
+    a: string | ReadonlyNode<K>,
+    b: ReadonlyNode<K> | ((i: Node<K>) => ReadonlyNode<'bool'>),
+    c: ((i: Node<K>) => ReadonlyNode<'bool'>) | ((b: Builder, i: Node<K>) => ReadonlyNode | void),
+    d?: ((b: Builder, i: Node<K>) => ReadonlyNode | void) | ReadonlyNode<ScalarKey> | number,
+    e?: ReadonlyNode<ScalarKey> | number,
   ): void {
     const named = typeof a === 'string'
     const name = named ? a : this.autoName()
-    const init = (named ? b : a) as Node<K>
-    const cond = (named ? c : b) as (i: Node<K>) => Node<'bool'>
+    const init = (named ? b : a) as ReadonlyNode<K>
+    const cond = (named ? c : b) as (i: Node<K>) => ReadonlyNode<'bool'>
     const body = (named ? d : c) as (b: Builder, i: Node<K>) => ReadonlyNode | void
-    const step = (named ? e : d) as Node<ScalarKey> | number | undefined
+    const step = (named ? e : d) as ReadonlyNode<ScalarKey> | number | undefined
     const i = new Node<K>({ op: 'varref', type: init.type, name })
     const litOf = (v: number): Node => {
       if (init.type.kind === 'scalar' && init.type.scalar === 'u32') return u32(v)
@@ -433,7 +437,10 @@ export function fn(
  *  or positional `f(a,b)`); the body is linked in at emit via the projection module. The
  *  emitted node is callFn(name, ret, …) — byte-identical to the old string call. */
 export type ExternFn<P extends ParamSpec, R extends ShaderType> = {
-  (args: { readonly [K in keyof P]: Node<KeyOf<P[K]>> }): Node<KeyOf<R>>
+  /** Typed object-param call — same arg union as FnHandle (#763 X4/#755): args are
+   *  READ, so ReadonlyNode (Let() results, params) and raw numbers (lifted to the
+   *  declared param type by the shared call factory) are accepted. */
+  (args: { readonly [K in keyof P]: ReadonlyNode<KeyOf<P[K]>> | number }): Node<KeyOf<R>>
   (...args: NodeLike[]): Node<KeyOf<R>>
 }
 export function externFn<P extends ParamSpec, R extends ShaderType>(name: string, params: P, ret: R): ExternFn<P, R> {
@@ -610,21 +617,24 @@ export const Discard = (): void => currentBuilder().discard()
  *  early return (same `return` everywhere). Chain `.elif(c, () => …)` / `.else(() => …)`. */
 export const If = (cond: ReadonlyNode<'bool'>, body: () => ReadonlyNode | void): IfChain => currentBuilder().if(cond, () => body())
 
-/** C-style for over the innermost scope; the body receives the typed counter Node. */
-export function Loop<K extends string>(init: Node<K>, cond: (i: Node<K>) => Node<'bool'>, body: (i: Node<K>) => ReadonlyNode | void, step?: Node<ScalarKey> | number): void
-export function Loop<K extends string>(name: string, init: Node<K>, cond: (i: Node<K>) => Node<'bool'>, body: (i: Node<K>) => ReadonlyNode | void, step?: Node<ScalarKey> | number): void
+/** C-style for over the innermost scope; the body receives the typed counter Node.
+ *  init/step/cond-result are READ positions — they accept `ReadonlyNode` (#763 G4);
+ *  the counter handed to the callbacks stays a mutable `Node` (loop-var reassignment
+ *  is legal WGSL). */
+export function Loop<K extends string>(init: ReadonlyNode<K>, cond: (i: Node<K>) => ReadonlyNode<'bool'>, body: (i: Node<K>) => ReadonlyNode | void, step?: ReadonlyNode<ScalarKey> | number): void
+export function Loop<K extends string>(name: string, init: ReadonlyNode<K>, cond: (i: Node<K>) => ReadonlyNode<'bool'>, body: (i: Node<K>) => ReadonlyNode | void, step?: ReadonlyNode<ScalarKey> | number): void
 export function Loop<K extends string>(
-  a: string | Node<K>,
-  b: Node<K> | ((i: Node<K>) => Node<'bool'>),
-  c: ((i: Node<K>) => Node<'bool'>) | ((i: Node<K>) => ReadonlyNode | void),
-  d?: ((i: Node<K>) => ReadonlyNode | void) | Node<ScalarKey> | number,
-  e?: Node<ScalarKey> | number,
+  a: string | ReadonlyNode<K>,
+  b: ReadonlyNode<K> | ((i: Node<K>) => ReadonlyNode<'bool'>),
+  c: ((i: Node<K>) => ReadonlyNode<'bool'>) | ((i: Node<K>) => ReadonlyNode | void),
+  d?: ((i: Node<K>) => ReadonlyNode | void) | ReadonlyNode<ScalarKey> | number,
+  e?: ReadonlyNode<ScalarKey> | number,
 ): void {
   const named = typeof a === 'string'
-  const init = (named ? b : a) as Node<K>
-  const cond = (named ? c : b) as (i: Node<K>) => Node<'bool'>
+  const init = (named ? b : a) as ReadonlyNode<K>
+  const cond = (named ? c : b) as (i: Node<K>) => ReadonlyNode<'bool'>
   const body = (named ? d : c) as (i: Node<K>) => ReadonlyNode | void
-  const step = (named ? e : d) as Node<ScalarKey> | number | undefined
+  const step = (named ? e : d) as ReadonlyNode<ScalarKey> | number | undefined
   if (named) currentBuilder().forRange(a as string, init, cond, (_b, i) => body(i), step)
   else currentBuilder().forRange(init, cond, (_b, i) => body(i), step)
 }
@@ -634,13 +644,13 @@ export function Loop<K extends string>(
  *  `Var` + `assign` at the call site); reduce materialises the var + loop + assign internally,
  *  so the emit is byte-identical. Returns the accumulator Node for use after the loop. */
 export function reduce<K extends string, J extends string>(
-  init: Node<K>,
-  loopInit: Node<J>,
-  cond: (i: Node<J>) => Node<'bool'>,
-  body: (acc: Node<K>, i: Node<J>) => Node<K>,
-  step?: Node<ScalarKey> | number,
+  init: ReadonlyNode<K>,
+  loopInit: ReadonlyNode<J>,
+  cond: (i: Node<J>) => ReadonlyNode<'bool'>,
+  body: (acc: Node<K>, i: Node<J>) => ReadonlyNode<K>,
+  step?: ReadonlyNode<ScalarKey> | number,
 ): Node<K> {
-  const acc = currentBuilder().var(init.type, init as ReadonlyNode) as Node<K>
+  const acc = currentBuilder().var(init.type, init) as Node<K>
   currentBuilder().forRange(loopInit, cond, (_b, i) => {
     currentBuilder().assign(acc, body(acc, i))
   }, step)
@@ -656,19 +666,19 @@ export function reduce<K extends string, J extends string>(
  *  The orthogonal value-dispatch surface: `when` for a boolean TEST, `matchExpr`/`Switch` for integer
  *  SCRUTINEE dispatch, `select` for an eager 2-way (both arms evaluated). (Subsumes the former
  *  `ifExpr`/`condExpr`.) Conditions are read positions, so they accept the immutable `ReadonlyNode`. */
-export function when<K extends string>(cond: ReadonlyNode<'bool'>, thenVal: () => Node<K>, elseVal: () => Node<K>): Node<K>
-export function when<K extends string>(arms: ReadonlyArray<readonly [ReadonlyNode<'bool'>, () => Node<K>]>, elseVal: () => Node<K>): Node<K>
+export function when<K extends string>(cond: ReadonlyNode<'bool'>, thenVal: () => ReadonlyNode<K>, elseVal: () => ReadonlyNode<K>): Node<K>
+export function when<K extends string>(arms: ReadonlyArray<readonly [ReadonlyNode<'bool'>, () => ReadonlyNode<K>]>, elseVal: () => ReadonlyNode<K>): Node<K>
 export function when<K extends string>(
-  a: ReadonlyNode<'bool'> | ReadonlyArray<readonly [ReadonlyNode<'bool'>, () => Node<K>]>,
-  b: () => Node<K>,
-  c?: () => Node<K>,
+  a: ReadonlyNode<'bool'> | ReadonlyArray<readonly [ReadonlyNode<'bool'>, () => ReadonlyNode<K>]>,
+  b: () => ReadonlyNode<K>,
+  c?: () => ReadonlyNode<K>,
 ): Node<K> {
-  const arms: ReadonlyArray<readonly [ReadonlyNode<'bool'>, () => Node<K>]> = Array.isArray(a) ? a : [[a as ReadonlyNode<'bool'>, b]]
-  const elseVal = (Array.isArray(a) ? b : c) as () => Node<K>
+  const arms: ReadonlyArray<readonly [ReadonlyNode<'bool'>, () => ReadonlyNode<K>]> = Array.isArray(a) ? a : [[a as ReadonlyNode<'bool'>, b]]
+  const elseVal = (Array.isArray(a) ? b : c) as () => ReadonlyNode<K>
   const bld = currentBuilder()
   const iv = bld.inferredVar()
   let vt: ShaderType | undefined
-  const arm = (v: () => Node<K>) => () => { const val = v(); vt ??= val.type; currentBuilder().assign(iv.ref(val.type) as Node<K>, val) }
+  const arm = (v: () => ReadonlyNode<K>) => () => { const val = v(); vt ??= val.type; currentBuilder().assign(iv.ref(val.type) as Node<K>, val) }
   let chain = bld.if(arms[0][0], arm(arms[0][1]))
   for (let k = 1; k < arms.length; k++) chain = chain.elif(arms[k][0], arm(arms[k][1]))
   chain.else(arm(elseVal))
@@ -677,12 +687,12 @@ export function when<K extends string>(
 }
 
 /** @deprecated Use `when(cond, then, else)` — the unified condition-dispatch primitive. */
-export function ifExpr<K extends string>(cond: ReadonlyNode<'bool'>, thenVal: () => Node<K>, elseVal: () => Node<K>): Node<K> {
+export function ifExpr<K extends string>(cond: ReadonlyNode<'bool'>, thenVal: () => ReadonlyNode<K>, elseVal: () => ReadonlyNode<K>): Node<K> {
   return when(cond, thenVal, elseVal)
 }
 
 /** @deprecated Use `when(arms, else)` — the unified condition-dispatch primitive. */
-export function condExpr<K extends string>(arms: ReadonlyArray<readonly [ReadonlyNode<'bool'>, () => Node<K>]>, elseVal: () => Node<K>): Node<K> {
+export function condExpr<K extends string>(arms: ReadonlyArray<readonly [ReadonlyNode<'bool'>, () => ReadonlyNode<K>]>, elseVal: () => ReadonlyNode<K>): Node<K> {
   return when(arms, elseVal)
 }
 
@@ -698,7 +708,7 @@ export function condExpr<K extends string>(arms: ReadonlyArray<readonly [Readonl
  *  (optional) + the terminator. */
 export class SwitchChain {
   private readonly cases: Array<[number, () => void]> = []
-  constructor(private readonly scrut: Node<ScalarKey>) {}
+  constructor(private readonly scrut: ReadonlyNode<ScalarKey>) {}
   case(value: number, body: () => void): SwitchChain {
     this.cases.push([value, body])
     return this
@@ -712,7 +722,9 @@ export class SwitchChain {
   }
 }
 
-/** Open a `switch (scrut)` chain — `Switch(scrut).case(n, body)….default(body)`. */
-export function Switch(scrut: Node<ScalarKey>): SwitchChain {
+/** Open a `switch (scrut)` chain — `Switch(scrut).case(n, body)….default(body)`.
+ *  The scrutinee is a READ position — `ReadonlyNode`, same as the underlying
+ *  `Builder.switch` (#763 G4; the two spellings had drifted apart). */
+export function Switch(scrut: ReadonlyNode<ScalarKey>): SwitchChain {
   return new SwitchChain(scrut)
 }
