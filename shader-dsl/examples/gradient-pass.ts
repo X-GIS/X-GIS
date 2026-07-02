@@ -40,10 +40,9 @@ const vsFull = fn('vs_full', { idx: builtin('vertex_index', u32T) }, (p) => {
 
 // Fragment — vertical gradient between the two uniform colours, biased. `vo` (not `in`,
 // a GLSL reserved word) is the fragment input.
-const fsGradient = fn('fs_gradient', { vo: VsOut.type }, (p) => {
-  const pin = VsOut.of(p.vo)
-  const t = pin.uv.y.add(U.field.mix_bias)
-  const rgb = mix(U.field.bottom.swizzle<'vec3<f32>'>('rgb'), U.field.top.swizzle<'vec3<f32>'>('rgb'), t)
+const fsGradient = fn('fs_gradient', { vo: VsOut }, (p) => {
+  const t = p.vo.uv.y.add(U.field.mix_bias)
+  const rgb = mix(U.field.bottom.rgb, U.field.top.rgb, t)
   return vec4(rgb, f32(1))
 }, { stage: 'fragment', retAttr: '@location(0)' })
 

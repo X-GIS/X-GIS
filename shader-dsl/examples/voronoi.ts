@@ -30,8 +30,8 @@ const hash2 = fn('hash2', { c: vec2fT }, ({ c }) => {
   return fract(vec2(sin(h.x), sin(h.y)).mul(43758.5453))
 })
 
-const fs = fn('fs', { vo: VsOut.type }, ({ vo }) => {
-  const uv = VsOut.of(vo).uv
+const fs = fn('fs', { vo: VsOut }, ({ vo }) => {
+  const uv = vo.uv
   const p = uv.mul(U.field.cells)
   const cell = floor(p)
   const f = fract(p)
@@ -40,7 +40,7 @@ const fs = fn('fs', { vo: VsOut.type }, ({ vo }) => {
   Loop(i32(-1), (j) => j.le(1), (j) => {
     Loop(i32(-1), (i) => i.le(1), (i) => {
       const g = Let(vec2(toF32(i), toF32(j)))
-      const seed = Let(hash2(cell.add(g))) // materialise once: the loop counters are mutated `var`s, so CSE can't hoist the hash — without Let the 3 `seed.*` reads re-call hash2() per iteration
+      const seed = Let(hash2({ c: cell.add(g) })) // materialise once: the loop counters are mutated `var`s, so CSE can't hoist the hash — without Let the 3 `seed.*` reads re-call hash2() per iteration
       // animate each point on a small orbit around its cell so the pattern shimmers
       const pt = g.add(seed.mul(0.5).add(0.25))
         .add(vec2(sin(U.field.time.add(seed.x.mul(6.283))), cos(U.field.time.add(seed.y.mul(6.283)))).mul(0.18))
@@ -52,7 +52,8 @@ const fs = fn('fs', { vo: VsOut.type }, ({ vo }) => {
   return vec4(c, 1)
 }, { stage: 'fragment', retAttr: '@location(0)' })
 
-const voronoiModule = module({ structs: [U.struct, VsOut.decl], bindings: [U.binding], funcs: [hash2, vs, fs] })
+// `hash2` is called via its handle in `fs`, so module() collects it transitively — funcs lists only the entry points.
+const voronoiModule = module({ structs: [U.struct, VsOut.decl], bindings: [U.binding], funcs: [vs, fs] })
 
 export const voronoi: ShaderExample = {
   id: 'voronoi',

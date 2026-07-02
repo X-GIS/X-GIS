@@ -26,13 +26,15 @@ const vs = fn('vs', { vi: builtin('vertex_index', u32T) }, ({ vi }) => {
   return VsOut.construct({ pos: vec4(x, y, 0, 1), uv: vec2(x.mul(0.5).add(0.5), y.mul(0.5).add(0.5)) })
 }, { stage: 'vertex' })
 
-// 4 — a fragment stage, animated by the time uniform.
-const fs = fn('fs', { vo: VsOut.type }, ({ vo }) => {
-  const v = sin(VsOut.of(vo).uv.x.mul(10).add(U.field.time))
+// 4 — a fragment stage, animated by the time uniform. Pass the ioStruct HANDLE as the
+//     param spec ({ vo: VsOut }); the body receives a typed field proxy — vo.uv directly.
+const fs = fn('fs', { vo: VsOut }, ({ vo }) => {
+  const v = sin(vo.uv.x.mul(10).add(U.field.time))
   return vec4(vec3(v).mul(0.5).add(0.5), 1)
 }, { stage: 'fragment', retAttr: '@location(0)' })
 
-// 5 — assemble the module.
+// 5 — assemble the module. Helpers called via their handle are collected transitively,
+//     so funcs lists only the entry stages.
 export const m = module({ structs: [U.struct, VsOut.decl], bindings: [U.binding], funcs: [vs, fs] })`
 
 const emitSnippet = `import { emitModule, emitGlslModule, reflect } from '@xgis/shader-dsl'
