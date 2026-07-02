@@ -8,6 +8,7 @@
 //   - Top-30 hot functions by self time, printed to test stdout
 
 import { test, type Page, type CDPSession } from '@playwright/test'
+// Relative deep import (charter): Playwright transpiles specs in raw Node — the @xgis/* workspace alias does not resolve here, so specs import package SOURCES relatively (see _glsl-compile-gate.spec.ts).
 import { convertMapboxStyle } from '../../compiler/src/convert/mapbox-to-xgis'
 import * as fs from 'node:fs'
 import * as path from 'node:path'

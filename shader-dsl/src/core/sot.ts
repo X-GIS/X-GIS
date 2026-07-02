@@ -1,10 +1,11 @@
 // ═══ Shader DSL — single source of truth for IO structs & bound resources ═══
 //
-// Today a vertex/uniform layout is declared in up to FOUR places that must agree by
-// hand: the StructDecl (fields + @location/@builtin attrs), the binding decl
-// ({group,binding,name,space,type}), the bindingRef node, and every `.field('name',
-// type)` access. Drift between them is a whole class of bug (the polygon slot-drift
-// family, OPACITY). The SoT helpers declare a layout ONCE and DERIVE the rest, so the
+// Before this layer, a vertex/uniform layout was declared in up to FOUR places that
+// had to agree by hand: the StructDecl (fields + @location/@builtin attrs), the
+// binding decl ({group,binding,name,space,type}), the bindingRef node, and every
+// stringly member access (the since-removed `node.field('name', type)` — #763 H5).
+// Drift between them is a whole class of bug (the polygon slot-drift family,
+// OPACITY). The SoT helpers declare a layout ONCE and DERIVE the rest, so the
 // pieces cannot disagree and the type checker covers field names + types.
 
 import { Node, ReadonlyNode, structT, bindingRef, construct, member, arrayT, Var, constRef, type ShaderType, type StructDecl, type ConstDecl, type KeyOf, type ScalarKey, type BindingDecl, type AddressSpace } from './ir'
@@ -123,8 +124,10 @@ export function ioStruct<F extends Record<string, FieldSpec>>(name: string, fiel
 export interface PlainStruct<F extends Record<string, ShaderType>> {
   readonly decl: StructDecl
   readonly type: ShaderType
-  /** Typed field access for a value of this struct — e.g. an array<T> storage element
-   *  read via `Seg.of(segments.at(i)).p0_h`; replaces `node.field('p0_h', vec2fT)`.
+  /** Typed field access for a struct value you only hold as a raw Node — e.g.
+   *  `Seg.of(someNode).p0_h` (replaces the removed `node.field('p0_h', vec2fT)`).
+   *  NB: storage-buffer reads don't need this — `segments.at(i)` is ALREADY the
+   *  typed field proxy (#740 R6c); `.of` is for nodes that arrive untyped.
    *  Write capability follows the base (#763 G2): mutable base → `Node` fields,
    *  read-only base → `ReadonlyNode` fields.
    *  `.$` is the raw struct-value Node (forwardable — call factories unwrap it). */

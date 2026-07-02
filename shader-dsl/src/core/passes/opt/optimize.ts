@@ -6,16 +6,14 @@
 // (every pass must leave compileModule(m) producing identical results) and, once
 // it lands (P3), the real-GPU f32 differential.
 //
-// STATUS — NOT wired into the emit path (intentionally deferred). emitModule
-// (backends/wgsl.ts) runs only autoVars + cse from this context; the full pipeline
-// (constProp / copyProp / constFold / algebraicSimplify / deadBranch / licm / dce)
-// stays off until the real-GPU f32 differential gate (P3) lands, because the f64
-// oracle alone cannot prove an optimizer preserves f32 behaviour. The value-MOVING
-// passes (constProp / copyProp / deadBranch) are bit-exact and need no f32 gate;
-// it is const-FOLD on floats that does, which is why the whole pipeline waits on P3
-// together rather than wiring a partial subset early. Exercised today by the
-// per-pass tests and runtime/.../dsl/optimize.test.ts (real projection module,
-// oracle bit-equality) + playground/e2e/_optimizer-gpu-parity.spec.ts.
+// STATUS — WIRED into BOTH emit paths (#763 H1; this header long claimed "deferred
+// until P3" after P3 had landed). emitModule (backends/wgsl.ts `optimize:`) and
+// emitGlslModule (backends/glsl.ts `optimize:`) each run the full `fixpoint` pipeline
+// over the lowered module on EVERY emit. The f32 concern that once gated the wiring
+// is answered by the real-GPU differential (playground/e2e/_optimizer-gpu-parity.spec.ts,
+// in CI); correctness is further pinned by the per-pass oracle tests, the projection
+// module's oracle bit-equality loop over every proj_* fn
+// (map/src/shaders/dsl/optimize.test.ts), and the examples emit-goldens byte gate.
 
 import type { ModuleDecl } from '../../ir'
 import { constProp } from './const-prop'
@@ -36,12 +34,14 @@ export type OptPass = (m: ModuleDecl) => ModuleDecl
  *  input-only repeats) + cse-local (statement-local repeats that touch a local/var) /
  *  LICM (loop invariants), then DCE last (clean up everything orphaned).
  *
- *  NB: whole-function tree-shaking (`deadFnElim`, ./dce-fns) is deliberately NOT in
- *  this list — like `inlineFn` (../inline), it is an available-but-unwired pass. The
+ *  NB: whole-function tree-shaking (`deadFnElim`, ./dce-fns) and cross-statement
+ *  value numbering (`gvn`, ./gvn — #763 H8) are deliberately NOT in this list —
+ *  like `inlineFn` (../inline), they are available-but-unwired passes. The
  *  shaders that share a projection prelude emit it as one module of helper fns + the
  *  entry points, so tree-shaking would per-shader-prune the prelude and break the
- *  deliberately byte-stable shared-prelude emit (+ its golden-WGSL drift gate). Wire
- *  it only behind a maintainer decision to regenerate those snapshots. */
+ *  deliberately byte-stable shared-prelude emit (+ its golden-WGSL drift gate); gvn
+ *  moves value construction across statements, which likewise perturbs emitted bytes.
+ *  Wire either only behind a maintainer decision to regenerate those snapshots. */
 export const DEFAULT_PASSES: readonly OptPass[] = [constProp, copyProp, constFold, algebraicSimplify, deadBranch, cse, cseLocal, licm, dce]
 
 export function optimize(m: ModuleDecl, passes: readonly OptPass[] = DEFAULT_PASSES): ModuleDecl {

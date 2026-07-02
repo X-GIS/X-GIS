@@ -11,7 +11,8 @@
   "dependencies": {
     "@xgis/compiler": "workspace:*",
     "@xgis/map": "workspace:*",
-    "@xgis/runtime": "workspace:*"
+    "@xgis/runtime": "workspace:*",
+    "@xgis/shader-dsl": "workspace:*"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",

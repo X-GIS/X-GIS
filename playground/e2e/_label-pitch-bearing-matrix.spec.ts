@@ -12,6 +12,7 @@
 // Phase 8.3 of the X-GIS strict-spec / runtime parity plan.
 
 import { test, type Page } from '@playwright/test'
+// Relative deep import (charter): Playwright transpiles specs in raw Node — the @xgis/* workspace alias does not resolve here, so specs import package SOURCES relatively (see _glsl-compile-gate.spec.ts).
 import { convertMapboxStyle } from '../../compiler/src/convert/mapbox-to-xgis'
 import { readFileSync, mkdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'

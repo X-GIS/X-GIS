@@ -23,6 +23,7 @@
     "@xgis/compiler": "workspace:*",
     "@xgis/map": "workspace:*",
     "@xgis/runtime": "workspace:*",
+    "@xgis/shader-dsl": "workspace:*",
     "astro": "^6.4.8",
     "astro-expressive-code": "^0.44.0",
     "class-variance-authority": "^0.7.1",

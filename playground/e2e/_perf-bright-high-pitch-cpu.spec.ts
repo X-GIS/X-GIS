@@ -15,6 +15,7 @@
 // uniform-ring.grow) nest inside opaque[1] and name the cause.
 
 import { test, type Page } from '@playwright/test'
+// Relative deep import (charter): Playwright transpiles specs in raw Node — the @xgis/* workspace alias does not resolve here, so specs import package SOURCES relatively (see _glsl-compile-gate.spec.ts).
 import { convertMapboxStyle } from '../../compiler/src/convert/mapbox-to-xgis'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'

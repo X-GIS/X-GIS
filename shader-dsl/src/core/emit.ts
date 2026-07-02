@@ -108,9 +108,9 @@ export function forHeader(s: Stmt, be: Backend): string {
 // ── Module-level emit (shared driver) ──
 // The module assembly pipeline, parameterised by the Backend, lives here ONCE so a
 // new backend does not copy it. Per-target spelling (const/struct/binding/func) and
-// the emit-time optimisation (`optimize`: WGSL = cse, GLSL = identity) are delegated
-// to the Backend; the validate → assertCaps → autoVars → lowerModule → optimize
-// preamble is identical for every target.
+// the emit-time optimisation (`optimize` — the full fixpoint pipeline on both current
+// backends, #763 H1) are delegated to the Backend; the validate → assertCaps →
+// autoVars → lowerModule → optimize preamble is identical for every target.
 
 /** Run the authored module through the shared pre-emit pipeline for a backend:
  *  validate the AUTHORED shape, fail-closed on unsupported caps, then
