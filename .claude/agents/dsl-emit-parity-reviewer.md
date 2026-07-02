@@ -34,6 +34,22 @@ Review checklist (each item traces to a real shipped bug):
    GLSL.
 6. **Reflection is read-only.** reflect() must not run on the emit path or
    mutate the IR — an emitted byte must be impossible to change from reflect.
+7. **Optimizer passes preserve semantics, provably.** A new/changed pass
+   (CSE/DCE/LICM/const-fold/algebraic) needs: (a) an oracle-gated or
+   golden-diffed justification per rewrite rule — the optimizer ships
+   oracle-gated by design; (b) a fixpoint-termination argument (a rule pair
+   that can ping-pong never terminates); (c) respect for materialization
+   contracts — Let() is a CSE barrier consumers RELY on (the voronoi
+   hash-hoist pattern); a pass that starts hoisting through Let changes
+   authored cost models. Deliberate non-identities stay non-identities
+   (madd ≠ fma was a decision, not an oversight).
+8. **The CPU f64 oracle is a third backend of this reviewer.** Changes to
+   the CPU compile path (compileModule) must keep it semantically aligned
+   with the WGSL walk — same intrinsic set, same branch semantics — because
+   the whole parity-gate methodology (GPU vs f64 mirror) rests on the oracle
+   being boring. An intrinsic added to WGSL/GLSL but not the oracle (or
+   vice versa) is a finding. Note: oracle compileModule is PRODUCTION-used
+   (map cpu-projections) — it is not test-only code.
 
 Output: findings ranked by severity, each with file:line, the failure
 scenario, and the minimal fix direction. If nothing is wrong, say so briefly.
