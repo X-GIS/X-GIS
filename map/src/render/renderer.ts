@@ -24,8 +24,18 @@ import { resolveNumberShape, resolveColorShape } from './paint-shape-resolve'
 import type { ShaderVariantInfo, CachedPipeline, ShowCommand, RenderLayer } from './renderer-types'
 import { parseColor } from './renderer-helpers'
 import { GraticuleRenderer } from './graticule-renderer'
-import { polygonUniformBytes, polygonUniformSlots } from './polygon-uniform-slots'
-import { writeFrameProjectionUniform } from './frame-projection-uniform'
+import { polygonUniformBytes } from './polygon-uniform-slots'
+import { uniformBlock, type UniformBlockOf } from '@xgis/engine'
+import { polygonU as POLYGON_U } from '../shaders/dsl/polygon'
+import { globeEyeUniform } from './globe-eye-uniform'
+
+// Typed pack target for the non-tiled layer path's polygon 'Uniforms' writes
+// (#733 P2c) — layout from wgslLayout(U.struct) (module-free), write() typed by
+// the same field record the WGSL is emitted from. LAZY memo (draw time).
+let _polyBlock: UniformBlockOf<typeof POLYGON_U> | null = null
+function polyBlock(): UniformBlockOf<typeof POLYGON_U> {
+  return (_polyBlock ??= uniformBlock(POLYGON_U))
+}
 import { FrameRenderer } from './frame-renderer'
 
 // Re-export the extracted types so this module's public surface stays
@@ -104,11 +114,7 @@ export class MapRendererContent {
    *  ONLY through its public methods / getters; the engine holds NO back-
    *  reference to content (plan Step 1 invariant). */
   private readonly engine: FrameRenderer
-  // Cached per-frame allocation (avoid GC pressure in render loop). Sized to
-  // the polygon Uniforms struct byte count (reflect-derived via
-  // polygonUniformBytes()). Out-of-bounds typed-array writes are silent no-ops
-  // so a mismatch here = uniform never reaches the GPU.
-  private uniformDataBuf = new ArrayBuffer(polygonUniformBytes())
+  // (Per-frame uniform packing goes through the memoised polyBlock() — #733 P2c.)
   // The polygon Uniforms bind-range size is read LAZILY via polygonUniformBytes()
   // (memoised) at ctor/draw time. It MUST NOT be a `static readonly` field:
   // polygonUniformBytes() reflects the polygon module = a projection emit, which
@@ -659,30 +665,11 @@ export class MapRendererContent {
         const r = resolveColorShape(ps.line.stroke, camera.zoom, elapsedMs)
         if (r !== null) strokeRaw = [r.value[0], r.value[1], r.value[2], r.value[3]]
       }
-      const fillColor = fillRaw ? [fillRaw[0], fillRaw[1], fillRaw[2], fillRaw[3] * opacity] : [0, 0, 0, 0]
-      const strokeColor = strokeRaw ? [strokeRaw[0], strokeRaw[1], strokeRaw[2], strokeRaw[3] * opacity] : [0, 0, 0, 0]
+      const fillColor: readonly [number, number, number, number] =
+        fillRaw ? [fillRaw[0], fillRaw[1], fillRaw[2], fillRaw[3] * opacity] : [0, 0, 0, 0]
+      const strokeColor: readonly [number, number, number, number] =
+        strokeRaw ? [strokeRaw[0], strokeRaw[1], strokeRaw[2], strokeRaw[3] * opacity] : [0, 0, 0, 0]
 
-      const uniformData = this.uniformDataBuf
-      // ── 192-byte Uniforms struct layout (post PR 2d.5 closeout) ──
-      // byte   0: mvp         (16 f32 = 64 B) — ECEF-MVP
-      // byte  64: fill_color  (4 f32) | byte  80: stroke_color (4 f32)
-      // byte  96: proj_params (4 f32)
-      // byte 112: cam_h (2 f32) | cam_l (2 f32)
-      // byte 128: tile_origin_merc (2 f32) | opacity | log_depth_fc
-      // byte 144: pick_id (u32) | layer_depth_offset | tile_extent_m | extrude_height_m
-      // byte 160: clip_bounds (4 f32)
-      // byte 176: zoom + 3-float pad → total 192 B
-      // Offsets reflect-derived (polygonUniformSlots().slot) — byte-identical to
-      // the literals documented above, pinned by polygon-uniform-offset-parity.
-      // test.ts; a struct field shift reflows these instead of corrupting the write.
-      const S = polygonUniformSlots().slot
-      new Float32Array(uniformData, S.mvp * 4, 16).set(mvp)
-      new Float32Array(uniformData, S.fill_color * 4, 4).set(fillColor as number[])
-      new Float32Array(uniformData, S.stroke_color * 4, 4).set(strokeColor as number[])
-      // proj_params + globe_eye written TOGETHER (coupled so a missing globe_eye —
-      // the #600 vector-path leak — is unrepresentable). frame.eye is the globe/ECEF
-      // camera position (undefined off the globe → globe_eye zero, ignored by flat).
-      writeFrameProjectionUniform(new Float32Array(uniformData), projType, projCenterLon, projCenterLat, frame.eye)
       // Non-tiled layer: vertices are stored in absolute Mercator meters
       // (DSFUN stride 5/6) so tile_origin_merc = (0, 0) and
       // cam_h/cam_l = splitF64(cam_merc). The DSFUN subtraction in vs_main
@@ -697,29 +684,40 @@ export class MapRendererContent {
       const cxL = Math.fround(cx - cxH)
       const cyH = Math.fround(cy)
       const cyL = Math.fround(cy - cyH)
-      new Float32Array(uniformData, S.cam_h * 4, 4).set([cxH, cyH, cxL, cyL]) // cam_h.xy, cam_l.xy
-      // tile_origin_merc=(0,0), opacity, log_depth_fc
-      new Float32Array(uniformData, S.tile_origin_merc * 4, 4).set([0, 0, opacity, frame.logDepthFc])
-      // pick_id (low16 = layerId, high16 = instanceId=0 for non-tiled),
-      // followed by 12 bytes of vec3<u32> padding so the uniform struct
-      // ends on a 16-byte boundary as required by WebGPU std140-ish layout.
-      new Uint32Array(uniformData, S.pick_id * 4, 4).set([layer.pickId, 0, 0, 0])
-      // clip_bounds (160-175): sentinel "no clip" — non-tiled layers
-      // own their entire screen area, no per-tile fallback clipping
-      // applies. The fragment shader's `clip_bounds.x > -1e29` gate
-      // skips the discard test entirely. Without this write the
-      // shader reads garbage at byte 160 (the sentinel happens to be
-      // an unusual value) and discards most fragments — the symptom
-      // was the hero map showing only ~1/4 of the world after the
-      // per-tile clip mask landed in 9c026b3.
-      new Float32Array(uniformData, S.clip_bounds * 4, 4).set([-1e30, 0, 0, 0])
-      // zoom + 3-float pad (offsets 176-191) — P3 palette gradient
-      // sample reads u.zoom. Pad slots stay zero (RTC fields 192-239 +
-      // light_dir_ecef 240-255 too — this fill/line path never extrudes);
-      // total struct size is 256 bytes (UNIFORM_SIZE constant).
-      new Float32Array(uniformData, S.zoom * 4, 4).set([camera.zoom, 0, 0, 0])
+      // Full-struct typed pack (#733 P2c) — every field named, completeness
+      // compile-time (the #600 missing-globe_eye vector-path leak does not
+      // compile). Field notes, unchanged from the slot writer this replaces:
+      // · pick_id: low16 = layerId, high16 = instanceId (0 for non-tiled).
+      // · clip_bounds: the "no clip" sentinel — non-tiled layers own their
+      //   entire screen area; the fragment shader's `clip_bounds.x > -1e29`
+      //   gate skips the discard test. Without this write the shader read
+      //   garbage at that offset and discarded most fragments (the hero map
+      //   showed ~1/4 of the world after the per-tile clip mask in 9c026b3).
+      // · zoom: P3 palette gradient sample reads u.zoom.
+      // · RTC (cam_ecef_off_h/l) + extrude/light fields stay zero — this
+      //   fill/line path never extrudes.
+      const ge = globeEyeUniform(frame.eye)
+      const B = polyBlock()
+      B.write({
+        mvp,
+        fill_color: fillColor,
+        stroke_color: strokeColor,
+        proj_params: [projType, projCenterLon, projCenterLat, 0],
+        cam_h: [cxH, cyH], cam_l: [cxL, cyL],
+        tile_origin_merc: [0, 0],
+        opacity,
+        log_depth_fc: frame.logDepthFc,
+        pick_id: layer.pickId, layer_depth_offset: 0, tile_extent_m: 0, extrude_height_m: 0,
+        clip_bounds: [-1e30, 0, 0, 0],
+        zoom: camera.zoom, extrude_base_m: 0, fill_translate_x: 0, fill_translate_y: 0,
+        tile_dequant_scale: 0, tile_dequant_half: 0,
+        light_color_packed: 0, _pad_light_align: 0,
+        cam_ecef_off_h: [0, 0, 0, 0], cam_ecef_off_l: [0, 0, 0, 0],
+        light_dir_ecef: [0, 0, 0, 0],
+        globe_eye: [ge[0], ge[1], ge[2], ge[3]],
+      })
       const slotOffset = this.engine.allocUniformSlot()
-      this.engine.stageUniformSlot(slotOffset, uniformData)
+      this.engine.stageUniformSlot(slotOffset, B.buffer)
 
       // Select bind group: per-layer (with feature data) or shared
       const bindGroup = layer.perLayerBindGroup ?? this.bindGroup

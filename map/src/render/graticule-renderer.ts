@@ -13,10 +13,21 @@
 // PASSED IN; the offsets are NOT re-derived or changed.
 
 import type { GPUContext } from '@xgis/engine'
+import { uniformBlock, type UniformBlockOf } from '@xgis/engine'
 import { generateGraticule } from '../graticule'
 import type { UniformRing } from './uniform-ring'
-import { polygonUniformBytes, polygonUniformSlots } from './polygon-uniform-slots'
-import { writeFrameProjectionUniform } from './frame-projection-uniform'
+import { polygonU as POLYGON_U } from '../shaders/dsl/polygon'
+import { globeEyeUniform } from './globe-eye-uniform'
+
+// Typed pack target for the shared polygon 'Uniforms' struct (#733 P2c) — layout
+// from wgslLayout(U.struct), module-free, so constructing it never triggers the
+// projection emit; write() is typed by the same field record the WGSL is emitted
+// from (completeness compile-time — the #600 globe_eye class does not compile).
+// LAZY memo (draw time), same discipline as the reflect() slots it replaces.
+let _gratBlock: UniformBlockOf<typeof POLYGON_U> | null = null
+function gratBlock(): UniformBlockOf<typeof POLYGON_U> {
+  return (_gratBlock ??= uniformBlock(POLYGON_U))
+}
 
 /** Per-frame data the graticule draw needs from the coordinator. The
  *  graticule reuses the SAME 240-byte uniform struct offsets as the layer
@@ -154,44 +165,37 @@ export class GraticuleRenderer {
       // shift needed. Draw once per frame (ECEF world-copy = same geometry).
       // Previously iterated worldCopiesFor(projType) for Mercator cam_h shift.
       for (let wi = 0; wi < 1; wi++) {
-        const gratData = new ArrayBuffer(polygonUniformBytes())
-        // ── 240-byte Uniforms struct layout (matches VTR + WGSL; post PR 2d.5
-        // closeout: legacy Mercator `mvp` slot retired; `mvp` IS the ECEF-MVP).
-        // byte   0: mvp        (16 f32 = 64 B) — ECEF-MVP (was `mvp_ecef`)
-        // byte  64: fill_color  (4 f32 = 16 B)
-        // byte  80: stroke_color (4 f32)
-        // byte  96: proj_params  (4 f32)
-        // byte 112: cam_h (2 f32) | cam_l (2 f32)
-        // byte 128: tile_origin_merc (2 f32) | opacity | log_depth_fc
-        // byte 144: pick_id (u32) | layer_depth_offset | tile_extent_m | extrude_height_m
-        // byte 160: clip_bounds (4 f32)
-        // byte 176: zoom + 3-float pad; bytes 192-239 = RTC fields (zero
-        // for the graticule's absolute-ECEF path) → total 240 B
-        // Offsets reflect-derived (polygonUniformSlots().slot) — byte-identical to
-        // the literals above, pinned by polygon-uniform-offset-parity.test.ts.
-        const S = polygonUniformSlots().slot
-        new Float32Array(gratData, S.mvp * 4, 16).set(frame.mvp) // ECEF-MVP for vs_main
-        // fill_color = white @ 15% opacity (minor grid line colour)
-        new Float32Array(gratData, S.fill_color * 4, 4).set([1, 1, 1, 0.15])
-        // stroke_color = white @ 15% opacity
-        new Float32Array(gratData, S.stroke_color * 4, 4).set([1, 1, 1, 0.15])
-        // proj_params
-        // proj_params + globe_eye written TOGETHER (coupled so a missing globe_eye
-        // can't recur — #600). frame.eye is the globe camera position (undefined off
-        // the globe → globe_eye zero, ignored by the flat/disc cull arms).
-        writeFrameProjectionUniform(new Float32Array(gratData), frame.projType, frame.projCenterLon, frame.projCenterLat, frame.eye)
-        // Graticule vertices are ECEF-encoded (PR 2d.1D); RTC anchor = (0,0,0)
-        // since graticule emits absolute ECEF without per-tile centering.
-        // cam_h / cam_l fields are unused by vs_main (ECEF path) — zero-fill.
-        new Float32Array(gratData, S.cam_h * 4, 4).set([0, 0, 0, 0]) // cam_h + cam_l
-        // tile_origin_merc=(0,0), opacity=1, log_depth_fc
-        new Float32Array(gratData, S.tile_origin_merc * 4, 4).set([0, 0, 1, frame.logDepthFc])
-        // pick_id=0 — graticule is decorative, never pickable. + layer_depth_offset=0
-        new Uint32Array(gratData, S.pick_id * 4, 4).set([0, 0, 0, 0])
-        // clip_bounds sentinel — same rationale as the polygon path.
-        new Float32Array(gratData, S.clip_bounds * 4, 4).set([-1e30, 0, 0, 0])
+        // Full-struct typed pack (#733 P2c) — the SAME polygon 'Uniforms' struct
+        // as the layer path, every field named, completeness compile-time.
+        // Graticule vertices are ECEF-encoded (PR 2d.1D): RTC anchor = (0,0,0)
+        // (absolute ECEF, no per-tile centering), cam_h/cam_l unused by vs_main,
+        // RTC/extrude/light fields zero (graticule lines never extrude),
+        // pick_id = 0 (decorative, never pickable), clip_bounds = the "no clip"
+        // sentinel (same rationale as the polygon path). globe_eye derives from
+        // frame.eye (#600) — undefined off the globe → all-zero, ignored by the
+        // flat/disc cull arms.
+        const B = gratBlock()
+        const ge = globeEyeUniform(frame.eye)
+        B.write({
+          mvp: frame.mvp, // ECEF-MVP for vs_main
+          fill_color: [1, 1, 1, 0.15],   // white @ 15% (minor grid line colour)
+          stroke_color: [1, 1, 1, 0.15],
+          proj_params: [frame.projType, frame.projCenterLon, frame.projCenterLat, 0],
+          cam_h: [0, 0], cam_l: [0, 0],
+          tile_origin_merc: [0, 0],
+          opacity: 1,
+          log_depth_fc: frame.logDepthFc,
+          pick_id: 0, layer_depth_offset: 0, tile_extent_m: 0, extrude_height_m: 0,
+          clip_bounds: [-1e30, 0, 0, 0],
+          zoom: 0, extrude_base_m: 0, fill_translate_x: 0, fill_translate_y: 0,
+          tile_dequant_scale: 0, tile_dequant_half: 0,
+          light_color_packed: 0, _pad_light_align: 0,
+          cam_ecef_off_h: [0, 0, 0, 0], cam_ecef_off_l: [0, 0, 0, 0],
+          light_dir_ecef: [0, 0, 0, 0],
+          globe_eye: [ge[0], ge[1], ge[2], ge[3]],
+        })
         const gratOff = ring.allocSlot()
-        ring.stageSlot(gratOff, gratData)
+        ring.stageSlot(gratOff, B.buffer)
 
         pass.setBindGroup(0, bindGroup, [gratOff])
         pass.draw(this.graticuleVertexCount)
