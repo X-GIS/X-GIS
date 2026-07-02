@@ -6,7 +6,8 @@
 // (no opt-in) still throws. See render-graph-pass-scheduler.md §6.5 + the M2 design.
 
 import { describe, it, expect } from 'vitest'
-import { emitGlslModule, UnsupportedFeatureError, requiredCaps } from '@xgis/shader-dsl'
+import { emitGlslModule, UnsupportedFeatureError } from '@xgis/shader-dsl'
+import { requiredCaps } from '@xgis/shader-dsl/dev'
 import {
   f32T, u32T, vec3uT, vec4uT, vec4fT, voidT,
   type ShaderType, type Expr, type ModuleDecl,

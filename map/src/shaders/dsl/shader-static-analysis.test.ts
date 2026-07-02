@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { lintModule } from '@xgis/shader-dsl'
+import { lintModule } from '@xgis/shader-dsl/dev'
 import { getPROJECTION_MODULE } from './projections'
 import { ICON_MODULE } from './icon'
 import { TEXT_MODULE } from './text'
