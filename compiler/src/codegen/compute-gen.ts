@@ -406,7 +406,8 @@ export interface InterpolateEmitSpec {
  *  std430/reflection layout — the whole reason this stops being a string builder. */
 function buildComputeKernelModule(
   entryName: string,
-  buildColor: (fid: Node<'u32'>, featData: { at(i: Node<'u32'>): Node<'f32'> }) => Node<'vec4<f32>'>,
+  // feat_data is a READ buffer — the view hands out ReadonlyNode (#763 G2).
+  buildColor: (fid: Node<'u32'>, featData: { at(i: ReadonlyNode<'u32'>): ReadonlyNode<'f32'> }) => Node<'vec4<f32>'>,
   consts: ConstDecl[] = [],
 ): ModuleDecl {
   const featData = storageBuffer('feat_data', f32T, { group: 0, binding: 0, access: 'read' })
