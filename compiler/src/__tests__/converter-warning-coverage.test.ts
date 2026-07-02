@@ -682,4 +682,43 @@ describe('converter warning coverage', () => {
       expect(note).not.toContain('sprite')
     }
   })
+
+  it('data-driven fill-opacity → loud per-feature-drop warning (#725)', () => {
+    // The runtime has no per-feature opacity channel: a feature-referencing
+    // fill-opacity evaluates to ONE layer scalar, silently losing its
+    // per-feature variation. Pre-fix this converted without ANY warning.
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [{
+        id: 'parcels',
+        type: 'fill',
+        source: 'v',
+        'source-layer': 'parcel',
+        paint: {
+          'fill-color': '#336699',
+          'fill-opacity': ['match', ['get', 'zoned'], 'yes', 0.9, 0.2],
+        },
+      }],
+    })
+    expect(w.some(s => s.includes('data-driven (per-feature) opacity'))).toBe(true)
+  })
+
+  it('zoom-only interpolated fill-opacity stays warning-free (fully supported)', () => {
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [{
+        id: 'suburb',
+        type: 'fill',
+        source: 'v',
+        'source-layer': 'landuse',
+        paint: {
+          'fill-color': '#eee0d0',
+          'fill-opacity': ['interpolate', ['linear'], ['zoom'], 10, 0, 12, 1],
+        },
+      }],
+    })
+    expect(w.some(s => s.includes('data-driven (per-feature) opacity'))).toBe(false)
+  })
 })
