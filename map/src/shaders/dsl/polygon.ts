@@ -1183,7 +1183,14 @@ export const emitPolygonWgsl = (
  *  stage into a `main()` — so narrow the module to the one entry this Material uses
  *  (helpers/consts/bindings stay; unused helpers are dead-but-valid GLSL). Extrude /
  *  pattern Materials stay WGSL-only for now — WebGL2 keeps its explicit fail-closed
- *  error for those, this covers the parity spec's meaningful gate (opaque flat fill). */
+ *  error for those, this covers the parity spec's meaningful gate (opaque flat fill).
+ *
+ *  UNWIRED as of #778 P6: pipeline-factory returns early on the webgl2 backend BEFORE
+ *  building any fill Material, so wiring this into the WebGPU-path Material (as #775 did)
+ *  only burned boot time emitting GLSL the WebGPU backend discards. This stays as the
+ *  ready building block for the WebGL2 full-frame phase (#746 remaining) — that PR
+ *  re-bases the fill Materials onto RHI-native objects and consumes this past a live
+ *  webgl2 guard. Kept, like the optimizer's unwired passes, rather than deleted+re-added. */
 export const emitPolygonGlsl = (
   variant: ShaderVariantInfo | null,
   pickEnabled: boolean,
