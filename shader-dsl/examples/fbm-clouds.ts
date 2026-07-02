@@ -38,8 +38,8 @@ const noise = fn('noise', { p: vec2fT }, ({ p }) => {
   )
 })
 
-const fs = fn('fs', { vo: VsOut.type }, ({ vo }) => {
-  const uv = VsOut.of(vo).uv
+const fs = fn('fs', { vo: VsOut }, ({ vo }) => {
+  const uv = vo.uv
   const q = vec2(uv.x.mul(3), uv.y.mul(3)) // mutable sample point (octave frequency)
   const v = f32(0)
   const amp = f32(0.55)
@@ -54,7 +54,8 @@ const fs = fn('fs', { vo: VsOut.type }, ({ vo }) => {
   return vec4(mix(sky, cloud, clamp(v, 0, 1)), 1)
 }, { stage: 'fragment', retAttr: '@location(0)' })
 
-const fbmModule = module({ structs: [U.struct, VsOut.decl], bindings: [U.binding], funcs: [hash, noise, vs, fs] })
+// `hash`/`noise` are called via their handles, so module() collects them transitively — funcs lists only the entry points.
+const fbmModule = module({ structs: [U.struct, VsOut.decl], bindings: [U.binding], funcs: [vs, fs] })
 
 export const fbmClouds: ShaderExample = {
   id: 'fbm-clouds',

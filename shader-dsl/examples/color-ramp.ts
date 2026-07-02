@@ -41,8 +41,8 @@ const ramp = fn('ramp', { x: f32T }, ({ x }) => {
   return mix(d, c4, smoothstep(0.75, 1, x))
 })
 
-const fs = fn('fs', { vo: VsOut.type }, ({ vo }) => {
-  const uv = VsOut.of(vo).uv
+const fs = fn('fs', { vo: VsOut }, ({ vo }) => {
+  const uv = vo.uv
   const t = U.field.time
   const bands = U.field.bands
 
@@ -64,7 +64,8 @@ const fs = fn('fs', { vo: VsOut.type }, ({ vo }) => {
   return vec4(mix(col, col.mul(0.2), contour), 1)
 }, { stage: 'fragment', retAttr: '@location(0)' })
 
-const colorRampModule = module({ structs: [U.struct, VsOut.decl], bindings: [U.binding], funcs: [vs, ramp, fs] })
+// `ramp` is called via its handle in `fs`, so module() collects it transitively — funcs lists only the entry points.
+const colorRampModule = module({ structs: [U.struct, VsOut.decl], bindings: [U.binding], funcs: [vs, fs] })
 
 export const colorRamp: ShaderExample = {
   id: 'color-ramp',

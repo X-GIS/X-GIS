@@ -2,8 +2,9 @@
 //
 // Iterate z ← z² + c per pixel until |z| escapes, then colour by the (smoothed)
 // iteration count through a cosine palette. `c` orbits slowly so the fractal morphs.
-// Showcases the DSL's `Loop` + early `Break` + a mutable `var` accumulator, all
-// emitted to both WGSL (WebGPU) and GLSL ES 3.00 (WebGL2).
+// Showcases the DSL's `Loop` + early `Break` + a mutable `var` accumulator, typed
+// ioStruct fn-params, and scalar×vector broadcast (the palette), all emitted to
+// both WGSL (WebGPU) and GLSL ES 3.00 (WebGL2).
 
 import {
   fn, module, uniformStruct, ioStruct,
@@ -26,11 +27,12 @@ const vs = fn('vs', { vi: builtin('vertex_index', u32T) }, ({ vi }) => {
 // Iridescent cosine palette: 0.5 + 0.5·cos(2π(t + phase)).
 const palette = fn('palette', { t: f32T }, ({ t }) => {
   const ph = vec3(0.0, 0.33, 0.67)
-  return vec3(0.5).add(vec3(cos(t.add(ph.x).mul(6.283)), cos(t.add(ph.y).mul(6.283)), cos(t.add(ph.z).mul(6.283))).mul(0.5))
+  // scalar t broadcasts over the phase vector; cos() is component-wise.
+  return vec3(0.5).add(cos(t.add(ph).mul(6.283)).mul(0.5))
 })
 
-const fs = fn('fs', { vo: VsOut.type }, ({ vo }) => {
-  const uv = VsOut.of(vo).uv
+const fs = fn('fs', { vo: VsOut }, ({ vo }) => {
+  const uv = vo.uv
   // centre the plane, scale by the zoom uniform
   const z = Var(vec2(uv.x.mul(2).sub(1), uv.y.mul(2).sub(1)).mul(U.field.zoom))
   // the orbiting Julia constant
@@ -42,11 +44,12 @@ const fs = fn('fs', { vo: VsOut.type }, ({ vo }) => {
     it.assign(it.add(1))
   })
   // outside points (never escaped) → black core; escaped → palette by iteration
-  const col = palette(it.div(96).add(U.field.time.mul(0.05)))
+  const col = palette({ t: it.div(96).add(U.field.time.mul(0.05)) })
   return vec4(col.mul(it.div(96)), 1)
 }, { stage: 'fragment', retAttr: '@location(0)' })
 
-const juliaModule = module({ structs: [U.struct, VsOut.decl], bindings: [U.binding], funcs: [palette, vs, fs] })
+// `palette` is called via its handle in `fs`, so module() collects it transitively — funcs lists only the entry points.
+const juliaModule = module({ structs: [U.struct, VsOut.decl], bindings: [U.binding], funcs: [vs, fs] })
 
 export const julia: ShaderExample = {
   id: 'julia',

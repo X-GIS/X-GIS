@@ -29,9 +29,9 @@ const vs = fn('vs', { vi: builtin('vertex_index', u32T) }, ({ vi }) => {
 
 // `vo` (vertex-out), NOT `in`: `in` is a reserved keyword in GLSL, so naming the
 // fragment param `in` would emit `vec4 fs_impl(VsOut in)` — a hard WebGL2 compile error.
-const fs = fn('fs', { vo: VsOut.type }, ({ vo }) => {
+const fs = fn('fs', { vo: VsOut }, ({ vo }) => {
   const t = U.field.time
-  const uv = VsOut.of(vo).uv
+  const uv = vo.uv
   // sum-of-sines plasma field
   const v = sin(uv.x.mul(10).add(t))
     .add(sin(uv.y.mul(10).add(t)))

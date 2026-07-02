@@ -41,8 +41,8 @@ const terrain = fn('terrain', { p: vec2fT, t: f32T }, ({ p, t }) => {
   return h.mul(0.28).add(0.5)
 })
 
-const fs = fn('fs', { vo: VsOut.type }, ({ vo }) => {
-  const uv = VsOut.of(vo).uv
+const fs = fn('fs', { vo: VsOut }, ({ vo }) => {
+  const uv = vo.uv
   const t = U.field.time
   const az = radians(U.field.sun_az)
   const ex = U.field.exaggeration
@@ -68,7 +68,8 @@ const fs = fn('fs', { vo: VsOut.type }, ({ vo }) => {
   return vec4(lit, 1)
 }, { stage: 'fragment', retAttr: '@location(0)' })
 
-const hillshadeModule = module({ structs: [U.struct, VsOut.decl], bindings: [U.binding], funcs: [vs, terrain, fs] })
+// `terrain` is called via its handle in `fs`, so module() collects it transitively — funcs lists only the entry points.
+const hillshadeModule = module({ structs: [U.struct, VsOut.decl], bindings: [U.binding], funcs: [vs, fs] })
 
 export const hillshade: ShaderExample = {
   id: 'hillshade',

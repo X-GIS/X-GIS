@@ -28,8 +28,8 @@ const vs = fn('vs', { vi: builtin('vertex_index', u32T) }, ({ vi }) => {
   return VsOut.construct({ pos: vec4(x, y, 0, 1), uv: vec2(x.mul(0.5).add(0.5), y.mul(0.5).add(0.5)) })
 }, { stage: 'vertex' })
 
-const fs = fn('fs', { vo: VsOut.type }, ({ vo }) => {
-  const uv = VsOut.of(vo).uv
+const fs = fn('fs', { vo: VsOut }, ({ vo }) => {
+  const uv = vo.uv
   const sp = U.field.spacing
   // UV → lon/lat, with a slow longitudinal pan over time.
   const lon = uv.x.mul(360).sub(180).add(U.field.time.mul(8))

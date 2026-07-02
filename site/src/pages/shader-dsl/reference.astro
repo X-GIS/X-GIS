@@ -11,8 +11,8 @@ const groups: Group[] = [
   {
     title: 'Module & functions',
     rows: [
-      { sig: 'fn(name, params, body, opts?)', desc: 'Declare a function. opts.stage = "vertex" | "fragment" | "compute" makes it a pipeline entry; opts.retAttr / workgroupSize for bare-return / compute. Returns a callable handle that also IS the FuncDecl.' },
-      { sig: 'module({ structs, bindings, funcs, consts? })', desc: 'Assemble a module from its declarations.' },
+      { sig: 'fn(name, params, body, opts?)', desc: 'Declare a function. A param spec is a ShaderType, an IO field spec, or an ioStruct / structDecl HANDLE — a handle param arrives in the body as a typed field proxy (no .of() re-assertion). opts.stage = "vertex" | "fragment" | "compute" makes it a pipeline entry; opts.retAttr / workgroupSize for bare-return / compute. The returned handle is callable — prefer the object form f({ a, b }), which type-checks argument names + types.' },
+      { sig: 'module({ structs, bindings, funcs, consts? })', desc: 'Assemble a module from its declarations. funcs is an array (order preserved) or a key-named record; fns called through their handle are collected transitively (define-before-use), so funcs lists only the entry points.' },
       { sig: 'callFn(name, ret, ...args)', desc: 'Call an authored function by name.' },
     ],
   },
@@ -20,8 +20,8 @@ const groups: Group[] = [
     title: 'Layout declarators (single source of truth)',
     note: 'Declare a layout ONCE; the struct, the binding, the access node, and typed field access are all derived — they cannot drift.',
     rows: [
-      { sig: 'uniformStruct(name, { group, binding, as }, fields)', desc: 'A uniform block + its binding. .field.x is typed access; .struct / .binding go into module().' },
-      { sig: 'ioStruct(name, fields)', desc: 'A vertex/fragment IO struct. .decl, .type, .of(node).field, .construct({…}).' },
+      { sig: 'uniformStruct(name, { group, binding, as }, fields)', desc: 'A uniform block + its binding. .field.x is typed access; a field can be arrayOf(handle, n) → .field.arr.at(i) gives typed element access. .struct / .binding go into module().' },
+      { sig: 'ioStruct(name, fields)', desc: 'A vertex/fragment IO struct. .decl, .type, .of(node).field, .var(name?) (a typed var proxy; .$ is the raw node), .construct({…}).' },
       { sig: 'structDecl(name, fields)', desc: 'A plain / storage-element struct.' },
       { sig: 'storageBuffer(name, element, { group, binding, access })', desc: 'An array<Element> storage buffer; .at(i) is the typed element accessor.' },
       { sig: 'resource(name, type, { group, binding })', desc: 'A non-struct bound resource (texture / sampler).' },
@@ -39,10 +39,10 @@ const groups: Group[] = [
   {
     title: 'Operators (methods on a value node)',
     rows: [
-      { sig: '.add .sub .mul .div .mod .neg()', desc: 'Arithmetic, with WGSL vec∘scalar broadcast. A vec2∘vec3 mismatch is a TS error.' },
+      { sig: '.add .sub .mul .div .mod .neg()', desc: 'Arithmetic, with WGSL vec∘scalar broadcast — including scalar-node × vec-node (f32 · vec3<f32> → vec3<f32>). A vec2∘vec3 mismatch is a TS error.' },
       { sig: '.lt .gt .le .ge .eq .ne', desc: 'Comparisons → bool.' },
       { sig: '.and .or  ·  .bitAnd .bitOr .bitXor .shl .shr', desc: 'Logical (bool) and bitwise (u32/i32).' },
-      { sig: '.x .y .z .w  ·  .rgb .xy .xyz …  ·  .swizzle<R>("…")', desc: 'Component access and swizzles.' },
+      { sig: '.x .y .z .w  ·  .rgb .xy .xyz …  ·  .swizzle("…")', desc: 'Component access and swizzles. .swizzle("rgb") infers its result key from the component string (elem-typed; works on u32/i32 vecs too).' },
       { sig: '.assign(v)  ·  .select(a, b)', desc: 'lvalue store; condition ? a : b (on a bool node).' },
     ],
   },
@@ -79,16 +79,17 @@ const groups: Group[] = [
     rows: [
       { sig: 'emitModule(m)', desc: '→ WGSL string (WebGPU). Byte-stable.' },
       { sig: 'emitGlslModule(m, "vertex" | "fragment")', desc: '→ GLSL ES 3.00 string (WebGL2). Throws on compute / SSBO / MSAA-load.' },
-      { sig: 'emitModuleWithReflection(m, backend)', desc: '→ { code, reflection } (code byte-identical to emitModule).' },
+      { sig: 'emitModuleWithReflection(m, backend)', desc: '→ { code, reflection } (code byte-identical to emitModule). Dev tooling — import from @xgis/shader-dsl/dev (#740 R2b).' },
       { sig: 'reflect(m)', desc: '→ { bindGroups, uniforms (std140), storage (std430), entries }. Read-only over the IR.' },
       { sig: 'wgslLayout(struct, "std140" | "std430")', desc: 'The standalone offset engine reflect() uses.' },
     ],
   },
   {
     title: 'Validation passes',
+    note: 'validate() is the emit-time gate on the main entry. The lint / capability analysis tooling moved to the @xgis/shader-dsl/dev subpath (#740 R2b) — dev-time only, never on the emit path.',
     rows: [
-      { sig: 'validate(m)  ·  lintModule(m)', desc: 'Type/structure validation and the 20-rule lint engine.' },
-      { sig: 'requiredCaps(m)  ·  assertCaps(caps, backend)', desc: 'Compute the capabilities a module needs; assert a backend supports them.' },
+      { sig: 'validate(m)', desc: 'Type/structure validation — the emit-time gate (main entry).' },
+      { sig: 'lintModule(m)  ·  requiredCaps(m)  ·  assertCaps(caps, backend)', desc: 'The 20-rule lint engine and capability analysis (compute the caps a module needs; assert a backend supports them). Import from @xgis/shader-dsl/dev.' },
     ],
   },
 ]
