@@ -31,7 +31,7 @@ const fs = fn('fs', { vo: VsOut }, ({ vo }) => {
   // sphere-trace a unit sphere at the origin: SDF = |p| − 1
   const t = f32(0)
   const hit = f32(0)
-  Loop(u32(0), (i) => i.lt(u32(72)), (i) => {
+  Loop(u32(0), (i) => i.lt(u32(72)), () => {
     const p = ro.add(rd.mul(t))
     const d = Let(length(p).sub(1)) // materialise once: `t` is a mutated var so CSE can't hoist — without Let the SDF (a `length`) re-emits in both the hit test and `t += d`
     If(d.lt(0.001), () => { hit.assign(1); Break() })

@@ -20,12 +20,15 @@
 // NOT in DEFAULT_PASSES (wiring it changes production WGSL bytes -> the byte-stable
 // shared-prelude golden snapshots would need regenerating, a maintainer decision).
 
+import { stageOf } from '../ir'
 import type { Expr, ModuleDecl, FuncDecl } from '../ir'
 import { mapStmt } from './opt/ir-transform'
 import { bodyHasRaw } from './opt/dce'
 import { inlineFn } from './inline'
 
-const isEntry = (f: FuncDecl): boolean => (f.attrs?.length ?? 0) > 0
+// Shared stage predicate (#763 S4 — this site was MISSED in the Phase-S sweep:
+// it lives under passes/, not passes/opt/, and the sweep grepped opt/ only).
+const isEntry = (f: FuncDecl): boolean => stageOf(f) !== undefined
 
 /** The single-return expression of `f`, or undefined if `f` isn't `{ return e }`. */
 function singleReturnExpr(f: FuncDecl): Expr | undefined {

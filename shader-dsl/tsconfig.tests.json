@@ -1,0 +1,17 @@
+{
+  // #763 V6 — the noEmit type-check pass over EVERYTHING the dist build excludes:
+  // src tests (excluded from tsconfig.json so they never reach dist/) and examples/
+  // (never in any tsc graph before — vitest executes but does not type-check).
+  // Wired as the second half of the package `build` script, so the CI `bun run build`
+  // census and the local canonical gate both still cover test-file type errors.
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "declaration": false,
+    "sourceMap": false,
+    "rootDir": ".",
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "examples/**/*.ts"]
+}

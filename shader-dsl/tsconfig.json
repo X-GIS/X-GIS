@@ -6,5 +6,9 @@
     "rootDir": "./src",
     "types": []
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts"],
+  // #763 V6 — tests never reach dist/ (the publishable tarball ships `files: ["dist"]`;
+  // compiled *.test.js/.d.ts were riding along). Test TYPE-CHECKING is not lost: the
+  // `build` script chains `tsc -p tsconfig.tests.json` (a noEmit pass over src + examples).
+  "exclude": ["src/**/*.test.ts"]
 }
