@@ -432,12 +432,11 @@ export class XGISMap {
    *  on first access → entry recomputed. Old entries GC via
    *  WeakMap automatic cleanup. */
   readonly _featureExprsCache = new WeakMap<Record<string, unknown>, { zoomBucket: number; effectiveDef: AST.LabelDef; def: AST.LabelDef }>()
-  /** iter-261 (Plan L.1.1) — label-dispatch signature for cache
-   *  hit-rate diagnostic. Computed at the start of the labelShows
-   *  loop; compared to prior frame. Tracks hit/miss without
-   *  changing behavior. If hit rate is < 50 % we cancel L.1
-   *  before investing in the full snapshot/replay refactor. */
-  _prevLabelDispatchSig: string | null = null
+  /** iter-261 (Plan L.1.1) — label-dispatch cache hit-rate diagnostic.
+   *  The dispatch signature itself now lives per-host inside label-pass
+   *  (#778 P3 numeric skip state); these counters track hit/miss without
+   *  changing behavior. If hit rate is < 50 % we cancel L.1 before
+   *  investing in the full snapshot/replay refactor. */
   _labelDispatchHits = 0
   _labelDispatchMisses = 0
   /** iter-261 — read this via __xgisMap.getLabelDispatchStats() to
