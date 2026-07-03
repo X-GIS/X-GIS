@@ -23,20 +23,39 @@
 // by the layer-level heatmap-opacity.
 
 import {
-  module, fn,
-  Var, If,
-  f32, u32, vec2, vec4, toF32, toI32, clamp,
-  textureLoad, textureSample, textureDimensions, vec2i,
-  u32T, vec2fT, vec4fT, texture2dfT, samplerT,
+  module,
+  fn,
+  Var,
+  If,
+  f32,
+  u32,
+  vec2,
+  vec4,
+  toF32,
+  toI32,
+  clamp,
+  textureLoad,
+  textureSample,
+  textureDimensions,
+  vec2i,
+  u32T,
+  vec2fT,
+  vec4fT,
+  texture2dfT,
+  samplerT,
   type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, resource } from '@xgis/shader-dsl'
 import { emitModule } from '@xgis/shader-dsl'
 
-const U = uniformStruct('ComposeParams', { group: 0, binding: 3, as: 'u' }, {
-  // x = intensity (heatmap-intensity), y = opacity (heatmap-opacity), zw pad.
-  params: vec4fT,
-})
+const U = uniformStruct(
+  'ComposeParams',
+  { group: 0, binding: 3, as: 'u' },
+  {
+    // x = intensity (heatmap-intensity), y = opacity (heatmap-opacity), zw pad.
+    params: vec4fT,
+  },
+)
 
 const VsOut = ioStruct('VsOut', {
   pos: builtin('position', vec4fT),
@@ -49,18 +68,19 @@ const rampSampler = resource('ramp_sampler', samplerT, { group: 0, binding: 2 })
 
 // Oversized fullscreen triangle (NDC −1..3) — same trick as overdraw-compose.
 const vsFull = fn(
-  'vs_full', { idx: builtin('vertex_index', u32T) },
+  'vs_full',
+  { idx: builtin('vertex_index', u32T) },
   (p) => {
     const pos = Var(vec2(-1, -1))
-    If(p.idx.eq(1), () => { pos.assign(vec2(3, -1)) })
-      .elif(p.idx.eq(2), () => { pos.assign(vec2(-1, 3)) })
+    If(p.idx.eq(1), () => {
+      pos.assign(vec2(3, -1))
+    }).elif(p.idx.eq(2), () => {
+      pos.assign(vec2(-1, 3))
+    })
     const o = VsOut.var()
     o.pos.assign(vec4(pos, 0, 1))
     // y-flip — texture origin top-left, NDC origin bottom-left.
-    o.uv.assign(vec2(
-        pos.x.add(1).mul(0.5),
-        f32(1).sub(pos.y.add(1).mul(0.5)),
-      ))
+    o.uv.assign(vec2(pos.x.add(1).mul(0.5), f32(1).sub(pos.y.add(1).mul(0.5))))
     return o.$
   },
   { stage: 'vertex' },
@@ -70,17 +90,15 @@ const vsFull = fn(
 const loadDensity = fn('load_density', { uv: vec2fT }, (p) => {
   const dimU = textureDimensions(densityTex.node)
   const dim = vec2(toF32(dimU.x), toF32(dimU.y))
-  const coord = vec2i(
-    toI32(p.uv.x.mul(dim.x)),
-    toI32(p.uv.y.mul(dim.y)),
-  )
+  const coord = vec2i(toI32(p.uv.x.mul(dim.x)), toI32(p.uv.y.mul(dim.y)))
   return textureLoad(densityTex.node, coord, u32(0)).x
 })
 
 const fsCompose = fn(
-  'fs_compose', { in: VsOut },
+  'fs_compose',
+  { in: VsOut },
   (p) => {
-    const density = loadDensity(p.in.uv)
+    const density = loadDensity({ uv: p.in.uv })
     const intensity = U.field.params.x
     const opacity = U.field.params.y
     // Normalise density → ramp coordinate (0..1) via intensity scale.
