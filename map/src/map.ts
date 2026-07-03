@@ -23,7 +23,7 @@ import {
 } from './geojson-polar-cap-show'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { getSharedGeoJSONCompilePool } from '@xgis/data'
-import { initGPU, GPU_PROF, getMaxDpr, effectiveDpr, WebGPUUnavailableError, type GPUContext } from '@xgis/engine'
+import { initGPU, GPU_PROF, getMaxDpr, effectiveDpr, WebGPUUnavailableError, type GPUContext, type BackendChoice } from '@xgis/engine'
 import { QUALITY, updateQuality, type QualityConfig } from '@xgis/engine'
 import { GPUTimer } from '@xgis/engine'
 import { Camera } from '@xgis/engine'
@@ -865,6 +865,7 @@ export class XGISMap {
     // P4 opt-in for compute-driven paint evaluation. Stored as a
     // simple flag the run() method reads when invoking emitCommands.
     if (options.enableComputePath) this._enableComputePath = true
+    this._backend = options.backend ?? 'auto'
     // Surface converter "Conversion notes" to the console at load —
     // default-on so a silently-widened filter / dropped paint from
     // convertMapboxStyle isn't invisible. Opt out with `false`.
@@ -1203,6 +1204,10 @@ export class XGISMap {
    *  unconditional but no-op when the variant carries no
    *  computeBindings. */
   private _enableComputePath = false
+  /** #795 — GPU backend chosen at construction (`XGISMapOptions.backend`),
+   *  forwarded to `initGPU` at every boot. Stored (not re-read) because the
+   *  canvas context type is sticky, so backend is construction-immutable. */
+  private _backend: BackendChoice = 'auto'
   /** When true (default), run() extracts a converted style's trailing
    *  `Conversion notes` block comment from the raw source and console.warns
    *  it once. Set via `XGISMapOptions.logConversionNotes: false`. */
@@ -1887,7 +1892,7 @@ export class XGISMap {
     // GPU init has no dependency on the IR result — it just needs
     // `this.canvas`. Errors propagate exactly as before via the awaited
     // catch.
-    const gpuInit = initGPU(this.canvas).catch(err => {
+    const gpuInit = initGPU(this.canvas, { backend: this._backend }).catch(err => {
       // Hold the rejection here so the await below converts it to a
       // sync throw at the same call site as the previous code. We
       // don't want unhandled-rejection noise if step 1 errors out
@@ -2916,7 +2921,7 @@ export class XGISMap {
 
     let ctx: GPUContext
     try {
-      ctx = await initGPU(this.canvas)
+      ctx = await initGPU(this.canvas, { backend: this._backend })
     } catch (e) {
       if (e instanceof WebGPUUnavailableError) {
         // Graceful: no WebGPU / no adapter. Fire the host hook, or show a

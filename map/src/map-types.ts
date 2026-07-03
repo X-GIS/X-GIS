@@ -8,6 +8,9 @@
 
 import type { TextStageOptions } from './text/text-stage-types'
 import type { GlyphProvider } from './text/sdf/pbf/glyph-provider'
+import type { BackendChoice } from '@xgis/engine'
+
+export type { BackendChoice }
 
 export interface VariantPipelines {
   fillPipeline: GPURenderPipeline
@@ -88,6 +91,17 @@ export interface XGISFontResource {
  *  (lazy — happens on the first label-bearing frame). Setters + `add
  *  GlyphProvider` cover the late-binding case. */
 export interface XGISMapOptions {
+  /** GPU backend to run on, chosen at construction. `'auto'` (the default)
+   *  uses WebGPU, honouring the `?forcegl2=1` dev override; `'webgpu'` /
+   *  `'webgl2'` hard-pin the backend in code and ignore the URL flag. Since
+   *  compiled materials are dual-backend (they carry both WebGPU and WebGL2
+   *  code), this is a pure construction-time selection — two maps, each on its
+   *  OWN canvas, can run different backends on one page (a single canvas's
+   *  context type is sticky, so the same canvas cannot switch).
+   *  Construction-immutable: there is no runtime `setBackend()`; a re-`run()` scene
+   *  swap keeps the original backend. NOTE: the WebGL2 backend is currently a
+   *  limited single-sample raster slice, not full render parity. */
+  backend?: BackendChoice
   /** Glyph sources. `url` points at a MapLibre PBF server template;
    *  `inline` seeds the cache with pre-loaded PBF range bytes per
    *  fontstack — useful for air-gapped deployments. */
