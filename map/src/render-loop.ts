@@ -159,7 +159,7 @@ export class RenderLoop {
     if (!Number.isFinite(this.host.camera.pitch)) this.host.camera.pitch = 0
     if (!Number.isFinite(this.host.camera.minZoom)) this.host.camera.minZoom = 0
     if (!Number.isFinite(this.host.camera.maxZoom)) this.host.camera.maxZoom = 22
-    const MAX_MERC = 20037508.34
+    const MAX_MERC = WORLD_MERC / 2
     const WORLD_MERC_FULL = MAX_MERC * 2 // full circumference
     // Derive dpr from the SAME interaction-aware cap resizeCanvas just used
     // (line ~154, fed this.host._interacting) — otherwise the MVP altitude
@@ -691,7 +691,6 @@ export class RenderLoop {
     // metres. Run once at load (UV bbox) + once per frame (repeat).
     const atlasSize = this.host.iconStage?.gpu.size() ?? { width: 0, height: 0 }
     const camZoom = this.host.camera.zoom
-    const WORLD_MERC = 40075016.686
     const pxPerWorldAtZ = 256 * Math.pow(2, camZoom)
     const metersPerCssPx = WORLD_MERC / pxPerWorldAtZ
     for (const show of this.host.showCommands) {

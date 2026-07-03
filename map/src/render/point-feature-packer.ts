@@ -18,6 +18,7 @@
 // it clear of the #612 eager-reflect crash class (see point-renderer.ts header).
 
 import { lonLatToECEF } from '@xgis/engine'
+import { EARTH } from '@xgis/shared'
 
 /** Per-feature `feat_data` stride in f32 slots. Mirrors point.ts STRIDE (24):
  *  slots 0-10 style, 11-16 ECEF DSFUN hi/lo, 17-18 abs lon/lat, 19 shape_id,
@@ -28,7 +29,7 @@ const F = POINT_FEAT.slot
 export const POINT_FEAT_STRIDE = POINT_FEAT.stride
 
 const DEG2RAD = Math.PI / 180
-const R_MERC = 6378137 // web-Mercator sphere radius (matches the tiler packer)
+const R_MERC = EARTH.sphereR // web-Mercator sphere radius (matches the tiler packer)
 /** One full Mercator world-width in metres (2π·R_MERC). This is EXACTLY the
  *  per-`wo` shift {@link worldCopyMercX} adds (its `wo * 360 * DEG2RAD * R_MERC`
  *  term), so the inline path (worldCopyMercX) and the tile path

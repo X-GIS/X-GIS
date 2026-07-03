@@ -1,5 +1,8 @@
 // @xgis/shared — cross-package pure helpers imported by both @xgis/runtime
 // (engine) and @xgis/compiler (tiler). Keep everything here DEPENDENCY-FREE.
+// The single planetary-constants authority (EARTH / activeBody / makeBody);
+// ecef and every consumer package resolve their radius/world-extent from it.
+export * from './body'
 export * from './ecef'
 export * from './quantize'
 // Cross-cutting content/data utils extracted from runtime/src/engine (P3): logging,

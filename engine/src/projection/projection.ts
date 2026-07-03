@@ -1,7 +1,11 @@
 // ═══ Map Projections ═══
 // WGS84 (lon, lat) → 평면 좌표 (x, y)
 
-const EARTH_RADIUS = 6378137
+import { EARTH } from '@xgis/shared'
+
+// Web-Mercator sphere basis, from the shared Body authority (EARTH.sphereR === a
+// === 6378137, byte-identical to the retired literal).
+const EARTH_RADIUS = EARTH.sphereR
 const DEG2RAD = Math.PI / 180
 const RAD2DEG = 180 / Math.PI
 

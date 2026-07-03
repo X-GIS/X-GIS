@@ -23,10 +23,11 @@ import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 import { MERCATOR_LAT_LIMIT } from './projection'
 import { flatViewHeightCapM } from './projections-table'
 import { mul4, perspectiveMatrix } from './camera-helpers'
+import { EARTH } from '@xgis/shared'
 
 // Matches projection.ts EARTH_RADIUS exactly — the same sphere the 2D
 // projections scale by, so globe zoom lines up with the 2D pyramid.
-export const EARTH_R = 6378137
+export const EARTH_R = EARTH.sphereR
 const DEG2RAD = Math.PI / 180
 const RAD2DEG = 180 / Math.PI
 

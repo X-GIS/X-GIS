@@ -24,6 +24,8 @@
 // (cylindrical / pseudocylindrical) family. Other projections collapse to a
 // single world. Defined HERE (was gpu-shared) so the table imports nothing
 // from gpu-shared — gpu-shared re-exports these, inverting the dependency.
+import { EARTH } from '@xgis/shared'
+
 export const WORLD_COPIES = [-2, -1, 0, 1, 2]
 // Single-world copy set for the non-periodic (hemispherical / globe)
 // projections. `[0]` is irreducible.
@@ -204,7 +206,7 @@ export function isWebMercator(projType: number): boolean {
   return projType === 0
 }
 
-const EARTH_R_M = 6378137
+const EARTH_R_M = EARTH.sphereR
 
 /** Flat-path z0 view-height cap (metres) for a projType. The flat MVP
  *  (`_buildRTCMatrix`) saturates the camera view height at this value at low

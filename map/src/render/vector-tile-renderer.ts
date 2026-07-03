@@ -11,7 +11,7 @@ import { variantProducesFill } from './renderer-helpers'
 import { uniformBlock } from '@xgis/engine'
 import { polygonU as POLYGON_U } from '../shaders/dsl/polygon'
 import { globeEyeUniform } from './globe-eye-uniform'
-import { xlog } from '@xgis/shared'
+import { xlog, activeBody, EARTH } from '@xgis/shared'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
 import { recordFillDraw, type FillRhiState } from './material/polygon-fill-material'
 
@@ -84,7 +84,7 @@ export type { LayerDrawPhase }
 /** 2π × Earth radius (m). One full mercator wrap. tile_extent_m at
  *  any zoom z is this constant divided by 2^z (vs_main_quantized
  *  dequant scale). */
-const TWO_PI_R_EARTH = 2 * Math.PI * 6378137
+const TWO_PI_R_EARTH = 2 * Math.PI * EARTH.sphereR
 
 /** Cesium replacement-invariant ancestor protection depth: pyramid
  *  levels above each visible tile pinned in the catalog cache. 22
@@ -697,7 +697,7 @@ export class VectorTileRenderer {
     if (cached !== undefined) return cached
     const [tz, tx, ty] = tileKeyUnpack(key)
     const n = (1 << tz) >>> 0
-    const PI_R = Math.PI * 6378137
+    const PI_R = Math.PI * activeBody().sphereR
     const tileX = ((tx + 0.5) / n) * 2 * PI_R - PI_R
     const tileY = (1 - 2 * (ty + 0.5) / n) * PI_R
     const dx = tileX - this._distMemoCamX
@@ -2726,7 +2726,7 @@ export class VectorTileRenderer {
       // magnitude and yields camera-relative meters at f64-equivalent
       // precision regardless of camera zoom.
       const DEG2RAD = Math.PI / 180
-      const R = 6378137
+      const R = activeBody().sphereR
       const MERC_LIMIT = 85.051129
       const clampLat = (v: number) => Math.max(-MERC_LIMIT, Math.min(MERC_LIMIT, v))
       // Vertex data is in Mercator meters regardless of current projection:

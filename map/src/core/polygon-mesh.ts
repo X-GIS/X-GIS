@@ -28,6 +28,7 @@ import type { RingPolygon } from '@xgis/compiler'
 import { POLYGON_EXTRUDED_FORMAT, vertexField } from '@xgis/compiler'
 import { lonLatToECEF } from '@xgis/engine'
 import { mercatorYToLatRad } from '@xgis/engine'
+import { EARTH } from '@xgis/shared'
 
 // ─────────────────────────────────────────────────────────────────
 // ECEF wall + roof mesh — Phase 2 PR 2c.2 sub-task C.
@@ -94,7 +95,7 @@ const EXT_FNORMAL_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'face_normal').of
 const EXT_WALLH_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'wall_height').offset / 4   // 9
 const EXT_ISTOP_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'is_top').offset / 4        // 10
 const RAD2DEG_LOCAL = 180 / Math.PI
-const EARTH_RADIUS_LOCAL = 6378137  // WGS84 semi-major axis; used ONLY for the
+const EARTH_RADIUS_LOCAL = EARTH.sphereR  // WGS84 semi-major axis; used ONLY for the
                                     // Mercator longitude inverse (mx/A, basis-
                                     // independent). The ECEF POSITION is ellipsoid
                                     // via lonLatToECEF.
