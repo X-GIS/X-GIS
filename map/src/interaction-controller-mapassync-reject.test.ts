@@ -55,6 +55,7 @@ function makeRejectController() {
     featureIndex: new Map(),
     getCtx: () => mockCtx as never,
     getPickTexture: () => ({} as GPUTexture),
+    getPickTextureDevice: () => mockDevice as never,
     getProjectionName: () => 'mercator',
     getVectorTileShows: () => [],
   }

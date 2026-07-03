@@ -82,6 +82,7 @@ function makeRaceController(useFixedGetCtx: boolean) {
     // Fixed: return null once destroyed; Buggy: always return ctx.
     getCtx: () => (useFixedGetCtx && destroyed) ? null : (mockCtx as never),
     getPickTexture: () => mockTexture,
+    getPickTextureDevice: () => mockDevice as never,
     getProjectionName: () => 'mercator',
     getVectorTileShows: () => [],
   }

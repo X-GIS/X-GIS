@@ -352,6 +352,7 @@ describe('GATE 2C — InteractionController.clientToLngLat routing (1/2/6 finite
       featureIndex: new Map(),
       getCtx: () => ctx,
       getPickTexture: () => null,
+      getPickTextureDevice: () => null,
       getProjectionName: () => projName,
       getVectorTileShows: () => [],
     }
