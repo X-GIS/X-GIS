@@ -1,0 +1,8 @@
+# X-GIS pre-push gate (ported from .githooks/pre-push when Husky took over
+# core.hooksPath). Runs the local precheck (vitest unit suite) so the bulk of
+# CI-catchable regressions surface before the network round-trip.
+# Cost ~1 min. Skip a push with `git push --no-verify`.
+#
+# NOTE: `bun run build` (the tsc authority) is intentionally NOT run here — it
+# adds minutes most pushes don't need; run it manually before a risky push.
+bun run precheck

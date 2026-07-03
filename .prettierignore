@@ -1,0 +1,21 @@
+# Build output
+**/dist/
+playground/dist/
+site/dist/
+# Deps + lockfiles
+**/node_modules/
+bun.lockb
+*.lock
+# Generated / snapshots / coverage
+**/__snapshots__/
+**/*.snap
+**/coverage/
+**/.astro/
+**/.vite/
+# Agent worktrees + scratch
+.claude/worktrees/
+# Data / binary-ish fixtures
+**/*.xgis
+**/*.geojson
+**/*.pbf
+**/*.png
