@@ -1166,12 +1166,19 @@ class LabelPass implements RenderPass {
                   if (useTangentRotation) {
                     // Curved-text path: pack the projected polyline
                     // and ask TextStage to lay each glyph along it.
-                    // Slice to the actual count — TextStage stores the
-                    // view, so we have to hand it a fresh typed array
-                    // that survives past the next callback iteration
-                    // (the shared scratch gets overwritten).
-                    const polyX = _pxScratch.slice(0, pn)
-                    const polyY = _pyScratch.slice(0, pn)
+                    // TextStage stores the view, so it must survive past
+                    // the next callback iteration (the shared scratch
+                    // gets overwritten). Intern the exact-count run into
+                    // TextStage's per-frame FrameArena instead of a fresh
+                    // `_pxScratch.slice(0, pn)` ×2 (#790 / #778 P4): the
+                    // arena bump is zero-GC-alloc and resets at
+                    // beginFrame(); stage.prepare() consumes it within
+                    // this frame. All stops emitted below share the one
+                    // interned pair (read both slots before the next
+                    // polyline's intern overwrites the holder).
+                    const _interned = stage.internCurvedPolyline(_pxScratch, _pyScratch, pn)
+                    const polyX = _interned[0]
+                    const polyY = _interned[1]
                     // No fontKey override — see note at line ~2370.
                     // #603 — text-less line icons (road_oneway, icon-only
                     // shields) render no text, so isTooCloseToSameText
